@@ -76,6 +76,70 @@ type MatchArchiveRow = {
   archived_at: string;
 };
 
+type DashboardVisibleMatchRow = {
+  id: string;
+  matched_at: string;
+  profile_id_1: string;
+  profile_id_2: string;
+};
+
+export type DashboardMatchPreview = {
+  id: string;
+  name: string;
+  image: string;
+  isNew: boolean;
+};
+
+const DASHBOARD_MATCH_SELECT = "id, matched_at, profile_id_1, profile_id_2";
+
+function isMissingDashboardRpc(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  const record = error as { code?: unknown; message?: unknown };
+  const code = typeof record.code === "string" ? record.code : "";
+  const message = typeof record.message === "string" ? record.message : "";
+  return code === "PGRST202" || code === "42883" || message.includes("get_dashboard_visible_matches");
+}
+
+async function fetchDashboardVisibleMatches(userId: string): Promise<DashboardVisibleMatchRow[]> {
+  const { data: rpcMatches, error } = await supabase
+    .rpc("get_dashboard_visible_matches", { p_limit: 5 });
+
+  if (!error) return (rpcMatches ?? []) as DashboardVisibleMatchRow[];
+  if (!isMissingDashboardRpc(error)) throw error;
+
+  const pageSize = 20;
+  const visibleMatches: DashboardVisibleMatchRow[] = [];
+  let offset = 0;
+
+  while (visibleMatches.length < 5) {
+    const { data: matches, error: matchesError } = await supabase
+      .from("matches")
+      .select(DASHBOARD_MATCH_SELECT)
+      .or(`profile_id_1.eq.${userId},profile_id_2.eq.${userId}`)
+      .order("matched_at", { ascending: false })
+      .range(offset, offset + pageSize - 1);
+
+    if (matchesError) throw matchesError;
+    const matchRows = (matches ?? []) as DashboardVisibleMatchRow[];
+    if (!matchRows.length) break;
+
+    const { data: archives, error: archivesError } = await supabase
+      .from("match_archives")
+      .select("match_id")
+      .eq("user_id", userId)
+      .in("match_id", matchRows.map((m) => m.id));
+
+    if (archivesError) throw archivesError;
+    const archivedMatchIds = new Set(((archives ?? []) as MatchArchiveRow[]).map((row) => row.match_id));
+    visibleMatches.push(...matchRows.filter((match) => !archivedMatchIds.has(match.id)));
+
+    if (matchRows.length < pageSize) break;
+    offset += pageSize;
+  }
+
+  return visibleMatches.slice(0, 5);
+}
+
 export interface Match {
   id: string;
   name: string;
@@ -396,33 +460,13 @@ export const useDashboardMatches = () => {
   const { user } = useUserProfile();
   const userId = user?.id;
 
-  return useQuery({
+  return useQuery<DashboardMatchPreview[]>({
     queryKey: ["dashboard-matches", userId],
     queryFn: async () => {
       if (!userId) return [];
 
-      const { data: matches, error } = await supabase
-        .from("matches")
-        .select("id, matched_at, profile_id_1, profile_id_2")
-        .or(`profile_id_1.eq.${userId},profile_id_2.eq.${userId}`)
-        .order("matched_at", { ascending: false })
-        .limit(20);
-
-      if (error) throw error;
-      if (!matches?.length) return [];
-
-      const matchIds = matches.map((m) => m.id);
-      const { data: archives, error: archivesError } = await supabase
-        .from("match_archives")
-        .select("match_id")
-        .eq("user_id", userId)
-        .in("match_id", matchIds);
-
-      if (archivesError) throw archivesError;
-      const archivedMatchIds = new Set((archives || []).map((row) => row.match_id));
-      const visibleMatches = matches.filter((match) => !archivedMatchIds.has(match.id));
-      if (!visibleMatches.length) return [];
-      const dashboardMatches = visibleMatches.slice(0, 5);
+      const dashboardMatches = await fetchDashboardVisibleMatches(userId);
+      if (!dashboardMatches.length) return [];
 
       const otherProfileIds = dashboardMatches.map((m) =>
         m.profile_id_1 === userId ? m.profile_id_2 : m.profile_id_1

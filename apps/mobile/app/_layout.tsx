@@ -49,6 +49,7 @@ import { initRevenueCat, isRevenueCatConfigured, setRevenueCatUserId } from '@/l
 import { useActivityHeartbeat } from '@/lib/useActivityHeartbeat';
 import { useAccountPauseStatus } from '@/hooks/useAccountPauseStatus';
 import { initStreamCdnHostname } from '@/lib/vibeVideoPlaybackUrl';
+import { pruneDuplicateRealtimeChannels } from '@/lib/realtimeLifecycle';
 import { ChatOutboxProvider } from '@/lib/chatOutbox/ChatOutboxContext';
 import { ChatOutboxRunner } from '@/lib/chatOutbox/ChatOutboxRunner';
 import { PostDateOutboxRunner } from '@/lib/postDateOutbox/PostDateOutboxRunner';
@@ -344,6 +345,28 @@ function SupabaseAutoRefreshAppStateBridge() {
   return null;
 }
 
+function RealtimeLifecycleJanitor() {
+  const pathname = usePathname();
+
+  useEffect(() => {
+    const timeout = setTimeout(() => {
+      pruneDuplicateRealtimeChannels(supabase, `route:${pathname}`);
+    }, 0);
+    return () => clearTimeout(timeout);
+  }, [pathname]);
+
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', (nextState: AppStateStatus) => {
+      if (nextState !== 'active') {
+        pruneDuplicateRealtimeChannels(supabase, `app_state:${nextState}`);
+      }
+    });
+    return () => subscription.remove();
+  }, []);
+
+  return null;
+}
+
 const PROTECTED_ROOT_SEGMENTS = new Set([
   '(tabs)',
   'event',
@@ -525,6 +548,7 @@ function RootLayoutNav() {
         <MatchCallProvider>
           <ChatOutboxProvider>
           <SupabaseAutoRefreshAppStateBridge />
+          <RealtimeLifecycleJanitor />
           <AuthRedirectHandler onReferralCaptured={() => setReferralSyncTick((t) => t + 1)} />
           <ReferralAttributionSync syncTick={referralSyncTick} />
           <PushRegistration />

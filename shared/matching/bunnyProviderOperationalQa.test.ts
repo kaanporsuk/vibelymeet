@@ -146,9 +146,11 @@ test("upload-voice uses Bunny Storage and the voice path convention", () => {
   assert.match(uploadVoice, /const audioUrl = bunnyCdnUrl\(storagePath\)/);
 });
 
-test("URL resolvers support Bunny photos paths and preserve legacy/Supabase paths", () => {
+test("URL resolvers support confirmed Bunny Storage prefixes and preserve legacy/Supabase paths", () => {
   for (const source of [webImageUrl, nativeImageUrl]) {
-    assert.match(source, /p\.startsWith\(["']photos\/["']\)/);
+    assert.match(source, /CONFIRMED_BUNNY_STORAGE_PREFIXES\s*=\s*\[\s*["']photos\/["'],\s*["']events\/["'],\s*["']voice\/["'],\s*["']media\/["']\s*\]/);
+    assert.match(source, /CONFIRMED_BUNNY_STORAGE_PREFIXES\.some\(\(prefix\) => p\.startsWith\(prefix\)\)/);
+    assert.doesNotMatch(source, /["']chat-videos\/["']/);
     assert.match(source, /BUNNY_CDN/);
     assert.match(source, /storage\/v1\/object\/public/);
     assert.match(source, /supabase\.co/);

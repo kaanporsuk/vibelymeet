@@ -613,7 +613,9 @@ export function useRealtimeMessages(opts: {
  *
  * Supabase Realtime: for Postgres Changes, rows are delivered only to clients that pass SELECT RLS on
  * `public.messages` (see Supabase docs “Interaction with Postgres Changes”). Our policies restrict
- * visibility to messages in matches where the user is a participant — not all traffic on the table.
+ * visibility to INSERT/UPDATE rows in matches where the user is a participant — not all traffic on the table.
+ * DELETE events only expose old primary keys and are not participant-scoped here, so deletes are left
+ * to focused chat invalidation, match archive invalidation, and polling rather than table-wide fan-out.
  * Channel `private` / `realtime.messages` policies apply to Broadcast/Presence, not Postgres Changes.
  *
  * Intentional overlap: `useRealtimeMessages` still runs in open chat for scoped `messages` query
@@ -634,7 +636,12 @@ export function useGlobalMessagesInboxInvalidation(userId: string | null | undef
       .channel('global-messages-inbox')
       .on(
         'postgres_changes',
-        { event: '*', schema: 'public', table: 'messages' },
+        { event: 'INSERT', schema: 'public', table: 'messages' },
+        invalidateInbox
+      )
+      .on(
+        'postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'messages' },
         invalidateInbox
       )
       .on(

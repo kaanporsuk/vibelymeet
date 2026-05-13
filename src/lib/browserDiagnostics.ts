@@ -19,6 +19,7 @@ const STALE_BUNDLE_WINDOW_NAME_PREFIX = "vibely_stale_bundle_reload:";
 const BOOT_SUMMARY_DELAY_MS = 12_000;
 const SUPABASE_HOST_RE = /\.supabase\.(?:co|in)$/i;
 const BUNNY_HOST_RE = /(?:^|\.)b-cdn\.net$|(?:^|\.)bunnycdn\.com$/i;
+const TRAFFIC_QUERY_VALUE_ALLOWLIST = new Set(["count", "grant_type", "head", "limit", "offset", "order"]);
 
 const UUID_RE = /\b[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\b/gi;
 const EMAIL_RE = /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi;
@@ -200,8 +201,43 @@ function classifyTrafficSurface(url: string): SupabaseTrafficSurface | null {
 }
 
 function normalizedTrafficPath(url: string): string {
-  const sanitized = sanitizeDiagnosticUrl(url);
+  const sanitized = sanitizeTrafficPath(url) ?? sanitizeDiagnosticUrl(url);
   return sanitized ?? "[unknown]";
+}
+
+function sanitizeTrafficQueryParam(key: string, value: string): string {
+  if (REDACTED_KEY_RE.test(key)) return `${key}=[redacted]`;
+  if (key === "select") return `${key}=${truncate(value.replace(/\s+/g, " "), 220)}`;
+  if (TRAFFIC_QUERY_VALUE_ALLOWLIST.has(key)) return `${key}=${redactScalar(value, 80)}`;
+  return `${key}=[filtered]`;
+}
+
+function normalizeStorageTrafficPath(pathname: string): string {
+  const parts = pathname.split("/").filter(Boolean);
+  if (parts[0] !== "storage" || parts[1] !== "v1") return pathname.replace(UUID_RE, ":uuid");
+  const prefix = parts.slice(0, 4);
+  const bucket = parts[4];
+  if (!bucket) return `/${prefix.join("/")}`;
+  return `/${[...prefix, redactScalar(bucket, 80)].join("/")}${parts.length > 5 ? "/[object]" : ""}`;
+}
+
+function sanitizeTrafficPath(rawUrl: string): string | null {
+  try {
+    const parsed = new URL(rawUrl, typeof window !== "undefined" ? window.location.origin : "https://www.vibelymeet.com");
+    const hostname = parsed.hostname.toLowerCase();
+    if (isBunnyHost(hostname)) return "[redacted-media-url]";
+    if (!isSupabaseHost(hostname)) return null;
+
+    const path = parsed.pathname.startsWith("/storage/v1/")
+      ? normalizeStorageTrafficPath(parsed.pathname)
+      : parsed.pathname.replace(UUID_RE, ":uuid");
+    const query = Array.from(parsed.searchParams.entries())
+      .map(([key, value]) => sanitizeTrafficQueryParam(key, value))
+      .sort();
+    return query.length ? `${path}?${query.join("&")}` : path;
+  } catch {
+    return null;
+  }
 }
 
 function estimatedBytesFromResponse(response: Response, override?: number | null): number {
@@ -302,11 +338,23 @@ function isHealthCheckUrl(url: string): boolean {
 }
 
 function responseFromHealthSnapshot(snapshot: HealthResponseSnapshot): Response {
+  const headers = new Headers(snapshot.headers);
+  headers.delete("content-encoding");
+  headers.delete("content-length");
   return new Response(snapshot.bodyText, {
     status: snapshot.status,
     statusText: snapshot.statusText,
-    headers: snapshot.headers,
+    headers,
   });
+}
+
+function failedHealthResponseSnapshot(): HealthResponseSnapshot {
+  return {
+    status: 503,
+    statusText: "Health check unavailable",
+    headers: [["x-vibely-health-capped", "failed"]],
+    bodyText: "",
+  };
 }
 
 async function snapshotHealthResponse(response: Response): Promise<HealthResponseSnapshot> {
@@ -348,12 +396,9 @@ async function fetchHealthWithOnePerBootCap(
   }
 
   let resolveSnapshot: (snapshot: HealthResponseSnapshot) => void;
-  let rejectSnapshot: (error: unknown) => void;
-  healthResponseInFlight = new Promise<HealthResponseSnapshot>((resolve, reject) => {
+  healthResponseInFlight = new Promise<HealthResponseSnapshot>((resolve) => {
     resolveSnapshot = resolve;
-    rejectSnapshot = reject;
   });
-  healthResponseInFlight.catch(() => undefined);
 
   const startedAt = performance.now();
   try {
@@ -371,7 +416,9 @@ async function fetchHealthWithOnePerBootCap(
     });
     return response;
   } catch (error) {
-    rejectSnapshot!(error);
+    const snapshot = failedHealthResponseSnapshot();
+    cachedHealthResponse = snapshot;
+    resolveSnapshot!(snapshot);
     recordSupabaseTraffic({
       url,
       method,
@@ -422,15 +469,15 @@ export function recordRealtimeChannelRemoved(channel: unknown, reason = "remove_
   else publishBootDiagnosticsSnapshot();
 }
 
-type SupabaseRealtimeClientLike = {
-  channel?: (channelName: string, opts?: unknown) => unknown;
-  getChannels?: () => unknown[];
-  removeChannel?: (channel: unknown) => unknown;
+type SupabaseRealtimeClientLike<TChannel = unknown> = {
+  channel?: (channelName: string, opts?: unknown) => TChannel;
+  getChannels?: () => TChannel[];
+  removeChannel?: (channel: TChannel) => unknown;
   removeAllChannels?: () => unknown;
   __vibelyRealtimeDiagnosticsInstrumented?: boolean;
 };
 
-export function instrumentSupabaseRealtimeDiagnostics(client: SupabaseRealtimeClientLike): void {
+export function instrumentSupabaseRealtimeDiagnostics<TChannel>(client: SupabaseRealtimeClientLike<TChannel>): void {
   if (
     typeof window === "undefined" ||
     client.__vibelyRealtimeDiagnosticsInstrumented ||
@@ -442,15 +489,17 @@ export function instrumentSupabaseRealtimeDiagnostics(client: SupabaseRealtimeCl
 
   const originalChannel = client.channel.bind(client);
   const originalRemoveChannel = client.removeChannel.bind(client);
-  client.channel = ((channelName: string, opts?: unknown) => {
+  const instrumentedChannel: NonNullable<SupabaseRealtimeClientLike<TChannel>["channel"]> = (channelName, opts) => {
     const channel = originalChannel(channelName, opts);
     recordRealtimeChannelCreated(channel, channelName);
     return channel;
-  }) as SupabaseRealtimeClientLike["channel"];
-  client.removeChannel = ((channel: unknown) => {
+  };
+  const instrumentedRemoveChannel: NonNullable<SupabaseRealtimeClientLike<TChannel>["removeChannel"]> = (channel) => {
     recordRealtimeChannelRemoved(channel);
     return originalRemoveChannel(channel);
-  }) as SupabaseRealtimeClientLike["removeChannel"];
+  };
+  client.channel = instrumentedChannel;
+  client.removeChannel = instrumentedRemoveChannel;
   client.__vibelyRealtimeDiagnosticsInstrumented = true;
 }
 
@@ -466,19 +515,22 @@ function channelTopic(channel: unknown): string | null {
   return rawTopic ? normalizeRealtimeTopic(rawTopic) : realtimeChannelTopics.get(channel) ?? null;
 }
 
-export function pruneDuplicateRealtimeChannels(
-  client: SupabaseRealtimeClientLike,
+export function pruneDuplicateRealtimeChannels<TChannel>(
+  client: SupabaseRealtimeClientLike<TChannel>,
   reason: string,
 ): void {
   if (typeof client.getChannels !== "function" || typeof client.removeChannel !== "function") return;
   const channels = client.getChannels();
-  const firstByTopic = new Set<string>();
+  const seenFromNewest = new Set<string>();
   let removed = 0;
-  for (const channel of channels) {
+  // Keep the newest channel for each logical topic so route-remount cleanup
+  // cannot remove the replacement after pruning the older route instance.
+  for (let index = channels.length - 1; index >= 0; index -= 1) {
+    const channel = channels[index];
     const topic = channelTopic(channel);
     if (!topic) continue;
-    if (!firstByTopic.has(topic)) {
-      firstByTopic.add(topic);
+    if (!seenFromNewest.has(topic)) {
+      seenFromNewest.add(topic);
       continue;
     }
     removed += 1;
@@ -492,8 +544,8 @@ export function pruneDuplicateRealtimeChannels(
   }
 }
 
-export function removeAllRealtimeChannels(
-  client: SupabaseRealtimeClientLike,
+export function removeAllRealtimeChannels<TChannel>(
+  client: SupabaseRealtimeClientLike<TChannel>,
   reason: string,
 ): void {
   if (typeof client.getChannels !== "function" || typeof client.removeChannel !== "function") {

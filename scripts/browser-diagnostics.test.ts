@@ -70,8 +70,18 @@ assert.match(browserDiagnosticsSource, /window\.__vibelyBootDiagnostics/);
 assert.match(browserDiagnosticsSource, /requestsBySurface/);
 assert.match(browserDiagnosticsSource, /fetchHealthWithOnePerBootCap/);
 assert.match(browserDiagnosticsSource, /browser\.health_check_capped/);
+assert.match(browserDiagnosticsSource, /cachedHealthResponse/);
+assert.match(browserDiagnosticsSource, /function failedHealthResponseSnapshot/);
+assert.match(browserDiagnosticsSource, /headers\.delete\("content-encoding"\)/);
+assert.match(browserDiagnosticsSource, /headers\.delete\("content-length"\)/);
+assert.match(browserDiagnosticsSource, /TRAFFIC_QUERY_VALUE_ALLOWLIST/);
+assert.match(browserDiagnosticsSource, /function sanitizeTrafficPath/);
+assert.match(browserDiagnosticsSource, /function normalizeStorageTrafficPath/);
+assert.match(browserDiagnosticsSource, /key === "select"/);
+assert.match(browserDiagnosticsSource, /\[filtered\]/);
 assert.match(browserDiagnosticsSource, /instrumentSupabaseRealtimeDiagnostics/);
 assert.match(browserDiagnosticsSource, /pruneDuplicateRealtimeChannels/);
+assert.match(browserDiagnosticsSource, /seenFromNewest/);
 assert.match(browserDiagnosticsSource, /removeAllRealtimeChannels/);
 for (const surface of [
   "Database/PostgREST",
