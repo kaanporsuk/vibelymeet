@@ -219,7 +219,7 @@ function RevenueCatUserSync() {
   return null;
 }
 
-/** Emits the server-owned activity heartbeat every 60s while foregrounded, skipped when on a break. */
+/** Emits the server-owned activity heartbeat every 5 minutes while foregrounded, skipped when on a break. */
 function ActivityHeartbeat() {
   const { user } = useAuth();
   const { isPaused } = useAccountPauseStatus();

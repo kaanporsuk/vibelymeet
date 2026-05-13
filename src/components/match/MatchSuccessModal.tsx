@@ -51,7 +51,7 @@ const MatchSuccessModal = ({
 
     const checkFirstMatch = async () => {
       const [{ count }, { data: phoneData }] = await Promise.all([
-        supabase.from("matches").select("*", { count: "exact", head: true })
+        supabase.from("matches").select("id", { count: "exact", head: true })
           .or(`profile_id_1.eq.${user.id},profile_id_2.eq.${user.id}`),
         supabase.from("profiles").select("phone_verified").eq("id", user.id).maybeSingle(),
       ]);

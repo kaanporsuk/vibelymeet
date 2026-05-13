@@ -63,6 +63,13 @@ export type DateSuggestionWithRelations = DateSuggestionRow & {
   date_plan: (DatePlanRow & { participants?: DatePlanParticipantRow[] }) | null;
 };
 
+const DATE_SUGGESTION_REVISION_SELECT =
+  "id, date_suggestion_id, revision_number, proposed_by, date_type_key, time_choice_key, place_mode_key, venue_text, optional_message, schedule_share_enabled, starts_at, ends_at, time_block, agreed_field_flags, created_at";
+const DATE_PLAN_SELECT =
+  "id, date_suggestion_id, match_id, starts_at, ends_at, venue_label, date_type_key, status, completion_initiated_by, completion_initiated_at, completion_confirmed_by, completion_confirmed_at";
+const DATE_PLAN_PARTICIPANT_SELECT =
+  "id, date_plan_id, user_id, calendar_title, calendar_issued_at";
+
 export function useMatchDateSuggestions(matchId: string | null | undefined) {
   return useQuery({
     queryKey: ["date-suggestions", matchId],
@@ -99,18 +106,18 @@ export function useMatchDateSuggestions(matchId: string | null | undefined) {
 
       const { data: revs } = await supabase
         .from("date_suggestion_revisions")
-        .select("*")
+        .select(DATE_SUGGESTION_REVISION_SELECT)
         .in("date_suggestion_id", ids)
         .order("revision_number", { ascending: true });
 
       const { data: plans } =
         planIds.length > 0
-          ? await supabase.from("date_plans").select("*").in("id", planIds)
+          ? await supabase.from("date_plans").select(DATE_PLAN_SELECT).in("id", planIds)
           : { data: [] as DatePlanRow[] };
 
       const { data: parts } =
         planIds.length > 0
-          ? await supabase.from("date_plan_participants").select("*").in("date_plan_id", planIds)
+          ? await supabase.from("date_plan_participants").select(DATE_PLAN_PARTICIPANT_SELECT).in("date_plan_id", planIds)
           : { data: [] as DatePlanParticipantRow[] };
 
       const revBySid = new Map<string, DateSuggestionRevisionRow[]>();

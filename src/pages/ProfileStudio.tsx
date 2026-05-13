@@ -51,6 +51,7 @@ import { heroVideoResumePollingForProfile } from "@/lib/heroVideo/heroVideoUploa
 import { resolveWebVibeVideoState } from "@/lib/vibeVideo/webVibeVideoState";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
+import { clearMyLocationDataCache } from "@/services/myLocationData";
 import { resolvePhotoUrl } from "@/lib/photoUtils";
 import { resolvePhotoVerificationState, type PhotoVerificationState } from "@/lib/photoVerificationState";
 import { fetchMyPhoneVerificationProfile } from "@/lib/phoneVerificationState";
@@ -778,6 +779,7 @@ const ProfileStudio = () => {
       if (rpcError) throw rpcError;
       const result = rpcResult as { success?: boolean; error?: string } | null;
       if (!result?.success) throw new Error(result?.error ?? "location_update_failed");
+      clearMyLocationDataCache();
       // Reflect the change locally so the drawer shows the new value immediately.
       setEditForm((prev) => ({
         ...prev,

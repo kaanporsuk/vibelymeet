@@ -3,7 +3,7 @@ import * as Sentry from '@sentry/react-native';
 import { Session, User } from '@supabase/supabase-js';
 import { supabase } from '@/lib/supabase';
 import { clearNativeSupabaseAuthStorage } from '@/lib/authStorage';
-import { getCachedSession, invalidateCachedSession } from '@/lib/nativeAuthSession';
+import { invalidateCachedSession } from '@/lib/nativeAuthSession';
 import {
   isInvalidRefreshTokenError,
   isNoSessionError,
@@ -25,6 +25,7 @@ import {
 import { RC_CATEGORY, rcBreadcrumb } from '@/lib/nativeRcDiagnostics';
 import { clearPreparedVideoDateEntryCache } from '@clientShared/matching/videoDatePrepareEntry';
 import { removeAllRealtimeChannels } from '@/lib/realtimeLifecycle';
+import { clearMyLocationDataCache } from '@/lib/myLocationData';
 
 type AuthState = {
   user: User | null;
@@ -75,6 +76,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const clearAuthState = useCallback(() => {
     clearPreparedVideoDateEntryCache();
+    clearMyLocationDataCache();
     authUserIdRef.current = null;
     setSession(null);
     setUser(null);
@@ -88,10 +90,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     authUserIdRef.current = nextUserId;
     if (!nextUserId) {
       clearPreparedVideoDateEntryCache();
+      clearMyLocationDataCache();
       setEntryState(null);
       setEntryStateLoading(false);
     } else if (nextUserId !== previousUserId) {
       clearPreparedVideoDateEntryCache();
+      clearMyLocationDataCache();
       // Clear stale entry state before session/user update so the new user is never
       // routed using the previous account's resolve_entry_state result.
       setEntryState(null);
@@ -264,9 +268,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const signOut = useCallback(async () => {
     resetAnalytics();
     clearPreparedVideoDateEntryCache();
+    clearMyLocationDataCache();
     removeAllRealtimeChannels(supabase, 'sign_out');
-    const current = await getCachedSession();
-    const uid = current?.user?.id;
+    const uid = currentUserId;
     invalidateCachedSession();
     void clearLocalPauseKeys();
     logoutOneSignal();
@@ -307,7 +311,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
 
     clearAuthState();
-  }, [clearAuthState]);
+  }, [clearAuthState, currentUserId]);
 
   const refreshOnboarding = useCallback(async () => {
     await refreshEntryState();

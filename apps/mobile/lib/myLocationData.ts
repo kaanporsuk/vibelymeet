@@ -8,6 +8,17 @@ export type MyLocationData = {
   lng: number | null;
 };
 
+const MY_LOCATION_CACHE_TTL_MS = 60_000;
+let cachedLocationData: { value: MyLocationData | null; expiresAtMs: number } | null = null;
+let locationDataInFlight: Promise<MyLocationData | null> | null = null;
+let locationDataCacheVersion = 0;
+
+export function clearMyLocationDataCache(): void {
+  locationDataCacheVersion += 1;
+  cachedLocationData = null;
+  locationDataInFlight = null;
+}
+
 function normalizeLocationData(row: Record<string, unknown> | null | undefined): MyLocationData | null {
   if (!row) return null;
   const rawLocationData =
@@ -37,8 +48,30 @@ function readFiniteCoord(value: unknown): number | null {
 }
 
 export async function fetchMyLocationData(): Promise<MyLocationData | null> {
-  const { data, error } = await supabase.rpc('get_my_location_data');
-  if (error) throw error;
-  const row = Array.isArray(data) ? data[0] : data;
-  return normalizeLocationData(row as Record<string, unknown> | null | undefined);
+  const now = Date.now();
+  if (cachedLocationData && cachedLocationData.expiresAtMs > now) {
+    return cachedLocationData.value;
+  }
+  if (locationDataInFlight) return locationDataInFlight;
+
+  const cacheVersion = locationDataCacheVersion;
+  const request = Promise.resolve(supabase.rpc('get_my_location_data'))
+    .then(({ data, error }) => {
+      if (error) throw error;
+      const row = Array.isArray(data) ? data[0] : data;
+      const value = normalizeLocationData(row as Record<string, unknown> | null | undefined);
+      if (cacheVersion === locationDataCacheVersion) {
+        cachedLocationData = {
+          value,
+          expiresAtMs: Date.now() + MY_LOCATION_CACHE_TTL_MS,
+        };
+      }
+      return value;
+    })
+    .finally(() => {
+      if (locationDataInFlight === request) locationDataInFlight = null;
+    });
+
+  locationDataInFlight = request;
+  return locationDataInFlight;
 }

@@ -61,25 +61,8 @@ export function EntitlementsProvider({ children }: { children: React.ReactNode }
       )
       .subscribe();
 
-    const configChannel = supabase
-      .channel('entitlements-config-native')
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'tier_config_overrides',
-        },
-        () => {
-          void queryClient.invalidateQueries({ queryKey: ['entitlements'] });
-          void queryClient.invalidateQueries({ queryKey: ['tier-capabilities'] });
-        },
-      )
-      .subscribe();
-
     return () => {
       supabase.removeChannel(profileChannel);
-      supabase.removeChannel(configChannel);
     };
   }, [queryClient, userId]);
 

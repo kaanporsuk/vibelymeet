@@ -1,3 +1,4 @@
+import { AppState } from 'react-native';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { SUPABASE_PUBLISHABLE_KEY, SUPABASE_URL, supabase } from '@/lib/supabase';
 import { getCachedUserId, getFreshCachedAccessToken } from '@/lib/nativeAuthSession';
@@ -599,7 +600,8 @@ export function useEventDeck(eventId: string, viewerProfileId: string | null, en
       return parseEventDeckProfiles(data);
     },
     enabled: enabled && !!viewerProfileId && !!eventId,
-    refetchInterval: 15000,
+    refetchInterval: () => (AppState.currentState === 'active' ? 15_000 : false),
+    refetchIntervalInBackground: false,
     staleTime: 10000,
   });
 }
@@ -694,7 +696,7 @@ export async function drainMatchQueue(
 export async function getQueuedMatchCount(eventId: string, userId: string): Promise<number> {
   const { count, error } = await supabase
     .from('video_sessions')
-    .select('*', { count: 'exact', head: true })
+    .select('id', { count: 'exact', head: true })
     .eq('event_id', eventId)
     .eq('ready_gate_status', 'queued')
     .is('ended_at', null)
@@ -707,7 +709,7 @@ export async function getQueuedMatchCount(eventId: string, userId: string): Prom
 export async function getSuperVibeRemaining(eventId: string, userId: string): Promise<number> {
   const { count, error } = await supabase
     .from('event_swipes')
-    .select('*', { count: 'exact', head: true })
+    .select('id', { count: 'exact', head: true })
     .eq('event_id', eventId)
     .eq('actor_id', userId)
     .eq('swipe_type', 'super_vibe');

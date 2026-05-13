@@ -4,6 +4,7 @@ import {
   readLocationPermissionSnapshot,
   requestLocationPermissionSnapshot,
 } from '@/lib/useLocationPermission';
+import { clearMyLocationDataCache } from '@/lib/myLocationData';
 
 export type DeviceCoords = { lat: number; lng: number };
 
@@ -173,6 +174,7 @@ export async function saveCurrentDeviceLocationToProfile({
       };
     }
 
+    clearMyLocationDataCache();
     return {
       status: 'success',
       coords: geocode.coords,
@@ -200,6 +202,7 @@ export async function clearSavedLocationData({
         message: result?.error,
       };
     }
+    clearMyLocationDataCache();
     return { status: 'success' };
   } catch (e) {
     return { status: 'backend_failed', error: toError(e, 'clear_location_failed') };

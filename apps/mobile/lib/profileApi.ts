@@ -119,15 +119,15 @@ export async function fetchProfileLiveCounts(userId: string): Promise<{
   const [eventsCountRes, matchesCountRes, convosCountRes] = await Promise.all([
     supabase
       .from('event_registrations')
-      .select('*', { count: 'exact', head: true })
+      .select('id', { count: 'exact', head: true })
       .eq('profile_id', userId),
     supabase
       .from('matches')
-      .select('*', { count: 'exact', head: true })
+      .select('id', { count: 'exact', head: true })
       .or(`profile_id_1.eq.${userId},profile_id_2.eq.${userId}`),
     supabase
       .from('matches')
-      .select('*', { count: 'exact', head: true })
+      .select('id', { count: 'exact', head: true })
       .or(`profile_id_1.eq.${userId},profile_id_2.eq.${userId}`)
       .not('last_message_at', 'is', null),
   ]);
