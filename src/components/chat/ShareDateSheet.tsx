@@ -60,16 +60,20 @@ export function ShareDateSheet({
           onClick={onClose}
         >
           <motion.div
-            className="w-full max-w-md rounded-t-3xl border border-border/60 bg-background p-5 shadow-2xl sm:rounded-3xl"
+            className="flex max-h-[min(88dvh,34rem)] w-full max-w-md flex-col overflow-hidden rounded-t-3xl border border-border/60 bg-background shadow-2xl sm:rounded-3xl"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="share-date-title"
+            aria-describedby="share-date-description"
             initial={{ y: 32, opacity: 0 }}
             animate={{ y: 0, opacity: 1 }}
             exit={{ y: 32, opacity: 0 }}
             onClick={(event) => event.stopPropagation()}
           >
-            <div className="mb-4 flex items-start justify-between gap-3">
+            <div className="shrink-0 px-5 pb-4 pt-5 flex items-start justify-between gap-3">
               <div>
-                <h2 className="text-base font-semibold text-foreground">Share the date</h2>
-                <p className="mt-1 text-xs text-muted-foreground">
+                <h2 id="share-date-title" className="text-base font-semibold text-foreground">Share the date</h2>
+                <p id="share-date-description" className="mt-1 text-xs text-muted-foreground">
                   Edit what your trusted contact will receive.
                 </p>
               </div>
@@ -78,13 +82,15 @@ export function ShareDateSheet({
               </Button>
             </div>
 
-            <Textarea
-              value={text}
-              onChange={(event) => setText(event.target.value)}
-              className="min-h-[190px] resize-none text-sm leading-relaxed"
-            />
+            <div className="min-h-0 flex-1 overflow-y-auto px-5">
+              <Textarea
+                value={text}
+                onChange={(event) => setText(event.target.value)}
+                className="min-h-[190px] resize-none text-sm leading-relaxed"
+              />
+            </div>
 
-            <div className="mt-4 flex gap-2">
+            <div className="shrink-0 flex gap-2 px-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] pt-4">
               <Button
                 type="button"
                 className="flex-1"

@@ -32,6 +32,7 @@ export const PLACE_MODE_OPTIONS = [
   { key: "near_you", label: "Near you" },
   { key: "midway", label: "Midway" },
   { key: "up_to_you", label: "Up to you" },
+  { key: "downtown_oldtown", label: "Downtown / Old Town" },
   { key: "custom_venue", label: "Custom venue name" },
 ] as const;
 

@@ -36,6 +36,7 @@ apps/mobile/.env
 
 # Local rehearsal/worktree artifacts (do not commit)
 vibelymeet-rehearsal-artifact/
+artifacts/
 .vercel
 .env*.local
 

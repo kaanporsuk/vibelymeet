@@ -551,18 +551,20 @@ export function DateSuggestionSheet({
 
       {step === 2 && (
         <View style={{ gap: spacing.sm }}>
-          {PLACE_MODE_OPTIONS.map((o) => (
-            <Pressable
-              key={o.key}
-              onPress={() => setW((p) => ({ ...p, placeModeKey: o.key }))}
-              style={[
-                styles.option,
-                { borderColor: w.placeModeKey === o.key ? theme.tint : theme.border, backgroundColor: theme.surfaceSubtle },
-              ]}
-            >
-              <Text style={{ color: theme.text, fontSize: 14 }}>{o.label}</Text>
-            </Pressable>
-          ))}
+          <View style={styles.grid2}>
+            {PLACE_MODE_OPTIONS.map((o) => (
+              <Pressable
+                key={o.key}
+                onPress={() => setW((p) => ({ ...p, placeModeKey: o.key }))}
+                style={[
+                  styles.option,
+                  { borderColor: w.placeModeKey === o.key ? theme.tint : theme.border, backgroundColor: theme.surfaceSubtle },
+                ]}
+              >
+                <Text style={{ color: theme.text, fontSize: 14 }}>{o.label}</Text>
+              </Pressable>
+            ))}
+          </View>
           {w.placeModeKey === 'custom_venue' && (
             <TextInput
               value={w.venueText}

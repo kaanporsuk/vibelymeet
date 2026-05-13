@@ -30,6 +30,8 @@ type UseActiveSessionOptions = {
   enabled?: boolean;
 };
 
+const ACTIVE_SESSION_POLL_MS = 30_000;
+
 type StaleActiveSessionPayload = {
   reason: string;
   eventId?: string | null;
@@ -849,8 +851,9 @@ export function useActiveSession(
   useEffect(() => {
     if (!enabled || !userId) return;
     const intervalId = setInterval(() => {
+      if (document.visibilityState !== "visible") return;
       void check();
-    }, 8000);
+    }, ACTIVE_SESSION_POLL_MS);
     return () => clearInterval(intervalId);
   }, [enabled, userId, check]);
 

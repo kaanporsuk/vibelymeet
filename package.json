@@ -20,6 +20,7 @@
     "proof:browser-auth": "node scripts/browser-auth-runtime-proof.mjs",
     "proof:smoke-bootstrap": "node scripts/fresh-smoke-proof-bootstrap.mjs",
     "proof:vibe-upload-processing": "node scripts/fresh-vibe-upload-processing-proof.mjs",
+    "trace:supabase-egress": "node scripts/supabase-egress-boot-trace.mjs",
     "launch:preflight": "node scripts/native-launch-preflight.mjs",
     "test:auth-redirect-contract": "tsx scripts/auth-redirect-contract.test.ts",
     "test:vibe-video-contract": "tsx scripts/vibe-video-semantics.test.ts && tsx scripts/vibe-video-contract.test.ts && tsx supabase/functions/_shared/onboardingTypes.test.ts",

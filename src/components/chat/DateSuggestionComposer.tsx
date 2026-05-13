@@ -718,28 +718,30 @@ export function DateSuggestionComposer({
         )}
 
         {step === 2 && (
-          <div className="grid grid-cols-1 gap-2">
-            {PLACE_MODE_OPTIONS.map((o) => (
-              <button
-                key={o.key}
-                type="button"
-                onClick={() => setW((p) => ({ ...p, placeModeKey: o.key }))}
-                className={cn(
-                  "rounded-xl border px-3 py-2.5 text-left text-sm",
-                  w.placeModeKey === o.key
-                    ? "border-primary bg-primary/10"
-                    : "border-border/60 hover:bg-muted/50",
-                )}
-              >
-                {o.label}
-              </button>
-            ))}
+          <div className="space-y-3">
+            <div className="grid grid-cols-2 gap-2">
+              {PLACE_MODE_OPTIONS.map((o) => (
+                <button
+                  key={o.key}
+                  type="button"
+                  onClick={() => setW((p) => ({ ...p, placeModeKey: o.key }))}
+                  className={cn(
+                    "rounded-xl border px-3 py-2.5 text-left text-sm",
+                    w.placeModeKey === o.key
+                      ? "border-primary bg-primary/10"
+                      : "border-border/60 hover:bg-muted/50",
+                  )}
+                >
+                  {o.label}
+                </button>
+              ))}
+            </div>
             {w.placeModeKey === "custom_venue" && (
               <Input
                 placeholder="Venue name"
                 value={w.venueText}
                 onChange={(e) => setW((p) => ({ ...p, venueText: e.target.value }))}
-                className="mt-2 rounded-lg text-sm h-auto min-h-10 py-2.5"
+                className="rounded-lg text-sm h-auto min-h-10 py-2.5"
               />
             )}
           </div>

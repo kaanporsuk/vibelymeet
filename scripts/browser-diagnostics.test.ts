@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import {
   hasStaleBundleReloadAlreadyAttempted,
   isLikelyStaleBundleError,
@@ -8,6 +10,7 @@ import {
   sanitizeDiagnosticUrl,
 } from "../src/lib/browserDiagnostics";
 
+const browserDiagnosticsSource = readFileSync(join(process.cwd(), "src/lib/browserDiagnostics.ts"), "utf8");
 const uuid = "27b4b3bd-d441-4903-88a5-e25cf7acfa96";
 
 assert.equal(sanitizeDiagnosticUrl(`https://www.vibelymeet.com/chat/${uuid}?access_token=secret#frag`), "/chat/:uuid#[hash]");
@@ -61,6 +64,26 @@ const manyKeys = sanitizeBrowserDiagnosticPayload(
 assert.ok(Object.keys(manyKeys).length <= 30);
 
 assert.equal(recordBrowserEvent("not.allowed.event", { ok: true }), false);
+
+assert.match(browserDiagnosticsSource, /BOOT_SUMMARY_DELAY_MS\s*=\s*12_000/);
+assert.match(browserDiagnosticsSource, /window\.__vibelyBootDiagnostics/);
+assert.match(browserDiagnosticsSource, /requestsBySurface/);
+assert.match(browserDiagnosticsSource, /fetchHealthWithOnePerBootCap/);
+assert.match(browserDiagnosticsSource, /browser\.health_check_capped/);
+assert.match(browserDiagnosticsSource, /instrumentSupabaseRealtimeDiagnostics/);
+assert.match(browserDiagnosticsSource, /pruneDuplicateRealtimeChannels/);
+assert.match(browserDiagnosticsSource, /removeAllRealtimeChannels/);
+for (const surface of [
+  "Database/PostgREST",
+  "RPC",
+  "Auth",
+  "Edge Functions",
+  "Realtime",
+  "Storage",
+  "Media/CDN",
+]) {
+  assert.match(browserDiagnosticsSource, new RegExp(surface.replace(/[/.]/g, "\\$&")));
+}
 
 assert.equal(
   isLikelyStaleBundleError(new TypeError("Failed to fetch dynamically imported module: https://www.vibelymeet.com/assets/EventLobby-Ro3so-7k.js")),

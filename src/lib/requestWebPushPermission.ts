@@ -23,12 +23,15 @@ const WEB_PLAYER_ID_SYNC_RETRY = {
   maxDelayMs: 5000,
 };
 const WEB_PUSH_BACKEND_SYNC_TTL_MS = 10 * 60_000;
+const WEB_PUSH_BACKEND_SYNC_CACHE_KEY = "vibely.web_push_backend_sync.v1";
 
 const syncInFlightByUser = new Map<string, Promise<PushSyncResult>>();
 const lastBackendSyncBySignature = new Map<
   string,
   { syncedAtMs: number; result: PushSyncResult }
 >();
+
+type StoredBackendSyncCache = Record<string, { syncedAtMs: number; result: PushSyncResult }>;
 
 function syncResult(
   code: PushSyncResult["code"],
@@ -42,14 +45,50 @@ function backendSyncSignature(userId: string, playerId: string, subscribed: bool
   return `${userId}:${playerId}:${subscribed ? "subscribed" : "unsubscribed"}`;
 }
 
+function readStoredBackendSyncCache(): StoredBackendSyncCache {
+  if (typeof window === "undefined") return {};
+  try {
+    const raw = window.localStorage.getItem(WEB_PUSH_BACKEND_SYNC_CACHE_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? (parsed as StoredBackendSyncCache)
+      : {};
+  } catch {
+    return {};
+  }
+}
+
+function writeStoredBackendSync(signature: string, result: PushSyncResult): void {
+  if (typeof window === "undefined") return;
+  try {
+    const cache = readStoredBackendSyncCache();
+    const cutoff = Date.now() - WEB_PUSH_BACKEND_SYNC_TTL_MS;
+    for (const [key, value] of Object.entries(cache)) {
+      if (!value || typeof value.syncedAtMs !== "number" || value.syncedAtMs < cutoff) {
+        delete cache[key];
+      }
+    }
+    cache[signature] = { syncedAtMs: Date.now(), result };
+    window.localStorage.setItem(WEB_PUSH_BACKEND_SYNC_CACHE_KEY, JSON.stringify(cache));
+  } catch {
+    /* localStorage is best-effort only */
+  }
+}
+
 function getFreshCachedBackendSync(signature: string): PushSyncResult | null {
   const cached = lastBackendSyncBySignature.get(signature);
-  if (!cached) return null;
-  if (Date.now() - cached.syncedAtMs > WEB_PUSH_BACKEND_SYNC_TTL_MS) {
-    lastBackendSyncBySignature.delete(signature);
-    return null;
+  if (cached && Date.now() - cached.syncedAtMs <= WEB_PUSH_BACKEND_SYNC_TTL_MS) {
+    return cached.result;
   }
-  return cached.result;
+  if (cached) {
+    lastBackendSyncBySignature.delete(signature);
+  }
+
+  const stored = readStoredBackendSyncCache()[signature];
+  if (!stored || Date.now() - stored.syncedAtMs > WEB_PUSH_BACKEND_SYNC_TTL_MS) return null;
+  lastBackendSyncBySignature.set(signature, stored);
+  return stored.result;
 }
 
 async function syncWebPushRegistrationToBackendInternal(userId: string): Promise<PushSyncResult> {
@@ -106,12 +145,14 @@ async function syncWebPushRegistrationToBackendInternal(userId: string): Promise
   if (!subscribed) {
     const result = syncResult("sdk_not_ready", playerId, "OneSignal subscription is not opted in yet.");
     lastBackendSyncBySignature.set(signature, { syncedAtMs: Date.now(), result });
+    writeStoredBackendSync(signature, result);
     return result;
   }
 
   vibelyOsLog("syncWebPushRegistrationToBackend:success", {});
   const result = syncResult("synced", playerId);
   lastBackendSyncBySignature.set(signature, { syncedAtMs: Date.now(), result });
+  writeStoredBackendSync(signature, result);
   return result;
 }
 

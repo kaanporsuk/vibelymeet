@@ -49,6 +49,13 @@ test("share-the-date uses editable text only and excludes schedule-share mechani
 
   assert.match(sheet, /<Textarea[\s\S]{0,200}value=\{text\}/, "share text must be editable before sending");
   assert.match(sheet, /navigator\.share\(\{\s*title,\s*text\s*\}\)/, "navigator.share must pass title and text");
+  assert.match(sheet, /max-h-\[min\(88dvh,34rem\)\][\s\S]{0,120}flex-col[\s\S]{0,120}overflow-hidden/);
+  assert.match(sheet, /min-h-0 flex-1 overflow-y-auto/);
+  assert.match(sheet, /shrink-0 flex gap-2[\s\S]{0,160}env\(safe-area-inset-bottom\)/);
+  assert.match(sheet, /role="dialog"/);
+  assert.match(sheet, /aria-modal="true"/);
+  assert.match(sheet, /<Send className="h-4 w-4" \/>[\s\S]{0,40}Share[\s\S]{0,40}<\/Button>/);
+  assert.match(sheet, /<Copy className="h-4 w-4" \/>[\s\S]{0,40}Copy[\s\S]{0,40}<\/Button>/);
   assert.doesNotMatch(sheet, /\burl:/, "Share the Date must not pass a url field");
 
   assert.match(fnBody, /Met on Vibely \(vibelymeet\.com\)\./);
@@ -151,6 +158,16 @@ test("native accepted cards render confirmed plan state, not planning mechanics"
     "native accepted/completed card place display must use the confirmed plan place label",
   );
   assert.match(nativeCard, /timeLabel: confirmedWhenLabel \|\| 'Not decided yet'/);
+  assert.match(nativeCard, /import \* as Clipboard from 'expo-clipboard'/);
+  assert.match(nativeCard, /humanizeDateTypeLabel/);
+  assert.match(nativeCard, /const buildTrustedContactDateText = \(\) => \{[\s\S]{0,260}buildShareDateText/);
+  assert.match(nativeCard, /dateTypeLabel: humanizeDateTypeLabel\(plan\?\.date_type_key \?\? current\.date_type_key\)/);
+  assert.match(nativeCard, /await Share\.share\(\{ title: 'Vibely date', message: body \}\)/);
+  assert.match(nativeCard, /await Clipboard\.setStringAsync\(body\)/);
+  assert.match(nativeCard, /accessibilityLabel="Share the date"/);
+  assert.match(nativeCard, /accessibilityLabel="Copy date details"/);
+  assert.match(nativeCard, />Share the date<\/Text>/);
+  assert.match(nativeCard, />Copy<\/Text>/);
 });
 
 test("legacy plan_mark_complete entrypoints route to date_plan_mark_complete_v2", () => {

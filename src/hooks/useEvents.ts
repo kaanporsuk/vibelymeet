@@ -27,10 +27,12 @@ const PAGE_SIZE = 12;
 // Hook to enable realtime updates for events
 export const useRealtimeEvents = () => {
   const queryClient = useQueryClient();
+  const { user } = useUserProfile();
+  const userId = user?.id ?? null;
 
   useEffect(() => {
     const channel = supabase
-      .channel("events-realtime")
+      .channel(`events-realtime-${userId ?? "anon"}`)
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "events" },
@@ -42,10 +44,12 @@ export const useRealtimeEvents = () => {
           queryClient.invalidateQueries({ queryKey: ["next-registered-event"] });
           queryClient.invalidateQueries({ queryKey: ["event-details"] });
         }
-      )
-      .on(
+      );
+
+    if (userId) {
+      channel.on(
         "postgres_changes",
-        { event: "*", schema: "public", table: "event_registrations" },
+        { event: "*", schema: "public", table: "event_registrations", filter: `profile_id=eq.${userId}` },
         () => {
           queryClient.invalidateQueries({ queryKey: ["events"] });
           queryClient.invalidateQueries({ queryKey: ["visible-events"] });
@@ -55,13 +59,15 @@ export const useRealtimeEvents = () => {
           queryClient.invalidateQueries({ queryKey: ["event-attendees"] });
           queryClient.invalidateQueries({ queryKey: ["event-attendee-preview"] });
         }
-      )
-      .subscribe();
+      );
+    }
+
+    channel.subscribe();
 
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [queryClient]);
+  }, [queryClient, userId]);
 };
 
 export const useEvents = () => {
