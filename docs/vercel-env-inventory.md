@@ -8,7 +8,7 @@ Built-in Vite flags (not set in the Vercel UI): `import.meta.env.DEV`, `import.m
 
 | Variable | Used In | Required | Client/Server | Environments |
 |----------|---------|----------|---------------|--------------|
-| `VITE_SUPABASE_URL` | `integrations/supabase/client.ts`, upload services, edge function URLs, `healthUrl.ts`, `DeleteAccountWeb.tsx`, etc. | Yes | Client | Prod, Preview, Development |
+| `VITE_SUPABASE_URL` | `integrations/supabase/client.ts`, upload services, edge function URLs, `DeleteAccountWeb.tsx`, etc. | Yes | Client | Prod, Preview, Development |
 | `VITE_SUPABASE_PUBLISHABLE_KEY` | `integrations/supabase/client.ts` (preferred key) | Yes* | Client | Prod, Preview, Development |
 | `VITE_SUPABASE_ANON_KEY` | `integrations/supabase/client.ts` (legacy fallback if publishable unset) | Yes* | Client | Prod, Preview, Development |
 | `VITE_BUNNY_CDN_HOSTNAME` | `utils/imageUrl.ts`, `components/ui/ProfilePhoto.tsx` | Yes† | Client | Prod, Preview, Development |
