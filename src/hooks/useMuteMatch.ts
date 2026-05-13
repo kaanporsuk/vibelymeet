@@ -41,7 +41,7 @@ export const useMuteMatch = () => {
       if (!userId) return [];
       const { data, error } = await supabase
         .from("match_notification_mutes")
-        .select("*")
+        .select("id, match_id, user_id, muted_until, created_at")
         .eq("user_id", userId)
         .or(`muted_until.is.null,muted_until.gt.${new Date().toISOString()}`);
 

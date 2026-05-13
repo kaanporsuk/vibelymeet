@@ -11,8 +11,10 @@ export type MyLocationData = {
 const MY_LOCATION_CACHE_TTL_MS = 60_000;
 let cachedLocationData: { value: MyLocationData | null; expiresAtMs: number } | null = null;
 let locationDataInFlight: Promise<MyLocationData | null> | null = null;
+let locationDataCacheVersion = 0;
 
 export function clearMyLocationDataCache(): void {
+  locationDataCacheVersion += 1;
   cachedLocationData = null;
   locationDataInFlight = null;
 }
@@ -52,20 +54,24 @@ export async function fetchMyLocationData(): Promise<MyLocationData | null> {
   }
   if (locationDataInFlight) return locationDataInFlight;
 
-  locationDataInFlight = Promise.resolve(supabase.rpc("get_my_location_data"))
+  const cacheVersion = locationDataCacheVersion;
+  const request = Promise.resolve(supabase.rpc("get_my_location_data"))
     .then(({ data, error }) => {
       if (error) throw error;
       const row = Array.isArray(data) ? data[0] : data;
       const value = normalizeLocationData(row as Record<string, unknown> | null | undefined);
-      cachedLocationData = {
-        value,
-        expiresAtMs: Date.now() + MY_LOCATION_CACHE_TTL_MS,
-      };
+      if (cacheVersion === locationDataCacheVersion) {
+        cachedLocationData = {
+          value,
+          expiresAtMs: Date.now() + MY_LOCATION_CACHE_TTL_MS,
+        };
+      }
       return value;
     })
     .finally(() => {
-      locationDataInFlight = null;
+      if (locationDataInFlight === request) locationDataInFlight = null;
     });
 
+  locationDataInFlight = request;
   return locationDataInFlight;
 }

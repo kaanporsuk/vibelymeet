@@ -13,6 +13,7 @@ import {
   RefreshControl,
   StyleSheet,
   Animated,
+  AppState,
 } from 'react-native';
 import { router, type Href } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -183,9 +184,9 @@ export default function DashboardScreen() {
     refresh: refreshPushPermission,
   } = usePushPermission();
   const { health: pushDeliveryHealth, refresh: refreshPushDeliveryHealth } = usePushDeliveryHealth(user?.id);
-  const notificationInbox = useNotificationInbox(user?.id);
   const [showPushPermissionPrompt, setShowPushPermissionPrompt] = useState(false);
   const [notificationCenterOpen, setNotificationCenterOpen] = useState(false);
+  const notificationInbox = useNotificationInbox(user?.id, { loadRows: notificationCenterOpen });
   const pushPromptTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const prepromptScheduledThisSessionRef = useRef(false);
   const prepromptVisibleRef = useRef(false);
@@ -219,7 +220,8 @@ export default function DashboardScreen() {
       return normalizeHomeUnreadSummary(data);
     },
     enabled: !!user?.id,
-    refetchInterval: 30_000,
+    refetchInterval: () => (AppState.currentState === 'active' ? 60_000 : false),
+    refetchIntervalInBackground: false,
   });
   const infoBarUnreadMessageCount = homeInfoBarUnread.messageCount;
   const unreadConversationCount = homeInfoBarUnread.matchCount;

@@ -36,7 +36,9 @@ export const useEventDeck = ({ eventId, enabled = true }: UseEventDeckOptions) =
       return parseEventDeckProfiles(data);
     },
     enabled: enabled && !!user?.id && !!eventId,
-    refetchInterval: 15000, // Refresh every 15s to get new arrivals
+    refetchInterval: () =>
+      typeof document === "undefined" || document.visibilityState === "visible" ? 15_000 : false,
+    refetchIntervalInBackground: false,
     staleTime: 10000,
   });
 

@@ -45,7 +45,7 @@ export function useRealtimeEvents(userId: string | null | undefined) {
       )
       .on(
         'postgres_changes',
-        { event: '*', schema: 'public', table: 'event_registrations' },
+        { event: '*', schema: 'public', table: 'event_registrations', filter: `profile_id=eq.${userId}` },
         () => invalidateAfterRegistrationsTableChange(queryClient)
       )
       .subscribe();

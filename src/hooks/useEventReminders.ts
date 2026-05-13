@@ -25,7 +25,9 @@ export function useEventReminders() {
   const { data: registeredEvents = [] } = useQuery({
     queryKey: ['registered-events-for-reminders', user?.id],
     enabled: !!user?.id,
-    refetchInterval: 60000,
+    refetchInterval: () =>
+      typeof document === "undefined" || document.visibilityState === "visible" ? 60_000 : false,
+    refetchIntervalInBackground: false,
     queryFn: async (): Promise<RegisteredEvent[]> => {
       if (!user?.id) return [];
 

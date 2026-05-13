@@ -134,20 +134,16 @@ export function useMatches(userId: string | null | undefined) {
 
   useEffect(() => {
     if (!userId) return;
-    const channel = supabase
-      .channel(`matches-realtime-${userId}`)
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'matches' }, (payload: { new: { profile_id_1: string; profile_id_2: string } }) => {
-        const row = payload.new;
-        if (row.profile_id_1 === userId || row.profile_id_2 === userId) {
-          queryClient.invalidateQueries({ queryKey: ['matches'] });
-        }
-      })
-      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'matches' }, (payload: { new: { profile_id_1: string; profile_id_2: string } }) => {
-        const row = payload.new;
-        if (row.profile_id_1 === userId || row.profile_id_2 === userId) {
-          queryClient.invalidateQueries({ queryKey: ['matches'] });
-        }
-      })
+    const invalidateMatches = () => {
+      queryClient.invalidateQueries({ queryKey: ['matches'] });
+    };
+    const channel = supabase.channel(`matches-realtime-${userId}`);
+    for (const filter of [`profile_id_1=eq.${userId}`, `profile_id_2=eq.${userId}`]) {
+      channel
+        .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'matches', filter }, invalidateMatches)
+        .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'matches', filter }, invalidateMatches);
+    }
+    channel
       .on('postgres_changes', { event: '*', schema: 'public', table: 'match_archives', filter: `user_id=eq.${userId}` }, () => {
         queryClient.invalidateQueries({ queryKey: ['matches'] });
       })

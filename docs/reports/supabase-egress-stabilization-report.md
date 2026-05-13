@@ -46,22 +46,24 @@ Top before/after request changes:
 ## Code Changes
 
 - Added production-safe boot diagnostics in `src/lib/browserDiagnostics.ts`: `window.__vibelyBootDiagnostics`, request counts/timing/bytes by surface, health counts, realtime channel counts, duplicate topics, and cleanup events.
-- Added concurrent health probe coalescing for `/functions/v1/health`; in-flight duplicate callers share the same network result and emit `browser.health_check_capped`, but later probes are not served from a stale global cache.
+- Added a one-network-attempt-per-boot cap for `/functions/v1/health`; duplicate callers replay the captured response and emit `browser.health_check_capped`.
 - Added bootstrap timeout/finally guards in `src/contexts/AuthContext.tsx` for `getSession`, profile load, pause refresh, `getUser`, `resolve_entry_state`, notification logout clear, and `signOut`.
 - Added retryable entry-state fallback so stalled Supabase access routes to recovery instead of trapping the global spinner.
 - Added realtime lifecycle diagnostics and cleanup: instrumentation in `src/App.tsx`, duplicate pruning on route change/hidden/pagehide, and full channel removal on logout.
 - Narrowed or removed broad realtime listeners:
   - Removed global `messages` listener from `WebHomeUnreadInvalidator`.
-  - Filtered `event_registrations` realtime by `profile_id`.
-  - Filtered `matches` realtime by both participant columns.
-  - Removed broad `tier_config_overrides` realtime from entitlements.
+  - Filtered `event_registrations` realtime by `profile_id` on web and native.
+  - Filtered `matches` realtime by both participant columns on web and native.
+  - Removed broad `tier_config_overrides` realtime from web and native entitlements.
 - Reduced dashboard boot traffic:
-  - Cached/deduped `get_my_location_data`.
-  - Deferred notification inbox rows until drawer open.
-  - Paused home unread polling in hidden tabs and moved interval to 60 seconds.
+  - Cached/deduped `get_my_location_data` on web and native, with cache clears after logout, account switch, and location updates.
+  - Deferred notification inbox rows until drawer open on web and native.
+  - Paused home unread, event reminder, event deck, tab badge, daily-drop badge, and app badge polling in hidden/background states; moved home unread to 60 seconds.
   - Moved dashboard match visibility filtering into a read-only RPC, with profile fanout limited to 5 rows.
+  - Narrowed schedule-hub/date-planning relation selects used by dashboard reminders and chat planning.
+  - Narrowed count-only and mute-state reads to scalar columns instead of full rows.
 - Reduced write churn:
-  - Activity heartbeat is visible-tab only and every 5 minutes.
+  - Activity heartbeat is visible/foreground only and every 5 minutes on web and native.
   - Push sync signatures persist briefly in localStorage so unchanged `notification_preferences` upserts are skipped across boot/focus loops.
 - Media routing: only confirmed Bunny-backed `photos/`, `events/`, `voice/`, and `media/` paths are rewritten to Bunny/CDN. Chat video remains resolved by `get-chat-media-url`; `proof-selfies` and other intentional Supabase buckets are untouched.
 - Added `scripts/supabase-egress-boot-trace.mjs` and `npm run trace:supabase-egress`.
@@ -71,7 +73,7 @@ Top before/after request changes:
 ## Remaining Risks
 
 - Realtime `list_changes` is still the largest provider-side signal. This pass reduced duplicate/broad client listeners, but other routes, native clients, or stale deployed bundles can still create churn.
-- Date suggestion/date plan boot reads still include `select=*` or large revision payloads and dominate response bytes in the smoke account trace.
+- Some non-boot detail/admin routes still have broader reads (`event details`, `daily drop`, selected admin monitoring views); they were left for route-specific follow-up instead of changing unrelated UX surfaces in the egress hot path.
 - Notification count queries still run on boot; row payloads are deferred, but exact counts remain a small DB workload.
 - Cron/`net.http_post` activity is significant in `pg_stat_statements`; it was deliberately left unchanged because the requested first pass was frontend-only.
 - The after trace was run locally against production Supabase before deployment. Re-run `npm run trace:supabase-egress` after deploy for definitive production counts.

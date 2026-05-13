@@ -6,6 +6,10 @@ import { isExpiredNotification, isUrgentNotification, normalizeNotificationActio
 
 const INBOX_LIMIT = 80;
 
+type UseNotificationInboxOptions = {
+  loadRows?: boolean;
+};
+
 function activeExpiryFilter() {
   return `expires_at.is.null,expires_at.gt.${new Date().toISOString()}`;
 }
@@ -53,7 +57,11 @@ function groupRows(rows: UserNotificationRow[]) {
   return { needsAction, today, earlier };
 }
 
-export function useNotificationInbox(userId: string | null | undefined) {
+export function useNotificationInbox(
+  userId: string | null | undefined,
+  options: UseNotificationInboxOptions = {},
+) {
+  const loadRows = options.loadRows ?? true;
   const qc = useQueryClient();
   const queryKey = useMemo(() => ['user-notifications', userId], [userId]);
   const unseenKey = useMemo(() => ['user-notifications-unseen', userId], [userId]);
@@ -67,12 +75,12 @@ export function useNotificationInbox(userId: string | null | undefined) {
 
   const rowsQuery = useQuery({
     queryKey,
-    enabled: !!userId,
+    enabled: !!userId && loadRows,
     queryFn: async () => {
       if (!userId) return [] as UserNotificationRow[];
       const { data, error } = await supabase
         .from('user_notifications')
-        .select('*')
+        .select('id, user_id, category, title, body, priority, action, data, actor_id, image_url, group_key, group_count, dedupe_key, seen_at, read_at, opened_at, dismissed_at, expires_at, created_at, updated_at')
         .eq('user_id', userId)
         .is('dismissed_at', null)
         .or(activeExpiryFilter())

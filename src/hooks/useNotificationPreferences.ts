@@ -54,6 +54,9 @@ const DEFAULTS: NotificationPreferences = {
   onesignal_subscribed: false,
 };
 
+const NOTIFICATION_PREFERENCES_SELECT =
+  "push_enabled, paused_until, notify_new_match, notify_messages, notify_match_calls, notify_someone_vibed_you, notify_ready_gate, notify_event_live, notify_event_reminder, notify_date_reminder, notify_daily_drop, notify_recommendations, notify_product_updates, notify_credits_subscription, sound_enabled, quiet_hours_enabled, quiet_hours_start, quiet_hours_end, quiet_hours_timezone, message_bundle_enabled, onesignal_player_id, onesignal_subscribed";
+
 export function useNotificationPreferences() {
   const { user } = useUserProfile();
   const [prefs, setPrefs] = useState<NotificationPreferences>(DEFAULTS);
@@ -70,7 +73,7 @@ export function useNotificationPreferences() {
       setIsLoading(true);
       const { data, error } = await supabase
         .from("notification_preferences")
-        .select("*")
+        .select(NOTIFICATION_PREFERENCES_SELECT)
         .eq("user_id", user.id)
         .maybeSingle();
 

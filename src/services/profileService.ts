@@ -267,9 +267,9 @@ export const fetchMyProfile = async (): Promise<ProfileData | null> => {
     supabase.from("profiles").select(PROFILE_SELECT_WITH_DISCOVERY).eq("id", user.id).maybeSingle(),
     fetchMyLocationData().catch(() => null),
     supabase.from("profile_vibes").select("vibe_tags(label)").eq("profile_id", user.id),
-    supabase.from("event_registrations").select("*", { count: "exact", head: true }).eq("profile_id", user.id),
-    supabase.from("matches").select("*", { count: "exact", head: true }).or(`profile_id_1.eq.${user.id},profile_id_2.eq.${user.id}`),
-    supabase.from("matches").select("*", { count: "exact", head: true }).or(`profile_id_1.eq.${user.id},profile_id_2.eq.${user.id}`).not("last_message_at", "is", null),
+    supabase.from("event_registrations").select("id", { count: "exact", head: true }).eq("profile_id", user.id),
+    supabase.from("matches").select("id", { count: "exact", head: true }).or(`profile_id_1.eq.${user.id},profile_id_2.eq.${user.id}`),
+    supabase.from("matches").select("id", { count: "exact", head: true }).or(`profile_id_1.eq.${user.id},profile_id_2.eq.${user.id}`).not("last_message_at", "is", null),
   ]);
   let profileResult = initialProfileResult;
 

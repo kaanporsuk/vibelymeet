@@ -6,7 +6,7 @@ import { useEffect, useRef, useCallback } from 'react';
 import { AppState, type AppStateStatus } from 'react-native';
 import { supabase } from '@/lib/supabase';
 
-const HEARTBEAT_INTERVAL_MS = 60_000;
+const HEARTBEAT_INTERVAL_MS = 5 * 60_000;
 
 /** When `skipHeartbeat` is true (e.g. user on a break), we do not emit activity. */
 export function useActivityHeartbeat(userId: string | null | undefined, skipHeartbeat = false) {

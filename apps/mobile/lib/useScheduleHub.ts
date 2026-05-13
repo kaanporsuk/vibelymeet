@@ -31,6 +31,11 @@ type ProfileRow = {
   avatar_url: string | null;
 };
 
+const SCHEDULE_HUB_REVISION_SELECT =
+  'id, date_suggestion_id, proposed_by, date_type_key, time_choice_key, place_mode_key, venue_text, optional_message, schedule_share_enabled, starts_at, ends_at, time_block, created_at';
+const SCHEDULE_HUB_PLAN_SELECT =
+  'id, starts_at, ends_at, venue_label, date_type_key, status, completion_initiated_by, completion_initiated_at, completion_confirmed_by, completion_confirmed_at';
+
 async function loadScheduleHubSuggestions(userId: string): Promise<ScheduleHubSuggestionRecord[]> {
   const { data: suggestions, error: suggestionError } = await supabase
     .from('date_suggestions')
@@ -68,11 +73,11 @@ async function loadScheduleHubSuggestions(userId: string): Promise<ScheduleHubSu
   const [{ data: revisions }, { data: plans }, { data: profiles }] = await Promise.all([
     supabase
       .from('date_suggestion_revisions')
-      .select('*')
+      .select(SCHEDULE_HUB_REVISION_SELECT)
       .in('date_suggestion_id', suggestionIds)
       .order('revision_number', { ascending: true }),
     planIds.length > 0
-      ? supabase.from('date_plans').select('*').in('id', planIds)
+      ? supabase.from('date_plans').select(SCHEDULE_HUB_PLAN_SELECT).in('id', planIds)
       : Promise.resolve({ data: [] as ScheduleHubPlan[], error: null }),
     partnerIds.length > 0
       ? supabase.from('profiles').select('id, name, avatar_url').in('id', partnerIds)

@@ -122,12 +122,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         sessionUserRef.current = session?.user ?? null;
         if (!nextUserId) {
           clearPreparedVideoDateEntryCache();
+          clearMyLocationDataCache();
           setEntryState(null);
           setEntryStateLoading(false);
           return;
         }
         if (nextUserId !== previousUserId) {
           clearPreparedVideoDateEntryCache();
+          clearMyLocationDataCache();
           // Drop prior user's entry decision immediately so routing cannot use it
           // while the new session is already active (see currentUserId effect refresh).
           setEntryState(null);

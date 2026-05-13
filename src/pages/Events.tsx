@@ -18,7 +18,7 @@ import { EventCardPremium } from "@/components/events/EventCardPremium";
 import { FeaturedEventSkeleton, EventsRailSkeleton } from "@/components/ShimmerSkeleton";
 import { Button } from "@/components/ui/button";
 import { supabase } from "@/integrations/supabase/client";
-import { fetchMyLocationData } from "@/services/myLocationData";
+import { clearMyLocationDataCache, fetchMyLocationData } from "@/services/myLocationData";
 import { toast } from "sonner";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { parseEventDiscoveryPrefs } from "@shared/eventDiscoveryContracts";
@@ -77,6 +77,7 @@ const LocationPromptBanner = () => {
       const result = rpcResult as { success?: boolean; error?: string } | null;
       if (!result?.success) throw new Error(result?.error ?? "location_update_failed");
 
+      clearMyLocationDataCache();
       queryClient.invalidateQueries({ queryKey: ["visible-events"] });
       queryClient.invalidateQueries({ queryKey: ["other-city-events"] });
 
