@@ -189,6 +189,14 @@ type DrawerType =
 
 const MAX_ABOUT_ME_LENGTH = 140;
 const MAX_PHOTOS = 6;
+const PROFILE_STUDIO_DRAWER_PROPS = {
+  shouldScaleBackground: false,
+  fixed: true,
+} as const;
+const PROFILE_STUDIO_DRAWER_CONTENT_CLASS = "max-h-[88dvh] w-full max-w-[100svw] overflow-hidden";
+const PROFILE_STUDIO_DRAWER_BODY_CLASS =
+  "min-h-0 flex-1 overflow-y-auto overflow-x-hidden px-4 pb-[max(1rem,env(safe-area-inset-bottom))]";
+const PROFILE_STUDIO_DRAWER_FOOTER_CLASS = "shrink-0 pb-[max(1rem,env(safe-area-inset-bottom))]";
 
 // ────────────────────────────────────────────────────────────────────
 // Quick Actions config
@@ -897,7 +905,7 @@ const ProfileStudio = () => {
 
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-background flex items-center justify-center">
+      <div className="min-h-screen w-full max-w-[100svw] overflow-x-hidden bg-background flex items-center justify-center">
         <Loader2 className="w-8 h-8 animate-spin text-primary" />
       </div>
     );
@@ -919,8 +927,8 @@ const ProfileStudio = () => {
   // ── Render ────────────────────────────────────────────────────
 
   return (
-    <div className="min-h-screen bg-background pb-[100px]">
-      <div className="max-w-lg mx-auto px-4">
+    <div className="min-h-screen w-full max-w-[100svw] overflow-x-hidden bg-background pb-[100px]">
+      <div className="mx-auto w-full max-w-lg min-w-0 overflow-x-hidden px-4">
 
         {/* ═══ Section 1: Cinematic hero (compact on mobile, roomier on md+) ═══ */}
         <div className="relative -mx-4 mb-0">
@@ -1087,7 +1095,7 @@ const ProfileStudio = () => {
         </div>
 
         {/* ═══ Quick Actions — compact pills ═══ */}
-        <div className="flex gap-2 px-4 py-2 overflow-x-auto scrollbar-hide -mx-1 md:mx-0 mt-1 md:mt-0 mb-2 md:mb-3">
+        <div className="flex w-full max-w-full min-w-0 gap-2 overflow-x-auto overscroll-x-contain overflow-y-hidden scrollbar-hide py-2 pr-1 mt-1 md:mt-0 mb-2 md:mb-3">
           {QUICK_ACTIONS.map((action) => (
             <button
               key={action.key}
@@ -1378,7 +1386,7 @@ const ProfileStudio = () => {
               <span className="text-sm font-semibold text-white">{scheduleStatus.label}</span>
             </div>
 
-            <div className="overflow-x-auto scrollbar-hide">
+            <div className="max-w-full min-w-0 overflow-x-auto overscroll-x-contain overflow-y-hidden scrollbar-hide">
               <div className="flex gap-1.5" style={{ paddingLeft: 2, paddingRight: 2 }}>
                 {dateRange.map((date) => {
                   const dateStr = format(date, "yyyy-MM-dd");
@@ -1490,13 +1498,13 @@ const ProfileStudio = () => {
       {/* ═══ Drawers (reused from legacy) ═══ */}
 
       {/* Photo Editor */}
-      <Drawer open={activeDrawer === "photos"} onOpenChange={handleProfileStudioDrawerOpenChange}>
-        <DrawerContent className="max-h-[85vh]">
+      <Drawer {...PROFILE_STUDIO_DRAWER_PROPS} open={activeDrawer === "photos"} onOpenChange={handleProfileStudioDrawerOpenChange}>
+        <DrawerContent className={PROFILE_STUDIO_DRAWER_CONTENT_CLASS}>
           <DrawerHeader>
             <DrawerTitle className="font-display">Manage Your Gallery</DrawerTitle>
             <DrawerDescription>First impressions matter. Make them count.</DrawerDescription>
           </DrawerHeader>
-          <div className="px-4 pb-4 overflow-y-auto space-y-4">
+          <div className={cn(PROFILE_STUDIO_DRAWER_BODY_CLASS, "space-y-4")}>
             <PhotoManager
               photos={editForm.photos}
               onPhotosChange={(photos) => setEditForm({ ...editForm, photos })}
@@ -1504,7 +1512,7 @@ const ProfileStudio = () => {
               onPhotoFilesChange={setEditPhotoFiles}
             />
           </div>
-          <DrawerFooter>
+          <DrawerFooter className={PROFILE_STUDIO_DRAWER_FOOTER_CLASS}>
             <Button variant="gradient" onClick={() => handleSave("photos")} disabled={isSaving}>
               {isSaving && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
               Save Changes
@@ -1515,20 +1523,20 @@ const ProfileStudio = () => {
       </Drawer>
 
       {/* Vibes Editor */}
-      <Drawer open={activeDrawer === "vibes"} onOpenChange={handleProfileStudioDrawerOpenChange}>
-        <DrawerContent className="max-h-[85vh]">
+      <Drawer {...PROFILE_STUDIO_DRAWER_PROPS} open={activeDrawer === "vibes"} onOpenChange={handleProfileStudioDrawerOpenChange}>
+        <DrawerContent className={PROFILE_STUDIO_DRAWER_CONTENT_CLASS}>
           <DrawerHeader>
             <DrawerTitle className="font-display">Choose Your Vibes</DrawerTitle>
             <DrawerDescription>Pick 5 that best describe how you connect.</DrawerDescription>
           </DrawerHeader>
-          <div className="px-4 pb-4 overflow-y-auto">
+          <div className={PROFILE_STUDIO_DRAWER_BODY_CLASS}>
             <VibeTagSelector
               selectedVibes={editForm.vibes}
               onVibesChange={(vibes) => setEditForm({ ...editForm, vibes })}
               categoriesOnly={["energy", "social_style"]}
             />
           </div>
-          <DrawerFooter>
+          <DrawerFooter className={PROFILE_STUDIO_DRAWER_FOOTER_CLASS}>
             <Button variant="gradient" onClick={() => handleSave("vibes")} disabled={isSaving}>
               {isSaving && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
               Save Vibes
@@ -1539,13 +1547,13 @@ const ProfileStudio = () => {
       </Drawer>
 
       {/* Basics Editor */}
-      <Drawer open={activeDrawer === "basics"} onOpenChange={handleProfileStudioDrawerOpenChange}>
-        <DrawerContent className="max-h-[85vh]">
+      <Drawer {...PROFILE_STUDIO_DRAWER_PROPS} open={activeDrawer === "basics"} onOpenChange={handleProfileStudioDrawerOpenChange}>
+        <DrawerContent className={PROFILE_STUDIO_DRAWER_CONTENT_CLASS}>
           <DrawerHeader>
             <DrawerTitle className="font-display">The Basics</DrawerTitle>
             <DrawerDescription>Keep it real. Authenticity is attractive.</DrawerDescription>
           </DrawerHeader>
-          <div className="px-4 pb-4 space-y-5 overflow-y-auto">
+          <div className={cn(PROFILE_STUDIO_DRAWER_BODY_CLASS, "space-y-5")}>
             <div className="space-y-2">
               <label className="text-sm font-medium text-foreground">Name</label>
               <Input value={editForm.name} onChange={(e) => setEditForm({ ...editForm, name: e.target.value })} placeholder="What should we call you?" className="glass-card border-border" />
@@ -1593,7 +1601,7 @@ const ProfileStudio = () => {
               </p>
             </div>
           </div>
-          <DrawerFooter>
+          <DrawerFooter className={PROFILE_STUDIO_DRAWER_FOOTER_CLASS}>
             <Button variant="gradient" onClick={() => handleSave("basics")} disabled={isSaving}>
               {isSaving && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
               Save Changes
@@ -1604,13 +1612,13 @@ const ProfileStudio = () => {
       </Drawer>
 
       {/* Bio Editor */}
-      <Drawer open={activeDrawer === "bio"} onOpenChange={handleProfileStudioDrawerOpenChange}>
-        <DrawerContent className="max-h-[85vh]">
+      <Drawer {...PROFILE_STUDIO_DRAWER_PROPS} open={activeDrawer === "bio"} onOpenChange={handleProfileStudioDrawerOpenChange}>
+        <DrawerContent className={PROFILE_STUDIO_DRAWER_CONTENT_CLASS}>
           <DrawerHeader>
             <DrawerTitle className="font-display">About Me</DrawerTitle>
             <DrawerDescription>You have 3 seconds to make them care. Make it count.</DrawerDescription>
           </DrawerHeader>
-          <div className="px-4 pb-4">
+          <div className={PROFILE_STUDIO_DRAWER_BODY_CLASS}>
             <Textarea
               value={editForm.aboutMe || ""}
               onChange={(e) => setEditForm({ ...editForm, aboutMe: e.target.value.slice(0, MAX_ABOUT_ME_LENGTH) })}
@@ -1620,7 +1628,7 @@ const ProfileStudio = () => {
             />
             <p className="text-xs text-muted-foreground text-right mt-2">{(editForm.aboutMe || "").length}/{MAX_ABOUT_ME_LENGTH}</p>
           </div>
-          <DrawerFooter>
+          <DrawerFooter className={PROFILE_STUDIO_DRAWER_FOOTER_CLASS}>
             <Button variant="gradient" onClick={() => handleSave("bio")} disabled={isSaving}>
               {isSaving && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
               Save
@@ -1631,15 +1639,15 @@ const ProfileStudio = () => {
       </Drawer>
 
       {/* Prompt Editor */}
-      <Drawer open={activeDrawer === "prompt"} onOpenChange={handleProfileStudioDrawerOpenChange}>
-        <DrawerContent className="max-h-[85vh]">
+      <Drawer {...PROFILE_STUDIO_DRAWER_PROPS} open={activeDrawer === "prompt"} onOpenChange={handleProfileStudioDrawerOpenChange}>
+        <DrawerContent className={PROFILE_STUDIO_DRAWER_CONTENT_CLASS}>
           <DrawerHeader>
             <DrawerTitle className="font-display">
               {promptEditorMode === "add" ? "Add Prompt" : "Edit Prompt"}
             </DrawerTitle>
             <DrawerDescription>Spark conversations with your answer.</DrawerDescription>
           </DrawerHeader>
-          <div className="px-4 pb-4 space-y-4 overflow-y-auto">
+          <div className={cn(PROFILE_STUDIO_DRAWER_BODY_CLASS, "space-y-4")}>
             {editingPromptIndex !== null && (
               <>
                 <PromptSelector
@@ -1669,7 +1677,7 @@ const ProfileStudio = () => {
               </>
             )}
           </div>
-          <DrawerFooter>
+          <DrawerFooter className={PROFILE_STUDIO_DRAWER_FOOTER_CLASS}>
             <Button
               variant="gradient"
               onClick={() => handleSave("prompt")}
@@ -1694,13 +1702,13 @@ const ProfileStudio = () => {
       </Drawer>
 
       {/* Intent Editor */}
-      <Drawer open={activeDrawer === "intent"} onOpenChange={handleProfileStudioDrawerOpenChange}>
-        <DrawerContent className="max-h-[85vh]">
+      <Drawer {...PROFILE_STUDIO_DRAWER_PROPS} open={activeDrawer === "intent"} onOpenChange={handleProfileStudioDrawerOpenChange}>
+        <DrawerContent className={PROFILE_STUDIO_DRAWER_CONTENT_CLASS}>
           <DrawerHeader>
             <DrawerTitle className="font-display">What are you looking for?</DrawerTitle>
             <DrawerDescription>Be upfront. It saves everyone time.</DrawerDescription>
           </DrawerHeader>
-          <div className="px-4 pb-4 overflow-y-auto space-y-6">
+          <div className={cn(PROFILE_STUDIO_DRAWER_BODY_CLASS, "space-y-6")}>
             <RelationshipIntent selected={editForm.lookingFor || ""} onSelect={(intent) => setEditForm({ ...editForm, lookingFor: intent })} editable />
             <div>
               <p className="text-sm font-medium text-foreground mb-2">Open to:</p>
@@ -1724,7 +1732,7 @@ const ProfileStudio = () => {
               </div>
             </div>
           </div>
-          <DrawerFooter>
+          <DrawerFooter className={PROFILE_STUDIO_DRAWER_FOOTER_CLASS}>
             <Button variant="gradient" onClick={() => handleSave("intent")} disabled={isSaving}>
               {isSaving && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
               Save
@@ -1735,16 +1743,16 @@ const ProfileStudio = () => {
       </Drawer>
 
       {/* Lifestyle Editor */}
-      <Drawer open={activeDrawer === "lifestyle"} onOpenChange={handleProfileStudioDrawerOpenChange}>
-        <DrawerContent className="max-h-[85vh]">
+      <Drawer {...PROFILE_STUDIO_DRAWER_PROPS} open={activeDrawer === "lifestyle"} onOpenChange={handleProfileStudioDrawerOpenChange}>
+        <DrawerContent className={PROFILE_STUDIO_DRAWER_CONTENT_CLASS}>
           <DrawerHeader>
             <DrawerTitle className="font-display">Lifestyle</DrawerTitle>
             <DrawerDescription>Help find someone compatible with your lifestyle.</DrawerDescription>
           </DrawerHeader>
-          <div className="px-4 pb-4 overflow-y-auto">
+          <div className={PROFILE_STUDIO_DRAWER_BODY_CLASS}>
             <LifestyleDetails values={editForm.lifestyle} onChange={(key, value) => setEditForm({ ...editForm, lifestyle: { ...editForm.lifestyle, [key]: value } })} editable />
           </div>
-          <DrawerFooter>
+          <DrawerFooter className={PROFILE_STUDIO_DRAWER_FOOTER_CLASS}>
             <Button variant="gradient" onClick={() => handleSave("lifestyle")} disabled={isSaving}>
               {isSaving && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
               Save
@@ -1755,13 +1763,13 @@ const ProfileStudio = () => {
       </Drawer>
 
       {/* Tagline */}
-      <Drawer open={activeDrawer === "tagline"} onOpenChange={handleProfileStudioDrawerOpenChange}>
-        <DrawerContent className="max-h-[85vh]">
+      <Drawer {...PROFILE_STUDIO_DRAWER_PROPS} open={activeDrawer === "tagline"} onOpenChange={handleProfileStudioDrawerOpenChange}>
+        <DrawerContent className={PROFILE_STUDIO_DRAWER_CONTENT_CLASS}>
           <DrawerHeader>
             <DrawerTitle className="font-display">Your Tagline</DrawerTitle>
             <DrawerDescription>A short slogan that captures who you are or what you&apos;re about.</DrawerDescription>
           </DrawerHeader>
-          <div className="px-4 pb-4">
+          <div className={PROFILE_STUDIO_DRAWER_BODY_CLASS}>
             <Input
               value={editForm.tagline || ""}
               onChange={(e) => setEditForm({ ...editForm, tagline: e.target.value.slice(0, 30) })}
@@ -1771,7 +1779,7 @@ const ProfileStudio = () => {
             />
             <p className="text-xs text-muted-foreground text-right mt-2">{(editForm.tagline || "").length}/30</p>
           </div>
-          <DrawerFooter>
+          <DrawerFooter className={PROFILE_STUDIO_DRAWER_FOOTER_CLASS}>
             <Button variant="gradient" onClick={() => handleSave("tagline")} disabled={isSaving}>
               {isSaving && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
               Save Tagline

@@ -23,6 +23,7 @@
     "trace:supabase-egress": "node scripts/supabase-egress-boot-trace.mjs",
     "launch:preflight": "node scripts/native-launch-preflight.mjs",
     "test:auth-redirect-contract": "tsx scripts/auth-redirect-contract.test.ts",
+    "test:profile-studio-mobile-overflow": "tsx scripts/profile-studio-mobile-overflow-contract.test.ts",
     "test:vibe-video-contract": "tsx scripts/vibe-video-semantics.test.ts && tsx scripts/vibe-video-contract.test.ts && tsx supabase/functions/_shared/onboardingTypes.test.ts",
     "test:daily-room-contract": "tsx supabase/functions/daily-room/dailyRoomContracts.test.ts",
     "test:browser-diagnostics": "tsx scripts/browser-diagnostics.test.ts && tsx scripts/browser-deploy-contract.test.ts",

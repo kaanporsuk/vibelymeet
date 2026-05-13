@@ -412,10 +412,10 @@ function ConfirmDialog({
 }) {
   if (!isOpen) return null;
   return (
-    <div className="fixed inset-0 z-[70] flex items-center justify-center">
-      <div className="absolute inset-0 bg-black/60" onClick={onCancel} />
+    <div className="fixed inset-0 z-[70] flex w-[100svw] max-w-[100svw] items-center justify-center overflow-hidden px-4">
+      <div className="absolute inset-0 max-w-[100svw] bg-black/60" onClick={onCancel} />
       <motion.div
-        className="relative z-10 w-full max-w-xs mx-4 rounded-2xl bg-[#1C1A2E] border border-white/10 p-6 text-center"
+        className="relative z-10 w-full max-w-xs rounded-2xl bg-[#1C1A2E] border border-white/10 p-6 text-center"
         initial={{ scale: 0.95, opacity: 0 }}
         animate={{ scale: 1, opacity: 1 }}
       >
@@ -476,7 +476,7 @@ function FullscreenViewer({
 
   return (
     <div
-      className="fixed inset-0 z-[9999] bg-black/95 flex items-center justify-center"
+      className="fixed inset-0 z-[9999] flex w-[100svw] max-w-[100svw] items-center justify-center overflow-hidden bg-black/95"
       onClick={onClose}
     >
       {/* Counter */}
@@ -518,7 +518,7 @@ function FullscreenViewer({
         src={fullScreenUrl(photos[currentIndex])}
         alt=""
         className={cn(
-          "max-w-[90vw] max-h-[85vh] object-contain transition-transform duration-300 select-none",
+          "max-w-[90svw] max-h-[85dvh] object-contain transition-transform duration-300 select-none",
           zoomed ? "scale-[2] cursor-zoom-out" : "cursor-zoom-in"
         )}
         draggable={false}
@@ -973,7 +973,7 @@ export default function PhotoManageDrawer({
     <AnimatePresence>
       {isOpen && (
         <motion.div
-          className="fixed inset-0 z-50 flex items-end sm:items-center justify-center"
+          className="fixed inset-0 z-50 flex w-[100svw] max-w-[100svw] items-end justify-center overflow-hidden sm:items-center sm:px-4"
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
@@ -981,17 +981,17 @@ export default function PhotoManageDrawer({
         >
           {/* Backdrop */}
           <motion.div
-            className="absolute inset-0 bg-black/75 backdrop-blur-sm"
+            className="absolute inset-0 max-w-[100svw] bg-black/75 backdrop-blur-sm"
             onClick={handleCloseAttempt}
           />
 
           {/* Modal */}
           <motion.div
             className={cn(
-              "relative z-10 flex flex-col bg-[#0D0B1A] border border-white/10 overflow-hidden",
+              "relative z-10 flex w-full max-w-[100svw] flex-col overflow-hidden border border-white/10 bg-[#0D0B1A]",
               isMobile
-                ? "w-full h-[92vh] rounded-t-2xl"
-                : "w-full max-w-[560px] max-h-[88vh] rounded-2xl"
+                ? "h-[92dvh] max-h-[92dvh] rounded-t-2xl"
+                : "max-h-[88dvh] max-w-[560px] rounded-2xl"
             )}
             initial={isMobile ? { y: "100%" } : { scale: 0.95, opacity: 0 }}
             animate={isMobile ? { y: 0 } : { scale: 1, opacity: 1 }}
@@ -1006,7 +1006,7 @@ export default function PhotoManageDrawer({
             )}
 
             {/* Header */}
-            <div className="px-5 pt-5 pb-3 flex-shrink-0">
+            <div className="shrink-0 px-5 pt-5 pb-3">
               <button
                 onClick={handleCloseAttempt}
                 className="absolute right-4 top-4 w-8 h-8 rounded-full bg-white/5 flex items-center justify-center hover:bg-white/10 transition-colors z-10"
@@ -1020,7 +1020,7 @@ export default function PhotoManageDrawer({
             </div>
 
             {/* Filmstrip */}
-            <div className="flex gap-2 px-5 pb-3 overflow-x-auto flex-shrink-0 scrollbar-hide">
+            <div className="flex max-w-full min-w-0 shrink-0 gap-2 overflow-x-auto overscroll-x-contain overflow-y-hidden px-5 pb-3 scrollbar-hide">
               {localPhotos.map((photo, i) => (
                 <div
                   key={`fs-${i}-${photo}`}
@@ -1050,7 +1050,7 @@ export default function PhotoManageDrawer({
             </div>
 
             {/* Grid */}
-            <div className="flex-1 overflow-y-auto px-5 pb-4">
+            <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden px-5 pb-[max(1rem,env(safe-area-inset-bottom))]">
               <DndContext
                 sensors={sensors}
                 collisionDetection={closestCenter}
@@ -1173,7 +1173,7 @@ export default function PhotoManageDrawer({
             </div>
 
             {/* Footer */}
-            <div className="flex-shrink-0 p-5 border-t border-white/[0.06]">
+            <div className="shrink-0 border-t border-white/[0.06] px-5 pt-5 pb-[max(1.25rem,env(safe-area-inset-bottom))]">
               <button
                 onClick={() => void handleSave()}
                 disabled={saving || failedSlots.size > 0 || uploadingSlots.size > 0}
