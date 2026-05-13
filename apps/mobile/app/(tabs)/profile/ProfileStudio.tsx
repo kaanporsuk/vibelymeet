@@ -1433,10 +1433,17 @@ export default function ProfileStudio() {
 
             const slots = [...list];
             while (slots.length < MAX_PROMPTS) slots.push({ question: '', answer: '' });
-            const displaySlots = slots.slice(0, MAX_PROMPTS);
+            const displaySlots = slots
+              .slice(0, MAX_PROMPTS)
+              .map((slot, index) => ({
+                slot,
+                index,
+                filled: !!(slot.question?.trim() && slot.answer?.trim()),
+              }))
+              .sort((a, b) => Number(b.filled) - Number(a.filled));
 
             const openSlot = (index: number) => {
-              const slot = displaySlots[index] ?? { question: '', answer: '' };
+              const slot = slots[index] ?? { question: '', answer: '' };
               const filled = !!(slot.question?.trim() && slot.answer?.trim());
               setPromptSheetMode(filled ? 'edit' : 'add');
               setPromptEditIndex(index);
@@ -1453,7 +1460,7 @@ export default function ProfileStudio() {
                   registerSectionCardLayout('prompts', y, height);
                 }}
               >
-                {displaySlots.map((slot, index) => {
+                {displaySlots.map(({ slot, index }) => {
                   const answerTrim = slot.answer?.trim() ?? '';
                   const filled = !!(slot.question?.trim() && answerTrim);
 
