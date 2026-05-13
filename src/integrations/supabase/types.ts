@@ -7451,6 +7451,13 @@ export type Database = {
         Args: { p_event_id: string; p_viewer_id: string }
         Returns: string[]
       }
+      get_home_unread_summary: {
+        Args: never
+        Returns: {
+          match_count: number
+          message_count: number
+        }[]
+      }
       get_media_worker_cron_job_status: {
         Args: { p_job_name?: string }
         Returns: Json
