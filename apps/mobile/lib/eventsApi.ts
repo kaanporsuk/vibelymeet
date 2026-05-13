@@ -1,4 +1,3 @@
-import { AppState } from 'react-native';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { SUPABASE_PUBLISHABLE_KEY, SUPABASE_URL, supabase } from '@/lib/supabase';
 import { getCachedUserId, getFreshCachedAccessToken } from '@/lib/nativeAuthSession';
@@ -600,7 +599,7 @@ export function useEventDeck(eventId: string, viewerProfileId: string | null, en
       return parseEventDeckProfiles(data);
     },
     enabled: enabled && !!viewerProfileId && !!eventId,
-    refetchInterval: () => (AppState.currentState === 'active' ? 15_000 : false),
+    refetchInterval: 15_000,
     refetchIntervalInBackground: false,
     staleTime: 10000,
   });

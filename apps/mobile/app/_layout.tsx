@@ -15,7 +15,7 @@ import {
 } from '@expo-google-fonts/space-grotesk';
 import * as Sentry from '@sentry/react-native';
 import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { focusManager, QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { useFonts } from 'expo-font';
 import * as Linking from 'expo-linking';
 import { Redirect, Stack, router, usePathname, useSegments } from 'expo-router';
@@ -345,6 +345,24 @@ function SupabaseAutoRefreshAppStateBridge() {
   return null;
 }
 
+function ReactQueryAppStateBridge() {
+  useEffect(() => {
+    const syncFocus = (nextState: AppStateStatus) => {
+      focusManager.setFocused(nextState === 'active');
+    };
+
+    syncFocus(AppState.currentState);
+    const subscription = AppState.addEventListener('change', syncFocus);
+
+    return () => {
+      subscription.remove();
+      focusManager.setFocused(undefined);
+    };
+  }, []);
+
+  return null;
+}
+
 function RealtimeLifecycleJanitor() {
   const pathname = usePathname();
 
@@ -542,6 +560,7 @@ function RootLayoutNav() {
 
   const navContent = (
     <QueryClientProvider client={queryClient}>
+      <ReactQueryAppStateBridge />
       <AuthProvider>
         <EntitlementsProvider>
         <SessionHydrationProvider>

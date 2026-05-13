@@ -68,7 +68,7 @@ export function useBadgeCount(): number {
       return (unreadMessages ?? 0) + unviewedDrops;
     },
     enabled: !!user?.id,
-    refetchInterval: () => (AppState.currentState === 'active' ? BADGE_COUNT_POLL_MS : false),
+    refetchInterval: BADGE_COUNT_POLL_MS,
     refetchIntervalInBackground: false,
   });
 

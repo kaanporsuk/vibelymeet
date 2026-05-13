@@ -907,7 +907,14 @@ const ProfileStudio = () => {
   const MAX_PROMPTS = 3;
   const promptSlots = [...profile.prompts];
   while (promptSlots.length < MAX_PROMPTS) promptSlots.push({ question: "", answer: "" });
-  const displayPrompts = promptSlots.slice(0, MAX_PROMPTS);
+  const displayPrompts = promptSlots
+    .slice(0, MAX_PROMPTS)
+    .map((slot, index) => ({
+      slot,
+      index,
+      filled: !!(slot.question?.trim() && slot.answer?.trim()),
+    }))
+    .sort((a, b) => Number(b.filled) - Number(a.filled));
 
   // ── Render ────────────────────────────────────────────────────
 
@@ -1214,7 +1221,7 @@ const ProfileStudio = () => {
             <h3 className="text-base font-display font-semibold text-white">Conversation Starters</h3>
           </div>
           <div className="space-y-3">
-            {displayPrompts.map((slot, index) => {
+            {displayPrompts.map(({ slot, index }) => {
               const hasQuestion = !!slot.question?.trim();
               const answerTrim = slot.answer?.trim() ?? "";
               const filled = hasQuestion && !!answerTrim;

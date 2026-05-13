@@ -13,7 +13,6 @@ import {
   RefreshControl,
   StyleSheet,
   Animated,
-  AppState,
 } from 'react-native';
 import { router, type Href } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -220,7 +219,7 @@ export default function DashboardScreen() {
       return normalizeHomeUnreadSummary(data);
     },
     enabled: !!user?.id,
-    refetchInterval: () => (AppState.currentState === 'active' ? 60_000 : false),
+    refetchInterval: 60_000,
     refetchIntervalInBackground: false,
   });
   const infoBarUnreadMessageCount = homeInfoBarUnread.messageCount;
