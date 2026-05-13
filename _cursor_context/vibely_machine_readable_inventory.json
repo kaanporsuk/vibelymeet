@@ -937,11 +937,7 @@
       "config_listed": true,
       "verify_jwt": false,
       "env_vars": [],
-      "frontend_references": [
-        "src/lib/healthUrl.ts",
-        "src/components/connectivity/OfflineBanner.tsx",
-        "src/components/PhoneVerification.tsx"
-      ]
+      "frontend_references": []
     },
     {
       "name": "phone-verify",
