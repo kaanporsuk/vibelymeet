@@ -86,10 +86,10 @@ test("web canonical profile keeps substance above the body photo gallery", () =>
   assert.ok(detailsIndex < photosIndex);
   assert.ok(verificationIndex < photosIndex);
 
-  assert.match(chat, /Voice note loading[\s\S]*className=\{cn\(quickActionButtonClass, "col-span-2 justify-center text-center"\)\}/);
-  assert.match(chat, /VoiceRecorder[\s\S]*className=\{cn\(quickActionButtonClass, "col-span-2 justify-center text-center"\)\}/);
-  assert.match(chat, /className=\{cn\(quickActionButtonClass, "col-span-2 justify-center text-center"\)\}/);
-  assert.match(chat, /<span className="whitespace-nowrap">Share Schedule<\/span>/);
+  assert.match(chat, /Voice note loading[\s\S]*className=\{quickActionButtonClass\}/);
+  assert.match(chat, /VoiceRecorder[\s\S]*className=\{quickActionButtonClass\}/);
+  assert.doesNotMatch(chat, /className=\{cn\(quickActionButtonClass, "col-span-2 justify-center text-center"\)\}/);
+  assert.match(chat, /<span className="whitespace-nowrap">Schedule<\/span>/);
 });
 
 test("native chat and matches route profile actions to the canonical user route", () => {
