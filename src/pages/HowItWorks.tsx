@@ -6,11 +6,11 @@ import {
   Calendar,
   CheckCircle2,
   Clock3,
-  EyeOff,
+  Eye,
   FileText,
   Gauge,
+  Gift,
   HeartHandshake,
-  MapPin,
   MessageCircleHeart,
   PhoneOff,
   ShieldCheck,
@@ -122,7 +122,7 @@ const featureSections: FeatureSection[] = [
     title: "More Ways to Connect",
     cards: [
       {
-        icon: MapPin,
+        icon: Gift,
         title: "Daily Drops",
         description: "Curated introductions for when you are not in a live event.",
         tone: "cyan",
@@ -157,7 +157,7 @@ const featureSections: FeatureSection[] = [
         tone: "violet",
       },
       {
-        icon: EyeOff,
+        icon: Eye,
         title: "Progressive-blur start",
         description: "Ease into the moment before full face-to-face video.",
         tone: "pink",
@@ -180,7 +180,17 @@ const featureSections: FeatureSection[] = [
 
 const badges = ["Event-based", "Video-first", "Consent-led"];
 
-function InfoCard({ card, index, compact = false }: { card: JourneyCard; index: number; compact?: boolean }) {
+function InfoCard({
+  card,
+  index,
+  compact = false,
+  className = "",
+}: {
+  card: JourneyCard;
+  index: number;
+  compact?: boolean;
+  className?: string;
+}) {
   const tone = toneClasses[card.tone];
 
   return (
@@ -188,7 +198,7 @@ function InfoCard({ card, index, compact = false }: { card: JourneyCard; index: 
       initial={{ opacity: 0, y: 16 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ delay: 0.08 * index }}
-      className="group relative overflow-hidden rounded-2xl border border-white/10 bg-card/55 p-4 backdrop-blur-xl transition-colors hover:border-white/20 sm:p-5"
+      className={`group relative overflow-hidden rounded-2xl border border-white/10 bg-card/55 p-4 backdrop-blur-xl transition-colors hover:border-white/20 sm:p-5 ${className}`}
     >
       <div className={`absolute inset-x-0 top-0 h-px ${tone.accent} opacity-60`} />
       <div className={compact ? "flex gap-3" : "space-y-4"}>
@@ -276,7 +286,13 @@ const HowItWorks = () => {
           </div>
           <div className="grid gap-3 sm:grid-cols-2">
             {vibelyLoop.map((step, index) => (
-              <InfoCard key={step.title} card={step} index={index} compact />
+              <InfoCard
+                key={step.title}
+                card={step}
+                index={index}
+                compact
+                className={index === vibelyLoop.length - 1 ? "sm:col-span-2" : ""}
+              />
             ))}
           </div>
         </section>
@@ -298,6 +314,11 @@ const HowItWorks = () => {
                   card={card}
                   index={sectionIndex * 4 + index}
                   compact={section.cards.length > 3}
+                  className={
+                    section.title === "Your Vibe, Not Just Your Photos" && index === section.cards.length - 1
+                      ? "sm:col-span-2"
+                      : ""
+                  }
                 />
               ))}
             </div>
