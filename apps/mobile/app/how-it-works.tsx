@@ -91,7 +91,7 @@ const INFO_SECTIONS: InfoSection[] = [
     title: 'More Ways to Connect',
     items: [
       {
-        icon: 'location-outline',
+        icon: 'gift-outline',
         title: 'Daily Drops',
         body: 'Curated introductions for when you are not in a live event.',
         tone: 'cyan',
@@ -126,7 +126,7 @@ const INFO_SECTIONS: InfoSection[] = [
         tone: 'violet',
       },
       {
-        icon: 'eye-off-outline',
+        icon: 'eye-outline',
         title: 'Progressive-blur start',
         body: 'Ease into the moment before full face-to-face video.',
         tone: 'pink',
