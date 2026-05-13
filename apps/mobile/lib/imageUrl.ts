@@ -1,6 +1,7 @@
 /**
  * Resolve profile/event image paths to full URLs.
- * Same logic as web src/utils/imageUrl.ts — Bunny CDN for photos/, Supabase storage for legacy paths.
+ * Same logic as web src/utils/imageUrl.ts — Bunny CDN for confirmed Storage prefixes,
+ * Supabase storage for legacy paths.
  *
  * Required for native: set EXPO_PUBLIC_BUNNY_CDN_HOSTNAME in .env (same value as web VITE_BUNNY_CDN_HOSTNAME).
  * Env is inlined at Metro bundle time; restart Metro after changing .env.
@@ -18,12 +19,13 @@ const BUNNY_CDN_PATH_PREFIX = (() => {
   return s;
 })();
 const SUPABASE_URL = process.env.EXPO_PUBLIC_SUPABASE_URL ?? '';
+const CONFIRMED_BUNNY_STORAGE_PREFIXES = ['photos/', 'events/', 'voice/', 'media/'];
 
 if (__DEV__ && !BUNNY_CDN && typeof global !== 'undefined') {
   const g = global as unknown as { __vibelyBunnyCdnLogged?: boolean };
   if (!g.__vibelyBunnyCdnLogged) {
     g.__vibelyBunnyCdnLogged = true;
-    console.warn('[Vibely] EXPO_PUBLIC_BUNNY_CDN_HOSTNAME is unset; profile/event images will show placeholder. Set it in apps/mobile/.env and restart Metro.');
+    console.warn('[Vibely] EXPO_PUBLIC_BUNNY_CDN_HOSTNAME is unset; Bunny-backed media paths will show placeholder. Set it in apps/mobile/.env and restart Metro.');
   }
 }
 
@@ -63,7 +65,7 @@ export function getImageUrl(
   }
   if (p.includes('supabase.co') || p.includes('supabase.in')) return p;
   if (p.startsWith('http://') || p.startsWith('https://') || p.startsWith('data:')) return p;
-  if (p.startsWith('photos/')) {
+  if (CONFIRMED_BUNNY_STORAGE_PREFIXES.some((prefix) => p.startsWith(prefix))) {
     if (!BUNNY_CDN) {
       return PLACEHOLDER;
     }

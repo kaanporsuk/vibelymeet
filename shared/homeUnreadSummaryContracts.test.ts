@@ -30,9 +30,11 @@ test("Home dashboards use aggregate unread summary instead of raw row paging", (
   assert.doesNotMatch(nativeDashboard, /unread conversations archive filter error/);
 });
 
-test("Home unread realtime invalidation includes message deletes", () => {
-  assert.match(webApp, /table: "messages" \}, invalidateHomeUnread/);
-  assert.match(webApp, /event: "\*"/);
-  assert.match(nativeChatApi, /table: 'messages' \},\s*invalidateInbox/);
-  assert.match(nativeChatApi, /event: '\*'/);
+test("Home unread realtime invalidation avoids unscoped message deletes", () => {
+  assert.doesNotMatch(webApp, /table: "messages"/);
+  assert.match(webApp, /table: "match_archives", filter: `user_id=eq\.\$\{userId\}`/);
+  assert.doesNotMatch(nativeChatApi, /\{\s*event: '\*', schema: 'public', table: 'messages'\s*\}/);
+  assert.match(nativeChatApi, /\{\s*event: 'INSERT', schema: 'public', table: 'messages'\s*\}/);
+  assert.match(nativeChatApi, /\{\s*event: 'UPDATE', schema: 'public', table: 'messages'\s*\}/);
+  assert.match(nativeChatApi, /\{\s*event: '\*', schema: 'public', table: 'match_archives', filter: `user_id=eq\.\$\{userId\}`\s*\}/);
 });

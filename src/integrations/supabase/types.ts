@@ -7383,6 +7383,15 @@ export type Database = {
           vibe_video_status: string
         }[]
       }
+      get_dashboard_visible_matches: {
+        Args: { p_limit?: number }
+        Returns: {
+          id: string
+          matched_at: string
+          profile_id_1: string
+          profile_id_2: string
+        }[]
+      }
       get_event_attendee_preview: {
         Args: { p_event_id: string; p_viewer_id: string }
         Returns: Json

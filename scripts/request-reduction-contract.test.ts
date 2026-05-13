@@ -77,25 +77,46 @@ test("boot diagnostics, health caps, and auth timeout recovery are wired", () =>
   const browserDiagnostics = read("src/lib/browserDiagnostics.ts");
   const authContext = read("src/contexts/AuthContext.tsx");
   const app = read("src/App.tsx");
+  const offlineBanner = read("src/components/connectivity/OfflineBanner.tsx");
+  const nativeAuthContext = read("apps/mobile/context/AuthContext.tsx");
 
   assert.match(browserDiagnostics, /window\.__vibelyBootDiagnostics/);
   assert.match(browserDiagnostics, /fetchHealthWithOnePerBootCap/);
   assert.match(browserDiagnostics, /browser\.health_check_capped/);
+  assert.match(browserDiagnostics, /cachedHealthResponse/);
+  assert.match(browserDiagnostics, /failedHealthResponseSnapshot/);
+  assert.match(browserDiagnostics, /headers\.delete\("content-length"\)/);
+  assert.match(browserDiagnostics, /TRAFFIC_QUERY_VALUE_ALLOWLIST/);
   assert.match(browserDiagnostics, /browser\.boot_supabase_summary/);
   assert.match(browserDiagnostics, /browser\.realtime_channel_state/);
+  assert.match(browserDiagnostics, /seenFromNewest/);
+  assert.match(browserDiagnostics, /channels\.length - 1/);
   assert.match(app, /instrumentSupabaseRealtimeDiagnostics\(supabase\)/);
   assert.match(app, /pruneDuplicateRealtimeChannels\(supabase,\s*`route:\$\{location\.pathname\}`\)/);
   assert.match(app, /visibilitychange/);
+  assert.doesNotMatch(offlineBanner, /getHealthUrl|functions\/v1\/health|fetch\(/);
+  assert.match(offlineBanner, /navigator\.onLine/);
   assert.match(authContext, /withBootTimeout/);
   assert.match(authContext, /auth\.getSession/);
   assert.match(authContext, /resolve_entry_state/);
   assert.match(authContext, /getFallbackEntryState\("resolver_exception"\)/);
+  assert.match(authContext, /const userId = currentUserId/);
+  assert.match(authContext, /authUserIdRef\.current !== userId/);
   assert.match(authContext, /removeAllRealtimeChannels\(supabase,\s*"logout"\)/);
   assert.match(authContext, /clearMyLocationDataCache\(\)/);
+  assert.match(nativeAuthContext, /withNativeAuthTimeout/);
+  assert.match(nativeAuthContext, /auth\.getSession/);
+  assert.match(nativeAuthContext, /resolve_entry_state/);
+  assert.match(nativeAuthContext, /getFallbackEntryState\('resolver_exception'\)/);
+  assert.match(nativeAuthContext, /const userId = currentUserId/);
+  assert.match(nativeAuthContext, /authUserIdRef\.current !== userId/);
 });
 
 test("home boot realtime and polling hot paths are narrowed or paused", () => {
   const app = read("src/App.tsx");
+  const nativeApp = read("apps/mobile/app/_layout.tsx");
+  const nativeRealtimeLifecycle = read("apps/mobile/lib/realtimeLifecycle.ts");
+  const nativeAuthContext = read("apps/mobile/context/AuthContext.tsx");
   const useEvents = read("src/hooks/useEvents.ts");
   const useMatches = read("src/hooks/useMatches.ts");
   const entitlements = read("src/contexts/EntitlementsContext.tsx");
@@ -113,6 +134,11 @@ test("home boot realtime and polling hot paths are narrowed or paused", () => {
   assert.match(heartbeat, /document\.visibilityState\s*!==\s*"visible"/);
   assert.match(activeSession, /ACTIVE_SESSION_POLL_MS\s*=\s*30_000/);
   assert.match(activeSession, /document\.visibilityState\s*!==\s*"visible"/);
+  assert.match(nativeRealtimeLifecycle, /seenFromNewest/);
+  assert.match(nativeRealtimeLifecycle, /channels\.length - 1/);
+  assert.match(nativeApp, /pruneDuplicateRealtimeChannels\(supabase,\s*`route:\$\{pathname\}`\)/);
+  assert.match(nativeApp, /AppState\.addEventListener\('change'/);
+  assert.match(nativeAuthContext, /removeAllRealtimeChannels\(supabase,\s*'sign_out'\)/);
 });
 
 test("dashboard request reduction defers rows and avoids obvious overfetch", () => {
@@ -120,6 +146,7 @@ test("dashboard request reduction defers rows and avoids obvious overfetch", () 
   const inbox = read("src/hooks/useNotificationInbox.ts");
   const myLocation = read("src/services/myLocationData.ts");
   const matches = read("src/hooks/useMatches.ts");
+  const last8ReviewMigration = read("supabase/migrations/20260513012000_last8_codex_review_followups.sql");
 
   assert.match(inbox, /loadRows\s*=\s*options\.loadRows\s*\?\?\s*true/);
   assert.match(inbox, /enabled:\s*!!userId\s*&&\s*loadRows/);
@@ -128,8 +155,15 @@ test("dashboard request reduction defers rows and avoids obvious overfetch", () 
   assert.match(dashboard, /refetchInterval:\s*\(\)\s*=>[\s\S]{0,160}document\.visibilityState\s*===\s*"visible"\s*\?\s*60_000\s*:\s*false/);
   assert.match(myLocation, /MY_LOCATION_CACHE_TTL_MS\s*=\s*60_000/);
   assert.match(myLocation, /locationDataInFlight/);
-  assert.match(matches, /\.limit\(20\)/);
-  assert.match(matches, /const dashboardMatches = visibleMatches\.slice\(0,\s*5\)/);
+  assert.match(matches, /\.rpc\("get_dashboard_visible_matches",\s*\{\s*p_limit:\s*5\s*\}\)/);
+  assert.match(matches, /function isMissingDashboardRpc/);
+  assert.match(matches, /if \(!isMissingDashboardRpc\(error\)\) throw error/);
+  assert.match(matches, /while \(visibleMatches\.length < 5\)/);
+  assert.match(matches, /\.range\(offset,\s*offset \+ pageSize - 1\)/);
+  assert.match(matches, /return visibleMatches\.slice\(0,\s*5\)/);
+  assert.match(last8ReviewMigration, /CREATE OR REPLACE FUNCTION public\.get_dashboard_visible_matches\(p_limit integer DEFAULT 5\)/);
+  assert.match(last8ReviewMigration, /NOT EXISTS \([\s\S]*public\.match_archives[\s\S]*archive\.user_id = viewer\.user_id/);
+  assert.match(last8ReviewMigration, /LIMIT greatest\(0, least\(coalesce\(p_limit, 5\), 20\)\)/);
 });
 
 test("media routing only promotes verified Bunny-backed prefixes", () => {

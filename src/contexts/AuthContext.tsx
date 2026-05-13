@@ -253,11 +253,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
 
     setEntryStateLoading(true);
+    const userId = currentUserId;
     try {
       const nextEntryState = await withBootTimeout(
         resolveEntryState(supabase),
         "resolve_entry_state",
       );
+      if (authUserIdRef.current !== userId) return null;
       setEntryState(nextEntryState);
       trackEvent("entry_state_resolved", {
         state: nextEntryState.state,
@@ -269,6 +271,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return nextEntryState;
     } catch (error) {
       const fallbackEntryState = getFallbackEntryState("resolver_exception");
+      if (authUserIdRef.current !== userId) return null;
       setEntryState(fallbackEntryState);
       trackEvent("entry_state_resolved", {
         state: fallbackEntryState.state,
@@ -283,7 +286,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
       return fallbackEntryState;
     } finally {
-      setEntryStateLoading(false);
+      if (authUserIdRef.current === userId) setEntryStateLoading(false);
     }
   }, [currentAuthProvider, currentUserId]);
 

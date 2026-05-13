@@ -17,12 +17,14 @@ import { clearRevenueCatUser } from '@/lib/revenuecat';
 import { resolveEntryState as resolveCurrentEntryState, signInWithEmail, type OnboardingStatus } from '@/lib/authApi';
 import { toError } from '@/lib/contractErrors';
 import {
+  getFallbackEntryState,
   getAuthProvider,
   getEntryStateOnboardingStatus,
   type EntryStateResponse,
 } from '@shared/entryState';
 import { RC_CATEGORY, rcBreadcrumb } from '@/lib/nativeRcDiagnostics';
 import { clearPreparedVideoDateEntryCache } from '@clientShared/matching/videoDatePrepareEntry';
+import { removeAllRealtimeChannels } from '@/lib/realtimeLifecycle';
 
 type AuthState = {
   user: User | null;
@@ -43,6 +45,23 @@ type AuthContextValue = AuthState & {
 };
 
 const AuthContext = createContext<AuthContextValue | null>(null);
+const AUTH_SESSION_TIMEOUT_MS = 5_000;
+const ENTRY_STATE_TIMEOUT_MS = 9_000;
+
+function withNativeAuthTimeout<T>(
+  promise: PromiseLike<T>,
+  operation: string,
+  timeoutMs: number,
+): Promise<T> {
+  let timeoutId: ReturnType<typeof setTimeout> | null = null;
+  const timeout = new Promise<never>((_, reject) => {
+    timeoutId = setTimeout(() => reject(new Error(`${operation}_timeout`)), timeoutMs);
+  });
+
+  return Promise.race([Promise.resolve(promise), timeout]).finally(() => {
+    if (timeoutId) clearTimeout(timeoutId);
+  });
+}
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
@@ -93,8 +112,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
 
     setEntryStateLoading(true);
+    const userId = currentUserId;
     try {
-      const nextEntryState = await resolveCurrentEntryState();
+      const nextEntryState = await withNativeAuthTimeout(
+        resolveCurrentEntryState(),
+        'resolve_entry_state',
+        ENTRY_STATE_TIMEOUT_MS,
+      );
+      if (authUserIdRef.current !== userId) return null;
       setEntryState(nextEntryState);
       rcBreadcrumb(RC_CATEGORY.authEntryState, 'entry_state_resolved', {
         state: nextEntryState.state,
@@ -109,8 +134,30 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         evaluation_version: nextEntryState.evaluation_version,
       });
       return nextEntryState;
+    } catch (error) {
+      const fallbackEntryState = getFallbackEntryState('resolver_exception');
+      if (authUserIdRef.current !== userId) return null;
+      setEntryState(fallbackEntryState);
+      rcBreadcrumb(RC_CATEGORY.authEntryState, 'entry_state_resolved', {
+        state: fallbackEntryState.state,
+        reason_code: fallbackEntryState.reason_code ?? null,
+        evaluation_version: fallbackEntryState.evaluation_version ?? null,
+        fallback: true,
+      });
+      trackEvent('entry_state_resolved', {
+        state: fallbackEntryState.state,
+        reason_code: fallbackEntryState.reason_code,
+        platform: 'native',
+        provider: currentAuthProvider,
+        evaluation_version: fallbackEntryState.evaluation_version,
+        fallback: true,
+      });
+      if (__DEV__) {
+        console.warn('[auth] entry state bootstrap failed:', error);
+      }
+      return fallbackEntryState;
     } finally {
-      setEntryStateLoading(false);
+      if (authUserIdRef.current === userId) setEntryStateLoading(false);
     }
   }, [currentAuthProvider, currentUserId]);
 
@@ -134,7 +181,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         const {
           data: { session: s },
           error,
-        } = await supabase.auth.getSession();
+        } = await withNativeAuthTimeout(
+          supabase.auth.getSession(),
+          'auth.getSession',
+          AUTH_SESSION_TIMEOUT_MS,
+        );
 
         if (error) {
           if (isRecoverableNativeAuthError(error)) {
@@ -213,6 +264,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const signOut = useCallback(async () => {
     resetAnalytics();
     clearPreparedVideoDateEntryCache();
+    removeAllRealtimeChannels(supabase, 'sign_out');
     const current = await getCachedSession();
     const uid = current?.user?.id;
     invalidateCachedSession();
@@ -232,7 +284,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
     void clearRevenueCatUser();
 
-    const { error: signOutError } = await supabase.auth.signOut();
+    const { error: signOutError } = await withNativeAuthTimeout(
+      supabase.auth.signOut(),
+      'auth.signOut',
+      AUTH_SESSION_TIMEOUT_MS,
+    ).catch((error) => ({ error }));
     if (signOutError) {
       if (isInvalidRefreshTokenError(signOutError) || isNoSessionError(signOutError)) {
         await recoverNativeAuthSession('sign-out', signOutError);
@@ -240,7 +296,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         clearAuthState();
         return;
       }
-      throw signOutError;
+      if (__DEV__) {
+        console.warn('[signOut] auth signOut failed; clearing local session:', signOutError);
+      }
     }
 
     const storageCleanup = await clearNativeSupabaseAuthStorage();

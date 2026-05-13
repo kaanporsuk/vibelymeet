@@ -1,42 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { getHealthUrl } from "@/lib/healthUrl";
 
 type NetState = "online" | "reconnecting" | "offline";
 
-function abortAfter(ms: number): AbortSignal {
-  // AbortSignal.timeout() auto-clears — no orphaned timers
-  if (typeof AbortSignal.timeout === 'function') {
-    return AbortSignal.timeout(ms);
-  }
-  // Fallback for older runtimes
-  const c = new AbortController();
-  const t = window.setTimeout(() => c.abort(), ms);
-  // Return a signal that also clears the timer
-  const originalAbort = c.abort.bind(c);
-  c.abort = () => {
-    window.clearTimeout(t);
-    originalAbort();
-  };
-  return c.signal;
-}
-
-async function probeHealthOk(timeoutMs: number): Promise<boolean> {
-  const url = getHealthUrl();
-  if (!url) return true;
-  try {
-    const res = await fetch(url, {
-      method: "GET",
-      cache: "no-store",
-      signal: abortAfter(timeoutMs),
-    });
-    return res.ok;
-  } catch {
-    return false;
-  }
+function isBrowserOnline(): boolean {
+  return typeof navigator === "undefined" || navigator.onLine !== false;
 }
 
 function useWebConnectivity(): NetState {
-  const [state, setStateRaw] = useState<NetState>("online");
+  const [state, setStateRaw] = useState<NetState>(() => (isBrowserOnline() ? "online" : "offline"));
   const startupGraceRef = useRef(true);
   const probeLoopRef = useRef<number | null>(null);
   const debounceOfflineRef = useRef<number | null>(null);
@@ -61,25 +32,24 @@ function useWebConnectivity(): NetState {
     }
   }
 
-  const probe = useCallback(async () => {
+  const probe = useCallback(() => {
     clearProbeLoop();
-    const ok = await probeHealthOk(8000);
-    if (ok) {
-      if (stabilityRef.current != null) window.clearTimeout(stabilityRef.current);
-      stabilityRef.current = window.setTimeout(async () => {
-        stabilityRef.current = null;
-        const confirm = await probeHealthOk(5000);
-        if (confirm) {
-          setNetState("online");
-        } else {
-          setNetState("reconnecting");
-          probeLoopRef.current = window.setTimeout(() => void probe(), 8000);
-        }
-      }, 2000);
+    if (!isBrowserOnline()) {
+      setNetState((s) => (s === "offline" || s === "online" ? "reconnecting" : s));
+      probeLoopRef.current = window.setTimeout(probe, 8000);
       return;
     }
-    setNetState((s) => (s === "offline" || s === "online" ? "reconnecting" : s));
-    probeLoopRef.current = window.setTimeout(() => void probe(), 8000);
+
+    if (stabilityRef.current != null) window.clearTimeout(stabilityRef.current);
+    stabilityRef.current = window.setTimeout(() => {
+      stabilityRef.current = null;
+      if (isBrowserOnline()) {
+        setNetState("online");
+      } else {
+        setNetState("reconnecting");
+        probeLoopRef.current = window.setTimeout(probe, 8000);
+      }
+    }, 2000);
   }, [setNetState]);
 
   useEffect(() => {
@@ -95,7 +65,7 @@ function useWebConnectivity(): NetState {
       debounceOfflineRef.current = window.setTimeout(() => {
         debounceOfflineRef.current = null;
         setNetState("offline");
-        probeLoopRef.current = window.setTimeout(() => void probe(), 8000);
+        probeLoopRef.current = window.setTimeout(probe, 8000);
       }, 2000);
     };
 
@@ -113,13 +83,11 @@ function useWebConnectivity(): NetState {
         debounceOfflineRef.current = null;
       }
       setNetState("reconnecting");
-      window.setTimeout(() => void probe(), 400);
+      window.setTimeout(probe, 400);
     };
 
     window.addEventListener("offline", onBrowserOffline);
     window.addEventListener("online", onBrowserOnline);
-
-    window.setTimeout(() => void probe(), 400);
 
     return () => {
       window.removeEventListener("offline", onBrowserOffline);
