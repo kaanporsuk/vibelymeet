@@ -91,17 +91,22 @@ export default function EventFilterSheet({
   const [cityResults, setCityResults] = useState<GeoResult[]>([]);
   const [isCitySearching, setIsCitySearching] = useState(false);
   const geocodeTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const geocodeRunRef = useRef(0);
 
   useEffect(() => {
+    geocodeRunRef.current += 1;
+    if (geocodeTimeout.current) clearTimeout(geocodeTimeout.current);
+    setCityQuery('');
+    setCityResults([]);
+    setIsCitySearching(false);
+    setLocationActionMessage(null);
+
     if (visible) {
       let f = filters;
       if (f.locationMode === 'city' && !canCityBrowse) {
         f = { ...f, locationMode: 'nearby', selectedCity: null };
       }
       setDraft(f);
-      setCityQuery('');
-      setCityResults([]);
-      setLocationActionMessage(null);
       void refreshLocationPermission();
     }
   }, [visible, filters, canCityBrowse, refreshLocationPermission]);
@@ -131,17 +136,17 @@ export default function EventFilterSheet({
 
   const nearbyPermissionHelperText = useMemo(() => {
     if (locationActionLoading || locationPermission.isLoading) return 'Checking location permission...';
-    if (locationPermission.status === 'unknown') return "Couldn't check location permission — tap to retry";
+    if (locationPermission.status === 'unknown') return "Couldn't check location permission - tap to retry";
     if (locationPermission.servicesEnabled === false) {
-      return 'Location Services are off — tap to open Settings';
+      return 'Location Services are off - tap to open Settings';
     }
     if (locationPermission.denied && locationPermission.canAskAgain === false) {
-      return 'Location permission is off — tap to update in Settings';
+      return 'Location permission is off - tap to update in Settings';
     }
-    if (locationPermission.denied) return 'Location permission denied — tap to request access';
+    if (locationPermission.denied) return 'Location permission denied - tap to request access';
     if (locationPermission.undetermined) return 'Tap to allow location for Nearby events';
     if (locationPermission.granted && hasSavedLocation === false) {
-      return 'Location allowed — tap to save your area for Nearby events';
+      return 'Location allowed - tap to save your area for Nearby events';
     }
     return null;
   }, [
@@ -213,18 +218,47 @@ export default function EventFilterSheet({
   const handleCitySearch = useCallback((q: string) => {
     setCityQuery(q);
     if (geocodeTimeout.current) clearTimeout(geocodeTimeout.current);
-    if (q.length < 2) { setCityResults([]); return; }
+    const runId = ++geocodeRunRef.current;
+    const query = q.trim();
+    if (!canCityBrowse) {
+      setCityResults([]);
+      setIsCitySearching(false);
+      return;
+    }
+    if (query.length < 2) {
+      setCityResults([]);
+      setIsCitySearching(false);
+      return;
+    }
     geocodeTimeout.current = setTimeout(async () => {
       setIsCitySearching(true);
       try {
-        const { data, error } = await supabase.functions.invoke('forward-geocode', { body: { query: q } });
+        const { data, error } = await supabase.functions.invoke('forward-geocode', { body: { query } });
+        if (geocodeRunRef.current !== runId) return;
         if (!error && Array.isArray(data)) setCityResults(data);
         else setCityResults([]);
       } catch {
+        if (geocodeRunRef.current !== runId) return;
         setCityResults([]);
       }
-      setIsCitySearching(false);
+      if (geocodeRunRef.current === runId) setIsCitySearching(false);
     }, 300);
+  }, [canCityBrowse]);
+
+  useEffect(() => {
+    if (canCityBrowse) return;
+    geocodeRunRef.current += 1;
+    if (geocodeTimeout.current) clearTimeout(geocodeTimeout.current);
+    setCityQuery('');
+    setCityResults([]);
+    setIsCitySearching(false);
+  }, [canCityBrowse]);
+
+  useEffect(() => {
+    return () => {
+      geocodeRunRef.current += 1;
+      if (geocodeTimeout.current) clearTimeout(geocodeTimeout.current);
+    };
   }, []);
 
   const selectCity = useCallback((result: GeoResult) => {
@@ -302,7 +336,7 @@ export default function EventFilterSheet({
       </View>
 
       <View style={s.bodyContent}>
-            {/* ── Categories ── */}
+            {/* Categories */}
             <Text style={[s.sectionTitle, { color: theme.text }]}>Categories</Text>
             <View style={s.chipWrap}>
               {eventCategories.map(cat => {
@@ -326,7 +360,7 @@ export default function EventFilterSheet({
               })}
             </View>
 
-            {/* ── Language ── */}
+            {/* Language */}
             <Text style={[s.sectionTitle, { color: theme.text, marginTop: spacing.xl }]}>Language</Text>
             <ScrollView
               horizontal
@@ -367,7 +401,7 @@ export default function EventFilterSheet({
               })}
             </ScrollView>
 
-            {/* ── Location ── */}
+            {/* Location */}
             <Text style={[s.sectionTitle, { color: theme.text, marginTop: spacing.xl }]}>Location</Text>
 
             {/* Mode pills */}
@@ -431,11 +465,13 @@ export default function EventFilterSheet({
             {/* City mode: upsell for free users */}
             {draft.locationMode === 'city' && !canCityBrowse && (
               <View style={[s.upsellCard, { borderColor: 'rgba(139,92,246,0.25)' }]}>
-                <Text style={s.upsellEmoji}>💎</Text>
+                <View style={[s.upsellIcon, { backgroundColor: theme.tintSoft }]}>
+                  <Ionicons name="sparkles" size={18} color={theme.tint} />
+                </View>
                 <View style={s.upsellContent}>
                   <Text style={[s.upsellTitle, { color: theme.text }]}>Discover events in other cities</Text>
                   <Text style={[s.upsellDesc, { color: theme.textSecondary }]}>
-                    Search and join events anywhere in the world with Vibely Premium
+                    Search and join events anywhere in the world with Vibely Premium or VIP
                   </Text>
                   <Pressable onPress={onPremiumUpgrade} style={s.upsellCta}>
                     <Ionicons name="sparkles" size={14} color="#fff" />
@@ -452,7 +488,7 @@ export default function EventFilterSheet({
                   <View style={[s.selectedCityRow, { backgroundColor: theme.surfaceSubtle, borderColor: theme.border }]}>
                     <Ionicons name="location" size={16} color={theme.tint} />
                     <Text style={[s.selectedCityText, { color: theme.text }]} numberOfLines={1}>
-                      📍 {draft.selectedCity.name}
+                      {draft.selectedCity.name}
                       {draft.selectedCity.region ? `, ${draft.selectedCity.region}` : ''}, {draft.selectedCity.country}
                     </Text>
                     <Pressable onPress={clearCity} hitSlop={8}>
@@ -527,7 +563,7 @@ export default function EventFilterSheet({
               })}
             </View>
 
-            {/* ── Event Status ── */}
+            {/* Event Status */}
             <Text style={[s.sectionTitle, { color: theme.text, marginTop: spacing.xl }]}>Event Status</Text>
             <View style={[s.toggleRow, { backgroundColor: theme.surfaceSubtle, borderColor: theme.border }]}>
               <View style={s.toggleLabel}>
@@ -590,7 +626,7 @@ const s = StyleSheet.create({
     fontWeight: '600',
     marginBottom: spacing.md,
     textTransform: 'uppercase',
-    letterSpacing: 0.5,
+    letterSpacing: 0,
   },
   chipWrap: {
     flexDirection: 'row',
@@ -622,7 +658,7 @@ const s = StyleSheet.create({
     fontWeight: '500',
   },
 
-  // ── Location ──
+  // Location
   locationModeRow: {
     flexDirection: 'row',
     gap: spacing.sm,
@@ -664,8 +700,12 @@ const s = StyleSheet.create({
     backgroundColor: 'rgba(139,92,246,0.08)',
     marginBottom: spacing.md,
   },
-  upsellEmoji: {
-    fontSize: 24,
+  upsellIcon: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   upsellContent: {
     flex: 1,
@@ -754,7 +794,7 @@ const s = StyleSheet.create({
     paddingVertical: spacing.md,
   },
 
-  // ── Distance ──
+  // Distance
   distanceRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -772,7 +812,7 @@ const s = StyleSheet.create({
     fontWeight: '500',
   },
 
-  // ── Shared ──
+  // Shared
   toggleRow: {
     flexDirection: 'row',
     alignItems: 'center',

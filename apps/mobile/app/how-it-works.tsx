@@ -1,5 +1,5 @@
 /**
- * How Vibely Works — aligned with web src/pages/HowItWorks.tsx
+ * How Vibely Works - aligned with web src/pages/HowItWorks.tsx
  */
 import React from 'react';
 import { View, Text, ScrollView, StyleSheet, Pressable } from 'react-native';
@@ -8,54 +8,203 @@ import { router, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useColorScheme } from '@/components/useColorScheme';
 import Colors from '@/constants/Colors';
-import { spacing, typography, layout, radius } from '@/constants/theme';
+import { spacing, typography, layout, radius, shadows } from '@/constants/theme';
 import { Card, GlassSurface, VibelyText } from '@/components/ui';
 
-const STEPS = [
+type IconName = keyof typeof Ionicons.glyphMap;
+type Tone = 'violet' | 'pink' | 'cyan';
+
+type InfoItem = {
+  icon: IconName;
+  title: string;
+  body: string;
+  tone: Tone;
+};
+
+type InfoSection = {
+  title: string;
+  intro?: string;
+  items: InfoItem[];
+};
+
+const BADGES = ['Event-based', 'Video-first', 'Consent-led'];
+
+const VIBELY_LOOP: InfoItem[] = [
   {
-    icon: 'calendar-outline' as const,
-    title: 'Join an Event',
-    body: 'Browse curated social and dating events — each with a unique theme, audience, and vibe. You can only discover and match with people attending the same event.',
+    icon: 'person-outline',
+    title: 'Build your vibe',
+    body: 'Create a profile that shows your energy with photos, prompts, Vibe Video, Vibe Score, and verification.',
+    tone: 'violet',
   },
   {
-    icon: 'videocam-outline' as const,
-    title: 'Video Dates',
-    body: "When there's mutual interest, connect through consent-gated video dates. Both people confirm they're ready before the call begins. The blur fades as you talk — real chemistry, not just photos.",
+    icon: 'calendar-outline',
+    title: 'Choose an event',
+    body: 'Join curated social and dating events. Start nearby, or use premium city discovery to explore more places.',
+    tone: 'pink',
   },
   {
-    icon: 'heart-outline' as const,
-    title: 'Match by Vibes',
-    body: "After each video date, both of you decide. When it's mutual, it's a match. No endless swiping — just genuine connections through face-to-face conversations.",
+    icon: 'people-outline',
+    title: 'Vibe in the live lobby',
+    body: 'When an event goes live, browse guests in the event lobby and send a Vibe when someone feels right.',
+    tone: 'cyan',
   },
   {
-    icon: 'chatbubble-outline' as const,
-    title: 'Keep the Connection',
-    body: 'Continue the conversation through chat, voice messages, and video clips. Plan your next date with Vibe Schedule to find a time that works for both of you.',
+    icon: 'checkmark-circle-outline',
+    title: 'Both get ready',
+    body: 'When the interest is mutual, the Ready Gate opens. You both opt in before the live video date begins.',
+    tone: 'violet',
+  },
+  {
+    icon: 'videocam-outline',
+    title: 'Meet face-to-face',
+    body: 'Start with a progressive-blur video moment, feel the chemistry, then decide if you both want to keep going.',
+    tone: 'pink',
   },
 ];
 
-const FEATURES = [
+const INFO_SECTIONS: InfoSection[] = [
   {
-    emoji: '💧',
-    title: 'Daily Drops',
-    body: "Every day at 6 PM, Vibely pairs you with one specially selected person. It's mutual — both of you are chosen for each other.",
+    title: 'Your Vibe, Not Just Your Photos',
+    intro: 'Profiles are built to help people feel who you are before the first live moment.',
+    items: [
+      {
+        icon: 'videocam-outline',
+        title: 'Vibe Video',
+        body: 'A short intro that helps people feel your energy before you meet.',
+        tone: 'pink',
+      },
+      {
+        icon: 'speedometer-outline',
+        title: 'Vibe Score',
+        body: 'A profile-quality signal that rewards a more complete, more trustworthy profile.',
+        tone: 'violet',
+      },
+      {
+        icon: 'sparkles-outline',
+        title: 'Profile Studio',
+        body: 'Your space to shape how you show up: photos, prompts, about me, looking for, vibes, schedule, verification, and invites.',
+        tone: 'cyan',
+      },
+    ],
   },
   {
-    emoji: '📅',
-    title: 'Vibe Schedule',
-    body: "Set your weekly availability so matches know when you're free for a video date. No more back-and-forth scheduling.",
+    title: 'More Ways to Connect',
+    items: [
+      {
+        icon: 'location-outline',
+        title: 'Daily Drops',
+        body: 'Curated introductions for when you are not in a live event.',
+        tone: 'cyan',
+      },
+      {
+        icon: 'chatbubble-ellipses-outline',
+        title: 'Chat That Keeps the Vibe Going',
+        body: 'Keep the vibe going with messages and richer conversation tools after a mutual connection.',
+        tone: 'pink',
+      },
+      {
+        icon: 'time-outline',
+        title: 'Vibe Schedule',
+        body: 'Make planning easier when the connection feels right.',
+        tone: 'violet',
+      },
+      {
+        icon: 'person-add-outline',
+        title: 'Invite Friends',
+        body: 'Bring people into Vibely or invite them to a specific event.',
+        tone: 'cyan',
+      },
+    ],
   },
   {
-    emoji: '🎬',
-    title: 'Vibe Video',
-    body: 'Record a short video introduction for your profile. Let people see the real you before matching.',
-  },
-  {
-    emoji: '⭐',
-    title: 'Vibe Score',
-    body: 'Complete your profile to boost your Vibe Score. Higher scores get more visibility in events and discovery.',
+    title: 'Trust Built In',
+    items: [
+      {
+        icon: 'checkmark-circle-outline',
+        title: 'Readiness before video',
+        body: 'Both people confirm before entering a live date.',
+        tone: 'violet',
+      },
+      {
+        icon: 'eye-off-outline',
+        title: 'Progressive-blur start',
+        body: 'Ease into the moment before full face-to-face video.',
+        tone: 'pink',
+      },
+      {
+        icon: 'shield-checkmark-outline',
+        title: 'Verification and age checks',
+        body: 'Verification, age checks, reporting, blocking, and end-call controls help protect the experience.',
+        tone: 'cyan',
+      },
+      {
+        icon: 'call-outline',
+        title: 'Report, block, or end anytime',
+        body: 'You stay in control before, during, and after the date.',
+        tone: 'violet',
+      },
+    ],
   },
 ];
+
+function getTone(theme: typeof Colors.light, tone: Tone) {
+  if (tone === 'pink') {
+    return {
+      color: theme.neonPink,
+      backgroundColor: 'rgba(232, 67, 147, 0.14)',
+      borderColor: 'rgba(232, 67, 147, 0.28)',
+    };
+  }
+
+  if (tone === 'cyan') {
+    return {
+      color: theme.neonCyan,
+      backgroundColor: 'rgba(6, 182, 212, 0.14)',
+      borderColor: 'rgba(6, 182, 212, 0.28)',
+    };
+  }
+
+  return {
+    color: theme.neonViolet,
+    backgroundColor: theme.tintSoft,
+    borderColor: 'rgba(139, 92, 246, 0.3)',
+  };
+}
+
+function InfoCard({ item, compact = false }: { item: InfoItem; compact?: boolean }) {
+  const colorScheme = useColorScheme();
+  const theme = Colors[colorScheme];
+  const tone = getTone(theme, item.tone);
+
+  return (
+    <Card
+      variant="glass"
+      style={[
+        styles.infoCard,
+        compact && styles.infoCardCompact,
+        { borderColor: tone.borderColor },
+      ]}
+    >
+      <View style={compact ? styles.infoCardRow : styles.infoCardStack}>
+        <View
+          style={[
+            styles.infoIcon,
+            {
+              backgroundColor: tone.backgroundColor,
+              borderColor: tone.borderColor,
+            },
+          ]}
+        >
+          <Ionicons name={item.icon} size={22} color={tone.color} />
+        </View>
+        <View style={styles.infoText}>
+          <Text style={[styles.infoTitle, { color: theme.text }]}>{item.title}</Text>
+          <Text style={[styles.infoBody, { color: theme.mutedForeground }]}>{item.body}</Text>
+        </View>
+      </View>
+    </Card>
+  );
+}
 
 export default function HowItWorksScreen() {
   const insets = useSafeAreaInsets();
@@ -75,7 +224,12 @@ export default function HowItWorksScreen() {
           },
         ]}
       >
-        <Pressable onPress={() => router.back()} style={({ pressed }) => [pressed && { opacity: 0.8 }]}>
+        <Pressable
+          onPress={() => router.back()}
+          accessibilityRole="button"
+          accessibilityLabel="Go back"
+          style={({ pressed }) => [styles.backButton, pressed && { opacity: 0.8 }]}
+        >
           <Ionicons name="arrow-back" size={24} color={theme.text} />
         </Pressable>
         <VibelyText variant="titleMD" style={[styles.headerTitle, { color: theme.text }]}>
@@ -84,49 +238,89 @@ export default function HowItWorksScreen() {
       </GlassSurface>
 
       <ScrollView
-        contentContainerStyle={[styles.scroll, { paddingBottom: layout.scrollContentPaddingBottomTab }]}
+        contentContainerStyle={[
+          styles.scroll,
+          { paddingBottom: layout.scrollContentPaddingBottomTab + Math.max(insets.bottom, spacing.xl) + 40 },
+        ]}
         showsVerticalScrollIndicator={false}
       >
-        <View style={[styles.heroIcon, { backgroundColor: theme.tintSoft }]}>
-          <Ionicons name="sparkles" size={40} color={theme.tint} />
-        </View>
-        <Text style={[styles.heroTitle, { color: theme.text }]}>Find Your Vibe</Text>
-        <Text style={[styles.heroBody, { color: theme.mutedForeground }]}>
-          Vibely is video speed dating reimagined. No endless swiping, no ghosting — just real connections through
-          face-to-face conversations.
-        </Text>
+        <Card variant="glass" style={[styles.heroCard, { borderColor: 'rgba(139, 92, 246, 0.24)' }]}>
+          <View style={[styles.heroIcon, { backgroundColor: theme.tintSoft, borderColor: 'rgba(255,255,255,0.1)' }]}>
+            <Ionicons name="heart-circle-outline" size={38} color={theme.tint} />
+          </View>
+          <Text style={[styles.heroTitle, { color: theme.text }]}>Meet through real moments.</Text>
+          <Text style={[styles.heroBody, { color: theme.mutedForeground }]}>
+            Vibely is video-first social dating built around curated events, readiness-gated live dates, and profiles
+            that show more than photos.
+          </Text>
+          <View style={styles.badgeRow}>
+            {BADGES.map((badge) => (
+              <View key={badge} style={[styles.badge, { backgroundColor: theme.secondary, borderColor: theme.border }]}>
+                <Text style={[styles.badgeText, { color: theme.text }]}>{badge}</Text>
+              </View>
+            ))}
+          </View>
+          <Pressable
+            onPress={() => appRouter.push('/(tabs)/events')}
+            accessibilityRole="button"
+            style={({ pressed }) => [
+              styles.ctaBtn,
+              { backgroundColor: theme.tint, opacity: pressed ? 0.92 : 1 },
+            ]}
+          >
+            <Ionicons name="calendar-outline" size={19} color="#FFFFFF" />
+            <Text style={styles.ctaLabel}>Find Your First Event</Text>
+          </Pressable>
+        </Card>
 
-        <Text style={[styles.sectionLabel, { color: theme.text }]}>How It Works</Text>
-        {STEPS.map((step, i) => (
-          <Card key={step.title} variant="glass" style={styles.stepCard}>
-            <View style={[styles.stepIcon, { backgroundColor: theme.tintSoft }]}>
-              <Ionicons name={step.icon} size={28} color={theme.tint} />
+        <View style={styles.section}>
+          <Text style={[styles.sectionKicker, { color: theme.tint }]}>The Vibely Loop</Text>
+          <Text style={[styles.sectionTitle, { color: theme.text }]}>From profile to real chemistry.</Text>
+          <View style={styles.cardList}>
+            {VIBELY_LOOP.map((item) => (
+              <InfoCard key={item.title} item={item} compact />
+            ))}
+          </View>
+        </View>
+
+        {INFO_SECTIONS.map((section) => (
+          <View key={section.title} style={styles.section}>
+            <Text style={[styles.sectionTitle, { color: theme.text }]}>{section.title}</Text>
+            {section.intro ? (
+              <Text style={[styles.sectionIntro, { color: theme.mutedForeground }]}>{section.intro}</Text>
+            ) : null}
+            <View style={styles.cardList}>
+              {section.items.map((item) => (
+                <InfoCard
+                  key={item.title}
+                  item={item}
+                  compact={section.items.length > 3}
+                />
+              ))}
             </View>
-            <Text style={[styles.stepNum, { color: theme.mutedForeground }]}>Step {i + 1}</Text>
-            <Text style={[styles.stepTitle, { color: theme.text }]}>{step.title}</Text>
-            <Text style={[styles.stepBody, { color: theme.mutedForeground }]}>{step.body}</Text>
-          </Card>
+          </View>
         ))}
 
-        <Text style={[styles.sectionLabel, { color: theme.text, marginTop: spacing.lg }]}>Features</Text>
-        <View style={styles.featureGrid}>
-          {FEATURES.map((f) => (
-            <Card key={f.title} variant="glass" style={styles.featureCard}>
-              <Text style={styles.featureEmoji}>{f.emoji}</Text>
-              <Text style={[styles.featureTitle, { color: theme.text }]}>{f.title}</Text>
-              <Text style={[styles.featureBody, { color: theme.mutedForeground }]}>{f.body}</Text>
-            </Card>
-          ))}
-        </View>
-        <Pressable
-          onPress={() => appRouter.push('/(tabs)/events')}
-          style={({ pressed }) => [
-            styles.ctaBtn,
-            { backgroundColor: '#8B5CF6', opacity: pressed ? 0.92 : 1 },
-          ]}
-        >
-          <Text style={styles.ctaLabel}>Browse Events</Text>
-        </Pressable>
+        <Card variant="glass" style={[styles.finalCard, { borderColor: 'rgba(139, 92, 246, 0.3)' }]}>
+          <View style={[styles.finalIcon, { backgroundColor: theme.tintSoft }]}>
+            <Ionicons name="shield-checkmark-outline" size={28} color={theme.tint} />
+          </View>
+          <Text style={[styles.finalTitle, { color: theme.text }]}>Ready to meet your first real vibe?</Text>
+          <Text style={[styles.finalBody, { color: theme.mutedForeground }]}>
+            Join an event, build your profile, and start meeting people through moments that actually feel human.
+          </Text>
+          <Pressable
+            onPress={() => appRouter.push('/(tabs)/events')}
+            accessibilityRole="button"
+            style={({ pressed }) => [
+              styles.ctaBtn,
+              { backgroundColor: theme.tint, opacity: pressed ? 0.92 : 1 },
+            ]}
+          >
+            <Ionicons name="calendar-outline" size={19} color="#FFFFFF" />
+            <Text style={styles.ctaLabel}>Find Your First Event</Text>
+          </Pressable>
+        </Card>
       </ScrollView>
     </View>
   );
@@ -141,48 +335,157 @@ const styles = StyleSheet.create({
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: 'rgba(255,255,255,0.06)',
   },
+  backButton: {
+    minWidth: 40,
+    minHeight: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginLeft: -spacing.sm,
+  },
   headerTitle: { flex: 1 },
-  scroll: { padding: layout.containerPadding, paddingTop: spacing.xl },
+  scroll: {
+    padding: layout.containerPadding,
+    paddingTop: spacing.xl,
+  },
+  heroCard: {
+    padding: spacing.xl,
+    alignItems: 'center',
+  },
   heroIcon: {
-    width: 80,
-    height: 80,
+    width: 72,
+    height: 72,
     borderRadius: radius['2xl'],
-    alignSelf: 'center',
+    borderWidth: 1,
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: spacing.lg,
+    ...shadows.glowViolet,
   },
-  heroTitle: { ...typography.titleXL, textAlign: 'center', marginBottom: spacing.sm },
-  heroBody: { fontSize: 15, textAlign: 'center', lineHeight: 22, marginBottom: spacing.xl },
-  sectionLabel: { ...typography.titleMD, marginBottom: spacing.md, textAlign: 'center' },
-  stepCard: { padding: spacing.xl, alignItems: 'center', marginBottom: spacing.md },
-  stepIcon: {
-    width: 64,
-    height: 64,
-    borderRadius: 32,
-    justifyContent: 'center',
-    alignItems: 'center',
+  heroTitle: {
+    ...typography.titleXL,
+    textAlign: 'center',
     marginBottom: spacing.md,
   },
-  stepNum: { fontSize: 12, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 4 },
-  stepTitle: { ...typography.titleMD, marginBottom: 8, textAlign: 'center' },
-  stepBody: { fontSize: 14, textAlign: 'center', lineHeight: 20 },
-  featureGrid: { gap: spacing.md },
-  featureCard: { padding: spacing.lg },
-  featureEmoji: { fontSize: 28, marginBottom: spacing.sm },
-  featureTitle: { fontSize: 16, fontWeight: '600', marginBottom: 4 },
-  featureBody: { fontSize: 13, lineHeight: 18 },
-  ctaBtn: {
-    marginTop: 24,
-    marginHorizontal: 20,
-    paddingVertical: 16,
-    borderRadius: 16,
+  heroBody: {
+    fontSize: 15,
+    textAlign: 'center',
+    lineHeight: 23,
+  },
+  badgeRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'center',
+    gap: spacing.sm,
+    marginTop: spacing.lg,
+  },
+  badge: {
+    borderWidth: 1,
+    borderRadius: radius.pill,
+    paddingHorizontal: spacing.md,
+    paddingVertical: 6,
+  },
+  badgeText: {
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  section: {
+    marginTop: spacing['2xl'],
+  },
+  sectionKicker: {
+    fontSize: 11,
+    fontWeight: '800',
+    letterSpacing: 0,
+    textTransform: 'uppercase',
+    textAlign: 'center',
+    marginBottom: spacing.sm,
+  },
+  sectionTitle: {
+    ...typography.titleLG,
+    textAlign: 'center',
+  },
+  sectionIntro: {
+    fontSize: 14,
+    lineHeight: 21,
+    textAlign: 'center',
+    marginTop: spacing.sm,
+  },
+  cardList: {
+    gap: spacing.md,
+    marginTop: spacing.lg,
+  },
+  infoCard: {
+    padding: spacing.lg,
+  },
+  infoCardCompact: {
+    padding: spacing.md,
+  },
+  infoCardRow: {
+    flexDirection: 'row',
+    gap: spacing.md,
+    alignItems: 'flex-start',
+  },
+  infoCardStack: {
+    gap: spacing.md,
+  },
+  infoIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: radius.md,
+    borderWidth: 1,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  infoText: {
+    flex: 1,
+    minWidth: 0,
+  },
+  infoTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    lineHeight: 21,
+  },
+  infoBody: {
+    fontSize: 13,
+    lineHeight: 19,
+    marginTop: 5,
+  },
+  finalCard: {
+    padding: spacing.xl,
+    alignItems: 'center',
+    marginTop: spacing['2xl'],
+  },
+  finalIcon: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: spacing.md,
+  },
+  finalTitle: {
+    ...typography.titleLG,
+    textAlign: 'center',
+  },
+  finalBody: {
+    fontSize: 14,
+    lineHeight: 21,
+    textAlign: 'center',
+    marginTop: spacing.sm,
+  },
+  ctaBtn: {
+    marginTop: spacing.xl,
+    minHeight: 52,
+    width: '100%',
+    borderRadius: radius.button,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexDirection: 'row',
+    gap: spacing.sm,
+    ...shadows.glowViolet,
   },
   ctaLabel: {
     color: '#FFFFFF',
     fontSize: 16,
-    fontWeight: '700',
+    fontWeight: '800',
   },
 });

@@ -1,5 +1,5 @@
 /**
- * Discovery preferences — web parity with `DiscoveryDrawer` (decks, intent, default event filters).
+ * Discovery preferences - web parity with `DiscoveryDrawer` (decks, intent, default event filters).
  */
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
@@ -72,6 +72,7 @@ export default function DiscoverySettingsScreen() {
   const [cityResults, setCityResults] = useState<GeoResult[]>([]);
   const [citySearching, setCitySearching] = useState(false);
   const geocodeRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const geocodeRunRef = useRef(0);
 
   const load = useCallback(async () => {
     if (!user?.id) return;
@@ -96,25 +97,35 @@ export default function DiscoverySettingsScreen() {
     void load();
   }, [load]);
 
-  const handleCitySearch = (q: string) => {
+  const handleCitySearch = useCallback((q: string) => {
     setCityQuery(q);
     if (geocodeRef.current) clearTimeout(geocodeRef.current);
-    if (q.length < 2) {
+    const runId = ++geocodeRunRef.current;
+    const query = q.trim();
+    if (!canCityBrowse) {
       setCityResults([]);
+      setCitySearching(false);
+      return;
+    }
+    if (query.length < 2) {
+      setCityResults([]);
+      setCitySearching(false);
       return;
     }
     geocodeRef.current = setTimeout(async () => {
       setCitySearching(true);
       try {
-        const { data, error } = await supabase.functions.invoke('forward-geocode', { body: { query: q } });
+        const { data, error } = await supabase.functions.invoke('forward-geocode', { body: { query } });
+        if (geocodeRunRef.current !== runId) return;
         if (!error && Array.isArray(data)) setCityResults(data as GeoResult[]);
         else setCityResults([]);
       } catch {
+        if (geocodeRunRef.current !== runId) return;
         setCityResults([]);
       }
-      setCitySearching(false);
+      if (geocodeRunRef.current === runId) setCitySearching(false);
     }, 300);
-  };
+  }, [canCityBrowse]);
 
   const selectCity = (result: GeoResult) => {
     const next: EventDiscoverySelectedCity = {
@@ -128,6 +139,22 @@ export default function DiscoverySettingsScreen() {
     setCityQuery('');
     setCityResults([]);
   };
+
+  useEffect(() => {
+    if (canCityBrowse) return;
+    geocodeRunRef.current += 1;
+    if (geocodeRef.current) clearTimeout(geocodeRef.current);
+    setCityQuery('');
+    setCityResults([]);
+    setCitySearching(false);
+  }, [canCityBrowse]);
+
+  useEffect(() => {
+    return () => {
+      geocodeRunRef.current += 1;
+      if (geocodeRef.current) clearTimeout(geocodeRef.current);
+    };
+  }, []);
 
   const handleSave = async () => {
     const minP = clampAgePreference(ageMinStr.trim() === '' ? null : ageMinStr);
@@ -192,7 +219,7 @@ export default function DiscoverySettingsScreen() {
         keyboardShouldPersistTaps="handled"
       >
         <Text style={[styles.help, { color: theme.textSecondary }]}>
-          City browse still requires Premium when viewing events — your city is saved for when you upgrade.
+          Control who you see in event decks and the default filters used when you open the Events tab.
         </Text>
 
         <Text style={[styles.sectionTitle, { color: theme.text }]}>Interested in</Text>
@@ -247,7 +274,13 @@ export default function DiscoverySettingsScreen() {
         <Text style={[styles.sectionTitle, { color: theme.text, marginTop: spacing.lg }]}>Default event list</Text>
         <View style={styles.modeRow}>
           <Pressable
-            onPress={() => setEventPrefs((p) => ({ ...p, locationMode: 'nearby', selectedCity: null }))}
+            onPress={() =>
+              setEventPrefs((p) => ({
+                ...p,
+                locationMode: 'nearby',
+                selectedCity: canCityBrowse ? null : p.selectedCity,
+              }))
+            }
             style={[
               styles.modeBtn,
               {
@@ -273,28 +306,42 @@ export default function DiscoverySettingsScreen() {
             <Text style={{ color: theme.text, fontWeight: '600' }}>City</Text>
           </Pressable>
         </View>
-        {!canCityBrowse ? (
-          <Pressable
-            onPress={() =>
-              openPremium(router.push, {
-                entry_surface: PREMIUM_ENTRY_SURFACE.CITY_BROWSE_DISCOVERY,
-                feature: 'canCityBrowse',
-              })
-            }
-            style={styles.premiumLink}
-          >
-            <Ionicons name="sparkles" size={14} color={theme.tint} />
-            <Text style={{ color: theme.tint, fontSize: 13, marginLeft: 6 }}>Upgrade for city browse</Text>
-          </Pressable>
+        {eventPrefs.locationMode === 'city' && !canCityBrowse ? (
+          <View style={[styles.upsellCard, { borderColor: 'rgba(139,92,246,0.25)' }]}>
+            <View style={[styles.upsellIcon, { backgroundColor: theme.tintSoft }]}>
+              <Ionicons name="sparkles" size={18} color={theme.tint} />
+            </View>
+            <View style={styles.upsellContent}>
+              <Text style={[styles.upsellTitle, { color: theme.text }]}>Discover events in other cities</Text>
+              <Text style={[styles.upsellDesc, { color: theme.textSecondary }]}>
+                Search and join events anywhere in the world with Vibely Premium or VIP.
+              </Text>
+              <Pressable
+                onPress={() =>
+                  openPremium(router.push, {
+                    entry_surface: PREMIUM_ENTRY_SURFACE.CITY_BROWSE_DISCOVERY,
+                    feature: 'canCityBrowse',
+                  })
+                }
+                style={styles.upsellCta}
+              >
+                <Ionicons name="sparkles" size={14} color="#fff" />
+                <Text style={styles.upsellCtaText}>Upgrade to Premium</Text>
+              </Pressable>
+            </View>
+          </View>
         ) : null}
 
-        {eventPrefs.locationMode === 'city' ? (
+        {eventPrefs.locationMode === 'city' && canCityBrowse ? (
           <View style={{ marginTop: spacing.md }}>
+            <Text style={[styles.help, { color: theme.textSecondary, marginBottom: spacing.sm }]}>
+              This sets the default city for the Events tab. You can still change filters in Events anytime.
+            </Text>
             <Text style={{ color: theme.textSecondary, fontSize: 12, marginBottom: 6 }}>City</Text>
             <TextInput
               value={cityQuery}
               onChangeText={handleCitySearch}
-              placeholder="Search city…"
+              placeholder="Search city..."
               placeholderTextColor={theme.mutedForeground}
               style={[styles.input, { color: theme.text, borderColor: theme.border, backgroundColor: theme.surfaceSubtle }]}
             />
@@ -310,7 +357,7 @@ export default function DiscoverySettingsScreen() {
             ))}
             {eventPrefs.selectedCity ? (
               <Text style={{ color: theme.textSecondary, fontSize: 12, marginTop: 8 }}>
-                Selected: {eventPrefs.selectedCity.name}, {eventPrefs.selectedCity.country}
+                Default Events city: {eventPrefs.selectedCity.name}, {eventPrefs.selectedCity.country}
               </Text>
             ) : null}
           </View>
@@ -391,6 +438,49 @@ const styles = StyleSheet.create({
     borderRadius: radius.xl,
     borderWidth: 1,
   },
-  premiumLink: { flexDirection: 'row', alignItems: 'center', marginTop: spacing.sm },
+  upsellCard: {
+    flexDirection: 'row',
+    gap: spacing.md,
+    padding: spacing.lg,
+    borderRadius: radius.xl,
+    borderWidth: 1,
+    backgroundColor: 'rgba(139,92,246,0.08)',
+    marginTop: spacing.md,
+  },
+  upsellIcon: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  upsellContent: {
+    flex: 1,
+  },
+  upsellTitle: {
+    fontSize: 15,
+    fontWeight: '600',
+    marginBottom: 4,
+  },
+  upsellDesc: {
+    fontSize: 13,
+    lineHeight: 18,
+    marginBottom: spacing.md,
+  },
+  upsellCta: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    alignSelf: 'flex-start',
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: radius.pill,
+    backgroundColor: '#8B5CF6',
+  },
+  upsellCtaText: {
+    color: '#fff',
+    fontSize: 13,
+    fontWeight: '600',
+  },
   cityHit: { paddingVertical: spacing.sm, borderBottomWidth: StyleSheet.hairlineWidth },
 });

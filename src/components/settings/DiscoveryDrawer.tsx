@@ -65,6 +65,7 @@ export function DiscoveryDrawer({ open, onOpenChange, onPremiumNavigate }: Disco
   const [cityResults, setCityResults] = useState<GeoResult[]>([]);
   const [citySearching, setCitySearching] = useState(false);
   const geocodeRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const geocodeRunRef = useRef(0);
 
   const load = useCallback(async () => {
     if (!user?.id) return;
@@ -92,25 +93,44 @@ export function DiscoveryDrawer({ open, onOpenChange, onPremiumNavigate }: Disco
     void load();
   }, [open, load]);
 
+  useEffect(() => {
+    if (open) return;
+    geocodeRunRef.current += 1;
+    if (geocodeRef.current) clearTimeout(geocodeRef.current);
+    setCityQuery("");
+    setCityResults([]);
+    setCitySearching(false);
+  }, [open]);
+
   const handleCitySearch = useCallback((q: string) => {
     setCityQuery(q);
     if (geocodeRef.current) clearTimeout(geocodeRef.current);
-    if (q.length < 2) {
+    const runId = ++geocodeRunRef.current;
+    const query = q.trim();
+    if (!canCityBrowse) {
       setCityResults([]);
+      setCitySearching(false);
+      return;
+    }
+    if (query.length < 2) {
+      setCityResults([]);
+      setCitySearching(false);
       return;
     }
     geocodeRef.current = setTimeout(async () => {
       setCitySearching(true);
       try {
-        const { data, error } = await supabase.functions.invoke("forward-geocode", { body: { query: q } });
+        const { data, error } = await supabase.functions.invoke("forward-geocode", { body: { query } });
+        if (geocodeRunRef.current !== runId) return;
         if (!error && Array.isArray(data)) setCityResults(data as GeoResult[]);
         else setCityResults([]);
       } catch {
+        if (geocodeRunRef.current !== runId) return;
         setCityResults([]);
       }
-      setCitySearching(false);
+      if (geocodeRunRef.current === runId) setCitySearching(false);
     }, 300);
-  }, []);
+  }, [canCityBrowse]);
 
   const selectCity = useCallback((result: GeoResult) => {
     const next: EventDiscoverySelectedCity = {
@@ -123,6 +143,22 @@ export function DiscoveryDrawer({ open, onOpenChange, onPremiumNavigate }: Disco
     setEventPrefs((p) => ({ ...p, selectedCity: next, locationMode: "city" }));
     setCityQuery("");
     setCityResults([]);
+  }, []);
+
+  useEffect(() => {
+    if (canCityBrowse) return;
+    geocodeRunRef.current += 1;
+    if (geocodeRef.current) clearTimeout(geocodeRef.current);
+    setCityQuery("");
+    setCityResults([]);
+    setCitySearching(false);
+  }, [canCityBrowse]);
+
+  useEffect(() => {
+    return () => {
+      geocodeRunRef.current += 1;
+      if (geocodeRef.current) clearTimeout(geocodeRef.current);
+    };
   }, []);
 
   const handleSave = async () => {
@@ -166,8 +202,7 @@ export function DiscoveryDrawer({ open, onOpenChange, onPremiumNavigate }: Disco
             Discovery preferences
           </DrawerTitle>
           <DrawerDescription>
-            Control who you see in event decks and your default event list filters. City browse still requires Premium at
-            runtime — saved city is kept for when you upgrade.
+            Control who you see in event decks and the default filters used when you open the Events tab.
           </DrawerDescription>
         </DrawerHeader>
 
@@ -245,7 +280,13 @@ export function DiscoveryDrawer({ open, onOpenChange, onPremiumNavigate }: Disco
                 <div className="flex gap-2">
                   <button
                     type="button"
-                    onClick={() => setEventPrefs((p) => ({ ...p, locationMode: "nearby", selectedCity: null }))}
+                    onClick={() =>
+                      setEventPrefs((p) => ({
+                        ...p,
+                        locationMode: "nearby",
+                        selectedCity: canCityBrowse ? null : p.selectedCity,
+                      }))
+                    }
                     className={cn(
                       "flex-1 flex items-center justify-center gap-2 py-2 rounded-xl border text-sm font-medium",
                       eventPrefs.locationMode === "nearby"
@@ -270,25 +311,41 @@ export function DiscoveryDrawer({ open, onOpenChange, onPremiumNavigate }: Disco
                     <span className={cn(!canCityBrowse && "pl-4")}>City</span>
                   </button>
                 </div>
-                {!canCityBrowse && (
-                  <button
-                    type="button"
-                    onClick={onPremiumNavigate}
-                    className="w-full flex items-center gap-2 text-xs text-primary hover:underline"
-                  >
-                    <Sparkles className="w-3.5 h-3.5" />
-                    Upgrade to use city browse in the events tab
-                  </button>
+                {eventPrefs.locationMode === "city" && !canCityBrowse && (
+                  <div className="rounded-xl border border-primary/20 bg-gradient-to-br from-primary/10 to-accent/10 p-4">
+                    <div className="flex items-start gap-3">
+                      <div className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-primary/20 bg-primary/10">
+                        <Sparkles className="h-4 w-4 text-primary" />
+                      </div>
+                      <div className="flex-1">
+                        <p className="font-semibold text-foreground text-sm">Discover events in other cities</p>
+                        <p className="text-xs text-muted-foreground mt-1">
+                          Search and join events anywhere in the world with Vibely Premium or VIP.
+                        </p>
+                        <button
+                          type="button"
+                          onClick={onPremiumNavigate}
+                          className="mt-2 flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold bg-gradient-to-r from-primary to-accent text-primary-foreground"
+                        >
+                          <Sparkles className="w-3.5 h-3.5" />
+                          Upgrade to Premium
+                        </button>
+                      </div>
+                    </div>
+                  </div>
                 )}
 
-                {eventPrefs.locationMode === "city" && (
+                {eventPrefs.locationMode === "city" && canCityBrowse && (
                   <div className="space-y-2">
+                    <p className="text-xs text-muted-foreground">
+                      This sets the default city for the Events tab. You can still change filters in Events anytime.
+                    </p>
                     <label className="text-xs font-medium text-muted-foreground">City</label>
                     <input
                       type="text"
                       value={cityQuery}
                       onChange={(e) => handleCitySearch(e.target.value)}
-                      placeholder="Search city…"
+                      placeholder="Search city..."
                       className="w-full px-3 py-2 rounded-lg border border-border bg-background text-sm"
                     />
                     {citySearching && <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />}
@@ -309,7 +366,7 @@ export function DiscoveryDrawer({ open, onOpenChange, onPremiumNavigate }: Disco
                     )}
                     {eventPrefs.selectedCity && (
                       <p className="text-xs text-muted-foreground">
-                        Selected: {eventPrefs.selectedCity.name}, {eventPrefs.selectedCity.country}
+                        Default Events city: {eventPrefs.selectedCity.name}, {eventPrefs.selectedCity.country}
                       </p>
                     )}
                   </div>

@@ -87,6 +87,7 @@ export const EventsFilterBar = ({
   const [cityResults, setCityResults] = useState<GeoResult[]>([]);
   const [isCitySearching, setIsCitySearching] = useState(false);
   const geocodeRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const geocodeRunRef = useRef(0);
 
   useEffect(() => {
     const handleScroll = () => {
@@ -148,18 +149,47 @@ export const EventsFilterBar = ({
   const handleCitySearch = useCallback((q: string) => {
     setCityQuery(q);
     if (geocodeRef.current) clearTimeout(geocodeRef.current);
-    if (q.length < 2) { setCityResults([]); return; }
+    const runId = ++geocodeRunRef.current;
+    const query = q.trim();
+    if (!canCityBrowse) {
+      setCityResults([]);
+      setIsCitySearching(false);
+      return;
+    }
+    if (query.length < 2) {
+      setCityResults([]);
+      setIsCitySearching(false);
+      return;
+    }
     geocodeRef.current = setTimeout(async () => {
       setIsCitySearching(true);
       try {
-        const { data, error } = await supabase.functions.invoke('forward-geocode', { body: { query: q } });
+        const { data, error } = await supabase.functions.invoke('forward-geocode', { body: { query } });
+        if (geocodeRunRef.current !== runId) return;
         if (!error && Array.isArray(data)) setCityResults(data);
         else setCityResults([]);
       } catch {
+        if (geocodeRunRef.current !== runId) return;
         setCityResults([]);
       }
-      setIsCitySearching(false);
+      if (geocodeRunRef.current === runId) setIsCitySearching(false);
     }, 300);
+  }, [canCityBrowse]);
+
+  useEffect(() => {
+    if (canCityBrowse) return;
+    geocodeRunRef.current += 1;
+    if (geocodeRef.current) clearTimeout(geocodeRef.current);
+    setCityQuery('');
+    setCityResults([]);
+    setIsCitySearching(false);
+  }, [canCityBrowse]);
+
+  useEffect(() => {
+    return () => {
+      geocodeRunRef.current += 1;
+      if (geocodeRef.current) clearTimeout(geocodeRef.current);
+    };
   }, []);
 
   const selectCity = useCallback((result: GeoResult) => {
@@ -344,7 +374,7 @@ export const EventsFilterBar = ({
               <div className="space-y-5 pt-2">
                 {/* Categories */}
                 <div>
-                  <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">Categories</p>
+                  <p className="text-xs font-semibold text-muted-foreground uppercase mb-2">Categories</p>
                   <div className="flex flex-wrap gap-2">
                     {eventCategories.map((category, index) => (
                       <motion.button
@@ -370,7 +400,7 @@ export const EventsFilterBar = ({
 
                 {/* Location */}
                 <div>
-                  <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">Location</p>
+                  <p className="text-xs font-semibold text-muted-foreground uppercase mb-2">Location</p>
 
                   {/* Mode pills */}
                   <div className="flex items-center gap-2 mb-3">
@@ -405,11 +435,13 @@ export const EventsFilterBar = ({
                   {locationMode === 'city' && !canCityBrowse && (
                     <div className="rounded-xl border border-primary/20 bg-gradient-to-br from-primary/10 to-accent/10 p-4 mb-3">
                       <div className="flex items-start gap-3">
-                        <span className="text-xl">💎</span>
+                        <div className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-primary/20 bg-primary/10">
+                          <Sparkles className="h-4 w-4 text-primary" />
+                        </div>
                         <div className="flex-1">
                           <p className="font-semibold text-foreground text-sm">Discover events in other cities</p>
                           <p className="text-xs text-muted-foreground mt-1">
-                            Search and join events anywhere in the world with Vibely Premium
+                            Search and join events anywhere in the world with Vibely Premium or VIP
                           </p>
                           <button
                             onClick={onPremiumUpgrade}
@@ -430,7 +462,7 @@ export const EventsFilterBar = ({
                         <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-muted/50 border border-border/50">
                           <MapPin className="w-4 h-4 text-primary shrink-0" />
                           <span className="text-sm font-medium text-foreground flex-1 truncate">
-                            📍 {selectedCity.name}
+                            {selectedCity.name}
                             {selectedCity.region ? `, ${selectedCity.region}` : ''}, {selectedCity.country}
                           </span>
                           <button
@@ -502,7 +534,7 @@ export const EventsFilterBar = ({
                 {/* Upcoming only */}
                 <div className="flex items-center justify-between">
                   <div>
-                    <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Event Status</p>
+                    <p className="text-xs font-semibold text-muted-foreground uppercase">Event Status</p>
                     <p className="text-xs text-muted-foreground mt-0.5">
                       {upcomingOnly ? "Ended events are hidden" : "Showing all events including ended"}
                     </p>
