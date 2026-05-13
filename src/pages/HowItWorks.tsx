@@ -1,191 +1,347 @@
 import { motion } from "framer-motion";
 import { useNavigate } from "react-router-dom";
-import { ArrowLeft, Video, Heart, Sparkles, Calendar, MessageCircle, Shield, FileText } from "lucide-react";
+import {
+  ArrowLeft,
+  BadgeCheck,
+  Calendar,
+  CheckCircle2,
+  Clock3,
+  EyeOff,
+  FileText,
+  Gauge,
+  HeartHandshake,
+  MapPin,
+  MessageCircleHeart,
+  PhoneOff,
+  ShieldCheck,
+  Sparkles,
+  UserPlus,
+  UserRound,
+  UsersRound,
+  Video,
+} from "lucide-react";
+import type { LucideIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { BottomNav } from "@/components/BottomNav";
 
-const steps = [
+type CardTone = "violet" | "pink" | "cyan";
+
+type JourneyCard = {
+  icon: LucideIcon;
+  title: string;
+  description: string;
+  tone: CardTone;
+};
+
+type FeatureSection = {
+  title: string;
+  intro?: string;
+  cards: JourneyCard[];
+};
+
+const toneClasses: Record<CardTone, { icon: string; accent: string }> = {
+  violet: {
+    icon: "border-neon-violet/30 bg-neon-violet/10 text-neon-violet",
+    accent: "bg-neon-violet/60",
+  },
+  pink: {
+    icon: "border-neon-pink/30 bg-neon-pink/10 text-neon-pink",
+    accent: "bg-neon-pink/60",
+  },
+  cyan: {
+    icon: "border-neon-cyan/30 bg-neon-cyan/10 text-neon-cyan",
+    accent: "bg-neon-cyan/60",
+  },
+};
+
+const vibelyLoop: JourneyCard[] = [
+  {
+    icon: UserRound,
+    title: "Build your vibe",
+    description:
+      "Create a profile that shows your energy with photos, prompts, Vibe Video, Vibe Score, and verification.",
+    tone: "violet",
+  },
   {
     icon: Calendar,
-    title: "Join an Event",
-    description: "Browse curated speed dating events and pick one that matches your vibe. Each event has a unique theme and audience.",
-    color: "from-neon-violet to-neon-pink",
+    title: "Choose an event",
+    description:
+      "Join curated social and dating events. Start nearby, or use premium city discovery to explore more places.",
+    tone: "pink",
+  },
+  {
+    icon: UsersRound,
+    title: "Vibe in the live lobby",
+    description:
+      "When an event goes live, browse guests in the event lobby and send a Vibe when someone feels right.",
+    tone: "cyan",
+  },
+  {
+    icon: CheckCircle2,
+    title: "Both get ready",
+    description:
+      "When the interest is mutual, the Ready Gate opens. You both opt in before the live video date begins.",
+    tone: "violet",
   },
   {
     icon: Video,
-    title: "5-Minute Video Dates",
-    description: "Connect with matches through quick video calls. No endless swiping - just real conversations with real people.",
-    color: "from-neon-cyan to-neon-violet",
-  },
-  {
-    icon: Heart,
-    title: "Match by Vibes",
-    description: "After each date, decide if you felt a connection. When both of you say yes, it's a match! Start chatting instantly.",
-    color: "from-neon-pink to-accent",
-  },
-  {
-    icon: MessageCircle,
-    title: "Continue the Conversation",
-    description: "Keep the spark alive through our chat. Send messages, voice notes, and play fun games to get to know each other better.",
-    color: "from-accent to-neon-cyan",
+    title: "Meet face-to-face",
+    description:
+      "Start with a progressive-blur video moment, feel the chemistry, then decide if you both want to keep going.",
+    tone: "pink",
   },
 ];
 
-const features = [
+const featureSections: FeatureSection[] = [
   {
-    icon: "💧",
-    title: "Daily Drops",
-    description:
-      "Get one curated match after each scheduled Daily Drop batch (18:00 UTC when server cron is enabled).",
+    title: "Your Vibe, Not Just Your Photos",
+    intro: "Profiles are built to help people feel who you are before the first live moment.",
+    cards: [
+      {
+        icon: Video,
+        title: "Vibe Video",
+        description: "A short intro that helps people feel your energy before you meet.",
+        tone: "pink",
+      },
+      {
+        icon: Gauge,
+        title: "Vibe Score",
+        description: "A profile-quality signal that rewards a more complete, more trustworthy profile.",
+        tone: "violet",
+      },
+      {
+        icon: Sparkles,
+        title: "Profile Studio",
+        description:
+          "Your space to shape how you show up: photos, prompts, about me, looking for, vibes, schedule, verification, and invites.",
+        tone: "cyan",
+      },
+    ],
   },
-  { icon: "🎮", title: "Vibe Arcade", description: "Play fun games in chat to break the ice" },
-  { icon: "📅", title: "Vibe Sync", description: "Schedule dates that work for both of you" },
-  { icon: "🎬", title: "Vibe Videos", description: "Create short intro videos to show your personality" },
+  {
+    title: "More Ways to Connect",
+    cards: [
+      {
+        icon: MapPin,
+        title: "Daily Drops",
+        description: "Curated introductions for when you are not in a live event.",
+        tone: "cyan",
+      },
+      {
+        icon: MessageCircleHeart,
+        title: "Chat That Keeps the Vibe Going",
+        description: "Keep the vibe going with messages and richer conversation tools after a mutual connection.",
+        tone: "pink",
+      },
+      {
+        icon: Clock3,
+        title: "Vibe Schedule",
+        description: "Make planning easier when the connection feels right.",
+        tone: "violet",
+      },
+      {
+        icon: UserPlus,
+        title: "Invite Friends",
+        description: "Bring people into Vibely or invite them to a specific event.",
+        tone: "cyan",
+      },
+    ],
+  },
+  {
+    title: "Trust Built In",
+    cards: [
+      {
+        icon: CheckCircle2,
+        title: "Readiness before video",
+        description: "Both people confirm before entering a live date.",
+        tone: "violet",
+      },
+      {
+        icon: EyeOff,
+        title: "Progressive-blur start",
+        description: "Ease into the moment before full face-to-face video.",
+        tone: "pink",
+      },
+      {
+        icon: BadgeCheck,
+        title: "Verification and age checks",
+        description: "Verification, age checks, reporting, blocking, and end-call controls help protect the experience.",
+        tone: "cyan",
+      },
+      {
+        icon: PhoneOff,
+        title: "Report, block, or end anytime",
+        description: "You stay in control before, during, and after the date.",
+        tone: "violet",
+      },
+    ],
+  },
 ];
+
+const badges = ["Event-based", "Video-first", "Consent-led"];
+
+function InfoCard({ card, index, compact = false }: { card: JourneyCard; index: number; compact?: boolean }) {
+  const tone = toneClasses[card.tone];
+
+  return (
+    <motion.article
+      initial={{ opacity: 0, y: 16 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ delay: 0.08 * index }}
+      className="group relative overflow-hidden rounded-2xl border border-white/10 bg-card/55 p-4 backdrop-blur-xl transition-colors hover:border-white/20 sm:p-5"
+    >
+      <div className={`absolute inset-x-0 top-0 h-px ${tone.accent} opacity-60`} />
+      <div className={compact ? "flex gap-3" : "space-y-4"}>
+        <div
+          className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border ${tone.icon}`}
+        >
+          <card.icon className="h-5 w-5" />
+        </div>
+        <div className="min-w-0">
+          <h4 className="font-display text-base font-semibold leading-snug text-foreground">
+            {card.title}
+          </h4>
+          <p className="mt-2 text-sm leading-6 text-muted-foreground">
+            {card.description}
+          </p>
+        </div>
+      </div>
+    </motion.article>
+  );
+}
 
 const HowItWorks = () => {
   const navigate = useNavigate();
 
   return (
-    <div className="min-h-screen bg-background pb-[100px]">
-      {/* Header */}
+    <div className="min-h-screen bg-background pb-[calc(9rem+env(safe-area-inset-bottom))]">
       <header className="sticky top-0 z-40 glass-card border-b border-border/50 px-4 py-4">
-        <div className="flex items-center gap-3 max-w-lg mx-auto">
+        <div className="mx-auto flex max-w-3xl items-center gap-3">
           <button
+            type="button"
             onClick={() => navigate(-1)}
-            className="p-2 -ml-2 rounded-xl hover:bg-secondary transition-colors"
+            aria-label="Go back"
+            className="-ml-2 rounded-xl p-2 transition-colors hover:bg-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
-            <ArrowLeft className="w-5 h-5 text-foreground" />
+            <ArrowLeft className="h-5 w-5 text-foreground" />
           </button>
           <h1 className="text-xl font-display font-bold text-foreground">How Vibely Works</h1>
         </div>
       </header>
 
-      <main className="max-w-lg mx-auto px-4 py-8 space-y-12">
-        {/* Hero */}
-        <motion.div
+      <main className="mx-auto max-w-3xl px-4 pb-12 pt-8 sm:px-6 sm:pt-12">
+        <motion.section
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
-          className="text-center"
+          className="relative overflow-hidden rounded-[2rem] border border-white/10 bg-card/50 px-5 py-8 text-center backdrop-blur-xl sm:px-10 sm:py-12"
         >
-          <div className="w-20 h-20 mx-auto mb-6 rounded-3xl bg-gradient-primary flex items-center justify-center">
-            <Sparkles className="w-10 h-10 text-primary-foreground" />
+          <div className="pointer-events-none absolute inset-x-10 top-0 h-px bg-gradient-to-r from-transparent via-neon-violet/70 to-transparent" />
+          <div className="mx-auto mb-6 flex h-16 w-16 items-center justify-center rounded-3xl border border-white/10 bg-gradient-primary shadow-lg shadow-primary/20">
+            <HeartHandshake className="h-8 w-8 text-white" />
           </div>
-          <h2 className="text-2xl font-display font-bold text-foreground mb-3">
-            Find Your Vibe
+          <h2 className="font-display text-3xl font-bold leading-tight text-foreground sm:text-4xl">
+            Meet through real moments.
           </h2>
-          <p className="text-muted-foreground">
-            Vibely is video speed dating reimagined. No endless swiping, no ghosting - just real connections through face-to-face conversations.
+          <p className="mx-auto mt-4 max-w-2xl text-base leading-7 text-muted-foreground sm:text-lg">
+            Vibely is video-first social dating built around curated events, readiness-gated live dates,
+            and profiles that show more than photos.
           </p>
-        </motion.div>
-
-        {/* Steps */}
-        <div className="space-y-6">
-          <h3 className="text-lg font-display font-semibold text-foreground text-center">
-            How It Works
-          </h3>
-          {steps.map((step, index) => (
-            <motion.div
-              key={step.title}
-              initial={{ opacity: 0, x: -20 }}
-              animate={{ opacity: 1, x: 0 }}
-              transition={{ delay: index * 0.1 }}
-              className="glass-card p-5 rounded-2xl"
-            >
-              <div className="flex gap-4">
-                <div className={`w-12 h-12 shrink-0 rounded-xl bg-gradient-to-br ${step.color} flex items-center justify-center`}>
-                  <step.icon className="w-6 h-6 text-primary-foreground" />
-                </div>
-                <div>
-                  <div className="flex items-center gap-2 mb-1">
-                    <span className="text-xs text-muted-foreground">Step {index + 1}</span>
-                  </div>
-                  <h4 className="font-display font-semibold text-foreground mb-1">
-                    {step.title}
-                  </h4>
-                  <p className="text-sm text-muted-foreground">
-                    {step.description}
-                  </p>
-                </div>
-              </div>
-            </motion.div>
-          ))}
-        </div>
-
-        {/* Features */}
-        <div className="space-y-4">
-          <h3 className="text-lg font-display font-semibold text-foreground text-center">
-            Special Features
-          </h3>
-          <div className="grid grid-cols-2 gap-3">
-            {features.map((feature, index) => (
-              <motion.div
-                key={feature.title}
-                initial={{ opacity: 0, scale: 0.9 }}
-                animate={{ opacity: 1, scale: 1 }}
-                transition={{ delay: 0.4 + index * 0.1 }}
-                className="glass-card p-4 rounded-xl text-center"
+          <div className="mt-6 flex flex-wrap items-center justify-center gap-2">
+            {badges.map((badge) => (
+              <span
+                key={badge}
+                className="rounded-full border border-white/10 bg-secondary/45 px-3 py-1 text-xs font-semibold text-foreground/85"
               >
-                <div className="text-3xl mb-2">{feature.icon}</div>
-                <h4 className="font-semibold text-foreground text-sm mb-1">{feature.title}</h4>
-                <p className="text-xs text-muted-foreground">{feature.description}</p>
-              </motion.div>
+                {badge}
+              </span>
             ))}
           </div>
-        </div>
+          <Button
+            variant="gradient"
+            size="lg"
+            onClick={() => navigate("/events")}
+            className="mt-8 w-full sm:w-auto"
+          >
+            <Calendar className="h-5 w-5" />
+            Find Your First Event
+          </Button>
+        </motion.section>
 
-        {/* Safety */}
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.8 }}
-          className="glass-card p-5 rounded-2xl border border-primary/30"
-        >
-          <div className="flex items-center gap-3 mb-3">
-            <Shield className="w-6 h-6 text-primary" />
-            <h3 className="font-display font-semibold text-foreground">Your Safety Matters</h3>
+        <section className="mt-12 space-y-5">
+          <div className="text-center">
+            <p className="text-xs font-semibold uppercase text-primary">The Vibely Loop</p>
+            <h3 className="mt-2 font-display text-2xl font-bold text-foreground">
+              From profile to real chemistry.
+            </h3>
           </div>
-          <p className="text-sm text-muted-foreground">
-            All users are verified. Report any concerns and our team will take action. Video dates are monitored for safety, and you can end any call at any time.
-          </p>
-        </motion.div>
+          <div className="grid gap-3 sm:grid-cols-2">
+            {vibelyLoop.map((step, index) => (
+              <InfoCard key={step.title} card={step} index={index} compact />
+            ))}
+          </div>
+        </section>
 
-        {/* Legal Links */}
-        <div className="grid grid-cols-2 gap-3">
+        {featureSections.map((section, sectionIndex) => (
+          <section key={section.title} className="mt-12 space-y-5">
+            <div className="text-center">
+              <h3 className="font-display text-2xl font-bold text-foreground">{section.title}</h3>
+              {section.intro ? (
+                <p className="mx-auto mt-2 max-w-xl text-sm leading-6 text-muted-foreground">
+                  {section.intro}
+                </p>
+              ) : null}
+            </div>
+            <div className="grid gap-3 sm:grid-cols-2">
+              {section.cards.map((card, index) => (
+                <InfoCard
+                  key={card.title}
+                  card={card}
+                  index={sectionIndex * 4 + index}
+                  compact={section.cards.length > 3}
+                />
+              ))}
+            </div>
+          </section>
+        ))}
+
+        <section className="mt-12 rounded-[2rem] border border-primary/25 bg-gradient-to-br from-primary/10 via-card/60 to-accent/10 p-5 text-center backdrop-blur-xl sm:p-8">
+          <ShieldCheck className="mx-auto h-8 w-8 text-primary" />
+          <h3 className="mt-4 font-display text-2xl font-bold text-foreground">
+            Ready to meet your first real vibe?
+          </h3>
+          <p className="mx-auto mt-3 max-w-xl text-sm leading-6 text-muted-foreground sm:text-base">
+            Join an event, build your profile, and start meeting people through moments that actually feel human.
+          </p>
+          <Button
+            variant="gradient"
+            size="lg"
+            onClick={() => navigate("/events")}
+            className="mt-6 w-full sm:w-auto"
+          >
+            <Calendar className="h-5 w-5" />
+            Find Your First Event
+          </Button>
+        </section>
+
+        <div className="mt-8 grid grid-cols-2 gap-3">
           <a
             href="/privacy"
             target="_blank"
             rel="noopener noreferrer"
-            className="flex items-center justify-center gap-2 rounded-xl py-3 text-sm font-medium bg-secondary/40 border border-border/50 text-muted-foreground hover:bg-secondary/60 hover:text-foreground hover:border-border transition-all"
+            className="flex items-center justify-center gap-2 rounded-xl border border-border/50 bg-secondary/40 py-3 text-sm font-medium text-muted-foreground transition-all hover:border-border hover:bg-secondary/60 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
-            <FileText className="w-4 h-4" />
+            <FileText className="h-4 w-4" />
             Privacy Policy
           </a>
           <a
             href="/terms"
             target="_blank"
             rel="noopener noreferrer"
-            className="flex items-center justify-center gap-2 rounded-xl py-3 text-sm font-medium bg-secondary/40 border border-border/50 text-muted-foreground hover:bg-secondary/60 hover:text-foreground hover:border-border transition-all"
+            className="flex items-center justify-center gap-2 rounded-xl border border-border/50 bg-secondary/40 py-3 text-sm font-medium text-muted-foreground transition-all hover:border-border hover:bg-secondary/60 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
-            <FileText className="w-4 h-4" />
+            <FileText className="h-4 w-4" />
             Terms of Service
           </a>
-        </div>
-
-        {/* CTA */}
-        <div className="text-center space-y-4">
-          <Button
-            variant="gradient"
-            size="lg"
-            onClick={() => navigate("/events")}
-            className="w-full"
-          >
-            <Calendar className="w-5 h-5 mr-2" />
-            Find Your First Event
-          </Button>
-          <p className="text-sm text-muted-foreground">
-            Ready to find your vibe? Join an event and start connecting!
-          </p>
         </div>
       </main>
 
