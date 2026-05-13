@@ -28,7 +28,6 @@ import type { OtherUserFullProfileViewModel } from "@clientShared/profile/otherU
 import { getRelationshipIntentDisplaySafe } from "@shared/profileContracts";
 import { Button } from "@/components/ui/button";
 import { PhotoPreviewModal } from "@/components/PhotoPreviewModal";
-import { PhotoVerifiedMark } from "@/components/PhotoVerifiedMark";
 import { ProfilePrompt } from "@/components/ProfilePrompt";
 import { VibeTag } from "@/components/VibeTag";
 import { VibePlayer } from "@/components/vibe-video/VibePlayer";
@@ -194,7 +193,8 @@ export function OtherUserFullProfileView({
             variant="glass"
             size="sm"
             onClick={onClose}
-            className="absolute left-4 top-4 z-20 h-11 min-h-11 rounded-full px-3"
+            className="absolute left-4 top-4 z-20 h-11 min-h-11 rounded-full px-3 sm:hidden"
+            aria-label={closeLabel}
           >
             <ArrowLeft className="h-4 w-4" />
             <span>{closeLabel}</span>
@@ -207,7 +207,7 @@ export function OtherUserFullProfileView({
             variant="glass"
             size="icon"
             onClick={onClose}
-            className="absolute right-4 top-4 z-20 h-11 min-h-11 w-11 rounded-full"
+            className="absolute right-4 top-4 z-20 hidden h-11 min-h-11 w-11 rounded-full sm:inline-flex"
             aria-label="Close profile"
           >
             <X className="h-4 w-4" />
@@ -273,7 +273,12 @@ export function OtherUserFullProfileView({
                   <h1 className="break-words text-3xl font-display font-bold leading-tight">
                     {title}
                   </h1>
-                  <PhotoVerifiedMark verified={profile.verification.photo} size="md" />
+                  {verificationBadges.length > 0 ? (
+                    <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-400/30 bg-emerald-500/10 px-2.5 py-1 text-xs font-semibold text-emerald-300">
+                      <ShieldCheck className="h-3.5 w-3.5" aria-hidden />
+                      Verified
+                    </span>
+                  ) : null}
                   {profile.isPremium ? (
                     <span className="rounded-full border border-amber-400/30 bg-amber-400/10 px-2.5 py-1 text-xs font-semibold text-amber-200">
                       Premium
@@ -310,14 +315,6 @@ export function OtherUserFullProfileView({
                 </div>
               ) : null}
             </div>
-
-            {verificationBadges.length > 0 ? (
-              <div className="flex flex-wrap gap-2">
-                {verificationBadges.map((badge) => (
-                  <VerificationBadge key={badge.label} label={badge.label} icon={badge.icon} />
-                ))}
-              </div>
-            ) : null}
           </section>
 
           {vibeVideo.state !== "none" ? (
@@ -478,22 +475,6 @@ export function OtherUserFullProfileView({
             </Section>
           ) : null}
 
-          {photos.length > 0 ? (
-            <Section title="Photos" icon={BadgeCheck}>
-              <div className="grid gap-3 md:grid-cols-2">
-                {photos.map((photo, index) => (
-                  <AdaptiveProfileMedia
-                    key={`${photo}-${index}`}
-                    src={photo}
-                    alt={`${displayName}'s photo ${index + 1}`}
-                    variant="gallery"
-                    onClick={() => setPhotoPreviewIndex(index)}
-                  />
-                ))}
-              </div>
-            </Section>
-          ) : null}
-
           {detailRows.length > 0 ? (
             <Section title="Details" icon={CheckCircle2}>
               <div className="grid gap-3 sm:grid-cols-2">
@@ -514,6 +495,22 @@ export function OtherUserFullProfileView({
               <div className="flex flex-wrap gap-2">
                 {verificationBadges.map((badge) => (
                   <VerificationBadge key={`status-${badge.label}`} label={badge.label} icon={badge.icon} />
+                ))}
+              </div>
+            </Section>
+          ) : null}
+
+          {photos.length > 0 ? (
+            <Section title="Photos" icon={BadgeCheck}>
+              <div className="grid gap-3 md:grid-cols-2">
+                {photos.map((photo, index) => (
+                  <AdaptiveProfileMedia
+                    key={`${photo}-${index}`}
+                    src={photo}
+                    alt={`${displayName}'s photo ${index + 1}`}
+                    variant="gallery"
+                    onClick={() => setPhotoPreviewIndex(index)}
+                  />
                 ))}
               </div>
             </Section>

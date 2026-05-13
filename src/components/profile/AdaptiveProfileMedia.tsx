@@ -15,7 +15,7 @@ type AdaptiveProfileMediaProps = {
 
 const variantClasses: Record<AdaptiveProfileMediaVariant, string> = {
   hero: "h-[clamp(360px,62dvh,680px)] rounded-b-[28px]",
-  gallery: "h-[clamp(260px,48dvh,520px)] rounded-2xl",
+  gallery: "h-[clamp(260px,36dvh,420px)] rounded-2xl",
   thumbnail: "h-24 rounded-xl",
   fullscreen: "h-[90dvh] max-h-[90dvh] max-w-[96vw] rounded-2xl",
 };

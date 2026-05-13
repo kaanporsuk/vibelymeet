@@ -2319,12 +2319,12 @@ const Chat = () => {
                     <button
                       type="button"
                       disabled
-                      className={quickActionButtonClass}
+                      className={cn(quickActionButtonClass, "col-span-2 justify-center text-center")}
                       aria-label="Voice note loading"
                       title="Voice Note"
                     >
                       <Loader2 className="h-4 w-4 shrink-0 animate-spin" aria-hidden />
-                      <span className="truncate">Voice Note</span>
+                      <span className="whitespace-nowrap">Voice Note</span>
                     </button>
                   }
                 >
@@ -2336,19 +2336,19 @@ const Chat = () => {
                     onRecordingStart={handleVoiceRecordingStart}
                     onRecordingComplete={handleVoiceRecordingComplete}
                     onCancel={handleVoiceRecordingCancel}
-                    className={quickActionButtonClass}
+                    className={cn(quickActionButtonClass, "col-span-2 justify-center text-center")}
                   />
                 </Suspense>
                 <button
                   type="button"
                   onClick={openScheduleShare}
                   disabled={!hasActiveConversation}
-                  className={quickActionButtonClass}
+                  className={cn(quickActionButtonClass, "col-span-2 justify-center text-center")}
                   aria-label="Share Vibely Schedule"
                   title="Share Schedule"
                 >
                   <CalendarDays className="h-4 w-4 shrink-0 text-neon-cyan" aria-hidden />
-                  <span className="truncate">Share Schedule</span>
+                  <span className="whitespace-nowrap">Share Schedule</span>
                 </button>
               </div>
             </div>
