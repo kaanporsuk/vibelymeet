@@ -33,10 +33,12 @@ module.exports = function withIosNativeBuildSettings(config) {
 
   return withXcodeProject(config, (modConfig) => {
     const project = modConfig.modResults;
-    const [, extensionTarget] = IOSConfig.Target.findNativeTargetByName(
-      project,
-      ONESIGNAL_EXTENSION_TARGET
+    const extensionTargetEntry = IOSConfig.Target.getNativeTargets(project).find(
+      ([, target]) =>
+        target.name === ONESIGNAL_EXTENSION_TARGET ||
+        target.name === `"${ONESIGNAL_EXTENSION_TARGET}"`
     );
+    const [, extensionTarget] = extensionTargetEntry || [];
 
     if (!extensionTarget) {
       return modConfig;

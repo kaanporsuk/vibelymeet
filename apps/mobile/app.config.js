@@ -23,7 +23,10 @@ module.exports = () => {
     ? baseOneSignalPlugin[1] || {}
     : {};
   const plugins = [
-    ['onesignal-expo-plugin', { ...oneSignalOptions, mode: oneSignalMode }],
+    [
+      'onesignal-expo-plugin',
+      { ...oneSignalOptions, mode: oneSignalMode, iPhoneDeploymentTarget: '15.1' },
+    ],
     ...(appJson.expo.plugins || []).filter((p) => getPluginName(p) !== 'onesignal-expo-plugin'),
   ];
   ensurePlugin(plugins, 'expo-asset');
