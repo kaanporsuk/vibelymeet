@@ -1,20 +1,38 @@
 {
+  "cli": {
+    "version": ">= 13.0.0",
+    "appVersionSource": "remote"
+  },
   "build": {
     "development": {
       "developmentClient": true,
       "distribution": "internal",
-      "environment": "development"
+      "environment": "development",
+      "ios": {
+        "image": "sdk-55"
+      }
     },
     "preview": {
       "distribution": "internal",
-      "environment": "preview"
+      "environment": "preview",
+      "ios": {
+        "image": "sdk-55"
+      }
     },
     "production": {
       "distribution": "store",
-      "environment": "production"
+      "environment": "production",
+      "autoIncrement": true,
+      "ios": {
+        "image": "sdk-55"
+      }
     }
   },
   "submit": {
-    "production": {}
+    "production": {
+      "ios": {
+        "ascAppId": "6760436319"
+      }
+    }
   }
 }
