@@ -116,8 +116,13 @@ assert.match(
 );
 assert.match(
   profileStudio,
-  /const updatePromptDrawerKeyboardStyle = useCallback\(\(\) => \{[\s\S]*const keyboardOverlap = window\.innerHeight - viewport\.height;[\s\S]*viewport\.offsetTop \+ PROFILE_STUDIO_PROMPT_KEYBOARD_GAP_PX[\s\S]*viewport\.height - PROFILE_STUDIO_PROMPT_KEYBOARD_GAP_PX/,
-  "Prompt drawer should derive focused keyboard layout from visualViewport offsetTop and height with no keyboard-side gap",
+  /const promptDrawerStableViewportHeightRef = useRef<number \| null>\([\s\S]*Math\.max\(window\.visualViewport\?\.height \?\? 0, window\.innerHeight \?\? 0\)/,
+  "Prompt drawer should keep a stable pre-keyboard viewport baseline",
+);
+assert.match(
+  profileStudio,
+  /const updatePromptDrawerKeyboardStyle = useCallback\(\(\) => \{[\s\S]*const currentViewportHeight = viewport\?\.height \?\? 0;[\s\S]*const currentLayoutHeight = window\.innerHeight;[\s\S]*const stableViewportHeight =[\s\S]*promptDrawerStableViewportHeightRef\.current[\s\S]*const keyboardOverlap = Math\.max\([\s\S]*currentLayoutHeight - currentViewportHeight,[\s\S]*stableViewportHeight - currentViewportHeight,[\s\S]*viewport\.offsetTop \+ PROFILE_STUDIO_PROMPT_KEYBOARD_GAP_PX[\s\S]*currentViewportHeight - PROFILE_STUDIO_PROMPT_KEYBOARD_GAP_PX/,
+  "Prompt drawer should derive focused keyboard layout from visualViewport bounds and stable baseline",
 );
 assert.match(
   profileStudio,
@@ -156,8 +161,8 @@ assert.match(
 );
 assert.match(
   profileStudio,
-  /const alignAnswer = \(\) => \{[\s\S]*updatePromptDrawerKeyboardStyle\(\);[\s\S]*const bodyRect = body\.getBoundingClientRect\(\);/,
-  "Prompt drawer should refresh visual-viewport-owned layout during delayed answer nudges",
+  /promptDrawerStableViewportHeightRef\.current = Math\.max\([\s\S]*window\.visualViewport\?\.height \?\? 0,[\s\S]*window\.innerHeight \?\? 0,[\s\S]*updatePromptDrawerKeyboardStyle\(\);[\s\S]*const alignAnswer = \(\) => \{[\s\S]*updatePromptDrawerKeyboardStyle\(\);[\s\S]*const bodyRect = body\.getBoundingClientRect\(\);/,
+  "Prompt drawer should refresh visual-viewport-owned layout during focus and delayed answer nudges",
 );
 assert.match(
   profileStudio,

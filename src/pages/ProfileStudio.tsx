@@ -320,6 +320,11 @@ const ProfileStudio = () => {
   const promptAnswerNudgeRafRef = useRef<number | null>(null);
   const promptAnswerNudgeTimeoutsRef = useRef<number[]>([]);
   const promptDrawerKeyboardStyleClearTimeoutRef = useRef<number | null>(null);
+  const promptDrawerStableViewportHeightRef = useRef<number | null>(
+    typeof window === "undefined"
+      ? null
+      : Math.max(window.visualViewport?.height ?? 0, window.innerHeight ?? 0),
+  );
 
   const { mySchedule, dateRange, isLoading: scheduleLoading } = useSchedule();
 
@@ -757,20 +762,29 @@ const ProfileStudio = () => {
 
     const answer = promptAnswerFieldRef.current;
     const viewport = window.visualViewport;
+    const currentViewportHeight = viewport?.height ?? 0;
+    const currentLayoutHeight = window.innerHeight;
     if (!answer || document.activeElement !== answer || !viewport) {
+      promptDrawerStableViewportHeightRef.current = Math.max(currentViewportHeight, currentLayoutHeight);
       clearPromptDrawerKeyboardStyle();
       return;
     }
     clearPromptDrawerKeyboardStyleTimeout();
 
-    const keyboardOverlap = window.innerHeight - viewport.height;
+    const stableViewportHeight =
+      promptDrawerStableViewportHeightRef.current ?? Math.max(currentViewportHeight, currentLayoutHeight);
+    const keyboardOverlap = Math.max(
+      currentLayoutHeight - currentViewportHeight,
+      stableViewportHeight - currentViewportHeight,
+    );
     if (keyboardOverlap < PROFILE_STUDIO_PROMPT_KEYBOARD_THRESHOLD_PX) {
+      promptDrawerStableViewportHeightRef.current = Math.max(currentViewportHeight, currentLayoutHeight);
       clearPromptDrawerKeyboardStyle();
       return;
     }
 
     const top = Math.max(PROFILE_STUDIO_PROMPT_KEYBOARD_GAP_PX, viewport.offsetTop + PROFILE_STUDIO_PROMPT_KEYBOARD_GAP_PX);
-    const height = Math.max(1, viewport.height - PROFILE_STUDIO_PROMPT_KEYBOARD_GAP_PX);
+    const height = Math.max(1, currentViewportHeight - PROFILE_STUDIO_PROMPT_KEYBOARD_GAP_PX);
     setPromptDrawerKeyboardStyle({
       top: `${top}px`,
       bottom: "auto",
@@ -786,6 +800,10 @@ const ProfileStudio = () => {
     const body = promptDrawerBodyRef.current;
     const answer = promptAnswerFieldRef.current;
     if (!body || !answer || document.activeElement !== answer) return;
+    promptDrawerStableViewportHeightRef.current = Math.max(
+      window.visualViewport?.height ?? 0,
+      window.innerHeight ?? 0,
+    );
     updatePromptDrawerKeyboardStyle();
 
     const alignAnswer = () => {
