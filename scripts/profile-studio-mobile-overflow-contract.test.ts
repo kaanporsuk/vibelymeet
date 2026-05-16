@@ -48,10 +48,20 @@ assert.match(
   /const PROFILE_STUDIO_DRAWER_PROPS = \{\s*shouldScaleBackground: false,\s*fixed: true,\s*\} as const;/,
   "Profile Studio drawers should opt out of Vaul background scaling and use fixed positioning",
 );
+assert.match(
+  profileStudio,
+  /const PROFILE_STUDIO_PROMPT_DRAWER_PROPS = \{\s*shouldScaleBackground: false,\s*fixed: false,\s*repositionInputs: true,\s*\} as const;/,
+  "Profile Studio prompt drawer should use non-fixed Vaul keyboard repositioning",
+);
 assert.equal(
   countMatches(profileStudio, /<Drawer \{\.\.\.PROFILE_STUDIO_DRAWER_PROPS\}/g),
-  8,
-  "Every local Profile Studio drawer should use the shared mobile-safe Vaul props",
+  7,
+  "Every non-prompt local Profile Studio drawer should use the shared mobile-safe Vaul props",
+);
+assert.equal(
+  countMatches(profileStudio, /<Drawer \{\.\.\.PROFILE_STUDIO_PROMPT_DRAWER_PROPS\}/g),
+  1,
+  "Only the prompt drawer should use keyboard-specific Vaul props",
 );
 assert.match(
   profileStudio,
@@ -78,6 +88,36 @@ assert.match(
   profileStudio,
   /\{displayPrompts\.map\(\(\{ slot, index \}\) => \{/,
   "Prompt rendering should still use displayPrompts",
+);
+assert.match(
+  profileStudio,
+  /const promptDrawerBodyRef = useRef<HTMLDivElement \| null>\(null\);/,
+  "Prompt drawer should keep a ref to its local scroll body",
+);
+assert.match(
+  profileStudio,
+  /const promptAnswerFieldRef = useRef<HTMLTextAreaElement \| null>\(null\);/,
+  "Prompt drawer should keep a ref to the focused answer textarea",
+);
+assert.match(
+  profileStudio,
+  /const promptAnswerNudgeRafRef = useRef<number \| null>\(null\);[\s\S]*const promptAnswerNudgeTimeoutsRef = useRef<number\[\]>\(\[\]\);/,
+  "Prompt drawer visibility nudges should be tracked so they can be cancelled",
+);
+assert.match(
+  profileStudio,
+  /const clearPromptAnswerNudges = useCallback\(\(\) => \{[\s\S]*window\.cancelAnimationFrame\(promptAnswerNudgeRafRef\.current\);[\s\S]*window\.clearTimeout\(timeoutId\);/,
+  "Prompt drawer should cancel queued visibility nudges on close/unmount",
+);
+assert.match(
+  profileStudio,
+  /viewport\?\.addEventListener\("resize", handlePromptViewportChange\);[\s\S]*viewport\?\.addEventListener\("scroll", handlePromptViewportChange\);/,
+  "Prompt drawer should re-check answer visibility when the mobile visual viewport changes",
+);
+assert.match(
+  profileStudio,
+  /ref=\{promptAnswerFieldRef\}[\s\S]*onFocus=\{nudgePromptAnswerIntoView\}/,
+  "Prompt answer textarea should nudge itself into view on focus",
 );
 
 assert.match(
