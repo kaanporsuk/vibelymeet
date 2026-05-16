@@ -7,7 +7,7 @@ const MESSAGE_SELECT =
 const DATE_SUGGESTION_SELECT =
   "id, match_id, proposer_id, recipient_id, status, current_revision_id, draft_payload, expires_at, schedule_share_expires_at, expiring_soon_sent_at, date_plan_id, created_at, updated_at";
 const DATE_SUGGESTION_REVISION_SELECT =
-  "id, date_suggestion_id, revision_number, proposed_by, date_type_key, time_choice_key, place_mode_key, venue_text, optional_message, schedule_share_enabled, starts_at, ends_at, time_block, agreed_field_flags, created_at";
+  "id, date_suggestion_id, revision_number, proposed_by, date_type_key, time_choice_key, place_mode_key, venue_text, optional_message, schedule_share_enabled, starts_at, ends_at, time_block, local_timezone, agreed_field_flags, created_at";
 const DATE_PLAN_SELECT =
   "id, date_suggestion_id, match_id, starts_at, ends_at, venue_label, date_type_key, status, completion_initiated_by, completion_initiated_at, completion_confirmed_by, completion_confirmed_at";
 const DATE_PLAN_PARTICIPANT_SELECT =
@@ -73,6 +73,7 @@ type DateSuggestionRevisionRow = {
   starts_at: string | null;
   ends_at: string | null;
   time_block: string | null;
+  local_timezone: string | null;
   agreed_field_flags: Record<string, boolean> | null;
   created_at: string;
 };

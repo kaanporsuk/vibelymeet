@@ -16,6 +16,7 @@ test("native date composer uses an inline date-time picker across native and Exp
 
   assert.doesNotMatch(nativeComposer, /@react-native-community\/datetimepicker/);
   assert.doesNotMatch(nativeComposer, /<DateTimePicker\b/);
+  assert.match(nativeComposer, /const HOUR12_OPTIONS = \[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12\] as const/);
   assert.match(nativeComposer, /let startsAt: string \| null \| undefined = null/);
   assert.match(nativeComposer, /let endsAt: string \| null \| undefined = null/);
   assert.match(nativeComposer, /let timeBlock: string \| null \| undefined = null/);
@@ -52,6 +53,7 @@ test("native date composer uses an inline date-time picker across native and Exp
 test("web date composer still opens its inline calendar and saves exact proposal time", () => {
   const webComposer = readRepoFile("src/components/chat/DateSuggestionComposer.tsx");
 
+  assert.match(webComposer, /const HOUR12_OPTIONS = \[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12\] as const/);
   assert.match(webComposer, /const openPickFlow = useCallback/);
   assert.match(webComposer, /let startsAt: string \| null \| undefined = null/);
   assert.match(webComposer, /let endsAt: string \| null \| undefined = null/);

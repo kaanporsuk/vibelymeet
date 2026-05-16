@@ -41,11 +41,12 @@ import {
 } from '../../../../shared/dateSuggestions/dateComposerLaunch';
 import { useVibelyDialog } from '@/components/VibelyDialog';
 import { formatProposedDateTimeSummary } from '../../../../shared/dateSuggestions/formatProposedDateTimeSummary';
+import { localTimezoneOrUtc } from '../../../../shared/dateSuggestions/localTimezone';
 
 const STEPS = ['Type', 'When', 'Place', 'Message', 'Review'] as const;
 const MINUTE_STEP = 5;
 const MINUTE_OPTIONS = Array.from({ length: 60 / MINUTE_STEP }, (_, i) => i * MINUTE_STEP);
-const HOUR12_OPTIONS = [12, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11] as const;
+const HOUR12_OPTIONS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12] as const;
 const WEEKDAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'] as const;
 
 export type WizardState = {
@@ -199,6 +200,7 @@ function buildRevision(w: WizardState, options?: { counterSharePick?: boolean })
     starts_at: startsAt ?? null,
     ends_at: endsAt ?? null,
     time_block: timeBlock ?? null,
+    local_timezone: localTimezoneOrUtc(),
   };
   if (share && w.selectedSlotKeys.length > 0) {
     revision.selected_slot_keys = w.selectedSlotKeys;
@@ -224,6 +226,8 @@ type Props = {
   /** Client-only; does not change persisted suggestion payload. */
   launchSource?: DateComposerLaunchSource;
   onSuccess?: () => void;
+  /** Called with the existing suggestion id when active_suggestion_exists is returned. */
+  onActiveSuggestionConflict?: (suggestionId: string | null) => void;
 };
 
 export function DateSuggestionSheet({
@@ -238,6 +242,7 @@ export function DateSuggestionSheet({
   counterContext,
   launchSource = 'default',
   onSuccess,
+  onActiveSuggestionConflict,
 }: Props) {
   const theme = Colors[useColorScheme()];
   const queryClient = useQueryClient();
@@ -405,12 +410,16 @@ export function DateSuggestionSheet({
         if (e.suggestionId) setDraftId(e.suggestionId);
         onSuccess?.();
         onClose();
-        showDialog({
-          title: 'Already planning something',
-          message: 'You already have an active date suggestion in this chat.',
-          variant: 'info',
-          primaryAction: { label: 'Got it', onPress: () => {} },
-        });
+        if (onActiveSuggestionConflict) {
+          onActiveSuggestionConflict(e.suggestionId ?? null);
+        } else {
+          showDialog({
+            title: 'Already planning something',
+            message: 'You already have an active date suggestion in this chat.',
+            variant: 'info',
+            primaryAction: { label: 'Got it', onPress: () => {} },
+          });
+        }
       } else {
         if (
           e instanceof DateSuggestionDomainError &&

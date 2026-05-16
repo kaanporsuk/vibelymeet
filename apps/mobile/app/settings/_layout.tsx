@@ -3,9 +3,15 @@
  */
 import { Stack } from 'expo-router';
 
+import { useColorScheme } from '@/components/useColorScheme';
+import Colors from '@/constants/Colors';
+
 export default function SettingsLayout() {
+  const colorScheme = useColorScheme();
+  const theme = Colors[colorScheme];
+
   return (
-    <Stack screenOptions={{ headerShown: false }}>
+    <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: theme.background } }}>
       <Stack.Screen name="index" options={{ title: 'Settings' }} />
       <Stack.Screen name="notifications" options={{ title: 'Notifications' }} />
       <Stack.Screen name="credits" options={{ title: 'Video Date Credits' }} />

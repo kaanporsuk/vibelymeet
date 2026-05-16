@@ -1007,6 +1007,7 @@ export type Database = {
           date_type_key: string
           ends_at: string | null
           id: string
+          local_timezone: string | null
           optional_message: string | null
           place_mode_key: string
           proposed_by: string
@@ -1024,6 +1025,7 @@ export type Database = {
           date_type_key: string
           ends_at?: string | null
           id?: string
+          local_timezone?: string | null
           optional_message?: string | null
           place_mode_key: string
           proposed_by: string
@@ -1041,6 +1043,7 @@ export type Database = {
           date_type_key?: string
           ends_at?: string | null
           id?: string
+          local_timezone?: string | null
           optional_message?: string | null
           place_mode_key?: string
           proposed_by?: string

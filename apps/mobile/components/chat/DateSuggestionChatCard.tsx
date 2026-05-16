@@ -1,6 +1,6 @@
 import { useEffect, useRef, useMemo, useState, useCallback } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import { View, Text, Pressable, StyleSheet, Share } from 'react-native';
+import { Animated, View, Text, Pressable, StyleSheet, Share } from 'react-native';
 import * as Sentry from '@sentry/react-native';
 import * as Clipboard from 'expo-clipboard';
 import { Ionicons } from '@expo/vector-icons';
@@ -89,6 +89,11 @@ type Props = {
   onOpenComposer: (opts: OpenComposerOpts) => void;
   onUpdated: () => void;
   threadUi?: DateCardThreadUi;
+  /**
+   * When this token changes, the card briefly pulses to draw attention after
+   * the user tries to create another date suggestion while this one blocks it.
+   */
+  highlightToken?: number;
 };
 
 export function DateSuggestionChatCard({
@@ -99,6 +104,7 @@ export function DateSuggestionChatCard({
   onOpenComposer,
   onUpdated,
   threadUi = 'normal',
+  highlightToken,
 }: Props) {
   const theme = Colors[useColorScheme()];
   const queryClient = useQueryClient();
@@ -106,6 +112,7 @@ export function DateSuggestionChatCard({
   const [cancelBusy, setCancelBusy] = useState(false);
   const { show: showDialog, dialog: dialogEl } = useVibelyDialog();
   const markedRef = useRef(false);
+  const highlightOpacity = useRef(new Animated.Value(0)).current;
   const revs = suggestion.revisions;
   const current = useMemo(() => {
     if (suggestion.current_revision_id) {
@@ -140,6 +147,18 @@ export function DateSuggestionChatCard({
       markedRef.current = false;
     });
   }, [suggestion.id, status, authorOfCurrent, current]);
+
+  useEffect(() => {
+    if (highlightToken === undefined) return;
+    highlightOpacity.stopAnimation();
+    highlightOpacity.setValue(0);
+    Animated.sequence([
+      Animated.timing(highlightOpacity, { toValue: 1, duration: 180, useNativeDriver: true }),
+      Animated.timing(highlightOpacity, { toValue: 0.25, duration: 220, useNativeDriver: true }),
+      Animated.timing(highlightOpacity, { toValue: 1, duration: 180, useNativeDriver: true }),
+      Animated.timing(highlightOpacity, { toValue: 0, duration: 520, useNativeDriver: true }),
+    ]).start();
+  }, [highlightOpacity, highlightToken]);
 
   const agreed = current?.agreed_field_flags as Record<string, boolean> | undefined;
   const optionalNote = current?.optional_message?.trim() ?? '';
@@ -745,6 +764,14 @@ export function DateSuggestionChatCard({
         },
       ]}
     >
+      <Animated.View
+        pointerEvents="none"
+        style={[
+          StyleSheet.absoluteFill,
+          styles.highlightOverlay,
+          { borderColor: theme.tint, opacity: highlightOpacity },
+        ]}
+      />
       {showCelebration && (
         <View style={styles.celebrationRow}>
           <Ionicons name="sparkles" size={16} color={theme.tint} />
@@ -1181,10 +1208,16 @@ const styles = StyleSheet.create({
   compactLinkBtn: { paddingVertical: 4, paddingHorizontal: 4 },
   compactLinkText: { fontSize: 10, fontWeight: '700' },
   card: {
+    position: 'relative',
     borderRadius: radius.lg,
     borderWidth: StyleSheet.hairlineWidth,
     padding: spacing.sm,
     maxWidth: '100%',
+  },
+  highlightOverlay: {
+    borderRadius: radius.lg,
+    borderWidth: 2,
+    backgroundColor: 'rgba(139,92,246,0.08)',
   },
   celebrationRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: spacing.xs + 2 },
   celebrationTitle: { fontSize: 14, fontWeight: '700' },

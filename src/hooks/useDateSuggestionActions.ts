@@ -31,6 +31,7 @@ export type RevisionPayload = {
   starts_at?: string | null;
   ends_at?: string | null;
   time_block?: string | null;
+  local_timezone?: string | null;
   selected_slot_keys?: string[];
 };
 
