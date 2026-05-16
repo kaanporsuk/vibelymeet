@@ -76,6 +76,11 @@ function shouldRetryWithGenericCamera(error: unknown): boolean {
   return name !== "NotAllowedError" && name !== "SecurityError";
 }
 
+function facingModeFromStream(stream: MediaStream, fallback: PhotoCameraFacingMode): PhotoCameraFacingMode {
+  const actualFacingMode = stream.getVideoTracks()[0]?.getSettings?.().facingMode;
+  return actualFacingMode === "user" || actualFacingMode === "environment" ? actualFacingMode : fallback;
+}
+
 async function getCameraStream(
   facingMode: PhotoCameraFacingMode,
   opts?: { allowGenericFallback?: boolean; exactFacingMode?: boolean },
@@ -215,7 +220,7 @@ export function PhotoCameraCaptureDialog({
         return null;
       }
 
-      setFacingMode(nextFacingMode);
+      setFacingMode(facingModeFromStream(stream, nextFacingMode));
       setPhase("camera");
       void refreshCameraCount();
       return stream;
