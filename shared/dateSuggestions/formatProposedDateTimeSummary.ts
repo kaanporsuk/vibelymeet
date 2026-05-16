@@ -17,10 +17,3 @@ export function formatProposedDateTimeSummary(iso: string | null | undefined): s
   }).format(d);
   return `${dateStr} · ${timeStr}`;
 }
-
-/** Merge a calendar day (local) with clock fields from a time-only Date (local). */
-export function mergeLocalDateAndTime(dateDay: Date, timeSource: Date): Date {
-  const out = new Date(dateDay);
-  out.setHours(timeSource.getHours(), timeSource.getMinutes(), 0, 0);
-  return out;
-}

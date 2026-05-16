@@ -62,6 +62,27 @@ function mergeDayAndWallTime(day: Date, hour12: number, minute: number, ampm: "A
   return out;
 }
 
+function isUsableExactPick(iso: string | null | undefined, nowMs = Date.now()): boolean {
+  if (!iso) return false;
+  const ms = new Date(iso).getTime();
+  return Number.isFinite(ms) && ms > nowMs;
+}
+
+function nextDefaultExactPick(now = new Date()): Date {
+  const out = new Date(now);
+  out.setSeconds(0, 0);
+  const nextMinute = Math.ceil(out.getMinutes() / MINUTE_STEP) * MINUTE_STEP;
+  if (nextMinute >= 60) {
+    out.setHours(out.getHours() + 1, 0, 0, 0);
+  } else {
+    out.setMinutes(nextMinute, 0, 0);
+  }
+  if (out.getTime() <= now.getTime()) {
+    out.setMinutes(out.getMinutes() + MINUTE_STEP);
+  }
+  return out;
+}
+
 const DATE_TYPE_KEYS = new Set<string>(DATE_TYPE_OPTIONS.map((o) => o.key));
 
 export type WizardState = {
@@ -105,9 +126,9 @@ function resolveDateTypeValue(w: Pick<WizardState, "dateTypeKey" | "customDateTy
 function buildRevision(w: WizardState, options?: { counterSharePick?: boolean }) {
   const counterSharePick = options?.counterSharePick === true;
   const share = w.timeChoiceKey === "share_schedule" && !counterSharePick;
-  let startsAt: string | null | undefined = w.pickStartIso;
-  let endsAt: string | null | undefined = w.pickEndIso;
-  let timeBlock: string | null | undefined = w.pickTimeBlock;
+  let startsAt: string | null | undefined = null;
+  let endsAt: string | null | undefined = null;
+  let timeBlock: string | null | undefined = null;
 
   if (w.timeChoiceKey === "pick_a_time" && w.pickStartIso) {
     startsAt = w.pickStartIso;
@@ -191,7 +212,10 @@ export function DateSuggestionComposer({
   const [pickAmPm, setPickAmPm] = useState<"AM" | "PM">("PM");
 
   const openPickFlow = useCallback(() => {
-    const base = w.pickStartIso ? new Date(w.pickStartIso) : new Date();
+    const fallback = nextDefaultExactPick();
+    const parsed = w.pickStartIso ? new Date(w.pickStartIso) : fallback;
+    const parsedMs = parsed.getTime();
+    const base = Number.isFinite(parsedMs) && parsedMs > Date.now() ? parsed : fallback;
     const wall = wallTimePartsFromDate(base);
     setPickDay(startOfDay(base));
     setPickHour12(wall.hour12);
@@ -200,6 +224,11 @@ export function DateSuggestionComposer({
     setPickPhase("date");
     setPickFlowOpen(true);
   }, [w.pickStartIso]);
+
+  const resetPickFlowUi = useCallback(() => {
+    setPickFlowOpen(false);
+    setPickPhase("date");
+  }, []);
 
   const shareEnabled = w.timeChoiceKey === "share_schedule";
   /** Partner grid only when countering (grant exists from their prior share). */
@@ -210,6 +239,7 @@ export function DateSuggestionComposer({
   );
 
   useEffect(() => {
+    resetPickFlowUi();
     if (!open) return;
     if (counterContext) {
       const r = counterContext.previousRevision;
@@ -259,7 +289,7 @@ export function DateSuggestionComposer({
     setW(defaultWizard());
     setStep(0);
     setDraftId(draftSuggestionId ?? null);
-  }, [open, counterContext, draftSuggestionId, draftFromParent]);
+  }, [open, counterContext, draftSuggestionId, draftFromParent, resetPickFlowUi]);
 
   useEffect(() => {
     if (w.timeChoiceKey !== "pick_a_time") setPickFlowOpen(false);
@@ -297,6 +327,12 @@ export function DateSuggestionComposer({
 
   const submitProposal = async () => {
     if (submitInFlightRef.current || saving) return;
+    if (w.timeChoiceKey === "pick_a_time" && !isUsableExactPick(w.pickStartIso)) {
+      setStep(1);
+      openPickFlow();
+      toast.error("That date and time has passed. Choose a future time before sending.");
+      return;
+    }
     submitInFlightRef.current = true;
     setSaving(true);
     try {
@@ -349,7 +385,7 @@ export function DateSuggestionComposer({
 
   const canNext = () => {
     if (step === 0 && w.dateTypeKey === "custom" && !w.customDateTypeText.trim()) return false;
-    if (step === 1 && w.timeChoiceKey === "pick_a_time" && !w.pickStartIso) return false;
+    if (step === 1 && w.timeChoiceKey === "pick_a_time" && !isUsableExactPick(w.pickStartIso)) return false;
     if (step === 1 && shareEnabled && counterContext && (!w.pickSlotDate || !w.pickTimeBlock)) {
       return false;
     }
@@ -359,6 +395,9 @@ export function DateSuggestionComposer({
     if (step === 2 && w.placeModeKey === "custom_venue" && !w.venueText.trim()) return false;
     return true;
   };
+
+  const pickCandidate = mergeDayAndWallTime(pickDay, pickHour12, pickMinute, pickAmPm);
+  const pickTimeIsPast = pickCandidate.getTime() <= Date.now();
 
   return (
     <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
@@ -568,9 +607,7 @@ export function DateSuggestionComposer({
                         <div className="rounded-xl border border-violet-500/15 bg-background/50 px-4 py-4 text-center ring-1 ring-inset ring-white/[0.03]">
                           <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/80">Preview</p>
                           <p className="mt-1.5 text-xl font-semibold tabular-nums tracking-tight text-primary sm:text-2xl">
-                            {formatProposedDateTimeSummary(
-                              mergeDayAndWallTime(pickDay, pickHour12, pickMinute, pickAmPm).toISOString(),
-                            )}
+                            {formatProposedDateTimeSummary(pickCandidate.toISOString())}
                           </p>
                         </div>
 
@@ -629,6 +666,11 @@ export function DateSuggestionComposer({
                             </div>
                           </div>
                         </div>
+                        {pickTimeIsPast ? (
+                          <p className="text-xs font-medium text-destructive">
+                            Pick a future time to continue.
+                          </p>
+                        ) : null}
 
                         <div className="flex flex-col-reverse gap-2 pt-1 sm:flex-row sm:justify-end sm:gap-3">
                           <Button type="button" variant="outline" className="sm:min-w-[7rem]" onClick={() => setPickFlowOpen(false)}>
@@ -637,12 +679,17 @@ export function DateSuggestionComposer({
                           <Button
                             type="button"
                             className="bg-primary sm:min-w-[7rem]"
+                            disabled={pickTimeIsPast}
                             onClick={() => {
-                              const merged = mergeDayAndWallTime(pickDay, pickHour12, pickMinute, pickAmPm);
+                              if (pickCandidate.getTime() <= Date.now()) {
+                                toast.error("That time has passed. Choose a future time to continue.");
+                                return;
+                              }
+                              const exactPickIso = pickCandidate.toISOString();
                               setW((p) => ({
                                 ...p,
-                                pickStartIso: merged.toISOString(),
-                                pickEndIso: merged.toISOString(),
+                                pickStartIso: exactPickIso,
+                                pickEndIso: exactPickIso,
                               }));
                               setPickFlowOpen(false);
                             }}

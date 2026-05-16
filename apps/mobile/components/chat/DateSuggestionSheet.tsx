@@ -9,20 +9,15 @@ import {
   Pressable,
   TextInput,
   StyleSheet,
-  Platform,
   ActivityIndicator,
   ScrollView,
-  Modal,
-  useColorScheme as useRnColorScheme,
 } from 'react-native';
-import DateTimePicker from '@react-native-community/datetimepicker';
-import { SafeAreaView } from 'react-native-safe-area-context';
 import { useQueryClient } from '@tanstack/react-query';
 import { startOfDay } from 'date-fns';
 import { Ionicons } from '@expo/vector-icons';
 import Colors from '@/constants/Colors';
 import { useColorScheme } from '@/components/useColorScheme';
-import { spacing, radius, fonts, shadows, typography } from '@/constants/theme';
+import { spacing, radius, fonts, shadows } from '@/constants/theme';
 import { VibelyText } from '@/components/ui';
 import { KeyboardAwareBottomSheetModal } from '@/components/keyboard/KeyboardAwareBottomSheetModal';
 import {
@@ -45,12 +40,13 @@ import {
   type DateComposerLaunchSource,
 } from '../../../../shared/dateSuggestions/dateComposerLaunch';
 import { useVibelyDialog } from '@/components/VibelyDialog';
-import {
-  formatProposedDateTimeSummary,
-  mergeLocalDateAndTime,
-} from '../../../../shared/dateSuggestions/formatProposedDateTimeSummary';
+import { formatProposedDateTimeSummary } from '../../../../shared/dateSuggestions/formatProposedDateTimeSummary';
 
 const STEPS = ['Type', 'When', 'Place', 'Message', 'Review'] as const;
+const MINUTE_STEP = 5;
+const MINUTE_OPTIONS = Array.from({ length: 60 / MINUTE_STEP }, (_, i) => i * MINUTE_STEP);
+const HOUR12_OPTIONS = [12, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11] as const;
+const WEEKDAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'] as const;
 
 export type WizardState = {
   dateTypeKey: string;
@@ -87,6 +83,90 @@ const defaultWizard = (): WizardState => ({
 
 const DATE_TYPE_KEYS = new Set<string>(DATE_TYPE_OPTIONS.map((o) => o.key));
 
+function wallTimePartsFromDate(d: Date): { hour12: number; minute: number; ampm: 'AM' | 'PM' } {
+  const h = d.getHours();
+  const ampm: 'AM' | 'PM' = h >= 12 ? 'PM' : 'AM';
+  let hour12 = h % 12;
+  if (hour12 === 0) hour12 = 12;
+  const minute = Math.min(55, Math.round(d.getMinutes() / MINUTE_STEP) * MINUTE_STEP);
+  return { hour12, minute, ampm };
+}
+
+function mergeDayAndWallTime(day: Date, hour12: number, minute: number, ampm: 'AM' | 'PM'): Date {
+  const out = startOfDay(day);
+  let h24 = hour12 % 12;
+  if (ampm === 'PM' && hour12 !== 12) h24 += 12;
+  if (ampm === 'AM' && hour12 === 12) h24 = 0;
+  out.setHours(h24, minute, 0, 0);
+  return out;
+}
+
+function addLocalDays(day: Date, amount: number): Date {
+  const out = startOfDay(day);
+  out.setDate(out.getDate() + amount);
+  return out;
+}
+
+function startOfLocalMonth(day: Date): Date {
+  return startOfDay(new Date(day.getFullYear(), day.getMonth(), 1));
+}
+
+function shiftLocalMonth(day: Date, amount: number): Date {
+  return startOfDay(new Date(day.getFullYear(), day.getMonth() + amount, 1));
+}
+
+function sameLocalDay(a: Date, b: Date): boolean {
+  return (
+    a.getFullYear() === b.getFullYear() &&
+    a.getMonth() === b.getMonth() &&
+    a.getDate() === b.getDate()
+  );
+}
+
+function isBeforeLocalDay(a: Date, b: Date): boolean {
+  return startOfDay(a).getTime() < startOfDay(b).getTime();
+}
+
+function calendarDaysForMonth(month: Date): Date[] {
+  const first = startOfLocalMonth(month);
+  const gridStart = addLocalDays(first, -first.getDay());
+  return Array.from({ length: 42 }, (_, i) => addLocalDays(gridStart, i));
+}
+
+function formatCalendarMonth(month: Date): string {
+  return new Intl.DateTimeFormat(undefined, { month: 'long', year: 'numeric' }).format(month);
+}
+
+function formatCalendarDayLabel(day: Date): string {
+  return new Intl.DateTimeFormat(undefined, {
+    weekday: 'long',
+    month: 'long',
+    day: 'numeric',
+    year: 'numeric',
+  }).format(day);
+}
+
+function isUsableExactPick(iso: string | null | undefined, nowMs = Date.now()): boolean {
+  if (!iso) return false;
+  const ms = new Date(iso).getTime();
+  return Number.isFinite(ms) && ms > nowMs;
+}
+
+function nextDefaultExactPick(now = new Date()): Date {
+  const out = new Date(now);
+  out.setSeconds(0, 0);
+  const nextMinute = Math.ceil(out.getMinutes() / MINUTE_STEP) * MINUTE_STEP;
+  if (nextMinute >= 60) {
+    out.setHours(out.getHours() + 1, 0, 0, 0);
+  } else {
+    out.setMinutes(nextMinute, 0, 0);
+  }
+  if (out.getTime() <= now.getTime()) {
+    out.setMinutes(out.getMinutes() + MINUTE_STEP);
+  }
+  return out;
+}
+
 function resolveDateTypeValue(w: Pick<WizardState, 'dateTypeKey' | 'customDateTypeText'>): string {
   if (w.dateTypeKey !== 'custom') return w.dateTypeKey;
   return w.customDateTypeText.trim();
@@ -95,9 +175,9 @@ function resolveDateTypeValue(w: Pick<WizardState, 'dateTypeKey' | 'customDateTy
 function buildRevision(w: WizardState, options?: { counterSharePick?: boolean }) {
   const counterSharePick = options?.counterSharePick === true;
   const share = w.timeChoiceKey === 'share_schedule' && !counterSharePick;
-  let startsAt: string | null | undefined = w.pickStartIso;
-  let endsAt: string | null | undefined = w.pickEndIso;
-  let timeBlock: string | null | undefined = w.pickTimeBlock;
+  let startsAt: string | null | undefined = null;
+  let endsAt: string | null | undefined = null;
+  let timeBlock: string | null | undefined = null;
 
   if (w.timeChoiceKey === 'pick_a_time' && w.pickStartIso) {
     startsAt = w.pickStartIso;
@@ -174,16 +254,22 @@ export function DateSuggestionSheet({
     visible && shareEnabled && !!counterContext
   );
 
-  /** Stacked above the bottom sheet so system pickers are not swallowed by scroll/touches. */
-  const [nativePickOpen, setNativePickOpen] = useState(false);
-  const [nativePickPhase, setNativePickPhase] = useState<'date' | 'time'>('date');
-  const [nativeDatePart, setNativeDatePart] = useState(() => startOfDay(new Date()));
-  const [nativeTimePart, setNativeTimePart] = useState(() => new Date());
+  const [inlinePickOpen, setInlinePickOpen] = useState(false);
+  const [inlinePickPhase, setInlinePickPhase] = useState<'date' | 'time'>('date');
+  const [inlinePickMonth, setInlinePickMonth] = useState(() => startOfLocalMonth(new Date()));
+  const [inlinePickDay, setInlinePickDay] = useState(() => startOfDay(new Date()));
+  const [inlinePickHour12, setInlinePickHour12] = useState(() => wallTimePartsFromDate(new Date()).hour12);
+  const [inlinePickMinute, setInlinePickMinute] = useState(() => wallTimePartsFromDate(new Date()).minute);
+  const [inlinePickAmPm, setInlinePickAmPm] = useState<'AM' | 'PM'>(() => wallTimePartsFromDate(new Date()).ampm);
   const { show: showDialog, dialog: dialogEl } = useVibelyDialog();
-  const rnScheme = useRnColorScheme();
-  const pickerTheme = rnScheme === 'dark' ? 'dark' : 'light';
+
+  const resetInlinePickUi = useCallback(() => {
+    setInlinePickOpen(false);
+    setInlinePickPhase('date');
+  }, []);
 
   useEffect(() => {
+    resetInlinePickUi();
     if (!visible) return;
     if (counterContext) {
       const r = counterContext.previousRevision;
@@ -226,14 +312,22 @@ export function DateSuggestionSheet({
     setW(defaultWizard());
     setStep(0);
     setDraftId(draftSuggestionId ?? null);
-  }, [visible, counterContext, draftSuggestionId, draftFromParent]);
+  }, [visible, counterContext, draftSuggestionId, draftFromParent, resetInlinePickUi]);
 
-  const openNativePickFlow = useCallback(() => {
-    const base = w.pickStartIso ? new Date(w.pickStartIso) : new Date();
-    setNativeDatePart(startOfDay(base));
-    setNativeTimePart(base);
-    setNativePickPhase('date');
-    setNativePickOpen(true);
+  const openInlinePickFlow = useCallback(() => {
+    const fallback = nextDefaultExactPick();
+    const parsed = w.pickStartIso ? new Date(w.pickStartIso) : fallback;
+    const parsedMs = parsed.getTime();
+    const base = Number.isFinite(parsedMs) && parsedMs > Date.now() ? parsed : fallback;
+    const day = startOfDay(base);
+    const wall = wallTimePartsFromDate(base);
+    setInlinePickDay(day);
+    setInlinePickMonth(startOfLocalMonth(day));
+    setInlinePickHour12(wall.hour12);
+    setInlinePickMinute(wall.minute);
+    setInlinePickAmPm(wall.ampm);
+    setInlinePickPhase('date');
+    setInlinePickOpen(true);
   }, [w.pickStartIso]);
 
   const refreshOwnSchedule = useCallback(() => {
@@ -241,7 +335,7 @@ export function DateSuggestionSheet({
   }, [currentUserId, queryClient]);
 
   useEffect(() => {
-    if (w.timeChoiceKey !== 'pick_a_time') setNativePickOpen(false);
+    if (w.timeChoiceKey !== 'pick_a_time') setInlinePickOpen(false);
   }, [w.timeChoiceKey]);
 
   const submitErrorMessage = (error: unknown): string => {
@@ -276,6 +370,17 @@ export function DateSuggestionSheet({
 
   const submitProposal = async () => {
     if (submitInFlightRef.current || saving) return;
+    if (w.timeChoiceKey === 'pick_a_time' && !isUsableExactPick(w.pickStartIso)) {
+      setStep(1);
+      openInlinePickFlow();
+      showDialog({
+        title: 'Pick a new time',
+        message: 'That date and time has passed. Choose a future time before sending.',
+        variant: 'warning',
+        primaryAction: { label: 'OK', onPress: () => {} },
+      });
+      return;
+    }
     submitInFlightRef.current = true;
     setSaving(true);
     try {
@@ -331,7 +436,7 @@ export function DateSuggestionSheet({
 
   const canNext = useCallback(() => {
     if (step === 0 && w.dateTypeKey === 'custom' && !w.customDateTypeText.trim()) return false;
-    if (step === 1 && w.timeChoiceKey === 'pick_a_time' && !w.pickStartIso) return false;
+    if (step === 1 && w.timeChoiceKey === 'pick_a_time' && !isUsableExactPick(w.pickStartIso)) return false;
     if (step === 1 && shareEnabled && counterContext && (!w.pickSlotDate || !w.pickTimeBlock)) {
       return false;
     }
@@ -343,6 +448,15 @@ export function DateSuggestionSheet({
   }, [step, w, shareEnabled, counterContext]);
 
   const todayStart = startOfDay(new Date());
+  const inlinePickCandidate = mergeDayAndWallTime(
+    inlinePickDay,
+    inlinePickHour12,
+    inlinePickMinute,
+    inlinePickAmPm,
+  );
+  const inlinePickTimeIsPast = inlinePickCandidate.getTime() <= Date.now();
+  const inlinePreviewIso = inlinePickCandidate.toISOString();
+  const previousMonthDisabled = inlinePickMonth.getTime() <= startOfLocalMonth(todayStart).getTime();
 
   const stepContent = (
     <ScrollView
@@ -473,7 +587,9 @@ export function DateSuggestionSheet({
                     : 'Choose a date, then a time.'}
                 </Text>
                 <Pressable
-                  onPress={openNativePickFlow}
+                  onPress={openInlinePickFlow}
+                  accessibilityRole="button"
+                  accessibilityLabel={w.pickStartIso ? 'Change date and time' : 'Choose date and time'}
                   style={({ pressed }) => [
                     styles.iosPickBtn,
                     {
@@ -489,6 +605,274 @@ export function DateSuggestionSheet({
                     {w.pickStartIso ? 'Change date & time' : 'Choose date & time'}
                   </Text>
                 </Pressable>
+                {inlinePickOpen ? (
+                  <View
+                    style={[
+                      styles.inlinePickPanel,
+                      { borderColor: theme.border, backgroundColor: theme.surface },
+                    ]}
+                  >
+                    <Text style={[styles.inlinePickTitle, { color: theme.text }]}>
+                      {inlinePickPhase === 'date' ? 'Pick a date' : 'Pick a time'}
+                    </Text>
+                    <Text style={[styles.inlinePickPreview, { color: theme.textSecondary }]}>
+                      {formatProposedDateTimeSummary(inlinePreviewIso)}
+                    </Text>
+
+                    {inlinePickPhase === 'date' ? (
+                      <View style={styles.inlineCalendar}>
+                        <View style={styles.inlineCalendarHeader}>
+                          <Pressable
+                            onPress={() => setInlinePickMonth((month) => shiftLocalMonth(month, -1))}
+                            disabled={previousMonthDisabled}
+                            accessibilityRole="button"
+                            accessibilityLabel="Previous month"
+                            accessibilityState={{ disabled: previousMonthDisabled }}
+                            style={({ pressed }) => [
+                              styles.inlineCalendarNav,
+                              {
+                                backgroundColor: theme.muted,
+                                opacity: previousMonthDisabled ? 0.35 : pressed ? 0.82 : 1,
+                              },
+                            ]}
+                          >
+                            <Ionicons name="chevron-back" size={18} color={theme.text} />
+                          </Pressable>
+                          <Text style={[styles.inlineCalendarMonth, { color: theme.text }]}>
+                            {formatCalendarMonth(inlinePickMonth)}
+                          </Text>
+                          <Pressable
+                            onPress={() => setInlinePickMonth((month) => shiftLocalMonth(month, 1))}
+                            accessibilityRole="button"
+                            accessibilityLabel="Next month"
+                            style={({ pressed }) => [
+                              styles.inlineCalendarNav,
+                              { backgroundColor: theme.muted, opacity: pressed ? 0.82 : 1 },
+                            ]}
+                          >
+                            <Ionicons name="chevron-forward" size={18} color={theme.text} />
+                          </Pressable>
+                        </View>
+                        <View style={styles.inlineWeekRow}>
+                          {WEEKDAY_LABELS.map((label) => (
+                            <Text key={label} style={[styles.inlineWeekLabel, { color: theme.textSecondary }]}>
+                              {label}
+                            </Text>
+                          ))}
+                        </View>
+                        <View style={styles.inlineDayGrid}>
+                          {calendarDaysForMonth(inlinePickMonth).map((day) => {
+                            const disabled = isBeforeLocalDay(day, todayStart);
+                            const selected = sameLocalDay(day, inlinePickDay);
+                            const currentMonth = day.getMonth() === inlinePickMonth.getMonth();
+                            return (
+                              <Pressable
+                                key={day.toISOString()}
+                                disabled={disabled}
+                                accessibilityRole="button"
+                                accessibilityLabel={`Pick ${formatCalendarDayLabel(day)}`}
+                                accessibilityState={{ disabled, selected }}
+                                onPress={() => {
+                                  const nextDay = startOfDay(day);
+                                  setInlinePickDay(nextDay);
+                                  setInlinePickMonth(startOfLocalMonth(nextDay));
+                                  setInlinePickPhase('time');
+                                }}
+                                style={({ pressed }) => [
+                                  styles.inlineDayCell,
+                                  {
+                                    backgroundColor: selected ? theme.tint : 'transparent',
+                                    borderColor: selected ? theme.tint : theme.border,
+                                    opacity: disabled ? 0.25 : pressed ? 0.75 : currentMonth ? 1 : 0.45,
+                                  },
+                                ]}
+                              >
+                                <Text
+                                  style={[
+                                    styles.inlineDayText,
+                                    { color: selected ? theme.primaryForeground : theme.text },
+                                  ]}
+                                >
+                                  {day.getDate()}
+                                </Text>
+                              </Pressable>
+                            );
+                          })}
+                        </View>
+                        <View style={styles.inlinePickActions}>
+                          <Pressable
+                            onPress={() => setInlinePickOpen(false)}
+                            style={({ pressed }) => [
+                              styles.inlinePickAction,
+                              { backgroundColor: theme.muted, opacity: pressed ? 0.9 : 1 },
+                            ]}
+                          >
+                            <Text style={[styles.inlinePickActionText, { color: theme.text }]}>Cancel</Text>
+                          </Pressable>
+                          <Pressable
+                            onPress={() => setInlinePickPhase('time')}
+                            style={({ pressed }) => [
+                              styles.inlinePickAction,
+                              { backgroundColor: theme.tint, opacity: pressed ? 0.9 : 1 },
+                            ]}
+                          >
+                            <Text style={[styles.inlinePickActionText, { color: theme.primaryForeground }]}>Next</Text>
+                          </Pressable>
+                        </View>
+                      </View>
+                    ) : (
+                      <View style={styles.inlineTimePanel}>
+                        <Pressable
+                          onPress={() => setInlinePickPhase('date')}
+                          accessibilityRole="button"
+                          accessibilityLabel="Change date"
+                          style={({ pressed }) => [
+                            styles.changeDateButton,
+                            { borderColor: theme.border, opacity: pressed ? 0.8 : 1 },
+                          ]}
+                        >
+                          <Ionicons name="calendar-outline" size={15} color={theme.tint} />
+                          <Text style={[styles.changeDateText, { color: theme.tint }]}>Change date</Text>
+                        </Pressable>
+
+                        <View style={styles.timeGroup}>
+                          <Text style={[styles.timeGroupLabel, { color: theme.textSecondary }]}>Hour</Text>
+                          <ScrollView
+                            horizontal
+                            showsHorizontalScrollIndicator={false}
+                            contentContainerStyle={styles.timeChoiceRow}
+                          >
+                            {HOUR12_OPTIONS.map((hour) => {
+                              const selected = inlinePickHour12 === hour;
+                              return (
+                                <Pressable
+                                  key={`hour-${hour}`}
+                                  onPress={() => setInlinePickHour12(hour)}
+                                  style={({ pressed }) => [
+                                    styles.timeChoiceChip,
+                                    {
+                                      borderColor: selected ? theme.tint : theme.border,
+                                      backgroundColor: selected ? 'rgba(139,92,246,0.22)' : theme.surfaceSubtle,
+                                      opacity: pressed ? 0.82 : 1,
+                                    },
+                                  ]}
+                                >
+                                  <Text style={[styles.timeChoiceText, { color: theme.text }]}>{hour}</Text>
+                                </Pressable>
+                              );
+                            })}
+                          </ScrollView>
+                        </View>
+
+                        <View style={styles.timeGroup}>
+                          <Text style={[styles.timeGroupLabel, { color: theme.textSecondary }]}>Minute</Text>
+                          <ScrollView
+                            horizontal
+                            showsHorizontalScrollIndicator={false}
+                            contentContainerStyle={styles.timeChoiceRow}
+                          >
+                            {MINUTE_OPTIONS.map((minute) => {
+                              const selected = inlinePickMinute === minute;
+                              return (
+                                <Pressable
+                                  key={`minute-${minute}`}
+                                  onPress={() => setInlinePickMinute(minute)}
+                                  style={({ pressed }) => [
+                                    styles.timeChoiceChip,
+                                    {
+                                      borderColor: selected ? theme.tint : theme.border,
+                                      backgroundColor: selected ? 'rgba(139,92,246,0.22)' : theme.surfaceSubtle,
+                                      opacity: pressed ? 0.82 : 1,
+                                    },
+                                  ]}
+                                >
+                                  <Text style={[styles.timeChoiceText, { color: theme.text }]}>
+                                    {minute.toString().padStart(2, '0')}
+                                  </Text>
+                                </Pressable>
+                              );
+                            })}
+                          </ScrollView>
+                        </View>
+
+                        <View style={styles.timeGroup}>
+                          <Text style={[styles.timeGroupLabel, { color: theme.textSecondary }]}>Period</Text>
+                          <View style={styles.periodRow}>
+                            {(['AM', 'PM'] as const).map((period) => {
+                              const selected = inlinePickAmPm === period;
+                              return (
+                                <Pressable
+                                  key={period}
+                                  onPress={() => setInlinePickAmPm(period)}
+                                  style={({ pressed }) => [
+                                    styles.periodChip,
+                                    {
+                                      borderColor: selected ? theme.tint : theme.border,
+                                      backgroundColor: selected ? 'rgba(139,92,246,0.22)' : theme.surfaceSubtle,
+                                      opacity: pressed ? 0.82 : 1,
+                                    },
+                                  ]}
+                                >
+                                  <Text style={[styles.timeChoiceText, { color: theme.text }]}>{period}</Text>
+                                </Pressable>
+                              );
+                            })}
+                          </View>
+                        </View>
+                        {inlinePickTimeIsPast ? (
+                          <Text style={[styles.inlinePickWarning, { color: theme.danger }]}>
+                            Pick a future time to continue.
+                          </Text>
+                        ) : null}
+
+                        <View style={styles.inlinePickActions}>
+                          <Pressable
+                            onPress={() => setInlinePickOpen(false)}
+                            style={({ pressed }) => [
+                              styles.inlinePickAction,
+                              { backgroundColor: theme.muted, opacity: pressed ? 0.9 : 1 },
+                            ]}
+                          >
+                            <Text style={[styles.inlinePickActionText, { color: theme.text }]}>Cancel</Text>
+                          </Pressable>
+                          <Pressable
+                            disabled={inlinePickTimeIsPast}
+                            accessibilityRole="button"
+                            accessibilityState={{ disabled: inlinePickTimeIsPast }}
+                            onPress={() => {
+                              if (inlinePickCandidate.getTime() <= Date.now()) {
+                                showDialog({
+                                  title: 'Pick a future time',
+                                  message: 'That time has passed. Choose a future time to continue.',
+                                  variant: 'warning',
+                                  primaryAction: { label: 'OK', onPress: () => {} },
+                                });
+                                return;
+                              }
+                              const exactPickIso = inlinePickCandidate.toISOString();
+                              setW((p) => ({
+                                ...p,
+                                pickStartIso: exactPickIso,
+                                pickEndIso: exactPickIso,
+                              }));
+                              setInlinePickOpen(false);
+                              setInlinePickPhase('date');
+                            }}
+                            style={({ pressed }) => [
+                              styles.inlinePickAction,
+                              {
+                                backgroundColor: inlinePickTimeIsPast ? theme.muted : theme.tint,
+                                opacity: inlinePickTimeIsPast ? 0.55 : pressed ? 0.9 : 1,
+                              },
+                            ]}
+                          >
+                            <Text style={[styles.inlinePickActionText, { color: theme.primaryForeground }]}>Save</Text>
+                          </Pressable>
+                        </View>
+                      </View>
+                    )}
+                  </View>
+                ) : null}
               </View>
             </View>
           )}
@@ -711,115 +1095,6 @@ export function DateSuggestionSheet({
         ) : null}
         {stepContent}
       </KeyboardAwareBottomSheetModal>
-      {/*
-        iOS: transparent + formSheet is unsupported; the modal may not present (tap appears to do nothing).
-        Use overFullScreen with transparent so the dim + sheet stack above the existing sheet Modal.
-      */}
-      <Modal
-        visible={nativePickOpen}
-        transparent
-        animationType="fade"
-        presentationStyle={Platform.OS === 'ios' ? 'overFullScreen' : undefined}
-        onRequestClose={() => setNativePickOpen(false)}
-      >
-        <View style={styles.nativePickRoot} pointerEvents="box-none">
-          <Pressable
-            style={StyleSheet.absoluteFill}
-            onPress={() => setNativePickOpen(false)}
-            accessibilityLabel="Close picker"
-          />
-          <SafeAreaView
-            edges={['bottom']}
-            style={[styles.nativePickSheet, { backgroundColor: theme.surface, borderColor: theme.border }]}
-          >
-            <View style={styles.nativePickHandle} />
-            <Text style={[styles.iosModalTitle, { color: theme.text }]}>
-              {nativePickPhase === 'date' ? 'Pick a date' : 'Pick a time'}
-            </Text>
-            <Text style={[styles.iosModalValue, { color: theme.textSecondary, marginBottom: spacing.sm }]}>
-              {formatProposedDateTimeSummary(
-                mergeLocalDateAndTime(nativeDatePart, nativeTimePart).toISOString(),
-              )}
-            </Text>
-            {nativePickPhase === 'date' ? (
-              <DateTimePicker
-                value={nativeDatePart}
-                mode="date"
-                display={Platform.OS === 'ios' ? 'inline' : 'calendar'}
-                onChange={(_, date) => {
-                  if (date) setNativeDatePart(startOfDay(date));
-                }}
-                minimumDate={todayStart}
-                themeVariant={pickerTheme}
-                style={Platform.OS === 'ios' ? styles.iosInlineCalendar : styles.androidInlineCalendar}
-              />
-            ) : (
-              <>
-                <Pressable
-                  onPress={() => setNativePickPhase('date')}
-                  style={({ pressed }) => ({ opacity: pressed ? 0.75 : 1, alignSelf: 'center', marginBottom: spacing.sm })}
-                >
-                  <Text style={{ color: theme.tint, fontSize: 15, fontFamily: fonts.bodySemiBold }}>
-                    ← Change date
-                  </Text>
-                </Pressable>
-                <DateTimePicker
-                  value={nativeTimePart}
-                  mode="time"
-                  display={Platform.OS === 'ios' ? 'spinner' : 'default'}
-                  onChange={(_, date) => {
-                    if (date) setNativeTimePart(date);
-                  }}
-                  minuteInterval={5}
-                  themeVariant={pickerTheme}
-                  style={styles.iosPickerWheel}
-                />
-              </>
-            )}
-            <View style={styles.nativePickActions}>
-              <Pressable
-                onPress={() => setNativePickOpen(false)}
-                style={({ pressed }) => [
-                  styles.iosActionBtn,
-                  { backgroundColor: theme.muted, opacity: pressed ? 0.9 : 1 },
-                ]}
-              >
-                <Text style={[styles.iosActionText, { color: theme.text }]}>Cancel</Text>
-              </Pressable>
-              {nativePickPhase === 'date' ? (
-                <Pressable
-                  onPress={() => setNativePickPhase('time')}
-                  style={({ pressed }) => [
-                    styles.iosActionBtn,
-                    { backgroundColor: theme.tint, opacity: pressed ? 0.9 : 1 },
-                  ]}
-                >
-                  <Text style={[styles.iosActionText, { color: theme.primaryForeground }]}>Next</Text>
-                </Pressable>
-              ) : (
-                <Pressable
-                  onPress={() => {
-                    const merged = mergeLocalDateAndTime(nativeDatePart, nativeTimePart);
-                    setW((p) => ({
-                      ...p,
-                      pickStartIso: merged.toISOString(),
-                      pickEndIso: merged.toISOString(),
-                    }));
-                    setNativePickOpen(false);
-                    setNativePickPhase('date');
-                  }}
-                  style={({ pressed }) => [
-                    styles.iosActionBtn,
-                    { backgroundColor: theme.tint, opacity: pressed ? 0.9 : 1 },
-                  ]}
-                >
-                  <Text style={[styles.iosActionText, { color: theme.primaryForeground }]}>Save</Text>
-                </Pressable>
-              )}
-            </View>
-          </SafeAreaView>
-        </View>
-      </Modal>
       {dialogEl}
     </>
   );
@@ -899,80 +1174,11 @@ const styles = StyleSheet.create({
     padding: spacing.md,
     ...shadows.card,
   },
-  nativePickRoot: {
-    flex: 1,
-    justifyContent: 'flex-end',
-    backgroundColor: 'rgba(0,0,0,0.72)',
-  },
-  nativePickSheet: {
-    borderTopLeftRadius: radius['2xl'],
-    borderTopRightRadius: radius['2xl'],
-    borderTopWidth: StyleSheet.hairlineWidth,
-    paddingHorizontal: spacing.lg,
-    paddingTop: spacing.md,
-    paddingBottom: spacing.md,
-    maxHeight: '92%',
-  },
-  nativePickHandle: {
-    alignSelf: 'center',
-    width: 40,
-    height: 4,
-    borderRadius: 2,
-    backgroundColor: 'rgba(128,128,128,0.45)',
-    marginBottom: spacing.md,
-  },
-  nativePickActions: {
-    flexDirection: 'row',
-    gap: spacing.sm,
-    marginTop: spacing.md,
-  },
-  iosInlineCalendar: {
-    width: '100%',
-    height: 360,
-    alignSelf: 'center',
-  },
-  androidInlineCalendar: {
-    width: '100%',
-    minHeight: 320,
-    alignSelf: 'center',
-  },
   whenSectionDivider: {
     height: 1,
     opacity: 0.45,
     marginBottom: spacing.md,
     marginTop: spacing.xs,
-  },
-  pickerSectionOverline: {
-    ...typography.overline,
-    marginBottom: spacing.sm,
-  },
-  pickerSurface: {
-    borderRadius: radius.lg,
-    borderWidth: 1,
-    paddingVertical: spacing.sm,
-    paddingHorizontal: spacing.xs,
-    overflow: 'hidden',
-    ...shadows.card,
-  },
-  iosPickerWheel: {
-    width: '100%',
-    height: 216,
-    alignSelf: 'center',
-  },
-  iosPickCard: {
-    borderRadius: radius.lg,
-    borderWidth: 1,
-    padding: spacing.md,
-    gap: spacing.sm,
-    ...shadows.card,
-  },
-  iosPickCardHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.xs,
-  },
-  iosPickCardTitle: {
-    ...typography.overline,
   },
   iosPickCardValue: {
     fontSize: 17,
@@ -993,38 +1199,135 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontFamily: fonts.bodySemiBold,
   },
-  iosModalBackdrop: {
-    flex: 1,
-    justifyContent: 'center',
-    paddingHorizontal: spacing.lg,
-    backgroundColor: 'rgba(0,0,0,0.72)',
-  },
-  iosModalCard: {
-    borderRadius: radius['2xl'],
+  inlinePickPanel: {
+    marginTop: spacing.md,
+    borderRadius: radius.lg,
     borderWidth: 1,
-    padding: spacing.lg,
+    padding: spacing.md,
     gap: spacing.sm,
   },
-  iosModalTitle: {
-    fontSize: 18,
-    fontWeight: '700',
+  inlinePickTitle: {
+    fontSize: 17,
+    fontFamily: fonts.bodySemiBold,
   },
-  iosModalValue: {
+  inlinePickPreview: {
     fontSize: 13,
     lineHeight: 18,
   },
-  iosWheelWrap: {
-    borderRadius: radius.lg,
-    overflow: 'hidden',
-    backgroundColor: '#fff',
-    paddingVertical: spacing.xs,
+  inlinePickWarning: {
+    fontSize: 12,
+    lineHeight: 17,
+    fontFamily: fonts.bodySemiBold,
   },
-  iosModalActions: {
+  inlineCalendar: {
+    gap: spacing.sm,
+  },
+  inlineCalendarHeader: {
+    minHeight: 40,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: spacing.sm,
+  },
+  inlineCalendarNav: {
+    width: 36,
+    height: 36,
+    borderRadius: radius.md,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  inlineCalendarMonth: {
+    flex: 1,
+    textAlign: 'center',
+    fontSize: 15,
+    fontFamily: fonts.bodySemiBold,
+  },
+  inlineWeekRow: {
+    flexDirection: 'row',
+  },
+  inlineWeekLabel: {
+    width: `${100 / 7}%`,
+    textAlign: 'center',
+    fontSize: 11,
+    fontFamily: fonts.bodySemiBold,
+  },
+  inlineDayGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    rowGap: 6,
+  },
+  inlineDayCell: {
+    width: `${100 / 7}%`,
+    aspectRatio: 1,
+    borderWidth: StyleSheet.hairlineWidth,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  inlineDayText: {
+    fontSize: 13,
+    fontFamily: fonts.bodySemiBold,
+  },
+  inlineTimePanel: {
+    gap: spacing.sm,
+  },
+  changeDateButton: {
+    alignSelf: 'flex-start',
+    minHeight: 34,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    paddingHorizontal: spacing.sm,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+  },
+  changeDateText: {
+    fontSize: 13,
+    fontFamily: fonts.bodySemiBold,
+  },
+  timeGroup: {
+    gap: spacing.xs,
+  },
+  timeGroupLabel: {
+    fontSize: 11,
+    fontFamily: fonts.bodySemiBold,
+    textTransform: 'uppercase',
+    letterSpacing: 0.4,
+  },
+  timeChoiceRow: {
+    gap: spacing.xs,
+    paddingRight: spacing.sm,
+  },
+  timeChoiceChip: {
+    minWidth: 44,
+    minHeight: 40,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: spacing.sm,
+  },
+  timeChoiceText: {
+    fontSize: 14,
+    fontFamily: fonts.bodySemiBold,
+  },
+  periodRow: {
     flexDirection: 'row',
     gap: spacing.sm,
-    marginTop: spacing.xs,
   },
-  iosActionBtn: {
+  periodChip: {
+    flex: 1,
+    minHeight: 42,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  inlinePickActions: {
+    flexDirection: 'row',
+    gap: spacing.sm,
+    marginTop: spacing.sm,
+  },
+  inlinePickAction: {
     flex: 1,
     minHeight: 44,
     borderRadius: radius.button,
@@ -1032,25 +1335,9 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     paddingHorizontal: spacing.md,
   },
-  iosActionText: {
+  inlinePickActionText: {
     fontSize: 15,
     fontWeight: '700',
-  },
-  androidPickerTrigger: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.md,
-    paddingVertical: spacing.md,
-    paddingHorizontal: spacing.md,
-    borderRadius: radius.lg,
-    borderWidth: 1,
-    marginBottom: spacing.sm,
-    ...shadows.card,
-  },
-  androidPickerTriggerText: {
-    flex: 1,
-    fontSize: 15,
-    fontFamily: fonts.bodySemiBold,
   },
   option: {
     minWidth: '47%',

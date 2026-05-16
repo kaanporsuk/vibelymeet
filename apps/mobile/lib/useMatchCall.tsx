@@ -134,6 +134,8 @@ type MatchCallContextValue = {
 
 const MATCH_CALL_HEARTBEAT_MS = 15_000;
 const MATCH_CALL_REMOTE_RECONNECT_GRACE_MS = 30_000;
+const NATIVE_MATCH_CALL_CAMERA_SWITCH_COMMIT_TIMEOUT_MS = 1_800;
+const NATIVE_MATCH_CALL_CAMERA_SWITCH_COMMIT_POLL_MS = 80;
 
 type MatchCallCleanupOptions = {
   deleteRoomName?: string | null;
@@ -170,6 +172,35 @@ type MatchCallRealtimeChannel = {
   subscribe: () => unknown;
 };
 
+type NativeMediaStreamTrack = import('@daily-co/react-native-webrtc').MediaStreamTrack;
+type NativeDailyCameraFacingMode = 'user' | 'environment';
+type NativeDailyCameraDevice = {
+  deviceId?: string | number;
+  id?: string | number;
+  kind?: string;
+  facing?: unknown;
+  facingMode?: unknown;
+  label?: string;
+};
+type NativeDailyCameraControls = {
+  getCameraFacingMode?: () => Promise<NativeDailyCameraFacingMode | null>;
+  cycleCamera?: () => Promise<{ device?: NativeDailyCameraDevice | null } | undefined>;
+  setCamera?: (cameraDeviceId: string | number) => Promise<{ device?: NativeDailyCameraDevice | null } | undefined>;
+  enumerateDevices?: () => Promise<{ devices?: NativeDailyCameraDevice[] } | NativeDailyCameraDevice[]>;
+};
+type NativeCameraSwitchCommitMethod = 'set_camera' | 'cycle_camera';
+type NativeLocalCameraSnapshot = {
+  trackId: string | null;
+  deviceId: string | null;
+  facingMode: NativeDailyCameraFacingMode | null;
+  readyState: string | null;
+  enabled: boolean | null;
+};
+type NativeCameraSwitchCommit = NativeLocalCameraSnapshot & {
+  method: NativeCameraSwitchCommitMethod;
+  latencyMs: number;
+};
+
 const MatchCallContext = createContext<MatchCallContextValue | null>(null);
 
 const DEFAULT_PARTNER: PartnerSummary = {
@@ -200,7 +231,7 @@ function useLatestRef<T>(value: T) {
 export function getTrack(
   participant: DailyParticipant | undefined,
   kind: 'video' | 'audio'
-): import('@daily-co/react-native-webrtc').MediaStreamTrack | null {
+): NativeMediaStreamTrack | null {
   if (!participant) return null;
   const trackInfo = participant.tracks?.[kind];
   if (trackInfo && (trackInfo.state === 'off' || trackInfo.state === 'blocked')) {
@@ -218,7 +249,114 @@ export function getTrack(
   const deprecatedTrack = kind === 'video' ? p.videoTrack : p.audioTrack;
   return deprecatedTrack === false || deprecatedTrack === undefined
     ? null
-    : (deprecatedTrack as import('@daily-co/react-native-webrtc').MediaStreamTrack);
+    : (deprecatedTrack as NativeMediaStreamTrack);
+}
+
+function sleepNativeMatchCallCameraSwitch(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function normalizeNativeCameraFacingMode(value: unknown): NativeDailyCameraFacingMode | null {
+  return value === 'user' || value === 'environment' ? value : null;
+}
+
+function oppositeNativeCameraFacingMode(value: NativeDailyCameraFacingMode | null): NativeDailyCameraFacingMode | null {
+  if (value === 'user') return 'environment';
+  if (value === 'environment') return 'user';
+  return null;
+}
+
+function nativeCameraDeviceId(device: NativeDailyCameraDevice | null | undefined): string | number | null {
+  if (!device) return null;
+  if (typeof device.deviceId === 'string' || typeof device.deviceId === 'number') return device.deviceId;
+  if (typeof device.id === 'string' || typeof device.id === 'number') return device.id;
+  return null;
+}
+
+function nativeCameraDeviceKey(device: NativeDailyCameraDevice | null | undefined): string | null {
+  const id = nativeCameraDeviceId(device);
+  return id == null ? null : String(id);
+}
+
+function nativeCameraFacingModeFromLabel(label: unknown): NativeDailyCameraFacingMode | null {
+  if (typeof label !== 'string') return null;
+  const normalized = label.toLowerCase();
+  if (/\b(front|user|self|face)\b/.test(normalized)) return 'user';
+  if (/\b(back|rear|environment|world)\b/.test(normalized)) return 'environment';
+  return null;
+}
+
+function nativeCameraDeviceFacingMode(device: NativeDailyCameraDevice | null | undefined): NativeDailyCameraFacingMode | null {
+  if (!device) return null;
+  return (
+    normalizeNativeCameraFacingMode(device.facingMode) ??
+    normalizeNativeCameraFacingMode(device.facing) ??
+    nativeCameraFacingModeFromLabel(device.label)
+  );
+}
+
+function nativeCameraDevicesFromResult(
+  result: { devices?: NativeDailyCameraDevice[] } | NativeDailyCameraDevice[] | undefined
+): NativeDailyCameraDevice[] {
+  if (Array.isArray(result)) return result;
+  if (Array.isArray(result?.devices)) return result.devices;
+  return [];
+}
+
+function nativeVideoCameraDevices(devices: NativeDailyCameraDevice[]): NativeDailyCameraDevice[] {
+  return devices.filter((device) => device.kind === undefined || device.kind === 'videoinput');
+}
+
+function nativeCameraSwitchResultDevice(
+  result: { device?: NativeDailyCameraDevice | null } | undefined
+): NativeDailyCameraDevice | null {
+  return result?.device ?? null;
+}
+
+function nativeLocalCameraSnapshot(participant: DailyParticipant | null | undefined): NativeLocalCameraSnapshot {
+  const videoTrack = getTrack(participant ?? undefined, 'video') as
+    | (NativeMediaStreamTrack & {
+        label?: string;
+        getSettings?: () => { deviceId?: unknown; facingMode?: unknown };
+      })
+    | null;
+  const settings = typeof videoTrack?.getSettings === 'function' ? videoTrack.getSettings() : null;
+  const settingsDeviceId = settings?.deviceId;
+
+  return {
+    trackId: typeof videoTrack?.id === 'string' ? videoTrack.id : null,
+    deviceId: typeof settingsDeviceId === 'string' ? settingsDeviceId : null,
+    facingMode:
+      normalizeNativeCameraFacingMode(settings?.facingMode) ??
+      nativeCameraFacingModeFromLabel(videoTrack?.label),
+    readyState: typeof videoTrack?.readyState === 'string' ? videoTrack.readyState : null,
+    enabled: typeof videoTrack?.enabled === 'boolean' ? videoTrack.enabled : null,
+  };
+}
+
+function chooseNativeCameraDevice(
+  devices: NativeDailyCameraDevice[],
+  desiredFacing: NativeDailyCameraFacingMode | null,
+  before: NativeLocalCameraSnapshot
+): NativeDailyCameraDevice | null {
+  const usable = nativeVideoCameraDevices(devices);
+  if (usable.length === 0) return null;
+  const currentDeviceKey = before.deviceId == null ? null : String(before.deviceId);
+  const candidates = currentDeviceKey != null
+    ? usable.filter((device) => nativeCameraDeviceKey(device) !== currentDeviceKey)
+    : usable;
+  if (currentDeviceKey != null && candidates.length === 0) return null;
+  if (desiredFacing) {
+    const facingMatch = candidates.find((device) => nativeCameraDeviceFacingMode(device) === desiredFacing);
+    if (facingMatch) return facingMatch;
+    if (currentDeviceKey == null) return null;
+  }
+  return currentDeviceKey != null ? candidates[0] ?? null : null;
+}
+
+function describeNativeCameraSwitchError(error: unknown): { name: string; message: string } {
+  if (error instanceof Error) return { name: error.name || 'Error', message: error.message };
+  return { name: 'unknown', message: String(error) };
 }
 
 function applyLocalMediaUiFromParticipant(
@@ -228,8 +366,8 @@ function applyLocalMediaUiFromParticipant(
 ) {
   const videoState = participant.tracks?.video?.state;
   const audioState = participant.tracks?.audio?.state;
-  if (videoState !== undefined) setIsVideoOff(videoState === 'off');
-  if (audioState !== undefined) setIsMuted(audioState === 'off');
+  if (videoState !== undefined) setIsVideoOff(videoState === 'off' || videoState === 'blocked');
+  if (audioState !== undefined) setIsMuted(audioState === 'off' || audioState === 'blocked');
 }
 
 export function MatchCallProvider({ children }: { children: ReactNode }) {
@@ -244,9 +382,7 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
   const [isVideoOff, setIsVideoOff] = useState(false);
   const [isReconnecting, setIsReconnecting] = useState(false);
   const [lastOutcome, setLastOutcome] = useState<NativeLastCallOutcome | null>(null);
-  // Native `Daily.createCallObject().cycleCamera()` is supported on both iOS and Android
-  // out of the box for devices with multiple cameras. Most phones qualify; we expose the
-  // toggle whenever we're in a video call.
+  const [canFlipCamera, setCanFlipCamera] = useState(false);
   const [isFlippingCamera, setIsFlippingCamera] = useState(false);
   const flipCameraRef = useRef(false);
   const [activePartner, setActivePartner] = useState<PartnerSummary>(DEFAULT_PARTNER);
@@ -274,6 +410,7 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
   const callPhaseRef = useLatestRef(callPhase);
   const incomingCallRef = useLatestRef(incomingCall);
   const activePartnerRef = useLatestRef(activePartner);
+  const localParticipantRef = useLatestRef(localParticipant);
   const reconcileCallRowRef = useRef<(row: MatchCallRow) => Promise<void>>(async () => {});
 
   const clearRingingTimeout = useCallback(() => {
@@ -417,6 +554,9 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
       setCallDuration(0);
       setIsMuted(false);
       setIsVideoOff(false);
+      setCanFlipCamera(false);
+      setIsFlippingCamera(false);
+      flipCameraRef.current = false;
       setLocalParticipant(null);
       setRemoteParticipant(null);
 
@@ -921,33 +1061,275 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
     setIsVideoOff(nextVideoOff);
   }, [isVideoOff]);
 
+  const readNativeLocalCameraSnapshot = useCallback(
+    (callObject: ReturnType<typeof Daily.createCallObject> | null | undefined) => {
+      let local = localParticipantRef.current;
+      try {
+        const callLocal = callObject?.participants?.()?.local;
+        if (callLocal) {
+          local = callLocal;
+          localParticipantRef.current = callLocal;
+        }
+      } catch {
+        // Keep the most recent participant snapshot from Daily events.
+      }
+      return nativeLocalCameraSnapshot(local);
+    },
+    [localParticipantRef],
+  );
+
+  const waitForNativeCameraSwitchCommit = useCallback(
+    async (
+      controls: NativeDailyCameraControls,
+      callObject: ReturnType<typeof Daily.createCallObject>,
+      before: NativeLocalCameraSnapshot,
+      method: NativeCameraSwitchCommitMethod,
+      expectedFacing: NativeDailyCameraFacingMode | null
+    ): Promise<NativeCameraSwitchCommit | null> => {
+      const startedAtMs = Date.now();
+      while (Date.now() - startedAtMs <= NATIVE_MATCH_CALL_CAMERA_SWITCH_COMMIT_TIMEOUT_MS) {
+        let controlsFacing: NativeDailyCameraFacingMode | null = null;
+        try {
+          controlsFacing =
+            typeof controls.getCameraFacingMode === 'function'
+              ? normalizeNativeCameraFacingMode(await controls.getCameraFacingMode())
+              : null;
+        } catch {
+          controlsFacing = null;
+        }
+
+        const snapshot = readNativeLocalCameraSnapshot(callObject);
+        const committedFacing = controlsFacing ?? snapshot.facingMode;
+        const trackChanged = Boolean(before.trackId && snapshot.trackId && snapshot.trackId !== before.trackId);
+        const deviceChanged = Boolean(before.deviceId && snapshot.deviceId && snapshot.deviceId !== before.deviceId);
+        const facingChanged = Boolean(before.facingMode && committedFacing && committedFacing !== before.facingMode);
+        const expectedFacingMatched = Boolean(
+          expectedFacing &&
+            expectedFacing !== before.facingMode &&
+            committedFacing === expectedFacing
+        );
+        const live = snapshot.readyState === 'live' && snapshot.enabled !== false;
+
+        if (live && (trackChanged || deviceChanged || facingChanged || expectedFacingMatched)) {
+          return {
+            ...snapshot,
+            facingMode: committedFacing,
+            method,
+            latencyMs: Date.now() - startedAtMs,
+          };
+        }
+
+        await sleepNativeMatchCallCameraSwitch(NATIVE_MATCH_CALL_CAMERA_SWITCH_COMMIT_POLL_MS);
+      }
+      return null;
+    },
+    [readNativeLocalCameraSnapshot],
+  );
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const refresh = async () => {
+      const callObject = callObjectRef.current;
+      const controls = callObject as unknown as NativeDailyCameraControls | null;
+      const supportsSwitch =
+        !!controls && (typeof controls.cycleCamera === 'function' || typeof controls.setCamera === 'function');
+      const localCamera = readNativeLocalCameraSnapshot(callObject);
+      const hasLiveLocalCamera =
+        localCamera.readyState === 'live' && localCamera.enabled !== false;
+
+      if (callPhase !== 'in_call' || callType !== 'video' || isVideoOff || !supportsSwitch || !hasLiveLocalCamera) {
+        if (!cancelled) setCanFlipCamera(false);
+        return;
+      }
+
+      if (typeof controls.enumerateDevices === 'function') {
+        try {
+          const devices = nativeVideoCameraDevices(nativeCameraDevicesFromResult(await controls.enumerateDevices()));
+          const deterministicTarget =
+            typeof controls.setCamera === 'function'
+              ? chooseNativeCameraDevice(
+                  devices,
+                  oppositeNativeCameraFacingMode(localCamera.facingMode),
+                  localCamera,
+                )
+              : null;
+          const canFlip =
+            devices.length > 1 &&
+            (typeof controls.cycleCamera === 'function' || nativeCameraDeviceId(deterministicTarget) != null);
+          logMatchCallDiag('camera_flip_capability', {
+            platform: 'native',
+            video_input_count: devices.length,
+            can_flip: canFlip,
+            has_cycle_camera: typeof controls.cycleCamera === 'function',
+            has_set_camera: typeof controls.setCamera === 'function',
+          });
+          if (!cancelled) setCanFlipCamera(canFlip);
+          return;
+        } catch (err) {
+          logMatchCallDiag('camera_flip_capability_enumerate_failed', {
+            platform: 'native',
+            message: err instanceof Error ? err.message : String(err),
+          });
+        }
+      }
+
+      const canFlip = typeof controls.cycleCamera === 'function';
+      logMatchCallDiag('camera_flip_capability_fallback', {
+        platform: 'native',
+        can_flip: canFlip,
+        has_cycle_camera: typeof controls.cycleCamera === 'function',
+        has_set_camera: typeof controls.setCamera === 'function',
+      });
+      if (!cancelled) setCanFlipCamera(canFlip);
+    };
+
+    void refresh();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [callPhase, callType, isVideoOff, localParticipant, readNativeLocalCameraSnapshot]);
+
   /**
    * Switch between the device's front and rear cameras without leaving the Daily room.
-   * `cycleCamera()` is supported by `@daily-co/react-native-daily-js` and handles the
-   * track replacement for both the local PIP and the outgoing remote feed.
+   * Prefer deterministic enumerateDevices + setCamera, then fall back to cycleCamera.
+   * The UI only treats the action as successful after Daily exposes a live committed
+   * local video track/device/facing-mode change.
    */
   const flipCamera = useCallback(async () => {
     const callObject = callObjectRef.current;
-    if (!callObject) return;
+    const controls = callObject as unknown as NativeDailyCameraControls | null;
+    if (!callObject || callPhase !== 'in_call' || callType !== 'video' || isVideoOff) return;
     if (flipCameraRef.current) return;
+    if (!controls || (typeof controls.setCamera !== 'function' && typeof controls.cycleCamera !== 'function')) {
+      setCanFlipCamera(false);
+      Alert.alert("Couldn't switch camera", 'Camera switching is not available on this device.');
+      return;
+    }
+
     flipCameraRef.current = true;
     setIsFlippingCamera(true);
     try {
-      const cycleFn = (callObject as unknown as { cycleCamera?: () => Promise<unknown> }).cycleCamera;
-      if (typeof cycleFn !== 'function') {
+      const before = readNativeLocalCameraSnapshot(callObject);
+      if (before.readyState !== 'live' || before.enabled === false || !before.trackId) {
+        setCanFlipCamera(false);
+        Alert.alert("Couldn't switch camera", 'Turn your camera on before switching cameras.');
         return;
       }
-      await cycleFn.call(callObject);
-      logMatchCallDiag('flip_camera_cycle_ok', {});
+
+      let currentFacing = before.facingMode;
+      if (typeof controls.getCameraFacingMode === 'function') {
+        try {
+          currentFacing = normalizeNativeCameraFacingMode(await controls.getCameraFacingMode()) ?? currentFacing;
+        } catch {
+          currentFacing = before.facingMode;
+        }
+      }
+      const desiredFacing = oppositeNativeCameraFacingMode(currentFacing);
+      let commit: NativeCameraSwitchCommit | null = null;
+      let availableVideoDeviceCount: number | null = null;
+
+      if (typeof controls.enumerateDevices === 'function' && typeof controls.setCamera === 'function') {
+        try {
+          const devices = nativeVideoCameraDevices(nativeCameraDevicesFromResult(await controls.enumerateDevices()));
+          availableVideoDeviceCount = devices.length;
+          const targetDevice = chooseNativeCameraDevice(devices, desiredFacing, before);
+          const targetDeviceId = nativeCameraDeviceId(targetDevice);
+          if (targetDeviceId != null) {
+            const result = await controls.setCamera(targetDeviceId);
+            const resultDevice = nativeCameraSwitchResultDevice(result);
+            const expectedFacing =
+              desiredFacing ??
+              nativeCameraDeviceFacingMode(targetDevice) ??
+              nativeCameraDeviceFacingMode(resultDevice);
+            commit = await waitForNativeCameraSwitchCommit(
+              controls,
+              callObject,
+              before,
+              'set_camera',
+              expectedFacing,
+            );
+          } else {
+            logMatchCallDiag('flip_camera_set_camera_no_target', {
+              platform: 'native',
+              desired_facing_mode: desiredFacing,
+              video_input_count: devices.length,
+              before_device_id: before.deviceId,
+              before_facing_mode: before.facingMode,
+            });
+          }
+        } catch (err) {
+          logMatchCallDiag('flip_camera_set_camera_failed_fallback', {
+            platform: 'native',
+            desired_facing_mode: desiredFacing,
+            error: describeNativeCameraSwitchError(err),
+          });
+        }
+      }
+
+      if (!commit && typeof controls.cycleCamera === 'function') {
+        try {
+          const result = await controls.cycleCamera();
+          const resultDevice = nativeCameraSwitchResultDevice(result);
+          commit = await waitForNativeCameraSwitchCommit(
+            controls,
+            callObject,
+            before,
+            'cycle_camera',
+            nativeCameraDeviceFacingMode(resultDevice) ?? desiredFacing,
+          );
+        } catch (err) {
+          logMatchCallDiag('flip_camera_cycle_failed', {
+            platform: 'native',
+            desired_facing_mode: desiredFacing,
+            error: describeNativeCameraSwitchError(err),
+          });
+        }
+      }
+
+      if (!commit) {
+        const after = readNativeLocalCameraSnapshot(callObject);
+        if (availableVideoDeviceCount != null && availableVideoDeviceCount < 2) {
+          setCanFlipCamera(false);
+        }
+        logMatchCallDiag('flip_camera_commit_failed', {
+          platform: 'native',
+          desired_facing_mode: desiredFacing,
+          video_input_count: availableVideoDeviceCount,
+          before,
+          after,
+        });
+        Alert.alert("Couldn't switch camera", 'No additional camera was available.');
+        return;
+      }
+
+      setCanFlipCamera(true);
+      logMatchCallDiag('flip_camera_committed', {
+        platform: 'native',
+        method: commit.method,
+        facing_mode: commit.facingMode,
+        local_video_track_id: commit.trackId,
+        local_video_device_id: commit.deviceId,
+        commit_latency_ms: commit.latencyMs,
+      });
     } catch (err) {
       logMatchCallDiag('flip_camera_failed', {
-        message: err instanceof Error ? err.message : String(err),
+        platform: 'native',
+        error: describeNativeCameraSwitchError(err),
       });
+      Alert.alert("Couldn't switch camera", 'Please try again.');
     } finally {
       setIsFlippingCamera(false);
       flipCameraRef.current = false;
     }
-  }, []);
+  }, [
+    callPhase,
+    callType,
+    isVideoOff,
+    readNativeLocalCameraSnapshot,
+    waitForNativeCameraSwitchCommit,
+  ]);
 
   const adoptIncomingCall = useCallback(
     async (row: MatchCallRow) => {
@@ -1380,8 +1762,6 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
     };
   }, [cleanupLocalCall]);
 
-  const canFlipCamera = callPhase === 'in_call' && callType === 'video';
-
   const contextValue = useMemo<MatchCallContextValue>(
     () => ({
       isRinging: callPhase === 'ringing',
@@ -1464,8 +1844,11 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
         localParticipant={localParticipant}
         remoteParticipant={remoteParticipant}
         getTrack={getTrack}
+        canFlipCamera={canFlipCamera}
+        isFlippingCamera={isFlippingCamera}
         onToggleMute={toggleMute}
         onToggleVideo={toggleVideo}
+        onFlipCamera={flipCamera}
         onEndCall={() => {
           void endCall();
         }}

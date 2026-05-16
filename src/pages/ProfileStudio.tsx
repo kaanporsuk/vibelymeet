@@ -193,6 +193,11 @@ const PROFILE_STUDIO_DRAWER_PROPS = {
   shouldScaleBackground: false,
   fixed: true,
 } as const;
+const PROFILE_STUDIO_PROMPT_DRAWER_PROPS = {
+  shouldScaleBackground: false,
+  fixed: false,
+  repositionInputs: true,
+} as const;
 const PROFILE_STUDIO_DRAWER_CONTENT_CLASS = "max-h-[88dvh] w-full max-w-[100svw] overflow-hidden";
 const PROFILE_STUDIO_DRAWER_BODY_CLASS =
   "min-h-0 flex-1 overflow-y-auto overflow-x-hidden px-4 pb-[max(1rem,env(safe-area-inset-bottom))]";
@@ -307,6 +312,10 @@ const ProfileStudio = () => {
   const previousHeroVideoPhaseRef = useRef(heroVideoUpload.phase);
   /** After a successful save/remove, skip resetting shared draft state when the drawer closes (avoids racing stale `profile`). */
   const suppressProfileDraftResetRef = useRef(false);
+  const promptDrawerBodyRef = useRef<HTMLDivElement | null>(null);
+  const promptAnswerFieldRef = useRef<HTMLTextAreaElement | null>(null);
+  const promptAnswerNudgeRafRef = useRef<number | null>(null);
+  const promptAnswerNudgeTimeoutsRef = useRef<number[]>([]);
 
   const { mySchedule, dateRange, isLoading: scheduleLoading } = useSchedule();
 
@@ -696,6 +705,76 @@ const ProfileStudio = () => {
     },
     [profile],
   );
+
+  const clearPromptAnswerNudges = useCallback(() => {
+    if (typeof window !== "undefined") {
+      if (promptAnswerNudgeRafRef.current !== null) {
+        window.cancelAnimationFrame(promptAnswerNudgeRafRef.current);
+      }
+      for (const timeoutId of promptAnswerNudgeTimeoutsRef.current) {
+        window.clearTimeout(timeoutId);
+      }
+    }
+    promptAnswerNudgeRafRef.current = null;
+    promptAnswerNudgeTimeoutsRef.current = [];
+  }, []);
+
+  const nudgePromptAnswerIntoView = useCallback(() => {
+    if (typeof window === "undefined" || typeof document === "undefined") return;
+
+    const body = promptDrawerBodyRef.current;
+    const answer = promptAnswerFieldRef.current;
+    if (!body || !answer || document.activeElement !== answer) return;
+
+    const alignAnswer = () => {
+      if (!body.isConnected || !answer.isConnected || document.activeElement !== answer) return;
+
+      const bodyRect = body.getBoundingClientRect();
+      const answerRect = answer.getBoundingClientRect();
+      const viewportTop = window.visualViewport?.offsetTop ?? 0;
+      const viewportBottom = viewportTop + (window.visualViewport?.height ?? window.innerHeight);
+      const visibleTop = Math.max(bodyRect.top, viewportTop + 16);
+      const visibleBottom = Math.min(bodyRect.bottom, viewportBottom - 16);
+      const lowerOverflow = answerRect.bottom - visibleBottom + 24;
+
+      if (lowerOverflow > 0) {
+        body.scrollTo({ top: body.scrollTop + lowerOverflow, behavior: "auto" });
+        return;
+      }
+
+      const upperOverflow = visibleTop - answerRect.top;
+      if (upperOverflow > 0) {
+        body.scrollTo({ top: Math.max(0, body.scrollTop - upperOverflow), behavior: "auto" });
+      }
+    };
+
+    clearPromptAnswerNudges();
+    promptAnswerNudgeRafRef.current = window.requestAnimationFrame(() => {
+      promptAnswerNudgeRafRef.current = null;
+      alignAnswer();
+    });
+    promptAnswerNudgeTimeoutsRef.current = [120, 320, 650].map((delay) => window.setTimeout(alignAnswer, delay));
+  }, [clearPromptAnswerNudges]);
+
+  useEffect(() => {
+    if (typeof window === "undefined" || activeDrawer !== "prompt") return;
+
+    const viewport = window.visualViewport;
+    const handlePromptViewportChange = () => nudgePromptAnswerIntoView();
+
+    viewport?.addEventListener("resize", handlePromptViewportChange);
+    viewport?.addEventListener("scroll", handlePromptViewportChange);
+    window.addEventListener("orientationchange", handlePromptViewportChange);
+
+    return () => {
+      clearPromptAnswerNudges();
+      viewport?.removeEventListener("resize", handlePromptViewportChange);
+      viewport?.removeEventListener("scroll", handlePromptViewportChange);
+      window.removeEventListener("orientationchange", handlePromptViewportChange);
+    };
+  }, [activeDrawer, clearPromptAnswerNudges, nudgePromptAnswerIntoView]);
+
+  useEffect(() => () => clearPromptAnswerNudges(), [clearPromptAnswerNudges]);
 
   const openDrawer = (type: DrawerType) => {
     if (type === "tagline") {
@@ -1639,7 +1718,7 @@ const ProfileStudio = () => {
       </Drawer>
 
       {/* Prompt Editor */}
-      <Drawer {...PROFILE_STUDIO_DRAWER_PROPS} open={activeDrawer === "prompt"} onOpenChange={handleProfileStudioDrawerOpenChange}>
+      <Drawer {...PROFILE_STUDIO_PROMPT_DRAWER_PROPS} open={activeDrawer === "prompt"} onOpenChange={handleProfileStudioDrawerOpenChange}>
         <DrawerContent className={PROFILE_STUDIO_DRAWER_CONTENT_CLASS}>
           <DrawerHeader>
             <DrawerTitle className="font-display">
@@ -1647,7 +1726,7 @@ const ProfileStudio = () => {
             </DrawerTitle>
             <DrawerDescription>Spark conversations with your answer.</DrawerDescription>
           </DrawerHeader>
-          <div className={cn(PROFILE_STUDIO_DRAWER_BODY_CLASS, "space-y-4")}>
+          <div ref={promptDrawerBodyRef} className={cn(PROFILE_STUDIO_DRAWER_BODY_CLASS, "space-y-4")}>
             {editingPromptIndex !== null && (
               <>
                 <PromptSelector
@@ -1662,12 +1741,14 @@ const ProfileStudio = () => {
                 <div className="space-y-2">
                   <label className="text-sm font-medium text-foreground">Your Answer</label>
                   <Textarea
+                    ref={promptAnswerFieldRef}
                     value={editForm.prompts[editingPromptIndex]?.answer || ""}
                     onChange={(e) => {
                       const newPrompts = [...editForm.prompts];
                       newPrompts[editingPromptIndex] = { ...newPrompts[editingPromptIndex], answer: e.target.value };
                       setEditForm({ ...editForm, prompts: newPrompts });
                     }}
+                    onFocus={nudgePromptAnswerIntoView}
                     placeholder="Be authentic, be interesting..."
                     className="min-h-24 glass-card border-border resize-none"
                     maxLength={200}
