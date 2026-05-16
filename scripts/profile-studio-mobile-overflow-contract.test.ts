@@ -111,6 +111,11 @@ assert.match(
 );
 assert.match(
   profileStudio,
+  /const viewportTop = window\.visualViewport\?\.offsetTop \?\? 0;[\s\S]*const viewportBottom = viewportTop \+ \(window\.visualViewport\?\.height \?\? window\.innerHeight\);/,
+  "Prompt drawer visibility math should account for shifted mobile visual viewport bounds",
+);
+assert.match(
+  profileStudio,
   /viewport\?\.addEventListener\("resize", handlePromptViewportChange\);[\s\S]*viewport\?\.addEventListener\("scroll", handlePromptViewportChange\);/,
   "Prompt drawer should re-check answer visibility when the mobile visual viewport changes",
 );
