@@ -1,4 +1,4 @@
-import { lazy, Suspense, useState, useRef, useEffect, useLayoutEffect, useMemo, useCallback } from "react";
+import { lazy, Suspense, useState, useRef, useEffect, useLayoutEffect, useMemo, useCallback, type CSSProperties } from "react";
 import { flushSync } from "react-dom";
 import * as Sentry from "@sentry/react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -87,6 +87,9 @@ type ReactionEmoji = "❤️" | "🔥" | "🤣" | "😮" | "👎";
 
 const DATE_SUGGESTION_KEYWORDS = ["free", "video", "call", "meet", "date", "tonight", "later", "available"];
 const CHAT_COMPOSER_CONTROL_CLASS = "h-10 w-10";
+const CHAT_DESKTOP_VIEWPORT_QUERY = "(min-width: 1024px)";
+const CHAT_MOBILE_KEYBOARD_THRESHOLD_PX = 96;
+const CHAT_MOBILE_KEYBOARD_STYLE_CLEAR_DELAY_MS = 240;
 const MATCHES_ROUTE = "/matches";
 
 const VoiceRecorder = lazy(() => import("@/components/chat/VoiceRecorder"));
@@ -337,14 +340,13 @@ const Chat = () => {
   const stickyBottomSnapTimeoutsRef = useRef<number[]>([]);
   const stickyBottomSnapRafRef = useRef<number | null>(null);
   const stickyBottomSnapUntilRef = useRef(0);
-  const [visualViewportHeight, setVisualViewportHeight] = useState<number | null>(() => {
-    if (typeof window === "undefined") return null;
-    return window.visualViewport?.height ?? window.innerHeight ?? null;
-  });
-  const chatViewportStyle = useMemo(
-    () => (visualViewportHeight ? { height: `${visualViewportHeight}px` } : undefined),
-    [visualViewportHeight],
+  const mobileKeyboardViewportStyleClearTimeoutRef = useRef<number | null>(null);
+  const mobileKeyboardStableViewportHeightRef = useRef<number | null>(
+    typeof window === "undefined"
+      ? null
+      : Math.max(window.visualViewport?.height ?? 0, window.innerHeight ?? 0),
   );
+  const [mobileKeyboardViewportStyle, setMobileKeyboardViewportStyle] = useState<CSSProperties | undefined>();
 
   const clearChatBackNavWatchdogs = useCallback(() => {
     if (typeof window === "undefined") return;
@@ -361,6 +363,83 @@ const Chat = () => {
       clearChatBackNavWatchdogs();
     },
     [clearChatBackNavWatchdogs],
+  );
+
+  const clearMobileKeyboardViewportStyleTimeout = useCallback(() => {
+    if (typeof window !== "undefined" && mobileKeyboardViewportStyleClearTimeoutRef.current !== null) {
+      window.clearTimeout(mobileKeyboardViewportStyleClearTimeoutRef.current);
+    }
+    mobileKeyboardViewportStyleClearTimeoutRef.current = null;
+  }, []);
+
+  const clearMobileKeyboardViewportStyle = useCallback(() => {
+    clearMobileKeyboardViewportStyleTimeout();
+    setMobileKeyboardViewportStyle(undefined);
+  }, [clearMobileKeyboardViewportStyleTimeout]);
+
+  const scheduleMobileKeyboardViewportStyleClear = useCallback(() => {
+    if (typeof window === "undefined" || typeof document === "undefined") {
+      setMobileKeyboardViewportStyle(undefined);
+      return;
+    }
+
+    clearMobileKeyboardViewportStyleTimeout();
+    mobileKeyboardViewportStyleClearTimeoutRef.current = window.setTimeout(() => {
+      mobileKeyboardViewportStyleClearTimeoutRef.current = null;
+      if (document.activeElement !== inputRef.current) {
+        setMobileKeyboardViewportStyle(undefined);
+      }
+    }, CHAT_MOBILE_KEYBOARD_STYLE_CLEAR_DELAY_MS);
+  }, [clearMobileKeyboardViewportStyleTimeout]);
+
+  const updateMobileKeyboardViewportStyle = useCallback(() => {
+    if (typeof window === "undefined" || typeof document === "undefined") {
+      setMobileKeyboardViewportStyle(undefined);
+      return;
+    }
+
+    const textarea = inputRef.current;
+    const viewport = window.visualViewport;
+    const desktopMediaQuery =
+      typeof window.matchMedia === "function" ? window.matchMedia(CHAT_DESKTOP_VIEWPORT_QUERY) : null;
+    const desktopViewport = desktopMediaQuery?.matches ?? window.innerWidth >= 1024;
+    const currentViewportHeight = viewport?.height ?? 0;
+    const currentLayoutHeight = window.innerHeight;
+    if (!textarea || document.activeElement !== textarea || !viewport || desktopViewport) {
+      mobileKeyboardStableViewportHeightRef.current = Math.max(currentViewportHeight, currentLayoutHeight);
+      clearMobileKeyboardViewportStyle();
+      return;
+    }
+
+    clearMobileKeyboardViewportStyleTimeout();
+    const stableViewportHeight =
+      mobileKeyboardStableViewportHeightRef.current ?? Math.max(currentViewportHeight, currentLayoutHeight);
+    const keyboardOverlap = Math.max(
+      currentLayoutHeight - currentViewportHeight,
+      stableViewportHeight - currentViewportHeight,
+    );
+    if (keyboardOverlap < CHAT_MOBILE_KEYBOARD_THRESHOLD_PX) {
+      mobileKeyboardStableViewportHeightRef.current = Math.max(currentViewportHeight, currentLayoutHeight);
+      clearMobileKeyboardViewportStyle();
+      return;
+    }
+
+    setMobileKeyboardViewportStyle({
+      position: "fixed",
+      top: `${Math.max(0, viewport.offsetTop)}px`,
+      bottom: "auto",
+      left: "0px",
+      right: "0px",
+      height: `${Math.max(1, viewport.height)}px`,
+      width: "100vw",
+    });
+  }, [clearMobileKeyboardViewportStyle, clearMobileKeyboardViewportStyleTimeout]);
+
+  useEffect(
+    () => () => {
+      clearMobileKeyboardViewportStyleTimeout();
+    },
+    [clearMobileKeyboardViewportStyleTimeout],
   );
 
   const matchCall = useMatchCall({
@@ -975,35 +1054,46 @@ const Chat = () => {
   useEffect(() => {
     if (typeof window === "undefined") return;
     const viewport = window.visualViewport;
-    const updateViewportHeight = () => {
-      const nextHeight = viewport?.height ?? window.innerHeight;
-      setVisualViewportHeight((prev) => {
-        if (prev != null && Math.abs(prev - nextHeight) < 1) return prev;
-        return nextHeight;
-      });
+    const handleMobileViewportChange = () => {
+      updateMobileKeyboardViewportStyle();
       scheduleStickyBottomSnap({ instant: true });
     };
 
-    updateViewportHeight();
+    handleMobileViewportChange();
 
     if (viewport) {
-      viewport.addEventListener("resize", updateViewportHeight);
-      viewport.addEventListener("scroll", updateViewportHeight);
-    } else {
-      window.addEventListener("resize", updateViewportHeight);
+      viewport.addEventListener("resize", handleMobileViewportChange);
+      viewport.addEventListener("scroll", handleMobileViewportChange);
     }
-    window.addEventListener("orientationchange", updateViewportHeight);
+    window.addEventListener("resize", handleMobileViewportChange);
+    window.addEventListener("orientationchange", handleMobileViewportChange);
 
     return () => {
       if (viewport) {
-        viewport.removeEventListener("resize", updateViewportHeight);
-        viewport.removeEventListener("scroll", updateViewportHeight);
-      } else {
-        window.removeEventListener("resize", updateViewportHeight);
+        viewport.removeEventListener("resize", handleMobileViewportChange);
+        viewport.removeEventListener("scroll", handleMobileViewportChange);
       }
-      window.removeEventListener("orientationchange", updateViewportHeight);
+      window.removeEventListener("resize", handleMobileViewportChange);
+      window.removeEventListener("orientationchange", handleMobileViewportChange);
     };
-  }, [scheduleStickyBottomSnap]);
+  }, [scheduleStickyBottomSnap, updateMobileKeyboardViewportStyle]);
+
+  const handleComposerFocus = useCallback(() => {
+    clearMobileKeyboardViewportStyleTimeout();
+    if (typeof window !== "undefined") {
+      mobileKeyboardStableViewportHeightRef.current = Math.max(
+        window.visualViewport?.height ?? 0,
+        window.innerHeight ?? 0,
+      );
+    }
+    updateMobileKeyboardViewportStyle();
+    scheduleStickyBottomSnap({ instant: false });
+  }, [clearMobileKeyboardViewportStyleTimeout, scheduleStickyBottomSnap, updateMobileKeyboardViewportStyle]);
+
+  const handleComposerBlur = useCallback(() => {
+    scheduleMobileKeyboardViewportStyleClear();
+    scheduleStickyBottomSnap({ instant: true });
+  }, [scheduleMobileKeyboardViewportStyleClear, scheduleStickyBottomSnap]);
 
   const onMainScroll = useCallback(() => {
     const el = mainScrollRef.current;
@@ -1661,6 +1751,8 @@ const Chat = () => {
   /** Chat header back: render-null instantly so the panel disappears, navigate, and hard-reload as the unconditional escape hatch if Chat is still mounted at 250ms. */
   const returnToMatches = useCallback(() => {
     clearChatBackNavWatchdogs();
+    inputRef.current?.blur();
+    clearMobileKeyboardViewportStyle();
     setExiting(true);
 
     flushSync(() => {
@@ -1674,14 +1766,14 @@ const Chat = () => {
         window.location.replace(MATCHES_ROUTE);
       }, 250),
     );
-  }, [navigate, clearChatBackNavWatchdogs]);
+  }, [navigate, clearChatBackNavWatchdogs, clearMobileKeyboardViewportStyle]);
 
   if (exiting) return null;
 
   return (
     <div
-      className="h-[100dvh] bg-[#050508] flex justify-center relative overflow-hidden lg:px-4 lg:py-3"
-      style={chatViewportStyle}
+      className="fixed inset-0 h-[100dvh] w-screen bg-[#050508] flex justify-center overflow-hidden lg:relative lg:inset-auto lg:w-auto lg:px-4 lg:py-3"
+      style={mobileKeyboardViewportStyle}
     >
       <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_8%,hsl(var(--primary)/0.11),transparent_34%),linear-gradient(180deg,rgba(255,255,255,0.025),transparent_32%)] pointer-events-none" />
       <section className="relative z-10 flex h-full w-full max-w-6xl overflow-hidden bg-background/96 shadow-2xl shadow-black/35 ring-1 ring-border/45 lg:rounded-[1.75rem]">
@@ -2236,7 +2328,8 @@ const Chat = () => {
                 placeholder="Message"
                 value={newMessage}
                 onChange={(e) => handleComposerChange(e.target.value)}
-                onFocus={() => scheduleStickyBottomSnap({ instant: false })}
+                onFocus={handleComposerFocus}
+                onBlur={handleComposerBlur}
                 onKeyPress={handleKeyPress}
                 disabled={!hasActiveConversation || isRecording}
                 aria-label="Message"

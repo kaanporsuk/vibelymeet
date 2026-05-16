@@ -45,20 +45,44 @@ test("web chat avoids jumpy rich-content reflow and older-message prepend snaps"
   assert.match(webChat, /<span className="block aspect-\[4\/5\] w-60 max-w-full overflow-hidden/);
 });
 
-test("web chat tracks visual viewport and composer layout before sticky keyboard snaps", () => {
+test("web chat gates mobile keyboard viewport styling to focused mobile composer", () => {
   assert.match(webChat, /const composerChromeRef = useRef<HTMLDivElement>\(null\)/);
-  assert.match(webChat, /const \[visualViewportHeight, setVisualViewportHeight\] = useState<number \| null>/);
+  assert.doesNotMatch(webChat, /visualViewportHeight/);
+  assert.match(webChat, /type CSSProperties/);
+  assert.match(webChat, /const CHAT_DESKTOP_VIEWPORT_QUERY = "\(min-width: 1024px\)";/);
+  assert.match(webChat, /const CHAT_MOBILE_KEYBOARD_THRESHOLD_PX = 96;/);
+  assert.match(webChat, /const CHAT_MOBILE_KEYBOARD_STYLE_CLEAR_DELAY_MS = 240;/);
+  assert.match(
+    webChat,
+    /const \[mobileKeyboardViewportStyle, setMobileKeyboardViewportStyle\] = useState<CSSProperties \| undefined>\(\);/,
+  );
+  assert.match(
+    webChat,
+    /const updateMobileKeyboardViewportStyle = useCallback\(\(\) => \{[\s\S]*const textarea = inputRef\.current;[\s\S]*const viewport = window\.visualViewport;[\s\S]*window\.matchMedia\(CHAT_DESKTOP_VIEWPORT_QUERY\)[\s\S]*document\.activeElement !== textarea[\s\S]*const keyboardOverlap = window\.innerHeight - viewport\.height;[\s\S]*keyboardOverlap < CHAT_MOBILE_KEYBOARD_THRESHOLD_PX/,
+  );
+  assert.match(
+    webChat,
+    /setMobileKeyboardViewportStyle\(\{\s*position: "fixed",\s*top: `\$\{Math\.max\(0, viewport\.offsetTop\)\}px`,\s*bottom: "auto",\s*left: "0px",\s*right: "0px",\s*height: `\$\{Math\.max\(1, viewport\.height\)\}px`,\s*width: "100vw",\s*\}\);/,
+  );
   assert.match(
     webChat,
     /const scheduleStickyBottomSnap = useCallback\(\(opts\?: \{ instant\?: boolean \}\) => \{[\s\S]*if \(!stickToBottomRef\.current\) return;[\s\S]*if \(isUserScrollIntentActive\(\)\) return;[\s\S]*window\.requestAnimationFrame/,
   );
   assert.match(webChat, /const viewport = window\.visualViewport/);
-  assert.match(webChat, /viewport\.addEventListener\("resize", updateViewportHeight\)/);
-  assert.match(webChat, /viewport\.addEventListener\("scroll", updateViewportHeight\)/);
-  assert.match(webChat, /const chatViewportStyle = useMemo\(/);
-  assert.match(webChat, /style=\{chatViewportStyle\}/);
+  assert.match(webChat, /viewport\.addEventListener\("resize", handleMobileViewportChange\)/);
+  assert.match(webChat, /viewport\.addEventListener\("scroll", handleMobileViewportChange\)/);
+  assert.match(
+    webChat,
+    /className="fixed inset-0 h-\[100dvh\] w-screen[\s\S]*lg:relative lg:inset-auto lg:w-auto/,
+  );
+  assert.match(webChat, /style=\{mobileKeyboardViewportStyle\}/);
   assert.match(webChat, /<div ref=\{composerChromeRef\} className="relative z-40 shrink-0">/);
-  assert.match(webChat, /onFocus=\{\(\) => scheduleStickyBottomSnap\(\{ instant: false \}\)\}/);
+  assert.match(
+    webChat,
+    /const returnToMatches = useCallback\(\(\) => \{[\s\S]*inputRef\.current\?\.blur\(\);[\s\S]*clearMobileKeyboardViewportStyle\(\);[\s\S]*setExiting\(true\);/,
+  );
+  assert.match(webChat, /onFocus=\{handleComposerFocus\}/);
+  assert.match(webChat, /onBlur=\{handleComposerBlur\}/);
 });
 
 test("web floating chat controls do not block scroll gestures outside their real controls", () => {

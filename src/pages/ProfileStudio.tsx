@@ -1,4 +1,4 @@
-import { lazy, Suspense, useState, useEffect, useRef, useMemo, useCallback, useId } from "react";
+import { lazy, Suspense, useState, useEffect, useRef, useMemo, useCallback, useId, type CSSProperties } from "react";
 import { useNavigate } from "react-router-dom";
 import { cn } from "@/lib/utils";
 import {
@@ -195,13 +195,15 @@ const PROFILE_STUDIO_DRAWER_PROPS = {
 } as const;
 const PROFILE_STUDIO_PROMPT_DRAWER_PROPS = {
   shouldScaleBackground: false,
-  fixed: false,
-  repositionInputs: true,
+  fixed: true,
+  repositionInputs: false,
 } as const;
 const PROFILE_STUDIO_DRAWER_CONTENT_CLASS = "max-h-[88dvh] w-full max-w-[100svw] overflow-hidden";
 const PROFILE_STUDIO_DRAWER_BODY_CLASS =
   "min-h-0 flex-1 overflow-y-auto overflow-x-hidden px-4 pb-[max(1rem,env(safe-area-inset-bottom))]";
 const PROFILE_STUDIO_DRAWER_FOOTER_CLASS = "shrink-0 pb-[max(1rem,env(safe-area-inset-bottom))]";
+const PROFILE_STUDIO_PROMPT_KEYBOARD_GAP_PX = 8;
+const PROFILE_STUDIO_PROMPT_KEYBOARD_THRESHOLD_PX = 96;
 
 // ────────────────────────────────────────────────────────────────────
 // Quick Actions config
@@ -307,6 +309,7 @@ const ProfileStudio = () => {
   const [emailForVerification, setEmailForVerification] = useState("");
   const [photoVerificationStatus, setPhotoVerificationStatus] = useState<PhotoVerificationState>("none");
   const [meetingPref, setMeetingPref] = useState<"events" | "dates" | "both">("both");
+  const [promptDrawerKeyboardStyle, setPromptDrawerKeyboardStyle] = useState<CSSProperties | undefined>();
 
   const sectionRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const previousHeroVideoPhaseRef = useRef(heroVideoUpload.phase);
@@ -316,6 +319,7 @@ const ProfileStudio = () => {
   const promptAnswerFieldRef = useRef<HTMLTextAreaElement | null>(null);
   const promptAnswerNudgeRafRef = useRef<number | null>(null);
   const promptAnswerNudgeTimeoutsRef = useRef<number[]>([]);
+  const promptDrawerKeyboardStyleClearTimeoutRef = useRef<number | null>(null);
 
   const { mySchedule, dateRange, isLoading: scheduleLoading } = useSchedule();
 
@@ -719,15 +723,74 @@ const ProfileStudio = () => {
     promptAnswerNudgeTimeoutsRef.current = [];
   }, []);
 
+  const clearPromptDrawerKeyboardStyleTimeout = useCallback(() => {
+    if (typeof window !== "undefined" && promptDrawerKeyboardStyleClearTimeoutRef.current !== null) {
+      window.clearTimeout(promptDrawerKeyboardStyleClearTimeoutRef.current);
+    }
+    promptDrawerKeyboardStyleClearTimeoutRef.current = null;
+  }, []);
+
+  const clearPromptDrawerKeyboardStyle = useCallback(() => {
+    clearPromptDrawerKeyboardStyleTimeout();
+    setPromptDrawerKeyboardStyle(undefined);
+  }, [clearPromptDrawerKeyboardStyleTimeout]);
+
+  const schedulePromptDrawerKeyboardStyleClear = useCallback(() => {
+    if (typeof window === "undefined") {
+      setPromptDrawerKeyboardStyle(undefined);
+      return;
+    }
+    clearPromptDrawerKeyboardStyleTimeout();
+    promptDrawerKeyboardStyleClearTimeoutRef.current = window.setTimeout(() => {
+      promptDrawerKeyboardStyleClearTimeoutRef.current = null;
+      if (document.activeElement !== promptAnswerFieldRef.current) {
+        setPromptDrawerKeyboardStyle(undefined);
+      }
+    }, 240);
+  }, [clearPromptDrawerKeyboardStyleTimeout]);
+
+  const updatePromptDrawerKeyboardStyle = useCallback(() => {
+    if (typeof window === "undefined" || typeof document === "undefined" || activeDrawer !== "prompt") {
+      clearPromptDrawerKeyboardStyle();
+      return;
+    }
+
+    const answer = promptAnswerFieldRef.current;
+    const viewport = window.visualViewport;
+    if (!answer || document.activeElement !== answer || !viewport) {
+      clearPromptDrawerKeyboardStyle();
+      return;
+    }
+    clearPromptDrawerKeyboardStyleTimeout();
+
+    const keyboardOverlap = window.innerHeight - viewport.height;
+    if (keyboardOverlap < PROFILE_STUDIO_PROMPT_KEYBOARD_THRESHOLD_PX) {
+      clearPromptDrawerKeyboardStyle();
+      return;
+    }
+
+    const top = Math.max(PROFILE_STUDIO_PROMPT_KEYBOARD_GAP_PX, viewport.offsetTop + PROFILE_STUDIO_PROMPT_KEYBOARD_GAP_PX);
+    const height = Math.max(1, viewport.height - PROFILE_STUDIO_PROMPT_KEYBOARD_GAP_PX);
+    setPromptDrawerKeyboardStyle({
+      top: `${top}px`,
+      bottom: "auto",
+      height: `${height}px`,
+      maxHeight: `${height}px`,
+      marginTop: 0,
+    });
+  }, [activeDrawer, clearPromptDrawerKeyboardStyle, clearPromptDrawerKeyboardStyleTimeout]);
+
   const nudgePromptAnswerIntoView = useCallback(() => {
     if (typeof window === "undefined" || typeof document === "undefined") return;
 
     const body = promptDrawerBodyRef.current;
     const answer = promptAnswerFieldRef.current;
     if (!body || !answer || document.activeElement !== answer) return;
+    updatePromptDrawerKeyboardStyle();
 
     const alignAnswer = () => {
       if (!body.isConnected || !answer.isConnected || document.activeElement !== answer) return;
+      updatePromptDrawerKeyboardStyle();
 
       const bodyRect = body.getBoundingClientRect();
       const answerRect = answer.getBoundingClientRect();
@@ -754,27 +817,47 @@ const ProfileStudio = () => {
       alignAnswer();
     });
     promptAnswerNudgeTimeoutsRef.current = [120, 320, 650].map((delay) => window.setTimeout(alignAnswer, delay));
-  }, [clearPromptAnswerNudges]);
+  }, [clearPromptAnswerNudges, updatePromptDrawerKeyboardStyle]);
 
   useEffect(() => {
-    if (typeof window === "undefined" || activeDrawer !== "prompt") return;
+    if (typeof window === "undefined" || activeDrawer !== "prompt") {
+      clearPromptDrawerKeyboardStyle();
+      return;
+    }
 
     const viewport = window.visualViewport;
-    const handlePromptViewportChange = () => nudgePromptAnswerIntoView();
+    const handlePromptViewportChange = () => {
+      updatePromptDrawerKeyboardStyle();
+      nudgePromptAnswerIntoView();
+    };
 
     viewport?.addEventListener("resize", handlePromptViewportChange);
     viewport?.addEventListener("scroll", handlePromptViewportChange);
     window.addEventListener("orientationchange", handlePromptViewportChange);
+    handlePromptViewportChange();
 
     return () => {
       clearPromptAnswerNudges();
+      clearPromptDrawerKeyboardStyle();
       viewport?.removeEventListener("resize", handlePromptViewportChange);
       viewport?.removeEventListener("scroll", handlePromptViewportChange);
       window.removeEventListener("orientationchange", handlePromptViewportChange);
     };
-  }, [activeDrawer, clearPromptAnswerNudges, nudgePromptAnswerIntoView]);
+  }, [
+    activeDrawer,
+    clearPromptAnswerNudges,
+    clearPromptDrawerKeyboardStyle,
+    nudgePromptAnswerIntoView,
+    updatePromptDrawerKeyboardStyle,
+  ]);
 
-  useEffect(() => () => clearPromptAnswerNudges(), [clearPromptAnswerNudges]);
+  useEffect(
+    () => () => {
+      clearPromptAnswerNudges();
+      clearPromptDrawerKeyboardStyleTimeout();
+    },
+    [clearPromptAnswerNudges, clearPromptDrawerKeyboardStyleTimeout],
+  );
 
   const openDrawer = (type: DrawerType) => {
     if (type === "tagline") {
@@ -1719,7 +1802,7 @@ const ProfileStudio = () => {
 
       {/* Prompt Editor */}
       <Drawer {...PROFILE_STUDIO_PROMPT_DRAWER_PROPS} open={activeDrawer === "prompt"} onOpenChange={handleProfileStudioDrawerOpenChange}>
-        <DrawerContent className={PROFILE_STUDIO_DRAWER_CONTENT_CLASS}>
+        <DrawerContent className={PROFILE_STUDIO_DRAWER_CONTENT_CLASS} style={promptDrawerKeyboardStyle}>
           <DrawerHeader>
             <DrawerTitle className="font-display">
               {promptEditorMode === "add" ? "Add Prompt" : "Edit Prompt"}
@@ -1749,6 +1832,10 @@ const ProfileStudio = () => {
                       setEditForm({ ...editForm, prompts: newPrompts });
                     }}
                     onFocus={nudgePromptAnswerIntoView}
+                    onBlur={() => {
+                      clearPromptAnswerNudges();
+                      schedulePromptDrawerKeyboardStyleClear();
+                    }}
                     placeholder="Be authentic, be interesting..."
                     className="min-h-24 glass-card border-border resize-none"
                     maxLength={200}
