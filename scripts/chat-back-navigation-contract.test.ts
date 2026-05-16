@@ -61,6 +61,7 @@ test("native chat exits replace the stack with the Vibe matches tab", () => {
   assertSubstringsInOrder(
     goChunk,
     [
+      "cancelRecordingForExit();",
       "setExiting(true);",
       "clearGoToMatchesScheduled();",
       "router.dismissAll()",
@@ -71,7 +72,7 @@ test("native chat exits replace the stack with the Vibe matches tab", () => {
       "setTimeout(repeatExit, 300)",
       "InteractionManager.runAfterInteractions(() => {",
       "repeatExit();",
-      "}, [clearGoToMatchesScheduled]);",
+      "}, [cancelRecordingForExit, clearGoToMatchesScheduled]);",
     ],
     "native goToMatches",
   );

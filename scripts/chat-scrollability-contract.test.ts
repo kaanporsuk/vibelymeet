@@ -33,14 +33,31 @@ test("web chat scrolling owns the real scroller and preserves user intent", () =
 test("web chat avoids jumpy rich-content reflow and older-message prepend snaps", () => {
   assert.match(
     webChat,
-    /const ro = new ResizeObserver\(\(\) => \{[\s\S]*if \(!stickToBottomRef\.current\) return;[\s\S]*if \(isUserScrollIntentActive\(\)\) return;[\s\S]*scrollToBottom\(\{ instant: true \}\);/,
+    /const ro = new ResizeObserver\(\(\) => \{[\s\S]*if \(!stickToBottomRef\.current\) return;[\s\S]*if \(isUserScrollIntentActive\(\)\) return;[\s\S]*scheduleStickyBottomSnap\(\{ instant: true \}\);/,
   );
+  assert.match(webChat, /if \(!node \|\| typeof ResizeObserver === "undefined"\) return;/);
   assert.match(
     webChat,
     /olderPageScrollSnapshotRef\.current = null;[\s\S]*userScrollIntentUntilRef\.current = Date\.now\(\) \+ 900;[\s\S]*el\.scrollTop = el\.scrollHeight - snapshot\.scrollHeight \+ snapshot\.scrollTop;/,
   );
   assert.match(webChat, /setNewBelowCue\(true\)/);
   assert.match(webChat, /<span className="block aspect-\[4\/5\] w-60 max-w-full overflow-hidden/);
+});
+
+test("web chat tracks visual viewport and composer layout before sticky keyboard snaps", () => {
+  assert.match(webChat, /const composerChromeRef = useRef<HTMLDivElement>\(null\)/);
+  assert.match(webChat, /const \[visualViewportHeight, setVisualViewportHeight\] = useState<number \| null>/);
+  assert.match(
+    webChat,
+    /const scheduleStickyBottomSnap = useCallback\(\(opts\?: \{ instant\?: boolean \}\) => \{[\s\S]*if \(!stickToBottomRef\.current\) return;[\s\S]*if \(isUserScrollIntentActive\(\)\) return;[\s\S]*window\.requestAnimationFrame/,
+  );
+  assert.match(webChat, /const viewport = window\.visualViewport/);
+  assert.match(webChat, /viewport\.addEventListener\("resize", updateViewportHeight\)/);
+  assert.match(webChat, /viewport\.addEventListener\("scroll", updateViewportHeight\)/);
+  assert.match(webChat, /const chatViewportStyle = useMemo\(/);
+  assert.match(webChat, /style=\{chatViewportStyle\}/);
+  assert.match(webChat, /<div ref=\{composerChromeRef\} className="relative z-40 shrink-0">/);
+  assert.match(webChat, /onFocus=\{\(\) => scheduleStickyBottomSnap\(\{ instant: false \}\)\}/);
 });
 
 test("web floating chat controls do not block scroll gestures outside their real controls", () => {
@@ -70,6 +87,27 @@ test("native chat FlatList separates user drag intent from automatic bottom stic
   assert.match(nativeChat, /onMomentumScrollEnd=\{settleListUserScrollIntent\}/);
   assert.match(nativeChat, /keyboardDismissMode=\{Platform\.OS === 'ios' \? 'interactive' : 'on-drag'\}/);
   assert.match(nativeChat, /nestedScrollEnabled/);
+});
+
+test("native chat tracks keyboard and layout transitions before sticky keyboard snaps", () => {
+  assert.match(nativeChat, /\bKeyboard,\s*[\s\S]*KeyboardAvoidingView,/);
+  assert.match(nativeChat, /type KeyboardEvent/);
+  assert.match(nativeChat, /type LayoutChangeEvent/);
+  assert.match(
+    nativeChat,
+    /const scheduleStickyListSnap = useCallback\(\(animated = false\) => \{[\s\S]*if \(!stickToBottomRef\.current\) return;[\s\S]*if \(isListUserScrollIntentActive\(\)\) return;[\s\S]*requestAnimationFrame/,
+  );
+  assert.match(
+    nativeChat,
+    /scrollListToEnd\(animated, \(\) => stickToBottomRef\.current && !isListUserScrollIntentActive\(\)\);/,
+  );
+  assert.match(nativeChat, /Keyboard\.scheduleLayoutAnimation\?\.\(event\)/);
+  assert.match(nativeChat, /Platform\.OS === 'ios' \? 'keyboardWillChangeFrame' : 'keyboardDidShow'/);
+  assert.match(nativeChat, /Platform\.OS === 'ios' \? 'keyboardWillHide' : 'keyboardDidHide'/);
+  assert.match(nativeChat, /<View style=\{styles\.listAndJumpWrap\} onLayout=\{handleStickyLayoutChange\}>/);
+  assert.match(nativeChat, /onLayout=\{handleStickyLayoutChange\}[\s\S]*styles\.contextualRow/);
+  assert.match(nativeChat, /onLayout=\{handleStickyLayoutChange\}[\s\S]*styles\.composerDockCol/);
+  assert.match(nativeChat, /onFocus=\{handleComposerFocus\}/);
 });
 
 test("native explicit jump-to-latest actions deliberately restore bottom stickiness", () => {
