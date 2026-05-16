@@ -107,6 +107,7 @@ type AdminUserProfileRow = {
   email_verified: boolean | null;
   verified_email: string | null;
   is_premium: boolean | null;
+  subscription_tier: string | null;
   premium_until: string | null;
   is_suspended: boolean | null;
   total_matches: number | null;
@@ -184,6 +185,13 @@ const getProfileGenderLabel = (profile: AdminUserProfileRow): string => {
   return profile.gender || "N/A";
 };
 
+const getProfileSubscriptionTier = (profile?: AdminUserProfileRow | null): "free" | "premium" | "vip" => {
+  if (!profile?.is_premium) return "free";
+  const tier = profile?.subscription_tier?.trim().toLowerCase();
+  if (tier === "vip") return "vip";
+  return "premium";
+};
+
 const formatNullableDateTime = (value?: string | null): string => (
   value ? format(new Date(value), "MMM d, yyyy HH:mm") : "N/A"
 );
@@ -216,6 +224,8 @@ const AdminUserDetailDrawer = ({ userId, onClose }: AdminUserDetailDrawerProps) 
   const credits = userDetail?.credits ?? DEFAULT_CREDITS;
   const lifecycleMeta = getLifecycleBadgeMeta(profile?.lifecycle_status);
   const profileAgeLabel = profile?.age_is_placeholder ? "Pending age" : profile?.age ?? "N/A";
+  const subscriptionTier = getProfileSubscriptionTier(profile);
+  const subscriptionTierLabel = subscriptionTier === "vip" ? "VIP" : "Premium";
 
   const matchProfiles = useMemo(() => {
     const profileMap: Record<string, AdminEmbeddedProfileRow> = {};
@@ -281,16 +291,21 @@ const AdminUserDetailDrawer = ({ userId, onClose }: AdminUserDetailDrawerProps) 
         animate={{ x: 0 }}
         exit={{ x: '100%' }}
         transition={{ type: 'spring', damping: 25, stiffness: 200 }}
-        className="fixed right-0 top-0 h-full w-full max-w-2xl bg-background border-l border-border z-50 overflow-hidden flex flex-col"
+        className="fixed right-0 top-0 h-full w-full max-w-4xl bg-background border-l border-border z-50 overflow-hidden flex flex-col"
       >
-        <div className="p-6 border-b border-border flex items-center justify-between">
-          <h2 className="text-xl font-bold font-display text-foreground">User Profile</h2>
-          <div className="flex items-center gap-2">
+        <div className="p-6 border-b border-border">
+          <div className="flex items-center justify-between gap-4">
+            <h2 className="text-xl font-bold font-display text-foreground">User Profile</h2>
+            <Button variant="ghost" size="icon" onClick={onClose} className="shrink-0">
+              <X className="w-5 h-5" />
+            </Button>
+          </div>
+          <div className="mt-4 flex flex-wrap items-center gap-2">
             <Button
               variant="outline"
               size="sm"
               onClick={() => setShowProfilePreview(true)}
-              className="gap-2"
+              className="gap-2 shrink-0"
             >
               <Eye className="w-4 h-4" />
               Preview
@@ -299,7 +314,7 @@ const AdminUserDetailDrawer = ({ userId, onClose }: AdminUserDetailDrawerProps) 
               variant="outline"
               size="sm"
               onClick={() => setShowMatchMessages(true)}
-              className="gap-2"
+              className="gap-2 shrink-0"
             >
               <MessagesSquare className="w-4 h-4" />
               Messages
@@ -308,7 +323,7 @@ const AdminUserDetailDrawer = ({ userId, onClose }: AdminUserDetailDrawerProps) 
               variant="outline"
               size="sm"
               onClick={() => setShowGrantCredits(true)}
-              className="gap-2 text-primary border-primary/30 hover:bg-primary/10"
+              className="gap-2 text-primary border-primary/30 hover:bg-primary/10 shrink-0"
             >
               <Sparkles className="w-4 h-4" />
               Credits
@@ -317,7 +332,7 @@ const AdminUserDetailDrawer = ({ userId, onClose }: AdminUserDetailDrawerProps) 
               variant="outline"
               size="sm"
               onClick={() => setShowPremiumModal(true)}
-              className="gap-2 text-accent border-accent/30 hover:bg-accent/10"
+              className="gap-2 text-accent border-accent/30 hover:bg-accent/10 shrink-0"
             >
               <Crown className="w-4 h-4" />
               Premium
@@ -326,13 +341,10 @@ const AdminUserDetailDrawer = ({ userId, onClose }: AdminUserDetailDrawerProps) 
               variant="outline"
               size="sm"
               onClick={() => setShowModeration(true)}
-              className="gap-2 text-yellow-500 border-yellow-500/30 hover:bg-yellow-500/10"
+              className="gap-2 text-yellow-500 border-yellow-500/30 hover:bg-yellow-500/10 shrink-0"
             >
               <Shield className="w-4 h-4" />
               Moderate
-            </Button>
-            <Button variant="ghost" size="icon" onClick={onClose}>
-              <X className="w-5 h-5" />
             </Button>
           </div>
         </div>
@@ -375,13 +387,19 @@ const AdminUserDetailDrawer = ({ userId, onClose }: AdminUserDetailDrawerProps) 
                     <Badge className={lifecycleMeta.className}>
                       {lifecycleMeta.label}
                     </Badge>
-                    {profile.is_premium && (
-                      <Badge className="bg-primary/20 text-primary border-primary/30">
+                    {subscriptionTier !== "free" && (
+                      <Badge
+                        className={
+                          subscriptionTier === "vip"
+                            ? "bg-amber-500/20 text-amber-300 border-amber-500/30"
+                            : "bg-primary/20 text-primary border-primary/30"
+                        }
+                      >
                         <Crown className="w-3 h-3 mr-1" />
-                        Premium {profile.premium_until ? `until ${format(new Date(profile.premium_until), 'MMM d, yyyy')}` : '(forever)'}
+                        {subscriptionTierLabel} {profile.premium_until ? `until ${format(new Date(profile.premium_until), 'MMM d, yyyy')}` : '(forever)'}
                       </Badge>
                     )}
-                    {!profile.is_premium && (
+                    {subscriptionTier === "free" && (
                       <span className="text-xs text-muted-foreground">Free account</span>
                     )}
                     {profile.photo_verified && (
@@ -791,6 +809,7 @@ const AdminUserDetailDrawer = ({ userId, onClose }: AdminUserDetailDrawerProps) 
           userId={userId}
           userName={profile.name || 'User'}
           currentIsPremium={profile.is_premium || false}
+          currentSubscriptionTier={profile.subscription_tier || "free"}
           currentPremiumUntil={profile.premium_until || null}
           history={premiumHistory}
           isOpen={showPremiumModal}

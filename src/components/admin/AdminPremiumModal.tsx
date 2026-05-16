@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Crown, X, ChevronDown } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
@@ -20,6 +20,7 @@ interface AdminPremiumModalProps {
   userId: string;
   userName: string;
   currentIsPremium: boolean;
+  currentSubscriptionTier?: string | null;
   currentPremiumUntil: string | null;
   history?: PremiumHistoryEntry[];
   isOpen: boolean;
@@ -28,6 +29,7 @@ interface AdminPremiumModalProps {
 
 type Duration = "1week" | "1month" | "3months" | "1year" | "custom";
 type PremiumAction = "grant" | "extend" | "revoke";
+type PremiumTier = "premium" | "vip";
 
 type PremiumHistoryEntry = {
   id: string;
@@ -61,10 +63,23 @@ const calcDate = (from: Date, duration: Duration): Date => {
   }
 };
 
+const normalizePremiumTier = (tier?: string | null): PremiumTier => (
+  tier?.trim().toLowerCase() === "vip" ? "vip" : "premium"
+);
+
+const formatTierLabel = (tier: PremiumTier): string => (
+  tier === "vip" ? "VIP" : "Premium"
+);
+
+const getDefaultGrantTier = (currentIsPremium: boolean, currentSubscriptionTier?: string | null): PremiumTier => (
+  currentIsPremium ? normalizePremiumTier(currentSubscriptionTier) : "premium"
+);
+
 const AdminPremiumModal = ({
   userId,
   userName,
   currentIsPremium,
+  currentSubscriptionTier,
   currentPremiumUntil,
   history = [],
   isOpen,
@@ -77,7 +92,17 @@ const AdminPremiumModal = ({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [pendingAction, setPendingAction] = useState<PremiumAction | null>(null);
   const [historyOpen, setHistoryOpen] = useState(false);
-  const [grantTier, setGrantTier] = useState<"premium" | "vip">("premium");
+  const [grantTier, setGrantTier] = useState<PremiumTier>(getDefaultGrantTier(currentIsPremium, currentSubscriptionTier));
+  const currentTier = normalizePremiumTier(currentSubscriptionTier);
+  const currentTierLabel = formatTierLabel(currentTier);
+  const selectedTierLabel = formatTierLabel(grantTier);
+  const customDateMissing = duration === "custom" && !customDate;
+
+  useEffect(() => {
+    if (!isOpen) return;
+    setGrantTier(getDefaultGrantTier(currentIsPremium, currentSubscriptionTier));
+    setPendingAction(null);
+  }, [currentIsPremium, currentSubscriptionTier, isOpen]);
 
   const closeModal = () => {
     setPendingAction(null);
@@ -89,6 +114,21 @@ const AdminPremiumModal = ({
       return customDate ? new Date(customDate) : new Date();
     }
     return calcDate(baseDate, duration);
+  };
+
+  const getExtendTargetDate = (): Date => {
+    const base = currentPremiumUntil ? new Date(currentPremiumUntil) : new Date();
+    if (duration === "custom" && customDate) {
+      const cd = new Date(customDate);
+      return cd > base ? cd : base;
+    }
+    return calcDate(base, duration);
+  };
+
+  const getPendingTargetDate = (action: PremiumAction | null): Date | null => {
+    if (action === "grant") return getTargetDate(new Date());
+    if (action === "extend") return getExtendTargetDate();
+    return null;
   };
 
   const invalidatePremiumQueries = async () => {
@@ -112,7 +152,7 @@ const AdminPremiumModal = ({
         p_idempotency_key: createAdminIdempotencyKey("admin_set_premium_status"),
       });
 
-      toast.success(`Premium granted to ${userName} until ${format(targetDate, "MMM d, yyyy")}`);
+      toast.success(`${selectedTierLabel} granted to ${userName} until ${format(targetDate, "MMM d, yyyy")}`);
       await invalidatePremiumQueries();
       closeModal();
     } catch (e: unknown) {
@@ -125,14 +165,7 @@ const AdminPremiumModal = ({
   const handleExtend = async () => {
     setIsSubmitting(true);
     try {
-      const base = currentPremiumUntil ? new Date(currentPremiumUntil) : new Date();
-      let targetDate: Date;
-      if (duration === "custom" && customDate) {
-        const cd = new Date(customDate);
-        targetDate = cd > base ? cd : base;
-      } else {
-        targetDate = calcDate(base, duration);
-      }
+      const targetDate = getExtendTargetDate();
 
       await callAdminRpc("admin_set_premium_status", {
         p_user_id: userId,
@@ -143,7 +176,7 @@ const AdminPremiumModal = ({
         p_idempotency_key: createAdminIdempotencyKey("admin_set_premium_status"),
       });
 
-      toast.success(`Premium extended for ${userName} until ${format(targetDate, "MMM d, yyyy")}`);
+      toast.success(`${selectedTierLabel} extended for ${userName} until ${format(targetDate, "MMM d, yyyy")}`);
       await invalidatePremiumQueries();
       closeModal();
     } catch (e: unknown) {
@@ -176,26 +209,29 @@ const AdminPremiumModal = ({
   };
 
   const premiumActionCopy = (() => {
+    const targetDate = getPendingTargetDate(pendingAction);
+    const accessLine = targetDate ? `\nAccess through: ${format(targetDate, "MMM d, yyyy")}` : "";
+    const reasonLine = reason.trim() ? `\nReason: ${reason.trim()}` : "";
     if (pendingAction === "grant") {
       return {
-        title: `Grant premium to ${userName}?`,
-        description: "This calls the backend admin premium RPC. Profile premium state, premium_history, and admin_activity_logs commit together or fail together.",
-        confirmLabel: "Grant Premium",
+        title: `Grant ${selectedTierLabel} to ${userName}?`,
+        description: `This calls the backend admin premium RPC. Profile premium state, premium_history, and admin_activity_logs commit together or fail together.\nTier: ${selectedTierLabel}${accessLine}${reasonLine}`,
+        confirmLabel: `Grant ${selectedTierLabel}`,
         variant: "default" as const,
       };
     }
     if (pendingAction === "extend") {
       return {
-        title: `Extend premium for ${userName}?`,
-        description: "This calls the backend admin premium RPC. The premium_until update, premium_history row, and admin audit row commit together or fail together.",
-        confirmLabel: "Extend Premium",
+        title: `Extend ${selectedTierLabel} for ${userName}?`,
+        description: `This calls the backend admin premium RPC. The premium_until update, premium_history row, and admin audit row commit together or fail together.\nTier: ${selectedTierLabel}${accessLine}${reasonLine}`,
+        confirmLabel: `Extend ${selectedTierLabel}`,
         variant: "default" as const,
       };
     }
     if (pendingAction === "revoke") {
       return {
         title: `Revoke premium for ${userName}?`,
-        description: "This calls the backend admin premium RPC. Premium removal, premium_history, and admin_activity_logs commit together or fail together.",
+        description: `This calls the backend admin premium RPC. Premium removal, premium_history, and admin_activity_logs commit together or fail together.\nCurrent tier: ${currentTierLabel}${reasonLine}`,
         confirmLabel: "Revoke Premium",
         variant: "destructive" as const,
       };
@@ -231,14 +267,15 @@ const AdminPremiumModal = ({
         className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[60]"
         onClick={closeModal}
       />
-      <motion.div
-        initial={{ opacity: 0, scale: 0.95 }}
-        animate={{ opacity: 1, scale: 1 }}
-        exit={{ opacity: 0, scale: 0.95 }}
-        className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-md max-h-[85vh] overflow-y-auto bg-background border border-border rounded-2xl shadow-2xl z-[60] p-6 space-y-5"
-      >
+      <div className="fixed left-1/2 top-1/2 z-[60] w-[calc(100vw-2rem)] max-w-md -translate-x-1/2 -translate-y-1/2">
+        <motion.div
+          initial={{ opacity: 0, scale: 0.95 }}
+          animate={{ opacity: 1, scale: 1 }}
+          exit={{ opacity: 0, scale: 0.95 }}
+          className="flex max-h-[85vh] w-full flex-col overflow-hidden bg-background border border-border rounded-2xl shadow-2xl"
+        >
         {/* Header */}
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between border-b border-border p-6 pb-4">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-primary to-accent flex items-center justify-center">
               <Crown className="w-5 h-5 text-primary-foreground" />
@@ -253,11 +290,12 @@ const AdminPremiumModal = ({
           </Button>
         </div>
 
+        <div className="flex-1 overflow-y-auto p-6 space-y-5">
         {/* Current Status */}
         {currentIsPremium ? (
           <div className="p-3 rounded-xl bg-green-500/10 border border-green-500/30">
             <Badge className="bg-green-500/20 text-green-400 border-green-500/30 mb-1">
-              ✦ Active Premium
+              ✦ Active {currentTierLabel}
             </Badge>
             <p className="text-xs text-muted-foreground">
               Expires: {currentPremiumUntil ? format(new Date(currentPremiumUntil), "MMM d, yyyy 'at' h:mm a") : "Never"}
@@ -273,8 +311,7 @@ const AdminPremiumModal = ({
           Premium changes use the backend admin_set_premium_status RPC so profile state, premium_history, and admin audit logging are transactional.
         </div>
 
-        {/* Tier (new grants only) */}
-        {!currentIsPremium && (
+        {/* Tier */}
           <div className="space-y-2">
             <h4 className="text-sm font-semibold text-foreground">Subscription tier</h4>
             <div className="flex gap-2">
@@ -302,12 +339,11 @@ const AdminPremiumModal = ({
               </button>
             </div>
           </div>
-        )}
 
         {/* Duration Picker */}
         <div className="space-y-3">
           <h4 className="text-sm font-semibold text-foreground">
-            {currentIsPremium ? "Extend Duration" : "Grant Premium"}
+            {currentIsPremium ? "Extend Duration" : `Grant ${selectedTierLabel}`}
           </h4>
           <div className="flex flex-wrap gap-2">
             {durationOptions.map((opt) => (
@@ -351,40 +387,6 @@ const AdminPremiumModal = ({
           className="bg-secondary/50 min-h-[60px]"
         />
 
-        {/* Actions */}
-        <div className="space-y-2">
-          {currentIsPremium ? (
-            <>
-              <Button
-                variant="gradient"
-                className="w-full"
-                onClick={() => setPendingAction("extend")}
-                disabled={isSubmitting || (duration === "custom" && !customDate)}
-              >
-                Extend Premium
-              </Button>
-              <Button
-                variant="destructive"
-                size="sm"
-                className="w-full"
-                onClick={() => setPendingAction("revoke")}
-                disabled={isSubmitting}
-              >
-                Revoke Premium
-              </Button>
-            </>
-          ) : (
-            <Button
-              variant="gradient"
-              className="w-full"
-              onClick={() => setPendingAction("grant")}
-              disabled={isSubmitting || (duration === "custom" && !customDate)}
-            >
-              Grant Premium
-            </Button>
-          )}
-        </div>
-
         {/* History */}
         <Collapsible open={historyOpen} onOpenChange={setHistoryOpen}>
           <CollapsibleTrigger className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors w-full">
@@ -412,7 +414,51 @@ const AdminPremiumModal = ({
             ))}
           </CollapsibleContent>
         </Collapsible>
-      </motion.div>
+        </div>
+
+        <div className="border-t border-border bg-background/95 p-4">
+          {currentIsPremium ? (
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-end">
+              <Button
+                variant="outline"
+                onClick={closeModal}
+                disabled={isSubmitting}
+                className="sm:mr-auto"
+              >
+                Cancel
+              </Button>
+              <Button
+                variant="destructive"
+                onClick={() => setPendingAction("revoke")}
+                disabled={isSubmitting}
+              >
+                Revoke
+              </Button>
+              <Button
+                variant="gradient"
+                onClick={() => setPendingAction("extend")}
+                disabled={isSubmitting || customDateMissing}
+              >
+                {isSubmitting ? "Saving..." : `Extend ${selectedTierLabel}`}
+              </Button>
+            </div>
+          ) : (
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-end">
+              <Button variant="outline" onClick={closeModal} disabled={isSubmitting}>
+                Cancel
+              </Button>
+              <Button
+                variant="gradient"
+                onClick={() => setPendingAction("grant")}
+                disabled={isSubmitting || customDateMissing}
+              >
+                {isSubmitting ? "Saving..." : `Grant ${selectedTierLabel}`}
+              </Button>
+            </div>
+          )}
+        </div>
+        </motion.div>
+      </div>
 
       <AdminConfirmDialog
         open={!!pendingAction}
