@@ -30,7 +30,7 @@ import { useFocusEffect } from '@react-navigation/native';
 import * as Haptics from 'expo-haptics';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { requestCameraPermissionsAsync as requestExpoCameraPermissionsAsync } from 'expo-camera';
+import { useCameraPermissions } from 'expo-camera';
 import * as ImagePicker from 'expo-image-picker';
 import * as FileSystem from 'expo-file-system/legacy';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -691,6 +691,7 @@ export default function ChatThreadScreen() {
   const insets = useSafeAreaInsets();
   const colorScheme = useColorScheme();
   const theme = Colors[colorScheme];
+  const [, requestPhotoCameraPermission] = useCameraPermissions();
   const mediaCardWidth = useMemo(
     () => getAdaptiveChatMediaWidth(windowWidth),
     [windowWidth]
@@ -2008,8 +2009,8 @@ export default function ChatThreadScreen() {
   const openPhotoCameraModal = async () => {
     if (!data?.matchId || !user?.id || composerInputLocked) return;
     try {
-      const { status } = await requestExpoCameraPermissionsAsync();
-      if (status !== 'granted') {
+      const permission = await requestPhotoCameraPermission();
+      if (!permission.granted) {
         showAppDialog({
           title: 'Camera access',
           message: 'Allow camera access to take a photo.',

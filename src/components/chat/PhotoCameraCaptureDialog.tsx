@@ -78,13 +78,13 @@ function shouldRetryWithGenericCamera(error: unknown): boolean {
 
 async function getCameraStream(
   facingMode: PhotoCameraFacingMode,
-  opts?: { allowGenericFallback?: boolean },
+  opts?: { allowGenericFallback?: boolean; exactFacingMode?: boolean },
 ): Promise<MediaStream> {
   try {
     return await navigator.mediaDevices.getUserMedia({
       audio: false,
       video: {
-        facingMode: { ideal: facingMode },
+        facingMode: opts?.exactFacingMode ? { exact: facingMode } : { ideal: facingMode },
         width: { ideal: 1280 },
         height: { ideal: 720 },
       },
@@ -195,7 +195,10 @@ export function PhotoCameraCaptureDialog({
 
     let stream: MediaStream | null = null;
     try {
-      stream = await getCameraStream(nextFacingMode, { allowGenericFallback: !opts?.preserveExistingStream });
+      stream = await getCameraStream(nextFacingMode, {
+        allowGenericFallback: !opts?.preserveExistingStream,
+        exactFacingMode: !!opts?.preserveExistingStream,
+      });
 
       if (cameraRunRef.current !== runId || !openRef.current) {
         stream.getTracks().forEach((track) => track.stop());
