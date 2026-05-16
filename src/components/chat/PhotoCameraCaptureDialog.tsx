@@ -348,6 +348,7 @@ export function PhotoCameraCaptureDialog({
         onOpenChange(false);
         return;
       }
+      setErrorMessage("Could not send the photo. Please try again.");
     } catch {
       setErrorMessage("Could not send the photo. Please try again.");
     } finally {
