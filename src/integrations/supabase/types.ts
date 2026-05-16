@@ -6350,7 +6350,7 @@ export type Database = {
         Returns: Json
       }
       admin_create_event_category: {
-        Args: { p_emoji: string; p_label: string; p_sort_order?: number }
+        Args: { p_active?: boolean; p_emoji: string; p_label: string; p_sort_order?: number }
         Returns: Json
       }
       admin_create_event_payment_exception: {

@@ -15,7 +15,7 @@ const ensurePlugin = (plugins, plugin) => {
 
 module.exports = () => {
   const profile = process.env.EAS_BUILD_PROFILE;
-  const oneSignalMode = profile === 'production' ? 'production' : 'development';
+  const oneSignalMode = profile === 'production' || profile === 'preview' ? 'production' : 'development';
   const baseOneSignalPlugin = (appJson.expo.plugins || []).find(
     (p) => Array.isArray(p) && p[0] === 'onesignal-expo-plugin'
   );
