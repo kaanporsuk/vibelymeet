@@ -58,7 +58,11 @@ test("web chat gates mobile keyboard viewport styling to focused mobile composer
   );
   assert.match(
     webChat,
-    /const updateMobileKeyboardViewportStyle = useCallback\(\(\) => \{[\s\S]*const textarea = inputRef\.current;[\s\S]*const viewport = window\.visualViewport;[\s\S]*window\.matchMedia\(CHAT_DESKTOP_VIEWPORT_QUERY\)[\s\S]*document\.activeElement !== textarea[\s\S]*const keyboardOverlap = window\.innerHeight - viewport\.height;[\s\S]*keyboardOverlap < CHAT_MOBILE_KEYBOARD_THRESHOLD_PX/,
+    /const mobileKeyboardStableViewportHeightRef = useRef<number \| null>\([\s\S]*Math\.max\(window\.visualViewport\?\.height \?\? 0, window\.innerHeight \?\? 0\)/,
+  );
+  assert.match(
+    webChat,
+    /const updateMobileKeyboardViewportStyle = useCallback\(\(\) => \{[\s\S]*const textarea = inputRef\.current;[\s\S]*const viewport = window\.visualViewport;[\s\S]*window\.matchMedia\(CHAT_DESKTOP_VIEWPORT_QUERY\)[\s\S]*const currentViewportHeight = viewport\?\.height \?\? 0;[\s\S]*const currentLayoutHeight = window\.innerHeight;[\s\S]*document\.activeElement !== textarea[\s\S]*mobileKeyboardStableViewportHeightRef\.current = Math\.max\(currentViewportHeight, currentLayoutHeight\);[\s\S]*const stableViewportHeight =[\s\S]*mobileKeyboardStableViewportHeightRef\.current[\s\S]*const keyboardOverlap = Math\.max\([\s\S]*currentLayoutHeight - currentViewportHeight,[\s\S]*stableViewportHeight - currentViewportHeight,[\s\S]*keyboardOverlap < CHAT_MOBILE_KEYBOARD_THRESHOLD_PX/,
   );
   assert.match(
     webChat,
@@ -77,6 +81,10 @@ test("web chat gates mobile keyboard viewport styling to focused mobile composer
   );
   assert.match(webChat, /style=\{mobileKeyboardViewportStyle\}/);
   assert.match(webChat, /<div ref=\{composerChromeRef\} className="relative z-40 shrink-0">/);
+  assert.match(
+    webChat,
+    /const handleComposerFocus = useCallback\(\(\) => \{[\s\S]*mobileKeyboardStableViewportHeightRef\.current = Math\.max\([\s\S]*window\.visualViewport\?\.height \?\? 0,[\s\S]*window\.innerHeight \?\? 0,[\s\S]*updateMobileKeyboardViewportStyle\(\);/,
+  );
   assert.match(
     webChat,
     /const returnToMatches = useCallback\(\(\) => \{[\s\S]*inputRef\.current\?\.blur\(\);[\s\S]*clearMobileKeyboardViewportStyle\(\);[\s\S]*setExiting\(true\);/,
