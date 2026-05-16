@@ -62,12 +62,19 @@ test("web chat exits replace the chat route with matches", () => {
 test("native chat exits replace the stack with the Vibe matches tab", () => {
   const nativeChat = readRepoFile("apps/mobile/app/chat/[id].tsx");
   const nativeLayout = readRepoFile("apps/mobile/app/_layout.tsx");
+  const nativeTabsLayout = readRepoFile("apps/mobile/app/(tabs)/_layout.tsx");
+  const nativeMatchesLayout = readRepoFile("apps/mobile/app/(tabs)/matches/_layout.tsx");
+  const nativeColorScheme = readRepoFile("apps/mobile/components/useColorScheme.ts");
 
   assert.ok(nativeChat.includes("const MATCHES_TAB_HREF = '/(tabs)/matches' as const;"));
   assert.ok(nativeChat.includes("InteractionManager.runAfterInteractions"));
-  // Render-null exit guard mirrors the web contract.
+  // Native keeps a dark inert surface while the route handoff completes so the system white underlay never flashes.
   assert.ok(nativeChat.includes("const [exiting, setExiting] = useState(false);"));
-  assert.ok(nativeChat.includes("if (exiting) return null;"));
+  assert.doesNotMatch(nativeChat, /if \(exiting\) return null;/);
+  assert.match(
+    nativeChat,
+    /if \(exiting\) \{[\s\S]{0,220}<View testID="chat-exit-surface" style=\{\[styles\.container, \{ backgroundColor: CHAT_CANVAS_BG \}\]\} \/>;[\s\S]{0,40}\}/,
+  );
   const goIdx = nativeChat.indexOf("const goToMatches = useCallback");
   assert.ok(goIdx >= 0, "goToMatches callback present");
   const goChunk = nativeChat.slice(goIdx, goIdx + 2800);
@@ -97,4 +104,27 @@ test("native chat exits replace the stack with the Vibe matches tab", () => {
   assert.doesNotMatch(nativeChat, /router\.back\(\)/);
   assert.ok((nativeChat.match(/goToMatches/g)?.length ?? 0) >= 5);
   assert.match(nativeLayout, /<Stack\.Screen name="chat\/\[id\]" options=\{\{[^}]*gestureEnabled: false[^}]*\}\} \/>/);
+  assert.ok(nativeLayout.includes("ThemeProvider value={navigationTheme}"));
+  assert.ok(nativeLayout.includes("contentStyle: { backgroundColor: theme.background }"));
+  assert.ok(nativeLayout.includes('<StatusBar style="light" backgroundColor={theme.background} />'));
+  assert.ok(nativeTabsLayout.includes("sceneStyle: { backgroundColor: theme.background }"));
+  assert.ok(nativeMatchesLayout.includes("contentStyle: { backgroundColor: theme.background }"));
+  assert.ok(nativeColorScheme.includes("return coreScheme === 'dark' ? 'dark' : 'light';"));
+});
+
+test("native stack layouts do not expose a white default scene during transitions", () => {
+  const stackLayouts = [
+    "apps/mobile/app/_layout.tsx",
+    "apps/mobile/app/(auth)/_layout.tsx",
+    "apps/mobile/app/(onboarding)/_layout.tsx",
+    "apps/mobile/app/(tabs)/events/_layout.tsx",
+    "apps/mobile/app/(tabs)/matches/_layout.tsx",
+    "apps/mobile/app/(tabs)/profile/_layout.tsx",
+    "apps/mobile/app/settings/_layout.tsx",
+  ];
+
+  for (const path of stackLayouts) {
+    const source = readRepoFile(path);
+    assert.match(source, /contentStyle: \{ backgroundColor: theme\.background \}/, `${path} has dark Stack contentStyle`);
+  }
 });

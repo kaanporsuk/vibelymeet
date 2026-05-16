@@ -9,6 +9,7 @@ import {
   type RevisionPayload,
 } from "@/hooks/useDateSuggestionActions";
 import { toast } from "sonner";
+import { localTimezoneOrUtc } from "../../../shared/dateSuggestions/localTimezone";
 
 interface ScheduleShareSheetProps {
   isOpen: boolean;
@@ -51,6 +52,7 @@ export const ScheduleShareSheet = ({
         time_choice_key: "share_schedule",
         place_mode_key: "decide_together",
         schedule_share_enabled: true,
+        local_timezone: localTimezoneOrUtc(),
         selected_slot_keys: selectedSlotKeys,
       };
 

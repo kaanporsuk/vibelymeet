@@ -39,6 +39,7 @@ import { clientRequestIdFromStructured } from "../../shared/chat/clientRequestId
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { DateSuggestionCard } from "@/components/chat/DateSuggestionCard";
+import { ActiveDateSuggestionWarningDialog } from "@/components/chat/ActiveDateSuggestionWarningDialog";
 import { useMatchDateSuggestions } from "@/hooks/useDateSuggestionData";
 import type { DateSuggestionWithRelations } from "@/hooks/useDateSuggestionData";
 import type { WizardState } from "@/components/chat/DateSuggestionComposer";
@@ -58,7 +59,7 @@ import { webGamePayloadFromSessionView, type WebHydratedGameSessionView } from "
 import { formatSendGameEventError, newVibeGameSessionId, sendGameEvent } from "@/lib/webGamesApi";
 import { dedupeLatestByRefId } from "../../shared/chat/refDedupe";
 import type { DateComposerLaunchSource } from "../../shared/dateSuggestions/dateComposerLaunch";
-import { matchHasOpenDateSuggestion } from "../../shared/dateSuggestions/openStatus";
+import { findBlockingDateSuggestion } from "../../shared/dateSuggestions/openStatus";
 import {
   VIBE_CLIP_CHAT_FILM_BUTTON_TITLE,
   VIBE_CLIP_MAX_DURATION_SEC,
@@ -298,6 +299,7 @@ const Chat = () => {
   const [showPhotoCamera, setShowPhotoCamera] = useState(false);
   const [showVibeClipOptions, setShowVibeClipOptions] = useState(false);
   const [showScheduleShare, setShowScheduleShare] = useState(false);
+  const [showActiveDateSuggestionWarning, setShowActiveDateSuggestionWarning] = useState(false);
   const [editScheduleShareSuggestionId, setEditScheduleShareSuggestionId] =
     useState<string | null>(null);
   const [focusedSuggestionId, setFocusedSuggestionId] = useState<string | null>(null);
@@ -1416,6 +1418,22 @@ const Chat = () => {
     });
   }, []);
 
+  const warnAboutActiveSuggestion = useCallback(
+    (suggestionId: string | null) => {
+      focusExistingSuggestion(suggestionId);
+      setShowActiveDateSuggestionWarning(true);
+    },
+    [focusExistingSuggestion],
+  );
+
+  const handleActiveDateSuggestionWarningOpenChange = useCallback(
+    (nextOpen: boolean) => {
+      setShowActiveDateSuggestionWarning(nextOpen);
+      if (!nextOpen) focusExistingSuggestion(focusedSuggestionId);
+    },
+    [focusExistingSuggestion, focusedSuggestionId],
+  );
+
   const handleOpenDateComposerFromChip = () => {
     if (!chatData?.matchId || !id) {
       toast.error("No active conversation found");
@@ -1426,13 +1444,9 @@ const Chat = () => {
       match_id: chatData?.matchId ?? id,
       source: "chip",
     });
-    const existing = matchHasOpenDateSuggestion(hydratedDateSuggestions);
+    const existing = findBlockingDateSuggestion(hydratedDateSuggestions);
     if (existing) {
-      // Replace toast with focus/scroll/pulse on the existing card.
-      const existingId = hydratedDateSuggestions.find((s) =>
-        ["draft", "proposed", "viewed", "countered"].includes(s.status),
-      )?.id;
-      focusExistingSuggestion(existingId ?? null);
+      warnAboutActiveSuggestion(existing.id);
       return;
     }
     setComposerCounter(null);
@@ -1473,11 +1487,9 @@ const Chat = () => {
         setComposerDraftPayload(opts.draftPayload ?? null);
         setComposerCounter(null);
       } else {
-        if (matchHasOpenDateSuggestion(hydratedDateSuggestions)) {
-          const existingId = hydratedDateSuggestions.find((s) =>
-            ["draft", "proposed", "viewed", "countered"].includes(s.status),
-          )?.id;
-          focusExistingSuggestion(existingId ?? null);
+        const existing = findBlockingDateSuggestion(hydratedDateSuggestions);
+        if (existing) {
+          warnAboutActiveSuggestion(existing.id);
           return;
         }
         setComposerCounter(null);
@@ -1487,7 +1499,7 @@ const Chat = () => {
       }
       setShowDateComposer(true);
     },
-    [hydratedDateSuggestions, focusExistingSuggestion],
+    [hydratedDateSuggestions, warnAboutActiveSuggestion],
   );
 
   const closeDateComposer = useCallback(() => {
@@ -1660,9 +1672,14 @@ const Chat = () => {
 
   const openScheduleShare = useCallback(() => {
     if (!guardActiveConversation()) return;
+    const existing = findBlockingDateSuggestion(hydratedDateSuggestions);
+    if (existing) {
+      warnAboutActiveSuggestion(existing.id);
+      return;
+    }
     setShowScheduleShare(true);
     setShowAttachmentTray(false);
-  }, [guardActiveConversation]);
+  }, [guardActiveConversation, hydratedDateSuggestions, warnAboutActiveSuggestion]);
 
   const startMatchCall = useCallback(
     (type: "voice" | "video") => {
@@ -2633,7 +2650,7 @@ const Chat = () => {
             }}
             launchSource={dateComposerLaunchSource}
             threadMessageCount={displayMessages.length}
-            onActiveSuggestionConflict={focusExistingSuggestion}
+            onActiveSuggestionConflict={warnAboutActiveSuggestion}
           />
         )}
 
@@ -2643,7 +2660,7 @@ const Chat = () => {
             onClose={() => setShowScheduleShare(false)}
             matchId={chatData.matchId}
             partnerName={otherUser.name}
-            onActiveSuggestionConflict={focusExistingSuggestion}
+            onActiveSuggestionConflict={warnAboutActiveSuggestion}
             onSent={() => {
               void refetchDateSuggestions();
               if (id && currentUserId) {
@@ -2682,6 +2699,11 @@ const Chat = () => {
             }}
           />
         )}
+
+        <ActiveDateSuggestionWarningDialog
+          open={showActiveDateSuggestionWarning}
+          onOpenChange={handleActiveDateSuggestionWarningOpenChange}
+        />
 
         <VibeArcadeMenu
           isOpen={showArcade}

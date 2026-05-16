@@ -787,8 +787,8 @@ test("Native chat composer wires plus attachment tray and Schedule share sheet",
   assert.match(src, /onSent=\{\(\) => onDateSuggestionUpdated\(\)\}/);
   assert.match(
     src,
-    /onActiveSuggestionConflict=\{\(\) => \{[\s\S]*onDateSuggestionUpdated\(\);[\s\S]*setShowActiveDateSuggestionWarning\(true\);[\s\S]*\}\}/,
-    "Native schedule share conflict must refresh date suggestions and show the active suggestion warning",
+    /onActiveSuggestionConflict=\{\(suggestionId\) => \{[\s\S]*onDateSuggestionUpdated\(\);[\s\S]*warnAboutActiveSuggestion\(suggestionId\);[\s\S]*\}\}/,
+    "Native schedule share conflict must refresh date suggestions and show the active suggestion warning/focus path",
   );
   assert.match(
     src,

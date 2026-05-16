@@ -33,6 +33,19 @@ serve(async (req) => {
   const soon = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
 
   try {
+    const { data: staleExpired, error: staleErr } = await supabase.rpc(
+      "date_suggestion_expire_stale_open_suggestions",
+      { p_match_id: null, p_now: now },
+    );
+
+    if (staleErr) {
+      console.error("date-suggestion-expiry stale-window rpc:", staleErr);
+      return new Response(
+        JSON.stringify({ success: false, error: staleErr.message }),
+        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
+    }
+
     const { data: soonRows, error: soonErr } = await supabase
       .from("date_suggestions")
       .select("id, match_id, proposer_id, recipient_id, status, expires_at")
@@ -92,47 +105,11 @@ serve(async (req) => {
       }
     }
 
-    const { data: toExpire, error: expSelErr } = await supabase
-      .from("date_suggestions")
-      .select("id, match_id, status")
-      .in("status", ["proposed", "viewed", "countered"])
-      .lt("expires_at", now);
-
-    if (expSelErr) {
-      console.error("date-suggestion-expiry expire select:", expSelErr);
-      return new Response(
-        JSON.stringify({ success: false, error: expSelErr.message }),
-        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
-      );
-    }
-
-    let expiredCount = 0;
-    for (const row of toExpire || []) {
-      const { error: upErr } = await supabase
-        .from("date_suggestions")
-        .update({ status: "expired", updated_at: now })
-        .eq("id", row.id);
-      if (upErr) {
-        console.error("expire update", row.id, upErr);
-        continue;
-      }
-      await supabase.from("date_suggestion_transition_log").insert({
-        date_suggestion_id: row.id,
-        actor_id: null,
-        action: "expire",
-        from_status: row.status,
-        to_status: "expired",
-        success: true,
-        payload: {},
-      });
-      expiredCount += 1;
-    }
-
     return new Response(
       JSON.stringify({
         success: true,
         expiring_soon_processed: soonCount,
-        expired: expiredCount,
+        expired: Number(staleExpired ?? 0),
       }),
       { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
     );

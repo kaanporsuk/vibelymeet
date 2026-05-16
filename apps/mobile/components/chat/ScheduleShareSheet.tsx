@@ -12,6 +12,7 @@ import { useColorScheme } from '@/components/useColorScheme';
 import { dateSuggestionApply, DateSuggestionDomainError } from '@/lib/dateSuggestionApply';
 import { SCHEDULE_QUERY_KEY } from '@/lib/useSchedule';
 import { useAuth } from '@/context/AuthContext';
+import { localTimezoneOrUtc } from '../../../../shared/dateSuggestions/localTimezone';
 
 type ScheduleShareSheetProps = {
   visible: boolean;
@@ -69,6 +70,7 @@ export function ScheduleShareSheet({
           time_choice_key: 'share_schedule',
           place_mode_key: 'decide_together',
           schedule_share_enabled: true,
+          local_timezone: localTimezoneOrUtc(),
           selected_slot_keys: selectedSlotKeys,
         },
       })) as { suggestion_id?: string | null } | null;

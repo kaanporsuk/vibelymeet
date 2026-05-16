@@ -36,12 +36,13 @@ import {
 import { trackVibeClipEvent } from "@/lib/vibeClipAnalytics";
 import { threadBucketFromCount } from "../../../shared/chat/vibeClipAnalytics";
 import { formatProposedDateTimeSummary } from "../../../shared/dateSuggestions/formatProposedDateTimeSummary";
+import { localTimezoneOrUtc } from "../../../shared/dateSuggestions/localTimezone";
 
 const STEPS = ["Type", "When", "Place", "Message", "Review"] as const;
 
 const MINUTE_STEP = 5;
 const MINUTE_OPTIONS = Array.from({ length: 60 / MINUTE_STEP }, (_, i) => i * MINUTE_STEP);
-const HOUR12_OPTIONS = [12, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11] as const;
+const HOUR12_OPTIONS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12] as const;
 
 function wallTimePartsFromDate(d: Date): { hour12: number; minute: number; ampm: "AM" | "PM" } {
   const h = d.getHours();
@@ -150,6 +151,7 @@ function buildRevision(w: WizardState, options?: { counterSharePick?: boolean })
     starts_at: startsAt ?? null,
     ends_at: endsAt ?? null,
     time_block: timeBlock ?? null,
+    local_timezone: localTimezoneOrUtc(),
   };
   if (share && w.selectedSlotKeys.length > 0) {
     revision.selected_slot_keys = w.selectedSlotKeys;

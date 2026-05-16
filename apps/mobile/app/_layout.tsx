@@ -14,14 +14,15 @@ import {
   SpaceGrotesk_700Bold,
 } from '@expo-google-fonts/space-grotesk';
 import * as Sentry from '@sentry/react-native';
-import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native';
+import { DarkTheme, ThemeProvider } from '@react-navigation/native';
 import { focusManager, QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { useFonts } from 'expo-font';
 import * as Linking from 'expo-linking';
 import { Redirect, Stack, router, usePathname, useSegments } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
+import { StatusBar } from 'expo-status-bar';
 import * as WebBrowser from 'expo-web-browser';
-import { type ReactNode, useEffect, useRef, useState } from 'react';
+import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
 import { DeactivatedAccountReactivationPrompt } from '@/components/DeactivatedAccountReactivationPrompt';
 import { ActivityIndicator, AppState, type AppStateStatus, LogBox, View } from 'react-native';
 import { useGlobalMessagesInboxInvalidation } from '@/lib/chatApi';
@@ -32,6 +33,7 @@ import { PostHogProvider, usePostHog } from 'posthog-react-native';
 import 'react-native-reanimated';
 
 import { useColorScheme } from '@/components/useColorScheme';
+import Colors from '@/constants/Colors';
 import { PushRegistration } from '@/components/PushRegistration';
 import { NotificationDeepLinkHandler, NotificationRouteTracker } from '@/components/NotificationDeepLinkHandler';
 import { NativeSessionRouteHydration } from '@/components/NativeSessionRouteHydration';
@@ -482,6 +484,7 @@ function EntryStateRouteGate({ children }: { children: ReactNode }) {
 
 function RootLayoutNav() {
   const colorScheme = useColorScheme();
+  const theme = Colors[colorScheme];
   useCurrentRouteTracker();
   const [, setCdnHostInitTick] = useState(0);
   const [referralSyncTick, setReferralSyncTick] = useState(0);
@@ -529,9 +532,26 @@ function RootLayoutNav() {
     void initStreamCdnHostname().then(() => setCdnHostInitTick((t) => t + 1));
   }, []);
 
+  const navigationTheme = useMemo(
+    () => ({
+      ...DarkTheme,
+      dark: true,
+      colors: {
+        ...DarkTheme.colors,
+        primary: theme.tint,
+        background: theme.background,
+        card: theme.surface,
+        text: theme.text,
+        border: theme.border,
+        notification: theme.accent,
+      },
+    }),
+    [theme],
+  );
+
   const stack = (
-    <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
-      <Stack screenOptions={{ headerShown: false }}>
+    <ThemeProvider value={navigationTheme}>
+      <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: theme.background } }}>
         <Stack.Screen name="index" options={{ headerShown: false }} />
         <Stack.Screen name="entry-recovery" options={{ headerShown: false }} />
         <Stack.Screen name="(auth)" options={{ headerShown: false }} />
@@ -559,48 +579,51 @@ function RootLayoutNav() {
   const gatedStack = <EntryStateRouteGate>{stack}</EntryStateRouteGate>;
 
   const navContent = (
-    <QueryClientProvider client={queryClient}>
-      <ReactQueryAppStateBridge />
-      <AuthProvider>
-        <EntitlementsProvider>
-        <SessionHydrationProvider>
-        <MatchCallProvider>
-          <ChatOutboxProvider>
-          <SupabaseAutoRefreshAppStateBridge />
-          <RealtimeLifecycleJanitor />
-          <AuthRedirectHandler onReferralCaptured={() => setReferralSyncTick((t) => t + 1)} />
-          <ReferralAttributionSync syncTick={referralSyncTick} />
-          <PushRegistration />
-          <NotificationRouteTracker />
-          <NativeSessionRouteHydration />
-          <NotificationDeepLinkHandler />
-          <NotificationPauseForeground />
-          <DeactivatedAccountReactivationPrompt />
-          <ActivityHeartbeat />
-          <RevenueCatUserSync />
-          <BadgeCountUpdater />
-          <EventsRealtimeUpdater />
-          <ChatOutboxRunner />
-          <PostDateOutboxRunner />
-          <View style={{ flex: 1 }}>
-            <View style={{ flex: 1 }}>
-              {POSTHOG_ENABLED && analyticsConsentGranted ? (
-                <PostHogProvider apiKey={POSTHOG_KEY} options={{ host: POSTHOG_HOST }}>
-                  <PostHogScreenTracker />
-                  {gatedStack}
-                </PostHogProvider>
-              ) : (
-                gatedStack
-              )}
+    <>
+      <StatusBar style="light" backgroundColor={theme.background} />
+      <QueryClientProvider client={queryClient}>
+        <ReactQueryAppStateBridge />
+        <AuthProvider>
+          <EntitlementsProvider>
+          <SessionHydrationProvider>
+          <MatchCallProvider>
+            <ChatOutboxProvider>
+            <SupabaseAutoRefreshAppStateBridge />
+            <RealtimeLifecycleJanitor />
+            <AuthRedirectHandler onReferralCaptured={() => setReferralSyncTick((t) => t + 1)} />
+            <ReferralAttributionSync syncTick={referralSyncTick} />
+            <PushRegistration />
+            <NotificationRouteTracker />
+            <NativeSessionRouteHydration />
+            <NotificationDeepLinkHandler />
+            <NotificationPauseForeground />
+            <DeactivatedAccountReactivationPrompt />
+            <ActivityHeartbeat />
+            <RevenueCatUserSync />
+            <BadgeCountUpdater />
+            <EventsRealtimeUpdater />
+            <ChatOutboxRunner />
+            <PostDateOutboxRunner />
+            <View style={{ flex: 1, backgroundColor: theme.background }}>
+              <View style={{ flex: 1, backgroundColor: theme.background }}>
+                {POSTHOG_ENABLED && analyticsConsentGranted ? (
+                  <PostHogProvider apiKey={POSTHOG_KEY} options={{ host: POSTHOG_HOST }}>
+                    <PostHogScreenTracker />
+                    {gatedStack}
+                  </PostHogProvider>
+                ) : (
+                  gatedStack
+                )}
+              </View>
+              <OfflineBanner />
             </View>
-            <OfflineBanner />
-          </View>
-          </ChatOutboxProvider>
-        </MatchCallProvider>
-        </SessionHydrationProvider>
-        </EntitlementsProvider>
-      </AuthProvider>
-    </QueryClientProvider>
+            </ChatOutboxProvider>
+          </MatchCallProvider>
+          </SessionHydrationProvider>
+          </EntitlementsProvider>
+        </AuthProvider>
+      </QueryClientProvider>
+    </>
   );
 
   return navContent;

@@ -196,9 +196,20 @@ type NativeLocalCameraSnapshot = {
   readyState: string | null;
   enabled: boolean | null;
 };
+type NativeCameraStateSource = 'empty' | 'track' | 'controls' | 'commit';
+type NativeCameraState = {
+  deviceId: string | number | null;
+  deviceKey: string | null;
+  facingMode: NativeDailyCameraFacingMode | null;
+  source: NativeCameraStateSource;
+};
 type NativeCameraSwitchCommit = NativeLocalCameraSnapshot & {
   method: NativeCameraSwitchCommitMethod;
   latencyMs: number;
+};
+type NativeCameraSwitchCommitExpectation = {
+  expectedDeviceKey?: string | null;
+  expectedFacing?: NativeDailyCameraFacingMode | null;
 };
 
 const MatchCallContext = createContext<MatchCallContextValue | null>(null);
@@ -313,6 +324,15 @@ function nativeCameraSwitchResultDevice(
   return result?.device ?? null;
 }
 
+function emptyNativeCameraState(): NativeCameraState {
+  return {
+    deviceId: null,
+    deviceKey: null,
+    facingMode: null,
+    source: 'empty',
+  };
+}
+
 function nativeLocalCameraSnapshot(participant: DailyParticipant | null | undefined): NativeLocalCameraSnapshot {
   const videoTrack = getTrack(participant ?? undefined, 'video') as
     | (NativeMediaStreamTrack & {
@@ -334,14 +354,68 @@ function nativeLocalCameraSnapshot(participant: DailyParticipant | null | undefi
   };
 }
 
+function nativeCameraStateFromSnapshot(
+  snapshot: NativeLocalCameraSnapshot,
+  source: NativeCameraStateSource = 'track'
+): NativeCameraState {
+  return {
+    deviceId: snapshot.deviceId,
+    deviceKey: snapshot.deviceId,
+    facingMode: snapshot.facingMode,
+    source,
+  };
+}
+
+function nativeCameraStateFromDevice(
+  device: NativeDailyCameraDevice | null | undefined,
+  source: NativeCameraStateSource = 'commit'
+): NativeCameraState {
+  const deviceId = nativeCameraDeviceId(device);
+  return {
+    deviceId,
+    deviceKey: deviceId == null ? null : String(deviceId),
+    facingMode: nativeCameraDeviceFacingMode(device),
+    source,
+  };
+}
+
+function mergeNativeCameraState(
+  preferred: NativeCameraState,
+  fallback: NativeCameraState,
+  source: NativeCameraStateSource = preferred.source
+): NativeCameraState {
+  return {
+    deviceId: preferred.deviceId ?? fallback.deviceId,
+    deviceKey: preferred.deviceKey ?? fallback.deviceKey,
+    facingMode: preferred.facingMode ?? fallback.facingMode,
+    source,
+  };
+}
+
+function nativeCameraStateFromCommit(
+  commit: NativeCameraSwitchCommit,
+  fallbackDevice: NativeDailyCameraDevice | null | undefined
+): NativeCameraState {
+  return mergeNativeCameraState(
+    {
+      deviceId: commit.deviceId,
+      deviceKey: commit.deviceId,
+      facingMode: commit.facingMode,
+      source: 'commit',
+    },
+    nativeCameraStateFromDevice(fallbackDevice, 'commit'),
+    'commit'
+  );
+}
+
 function chooseNativeCameraDevice(
   devices: NativeDailyCameraDevice[],
   desiredFacing: NativeDailyCameraFacingMode | null,
-  before: NativeLocalCameraSnapshot
+  current: NativeCameraState
 ): NativeDailyCameraDevice | null {
   const usable = nativeVideoCameraDevices(devices);
   if (usable.length === 0) return null;
-  const currentDeviceKey = before.deviceId == null ? null : String(before.deviceId);
+  const currentDeviceKey = current.deviceKey;
   const candidates = currentDeviceKey != null
     ? usable.filter((device) => nativeCameraDeviceKey(device) !== currentDeviceKey)
     : usable;
@@ -385,6 +459,7 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
   const [canFlipCamera, setCanFlipCamera] = useState(false);
   const [isFlippingCamera, setIsFlippingCamera] = useState(false);
   const flipCameraRef = useRef(false);
+  const nativeCameraStateRef = useRef<NativeCameraState>(emptyNativeCameraState());
   const [activePartner, setActivePartner] = useState<PartnerSummary>(DEFAULT_PARTNER);
   const [activeMatchId, setActiveMatchId] = useState<string | null>(null);
   const [localParticipant, setLocalParticipant] = useState<DailyParticipant | null>(null);
@@ -557,6 +632,7 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
       setCanFlipCamera(false);
       setIsFlippingCamera(false);
       flipCameraRef.current = false;
+      nativeCameraStateRef.current = emptyNativeCameraState();
       setLocalParticipant(null);
       setRemoteParticipant(null);
 
@@ -1059,6 +1135,9 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
     const nextVideoOff = !isVideoOff;
     callObject.setLocalVideo(!nextVideoOff);
     setIsVideoOff(nextVideoOff);
+    if (nextVideoOff) {
+      nativeCameraStateRef.current = emptyNativeCameraState();
+    }
   }, [isVideoOff]);
 
   const readNativeLocalCameraSnapshot = useCallback(
@@ -1078,39 +1157,126 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
     [localParticipantRef],
   );
 
+  const readNativeCameraFacingMode = useCallback(
+    async (controls: NativeDailyCameraControls | null | undefined) => {
+      try {
+        return typeof controls?.getCameraFacingMode === 'function'
+          ? normalizeNativeCameraFacingMode(await controls.getCameraFacingMode())
+          : null;
+      } catch {
+        return null;
+      }
+    },
+    [],
+  );
+
+  const resolveNativeCameraState = useCallback(
+    async (
+      controls: NativeDailyCameraControls | null | undefined,
+      callObject: ReturnType<typeof Daily.createCallObject> | null | undefined,
+      snapshot = readNativeLocalCameraSnapshot(callObject)
+    ): Promise<NativeCameraState> => {
+      const trackState = nativeCameraStateFromSnapshot(snapshot, 'track');
+      const controlsFacing = await readNativeCameraFacingMode(controls);
+      const observedState: NativeCameraState = controlsFacing
+        ? {
+            ...trackState,
+            facingMode: trackState.facingMode ?? controlsFacing,
+            source: trackState.facingMode ? 'track' : 'controls',
+          }
+        : trackState;
+      const committedState = nativeCameraStateRef.current;
+
+      if (committedState.source === 'commit' && (committedState.deviceKey || committedState.facingMode)) {
+        return mergeNativeCameraState(committedState, observedState, committedState.source);
+      }
+
+      return observedState;
+    },
+    [readNativeCameraFacingMode, readNativeLocalCameraSnapshot],
+  );
+
   const waitForNativeCameraSwitchCommit = useCallback(
     async (
       controls: NativeDailyCameraControls,
       callObject: ReturnType<typeof Daily.createCallObject>,
       before: NativeLocalCameraSnapshot,
+      baseline: NativeCameraState,
       method: NativeCameraSwitchCommitMethod,
-      expectedFacing: NativeDailyCameraFacingMode | null
+      expectation: NativeCameraSwitchCommitExpectation = {}
     ): Promise<NativeCameraSwitchCommit | null> => {
       const startedAtMs = Date.now();
-      while (Date.now() - startedAtMs <= NATIVE_MATCH_CALL_CAMERA_SWITCH_COMMIT_TIMEOUT_MS) {
-        let controlsFacing: NativeDailyCameraFacingMode | null = null;
-        try {
-          controlsFacing =
-            typeof controls.getCameraFacingMode === 'function'
-              ? normalizeNativeCameraFacingMode(await controls.getCameraFacingMode())
-              : null;
-        } catch {
-          controlsFacing = null;
-        }
+      const baselineDeviceKey = baseline.deviceKey;
+      const beforeDeviceKey = before.deviceId == null ? null : String(before.deviceId);
+      const expectedDeviceKey = expectation.expectedDeviceKey ?? null;
+      const expectedFacing = expectation.expectedFacing ?? null;
 
+      while (Date.now() - startedAtMs <= NATIVE_MATCH_CALL_CAMERA_SWITCH_COMMIT_TIMEOUT_MS) {
+        const controlsFacing = await readNativeCameraFacingMode(controls);
         const snapshot = readNativeLocalCameraSnapshot(callObject);
-        const committedFacing = controlsFacing ?? snapshot.facingMode;
+        const facingSignals = [snapshot.facingMode, controlsFacing].filter(
+          (value): value is NativeDailyCameraFacingMode => value != null
+        );
+        const committedFacing =
+          (expectedFacing && facingSignals.includes(expectedFacing) ? expectedFacing : null) ??
+          facingSignals.find((facingMode) => baseline.facingMode && facingMode !== baseline.facingMode) ??
+          snapshot.facingMode ??
+          controlsFacing;
+        const snapshotDeviceKey = snapshot.deviceId == null ? null : String(snapshot.deviceId);
         const trackChanged = Boolean(before.trackId && snapshot.trackId && snapshot.trackId !== before.trackId);
-        const deviceChanged = Boolean(before.deviceId && snapshot.deviceId && snapshot.deviceId !== before.deviceId);
-        const facingChanged = Boolean(before.facingMode && committedFacing && committedFacing !== before.facingMode);
-        const expectedFacingMatched = Boolean(
+        const deviceChanged = Boolean(
+          baselineDeviceKey &&
+            snapshotDeviceKey &&
+            snapshotDeviceKey !== baselineDeviceKey &&
+            (!beforeDeviceKey || snapshotDeviceKey !== beforeDeviceKey)
+        );
+        const facingChanged = Boolean(
+          baseline.facingMode &&
+            facingSignals.some((facingMode) => facingMode !== baseline.facingMode) &&
+            (!before.facingMode || facingSignals.some((facingMode) => facingMode !== before.facingMode))
+        );
+        const expectedDeviceSignalPresent = Boolean(
+          expectedDeviceKey &&
+            expectedDeviceKey !== baselineDeviceKey &&
+            snapshotDeviceKey === expectedDeviceKey
+        );
+        const expectedDeviceMatched = Boolean(
+          expectedDeviceSignalPresent &&
+            (!beforeDeviceKey || expectedDeviceKey !== beforeDeviceKey)
+        );
+        const expectedFacingSignalPresent = Boolean(
           expectedFacing &&
-            expectedFacing !== before.facingMode &&
-            committedFacing === expectedFacing
+            expectedFacing !== baseline.facingMode &&
+            facingSignals.includes(expectedFacing)
+        );
+        const expectedFacingMatched = Boolean(
+          expectedFacingSignalPresent &&
+            (!before.facingMode || expectedFacing !== before.facingMode)
+        );
+        const trackChangedToExpectedTarget = Boolean(
+          trackChanged &&
+            (expectedDeviceSignalPresent || expectedFacingSignalPresent)
+        );
+        const trackChangedWithoutIdentity = Boolean(
+          trackChanged &&
+            !baselineDeviceKey &&
+            !baseline.facingMode &&
+            !expectedDeviceKey &&
+            !expectedFacing
         );
         const live = snapshot.readyState === 'live' && snapshot.enabled !== false;
 
-        if (live && (trackChanged || deviceChanged || facingChanged || expectedFacingMatched)) {
+        if (
+          live &&
+          (
+            expectedDeviceMatched ||
+            expectedFacingMatched ||
+            deviceChanged ||
+            facingChanged ||
+            trackChangedToExpectedTarget ||
+            trackChangedWithoutIdentity
+          )
+        ) {
           return {
             ...snapshot,
             facingMode: committedFacing,
@@ -1123,7 +1289,7 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
       }
       return null;
     },
-    [readNativeLocalCameraSnapshot],
+    [readNativeCameraFacingMode, readNativeLocalCameraSnapshot],
   );
 
   useEffect(() => {
@@ -1139,19 +1305,23 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
         localCamera.readyState === 'live' && localCamera.enabled !== false;
 
       if (callPhase !== 'in_call' || callType !== 'video' || isVideoOff || !supportsSwitch || !hasLiveLocalCamera) {
+        if (callPhase !== 'in_call' || callType !== 'video' || isVideoOff || !hasLiveLocalCamera) {
+          nativeCameraStateRef.current = emptyNativeCameraState();
+        }
         if (!cancelled) setCanFlipCamera(false);
         return;
       }
 
       if (typeof controls.enumerateDevices === 'function') {
         try {
+          const currentCamera = await resolveNativeCameraState(controls, callObject, localCamera);
           const devices = nativeVideoCameraDevices(nativeCameraDevicesFromResult(await controls.enumerateDevices()));
           const deterministicTarget =
             typeof controls.setCamera === 'function'
               ? chooseNativeCameraDevice(
                   devices,
-                  oppositeNativeCameraFacingMode(localCamera.facingMode),
-                  localCamera,
+                  oppositeNativeCameraFacingMode(currentCamera.facingMode),
+                  currentCamera,
                 )
               : null;
           const canFlip =
@@ -1163,6 +1333,9 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
             can_flip: canFlip,
             has_cycle_camera: typeof controls.cycleCamera === 'function',
             has_set_camera: typeof controls.setCamera === 'function',
+            current_camera_source: currentCamera.source,
+            current_device_key: currentCamera.deviceKey,
+            current_facing_mode: currentCamera.facingMode,
           });
           if (!cancelled) setCanFlipCamera(canFlip);
           return;
@@ -1189,7 +1362,7 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
     return () => {
       cancelled = true;
     };
-  }, [callPhase, callType, isVideoOff, localParticipant, readNativeLocalCameraSnapshot]);
+  }, [callPhase, callType, isVideoOff, localParticipant, readNativeLocalCameraSnapshot, resolveNativeCameraState]);
 
   /**
    * Switch between the device's front and rear cameras without leaving the Daily room.
@@ -1217,43 +1390,67 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
         Alert.alert("Couldn't switch camera", 'Turn your camera on before switching cameras.');
         return;
       }
-
-      let currentFacing = before.facingMode;
-      if (typeof controls.getCameraFacingMode === 'function') {
-        try {
-          currentFacing = normalizeNativeCameraFacingMode(await controls.getCameraFacingMode()) ?? currentFacing;
-        } catch {
-          currentFacing = before.facingMode;
-        }
-      }
-      const desiredFacing = oppositeNativeCameraFacingMode(currentFacing);
+      const currentCamera = await resolveNativeCameraState(controls, callObject, before);
+      const desiredFacing = oppositeNativeCameraFacingMode(currentCamera.facingMode);
       let commit: NativeCameraSwitchCommit | null = null;
+      let committedDevice: NativeDailyCameraDevice | null = null;
       let availableVideoDeviceCount: number | null = null;
+
+      logMatchCallDiag('flip_camera_start', {
+        platform: 'native',
+        current_camera_source: currentCamera.source,
+        current_device_key: currentCamera.deviceKey,
+        current_facing_mode: currentCamera.facingMode,
+        desired_facing_mode: desiredFacing,
+        before_device_id: before.deviceId,
+        before_facing_mode: before.facingMode,
+      });
 
       if (typeof controls.enumerateDevices === 'function' && typeof controls.setCamera === 'function') {
         try {
           const devices = nativeVideoCameraDevices(nativeCameraDevicesFromResult(await controls.enumerateDevices()));
           availableVideoDeviceCount = devices.length;
-          const targetDevice = chooseNativeCameraDevice(devices, desiredFacing, before);
+          const targetDevice = chooseNativeCameraDevice(devices, desiredFacing, currentCamera);
           const targetDeviceId = nativeCameraDeviceId(targetDevice);
-          if (targetDeviceId != null) {
+          const targetDeviceKey = nativeCameraDeviceKey(targetDevice);
+          const targetFacing = nativeCameraDeviceFacingMode(targetDevice);
+          if (targetDeviceId != null && (!currentCamera.deviceKey || targetDeviceKey !== currentCamera.deviceKey)) {
+            logMatchCallDiag('flip_camera_set_camera_target', {
+              platform: 'native',
+              desired_facing_mode: desiredFacing,
+              current_device_key: currentCamera.deviceKey,
+              current_facing_mode: currentCamera.facingMode,
+              target_device_key: targetDeviceKey,
+              target_facing_mode: targetFacing,
+              video_input_count: devices.length,
+            });
             const result = await controls.setCamera(targetDeviceId);
             const resultDevice = nativeCameraSwitchResultDevice(result);
+            const expectedDeviceKey = targetDeviceKey ?? nativeCameraDeviceKey(resultDevice);
             const expectedFacing =
-              desiredFacing ??
-              nativeCameraDeviceFacingMode(targetDevice) ??
-              nativeCameraDeviceFacingMode(resultDevice);
+              targetFacing ??
+              nativeCameraDeviceFacingMode(resultDevice) ??
+              desiredFacing;
             commit = await waitForNativeCameraSwitchCommit(
               controls,
               callObject,
               before,
+              currentCamera,
               'set_camera',
-              expectedFacing,
+              {
+                expectedDeviceKey,
+                expectedFacing,
+              },
             );
+            if (commit) committedDevice = resultDevice ?? targetDevice;
           } else {
             logMatchCallDiag('flip_camera_set_camera_no_target', {
               platform: 'native',
               desired_facing_mode: desiredFacing,
+              current_device_key: currentCamera.deviceKey,
+              current_facing_mode: currentCamera.facingMode,
+              target_device_key: targetDeviceKey,
+              target_facing_mode: targetFacing,
               video_input_count: devices.length,
               before_device_id: before.deviceId,
               before_facing_mode: before.facingMode,
@@ -1272,13 +1469,19 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
         try {
           const result = await controls.cycleCamera();
           const resultDevice = nativeCameraSwitchResultDevice(result);
+          const expectedDeviceKey = nativeCameraDeviceKey(resultDevice);
           commit = await waitForNativeCameraSwitchCommit(
             controls,
             callObject,
             before,
+            currentCamera,
             'cycle_camera',
-            nativeCameraDeviceFacingMode(resultDevice) ?? desiredFacing,
+            {
+              expectedDeviceKey,
+              expectedFacing: nativeCameraDeviceFacingMode(resultDevice) ?? desiredFacing,
+            },
           );
+          if (commit) committedDevice = resultDevice;
         } catch (err) {
           logMatchCallDiag('flip_camera_cycle_failed', {
             platform: 'native',
@@ -1295,8 +1498,21 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
         }
         logMatchCallDiag('flip_camera_commit_failed', {
           platform: 'native',
+          current_camera_source: currentCamera.source,
+          current_device_key: currentCamera.deviceKey,
+          current_facing_mode: currentCamera.facingMode,
           desired_facing_mode: desiredFacing,
           video_input_count: availableVideoDeviceCount,
+          same_device_after: Boolean(
+            currentCamera.deviceKey &&
+              after.deviceId &&
+              currentCamera.deviceKey === String(after.deviceId)
+          ),
+          same_facing_after: Boolean(
+            currentCamera.facingMode &&
+              after.facingMode &&
+              currentCamera.facingMode === after.facingMode
+          ),
           before,
           after,
         });
@@ -1304,10 +1520,17 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
         return;
       }
 
+      const committedState = nativeCameraStateFromCommit(commit, committedDevice);
+      nativeCameraStateRef.current = committedState;
       setCanFlipCamera(true);
       logMatchCallDiag('flip_camera_committed', {
         platform: 'native',
         method: commit.method,
+        current_camera_source: currentCamera.source,
+        previous_device_key: currentCamera.deviceKey,
+        previous_facing_mode: currentCamera.facingMode,
+        committed_device_key: committedState.deviceKey,
+        committed_facing_mode: committedState.facingMode,
         facing_mode: commit.facingMode,
         local_video_track_id: commit.trackId,
         local_video_device_id: commit.deviceId,
@@ -1328,6 +1551,7 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
     callType,
     isVideoOff,
     readNativeLocalCameraSnapshot,
+    resolveNativeCameraState,
     waitForNativeCameraSwitchCommit,
   ]);
 

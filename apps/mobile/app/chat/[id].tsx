@@ -30,6 +30,7 @@ import { useFocusEffect } from '@react-navigation/native';
 import * as Haptics from 'expo-haptics';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
+import { requestCameraPermissionsAsync as requestExpoCameraPermissionsAsync } from 'expo-camera';
 import * as ImagePicker from 'expo-image-picker';
 import * as FileSystem from 'expo-file-system/legacy';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -78,6 +79,8 @@ import { DateSuggestionSheet, type WizardState } from '@/components/chat/DateSug
 import { DateSuggestionChatCard } from '@/components/chat/DateSuggestionChatCard';
 import { ScheduleShareSheet } from '@/components/chat/ScheduleShareSheet';
 import { ActiveDateSuggestionWarningModal } from '@/components/chat/ActiveDateSuggestionWarningModal';
+import { ChatPhotoCameraModal } from '@/components/chat/ChatPhotoCameraModal';
+import { PhotoSendOptionsSheet } from '@/components/chat/PhotoSendOptionsSheet';
 import { CharadesStartSheet } from '@/components/chat/games/CharadesStartSheet';
 import { GameSessionBubble } from '@/components/chat/games/GameSessionBubble';
 import { IntuitionStartSheet } from '@/components/chat/games/IntuitionStartSheet';
@@ -117,7 +120,7 @@ import { threadMessagesQueryKey } from '../../../../shared/chat/queryKeys';
 import { useChatOutbox } from '@/lib/chatOutbox/ChatOutboxContext';
 import type { ChatOutboxItem, ChatOutboxQueueState } from '@/lib/chatOutbox/types';
 import { cleanupOutboxCacheUri, copyUriToChatOutboxCache, extForPayload } from '@/lib/chatOutbox/mediaCache';
-import { matchHasOpenDateSuggestion } from '../../../../shared/dateSuggestions/openStatus';
+import { findBlockingDateSuggestion } from '../../../../shared/dateSuggestions/openStatus';
 import {
   VIBE_CLIP_MAX_DURATION_SEC,
   VIBE_CLIP_MAX_UPLOAD_BYTES,
@@ -725,6 +728,8 @@ export default function ChatThreadScreen() {
   const [dateComposerLaunchSource, setDateComposerLaunchSource] = useState<DateComposerLaunchSource>('default');
   const [showAttachmentTray, setShowAttachmentTray] = useState(false);
   const [showScheduleShare, setShowScheduleShare] = useState(false);
+  const [showPhotoOptionsSheet, setShowPhotoOptionsSheet] = useState(false);
+  const [showPhotoCameraModal, setShowPhotoCameraModal] = useState(false);
   const [showVibeClipSendSheet, setShowVibeClipSendSheet] = useState(false);
   const [showCharadesStart, setShowCharadesStart] = useState(false);
   const [showIntuitionStart, setShowIntuitionStart] = useState(false);
@@ -734,6 +739,8 @@ export default function ChatThreadScreen() {
   const [showWouldRatherStart, setShowWouldRatherStart] = useState(false);
   const [showGamesPicker, setShowGamesPicker] = useState(false);
   const [showActiveDateSuggestionWarning, setShowActiveDateSuggestionWarning] = useState(false);
+  const [focusedSuggestionId, setFocusedSuggestionId] = useState<string | null>(null);
+  const [focusToken, setFocusToken] = useState(0);
   const [composerDraftId, setComposerDraftId] = useState<string | null>(null);
   const [composerDraftPayload, setComposerDraftPayload] = useState<Record<string, unknown> | null>(null);
   const [composerCounter, setComposerCounter] = useState<{
@@ -910,7 +917,7 @@ export default function ChatThreadScreen() {
     cancelRecordingForExit();
   }, [cancelRecordingForExit, exiting]);
 
-  /** Render-null instantly so the chat panel disappears, dismiss the stack, replace to matches, and unconditionally repeat at 300ms via a still-mounted watchdog. The cleanup effect cancels the timer on real unmount. */
+  /** Keep a dark inert surface during the route handoff, then repeat the replace briefly as a still-mounted watchdog. */
   const goToMatches = useCallback(() => {
     setPhotoViewer(null);
     setVideoViewer(null);
@@ -1317,6 +1324,39 @@ export default function ChatThreadScreen() {
     return keys;
   }, [chatFlatRows, suggestionById]);
 
+  const focusExistingSuggestion = useCallback(
+    (suggestionId: string | null) => {
+      if (!suggestionId) return;
+      setFocusedSuggestionId(suggestionId);
+      setFocusToken((token) => token + 1);
+      requestAnimationFrame(() => {
+        const index = flatListRows.findIndex(
+          (row) =>
+            row.type === 'message' &&
+            (row.message.messageKind === 'date_suggestion' ||
+              row.message.messageKind === 'date_suggestion_event') &&
+            row.message.refId === suggestionId,
+        );
+        if (index < 0) return;
+        listRef.current?.scrollToIndex({ index, animated: true, viewPosition: 0.5 });
+      });
+    },
+    [flatListRows],
+  );
+
+  const warnAboutActiveSuggestion = useCallback(
+    (suggestionId: string | null) => {
+      focusExistingSuggestion(suggestionId);
+      setShowActiveDateSuggestionWarning(true);
+    },
+    [focusExistingSuggestion],
+  );
+
+  const closeActiveDateSuggestionWarning = useCallback(() => {
+    setShowActiveDateSuggestionWarning(false);
+    focusExistingSuggestion(focusedSuggestionId);
+  }, [focusExistingSuggestion, focusedSuggestionId]);
+
   const openDateComposer = useCallback(
     (opts: {
       mode: 'new' | 'counter' | 'editDraft';
@@ -1339,8 +1379,9 @@ export default function ChatThreadScreen() {
         setComposerDraftPayload(opts.draftPayload ?? null);
         setComposerCounter(null);
       } else {
-        if (matchHasOpenDateSuggestion(hydratedDateSuggestions)) {
-          setShowActiveDateSuggestionWarning(true);
+        const existing = findBlockingDateSuggestion(hydratedDateSuggestions);
+        if (existing) {
+          warnAboutActiveSuggestion(existing.id);
           return;
         }
         setComposerCounter(null);
@@ -1350,7 +1391,7 @@ export default function ChatThreadScreen() {
       }
       setShowDateSheet(true);
     },
-    [hydratedDateSuggestions]
+    [hydratedDateSuggestions, warnAboutActiveSuggestion]
   );
 
   const closeDateComposer = useCallback(() => {
@@ -1904,8 +1945,8 @@ export default function ChatThreadScreen() {
     setShowVibeClipSendSheet(true);
   };
 
-  const uploadPhotoUriAndSend = async (uri: string, mimeType?: string | null) => {
-    if (!data?.matchId || !user?.id) return;
+  const uploadPhotoUriAndSend = async (uri: string, mimeType?: string | null): Promise<boolean> => {
+    if (!data?.matchId || !user?.id) return false;
     try {
       setSendingPhoto(true);
       const ext = extForPayload('image', mimeType ?? undefined);
@@ -1915,6 +1956,7 @@ export default function ChatThreadScreen() {
         otherUserId: otherUserId ?? '',
         payload: { kind: 'image', uri: stable, mimeType: mimeType ?? 'image/jpeg' },
       });
+      return true;
     } catch (e) {
       const msg = chatFriendlyErrorFromUnknown(e);
       if (!(isOffline && isLikelyNetworkFailure(e))) {
@@ -1925,6 +1967,7 @@ export default function ChatThreadScreen() {
           primaryAction: { label: 'OK', onPress: () => {} },
         });
       }
+      return false;
     } finally {
       setSendingPhoto(false);
     }
@@ -1948,7 +1991,7 @@ export default function ChatThreadScreen() {
         quality: 0.85,
       });
       if (result.canceled || !result.assets?.[0]) return;
-      await uploadPhotoUriAndSend(result.assets[0].uri, result.assets[0].mimeType ?? null);
+      void uploadPhotoUriAndSend(result.assets[0].uri, result.assets[0].mimeType ?? null);
     } catch (e) {
       const msg = chatFriendlyErrorFromUnknown(e);
       if (!(isOffline && isLikelyNetworkFailure(e))) {
@@ -1962,10 +2005,10 @@ export default function ChatThreadScreen() {
     }
   };
 
-  const takePhotoWithCamera = async () => {
+  const openPhotoCameraModal = async () => {
     if (!data?.matchId || !user?.id || composerInputLocked) return;
     try {
-      const { status } = await ImagePicker.requestCameraPermissionsAsync();
+      const { status } = await requestExpoCameraPermissionsAsync();
       if (status !== 'granted') {
         showAppDialog({
           title: 'Camera access',
@@ -1975,9 +2018,7 @@ export default function ChatThreadScreen() {
         });
         return;
       }
-      const result = await ImagePicker.launchCameraAsync({ quality: 0.85 });
-      if (result.canceled || !result.assets?.[0]) return;
-      await uploadPhotoUriAndSend(result.assets[0].uri, result.assets[0].mimeType ?? null);
+      setShowPhotoCameraModal(true);
     } catch (e) {
       const msg = chatFriendlyErrorFromUnknown(e);
       if (!(isOffline && isLikelyNetworkFailure(e))) {
@@ -1991,15 +2032,18 @@ export default function ChatThreadScreen() {
     }
   };
 
+  const runAfterPhotoSheetDismiss = (next: () => void) => {
+    setShowPhotoOptionsSheet(false);
+    setTimeout(() => {
+      if (!screenMountedRef.current || exitingRef.current) return;
+      next();
+    }, Platform.OS === 'ios' ? 260 : 80);
+  };
+
   const openPhotoOptions = () => {
+    if (!data?.matchId || !user?.id || composerInputLocked) return;
     setShowAttachmentTray(false);
-    showAppDialog({
-      title: 'Send a photo',
-      message: 'Choose how you’d like to add your picture.',
-      variant: 'info',
-      primaryAction: { label: 'Take photo', onPress: () => void takePhotoWithCamera() },
-      secondaryAction: { label: 'Choose from library', onPress: () => void pickPhotoFromLibrary() },
-    });
+    setShowPhotoOptionsSheet(true);
   };
 
   const openGamesWebInBrowser = async () => {
@@ -2081,6 +2125,12 @@ export default function ChatThreadScreen() {
 
   const openScheduleShare = () => {
     if (shellLoading || !data?.matchId) return;
+    const existing = findBlockingDateSuggestion(hydratedDateSuggestions);
+    if (existing) {
+      setShowAttachmentTray(false);
+      warnAboutActiveSuggestion(existing.id);
+      return;
+    }
     setShowAttachmentTray(false);
     setShowScheduleShare(true);
   };
@@ -2452,6 +2502,7 @@ export default function ChatThreadScreen() {
               onOpenComposer={openDateComposer}
               onUpdated={onDateSuggestionUpdated}
               threadUi={item.dateUi}
+              highlightToken={focusedSuggestionId === msg.refId ? focusToken : undefined}
             />
           ) : shouldRenderPlaceholder ? (
             <View
@@ -2611,7 +2662,9 @@ export default function ChatThreadScreen() {
         ? theme.tint
         : theme.textSecondary;
 
-  if (exiting) return null;
+  if (exiting) {
+    return <View testID="chat-exit-surface" style={[styles.container, { backgroundColor: CHAT_CANVAS_BG }]} />;
+  }
 
   return (
     <View style={[styles.container, { backgroundColor: CHAT_CANVAS_BG }]}>
@@ -2892,6 +2945,13 @@ export default function ChatThreadScreen() {
             if (hasNextPage && !isFetchingNextPage) void fetchNextPage();
           }}
           onEndReachedThreshold={0.2}
+          onScrollToIndexFailed={({ index, averageItemLength }) => {
+            const offset = Math.max(0, averageItemLength * index);
+            listRef.current?.scrollToOffset({ offset, animated: true });
+            setTimeout(() => {
+              listRef.current?.scrollToIndex({ index, animated: true, viewPosition: 0.5 });
+            }, 120);
+          }}
           maintainVisibleContentPosition={{ minIndexForVisible: 0 }}
           viewabilityConfig={viewabilityConfigRef.current}
           onViewableItemsChanged={onViewableItemsChangedRef.current}
@@ -3270,6 +3330,22 @@ export default function ChatThreadScreen() {
         promptSeed={data?.matchId ?? otherUserId ?? ''}
       />
 
+      <PhotoSendOptionsSheet
+        visible={showPhotoOptionsSheet}
+        onClose={() => setShowPhotoOptionsSheet(false)}
+        onTakePhoto={() => {
+          runAfterPhotoSheetDismiss(() => {
+            void openPhotoCameraModal();
+          });
+        }}
+        onChooseLibrary={() => {
+          runAfterPhotoSheetDismiss(() => {
+            void pickPhotoFromLibrary();
+          });
+        }}
+        disabled={composerInputLocked}
+      />
+
       {data?.matchId ? (
         <GamesPickerSheet
           visible={showGamesPicker}
@@ -3288,9 +3364,9 @@ export default function ChatThreadScreen() {
           onClose={() => setShowScheduleShare(false)}
           matchId={data.matchId}
           partnerName={otherName}
-          onActiveSuggestionConflict={() => {
+          onActiveSuggestionConflict={(suggestionId) => {
             onDateSuggestionUpdated();
-            setShowActiveDateSuggestionWarning(true);
+            warnAboutActiveSuggestion(suggestionId);
           }}
           onSent={() => onDateSuggestionUpdated()}
         />
@@ -3316,6 +3392,10 @@ export default function ChatThreadScreen() {
               : null
           }
           counterContext={composerCounter}
+          onActiveSuggestionConflict={(suggestionId) => {
+            void refetchDateSuggestions();
+            warnAboutActiveSuggestion(suggestionId);
+          }}
           onSuccess={() => {
             if (dateComposerLaunchSource === 'vibe_clip') {
               trackVibeClipEvent('clip_date_submitted_from_clip', {
@@ -3332,7 +3412,7 @@ export default function ChatThreadScreen() {
       ) : null}
       <ActiveDateSuggestionWarningModal
         visible={showActiveDateSuggestionWarning}
-        onClose={() => setShowActiveDateSuggestionWarning(false)}
+        onClose={closeActiveDateSuggestionWarning}
       />
       {data?.matchId && threadInvalidateScope ? (
         <CharadesStartSheet
@@ -3399,6 +3479,12 @@ export default function ChatThreadScreen() {
         uri={videoViewer?.uri ?? ''}
         posterUri={videoViewer?.poster}
         onClose={() => setVideoViewer(null)}
+      />
+      <ChatPhotoCameraModal
+        visible={showPhotoCameraModal}
+        onClose={() => setShowPhotoCameraModal(false)}
+        onSendPhoto={uploadPhotoUriAndSend}
+        disabled={sendingPhoto}
       />
       {appDialog}
     </View>

@@ -195,11 +195,15 @@ const tabBarStyles = StyleSheet.create({
 });
 
 export default function TabLayout() {
+  const colorScheme = useColorScheme();
+  const theme = Colors[colorScheme];
+
   return (
     <Tabs
       tabBar={(props) => <VibelyTabBar {...props} />}
       screenOptions={{
         headerShown: false,
+        sceneStyle: { backgroundColor: theme.background },
         tabBarStyle: {
           position: 'absolute',
           backgroundColor: 'transparent',

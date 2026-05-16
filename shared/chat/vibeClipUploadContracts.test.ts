@@ -20,6 +20,8 @@ const webVibeClipBubble = read("src/components/chat/VibeClipBubble.tsx");
 const webVideoBubble = read("src/components/chat/VideoMessageBubble.tsx");
 const webUpload = read("src/services/chatVideoUploadService.ts");
 const nativeChat = read("apps/mobile/app/chat/[id].tsx");
+const nativePhotoOptions = read("apps/mobile/components/chat/PhotoSendOptionsSheet.tsx");
+const nativePhotoCamera = read("apps/mobile/components/chat/ChatPhotoCameraModal.tsx");
 const nativeVibeClipCard = read("apps/mobile/components/chat/VibeClipCard.tsx");
 const nativeUpload = read("apps/mobile/lib/chatMediaUpload.ts");
 const nativeMediaCache = read("apps/mobile/lib/chatOutbox/mediaCache.ts");
@@ -102,15 +104,27 @@ test("web photo options dialog keeps action routing in the caller", () => {
 });
 
 test("web take-photo path opens in-app camera capture instead of upload picker", () => {
+  assert.match(webPhotoCamera, /SwitchCamera/);
+  assert.match(webPhotoCamera, /type PhotoCameraFacingMode = "user" \| "environment"/);
+  assert.match(webPhotoCamera, /const \[facingMode, setFacingMode\] = useState<PhotoCameraFacingMode>\("environment"\)/);
+  assert.match(webPhotoCamera, /navigator\.mediaDevices\.enumerateDevices/);
+  assert.match(webPhotoCamera, /setHasMultipleCameras\(devices\.filter\(\(device\) => device\.kind === "videoinput"\)\.length > 1\)/);
   assert.match(webPhotoCamera, /navigator\.mediaDevices\?\.getUserMedia/);
-  assert.match(webPhotoCamera, /facingMode:\s*\{\s*ideal: "environment"/);
+  assert.match(webPhotoCamera, /startCamera\("environment"\)/);
+  assert.match(webPhotoCamera, /facingMode:\s*\{\s*ideal: facingMode/);
   assert.match(webPhotoCamera, /function shouldRetryWithGenericCamera/);
   assert.match(webPhotoCamera, /name !== "NotAllowedError" && name !== "SecurityError"/);
   assert.match(webPhotoCamera, /getUserMedia\(\{\s*audio: false,\s*video: true/);
+  assert.match(webPhotoCamera, /preserveExistingStream/);
+  assert.match(webPhotoCamera, /previousStream\.getTracks\(\)\.forEach\(\(track\) => track\.stop\(\)\)/);
+  assert.match(webPhotoCamera, /const nextFacingMode = facingMode === "user" \? "environment" : "user"/);
+  assert.match(webPhotoCamera, /startCamera\(nextFacingMode, \{ preserveExistingStream: true, silentError: true \}\)/);
   assert.match(webPhotoCamera, /streamRef\.current\?\.getTracks\(\)\.forEach\(\(track\) => track\.stop\(\)\)/);
   assert.match(webPhotoCamera, /canvas\.toBlob/);
   assert.match(webPhotoCamera, /function dataUrlToBlob/);
   assert.match(webPhotoCamera, /canvas\.toDataURL\(CAPTURE_FILE_TYPE, CAPTURE_QUALITY\)/);
+  assert.match(webPhotoCamera, /context\.scale\(-1, 1\)/);
+  assert.match(webPhotoCamera, /facingMode === "user" && "scale-x-\[-1\]"/);
   assert.match(webPhotoCamera, /new File\(\[blob\], `chat-photo-\$\{Date\.now\(\)\}\.jpg`, \{ type: CAPTURE_FILE_TYPE \}\)/);
   assert.match(webPhotoCamera, /const CAPTURE_FILE_TYPE = "image\/jpeg"/);
   assert.match(webPhotoCamera, /const CAPTURE_QUALITY = 0\.85/);
@@ -118,6 +132,39 @@ test("web take-photo path opens in-app camera capture instead of upload picker",
   assert.match(webPhotoCamera, /const submitLockRef = useRef\(false\)/);
   assert.match(webPhotoCamera, /submitLockRef\.current/);
   assert.match(webPhotoCamera, /await onCapturePhoto\(capturedFile\)/);
+});
+
+test("native chat photo flow uses a dedicated sheet and in-app switchable camera", () => {
+  assert.match(nativeChat, /PhotoSendOptionsSheet/);
+  assert.match(nativeChat, /ChatPhotoCameraModal/);
+  assert.match(nativeChat, /const \[showPhotoOptionsSheet, setShowPhotoOptionsSheet\] = useState\(false\)/);
+  assert.match(nativeChat, /const \[showPhotoCameraModal, setShowPhotoCameraModal\] = useState\(false\)/);
+  assert.match(nativeChat, /const uploadPhotoUriAndSend = async \(uri: string, mimeType\?: string \| null\): Promise<boolean>/);
+  assert.match(nativeChat, /setShowPhotoOptionsSheet\(true\)/);
+  assert.match(nativeChat, /runAfterPhotoSheetDismiss/);
+  assert.match(nativeChat, /requestCameraPermissionsAsync as requestExpoCameraPermissionsAsync/);
+  assert.match(nativeChat, /requestExpoCameraPermissionsAsync\(\)/);
+  assert.match(nativeChat, /setShowPhotoCameraModal\(true\)/);
+  assert.match(nativeChat, /onSendPhoto=\{uploadPhotoUriAndSend\}/);
+  assert.doesNotMatch(nativeChat, /title:\s*'Send a photo'/);
+  assert.doesNotMatch(nativeChat, /primaryAction:\s*\{\s*label:\s*'Take photo'/);
+  assert.doesNotMatch(nativeChat, /launchCameraAsync\(\{\s*quality:\s*0\.85\s*\}\)/);
+
+  assert.match(nativePhotoOptions, /KeyboardAwareBottomSheetModal/);
+  assert.match(nativePhotoOptions, /Take Photo/);
+  assert.match(nativePhotoOptions, /Choose from library/);
+  assert.match(nativePhotoOptions, /onTakePhoto\(\)/);
+  assert.match(nativePhotoOptions, /onChooseLibrary\(\)/);
+
+  assert.match(nativePhotoCamera, /CameraView/);
+  assert.match(nativePhotoCamera, /type CameraType/);
+  assert.match(nativePhotoCamera, /const \[facing, setFacing\] = useState<CameraType>\('back'\)/);
+  assert.match(nativePhotoCamera, /takePictureAsync\(\{/);
+  assert.match(nativePhotoCamera, /quality: 0\.85/);
+  assert.match(nativePhotoCamera, /setFacing\(\(current\) => \(current === 'front' \? 'back' : 'front'\)\)/);
+  assert.match(nativePhotoCamera, /name="camera-reverse-outline"/);
+  assert.match(nativePhotoCamera, /accessibilityLabel="Switch camera"/);
+  assert.match(nativePhotoCamera, /onSendPhoto\(capturedUri, CAPTURE_MIME_TYPE\)/);
 });
 
 test("web recorder exposes safe camera flip on eligible devices", () => {

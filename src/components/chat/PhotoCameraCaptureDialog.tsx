@@ -1,5 +1,5 @@
 import * as DialogPrimitive from "@radix-ui/react-dialog";
-import { AlertCircle, Camera, Loader2, RotateCcw, Send, X } from "lucide-react";
+import { AlertCircle, Camera, Loader2, RotateCcw, Send, SwitchCamera, X } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { cn } from "@/lib/utils";
@@ -12,6 +12,7 @@ type PhotoCameraCaptureDialogProps = {
 };
 
 type CapturePhase = "loading" | "camera" | "preview" | "error";
+type PhotoCameraFacingMode = "user" | "environment";
 
 const CAPTURE_FILE_TYPE = "image/jpeg";
 const CAPTURE_QUALITY = 0.85;
@@ -75,6 +76,30 @@ function shouldRetryWithGenericCamera(error: unknown): boolean {
   return name !== "NotAllowedError" && name !== "SecurityError";
 }
 
+async function getCameraStream(
+  facingMode: PhotoCameraFacingMode,
+  opts?: { allowGenericFallback?: boolean },
+): Promise<MediaStream> {
+  try {
+    return await navigator.mediaDevices.getUserMedia({
+      audio: false,
+      video: {
+        facingMode: { ideal: facingMode },
+        width: { ideal: 1280 },
+        height: { ideal: 720 },
+      },
+    });
+  } catch (error) {
+    if (!opts?.allowGenericFallback || !shouldRetryWithGenericCamera(error)) {
+      throw error;
+    }
+    return await navigator.mediaDevices.getUserMedia({
+      audio: false,
+      video: true,
+    });
+  }
+}
+
 export function PhotoCameraCaptureDialog({
   open,
   onOpenChange,
@@ -93,6 +118,8 @@ export function PhotoCameraCaptureDialog({
   const [capturedFile, setCapturedFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [facingMode, setFacingMode] = useState<PhotoCameraFacingMode>("environment");
+  const [hasMultipleCameras, setHasMultipleCameras] = useState(false);
 
   useEffect(() => {
     openRef.current = open;
@@ -114,19 +141,50 @@ export function PhotoCameraCaptureDialog({
     }
   }, []);
 
-  const startCamera = useCallback(async () => {
+  const refreshCameraCount = useCallback(async () => {
+    try {
+      if (typeof navigator === "undefined" || !navigator.mediaDevices?.enumerateDevices) {
+        setHasMultipleCameras(false);
+        return;
+      }
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      setHasMultipleCameras(devices.filter((device) => device.kind === "videoinput").length > 1);
+    } catch {
+      setHasMultipleCameras(false);
+    }
+  }, []);
+
+  const attachCameraStream = useCallback(async (stream: MediaStream) => {
+    streamRef.current = stream;
+    if (videoRef.current) {
+      videoRef.current.srcObject = stream;
+      try {
+        await videoRef.current.play();
+      } catch {
+        // The muted autoplay attribute usually starts playback; keep the preview mounted.
+      }
+    }
+  }, []);
+
+  const startCamera = useCallback(async (
+    nextFacingMode: PhotoCameraFacingMode,
+    opts?: { preserveExistingStream?: boolean; silentError?: boolean },
+  ): Promise<MediaStream | null> => {
     if (typeof navigator === "undefined" || !navigator.mediaDevices?.getUserMedia) {
       stopCamera();
       setCapturedFile(null);
       revokePreviewUrl();
       setErrorMessage("Camera capture is not available in this browser.");
       setPhase("error");
-      return;
+      return null;
     }
 
     const runId = cameraRunRef.current + 1;
     cameraRunRef.current = runId;
-    stopCamera();
+    const previousStream = streamRef.current;
+    if (!opts?.preserveExistingStream) {
+      stopCamera();
+    }
     revokePreviewUrl();
     captureLockRef.current = false;
     submitLockRef.current = false;
@@ -137,54 +195,43 @@ export function PhotoCameraCaptureDialog({
 
     let stream: MediaStream | null = null;
     try {
-      try {
-        stream = await navigator.mediaDevices.getUserMedia({
-          audio: false,
-          video: {
-            facingMode: { ideal: "environment" },
-            width: { ideal: 1280 },
-            height: { ideal: 720 },
-          },
-        });
-      } catch (error) {
-        if (!shouldRetryWithGenericCamera(error)) {
-          throw error;
-        }
-        stream = await navigator.mediaDevices.getUserMedia({
-          audio: false,
-          video: true,
-        });
+      stream = await getCameraStream(nextFacingMode, { allowGenericFallback: !opts?.preserveExistingStream });
+
+      if (cameraRunRef.current !== runId || !openRef.current) {
+        stream.getTracks().forEach((track) => track.stop());
+        return null;
+      }
+
+      await attachCameraStream(stream);
+      if (previousStream && previousStream !== stream) {
+        previousStream.getTracks().forEach((track) => track.stop());
       }
 
       if (cameraRunRef.current !== runId || !openRef.current) {
         stream.getTracks().forEach((track) => track.stop());
-        return;
+        return null;
       }
 
-      streamRef.current = stream;
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-        try {
-          await videoRef.current.play();
-        } catch {
-          // The muted autoplay attribute usually starts playback; keep the preview mounted.
-        }
-      }
-
-      if (cameraRunRef.current !== runId || !openRef.current) {
-        stream.getTracks().forEach((track) => track.stop());
-        return;
-      }
-
+      setFacingMode(nextFacingMode);
       setPhase("camera");
+      void refreshCameraCount();
+      return stream;
     } catch (error) {
       stream?.getTracks().forEach((track) => track.stop());
-      if (cameraRunRef.current !== runId || !openRef.current) return;
+      if (cameraRunRef.current !== runId || !openRef.current) return null;
+      if (opts?.preserveExistingStream && previousStream) {
+        streamRef.current = previousStream;
+        if (videoRef.current) videoRef.current.srcObject = previousStream;
+        setPhase("camera");
+        setErrorMessage(opts.silentError ? "Could not switch cameras. Please try again." : cameraErrorMessage(error));
+        return null;
+      }
       stopCamera();
       setErrorMessage(cameraErrorMessage(error));
       setPhase("error");
+      return null;
     }
-  }, [revokePreviewUrl, stopCamera]);
+  }, [attachCameraStream, refreshCameraCount, revokePreviewUrl, stopCamera]);
 
   useEffect(() => {
     if (!open) {
@@ -196,17 +243,28 @@ export function PhotoCameraCaptureDialog({
       setCapturedFile(null);
       setErrorMessage(null);
       setIsSubmitting(false);
+      setFacingMode("environment");
+      setHasMultipleCameras(false);
       setPhase("loading");
       return undefined;
     }
 
-    void startCamera();
+    void startCamera("environment");
     return () => {
       cameraRunRef.current += 1;
       stopCamera();
       revokePreviewUrl();
     };
   }, [open, revokePreviewUrl, startCamera, stopCamera]);
+
+  useEffect(() => {
+    if (!open || typeof navigator === "undefined" || !navigator.mediaDevices?.addEventListener) return undefined;
+    const handleDeviceChange = () => void refreshCameraCount();
+    navigator.mediaDevices.addEventListener("devicechange", handleDeviceChange);
+    return () => {
+      navigator.mediaDevices.removeEventListener("devicechange", handleDeviceChange);
+    };
+  }, [open, refreshCameraCount]);
 
   const handleOpenChange = (nextOpen: boolean) => {
     if (isSubmitting || submitLockRef.current) return;
@@ -235,6 +293,10 @@ export function PhotoCameraCaptureDialog({
     }
 
     try {
+      if (facingMode === "user") {
+        context.translate(canvas.width, 0);
+        context.scale(-1, 1);
+      }
       context.drawImage(video, 0, 0, canvas.width, canvas.height);
       const blob = await canvasToJpegBlob(canvas);
       if (!openRef.current) return;
@@ -248,8 +310,7 @@ export function PhotoCameraCaptureDialog({
       setErrorMessage(null);
       stopCamera();
       setPhase("preview");
-    } catch (error) {
-      console.error("Photo camera capture failed:", error);
+    } catch {
       setErrorMessage("Could not capture the photo. Please try again.");
     } finally {
       captureLockRef.current = false;
@@ -258,7 +319,13 @@ export function PhotoCameraCaptureDialog({
 
   const handleRetake = () => {
     if (isSubmitting) return;
-    void startCamera();
+    void startCamera(facingMode);
+  };
+
+  const handleSwitchCamera = async () => {
+    if (disabled || isSubmitting || phase !== "camera" || !hasMultipleCameras) return;
+    const nextFacingMode = facingMode === "user" ? "environment" : "user";
+    await startCamera(nextFacingMode, { preserveExistingStream: true, silentError: true });
   };
 
   const handleSendCaptured = async () => {
@@ -273,8 +340,7 @@ export function PhotoCameraCaptureDialog({
         onOpenChange(false);
         return;
       }
-    } catch (error) {
-      console.error("Photo camera send failed:", error);
+    } catch {
       setErrorMessage("Could not send the photo. Please try again.");
     } finally {
       if (!closingAfterSend) {
@@ -333,6 +399,7 @@ export function PhotoCameraCaptureDialog({
                   className={cn(
                     "h-full w-full object-cover",
                     phase === "camera" ? "opacity-100" : "opacity-35",
+                    facingMode === "user" && "scale-x-[-1]",
                   )}
                   autoPlay
                   muted
@@ -348,6 +415,19 @@ export function PhotoCameraCaptureDialog({
               </div>
             ) : null}
 
+            {phase === "camera" && hasMultipleCameras ? (
+              <button
+                type="button"
+                onClick={() => void handleSwitchCamera()}
+                disabled={!canUseActions}
+                className="absolute right-3 top-3 flex h-11 w-11 items-center justify-center rounded-full border border-white/12 bg-black/55 text-white shadow-lg shadow-black/30 transition hover:bg-black/70 disabled:pointer-events-none disabled:opacity-45"
+                aria-label="Switch camera"
+                title="Switch camera"
+              >
+                <SwitchCamera className="h-5 w-5" aria-hidden />
+              </button>
+            ) : null}
+
             {phase === "error" ? (
               <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 bg-black/72 px-6 text-center">
                 <div className="flex h-14 w-14 items-center justify-center rounded-full border border-pink-300/30 bg-pink-500/16 text-pink-200">
@@ -358,7 +438,7 @@ export function PhotoCameraCaptureDialog({
                 </p>
                 <button
                   type="button"
-                  onClick={() => void startCamera()}
+                  onClick={() => void startCamera(facingMode)}
                   disabled={isSubmitting}
                   className="inline-flex min-h-11 items-center justify-center gap-2 rounded-full bg-white px-5 text-sm font-bold text-black transition hover:bg-white/90 disabled:pointer-events-none disabled:opacity-55"
                 >

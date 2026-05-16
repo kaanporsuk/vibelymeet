@@ -192,13 +192,28 @@ test("match-call camera switching stays wired on web and native chat calls", () 
   assert.match(nativeMatchCallHook, /setCamera/);
   assert.match(nativeMatchCallHook, /cycleCamera/);
   assert.match(nativeMatchCallHook, /waitForNativeCameraSwitchCommit/);
+  assert.match(nativeMatchCallHook, /type NativeCameraState/);
+  assert.match(nativeMatchCallHook, /const nativeCameraStateRef = useRef<NativeCameraState>\(emptyNativeCameraState\(\)\)/);
+  assert.match(nativeMatchCallHook, /resolveNativeCameraState/);
+  assert.match(nativeMatchCallHook, /nativeCameraStateFromCommit/);
   assert.match(nativeMatchCallHook, /nativeCameraDeviceFacingMode/);
   assert.match(nativeMatchCallHook, /localCamera\.readyState === 'live'/);
   assert.match(nativeMatchCallHook, /before\.readyState !== 'live'/);
-  assert.match(
-    nativeMatchCallHook,
-    /if \(live && \(trackChanged \|\| deviceChanged \|\| facingChanged \|\| expectedFacingMatched\)\)/,
-  );
+  assert.match(nativeMatchCallHook, /expectedDeviceKey/);
+  assert.match(nativeMatchCallHook, /expectedDeviceMatched/);
+  assert.match(nativeMatchCallHook, /facingSignals/);
+  assert.match(nativeMatchCallHook, /snapshot\.facingMode, controlsFacing/);
+  assert.match(nativeMatchCallHook, /beforeDeviceKey/);
+  assert.match(nativeMatchCallHook, /expectedFacing !== baseline\.facingMode/);
+  assert.match(nativeMatchCallHook, /expectedFacing !== before\.facingMode/);
+  assert.match(nativeMatchCallHook, /expectedDeviceKey !== beforeDeviceKey/);
+  assert.match(nativeMatchCallHook, /trackChangedToExpectedTarget/);
+  assert.match(nativeMatchCallHook, /trackChangedWithoutIdentity/);
+  assert.match(nativeMatchCallHook, /flip_camera_start/);
+  assert.match(nativeMatchCallHook, /flip_camera_set_camera_target/);
+  assert.match(nativeMatchCallHook, /current_facing_mode/);
+  assert.match(nativeMatchCallHook, /target_facing_mode/);
+  assert.match(nativeMatchCallHook, /nativeCameraStateRef\.current = committedState/);
   assert.match(nativeMatchCallHook, /has_cycle_camera/);
   assert.match(nativeMatchCallHook, /flip_camera_committed/);
   assert.match(nativeMatchCallHook, /canFlipCamera=\{canFlipCamera\}/);
