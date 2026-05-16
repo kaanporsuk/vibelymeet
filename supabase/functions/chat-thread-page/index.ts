@@ -4,10 +4,144 @@ import { isBrowserOriginRejected, jsonResponse, preflightResponse } from "../_sh
 
 const MESSAGE_SELECT =
   "id, match_id, sender_id, content, created_at, read_at, audio_url, audio_duration_seconds, video_url, video_duration_seconds, message_kind, ref_id, structured_payload";
+const DATE_SUGGESTION_SELECT =
+  "id, match_id, proposer_id, recipient_id, status, current_revision_id, draft_payload, expires_at, schedule_share_expires_at, expiring_soon_sent_at, date_plan_id, created_at, updated_at";
+const DATE_SUGGESTION_REVISION_SELECT =
+  "id, date_suggestion_id, revision_number, proposed_by, date_type_key, time_choice_key, place_mode_key, venue_text, optional_message, schedule_share_enabled, starts_at, ends_at, time_block, agreed_field_flags, created_at";
+const DATE_PLAN_SELECT =
+  "id, date_suggestion_id, match_id, starts_at, ends_at, venue_label, date_type_key, status, completion_initiated_by, completion_initiated_at, completion_confirmed_by, completion_confirmed_at";
+const DATE_PLAN_PARTICIPANT_SELECT =
+  "id, date_plan_id, user_id, calendar_title, calendar_issued_at";
+const CHAT_IMAGE_MESSAGE_PREFIX = "__IMAGE__|";
+const TOKEN_TTL_SECONDS = 5 * 60;
+const encoder = new TextEncoder();
+
+type MediaKind = "image" | "voice" | "video" | "vibe_clip" | "thumbnail";
+
+type MessageRow = {
+  id: string;
+  match_id: string;
+  sender_id: string;
+  content: string;
+  created_at: string;
+  read_at: string | null;
+  audio_url: string | null;
+  audio_duration_seconds: number | null;
+  video_url: string | null;
+  video_duration_seconds: number | null;
+  message_kind: string | null;
+  ref_id: string | null;
+  structured_payload: Record<string, unknown> | null;
+};
+
+type MediaAssetRow = {
+  legacy_id: string | null;
+  provider: string | null;
+  provider_path: string | null;
+  mime_type: string | null;
+  status: string | null;
+  media_family: string | null;
+};
+
+type DateSuggestionRow = {
+  id: string;
+  match_id: string;
+  proposer_id: string;
+  recipient_id: string;
+  status: string;
+  current_revision_id: string | null;
+  draft_payload: Record<string, unknown> | null;
+  expires_at: string | null;
+  schedule_share_expires_at: string | null;
+  expiring_soon_sent_at: string | null;
+  date_plan_id: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+type DateSuggestionRevisionRow = {
+  id: string;
+  date_suggestion_id: string;
+  revision_number: number;
+  proposed_by: string;
+  date_type_key: string;
+  time_choice_key: string;
+  place_mode_key: string;
+  venue_text: string | null;
+  optional_message: string | null;
+  schedule_share_enabled: boolean;
+  starts_at: string | null;
+  ends_at: string | null;
+  time_block: string | null;
+  agreed_field_flags: Record<string, boolean> | null;
+  created_at: string;
+};
+
+type DatePlanRow = {
+  id: string;
+  date_suggestion_id: string;
+  match_id: string;
+  starts_at: string | null;
+  ends_at: string | null;
+  venue_label: string | null;
+  date_type_key: string | null;
+  status: string;
+  completion_initiated_by: string | null;
+  completion_initiated_at: string | null;
+  completion_confirmed_by: string | null;
+  completion_confirmed_at: string | null;
+};
+
+type DatePlanParticipantRow = {
+  id: string;
+  date_plan_id: string;
+  user_id: string;
+  calendar_title: string;
+  calendar_issued_at: string;
+};
+
+type MatchArchivePayload = {
+  archived_at: string;
+  archived_by: string;
+};
+
+type ThreadPageCursor = {
+  createdAt: string;
+  id: string | null;
+};
 
 function isUuid(value: unknown): value is string {
   return typeof value === "string" &&
     /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
+}
+
+function parseThreadPageCursor(value: unknown): ThreadPageCursor | null {
+  if (typeof value !== "string" || !value.trim()) return null;
+  const text = value.trim();
+  try {
+    const parsed = JSON.parse(text) as { created_at?: unknown; createdAt?: unknown; id?: unknown };
+    const createdAt =
+      typeof parsed.created_at === "string"
+        ? parsed.created_at
+        : typeof parsed.createdAt === "string"
+          ? parsed.createdAt
+          : null;
+    const id = typeof parsed.id === "string" && isUuid(parsed.id) ? parsed.id : null;
+    if (createdAt && !Number.isNaN(Date.parse(createdAt))) {
+      return { createdAt, id };
+    }
+  } catch {
+    // Older clients used a bare ISO timestamp cursor.
+  }
+  return !Number.isNaN(Date.parse(text)) ? { createdAt: text, id: null } : null;
+}
+
+function encodeThreadPageCursor(row: { created_at: string; id: string }): string {
+  return JSON.stringify({ created_at: row.created_at, id: row.id });
+}
+
+function isHttpUrl(value: string | null | undefined): boolean {
+  return typeof value === "string" && /^https?:\/\//i.test(value);
 }
 
 function primaryPhotoPath(input: { photos?: unknown; avatar_url?: string | null }): string | null {
@@ -16,6 +150,255 @@ function primaryPhotoPath(input: { photos?: unknown; avatar_url?: string | null 
     if (typeof photo === "string" && photo.trim()) return photo.trim();
   }
   return typeof input.avatar_url === "string" && input.avatar_url.trim() ? input.avatar_url.trim() : null;
+}
+
+function base64Url(bytes: Uint8Array): string {
+  let binary = "";
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
+}
+
+function base64UrlJson(value: unknown): string {
+  return base64Url(encoder.encode(JSON.stringify(value)));
+}
+
+async function signPayload(secret: string, payload: string): Promise<string> {
+  const key = await crypto.subtle.importKey(
+    "raw",
+    encoder.encode(secret),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"],
+  );
+  const signature = await crypto.subtle.sign("HMAC", key, encoder.encode(payload));
+  return base64Url(new Uint8Array(signature));
+}
+
+async function createToken(secret: string, claims: Record<string, unknown>): Promise<string> {
+  const payload = base64UrlJson(claims);
+  const signature = await signPayload(secret, payload);
+  return `${payload}.${signature}`;
+}
+
+function mediaFamilyForKind(kind: MediaKind): string {
+  if (kind === "image") return "chat_image";
+  if (kind === "voice") return "voice_message";
+  if (kind === "thumbnail") return "chat_video_thumbnail";
+  return "chat_video";
+}
+
+function isEligibleAssetForKind(asset: MediaAssetRow, kind: MediaKind): boolean {
+  const path = typeof asset.provider_path === "string" ? asset.provider_path : "";
+  if (asset.provider !== "bunny_storage" || asset.status === "purged" || !path) return false;
+  if (kind === "image") return path.startsWith("photos/");
+  if (kind === "voice") return path.startsWith("voice/");
+  if (kind === "thumbnail") return path.includes("_thumb.");
+  return path.startsWith("chat-videos/") && !path.includes("_thumb.");
+}
+
+function mediaKey(messageId: string, kind: MediaKind): string {
+  return `${messageId}:${kind}`;
+}
+
+function parsePrivateChatImageRef(content: string | null | undefined): string | null {
+  const text = typeof content === "string" ? content.trim() : "";
+  if (!text.startsWith(CHAT_IMAGE_MESSAGE_PREFIX)) return null;
+  const ref = text.slice(CHAT_IMAGE_MESSAGE_PREFIX.length).trim();
+  return /^photos\/[^?#\s]+/i.test(ref) ? ref : null;
+}
+
+function formatChatImageMessageContent(publicUrl: string): string {
+  return `${CHAT_IMAGE_MESSAGE_PREFIX}${publicUrl}`;
+}
+
+async function signedProxyUrl(params: {
+  supabaseUrl: string;
+  tokenSecret: string;
+  userId: string;
+  messageId: string;
+  kind: MediaKind;
+  path: string;
+  mimeType: string | null;
+}): Promise<string> {
+  const token = await createToken(params.tokenSecret, {
+    sub: params.userId,
+    mid: params.messageId,
+    kind: params.kind,
+    path: params.path,
+    mime: params.mimeType ?? "application/octet-stream",
+    exp: Math.floor(Date.now() / 1000) + TOKEN_TTL_SECONDS,
+  });
+  return `${params.supabaseUrl.replace(/\/$/, "")}/functions/v1/get-chat-media-url?token=${encodeURIComponent(token)}`;
+}
+
+async function resolvePageMediaUrls(params: {
+  serviceClient: ReturnType<typeof createClient>;
+  supabaseUrl: string;
+  tokenSecret: string;
+  userId: string;
+  rows: MessageRow[];
+}): Promise<MessageRow[]> {
+  const messageIds = params.rows.map((row) => row.id).filter(isUuid);
+  if (messageIds.length === 0) return params.rows;
+
+  const { data, error } = await params.serviceClient
+    .from("media_assets")
+    .select("legacy_id, provider, provider_path, mime_type, status, media_family, created_at")
+    .eq("legacy_table", "messages")
+    .in("legacy_id", messageIds)
+    .in("media_family", ["chat_image", "voice_message", "chat_video", "chat_video_thumbnail"])
+    .eq("status", "active")
+    .order("created_at", { ascending: false });
+
+  if (error || !Array.isArray(data)) {
+    if (error) console.error("chat-thread-page media lookup failed:", error);
+    return params.rows;
+  }
+
+  const assetsByKey = new Map<string, MediaAssetRow>();
+  for (const asset of data as MediaAssetRow[]) {
+    const messageId = asset.legacy_id;
+    if (!messageId) continue;
+    for (const kind of ["image", "voice", "video", "vibe_clip", "thumbnail"] as MediaKind[]) {
+      if (asset.media_family !== mediaFamilyForKind(kind)) continue;
+      if (!isEligibleAssetForKind(asset, kind)) continue;
+      const key = mediaKey(messageId, kind);
+      if (!assetsByKey.has(key)) assetsByKey.set(key, asset);
+    }
+  }
+
+  const signAsset = async (messageId: string, kind: MediaKind): Promise<string | null> => {
+    const asset = assetsByKey.get(mediaKey(messageId, kind));
+    if (!asset?.provider_path) return null;
+    return signedProxyUrl({
+      supabaseUrl: params.supabaseUrl,
+      tokenSecret: params.tokenSecret,
+      userId: params.userId,
+      messageId,
+      kind,
+      path: asset.provider_path,
+      mimeType: asset.mime_type,
+    });
+  };
+
+  return Promise.all(
+    params.rows.map(async (row) => {
+      const next: MessageRow = {
+        ...row,
+        structured_payload:
+          row.structured_payload && typeof row.structured_payload === "object" && !Array.isArray(row.structured_payload)
+            ? { ...row.structured_payload }
+            : row.structured_payload,
+      };
+
+      if (next.audio_url && !isHttpUrl(next.audio_url)) {
+        next.audio_url = await signAsset(next.id, "voice") ?? next.audio_url;
+      }
+
+      if (next.video_url && !isHttpUrl(next.video_url)) {
+        const kind = next.message_kind === "vibe_clip" ? "vibe_clip" : "video";
+        next.video_url = await signAsset(next.id, kind) ?? next.video_url;
+      }
+
+      const payload =
+        next.structured_payload && typeof next.structured_payload === "object" && !Array.isArray(next.structured_payload)
+          ? { ...(next.structured_payload as Record<string, unknown>) }
+          : null;
+      const thumbnailRef = typeof payload?.thumbnail_url === "string" ? payload.thumbnail_url : null;
+      if (payload && thumbnailRef && !isHttpUrl(thumbnailRef)) {
+        payload.thumbnail_url = await signAsset(next.id, "thumbnail") ?? thumbnailRef;
+        next.structured_payload = payload;
+      }
+
+      const imageRef = parsePrivateChatImageRef(next.content);
+      if (imageRef) {
+        const signedImage = await signAsset(next.id, "image");
+        if (signedImage) next.content = formatChatImageMessageContent(signedImage);
+      }
+
+      return next;
+    }),
+  );
+}
+
+async function loadPageDateSuggestions(
+  serviceClient: ReturnType<typeof createClient>,
+  matchId: string,
+  rows: MessageRow[],
+) {
+  const ids = [...new Set(
+    rows
+      .filter((row) => row.message_kind === "date_suggestion" || row.message_kind === "date_suggestion_event")
+      .map((row) => row.ref_id)
+      .filter(isUuid),
+  )];
+  if (ids.length === 0) return [];
+
+  const { data: suggestions, error } = await serviceClient
+    .from("date_suggestions")
+    .select(DATE_SUGGESTION_SELECT)
+    .eq("match_id", matchId)
+    .in("id", ids);
+
+  if (error || !Array.isArray(suggestions) || suggestions.length === 0) {
+    if (error) console.error("chat-thread-page date suggestion lookup failed:", error);
+    return [];
+  }
+
+  const suggestionRows = suggestions as DateSuggestionRow[];
+  const suggestionIds = suggestionRows.map((s) => s.id);
+  const planIds = suggestionRows.map((s) => s.date_plan_id).filter(isUuid);
+
+  const [revsRes, plansRes, participantsRes] = await Promise.all([
+    serviceClient
+      .from("date_suggestion_revisions")
+      .select(DATE_SUGGESTION_REVISION_SELECT)
+      .in("date_suggestion_id", suggestionIds)
+      .order("revision_number", { ascending: true }),
+    planIds.length > 0
+      ? serviceClient.from("date_plans").select(DATE_PLAN_SELECT).in("id", planIds)
+      : Promise.resolve({ data: [] as DatePlanRow[], error: null }),
+    planIds.length > 0
+      ? serviceClient.from("date_plan_participants").select(DATE_PLAN_PARTICIPANT_SELECT).in("date_plan_id", planIds)
+      : Promise.resolve({ data: [] as DatePlanParticipantRow[], error: null }),
+  ]);
+
+  if (revsRes.error) console.error("chat-thread-page date revisions lookup failed:", revsRes.error);
+  if (plansRes.error) console.error("chat-thread-page date plans lookup failed:", plansRes.error);
+  if (participantsRes.error) console.error("chat-thread-page date participants lookup failed:", participantsRes.error);
+
+  const revBySuggestion = new Map<string, DateSuggestionRevisionRow[]>();
+  for (const rev of (revsRes.data ?? []) as DateSuggestionRevisionRow[]) {
+    const arr = revBySuggestion.get(rev.date_suggestion_id) ?? [];
+    arr.push(rev);
+    revBySuggestion.set(rev.date_suggestion_id, arr);
+  }
+
+  const planById = new Map<string, DatePlanRow>();
+  for (const plan of (plansRes.data ?? []) as DatePlanRow[]) {
+    planById.set(plan.id, plan);
+  }
+
+  const participantsByPlan = new Map<string, DatePlanParticipantRow[]>();
+  for (const participant of (participantsRes.data ?? []) as DatePlanParticipantRow[]) {
+    const arr = participantsByPlan.get(participant.date_plan_id) ?? [];
+    arr.push(participant);
+    participantsByPlan.set(participant.date_plan_id, arr);
+  }
+
+  return suggestionRows.map((suggestion) => {
+    const plan = suggestion.date_plan_id ? planById.get(suggestion.date_plan_id) : null;
+    return {
+      ...suggestion,
+      revisions: revBySuggestion.get(suggestion.id) ?? [],
+      date_plan: plan
+        ? {
+            ...plan,
+            participants: participantsByPlan.get(plan.id) ?? [],
+          }
+        : null,
+    };
+  });
 }
 
 serve(async (req) => {
@@ -45,14 +428,12 @@ serve(async (req) => {
 
     const limitRaw = typeof body?.limit === "number" ? Math.floor(body.limit) : 28;
     const limit = Math.min(50, Math.max(1, limitRaw));
-    const beforeCreatedAt =
-      typeof body?.before_created_at === "string" && !Number.isNaN(Date.parse(body.before_created_at))
-        ? body.before_created_at
-        : null;
+    const beforeCursor = parseThreadPageCursor(body?.before_created_at);
 
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const anonKey = Deno.env.get("SUPABASE_ANON_KEY")!;
     const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+    const tokenSecret = Deno.env.get("CHAT_MEDIA_PROXY_SECRET") || serviceRoleKey;
 
     const userClient = createClient(supabaseUrl, anonKey, {
       global: { headers: { Authorization: authHeader } },
@@ -79,7 +460,9 @@ serve(async (req) => {
         success: true,
         match_id: null,
         other_user: null,
+        match_archive: null,
         messages: [],
+        date_suggestions: [],
         next_cursor: null,
       });
     }
@@ -89,13 +472,18 @@ serve(async (req) => {
       .select(MESSAGE_SELECT)
       .eq("match_id", match.id)
       .order("created_at", { ascending: false })
+      .order("id", { ascending: false })
       .limit(limit);
 
-    if (beforeCreatedAt) {
-      messagesQuery = messagesQuery.lt("created_at", beforeCreatedAt);
+    if (beforeCursor?.id) {
+      messagesQuery = messagesQuery.or(
+        `created_at.lt.${beforeCursor.createdAt},and(created_at.eq.${beforeCursor.createdAt},id.lt.${beforeCursor.id})`,
+      );
+    } else if (beforeCursor) {
+      messagesQuery = messagesQuery.lt("created_at", beforeCursor.createdAt);
     }
 
-    const [messagesRes, profileRes, presenceRes] = await Promise.all([
+    const [messagesRes, profileRes, presenceRes, archiveRes] = await Promise.all([
       messagesQuery,
       serviceClient
         .from("profiles")
@@ -103,13 +491,29 @@ serve(async (req) => {
         .eq("id", otherUserId)
         .maybeSingle(),
       userClient.rpc("get_chat_partner_presence", { p_match_id: match.id }).maybeSingle(),
+      serviceClient
+        .from("match_archives")
+        .select("archived_at")
+        .eq("match_id", match.id)
+        .eq("user_id", currentUserId)
+        .maybeSingle(),
     ]);
 
     if (messagesRes.error) throw messagesRes.error;
     if (profileRes.error) throw profileRes.error;
 
-    const rowsDesc = messagesRes.data ?? [];
+    const rowsDesc = (messagesRes.data ?? []) as MessageRow[];
     const rowsAsc = [...rowsDesc].reverse();
+    const [resolvedRowsAsc, dateSuggestions] = await Promise.all([
+      resolvePageMediaUrls({
+        serviceClient,
+        supabaseUrl,
+        tokenSecret,
+        userId: currentUserId,
+        rows: rowsAsc,
+      }),
+      loadPageDateSuggestions(serviceClient, match.id, rowsAsc),
+    ]);
     const presence = !presenceRes.error &&
       presenceRes.data &&
       typeof presenceRes.data === "object" &&
@@ -126,13 +530,22 @@ serve(async (req) => {
           is_online: presence?.is_online === true,
         }
       : null;
+    const matchArchive: MatchArchivePayload | null =
+      !archiveRes.error && archiveRes.data?.archived_at
+        ? {
+            archived_at: archiveRes.data.archived_at,
+            archived_by: currentUserId,
+          }
+        : null;
 
     return jsonResponse(req, {
       success: true,
       match_id: match.id,
       other_user: otherUser,
-      messages: rowsAsc,
-      next_cursor: rowsDesc.length >= limit ? rowsDesc[rowsDesc.length - 1]?.created_at ?? null : null,
+      match_archive: matchArchive,
+      messages: resolvedRowsAsc,
+      date_suggestions: dateSuggestions,
+      next_cursor: rowsDesc.length >= limit ? encodeThreadPageCursor(rowsDesc[rowsDesc.length - 1]!) : null,
     });
   } catch (error) {
     console.error("chat-thread-page error:", error);

@@ -23,6 +23,7 @@ import {
   type LayoutChangeEvent,
   type NativeSyntheticEvent,
   type NativeScrollEvent,
+  type ViewToken,
 } from 'react-native';
 import { useLocalSearchParams, router } from 'expo-router';
 import { useFocusEffect } from '@react-navigation/native';
@@ -51,9 +52,9 @@ import {
   useRealtimeMessages,
   markMatchMessagesRead,
   useTypingBroadcast,
-  useMatches,
   type ChatMessage,
-  type ChatOtherUser,
+  type ChatThreadPage,
+  type MatchListItem,
   type ReactionEmoji,
   type ThreadInvalidateScope,
 } from '@/lib/chatApi';
@@ -86,7 +87,7 @@ import { TwoTruthsStartSheet } from '@/components/chat/games/TwoTruthsStartSheet
 import { WouldRatherStartSheet } from '@/components/chat/games/WouldRatherStartSheet';
 import { GamesPickerSheet, type GamesPickerGameId } from '@/components/chat/games/GamesPickerSheet';
 import { useMatchDateSuggestions, type DateSuggestionWithRelations } from '@/lib/useDateSuggestionData';
-import { useQueryClient } from '@tanstack/react-query';
+import { useQueryClient, type InfiniteData } from '@tanstack/react-query';
 import { useMatchCall } from '@/lib/useMatchCall';
 import { useConnectivity } from '@/lib/useConnectivity';
 import { chatFriendlyErrorFromUnknown, isLikelyNetworkFailure } from '@/lib/networkErrorMessage';
@@ -286,6 +287,20 @@ type LocalTextChatMessage = ChatMessage & { localText: LocalTextMeta };
 type ThreadMessage = ChatMessage | LocalMediaChatMessage | LocalTextChatMessage;
 
 type ChatListRow = ThreadPresentationRow<ThreadMessage>;
+
+function chatListRowKey(row: ChatListRow): string {
+  if (row.type === 'pending_games_summary') return `ps-${row.clusterKey}`;
+  if (row.type === 'pending_games_collapse') return `pc-${row.clusterKey}`;
+  return row.message.id;
+}
+
+function sameStringSet(a: Set<string>, b: Set<string>): boolean {
+  if (a.size !== b.size) return false;
+  for (const value of a) {
+    if (!b.has(value)) return false;
+  }
+  return true;
+}
 
 function bubbleMediaNeighbors(
   rows: ChatListRow[],
@@ -678,11 +693,14 @@ export default function ChatThreadScreen() {
     [windowWidth]
   );
   const { user } = useAuth();
-  const { data, isLoading, error, refetch } = useMessages(otherUserId ?? undefined, user?.id ?? null);
-  const shellLoading = isLoading && !data;
-  const { data: matches = [] } = useMatches(user?.id);
-  const matchRowEarly = otherUserId ? matches.find((m) => m.id === otherUserId) : undefined;
   const queryClient = useQueryClient();
+  const { data, isLoading, error, refetch, fetchNextPage, hasNextPage, isFetchingNextPage } = useMessages(
+    otherUserId ?? undefined,
+    user?.id ?? null,
+  );
+  const shellLoading = isLoading && !data;
+  const cachedMatches = user?.id ? queryClient.getQueryData<MatchListItem[]>(['matches', user.id]) ?? [] : [];
+  const matchRowEarly = otherUserId ? cachedMatches.find((m) => m.id === otherUserId) : undefined;
   const { enqueue, retry, remove, itemsForMatch, reconcileWithServerIds } = useChatOutbox();
   useRealtimeMessages({
     matchId: data?.matchId ?? null,
@@ -744,7 +762,6 @@ export default function ChatThreadScreen() {
   const goToMatchesTimersRef = useRef<Array<ReturnType<typeof setTimeout>>>([]);
   const goToMatchesRafRef = useRef<number | null>(null);
   const goToMatchesInteractionRef = useRef<ReturnType<typeof InteractionManager.runAfterInteractions> | null>(null);
-  const stickySnapTimersRef = useRef<Array<ReturnType<typeof setTimeout>>>([]);
   const stickySnapRafRef = useRef<number | null>(null);
   const stickySnapUntilRef = useRef(0);
 
@@ -768,13 +785,26 @@ export default function ChatThreadScreen() {
 
   const stickToBottomRef = useRef(true);
   const userScrollIntentUntilRef = useRef(0);
-  /** Until first content-size snap for this thread, ignore scroll race that clears stickToBottom before scrollToEnd. */
-  const pendingThreadBottomSnapRef = useRef(false);
+  const allowOlderPageFetchRef = useRef(false);
   const lastThreadCountRef = useRef(0);
+  const latestSnapCountRef = useRef(0);
   const [awayFromBottom, setAwayFromBottom] = useState(false);
   const [newBelowCue, setNewBelowCue] = useState(false);
+  const [visibleRowKeys, setVisibleRowKeys] = useState<Set<string>>(() => new Set());
   const [sendingPhoto, setSendingPhoto] = useState(false);
   const { show: showAppDialog, dialog: appDialog } = useVibelyDialog();
+  const viewabilityConfigRef = useRef({
+    itemVisiblePercentThreshold: 20,
+    minimumViewTime: 80,
+  });
+  const onViewableItemsChangedRef = useRef(({ viewableItems }: { viewableItems: ViewToken[] }) => {
+    const next = new Set<string>();
+    for (const token of viewableItems) {
+      const row = token.item as ChatListRow | null | undefined;
+      if (row) next.add(chatListRowKey(row));
+    }
+    setVisibleRowKeys((prev) => (sameStringSet(prev, next) ? prev : next));
+  });
 
   useEffect(() => {
     recordingRef.current = recording;
@@ -1037,16 +1067,14 @@ export default function ChatThreadScreen() {
     return Date.now() < userScrollIntentUntilRef.current;
   }, []);
 
-  const scrollListToEnd = useCallback((animated: boolean, shouldScroll?: () => boolean) => {
+  const scrollListToLatest = useCallback((animated: boolean, shouldScroll?: () => boolean) => {
     requestAnimationFrame(() => {
       if (shouldScroll && !shouldScroll()) return;
-      listRef.current?.scrollToEnd({ animated });
+      listRef.current?.scrollToOffset({ offset: 0, animated });
     });
   }, []);
 
   const clearScheduledStickySnaps = useCallback(() => {
-    for (const t of stickySnapTimersRef.current) clearTimeout(t);
-    stickySnapTimersRef.current = [];
     stickySnapUntilRef.current = 0;
     if (stickySnapRafRef.current != null) {
       cancelAnimationFrame(stickySnapRafRef.current);
@@ -1058,7 +1086,7 @@ export default function ChatThreadScreen() {
     if (!stickToBottomRef.current) return;
     if (isListUserScrollIntentActive()) return;
     clearScheduledStickySnaps();
-    stickySnapUntilRef.current = Date.now() + 650;
+    stickySnapUntilRef.current = Date.now() + 180;
 
     const snap = () => {
       const stickySnapArmed = Date.now() < stickySnapUntilRef.current;
@@ -1067,19 +1095,14 @@ export default function ChatThreadScreen() {
       stickToBottomRef.current = true;
       setAwayFromBottom(false);
       setNewBelowCue(false);
-      scrollListToEnd(animated, () => stickToBottomRef.current && !isListUserScrollIntentActive());
+      scrollListToLatest(animated, () => stickToBottomRef.current && !isListUserScrollIntentActive());
     };
 
     stickySnapRafRef.current = requestAnimationFrame(() => {
       stickySnapRafRef.current = null;
       snap();
     });
-    stickySnapTimersRef.current.push(
-      setTimeout(snap, 80),
-      setTimeout(snap, 180),
-      setTimeout(snap, 320),
-    );
-  }, [clearScheduledStickySnaps, isListUserScrollIntentActive, scrollListToEnd]);
+  }, [clearScheduledStickySnaps, isListUserScrollIntentActive, scrollListToLatest]);
 
   useEffect(() => () => clearScheduledStickySnaps(), [clearScheduledStickySnaps]);
 
@@ -1114,13 +1137,13 @@ export default function ChatThreadScreen() {
 
   const markListUserScrollIntent = useCallback(() => {
     clearScheduledStickySnaps();
+    allowOlderPageFetchRef.current = true;
     userScrollIntentUntilRef.current = Date.now() + 1000;
     stickToBottomRef.current = false;
   }, [clearScheduledStickySnaps]);
 
   const settleListUserScrollIntent = useCallback((e: NativeSyntheticEvent<NativeScrollEvent>) => {
-    const { contentOffset, layoutMeasurement, contentSize } = e.nativeEvent;
-    const dist = Math.max(0, contentSize.height - layoutMeasurement.height - contentOffset.y);
+    const dist = Math.max(0, e.nativeEvent.contentOffset.y);
     const atBottom = dist < 100;
     const stickySnapArmed = Date.now() < stickySnapUntilRef.current && !isListUserScrollIntentActive();
     if (!atBottom && stickySnapArmed) {
@@ -1139,8 +1162,7 @@ export default function ChatThreadScreen() {
   }, [isListUserScrollIntentActive]);
 
   const listOnScroll = useCallback((e: NativeSyntheticEvent<NativeScrollEvent>) => {
-    const { contentOffset, layoutMeasurement, contentSize } = e.nativeEvent;
-    const dist = Math.max(0, contentSize.height - layoutMeasurement.height - contentOffset.y);
+    const dist = Math.max(0, e.nativeEvent.contentOffset.y);
     const atBottom = dist < 100;
     const stickySnapArmed = Date.now() < stickySnapUntilRef.current && !isListUserScrollIntentActive();
     if (!atBottom && stickySnapArmed) {
@@ -1154,30 +1176,20 @@ export default function ChatThreadScreen() {
   }, [isListUserScrollIntentActive]);
 
   const listOnContentSizeChange = useCallback(() => {
-    if (displayMessages.length === 0 && !shellLoading) {
-      pendingThreadBottomSnapRef.current = false;
-      return;
-    }
-    if (pendingThreadBottomSnapRef.current) {
-      pendingThreadBottomSnapRef.current = false;
-      stickToBottomRef.current = true;
-      setAwayFromBottom(false);
-      setNewBelowCue(false);
-      userScrollIntentUntilRef.current = 0;
-      scrollListToEnd(false);
-      return;
-    }
+    if (displayMessages.length === 0 && !shellLoading) return;
     if (!stickToBottomRef.current) return;
     if (isListUserScrollIntentActive()) return;
-    scrollListToEnd(false);
-  }, [displayMessages.length, isListUserScrollIntentActive, scrollListToEnd, shellLoading]);
+    scrollListToLatest(false);
+  }, [displayMessages.length, isListUserScrollIntentActive, scrollListToLatest, shellLoading]);
 
   useEffect(() => {
     if (!scrollAnchorKey) return;
+    const prevCount = latestSnapCountRef.current;
+    latestSnapCountRef.current = displayMessages.length;
     if (!stickToBottomRef.current) return;
     if (isListUserScrollIntentActive()) return;
-    scrollListToEnd(true);
-  }, [isListUserScrollIntentActive, scrollAnchorKey, scrollListToEnd]);
+    scrollListToLatest(prevCount > 0);
+  }, [displayMessages.length, isListUserScrollIntentActive, scrollAnchorKey, scrollListToLatest]);
 
   useEffect(() => {
     const n = displayMessages.length;
@@ -1194,7 +1206,9 @@ export default function ChatThreadScreen() {
     setAwayFromBottom(false);
     stickToBottomRef.current = true;
     userScrollIntentUntilRef.current = 0;
-    pendingThreadBottomSnapRef.current = true;
+    allowOlderPageFetchRef.current = false;
+    latestSnapCountRef.current = 0;
+    setVisibleRowKeys(new Set());
   }, [otherUserId]);
 
   useEffect(() => {
@@ -1237,13 +1251,24 @@ export default function ChatThreadScreen() {
     return out;
   }, [reactionRows, user?.id, otherUserId]);
 
-  const suggestionById = useMemo(() => {
+  const hydratedDateSuggestions = useMemo(() => {
     const map = new Map<string, DateSuggestionWithRelations>();
+    for (const s of data?.dateSuggestions ?? []) {
+      map.set(s.id, s);
+    }
     for (const s of dateSuggestions) {
       map.set(s.id, s);
     }
+    return Array.from(map.values());
+  }, [data?.dateSuggestions, dateSuggestions]);
+
+  const suggestionById = useMemo(() => {
+    const map = new Map<string, DateSuggestionWithRelations>();
+    for (const s of hydratedDateSuggestions) {
+      map.set(s.id, s);
+    }
     return map;
-  }, [dateSuggestions]);
+  }, [hydratedDateSuggestions]);
 
   const lastClipOrVideoIndex = useMemo(() => {
     let last = -1;
@@ -1268,6 +1293,30 @@ export default function ChatThreadScreen() {
     [displayMessages, suggestionById, expandedPendingClusterKey],
   );
 
+  const flatListRows = useMemo(() => [...chatFlatRows].reverse(), [chatFlatRows]);
+
+  const chronologicalIndexByRowKey = useMemo(() => {
+    const byKey = new Map<string, number>();
+    chatFlatRows.forEach((row, index) => byKey.set(chatListRowKey(row), index));
+    return byKey;
+  }, [chatFlatRows]);
+
+  const datePlaceholderRowKeys = useMemo(() => {
+    const seenMissingRefs = new Set<string>();
+    const keys = new Set<string>();
+    for (const row of chatFlatRows) {
+      if (row.type !== 'message') continue;
+      const msg = row.message;
+      const isDateTimeline =
+        msg.messageKind === 'date_suggestion' || msg.messageKind === 'date_suggestion_event';
+      if (!isDateTimeline || !msg.refId || suggestionById.has(msg.refId)) continue;
+      if (seenMissingRefs.has(msg.refId)) continue;
+      seenMissingRefs.add(msg.refId);
+      keys.add(chatListRowKey(row));
+    }
+    return keys;
+  }, [chatFlatRows, suggestionById]);
+
   const openDateComposer = useCallback(
     (opts: {
       mode: 'new' | 'counter' | 'editDraft';
@@ -1290,7 +1339,7 @@ export default function ChatThreadScreen() {
         setComposerDraftPayload(opts.draftPayload ?? null);
         setComposerCounter(null);
       } else {
-        if (matchHasOpenDateSuggestion(dateSuggestions)) {
+        if (matchHasOpenDateSuggestion(hydratedDateSuggestions)) {
           setShowActiveDateSuggestionWarning(true);
           return;
         }
@@ -1301,7 +1350,7 @@ export default function ChatThreadScreen() {
       }
       setShowDateSheet(true);
     },
-    [dateSuggestions]
+    [hydratedDateSuggestions]
   );
 
   const closeDateComposer = useCallback(() => {
@@ -1335,20 +1384,27 @@ export default function ChatThreadScreen() {
         .then(() => {
           const key = threadMessagesQueryKey(otherUserId, uid);
           queryClient.setQueryData(key, (old: unknown) => {
-            if (!old || typeof old !== 'object' || !('messages' in old)) return old;
-            const o = old as {
-              messages: ChatMessage[];
-              matchId: string | null;
-              otherUser: ChatOtherUser | null;
-            };
+            if (!old || typeof old !== 'object') return old;
             const nowIso = new Date().toISOString();
+            const markRead = (m: ChatMessage) =>
+              m.sender === 'them' && (m.read_at == null || m.read_at === undefined)
+                ? { ...m, read_at: nowIso }
+                : m;
+            if ('pages' in old && Array.isArray((old as InfiniteData<ChatThreadPage>).pages)) {
+              const dataOld = old as InfiniteData<ChatThreadPage>;
+              return {
+                ...dataOld,
+                pages: dataOld.pages.map((page) => ({
+                  ...page,
+                  messages: page.messages.map(markRead),
+                })),
+              };
+            }
+            if (!('messages' in old)) return old;
+            const o = old as ChatThreadPage;
             return {
               ...o,
-              messages: o.messages.map((m) =>
-                m.sender === 'them' && (m.read_at == null || m.read_at === undefined)
-                  ? { ...m, read_at: nowIso }
-                  : m
-              ),
+              messages: o.messages.map(markRead),
             };
           });
           queryClient.invalidateQueries({ queryKey: ['unread-home'] });
@@ -1415,7 +1471,7 @@ export default function ChatThreadScreen() {
   }, []);
   useEffect(() => () => { if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current); }, []);
 
-  const otherName = otherUserId ? (matches.find((m) => m.id === otherUserId)?.name ?? 'Chat') : 'Chat';
+  const otherName = otherUserId ? (data?.otherUser?.name ?? matchRowEarly?.name ?? 'Chat') : 'Chat';
   const otherUser = data?.otherUser ?? null;
   const [showActions, setShowActions] = useState(false);
   const [showReport, setShowReport] = useState(false);
@@ -1440,14 +1496,36 @@ export default function ChatThreadScreen() {
   const { archiveMatch, unarchiveMatch } = useArchiveMatch(user?.id);
   const { muteMatch, unmuteMatch, isMatchMuted } = useMuteMatch(user?.id);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
-  const currentMatchRow = data?.matchId ? matches.find((m) => m.matchId === data.matchId) : null;
+  const currentMatchRow = data?.matchId ? cachedMatches.find((m) => m.matchId === data.matchId) : null;
+  const matchArchiveState = currentMatchRow?.archived_at
+    ? { archived_at: currentMatchRow.archived_at, archived_by: currentMatchRow.archived_by }
+    : data?.matchArchive ?? null;
+  const patchThreadMatchArchive = useCallback(
+    (matchArchive: ChatThreadPage['matchArchive']) => {
+      if (!otherUserId || !user?.id) return;
+      const key = threadMessagesQueryKey(otherUserId, user.id);
+      queryClient.setQueryData(key, (old: unknown) => {
+        if (!old || typeof old !== 'object') return old;
+        if ('pages' in old && Array.isArray((old as InfiniteData<ChatThreadPage>).pages)) {
+          const dataOld = old as InfiniteData<ChatThreadPage>;
+          return {
+            ...dataOld,
+            pages: dataOld.pages.map((page) => ({ ...page, matchArchive })),
+          };
+        }
+        if (!('matchArchive' in old)) return old;
+        return { ...(old as ChatThreadPage), matchArchive };
+      });
+    },
+    [otherUserId, queryClient, user?.id],
+  );
   const matchForActions =
     data?.matchId && otherUserId
       ? {
           matchId: data.matchId,
           id: otherUserId,
           name: otherName,
-          archived_at: currentMatchRow?.archived_at ?? null,
+          archived_at: matchArchiveState?.archived_at ?? null,
           bunnyVideoUid: data.otherUser?.bunny_video_uid ?? currentMatchRow?.bunnyVideoUid ?? null,
         }
       : shellLoading && matchRowEarly && otherUserId
@@ -1651,7 +1729,7 @@ export default function ChatThreadScreen() {
   const armVoiceReply = () => {
     stickToBottomRef.current = true;
     userScrollIntentUntilRef.current = 0;
-    scrollListToEnd(true);
+    scrollListToLatest(true);
     setVoiceReplyHint(true);
     setTimeout(() => setVoiceReplyHint(false), 2200);
   };
@@ -2134,7 +2212,7 @@ export default function ChatThreadScreen() {
     textColor: string,
     timeColor: string,
     isMe: boolean,
-    opts?: { threadVisualRecede?: boolean },
+    opts?: { threadVisualRecede?: boolean; shouldMountPlayer?: boolean },
   ) => {
     const threadVisualRecede = opts?.threadVisualRecede ?? false;
     const pair = reactionByMessageId.get(item.id) ?? { mine: null, partner: null };
@@ -2218,6 +2296,7 @@ export default function ChatThreadScreen() {
         message_kind: item.messageKind,
       });
       if (clipMeta) {
+        const shouldMountPlayer = (opts?.shouldMountPlayer ?? false) || videoViewer?.uri === clipMeta.videoUrl;
         return (
           <View style={[styles.mediaContentWrap, { width: mediaCardWidth }]}>
             <VibeClipCard
@@ -2243,6 +2322,7 @@ export default function ChatThreadScreen() {
                 setVideoViewer({ uri: clipMeta.videoUrl, poster: clipMeta.thumbnailUrl ?? null })
               }
               immersiveActive={videoViewer?.uri === clipMeta.videoUrl}
+              shouldMountPlayer={shouldMountPlayer}
               threadVisualRecede={threadVisualRecede}
             />
             <View style={styles.mediaMetaBlock}>
@@ -2305,9 +2385,11 @@ export default function ChatThreadScreen() {
   };
 
   const otherAge =
-    otherUser?.age ?? matches.find((m) => m.id === otherUserId)?.age ?? 0;
+    otherUser?.age ?? matchRowEarly?.age ?? 0;
 
-  const renderItem: ListRenderItem<ChatListRow> = ({ item, index }) => {
+  const renderItem: ListRenderItem<ChatListRow> = ({ item }) => {
+    const rowKey = chatListRowKey(item);
+    const chronologicalIndex = chronologicalIndexByRowKey.get(rowKey) ?? 0;
     if (item.type === 'pending_games_summary') {
       return (
         <View style={{ marginBottom: spacing.sm, alignItems: 'center', paddingHorizontal: 8 }}>
@@ -2357,6 +2439,8 @@ export default function ChatThreadScreen() {
     }
     if (isDateTimeline && msg.refId) {
       const sug = suggestionById.get(msg.refId);
+      const shouldRenderPlaceholder = datePlaceholderRowKeys.has(rowKey);
+      if (!sug && !shouldRenderPlaceholder) return null;
       return (
         <View style={{ marginBottom: spacing.md, width: '100%' }}>
           {sug ? (
@@ -2369,11 +2453,19 @@ export default function ChatThreadScreen() {
               onUpdated={onDateSuggestionUpdated}
               threadUi={item.dateUi}
             />
-          ) : (
-            <Text style={{ color: theme.textSecondary, fontSize: 13, paddingVertical: 8 }}>
-              Loading date suggestion…
-            </Text>
-          )}
+          ) : shouldRenderPlaceholder ? (
+            <View
+              style={[
+                styles.dateSuggestionPlaceholder,
+                { borderColor: theme.border, backgroundColor: theme.surfaceSubtle },
+              ]}
+            >
+              <ActivityIndicator size="small" color={theme.tint} />
+              <Text style={[styles.dateSuggestionPlaceholderText, { color: theme.textSecondary }]}>
+                Loading date suggestion…
+              </Text>
+            </View>
+          ) : null}
         </View>
       );
     }
@@ -2407,7 +2499,7 @@ export default function ChatThreadScreen() {
     }
 
     const isMe = msg.sender === 'me';
-    const { prev, next } = bubbleMediaNeighbors(chatFlatRows, index);
+    const { prev, next } = bubbleMediaNeighbors(chatFlatRows, chronologicalIndex);
     const isLastInGroup = !next || next.sender !== msg.sender;
     const mediaKind = threadMessageMediaKind(msg);
     const isMediaBubble = mediaKind === 'video' || mediaKind === 'image' || mediaKind === 'vibe_clip';
@@ -2429,6 +2521,7 @@ export default function ChatThreadScreen() {
       threadIdx >= 0 && lastClipOrVideoIndex >= 0 && threadIdx < lastClipOrVideoIndex;
     const content = renderBubbleContent(msg, textColor, timeColor, isMe, {
       threadVisualRecede: mediaRecede,
+      shouldMountPlayer: visibleRowKeys.has(rowKey),
     });
     const bubbleRadiusMe = {
       borderTopLeftRadius: 18,
@@ -2642,6 +2735,7 @@ export default function ChatThreadScreen() {
               setActionLoading('unarchive');
               try {
                 await unarchiveMatch({ matchId: matchForActions.matchId });
+                patchThreadMatchArchive(null);
                 setShowActions(false);
               } finally {
                 setActionLoading(null);
@@ -2676,6 +2770,10 @@ export default function ChatThreadScreen() {
                       setActionLoading('archive');
                       try {
                         await archiveMatch({ matchId: matchForActions.matchId });
+                        patchThreadMatchArchive({
+                          archived_at: new Date().toISOString(),
+                          archived_by: user?.id ?? '',
+                        });
                         setShowActions(false);
                         goToMatches();
                       } finally {
@@ -2776,15 +2874,10 @@ export default function ChatThreadScreen() {
         <View style={styles.listAndJumpWrap} onLayout={handleStickyLayoutChange}>
         <FlatList
           ref={listRef}
-          data={chatFlatRows}
+          data={flatListRows}
           renderItem={renderItem}
-          keyExtractor={(row) =>
-            row.type === 'pending_games_summary'
-              ? `ps-${row.clusterKey}`
-              : row.type === 'pending_games_collapse'
-                ? `pc-${row.clusterKey}`
-                : row.message.id
-          }
+          keyExtractor={chatListRowKey}
+          inverted
           style={styles.messageList}
           keyboardShouldPersistTaps="handled"
           keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
@@ -2794,6 +2887,14 @@ export default function ChatThreadScreen() {
           onMomentumScrollBegin={markListUserScrollIntent}
           onMomentumScrollEnd={settleListUserScrollIntent}
           onContentSizeChange={listOnContentSizeChange}
+          onEndReached={() => {
+            if (!allowOlderPageFetchRef.current) return;
+            if (hasNextPage && !isFetchingNextPage) void fetchNextPage();
+          }}
+          onEndReachedThreshold={0.2}
+          maintainVisibleContentPosition={{ minIndexForVisible: 0 }}
+          viewabilityConfig={viewabilityConfigRef.current}
+          onViewableItemsChanged={onViewableItemsChangedRef.current}
           scrollEventThrottle={16}
           alwaysBounceVertical
           nestedScrollEnabled
@@ -2814,10 +2915,17 @@ export default function ChatThreadScreen() {
               </View>
             )
           }
-          ListFooterComponent={
+          ListHeaderComponent={
             partnerTyping ? (
               <View style={styles.typingWrap}>
                 <TypingIndicator />
+              </View>
+            ) : null
+          }
+          ListFooterComponent={
+            isFetchingNextPage ? (
+              <View style={styles.olderMessagesLoader}>
+                <ActivityIndicator size="small" color={theme.tint} />
               </View>
             ) : null
           }
@@ -2830,7 +2938,7 @@ export default function ChatThreadScreen() {
                 userScrollIntentUntilRef.current = 0;
                 setAwayFromBottom(false);
                 setNewBelowCue(false);
-                scrollListToEnd(true);
+                scrollListToLatest(true);
               }}
               style={({ pressed }) => [
                 styles.jumpLatestPill,
@@ -3358,9 +3466,26 @@ const styles = StyleSheet.create({
     borderWidth: StyleSheet.hairlineWidth,
   },
   jumpLatestText: { color: 'rgba(255,255,255,0.92)', fontSize: 12, fontWeight: '600' },
+  olderMessagesLoader: {
+    paddingVertical: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   skeletonWrap: { paddingTop: 8, paddingBottom: 24, width: '100%', gap: 10 },
   skeletonRow: { width: '100%', flexDirection: 'row', paddingHorizontal: 0 },
   skeletonBar: { height: 38, borderRadius: 16 },
+  dateSuggestionPlaceholder: {
+    minHeight: 112,
+    borderRadius: 16,
+    borderWidth: StyleSheet.hairlineWidth,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+  },
+  dateSuggestionPlaceholderText: {
+    fontSize: 13,
+    fontWeight: '600',
+  },
   list: {
     paddingHorizontal: layout.containerPadding,
     paddingTop: spacing.sm + 2,

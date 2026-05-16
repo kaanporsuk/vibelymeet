@@ -168,9 +168,13 @@ test("video bubbles remain adaptive and full-width across web and native chat", 
   assert.match(nativeChat, /styles\.mediaContentWrap, \{ width: mediaCardWidth \}/);
 
   assert.match(nativeVibeClipCard, /width: '100%'/);
-  assert.match(nativeVibeClipCard, /Math\.max\(0\.5, Math\.min\(1\.2, meta\.aspectRatio\)\)/);
-  assert.match(nativeVibeClipCard, /style=\{\[styles\.videoWrap, \{ aspectRatio: cardAspectRatio \}\]\}/);
+  assert.match(nativeVibeClipCard, /const INLINE_CLIP_MIN_ASPECT_RATIO = 0\.78/);
+  assert.match(nativeVibeClipCard, /Math\.max\(INLINE_CLIP_MIN_ASPECT_RATIO, Math\.min\(INLINE_CLIP_MAX_ASPECT_RATIO, meta\.aspectRatio\)\)/);
+  assert.match(nativeVibeClipCard, /style=\{\[styles\.videoWrap, \{ aspectRatio: cardAspectRatio, maxHeight: INLINE_CLIP_MAX_HEIGHT \}\]\}/);
   assert.match(nativeVibeClipCard, /contentFit="cover"/);
+  assert.match(nativeVibeClipCard, /shouldMountPlayer/);
+  assert.match(nativeVibeClipCard, /type ClipPreviewState/);
+  assert.match(nativeVibeClipCard, /Tap to play/);
 });
 
 test("native chat validates library and camera video before enqueue", () => {

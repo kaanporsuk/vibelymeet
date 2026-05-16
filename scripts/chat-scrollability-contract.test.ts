@@ -12,6 +12,7 @@ function read(path: string): string {
 const webChat = read("src/pages/Chat.tsx");
 const dateSuggestionChip = read("src/components/chat/DateSuggestionChip.tsx");
 const nativeChat = read("apps/mobile/app/chat/[id].tsx");
+const nativeChatApi = read("apps/mobile/lib/chatApi.ts");
 
 test("web chat scrolling owns the real scroller and preserves user intent", () => {
   assert.match(
@@ -75,12 +76,16 @@ test("native chat FlatList separates user drag intent from automatic bottom stic
   );
   assert.match(
     nativeChat,
-    /const settleListUserScrollIntent = useCallback[\s\S]*const atBottom = dist < 100;[\s\S]*stickToBottomRef\.current = atBottom;/,
+    /const settleListUserScrollIntent = useCallback[\s\S]*const dist = Math\.max\(0, e\.nativeEvent\.contentOffset\.y\);[\s\S]*const atBottom = dist < 100;[\s\S]*stickToBottomRef\.current = atBottom;/,
   );
   assert.match(
     nativeChat,
-    /const listOnContentSizeChange = useCallback[\s\S]*if \(!stickToBottomRef\.current\) return;[\s\S]*if \(isListUserScrollIntentActive\(\)\) return;[\s\S]*scrollListToEnd\(false\);/,
+    /const listOnContentSizeChange = useCallback[\s\S]*if \(!stickToBottomRef\.current\) return;[\s\S]*if \(isListUserScrollIntentActive\(\)\) return;[\s\S]*scrollListToLatest\(false\);/,
   );
+  assert.match(nativeChat, /listRef\.current\?\.scrollToOffset\(\{ offset: 0, animated \}\)/);
+  assert.doesNotMatch(nativeChat, /scrollToEnd/);
+  assert.match(nativeChat, /\binverted\b/);
+  assert.match(nativeChat, /maintainVisibleContentPosition=\{\{ minIndexForVisible: 0 \}\}/);
   assert.match(nativeChat, /onScrollBeginDrag=\{markListUserScrollIntent\}/);
   assert.match(nativeChat, /onScrollEndDrag=\{settleListUserScrollIntent\}/);
   assert.match(nativeChat, /onMomentumScrollBegin=\{markListUserScrollIntent\}/);
@@ -99,7 +104,7 @@ test("native chat tracks keyboard and layout transitions before sticky keyboard 
   );
   assert.match(
     nativeChat,
-    /scrollListToEnd\(animated, \(\) => stickToBottomRef\.current && !isListUserScrollIntentActive\(\)\);/,
+    /scrollListToLatest\(animated, \(\) => stickToBottomRef\.current && !isListUserScrollIntentActive\(\)\);/,
   );
   assert.match(nativeChat, /Keyboard\.scheduleLayoutAnimation\?\.\(event\)/);
   assert.match(nativeChat, /Platform\.OS === 'ios' \? 'keyboardWillChangeFrame' : 'keyboardDidShow'/);
@@ -113,10 +118,35 @@ test("native chat tracks keyboard and layout transitions before sticky keyboard 
 test("native explicit jump-to-latest actions deliberately restore bottom stickiness", () => {
   assert.match(
     nativeChat,
-    /const armVoiceReply = \(\) => \{[\s\S]*stickToBottomRef\.current = true;[\s\S]*userScrollIntentUntilRef\.current = 0;[\s\S]*scrollListToEnd\(true\);/,
+    /const armVoiceReply = \(\) => \{[\s\S]*stickToBottomRef\.current = true;[\s\S]*userScrollIntentUntilRef\.current = 0;[\s\S]*scrollListToLatest\(true\);/,
   );
   assert.match(
     nativeChat,
-    /onPress=\{\(\) => \{[\s\S]*stickToBottomRef\.current = true;[\s\S]*userScrollIntentUntilRef\.current = 0;[\s\S]*scrollListToEnd\(true\);/,
+    /onPress=\{\(\) => \{[\s\S]*stickToBottomRef\.current = true;[\s\S]*userScrollIntentUntilRef\.current = 0;[\s\S]*scrollListToLatest\(true\);/,
   );
+});
+
+test("native chat hydrates the latest page instead of fetching full history", () => {
+  assert.match(nativeChatApi, /const CHAT_THREAD_PAGE_SIZE = 28/);
+  assert.match(nativeChatApi, /useInfiniteQuery/);
+  assert.match(nativeChatApi, /supabase\.functions\.invoke\('chat-thread-page'/);
+  assert.match(nativeChatApi, /getNextPageParam: \(lastPage: ChatThreadPage\) => lastPage\.nextCursor/);
+  assert.doesNotMatch(nativeChatApi, /\.order\('created_at', \{ ascending: true \}\)/);
+  assert.match(nativeChatApi, /\.order\('created_at', \{ ascending: false \}\)[\s\S]{0,120}\.order\('id', \{ ascending: false \}\)/);
+  assert.match(nativeChatApi, /function parseThreadPageCursor/);
+  assert.match(nativeChatApi, /created_at\.lt\.\$\{cursor\.createdAt\},and\(created_at\.eq\.\$\{cursor\.createdAt\},id\.lt\.\$\{cursor\.id\}\)/);
+  assert.match(nativeChatApi, /function encodeThreadPageCursor/);
+  assert.match(nativeChat, /queryClient\.getQueryData<MatchListItem\[]>/);
+  assert.doesNotMatch(nativeChat, /\buseMatches\(/);
+  assert.match(nativeChat, /data=\{flatListRows\}/);
+  assert.match(nativeChat, /const allowOlderPageFetchRef = useRef\(false\)/);
+  assert.match(nativeChat, /allowOlderPageFetchRef\.current = true/);
+  assert.match(nativeChat, /onEndReached=\{\(\) => \{[\s\S]*if \(!allowOlderPageFetchRef\.current\) return;[\s\S]*fetchNextPage\(\)/);
+});
+
+test("native chat lazy-mounts heavy clip players by viewability", () => {
+  assert.match(nativeChat, /const \[visibleRowKeys, setVisibleRowKeys\] = useState<Set<string>>/);
+  assert.match(nativeChat, /onViewableItemsChanged=\{onViewableItemsChangedRef\.current\}/);
+  assert.match(nativeChat, /viewabilityConfig=\{viewabilityConfigRef\.current\}/);
+  assert.match(nativeChat, /shouldMountPlayer=\{shouldMountPlayer\}/);
 });

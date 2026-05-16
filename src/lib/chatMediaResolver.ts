@@ -27,6 +27,10 @@ function isLocalPreviewRef(value: string): boolean {
   return value.startsWith("blob:") || value.startsWith("file:") || value.startsWith("data:");
 }
 
+function isAlreadyResolvedMediaUrl(value: string): boolean {
+  return /^https?:\/\//i.test(value);
+}
+
 function isUuid(value: string): boolean {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
 }
@@ -37,7 +41,7 @@ async function resolveChatMediaUrl(
   rawRef: string | null | undefined,
 ): Promise<string | null> {
   if (!rawRef) return null;
-  if (isLocalPreviewRef(rawRef) || !isUuid(messageId)) return rawRef;
+  if (isLocalPreviewRef(rawRef) || isAlreadyResolvedMediaUrl(rawRef) || !isUuid(messageId)) return rawRef;
 
   return getCachedChatMediaUrl(messageId, mediaKind, rawRef);
 }
@@ -48,7 +52,7 @@ export async function getCachedChatMediaUrl(
   rawRef: string | null | undefined,
 ): Promise<string | null> {
   if (!rawRef) return null;
-  if (isLocalPreviewRef(rawRef) || !isUuid(messageId)) return rawRef;
+  if (isLocalPreviewRef(rawRef) || isAlreadyResolvedMediaUrl(rawRef) || !isUuid(messageId)) return rawRef;
 
   return issueAndCacheChatMediaUrl(messageId, mediaKind, rawRef, false);
 }

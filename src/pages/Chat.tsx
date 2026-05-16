@@ -669,13 +669,24 @@ const Chat = () => {
     });
   }, [showDateComposer, dateComposerLaunchSource, chatData?.messages?.length]);
 
-  const suggestionById = useMemo(() => {
+  const hydratedDateSuggestions = useMemo(() => {
     const map = new Map<string, DateSuggestionWithRelations>();
+    for (const s of chatData?.dateSuggestions ?? []) {
+      map.set(s.id, s);
+    }
     for (const s of dateSuggestions) {
       map.set(s.id, s);
     }
+    return Array.from(map.values());
+  }, [chatData?.dateSuggestions, dateSuggestions]);
+
+  const suggestionById = useMemo(() => {
+    const map = new Map<string, DateSuggestionWithRelations>();
+    for (const s of hydratedDateSuggestions) {
+      map.set(s.id, s);
+    }
     return map;
-  }, [dateSuggestions]);
+  }, [hydratedDateSuggestions]);
 
   const handleGameSelect = (gameType: GameType) => {
     setShowArcade(false);
@@ -1325,10 +1336,10 @@ const Chat = () => {
       match_id: chatData?.matchId ?? id,
       source: "chip",
     });
-    const existing = matchHasOpenDateSuggestion(dateSuggestions);
+    const existing = matchHasOpenDateSuggestion(hydratedDateSuggestions);
     if (existing) {
       // Replace toast with focus/scroll/pulse on the existing card.
-      const existingId = dateSuggestions.find((s) =>
+      const existingId = hydratedDateSuggestions.find((s) =>
         ["draft", "proposed", "viewed", "countered"].includes(s.status),
       )?.id;
       focusExistingSuggestion(existingId ?? null);
@@ -1372,8 +1383,8 @@ const Chat = () => {
         setComposerDraftPayload(opts.draftPayload ?? null);
         setComposerCounter(null);
       } else {
-        if (matchHasOpenDateSuggestion(dateSuggestions)) {
-          const existingId = dateSuggestions.find((s) =>
+        if (matchHasOpenDateSuggestion(hydratedDateSuggestions)) {
+          const existingId = hydratedDateSuggestions.find((s) =>
             ["draft", "proposed", "viewed", "countered"].includes(s.status),
           )?.id;
           focusExistingSuggestion(existingId ?? null);
@@ -1386,7 +1397,7 @@ const Chat = () => {
       }
       setShowDateComposer(true);
     },
-    [dateSuggestions, focusExistingSuggestion],
+    [hydratedDateSuggestions, focusExistingSuggestion],
   );
 
   const closeDateComposer = useCallback(() => {

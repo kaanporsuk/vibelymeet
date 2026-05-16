@@ -1,4 +1,4 @@
-import { useQuery, useMutation, useQueryClient, type QueryClient } from '@tanstack/react-query';
+import { useInfiniteQuery, useQuery, useMutation, useQueryClient, type InfiniteData, type QueryClient } from '@tanstack/react-query';
 import { useEffect, useCallback, useState, useRef } from 'react';
 import { supabase } from '@/lib/supabase';
 import { avatarUrl } from '@/lib/imageUrl';
@@ -20,6 +20,7 @@ import {
 } from '../../../shared/chat/conversationListPreview';
 import type { ReactionPair } from '../../../shared/chat/messageReactionModel';
 import { threadMessagesQueryKey, type ThreadInvalidateScope } from '../../../shared/chat/queryKeys';
+import type { DateSuggestionWithRelations } from '@/lib/useDateSuggestionData';
 
 /** Matches `profiles` select columns in `useMatches` below (intent fields typed for scoring). */
 type ChatMatchesProfileRow = {
@@ -353,130 +354,436 @@ export type ChatOtherUser = {
 
 type ChatPresenceRow = {
   can_view_presence?: boolean | null;
+  is_online?: boolean | null;
   last_seen_at?: string | null;
 };
 
-export function useMessages(otherUserId: string | undefined, currentUserId: string | null | undefined) {
-  return useQuery({
-    queryKey: ['messages', otherUserId, currentUserId],
-    queryFn: async (): Promise<{ messages: ChatMessage[]; matchId: string | null; otherUser: ChatOtherUser | null }> => {
-      if (!currentUserId || !otherUserId) return { messages: [], matchId: null, otherUser: null };
-      const { data: match, error: matchError } = await supabase
-        .from('matches')
-        .select('id')
-        .or(`and(profile_id_1.eq.${currentUserId},profile_id_2.eq.${otherUserId}),and(profile_id_1.eq.${otherUserId},profile_id_2.eq.${currentUserId})`)
-        .maybeSingle();
-      if (matchError) throw matchError;
-      if (!match) return { messages: [], matchId: null, otherUser: null };
+const CHAT_THREAD_PAGE_SIZE = 28;
+const CHAT_MESSAGE_SELECT =
+  'id, match_id, sender_id, content, created_at, read_at, audio_url, audio_duration_seconds, video_url, video_duration_seconds, message_kind, ref_id, structured_payload';
+let chatThreadPageEdgeUnavailable = false;
 
-      const [messagesRes, otherUserRes, presenceRes] = await Promise.all([
-        supabase
-          .from('messages')
-          .select(
-            'id, match_id, sender_id, content, created_at, read_at, audio_url, audio_duration_seconds, video_url, video_duration_seconds, message_kind, ref_id, structured_payload'
-          )
-          .eq('match_id', match.id)
-          .order('created_at', { ascending: true }),
-        supabase.from('profiles').select('id, name, age, avatar_url, photos, bunny_video_uid').eq('id', otherUserId).maybeSingle(),
-        supabase.rpc('get_chat_partner_presence', { p_match_id: match.id }).maybeSingle(),
-      ]);
-      if (messagesRes.error) throw messagesRes.error;
-      const messages = messagesRes.data || [];
-      const otherRow = otherUserRes.data as {
-        id: string;
-        name?: string;
-        age?: number;
-        avatar_url?: string | null;
-        photos?: string[] | null;
-        bunny_video_uid?: string | null;
-      } | null;
-      const presenceData = presenceRes.data as ChatPresenceRow | null;
-      const presence =
-        !presenceRes.error && presenceData?.can_view_presence
-          ? presenceData
+export type ChatRawMessageRow = {
+  id: string;
+  match_id: string;
+  sender_id: string;
+  content: string;
+  created_at: string;
+  read_at: string | null;
+  audio_url: string | null;
+  audio_duration_seconds: number | null;
+  video_url: string | null;
+  video_duration_seconds: number | null;
+  message_kind: string | null;
+  ref_id: string | null;
+  structured_payload: Record<string, unknown> | null;
+};
+
+export type ChatThreadPage = {
+  messages: ChatMessage[];
+  matchId: string | null;
+  otherUser: ChatOtherUser | null;
+  matchArchive: { archived_at: string; archived_by: string } | null;
+  dateSuggestions: DateSuggestionWithRelations[];
+  nextCursor: string | null;
+  pageSize: number;
+};
+
+export type ChatThreadData = ChatThreadPage & {
+  pages: ChatThreadPage[];
+  pageParams: unknown[];
+  hasMore: boolean;
+  loadedMessageCount: number;
+};
+
+type ChatThreadPagePayload = {
+  success?: boolean;
+  match_id?: string | null;
+  other_user?: {
+    id: string;
+    name?: string | null;
+    age?: number | null;
+    avatar_url?: string | null;
+    photos?: string[] | null;
+    last_seen_at?: string | null;
+    bunny_video_uid?: string | null;
+  } | null;
+  match_archive?: { archived_at?: string | null; archived_by?: string | null } | null;
+  messages?: ChatRawMessageRow[];
+  date_suggestions?: DateSuggestionWithRelations[];
+  next_cursor?: string | null;
+  error?: string;
+};
+
+function normalizeRawMessage(row: Partial<ChatRawMessageRow> & { id: string }): ChatRawMessageRow {
+  return {
+    id: row.id,
+    match_id: row.match_id ?? '',
+    sender_id: row.sender_id ?? '',
+    content: row.content ?? '',
+    created_at: row.created_at ?? new Date(0).toISOString(),
+    read_at: row.read_at ?? null,
+    audio_url: row.audio_url ?? null,
+    audio_duration_seconds: row.audio_duration_seconds ?? null,
+    video_url: row.video_url ?? null,
+    video_duration_seconds: row.video_duration_seconds ?? null,
+    message_kind: row.message_kind ?? 'text',
+    ref_id: row.ref_id ?? null,
+    structured_payload: row.structured_payload ?? null,
+  };
+}
+
+type ThreadPageCursor = {
+  createdAt: string;
+  id: string | null;
+};
+
+function isUuid(value: string): boolean {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
+}
+
+function parseThreadPageCursor(value: string | null | undefined): ThreadPageCursor | null {
+  if (!value?.trim()) return null;
+  const text = value.trim();
+  try {
+    const parsed = JSON.parse(text) as { created_at?: unknown; createdAt?: unknown; id?: unknown };
+    const createdAt =
+      typeof parsed.created_at === 'string'
+        ? parsed.created_at
+        : typeof parsed.createdAt === 'string'
+          ? parsed.createdAt
           : null;
+    const id = typeof parsed.id === 'string' && isUuid(parsed.id) ? parsed.id : null;
+    if (createdAt && !Number.isNaN(Date.parse(createdAt))) {
+      return { createdAt, id };
+    }
+  } catch {
+    // Older cached pages may still hold a bare ISO timestamp cursor.
+  }
+  return !Number.isNaN(Date.parse(text)) ? { createdAt: text, id: null } : null;
+}
 
-      const otherUser: ChatOtherUser | null = otherRow
-        ? {
-            id: otherRow.id,
-            name: otherRow.name ?? 'Unknown',
-            age: otherRow.age ?? 0,
-            avatar_url: resolvePrimaryProfilePhotoPath({
-              photos: otherRow.photos,
-              avatar_url: otherRow.avatar_url,
-            }),
-            photos: otherRow.photos ?? null,
-            last_seen_at: presence?.last_seen_at ?? null,
-            bunny_video_uid: otherRow.bunny_video_uid ?? null,
-          }
-        : null;
+function encodeThreadPageCursor(row: { created_at: string; id: string }): string {
+  return JSON.stringify({ created_at: row.created_at, id: row.id });
+}
 
-      const mapStatus = (m: { sender_id: string; read_at: string | null }): MessageStatusType => {
-        if (m.sender_id !== currentUserId) return 'sent';
-        return m.read_at ? 'read' : 'delivered';
-      };
+function mapRawRowToGameRow(row: ChatRawMessageRow): ChatGameSessionMessageRow {
+  return {
+    id: row.id,
+    sender_id: row.sender_id,
+    content: row.content,
+    created_at: row.created_at,
+    read_at: row.read_at,
+    audio_url: row.audio_url,
+    audio_source_ref: row.audio_url,
+    audio_duration_seconds: row.audio_duration_seconds,
+    video_url: row.video_url,
+    video_duration_seconds: row.video_duration_seconds,
+    message_kind: row.message_kind,
+    ref_id: row.ref_id,
+    structured_payload: row.structured_payload,
+  };
+}
 
-      const mapDbRowToChatMessage = (m: ChatGameSessionMessageRow): ChatMessage => {
-        const kind = toRenderableMessageKind(m.message_kind) as ChatMessage['messageKind'];
-        return {
-          id: m.id,
-          text: m.content,
-          sender: (m.sender_id === currentUserId ? 'me' : 'them') as 'me' | 'them',
-          time: new Date(m.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-          sortAtMs: new Date(m.created_at).getTime(),
-          audio_url: m.audio_url ?? undefined,
-          audio_source_ref: m.audio_source_ref ?? undefined,
-          audio_duration_seconds: m.audio_duration_seconds ?? undefined,
-          video_url: m.video_url ?? undefined,
-          video_duration_seconds: m.video_duration_seconds ?? undefined,
-          read_at: m.read_at ?? undefined,
-          status: mapStatus(m),
-          messageKind: kind,
-          refId: m.ref_id ?? null,
-          structuredPayload:
-            m.structured_payload !== null &&
-            m.structured_payload !== undefined &&
-            typeof m.structured_payload === 'object' &&
-            !Array.isArray(m.structured_payload)
-              ? (m.structured_payload as Record<string, unknown>)
-              : null,
-        };
-      };
+export async function hydrateChatRowsForDisplay(params: {
+  rows: ChatRawMessageRow[];
+  currentUserId: string;
+  otherUserId: string;
+}): Promise<ChatMessage[]> {
+  const { rows, currentUserId, otherUserId } = params;
+  const rowsForGames = rows.map((row) => mapRawRowToGameRow(normalizeRawMessage(row)));
+  const resolvedRowsForGames = await Promise.all(
+    rowsForGames.map((row) => resolveChatMessageMediaForDisplay(row)),
+  );
 
-      const rowsForGames: ChatGameSessionMessageRow[] = messages.map((m) => {
-        const row = m as typeof m & {
-          message_kind?: string | null;
-          ref_id?: string | null;
-          structured_payload?: unknown;
-        };
-        return {
-          id: m.id,
-          sender_id: m.sender_id,
-          content: m.content,
-          created_at: m.created_at,
-          read_at: m.read_at,
-          audio_url: m.audio_url,
-          audio_source_ref: m.audio_url,
-          audio_duration_seconds: m.audio_duration_seconds,
-          video_url: m.video_url,
-          video_duration_seconds: m.video_duration_seconds,
-          message_kind: row.message_kind ?? null,
-          ref_id: row.ref_id ?? null,
-          structured_payload: row.structured_payload ?? null,
-        };
-      });
+  const mapStatus = (m: { sender_id: string; read_at: string | null }): MessageStatusType => {
+    if (m.sender_id !== currentUserId) return 'sent';
+    return m.read_at ? 'read' : 'delivered';
+  };
 
-      const resolvedRowsForGames = await Promise.all(
-        rowsForGames.map((row) => resolveChatMessageMediaForDisplay(row)),
+  const mapDbRowToChatMessage = (m: ChatGameSessionMessageRow): ChatMessage => {
+    const kind = toRenderableMessageKind(m.message_kind) as ChatMessage['messageKind'];
+    return {
+      id: m.id,
+      text: m.content,
+      sender: (m.sender_id === currentUserId ? 'me' : 'them') as 'me' | 'them',
+      time: new Date(m.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      sortAtMs: new Date(m.created_at).getTime(),
+      audio_url: m.audio_url ?? undefined,
+      audio_source_ref: m.audio_source_ref ?? undefined,
+      audio_duration_seconds: m.audio_duration_seconds ?? undefined,
+      video_url: m.video_url ?? undefined,
+      video_duration_seconds: m.video_duration_seconds ?? undefined,
+      read_at: m.read_at ?? undefined,
+      status: mapStatus(m),
+      messageKind: kind,
+      refId: m.ref_id ?? null,
+      structuredPayload:
+        m.structured_payload !== null &&
+        m.structured_payload !== undefined &&
+        typeof m.structured_payload === 'object' &&
+        !Array.isArray(m.structured_payload)
+          ? (m.structured_payload as Record<string, unknown>)
+          : null,
+    };
+  };
+
+  return collapseVibeGameMessageRows(resolvedRowsForGames, currentUserId, otherUserId, mapDbRowToChatMessage);
+}
+
+async function fetchDirectChatThreadPage(params: {
+  otherUserId: string;
+  currentUserId: string;
+  beforeCreatedAt?: string | null;
+  limit: number;
+}): Promise<ChatThreadPage> {
+  const { otherUserId, currentUserId, beforeCreatedAt, limit } = params;
+  const { data: match, error: matchError } = await supabase
+    .from('matches')
+    .select('id')
+    .or(`and(profile_id_1.eq.${currentUserId},profile_id_2.eq.${otherUserId}),and(profile_id_1.eq.${otherUserId},profile_id_2.eq.${currentUserId})`)
+    .maybeSingle();
+
+  if (matchError) throw matchError;
+  if (!match) {
+    return {
+      messages: [],
+      matchId: null,
+      otherUser: null,
+      matchArchive: null,
+      dateSuggestions: [],
+      nextCursor: null,
+      pageSize: limit,
+    };
+  }
+
+  let messagesQuery = supabase
+    .from('messages')
+    .select(CHAT_MESSAGE_SELECT)
+    .eq('match_id', match.id)
+    .order('created_at', { ascending: false })
+    .order('id', { ascending: false })
+    .limit(limit);
+
+  if (beforeCreatedAt) {
+    const cursor = parseThreadPageCursor(beforeCreatedAt);
+    if (cursor?.id) {
+      messagesQuery = messagesQuery.or(
+        `created_at.lt.${cursor.createdAt},and(created_at.eq.${cursor.createdAt},id.lt.${cursor.id})`,
       );
+    } else if (cursor) {
+      messagesQuery = messagesQuery.lt('created_at', cursor.createdAt);
+    }
+  }
 
-      return {
-        matchId: match.id,
-        otherUser,
-        messages: collapseVibeGameMessageRows(resolvedRowsForGames, currentUserId, otherUserId, mapDbRowToChatMessage),
-      };
+  const [messagesRes, otherUserRes, presenceRes, archiveRes] = await Promise.all([
+    messagesQuery,
+    supabase.from('profiles').select('id, name, age, avatar_url, photos, bunny_video_uid').eq('id', otherUserId).maybeSingle(),
+    supabase.rpc('get_chat_partner_presence', { p_match_id: match.id }).maybeSingle(),
+    supabase.from('match_archives').select('archived_at').eq('match_id', match.id).eq('user_id', currentUserId).maybeSingle(),
+  ]);
+  if (messagesRes.error) throw messagesRes.error;
+
+  const rawDesc = (messagesRes.data ?? []).map((row) => normalizeRawMessage(row as ChatRawMessageRow));
+  const rawAsc = [...rawDesc].reverse();
+  const otherRow = otherUserRes.data as {
+    id: string;
+    name?: string;
+    age?: number;
+    avatar_url?: string | null;
+    photos?: string[] | null;
+    bunny_video_uid?: string | null;
+  } | null;
+  const presenceData = presenceRes.data as ChatPresenceRow | null;
+  const presence = !presenceRes.error && presenceData?.can_view_presence ? presenceData : null;
+  const otherUser: ChatOtherUser | null = otherRow
+    ? {
+        id: otherRow.id,
+        name: otherRow.name ?? 'Unknown',
+        age: otherRow.age ?? 0,
+        avatar_url: resolvePrimaryProfilePhotoPath({
+          photos: otherRow.photos,
+          avatar_url: otherRow.avatar_url,
+        }),
+        photos: otherRow.photos ?? null,
+        last_seen_at: presence?.last_seen_at ?? null,
+        bunny_video_uid: otherRow.bunny_video_uid ?? null,
+      }
+    : null;
+
+  return {
+    matchId: match.id,
+    otherUser,
+    matchArchive:
+      !archiveRes.error && archiveRes.data?.archived_at
+        ? { archived_at: archiveRes.data.archived_at, archived_by: currentUserId }
+        : null,
+    dateSuggestions: [],
+    messages: await hydrateChatRowsForDisplay({ rows: rawAsc, currentUserId, otherUserId }),
+    nextCursor: rawDesc.length >= limit ? encodeThreadPageCursor(rawDesc[rawDesc.length - 1]!) : null,
+    pageSize: limit,
+  };
+}
+
+async function fetchEdgeChatThreadPage(params: {
+  otherUserId: string;
+  currentUserId: string;
+  beforeCreatedAt?: string | null;
+  limit: number;
+}): Promise<ChatThreadPage> {
+  const { data, error } = await supabase.functions.invoke('chat-thread-page', {
+    body: {
+      other_user_id: params.otherUserId,
+      before_created_at: params.beforeCreatedAt ?? null,
+      limit: params.limit,
     },
+  });
+  if (error) throw error;
+  const payload = data as ChatThreadPagePayload | null;
+  if (!payload?.success) throw new Error(payload?.error || 'chat_thread_page_failed');
+  const rawRows = (payload.messages ?? []).map(normalizeRawMessage);
+  const otherUser: ChatOtherUser | null = payload.other_user
+    ? {
+        id: payload.other_user.id,
+        name: payload.other_user.name ?? 'Unknown',
+        age: payload.other_user.age ?? 0,
+        avatar_url: payload.other_user.avatar_url ?? null,
+        photos: payload.other_user.photos ?? null,
+        last_seen_at: payload.other_user.last_seen_at ?? null,
+        bunny_video_uid: payload.other_user.bunny_video_uid ?? null,
+      }
+    : null;
+  return {
+    matchId: payload.match_id ?? null,
+    otherUser,
+    matchArchive:
+      payload.match_archive?.archived_at
+        ? {
+            archived_at: payload.match_archive.archived_at,
+            archived_by: payload.match_archive.archived_by ?? params.currentUserId,
+          }
+        : null,
+    dateSuggestions: payload.date_suggestions ?? [],
+    messages: await hydrateChatRowsForDisplay({
+      rows: rawRows,
+      currentUserId: params.currentUserId,
+      otherUserId: params.otherUserId,
+    }),
+    nextCursor: payload.next_cursor ?? null,
+    pageSize: params.limit,
+  };
+}
+
+async function fetchChatThreadPage(params: {
+  otherUserId: string;
+  currentUserId: string;
+  beforeCreatedAt?: string | null;
+  limit?: number;
+}): Promise<ChatThreadPage> {
+  const limit = params.limit ?? CHAT_THREAD_PAGE_SIZE;
+  if (!chatThreadPageEdgeUnavailable) {
+    try {
+      return await fetchEdgeChatThreadPage({ ...params, limit });
+    } catch {
+      chatThreadPageEdgeUnavailable = true;
+    }
+  }
+  return fetchDirectChatThreadPage({ ...params, limit });
+}
+
+function flattenChatPages(data: InfiniteData<ChatThreadPage>): ChatThreadData {
+  const firstPage = data.pages[0] ?? {
+    messages: [],
+    matchId: null,
+    otherUser: null,
+    matchArchive: null,
+    dateSuggestions: [],
+    nextCursor: null,
+    pageSize: CHAT_THREAD_PAGE_SIZE,
+  };
+  const chronologicalPages = [...data.pages].reverse();
+  const allMessages = chronologicalPages.flatMap((page) => page.messages);
+  const lastIndexById = new Map<string, number>();
+  allMessages.forEach((message, index) => lastIndexById.set(message.id, index));
+  const messages = allMessages.filter((message, index) => lastIndexById.get(message.id) === index);
+  const suggestionById = new Map<string, DateSuggestionWithRelations>();
+  for (const page of chronologicalPages) {
+    for (const suggestion of page.dateSuggestions) {
+      suggestionById.set(suggestion.id, suggestion);
+    }
+  }
+  const oldestLoadedPage = data.pages[data.pages.length - 1];
+
+  return {
+    ...firstPage,
+    messages,
+    dateSuggestions: Array.from(suggestionById.values()),
+    pages: data.pages,
+    pageParams: data.pageParams,
+    hasMore: Boolean(oldestLoadedPage?.nextCursor),
+    loadedMessageCount: messages.length,
+  };
+}
+
+export function useMessages(otherUserId: string | undefined, currentUserId: string | null | undefined) {
+  const qc = useQueryClient();
+  const query = useInfiniteQuery({
+    queryKey: threadMessagesQueryKey(otherUserId ?? '', currentUserId ?? ''),
+    queryFn: ({ pageParam }) => {
+      if (!currentUserId || !otherUserId) {
+        return Promise.resolve({
+          messages: [],
+          matchId: null,
+          otherUser: null,
+          matchArchive: null,
+          dateSuggestions: [],
+          nextCursor: null,
+          pageSize: CHAT_THREAD_PAGE_SIZE,
+        } satisfies ChatThreadPage);
+      }
+      return fetchChatThreadPage({
+        otherUserId,
+        currentUserId,
+        beforeCreatedAt: typeof pageParam === 'string' ? pageParam : null,
+        limit: CHAT_THREAD_PAGE_SIZE,
+      });
+    },
+    initialPageParam: null as string | null,
+    getNextPageParam: (lastPage: ChatThreadPage) => lastPage.nextCursor ?? undefined,
     enabled: !!otherUserId && !!currentUserId,
+    select: flattenChatPages,
+  });
+
+  useEffect(() => {
+    if (!query.data?.matchId || !query.data.dateSuggestions.length) return;
+    qc.setQueryData(['date-suggestions', query.data.matchId], (old: unknown) => {
+      const byId = new Map<string, DateSuggestionWithRelations>();
+      if (Array.isArray(old)) {
+        for (const suggestion of old) byId.set(suggestion.id, suggestion);
+      }
+      for (const suggestion of query.data.dateSuggestions) {
+        byId.set(suggestion.id, suggestion);
+      }
+      return Array.from(byId.values());
+    });
+  }, [query.data?.dateSuggestions, query.data?.matchId, qc]);
+
+  return query;
+}
+
+export function prefetchChatThread(queryClient: QueryClient, otherUserId: string, currentUserId: string) {
+  if (!otherUserId || !currentUserId) return Promise.resolve();
+  return queryClient.prefetchInfiniteQuery({
+    queryKey: threadMessagesQueryKey(otherUserId, currentUserId),
+    queryFn: ({ pageParam }) =>
+      fetchChatThreadPage({
+        otherUserId,
+        currentUserId,
+        beforeCreatedAt: typeof pageParam === 'string' ? pageParam : null,
+        limit: CHAT_THREAD_PAGE_SIZE,
+      }),
+    initialPageParam: null as string | null,
+    getNextPageParam: (lastPage: ChatThreadPage) => lastPage.nextCursor ?? undefined,
   });
 }
 
@@ -572,7 +879,7 @@ export async function markMatchMessagesRead(matchId: string): Promise<void> {
   if (error) throw error;
 }
 
-/** Scoped thread invalidation on message INSERT/UPDATE. Incoming sound: deferred — see repo `src/lib/chatIncomingSound.ts`. */
+/** Scoped thread patching on message INSERT/UPDATE. Incoming sound: deferred — see repo `src/lib/chatIncomingSound.ts`. */
 export function useRealtimeMessages(opts: {
   matchId: string | null;
   enabled: boolean;
@@ -581,27 +888,113 @@ export function useRealtimeMessages(opts: {
 }) {
   const { matchId, enabled, threadOtherUserId, threadCurrentUserId } = opts;
   const qc = useQueryClient();
-  const invalidate = useCallback(() => {
+  const invalidateThread = useCallback(() => {
     if (threadOtherUserId && threadCurrentUserId) {
       qc.invalidateQueries({
         queryKey: threadMessagesQueryKey(threadOtherUserId, threadCurrentUserId),
         exact: true,
       });
     }
+  }, [qc, threadOtherUserId, threadCurrentUserId]);
+
+  const invalidatePeripheralCaches = useCallback((rowMatchId: string | null | undefined, kind?: string | null) => {
     qc.invalidateQueries({ queryKey: ['matches'] });
-    if (matchId) {
-      qc.invalidateQueries({ queryKey: ['date-suggestions', matchId] });
+    const isDateRow = kind === 'date_suggestion' || kind === 'date_suggestion_event';
+    if (rowMatchId && isDateRow) {
+      qc.invalidateQueries({ queryKey: ['date-suggestions', rowMatchId] });
     }
-  }, [qc, matchId, threadOtherUserId, threadCurrentUserId]);
+  }, [qc]);
+
+  const patchMessage = useCallback(
+    async (event: 'INSERT' | 'UPDATE', raw: unknown) => {
+      if (!threadOtherUserId || !threadCurrentUserId || !matchId) return;
+      if (!raw || typeof raw !== 'object' || !('id' in raw)) {
+        invalidateThread();
+        return;
+      }
+      const row = normalizeRawMessage(raw as Partial<ChatRawMessageRow> & { id: string });
+      if (row.match_id !== matchId) return;
+
+      const renderableKind = toRenderableMessageKind(row.message_kind);
+      invalidatePeripheralCaches(row.match_id, renderableKind);
+      if (row.message_kind === 'vibe_game' || renderableKind === 'vibe_game_session') {
+        invalidateThread();
+        return;
+      }
+
+      let hydrated: ChatMessage[];
+      try {
+        hydrated = await hydrateChatRowsForDisplay({
+          rows: [row],
+          currentUserId: threadCurrentUserId,
+          otherUserId: threadOtherUserId,
+        });
+      } catch {
+        invalidateThread();
+        return;
+      }
+      const message = hydrated[0];
+      if (!message) {
+        invalidateThread();
+        return;
+      }
+
+      const key = threadMessagesQueryKey(threadOtherUserId, threadCurrentUserId);
+      let patched = false;
+      qc.setQueryData<InfiniteData<ChatThreadPage>>(key, (old) => {
+        if (!old?.pages?.length) return old;
+        let found = false;
+        const pages = old.pages.map((page, pageIndex) => {
+          const existingIndex = page.messages.findIndex((m) => m.id === message.id);
+          if (existingIndex >= 0) {
+            found = true;
+            patched = true;
+            const messages = page.messages.map((m) => (m.id === message.id ? { ...m, ...message } : m));
+            return { ...page, messages };
+          }
+          if (event === 'INSERT' && pageIndex === 0) {
+            patched = true;
+            const latestById = new Map<string, ChatMessage>();
+            for (const m of [...page.messages, message]) {
+              latestById.set(m.id, m);
+            }
+            const messages = Array.from(latestById.values())
+              .sort((a, b) => (a.sortAtMs ?? 0) - (b.sortAtMs ?? 0));
+            return { ...page, messages };
+          }
+          return page;
+        });
+        if (event === 'UPDATE' && !found) return old;
+        return { ...old, pages };
+      });
+
+      if (event === 'INSERT' && !patched) {
+        invalidateThread();
+      }
+    },
+    [
+      invalidatePeripheralCaches,
+      invalidateThread,
+      matchId,
+      qc,
+      threadCurrentUserId,
+      threadOtherUserId,
+    ],
+  );
+
   useEffect(() => {
     if (!matchId || !enabled) return;
     const channel = supabase
       .channel(`messages-${matchId}`)
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages', filter: `match_id=eq.${matchId}` }, invalidate)
-      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'messages', filter: `match_id=eq.${matchId}` }, invalidate)
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages', filter: `match_id=eq.${matchId}` }, (payload) => {
+        void patchMessage('INSERT', payload.new);
+      })
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'messages', filter: `match_id=eq.${matchId}` }, (payload) => {
+        void patchMessage('UPDATE', payload.new);
+      })
       .subscribe();
     return () => { supabase.removeChannel(channel); };
-  }, [matchId, enabled, invalidate]);
+  }, [matchId, enabled, patchMessage]);
 }
 
 /**
