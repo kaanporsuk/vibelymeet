@@ -93,7 +93,8 @@ test("tonight, tomorrow, drafts, and schedule-share keep their intended blocking
     dateSuggestionBlocksNewProposal(
       {
         status: "proposed",
-        expires_at: "2026-05-18T00:00:00.000Z",
+        expires_at: "2026-05-24T00:00:00.000Z",
+        schedule_share_expires_at: "2026-05-18T00:00:00.000Z",
         current_revision_id: "rev-share",
         revisions: [
           {
@@ -108,6 +109,27 @@ test("tonight, tomorrow, drafts, and schedule-share keep their intended blocking
       Date.parse("2026-05-17T23:59:00.000Z"),
     ),
     true,
+  );
+  assert.equal(
+    dateSuggestionBlocksNewProposal(
+      {
+        status: "proposed",
+        expires_at: "2026-05-24T00:00:00.000Z",
+        schedule_share_expires_at: "2026-05-18T00:00:00.000Z",
+        current_revision_id: "rev-share",
+        revisions: [
+          {
+            id: "rev-share",
+            time_choice_key: "share_schedule",
+            schedule_share_enabled: true,
+            created_at: anchor,
+            local_timezone: "UTC",
+          },
+        ],
+      },
+      Date.parse("2026-05-18T00:00:01.000Z"),
+    ),
+    false,
   );
   assert.equal(
     findBlockingDateSuggestion(
