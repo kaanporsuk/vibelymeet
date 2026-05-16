@@ -6,7 +6,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import {
   Plus, Search, Edit, Trash2, Calendar, Users, Clock, Eye, MoreHorizontal,
   UserCheck, Upload, Archive, RotateCcw, RefreshCw, CheckSquare, Square,
-  Ban, StopCircle,
+  Ban, StopCircle, ChevronDown, ChevronUp, Loader2,
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -146,6 +146,20 @@ type CategoryUpdateInput = {
   sortOrder?: number;
 };
 
+type CategoryCreateInput = {
+  label: string;
+  emoji: string;
+  active: boolean;
+  sortOrder: number;
+};
+
+function parseCategorySortOrder(raw: string): number | undefined {
+  const trimmed = raw.trim();
+  if (trimmed === "") return undefined;
+  const parsed = Number.parseInt(trimmed, 10);
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
+
 type AdminEventCategoryRowProps = {
   category: EventCategory;
   isPending: boolean;
@@ -169,8 +183,7 @@ const AdminEventCategoryRow = ({
     setSortOrder(String(category.sort_order ?? ""));
   }, [category.emoji, category.label, category.sort_order]);
 
-  const parsedSortOrder = sortOrder.trim() === "" ? undefined : Number.parseInt(sortOrder, 10);
-  const normalizedSortOrder = Number.isFinite(parsedSortOrder) ? parsedSortOrder : undefined;
+  const normalizedSortOrder = parseCategorySortOrder(sortOrder);
   const isDirty =
     emoji.trim() !== category.emoji ||
     label.trim() !== category.label ||
@@ -227,10 +240,104 @@ const AdminEventCategoryRow = ({
   );
 };
 
+type AdminEventCategoryCreateRowProps = {
+  defaultSortOrder: number;
+  isPending: boolean;
+  onCancel: () => void;
+  onSave: (input: CategoryCreateInput) => void;
+};
+
+const AdminEventCategoryCreateRow = ({
+  defaultSortOrder,
+  isPending,
+  onCancel,
+  onSave,
+}: AdminEventCategoryCreateRowProps) => {
+  const [emoji, setEmoji] = useState("✨");
+  const [label, setLabel] = useState("");
+  const [sortOrder, setSortOrder] = useState(String(defaultSortOrder));
+  const [active, setActive] = useState(true);
+  const normalizedSortOrder = parseCategorySortOrder(sortOrder);
+  const canSave = !!label.trim() && !!emoji.trim() && normalizedSortOrder !== undefined;
+
+  return (
+    <div className="grid grid-cols-1 md:grid-cols-[72px_minmax(180px,1fr)_96px_120px_160px] gap-2 items-center rounded-lg border border-primary/40 bg-primary/10 p-2">
+      <Input
+        value={emoji}
+        onChange={(event) => setEmoji(event.target.value)}
+        className="h-9 bg-background/70 text-center"
+        aria-label="New category emoji"
+        maxLength={8}
+      />
+      <Input
+        value={label}
+        onChange={(event) => setLabel(event.target.value)}
+        className="h-9 bg-background/70"
+        aria-label="New category label"
+        placeholder="Category name"
+      />
+      <Input
+        type="number"
+        value={sortOrder}
+        onChange={(event) => setSortOrder(event.target.value)}
+        className="h-9 bg-background/70"
+        aria-label="New category sort order"
+      />
+      <div className="flex items-center gap-2">
+        <Switch
+          checked={active}
+          onCheckedChange={setActive}
+          disabled={isPending}
+          aria-label={`${active ? "Deactivate" : "Activate"} new category`}
+        />
+        <span className="text-xs text-muted-foreground">
+          {active ? "Active" : "Inactive"}
+        </span>
+      </div>
+      <div className="flex items-center justify-end gap-2">
+        <Button type="button" size="sm" variant="ghost" onClick={onCancel} disabled={isPending}>
+          Cancel
+        </Button>
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          disabled={!canSave || isPending}
+          onClick={() => {
+            if (normalizedSortOrder === undefined) return;
+            onSave({
+              label: label.trim(),
+              emoji: emoji.trim(),
+              active,
+              sortOrder: normalizedSortOrder,
+            });
+          }}
+        >
+          {isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : "Save"}
+        </Button>
+      </div>
+    </div>
+  );
+};
+
 const AdminEventCategoryManager = () => {
   const queryClient = useQueryClient();
   const { data: categories = [], isLoading } = useEventCategories({ includeInactive: true });
+  const [isOpen, setIsOpen] = useState(false);
+  const [showCreateRow, setShowCreateRow] = useState(false);
   const [pendingKey, setPendingKey] = useState<string | null>(null);
+  const activeCategoryCount = categories.filter((category) => category.active !== false).length;
+  const defaultSortOrder = useMemo(
+    () => categories.reduce((max, category) => Math.max(max, category.sort_order ?? 0), 0) + 10,
+    [categories],
+  );
+
+  const invalidateCategorySurfaces = () => {
+    queryClient.invalidateQueries({ queryKey: ["event-categories"] });
+    queryClient.invalidateQueries({ queryKey: ["admin-events"] });
+    queryClient.invalidateQueries({ queryKey: ["visible-events"] });
+    queryClient.invalidateQueries({ queryKey: ["events-discover"] });
+  };
 
   const updateCategory = useMutation({
     mutationFn: async (input: CategoryUpdateInput) => {
@@ -244,16 +351,43 @@ const AdminEventCategoryManager = () => {
       });
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["event-categories"] });
-      queryClient.invalidateQueries({ queryKey: ["admin-events"] });
-      queryClient.invalidateQueries({ queryKey: ["visible-events"] });
-      queryClient.invalidateQueries({ queryKey: ["events-discover"] });
+      invalidateCategorySurfaces();
       toast.success("Category updated");
     },
     onError: (error: unknown) => {
       toast.error(errorMessage(error, "Failed to update category"));
     },
     onSettled: () => setPendingKey(null),
+  });
+
+  const createCategory = useMutation({
+    mutationFn: async (input: CategoryCreateInput) => {
+      const payload = await callAdminRpc<{ category: { key: string } }>("admin_create_event_category", {
+        p_label: input.label,
+        p_emoji: input.emoji,
+        p_sort_order: input.sortOrder,
+      });
+
+      if (input.active === false && payload.category?.key) {
+        await callAdminRpc("admin_update_event_category", {
+          p_category_key: payload.category.key,
+          p_label: null,
+          p_emoji: null,
+          p_active: false,
+          p_sort_order: null,
+        });
+      }
+
+      return payload;
+    },
+    onSuccess: () => {
+      invalidateCategorySurfaces();
+      setShowCreateRow(false);
+      toast.success("Category created");
+    },
+    onError: (error: unknown) => {
+      toast.error(errorMessage(error, "Failed to create category"));
+    },
   });
 
   return (
@@ -265,29 +399,70 @@ const AdminEventCategoryManager = () => {
             Active categories appear in user filters and the admin event form. Existing events keep inactive category keys for history.
           </p>
         </div>
-        <Badge variant="outline" className="w-fit border-border">
-          {categories.filter((category) => category.active !== false).length} active
-        </Badge>
+        <div className="flex items-center gap-2">
+          <Badge variant="outline" className="w-fit border-border">
+            {activeCategoryCount} active
+          </Badge>
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            aria-expanded={isOpen}
+            onClick={() => setIsOpen((open) => !open)}
+            className="gap-2"
+          >
+            {isOpen ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+            {isOpen ? "Hide categories" : "Show categories"}
+          </Button>
+        </div>
       </div>
 
-      {isLoading ? (
-        <div className="h-20 rounded-lg bg-secondary/40 animate-pulse" />
-      ) : categories.length === 0 ? (
-        <p className="text-sm text-muted-foreground">No categories found. Create one from the event form.</p>
-      ) : (
+      {isOpen && (
         <div className="space-y-2">
-          {categories.map((category) => (
-            <AdminEventCategoryRow
-              key={category.key}
-              category={category}
-              isPending={updateCategory.isPending && pendingKey === category.key}
-              onSave={(input) => updateCategory.mutate(input)}
-              onToggleActive={(item) => updateCategory.mutate({
-                categoryKey: item.key,
-                active: item.active === false,
-              })}
-            />
-          ))}
+          {isLoading ? (
+            <div className="h-20 rounded-lg bg-secondary/40 animate-pulse" />
+          ) : (
+            <>
+              {categories.length === 0 ? (
+                <p className="rounded-lg border border-border/60 bg-secondary/20 px-3 py-4 text-sm text-muted-foreground">
+                  No categories found. Add one below.
+                </p>
+              ) : (
+                categories.map((category) => (
+                  <AdminEventCategoryRow
+                    key={category.key}
+                    category={category}
+                    isPending={updateCategory.isPending && pendingKey === category.key}
+                    onSave={(input) => updateCategory.mutate(input)}
+                    onToggleActive={(item) => updateCategory.mutate({
+                      categoryKey: item.key,
+                      active: item.active === false,
+                    })}
+                  />
+                ))
+              )}
+
+              {showCreateRow ? (
+                <AdminEventCategoryCreateRow
+                  defaultSortOrder={defaultSortOrder}
+                  isPending={createCategory.isPending}
+                  onCancel={() => setShowCreateRow(false)}
+                  onSave={(input) => createCategory.mutate(input)}
+                />
+              ) : (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setShowCreateRow(true)}
+                  className="gap-2"
+                >
+                  <Plus className="w-4 h-4" />
+                  Add category
+                </Button>
+              )}
+            </>
+          )}
         </div>
       )}
     </div>
@@ -944,8 +1119,6 @@ const AdminEventsPanel = () => {
         </div>
       </div>
 
-      <AdminEventCategoryManager />
-
       {/* Filter bar */}
       <div className="flex flex-wrap gap-3 items-center p-3 rounded-xl bg-secondary/20 border border-border">
         <Select value={statusFilter} onValueChange={setStatusFilter}>
@@ -1060,6 +1233,8 @@ const AdminEventsPanel = () => {
           </Table>
         </div>
       </div>
+
+      <AdminEventCategoryManager />
 
       {/* Modals */}
       <AdminConfirmDialog
