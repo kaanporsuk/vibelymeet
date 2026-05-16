@@ -28,9 +28,22 @@ test("web chat exits replace the chat route with matches", () => {
   assert.ok(webChatPage.includes("if (exiting) return null;"));
   // Still-mounted watchdog: replace (not assign) so the broken /chat entry is not left in history.
   assert.ok(webChatPage.includes("window.location.replace(MATCHES_ROUTE)"));
-  assert.match(
-    webChatPage,
-    /const returnToMatches = useCallback\(\(\) => \{\s*clearChatBackNavWatchdogs\(\);\s*setExiting\(true\);\s*flushSync\(\(\) => \{\s*navigate\(MATCHES_ROUTE, \{ replace: true \}\);\s*\}\);/s,
+  const returnIdx = webChatPage.indexOf("const returnToMatches = useCallback");
+  assert.ok(returnIdx >= 0, "returnToMatches callback present");
+  const returnChunk = webChatPage.slice(returnIdx, returnIdx + 1400);
+  assertSubstringsInOrder(
+    returnChunk,
+    [
+      "clearChatBackNavWatchdogs();",
+      "inputRef.current?.blur();",
+      "clearMobileKeyboardViewportStyle();",
+      "setExiting(true);",
+      "flushSync(() => {",
+      "navigate(MATCHES_ROUTE, { replace: true });",
+      "window.location.replace(MATCHES_ROUTE);",
+      "}, [navigate, clearChatBackNavWatchdogs, clearMobileKeyboardViewportStyle]);",
+    ],
+    "web returnToMatches",
   );
   assert.ok(webChatPage.includes("onBack={returnToMatches}"));
 

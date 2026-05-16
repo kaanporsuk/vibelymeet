@@ -209,3 +209,24 @@ test("match-call camera switching stays wired on web and native chat calls", () 
   assert.match(nativeActiveCallOverlay, /disabled=\{isFlippingCamera\}/);
   assert.match(nativeActiveCallOverlay, /name="camera-reverse"/);
 });
+
+test("match-call active voice controls stay vertically aligned on native and web", () => {
+  const webActiveCallOverlay = read("src/components/chat/ActiveCallOverlay.tsx");
+  const nativeActiveCallOverlay = read("apps/mobile/components/chat/ActiveCallOverlay.tsx");
+
+  assert.match(nativeActiveCallOverlay, /<Pressable onPress=\{onEndCall\} style=\{\[styles\.ringingEndBtn,/);
+  assert.match(nativeActiveCallOverlay, /<Pressable onPress=\{onEndCall\} style=\{\[styles\.voiceEndBtn,/);
+  assert.match(nativeActiveCallOverlay, /controlsRow: \{ flexDirection: 'row', alignItems: 'center'/);
+  assert.match(
+    nativeActiveCallOverlay,
+    /ringingEndBtn: \{ width: 56, height: 56, borderRadius: 28, justifyContent: 'center', alignItems: 'center', marginTop: spacing\.xl \}/,
+  );
+  assert.match(
+    nativeActiveCallOverlay,
+    /voiceEndBtn: \{ width: 56, height: 56, borderRadius: 28, justifyContent: 'center', alignItems: 'center' \}/,
+  );
+  assert.doesNotMatch(nativeActiveCallOverlay, /voiceEndBtn:[^\n]*marginTop/);
+
+  assert.match(webActiveCallOverlay, /<div className="flex items-center gap-6">/);
+  assert.match(webActiveCallOverlay, /className="w-14 h-14 rounded-full bg-destructive flex items-center justify-center"/);
+});

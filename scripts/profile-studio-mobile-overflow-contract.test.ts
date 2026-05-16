@@ -50,8 +50,13 @@ assert.match(
 );
 assert.match(
   profileStudio,
-  /const PROFILE_STUDIO_PROMPT_DRAWER_PROPS = \{\s*shouldScaleBackground: false,\s*fixed: false,\s*repositionInputs: true,\s*\} as const;/,
-  "Profile Studio prompt drawer should use non-fixed Vaul keyboard repositioning",
+  /const PROFILE_STUDIO_PROMPT_DRAWER_PROPS = \{\s*shouldScaleBackground: false,\s*fixed: true,\s*repositionInputs: false,\s*\} as const;/,
+  "Profile Studio prompt drawer should disable Vaul input repositioning and own keyboard layout directly",
+);
+assert.doesNotMatch(
+  profileStudio,
+  /const PROFILE_STUDIO_PROMPT_DRAWER_PROPS = \{[\s\S]*repositionInputs: true,[\s\S]*\} as const;/,
+  "Profile Studio prompt drawer must not re-enable Vaul's global input repositioner",
 );
 assert.equal(
   countMatches(profileStudio, /<Drawer \{\.\.\.PROFILE_STUDIO_DRAWER_PROPS\}/g),
@@ -106,6 +111,46 @@ assert.match(
 );
 assert.match(
   profileStudio,
+  /const \[promptDrawerKeyboardStyle, setPromptDrawerKeyboardStyle\] = useState<CSSProperties \| undefined>\(\);/,
+  "Prompt drawer should keep keyboard-time layout style in React state",
+);
+assert.match(
+  profileStudio,
+  /const promptDrawerStableViewportHeightRef = useRef<number \| null>\([\s\S]*Math\.max\(window\.visualViewport\?\.height \?\? 0, window\.innerHeight \?\? 0\)/,
+  "Prompt drawer should keep a stable pre-keyboard viewport baseline",
+);
+assert.match(
+  profileStudio,
+  /const updatePromptDrawerKeyboardStyle = useCallback\(\(\) => \{[\s\S]*const currentViewportHeight = viewport\?\.height \?\? 0;[\s\S]*const currentLayoutHeight = window\.innerHeight;[\s\S]*const stableViewportHeight =[\s\S]*promptDrawerStableViewportHeightRef\.current[\s\S]*const keyboardOverlap = Math\.max\([\s\S]*currentLayoutHeight - currentViewportHeight,[\s\S]*stableViewportHeight - currentViewportHeight,[\s\S]*viewport\.offsetTop \+ PROFILE_STUDIO_PROMPT_KEYBOARD_GAP_PX[\s\S]*currentViewportHeight - PROFILE_STUDIO_PROMPT_KEYBOARD_GAP_PX/,
+  "Prompt drawer should derive focused keyboard layout from visualViewport bounds and stable baseline",
+);
+assert.match(
+  profileStudio,
+  /setPromptDrawerKeyboardStyle\(\{\s*top: `\$\{top\}px`,\s*bottom: "auto",\s*height: `\$\{height\}px`,\s*maxHeight: `\$\{height\}px`,\s*marginTop: 0,\s*\}\);/,
+  "Prompt drawer should apply top, bottom, height, maxHeight, and margin reset while the mobile keyboard is open",
+);
+assert.doesNotMatch(
+  profileStudio,
+  /Math\.max\(240,\s*viewport\.height/,
+  "Prompt drawer keyboard height should not exceed the measured visual viewport on very short screens",
+);
+assert.doesNotMatch(
+  profileStudio,
+  /viewport\.height - PROFILE_STUDIO_PROMPT_KEYBOARD_GAP_PX \* 2/,
+  "Prompt drawer should not leave a bottom gap that lets the page show above the keyboard",
+);
+assert.match(
+  profileStudio,
+  /const promptDrawerKeyboardStyleClearTimeoutRef = useRef<number \| null>\(null\);[\s\S]*const schedulePromptDrawerKeyboardStyleClear = useCallback/,
+  "Prompt drawer should delay keyboard-style clearing after blur so Save/Cancel taps do not race layout movement",
+);
+assert.match(
+  profileStudio,
+  /onBlur=\{\(\) => \{[\s\S]*clearPromptAnswerNudges\(\);[\s\S]*schedulePromptDrawerKeyboardStyleClear\(\);[\s\S]*\}\}/,
+  "Prompt answer blur should schedule keyboard-style cleanup instead of snapping the drawer immediately",
+);
+assert.match(
+  profileStudio,
   /const clearPromptAnswerNudges = useCallback\(\(\) => \{[\s\S]*window\.cancelAnimationFrame\(promptAnswerNudgeRafRef\.current\);[\s\S]*window\.clearTimeout\(timeoutId\);/,
   "Prompt drawer should cancel queued visibility nudges on close/unmount",
 );
@@ -116,6 +161,11 @@ assert.match(
 );
 assert.match(
   profileStudio,
+  /promptDrawerStableViewportHeightRef\.current = Math\.max\([\s\S]*window\.visualViewport\?\.height \?\? 0,[\s\S]*window\.innerHeight \?\? 0,[\s\S]*updatePromptDrawerKeyboardStyle\(\);[\s\S]*const alignAnswer = \(\) => \{[\s\S]*updatePromptDrawerKeyboardStyle\(\);[\s\S]*const bodyRect = body\.getBoundingClientRect\(\);/,
+  "Prompt drawer should refresh visual-viewport-owned layout during focus and delayed answer nudges",
+);
+assert.match(
+  profileStudio,
   /viewport\?\.addEventListener\("resize", handlePromptViewportChange\);[\s\S]*viewport\?\.addEventListener\("scroll", handlePromptViewportChange\);/,
   "Prompt drawer should re-check answer visibility when the mobile visual viewport changes",
 );
@@ -123,6 +173,11 @@ assert.match(
   profileStudio,
   /ref=\{promptAnswerFieldRef\}[\s\S]*onFocus=\{nudgePromptAnswerIntoView\}/,
   "Prompt answer textarea should nudge itself into view on focus",
+);
+assert.match(
+  profileStudio,
+  /<DrawerContent className=\{PROFILE_STUDIO_DRAWER_CONTENT_CLASS\} style=\{promptDrawerKeyboardStyle\}>/,
+  "Prompt drawer content should receive the keyboard-time visual viewport style",
 );
 
 assert.match(

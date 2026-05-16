@@ -78,7 +78,7 @@ export function ActiveCallOverlay({
           </View>
           <VibelyText variant="titleMD" style={{ color: theme.text }}>Calling {partnerName}...</VibelyText>
           <VibelyText variant="body" style={{ color: theme.textSecondary }}>{callType === 'video' ? 'Video call' : 'Voice call'}</VibelyText>
-          <Pressable onPress={onEndCall} style={[styles.endBtn, { backgroundColor: theme.danger }]}>
+          <Pressable onPress={onEndCall} style={[styles.ringingEndBtn, { backgroundColor: theme.danger }]}>
             <Ionicons name="call" size={24} color="#fff" style={{ transform: [{ rotate: '135deg' }] }} />
           </Pressable>
         </View>
@@ -104,7 +104,7 @@ export function ActiveCallOverlay({
             <Pressable onPress={onToggleMute} style={[styles.controlBtn, { backgroundColor: isMuted ? withAlpha(theme.danger, 0.19) : theme.surfaceSubtle }]}>
               <Ionicons name={isMuted ? 'mic-off' : 'mic'} size={24} color={theme.text} />
             </Pressable>
-            <Pressable onPress={onEndCall} style={[styles.endBtn, { backgroundColor: theme.danger }]}>
+            <Pressable onPress={onEndCall} style={[styles.voiceEndBtn, { backgroundColor: theme.danger }]}>
               <Ionicons name="call" size={24} color="#fff" style={{ transform: [{ rotate: '135deg' }] }} />
             </Pressable>
           </View>
@@ -218,7 +218,8 @@ const styles = StyleSheet.create({
   duration: { marginBottom: spacing.xl },
   controlsRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.lg },
   controlBtn: { width: 48, height: 48, borderRadius: 24, justifyContent: 'center', alignItems: 'center' },
-  endBtn: { width: 56, height: 56, borderRadius: 28, justifyContent: 'center', alignItems: 'center', marginTop: spacing.xl },
+  ringingEndBtn: { width: 56, height: 56, borderRadius: 28, justifyContent: 'center', alignItems: 'center', marginTop: spacing.xl },
+  voiceEndBtn: { width: 56, height: 56, borderRadius: 28, justifyContent: 'center', alignItems: 'center' },
   videoBackdrop: { flex: 1, backgroundColor: '#000' },
   placeholderRemote: { justifyContent: 'center', alignItems: 'center' },
   durationPill: { position: 'absolute', top: 50, alignSelf: 'center', paddingHorizontal: 12, paddingVertical: 6, borderRadius: radius.pill, zIndex: 10 },
