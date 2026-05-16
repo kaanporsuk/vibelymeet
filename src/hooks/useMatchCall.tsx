@@ -840,6 +840,7 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
       clearRemoteReconnectGrace,
       clearRingingTimeout,
       endCall,
+      isReconnectingRef,
       refreshAllParticipantMedia,
       renderLocalMedia,
       renderRemoteMedia,

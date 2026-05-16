@@ -7,6 +7,7 @@ import {
   Pressable,
   FlatList,
   ListRenderItem,
+  Keyboard,
   KeyboardAvoidingView,
   Platform,
   ActivityIndicator,
@@ -18,6 +19,8 @@ import {
   InteractionManager,
   type AppStateStatus,
   type DimensionValue,
+  type KeyboardEvent,
+  type LayoutChangeEvent,
   type NativeSyntheticEvent,
   type NativeScrollEvent,
 } from 'react-native';
@@ -32,7 +35,6 @@ import { LinearGradient } from 'expo-linear-gradient';
 import * as WebBrowser from 'expo-web-browser';
 import {
   useAudioRecorder,
-  useAudioRecorderState,
   RecordingPresets,
   setAudioModeAsync,
   requestRecordingPermissionsAsync,
@@ -131,7 +133,13 @@ import {
 import { resolvePrimaryProfilePhotoPath } from '../../../../shared/profilePhoto/resolvePrimaryProfilePhotoPath';
 import { VibeClipSendOptionsSheet } from '@/components/chat/VibeClipSendOptionsSheet';
 import { trackVibeClipEvent } from '@/lib/vibeClipAnalytics';
-import { safeVideoPlayerCall } from '@/lib/expoVideoSafe';
+import {
+  attachSafeExpoSharedObjectPromise,
+  safeExpoSharedObjectAsync,
+  safeExpoSharedObjectCall,
+  safeExpoSharedObjectRead,
+  safeRemoveExpoSharedObjectSubscription,
+} from '@/lib/expoSharedObjectSafe';
 import { durationBucketFromSeconds, threadBucketFromCount } from '../../../../shared/chat/vibeClipAnalytics';
 import { outboxPhaseStatusLabel, type OutboxPayloadKind } from '../../../../shared/chat/outgoingStatusLabels';
 
@@ -516,22 +524,45 @@ function ChatVideoCardBody({
   });
 
   useEffect(() => {
-    const sub = player.addListener('statusChange', (payload) => {
-      if (payload.status === 'error') {
-        setHasError(true);
-        return;
-      }
-      if (payload.status === 'readyToPlay') {
-        setHasError(false);
-        setIsReady(true);
-      }
-    });
-    return () => sub.remove();
+    const sub = safeExpoSharedObjectCall(
+      () => player.addListener('statusChange', (payload) => {
+        if (payload.status === 'error') {
+          setHasError(true);
+          return;
+        }
+        if (payload.status === 'readyToPlay') {
+          setHasError(false);
+          setIsReady(true);
+        }
+      }),
+      {
+        label: 'chat.video.statusListener',
+        fallback: null,
+        swallowAll: true,
+      },
+    );
+    return () => safeRemoveExpoSharedObjectSubscription(sub, 'chat.video.statusListener.remove');
   }, [player]);
 
   useEffect(() => {
-    if (immersiveActive) safeVideoPlayerCall(() => player.pause());
+    if (!immersiveActive) return;
+    const result = safeExpoSharedObjectCall(() => player.pause(), {
+      label: 'chat.video.pause.immersive',
+      swallowAll: true,
+    });
+    attachSafeExpoSharedObjectPromise(result, undefined, 'chat.video.pause.immersive');
   }, [immersiveActive, player]);
+
+  useEffect(
+    () => () => {
+      const result = safeExpoSharedObjectCall(() => player.pause(), {
+        label: 'chat.video.pause.unmount',
+        swallowAll: true,
+      });
+      attachSafeExpoSharedObjectPromise(result, undefined, 'chat.video.pause.unmount');
+    },
+    [player],
+  );
 
   const durLabel =
     durationSec != null && durationSec > 0
@@ -694,7 +725,6 @@ export default function ChatThreadScreen() {
   const [photoViewer, setPhotoViewer] = useState<{ initialId: string } | null>(null);
   const [videoViewer, setVideoViewer] = useState<{ uri: string; poster?: string | null } | null>(null);
   const audioRecorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
-  const audioRecorderState = useAudioRecorderState(audioRecorder, 250);
   const voiceRecordStartedAtRef = useRef<number | null>(null);
   const voiceStopIntentRef = useRef<'send' | 'cancel' | null>(null);
   const voiceStopInFlightRef = useRef(false);
@@ -702,6 +732,7 @@ export default function ChatThreadScreen() {
   const screenMountedRef = useRef(true);
   const recordingRef = useRef(false);
   const [recording, setRecording] = useState(false);
+  const [voiceRecordingNowMs, setVoiceRecordingNowMs] = useState(() => Date.now());
   const [voiceError, setVoiceError] = useState<string | null>(null);
   const [videoError, setVideoError] = useState<string | null>(null);
   const [voiceReplyHint, setVoiceReplyHint] = useState(false);
@@ -709,9 +740,13 @@ export default function ChatThreadScreen() {
   const listRef = useRef<FlatList<ChatListRow>>(null);
   const inputRef = useRef<TextInput>(null);
   const [exiting, setExiting] = useState(false);
+  const exitingRef = useRef(false);
   const goToMatchesTimersRef = useRef<Array<ReturnType<typeof setTimeout>>>([]);
   const goToMatchesRafRef = useRef<number | null>(null);
   const goToMatchesInteractionRef = useRef<ReturnType<typeof InteractionManager.runAfterInteractions> | null>(null);
+  const stickySnapTimersRef = useRef<Array<ReturnType<typeof setTimeout>>>([]);
+  const stickySnapRafRef = useRef<number | null>(null);
+  const stickySnapUntilRef = useRef(0);
 
   const clearGoToMatchesScheduled = useCallback(() => {
     for (const t of goToMatchesTimersRef.current) clearTimeout(t);
@@ -745,6 +780,78 @@ export default function ChatThreadScreen() {
     recordingRef.current = recording;
   }, [recording]);
 
+  useEffect(() => {
+    exitingRef.current = exiting;
+  }, [exiting]);
+
+  useEffect(() => {
+    if (!recording) return;
+    setVoiceRecordingNowMs(Date.now());
+    const interval = setInterval(() => setVoiceRecordingNowMs(Date.now()), 250);
+    return () => clearInterval(interval);
+  }, [recording]);
+
+  const readRecorderUriSafely = useCallback(() => {
+    return safeExpoSharedObjectRead(
+      () => {
+        const recorder = audioRecorder as unknown as { uri?: string | null };
+        return recorder.uri ?? null;
+      },
+      null,
+      'chat.recorder.uri',
+    );
+  }, [audioRecorder]);
+
+  const readRecorderCurrentTimeSafely = useCallback(() => {
+    return safeExpoSharedObjectRead(
+      () => {
+        const recorder = audioRecorder as unknown as { currentTime?: number };
+        return typeof recorder.currentTime === 'number' ? recorder.currentTime : 0;
+      },
+      0,
+      'chat.recorder.currentTime',
+    );
+  }, [audioRecorder]);
+
+  const stopRecorderSafely = useCallback(
+    async (label: string, swallowAll = false): Promise<boolean> => {
+      return await safeExpoSharedObjectAsync(
+        async () => {
+          await audioRecorder.stop();
+          return true;
+        },
+        {
+          label,
+          fallback: false,
+          swallowAll,
+        },
+      ) === true;
+    },
+    [audioRecorder],
+  );
+
+  const stopAndDiscardRecorder = useCallback(
+    async (label: string, swallowAll = true): Promise<void> => {
+      await stopRecorderSafely(label, swallowAll);
+      await discardTemporaryVoiceUri(readRecorderUriSafely());
+    },
+    [readRecorderUriSafely, stopRecorderSafely],
+  );
+
+  const cancelRecordingForExit = useCallback(() => {
+    if (voiceStopInFlightRef.current && voiceStopIntentRef.current === 'send') return;
+    if (!recordingRef.current) return;
+    voiceStopInFlightRef.current = true;
+    voiceStopIntentRef.current = 'cancel';
+    recordingRef.current = false;
+    voiceRecordStartedAtRef.current = null;
+    setRecording(false);
+    void stopAndDiscardRecorder('chat.audioRecorder.exit', true).finally(() => {
+      voiceStopIntentRef.current = null;
+      voiceStopInFlightRef.current = false;
+    });
+  }, [stopAndDiscardRecorder]);
+
   useEffect(
     () => {
       screenMountedRef.current = true;
@@ -759,37 +866,26 @@ export default function ChatThreadScreen() {
   useEffect(
     () => () => {
       if (voiceStopInFlightRef.current && voiceStopIntentRef.current === 'send') return;
-      if (!recordingRef.current && !audioRecorder.isRecording) return;
+      if (!recordingRef.current) return;
       voiceStopIntentRef.current = 'cancel';
+      recordingRef.current = false;
       voiceRecordStartedAtRef.current = null;
-      void audioRecorder
-        .stop()
-        .then(() => discardTemporaryVoiceUri(audioRecorder.uri))
-        .catch(() => undefined);
+      void stopAndDiscardRecorder('chat.audioRecorder.unmount', true);
     },
-    [audioRecorder],
+    [stopAndDiscardRecorder],
   );
 
   useEffect(() => {
     if (!exiting) return;
-    if (voiceStopInFlightRef.current && voiceStopIntentRef.current === 'send') return;
-    if (!recordingRef.current && !audioRecorder.isRecording) return;
-
-    voiceStopInFlightRef.current = true;
-    voiceStopIntentRef.current = 'cancel';
-    voiceRecordStartedAtRef.current = null;
-    void audioRecorder
-      .stop()
-      .then(() => discardTemporaryVoiceUri(audioRecorder.uri))
-      .catch(() => undefined)
-      .finally(() => {
-        voiceStopIntentRef.current = null;
-        voiceStopInFlightRef.current = false;
-      });
-  }, [audioRecorder, exiting]);
+    cancelRecordingForExit();
+  }, [cancelRecordingForExit, exiting]);
 
   /** Render-null instantly so the chat panel disappears, dismiss the stack, replace to matches, and unconditionally repeat at 300ms via a still-mounted watchdog. The cleanup effect cancels the timer on real unmount. */
   const goToMatches = useCallback(() => {
+    setPhotoViewer(null);
+    setVideoViewer(null);
+    cancelRecordingForExit();
+    exitingRef.current = true;
     setExiting(true);
     clearGoToMatchesScheduled();
 
@@ -815,7 +911,7 @@ export default function ChatThreadScreen() {
       goToMatchesInteractionRef.current = null;
       repeatExit();
     });
-  }, [clearGoToMatchesScheduled]);
+  }, [cancelRecordingForExit, clearGoToMatchesScheduled]);
 
   useFocusEffect(
     useCallback(() => {
@@ -941,19 +1037,97 @@ export default function ChatThreadScreen() {
     return Date.now() < userScrollIntentUntilRef.current;
   }, []);
 
-  const scrollListToEnd = useCallback((animated: boolean) => {
-    requestAnimationFrame(() => listRef.current?.scrollToEnd({ animated }));
+  const scrollListToEnd = useCallback((animated: boolean, shouldScroll?: () => boolean) => {
+    requestAnimationFrame(() => {
+      if (shouldScroll && !shouldScroll()) return;
+      listRef.current?.scrollToEnd({ animated });
+    });
   }, []);
 
+  const clearScheduledStickySnaps = useCallback(() => {
+    for (const t of stickySnapTimersRef.current) clearTimeout(t);
+    stickySnapTimersRef.current = [];
+    stickySnapUntilRef.current = 0;
+    if (stickySnapRafRef.current != null) {
+      cancelAnimationFrame(stickySnapRafRef.current);
+      stickySnapRafRef.current = null;
+    }
+  }, []);
+
+  const scheduleStickyListSnap = useCallback((animated = false) => {
+    if (!stickToBottomRef.current) return;
+    if (isListUserScrollIntentActive()) return;
+    clearScheduledStickySnaps();
+    stickySnapUntilRef.current = Date.now() + 650;
+
+    const snap = () => {
+      const stickySnapArmed = Date.now() < stickySnapUntilRef.current;
+      if (!stickToBottomRef.current && !stickySnapArmed) return;
+      if (isListUserScrollIntentActive()) return;
+      stickToBottomRef.current = true;
+      setAwayFromBottom(false);
+      setNewBelowCue(false);
+      scrollListToEnd(animated, () => stickToBottomRef.current && !isListUserScrollIntentActive());
+    };
+
+    stickySnapRafRef.current = requestAnimationFrame(() => {
+      stickySnapRafRef.current = null;
+      snap();
+    });
+    stickySnapTimersRef.current.push(
+      setTimeout(snap, 80),
+      setTimeout(snap, 180),
+      setTimeout(snap, 320),
+    );
+  }, [clearScheduledStickySnaps, isListUserScrollIntentActive, scrollListToEnd]);
+
+  useEffect(() => () => clearScheduledStickySnaps(), [clearScheduledStickySnaps]);
+
+  const handleStickyLayoutChange = useCallback((_event: LayoutChangeEvent) => {
+    scheduleStickyListSnap(false);
+  }, [scheduleStickyListSnap]);
+
+  const handleComposerFocus = useCallback(() => {
+    scheduleStickyListSnap(false);
+  }, [scheduleStickyListSnap]);
+
+  useEffect(() => {
+    const handleKeyboardFrame = (event: KeyboardEvent) => {
+      if (Platform.OS === 'ios') Keyboard.scheduleLayoutAnimation?.(event);
+      scheduleStickyListSnap(false);
+    };
+
+    const showSub = Keyboard.addListener(
+      Platform.OS === 'ios' ? 'keyboardWillChangeFrame' : 'keyboardDidShow',
+      handleKeyboardFrame,
+    );
+    const hideSub = Keyboard.addListener(
+      Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide',
+      handleKeyboardFrame,
+    );
+
+    return () => {
+      showSub.remove();
+      hideSub.remove();
+    };
+  }, [scheduleStickyListSnap]);
+
   const markListUserScrollIntent = useCallback(() => {
+    clearScheduledStickySnaps();
     userScrollIntentUntilRef.current = Date.now() + 1000;
     stickToBottomRef.current = false;
-  }, []);
+  }, [clearScheduledStickySnaps]);
 
   const settleListUserScrollIntent = useCallback((e: NativeSyntheticEvent<NativeScrollEvent>) => {
     const { contentOffset, layoutMeasurement, contentSize } = e.nativeEvent;
     const dist = Math.max(0, contentSize.height - layoutMeasurement.height - contentOffset.y);
     const atBottom = dist < 100;
+    const stickySnapArmed = Date.now() < stickySnapUntilRef.current && !isListUserScrollIntentActive();
+    if (!atBottom && stickySnapArmed) {
+      stickToBottomRef.current = true;
+      setAwayFromBottom(false);
+      return;
+    }
     stickToBottomRef.current = atBottom;
     setAwayFromBottom(dist > 140);
     if (atBottom) {
@@ -962,16 +1136,22 @@ export default function ChatThreadScreen() {
     } else {
       userScrollIntentUntilRef.current = Date.now() + 450;
     }
-  }, []);
+  }, [isListUserScrollIntentActive]);
 
   const listOnScroll = useCallback((e: NativeSyntheticEvent<NativeScrollEvent>) => {
     const { contentOffset, layoutMeasurement, contentSize } = e.nativeEvent;
     const dist = Math.max(0, contentSize.height - layoutMeasurement.height - contentOffset.y);
     const atBottom = dist < 100;
+    const stickySnapArmed = Date.now() < stickySnapUntilRef.current && !isListUserScrollIntentActive();
+    if (!atBottom && stickySnapArmed) {
+      stickToBottomRef.current = true;
+      setAwayFromBottom(false);
+      return;
+    }
     stickToBottomRef.current = atBottom;
     setAwayFromBottom(dist > 140);
     if (atBottom) setNewBelowCue(false);
-  }, []);
+  }, [isListUserScrollIntentActive]);
 
   const listOnContentSizeChange = useCallback(() => {
     if (displayMessages.length === 0 && !shellLoading) {
@@ -1307,26 +1487,54 @@ export default function ChatThreadScreen() {
     try {
       const { granted } = await requestRecordingPermissionsAsync();
       if (!granted) throw new Error('Permission denied');
-      if (!screenMountedRef.current) return;
+      if (!screenMountedRef.current || exitingRef.current) return;
       await setAudioModeAsync({ allowsRecording: true, playsInSilentMode: true });
-      if (!screenMountedRef.current) return;
-      await audioRecorder.prepareToRecordAsync();
-      if (!screenMountedRef.current) {
-        await audioRecorder.stop().catch(() => undefined);
-        await discardTemporaryVoiceUri(audioRecorder.uri);
+      if (!screenMountedRef.current || exitingRef.current) return;
+      const prepared = await safeExpoSharedObjectAsync(
+        async () => {
+          await audioRecorder.prepareToRecordAsync();
+          return true;
+        },
+        {
+          label: 'chat.recorder.prepare',
+          fallback: false,
+        },
+      );
+      if (prepared !== true) {
+        if (!screenMountedRef.current || exitingRef.current) return;
+        throw new Error('Could not prepare recording');
+      }
+      if (!screenMountedRef.current || exitingRef.current) {
+        await stopAndDiscardRecorder('chat.recorder.prepareUnmount', true);
         return;
       }
       voiceRecordStartedAtRef.current = Date.now();
-      audioRecorder.record();
-      if (!screenMountedRef.current) {
+      const didStart = safeExpoSharedObjectCall(
+        () => {
+          audioRecorder.record();
+          return true;
+        },
+        {
+          label: 'chat.recorder.record',
+          fallback: false,
+        },
+      );
+      if (didStart !== true) {
         voiceRecordStartedAtRef.current = null;
-        await audioRecorder.stop().catch(() => undefined);
-        await discardTemporaryVoiceUri(audioRecorder.uri);
+        if (!screenMountedRef.current || exitingRef.current) return;
+        throw new Error('Could not start recording');
+      }
+      if (!screenMountedRef.current || exitingRef.current) {
+        recordingRef.current = false;
+        voiceRecordStartedAtRef.current = null;
+        await stopAndDiscardRecorder('chat.recorder.recordUnmount', true);
         return;
       }
+      recordingRef.current = true;
       setRecording(true);
       setShowAttachmentTray(false);
     } catch (e) {
+      recordingRef.current = false;
       voiceRecordStartedAtRef.current = null;
       voiceStopIntentRef.current = null;
       if (!screenMountedRef.current) return;
@@ -1362,20 +1570,18 @@ export default function ChatThreadScreen() {
     if (voiceStopInFlightRef.current) return;
     voiceStopInFlightRef.current = true;
     voiceStopIntentRef.current = 'cancel';
+    recordingRef.current = false;
     setRecording(false);
     setVoiceError(null);
     voiceRecordStartedAtRef.current = null;
 
     try {
-      if (audioRecorder.isRecording || recordingRef.current) {
-        await audioRecorder.stop();
-      }
-      await discardTemporaryVoiceUri(audioRecorder.uri);
+      await stopAndDiscardRecorder('chat.recorder.cancel', true);
       if (!opts?.silent) {
         void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
       }
     } catch {
-      await discardTemporaryVoiceUri(audioRecorder.uri);
+      await discardTemporaryVoiceUri(readRecorderUriSafely());
     } finally {
       voiceStopIntentRef.current = null;
       voiceStopInFlightRef.current = false;
@@ -1390,22 +1596,23 @@ export default function ChatThreadScreen() {
     }
     voiceStopInFlightRef.current = true;
     voiceStopIntentRef.current = 'send';
+    recordingRef.current = false;
     setRecording(false);
     try {
-      await audioRecorder.stop();
+      const stopped = await stopRecorderSafely('chat.recorder.sendStop');
       if (voiceStopIntentRef.current !== 'send') {
-        await discardTemporaryVoiceUri(audioRecorder.uri);
+        await discardTemporaryVoiceUri(readRecorderUriSafely());
         return;
       }
-      const uri = audioRecorder.uri;
+      if (!stopped) throw new Error('Could not stop recording');
+      const uri = readRecorderUriSafely();
       if (!uri) throw new Error('No recording file');
       const elapsed =
         voiceRecordStartedAtRef.current != null
           ? (Date.now() - voiceRecordStartedAtRef.current) / 1000
           : 0;
       voiceRecordStartedAtRef.current = null;
-      const recAny = audioRecorder as { currentTime?: number };
-      const fromRecorder = typeof recAny.currentTime === 'number' ? recAny.currentTime : 0;
+      const fromRecorder = readRecorderCurrentTimeSafely();
       const durationSec = Math.max(1, Math.round(elapsed > 0.3 ? elapsed : fromRecorder > 0 ? fromRecorder : 1));
       const stable = await copyUriToChatOutboxCache(uri, extForPayload('voice'));
       const queuedId = enqueue({
@@ -1915,9 +2122,9 @@ export default function ChatThreadScreen() {
     !!composerMediaError && isOffline && isLikelyNetworkFailure({ message: composerMediaError });
   const voiceRecordingSeconds = recording
     ? Math.max(
-        Math.round((audioRecorderState.durationMillis ?? 0) / 1000),
+        0,
         voiceRecordStartedAtRef.current != null
-          ? Math.floor((Date.now() - voiceRecordStartedAtRef.current) / 1000)
+          ? Math.floor((voiceRecordingNowMs - voiceRecordStartedAtRef.current) / 1000)
           : 0,
       )
     : 0;
@@ -2566,7 +2773,7 @@ export default function ChatThreadScreen() {
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         keyboardVerticalOffset={Platform.OS === 'ios' ? 8 : 0}
       >
-        <View style={styles.listAndJumpWrap}>
+        <View style={styles.listAndJumpWrap} onLayout={handleStickyLayoutChange}>
         <FlatList
           ref={listRef}
           data={chatFlatRows}
@@ -2642,7 +2849,10 @@ export default function ChatThreadScreen() {
           </View>
         ) : null}
         </View>
-        <View style={[styles.contextualRow, { borderTopColor: 'rgba(255,255,255,0.06)', backgroundColor: CHAT_CANVAS_BG }]}>
+        <View
+          onLayout={handleStickyLayoutChange}
+          style={[styles.contextualRow, { borderTopColor: 'rgba(255,255,255,0.06)', backgroundColor: CHAT_CANVAS_BG }]}
+        >
           <Pressable
             onPress={() => {
               if (shellLoading) return;
@@ -2686,6 +2896,7 @@ export default function ChatThreadScreen() {
           </Pressable>
         </View>
         <View
+          onLayout={handleStickyLayoutChange}
           style={[
             styles.composerDockCol,
             {
@@ -2864,6 +3075,7 @@ export default function ChatThreadScreen() {
                 placeholderTextColor={theme.textSecondary}
                 value={input}
                 onChangeText={handleInputChange}
+                onFocus={handleComposerFocus}
                 multiline
                 blurOnSubmit={false}
                 maxLength={2000}

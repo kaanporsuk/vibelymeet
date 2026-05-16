@@ -19,7 +19,11 @@ import Animated, {
 import { Ionicons } from '@expo/vector-icons';
 import { useVideoPlayer, VideoView } from 'expo-video';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { safeVideoPlayerCall } from '@/lib/expoVideoSafe';
+import {
+  attachSafeExpoSharedObjectPromise,
+  safeExpoSharedObjectCall,
+  safeRemoveExpoSharedObjectSubscription,
+} from '@/lib/expoSharedObjectSafe';
 
 export type ChatThreadPhotoItem = { id: string; uri: string };
 
@@ -220,8 +224,8 @@ function VideoViewerBody({
 }
 
 /**
- * Isolated stage so `useVideoPlayer` + cleanup run per mount — preserves safeVideoPlayerCall teardown
- * and allows Try again to recreate the player after errors.
+ * Isolated stage so `useVideoPlayer` + cleanup run per mount, and Try again
+ * can recreate the player after errors.
  */
 function VideoViewerStage({
   uri,
@@ -242,29 +246,40 @@ function VideoViewerStage({
   });
 
   useEffect(() => {
-    const sub = player.addListener('statusChange', (payload) => {
-      if (payload.status === 'error') {
-        setPhase('error');
-        return;
-      }
-      if (payload.status === 'readyToPlay') {
-        setPhase('ready');
-      }
-      if (payload.status === 'loading') {
-        setPhase('loading');
-      }
-    });
-    return () => sub.remove();
+    const sub = safeExpoSharedObjectCall(
+      () => player.addListener('statusChange', (payload) => {
+        if (payload.status === 'error') {
+          setPhase('error');
+          return;
+        }
+        if (payload.status === 'readyToPlay') {
+          setPhase('ready');
+        }
+        if (payload.status === 'loading') {
+          setPhase('loading');
+        }
+      }),
+      {
+        label: 'chat.viewerVideo.statusListener',
+        fallback: null,
+        swallowAll: true,
+      },
+    );
+    return () => safeRemoveExpoSharedObjectSubscription(sub, 'chat.viewerVideo.statusListener.remove');
   }, [player]);
 
   useEffect(() => {
-    safeVideoPlayerCall(() => {
-      player.play();
+    const playResult = safeExpoSharedObjectCall(() => player.play(), {
+      label: 'chat.viewerVideo.play',
+      swallowAll: true,
     });
+    attachSafeExpoSharedObjectPromise(playResult, undefined, 'chat.viewerVideo.play');
     return () => {
-      safeVideoPlayerCall(() => {
-        player.pause();
+      const pauseResult = safeExpoSharedObjectCall(() => player.pause(), {
+        label: 'chat.viewerVideo.pause.unmount',
+        swallowAll: true,
       });
+      attachSafeExpoSharedObjectPromise(pauseResult, undefined, 'chat.viewerVideo.pause.unmount');
     };
   }, [player]);
 

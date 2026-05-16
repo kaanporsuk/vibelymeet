@@ -316,6 +316,7 @@ const Chat = () => {
   const [expandedPendingClusterKey, setExpandedPendingClusterKey] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const threadContentRef = useRef<HTMLDivElement>(null);
+  const composerChromeRef = useRef<HTMLDivElement>(null);
   const mainScrollRef = useRef<HTMLElement | null>(null);
   const stickToBottomRef = useRef(true);
   const userScrollIntentUntilRef = useRef(0);
@@ -333,6 +334,17 @@ const Chat = () => {
   const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const backNavWatchdogTimeoutsRef = useRef<number[]>([]);
   const backNavWatchdogRafRef = useRef<number | null>(null);
+  const stickyBottomSnapTimeoutsRef = useRef<number[]>([]);
+  const stickyBottomSnapRafRef = useRef<number | null>(null);
+  const stickyBottomSnapUntilRef = useRef(0);
+  const [visualViewportHeight, setVisualViewportHeight] = useState<number | null>(() => {
+    if (typeof window === "undefined") return null;
+    return window.visualViewport?.height ?? window.innerHeight ?? null;
+  });
+  const chatViewportStyle = useMemo(
+    () => (visualViewportHeight ? { height: `${visualViewportHeight}px` } : undefined),
+    [visualViewportHeight],
+  );
 
   const clearChatBackNavWatchdogs = useCallback(() => {
     if (typeof window === "undefined") return;
@@ -877,16 +889,23 @@ const Chat = () => {
   }, []);
 
   const suspendAutoStickForUserScroll = useCallback(() => {
+    stickyBottomSnapUntilRef.current = 0;
     userScrollIntentUntilRef.current = Date.now() + 900;
     stickToBottomRef.current = false;
   }, []);
 
   const updateBottomState = useCallback((distanceFromBottom: number) => {
     const atBottom = distanceFromBottom < 120;
+    const stickySnapArmed = Date.now() < stickyBottomSnapUntilRef.current && !isUserScrollIntentActive();
+    if (!atBottom && stickySnapArmed) {
+      stickToBottomRef.current = true;
+      setAwayFromBottom(false);
+      return;
+    }
     stickToBottomRef.current = atBottom;
     setAwayFromBottom(distanceFromBottom > 140);
     if (atBottom) setNewBelowCue(false);
-  }, []);
+  }, [isUserScrollIntentActive]);
 
   const scrollToBottom = useCallback((opts?: { instant?: boolean }) => {
     const el = mainScrollRef.current;
@@ -902,6 +921,78 @@ const Chat = () => {
     }
     messagesEndRef.current?.scrollIntoView({ block: "end", behavior: opts?.instant ? "auto" : "smooth" });
   }, []);
+
+  const clearScheduledStickyBottomSnaps = useCallback(() => {
+    if (typeof window === "undefined") return;
+    for (const t of stickyBottomSnapTimeoutsRef.current) window.clearTimeout(t);
+    stickyBottomSnapTimeoutsRef.current = [];
+    stickyBottomSnapUntilRef.current = 0;
+    if (stickyBottomSnapRafRef.current != null) {
+      window.cancelAnimationFrame(stickyBottomSnapRafRef.current);
+      stickyBottomSnapRafRef.current = null;
+    }
+  }, []);
+
+  const scheduleStickyBottomSnap = useCallback((opts?: { instant?: boolean }) => {
+    if (typeof window === "undefined") return;
+    if (!stickToBottomRef.current) return;
+    if (isUserScrollIntentActive()) return;
+    clearScheduledStickyBottomSnaps();
+    stickyBottomSnapUntilRef.current = Date.now() + 650;
+
+    const snap = () => {
+      const stickySnapArmed = Date.now() < stickyBottomSnapUntilRef.current;
+      if (!stickToBottomRef.current && !stickySnapArmed) return;
+      if (isUserScrollIntentActive()) return;
+      stickToBottomRef.current = true;
+      scrollToBottom({ instant: opts?.instant ?? true });
+    };
+
+    stickyBottomSnapRafRef.current = window.requestAnimationFrame(() => {
+      stickyBottomSnapRafRef.current = null;
+      snap();
+    });
+    stickyBottomSnapTimeoutsRef.current.push(
+      window.setTimeout(snap, 80),
+      window.setTimeout(snap, 180),
+      window.setTimeout(snap, 320),
+    );
+  }, [clearScheduledStickyBottomSnaps, isUserScrollIntentActive, scrollToBottom]);
+
+  useEffect(() => () => clearScheduledStickyBottomSnaps(), [clearScheduledStickyBottomSnaps]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const viewport = window.visualViewport;
+    const updateViewportHeight = () => {
+      const nextHeight = viewport?.height ?? window.innerHeight;
+      setVisualViewportHeight((prev) => {
+        if (prev != null && Math.abs(prev - nextHeight) < 1) return prev;
+        return nextHeight;
+      });
+      scheduleStickyBottomSnap({ instant: true });
+    };
+
+    updateViewportHeight();
+
+    if (viewport) {
+      viewport.addEventListener("resize", updateViewportHeight);
+      viewport.addEventListener("scroll", updateViewportHeight);
+    } else {
+      window.addEventListener("resize", updateViewportHeight);
+    }
+    window.addEventListener("orientationchange", updateViewportHeight);
+
+    return () => {
+      if (viewport) {
+        viewport.removeEventListener("resize", updateViewportHeight);
+        viewport.removeEventListener("scroll", updateViewportHeight);
+      } else {
+        window.removeEventListener("resize", updateViewportHeight);
+      }
+      window.removeEventListener("orientationchange", updateViewportHeight);
+    };
+  }, [scheduleStickyBottomSnap]);
 
   const onMainScroll = useCallback(() => {
     const el = mainScrollRef.current;
@@ -1055,8 +1146,8 @@ const Chat = () => {
   useEffect(() => {
     if (!stickToBottomRef.current) return;
     if (isUserScrollIntentActive()) return;
-    scrollToBottom();
-  }, [rowsWithLayout, isUserScrollIntentActive, scrollToBottom]);
+    scheduleStickyBottomSnap();
+  }, [rowsWithLayout, isUserScrollIntentActive, scheduleStickyBottomSnap]);
 
   useEffect(() => {
     const n = displayMessages.length;
@@ -1069,15 +1160,25 @@ const Chat = () => {
 
   useEffect(() => {
     const node = threadContentRef.current;
-    if (!node) return;
+    if (!node || typeof ResizeObserver === "undefined") return;
     const ro = new ResizeObserver(() => {
       if (!stickToBottomRef.current) return;
       if (isUserScrollIntentActive()) return;
-      scrollToBottom({ instant: true });
+      scheduleStickyBottomSnap({ instant: true });
     });
     ro.observe(node);
     return () => ro.disconnect();
-  }, [id, isLoadingChat, displayMessages.length, isUserScrollIntentActive, scrollToBottom]);
+  }, [id, isLoadingChat, displayMessages.length, isUserScrollIntentActive, scheduleStickyBottomSnap]);
+
+  useEffect(() => {
+    const node = composerChromeRef.current;
+    if (!node || typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(() => {
+      scheduleStickyBottomSnap({ instant: true });
+    });
+    ro.observe(node);
+    return () => ro.disconnect();
+  }, [scheduleStickyBottomSnap]);
 
   useEffect(() => {
     setExpandedPendingClusterKey(null);
@@ -1567,7 +1668,10 @@ const Chat = () => {
   if (exiting) return null;
 
   return (
-    <div className="h-[100dvh] bg-[#050508] flex justify-center relative overflow-hidden lg:px-4 lg:py-3">
+    <div
+      className="h-[100dvh] bg-[#050508] flex justify-center relative overflow-hidden lg:px-4 lg:py-3"
+      style={chatViewportStyle}
+    >
       <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_8%,hsl(var(--primary)/0.11),transparent_34%),linear-gradient(180deg,rgba(255,255,255,0.025),transparent_32%)] pointer-events-none" />
       <section className="relative z-10 flex h-full w-full max-w-6xl overflow-hidden bg-background/96 shadow-2xl shadow-black/35 ring-1 ring-border/45 lg:rounded-[1.75rem]">
         <div className="min-w-0 flex flex-1 flex-col">
@@ -1998,7 +2102,7 @@ const Chat = () => {
       </div>
 
       {/* Input Area */}
-      <div className="relative z-40 shrink-0">
+      <div ref={composerChromeRef} className="relative z-40 shrink-0">
         <DateSuggestionChip
           visible={showDateSuggestion}
           onSuggest={handleOpenDateComposerFromChip}
@@ -2121,6 +2225,7 @@ const Chat = () => {
                 placeholder="Message"
                 value={newMessage}
                 onChange={(e) => handleComposerChange(e.target.value)}
+                onFocus={() => scheduleStickyBottomSnap({ instant: false })}
                 onKeyPress={handleKeyPress}
                 disabled={!hasActiveConversation || isRecording}
                 aria-label="Message"

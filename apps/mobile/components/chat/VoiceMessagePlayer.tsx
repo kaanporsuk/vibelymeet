@@ -1,8 +1,14 @@
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { View, Text, Pressable, StyleSheet, ActivityIndicator, type StyleProp, type ViewStyle } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { useAudioPlayer, useAudioPlayerStatus } from 'expo-audio';
+import { useAudioPlayer, type AudioStatus } from 'expo-audio';
 import Colors from '@/constants/Colors';
+import {
+  attachSafeExpoSharedObjectPromise,
+  safeExpoSharedObjectCall,
+  safeExpoSharedObjectRead,
+  safeRemoveExpoSharedObjectSubscription,
+} from '@/lib/expoSharedObjectSafe';
 import { refreshCachedChatMediaUrl } from '@/lib/chatMediaResolver';
 import { waveformHeightsFromSeed } from '../../../../shared/chat/voiceWaveformSeed';
 
@@ -25,6 +31,26 @@ export type VoiceMessagePlayerProps = {
   wrapStyle?: StyleProp<ViewStyle>;
 };
 
+type SafeAudioStatus = Partial<AudioStatus> & { error?: unknown };
+
+const EMPTY_AUDIO_STATUS: SafeAudioStatus = {
+  currentTime: 0,
+  duration: 0,
+  playing: false,
+  isBuffering: false,
+};
+
+function readAudioPlayerStatusSafely(player: unknown): SafeAudioStatus {
+  return safeExpoSharedObjectRead(
+    () => {
+      const currentStatus = (player as { currentStatus?: AudioStatus | null }).currentStatus;
+      return currentStatus ?? EMPTY_AUDIO_STATUS;
+    },
+    EMPTY_AUDIO_STATUS,
+    'voice.player.currentStatus',
+  );
+}
+
 /**
  * Voice bubble player: idle state never shows misleading 0:00 as “elapsed”; uses DB duration when known.
  */
@@ -43,9 +69,9 @@ export function VoiceMessagePlayer({
   const refreshAttemptedForUriRef = useRef<string | null>(null);
   const pendingPlayAfterRefreshRef = useRef(false);
   const player = useAudioPlayer(playableUri);
-  const status = useAudioPlayerStatus(player);
+  const [status, setStatus] = useState<SafeAudioStatus>(() => readAudioPlayerStatusSafely(player));
   const [hasError, setHasError] = useState(false);
-  const playing = status.playing;
+  const playing = status.playing === true;
   const positionRaw = status.currentTime ?? 0;
   const fromDb = durationSeconds != null && durationSeconds > 0 ? durationSeconds : 0;
   const fromPlayer = status.duration != null && status.duration > 0 ? status.duration : 0;
@@ -70,6 +96,31 @@ export function VoiceMessagePlayer({
   const statusError = (status as { error?: unknown }).error;
 
   useEffect(() => {
+    setStatus(readAudioPlayerStatusSafely(player));
+    const sub = safeExpoSharedObjectCall(
+      () => player.addListener('playbackStatusUpdate', (nextStatus) => {
+        setStatus(nextStatus);
+      }),
+      {
+        label: 'voice.player.statusListener',
+        fallback: null,
+        swallowAll: true,
+      },
+    );
+    return () => safeRemoveExpoSharedObjectSubscription(sub, 'voice.player.statusListener.remove');
+  }, [player]);
+
+  useEffect(
+    () => () => {
+      safeExpoSharedObjectCall(() => player.pause(), {
+        label: 'voice.player.pause.unmount',
+        swallowAll: true,
+      });
+    },
+    [player],
+  );
+
+  useEffect(() => {
     setPlayableUri(uri);
     setHasError(false);
     refreshAttemptedForUriRef.current = null;
@@ -91,16 +142,23 @@ export function VoiceMessagePlayer({
   }, [messageId, sourceRef]);
 
   const playCurrent = useCallback((): boolean => {
-    try {
-      const result = (player.play as () => unknown)();
-      if (result && typeof (result as Promise<void>).catch === 'function') {
-        void (result as Promise<void>).catch(() => setHasError(true));
-      }
-      return true;
-    } catch {
+    const didCall = safeExpoSharedObjectCall(
+      () => {
+        const result = (player.play as () => unknown)();
+        attachSafeExpoSharedObjectPromise(result, () => setHasError(true), 'voice.player.play.async');
+        return true;
+      },
+      {
+        label: 'voice.player.play',
+        fallback: false,
+        swallowAll: true,
+      },
+    );
+    if (didCall !== true) {
       setHasError(true);
       return false;
     }
+    return true;
   }, [player]);
 
   const refreshAndQueuePlay = useCallback(async (): Promise<boolean> => {
@@ -123,9 +181,11 @@ export function VoiceMessagePlayer({
     if (!statusError) return;
     if (messageId && sourceRef && refreshAttemptedForUriRef.current !== playableUri) {
       refreshAttemptedForUriRef.current = playableUri;
-      void refreshUri().then((fresh) => {
-        if (!fresh || fresh === playableUri) setHasError(true);
-      });
+      void refreshUri()
+        .then((fresh) => {
+          if (!fresh || fresh === playableUri) setHasError(true);
+        })
+        .catch(() => setHasError(true));
       return;
     }
     setHasError(true);
@@ -138,28 +198,42 @@ export function VoiceMessagePlayer({
   }, [playCurrent, playableUri]);
 
   const toggle = async () => {
-    try {
-      let result: unknown;
-      if (playing) {
-        result = player.pause();
-      } else if (hasError) {
-        await refreshAndQueuePlay();
-        return;
-      } else {
+    const shouldAttemptRefresh = !playing && !hasError && messageId && sourceRef && refreshAttemptedForUriRef.current !== playableUri;
+
+    const didCall = safeExpoSharedObjectCall(
+      () => {
+        if (playing) {
+          const result = player.pause();
+          attachSafeExpoSharedObjectPromise(result, () => setHasError(true), 'voice.player.pause.async');
+          return true;
+        } else if (hasError) {
+          void refreshAndQueuePlay().catch(() => setHasError(true));
+          return true;
+        }
+
         setHasError(false);
-        result = player.play();
-      }
-      if (result && typeof (result as Promise<void>).catch === 'function') {
-        void (result as Promise<void>).catch(() => {
-          if (!playing && !hasError && messageId && sourceRef && refreshAttemptedForUriRef.current !== playableUri) {
-            refreshAttemptedForUriRef.current = playableUri;
-            void refreshAndQueuePlay();
-            return;
-          }
-          setHasError(true);
-        });
-      }
-    } catch {
+        const result = player.play();
+        attachSafeExpoSharedObjectPromise(
+          result,
+          () => {
+            if (shouldAttemptRefresh) {
+              refreshAttemptedForUriRef.current = playableUri;
+              void refreshAndQueuePlay().catch(() => setHasError(true));
+              return;
+            }
+            setHasError(true);
+          },
+          'voice.player.play.async',
+        );
+        return true;
+      },
+      {
+        label: playing ? 'voice.player.pause' : 'voice.player.play',
+        fallback: false,
+        swallowAll: true,
+      },
+    );
+    if (didCall !== true) {
       setHasError(true);
     }
   };

@@ -10,7 +10,11 @@ import { compactReactionLabel } from '../../../../shared/chat/messageReactionMod
 import { replyPromptForContext } from '../../../../shared/chat/vibeClipPrompts';
 import { CLIP_DATE_ACTION_HINT } from '../../../../shared/dateSuggestions/dateComposerLaunch';
 import { trackVibeClipEvent } from '@/lib/vibeClipAnalytics';
-import { safeVideoPlayerCall } from '@/lib/expoVideoSafe';
+import {
+  attachSafeExpoSharedObjectPromise,
+  safeExpoSharedObjectCall,
+  safeRemoveExpoSharedObjectSubscription,
+} from '@/lib/expoSharedObjectSafe';
 import { durationBucketFromSeconds, threadBucketFromCount } from '../../../../shared/chat/vibeClipAnalytics';
 
 type Props = {
@@ -71,28 +75,47 @@ function VibeClipCardInner({
   }, [meta.videoUrl]);
 
   useEffect(() => {
-    const sub = player.addListener('statusChange', (payload) => {
-      if (payload.status === 'error') {
-        setHasError(true);
-        return;
-      }
-      if (payload.status === 'readyToPlay') {
-        setHasError(false);
-        setIsReady(true);
-      }
-    });
-    return () => sub.remove();
+    const sub = safeExpoSharedObjectCall(
+      () => player.addListener('statusChange', (payload) => {
+        if (payload.status === 'error') {
+          setHasError(true);
+          return;
+        }
+        if (payload.status === 'readyToPlay') {
+          setHasError(false);
+          setIsReady(true);
+        }
+      }),
+      {
+        label: 'vibeClip.player.statusListener',
+        fallback: null,
+        swallowAll: true,
+      },
+    );
+    return () => safeRemoveExpoSharedObjectSubscription(sub, 'vibeClip.player.statusListener.remove');
   }, [player]);
 
   useEffect(() => {
-    if (immersiveActive) safeVideoPlayerCall(() => player.pause());
+    if (!immersiveActive) return;
+    const result = safeExpoSharedObjectCall(() => player.pause(), {
+      label: 'vibeClip.player.pause.immersive',
+      swallowAll: true,
+    });
+    attachSafeExpoSharedObjectPromise(result, undefined, 'vibeClip.player.pause.immersive');
   }, [immersiveActive, player]);
 
   useEffect(() => {
-    const sub = player.addListener('playingChange', (ev) => {
-      if (ev.isPlaying) setHasPlayed(true);
-    });
-    return () => sub.remove();
+    const sub = safeExpoSharedObjectCall(
+      () => player.addListener('playingChange', (ev) => {
+        if (ev.isPlaying) setHasPlayed(true);
+      }),
+      {
+        label: 'vibeClip.player.playingListener',
+        fallback: null,
+        swallowAll: true,
+      },
+    );
+    return () => safeRemoveExpoSharedObjectSubscription(sub, 'vibeClip.player.playingListener.remove');
   }, [player]);
 
   useEffect(() => {
@@ -101,31 +124,56 @@ function VibeClipCardInner({
   }, [meta.videoUrl]);
 
   useEffect(() => {
-    const sub1 = player.addListener('playingChange', (ev) => {
-      if (!ev.isPlaying || playStartTracked.current) return;
-      playStartTracked.current = true;
-      trackVibeClipEvent('clip_play_started', {
-        thread_bucket: threadBucketFromCount(threadMessageCount),
-        is_sender: isMine,
-        duration_bucket: durationBucketFromSeconds(meta.durationSec),
-        has_poster: !!meta.thumbnailUrl,
-      });
-    });
-    const sub2 = player.addListener('playToEnd', () => {
-      if (playCompleteTracked.current) return;
-      playCompleteTracked.current = true;
-      trackVibeClipEvent('clip_play_completed', {
-        thread_bucket: threadBucketFromCount(threadMessageCount),
-        is_sender: isMine,
-        duration_bucket: durationBucketFromSeconds(meta.durationSec),
-        has_poster: !!meta.thumbnailUrl,
-      });
-    });
+    const sub1 = safeExpoSharedObjectCall(
+      () => player.addListener('playingChange', (ev) => {
+        if (!ev.isPlaying || playStartTracked.current) return;
+        playStartTracked.current = true;
+        trackVibeClipEvent('clip_play_started', {
+          thread_bucket: threadBucketFromCount(threadMessageCount),
+          is_sender: isMine,
+          duration_bucket: durationBucketFromSeconds(meta.durationSec),
+          has_poster: !!meta.thumbnailUrl,
+        });
+      }),
+      {
+        label: 'vibeClip.player.analyticsPlayingListener',
+        fallback: null,
+        swallowAll: true,
+      },
+    );
+    const sub2 = safeExpoSharedObjectCall(
+      () => player.addListener('playToEnd', () => {
+        if (playCompleteTracked.current) return;
+        playCompleteTracked.current = true;
+        trackVibeClipEvent('clip_play_completed', {
+          thread_bucket: threadBucketFromCount(threadMessageCount),
+          is_sender: isMine,
+          duration_bucket: durationBucketFromSeconds(meta.durationSec),
+          has_poster: !!meta.thumbnailUrl,
+        });
+      }),
+      {
+        label: 'vibeClip.player.playToEndListener',
+        fallback: null,
+        swallowAll: true,
+      },
+    );
     return () => {
-      sub1.remove();
-      sub2.remove();
+      safeRemoveExpoSharedObjectSubscription(sub1, 'vibeClip.player.analyticsPlayingListener.remove');
+      safeRemoveExpoSharedObjectSubscription(sub2, 'vibeClip.player.playToEndListener.remove');
     };
   }, [player, isMine, threadMessageCount, meta.videoUrl, meta.durationSec, meta.thumbnailUrl]);
+
+  useEffect(
+    () => () => {
+      const result = safeExpoSharedObjectCall(() => player.pause(), {
+        label: 'vibeClip.player.pause.unmount',
+        swallowAll: true,
+      });
+      attachSafeExpoSharedObjectPromise(result, undefined, 'vibeClip.player.pause.unmount');
+    },
+    [player],
+  );
 
   const hasPrimary = !!onReplyWithClip || !!onVoiceReply;
   const hasSecondary = !!onSuggestDate || !!onReact;

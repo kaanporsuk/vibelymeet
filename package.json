@@ -30,6 +30,7 @@
     "test:request-reduction-contract": "tsx scripts/request-reduction-contract.test.ts",
     "test:chat-back-navigation": "tsx scripts/chat-back-navigation-contract.test.ts",
     "test:chat-scrollability": "tsx scripts/chat-scrollability-contract.test.ts",
+    "test:chat-native-lifecycle": "tsx scripts/chat-native-shared-object-lifecycle-contract.test.ts",
     "test:chat-overflow-actions": "tsx shared/chat/chatOverflowActionsContracts.test.ts",
     "test:chat-media-cache": "tsx scripts/chat-media-resolver-cache.test.ts",
     "test:vibe-clip-upload-contract": "tsx shared/chat/vibeClipUploadContracts.test.ts",

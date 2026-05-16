@@ -8,6 +8,11 @@ import { VideoView, useVideoPlayer } from 'expo-video';
 import { resolveVibeVideoStreamHostnameSync } from '@/lib/vibeVideoPlaybackUrl';
 import { vibeVideoDiagVerbose } from '@/lib/vibeVideoDiagnostics';
 import { trackVibeVideoEvent, VIBE_VIDEO_EVENTS } from '@/lib/vibeVideoTelemetry';
+import {
+  attachSafeExpoSharedObjectPromise,
+  safeExpoSharedObjectCall,
+  safeRemoveExpoSharedObjectSubscription,
+} from '@/lib/expoSharedObjectSafe';
 
 export type VibeVideoPlayerProps = {
   sourceUri: string;
@@ -84,79 +89,117 @@ export function VibeVideoPlayer({
         remote_hls: isRemoteHls,
       });
     }
-    player.replace(sourceUri);
+    const result = safeExpoSharedObjectCall(() => player.replace(sourceUri), {
+      label: 'vibeVideo.player.replace',
+      swallowAll: true,
+    });
+    attachSafeExpoSharedObjectPromise(result, undefined, 'vibeVideo.player.replace');
   }, [sourceUri, player, diagContext, isRemoteHls]);
 
   useEffect(() => {
+    const label = playing ? 'vibeVideo.player.play' : 'vibeVideo.player.pause';
     if (playing) {
-      void player.play();
+      const result = safeExpoSharedObjectCall(() => player.play(), {
+        label,
+        swallowAll: true,
+      });
+      attachSafeExpoSharedObjectPromise(result, undefined, label);
     } else {
-      player.pause();
+      const result = safeExpoSharedObjectCall(() => player.pause(), {
+        label,
+        swallowAll: true,
+      });
+      attachSafeExpoSharedObjectPromise(result, undefined, label);
     }
   }, [playing, player]);
 
   useEffect(() => {
-    const sub = player.addListener('statusChange', (payload) => {
-      const st = payload.status;
-      vibeVideoDiagVerbose('player.status_change', {
-        context: diagContext,
-        status: st,
-      });
-      if (st === 'readyToPlay') {
-        vibeVideoDiagVerbose('player.ready', {
+    const sub = safeExpoSharedObjectCall(
+      () => player.addListener('statusChange', (payload) => {
+        const st = payload.status;
+        vibeVideoDiagVerbose('player.status_change', {
           context: diagContext,
-          isRemoteHls,
+          status: st,
         });
-        if (!playbackSucceededRef.current) {
-          playbackSucceededRef.current = true;
-          trackVibeVideoEvent(VIBE_VIDEO_EVENTS.playbackSucceeded, {
-            source: diagContext,
-            remote_hls: isRemoteHls,
+        if (st === 'readyToPlay') {
+          vibeVideoDiagVerbose('player.ready', {
+            context: diagContext,
+            isRemoteHls,
           });
+          if (!playbackSucceededRef.current) {
+            playbackSucceededRef.current = true;
+            trackVibeVideoEvent(VIBE_VIDEO_EVENTS.playbackSucceeded, {
+              source: diagContext,
+              remote_hls: isRemoteHls,
+            });
+          }
         }
-      }
-      if (st !== 'error') return;
-      if (warnedRef.current) return;
-      warnedRef.current = true;
+        if (st !== 'error') return;
+        if (warnedRef.current) return;
+        warnedRef.current = true;
 
-      const { hostname, source: hostSource } = resolveVibeVideoStreamHostnameSync();
-      const urlKind = !sourceUri?.trim()
-        ? 'empty'
-        : !isRemoteHls
-          ? 'local_file'
-          : !sourceUri.includes('.m3u8')
-            ? 'remote_non_hls'
-            : 'remote_hls';
+        const { hostname, source: hostSource } = resolveVibeVideoStreamHostnameSync();
+        const urlKind = !sourceUri?.trim()
+          ? 'empty'
+          : !isRemoteHls
+            ? 'local_file'
+            : !sourceUri.includes('.m3u8')
+              ? 'remote_non_hls'
+              : 'remote_hls';
 
-      vibeVideoDiagVerbose('player.status_error', {
-        context: diagContext,
-        urlKind,
-        streamHostnameSource: hostSource,
-        streamHostnameSet: !!hostname,
-        status: st,
-        // expo-video may attach error details on the player in some versions
-        nativeError: typeof (payload as { error?: string }).error === 'string'
-          ? (payload as { error?: string }).error
-          : undefined,
-      });
-      trackVibeVideoEvent(VIBE_VIDEO_EVENTS.playbackFailed, {
-        source: diagContext,
-        kind: urlKind,
-        stream_hostname_source: hostSource,
-      });
+        vibeVideoDiagVerbose('player.status_error', {
+          context: diagContext,
+          urlKind,
+          streamHostnameSource: hostSource,
+          streamHostnameSet: !!hostname,
+          status: st,
+          // expo-video may attach error details on the player in some versions
+          nativeError: typeof (payload as { error?: string }).error === 'string'
+            ? (payload as { error?: string }).error
+            : undefined,
+        });
+        trackVibeVideoEvent(VIBE_VIDEO_EVENTS.playbackFailed, {
+          source: diagContext,
+          kind: urlKind,
+          stream_hostname_source: hostSource,
+        });
 
-      onPlayerFatalError?.();
-    });
-    return () => sub.remove();
+        onPlayerFatalError?.();
+      }),
+      {
+        label: 'vibeVideo.player.statusListener',
+        fallback: null,
+        swallowAll: true,
+      },
+    );
+    return () => safeRemoveExpoSharedObjectSubscription(sub, 'vibeVideo.player.statusListener.remove');
   }, [player, sourceUri, isRemoteHls, diagContext, onPlayerFatalError]);
 
   useEffect(() => {
     if (!onPlayToEnd) return;
-    const sub = player.addListener('playToEnd', () => {
-      onPlayToEnd();
-    });
-    return () => sub.remove();
+    const sub = safeExpoSharedObjectCall(
+      () => player.addListener('playToEnd', () => {
+        onPlayToEnd();
+      }),
+      {
+        label: 'vibeVideo.player.playToEndListener',
+        fallback: null,
+        swallowAll: true,
+      },
+    );
+    return () => safeRemoveExpoSharedObjectSubscription(sub, 'vibeVideo.player.playToEndListener.remove');
   }, [player, onPlayToEnd]);
+
+  useEffect(
+    () => () => {
+      const result = safeExpoSharedObjectCall(() => player.pause(), {
+        label: 'vibeVideo.player.pause.unmount',
+        swallowAll: true,
+      });
+      attachSafeExpoSharedObjectPromise(result, undefined, 'vibeVideo.player.pause.unmount');
+    },
+    [player],
+  );
 
   return (
     <>
