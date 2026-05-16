@@ -32,8 +32,11 @@ type ActiveCallOverlayProps = {
   localParticipant: DailyParticipant | null;
   remoteParticipant: DailyParticipant | null;
   getTrack: (p: DailyParticipant | undefined, kind: 'video' | 'audio') => import('@daily-co/react-native-webrtc').MediaStreamTrack | null;
+  canFlipCamera: boolean;
+  isFlippingCamera: boolean;
   onToggleMute: () => void;
   onToggleVideo: () => void;
+  onFlipCamera: () => void;
   onEndCall: () => void;
 };
 
@@ -50,8 +53,11 @@ export function ActiveCallOverlay({
   localParticipant,
   remoteParticipant,
   getTrack,
+  canFlipCamera,
+  isFlippingCamera,
   onToggleMute,
   onToggleVideo,
+  onFlipCamera,
   onEndCall,
 }: ActiveCallOverlayProps) {
   const theme = Colors[useColorScheme()];
@@ -173,6 +179,19 @@ export function ActiveCallOverlay({
               <Ionicons name="mic-off" size={12} color="#fff" />
             </View>
           )}
+          {canFlipCamera && !isVideoOff && localVideoTrack ? (
+            <Pressable
+              onPress={onFlipCamera}
+              disabled={isFlippingCamera}
+              accessibilityLabel="Switch camera"
+              style={({ pressed }) => [
+                styles.flipCameraBadge,
+                (pressed || isFlippingCamera) && { opacity: 0.72 },
+              ]}
+            >
+              <Ionicons name="camera-reverse" size={16} color="#fff" />
+            </Pressable>
+          ) : null}
         </View>
 
         {/* Controls */}
@@ -209,6 +228,20 @@ const styles = StyleSheet.create({
   pipPlaceholder: { justifyContent: 'center', alignItems: 'center' },
   pipPlaceholderText: { fontSize: 12 },
   muteBadge: { position: 'absolute', bottom: 4, right: 4, width: 20, height: 20, borderRadius: 10, justifyContent: 'center', alignItems: 'center', zIndex: 2 },
+  flipCameraBadge: {
+    position: 'absolute',
+    top: 6,
+    right: 6,
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: 'rgba(0,0,0,0.48)',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(255,255,255,0.18)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 3,
+  },
   controlsBar: { position: 'absolute', bottom: 40, left: 0, right: 0, flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: spacing.lg, zIndex: 10 },
   controlCircle: { width: 48, height: 48, borderRadius: 24, backgroundColor: 'rgba(255,255,255,0.25)', justifyContent: 'center', alignItems: 'center' },
   controlCircleMuted: { backgroundColor: 'rgba(239,68,68,0.8)' },

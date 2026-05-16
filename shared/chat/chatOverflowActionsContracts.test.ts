@@ -155,3 +155,57 @@ test("match-call end reason migrations preserve archive and block terminal reaso
   }
   assert.match(webActiveCallOverlay, /case "unmatched_pair":/);
 });
+
+test("match-call camera switching stays wired on web and native chat calls", () => {
+  const webMatchCallHook = read("src/hooks/useMatchCall.tsx");
+  const webActiveCallOverlay = read("src/components/chat/ActiveCallOverlay.tsx");
+  const webSelfViewPip = read("src/components/video-date/SelfViewPIP.tsx");
+  const nativeMatchCallHook = read("apps/mobile/lib/useMatchCall.tsx");
+  const nativeActiveCallOverlay = read("apps/mobile/components/chat/ActiveCallOverlay.tsx");
+
+  assert.match(webMatchCallHook, /navigator\.mediaDevices[\s\S]*enumerateDevices/);
+  assert.match(webMatchCallHook, /canFlipCamera/);
+  assert.match(webMatchCallHook, /isFlippingCamera/);
+  assert.match(webMatchCallHook, /const flipCamera = useCallback/);
+  assert.match(webMatchCallHook, /waitForWebCameraSwitchCommit/);
+  assert.match(webMatchCallHook, /chooseWebVideoDevice/);
+  assert.match(webMatchCallHook, /const currentDeviceId = before\.deviceId/);
+  assert.match(webMatchCallHook, /return currentDeviceId \? candidates\[0\] \?\? null : null/);
+  assert.match(webMatchCallHook, /localCamera\.readyState !== "live"/);
+  assert.match(webMatchCallHook, /before\.readyState !== "live"/);
+  assert.match(
+    webMatchCallHook,
+    /if \(live && \(trackChanged \|\| deviceChanged \|\| facingChanged \|\| expectedDeviceMatched \|\| expectedFacingMatched\)\)/,
+  );
+  assert.match(webMatchCallHook, /setInputDevicesAsync/);
+  assert.match(webMatchCallHook, /cycleCamera/);
+  assert.match(webMatchCallHook, /has_cycle_camera/);
+  assert.match(webMatchCallHook, /flip_camera_committed/);
+  assert.match(webActiveCallOverlay, /canFlipCamera=\{canFlipCamera\}/);
+  assert.match(webActiveCallOverlay, /isFlippingCamera=\{isFlippingCamera\}/);
+  assert.match(webActiveCallOverlay, /onFlipCamera=\{canFlipCamera \? onFlipCamera : undefined\}/);
+  assert.match(webSelfViewPip, /aria-label="Switch camera"/);
+  assert.match(webSelfViewPip, /<SwitchCamera/);
+
+  assert.match(nativeMatchCallHook, /const \[canFlipCamera, setCanFlipCamera\] = useState\(false\)/);
+  assert.match(nativeMatchCallHook, /enumerateDevices/);
+  assert.match(nativeMatchCallHook, /setCamera/);
+  assert.match(nativeMatchCallHook, /cycleCamera/);
+  assert.match(nativeMatchCallHook, /waitForNativeCameraSwitchCommit/);
+  assert.match(nativeMatchCallHook, /nativeCameraDeviceFacingMode/);
+  assert.match(nativeMatchCallHook, /localCamera\.readyState === 'live'/);
+  assert.match(nativeMatchCallHook, /before\.readyState !== 'live'/);
+  assert.match(
+    nativeMatchCallHook,
+    /if \(live && \(trackChanged \|\| deviceChanged \|\| facingChanged \|\| expectedFacingMatched\)\)/,
+  );
+  assert.match(nativeMatchCallHook, /has_cycle_camera/);
+  assert.match(nativeMatchCallHook, /flip_camera_committed/);
+  assert.match(nativeMatchCallHook, /canFlipCamera=\{canFlipCamera\}/);
+  assert.match(nativeMatchCallHook, /isFlippingCamera=\{isFlippingCamera\}/);
+  assert.match(nativeMatchCallHook, /onFlipCamera=\{flipCamera\}/);
+  assert.match(nativeActiveCallOverlay, /canFlipCamera && !isVideoOff && localVideoTrack/);
+  assert.match(nativeActiveCallOverlay, /accessibilityLabel="Switch camera"/);
+  assert.match(nativeActiveCallOverlay, /disabled=\{isFlippingCamera\}/);
+  assert.match(nativeActiveCallOverlay, /name="camera-reverse"/);
+});
