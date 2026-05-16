@@ -2,7 +2,7 @@
  * Profile Studio vibe editor — web parity: Choose Your Vibes, Energy + Social Style only
  * (see `src/pages/ProfileStudio.tsx` + web `VibeTagSelector` filtered categories).
  */
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Modal,
   View,
@@ -12,6 +12,7 @@ import {
   ScrollView,
   KeyboardAvoidingView,
   Platform,
+  ActivityIndicator,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useQueryClient } from '@tanstack/react-query';
@@ -42,6 +43,8 @@ export function VibePickerSheet({ visible, onClose, currentVibes, onSave }: Vibe
   const qc = useQueryClient();
 
   const [selected, setSelected] = useState<string[]>([]);
+  const [saving, setSaving] = useState(false);
+  const savingRef = useRef(false);
 
   useEffect(() => {
     if (!visible) return;
@@ -49,19 +52,6 @@ export function VibePickerSheet({ visible, onClose, currentVibes, onSave }: Vibe
     const next = (currentVibes ?? []).filter((v) => allowed.has(v));
     setSelected(next.slice(0, MAX));
   }, [visible, currentVibes]);
-
-  const energyOptions = useMemo(
-    () => PROFILE_VIBE_CATEGORIES[0].options.map((o) => o.label),
-    []
-  );
-  const socialOptions = useMemo(
-    () => PROFILE_VIBE_CATEGORIES[1].options.map((o) => o.label),
-    []
-  );
-
-  const hasEnergy = selected.some((v) => energyOptions.includes(v));
-  const hasSocial = selected.some((v) => socialOptions.includes(v));
-  const isValid = selected.length === MAX && hasEnergy && hasSocial;
 
   const toggle = useCallback(
     (label: string) => {
@@ -75,11 +65,18 @@ export function VibePickerSheet({ visible, onClose, currentVibes, onSave }: Vibe
   );
 
   const handleSave = async () => {
-    if (!isValid) return;
-    await updateMyProfile({ vibes: selected });
-    await qc.invalidateQueries({ queryKey: ['my-profile'] });
-    onSave?.();
-    onClose();
+    if (savingRef.current) return;
+    savingRef.current = true;
+    setSaving(true);
+    try {
+      await updateMyProfile({ vibes: selected });
+      await qc.invalidateQueries({ queryKey: ['my-profile'] });
+      onSave?.();
+      onClose();
+    } finally {
+      savingRef.current = false;
+      setSaving(false);
+    }
   };
 
   return (
@@ -107,12 +104,12 @@ export function VibePickerSheet({ visible, onClose, currentVibes, onSave }: Vibe
           >
             <Text style={[styles.title, { color: theme.text }]}>Choose Your Vibes</Text>
             <Text style={[styles.subtitle, { color: theme.textSecondary }]}>
-              Pick 5 that best describe how you connect.
+              Choose up to 5 that best describe how you connect.
             </Text>
 
             <View style={styles.ruleRow}>
               <Text style={[styles.ruleText, { color: theme.textSecondary }]}>
-                Pick 5 vibes — at least 1 Energy + 1 Social Style
+                Choose up to 5 vibes.
               </Text>
               <Text style={[styles.counter, { color: selected.length === MAX ? '#E84393' : theme.textSecondary }]}>
                 {selected.length}/{MAX}
@@ -159,8 +156,8 @@ export function VibePickerSheet({ visible, onClose, currentVibes, onSave }: Vibe
 
             <Pressable
               onPress={handleSave}
-              disabled={!isValid}
-              style={[styles.saveWrap, { opacity: !isValid ? 0.4 : 1 }]}
+              disabled={saving}
+              style={[styles.saveWrap, saving && { opacity: 0.6 }]}
             >
               <LinearGradient
                 colors={['#8B5CF6', '#E84393']}
@@ -168,7 +165,11 @@ export function VibePickerSheet({ visible, onClose, currentVibes, onSave }: Vibe
                 end={{ x: 1, y: 0 }}
                 style={styles.saveGradient}
               >
-                <Text style={styles.saveText}>Save Vibes</Text>
+                {saving ? (
+                  <ActivityIndicator color="#fff" />
+                ) : (
+                  <Text style={styles.saveText}>Save Vibes</Text>
+                )}
               </LinearGradient>
             </Pressable>
 

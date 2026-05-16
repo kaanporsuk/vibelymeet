@@ -1527,7 +1527,7 @@ const ProfileStudio = () => {
         <DrawerContent className={PROFILE_STUDIO_DRAWER_CONTENT_CLASS}>
           <DrawerHeader>
             <DrawerTitle className="font-display">Choose Your Vibes</DrawerTitle>
-            <DrawerDescription>Pick 5 that best describe how you connect.</DrawerDescription>
+            <DrawerDescription>Choose up to 5 that best describe how you connect.</DrawerDescription>
           </DrawerHeader>
           <div className={PROFILE_STUDIO_DRAWER_BODY_CLASS}>
             <VibeTagSelector
