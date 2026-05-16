@@ -73,13 +73,6 @@ const VibeTagCloud = ({ selectedTags, onTagsChange, maxTags = 5 }: VibeTagCloudP
 
   const isMaxReached = selectedTags.length >= maxTags;
 
-  const hasEnergy = selectedTags.some((s) =>
-    allTags.some((t) => t.label === s && t.category === "energy")
-  );
-  const hasSocialStyle = selectedTags.some((s) =>
-    allTags.some((t) => t.label === s && t.category === "social_style")
-  );
-
   const grouped = categoryOrder.map((cat) => ({
     key: cat,
     ...categoryConfig[cat],
@@ -103,7 +96,7 @@ const VibeTagCloud = ({ selectedTags, onTagsChange, maxTags = 5 }: VibeTagCloudP
       </div>
 
       <p className="text-xs text-muted-foreground text-center">
-        Pick 5 vibes — at least 1 Energy + 1 Social Style
+        Choose up to 5 vibes. You can also save with none selected.
       </p>
 
       {isLoading ? (
@@ -173,11 +166,11 @@ const VibeTagCloud = ({ selectedTags, onTagsChange, maxTags = 5 }: VibeTagCloudP
         animate={{ opacity: 1 }}
         className="text-center text-xs text-muted-foreground"
       >
-        {isMaxReached && hasEnergy && hasSocialStyle
-          ? "✨ Perfect! These vibes define you. Tap again to change."
-          : isMaxReached && (!hasEnergy || !hasSocialStyle)
-            ? "⚠️ Pick at least 1 Energy + 1 Social Style vibe"
-            : `Select ${maxTags - selectedTags.length} more to unlock better matches`
+        {isMaxReached
+          ? "You've chosen 5 vibes. Tap again to change."
+          : selectedTags.length === 0
+            ? "Save with no vibes, or choose a few to personalize your profile."
+            : `You can choose ${maxTags - selectedTags.length} more.`
         }
       </motion.p>
 

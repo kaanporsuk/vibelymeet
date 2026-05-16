@@ -95,7 +95,7 @@ export const VibeTagSelector = ({
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <p className="text-sm text-muted-foreground">Pick 5 vibes — at least 1 Energy + 1 Social Style</p>
+        <p className="text-sm text-muted-foreground">Choose up to 5 vibes.</p>
         <span
           className={cn(
             "text-sm font-medium",

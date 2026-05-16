@@ -60,7 +60,6 @@ const coachTexts = {
 // Completion thresholds
 const PHOTO_THRESHOLD = 3; // At least 3 photos
 const PROMPT_THRESHOLD = 2; // At least 2 prompts answered
-const VIBE_THRESHOLD = 5; // At least 5 vibes selected
 
 const ProfileWizard = ({ isOpen, onClose, onComplete, onOpenVibeStudio }: ProfileWizardProps) => {
   const { user } = useUserProfile();
@@ -111,14 +110,15 @@ const ProfileWizard = ({ isOpen, onClose, onComplete, onOpenVibeStudio }: Profil
   };
 
   // Check if section is complete
-  const isSectionComplete = (key: string, profilePhotos: string[], profilePrompts: Prompt[], profileVibes: string[], profileHasVideo: boolean) => {
+  const isSectionComplete = (key: string, profilePhotos: string[], profilePrompts: Prompt[], profileHasVideo: boolean) => {
     switch (key) {
       case "photos":
         return profilePhotos.filter(p => p !== "").length >= PHOTO_THRESHOLD;
       case "prompts":
         return profilePrompts.filter(p => p.answer && p.answer.trim().length > 0).length >= PROMPT_THRESHOLD;
       case "vibes":
-        return profileVibes.length >= VIBE_THRESHOLD;
+        // Vibes are optional: saving zero selected vibes is a valid profile state.
+        return true;
       case "video":
         return profileHasVideo;
       default:
@@ -175,7 +175,7 @@ const ProfileWizard = ({ isOpen, onClose, onComplete, onOpenVibeStudio }: Profil
 
         // Determine which steps are incomplete
         const incomplete = steps.filter(step => 
-          !isSectionComplete(step.key, loadedPhotos, loadedPrompts, loadedVibes, loadedHasVideo)
+          !isSectionComplete(step.key, loadedPhotos, loadedPrompts, loadedHasVideo)
         );
         
         setIncompleteSteps(incomplete);
@@ -218,7 +218,7 @@ const ProfileWizard = ({ isOpen, onClose, onComplete, onOpenVibeStudio }: Profil
     if (progress >= 100 && !isComplete && incompleteSteps.length > 0) {
       // Recheck if all sections are now complete
       const stillIncomplete = incompleteSteps.filter(step => 
-        !isSectionComplete(step.key, photos, prompts, vibes, hasVideo)
+        !isSectionComplete(step.key, photos, prompts, hasVideo)
       );
       
       if (stillIncomplete.length === 0) {
@@ -234,7 +234,7 @@ const ProfileWizard = ({ isOpen, onClose, onComplete, onOpenVibeStudio }: Profil
         }, 500);
       }
     }
-  }, [progress, isComplete, photos, prompts, vibes, hasVideo, incompleteSteps]);
+  }, [progress, isComplete, photos, prompts, hasVideo, incompleteSteps]);
 
   const getCoachText = () => {
     if (incompleteSteps.length === 0) {
@@ -310,7 +310,7 @@ const ProfileWizard = ({ isOpen, onClose, onComplete, onOpenVibeStudio }: Profil
       // Save all changes to the database
       await updateMyProfile({
         prompts: dbPrompts.length > 0 ? dbPrompts : undefined,
-        vibes: vibes.length > 0 ? vibes : undefined,
+        vibes,
       });
 
       const { data: photoResult, error: photoError } = await supabase.rpc("publish_photo_set", {
@@ -615,7 +615,7 @@ const ProfileWizard = ({ isOpen, onClose, onComplete, onOpenVibeStudio }: Profil
                                   .map(p => ({ question: p.question, answer: p.answer.trim() }));
                                 await updateMyProfile({
                                   prompts: dbPrompts.length > 0 ? dbPrompts : undefined,
-                                  vibes: vibes.length > 0 ? vibes : undefined,
+                                  vibes,
                                 });
                                 const { data: photoResult, error: photoError } = await supabase.rpc("publish_photo_set", {
                                   p_user_id: user.id,
