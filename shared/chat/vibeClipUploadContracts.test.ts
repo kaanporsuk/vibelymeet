@@ -115,6 +115,9 @@ test("web take-photo path opens in-app camera capture instead of upload picker",
   assert.match(webPhotoCamera, /facingMode:\s*opts\?\.exactFacingMode \? \{ exact: facingMode \} : \{ ideal: facingMode \}/);
   assert.match(webPhotoCamera, /function shouldRetryWithGenericCamera/);
   assert.match(webPhotoCamera, /name !== "NotAllowedError" && name !== "SecurityError"/);
+  assert.match(webPhotoCamera, /function facingModeFromStream\(stream: MediaStream, fallback: PhotoCameraFacingMode\)/);
+  assert.match(webPhotoCamera, /stream\.getVideoTracks\(\)\[0\]\?\.getSettings\?\.\(\)\.facingMode/);
+  assert.match(webPhotoCamera, /setFacingMode\(facingModeFromStream\(stream, nextFacingMode\)\)/);
   assert.match(webPhotoCamera, /getUserMedia\(\{\s*audio: false,\s*video: true/);
   assert.match(webPhotoCamera, /preserveExistingStream/);
   assert.match(webPhotoCamera, /previousStream\.getTracks\(\)\.forEach\(\(track\) => track\.stop\(\)\)/);
