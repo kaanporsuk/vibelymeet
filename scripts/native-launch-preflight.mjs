@@ -95,6 +95,7 @@ function main() {
   const info = [];
 
   const app = readResolvedExpoConfig(errors);
+  const previewApp = readResolvedExpoConfig(errors, "preview");
   const productionApp = readResolvedExpoConfig(errors, "production");
   if (app) {
     const iosId = app?.ios?.bundleIdentifier;
@@ -165,6 +166,13 @@ function main() {
       info.push(
         "UIScene manifest is currently single-scene only; keep the Apple UIScene lifecycle migration tracked for the next native-template pass.",
       );
+    }
+  }
+
+  if (previewApp) {
+    const previewOneSignalMode = pluginOptions(previewApp, "onesignal-expo-plugin").mode;
+    if (previewOneSignalMode !== "production") {
+      errors.push(`Preview OneSignal plugin mode expected production, got ${previewOneSignalMode}`);
     }
   }
 

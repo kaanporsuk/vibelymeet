@@ -362,23 +362,12 @@ const AdminEventCategoryManager = () => {
 
   const createCategory = useMutation({
     mutationFn: async (input: CategoryCreateInput) => {
-      const payload = await callAdminRpc<{ category: { key: string } }>("admin_create_event_category", {
+      return callAdminRpc<{ category: { key: string } }>("admin_create_event_category", {
         p_label: input.label,
         p_emoji: input.emoji,
         p_sort_order: input.sortOrder,
+        p_active: input.active,
       });
-
-      if (input.active === false && payload.category?.key) {
-        await callAdminRpc("admin_update_event_category", {
-          p_category_key: payload.category.key,
-          p_label: null,
-          p_emoji: null,
-          p_active: false,
-          p_sort_order: null,
-        });
-      }
-
-      return payload;
     },
     onSuccess: () => {
       invalidateCategorySurfaces();

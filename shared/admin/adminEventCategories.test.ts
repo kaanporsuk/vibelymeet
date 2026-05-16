@@ -58,6 +58,8 @@ test("admin events panel includes lightweight category manager", () => {
   assert.match(adminPanel, /AdminEventCategoryCreateRow/);
   assert.match(adminPanel, /Add category/);
   assert.match(adminPanel, /admin_create_event_category[\s\S]*p_sort_order: input\.sortOrder/);
+  assert.match(adminPanel, /admin_create_event_category[\s\S]*p_active: input\.active/);
+  assert.doesNotMatch(adminPanel, /input\.active === false[\s\S]*admin_update_event_category/);
   assert.doesNotMatch(adminPanel, /Create one from the event form/);
   assert.match(adminPanel, /searchParams\.get\("create"\) !== "event"/);
   assert.match(adminCreateEvent, /Navigate to="\/kaan\/dashboard\?panel=events&create=event"/);
