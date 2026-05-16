@@ -20,6 +20,16 @@ assert.equal(
 );
 assert.equal(__chatMediaUrlCacheSizeForTests(), 0);
 
+assert.equal(
+  await getCachedChatMediaUrl(
+    "550e8400-e29b-41d4-a716-446655440010",
+    "video",
+    "https://cdn.example.com/already-signed.mp4",
+  ),
+  "https://cdn.example.com/already-signed.mp4",
+);
+assert.equal(__chatMediaUrlCacheSizeForTests(), 0);
+
 let invokeCount = 0;
 __setChatMediaUrlIssuerForTests(async () => {
   invokeCount += 1;
@@ -75,7 +85,9 @@ try {
 const resolver = read("supabase/functions/get-chat-media-url/index.ts");
 const webBubble = read("src/components/chat/VoiceMessageBubble.tsx");
 const nativeBubble = read("apps/mobile/components/chat/VoiceMessagePlayer.tsx");
+const webMessagesHook = read("src/hooks/useMessages.ts");
 const nativeChat = read("apps/mobile/lib/chatApi.ts");
+const threadPage = read("supabase/functions/chat-thread-page/index.ts");
 
 assert.match(resolver, /syncChatMessageMedia/);
 assert.match(
@@ -88,5 +100,18 @@ assert.doesNotMatch(webBubble, /console\.error\("Audio failed to load:/);
 assert.match(nativeBubble, /refreshCachedChatMediaUrl/);
 assert.match(nativeBubble, /player\.play\(\)[\s\S]{0,600}refreshAndQueuePlay/);
 assert.match(nativeChat, /extras:\s*\{\s*httpSend:\s*true\s*\}/);
+assert.match(threadPage, /\.from\("media_assets"\)/);
+assert.match(threadPage, /date_suggestions/);
+assert.doesNotMatch(threadPage, /syncChatMessageMedia/);
+assert.match(threadPage, /function parseThreadPageCursor/);
+assert.match(threadPage, /\.order\("created_at", \{ ascending: false \}\)[\s\S]{0,120}\.order\("id", \{ ascending: false \}\)/);
+assert.match(threadPage, /created_at\.lt\.\$\{beforeCursor\.createdAt\},and\(created_at\.eq\.\$\{beforeCursor\.createdAt\},id\.lt\.\$\{beforeCursor\.id\}\)/);
+assert.match(threadPage, /next_cursor: rowsDesc\.length >= limit \? encodeThreadPageCursor/);
+assert.match(webMessagesHook, /function parseThreadPageCursor/);
+assert.match(webMessagesHook, /\.order\("created_at", \{ ascending: false \}\)[\s\S]{0,120}\.order\("id", \{ ascending: false \}\)/);
+assert.match(webMessagesHook, /for \(const page of chronologicalPages\) \{[\s\S]*page\.dateSuggestions/);
+assert.match(nativeChat, /for \(const page of chronologicalPages\) \{[\s\S]*page\.dateSuggestions/);
+assert.match(webMessagesHook, /query\.data\.dateSuggestions[\s\S]*byId\.set\(suggestion\.id, suggestion\)/);
+assert.match(nativeChat, /query\.data\.dateSuggestions[\s\S]*byId\.set\(suggestion\.id, suggestion\)/);
 
 console.log("chat-media-resolver-cache tests passed");

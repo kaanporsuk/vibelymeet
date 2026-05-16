@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Image, Pressable, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useVideoPlayer, VideoView } from 'expo-video';
@@ -34,14 +34,33 @@ type Props = {
   onRequestImmersive?: () => void;
   /** Pause inline preview while immersive viewer is open for this URL. */
   immersiveActive?: boolean;
+  /** Mount the native player only once the row is visible/near-visible or explicitly requested. */
+  shouldMountPlayer?: boolean;
   threadVisualRecede?: boolean;
 };
 
 type VibeClipCardInnerProps = Props & { onRemountPlayer: () => void };
+type VibeClipPosterProps = Props & { onRequestInlinePlay: () => void };
+type ClipPreviewState =
+  | 'poster_loading'
+  | 'poster_ready'
+  | 'player_loading'
+  | 'ready'
+  | 'buffering'
+  | 'failed';
 
 const ACCENT = 'rgba(139,92,246,1)';
 const ACCENT_DIM = 'rgba(139,92,246,0.55)';
 const SECONDARY = 'rgba(255,255,255,0.55)';
+const INLINE_CLIP_MIN_ASPECT_RATIO = 0.78;
+const INLINE_CLIP_MAX_ASPECT_RATIO = 1.2;
+const INLINE_CLIP_MAX_HEIGHT = 360;
+
+function cardAspectRatioForMeta(meta: VibeClipDisplayMeta): number {
+  return typeof meta.aspectRatio === 'number' && Number.isFinite(meta.aspectRatio) && meta.aspectRatio > 0
+    ? Math.max(INLINE_CLIP_MIN_ASPECT_RATIO, Math.min(INLINE_CLIP_MAX_ASPECT_RATIO, meta.aspectRatio))
+    : INLINE_CLIP_MIN_ASPECT_RATIO;
+}
 
 function VibeClipCardInner({
   meta,
@@ -61,7 +80,11 @@ function VibeClipCardInner({
   const theme = Colors[useColorScheme()];
   const [hasError, setHasError] = useState(false);
   const [isReady, setIsReady] = useState(false);
+  const [isBuffering, setIsBuffering] = useState(false);
   const [hasPlayed, setHasPlayed] = useState(false);
+  const [posterReady, setPosterReady] = useState(false);
+  const [posterFailed, setPosterFailed] = useState(false);
+  const [playRequested, setPlayRequested] = useState(false);
   const playStartTracked = useRef(false);
   const playCompleteTracked = useRef(false);
 
@@ -71,7 +94,12 @@ function VibeClipCardInner({
 
   useEffect(() => {
     setIsReady(false);
+    setIsBuffering(false);
     setHasError(false);
+    setHasPlayed(false);
+    setPosterReady(false);
+    setPosterFailed(false);
+    setPlayRequested(false);
   }, [meta.videoUrl]);
 
   useEffect(() => {
@@ -79,10 +107,13 @@ function VibeClipCardInner({
       () => player.addListener('statusChange', (payload) => {
         if (payload.status === 'error') {
           setHasError(true);
+          setIsBuffering(false);
           return;
         }
+        setIsBuffering(payload.status === 'loading');
         if (payload.status === 'readyToPlay') {
           setHasError(false);
+          setIsBuffering(false);
           setIsReady(true);
         }
       }),
@@ -94,6 +125,26 @@ function VibeClipCardInner({
     );
     return () => safeRemoveExpoSharedObjectSubscription(sub, 'vibeClip.player.statusListener.remove');
   }, [player]);
+
+  const playInline = useCallback(() => {
+    setPlayRequested(true);
+    setHasPlayed(true);
+    if (!isReady) return;
+    const result = safeExpoSharedObjectCall(() => player.play(), {
+      label: 'vibeClip.player.playInline',
+      swallowAll: true,
+    });
+    attachSafeExpoSharedObjectPromise(result, undefined, 'vibeClip.player.playInline');
+  }, [isReady, player]);
+
+  useEffect(() => {
+    if (!playRequested || !isReady) return;
+    const result = safeExpoSharedObjectCall(() => player.play(), {
+      label: 'vibeClip.player.playRequested',
+      swallowAll: true,
+    });
+    attachSafeExpoSharedObjectPromise(result, undefined, 'vibeClip.player.playRequested');
+  }, [isReady, playRequested, player]);
 
   useEffect(() => {
     if (!immersiveActive) return;
@@ -183,10 +234,23 @@ function VibeClipCardInner({
     showActions && sparkMessageId
       ? replyPromptForContext(threadMessageCount, sparkMessageId)
       : null;
-  const cardAspectRatio =
-    typeof meta.aspectRatio === 'number' && Number.isFinite(meta.aspectRatio) && meta.aspectRatio > 0
-      ? Math.max(0.5, Math.min(1.2, meta.aspectRatio))
-      : 9 / 16;
+  const cardAspectRatio = cardAspectRatioForMeta(meta);
+  const hasPosterVisual = !!meta.thumbnailUrl && (posterReady || posterFailed);
+  const previewState: ClipPreviewState = hasError
+    ? 'failed'
+    : isBuffering || (playRequested && !isReady)
+      ? 'buffering'
+      : isReady
+        ? 'ready'
+        : meta.thumbnailUrl && !posterReady && !posterFailed
+          ? 'poster_loading'
+          : hasPosterVisual
+            ? 'poster_ready'
+            : 'player_loading';
+  const showLoadingCopy =
+    previewState === 'poster_loading' || (previewState === 'player_loading' && !hasPosterVisual);
+  const showPlayAffordance =
+    !hasPlayed && !hasError && !showLoadingCopy && previewState !== 'buffering';
 
   return (
     <View
@@ -206,9 +270,15 @@ function VibeClipCardInner({
         </View>
       </View>
 
-      <View style={[styles.videoWrap, { aspectRatio: cardAspectRatio }]}>
+      <View style={[styles.videoWrap, { aspectRatio: cardAspectRatio, maxHeight: INLINE_CLIP_MAX_HEIGHT }]}>
         {meta.thumbnailUrl && !isReady && (
-          <Image source={{ uri: meta.thumbnailUrl }} style={StyleSheet.absoluteFillObject} resizeMode="cover" />
+          <Image
+            source={{ uri: meta.thumbnailUrl }}
+            style={StyleSheet.absoluteFillObject}
+            resizeMode="cover"
+            onLoad={() => setPosterReady(true)}
+            onError={() => setPosterFailed(true)}
+          />
         )}
         <VideoView
           style={[styles.video, hasError ? { opacity: 0 } : null]}
@@ -236,15 +306,37 @@ function VibeClipCardInner({
           </Pressable>
         ) : null}
 
-        {!isReady && !hasError && (
+        {showLoadingCopy ? (
           <View style={styles.loadingOverlay} pointerEvents="none">
             <View style={styles.loadingInner}>
               <ActivityIndicator color="rgba(255,255,255,0.92)" size="small" />
               <Text style={styles.loadingLabel}>Loading clip…</Text>
-              <Text style={styles.loadingHint}>Tap the video for controls when ready</Text>
             </View>
           </View>
-        )}
+        ) : null}
+
+        {previewState === 'buffering' ? (
+          <View style={styles.playOverlay} pointerEvents="none">
+            <View style={styles.playButton}>
+              <ActivityIndicator color="rgba(255,255,255,0.95)" size="small" />
+            </View>
+            <Text style={styles.playHint}>Preparing clip…</Text>
+          </View>
+        ) : null}
+
+        {showPlayAffordance ? (
+          <Pressable
+            onPress={playInline}
+            style={({ pressed }) => [styles.playOverlay, pressed && { opacity: 0.86 }]}
+            accessibilityRole="button"
+            accessibilityLabel="Play clip"
+          >
+            <View style={styles.playButton}>
+              <Ionicons name="play" size={24} color="rgba(255,255,255,0.96)" style={styles.playIcon} />
+            </View>
+            <Text style={styles.playHint}>Tap to play</Text>
+          </Pressable>
+        ) : null}
 
         {hasError ? (
           <View style={[styles.loadingOverlay, styles.clipErrorOverlay]}>
@@ -365,8 +457,107 @@ function VibeClipCardInner({
   );
 }
 
+function VibeClipCardPosterOnly({
+  meta,
+  isMine,
+  onRequestImmersive,
+  onRequestInlinePlay,
+  threadVisualRecede = false,
+}: VibeClipPosterProps) {
+  const [posterReady, setPosterReady] = useState(false);
+  const [posterFailed, setPosterFailed] = useState(false);
+  const cardAspectRatio = cardAspectRatioForMeta(meta);
+  const previewState: ClipPreviewState =
+    meta.thumbnailUrl && !posterReady && !posterFailed ? 'poster_loading' : 'poster_ready';
+
+  return (
+    <View
+      style={[
+        styles.outer,
+        {
+          borderColor: isMine ? ACCENT_DIM : 'rgba(255,255,255,0.14)',
+          backgroundColor: isMine ? 'rgba(139,92,246,0.06)' : 'rgba(255,255,255,0.04)',
+          opacity: threadVisualRecede ? 0.9 : 1,
+        },
+      ]}
+    >
+      <View style={styles.header}>
+        <View style={styles.brandPill}>
+          <Ionicons name="film-outline" size={10} color={ACCENT} />
+          <Text style={styles.brandLabel}>Clip</Text>
+        </View>
+      </View>
+
+      <View style={[styles.videoWrap, { aspectRatio: cardAspectRatio, maxHeight: INLINE_CLIP_MAX_HEIGHT }]}>
+        {meta.thumbnailUrl ? (
+          <Image
+            source={{ uri: meta.thumbnailUrl }}
+            style={StyleSheet.absoluteFillObject}
+            resizeMode="cover"
+            onLoad={() => setPosterReady(true)}
+            onError={() => setPosterFailed(true)}
+          />
+        ) : null}
+
+        {onRequestImmersive ? (
+          <Pressable
+            onPress={onRequestImmersive}
+            style={({ pressed }) => [
+              styles.expandBtn,
+              {
+                borderWidth: StyleSheet.hairlineWidth,
+                borderColor: 'rgba(255,255,255,0.18)',
+                backgroundColor: 'rgba(0,0,0,0.48)',
+              },
+              pressed && { opacity: 0.88 },
+            ]}
+            accessibilityLabel="Open clip full screen"
+            hitSlop={6}
+          >
+            <Ionicons name="expand-outline" size={20} color="rgba(255,255,255,0.95)" />
+          </Pressable>
+        ) : null}
+
+        {previewState === 'poster_loading' ? (
+          <View style={styles.loadingOverlay} pointerEvents="none">
+            <View style={styles.loadingInner}>
+              <ActivityIndicator color="rgba(255,255,255,0.92)" size="small" />
+              <Text style={styles.loadingLabel}>Loading clip…</Text>
+            </View>
+          </View>
+        ) : (
+          <Pressable
+            onPress={onRequestInlinePlay}
+            style={({ pressed }) => [styles.playOverlay, pressed && { opacity: 0.86 }]}
+            accessibilityRole="button"
+            accessibilityLabel="Play clip"
+          >
+            <View style={styles.playButton}>
+              <Ionicons name="play" size={24} color="rgba(255,255,255,0.96)" style={styles.playIcon} />
+            </View>
+            <Text style={styles.playHint}>Tap to play</Text>
+          </Pressable>
+        )}
+
+        <View style={styles.durationBadge}>
+          <Text style={styles.durationText}>{meta.durationLabel}</Text>
+        </View>
+      </View>
+    </View>
+  );
+}
+
 export function VibeClipCard(props: Props) {
   const [retryNonce, setRetryNonce] = useState(0);
+  const [forceMountPlayer, setForceMountPlayer] = useState(false);
+  useEffect(() => {
+    setForceMountPlayer(false);
+    setRetryNonce(0);
+  }, [props.meta.videoUrl]);
+  const shouldMountPlayer = props.shouldMountPlayer || forceMountPlayer;
+  if (!shouldMountPlayer) {
+    return <VibeClipCardPosterOnly {...props} onRequestInlinePlay={() => setForceMountPlayer(true)} />;
+  }
   return (
     <VibeClipCardInner
       key={`${props.meta.videoUrl}-${retryNonce}`}
@@ -442,6 +633,36 @@ const styles = StyleSheet.create({
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: 'rgba(139,92,246,0.28)',
     backgroundColor: 'rgba(0,0,0,0.52)',
+  },
+  playOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    backgroundColor: 'rgba(0,0,0,0.08)',
+  },
+  playButton: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(255,255,255,0.24)',
+    backgroundColor: 'rgba(0,0,0,0.58)',
+  },
+  playIcon: {
+    marginLeft: 3,
+  },
+  playHint: {
+    overflow: 'hidden',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 999,
+    color: 'rgba(255,255,255,0.88)',
+    backgroundColor: 'rgba(0,0,0,0.46)',
+    fontSize: 11,
+    fontWeight: '700',
   },
   clipRetryBtn: {
     marginTop: 14,

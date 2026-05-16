@@ -19,6 +19,7 @@ import {
 } from 'react-native';
 import { useRouter, type Href } from 'expo-router';
 import { useIsFocused } from '@react-navigation/native';
+import { useQueryClient } from '@tanstack/react-query';
 import { Ionicons } from '@expo/vector-icons';
 import Colors from '@/constants/Colors';
 import {
@@ -37,7 +38,7 @@ import {
 import { spacing, typography, layout, radius } from '@/constants/theme';
 import { useColorScheme } from '@/components/useColorScheme';
 import { useAuth } from '@/context/AuthContext';
-import { useMatches, type MatchListItem } from '@/lib/chatApi';
+import { prefetchChatThread, useMatches, type MatchListItem } from '@/lib/chatApi';
 import { formatConversationCount } from '@/lib/matchSortScore';
 import { useUndoableUnmatch } from '@/lib/useUnmatch';
 import { useBlockUser } from '@/lib/useBlockUser';
@@ -104,6 +105,7 @@ export default function MatchesListScreen() {
   const colorScheme = useColorScheme();
   const theme = Colors[colorScheme];
   const { user } = useAuth();
+  const queryClient = useQueryClient();
   const { canSeeLikedYou } = useEntitlements();
   const { data: matches = [], isLoading, isRefetching, error, refetch } = useMatches(user?.id);
   const isFocused = useIsFocused();
@@ -358,12 +360,21 @@ export default function MatchesListScreen() {
     router.push('/settings/referrals' as Href);
   }, [router]);
 
+  const preheatChat = useCallback(
+    (otherUserId: string) => {
+      if (!user?.id) return;
+      void prefetchChatThread(queryClient, otherUserId, user.id);
+    },
+    [queryClient, user?.id],
+  );
+
   const handleMatchPress = useCallback(
     (item: (typeof matches)[0]) => {
+      preheatChat(item.id);
       if (item.isNew) setOpenedVibeIds((prev) => new Set(prev).add(item.matchId));
       (router as { push: (p: string) => void }).push(`/chat/${item.id}`);
     },
-    [router]
+    [preheatChat, router]
   );
 
   const renderSpotlightCard = useCallback(() => {
@@ -429,6 +440,7 @@ export default function MatchesListScreen() {
       if (isUserBlocked(m.id)) {
         return (
           <Pressable
+            onPressIn={() => preheatChat(m.id)}
             onPress={() => handleMatchPress(m)}
             onLongPress={() => setActionsMatch(m)}
             style={({ pressed }) => [pressed && { opacity: 0.8 }]}
@@ -446,6 +458,7 @@ export default function MatchesListScreen() {
           scrollCloseNonce={scrollCloseNonceSV}
           onSwipeBegin={setActiveSwipeMatchId}
           onSwipeEnd={() => setActiveSwipeMatchId(null)}
+          onPressIn={() => preheatChat(m.id)}
           onPress={() => handleMatchPress(m)}
           onLongPress={() => setActionsMatch(m)}
           onSwipeRightCommit={() => {
@@ -466,6 +479,7 @@ export default function MatchesListScreen() {
       activeSwipeMatchId,
       handleMatchPress,
       isUserBlocked,
+      preheatChat,
       router,
       scrollCloseNonceSV,
       theme.background,
@@ -813,6 +827,7 @@ export default function MatchesListScreen() {
                     {newVibes.map((vibe) => (
                       <Pressable
                         key={vibe.matchId}
+                        onPressIn={() => preheatChat(vibe.id)}
                         onPress={() => handleMatchPress(vibe)}
                         style={({ pressed }) => [styles.newVibeItem, pressed && { opacity: 0.9 }]}
                       >
@@ -852,7 +867,10 @@ export default function MatchesListScreen() {
               <ArchivedMatchesSection
                 archivedMatches={archivedMatches}
                 activeConversationCount={activeMatches.length}
-                onOpenChat={(id) => (router as { push: (p: string) => void }).push(`/chat/${id}`)}
+                onOpenChat={(id) => {
+                  preheatChat(id);
+                  (router as { push: (p: string) => void }).push(`/chat/${id}`);
+                }}
                 onRestore={(matchId) => void handleUnarchive(matchId)}
                 restoreDisabled={!!actionLoading || isUnarchiving}
               />

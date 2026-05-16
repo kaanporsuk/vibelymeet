@@ -29,6 +29,7 @@ export type SwipeableMatchConversationRowProps = {
   children: React.ReactNode;
   backgroundColor: string;
   onPress: () => void;
+  onPressIn?: () => void;
   onLongPress: () => void;
   onSwipeRightCommit: () => void;
   onSwipeLeftCommit: () => void;
@@ -49,6 +50,7 @@ export function SwipeableMatchConversationRow({
   children,
   backgroundColor,
   onPress,
+  onPressIn,
   onLongPress,
   onSwipeRightCommit,
   onSwipeLeftCommit,
@@ -154,6 +156,7 @@ export function SwipeableMatchConversationRow({
         <Animated.View style={[styles.front, frontStyle]}>
           <Pressable
             onPress={onPress}
+            onPressIn={onPressIn}
             onLongPress={onLongPress}
             delayLongPress={450}
             style={styles.pressableFill}

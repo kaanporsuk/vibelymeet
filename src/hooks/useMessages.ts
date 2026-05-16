@@ -5,6 +5,7 @@ import {
   type InfiniteData,
   type QueryClient,
 } from "@tanstack/react-query";
+import { useEffect } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { captureSupabaseError } from "@/lib/errorTracking";
 import { collapseVibeGameRowsForWeb, type WebHydratedGameSessionView } from "@/lib/webChatGameSessions";
@@ -13,6 +14,7 @@ import { toRenderableMessageKind } from "../../shared/chat/messageRouting";
 import { threadMessagesQueryKey, type ThreadInvalidateScope } from "../../shared/chat/queryKeys";
 import { resolvePrimaryProfilePhotoPath } from "../../shared/profilePhoto/resolvePrimaryProfilePhotoPath";
 import * as vibeGameParse from "../../shared/vibely-games/parse";
+import type { DateSuggestionWithRelations } from "@/hooks/useDateSuggestionData";
 
 export type { ThreadInvalidateScope };
 
@@ -134,6 +136,8 @@ export type ChatThreadPage = {
   messages: Message[];
   matchId: string | null;
   otherUser: ChatOtherUser;
+  matchArchive: { archived_at: string; archived_by: string } | null;
+  dateSuggestions: DateSuggestionWithRelations[];
   nextCursor: string | null;
   pageSize: number;
 };
@@ -149,7 +153,9 @@ type ChatThreadPagePayload = {
   success?: boolean;
   match_id?: string | null;
   other_user?: ChatOtherUser;
+  match_archive?: { archived_at?: string | null; archived_by?: string | null } | null;
   messages?: ChatRawMessageRow[];
+  date_suggestions?: DateSuggestionWithRelations[];
   next_cursor?: string | null;
   error?: string;
 };
@@ -174,6 +180,36 @@ function normalizeRawMessage(row: Partial<ChatRawMessageRow> & { id: string }): 
 
 function isUuid(value: string): boolean {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{12}$/i.test(value);
+}
+
+type ThreadPageCursor = {
+  createdAt: string;
+  id: string | null;
+};
+
+function parseThreadPageCursor(value: string | null | undefined): ThreadPageCursor | null {
+  if (!value?.trim()) return null;
+  const text = value.trim();
+  try {
+    const parsed = JSON.parse(text) as { created_at?: unknown; createdAt?: unknown; id?: unknown };
+    const createdAt =
+      typeof parsed.created_at === "string"
+        ? parsed.created_at
+        : typeof parsed.createdAt === "string"
+          ? parsed.createdAt
+          : null;
+    const id = typeof parsed.id === "string" && isUuid(parsed.id) ? parsed.id : null;
+    if (createdAt && !Number.isNaN(Date.parse(createdAt))) {
+      return { createdAt, id };
+    }
+  } catch {
+    // Older cached pages may still hold a bare ISO timestamp cursor.
+  }
+  return !Number.isNaN(Date.parse(text)) ? { createdAt: text, id: null } : null;
+}
+
+function encodeThreadPageCursor(row: { created_at: string; id: string }): string {
+  return JSON.stringify({ created_at: row.created_at, id: row.id });
 }
 
 function collectVibeGameSessionIds(rows: ChatRawMessageRow[]): string[] {
@@ -277,7 +313,15 @@ async function fetchDirectChatThreadPage(params: {
 
   if (matchError) throw matchError;
   if (!match) {
-    return { messages: [], matchId: null, otherUser: null, nextCursor: null, pageSize: limit };
+    return {
+      messages: [],
+      matchId: null,
+      otherUser: null,
+      matchArchive: null,
+      dateSuggestions: [],
+      nextCursor: null,
+      pageSize: limit,
+    };
   }
 
   let messagesQuery = supabase
@@ -285,10 +329,18 @@ async function fetchDirectChatThreadPage(params: {
     .select(CHAT_MESSAGE_SELECT)
     .eq("match_id", match.id)
     .order("created_at", { ascending: false })
+    .order("id", { ascending: false })
     .limit(limit);
 
   if (beforeCreatedAt) {
-    messagesQuery = messagesQuery.lt("created_at", beforeCreatedAt);
+    const cursor = parseThreadPageCursor(beforeCreatedAt);
+    if (cursor?.id) {
+      messagesQuery = messagesQuery.or(
+        `created_at.lt.${cursor.createdAt},and(created_at.eq.${cursor.createdAt},id.lt.${cursor.id})`,
+      );
+    } else if (cursor) {
+      messagesQuery = messagesQuery.lt("created_at", cursor.createdAt);
+    }
   }
 
   const [messagesRes, otherUserRes, presenceRes] = await Promise.all([
@@ -324,12 +376,14 @@ async function fetchDirectChatThreadPage(params: {
   return {
     matchId: match.id,
     otherUser,
+    matchArchive: null,
+    dateSuggestions: [],
     messages: await hydrateChatPageRowsForDisplay({
       matchId: match.id,
       rows: rawAsc,
       currentUserId,
     }),
-    nextCursor: rawDesc.length >= limit ? rawDesc[rawDesc.length - 1]?.created_at ?? null : null,
+    nextCursor: rawDesc.length >= limit ? encodeThreadPageCursor(rawDesc[rawDesc.length - 1]!) : null,
     pageSize: limit,
   };
 }
@@ -354,6 +408,14 @@ async function fetchEdgeChatThreadPage(params: {
   return {
     matchId: payload.match_id ?? null,
     otherUser: payload.other_user ?? null,
+    matchArchive:
+      payload.match_archive?.archived_at
+        ? {
+            archived_at: payload.match_archive.archived_at,
+            archived_by: payload.match_archive.archived_by ?? params.currentUserId,
+          }
+        : null,
+    dateSuggestions: payload.date_suggestions ?? [],
     messages: await hydrateChatPageRowsForDisplay({
       matchId: payload.match_id ?? null,
       rows: rawRows,
@@ -386,6 +448,8 @@ function flattenChatPages(data: InfiniteData<ChatThreadPage>): ChatThreadData {
     messages: [],
     matchId: null,
     otherUser: null,
+    matchArchive: null,
+    dateSuggestions: [],
     nextCursor: null,
     pageSize: CHAT_THREAD_PAGE_SIZE,
   };
@@ -394,11 +458,18 @@ function flattenChatPages(data: InfiniteData<ChatThreadPage>): ChatThreadData {
   const lastIndexById = new Map<string, number>();
   allMessages.forEach((message, index) => lastIndexById.set(message.id, index));
   const messages = allMessages.filter((message, index) => lastIndexById.get(message.id) === index);
+  const suggestionById = new Map<string, DateSuggestionWithRelations>();
+  for (const page of chronologicalPages) {
+    for (const suggestion of page.dateSuggestions) {
+      suggestionById.set(suggestion.id, suggestion);
+    }
+  }
   const oldestLoadedPage = data.pages[data.pages.length - 1];
 
   return {
     ...firstPage,
     messages,
+    dateSuggestions: Array.from(suggestionById.values()),
     pages: data.pages,
     pageParams: data.pageParams,
     hasMore: Boolean(oldestLoadedPage?.nextCursor),
@@ -407,7 +478,8 @@ function flattenChatPages(data: InfiniteData<ChatThreadPage>): ChatThreadData {
 }
 
 export const useMessages = (otherUserId: string, currentUserId?: string) => {
-  return useInfiniteQuery({
+  const queryClient = useQueryClient();
+  const query = useInfiniteQuery({
     queryKey: threadMessagesQueryKey(otherUserId, currentUserId || ""),
     queryFn: ({ pageParam }) => {
       if (!currentUserId) {
@@ -415,6 +487,8 @@ export const useMessages = (otherUserId: string, currentUserId?: string) => {
           messages: [],
           matchId: null,
           otherUser: null,
+          matchArchive: null,
+          dateSuggestions: [],
           nextCursor: null,
           pageSize: CHAT_THREAD_PAGE_SIZE,
         } satisfies ChatThreadPage);
@@ -431,6 +505,22 @@ export const useMessages = (otherUserId: string, currentUserId?: string) => {
     enabled: !!otherUserId && !!currentUserId,
     select: flattenChatPages,
   });
+
+  useEffect(() => {
+    if (!query.data?.matchId || !query.data.dateSuggestions.length) return;
+    queryClient.setQueryData(["date-suggestions", query.data.matchId], (old: unknown) => {
+      const byId = new Map<string, DateSuggestionWithRelations>();
+      if (Array.isArray(old)) {
+        for (const suggestion of old) byId.set(suggestion.id, suggestion);
+      }
+      for (const suggestion of query.data.dateSuggestions) {
+        byId.set(suggestion.id, suggestion);
+      }
+      return Array.from(byId.values());
+    });
+  }, [query.data?.dateSuggestions, query.data?.matchId, queryClient]);
+
+  return query;
 };
 
 export function prefetchChatThread(queryClient: QueryClient, otherUserId: string, currentUserId: string) {
