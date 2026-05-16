@@ -7,6 +7,8 @@ import { fileURLToPath } from "node:url";
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(__dirname, "..", "..");
 const MIGRATION = "supabase/migrations/20260517103000_date_suggestion_active_window_expiry.sql";
+const FOLLOWUP_MIGRATION =
+  "supabase/migrations/20260517114500_schedule_share_active_window_expiry_followup.sql";
 
 function readRepoFile(relativePath: string): string {
   return readFileSync(resolve(REPO_ROOT, relativePath), "utf8");
@@ -73,6 +75,7 @@ test("proposal payloads carry local_timezone for active-window expiry", () => {
 
 test("backend expires stale proposal windows before the one-open-per-match gate", () => {
   const sql = readRepoFile(MIGRATION);
+  const followupSql = readRepoFile(FOLLOWUP_MIGRATION);
   const edge = readRepoFile("supabase/functions/date-suggestion-expiry/index.ts");
 
   assert.match(sql, /ADD COLUMN IF NOT EXISTS local_timezone text/);
@@ -88,6 +91,16 @@ test("backend expires stale proposal windows before the one-open-per-match gate"
   assert.match(sql, /SELECT match_id INTO v_match_id[\s\S]*FROM public\.date_suggestions[\s\S]*WHERE id = v_suggestion_id/);
   assert.match(sql, /PERFORM public\.date_suggestion_expire_stale_open_suggestions\(v_match_id, now\(\)\)/);
   assert.match(sql, /RETURN public\.date_suggestion_apply_v2_stale_window_dispatch_20260517\(p_action, v_payload\)/);
+  assert.match(followupSql, /RETURN COALESCE\(p_schedule_share_expires_at, p_expires_at\)/);
+  assert.match(followupSql, /ds\.schedule_share_expires_at/);
+  assert.match(
+    followupSql,
+    /DROP FUNCTION IF EXISTS public\._date_suggestion_blocks_new_proposal\(text, text, timestamptz, timestamptz, timestamptz, timestamptz, boolean, text, timestamptz\)/,
+  );
+  assert.match(
+    followupSql,
+    /DROP FUNCTION IF EXISTS public\._date_suggestion_window_end\(text, timestamptz, timestamptz, timestamptz, boolean, text\)/,
+  );
   assert.match(edge, /date_suggestion_expire_stale_open_suggestions/);
   assert.doesNotMatch(edge, /\.lt\("expires_at", now\)/);
 });

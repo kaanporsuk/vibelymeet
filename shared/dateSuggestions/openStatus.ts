@@ -25,6 +25,7 @@ export type DateSuggestionBlockingRecord = {
   current_revision_id?: string | null;
   created_at?: string | null;
   expires_at?: string | null;
+  schedule_share_expires_at?: string | null;
   revisions?: readonly DateSuggestionBlockingRevision[] | null;
 };
 
@@ -144,6 +145,7 @@ export function dateSuggestionWindowEndMs(params: {
   startsAt?: string | null;
   anchorCreatedAt?: string | null;
   expiresAt?: string | null;
+  scheduleShareExpiresAt?: string | null;
   scheduleShareEnabled?: boolean | null;
   localTimezone?: string | null;
   nowMs?: number;
@@ -153,7 +155,7 @@ export function dateSuggestionWindowEndMs(params: {
 
   const timeChoiceKey = params.timeChoiceKey ?? '';
   if (timeChoiceKey === 'share_schedule' || params.scheduleShareEnabled === true) {
-    return parseMs(params.expiresAt);
+    return parseMs(params.scheduleShareExpiresAt) ?? parseMs(params.expiresAt);
   }
 
   if (!VAGUE_TIME_CHOICE_KEYS.has(timeChoiceKey)) {
@@ -198,6 +200,7 @@ export function dateSuggestionBlocksNewProposal(
     startsAt: revision.starts_at,
     anchorCreatedAt: revision.created_at ?? suggestion.created_at,
     expiresAt: suggestion.expires_at,
+    scheduleShareExpiresAt: suggestion.schedule_share_expires_at,
     scheduleShareEnabled: revision.schedule_share_enabled,
     localTimezone: revision.local_timezone ?? 'UTC',
     nowMs,
