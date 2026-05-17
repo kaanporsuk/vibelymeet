@@ -2,6 +2,10 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { bunnyCdnUrl } from "../_shared/bunny-media.ts";
 import { MEDIA_FAMILIES, PROVIDERS, registerMediaAsset } from "../_shared/media-lifecycle.ts";
+import {
+  validateChatVideoThumbnailBytes,
+  validateChatVideoUploadBytes,
+} from "../_shared/media-upload-sniffing.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -9,6 +13,22 @@ const corsHeaders = {
 };
 
 const CHAT_VIDEO_MAX_UPLOAD_BYTES = 8 * 1024 * 1024;
+
+function isUploadFile(value: FormDataEntryValue | null): value is File {
+  return value instanceof File;
+}
+
+async function providerErrorMeta(res: Response): Promise<{ status: number; bodyLength: number }> {
+  const text = await res.text().catch(() => "");
+  return { status: res.status, bodyLength: text.length };
+}
+
+function safeUnexpectedError(error: unknown): Record<string, string> {
+  if (error instanceof Error) {
+    return { name: error.name || "Error" };
+  }
+  return { name: typeof error };
+}
 
 serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -39,8 +59,10 @@ serve(async (req) => {
     }
 
     const formData = await req.formData();
-    const file = formData.get("file") as File;
-    const thumbnailFile = formData.get("thumbnail") as File | null;
+    const fileValue = formData.get("file");
+    const file = isUploadFile(fileValue) ? fileValue : null;
+    const thumbnailValue = formData.get("thumbnail");
+    const thumbnailFile = isUploadFile(thumbnailValue) ? thumbnailValue : null;
     const matchId = formData.get("match_id") as string | null;
     const aspectRatioRaw = formData.get("aspect_ratio");
 
@@ -73,21 +95,6 @@ serve(async (req) => {
       );
     }
 
-    // Validate video MIME type
-    const allowedTypes = [
-      "video/webm",
-      "video/mp4",
-      "video/quicktime",
-      "video/x-m4v",
-    ];
-    const baseType = file.type.split(";")[0].trim();
-    if (!allowedTypes.includes(baseType) && !file.type.startsWith("video/")) {
-      return new Response(
-        JSON.stringify({ success: false, error: "Invalid file type. Video files only." }),
-        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
-    }
-
     if (file.size <= 0) {
       return new Response(
         JSON.stringify({ success: false, error: "Empty video file." }),
@@ -104,16 +111,22 @@ serve(async (req) => {
       );
     }
 
-    const extMap: Record<string, string> = {
-      "video/webm": "webm",
-      "video/mp4": "mp4",
-      "video/quicktime": "mov",
-      "video/x-m4v": "m4v",
-    };
-    const ext = extMap[baseType] ?? "webm";
+    const fileBuffer = await file.arrayBuffer();
+    const videoValidation = validateChatVideoUploadBytes(fileBuffer, file.type);
+    if (!videoValidation.ok) {
+      return new Response(
+        JSON.stringify({ success: false, error: "Invalid file type. Video files only." }),
+        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    const sniffedVideo = videoValidation.media;
+    const ext = sniffedVideo.extension;
     const timestamp = Date.now();
     const storagePath = `chat-videos/${matchId.trim()}/${user.id}_${timestamp}.${ext}`;
     let thumbnailPath: string | null = null;
+    let thumbnailBuffer: ArrayBuffer | null = null;
+    let sniffedThumbnail: { mimeType: string; extension: string } | null = null;
 
     const storageZone = Deno.env.get("BUNNY_STORAGE_ZONE")!;
     const apiKey = Deno.env.get("BUNNY_STORAGE_API_KEY")!;
@@ -122,66 +135,61 @@ serve(async (req) => {
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
     );
 
-    const fileBuffer = await file.arrayBuffer();
-    const uploadRes = await fetch(
-      `https://storage.bunnycdn.com/${storageZone}/${storagePath}`,
-      {
-        method: "PUT",
-        headers: {
-          "AccessKey": apiKey,
-          "Content-Type": file.type || "video/webm",
-        },
-        body: fileBuffer,
-      }
-    );
-
-    if (!uploadRes.ok) {
-      const errText = await uploadRes.text();
-      console.error("[upload-chat-video] Bunny upload failed:", uploadRes.status, errText);
-      return new Response(
-        JSON.stringify({ success: false, error: "Upload to CDN failed" }),
-        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
-    }
-
     if (thumbnailFile) {
-      const thumbBaseType = thumbnailFile.type.split(";")[0].trim();
-      const allowedThumbTypes = ["image/jpeg", "image/jpg", "image/png", "image/webp"];
-      if (!allowedThumbTypes.includes(thumbBaseType)) {
-        return new Response(
-          JSON.stringify({ success: false, error: "Invalid thumbnail type." }),
-          { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-        );
-      }
       if (thumbnailFile.size > 2 * 1024 * 1024) {
         return new Response(
           JSON.stringify({ success: false, error: "Thumbnail too large. Maximum 2MB." }),
           { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
         );
       }
-      const thumbExtMap: Record<string, string> = {
-        "image/jpeg": "jpg",
-        "image/jpg": "jpg",
-        "image/png": "png",
-        "image/webp": "webp",
-      };
-      const thumbExt = thumbExtMap[thumbBaseType] ?? "jpg";
-      thumbnailPath = `chat-videos/${matchId.trim()}/${user.id}_${timestamp}_thumb.${thumbExt}`;
-      const thumbBuffer = await thumbnailFile.arrayBuffer();
+
+      thumbnailBuffer = await thumbnailFile.arrayBuffer();
+      const thumbnailValidation = validateChatVideoThumbnailBytes(thumbnailBuffer, thumbnailFile.type);
+      if (!thumbnailValidation.ok) {
+        return new Response(
+          JSON.stringify({ success: false, error: "Invalid thumbnail type." }),
+          { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+
+      sniffedThumbnail = thumbnailValidation.media;
+      thumbnailPath = `chat-videos/${matchId.trim()}/${user.id}_${timestamp}_thumb.${sniffedThumbnail.extension}`;
+    }
+
+    const uploadRes = await fetch(
+      `https://storage.bunnycdn.com/${storageZone}/${storagePath}`,
+      {
+        method: "PUT",
+        headers: {
+          "AccessKey": apiKey,
+          "Content-Type": sniffedVideo.mimeType,
+        },
+        body: fileBuffer,
+      }
+    );
+
+    if (!uploadRes.ok) {
+      console.error("[upload-chat-video] Bunny upload failed:", await providerErrorMeta(uploadRes));
+      return new Response(
+        JSON.stringify({ success: false, error: "Upload to CDN failed" }),
+        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    if (thumbnailPath && thumbnailBuffer && sniffedThumbnail) {
       const thumbUploadRes = await fetch(
         `https://storage.bunnycdn.com/${storageZone}/${thumbnailPath}`,
         {
           method: "PUT",
           headers: {
             "AccessKey": apiKey,
-            "Content-Type": thumbBaseType,
+            "Content-Type": sniffedThumbnail.mimeType,
           },
-          body: thumbBuffer,
+          body: thumbnailBuffer,
         }
       );
       if (!thumbUploadRes.ok) {
-        const thumbErr = await thumbUploadRes.text();
-        console.error("[upload-chat-video] Bunny thumbnail upload failed:", thumbUploadRes.status, thumbErr);
+        console.error("[upload-chat-video] Bunny thumbnail upload failed:", await providerErrorMeta(thumbUploadRes));
       }
     }
 
@@ -197,7 +205,7 @@ serve(async (req) => {
         mediaFamily: MEDIA_FAMILIES.CHAT_VIDEO,
         ownerUserId: user.id,
         providerPath: storagePath,
-        mimeType: file.type || baseType || "video/webm",
+        mimeType: sniffedVideo.mimeType,
         bytes: file.size,
         legacyTable: "matches",
         legacyId: matchId.trim(),
@@ -209,13 +217,13 @@ serve(async (req) => {
         );
       }
 
-      if (thumbnailPath && thumbnailFile) {
+      if (thumbnailPath && thumbnailFile && sniffedThumbnail) {
         const thumbAsset = await registerMediaAsset(adminSupabase, {
           provider: PROVIDERS.BUNNY_STORAGE,
           mediaFamily: MEDIA_FAMILIES.CHAT_VIDEO_THUMBNAIL,
           ownerUserId: user.id,
           providerPath: thumbnailPath,
-          mimeType: thumbnailFile.type || "image/jpeg",
+          mimeType: sniffedThumbnail.mimeType,
           bytes: thumbnailFile.size,
           legacyTable: "matches",
           legacyId: matchId.trim(),
@@ -246,9 +254,9 @@ serve(async (req) => {
       { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   } catch (err) {
-    console.error("[upload-chat-video] Unexpected error:", err);
+    console.error("[upload-chat-video] Unexpected error:", safeUnexpectedError(err));
     return new Response(
-      JSON.stringify({ success: false, error: String(err) }),
+      JSON.stringify({ success: false, error: "Upload failed" }),
       { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   }

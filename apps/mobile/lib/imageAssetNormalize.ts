@@ -61,7 +61,7 @@ export function normalizeImageAssetForUpload(asset: {
   const uri = asset.uri?.trim() ?? '';
   const rawMime = (asset.mimeType ?? '').trim().toLowerCase();
   const inferred = inferMimeFromUri(uri);
-  let mime = rawMime || inferred || 'image/jpeg';
+  let mime = rawMime || inferred || 'application/octet-stream';
 
   if (mime === 'image/jpg') mime = 'image/jpeg';
 
@@ -74,13 +74,16 @@ export function normalizeImageAssetForUpload(asset: {
     'image/heif',
   ]);
   if (!allowed.has(mime)) {
-    mime = inferred && allowed.has(inferred) ? inferred : 'image/jpeg';
+    mime = inferred && allowed.has(inferred) ? inferred : 'application/octet-stream';
   }
 
+  const inferredExt = extFromUri(uri);
   const ext =
     mime === 'image/png' ? 'png' :
     mime === 'image/webp' ? 'webp' :
     mime === 'image/heic' || mime === 'image/heif' ? 'heic' :
+    mime === 'application/octet-stream' && inferredExt && MIME_BY_EXT[inferredExt] ? inferredExt :
+    mime === 'application/octet-stream' ? 'bin' :
     'jpg';
 
   let fileName = asset.fileName?.trim();
@@ -112,11 +115,11 @@ export function normalizeDocumentAssetForUpload(asset: {
 }): NormalizedImageAsset | null {
   const uri = asset.uri?.trim();
   if (!uri) return null;
-  const rawMime = (asset.mimeType ?? 'image/jpeg').trim().toLowerCase();
-  if (!rawMime.startsWith('image/')) return null;
+  const rawMime = (asset.mimeType ?? '').trim().toLowerCase();
+  if (rawMime && !rawMime.startsWith('image/')) return null;
   return normalizeImageAssetForUpload({
     uri,
-    mimeType: rawMime,
+    mimeType: rawMime || undefined,
     fileName: asset.name,
   });
 }

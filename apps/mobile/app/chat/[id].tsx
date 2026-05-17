@@ -120,7 +120,7 @@ import {
 import { threadMessagesQueryKey } from '../../../../shared/chat/queryKeys';
 import { useChatOutbox } from '@/lib/chatOutbox/ChatOutboxContext';
 import type { ChatOutboxItem, ChatOutboxQueueState } from '@/lib/chatOutbox/types';
-import { cleanupOutboxCacheUri, copyUriToChatOutboxCache, extForPayload } from '@/lib/chatOutbox/mediaCache';
+import { cleanupOutboxCacheUri, copyUriToChatOutboxCache, extForPayload, mimeForPayload } from '@/lib/chatOutbox/mediaCache';
 import { findBlockingDateSuggestion } from '../../../../shared/dateSuggestions/openStatus';
 import {
   VIBE_CLIP_MAX_DURATION_SEC,
@@ -1892,7 +1892,8 @@ export default function ChatThreadScreen() {
         thread_bucket: threadBucketFromCount(displayMessages.length),
         is_sender: true,
       });
-      const stable = await copyUriToChatOutboxCache(asset.uri, extForPayload('video', asset.mimeType ?? undefined));
+      const videoMimeType = mimeForPayload('video', asset.mimeType ?? null, asset.fileName ?? asset.uri);
+      const stable = await copyUriToChatOutboxCache(asset.uri, extForPayload('video', videoMimeType, asset.fileName ?? asset.uri));
       const sizeBytes = await fileSizeBytesForVideoAsset(asset, stable);
       if (sizeBytes === 0) {
         await cleanupOutboxCacheUri(stable);
@@ -1909,7 +1910,7 @@ export default function ChatThreadScreen() {
           kind: 'video',
           uri: stable,
           durationSeconds: Math.max(1, Math.round(durationSec)),
-          mimeType: asset.mimeType ?? undefined,
+          mimeType: videoMimeType,
           aspectRatio: aspectRatioForVideoAsset(asset),
         },
       });
@@ -1974,7 +1975,8 @@ export default function ChatThreadScreen() {
         thread_bucket: threadBucketFromCount(displayMessages.length),
         is_sender: true,
       });
-      const stable = await copyUriToChatOutboxCache(asset.uri, extForPayload('video', asset.mimeType ?? 'video/mp4'));
+      const videoMimeType = mimeForPayload('video', asset.mimeType ?? null, asset.fileName ?? asset.uri);
+      const stable = await copyUriToChatOutboxCache(asset.uri, extForPayload('video', videoMimeType, asset.fileName ?? asset.uri));
       const sizeBytes = await fileSizeBytesForVideoAsset(asset, stable);
       if (sizeBytes === 0) {
         await cleanupOutboxCacheUri(stable);
@@ -1991,7 +1993,7 @@ export default function ChatThreadScreen() {
           kind: 'video',
           uri: stable,
           durationSeconds: durationSec != null ? Math.max(1, Math.round(durationSec)) : 1,
-          mimeType: asset.mimeType ?? 'video/mp4',
+          mimeType: videoMimeType,
           aspectRatio: aspectRatioForVideoAsset(asset),
         },
       });
@@ -2027,12 +2029,13 @@ export default function ChatThreadScreen() {
     if (!data?.matchId || !user?.id) return false;
     try {
       setSendingPhoto(true);
-      const ext = extForPayload('image', mimeType ?? undefined);
+      const imageMimeType = mimeForPayload('image', mimeType ?? null, uri);
+      const ext = extForPayload('image', imageMimeType, uri);
       const stable = await copyUriToChatOutboxCache(uri, ext);
       void enqueue({
         matchId: data.matchId,
         otherUserId: otherUserId ?? '',
-        payload: { kind: 'image', uri: stable, mimeType: mimeType ?? 'image/jpeg' },
+        payload: { kind: 'image', uri: stable, mimeType: imageMimeType ?? 'application/octet-stream' },
       });
       return true;
     } catch (e) {

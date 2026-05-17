@@ -58,6 +58,11 @@ import { setMessageReaction } from "@/lib/messageReactions";
 import { reactionPairFromRows, type ReactionPair, type MessageReactionRow } from "../../shared/chat/messageReactionModel";
 import { webGamePayloadFromSessionView, type WebHydratedGameSessionView } from "@/lib/webChatGameSessions";
 import { formatSendGameEventError, newVibeGameSessionId, sendGameEvent } from "@/lib/webGamesApi";
+import {
+  GENERIC_UPLOAD_MIME_TYPE,
+  imageMimeTypeForUpload,
+  videoMimeTypeForUpload,
+} from "@/lib/webUploadMime";
 import { dedupeLatestByRefId } from "../../shared/chat/refDedupe";
 import type { DateComposerLaunchSource } from "../../shared/dateSuggestions/dateComposerLaunch";
 import { findBlockingDateSuggestion } from "../../shared/dateSuggestions/openStatus";
@@ -1380,7 +1385,8 @@ const Chat = () => {
 
   const queuePhotoFile = useCallback(
     async (file: File): Promise<boolean> => {
-      if (!file.type.startsWith("image/")) {
+      const imageMimeType = imageMimeTypeForUpload(file.type, file.name);
+      if (!imageMimeType) {
         toast.error("Please choose an image file");
         return false;
       }
@@ -1400,7 +1406,7 @@ const Chat = () => {
           matchId: chatData.matchId,
           otherUserId: id,
           userId: currentUserId,
-          payload: { kind: "image", blobKey, mimeType: file.type || "image/jpeg" },
+          payload: { kind: "image", blobKey, mimeType: imageMimeType, fileName: file.name || undefined },
           invalidateScope: threadInvalidateScope,
         });
         if (typeof navigator !== "undefined" && navigator.vibrate) {
@@ -1626,7 +1632,7 @@ const Chat = () => {
   const handleVideoRecordingComplete = async (
     videoBlob: Blob,
     duration: number,
-    meta?: { captureSource?: CaptureSource; mimeType?: string; aspectRatio?: number | null },
+    meta?: { captureSource?: CaptureSource; mimeType?: string; aspectRatio?: number | null; fileName?: string },
   ) => {
     setIsRecordingVideo(false);
 
@@ -1659,6 +1665,11 @@ const Chat = () => {
 
       const blobKey = crypto.randomUUID();
       await putOutboxBlob(blobKey, videoBlob);
+      const storedVideoName =
+        meta?.fileName ||
+        (typeof File !== "undefined" && videoBlob instanceof File ? videoBlob.name : undefined);
+      const videoMimeType =
+        videoMimeTypeForUpload(meta?.mimeType || videoBlob.type, storedVideoName) ?? GENERIC_UPLOAD_MIME_TYPE;
       webOutbox.enqueue({
         matchId: chatData.matchId,
         otherUserId: id,
@@ -1667,7 +1678,8 @@ const Chat = () => {
           kind: "video",
           blobKey,
           durationSeconds,
-          mimeType: meta?.mimeType || videoBlob.type || "video/mp4",
+          mimeType: videoMimeType,
+          fileName: storedVideoName,
           aspectRatio: meta?.aspectRatio ?? null,
         },
         invalidateScope: threadInvalidateScope,
@@ -1685,7 +1697,7 @@ const Chat = () => {
   const handleVibeClipLibraryReady = async (
     videoBlob: Blob,
     duration: number,
-    meta?: { captureSource?: CaptureSource; mimeType?: string; aspectRatio?: number | null },
+    meta?: { captureSource?: CaptureSource; mimeType?: string; aspectRatio?: number | null; fileName?: string },
   ) => {
     await handleVideoRecordingComplete(videoBlob, duration, meta);
   };

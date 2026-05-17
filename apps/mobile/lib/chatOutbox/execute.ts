@@ -87,7 +87,7 @@ export async function executeOutboxItem(
           : await uploadChatVideoMessage(
               payload.uri,
               matchId,
-              payload.mimeType ?? 'video/mp4',
+              payload.mimeType ?? null,
               typeof payload.aspectRatio === 'number' ? payload.aspectRatio : null,
             );
       uploadedMediaUrl = uploaded.videoUrl;

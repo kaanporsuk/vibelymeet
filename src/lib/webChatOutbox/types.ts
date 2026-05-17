@@ -11,13 +11,14 @@ export type WebChatOutboxQueueState =
 
 export type WebChatOutboxPayload =
   | { kind: "text"; text: string }
-  | { kind: "image"; mimeType: string; blobKey: string }
+  | { kind: "image"; mimeType: string; blobKey: string; fileName?: string }
   | { kind: "voice"; blobKey: string; durationSeconds: number }
   | {
       kind: "video";
       blobKey: string;
       durationSeconds: number;
       mimeType: string;
+      fileName?: string;
       aspectRatio?: number | null;
     };
 

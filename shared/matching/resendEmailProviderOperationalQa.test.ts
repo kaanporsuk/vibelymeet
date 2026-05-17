@@ -49,6 +49,7 @@ function consoleLines(source: string): string[] {
 const emailVerification = read("supabase/functions/email-verification/index.ts");
 const eventNotifications = read("supabase/functions/event-notifications/index.ts");
 const sendEmail = read("supabase/functions/send-email/index.ts");
+const sendEmailHandler = read("supabase/functions/send-email/handler.ts");
 const sendSupportReply = read("supabase/functions/send-support-reply/index.ts");
 const webEmailHook = read("src/hooks/useEmailVerification.ts");
 const webEmailFlow = read("src/components/verification/EmailVerificationFlow.tsx");
@@ -65,6 +66,7 @@ const activeEmailSources = [
   emailVerification,
   eventNotifications,
   sendEmail,
+  sendEmailHandler,
   sendSupportReply,
 ].join("\n");
 
@@ -137,7 +139,7 @@ test("unsubscribe is retired instead of assumed active; UNSUB_HMAC_SECRET restor
 test("active production email links use the canonical vibelymeet.com origin", () => {
   assert.match(emailVerification, /https:\/\/www\.vibelymeet\.com\/vibely-logo-full-gradient\.png/);
   assert.match(eventNotifications, /https:\/\/www\.vibelymeet\.com\/events\/\$\{event\.id\}/);
-  assert.match(sendEmail, /const APP_URL = Deno\.env\.get\('APP_URL'\) \|\| 'https:\/\/www\.vibelymeet\.com'/);
+  assert.match(sendEmail, /const APP_URL = Deno\.env\.get\("APP_URL"\) \|\| "https:\/\/www\.vibelymeet\.com"/);
   assert.match(branchDelta, /`curl -I -L https:\/\/www\.vibelymeet\.com\/`: HTTP 200/);
   assert.match(branchDelta, /`curl -I -L https:\/\/vibelymeet\.com\/`: HTTP 307 to `https:\/\/www\.vibelymeet\.com\/`, then HTTP 200/);
   assert.doesNotMatch(activeEmailSources, /https:\/\/vibelymeet\.com/);

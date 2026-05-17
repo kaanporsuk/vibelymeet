@@ -4,6 +4,11 @@ import {
   VIBE_CLIP_UPLOAD_TOO_LARGE,
   vibeClipMultipartFitsEdgeLimit,
 } from "../../shared/chat/vibeClipCaptureCopy";
+import {
+  GENERIC_UPLOAD_MIME_TYPE,
+  uploadFileNameForMimeType,
+  videoMimeTypeForUpload,
+} from "@/lib/webUploadMime";
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 
@@ -76,23 +81,8 @@ async function createWebVideoThumbnail(videoBlob: Blob): Promise<{ blob: Blob; a
 }
 
 function videoMimeTypeForBlob(videoBlob: Blob): string {
-  if (videoBlob.type.startsWith("video/")) return videoBlob.type;
-  if (typeof File !== "undefined" && videoBlob instanceof File) {
-    const name = videoBlob.name.toLowerCase();
-    if (name.endsWith(".mov")) return "video/quicktime";
-    if (name.endsWith(".m4v")) return "video/x-m4v";
-    if (name.endsWith(".webm")) return "video/webm";
-    if (name.endsWith(".mp4")) return "video/mp4";
-  }
-  return "video/mp4";
-}
-
-function videoExtensionForMimeType(mimeType: string): string {
-  const baseType = mimeType.split(";")[0].trim();
-  if (baseType === "video/quicktime") return "mov";
-  if (baseType === "video/x-m4v") return "m4v";
-  if (baseType === "video/mp4") return "mp4";
-  return "webm";
+  const name = typeof File !== "undefined" && videoBlob instanceof File ? videoBlob.name : undefined;
+  return videoMimeTypeForUpload(videoBlob.type, name) ?? GENERIC_UPLOAD_MIME_TYPE;
 }
 
 export async function uploadChatVideoToBunny(
@@ -109,8 +99,9 @@ export async function uploadChatVideoToBunny(
 
   const formData = new FormData();
   const mimeType = videoMimeTypeForBlob(videoBlob);
-  const ext = videoExtensionForMimeType(mimeType);
-  formData.append("file", videoBlob, `chat-video.${ext}`);
+  const fileName =
+    typeof File !== "undefined" && videoBlob instanceof File ? videoBlob.name : undefined;
+  formData.append("file", videoBlob, uploadFileNameForMimeType("video", "chat-video", mimeType, fileName));
   formData.append("match_id", matchId);
   const thumb = await createWebVideoThumbnail(videoBlob);
   if (
