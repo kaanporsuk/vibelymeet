@@ -39,7 +39,8 @@ test("web capture and entry gates handle slow cameras and duplicate pending stat
   assert.match(webVerification, /onCanPlay=\{markCameraReady\}/);
   assert.match(webVerification, /disabled=\{!isCameraReady\}/);
   assert.match(webVerification, /Camera is still starting/);
-  assert.match(webVerification, /select\("photos, photo_verified, photo_verification_expires_at"\)/);
+  assert.match(webVerification, /fetchMyProfileSettings\(\)/);
+  assert.doesNotMatch(webVerification, /select\("photos, photo_verified, photo_verification_expires_at"\)/);
   assert.match(webVerification, /currentStatus === "approved"/);
   assert.match(webVerification, /const profilePhoto = firstProfilePhoto\(profileData\?\.photos\)/);
   assert.match(

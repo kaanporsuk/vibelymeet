@@ -6,6 +6,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { trackEvent } from "@/lib/analytics";
 import { resolvePhotoVerificationState } from "@/lib/photoVerificationState";
+import { fetchMyProfileSettings } from "@/services/myProfileSettings";
 import {
   prepareWebProofSelfieUploadPayload,
   WebProofSelfiePayloadError,
@@ -198,13 +199,9 @@ export function SimplePhotoVerification({
   };
 
   const loadSubmissionPreflight = async (submissionUserId: string) => {
-    const [{ data: profileData, error: profileError }, { data: pendingVerification, error: pendingError }] =
+    const [profileData, { data: pendingVerification, error: pendingError }] =
       await Promise.all([
-        supabase
-          .from("profiles")
-          .select("photos, photo_verified, photo_verification_expires_at")
-          .eq("id", submissionUserId)
-          .maybeSingle(),
+        fetchMyProfileSettings(),
         supabase
           .from("photo_verifications")
           .select("id")
@@ -214,7 +211,7 @@ export function SimplePhotoVerification({
           .maybeSingle(),
       ]);
 
-    if (profileError) throw profileError;
+    if (profileData?.id && profileData.id !== submissionUserId) throw new Error("Profile settings user mismatch");
     if (pendingError) throw pendingError;
     const currentStatus = resolvePhotoVerificationState({
       photoVerified: profileData?.photo_verified,

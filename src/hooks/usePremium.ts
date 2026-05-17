@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useEffect, useState, useRef } from "react";
 import { trackEvent } from "@/lib/analytics";
+import { fetchMyProfileSettings } from "@/services/myProfileSettings";
 
 /**
  * Profile `is_premium` / `premium_until` (incl. admin grants). Prefer `useEntitlements()` for feature gates;
@@ -20,13 +21,11 @@ export const usePremium = () => {
     queryKey: ["premium-status", userId],
     queryFn: async () => {
       if (!userId) return { is_premium: false, premium_until: null };
-      const { data, error } = await supabase
-        .from("profiles")
-        .select("is_premium, premium_until")
-        .eq("id", userId)
-        .single();
-      if (error) throw error;
-      return data;
+      const row = await fetchMyProfileSettings();
+      return {
+        is_premium: !!row?.is_premium,
+        premium_until: row?.premium_until ?? null,
+      };
     },
     enabled: !!userId,
   });

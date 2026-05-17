@@ -29,6 +29,10 @@ const unarchiveStatusOnlyRepairMigration = readFileSync(
   join(root, "supabase/migrations/20260508131000_admin_unarchive_status_only_archived_repair.sql"),
   "utf8"
 );
+const profileDirectPrivacyMigration = readFileSync(
+  join(root, "supabase/migrations/20260517123000_profile_direct_select_self_only.sql"),
+  "utf8"
+);
 
 function section(source: string, startMarker: string, endMarker: string): string {
   const start = source.indexOf(startMarker);
@@ -173,13 +177,23 @@ test("batch import emits only database-valid event statuses", () => {
   assert.doesNotMatch(batchEventImport, /"scheduled"/);
 });
 
-test("attendees modal delegates attendance writes and removals to admin RPCs", () => {
+test("attendees modal delegates roster reads, attendance writes, and removals to admin RPCs", () => {
+  assert.match(adminEventAttendees, /callAdminRpc<AdminEventAttendeesPayload>\("admin_list_event_attendees"/);
+  assert.match(adminEventAttendees, /p_event_id: event\.id/);
+  assert.match(adminEventAttendees, /p_search: searchQuery\.trim\(\) \|\| null/);
   assert.match(adminEventAttendees, /callAdminRpc\("admin_remove_event_registration"/);
   assert.match(adminEventAttendees, /callAdminRpc<\{ affected_count\?: number \}>\("admin_mark_event_attendance"/);
   assert.match(adminEventAttendees, /p_registration_ids: \[registrationId\]/);
   assert.match(adminEventAttendees, /p_registration_ids: selectedAttendees/);
+  assert.doesNotMatch(adminEventAttendees, /\.from\(['"]event_registrations['"]\)/);
+  assert.doesNotMatch(adminEventAttendees, /profiles:profile_id/);
   assert.doesNotMatch(adminEventAttendees, /supabase\.rpc\("admin_remove_event_registration"/);
   assert.doesNotMatch(adminEventAttendees, /\.from\(['"]event_registrations['"]\)[\s\S]{0,300}\.update\(/);
+
+  assert.match(profileDirectPrivacyMigration, /CREATE OR REPLACE FUNCTION public\.admin_list_event_attendees/);
+  assert.match(profileDirectPrivacyMigration, /IF NOT public\.has_role\(v_admin_id, 'admin'::public\.app_role\)/);
+  assert.match(profileDirectPrivacyMigration, /LEFT JOIN public\.profiles p ON p\.id = er\.profile_id/);
+  assert.match(profileDirectPrivacyMigration, /GRANT EXECUTE ON FUNCTION public\.admin_list_event_attendees\(uuid, text\) TO authenticated, service_role;/);
 });
 
 test("admin events hardening migration owns reads, attendance writes, validation, and metrics semantics", () => {

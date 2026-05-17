@@ -1,5 +1,8 @@
 import { supabase } from "@/integrations/supabase/client";
 
+const PROFILE_BATCH_SIZE = 100;
+const PROFILE_BATCH_FALLBACK_CONCURRENCY = 8;
+
 export type UserProfileView = {
   id: string;
   updated_at: string | null;
@@ -32,6 +35,7 @@ export type UserProfileView = {
   vibe_score: number | null;
   vibe_score_label: string | null;
   is_premium: boolean | null;
+  subscription_tier: string | null;
   events_attended: number | null;
   vibes: string[];
   vibe_tags: Array<{ id?: string; label: string; emoji?: string; category?: string }>;
@@ -78,17 +82,10 @@ function normalizeVibeTags(raw: unknown): UserProfileView["vibe_tags"] {
   return out;
 }
 
-export async function fetchUserProfile(profileId: string): Promise<UserProfileView | null> {
-  if (!profileId) return null;
-
-  const { data: rawData, error } = await supabase.rpc("get_profile_for_viewer", {
-    p_target_id: profileId,
-  });
-
-  if (error) return null;
-  if (rawData === null || rawData === undefined) return null;
-  if (typeof rawData !== "object" || Array.isArray(rawData)) return null;
-  const row = rawData as Record<string, unknown>;
+function rpcJsonToUserProfileView(raw: unknown): UserProfileView | null {
+  if (raw === null || raw === undefined) return null;
+  if (typeof raw !== "object" || Array.isArray(raw)) return null;
+  const row = raw as Record<string, unknown>;
   if (typeof row.id !== "string") return null;
 
   const photosRaw = row.photos;
@@ -109,7 +106,7 @@ export async function fetchUserProfile(profileId: string): Promise<UserProfileVi
   const vibeTags = normalizeVibeTags(row.vibe_tags);
 
   return {
-    id: row.id as string,
+    id: row.id,
     updated_at: typeof row.updated_at === "string" ? row.updated_at : null,
     name: typeof row.name === "string" ? row.name : null,
     age: typeof row.age === "number" ? row.age : row.age === null ? null : null,
@@ -157,8 +154,76 @@ export async function fetchUserProfile(profileId: string): Promise<UserProfileVi
     vibe_score: vibeScore,
     vibe_score_label: vibeScoreLabel,
     is_premium: typeof row.is_premium === "boolean" ? row.is_premium : row.is_premium === null ? null : null,
+    subscription_tier:
+      typeof row.subscription_tier === "string" ? row.subscription_tier : row.subscription_tier === null ? null : null,
     events_attended: typeof row.events_attended === "number" ? row.events_attended : null,
     vibes,
     vibe_tags: vibeTags,
   };
+}
+
+export async function fetchUserProfile(profileId: string): Promise<UserProfileView | null> {
+  if (!profileId) return null;
+
+  const { data: rawData, error } = await supabase.rpc("get_profile_for_viewer", {
+    p_target_id: profileId,
+  });
+
+  if (error) return null;
+  return rpcJsonToUserProfileView(rawData);
+}
+
+function isMissingBatchProfileRpcError(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  const record = error as { code?: unknown; message?: unknown; details?: unknown; hint?: unknown };
+  const code = typeof record.code === "string" ? record.code : "";
+  const text = [record.message, record.details, record.hint].filter(Boolean).join(" ");
+  return (
+    code === "PGRST202" ||
+    /get_profiles_for_viewer|schema cache|function .* does not exist|could not find the function/i.test(text)
+  );
+}
+
+async function fetchUserProfilesMissingBatchFallback(profileIds: string[]): Promise<UserProfileView[]> {
+  const profiles: UserProfileView[] = [];
+  for (let index = 0; index < profileIds.length; index += PROFILE_BATCH_FALLBACK_CONCURRENCY) {
+    const slice = profileIds.slice(index, index + PROFILE_BATCH_FALLBACK_CONCURRENCY);
+    const chunk = await Promise.all(slice.map((id) => fetchUserProfile(id)));
+    profiles.push(...chunk.filter((profile): profile is UserProfileView => Boolean(profile)));
+  }
+  return profiles;
+}
+
+async function fetchUserProfilesChunk(profileIds: string[]): Promise<UserProfileView[]> {
+  const { data, error } = await supabase.rpc("get_profiles_for_viewer", {
+    p_target_ids: profileIds,
+  });
+
+  if (error) {
+    if (!isMissingBatchProfileRpcError(error)) {
+      if (import.meta.env.DEV) {
+        console.warn("[fetchUserProfiles] get_profiles_for_viewer:", error.message);
+      }
+      return [];
+    }
+    return fetchUserProfilesMissingBatchFallback(profileIds);
+  }
+
+  if (!Array.isArray(data)) return [];
+  return data
+    .map((row) => rpcJsonToUserProfileView(row))
+    .filter((profile): profile is UserProfileView => Boolean(profile));
+}
+
+export async function fetchUserProfiles(profileIds: string[]): Promise<UserProfileView[]> {
+  const uniqueIds = Array.from(new Set(profileIds.filter(Boolean)));
+  if (uniqueIds.length === 0) return [];
+
+  const chunks: string[][] = [];
+  for (let index = 0; index < uniqueIds.length; index += PROFILE_BATCH_SIZE) {
+    chunks.push(uniqueIds.slice(index, index + PROFILE_BATCH_SIZE));
+  }
+
+  const profiles = await Promise.all(chunks.map((chunk) => fetchUserProfilesChunk(chunk)));
+  return profiles.flat();
 }

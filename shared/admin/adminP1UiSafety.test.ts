@@ -443,6 +443,7 @@ test("live push monitor is labeled as admin telemetry rather than full delivery 
   assert.match(liveNotificationMonitor, /const hasProviderIdentifier = \(value: string \| null\) => Boolean\(value && value !== "\[REDACTED\]"\)/);
   assert.match(liveNotificationMonitor, /telemetry rows/);
   assert.match(usePushNotificationEvents, /admin_get_push_campaigns_read_model/);
+  assert.match(usePushNotificationEvents, /fetchUserProfiles\(userIds\)/);
   assert.match(usePushNotificationEvents, /userIds\.length > 0/);
   assert.match(usePushNotificationEvents, /campaignIds\.length > 0/);
   assert.match(usePushNotificationEvents, /Poll the redacted admin telemetry view/);
@@ -453,6 +454,7 @@ test("live push monitor is labeled as admin telemetry rather than full delivery 
   assert.match(usePushNotificationEvents, /void fetchEvents\(\)/);
   assert.doesNotMatch(usePushNotificationEvents, /useQueryClient/);
   assert.doesNotMatch(usePushNotificationEvents, /\.from\("push_campaigns"\)/);
+  assert.doesNotMatch(usePushNotificationEvents, /\.from\("profiles"\)/);
   assert.doesNotMatch(usePushNotificationEvents, /\.channel\(/);
   assert.doesNotMatch(usePushNotificationEvents, /postgres_changes/);
   assert.doesNotMatch(usePushNotificationEvents, /table: "push_notification_events"/);

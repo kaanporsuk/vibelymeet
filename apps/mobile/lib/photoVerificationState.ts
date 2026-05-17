@@ -1,4 +1,5 @@
 import { supabase } from '@/lib/supabase';
+import { fetchMyProfileSettings } from '@/lib/myProfileSettings';
 
 export type PhotoVerificationState = 'none' | 'pending' | 'approved' | 'rejected' | 'expired';
 export type LatestPhotoVerificationStatus = 'pending' | 'approved' | 'rejected' | null | undefined;
@@ -24,18 +25,11 @@ export async function fetchMyPhotoVerificationState(userId: string): Promise<{
   photoVerificationExpiresAt: string | null;
   latestStatus: LatestPhotoVerificationStatus;
 }> {
-  const { data: profileData } = await supabase
-    .from('profiles')
-    .select('photo_verified, photo_verification_expires_at')
-    .eq('id', userId)
-    .maybeSingle();
+  const profileData = await fetchMyProfileSettings();
+  if (profileData?.id && profileData.id !== userId) throw new Error('Profile settings user mismatch');
 
-  const photoVerified = !!(profileData as { photo_verified?: boolean } | null)?.photo_verified;
-  const photoVerificationExpiresAt =
-    ((profileData as { photo_verification_expires_at?: string | null } | null)?.photo_verification_expires_at as
-      | string
-      | null
-      | undefined) ?? null;
+  const photoVerified = !!profileData?.photo_verified;
+  const photoVerificationExpiresAt = profileData?.photo_verification_expires_at ?? null;
 
   if (photoVerified) {
     return {
@@ -71,4 +65,3 @@ export async function fetchMyPhotoVerificationState(userId: string): Promise<{
     latestStatus,
   };
 }
-

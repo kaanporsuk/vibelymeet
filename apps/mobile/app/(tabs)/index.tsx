@@ -33,6 +33,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { spacing, radius, layout, shadows, gradient, fonts } from '@/constants/theme';
 import { useColorScheme } from '@/components/useColorScheme';
 import { useAuth } from '@/context/AuthContext';
+import { fetchMyProfileSettings } from '@/lib/myProfileSettings';
 import { useEvents, useNextRegisteredEvent } from '@/lib/eventsApi';
 import { useOtherCityEvents, type OtherCityEvent } from '@/lib/useOtherCityEvents';
 import { useEntitlements } from '@/hooks/useEntitlements';
@@ -230,37 +231,23 @@ export default function DashboardScreen() {
     enabled: !!user?.id,
     queryFn: async (): Promise<HomeProfile | null> => {
       if (!user?.id) return null;
-      const [profileResult, vibesResult] = await Promise.all([
-        supabase
-          .from('profiles')
-          .select('name, photos, about_me, avatar_url, phone_verified, phone_number')
-          .eq('id', user.id)
-          .maybeSingle(),
+      const [row, vibesResult] = await Promise.all([
+        fetchMyProfileSettings(),
         supabase
           .from('profile_vibes')
           .select('id', { count: 'exact', head: true })
           .eq('profile_id', user.id),
       ]);
-      const { data: row, error } = profileResult;
-      if (error) throw error;
       const { count, error: vErr } = vibesResult;
       if (vErr && __DEV__) console.warn('[home] profile_vibes count:', vErr.message);
-      const r = row as {
-        name?: string | null;
-        photos?: string[] | null;
-        about_me?: string | null;
-        avatar_url?: string | null;
-        phone_verified?: boolean | null;
-        phone_number?: string | null;
-      } | null;
       return {
-        name: r?.name ?? null,
-        photos: r?.photos ?? null,
-        about_me: r?.about_me ?? null,
-        avatar_url: r?.avatar_url ?? null,
+        name: row?.name ?? null,
+        photos: row?.photos ?? null,
+        about_me: row?.about_me ?? null,
+        avatar_url: row?.avatar_url ?? null,
         vibeCount: count ?? 0,
-        phoneVerified: r?.phone_verified ?? null,
-        phoneNumber: r?.phone_number ?? null,
+        phoneVerified: row?.phone_verified ?? null,
+        phoneNumber: row?.phone_number ?? null,
       };
     },
   });

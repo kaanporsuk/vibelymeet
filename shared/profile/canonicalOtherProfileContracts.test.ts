@@ -188,6 +188,26 @@ test("profile RPC includes new safe fields and does not return private profile d
   }
 });
 
+test("profile privacy hardening keeps subscription tier on canonical display reads only", () => {
+  const migration = read("supabase/migrations/20260517123000_profile_direct_select_self_only.sql");
+  const functionStart = migration.indexOf("CREATE OR REPLACE FUNCTION public.get_profile_for_viewer");
+  const selectBlock = migration.slice(
+    migration.indexOf("SELECT\n    p.id", functionStart),
+    migration.indexOf("INTO v_profile", functionStart),
+  );
+  const returnBlock = migration.slice(
+    migration.indexOf("RETURN jsonb_build_object", functionStart),
+    migration.indexOf(");\nEND;", migration.indexOf("RETURN jsonb_build_object", functionStart)),
+  );
+  const webFetcher = read("src/services/fetchUserProfile.ts");
+  const nativeFetcher = read("apps/mobile/lib/fetchUserProfile.ts");
+
+  assert.match(selectBlock, /p\.subscription_tier/);
+  assert.match(returnBlock, /'subscription_tier', v_profile\.subscription_tier/);
+  assert.match(webFetcher, /row\.subscription_tier/);
+  assert.match(nativeFetcher, /row\.subscription_tier/);
+});
+
 test("canonical profile views do not render private PII fields", () => {
   const webCanonical = read("src/components/profile/OtherUserFullProfileView.tsx");
   const nativeFullView = read("apps/mobile/components/profile/UserProfileFullView.tsx");

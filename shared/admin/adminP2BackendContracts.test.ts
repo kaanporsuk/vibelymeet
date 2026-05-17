@@ -451,12 +451,15 @@ test("browser mutation surfaces call semantic admin RPCs", () => {
   assert.match(eventControls, /callAdminRpc\("admin_extend_event"/);
   assert.match(eventControls, /callAdminRpc\("admin_go_live_event"/);
   assert.match(eventControls, /callAdminRpc\("admin_send_event_reminder"/);
+  assert.match(eventAttendees, /callAdminRpc<AdminEventAttendeesPayload>\("admin_list_event_attendees"/);
   assert.match(eventAttendees, /callAdminRpc\("admin_send_event_reminder"/);
   assert.match(eventAttendees, /callAdminRpc\("admin_remove_event_registration"/);
   assert.match(eventAttendees, /callAdminRpc<\{ affected_count\?: number \}>\("admin_mark_event_attendance"/);
   assert.match(eventAttendees, /AdminConfirmDialog/);
   assert.match(eventAttendees, /no browser-side notification loop runs from this panel/);
   assert.match(eventAttendees, /Remove Registration/);
+  assert.doesNotMatch(eventAttendees, /\.from\(['"]event_registrations['"]\)/);
+  assert.doesNotMatch(eventAttendees, /profiles:profile_id/);
   assert.doesNotMatch(eventAttendees, /window\.confirm/);
   assert.doesNotMatch(eventAttendees, /sendNotification/);
   assert.doesNotMatch(eventAttendees, /send-notification/);

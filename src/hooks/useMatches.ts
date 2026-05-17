@@ -16,8 +16,9 @@ import {
   getConversationPreview,
   getEmptyConversationPreview,
 } from "../../shared/chat/conversationListPreview";
+import { fetchUserProfiles, type UserProfileView } from "@/services/fetchUserProfile";
 
-/** Row shape for `.from("profiles").select(...)` in this hook (intent fields for scoring + display). */
+/** Canonical profile row shape used by match list scoring + display. */
 type MatchesListProfileRow = {
   id: string;
   name: string | null;
@@ -35,6 +36,7 @@ type MatchesListProfileRow = {
   lifestyle: unknown;
   tagline: string | null;
   bunny_video_uid: string | null;
+  vibes?: string[];
 };
 
 function profileIntentForMatch(
@@ -59,11 +61,6 @@ type MatchLatestMessageRow = {
 type MatchRealtimeRow = {
   profile_id_1?: string | null;
   profile_id_2?: string | null;
-};
-
-type ProfileVibeRow = {
-  profile_id: string;
-  vibe_tags: { label: string | null } | { label: string | null }[] | null;
 };
 
 type MatchEventRow = {
@@ -91,6 +88,35 @@ export type DashboardMatchPreview = {
 };
 
 const DASHBOARD_MATCH_SELECT = "id, matched_at, profile_id_1, profile_id_2";
+
+function profileViewToMatchRow(profile: UserProfileView | null): MatchesListProfileRow | null {
+  if (!profile?.id) return null;
+  return {
+    id: profile.id,
+    name: profile.name,
+    age: profile.age,
+    avatar_url: profile.avatar_url,
+    photos: profile.photos,
+    photo_verified: profile.photo_verified,
+    about_me: profile.about_me,
+    job: profile.job,
+    location: profile.display_location ?? profile.location,
+    height_cm: profile.height_cm,
+    looking_for: profile.looking_for,
+    relationship_intent: profile.relationship_intent,
+    prompts: profile.prompts,
+    lifestyle: profile.lifestyle,
+    tagline: profile.tagline,
+    bunny_video_uid: profile.bunny_video_uid,
+    vibes: profile.vibes,
+  };
+}
+
+async function fetchProfilesForViewer(profileIds: string[]): Promise<MatchesListProfileRow[]> {
+  const uniqueIds = Array.from(new Set(profileIds.filter(Boolean)));
+  const profiles = await fetchUserProfiles(uniqueIds);
+  return profiles.map(profileViewToMatchRow).filter((profile): profile is MatchesListProfileRow => !!profile);
+}
 
 function isMissingDashboardRpc(error: unknown): boolean {
   if (!error || typeof error !== "object") return false;
@@ -272,18 +298,9 @@ export const useMatches = () => {
 
       const profileIdsForFetch = [...otherProfileIds, userId];
 
-      const [profilesResult, vibesResult, messagesResult, eventsResult, archivesResult] =
+      const [profiles, messagesResult, eventsResult, archivesResult] =
         await Promise.all([
-          supabase
-            .from("profiles")
-            .select(
-              "id, name, age, avatar_url, photos, photo_verified, about_me, job, location, height_cm, looking_for, relationship_intent, prompts, lifestyle, tagline, bunny_video_uid"
-            )
-            .in("id", profileIdsForFetch),
-          supabase
-            .from("profile_vibes")
-            .select("profile_id, vibe_tags(label)")
-            .in("profile_id", profileIdsForFetch),
+          fetchProfilesForViewer(profileIdsForFetch),
           supabase
             .from("messages")
             .select(
@@ -307,14 +324,10 @@ export const useMatches = () => {
             .in("match_id", matchIds),
         ]);
 
-      if (profilesResult.error) throw profilesResult.error;
-      if (vibesResult.error) throw vibesResult.error;
       if (messagesResult.error) throw messagesResult.error;
       if ("error" in eventsResult && eventsResult.error) throw eventsResult.error;
       if (archivesResult.error) throw archivesResult.error;
 
-      const profiles = (profilesResult.data || []) as MatchesListProfileRow[];
-      const profileVibes = (vibesResult.data || []) as ProfileVibeRow[];
       const lastMessages = messagesResult.data || [];
       const events = (eventsResult.data || []) as MatchEventRow[];
       const archives = (archivesResult.data || []) as MatchArchiveRow[];
@@ -332,22 +345,8 @@ export const useMatches = () => {
       });
 
       const vibesByProfile: Record<string, string[]> = {};
-      profileVibes.forEach((pv) => {
-        if (!vibesByProfile[pv.profile_id]) {
-          vibesByProfile[pv.profile_id] = [];
-        }
-        const vibeTags = Array.isArray(pv.vibe_tags)
-          ? pv.vibe_tags
-          : pv.vibe_tags
-            ? [pv.vibe_tags]
-            : [];
-        vibeTags.forEach((tag) => {
-          const lbl = tag.label;
-          if (!lbl) return;
-          if (!vibesByProfile[pv.profile_id].includes(lbl)) {
-            vibesByProfile[pv.profile_id].push(lbl);
-          }
-        });
+      profiles.forEach((profile) => {
+        vibesByProfile[profile.id] = profile.vibes ?? [];
       });
 
       const viewerProfile = profiles.find((p) => p.id === userId);
@@ -472,10 +471,7 @@ export const useDashboardMatches = () => {
         m.profile_id_1 === userId ? m.profile_id_2 : m.profile_id_1
       );
 
-      const { data: profiles } = await supabase
-        .from("profiles")
-        .select("id, name, avatar_url, photos")
-        .in("id", otherProfileIds);
+      const profiles = await fetchProfilesForViewer(otherProfileIds);
 
       return dashboardMatches.map((match) => {
         const otherProfileId =
