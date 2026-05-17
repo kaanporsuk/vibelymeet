@@ -8,6 +8,7 @@
 -- - service_role: direct profile SELECT remains available for backend read models.
 -- - direct table API vs get_profile_for_viewer: direct table grants exclude PII/backend columns; RPC returns safe other-user display only.
 -- - list surfaces: get_profiles_for_viewer batches canonical per-profile checks without broad table grants.
+-- - owner runtime payload: get_my_profile_settings executes under an owner claim without leaking values in validation output.
 
 select
   'anon_direct_profiles_table_select_denied' as check_name,
@@ -140,3 +141,119 @@ from pg_proc p
 join pg_namespace n on n.oid = p.pronamespace
 where n.nspname = 'public'
   and p.proname = 'get_profiles_for_viewer';
+
+with candidate as (
+  select id
+  from public.profiles
+  order by updated_at desc nulls last, id
+  limit 1
+),
+claim as (
+  select set_config('request.jwt.claim.sub', (select id::text from candidate), true)
+  where exists (select 1 from candidate)
+),
+payload as (
+  select public.get_my_profile_settings() as body
+  from claim
+),
+expected_keys as (
+  select unnest(array[
+    'id',
+    'updated_at',
+    'created_at',
+    'name',
+    'birth_date',
+    'age',
+    'gender',
+    'interested_in',
+    'tagline',
+    'height_cm',
+    'location',
+    'country',
+    'job',
+    'company',
+    'about_me',
+    'bio',
+    'looking_for',
+    'relationship_intent',
+    'onboarding_complete',
+    'onboarding_stage',
+    'lifestyle',
+    'prompts',
+    'photos',
+    'avatar_url',
+    'bunny_video_uid',
+    'bunny_video_status',
+    'vibe_video_status',
+    'vibe_caption',
+    'photo_verified',
+    'photo_verified_at',
+    'photo_verification_expires_at',
+    'phone_number',
+    'phone_verified',
+    'phone_verified_at',
+    'email_verified',
+    'verified_email',
+    'is_premium',
+    'premium_until',
+    'subscription_tier',
+    'vibe_score',
+    'vibe_score_label',
+    'preferred_age_min',
+    'preferred_age_max',
+    'event_discovery_prefs',
+    'discoverable',
+    'discovery_mode',
+    'discovery_snooze_until',
+    'discovery_audience',
+    'activity_status_visibility',
+    'distance_visibility',
+    'event_attendance_visibility',
+    'show_online_status',
+    'account_paused',
+    'account_paused_until',
+    'is_paused',
+    'paused_at',
+    'paused_until',
+    'pause_reason',
+    'is_suspended',
+    'suspension_reason',
+    'email_unsubscribed',
+    'community_agreed_at',
+    'referred_by',
+    'referrer_name',
+    'events_attended',
+    'total_matches',
+    'total_conversations'
+  ]) as key
+),
+payload_keys as (
+  select jsonb_object_keys(body) as key
+  from payload
+  where jsonb_typeof(body) = 'object'
+)
+select
+  'get_my_profile_settings_owner_rpc_runtime_payload' as check_name,
+  case
+    when not exists (select 1 from candidate) then true
+    else coalesce(
+      (
+        select
+          jsonb_typeof(body) = 'object'
+          and not exists (
+            select 1
+            from expected_keys expected
+            left join payload_keys actual using (key)
+            where actual.key is null
+          )
+          and not exists (
+            select 1
+            from payload_keys actual
+            left join expected_keys expected using (key)
+            where expected.key is null
+          )
+        from payload
+      ),
+      false
+    )
+  end as ok;
