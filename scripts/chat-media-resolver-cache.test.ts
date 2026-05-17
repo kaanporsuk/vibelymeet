@@ -150,7 +150,10 @@ assert.match(
 );
 assert.match(webPhotoLightbox, /refreshAttemptedForUrlRef\.current = null;[\s\S]{0,80}\}, \[current\?\.id\]\);/);
 assert.match(webPhotoLightbox, /lastInitialIdRef/);
-assert.match(webPhotoLightbox, /const currentId = items\[prevIndex\]\?\.id;[\s\S]{0,160}const preservedIndex = currentId \? items\.findIndex/);
+assert.match(webPhotoLightbox, /const \[selectedId, setSelectedId\] = useState/);
+assert.match(webPhotoLightbox, /return items\.some\(\(it\) => it\.id === prevId\) \? prevId : nextInitialId;/);
+assert.match(webPhotoLightbox, /const selectedIndex = items\.findIndex\(\(it\) => it\.id === selectedId\);/);
+assert.doesNotMatch(webPhotoLightbox, /const currentId = items\[prevIndex\]\?\.id/);
 assert.doesNotMatch(webPhotoLightbox, /setIndex\(i >= 0 \? i : 0\);[\s\S]{0,120}\}, \[initialId, items\]\);/);
 assert.match(
   webVideoLightbox,
@@ -188,7 +191,10 @@ assert.match(
 );
 assert.match(nativeMediaViewer, /refreshAttemptedForUriRef\.current = null;[\s\S]{0,80}\}, \[current\?\.id\]\);/);
 assert.match(nativeMediaViewer, /lastInitialIdRef/);
-assert.match(nativeMediaViewer, /const currentId = items\[prevIndex\]\?\.id;[\s\S]{0,160}const preservedIndex = currentId \? items\.findIndex/);
+assert.match(nativeMediaViewer, /const \[selectedId, setSelectedId\] = useState/);
+assert.match(nativeMediaViewer, /return items\.some\(\(i\) => i\.id === prevId\) \? prevId : nextInitialId;/);
+assert.match(nativeMediaViewer, /const index = Math\.max\(0, items\.findIndex\(\(i\) => i\.id === selectedId\)\);/);
+assert.doesNotMatch(nativeMediaViewer, /const currentId = items\[prevIndex\]\?\.id/);
 assert.doesNotMatch(nativeMediaViewer, /setIndex\(Math\.max\(0, items\.findIndex\(\(i\) => i\.id === initialId\)\)\);[\s\S]{0,120}\}, \[initialId, items\]\);/);
 assert.match(
   nativeMediaViewer,
