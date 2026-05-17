@@ -64,7 +64,7 @@ export function ChatPhotoLightbox({ items, initialId, onClose, onRefreshItem }: 
   const refreshCurrent = useCallback(async () => {
     if (!current || !currentUrl || !onRefreshItem || refreshAttemptedForUrlRef.current === currentUrl) return;
     const freshUrl = await onRefreshItem(current);
-    if (!freshUrl) return;
+    if (!freshUrl || freshUrl === currentUrl) return;
     refreshAttemptedForUrlRef.current = currentUrl;
     setUrlOverridesById((prev) => (prev[current.id] === freshUrl ? prev : { ...prev, [current.id]: freshUrl }));
   }, [current, currentUrl, onRefreshItem]);

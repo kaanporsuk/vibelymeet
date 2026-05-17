@@ -76,11 +76,11 @@ export function ChatVideoLightbox({
       setPlayablePosterUrl(freshPosterUrl);
       onResolvedThumbnailUrl?.(freshPosterUrl);
     }
-    if (!freshVideoUrl) return false;
+    if (!freshVideoUrl || freshVideoUrl === playableVideoUrl) return false;
     refreshAttemptedForUrlRef.current = playableVideoUrl;
     setPlayableVideoUrl(freshVideoUrl);
     onResolvedVideoUrl?.(freshVideoUrl);
-    return freshVideoUrl !== playableVideoUrl;
+    return true;
   }, [
     mediaKind,
     messageId,

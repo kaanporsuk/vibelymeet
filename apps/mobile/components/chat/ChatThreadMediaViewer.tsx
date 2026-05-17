@@ -140,7 +140,7 @@ function PhotoViewerBody({
   const refreshCurrent = useCallback(async () => {
     if (!current || !currentUri || !onRefreshItem || refreshAttemptedForUriRef.current === currentUri) return;
     const freshUri = await onRefreshItem(current);
-    if (!freshUri) return;
+    if (!freshUri || freshUri === currentUri) return;
     refreshAttemptedForUriRef.current = currentUri;
     setUriOverridesById((prev) => (prev[current.id] === freshUri ? prev : { ...prev, [current.id]: freshUri }));
   }, [current, currentUri, onRefreshItem]);
@@ -258,10 +258,10 @@ function VideoViewerBody({
     if (!onRefreshMedia || refreshAttemptedForUriRef.current === playableUri) return false;
     const fresh = await onRefreshMedia();
     if (fresh?.posterUri) setPlayablePosterUri(fresh.posterUri);
-    if (!fresh?.uri) return false;
+    if (!fresh?.uri || fresh.uri === playableUri) return false;
     refreshAttemptedForUriRef.current = playableUri;
     setPlayableUri(fresh.uri);
-    return fresh.uri !== playableUri;
+    return true;
   }, [onRefreshMedia, playableUri]);
 
   return (

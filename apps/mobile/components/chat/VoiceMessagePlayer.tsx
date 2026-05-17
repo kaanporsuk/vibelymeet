@@ -174,16 +174,20 @@ export function VoiceMessagePlayer({
       pendingPlayAfterRefreshRef.current = false;
       return playCurrent();
     }
+    refreshAttemptedForUriRef.current = playableUri;
     return true;
   }, [playCurrent, playableUri, refreshUri]);
 
   useEffect(() => {
     if (!statusError) return;
     if (messageId && sourceRef && refreshAttemptedForUriRef.current !== playableUri) {
-      refreshAttemptedForUriRef.current = playableUri;
       void refreshUri()
         .then((fresh) => {
-          if (!fresh || fresh === playableUri) setHasError(true);
+          if (!fresh || fresh === playableUri) {
+            setHasError(true);
+            return;
+          }
+          refreshAttemptedForUriRef.current = playableUri;
         })
         .catch(() => setHasError(true));
       return;
@@ -217,7 +221,6 @@ export function VoiceMessagePlayer({
           result,
           () => {
             if (shouldAttemptRefresh) {
-              refreshAttemptedForUriRef.current = playableUri;
               void refreshAndQueuePlay().catch(() => setHasError(true));
               return;
             }
