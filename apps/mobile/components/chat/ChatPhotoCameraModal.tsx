@@ -26,26 +26,54 @@ const CAPTURE_MIME_TYPE = 'image/jpeg';
 export function ChatPhotoCameraModal({ visible, onClose, onSendPhoto, disabled }: Props) {
   const insets = useSafeAreaInsets();
   const cameraRef = useRef<CameraView | null>(null);
+  const cameraSessionIdRef = useRef(0);
+  const activeCameraKeyRef = useRef('back:0');
+  const facingRef = useRef<CameraType>('back');
   const [facing, setFacing] = useState<CameraType>('back');
+  const [cameraSessionId, setCameraSessionId] = useState(0);
   const [cameraReady, setCameraReady] = useState(false);
   const [capturedUri, setCapturedUri] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isCapturing, setIsCapturing] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
+  const canUseCamera = visible && !capturedUri;
+  const canPress = !disabled && !isCapturing && !isSubmitting;
+  const cameraViewKey = `${facing}:${cameraSessionId}`;
+
+  const prepareCameraForFacing = useCallback((nextFacing: CameraType) => {
+    const nextSessionId = cameraSessionIdRef.current + 1;
+    const nextCameraKey = `${nextFacing}:${nextSessionId}`;
+    cameraSessionIdRef.current = nextSessionId;
+    activeCameraKeyRef.current = nextCameraKey;
+    facingRef.current = nextFacing;
+    cameraRef.current = null;
+    setCameraReady(false);
+    setFacing(nextFacing);
+    setCameraSessionId(nextSessionId);
+  }, []);
+
   useEffect(() => {
     if (visible) {
-      setFacing('back');
-      setCameraReady(false);
+      prepareCameraForFacing('back');
       setCapturedUri(null);
       setErrorMessage(null);
       setIsCapturing(false);
       setIsSubmitting(false);
     }
-  }, [visible]);
+  }, [prepareCameraForFacing, visible]);
 
-  const canUseCamera = visible && !capturedUri;
-  const canPress = !disabled && !isCapturing && !isSubmitting;
+  const handleCameraReady = useCallback((readyCameraKey: string) => {
+    if (activeCameraKeyRef.current !== readyCameraKey) return;
+    setCameraReady(true);
+    setErrorMessage(null);
+  }, []);
+
+  const handleCameraMountError = useCallback((failedCameraKey: string) => {
+    if (activeCameraKeyRef.current !== failedCameraKey) return;
+    setCameraReady(false);
+    setErrorMessage('Could not open the camera. Please try again.');
+  }, []);
 
   const handleClose = useCallback(() => {
     if (isCapturing || isSubmitting) return;
@@ -54,9 +82,10 @@ export function ChatPhotoCameraModal({ visible, onClose, onSendPhoto, disabled }
 
   const handleFlipCamera = useCallback(() => {
     if (!canPress || capturedUri) return;
-    setCameraReady(false);
-    setFacing((current) => (current === 'front' ? 'back' : 'front'));
-  }, [canPress, capturedUri]);
+    setErrorMessage(null);
+    const nextFacing = facingRef.current === 'front' ? 'back' : 'front';
+    prepareCameraForFacing(nextFacing);
+  }, [canPress, capturedUri, prepareCameraForFacing]);
 
   const handleCapture = useCallback(async () => {
     if (!canPress || !cameraReady || !cameraRef.current) {
@@ -85,8 +114,8 @@ export function ChatPhotoCameraModal({ visible, onClose, onSendPhoto, disabled }
     if (isSubmitting) return;
     setCapturedUri(null);
     setErrorMessage(null);
-    setCameraReady(false);
-  }, [isSubmitting]);
+    prepareCameraForFacing(facingRef.current);
+  }, [isSubmitting, prepareCameraForFacing]);
 
   const handleSend = useCallback(async () => {
     if (!capturedUri || !canPress) return;
@@ -119,20 +148,15 @@ export function ChatPhotoCameraModal({ visible, onClose, onSendPhoto, disabled }
           <Image source={{ uri: capturedUri }} style={styles.previewImage} resizeMode="cover" />
         ) : (
           <CameraView
+            key={cameraViewKey}
             ref={cameraRef}
             style={StyleSheet.absoluteFill}
             mode="picture"
             facing={facing}
             mirror={facing === 'front'}
             active={canUseCamera}
-            onCameraReady={() => {
-              setCameraReady(true);
-              setErrorMessage(null);
-            }}
-            onMountError={() => {
-              setCameraReady(false);
-              setErrorMessage('Could not open the camera. Please try again.');
-            }}
+            onCameraReady={() => handleCameraReady(cameraViewKey)}
+            onMountError={() => handleCameraMountError(cameraViewKey)}
           />
         )}
 
