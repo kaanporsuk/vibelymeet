@@ -7,8 +7,10 @@ const root = process.cwd();
 const read = (path: string) => readFileSync(join(root, path), "utf8");
 
 const migrationPath = "supabase/migrations/20260517123000_profile_direct_select_self_only.sql";
+const ownerRpcArityFixMigrationPath = "supabase/migrations/20260517170000_fix_get_my_profile_settings_jsonb_arity.sql";
 const validationPath = "supabase/validation/profile_direct_select_privacy.sql";
 const migration = read(migrationPath);
+const ownerRpcArityFixMigration = read(ownerRpcArityFixMigrationPath);
 const validation = read(validationPath);
 
 function walk(dir: string): string[] {
@@ -34,6 +36,36 @@ function profileSelectBlocks(source: string): string[] {
     blocks.push(match[1] ?? "");
   }
   return blocks;
+}
+
+function jsonbBuildObjectBodies(source: string): string[] {
+  const bodies: string[] = [];
+  const needle = "jsonb_build_object(";
+  let searchIndex = 0;
+
+  while (true) {
+    const start = source.indexOf(needle, searchIndex);
+    if (start === -1) return bodies;
+
+    let depth = 1;
+    let index = start + needle.length;
+    const bodyStart = index;
+    while (index < source.length && depth > 0) {
+      const char = source[index];
+      if (char === "(") depth += 1;
+      if (char === ")") depth -= 1;
+      index += 1;
+    }
+
+    bodies.push(source.slice(bodyStart, index - 1));
+    searchIndex = index;
+  }
+}
+
+function objectKeysFromJsonbBuildObjects(source: string): string[] {
+  return jsonbBuildObjectBodies(source).flatMap((body) =>
+    Array.from(body.matchAll(/'([a-z0-9_]+)'/g), (match) => match[1]),
+  );
 }
 
 test("profile privacy migration makes direct non-admin profile reads self-only", () => {
@@ -103,6 +135,37 @@ test("owner profile settings RPC is security-definer, self-scoped, and not execu
   assert.match(migration, /REVOKE ALL ON FUNCTION public\.get_my_profile_settings\(\) FROM anon;/);
   assert.match(migration, /GRANT EXECUTE ON FUNCTION public\.get_my_profile_settings\(\) TO authenticated, service_role;/);
   assert.match(migration, /NOTIFY pgrst, 'reload schema';/);
+});
+
+test("owner profile settings RPC arity fix chunks the same owner JSON contract", () => {
+  assert.match(ownerRpcArityFixMigration, /CREATE OR REPLACE FUNCTION public\.get_my_profile_settings\(\)/);
+  assert.match(ownerRpcArityFixMigration, /RETURNS jsonb/);
+  assert.match(ownerRpcArityFixMigration, /SECURITY DEFINER/);
+  assert.match(ownerRpcArityFixMigration, /v_uid uuid := auth\.uid\(\)/);
+  assert.match(ownerRpcArityFixMigration, /WHERE p\.id = v_uid/);
+  assert.match(ownerRpcArityFixMigration, /\|\|\s+jsonb_build_object/);
+  assert.match(ownerRpcArityFixMigration, /REVOKE ALL ON FUNCTION public\.get_my_profile_settings\(\) FROM PUBLIC;/);
+  assert.match(ownerRpcArityFixMigration, /REVOKE ALL ON FUNCTION public\.get_my_profile_settings\(\) FROM anon;/);
+  assert.match(ownerRpcArityFixMigration, /GRANT EXECUTE ON FUNCTION public\.get_my_profile_settings\(\) TO authenticated, service_role;/);
+  assert.match(ownerRpcArityFixMigration, /NOTIFY pgrst, 'reload schema';/);
+
+  const originalOwnerRpc = migration.slice(
+    migration.indexOf("CREATE OR REPLACE FUNCTION public.get_my_profile_settings()"),
+    migration.indexOf("COMMENT ON FUNCTION public.get_my_profile_settings()"),
+  );
+  const fixedOwnerRpc = ownerRpcArityFixMigration.slice(
+    ownerRpcArityFixMigration.indexOf("CREATE OR REPLACE FUNCTION public.get_my_profile_settings()"),
+    ownerRpcArityFixMigration.indexOf("COMMENT ON FUNCTION public.get_my_profile_settings()"),
+  );
+  const fixedBodies = jsonbBuildObjectBodies(fixedOwnerRpc);
+
+  assert.equal(fixedBodies.length, 3);
+  assert.deepEqual(objectKeysFromJsonbBuildObjects(fixedOwnerRpc), objectKeysFromJsonbBuildObjects(originalOwnerRpc));
+
+  for (const body of fixedBodies) {
+    const keyCount = Array.from(body.matchAll(/'([a-z0-9_]+)'/g)).length;
+    assert.ok(keyCount < 50, `jsonb_build_object chunk has ${keyCount} key/value pairs`);
+  }
 });
 
 test("canonical other-user RPC remains the only display profile bypass and excludes private fields", () => {
@@ -296,9 +359,14 @@ test("validation pack covers requested role matrix and direct-table-vs-rpc delta
     "admin_profile_policy_preserved",
     "service_role_direct_profile_select_preserved",
     "get_my_profile_settings_owner_rpc_acl",
+    "get_my_profile_settings_owner_rpc_runtime_payload",
     "get_profile_for_viewer_canonical_rpc_acl",
     "get_profiles_for_viewer_batch_rpc_acl",
   ]) {
     assert.match(validation, new RegExp(label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
   }
+  assert.match(validation, /when not exists \(select 1 from candidate\) then true/);
+  assert.match(validation, /jsonb_typeof\(body\) = 'object'/);
+  assert.match(validation, /payload_keys as \([\s\S]*jsonb_object_keys\(body\)[\s\S]*where jsonb_typeof\(body\) = 'object'[\s\S]*\)/);
+  assert.match(validation, /coalesce\([\s\S]*from payload[\s\S]*false[\s\S]*\)/);
 });
