@@ -292,6 +292,15 @@ type ThreadMessage = ChatMessage | LocalMediaChatMessage | LocalTextChatMessage;
 
 type ChatListRow = ThreadPresentationRow<ThreadMessage>;
 
+type ChatVideoViewerState = {
+  uri: string;
+  poster?: string | null;
+  messageId?: string;
+  sourceRef?: string | null;
+  thumbnailSourceRef?: string | null;
+  mediaKind?: 'video' | 'vibe_clip';
+};
+
 function chatListRowKey(row: ChatListRow): string {
   if (row.type === 'pending_games_summary') return `ps-${row.clusterKey}`;
   if (row.type === 'pending_games_collapse') return `pc-${row.clusterKey}`;
@@ -800,7 +809,7 @@ export default function ChatThreadScreen() {
     previousRevision: DateSuggestionWithRelations['revisions'][0];
   } | null>(null);
   const [photoViewer, setPhotoViewer] = useState<{ initialId: string } | null>(null);
-  const [videoViewer, setVideoViewer] = useState<{ uri: string; poster?: string | null } | null>(null);
+  const [videoViewer, setVideoViewer] = useState<ChatVideoViewerState | null>(null);
   const audioRecorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
   const voiceRecordStartedAtRef = useRef<number | null>(null);
   const voiceStopIntentRef = useRef<'send' | 'cancel' | null>(null);
@@ -1088,6 +1097,13 @@ export default function ChatThreadScreen() {
     setPhotoUriOverridesById((prev) => (prev[message.id] === freshUri ? prev : { ...prev, [message.id]: freshUri }));
     return freshUri;
   }, []);
+  const refreshPhotoViewerItem = useCallback(async (item: ChatThreadPhotoItem): Promise<string | null> => {
+    if (!item.sourceRef) return null;
+    const freshUri = await refreshCachedChatMediaUrl(item.id, 'image', item.sourceRef);
+    if (!freshUri) return null;
+    setPhotoUriOverridesById((prev) => (prev[item.id] === freshUri ? prev : { ...prev, [item.id]: freshUri }));
+    return freshUri;
+  }, []);
   const [videoUriOverridesById, setVideoUriOverridesById] = useState<Record<string, string>>({});
   const [thumbnailUriOverridesById, setThumbnailUriOverridesById] = useState<Record<string, string>>({});
   const rememberResolvedVideoUri = useCallback((messageId: string, uri: string) => {
@@ -1100,6 +1116,20 @@ export default function ChatThreadScreen() {
     (message: ThreadMessage): string | null => videoUriOverridesById[message.id] ?? message.video_url ?? null,
     [videoUriOverridesById],
   );
+  const refreshVideoViewerMedia = useCallback(async () => {
+    if (!videoViewer?.messageId || !videoViewer.sourceRef) return null;
+    const freshUri = await refreshCachedChatMediaUrl(
+      videoViewer.messageId,
+      videoViewer.mediaKind ?? 'video',
+      videoViewer.sourceRef,
+    );
+    const freshPosterUri = videoViewer.thumbnailSourceRef
+      ? await refreshCachedChatMediaUrl(videoViewer.messageId, 'thumbnail', videoViewer.thumbnailSourceRef)
+      : null;
+    if (freshPosterUri) rememberResolvedThumbnailUri(videoViewer.messageId, freshPosterUri);
+    if (freshUri) rememberResolvedVideoUri(videoViewer.messageId, freshUri);
+    return { uri: freshUri, posterUri: freshPosterUri };
+  }, [rememberResolvedThumbnailUri, rememberResolvedVideoUri, videoViewer]);
 
   const threadInvalidateScope = useMemo((): ThreadInvalidateScope | undefined => {
     if (!otherUserId || !user?.id) return undefined;
@@ -1138,7 +1168,9 @@ export default function ChatThreadScreen() {
       const kind = threadMessageMediaKind(m);
       if (kind !== 'image') continue;
       const u = photoUriForMessage(m);
-      if (u) out.push({ id: m.id, uri: u });
+      const sourceRef =
+        isLocalMediaMessage(m) || isLocalTextMessage(m) ? undefined : m.image_source_ref ?? undefined;
+      if (u) out.push({ id: m.id, uri: u, sourceRef });
     }
     return out;
   }, [displayMessages, photoUriForMessage]);
@@ -2459,7 +2491,14 @@ export default function ChatThreadScreen() {
                     }
               }
               onRequestImmersive={() =>
-                setVideoViewer({ uri: displayClipMeta.videoUrl, poster: displayClipMeta.thumbnailUrl ?? null })
+                setVideoViewer({
+                  uri: displayClipMeta.videoUrl,
+                  poster: displayClipMeta.thumbnailUrl ?? null,
+                  messageId: item.id,
+                  sourceRef: item.video_source_ref,
+                  thumbnailSourceRef: item.thumbnail_source_ref,
+                  mediaKind: 'vibe_clip',
+                })
               }
               immersiveActive={videoViewer?.uri === displayClipMeta.videoUrl}
               shouldMountPlayer={shouldMountPlayer}
@@ -2486,7 +2525,14 @@ export default function ChatThreadScreen() {
             durationSec={item.video_duration_seconds ?? null}
             theme={theme}
             isMine={isMe}
-            onRequestImmersive={() => setVideoViewer({ uri: videoUri })}
+            onRequestImmersive={() =>
+              setVideoViewer({
+                uri: videoUri,
+                messageId: item.id,
+                sourceRef: item.video_source_ref,
+                mediaKind: mediaKind === 'vibe_clip' ? 'vibe_clip' : 'video',
+              })
+            }
             immersiveActive={videoViewer?.uri === videoUri}
             threadVisualRecede={threadVisualRecede}
           />
@@ -3564,12 +3610,14 @@ export default function ChatThreadScreen() {
         visible={!!photoViewer}
         items={chatPhotoGalleryItems}
         initialId={photoViewer?.initialId ?? ''}
+        onRefreshItem={refreshPhotoViewerItem}
         onClose={() => setPhotoViewer(null)}
       />
       <ChatThreadVideoViewerModal
         visible={!!videoViewer}
         uri={videoViewer?.uri ?? ''}
         posterUri={videoViewer?.poster}
+        onRefreshMedia={refreshVideoViewerMedia}
         onClose={() => setVideoViewer(null)}
       />
       <ChatPhotoCameraModal
