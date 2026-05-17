@@ -157,8 +157,3 @@ export function resolveNativeCameraSwitchCommit({
     snapshotFacingChangedFromBefore,
   };
 }
-
-export type NativeMatchCallCameraFacingMode = NativeCameraFacingMode;
-export type NativeMatchCallCameraSwitchCommitInput = NativeCameraSwitchCommitInput;
-export type NativeMatchCallCameraSwitchCommitResolution = NativeCameraSwitchCommitResolution;
-export const resolveNativeMatchCallCameraSwitchCommit = resolveNativeCameraSwitchCommit;
