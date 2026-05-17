@@ -603,13 +603,13 @@ export function VibeClipCard(props: Props) {
     if (!sparkMessageId || !videoSourceRef || refreshAttemptedForUriRef.current === playableVideoUrl) {
       return false;
     }
-    refreshAttemptedForUriRef.current = playableVideoUrl;
     const freshVideoUri = await refreshCachedChatMediaUrl(sparkMessageId, 'vibe_clip', videoSourceRef);
     const freshThumbnailUri = thumbnailSourceRef
       ? await refreshCachedChatMediaUrl(sparkMessageId, 'thumbnail', thumbnailSourceRef)
       : null;
     if (freshThumbnailUri) setPlayableThumbnailUrl(freshThumbnailUri);
     if (!freshVideoUri) return false;
+    refreshAttemptedForUriRef.current = playableVideoUrl;
     if (freshThumbnailUri) onResolvedThumbnailUrl?.(freshThumbnailUri);
     setPlayableVideoUrl(freshVideoUri);
     onResolvedVideoUrl?.(freshVideoUri);

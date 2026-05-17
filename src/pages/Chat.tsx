@@ -173,6 +173,15 @@ interface ChatMessage {
   statusSubtext?: string;
 }
 
+type ChatVideoLightboxState = {
+  url: string;
+  posterUrl?: string | null;
+  messageId?: string;
+  videoSourceRef?: string | null;
+  thumbnailSourceRef?: string | null;
+  mediaKind?: "video" | "vibe_clip";
+};
+
 /** Merge server rows with optimistic locals: drop locals once server echoes the same client_request_id; sort by send time */
 function mergeServerAndLocalChatMessages(realMsgs: ChatMessage[], localMessages: ChatMessage[]): ChatMessage[] {
   const serverClientIds = new Set<string>();
@@ -214,7 +223,7 @@ function VibeClipMessageRow({
   onReactionPick?: (emoji: ReactionEmoji) => void;
   threadMessageCount: number;
   immersiveVideoUrl: string | null;
-  onRequestImmersiveVideo: (url: string, posterUrl?: string | null) => void;
+  onRequestImmersiveVideo: (viewer: ChatVideoLightboxState) => void;
   videoUrlOverride?: string;
   thumbnailUrlOverride?: string | null;
   onResolvedVideoUrl?: (messageId: string, url: string) => void;
@@ -266,7 +275,16 @@ function VibeClipMessageRow({
             onSuggestDate={isMine ? undefined : onSuggestDate}
             onReactionPick={isMine ? undefined : onReactionPick}
             reactionPair={message.reactionPair}
-            onRequestImmersive={() => onRequestImmersiveVideo(clipMeta.videoUrl, clipMeta.thumbnailUrl ?? null)}
+            onRequestImmersive={() =>
+              onRequestImmersiveVideo({
+                url: clipMeta.videoUrl,
+                posterUrl: clipMeta.thumbnailUrl ?? null,
+                messageId: message.id,
+                videoSourceRef: message.videoSourceRef,
+                thumbnailSourceRef: message.thumbnailSourceRef,
+                mediaKind: "vibe_clip",
+              })
+            }
             immersiveActive={immersiveVideoUrl === clipMeta.videoUrl}
             threadVisualRecede={threadVisualRecede}
           />
@@ -280,7 +298,16 @@ function VibeClipMessageRow({
             duration={message.videoDuration || 0}
             isMine={isMine}
             onRequestImmersive={
-              message.videoUrl ? () => onRequestImmersiveVideo(videoUrlOverride ?? message.videoUrl!, null) : undefined
+              message.videoUrl
+                ? () =>
+                    onRequestImmersiveVideo({
+                      url: videoUrlOverride ?? message.videoUrl!,
+                      posterUrl: null,
+                      messageId: message.id,
+                      videoSourceRef: message.videoSourceRef,
+                      mediaKind: "vibe_clip",
+                    })
+                : undefined
             }
             immersiveActive={!!message.videoUrl && immersiveVideoUrl === (videoUrlOverride ?? message.videoUrl)}
             threadVisualRecede={threadVisualRecede}
@@ -349,7 +376,7 @@ const Chat = () => {
   const [showArcade, setShowArcade] = useState(false);
   const [activeGameCreator, setActiveGameCreator] = useState<GameType | null>(null);
   const [photoLightboxInitialId, setPhotoLightboxInitialId] = useState<string | null>(null);
-  const [videoLightbox, setVideoLightbox] = useState<{ url: string; posterUrl?: string | null } | null>(null);
+  const [videoLightbox, setVideoLightbox] = useState<ChatVideoLightboxState | null>(null);
   const [expandedPendingClusterKey, setExpandedPendingClusterKey] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const threadContentRef = useRef<HTMLDivElement>(null);
@@ -760,6 +787,13 @@ const Chat = () => {
     setPhotoUrlOverridesById((prev) => (prev[message.id] === freshUrl ? prev : { ...prev, [message.id]: freshUrl }));
     return freshUrl;
   }, []);
+  const refreshPhotoLightboxItem = useCallback(async (item: { id: string; sourceRef?: string | null }) => {
+    if (!item.sourceRef) return null;
+    const freshUrl = await refreshCachedChatMediaUrl(item.id, "image", item.sourceRef);
+    if (!freshUrl) return null;
+    setPhotoUrlOverridesById((prev) => (prev[item.id] === freshUrl ? prev : { ...prev, [item.id]: freshUrl }));
+    return freshUrl;
+  }, []);
   const [videoUrlOverridesById, setVideoUrlOverridesById] = useState<Record<string, string>>({});
   const [thumbnailUrlOverridesById, setThumbnailUrlOverridesById] = useState<Record<string, string>>({});
   const rememberResolvedVideoUrl = useCallback((messageId: string, url: string) => {
@@ -794,12 +828,12 @@ const Chat = () => {
   }, [webOutbox.items, chatData?.messages?.length]);
 
   const chatPhotoLightboxItems = useMemo(() => {
-    const out: { id: string; url: string }[] = [];
+    const out: { id: string; url: string; sourceRef?: string | null }[] = [];
     for (const m of displayMessages) {
       if (m.type !== "image") continue;
       const url = photoUrlForMessage(m);
       if (!url) continue;
-      out.push({ id: m.id, url });
+      out.push({ id: m.id, url, sourceRef: m.imageSourceRef });
     }
     return out;
   }, [displayMessages, photoUrlForMessage]);
@@ -2073,7 +2107,7 @@ const Chat = () => {
                   otherUser={otherUser}
                   threadMessageCount={displayMessages.length}
                   immersiveVideoUrl={videoLightbox?.url ?? null}
-                  onRequestImmersiveVideo={(url, posterUrl) => setVideoLightbox({ url, posterUrl })}
+                  onRequestImmersiveVideo={setVideoLightbox}
                   videoUrlOverride={videoUrlOverridesById[groupedMessage.id]}
                   thumbnailUrlOverride={thumbnailUrlOverridesById[groupedMessage.id] ?? null}
                   onResolvedVideoUrl={rememberResolvedVideoUrl}
@@ -2117,6 +2151,9 @@ const Chat = () => {
                               setVideoLightbox({
                                 url: videoUrlForMessage(groupedMessage) ?? groupedMessage.videoUrl!,
                                 posterUrl: null,
+                                messageId: groupedMessage.id,
+                                videoSourceRef: groupedMessage.videoSourceRef,
+                                mediaKind: "video",
                               })
                           : undefined
                       }
@@ -2860,6 +2897,7 @@ const Chat = () => {
               key="chat-photo-lightbox"
               items={chatPhotoLightboxItems}
               initialId={photoLightboxInitialId}
+              onRefreshItem={refreshPhotoLightboxItem}
               onClose={() => setPhotoLightboxInitialId(null)}
             />
           ) : null}
@@ -2868,6 +2906,16 @@ const Chat = () => {
               key="chat-video-lightbox"
               videoUrl={videoLightbox.url}
               posterUrl={videoLightbox.posterUrl}
+              messageId={videoLightbox.messageId}
+              videoSourceRef={videoLightbox.videoSourceRef}
+              thumbnailSourceRef={videoLightbox.thumbnailSourceRef}
+              mediaKind={videoLightbox.mediaKind}
+              onResolvedVideoUrl={(url) => {
+                if (videoLightbox.messageId) rememberResolvedVideoUrl(videoLightbox.messageId, url);
+              }}
+              onResolvedThumbnailUrl={(url) => {
+                if (videoLightbox.messageId) rememberResolvedThumbnailUrl(videoLightbox.messageId, url);
+              }}
               onClose={() => setVideoLightbox(null)}
             />
           ) : null}

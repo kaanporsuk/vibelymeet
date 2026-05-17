@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Modal,
   View,
@@ -25,11 +25,19 @@ import {
   safeRemoveExpoSharedObjectSubscription,
 } from '@/lib/expoSharedObjectSafe';
 
-export type ChatThreadPhotoItem = { id: string; uri: string };
+export type ChatThreadPhotoItem = { id: string; uri: string; sourceRef?: string | null };
 
 const SPRING = { damping: 22, stiffness: 260 };
 
-function ZoomablePhotoPage({ uri, onSwipeDismiss }: { uri: string; onSwipeDismiss: () => void }) {
+function ZoomablePhotoPage({
+  uri,
+  onLoadError,
+  onSwipeDismiss,
+}: {
+  uri: string;
+  onLoadError?: () => void;
+  onSwipeDismiss: () => void;
+}) {
   const scale = useSharedValue(1);
   const savedScale = useSharedValue(1);
   const tx = useSharedValue(0);
@@ -98,6 +106,7 @@ function ZoomablePhotoPage({ uri, onSwipeDismiss }: { uri: string; onSwipeDismis
             style={{ width: maxW, height: maxH }}
             resizeMode="contain"
             accessibilityLabel="Chat photo"
+            onError={onLoadError}
           />
         </Animated.View>
       </Animated.View>
@@ -109,20 +118,32 @@ function PhotoViewerBody({
   items,
   initialId,
   onClose,
+  onRefreshItem,
 }: {
   items: ChatThreadPhotoItem[];
   initialId: string;
   onClose: () => void;
+  onRefreshItem?: (item: ChatThreadPhotoItem) => Promise<string | null>;
 }) {
   const insets = useSafeAreaInsets();
   const start = Math.max(0, items.findIndex((i) => i.id === initialId));
   const [index, setIndex] = useState(start);
+  const [uriOverridesById, setUriOverridesById] = useState<Record<string, string>>({});
+  const refreshAttemptedForUriRef = useRef<string | null>(null);
 
   useEffect(() => {
     setIndex(Math.max(0, items.findIndex((i) => i.id === initialId)));
   }, [initialId, items]);
 
   const current = items[index];
+  const currentUri = current ? uriOverridesById[current.id] ?? current.uri : null;
+  const refreshCurrent = useCallback(async () => {
+    if (!current || !currentUri || !onRefreshItem || refreshAttemptedForUriRef.current === currentUri) return;
+    const freshUri = await onRefreshItem(current);
+    if (!freshUri) return;
+    refreshAttemptedForUriRef.current = currentUri;
+    setUriOverridesById((prev) => (prev[current.id] === freshUri ? prev : { ...prev, [current.id]: freshUri }));
+  }, [current, currentUri, onRefreshItem]);
   const goPrev = useCallback(() => {
     setIndex((i) => (i > 0 ? i - 1 : items.length - 1));
   }, [items.length]);
@@ -130,7 +151,7 @@ function PhotoViewerBody({
     setIndex((i) => (i < items.length - 1 ? i + 1 : 0));
   }, [items.length]);
 
-  if (!current) return null;
+  if (!current || !currentUri) return null;
 
   return (
     <GestureHandlerRootView style={styles.flex}>
@@ -150,7 +171,14 @@ function PhotoViewerBody({
         </View>
 
         <View style={styles.photoStage}>
-          <ZoomablePhotoPage key={current.id} uri={current.uri} onSwipeDismiss={onClose} />
+          <ZoomablePhotoPage
+            key={current.id}
+            uri={currentUri}
+            onLoadError={() => {
+              void refreshCurrent();
+            }}
+            onSwipeDismiss={onClose}
+          />
         </View>
 
         {items.length > 1 ? (
@@ -187,17 +215,19 @@ export function ChatThreadPhotoViewerModal({
   items,
   initialId,
   onClose,
+  onRefreshItem,
 }: {
   visible: boolean;
   items: ChatThreadPhotoItem[];
   initialId: string;
   onClose: () => void;
+  onRefreshItem?: (item: ChatThreadPhotoItem) => Promise<string | null>;
 }) {
   if (!visible || items.length === 0) return null;
 
   return (
     <Modal visible animationType="fade" presentationStyle="fullScreen" onRequestClose={onClose}>
-      <PhotoViewerBody items={items} initialId={initialId} onClose={onClose} />
+      <PhotoViewerBody items={items} initialId={initialId} onClose={onClose} onRefreshItem={onRefreshItem} />
     </Modal>
   );
 }
@@ -205,19 +235,42 @@ export function ChatThreadPhotoViewerModal({
 function VideoViewerBody({
   uri,
   posterUri,
+  onRefreshMedia,
   onClose,
 }: {
   uri: string;
   posterUri?: string | null;
+  onRefreshMedia?: () => Promise<{ uri?: string | null; posterUri?: string | null } | null>;
   onClose: () => void;
 }) {
   const [retryKey, setRetryKey] = useState(0);
+  const [playableUri, setPlayableUri] = useState(uri);
+  const [playablePosterUri, setPlayablePosterUri] = useState(posterUri ?? null);
+  const refreshAttemptedForUriRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    setPlayableUri(uri);
+    setPlayablePosterUri(posterUri ?? null);
+    refreshAttemptedForUriRef.current = null;
+  }, [posterUri, uri]);
+
+  const refreshMedia = useCallback(async (): Promise<boolean> => {
+    if (!onRefreshMedia || refreshAttemptedForUriRef.current === playableUri) return false;
+    const fresh = await onRefreshMedia();
+    if (fresh?.posterUri) setPlayablePosterUri(fresh.posterUri);
+    if (!fresh?.uri) return false;
+    refreshAttemptedForUriRef.current = playableUri;
+    setPlayableUri(fresh.uri);
+    return fresh.uri !== playableUri;
+  }, [onRefreshMedia, playableUri]);
+
   return (
     <VideoViewerStage
-      key={`${uri}-${retryKey}`}
-      uri={uri}
-      posterUri={posterUri}
+      key={`${playableUri}-${retryKey}`}
+      uri={playableUri}
+      posterUri={playablePosterUri}
       onClose={onClose}
+      onRefreshMedia={refreshMedia}
       onRemountPlayer={() => setRetryKey((k) => k + 1)}
     />
   );
@@ -231,11 +284,13 @@ function VideoViewerStage({
   uri,
   posterUri,
   onClose,
+  onRefreshMedia,
   onRemountPlayer,
 }: {
   uri: string;
   posterUri?: string | null;
   onClose: () => void;
+  onRefreshMedia: () => Promise<boolean>;
   onRemountPlayer: () => void;
 }) {
   const insets = useSafeAreaInsets();
@@ -249,7 +304,11 @@ function VideoViewerStage({
     const sub = safeExpoSharedObjectCall(
       () => player.addListener('statusChange', (payload) => {
         if (payload.status === 'error') {
-          setPhase('error');
+          void onRefreshMedia()
+            .then((didRefresh) => {
+              if (!didRefresh) setPhase('error');
+            })
+            .catch(() => setPhase('error'));
           return;
         }
         if (payload.status === 'readyToPlay') {
@@ -266,7 +325,7 @@ function VideoViewerStage({
       },
     );
     return () => safeRemoveExpoSharedObjectSubscription(sub, 'chat.viewerVideo.statusListener.remove');
-  }, [player]);
+  }, [onRefreshMedia, player]);
 
   useEffect(() => {
     const playResult = safeExpoSharedObjectCall(() => player.play(), {
@@ -325,7 +384,13 @@ function VideoViewerStage({
               <Ionicons name="alert-circle-outline" size={40} color="rgba(196,181,253,0.9)" />
               <Text style={styles.videoErrorText}>Couldn&apos;t play this video.</Text>
               <Pressable
-                onPress={onRemountPlayer}
+                onPress={() => {
+                  void onRefreshMedia()
+                    .then((didRefresh) => {
+                      if (!didRefresh) onRemountPlayer();
+                    })
+                    .catch(onRemountPlayer);
+                }}
                 style={({ pressed }) => [styles.videoRetryBtn, pressed && { opacity: 0.88 }]}
               >
                 <Text style={styles.videoRetryLabel}>Try again</Text>
@@ -346,18 +411,20 @@ export function ChatThreadVideoViewerModal({
   visible,
   uri,
   posterUri,
+  onRefreshMedia,
   onClose,
 }: {
   visible: boolean;
   uri: string;
   posterUri?: string | null;
+  onRefreshMedia?: () => Promise<{ uri?: string | null; posterUri?: string | null } | null>;
   onClose: () => void;
 }) {
   if (!visible || !uri) return null;
 
   return (
     <Modal visible animationType="fade" presentationStyle="fullScreen" onRequestClose={onClose}>
-      <VideoViewerBody key={uri} uri={uri} posterUri={posterUri} onClose={onClose} />
+      <VideoViewerBody key={uri} uri={uri} posterUri={posterUri} onRefreshMedia={onRefreshMedia} onClose={onClose} />
     </Modal>
   );
 }

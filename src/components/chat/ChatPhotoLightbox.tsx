@@ -4,22 +4,25 @@ import { X, ChevronLeft, ChevronRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
-export type ChatPhotoItem = { id: string; url: string };
+export type ChatPhotoItem = { id: string; url: string; sourceRef?: string | null };
 
 type ChatPhotoLightboxProps = {
   items: ChatPhotoItem[];
   initialId: string;
   onClose: () => void;
+  onRefreshItem?: (item: ChatPhotoItem) => Promise<string | null>;
 };
 
 const MIN_SCALE = 1;
 const MAX_SCALE = 4;
 
-export function ChatPhotoLightbox({ items, initialId, onClose }: ChatPhotoLightboxProps) {
+export function ChatPhotoLightbox({ items, initialId, onClose, onRefreshItem }: ChatPhotoLightboxProps) {
   const [index, setIndex] = useState(0);
   const [scale, setScale] = useState(1);
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const pinchRef = useRef<{ dist: number } | null>(null);
+  const [urlOverridesById, setUrlOverridesById] = useState<Record<string, string>>({});
+  const refreshAttemptedForUrlRef = useRef<string | null>(null);
 
   useEffect(() => {
     const i = items.findIndex((it) => it.id === initialId);
@@ -56,6 +59,15 @@ export function ChatPhotoLightbox({ items, initialId, onClose }: ChatPhotoLightb
 
   const current = items[index];
   const canPan = scale > 1.02;
+  const currentUrl = current ? urlOverridesById[current.id] ?? current.url : null;
+
+  const refreshCurrent = useCallback(async () => {
+    if (!current || !currentUrl || !onRefreshItem || refreshAttemptedForUrlRef.current === currentUrl) return;
+    const freshUrl = await onRefreshItem(current);
+    if (!freshUrl) return;
+    refreshAttemptedForUrlRef.current = currentUrl;
+    setUrlOverridesById((prev) => (prev[current.id] === freshUrl ? prev : { ...prev, [current.id]: freshUrl }));
+  }, [current, currentUrl, onRefreshItem]);
 
   const resetTransform = useCallback(() => {
     setScale(1);
@@ -95,7 +107,7 @@ export function ChatPhotoLightbox({ items, initialId, onClose }: ChatPhotoLightb
     pinchRef.current = null;
   }, []);
 
-  if (items.length === 0 || !current) return null;
+  if (items.length === 0 || !current || !currentUrl) return null;
 
   return (
     <motion.div
@@ -203,9 +215,12 @@ export function ChatPhotoLightbox({ items, initialId, onClose }: ChatPhotoLightb
           >
             <motion.img
               key={current.id}
-              src={current.url}
+              src={currentUrl}
               alt=""
               draggable={false}
+              onError={() => {
+                void refreshCurrent();
+              }}
               initial={{ opacity: 0, scale: 0.94 }}
               animate={{ opacity: 1, scale: 1 }}
               transition={{ duration: 0.2, ease: [0.22, 1, 0.36, 1] }}

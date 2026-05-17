@@ -1,16 +1,36 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { motion } from "framer-motion";
 import { Loader2, X, AlertCircle } from "lucide-react";
+import { refreshCachedChatMediaUrl, type ChatMediaKind } from "@/lib/chatMediaResolver";
 
 type ChatVideoLightboxProps = {
   videoUrl: string;
   posterUrl?: string | null;
+  messageId?: string;
+  videoSourceRef?: string | null;
+  thumbnailSourceRef?: string | null;
+  mediaKind?: Extract<ChatMediaKind, "video" | "vibe_clip">;
+  onResolvedVideoUrl?: (url: string) => void;
+  onResolvedThumbnailUrl?: (url: string) => void;
   onClose: () => void;
 };
 
-export function ChatVideoLightbox({ videoUrl, posterUrl, onClose }: ChatVideoLightboxProps) {
+export function ChatVideoLightbox({
+  videoUrl,
+  posterUrl,
+  messageId,
+  videoSourceRef,
+  thumbnailSourceRef,
+  mediaKind = "video",
+  onResolvedVideoUrl,
+  onResolvedThumbnailUrl,
+  onClose,
+}: ChatVideoLightboxProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const [phase, setPhase] = useState<"loading" | "ready" | "error">("loading");
+  const [playableVideoUrl, setPlayableVideoUrl] = useState(videoUrl);
+  const [playablePosterUrl, setPlayablePosterUrl] = useState(posterUrl ?? null);
+  const refreshAttemptedForUrlRef = useRef<string | null>(null);
 
   const resetPhase = useCallback(() => setPhase("loading"), []);
 
@@ -31,6 +51,9 @@ export function ChatVideoLightbox({ videoUrl, posterUrl, onClose }: ChatVideoLig
   }, [onClose]);
 
   useEffect(() => {
+    setPlayableVideoUrl(videoUrl);
+    setPlayablePosterUrl(posterUrl ?? null);
+    refreshAttemptedForUrlRef.current = null;
     resetPhase();
     const v = videoRef.current;
     if (!v) return;
@@ -41,7 +64,32 @@ export function ChatVideoLightbox({ videoUrl, posterUrl, onClose }: ChatVideoLig
       window.clearTimeout(t);
       v.pause();
     };
-  }, [videoUrl, resetPhase]);
+  }, [posterUrl, resetPhase, videoUrl]);
+
+  const refreshMedia = useCallback(async (): Promise<boolean> => {
+    if (!messageId || !videoSourceRef || refreshAttemptedForUrlRef.current === playableVideoUrl) return false;
+    const freshVideoUrl = await refreshCachedChatMediaUrl(messageId, mediaKind, videoSourceRef);
+    const freshPosterUrl = thumbnailSourceRef
+      ? await refreshCachedChatMediaUrl(messageId, "thumbnail", thumbnailSourceRef)
+      : null;
+    if (freshPosterUrl) {
+      setPlayablePosterUrl(freshPosterUrl);
+      onResolvedThumbnailUrl?.(freshPosterUrl);
+    }
+    if (!freshVideoUrl) return false;
+    refreshAttemptedForUrlRef.current = playableVideoUrl;
+    setPlayableVideoUrl(freshVideoUrl);
+    onResolvedVideoUrl?.(freshVideoUrl);
+    return freshVideoUrl !== playableVideoUrl;
+  }, [
+    mediaKind,
+    messageId,
+    onResolvedThumbnailUrl,
+    onResolvedVideoUrl,
+    playableVideoUrl,
+    thumbnailSourceRef,
+    videoSourceRef,
+  ]);
 
   return (
     <motion.div
@@ -116,8 +164,11 @@ export function ChatVideoLightbox({ videoUrl, posterUrl, onClose }: ChatVideoLig
                 className="rounded-full border border-fuchsia-500/35 bg-fuchsia-500/10 px-5 py-2 text-xs font-semibold text-fuchsia-200 transition-colors hover:bg-fuchsia-500/20"
                 onClick={() => {
                   resetPhase();
-                  videoRef.current?.load();
-                  void videoRef.current?.play().catch(() => setPhase("error"));
+                  void refreshMedia().then((didRefresh) => {
+                    if (didRefresh) return;
+                    videoRef.current?.load();
+                    void videoRef.current?.play().catch(() => setPhase("error"));
+                  });
                 }}
               >
                 Try again
@@ -128,8 +179,8 @@ export function ChatVideoLightbox({ videoUrl, posterUrl, onClose }: ChatVideoLig
           <div className="relative w-full bg-black">
             <video
               ref={videoRef}
-              src={videoUrl}
-              poster={posterUrl ?? undefined}
+              src={playableVideoUrl}
+              poster={playablePosterUrl ?? undefined}
               className="aspect-video max-h-[min(78dvh,800px)] w-full bg-black object-contain"
               controls
               playsInline
@@ -139,7 +190,11 @@ export function ChatVideoLightbox({ videoUrl, posterUrl, onClose }: ChatVideoLig
               onCanPlay={() => setPhase("ready")}
               onPlaying={() => setPhase("ready")}
               onWaiting={() => setPhase("loading")}
-              onError={() => setPhase("error")}
+              onError={() => {
+                void refreshMedia().then((didRefresh) => {
+                  if (!didRefresh) setPhase("error");
+                });
+              }}
             />
           </div>
 
