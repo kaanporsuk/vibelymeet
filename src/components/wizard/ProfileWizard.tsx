@@ -147,7 +147,7 @@ const ProfileWizard = ({ isOpen, onClose, onComplete, onOpenVibeStudio }: Profil
         const { fetchMyProfile, MY_PROFILE_STALE_TIME_MS, myProfileQueryKey } = await import(
           "@/services/profileService"
         );
-        const profile = await queryClient.ensureQueryData({
+        const profile = await queryClient.fetchQuery({
           queryKey: myProfileQueryKey(userId),
           queryFn: () => fetchMyProfile(userId),
           staleTime: MY_PROFILE_STALE_TIME_MS,

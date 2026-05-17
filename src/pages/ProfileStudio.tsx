@@ -357,17 +357,11 @@ const ProfileStudio = () => {
 
       try {
         const forceFresh = profileRefreshKey > 0;
-        const profilePromise = forceFresh
-          ? queryClient.fetchQuery({
-              queryKey: myProfileQueryKey(profileUser.id),
-              queryFn: () => fetchMyProfile(profileUser.id),
-              staleTime: 0,
-            })
-          : queryClient.ensureQueryData({
-              queryKey: myProfileQueryKey(profileUser.id),
-              queryFn: () => fetchMyProfile(profileUser.id),
-              staleTime: MY_PROFILE_STALE_TIME_MS,
-            });
+        const profilePromise = queryClient.fetchQuery({
+          queryKey: myProfileQueryKey(profileUser.id),
+          queryFn: () => fetchMyProfile(profileUser.id),
+          staleTime: forceFresh ? 0 : MY_PROFILE_STALE_TIME_MS,
+        });
 
         const data = await profilePromise;
         if (cancelled) return;
@@ -1030,9 +1024,11 @@ const ProfileStudio = () => {
       const displayLabel = geoLoc.formatted && geoLoc.formatted !== "Location detected"
         ? geoLoc.formatted
         : geoLoc.country;
+      const userId = profileUser?.id ?? (await supabase.auth.getUser()).data.user?.id;
+      if (!userId) throw new Error("not_authenticated");
       // Persist atomically via RPC — all three fields written together.
       const { data: rpcResult, error: rpcError } = await supabase.rpc("update_profile_location", {
-        p_user_id: (await supabase.auth.getUser()).data.user?.id,
+        p_user_id: userId,
         p_location: displayLabel,
         p_lat: geoLoc.lat,
         p_lng: geoLoc.lng,
@@ -1049,6 +1045,10 @@ const ProfileStudio = () => {
         locationData: { lat: geoLoc.lat, lng: geoLoc.lng },
       }));
       setProfile((prev) => prev ? { ...prev, location: displayLabel, locationData: { lat: geoLoc.lat, lng: geoLoc.lng } } : prev);
+      queryClient.setQueryData<ProfileData | null>(myProfileQueryKey(userId), (prev) =>
+        prev ? { ...prev, location: displayLabel } : prev,
+      );
+      void queryClient.invalidateQueries({ queryKey: myProfileQueryKey(userId), exact: true });
       toast.success("Location updated!");
     } catch {
       toast.error("Could not detect location. Check your browser's location permissions and try again.");
