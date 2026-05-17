@@ -90,7 +90,7 @@ export function extForPayload(kind: 'image' | 'voice' | 'video', mime?: string |
     if (normalized?.includes('mp4')) return 'mp4';
     const ext = extFromUri(source);
     if (ext === 'mov' || ext === 'm4v' || ext === 'webm' || ext === 'mp4') return ext;
-    return 'mp4';
+    return 'bin';
   }
   const normalized = mimeForPayload('image', mime, source);
   if (normalized?.includes('png')) return 'png';
@@ -98,5 +98,6 @@ export function extForPayload(kind: 'image' | 'voice' | 'video', mime?: string |
   if (normalized?.includes('heic') || normalized?.includes('heif')) return 'heic';
   const ext = extFromUri(source);
   if (ext === 'png' || ext === 'webp' || ext === 'heic' || ext === 'heif') return ext === 'heif' ? 'heic' : ext;
-  return 'jpg';
+  if (ext === 'jpg' || ext === 'jpeg') return 'jpg';
+  return 'bin';
 }

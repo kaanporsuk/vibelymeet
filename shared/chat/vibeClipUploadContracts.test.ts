@@ -282,6 +282,9 @@ test("native upload and cache keep mobile video formats intact", () => {
   assert.match(nativeMediaCache, /mimeForPayload\('video'/);
   assert.match(nativeMediaCache, /normalized\?\.includes\('x-m4v'\)[\s\S]{0,120}return 'm4v'/);
   assert.match(nativeMediaCache, /normalized\?\.includes\('webm'\)[\s\S]{0,120}return 'webm'/);
+  assert.match(nativeMediaCache, /if \(ext === 'mov' \|\| ext === 'm4v' \|\| ext === 'webm' \|\| ext === 'mp4'\) return ext;[\s\S]{0,80}return 'bin'/);
+  assert.match(nativeMediaCache, /if \(ext === 'jpg' \|\| ext === 'jpeg'\) return 'jpg';[\s\S]{0,80}return 'bin'/);
+  assert.doesNotMatch(nativeMediaCache, /return 'mp4';\n\s*\}/);
 });
 
 test("server upload and publish paths enforce final Vibe Clip limits", () => {
