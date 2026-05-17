@@ -546,9 +546,9 @@ function ChatVideoCard(props: ChatVideoCardProps) {
 
   const refreshMediaUri = useCallback(async (): Promise<boolean> => {
     if (!messageId || !sourceRef || refreshAttemptedForUriRef.current === playableUri) return false;
-    refreshAttemptedForUriRef.current = playableUri;
     const freshUri = await refreshCachedChatMediaUrl(messageId, mediaKind ?? 'video', sourceRef);
     if (!freshUri) return false;
+    refreshAttemptedForUriRef.current = playableUri;
     setPlayableUri(freshUri);
     onResolvedUri?.(freshUri);
     return freshUri !== playableUri;

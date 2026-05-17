@@ -129,7 +129,6 @@ export const VibeClipBubble = ({
 
   const refreshClipMedia = useCallback(async (): Promise<boolean> => {
     if (!sparkMessageId || !videoSourceRef || refreshAttemptedForUrlRef.current === playableVideoUrl) return false;
-    refreshAttemptedForUrlRef.current = playableVideoUrl;
     const freshVideoUrl = await refreshCachedChatMediaUrl(sparkMessageId, "vibe_clip", videoSourceRef);
     const freshThumbnailUrl = thumbnailSourceRef
       ? await refreshCachedChatMediaUrl(sparkMessageId, "thumbnail", thumbnailSourceRef)
@@ -139,6 +138,7 @@ export const VibeClipBubble = ({
       onResolvedThumbnailUrl?.(freshThumbnailUrl);
     }
     if (!freshVideoUrl) return false;
+    refreshAttemptedForUrlRef.current = playableVideoUrl;
     setPlayableVideoUrl(freshVideoUrl);
     onResolvedVideoUrl?.(freshVideoUrl);
     return freshVideoUrl !== playableVideoUrl;
