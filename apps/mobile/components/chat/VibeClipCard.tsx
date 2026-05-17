@@ -608,12 +608,12 @@ export function VibeClipCard(props: Props) {
       ? await refreshCachedChatMediaUrl(sparkMessageId, 'thumbnail', thumbnailSourceRef)
       : null;
     if (freshThumbnailUri) setPlayableThumbnailUrl(freshThumbnailUri);
-    if (!freshVideoUri) return false;
+    if (!freshVideoUri || freshVideoUri === playableVideoUrl) return false;
     refreshAttemptedForUriRef.current = playableVideoUrl;
     if (freshThumbnailUri) onResolvedThumbnailUrl?.(freshThumbnailUri);
     setPlayableVideoUrl(freshVideoUri);
     onResolvedVideoUrl?.(freshVideoUri);
-    return freshVideoUri !== playableVideoUrl;
+    return true;
   }, [
     onResolvedThumbnailUrl,
     onResolvedVideoUrl,

@@ -87,11 +87,14 @@ const webBubble = read("src/components/chat/VoiceMessageBubble.tsx");
 const nativeBubble = read("apps/mobile/components/chat/VoiceMessagePlayer.tsx");
 const webVideoBubble = read("src/components/chat/VideoMessageBubble.tsx");
 const webClipBubble = read("src/components/chat/VibeClipBubble.tsx");
+const webPhotoLightbox = read("src/components/chat/ChatPhotoLightbox.tsx");
+const webVideoLightbox = read("src/components/chat/ChatVideoLightbox.tsx");
 const webMessagesHook = read("src/hooks/useMessages.ts");
 const webChatPage = read("src/pages/Chat.tsx");
 const nativeChat = read("apps/mobile/lib/chatApi.ts");
 const nativeChatScreen = read("apps/mobile/app/chat/[id].tsx");
 const nativeClipCard = read("apps/mobile/components/chat/VibeClipCard.tsx");
+const nativeMediaViewer = read("apps/mobile/components/chat/ChatThreadMediaViewer.tsx");
 const threadPage = read("supabase/functions/chat-thread-page/index.ts");
 
 assert.match(resolver, /syncChatMessageMedia/);
@@ -101,18 +104,50 @@ assert.match(
 );
 assert.match(webBubble, /refreshCachedChatMediaUrl/);
 assert.match(webBubble, /await audioRef\.current\.play\(\);[\s\S]{0,500}refreshAudioUrl/);
+assert.match(
+  webBubble,
+  /if \(freshUrl && freshUrl !== playableUrl\) \{[\s\S]{0,140}refreshAttemptedForUrlRef\.current = playableUrl \?\? null;[\s\S]{0,80}return true;/,
+);
+assert.match(
+  webBubble,
+  /if \(!freshUrl \|\| freshUrl === playableUrl\) \{[\s\S]{0,120}setHasError\(true\);[\s\S]{0,80}return;[\s\S]{0,80}\}[\s\S]{0,80}refreshAttemptedForUrlRef\.current = playableUrl \?\? null;/,
+);
 assert.doesNotMatch(webBubble, /console\.error\("Audio failed to load:/);
 assert.match(webVideoBubble, /refreshCachedChatMediaUrl/);
 assert.match(webVideoBubble, /videoSourceRef/);
 assert.match(webVideoBubble, /mediaKind\s*=\s*"video"/);
 assert.match(webVideoBubble, /onError=\{\(\) => \{[\s\S]{0,240}tryRefreshAfterFailure/);
+assert.match(
+  webVideoBubble,
+  /const freshUrl = await refreshVideoUrl\(\);[\s\S]{0,80}if \(!freshUrl \|\| freshUrl === playableVideoUrl\) return false;[\s\S]{0,80}refreshAttemptedForUrlRef\.current = playableVideoUrl;[\s\S]{0,80}return true;/,
+);
 assert.match(webClipBubble, /refreshCachedChatMediaUrl/);
 assert.match(webClipBubble, /videoSourceRef/);
 assert.match(webClipBubble, /thumbnailSourceRef/);
 assert.match(webClipBubble, /refreshCachedChatMediaUrl\(sparkMessageId, "vibe_clip", videoSourceRef\)/);
 assert.match(webClipBubble, /refreshCachedChatMediaUrl\(sparkMessageId, "thumbnail", thumbnailSourceRef\)/);
+assert.match(
+  webClipBubble,
+  /if \(!freshVideoUrl \|\| freshVideoUrl === playableVideoUrl\) return false;[\s\S]{0,80}refreshAttemptedForUrlRef\.current = playableVideoUrl;[\s\S]{0,160}return true;/,
+);
+assert.match(
+  webPhotoLightbox,
+  /if \(!freshUrl \|\| freshUrl === currentUrl\) return;[\s\S]{0,80}refreshAttemptedForUrlRef\.current = currentUrl;/,
+);
+assert.match(
+  webVideoLightbox,
+  /if \(!freshVideoUrl \|\| freshVideoUrl === playableVideoUrl\) return false;[\s\S]{0,80}refreshAttemptedForUrlRef\.current = playableVideoUrl;[\s\S]{0,160}return true;/,
+);
 assert.match(nativeBubble, /refreshCachedChatMediaUrl/);
 assert.match(nativeBubble, /player\.play\(\)[\s\S]{0,600}refreshAndQueuePlay/);
+assert.match(
+  nativeBubble,
+  /if \(fresh === playableUri\) \{[\s\S]{0,140}return playCurrent\(\);[\s\S]{0,80}\}[\s\S]{0,80}refreshAttemptedForUriRef\.current = playableUri;[\s\S]{0,80}return true;/,
+);
+assert.match(
+  nativeBubble,
+  /if \(!fresh \|\| fresh === playableUri\) \{[\s\S]{0,120}setHasError\(true\);[\s\S]{0,80}return;[\s\S]{0,80}\}[\s\S]{0,80}refreshAttemptedForUriRef\.current = playableUri;/,
+);
 assert.match(nativeClipCard, /refreshCachedChatMediaUrl/);
 assert.match(nativeClipCard, /videoSourceRef/);
 assert.match(nativeClipCard, /thumbnailSourceRef/);
@@ -120,6 +155,22 @@ assert.match(nativeClipCard, /refreshCachedChatMediaUrl\(sparkMessageId, 'vibe_c
 assert.match(nativeClipCard, /refreshCachedChatMediaUrl\(sparkMessageId, 'thumbnail', thumbnailSourceRef\)/);
 assert.match(nativeClipCard, /onResolvedVideoUrl\?\.\(freshVideoUri\)/);
 assert.match(nativeClipCard, /onResolvedThumbnailUrl\?\.\(freshThumbnailUri\)/);
+assert.match(
+  nativeChatScreen,
+  /if \(!freshUri \|\| freshUri === playableUri\) return false;[\s\S]{0,80}refreshAttemptedForUriRef\.current = playableUri;[\s\S]{0,160}return true;/,
+);
+assert.match(
+  nativeClipCard,
+  /if \(!freshVideoUri \|\| freshVideoUri === playableVideoUrl\) return false;[\s\S]{0,80}refreshAttemptedForUriRef\.current = playableVideoUrl;[\s\S]{0,160}return true;/,
+);
+assert.match(
+  nativeMediaViewer,
+  /if \(!freshUri \|\| freshUri === currentUri\) return;[\s\S]{0,80}refreshAttemptedForUriRef\.current = currentUri;/,
+);
+assert.match(
+  nativeMediaViewer,
+  /if \(!fresh\?\.uri \|\| fresh\.uri === playableUri\) return false;[\s\S]{0,80}refreshAttemptedForUriRef\.current = playableUri;[\s\S]{0,160}return true;/,
+);
 assert.match(nativeChat, /extras:\s*\{\s*httpSend:\s*true\s*\}/);
 assert.match(threadPage, /\.from\("media_assets"\)/);
 assert.match(threadPage, /date_suggestions/);

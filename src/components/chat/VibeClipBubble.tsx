@@ -137,11 +137,11 @@ export const VibeClipBubble = ({
       setPlayableThumbnailUrl(freshThumbnailUrl);
       onResolvedThumbnailUrl?.(freshThumbnailUrl);
     }
-    if (!freshVideoUrl) return false;
+    if (!freshVideoUrl || freshVideoUrl === playableVideoUrl) return false;
     refreshAttemptedForUrlRef.current = playableVideoUrl;
     setPlayableVideoUrl(freshVideoUrl);
     onResolvedVideoUrl?.(freshVideoUrl);
-    return freshVideoUrl !== playableVideoUrl;
+    return true;
   }, [onResolvedThumbnailUrl, onResolvedVideoUrl, playableVideoUrl, sparkMessageId, thumbnailSourceRef, videoSourceRef]);
 
   const markReadyIfPossible = useCallback(() => {

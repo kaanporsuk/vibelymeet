@@ -556,11 +556,11 @@ function ChatVideoCard(props: ChatVideoCardProps) {
   const refreshMediaUri = useCallback(async (): Promise<boolean> => {
     if (!messageId || !sourceRef || refreshAttemptedForUriRef.current === playableUri) return false;
     const freshUri = await refreshCachedChatMediaUrl(messageId, mediaKind ?? 'video', sourceRef);
-    if (!freshUri) return false;
+    if (!freshUri || freshUri === playableUri) return false;
     refreshAttemptedForUriRef.current = playableUri;
     setPlayableUri(freshUri);
     onResolvedUri?.(freshUri);
-    return freshUri !== playableUri;
+    return true;
   }, [mediaKind, messageId, onResolvedUri, playableUri, sourceRef]);
 
   return (

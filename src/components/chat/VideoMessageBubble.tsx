@@ -87,9 +87,10 @@ export const VideoMessageBubble = ({
 
   const tryRefreshAfterFailure = useCallback(async (): Promise<boolean> => {
     if (!messageId || !videoSourceRef || refreshAttemptedForUrlRef.current === playableVideoUrl) return false;
-    refreshAttemptedForUrlRef.current = playableVideoUrl;
     const freshUrl = await refreshVideoUrl();
-    return !!freshUrl && freshUrl !== playableVideoUrl;
+    if (!freshUrl || freshUrl === playableVideoUrl) return false;
+    refreshAttemptedForUrlRef.current = playableVideoUrl;
+    return true;
   }, [messageId, playableVideoUrl, refreshVideoUrl, videoSourceRef]);
 
   useEffect(() => {

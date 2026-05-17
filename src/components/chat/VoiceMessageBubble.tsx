@@ -80,9 +80,12 @@ export const VoiceMessageBubble = ({
       setIsLoading(false);
       setIsPlaying(false);
       if (audioSourceRef && messageId && refreshAttemptedForUrlRef.current !== playableUrl) {
-        refreshAttemptedForUrlRef.current = playableUrl;
         void refreshAudioUrl().then((freshUrl) => {
-          if (!freshUrl || freshUrl === playableUrl) setHasError(true);
+          if (!freshUrl || freshUrl === playableUrl) {
+            setHasError(true);
+            return;
+          }
+          refreshAttemptedForUrlRef.current = playableUrl ?? null;
         });
         return;
       }
@@ -156,27 +159,32 @@ export const VoiceMessageBubble = ({
     setHasError(false);
   }, []);
 
-  const refreshAndPlay = useCallback(async (fallbackToCurrentAudio: boolean) => {
+  const refreshAndPlay = useCallback(async (fallbackToCurrentAudio: boolean): Promise<boolean> => {
     setHasError(false);
     setIsLoading(true);
     pendingAutoplayRef.current = true;
     const freshUrl = await refreshAudioUrl();
 
-    if (freshUrl && freshUrl !== playableUrl) return;
+    if (freshUrl && freshUrl !== playableUrl) {
+      refreshAttemptedForUrlRef.current = playableUrl ?? null;
+      return true;
+    }
 
     pendingAutoplayRef.current = false;
     if (!freshUrl && !fallbackToCurrentAudio) {
       setIsLoading(false);
       setHasError(true);
-      return;
+      return false;
     }
 
     try {
       if (!freshUrl) audioRef.current?.load();
       await playCurrentAudio();
+      return true;
     } catch {
       setIsLoading(false);
       setHasError(true);
+      return false;
     }
   }, [playCurrentAudio, playableUrl, refreshAudioUrl]);
 
@@ -193,7 +201,6 @@ export const VoiceMessageBubble = ({
         await playCurrentAudio();
       } catch {
         if (audioSourceRef && messageId && refreshAttemptedForUrlRef.current !== playableUrl) {
-          refreshAttemptedForUrlRef.current = playableUrl ?? null;
           await refreshAndPlay(false);
           return;
         }
