@@ -46,7 +46,7 @@ export const DashboardGreeting = () => {
       }
       try {
         setIsLoading(true);
-        const data = await queryClient.ensureQueryData({
+        const data = await queryClient.fetchQuery({
           queryKey: myProfileQueryKey(user.id),
           queryFn: () => fetchMyProfile(user.id),
           staleTime: MY_PROFILE_STALE_TIME_MS,

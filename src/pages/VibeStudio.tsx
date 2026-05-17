@@ -67,17 +67,11 @@ const VibeStudio = () => {
     }
     setIsLoading(true);
     try {
-      const data = await (forceFresh
-        ? queryClient.fetchQuery({
-            queryKey: myProfileQueryKey(userId),
-            queryFn: () => fetchMyProfile(userId),
-            staleTime: 0,
-          })
-        : queryClient.ensureQueryData({
-            queryKey: myProfileQueryKey(userId),
-            queryFn: () => fetchMyProfile(userId),
-            staleTime: MY_PROFILE_STALE_TIME_MS,
-          }));
+      const data = await queryClient.fetchQuery({
+        queryKey: myProfileQueryKey(userId),
+        queryFn: () => fetchMyProfile(userId),
+        staleTime: forceFresh ? 0 : MY_PROFILE_STALE_TIME_MS,
+      });
       setProfile(data);
       if (data) {
         heroVideoResumePollingForProfile(

@@ -207,10 +207,14 @@ test("match-call camera switching stays wired on web and native chat calls", () 
   assert.match(nativeMatchCallHook, /expectedDeviceMatched/);
   assert.match(nativeMatchCallHook, /controlsExpectedFacingMatched/);
   assert.match(nativeMatchCallHook, /snapshotExpectedFacingMatched/);
+  assert.match(nativeMatchCallHook, /controlsFacingChangedFromBefore/);
+  assert.match(nativeMatchCallHook, /snapshotFacingChangedFromBefore/);
+  assert.match(nativeMatchCallHook, /cameraIdentityChanged/);
   assert.match(nativeMatchCallHook, /beforeDeviceKey/);
   assert.match(nativeMatchCallHook, /expectedFacing !== baseline\.facingMode/);
   assert.match(nativeMatchCallHook, /controlsFacing === expectedFacing/);
-  assert.match(nativeMatchCallHook, /snapshotFacing !== before\.facingMode \|\| trackChanged \|\| deviceChanged/);
+  assert.match(nativeMatchCallHook, /controlsFacingChangedFromBefore \|\| cameraIdentityChanged/);
+  assert.match(nativeMatchCallHook, /snapshotFacingChangedFromBefore \|\| cameraIdentityChanged/);
   assert.match(nativeMatchCallHook, /expectedDeviceKey !== beforeDeviceKey/);
   assert.match(nativeMatchCallHook, /trackChangedToExpectedTarget/);
   assert.match(nativeMatchCallHook, /trackChangedWithoutIdentity/);

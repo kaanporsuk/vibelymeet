@@ -82,7 +82,7 @@ export default function DiscoverySettingsScreen() {
     }
     setLoading(true);
     try {
-      const data = await queryClient.ensureQueryData({
+      const data = await queryClient.fetchQuery({
         queryKey: myProfileQueryKey(userId),
         queryFn: () => fetchMyProfile(userId),
         staleTime: MY_PROFILE_STALE_TIME_MS,

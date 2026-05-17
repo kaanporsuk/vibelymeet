@@ -1256,16 +1256,28 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
             snapshotDeviceKey !== baselineDeviceKey &&
             (!beforeDeviceKey || snapshotDeviceKey !== beforeDeviceKey)
         );
+        const controlsFacingChangedFromBefore = Boolean(
+          before.facingMode &&
+            controlsFacing &&
+            controlsFacing !== before.facingMode
+        );
+        const snapshotFacingChangedFromBefore = Boolean(
+          before.facingMode &&
+            snapshotFacing &&
+            snapshotFacing !== before.facingMode
+        );
+        const cameraIdentityChanged = trackChanged || deviceChanged;
         const controlsFacingChanged = Boolean(
           baseline.facingMode &&
             controlsFacing &&
-            controlsFacing !== baseline.facingMode
+            controlsFacing !== baseline.facingMode &&
+            (controlsFacingChangedFromBefore || cameraIdentityChanged)
         );
         const snapshotFacingChanged = Boolean(
           baseline.facingMode &&
             snapshotFacing &&
             snapshotFacing !== baseline.facingMode &&
-            (!before.facingMode || snapshotFacing !== before.facingMode || trackChanged || deviceChanged)
+            (snapshotFacingChangedFromBefore || cameraIdentityChanged)
         );
         const facingChanged = controlsFacingChanged || snapshotFacingChanged;
         const expectedDeviceSignalPresent = Boolean(
@@ -1280,13 +1292,14 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
         const controlsExpectedFacingMatched = Boolean(
           expectedFacing &&
             expectedFacing !== baseline.facingMode &&
-            controlsFacing === expectedFacing
+            controlsFacing === expectedFacing &&
+            (controlsFacingChangedFromBefore || cameraIdentityChanged)
         );
         const snapshotExpectedFacingMatched = Boolean(
           expectedFacing &&
             expectedFacing !== baseline.facingMode &&
             snapshotFacing === expectedFacing &&
-            (!before.facingMode || expectedFacing !== before.facingMode || trackChanged || deviceChanged)
+            (snapshotFacingChangedFromBefore || cameraIdentityChanged)
         );
         const expectedFacingSignalPresent = controlsExpectedFacingMatched || snapshotExpectedFacingMatched;
         const expectedFacingMatched = expectedFacingSignalPresent;
