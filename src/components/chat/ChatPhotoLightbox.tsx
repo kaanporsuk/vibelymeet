@@ -17,18 +17,37 @@ const MIN_SCALE = 1;
 const MAX_SCALE = 4;
 
 export function ChatPhotoLightbox({ items, initialId, onClose, onRefreshItem }: ChatPhotoLightboxProps) {
-  const [index, setIndex] = useState(0);
+  const [index, setIndex] = useState(() => {
+    const initialIndex = items.findIndex((it) => it.id === initialId);
+    return initialIndex >= 0 ? initialIndex : 0;
+  });
   const [scale, setScale] = useState(1);
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const pinchRef = useRef<{ dist: number } | null>(null);
   const [urlOverridesById, setUrlOverridesById] = useState<Record<string, string>>({});
   const refreshAttemptedForUrlRef = useRef<string | null>(null);
+  const lastInitialIdRef = useRef(initialId);
 
   useEffect(() => {
-    const i = items.findIndex((it) => it.id === initialId);
-    setIndex(i >= 0 ? i : 0);
-    setScale(1);
-    setPan({ x: 0, y: 0 });
+    const initialChanged = lastInitialIdRef.current !== initialId;
+    lastInitialIdRef.current = initialId;
+    setIndex((prevIndex) => {
+      if (!items.length) return 0;
+      if (initialChanged) {
+        const initialIndex = items.findIndex((it) => it.id === initialId);
+        return initialIndex >= 0 ? initialIndex : 0;
+      }
+      const currentId = items[prevIndex]?.id;
+      const preservedIndex = currentId ? items.findIndex((it) => it.id === currentId) : -1;
+      if (preservedIndex >= 0) return preservedIndex;
+      const initialIndex = items.findIndex((it) => it.id === initialId);
+      if (initialIndex >= 0) return initialIndex;
+      return Math.min(prevIndex, items.length - 1);
+    });
+    if (initialChanged) {
+      setScale(1);
+      setPan({ x: 0, y: 0 });
+    }
   }, [initialId, items]);
 
   useEffect(() => {
