@@ -13,8 +13,6 @@ const DATE_PLAN_SELECT =
 const DATE_PLAN_PARTICIPANT_SELECT =
   "id, date_plan_id, user_id, calendar_title, calendar_issued_at";
 const CHAT_IMAGE_MESSAGE_PREFIX = "__IMAGE__|";
-const TOKEN_TTL_SECONDS = 5 * 60;
-const encoder = new TextEncoder();
 
 type MediaKind = "image" | "voice" | "video" | "vibe_clip" | "thumbnail";
 
@@ -141,44 +139,12 @@ function encodeThreadPageCursor(row: { created_at: string; id: string }): string
   return JSON.stringify({ created_at: row.created_at, id: row.id });
 }
 
-function isHttpUrl(value: string | null | undefined): boolean {
-  return typeof value === "string" && /^https?:\/\//i.test(value);
-}
-
 function primaryPhotoPath(input: { photos?: unknown; avatar_url?: string | null }): string | null {
   const photos = Array.isArray(input.photos) ? input.photos : [];
   for (const photo of photos) {
     if (typeof photo === "string" && photo.trim()) return photo.trim();
   }
   return typeof input.avatar_url === "string" && input.avatar_url.trim() ? input.avatar_url.trim() : null;
-}
-
-function base64Url(bytes: Uint8Array): string {
-  let binary = "";
-  for (const byte of bytes) binary += String.fromCharCode(byte);
-  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
-}
-
-function base64UrlJson(value: unknown): string {
-  return base64Url(encoder.encode(JSON.stringify(value)));
-}
-
-async function signPayload(secret: string, payload: string): Promise<string> {
-  const key = await crypto.subtle.importKey(
-    "raw",
-    encoder.encode(secret),
-    { name: "HMAC", hash: "SHA-256" },
-    false,
-    ["sign"],
-  );
-  const signature = await crypto.subtle.sign("HMAC", key, encoder.encode(payload));
-  return base64Url(new Uint8Array(signature));
-}
-
-async function createToken(secret: string, claims: Record<string, unknown>): Promise<string> {
-  const payload = base64UrlJson(claims);
-  const signature = await signPayload(secret, payload);
-  return `${payload}.${signature}`;
 }
 
 function mediaFamilyForKind(kind: MediaKind): string {
@@ -208,35 +174,12 @@ function parsePrivateChatImageRef(content: string | null | undefined): string | 
   return /^photos\/[^?#\s]+/i.test(ref) ? ref : null;
 }
 
-function formatChatImageMessageContent(publicUrl: string): string {
-  return `${CHAT_IMAGE_MESSAGE_PREFIX}${publicUrl}`;
-}
-
-async function signedProxyUrl(params: {
-  supabaseUrl: string;
-  tokenSecret: string;
-  userId: string;
-  messageId: string;
-  kind: MediaKind;
-  path: string;
-  mimeType: string | null;
-}): Promise<string> {
-  const token = await createToken(params.tokenSecret, {
-    sub: params.userId,
-    mid: params.messageId,
-    kind: params.kind,
-    path: params.path,
-    mime: params.mimeType ?? "application/octet-stream",
-    exp: Math.floor(Date.now() / 1000) + TOKEN_TTL_SECONDS,
-  });
-  return `${params.supabaseUrl.replace(/\/$/, "")}/functions/v1/get-chat-media-url?token=${encodeURIComponent(token)}`;
+function formatChatImageMessageContent(mediaRef: string): string {
+  return `${CHAT_IMAGE_MESSAGE_PREFIX}${mediaRef}`;
 }
 
 async function resolvePageMediaUrls(params: {
   serviceClient: ReturnType<typeof createClient>;
-  supabaseUrl: string;
-  tokenSecret: string;
-  userId: string;
   rows: MessageRow[];
 }): Promise<MessageRow[]> {
   const messageIds = params.rows.map((row) => row.id).filter(isUuid);
@@ -268,18 +211,9 @@ async function resolvePageMediaUrls(params: {
     }
   }
 
-  const signAsset = async (messageId: string, kind: MediaKind): Promise<string | null> => {
+  const durableAssetRef = (messageId: string, kind: MediaKind): string | null => {
     const asset = assetsByKey.get(mediaKey(messageId, kind));
-    if (!asset?.provider_path) return null;
-    return signedProxyUrl({
-      supabaseUrl: params.supabaseUrl,
-      tokenSecret: params.tokenSecret,
-      userId: params.userId,
-      messageId,
-      kind,
-      path: asset.provider_path,
-      mimeType: asset.mime_type,
-    });
+    return asset?.provider_path ?? null;
   };
 
   return Promise.all(
@@ -292,13 +226,13 @@ async function resolvePageMediaUrls(params: {
             : row.structured_payload,
       };
 
-      if (next.audio_url && !isHttpUrl(next.audio_url)) {
-        next.audio_url = await signAsset(next.id, "voice") ?? next.audio_url;
+      if (next.audio_url) {
+        next.audio_url = durableAssetRef(next.id, "voice") ?? next.audio_url;
       }
 
-      if (next.video_url && !isHttpUrl(next.video_url)) {
+      if (next.video_url) {
         const kind = next.message_kind === "vibe_clip" ? "vibe_clip" : "video";
-        next.video_url = await signAsset(next.id, kind) ?? next.video_url;
+        next.video_url = durableAssetRef(next.id, kind) ?? next.video_url;
       }
 
       const payload =
@@ -306,15 +240,15 @@ async function resolvePageMediaUrls(params: {
           ? { ...(next.structured_payload as Record<string, unknown>) }
           : null;
       const thumbnailRef = typeof payload?.thumbnail_url === "string" ? payload.thumbnail_url : null;
-      if (payload && thumbnailRef && !isHttpUrl(thumbnailRef)) {
-        payload.thumbnail_url = await signAsset(next.id, "thumbnail") ?? thumbnailRef;
+      if (payload && thumbnailRef) {
+        payload.thumbnail_url = durableAssetRef(next.id, "thumbnail") ?? thumbnailRef;
         next.structured_payload = payload;
       }
 
       const imageRef = parsePrivateChatImageRef(next.content);
       if (imageRef) {
-        const signedImage = await signAsset(next.id, "image");
-        if (signedImage) next.content = formatChatImageMessageContent(signedImage);
+        const durableImageRef = durableAssetRef(next.id, "image");
+        if (durableImageRef) next.content = formatChatImageMessageContent(durableImageRef);
       }
 
       return next;
@@ -434,7 +368,6 @@ serve(async (req) => {
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const anonKey = Deno.env.get("SUPABASE_ANON_KEY")!;
     const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-    const tokenSecret = Deno.env.get("CHAT_MEDIA_PROXY_SECRET") || serviceRoleKey;
 
     const userClient = createClient(supabaseUrl, anonKey, {
       global: { headers: { Authorization: authHeader } },
@@ -508,9 +441,6 @@ serve(async (req) => {
     const [resolvedRowsAsc, dateSuggestions] = await Promise.all([
       resolvePageMediaUrls({
         serviceClient,
-        supabaseUrl,
-        tokenSecret,
-        userId: currentUserId,
         rows: rowsAsc,
       }),
       loadPageDateSuggestions(serviceClient, match.id, rowsAsc),

@@ -161,8 +161,18 @@ assert.match(
 );
 assert.match(
   profileStudio,
-  /promptDrawerStableViewportHeightRef\.current = Math\.max\([\s\S]*window\.visualViewport\?\.height \?\? 0,[\s\S]*window\.innerHeight \?\? 0,[\s\S]*updatePromptDrawerKeyboardStyle\(\);[\s\S]*const alignAnswer = \(\) => \{[\s\S]*updatePromptDrawerKeyboardStyle\(\);[\s\S]*const bodyRect = body\.getBoundingClientRect\(\);/,
-  "Prompt drawer should refresh visual-viewport-owned layout during focus and delayed answer nudges",
+  /const capturePromptDrawerStableViewportHeight = useCallback\(\(\) => \{[\s\S]*promptDrawerStableViewportHeightRef\.current = Math\.max\([\s\S]*window\.visualViewport\?\.height \?\? 0,[\s\S]*window\.innerHeight \?\? 0,[\s\S]*setActiveDrawer\(type\);[\s\S]*capturePromptDrawerStableViewportHeight\(\);[\s\S]*setActiveDrawer\("prompt"\);/,
+  "Prompt drawer should capture the pre-keyboard viewport baseline when the prompt drawer opens",
+);
+assert.match(
+  profileStudio,
+  /const nudgePromptAnswerIntoView = useCallback\(\(\) => \{[\s\S]*if \(!body \|\| !answer \|\| document\.activeElement !== answer\) return;[\s\S]*updatePromptDrawerKeyboardStyle\(\);[\s\S]*const alignAnswer = \(\) => \{[\s\S]*updatePromptDrawerKeyboardStyle\(\);[\s\S]*const bodyRect = body\.getBoundingClientRect\(\);/,
+  "Prompt drawer should refresh visual-viewport-owned layout during delayed answer nudges without recapturing the baseline",
+);
+assert.doesNotMatch(
+  profileStudio,
+  /const nudgePromptAnswerIntoView = useCallback\(\(\) => \{[\s\S]*promptDrawerStableViewportHeightRef\.current = Math\.max\([\s\S]*const alignAnswer = \(\) => \{/,
+  "Prompt drawer keyboard resize nudges must not replace the pre-keyboard viewport baseline",
 );
 assert.match(
   profileStudio,
@@ -171,8 +181,8 @@ assert.match(
 );
 assert.match(
   profileStudio,
-  /ref=\{promptAnswerFieldRef\}[\s\S]*onFocus=\{nudgePromptAnswerIntoView\}/,
-  "Prompt answer textarea should nudge itself into view on focus",
+  /ref=\{promptAnswerFieldRef\}[\s\S]*onFocus=\{\(\) => \{[\s\S]*capturePromptDrawerStableViewportHeight\(\);[\s\S]*nudgePromptAnswerIntoView\(\);[\s\S]*\}\}/,
+  "Prompt answer textarea should capture the baseline and nudge itself into view on focus",
 );
 assert.match(
   profileStudio,
