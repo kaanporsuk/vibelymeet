@@ -19,6 +19,7 @@ import Animated, {
 import { Ionicons } from '@expo/vector-icons';
 import { useVideoPlayer, VideoView } from 'expo-video';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { resolvePreservedMediaSelectionId } from '../../../../shared/chat/mediaSelection';
 import {
   attachSafeExpoSharedObjectPromise,
   safeExpoSharedObjectCall,
@@ -132,18 +133,22 @@ function PhotoViewerBody({
   const [uriOverridesById, setUriOverridesById] = useState<Record<string, string>>({});
   const refreshAttemptedForUriRef = useRef<string | null>(null);
   const lastInitialIdRef = useRef(initialId);
+  const previousItemsRef = useRef(items);
 
   useEffect(() => {
+    const previousItems = previousItemsRef.current;
     const initialChanged = lastInitialIdRef.current !== initialId;
     lastInitialIdRef.current = initialId;
     setSelectedId((prevId) => {
-      const nextInitialId = items.find((i) => i.id === initialId)?.id ?? items[0]?.id ?? initialId;
-      if (!items.length) return initialId;
-      if (initialChanged) {
-        return nextInitialId;
-      }
-      return items.some((i) => i.id === prevId) ? prevId : nextInitialId;
+      return resolvePreservedMediaSelectionId({
+        items,
+        previousItems,
+        previousId: prevId,
+        initialId,
+        initialChanged,
+      });
     });
+    previousItemsRef.current = items;
   }, [initialId, items]);
 
   const index = Math.max(0, items.findIndex((i) => i.id === selectedId));
