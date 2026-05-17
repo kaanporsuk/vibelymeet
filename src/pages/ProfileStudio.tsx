@@ -68,11 +68,15 @@ import {
 } from "@/components/ui/drawer";
 import {
   fetchMyProfile,
+  fetchProfileLiveCounts,
   updateMyProfile,
   autoDetectLocation,
   getZodiacSign,
   getZodiacEmoji,
   calculateAge,
+  MY_PROFILE_STALE_TIME_MS,
+  myProfileQueryKey,
+  profileLiveCountsQueryKey,
   type ProfileData,
   type ProfileUpdatePayload,
   type GeoLocation,
@@ -80,6 +84,8 @@ import {
 import { Crown, Star } from "lucide-react";
 import { format, startOfDay, addDays } from "date-fns";
 import { trackEvent } from "@/lib/analytics";
+import { useQueryClient } from "@tanstack/react-query";
+import { useUserProfile } from "@/contexts/AuthContext";
 
 const PhotoManageDrawer = lazy(() => import("@/components/photos/PhotoManageDrawer"));
 const VibeVideoFullscreenPlayer = lazy(() =>
@@ -281,6 +287,8 @@ const ProfileStudio = () => {
   const navigate = useNavigate();
   const { handleLogout } = useLogout();
   const { hasBadge, badgeType } = useEntitlements();
+  const { user: profileUser } = useUserProfile();
+  const queryClient = useQueryClient();
   const [profile, setProfile] = useState<UserProfile>(initialProfile);
   const [activeDrawer, setActiveDrawer] = useState<DrawerType>(null);
   const [editForm, setEditForm] = useState<UserProfile>(initialProfile);
@@ -338,55 +346,31 @@ const ProfileStudio = () => {
   // ── Data loading (same as legacy) ─────────────────────────────
 
   useEffect(() => {
+    let cancelled = false;
+
     const loadProfile = async () => {
+      if (!profileUser?.id) {
+        setProfile(initialProfile);
+        setIsLoading(false);
+        return;
+      }
+
       try {
-        const { data: { user } } = await supabase.auth.getUser();
-        if (user) {
-          const emailConfirmed = !!user.email_confirmed_at;
-          setAccountEmailConfirmed(emailConfirmed);
-          setHasAccountEmail(!!resolveCanonicalAuthEmail(user));
-          const phoneData = await fetchMyProfileSettings();
-          if (phoneData?.phone_verified) setPhoneVerified(true);
-          setPhoneNumber(phoneData?.phone_number ?? null);
-          const authEmailCanonical = resolveCanonicalAuthEmail(user) ?? user.email ?? null;
-          setEmailVerified(
-            isCurrentEmailVerified({
-              emailVerified: !!phoneData?.email_verified,
-              verifiedEmail: phoneData?.verified_email ?? null,
-              authEmail: authEmailCanonical,
-            }),
-          );
-          setEmailForVerification(authEmailCanonical ?? "");
-          const profilePhotoVerified = phoneData?.photo_verified;
-          const photoVerificationExpiresAt = phoneData?.photo_verification_expires_at;
+        const forceFresh = profileRefreshKey > 0;
+        const profilePromise = forceFresh
+          ? queryClient.fetchQuery({
+              queryKey: myProfileQueryKey(profileUser.id),
+              queryFn: () => fetchMyProfile(profileUser.id),
+              staleTime: 0,
+            })
+          : queryClient.ensureQueryData({
+              queryKey: myProfileQueryKey(profileUser.id),
+              queryFn: () => fetchMyProfile(profileUser.id),
+              staleTime: MY_PROFILE_STALE_TIME_MS,
+            });
 
-          if (profilePhotoVerified) {
-            setPhotoVerificationStatus(
-              resolvePhotoVerificationState({
-                photoVerified: profilePhotoVerified,
-                photoVerificationExpiresAt,
-                latestPhotoVerificationStatus: null,
-              }),
-            );
-          } else {
-            const { data: pendingVerification } = await supabase
-              .from("photo_verifications")
-              .select("status")
-              .eq("user_id", user.id)
-              .order("created_at", { ascending: false })
-              .limit(1)
-              .maybeSingle();
-
-            setPhotoVerificationStatus(
-              resolvePhotoVerificationState({
-                photoVerified: profilePhotoVerified,
-                photoVerificationExpiresAt,
-                latestPhotoVerificationStatus: pendingVerification?.status,
-              }),
-            );
-          }
-        }
-        const data = await fetchMyProfile();
+        const data = await profilePromise;
+        if (cancelled) return;
         if (data) {
           const prompts = data.prompts?.length ? data.prompts : [{ question: "", answer: "" }, { question: "", answer: "" }, { question: "", answer: "" }];
           setProfile({
@@ -418,6 +402,20 @@ const ProfileStudio = () => {
             vibeScore: data.vibeScore ?? 0,
             vibeScoreLabel: data.vibeScoreLabel ?? "New",
           });
+          const liveCountsPromise = queryClient.fetchQuery({
+            queryKey: profileLiveCountsQueryKey(profileUser.id),
+            queryFn: () => fetchProfileLiveCounts(profileUser.id),
+            staleTime: 0,
+          }).catch((error) => {
+            if (!cancelled) console.error("Error loading profile counts:", error);
+            return null;
+          });
+          void liveCountsPromise
+            .then((liveCounts) => {
+              if (!liveCounts) return;
+              if (cancelled) return;
+              setProfile((prev) => (prev.id === data.id ? { ...prev, stats: liveCounts } : prev));
+            });
           heroVideoResumePollingForProfile(
             {
               id: data.id,
@@ -435,11 +433,82 @@ const ProfileStudio = () => {
       } catch (error) {
         console.error("Error loading profile:", error);
       } finally {
-        setIsLoading(false);
+        if (!cancelled) setIsLoading(false);
       }
     };
     loadProfile();
-  }, [profileRefreshKey]);
+
+    return () => {
+      cancelled = true;
+    };
+  }, [profileRefreshKey, profileUser?.id, queryClient]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const hydrateVerificationState = async () => {
+      if (!profileUser?.id) return;
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user || cancelled) return;
+
+      const emailConfirmed = !!user.email_confirmed_at;
+      const authEmailCanonical = resolveCanonicalAuthEmail(user) ?? user.email ?? null;
+      const phoneData = await fetchMyProfileSettings();
+      if (cancelled) return;
+
+      if (phoneData?.phone_verified) setPhoneVerified(true);
+      setPhoneNumber(phoneData?.phone_number ?? null);
+      setAccountEmailConfirmed(emailConfirmed);
+      setHasAccountEmail(!!resolveCanonicalAuthEmail(user));
+      setEmailVerified(
+        isCurrentEmailVerified({
+          emailVerified: !!phoneData?.email_verified,
+          verifiedEmail: phoneData?.verified_email ?? null,
+          authEmail: authEmailCanonical,
+        }),
+      );
+      setEmailForVerification(authEmailCanonical ?? "");
+
+      const profilePhotoVerified = phoneData?.photo_verified;
+      const photoVerificationExpiresAt = phoneData?.photo_verification_expires_at;
+
+      if (profilePhotoVerified) {
+        setPhotoVerificationStatus(
+          resolvePhotoVerificationState({
+            photoVerified: profilePhotoVerified,
+            photoVerificationExpiresAt,
+            latestPhotoVerificationStatus: null,
+          }),
+        );
+        return;
+      }
+
+      const { data: pendingVerification } = await supabase
+        .from("photo_verifications")
+        .select("status")
+        .eq("user_id", user.id)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (cancelled) return;
+      setPhotoVerificationStatus(
+        resolvePhotoVerificationState({
+          photoVerified: profilePhotoVerified,
+          photoVerificationExpiresAt,
+          latestPhotoVerificationStatus: pendingVerification?.status,
+        }),
+      );
+    };
+
+    void hydrateVerificationState().catch((error) => {
+      console.error("Error loading profile verification state:", error);
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [profileRefreshKey, profileUser?.id]);
 
   useEffect(() => {
     const previous = previousHeroVideoPhaseRef.current;

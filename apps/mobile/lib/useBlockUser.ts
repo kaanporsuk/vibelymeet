@@ -27,6 +27,7 @@ export function useBlockUser(userId: string | null | undefined) {
   const invalidateBlockEffects = () => {
     queryClient.invalidateQueries({ queryKey: ['blocked-users'] });
     queryClient.invalidateQueries({ queryKey: ['matches'] });
+    queryClient.invalidateQueries({ queryKey: ['profile-live-counts'] });
     queryClient.invalidateQueries({ queryKey: ['messages'] });
     queryClient.invalidateQueries({ queryKey: ['unread-home'] });
     queryClient.invalidateQueries({ queryKey: ['unread-home-info-bar'] });

@@ -36,11 +36,12 @@ import { fonts } from '@/constants/theme';
 import { vibeVideoDiagVerbose } from '@/lib/vibeVideoDiagnostics';
 import { trackVibeVideoEvent, VIBE_VIDEO_EVENTS } from '@/lib/vibeVideoTelemetry';
 import { useQuery } from '@tanstack/react-query';
-import { fetchMyProfile } from '@/lib/profileApi';
+import { fetchMyProfile, MY_PROFILE_STALE_TIME_MS, myProfileQueryKey } from '@/lib/profileApi';
 import { setSafeAudioMode } from '@/lib/safeAudioMode';
 import { KeyboardAwareCenteredModal } from '@/components/keyboard/KeyboardAwareCenteredModal';
 import { useVibelyDialog } from '@/components/VibelyDialog';
 import { nativeHeroVideoStart } from '@/lib/nativeHeroVideoUploadController';
+import { useAuth } from '@/context/AuthContext';
 
 const MAX_DURATION_SEC = 15;
 const CAPTION_MAX = 50;
@@ -78,8 +79,15 @@ export default function VibeVideoRecordScreen() {
   const colorScheme = useColorScheme();
   const theme = Colors[colorScheme];
   const { show, dialog } = useVibelyDialog();
+  const { user } = useAuth();
+  const userId = user?.id ?? null;
 
-  const { data: myProfile } = useQuery({ queryKey: ['my-profile'], queryFn: fetchMyProfile });
+  const { data: myProfile } = useQuery({
+    queryKey: myProfileQueryKey(userId ?? 'none'),
+    queryFn: () => (userId ? fetchMyProfile(userId) : Promise.resolve(null)),
+    enabled: !!userId,
+    staleTime: MY_PROFILE_STALE_TIME_MS,
+  });
 
   const [camPermission, requestCamPermission] = useCameraPermissions();
   const [micPermission, requestMicPermission] = useMicrophonePermissions();

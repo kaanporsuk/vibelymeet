@@ -32,8 +32,12 @@ import { OnBreakBanner } from '@/components/OnBreakBanner';
 import {
   fetchMyProfile,
   fetchProfileLiveCounts,
-  updateMyProfile,
   formatBirthdayUsWithZodiac,
+  MY_PROFILE_STALE_TIME_MS,
+  PROFILE_LIVE_COUNTS_STALE_TIME_MS,
+  myProfileQueryKey,
+  profileLiveCountsQueryKey,
+  updateMyProfile,
 } from '@/lib/profileApi';
 import { avatarUrl, getImageUrl, deckCardUrl } from '@/lib/imageUrl';
 import { saveCurrentDeviceLocationToProfile } from '@/lib/locationProfileUpdate';
@@ -57,7 +61,7 @@ import { LifestyleDetailsSection } from '@/components/profile/LifestyleDetailsSe
 import { PhoneVerificationFlow } from '@/components/verification/PhoneVerificationFlow';
 import { EmailVerificationFlow } from '@/components/verification/EmailVerificationFlow';
 import { PhotoVerificationFlow } from '@/components/verification/PhotoVerificationFlow';
-import { useSchedule } from '@/lib/useSchedule';
+import { SCHEDULE_QUERY_KEY, useSchedule } from '@/lib/useSchedule';
 import { KeyboardAwareBottomSheetModal } from '@/components/keyboard/KeyboardAwareBottomSheetModal';
 import { VibePickerSheet } from '@/components/profile/VibePickerSheet';
 import { getEmojiForVibeLabel } from '@/lib/vibeTagTaxonomy';
@@ -70,6 +74,16 @@ import { isCurrentEmailVerified, resolveCanonicalAuthEmail } from '@shared/verif
 
 const MAX_PHOTOS = 6;
 const MAX_ABOUT_ME_LENGTH = 140;
+const PROFILE_SCHEDULE_FOCUS_STALE_TIME_MS = 60_000;
+
+function shouldRefetchForFocus(
+  dataUpdatedAt: number | undefined,
+  isInvalidated: boolean | undefined,
+  now: number,
+  staleTimeMs: number,
+): boolean {
+  return Boolean(isInvalidated) || !dataUpdatedAt || now - dataUpdatedAt > staleTimeMs;
+}
 
 // ────────────────────────────────────────────────────────────────────
 // Quick Actions config
@@ -90,6 +104,7 @@ const QUICK_ACTIONS = [
 export default function ProfileStudio() {
   const insets = useSafeAreaInsets();
   const { user } = useAuth();
+  const userId = user?.id ?? null;
   const logout = useNativeLogout();
   const router = useRouter();
   const colorScheme = useColorScheme();
@@ -107,15 +122,21 @@ export default function ProfileStudio() {
   const currentScrollY = useRef(0);
 
   const { data: profile, isLoading, isError, error, refetch } = useQuery({
-    queryKey: ['my-profile'],
-    queryFn: fetchMyProfile,
-    enabled: !!user?.id,
+    queryKey: myProfileQueryKey(userId ?? 'none'),
+    queryFn: () => (userId ? fetchMyProfile(userId) : Promise.resolve(null)),
+    enabled: !!userId,
+    staleTime: MY_PROFILE_STALE_TIME_MS,
   });
 
   const { data: liveCounts, refetch: refetchLiveCounts } = useQuery({
-    queryKey: ['profile-live-counts', user?.id],
-    queryFn: () => fetchProfileLiveCounts(user!.id),
-    enabled: !!user?.id,
+    queryKey: profileLiveCountsQueryKey(userId ?? 'none'),
+    queryFn: () =>
+      userId
+        ? fetchProfileLiveCounts(userId)
+        : Promise.resolve({ events: 0, matches: 0, convos: 0 }),
+    enabled: !!userId && !!profile,
+    staleTime: PROFILE_LIVE_COUNTS_STALE_TIME_MS,
+    refetchOnMount: 'always',
   });
 
   // Shared React Query cache with full Schedule screen — refetch on tab focus after edits elsewhere
@@ -129,20 +150,32 @@ export default function ProfileStudio() {
 
   useFocusEffect(
     React.useCallback(() => {
-      if (!user?.id) return;
-      void refetch().catch((e) => {
-        if (__DEV__) console.warn('[ProfileStudio] refetch failed:', e);
-      });
-      void refetchLiveCounts().catch((e) => {
-        if (__DEV__) console.warn('[ProfileStudio] refetchLiveCounts failed:', e);
-      });
-      void refetchSchedule().catch((e) => {
-        if (__DEV__) console.warn('[ProfileStudio] refetchSchedule failed:', e);
-      });
-    }, [user?.id, refetch, refetchLiveCounts, refetchSchedule]),
+      if (!userId) return;
+
+      const now = Date.now();
+      const profileState = qc.getQueryState(myProfileQueryKey(userId));
+      const liveCountsState = qc.getQueryState(profileLiveCountsQueryKey(userId));
+      const scheduleState = qc.getQueryState(SCHEDULE_QUERY_KEY(userId));
+
+      if (shouldRefetchForFocus(profileState?.dataUpdatedAt, profileState?.isInvalidated, now, MY_PROFILE_STALE_TIME_MS)) {
+        void refetch().catch((e) => {
+          if (__DEV__) console.warn('[ProfileStudio] refetch failed:', e);
+        });
+      }
+      if (profile && shouldRefetchForFocus(liveCountsState?.dataUpdatedAt, liveCountsState?.isInvalidated, now, PROFILE_LIVE_COUNTS_STALE_TIME_MS)) {
+        void refetchLiveCounts().catch((e) => {
+          if (__DEV__) console.warn('[ProfileStudio] refetchLiveCounts failed:', e);
+        });
+      }
+      if (shouldRefetchForFocus(scheduleState?.dataUpdatedAt, scheduleState?.isInvalidated, now, PROFILE_SCHEDULE_FOCUS_STALE_TIME_MS)) {
+        void refetchSchedule().catch((e) => {
+          if (__DEV__) console.warn('[ProfileStudio] refetchSchedule failed:', e);
+        });
+      }
+    }, [userId, profile, qc, refetch, refetchLiveCounts, refetchSchedule]),
   );
 
-  /** Server `vibe_score` — always derived from `profile` (useQuery ['my-profile']); updates on refetch/invalidate. */
+  /** Server `vibe_score` — always derived from the keyed `my-profile` query; updates on refetch/invalidate. */
   const vibeScore = profile?.vibe_score ?? 0;
 
   // Pull-to-refresh (manual only — never tied to background refetch)

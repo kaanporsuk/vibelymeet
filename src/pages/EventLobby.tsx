@@ -1246,10 +1246,11 @@ const EventLobby = () => {
 
     if (code === "match" || code === "match_queued") {
       haptics.medium();
+      void queryClient.invalidateQueries({ queryKey: ["profile-live-counts"] });
     }
 
     advanceDeckAfterSwipe(targetId);
-  }, [currentProfile, isProcessing, lobbyActionsEnabled, swipe, advanceDeckAfterSwipe, eventId]);
+  }, [currentProfile, isProcessing, lobbyActionsEnabled, swipe, advanceDeckAfterSwipe, eventId, queryClient]);
 
   const handlePass = useCallback(async () => {
     if (!currentProfile || isProcessing || !lobbyActionsEnabled) return;

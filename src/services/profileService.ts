@@ -5,7 +5,6 @@ import {
 } from "@shared/profileContracts";
 import type { EventDiscoveryPrefs } from "@shared/eventDiscoveryContracts";
 import { parseEventDiscoveryPrefs, serializeEventDiscoveryPrefs } from "@shared/eventDiscoveryContracts";
-import { fetchMyLocationData } from "@/services/myLocationData";
 import { fetchMyProfileSettings } from "@/services/myProfileSettings";
 
 // Frontend profile interface (camelCase)
@@ -52,6 +51,12 @@ export interface ProfileData {
   preferredAgeMax: number | null;
   eventDiscoveryPrefs: EventDiscoveryPrefs;
 }
+
+export const MY_PROFILE_STALE_TIME_MS = 5 * 60_000;
+export const PROFILE_LIVE_COUNTS_STALE_TIME_MS = 30_000;
+
+export const myProfileQueryKey = (userId: string) => ["my-profile", userId] as const;
+export const profileLiveCountsQueryKey = (userId: string) => ["profile-live-counts", userId] as const;
 
 type BackendOwnedProfileUpdateFields =
   | "location"
@@ -250,20 +255,34 @@ export const profileToDb = (profile: ProfileUpdatePayload): Record<string, unkno
   return dbData;
 };
 
-// Fetch current user's profile
-export const fetchMyProfile = async (): Promise<ProfileData | null> => {
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return null;
+export const fetchProfileLiveCounts = async (userId: string): Promise<ProfileData["stats"]> => {
+  const [eventsCountResult, matchesCountResult, convosCountResult] = await Promise.all([
+    supabase.from("event_registrations").select("id", { count: "exact", head: true }).eq("profile_id", userId),
+    supabase.from("matches").select("id", { count: "exact", head: true }).or(`profile_id_1.eq.${userId},profile_id_2.eq.${userId}`),
+    supabase.from("matches").select("id", { count: "exact", head: true }).or(`profile_id_1.eq.${userId},profile_id_2.eq.${userId}`).not("last_message_at", "is", null),
+  ]);
 
-  const [profileRow, locationResult, vibesResult, eventsCountResult, matchesCountResult, convosCountResult] = await Promise.all([
+  const countError = eventsCountResult.error ?? matchesCountResult.error ?? convosCountResult.error;
+  if (countError) throw countError;
+
+  return {
+    events: eventsCountResult.count ?? 0,
+    matches: matchesCountResult.count ?? 0,
+    conversations: convosCountResult.count ?? 0,
+  };
+};
+
+// Fetch current user's profile using the already-known auth user id.
+// Keep exact coordinates and live counts out of this hot read; callers fetch those separately.
+export const fetchMyProfile = async (userId: string): Promise<ProfileData | null> => {
+  if (!userId) return null;
+
+  const [profileRow, vibesResult] = await Promise.all([
     fetchMyProfileSettings(),
-    fetchMyLocationData().catch(() => null),
-    supabase.from("profile_vibes").select("vibe_tags(label)").eq("profile_id", user.id),
-    supabase.from("event_registrations").select("id", { count: "exact", head: true }).eq("profile_id", user.id),
-    supabase.from("matches").select("id", { count: "exact", head: true }).or(`profile_id_1.eq.${user.id},profile_id_2.eq.${user.id}`),
-    supabase.from("matches").select("id", { count: "exact", head: true }).or(`profile_id_1.eq.${user.id},profile_id_2.eq.${user.id}`).not("last_message_at", "is", null),
+    supabase.from("profile_vibes").select("vibe_tags(label)").eq("profile_id", userId),
   ]);
   if (!profileRow) return null;
+  if (profileRow.id !== userId) return null;
 
   type VibeRow = { vibe_tags: { label: string } | { label: string }[] | null };
   const vibes =
@@ -279,17 +298,10 @@ export const fetchMyProfile = async (): Promise<ProfileData | null> => {
   const profileData = dbToProfile(
     {
       ...(profileRow as unknown as DbProfile),
-      location_data: locationResult?.location_data ?? null,
+      location_data: null,
     },
     vibes,
   );
-
-  // Override static counters with real counts
-  profileData.stats = {
-    events: eventsCountResult.count ?? 0,
-    matches: matchesCountResult.count ?? 0,
-    conversations: convosCountResult.count ?? 0,
-  };
 
   // Photos are now resolved via getImageUrl() at render time — no signed URL refresh needed
 

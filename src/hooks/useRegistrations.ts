@@ -76,6 +76,7 @@ export const useRegisterForEvent = () => {
         admission_status: reg?.admission_status ?? null,
       });
       await queryClient.invalidateQueries({ queryKey: ["event-registration-check"] });
+      await queryClient.invalidateQueries({ queryKey: ["profile-live-counts"] });
     }
     return result?.success === true;
   };
@@ -103,6 +104,7 @@ export const useRegisterForEvent = () => {
       await queryClient.invalidateQueries({ queryKey: ["event-registration-check"] });
       await queryClient.invalidateQueries({ queryKey: ["event-attendees"] });
       await queryClient.invalidateQueries({ queryKey: ["event-attendee-preview"] });
+      await queryClient.invalidateQueries({ queryKey: ["profile-live-counts"] });
     }
     return result?.success === true;
   };

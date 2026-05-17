@@ -12,7 +12,7 @@ import {
 } from "@/components/ui/drawer";
 import { useUserProfile } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
-import { fetchMyProfile, updateMyProfile } from "@/services/profileService";
+import { fetchMyProfile, MY_PROFILE_STALE_TIME_MS, myProfileQueryKey, updateMyProfile } from "@/services/profileService";
 import { RelationshipIntent } from "@/components/RelationshipIntent";
 import { useEntitlements } from "@/hooks/useEntitlements";
 import { cn } from "@/lib/utils";
@@ -68,10 +68,17 @@ export function DiscoveryDrawer({ open, onOpenChange, onPremiumNavigate }: Disco
   const geocodeRunRef = useRef(0);
 
   const load = useCallback(async () => {
-    if (!user?.id) return;
+    if (!user?.id) {
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     try {
-      const data = await fetchMyProfile();
+      const data = await queryClient.ensureQueryData({
+        queryKey: myProfileQueryKey(user.id),
+        queryFn: () => fetchMyProfile(user.id),
+        staleTime: MY_PROFILE_STALE_TIME_MS,
+      });
       if (!data) {
         toast.error("Could not load profile");
         return;
@@ -86,7 +93,7 @@ export function DiscoveryDrawer({ open, onOpenChange, onPremiumNavigate }: Disco
     } finally {
       setLoading(false);
     }
-  }, [user?.id]);
+  }, [queryClient, user?.id]);
 
   useEffect(() => {
     if (!open) return;
@@ -181,6 +188,7 @@ export function DiscoveryDrawer({ open, onOpenChange, onPremiumNavigate }: Disco
         preferredAgeMax: amax,
         eventDiscoveryPrefs: eventPrefs,
       });
+      await queryClient.invalidateQueries({ queryKey: ["my-profile"] });
       await queryClient.invalidateQueries({ queryKey: ["visible-events"] });
       await queryClient.invalidateQueries({ queryKey: ["other-city-events"] });
       await queryClient.invalidateQueries({ queryKey: ["event-discovery-prefs"] });

@@ -3029,6 +3029,7 @@ export default function ChatThreadScreen() {
             onSuccess={({ alsoBlock }) => {
               setShowReport(false);
               queryClient.invalidateQueries({ queryKey: ['matches'] });
+              queryClient.invalidateQueries({ queryKey: ['profile-live-counts'] });
               queryClient.invalidateQueries({ queryKey: ['messages'] });
               queryClient.invalidateQueries({ queryKey: ['match-mutes'] });
               queryClient.invalidateQueries({ queryKey: ['blocked-users'] });

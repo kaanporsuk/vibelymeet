@@ -41,6 +41,7 @@ export const useRealtimeMessages = ({
       });
     }
     queryClient.invalidateQueries({ queryKey: ["matches"] });
+    queryClient.invalidateQueries({ queryKey: ["profile-live-counts"] });
     if (matchId) {
       queryClient.invalidateQueries({ queryKey: ["date-suggestions", matchId] });
     }
@@ -107,6 +108,7 @@ export const useRealtimeMessages = ({
         .catch(() => invalidateMessages());
 
       queryClient.invalidateQueries({ queryKey: ["matches"] });
+      queryClient.invalidateQueries({ queryKey: ["profile-live-counts"] });
       if (
         matchId &&
         (row.message_kind === "date_suggestion" || row.message_kind === "date_suggestion_event")

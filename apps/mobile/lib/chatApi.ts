@@ -81,6 +81,7 @@ export function invalidateAfterThreadMutation(qc: QueryClient, scope: ThreadInva
     qc.invalidateQueries({ queryKey: ['date-suggestions', scope.matchId] });
   }
   qc.invalidateQueries({ queryKey: ['matches'] });
+  qc.invalidateQueries({ queryKey: ['profile-live-counts'] });
 }
 export type { ReactionPair };
 export type { ReactionEmoji } from '../../../shared/chat/messageReactionModel';
@@ -162,6 +163,7 @@ export function useMatches(userId: string | null | undefined) {
     if (!userId) return;
     const invalidateMatches = () => {
       queryClient.invalidateQueries({ queryKey: ['matches'] });
+      queryClient.invalidateQueries({ queryKey: ['profile-live-counts'] });
     };
     const channel = supabase.channel(`matches-realtime-${userId}`);
     for (const filter of [`profile_id_1=eq.${userId}`, `profile_id_2=eq.${userId}`]) {
@@ -942,6 +944,7 @@ export function useRealtimeMessages(opts: {
 
   const invalidatePeripheralCaches = useCallback((rowMatchId: string | null | undefined, kind?: string | null) => {
     qc.invalidateQueries({ queryKey: ['matches'] });
+    qc.invalidateQueries({ queryKey: ['profile-live-counts'] });
     const isDateRow = kind === 'date_suggestion' || kind === 'date_suggestion_event';
     if (rowMatchId && isDateRow) {
       qc.invalidateQueries({ queryKey: ['date-suggestions', rowMatchId] });

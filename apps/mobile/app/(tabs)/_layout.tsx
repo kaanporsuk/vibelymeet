@@ -1,8 +1,9 @@
+import { useEffect } from 'react';
 import { Tabs } from 'expo-router';
-import { Pressable, View, Text, StyleSheet } from 'react-native';
+import { InteractionManager, Pressable, View, Text, StyleSheet } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { BottomTabBarProps } from '@react-navigation/bottom-tabs';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Ionicons } from '@expo/vector-icons';
 
 import Colors from '@/constants/Colors';
@@ -11,6 +12,14 @@ import { useAuth } from '@/context/AuthContext';
 import { supabase } from '@/lib/supabase';
 import { useDailyDropTabBadge } from '@/lib/useDailyDropTabBadge';
 import { withAlpha } from '@/lib/colorUtils';
+import {
+  fetchMyProfile,
+  fetchProfileLiveCounts,
+  MY_PROFILE_STALE_TIME_MS,
+  PROFILE_LIVE_COUNTS_STALE_TIME_MS,
+  myProfileQueryKey,
+  profileLiveCountsQueryKey,
+} from '@/lib/profileApi';
 
 /** Safety-net refetch if realtime misses an event; primary updates come from realtime + foreground. */
 const UNREAD_BADGE_POLL_MS = 180_000;
@@ -117,6 +126,37 @@ function VibelyTabBar({ state, navigation }: BottomTabBarProps) {
   );
 }
 
+function ProfileTabWarmup() {
+  const { user } = useAuth();
+  const userId = user?.id ?? null;
+  const queryClient = useQueryClient();
+
+  useEffect(() => {
+    if (!userId) return;
+
+    const task = InteractionManager.runAfterInteractions(() => {
+      void queryClient.prefetchQuery({
+        queryKey: myProfileQueryKey(userId),
+        queryFn: async () => {
+          const profile = await fetchMyProfile(userId);
+          if (!profile) throw new Error('Profile not ready');
+          return profile;
+        },
+        staleTime: MY_PROFILE_STALE_TIME_MS,
+      });
+      void queryClient.prefetchQuery({
+        queryKey: profileLiveCountsQueryKey(userId),
+        queryFn: () => fetchProfileLiveCounts(userId),
+        staleTime: PROFILE_LIVE_COUNTS_STALE_TIME_MS,
+      });
+    });
+
+    return () => task.cancel();
+  }, [queryClient, userId]);
+
+  return null;
+}
+
 const tabBarStyles = StyleSheet.create({
   dockOuter: {
     position: 'absolute',
@@ -199,23 +239,26 @@ export default function TabLayout() {
   const theme = Colors[colorScheme];
 
   return (
-    <Tabs
-      tabBar={(props) => <VibelyTabBar {...props} />}
-      screenOptions={{
-        headerShown: false,
-        sceneStyle: { backgroundColor: theme.background },
-        tabBarStyle: {
-          position: 'absolute',
-          backgroundColor: 'transparent',
-          borderTopWidth: 0,
-          elevation: 0,
-        },
-      }}
-    >
-      <Tabs.Screen name="index" options={{ title: 'Now' }} />
-      <Tabs.Screen name="events" options={{ title: 'Events' }} />
-      <Tabs.Screen name="matches" options={{ title: 'Vibe' }} />
-      <Tabs.Screen name="profile" options={{ title: 'You' }} />
-    </Tabs>
+    <>
+      <ProfileTabWarmup />
+      <Tabs
+        tabBar={(props) => <VibelyTabBar {...props} />}
+        screenOptions={{
+          headerShown: false,
+          sceneStyle: { backgroundColor: theme.background },
+          tabBarStyle: {
+            position: 'absolute',
+            backgroundColor: 'transparent',
+            borderTopWidth: 0,
+            elevation: 0,
+          },
+        }}
+      >
+        <Tabs.Screen name="index" options={{ title: 'Now' }} />
+        <Tabs.Screen name="events" options={{ title: 'Events' }} />
+        <Tabs.Screen name="matches" options={{ title: 'Vibe' }} />
+        <Tabs.Screen name="profile" options={{ title: 'You' }} />
+      </Tabs>
+    </>
   );
 }
