@@ -2174,6 +2174,9 @@ export default function EventLobbyScreen() {
       if (outcome === 'super_vibe_sent' || outcome === 'limit_reached' || outcome === 'match_queued') {
         scheduleLobbyRefreshBurst('swipe_result_counts');
       }
+      if (outcome === 'match' || outcome === 'already_matched' || outcome === 'match_queued') {
+        queryClient.invalidateQueries({ queryKey: ['profile-live-counts'] });
+      }
 
       const shouldAdvanceDeck = shouldAdvanceLobbyDeckAfterSwipe(outcome);
       if (!shouldAdvanceDeck) {

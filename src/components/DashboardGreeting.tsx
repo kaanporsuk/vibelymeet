@@ -2,7 +2,9 @@ import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ChevronRight } from "lucide-react";
-import { fetchMyProfile, type ProfileData } from "@/services/profileService";
+import { fetchMyProfile, MY_PROFILE_STALE_TIME_MS, myProfileQueryKey, type ProfileData } from "@/services/profileService";
+import { useUserProfile } from "@/contexts/AuthContext";
+import { useQueryClient } from "@tanstack/react-query";
 
 function getGreeting(): string {
   const hour = new Date().getHours();
@@ -30,13 +32,25 @@ function calculateCompleteness(profile: ProfileData): number {
 
 export const DashboardGreeting = () => {
   const navigate = useNavigate();
+  const { user } = useUserProfile();
+  const queryClient = useQueryClient();
   const [profile, setProfile] = useState<ProfileData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
     const loadProfile = async () => {
+      if (!user?.id) {
+        setProfile(null);
+        setIsLoading(false);
+        return;
+      }
       try {
-        const data = await fetchMyProfile();
+        setIsLoading(true);
+        const data = await queryClient.ensureQueryData({
+          queryKey: myProfileQueryKey(user.id),
+          queryFn: () => fetchMyProfile(user.id),
+          staleTime: MY_PROFILE_STALE_TIME_MS,
+        });
         setProfile(data);
       } catch (error) {
         console.error("Error loading profile for greeting:", error);
@@ -46,7 +60,7 @@ export const DashboardGreeting = () => {
     };
 
     loadProfile();
-  }, []);
+  }, [queryClient, user?.id]);
 
   if (isLoading) {
     return (

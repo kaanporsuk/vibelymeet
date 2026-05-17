@@ -21,7 +21,7 @@ import { useColorScheme } from '@/components/useColorScheme';
 import { GlassHeaderBar, VibelyButton, VibelyText } from '@/components/ui';
 import { spacing, layout, radius } from '@/constants/theme';
 import { useAuth } from '@/context/AuthContext';
-import { fetchMyProfile, updateMyProfile } from '@/lib/profileApi';
+import { fetchMyProfile, MY_PROFILE_STALE_TIME_MS, myProfileQueryKey, updateMyProfile } from '@/lib/profileApi';
 import { useEntitlements } from '@/hooks/useEntitlements';
 import { openPremium } from '@/lib/premiumNavigation';
 import { PREMIUM_ENTRY_SURFACE } from '@shared/premiumFunnel';
@@ -58,6 +58,7 @@ export default function DiscoverySettingsScreen() {
   const colorScheme = useColorScheme();
   const theme = Colors[colorScheme];
   const { user } = useAuth();
+  const userId = user?.id ?? null;
   const { canCityBrowse, isLoading: entLoading } = useEntitlements();
   const queryClient = useQueryClient();
 
@@ -75,10 +76,17 @@ export default function DiscoverySettingsScreen() {
   const geocodeRunRef = useRef(0);
 
   const load = useCallback(async () => {
-    if (!user?.id) return;
+    if (!userId) {
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     try {
-      const data = await fetchMyProfile();
+      const data = await queryClient.ensureQueryData({
+        queryKey: myProfileQueryKey(userId),
+        queryFn: () => fetchMyProfile(userId),
+        staleTime: MY_PROFILE_STALE_TIME_MS,
+      });
       if (!data) {
         Alert.alert('Error', 'Could not load profile');
         return;
@@ -91,7 +99,7 @@ export default function DiscoverySettingsScreen() {
     } finally {
       setLoading(false);
     }
-  }, [user?.id]);
+  }, [queryClient, userId]);
 
   useEffect(() => {
     void load();
@@ -173,6 +181,7 @@ export default function DiscoverySettingsScreen() {
         preferred_age_max: amax,
         event_discovery_prefs: eventPrefs,
       });
+      await queryClient.invalidateQueries({ queryKey: ['my-profile'] });
       await queryClient.invalidateQueries({ queryKey: ['event-discovery-prefs', user?.id] });
       await queryClient.invalidateQueries({ queryKey: ['events-discover'] });
       Alert.alert('Saved', 'Discovery preferences updated.');

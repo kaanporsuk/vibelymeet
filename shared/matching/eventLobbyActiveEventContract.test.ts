@@ -72,7 +72,7 @@ test("shared helper encodes canonical active event rule and safe reason codes", 
 });
 
 test("new security definer functions pin a safe search path", () => {
-  const functionBlocks = migration.match(/CREATE OR REPLACE FUNCTION public\.[\s\S]*?\$function\$;/g) ?? [];
+  const functionBlocks: string[] = migration.match(/CREATE OR REPLACE FUNCTION public\.[\s\S]*?\$function\$;/g) ?? [];
   const securityDefinerBlocks = functionBlocks.filter((block) => block.includes("SECURITY DEFINER"));
   assert.ok(securityDefinerBlocks.length >= 7, "expected helper and wrapper SECURITY DEFINER functions");
   for (const block of securityDefinerBlocks) {

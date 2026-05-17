@@ -33,6 +33,7 @@ export function useUnmatch() {
     mutationFn: async ({ matchId }: { matchId: string }) => unmatchViaRpc(matchId),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['matches'] });
+      queryClient.invalidateQueries({ queryKey: ['profile-live-counts'] });
       queryClient.invalidateQueries({ queryKey: ['messages'] });
       queryClient.invalidateQueries({ queryKey: ['unread-home'] });
       queryClient.invalidateQueries({ queryKey: ['unread-home-info-bar'] });
@@ -64,6 +65,7 @@ export function useUndoableUnmatch(options?: UndoableUnmatchOptions) {
     try {
       await unmatchViaRpc(matchId);
       queryClient.invalidateQueries({ queryKey: ['matches'] });
+      queryClient.invalidateQueries({ queryKey: ['profile-live-counts'] });
       queryClient.invalidateQueries({ queryKey: ['messages'] });
       queryClient.invalidateQueries({ queryKey: ['unread-home'] });
       queryClient.invalidateQueries({ queryKey: ['unread-home-info-bar'] });
@@ -81,6 +83,7 @@ export function useUndoableUnmatch(options?: UndoableUnmatchOptions) {
       pendingRef.current = null;
     }
     queryClient.invalidateQueries({ queryKey: ['matches'] });
+    queryClient.invalidateQueries({ queryKey: ['profile-live-counts'] });
     if (mountedRef.current) {
       optionsRef.current?.onUndo?.();
     }

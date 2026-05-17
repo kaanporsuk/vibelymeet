@@ -2,7 +2,6 @@ import { supabase } from '@/lib/supabase';
 import { assertNoDirectProfileLocationWrites, normalizeRelationshipIntent } from '@shared/profileContracts';
 import type { EventDiscoveryPrefs } from '@shared/eventDiscoveryContracts';
 import { parseEventDiscoveryPrefs, serializeEventDiscoveryPrefs } from '@shared/eventDiscoveryContracts';
-import { fetchMyLocationData } from '@/lib/myLocationData';
 import { fetchMyProfileSettings } from '@/lib/myProfileSettings';
 
 export type ProfileRow = {
@@ -50,6 +49,12 @@ export type ProfileRow = {
   preferred_age_max?: number | null;
   event_discovery_prefs?: EventDiscoveryPrefs | null;
 };
+
+export const MY_PROFILE_STALE_TIME_MS = 5 * 60_000;
+export const PROFILE_LIVE_COUNTS_STALE_TIME_MS = 30_000;
+
+export const myProfileQueryKey = (userId: string) => ['my-profile', userId] as const;
+export const profileLiveCountsQueryKey = (userId: string) => ['profile-live-counts', userId] as const;
 
 /** Zodiac sign from birth date (web parity). */
 export function getZodiacSign(birthDate: Date): string {
@@ -142,35 +147,33 @@ export async function fetchProfileLiveCounts(userId: string): Promise<{
   if (convosCountRes.error && __DEV__) {
     console.warn('[profileApi] convos count:', convosCountRes.error.message);
   }
+  const countError = eventsCountRes.error ?? matchesCountRes.error ?? convosCountRes.error;
+  if (countError) throw countError;
 
   return {
-    events: eventsCountRes.error ? 0 : (eventsCountRes.count ?? 0),
-    matches: matchesCountRes.error ? 0 : (matchesCountRes.count ?? 0),
-    convos: convosCountRes.error ? 0 : (convosCountRes.count ?? 0),
+    events: eventsCountRes.count ?? 0,
+    matches: matchesCountRes.count ?? 0,
+    convos: convosCountRes.count ?? 0,
   };
 }
 
-export async function fetchMyProfile(): Promise<ProfileRow | null> {
+export async function fetchMyProfile(userId: string): Promise<ProfileRow | null> {
   try {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return null;
-    const uid = user.id;
-    const profileRowPromise = fetchMyProfileSettings();
+    if (!userId) return null;
 
-    const [row, locationResult, vibesRes, counts] = await Promise.all([
-      profileRowPromise,
-      fetchMyLocationData().catch((e) => {
-        if (__DEV__) console.warn('[profileApi] get_my_location_data:', e instanceof Error ? e.message : e);
-        return null;
-      }),
+    const [row, vibesRes] = await Promise.all([
+      fetchMyProfileSettings(),
       supabase
         .from('profile_vibes')
         .select('vibe_tags(label)')
-        .eq('profile_id', uid),
-      fetchProfileLiveCounts(uid),
+        .eq('profile_id', userId),
     ]);
 
     if (!row) return null;
+    if (row.id !== userId) {
+      if (__DEV__) console.warn('[profileApi] owner profile row did not match requested user id');
+      return null;
+    }
     if (vibesRes.error) {
       if (__DEV__) console.warn('[profileApi] failed to load vibes:', vibesRes.error.message);
     }
@@ -194,12 +197,12 @@ export async function fetchMyProfile(): Promise<ProfileRow | null> {
       ...row,
       updated_at: row.updated_at ?? null,
       relationship_intent: row.relationship_intent ?? null,
-      location_data: locationResult?.location_data ?? null,
+      location_data: null,
       company: row.company ?? null,
       onboarding_complete: row.onboarding_complete ?? null,
-      events_attended: counts.events,
-      total_matches: counts.matches,
-      total_conversations: counts.convos,
+      events_attended: row.events_attended ?? null,
+      total_matches: row.total_matches ?? null,
+      total_conversations: row.total_conversations ?? null,
       prompts: (row.prompts as ProfileRow['prompts']) ?? null,
       vibes,
       lifestyle: (row.lifestyle as ProfileRow['lifestyle']) ?? null,

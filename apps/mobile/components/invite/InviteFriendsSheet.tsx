@@ -35,7 +35,7 @@ import { spacing, radius, fonts } from '@/constants/theme';
 import { useColorScheme } from '@/components/useColorScheme';
 import { useAuth } from '@/context/AuthContext';
 import { useQuery } from '@tanstack/react-query';
-import { fetchMyProfile } from '@/lib/profileApi';
+import { fetchMyProfile, MY_PROFILE_STALE_TIME_MS, myProfileQueryKey } from '@/lib/profileApi';
 import { getImageUrl, eventCoverUrl } from '@/lib/imageUrl';
 import {
   useRegisteredUpcomingEventsForInvite,
@@ -103,11 +103,13 @@ export function InviteFriendsSheet({
   const colorScheme = useColorScheme();
   const theme = Colors[colorScheme];
   const { user } = useAuth();
+  const userId = user?.id ?? '';
 
   const { data: profile } = useQuery({
-    queryKey: ['my-profile'],
-    queryFn: fetchMyProfile,
-    enabled: visible && !!user?.id,
+    queryKey: myProfileQueryKey(userId || 'none'),
+    queryFn: () => fetchMyProfile(userId),
+    enabled: visible && !!userId,
+    staleTime: MY_PROFILE_STALE_TIME_MS,
   });
 
   const { data: upcomingEvents = [], isLoading: loadingEvents } = useRegisteredUpcomingEventsForInvite(
@@ -120,7 +122,6 @@ export function InviteFriendsSheet({
     : profile?.avatar_url
       ? getImageUrl(profile.avatar_url)
       : undefined;
-  const userId = user?.id ?? '';
 
   const eventModeOnly = !!eventProp;
   const [modeTab, setModeTab] = useState<'vibely' | 'event'>('vibely');

@@ -41,6 +41,7 @@ export const useUnmatch = () => {
       // Invalidate matches queries to refresh the list
       queryClient.invalidateQueries({ queryKey: ["matches"] });
       queryClient.invalidateQueries({ queryKey: ["dashboard-matches"] });
+      queryClient.invalidateQueries({ queryKey: ["profile-live-counts"] });
       queryClient.invalidateQueries({ queryKey: ["unread-home"] });
       queryClient.invalidateQueries({ queryKey: ["unread-home-info-bar"] });
     },
@@ -85,6 +86,7 @@ export const useUndoableUnmatch = (options?: UndoableUnmatchOptions) => {
 
       queryClient.invalidateQueries({ queryKey: ["matches"] });
       queryClient.invalidateQueries({ queryKey: ["dashboard-matches"] });
+      queryClient.invalidateQueries({ queryKey: ["profile-live-counts"] });
       queryClient.invalidateQueries({ queryKey: ["unread-home"] });
       queryClient.invalidateQueries({ queryKey: ["unread-home-info-bar"] });
 
@@ -109,6 +111,7 @@ export const useUndoableUnmatch = (options?: UndoableUnmatchOptions) => {
 
       queryClient.invalidateQueries({ queryKey: ["matches"] });
       queryClient.invalidateQueries({ queryKey: ["dashboard-matches"] });
+      queryClient.invalidateQueries({ queryKey: ["profile-live-counts"] });
 
       if (mountedRef.current) {
         toast.success("Unmatch cancelled", {

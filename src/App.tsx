@@ -45,6 +45,14 @@ import {
   subscribeAnalyticsConsent,
   type AnalyticsConsentState,
 } from "@/lib/consent";
+import {
+  fetchMyProfile,
+  fetchProfileLiveCounts,
+  MY_PROFILE_STALE_TIME_MS,
+  PROFILE_LIVE_COUNTS_STALE_TIME_MS,
+  myProfileQueryKey,
+  profileLiveCountsQueryKey,
+} from "@/services/profileService";
 
 const Index = lazyWithPreload(routeLoaders.index);
 const Auth = lazyWithPreload(routeLoaders.auth);
@@ -137,6 +145,52 @@ const PostHogPageTracker = () => {
 const AppContent = () => {
   useActivityHeartbeat();
   useAppBootstrap();
+  return null;
+};
+
+const WebProfileWarmup = () => {
+  const { session, isAuthenticated, isLoading } = useAuth();
+  const userId = session?.user?.id ?? null;
+
+  useEffect(() => {
+    if (isLoading || !isAuthenticated || !userId) return;
+
+    const warmProfileCache = () => {
+      void queryClient.prefetchQuery({
+        queryKey: myProfileQueryKey(userId),
+        queryFn: async () => {
+          const profile = await fetchMyProfile(userId);
+          if (!profile) throw new Error("Profile not ready");
+          return profile;
+        },
+        staleTime: MY_PROFILE_STALE_TIME_MS,
+      });
+      void queryClient.prefetchQuery({
+        queryKey: profileLiveCountsQueryKey(userId),
+        queryFn: () => fetchProfileLiveCounts(userId),
+        staleTime: PROFILE_LIVE_COUNTS_STALE_TIME_MS,
+      });
+    };
+
+    const idleWindow = window as Window & {
+      requestIdleCallback?: (callback: IdleRequestCallback, options?: IdleRequestOptions) => number;
+      cancelIdleCallback?: (handle: number) => void;
+    };
+    let idleHandle: number | null = null;
+    let timeoutHandle: number | null = null;
+
+    if (idleWindow.requestIdleCallback) {
+      idleHandle = idleWindow.requestIdleCallback(warmProfileCache, { timeout: 1500 });
+    } else {
+      timeoutHandle = window.setTimeout(warmProfileCache, 250);
+    }
+
+    return () => {
+      if (idleHandle !== null) idleWindow.cancelIdleCallback?.(idleHandle);
+      if (timeoutHandle !== null) window.clearTimeout(timeoutHandle);
+    };
+  }, [isAuthenticated, isLoading, userId]);
+
   return null;
 };
 
@@ -356,6 +410,7 @@ const App = () => {
                   <PostHogPageTracker />
                   <RealtimeLifecycleJanitor />
                   <RoutePrefetcher />
+                  <WebProfileWarmup />
                   <WebHomeUnreadInvalidator />
                   <SessionRouteHydration />
                   <WebOnBreakBanner />

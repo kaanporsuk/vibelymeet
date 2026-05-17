@@ -32,6 +32,7 @@ export function invalidateAfterThreadMutation(qc: QueryClient, scope: ThreadInva
     qc.invalidateQueries({ queryKey: ["date-suggestions", scope.matchId] });
   }
   qc.invalidateQueries({ queryKey: ["matches"] });
+  qc.invalidateQueries({ queryKey: ["profile-live-counts"] });
 }
 
 const BLOCKED_MESSAGE_COPY = "You can't message this person.";

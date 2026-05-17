@@ -160,8 +160,16 @@ test("home boot realtime and polling hot paths are narrowed or paused", () => {
   assert.match(activeSession, /document\.visibilityState\s*!==\s*"visible"/);
   assert.match(nativeRealtimeLifecycle, /seenFromNewest/);
   assert.match(nativeRealtimeLifecycle, /channels\.length - 1/);
+  assert.match(app, /const WebProfileWarmup = \(\) =>/);
+  assert.match(app, /queryClient\.prefetchQuery\(\{[\s\S]{0,180}queryKey:\s*myProfileQueryKey\(userId\)/);
+  assert.match(app, /if \(!profile\) throw new Error\("Profile not ready"\)/);
+  assert.match(app, /queryClient\.prefetchQuery\(\{[\s\S]{0,180}queryKey:\s*profileLiveCountsQueryKey\(userId\)/);
   assert.match(nativeTabsLayout, /refetchInterval:\s*UNREAD_BADGE_POLL_MS/);
   assert.match(nativeTabsLayout, /refetchIntervalInBackground:\s*false/);
+  assert.match(nativeTabsLayout, /function ProfileTabWarmup\(\)/);
+  assert.match(nativeTabsLayout, /queryClient\.prefetchQuery\(\{[\s\S]{0,180}queryKey:\s*myProfileQueryKey\(userId\)/);
+  assert.match(nativeTabsLayout, /if \(!profile\) throw new Error\('Profile not ready'\)/);
+  assert.match(nativeTabsLayout, /queryClient\.prefetchQuery\(\{[\s\S]{0,180}queryKey:\s*profileLiveCountsQueryKey\(userId\)/);
   assert.match(nativeBadgeCount, /refetchInterval:\s*BADGE_COUNT_POLL_MS/);
   assert.match(nativeBadgeCount, /refetchIntervalInBackground:\s*false/);
   assert.match(nativeDailyDropTabBadge, /refetchInterval:\s*60_000/);
@@ -180,6 +188,16 @@ test("dashboard request reduction defers rows and avoids obvious overfetch", () 
   const inbox = read("src/hooks/useNotificationInbox.ts");
   const nativeInbox = read("apps/mobile/lib/useNotificationInbox.ts");
   const nativeDashboard = read("apps/mobile/app/(tabs)/index.tsx");
+  const webProfileService = read("src/services/profileService.ts");
+  const webProfileStudio = read("src/pages/ProfileStudio.tsx");
+  const webVibeStudio = read("src/pages/VibeStudio.tsx");
+  const webProfileWizard = read("src/components/wizard/ProfileWizard.tsx");
+  const nativeProfileApi = read("apps/mobile/lib/profileApi.ts");
+  const webRegistrations = read("src/hooks/useRegistrations.ts");
+  const nativeEventsApiForCounts = read("apps/mobile/lib/eventsApi.ts");
+  const webMessages = read("src/hooks/useMessages.ts");
+  const nativeChatApiForCounts = read("apps/mobile/lib/chatApi.ts");
+  const webMatchesForCounts = read("src/hooks/useMatches.ts");
   const nativeMyLocation = read("apps/mobile/lib/myLocationData.ts");
   const nativeHeartbeat = read("apps/mobile/lib/useActivityHeartbeat.ts");
   const scheduleHub = read("src/hooks/useScheduleHub.ts");
@@ -208,6 +226,53 @@ test("dashboard request reduction defers rows and avoids obvious overfetch", () 
   assert.match(nativeDashboard, /useNotificationInbox\(user\?\.id,\s*\{\s*loadRows:\s*notificationCenterOpen\s*\}\)/);
   assert.match(nativeDashboard, /refetchInterval:\s*60_000/);
   assert.match(nativeDashboard, /refetchIntervalInBackground:\s*false/);
+
+  const webFetchMyProfile = webProfileService.slice(
+    webProfileService.indexOf("export const fetchMyProfile"),
+    webProfileService.indexOf("// Update current user's profile"),
+  );
+  assert.match(webProfileService, /export const myProfileQueryKey = \(userId: string\) => \["my-profile", userId\] as const/);
+  assert.match(webProfileService, /export const profileLiveCountsQueryKey = \(userId: string\) => \["profile-live-counts", userId\] as const/);
+  assert.match(webProfileService, /export const fetchProfileLiveCounts = async \(userId: string\)/);
+  assert.match(webProfileService, /const countError = eventsCountResult\.error \?\? matchesCountResult\.error \?\? convosCountResult\.error/);
+  assert.match(webFetchMyProfile, /export const fetchMyProfile = async \(userId: string\)/);
+  assert.match(webFetchMyProfile, /\.eq\("profile_id", userId\)/);
+  assert.match(webFetchMyProfile, /profileRow\.id !== userId/);
+  assert.match(webFetchMyProfile, /location_data:\s*null/);
+  assert.doesNotMatch(webFetchMyProfile, /auth\.getUser/);
+  assert.doesNotMatch(webFetchMyProfile, /fetchMyLocationData/);
+  assert.doesNotMatch(webFetchMyProfile, /fetchProfileLiveCounts/);
+  assert.match(webProfileStudio, /queryClient\.ensureQueryData\(\{[\s\S]{0,180}queryKey:\s*myProfileQueryKey\(profileUser\.id\)/);
+  assert.match(webProfileStudio, /queryClient\.fetchQuery\(\{[\s\S]{0,180}queryKey:\s*profileLiveCountsQueryKey\(profileUser\.id\)[\s\S]{0,180}staleTime:\s*0/);
+  assert.match(webProfileStudio, /const liveCountsPromise =/);
+  assert.doesNotMatch(webProfileStudio, /const \[data, liveCounts\] = await Promise\.all/);
+  assert.match(webProfileStudio, /const forceFresh = profileRefreshKey > 0/);
+  assert.match(webProfileStudio, /queryClient\.fetchQuery\(\{[\s\S]{0,180}queryKey:\s*myProfileQueryKey\(profileUser\.id\)[\s\S]{0,180}staleTime:\s*0/);
+  assert.match(webVibeStudio, /loadProfile\(refreshKey > 0\)/);
+  assert.match(webVibeStudio, /queryClient\.fetchQuery\(\{[\s\S]{0,180}queryKey:\s*myProfileQueryKey\(userId\)[\s\S]{0,180}staleTime:\s*0/);
+  assert.doesNotMatch(webProfileWizard, /fetchMyProfile\(\)/);
+  assert.match(webProfileWizard, /fetchMyProfile\(userId\)/);
+  assert.match(webRegistrations, /queryKey:\s*\["profile-live-counts"\]/);
+  assert.match(nativeEventsApiForCounts, /queryKey:\s*\['profile-live-counts'\]/);
+  assert.match(webMessages, /queryKey:\s*\["profile-live-counts"\]/);
+  assert.match(nativeChatApiForCounts, /queryKey:\s*\['profile-live-counts'\]/);
+  assert.match(webMatchesForCounts, /queryKey:\s*\["profile-live-counts"\]/);
+
+  const nativeFetchMyProfile = nativeProfileApi.slice(
+    nativeProfileApi.indexOf("export async function fetchMyProfile"),
+    nativeProfileApi.indexOf("/** Generic profile patch fields"),
+  );
+  assert.match(nativeProfileApi, /export const myProfileQueryKey = \(userId: string\) => \['my-profile', userId\] as const/);
+  assert.match(nativeProfileApi, /export const profileLiveCountsQueryKey = \(userId: string\) => \['profile-live-counts', userId\] as const/);
+  assert.match(nativeProfileApi, /const countError = eventsCountRes\.error \?\? matchesCountRes\.error \?\? convosCountRes\.error/);
+  assert.match(nativeFetchMyProfile, /export async function fetchMyProfile\(userId: string\)/);
+  assert.match(nativeFetchMyProfile, /\.eq\('profile_id', userId\)/);
+  assert.match(nativeFetchMyProfile, /row\.id !== userId/);
+  assert.match(nativeFetchMyProfile, /location_data:\s*null/);
+  assert.doesNotMatch(nativeFetchMyProfile, /auth\.getUser/);
+  assert.doesNotMatch(nativeFetchMyProfile, /fetchMyLocationData/);
+  assert.doesNotMatch(nativeFetchMyProfile, /fetchProfileLiveCounts/);
+
   assert.match(nativeMyLocation, /MY_LOCATION_CACHE_TTL_MS\s*=\s*60_000/);
   assert.match(nativeMyLocation, /locationDataInFlight/);
   assert.match(nativeMyLocation, /locationDataCacheVersion/);

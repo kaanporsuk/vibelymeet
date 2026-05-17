@@ -22,13 +22,20 @@ import Colors from '@/constants/Colors';
 import { fonts } from '@/constants/theme';
 import { useColorScheme } from '@/components/useColorScheme';
 import { useVibelyDialog } from '@/components/VibelyDialog';
+import { useAuth } from '@/context/AuthContext';
 import FullscreenVibeVideoModal from '@/components/video/FullscreenVibeVideoModal';
 import { deleteVibeVideo, DeleteVibeVideoError } from '@/lib/vibeVideoApi';
 import {
   nativeHeroVideoReset,
   nativeHeroVideoResumePollingForProfile,
 } from '@/lib/nativeHeroVideoUploadController';
-import { fetchMyProfile, updateMyProfile, type ProfileRow } from '@/lib/profileApi';
+import {
+  fetchMyProfile,
+  MY_PROFILE_STALE_TIME_MS,
+  myProfileQueryKey,
+  updateMyProfile,
+  type ProfileRow,
+} from '@/lib/profileApi';
 import { vibeVideoDiagVerbose } from '@/lib/vibeVideoDiagnostics';
 import { resolveVibeVideoState } from '@/lib/vibeVideoState';
 import {
@@ -63,10 +70,14 @@ export default function VibeStudioScreen() {
   const colorScheme = useColorScheme();
   const theme = Colors[colorScheme];
   const { show, dialog } = useVibelyDialog();
+  const { user } = useAuth();
+  const userId = user?.id ?? null;
 
   const { data: profile, isLoading, refetch } = useQuery({
-    queryKey: ['my-profile'],
-    queryFn: fetchMyProfile,
+    queryKey: myProfileQueryKey(userId ?? 'none'),
+    queryFn: () => (userId ? fetchMyProfile(userId) : Promise.resolve(null)),
+    enabled: !!userId,
+    staleTime: MY_PROFILE_STALE_TIME_MS,
   });
 
   const [captionDraft, setCaptionDraft] = useState('');
@@ -90,8 +101,9 @@ export default function VibeStudioScreen() {
 
   useFocusEffect(
     useCallback(() => {
+      if (!userId) return;
       void refetch();
-    }, [refetch]),
+    }, [refetch, userId]),
   );
 
   useEffect(() => {
@@ -121,6 +133,7 @@ export default function VibeStudioScreen() {
     resumeIfNonTerminal?: boolean;
     source?: 'app_state_active' | 'manual_retry' | 'manual_refresh';
   }) => {
+    if (!userId) return null;
     await qc.invalidateQueries({ queryKey: ['my-profile'] });
     const result = await refetch();
     const nextProfile = result.data ?? profileRef.current ?? null;
@@ -130,7 +143,7 @@ export default function VibeStudioScreen() {
       });
     }
     return result;
-  }, [qc, refetch]);
+  }, [qc, refetch, userId]);
 
   const shouldAttemptForegroundResume = useCallback(() => {
     const currentCtrl = ctrlRef.current;
@@ -384,15 +397,17 @@ export default function VibeStudioScreen() {
               source: 'native_vibe_studio',
               state: videoInfo.state,
             });
-            qc.setQueryData<ProfileRow | null>(['my-profile'], (prev) => {
-              if (!prev) return prev;
-              return {
-                ...prev,
-                bunny_video_uid: null,
-                bunny_video_status: 'none',
-                vibe_caption: null,
-              };
-            });
+            if (userId) {
+              qc.setQueryData<ProfileRow | null>(myProfileQueryKey(userId), (prev) => {
+                if (!prev) return prev;
+                return {
+                  ...prev,
+                  bunny_video_uid: null,
+                  bunny_video_status: 'none',
+                  vibe_caption: null,
+                };
+              });
+            }
             setCaptionDraft('');
 
             const removedOkMessage = deletingPipelineVideo

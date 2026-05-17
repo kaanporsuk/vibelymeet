@@ -216,6 +216,7 @@ export const useMatches = () => {
       if (row && row.profile_id_1 !== userId && row.profile_id_2 !== userId) return;
       queryClient.invalidateQueries({ queryKey: ["matches"] });
       queryClient.invalidateQueries({ queryKey: ["dashboard-matches"] });
+      queryClient.invalidateQueries({ queryKey: ["profile-live-counts"] });
     };
 
     const channel = supabase.channel(`matches-realtime-${userId}`);

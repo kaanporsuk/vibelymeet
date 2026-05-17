@@ -25,10 +25,17 @@ import { trackVibeVideoEvent, VIBE_VIDEO_EVENTS } from "@/lib/vibeVideo/vibeVide
 import { recordUserAction } from "@/lib/browserDiagnostics";
 import { MAX_VIBE_CAPTION_LEN } from "@/lib/vibeVideo/constants";
 import { syncCurrentVibeVideoStatus } from "@/lib/vibeVideo/syncVibeVideoStatus";
-import { fetchMyProfile, updateMyProfile, type ProfileData } from "@/services/profileService";
+import {
+  fetchMyProfile,
+  MY_PROFILE_STALE_TIME_MS,
+  myProfileQueryKey,
+  updateMyProfile,
+  type ProfileData,
+} from "@/services/profileService";
 import { useHeroVideoUpload } from "@/hooks/useHeroVideoUpload";
 import { heroVideoReset, heroVideoResumePollingForProfile } from "@/lib/heroVideo/heroVideoUploadController";
 import { queryClient } from "@/lib/queryClient";
+import { useUserProfile } from "@/contexts/AuthContext";
 
 type StatusTone = {
   pillClassName: string;
@@ -40,6 +47,8 @@ type StatusTone = {
 
 const VibeStudio = () => {
   const navigate = useNavigate();
+  const { user } = useUserProfile();
+  const userId = user?.id ?? null;
   const ctrl = useHeroVideoUpload();
   const [profile, setProfile] = useState<ProfileData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -50,10 +59,25 @@ const VibeStudio = () => {
   const [isSavingCaption, setIsSavingCaption] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
 
-  const loadProfile = useCallback(async () => {
+  const loadProfile = useCallback(async (forceFresh = false) => {
+    if (!userId) {
+      setProfile(null);
+      setIsLoading(false);
+      return;
+    }
     setIsLoading(true);
     try {
-      const data = await fetchMyProfile();
+      const data = await (forceFresh
+        ? queryClient.fetchQuery({
+            queryKey: myProfileQueryKey(userId),
+            queryFn: () => fetchMyProfile(userId),
+            staleTime: 0,
+          })
+        : queryClient.ensureQueryData({
+            queryKey: myProfileQueryKey(userId),
+            queryFn: () => fetchMyProfile(userId),
+            staleTime: MY_PROFILE_STALE_TIME_MS,
+          }));
       setProfile(data);
       if (data) {
         heroVideoResumePollingForProfile(
@@ -73,10 +97,10 @@ const VibeStudio = () => {
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [userId]);
 
   useEffect(() => {
-    void loadProfile();
+    void loadProfile(refreshKey > 0);
   }, [loadProfile, refreshKey]);
 
   useEffect(() => {
@@ -250,6 +274,11 @@ const VibeStudio = () => {
         });
       }
       setProfile((prev) => (prev ? { ...prev, vibeCaption: nextCaption } : prev));
+      if (userId) {
+        queryClient.setQueryData<ProfileData | null>(myProfileQueryKey(userId), (prev) =>
+          prev ? { ...prev, vibeCaption: nextCaption } : prev,
+        );
+      }
       recordUserAction("vibe_studio_caption_save_succeeded", {
         surface: "vibe_studio",
         video_state: videoInfo.state,
@@ -329,16 +358,18 @@ const VibeStudio = () => {
             }
           : prev,
       );
-      queryClient.setQueryData<ProfileData | null>(["my-profile"], (prev) =>
-        prev
-          ? {
-              ...prev,
-              bunnyVideoUid: null,
-              bunnyVideoStatus: "none",
-              vibeCaption: "",
-            }
-          : prev,
-      );
+      if (userId) {
+        queryClient.setQueryData<ProfileData | null>(myProfileQueryKey(userId), (prev) =>
+          prev
+            ? {
+                ...prev,
+                bunnyVideoUid: null,
+                bunnyVideoStatus: "none",
+                vibeCaption: "",
+              }
+            : prev,
+        );
+      }
       void queryClient.invalidateQueries({ queryKey: ["my-profile"] });
       setShowPlayer(false);
       setCaptionDraft("");
@@ -375,7 +406,7 @@ const VibeStudio = () => {
             </p>
           </div>
           <div className="flex flex-col gap-3 sm:flex-row">
-            <Button variant="outline" className="flex-1" onClick={loadProfile}>
+            <Button variant="outline" className="flex-1" onClick={() => void loadProfile(true)}>
               <RefreshCw className="h-4 w-4" />
               Try again
             </Button>

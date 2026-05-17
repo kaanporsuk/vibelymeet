@@ -11,6 +11,7 @@ import VibeTagCloud from "./VibeTagCloud";
 import { useUserProfile } from "@/contexts/AuthContext";
 import { uploadImageToBunny } from "@/services/imageUploadService";
 import { supabase } from "@/integrations/supabase/client";
+import { useQueryClient } from "@tanstack/react-query";
 
 interface ProfileWizardProps {
   isOpen: boolean;
@@ -63,6 +64,8 @@ const PROMPT_THRESHOLD = 2; // At least 2 prompts answered
 
 const ProfileWizard = ({ isOpen, onClose, onComplete, onOpenVibeStudio }: ProfileWizardProps) => {
   const { user } = useUserProfile();
+  const userId = user?.id ?? null;
+  const queryClient = useQueryClient();
   const [currentStep, setCurrentStep] = useState(0);
   const [photos, setPhotos] = useState<string[]>(Array(6).fill(""));
   const [photoFiles, setPhotoFiles] = useState<(File | null)[]>(Array(6).fill(null));
@@ -83,14 +86,19 @@ const ProfileWizard = ({ isOpen, onClose, onComplete, onOpenVibeStudio }: Profil
   const [progress, setProgress] = useState(0);
 
   const refreshProgressFromServer = useCallback(async () => {
+    if (!userId) return;
     try {
-      const { fetchMyProfile } = await import("@/services/profileService");
-      const profileData = await fetchMyProfile();
+      const { fetchMyProfile, myProfileQueryKey } = await import("@/services/profileService");
+      const profileData = await queryClient.fetchQuery({
+        queryKey: myProfileQueryKey(userId),
+        queryFn: () => fetchMyProfile(userId),
+        staleTime: 0,
+      });
       setProgress(profileData?.vibeScore ?? 0);
     } catch {
       setProgress(0);
     }
-  }, []);
+  }, [queryClient, userId]);
 
   // Helper to get emoji for a prompt question
   const getEmojiForQuestion = (question: string): string => {
@@ -128,7 +136,7 @@ const ProfileWizard = ({ isOpen, onClose, onComplete, onOpenVibeStudio }: Profil
 
   // Load existing profile data when wizard opens
   useEffect(() => {
-    if (!isOpen || !user) {
+    if (!isOpen || !userId) {
       setIsLoading(false);
       return;
     }
@@ -136,9 +144,14 @@ const ProfileWizard = ({ isOpen, onClose, onComplete, onOpenVibeStudio }: Profil
     const loadExistingProfile = async () => {
       setIsLoading(true);
       try {
-        // Fetch full profile data using profileService
-        const { fetchMyProfile } = await import("@/services/profileService");
-        const profile = await fetchMyProfile();
+        const { fetchMyProfile, MY_PROFILE_STALE_TIME_MS, myProfileQueryKey } = await import(
+          "@/services/profileService"
+        );
+        const profile = await queryClient.ensureQueryData({
+          queryKey: myProfileQueryKey(userId),
+          queryFn: () => fetchMyProfile(userId),
+          staleTime: MY_PROFILE_STALE_TIME_MS,
+        });
         
         let loadedPhotos: string[] = Array(6).fill("");
         let loadedPrompts: Prompt[] = [];
@@ -199,7 +212,7 @@ const ProfileWizard = ({ isOpen, onClose, onComplete, onOpenVibeStudio }: Profil
     };
 
     loadExistingProfile();
-  }, [isOpen, user]);
+  }, [isOpen, queryClient, userId]);
 
   // Auto-save indicator
   useEffect(() => {
@@ -270,7 +283,7 @@ const ProfileWizard = ({ isOpen, onClose, onComplete, onOpenVibeStudio }: Profil
   };
 
   const handleComplete = async () => {
-    if (!user) {
+    if (!userId) {
       toast.error("Please sign in to save your profile");
       return;
     }
@@ -278,9 +291,7 @@ const ProfileWizard = ({ isOpen, onClose, onComplete, onOpenVibeStudio }: Profil
     setIsSaving(true);
 
     try {
-      // Import the profile update function
       const { updateMyProfile } = await import("@/services/profileService");
-      
       // Upload photos that are file objects (local uploads)
       const uploadedPhotoUrls: string[] = [];
       
@@ -314,7 +325,7 @@ const ProfileWizard = ({ isOpen, onClose, onComplete, onOpenVibeStudio }: Profil
       });
 
       const { data: photoResult, error: photoError } = await supabase.rpc("publish_photo_set", {
-        p_user_id: user.id,
+        p_user_id: userId,
         p_photos: uploadedPhotoUrls,
         p_context: "profile_studio",
       });
@@ -324,6 +335,7 @@ const ProfileWizard = ({ isOpen, onClose, onComplete, onOpenVibeStudio }: Profil
         throw new Error(String(pr.error ?? "Photo save failed"));
       }
 
+      await queryClient.invalidateQueries({ queryKey: ["my-profile"] });
       await refreshProgressFromServer();
 
       toast.success("Profile updated! 🎉");

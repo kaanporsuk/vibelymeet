@@ -543,6 +543,7 @@ export function useRegisterForEvent() {
       qc.invalidateQueries({ queryKey: ['user-registered-event-ids'] });
       qc.invalidateQueries({ queryKey: ['event-attendees', eventId] });
       qc.invalidateQueries({ queryKey: ['event-attendee-preview', eventId] });
+      qc.invalidateQueries({ queryKey: ['profile-live-counts'] });
     },
   });
   const unregister = useMutation({
@@ -573,6 +574,7 @@ export function useRegisterForEvent() {
       qc.invalidateQueries({ queryKey: ['user-registered-event-ids'] });
       qc.invalidateQueries({ queryKey: ['event-attendees', eventId] });
       qc.invalidateQueries({ queryKey: ['event-attendee-preview', eventId] });
+      qc.invalidateQueries({ queryKey: ['profile-live-counts'] });
     },
   });
   return {

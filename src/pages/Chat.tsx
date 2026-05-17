@@ -965,6 +965,7 @@ const Chat = () => {
           exact: true,
         });
         queryClient.invalidateQueries({ queryKey: ["matches"] });
+        queryClient.invalidateQueries({ queryKey: ["profile-live-counts"] });
         toast.success("Game sent!");
       } finally {
         gameStartLockRef.current = false;
@@ -1065,6 +1066,7 @@ const Chat = () => {
           exact: true,
         });
         queryClient.invalidateQueries({ queryKey: ["matches"] });
+        queryClient.invalidateQueries({ queryKey: ["profile-live-counts"] });
       } finally {
         actionLockRef.current.delete(view.gameSessionId);
       }
