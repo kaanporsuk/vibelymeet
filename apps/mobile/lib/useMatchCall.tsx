@@ -397,14 +397,32 @@ function nativeCameraStateFromCommit(
   commit: NativeCameraSwitchCommit,
   fallbackDevice: NativeDailyCameraDevice | null | undefined
 ): NativeCameraState {
-  return mergeNativeCameraState(
-    {
-      deviceId: commit.deviceId,
-      deviceKey: commit.deviceId,
+  const fallbackState = nativeCameraStateFromDevice(fallbackDevice, 'commit');
+  const commitState: NativeCameraState = {
+    deviceId: commit.deviceId,
+    deviceKey: commit.deviceId,
+    facingMode: commit.facingMode,
+    source: 'commit',
+  };
+  const fallbackDeviceMatchesCommittedFacing = Boolean(
+    fallbackState.deviceKey &&
+      fallbackState.facingMode &&
+      commit.facingMode &&
+      fallbackState.facingMode === commit.facingMode
+  );
+
+  if (fallbackDeviceMatchesCommittedFacing) {
+    return {
+      deviceId: fallbackState.deviceId,
+      deviceKey: fallbackState.deviceKey,
       facingMode: commit.facingMode,
       source: 'commit',
-    },
-    nativeCameraStateFromDevice(fallbackDevice, 'commit'),
+    };
+  }
+
+  return mergeNativeCameraState(
+    commitState,
+    fallbackState,
     'commit'
   );
 }
@@ -417,16 +435,29 @@ function chooseNativeCameraDevice(
   const usable = nativeVideoCameraDevices(devices);
   if (usable.length === 0) return null;
   const currentDeviceKey = current.deviceKey;
-  const candidates = currentDeviceKey != null
+  const nonCurrentCandidates = currentDeviceKey != null
     ? usable.filter((device) => nativeCameraDeviceKey(device) !== currentDeviceKey)
     : usable;
-  if (currentDeviceKey != null && candidates.length === 0) return null;
   if (desiredFacing) {
-    const facingMatch = candidates.find((device) => nativeCameraDeviceFacingMode(device) === desiredFacing);
-    if (facingMatch) return facingMatch;
-    if (currentDeviceKey == null) return null;
+    const desiredFacingMatches = usable.filter((device) => nativeCameraDeviceFacingMode(device) === desiredFacing);
+    if (desiredFacingMatches.length > 0) {
+      return (
+        desiredFacingMatches.find((device) => nativeCameraDeviceKey(device) !== currentDeviceKey) ??
+        desiredFacingMatches[0] ??
+        null
+      );
+    }
+
+    const unknownFacingFallback = nonCurrentCandidates.find((device) => nativeCameraDeviceFacingMode(device) == null);
+    if (unknownFacingFallback) return unknownFacingFallback;
+
+    if (current.facingMode) {
+      return nonCurrentCandidates.find((device) => nativeCameraDeviceFacingMode(device) !== current.facingMode) ?? null;
+    }
+
+    return nonCurrentCandidates[0] ?? null;
   }
-  return currentDeviceKey != null ? candidates[0] ?? null : null;
+  return currentDeviceKey != null ? nonCurrentCandidates[0] ?? null : null;
 }
 
 function describeNativeCameraSwitchError(error: unknown): { name: string; message: string } {
@@ -1211,14 +1242,12 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
       while (Date.now() - startedAtMs <= NATIVE_MATCH_CALL_CAMERA_SWITCH_COMMIT_TIMEOUT_MS) {
         const controlsFacing = await readNativeCameraFacingMode(controls);
         const snapshot = readNativeLocalCameraSnapshot(callObject);
-        const facingSignals = [snapshot.facingMode, controlsFacing].filter(
-          (value): value is NativeDailyCameraFacingMode => value != null
-        );
+        const snapshotFacing = snapshot.facingMode;
         const committedFacing =
-          (expectedFacing && facingSignals.includes(expectedFacing) ? expectedFacing : null) ??
-          facingSignals.find((facingMode) => baseline.facingMode && facingMode !== baseline.facingMode) ??
-          snapshot.facingMode ??
-          controlsFacing;
+          (expectedFacing && controlsFacing === expectedFacing ? expectedFacing : null) ??
+          (expectedFacing && snapshotFacing === expectedFacing ? expectedFacing : null) ??
+          controlsFacing ??
+          snapshotFacing;
         const snapshotDeviceKey = snapshot.deviceId == null ? null : String(snapshot.deviceId);
         const trackChanged = Boolean(before.trackId && snapshot.trackId && snapshot.trackId !== before.trackId);
         const deviceChanged = Boolean(
@@ -1227,11 +1256,18 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
             snapshotDeviceKey !== baselineDeviceKey &&
             (!beforeDeviceKey || snapshotDeviceKey !== beforeDeviceKey)
         );
-        const facingChanged = Boolean(
+        const controlsFacingChanged = Boolean(
           baseline.facingMode &&
-            facingSignals.some((facingMode) => facingMode !== baseline.facingMode) &&
-            (!before.facingMode || facingSignals.some((facingMode) => facingMode !== before.facingMode))
+            controlsFacing &&
+            controlsFacing !== baseline.facingMode
         );
+        const snapshotFacingChanged = Boolean(
+          baseline.facingMode &&
+            snapshotFacing &&
+            snapshotFacing !== baseline.facingMode &&
+            (!before.facingMode || snapshotFacing !== before.facingMode || trackChanged || deviceChanged)
+        );
+        const facingChanged = controlsFacingChanged || snapshotFacingChanged;
         const expectedDeviceSignalPresent = Boolean(
           expectedDeviceKey &&
             expectedDeviceKey !== baselineDeviceKey &&
@@ -1241,15 +1277,19 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
           expectedDeviceSignalPresent &&
             (!beforeDeviceKey || expectedDeviceKey !== beforeDeviceKey)
         );
-        const expectedFacingSignalPresent = Boolean(
+        const controlsExpectedFacingMatched = Boolean(
           expectedFacing &&
             expectedFacing !== baseline.facingMode &&
-            facingSignals.includes(expectedFacing)
+            controlsFacing === expectedFacing
         );
-        const expectedFacingMatched = Boolean(
-          expectedFacingSignalPresent &&
-            (!before.facingMode || expectedFacing !== before.facingMode)
+        const snapshotExpectedFacingMatched = Boolean(
+          expectedFacing &&
+            expectedFacing !== baseline.facingMode &&
+            snapshotFacing === expectedFacing &&
+            (!before.facingMode || expectedFacing !== before.facingMode || trackChanged || deviceChanged)
         );
+        const expectedFacingSignalPresent = controlsExpectedFacingMatched || snapshotExpectedFacingMatched;
+        const expectedFacingMatched = expectedFacingSignalPresent;
         const trackChangedToExpectedTarget = Boolean(
           trackChanged &&
             (expectedDeviceSignalPresent || expectedFacingSignalPresent)
@@ -1411,7 +1451,15 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
           const targetDeviceId = nativeCameraDeviceId(targetDevice);
           const targetDeviceKey = nativeCameraDeviceKey(targetDevice);
           const targetFacing = nativeCameraDeviceFacingMode(targetDevice);
-          if (targetDeviceId != null && (!currentCamera.deviceKey || targetDeviceKey !== currentCamera.deviceKey)) {
+          const targetCanImproveFacing = Boolean(
+            desiredFacing &&
+              targetFacing === desiredFacing &&
+              currentCamera.facingMode !== desiredFacing
+          );
+          if (
+            targetDeviceId != null &&
+            (!currentCamera.deviceKey || targetDeviceKey !== currentCamera.deviceKey || targetCanImproveFacing)
+          ) {
             logMatchCallDiag('flip_camera_set_camera_target', {
               platform: 'native',
               desired_facing_mode: desiredFacing,
@@ -1419,6 +1467,7 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
               current_facing_mode: currentCamera.facingMode,
               target_device_key: targetDeviceKey,
               target_facing_mode: targetFacing,
+              target_can_improve_facing: targetCanImproveFacing,
               video_input_count: devices.length,
             });
             const result = await controls.setCamera(targetDeviceId);
