@@ -137,6 +137,11 @@ function PhotoViewerBody({
 
   const current = items[index];
   const currentUri = current ? uriOverridesById[current.id] ?? current.uri : null;
+
+  useEffect(() => {
+    refreshAttemptedForUriRef.current = null;
+  }, [current?.id]);
+
   const refreshCurrent = useCallback(async () => {
     if (!current || !currentUri || !onRefreshItem || refreshAttemptedForUriRef.current === currentUri) return;
     const freshUri = await onRefreshItem(current);

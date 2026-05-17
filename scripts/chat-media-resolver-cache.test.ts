@@ -56,6 +56,18 @@ try {
   __clearChatMediaUrlCacheForTests();
 }
 
+__setChatMediaUrlIssuerForTests(async () => {
+  throw new Error("network_down");
+});
+try {
+  const messageId = "550e8400-e29b-41d4-a716-446655440000";
+  const failedRefresh = await refreshCachedChatMediaUrl(messageId, "voice", "voice/test.webm");
+  assert.equal(failedRefresh, null);
+} finally {
+  __setChatMediaUrlIssuerForTests(null);
+  __clearChatMediaUrlCacheForTests();
+}
+
 let shortTtlInvokeCount = 0;
 const originalDateNow = Date.now;
 __setChatMediaUrlIssuerForTests(async () => {
@@ -89,12 +101,14 @@ const webVideoBubble = read("src/components/chat/VideoMessageBubble.tsx");
 const webClipBubble = read("src/components/chat/VibeClipBubble.tsx");
 const webPhotoLightbox = read("src/components/chat/ChatPhotoLightbox.tsx");
 const webVideoLightbox = read("src/components/chat/ChatVideoLightbox.tsx");
+const webMediaResolver = read("src/lib/chatMediaResolver.ts");
 const webMessagesHook = read("src/hooks/useMessages.ts");
 const webChatPage = read("src/pages/Chat.tsx");
 const nativeChat = read("apps/mobile/lib/chatApi.ts");
 const nativeChatScreen = read("apps/mobile/app/chat/[id].tsx");
 const nativeClipCard = read("apps/mobile/components/chat/VibeClipCard.tsx");
 const nativeMediaViewer = read("apps/mobile/components/chat/ChatThreadMediaViewer.tsx");
+const nativeMediaResolver = read("apps/mobile/lib/chatMediaResolver.ts");
 const threadPage = read("supabase/functions/chat-thread-page/index.ts");
 
 assert.match(resolver, /syncChatMessageMedia/);
@@ -134,10 +148,12 @@ assert.match(
   webPhotoLightbox,
   /if \(!freshUrl \|\| freshUrl === currentUrl\) return;[\s\S]{0,80}refreshAttemptedForUrlRef\.current = currentUrl;/,
 );
+assert.match(webPhotoLightbox, /refreshAttemptedForUrlRef\.current = null;[\s\S]{0,80}\}, \[current\?\.id\]\);/);
 assert.match(
   webVideoLightbox,
   /if \(!freshVideoUrl \|\| freshVideoUrl === playableVideoUrl\) return false;[\s\S]{0,80}refreshAttemptedForUrlRef\.current = playableVideoUrl;[\s\S]{0,160}return true;/,
 );
+assert.match(webMediaResolver, /catch \{[\s\S]{0,80}return null;[\s\S]{0,80}\}/);
 assert.match(nativeBubble, /refreshCachedChatMediaUrl/);
 assert.match(nativeBubble, /player\.play\(\)[\s\S]{0,600}refreshAndQueuePlay/);
 assert.match(
@@ -167,10 +183,12 @@ assert.match(
   nativeMediaViewer,
   /if \(!freshUri \|\| freshUri === currentUri\) return;[\s\S]{0,80}refreshAttemptedForUriRef\.current = currentUri;/,
 );
+assert.match(nativeMediaViewer, /refreshAttemptedForUriRef\.current = null;[\s\S]{0,80}\}, \[current\?\.id\]\);/);
 assert.match(
   nativeMediaViewer,
   /if \(!fresh\?\.uri \|\| fresh\.uri === playableUri\) return false;[\s\S]{0,80}refreshAttemptedForUriRef\.current = playableUri;[\s\S]{0,160}return true;/,
 );
+assert.match(nativeMediaResolver, /catch \{[\s\S]{0,80}return null;[\s\S]{0,80}\}/);
 assert.match(nativeChat, /extras:\s*\{\s*httpSend:\s*true\s*\}/);
 assert.match(threadPage, /\.from\("media_assets"\)/);
 assert.match(threadPage, /date_suggestions/);

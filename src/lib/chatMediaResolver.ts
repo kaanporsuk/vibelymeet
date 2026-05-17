@@ -79,15 +79,18 @@ async function issueAndCacheChatMediaUrl(
   if (!forceRefresh && cached && cached.expiresAtMs > Date.now()) return cached.url;
   mediaUrlCache.delete(cacheKey);
 
-  const payload = testMediaUrlIssuer
-    ? await testMediaUrlIssuer(messageId, mediaKind)
-    : await (async () => {
-        const { data, error } = await supabase.functions.invoke("get-chat-media-url", {
-          body: { messageId, mediaKind },
-        });
-        if (error) return null;
-        return data as ResolverResponse | null;
-      })();
+  const payload = await (async () => {
+    try {
+      if (testMediaUrlIssuer) return await testMediaUrlIssuer(messageId, mediaKind);
+      const { data, error } = await supabase.functions.invoke("get-chat-media-url", {
+        body: { messageId, mediaKind },
+      });
+      if (error) return null;
+      return data as ResolverResponse | null;
+    } catch {
+      return null;
+    }
+  })();
   if (!payload?.success || typeof payload.url !== "string" || !payload.url) return null;
 
   const expiresInMs =
