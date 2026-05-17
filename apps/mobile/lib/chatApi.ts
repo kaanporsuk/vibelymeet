@@ -6,6 +6,7 @@ import { resolvePrimaryProfilePhotoPath } from '../../../shared/profilePhoto/res
 import { bestMatchSortKey, compatibilityPercent, type MatchScoreInput } from '@/lib/matchSortScore';
 import { uploadVoiceMessage } from '@/lib/chatMediaUpload';
 import { resolveChatMessageMediaForDisplay } from '@/lib/chatMediaResolver';
+import { parseChatImageMessageContent } from '@/lib/chatMessageContent';
 import {
   collapseVibeGameMessageRows,
   type ChatGameSessionMessageRow,
@@ -329,8 +330,11 @@ export type ChatMessage = {
   audio_url?: string | null;
   audio_source_ref?: string | null;
   audio_duration_seconds?: number | null;
+  image_source_ref?: string | null;
   video_url?: string | null;
+  video_source_ref?: string | null;
   video_duration_seconds?: number | null;
+  thumbnail_source_ref?: string | null;
   read_at?: string | null;
   status?: MessageStatusType;
   /** Filled in UI layer from `message_reactions` + partner id (not a DB column on messages). */
@@ -433,6 +437,38 @@ function normalizeRawMessage(row: Partial<ChatRawMessageRow> & { id: string }): 
   };
 }
 
+function isResolvedOrLocalMediaRef(value: string): boolean {
+  return /^https?:\/\//i.test(value) || value.startsWith('blob:') || value.startsWith('file:') || value.startsWith('data:');
+}
+
+function durableChatMediaSourceRef(value: string | null | undefined): string | undefined {
+  const trimmed = value?.trim();
+  if (!trimmed || isResolvedOrLocalMediaRef(trimmed)) return undefined;
+  return trimmed;
+}
+
+function structuredPayloadObject(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : null;
+}
+
+function collectChatMediaSourceRefs(row: {
+  content: string;
+  audio_url?: string | null;
+  video_url?: string | null;
+  structured_payload?: unknown;
+}) {
+  const payload = structuredPayloadObject(row.structured_payload);
+  const thumbnailRef = typeof payload?.thumbnail_url === 'string' ? payload.thumbnail_url : null;
+  return {
+    audio: durableChatMediaSourceRef(row.audio_url),
+    image: durableChatMediaSourceRef(
+      parseChatImageMessageContent(row.content, { allowPrivateMediaRefs: true }),
+    ),
+    video: durableChatMediaSourceRef(row.video_url),
+    thumbnail: durableChatMediaSourceRef(thumbnailRef),
+  };
+}
+
 type ThreadPageCursor = {
   createdAt: string;
   id: string | null;
@@ -468,6 +504,7 @@ function encodeThreadPageCursor(row: { created_at: string; id: string }): string
 }
 
 function mapRawRowToGameRow(row: ChatRawMessageRow): ChatGameSessionMessageRow {
+  const sourceRefs = collectChatMediaSourceRefs(row);
   return {
     id: row.id,
     sender_id: row.sender_id,
@@ -475,10 +512,13 @@ function mapRawRowToGameRow(row: ChatRawMessageRow): ChatGameSessionMessageRow {
     created_at: row.created_at,
     read_at: row.read_at,
     audio_url: row.audio_url,
-    audio_source_ref: row.audio_url,
+    audio_source_ref: sourceRefs.audio,
     audio_duration_seconds: row.audio_duration_seconds,
+    image_source_ref: sourceRefs.image,
     video_url: row.video_url,
+    video_source_ref: sourceRefs.video,
     video_duration_seconds: row.video_duration_seconds,
+    thumbnail_source_ref: sourceRefs.thumbnail,
     message_kind: row.message_kind,
     ref_id: row.ref_id,
     structured_payload: row.structured_payload,
@@ -512,8 +552,11 @@ export async function hydrateChatRowsForDisplay(params: {
       audio_url: m.audio_url ?? undefined,
       audio_source_ref: m.audio_source_ref ?? undefined,
       audio_duration_seconds: m.audio_duration_seconds ?? undefined,
+      image_source_ref: m.image_source_ref ?? undefined,
       video_url: m.video_url ?? undefined,
+      video_source_ref: m.video_source_ref ?? undefined,
       video_duration_seconds: m.video_duration_seconds ?? undefined,
+      thumbnail_source_ref: m.thumbnail_source_ref ?? undefined,
       read_at: m.read_at ?? undefined,
       status: mapStatus(m),
       messageKind: kind,

@@ -171,6 +171,11 @@ assert.match(
 );
 assert.doesNotMatch(
   profileStudio,
+  /if \(keyboardOverlap < PROFILE_STUDIO_PROMPT_KEYBOARD_THRESHOLD_PX\) \{[\s\S]*promptDrawerStableViewportHeightRef\.current = Math\.max\(currentViewportHeight, currentLayoutHeight\);/,
+  "Prompt drawer keyboard animation must not chase small below-threshold viewport shrink steps while focused",
+);
+assert.doesNotMatch(
+  profileStudio,
   /const nudgePromptAnswerIntoView = useCallback\(\(\) => \{[\s\S]*promptDrawerStableViewportHeightRef\.current = Math\.max\([\s\S]*const alignAnswer = \(\) => \{/,
   "Prompt drawer keyboard resize nudges must not replace the pre-keyboard viewport baseline",
 );

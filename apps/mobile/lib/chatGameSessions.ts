@@ -13,8 +13,11 @@ export type ChatGameSessionMessageRow = {
   audio_url: string | null;
   audio_source_ref?: string | null;
   audio_duration_seconds: number | null;
+  image_source_ref?: string | null;
   video_url: string | null;
+  video_source_ref?: string | null;
   video_duration_seconds: number | null;
+  thumbnail_source_ref?: string | null;
   message_kind: string | null;
   ref_id: string | null;
   structured_payload: unknown;

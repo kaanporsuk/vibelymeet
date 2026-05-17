@@ -102,6 +102,7 @@ import {
   inferChatMediaRenderKind,
   parseChatImageMessageContent,
 } from '@/lib/chatMessageContent';
+import { refreshCachedChatMediaUrl } from '@/lib/chatMediaResolver';
 import { extractVibeClipMeta } from '../../../../shared/chat/messageRouting';
 import { VibeClipCard } from '@/components/chat/VibeClipCard';
 import {
@@ -484,16 +485,24 @@ function ChatImageCard({
   isMine,
   theme: _theme,
   onPress,
+  onLoadError,
 }: {
   uri: string;
   isMine: boolean;
   theme: (typeof Colors)['light'];
   onPress?: () => void;
+  onLoadError?: () => void;
 }) {
   const frameBorder = isMine ? 'rgba(236,72,153,0.45)' : 'rgba(255,255,255,0.16)';
   const inner = (
     <View style={[styles.chatImageOuter, { borderColor: frameBorder }]}>
-      <Image source={{ uri }} style={styles.chatImage} resizeMode="cover" accessibilityIgnoresInvertColors />
+      <Image
+        source={{ uri }}
+        style={styles.chatImage}
+        resizeMode="cover"
+        accessibilityIgnoresInvertColors
+        onError={onLoadError}
+      />
     </View>
   );
   if (!onPress) return inner;
@@ -511,6 +520,10 @@ function ChatImageCard({
 
 type ChatVideoCardProps = {
   uri: string;
+  sourceRef?: string | null;
+  messageId?: string;
+  mediaKind?: 'video' | 'vibe_clip';
+  onResolvedUri?: (uri: string) => void;
   durationSec?: number | null;
   theme: (typeof Colors)['light'];
   isMine: boolean;
@@ -521,8 +534,35 @@ type ChatVideoCardProps = {
 
 /** Remount inner body so expo-video player is recreated after a load error (Try again). */
 function ChatVideoCard(props: ChatVideoCardProps) {
+  const { mediaKind, messageId, onResolvedUri, sourceRef, uri } = props;
   const [retryNonce, setRetryNonce] = useState(0);
-  return <ChatVideoCardBody key={`${props.uri}-${retryNonce}`} {...props} onRemountPlayer={() => setRetryNonce((n) => n + 1)} />;
+  const [playableUri, setPlayableUri] = useState(uri);
+  const refreshAttemptedForUriRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    setPlayableUri(uri);
+    refreshAttemptedForUriRef.current = null;
+  }, [uri]);
+
+  const refreshMediaUri = useCallback(async (): Promise<boolean> => {
+    if (!messageId || !sourceRef || refreshAttemptedForUriRef.current === playableUri) return false;
+    refreshAttemptedForUriRef.current = playableUri;
+    const freshUri = await refreshCachedChatMediaUrl(messageId, mediaKind ?? 'video', sourceRef);
+    if (!freshUri) return false;
+    setPlayableUri(freshUri);
+    onResolvedUri?.(freshUri);
+    return freshUri !== playableUri;
+  }, [mediaKind, messageId, onResolvedUri, playableUri, sourceRef]);
+
+  return (
+    <ChatVideoCardBody
+      key={`${playableUri}-${retryNonce}`}
+      {...props}
+      uri={playableUri}
+      onRefreshMediaUri={refreshMediaUri}
+      onRemountPlayer={() => setRetryNonce((n) => n + 1)}
+    />
+  );
 }
 
 function ChatVideoCardBody({
@@ -533,8 +573,9 @@ function ChatVideoCardBody({
   onRequestImmersive,
   immersiveActive,
   threadVisualRecede = false,
+  onRefreshMediaUri,
   onRemountPlayer,
-}: ChatVideoCardProps & { onRemountPlayer: () => void }) {
+}: ChatVideoCardProps & { onRefreshMediaUri: () => Promise<boolean>; onRemountPlayer: () => void }) {
   const [hasError, setHasError] = useState(false);
   const [isReady, setIsReady] = useState(false);
   const player = useVideoPlayer(uri, (p) => {
@@ -545,7 +586,11 @@ function ChatVideoCardBody({
     const sub = safeExpoSharedObjectCall(
       () => player.addListener('statusChange', (payload) => {
         if (payload.status === 'error') {
-          setHasError(true);
+          void onRefreshMediaUri()
+            .then((didRefresh) => {
+              if (!didRefresh) setHasError(true);
+            })
+            .catch(() => setHasError(true));
           return;
         }
         if (payload.status === 'readyToPlay') {
@@ -560,7 +605,7 @@ function ChatVideoCardBody({
       },
     );
     return () => safeRemoveExpoSharedObjectSubscription(sub, 'chat.video.statusListener.remove');
-  }, [player]);
+  }, [onRefreshMediaUri, player]);
 
   useEffect(() => {
     if (!immersiveActive) return;
@@ -633,7 +678,13 @@ function ChatVideoCardBody({
             Couldn&apos;t load video
           </Text>
           <Pressable
-            onPress={onRemountPlayer}
+            onPress={() => {
+              void onRefreshMediaUri()
+                .then((didRefresh) => {
+                  if (!didRefresh) onRemountPlayer();
+                })
+                .catch(onRemountPlayer);
+            }}
             style={({ pressed }) => [
               { marginTop: 12, paddingHorizontal: 14, paddingVertical: 8, borderRadius: 999 },
               {
@@ -1020,6 +1071,36 @@ export default function ChatThreadScreen() {
     });
   }, [threadMessages]);
 
+  const [photoUriOverridesById, setPhotoUriOverridesById] = useState<Record<string, string>>({});
+  const photoUriForMessage = useCallback(
+    (message: ThreadMessage): string | null => {
+      if (isLocalMediaMessage(message) && message.localMedia.payload.kind === 'image') {
+        return message.localMedia.payload.uri;
+      }
+      return photoUriOverridesById[message.id] ?? parseChatImageMessageContent(message.text);
+    },
+    [photoUriOverridesById],
+  );
+  const refreshPhotoUriForMessage = useCallback(async (message: ThreadMessage): Promise<string | null> => {
+    if (isLocalMediaMessage(message) || isLocalTextMessage(message) || !message.image_source_ref) return null;
+    const freshUri = await refreshCachedChatMediaUrl(message.id, 'image', message.image_source_ref);
+    if (!freshUri) return null;
+    setPhotoUriOverridesById((prev) => (prev[message.id] === freshUri ? prev : { ...prev, [message.id]: freshUri }));
+    return freshUri;
+  }, []);
+  const [videoUriOverridesById, setVideoUriOverridesById] = useState<Record<string, string>>({});
+  const [thumbnailUriOverridesById, setThumbnailUriOverridesById] = useState<Record<string, string>>({});
+  const rememberResolvedVideoUri = useCallback((messageId: string, uri: string) => {
+    setVideoUriOverridesById((prev) => (prev[messageId] === uri ? prev : { ...prev, [messageId]: uri }));
+  }, []);
+  const rememberResolvedThumbnailUri = useCallback((messageId: string, uri: string) => {
+    setThumbnailUriOverridesById((prev) => (prev[messageId] === uri ? prev : { ...prev, [messageId]: uri }));
+  }, []);
+  const videoUriForMessage = useCallback(
+    (message: ThreadMessage): string | null => videoUriOverridesById[message.id] ?? message.video_url ?? null,
+    [videoUriOverridesById],
+  );
+
   const threadInvalidateScope = useMemo((): ThreadInvalidateScope | undefined => {
     if (!otherUserId || !user?.id) return undefined;
     return {
@@ -1054,17 +1135,13 @@ export default function ChatThreadScreen() {
   const chatPhotoGalleryItems = useMemo((): ChatThreadPhotoItem[] => {
     const out: ChatThreadPhotoItem[] = [];
     for (const m of displayMessages) {
-      if (isLocalMediaMessage(m) && m.localMedia.payload.kind === 'image') {
-        out.push({ id: m.id, uri: m.localMedia.payload.uri });
-        continue;
-      }
       const kind = threadMessageMediaKind(m);
       if (kind !== 'image') continue;
-      const u = parseChatImageMessageContent(m.text);
+      const u = photoUriForMessage(m);
       if (u) out.push({ id: m.id, uri: u });
     }
     return out;
-  }, [displayMessages]);
+  }, [displayMessages, photoUriForMessage]);
 
   const scrollAnchorKey = useMemo(() => {
     const last = displayMessages[displayMessages.length - 1];
@@ -2347,12 +2424,21 @@ export default function ChatThreadScreen() {
         message_kind: item.messageKind,
       });
       if (clipMeta) {
-        const shouldMountPlayer = (opts?.shouldMountPlayer ?? false) || videoViewer?.uri === clipMeta.videoUrl;
+        const displayClipMeta = {
+          ...clipMeta,
+          videoUrl: videoUriOverridesById[item.id] ?? clipMeta.videoUrl,
+          thumbnailUrl: thumbnailUriOverridesById[item.id] ?? clipMeta.thumbnailUrl,
+        };
+        const shouldMountPlayer = (opts?.shouldMountPlayer ?? false) || videoViewer?.uri === displayClipMeta.videoUrl;
         return (
           <View style={[styles.mediaContentWrap, { width: mediaCardWidth }]}>
             <VibeClipCard
-              meta={clipMeta}
+              meta={displayClipMeta}
               isMine={isMe}
+              videoSourceRef={item.video_source_ref}
+              thumbnailSourceRef={item.thumbnail_source_ref}
+              onResolvedVideoUrl={(uri) => rememberResolvedVideoUri(item.id, uri)}
+              onResolvedThumbnailUrl={(uri) => rememberResolvedThumbnailUri(item.id, uri)}
               reactionPair={pair}
               threadMessageCount={displayMessages.length}
               sparkMessageId={item.id}
@@ -2370,9 +2456,9 @@ export default function ChatThreadScreen() {
                     }
               }
               onRequestImmersive={() =>
-                setVideoViewer({ uri: clipMeta.videoUrl, poster: clipMeta.thumbnailUrl ?? null })
+                setVideoViewer({ uri: displayClipMeta.videoUrl, poster: displayClipMeta.thumbnailUrl ?? null })
               }
-              immersiveActive={videoViewer?.uri === clipMeta.videoUrl}
+              immersiveActive={videoViewer?.uri === displayClipMeta.videoUrl}
               shouldMountPlayer={shouldMountPlayer}
               threadVisualRecede={threadVisualRecede}
             />
@@ -2385,11 +2471,15 @@ export default function ChatThreadScreen() {
       }
     }
     if ((mediaKind === 'video' || (mediaKind === 'vibe_clip' && item.video_url)) && item.video_url) {
-      const videoUri = item.video_url;
+      const videoUri = videoUriForMessage(item) ?? item.video_url;
       return (
         <View style={[styles.mediaContentWrap, { width: mediaCardWidth }]}>
           <ChatVideoCard
             uri={videoUri}
+            sourceRef={item.video_source_ref}
+            messageId={item.id}
+            mediaKind={mediaKind === 'vibe_clip' ? 'vibe_clip' : 'video'}
+            onResolvedUri={(uri) => rememberResolvedVideoUri(item.id, uri)}
             durationSec={item.video_duration_seconds ?? null}
             theme={theme}
             isMine={isMe}
@@ -2404,12 +2494,7 @@ export default function ChatThreadScreen() {
         </View>
       );
     }
-    const imageUrl =
-      localMedia?.payload.kind === 'image'
-        ? localMedia.payload.uri
-        : mediaKind === 'image'
-          ? parseChatImageMessageContent(item.text)
-          : null;
+    const imageUrl = mediaKind === 'image' ? photoUriForMessage(item) : null;
     if (imageUrl) {
       return (
         <View style={[styles.mediaContentWrap, { width: mediaCardWidth }]}>
@@ -2418,6 +2503,9 @@ export default function ChatThreadScreen() {
             isMine={isMe}
             theme={theme}
             onPress={() => setPhotoViewer({ initialId: item.id })}
+            onLoadError={() => {
+              void refreshPhotoUriForMessage(item);
+            }}
           />
           <View style={styles.mediaMetaBlock}>
             {reaction ? <Text style={styles.reactionBadge}>{reaction}</Text> : null}
