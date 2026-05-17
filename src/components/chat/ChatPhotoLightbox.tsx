@@ -17,10 +17,9 @@ const MIN_SCALE = 1;
 const MAX_SCALE = 4;
 
 export function ChatPhotoLightbox({ items, initialId, onClose, onRefreshItem }: ChatPhotoLightboxProps) {
-  const [index, setIndex] = useState(() => {
-    const initialIndex = items.findIndex((it) => it.id === initialId);
-    return initialIndex >= 0 ? initialIndex : 0;
-  });
+  const [selectedId, setSelectedId] = useState(
+    () => items.find((it) => it.id === initialId)?.id ?? items[0]?.id ?? initialId,
+  );
   const [scale, setScale] = useState(1);
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const pinchRef = useRef<{ dist: number } | null>(null);
@@ -31,24 +30,41 @@ export function ChatPhotoLightbox({ items, initialId, onClose, onRefreshItem }: 
   useEffect(() => {
     const initialChanged = lastInitialIdRef.current !== initialId;
     lastInitialIdRef.current = initialId;
-    setIndex((prevIndex) => {
-      if (!items.length) return 0;
+    setSelectedId((prevId) => {
+      const nextInitialId = items.find((it) => it.id === initialId)?.id ?? items[0]?.id ?? initialId;
+      if (!items.length) return initialId;
       if (initialChanged) {
-        const initialIndex = items.findIndex((it) => it.id === initialId);
-        return initialIndex >= 0 ? initialIndex : 0;
+        return nextInitialId;
       }
-      const currentId = items[prevIndex]?.id;
-      const preservedIndex = currentId ? items.findIndex((it) => it.id === currentId) : -1;
-      if (preservedIndex >= 0) return preservedIndex;
-      const initialIndex = items.findIndex((it) => it.id === initialId);
-      if (initialIndex >= 0) return initialIndex;
-      return Math.min(prevIndex, items.length - 1);
+      return items.some((it) => it.id === prevId) ? prevId : nextInitialId;
     });
     if (initialChanged) {
       setScale(1);
       setPan({ x: 0, y: 0 });
     }
   }, [initialId, items]);
+
+  const goPrev = useCallback(() => {
+    setSelectedId((prevId) => {
+      if (!items.length) return prevId;
+      const currentIndex = items.findIndex((it) => it.id === prevId);
+      const fromIndex = currentIndex >= 0 ? currentIndex : 0;
+      return items[fromIndex > 0 ? fromIndex - 1 : items.length - 1]?.id ?? prevId;
+    });
+    setScale(1);
+    setPan({ x: 0, y: 0 });
+  }, [items]);
+
+  const goNext = useCallback(() => {
+    setSelectedId((prevId) => {
+      if (!items.length) return prevId;
+      const currentIndex = items.findIndex((it) => it.id === prevId);
+      const fromIndex = currentIndex >= 0 ? currentIndex : 0;
+      return items[fromIndex < items.length - 1 ? fromIndex + 1 : 0]?.id ?? prevId;
+    });
+    setScale(1);
+    setPan({ x: 0, y: 0 });
+  }, [items]);
 
   useEffect(() => {
     const prev = document.body.style.overflow;
@@ -62,20 +78,18 @@ export function ChatPhotoLightbox({ items, initialId, onClose, onRefreshItem }: 
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") onClose();
       if (e.key === "ArrowLeft" && items.length > 1) {
-        setIndex((p) => (p > 0 ? p - 1 : items.length - 1));
-        setScale(1);
-        setPan({ x: 0, y: 0 });
+        goPrev();
       }
       if (e.key === "ArrowRight" && items.length > 1) {
-        setIndex((p) => (p < items.length - 1 ? p + 1 : 0));
-        setScale(1);
-        setPan({ x: 0, y: 0 });
+        goNext();
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [items.length, onClose]);
+  }, [goNext, goPrev, items.length, onClose]);
 
+  const selectedIndex = items.findIndex((it) => it.id === selectedId);
+  const index = selectedIndex >= 0 ? selectedIndex : 0;
   const current = items[index];
   const canPan = scale > 1.02;
   const currentUrl = current ? urlOverridesById[current.id] ?? current.url : null;
@@ -91,11 +105,6 @@ export function ChatPhotoLightbox({ items, initialId, onClose, onRefreshItem }: 
     refreshAttemptedForUrlRef.current = currentUrl;
     setUrlOverridesById((prev) => (prev[current.id] === freshUrl ? prev : { ...prev, [current.id]: freshUrl }));
   }, [current, currentUrl, onRefreshItem]);
-
-  const resetTransform = useCallback(() => {
-    setScale(1);
-    setPan({ x: 0, y: 0 });
-  }, []);
 
   const onWheel = useCallback((e: React.WheelEvent) => {
     e.preventDefault();
@@ -166,10 +175,7 @@ export function ChatPhotoLightbox({ items, initialId, onClose, onRefreshItem }: 
             variant="ghost"
             size="icon"
             className="absolute left-2 top-1/2 z-20 -translate-y-1/2 h-11 w-11 rounded-full text-white hover:bg-white/10"
-            onClick={() => {
-              setIndex((p) => (p > 0 ? p - 1 : items.length - 1));
-              resetTransform();
-            }}
+            onClick={goPrev}
             aria-label="Previous photo"
           >
             <ChevronLeft className="h-8 w-8" />
@@ -179,10 +185,7 @@ export function ChatPhotoLightbox({ items, initialId, onClose, onRefreshItem }: 
             variant="ghost"
             size="icon"
             className="absolute right-2 top-1/2 z-20 -translate-y-1/2 h-11 w-11 rounded-full text-white hover:bg-white/10"
-            onClick={() => {
-              setIndex((p) => (p < items.length - 1 ? p + 1 : 0));
-              resetTransform();
-            }}
+            onClick={goNext}
             aria-label="Next photo"
           >
             <ChevronRight className="h-8 w-8" />

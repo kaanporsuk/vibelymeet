@@ -126,8 +126,9 @@ function PhotoViewerBody({
   onRefreshItem?: (item: ChatThreadPhotoItem) => Promise<string | null>;
 }) {
   const insets = useSafeAreaInsets();
-  const start = Math.max(0, items.findIndex((i) => i.id === initialId));
-  const [index, setIndex] = useState(start);
+  const [selectedId, setSelectedId] = useState(
+    () => items.find((i) => i.id === initialId)?.id ?? items[0]?.id ?? initialId,
+  );
   const [uriOverridesById, setUriOverridesById] = useState<Record<string, string>>({});
   const refreshAttemptedForUriRef = useRef<string | null>(null);
   const lastInitialIdRef = useRef(initialId);
@@ -135,20 +136,17 @@ function PhotoViewerBody({
   useEffect(() => {
     const initialChanged = lastInitialIdRef.current !== initialId;
     lastInitialIdRef.current = initialId;
-    setIndex((prevIndex) => {
-      if (!items.length) return 0;
+    setSelectedId((prevId) => {
+      const nextInitialId = items.find((i) => i.id === initialId)?.id ?? items[0]?.id ?? initialId;
+      if (!items.length) return initialId;
       if (initialChanged) {
-        return Math.max(0, items.findIndex((i) => i.id === initialId));
+        return nextInitialId;
       }
-      const currentId = items[prevIndex]?.id;
-      const preservedIndex = currentId ? items.findIndex((i) => i.id === currentId) : -1;
-      if (preservedIndex >= 0) return preservedIndex;
-      const initialIndex = items.findIndex((i) => i.id === initialId);
-      if (initialIndex >= 0) return initialIndex;
-      return Math.min(prevIndex, items.length - 1);
+      return items.some((i) => i.id === prevId) ? prevId : nextInitialId;
     });
   }, [initialId, items]);
 
+  const index = Math.max(0, items.findIndex((i) => i.id === selectedId));
   const current = items[index];
   const currentUri = current ? uriOverridesById[current.id] ?? current.uri : null;
 
@@ -164,11 +162,21 @@ function PhotoViewerBody({
     setUriOverridesById((prev) => (prev[current.id] === freshUri ? prev : { ...prev, [current.id]: freshUri }));
   }, [current, currentUri, onRefreshItem]);
   const goPrev = useCallback(() => {
-    setIndex((i) => (i > 0 ? i - 1 : items.length - 1));
-  }, [items.length]);
+    setSelectedId((prevId) => {
+      if (!items.length) return prevId;
+      const currentIndex = items.findIndex((i) => i.id === prevId);
+      const fromIndex = currentIndex >= 0 ? currentIndex : 0;
+      return items[fromIndex > 0 ? fromIndex - 1 : items.length - 1]?.id ?? prevId;
+    });
+  }, [items]);
   const goNext = useCallback(() => {
-    setIndex((i) => (i < items.length - 1 ? i + 1 : 0));
-  }, [items.length]);
+    setSelectedId((prevId) => {
+      if (!items.length) return prevId;
+      const currentIndex = items.findIndex((i) => i.id === prevId);
+      const fromIndex = currentIndex >= 0 ? currentIndex : 0;
+      return items[fromIndex < items.length - 1 ? fromIndex + 1 : 0]?.id ?? prevId;
+    });
+  }, [items]);
 
   if (!current || !currentUri) return null;
 
