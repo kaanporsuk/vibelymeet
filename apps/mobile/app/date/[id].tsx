@@ -85,6 +85,7 @@ import {
   createVideoDateCameraSwitchRenderHint,
   parseVideoDateCameraSwitchRenderHint,
 } from '@clientShared/matching/videoDateCameraSwitchRenderHint';
+import { resolveNativeCameraSwitchCommit } from '@clientShared/chat/nativeCameraSwitchCommit';
 import { VibeCheckButton } from '@/components/video-date/VibeCheckButton';
 import { IceBreakerCard } from '@/components/video-date/IceBreakerCard';
 import { HandshakeTimer } from '@/components/video-date/HandshakeTimer';
@@ -286,6 +287,12 @@ type NativeLocalCameraSnapshot = {
 type NativeCameraSwitchCommit = NativeLocalCameraSnapshot & {
   method: NativeCameraSwitchCommitMethod;
   latencyMs: number;
+};
+type NativeCameraSwitchCommitExpectation = {
+  baselineFacing: NativeDailyCameraFacingMode | null;
+  previousControlsFacing: NativeDailyCameraFacingMode | null;
+  expectedDeviceKey?: string | null;
+  expectedFacing?: NativeDailyCameraFacingMode | null;
 };
 
 function summarizeSharedDailyError(error: unknown): string {
@@ -6581,9 +6588,11 @@ export default function VideoDateScreen() {
       call: DailyCallObject,
       before: NativeLocalCameraSnapshot,
       method: NativeCameraSwitchCommitMethod,
-      expectedFacing: NativeDailyCameraFacingMode | null
+      expectation: NativeCameraSwitchCommitExpectation
     ): Promise<NativeCameraSwitchCommit | null> => {
       const startedAtMs = Date.now();
+      const baselineDeviceKey = before.deviceId == null ? null : String(before.deviceId);
+      const beforeDeviceKey = before.deviceId == null ? null : String(before.deviceId);
       while (Date.now() - startedAtMs <= NATIVE_CAMERA_SWITCH_COMMIT_TIMEOUT_MS) {
         let controlsFacing: NativeDailyCameraFacingMode | null = null;
         try {
@@ -6596,21 +6605,27 @@ export default function VideoDateScreen() {
         }
 
         const snapshot = readNativeLocalCameraSnapshot(call);
-        const committedFacing = controlsFacing ?? snapshot.facingMode;
-        const trackChanged = Boolean(before.trackId && snapshot.trackId && snapshot.trackId !== before.trackId);
-        const deviceChanged = Boolean(before.deviceId && snapshot.deviceId && snapshot.deviceId !== before.deviceId);
-        const facingChanged = Boolean(before.facingMode && committedFacing && committedFacing !== before.facingMode);
-        const expectedFacingMatched = Boolean(
-          expectedFacing &&
-            expectedFacing !== before.facingMode &&
-            committedFacing === expectedFacing
-        );
-        const live = snapshot.readyState === 'live' && snapshot.enabled !== false;
+        const commitResolution = resolveNativeCameraSwitchCommit({
+          baselineDeviceKey,
+          baselineFacingMode: expectation.baselineFacing,
+          beforeDeviceKey,
+          beforeFacingMode: before.facingMode,
+          beforeTrackId: before.trackId,
+          previousControlsFacing: expectation.previousControlsFacing,
+          expectedDeviceKey: expectation.expectedDeviceKey ?? null,
+          expectedFacing: expectation.expectedFacing ?? null,
+          snapshotDeviceKey: snapshot.deviceId == null ? null : String(snapshot.deviceId),
+          snapshotFacingMode: snapshot.facingMode,
+          snapshotTrackId: snapshot.trackId,
+          controlsFacing,
+          readyState: snapshot.readyState,
+          enabled: snapshot.enabled,
+        });
 
-        if (live && (trackChanged || deviceChanged || facingChanged || expectedFacingMatched || !before.trackId)) {
+        if (commitResolution.shouldCommit || (commitResolution.live && !before.trackId)) {
           return {
             ...snapshot,
-            facingMode: committedFacing,
+            facingMode: commitResolution.committedFacing,
             method,
             latencyMs: Date.now() - startedAtMs,
           };
@@ -6685,14 +6700,19 @@ export default function VideoDateScreen() {
     setIsFlippingCamera(true);
     try {
       const before = readNativeLocalCameraSnapshot(call);
-      let currentFacing: NativeDailyCameraFacingMode | null = before.facingMode;
+      let beforeControlsFacing: NativeDailyCameraFacingMode | null = null;
       if (typeof controls.getCameraFacingMode === 'function') {
         try {
-          currentFacing = normalizeNativeCameraFacingMode(await controls.getCameraFacingMode()) ?? currentFacing;
+          beforeControlsFacing = normalizeNativeCameraFacingMode(await controls.getCameraFacingMode());
         } catch {
-          currentFacing = before.facingMode;
+          beforeControlsFacing = null;
         }
       }
+      const currentFacing = beforeControlsFacing ?? before.facingMode;
+      const commitExpectationBase = {
+        baselineFacing: currentFacing,
+        previousControlsFacing: beforeControlsFacing,
+      } satisfies Pick<NativeCameraSwitchCommitExpectation, 'baselineFacing' | 'previousControlsFacing'>;
       const desiredFacing = oppositeNativeCameraFacingMode(currentFacing);
       let commit: NativeCameraSwitchCommit | null = null;
 
@@ -6703,17 +6723,23 @@ export default function VideoDateScreen() {
           const targetDeviceId = nativeCameraDeviceId(targetDevice);
           if (targetDeviceId != null) {
             const setResult = await controls.setCamera(targetDeviceId);
+            const expectedDeviceKey = nativeCameraDeviceKey(targetDevice);
             const expectedFacing =
               desiredFacing ??
               nativeCameraDeviceFacingMode(targetDevice) ??
               normalizeNativeCameraFacingMode(setResult?.device?.facingMode);
-            commit = await waitForNativeCameraSwitchCommit(controls, call, before, 'set_camera', expectedFacing);
+            commit = await waitForNativeCameraSwitchCommit(controls, call, before, 'set_camera', {
+              ...commitExpectationBase,
+              expectedDeviceKey,
+              expectedFacing,
+            });
           }
         } catch (setCameraError) {
           videoDateDailyDiagnostic('native_camera_set_camera_failed', {
             sessionId: sessionId ?? null,
             eventId: eventId || null,
             desired_facing_mode: desiredFacing,
+            before_controls_facing_mode: beforeControlsFacing,
             error: describeNativeCameraSwitchError(setCameraError),
           });
         }
@@ -6726,7 +6752,10 @@ export default function VideoDateScreen() {
           call,
           before,
           'cycle_camera',
-          normalizeNativeCameraFacingMode(result?.device?.facingMode) ?? desiredFacing
+          {
+            ...commitExpectationBase,
+            expectedFacing: normalizeNativeCameraFacingMode(result?.device?.facingMode) ?? desiredFacing,
+          }
         );
       }
 

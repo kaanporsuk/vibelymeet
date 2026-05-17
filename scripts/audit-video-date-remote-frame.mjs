@@ -52,6 +52,8 @@ const mediaContractPath = "shared/matching/videoDateMediaContract.ts";
 const mediaContract = read(mediaContractPath);
 const cameraSwitchHintPath = "shared/matching/videoDateCameraSwitchRenderHint.ts";
 const cameraSwitchHint = read(cameraSwitchHintPath);
+const nativeCameraSwitchCommitPath = "shared/chat/nativeCameraSwitchCommit.ts";
+const nativeCameraSwitchCommit = read(nativeCameraSwitchCommitPath);
 const webRemoteContainerClass = extractStringConst(webDate, "REMOTE_DATE_VIDEO_CONTAINER_CLASS", webDatePath);
 const webRemoteVideoClass = extractStringConst(webDate, "REMOTE_DATE_VIDEO_CLASS", webDatePath);
 const webRemoteRender = sliceBetween(
@@ -134,6 +136,14 @@ assert(
     !/^[^/]*\bpublishRefreshApplied\??:\s*boolean/m.test(cameraSwitchHint) &&
     !/^[^/]*\bhintSequence\??:\s*number/m.test(cameraSwitchHint),
   `${cameraSwitchHintPath}: deprecated publishSequence/publishRefreshApplied/hintSequence fields must not reappear on the hint type`
+);
+assert(
+  nativeCameraSwitchCommit.includes("resolveNativeCameraSwitchCommit") &&
+    nativeCameraSwitchCommit.includes("previousControlsFacing") &&
+    nativeCameraSwitchCommit.includes("controlsFacingChangedFromPrevious") &&
+    nativeCameraSwitchCommit.includes("expectedFacing !== baselineFacingMode") &&
+    nativeCameraSwitchCommit.includes("readyState === \"live\" && enabled !== false"),
+  `${nativeCameraSwitchCommitPath}: native camera switch commit resolver must preserve controls-facing and live-track guards`
 );
 assert(
   webDailyConfig.includes("dailyVideoDateCallObjectOptions") &&
@@ -354,7 +364,11 @@ assert(
     nativeDate.includes("enumerateDevices") &&
     nativeDate.includes("video_date_camera_switch_committed") &&
     nativeDate.includes("commitConfirmed: true") &&
-    nativeDate.includes("expectedFacing !== before.facingMode") &&
+    nativeDate.includes("resolveNativeCameraSwitchCommit") &&
+    nativeDate.includes("baselineFacing: currentFacing") &&
+    nativeDate.includes("previousControlsFacing: beforeControlsFacing") &&
+    nativeDate.includes("expectedDeviceKey") &&
+    nativeDate.includes("before_controls_facing_mode") &&
     nativeDate.includes("nativeCameraDeviceFacingMode(targetDevice)") &&
     nativeDate.includes("nativeCameraDeviceKey") &&
     nativeDate.includes("nativeCameraFacingModeFromLabel(videoTrack?.label)") &&

@@ -28,6 +28,7 @@ import {
   messageForMatchCallEdgeCode,
 } from '@clientShared/chat/matchCallEdgeCodes';
 import { logMatchCallDiag } from '@clientShared/chat/matchCallDiag';
+import { resolveNativeMatchCallCameraSwitchCommit } from '@clientShared/chat/nativeCameraSwitchCommit';
 import {
   createMatchCall,
   answerMatchCall,
@@ -211,6 +212,7 @@ type NativeCameraSwitchCommit = NativeLocalCameraSnapshot & {
 type NativeCameraSwitchCommitExpectation = {
   expectedDeviceKey?: string | null;
   expectedFacing?: NativeDailyCameraFacingMode | null;
+  previousControlsFacing?: NativeDailyCameraFacingMode | null;
 };
 
 const MatchCallContext = createContext<MatchCallContextValue | null>(null);
@@ -1206,14 +1208,28 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
     ): Promise<NativeCameraState> => {
       const trackState = nativeCameraStateFromSnapshot(snapshot, 'track');
       const controlsFacing = await readNativeCameraFacingMode(controls);
+      const controlsFacingConflictsWithTrack = Boolean(
+        controlsFacing &&
+          trackState.facingMode &&
+          controlsFacing !== trackState.facingMode
+      );
       const observedState: NativeCameraState = controlsFacing
         ? {
             ...trackState,
-            facingMode: trackState.facingMode ?? controlsFacing,
-            source: trackState.facingMode ? 'track' : 'controls',
+            facingMode: controlsFacingConflictsWithTrack ? controlsFacing : trackState.facingMode ?? controlsFacing,
+            source: controlsFacingConflictsWithTrack || !trackState.facingMode ? 'controls' : 'track',
           }
         : trackState;
       const committedState = nativeCameraStateRef.current;
+      const committedFacingConflictsWithObserved = Boolean(
+        committedState.facingMode &&
+          observedState.facingMode &&
+          committedState.facingMode !== observedState.facingMode
+      );
+
+      if (committedFacingConflictsWithObserved) {
+        return mergeNativeCameraState(observedState, committedState, observedState.source);
+      }
 
       if (committedState.source === 'commit' && (committedState.deviceKey || committedState.facingMode)) {
         return mergeNativeCameraState(committedState, observedState, committedState.source);
@@ -1238,98 +1254,34 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
       const beforeDeviceKey = before.deviceId == null ? null : String(before.deviceId);
       const expectedDeviceKey = expectation.expectedDeviceKey ?? null;
       const expectedFacing = expectation.expectedFacing ?? null;
+      const previousControlsFacing = expectation.previousControlsFacing ?? null;
 
       while (Date.now() - startedAtMs <= NATIVE_MATCH_CALL_CAMERA_SWITCH_COMMIT_TIMEOUT_MS) {
         const controlsFacing = await readNativeCameraFacingMode(controls);
         const snapshot = readNativeLocalCameraSnapshot(callObject);
         const snapshotFacing = snapshot.facingMode;
-        const committedFacing =
-          (expectedFacing && controlsFacing === expectedFacing ? expectedFacing : null) ??
-          (expectedFacing && snapshotFacing === expectedFacing ? expectedFacing : null) ??
-          controlsFacing ??
-          snapshotFacing;
         const snapshotDeviceKey = snapshot.deviceId == null ? null : String(snapshot.deviceId);
-        const trackChanged = Boolean(before.trackId && snapshot.trackId && snapshot.trackId !== before.trackId);
-        const deviceChanged = Boolean(
-          baselineDeviceKey &&
-            snapshotDeviceKey &&
-            snapshotDeviceKey !== baselineDeviceKey &&
-            (!beforeDeviceKey || snapshotDeviceKey !== beforeDeviceKey)
-        );
-        const controlsFacingChangedFromBefore = Boolean(
-          before.facingMode &&
-            controlsFacing &&
-            controlsFacing !== before.facingMode
-        );
-        const snapshotFacingChangedFromBefore = Boolean(
-          before.facingMode &&
-            snapshotFacing &&
-            snapshotFacing !== before.facingMode
-        );
-        const cameraIdentityChanged = trackChanged || deviceChanged;
-        const controlsFacingChanged = Boolean(
-          baseline.facingMode &&
-            controlsFacing &&
-            controlsFacing !== baseline.facingMode &&
-            (controlsFacingChangedFromBefore || cameraIdentityChanged)
-        );
-        const snapshotFacingChanged = Boolean(
-          baseline.facingMode &&
-            snapshotFacing &&
-            snapshotFacing !== baseline.facingMode &&
-            (snapshotFacingChangedFromBefore || cameraIdentityChanged)
-        );
-        const facingChanged = controlsFacingChanged || snapshotFacingChanged;
-        const expectedDeviceSignalPresent = Boolean(
-          expectedDeviceKey &&
-            expectedDeviceKey !== baselineDeviceKey &&
-            snapshotDeviceKey === expectedDeviceKey
-        );
-        const expectedDeviceMatched = Boolean(
-          expectedDeviceSignalPresent &&
-            (!beforeDeviceKey || expectedDeviceKey !== beforeDeviceKey)
-        );
-        const controlsExpectedFacingMatched = Boolean(
-          expectedFacing &&
-            expectedFacing !== baseline.facingMode &&
-            controlsFacing === expectedFacing &&
-            (controlsFacingChangedFromBefore || cameraIdentityChanged)
-        );
-        const snapshotExpectedFacingMatched = Boolean(
-          expectedFacing &&
-            expectedFacing !== baseline.facingMode &&
-            snapshotFacing === expectedFacing &&
-            (snapshotFacingChangedFromBefore || cameraIdentityChanged)
-        );
-        const expectedFacingSignalPresent = controlsExpectedFacingMatched || snapshotExpectedFacingMatched;
-        const expectedFacingMatched = expectedFacingSignalPresent;
-        const trackChangedToExpectedTarget = Boolean(
-          trackChanged &&
-            (expectedDeviceSignalPresent || expectedFacingSignalPresent)
-        );
-        const trackChangedWithoutIdentity = Boolean(
-          trackChanged &&
-            !baselineDeviceKey &&
-            !baseline.facingMode &&
-            !expectedDeviceKey &&
-            !expectedFacing
-        );
-        const live = snapshot.readyState === 'live' && snapshot.enabled !== false;
+        const commitResolution = resolveNativeMatchCallCameraSwitchCommit({
+          baselineDeviceKey,
+          baselineFacingMode: baseline.facingMode,
+          beforeDeviceKey,
+          beforeFacingMode: before.facingMode,
+          beforeTrackId: before.trackId,
+          previousControlsFacing,
+          expectedDeviceKey,
+          expectedFacing,
+          snapshotDeviceKey,
+          snapshotFacingMode: snapshotFacing,
+          snapshotTrackId: snapshot.trackId,
+          controlsFacing,
+          readyState: snapshot.readyState,
+          enabled: snapshot.enabled,
+        });
 
-        if (
-          live &&
-          (
-            expectedDeviceMatched ||
-            expectedFacingMatched ||
-            deviceChanged ||
-            facingChanged ||
-            trackChangedToExpectedTarget ||
-            trackChangedWithoutIdentity
-          )
-        ) {
+        if (commitResolution.shouldCommit) {
           return {
             ...snapshot,
-            facingMode: committedFacing,
+            facingMode: commitResolution.committedFacing,
             method,
             latencyMs: Date.now() - startedAtMs,
           };
@@ -1440,7 +1392,10 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
         Alert.alert("Couldn't switch camera", 'Turn your camera on before switching cameras.');
         return;
       }
+      const beforeControlsFacing = await readNativeCameraFacingMode(controls);
       const currentCamera = await resolveNativeCameraState(controls, callObject, before);
+      const previousControlsFacing =
+        currentCamera.source === 'controls' ? currentCamera.facingMode : beforeControlsFacing;
       const desiredFacing = oppositeNativeCameraFacingMode(currentCamera.facingMode);
       let commit: NativeCameraSwitchCommit | null = null;
       let committedDevice: NativeDailyCameraDevice | null = null;
@@ -1454,6 +1409,7 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
         desired_facing_mode: desiredFacing,
         before_device_id: before.deviceId,
         before_facing_mode: before.facingMode,
+        before_controls_facing_mode: beforeControlsFacing,
       });
 
       if (typeof controls.enumerateDevices === 'function' && typeof controls.setCamera === 'function') {
@@ -1499,6 +1455,7 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
               {
                 expectedDeviceKey,
                 expectedFacing,
+                previousControlsFacing,
               },
             );
             if (commit) committedDevice = resultDevice ?? targetDevice;
@@ -1513,6 +1470,7 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
               video_input_count: devices.length,
               before_device_id: before.deviceId,
               before_facing_mode: before.facingMode,
+              before_controls_facing_mode: beforeControlsFacing,
             });
           }
         } catch (err) {
@@ -1538,6 +1496,7 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
             {
               expectedDeviceKey,
               expectedFacing: nativeCameraDeviceFacingMode(resultDevice) ?? desiredFacing,
+              previousControlsFacing,
             },
           );
           if (commit) committedDevice = resultDevice;
@@ -1609,6 +1568,7 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
     callPhase,
     callType,
     isVideoOff,
+    readNativeCameraFacingMode,
     readNativeLocalCameraSnapshot,
     resolveNativeCameraState,
     waitForNativeCameraSwitchCommit,
