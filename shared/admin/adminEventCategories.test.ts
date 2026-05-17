@@ -7,6 +7,7 @@ const root = process.cwd();
 const read = (path: string) => readFileSync(join(root, path), "utf8");
 
 const migration = read("supabase/migrations/20260509120000_admin_managed_event_categories.sql");
+const categoryActiveMigration = read("supabase/migrations/20260516221311_admin_category_create_active_state.sql");
 const adminForm = read("src/components/admin/AdminEventFormModal.tsx");
 const adminPanel = read("src/components/admin/AdminEventsPanel.tsx");
 const adminCreateEvent = read("src/pages/AdminCreateEvent.tsx");
@@ -28,6 +29,13 @@ test("migration creates admin-managed event categories and category key storage"
   assert.match(migration, /categories\s+jsonb/);
   assert.match(migration, /CREATE EXTENSION IF NOT EXISTS unaccent/);
   assert.match(migration, /unaccent\(lower/);
+});
+
+test("category create RPC stores the intended active state transactionally", () => {
+  assert.match(categoryActiveMigration, /CREATE OR REPLACE FUNCTION public\.admin_create_event_category\([\s\S]*p_active boolean DEFAULT true/);
+  assert.match(categoryActiveMigration, /INSERT INTO public\.event_categories \(key, label, emoji, active, sort_order, created_by, updated_by\)/);
+  assert.match(categoryActiveMigration, /COALESCE\(p_active, true\)/);
+  assert.doesNotMatch(categoryActiveMigration, /admin_update_event_category/);
 });
 
 test("admin event form creates and saves category keys separately from vibes and tags", () => {

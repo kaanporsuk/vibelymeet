@@ -136,8 +136,10 @@ test("web take-photo path opens in-app camera capture instead of upload picker",
   assert.match(webPhotoCamera, /const captureLockRef = useRef\(false\)/);
   assert.match(webPhotoCamera, /const submitLockRef = useRef\(false\)/);
   assert.match(webPhotoCamera, /submitLockRef\.current/);
-  assert.match(webPhotoCamera, /await onCapturePhoto\(capturedFile\)/);
-  assert.match(webPhotoCamera, /setErrorMessage\("Could not send the photo\. Please try again\."\)/);
+  assert.match(
+    webPhotoCamera,
+    /const sent = await onCapturePhoto\(capturedFile\);[\s\S]{0,240}if \(sent\) \{[\s\S]{0,160}onOpenChange\(false\);[\s\S]{0,160}return;[\s\S]{0,240}setErrorMessage\("Could not send the photo\. Please try again\."\)/,
+  );
 });
 
 test("native chat photo flow uses a dedicated sheet and in-app switchable camera", () => {

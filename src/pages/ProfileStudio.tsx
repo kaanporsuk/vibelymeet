@@ -735,6 +735,17 @@ const ProfileStudio = () => {
     promptDrawerKeyboardStyleClearTimeoutRef.current = null;
   }, []);
 
+  const capturePromptDrawerStableViewportHeight = useCallback(() => {
+    if (typeof window === "undefined") {
+      promptDrawerStableViewportHeightRef.current = null;
+      return;
+    }
+    promptDrawerStableViewportHeightRef.current = Math.max(
+      window.visualViewport?.height ?? 0,
+      window.innerHeight ?? 0,
+    );
+  }, []);
+
   const clearPromptDrawerKeyboardStyle = useCallback(() => {
     clearPromptDrawerKeyboardStyleTimeout();
     setPromptDrawerKeyboardStyle(undefined);
@@ -800,10 +811,6 @@ const ProfileStudio = () => {
     const body = promptDrawerBodyRef.current;
     const answer = promptAnswerFieldRef.current;
     if (!body || !answer || document.activeElement !== answer) return;
-    promptDrawerStableViewportHeightRef.current = Math.max(
-      window.visualViewport?.height ?? 0,
-      window.innerHeight ?? 0,
-    );
     updatePromptDrawerKeyboardStyle();
 
     const alignAnswer = () => {
@@ -893,6 +900,7 @@ const ProfileStudio = () => {
       const slot0 = next.prompts[0] ?? { question: "", answer: "" };
       const filled0 = !!(slot0.question?.trim() && slot0.answer?.trim());
       setPromptEditorMode(filled0 ? "edit" : "add");
+      capturePromptDrawerStableViewportHeight();
       setActiveDrawer(type);
       return;
     }
@@ -913,6 +921,7 @@ const ProfileStudio = () => {
     const slot = slots[index] ?? { question: "", answer: "" };
     const filled = !!(slot.question?.trim() && slot.answer?.trim());
     setPromptEditorMode(filled ? "edit" : "add");
+    capturePromptDrawerStableViewportHeight();
     setActiveDrawer("prompt");
   };
 
@@ -1849,7 +1858,10 @@ const ProfileStudio = () => {
                       newPrompts[editingPromptIndex] = { ...newPrompts[editingPromptIndex], answer: e.target.value };
                       setEditForm({ ...editForm, prompts: newPrompts });
                     }}
-                    onFocus={nudgePromptAnswerIntoView}
+                    onFocus={() => {
+                      capturePromptDrawerStableViewportHeight();
+                      nudgePromptAnswerIntoView();
+                    }}
                     onBlur={() => {
                       clearPromptAnswerNudges();
                       schedulePromptDrawerKeyboardStyleClear();
