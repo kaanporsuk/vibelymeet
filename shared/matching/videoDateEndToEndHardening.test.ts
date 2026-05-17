@@ -1546,7 +1546,11 @@ test("video date camera switch hints are sent only after committed live capture"
   assert.match(nativeVideoDateRoute, /setCamera/);
   assert.match(nativeVideoDateRoute, /enumerateDevices/);
   assert.match(nativeVideoDateRoute, /video_date_camera_switch_committed/);
-  assert.match(nativeVideoDateRoute, /expectedFacing !== before\.facingMode/);
+  assert.match(nativeVideoDateRoute, /resolveNativeCameraSwitchCommit/);
+  assert.match(nativeVideoDateRoute, /baselineFacing: currentFacing/);
+  assert.match(nativeVideoDateRoute, /previousControlsFacing: beforeControlsFacing/);
+  assert.match(nativeVideoDateRoute, /expectedDeviceKey/);
+  assert.match(nativeVideoDateRoute, /before_controls_facing_mode/);
   assert.match(nativeVideoDateRoute, /nativeCameraDeviceFacingMode\(targetDevice\)/);
   assert.match(nativeVideoDateRoute, /nativeCameraDeviceKey/);
   assert.match(nativeVideoDateRoute, /nativeCameraFacingModeFromLabel\(videoTrack\?\.label\)/);
