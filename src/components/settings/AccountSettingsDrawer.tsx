@@ -38,6 +38,7 @@ import { PREMIUM_ENTRY_SURFACE } from "@shared/premiumFunnel";
 import { useUserProfile } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
+import { fetchMyProfileSettings } from "@/services/myProfileSettings";
 import { cn } from "@/lib/utils";
 import { END_ACCOUNT_BREAK_PROFILE_UPDATE } from "@/lib/endAccountBreak";
 import { useEntitlements } from "@/hooks/useEntitlements";
@@ -138,27 +139,24 @@ export const AccountSettingsDrawer = ({
   useEffect(() => {
     if (!open || !user) return;
     const fetchPhone = async () => {
-      const { data } = await supabase
-        .from("profiles")
-        .select(
-          "phone_verified, phone_number, email_verified, verified_email, account_paused, account_paused_until, is_paused, paused_until"
-        )
-        .eq("id", user.id)
-        .maybeSingle();
+      const data = await fetchMyProfileSettings().catch((error) => {
+        if (import.meta.env.DEV) {
+          console.warn("[settings] failed to load profile settings", error instanceof Error ? error.message : String(error));
+        }
+        return null;
+      });
       if (data) {
         setPhoneVerified(!!data.phone_verified);
-        setPhoneNumber((data.phone_number as string) ?? null);
+        setPhoneNumber(data.phone_number ?? null);
         setProfileEmailVerified(
           isCurrentEmailVerified({
             emailVerified: !!data.email_verified,
-            verifiedEmail: (data.verified_email as string | null | undefined) ?? null,
+            verifiedEmail: data.verified_email ?? null,
             authEmail: resolveCanonicalAuthEmail(user) ?? user.email ?? null,
           }),
         );
         setOnBreak(!!(data.account_paused || data.is_paused));
-        setBreakUntilIso(
-          (data.account_paused_until as string | null) ?? (data.paused_until as string | null) ?? null
-        );
+        setBreakUntilIso(data.account_paused_until ?? data.paused_until ?? null);
       }
     };
     fetchPhone();
@@ -289,23 +287,19 @@ export const AccountSettingsDrawer = ({
 
   const applyTakeBreak = async () => {
     if (!user || !breakChip) return;
-    const { data: safetyCheck } = await supabase
-      .from("profiles")
-      .select("is_suspended")
-      .eq("id", user.id)
-      .maybeSingle();
-
-    if (safetyCheck?.is_suspended) {
-      toast.error("Account restricted", {
-        description: "Your account is currently restricted. Please contact support.",
-      });
-      return;
-    }
-
     const until = breakUntilForChip(breakChip);
     const now = new Date().toISOString();
     setBreakBusy(true);
     try {
+      const safetyCheck = await fetchMyProfileSettings();
+
+      if (safetyCheck?.is_suspended) {
+        toast.error("Account restricted", {
+          description: "Your account is currently restricted. Please contact support.",
+        });
+        return;
+      }
+
       const { error } = await supabase
         .from("profiles")
         .update({
@@ -328,6 +322,8 @@ export const AccountSettingsDrawer = ({
       setBreakUntilIso(until?.toISOString() ?? null);
       setBreakChip(null);
       toast.success("You're on a break. We'll be here when you're ready.");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Unable to pause account right now.");
     } finally {
       setBreakBusy(false);
     }

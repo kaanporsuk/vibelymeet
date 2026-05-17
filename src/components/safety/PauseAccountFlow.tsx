@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { useUserProfile } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
+import { fetchMyProfileSettings } from "@/services/myProfileSettings";
 
 interface PauseAccountFlowProps {
   onBack: () => void;
@@ -51,23 +52,19 @@ const PauseAccountFlow = ({ onBack, onComplete }: PauseAccountFlowProps) => {
   const handlePause = async () => {
     if (!selectedDuration || !user?.id) return;
 
-    const { data: safetyCheck } = await supabase
-      .from("profiles")
-      .select("is_suspended")
-      .eq("id", user.id)
-      .maybeSingle();
-
-    if (safetyCheck?.is_suspended) {
-      toast.error("Account restricted", {
-        description: "Your account is currently restricted. Please contact support.",
-      });
-      return;
-    }
-
     const untilIso = pausedUntilForDuration(selectedDuration);
     const now = new Date().toISOString();
     setBusy(true);
     try {
+      const safetyCheck = await fetchMyProfileSettings();
+
+      if (safetyCheck?.is_suspended) {
+        toast.error("Account restricted", {
+          description: "Your account is currently restricted. Please contact support.",
+        });
+        return;
+      }
+
       const { error } = await supabase
         .from("profiles")
         .update({
@@ -88,6 +85,8 @@ const PauseAccountFlow = ({ onBack, onComplete }: PauseAccountFlowProps) => {
       }
       await refreshProfile();
       setIsSuccess(true);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Unable to pause account right now.");
     } finally {
       setBusy(false);
     }

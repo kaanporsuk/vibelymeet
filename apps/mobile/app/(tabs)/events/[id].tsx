@@ -23,6 +23,7 @@ import { spacing, radius, typography, layout } from '@/constants/theme';
 import { useColorScheme } from '@/components/useColorScheme';
 import { useAuth } from '@/context/AuthContext';
 import { useEntitlements } from '@/hooks/useEntitlements';
+import { fetchMyProfileSettings } from '@/lib/myProfileSettings';
 import { getLanguageLabel } from '@/lib/eventLanguages';
 import {
   useEventDetails,
@@ -171,14 +172,14 @@ export default function EventDetailScreen() {
 
   const refreshEventPhoneNudgeStatus = useCallback(async () => {
     if (!user?.id) return;
-    const { data } = await supabase
-      .from('profiles')
-      .select('phone_verified, phone_number')
-      .eq('id', user.id)
-      .maybeSingle();
-    const verified = (data as { phone_verified?: boolean } | null)?.phone_verified === true;
-    setEventPhoneInitialE164((data as { phone_number?: string | null } | null)?.phone_number ?? null);
-    setShowEventPhoneNudge(!verified);
+    try {
+      const data = await fetchMyProfileSettings();
+      const verified = data?.phone_verified === true;
+      setEventPhoneInitialE164(data?.phone_number ?? null);
+      setShowEventPhoneNudge(!verified);
+    } catch (error) {
+      if (__DEV__) console.warn('[event] failed to refresh phone nudge status:', error);
+    }
   }, [user?.id]);
 
   useEffect(() => {
@@ -188,17 +189,17 @@ export default function EventDetailScreen() {
     }
     let cancelled = false;
     void (async () => {
-      const dismissed = await AsyncStorage.getItem(EVENT_PHONE_NUDGE_DISMISSED_KEY);
-      if (dismissed === 'true') return;
-      const { data } = await supabase
-        .from('profiles')
-        .select('phone_verified, phone_number')
-        .eq('id', user.id)
-        .maybeSingle();
-      if (cancelled) return;
-      const verified = (data as { phone_verified?: boolean } | null)?.phone_verified === true;
-      setEventPhoneInitialE164((data as { phone_number?: string | null } | null)?.phone_number ?? null);
-      setShowEventPhoneNudge(!verified);
+      try {
+        const dismissed = await AsyncStorage.getItem(EVENT_PHONE_NUDGE_DISMISSED_KEY);
+        if (dismissed === 'true') return;
+        const data = await fetchMyProfileSettings();
+        if (cancelled) return;
+        const verified = data?.phone_verified === true;
+        setEventPhoneInitialE164(data?.phone_number ?? null);
+        setShowEventPhoneNudge(!verified);
+      } catch (error) {
+        if (__DEV__) console.warn('[event] failed to load phone nudge status:', error);
+      }
     })();
     return () => {
       cancelled = true;

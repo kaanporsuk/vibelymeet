@@ -23,6 +23,7 @@ import { useAuth } from '@/context/AuthContext';
 import { useBackendSubscription } from '@/lib/subscriptionApi';
 import { useEntitlements } from '@/hooks/useEntitlements';
 import { supabase } from '@/lib/supabase';
+import { fetchMyProfileSettings } from '@/lib/myProfileSettings';
 import {
   getSettingsAccessDateLine,
   getSettingsPlanLabel,
@@ -53,13 +54,7 @@ function useProfilePremiumUntil(userId: string | null | undefined) {
     queryKey: ['profile-premium-until', userId],
     queryFn: async () => {
       if (!userId) return null;
-      const { data, error } = await supabase
-        .from('profiles')
-        .select('premium_until')
-        .eq('id', userId)
-        .maybeSingle();
-      if (error) throw error;
-      const raw = data?.premium_until;
+      const raw = (await fetchMyProfileSettings())?.premium_until;
       return raw ? new Date(raw as string) : null;
     },
     enabled: !!userId,

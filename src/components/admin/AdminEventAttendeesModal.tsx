@@ -27,12 +27,11 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { supabase } from "@/integrations/supabase/client";
 import { resolvePhotoUrl } from "@/lib/photoUtils";
 import { toast } from "sonner";
 import { format } from "date-fns";
 import AdminConfirmDialog from "./AdminConfirmDialog";
-import { callAdminRpc, createAdminIdempotencyKey } from "@/lib/adminRpc";
+import { callAdminRpc, createAdminIdempotencyKey, type AdminRpcPayload } from "@/lib/adminRpc";
 
 type AdminAttendeesEvent = {
   id: string;
@@ -58,6 +57,11 @@ type EventRegistrationWithProfile = {
   attendance_marked: boolean | null;
   profile_id: string | null;
   profiles: AttendeeProfile | null;
+};
+
+type AdminEventAttendeesPayload = AdminRpcPayload & {
+  registrations?: EventRegistrationWithProfile[];
+  total_count?: number;
 };
 
 interface AdminEventAttendeesModalProps {
@@ -92,41 +96,12 @@ const AdminEventAttendeesModal = ({ event, onClose }: AdminEventAttendeesModalPr
   const { data: registrations, isLoading } = useQuery({
     queryKey: ['admin-event-attendees', event.id, searchQuery],
     queryFn: async () => {
-      const query = supabase
-        .from('event_registrations')
-        .select(`
-          id,
-          registered_at,
-          admission_status,
-          attended,
-          attendance_marked,
-          profile_id,
-          profiles:profile_id (
-            id,
-            name,
-            age,
-            gender,
-            avatar_url,
-            email_verified,
-            photo_verified
-          )
-        `)
-        .eq('event_id', event.id)
-        .order('registered_at', { ascending: false });
+      const payload = await callAdminRpc<AdminEventAttendeesPayload>("admin_list_event_attendees", {
+        p_event_id: event.id,
+        p_search: searchQuery.trim() || null,
+      });
 
-      const { data, error } = await query;
-      if (error) throw error;
-
-      // Filter by search if needed
-      let filtered = ((data || []) as unknown as EventRegistrationWithProfile[]);
-      if (searchQuery) {
-        const lowerSearch = searchQuery.toLowerCase();
-        filtered = filtered.filter(reg =>
-          reg.profiles?.name?.toLowerCase().includes(lowerSearch)
-        );
-      }
-
-      return filtered;
+      return payload.registrations ?? [];
     },
   });
 

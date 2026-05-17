@@ -10,8 +10,8 @@ import { spacing, layout, radius, fonts } from '@/constants/theme';
 import { useColorScheme } from '@/components/useColorScheme';
 import { GlassHeaderBar, Card, VibelyButton, VibelyText } from '@/components/ui';
 import { useAuth } from '@/context/AuthContext';
-import { supabase } from '@/lib/supabase';
 import { trackEvent } from '@/lib/analytics';
+import { fetchMyProfileSettings } from '@/lib/myProfileSettings';
 import { InviteFriendsSheet } from '@/components/invite/InviteFriendsSheet';
 import { buildInviteLandingUrl } from '../../../../shared/inviteLinks';
 
@@ -53,20 +53,19 @@ export default function ReferralSettingsScreen() {
       }
 
       setStatusLoading(true);
-      const { data, error } = await supabase
-        .from('profiles')
-        .select('referred_by')
-        .eq('id', userId)
-        .maybeSingle();
+      let data: Awaited<ReturnType<typeof fetchMyProfileSettings>> = null;
 
-      if (cancelled) return;
-      if (error) {
-        console.warn('[referrals] failed to load native status', error.message);
+      try {
+        data = await fetchMyProfileSettings();
+      } catch (error) {
+        if (cancelled) return;
+        console.warn('[referrals] failed to load native status', error instanceof Error ? error.message : String(error));
         setStatus({ referredById: null, referredByName: null });
         setStatusLoading(false);
         return;
       }
 
+      if (cancelled) return;
       const referredById = data?.referred_by ?? null;
       if (!referredById) {
         setStatus({ referredById: null, referredByName: null });
@@ -74,20 +73,9 @@ export default function ReferralSettingsScreen() {
         return;
       }
 
-      const { data: referrerData, error: referrerError } = await supabase
-        .from('profiles')
-        .select('name')
-        .eq('id', referredById)
-        .maybeSingle();
-
-      if (cancelled) return;
-      if (referrerError) {
-        console.warn('[referrals] failed to load native referrer', referrerError.message);
-      }
-
       setStatus({
         referredById,
-        referredByName: referrerData?.name?.trim() || null,
+        referredByName: typeof data?.referrer_name === 'string' ? data.referrer_name.trim() || null : null,
       });
       setStatusLoading(false);
     };

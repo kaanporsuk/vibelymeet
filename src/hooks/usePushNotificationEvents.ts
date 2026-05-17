@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { callAdminRpc, type AdminRpcPayload } from "@/lib/adminRpc";
+import { fetchUserProfiles } from "@/services/fetchUserProfile";
 
 export type NotificationPlatform = "web" | "ios" | "android" | "pwa";
 export type NotificationStatus = "queued" | "sending" | "sent" | "delivered" | "opened" | "clicked" | "failed" | "bounced";
@@ -135,16 +136,11 @@ export function usePushNotificationEvents(limit: number = 50) {
         (campaigns || []).map(c => [c.id, c.title] as [string, string])
       );
 
-      // Fetch user names for events
+      // Fetch user names through the canonical safe profile read surface. Admin
+      // role is handled by the RPC, so this does not depend on browser profile grants.
       const rawUserIds = eventsData?.map((e) => e.user_id) ?? [];
       const userIds = [...new Set(rawUserIds.filter((id): id is string => !!id))];
-      const { data: profiles } =
-        userIds.length > 0
-          ? await supabase
-              .from("profiles")
-              .select("id, name")
-              .in("id", userIds)
-          : { data: [] as { id: string; name: string | null }[] };
+      const profiles = userIds.length > 0 ? await fetchUserProfiles(userIds) : [];
 
       const profileMap = new Map<string, string | null>(
         (profiles || []).map((p) => [p.id, p.name] as [string, string | null])

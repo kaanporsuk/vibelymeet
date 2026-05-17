@@ -24,6 +24,7 @@ import { formatDistanceToNow } from "date-fns";
 import { REPORT_REASONS, type ReportReasonId } from "../../../shared/safety/reportReasons";
 import { submitUserReportRpc } from "../../../shared/safety/submitUserReportRpc";
 import { trackVibeVideoEvent, VIBE_VIDEO_EVENTS } from "@/lib/vibeVideo/vibeVideoTelemetry";
+import { fetchUserProfiles } from "@/services/fetchUserProfile";
 
 export interface ReportPreSelectedUser {
   id: string;
@@ -108,12 +109,10 @@ const ReportWizard = ({ onBack, onComplete, preSelectedUser }: ReportWizardProps
         m.profile_id_1 === user.id ? m.profile_id_2 : m.profile_id_1
       );
 
-      const { data: profiles } = await supabase
-        .from("profiles")
-        .select("id, name, avatar_url, bunny_video_uid")
-        .in("id", otherIds);
-
-      const profileMap = new Map((profiles || []).map(p => [p.id, p]));
+      const profiles = await fetchUserProfiles(otherIds);
+      const profileMap = new Map(
+        profiles.flatMap((profile) => (profile ? [[profile.id, profile] as const] : [])),
+      );
 
       return matches.map(m => {
         const otherId = m.profile_id_1 === user.id ? m.profile_id_2 : m.profile_id_1;

@@ -16,6 +16,7 @@ import { threadMessagesQueryKey, type ThreadInvalidateScope } from "../../shared
 import { resolvePrimaryProfilePhotoPath } from "../../shared/profilePhoto/resolvePrimaryProfilePhotoPath";
 import * as vibeGameParse from "../../shared/vibely-games/parse";
 import type { DateSuggestionWithRelations } from "@/hooks/useDateSuggestionData";
+import { fetchUserProfile } from "@/services/fetchUserProfile";
 
 export type { ThreadInvalidateScope };
 
@@ -387,11 +388,7 @@ async function fetchDirectChatThreadPage(params: {
 
   const [messagesRes, otherUserRes, presenceRes] = await Promise.all([
     messagesQuery,
-    supabase
-      .from("profiles")
-      .select("id, name, age, avatar_url, photos, photo_verified, subscription_tier, bunny_video_uid")
-      .eq("id", otherUserId)
-      .maybeSingle(),
+    fetchUserProfile(otherUserId),
     supabase
       .rpc("get_chat_partner_presence", { p_match_id: match.id })
       .maybeSingle(),
@@ -403,12 +400,18 @@ async function fetchDirectChatThreadPage(params: {
   const rawAsc = [...rawDesc].reverse();
   const presenceData = presenceRes.data as ChatPresenceRow | null;
   const presence = !presenceRes.error && presenceData?.can_view_presence ? presenceData : null;
-  const otherUser = otherUserRes.data
+  const otherUser = otherUserRes
     ? {
-        ...otherUserRes.data,
+        id: otherUserRes.id,
+        name: otherUserRes.name,
+        age: otherUserRes.age,
+        photos: otherUserRes.photos,
+        photo_verified: otherUserRes.photo_verified,
+        subscription_tier: otherUserRes.subscription_tier,
+        bunny_video_uid: otherUserRes.bunny_video_uid,
         avatar_url: resolvePrimaryProfilePhotoPath({
-          photos: otherUserRes.data.photos,
-          avatar_url: otherUserRes.data.avatar_url,
+          photos: otherUserRes.photos,
+          avatar_url: otherUserRes.avatar_url,
         }),
         last_seen_at: presence?.last_seen_at ?? null,
         is_online: presence?.is_online ?? false,

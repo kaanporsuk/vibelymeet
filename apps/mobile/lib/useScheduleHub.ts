@@ -2,6 +2,7 @@ import { useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useAuth } from '@/context/AuthContext';
 import { supabase } from '@/lib/supabase';
+import { fetchUserProfiles } from '@/lib/fetchUserProfile';
 import {
   buildScheduleHubItem,
   partitionScheduleHubItems,
@@ -70,7 +71,7 @@ async function loadScheduleHubSuggestions(userId: string): Promise<ScheduleHubSu
     )
   );
 
-  const [{ data: revisions }, { data: plans }, { data: profiles }] = await Promise.all([
+  const [{ data: revisions }, { data: plans }, profiles] = await Promise.all([
     supabase
       .from('date_suggestion_revisions')
       .select(SCHEDULE_HUB_REVISION_SELECT)
@@ -80,8 +81,8 @@ async function loadScheduleHubSuggestions(userId: string): Promise<ScheduleHubSu
       ? supabase.from('date_plans').select(SCHEDULE_HUB_PLAN_SELECT).in('id', planIds)
       : Promise.resolve({ data: [] as ScheduleHubPlan[], error: null }),
     partnerIds.length > 0
-      ? supabase.from('profiles').select('id, name, avatar_url').in('id', partnerIds)
-      : Promise.resolve({ data: [] as ProfileRow[], error: null }),
+      ? fetchUserProfiles(partnerIds)
+      : Promise.resolve([]),
   ]);
 
   const revisionsBySuggestion = new Map<string, ScheduleHubRevision[]>();
@@ -97,8 +98,14 @@ async function loadScheduleHubSuggestions(userId: string): Promise<ScheduleHubSu
   }
 
   const profilesById = new Map<string, ProfileRow>();
-  for (const profile of (profiles ?? []) as ProfileRow[]) {
-    profilesById.set(profile.id, profile);
+  for (const profile of profiles) {
+    if (profile?.id) {
+      profilesById.set(profile.id, {
+        id: profile.id,
+        name: profile.name,
+        avatar_url: profile.avatar_url,
+      });
+    }
   }
 
   return list.map((row) => {

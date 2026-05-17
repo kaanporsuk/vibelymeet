@@ -22,6 +22,7 @@ import {
 import type { ReactionPair } from '../../../shared/chat/messageReactionModel';
 import { threadMessagesQueryKey, type ThreadInvalidateScope } from '../../../shared/chat/queryKeys';
 import type { DateSuggestionWithRelations } from '@/lib/useDateSuggestionData';
+import { fetchUserProfile, fetchUserProfiles, type UserProfileView } from '@/lib/fetchUserProfile';
 
 /** Matches `profiles` select columns in `useMatches` below (intent fields typed for scoring). */
 type ChatMatchesProfileRow = {
@@ -34,12 +35,35 @@ type ChatMatchesProfileRow = {
   relationship_intent?: string | null;
   location?: string | null;
   bunny_video_uid?: string | null;
+  vibes?: string[];
 };
 
 function profileIntentForMatch(
   p: Pick<ChatMatchesProfileRow, 'relationship_intent' | 'looking_for'> | undefined,
 ): string | null {
   return p?.relationship_intent ?? p?.looking_for ?? null;
+}
+
+function profileViewToChatMatchRow(profile: UserProfileView | null): ChatMatchesProfileRow | null {
+  if (!profile?.id) return null;
+  return {
+    id: profile.id,
+    name: profile.name,
+    age: profile.age,
+    avatar_url: profile.avatar_url,
+    photos: profile.photos,
+    looking_for: profile.looking_for,
+    relationship_intent: profile.relationship_intent,
+    location: profile.display_location ?? profile.location,
+    bunny_video_uid: profile.bunny_video_uid,
+    vibes: profile.vibes,
+  };
+}
+
+async function fetchChatMatchProfiles(profileIds: string[]): Promise<ChatMatchesProfileRow[]> {
+  const uniqueIds = Array.from(new Set(profileIds.filter(Boolean)));
+  const profiles = await fetchUserProfiles(uniqueIds);
+  return profiles.map(profileViewToChatMatchRow).filter((profile): profile is ChatMatchesProfileRow => !!profile);
 }
 
 export type { NativeHydratedGameSessionView };
@@ -172,12 +196,8 @@ export function useMatches(userId: string | null | undefined) {
         .map((m) => (m as { event_id?: string | null }).event_id)
         .filter((id): id is string => typeof id === 'string' && id.length > 0);
 
-      const [profilesRes, vibesRes, messagesRes, eventsRes, archivesRes] = await Promise.all([
-        supabase
-          .from('profiles')
-          .select('id, name, age, avatar_url, photos, looking_for, relationship_intent, location, bunny_video_uid')
-          .in('id', profileIdsForFetch),
-        supabase.from('profile_vibes').select('profile_id, vibe_tags(label)').in('profile_id', profileIdsForFetch),
+      const [profiles, messagesRes, eventsRes, archivesRes] = await Promise.all([
+        fetchChatMatchProfiles(profileIdsForFetch),
         supabase
           .from('messages')
           .select(
@@ -190,17 +210,10 @@ export function useMatches(userId: string | null | undefined) {
           : Promise.resolve({ data: [] as { id: string; title: string }[] }),
         supabase.from('match_archives').select('match_id, archived_at').eq('user_id', userId).in('match_id', matchIds),
       ]);
-      if (profilesRes.error) throw profilesRes.error;
-      if (vibesRes.error) throw vibesRes.error;
       if (messagesRes.error) throw messagesRes.error;
       if ('error' in eventsRes && eventsRes.error) throw eventsRes.error;
       if (archivesRes.error) throw archivesRes.error;
 
-      const profiles = (profilesRes.data || []) as ChatMatchesProfileRow[];
-      const profileVibes = (vibesRes.data || []) as unknown as {
-        profile_id: string;
-        vibe_tags: { label: string } | { label: string }[] | null;
-      }[];
       type MatchLatestRow = {
         match_id: string;
         content: string | null;
@@ -219,13 +232,8 @@ export function useMatches(userId: string | null | undefined) {
       }, {});
 
       const vibesByProfile: Record<string, string[]> = {};
-      profileVibes.forEach((pv) => {
-        if (!vibesByProfile[pv.profile_id]) vibesByProfile[pv.profile_id] = [];
-        const vt = pv.vibe_tags;
-        const label = Array.isArray(vt) ? vt[0]?.label : vt?.label;
-        if (label && !vibesByProfile[pv.profile_id].includes(label)) {
-          vibesByProfile[pv.profile_id].push(label);
-        }
+      profiles.forEach((profile) => {
+        vibesByProfile[profile.id] = profile.vibes ?? [];
       });
 
       const events = (eventsRes.data || []) as { id: string; title: string }[];
@@ -621,7 +629,7 @@ async function fetchDirectChatThreadPage(params: {
 
   const [messagesRes, otherUserRes, presenceRes, archiveRes] = await Promise.all([
     messagesQuery,
-    supabase.from('profiles').select('id, name, age, avatar_url, photos, bunny_video_uid').eq('id', otherUserId).maybeSingle(),
+    fetchUserProfile(otherUserId),
     supabase.rpc('get_chat_partner_presence', { p_match_id: match.id }).maybeSingle(),
     supabase.from('match_archives').select('archived_at').eq('match_id', match.id).eq('user_id', currentUserId).maybeSingle(),
   ]);
@@ -629,28 +637,20 @@ async function fetchDirectChatThreadPage(params: {
 
   const rawDesc = (messagesRes.data ?? []).map((row) => normalizeRawMessage(row as ChatRawMessageRow));
   const rawAsc = [...rawDesc].reverse();
-  const otherRow = otherUserRes.data as {
-    id: string;
-    name?: string;
-    age?: number;
-    avatar_url?: string | null;
-    photos?: string[] | null;
-    bunny_video_uid?: string | null;
-  } | null;
   const presenceData = presenceRes.data as ChatPresenceRow | null;
   const presence = !presenceRes.error && presenceData?.can_view_presence ? presenceData : null;
-  const otherUser: ChatOtherUser | null = otherRow
+  const otherUser: ChatOtherUser | null = otherUserRes
     ? {
-        id: otherRow.id,
-        name: otherRow.name ?? 'Unknown',
-        age: otherRow.age ?? 0,
+        id: otherUserRes.id,
+        name: otherUserRes.name ?? 'Unknown',
+        age: otherUserRes.age ?? 0,
         avatar_url: resolvePrimaryProfilePhotoPath({
-          photos: otherRow.photos,
-          avatar_url: otherRow.avatar_url,
+          photos: otherUserRes.photos,
+          avatar_url: otherUserRes.avatar_url,
         }),
-        photos: otherRow.photos ?? null,
+        photos: otherUserRes.photos ?? null,
         last_seen_at: presence?.last_seen_at ?? null,
-        bunny_video_uid: otherRow.bunny_video_uid ?? null,
+        bunny_video_uid: otherUserRes.bunny_video_uid ?? null,
       }
     : null;
 

@@ -51,6 +51,7 @@ import { useVibelyDialog } from '@/components/VibelyDialog';
 import { useStatusDialog } from '@/components/ui/StatusDialog';
 import { endAccountBreakForUser } from '@/lib/endAccountBreak';
 import { fetchMyPhotoVerificationState, type PhotoVerificationState } from '@/lib/photoVerificationState';
+import { fetchMyProfileSettings } from '@/lib/myProfileSettings';
 import { isCurrentEmailVerified, resolveCanonicalAuthEmail } from '@shared/verificationSemantics';
 import { PASSWORD_MIN_LENGTH, validatePasswordPolicy, passwordPolicyMessage } from '@clientShared/passwordPolicy';
 
@@ -223,15 +224,22 @@ export default function AccountSettingsScreen() {
     queryKey: ['profile-account', user?.id],
     queryFn: async (): Promise<AccountProfile | null> => {
       if (!user?.id) return null;
-      const { data, error } = await supabase
-        .from('profiles')
-        .select(
-          'name, created_at, avatar_url, phone_number, phone_verified, email_verified, verified_email, photo_verified, account_paused, account_paused_until, is_paused, paused_until'
-        )
-        .eq('id', user.id)
-        .maybeSingle();
-      if (error) throw error;
-      return data as AccountProfile | null;
+      const row = await fetchMyProfileSettings();
+      if (!row) return null;
+      return {
+        name: row.name ?? null,
+        created_at: row.created_at ?? null,
+        avatar_url: row.avatar_url ?? null,
+        phone_number: row.phone_number ?? null,
+        phone_verified: row.phone_verified ?? null,
+        email_verified: row.email_verified ?? null,
+        verified_email: row.verified_email ?? null,
+        photo_verified: row.photo_verified ?? null,
+        account_paused: row.account_paused ?? null,
+        account_paused_until: row.account_paused_until ?? null,
+        is_paused: row.is_paused ?? null,
+        paused_until: row.paused_until ?? null,
+      };
     },
     enabled: !!user?.id,
   });
@@ -375,27 +383,23 @@ export default function AccountSettingsScreen() {
   const applyTakeBreak = async () => {
     if (!user?.id || !breakChip) return;
 
-    // Safety: suspended users cannot use Take a Break to mask their state
-    const { data: safetyCheck } = await supabase
-      .from('profiles')
-      .select('is_suspended')
-      .eq('id', user.id)
-      .maybeSingle();
-
-    if (safetyCheck?.is_suspended) {
-      show({
-        title: 'Account restricted',
-        message: 'Your account is currently restricted. Please contact support.',
-        variant: 'warning',
-        primaryAction: { label: 'OK', onPress: () => {} },
-      });
-      return;
-    }
-
     const until = breakUntilForChip(breakChip);
     const now = new Date().toISOString();
     setBreakBusy(true);
     try {
+      // Safety: suspended users cannot use Take a Break to mask their state
+      const safetyCheck = await fetchMyProfileSettings();
+
+      if (safetyCheck?.is_suspended) {
+        show({
+          title: 'Account restricted',
+          message: 'Your account is currently restricted. Please contact support.',
+          variant: 'warning',
+          primaryAction: { label: 'OK', onPress: () => {} },
+        });
+        return;
+      }
+
       const { error } = await supabase
         .from('profiles')
         .update({
@@ -426,6 +430,13 @@ export default function AccountSettingsScreen() {
         title: 'You’re on a break',
         message: 'We’ll be here when you’re ready.',
         variant: 'success',
+        primaryAction: { label: 'OK', onPress: () => {} },
+      });
+    } catch (error) {
+      show({
+        title: 'Couldn’t update',
+        message: error instanceof Error ? error.message : 'Please try again.',
+        variant: 'warning',
         primaryAction: { label: 'OK', onPress: () => {} },
       });
     } finally {

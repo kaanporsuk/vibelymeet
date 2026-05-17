@@ -139,7 +139,9 @@ test("one-user-one-phone association guard remains present", () => {
   assert.match(phoneVerify, /errorType:\s*"phone_already_claimed"/);
   assert.match(phoneVerify, /phone_verified_at:\s*new Date\(\)\.toISOString\(\)/);
   assert.match(phoneVerificationState, /profiles\.phone_verified` is the verified truth/);
-  assert.match(nativeProfileApi, /phone_number, phone_verified/);
+  assert.match(nativeProfileApi, /fetchMyProfileSettings\(\)/);
+  assert.match(nativeProfileApi, /phone_number: row\.phone_number \?\? null/);
+  assert.match(nativeProfileApi, /phone_verified: row\.phone_verified \?\? null/);
 });
 
 test("WebOTP-friendly entry remains present where implemented", () => {

@@ -30,6 +30,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { persistPhotos } from "@/services/storageService";
+import { fetchMyProfileSettings } from "@/services/myProfileSettings";
 import { BottomNav } from "@/components/BottomNav";
 import { PhotoPreviewModal } from "@/components/PhotoPreviewModal";
 import { PhotoManager } from "@/components/PhotoManager";
@@ -344,18 +345,14 @@ const ProfileStudio = () => {
           const emailConfirmed = !!user.email_confirmed_at;
           setAccountEmailConfirmed(emailConfirmed);
           setHasAccountEmail(!!resolveCanonicalAuthEmail(user));
-          const { data: phoneData } = await supabase
-            .from("profiles")
-            .select("phone_verified, phone_number, email_verified, verified_email, photo_verified, photo_verification_expires_at")
-            .eq("id", user.id)
-            .maybeSingle();
+          const phoneData = await fetchMyProfileSettings();
           if (phoneData?.phone_verified) setPhoneVerified(true);
-          setPhoneNumber((phoneData?.phone_number as string | null | undefined) ?? null);
+          setPhoneNumber(phoneData?.phone_number ?? null);
           const authEmailCanonical = resolveCanonicalAuthEmail(user) ?? user.email ?? null;
           setEmailVerified(
             isCurrentEmailVerified({
               emailVerified: !!phoneData?.email_verified,
-              verifiedEmail: (phoneData?.verified_email as string | null | undefined) ?? null,
+              verifiedEmail: phoneData?.verified_email ?? null,
               authEmail: authEmailCanonical,
             }),
           );

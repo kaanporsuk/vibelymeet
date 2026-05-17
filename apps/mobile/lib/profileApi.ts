@@ -3,6 +3,7 @@ import { assertNoDirectProfileLocationWrites, normalizeRelationshipIntent } from
 import type { EventDiscoveryPrefs } from '@shared/eventDiscoveryContracts';
 import { parseEventDiscoveryPrefs, serializeEventDiscoveryPrefs } from '@shared/eventDiscoveryContracts';
 import { fetchMyLocationData } from '@/lib/myLocationData';
+import { fetchMyProfileSettings } from '@/lib/myProfileSettings';
 
 export type ProfileRow = {
   id: string;
@@ -149,42 +150,15 @@ export async function fetchProfileLiveCounts(userId: string): Promise<{
   };
 }
 
-/** Full profile row for PostgREST. */
-const PROFILE_SELECT_WITH_VIBE =
-  'id, updated_at, name, birth_date, age, gender, interested_in, tagline, height_cm, location, job, company, about_me, looking_for, relationship_intent, onboarding_complete, photos, avatar_url, bunny_video_uid, bunny_video_status, total_matches, total_conversations, lifestyle, prompts, vibe_caption, photo_verified, phone_number, phone_verified, email_verified, verified_email, is_premium, premium_until, vibe_score, vibe_score_label, preferred_age_min, preferred_age_max, event_discovery_prefs';
-
-/**
- * Minimal `profiles` projection when the first select fails (missing vibe columns, discovery
- * columns, or stale schema cache). Must not reference columns that may not exist yet — retrying
- * with the same missing fields would always fail and break `fetchMyProfile`.
- */
-const PROFILE_SELECT_BASE =
-  'id, updated_at, name, birth_date, age, gender, interested_in, tagline, height_cm, location, job, company, about_me, looking_for, relationship_intent, onboarding_complete, photos, avatar_url, bunny_video_uid, bunny_video_status, total_matches, total_conversations, lifestyle, prompts, vibe_caption, photo_verified, phone_number, phone_verified, email_verified, verified_email, is_premium, premium_until';
-
 export async function fetchMyProfile(): Promise<ProfileRow | null> {
   try {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return null;
     const uid = user.id;
-    let profileRes = await supabase
-      .from('profiles')
-      .select(PROFILE_SELECT_WITH_VIBE)
-      .eq('id', uid)
-      .maybeSingle();
-    const vibeColMissing =
-      profileRes.error &&
-      /vibe_score|vibe_score_label|preferred_age|event_discovery_prefs|column .* does not exist|schema cache/i.test(
-        profileRes.error.message ?? ''
-      );
-    if (vibeColMissing) {
-      profileRes = await supabase
-        .from('profiles')
-        .select(PROFILE_SELECT_BASE)
-        .eq('id', uid)
-        .maybeSingle();
-    }
+    const profileRowPromise = fetchMyProfileSettings();
 
-    const [locationResult, vibesRes, counts] = await Promise.all([
+    const [row, locationResult, vibesRes, counts] = await Promise.all([
+      profileRowPromise,
       fetchMyLocationData().catch((e) => {
         if (__DEV__) console.warn('[profileApi] get_my_location_data:', e instanceof Error ? e.message : e);
         return null;
@@ -196,11 +170,6 @@ export async function fetchMyProfile(): Promise<ProfileRow | null> {
       fetchProfileLiveCounts(uid),
     ]);
 
-    if (profileRes.error) {
-      if (__DEV__) console.warn('[profileApi] profiles row:', profileRes.error.message);
-      return null;
-    }
-    const row = profileRes.data as Record<string, unknown> | null;
     if (!row) return null;
     if (vibesRes.error) {
       if (__DEV__) console.warn('[profileApi] failed to load vibes:', vibesRes.error.message);
@@ -218,34 +187,34 @@ export async function fetchMyProfile(): Promise<ProfileRow | null> {
         return [vt.label].filter(Boolean) as string[];
       });
 
-    const vibeScore = (row.vibe_score as number | null | undefined) ?? 0;
-    const vibeScoreLabel = (row.vibe_score_label as string | null | undefined) ?? 'New';
+    const vibeScore = row.vibe_score ?? 0;
+    const vibeScoreLabel = row.vibe_score_label ?? 'New';
 
     return {
       ...row,
-      updated_at: (row.updated_at as string | null | undefined) ?? null,
-      relationship_intent: (row.relationship_intent as string | null) ?? null,
+      updated_at: row.updated_at ?? null,
+      relationship_intent: row.relationship_intent ?? null,
       location_data: locationResult?.location_data ?? null,
-      company: (row.company as string | null | undefined) ?? null,
-      onboarding_complete: (row.onboarding_complete as boolean | null) ?? null,
+      company: row.company ?? null,
+      onboarding_complete: row.onboarding_complete ?? null,
       events_attended: counts.events,
       total_matches: counts.matches,
       total_conversations: counts.convos,
       prompts: (row.prompts as ProfileRow['prompts']) ?? null,
       vibes,
       lifestyle: (row.lifestyle as ProfileRow['lifestyle']) ?? null,
-      vibe_caption: (row.vibe_caption as string) ?? null,
-      photo_verified: (row.photo_verified as boolean | null) ?? null,
-      phone_number: (row.phone_number as string | null) ?? null,
-      phone_verified: (row.phone_verified as boolean | null) ?? null,
-      email_verified: ((row as Record<string, unknown>).email_verified as boolean | null) ?? null,
-      verified_email: ((row as Record<string, unknown>).verified_email as string | null) ?? null,
-      is_premium: (row.is_premium as boolean | null) ?? null,
-      premium_until: (row.premium_until as string) ?? null,
+      vibe_caption: row.vibe_caption ?? null,
+      photo_verified: row.photo_verified ?? null,
+      phone_number: row.phone_number ?? null,
+      phone_verified: row.phone_verified ?? null,
+      email_verified: row.email_verified ?? null,
+      verified_email: row.verified_email ?? null,
+      is_premium: row.is_premium ?? null,
+      premium_until: row.premium_until ?? null,
       vibe_score: vibeScore,
       vibe_score_label: vibeScoreLabel,
-      preferred_age_min: (row.preferred_age_min as number | null | undefined) ?? null,
-      preferred_age_max: (row.preferred_age_max as number | null | undefined) ?? null,
+      preferred_age_min: row.preferred_age_min ?? null,
+      preferred_age_max: row.preferred_age_max ?? null,
       event_discovery_prefs: parseEventDiscoveryPrefs(row.event_discovery_prefs),
     } as ProfileRow;
   } catch (e) {

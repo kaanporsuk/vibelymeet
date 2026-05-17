@@ -22,6 +22,7 @@ import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/context/AuthContext';
 import { IncomingCallOverlay } from '@/components/chat/IncomingCallOverlay';
 import { ActiveCallOverlay } from '@/components/chat/ActiveCallOverlay';
+import { fetchUserProfile } from '@/lib/fetchUserProfile';
 import {
   MATCH_CALL_EDGE_CODES,
   messageForMatchCallEdgeCode,
@@ -511,11 +512,7 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const fetchPartnerSummary = useCallback(async (profileId: string, fallbackName = 'Your match') => {
-    const { data } = await supabase
-      .from('profiles')
-      .select('name, avatar_url')
-      .eq('id', profileId)
-      .maybeSingle();
+    const data = await fetchUserProfile(profileId);
 
     return {
       userId: profileId,

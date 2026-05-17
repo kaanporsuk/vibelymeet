@@ -5,11 +5,11 @@ import { ArrowLeft, CheckCircle2, Copy, Share2, Sparkles, UserPlus } from "lucid
 import { Button } from "@/components/ui/button";
 import { BottomNav } from "@/components/navigation/BottomNav";
 import { useAuth, useUserProfile } from "@/contexts/AuthContext";
-import { supabase } from "@/integrations/supabase/client";
 import { buildInviteLandingUrl } from "@/lib/inviteLinks";
 import { isWebShareAbortError } from "@/lib/webShare";
 import { toast } from "sonner";
 import { trackEvent } from "@/lib/analytics";
+import { fetchMyProfileSettings } from "@/services/myProfileSettings";
 
 const SHARE_TITLE = "Join me on Vibely!";
 const SHARE_MESSAGE = "I'm using Vibely for video dates and real events. Come find your vibe with me.";
@@ -45,20 +45,19 @@ export default function Referrals() {
       }
 
       setIsLoadingStatus(true);
-      const { data, error } = await supabase
-        .from("profiles")
-        .select("referred_by")
-        .eq("id", userId)
-        .maybeSingle();
+      let data: Awaited<ReturnType<typeof fetchMyProfileSettings>> = null;
 
-      if (cancelled) return;
-      if (error) {
-        console.warn("[referrals] failed to load status", error.message);
+      try {
+        data = await fetchMyProfileSettings();
+      } catch (error) {
+        if (cancelled) return;
+        console.warn("[referrals] failed to load status", error instanceof Error ? error.message : String(error));
         setStatus({ referredById: null, referredByName: null });
         setIsLoadingStatus(false);
         return;
       }
 
+      if (cancelled) return;
       const referredById = data?.referred_by ?? null;
       if (!referredById) {
         setStatus({ referredById: null, referredByName: null });
@@ -66,20 +65,9 @@ export default function Referrals() {
         return;
       }
 
-      const { data: referrerData, error: referrerError } = await supabase
-        .from("profiles")
-        .select("name")
-        .eq("id", referredById)
-        .maybeSingle();
-
-      if (cancelled) return;
-      if (referrerError) {
-        console.warn("[referrals] failed to load referrer", referrerError.message);
-      }
-
       setStatus({
         referredById,
-        referredByName: referrerData?.name?.trim() || null,
+        referredByName: typeof data?.referrer_name === "string" ? data.referrer_name.trim() || null : null,
       });
       setIsLoadingStatus(false);
     };

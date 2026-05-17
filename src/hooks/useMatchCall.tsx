@@ -23,6 +23,7 @@ import {
 import { logMatchCallDiag } from "@clientShared/chat/matchCallDiag";
 import { IncomingCallOverlay } from "@/components/chat/IncomingCallOverlay";
 import { ActiveCallOverlay } from "@/components/chat/ActiveCallOverlay";
+import { fetchUserProfile } from "@/services/fetchUserProfile";
 
 type DailyIframeModule = typeof import("@daily-co/daily-js").default;
 
@@ -605,11 +606,7 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
 
 
   const fetchPartnerSummary = useCallback(async (profileId: string, fallbackName = "Your match") => {
-    const { data } = await supabase
-      .from("profiles")
-      .select("name, avatar_url")
-      .eq("id", profileId)
-      .maybeSingle();
+    const data = await fetchUserProfile(profileId);
 
     return {
       userId: profileId,
