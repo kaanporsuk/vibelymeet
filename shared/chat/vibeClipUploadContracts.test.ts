@@ -16,6 +16,8 @@ const webVibeClipOptions = read("src/components/chat/VibeClipSendOptionsSheet.ts
 const webPhotoOptions = read("src/components/chat/PhotoSendOptionsDialog.tsx");
 const webPhotoCamera = read("src/components/chat/PhotoCameraCaptureDialog.tsx");
 const webChat = read("src/pages/Chat.tsx");
+const webOutboxExecute = read("src/lib/webChatOutbox/execute.ts");
+const webUploadMime = read("src/lib/webUploadMime.ts");
 const webVibeClipBubble = read("src/components/chat/VibeClipBubble.tsx");
 const webVideoBubble = read("src/components/chat/VideoMessageBubble.tsx");
 const webUpload = read("src/services/chatVideoUploadService.ts");
@@ -59,7 +61,8 @@ test("web library helper validates saved-video uploads with the same constraints
   assert.match(webLibraryHelper, /file\.size > VIBE_CLIP_MAX_UPLOAD_BYTES/);
   assert.match(webLibraryHelper, /metadata\.durationSeconds > VIBE_CLIP_MAX_DURATION_SEC \+ 0\.25/);
   assert.match(webLibraryHelper, /captureSource: "library"/);
-  assert.match(webLibraryHelper, /mimeType: file\.type \|\| undefined/);
+  assert.match(webLibraryHelper, /videoMimeTypeForUpload\(file\.type, file\.name\) \?\? undefined/);
+  assert.match(webLibraryHelper, /fileName: file\.name \|\| undefined/);
   assert.match(webLibraryHelper, /aspectRatio: metadata\.aspectRatio/);
 });
 
@@ -193,14 +196,32 @@ test("web recorder exposes safe camera flip on eligible devices", () => {
 test("web queue and upload preserve validated library video metadata", () => {
   assert.match(webChat, /Math\.min\(\s*VIBE_CLIP_MAX_DURATION_SEC/);
   assert.match(webChat, /const captureSource = meta\?\.captureSource \?\? "web_recorder"/);
-  assert.match(webChat, /mimeType: meta\?\.mimeType \|\| videoBlob\.type \|\| "video\/mp4"/);
+  assert.match(webChat, /const videoMimeType =[\s\S]{0,160}videoMimeTypeForUpload\(meta\?\.mimeType \|\| videoBlob\.type, storedVideoName\) \?\? GENERIC_UPLOAD_MIME_TYPE/);
+  assert.match(webChat, /mimeType: videoMimeType/);
+  assert.match(webChat, /fileName: storedVideoName/);
+  assert.doesNotMatch(webChat, /videoBlob\.type \|\| "video\/mp4"/);
   assert.match(webChat, /aspectRatio: meta\?\.aspectRatio \?\? null/);
+  assert.match(webOutboxExecute, /videoMimeTypeForUpload\(blob\.type, storedName\)/);
+  assert.match(webOutboxExecute, /videoMimeTypeForUpload\(payload\.mimeType, storedName\)/);
+  assert.match(webOutboxExecute, /uploadFileNameForMimeType\("video", "chat-video", mimeType, storedName\)/);
   assert.match(webUpload, /videoBlob\.size <= 0/);
   assert.match(webUpload, /videoBlob\.size > VIBE_CLIP_MAX_UPLOAD_BYTES/);
   assert.match(webUpload, /vibeClipMultipartFitsEdgeLimit/);
   assert.match(webUpload, /function videoMimeTypeForBlob/);
+  assert.match(webUpload, /videoMimeTypeForUpload\(videoBlob\.type, name\) \?\? GENERIC_UPLOAD_MIME_TYPE/);
   assert.match(webUpload, /video_metadata_timeout/);
-  assert.match(webUpload, /baseType === "video\/quicktime"\) return "mov"/);
+  assert.match(webUploadMime, /"video\/mov": "video\/quicktime"/);
+  assert.match(webUploadMime, /"video\/m4v": "video\/x-m4v"/);
+});
+
+test("web chat image outbox no longer invents JPEG declarations", () => {
+  assert.match(webChat, /const imageMimeType = imageMimeTypeForUpload\(file\.type, file\.name\)/);
+  assert.match(webChat, /payload: \{ kind: "image", blobKey, mimeType: imageMimeType, fileName: file\.name \|\| undefined \}/);
+  assert.doesNotMatch(webChat, /file\.type \|\| "image\/jpeg"/);
+  assert.match(webOutboxExecute, /imageMimeTypeForUpload\(blob\.type, storedName\)/);
+  assert.match(webOutboxExecute, /imageMimeTypeForUpload\(payload\.mimeType, storedName\)/);
+  assert.match(webOutboxExecute, /uploadFileNameForMimeType\("image", "chat", mimeType, storedName\)/);
+  assert.doesNotMatch(webOutboxExecute, /"chat\.jpg", \{ type: payload\.mimeType \|\| blob\.type \|\| "image\/jpeg" \}/);
 });
 
 test("video bubbles remain adaptive and full-width across web and native chat", () => {
@@ -252,11 +273,15 @@ test("native upload and cache keep mobile video formats intact", () => {
   assert.match(nativeUpload, /info\.size <= 0/);
   assert.match(nativeUpload, /info\.size > VIBE_CLIP_MAX_UPLOAD_BYTES/);
   assert.match(nativeUpload, /vibeClipMultipartFitsEdgeLimit/);
-  assert.match(nativeUpload, /mimeType\.includes\('quicktime'\)[\s\S]{0,80}'mov'/);
-  assert.match(nativeUpload, /mimeType\.includes\('x-m4v'\)[\s\S]{0,80}'m4v'/);
-  assert.match(nativeUpload, /mimeType\.includes\('webm'\)[\s\S]{0,80}'webm'/);
-  assert.match(nativeMediaCache, /mime\?\.includes\('x-m4v'\)[\s\S]{0,80}return 'm4v'/);
-  assert.match(nativeMediaCache, /mime\?\.includes\('webm'\)[\s\S]{0,80}return 'webm'/);
+  assert.match(nativeUpload, /const GENERIC_UPLOAD_MIME_TYPE = 'application\/octet-stream'/);
+  assert.match(nativeUpload, /uploadMimeType\.includes\('quicktime'\)[\s\S]{0,120}'mov'/);
+  assert.match(nativeUpload, /uploadMimeType\.includes\('x-m4v'\)[\s\S]{0,120}'m4v'/);
+  assert.match(nativeUpload, /uploadMimeType\.includes\('webm'\)[\s\S]{0,120}'webm'/);
+  assert.match(nativeChat, /mimeForPayload\('video', asset\.mimeType \?\? null, asset\.fileName \?\? asset\.uri\)/);
+  assert.doesNotMatch(nativeChat, /asset\.mimeType \?\? 'video\/mp4'/);
+  assert.match(nativeMediaCache, /mimeForPayload\('video'/);
+  assert.match(nativeMediaCache, /normalized\?\.includes\('x-m4v'\)[\s\S]{0,120}return 'm4v'/);
+  assert.match(nativeMediaCache, /normalized\?\.includes\('webm'\)[\s\S]{0,120}return 'webm'/);
 });
 
 test("server upload and publish paths enforce final Vibe Clip limits", () => {
@@ -265,7 +290,8 @@ test("server upload and publish paths enforce final Vibe Clip limits", () => {
   assert.match(uploadChatVideo, /Maximum 8MB/);
   assert.match(uploadChatVideo, /file\.size <= 0/);
   assert.match(uploadChatVideo, /file\.size > CHAT_VIDEO_MAX_UPLOAD_BYTES/);
-  assert.match(uploadChatVideo, /"video\/quicktime": "mov"/);
+  assert.match(uploadChatVideo, /validateChatVideoUploadBytes/);
+  assert.match(uploadChatVideo, /const ext = sniffedVideo\.extension/);
   assert.match(sendMessage, /const VIBE_CLIP_MAX_DURATION_MS = 30_000/);
   assert.match(sendMessage, /durationMs > VIBE_CLIP_MAX_DURATION_MS \+ VIBE_CLIP_DURATION_TOLERANCE_MS/);
   assert.match(sendMessage, /Video must be 30 seconds or shorter/);

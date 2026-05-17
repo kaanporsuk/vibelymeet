@@ -2,11 +2,28 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { bunnyCdnUrl } from "../_shared/bunny-media.ts";
 import { MEDIA_FAMILIES, PROVIDERS, registerMediaAsset } from "../_shared/media-lifecycle.ts";
+import { validateVoiceUploadBytes } from "../_shared/media-upload-sniffing.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
+
+function isUploadFile(value: FormDataEntryValue | null): value is File {
+  return value instanceof File;
+}
+
+async function providerErrorMeta(res: Response): Promise<{ status: number; bodyLength: number }> {
+  const text = await res.text().catch(() => "");
+  return { status: res.status, bodyLength: text.length };
+}
+
+function safeUnexpectedError(error: unknown): Record<string, string> {
+  if (error instanceof Error) {
+    return { name: error.name || "Error" };
+  }
+  return { name: typeof error };
+}
 
 serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -37,7 +54,8 @@ serve(async (req) => {
     }
 
     const formData = await req.formData();
-    const file = formData.get("file") as File;
+    const fileValue = formData.get("file");
+    const file = isUploadFile(fileValue) ? fileValue : null;
     const conversationId = formData.get("conversation_id") as string | null;
 
     if (!file) {
@@ -47,16 +65,9 @@ serve(async (req) => {
       );
     }
 
-    // Validate audio type
-    const allowedTypes = [
-      "audio/webm", "audio/ogg", "audio/mp4",
-      "audio/mpeg", "audio/wav", "audio/x-m4a",
-      "audio/mp4; codecs=mp4a",
-    ];
-    const baseType = file.type.split(";")[0].trim();
-    if (!allowedTypes.includes(baseType) && !file.type.startsWith("audio/")) {
+    if (file.size <= 0) {
       return new Response(
-        JSON.stringify({ success: false, error: "Invalid file type. Audio files only." }),
+        JSON.stringify({ success: false, error: "Empty audio file." }),
         { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
@@ -94,16 +105,17 @@ serve(async (req) => {
       );
     }
 
-    // Determine extension
-    const extMap: Record<string, string> = {
-      "audio/webm": "webm",
-      "audio/ogg": "ogg",
-      "audio/mp4": "m4a",
-      "audio/mpeg": "mp3",
-      "audio/wav": "wav",
-      "audio/x-m4a": "m4a",
-    };
-    const ext = extMap[baseType] ?? "webm";
+    const fileBuffer = await file.arrayBuffer();
+    const mediaValidation = validateVoiceUploadBytes(fileBuffer, file.type);
+    if (!mediaValidation.ok) {
+      return new Response(
+        JSON.stringify({ success: false, error: "Invalid file type. Audio files only." }),
+        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    const sniffedMedia = mediaValidation.media;
+    const ext = sniffedMedia.extension;
     const timestamp = Date.now();
 
     // Path: voice/{conversationId}/{userId}_{timestamp}.ext
@@ -114,22 +126,20 @@ serve(async (req) => {
     const storageZone = Deno.env.get("BUNNY_STORAGE_ZONE")!;
     const apiKey = Deno.env.get("BUNNY_STORAGE_API_KEY")!;
 
-    const fileBuffer = await file.arrayBuffer();
     const uploadRes = await fetch(
       `https://storage.bunnycdn.com/${storageZone}/${storagePath}`,
       {
         method: "PUT",
         headers: {
           "AccessKey": apiKey,
-          "Content-Type": file.type || "audio/webm",
+          "Content-Type": sniffedMedia.mimeType,
         },
         body: fileBuffer,
       }
     );
 
     if (!uploadRes.ok) {
-      const errText = await uploadRes.text();
-      console.error("[upload-voice] Bunny upload failed:", uploadRes.status, errText);
+      console.error("[upload-voice] Bunny upload failed:", await providerErrorMeta(uploadRes));
       return new Response(
         JSON.stringify({ success: false, error: "Upload to CDN failed" }),
         { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
@@ -145,7 +155,7 @@ serve(async (req) => {
         mediaFamily: MEDIA_FAMILIES.VOICE_MESSAGE,
         ownerUserId: user.id,
         providerPath: storagePath,
-        mimeType: file.type || baseType || "audio/webm",
+        mimeType: sniffedMedia.mimeType,
         bytes: file.size,
         legacyTable: "matches",
         legacyId: conversationId.trim(),
@@ -166,9 +176,9 @@ serve(async (req) => {
     );
 
   } catch (err) {
-    console.error("[upload-voice] Unexpected error:", err);
+    console.error("[upload-voice] Unexpected error:", safeUnexpectedError(err));
     return new Response(
-      JSON.stringify({ success: false, error: String(err) }),
+      JSON.stringify({ success: false, error: "Upload failed" }),
       { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   }

@@ -16,6 +16,46 @@ import {
 } from '../../../shared/chat/vibeClipCaptureCopy';
 
 const SUPABASE_URL = process.env.EXPO_PUBLIC_SUPABASE_URL ?? '';
+const GENERIC_UPLOAD_MIME_TYPE = 'application/octet-stream';
+
+function extensionFromUri(uri: string): string | null {
+  const clean = uri.trim().split(/[?#]/)[0] ?? uri;
+  const last = clean.split('/').pop() ?? clean;
+  const dot = last.lastIndexOf('.');
+  if (dot < 0 || dot >= last.length - 1) return null;
+  return last.slice(dot + 1).toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 8) || null;
+}
+
+function normalizedImageMimeType(mimeType: string | null | undefined, imageUri: string): string {
+  const normalized = mimeType?.split(';')[0]?.trim().toLowerCase() ?? '';
+  if (normalized === 'image/jpg') return 'image/jpeg';
+  if (['image/jpeg', 'image/png', 'image/webp', 'image/heic', 'image/heif'].includes(normalized)) {
+    return normalized;
+  }
+
+  const ext = extensionFromUri(imageUri);
+  if (ext === 'jpg' || ext === 'jpeg') return 'image/jpeg';
+  if (ext === 'png') return 'image/png';
+  if (ext === 'webp') return 'image/webp';
+  if (ext === 'heic') return 'image/heic';
+  if (ext === 'heif') return 'image/heif';
+  return GENERIC_UPLOAD_MIME_TYPE;
+}
+
+function normalizedVideoMimeType(mimeType: string | null | undefined, videoUri: string): string {
+  const normalized = mimeType?.split(';')[0]?.trim().toLowerCase() ?? '';
+  if (normalized === 'video/m4v') return 'video/x-m4v';
+  if (['video/mp4', 'video/quicktime', 'video/x-m4v', 'video/webm'].includes(normalized)) {
+    return normalized;
+  }
+
+  const ext = extensionFromUri(videoUri);
+  if (ext === 'mov') return 'video/quicktime';
+  if (ext === 'm4v') return 'video/x-m4v';
+  if (ext === 'webm') return 'video/webm';
+  if (ext === 'mp4') return 'video/mp4';
+  return GENERIC_UPLOAD_MIME_TYPE;
+}
 
 export async function uploadVoiceMessage(audioUri: string, matchId: string): Promise<string> {
   const accessToken = await getCachedAccessToken();
@@ -56,7 +96,7 @@ export async function uploadVoiceMessage(audioUri: string, matchId: string): Pro
 export async function uploadChatVideoMessage(
   videoUri: string,
   matchId: string,
-  mimeType: string = 'video/mp4',
+  mimeType?: string | null,
   aspectRatio?: number | null
 ): Promise<{
   videoUrl: string;
@@ -97,16 +137,18 @@ export async function uploadChatVideoMessage(
   if (typeof aspectRatio === 'number' && Number.isFinite(aspectRatio) && aspectRatio > 0) {
     formData.append('aspect_ratio', String(aspectRatio));
   }
+  const uploadMimeType = normalizedVideoMimeType(mimeType, videoUri);
   const ext =
-    mimeType.includes('quicktime') || mimeType.includes('mov') ? 'mov'
-    : mimeType.includes('x-m4v') || mimeType.includes('m4v') ? 'm4v'
-    : mimeType.includes('webm') ? 'webm'
+    uploadMimeType.includes('quicktime') || uploadMimeType.includes('mov') ? 'mov'
+    : uploadMimeType.includes('x-m4v') || uploadMimeType.includes('m4v') ? 'm4v'
+    : uploadMimeType.includes('webm') ? 'webm'
+    : uploadMimeType === GENERIC_UPLOAD_MIME_TYPE ? (extensionFromUri(videoUri) ?? 'bin')
     : 'mp4';
   formData.append(
     'file',
     {
       uri: videoUri,
-      type: mimeType || 'video/mp4',
+      type: uploadMimeType,
       name: `chat-video.${ext}`,
     } as unknown as Blob
   );
@@ -174,7 +216,7 @@ export async function uploadChatVideoMessage(
 
 export async function uploadChatImageMessage(
   imageUri: string,
-  mimeType: string = 'image/jpeg',
+  mimeType: string | null | undefined,
   matchId: string,
 ): Promise<string> {
   const accessToken = await getCachedAccessToken();
@@ -187,16 +229,18 @@ export async function uploadChatImageMessage(
   const formData = new FormData();
   formData.append('context', 'chat');
   formData.append('match_id', matchId);
+  const uploadMimeType = normalizedImageMimeType(mimeType, imageUri);
   const ext =
-    mimeType.includes('png') ? 'png' :
-    mimeType.includes('webp') ? 'webp' :
-    mimeType.includes('heic') || mimeType.includes('heif') ? 'heic' :
+    uploadMimeType.includes('png') ? 'png' :
+    uploadMimeType.includes('webp') ? 'webp' :
+    uploadMimeType.includes('heic') || uploadMimeType.includes('heif') ? 'heic' :
+    uploadMimeType === GENERIC_UPLOAD_MIME_TYPE ? (extensionFromUri(imageUri) ?? 'bin') :
     'jpg';
   formData.append(
     'file',
     {
       uri: imageUri,
-      type: mimeType || 'image/jpeg',
+      type: uploadMimeType,
       name: `chat-image.${ext}`,
     } as unknown as Blob
   );

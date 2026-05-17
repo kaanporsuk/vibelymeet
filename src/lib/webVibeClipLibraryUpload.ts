@@ -8,11 +8,13 @@ import {
   VIBE_CLIP_UPLOAD_TOO_LONG,
 } from "../../shared/chat/vibeClipCaptureCopy";
 import type { CaptureSource } from "../../shared/chat/vibeClipAnalytics";
+import { videoMimeTypeForUpload } from "./webUploadMime";
 
 export type WebVibeClipCompleteMeta = {
   captureSource?: CaptureSource;
   mimeType?: string;
   aspectRatio?: number | null;
+  fileName?: string;
 };
 
 type SelectedVideoMetadata = {
@@ -27,8 +29,7 @@ export type PreparedWebVibeClipLibraryUpload = {
 };
 
 export function looksLikeVideoFile(file: File): boolean {
-  if (file.type.startsWith("video/")) return true;
-  return /\.(mp4|m4v|mov|webm|avi|mkv)$/i.test(file.name);
+  return videoMimeTypeForUpload(file.type, file.name) !== null;
 }
 
 export function readSelectedVideoMetadata(file: File): Promise<SelectedVideoMetadata> {
@@ -105,7 +106,8 @@ export async function prepareWebVibeClipLibraryFile(file: File): Promise<Prepare
     durationSeconds: metadata.durationSeconds,
     meta: {
       captureSource: "library",
-      mimeType: file.type || undefined,
+      mimeType: videoMimeTypeForUpload(file.type, file.name) ?? undefined,
+      fileName: file.name || undefined,
       aspectRatio: metadata.aspectRatio,
     },
   };

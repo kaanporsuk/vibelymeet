@@ -6,6 +6,12 @@ import { uploadChatVideoToBunny } from "@/services/chatVideoUploadService";
 import { uploadImageToBunny } from "@/services/imageUploadService";
 import { formatChatImageMessageContent } from "@/lib/chatMessageContent";
 import { invalidateAfterThreadMutation } from "@/hooks/useMessages";
+import {
+  GENERIC_UPLOAD_MIME_TYPE,
+  imageMimeTypeForUpload,
+  uploadFileNameForMimeType,
+  videoMimeTypeForUpload,
+} from "@/lib/webUploadMime";
 import { getOutboxBlob } from "./blobIdb";
 import type { WebChatOutboxItem } from "./types";
 
@@ -179,7 +185,14 @@ export async function executeWebOutboxItem(
         if (!blob) throw new WebOutboxExecuteError("Photo data missing — try choosing the image again.");
         const { data: { session } } = await supabase.auth.getSession();
         if (!session?.access_token) throw new Error("Not authenticated");
-        const file = new File([blob], "chat.jpg", { type: payload.mimeType || blob.type || "image/jpeg" });
+        const storedName =
+          payload.fileName ||
+          (typeof File !== "undefined" && blob instanceof File ? blob.name : undefined);
+        const mimeType =
+          imageMimeTypeForUpload(blob.type, storedName) ??
+          imageMimeTypeForUpload(payload.mimeType, storedName) ??
+          GENERIC_UPLOAD_MIME_TYPE;
+        const file = new File([blob], uploadFileNameForMimeType("image", "chat", mimeType, storedName), { type: mimeType });
         const { path } = await uploadImageToBunny(file, session.access_token, "chat", matchId);
         mediaRef = path;
       }
@@ -220,7 +233,17 @@ export async function executeWebOutboxItem(
               if (!blob) throw new WebOutboxExecuteError("Video data missing — try recording again.");
               const { data: { session } } = await supabase.auth.getSession();
               if (!session?.access_token) throw new Error("Not authenticated");
-              return uploadChatVideoToBunny(blob, session.access_token, matchId);
+              const storedName =
+                payload.fileName ||
+                (typeof File !== "undefined" && blob instanceof File ? blob.name : undefined);
+              const mimeType =
+                videoMimeTypeForUpload(blob.type, storedName) ??
+                videoMimeTypeForUpload(payload.mimeType, storedName) ??
+                GENERIC_UPLOAD_MIME_TYPE;
+              const file = new File([blob], uploadFileNameForMimeType("video", "chat-video", mimeType, storedName), {
+                type: mimeType,
+              });
+              return uploadChatVideoToBunny(file, session.access_token, matchId);
             })();
       uploadedMediaUrl = uploaded.videoUrl;
       uploadedPublicUrl = uploaded.thumbnailUrl ?? undefined;

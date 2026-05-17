@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { MEDIA_FAMILIES, PROVIDERS, registerMediaAsset } from "../_shared/media-lifecycle.ts";
+import { validateImageUploadBytes } from "../_shared/media-upload-sniffing.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -12,6 +13,22 @@ function json(body: Record<string, unknown>, status = 200) {
     status,
     headers: { ...corsHeaders, "Content-Type": "application/json" },
   });
+}
+
+function isUploadFile(value: FormDataEntryValue | null): value is File {
+  return value instanceof File;
+}
+
+async function providerErrorMeta(res: Response): Promise<{ status: number; bodyLength: number }> {
+  const text = await res.text().catch(() => "");
+  return { status: res.status, bodyLength: text.length };
+}
+
+function safeUnexpectedError(error: unknown): Record<string, string> {
+  if (error instanceof Error) {
+    return { name: error.name || "Error" };
+  }
+  return { name: typeof error };
 }
 
 serve(async (req) => {
@@ -37,7 +54,8 @@ serve(async (req) => {
     }
 
     const formData = await req.formData();
-    const file = formData.get("file") as File;
+    const fileValue = formData.get("file");
+    const file = isUploadFile(fileValue) ? fileValue : null;
     // Legacy compatibility only. Draft-safe photo replace keeps the currently
     // published asset intact until final publish_photo_set / finalize_onboarding.
     const oldPath = formData.get("old_path") as string | null;
@@ -60,12 +78,8 @@ serve(async (req) => {
       return json({ success: false, error: "No file provided" });
     }
 
-    const allowedTypes = [
-      "image/jpeg", "image/jpg", "image/png",
-      "image/webp", "image/heic", "image/heif",
-    ];
-    if (!allowedTypes.includes(file.type)) {
-      return json({ success: false, error: "Invalid file type. Use JPEG, PNG, WebP, or HEIC." });
+    if (file.size <= 0) {
+      return json({ success: false, error: "Empty image file." });
     }
 
     if (file.size > 10 * 1024 * 1024) {
@@ -96,32 +110,31 @@ serve(async (req) => {
       }
     }
 
-    const extMap: Record<string, string> = {
-      "image/png": "png",
-      "image/webp": "webp",
-      "image/heic": "heic",
-      "image/heif": "heic",
-    };
-    const ext = extMap[file.type] ?? "jpg";
+    const fileBuffer = await file.arrayBuffer();
+    const mediaValidation = validateImageUploadBytes(fileBuffer, file.type);
+    if (!mediaValidation.ok) {
+      return json({ success: false, error: "Invalid file type. Use JPEG, PNG, WebP, HEIC, or HEIF." });
+    }
+
+    const sniffedMedia = mediaValidation.media;
+    const ext = sniffedMedia.extension;
     const uniqueId = crypto.randomUUID();
     const storagePath = `photos/${user.id}/${uniqueId}.${ext}`;
 
-    const fileBuffer = await file.arrayBuffer();
     const uploadRes = await fetch(
       `https://${storageHostname}/${storageZone}/${storagePath}`,
       {
         method: "PUT",
         headers: {
           "AccessKey": apiKey,
-          "Content-Type": file.type,
+          "Content-Type": sniffedMedia.mimeType,
         },
         body: fileBuffer,
       }
     );
 
     if (!uploadRes.ok) {
-      const errText = await uploadRes.text();
-      console.error("[upload-image] Bunny upload failed:", uploadRes.status, errText);
+      console.error("[upload-image] Bunny upload failed:", await providerErrorMeta(uploadRes));
       return json({ success: false, error: "Upload to CDN failed" });
     }
 
@@ -139,7 +152,7 @@ serve(async (req) => {
             p_provider_id: storagePath,
             p_provider_meta: {
               storageZone,
-              fileType: file.type,
+              fileType: sniffedMedia.mimeType,
               fileSize: file.size,
               ...(safeReplacedPath ? { replacesStoragePath: safeReplacedPath } : {}),
             },
@@ -169,7 +182,7 @@ serve(async (req) => {
           mediaFamily: MEDIA_FAMILIES.PROFILE_PHOTO,
           ownerUserId: user.id,
           providerPath: storagePath,
-          mimeType: file.type,
+          mimeType: sniffedMedia.mimeType,
           bytes: file.size,
           legacyTable: sessionId ? "draft_media_sessions" : "profiles",
           legacyId: sessionId ?? `${user.id}:draft:${storagePath}`,
@@ -189,7 +202,7 @@ serve(async (req) => {
           mediaFamily: MEDIA_FAMILIES.CHAT_IMAGE,
           ownerUserId: user.id,
           providerPath: storagePath,
-          mimeType: file.type,
+          mimeType: sniffedMedia.mimeType,
           bytes: file.size,
           legacyTable: "matches",
           legacyId: matchId,
@@ -209,7 +222,7 @@ serve(async (req) => {
     return json({ success: true, path: storagePath, sessionId });
 
   } catch (err) {
-    console.error("[upload-image] Unexpected error:", err);
-    return json({ success: false, error: String(err) });
+    console.error("[upload-image] Unexpected error:", safeUnexpectedError(err));
+    return json({ success: false, error: "Upload failed" });
   }
 });
