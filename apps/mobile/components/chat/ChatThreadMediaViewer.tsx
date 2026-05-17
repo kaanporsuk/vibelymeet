@@ -130,9 +130,23 @@ function PhotoViewerBody({
   const [index, setIndex] = useState(start);
   const [uriOverridesById, setUriOverridesById] = useState<Record<string, string>>({});
   const refreshAttemptedForUriRef = useRef<string | null>(null);
+  const lastInitialIdRef = useRef(initialId);
 
   useEffect(() => {
-    setIndex(Math.max(0, items.findIndex((i) => i.id === initialId)));
+    const initialChanged = lastInitialIdRef.current !== initialId;
+    lastInitialIdRef.current = initialId;
+    setIndex((prevIndex) => {
+      if (!items.length) return 0;
+      if (initialChanged) {
+        return Math.max(0, items.findIndex((i) => i.id === initialId));
+      }
+      const currentId = items[prevIndex]?.id;
+      const preservedIndex = currentId ? items.findIndex((i) => i.id === currentId) : -1;
+      if (preservedIndex >= 0) return preservedIndex;
+      const initialIndex = items.findIndex((i) => i.id === initialId);
+      if (initialIndex >= 0) return initialIndex;
+      return Math.min(prevIndex, items.length - 1);
+    });
   }, [initialId, items]);
 
   const current = items[index];
