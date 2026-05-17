@@ -22,6 +22,7 @@ import { CLIP_DATE_ACTION_HINT } from "../../../shared/dateSuggestions/dateCompo
 import { trackVibeClipEvent } from "@/lib/vibeClipAnalytics";
 import { durationBucketFromSeconds, threadBucketFromCount } from "../../../shared/chat/vibeClipAnalytics";
 import { cn } from "@/lib/utils";
+import { refreshCachedChatMediaUrl } from "@/lib/chatMediaResolver";
 
 type VideoElementWithWebkitFullscreen = HTMLVideoElement & {
   webkitEnterFullscreen?: () => void;
@@ -45,6 +46,10 @@ interface VibeClipBubbleProps {
   onRequestImmersive?: () => void;
   /** Pause inline preview while immersive viewer is open for this clip URL. */
   immersiveActive?: boolean;
+  videoSourceRef?: string | null;
+  thumbnailSourceRef?: string | null;
+  onResolvedVideoUrl?: (url: string) => void;
+  onResolvedThumbnailUrl?: (url: string) => void;
   /** Older clips in the thread sit visually quieter than the latest. */
   threadVisualRecede?: boolean;
 }
@@ -61,6 +66,10 @@ export const VibeClipBubble = ({
   sparkMessageId,
   onRequestImmersive,
   immersiveActive,
+  videoSourceRef,
+  thumbnailSourceRef,
+  onResolvedVideoUrl,
+  onResolvedThumbnailUrl,
   threadVisualRecede = false,
 }: VibeClipBubbleProps) => {
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -73,8 +82,11 @@ export const VibeClipBubble = ({
   const [loadError, setLoadError] = useState(false);
   const [hasPlayed, setHasPlayed] = useState(false);
   const [showReactBar, setShowReactBar] = useState(false);
+  const [playableVideoUrl, setPlayableVideoUrl] = useState(meta.videoUrl);
+  const [playableThumbnailUrl, setPlayableThumbnailUrl] = useState(meta.thumbnailUrl ?? null);
   const playStartTracked = useRef(false);
   const playCompleteTracked = useRef(false);
+  const refreshAttemptedForUrlRef = useRef<string | null>(null);
 
   const hasPrimary = !!(onReplyWithClip || onVoiceReply);
   const hasSecondary = !!(onSuggestDate || onReactionPick);
@@ -93,6 +105,8 @@ export const VibeClipBubble = ({
   }, []);
 
   useEffect(() => {
+    setPlayableVideoUrl(meta.videoUrl);
+    setPlayableThumbnailUrl(meta.thumbnailUrl ?? null);
     setIsPlaying(false);
     setCurrentTime(0);
     setIsLoading(true);
@@ -101,11 +115,34 @@ export const VibeClipBubble = ({
     setLoadError(false);
     playStartTracked.current = false;
     playCompleteTracked.current = false;
-  }, [meta.videoUrl]);
+    refreshAttemptedForUrlRef.current = null;
+  }, [meta.thumbnailUrl, meta.videoUrl]);
 
   useEffect(() => {
     setShowReactBar(false);
   }, [meta.videoUrl]);
+
+  const displayMeta = useMemo(
+    () => ({ ...meta, videoUrl: playableVideoUrl, thumbnailUrl: playableThumbnailUrl }),
+    [meta, playableThumbnailUrl, playableVideoUrl],
+  );
+
+  const refreshClipMedia = useCallback(async (): Promise<boolean> => {
+    if (!sparkMessageId || !videoSourceRef || refreshAttemptedForUrlRef.current === playableVideoUrl) return false;
+    refreshAttemptedForUrlRef.current = playableVideoUrl;
+    const freshVideoUrl = await refreshCachedChatMediaUrl(sparkMessageId, "vibe_clip", videoSourceRef);
+    const freshThumbnailUrl = thumbnailSourceRef
+      ? await refreshCachedChatMediaUrl(sparkMessageId, "thumbnail", thumbnailSourceRef)
+      : null;
+    if (freshThumbnailUrl) {
+      setPlayableThumbnailUrl(freshThumbnailUrl);
+      onResolvedThumbnailUrl?.(freshThumbnailUrl);
+    }
+    if (!freshVideoUrl) return false;
+    setPlayableVideoUrl(freshVideoUrl);
+    onResolvedVideoUrl?.(freshVideoUrl);
+    return freshVideoUrl !== playableVideoUrl;
+  }, [onResolvedThumbnailUrl, onResolvedVideoUrl, playableVideoUrl, sparkMessageId, thumbnailSourceRef, videoSourceRef]);
 
   const markReadyIfPossible = useCallback(() => {
     const video = videoRef.current;
@@ -140,21 +177,23 @@ export const VibeClipBubble = ({
           trackVibeClipEvent("clip_play_started", {
             thread_bucket: threadBucketFromCount(threadMessageCount),
             is_sender: isMine,
-            duration_bucket: durationBucketFromSeconds(meta.durationSec),
-            has_poster: !!meta.thumbnailUrl,
+            duration_bucket: durationBucketFromSeconds(displayMeta.durationSec),
+            has_poster: !!displayMeta.thumbnailUrl,
           });
         }
       }).catch((err: unknown) => {
         const name = err instanceof Error ? err.name : "";
         if (name === "AbortError" || name === "NotAllowedError" || name === "NotSupportedError") {
-          setLoadError(true);
+          void refreshClipMedia().then((didRefresh) => {
+            if (!didRefresh) setLoadError(true);
+          });
         }
       });
     } else {
       video.pause();
       setIsPlaying(false);
     }
-  }, [isMine, meta.durationSec, meta.thumbnailUrl, threadMessageCount]);
+  }, [displayMeta.durationSec, displayMeta.thumbnailUrl, isMine, refreshClipMedia, threadMessageCount]);
 
   const toggleMute = useCallback((e: React.MouseEvent) => {
     e.stopPropagation();
@@ -210,17 +249,17 @@ export const VibeClipBubble = ({
       trackVibeClipEvent("clip_play_completed", {
         thread_bucket: threadBucketFromCount(threadMessageCount),
         is_sender: isMine,
-        duration_bucket: durationBucketFromSeconds(meta.durationSec),
-        has_poster: !!meta.thumbnailUrl,
+        duration_bucket: durationBucketFromSeconds(displayMeta.durationSec),
+        has_poster: !!displayMeta.thumbnailUrl,
       });
     }
-  }, [isMine, meta.durationSec, meta.thumbnailUrl, threadMessageCount]);
+  }, [displayMeta.durationSec, displayMeta.thumbnailUrl, isMine, threadMessageCount]);
 
-  const progress = meta.durationSec > 0 ? (currentTime / meta.durationSec) * 100 : 0;
+  const progress = displayMeta.durationSec > 0 ? (currentTime / displayMeta.durationSec) * 100 : 0;
   const isBuffering = isReady && isLoading && isPlaying;
   const clipAspectRatio =
-    typeof meta.aspectRatio === "number" && Number.isFinite(meta.aspectRatio) && meta.aspectRatio > 0
-      ? Math.max(0.5, Math.min(1.2, meta.aspectRatio))
+    typeof displayMeta.aspectRatio === "number" && Number.isFinite(displayMeta.aspectRatio) && displayMeta.aspectRatio > 0
+      ? Math.max(0.5, Math.min(1.2, displayMeta.aspectRatio))
       : 9 / 16;
 
   if (loadError) {
@@ -241,7 +280,9 @@ export const VibeClipBubble = ({
             setIsReady(false);
             setIsPlaying(false);
             setCurrentTime(0);
-            videoRef.current?.load();
+            void refreshClipMedia().then((didRefresh) => {
+              if (!didRefresh) videoRef.current?.load();
+            });
           }}
           className="text-[11px] font-semibold text-violet-400 hover:text-violet-300 underline-offset-2 hover:underline"
         >
@@ -305,15 +346,15 @@ export const VibeClipBubble = ({
                 </div>
               </div>
               <div className="absolute bottom-0 inset-x-0 p-2 bg-gradient-to-t from-black/60 to-transparent">
-                <span className="text-[10px] text-white/70 font-mono">{meta.durationLabel}</span>
+                <span className="text-[10px] text-white/70 font-mono">{displayMeta.durationLabel}</span>
               </div>
             </div>
           )}
 
           <video
             ref={videoRef}
-            src={meta.videoUrl}
-            poster={meta.thumbnailUrl ?? undefined}
+            src={displayMeta.videoUrl}
+            poster={displayMeta.thumbnailUrl ?? undefined}
             playsInline
             muted={isMuted}
             preload="metadata"
@@ -328,7 +369,9 @@ export const VibeClipBubble = ({
             onWaiting={() => setIsLoading(true)}
             onError={() => {
               setIsLoading(false);
-              setLoadError(true);
+              void refreshClipMedia().then((didRefresh) => {
+                if (!didRefresh) setLoadError(true);
+              });
             }}
             onTimeUpdate={handleTimeUpdate}
             onEnded={handleEnded}
@@ -370,9 +413,9 @@ export const VibeClipBubble = ({
             </div>
             <div className="flex items-center justify-between gap-1">
               <span className="text-[9px] text-white/82 font-mono tabular-nums font-medium">
-                {isPlaying && meta.durationSec > 0
-                  ? `${formatDuration(Math.round(currentTime))} · ${formatDuration(meta.durationSec)}`
-                  : meta.durationLabel}
+                {isPlaying && displayMeta.durationSec > 0
+                  ? `${formatDuration(Math.round(currentTime))} · ${formatDuration(displayMeta.durationSec)}`
+                  : displayMeta.durationLabel}
               </span>
               <div className="flex items-center gap-0.5">
                 <button

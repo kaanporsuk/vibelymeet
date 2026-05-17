@@ -3,9 +3,14 @@ import { motion } from "framer-motion";
 import { Play, Volume2, VolumeX, Maximize, AlertCircle, Loader2 } from "lucide-react";
 import { AspectRatio } from "@/components/ui/aspect-ratio";
 import { cn } from "@/lib/utils";
+import { refreshCachedChatMediaUrl, type ChatMediaKind } from "@/lib/chatMediaResolver";
 
 interface VideoMessageBubbleProps {
   videoUrl: string;
+  videoSourceRef?: string | null;
+  messageId?: string;
+  mediaKind?: Extract<ChatMediaKind, "video" | "vibe_clip">;
+  onResolvedVideoUrl?: (url: string) => void;
   duration: number;
   isMine: boolean;
   /** When set, tap / expand opens chat fullscreen viewer instead of browser fullscreen */
@@ -29,6 +34,10 @@ const formatDuration = (s: number) => {
 
 export const VideoMessageBubble = ({
   videoUrl,
+  videoSourceRef,
+  messageId,
+  mediaKind = "video",
+  onResolvedVideoUrl,
   duration,
   isMine,
   onRequestImmersive,
@@ -43,6 +52,8 @@ export const VideoMessageBubble = ({
   const [isReady, setIsReady] = useState(false);
   const [hasMetadata, setHasMetadata] = useState(false);
   const [loadError, setLoadError] = useState(false);
+  const [playableVideoUrl, setPlayableVideoUrl] = useState(videoUrl);
+  const refreshAttemptedForUrlRef = useRef<string | null>(null);
 
   const isIosSafari = useMemo(() => {
     if (typeof navigator === "undefined") return false;
@@ -55,13 +66,31 @@ export const VideoMessageBubble = ({
   }, []);
 
   useEffect(() => {
+    setPlayableVideoUrl(videoUrl);
     setIsPlaying(false);
     setCurrentTime(0);
     setIsLoading(true);
     setIsReady(false);
     setHasMetadata(false);
     setLoadError(false);
+    refreshAttemptedForUrlRef.current = null;
   }, [videoUrl]);
+
+  const refreshVideoUrl = useCallback(async (): Promise<string | null> => {
+    if (!messageId || !videoSourceRef) return null;
+    const freshUrl = await refreshCachedChatMediaUrl(messageId, mediaKind, videoSourceRef);
+    if (!freshUrl) return null;
+    setPlayableVideoUrl(freshUrl);
+    onResolvedVideoUrl?.(freshUrl);
+    return freshUrl;
+  }, [mediaKind, messageId, onResolvedVideoUrl, videoSourceRef]);
+
+  const tryRefreshAfterFailure = useCallback(async (): Promise<boolean> => {
+    if (!messageId || !videoSourceRef || refreshAttemptedForUrlRef.current === playableVideoUrl) return false;
+    refreshAttemptedForUrlRef.current = playableVideoUrl;
+    const freshUrl = await refreshVideoUrl();
+    return !!freshUrl && freshUrl !== playableVideoUrl;
+  }, [messageId, playableVideoUrl, refreshVideoUrl, videoSourceRef]);
 
   useEffect(() => {
     if (immersiveActive) {
@@ -109,14 +138,16 @@ export const VideoMessageBubble = ({
       video.play().then(() => setIsPlaying(true)).catch((err: unknown) => {
         const name = err instanceof Error ? err.name : "";
         if (name === "AbortError" || name === "NotAllowedError" || name === "NotSupportedError") {
-          setLoadError(true);
+          void tryRefreshAfterFailure().then((didRefresh) => {
+            if (!didRefresh) setLoadError(true);
+          });
         }
       });
     } else {
       video.pause();
       setIsPlaying(false);
     }
-  }, []);
+  }, [tryRefreshAfterFailure]);
 
   const toggleMute = useCallback((e: React.MouseEvent) => {
     e.stopPropagation();
@@ -185,7 +216,9 @@ export const VideoMessageBubble = ({
             setIsReady(false);
             setIsPlaying(false);
             setCurrentTime(0);
-            videoRef.current?.load();
+            void refreshVideoUrl().then((freshUrl) => {
+              if (!freshUrl) videoRef.current?.load();
+            });
           }}
           className="text-[11px] font-medium text-primary hover:underline underline-offset-2"
         >
@@ -252,7 +285,7 @@ export const VideoMessageBubble = ({
 
         <video
           ref={videoRef}
-          src={videoUrl}
+          src={playableVideoUrl}
           playsInline
           muted={isMuted}
           preload="metadata"
@@ -267,7 +300,9 @@ export const VideoMessageBubble = ({
           onWaiting={() => setIsLoading(true)}
           onError={() => {
             setIsLoading(false);
-            setLoadError(true);
+            void tryRefreshAfterFailure().then((didRefresh) => {
+              if (!didRefresh) setLoadError(true);
+            });
           }}
           onTimeUpdate={handleTimeUpdate}
           onEnded={handleEnded}

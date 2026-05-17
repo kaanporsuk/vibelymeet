@@ -205,7 +205,7 @@ test("web queue and upload preserve validated library video metadata", () => {
 
 test("video bubbles remain adaptive and full-width across web and native chat", () => {
   assert.match(webVibeClipBubble, /w-\[min\(17\.5rem,calc\(100vw-4rem\)\)\] max-w-full/);
-  assert.match(webVibeClipBubble, /Math\.max\(0\.5, Math\.min\(1\.2, meta\.aspectRatio\)\)/);
+  assert.match(webVibeClipBubble, /Math\.max\(0\.5, Math\.min\(1\.2, displayMeta\.aspectRatio\)\)/);
   assert.match(webVibeClipBubble, /<AspectRatio ratio=\{clipAspectRatio\}>/);
   assert.match(webVibeClipBubble, /w-full h-full object-cover bg-black/);
   assert.match(webVibeClipBubble, /aria-label=\{isMuted \? "Unmute clip" : "Mute clip"\}/);

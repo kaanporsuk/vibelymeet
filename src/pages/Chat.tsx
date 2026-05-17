@@ -34,6 +34,7 @@ import {
   inferChatMediaRenderKind,
   parseChatImageMessageContent,
 } from "@/lib/chatMessageContent";
+import { refreshCachedChatMediaUrl } from "@/lib/chatMediaResolver";
 import { extractVibeClipMeta } from "../../shared/chat/messageRouting";
 import { clientRequestIdFromStructured } from "../../shared/chat/clientRequestId";
 import { cn } from "@/lib/utils";
@@ -146,8 +147,11 @@ interface ChatMessage {
   audioUrl?: string;
   audioSourceRef?: string;
   audioDuration?: number;
+  imageSourceRef?: string;
   videoUrl?: string;
+  videoSourceRef?: string;
   videoDuration?: number;
+  thumbnailSourceRef?: string;
   reactionPair?: ReactionPair | null;
   status?: MessageStatusType;
   sendError?: string;
@@ -191,6 +195,10 @@ function VibeClipMessageRow({
   threadMessageCount,
   immersiveVideoUrl,
   onRequestImmersiveVideo,
+  videoUrlOverride,
+  thumbnailUrlOverride,
+  onResolvedVideoUrl,
+  onResolvedThumbnailUrl,
   threadVisualRecede,
 }: {
   message: ChatMessage & { isFirstInGroup?: boolean; isLastInGroup?: boolean; showAvatar?: boolean };
@@ -202,14 +210,25 @@ function VibeClipMessageRow({
   threadMessageCount: number;
   immersiveVideoUrl: string | null;
   onRequestImmersiveVideo: (url: string, posterUrl?: string | null) => void;
+  videoUrlOverride?: string;
+  thumbnailUrlOverride?: string | null;
+  onResolvedVideoUrl?: (messageId: string, url: string) => void;
+  onResolvedThumbnailUrl?: (messageId: string, url: string) => void;
   threadVisualRecede?: boolean;
 }) {
-  const clipMeta = extractVibeClipMeta({
+  const baseClipMeta = extractVibeClipMeta({
     video_url: message.videoUrl,
     video_duration_seconds: message.videoDuration,
     structured_payload: (message.structuredPayload as Record<string, unknown>) ?? null,
     message_kind: "vibe_clip",
   });
+  const clipMeta = baseClipMeta
+    ? {
+        ...baseClipMeta,
+        videoUrl: videoUrlOverride ?? baseClipMeta.videoUrl,
+        thumbnailUrl: thumbnailUrlOverride ?? baseClipMeta.thumbnailUrl,
+      }
+    : null;
   const isMine = message.sender === "me";
   return (
     <div
@@ -231,6 +250,10 @@ function VibeClipMessageRow({
           <VibeClipBubble
             meta={clipMeta}
             isMine={isMine}
+            videoSourceRef={message.videoSourceRef}
+            thumbnailSourceRef={message.thumbnailSourceRef}
+            onResolvedVideoUrl={(url) => onResolvedVideoUrl?.(message.id, url)}
+            onResolvedThumbnailUrl={(url) => onResolvedThumbnailUrl?.(message.id, url)}
             threadMessageCount={threadMessageCount}
             sparkMessageId={message.id}
             onReplyWithClip={isMine ? undefined : onReplyWithClip}
@@ -244,13 +267,17 @@ function VibeClipMessageRow({
           />
         ) : (
           <VideoMessageBubble
-            videoUrl={message.videoUrl!}
+            videoUrl={videoUrlOverride ?? message.videoUrl!}
+            videoSourceRef={message.videoSourceRef}
+            messageId={message.id}
+            mediaKind="vibe_clip"
+            onResolvedVideoUrl={(url) => onResolvedVideoUrl?.(message.id, url)}
             duration={message.videoDuration || 0}
             isMine={isMine}
             onRequestImmersive={
-              message.videoUrl ? () => onRequestImmersiveVideo(message.videoUrl!, null) : undefined
+              message.videoUrl ? () => onRequestImmersiveVideo(videoUrlOverride ?? message.videoUrl!, null) : undefined
             }
-            immersiveActive={!!message.videoUrl && immersiveVideoUrl === message.videoUrl}
+            immersiveActive={!!message.videoUrl && immersiveVideoUrl === (videoUrlOverride ?? message.videoUrl)}
             threadVisualRecede={threadVisualRecede}
           />
         )}
@@ -691,8 +718,11 @@ const Chat = () => {
         audioUrl: m.audioUrl,
         audioSourceRef: m.audioSourceRef,
         audioDuration: m.audioDuration,
+        imageSourceRef: m.imageSourceRef,
         videoUrl: m.videoUrl,
+        videoSourceRef: m.videoSourceRef,
         videoDuration: m.videoDuration,
+        thumbnailSourceRef: m.thumbnailSourceRef,
         structuredPayload: m.structuredPayload ?? undefined,
         status: statusFromServer(m.sender, m.readAt),
         reactionPair: pair,
@@ -710,6 +740,33 @@ const Chat = () => {
       getId: (m) => m.id,
     });
   }, [messages]);
+
+  const [photoUrlOverridesById, setPhotoUrlOverridesById] = useState<Record<string, string>>({});
+  const photoUrlForMessage = useCallback(
+    (message: ChatMessage): string | null =>
+      photoUrlOverridesById[message.id] ??
+      parseChatImageMessageContent(message.text, { allowLocalPreviewUrls: true }),
+    [photoUrlOverridesById],
+  );
+  const refreshPhotoUrlForMessage = useCallback(async (message: ChatMessage): Promise<string | null> => {
+    if (!message.imageSourceRef) return null;
+    const freshUrl = await refreshCachedChatMediaUrl(message.id, "image", message.imageSourceRef);
+    if (!freshUrl) return null;
+    setPhotoUrlOverridesById((prev) => (prev[message.id] === freshUrl ? prev : { ...prev, [message.id]: freshUrl }));
+    return freshUrl;
+  }, []);
+  const [videoUrlOverridesById, setVideoUrlOverridesById] = useState<Record<string, string>>({});
+  const [thumbnailUrlOverridesById, setThumbnailUrlOverridesById] = useState<Record<string, string>>({});
+  const rememberResolvedVideoUrl = useCallback((messageId: string, url: string) => {
+    setVideoUrlOverridesById((prev) => (prev[messageId] === url ? prev : { ...prev, [messageId]: url }));
+  }, []);
+  const rememberResolvedThumbnailUrl = useCallback((messageId: string, url: string) => {
+    setThumbnailUrlOverridesById((prev) => (prev[messageId] === url ? prev : { ...prev, [messageId]: url }));
+  }, []);
+  const videoUrlForMessage = useCallback(
+    (message: ChatMessage): string | undefined => videoUrlOverridesById[message.id] ?? message.videoUrl,
+    [videoUrlOverridesById],
+  );
 
   const outboxClipStateRef = useRef<Map<string, string>>(new Map());
   useEffect(() => {
@@ -735,12 +792,12 @@ const Chat = () => {
     const out: { id: string; url: string }[] = [];
     for (const m of displayMessages) {
       if (m.type !== "image") continue;
-      const url = parseChatImageMessageContent(m.text, { allowLocalPreviewUrls: true });
+      const url = photoUrlForMessage(m);
       if (!url) continue;
       out.push({ id: m.id, url });
     }
     return out;
-  }, [displayMessages]);
+  }, [displayMessages, photoUrlForMessage]);
 
   useEffect(() => {
     if (!showDateComposer || dateComposerLaunchSource !== "vibe_clip") return;
@@ -2005,6 +2062,10 @@ const Chat = () => {
                   threadMessageCount={displayMessages.length}
                   immersiveVideoUrl={videoLightbox?.url ?? null}
                   onRequestImmersiveVideo={(url, posterUrl) => setVideoLightbox({ url, posterUrl })}
+                  videoUrlOverride={videoUrlOverridesById[groupedMessage.id]}
+                  thumbnailUrlOverride={thumbnailUrlOverridesById[groupedMessage.id] ?? null}
+                  onResolvedVideoUrl={rememberResolvedVideoUrl}
+                  onResolvedThumbnailUrl={rememberResolvedThumbnailUrl}
                   onReplyWithClip={openVibeClipOptions}
                   onVoiceReply={() => scrollToBottom()}
                   onSuggestDate={() =>
@@ -2031,16 +2092,25 @@ const Chat = () => {
                   )}
                   <div>
                     <VideoMessageBubble
-                      videoUrl={groupedMessage.videoUrl!}
+                      videoUrl={videoUrlForMessage(groupedMessage) ?? groupedMessage.videoUrl!}
+                      videoSourceRef={groupedMessage.videoSourceRef}
+                      messageId={groupedMessage.id}
+                      mediaKind="video"
+                      onResolvedVideoUrl={(url) => rememberResolvedVideoUrl(groupedMessage.id, url)}
                       duration={groupedMessage.videoDuration || 0}
                       isMine={groupedMessage.sender === "me"}
                       onRequestImmersive={
                         groupedMessage.videoUrl
-                          ? () => setVideoLightbox({ url: groupedMessage.videoUrl!, posterUrl: null })
+                          ? () =>
+                              setVideoLightbox({
+                                url: videoUrlForMessage(groupedMessage) ?? groupedMessage.videoUrl!,
+                                posterUrl: null,
+                              })
                           : undefined
                       }
                       immersiveActive={
-                        !!groupedMessage.videoUrl && videoLightbox?.url === groupedMessage.videoUrl
+                        !!groupedMessage.videoUrl &&
+                        videoLightbox?.url === (videoUrlForMessage(groupedMessage) ?? groupedMessage.videoUrl)
                       }
                       threadVisualRecede={mediaRecede}
                     />
@@ -2060,44 +2130,49 @@ const Chat = () => {
                     )}
                   </div>
                 </div>
-              ) : groupedMessage.type === "image" ? (
-                <div
-                  key={groupedMessage.id}
-                  className={cn(
-                    "flex items-end gap-2",
-                    groupedMessage.sender === "me" ? "justify-end" : "justify-start",
-                    groupedMessage.isFirstInGroup ? "mt-2" : "mt-1",
-                  )}
-                >
-                  {groupedMessage.sender !== "me" && (
-                    <div className="w-7 shrink-0">
-                      {groupedMessage.showAvatar && (
-                        <img src={otherUser.avatar_url} alt="" className="w-7 h-7 rounded-full object-cover" />
-                      )}
-                    </div>
-                  )}
-                  <div className="max-w-[min(92%,22rem)]">
-                    <button
-                      type="button"
-                      className="group relative block w-60 max-w-full cursor-zoom-in rounded-2xl border-0 bg-transparent p-0 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 focus-visible:ring-offset-2 focus-visible:ring-offset-background"
-                      aria-label="View photo full screen"
-                      onClick={() => setPhotoLightboxInitialId(groupedMessage.id)}
-                    >
-                      {parseChatImageMessageContent(groupedMessage.text, { allowLocalPreviewUrls: true })?.trim() ? (
-                        <span className="block aspect-[4/5] w-60 max-w-full overflow-hidden rounded-2xl border border-border/30 bg-secondary/40">
-                          <img
-                            src={parseChatImageMessageContent(groupedMessage.text, { allowLocalPreviewUrls: true }) || ""}
-                            alt="Shared image"
-                            className="h-full w-full object-cover transition-transform duration-200 group-hover:brightness-[1.03] group-active:scale-[0.99]"
-                            loading="lazy"
-                          />
-                        </span>
-                      ) : (
-                        <div className="w-60 aspect-[4/5] max-w-full rounded-2xl border border-border/30 bg-muted/40 flex items-center justify-center text-[11px] text-muted-foreground px-2 text-center">
-                          Preparing photo…
-                        </div>
-                      )}
-                    </button>
+              ) : groupedMessage.type === "image" ? (() => {
+                const imageUrl = photoUrlForMessage(groupedMessage);
+                return (
+                  <div
+                    key={groupedMessage.id}
+                    className={cn(
+                      "flex items-end gap-2",
+                      groupedMessage.sender === "me" ? "justify-end" : "justify-start",
+                      groupedMessage.isFirstInGroup ? "mt-2" : "mt-1",
+                    )}
+                  >
+                    {groupedMessage.sender !== "me" && (
+                      <div className="w-7 shrink-0">
+                        {groupedMessage.showAvatar && (
+                          <img src={otherUser.avatar_url} alt="" className="w-7 h-7 rounded-full object-cover" />
+                        )}
+                      </div>
+                    )}
+                    <div className="max-w-[min(92%,22rem)]">
+                      <button
+                        type="button"
+                        className="group relative block w-60 max-w-full cursor-zoom-in rounded-2xl border-0 bg-transparent p-0 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+                        aria-label="View photo full screen"
+                        onClick={() => setPhotoLightboxInitialId(groupedMessage.id)}
+                      >
+                        {imageUrl?.trim() ? (
+                          <span className="block aspect-[4/5] w-60 max-w-full overflow-hidden rounded-2xl border border-border/30 bg-secondary/40">
+                            <img
+                              src={imageUrl}
+                              alt="Shared image"
+                              className="h-full w-full object-cover transition-transform duration-200 group-hover:brightness-[1.03] group-active:scale-[0.99]"
+                              loading="lazy"
+                              onError={() => {
+                                void refreshPhotoUrlForMessage(groupedMessage);
+                              }}
+                            />
+                          </span>
+                        ) : (
+                          <div className="w-60 aspect-[4/5] max-w-full rounded-2xl border border-border/30 bg-muted/40 flex items-center justify-center text-[11px] text-muted-foreground px-2 text-center">
+                            Preparing photo…
+                          </div>
+                        )}
+                      </button>
                     {groupedMessage.isLastInGroup && (
                       <div
                         className={cn(
@@ -2136,9 +2211,10 @@ const Chat = () => {
                         )}
                       </div>
                     )}
+                    </div>
                   </div>
-                </div>
-              ) : groupedMessage.type === "voice" ? (
+                );
+              })() : groupedMessage.type === "voice" ? (
                 <div
                   key={groupedMessage.id}
                   className={cn(

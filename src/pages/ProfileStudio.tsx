@@ -789,7 +789,6 @@ const ProfileStudio = () => {
       stableViewportHeight - currentViewportHeight,
     );
     if (keyboardOverlap < PROFILE_STUDIO_PROMPT_KEYBOARD_THRESHOLD_PX) {
-      promptDrawerStableViewportHeightRef.current = Math.max(currentViewportHeight, currentLayoutHeight);
       clearPromptDrawerKeyboardStyle();
       return;
     }

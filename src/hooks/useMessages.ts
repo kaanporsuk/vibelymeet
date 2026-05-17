@@ -10,6 +10,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { captureSupabaseError } from "@/lib/errorTracking";
 import { collapseVibeGameRowsForWeb, type WebHydratedGameSessionView } from "@/lib/webChatGameSessions";
 import { resolveChatMessageMediaForDisplay } from "@/lib/chatMediaResolver";
+import { parseChatImageMessageContent } from "@/lib/chatMessageContent";
 import { toRenderableMessageKind } from "../../shared/chat/messageRouting";
 import { threadMessagesQueryKey, type ThreadInvalidateScope } from "../../shared/chat/queryKeys";
 import { resolvePrimaryProfilePhotoPath } from "../../shared/profilePhoto/resolvePrimaryProfilePhotoPath";
@@ -89,8 +90,11 @@ export interface Message {
   audioUrl?: string;
   audioSourceRef?: string;
   audioDuration?: number;
+  imageSourceRef?: string;
   videoUrl?: string;
+  videoSourceRef?: string;
   videoDuration?: number;
+  thumbnailSourceRef?: string;
   messageKind?: "text" | "date_suggestion" | "date_suggestion_event" | "vibe_game_session" | "vibe_clip";
   refId?: string | null;
   structuredPayload?: Record<string, unknown> | null;
@@ -175,6 +179,38 @@ function normalizeRawMessage(row: Partial<ChatRawMessageRow> & { id: string }): 
     message_kind: row.message_kind ?? "text",
     ref_id: row.ref_id ?? null,
     structured_payload: row.structured_payload ?? null,
+  };
+}
+
+function isResolvedOrLocalMediaRef(value: string): boolean {
+  return /^https?:\/\//i.test(value) || value.startsWith("blob:") || value.startsWith("file:") || value.startsWith("data:");
+}
+
+function durableChatMediaSourceRef(value: string | null | undefined): string | undefined {
+  const trimmed = value?.trim();
+  if (!trimmed || isResolvedOrLocalMediaRef(trimmed)) return undefined;
+  return trimmed;
+}
+
+function structuredPayloadObject(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : null;
+}
+
+function collectChatMediaSourceRefs(row: {
+  content: string;
+  audio_url?: string | null;
+  video_url?: string | null;
+  structured_payload?: unknown;
+}) {
+  const payload = structuredPayloadObject(row.structured_payload);
+  const thumbnailRef = typeof payload?.thumbnail_url === "string" ? payload.thumbnail_url : null;
+  return {
+    audio: durableChatMediaSourceRef(row.audio_url),
+    image: durableChatMediaSourceRef(
+      parseChatImageMessageContent(row.content, { allowPrivateMediaRefs: true }),
+    ),
+    video: durableChatMediaSourceRef(row.video_url),
+    thumbnail: durableChatMediaSourceRef(thumbnailRef),
   };
 }
 
@@ -263,28 +299,34 @@ export async function hydrateChatRowsForDisplay(
   currentUserId: string,
 ): Promise<Message[]> {
   const collapsedRows = collapseVibeGameRowsForWeb(rows.map(normalizeRawMessage));
-  const audioSourceRefById = new Map(
-    collapsedRows.map((row) => [row.id, row.audio_url || null] as const),
+  const mediaSourceRefsById = new Map(
+    collapsedRows.map((row) => [row.id, collectChatMediaSourceRefs(row)] as const),
   );
   const displayRows = await Promise.all(collapsedRows.map((row) => resolveChatMessageMediaForDisplay(row)));
 
-  return displayRows.map((row) => ({
-    id: row.id,
-    text: row.content,
-    sender: row.sender_id === currentUserId ? ("me" as const) : ("them" as const),
-    time: new Date(row.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-    createdAt: row.created_at,
-    readAt: row.read_at,
-    audioUrl: row.audio_url || undefined,
-    audioSourceRef: audioSourceRefById.get(row.id) || undefined,
-    audioDuration: row.audio_duration_seconds || undefined,
-    videoUrl: row.video_url || undefined,
-    videoDuration: row.video_duration_seconds || undefined,
-    messageKind: toRenderableMessageKind(row.message_kind) as Message["messageKind"],
-    refId: row.ref_id,
-    structuredPayload: row.structured_payload ?? null,
-    gameSessionView: row.game_session_view,
-  }));
+  return displayRows.map((row) => {
+    const sourceRefs = mediaSourceRefsById.get(row.id);
+    return {
+      id: row.id,
+      text: row.content,
+      sender: row.sender_id === currentUserId ? ("me" as const) : ("them" as const),
+      time: new Date(row.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+      createdAt: row.created_at,
+      readAt: row.read_at,
+      audioUrl: row.audio_url || undefined,
+      audioSourceRef: sourceRefs?.audio,
+      audioDuration: row.audio_duration_seconds || undefined,
+      imageSourceRef: sourceRefs?.image,
+      videoUrl: row.video_url || undefined,
+      videoSourceRef: sourceRefs?.video,
+      videoDuration: row.video_duration_seconds || undefined,
+      thumbnailSourceRef: sourceRefs?.thumbnail,
+      messageKind: toRenderableMessageKind(row.message_kind) as Message["messageKind"],
+      refId: row.ref_id,
+      structuredPayload: row.structured_payload ?? null,
+      gameSessionView: row.game_session_view,
+    };
+  });
 }
 
 async function hydrateChatPageRowsForDisplay(params: {

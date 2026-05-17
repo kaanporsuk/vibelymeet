@@ -16,6 +16,7 @@ import {
   safeRemoveExpoSharedObjectSubscription,
 } from '@/lib/expoSharedObjectSafe';
 import { durationBucketFromSeconds, threadBucketFromCount } from '../../../../shared/chat/vibeClipAnalytics';
+import { refreshCachedChatMediaUrl } from '@/lib/chatMediaResolver';
 
 type Props = {
   meta: VibeClipDisplayMeta;
@@ -30,6 +31,10 @@ type Props = {
   /** For optional reply spark copy (received clips). */
   threadMessageCount?: number;
   sparkMessageId?: string;
+  videoSourceRef?: string | null;
+  thumbnailSourceRef?: string | null;
+  onResolvedVideoUrl?: (url: string) => void;
+  onResolvedThumbnailUrl?: (url: string) => void;
   /** Opens full-screen chat video viewer. */
   onRequestImmersive?: () => void;
   /** Pause inline preview while immersive viewer is open for this URL. */
@@ -39,8 +44,8 @@ type Props = {
   threadVisualRecede?: boolean;
 };
 
-type VibeClipCardInnerProps = Props & { onRemountPlayer: () => void };
-type VibeClipPosterProps = Props & { onRequestInlinePlay: () => void };
+type VibeClipCardInnerProps = Props & { onRefreshClipMedia: () => Promise<boolean>; onRemountPlayer: () => void };
+type VibeClipPosterProps = Props & { onRefreshClipMedia: () => Promise<boolean>; onRequestInlinePlay: () => void };
 type ClipPreviewState =
   | 'poster_loading'
   | 'poster_ready'
@@ -75,6 +80,7 @@ function VibeClipCardInner({
   onRequestImmersive,
   immersiveActive,
   threadVisualRecede = false,
+  onRefreshClipMedia,
   onRemountPlayer,
 }: VibeClipCardInnerProps) {
   const theme = Colors[useColorScheme()];
@@ -106,7 +112,11 @@ function VibeClipCardInner({
     const sub = safeExpoSharedObjectCall(
       () => player.addListener('statusChange', (payload) => {
         if (payload.status === 'error') {
-          setHasError(true);
+          void onRefreshClipMedia()
+            .then((didRefresh) => {
+              if (!didRefresh) setHasError(true);
+            })
+            .catch(() => setHasError(true));
           setIsBuffering(false);
           return;
         }
@@ -124,7 +134,7 @@ function VibeClipCardInner({
       },
     );
     return () => safeRemoveExpoSharedObjectSubscription(sub, 'vibeClip.player.statusListener.remove');
-  }, [player]);
+  }, [onRefreshClipMedia, player]);
 
   const playInline = useCallback(() => {
     setPlayRequested(true);
@@ -277,7 +287,13 @@ function VibeClipCardInner({
             style={StyleSheet.absoluteFillObject}
             resizeMode="cover"
             onLoad={() => setPosterReady(true)}
-            onError={() => setPosterFailed(true)}
+            onError={() => {
+              void onRefreshClipMedia()
+                .then((didRefresh) => {
+                  if (!didRefresh) setPosterFailed(true);
+                })
+                .catch(() => setPosterFailed(true));
+            }}
           />
         )}
         <VideoView
@@ -347,7 +363,13 @@ function VibeClipCardInner({
               {"Couldn't load clip"}
             </Text>
             <Pressable
-              onPress={onRemountPlayer}
+              onPress={() => {
+                void onRefreshClipMedia()
+                  .then((didRefresh) => {
+                    if (!didRefresh) onRemountPlayer();
+                  })
+                  .catch(onRemountPlayer);
+              }}
               style={({ pressed }) => [styles.clipRetryBtn, pressed && { opacity: 0.88 }]}
             >
               <Text style={styles.clipRetryLabel}>Try again</Text>
@@ -461,6 +483,7 @@ function VibeClipCardPosterOnly({
   meta,
   isMine,
   onRequestImmersive,
+  onRefreshClipMedia,
   onRequestInlinePlay,
   threadVisualRecede = false,
 }: VibeClipPosterProps) {
@@ -495,7 +518,13 @@ function VibeClipCardPosterOnly({
             style={StyleSheet.absoluteFillObject}
             resizeMode="cover"
             onLoad={() => setPosterReady(true)}
-            onError={() => setPosterFailed(true)}
+            onError={() => {
+              void onRefreshClipMedia()
+                .then((didRefresh) => {
+                  if (!didRefresh) setPosterFailed(true);
+                })
+                .catch(() => setPosterFailed(true));
+            }}
           />
         ) : null}
 
@@ -548,20 +577,76 @@ function VibeClipCardPosterOnly({
 }
 
 export function VibeClipCard(props: Props) {
+  const {
+    meta,
+    onResolvedThumbnailUrl,
+    onResolvedVideoUrl,
+    shouldMountPlayer: shouldMountPlayerProp,
+    sparkMessageId,
+    thumbnailSourceRef,
+    videoSourceRef,
+  } = props;
   const [retryNonce, setRetryNonce] = useState(0);
   const [forceMountPlayer, setForceMountPlayer] = useState(false);
+  const [playableVideoUrl, setPlayableVideoUrl] = useState(meta.videoUrl);
+  const [playableThumbnailUrl, setPlayableThumbnailUrl] = useState(meta.thumbnailUrl ?? null);
+  const refreshAttemptedForUriRef = useRef<string | null>(null);
   useEffect(() => {
     setForceMountPlayer(false);
     setRetryNonce(0);
-  }, [props.meta.videoUrl]);
-  const shouldMountPlayer = props.shouldMountPlayer || forceMountPlayer;
+    setPlayableVideoUrl(meta.videoUrl);
+    setPlayableThumbnailUrl(meta.thumbnailUrl ?? null);
+    refreshAttemptedForUriRef.current = null;
+  }, [meta.thumbnailUrl, meta.videoUrl]);
+
+  const refreshClipMedia = useCallback(async (): Promise<boolean> => {
+    if (!sparkMessageId || !videoSourceRef || refreshAttemptedForUriRef.current === playableVideoUrl) {
+      return false;
+    }
+    refreshAttemptedForUriRef.current = playableVideoUrl;
+    const freshVideoUri = await refreshCachedChatMediaUrl(sparkMessageId, 'vibe_clip', videoSourceRef);
+    const freshThumbnailUri = thumbnailSourceRef
+      ? await refreshCachedChatMediaUrl(sparkMessageId, 'thumbnail', thumbnailSourceRef)
+      : null;
+    if (freshThumbnailUri) setPlayableThumbnailUrl(freshThumbnailUri);
+    if (!freshVideoUri) return false;
+    if (freshThumbnailUri) onResolvedThumbnailUrl?.(freshThumbnailUri);
+    setPlayableVideoUrl(freshVideoUri);
+    onResolvedVideoUrl?.(freshVideoUri);
+    return freshVideoUri !== playableVideoUrl;
+  }, [
+    onResolvedThumbnailUrl,
+    onResolvedVideoUrl,
+    playableVideoUrl,
+    sparkMessageId,
+    thumbnailSourceRef,
+    videoSourceRef,
+  ]);
+
+  const resolvedProps = {
+    ...props,
+    meta: {
+      ...meta,
+      videoUrl: playableVideoUrl,
+      thumbnailUrl: playableThumbnailUrl,
+    },
+  };
+
+  const shouldMountPlayer = shouldMountPlayerProp || forceMountPlayer;
   if (!shouldMountPlayer) {
-    return <VibeClipCardPosterOnly {...props} onRequestInlinePlay={() => setForceMountPlayer(true)} />;
+    return (
+      <VibeClipCardPosterOnly
+        {...resolvedProps}
+        onRefreshClipMedia={refreshClipMedia}
+        onRequestInlinePlay={() => setForceMountPlayer(true)}
+      />
+    );
   }
   return (
     <VibeClipCardInner
-      key={`${props.meta.videoUrl}-${retryNonce}`}
-      {...props}
+      key={`${playableVideoUrl}-${retryNonce}`}
+      {...resolvedProps}
+      onRefreshClipMedia={refreshClipMedia}
       onRemountPlayer={() => setRetryNonce((n) => n + 1)}
     />
   );
