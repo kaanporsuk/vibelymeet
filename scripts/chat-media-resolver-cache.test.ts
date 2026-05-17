@@ -8,6 +8,7 @@ import {
   getCachedChatMediaUrl,
   refreshCachedChatMediaUrl,
 } from "../src/lib/chatMediaResolver";
+import { resolvePreservedMediaSelectionId } from "../shared/chat/mediaSelection";
 
 const root = process.cwd();
 const read = (path: string) => readFileSync(join(root, path), "utf8");
@@ -150,8 +151,9 @@ assert.match(
 );
 assert.match(webPhotoLightbox, /refreshAttemptedForUrlRef\.current = null;[\s\S]{0,80}\}, \[current\?\.id\]\);/);
 assert.match(webPhotoLightbox, /lastInitialIdRef/);
+assert.match(webPhotoLightbox, /previousItemsRef/);
 assert.match(webPhotoLightbox, /const \[selectedId, setSelectedId\] = useState/);
-assert.match(webPhotoLightbox, /return items\.some\(\(it\) => it\.id === prevId\) \? prevId : nextInitialId;/);
+assert.match(webPhotoLightbox, /resolvePreservedMediaSelectionId/);
 assert.match(webPhotoLightbox, /const selectedIndex = items\.findIndex\(\(it\) => it\.id === selectedId\);/);
 assert.doesNotMatch(webPhotoLightbox, /const currentId = items\[prevIndex\]\?\.id/);
 assert.doesNotMatch(webPhotoLightbox, /setIndex\(i >= 0 \? i : 0\);[\s\S]{0,120}\}, \[initialId, items\]\);/);
@@ -191,8 +193,9 @@ assert.match(
 );
 assert.match(nativeMediaViewer, /refreshAttemptedForUriRef\.current = null;[\s\S]{0,80}\}, \[current\?\.id\]\);/);
 assert.match(nativeMediaViewer, /lastInitialIdRef/);
+assert.match(nativeMediaViewer, /previousItemsRef/);
 assert.match(nativeMediaViewer, /const \[selectedId, setSelectedId\] = useState/);
-assert.match(nativeMediaViewer, /return items\.some\(\(i\) => i\.id === prevId\) \? prevId : nextInitialId;/);
+assert.match(nativeMediaViewer, /resolvePreservedMediaSelectionId/);
 assert.match(nativeMediaViewer, /const index = Math\.max\(0, items\.findIndex\(\(i\) => i\.id === selectedId\)\);/);
 assert.doesNotMatch(nativeMediaViewer, /const currentId = items\[prevIndex\]\?\.id/);
 assert.doesNotMatch(nativeMediaViewer, /setIndex\(Math\.max\(0, items\.findIndex\(\(i\) => i\.id === initialId\)\)\);[\s\S]{0,120}\}, \[initialId, items\]\);/);
@@ -246,5 +249,55 @@ assert.match(nativeChatScreen, /onResolvedVideoUrl=\{\(uri\) => rememberResolved
 assert.match(nativeChatScreen, /onResolvedThumbnailUrl=\{\(uri\) => rememberResolvedThumbnailUri\(item\.id, uri\)\}/);
 assert.match(webMessagesHook, /query\.data\.dateSuggestions[\s\S]*byId\.set\(suggestion\.id, suggestion\)/);
 assert.match(nativeChat, /query\.data\.dateSuggestions[\s\S]*byId\.set\(suggestion\.id, suggestion\)/);
+
+assert.equal(
+  resolvePreservedMediaSelectionId({
+    items: [
+      { id: "new-before" },
+      { id: "current" },
+      { id: "after" },
+    ],
+    previousItems: [
+      { id: "current" },
+      { id: "after" },
+    ],
+    previousId: "current",
+    initialId: "current",
+    initialChanged: false,
+  }),
+  "current",
+);
+assert.equal(
+  resolvePreservedMediaSelectionId({
+    items: [
+      { id: "server-image", sourceRef: "media/image-1" },
+      { id: "after" },
+    ],
+    previousItems: [
+      { id: "optimistic-image", sourceRef: "media/image-1" },
+      { id: "after" },
+    ],
+    previousId: "optimistic-image",
+    initialId: "optimistic-image",
+    initialChanged: false,
+  }),
+  "server-image",
+);
+assert.equal(
+  resolvePreservedMediaSelectionId({
+    items: [
+      { id: "server-image" },
+      { id: "after" },
+    ],
+    previousItems: [
+      { id: "optimistic-image" },
+      { id: "after" },
+    ],
+    previousId: "optimistic-image",
+    initialId: "optimistic-image",
+    initialChanged: false,
+  }),
+  "server-image",
+);
 
 console.log("chat-media-resolver-cache tests passed");

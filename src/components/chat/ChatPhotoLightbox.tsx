@@ -3,6 +3,7 @@ import { motion } from "framer-motion";
 import { X, ChevronLeft, ChevronRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { resolvePreservedMediaSelectionId } from "../../../shared/chat/mediaSelection";
 
 export type ChatPhotoItem = { id: string; url: string; sourceRef?: string | null };
 
@@ -26,18 +27,22 @@ export function ChatPhotoLightbox({ items, initialId, onClose, onRefreshItem }: 
   const [urlOverridesById, setUrlOverridesById] = useState<Record<string, string>>({});
   const refreshAttemptedForUrlRef = useRef<string | null>(null);
   const lastInitialIdRef = useRef(initialId);
+  const previousItemsRef = useRef(items);
 
   useEffect(() => {
+    const previousItems = previousItemsRef.current;
     const initialChanged = lastInitialIdRef.current !== initialId;
     lastInitialIdRef.current = initialId;
     setSelectedId((prevId) => {
-      const nextInitialId = items.find((it) => it.id === initialId)?.id ?? items[0]?.id ?? initialId;
-      if (!items.length) return initialId;
-      if (initialChanged) {
-        return nextInitialId;
-      }
-      return items.some((it) => it.id === prevId) ? prevId : nextInitialId;
+      return resolvePreservedMediaSelectionId({
+        items,
+        previousItems,
+        previousId: prevId,
+        initialId,
+        initialChanged,
+      });
     });
+    previousItemsRef.current = items;
     if (initialChanged) {
       setScale(1);
       setPan({ x: 0, y: 0 });
