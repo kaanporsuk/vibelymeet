@@ -225,6 +225,7 @@ test("match-call camera switching stays wired on web and native chat calls", () 
   assert.match(nativeSwitchCommit, /expectedDeviceKey !== beforeDeviceKey/);
   assert.match(nativeSwitchCommit, /trackChangedToExpectedTarget/);
   assert.match(nativeSwitchCommit, /trackChangedWithoutIdentity/);
+  assert.doesNotMatch(nativeSwitchCommit, /NativeMatchCallCamera|resolveNativeMatchCallCamera/);
   assert.match(nativeMatchCallHook, /targetCanImproveFacing/);
   assert.match(nativeMatchCallHook, /controlsFacingConflictsWithTrack/);
   assert.match(nativeMatchCallHook, /facingMode: controlsFacingConflictsWithTrack \? controlsFacing : trackState\.facingMode \?\? controlsFacing/);

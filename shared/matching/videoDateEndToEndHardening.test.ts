@@ -1551,9 +1551,23 @@ test("video date camera switch hints are sent only after committed live capture"
   assert.match(nativeVideoDateRoute, /previousControlsFacing: beforeControlsFacing/);
   assert.match(nativeVideoDateRoute, /expectedDeviceKey/);
   assert.match(nativeVideoDateRoute, /before_controls_facing_mode/);
+  assert.match(nativeVideoDateRoute, /const facingMatches = usable\.filter/);
+  assert.match(nativeVideoDateRoute, /facingMatches\[0\] \?\?/);
   assert.match(nativeVideoDateRoute, /nativeCameraDeviceFacingMode\(targetDevice\)/);
   assert.match(nativeVideoDateRoute, /nativeCameraDeviceKey/);
   assert.match(nativeVideoDateRoute, /nativeCameraFacingModeFromLabel\(videoTrack\?\.label\)/);
+  const nativeChooseCameraStart = nativeVideoDateRoute.indexOf("function chooseNativeCameraDevice");
+  const nativeChooseCameraEnd = nativeVideoDateRoute.indexOf("function describeNativeCameraSwitchError", nativeChooseCameraStart);
+  const nativeChooseCameraBlock = nativeVideoDateRoute.slice(nativeChooseCameraStart, nativeChooseCameraEnd);
+  const nativeDesiredFacingSelectionIndex = nativeChooseCameraBlock.indexOf("if (desiredFacing)");
+  const nativeNoCandidateReturnIndex = nativeChooseCameraBlock.indexOf(
+    "if (currentDeviceKey != null && candidates.length === 0) return null;",
+  );
+  assert.ok(nativeChooseCameraStart > 0 && nativeChooseCameraEnd > nativeChooseCameraStart);
+  assert.ok(
+    nativeDesiredFacingSelectionIndex >= 0 &&
+      nativeNoCandidateReturnIndex > nativeDesiredFacingSelectionIndex,
+  );
   assert.match(nativeVideoDateRoute, /lastNativeRemoteCameraSwitchHintIdRef/);
   assert.match(nativeVideoDateRoute, /NATIVE_CAMERA_SWITCH_RENDER_WATCH_TTL_MS/);
   assert.match(nativeVideoDateRoute, /NATIVE_CAMERA_SWITCH_FRESH_FRAME_POLL_MS/);

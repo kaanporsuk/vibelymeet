@@ -567,12 +567,16 @@ function chooseNativeCameraDevice(
   const candidates = currentDeviceKey != null
     ? usable.filter((device) => nativeCameraDeviceKey(device) !== currentDeviceKey)
     : usable;
-  if (currentDeviceKey != null && candidates.length === 0) return null;
   if (desiredFacing) {
-    const facingMatch = candidates.find((device) => nativeCameraDeviceFacingMode(device) === desiredFacing);
+    const facingMatches = usable.filter((device) => nativeCameraDeviceFacingMode(device) === desiredFacing);
+    const facingMatch =
+      facingMatches.find((device) => nativeCameraDeviceKey(device) !== currentDeviceKey) ??
+      facingMatches[0] ??
+      null;
     if (facingMatch) return facingMatch;
     return null;
   }
+  if (currentDeviceKey != null && candidates.length === 0) return null;
   if (currentDeviceKey != null) {
     return candidates[0] ?? null;
   }

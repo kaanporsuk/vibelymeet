@@ -326,6 +326,12 @@ const nativeRemoteBlock = sliceBetween(
   "<View style={[styles.localPip",
   nativeDatePath
 );
+const nativeChooseCameraBlock = sliceBetween(
+  nativeDate,
+  "function chooseNativeCameraDevice",
+  "function describeNativeCameraSwitchError",
+  nativeDatePath
+);
 const nativeIdealConstraints = sliceBetween(
   mediaContract,
   "export const VIDEO_DATE_NATIVE_IDEAL_VIDEO_CONSTRAINTS",
@@ -369,6 +375,8 @@ assert(
     nativeDate.includes("previousControlsFacing: beforeControlsFacing") &&
     nativeDate.includes("expectedDeviceKey") &&
     nativeDate.includes("before_controls_facing_mode") &&
+    nativeDate.includes("const facingMatches = usable.filter") &&
+    nativeDate.includes("facingMatches[0] ??") &&
     nativeDate.includes("nativeCameraDeviceFacingMode(targetDevice)") &&
     nativeDate.includes("nativeCameraDeviceKey") &&
     nativeDate.includes("nativeCameraFacingModeFromLabel(videoTrack?.label)") &&
@@ -388,6 +396,12 @@ assert(
     nativeDate.includes("'camera_switch_hint'") &&
     !nativeDate.includes("camera_switch_hint:${hint.switchId}"),
   `${nativeDatePath}: native Video Date must commit a live camera switch before sending shared render hints`
+);
+assert(
+  nativeChooseCameraBlock.indexOf("if (desiredFacing)") >= 0 &&
+    nativeChooseCameraBlock.indexOf("if (currentDeviceKey != null && candidates.length === 0) return null;") >
+      nativeChooseCameraBlock.indexOf("if (desiredFacing)"),
+  `${nativeDatePath}: desired-facing native camera selection must run before stale current-device exhaustion`
 );
 const nativeFreshnessWatchStart = nativeDate.indexOf("const scheduleNativeCameraSwitchFreshnessWatch");
 const nativeFreshnessWatchEnd = nativeDate.indexOf("useEffect(() => {", nativeFreshnessWatchStart);

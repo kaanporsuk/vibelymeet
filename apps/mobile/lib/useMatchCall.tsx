@@ -28,7 +28,7 @@ import {
   messageForMatchCallEdgeCode,
 } from '@clientShared/chat/matchCallEdgeCodes';
 import { logMatchCallDiag } from '@clientShared/chat/matchCallDiag';
-import { resolveNativeMatchCallCameraSwitchCommit } from '@clientShared/chat/nativeCameraSwitchCommit';
+import { resolveNativeCameraSwitchCommit } from '@clientShared/chat/nativeCameraSwitchCommit';
 import {
   createMatchCall,
   answerMatchCall,
@@ -1261,7 +1261,7 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
         const snapshot = readNativeLocalCameraSnapshot(callObject);
         const snapshotFacing = snapshot.facingMode;
         const snapshotDeviceKey = snapshot.deviceId == null ? null : String(snapshot.deviceId);
-        const commitResolution = resolveNativeMatchCallCameraSwitchCommit({
+        const commitResolution = resolveNativeCameraSwitchCommit({
           baselineDeviceKey,
           baselineFacingMode: baseline.facingMode,
           beforeDeviceKey,
