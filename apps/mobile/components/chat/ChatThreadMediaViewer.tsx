@@ -29,6 +29,7 @@ import {
 export type ChatThreadPhotoItem = { id: string; uri: string; sourceRef?: string | null };
 
 const SPRING = { damping: 22, stiffness: 260 };
+const CLIP_PLAYBACK_LOAD_TIMEOUT_MS = 12_000;
 
 function isPlayableVideoUri(uri: string): boolean {
   return /^https?:\/\//i.test(uri) || uri.startsWith('file:') || uri.startsWith('blob:') || uri.startsWith('data:');
@@ -385,7 +386,13 @@ function VideoViewerBody({
       posterUri={playablePosterUri}
       onClose={onClose}
       onRefreshMedia={refreshMedia}
-      onRemountPlayer={() => setRetryKey((k) => k + 1)}
+      onRemountPlayer={() => {
+        refreshAttemptedForUriRef.current = null;
+        setRetryKey((k) => k + 1);
+      }}
+      onResetPlaybackRefreshAttempt={() => {
+        refreshAttemptedForUriRef.current = null;
+      }}
     />
   );
 }
@@ -400,12 +407,14 @@ function VideoViewerStage({
   onClose,
   onRefreshMedia,
   onRemountPlayer,
+  onResetPlaybackRefreshAttempt,
 }: {
   uri: string;
   posterUri?: string | null;
   onClose: () => void;
   onRefreshMedia: () => Promise<boolean>;
   onRemountPlayer: () => void;
+  onResetPlaybackRefreshAttempt: () => void;
 }) {
   const insets = useSafeAreaInsets();
   const [phase, setPhase] = useState<'loading' | 'ready' | 'error'>('loading');
@@ -456,6 +465,18 @@ function VideoViewerStage({
     };
   }, [player]);
 
+  useEffect(() => {
+    if (phase !== 'loading') return;
+    const timeoutId = setTimeout(() => {
+      void onRefreshMedia()
+        .then((didRefresh) => {
+          if (!didRefresh) setPhase('error');
+        })
+        .catch(() => setPhase('error'));
+    }, CLIP_PLAYBACK_LOAD_TIMEOUT_MS);
+    return () => clearTimeout(timeoutId);
+  }, [onRefreshMedia, phase, uri]);
+
   return (
     <View style={styles.videoRoot}>
       <View style={[styles.videoTopBar, { paddingTop: insets.top + 10, paddingHorizontal: 16 }]}>
@@ -498,6 +519,8 @@ function VideoViewerStage({
               <Text style={styles.videoErrorText}>Couldn&apos;t play this video.</Text>
               <Pressable
                 onPress={() => {
+                  onResetPlaybackRefreshAttempt();
+                  setPhase('loading');
                   void onRefreshMedia()
                     .then((didRefresh) => {
                       if (!didRefresh) onRemountPlayer();

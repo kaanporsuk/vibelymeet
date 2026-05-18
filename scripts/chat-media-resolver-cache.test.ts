@@ -57,6 +57,34 @@ try {
   __clearChatMediaUrlCacheForTests();
 }
 
+let streamInvokeCount = 0;
+__setChatMediaUrlIssuerForTests(async (_messageId, mediaKind) => {
+  streamInvokeCount += 1;
+  assert.equal(mediaKind, "vibe_clip");
+  return {
+    success: true,
+    url: "https://vz-chat.example/bcdn_token=HS256-play/stream-id/playlist.m3u8",
+    posterUrl: "https://vz-chat.example/bcdn_token=HS256-poster/stream-id/thumbnail.jpg",
+    provider: "bunny_stream",
+    playbackKind: "hls",
+    expiresInSeconds: 300,
+  };
+});
+try {
+  const messageId = "550e8400-e29b-41d4-a716-446655440001";
+  const videoId = "11111111-1111-4111-8111-111111111111";
+  const playback = await refreshCachedChatMediaUrl(messageId, "vibe_clip", `bunny_stream:${videoId}`);
+  const poster = await getCachedChatMediaUrl(messageId, "thumbnail", `bunny_stream:${videoId}:thumbnail`);
+
+  assert.equal(playback, "https://vz-chat.example/bcdn_token=HS256-play/stream-id/playlist.m3u8");
+  assert.equal(poster, "https://vz-chat.example/bcdn_token=HS256-poster/stream-id/thumbnail.jpg");
+  assert.equal(streamInvokeCount, 1);
+  assert.equal(__chatMediaUrlCacheSizeForTests(), 2);
+} finally {
+  __setChatMediaUrlIssuerForTests(null);
+  __clearChatMediaUrlCacheForTests();
+}
+
 __setChatMediaUrlIssuerForTests(async () => {
   throw new Error("network_down");
 });
@@ -161,7 +189,12 @@ assert.match(
   webVideoLightbox,
   /if \(!freshVideoUrl \|\| freshVideoUrl === currentUrl\) return false;[\s\S]{0,80}refreshAttemptedForUrlRef\.current = currentUrl;[\s\S]{0,160}return true;/,
 );
+assert.match(webVideoLightbox, /CLIP_PLAYBACK_LOAD_TIMEOUT_MS/);
+assert.match(webVideoLightbox, /phase !== "loading" \|\| !canMountPlayer/);
+assert.match(webClipBubble, /refreshAttemptedForUrlRef\.current = null;[\s\S]{0,160}setLoadError\(false\)/);
 assert.match(webMediaResolver, /catch \{[\s\S]{0,80}return null;[\s\S]{0,80}\}/);
+assert.match(webMediaResolver, /function bunnyStreamThumbnailRefFor/);
+assert.match(webMediaResolver, /payload\.posterUrl/);
 assert.match(nativeBubble, /refreshCachedChatMediaUrl/);
 assert.match(nativeBubble, /player\.play\(\)[\s\S]{0,600}refreshAndQueuePlay/);
 assert.match(
@@ -175,6 +208,11 @@ assert.match(
 assert.match(nativeClipCard, /refreshCachedChatMediaUrl/);
 assert.match(nativeClipCard, /videoSourceRef/);
 assert.match(nativeClipCard, /thumbnailSourceRef/);
+assert.match(nativeClipCard, /posterRefreshAttemptedForRef/);
+assert.match(nativeClipCard, /isResolvableMediaRef\(playableThumbnailUrl\)/);
+assert.match(nativeClipCard, /CLIP_PLAYBACK_LOAD_TIMEOUT_MS/);
+assert.match(nativeClipCard, /onResetPlaybackRefreshAttempt/);
+assert.match(nativeClipCard, /setHasError\(false\)/);
 assert.match(nativeClipCard, /refreshCachedChatMediaUrl\(sparkMessageId, 'vibe_clip', videoSourceRef\)/);
 assert.match(nativeClipCard, /refreshCachedChatMediaUrl\(sparkMessageId, 'thumbnail', thumbnailSourceRef\)/);
 assert.match(nativeClipCard, /onResolvedVideoUrl\?\.\(freshVideoUri\)/);
@@ -209,9 +247,14 @@ assert.match(
   nativeMediaViewer,
   /if \(!fresh\?\.uri \|\| fresh\.uri === playableUri\) return false;[\s\S]{0,80}refreshAttemptedForUriRef\.current = playableUri;[\s\S]{0,160}return true;/,
 );
+assert.match(nativeMediaViewer, /CLIP_PLAYBACK_LOAD_TIMEOUT_MS/);
+assert.match(nativeMediaViewer, /phase !== 'loading'/);
+assert.match(nativeMediaViewer, /onResetPlaybackRefreshAttempt/);
 assert.match(nativeMediaResolver, /catch \{[\s\S]{0,80}return null;[\s\S]{0,80}\}/);
 assert.match(nativeMediaResolver, /getFreshCachedAccessToken/);
 assert.match(nativeMediaResolver, /headers: \{ Authorization: `Bearer \$\{accessToken\}` \}/);
+assert.match(nativeMediaResolver, /function bunnyStreamThumbnailRefFor/);
+assert.match(nativeMediaResolver, /payload\.posterUrl/);
 assert.match(nativeChat, /extras:\s*\{\s*httpSend:\s*true\s*\}/);
 assert.match(threadPage, /\.from\("media_assets"\)/);
 assert.match(threadPage, /date_suggestions/);

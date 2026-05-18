@@ -37,9 +37,14 @@ type VibeClipMediaRefreshReason = "preview" | "playback";
 const CLIP_BUBBLE_WIDTH_CLASS = "w-[min(17.5rem,calc(100vw-4rem))] max-w-full";
 const CHAT_VIBE_CLIP_STATUS_SYNC_DELAY_MS = 2500;
 const CHAT_VIBE_CLIP_STATUS_SYNC_INTERVAL_MS = 12_000;
+const CLIP_PLAYBACK_LOAD_TIMEOUT_MS = 12_000;
 
 function isLocalPreviewUrl(value: string): boolean {
   return value.startsWith("blob:") || value.startsWith("file:") || value.startsWith("data:");
+}
+
+function isResolvableMediaRef(value: string | null | undefined): boolean {
+  return !!value && !isLocalPreviewUrl(value) && !/^https?:\/\//i.test(value);
 }
 
 interface VibeClipBubbleProps {
@@ -101,6 +106,7 @@ export const VibeClipBubble = ({
   const playStartTracked = useRef(false);
   const playCompleteTracked = useRef(false);
   const refreshAttemptedForUrlRef = useRef<string | null>(null);
+  const posterRefreshAttemptedForRef = useRef<string | null>(null);
 
   const hasPrimary = !!(onReplyWithClip || onVoiceReply);
   const hasSecondary = !!(onSuggestDate || onReactionPick);
@@ -132,6 +138,7 @@ export const VibeClipBubble = ({
     playStartTracked.current = false;
     playCompleteTracked.current = false;
     refreshAttemptedForUrlRef.current = null;
+    posterRefreshAttemptedForRef.current = null;
   }, [meta.processingStatus, meta.thumbnailUrl, meta.videoUrl]);
 
   useEffect(() => {
@@ -159,6 +166,10 @@ export const VibeClipBubble = ({
     !!displayMeta.thumbnailUrl &&
     (isLocalPreviewUrl(displayMeta.thumbnailUrl) || /^https?:\/\//i.test(displayMeta.thumbnailUrl));
   const showPreparingOverlay = isServerProcessing || (!isReady && !isAwaitingPlaybackIntent && !isLocalPreview);
+  const shouldResolvePosterPreview =
+    !isServerProcessing &&
+    !!thumbnailSourceRef &&
+    (!playableThumbnailUrl || isResolvableMediaRef(playableThumbnailUrl) || !canShowPosterImage);
 
   useEffect(() => {
     if (!isServerProcessing || !sparkMessageId) return;
@@ -208,6 +219,26 @@ export const VibeClipBubble = ({
     return true;
   }, [onResolvedThumbnailUrl, onResolvedVideoUrl, playableVideoUrl, sparkMessageId, thumbnailSourceRef, videoSourceRef]);
 
+  useEffect(() => {
+    const posterResolveKey = thumbnailSourceRef ?? playableThumbnailUrl ?? "";
+    if (
+      !shouldResolvePosterPreview ||
+      !posterResolveKey ||
+      posterRefreshAttemptedForRef.current === posterResolveKey
+    ) {
+      return;
+    }
+    let cancelled = false;
+    posterRefreshAttemptedForRef.current = posterResolveKey;
+    void refreshClipMedia("preview").then((didRefresh) => {
+      if (cancelled) return;
+      if (didRefresh) posterRefreshAttemptedForRef.current = null;
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [playableThumbnailUrl, refreshClipMedia, shouldResolvePosterPreview, thumbnailSourceRef]);
+
   const markReadyIfPossible = useCallback(() => {
     const video = videoRef.current;
     if (!video) return;
@@ -253,6 +284,33 @@ export const VibeClipBubble = ({
       setHasPlayed(true);
     }).catch(() => {});
   }, [isReady, playRequested]);
+
+  useEffect(() => {
+    if (
+      !playRequested ||
+      isReady ||
+      loadError ||
+      isServerProcessing ||
+      isLocalPreview ||
+      isAwaitingPlaybackIntent
+    ) {
+      return;
+    }
+    const timeoutId = window.setTimeout(() => {
+      void refreshClipMedia().then((didRefresh) => {
+        if (!didRefresh) setLoadError(true);
+      });
+    }, CLIP_PLAYBACK_LOAD_TIMEOUT_MS);
+    return () => window.clearTimeout(timeoutId);
+  }, [
+    isAwaitingPlaybackIntent,
+    isLocalPreview,
+    isReady,
+    isServerProcessing,
+    loadError,
+    playRequested,
+    refreshClipMedia,
+  ]);
 
   const togglePlay = useCallback(() => {
     if (isServerProcessing) return;
@@ -392,6 +450,7 @@ export const VibeClipBubble = ({
           <button
             type="button"
             onClick={() => {
+              refreshAttemptedForUrlRef.current = null;
               setLoadError(false);
               setIsLoading(true);
               setIsReady(false);

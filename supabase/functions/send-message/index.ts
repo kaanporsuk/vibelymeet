@@ -255,7 +255,9 @@ serve(async (req) => {
     const selectCols =
       "id, match_id, sender_id, content, created_at, audio_url, audio_duration_seconds, video_url, video_duration_seconds, message_kind, structured_payload";
 
-    // ── Vibe Clip canonical publish path ──
+    // ── Legacy storage-backed Vibe Clip publish path ────────────────────────
+    // New Chat Vibe Clips publish through complete-chat-vibe-clip-upload after
+    // direct Bunny Stream TUS upload. Keep this branch only for older clients.
     if (isVibeClip) {
       const videoUrl = (body.video_url as string).trim();
       const durationMs = Math.min(VIBE_CLIP_MAX_DURATION_MS, Math.max(1, Math.round(body.duration_ms as number)));

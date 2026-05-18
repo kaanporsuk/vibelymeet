@@ -47,7 +47,7 @@ All **new user-authored** chat media persistence is server-owned. Text/image/voi
 - Upload: client -> Bunny Stream TUS using `create-chat-vibe-clip-upload`.
 - Persist: `complete-chat-vibe-clip-upload` creates/updates the `message_kind: "vibe_clip"` row idempotently.
 - Repair: `video-webhook` and `sync-chat-vibe-clip-status` keep `processing_status` current. Bunny status `7` (`PresignedUploadFinished`) is allowed to publish a processing message if the client dies after TUS success but before `complete-chat-vibe-clip-upload`.
-- Playback: `get-chat-media-url` returns Bunny Stream CDN URLs with path-based `token_path` auth for the video directory, using Bunny's SHA256 directory-token format so HLS playlists and segments inherit the same authorization.
+- Playback: `get-chat-media-url` returns Bunny Stream CDN URLs with path-based `token_path` auth for the video directory, using Bunny's HMAC-SHA256 Advanced CDN directory-token format so HLS playlists and segments inherit the same authorization.
 - Payload shape: `VibeClipPayload` in `shared/chat/messageRouting.ts`.
 
 ---
@@ -118,5 +118,5 @@ Until Sprint 3 wires the reference-release logic into message/match/account dele
 |------|--------|
 | Edge | `supabase/functions/send-message/index.ts`, `supabase/functions/upload-voice/index.ts`, `supabase/functions/create-chat-vibe-clip-upload/index.ts`, `supabase/functions/complete-chat-vibe-clip-upload/index.ts`, `supabase/functions/sync-chat-vibe-clip-status/index.ts`, `supabase/functions/get-chat-media-url/index.ts`, `supabase/functions/video-webhook/index.ts`, `supabase/functions/_shared/chat-vibe-clips.ts` |
 | Shared routing | `shared/chat/messageRouting.ts` (`voice` in DB kind; UI kind stays `text` via `toRenderableMessageKind`) |
-| Web | `src/hooks/useMessages.ts`, `src/pages/Chat.tsx` |
-| Native | `apps/mobile/lib/chatApi.ts`, `apps/mobile/lib/chatOutbox/execute.ts`, `apps/mobile/lib/chatMediaUpload.ts`, `apps/mobile/lib/chatVibeClipStreamUpload.ts` |
+| Web | `src/hooks/useMessages.ts`, `src/pages/Chat.tsx`, `src/lib/webChatOutbox/execute.ts`, `src/services/chatVibeClipStreamUploadService.ts`, `src/lib/chatMediaResolver.ts`, `src/components/chat/VibeClipBubble.tsx`, `src/components/chat/ChatVideoLightbox.tsx` |
+| Native | `apps/mobile/lib/chatApi.ts`, `apps/mobile/lib/chatOutbox/execute.ts`, `apps/mobile/lib/chatMediaUpload.ts`, `apps/mobile/lib/chatVibeClipStreamUpload.ts`, `apps/mobile/lib/chatMediaResolver.ts`, `apps/mobile/components/chat/VibeClipCard.tsx`, `apps/mobile/components/chat/ChatThreadMediaViewer.tsx` |
