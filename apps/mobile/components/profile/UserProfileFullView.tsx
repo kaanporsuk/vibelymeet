@@ -281,7 +281,8 @@ function ZoomableProfilePhotoPage({
         ty.value = clamped.y;
       });
 
-    return Gesture.Simultaneous(pinch, doubleTap, pan);
+    const baseGesture = Gesture.Simultaneous(pinch, doubleTap);
+    return zoomed ? Gesture.Simultaneous(baseGesture, pan) : baseGesture;
   }, [
     height,
     panStartTx,
@@ -293,6 +294,7 @@ function ZoomableProfilePhotoPage({
     tx,
     ty,
     width,
+    zoomed,
   ]);
 
   return (

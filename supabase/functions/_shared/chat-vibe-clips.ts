@@ -43,6 +43,10 @@ const EXTENSION_MIME_TYPES: Record<string, string> = {
 
 export type ChatVibeClipStatus = "uploading" | "processing" | "ready" | "failed";
 
+function isTerminalChatVibeClipStatus(status: ChatVibeClipStatus): boolean {
+  return status === "ready" || status === "failed";
+}
+
 export type ChatVibeClipUploadRow = {
   id: string;
   match_id: string;
@@ -436,6 +440,10 @@ export async function updateChatVibeClipStatusByProvider(
   if (!data) return { handled: false };
 
   const upload = data as ChatVibeClipUploadRow;
+  if (isTerminalChatVibeClipStatus(upload.status) && !isTerminalChatVibeClipStatus(status)) {
+    return { handled: true, messageId: upload.published_message_id };
+  }
+
   await admin
     .from("chat_vibe_clip_uploads")
     .update({ status, error_detail: errorDetail })
