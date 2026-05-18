@@ -13,6 +13,7 @@ import {
   ActivityIndicator,
   Modal,
   PanResponder,
+  type AccessibilityActionEvent,
   type NativeScrollEvent,
   type NativeSyntheticEvent,
 } from 'react-native';
@@ -131,12 +132,14 @@ function ZoomableProfilePhotoPage({
   width,
   height,
   isActive,
+  accessibilityLabel,
   onZoomChange,
 }: {
   uri: string;
   width: number;
   height: number;
   isActive: boolean;
+  accessibilityLabel: string;
   onZoomChange: (zoomed: boolean) => void;
 }) {
   const scale = useSharedValue(1);
@@ -149,8 +152,6 @@ function ZoomableProfilePhotoPage({
   const pinchBaseTy = useSharedValue(0);
   const isActiveSV = useSharedValue(isActive);
   const [zoomed, setZoomed] = useState(false);
-  const isActiveRef = useRef(isActive);
-  isActiveRef.current = isActive;
 
   useEffect(() => {
     isActiveSV.value = isActive;
@@ -158,7 +159,7 @@ function ZoomableProfilePhotoPage({
 
   const notifyZoomChange = useCallback(
     (nextZoomed: boolean) => {
-      if (isActiveRef.current) onZoomChange(nextZoomed);
+      onZoomChange(nextZoomed);
     },
     [onZoomChange],
   );
@@ -189,7 +190,8 @@ function ZoomableProfilePhotoPage({
     tx.value = 0;
     ty.value = 0;
     setZoomed(false);
-  }, [isActive, scale, tx, ty]);
+    onZoomChange(false);
+  }, [isActive, onZoomChange, scale, tx, ty]);
 
   const outerStyle = useAnimatedStyle(() => ({
     transform: [{ translateX: tx.value }, { translateY: ty.value }],
@@ -198,6 +200,16 @@ function ZoomableProfilePhotoPage({
   const innerStyle = useAnimatedStyle(() => ({
     transform: [{ scale: scale.value }],
   }));
+
+  const handleAccessibilityAction = useCallback(
+    (event: AccessibilityActionEvent) => {
+      if (event.nativeEvent.actionName !== 'activate') return;
+      scale.value = withSpring(zoomed ? 1 : PHOTO_ZOOM_SCALE, PHOTO_ZOOM_SPRING);
+      tx.value = withSpring(0, PHOTO_ZOOM_SPRING);
+      ty.value = withSpring(0, PHOTO_ZOOM_SPRING);
+    },
+    [scale, tx, ty, zoomed],
+  );
 
   const gesture = useMemo(() => {
     const resetZoom = () => {
@@ -214,14 +226,10 @@ function ZoomableProfilePhotoPage({
         if (!success) return;
         if (scale.value >= PHOTO_ZOOM_LOCK_SCALE) {
           resetZoom();
-          runOnJS(setZoomedFromWorklet)(false);
-          runOnJS(notifyZoomChange)(false);
         } else {
           scale.value = withSpring(PHOTO_ZOOM_SCALE, PHOTO_ZOOM_SPRING);
           tx.value = withSpring(0, PHOTO_ZOOM_SPRING);
           ty.value = withSpring(0, PHOTO_ZOOM_SPRING);
-          runOnJS(setZoomedFromWorklet)(true);
-          runOnJS(notifyZoomChange)(true);
         }
       });
 
@@ -248,8 +256,10 @@ function ZoomableProfilePhotoPage({
       .onEnd(() => {
         if (scale.value < PHOTO_ZOOM_LOCK_SCALE) {
           resetZoom();
-          runOnJS(setZoomedFromWorklet)(false);
-          runOnJS(notifyZoomChange)(false);
+        } else {
+          const clamped = clampPhotoPan(tx.value, ty.value, scale.value, width, height);
+          tx.value = withSpring(clamped.x, PHOTO_ZOOM_SPRING);
+          ty.value = withSpring(clamped.y, PHOTO_ZOOM_SPRING);
         }
       });
 
@@ -271,22 +281,18 @@ function ZoomableProfilePhotoPage({
         ty.value = clamped.y;
       });
 
-    const baseGesture = Gesture.Simultaneous(pinch, doubleTap);
-    return zoomed ? Gesture.Simultaneous(baseGesture, pan) : baseGesture;
+    return Gesture.Simultaneous(pinch, doubleTap, pan);
   }, [
     height,
-    notifyZoomChange,
     panStartTx,
     panStartTy,
     pinchBaseScale,
     pinchBaseTx,
     pinchBaseTy,
     scale,
-    setZoomedFromWorklet,
     tx,
     ty,
     width,
-    zoomed,
   ]);
 
   return (
@@ -294,7 +300,16 @@ function ZoomableProfilePhotoPage({
       <RNView pointerEvents={isActive ? 'auto' : 'none'} style={[s.photoModalPage, { width, height }]}>
         <Animated.View style={[s.photoModalZoomLayer, { width, height }, outerStyle]}>
           <Animated.View style={[s.photoModalZoomLayer, { width, height }, innerStyle]}>
-            <Image source={{ uri }} style={s.photoModalImage} resizeMode="contain" />
+            <Image
+              source={{ uri }}
+              style={s.photoModalImage}
+              resizeMode="contain"
+              accessible
+              accessibilityRole="imagebutton"
+              accessibilityLabel={`${accessibilityLabel}${zoomed ? ', zoomed in' : ''}`}
+              accessibilityActions={[{ name: 'activate', label: zoomed ? 'Zoom out' : 'Zoom in' }]}
+              onAccessibilityAction={handleAccessibilityAction}
+            />
           </Animated.View>
         </Animated.View>
       </RNView>
@@ -418,6 +433,10 @@ export function UserProfileFullView({
       photoPagerRef.current?.scrollTo({ x: idx * winWidth, animated: false });
     });
   }, [photoViewerIndex, photos.length, winWidth]);
+
+  useEffect(() => {
+    setPhotoViewerZoomed(false);
+  }, [photoViewerIndex]);
 
   const openPhotoViewer = useCallback((index: number) => {
     setPhotoViewerZoomed(false);
@@ -837,7 +856,7 @@ export function UserProfileFullView({
         onRequestClose={closePhotoViewer}
       >
         <GestureHandlerRootView style={s.photoModalRoot}>
-          <RNView style={s.photoModalRoot} {...photoDismissPan.panHandlers}>
+          <RNView style={s.photoModalContent} {...photoDismissPan.panHandlers}>
             <Pressable
               onPress={closePhotoViewer}
               style={[s.photoModalClose, { top: insets.top + 12 }]}
@@ -857,16 +876,34 @@ export function UserProfileFullView({
               contentContainerStyle={{ alignItems: 'center' }}
               onMomentumScrollEnd={handlePhotoPagerMomentumEnd}
             >
-              {photos.map((url, i) => (
-                <ZoomableProfilePhotoPage
-                  key={`pv-${i}`}
-                  uri={getImageUrl(url, { width: 1200, quality: 88 })}
-                  width={winWidth}
-                  height={winHeight}
-                  isActive={i === photoViewerIndex}
-                  onZoomChange={setPhotoViewerZoomed}
-                />
-              ))}
+              {photos.map((url, i) => {
+                const uri = getImageUrl(url, { width: 1200, quality: 88 });
+                const accessibilityLabel = `Profile photo ${i + 1} of ${photos.length}`;
+                if (i !== photoViewerIndex) {
+                  return (
+                    <RNView key={`pv-${i}`} style={[s.photoModalPage, { width: winWidth, height: winHeight }]}>
+                      <Image
+                        source={{ uri }}
+                        style={s.photoModalImage}
+                        resizeMode="contain"
+                        accessibilityRole="image"
+                        accessibilityLabel={accessibilityLabel}
+                      />
+                    </RNView>
+                  );
+                }
+                return (
+                  <ZoomableProfilePhotoPage
+                    key={`pv-${i}`}
+                    uri={uri}
+                    width={winWidth}
+                    height={winHeight}
+                    isActive
+                    accessibilityLabel={accessibilityLabel}
+                    onZoomChange={setPhotoViewerZoomed}
+                  />
+                );
+              })}
             </ScrollView>
           </RNView>
         </GestureHandlerRootView>
@@ -1214,6 +1251,9 @@ const s = StyleSheet.create({
     flex: 1,
     backgroundColor: '#000',
     justifyContent: 'center',
+  },
+  photoModalContent: {
+    flex: 1,
   },
   photoModalClose: {
     position: 'absolute',
