@@ -23,6 +23,10 @@ type CachedMediaUrl = {
   expiresAtMs: number;
 };
 
+type MediaUrlIssueResult =
+  | { kind: 'response'; payload: ResolverResponse | null }
+  | { kind: 'transient_failure' };
+
 type ChatMediaRefreshOptions = {
   bypassFailureCooldown?: boolean;
 };
@@ -128,22 +132,24 @@ async function issueAndCacheChatMediaUrl(
   const inFlight = mediaUrlInFlightRequests.get(cacheKey);
   if (inFlight) return inFlight;
 
-  const request = (async () => {
+  const request = (async (): Promise<MediaUrlIssueResult> => {
     try {
       const accessToken = await getFreshCachedAccessToken();
-      if (!accessToken) return null;
+      if (!accessToken) return { kind: 'transient_failure' };
       const { data, error } = await supabase.functions.invoke('get-chat-media-url', {
         body: { messageId, mediaKind },
         headers: { Authorization: `Bearer ${accessToken}` },
       });
-      if (error) return null;
-      return data as ResolverResponse | null;
+      if (error) return { kind: 'transient_failure' };
+      return { kind: 'response', payload: data as ResolverResponse | null };
     } catch {
-      return null;
+      return { kind: 'transient_failure' };
     }
   })();
 
-  const resolved = request.then((payload) => {
+  const resolved = request.then((result) => {
+    if (result.kind === 'transient_failure') return null;
+    const { payload } = result;
     if (!payload?.success || typeof payload.url !== 'string' || !payload.url) {
       mediaUrlFailureCache.set(cacheKey, { expiresAtMs: Date.now() + SIGNED_MEDIA_FAILURE_COOLDOWN_MS });
       return null;

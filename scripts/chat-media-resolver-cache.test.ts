@@ -141,13 +141,24 @@ try {
   __clearChatMediaUrlCacheForTests();
 }
 
+let transientInvokeCount = 0;
 __setChatMediaUrlIssuerForTests(async () => {
-  throw new Error("network_down");
+  transientInvokeCount += 1;
+  if (transientInvokeCount === 1) throw new Error("network_down");
+  return {
+    success: true,
+    url: "https://signed.example.com/recovered-after-transient",
+    expiresInSeconds: 300,
+  };
 });
 try {
   const messageId = "550e8400-e29b-41d4-a716-446655440000";
   const failedRefresh = await refreshCachedChatMediaUrl(messageId, "voice", "voice/test.webm");
+  const recoveredRefresh = await refreshCachedChatMediaUrl(messageId, "voice", "voice/test.webm");
+
   assert.equal(failedRefresh, null);
+  assert.equal(recoveredRefresh, "https://signed.example.com/recovered-after-transient");
+  assert.equal(transientInvokeCount, 2);
 } finally {
   __setChatMediaUrlIssuerForTests(null);
   __clearChatMediaUrlCacheForTests();
@@ -289,7 +300,10 @@ assert.match(webVideoLightbox, /reason === "manual" \? \{ bypassFailureCooldown:
 assert.match(webVideoLightbox, /CLIP_PLAYBACK_LOAD_TIMEOUT_MS/);
 assert.match(webVideoLightbox, /phase !== "loading" \|\| !canMountPlayer/);
 assert.match(webClipBubble, /playbackRefreshAttemptCountRef\.current = 0;[\s\S]{0,160}setLoadError\(false\)/);
-assert.match(webMediaResolver, /catch \{[\s\S]{0,80}return null;[\s\S]{0,80}\}/);
+assert.match(webMediaResolver, /type MediaUrlIssueResult/);
+assert.match(webMediaResolver, /if \(error\) return \{ kind: "transient_failure" \};/);
+assert.match(webMediaResolver, /catch \{[\s\S]{0,80}return \{ kind: "transient_failure" \};[\s\S]{0,80}\}/);
+assert.match(webMediaResolver, /if \(result\.kind === "transient_failure"\) return null;/);
 assert.match(webMediaResolver, /function bunnyStreamThumbnailRefFor/);
 assert.match(webMediaResolver, /payload\.posterUrl/);
 assert.match(webMediaResolver, /mediaUrlInFlightRequests/);
@@ -357,7 +371,11 @@ assert.match(
 assert.match(nativeMediaViewer, /CLIP_PLAYBACK_LOAD_TIMEOUT_MS/);
 assert.match(nativeMediaViewer, /phase !== 'loading'/);
 assert.match(nativeMediaViewer, /onResetPlaybackRefreshAttempt/);
-assert.match(nativeMediaResolver, /catch \{[\s\S]{0,80}return null;[\s\S]{0,80}\}/);
+assert.match(nativeMediaResolver, /type MediaUrlIssueResult/);
+assert.match(nativeMediaResolver, /if \(!accessToken\) return \{ kind: 'transient_failure' \};/);
+assert.match(nativeMediaResolver, /if \(error\) return \{ kind: 'transient_failure' \};/);
+assert.match(nativeMediaResolver, /catch \{[\s\S]{0,80}return \{ kind: 'transient_failure' \};[\s\S]{0,80}\}/);
+assert.match(nativeMediaResolver, /if \(result\.kind === 'transient_failure'\) return null;/);
 assert.match(nativeMediaResolver, /mediaUrlInFlightRequests/);
 assert.match(nativeMediaResolver, /mediaUrlFailureCache/);
 assert.match(nativeMediaResolver, /bypassFailureCooldown/);
