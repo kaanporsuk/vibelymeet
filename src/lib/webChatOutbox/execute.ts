@@ -2,7 +2,11 @@ import type { QueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { captureSupabaseError } from "@/lib/errorTracking";
 import { uploadVoiceToBunny } from "@/services/voiceUploadService";
-import { uploadChatVideoToBunny } from "@/services/chatVideoUploadService";
+import {
+  ChatVibeClipUploadedButUnpublishedError,
+  completePublishedChatVibeClipUpload,
+  uploadAndPublishChatVibeClipToBunnyStream,
+} from "@/services/chatVibeClipStreamUploadService";
 import { uploadImageToBunny } from "@/services/imageUploadService";
 import { formatChatImageMessageContent } from "@/lib/chatMessageContent";
 import { invalidateAfterThreadMutation } from "@/hooks/useMessages";
@@ -37,6 +41,10 @@ function getServerMessageId(row: unknown): string | null {
   if (!row || typeof row !== "object") return null;
   const id = (row as { id?: unknown }).id;
   return typeof id === "string" && id.length > 0 ? id : null;
+}
+
+function isBunnyStreamPlaybackRef(value: string | null | undefined): value is string {
+  return /^bunny_stream:[0-9a-f-]{32,36}$/i.test(value?.trim() ?? "");
 }
 
 const BLOCKED_MESSAGE_COPY = "You can't message this person.";
@@ -105,36 +113,6 @@ async function invokeSendMessageEdge(params: {
   return payload.message;
 }
 
-async function invokePublishVibeClip(params: {
-  matchId: string;
-  videoUrl: string;
-  durationMs: number;
-  clientRequestId: string;
-  thumbnailUrl?: string | null;
-  aspectRatio?: number | null;
-}): Promise<unknown> {
-  const body: Record<string, unknown> = {
-    match_id: params.matchId,
-    message_kind: "vibe_clip",
-    video_url: params.videoUrl,
-    duration_ms: params.durationMs,
-    client_request_id: params.clientRequestId,
-  };
-  if (params.thumbnailUrl) body.thumbnail_url = params.thumbnailUrl;
-  if (typeof params.aspectRatio === "number" && Number.isFinite(params.aspectRatio) && params.aspectRatio > 0) {
-    body.aspect_ratio = params.aspectRatio;
-  }
-
-  const { data, error } = await supabase.functions.invoke("send-message", { body });
-  if (error) {
-    captureSupabaseError("publish-vibe-clip", error);
-    await throwMappedSendMessageError(error);
-  }
-  const payload = data as SendMessagePayload | null;
-  assertSendMessagePayload(payload, "Vibe Clip publish failed");
-  return payload.message;
-}
-
 async function invokePublishVoiceMessage(params: {
   matchId: string;
   audioUrl: string;
@@ -162,6 +140,7 @@ async function invokePublishVoiceMessage(params: {
 export async function executeWebOutboxItem(
   item: WebChatOutboxItem,
   queryClient: QueryClient,
+  onUploadProgress?: (fraction: number) => void,
 ): Promise<{ serverMessageId: string; uploadedPublicUrl?: string; uploadedMediaUrl?: string }> {
   const { id: clientRequestId, matchId, userId, payload } = item;
   const scope = item.invalidateScope;
@@ -218,44 +197,45 @@ export async function executeWebOutboxItem(
       });
       serverMessageId = getServerMessageId(row);
     } else {
-      const uploaded =
-        item.uploadedMediaUrl
-          ? {
-              videoUrl: item.uploadedMediaUrl,
-              thumbnailUrl: item.uploadedPublicUrl ?? null,
-              aspectRatio:
-                typeof payload.aspectRatio === "number" && Number.isFinite(payload.aspectRatio) && payload.aspectRatio > 0
-                  ? payload.aspectRatio
-                  : null,
-            }
-          : await (async () => {
-              const blob = await getOutboxBlob(payload.blobKey);
-              if (!blob) throw new WebOutboxExecuteError("Video data missing — try recording again.");
-              const { data: { session } } = await supabase.auth.getSession();
-              if (!session?.access_token) throw new Error("Not authenticated");
-              const storedName =
-                payload.fileName ||
-                (typeof File !== "undefined" && blob instanceof File ? blob.name : undefined);
-              const mimeType =
-                videoMimeTypeForUpload(blob.type, storedName) ??
-                videoMimeTypeForUpload(payload.mimeType, storedName) ??
-                GENERIC_UPLOAD_MIME_TYPE;
-              const file = new File([blob], uploadFileNameForMimeType("video", "chat-video", mimeType, storedName), {
-                type: mimeType,
-              });
-              return uploadChatVideoToBunny(file, session.access_token, matchId);
-            })();
-      uploadedMediaUrl = uploaded.videoUrl;
-      uploadedPublicUrl = uploaded.thumbnailUrl ?? undefined;
-      const row = await invokePublishVibeClip({
-        matchId,
-        videoUrl: uploaded.videoUrl,
-        durationMs: Math.round(payload.durationSeconds * 1000),
-        clientRequestId,
-        thumbnailUrl: uploaded.thumbnailUrl,
-        aspectRatio: uploaded.aspectRatio,
-      });
-      serverMessageId = getServerMessageId(row);
+      let uploaded: Awaited<ReturnType<typeof uploadAndPublishChatVibeClipToBunnyStream>>;
+      if (isBunnyStreamPlaybackRef(item.uploadedMediaUrl)) {
+        uploaded = await completePublishedChatVibeClipUpload({
+          clientRequestId,
+          playbackRef: item.uploadedMediaUrl,
+        });
+      } else {
+        const blob = await getOutboxBlob(payload.blobKey);
+        if (!blob) throw new WebOutboxExecuteError("Video data missing — try recording again.");
+        const storedName =
+          payload.fileName ||
+          (typeof File !== "undefined" && blob instanceof File ? blob.name : undefined);
+        const mimeType =
+          videoMimeTypeForUpload(blob.type, storedName) ??
+          videoMimeTypeForUpload(payload.mimeType, storedName) ??
+          GENERIC_UPLOAD_MIME_TYPE;
+        const file = new File([blob], uploadFileNameForMimeType("video", "chat-vibe-clip", mimeType, storedName), {
+          type: mimeType,
+        });
+        try {
+          uploaded = await uploadAndPublishChatVibeClipToBunnyStream({
+            matchId,
+            clientRequestId,
+            file,
+            durationMs: Math.round(payload.durationSeconds * 1000),
+            aspectRatio: payload.aspectRatio,
+            onProgress: onUploadProgress,
+          });
+        } catch (error) {
+          if (error instanceof ChatVibeClipUploadedButUnpublishedError) {
+            uploadedMediaUrl = error.playbackRef;
+            uploadedPublicUrl = error.posterRef;
+          }
+          throw error;
+        }
+      }
+      uploadedMediaUrl = uploaded.playbackRef;
+      uploadedPublicUrl = uploaded.posterRef;
+      serverMessageId = uploaded.messageId || getServerMessageId(uploaded.message);
     }
   } catch (e) {
     const msg = e instanceof Error ? e.message : "Send failed";

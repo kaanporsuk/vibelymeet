@@ -1,14 +1,19 @@
 import { supabase } from '@/lib/supabase';
+import { getFreshCachedAccessToken } from '@/lib/nativeAuthSession';
 import {
   formatChatImageMessageContent,
   parseChatImageMessageContent,
 } from '@/lib/chatMessageContent';
 
 export type ChatMediaKind = 'image' | 'voice' | 'video' | 'vibe_clip' | 'thumbnail';
+export type ChatVibeClipProcessingStatus = 'uploading' | 'processing' | 'ready' | 'failed';
 
 type ResolverResponse = {
   success?: boolean;
   url?: string;
+  posterUrl?: string | null;
+  playbackKind?: 'hls' | 'progressive';
+  provider?: 'bunny_stream' | 'bunny_storage';
   expiresInSeconds?: number;
   error?: string;
 };
@@ -30,6 +35,10 @@ function isAlreadyResolvedMediaUrl(value: string): boolean {
   return /^https?:\/\//i.test(value);
 }
 
+function isBunnyStreamRef(value: string): boolean {
+  return value.startsWith('bunny_stream:');
+}
+
 function isUuid(value: string): boolean {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
 }
@@ -40,6 +49,7 @@ async function resolveChatMediaUrl(
   rawRef: string | null | undefined,
 ): Promise<string | null> {
   if (!rawRef) return null;
+  if ((mediaKind === 'vibe_clip' || mediaKind === 'video') && isBunnyStreamRef(rawRef)) return rawRef;
   if (isLocalPreviewRef(rawRef) || isAlreadyResolvedMediaUrl(rawRef) || !isUuid(messageId)) return rawRef;
 
   return getCachedChatMediaUrl(messageId, mediaKind, rawRef);
@@ -51,6 +61,7 @@ export async function getCachedChatMediaUrl(
   rawRef: string | null | undefined,
 ): Promise<string | null> {
   if (!rawRef) return null;
+  if ((mediaKind === 'vibe_clip' || mediaKind === 'video') && isBunnyStreamRef(rawRef)) return rawRef;
   if (isLocalPreviewRef(rawRef) || isAlreadyResolvedMediaUrl(rawRef) || !isUuid(messageId)) return rawRef;
 
   return issueAndCacheChatMediaUrl(messageId, mediaKind, rawRef, false);
@@ -67,6 +78,25 @@ export async function refreshCachedChatMediaUrl(
   return issueAndCacheChatMediaUrl(messageId, mediaKind, rawRef, true);
 }
 
+export async function syncChatVibeClipStatus(messageId: string): Promise<ChatVibeClipProcessingStatus | null> {
+  if (!isUuid(messageId)) return null;
+  try {
+    const accessToken = await getFreshCachedAccessToken();
+    if (!accessToken) return null;
+    const { data, error } = await supabase.functions.invoke('sync-chat-vibe-clip-status', {
+      body: { message_id: messageId },
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    if (error) return null;
+    const status = (data as { status?: unknown } | null)?.status;
+    return status === 'uploading' || status === 'processing' || status === 'ready' || status === 'failed'
+      ? status
+      : null;
+  } catch {
+    return null;
+  }
+}
+
 async function issueAndCacheChatMediaUrl(
   messageId: string,
   mediaKind: ChatMediaKind,
@@ -80,8 +110,11 @@ async function issueAndCacheChatMediaUrl(
 
   const payload = await (async () => {
     try {
+      const accessToken = await getFreshCachedAccessToken();
+      if (!accessToken) return null;
       const { data, error } = await supabase.functions.invoke('get-chat-media-url', {
         body: { messageId, mediaKind },
+        headers: { Authorization: `Bearer ${accessToken}` },
       });
       if (error) return null;
       return data as ResolverResponse | null;

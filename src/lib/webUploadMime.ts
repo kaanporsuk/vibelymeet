@@ -14,6 +14,13 @@ const VIDEO_MIME_BY_EXTENSION: Record<string, string> = {
   mov: "video/quicktime",
   m4v: "video/x-m4v",
   webm: "video/webm",
+  mkv: "video/x-matroska",
+  avi: "video/x-msvideo",
+  wmv: "video/x-ms-wmv",
+  flv: "video/x-flv",
+  ts: "video/mp2t",
+  mpeg: "video/mpeg",
+  mpg: "video/mpeg",
 };
 
 const IMAGE_MIME_ALIASES: Record<string, string> = {
@@ -32,6 +39,13 @@ const VIDEO_MIME_ALIASES: Record<string, string> = {
   "video/x-m4v": "video/x-m4v",
   "video/m4v": "video/x-m4v",
   "video/webm": "video/webm",
+  "video/x-matroska": "video/x-matroska",
+  "video/x-msvideo": "video/x-msvideo",
+  "video/avi": "video/x-msvideo",
+  "video/x-ms-wmv": "video/x-ms-wmv",
+  "video/x-flv": "video/x-flv",
+  "video/mp2t": "video/mp2t",
+  "video/mpeg": "video/mpeg",
 };
 
 export function baseMimeType(value: string | null | undefined): string {
@@ -86,6 +100,12 @@ export function videoExtensionForMimeType(mimeType: string): string {
   if (normalized === "video/x-m4v") return "m4v";
   if (normalized === "video/mp4") return "mp4";
   if (normalized === "video/webm") return "webm";
+  if (normalized === "video/x-matroska") return "mkv";
+  if (normalized === "video/x-msvideo") return "avi";
+  if (normalized === "video/x-ms-wmv") return "wmv";
+  if (normalized === "video/x-flv") return "flv";
+  if (normalized === "video/mp2t") return "ts";
+  if (normalized === "video/mpeg") return "mpeg";
   return "bin";
 }
 

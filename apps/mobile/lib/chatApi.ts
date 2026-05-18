@@ -849,33 +849,6 @@ export async function invokeSendMessageEdge(params: {
   return payload.message;
 }
 
-/** Canonical server-owned publish for Vibe Clip messages. */
-export async function invokePublishVibeClip(params: {
-  matchId: string;
-  videoUrl: string;
-  durationMs: number;
-  clientRequestId: string;
-  thumbnailUrl?: string | null;
-  aspectRatio?: number | null;
-}): Promise<unknown> {
-  const body: Record<string, unknown> = {
-    match_id: params.matchId,
-    message_kind: 'vibe_clip',
-    video_url: params.videoUrl,
-    duration_ms: params.durationMs,
-    client_request_id: params.clientRequestId,
-  };
-  if (params.thumbnailUrl) body.thumbnail_url = params.thumbnailUrl;
-  if (typeof params.aspectRatio === 'number' && Number.isFinite(params.aspectRatio) && params.aspectRatio > 0) {
-    body.aspect_ratio = params.aspectRatio;
-  }
-  const { data, error } = await supabase.functions.invoke('send-message', { body });
-  if (error) await throwMappedSendMessageError(error);
-  const payload = data as { success?: boolean; message?: unknown; error?: string; code?: string };
-  assertSendMessagePayload(payload, 'Vibe Clip publish failed');
-  return payload.message;
-}
-
 /** Canonical server-owned publish for voice messages (after upload-voice). */
 export async function invokePublishVoiceMessage(params: {
   matchId: string;

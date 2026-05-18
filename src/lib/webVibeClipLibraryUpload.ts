@@ -1,6 +1,6 @@
 import {
   VIBE_CLIP_MAX_DURATION_SEC,
-  VIBE_CLIP_MAX_UPLOAD_BYTES,
+  VIBE_CLIP_MAX_SOURCE_BYTES,
   VIBE_CLIP_UPLOAD_DURATION_UNREADABLE,
   VIBE_CLIP_UPLOAD_EMPTY_FILE,
   VIBE_CLIP_UPLOAD_INVALID_TYPE,
@@ -8,7 +8,7 @@ import {
   VIBE_CLIP_UPLOAD_TOO_LONG,
 } from "../../shared/chat/vibeClipCaptureCopy";
 import type { CaptureSource } from "../../shared/chat/vibeClipAnalytics";
-import { videoMimeTypeForUpload } from "./webUploadMime";
+import { GENERIC_UPLOAD_MIME_TYPE, videoMimeTypeForUpload } from "./webUploadMime";
 
 export type WebVibeClipCompleteMeta = {
   captureSource?: CaptureSource;
@@ -29,7 +29,8 @@ export type PreparedWebVibeClipLibraryUpload = {
 };
 
 export function looksLikeVideoFile(file: File): boolean {
-  return videoMimeTypeForUpload(file.type, file.name) !== null;
+  const normalized = videoMimeTypeForUpload(file.type, file.name);
+  return normalized !== null && normalized !== GENERIC_UPLOAD_MIME_TYPE;
 }
 
 export function readSelectedVideoMetadata(file: File): Promise<SelectedVideoMetadata> {
@@ -86,7 +87,7 @@ export async function prepareWebVibeClipLibraryFile(file: File): Promise<Prepare
     throw new Error(VIBE_CLIP_UPLOAD_EMPTY_FILE);
   }
 
-  if (file.size > VIBE_CLIP_MAX_UPLOAD_BYTES) {
+  if (file.size > VIBE_CLIP_MAX_SOURCE_BYTES) {
     throw new Error(VIBE_CLIP_UPLOAD_TOO_LARGE());
   }
 

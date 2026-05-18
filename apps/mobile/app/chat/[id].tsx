@@ -123,7 +123,8 @@ import { cleanupOutboxCacheUri, copyUriToChatOutboxCache, extForPayload, mimeFor
 import { findBlockingDateSuggestion } from '../../../../shared/dateSuggestions/openStatus';
 import {
   VIBE_CLIP_MAX_DURATION_SEC,
-  VIBE_CLIP_MAX_UPLOAD_BYTES,
+  VIBE_CLIP_MAX_SOURCE_BYTES,
+  VIBE_CLIP_SOFT_SOURCE_BYTES,
   VIBE_CLIP_PERM_CAMERA_MESSAGE,
   VIBE_CLIP_PERM_CAMERA_TITLE,
   VIBE_CLIP_PERM_LIBRARY_MESSAGE,
@@ -131,6 +132,7 @@ import {
   VIBE_CLIP_UPLOAD_DURATION_UNREADABLE,
   VIBE_CLIP_UPLOAD_EMPTY_FILE,
   VIBE_CLIP_UPLOAD_INVALID_TYPE,
+  VIBE_CLIP_UPLOAD_LARGE_SOFT_WARNING,
   VIBE_CLIP_UPLOAD_TOO_LARGE,
   VIBE_CLIP_UPLOAD_TOO_LONG,
 } from '../../../../shared/chat/vibeClipCaptureCopy';
@@ -227,7 +229,7 @@ async function fileSizeBytesForVideoAsset(
       const info = await FileSystem.getInfoAsync(uri);
       if (info.exists && !info.isDirectory && typeof info.size === 'number') return info.size;
     } catch {
-      // Best effort; upload-chat-video remains the final server-side guard.
+      // Best effort; create-chat-vibe-clip-upload remains the final server-side guard.
     }
   }
   return null;
@@ -270,6 +272,7 @@ type LocalMediaMeta = {
   /** When row is driven by durable outbox */
   outboxItemId?: string;
   outboxPhase?: ChatOutboxQueueState;
+  uploadProgress?: number;
 };
 
 type LocalMediaChatMessage = ChatMessage & { localMedia: LocalMediaMeta };
@@ -390,6 +393,7 @@ function outboxItemToThreadMessage(item: ChatOutboxItem): ThreadMessage {
     outboxPhase: phase,
     errorMessage: item.lastError,
     serverMessageId: item.serverMessageId,
+    uploadProgress: item.uploadProgress,
   };
 
   if (item.payload.kind === 'text') {
@@ -449,15 +453,17 @@ function outboxItemToThreadMessage(item: ChatOutboxItem): ThreadMessage {
       video_duration_seconds: Math.round(p.durationSeconds),
       messageKind: 'vibe_clip' as const,
       structuredPayload: {
-        v: 2,
+        v: 3,
         kind: 'vibe_clip',
         client_request_id: item.id,
         duration_ms: Math.round(p.durationSeconds * 1000),
         thumbnail_url: null,
-        poster_source: 'first_frame',
+        poster_ref: null,
+        poster_source: 'bunny_stream_thumbnail',
         aspect_ratio: aspectRatio,
-        processing_status: 'ready',
-        upload_provider: 'bunny',
+        processing_status: item.state === 'awaiting_hydration' ? 'processing' : 'uploading',
+        upload_provider: 'bunny_stream',
+        provider: 'bunny_stream',
       },
       localMedia,
     };
@@ -1932,9 +1938,17 @@ export default function ChatThreadScreen() {
         await cleanupOutboxCacheUri(stable);
         throw new Error(VIBE_CLIP_UPLOAD_EMPTY_FILE);
       }
-      if (typeof sizeBytes === 'number' && sizeBytes > VIBE_CLIP_MAX_UPLOAD_BYTES) {
+      if (typeof sizeBytes === 'number' && sizeBytes > VIBE_CLIP_MAX_SOURCE_BYTES) {
         await cleanupOutboxCacheUri(stable);
         throw new Error(VIBE_CLIP_UPLOAD_TOO_LARGE());
+      }
+      if (typeof sizeBytes === 'number' && sizeBytes > VIBE_CLIP_SOFT_SOURCE_BYTES) {
+        showAppDialog({
+          title: 'Vibe Clip',
+          message: VIBE_CLIP_UPLOAD_LARGE_SOFT_WARNING,
+          variant: 'info',
+          primaryAction: { label: 'OK', onPress: () => {} },
+        });
       }
       void enqueue({
         matchId: data.matchId,
@@ -2015,9 +2029,17 @@ export default function ChatThreadScreen() {
         await cleanupOutboxCacheUri(stable);
         throw new Error(VIBE_CLIP_UPLOAD_EMPTY_FILE);
       }
-      if (typeof sizeBytes === 'number' && sizeBytes > VIBE_CLIP_MAX_UPLOAD_BYTES) {
+      if (typeof sizeBytes === 'number' && sizeBytes > VIBE_CLIP_MAX_SOURCE_BYTES) {
         await cleanupOutboxCacheUri(stable);
         throw new Error(VIBE_CLIP_UPLOAD_TOO_LARGE());
+      }
+      if (typeof sizeBytes === 'number' && sizeBytes > VIBE_CLIP_SOFT_SOURCE_BYTES) {
+        showAppDialog({
+          title: 'Vibe Clip',
+          message: VIBE_CLIP_UPLOAD_LARGE_SOFT_WARNING,
+          variant: 'info',
+          primaryAction: { label: 'OK', onPress: () => {} },
+        });
       }
       void enqueue({
         matchId: data.matchId,
@@ -2391,8 +2413,17 @@ export default function ChatThreadScreen() {
     const outboxPhase = localMedia?.outboxPhase ?? localText?.outboxPhase;
     const outboxItemId = localMedia?.outboxItemId ?? localText?.outboxItemId;
     const outboxPayloadKind = localMedia?.payload.kind ?? (localText ? 'text' : undefined);
+    const uploadProgress =
+      outboxPayloadKind === 'video' &&
+      outboxPhase === 'sending' &&
+      typeof localMedia?.uploadProgress === 'number' &&
+      Number.isFinite(localMedia.uploadProgress)
+        ? Math.max(0, Math.min(100, Math.round(localMedia.uploadProgress * 100)))
+        : null;
     const outboxPrimary =
-      outboxFooterPrimaryLabel(outboxPhase, outboxPayloadKind) ??
+      uploadProgress != null
+        ? `Uploading ${uploadProgress}%`
+        : outboxFooterPrimaryLabel(outboxPhase, outboxPayloadKind) ??
       (localSendState === 'sending'
         ? 'Sending…'
         : localSendState === 'failed'

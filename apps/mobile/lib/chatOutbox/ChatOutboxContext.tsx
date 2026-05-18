@@ -162,6 +162,7 @@ export function ChatOutboxProvider({ children }: { children: React.ReactNode }) 
               state: connectivityService.getState() === 'online' ? 'queued' : 'waiting_for_network',
               lastError: undefined,
               nextRetryAtMs: undefined,
+              uploadProgress: undefined,
               updatedAtMs: Date.now(),
             }
           : it
@@ -336,7 +337,17 @@ export function ChatOutboxProvider({ children }: { children: React.ReactNode }) 
         try {
           const { serverMessageId, uploadedPublicUrl, uploadedMediaUrl } = await executeOutboxItem(
             { ...next, attemptCount },
-            queryClient
+            queryClient,
+            (fraction) => {
+              const uploadProgress = Math.max(0, Math.min(1, fraction));
+              setItems((prev) =>
+                prev.map((it) =>
+                  it.id === next.id
+                    ? { ...it, uploadProgress, updatedAtMs: Date.now() }
+                    : it
+                )
+              );
+            }
           );
           const successAtMs = Date.now();
           setItems((prev) =>
@@ -347,6 +358,7 @@ export function ChatOutboxProvider({ children }: { children: React.ReactNode }) 
                     serverMessageId,
                     uploadedPublicUrl: uploadedPublicUrl ?? it.uploadedPublicUrl,
                     uploadedMediaUrl: uploadedMediaUrl ?? it.uploadedMediaUrl,
+                    uploadProgress: undefined,
                     state: 'awaiting_hydration' as const,
                     lastError: undefined,
                     nextRetryAtMs: undefined,
@@ -384,6 +396,7 @@ export function ChatOutboxProvider({ children }: { children: React.ReactNode }) 
                     ...it,
                     uploadedPublicUrl: uploadedPublicUrl ?? it.uploadedPublicUrl,
                     uploadedMediaUrl: uploadedMediaUrl ?? it.uploadedMediaUrl,
+                    uploadProgress: undefined,
                     state: treatAsOfflineWait ? ('waiting_for_network' as const) : ('failed' as const),
                     lastError: treatAsOfflineWait ? undefined : outboxFailureUserMessage(rawMsg, isClip),
                     nextRetryAtMs: treatAsOfflineWait ? undefined : Date.now() + backoff,

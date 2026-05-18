@@ -19,7 +19,7 @@ export type ChatMediaRenderKind = "text" | "image" | "voice" | "video" | "vibe_c
 export const CHAT_IMAGE_MESSAGE_PREFIX = "__IMAGE__|";
 
 /**
- * Canonical structured_payload shape for vibe_clip messages (v2).
+ * Canonical structured_payload shape for vibe_clip messages.
  * Stored in `messages.structured_payload` when `message_kind = 'vibe_clip'`.
  *
  * Thumbnail reality: chat upload pipeline may include a caller-generated
@@ -28,18 +28,24 @@ export const CHAT_IMAGE_MESSAGE_PREFIX = "__IMAGE__|";
  * fall back to first-frame poster extraction (`poster_source: "first_frame"`).
  */
 export interface VibeClipPayload {
-  v: 2;
+  v: 2 | 3;
   kind: "vibe_clip";
   client_request_id: string;
   duration_ms: number;
   thumbnail_url: string | null;
-  poster_source: "uploaded_thumbnail" | "first_frame";
+  poster_ref?: string | null;
+  poster_source: "uploaded_thumbnail" | "first_frame" | "bunny_stream_thumbnail";
   aspect_ratio: number | null;
-  processing_status: "ready";
-  upload_provider: "bunny";
+  processing_status: VibeClipProcessingStatus;
+  upload_provider: "bunny" | "bunny_stream";
+  provider?: "bunny_stream" | "bunny_storage";
+  provider_object_id?: string | null;
+  playback_ref?: string | null;
 }
 
 export const VIBE_CLIP_CONTENT_LABEL = "🎬 Vibe Clip";
+
+export type VibeClipProcessingStatus = "uploading" | "processing" | "ready" | "failed";
 
 /** Display-level metadata extracted from a vibe_clip message row. */
 export interface VibeClipDisplayMeta {
@@ -48,9 +54,13 @@ export interface VibeClipDisplayMeta {
   durationMs: number;
   durationLabel: string;
   thumbnailUrl: string | null;
-  posterSource: "uploaded_thumbnail" | "first_frame";
+  posterSource: "uploaded_thumbnail" | "first_frame" | "bunny_stream_thumbnail";
   aspectRatio: number | null;
-  processingStatus: "ready";
+  processingStatus: VibeClipProcessingStatus;
+  provider?: "bunny_stream" | "bunny_storage";
+  providerObjectId?: string | null;
+  playbackRef?: string | null;
+  posterRef?: string | null;
 }
 
 /**
@@ -76,13 +86,31 @@ export function extractVibeClipMeta(row: {
     durationMs,
     durationSec,
     durationLabel: `${mins}:${secs.toString().padStart(2, "0")}`,
-    thumbnailUrl: typeof sp?.thumbnail_url === "string" && sp.thumbnail_url ? sp.thumbnail_url : null,
-    posterSource: sp?.poster_source === "uploaded_thumbnail" ? "uploaded_thumbnail" : "first_frame",
+    thumbnailUrl:
+      typeof sp?.thumbnail_url === "string" && sp.thumbnail_url
+        ? sp.thumbnail_url
+        : typeof sp?.poster_ref === "string" && sp.poster_ref
+          ? sp.poster_ref
+          : null,
+    posterSource:
+      sp?.poster_source === "uploaded_thumbnail" || sp?.poster_source === "bunny_stream_thumbnail"
+        ? sp.poster_source
+        : "first_frame",
     aspectRatio:
       typeof sp?.aspect_ratio === "number" && Number.isFinite(sp.aspect_ratio) && sp.aspect_ratio > 0
         ? sp.aspect_ratio
         : null,
-    processingStatus: "ready",
+    processingStatus:
+      sp?.processing_status === "uploading" ||
+      sp?.processing_status === "processing" ||
+      sp?.processing_status === "failed" ||
+      sp?.processing_status === "ready"
+        ? sp.processing_status
+        : "ready",
+    provider: sp?.provider,
+    providerObjectId: typeof sp?.provider_object_id === "string" ? sp.provider_object_id : null,
+    playbackRef: typeof sp?.playback_ref === "string" ? sp.playback_ref : null,
+    posterRef: typeof sp?.poster_ref === "string" ? sp.poster_ref : null,
   };
 }
 

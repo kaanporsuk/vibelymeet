@@ -32,6 +32,8 @@ export type ChatOutboxItem = {
   uploadedPublicUrl?: string;
   /** After voice/video upload succeeds (retry skips re-upload). */
   uploadedMediaUrl?: string;
+  /** 0..1 progress for direct media uploads. */
+  uploadProgress?: number;
   /** Last time we checked whether serverMessageId is visible on authoritative server state. */
   hydrationLastCheckedAtMs?: number;
   /** Bounded deadline for awaiting_hydration before transitioning to recoverable failure. */

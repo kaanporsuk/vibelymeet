@@ -1,35 +1,19 @@
 /**
  * Shared UX copy for Vibe Clip capture / send (native + web).
- * Transport and publish paths are unchanged — copy only.
+ * New Chat Vibe Clip uploads use Bunny Stream TUS. Supabase Edge administers
+ * the flow but does not carry video bytes.
  */
 
 /** Hard product cap for Vibe Clip length (seconds). */
 export const VIBE_CLIP_MAX_DURATION_SEC = 30;
 
-/** Hosted Edge Function request body ceiling (Supabase common limit for Functions). */
-export const HOSTED_EDGE_FUNCTION_BODY_LIMIT_BYTES = 10 * 1024 * 1024;
+export const VIBE_CLIP_MAX_SOURCE_BYTES = 200 * 1024 * 1024;
 
-/**
- * Reserve space for multipart boundaries, text fields, and a typical JPEG thumbnail so the
- * full POST stays under {@link HOSTED_EDGE_FUNCTION_BODY_LIMIT_BYTES}.
- */
-export const VIBE_CLIP_MULTIPART_OVERHEAD_BYTES = 768 * 1024;
+export const VIBE_CLIP_MAX_SOURCE_MB = 200;
 
-export function vibeClipMultipartFitsEdgeLimit(videoBytes: number, thumbnailBytes: number): boolean {
-  return (
-    videoBytes >= 0 &&
-    thumbnailBytes >= 0 &&
-    videoBytes + thumbnailBytes + VIBE_CLIP_MULTIPART_OVERHEAD_BYTES <= HOSTED_EDGE_FUNCTION_BODY_LIMIT_BYTES
-  );
-}
+export const VIBE_CLIP_SOFT_SOURCE_BYTES = 75 * 1024 * 1024;
 
-/**
- * Upload cap enforced by upload-chat-video for chat Vibe Clips (video file only).
- * Multipart POST includes the optional thumbnail — keep this below the hosted body cap.
- */
-export const VIBE_CLIP_MAX_UPLOAD_BYTES = 8 * 1024 * 1024;
-
-export const VIBE_CLIP_MAX_UPLOAD_MB = 8;
+export const VIBE_CLIP_SOFT_SOURCE_MB = 75;
 
 /** Web chat composer — film control `title` (accessibility + hover). */
 export const VIBE_CLIP_CHAT_FILM_BUTTON_TITLE = `Vibe Clip — record a short front-camera video (up to ${VIBE_CLIP_MAX_DURATION_SEC}s)`;
@@ -98,7 +82,10 @@ export const VIBE_CLIP_UPLOAD_INVALID_TYPE = "Please choose a video file.";
 export const VIBE_CLIP_UPLOAD_EMPTY_FILE = "That video file looks empty. Choose another clip.";
 
 export const VIBE_CLIP_UPLOAD_TOO_LARGE = () =>
-  `Video must be ${VIBE_CLIP_MAX_UPLOAD_MB}MB or smaller.`;
+  `Video must be ${VIBE_CLIP_MAX_SOURCE_MB}MB or smaller.`;
+
+export const VIBE_CLIP_UPLOAD_LARGE_SOFT_WARNING =
+  "This may take a bit. We’ll keep it sending.";
 
 export const VIBE_CLIP_UPLOAD_TOO_LONG = () =>
   `Video must be ${VIBE_CLIP_MAX_DURATION_SEC} seconds or shorter.`;

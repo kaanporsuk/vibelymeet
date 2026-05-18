@@ -51,6 +51,15 @@ verify_jwt = true
 [functions.upload-chat-video]
 verify_jwt = true
 
+[functions.create-chat-vibe-clip-upload]
+verify_jwt = true
+
+[functions.complete-chat-vibe-clip-upload]
+verify_jwt = true
+
+[functions.sync-chat-vibe-clip-status]
+verify_jwt = true
+
 [functions.get-chat-media-url]
 verify_jwt = false
 

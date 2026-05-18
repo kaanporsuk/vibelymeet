@@ -69,9 +69,14 @@ import { findBlockingDateSuggestion } from "../../shared/dateSuggestions/openSta
 import {
   VIBE_CLIP_CHAT_FILM_BUTTON_TITLE,
   VIBE_CLIP_MAX_DURATION_SEC,
+  VIBE_CLIP_MAX_SOURCE_BYTES,
+  VIBE_CLIP_SOFT_SOURCE_BYTES,
   VIBE_CLIP_TOAST_SEND_FAIL,
   VIBE_CLIP_TOAST_SENT,
   VIBE_CLIP_TOAST_UPLOAD_FAIL,
+  VIBE_CLIP_UPLOAD_LARGE_SOFT_WARNING,
+  VIBE_CLIP_UPLOAD_INVALID_TYPE,
+  VIBE_CLIP_UPLOAD_TOO_LARGE,
 } from "../../shared/chat/vibeClipCaptureCopy";
 import {
   classifySendFailureMessage,
@@ -1698,6 +1703,13 @@ const Chat = () => {
         thread_bucket: threadBucket,
         is_sender: true,
       });
+      if (videoBlob.size > VIBE_CLIP_MAX_SOURCE_BYTES) {
+        toast.error(VIBE_CLIP_UPLOAD_TOO_LARGE());
+        return;
+      }
+      if (videoBlob.size > VIBE_CLIP_SOFT_SOURCE_BYTES) {
+        toast(VIBE_CLIP_UPLOAD_LARGE_SOFT_WARNING);
+      }
 
       const blobKey = crypto.randomUUID();
       await putOutboxBlob(blobKey, videoBlob);
@@ -1706,6 +1718,10 @@ const Chat = () => {
         (typeof File !== "undefined" && videoBlob instanceof File ? videoBlob.name : undefined);
       const videoMimeType =
         videoMimeTypeForUpload(meta?.mimeType || videoBlob.type, storedVideoName) ?? GENERIC_UPLOAD_MIME_TYPE;
+      if (videoMimeType === GENERIC_UPLOAD_MIME_TYPE) {
+        toast.error(VIBE_CLIP_UPLOAD_INVALID_TYPE);
+        return;
+      }
       webOutbox.enqueue({
         matchId: chatData.matchId,
         otherUserId: id,

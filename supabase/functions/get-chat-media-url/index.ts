@@ -5,7 +5,7 @@ import { syncChatMessageMedia } from "../_shared/media-lifecycle.ts";
 
 type MediaKind = "image" | "voice" | "video" | "vibe_clip" | "thumbnail";
 
-const TOKEN_TTL_SECONDS = 5 * 60;
+const TOKEN_TTL_SECONDS = 15 * 60;
 const encoder = new TextEncoder();
 
 function base64Url(bytes: Uint8Array): string {
@@ -38,6 +38,34 @@ async function signPayload(secret: string, payload: string): Promise<string> {
   );
   const signature = await crypto.subtle.sign("HMAC", key, encoder.encode(payload));
   return base64Url(new Uint8Array(signature));
+}
+
+async function sha256Base64Url(input: string): Promise<string> {
+  const digest = await crypto.subtle.digest("SHA-256", encoder.encode(input));
+  return base64Url(new Uint8Array(digest));
+}
+
+function normalizeHostname(value: string): string {
+  return value
+    .trim()
+    .replace(/^["']|["']$/g, "")
+    .replace(/^https?:\/\//i, "")
+    .split("/")[0]
+    .toLowerCase();
+}
+
+async function signBunnyStreamDirectoryUrl(params: {
+  hostname: string;
+  securityKey: string;
+  videoId: string;
+  fileName: string;
+  expires: number;
+}): Promise<string> {
+  const tokenPath = `/${params.videoId}/`;
+  const signingData = `token_path=${tokenPath}`;
+  const token = await sha256Base64Url(`${params.securityKey}${tokenPath}${params.expires}${signingData}`);
+  const tokenSegment = `bcdn_token=${token}&expires=${params.expires}&token_path=${encodeURIComponent(tokenPath)}`;
+  return `https://${normalizeHostname(params.hostname)}/${tokenSegment}/${params.videoId}/${params.fileName}`;
 }
 
 async function createToken(secret: string, claims: Record<string, unknown>): Promise<string> {
@@ -109,10 +137,10 @@ async function resolveMessageAsset(
 ) {
   const { data, error } = await serviceClient
     .from("media_assets")
-    .select("id, provider, provider_path, mime_type, status, media_family")
+    .select("id, provider, provider_object_id, provider_path, mime_type, status, media_family")
     .eq("legacy_table", "messages")
     .eq("legacy_id", messageId)
-    .eq("media_family", mediaFamilyForKind(kind))
+    .in("media_family", kind === "thumbnail" ? ["chat_video", "chat_video_thumbnail"] : [mediaFamilyForKind(kind)])
     .eq("status", "active")
     .order("created_at", { ascending: false })
     .limit(5);
@@ -121,6 +149,16 @@ async function resolveMessageAsset(
 
   return data
     .find((asset) => {
+      const objectId = typeof asset?.provider_object_id === "string" ? asset.provider_object_id : "";
+      if (
+        asset?.provider === "bunny_stream" &&
+        asset.status !== "purged" &&
+        objectId &&
+        asset.media_family === "chat_video" &&
+        (kind === "vibe_clip" || kind === "video" || kind === "thumbnail")
+      ) {
+        return true;
+      }
       const path = typeof asset?.provider_path === "string" ? asset.provider_path : "";
       if (asset?.provider !== "bunny_storage" || asset.status === "purged" || !path) return false;
       if (kind === "image") return path.startsWith("photos/");
@@ -165,13 +203,62 @@ async function handleIssueUrl(req: Request): Promise<Response> {
   }
 
   let asset = await resolveMessageAsset(serviceClient, messageId, mediaKind);
-  if (!asset?.provider_path) {
+  if (!asset?.provider_path && !asset?.provider_object_id) {
     const syncResult = await syncChatMessageMedia(serviceClient, messageId);
     if (!syncResult.success) {
       console.error("get-chat-media-url sync_chat_message_media failed:", syncResult.error);
     }
     asset = await resolveMessageAsset(serviceClient, messageId, mediaKind);
   }
+
+  const streamVideoId = typeof asset?.provider_object_id === "string" ? asset.provider_object_id.trim() : "";
+  if (
+    asset?.provider === "bunny_stream" &&
+    streamVideoId &&
+    (mediaKind === "vibe_clip" || mediaKind === "video" || mediaKind === "thumbnail")
+  ) {
+    const hostname = Deno.env.get("BUNNY_CHAT_STREAM_CDN_HOSTNAME")?.trim();
+    const securityKey = Deno.env.get("BUNNY_CHAT_STREAM_TOKEN_SECURITY_KEY")?.trim();
+    if (!hostname || !securityKey) {
+      return jsonResponse(
+        req,
+        { success: false, error: "missing_bunny_chat_stream_token_config" },
+        { status: 503, headers: corsHeaders },
+      );
+    }
+
+    const expires = Math.floor(Date.now() / 1000) + TOKEN_TTL_SECONDS;
+    const url = await signBunnyStreamDirectoryUrl({
+      hostname,
+      securityKey,
+      videoId: streamVideoId,
+      fileName: mediaKind === "thumbnail" ? "thumbnail.jpg" : "playlist.m3u8",
+      expires,
+    });
+    const posterUrl = mediaKind === "thumbnail"
+      ? null
+      : await signBunnyStreamDirectoryUrl({
+        hostname,
+        securityKey,
+        videoId: streamVideoId,
+        fileName: "thumbnail.jpg",
+        expires,
+      });
+
+    return jsonResponse(
+      req,
+      {
+        success: true,
+        url,
+        posterUrl,
+        playbackKind: mediaKind === "thumbnail" ? "progressive" : "hls",
+        provider: "bunny_stream",
+        expiresInSeconds: TOKEN_TTL_SECONDS,
+      },
+      { headers: corsHeaders },
+    );
+  }
+
   if (!asset?.provider_path) {
     return jsonResponse(req, { success: false, error: "media_not_found" }, { status: 404, headers: corsHeaders });
   }
@@ -190,6 +277,8 @@ async function handleIssueUrl(req: Request): Promise<Response> {
     {
       success: true,
       url: `${supabaseUrl.replace(/\/$/, "")}/functions/v1/get-chat-media-url?token=${encodeURIComponent(token)}`,
+      playbackKind: "progressive",
+      provider: "bunny_storage",
       expiresInSeconds: TOKEN_TTL_SECONDS,
     },
     { headers: corsHeaders },

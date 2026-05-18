@@ -35,6 +35,7 @@ type MessageRow = {
 type MediaAssetRow = {
   legacy_id: string | null;
   provider: string | null;
+  provider_object_id: string | null;
   provider_path: string | null;
   mime_type: string | null;
   status: string | null;
@@ -155,6 +156,16 @@ function mediaFamilyForKind(kind: MediaKind): string {
 }
 
 function isEligibleAssetForKind(asset: MediaAssetRow, kind: MediaKind): boolean {
+  const objectId = typeof asset.provider_object_id === "string" ? asset.provider_object_id : "";
+  if (
+    asset.provider === "bunny_stream" &&
+    asset.status !== "purged" &&
+    objectId &&
+    asset.media_family === "chat_video" &&
+    (kind === "video" || kind === "vibe_clip" || kind === "thumbnail")
+  ) {
+    return true;
+  }
   const path = typeof asset.provider_path === "string" ? asset.provider_path : "";
   if (asset.provider !== "bunny_storage" || asset.status === "purged" || !path) return false;
   if (kind === "image") return path.startsWith("photos/");
@@ -187,7 +198,7 @@ async function resolvePageMediaUrls(params: {
 
   const { data, error } = await params.serviceClient
     .from("media_assets")
-    .select("legacy_id, provider, provider_path, mime_type, status, media_family, created_at")
+    .select("legacy_id, provider, provider_object_id, provider_path, mime_type, status, media_family, created_at")
     .eq("legacy_table", "messages")
     .in("legacy_id", messageIds)
     .in("media_family", ["chat_image", "voice_message", "chat_video", "chat_video_thumbnail"])
@@ -204,7 +215,10 @@ async function resolvePageMediaUrls(params: {
     const messageId = asset.legacy_id;
     if (!messageId) continue;
     for (const kind of ["image", "voice", "video", "vibe_clip", "thumbnail"] as MediaKind[]) {
-      if (asset.media_family !== mediaFamilyForKind(kind)) continue;
+      const familyMatches =
+        asset.media_family === mediaFamilyForKind(kind) ||
+        (kind === "thumbnail" && asset.provider === "bunny_stream" && asset.media_family === "chat_video");
+      if (!familyMatches) continue;
       if (!isEligibleAssetForKind(asset, kind)) continue;
       const key = mediaKey(messageId, kind);
       if (!assetsByKey.has(key)) assetsByKey.set(key, asset);
@@ -213,7 +227,13 @@ async function resolvePageMediaUrls(params: {
 
   const durableAssetRef = (messageId: string, kind: MediaKind): string | null => {
     const asset = assetsByKey.get(mediaKey(messageId, kind));
-    return asset?.provider_path ?? null;
+    if (!asset) return null;
+    if (asset.provider === "bunny_stream" && asset.provider_object_id) {
+      return kind === "thumbnail"
+        ? `bunny_stream:${asset.provider_object_id}:thumbnail`
+        : `bunny_stream:${asset.provider_object_id}`;
+    }
+    return asset.provider_path ?? null;
   };
 
   return Promise.all(
@@ -239,9 +259,16 @@ async function resolvePageMediaUrls(params: {
         next.structured_payload && typeof next.structured_payload === "object" && !Array.isArray(next.structured_payload)
           ? { ...(next.structured_payload as Record<string, unknown>) }
           : null;
-      const thumbnailRef = typeof payload?.thumbnail_url === "string" ? payload.thumbnail_url : null;
+      const thumbnailRef =
+        typeof payload?.thumbnail_url === "string"
+          ? payload.thumbnail_url
+          : typeof payload?.poster_ref === "string"
+            ? payload.poster_ref
+            : null;
       if (payload && thumbnailRef) {
-        payload.thumbnail_url = durableAssetRef(next.id, "thumbnail") ?? thumbnailRef;
+        const durableThumbnailRef = durableAssetRef(next.id, "thumbnail") ?? thumbnailRef;
+        payload.thumbnail_url = durableThumbnailRef;
+        if (typeof payload.poster_ref === "string") payload.poster_ref = durableThumbnailRef;
         next.structured_payload = payload;
       }
 

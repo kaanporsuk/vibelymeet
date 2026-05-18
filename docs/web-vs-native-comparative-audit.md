@@ -127,7 +127,8 @@
 - getImageUrl, avatarUrl, eventCoverUrl — apps/mobile/lib/imageUrl.ts (Bunny CDN)
 - getVibeVideoPlaybackUrl, getVibeVideoThumbnailUrl — apps/mobile/lib/vibeVideoPlaybackUrl.ts
 - creditsCheckout (getCreditsCheckoutUrl) — apps/mobile/lib/creditsCheckout.ts
-- chatMediaUpload (uploadVoiceMessage, uploadChatVideoMessage) — apps/mobile/lib/chatMediaUpload.ts
+- chatMediaUpload (uploadVoiceMessage, uploadChatImageMessage) — apps/mobile/lib/chatMediaUpload.ts
+- chatVibeClipStreamUpload — apps/mobile/lib/chatVibeClipStreamUpload.ts
 
 ---
 

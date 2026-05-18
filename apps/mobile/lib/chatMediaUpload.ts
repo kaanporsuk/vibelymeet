@@ -1,19 +1,9 @@
 /**
- * Chat media upload: upload-voice and upload-chat-video Edge Functions.
- * Same contract as web (voiceUploadService, chatVideoUploadService).
- * After upload, voice and Vibe Clip rows are persisted only via `send-message`
- * (`invokePublishVoiceMessage`, `invokePublishVibeClip`), not client `messages.insert`.
+ * Chat image and voice upload helpers.
+ * Chat Vibe Clips upload through Bunny Stream TUS via `chatVibeClipStreamUpload`.
  */
 
-import * as FileSystem from 'expo-file-system/legacy';
-import { generateChatVibeClipThumbnailFile } from '@/lib/chatVibeClipThumbnail';
 import { getCachedAccessToken } from '@/lib/nativeAuthSession';
-import {
-  VIBE_CLIP_MAX_UPLOAD_BYTES,
-  VIBE_CLIP_UPLOAD_EMPTY_FILE,
-  VIBE_CLIP_UPLOAD_TOO_LARGE,
-  vibeClipMultipartFitsEdgeLimit,
-} from '../../../shared/chat/vibeClipCaptureCopy';
 
 const SUPABASE_URL = process.env.EXPO_PUBLIC_SUPABASE_URL ?? '';
 const GENERIC_UPLOAD_MIME_TYPE = 'application/octet-stream';
@@ -39,21 +29,6 @@ function normalizedImageMimeType(mimeType: string | null | undefined, imageUri: 
   if (ext === 'webp') return 'image/webp';
   if (ext === 'heic') return 'image/heic';
   if (ext === 'heif') return 'image/heif';
-  return GENERIC_UPLOAD_MIME_TYPE;
-}
-
-function normalizedVideoMimeType(mimeType: string | null | undefined, videoUri: string): string {
-  const normalized = mimeType?.split(';')[0]?.trim().toLowerCase() ?? '';
-  if (normalized === 'video/m4v') return 'video/x-m4v';
-  if (['video/mp4', 'video/quicktime', 'video/x-m4v', 'video/webm'].includes(normalized)) {
-    return normalized;
-  }
-
-  const ext = extensionFromUri(videoUri);
-  if (ext === 'mov') return 'video/quicktime';
-  if (ext === 'm4v') return 'video/x-m4v';
-  if (ext === 'webm') return 'video/webm';
-  if (ext === 'mp4') return 'video/mp4';
   return GENERIC_UPLOAD_MIME_TYPE;
 }
 
@@ -91,127 +66,6 @@ export async function uploadVoiceMessage(audioUri: string, matchId: string): Pro
   const mediaRef = typeof data.path === 'string' && data.path ? data.path : data.url;
   if (!data.success || !mediaRef) throw new Error(data.error ?? 'Voice upload failed');
   return mediaRef;
-}
-
-export async function uploadChatVideoMessage(
-  videoUri: string,
-  matchId: string,
-  mimeType?: string | null,
-  aspectRatio?: number | null
-): Promise<{
-  videoUrl: string;
-  thumbnailUrl: string | null;
-  posterSource: 'uploaded_thumbnail' | 'first_frame';
-  aspectRatio: number | null;
-}> {
-  const accessToken = await getCachedAccessToken();
-  if (!accessToken) throw new Error('Not authenticated');
-
-  if (!SUPABASE_URL) {
-    throw new Error('[chatMediaUpload] EXPO_PUBLIC_SUPABASE_URL is not set.');
-  }
-
-  let videoSizeBytes = 0;
-  try {
-    const info = await FileSystem.getInfoAsync(videoUri);
-    if (info.exists && !info.isDirectory && typeof info.size === 'number') {
-      if (info.size <= 0) throw new Error(VIBE_CLIP_UPLOAD_EMPTY_FILE);
-      if (info.size > VIBE_CLIP_MAX_UPLOAD_BYTES) throw new Error(VIBE_CLIP_UPLOAD_TOO_LARGE());
-      videoSizeBytes = info.size;
-    }
-  } catch (error) {
-    if (error instanceof Error && (error.message === VIBE_CLIP_UPLOAD_EMPTY_FILE || error.message === VIBE_CLIP_UPLOAD_TOO_LARGE())) {
-      throw error;
-    }
-  }
-
-  let tempThumbUri: string | null = null;
-  try {
-    tempThumbUri = await generateChatVibeClipThumbnailFile(videoUri);
-  } catch {
-    tempThumbUri = null;
-  }
-
-  const formData = new FormData();
-  formData.append('match_id', matchId);
-  if (typeof aspectRatio === 'number' && Number.isFinite(aspectRatio) && aspectRatio > 0) {
-    formData.append('aspect_ratio', String(aspectRatio));
-  }
-  const uploadMimeType = normalizedVideoMimeType(mimeType, videoUri);
-  const ext =
-    uploadMimeType.includes('quicktime') || uploadMimeType.includes('mov') ? 'mov'
-    : uploadMimeType.includes('x-m4v') || uploadMimeType.includes('m4v') ? 'm4v'
-    : uploadMimeType.includes('webm') ? 'webm'
-    : uploadMimeType === GENERIC_UPLOAD_MIME_TYPE ? (extensionFromUri(videoUri) ?? 'bin')
-    : 'mp4';
-  formData.append(
-    'file',
-    {
-      uri: videoUri,
-      type: uploadMimeType,
-      name: `chat-video.${ext}`,
-    } as unknown as Blob
-  );
-  if (tempThumbUri && videoSizeBytes > 0) {
-    const thumbInfo = await FileSystem.getInfoAsync(tempThumbUri);
-    const thumbSize =
-      thumbInfo.exists && !thumbInfo.isDirectory && typeof thumbInfo.size === 'number' ? thumbInfo.size : 0;
-    if (thumbSize > 0 && vibeClipMultipartFitsEdgeLimit(videoSizeBytes, thumbSize)) {
-      formData.append(
-        'thumbnail',
-        {
-          uri: tempThumbUri,
-          type: 'image/jpeg',
-          name: 'chat-video-thumb.jpg',
-        } as unknown as Blob
-      );
-    }
-  }
-
-  let res: Response;
-  try {
-    res = await fetch(`${SUPABASE_URL}/functions/v1/upload-chat-video`, {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${accessToken}` },
-      body: formData,
-    });
-  } finally {
-    if (tempThumbUri) {
-      void FileSystem.deleteAsync(tempThumbUri, { idempotent: true }).catch(() => {});
-    }
-  }
-
-  if (!res.ok) {
-    const errorText = await res.text().catch(() => '');
-    throw new Error(errorText || `Upload failed with status ${res.status}`);
-  }
-
-  const data = await res.json() as {
-    success?: boolean;
-    path?: string;
-    url?: string;
-    thumbnail_path?: string | null;
-    thumbnail_url?: string | null;
-    poster_source?: 'uploaded_thumbnail' | 'first_frame';
-    aspect_ratio?: number | null;
-    error?: string;
-  };
-  const videoRef = typeof data.path === 'string' && data.path ? data.path : data.url;
-  if (!data.success || !videoRef) throw new Error(data.error ?? 'Video upload failed');
-  return {
-    videoUrl: videoRef,
-    thumbnailUrl:
-      typeof data.thumbnail_path === 'string' && data.thumbnail_path
-        ? data.thumbnail_path
-        : typeof data.thumbnail_url === 'string' && data.thumbnail_url
-          ? data.thumbnail_url
-          : null,
-    posterSource: data.poster_source === 'uploaded_thumbnail' ? 'uploaded_thumbnail' : 'first_frame',
-    aspectRatio:
-      typeof data.aspect_ratio === 'number' && Number.isFinite(data.aspect_ratio) && data.aspect_ratio > 0
-        ? data.aspect_ratio
-        : null,
-  };
 }
 
 export async function uploadChatImageMessage(

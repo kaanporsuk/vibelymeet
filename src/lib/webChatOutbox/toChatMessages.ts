@@ -43,7 +43,16 @@ export function webOutboxItemsToRows(items: WebChatOutboxItem[], previews: Outbo
 
     const t = new Date(it.createdAtMs).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
     const labelKind = payloadKindForLabel(it);
-    const sub = outboxPhaseStatusLabel(it.state as Parameters<typeof outboxPhaseStatusLabel>[0], labelKind);
+    const uploadPercent =
+      it.payload.kind === "video" &&
+      it.state === "sending" &&
+      typeof it.uploadProgress === "number" &&
+      Number.isFinite(it.uploadProgress)
+        ? Math.max(0, Math.min(100, Math.round(it.uploadProgress * 100)))
+        : null;
+    const sub = uploadPercent != null
+      ? `Uploading ${uploadPercent}%`
+      : outboxPhaseStatusLabel(it.state as Parameters<typeof outboxPhaseStatusLabel>[0], labelKind);
 
     let status: MessageStatusType = "sending";
     let sendError: string | undefined;
@@ -103,15 +112,17 @@ export function webOutboxItemsToRows(items: WebChatOutboxItem[], previews: Outbo
         videoUrl: url,
         videoDuration: it.payload.durationSeconds,
         structuredPayload: {
-          v: 2,
+          v: 3,
           kind: "vibe_clip",
           client_request_id: it.id,
           duration_ms: Math.round(it.payload.durationSeconds * 1000),
           thumbnail_url: null,
-          poster_source: "first_frame",
+          poster_ref: null,
+          poster_source: "bunny_stream_thumbnail",
           aspect_ratio: aspectRatio,
-          processing_status: "ready",
-          upload_provider: "bunny",
+          processing_status: it.state === "awaiting_hydration" ? "processing" : "uploading",
+          upload_provider: "bunny_stream",
+          provider: "bunny_stream",
         },
         status,
         sendError,

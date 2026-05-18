@@ -17,7 +17,7 @@ import Animated, {
   runOnJS,
 } from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
-import { useVideoPlayer, VideoView } from 'expo-video';
+import { useVideoPlayer, VideoView, type VideoSource } from 'expo-video';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { resolvePreservedMediaSelectionId } from '../../../../shared/chat/mediaSelection';
 import {
@@ -29,6 +29,18 @@ import {
 export type ChatThreadPhotoItem = { id: string; uri: string; sourceRef?: string | null };
 
 const SPRING = { damping: 22, stiffness: 260 };
+
+function isPlayableVideoUri(uri: string): boolean {
+  return /^https?:\/\//i.test(uri) || uri.startsWith('file:') || uri.startsWith('blob:') || uri.startsWith('data:');
+}
+
+function isHlsUri(uri: string): boolean {
+  return /\.m3u8(?:[?#]|$)/i.test(uri);
+}
+
+function videoSourceForUri(uri: string): VideoSource {
+  return isHlsUri(uri) ? { uri, contentType: 'hls' } : uri;
+}
 
 function ZoomablePhotoPage({
   uri,
@@ -275,14 +287,17 @@ function VideoViewerBody({
   onRefreshMedia?: () => Promise<{ uri?: string | null; posterUri?: string | null } | null>;
   onClose: () => void;
 }) {
+  const insets = useSafeAreaInsets();
   const [retryKey, setRetryKey] = useState(0);
   const [playableUri, setPlayableUri] = useState(uri);
   const [playablePosterUri, setPlayablePosterUri] = useState(posterUri ?? null);
+  const [resolveFailed, setResolveFailed] = useState(false);
   const refreshAttemptedForUriRef = useRef<string | null>(null);
 
   useEffect(() => {
     setPlayableUri(uri);
     setPlayablePosterUri(posterUri ?? null);
+    setResolveFailed(false);
     refreshAttemptedForUriRef.current = null;
   }, [posterUri, uri]);
 
@@ -292,9 +307,76 @@ function VideoViewerBody({
     if (fresh?.posterUri) setPlayablePosterUri(fresh.posterUri);
     if (!fresh?.uri || fresh.uri === playableUri) return false;
     refreshAttemptedForUriRef.current = playableUri;
+    setResolveFailed(false);
     setPlayableUri(fresh.uri);
     return true;
   }, [onRefreshMedia, playableUri]);
+
+  useEffect(() => {
+    if (isPlayableVideoUri(playableUri)) {
+      setResolveFailed(false);
+      return;
+    }
+    let cancelled = false;
+    void refreshMedia()
+      .then((didRefresh) => {
+        if (!cancelled && !didRefresh) setResolveFailed(true);
+      })
+      .catch(() => {
+        if (!cancelled) setResolveFailed(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [playableUri, refreshMedia]);
+
+  if (!isPlayableVideoUri(playableUri)) {
+    return (
+      <View style={styles.videoRoot}>
+        <View style={[styles.videoTopBar, { paddingTop: insets.top + 10, paddingHorizontal: 16 }]}>
+          <Pressable
+            onPress={onClose}
+            hitSlop={12}
+            accessibilityLabel="Close video"
+            style={({ pressed }) => [styles.videoClose, pressed && { opacity: 0.8 }]}
+          >
+            <Ionicons name="close" size={26} color="rgba(255,255,255,0.95)" />
+          </Pressable>
+        </View>
+        <View style={styles.videoStageWrap}>
+          <View style={[styles.videoFrame, { marginBottom: Math.max(12, insets.bottom + 8) }]}>
+            {resolveFailed ? (
+              <View style={styles.videoErrorOverlay}>
+                <Ionicons name="alert-circle-outline" size={40} color="rgba(196,181,253,0.9)" />
+                <Text style={styles.videoErrorText}>Couldn&apos;t play this video.</Text>
+                <Pressable
+                  onPress={() => {
+                    refreshAttemptedForUriRef.current = null;
+                    setResolveFailed(false);
+                    void refreshMedia()
+                      .then((didRefresh) => {
+                        if (!didRefresh) setResolveFailed(true);
+                      })
+                      .catch(() => setResolveFailed(true));
+                  }}
+                  style={({ pressed }) => [styles.videoRetryBtn, pressed && { opacity: 0.88 }]}
+                >
+                  <Text style={styles.videoRetryLabel}>Try again</Text>
+                </Pressable>
+              </View>
+            ) : (
+              <View style={styles.videoLoadingOverlay} pointerEvents="none">
+                <View style={styles.videoLoadingPill}>
+                  <ActivityIndicator color="rgba(216,180,254,0.95)" size="small" />
+                  <Text style={styles.videoLoadingText}>Preparing playback…</Text>
+                </View>
+              </View>
+            )}
+          </View>
+        </View>
+      </View>
+    );
+  }
 
   return (
     <VideoViewerStage
@@ -328,7 +410,7 @@ function VideoViewerStage({
   const insets = useSafeAreaInsets();
   const [phase, setPhase] = useState<'loading' | 'ready' | 'error'>('loading');
 
-  const player = useVideoPlayer(uri, (p) => {
+  const player = useVideoPlayer(videoSourceForUri(uri), (p) => {
     p.loop = false;
   });
 
@@ -377,7 +459,6 @@ function VideoViewerStage({
   return (
     <View style={styles.videoRoot}>
       <View style={[styles.videoTopBar, { paddingTop: insets.top + 10, paddingHorizontal: 16 }]}>
-        <Text style={styles.videoStageTitle}>VIDEO</Text>
         <Pressable
           onPress={onClose}
           hitSlop={12}
@@ -430,10 +511,6 @@ function VideoViewerStage({
             </View>
           ) : null}
         </View>
-
-        <Text style={[styles.videoStageHint, { paddingBottom: Math.max(10, insets.bottom) }]}>
-          System controls below · fullscreen
-        </Text>
       </View>
     </View>
   );
@@ -517,14 +594,8 @@ const styles = StyleSheet.create({
   videoTopBar: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
+    justifyContent: 'flex-end',
     zIndex: 30,
-  },
-  videoStageTitle: {
-    fontSize: 11,
-    fontWeight: '800',
-    letterSpacing: 2,
-    color: 'rgba(216,180,254,0.85)',
   },
   videoStageWrap: {
     flex: 1,
@@ -591,13 +662,6 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '700',
     color: 'rgba(233,213,255,0.95)',
-  },
-  videoStageHint: {
-    textAlign: 'center',
-    color: 'rgba(255,255,255,0.32)',
-    fontSize: 11,
-    fontWeight: '500',
-    marginTop: 8,
   },
   videoClose: {
     padding: 10,

@@ -57,7 +57,10 @@ Historical 2026-03-18 CLI snapshot: 36 ACTIVE functions.
 | stripe-webhook | POST | false | Stripe events | — | — | Stripe |
 | swipe-actions | POST | true | Event deck swipe + notify | useSwipeAction | eventsApi | RPC + send-notification |
 | unsubscribe | GET/POST | false | Email unsubscribe | — | — | HMAC + DB |
-| upload-chat-video | POST | true | Chat video to Bunny | chatVideoUploadService (fetch) | chatMediaUpload (fetch) | Bunny |
+| upload-chat-video | POST | true | Legacy chat video compatibility | — | — | Bunny Storage |
+| create-chat-vibe-clip-upload | POST | true | Create Bunny Stream TUS session for Chat Vibe Clip | chatVibeClipStreamUploadService | chatVibeClipStreamUpload | Bunny Stream |
+| complete-chat-vibe-clip-upload | POST | true | Publish completed Chat Vibe Clip upload | chatVibeClipStreamUploadService | chatVibeClipStreamUpload | Bunny Stream |
+| sync-chat-vibe-clip-status | POST | true | Repair/poll Chat Vibe Clip processing state | chatMediaResolver | chatMediaResolver | Bunny Stream |
 | upload-event-cover | POST | true | Admin event cover | eventCoverUploadService | — | Bunny |
 | upload-image | POST | true | Profile/photos upload | imageUploadService (fetch) | uploadImage (fetch) | Bunny CDN |
 | upload-voice | POST | true | Voice note upload | voiceUploadService (fetch) | chatMediaUpload (fetch) | Storage/Bunny |
