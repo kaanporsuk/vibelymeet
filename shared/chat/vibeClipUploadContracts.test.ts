@@ -414,6 +414,11 @@ test("server upload and publish paths enforce Bunny Stream Vibe Clip limits", ()
   assert.match(chatVibeClipShared, /provider: "bunny_stream"/);
   assert.match(chatVibeClipShared, /options: \{ publishIfProcessing\?: boolean \} = \{\}/);
   assert.match(chatVibeClipShared, /!options\.publishIfProcessing/);
+  assert.match(chatVibeClipShared, /function isTerminalChatVibeClipStatus/);
+  assert.match(
+    chatVibeClipShared,
+    /isTerminalChatVibeClipStatus\(upload\.status\) && !isTerminalChatVibeClipStatus\(status\)/,
+  );
   assert.match(getChatMediaUrl, /BUNNY_CHAT_STREAM_CDN_HOSTNAME/);
   assert.match(getChatMediaUrl, /BUNNY_CHAT_STREAM_TOKEN_SECURITY_KEY/);
   assert.match(getChatMediaUrl, /async function sha256Base64Url\(input: string\)/);
