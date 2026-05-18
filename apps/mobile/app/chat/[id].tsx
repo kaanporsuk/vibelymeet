@@ -479,7 +479,7 @@ function outboxItemToThreadMessage(item: ChatOutboxItem): ThreadMessage {
   };
 }
 
-/** Outbox `item.id` is the canonical `client_request_id` sent to `send-message` (matches web merge). */
+/** Outbox `item.id` is the canonical `client_request_id` used by each server publish path. */
 function outboxRowClientRequestId(m: ThreadMessage): string | null {
   if (isLocalTextMessage(m)) return m.localText.outboxItemId ?? null;
   if (isLocalMediaMessage(m)) return m.localMedia.outboxItemId ?? null;

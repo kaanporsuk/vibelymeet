@@ -12,6 +12,8 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
+// Legacy Bunny Storage chat-video upload. New Chat Vibe Clips must use
+// create-chat-vibe-clip-upload -> Bunny Stream TUS instead.
 const CHAT_VIDEO_MAX_UPLOAD_BYTES = 8 * 1024 * 1024;
 
 function isUploadFile(value: FormDataEntryValue | null): value is File {

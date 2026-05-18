@@ -39,6 +39,11 @@ function isBunnyStreamRef(value: string): boolean {
   return value.startsWith("bunny_stream:");
 }
 
+function bunnyStreamThumbnailRefFor(rawRef: string): string | null {
+  const match = /^bunny_stream:([0-9a-f-]{32,36})$/i.exec(rawRef.trim());
+  return match ? `bunny_stream:${match[1]}:thumbnail` : null;
+}
+
 function isUuid(value: string): boolean {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
 }
@@ -125,10 +130,21 @@ async function issueAndCacheChatMediaUrl(
     payload.expiresInSeconds > 0
       ? Math.max(1_000, payload.expiresInSeconds * 1000 - SIGNED_MEDIA_TTL_SAFETY_MS)
       : DEFAULT_SIGNED_MEDIA_TTL_MS;
+  const expiresAtMs = Date.now() + expiresInMs;
   mediaUrlCache.set(cacheKey, {
     url: payload.url,
-    expiresAtMs: Date.now() + expiresInMs,
+    expiresAtMs,
   });
+  const thumbnailRef =
+    payload.provider === "bunny_stream" && (mediaKind === "vibe_clip" || mediaKind === "video")
+      ? bunnyStreamThumbnailRefFor(rawRef)
+      : null;
+  if (thumbnailRef && typeof payload.posterUrl === "string" && payload.posterUrl) {
+    mediaUrlCache.set(`${messageId}:thumbnail:${thumbnailRef}`, {
+      url: payload.posterUrl,
+      expiresAtMs,
+    });
+  }
   return payload.url;
 }
 

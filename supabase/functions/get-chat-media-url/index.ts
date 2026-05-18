@@ -40,9 +40,23 @@ async function signPayload(secret: string, payload: string): Promise<string> {
   return base64Url(new Uint8Array(signature));
 }
 
-async function sha256Base64Url(input: string): Promise<string> {
-  const digest = await crypto.subtle.digest("SHA-256", encoder.encode(input));
-  return base64Url(new Uint8Array(digest));
+async function hmacSha256Base64Url(secret: string, input: string): Promise<string> {
+  const key = await crypto.subtle.importKey(
+    "raw",
+    encoder.encode(secret),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"],
+  );
+  const signature = await crypto.subtle.sign("HMAC", key, encoder.encode(input));
+  return base64Url(new Uint8Array(signature));
+}
+
+function sortedSigningData(params: Record<string, string>): string {
+  return Object.entries(params)
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([key, value]) => `${key}=${value}`)
+    .join("&");
 }
 
 function normalizeHostname(value: string): string {
@@ -62,8 +76,11 @@ async function signBunnyStreamDirectoryUrl(params: {
   expires: number;
 }): Promise<string> {
   const tokenPath = `/${params.videoId}/`;
-  const signingData = `token_path=${tokenPath}`;
-  const token = await sha256Base64Url(`${params.securityKey}${tokenPath}${params.expires}${signingData}`);
+  const signingData = sortedSigningData({ token_path: tokenPath });
+  const token = `HS256-${await hmacSha256Base64Url(
+    params.securityKey,
+    `${tokenPath}${params.expires}${signingData}`,
+  )}`;
   const tokenSegment = `bcdn_token=${token}&expires=${params.expires}&token_path=${encodeURIComponent(tokenPath)}`;
   return `https://${normalizeHostname(params.hostname)}/${tokenSegment}/${params.videoId}/${params.fileName}`;
 }

@@ -16,6 +16,8 @@ type ChatVideoLightboxProps = {
   onClose: () => void;
 };
 
+const CLIP_PLAYBACK_LOAD_TIMEOUT_MS = 12_000;
+
 export function ChatVideoLightbox({
   videoUrl,
   posterUrl,
@@ -126,6 +128,16 @@ export function ChatVideoLightbox({
     });
   }, [isHlsUrl, isRemoteUrl, playableVideoUrl, refreshMedia]);
 
+  useEffect(() => {
+    if (phase !== "loading" || !canMountPlayer) return;
+    const timeoutId = window.setTimeout(() => {
+      void refreshMedia().then((didRefresh) => {
+        if (!didRefresh) setPhase("error");
+      });
+    }, CLIP_PLAYBACK_LOAD_TIMEOUT_MS);
+    return () => window.clearTimeout(timeoutId);
+  }, [canMountPlayer, phase, playableVideoUrl, refreshMedia]);
+
   return (
     <motion.div
       role="dialog"
@@ -195,6 +207,7 @@ export function ChatVideoLightbox({
                 type="button"
                 className="rounded-full border border-fuchsia-500/35 bg-fuchsia-500/10 px-5 py-2 text-xs font-semibold text-fuchsia-200 transition-colors hover:bg-fuchsia-500/20"
                 onClick={() => {
+                  refreshAttemptedForUrlRef.current = null;
                   resetPhase();
                   void refreshMedia().then((didRefresh) => {
                     if (didRefresh) return;

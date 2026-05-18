@@ -77,6 +77,7 @@ import {
   VIBE_CLIP_UPLOAD_LARGE_SOFT_WARNING,
   VIBE_CLIP_UPLOAD_INVALID_TYPE,
   VIBE_CLIP_UPLOAD_TOO_LARGE,
+  VIBE_CLIP_UPLOAD_TOO_LONG,
 } from "../../shared/chat/vibeClipCaptureCopy";
 import {
   classifySendFailureMessage,
@@ -1682,9 +1683,14 @@ const Chat = () => {
       return;
     }
 
+    const measuredDurationSeconds = Number.isFinite(duration) ? duration : 0.5;
+    if (measuredDurationSeconds > VIBE_CLIP_MAX_DURATION_SEC + 0.25) {
+      toast.error(VIBE_CLIP_UPLOAD_TOO_LONG());
+      return;
+    }
     const durationSeconds = Math.min(
       VIBE_CLIP_MAX_DURATION_SEC,
-      Math.max(0.5, Number.isFinite(duration) ? duration : 0.5),
+      Math.max(0.5, measuredDurationSeconds),
     );
     const captureSource = meta?.captureSource ?? "web_recorder";
     const durationBucket = durationBucketFromSeconds(durationSeconds);
@@ -1711,8 +1717,6 @@ const Chat = () => {
         toast(VIBE_CLIP_UPLOAD_LARGE_SOFT_WARNING);
       }
 
-      const blobKey = crypto.randomUUID();
-      await putOutboxBlob(blobKey, videoBlob);
       const storedVideoName =
         meta?.fileName ||
         (typeof File !== "undefined" && videoBlob instanceof File ? videoBlob.name : undefined);
@@ -1722,6 +1726,8 @@ const Chat = () => {
         toast.error(VIBE_CLIP_UPLOAD_INVALID_TYPE);
         return;
       }
+      const blobKey = crypto.randomUUID();
+      await putOutboxBlob(blobKey, videoBlob);
       webOutbox.enqueue({
         matchId: chatData.matchId,
         otherUserId: id,

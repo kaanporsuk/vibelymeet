@@ -16,6 +16,7 @@ const webVibeClipOptions = read("src/components/chat/VibeClipSendOptionsSheet.ts
 const webPhotoOptions = read("src/components/chat/PhotoSendOptionsDialog.tsx");
 const webPhotoCamera = read("src/components/chat/PhotoCameraCaptureDialog.tsx");
 const webChat = read("src/pages/Chat.tsx");
+const webMessagesHook = read("src/hooks/useMessages.ts");
 const webOutboxContext = read("src/contexts/WebChatOutboxContext.tsx");
 const webOutboxExecute = read("src/lib/webChatOutbox/execute.ts");
 const webUploadMime = read("src/lib/webUploadMime.ts");
@@ -219,6 +220,8 @@ test("web recorder exposes safe camera flip on eligible devices", () => {
 
 test("web queue and upload preserve validated library video metadata", () => {
   assert.match(webChat, /Math\.min\(\s*VIBE_CLIP_MAX_DURATION_SEC/);
+  assert.match(webChat, /measuredDurationSeconds > VIBE_CLIP_MAX_DURATION_SEC \+ 0\.25/);
+  assert.match(webChat, /toast\.error\(VIBE_CLIP_UPLOAD_TOO_LONG\(\)\)/);
   assert.match(webChat, /const captureSource = meta\?\.captureSource \?\? "web_recorder"/);
   assert.match(webChat, /const videoMimeType =[\s\S]{0,160}videoMimeTypeForUpload\(meta\?\.mimeType \|\| videoBlob\.type, storedVideoName\) \?\? GENERIC_UPLOAD_MIME_TYPE/);
   assert.match(webChat, /mimeType: videoMimeType/);
@@ -237,6 +240,8 @@ test("web queue and upload preserve validated library video metadata", () => {
   assert.match(webOutboxExecute, /ChatVibeClipUploadedButUnpublishedError/);
   assert.match(webOutboxExecute, /isBunnyStreamPlaybackRef\(item\.uploadedMediaUrl\)/);
   assert.doesNotMatch(webOutboxExecute, /invokePublishVibeClip/);
+  assert.doesNotMatch(webMessagesHook, /usePublishVibeClip/);
+  assert.doesNotMatch(webMessagesHook, /publish-vibe-clip/);
   assert.match(webStreamUpload, /new tus\.Upload\(params\.file/);
   assert.match(webStreamUpload, /chunkSize: TUS_CHUNK_SIZE/);
   assert.match(webStreamUpload, /upload\.findPreviousUploads\(\)/);
@@ -278,6 +283,10 @@ test("video bubbles remain adaptive and full-width across web and native chat", 
   assert.match(webVibeClipBubble, /role=\{isSurfaceInteractive \? "button" : undefined\}/);
   assert.match(webVibeClipBubble, /type VibeClipMediaRefreshReason = "preview" \| "playback"/);
   assert.match(webVibeClipBubble, /if \(reason === "preview"\) return !!freshThumbnailUrl/);
+  assert.match(webVibeClipBubble, /shouldResolvePosterPreview/);
+  assert.match(webVibeClipBubble, /posterRefreshAttemptedForRef/);
+  assert.match(webVibeClipBubble, /CLIP_PLAYBACK_LOAD_TIMEOUT_MS/);
+  assert.match(webVibeClipBubble, /refreshAttemptedForUrlRef\.current = null;[\s\S]{0,160}setLoadError\(false\)/);
   assert.match(webVibeClipBubble, /aria-label=\{isMuted \? "Unmute clip" : "Mute clip"\}/);
   assert.match(webVibeClipBubble, /aria-label="Open clip full screen"/);
   assert.match(webOutboxContext, /function recoverInterruptedSendingItems/);
@@ -291,6 +300,8 @@ test("video bubbles remain adaptive and full-width across web and native chat", 
   assert.match(webVideoBubble, /aria-label="Open video full screen"/);
   assert.match(webVideoLightbox, /void refreshMedia\(\)\.then\(\(didRefresh\) => \{[\s\S]{0,120}if \(!didRefresh\) setPhase\("error"\)/);
   assert.match(webVideoLightbox, /setPhase\("error"\);[\s\S]{0,80}return;/);
+  assert.match(webVideoLightbox, /CLIP_PLAYBACK_LOAD_TIMEOUT_MS/);
+  assert.match(webVideoLightbox, /phase !== "loading" \|\| !canMountPlayer/);
 
   assert.match(nativeChat, /const MEDIA_CARD_MIN_WIDTH = 150/);
   assert.match(nativeChat, /const MEDIA_CARD_MAX_WIDTH = 280/);
@@ -325,6 +336,11 @@ test("video bubbles remain adaptive and full-width across web and native chat", 
   assert.match(nativeVibeClipCard, /onRefreshClipMedia\('playback'\)/);
   assert.match(nativeVibeClipCard, /if \(reason === 'preview'\) return !!freshThumbnailUri/);
   assert.match(nativeVibeClipCard, /freshThumbnailUri !== playableThumbnailUrl/);
+  assert.match(nativeVibeClipCard, /posterRefreshAttemptedForRef/);
+  assert.match(nativeVibeClipCard, /isResolvableMediaRef\(playableThumbnailUrl\)/);
+  assert.match(nativeVibeClipCard, /CLIP_PLAYBACK_LOAD_TIMEOUT_MS/);
+  assert.match(nativeVibeClipCard, /onResetPlaybackRefreshAttempt/);
+  assert.match(nativeVibeClipCard, /setHasError\(false\)/);
   assert.match(nativeVibeClipCard, /setInlinePlayRequestToken\(\(token\) => token \+ 1\)/);
   assert.match(nativeChat, /function vibeClipPosterCacheKey/);
   assert.match(nativeChat, /vibeClipPosterPreviewByKey/);
@@ -421,9 +437,11 @@ test("server upload and publish paths enforce Bunny Stream Vibe Clip limits", ()
   );
   assert.match(getChatMediaUrl, /BUNNY_CHAT_STREAM_CDN_HOSTNAME/);
   assert.match(getChatMediaUrl, /BUNNY_CHAT_STREAM_TOKEN_SECURITY_KEY/);
-  assert.match(getChatMediaUrl, /async function sha256Base64Url\(input: string\)/);
-  assert.match(getChatMediaUrl, /\$\{params\.securityKey\}\$\{tokenPath\}\$\{params\.expires\}\$\{signingData\}/);
-  assert.doesNotMatch(getChatMediaUrl, /HS256-|hmacSha256Base64Url/);
+  assert.match(getChatMediaUrl, /async function hmacSha256Base64Url\(secret: string, input: string\)/);
+  assert.match(getChatMediaUrl, /const signingData = sortedSigningData\(\{ token_path: tokenPath \}\)/);
+  assert.match(getChatMediaUrl, /const token = `HS256-\$\{await hmacSha256Base64Url/);
+  assert.match(getChatMediaUrl, /`\$\{tokenPath\}\$\{params\.expires\}\$\{signingData\}`/);
+  assert.match(getChatMediaUrl, /bcdn_token=\$\{token\}&expires=\$\{params\.expires\}&token_path=\$\{encodeURIComponent\(tokenPath\)\}/);
   assert.match(getChatMediaUrl, /playbackKind: mediaKind === "thumbnail" \? "progressive" : "hls"/);
   assert.match(getChatMediaUrl, /expiresInSeconds: TOKEN_TTL_SECONDS/);
   assert.match(videoWebhook, /BUNNY_CHAT_STREAM_LIBRARY_ID/);
