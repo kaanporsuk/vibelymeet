@@ -25,6 +25,7 @@ type VideoElementWithWebkitFullscreen = HTMLVideoElement & {
 };
 
 const VIDEO_BUBBLE_WIDTH_CLASS = "w-[min(17.5rem,calc(100vw-4rem))] max-w-full";
+const MAX_VIDEO_PLAYBACK_REFRESH_ATTEMPTS = 1;
 
 const formatDuration = (s: number) => {
   const m = Math.floor(s / 60);
@@ -53,7 +54,7 @@ export const VideoMessageBubble = ({
   const [hasMetadata, setHasMetadata] = useState(false);
   const [loadError, setLoadError] = useState(false);
   const [playableVideoUrl, setPlayableVideoUrl] = useState(videoUrl);
-  const refreshAttemptedForUrlRef = useRef<string | null>(null);
+  const playbackRefreshAttemptCountRef = useRef(0);
 
   const isIosSafari = useMemo(() => {
     if (typeof navigator === "undefined") return false;
@@ -73,23 +74,27 @@ export const VideoMessageBubble = ({
     setIsReady(false);
     setHasMetadata(false);
     setLoadError(false);
-    refreshAttemptedForUrlRef.current = null;
+    playbackRefreshAttemptCountRef.current = 0;
   }, [videoUrl]);
 
-  const refreshVideoUrl = useCallback(async (): Promise<string | null> => {
-    if (!messageId || !videoSourceRef) return null;
-    const freshUrl = await refreshCachedChatMediaUrl(messageId, mediaKind, videoSourceRef);
-    if (!freshUrl) return null;
-    setPlayableVideoUrl(freshUrl);
-    onResolvedVideoUrl?.(freshUrl);
-    return freshUrl;
-  }, [mediaKind, messageId, onResolvedVideoUrl, videoSourceRef]);
+  const refreshVideoUrl = useCallback(
+    async (options?: { bypassFailureCooldown?: boolean }): Promise<string | null> => {
+      if (!messageId || !videoSourceRef) return null;
+      const freshUrl = await refreshCachedChatMediaUrl(messageId, mediaKind, videoSourceRef, options);
+      if (!freshUrl) return null;
+      setPlayableVideoUrl(freshUrl);
+      onResolvedVideoUrl?.(freshUrl);
+      return freshUrl;
+    },
+    [mediaKind, messageId, onResolvedVideoUrl, videoSourceRef],
+  );
 
   const tryRefreshAfterFailure = useCallback(async (): Promise<boolean> => {
-    if (!messageId || !videoSourceRef || refreshAttemptedForUrlRef.current === playableVideoUrl) return false;
+    if (!messageId || !videoSourceRef) return false;
+    if (playbackRefreshAttemptCountRef.current >= MAX_VIDEO_PLAYBACK_REFRESH_ATTEMPTS) return false;
+    playbackRefreshAttemptCountRef.current += 1;
     const freshUrl = await refreshVideoUrl();
     if (!freshUrl || freshUrl === playableVideoUrl) return false;
-    refreshAttemptedForUrlRef.current = playableVideoUrl;
     return true;
   }, [messageId, playableVideoUrl, refreshVideoUrl, videoSourceRef]);
 
@@ -212,13 +217,14 @@ export const VideoMessageBubble = ({
         <button
           type="button"
           onClick={() => {
+            playbackRefreshAttemptCountRef.current = 0;
             setLoadError(false);
             setIsLoading(true);
             setIsReady(false);
             setIsPlaying(false);
             setCurrentTime(0);
-            void refreshVideoUrl().then((freshUrl) => {
-              if (!freshUrl) videoRef.current?.load();
+            void refreshVideoUrl({ bypassFailureCooldown: true }).then((freshUrl) => {
+              if (!freshUrl || freshUrl === playableVideoUrl) videoRef.current?.load();
             });
           }}
           className="text-[11px] font-medium text-primary hover:underline underline-offset-2"

@@ -17,6 +17,9 @@ type ChatVideoLightboxProps = {
 };
 
 const CLIP_PLAYBACK_LOAD_TIMEOUT_MS = 12_000;
+const MAX_LIGHTBOX_PLAYBACK_REFRESH_ATTEMPTS = 1;
+
+type LightboxMediaRefreshReason = "initial" | "playback" | "manual";
 
 export function ChatVideoLightbox({
   videoUrl,
@@ -33,7 +36,7 @@ export function ChatVideoLightbox({
   const [phase, setPhase] = useState<"loading" | "ready" | "error">("loading");
   const [playableVideoUrl, setPlayableVideoUrl] = useState(videoUrl);
   const [playablePosterUrl, setPlayablePosterUrl] = useState(posterUrl ?? null);
-  const refreshAttemptedForUrlRef = useRef<string | null>(null);
+  const playbackRefreshAttemptCountRef = useRef(0);
   const playableVideoUrlRef = useRef(playableVideoUrl);
 
   const resetPhase = useCallback(() => setPhase("loading"), []);
@@ -62,19 +65,23 @@ export function ChatVideoLightbox({
     playableVideoUrlRef.current = playableVideoUrl;
   }, [playableVideoUrl]);
 
-  const refreshMedia = useCallback(async (): Promise<boolean> => {
+  const refreshMedia = useCallback(async (reason: LightboxMediaRefreshReason = "playback"): Promise<boolean> => {
     const currentUrl = playableVideoUrlRef.current;
-    if (!messageId || !videoSourceRef || refreshAttemptedForUrlRef.current === currentUrl) return false;
-    const freshVideoUrl = await refreshCachedChatMediaUrl(messageId, mediaKind, videoSourceRef);
+    if (!messageId || !videoSourceRef) return false;
+    const refreshOptions = reason === "manual" ? { bypassFailureCooldown: true } : undefined;
+    if (reason === "playback") {
+      if (playbackRefreshAttemptCountRef.current >= MAX_LIGHTBOX_PLAYBACK_REFRESH_ATTEMPTS) return false;
+      playbackRefreshAttemptCountRef.current += 1;
+    }
+    const freshVideoUrl = await refreshCachedChatMediaUrl(messageId, mediaKind, videoSourceRef, refreshOptions);
     const freshPosterUrl = thumbnailSourceRef
-      ? await refreshCachedChatMediaUrl(messageId, "thumbnail", thumbnailSourceRef)
+      ? await refreshCachedChatMediaUrl(messageId, "thumbnail", thumbnailSourceRef, refreshOptions)
       : null;
     if (freshPosterUrl) {
       setPlayablePosterUrl(freshPosterUrl);
       onResolvedThumbnailUrl?.(freshPosterUrl);
     }
     if (!freshVideoUrl || freshVideoUrl === currentUrl) return false;
-    refreshAttemptedForUrlRef.current = currentUrl;
     setPlayableVideoUrl(freshVideoUrl);
     onResolvedVideoUrl?.(freshVideoUrl);
     return true;
@@ -91,11 +98,11 @@ export function ChatVideoLightbox({
     playableVideoUrlRef.current = videoUrl;
     setPlayableVideoUrl(videoUrl);
     setPlayablePosterUrl(posterUrl ?? null);
-    refreshAttemptedForUrlRef.current = null;
+    playbackRefreshAttemptCountRef.current = 0;
     resetPhase();
     const v = videoRef.current;
     if (!/^https?:\/\//i.test(videoUrl) && !/^(blob:|file:|data:)/i.test(videoUrl) && videoSourceRef) {
-      void refreshMedia().then((didRefresh) => {
+      void refreshMedia("initial").then((didRefresh) => {
         if (!didRefresh) setPhase("error");
       });
       return;
@@ -207,9 +214,9 @@ export function ChatVideoLightbox({
                 type="button"
                 className="rounded-full border border-fuchsia-500/35 bg-fuchsia-500/10 px-5 py-2 text-xs font-semibold text-fuchsia-200 transition-colors hover:bg-fuchsia-500/20"
                 onClick={() => {
-                  refreshAttemptedForUrlRef.current = null;
+                  playbackRefreshAttemptCountRef.current = 0;
                   resetPhase();
-                  void refreshMedia().then((didRefresh) => {
+                  void refreshMedia("manual").then((didRefresh) => {
                     if (didRefresh) return;
                     videoRef.current?.load();
                     void videoRef.current?.play().catch(() => setPhase("error"));

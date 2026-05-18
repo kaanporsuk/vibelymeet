@@ -101,6 +101,7 @@ class FakeHls {
 
   source: string | null = null;
   media: unknown = null;
+  config: Record<string, unknown> | undefined;
   destroyed = false;
   handlers = new Map<string, (event: unknown, data?: { fatal?: boolean; type?: string }) => void>();
 
@@ -108,7 +109,8 @@ class FakeHls {
     return FakeHls.supported;
   }
 
-  constructor() {
+  constructor(config?: Record<string, unknown>) {
+    this.config = config;
     FakeHls.instances.push(this);
   }
 
@@ -176,6 +178,11 @@ test("attachHlsPlayback uses hls.js on Chrome-capable browsers and destroys clea
   await flushPromises();
 
   assert.equal(FakeHls.instances.length, 1);
+  assert.deepEqual(FakeHls.instances[0].config, {
+    fragLoadingMaxRetry: 1,
+    levelLoadingMaxRetry: 1,
+    manifestLoadingMaxRetry: 1,
+  });
   assert.equal(FakeHls.instances[0].source, "https://cdn.example/video/playlist.m3u8");
   assert.equal(FakeHls.instances[0].media, video);
 
@@ -189,7 +196,7 @@ test("attachHlsPlayback uses hls.js on Chrome-capable browsers and destroys clea
   __setHlsLoaderForTest(null);
 });
 
-test("attachHlsPlayback reports unsupported and fatal playback errors", async () => {
+test("attachHlsPlayback reports unsupported and only the first playback error", async () => {
   resetFakeHls();
   const unsupportedVideo = new FakeVideoElement();
   const errors: string[] = [];
@@ -211,7 +218,7 @@ test("attachHlsPlayback reports unsupported and fatal playback errors", async ()
   assert.equal(errors.at(-1), "fatal");
 
   fatalVideo.dispatch("error");
-  assert.equal(errors.at(-1), "native");
+  assert.equal(errors.at(-1), "fatal");
   __setHlsLoaderForTest(null);
 });
 
