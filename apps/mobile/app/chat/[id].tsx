@@ -23,7 +23,6 @@ import {
   type LayoutChangeEvent,
   type NativeSyntheticEvent,
   type NativeScrollEvent,
-  type ViewToken,
 } from 'react-native';
 import { useLocalSearchParams, router } from 'expo-router';
 import { useFocusEffect } from '@react-navigation/native';
@@ -104,7 +103,7 @@ import {
 } from '@/lib/chatMessageContent';
 import { refreshCachedChatMediaUrl } from '@/lib/chatMediaResolver';
 import { extractVibeClipMeta } from '../../../../shared/chat/messageRouting';
-import { VibeClipCard } from '@/components/chat/VibeClipCard';
+import { VibeClipCard, type VibeClipPosterPreviewState } from '@/components/chat/VibeClipCard';
 import {
   ChatThreadPhotoViewerModal,
   ChatThreadVideoViewerModal,
@@ -307,12 +306,10 @@ function chatListRowKey(row: ChatListRow): string {
   return row.message.id;
 }
 
-function sameStringSet(a: Set<string>, b: Set<string>): boolean {
-  if (a.size !== b.size) return false;
-  for (const value of a) {
-    if (!b.has(value)) return false;
-  }
-  return true;
+function vibeClipPosterCacheKey(messageId: string, thumbnailUri: string | null | undefined): string | null {
+  const uri = thumbnailUri?.trim();
+  if (!uri) return null;
+  return `${messageId}:${uri}`;
 }
 
 function bubbleMediaNeighbors(
@@ -858,21 +855,8 @@ export default function ChatThreadScreen() {
   const latestSnapCountRef = useRef(0);
   const [awayFromBottom, setAwayFromBottom] = useState(false);
   const [newBelowCue, setNewBelowCue] = useState(false);
-  const [visibleRowKeys, setVisibleRowKeys] = useState<Set<string>>(() => new Set());
   const [sendingPhoto, setSendingPhoto] = useState(false);
   const { show: showAppDialog, dialog: appDialog } = useVibelyDialog();
-  const viewabilityConfigRef = useRef({
-    itemVisiblePercentThreshold: 20,
-    minimumViewTime: 80,
-  });
-  const onViewableItemsChangedRef = useRef(({ viewableItems }: { viewableItems: ViewToken[] }) => {
-    const next = new Set<string>();
-    for (const token of viewableItems) {
-      const row = token.item as ChatListRow | null | undefined;
-      if (row) next.add(chatListRowKey(row));
-    }
-    setVisibleRowKeys((prev) => (sameStringSet(prev, next) ? prev : next));
-  });
 
   useEffect(() => {
     recordingRef.current = recording;
@@ -1106,12 +1090,30 @@ export default function ChatThreadScreen() {
   }, []);
   const [videoUriOverridesById, setVideoUriOverridesById] = useState<Record<string, string>>({});
   const [thumbnailUriOverridesById, setThumbnailUriOverridesById] = useState<Record<string, string>>({});
+  const [vibeClipPosterPreviewByKey, setVibeClipPosterPreviewByKey] =
+    useState<Record<string, VibeClipPosterPreviewState>>({});
   const rememberResolvedVideoUri = useCallback((messageId: string, uri: string) => {
     setVideoUriOverridesById((prev) => (prev[messageId] === uri ? prev : { ...prev, [messageId]: uri }));
   }, []);
   const rememberResolvedThumbnailUri = useCallback((messageId: string, uri: string) => {
     setThumbnailUriOverridesById((prev) => (prev[messageId] === uri ? prev : { ...prev, [messageId]: uri }));
   }, []);
+  const vibeClipPosterPreviewStateForMessage = useCallback(
+    (messageId: string, thumbnailUri: string | null | undefined): VibeClipPosterPreviewState => {
+      const key = vibeClipPosterCacheKey(messageId, thumbnailUri);
+      if (!key) return 'failed';
+      return vibeClipPosterPreviewByKey[key] ?? 'unknown';
+    },
+    [vibeClipPosterPreviewByKey],
+  );
+  const rememberVibeClipPosterPreviewState = useCallback(
+    (messageId: string, thumbnailUri: string | null | undefined, state: VibeClipPosterPreviewState) => {
+      const key = vibeClipPosterCacheKey(messageId, thumbnailUri);
+      if (!key) return;
+      setVibeClipPosterPreviewByKey((prev) => (prev[key] === state ? prev : { ...prev, [key]: state }));
+    },
+    [],
+  );
   const videoUriForMessage = useCallback(
     (message: ThreadMessage): string | null => videoUriOverridesById[message.id] ?? message.video_url ?? null,
     [videoUriOverridesById],
@@ -1325,7 +1327,6 @@ export default function ChatThreadScreen() {
     userScrollIntentUntilRef.current = 0;
     allowOlderPageFetchRef.current = false;
     latestSnapCountRef.current = 0;
-    setVisibleRowKeys(new Set());
   }, [otherUserId]);
 
   useEffect(() => {
@@ -2375,7 +2376,7 @@ export default function ChatThreadScreen() {
     textColor: string,
     timeColor: string,
     isMe: boolean,
-    opts?: { threadVisualRecede?: boolean; shouldMountPlayer?: boolean },
+    opts?: { threadVisualRecede?: boolean },
   ) => {
     const threadVisualRecede = opts?.threadVisualRecede ?? false;
     const pair = reactionByMessageId.get(item.id) ?? { mine: null, partner: null };
@@ -2464,7 +2465,8 @@ export default function ChatThreadScreen() {
           videoUrl: videoUriOverridesById[item.id] ?? clipMeta.videoUrl,
           thumbnailUrl: thumbnailUriOverridesById[item.id] ?? clipMeta.thumbnailUrl,
         };
-        const shouldMountPlayer = (opts?.shouldMountPlayer ?? false) || videoViewer?.uri === displayClipMeta.videoUrl;
+        const shouldMountPlayer = videoViewer?.uri === displayClipMeta.videoUrl;
+        const posterPreviewState = vibeClipPosterPreviewStateForMessage(item.id, displayClipMeta.thumbnailUrl);
         return (
           <View style={[styles.mediaContentWrap, { width: mediaCardWidth }]}>
             <VibeClipCard
@@ -2474,6 +2476,10 @@ export default function ChatThreadScreen() {
               thumbnailSourceRef={item.thumbnail_source_ref}
               onResolvedVideoUrl={(uri) => rememberResolvedVideoUri(item.id, uri)}
               onResolvedThumbnailUrl={(uri) => rememberResolvedThumbnailUri(item.id, uri)}
+              posterPreviewState={posterPreviewState}
+              onPosterPreviewStateChange={(state, thumbnailUrl) =>
+                rememberVibeClipPosterPreviewState(item.id, thumbnailUrl ?? displayClipMeta.thumbnailUrl, state)
+              }
               reactionPair={pair}
               threadMessageCount={displayMessages.length}
               sparkMessageId={item.id}
@@ -2710,7 +2716,6 @@ export default function ChatThreadScreen() {
       threadIdx >= 0 && lastClipOrVideoIndex >= 0 && threadIdx < lastClipOrVideoIndex;
     const content = renderBubbleContent(msg, textColor, timeColor, isMe, {
       threadVisualRecede: mediaRecede,
-      shouldMountPlayer: visibleRowKeys.has(rowKey),
     });
     const bubbleRadiusMe = {
       borderTopLeftRadius: 18,
@@ -3092,8 +3097,6 @@ export default function ChatThreadScreen() {
             }, 120);
           }}
           maintainVisibleContentPosition={{ minIndexForVisible: 0 }}
-          viewabilityConfig={viewabilityConfigRef.current}
-          onViewableItemsChanged={onViewableItemsChangedRef.current}
           scrollEventThrottle={16}
           alwaysBounceVertical
           nestedScrollEnabled

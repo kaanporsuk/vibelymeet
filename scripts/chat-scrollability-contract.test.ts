@@ -176,9 +176,12 @@ test("native chat hydrates the latest page instead of fetching full history", ()
   assert.match(nativeChat, /onEndReached=\{\(\) => \{[\s\S]*if \(!allowOlderPageFetchRef\.current\) return;[\s\S]*fetchNextPage\(\)/);
 });
 
-test("native chat lazy-mounts heavy clip players by viewability", () => {
-  assert.match(nativeChat, /const \[visibleRowKeys, setVisibleRowKeys\] = useState<Set<string>>/);
-  assert.match(nativeChat, /onViewableItemsChanged=\{onViewableItemsChangedRef\.current\}/);
-  assert.match(nativeChat, /viewabilityConfig=\{viewabilityConfigRef\.current\}/);
+test("native chat keeps clip browsing poster-first and mounts players only by intent", () => {
+  assert.doesNotMatch(nativeChat, /visibleRowKeys\.has\(rowKey\)/);
+  assert.doesNotMatch(nativeChat, /onViewableItemsChanged=\{onViewableItemsChangedRef\.current\}/);
+  assert.doesNotMatch(nativeChat, /viewabilityConfig=\{viewabilityConfigRef\.current\}/);
+  assert.match(nativeChat, /function vibeClipPosterCacheKey/);
+  assert.match(nativeChat, /vibeClipPosterPreviewByKey/);
+  assert.match(nativeChat, /const shouldMountPlayer = videoViewer\?\.uri === displayClipMeta\.videoUrl/);
   assert.match(nativeChat, /shouldMountPlayer=\{shouldMountPlayer\}/);
 });

@@ -179,13 +179,15 @@ assert.match(nativeClipCard, /refreshCachedChatMediaUrl\(sparkMessageId, 'vibe_c
 assert.match(nativeClipCard, /refreshCachedChatMediaUrl\(sparkMessageId, 'thumbnail', thumbnailSourceRef\)/);
 assert.match(nativeClipCard, /onResolvedVideoUrl\?\.\(freshVideoUri\)/);
 assert.match(nativeClipCard, /onResolvedThumbnailUrl\?\.\(freshThumbnailUri\)/);
+assert.match(nativeClipCard, /\(!videoSourceRef && !thumbnailSourceRef\)/);
+assert.match(nativeClipCard, /freshThumbnailUri !== playableThumbnailUrl/);
 assert.match(
   nativeChatScreen,
   /if \(!freshUri \|\| freshUri === playableUri\) return false;[\s\S]{0,80}refreshAttemptedForUriRef\.current = playableUri;[\s\S]{0,160}return true;/,
 );
 assert.match(
   nativeClipCard,
-  /if \(!freshVideoUri \|\| freshVideoUri === playableVideoUrl\) return false;[\s\S]{0,80}refreshAttemptedForUriRef\.current = playableVideoUrl;[\s\S]{0,160}return true;/,
+  /if \(!freshVideoUri \|\| freshVideoUri === playableVideoUrl\) return reason === 'preview' && !!freshThumbnailUri;[\s\S]{0,80}refreshAttemptedForUriRef\.current = playableVideoUrl;[\s\S]{0,160}return true;/,
 );
 assert.match(
   nativeMediaViewer,

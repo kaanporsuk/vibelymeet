@@ -42,6 +42,7 @@ const ChatOutboxContext = createContext<ChatOutboxContextValue | null>(null);
 const HYDRATION_CHECK_INTERVAL_MS = 10_000;
 const HYDRATION_TIMEOUT_MS = 90_000;
 const HYDRATION_RECOVERY_BACKOFF_MS = 5_000;
+const INTERRUPTED_SENDING_RECOVERY_MS = 2 * 60 * 1000;
 
 function itemPayloadUri(item: ChatOutboxItem): string | null {
   if (item.payload.kind === 'text') return null;
@@ -59,6 +60,33 @@ function isEligibleToSend(item: ChatOutboxItem, online: boolean): boolean {
   }
   if (item.state === 'waiting_for_network' || item.state === 'queued') return true;
   return false;
+}
+
+function recoverInterruptedSendingItems(
+  items: ChatOutboxItem[],
+  opts: {
+    now: number;
+    online: boolean;
+    activeProcessingIds?: Set<string>;
+    force?: boolean;
+  }
+): ChatOutboxItem[] {
+  let changed = false;
+  const next = items.map((item) => {
+    if (item.state !== 'sending') return item;
+    if (opts.activeProcessingIds?.has(item.id)) return item;
+    const isStale = opts.force || opts.now - item.updatedAtMs >= INTERRUPTED_SENDING_RECOVERY_MS;
+    if (!isStale) return item;
+    changed = true;
+    return {
+      ...item,
+      state: opts.online ? ('queued' as const) : ('waiting_for_network' as const),
+      lastError: undefined,
+      nextRetryAtMs: undefined,
+      updatedAtMs: opts.now,
+    };
+  });
+  return changed ? next : items;
 }
 
 export function ChatOutboxProvider({ children }: { children: React.ReactNode }) {
@@ -79,7 +107,14 @@ export function ChatOutboxProvider({ children }: { children: React.ReactNode }) 
     }
     let cancelled = false;
     void loadOutboxItems(userId).then((loaded) => {
-      if (!cancelled) setItems(loaded);
+      if (cancelled) return;
+      setItems(
+        recoverInterruptedSendingItems(loaded, {
+          now: Date.now(),
+          online: connectivityService.getState() === 'online',
+          force: true,
+        }),
+      );
     });
     return () => {
       cancelled = true;
@@ -175,6 +210,15 @@ export function ChatOutboxProvider({ children }: { children: React.ReactNode }) 
       if (!userId) return;
       const online = connectivityService.getState() === 'online';
       const now = Date.now();
+      const recovered = recoverInterruptedSendingItems(itemsRef.current, {
+        now,
+        online,
+        activeProcessingIds: processingRef.current,
+      });
+      if (recovered !== itemsRef.current) {
+        itemsRef.current = recovered;
+        setItems(recovered);
+      }
 
       // Bounded recovery: awaiting_hydration is not terminal.
       for (const item of itemsRef.current) {

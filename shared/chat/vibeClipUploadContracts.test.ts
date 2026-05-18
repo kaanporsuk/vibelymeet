@@ -27,6 +27,7 @@ const nativePhotoCamera = read("apps/mobile/components/chat/ChatPhotoCameraModal
 const nativeVibeClipCard = read("apps/mobile/components/chat/VibeClipCard.tsx");
 const nativeUpload = read("apps/mobile/lib/chatMediaUpload.ts");
 const nativeMediaCache = read("apps/mobile/lib/chatOutbox/mediaCache.ts");
+const nativeOutboxContext = read("apps/mobile/lib/chatOutbox/ChatOutboxContext.tsx");
 const uploadChatVideo = read("supabase/functions/upload-chat-video/index.ts");
 const sendMessage = read("supabase/functions/send-message/index.ts");
 
@@ -264,6 +265,28 @@ test("video bubbles remain adaptive and full-width across web and native chat", 
   assert.match(nativeVibeClipCard, /shouldMountPlayer/);
   assert.match(nativeVibeClipCard, /type ClipPreviewState/);
   assert.match(nativeVibeClipCard, /Tap to play/);
+  assert.doesNotMatch(nativeVibeClipCard, /Loading clip/);
+  assert.match(nativeVibeClipCard, /posterPreviewState\?: VibeClipPosterPreviewState/);
+  assert.match(
+    nativeVibeClipCard,
+    /onPosterPreviewStateChange\?: \(state: VibeClipPosterPreviewState, thumbnailUrl\?: string \| null\) => void/,
+  );
+  assert.match(nativeVibeClipCard, /onLoad=\{\(\) => onPreviewStateChange\?\.\('ready', uri\)\}/);
+  assert.match(nativeVibeClipCard, /onPreviewStateChange\?\.\('failed', uri\)/);
+  assert.match(nativeVibeClipCard, /onRefreshClipMedia\('preview'\)/);
+  assert.match(nativeVibeClipCard, /onRefreshClipMedia\('playback'\)/);
+  assert.match(nativeVibeClipCard, /reason === 'preview' && !!freshThumbnailUri/);
+  assert.match(nativeVibeClipCard, /freshThumbnailUri !== playableThumbnailUrl/);
+  assert.match(nativeVibeClipCard, /setInlinePlayRequestToken\(\(token\) => token \+ 1\)/);
+  assert.match(nativeChat, /function vibeClipPosterCacheKey/);
+  assert.match(nativeChat, /vibeClipPosterPreviewByKey/);
+  assert.match(nativeChat, /posterPreviewState=\{posterPreviewState\}/);
+  assert.match(nativeChat, /onPosterPreviewStateChange=\{\(state, thumbnailUrl\) =>/);
+  assert.match(nativeChat, /const shouldMountPlayer = videoViewer\?\.uri === displayClipMeta\.videoUrl/);
+  assert.doesNotMatch(nativeChat, /visibleRowKeys\.has\(rowKey\)/);
+  assert.match(nativeOutboxContext, /function recoverInterruptedSendingItems/);
+  assert.match(nativeOutboxContext, /force: true/);
+  assert.match(nativeOutboxContext, /activeProcessingIds: processingRef\.current/);
 });
 
 test("native chat validates library and camera video before enqueue", () => {
