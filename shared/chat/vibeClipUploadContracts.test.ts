@@ -281,12 +281,12 @@ test("video bubbles remain adaptive and full-width across web and native chat", 
   assert.match(webVibeClipBubble, /!isAwaitingPlaybackIntent && !isLocalPreview/);
   assert.match(webVibeClipBubble, /isReady \|\| isLocalPreview \? "opacity-100" : "opacity-0"/);
   assert.match(webVibeClipBubble, /role=\{isSurfaceInteractive \? "button" : undefined\}/);
-  assert.match(webVibeClipBubble, /type VibeClipMediaRefreshReason = "preview" \| "playback"/);
+  assert.match(webVibeClipBubble, /type VibeClipMediaRefreshReason = "preview" \| "initial" \| "playback" \| "manual"/);
   assert.match(webVibeClipBubble, /if \(reason === "preview"\) return !!freshThumbnailUrl/);
   assert.match(webVibeClipBubble, /shouldResolvePosterPreview/);
   assert.match(webVibeClipBubble, /posterRefreshAttemptedForRef/);
   assert.match(webVibeClipBubble, /CLIP_PLAYBACK_LOAD_TIMEOUT_MS/);
-  assert.match(webVibeClipBubble, /refreshAttemptedForUrlRef\.current = null;[\s\S]{0,160}setLoadError\(false\)/);
+  assert.match(webVibeClipBubble, /playbackRefreshAttemptCountRef\.current = 0;[\s\S]{0,160}setLoadError\(false\)/);
   assert.match(webVibeClipBubble, /aria-label=\{isMuted \? "Unmute clip" : "Mute clip"\}/);
   assert.match(webVibeClipBubble, /aria-label="Open clip full screen"/);
   assert.match(webOutboxContext, /function recoverInterruptedSendingItems/);
@@ -334,6 +334,7 @@ test("video bubbles remain adaptive and full-width across web and native chat", 
   assert.match(nativeVibeClipCard, /onPreviewStateChange\?\.\('failed', uri\)/);
   assert.match(nativeVibeClipCard, /onRefreshClipMedia\('preview'\)/);
   assert.match(nativeVibeClipCard, /onRefreshClipMedia\('playback'\)/);
+  assert.match(nativeVibeClipCard, /onRefreshClipMedia\('manual'\)/);
   assert.match(nativeVibeClipCard, /if \(reason === 'preview'\) return !!freshThumbnailUri/);
   assert.match(nativeVibeClipCard, /freshThumbnailUri !== playableThumbnailUrl/);
   assert.match(nativeVibeClipCard, /posterRefreshAttemptedForRef/);

@@ -22,9 +22,16 @@ type CachedMediaUrl = {
   expiresAtMs: number;
 };
 
+type ChatMediaRefreshOptions = {
+  bypassFailureCooldown?: boolean;
+};
+
 const DEFAULT_SIGNED_MEDIA_TTL_MS = 4 * 60 * 1000;
 const SIGNED_MEDIA_TTL_SAFETY_MS = 15 * 1000;
+const SIGNED_MEDIA_FAILURE_COOLDOWN_MS = 8_000;
 const mediaUrlCache = new Map<string, CachedMediaUrl>();
+const mediaUrlFailureCache = new Map<string, { expiresAtMs: number }>();
+const mediaUrlInFlightRequests = new Map<string, Promise<string | null>>();
 let testMediaUrlIssuer: ((messageId: string, mediaKind: ChatMediaKind) => Promise<ResolverResponse | null>) | null = null;
 
 function isLocalPreviewRef(value: string): boolean {
@@ -76,11 +83,12 @@ export async function refreshCachedChatMediaUrl(
   messageId: string,
   mediaKind: ChatMediaKind,
   rawRef: string | null | undefined,
+  options: ChatMediaRefreshOptions = {},
 ): Promise<string | null> {
   if (!rawRef) return null;
   if (isLocalPreviewRef(rawRef) || !isUuid(messageId)) return rawRef;
 
-  return issueAndCacheChatMediaUrl(messageId, mediaKind, rawRef, true);
+  return issueAndCacheChatMediaUrl(messageId, mediaKind, rawRef, true, options);
 }
 
 export async function syncChatVibeClipStatus(messageId: string): Promise<ChatVibeClipProcessingStatus | null> {
@@ -104,13 +112,20 @@ async function issueAndCacheChatMediaUrl(
   mediaKind: ChatMediaKind,
   rawRef: string,
   forceRefresh: boolean,
+  options: ChatMediaRefreshOptions = {},
 ): Promise<string | null> {
   const cacheKey = `${messageId}:${mediaKind}:${rawRef}`;
+  const now = Date.now();
   const cached = mediaUrlCache.get(cacheKey);
-  if (!forceRefresh && cached && cached.expiresAtMs > Date.now()) return cached.url;
-  mediaUrlCache.delete(cacheKey);
+  if (!forceRefresh && cached && cached.expiresAtMs > now) return cached.url;
+  const recentFailure = mediaUrlFailureCache.get(cacheKey);
+  if (!options.bypassFailureCooldown && recentFailure && recentFailure.expiresAtMs > now) return null;
+  mediaUrlFailureCache.delete(cacheKey);
 
-  const payload = await (async () => {
+  const inFlight = mediaUrlInFlightRequests.get(cacheKey);
+  if (inFlight) return inFlight;
+
+  const request = (async () => {
     try {
       if (testMediaUrlIssuer) return await testMediaUrlIssuer(messageId, mediaKind);
       const { data, error } = await supabase.functions.invoke("get-chat-media-url", {
@@ -122,34 +137,52 @@ async function issueAndCacheChatMediaUrl(
       return null;
     }
   })();
-  if (!payload?.success || typeof payload.url !== "string" || !payload.url) return null;
 
-  const expiresInMs =
-    typeof payload.expiresInSeconds === "number" &&
-    Number.isFinite(payload.expiresInSeconds) &&
-    payload.expiresInSeconds > 0
-      ? Math.max(1_000, payload.expiresInSeconds * 1000 - SIGNED_MEDIA_TTL_SAFETY_MS)
-      : DEFAULT_SIGNED_MEDIA_TTL_MS;
-  const expiresAtMs = Date.now() + expiresInMs;
-  mediaUrlCache.set(cacheKey, {
-    url: payload.url,
-    expiresAtMs,
-  });
-  const thumbnailRef =
-    payload.provider === "bunny_stream" && (mediaKind === "vibe_clip" || mediaKind === "video")
-      ? bunnyStreamThumbnailRefFor(rawRef)
-      : null;
-  if (thumbnailRef && typeof payload.posterUrl === "string" && payload.posterUrl) {
-    mediaUrlCache.set(`${messageId}:thumbnail:${thumbnailRef}`, {
-      url: payload.posterUrl,
+  const resolved = request.then((payload) => {
+    if (!payload?.success || typeof payload.url !== "string" || !payload.url) {
+      mediaUrlFailureCache.set(cacheKey, { expiresAtMs: Date.now() + SIGNED_MEDIA_FAILURE_COOLDOWN_MS });
+      return null;
+    }
+
+    mediaUrlFailureCache.delete(cacheKey);
+    const expiresInMs =
+      typeof payload.expiresInSeconds === "number" &&
+      Number.isFinite(payload.expiresInSeconds) &&
+      payload.expiresInSeconds > 0
+        ? Math.max(1_000, payload.expiresInSeconds * 1000 - SIGNED_MEDIA_TTL_SAFETY_MS)
+        : DEFAULT_SIGNED_MEDIA_TTL_MS;
+    const expiresAtMs = Date.now() + expiresInMs;
+    mediaUrlCache.set(cacheKey, {
+      url: payload.url,
       expiresAtMs,
     });
+    const thumbnailRef =
+      payload.provider === "bunny_stream" && (mediaKind === "vibe_clip" || mediaKind === "video")
+        ? bunnyStreamThumbnailRefFor(rawRef)
+        : null;
+    if (thumbnailRef && typeof payload.posterUrl === "string" && payload.posterUrl) {
+      mediaUrlCache.set(`${messageId}:thumbnail:${thumbnailRef}`, {
+        url: payload.posterUrl,
+        expiresAtMs,
+      });
+    }
+    return payload.url;
+  });
+
+  mediaUrlInFlightRequests.set(cacheKey, resolved);
+  try {
+    return await resolved;
+  } finally {
+    if (mediaUrlInFlightRequests.get(cacheKey) === resolved) {
+      mediaUrlInFlightRequests.delete(cacheKey);
+    }
   }
-  return payload.url;
 }
 
 export function __clearChatMediaUrlCacheForTests() {
   mediaUrlCache.clear();
+  mediaUrlFailureCache.clear();
+  mediaUrlInFlightRequests.clear();
 }
 
 export function __chatMediaUrlCacheSizeForTests() {

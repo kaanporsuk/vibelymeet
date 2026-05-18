@@ -57,6 +57,34 @@ try {
   __clearChatMediaUrlCacheForTests();
 }
 
+let preserveInvokeCount = 0;
+__setChatMediaUrlIssuerForTests(async () => {
+  preserveInvokeCount += 1;
+  if (preserveInvokeCount === 1) {
+    return {
+      success: true,
+      url: "https://signed.example.com/preserved",
+      expiresInSeconds: 300,
+    };
+  }
+  return null;
+});
+try {
+  const messageId = "550e8400-e29b-41d4-a716-446655440004";
+  const first = await getCachedChatMediaUrl(messageId, "video", "videos/preserved.mp4");
+  const failedRefresh = await refreshCachedChatMediaUrl(messageId, "video", "videos/preserved.mp4");
+  const stillCached = await getCachedChatMediaUrl(messageId, "video", "videos/preserved.mp4");
+
+  assert.equal(first, "https://signed.example.com/preserved");
+  assert.equal(failedRefresh, null);
+  assert.equal(stillCached, first);
+  assert.equal(preserveInvokeCount, 2);
+  assert.equal(__chatMediaUrlCacheSizeForTests(), 1);
+} finally {
+  __setChatMediaUrlIssuerForTests(null);
+  __clearChatMediaUrlCacheForTests();
+}
+
 let streamInvokeCount = 0;
 __setChatMediaUrlIssuerForTests(async (_messageId, mediaKind) => {
   streamInvokeCount += 1;
@@ -85,6 +113,34 @@ try {
   __clearChatMediaUrlCacheForTests();
 }
 
+let concurrentInvokeCount = 0;
+__setChatMediaUrlIssuerForTests(async () => {
+  concurrentInvokeCount += 1;
+  await new Promise((resolve) => setTimeout(resolve, 5));
+  return {
+    success: true,
+    url: `https://signed.example.com/concurrent-${concurrentInvokeCount}`,
+    expiresInSeconds: 300,
+  };
+});
+try {
+  const messageId = "550e8400-e29b-41d4-a716-446655440002";
+  const [first, second, third] = await Promise.all([
+    refreshCachedChatMediaUrl(messageId, "image", "photos/concurrent.jpg"),
+    refreshCachedChatMediaUrl(messageId, "image", "photos/concurrent.jpg"),
+    getCachedChatMediaUrl(messageId, "image", "photos/concurrent.jpg"),
+  ]);
+
+  assert.equal(first, "https://signed.example.com/concurrent-1");
+  assert.equal(second, first);
+  assert.equal(third, first);
+  assert.equal(concurrentInvokeCount, 1);
+  assert.equal(__chatMediaUrlCacheSizeForTests(), 1);
+} finally {
+  __setChatMediaUrlIssuerForTests(null);
+  __clearChatMediaUrlCacheForTests();
+}
+
 __setChatMediaUrlIssuerForTests(async () => {
   throw new Error("network_down");
 });
@@ -93,6 +149,35 @@ try {
   const failedRefresh = await refreshCachedChatMediaUrl(messageId, "voice", "voice/test.webm");
   assert.equal(failedRefresh, null);
 } finally {
+  __setChatMediaUrlIssuerForTests(null);
+  __clearChatMediaUrlCacheForTests();
+}
+
+let failureInvokeCount = 0;
+const originalFailureDateNow = Date.now;
+const failureBaseNow = originalFailureDateNow();
+Date.now = () => failureBaseNow;
+__setChatMediaUrlIssuerForTests(async () => {
+  failureInvokeCount += 1;
+  return null;
+});
+try {
+  const messageId = "550e8400-e29b-41d4-a716-446655440003";
+  const first = await refreshCachedChatMediaUrl(messageId, "image", "photos/missing.jpg");
+  const second = await refreshCachedChatMediaUrl(messageId, "image", "photos/missing.jpg");
+  const bypassed = await refreshCachedChatMediaUrl(messageId, "image", "photos/missing.jpg", {
+    bypassFailureCooldown: true,
+  });
+  Date.now = () => failureBaseNow + 8_500;
+  const third = await refreshCachedChatMediaUrl(messageId, "image", "photos/missing.jpg");
+
+  assert.equal(first, null);
+  assert.equal(second, null);
+  assert.equal(bypassed, null);
+  assert.equal(third, null);
+  assert.equal(failureInvokeCount, 3);
+} finally {
+  Date.now = originalFailureDateNow;
   __setChatMediaUrlIssuerForTests(null);
   __clearChatMediaUrlCacheForTests();
 }
@@ -160,18 +245,28 @@ assert.match(webVideoBubble, /refreshCachedChatMediaUrl/);
 assert.match(webVideoBubble, /videoSourceRef/);
 assert.match(webVideoBubble, /mediaKind\s*=\s*"video"/);
 assert.match(webVideoBubble, /onError=\{\(\) => \{[\s\S]{0,240}tryRefreshAfterFailure/);
+assert.match(webVideoBubble, /MAX_VIDEO_PLAYBACK_REFRESH_ATTEMPTS/);
+assert.match(webVideoBubble, /bypassFailureCooldown: true/);
+assert.match(webVideoBubble, /if \(!freshUrl \|\| freshUrl === playableVideoUrl\) videoRef\.current\?\.load\(\);/);
 assert.match(
   webVideoBubble,
-  /const freshUrl = await refreshVideoUrl\(\);[\s\S]{0,80}if \(!freshUrl \|\| freshUrl === playableVideoUrl\) return false;[\s\S]{0,80}refreshAttemptedForUrlRef\.current = playableVideoUrl;[\s\S]{0,80}return true;/,
+  /if \(playbackRefreshAttemptCountRef\.current >= MAX_VIDEO_PLAYBACK_REFRESH_ATTEMPTS\) return false;[\s\S]{0,80}playbackRefreshAttemptCountRef\.current \+= 1;[\s\S]{0,120}const freshUrl = await refreshVideoUrl\(\);[\s\S]{0,80}if \(!freshUrl \|\| freshUrl === playableVideoUrl\) return false;[\s\S]{0,80}return true;/,
 );
 assert.match(webClipBubble, /refreshCachedChatMediaUrl/);
 assert.match(webClipBubble, /videoSourceRef/);
 assert.match(webClipBubble, /thumbnailSourceRef/);
-assert.match(webClipBubble, /refreshCachedChatMediaUrl\(sparkMessageId, "vibe_clip", videoSourceRef\)/);
-assert.match(webClipBubble, /refreshCachedChatMediaUrl\(sparkMessageId, "thumbnail", thumbnailSourceRef\)/);
+assert.match(webClipBubble, /MAX_CLIP_PLAYBACK_REFRESH_ATTEMPTS/);
+assert.match(webClipBubble, /type VibeClipMediaRefreshReason = "preview" \| "initial" \| "playback" \| "manual"/);
+assert.match(webClipBubble, /reason === "manual" \? \{ bypassFailureCooldown: true \} : undefined/);
+assert.match(webClipBubble, /refreshCachedChatMediaUrl\(sparkMessageId, "vibe_clip", videoSourceRef, refreshOptions\)/);
+assert.match(webClipBubble, /refreshCachedChatMediaUrl\(sparkMessageId, "thumbnail", thumbnailSourceRef, refreshOptions\)/);
 assert.match(
   webClipBubble,
-  /if \(!freshVideoUrl \|\| freshVideoUrl === playableVideoUrl\) return false;[\s\S]{0,80}refreshAttemptedForUrlRef\.current = playableVideoUrl;[\s\S]{0,160}return true;/,
+  /if \(reason === "playback"\) \{[\s\S]*playbackRefreshAttemptCountRef\.current \+= 1;[\s\S]*const freshThumbnailUrl/,
+);
+assert.match(
+  webClipBubble,
+  /if \(reason === "preview"\) return !!freshThumbnailUrl;[\s\S]*const freshVideoUrl = await refreshCachedChatMediaUrl\(sparkMessageId, "vibe_clip", videoSourceRef, refreshOptions\);[\s\S]*if \(!freshVideoUrl \|\| freshVideoUrl === playableVideoUrl\) return false;[\s\S]*return true;/,
 );
 assert.match(
   webPhotoLightbox,
@@ -187,14 +282,19 @@ assert.doesNotMatch(webPhotoLightbox, /const currentId = items\[prevIndex\]\?\.i
 assert.doesNotMatch(webPhotoLightbox, /setIndex\(i >= 0 \? i : 0\);[\s\S]{0,120}\}, \[initialId, items\]\);/);
 assert.match(
   webVideoLightbox,
-  /if \(!freshVideoUrl \|\| freshVideoUrl === currentUrl\) return false;[\s\S]{0,80}refreshAttemptedForUrlRef\.current = currentUrl;[\s\S]{0,160}return true;/,
+  /if \(playbackRefreshAttemptCountRef\.current >= MAX_LIGHTBOX_PLAYBACK_REFRESH_ATTEMPTS\) return false;[\s\S]*playbackRefreshAttemptCountRef\.current \+= 1;[\s\S]*if \(!freshVideoUrl \|\| freshVideoUrl === currentUrl\) return false;[\s\S]*return true;/,
 );
+assert.match(webVideoLightbox, /type LightboxMediaRefreshReason = "initial" \| "playback" \| "manual"/);
+assert.match(webVideoLightbox, /reason === "manual" \? \{ bypassFailureCooldown: true \} : undefined/);
 assert.match(webVideoLightbox, /CLIP_PLAYBACK_LOAD_TIMEOUT_MS/);
 assert.match(webVideoLightbox, /phase !== "loading" \|\| !canMountPlayer/);
-assert.match(webClipBubble, /refreshAttemptedForUrlRef\.current = null;[\s\S]{0,160}setLoadError\(false\)/);
+assert.match(webClipBubble, /playbackRefreshAttemptCountRef\.current = 0;[\s\S]{0,160}setLoadError\(false\)/);
 assert.match(webMediaResolver, /catch \{[\s\S]{0,80}return null;[\s\S]{0,80}\}/);
 assert.match(webMediaResolver, /function bunnyStreamThumbnailRefFor/);
 assert.match(webMediaResolver, /payload\.posterUrl/);
+assert.match(webMediaResolver, /mediaUrlInFlightRequests/);
+assert.match(webMediaResolver, /mediaUrlFailureCache/);
+assert.match(webMediaResolver, /bypassFailureCooldown/);
 assert.match(nativeBubble, /refreshCachedChatMediaUrl/);
 assert.match(nativeBubble, /player\.play\(\)[\s\S]{0,600}refreshAndQueuePlay/);
 assert.match(
@@ -208,13 +308,16 @@ assert.match(
 assert.match(nativeClipCard, /refreshCachedChatMediaUrl/);
 assert.match(nativeClipCard, /videoSourceRef/);
 assert.match(nativeClipCard, /thumbnailSourceRef/);
+assert.match(nativeClipCard, /MAX_CLIP_PLAYBACK_REFRESH_ATTEMPTS/);
+assert.match(nativeClipCard, /type VibeClipMediaRefreshReason = 'preview' \| 'initial' \| 'playback' \| 'manual'/);
+assert.match(nativeClipCard, /reason === 'manual' \? \{ bypassFailureCooldown: true \} : undefined/);
 assert.match(nativeClipCard, /posterRefreshAttemptedForRef/);
 assert.match(nativeClipCard, /isResolvableMediaRef\(playableThumbnailUrl\)/);
 assert.match(nativeClipCard, /CLIP_PLAYBACK_LOAD_TIMEOUT_MS/);
 assert.match(nativeClipCard, /onResetPlaybackRefreshAttempt/);
 assert.match(nativeClipCard, /setHasError\(false\)/);
-assert.match(nativeClipCard, /refreshCachedChatMediaUrl\(sparkMessageId, 'vibe_clip', videoSourceRef\)/);
-assert.match(nativeClipCard, /refreshCachedChatMediaUrl\(sparkMessageId, 'thumbnail', thumbnailSourceRef\)/);
+assert.match(nativeClipCard, /refreshCachedChatMediaUrl\(sparkMessageId, 'vibe_clip', videoSourceRef, refreshOptions\)/);
+assert.match(nativeClipCard, /refreshCachedChatMediaUrl\(sparkMessageId, 'thumbnail', thumbnailSourceRef, refreshOptions\)/);
 assert.match(nativeClipCard, /onResolvedVideoUrl\?\.\(freshVideoUri\)/);
 assert.match(nativeClipCard, /onResolvedThumbnailUrl\?\.\(freshThumbnailUri\)/);
 assert.match(nativeClipCard, /\(!videoSourceRef && !thumbnailSourceRef\)/);
@@ -229,7 +332,11 @@ assert.match(
 );
 assert.match(
   nativeClipCard,
-  /if \(!videoSourceRef \|\| refreshAttemptedForUriRef\.current === playableVideoUrl\) return false;[\s\S]{0,240}if \(!freshVideoUri \|\| freshVideoUri === playableVideoUrl\) return false;[\s\S]{0,80}refreshAttemptedForUriRef\.current = playableVideoUrl;[\s\S]{0,160}return true;/,
+  /if \(reason === 'playback'\) \{[\s\S]*playbackRefreshAttemptCountRef\.current \+= 1;[\s\S]*const freshThumbnailUri/,
+);
+assert.match(
+  nativeClipCard,
+  /if \(reason === 'preview'\) return !!freshThumbnailUri;[\s\S]*const freshVideoUri = await refreshCachedChatMediaUrl\(sparkMessageId, 'vibe_clip', videoSourceRef, refreshOptions\);[\s\S]*if \(!freshVideoUri \|\| freshVideoUri === playableVideoUrl\) return false;[\s\S]*return true;/,
 );
 assert.match(
   nativeMediaViewer,
@@ -251,6 +358,9 @@ assert.match(nativeMediaViewer, /CLIP_PLAYBACK_LOAD_TIMEOUT_MS/);
 assert.match(nativeMediaViewer, /phase !== 'loading'/);
 assert.match(nativeMediaViewer, /onResetPlaybackRefreshAttempt/);
 assert.match(nativeMediaResolver, /catch \{[\s\S]{0,80}return null;[\s\S]{0,80}\}/);
+assert.match(nativeMediaResolver, /mediaUrlInFlightRequests/);
+assert.match(nativeMediaResolver, /mediaUrlFailureCache/);
+assert.match(nativeMediaResolver, /bypassFailureCooldown/);
 assert.match(nativeMediaResolver, /getFreshCachedAccessToken/);
 assert.match(nativeMediaResolver, /headers: \{ Authorization: `Bearer \$\{accessToken\}` \}/);
 assert.match(nativeMediaResolver, /function bunnyStreamThumbnailRefFor/);

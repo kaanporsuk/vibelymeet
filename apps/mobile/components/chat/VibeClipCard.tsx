@@ -52,7 +52,7 @@ type Props = {
 };
 
 export type VibeClipPosterPreviewState = 'unknown' | 'ready' | 'failed';
-type VibeClipMediaRefreshReason = 'preview' | 'playback';
+type VibeClipMediaRefreshReason = 'preview' | 'initial' | 'playback' | 'manual';
 
 type VibeClipCardInnerProps = Props & {
   onRefreshClipMedia: (reason?: VibeClipMediaRefreshReason) => Promise<boolean>;
@@ -79,6 +79,7 @@ const INLINE_CLIP_MAX_ASPECT_RATIO = 1.2;
 const INLINE_CLIP_MAX_HEIGHT = 360;
 const POSTER_PREVIEW_TIMEOUT_MS = 3500;
 const CLIP_PLAYBACK_LOAD_TIMEOUT_MS = 12_000;
+const MAX_CLIP_PLAYBACK_REFRESH_ATTEMPTS = 1;
 const CHAT_VIBE_CLIP_STATUS_SYNC_DELAY_MS = 2500;
 const CHAT_VIBE_CLIP_STATUS_SYNC_INTERVAL_MS = 12_000;
 
@@ -450,7 +451,7 @@ function VibeClipCardInner({
                 onResetPlaybackRefreshAttempt();
                 setHasError(false);
                 setIsBuffering(true);
-                void onRefreshClipMedia('playback')
+                void onRefreshClipMedia('manual')
                   .then((didRefresh) => {
                     if (!didRefresh) onRemountPlayer();
                   })
@@ -677,7 +678,7 @@ export function VibeClipCard(props: Props) {
   const [syncedProcessingStatus, setSyncedProcessingStatus] = useState<ChatVibeClipProcessingStatus | null>(null);
   const [fallbackPosterPreviewState, setFallbackPosterPreviewState] =
     useState<VibeClipPosterPreviewState>('unknown');
-  const refreshAttemptedForUriRef = useRef<string | null>(null);
+  const playbackRefreshAttemptCountRef = useRef(0);
   const posterRefreshAttemptedForRef = useRef<string | null>(null);
   useEffect(() => {
     setForceMountPlayer(false);
@@ -687,7 +688,7 @@ export function VibeClipCard(props: Props) {
     setPlayableThumbnailUrl(meta.thumbnailUrl ?? null);
     setSyncedProcessingStatus(null);
     setFallbackPosterPreviewState('unknown');
-    refreshAttemptedForUriRef.current = null;
+    playbackRefreshAttemptCountRef.current = 0;
     posterRefreshAttemptedForRef.current = null;
   }, [meta.processingStatus, meta.thumbnailUrl, meta.videoUrl]);
 
@@ -751,8 +752,14 @@ export function VibeClipCard(props: Props) {
     ) {
       return false;
     }
+    const refreshOptions = reason === 'manual' ? { bypassFailureCooldown: true } : undefined;
+    if (reason === 'playback') {
+      if (!videoSourceRef) return false;
+      if (playbackRefreshAttemptCountRef.current >= MAX_CLIP_PLAYBACK_REFRESH_ATTEMPTS) return false;
+      playbackRefreshAttemptCountRef.current += 1;
+    }
     const freshThumbnailUri = thumbnailSourceRef
-      ? await refreshCachedChatMediaUrl(sparkMessageId, 'thumbnail', thumbnailSourceRef)
+      ? await refreshCachedChatMediaUrl(sparkMessageId, 'thumbnail', thumbnailSourceRef, refreshOptions)
       : null;
     if (freshThumbnailUri) {
       if (freshThumbnailUri !== playableThumbnailUrl) setFallbackPosterPreviewState('unknown');
@@ -760,11 +767,10 @@ export function VibeClipCard(props: Props) {
       onResolvedThumbnailUrl?.(freshThumbnailUri);
     }
     if (reason === 'preview') return !!freshThumbnailUri;
-    if (!videoSourceRef || refreshAttemptedForUriRef.current === playableVideoUrl) return false;
+    if (!videoSourceRef) return false;
 
-    const freshVideoUri = await refreshCachedChatMediaUrl(sparkMessageId, 'vibe_clip', videoSourceRef);
+    const freshVideoUri = await refreshCachedChatMediaUrl(sparkMessageId, 'vibe_clip', videoSourceRef, refreshOptions);
     if (!freshVideoUri || freshVideoUri === playableVideoUrl) return false;
-    refreshAttemptedForUriRef.current = playableVideoUrl;
     setPlayableVideoUrl(freshVideoUri);
     onResolvedVideoUrl?.(freshVideoUri);
     return true;
@@ -827,7 +833,7 @@ export function VibeClipCard(props: Props) {
         onRefreshClipMedia={refreshClipMedia}
         onRequestInlinePlay={() => {
           if (!canMountPlayer) {
-            void refreshClipMedia('playback').then((didRefresh) => {
+            void refreshClipMedia('initial').then((didRefresh) => {
               if (!didRefresh) return;
               setInlinePlayRequestToken((token) => token + 1);
               setForceMountPlayer(true);
@@ -847,7 +853,7 @@ export function VibeClipCard(props: Props) {
       onRefreshClipMedia={refreshClipMedia}
       onRemountPlayer={() => setRetryNonce((n) => n + 1)}
       onResetPlaybackRefreshAttempt={() => {
-        refreshAttemptedForUriRef.current = null;
+        playbackRefreshAttemptCountRef.current = 0;
       }}
       playRequestToken={inlinePlayRequestToken}
     />

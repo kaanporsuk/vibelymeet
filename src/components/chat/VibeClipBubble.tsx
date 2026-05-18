@@ -32,12 +32,13 @@ import { attachHlsPlayback } from "@/lib/vibeVideo/attachHlsPlayback";
 type VideoElementWithWebkitFullscreen = HTMLVideoElement & {
   webkitEnterFullscreen?: () => void;
 };
-type VibeClipMediaRefreshReason = "preview" | "playback";
+type VibeClipMediaRefreshReason = "preview" | "initial" | "playback" | "manual";
 
 const CLIP_BUBBLE_WIDTH_CLASS = "w-[min(17.5rem,calc(100vw-4rem))] max-w-full";
 const CHAT_VIBE_CLIP_STATUS_SYNC_DELAY_MS = 2500;
 const CHAT_VIBE_CLIP_STATUS_SYNC_INTERVAL_MS = 12_000;
 const CLIP_PLAYBACK_LOAD_TIMEOUT_MS = 12_000;
+const MAX_CLIP_PLAYBACK_REFRESH_ATTEMPTS = 1;
 
 function isLocalPreviewUrl(value: string): boolean {
   return value.startsWith("blob:") || value.startsWith("file:") || value.startsWith("data:");
@@ -105,7 +106,7 @@ export const VibeClipBubble = ({
   const [syncedProcessingStatus, setSyncedProcessingStatus] = useState<ChatVibeClipProcessingStatus | null>(null);
   const playStartTracked = useRef(false);
   const playCompleteTracked = useRef(false);
-  const refreshAttemptedForUrlRef = useRef<string | null>(null);
+  const playbackRefreshAttemptCountRef = useRef(0);
   const posterRefreshAttemptedForRef = useRef<string | null>(null);
 
   const hasPrimary = !!(onReplyWithClip || onVoiceReply);
@@ -137,7 +138,7 @@ export const VibeClipBubble = ({
     setSyncedProcessingStatus(null);
     playStartTracked.current = false;
     playCompleteTracked.current = false;
-    refreshAttemptedForUrlRef.current = null;
+    playbackRefreshAttemptCountRef.current = 0;
     posterRefreshAttemptedForRef.current = null;
   }, [meta.processingStatus, meta.thumbnailUrl, meta.videoUrl]);
 
@@ -201,19 +202,24 @@ export const VibeClipBubble = ({
 
   const refreshClipMedia = useCallback(async (reason: VibeClipMediaRefreshReason = "playback"): Promise<boolean> => {
     if (!sparkMessageId || (!videoSourceRef && !thumbnailSourceRef)) return false;
+    const refreshOptions = reason === "manual" ? { bypassFailureCooldown: true } : undefined;
+    if (reason === "playback") {
+      if (!videoSourceRef) return false;
+      if (playbackRefreshAttemptCountRef.current >= MAX_CLIP_PLAYBACK_REFRESH_ATTEMPTS) return false;
+      playbackRefreshAttemptCountRef.current += 1;
+    }
     const freshThumbnailUrl = thumbnailSourceRef
-      ? await refreshCachedChatMediaUrl(sparkMessageId, "thumbnail", thumbnailSourceRef)
+      ? await refreshCachedChatMediaUrl(sparkMessageId, "thumbnail", thumbnailSourceRef, refreshOptions)
       : null;
     if (freshThumbnailUrl) {
       setPlayableThumbnailUrl(freshThumbnailUrl);
       onResolvedThumbnailUrl?.(freshThumbnailUrl);
     }
     if (reason === "preview") return !!freshThumbnailUrl;
-    if (!videoSourceRef || refreshAttemptedForUrlRef.current === playableVideoUrl) return false;
+    if (!videoSourceRef) return false;
 
-    const freshVideoUrl = await refreshCachedChatMediaUrl(sparkMessageId, "vibe_clip", videoSourceRef);
+    const freshVideoUrl = await refreshCachedChatMediaUrl(sparkMessageId, "vibe_clip", videoSourceRef, refreshOptions);
     if (!freshVideoUrl || freshVideoUrl === playableVideoUrl) return false;
-    refreshAttemptedForUrlRef.current = playableVideoUrl;
     setPlayableVideoUrl(freshVideoUrl);
     onResolvedVideoUrl?.(freshVideoUrl);
     return true;
@@ -318,7 +324,7 @@ export const VibeClipBubble = ({
     if (!canMountPlayer) {
       setPlayRequested(true);
       setIsLoading(true);
-      void refreshClipMedia().then((didRefresh) => {
+      void refreshClipMedia("initial").then((didRefresh) => {
         if (!didRefresh) setLoadError(true);
       });
       return;
@@ -366,7 +372,7 @@ export const VibeClipBubble = ({
       if (isServerProcessing) return;
       if (onRequestImmersive) {
         if (!canMountPlayer) {
-          void refreshClipMedia().then((didRefresh) => {
+          void refreshClipMedia("initial").then((didRefresh) => {
             if (didRefresh) onRequestImmersive();
             else setLoadError(true);
           });
@@ -398,7 +404,7 @@ export const VibeClipBubble = ({
     if (isServerProcessing) return;
     if (onRequestImmersive) {
       if (!canMountPlayer) {
-        void refreshClipMedia().then((didRefresh) => {
+        void refreshClipMedia("initial").then((didRefresh) => {
           if (didRefresh) onRequestImmersive();
           else setLoadError(true);
         });
@@ -450,13 +456,13 @@ export const VibeClipBubble = ({
           <button
             type="button"
             onClick={() => {
-              refreshAttemptedForUrlRef.current = null;
+              playbackRefreshAttemptCountRef.current = 0;
               setLoadError(false);
               setIsLoading(true);
               setIsReady(false);
               setIsPlaying(false);
               setCurrentTime(0);
-              void refreshClipMedia().then((didRefresh) => {
+              void refreshClipMedia("manual").then((didRefresh) => {
                 if (!didRefresh) videoRef.current?.load();
               });
             }}

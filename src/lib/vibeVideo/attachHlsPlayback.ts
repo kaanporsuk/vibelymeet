@@ -24,6 +24,7 @@ export function attachHlsPlayback(
 ): () => void {
   const { autoPlay = true, onError, onManifestParsed } = options;
   let cancelled = false;
+  let errorReported = false;
   let hls: HlsInstance | null = null;
 
   const playIfNeeded = () => {
@@ -31,8 +32,14 @@ export function attachHlsPlayback(
     void videoEl.play().catch(() => {});
   };
 
+  const reportError = (kind: HlsPlaybackErrorKind, detail?: unknown) => {
+    if (cancelled || errorReported) return;
+    errorReported = true;
+    onError?.(kind, detail);
+  };
+
   const onVideoError = () => {
-    if (!cancelled) onError?.("native");
+    reportError("native");
   };
 
   videoEl.addEventListener("error", onVideoError);
@@ -44,11 +51,15 @@ export function attachHlsPlayback(
     void hlsLoader().then(({ default: Hls }) => {
       if (cancelled) return;
       if (!Hls.isSupported()) {
-        onError?.("unsupported");
+        reportError("unsupported");
         return;
       }
 
-      hls = new Hls();
+      hls = new Hls({
+        fragLoadingMaxRetry: 1,
+        levelLoadingMaxRetry: 1,
+        manifestLoadingMaxRetry: 1,
+      });
       hls.loadSource(src);
       hls.attachMedia(videoEl);
       hls.on(Hls.Events.MANIFEST_PARSED, () => {
@@ -58,7 +69,7 @@ export function attachHlsPlayback(
       });
       hls.on(Hls.Events.ERROR, (_event: unknown, data: { fatal?: boolean }) => {
         if (!cancelled && data.fatal) {
-          onError?.("fatal", data);
+          reportError("fatal", data);
         }
       });
     });
