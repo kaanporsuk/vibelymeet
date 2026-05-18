@@ -2,7 +2,7 @@
  * Full profile body (hero + sections) — same content order and styling as Profile Preview,
  * including canonical non-playable Vibe Video states. Use inside screens, modals, or sheets.
  */
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ScrollView,
   Image,
@@ -13,7 +13,18 @@ import {
   ActivityIndicator,
   Modal,
   PanResponder,
+  type AccessibilityActionEvent,
+  type NativeScrollEvent,
+  type NativeSyntheticEvent,
 } from 'react-native';
+import { Gesture, GestureDetector, GestureHandlerRootView } from 'react-native-gesture-handler';
+import Animated, {
+  runOnJS,
+  useAnimatedReaction,
+  useAnimatedStyle,
+  useSharedValue,
+  withSpring,
+} from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -45,6 +56,22 @@ export type UserProfileFullViewProps = {
   onClose?: () => void;
   hideHero?: boolean;
 };
+
+const PHOTO_ZOOM_SCALE = 2;
+const PHOTO_MAX_PINCH_SCALE = 4;
+const PHOTO_ZOOM_LOCK_SCALE = 1.03;
+const PHOTO_ZOOM_SPRING = { damping: 22, stiffness: 240, mass: 0.7 };
+
+function clampPhotoPan(tx: number, ty: number, scale: number, width: number, height: number) {
+  'worklet';
+  if (scale <= 1) return { x: 0, y: 0 };
+  const maxX = (width * (scale - 1)) / 2;
+  const maxY = (height * (scale - 1)) / 2;
+  return {
+    x: Math.min(maxX, Math.max(-maxX, tx)),
+    y: Math.min(maxY, Math.max(-maxY, ty)),
+  };
+}
 
 function AdaptiveNativeProfileMedia({
   uri,
@@ -100,6 +127,196 @@ function AdaptiveNativeProfileMedia({
   return <RNView style={[s.adaptiveMedia, { height }]}>{content}</RNView>;
 }
 
+function ZoomableProfilePhotoPage({
+  uri,
+  width,
+  height,
+  isActive,
+  accessibilityLabel,
+  onZoomChange,
+}: {
+  uri: string;
+  width: number;
+  height: number;
+  isActive: boolean;
+  accessibilityLabel: string;
+  onZoomChange: (zoomed: boolean) => void;
+}) {
+  const scale = useSharedValue(1);
+  const tx = useSharedValue(0);
+  const ty = useSharedValue(0);
+  const panStartTx = useSharedValue(0);
+  const panStartTy = useSharedValue(0);
+  const pinchBaseScale = useSharedValue(1);
+  const pinchBaseTx = useSharedValue(0);
+  const pinchBaseTy = useSharedValue(0);
+  const isActiveSV = useSharedValue(isActive);
+  const [zoomed, setZoomed] = useState(false);
+
+  useEffect(() => {
+    isActiveSV.value = isActive;
+  }, [isActive, isActiveSV]);
+
+  const notifyZoomChange = useCallback(
+    (nextZoomed: boolean) => {
+      onZoomChange(nextZoomed);
+    },
+    [onZoomChange],
+  );
+
+  const setZoomedFromWorklet = useCallback((nextZoomed: boolean) => {
+    setZoomed(nextZoomed);
+  }, []);
+
+  useAnimatedReaction(
+    () => ({
+      active: isActiveSV.value,
+      zoomed: scale.value >= PHOTO_ZOOM_LOCK_SCALE,
+    }),
+    (curr, prev) => {
+      const nextZoomed = curr.active && curr.zoomed;
+      const prevZoomed = Boolean(prev?.active && prev.zoomed);
+      if (nextZoomed !== prevZoomed) {
+        runOnJS(setZoomedFromWorklet)(nextZoomed);
+        runOnJS(notifyZoomChange)(nextZoomed);
+      }
+    },
+    [notifyZoomChange, setZoomedFromWorklet],
+  );
+
+  useEffect(() => {
+    if (isActive) return;
+    scale.value = 1;
+    tx.value = 0;
+    ty.value = 0;
+    setZoomed(false);
+    onZoomChange(false);
+  }, [isActive, onZoomChange, scale, tx, ty]);
+
+  const outerStyle = useAnimatedStyle(() => ({
+    transform: [{ translateX: tx.value }, { translateY: ty.value }],
+  }));
+
+  const innerStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: scale.value }],
+  }));
+
+  const handleAccessibilityAction = useCallback(
+    (event: AccessibilityActionEvent) => {
+      if (event.nativeEvent.actionName !== 'activate') return;
+      scale.value = withSpring(zoomed ? 1 : PHOTO_ZOOM_SCALE, PHOTO_ZOOM_SPRING);
+      tx.value = withSpring(0, PHOTO_ZOOM_SPRING);
+      ty.value = withSpring(0, PHOTO_ZOOM_SPRING);
+    },
+    [scale, tx, ty, zoomed],
+  );
+
+  const gesture = useMemo(() => {
+    const resetZoom = () => {
+      'worklet';
+      scale.value = withSpring(1, PHOTO_ZOOM_SPRING);
+      tx.value = withSpring(0, PHOTO_ZOOM_SPRING);
+      ty.value = withSpring(0, PHOTO_ZOOM_SPRING);
+    };
+
+    const doubleTap = Gesture.Tap()
+      .numberOfTaps(2)
+      .maxDistance(18)
+      .onEnd((_event, success) => {
+        if (!success) return;
+        if (scale.value >= PHOTO_ZOOM_LOCK_SCALE) {
+          resetZoom();
+        } else {
+          scale.value = withSpring(PHOTO_ZOOM_SCALE, PHOTO_ZOOM_SPRING);
+          tx.value = withSpring(0, PHOTO_ZOOM_SPRING);
+          ty.value = withSpring(0, PHOTO_ZOOM_SPRING);
+        }
+      });
+
+    const pinch = Gesture.Pinch()
+      .onBegin(() => {
+        pinchBaseScale.value = scale.value;
+        pinchBaseTx.value = tx.value;
+        pinchBaseTy.value = ty.value;
+      })
+      .onUpdate((event) => {
+        const baseScale = pinchBaseScale.value;
+        if (baseScale < 0.001) return;
+        const nextScale = Math.min(PHOTO_MAX_PINCH_SCALE, Math.max(1, baseScale * event.scale));
+        const ratio = nextScale / baseScale;
+        const midX = width / 2;
+        const midY = height / 2;
+        const nextTx = event.focalX - midX - ratio * (event.focalX - midX - pinchBaseTx.value);
+        const nextTy = event.focalY - midY - ratio * (event.focalY - midY - pinchBaseTy.value);
+        const clamped = clampPhotoPan(nextTx, nextTy, nextScale, width, height);
+        scale.value = nextScale;
+        tx.value = clamped.x;
+        ty.value = clamped.y;
+      })
+      .onEnd(() => {
+        if (scale.value < PHOTO_ZOOM_LOCK_SCALE) {
+          resetZoom();
+        } else {
+          const clamped = clampPhotoPan(tx.value, ty.value, scale.value, width, height);
+          tx.value = withSpring(clamped.x, PHOTO_ZOOM_SPRING);
+          ty.value = withSpring(clamped.y, PHOTO_ZOOM_SPRING);
+        }
+      });
+
+    const pan = Gesture.Pan()
+      .onStart(() => {
+        panStartTx.value = tx.value;
+        panStartTy.value = ty.value;
+      })
+      .onUpdate((event) => {
+        if (scale.value < PHOTO_ZOOM_LOCK_SCALE) return;
+        const clamped = clampPhotoPan(
+          panStartTx.value + event.translationX,
+          panStartTy.value + event.translationY,
+          scale.value,
+          width,
+          height,
+        );
+        tx.value = clamped.x;
+        ty.value = clamped.y;
+      });
+
+    return Gesture.Simultaneous(pinch, doubleTap, pan);
+  }, [
+    height,
+    panStartTx,
+    panStartTy,
+    pinchBaseScale,
+    pinchBaseTx,
+    pinchBaseTy,
+    scale,
+    tx,
+    ty,
+    width,
+  ]);
+
+  return (
+    <GestureDetector gesture={gesture}>
+      <RNView pointerEvents={isActive ? 'auto' : 'none'} style={[s.photoModalPage, { width, height }]}>
+        <Animated.View style={[s.photoModalZoomLayer, { width, height }, outerStyle]}>
+          <Animated.View style={[s.photoModalZoomLayer, { width, height }, innerStyle]}>
+            <Image
+              source={{ uri }}
+              style={s.photoModalImage}
+              resizeMode="contain"
+              accessible
+              accessibilityRole="imagebutton"
+              accessibilityLabel={`${accessibilityLabel}${zoomed ? ', zoomed in' : ''}`}
+              accessibilityActions={[{ name: 'activate', label: zoomed ? 'Zoom out' : 'Zoom in' }]}
+              onAccessibilityAction={handleAccessibilityAction}
+            />
+          </Animated.View>
+        </Animated.View>
+      </RNView>
+    </GestureDetector>
+  );
+}
+
 function CompactTrustPill() {
   return (
     <RNView style={s.verifiedPill}>
@@ -123,18 +340,26 @@ export function UserProfileFullView({
   const [showFullscreenVibe, setShowFullscreenVibe] = useState(false);
   const [hideVibingOnLabelAfterComplete, setHideVibingOnLabelAfterComplete] = useState(false);
   const [photoViewerIndex, setPhotoViewerIndex] = useState<number | null>(null);
+  const [photoViewerZoomed, setPhotoViewerZoomed] = useState(false);
   const photoPagerRef = useRef<ScrollView>(null);
+
+  const closePhotoViewer = useCallback(() => {
+    setPhotoViewerZoomed(false);
+    setPhotoViewerIndex(null);
+  }, []);
 
   const photoDismissPan = useMemo(
     () =>
       PanResponder.create({
-        onMoveShouldSetPanResponderCapture: (_, g) =>
+        onMoveShouldSetPanResponderCapture: (event, g) =>
+          !photoViewerZoomed &&
+          event.nativeEvent.touches.length < 2 &&
           Math.abs(g.dy) > 16 && Math.abs(g.dy) > Math.abs(g.dx) * 1.35,
         onPanResponderRelease: (_, g) => {
-          if (g.dy > 90 || g.vy > 0.45) setPhotoViewerIndex(null);
+          if (!photoViewerZoomed && (g.dy > 90 || g.vy > 0.45)) closePhotoViewer();
         },
       }),
-    [],
+    [closePhotoViewer, photoViewerZoomed],
   );
 
   const photos = useMemo(
@@ -209,6 +434,25 @@ export function UserProfileFullView({
     });
   }, [photoViewerIndex, photos.length, winWidth]);
 
+  useEffect(() => {
+    setPhotoViewerZoomed(false);
+  }, [photoViewerIndex]);
+
+  const openPhotoViewer = useCallback((index: number) => {
+    setPhotoViewerZoomed(false);
+    setPhotoViewerIndex(index);
+  }, []);
+
+  const handlePhotoPagerMomentumEnd = useCallback(
+    (event: NativeSyntheticEvent<NativeScrollEvent>) => {
+      const idx = Math.round(event.nativeEvent.contentOffset.x / winWidth);
+      if (idx < 0 || idx >= photos.length || idx === photoViewerIndex) return;
+      setPhotoViewerZoomed(false);
+      setPhotoViewerIndex(idx);
+    },
+    [photoViewerIndex, photos.length, winWidth],
+  );
+
   const basicsItems = useMemo(() => {
     const rows: Array<{
       icon: React.ComponentProps<typeof Ionicons>['name'];
@@ -256,7 +500,7 @@ export function UserProfileFullView({
                 <AdaptiveNativeProfileMedia
                   uri={mainPhoto}
                   height={heroHeight}
-                  onPress={() => setPhotoViewerIndex(0)}
+                  onPress={() => openPhotoViewer(0)}
                 />
               ) : (
                 <RNView style={[s.adaptiveFallback, { height: heroHeight }]}>
@@ -567,7 +811,7 @@ export function UserProfileFullView({
                     key={`photo-${i}`}
                     uri={url}
                     height={galleryHeight}
-                    onPress={() => setPhotoViewerIndex(i)}
+                    onPress={() => openPhotoViewer(i)}
                     accessibilityLabel={`View photo ${i + 1} of ${photos.length}`}
                   />
                 ))}
@@ -609,37 +853,60 @@ export function UserProfileFullView({
         transparent
         animationType="fade"
         statusBarTranslucent
-        onRequestClose={() => setPhotoViewerIndex(null)}
+        onRequestClose={closePhotoViewer}
       >
-        <RNView style={s.photoModalRoot} {...photoDismissPan.panHandlers}>
-          <Pressable
-            onPress={() => setPhotoViewerIndex(null)}
-            style={[s.photoModalClose, { top: insets.top + 12 }]}
-            accessibilityRole="button"
-            accessibilityLabel="Close photo viewer"
-          >
-            <Ionicons name="close" size={28} color="#fff" />
-          </Pressable>
-          <ScrollView
-            ref={photoPagerRef}
-            horizontal
-            pagingEnabled
-            showsHorizontalScrollIndicator={false}
-            keyboardShouldPersistTaps="handled"
-            style={s.photoModalPager}
-            contentContainerStyle={{ alignItems: 'center' }}
-          >
-            {photos.map((url, i) => (
-              <RNView key={`pv-${i}`} style={[s.photoModalPage, { width: winWidth, height: winHeight }]}>
-                <Image
-                  source={{ uri: getImageUrl(url, { width: 1200, quality: 88 }) }}
-                  style={s.photoModalImage}
-                  resizeMode="contain"
-                />
-              </RNView>
-            ))}
-          </ScrollView>
-        </RNView>
+        <GestureHandlerRootView style={s.photoModalRoot}>
+          <RNView style={s.photoModalContent} {...photoDismissPan.panHandlers}>
+            <Pressable
+              onPress={closePhotoViewer}
+              style={[s.photoModalClose, { top: insets.top + 12 }]}
+              accessibilityRole="button"
+              accessibilityLabel="Close photo viewer"
+            >
+              <Ionicons name="close" size={28} color="#fff" />
+            </Pressable>
+            <ScrollView
+              ref={photoPagerRef}
+              horizontal
+              pagingEnabled
+              showsHorizontalScrollIndicator={false}
+              scrollEnabled={!photoViewerZoomed}
+              keyboardShouldPersistTaps="handled"
+              style={s.photoModalPager}
+              contentContainerStyle={{ alignItems: 'center' }}
+              onMomentumScrollEnd={handlePhotoPagerMomentumEnd}
+            >
+              {photos.map((url, i) => {
+                const uri = getImageUrl(url, { width: 1200, quality: 88 });
+                const accessibilityLabel = `Profile photo ${i + 1} of ${photos.length}`;
+                if (i !== photoViewerIndex) {
+                  return (
+                    <RNView key={`pv-${i}`} style={[s.photoModalPage, { width: winWidth, height: winHeight }]}>
+                      <Image
+                        source={{ uri }}
+                        style={s.photoModalImage}
+                        resizeMode="contain"
+                        accessibilityRole="image"
+                        accessibilityLabel={accessibilityLabel}
+                      />
+                    </RNView>
+                  );
+                }
+                return (
+                  <ZoomableProfilePhotoPage
+                    key={`pv-${i}`}
+                    uri={uri}
+                    width={winWidth}
+                    height={winHeight}
+                    isActive
+                    accessibilityLabel={accessibilityLabel}
+                    onZoomChange={setPhotoViewerZoomed}
+                  />
+                );
+              })}
+            </ScrollView>
+          </RNView>
+        </GestureHandlerRootView>
       </Modal>
     </RNView>
   );
@@ -985,6 +1252,9 @@ const s = StyleSheet.create({
     backgroundColor: '#000',
     justifyContent: 'center',
   },
+  photoModalContent: {
+    flex: 1,
+  },
   photoModalClose: {
     position: 'absolute',
     right: 16,
@@ -995,6 +1265,10 @@ const s = StyleSheet.create({
     flex: 1,
   },
   photoModalPage: {
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  photoModalZoomLayer: {
     justifyContent: 'center',
     alignItems: 'center',
   },

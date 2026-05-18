@@ -39,15 +39,27 @@ type Props = {
   onRequestImmersive?: () => void;
   /** Pause inline preview while immersive viewer is open for this URL. */
   immersiveActive?: boolean;
-  /** Mount the native player only once the row is visible/near-visible or explicitly requested. */
+  /** Mount the native player only after an explicit play/open request. */
   shouldMountPlayer?: boolean;
+  /** Parent-owned poster cache so FlatList remounts do not replay the preview loader. */
+  posterPreviewState?: VibeClipPosterPreviewState;
+  onPosterPreviewStateChange?: (state: VibeClipPosterPreviewState, thumbnailUrl?: string | null) => void;
   threadVisualRecede?: boolean;
 };
 
-type VibeClipCardInnerProps = Props & { onRefreshClipMedia: () => Promise<boolean>; onRemountPlayer: () => void };
-type VibeClipPosterProps = Props & { onRefreshClipMedia: () => Promise<boolean>; onRequestInlinePlay: () => void };
+export type VibeClipPosterPreviewState = 'unknown' | 'ready' | 'failed';
+type VibeClipMediaRefreshReason = 'preview' | 'playback';
+
+type VibeClipCardInnerProps = Props & {
+  onRefreshClipMedia: (reason?: VibeClipMediaRefreshReason) => Promise<boolean>;
+  onRemountPlayer: () => void;
+  playRequestToken: number;
+};
+type VibeClipPosterProps = Props & {
+  onRefreshClipMedia: (reason?: VibeClipMediaRefreshReason) => Promise<boolean>;
+  onRequestInlinePlay: () => void;
+};
 type ClipPreviewState =
-  | 'poster_loading'
   | 'poster_ready'
   | 'player_loading'
   | 'ready'
@@ -60,11 +72,49 @@ const SECONDARY = 'rgba(255,255,255,0.55)';
 const INLINE_CLIP_MIN_ASPECT_RATIO = 0.78;
 const INLINE_CLIP_MAX_ASPECT_RATIO = 1.2;
 const INLINE_CLIP_MAX_HEIGHT = 360;
+const POSTER_PREVIEW_TIMEOUT_MS = 3500;
 
 function cardAspectRatioForMeta(meta: VibeClipDisplayMeta): number {
   return typeof meta.aspectRatio === 'number' && Number.isFinite(meta.aspectRatio) && meta.aspectRatio > 0
     ? Math.max(INLINE_CLIP_MIN_ASPECT_RATIO, Math.min(INLINE_CLIP_MAX_ASPECT_RATIO, meta.aspectRatio))
     : INLINE_CLIP_MIN_ASPECT_RATIO;
+}
+
+function posterStateForMeta(
+  meta: VibeClipDisplayMeta,
+  posterPreviewState?: VibeClipPosterPreviewState,
+): VibeClipPosterPreviewState {
+  if (!meta.thumbnailUrl) return 'failed';
+  return posterPreviewState ?? 'unknown';
+}
+
+function VibeClipPosterImage({
+  uri,
+  previewState,
+  onPreviewStateChange,
+  onRefreshClipMedia,
+}: {
+  uri: string | null;
+  previewState: VibeClipPosterPreviewState;
+  onPreviewStateChange?: (state: VibeClipPosterPreviewState, thumbnailUrl?: string | null) => void;
+  onRefreshClipMedia: (reason?: VibeClipMediaRefreshReason) => Promise<boolean>;
+}) {
+  if (!uri || previewState === 'failed') return null;
+  return (
+    <Image
+      source={{ uri }}
+      style={StyleSheet.absoluteFillObject}
+      resizeMode="cover"
+      onLoad={() => onPreviewStateChange?.('ready', uri)}
+      onError={() => {
+        void onRefreshClipMedia('preview')
+          .then((didRefresh) => {
+            if (!didRefresh) onPreviewStateChange?.('failed', uri);
+          })
+          .catch(() => onPreviewStateChange?.('failed', uri));
+      }}
+    />
+  );
 }
 
 function VibeClipCardInner({
@@ -80,17 +130,18 @@ function VibeClipCardInner({
   onRequestImmersive,
   immersiveActive,
   threadVisualRecede = false,
+  posterPreviewState,
+  onPosterPreviewStateChange,
   onRefreshClipMedia,
   onRemountPlayer,
+  playRequestToken,
 }: VibeClipCardInnerProps) {
   const theme = Colors[useColorScheme()];
   const [hasError, setHasError] = useState(false);
   const [isReady, setIsReady] = useState(false);
   const [isBuffering, setIsBuffering] = useState(false);
-  const [hasPlayed, setHasPlayed] = useState(false);
-  const [posterReady, setPosterReady] = useState(false);
-  const [posterFailed, setPosterFailed] = useState(false);
-  const [playRequested, setPlayRequested] = useState(false);
+  const [hasPlayed, setHasPlayed] = useState(() => playRequestToken > 0);
+  const [playRequested, setPlayRequested] = useState(() => playRequestToken > 0);
   const playStartTracked = useRef(false);
   const playCompleteTracked = useRef(false);
 
@@ -103,16 +154,20 @@ function VibeClipCardInner({
     setIsBuffering(false);
     setHasError(false);
     setHasPlayed(false);
-    setPosterReady(false);
-    setPosterFailed(false);
     setPlayRequested(false);
   }, [meta.videoUrl]);
+
+  useEffect(() => {
+    if (playRequestToken <= 0) return;
+    setPlayRequested(true);
+    setHasPlayed(true);
+  }, [playRequestToken]);
 
   useEffect(() => {
     const sub = safeExpoSharedObjectCall(
       () => player.addListener('statusChange', (payload) => {
         if (payload.status === 'error') {
-          void onRefreshClipMedia()
+          void onRefreshClipMedia('playback')
             .then((didRefresh) => {
               if (!didRefresh) setHasError(true);
             })
@@ -245,22 +300,19 @@ function VibeClipCardInner({
       ? replyPromptForContext(threadMessageCount, sparkMessageId)
       : null;
   const cardAspectRatio = cardAspectRatioForMeta(meta);
-  const hasPosterVisual = !!meta.thumbnailUrl && (posterReady || posterFailed);
+  const posterState = posterStateForMeta(meta, posterPreviewState);
+  const hasPosterVisual = !!meta.thumbnailUrl && posterState !== 'failed';
   const previewState: ClipPreviewState = hasError
     ? 'failed'
     : isBuffering || (playRequested && !isReady)
       ? 'buffering'
       : isReady
         ? 'ready'
-        : meta.thumbnailUrl && !posterReady && !posterFailed
-          ? 'poster_loading'
-          : hasPosterVisual
-            ? 'poster_ready'
-            : 'player_loading';
-  const showLoadingCopy =
-    previewState === 'poster_loading' || (previewState === 'player_loading' && !hasPosterVisual);
+        : hasPosterVisual
+          ? 'poster_ready'
+          : 'player_loading';
   const showPlayAffordance =
-    !hasPlayed && !hasError && !showLoadingCopy && previewState !== 'buffering';
+    !hasPlayed && !hasError && previewState !== 'buffering';
 
   return (
     <View
@@ -281,23 +333,21 @@ function VibeClipCardInner({
       </View>
 
       <View style={[styles.videoWrap, { aspectRatio: cardAspectRatio, maxHeight: INLINE_CLIP_MAX_HEIGHT }]}>
-        {meta.thumbnailUrl && !isReady && (
-          <Image
-            source={{ uri: meta.thumbnailUrl }}
-            style={StyleSheet.absoluteFillObject}
-            resizeMode="cover"
-            onLoad={() => setPosterReady(true)}
-            onError={() => {
-              void onRefreshClipMedia()
-                .then((didRefresh) => {
-                  if (!didRefresh) setPosterFailed(true);
-                })
-                .catch(() => setPosterFailed(true));
-            }}
+        {!isReady ? (
+          <VibeClipPosterImage
+            uri={meta.thumbnailUrl}
+            previewState={posterState}
+            onPreviewStateChange={onPosterPreviewStateChange}
+            onRefreshClipMedia={onRefreshClipMedia}
           />
-        )}
+        ) : null}
+        {!isReady && !hasPosterVisual ? (
+          <View style={styles.posterFallback} pointerEvents="none">
+            <Ionicons name="film-outline" size={34} color="rgba(216,180,254,0.42)" />
+          </View>
+        ) : null}
         <VideoView
-          style={[styles.video, hasError ? { opacity: 0 } : null]}
+          style={[styles.video, !isReady || hasError ? { opacity: 0 } : null]}
           player={player}
           nativeControls
           contentFit="cover"
@@ -320,15 +370,6 @@ function VibeClipCardInner({
           >
             <Ionicons name="expand-outline" size={20} color="rgba(255,255,255,0.95)" />
           </Pressable>
-        ) : null}
-
-        {showLoadingCopy ? (
-          <View style={styles.loadingOverlay} pointerEvents="none">
-            <View style={styles.loadingInner}>
-              <ActivityIndicator color="rgba(255,255,255,0.92)" size="small" />
-              <Text style={styles.loadingLabel}>Loading clip…</Text>
-            </View>
-          </View>
         ) : null}
 
         {previewState === 'buffering' ? (
@@ -364,7 +405,7 @@ function VibeClipCardInner({
             </Text>
             <Pressable
               onPress={() => {
-                void onRefreshClipMedia()
+                void onRefreshClipMedia('playback')
                   .then((didRefresh) => {
                     if (!didRefresh) onRemountPlayer();
                   })
@@ -483,15 +524,16 @@ function VibeClipCardPosterOnly({
   meta,
   isMine,
   onRequestImmersive,
+  posterPreviewState,
+  onPosterPreviewStateChange,
   onRefreshClipMedia,
   onRequestInlinePlay,
   threadVisualRecede = false,
 }: VibeClipPosterProps) {
-  const [posterReady, setPosterReady] = useState(false);
-  const [posterFailed, setPosterFailed] = useState(false);
   const cardAspectRatio = cardAspectRatioForMeta(meta);
-  const previewState: ClipPreviewState =
-    meta.thumbnailUrl && !posterReady && !posterFailed ? 'poster_loading' : 'poster_ready';
+  const posterState = posterStateForMeta(meta, posterPreviewState);
+  const hasPosterVisual = !!meta.thumbnailUrl && posterState !== 'failed';
+  const showPreviewLoader = !!meta.thumbnailUrl && posterState === 'unknown';
 
   return (
     <View
@@ -512,20 +554,16 @@ function VibeClipCardPosterOnly({
       </View>
 
       <View style={[styles.videoWrap, { aspectRatio: cardAspectRatio, maxHeight: INLINE_CLIP_MAX_HEIGHT }]}>
-        {meta.thumbnailUrl ? (
-          <Image
-            source={{ uri: meta.thumbnailUrl }}
-            style={StyleSheet.absoluteFillObject}
-            resizeMode="cover"
-            onLoad={() => setPosterReady(true)}
-            onError={() => {
-              void onRefreshClipMedia()
-                .then((didRefresh) => {
-                  if (!didRefresh) setPosterFailed(true);
-                })
-                .catch(() => setPosterFailed(true));
-            }}
-          />
+        <VibeClipPosterImage
+          uri={meta.thumbnailUrl}
+          previewState={posterState}
+          onPreviewStateChange={onPosterPreviewStateChange}
+          onRefreshClipMedia={onRefreshClipMedia}
+        />
+        {!hasPosterVisual ? (
+          <View style={styles.posterFallback} pointerEvents="none">
+            <Ionicons name="film-outline" size={34} color="rgba(216,180,254,0.42)" />
+          </View>
         ) : null}
 
         {onRequestImmersive ? (
@@ -547,11 +585,10 @@ function VibeClipCardPosterOnly({
           </Pressable>
         ) : null}
 
-        {previewState === 'poster_loading' ? (
+        {showPreviewLoader ? (
           <View style={styles.loadingOverlay} pointerEvents="none">
             <View style={styles.loadingInner}>
               <ActivityIndicator color="rgba(255,255,255,0.92)" size="small" />
-              <Text style={styles.loadingLabel}>Loading clip…</Text>
             </View>
           </View>
         ) : (
@@ -581,6 +618,8 @@ export function VibeClipCard(props: Props) {
     meta,
     onResolvedThumbnailUrl,
     onResolvedVideoUrl,
+    onPosterPreviewStateChange,
+    posterPreviewState,
     shouldMountPlayer: shouldMountPlayerProp,
     sparkMessageId,
     thumbnailSourceRef,
@@ -588,35 +627,71 @@ export function VibeClipCard(props: Props) {
   } = props;
   const [retryNonce, setRetryNonce] = useState(0);
   const [forceMountPlayer, setForceMountPlayer] = useState(false);
+  const [inlinePlayRequestToken, setInlinePlayRequestToken] = useState(0);
   const [playableVideoUrl, setPlayableVideoUrl] = useState(meta.videoUrl);
   const [playableThumbnailUrl, setPlayableThumbnailUrl] = useState(meta.thumbnailUrl ?? null);
+  const [fallbackPosterPreviewState, setFallbackPosterPreviewState] =
+    useState<VibeClipPosterPreviewState>('unknown');
   const refreshAttemptedForUriRef = useRef<string | null>(null);
   useEffect(() => {
     setForceMountPlayer(false);
+    setInlinePlayRequestToken(0);
     setRetryNonce(0);
     setPlayableVideoUrl(meta.videoUrl);
     setPlayableThumbnailUrl(meta.thumbnailUrl ?? null);
+    setFallbackPosterPreviewState('unknown');
     refreshAttemptedForUriRef.current = null;
   }, [meta.thumbnailUrl, meta.videoUrl]);
 
-  const refreshClipMedia = useCallback(async (): Promise<boolean> => {
-    if (!sparkMessageId || !videoSourceRef || refreshAttemptedForUriRef.current === playableVideoUrl) {
+  const parentPosterPreviewState =
+    playableThumbnailUrl === (meta.thumbnailUrl ?? null) ? posterPreviewState : undefined;
+  const effectivePosterPreviewState = !playableThumbnailUrl
+    ? 'failed'
+    : parentPosterPreviewState === 'ready' || parentPosterPreviewState === 'failed'
+      ? parentPosterPreviewState
+      : fallbackPosterPreviewState;
+  const setPosterPreviewState = useCallback(
+    (state: VibeClipPosterPreviewState, thumbnailUrl: string | null = playableThumbnailUrl) => {
+      setFallbackPosterPreviewState(state);
+      onPosterPreviewStateChange?.(state, thumbnailUrl);
+    },
+    [onPosterPreviewStateChange, playableThumbnailUrl],
+  );
+
+  useEffect(() => {
+    if (!playableThumbnailUrl || effectivePosterPreviewState !== 'unknown') return;
+    const timeout = setTimeout(() => setPosterPreviewState('failed', playableThumbnailUrl), POSTER_PREVIEW_TIMEOUT_MS);
+    return () => clearTimeout(timeout);
+  }, [effectivePosterPreviewState, playableThumbnailUrl, setPosterPreviewState]);
+
+  const refreshClipMedia = useCallback(async (reason: VibeClipMediaRefreshReason = 'preview'): Promise<boolean> => {
+    if (
+      !sparkMessageId ||
+      (!videoSourceRef && !thumbnailSourceRef) ||
+      refreshAttemptedForUriRef.current === playableVideoUrl
+    ) {
       return false;
     }
-    const freshVideoUri = await refreshCachedChatMediaUrl(sparkMessageId, 'vibe_clip', videoSourceRef);
+    const freshVideoUri = videoSourceRef
+      ? await refreshCachedChatMediaUrl(sparkMessageId, 'vibe_clip', videoSourceRef)
+      : null;
     const freshThumbnailUri = thumbnailSourceRef
       ? await refreshCachedChatMediaUrl(sparkMessageId, 'thumbnail', thumbnailSourceRef)
       : null;
-    if (freshThumbnailUri) setPlayableThumbnailUrl(freshThumbnailUri);
-    if (!freshVideoUri || freshVideoUri === playableVideoUrl) return false;
+    if (freshThumbnailUri) {
+      if (freshThumbnailUri !== playableThumbnailUrl) setFallbackPosterPreviewState('unknown');
+      setPlayableThumbnailUrl(freshThumbnailUri);
+      onResolvedThumbnailUrl?.(freshThumbnailUri);
+    }
+    if (!freshVideoUri || freshVideoUri === playableVideoUrl) return reason === 'preview' && !!freshThumbnailUri;
     refreshAttemptedForUriRef.current = playableVideoUrl;
-    if (freshThumbnailUri) onResolvedThumbnailUrl?.(freshThumbnailUri);
     setPlayableVideoUrl(freshVideoUri);
     onResolvedVideoUrl?.(freshVideoUri);
     return true;
   }, [
     onResolvedThumbnailUrl,
     onResolvedVideoUrl,
+    playableThumbnailUrl,
     playableVideoUrl,
     sparkMessageId,
     thumbnailSourceRef,
@@ -630,6 +705,8 @@ export function VibeClipCard(props: Props) {
       videoUrl: playableVideoUrl,
       thumbnailUrl: playableThumbnailUrl,
     },
+    posterPreviewState: effectivePosterPreviewState,
+    onPosterPreviewStateChange: setPosterPreviewState,
   };
 
   const shouldMountPlayer = shouldMountPlayerProp || forceMountPlayer;
@@ -638,7 +715,10 @@ export function VibeClipCard(props: Props) {
       <VibeClipCardPosterOnly
         {...resolvedProps}
         onRefreshClipMedia={refreshClipMedia}
-        onRequestInlinePlay={() => setForceMountPlayer(true)}
+        onRequestInlinePlay={() => {
+          setInlinePlayRequestToken((token) => token + 1);
+          setForceMountPlayer(true);
+        }}
       />
     );
   }
@@ -648,6 +728,7 @@ export function VibeClipCard(props: Props) {
       {...resolvedProps}
       onRefreshClipMedia={refreshClipMedia}
       onRemountPlayer={() => setRetryNonce((n) => n + 1)}
+      playRequestToken={inlinePlayRequestToken}
     />
   );
 }
@@ -685,6 +766,12 @@ const styles = StyleSheet.create({
   videoWrap: {
     width: '100%',
     backgroundColor: 'rgba(22,22,30,0.22)',
+  },
+  posterFallback: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(20,18,30,0.84)',
   },
   video: {
     width: '100%',
@@ -762,19 +849,6 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '700',
     color: 'rgba(216,180,254,0.95)',
-  },
-  loadingLabel: {
-    color: 'rgba(255,255,255,0.92)',
-    fontSize: 13,
-    fontWeight: '600',
-    textAlign: 'center',
-  },
-  loadingHint: {
-    color: 'rgba(255,255,255,0.55)',
-    fontSize: 11,
-    fontWeight: '500',
-    textAlign: 'center',
-    maxWidth: 200,
   },
   durationBadge: {
     position: 'absolute',
