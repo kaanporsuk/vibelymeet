@@ -437,9 +437,9 @@ test("server upload and publish paths enforce Bunny Stream Vibe Clip limits", ()
   );
   assert.match(getChatMediaUrl, /BUNNY_CHAT_STREAM_CDN_HOSTNAME/);
   assert.match(getChatMediaUrl, /BUNNY_CHAT_STREAM_TOKEN_SECURITY_KEY/);
-  assert.match(getChatMediaUrl, /async function hmacSha256Base64Url\(secret: string, input: string\)/);
+  assert.doesNotMatch(getChatMediaUrl, /async function hmacSha256Base64Url/);
   assert.match(getChatMediaUrl, /const signingData = sortedSigningData\(\{ token_path: tokenPath \}\)/);
-  assert.match(getChatMediaUrl, /const token = `HS256-\$\{await hmacSha256Base64Url/);
+  assert.match(getChatMediaUrl, /const token = `HS256-\$\{await signPayload/);
   assert.match(getChatMediaUrl, /`\$\{tokenPath\}\$\{params\.expires\}\$\{signingData\}`/);
   assert.match(getChatMediaUrl, /bcdn_token=\$\{token\}&expires=\$\{params\.expires\}&token_path=\$\{encodeURIComponent\(tokenPath\)\}/);
   assert.match(getChatMediaUrl, /playbackKind: mediaKind === "thumbnail" \? "progressive" : "hls"/);

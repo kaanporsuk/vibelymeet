@@ -40,18 +40,6 @@ async function signPayload(secret: string, payload: string): Promise<string> {
   return base64Url(new Uint8Array(signature));
 }
 
-async function hmacSha256Base64Url(secret: string, input: string): Promise<string> {
-  const key = await crypto.subtle.importKey(
-    "raw",
-    encoder.encode(secret),
-    { name: "HMAC", hash: "SHA-256" },
-    false,
-    ["sign"],
-  );
-  const signature = await crypto.subtle.sign("HMAC", key, encoder.encode(input));
-  return base64Url(new Uint8Array(signature));
-}
-
 function sortedSigningData(params: Record<string, string>): string {
   return Object.entries(params)
     .sort(([left], [right]) => left.localeCompare(right))
@@ -77,7 +65,7 @@ async function signBunnyStreamDirectoryUrl(params: {
 }): Promise<string> {
   const tokenPath = `/${params.videoId}/`;
   const signingData = sortedSigningData({ token_path: tokenPath });
-  const token = `HS256-${await hmacSha256Base64Url(
+  const token = `HS256-${await signPayload(
     params.securityKey,
     `${tokenPath}${params.expires}${signingData}`,
   )}`;
