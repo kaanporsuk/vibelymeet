@@ -8,24 +8,24 @@
 
 ## 1. Canonical new sends (server-owned)
 
-All **new user-authored** chat media persistence goes through the **`send-message`** Edge Function after the appropriate upload EF:
+All **new user-authored** chat media persistence is server-owned. Text/image/voice still publish through **`send-message`** after the appropriate upload EF. Chat Vibe Clips use the dedicated Bunny Stream upload lifecycle below.
 
 | Medium | Upload | Persist (`send-message` body) |
 |--------|--------|--------------------------------|
 | **Text** | N/A | `match_id`, `content`, optional `client_request_id` |
 | **Image** (URL in content) | `upload-image` | `match_id`, `content` (`__IMAGE__\|…` or URL), optional `client_request_id` |
 | **Voice** | `upload-voice` | `message_kind: "voice"`, `audio_url`, `audio_duration_seconds`, **`client_request_id` (UUID, required)** |
-| **Vibe Clip** | `upload-chat-video` | `message_kind: "vibe_clip"`, `video_url`, `duration_ms`, `client_request_id`, optional `thumbnail_url` / `aspect_ratio` |
+| **Vibe Clip** | Bunny Stream TUS via `create-chat-vibe-clip-upload` | `complete-chat-vibe-clip-upload` creates/updates `message_kind: "vibe_clip"` with Bunny Stream refs |
 
-**Clients must not** `insert` into `public.messages` for voice, Vibe Clip, or **new** legacy generic video (use `send-message` / `vibe_clip` only).
+**Clients must not** `insert` into `public.messages` for voice, Vibe Clip, or **new** legacy generic video. Chat Vibe Clips must not use `send-message` directly; publish is owned by `complete-chat-vibe-clip-upload`.
 
-**Idempotency:** Voice and Vibe Clip use `structured_payload.client_request_id` (and the partial unique index on `(match_id, client_request_id)` for non–`vibe_game` rows). Retries must reuse the same UUID.
+**Idempotency:** Voice uses `structured_payload.client_request_id`. Chat Vibe Clip upload sessions use `chat_vibe_clip_uploads.sender_id + client_request_id`, then publish the same UUID into `messages.structured_payload`. Retries must reuse the same UUID.
 
 **DB `message_kind`:** Voice rows use `message_kind = 'voice'` (requires migration `20260330100000_messages_message_kind_voice.sql`). Older voice rows may still be `message_kind = 'text'` with `audio_url` set; rendering uses `inferChatMediaRenderKind` (audio URL wins).
 
-**Media URL validation:** `send-message` rejects canonical media publishes with `invalid_media_url` when an image marker does not resolve under `/photos/`, a voice URL under `/voice/`, or a Vibe Clip URL / thumbnail under `/chat-videos/`. This keeps broken placeholders and wrong-provider URLs out of `messages`.
+**Media URL validation:** `send-message` rejects canonical image/voice publishes with `invalid_media_url` when an image marker does not resolve under `/photos/` or a voice URL under `/voice/`. New Vibe Clip URL validation happens in the Bunny Stream upload functions and `get-chat-media-url`.
 
-**CDN path prefixes:** Bunny Storage delivery may include an optional CDN path prefix. Edge upload functions build voice / Vibe Clip URLs through `_shared/bunny-media.ts` using `BUNNY_CDN_PATH_PREFIX`; web/native image URL builders use `VITE_BUNNY_CDN_PATH_PREFIX` / `EXPO_PUBLIC_BUNNY_CDN_PATH_PREFIX`. If a prefix is configured, the database setting `app.bunny_cdn_path_prefix` must match so `sync_chat_message_media` strips URLs back to provider paths before lifecycle attachment.
+**CDN path prefixes:** Bunny Storage delivery may include an optional CDN path prefix for legacy storage-backed media. New Chat Vibe Clips use Bunny Stream signed HLS URLs from `get-chat-media-url`.
 
 ---
 
@@ -36,16 +36,18 @@ All **new user-authored** chat media persistence goes through the **`send-messag
 **Policy (this sprint):**
 
 - **Read:** Keep render support (`VideoMessageBubble` on web, native video path) for **existing** rows.
-- **Write:** **No client path** may create **new** legacy generic-video rows (removed: native `insertChatVideoMessageRow` / `useSendChatVideoMessage`). New video must be **`vibe_clip`** via `send-message` / outbox `invokePublishVibeClip`.
+- **Write:** **No client path** may create **new** legacy generic-video rows (removed: native `insertChatVideoMessageRow` / `useSendChatVideoMessage`). New Chat Vibe Clips upload through Bunny Stream TUS and are published by `complete-chat-vibe-clip-upload`.
 - **Data migration:** Not in scope; do not bulk-rewrite historical rows without a dedicated migration + QA plan.
 - **Future deprecation:** Removing renderers requires either migrating old rows to `vibe_clip` or accepting broken display for legacy data.
 
 ---
 
-## 3. Vibe Clip (unchanged summary)
+## 3. Vibe Clip
 
-- Upload: `upload-chat-video` (returns `url`, `thumbnail_url`, `aspect_ratio`, …).
-- Persist: `send-message` with `message_kind: "vibe_clip"`.
+- Upload: client -> Bunny Stream TUS using `create-chat-vibe-clip-upload`.
+- Persist: `complete-chat-vibe-clip-upload` creates/updates the `message_kind: "vibe_clip"` row idempotently.
+- Repair: `video-webhook` and `sync-chat-vibe-clip-status` keep `processing_status` current. Bunny status `7` (`PresignedUploadFinished`) is allowed to publish a processing message if the client dies after TUS success but before `complete-chat-vibe-clip-upload`.
+- Playback: `get-chat-media-url` returns Bunny Stream CDN URLs with path-based `token_path` auth for the video directory, using Bunny's SHA256 directory-token format so HLS playlists and segments inherit the same authorization.
 - Payload shape: `VibeClipPayload` in `shared/chat/messageRouting.ts`.
 
 ---
@@ -66,7 +68,8 @@ All **new user-authored** chat media persistence goes through the **`send-messag
 
 - `insertVoiceMessageRow` — direct `messages.insert`; **replaced by** `invokePublishVoiceMessage`.
 - `useSendVoiceMessage` — unused hook wrapping the old insert; **replaced by** outbox + `invokePublishVoiceMessage` on native, **`usePublishVoiceMessage`** on web.
-- `insertChatVideoMessageRow` / `useSendChatVideoMessage` — client `messages.insert` for generic video; **removed**; new video is **`invokePublishVibeClip`** only.
+- `insertChatVideoMessageRow` / `useSendChatVideoMessage` — client `messages.insert` for generic video; **removed**.
+- `invokePublishVibeClip` — retired; Chat Vibe Clip publish now goes through `complete-chat-vibe-clip-upload`.
 
 ---
 
@@ -82,7 +85,7 @@ All **new user-authored** chat media persistence goes through the **`send-messag
 
 1. Apply migration **`20260330100000_messages_message_kind_voice.sql`** (adds `'voice'` to `message_kind` check).
 2. Apply migration **`20260429132000_chat_media_cdn_path_prefix_normalize.sql`** when deploying prefix-aware media lifecycle normalization.
-3. Deploy **`upload-voice`**, **`upload-chat-video`**, and **`send-message`** Edge Functions together for prefix-aware URLs and strict media sync rollback.
+3. Deploy **`upload-voice`**, **`send-message`**, **`create-chat-vibe-clip-upload`**, **`complete-chat-vibe-clip-upload`**, **`sync-chat-vibe-clip-status`**, **`get-chat-media-url`**, and **`video-webhook`** together for Chat Vibe Clip Stream support.
 
 Deploying the function **before** the migration will cause voice inserts to fail with a constraint error until the migration runs.
 
@@ -113,7 +116,7 @@ Until Sprint 3 wires the reference-release logic into message/match/account dele
 
 | Area | Files |
 |------|--------|
-| Edge | `supabase/functions/send-message/index.ts`, `supabase/functions/upload-voice/index.ts`, `supabase/functions/upload-chat-video/index.ts`, `supabase/functions/_shared/bunny-media.ts` |
+| Edge | `supabase/functions/send-message/index.ts`, `supabase/functions/upload-voice/index.ts`, `supabase/functions/create-chat-vibe-clip-upload/index.ts`, `supabase/functions/complete-chat-vibe-clip-upload/index.ts`, `supabase/functions/sync-chat-vibe-clip-status/index.ts`, `supabase/functions/get-chat-media-url/index.ts`, `supabase/functions/video-webhook/index.ts`, `supabase/functions/_shared/chat-vibe-clips.ts` |
 | Shared routing | `shared/chat/messageRouting.ts` (`voice` in DB kind; UI kind stays `text` via `toRenderableMessageKind`) |
 | Web | `src/hooks/useMessages.ts`, `src/pages/Chat.tsx` |
-| Native | `apps/mobile/lib/chatApi.ts`, `apps/mobile/lib/chatOutbox/execute.ts`, `apps/mobile/lib/chatMediaUpload.ts` (comment) |
+| Native | `apps/mobile/lib/chatApi.ts`, `apps/mobile/lib/chatOutbox/execute.ts`, `apps/mobile/lib/chatMediaUpload.ts`, `apps/mobile/lib/chatVibeClipStreamUpload.ts` |

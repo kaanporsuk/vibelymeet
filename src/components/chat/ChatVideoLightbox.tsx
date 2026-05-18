@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, useCallback } from "react";
 import { motion } from "framer-motion";
 import { Loader2, X, AlertCircle } from "lucide-react";
 import { refreshCachedChatMediaUrl, type ChatMediaKind } from "@/lib/chatMediaResolver";
+import { attachHlsPlayback } from "@/lib/vibeVideo/attachHlsPlayback";
 
 type ChatVideoLightboxProps = {
   videoUrl: string;
@@ -31,8 +32,13 @@ export function ChatVideoLightbox({
   const [playableVideoUrl, setPlayableVideoUrl] = useState(videoUrl);
   const [playablePosterUrl, setPlayablePosterUrl] = useState(posterUrl ?? null);
   const refreshAttemptedForUrlRef = useRef<string | null>(null);
+  const playableVideoUrlRef = useRef(playableVideoUrl);
 
   const resetPhase = useCallback(() => setPhase("loading"), []);
+  const isRemoteUrl = /^https?:\/\//i.test(playableVideoUrl);
+  const isLocalUrl = /^(blob:|file:|data:)/i.test(playableVideoUrl);
+  const canMountPlayer = isRemoteUrl || isLocalUrl;
+  const isHlsUrl = /\.m3u8(?:[?#]|$)/i.test(playableVideoUrl);
 
   useEffect(() => {
     const prev = document.body.style.overflow;
@@ -51,23 +57,12 @@ export function ChatVideoLightbox({
   }, [onClose]);
 
   useEffect(() => {
-    setPlayableVideoUrl(videoUrl);
-    setPlayablePosterUrl(posterUrl ?? null);
-    refreshAttemptedForUrlRef.current = null;
-    resetPhase();
-    const v = videoRef.current;
-    if (!v) return;
-    const t = window.setTimeout(() => {
-      void v.play().catch(() => {});
-    }, 120);
-    return () => {
-      window.clearTimeout(t);
-      v.pause();
-    };
-  }, [posterUrl, resetPhase, videoUrl]);
+    playableVideoUrlRef.current = playableVideoUrl;
+  }, [playableVideoUrl]);
 
   const refreshMedia = useCallback(async (): Promise<boolean> => {
-    if (!messageId || !videoSourceRef || refreshAttemptedForUrlRef.current === playableVideoUrl) return false;
+    const currentUrl = playableVideoUrlRef.current;
+    if (!messageId || !videoSourceRef || refreshAttemptedForUrlRef.current === currentUrl) return false;
     const freshVideoUrl = await refreshCachedChatMediaUrl(messageId, mediaKind, videoSourceRef);
     const freshPosterUrl = thumbnailSourceRef
       ? await refreshCachedChatMediaUrl(messageId, "thumbnail", thumbnailSourceRef)
@@ -76,8 +71,8 @@ export function ChatVideoLightbox({
       setPlayablePosterUrl(freshPosterUrl);
       onResolvedThumbnailUrl?.(freshPosterUrl);
     }
-    if (!freshVideoUrl || freshVideoUrl === playableVideoUrl) return false;
-    refreshAttemptedForUrlRef.current = playableVideoUrl;
+    if (!freshVideoUrl || freshVideoUrl === currentUrl) return false;
+    refreshAttemptedForUrlRef.current = currentUrl;
     setPlayableVideoUrl(freshVideoUrl);
     onResolvedVideoUrl?.(freshVideoUrl);
     return true;
@@ -86,10 +81,50 @@ export function ChatVideoLightbox({
     messageId,
     onResolvedThumbnailUrl,
     onResolvedVideoUrl,
-    playableVideoUrl,
     thumbnailSourceRef,
     videoSourceRef,
   ]);
+
+  useEffect(() => {
+    playableVideoUrlRef.current = videoUrl;
+    setPlayableVideoUrl(videoUrl);
+    setPlayablePosterUrl(posterUrl ?? null);
+    refreshAttemptedForUrlRef.current = null;
+    resetPhase();
+    const v = videoRef.current;
+    if (!/^https?:\/\//i.test(videoUrl) && !/^(blob:|file:|data:)/i.test(videoUrl) && videoSourceRef) {
+      void refreshMedia().then((didRefresh) => {
+        if (!didRefresh) setPhase("error");
+      });
+      return;
+    }
+    if (!/^https?:\/\//i.test(videoUrl) && !/^(blob:|file:|data:)/i.test(videoUrl)) {
+      setPhase("error");
+      return;
+    }
+    if (!v) return;
+    const t = window.setTimeout(() => {
+      void v.play().catch(() => {});
+    }, 120);
+    return () => {
+      window.clearTimeout(t);
+      v.pause();
+    };
+  }, [posterUrl, refreshMedia, resetPhase, videoSourceRef, videoUrl]);
+
+  useEffect(() => {
+    const v = videoRef.current;
+    if (!v || !isRemoteUrl || !isHlsUrl) return;
+    return attachHlsPlayback(v, playableVideoUrl, {
+      autoPlay: true,
+      onManifestParsed: () => setPhase("ready"),
+      onError: () => {
+        void refreshMedia().then((didRefresh) => {
+          if (!didRefresh) setPhase("error");
+        });
+      },
+    });
+  }, [isHlsUrl, isRemoteUrl, playableVideoUrl, refreshMedia]);
 
   return (
     <motion.div
@@ -119,10 +154,7 @@ export function ChatVideoLightbox({
         onClick={onClose}
       />
 
-      <header className="relative z-20 flex items-center justify-between px-4 pt-[max(0.75rem,env(safe-area-inset-top))] pb-2">
-        <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-transparent bg-clip-text bg-gradient-to-r from-fuchsia-400/95 via-violet-300/90 to-pink-400/90">
-          Video
-        </p>
+      <header className="relative z-20 flex items-center justify-end px-4 pt-[max(0.75rem,env(safe-area-inset-top))] pb-2">
         <button
           type="button"
           onClick={(e) => {
@@ -177,30 +209,30 @@ export function ChatVideoLightbox({
           ) : null}
 
           <div className="relative w-full bg-black">
-            <video
-              ref={videoRef}
-              src={playableVideoUrl}
-              poster={playablePosterUrl ?? undefined}
-              className="aspect-video max-h-[min(78dvh,800px)] w-full bg-black object-contain"
-              controls
-              playsInline
-              controlsList="nodownload"
-              onLoadStart={() => setPhase("loading")}
-              onLoadedData={() => setPhase("ready")}
-              onCanPlay={() => setPhase("ready")}
-              onPlaying={() => setPhase("ready")}
-              onWaiting={() => setPhase("loading")}
-              onError={() => {
-                void refreshMedia().then((didRefresh) => {
-                  if (!didRefresh) setPhase("error");
-                });
-              }}
-            />
+            {canMountPlayer ? (
+              <video
+                ref={videoRef}
+                src={isHlsUrl ? undefined : playableVideoUrl}
+                poster={playablePosterUrl ?? undefined}
+                className="aspect-video max-h-[min(78dvh,800px)] w-full bg-black object-contain"
+                controls
+                playsInline
+                controlsList="nodownload"
+                onLoadStart={() => setPhase("loading")}
+                onLoadedData={() => setPhase("ready")}
+                onCanPlay={() => setPhase("ready")}
+                onPlaying={() => setPhase("ready")}
+                onWaiting={() => setPhase("loading")}
+                onError={() => {
+                  void refreshMedia().then((didRefresh) => {
+                    if (!didRefresh) setPhase("error");
+                  });
+                }}
+              />
+            ) : (
+              <div className="aspect-video max-h-[min(78dvh,800px)] w-full bg-black" />
+            )}
           </div>
-
-          <p className="border-t border-white/[0.06] bg-black/40 px-4 py-2.5 text-center text-[10px] font-medium tracking-wide text-white/40">
-            System controls below · Esc to close
-          </p>
         </motion.div>
       </div>
     </motion.div>

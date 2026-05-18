@@ -1,13 +1,17 @@
 import type { QueryClient } from '@tanstack/react-query';
 import {
   invokeSendMessageEdge,
-  invokePublishVibeClip,
   invokePublishVoiceMessage,
   invalidateAfterThreadMutation,
 } from '@/lib/chatApi';
 import { formatChatImageMessageContent } from '@/lib/chatMessageContent';
-import { uploadChatImageMessage, uploadChatVideoMessage, uploadVoiceMessage } from '@/lib/chatMediaUpload';
+import { uploadChatImageMessage, uploadVoiceMessage } from '@/lib/chatMediaUpload';
 import type { ChatOutboxItem } from '@/lib/chatOutbox/types';
+import {
+  ChatVibeClipUploadedButUnpublishedError,
+  completePublishedChatVibeClipUpload,
+  uploadAndPublishChatVibeClipToBunnyStream,
+} from '@/lib/chatVibeClipStreamUpload';
 
 export class OutboxExecuteError extends Error {
   uploadedPublicUrl?: string;
@@ -33,9 +37,14 @@ function getServerMessageId(row: unknown): string | null {
   return typeof id === 'string' && id.length > 0 ? id : null;
 }
 
+function isBunnyStreamPlaybackRef(value: string | null | undefined): value is string {
+  return /^bunny_stream:[0-9a-f-]{32,36}$/i.test(value?.trim() ?? '');
+}
+
 export async function executeOutboxItem(
   item: ChatOutboxItem,
-  queryClient: QueryClient
+  queryClient: QueryClient,
+  onUploadProgress?: (fraction: number) => void
 ): Promise<{ serverMessageId: string; uploadedPublicUrl?: string; uploadedMediaUrl?: string }> {
   const { id: clientRequestId, matchId, userId, payload } = item;
 
@@ -74,33 +83,37 @@ export async function executeOutboxItem(
       });
       serverMessageId = getServerMessageId(row);
     } else {
-      const uploaded =
-        item.uploadedMediaUrl
-          ? {
-              videoUrl: item.uploadedMediaUrl,
-              thumbnailUrl: item.uploadedPublicUrl ?? null,
-              aspectRatio:
-                typeof payload.aspectRatio === 'number' && Number.isFinite(payload.aspectRatio) && payload.aspectRatio > 0
-                  ? payload.aspectRatio
-                  : null,
-            }
-          : await uploadChatVideoMessage(
-              payload.uri,
-              matchId,
-              payload.mimeType ?? null,
-              typeof payload.aspectRatio === 'number' ? payload.aspectRatio : null,
-            );
-      uploadedMediaUrl = uploaded.videoUrl;
-      uploadedPublicUrl = uploaded.thumbnailUrl ?? undefined;
-      const row = await invokePublishVibeClip({
-        matchId,
-        videoUrl: uploaded.videoUrl,
-        durationMs: Math.round(payload.durationSeconds * 1000),
-        clientRequestId,
-        thumbnailUrl: uploaded.thumbnailUrl,
-        aspectRatio: uploaded.aspectRatio,
-      });
-      serverMessageId = getServerMessageId(row);
+      let uploaded: Awaited<ReturnType<typeof uploadAndPublishChatVibeClipToBunnyStream>>;
+      if (isBunnyStreamPlaybackRef(item.uploadedMediaUrl)) {
+        uploaded = await completePublishedChatVibeClipUpload({
+          clientRequestId,
+          playbackRef: item.uploadedMediaUrl,
+        });
+      } else {
+        try {
+          uploaded = await uploadAndPublishChatVibeClipToBunnyStream({
+            matchId,
+            clientRequestId,
+            uri: payload.uri,
+            durationMs: Math.round(payload.durationSeconds * 1000),
+            mimeType: payload.mimeType ?? null,
+            aspectRatio:
+              typeof payload.aspectRatio === 'number' && Number.isFinite(payload.aspectRatio) && payload.aspectRatio > 0
+                ? payload.aspectRatio
+                : null,
+            onProgress: onUploadProgress,
+          });
+        } catch (error) {
+          if (error instanceof ChatVibeClipUploadedButUnpublishedError) {
+            uploadedMediaUrl = error.playbackRef;
+            uploadedPublicUrl = error.posterRef;
+          }
+          throw error;
+        }
+      }
+      uploadedMediaUrl = uploaded.playbackRef;
+      uploadedPublicUrl = uploaded.posterRef;
+      serverMessageId = uploaded.messageId || getServerMessageId(uploaded.message);
     }
   } catch (e) {
     const msg = e instanceof Error ? e.message : 'Send failed';

@@ -5,6 +5,10 @@ import {
   hasAnyBunnyStreamSignatureHeader,
   verifyBunnyStreamWebhookSignature,
 } from "../_shared/bunny-stream-webhook.ts";
+import {
+  mapBunnyStatusToChatClipStatus,
+  updateChatVibeClipStatusByProvider,
+} from "../_shared/chat-vibe-clips.ts";
 import { logVibeVideo } from "../_shared/vibe-video-logs.ts";
 
 function getProjectRef(url: string | undefined): string {
@@ -209,7 +213,10 @@ serve(async (req) => {
 
   try {
     const { VideoGuid, Status, VideoLibraryId } = body;
-    const expectedLibraryId = Deno.env.get("BUNNY_STREAM_LIBRARY_ID");
+    const allowedLibraryIds = [
+      Deno.env.get("BUNNY_STREAM_LIBRARY_ID")?.trim(),
+      Deno.env.get("BUNNY_CHAT_STREAM_LIBRARY_ID")?.trim(),
+    ].filter((value): value is string => !!value);
     logVibeVideo("info", "video_webhook_payload_parsed", {
       project_ref: projectRef,
       bunny_status: typeof Status === "number" ? Status : null,
@@ -227,15 +234,16 @@ serve(async (req) => {
     }
 
     if (
-      expectedLibraryId &&
+      allowedLibraryIds.length > 0 &&
       VideoLibraryId != null &&
-      String(VideoLibraryId).trim() !== expectedLibraryId.trim()
+      !allowedLibraryIds.includes(String(VideoLibraryId).trim())
     ) {
       logVibeVideo("warn", "video_webhook_rejected", {
         project_ref: projectRef,
         reason: "library_mismatch",
         video_guid: VideoGuid,
         library_id: String(VideoLibraryId),
+        allowed_library_ids: allowedLibraryIds,
       });
       return new Response("Forbidden", { status: 403 });
     }
@@ -243,7 +251,7 @@ serve(async (req) => {
       project_ref: projectRef,
       video_guid: VideoGuid,
       library_id: VideoLibraryId == null ? null : String(VideoLibraryId),
-      library_validation: expectedLibraryId ? "matched_or_absent" : "not_configured",
+      library_validation: allowedLibraryIds.length > 0 ? "matched_or_absent" : "not_configured",
     });
 
     const supabase = createClient(
@@ -255,12 +263,33 @@ serve(async (req) => {
     if (Status === 3) mappedStatus = "ready";
     if (Status === 4) mappedStatus = "ready";
     if (Status === 5) mappedStatus = "failed";
+    if (Status === 8) mappedStatus = "failed";
     logVibeVideo("info", "video_webhook_status_mapped", {
       project_ref: projectRef,
       video_guid: VideoGuid,
       bunny_status: typeof Status === "number" ? Status : null,
       mapped_status: mappedStatus,
     });
+
+    const chatClipStatus = mapBunnyStatusToChatClipStatus(Status);
+    const chatClipResult = await updateChatVibeClipStatusByProvider(
+      supabase,
+      VideoGuid,
+      chatClipStatus,
+      chatClipStatus === "failed" ? `bunny_status_${Status}` : null,
+      { publishIfProcessing: Status === 7 },
+    );
+    if (chatClipResult.handled) {
+      logVibeVideo(chatClipResult.error ? "error" : "info", "video_webhook_chat_vibe_clip_update", {
+        project_ref: projectRef,
+        video_guid: VideoGuid,
+        bunny_status: typeof Status === "number" ? Status : null,
+        mapped_status: chatClipStatus,
+        message_id: chatClipResult.messageId ?? null,
+        error_code: chatClipResult.error ?? null,
+      });
+      return new Response(chatClipResult.error ? "error" : "ok", { status: chatClipResult.error ? 500 : 200 });
+    }
 
     // ── Update draft_media_sessions (new session model) ──────────────────────
     // The RPC also updates profiles.bunny_video_status for processing/ready/failed

@@ -38,6 +38,7 @@ export type WebChatOutboxItem = {
   serverMessageId?: string;
   uploadedPublicUrl?: string;
   uploadedMediaUrl?: string;
+  uploadProgress?: number;
   hydrationLastCheckedAtMs?: number;
   hydrationDeadlineAtMs?: number;
   invalidateScope?: ThreadInvalidateScope;

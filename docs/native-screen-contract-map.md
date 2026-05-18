@@ -37,7 +37,7 @@ Event Lobby route behavior is governed by `docs/contracts/event-lobby-native-con
 | Web route | Web component | Native route | Hooks / services | RPCs / Edge / Realtime | Platform adapters | Parity priority |
 |----------|---------------|--------------|------------------|------------------------|-------------------|-----------------|
 | `/matches` | `Matches` | `app/(tabs)/matches/index` | useMatches, useDropMatches, useUndoableUnmatch, useArchiveMatch, useBlockUser, useMuteMatch, useUserProfile, useSubscription | matches select; daily_drops via useDropMatches; send-message not used on list | RevenueCat (entitlements) | P0 |
-| `/chat/:id` | `Chat` | `app/chat/[id]` | useRealtimeMessages, useMessages, useSendMessage, useUserProfile, useMatchCall; voiceUploadService, chatVideoUploadService | send-message (EF); realtime `messages` | — | P0 |
+| `/chat/:id` | `Chat` | `app/chat/[id]` | useRealtimeMessages, useMessages, useSendMessage, useUserProfile, useMatchCall; voiceUploadService, chatVibeClipStreamUpload | send-message, create/complete/sync-chat-vibe-clip-upload; realtime `messages` | Bunny Stream TUS | P0 |
 
 ---
 

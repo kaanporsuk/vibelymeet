@@ -27,6 +27,7 @@ import type { ThreadInvalidateScope } from "../../shared/chat/queryKeys";
 const HYDRATION_CHECK_INTERVAL_MS = 10_000;
 const HYDRATION_TIMEOUT_MS = 90_000;
 const HYDRATION_RECOVERY_BACKOFF_MS = 5_000;
+const INTERRUPTED_SENDING_RECOVERY_MS = 2 * 60 * 1000;
 
 function isOnline(): boolean {
   return typeof navigator !== "undefined" ? navigator.onLine : true;
@@ -49,6 +50,34 @@ function isEligibleToSend(item: WebChatOutboxItem, online: boolean): boolean {
   }
   if (item.state === "waiting_for_network" || item.state === "queued") return true;
   return false;
+}
+
+function recoverInterruptedSendingItems(
+  items: WebChatOutboxItem[],
+  opts: {
+    now: number;
+    online: boolean;
+    activeProcessingIds?: Set<string>;
+    force?: boolean;
+  },
+): WebChatOutboxItem[] {
+  let changed = false;
+  const next = items.map((item) => {
+    if (item.state !== "sending") return item;
+    if (opts.activeProcessingIds?.has(item.id)) return item;
+    const isStale = opts.force || opts.now - item.updatedAtMs >= INTERRUPTED_SENDING_RECOVERY_MS;
+    if (!isStale) return item;
+    changed = true;
+    return {
+      ...item,
+      state: opts.online ? ("queued" as const) : ("waiting_for_network" as const),
+      lastError: undefined,
+      nextRetryAtMs: undefined,
+      uploadProgress: undefined,
+      updatedAtMs: opts.now,
+    };
+  });
+  return changed ? next : items;
 }
 
 type WebChatOutboxContextValue = {
@@ -87,7 +116,15 @@ export function WebChatOutboxProvider({ children }: { children: ReactNode }) {
     }
     let cancelled = false;
     void loadWebOutboxItems(userId).then((loaded) => {
-      if (!cancelled) setItems(loaded);
+      if (!cancelled) {
+        setItems(
+          recoverInterruptedSendingItems(loaded, {
+            now: Date.now(),
+            online: isOnline(),
+            force: true,
+          }),
+        );
+      }
     });
     return () => {
       cancelled = true;
@@ -142,6 +179,7 @@ export function WebChatOutboxProvider({ children }: { children: ReactNode }) {
               state: isOnline() ? "queued" : "waiting_for_network",
               lastError: undefined,
               nextRetryAtMs: undefined,
+              uploadProgress: undefined,
               updatedAtMs: Date.now(),
             }
           : it,
@@ -191,6 +229,15 @@ export function WebChatOutboxProvider({ children }: { children: ReactNode }) {
       if (!userId) return;
       const online = isOnline();
       const now = Date.now();
+      const recovered = recoverInterruptedSendingItems(itemsRef.current, {
+        now,
+        online,
+        activeProcessingIds: processingRef.current,
+      });
+      if (recovered !== itemsRef.current) {
+        itemsRef.current = recovered;
+        setItems(recovered);
+      }
 
       for (const item of itemsRef.current) {
         if (item.state !== "awaiting_hydration") continue;
@@ -304,6 +351,16 @@ export function WebChatOutboxProvider({ children }: { children: ReactNode }) {
           const { serverMessageId, uploadedPublicUrl, uploadedMediaUrl } = await executeWebOutboxItem(
             { ...next, attemptCount },
             queryClient,
+            (fraction) => {
+              const uploadProgress = Math.max(0, Math.min(1, fraction));
+              setItems((prev) =>
+                prev.map((it) =>
+                  it.id === next.id
+                    ? { ...it, uploadProgress, updatedAtMs: Date.now() }
+                    : it,
+                ),
+              );
+            },
           );
           const successAtMs = Date.now();
           setItems((prev) =>
@@ -314,6 +371,7 @@ export function WebChatOutboxProvider({ children }: { children: ReactNode }) {
                     serverMessageId,
                     uploadedPublicUrl: uploadedPublicUrl ?? it.uploadedPublicUrl,
                     uploadedMediaUrl: uploadedMediaUrl ?? it.uploadedMediaUrl,
+                    uploadProgress: undefined,
                     state: "awaiting_hydration" as const,
                     lastError: undefined,
                     nextRetryAtMs: undefined,
@@ -340,6 +398,7 @@ export function WebChatOutboxProvider({ children }: { children: ReactNode }) {
                     ...it,
                     uploadedPublicUrl: uploadedPublicUrl ?? it.uploadedPublicUrl,
                     uploadedMediaUrl: uploadedMediaUrl ?? it.uploadedMediaUrl,
+                    uploadProgress: undefined,
                     state: treatAsOfflineWait ? ("waiting_for_network" as const) : ("failed" as const),
                     lastError: treatAsOfflineWait ? undefined : outboxFailureUserMessage(rawMsg, isClip),
                     nextRetryAtMs: treatAsOfflineWait ? undefined : Date.now() + backoff,

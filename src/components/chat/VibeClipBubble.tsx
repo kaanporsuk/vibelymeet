@@ -22,13 +22,25 @@ import { CLIP_DATE_ACTION_HINT } from "../../../shared/dateSuggestions/dateCompo
 import { trackVibeClipEvent } from "@/lib/vibeClipAnalytics";
 import { durationBucketFromSeconds, threadBucketFromCount } from "../../../shared/chat/vibeClipAnalytics";
 import { cn } from "@/lib/utils";
-import { refreshCachedChatMediaUrl } from "@/lib/chatMediaResolver";
+import {
+  refreshCachedChatMediaUrl,
+  syncChatVibeClipStatus,
+  type ChatVibeClipProcessingStatus,
+} from "@/lib/chatMediaResolver";
+import { attachHlsPlayback } from "@/lib/vibeVideo/attachHlsPlayback";
 
 type VideoElementWithWebkitFullscreen = HTMLVideoElement & {
   webkitEnterFullscreen?: () => void;
 };
+type VibeClipMediaRefreshReason = "preview" | "playback";
 
 const CLIP_BUBBLE_WIDTH_CLASS = "w-[min(17.5rem,calc(100vw-4rem))] max-w-full";
+const CHAT_VIBE_CLIP_STATUS_SYNC_DELAY_MS = 2500;
+const CHAT_VIBE_CLIP_STATUS_SYNC_INTERVAL_MS = 12_000;
+
+function isLocalPreviewUrl(value: string): boolean {
+  return value.startsWith("blob:") || value.startsWith("file:") || value.startsWith("data:");
+}
 
 interface VibeClipBubbleProps {
   meta: VibeClipDisplayMeta;
@@ -84,6 +96,8 @@ export const VibeClipBubble = ({
   const [showReactBar, setShowReactBar] = useState(false);
   const [playableVideoUrl, setPlayableVideoUrl] = useState(meta.videoUrl);
   const [playableThumbnailUrl, setPlayableThumbnailUrl] = useState(meta.thumbnailUrl ?? null);
+  const [playRequested, setPlayRequested] = useState(false);
+  const [syncedProcessingStatus, setSyncedProcessingStatus] = useState<ChatVibeClipProcessingStatus | null>(null);
   const playStartTracked = useRef(false);
   const playCompleteTracked = useRef(false);
   const refreshAttemptedForUrlRef = useRef<string | null>(null);
@@ -111,25 +125,71 @@ export const VibeClipBubble = ({
     setCurrentTime(0);
     setIsLoading(true);
     setIsReady(false);
+    setPlayRequested(false);
     setHasMetadata(false);
     setLoadError(false);
+    setSyncedProcessingStatus(null);
     playStartTracked.current = false;
     playCompleteTracked.current = false;
     refreshAttemptedForUrlRef.current = null;
-  }, [meta.thumbnailUrl, meta.videoUrl]);
+  }, [meta.processingStatus, meta.thumbnailUrl, meta.videoUrl]);
 
   useEffect(() => {
     setShowReactBar(false);
   }, [meta.videoUrl]);
 
+  const processingStatus = syncedProcessingStatus ?? meta.processingStatus;
   const displayMeta = useMemo(
-    () => ({ ...meta, videoUrl: playableVideoUrl, thumbnailUrl: playableThumbnailUrl }),
-    [meta, playableThumbnailUrl, playableVideoUrl],
+    () => ({
+      ...meta,
+      processingStatus,
+      videoUrl: playableVideoUrl,
+      thumbnailUrl: playableThumbnailUrl,
+    }),
+    [meta, playableThumbnailUrl, playableVideoUrl, processingStatus],
   );
+  const isLocalPreview = isLocalPreviewUrl(displayMeta.videoUrl);
+  const isRemotePlayableUrl = /^https?:\/\//i.test(displayMeta.videoUrl);
+  const isHlsUrl = /\.m3u8(?:[?#]|$)/i.test(displayMeta.videoUrl);
+  const canMountPlayer = isRemotePlayableUrl || isLocalPreview;
+  const isServerProcessing = (processingStatus === "uploading" || processingStatus === "processing") && !isLocalPreview;
+  const isAwaitingPlaybackIntent = !isServerProcessing && !canMountPlayer;
+  const isSurfaceInteractive = !isServerProcessing;
+  const canShowPosterImage =
+    !!displayMeta.thumbnailUrl &&
+    (isLocalPreviewUrl(displayMeta.thumbnailUrl) || /^https?:\/\//i.test(displayMeta.thumbnailUrl));
+  const showPreparingOverlay = isServerProcessing || (!isReady && !isAwaitingPlaybackIntent && !isLocalPreview);
 
-  const refreshClipMedia = useCallback(async (): Promise<boolean> => {
-    if (!sparkMessageId || !videoSourceRef || refreshAttemptedForUrlRef.current === playableVideoUrl) return false;
-    const freshVideoUrl = await refreshCachedChatMediaUrl(sparkMessageId, "vibe_clip", videoSourceRef);
+  useEffect(() => {
+    if (!isServerProcessing || !sparkMessageId) return;
+    let cancelled = false;
+    let intervalId: ReturnType<typeof setInterval> | undefined;
+
+    const syncStatus = async () => {
+      const status = await syncChatVibeClipStatus(sparkMessageId);
+      if (cancelled || !status) return;
+      setSyncedProcessingStatus(status);
+      if (status === "ready" || status === "failed") {
+        if (intervalId) clearInterval(intervalId);
+      }
+    };
+
+    const timeoutId = setTimeout(() => {
+      void syncStatus();
+      intervalId = setInterval(() => {
+        void syncStatus();
+      }, CHAT_VIBE_CLIP_STATUS_SYNC_INTERVAL_MS);
+    }, CHAT_VIBE_CLIP_STATUS_SYNC_DELAY_MS);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(timeoutId);
+      if (intervalId) clearInterval(intervalId);
+    };
+  }, [isServerProcessing, sparkMessageId]);
+
+  const refreshClipMedia = useCallback(async (reason: VibeClipMediaRefreshReason = "playback"): Promise<boolean> => {
+    if (!sparkMessageId || (!videoSourceRef && !thumbnailSourceRef)) return false;
     const freshThumbnailUrl = thumbnailSourceRef
       ? await refreshCachedChatMediaUrl(sparkMessageId, "thumbnail", thumbnailSourceRef)
       : null;
@@ -137,6 +197,10 @@ export const VibeClipBubble = ({
       setPlayableThumbnailUrl(freshThumbnailUrl);
       onResolvedThumbnailUrl?.(freshThumbnailUrl);
     }
+    if (reason === "preview") return !!freshThumbnailUrl;
+    if (!videoSourceRef || refreshAttemptedForUrlRef.current === playableVideoUrl) return false;
+
+    const freshVideoUrl = await refreshCachedChatMediaUrl(sparkMessageId, "vibe_clip", videoSourceRef);
     if (!freshVideoUrl || freshVideoUrl === playableVideoUrl) return false;
     refreshAttemptedForUrlRef.current = playableVideoUrl;
     setPlayableVideoUrl(freshVideoUrl);
@@ -165,10 +229,45 @@ export const VibeClipBubble = ({
     return () => clearTimeout(t);
   }, [hasMetadata, isIosSafari, isReady, loadError]);
 
-  const togglePlay = useCallback(() => {
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video || !canMountPlayer) return;
+    if (!isHlsUrl) return;
+    return attachHlsPlayback(video, displayMeta.videoUrl, {
+      autoPlay: false,
+      onManifestParsed: markReadyIfPossible,
+      onError: () => {
+        void refreshClipMedia().then((didRefresh) => {
+          if (!didRefresh) setLoadError(true);
+        });
+      },
+    });
+  }, [canMountPlayer, displayMeta.videoUrl, isHlsUrl, markReadyIfPossible, refreshClipMedia]);
+
+  useEffect(() => {
+    if (!playRequested || !isReady) return;
     const video = videoRef.current;
     if (!video) return;
+    void video.play().then(() => {
+      setIsPlaying(true);
+      setHasPlayed(true);
+    }).catch(() => {});
+  }, [isReady, playRequested]);
+
+  const togglePlay = useCallback(() => {
+    if (isServerProcessing) return;
+    const video = videoRef.current;
+    if (!canMountPlayer) {
+      setPlayRequested(true);
+      setIsLoading(true);
+      void refreshClipMedia().then((didRefresh) => {
+        if (!didRefresh) setLoadError(true);
+      });
+      return;
+    }
+    if (!video) return;
     if (video.paused) {
+      setPlayRequested(true);
       video.play().then(() => {
         setIsPlaying(true);
         setHasPlayed(true);
@@ -193,7 +292,7 @@ export const VibeClipBubble = ({
       video.pause();
       setIsPlaying(false);
     }
-  }, [displayMeta.durationSec, displayMeta.thumbnailUrl, isMine, refreshClipMedia, threadMessageCount]);
+  }, [canMountPlayer, displayMeta.durationSec, displayMeta.thumbnailUrl, isMine, isServerProcessing, refreshClipMedia, threadMessageCount]);
 
   const toggleMute = useCallback((e: React.MouseEvent) => {
     e.stopPropagation();
@@ -206,8 +305,16 @@ export const VibeClipBubble = ({
   const handleFullscreen = useCallback(
     (e: React.MouseEvent) => {
       e.stopPropagation();
+      if (isServerProcessing) return;
       if (onRequestImmersive) {
-        onRequestImmersive();
+        if (!canMountPlayer) {
+          void refreshClipMedia().then((didRefresh) => {
+            if (didRefresh) onRequestImmersive();
+            else setLoadError(true);
+          });
+        } else {
+          onRequestImmersive();
+        }
         return;
       }
       const video = videoRef.current;
@@ -219,7 +326,7 @@ export const VibeClipBubble = ({
         webkitVideo.webkitEnterFullscreen?.();
       }
     },
-    [onRequestImmersive],
+    [canMountPlayer, isServerProcessing, onRequestImmersive, refreshClipMedia],
   );
 
   useEffect(() => {
@@ -230,12 +337,20 @@ export const VibeClipBubble = ({
   }, [immersiveActive]);
 
   const onVideoSurfaceClick = useCallback(() => {
+    if (isServerProcessing) return;
     if (onRequestImmersive) {
-      onRequestImmersive();
+      if (!canMountPlayer) {
+        void refreshClipMedia().then((didRefresh) => {
+          if (didRefresh) onRequestImmersive();
+          else setLoadError(true);
+        });
+      } else {
+        onRequestImmersive();
+      }
       return;
     }
     togglePlay();
-  }, [onRequestImmersive, togglePlay]);
+  }, [canMountPlayer, isServerProcessing, onRequestImmersive, refreshClipMedia, togglePlay]);
 
   const handleTimeUpdate = useCallback(() => {
     if (videoRef.current) setCurrentTime(videoRef.current.currentTime);
@@ -257,12 +372,13 @@ export const VibeClipBubble = ({
 
   const progress = displayMeta.durationSec > 0 ? (currentTime / displayMeta.durationSec) * 100 : 0;
   const isBuffering = isReady && isLoading && isPlaying;
+  const isProcessingFailed = processingStatus === "failed";
   const clipAspectRatio =
     typeof displayMeta.aspectRatio === "number" && Number.isFinite(displayMeta.aspectRatio) && displayMeta.aspectRatio > 0
       ? Math.max(0.5, Math.min(1.2, displayMeta.aspectRatio))
       : 9 / 16;
 
-  if (loadError) {
+  if (loadError || isProcessingFailed) {
     return (
       <div
         className={cn(
@@ -272,22 +388,24 @@ export const VibeClipBubble = ({
       >
         <AlertCircle className="w-7 h-7 text-violet-400/90" />
         <span className="text-[11px] text-muted-foreground text-center leading-snug">Clip unavailable</span>
-        <button
-          type="button"
-          onClick={() => {
-            setLoadError(false);
-            setIsLoading(true);
-            setIsReady(false);
-            setIsPlaying(false);
-            setCurrentTime(0);
-            void refreshClipMedia().then((didRefresh) => {
-              if (!didRefresh) videoRef.current?.load();
-            });
-          }}
-          className="text-[11px] font-semibold text-violet-400 hover:text-violet-300 underline-offset-2 hover:underline"
-        >
-          Try again
-        </button>
+        {loadError ? (
+          <button
+            type="button"
+            onClick={() => {
+              setLoadError(false);
+              setIsLoading(true);
+              setIsReady(false);
+              setIsPlaying(false);
+              setCurrentTime(0);
+              void refreshClipMedia().then((didRefresh) => {
+                if (!didRefresh) videoRef.current?.load();
+              });
+            }}
+            className="text-[11px] font-semibold text-violet-400 hover:text-violet-300 underline-offset-2 hover:underline"
+          >
+            Try again
+          </button>
+        ) : null}
       </div>
     );
   }
@@ -303,14 +421,6 @@ export const VibeClipBubble = ({
         threadVisualRecede && "opacity-[0.9] ring-violet-500/20 saturate-[0.92]",
       )}
     >
-      {/* Branded header — compact in-thread */}
-      <div className="flex items-center gap-1 px-1.5 pt-1 pb-0.5">
-        <span className="inline-flex items-center gap-0.5 rounded-full bg-violet-500/10 border border-violet-500/20 px-1.5 py-px">
-          <Film className="w-2.5 h-2.5 text-violet-400/95" />
-          <span className="text-[9px] font-semibold text-violet-400/95 tracking-wide">Clip</span>
-        </span>
-      </div>
-
       {/* Video surface */}
       <div
         className="cursor-pointer"
@@ -321,11 +431,30 @@ export const VibeClipBubble = ({
             onVideoSurfaceClick();
           }
         }}
-        role={onRequestImmersive ? "button" : undefined}
-        tabIndex={onRequestImmersive ? 0 : undefined}
+        role={isSurfaceInteractive ? "button" : undefined}
+        tabIndex={isSurfaceInteractive ? 0 : undefined}
+        aria-label={isSurfaceInteractive ? (onRequestImmersive ? "Open clip" : isPlaying ? "Pause clip" : "Play clip") : undefined}
       >
         <AspectRatio ratio={clipAspectRatio}>
-          {!isReady && (
+          {isAwaitingPlaybackIntent ? (
+            <div className="absolute inset-0 bg-black">
+              {canShowPosterImage ? (
+                <img
+                  src={displayMeta.thumbnailUrl ?? undefined}
+                  alt=""
+                  className="h-full w-full object-cover"
+                  draggable={false}
+                  onError={() => {
+                    void refreshClipMedia("preview");
+                  }}
+                />
+              ) : (
+                <div className="absolute inset-0 bg-gradient-to-br from-white/[0.04] via-transparent to-violet-400/[0.08]" />
+              )}
+            </div>
+          ) : null}
+
+          {showPreparingOverlay && (
             <div className="absolute inset-0 bg-black">
               <div className="absolute inset-0 bg-gradient-to-br from-white/5 via-white/0 to-white/10" />
               <motion.div
@@ -342,7 +471,9 @@ export const VibeClipBubble = ({
               <div className="absolute inset-0 flex items-center justify-center">
                 <div className="flex items-center gap-2 rounded-full border border-violet-400/20 bg-black/55 px-3.5 py-2 backdrop-blur-md shadow-[0_0_28px_rgba(139,92,246,0.15)]">
                   <Loader2 className="h-4 w-4 animate-spin text-violet-300/95" />
-                  <span className="text-[11px] font-medium text-white/88 tracking-tight">Preparing clip…</span>
+                  <span className="text-[11px] font-medium text-white/88 tracking-tight">
+                    {isServerProcessing ? "Preparing clip…" : "Preparing playback…"}
+                  </span>
                 </div>
               </div>
               <div className="absolute bottom-0 inset-x-0 p-2 bg-gradient-to-t from-black/60 to-transparent">
@@ -351,35 +482,37 @@ export const VibeClipBubble = ({
             </div>
           )}
 
-          <video
-            ref={videoRef}
-            src={displayMeta.videoUrl}
-            poster={displayMeta.thumbnailUrl ?? undefined}
-            playsInline
-            muted={isMuted}
-            preload="metadata"
-            onLoadStart={() => setIsLoading(true)}
-            onLoadedMetadata={() => {
-              setHasMetadata(true);
-              markReadyIfPossible();
-            }}
-            onLoadedData={markReadyIfPossible}
-            onCanPlay={markReadyIfPossible}
-            onPlaying={() => setIsLoading(false)}
-            onWaiting={() => setIsLoading(true)}
-            onError={() => {
-              setIsLoading(false);
-              void refreshClipMedia().then((didRefresh) => {
-                if (!didRefresh) setLoadError(true);
-              });
-            }}
-            onTimeUpdate={handleTimeUpdate}
-            onEnded={handleEnded}
-            className={[
-              "w-full h-full object-cover bg-black transition-opacity duration-300",
-              isReady ? "opacity-100" : "opacity-0",
-            ].join(" ")}
-          />
+          {!isServerProcessing && canMountPlayer ? (
+            <video
+              ref={videoRef}
+              src={isHlsUrl ? undefined : displayMeta.videoUrl}
+              poster={displayMeta.thumbnailUrl ?? undefined}
+              playsInline
+              muted={isMuted}
+              preload="metadata"
+              onLoadStart={() => setIsLoading(true)}
+              onLoadedMetadata={() => {
+                setHasMetadata(true);
+                markReadyIfPossible();
+              }}
+              onLoadedData={markReadyIfPossible}
+              onCanPlay={markReadyIfPossible}
+              onPlaying={() => setIsLoading(false)}
+              onWaiting={() => setIsLoading(true)}
+              onError={() => {
+                setIsLoading(false);
+                void refreshClipMedia().then((didRefresh) => {
+                  if (!didRefresh) setLoadError(true);
+                });
+              }}
+              onTimeUpdate={handleTimeUpdate}
+              onEnded={handleEnded}
+              className={[
+                "w-full h-full object-cover bg-black transition-opacity duration-300",
+                isReady || isLocalPreview ? "opacity-100" : "opacity-0",
+              ].join(" ")}
+            />
+          ) : null}
 
           {/* Play overlay */}
           {isBuffering ? (
@@ -391,7 +524,7 @@ export const VibeClipBubble = ({
             </div>
           ) : null}
 
-          {!isPlaying && isReady && (
+          {!isPlaying && !isServerProcessing && (isReady || isAwaitingPlaybackIntent) && (
             <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
@@ -418,14 +551,16 @@ export const VibeClipBubble = ({
                   : displayMeta.durationLabel}
               </span>
               <div className="flex items-center gap-0.5">
-                <button
-                  type="button"
-                  onClick={toggleMute}
-                  aria-label={isMuted ? "Unmute clip" : "Mute clip"}
-                  className="rounded-md border border-white/10 bg-black/30 p-1 text-white/75 hover:bg-white/10 hover:text-white transition-colors"
-                >
-                  {isMuted ? <VolumeX className="w-3 h-3" /> : <Volume2 className="w-3 h-3" />}
-                </button>
+                {canMountPlayer ? (
+                  <button
+                    type="button"
+                    onClick={toggleMute}
+                    aria-label={isMuted ? "Unmute clip" : "Mute clip"}
+                    className="rounded-md border border-white/10 bg-black/30 p-1 text-white/75 hover:bg-white/10 hover:text-white transition-colors"
+                  >
+                    {isMuted ? <VolumeX className="w-3 h-3" /> : <Volume2 className="w-3 h-3" />}
+                  </button>
+                ) : null}
                 <button
                   type="button"
                   onClick={handleFullscreen}

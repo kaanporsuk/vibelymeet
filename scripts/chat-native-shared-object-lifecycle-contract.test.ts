@@ -29,7 +29,6 @@ const voiceMessagePlayer = read("apps/mobile/components/chat/VoiceMessagePlayer.
 const vibeVideoPlayer = read("apps/mobile/components/video/VibeVideoPlayer.tsx");
 const vibeClipCard = read("apps/mobile/components/chat/VibeClipCard.tsx");
 const mediaViewer = read("apps/mobile/components/chat/ChatThreadMediaViewer.tsx");
-const thumbnailGenerator = read("apps/mobile/lib/chatVibeClipThumbnail.ts");
 const safeHelpers = read("apps/mobile/lib/expoSharedObjectSafe.ts");
 
 test("shared object helper catches Expo released native object failures", () => {
@@ -132,15 +131,10 @@ test("native video surfaces guard player calls and subscription teardown", () =>
   assert.match(vibeVideoPlayer, /attachSafeExpoSharedObjectPromise/);
   assert.match(vibeClipCard, /safeExpoSharedObjectCall\(\(\) => player\.pause/);
   assert.match(mediaViewer, /safeExpoSharedObjectCall\(\(\) => player\.play/);
-});
-
-test("one-off native thumbnail generation guards created video players and releases", () => {
-  assert.match(thumbnailGenerator, /createVideoPlayer/);
-  assert.match(thumbnailGenerator, /safeExpoSharedObjectRead<VideoPlayerStatus>/);
-  assert.match(thumbnailGenerator, /safeExpoSharedObjectAsync\(/);
-  assert.match(thumbnailGenerator, /safeRemoveExpoSharedObjectSubscription/);
-  assert.match(thumbnailGenerator, /safeExpoSharedObjectCall\(\(\) => player\.release/);
-  assert.doesNotMatch(thumbnailGenerator, /\.remove\(\)/);
+  assert.match(mediaViewer, /const \[resolveFailed, setResolveFailed\] = useState\(false\)/);
+  assert.match(mediaViewer, /if \(!isPlayableVideoUri\(playableUri\)\)/);
+  assert.match(mediaViewer, /setResolveFailed\(true\)/);
+  assert.match(mediaViewer, /refreshAttemptedForUriRef\.current = null/);
 });
 
 test("all Expo audio/video shared-object users are audited", () => {
@@ -150,7 +144,6 @@ test("all Expo audio/video shared-object users are audited", () => {
     "apps/mobile/components/chat/VibeClipCard.tsx",
     "apps/mobile/components/chat/VoiceMessagePlayer.tsx",
     "apps/mobile/components/video/VibeVideoPlayer.tsx",
-    "apps/mobile/lib/chatVibeClipThumbnail.ts",
   ].sort();
   const found = listSourceFiles("apps/mobile")
     .filter((file) => /\b(useVideoPlayer|useAudioPlayer|useAudioRecorder|createVideoPlayer)\b/.test(read(file)))

@@ -25,15 +25,20 @@ test("web video upload MIME normalization preserves supported mobile/browser con
   assert.equal(videoMimeTypeForUpload("video/mov", "clip.mov"), "video/quicktime");
   assert.equal(videoMimeTypeForUpload("", "clip.m4v"), "video/x-m4v");
   assert.equal(videoMimeTypeForUpload(GENERIC_UPLOAD_MIME_TYPE, "clip.webm"), "video/webm");
+  assert.equal(videoMimeTypeForUpload("video/x-msvideo", "clip.avi"), "video/x-msvideo");
+  assert.equal(videoMimeTypeForUpload(GENERIC_UPLOAD_MIME_TYPE, "clip.mkv"), "video/x-matroska");
+  assert.equal(videoMimeTypeForUpload("", "clip.wmv"), "video/x-ms-wmv");
+  assert.equal(videoMimeTypeForUpload("", "clip.flv"), "video/x-flv");
+  assert.equal(videoMimeTypeForUpload("", "clip.ts"), "video/mp2t");
+  assert.equal(videoMimeTypeForUpload("", "clip.mpeg"), "video/mpeg");
   assert.equal(videoMimeTypeForUpload("", undefined), GENERIC_UPLOAD_MIME_TYPE);
-  assert.equal(videoMimeTypeForUpload("video/x-msvideo", "clip.avi"), null);
-  assert.equal(videoMimeTypeForUpload(GENERIC_UPLOAD_MIME_TYPE, "clip.mkv"), null);
 });
 
 test("web upload filenames use normalized extensions without pretending unknown bytes are media", () => {
   assert.equal(imageExtensionForMimeType("image/jpg"), "jpg");
   assert.equal(imageExtensionForMimeType(GENERIC_UPLOAD_MIME_TYPE), "bin");
   assert.equal(videoExtensionForMimeType("video/mov"), "mov");
+  assert.equal(videoExtensionForMimeType("video/x-matroska"), "mkv");
   assert.equal(videoExtensionForMimeType(GENERIC_UPLOAD_MIME_TYPE), "bin");
   assert.equal(uploadFileNameForMimeType("image", "chat", "image/jpeg", "camera.jpeg"), "chat.jpeg");
   assert.equal(uploadFileNameForMimeType("image", "chat", "image/jpeg", "camera.mp4"), "chat.jpg");

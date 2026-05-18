@@ -69,13 +69,31 @@ export function mimeForPayload(kind: 'image' | 'video', mime?: string | null, so
     return undefined;
   }
 
-  if (['video/mp4', 'video/quicktime', 'video/x-m4v', 'video/m4v', 'video/webm'].includes(normalized)) {
+  if ([
+    'video/mp4',
+    'video/quicktime',
+    'video/x-m4v',
+    'video/m4v',
+    'video/webm',
+    'video/x-matroska',
+    'video/x-msvideo',
+    'video/x-ms-wmv',
+    'video/x-flv',
+    'video/mp2t',
+    'video/mpeg',
+  ].includes(normalized)) {
     return normalized === 'video/m4v' ? 'video/x-m4v' : normalized;
   }
   const ext = extFromUri(source);
   if (ext === 'mov') return 'video/quicktime';
   if (ext === 'm4v') return 'video/x-m4v';
   if (ext === 'webm') return 'video/webm';
+  if (ext === 'mkv') return 'video/x-matroska';
+  if (ext === 'avi') return 'video/x-msvideo';
+  if (ext === 'wmv') return 'video/x-ms-wmv';
+  if (ext === 'flv') return 'video/x-flv';
+  if (ext === 'ts') return 'video/mp2t';
+  if (ext === 'mpeg' || ext === 'mpg') return 'video/mpeg';
   if (ext === 'mp4') return 'video/mp4';
   return undefined;
 }
@@ -87,9 +105,17 @@ export function extForPayload(kind: 'image' | 'voice' | 'video', mime?: string |
     if (normalized?.includes('quicktime') || normalized?.includes('mov')) return 'mov';
     if (normalized?.includes('x-m4v') || normalized?.includes('m4v')) return 'm4v';
     if (normalized?.includes('webm')) return 'webm';
+    if (normalized?.includes('matroska')) return 'mkv';
+    if (normalized?.includes('x-msvideo')) return 'avi';
+    if (normalized?.includes('x-ms-wmv')) return 'wmv';
+    if (normalized?.includes('x-flv')) return 'flv';
+    if (normalized?.includes('mp2t')) return 'ts';
+    if (normalized?.includes('mpeg')) return 'mpeg';
     if (normalized?.includes('mp4')) return 'mp4';
     const ext = extFromUri(source);
-    if (ext === 'mov' || ext === 'm4v' || ext === 'webm' || ext === 'mp4') return ext;
+    if (['mov', 'm4v', 'webm', 'mp4', 'mkv', 'avi', 'wmv', 'flv', 'ts', 'mpeg', 'mpg'].includes(ext ?? '')) {
+      return ext === 'mpg' ? 'mpeg' : ext!;
+    }
     return 'bin';
   }
   const normalized = mimeForPayload('image', mime, source);

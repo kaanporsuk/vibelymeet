@@ -159,7 +159,7 @@ assert.doesNotMatch(webPhotoLightbox, /const currentId = items\[prevIndex\]\?\.i
 assert.doesNotMatch(webPhotoLightbox, /setIndex\(i >= 0 \? i : 0\);[\s\S]{0,120}\}, \[initialId, items\]\);/);
 assert.match(
   webVideoLightbox,
-  /if \(!freshVideoUrl \|\| freshVideoUrl === playableVideoUrl\) return false;[\s\S]{0,80}refreshAttemptedForUrlRef\.current = playableVideoUrl;[\s\S]{0,160}return true;/,
+  /if \(!freshVideoUrl \|\| freshVideoUrl === currentUrl\) return false;[\s\S]{0,80}refreshAttemptedForUrlRef\.current = currentUrl;[\s\S]{0,160}return true;/,
 );
 assert.match(webMediaResolver, /catch \{[\s\S]{0,80}return null;[\s\S]{0,80}\}/);
 assert.match(nativeBubble, /refreshCachedChatMediaUrl/);
@@ -187,7 +187,11 @@ assert.match(
 );
 assert.match(
   nativeClipCard,
-  /if \(!freshVideoUri \|\| freshVideoUri === playableVideoUrl\) return reason === 'preview' && !!freshThumbnailUri;[\s\S]{0,80}refreshAttemptedForUriRef\.current = playableVideoUrl;[\s\S]{0,160}return true;/,
+  /if \(reason === 'preview'\) return !!freshThumbnailUri;/,
+);
+assert.match(
+  nativeClipCard,
+  /if \(!videoSourceRef \|\| refreshAttemptedForUriRef\.current === playableVideoUrl\) return false;[\s\S]{0,240}if \(!freshVideoUri \|\| freshVideoUri === playableVideoUrl\) return false;[\s\S]{0,80}refreshAttemptedForUriRef\.current = playableVideoUrl;[\s\S]{0,160}return true;/,
 );
 assert.match(
   nativeMediaViewer,
@@ -206,6 +210,8 @@ assert.match(
   /if \(!fresh\?\.uri \|\| fresh\.uri === playableUri\) return false;[\s\S]{0,80}refreshAttemptedForUriRef\.current = playableUri;[\s\S]{0,160}return true;/,
 );
 assert.match(nativeMediaResolver, /catch \{[\s\S]{0,80}return null;[\s\S]{0,80}\}/);
+assert.match(nativeMediaResolver, /getFreshCachedAccessToken/);
+assert.match(nativeMediaResolver, /headers: \{ Authorization: `Bearer \$\{accessToken\}` \}/);
 assert.match(nativeChat, /extras:\s*\{\s*httpSend:\s*true\s*\}/);
 assert.match(threadPage, /\.from\("media_assets"\)/);
 assert.match(threadPage, /date_suggestions/);
@@ -213,13 +219,18 @@ assert.doesNotMatch(threadPage, /syncChatMessageMedia/);
 assert.doesNotMatch(threadPage, /createToken|signedProxyUrl|TOKEN_TTL_SECONDS/);
 assert.match(threadPage, /const durableAssetRef = \(messageId: string, kind: MediaKind\): string \| null =>/);
 assert.match(threadPage, /next\.audio_url = durableAssetRef\(next\.id, "voice"\) \?\? next\.audio_url/);
-assert.match(threadPage, /payload\.thumbnail_url = durableAssetRef\(next\.id, "thumbnail"\) \?\? thumbnailRef/);
+assert.match(threadPage, /const durableThumbnailRef = durableAssetRef\(next\.id, "thumbnail"\) \?\? thumbnailRef/);
+assert.match(threadPage, /kind === "thumbnail" && asset\.provider === "bunny_stream" && asset\.media_family === "chat_video"/);
+assert.match(threadPage, /payload\.thumbnail_url = durableThumbnailRef/);
+assert.match(threadPage, /payload\.poster_ref = durableThumbnailRef/);
 assert.match(threadPage, /formatChatImageMessageContent\(durableImageRef\)/);
 assert.match(threadPage, /function parseThreadPageCursor/);
 assert.match(threadPage, /\.order\("created_at", \{ ascending: false \}\)[\s\S]{0,120}\.order\("id", \{ ascending: false \}\)/);
 assert.match(threadPage, /created_at\.lt\.\$\{beforeCursor\.createdAt\},and\(created_at\.eq\.\$\{beforeCursor\.createdAt\},id\.lt\.\$\{beforeCursor\.id\}\)/);
 assert.match(threadPage, /next_cursor: rowsDesc\.length >= limit \? encodeThreadPageCursor/);
 assert.match(webMessagesHook, /function parseThreadPageCursor/);
+assert.match(webMessagesHook, /\[89ab\]\[0-9a-f\]\{3\}-\[0-9a-f\]\{12\}/);
+assert.doesNotMatch(webMessagesHook, /\[89ab\]\[0-9a-f\]\{12\}/);
 assert.match(webMessagesHook, /collectChatMediaSourceRefs/);
 assert.match(webMessagesHook, /imageSourceRef: sourceRefs\?\.image/);
 assert.match(webMessagesHook, /videoSourceRef: sourceRefs\?\.video/);
