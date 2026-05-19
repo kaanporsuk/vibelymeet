@@ -42,6 +42,10 @@ const storageErrorsByClientRequestId = new Map<string, unknown>();
 
 let mediaSdk: WebMediaSdk | null = null;
 
+function storageResultKey(family: WebPhotoUploadInput["family"] | WebVoiceUploadInput["family"], clientRequestId: string): string {
+  return `${family}:${clientRequestId}`;
+}
+
 function requiredContextString(input: WebPhotoUploadInput | WebVoiceUploadInput, key: string): string {
   const value = input.context?.[key];
   if (typeof value === "string" && value.trim()) return value;
@@ -71,6 +75,7 @@ async function uploadWebPhotoViaLegacyService(
   controls: MediaTaskRunContext,
 ): Promise<void> {
   const clientRequestId = controls.snapshot().clientRequestId;
+  const resultKey = storageResultKey(input.family, clientRequestId);
   try {
     const result = await uploadImageToBunny(
       fileFromWebPhotoSource(input.source),
@@ -79,7 +84,7 @@ async function uploadWebPhotoViaLegacyService(
       optionalContextString(input, "matchId"),
       clientRequestId,
     );
-    photoResultsByClientRequestId.set(clientRequestId, result);
+    photoResultsByClientRequestId.set(resultKey, result);
     controls.dispatch({
       type: "ready",
       result: {
@@ -89,7 +94,7 @@ async function uploadWebPhotoViaLegacyService(
       },
     });
   } catch (error) {
-    storageErrorsByClientRequestId.set(clientRequestId, error);
+    storageErrorsByClientRequestId.set(resultKey, error);
     throw error;
   }
 }
@@ -99,6 +104,7 @@ async function uploadWebVoiceViaLegacyService(
   controls: MediaTaskRunContext,
 ): Promise<void> {
   const clientRequestId = controls.snapshot().clientRequestId;
+  const resultKey = storageResultKey(input.family, clientRequestId);
   try {
     const result = await uploadVoiceToBunny(
       input.source,
@@ -106,7 +112,7 @@ async function uploadWebVoiceViaLegacyService(
       requiredContextString(input, "matchId"),
       clientRequestId,
     );
-    voiceResultsByClientRequestId.set(clientRequestId, result);
+    voiceResultsByClientRequestId.set(resultKey, result);
     controls.dispatch({
       type: "ready",
       result: {
@@ -116,7 +122,7 @@ async function uploadWebVoiceViaLegacyService(
       },
     });
   } catch (error) {
-    storageErrorsByClientRequestId.set(clientRequestId, error);
+    storageErrorsByClientRequestId.set(resultKey, error);
     throw error;
   }
 }
@@ -155,8 +161,9 @@ export async function uploadImageWithMediaSdk(
   params: WebImageSdkUploadParams,
 ): Promise<UploadImageToBunnyResult> {
   const context = params.context ?? "profile_studio";
+  const family = context === "chat" ? "chat_photo" : "profile_photo";
   const task = getWebStorageMediaSdk().photo.upload({
-    family: context === "chat" ? "chat_photo" : "profile_photo",
+    family,
     source: params.file,
     context: {
       uploadContext: context,
@@ -169,13 +176,14 @@ export async function uploadImageWithMediaSdk(
     },
   });
   const clientRequestId = task.clientRequestId;
+  const resultKey = storageResultKey(family, clientRequestId);
 
   try {
     const terminal = await waitForTaskTerminal(task);
-    const originalError = storageErrorsByClientRequestId.get(clientRequestId);
+    const originalError = storageErrorsByClientRequestId.get(resultKey);
     if (originalError) throw originalError;
 
-    const uploaded = photoResultsByClientRequestId.get(clientRequestId);
+    const uploaded = photoResultsByClientRequestId.get(resultKey);
     if (uploaded) return uploaded;
 
     if (terminal.state === "failed") {
@@ -185,8 +193,8 @@ export async function uploadImageWithMediaSdk(
     if (providerPath) return { path: providerPath, sessionId: null };
     throw new Error("Image upload completed without a storage path.");
   } finally {
-    photoResultsByClientRequestId.delete(clientRequestId);
-    storageErrorsByClientRequestId.delete(clientRequestId);
+    photoResultsByClientRequestId.delete(resultKey);
+    storageErrorsByClientRequestId.delete(resultKey);
   }
 }
 
@@ -205,13 +213,14 @@ export async function uploadVoiceWithMediaSdk(params: WebVoiceSdkUploadParams): 
     },
   });
   const clientRequestId = task.clientRequestId;
+  const resultKey = storageResultKey("voice_note", clientRequestId);
 
   try {
     const terminal = await waitForTaskTerminal(task);
-    const originalError = storageErrorsByClientRequestId.get(clientRequestId);
+    const originalError = storageErrorsByClientRequestId.get(resultKey);
     if (originalError) throw originalError;
 
-    const uploaded = voiceResultsByClientRequestId.get(clientRequestId);
+    const uploaded = voiceResultsByClientRequestId.get(resultKey);
     if (uploaded) return uploaded;
 
     if (terminal.state === "failed") {
@@ -221,7 +230,7 @@ export async function uploadVoiceWithMediaSdk(params: WebVoiceSdkUploadParams): 
     if (mediaRef) return mediaRef;
     throw new Error("Voice upload completed without a media reference.");
   } finally {
-    voiceResultsByClientRequestId.delete(clientRequestId);
-    storageErrorsByClientRequestId.delete(clientRequestId);
+    voiceResultsByClientRequestId.delete(resultKey);
+    storageErrorsByClientRequestId.delete(resultKey);
   }
 }

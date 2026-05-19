@@ -432,9 +432,9 @@ Ordering matters within this phase. Migrations land first; helpers and EFs next;
 
 | PR | Branch | Scope | Exit |
 |---|---|---|---|
-| 7.1 | `spike/web-bg-uploads` | Prototype: non-root SW under `/media/` + Background Sync evaluation. Probe scope-control limits with OneSignal root SW present. | Documented decision + measured success-rate floor. |
-| 7.2 | `spike/native-bg-uploads` | Prototype: `expo-background-task` + `expo-task-manager` + iOS BGProcessing + Android `WorkManager`. Requires native rebuild + store binary. | Documented decision + measured floor. |
-| 7.3 | `decision/bg-uploads-go-no-go` | Decision document; defines product gate if go. | Stakeholders signed off. |
+| 7.1 | `spike/web-bg-uploads` | Prototype-only path: non-root SW under `/media/` + Background Sync evaluation. Probe scope-control limits with OneSignal root SW present. | **NO-GO research-only** until browser matrix + measured floors in [media-background-upload-phase7-decision.md](./media-background-upload-phase7-decision.md) pass. |
+| 7.2 | `spike/native-bg-uploads` | Prototype-only path: native iOS URLSession/BGProcessing and Android `WorkManager` / foreground-service evaluation. Requires native rebuild + store binary. | **NO-GO research-only** until real-device matrix + measured floors in [media-background-upload-phase7-decision.md](./media-background-upload-phase7-decision.md) pass. |
+| 7.3 | `decision/bg-uploads-go-no-go` | Decision document; defines product gate if go. | Phase 7 closed as **NO-GO research-only**; foreground persistent queue remains production source of truth. |
 
 ### Phase 8 — Optional follow-ons (not committed)
 

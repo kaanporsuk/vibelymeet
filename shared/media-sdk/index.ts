@@ -45,6 +45,20 @@ export type { MediaFeatureFlagGate, MediaV2FlagKey } from "./core/flag-gate";
 export { createMediaUploadTask } from "./core/task";
 export type { MediaTaskLifecycleControls, MediaTaskRunContext, MediaTaskRunner } from "./core/task";
 export {
+  getMediaBackgroundUploadPolicy,
+  MEDIA_BACKGROUND_UPLOAD_PHASE,
+  MEDIA_BACKGROUND_UPLOAD_POLICY,
+  MEDIA_BACKGROUND_UPLOAD_PRODUCTION_ENABLED,
+  MEDIA_BACKGROUND_UPLOAD_SOURCE_OF_TRUTH,
+  shouldEnableOsBackgroundUploads,
+} from "./background-upload-policy";
+export type {
+  MediaBackgroundUploadDecision,
+  MediaBackgroundUploadPlatform,
+  MediaBackgroundUploadPlatformGate,
+  MediaBackgroundUploadPolicy,
+} from "./background-upload-policy";
+export {
   assertWebMediaSource,
   createIndexedDbMediaUploadQueue,
   createWebMediaSdk,
