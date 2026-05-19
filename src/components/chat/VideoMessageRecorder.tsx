@@ -294,6 +294,7 @@ const VideoMessageRecorder = ({
           aria-hidden
           tabIndex={-1}
           onChange={handleFileUpload}
+          data-testid="vibe-clip-recorder-library-input"
         />
       ) : null}
 
@@ -326,6 +327,7 @@ const VideoMessageRecorder = ({
             className="w-10 h-10 rounded-full bg-black/50 backdrop-blur-md flex items-center justify-center ring-1 ring-white/10"
             type="button"
             aria-label="Close"
+            data-testid="vibe-clip-recorder-close"
           >
             <X className="w-5 h-5 text-white" />
           </motion.button>
@@ -417,6 +419,7 @@ const VideoMessageRecorder = ({
             )}
             type="button"
             aria-label={isRecording ? "Stop recording" : "Start recording"}
+            data-testid={isRecording ? "vibe-clip-recorder-stop" : "vibe-clip-recorder-start"}
           >
             {isRecording ? (
               <motion.div
@@ -438,6 +441,7 @@ const VideoMessageRecorder = ({
                   disabled={isProcessingUpload}
                   className="inline-flex h-10 items-center justify-center gap-2 rounded-full bg-white/10 px-4 text-xs font-semibold text-white/85 ring-1 ring-white/15 backdrop-blur-md transition-colors hover:bg-white/15 disabled:pointer-events-none disabled:opacity-60"
                   aria-label="Upload an existing Vibe Clip"
+                  data-testid="vibe-clip-recorder-library-option"
                 >
                   {isProcessingUpload ? (
                     <Loader2 className="h-4 w-4 animate-spin" aria-hidden />

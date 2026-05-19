@@ -105,6 +105,7 @@ export function VibeClipSendOptionsSheet({
             "sm:left-1/2 sm:right-auto sm:bottom-6 sm:w-[min(34rem,calc(100vw-2rem))] sm:-translate-x-1/2 sm:rounded-[2rem]",
           )}
           aria-describedby="vibe-clip-send-options-description"
+          data-testid="vibe-clip-send-options"
         >
           <input
             ref={fileInputRef}
@@ -114,6 +115,7 @@ export function VibeClipSendOptionsSheet({
             aria-hidden
             tabIndex={-1}
             onChange={handleFileUpload}
+            data-testid="vibe-clip-library-input"
           />
 
           <div className="mx-auto mb-7 h-1.5 w-24 rounded-full bg-white/15" aria-hidden />
@@ -144,6 +146,7 @@ export function VibeClipSendOptionsSheet({
               disabled={actionDisabled}
               className="flex min-h-[5.5rem] w-full items-center gap-4 rounded-[1.5rem] bg-violet-500 px-5 text-left text-white shadow-lg shadow-violet-950/35 transition hover:bg-violet-400 disabled:pointer-events-none disabled:opacity-55"
               aria-label={`${VIBE_CLIP_RECORD_PRIMARY}. ${VIBE_CLIP_RECORD_SECONDARY}`}
+              data-testid="vibe-clip-record-option"
             >
               <Video className="h-7 w-7 shrink-0" aria-hidden />
               <span className="min-w-0 flex-1">
@@ -159,6 +162,7 @@ export function VibeClipSendOptionsSheet({
               disabled={actionDisabled}
               className="flex min-h-[5rem] w-full items-center gap-4 rounded-[1.5rem] border border-white/10 bg-white/[0.015] px-5 text-left transition hover:bg-white/[0.04] disabled:pointer-events-none disabled:opacity-55"
               aria-label={`${VIBE_CLIP_LIBRARY}. ${VIBE_CLIP_LIBRARY_HINT}`}
+              data-testid="vibe-clip-library-option"
             >
               {isProcessingUpload ? (
                 <Loader2 className="h-7 w-7 shrink-0 animate-spin text-violet-300" aria-hidden />

@@ -126,14 +126,25 @@ async function authenticateWebhook(
 }
 
 serve(async (req) => {
+  const startedAt = Date.now();
+  const webhookTraceId = crypto.randomUUID();
   const projectRef = getProjectRef(Deno.env.get("SUPABASE_URL"));
-  logVibeVideo("info", "video_webhook_received", {
-    project_ref: projectRef,
-    method: req.method,
-  });
-  if (req.method !== "POST") {
-    logVibeVideo("warn", "video_webhook_rejected", {
+  const logWebhook = (
+    level: "info" | "warn" | "error",
+    event: string,
+    fields: Record<string, string | number | boolean | null | undefined> = {},
+  ) => {
+    logVibeVideo(level, event, {
       project_ref: projectRef,
+      webhook_trace_id: webhookTraceId,
+      elapsed_ms: Date.now() - startedAt,
+      ...fields,
+    });
+  };
+
+  logWebhook("info", "video_webhook_received", { method: req.method });
+  if (req.method !== "POST") {
+    logWebhook("warn", "video_webhook_rejected", {
       reason: "method_not_allowed",
       method: req.method,
     });
@@ -147,8 +158,7 @@ serve(async (req) => {
   try {
     rawBody = await req.text();
   } catch (err) {
-    logVibeVideo("error", "video_webhook_rejected", {
-      project_ref: projectRef,
+    logWebhook("error", "video_webhook_rejected", {
       reason: "body_read_failed",
       error_code: err instanceof Error ? err.name : "unknown",
     });
@@ -162,8 +172,7 @@ serve(async (req) => {
     webhookSigningKey,
   );
   if (!authResult.ok) {
-    logVibeVideo("warn", "video_webhook_rejected", {
-      project_ref: projectRef,
+    logWebhook("warn", "video_webhook_rejected", {
       reason: authResult.reason,
       signature_failure_reason: authResult.signatureFailureReason ?? null,
       signature_key_configured: authResult.signatureKeyConfigured,
@@ -176,15 +185,13 @@ serve(async (req) => {
   }
 
   if (authResult.authMode === "legacy_query_token") {
-    logVibeVideo("warn", "video_webhook_auth_validated", {
-      project_ref: projectRef,
+    logWebhook("warn", "video_webhook_auth_validated", {
       auth_mode: authResult.authMode,
       signature_key_configured: authResult.signatureKeyConfigured,
       legacy_query_token_fallback: true,
     });
   } else {
-    logVibeVideo("info", "video_webhook_auth_validated", {
-      project_ref: projectRef,
+    logWebhook("info", "video_webhook_auth_validated", {
       auth_mode: authResult.authMode,
       signature_key_configured: authResult.signatureKeyConfigured,
     });
@@ -202,8 +209,7 @@ serve(async (req) => {
       VideoLibraryId?: number | string;
     };
   } catch (err) {
-    logVibeVideo("warn", "video_webhook_rejected", {
-      project_ref: projectRef,
+    logWebhook("warn", "video_webhook_rejected", {
       reason: "invalid_json",
       auth_mode: authResult.authMode,
       error_code: err instanceof Error ? err.name : "unknown",
@@ -217,8 +223,7 @@ serve(async (req) => {
       Deno.env.get("BUNNY_STREAM_LIBRARY_ID")?.trim(),
       Deno.env.get("BUNNY_CHAT_STREAM_LIBRARY_ID")?.trim(),
     ].filter((value): value is string => !!value);
-    logVibeVideo("info", "video_webhook_payload_parsed", {
-      project_ref: projectRef,
+    logWebhook("info", "video_webhook_payload_parsed", {
       bunny_status: typeof Status === "number" ? Status : null,
       library_id: VideoLibraryId == null ? null : String(VideoLibraryId),
       video_guid: isValidVideoGuid(VideoGuid) ? VideoGuid : null,
@@ -226,8 +231,7 @@ serve(async (req) => {
     });
 
     if (!isValidVideoGuid(VideoGuid)) {
-      logVibeVideo("warn", "video_webhook_rejected", {
-        project_ref: projectRef,
+      logWebhook("warn", "video_webhook_rejected", {
         reason: "invalid_video_guid",
       });
       return new Response("ok", { status: 200 });
@@ -240,6 +244,8 @@ serve(async (req) => {
     ) {
       logVibeVideo("warn", "video_webhook_rejected", {
         project_ref: projectRef,
+        webhook_trace_id: webhookTraceId,
+        elapsed_ms: Date.now() - startedAt,
         reason: "library_mismatch",
         video_guid: VideoGuid,
         library_id: String(VideoLibraryId),
@@ -247,8 +253,7 @@ serve(async (req) => {
       });
       return new Response("Forbidden", { status: 403 });
     }
-    logVibeVideo("info", "video_webhook_library_validated", {
-      project_ref: projectRef,
+    logWebhook("info", "video_webhook_library_validated", {
       video_guid: VideoGuid,
       library_id: VideoLibraryId == null ? null : String(VideoLibraryId),
       library_validation: allowedLibraryIds.length > 0 ? "matched_or_absent" : "not_configured",
@@ -264,14 +269,43 @@ serve(async (req) => {
     if (Status === 4) mappedStatus = "ready";
     if (Status === 5) mappedStatus = "failed";
     if (Status === 8) mappedStatus = "failed";
-    logVibeVideo("info", "video_webhook_status_mapped", {
-      project_ref: projectRef,
+    logWebhook("info", "video_webhook_status_mapped", {
       video_guid: VideoGuid,
       bunny_status: typeof Status === "number" ? Status : null,
       mapped_status: mappedStatus,
     });
 
     const chatClipStatus = mapBunnyStatusToChatClipStatus(Status);
+    const { data: chatClipUploadForLog, error: chatClipLookupError } = await supabase
+      .from("chat_vibe_clip_uploads")
+      .select("id,client_request_id,match_id,sender_id,media_asset_id,status,published_message_id")
+      .eq("provider_object_id", VideoGuid)
+      .maybeSingle();
+    if (chatClipLookupError) {
+      logWebhook("error", "video_webhook_chat_vibe_clip_lookup_failed", {
+        video_guid: VideoGuid,
+        provider_object_id: VideoGuid,
+        bunny_status: typeof Status === "number" ? Status : null,
+        mapped_status: chatClipStatus,
+        error_code: chatClipLookupError.message,
+      });
+    } else if (chatClipUploadForLog) {
+      logWebhook("info", "video_webhook_chat_vibe_clip_matched", {
+        video_guid: VideoGuid,
+        provider_object_id: VideoGuid,
+        upload_id: typeof chatClipUploadForLog.id === "string" ? chatClipUploadForLog.id : null,
+        client_request_id: typeof chatClipUploadForLog.client_request_id === "string" ? chatClipUploadForLog.client_request_id : null,
+        match_id: typeof chatClipUploadForLog.match_id === "string" ? chatClipUploadForLog.match_id : null,
+        sender_id: typeof chatClipUploadForLog.sender_id === "string" ? chatClipUploadForLog.sender_id : null,
+        media_asset_id: typeof chatClipUploadForLog.media_asset_id === "string" ? chatClipUploadForLog.media_asset_id : null,
+        previous_status: typeof chatClipUploadForLog.status === "string" ? chatClipUploadForLog.status : null,
+        published_message_id: typeof chatClipUploadForLog.published_message_id === "string"
+          ? chatClipUploadForLog.published_message_id
+          : null,
+        bunny_status: typeof Status === "number" ? Status : null,
+        mapped_status: chatClipStatus,
+      });
+    }
     const chatClipResult = await updateChatVibeClipStatusByProvider(
       supabase,
       VideoGuid,
@@ -280,9 +314,17 @@ serve(async (req) => {
       { publishIfProcessing: Status === 7 },
     );
     if (chatClipResult.handled) {
-      logVibeVideo(chatClipResult.error ? "error" : "info", "video_webhook_chat_vibe_clip_update", {
-        project_ref: projectRef,
+      logWebhook(chatClipResult.error ? "error" : "info", "video_webhook_chat_vibe_clip_update", {
         video_guid: VideoGuid,
+        provider_object_id: VideoGuid,
+        upload_id: typeof chatClipUploadForLog?.id === "string" ? chatClipUploadForLog.id : null,
+        client_request_id: typeof chatClipUploadForLog?.client_request_id === "string"
+          ? chatClipUploadForLog.client_request_id
+          : null,
+        match_id: typeof chatClipUploadForLog?.match_id === "string" ? chatClipUploadForLog.match_id : null,
+        sender_id: typeof chatClipUploadForLog?.sender_id === "string" ? chatClipUploadForLog.sender_id : null,
+        media_asset_id: typeof chatClipUploadForLog?.media_asset_id === "string" ? chatClipUploadForLog.media_asset_id : null,
+        previous_status: typeof chatClipUploadForLog?.status === "string" ? chatClipUploadForLog.status : null,
         bunny_status: typeof Status === "number" ? Status : null,
         mapped_status: chatClipStatus,
         message_id: chatClipResult.messageId ?? null,

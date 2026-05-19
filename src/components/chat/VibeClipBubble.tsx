@@ -40,6 +40,15 @@ const CHAT_VIBE_CLIP_STATUS_SYNC_INTERVAL_MS = 12_000;
 const CLIP_PLAYBACK_LOAD_TIMEOUT_MS = 12_000;
 const MAX_CLIP_PLAYBACK_REFRESH_ATTEMPTS = 1;
 
+export type VibeClipLocalRecovery = {
+  stateLabel?: string;
+  error?: string;
+  canResume?: boolean;
+  canDiscard?: boolean;
+  onResume?: () => void;
+  onDiscardAndSendAgain?: () => void;
+};
+
 function isLocalPreviewUrl(value: string): boolean {
   return value.startsWith("blob:") || value.startsWith("file:") || value.startsWith("data:");
 }
@@ -70,6 +79,7 @@ interface VibeClipBubbleProps {
   onResolvedThumbnailUrl?: (url: string) => void;
   /** Older clips in the thread sit visually quieter than the latest. */
   threadVisualRecede?: boolean;
+  localRecovery?: VibeClipLocalRecovery | null;
 }
 
 export const VibeClipBubble = ({
@@ -89,6 +99,7 @@ export const VibeClipBubble = ({
   onResolvedVideoUrl,
   onResolvedThumbnailUrl,
   threadVisualRecede = false,
+  localRecovery = null,
 }: VibeClipBubbleProps) => {
   const videoRef = useRef<HTMLVideoElement>(null);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -104,10 +115,15 @@ export const VibeClipBubble = ({
   const [playableThumbnailUrl, setPlayableThumbnailUrl] = useState(meta.thumbnailUrl ?? null);
   const [playRequested, setPlayRequested] = useState(false);
   const [syncedProcessingStatus, setSyncedProcessingStatus] = useState<ChatVibeClipProcessingStatus | null>(null);
+  const [syncAttemptCount, setSyncAttemptCount] = useState(0);
+  const [isSyncingStatus, setIsSyncingStatus] = useState(false);
   const playStartTracked = useRef(false);
   const playCompleteTracked = useRef(false);
   const playbackRefreshAttemptCountRef = useRef(0);
   const posterRefreshAttemptedForRef = useRef<string | null>(null);
+  const statusSyncInFlightRef = useRef(false);
+  const statusSyncRunIdRef = useRef(0);
+  const isMountedRef = useRef(true);
 
   const hasPrimary = !!(onReplyWithClip || onVoiceReply);
   const hasSecondary = !!(onSuggestDate || onReactionPick);
@@ -126,6 +142,15 @@ export const VibeClipBubble = ({
   }, []);
 
   useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+      statusSyncRunIdRef.current += 1;
+      statusSyncInFlightRef.current = false;
+    };
+  }, []);
+
+  useEffect(() => {
     setPlayableVideoUrl(meta.videoUrl);
     setPlayableThumbnailUrl(meta.thumbnailUrl ?? null);
     setIsPlaying(false);
@@ -136,11 +161,15 @@ export const VibeClipBubble = ({
     setHasMetadata(false);
     setLoadError(false);
     setSyncedProcessingStatus(null);
+    setSyncAttemptCount(0);
+    setIsSyncingStatus(false);
     playStartTracked.current = false;
     playCompleteTracked.current = false;
     playbackRefreshAttemptCountRef.current = 0;
     posterRefreshAttemptedForRef.current = null;
-  }, [meta.processingStatus, meta.thumbnailUrl, meta.videoUrl]);
+    statusSyncRunIdRef.current += 1;
+    statusSyncInFlightRef.current = false;
+  }, [meta.processingStatus, meta.thumbnailUrl, meta.videoUrl, sparkMessageId]);
 
   useEffect(() => {
     setShowReactBar(false);
@@ -178,11 +207,29 @@ export const VibeClipBubble = ({
     let intervalId: ReturnType<typeof setInterval> | undefined;
 
     const syncStatus = async () => {
-      const status = await syncChatVibeClipStatus(sparkMessageId);
-      if (cancelled || !status) return;
-      setSyncedProcessingStatus(status);
-      if (status === "ready" || status === "failed") {
-        if (intervalId) clearInterval(intervalId);
+      if (statusSyncInFlightRef.current) return;
+      const runId = statusSyncRunIdRef.current + 1;
+      statusSyncRunIdRef.current = runId;
+      statusSyncInFlightRef.current = true;
+      setIsSyncingStatus(true);
+      try {
+        const status = await syncChatVibeClipStatus(sparkMessageId);
+        if (!cancelled) {
+          setSyncAttemptCount((count) => count + 1);
+          if (status) {
+            setSyncedProcessingStatus(status);
+            if (status === "ready" || status === "failed") {
+              if (intervalId) clearInterval(intervalId);
+            }
+          }
+        }
+      } catch {
+        if (!cancelled) setSyncAttemptCount((count) => count + 1);
+      } finally {
+        if (statusSyncRunIdRef.current === runId) {
+          statusSyncInFlightRef.current = false;
+          if (!cancelled) setIsSyncingStatus(false);
+        }
       }
     };
 
@@ -199,6 +246,35 @@ export const VibeClipBubble = ({
       if (intervalId) clearInterval(intervalId);
     };
   }, [isServerProcessing, sparkMessageId]);
+
+  useEffect(() => {
+    if (!isServerProcessing) {
+      statusSyncRunIdRef.current += 1;
+      statusSyncInFlightRef.current = false;
+      setIsSyncingStatus(false);
+    }
+  }, [isServerProcessing]);
+
+  const requestManualStatusSync = useCallback(async () => {
+    if (!sparkMessageId || statusSyncInFlightRef.current) return;
+    const runId = statusSyncRunIdRef.current + 1;
+    statusSyncRunIdRef.current = runId;
+    statusSyncInFlightRef.current = true;
+    setIsSyncingStatus(true);
+    try {
+      const status = await syncChatVibeClipStatus(sparkMessageId);
+      if (!isMountedRef.current) return;
+      setSyncAttemptCount((count) => count + 1);
+      if (status) setSyncedProcessingStatus(status);
+    } catch {
+      if (isMountedRef.current) setSyncAttemptCount((count) => count + 1);
+    } finally {
+      if (statusSyncRunIdRef.current === runId) {
+        statusSyncInFlightRef.current = false;
+        if (isMountedRef.current) setIsSyncingStatus(false);
+      }
+    }
+  }, [sparkMessageId]);
 
   const refreshClipMedia = useCallback(async (reason: VibeClipMediaRefreshReason = "playback"): Promise<boolean> => {
     if (!sparkMessageId || (!videoSourceRef && !thumbnailSourceRef)) return false;
@@ -434,15 +510,20 @@ export const VibeClipBubble = ({
     typeof displayMeta.aspectRatio === "number" && Number.isFinite(displayMeta.aspectRatio) && displayMeta.aspectRatio > 0
       ? Math.max(0.5, Math.min(1.2, displayMeta.aspectRatio))
       : 9 / 16;
+  const hasLocalRecoveryAction = Boolean(localRecovery?.canResume || localRecovery?.canDiscard || localRecovery?.error);
+  const showServerProcessingNudge = isMine && isServerProcessing && syncAttemptCount > 0 && !hasLocalRecoveryAction;
+  const showRecoveryPanel = isMine && (hasLocalRecoveryAction || showServerProcessingNudge);
 
   if (loadError || isProcessingFailed) {
     return (
       <div
-        className={cn(
-          CLIP_BUBBLE_WIDTH_CLASS,
-          "rounded-xl overflow-hidden border border-violet-500/25 bg-gradient-to-b from-secondary/25 to-black/50 flex flex-col items-center justify-center py-5 px-3 gap-2 shadow-inner shadow-black/40",
-        )}
-      >
+      className={cn(
+        CLIP_BUBBLE_WIDTH_CLASS,
+        "rounded-xl overflow-hidden border border-violet-500/25 bg-gradient-to-b from-secondary/25 to-black/50 flex flex-col items-center justify-center py-5 px-3 gap-2 shadow-inner shadow-black/40",
+      )}
+      data-testid="vibe-clip-bubble"
+      data-processing-status={processingStatus}
+    >
         <AlertCircle className="w-7 h-7 text-violet-400/90" />
         <span className="text-[11px] text-muted-foreground text-center leading-snug">Clip unavailable</span>
         {loadError ? (
@@ -478,6 +559,8 @@ export const VibeClipBubble = ({
           : "ring-1 ring-white/[0.08] bg-white/[0.025]",
         threadVisualRecede && "opacity-[0.9] ring-violet-500/20 saturate-[0.92]",
       )}
+      data-testid="vibe-clip-bubble"
+      data-processing-status={processingStatus}
     >
       {/* Video surface */}
       <div
@@ -632,6 +715,54 @@ export const VibeClipBubble = ({
           </div>
         </AspectRatio>
       </div>
+
+      {showRecoveryPanel ? (
+        <div
+          className="border-t border-violet-500/15 bg-black/18 px-2.5 py-2"
+          data-testid="vibe-clip-recovery-panel"
+        >
+          <p className="text-[10px] leading-snug text-white/70">
+            {localRecovery?.error
+              ? localRecovery.error
+              : localRecovery?.stateLabel
+                ? localRecovery.stateLabel
+                : "Still preparing this clip."}
+          </p>
+          <div className="mt-2 flex flex-wrap items-center gap-1.5">
+            {localRecovery?.canResume && localRecovery.onResume ? (
+              <button
+                type="button"
+                onClick={localRecovery.onResume}
+                className="rounded-full border border-violet-400/35 bg-violet-500/16 px-2.5 py-1 text-[10px] font-semibold text-violet-100 hover:bg-violet-500/24"
+                data-testid="vibe-clip-resume-upload"
+              >
+                Resume upload
+              </button>
+            ) : null}
+            {localRecovery?.canDiscard && localRecovery.onDiscardAndSendAgain ? (
+              <button
+                type="button"
+                onClick={localRecovery.onDiscardAndSendAgain}
+                className="rounded-full border border-white/10 bg-white/[0.04] px-2.5 py-1 text-[10px] font-semibold text-white/72 hover:bg-white/[0.08]"
+                data-testid="vibe-clip-discard-send-again"
+              >
+                Discard + send again
+              </button>
+            ) : null}
+            {showServerProcessingNudge ? (
+              <button
+                type="button"
+                onClick={() => void requestManualStatusSync()}
+                disabled={isSyncingStatus}
+                className="rounded-full border border-white/10 bg-white/[0.04] px-2.5 py-1 text-[10px] font-semibold text-white/72 hover:bg-white/[0.08] disabled:pointer-events-none disabled:opacity-55"
+                data-testid="vibe-clip-check-status"
+              >
+                {isSyncingStatus ? "Checking..." : "Check again"}
+              </button>
+            ) : null}
+          </div>
+        </div>
+      ) : null}
 
       {/* After-play: primary (reply) + secondary (date / react) — received clips only */}
       {hasPlayed && !isMine && (hasPrimary || hasSecondary) && (

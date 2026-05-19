@@ -103,7 +103,7 @@ import {
 } from '@/lib/chatMessageContent';
 import { refreshCachedChatMediaUrl } from '@/lib/chatMediaResolver';
 import { extractVibeClipMeta } from '../../../../shared/chat/messageRouting';
-import { VibeClipCard, type VibeClipPosterPreviewState } from '@/components/chat/VibeClipCard';
+import { VibeClipCard, type VibeClipLocalRecovery, type VibeClipPosterPreviewState } from '@/components/chat/VibeClipCard';
 import {
   ChatThreadPhotoViewerModal,
   ChatThreadVideoViewerModal,
@@ -381,6 +381,42 @@ function outboxFooterPrimaryLabel(phase: ChatOutboxQueueState | undefined, paylo
   if (!phase) return null;
   const label = outboxPhaseStatusLabel(phase, payloadKind as OutboxPayloadKind);
   return label || null;
+}
+
+function vibeClipRecoveryForOutboxItem(
+  item: ChatOutboxItem | undefined,
+  sendError: string | undefined,
+  onResume?: () => void,
+  onDiscardAndSendAgain?: () => void,
+): VibeClipLocalRecovery | null {
+  if (!item || item.payload.kind !== 'video') return null;
+  const canResume = item.state === 'failed' || item.state === 'waiting_for_network';
+  const canDiscard = item.state !== 'sending' && item.state !== 'awaiting_hydration';
+  const uploadPercent =
+    item.state === 'sending' &&
+    typeof item.uploadProgress === 'number' &&
+    Number.isFinite(item.uploadProgress)
+      ? Math.max(0, Math.min(100, Math.round(item.uploadProgress * 100)))
+      : null;
+  const stateLabel = sendError ??
+    (uploadPercent != null
+      ? `Uploading ${uploadPercent}%`
+      : item.state === 'awaiting_hydration'
+        ? 'Uploaded. Waiting for the message to appear.'
+        : item.state === 'waiting_for_network'
+          ? "Upload paused until you're back online."
+          : item.state === 'failed'
+            ? 'Upload needs attention.'
+            : 'Upload is queued.');
+
+  return {
+    stateLabel,
+    error: sendError,
+    canResume,
+    canDiscard,
+    onResume,
+    onDiscardAndSendAgain,
+  };
 }
 
 function outboxItemToThreadMessage(item: ChatOutboxItem): ThreadMessage {
@@ -1018,6 +1054,11 @@ export default function ChatThreadScreen() {
     if (!data?.matchId) return [];
     return itemsForMatch(data.matchId);
   }, [data?.matchId, itemsForMatch]);
+  const outboxById = useMemo(() => {
+    const map = new Map<string, ChatOutboxItem>();
+    for (const item of outboxForMatch) map.set(item.id, item);
+    return map;
+  }, [outboxForMatch]);
 
   useEffect(() => {
     const ids = new Set((data?.messages ?? []).map((m) => m.id));
@@ -2540,6 +2581,17 @@ export default function ChatThreadScreen() {
               immersiveActive={videoViewer?.uri === displayClipMeta.videoUrl}
               shouldMountPlayer={shouldMountPlayer}
               threadVisualRecede={threadVisualRecede}
+              localRecovery={vibeClipRecoveryForOutboxItem(
+                outboxItemId ? outboxById.get(outboxItemId) : undefined,
+                localMedia?.errorMessage,
+                outboxItemId ? () => retry(outboxItemId) : undefined,
+                outboxItemId
+                  ? () => {
+                      remove(outboxItemId);
+                      openVideoMessageOptions();
+                    }
+                  : undefined,
+              )}
             />
             <View style={styles.mediaMetaBlock}>
               {reaction ? <Text style={styles.reactionBadge}>{reaction}</Text> : null}
@@ -3253,6 +3305,7 @@ export default function ChatThreadScreen() {
                 styles.attachmentTray,
                 { borderColor: theme.border, backgroundColor: 'rgba(12,12,18,0.92)' },
               ]}
+              testID="chat-attachment-tray"
             >
               <Pressable
                 onPress={() => openPhotoOptions()}
@@ -3268,6 +3321,7 @@ export default function ChatThreadScreen() {
                 ]}
                 accessibilityRole="button"
                 accessibilityLabel="Photo"
+                testID="chat-add-photo"
               >
                 {sendingPhoto ? (
                   <ActivityIndicator size="small" color={theme.tint} />
@@ -3290,6 +3344,7 @@ export default function ChatThreadScreen() {
                 ]}
                 accessibilityRole="button"
                 accessibilityLabel="Vibe Clip - record or choose a clip"
+                testID="chat-add-vibe-clip"
               >
                 {sendingVideo ? (
                   <ActivityIndicator size="small" color="rgba(139,92,246,1)" />
@@ -3398,6 +3453,7 @@ export default function ChatThreadScreen() {
                 disabled={shellLoading || !data?.matchId}
                 accessibilityLabel={showAttachmentTray ? 'Close attachments' : 'Open attachments'}
                 accessibilityState={{ expanded: showAttachmentTray, disabled: shellLoading || !data?.matchId }}
+                testID="chat-attachment-toggle"
               >
                 <Ionicons name={showAttachmentTray ? 'close' : 'add'} size={24} color={theme.textSecondary} />
               </Pressable>
