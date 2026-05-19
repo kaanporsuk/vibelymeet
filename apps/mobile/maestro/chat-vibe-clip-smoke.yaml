@@ -1,0 +1,35 @@
+# Chat Vibe Clip smoke matrix.
+# Scenario ids covered by this flow/runbook:
+# - happy-path
+# - 4g-throttle
+# - kill-mid-tus
+# - webhook-delayed
+#
+# Requires an already authenticated staging build and a non-production chat deep link:
+#   VIBELY_CVC_NATIVE_SMOKE=1
+#   VIBELY_CVC_NATIVE_CHAT_DEEPLINK=vibely://chat/<matched-profile-id>
+#
+# This Maestro flow verifies the native entry/sheet contract. The OS camera/library
+# picker upload rows remain operator-run until the app exposes an internal media
+# fixture picker or Detox-native picker controls.
+appId: com.vibelymeet.vibely
+---
+- openLink: ${VIBELY_CVC_NATIVE_CHAT_DEEPLINK}
+- extendedWaitUntil:
+    id: "chat-attachment-toggle"
+    timeout: 30000
+- tapOn:
+    id: "chat-attachment-toggle"
+- extendedWaitUntil:
+    id: "chat-attachment-tray"
+    timeout: 10000
+- tapOn:
+    id: "chat-add-vibe-clip"
+- extendedWaitUntil:
+    id: "vibe-clip-send-options"
+    timeout: 10000
+- assertVisible:
+    id: "vibe-clip-record-option"
+- assertVisible:
+    id: "vibe-clip-library-option"
+

@@ -1,0 +1,106 @@
+name: Chat Vibe Clip Smoke
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/chat-vibe-clip-smoke.yml'
+      - 'apps/mobile/**'
+      - 'e2e/**'
+      - 'scripts/run_chat_vibe_clip_smoke_matrix.sh'
+      - 'shared/chat/**'
+      - 'src/components/chat/**'
+      - 'src/lib/webChatOutbox/**'
+      - 'src/lib/webVibeClipLibraryUpload.ts'
+      - 'src/pages/Chat.tsx'
+      - 'src/services/chatVibeClipStreamUploadService.ts'
+      - 'supabase/functions/_shared/chat-vibe-clips.ts'
+      - 'supabase/functions/create-chat-vibe-clip-upload/**'
+      - 'supabase/functions/complete-chat-vibe-clip-upload/**'
+      - 'supabase/functions/sync-chat-vibe-clip-status/**'
+      - 'supabase/functions/video-webhook/**'
+  workflow_dispatch:
+    inputs:
+      run_live_web:
+        description: 'Run live staging web rows when secrets are configured'
+        required: false
+        default: 'false'
+  schedule:
+    - cron: '17 2 * * *'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  static-matrix:
+    name: Static matrix and contracts
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run Chat Vibe Clip smoke matrix dry-run
+        run: npm run test:chat-vibe-clip-smoke-matrix
+
+  staging-web:
+    name: Staging web matrix
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    needs: static-matrix
+    if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.run_live_web == 'true')
+    env:
+      VIBELY_CVC_SMOKE: ${{ secrets.VIBELY_CVC_SMOKE }}
+      VIBELY_CVC_WEB_CHAT_URL: ${{ secrets.VIBELY_CVC_WEB_CHAT_URL }}
+      VIBELY_CVC_WEB_STORAGE_STATE_JSON: ${{ secrets.VIBELY_CVC_WEB_STORAGE_STATE_JSON }}
+      VIBELY_CVC_FIXTURE_VIDEO_BASE64: ${{ secrets.VIBELY_CVC_FIXTURE_VIDEO_BASE64 }}
+      VIBELY_CVC_EXPECT_READY: '1'
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Playwright Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Materialize smoke fixtures
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -z "${VIBELY_CVC_WEB_STORAGE_STATE_JSON:-}" || -z "${VIBELY_CVC_FIXTURE_VIDEO_BASE64:-}" ]]; then
+            echo "Missing staging smoke fixtures; skipping live web matrix."
+            echo "VIBELY_CVC_SMOKE=0" >> "$GITHUB_ENV"
+            exit 0
+          fi
+          mkdir -p .smoke
+          printf '%s' "$VIBELY_CVC_WEB_STORAGE_STATE_JSON" > .smoke/storage-state.json
+          printf '%s' "$VIBELY_CVC_FIXTURE_VIDEO_BASE64" | base64 -d > .smoke/fixture-video.mp4
+          echo "VIBELY_CVC_WEB_STORAGE_STATE=$PWD/.smoke/storage-state.json" >> "$GITHUB_ENV"
+          echo "VIBELY_CVC_FIXTURE_VIDEO=$PWD/.smoke/fixture-video.mp4" >> "$GITHUB_ENV"
+
+      - name: Run staging web smoke matrix
+        if: env.VIBELY_CVC_SMOKE == '1'
+        run: bash scripts/run_chat_vibe_clip_smoke_matrix.sh --web
+
+      # Matrix scenarios: happy-path, 4g-throttle, kill-mid-tus, webhook-delayed.
+      # kill-mid-tus stays opt-in via VIBELY_CVC_DISRUPTION_SMOKE to avoid creating
+      # interrupted uploads on every scheduled run.
+

@@ -276,6 +276,18 @@ test("video bubbles remain adaptive and full-width across web and native chat", 
   assert.match(webVibeClipBubble, /<AspectRatio ratio=\{clipAspectRatio\}>/);
   assert.match(webVibeClipBubble, /w-full h-full object-cover bg-black/);
   assert.match(webVibeClipBubble, /syncChatVibeClipStatus/);
+  assert.match(webVibeClipBubble, /const CHAT_VIBE_CLIP_STATUS_SYNC_DELAY_MS = 2500/);
+  assert.match(webVibeClipBubble, /statusSyncInFlightRef/);
+  assert.match(webVibeClipBubble, /statusSyncRunIdRef/);
+  assert.match(webVibeClipBubble, /isMountedRef\.current = true/);
+  assert.match(webVibeClipBubble, /if \(statusSyncInFlightRef\.current\) return/);
+  assert.match(webVibeClipBubble, /data-testid="vibe-clip-recovery-panel"/);
+  assert.match(webVibeClipBubble, /data-testid="vibe-clip-resume-upload"/);
+  assert.match(webVibeClipBubble, /data-testid="vibe-clip-discard-send-again"/);
+  assert.match(webVibeClipBubble, /data-testid="vibe-clip-check-status"/);
+  assert.match(webChat, /function vibeClipRecoveryForOutboxItem/);
+  assert.match(webChat, /webOutbox\.retry\(groupedMessage\.outboxItemId!\)/);
+  assert.match(webChat, /webOutbox\.remove\(groupedMessage\.outboxItemId!\);[\s\S]{0,120}openVibeClipOptions\(\)/);
   assert.match(webVibeClipBubble, /isAwaitingPlaybackIntent/);
   assert.match(webVibeClipBubble, /const isLocalPreview = isLocalPreviewUrl\(displayMeta\.videoUrl\)/);
   assert.match(webVibeClipBubble, /!isAwaitingPlaybackIntent && !isLocalPreview/);
@@ -323,6 +335,18 @@ test("video bubbles remain adaptive and full-width across web and native chat", 
   assert.match(nativeVibeClipCard, /shouldMountPlayer/);
   assert.match(nativeVibeClipCard, /type ClipPreviewState/);
   assert.match(nativeVibeClipCard, /syncChatVibeClipStatus/);
+  assert.match(nativeVibeClipCard, /const CHAT_VIBE_CLIP_STATUS_SYNC_DELAY_MS = 2500/);
+  assert.match(nativeVibeClipCard, /statusSyncInFlightRef/);
+  assert.match(nativeVibeClipCard, /statusSyncRunIdRef/);
+  assert.match(nativeVibeClipCard, /isMountedRef\.current = true/);
+  assert.match(nativeVibeClipCard, /if \(statusSyncInFlightRef\.current\) return/);
+  assert.match(nativeVibeClipCard, /testID="vibe-clip-recovery-panel"/);
+  assert.match(nativeVibeClipCard, /testID="vibe-clip-resume-upload"/);
+  assert.match(nativeVibeClipCard, /testID="vibe-clip-discard-send-again"/);
+  assert.match(nativeVibeClipCard, /testID="vibe-clip-check-status"/);
+  assert.match(nativeChat, /function vibeClipRecoveryForOutboxItem/);
+  assert.match(nativeChat, /retry\(outboxItemId\)/);
+  assert.match(nativeChat, /remove\(outboxItemId\);[\s\S]{0,120}openVideoMessageOptions\(\)/);
   assert.match(nativeVibeClipCard, /void refreshClipMedia\('preview'\);/);
   assert.doesNotMatch(nativeVibeClipCard, /if \(didRefresh\) posterRefreshAttemptedForRef\.current = null/);
   assert.match(nativeVibeClipCard, /Clip unavailable/);
@@ -427,22 +451,48 @@ test("server upload and publish paths enforce Bunny Stream Vibe Clip limits", ()
   assert.match(createChatVibeClipUpload, /\.from\("chat_vibe_clip_uploads"\)/);
   assert.match(createChatVibeClipUpload, /existing\.data\.match_id !== matchId/);
   assert.match(createChatVibeClipUpload, /client_request_id_conflict/);
+  assert.match(createChatVibeClipUpload, /queueCreatedVideoOrphanCleanup/);
+  assert.match(createChatVibeClipUpload, /enqueue_media_delete/);
+  assert.match(createChatVibeClipUpload, /cleanup_queued/);
+  assert.match(createChatVibeClipUpload, /\.in\("status", \["uploading", "soft_deleted", "failed"\]\)[\s\S]+\.select\("id"\)[\s\S]+\.maybeSingle\(\)/);
+  assert.match(createChatVibeClipUpload, /media_asset_orphan_mark_skipped/);
   assert.match(completeChatVibeClipUpload, /ensureChatVibeClipMessage/);
   assert.match(completeChatVibeClipUpload, /data\.client_request_id !== clientRequestId/);
   assert.match(completeChatVibeClipUpload, /client_request_id_conflict/);
+  assert.match(completeChatVibeClipUpload, /upload\.status === "ready" && status !== "ready"/);
+  assert.match(completeChatVibeClipUpload, /upload\.status === "failed" && status === "processing"/);
+  assert.match(completeChatVibeClipUpload, /bunny_processing_failed_status_update_failed/);
   assert.match(syncChatVibeClipStatus, /sync-chat-vibe-clip-status/);
   assert.match(chatVibeClipShared, /CHAT_VIBE_CLIP_MAX_DURATION_MS = 30_000/);
   assert.match(chatVibeClipShared, /CHAT_VIBE_CLIP_DURATION_TOLERANCE_MS = 250/);
   assert.match(chatVibeClipShared, /CHAT_VIBE_CLIP_MAX_SOURCE_BYTES = 200 \* 1024 \* 1024/);
   assert.match(chatVibeClipShared, /mapBunnyStatusToChatClipStatus/);
+  assert.match(chatVibeClipShared, /published_message_lookup_failed/);
+  assert.match(chatVibeClipShared, /\.eq\("id", upload\.published_message_id\)[\s\S]+\.eq\("message_kind", "vibe_clip"\)/);
+  assert.match(chatVibeClipShared, /idempotent_message_lookup_failed/);
+  assert.match(chatVibeClipShared, /\.eq\("message_kind", "vibe_clip"\)[\s\S]+client_request_id/);
+  assert.match(chatVibeClipShared, /message_insert_duplicate_requery/);
+  assert.match(chatVibeClipShared, /error\?\.code === "23505"/);
+  assert.match(chatVibeClipShared, /\.from\("media_references"\)[\s\S]+\.eq\("is_active", true\)[\s\S]+\.limit\(1\)[\s\S]+\.maybeSingle\(\)/);
+  assert.match(chatVibeClipShared, /function shouldIgnoreProviderStatus/);
+  assert.match(chatVibeClipShared, /currentStatus === "ready" && nextStatus !== "ready"/);
+  assert.match(
+    chatVibeClipShared,
+    /upload_publish_state_update_failed[\s\S]+return \{ success: false, error: uploadUpdateError\.message \}/,
+  );
+  assert.match(
+    chatVibeClipShared,
+    /provider_status_update_failed[\s\S]+return \{ handled: true, error: statusUpdateError\.message \}/,
+  );
+  assert.match(
+    chatVibeClipShared,
+    /provider_failed_message_update_failed[\s\S]+return \{ handled: true, error: messageUpdateError\.message \}/,
+  );
   assert.match(chatVibeClipShared, /provider: "bunny_stream"/);
   assert.match(chatVibeClipShared, /options: \{ publishIfProcessing\?: boolean \} = \{\}/);
   assert.match(chatVibeClipShared, /!options\.publishIfProcessing/);
   assert.match(chatVibeClipShared, /function isTerminalChatVibeClipStatus/);
-  assert.match(
-    chatVibeClipShared,
-    /isTerminalChatVibeClipStatus\(upload\.status\) && !isTerminalChatVibeClipStatus\(status\)/,
-  );
+  assert.match(chatVibeClipShared, /shouldIgnoreProviderStatus\(upload\.status, status\)/);
   assert.match(getChatMediaUrl, /BUNNY_CHAT_STREAM_CDN_HOSTNAME/);
   assert.match(getChatMediaUrl, /BUNNY_CHAT_STREAM_TOKEN_SECURITY_KEY/);
   assert.doesNotMatch(getChatMediaUrl, /async function hmacSha256Base64Url/);

@@ -56,7 +56,7 @@ export function VibeClipSendOptionsSheet({
       handleStyle={{ width: 100, height: 8, borderRadius: 999, marginTop: 16, marginBottom: 12 }}
       scrollable={false}
     >
-      <View style={styles.inner}>
+      <View style={styles.inner} testID="vibe-clip-send-options">
         <View style={[styles.brandPill, { borderColor: 'rgba(139,92,246,0.35)', backgroundColor: ACCENT_DIM }]}>
           <Ionicons name="film-outline" size={14} color={ACCENT} />
           <Text style={[styles.brandPillText, { color: ACCENT }]}>Vibe Clip</Text>
@@ -83,6 +83,7 @@ export function VibeClipSendOptionsSheet({
           ]}
           accessibilityRole="button"
           accessibilityLabel={`${VIBE_CLIP_RECORD_PRIMARY}. ${VIBE_CLIP_RECORD_SECONDARY}`}
+          testID="vibe-clip-record-option"
         >
           <Ionicons name="videocam-outline" size={22} color="#fff" />
           <View style={styles.primaryTextCol}>
@@ -107,6 +108,7 @@ export function VibeClipSendOptionsSheet({
           ]}
           accessibilityRole="button"
           accessibilityLabel={`${VIBE_CLIP_LIBRARY}. ${VIBE_CLIP_LIBRARY_HINT}`}
+          testID="vibe-clip-library-option"
         >
           <Ionicons name="images-outline" size={20} color={theme.textSecondary} />
           <View style={styles.secondaryTextCol}>

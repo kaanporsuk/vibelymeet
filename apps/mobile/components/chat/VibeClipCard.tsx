@@ -49,9 +49,18 @@ type Props = {
   posterPreviewState?: VibeClipPosterPreviewState;
   onPosterPreviewStateChange?: (state: VibeClipPosterPreviewState, thumbnailUrl?: string | null) => void;
   threadVisualRecede?: boolean;
+  localRecovery?: VibeClipLocalRecovery | null;
 };
 
 export type VibeClipPosterPreviewState = 'unknown' | 'ready' | 'failed';
+export type VibeClipLocalRecovery = {
+  stateLabel?: string;
+  error?: string;
+  canResume?: boolean;
+  canDiscard?: boolean;
+  onResume?: () => void;
+  onDiscardAndSendAgain?: () => void;
+};
 type VibeClipMediaRefreshReason = 'preview' | 'initial' | 'playback' | 'manual';
 
 type VibeClipCardInnerProps = Props & {
@@ -59,10 +68,16 @@ type VibeClipCardInnerProps = Props & {
   onRemountPlayer: () => void;
   onResetPlaybackRefreshAttempt: () => void;
   playRequestToken: number;
+  syncAttemptCount: number;
+  isSyncingStatus: boolean;
+  onManualStatusSync: () => void;
 };
 type VibeClipPosterProps = Props & {
   onRefreshClipMedia: (reason?: VibeClipMediaRefreshReason) => Promise<boolean>;
   onRequestInlinePlay: () => void;
+  syncAttemptCount: number;
+  isSyncingStatus: boolean;
+  onManualStatusSync: () => void;
 };
 type ClipPreviewState =
   | 'poster_ready'
@@ -157,6 +172,75 @@ function VibeClipPosterImage({
   );
 }
 
+function VibeClipRecoveryPanel({
+  meta,
+  isMine,
+  localRecovery,
+  syncAttemptCount,
+  isSyncingStatus,
+  onManualStatusSync,
+}: {
+  meta: VibeClipDisplayMeta;
+  isMine: boolean;
+  localRecovery?: VibeClipLocalRecovery | null;
+  syncAttemptCount: number;
+  isSyncingStatus: boolean;
+  onManualStatusSync: () => void;
+}) {
+  const hasLocalRecoveryAction = Boolean(localRecovery?.canResume || localRecovery?.canDiscard || localRecovery?.error);
+  const showServerProcessingNudge = isMine && isServerProcessingClip(meta) && syncAttemptCount > 0 && !hasLocalRecoveryAction;
+  if (!isMine || (!hasLocalRecoveryAction && !showServerProcessingNudge)) return null;
+
+  return (
+    <View style={styles.recoveryPanel} testID="vibe-clip-recovery-panel">
+      <Text style={styles.recoveryText}>
+        {localRecovery?.error || localRecovery?.stateLabel || 'Still preparing this clip.'}
+      </Text>
+      <View style={styles.recoveryActions}>
+        {localRecovery?.canResume && localRecovery.onResume ? (
+          <Pressable
+            onPress={localRecovery.onResume}
+            style={({ pressed }) => [styles.recoveryButton, pressed ? { opacity: 0.82 } : null]}
+            accessibilityRole="button"
+            accessibilityLabel="Resume upload"
+            testID="vibe-clip-resume-upload"
+          >
+            <Text style={styles.recoveryButtonText}>Resume upload</Text>
+          </Pressable>
+        ) : null}
+        {localRecovery?.canDiscard && localRecovery.onDiscardAndSendAgain ? (
+          <Pressable
+            onPress={localRecovery.onDiscardAndSendAgain}
+            style={({ pressed }) => [styles.recoveryButtonSecondary, pressed ? { opacity: 0.82 } : null]}
+            accessibilityRole="button"
+            accessibilityLabel="Discard and send again"
+            testID="vibe-clip-discard-send-again"
+          >
+            <Text style={styles.recoveryButtonSecondaryText}>Discard + send again</Text>
+          </Pressable>
+        ) : null}
+        {showServerProcessingNudge ? (
+          <Pressable
+            onPress={onManualStatusSync}
+            disabled={isSyncingStatus}
+            style={({ pressed }) => [
+              styles.recoveryButtonSecondary,
+              (pressed || isSyncingStatus) ? { opacity: 0.72 } : null,
+            ]}
+            accessibilityRole="button"
+            accessibilityLabel="Check clip status"
+            testID="vibe-clip-check-status"
+          >
+            <Text style={styles.recoveryButtonSecondaryText}>
+              {isSyncingStatus ? 'Checking…' : 'Check again'}
+            </Text>
+          </Pressable>
+        ) : null}
+      </View>
+    </View>
+  );
+}
+
 function VibeClipCardInner({
   meta,
   isMine,
@@ -176,6 +260,10 @@ function VibeClipCardInner({
   onRemountPlayer,
   onResetPlaybackRefreshAttempt,
   playRequestToken,
+  localRecovery,
+  syncAttemptCount,
+  isSyncingStatus,
+  onManualStatusSync,
 }: VibeClipCardInnerProps) {
   const theme = Colors[useColorScheme()];
   const [hasError, setHasError] = useState(false);
@@ -469,6 +557,15 @@ function VibeClipCardInner({
         </View>
       </View>
 
+      <VibeClipRecoveryPanel
+        meta={meta}
+        isMine={isMine}
+        localRecovery={localRecovery}
+        syncAttemptCount={syncAttemptCount}
+        isSyncingStatus={isSyncingStatus}
+        onManualStatusSync={onManualStatusSync}
+      />
+
       {showActions && (
         <View style={styles.actionsBlock}>
           {replySpark ? (
@@ -575,6 +672,10 @@ function VibeClipCardPosterOnly({
   onRefreshClipMedia,
   onRequestInlinePlay,
   threadVisualRecede = false,
+  localRecovery,
+  syncAttemptCount,
+  isSyncingStatus,
+  onManualStatusSync,
 }: VibeClipPosterProps) {
   const cardAspectRatio = cardAspectRatioForMeta(meta);
   const posterState = posterStateForMeta(meta, posterPreviewState);
@@ -654,6 +755,14 @@ function VibeClipCardPosterOnly({
           <Text style={styles.durationText}>{meta.durationLabel}</Text>
         </View>
       </View>
+      <VibeClipRecoveryPanel
+        meta={meta}
+        isMine={isMine}
+        localRecovery={localRecovery}
+        syncAttemptCount={syncAttemptCount}
+        isSyncingStatus={isSyncingStatus}
+        onManualStatusSync={onManualStatusSync}
+      />
     </View>
   );
 }
@@ -676,10 +785,25 @@ export function VibeClipCard(props: Props) {
   const [playableVideoUrl, setPlayableVideoUrl] = useState(meta.videoUrl);
   const [playableThumbnailUrl, setPlayableThumbnailUrl] = useState(meta.thumbnailUrl ?? null);
   const [syncedProcessingStatus, setSyncedProcessingStatus] = useState<ChatVibeClipProcessingStatus | null>(null);
+  const [syncAttemptCount, setSyncAttemptCount] = useState(0);
+  const [isSyncingStatus, setIsSyncingStatus] = useState(false);
   const [fallbackPosterPreviewState, setFallbackPosterPreviewState] =
     useState<VibeClipPosterPreviewState>('unknown');
   const playbackRefreshAttemptCountRef = useRef(0);
   const posterRefreshAttemptedForRef = useRef<string | null>(null);
+  const statusSyncInFlightRef = useRef(false);
+  const statusSyncRunIdRef = useRef(0);
+  const isMountedRef = useRef(true);
+
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+      statusSyncRunIdRef.current += 1;
+      statusSyncInFlightRef.current = false;
+    };
+  }, []);
+
   useEffect(() => {
     setForceMountPlayer(false);
     setInlinePlayRequestToken(0);
@@ -687,10 +811,14 @@ export function VibeClipCard(props: Props) {
     setPlayableVideoUrl(meta.videoUrl);
     setPlayableThumbnailUrl(meta.thumbnailUrl ?? null);
     setSyncedProcessingStatus(null);
+    setSyncAttemptCount(0);
+    setIsSyncingStatus(false);
     setFallbackPosterPreviewState('unknown');
     playbackRefreshAttemptCountRef.current = 0;
     posterRefreshAttemptedForRef.current = null;
-  }, [meta.processingStatus, meta.thumbnailUrl, meta.videoUrl]);
+    statusSyncRunIdRef.current += 1;
+    statusSyncInFlightRef.current = false;
+  }, [meta.processingStatus, meta.thumbnailUrl, meta.videoUrl, sparkMessageId]);
 
   const processingStatus = syncedProcessingStatus ?? meta.processingStatus;
   const isSyncableServerProcessing =
@@ -702,11 +830,29 @@ export function VibeClipCard(props: Props) {
     let intervalId: ReturnType<typeof setInterval> | undefined;
 
     const syncStatus = async () => {
-      const status = await syncChatVibeClipStatus(sparkMessageId);
-      if (cancelled || !status) return;
-      setSyncedProcessingStatus(status);
-      if (status === 'ready' || status === 'failed') {
-        if (intervalId) clearInterval(intervalId);
+      if (statusSyncInFlightRef.current) return;
+      const runId = statusSyncRunIdRef.current + 1;
+      statusSyncRunIdRef.current = runId;
+      statusSyncInFlightRef.current = true;
+      setIsSyncingStatus(true);
+      try {
+        const status = await syncChatVibeClipStatus(sparkMessageId);
+        if (!cancelled) {
+          setSyncAttemptCount((count) => count + 1);
+          if (status) {
+            setSyncedProcessingStatus(status);
+            if (status === 'ready' || status === 'failed') {
+              if (intervalId) clearInterval(intervalId);
+            }
+          }
+        }
+      } catch {
+        if (!cancelled) setSyncAttemptCount((count) => count + 1);
+      } finally {
+        if (statusSyncRunIdRef.current === runId) {
+          statusSyncInFlightRef.current = false;
+          if (!cancelled) setIsSyncingStatus(false);
+        }
       }
     };
 
@@ -723,6 +869,37 @@ export function VibeClipCard(props: Props) {
       if (intervalId) clearInterval(intervalId);
     };
   }, [isSyncableServerProcessing, sparkMessageId]);
+
+  useEffect(() => {
+    if (!isSyncableServerProcessing) {
+      statusSyncRunIdRef.current += 1;
+      statusSyncInFlightRef.current = false;
+      setIsSyncingStatus(false);
+    }
+  }, [isSyncableServerProcessing]);
+
+  const requestManualStatusSync = useCallback(() => {
+    if (!sparkMessageId || statusSyncInFlightRef.current) return;
+    const runId = statusSyncRunIdRef.current + 1;
+    statusSyncRunIdRef.current = runId;
+    statusSyncInFlightRef.current = true;
+    setIsSyncingStatus(true);
+    void syncChatVibeClipStatus(sparkMessageId)
+      .then((status) => {
+        if (!isMountedRef.current) return;
+        setSyncAttemptCount((count) => count + 1);
+        if (status) setSyncedProcessingStatus(status);
+      })
+      .catch(() => {
+        if (isMountedRef.current) setSyncAttemptCount((count) => count + 1);
+      })
+      .finally(() => {
+        if (statusSyncRunIdRef.current === runId) {
+          statusSyncInFlightRef.current = false;
+          if (isMountedRef.current) setIsSyncingStatus(false);
+        }
+      });
+  }, [sparkMessageId]);
 
   const parentPosterPreviewState =
     playableThumbnailUrl === (meta.thumbnailUrl ?? null) ? posterPreviewState : undefined;
@@ -836,6 +1013,9 @@ export function VibeClipCard(props: Props) {
           setInlinePlayRequestToken((token) => token + 1);
           setForceMountPlayer(true);
         }}
+        syncAttemptCount={syncAttemptCount}
+        isSyncingStatus={isSyncingStatus}
+        onManualStatusSync={requestManualStatusSync}
       />
     );
   }
@@ -849,6 +1029,9 @@ export function VibeClipCard(props: Props) {
         playbackRefreshAttemptCountRef.current = 0;
       }}
       playRequestToken={inlinePlayRequestToken}
+      syncAttemptCount={syncAttemptCount}
+      isSyncingStatus={isSyncingStatus}
+      onManualStatusSync={requestManualStatusSync}
     />
   );
 }
@@ -958,6 +1141,51 @@ const styles = StyleSheet.create({
     fontSize: 10,
     fontWeight: '600',
     fontVariant: ['tabular-nums'],
+  },
+  recoveryPanel: {
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: 'rgba(139,92,246,0.18)',
+    backgroundColor: 'rgba(0,0,0,0.16)',
+    paddingHorizontal: 10,
+    paddingVertical: 9,
+    gap: 8,
+  },
+  recoveryText: {
+    color: 'rgba(255,255,255,0.72)',
+    fontSize: 11,
+    lineHeight: 15,
+  },
+  recoveryActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: 6,
+  },
+  recoveryButton: {
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 999,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(167,139,250,0.42)',
+    backgroundColor: 'rgba(139,92,246,0.18)',
+  },
+  recoveryButtonSecondary: {
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 999,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(255,255,255,0.14)',
+    backgroundColor: 'rgba(255,255,255,0.05)',
+  },
+  recoveryButtonText: {
+    color: 'rgba(245,243,255,0.96)',
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  recoveryButtonSecondaryText: {
+    color: 'rgba(255,255,255,0.76)',
+    fontSize: 11,
+    fontWeight: '700',
   },
   sparkLine: {
     fontSize: 11,

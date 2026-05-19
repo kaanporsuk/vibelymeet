@@ -27,7 +27,7 @@ import { ProfileDetailDrawer } from "@/components/ProfileDetailDrawer";
 import { ChatThreadSkeleton } from "@/components/chat/ChatThreadSkeleton";
 import { VoiceMessageBubble } from "@/components/chat/VoiceMessageBubble";
 import { VideoMessageBubble } from "@/components/chat/VideoMessageBubble";
-import { VibeClipBubble } from "@/components/chat/VibeClipBubble";
+import { VibeClipBubble, type VibeClipLocalRecovery } from "@/components/chat/VibeClipBubble";
 import { MessageStatus } from "@/components/chat/MessageStatus";
 import {
   formatChatImageMessageContent,
@@ -54,6 +54,7 @@ import { useMessages } from "@/hooks/useMessages";
 import { useWebChatOutbox } from "@/contexts/WebChatOutboxContext";
 import { putOutboxBlob, getOutboxBlob } from "@/lib/webChatOutbox/blobIdb";
 import { webOutboxItemsToRows, type OutboxPreviewMap } from "@/lib/webChatOutbox/toChatMessages";
+import type { WebChatOutboxItem } from "@/lib/webChatOutbox/types";
 import { setMessageReaction } from "@/lib/messageReactions";
 import { reactionPairFromRows, type ReactionPair, type MessageReactionRow } from "../../shared/chat/messageReactionModel";
 import { webGamePayloadFromSessionView, type WebHydratedGameSessionView } from "@/lib/webChatGameSessions";
@@ -205,6 +206,42 @@ function mergeServerAndLocalChatMessages(realMsgs: ChatMessage[], localMessages:
 
 type TextMessage = ChatMessage & { type: "text" };
 
+function vibeClipRecoveryForOutboxItem(
+  item: WebChatOutboxItem | undefined,
+  sendError: string | undefined,
+  onResume?: () => void,
+  onDiscardAndSendAgain?: () => void,
+): VibeClipLocalRecovery | null {
+  if (!item || item.payload.kind !== "video") return null;
+  const canResume = item.state === "failed" || item.state === "waiting_for_network";
+  const canDiscard = item.state !== "sending" && item.state !== "awaiting_hydration";
+  const uploadPercent =
+    item.state === "sending" &&
+    typeof item.uploadProgress === "number" &&
+    Number.isFinite(item.uploadProgress)
+      ? Math.max(0, Math.min(100, Math.round(item.uploadProgress * 100)))
+      : null;
+  const stateLabel = sendError ??
+    (uploadPercent != null
+      ? `Uploading ${uploadPercent}%`
+      : item.state === "awaiting_hydration"
+        ? "Uploaded. Waiting for the message to appear."
+        : item.state === "waiting_for_network"
+          ? "Upload paused until you're back online."
+          : item.state === "failed"
+            ? "Upload needs attention."
+            : "Upload is queued.");
+
+  return {
+    stateLabel,
+    error: sendError,
+    canResume,
+    canDiscard,
+    onResume,
+    onDiscardAndSendAgain,
+  };
+}
+
 function VibeClipMessageRow({
   message,
   otherUser,
@@ -220,6 +257,9 @@ function VibeClipMessageRow({
   onResolvedVideoUrl,
   onResolvedThumbnailUrl,
   threadVisualRecede,
+  localOutboxItem,
+  onResumeOutbox,
+  onDiscardOutboxAndSendAgain,
 }: {
   message: ChatMessage & { isFirstInGroup?: boolean; isLastInGroup?: boolean; showAvatar?: boolean };
   otherUser: { avatar_url: string | null } | null;
@@ -235,6 +275,9 @@ function VibeClipMessageRow({
   onResolvedVideoUrl?: (messageId: string, url: string) => void;
   onResolvedThumbnailUrl?: (messageId: string, url: string) => void;
   threadVisualRecede?: boolean;
+  localOutboxItem?: WebChatOutboxItem;
+  onResumeOutbox?: () => void;
+  onDiscardOutboxAndSendAgain?: () => void;
 }) {
   const baseClipMeta = extractVibeClipMeta({
     video_url: message.videoUrl,
@@ -250,6 +293,12 @@ function VibeClipMessageRow({
       }
     : null;
   const isMine = message.sender === "me";
+  const localRecovery = vibeClipRecoveryForOutboxItem(
+    localOutboxItem,
+    message.sendError,
+    onResumeOutbox,
+    onDiscardOutboxAndSendAgain,
+  );
   return (
     <div
       className={cn(
@@ -293,6 +342,7 @@ function VibeClipMessageRow({
             }
             immersiveActive={immersiveVideoUrl === clipMeta.videoUrl}
             threadVisualRecede={threadVisualRecede}
+            localRecovery={localRecovery}
           />
         ) : (
           <VideoMessageBubble
@@ -662,6 +712,11 @@ const Chat = () => {
   );
 
   const outboxMatchItems = webOutbox.itemsForMatch(chatData?.matchId ?? "");
+  const outboxItemsById = useMemo(() => {
+    const map = new Map<string, WebChatOutboxItem>();
+    for (const item of outboxMatchItems) map.set(item.id, item);
+    return map;
+  }, [outboxMatchItems]);
 
   useEffect(() => {
     let cancelled = false;
@@ -2143,6 +2198,18 @@ const Chat = () => {
                   }
                   onReactionPick={(emoji) => handleReaction(groupedMessage.id, emoji)}
                   threadVisualRecede={mediaRecede}
+                  localOutboxItem={groupedMessage.outboxItemId ? outboxItemsById.get(groupedMessage.outboxItemId) : undefined}
+                  onResumeOutbox={
+                    groupedMessage.outboxItemId ? () => webOutbox.retry(groupedMessage.outboxItemId!) : undefined
+                  }
+                  onDiscardOutboxAndSendAgain={
+                    groupedMessage.outboxItemId
+                      ? () => {
+                          webOutbox.remove(groupedMessage.outboxItemId!);
+                          openVibeClipOptions();
+                        }
+                      : undefined
+                  }
                 />
               ) : groupedMessage.type === "video" ? (
                 <div
@@ -2415,7 +2482,10 @@ const Chat = () => {
               exit={{ opacity: 0, y: 8 }}
               className="px-2 py-1"
             >
-              <div className="max-w-2xl mx-auto grid grid-cols-3 gap-1.5 rounded-2xl border border-border/40 bg-background/92 p-1.5 shadow-lg shadow-black/15 backdrop-blur-md">
+              <div
+                className="max-w-2xl mx-auto grid grid-cols-3 gap-1.5 rounded-2xl border border-border/40 bg-background/92 p-1.5 shadow-lg shadow-black/15 backdrop-blur-md"
+                data-testid="chat-attachment-tray"
+              >
                 <button
                   type="button"
                   onClick={openPhotoPicker}
@@ -2423,6 +2493,7 @@ const Chat = () => {
                   className="h-9 rounded-xl bg-secondary/45 text-xs font-medium text-foreground/90 transition-colors hover:bg-secondary/70 disabled:pointer-events-none disabled:opacity-45 inline-flex items-center justify-center gap-1.5"
                   aria-label="Add photo"
                   title="Add photo"
+                  data-testid="chat-add-photo"
                 >
                   {sendingPhoto ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Camera className="h-3.5 w-3.5" />}
                   Photo
@@ -2434,6 +2505,7 @@ const Chat = () => {
                   className="h-9 rounded-xl bg-violet-500/14 text-xs font-medium text-violet-100 transition-colors hover:bg-violet-500/24 disabled:pointer-events-none disabled:opacity-45 inline-flex items-center justify-center gap-1.5"
                   aria-label={VIBE_CLIP_CHAT_FILM_BUTTON_TITLE}
                   title={VIBE_CLIP_CHAT_FILM_BUTTON_TITLE}
+                  data-testid="chat-add-vibe-clip"
                 >
                   <Film className="h-3.5 w-3.5" />
                   Clip
@@ -2445,6 +2517,7 @@ const Chat = () => {
                   className="h-9 rounded-xl bg-secondary/45 text-xs font-medium text-foreground/90 transition-colors hover:bg-secondary/70 disabled:pointer-events-none disabled:opacity-45 inline-flex items-center justify-center gap-1.5"
                   aria-label="Vibely schedule"
                   title="Vibely schedule"
+                  data-testid="chat-share-schedule"
                 >
                   <CalendarDays className="h-3.5 w-3.5 text-cyan-300" />
                   Schedule
@@ -2482,6 +2555,7 @@ const Chat = () => {
                 aria-label={showAttachmentTray ? "Close attachments" : "Open attachments"}
                 aria-expanded={showAttachmentTray}
                 title={showAttachmentTray ? "Close attachments" : "Attachments"}
+                data-testid="chat-attachment-toggle"
               >
                 {showAttachmentTray ? <X className="w-4 h-4" aria-hidden /> : <Plus className="w-4 h-4" aria-hidden />}
               </motion.button>

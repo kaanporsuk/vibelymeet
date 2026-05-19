@@ -10,6 +10,15 @@ import {
   updateChatVibeClipStatusByProvider,
 } from "../_shared/chat-vibe-clips.ts";
 
+function logSyncTransition(event: string, fields: Record<string, unknown> = {}) {
+  console.info(JSON.stringify({
+    scope: "chat_vibe_clip_upload",
+    function: "sync-chat-vibe-clip-status",
+    event,
+    ...fields,
+  }));
+}
+
 async function getAuthedUser(req: Request) {
   const authHeader = req.headers.get("Authorization");
   if (!authHeader?.startsWith("Bearer ")) return null;
@@ -70,6 +79,12 @@ serve(async (req) => {
     if (!isUuid(uploadId) && !isUuid(messageId) && !isUuid(clientRequestId)) {
       return jsonResponse(req, { success: false, error: "invalid_request" }, { status: 400 });
     }
+    logSyncTransition("request_validated", {
+      upload_id: isUuid(uploadId) ? uploadId : null,
+      message_id: isUuid(messageId) ? messageId : null,
+      client_request_id: isUuid(clientRequestId) ? clientRequestId : null,
+      requester_id: user.id,
+    });
 
     const admin = getAdminClient();
     let query = admin.from("chat_vibe_clip_uploads").select("*").limit(1);
@@ -78,15 +93,77 @@ serve(async (req) => {
     else query = query.eq("sender_id", user.id).eq("client_request_id", clientRequestId);
 
     const { data, error } = await query.maybeSingle();
-    if (error) return jsonResponse(req, { success: false, error: error.message }, { status: 500 });
-    if (!data) return jsonResponse(req, { success: false, error: "upload_not_found" }, { status: 404 });
+    if (error) {
+      logSyncTransition("upload_lookup_failed", {
+        upload_id: isUuid(uploadId) ? uploadId : null,
+        message_id: isUuid(messageId) ? messageId : null,
+        client_request_id: isUuid(clientRequestId) ? clientRequestId : null,
+        requester_id: user.id,
+        error: error.message,
+      });
+      return jsonResponse(req, { success: false, error: error.message }, { status: 500 });
+    }
+    if (!data) {
+      logSyncTransition("upload_not_found", {
+        upload_id: isUuid(uploadId) ? uploadId : null,
+        message_id: isUuid(messageId) ? messageId : null,
+        client_request_id: isUuid(clientRequestId) ? clientRequestId : null,
+        requester_id: user.id,
+      });
+      return jsonResponse(req, { success: false, error: "upload_not_found" }, { status: 404 });
+    }
     const upload = data as ChatVibeClipUploadRow;
+    logSyncTransition("upload_loaded", {
+      upload_id: upload.id,
+      client_request_id: upload.client_request_id,
+      match_id: upload.match_id,
+      sender_id: upload.sender_id,
+      requester_id: user.id,
+      provider_object_id: upload.provider_object_id,
+      media_asset_id: upload.media_asset_id ?? null,
+      status: upload.status,
+      published_message_id: upload.published_message_id ?? null,
+    });
 
     const canRead = upload.sender_id === user.id ||
       (upload.published_message_id ? await userCanReadMessage(admin, user.id, upload.published_message_id) : false);
-    if (!canRead) return jsonResponse(req, { success: false, error: "not_found" }, { status: 404 });
+    if (!canRead) {
+      logSyncTransition("read_scope_rejected", {
+        upload_id: upload.id,
+        client_request_id: upload.client_request_id,
+        match_id: upload.match_id,
+        sender_id: upload.sender_id,
+        requester_id: user.id,
+        provider_object_id: upload.provider_object_id,
+        media_asset_id: upload.media_asset_id ?? null,
+        status: upload.status,
+      });
+      return jsonResponse(req, { success: false, error: "not_found" }, { status: 404 });
+    }
+    logSyncTransition("read_scope_verified", {
+      upload_id: upload.id,
+      client_request_id: upload.client_request_id,
+      match_id: upload.match_id,
+      sender_id: upload.sender_id,
+      requester_id: user.id,
+      provider_object_id: upload.provider_object_id,
+      media_asset_id: upload.media_asset_id ?? null,
+      status: upload.status,
+    });
 
     const bunny = await readBunnyStatus(upload.provider_object_id);
+    logSyncTransition("bunny_status_read", {
+      upload_id: upload.id,
+      client_request_id: upload.client_request_id,
+      match_id: upload.match_id,
+      sender_id: upload.sender_id,
+      requester_id: user.id,
+      provider_object_id: upload.provider_object_id,
+      media_asset_id: upload.media_asset_id ?? null,
+      previous_status: upload.status,
+      mapped_status: bunny.status,
+      raw_status: typeof bunny.rawStatus === "number" ? bunny.rawStatus : null,
+    });
     const update = await updateChatVibeClipStatusByProvider(
       admin,
       upload.provider_object_id,
@@ -94,7 +171,33 @@ serve(async (req) => {
       bunny.status === "failed" ? `bunny_status_${bunny.rawStatus ?? "unknown"}` : null,
       { publishIfProcessing: bunny.rawStatus === 7 && upload.sender_id === user.id },
     );
-    if (update.error) return jsonResponse(req, { success: false, error: update.error }, { status: 500 });
+    if (update.error) {
+      logSyncTransition("status_update_failed", {
+        upload_id: upload.id,
+        client_request_id: upload.client_request_id,
+        match_id: upload.match_id,
+        sender_id: upload.sender_id,
+        requester_id: user.id,
+        provider_object_id: upload.provider_object_id,
+        media_asset_id: upload.media_asset_id ?? null,
+        mapped_status: bunny.status,
+        raw_status: typeof bunny.rawStatus === "number" ? bunny.rawStatus : null,
+        error: update.error,
+      });
+      return jsonResponse(req, { success: false, error: update.error }, { status: 500 });
+    }
+    logSyncTransition("status_update_succeeded", {
+      upload_id: upload.id,
+      client_request_id: upload.client_request_id,
+      match_id: upload.match_id,
+      sender_id: upload.sender_id,
+      requester_id: user.id,
+      provider_object_id: upload.provider_object_id,
+      media_asset_id: upload.media_asset_id ?? null,
+      mapped_status: bunny.status,
+      raw_status: typeof bunny.rawStatus === "number" ? bunny.rawStatus : null,
+      message_id: update.messageId ?? upload.published_message_id ?? null,
+    });
 
     return jsonResponse(req, {
       success: true,

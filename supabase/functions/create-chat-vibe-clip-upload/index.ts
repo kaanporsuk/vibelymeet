@@ -17,6 +17,15 @@ function stringValue(value: unknown): string | null {
   return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
+function logCreateTransition(event: string, fields: Record<string, unknown> = {}) {
+  console.info(JSON.stringify({
+    scope: "chat_vibe_clip_upload",
+    function: "create-chat-vibe-clip-upload",
+    event,
+    ...fields,
+  }));
+}
+
 async function getAuthedUser(req: Request) {
   const authHeader = req.headers.get("Authorization");
   if (!authHeader?.startsWith("Bearer ")) return null;
@@ -37,7 +46,66 @@ async function deleteCreatedVideoQuiet(libraryId: string, apiKey: string, videoI
       headers: { AccessKey: apiKey },
     });
   } catch {
-    // Durable orphan cleanup can be added later; creation failure path should not block response.
+    // Best-effort provider cleanup fallback should not block response.
+  }
+}
+
+async function queueCreatedVideoOrphanCleanup(
+  admin: ReturnType<typeof getAdminClient>,
+  assetId: string,
+  reason: string,
+): Promise<boolean> {
+  const now = new Date().toISOString();
+  try {
+    const { data: markedAsset, error: updateError } = await admin
+      .from("media_assets")
+      .update({
+        status: "purge_ready",
+        deleted_at: now,
+        purge_after: now,
+        last_error: reason,
+        legacy_table: "chat_vibe_clip_uploads",
+        legacy_id: reason,
+      })
+      .eq("id", assetId)
+      .in("status", ["uploading", "soft_deleted", "failed"])
+      .select("id")
+      .maybeSingle();
+    if (updateError) {
+      logCreateTransition("media_asset_orphan_mark_failed", {
+        media_asset_id: assetId,
+        error: updateError.message,
+        reason,
+      });
+      return false;
+    }
+    if (!markedAsset?.id) {
+      logCreateTransition("media_asset_orphan_mark_skipped", {
+        media_asset_id: assetId,
+        reason,
+      });
+      return false;
+    }
+
+    const { data, error } = await admin.rpc("enqueue_media_delete", {
+      p_asset_id: assetId,
+      p_job_type: "orphan_sweep",
+    });
+    const result = data as Record<string, unknown> | null;
+    const success = !error && result?.success === true;
+    logCreateTransition(success ? "media_asset_orphan_delete_queued" : "media_asset_orphan_delete_queue_failed", {
+      media_asset_id: assetId,
+      error: error?.message ?? (typeof result?.error === "string" ? result.error : null),
+      reason,
+    });
+    return success;
+  } catch (error) {
+    logCreateTransition("media_asset_orphan_cleanup_failed", {
+      media_asset_id: assetId,
+      error: error instanceof Error ? error.message : "orphan_cleanup_failed",
+      reason,
+    });
+    return false;
   }
 }
 
@@ -68,19 +136,43 @@ serve(async (req) => {
     if (!input.ok || !matchId || !clientRequestId) {
       return jsonResponse(req, { success: false, error: input.ok ? "invalid_request" : input.error }, { status: 400 });
     }
+    logCreateTransition("request_validated", {
+      client_request_id: clientRequestId,
+      match_id: matchId,
+      sender_id: user.id,
+      source_bytes: input.sourceBytes,
+      mime_type: input.mimeType,
+      duration_ms: input.durationMs,
+    });
 
     const config = getChatStreamConfig();
     if (!config) {
+      logCreateTransition("missing_stream_config", {
+        client_request_id: clientRequestId,
+        match_id: matchId,
+        sender_id: user.id,
+      });
       return jsonResponse(req, { success: false, error: "missing_bunny_chat_stream_config" }, { status: 503 });
     }
 
     const admin = getAdminClient();
     const matchCheck = await verifyChatVibeClipMatch(admin, matchId, user.id);
     if (!matchCheck.ok) {
+      logCreateTransition("match_scope_rejected", {
+        client_request_id: clientRequestId,
+        match_id: matchId,
+        sender_id: user.id,
+        error: matchCheck.error,
+      });
       return jsonResponse(req, { success: false, error: matchCheck.error }, {
         status: matchCheck.error === "blocked_pair" ? 403 : 400,
       });
     }
+    logCreateTransition("match_scope_verified", {
+      client_request_id: clientRequestId,
+      match_id: matchId,
+      sender_id: user.id,
+    });
 
     const existing = await admin
       .from("chat_vibe_clip_uploads")
@@ -89,6 +181,12 @@ serve(async (req) => {
       .eq("client_request_id", clientRequestId)
       .maybeSingle();
     if (existing.error) {
+      logCreateTransition("existing_lookup_failed", {
+        client_request_id: clientRequestId,
+        match_id: matchId,
+        sender_id: user.id,
+        error: existing.error.message,
+      });
       return jsonResponse(req, { success: false, error: existing.error.message }, { status: 500 });
     }
 
@@ -99,12 +197,30 @@ serve(async (req) => {
 
     if (existing.data) {
       if (existing.data.match_id !== matchId) {
+        logCreateTransition("client_request_id_conflict", {
+          client_request_id: clientRequestId,
+          requested_match_id: matchId,
+          existing_match_id: existing.data.match_id,
+          upload_id: existing.data.id,
+          provider_object_id: existing.data.provider_object_id,
+          media_asset_id: existing.data.media_asset_id ?? null,
+          status: existing.data.status ?? null,
+        });
         return jsonResponse(req, { success: false, error: "client_request_id_conflict" }, { status: 409 });
       }
       uploadId = existing.data.id;
       videoId = existing.data.provider_object_id;
       assetId = existing.data.media_asset_id ?? null;
       status = existing.data.status ?? "uploading";
+      logCreateTransition("upload_session_reused", {
+        client_request_id: clientRequestId,
+        match_id: matchId,
+        sender_id: user.id,
+        upload_id: uploadId,
+        provider_object_id: videoId,
+        media_asset_id: assetId,
+        status,
+      });
     } else {
       const title = `chat-vibe-${matchId}-${clientRequestId}`;
       const createBody: Record<string, unknown> = { title };
@@ -119,12 +235,31 @@ serve(async (req) => {
         body: JSON.stringify(createBody),
       });
       if (!bunnyCreate.ok) {
+        logCreateTransition("bunny_video_create_failed", {
+          client_request_id: clientRequestId,
+          match_id: matchId,
+          sender_id: user.id,
+          provider_http_status: bunnyCreate.status,
+        });
         return jsonResponse(req, { success: false, error: "bunny_create_failed" }, { status: 502 });
       }
 
       const bunnyPayload = await bunnyCreate.json().catch(() => null) as { guid?: unknown } | null;
       videoId = typeof bunnyPayload?.guid === "string" ? bunnyPayload.guid : "";
-      if (!videoId) return jsonResponse(req, { success: false, error: "bunny_create_invalid_response" }, { status: 502 });
+      if (!videoId) {
+        logCreateTransition("bunny_video_create_invalid_response", {
+          client_request_id: clientRequestId,
+          match_id: matchId,
+          sender_id: user.id,
+        });
+        return jsonResponse(req, { success: false, error: "bunny_create_invalid_response" }, { status: 502 });
+      }
+      logCreateTransition("bunny_video_created", {
+        client_request_id: clientRequestId,
+        match_id: matchId,
+        sender_id: user.id,
+        provider_object_id: videoId,
+      });
 
       const registered = await registerMediaAsset(admin, {
         provider: PROVIDERS.BUNNY_STREAM,
@@ -139,9 +274,24 @@ serve(async (req) => {
       });
       if (!registered.success || !registered.assetId) {
         await deleteCreatedVideoQuiet(config.libraryId, config.apiKey, videoId);
+        logCreateTransition("media_asset_register_failed", {
+          client_request_id: clientRequestId,
+          match_id: matchId,
+          sender_id: user.id,
+          provider_object_id: videoId,
+          error: registered.error ?? "asset_register_failed",
+        });
         return jsonResponse(req, { success: false, error: registered.error ?? "asset_register_failed" }, { status: 500 });
       }
       assetId = registered.assetId;
+      logCreateTransition("media_asset_registered", {
+        client_request_id: clientRequestId,
+        match_id: matchId,
+        sender_id: user.id,
+        provider_object_id: videoId,
+        media_asset_id: assetId,
+        status: "uploading",
+      });
 
       const aspectRatioRaw = body.aspect_ratio;
       const aspectRatio =
@@ -167,11 +317,35 @@ serve(async (req) => {
         .select("id,status")
         .single();
       if (inserted.error || !inserted.data) {
-        await deleteCreatedVideoQuiet(config.libraryId, config.apiKey, videoId);
+        const cleanupQueued = await queueCreatedVideoOrphanCleanup(
+          admin,
+          assetId,
+          "chat_vibe_clip_upload_session_create_failed",
+        );
+        if (!cleanupQueued) await deleteCreatedVideoQuiet(config.libraryId, config.apiKey, videoId);
+        logCreateTransition("upload_session_create_failed", {
+          client_request_id: clientRequestId,
+          match_id: matchId,
+          sender_id: user.id,
+          provider_object_id: videoId,
+          media_asset_id: assetId,
+          cleanup_queued: cleanupQueued,
+          error: inserted.error?.message ?? "upload_session_create_failed",
+        });
         return jsonResponse(req, { success: false, error: inserted.error?.message ?? "upload_session_create_failed" }, { status: 500 });
       }
       uploadId = inserted.data.id;
       status = inserted.data.status;
+      logCreateTransition("upload_session_created", {
+        client_request_id: clientRequestId,
+        match_id: matchId,
+        sender_id: user.id,
+        upload_id: uploadId,
+        provider_object_id: videoId,
+        media_asset_id: assetId,
+        status,
+        expires_at: expiresAt,
+      });
     }
 
     const expirationTime = Math.floor(Date.now() / 1000) + CHAT_VIBE_CLIP_TUS_TTL_SECONDS;
@@ -180,6 +354,16 @@ serve(async (req) => {
       apiKey: config.apiKey,
       expirationTime,
       videoId,
+    });
+    logCreateTransition("tus_credentials_issued", {
+      client_request_id: clientRequestId,
+      match_id: matchId,
+      sender_id: user.id,
+      upload_id: uploadId,
+      provider_object_id: videoId,
+      media_asset_id: assetId,
+      status,
+      expiration_time: expirationTime,
     });
 
     return jsonResponse(req, {
