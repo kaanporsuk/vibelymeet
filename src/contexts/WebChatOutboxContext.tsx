@@ -22,6 +22,7 @@ import {
 import { syncChatVibeClipUploadStatus } from "@/lib/chatMediaResolver";
 import { isLikelyNetworkFailure, outboxFailureUserMessage } from "@/lib/webChatOutbox/network";
 import { invalidateAfterThreadMutation } from "@/hooks/useMessages";
+import { useFeatureFlag } from "@/hooks/useFeatureFlag";
 import type { WebChatOutboxItem, WebChatOutboxPayload, WebChatOutboxQueueState } from "@/lib/webChatOutbox/types";
 import type { ThreadInvalidateScope } from "../../shared/chat/queryKeys";
 
@@ -102,6 +103,7 @@ const WebChatOutboxContext = createContext<WebChatOutboxContextValue | null>(nul
 export function WebChatOutboxProvider({ children }: { children: ReactNode }) {
   const { user } = useUserProfile();
   const userId = user?.id ?? null;
+  const mediaV2Video = useFeatureFlag("media_v2_video");
   const [items, setItems] = useState<WebChatOutboxItem[]>([]);
   const itemsRef = useRef(items);
   const processingRef = useRef<Set<string>>(new Set());
@@ -385,6 +387,7 @@ export function WebChatOutboxProvider({ children }: { children: ReactNode }) {
                 ),
               );
             },
+            { mediaV2VideoEnabled: mediaV2Video.enabled },
           );
           const successAtMs = Date.now();
           setItems((prev) =>
@@ -437,7 +440,7 @@ export function WebChatOutboxProvider({ children }: { children: ReactNode }) {
         }
       }
     },
-    [userId],
+    [mediaV2Video.enabled, userId],
   );
 
   const value = useMemo<WebChatOutboxContextValue>(

@@ -7,6 +7,7 @@ import {
   completePublishedChatVibeClipUpload,
   uploadAndPublishChatVibeClipToBunnyStream,
 } from "@/services/chatVibeClipStreamUploadService";
+import { uploadAndPublishChatVibeClipWithMediaSdk } from "@/lib/mediaSdk/webVideoUploads";
 import { uploadImageToBunny } from "@/services/imageUploadService";
 import { formatChatImageMessageContent } from "@/lib/chatMessageContent";
 import { invalidateAfterThreadMutation } from "@/hooks/useMessages";
@@ -141,6 +142,7 @@ export async function executeWebOutboxItem(
   item: WebChatOutboxItem,
   queryClient: QueryClient,
   onUploadProgress?: (fraction: number) => void,
+  options: { mediaV2VideoEnabled?: boolean } = {},
 ): Promise<{ serverMessageId: string; uploadedPublicUrl?: string; uploadedMediaUrl?: string }> {
   const { id: clientRequestId, matchId, userId, payload } = item;
   const scope = item.invalidateScope;
@@ -217,14 +219,17 @@ export async function executeWebOutboxItem(
           type: mimeType,
         });
         try {
-          uploaded = await uploadAndPublishChatVibeClipToBunnyStream({
+          const uploadParams = {
             matchId,
             clientRequestId,
             file,
             durationMs: Math.round(payload.durationSeconds * 1000),
             aspectRatio: payload.aspectRatio,
             onProgress: onUploadProgress,
-          });
+          };
+          uploaded = options.mediaV2VideoEnabled
+            ? await uploadAndPublishChatVibeClipWithMediaSdk(uploadParams)
+            : await uploadAndPublishChatVibeClipToBunnyStream(uploadParams);
         } catch (error) {
           if (error instanceof ChatVibeClipUploadedButUnpublishedError) {
             uploadedMediaUrl = error.playbackRef;

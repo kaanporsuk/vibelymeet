@@ -25,6 +25,7 @@ const webVibeClipBubble = read("src/components/chat/VibeClipBubble.tsx");
 const webVideoBubble = read("src/components/chat/VideoMessageBubble.tsx");
 const webVideoLightbox = read("src/components/chat/ChatVideoLightbox.tsx");
 const webStreamUpload = read("src/services/chatVibeClipStreamUploadService.ts");
+const webMediaSdkVideoUploads = read("src/lib/mediaSdk/webVideoUploads.ts");
 const nativeChat = read("apps/mobile/app/chat/[id].tsx");
 const nativePhotoOptions = read("apps/mobile/components/chat/PhotoSendOptionsSheet.tsx");
 const nativePhotoCamera = read("apps/mobile/components/chat/ChatPhotoCameraModal.tsx");
@@ -32,6 +33,7 @@ const nativeVibeClipCard = read("apps/mobile/components/chat/VibeClipCard.tsx");
 const nativeUpload = read("apps/mobile/lib/chatMediaUpload.ts");
 const nativeOutboxExecute = read("apps/mobile/lib/chatOutbox/execute.ts");
 const nativeStreamUpload = read("apps/mobile/lib/chatVibeClipStreamUpload.ts");
+const nativeMediaSdkVideoUploads = read("apps/mobile/lib/mediaSdk/nativeVideoUploads.ts");
 const nativeMediaCache = read("apps/mobile/lib/chatOutbox/mediaCache.ts");
 const nativeOutboxContext = read("apps/mobile/lib/chatOutbox/ChatOutboxContext.tsx");
 const nativeChatMediaResolver = read("apps/mobile/lib/chatMediaResolver.ts");
@@ -265,6 +267,41 @@ test("web queue and upload preserve validated library video metadata", () => {
   assert.equal(existsSync(join(root, "src/services/chatVideoUploadService.ts")), false);
   assert.match(webUploadMime, /"video\/mov": "video\/quicktime"/);
   assert.match(webUploadMime, /"video\/m4v": "video\/x-m4v"/);
+});
+
+test("Chat Vibe Clip media v2 cutover stays flag-gated at the durable outbox boundary", () => {
+  assert.match(webOutboxContext, /useFeatureFlag\("media_v2_video"\)/);
+  assert.match(webOutboxContext, /mediaV2VideoEnabled: mediaV2Video\.enabled/);
+  assert.match(webOutboxExecute, /options: \{ mediaV2VideoEnabled\?: boolean \} = \{\}/);
+  assert.match(webOutboxExecute, /uploadAndPublishChatVibeClipWithMediaSdk/);
+  assert.match(webOutboxExecute, /options\.mediaV2VideoEnabled[\s\S]{0,140}uploadAndPublishChatVibeClipWithMediaSdk\(uploadParams\)[\s\S]{0,140}uploadAndPublishChatVibeClipToBunnyStream\(uploadParams\)/);
+  assert.match(webOutboxExecute, /isBunnyStreamPlaybackRef\(item\.uploadedMediaUrl\)[\s\S]{0,160}completePublishedChatVibeClipUpload/);
+
+  assert.match(nativeOutboxContext, /useFeatureFlag\('media_v2_video'\)/);
+  assert.match(nativeOutboxContext, /mediaV2VideoEnabled: mediaV2Video\.enabled/);
+  assert.match(nativeOutboxExecute, /options: \{ mediaV2VideoEnabled\?: boolean \} = \{\}/);
+  assert.match(nativeOutboxExecute, /uploadAndPublishChatVibeClipWithMediaSdk/);
+  assert.match(nativeOutboxExecute, /options\.mediaV2VideoEnabled[\s\S]{0,140}uploadAndPublishChatVibeClipWithMediaSdk\(uploadParams\)[\s\S]{0,140}uploadAndPublishChatVibeClipToBunnyStream\(uploadParams\)/);
+  assert.match(nativeOutboxExecute, /isBunnyStreamPlaybackRef\(item\.uploadedMediaUrl\)[\s\S]{0,160}completePublishedChatVibeClipUpload/);
+
+  assert.match(webMediaSdkVideoUploads, /uploadChatVibeClip: uploadWebChatVibeClipViaLegacyService/);
+  assert.match(webMediaSdkVideoUploads, /uploadAndPublishChatVibeClipToBunnyStream\(\{/);
+  assert.match(webMediaSdkVideoUploads, /chatClipResultsByClientRequestId/);
+  assert.match(webMediaSdkVideoUploads, /chatClipErrorsByClientRequestId/);
+  assert.match(webMediaSdkVideoUploads, /chatClipProgressByClientRequestId/);
+  assert.match(webMediaSdkVideoUploads, /function fileFromWebVideoSource\(source: File \| Blob\): File/);
+  assert.match(webMediaSdkVideoUploads, /web_media_file_constructor_missing/);
+  assert.doesNotMatch(webMediaSdkVideoUploads, /: new File\(\[input\.source\]/);
+  assert.match(webMediaSdkVideoUploads, /controls\.dispatch\(\{[\s\S]{0,80}type: "ready"/);
+  assert.match(webMediaSdkVideoUploads, /waitForTaskTerminal/);
+
+  assert.match(nativeMediaSdkVideoUploads, /uploadChatVibeClip: uploadNativeChatVibeClipViaLegacyService/);
+  assert.match(nativeMediaSdkVideoUploads, /uploadAndPublishChatVibeClipToBunnyStream\(\{/);
+  assert.match(nativeMediaSdkVideoUploads, /chatClipResultsByClientRequestId/);
+  assert.match(nativeMediaSdkVideoUploads, /chatClipErrorsByClientRequestId/);
+  assert.match(nativeMediaSdkVideoUploads, /chatClipProgressByClientRequestId/);
+  assert.match(nativeMediaSdkVideoUploads, /controls\.dispatch\(\{[\s\S]{0,80}type: 'ready'/);
+  assert.match(nativeMediaSdkVideoUploads, /waitForTaskTerminal/);
 });
 
 test("web chat image outbox no longer invents JPEG declarations", () => {

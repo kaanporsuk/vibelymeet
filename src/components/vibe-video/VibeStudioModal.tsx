@@ -10,10 +10,11 @@ import {
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
-import { heroVideoStart } from "@/lib/heroVideo/heroVideoUploadController";
 import { trackEvent } from "@/lib/analytics";
 import { trackVibeVideoEvent, VIBE_VIDEO_EVENTS } from "@/lib/vibeVideo/vibeVideoTelemetry";
 import { MAX_VIBE_CAPTION_LEN, MAX_VIBE_VIDEO_DURATION_S } from "@/lib/vibeVideo/constants";
+import { useFeatureFlag } from "@/hooks/useFeatureFlag";
+import { startWebVibeVideoUpload } from "@/lib/mediaSdk/webVideoUploads";
 
 interface VibeStudioModalProps {
   open: boolean;
@@ -82,6 +83,7 @@ export const VibeStudioModal = ({
   const fileInputRef = useRef<HTMLInputElement>(null);
   // Store detected mimeType for use in onstop
   const detectedMimeTypeRef = useRef<string | null>(null);
+  const mediaV2Video = useFeatureFlag("media_v2_video");
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -272,7 +274,6 @@ export const VibeStudioModal = ({
 
     const mimeType = preferredTypes.find((t) => MediaRecorder.isTypeSupported(t));
     detectedMimeTypeRef.current = mimeType || null;
-    console.log('[VibeVideo] Selected mimeType:', mimeType);
 
     try {
       const mediaRecorder = new MediaRecorder(streamRef.current, mimeType ? { mimeType } : undefined);
@@ -288,12 +289,6 @@ export const VibeStudioModal = ({
         const blobType = detectedType?.startsWith("video/") ? detectedType.split(";")[0] : "video/webm";
         const blob = new Blob(chunksRef.current, { type: blobType });
         const url = URL.createObjectURL(blob);
-        console.log('[VibeVideo] Recording complete. Stream tracks:', {
-          video: streamRef.current?.getVideoTracks().length,
-          audio: streamRef.current?.getAudioTracks().length,
-          mimeType: detectedType,
-          blobSize: blob.size
-        });
         setRecordedBlob(blob);
         setRecordedVideoUrl(url);
         setStage("preview");
@@ -378,7 +373,12 @@ export const VibeStudioModal = ({
         had_existing_caption: existingTrimmed.length > 0,
       });
     }
-    heroVideoStart(file, captionForUpload, uploadContext);
+    startWebVibeVideoUpload({
+      source: file,
+      caption: captionForUpload,
+      context: uploadContext,
+      mediaV2VideoEnabled: mediaV2Video.enabled,
+    });
     onConfirmed?.();
 
     // Close modal immediately — user returns to You page while upload runs in background
@@ -393,7 +393,7 @@ export const VibeStudioModal = ({
     setCaptionEdited(false);
 
     trackEvent('vibe_video_confirmed');
-  }, [recordedBlob, uploadedFile, recordedVideoUrl, vibeCaption, captionEdited, uploadContext, onConfirmed, onOpenChange, stopCameraTracks, existingCaption, hasExistingVideo, existingVideoUrl]);
+  }, [recordedBlob, uploadedFile, recordedVideoUrl, vibeCaption, captionEdited, uploadContext, mediaV2Video.enabled, onConfirmed, onOpenChange, stopCameraTracks, existingCaption, hasExistingVideo, existingVideoUrl]);
 
   const handleClose = useCallback(() => {
     onOpenChange(false);

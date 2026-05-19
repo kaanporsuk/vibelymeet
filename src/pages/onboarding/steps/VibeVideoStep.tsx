@@ -2,9 +2,10 @@ import { useRef, useState } from "react";
 import { Video } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
-import { heroVideoStart } from "@/lib/heroVideo/heroVideoUploadController";
 import VibeStudioModal from "@/components/vibe-video/VibeStudioModal";
 import { MAX_VIBE_VIDEO_DURATION_S } from "@/lib/vibeVideo/constants";
+import { useFeatureFlag } from "@/hooks/useFeatureFlag";
+import { startWebVibeVideoUpload } from "@/lib/mediaSdk/webVideoUploads";
 
 interface VibeVideoStepProps {
   onNext: () => void;
@@ -15,6 +16,7 @@ interface VibeVideoStepProps {
 export const VibeVideoStep = ({ onNext, onSkip, onVideoStarted }: VibeVideoStepProps) => {
   const fileRef = useRef<HTMLInputElement>(null);
   const [showRecorder, setShowRecorder] = useState(false);
+  const mediaV2Video = useFeatureFlag("media_v2_video");
 
   const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -44,8 +46,12 @@ export const VibeVideoStep = ({ onNext, onSkip, onVideoStarted }: VibeVideoStepP
       // Can't read duration — allow; Bunny will enforce server-side
     }
 
-    // Hand off to controller — upload runs in the background.
-    heroVideoStart(file, undefined, "onboarding");
+    // Hand off to SDK/controller — upload runs in the background.
+    startWebVibeVideoUpload({
+      source: file,
+      context: "onboarding",
+      mediaV2VideoEnabled: mediaV2Video.enabled,
+    });
     onVideoStarted?.();
     onNext();
   };

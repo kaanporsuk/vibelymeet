@@ -44,6 +44,8 @@ export interface NativeHeroVideoControllerState {
   phase: NativeHeroVideoPhase;
   /** 0–100 during uploading; 100 after tus success */
   uploadProgress: number;
+  /** Active upload idempotency key; null for profile-resumed/background-only polls. */
+  clientRequestId: string | null;
   /** Set once credentials are returned */
   videoId: string | null;
   errorMessage: string | null;
@@ -67,6 +69,7 @@ const PROCESSING_POLL_MAX_ATTEMPTS = 36;
 let _state: NativeHeroVideoControllerState = {
   phase: 'idle',
   uploadProgress: 0,
+  clientRequestId: null,
   videoId: null,
   errorMessage: null,
 };
@@ -219,6 +222,7 @@ function _beginStatusPoll(options: {
   _setState({
     phase,
     uploadProgress: phase === 'processing' ? 100 : _state.uploadProgress,
+    clientRequestId: source === 'upload_complete' ? _state.clientRequestId : null,
     videoId,
     errorMessage: null,
   });
@@ -282,7 +286,7 @@ function _beginStatusPoll(options: {
         resume_source: source,
       });
     } else if (result === 'superseded') {
-      _setState({ phase: 'idle', uploadProgress: 0, videoId: null, errorMessage: null });
+      _setState({ phase: 'idle', uploadProgress: 0, clientRequestId: null, videoId: null, errorMessage: null });
     } else if (result !== 'aborted') {
       _setState({
         phase: 'stalled',
@@ -377,14 +381,20 @@ export function nativeHeroVideoResumePollingForProfile(
   if (profilePhase.kind === 'none') {
     if (_state.phase === 'stalled' || _state.phase === 'processing' || _state.phase === 'uploading') {
       _abortPoll();
-      _setState({ phase: 'idle', uploadProgress: 0, videoId: null, errorMessage: null });
+      _setState({ phase: 'idle', uploadProgress: 0, clientRequestId: null, videoId: null, errorMessage: null });
     }
     return false;
   }
 
   if (profilePhase.kind === 'ready') {
     _abortPoll();
-    _setState({ phase: 'ready', uploadProgress: 100, videoId: profilePhase.videoId, errorMessage: null });
+    _setState({
+      phase: 'ready',
+      uploadProgress: 100,
+      clientRequestId: null,
+      videoId: profilePhase.videoId,
+      errorMessage: null,
+    });
     _invalidateProfile();
     return false;
   }
@@ -394,6 +404,7 @@ export function nativeHeroVideoResumePollingForProfile(
     _setState({
       phase: 'failed',
       uploadProgress: 100,
+      clientRequestId: null,
       videoId: profilePhase.videoId,
       errorMessage: 'Processing did not complete. Try uploading again.',
     });
@@ -435,6 +446,17 @@ export function nativeHeroVideoStart(
   context?: 'onboarding' | 'profile_studio',
   uploadSource?: VibeVideoUploadSource,
 ): void {
+  nativeHeroVideoStartWithClientRequestId(videoUri, caption, context, uploadSource);
+}
+
+export function nativeHeroVideoStartWithClientRequestId(
+  videoUri: string,
+  caption?: string,
+  context?: 'onboarding' | 'profile_studio',
+  uploadSource?: VibeVideoUploadSource,
+  clientRequestId: string = newVibeVideoClientRequestId(),
+): void {
+  const uploadClientRequestId = clientRequestId.trim() || newVibeVideoClientRequestId();
   const uploadContext = context ?? 'profile_studio';
   const resolvedUploadSource = uploadSource ?? inferNativeUploadSource(videoUri);
   const replacingInFlight = _state.phase !== 'idle' || !!_state.videoId;
@@ -446,7 +468,6 @@ export function nativeHeroVideoStart(
 
   _generation++;
   const runId = _generation;
-  const clientRequestId = newVibeVideoClientRequestId();
 
   if (replacingInFlight) {
     trackVibeVideoEvent(VIBE_VIDEO_EVENTS.replaceStarted, {
@@ -458,9 +479,15 @@ export function nativeHeroVideoStart(
   }
 
   _activeRunStartedAt = Date.now();
-  _setState({ phase: 'uploading', uploadProgress: 0, videoId: null, errorMessage: null });
+  _setState({
+    phase: 'uploading',
+    uploadProgress: 0,
+    clientRequestId: uploadClientRequestId,
+    videoId: null,
+    errorMessage: null,
+  });
 
-  void _run(videoUri, caption, uploadContext, resolvedUploadSource, _uploadAbort, runId, clientRequestId);
+  void _run(videoUri, caption, uploadContext, resolvedUploadSource, _uploadAbort, runId, uploadClientRequestId);
 }
 
 async function _run(
@@ -620,5 +647,5 @@ export function nativeHeroVideoReset(): void {
   _abortPoll();
   _uploadAbort = null;
   _generation++;
-  _setState({ phase: 'idle', uploadProgress: 0, videoId: null, errorMessage: null });
+  _setState({ phase: 'idle', uploadProgress: 0, clientRequestId: null, videoId: null, errorMessage: null });
 }

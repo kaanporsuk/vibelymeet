@@ -133,6 +133,75 @@ test("web adapter delegates Vibe Video upload through the harness and cleans ter
   assert.equal((await queue.list()).length, 0);
 });
 
+test("web adapter routes Chat Vibe Clips through the video SDK flag and delegate", async () => {
+  const events: string[] = [];
+  let delegateClientRequestId: string | null = null;
+  const sdk = createWebMediaSdk({
+    queue: new MemoryMediaUploadQueue(),
+    flagGate: createStaticMediaFeatureFlagGate({ media_v2_video: true }),
+    telemetrySinks: [
+      {
+        capture(event) {
+          if (event.name === "media_upload_sdk_flag_evaluated") {
+            events.push(`${event.family}:${event.fields?.flag}:${event.fields?.enabled}`);
+          }
+        },
+      },
+    ],
+    delegates: {
+      video: {
+        uploadChatVibeClip: (_input, controls) => {
+          delegateClientRequestId = controls.snapshot().clientRequestId;
+          controls.dispatch({ type: "progress", progress: 0.75 });
+          controls.dispatch({ type: "ready", result: { providerObjectId: "chat-clip-video" } });
+        },
+      },
+    },
+  });
+
+  const task = sdk.video.upload({
+    family: "chat_vibe_clip",
+    source: new Blob(["clip"], { type: "video/mp4" }),
+    context: { uploadContext: "chat", scopeKey: "match:1" },
+    options: { clientRequestId: uuid },
+  });
+
+  await flushMediaTask();
+
+  assert.equal(delegateClientRequestId, uuid);
+  assert.equal(task.snapshot().state, "ready");
+  assert.equal(task.snapshot().result?.providerObjectId, "chat-clip-video");
+  assert.deepEqual(events, ["chat_vibe_clip:media_v2_video:true"]);
+});
+
+test("web adapter fails closed when the media feature flag is disabled", async () => {
+  let delegateCalls = 0;
+  const sdk = createWebMediaSdk({
+    queue: new MemoryMediaUploadQueue(),
+    flagGate: createStaticMediaFeatureFlagGate({ media_v2_video: false }),
+    delegates: {
+      video: {
+        uploadVibeVideo: () => {
+          delegateCalls += 1;
+        },
+      },
+    },
+  });
+
+  const task = sdk.video.upload({
+    family: "vibe_video",
+    source: new Blob(["video"], { type: "video/mp4" }),
+    context: { uploadContext: "profile_studio", scopeKey: "profile:self" },
+    options: { clientRequestId: uuid },
+  });
+
+  await flushMediaTask();
+
+  assert.equal(delegateCalls, 0);
+  assert.equal(task.snapshot().state, "failed");
+  assert.equal(task.snapshot().error?.code, "media_feature_disabled");
+});
+
 test("web adapter persists the recovery row before a fast delegate can finish", async () => {
   const gate = deferred();
   const queuedRecords: MediaUploadQueueRecord[] = [];
@@ -293,6 +362,39 @@ test("native adapter delegates URI uploads without Base64 materialization", asyn
 
   const nativeAdapter = readFileSync("shared/media-sdk/adapters/native.ts", "utf8");
   assert.doesNotMatch(nativeAdapter, /readAsStringAsync|Base64|base64|expo-av/);
+});
+
+test("native adapter fails closed when the media feature flag is disabled", async () => {
+  let delegateCalls = 0;
+  const sdk = createNativeMediaSdk({
+    queue: new MemoryMediaUploadQueue(),
+    fileSystem: {
+      async getInfoAsync() {
+        return { exists: true, size: 1024 };
+      },
+    },
+    flagGate: createStaticMediaFeatureFlagGate({ media_v2_video: false }),
+    delegates: {
+      video: {
+        uploadVibeVideo: () => {
+          delegateCalls += 1;
+        },
+      },
+    },
+    platform: "android",
+  });
+
+  const task = sdk.video.upload({
+    family: "vibe_video",
+    source: { uri: "file:///tmp/video.mp4", mimeType: "video/mp4", sizeBytes: 1024 },
+    options: { clientRequestId: uuid },
+  });
+
+  await flushMediaTask();
+
+  assert.equal(delegateCalls, 0);
+  assert.equal(task.snapshot().state, "failed");
+  assert.equal(task.snapshot().error?.code, "media_feature_disabled");
 });
 
 test("native AsyncStorage queue falls back to memory without leaking removed rows", async () => {
