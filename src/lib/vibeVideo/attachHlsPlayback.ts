@@ -4,6 +4,7 @@ type HlsPlaybackErrorKind = "native" | "unsupported" | "fatal";
 
 type AttachHlsPlaybackOptions = {
   autoPlay?: boolean;
+  onAutoplayBlocked?: (detail?: unknown) => void;
   onError?: (kind: HlsPlaybackErrorKind, detail?: unknown) => void;
   onManifestParsed?: () => void;
 };
@@ -22,14 +23,16 @@ export function attachHlsPlayback(
   src: string,
   options: AttachHlsPlaybackOptions = {},
 ): () => void {
-  const { autoPlay = true, onError, onManifestParsed } = options;
+  const { autoPlay = true, onAutoplayBlocked, onError, onManifestParsed } = options;
   let cancelled = false;
   let errorReported = false;
   let hls: HlsInstance | null = null;
 
   const playIfNeeded = () => {
     if (!autoPlay || cancelled) return;
-    void videoEl.play().catch(() => {});
+    void videoEl.play().catch((error: unknown) => {
+      if (!cancelled) onAutoplayBlocked?.(error);
+    });
   };
 
   const reportError = (kind: HlsPlaybackErrorKind, detail?: unknown) => {
@@ -46,6 +49,7 @@ export function attachHlsPlayback(
 
   if (videoEl.canPlayType("application/vnd.apple.mpegurl")) {
     videoEl.src = src;
+    videoEl.load();
     playIfNeeded();
   } else {
     void hlsLoader().then(({ default: Hls }) => {

@@ -285,6 +285,8 @@ test("video bubbles remain adaptive and full-width across web and native chat", 
   assert.match(webVibeClipBubble, /if \(reason === "preview"\) return !!freshThumbnailUrl/);
   assert.match(webVibeClipBubble, /shouldResolvePosterPreview/);
   assert.match(webVibeClipBubble, /posterRefreshAttemptedForRef/);
+  assert.match(webVibeClipBubble, /void refreshClipMedia\("preview"\);/);
+  assert.doesNotMatch(webVibeClipBubble, /if \(didRefresh\) posterRefreshAttemptedForRef\.current = null/);
   assert.match(webVibeClipBubble, /CLIP_PLAYBACK_LOAD_TIMEOUT_MS/);
   assert.match(webVibeClipBubble, /playbackRefreshAttemptCountRef\.current = 0;[\s\S]{0,160}setLoadError\(false\)/);
   assert.match(webVibeClipBubble, /aria-label=\{isMuted \? "Unmute clip" : "Mute clip"\}/);
@@ -300,8 +302,11 @@ test("video bubbles remain adaptive and full-width across web and native chat", 
   assert.match(webVideoBubble, /aria-label="Open video full screen"/);
   assert.match(webVideoLightbox, /void refreshMedia\(\)\.then\(\(didRefresh\) => \{[\s\S]{0,120}if \(!didRefresh\) setPhase\("error"\)/);
   assert.match(webVideoLightbox, /setPhase\("error"\);[\s\S]{0,80}return;/);
+  assert.doesNotMatch(webVideoLightbox, /onWaiting=\{\(\) => setPhase\("loading"\)\}/);
+  assert.match(webVideoLightbox, /onAutoplayBlocked: revealPlayer/);
   assert.match(webVideoLightbox, /CLIP_PLAYBACK_LOAD_TIMEOUT_MS/);
   assert.match(webVideoLightbox, /phase !== "loading" \|\| !canMountPlayer/);
+  assert.match(webVideoLightbox, /const timeoutId = window\.setTimeout\(\(\) => \{[\s\S]{0,80}revealPlayer\(\);/);
 
   assert.match(nativeChat, /const MEDIA_CARD_MIN_WIDTH = 150/);
   assert.match(nativeChat, /const MEDIA_CARD_MAX_WIDTH = 280/);
@@ -318,6 +323,8 @@ test("video bubbles remain adaptive and full-width across web and native chat", 
   assert.match(nativeVibeClipCard, /shouldMountPlayer/);
   assert.match(nativeVibeClipCard, /type ClipPreviewState/);
   assert.match(nativeVibeClipCard, /syncChatVibeClipStatus/);
+  assert.match(nativeVibeClipCard, /void refreshClipMedia\('preview'\);/);
+  assert.doesNotMatch(nativeVibeClipCard, /if \(didRefresh\) posterRefreshAttemptedForRef\.current = null/);
   assert.match(nativeVibeClipCard, /Clip unavailable/);
   assert.doesNotMatch(nativeVibeClipCard, /Tap to play/);
   assert.doesNotMatch(nativeVibeClipCard, /Loading clip/);

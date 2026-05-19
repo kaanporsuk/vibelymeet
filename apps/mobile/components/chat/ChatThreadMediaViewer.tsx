@@ -418,6 +418,9 @@ function VideoViewerStage({
 }) {
   const insets = useSafeAreaInsets();
   const [phase, setPhase] = useState<'loading' | 'ready' | 'error'>('loading');
+  const revealPlayer = useCallback(() => {
+    setPhase((current) => (current === 'error' ? current : 'ready'));
+  }, []);
 
   const player = useVideoPlayer(videoSourceForUri(uri), (p) => {
     p.loop = false;
@@ -435,10 +438,10 @@ function VideoViewerStage({
           return;
         }
         if (payload.status === 'readyToPlay') {
-          setPhase('ready');
+          revealPlayer();
         }
         if (payload.status === 'loading') {
-          setPhase('loading');
+          setPhase((current) => (current === 'ready' ? current : 'loading'));
         }
       }),
       {
@@ -448,7 +451,7 @@ function VideoViewerStage({
       },
     );
     return () => safeRemoveExpoSharedObjectSubscription(sub, 'chat.viewerVideo.statusListener.remove');
-  }, [onRefreshMedia, player]);
+  }, [onRefreshMedia, player, revealPlayer]);
 
   useEffect(() => {
     const playResult = safeExpoSharedObjectCall(() => player.play(), {
@@ -468,14 +471,10 @@ function VideoViewerStage({
   useEffect(() => {
     if (phase !== 'loading') return;
     const timeoutId = setTimeout(() => {
-      void onRefreshMedia()
-        .then((didRefresh) => {
-          if (!didRefresh) setPhase('error');
-        })
-        .catch(() => setPhase('error'));
+      revealPlayer();
     }, CLIP_PLAYBACK_LOAD_TIMEOUT_MS);
     return () => clearTimeout(timeoutId);
-  }, [onRefreshMedia, phase, uri]);
+  }, [phase, revealPlayer, uri]);
 
   return (
     <View style={styles.videoRoot}>

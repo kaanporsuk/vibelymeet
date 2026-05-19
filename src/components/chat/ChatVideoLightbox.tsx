@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { motion } from "framer-motion";
 import { Loader2, X, AlertCircle } from "lucide-react";
-import { refreshCachedChatMediaUrl, type ChatMediaKind } from "@/lib/chatMediaResolver";
+import { getCachedChatMediaUrl, refreshCachedChatMediaUrl, type ChatMediaKind } from "@/lib/chatMediaResolver";
 import { attachHlsPlayback } from "@/lib/vibeVideo/attachHlsPlayback";
 
 type ChatVideoLightboxProps = {
@@ -20,6 +20,15 @@ const CLIP_PLAYBACK_LOAD_TIMEOUT_MS = 12_000;
 const MAX_LIGHTBOX_PLAYBACK_REFRESH_ATTEMPTS = 1;
 
 type LightboxMediaRefreshReason = "initial" | "playback" | "manual";
+type LightboxPhase = "loading" | "ready" | "error";
+
+function isPlayableMediaUrl(value: string): boolean {
+  return /^https?:\/\//i.test(value) || /^(blob:|file:|data:)/i.test(value);
+}
+
+function isHlsMediaUrl(value: string): boolean {
+  return /\.m3u8(?:[?#]|$)/i.test(value);
+}
 
 export function ChatVideoLightbox({
   videoUrl,
@@ -33,17 +42,20 @@ export function ChatVideoLightbox({
   onClose,
 }: ChatVideoLightboxProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
-  const [phase, setPhase] = useState<"loading" | "ready" | "error">("loading");
+  const [phase, setPhase] = useState<LightboxPhase>("loading");
   const [playableVideoUrl, setPlayableVideoUrl] = useState(videoUrl);
   const [playablePosterUrl, setPlayablePosterUrl] = useState(posterUrl ?? null);
   const playbackRefreshAttemptCountRef = useRef(0);
   const playableVideoUrlRef = useRef(playableVideoUrl);
 
   const resetPhase = useCallback(() => setPhase("loading"), []);
+  const revealPlayer = useCallback(() => {
+    setPhase((current) => (current === "error" ? current : "ready"));
+  }, []);
   const isRemoteUrl = /^https?:\/\//i.test(playableVideoUrl);
   const isLocalUrl = /^(blob:|file:|data:)/i.test(playableVideoUrl);
   const canMountPlayer = isRemoteUrl || isLocalUrl;
-  const isHlsUrl = /\.m3u8(?:[?#]|$)/i.test(playableVideoUrl);
+  const isHlsUrl = isHlsMediaUrl(playableVideoUrl);
 
   useEffect(() => {
     const prev = document.body.style.overflow;
@@ -74,8 +86,10 @@ export function ChatVideoLightbox({
       playbackRefreshAttemptCountRef.current += 1;
     }
     const freshVideoUrl = await refreshCachedChatMediaUrl(messageId, mediaKind, videoSourceRef, refreshOptions);
-    const freshPosterUrl = thumbnailSourceRef
-      ? await refreshCachedChatMediaUrl(messageId, "thumbnail", thumbnailSourceRef, refreshOptions)
+    const freshPosterUrl = thumbnailSourceRef && reason !== "playback"
+      ? reason === "manual"
+        ? await refreshCachedChatMediaUrl(messageId, "thumbnail", thumbnailSourceRef, refreshOptions)
+        : await getCachedChatMediaUrl(messageId, "thumbnail", thumbnailSourceRef)
       : null;
     if (freshPosterUrl) {
       setPlayablePosterUrl(freshPosterUrl);
@@ -101,49 +115,48 @@ export function ChatVideoLightbox({
     playbackRefreshAttemptCountRef.current = 0;
     resetPhase();
     const v = videoRef.current;
-    if (!/^https?:\/\//i.test(videoUrl) && !/^(blob:|file:|data:)/i.test(videoUrl) && videoSourceRef) {
+    if (!isPlayableMediaUrl(videoUrl) && videoSourceRef) {
       void refreshMedia("initial").then((didRefresh) => {
         if (!didRefresh) setPhase("error");
       });
       return;
     }
-    if (!/^https?:\/\//i.test(videoUrl) && !/^(blob:|file:|data:)/i.test(videoUrl)) {
+    if (!isPlayableMediaUrl(videoUrl)) {
       setPhase("error");
       return;
     }
-    if (!v) return;
+    if (!v || isHlsMediaUrl(videoUrl)) return;
     const t = window.setTimeout(() => {
-      void v.play().catch(() => {});
+      void v.play().catch(() => revealPlayer());
     }, 120);
     return () => {
       window.clearTimeout(t);
       v.pause();
     };
-  }, [posterUrl, refreshMedia, resetPhase, videoSourceRef, videoUrl]);
+  }, [posterUrl, refreshMedia, resetPhase, revealPlayer, videoSourceRef, videoUrl]);
 
   useEffect(() => {
     const v = videoRef.current;
     if (!v || !isRemoteUrl || !isHlsUrl) return;
     return attachHlsPlayback(v, playableVideoUrl, {
       autoPlay: true,
-      onManifestParsed: () => setPhase("ready"),
+      onAutoplayBlocked: revealPlayer,
+      onManifestParsed: revealPlayer,
       onError: () => {
         void refreshMedia().then((didRefresh) => {
           if (!didRefresh) setPhase("error");
         });
       },
     });
-  }, [isHlsUrl, isRemoteUrl, playableVideoUrl, refreshMedia]);
+  }, [isHlsUrl, isRemoteUrl, playableVideoUrl, refreshMedia, revealPlayer]);
 
   useEffect(() => {
     if (phase !== "loading" || !canMountPlayer) return;
     const timeoutId = window.setTimeout(() => {
-      void refreshMedia().then((didRefresh) => {
-        if (!didRefresh) setPhase("error");
-      });
+      revealPlayer();
     }, CLIP_PLAYBACK_LOAD_TIMEOUT_MS);
     return () => window.clearTimeout(timeoutId);
-  }, [canMountPlayer, phase, playableVideoUrl, refreshMedia]);
+  }, [canMountPlayer, phase, playableVideoUrl, revealPlayer]);
 
   return (
     <motion.div
@@ -219,7 +232,7 @@ export function ChatVideoLightbox({
                   void refreshMedia("manual").then((didRefresh) => {
                     if (didRefresh) return;
                     videoRef.current?.load();
-                    void videoRef.current?.play().catch(() => setPhase("error"));
+                    void videoRef.current?.play().catch(() => revealPlayer());
                   });
                 }}
               >
@@ -238,11 +251,11 @@ export function ChatVideoLightbox({
                 controls
                 playsInline
                 controlsList="nodownload"
-                onLoadStart={() => setPhase("loading")}
-                onLoadedData={() => setPhase("ready")}
-                onCanPlay={() => setPhase("ready")}
-                onPlaying={() => setPhase("ready")}
-                onWaiting={() => setPhase("loading")}
+                onLoadStart={() => setPhase((current) => (current === "ready" ? current : "loading"))}
+                onLoadedMetadata={revealPlayer}
+                onLoadedData={revealPlayer}
+                onCanPlay={revealPlayer}
+                onPlaying={revealPlayer}
                 onError={() => {
                   void refreshMedia().then((didRefresh) => {
                     if (!didRefresh) setPhase("error");

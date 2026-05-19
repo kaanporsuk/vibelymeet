@@ -797,15 +797,8 @@ export function VibeClipCard(props: Props) {
     ) {
       return;
     }
-    let cancelled = false;
     posterRefreshAttemptedForRef.current = posterResolveKey;
-    void refreshClipMedia('preview').then((didRefresh) => {
-      if (cancelled) return;
-      if (didRefresh) posterRefreshAttemptedForRef.current = null;
-    });
-    return () => {
-      cancelled = true;
-    };
+    void refreshClipMedia('preview');
   }, [isSyncableServerProcessing, playableThumbnailUrl, refreshClipMedia, thumbnailSourceRef]);
 
   const resolvedMeta = {
