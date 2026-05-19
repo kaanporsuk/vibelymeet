@@ -106,7 +106,7 @@ WITH RECURSIVE connected(root_id, asset_id) AS (
   JOIN media_asset_duplicate_edges edge ON edge.source_id = connected.asset_id
 ),
 components AS (
-  SELECT asset_id AS id, min(root_id) AS component_id
+  SELECT asset_id AS id, (array_agg(root_id ORDER BY root_id))[1] AS component_id
   FROM connected
   GROUP BY asset_id
 ),
@@ -139,7 +139,8 @@ WHERE id <> canonical_id;
 WITH duplicate_rollup AS (
   SELECT
     mapped.canonical_id,
-    max(ma.owner_user_id) FILTER (WHERE ma.owner_user_id IS NOT NULL) AS owner_user_id,
+    (array_agg(ma.owner_user_id ORDER BY ma.created_at ASC, ma.id ASC)
+      FILTER (WHERE ma.owner_user_id IS NOT NULL))[1] AS owner_user_id,
     max(ma.provider_object_id) FILTER (WHERE ma.provider_object_id IS NOT NULL) AS provider_object_id,
     max(ma.provider_path) FILTER (WHERE ma.provider_path IS NOT NULL) AS provider_path,
     max(ma.mime_type) FILTER (WHERE ma.mime_type IS NOT NULL) AS mime_type,

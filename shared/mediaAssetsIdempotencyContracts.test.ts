@@ -36,6 +36,8 @@ test("media assets migration adds uploaded status, SHA-256, and provider identit
   assert.match(migration, /ON public\.media_assets \(provider, provider_object_id\)[\s\S]+WHERE provider_object_id IS NOT NULL/);
   assert.match(migration, /CREATE TEMP TABLE media_asset_duplicate_edges/);
   assert.match(migration, /WITH RECURSIVE connected\(root_id, asset_id\)/);
+  assert.doesNotMatch(migration, /min\(root_id\)/i);
+  assert.doesNotMatch(migration, /max\(ma\.owner_user_id\)/i);
   assert.match(migration, /WITH duplicate_rollup AS/);
   assert.match(migration, /provider_object_id = COALESCE\(canonical\.provider_object_id, duplicate_rollup\.provider_object_id\)/);
   assert.match(migration, /DELETE FROM public\.media_assets ma[\s\S]+media_asset_dedupe_map mapped/);
