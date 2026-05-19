@@ -38,6 +38,10 @@ export type WebMediaUploadDelegate<TInput extends WebMediaUploadInput = WebMedia
   input: TInput,
   controls: MediaTaskRunContext,
 ) => Promise<void> | void;
+export type WebPhotoTranscoder = (
+  source: WebMediaSource,
+  input: WebPhotoUploadInput,
+) => Promise<WebMediaSource> | WebMediaSource;
 
 export type WebLegacyMediaDelegates = {
   video?: {
@@ -60,6 +64,16 @@ export type WebMediaSdkOptions = {
   telemetry?: MediaTelemetry;
   telemetrySinks?: readonly MediaTelemetrySink[];
   delegates?: WebLegacyMediaDelegates;
+  photoTranscoder?: WebPhotoTranscoder | null;
+};
+
+type ResolvedWebMediaSdkOptions = {
+  queue: MediaUploadQueue;
+  flagGate: MediaFeatureFlagGate;
+  telemetry: MediaTelemetry;
+  telemetrySinks: readonly MediaTelemetrySink[];
+  delegates: WebLegacyMediaDelegates;
+  photoTranscoder: WebPhotoTranscoder | null;
 };
 
 export function assertWebMediaSource(source: WebMediaSource): void {
@@ -121,6 +135,21 @@ function delegateForInput(input: WebMediaUploadInput, delegates: WebLegacyMediaD
   }
 }
 
+function isPhotoUploadInput(input: WebMediaUploadInput): input is WebPhotoUploadInput {
+  return input.family === "profile_photo" || input.family === "chat_photo" || input.family === "event_cover";
+}
+
+async function inputWithPreparedPhotoSource(
+  input: WebMediaUploadInput,
+  options: ResolvedWebMediaSdkOptions,
+): Promise<WebMediaUploadInput> {
+  if (!isPhotoUploadInput(input) || !options.photoTranscoder) return input;
+  const preparedSource = await options.photoTranscoder(input.source, input);
+  assertWebMediaSource(preparedSource);
+  if (preparedSource === input.source) return input;
+  return { ...input, source: preparedSource };
+}
+
 async function syncQueueSnapshot(
   queue: MediaUploadQueue,
   taskId: string,
@@ -141,7 +170,7 @@ async function syncQueueSnapshot(
   });
 }
 
-function createWebUploadTask(input: WebMediaUploadInput, options: Required<WebMediaSdkOptions>): MediaUploadTask {
+function createWebUploadTask(input: WebMediaUploadInput, options: ResolvedWebMediaSdkOptions): MediaUploadTask {
   const task = createMediaUploadTask({
     input,
     platform: "web",
@@ -179,7 +208,8 @@ function createWebUploadTask(input: WebMediaUploadInput, options: Required<WebMe
         return;
       }
 
-      await delegate(input, controls);
+      const delegateInput = await inputWithPreparedPhotoSource(input, options);
+      await delegate(delegateInput, controls);
       if (controls.snapshot().state === "uploading") {
         controls.dispatch({ type: "upload_complete" });
       }
@@ -208,13 +238,14 @@ function createWebUploadTask(input: WebMediaUploadInput, options: Required<WebMe
   return task;
 }
 
-function withWebDefaults(options: WebMediaSdkOptions): Required<WebMediaSdkOptions> {
+function withWebDefaults(options: WebMediaSdkOptions): ResolvedWebMediaSdkOptions {
   return {
     queue: options.queue ?? createIndexedDbMediaUploadQueue(),
     flagGate: options.flagGate ?? defaultOffMediaFeatureFlagGate,
     telemetry: options.telemetry ?? createMediaTelemetry(options.telemetrySinks),
     telemetrySinks: options.telemetrySinks ?? [],
     delegates: options.delegates ?? {},
+    photoTranscoder: options.photoTranscoder === undefined ? webMediaTranscode.preparePhotoForUpload : options.photoTranscoder,
   };
 }
 
@@ -343,9 +374,61 @@ export function createIndexedDbMediaUploadQueue(): MediaUploadQueue {
   return new IndexedDbMediaUploadQueue();
 }
 
-export const webMediaTranscodeStubs = {
-  async preparePhotoForUpload<TSource extends WebMediaSource>(source: TSource): Promise<TSource> {
-    return source;
+function isImageWebSource(source: WebMediaSource): boolean {
+  return typeof source.type === "string" && source.type.split(";")[0].trim().toLowerCase().startsWith("image/");
+}
+
+function webPhotoFileName(source: WebMediaSource): string {
+  const maybeFile = source as File;
+  const rawName = typeof maybeFile.name === "string" && maybeFile.name.trim() ? maybeFile.name.trim() : "photo";
+  return `${rawName.replace(/\.[^.]+$/, "") || "photo"}.jpg`;
+}
+
+function canvasToBlob(canvas: HTMLCanvasElement, mimeType: string, quality: number): Promise<Blob | null> {
+  return new Promise((resolve) => {
+    canvas.toBlob((blob) => resolve(blob), mimeType, quality);
+  });
+}
+
+export const webMediaTranscode = {
+  async preparePhotoForUpload<TSource extends WebMediaSource>(source: TSource): Promise<WebMediaSource> {
+    assertWebMediaSource(source);
+    if (!isImageWebSource(source)) return source;
+    if (typeof document === "undefined" || typeof HTMLCanvasElement === "undefined" || typeof createImageBitmap === "undefined") {
+      return source;
+    }
+
+    const bitmap = await createImageBitmap(source).catch(() => null);
+    if (!bitmap || bitmap.width <= 0 || bitmap.height <= 0) return source;
+
+    try {
+      const maxEdge = 2048;
+      const scale = Math.min(1, maxEdge / Math.max(bitmap.width, bitmap.height));
+      const targetWidth = Math.max(1, Math.round(bitmap.width * scale));
+      const targetHeight = Math.max(1, Math.round(bitmap.height * scale));
+      const canvas = document.createElement("canvas");
+      canvas.width = targetWidth;
+      canvas.height = targetHeight;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return source;
+
+      ctx.fillStyle = "#fff";
+      ctx.fillRect(0, 0, targetWidth, targetHeight);
+      ctx.drawImage(bitmap, 0, 0, targetWidth, targetHeight);
+
+      const blob = await canvasToBlob(canvas, "image/jpeg", 0.85);
+      if (!blob || blob.size <= 0) return source;
+
+      if (typeof File !== "undefined" && source instanceof File) {
+        return new File([blob], webPhotoFileName(source), {
+          type: "image/jpeg",
+          lastModified: typeof source.lastModified === "number" ? source.lastModified : Date.now(),
+        });
+      }
+      return new Blob([blob], { type: "image/jpeg" });
+    } finally {
+      bitmap.close?.();
+    }
   },
   async prepareVoiceForUpload<TSource extends WebMediaSource>(source: TSource): Promise<TSource> {
     return source;
@@ -354,7 +437,9 @@ export const webMediaTranscodeStubs = {
     return {
       canvas: typeof HTMLCanvasElement !== "undefined",
       webCodecs: "VideoEncoder" in globalThis,
-      phase: "phase_5_stub",
+      phase: "phase_5_photo_transcode",
     };
   },
 };
+
+export const webMediaTranscodeStubs = webMediaTranscode;

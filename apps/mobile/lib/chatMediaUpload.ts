@@ -32,7 +32,7 @@ function normalizedImageMimeType(mimeType: string | null | undefined, imageUri: 
   return GENERIC_UPLOAD_MIME_TYPE;
 }
 
-export async function uploadVoiceMessage(audioUri: string, matchId: string): Promise<string> {
+export async function uploadVoiceMessage(audioUri: string, matchId: string, clientRequestId?: string): Promise<string> {
   const accessToken = await getCachedAccessToken();
   if (!accessToken) throw new Error('Not authenticated');
 
@@ -42,6 +42,10 @@ export async function uploadVoiceMessage(audioUri: string, matchId: string): Pro
 
   const formData = new FormData();
   formData.append('conversation_id', matchId);
+  const stableClientRequestId = clientRequestId?.trim();
+  if (stableClientRequestId) {
+    formData.append('client_request_id', stableClientRequestId);
+  }
   formData.append(
     'file',
     {
@@ -53,18 +57,24 @@ export async function uploadVoiceMessage(audioUri: string, matchId: string): Pro
 
   const res = await fetch(`${SUPABASE_URL}/functions/v1/upload-voice`, {
     method: 'POST',
-    headers: { Authorization: `Bearer ${accessToken}` },
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      ...(stableClientRequestId ? { 'x-client-request-id': stableClientRequestId } : {}),
+    },
     body: formData,
   });
 
-  if (!res.ok) {
-    const errorText = await res.text().catch(() => '');
-    throw new Error(errorText || `Upload failed with status ${res.status}`);
+  const text = await res.text().catch(() => '');
+  let data: { success?: boolean; path?: string; url?: string; error?: string };
+  try {
+    data = JSON.parse(text);
+  } catch {
+    throw new Error(text || 'Voice upload failed');
   }
-
-  const data = await res.json();
   const mediaRef = typeof data.path === 'string' && data.path ? data.path : data.url;
-  if (!data.success || !mediaRef) throw new Error(data.error ?? 'Voice upload failed');
+  if (!res.ok || !data.success || !mediaRef) {
+    throw new Error(data.error || `Upload failed with status ${res.status}`);
+  }
   return mediaRef;
 }
 

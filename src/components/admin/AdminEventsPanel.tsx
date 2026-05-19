@@ -39,6 +39,7 @@ type AdminEventRow = {
   title: string;
   description?: string | null;
   cover_image: string | null;
+  cover_media_asset_id?: string | null;
   event_date: string;
   duration_minutes: number | null;
   current_attendees: number | null;

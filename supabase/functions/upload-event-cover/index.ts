@@ -1,19 +1,154 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.88.0";
+import { bunnyCdnUrl } from "../_shared/bunny-media.ts";
 import {
   MEDIA_FAMILIES,
   PROVIDERS,
   REF_TYPES,
   registerMediaAsset,
-  createMediaReference,
-  releaseMediaReference,
 } from "../_shared/media-lifecycle.ts";
+import { validateImageUploadBytes } from "../_shared/media-upload-sniffing.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers":
-    "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
+    "authorization, x-client-info, apikey, content-type, x-client-request-id, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
+
+function json(body: Record<string, unknown>, status = 200) {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { ...corsHeaders, "Content-Type": "application/json" },
+  });
+}
+
+function isUploadFile(value: FormDataEntryValue | null): value is File {
+  return value instanceof File;
+}
+
+async function providerErrorMeta(res: Response): Promise<{ status: number; bodyLength: number }> {
+  const text = await res.text().catch(() => "");
+  return { status: res.status, bodyLength: text.length };
+}
+
+function safeUnexpectedError(error: unknown): Record<string, string> {
+  if (error instanceof Error) {
+    return { name: error.name || "Error" };
+  }
+  return { name: typeof error };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === "object" && !Array.isArray(value);
+}
+
+function hexFromBytes(bytes: Uint8Array): string {
+  return [...bytes].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+async function sha256Hex(buffer: ArrayBuffer): Promise<string> {
+  const digest = await crypto.subtle.digest("SHA-256", buffer);
+  return hexFromBytes(new Uint8Array(digest));
+}
+
+async function stableUploadToken(parts: readonly string[]): Promise<string> {
+  const encoded = new TextEncoder().encode(parts.join("\u001f"));
+  const digest = await crypto.subtle.digest("SHA-256", encoded);
+  return hexFromBytes(new Uint8Array(digest)).slice(0, 16);
+}
+
+function optionalFormString(formData: FormData, key: string): string | null {
+  const value = formData.get(key);
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+type ClientRequestIdResult =
+  | { ok: true; clientRequestId: string }
+  | { ok: false; error: "client_request_id_conflict" | "client_request_id_invalid" };
+
+function clientRequestIdForUpload(req: Request, formData: FormData): ClientRequestIdResult {
+  const fromForm = optionalFormString(formData, "client_request_id");
+  const fromHeader = req.headers.get("x-client-request-id")?.trim() || null;
+  if (fromForm && fromHeader && fromForm !== fromHeader) {
+    return { ok: false, error: "client_request_id_conflict" };
+  }
+  const candidate = fromForm ?? fromHeader;
+  if (!candidate) return { ok: true, clientRequestId: crypto.randomUUID() };
+  if (candidate.length > 128) return { ok: false, error: "client_request_id_invalid" };
+  return { ok: true, clientRequestId: candidate };
+}
+
+function expectedCurrentCoverAssetId(formData: FormData): { provided: boolean; value: string | null } {
+  const raw = optionalFormString(formData, "expected_current_cover_asset_id");
+  if (!raw) return { provided: false, value: null };
+  if (raw === "__none__") return { provided: true, value: null };
+  return { provided: true, value: raw };
+}
+
+type CurrentEventCover = {
+  assetId: string | null;
+  referenceId: string | null;
+};
+
+type ReplaceEventCoverResult =
+  | { success: true; referenceId: string | null; releasedRefs: number }
+  | { success: false; error: string; code?: string | null; currentCoverAssetId?: string | null };
+
+function parseReplaceEventCoverResult(data: unknown): ReplaceEventCoverResult {
+  const result = isRecord(data) ? data : {};
+  if (result.success === true) {
+    return {
+      success: true,
+      referenceId: typeof result.reference_id === "string" ? result.reference_id : null,
+      releasedRefs: typeof result.released_refs === "number" ? result.released_refs : 0,
+    };
+  }
+  return {
+    success: false,
+    error: typeof result.error === "string" ? result.error : "event_cover_reference_replace_failed",
+    code: typeof result.code === "string" ? result.code : null,
+    currentCoverAssetId: typeof result.current_cover_asset_id === "string" ? result.current_cover_asset_id : null,
+  };
+}
+
+async function fetchCurrentEventCover(
+  adminSupabase: ReturnType<typeof createClient>,
+  eventId: string,
+): Promise<CurrentEventCover> {
+  const { data, error } = await adminSupabase
+    .from("media_references")
+    .select("asset_id, created_at, id")
+    .eq("ref_type", REF_TYPES.EVENT_COVER)
+    .eq("ref_table", "events")
+    .eq("ref_id", eventId)
+    .eq("ref_key", "cover_image")
+    .eq("is_active", true)
+    .order("created_at", { ascending: false })
+    .order("id", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (error) {
+    console.error(`[upload-event-cover] current cover lookup failed eventId=${eventId} err=${error.message}`);
+    throw new Error("current_cover_lookup_failed");
+  }
+  return {
+    assetId: typeof data?.asset_id === "string" ? data.asset_id : null,
+    referenceId: typeof data?.id === "string" ? data.id : null,
+  };
+}
+
+function staleCoverResponse(currentCover: CurrentEventCover): Response {
+  return json(
+    {
+      success: false,
+      error: "stale_cover_update",
+      code: "stale_cover_update",
+      currentCoverAssetId: currentCover.assetId,
+    },
+    409,
+  );
+}
 
 serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -23,25 +158,18 @@ serve(async (req) => {
   try {
     const authHeader = req.headers.get("Authorization");
     if (!authHeader) {
-      return new Response(
-        JSON.stringify({ success: false, error: "No authorization header" }),
-        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
+      return json({ success: false, error: "No authorization header" });
     }
 
     const supabase = createClient(
       Deno.env.get("SUPABASE_URL")!,
       Deno.env.get("SUPABASE_ANON_KEY")!,
-      { global: { headers: { Authorization: authHeader } } }
+      { global: { headers: { Authorization: authHeader } } },
     );
 
-    // Verify user is admin via user_roles table
     const { data: { user }, error: authError } = await supabase.auth.getUser();
     if (authError || !user) {
-      return new Response(
-        JSON.stringify({ success: false, error: "Unauthorized" }),
-        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
+      return json({ success: false, error: "Unauthorized" });
     }
 
     const { data: roleRow } = await supabase
@@ -52,144 +180,369 @@ serve(async (req) => {
       .maybeSingle();
 
     if (!roleRow) {
-      return new Response(
-        JSON.stringify({ success: false, error: "Admin access required" }),
-        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
+      return json({ success: false, error: "Admin access required" });
     }
 
     const formData = await req.formData();
-    const file = formData.get("file") as File;
-    const eventId = formData.get("event_id") as string | null;
+    const fileValue = formData.get("file");
+    const file = isUploadFile(fileValue) ? fileValue : null;
+    const eventId = optionalFormString(formData, "event_id");
+    const staleCoverExpectation = eventId
+      ? expectedCurrentCoverAssetId(formData)
+      : { provided: false, value: null };
 
     if (!file) {
-      return new Response(
-        JSON.stringify({ success: false, error: "No file provided" }),
-        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
+      return json({ success: false, error: "No file provided" });
     }
 
-    // Validate image type
-    const allowedTypes = ["image/jpeg", "image/png", "image/webp", "image/heic", "image/heif"];
-    const baseType = file.type.split(";")[0].trim();
-    if (!allowedTypes.includes(baseType) && !file.type.startsWith("image/")) {
-      return new Response(
-        JSON.stringify({ success: false, error: "Invalid file type. Image files only." }),
-        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
+    if (file.size <= 0) {
+      return json({ success: false, error: "Empty image file." });
     }
 
-    // Max 20MB for event covers (high-res hero images)
     if (file.size > 20 * 1024 * 1024) {
-      return new Response(
-        JSON.stringify({ success: false, error: "File too large. Maximum 20MB." }),
-        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
+      return json({ success: false, error: "File too large. Maximum 20MB." });
     }
 
-    const extMap: Record<string, string> = {
-      "image/jpeg": "jpg",
-      "image/png": "png",
-      "image/webp": "webp",
-      "image/heic": "heic",
-      "image/heif": "heif",
-    };
-    const ext = extMap[baseType] ?? "jpg";
-    const timestamp = Date.now();
-
-    // Path: events/{eventId}/{timestamp}.ext or events/covers/{timestamp}.ext
-    const folder = eventId ? `events/${eventId}` : `events/covers`;
-    const storagePath = `${folder}/${timestamp}.${ext}`;
-
-    const storageZone = Deno.env.get("BUNNY_STORAGE_ZONE")!;
-    const apiKey = Deno.env.get("BUNNY_STORAGE_API_KEY")!;
-
-    const fileBuffer = await file.arrayBuffer();
-    const uploadRes = await fetch(
-      `https://storage.bunnycdn.com/${storageZone}/${storagePath}`,
-      {
-        method: "PUT",
-        headers: {
-          AccessKey: apiKey,
-          "Content-Type": file.type || "image/jpeg",
-        },
-        body: fileBuffer,
-      }
-    );
-
-    if (!uploadRes.ok) {
-      const errText = await uploadRes.text();
-      console.error("[upload-event-cover] Bunny upload failed:", uploadRes.status, errText);
-      return new Response(
-        JSON.stringify({ success: false, error: "Upload to CDN failed" }),
-        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
+    const clientRequest = clientRequestIdForUpload(req, formData);
+    if (!clientRequest.ok) {
+      return json({ success: false, error: clientRequest.error }, 400);
     }
 
-    const cdnHostname = Deno.env.get("BUNNY_CDN_HOSTNAME")!;
-    const coverUrl = `https://${cdnHostname}/${storagePath}`;
-
-    // ── Media lifecycle registration ─────────────────────────────────────────
     const adminSupabase = createClient(
       Deno.env.get("SUPABASE_URL")!,
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
     );
 
-    try {
-      const lifecycle = await registerMediaAsset(adminSupabase, {
-        provider: PROVIDERS.BUNNY_STORAGE,
-        mediaFamily: MEDIA_FAMILIES.EVENT_COVER,
-        ownerUserId: user.id,
-        providerPath: storagePath,
-        mimeType: file.type,
-        bytes: file.size,
-        legacyTable: "events",
-        legacyId: eventId ?? null,
-        status: "active",
-      });
+    if (eventId) {
+      const { data: eventRow, error: eventError } = await adminSupabase
+        .from("events")
+        .select("id")
+        .eq("id", eventId)
+        .maybeSingle();
 
-      if (!lifecycle.success) {
-        console.error(`[upload-event-cover] media asset registration failed path=${storagePath} err=${lifecycle.error}`);
-      } else if (lifecycle.assetId && eventId) {
-        // Release any existing event_cover references for this event
-        const { data: existingRefs } = await adminSupabase
-          .from("media_references")
-          .select("id")
-          .eq("ref_type", REF_TYPES.EVENT_COVER)
-          .eq("ref_table", "events")
-          .eq("ref_id", eventId)
-          .eq("is_active", true);
-
-        for (const ref of existingRefs ?? []) {
-          await releaseMediaReference(adminSupabase, ref.id, "replace");
-        }
-
-        // Create new reference
-        const refResult = await createMediaReference(adminSupabase, {
-          assetId: lifecycle.assetId,
-          refType: REF_TYPES.EVENT_COVER,
-          refTable: "events",
-          refId: eventId,
-          refKey: "cover_image",
-        });
-
-        if (!refResult.success) {
-          console.error(`[upload-event-cover] media reference creation failed assetId=${lifecycle.assetId} eventId=${eventId} err=${refResult.error}`);
-        }
+      if (eventError) {
+        console.error(`[upload-event-cover] event lookup failed eventId=${eventId} err=${eventError.message}`);
+        return json({ success: false, error: "Event lookup failed" });
       }
-    } catch (e) {
-      console.error("[upload-event-cover] lifecycle tracking error:", e);
+      if (!eventRow) {
+        return json({ success: false, error: "Event not found" });
+      }
+
+      if (!staleCoverExpectation.provided) {
+        return json({ success: false, error: "expected_current_cover_asset_id_required" }, 400);
+      }
     }
 
-    return new Response(
-      JSON.stringify({ success: true, path: storagePath, url: coverUrl }),
-      { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-    );
+    const fileBuffer = await file.arrayBuffer();
+    const mediaValidation = validateImageUploadBytes(fileBuffer, file.type);
+    if (!mediaValidation.ok) {
+      return json({ success: false, error: "Invalid file type. Use JPEG, PNG, WebP, HEIC, or HEIF." });
+    }
+
+    const sniffedMedia = mediaValidation.media;
+    const contentSha256 = await sha256Hex(fileBuffer);
+    const clientRequestId = clientRequest.clientRequestId;
+    const mediaFamily = MEDIA_FAMILIES.EVENT_COVER;
+    const scopeKey = eventId ? `event:${eventId}` : `admin:${user.id}:event-cover`;
+    const requestPathToken = await stableUploadToken([
+      user.id,
+      mediaFamily,
+      scopeKey,
+      clientRequestId,
+      contentSha256,
+    ]);
+    const folder = eventId ? `events/${eventId}` : "events/covers";
+    const storagePath = `${folder}/req-${requestPathToken}.${sniffedMedia.extension}`;
+    const storageZone = Deno.env.get("BUNNY_STORAGE_ZONE")!;
+    const apiKey = Deno.env.get("BUNNY_STORAGE_API_KEY")!;
+    const baseReceiptMetadata: Record<string, unknown> = {
+      context: "event_cover",
+      storage_zone: storageZone,
+      mime_type: sniffedMedia.mimeType,
+      bytes: file.size,
+      ...(eventId ? { event_id: eventId } : {}),
+    };
+
+    const { data: reserveData, error: reserveError } = await adminSupabase.rpc("reserve_media_upload", {
+      p_owner_user_id: user.id,
+      p_media_family: mediaFamily,
+      p_scope_key: scopeKey,
+      p_client_request_id: clientRequestId,
+      p_content_sha256: contentSha256,
+      p_provider: PROVIDERS.BUNNY_STORAGE,
+      p_provider_path: storagePath,
+      p_provider_object_id: null,
+      p_metadata: baseReceiptMetadata,
+    });
+
+    if (reserveError) {
+      console.error(
+        `[upload-event-cover] reserve_media_upload failed userId=${user.id} eventId=${eventId ?? "none"} path=${storagePath} err=${reserveError.message}`,
+      );
+      return json({ success: false, error: "Upload reservation failed" });
+    }
+
+    const reserve = reserveData as Record<string, unknown> | null;
+    if (!reserve?.success) {
+      const error = typeof reserve?.error === "string" ? reserve.error : "Upload reservation failed";
+      const code = typeof reserve?.code === "string" ? reserve.code : null;
+      return json({ success: false, error, code: code ?? undefined }, code?.includes("conflict") ? 409 : 200);
+    }
+
+    const receiptId = typeof reserve.receipt_id === "string" ? reserve.receipt_id : null;
+    const reservedStatus = typeof reserve.status === "string" ? reserve.status : "reserved";
+    const reservedPath = typeof reserve.provider_path === "string" ? reserve.provider_path : storagePath;
+    const reservedAssetId = typeof reserve.asset_id === "string" ? reserve.asset_id : null;
+    const reserveMetadata = isRecord(reserve.metadata) ? reserve.metadata : {};
+
+    let currentCover: CurrentEventCover | null = null;
+    const getCurrentCover = async () => {
+      if (!eventId) return { assetId: null, referenceId: null };
+      currentCover ??= await fetchCurrentEventCover(adminSupabase, eventId);
+      return currentCover;
+    };
+
+    if ((reservedStatus === "uploaded" || reservedStatus === "attached") && reservedPath) {
+      if (!eventId) {
+        return json({
+          success: true,
+          path: reservedPath,
+          url: bunnyCdnUrl(reservedPath),
+          assetId: reservedAssetId,
+          receiptId,
+          referenceId: typeof reserveMetadata.reference_id === "string" ? reserveMetadata.reference_id : null,
+        });
+      }
+
+      if (!reservedAssetId) {
+        return json({ success: false, error: "Upload lifecycle registration failed" });
+      }
+
+      const current = await getCurrentCover();
+      const reservedAssetIsCurrent = current.assetId === reservedAssetId;
+      if (current.assetId !== staleCoverExpectation.value && !reservedAssetIsCurrent) {
+        return staleCoverResponse(current);
+      }
+
+      if (reservedStatus === "attached") {
+        if (reservedAssetIsCurrent) {
+          return json({
+            success: true,
+            path: reservedPath,
+            url: bunnyCdnUrl(reservedPath),
+            assetId: reservedAssetId,
+            receiptId,
+            referenceId: typeof reserveMetadata.reference_id === "string" ? reserveMetadata.reference_id : current.referenceId,
+          });
+        }
+
+        return staleCoverResponse(current);
+      }
+
+      if (reservedStatus === "uploaded" && reservedAssetIsCurrent) {
+        if (receiptId) {
+          const { error: receiptRepairError } = await adminSupabase
+            .from("media_upload_receipts")
+            .update({
+              status: "attached",
+              asset_id: reservedAssetId,
+              provider_path: reservedPath,
+              metadata: {
+                ...reserveMetadata,
+                ...(current.referenceId ? { reference_id: current.referenceId } : {}),
+                uploaded_at: typeof reserveMetadata.uploaded_at === "string"
+                  ? reserveMetadata.uploaded_at
+                  : new Date().toISOString(),
+              },
+              last_error: null,
+            })
+            .eq("id", receiptId);
+          if (receiptRepairError) {
+            console.error(`[upload-event-cover] receipt attached repair failed path=${reservedPath} err=${receiptRepairError.message}`);
+          }
+        }
+
+        return json({
+          success: true,
+          path: reservedPath,
+          url: bunnyCdnUrl(reservedPath),
+          assetId: reservedAssetId,
+          receiptId,
+          referenceId: current.referenceId,
+        });
+      }
+    }
+
+    if (eventId) {
+      const current = await getCurrentCover();
+      const reservedAssetIsCurrent = !!reservedAssetId && current.assetId === reservedAssetId;
+      if (current.assetId !== staleCoverExpectation.value && !reservedAssetIsCurrent) {
+        return staleCoverResponse(current);
+      }
+    }
+
+    let assetId = reservedStatus === "uploaded" && eventId ? reservedAssetId : null;
+    if (!assetId) {
+      const uploadRes = await fetch(
+        `https://storage.bunnycdn.com/${storageZone}/${storagePath}`,
+        {
+          method: "PUT",
+          headers: {
+            "AccessKey": apiKey,
+            "Content-Type": sniffedMedia.mimeType,
+            "Checksum": contentSha256.toUpperCase(),
+          },
+          body: fileBuffer,
+        },
+      );
+
+      if (!uploadRes.ok) {
+        console.error("[upload-event-cover] Bunny upload failed:", await providerErrorMeta(uploadRes));
+        if (receiptId) {
+          await adminSupabase
+            .from("media_upload_receipts")
+            .update({ status: "failed", last_error: `provider_upload_failed:${uploadRes.status}` })
+            .eq("id", receiptId);
+        }
+        return json({ success: false, error: "Upload to CDN failed" });
+      }
+
+      const lifecycle = await registerMediaAsset(adminSupabase, {
+        provider: PROVIDERS.BUNNY_STORAGE,
+        mediaFamily,
+        ownerUserId: user.id,
+        providerPath: storagePath,
+        mimeType: sniffedMedia.mimeType,
+        bytes: file.size,
+        contentSha256,
+        legacyTable: "events",
+        legacyId: eventId ?? null,
+        status: "uploaded",
+      });
+
+      if (!lifecycle.success || !lifecycle.assetId) {
+        const lastError = lifecycle.error ?? "asset_register_failed";
+        console.error(`[upload-event-cover] media asset registration failed path=${storagePath} err=${lastError}`);
+        if (receiptId) {
+          await adminSupabase
+            .from("media_upload_receipts")
+            .update({ status: "failed", last_error: lastError })
+            .eq("id", receiptId);
+        }
+        return json({ success: false, error: "Upload lifecycle registration failed" });
+      }
+
+      assetId = lifecycle.assetId;
+
+      if (receiptId) {
+        const { error: receiptUploadedError } = await adminSupabase
+          .from("media_upload_receipts")
+          .update({
+            status: "uploaded",
+            asset_id: assetId,
+            provider_path: storagePath,
+            metadata: {
+              ...baseReceiptMetadata,
+              uploaded_at: new Date().toISOString(),
+            },
+            last_error: null,
+          })
+          .eq("id", receiptId);
+
+        if (receiptUploadedError) {
+          console.error(`[upload-event-cover] receipt uploaded mark failed path=${storagePath} err=${receiptUploadedError.message}`);
+          return json({ success: false, error: "Upload receipt completion failed" });
+        }
+      }
+    }
+
+    let referenceId: string | null = null;
+    let receiptStatus: "uploaded" | "attached" = "uploaded";
+    if (eventId) {
+      const { data: replaceData, error: replaceError } = await adminSupabase.rpc("replace_event_cover_media_reference", {
+        p_event_id: eventId,
+        p_asset_id: assetId,
+        p_expected_current_asset_id: staleCoverExpectation.value,
+      });
+
+      if (replaceError) {
+        console.error(
+          `[upload-event-cover] media reference replace failed assetId=${assetId} eventId=${eventId} err=${replaceError.message}`,
+        );
+        if (receiptId) {
+          await adminSupabase
+            .from("media_upload_receipts")
+            .update({
+              status: "uploaded",
+              asset_id: assetId,
+              provider_path: storagePath,
+              last_error: replaceError.message,
+            })
+            .eq("id", receiptId);
+        }
+        return json({ success: false, error: "Upload lifecycle registration failed" });
+      }
+
+      const refResult = parseReplaceEventCoverResult(replaceData);
+      if (!refResult.success) {
+        if (receiptId) {
+          await adminSupabase
+            .from("media_upload_receipts")
+            .update({
+              status: "uploaded",
+              asset_id: assetId,
+              provider_path: storagePath,
+              last_error: refResult.error,
+            })
+            .eq("id", receiptId);
+        }
+        return json(
+          {
+            success: false,
+            error: refResult.error,
+            code: refResult.code ?? undefined,
+            currentCoverAssetId: refResult.currentCoverAssetId ?? undefined,
+          },
+          refResult.code === "stale_cover_update" ? 409 : 200,
+        );
+      }
+
+      referenceId = refResult.referenceId;
+      receiptStatus = "attached";
+    }
+
+    if (receiptId) {
+      const { error: receiptUpdateError } = await adminSupabase
+        .from("media_upload_receipts")
+        .update({
+          status: receiptStatus,
+          asset_id: assetId,
+          provider_path: storagePath,
+          metadata: {
+            ...baseReceiptMetadata,
+            ...(referenceId ? { reference_id: referenceId } : {}),
+            uploaded_at: new Date().toISOString(),
+          },
+          last_error: null,
+        })
+        .eq("id", receiptId);
+
+      if (receiptUpdateError) {
+        console.error(`[upload-event-cover] receipt completion failed path=${storagePath} err=${receiptUpdateError.message}`);
+        return json({ success: false, error: "Upload receipt completion failed" });
+      }
+    }
+
+    return json({
+      success: true,
+      path: storagePath,
+      url: bunnyCdnUrl(storagePath),
+      assetId,
+      referenceId,
+      receiptId,
+    });
   } catch (err) {
-    console.error("[upload-event-cover] Unexpected error:", err);
-    return new Response(
-      JSON.stringify({ success: false, error: String(err) }),
-      { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-    );
+    console.error("[upload-event-cover] Unexpected error:", safeUnexpectedError(err));
+    return json({ success: false, error: "Upload failed" });
   }
 });

@@ -23,6 +23,7 @@ import React from "react";
 import { callAdminRpc, createAdminIdempotencyKey } from "@/lib/adminRpc";
 import { useEventCategories } from "@/hooks/useEventCategories";
 import { inferEventCategoryKeysFromLegacyTags } from "@clientShared/eventCategories";
+import { clientRequestIdForUploadFile } from "@/services/imageUploadService";
 
 interface AdminEventFormModalProps {
   event?: AdminEventFormEvent | null;
@@ -55,6 +56,7 @@ type AdminEventFormEvent = {
   description?: string | null;
   language?: string | null;
   cover_image?: string | null;
+  cover_media_asset_id?: string | null;
   event_date?: string | null;
   duration_minutes?: number | null;
   tags?: string[] | null;
@@ -118,6 +120,12 @@ interface GeoResult {
   city: string;
   country: string;
   display_name: string;
+}
+
+function isSupportedCoverImageFile(file: File): boolean {
+  const declaredType = file.type.split(";")[0]?.trim().toLowerCase() ?? "";
+  if (declaredType.startsWith("image/")) return true;
+  return /\.(jpe?g|png|webp|heic|heif)$/i.test(file.name);
 }
 
 // ✅ CollapsibleSection defined OUTSIDE the component to prevent re-mount on parent re-render
@@ -197,6 +205,7 @@ const AdminEventFormModal = ({ event, onClose }: AdminEventFormModalProps) => {
   const [description, setDescription] = useState(event?.description || "");
   const [language, setLanguage] = useState<string>(event?.language || "");
   const [coverImage, setCoverImage] = useState(event?.cover_image || "");
+  const [currentCoverAssetId, setCurrentCoverAssetId] = useState<string | null>(event?.cover_media_asset_id ?? null);
   const [eventDate, setEventDate] = useState(
     event?.event_date ? format(new Date(event.event_date), "yyyy-MM-dd") : ""
   );
@@ -346,15 +355,20 @@ const AdminEventFormModal = ({ event, onClose }: AdminEventFormModalProps) => {
   const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    if (!file.type.startsWith('image/')) { toast.error('Please upload an image file'); return; }
+    if (!isSupportedCoverImageFile(file)) { toast.error('Please upload an image file'); return; }
     if (file.size > 20 * 1024 * 1024) { toast.error('Image must be less than 20MB'); return; }
     setIsUploading(true);
     try {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) throw new Error("Not authenticated");
       const { uploadEventCoverToBunny } = await import("@/services/eventCoverUploadService");
-      const url = await uploadEventCoverToBunny(file, session.access_token, event?.id ?? undefined);
-      setCoverImage(url);
+      const clientRequestId = clientRequestIdForUploadFile(file, `event-cover:${event?.id ?? "new"}`);
+      const uploaded = await uploadEventCoverToBunny(file, session.access_token, event?.id ?? undefined, {
+        clientRequestId,
+        expectedCurrentCoverAssetId: event?.id ? currentCoverAssetId : undefined,
+      });
+      setCoverImage(uploaded.url);
+      if (uploaded.assetId) setCurrentCoverAssetId(uploaded.assetId);
       toast.success('Cover image uploaded');
     } catch (error: unknown) {
       toast.error('Failed to upload image', {
