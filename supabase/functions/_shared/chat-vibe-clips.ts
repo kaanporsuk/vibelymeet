@@ -776,8 +776,8 @@ export async function updateChatVibeClipStatusByProvider(
   providerObjectId: string,
   status: ChatVibeClipStatus,
   errorDetail: string | null = null,
-  options: { publishIfProcessing?: boolean } = {},
-): Promise<{ handled: boolean; messageId?: string | null; error?: string }> {
+  options: { publishIfProcessing?: boolean; failOnIgnoredFailure?: boolean } = {},
+): Promise<{ handled: boolean; messageId?: string | null; error?: string; ignoredProviderStatus?: boolean }> {
   logChatVibeClipLifecycle("info", "provider_status_update_started", {
     provider_object_id: providerObjectId,
     target_status: status,
@@ -818,6 +818,9 @@ export async function updateChatVibeClipStatusByProvider(
     target_status: status,
   });
   if (shouldIgnoreProviderStatus(upload.status, status)) {
+    const ignoredError = options.failOnIgnoredFailure && status === "failed"
+      ? errorDetail ?? "ignored_failed_provider_status"
+      : null;
     logChatVibeClipLifecycle("warn", "stale_provider_status_ignored", {
       upload_id: upload.id,
       client_request_id: upload.client_request_id,
@@ -828,8 +831,14 @@ export async function updateChatVibeClipStatusByProvider(
       published_message_id: upload.published_message_id ?? null,
       previous_status: upload.status,
       target_status: status,
+      error_code: ignoredError,
     });
-    return { handled: true, messageId: upload.published_message_id };
+    return {
+      handled: true,
+      messageId: upload.published_message_id,
+      ignoredProviderStatus: true,
+      ...(ignoredError ? { error: ignoredError } : {}),
+    };
   }
 
   const { error: statusUpdateError } = await admin

@@ -454,6 +454,9 @@ test("server upload and publish paths enforce Bunny Stream Vibe Clip limits", ()
   assert.match(createChatVibeClipUpload, /queueCreatedVideoOrphanCleanup/);
   assert.match(createChatVibeClipUpload, /enqueue_media_delete/);
   assert.match(createChatVibeClipUpload, /cleanup_queued/);
+  assert.match(createChatVibeClipUpload, /last_error: reason/);
+  assert.doesNotMatch(createChatVibeClipUpload, /legacy_table: "chat_vibe_clip_uploads"/);
+  assert.doesNotMatch(createChatVibeClipUpload, /legacy_id: reason/);
   assert.match(createChatVibeClipUpload, /\.in\("status", \["uploading", "soft_deleted", "failed"\]\)[\s\S]+\.select\("id"\)[\s\S]+\.maybeSingle\(\)/);
   assert.match(createChatVibeClipUpload, /media_asset_orphan_mark_skipped/);
   assert.match(completeChatVibeClipUpload, /ensureChatVibeClipMessage/);
@@ -489,10 +492,13 @@ test("server upload and publish paths enforce Bunny Stream Vibe Clip limits", ()
     /provider_failed_message_update_failed[\s\S]+return \{ handled: true, error: messageUpdateError\.message \}/,
   );
   assert.match(chatVibeClipShared, /provider: "bunny_stream"/);
-  assert.match(chatVibeClipShared, /options: \{ publishIfProcessing\?: boolean \} = \{\}/);
+  assert.match(chatVibeClipShared, /options: \{ publishIfProcessing\?: boolean; failOnIgnoredFailure\?: boolean \} = \{\}/);
   assert.match(chatVibeClipShared, /!options\.publishIfProcessing/);
   assert.match(chatVibeClipShared, /function isTerminalChatVibeClipStatus/);
   assert.match(chatVibeClipShared, /shouldIgnoreProviderStatus\(upload\.status, status\)/);
+  assert.match(chatVibeClipShared, /ignoredProviderStatus\?: boolean/);
+  assert.match(chatVibeClipShared, /options\.failOnIgnoredFailure && status === "failed"/);
+  assert.match(chatVibeClipShared, /ignoredProviderStatus: true/);
   assert.match(getChatMediaUrl, /BUNNY_CHAT_STREAM_CDN_HOSTNAME/);
   assert.match(getChatMediaUrl, /BUNNY_CHAT_STREAM_TOKEN_SECURITY_KEY/);
   assert.doesNotMatch(getChatMediaUrl, /async function hmacSha256Base64Url/);
@@ -504,8 +510,10 @@ test("server upload and publish paths enforce Bunny Stream Vibe Clip limits", ()
   assert.match(getChatMediaUrl, /expiresInSeconds: TOKEN_TTL_SECONDS/);
   assert.match(videoWebhook, /BUNNY_CHAT_STREAM_LIBRARY_ID/);
   assert.match(videoWebhook, /allowedLibraryIds/);
+  assert.match(videoWebhook, /logWebhook\("warn", "video_webhook_rejected", \{[\s\S]{0,160}reason: "library_mismatch"/);
   assert.match(videoWebhook, /updateChatVibeClipStatusByProvider/);
-  assert.match(videoWebhook, /\{ publishIfProcessing: Status === 7 \}/);
+  assert.match(videoWebhook, /\{ publishIfProcessing: Status === 7, failOnIgnoredFailure: true \}/);
+  assert.match(videoWebhook, /ignored_provider_status: chatClipResult\.ignoredProviderStatus === true/);
   assert.match(syncChatVibeClipStatus, /\{ publishIfProcessing: bunny\.rawStatus === 7 && upload\.sender_id === user\.id \}/);
   assert.match(chatThreadPage, /kind === "thumbnail" && asset\.provider === "bunny_stream" && asset\.media_family === "chat_video"/);
   assert.match(chatVibeClipMigration, /CREATE TABLE IF NOT EXISTS public\.chat_vibe_clip_uploads/);

@@ -242,14 +242,11 @@ serve(async (req) => {
       VideoLibraryId != null &&
       !allowedLibraryIds.includes(String(VideoLibraryId).trim())
     ) {
-      logVibeVideo("warn", "video_webhook_rejected", {
-        project_ref: projectRef,
-        webhook_trace_id: webhookTraceId,
-        elapsed_ms: Date.now() - startedAt,
+      logWebhook("warn", "video_webhook_rejected", {
         reason: "library_mismatch",
         video_guid: VideoGuid,
         library_id: String(VideoLibraryId),
-        allowed_library_ids: allowedLibraryIds,
+        allowed_library_ids: allowedLibraryIds.join(","),
       });
       return new Response("Forbidden", { status: 403 });
     }
@@ -311,7 +308,7 @@ serve(async (req) => {
       VideoGuid,
       chatClipStatus,
       chatClipStatus === "failed" ? `bunny_status_${Status}` : null,
-      { publishIfProcessing: Status === 7 },
+      { publishIfProcessing: Status === 7, failOnIgnoredFailure: true },
     );
     if (chatClipResult.handled) {
       logWebhook(chatClipResult.error ? "error" : "info", "video_webhook_chat_vibe_clip_update", {
@@ -328,6 +325,7 @@ serve(async (req) => {
         bunny_status: typeof Status === "number" ? Status : null,
         mapped_status: chatClipStatus,
         message_id: chatClipResult.messageId ?? null,
+        ignored_provider_status: chatClipResult.ignoredProviderStatus === true,
         error_code: chatClipResult.error ?? null,
       });
       return new Response(chatClipResult.error ? "error" : "ok", { status: chatClipResult.error ? 500 : 200 });

@@ -64,8 +64,6 @@ async function queueCreatedVideoOrphanCleanup(
         deleted_at: now,
         purge_after: now,
         last_error: reason,
-        legacy_table: "chat_vibe_clip_uploads",
-        legacy_id: reason,
       })
       .eq("id", assetId)
       .in("status", ["uploading", "soft_deleted", "failed"])
