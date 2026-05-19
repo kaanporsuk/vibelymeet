@@ -439,6 +439,10 @@ function resizeActionsForNativePhoto(source: NativeLocalUriSource, maxEdge: numb
     : [{ resize: { height: maxEdge } }];
 }
 
+function hasNativePhotoDimensions(source: NativeLocalUriSource): boolean {
+  return finitePositiveNumber(source.width) !== null && finitePositiveNumber(source.height) !== null;
+}
+
 export const nativeMediaTranscodeHooks = {
   async preparePhotoForUpload(
     source: NativeLocalUriSource,
@@ -449,11 +453,19 @@ export const nativeMediaTranscodeHooks = {
     if (!imageManipulator) return source;
 
     const maxEdge = options.maxEdge ?? 2048;
-    const actions = resizeActionsForNativePhoto(source, maxEdge);
-    const result = await imageManipulator.manipulateAsync(source.uri, actions, {
+    const manipulationOptions = {
       compress: options.compress ?? 0.85,
       format: options.format ?? "jpeg",
-    });
+    };
+    const actions = resizeActionsForNativePhoto(source, maxEdge);
+    let result = await imageManipulator.manipulateAsync(source.uri, actions, manipulationOptions);
+
+    if (!hasNativePhotoDimensions(source)) {
+      const followUpActions = resizeActionsForNativePhoto(result, maxEdge);
+      if (followUpActions.length > 0) {
+        result = await imageManipulator.manipulateAsync(result.uri, followUpActions, manipulationOptions);
+      }
+    }
 
     return {
       ...source,

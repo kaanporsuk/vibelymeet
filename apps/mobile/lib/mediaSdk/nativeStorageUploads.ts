@@ -49,6 +49,13 @@ const storageErrorsByClientRequestId = new Map<string, unknown>();
 
 let mediaSdk: NativeMediaSdk | null = null;
 
+function storageResultKey(
+  family: NativePhotoUploadInput['family'] | NativeVoiceUploadInput['family'],
+  clientRequestId: string,
+): string {
+  return `${family}:${clientRequestId}`;
+}
+
 const nativeImageManipulator = {
   async manipulateAsync(uri: string, actions: readonly unknown[], options?: Record<string, unknown>) {
     return ImageManipulator.manipulateAsync(
@@ -83,6 +90,7 @@ async function uploadNativePhotoViaLegacyService(
   controls: MediaTaskRunContext,
 ): Promise<void> {
   const clientRequestId = controls.snapshot().clientRequestId;
+  const resultKey = storageResultKey(input.family, clientRequestId);
   try {
     if (input.family === 'chat_photo') {
       const result = await uploadChatImageMessage(
@@ -91,7 +99,7 @@ async function uploadNativePhotoViaLegacyService(
         requiredContextString(input, 'matchId'),
         clientRequestId,
       );
-      chatImageResultsByClientRequestId.set(clientRequestId, result);
+      chatImageResultsByClientRequestId.set(resultKey, result);
       controls.dispatch({
         type: 'ready',
         result: {
@@ -115,7 +123,7 @@ async function uploadNativePhotoViaLegacyService(
         signal: (input.options?.signal as AbortSignal | null | undefined) ?? undefined,
       },
     );
-    profilePhotoResultsByClientRequestId.set(clientRequestId, result);
+    profilePhotoResultsByClientRequestId.set(resultKey, result);
     controls.dispatch({
       type: 'ready',
       result: {
@@ -125,7 +133,7 @@ async function uploadNativePhotoViaLegacyService(
       },
     });
   } catch (error) {
-    storageErrorsByClientRequestId.set(clientRequestId, error);
+    storageErrorsByClientRequestId.set(resultKey, error);
     throw error;
   }
 }
@@ -135,13 +143,14 @@ async function uploadNativeVoiceViaLegacyService(
   controls: MediaTaskRunContext,
 ): Promise<void> {
   const clientRequestId = controls.snapshot().clientRequestId;
+  const resultKey = storageResultKey(input.family, clientRequestId);
   try {
     const result = await uploadVoiceMessage(
       input.source.uri,
       requiredContextString(input, 'matchId'),
       clientRequestId,
     );
-    voiceResultsByClientRequestId.set(clientRequestId, result);
+    voiceResultsByClientRequestId.set(resultKey, result);
     controls.dispatch({
       type: 'ready',
       result: {
@@ -151,7 +160,7 @@ async function uploadNativeVoiceViaLegacyService(
       },
     });
   } catch (error) {
-    storageErrorsByClientRequestId.set(clientRequestId, error);
+    storageErrorsByClientRequestId.set(resultKey, error);
     throw error;
   }
 }
@@ -213,13 +222,14 @@ export async function uploadProfilePhotoWithMediaSdk(
     },
   });
   const clientRequestId = task.clientRequestId;
+  const resultKey = storageResultKey('profile_photo', clientRequestId);
 
   try {
     const terminal = await waitForTaskTerminal(task);
-    const originalError = storageErrorsByClientRequestId.get(clientRequestId);
+    const originalError = storageErrorsByClientRequestId.get(resultKey);
     if (originalError) throw originalError;
 
-    const uploaded = profilePhotoResultsByClientRequestId.get(clientRequestId);
+    const uploaded = profilePhotoResultsByClientRequestId.get(resultKey);
     if (uploaded) return uploaded;
 
     if (terminal.state === 'failed') {
@@ -229,8 +239,8 @@ export async function uploadProfilePhotoWithMediaSdk(
     if (providerPath) return { path: providerPath, sessionId: null };
     throw new Error('Image upload completed without a storage path.');
   } finally {
-    profilePhotoResultsByClientRequestId.delete(clientRequestId);
-    storageErrorsByClientRequestId.delete(clientRequestId);
+    profilePhotoResultsByClientRequestId.delete(resultKey);
+    storageErrorsByClientRequestId.delete(resultKey);
   }
 }
 
@@ -252,13 +262,14 @@ export async function uploadChatImageWithMediaSdk(params: NativeChatImageSdkUplo
     },
   });
   const clientRequestId = task.clientRequestId;
+  const resultKey = storageResultKey('chat_photo', clientRequestId);
 
   try {
     const terminal = await waitForTaskTerminal(task);
-    const originalError = storageErrorsByClientRequestId.get(clientRequestId);
+    const originalError = storageErrorsByClientRequestId.get(resultKey);
     if (originalError) throw originalError;
 
-    const uploaded = chatImageResultsByClientRequestId.get(clientRequestId);
+    const uploaded = chatImageResultsByClientRequestId.get(resultKey);
     if (uploaded) return uploaded;
 
     if (terminal.state === 'failed') {
@@ -268,8 +279,8 @@ export async function uploadChatImageWithMediaSdk(params: NativeChatImageSdkUplo
     if (mediaRef) return mediaRef;
     throw new Error('Image upload completed without a media reference.');
   } finally {
-    chatImageResultsByClientRequestId.delete(clientRequestId);
-    storageErrorsByClientRequestId.delete(clientRequestId);
+    chatImageResultsByClientRequestId.delete(resultKey);
+    storageErrorsByClientRequestId.delete(resultKey);
   }
 }
 
@@ -291,13 +302,14 @@ export async function uploadVoiceWithMediaSdk(params: NativeVoiceSdkUploadParams
     },
   });
   const clientRequestId = task.clientRequestId;
+  const resultKey = storageResultKey('voice_note', clientRequestId);
 
   try {
     const terminal = await waitForTaskTerminal(task);
-    const originalError = storageErrorsByClientRequestId.get(clientRequestId);
+    const originalError = storageErrorsByClientRequestId.get(resultKey);
     if (originalError) throw originalError;
 
-    const uploaded = voiceResultsByClientRequestId.get(clientRequestId);
+    const uploaded = voiceResultsByClientRequestId.get(resultKey);
     if (uploaded) return uploaded;
 
     if (terminal.state === 'failed') {
@@ -307,7 +319,7 @@ export async function uploadVoiceWithMediaSdk(params: NativeVoiceSdkUploadParams
     if (mediaRef) return mediaRef;
     throw new Error('Voice upload completed without a media reference.');
   } finally {
-    voiceResultsByClientRequestId.delete(clientRequestId);
-    storageErrorsByClientRequestId.delete(clientRequestId);
+    voiceResultsByClientRequestId.delete(resultKey);
+    storageErrorsByClientRequestId.delete(resultKey);
   }
 }

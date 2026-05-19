@@ -522,6 +522,47 @@ test("native photo transcode hook uses expo-image-manipulator shape for resize a
   assert.equal(prepared.height, 2048);
 });
 
+test("native photo transcode hook downscales after decode when source dimensions are missing", async () => {
+  const calls: Array<{ uri: string; actions: unknown[] }> = [];
+  const prepared = await nativeMediaTranscodeHooks.preparePhotoForUpload(
+    {
+      uri: "file:///tmp/cached-chat-photo.jpg",
+      name: "cached-chat-photo.jpg",
+      mimeType: "image/jpeg",
+      sizeBytes: 8_500_000,
+    },
+    {
+      async manipulateAsync(uri, actions) {
+        calls.push({ uri, actions: [...actions] });
+        if (calls.length === 1) {
+          return {
+            uri: "file:///tmp/cached-chat-photo-pass1.jpg",
+            sizeBytes: 4_500_000,
+            width: 4032,
+            height: 3024,
+          };
+        }
+        return {
+          uri: "file:///tmp/cached-chat-photo-ready.jpg",
+          sizeBytes: 920_000,
+          width: 2048,
+          height: 1536,
+        };
+      },
+    },
+  );
+
+  assert.deepEqual(calls, [
+    { uri: "file:///tmp/cached-chat-photo.jpg", actions: [] },
+    { uri: "file:///tmp/cached-chat-photo-pass1.jpg", actions: [{ resize: { width: 2048 } }] },
+  ]);
+  assert.equal(prepared.uri, "file:///tmp/cached-chat-photo-ready.jpg");
+  assert.equal(prepared.name, "cached-chat-photo.jpg");
+  assert.equal(prepared.mimeType, "image/jpeg");
+  assert.equal(prepared.width, 2048);
+  assert.equal(prepared.height, 1536);
+});
+
 test("native voice recording config uses expo-audio AAC mono at capture time", () => {
   const adapter = readFileSync("shared/media-sdk/adapters/native.ts", "utf8");
   assert.match(adapter, /voiceRecordingOptions/);
