@@ -8,6 +8,11 @@ import {
 
 export type ChatMediaKind = 'image' | 'voice' | 'video' | 'vibe_clip' | 'thumbnail';
 export type ChatVibeClipProcessingStatus = 'uploading' | 'processing' | 'ready' | 'failed';
+export type ChatVibeClipStatusSyncResult = {
+  status: ChatVibeClipProcessingStatus;
+  messageId: string | null;
+  providerObjectId: string | null;
+};
 
 type ResolverResponse = {
   success?: boolean;
@@ -137,23 +142,47 @@ export async function refreshCachedChatMediaUrl(
   return issueAndCacheChatMediaUrl(messageId, mediaKind, rawRef, true, options);
 }
 
-export async function syncChatVibeClipStatus(messageId: string): Promise<ChatVibeClipProcessingStatus | null> {
-  if (!isUuid(messageId)) return null;
+export async function syncChatVibeClipUploadStatus(input: {
+  messageId?: string | null;
+  uploadId?: string | null;
+  clientRequestId?: string | null;
+}): Promise<ChatVibeClipStatusSyncResult | null> {
+  const messageId = input.messageId?.trim() ?? '';
+  const uploadId = input.uploadId?.trim() ?? '';
+  const clientRequestId = input.clientRequestId?.trim() ?? '';
+  if (!isUuid(messageId) && !isUuid(uploadId) && !isUuid(clientRequestId)) return null;
   try {
     const accessToken = await getFreshCachedAccessToken();
     if (!accessToken) return null;
+    const body: Record<string, string> = {};
+    if (isUuid(messageId)) body.message_id = messageId;
+    if (isUuid(uploadId)) body.upload_id = uploadId;
+    if (isUuid(clientRequestId)) body.client_request_id = clientRequestId;
     const { data, error } = await supabase.functions.invoke('sync-chat-vibe-clip-status', {
-      body: { message_id: messageId },
+      body,
       headers: { Authorization: `Bearer ${accessToken}` },
     });
     if (error) return null;
-    const status = (data as { status?: unknown } | null)?.status;
-    return status === 'uploading' || status === 'processing' || status === 'ready' || status === 'failed'
-      ? status
-      : null;
+    const payload = data as { status?: unknown; message_id?: unknown; provider_object_id?: unknown } | null;
+    const status = payload?.status;
+    if (status !== 'uploading' && status !== 'processing' && status !== 'ready' && status !== 'failed') {
+      return null;
+    }
+    return {
+      status,
+      messageId: typeof payload?.message_id === 'string' && isUuid(payload.message_id) ? payload.message_id : null,
+      providerObjectId: typeof payload?.provider_object_id === 'string' && payload.provider_object_id.trim()
+        ? payload.provider_object_id.trim()
+        : null,
+    };
   } catch {
     return null;
   }
+}
+
+export async function syncChatVibeClipStatus(messageId: string): Promise<ChatVibeClipProcessingStatus | null> {
+  const result = await syncChatVibeClipUploadStatus({ messageId });
+  return result?.status ?? null;
 }
 
 async function issueAndCacheChatMediaUrl(

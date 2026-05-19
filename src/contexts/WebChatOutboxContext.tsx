@@ -19,6 +19,7 @@ import {
   nextBackoffMs,
   WebOutboxExecuteError,
 } from "@/lib/webChatOutbox/execute";
+import { syncChatVibeClipUploadStatus } from "@/lib/chatMediaResolver";
 import { isLikelyNetworkFailure, outboxFailureUserMessage } from "@/lib/webChatOutbox/network";
 import { invalidateAfterThreadMutation } from "@/hooks/useMessages";
 import type { WebChatOutboxItem, WebChatOutboxPayload, WebChatOutboxQueueState } from "@/lib/webChatOutbox/types";
@@ -241,7 +242,34 @@ export function WebChatOutboxProvider({ children }: { children: ReactNode }) {
 
       for (const item of itemsRef.current) {
         if (item.state !== "awaiting_hydration") continue;
-        if (!item.serverMessageId) {
+        let serverMessageId = item.serverMessageId;
+        const deadlineAtMs = item.hydrationDeadlineAtMs ?? item.updatedAtMs + HYDRATION_TIMEOUT_MS;
+        const lastCheckedAtMs = item.hydrationLastCheckedAtMs ?? 0;
+        const dueForCheck = now - lastCheckedAtMs >= HYDRATION_CHECK_INTERVAL_MS;
+        const pastDeadline = now >= deadlineAtMs;
+        if (online && item.payload.kind === "video" && (dueForCheck || pastDeadline)) {
+          const synced = await syncChatVibeClipUploadStatus({
+            messageId: serverMessageId,
+            clientRequestId: item.id,
+          });
+          if (synced?.messageId && synced.messageId !== serverMessageId) {
+            serverMessageId = synced.messageId;
+            setItems((prev) =>
+              prev.map((it) =>
+                it.id === item.id
+                  ? {
+                      ...it,
+                      serverMessageId: synced.messageId ?? it.serverMessageId,
+                      hydrationLastCheckedAtMs: now,
+                      hydrationDeadlineAtMs: deadlineAtMs,
+                      updatedAtMs: now,
+                    }
+                  : it,
+              ),
+            );
+          }
+        }
+        if (!serverMessageId) {
           setItems((prev) =>
             prev.map((it) =>
               it.id === item.id
@@ -259,16 +287,12 @@ export function WebChatOutboxProvider({ children }: { children: ReactNode }) {
         }
         if (!online) continue;
 
-        const deadlineAtMs = item.hydrationDeadlineAtMs ?? item.updatedAtMs + HYDRATION_TIMEOUT_MS;
-        const lastCheckedAtMs = item.hydrationLastCheckedAtMs ?? 0;
-        const dueForCheck = now - lastCheckedAtMs >= HYDRATION_CHECK_INTERVAL_MS;
-        const pastDeadline = now >= deadlineAtMs;
         if (!dueForCheck && !pastDeadline) continue;
 
         const { data: serverRow } = await supabase
           .from("messages")
           .select("id")
-          .eq("id", item.serverMessageId)
+          .eq("id", serverMessageId)
           .eq("match_id", item.matchId)
           .maybeSingle();
 

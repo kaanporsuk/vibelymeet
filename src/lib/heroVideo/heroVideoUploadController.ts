@@ -92,6 +92,23 @@ function _stopPoll(): void {
   _activePollVideoId = null;
 }
 
+function newHeroVideoClientRequestId(): string {
+  const cryptoApi = globalThis.crypto;
+  if (cryptoApi?.randomUUID) return cryptoApi.randomUUID();
+  if (cryptoApi?.getRandomValues) {
+    const bytes = new Uint8Array(16);
+    cryptoApi.getRandomValues(bytes);
+    bytes[6] = (bytes[6] & 0x0f) | 0x40;
+    bytes[8] = (bytes[8] & 0x3f) | 0x80;
+    const hex = [...bytes].map((b) => b.toString(16).padStart(2, "0")).join("");
+    return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+  }
+  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (ch) => {
+    const n = (Math.random() * 16) | 0;
+    return (ch === "x" ? n : (n & 0x3) | 0x8).toString(16);
+  });
+}
+
 async function _pollTick(expectedVideoId: string): Promise<void> {
   _pollAttempts++;
 
@@ -367,15 +384,17 @@ export function heroVideoStart(
 
   _setState({ phase: "uploading", uploadProgress: 0, videoId: null, errorMessage: null });
   _activeRunStartedAt = Date.now();
+  const clientRequestId = newHeroVideoClientRequestId();
 
   // Run async in background
-  void _run(file, caption, context);
+  void _run(file, caption, context, clientRequestId);
 }
 
 async function _run(
   file: File | Blob,
   caption?: string,
   context: HeroVideoUploadContext = "profile_studio",
+  clientRequestId: string = newHeroVideoClientRequestId(),
 ): Promise<void> {
   let failurePhase: "credentials" | "tus" | "processing" = "credentials";
   let activeVideoId: string | null = null;
@@ -400,6 +419,7 @@ async function _run(
     trackVibeVideoEvent(VIBE_VIDEO_EVENTS.credentialsRequestStarted, {
       source: "hero_video_controller",
       upload_context: context,
+      client_request_id: clientRequestId,
     });
     try {
       credRes = await fetch(
@@ -410,7 +430,7 @@ async function _run(
             Authorization: `Bearer ${session.access_token}`,
             "Content-Type": "application/json",
           },
-          body: JSON.stringify({ context }),
+          body: JSON.stringify({ context, client_request_id: clientRequestId }),
         },
       );
     } catch (error) {
@@ -418,6 +438,7 @@ async function _run(
       trackVibeVideoEvent(VIBE_VIDEO_EVENTS.credentialsRequestFailed, {
         source: "hero_video_controller",
         upload_context: context,
+        client_request_id: clientRequestId,
         error_code: "network_error",
       });
       captureVibeVideoException(error, {
@@ -440,6 +461,7 @@ async function _run(
       trackVibeVideoEvent(VIBE_VIDEO_EVENTS.credentialsRequestFailed, {
         source: "hero_video_controller",
         upload_context: context,
+        client_request_id: clientRequestId,
         error_code: String(creds.code ?? `http_${credRes.status}`),
         http_status: credRes.status,
       });
@@ -456,6 +478,7 @@ async function _run(
       trackVibeVideoEvent(VIBE_VIDEO_EVENTS.credentialsRequestFailed, {
         source: "hero_video_controller",
         upload_context: context,
+        client_request_id: clientRequestId,
         error_code: "incomplete_credentials",
       });
       return;
@@ -466,6 +489,7 @@ async function _run(
     trackVibeVideoEvent(VIBE_VIDEO_EVENTS.credentialsRequestSucceeded, {
       source: "hero_video_controller",
       upload_context: context,
+      client_request_id: clientRequestId,
       video_guid: videoId,
       has_library_id: libraryId != null,
     });
@@ -475,6 +499,7 @@ async function _run(
     trackVibeVideoEvent(VIBE_VIDEO_EVENTS.tusUploadStarted, {
       source: "hero_video_controller",
       upload_context: context,
+      client_request_id: clientRequestId,
       video_guid: videoId,
     });
     await new Promise<void>((resolve, reject) => {
@@ -490,7 +515,7 @@ async function _run(
         },
         metadata: {
           filetype: (file as File).type || "video/mp4",
-          title: `vibe-video-${Date.now()}`,
+          title: `vibe-video-${clientRequestId}`,
         },
         onError: (error: unknown) => {
           const msg = error instanceof Error ? error.message : "Upload failed. Please try again.";
@@ -514,6 +539,7 @@ async function _run(
     trackVibeVideoEvent(VIBE_VIDEO_EVENTS.tusUploadSucceeded, {
       source: "hero_video_controller",
       upload_context: context,
+      client_request_id: clientRequestId,
       video_guid: videoId,
       duration_ms: _activeRunStartedAt ? Date.now() - _activeRunStartedAt : null,
     });
@@ -545,12 +571,14 @@ async function _run(
       trackVibeVideoEvent(VIBE_VIDEO_EVENTS.credentialsRequestFailed, {
         source: "hero_video_controller",
         upload_context: context,
+        client_request_id: clientRequestId,
         error_code: "credentials_exception",
       });
     } else if (failurePhase === "tus") {
       trackVibeVideoEvent(VIBE_VIDEO_EVENTS.tusUploadFailed, {
         source: "hero_video_controller",
         upload_context: context,
+        client_request_id: clientRequestId,
         video_guid: activeVideoId,
         error_code: "upload_exception",
       });
@@ -558,6 +586,7 @@ async function _run(
       trackVibeVideoEvent(VIBE_VIDEO_EVENTS.failedObserved, {
         source: "hero_video_controller",
         upload_context: context,
+        client_request_id: clientRequestId,
         video_guid: activeVideoId,
         error_code: "processing_exception",
       });

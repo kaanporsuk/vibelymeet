@@ -1,5 +1,5 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { createClient, type SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.88.0";
 import { crypto } from "https://deno.land/std@0.168.0/crypto/mod.ts";
 import { logVibeVideo } from "../_shared/vibe-video-logs.ts";
 
@@ -25,9 +25,14 @@ function getProjectRef(url: string | undefined): string {
   }
 }
 
-type AdminSupabaseClient = ReturnType<typeof createClient>;
+type AdminSupabaseClient = SupabaseClient<any, "public", any>;
 
 type OrphanCleanupContext = Record<string, string | number | boolean | null>;
+type CreateVideoUploadRequestBody = {
+  context?: unknown;
+  client_request_id?: unknown;
+  clientRequestId?: unknown;
+};
 
 type CleanupCreatedVideoArgs = {
   adminSupabase: AdminSupabaseClient;
@@ -40,6 +45,42 @@ type CleanupCreatedVideoArgs = {
   context?: OrphanCleanupContext;
   requireDurableBeforeImmediate?: boolean;
 };
+
+function isUuid(value: unknown): value is string {
+  return typeof value === "string" &&
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value.trim());
+}
+
+function isValidVideoGuid(value: unknown): value is string {
+  return typeof value === "string" &&
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value.trim());
+}
+
+function isReusableVibeVideoUploadAttemptStatus(value: unknown): boolean {
+  return value === "uploading" || value === "processing" || value === "ready";
+}
+
+function parseClientRequestId(body: CreateVideoUploadRequestBody): {
+  ok: true;
+  clientRequestId: string;
+  wasProvided: boolean;
+} | { ok: false; error: string } {
+  const raw = body.client_request_id ?? body.clientRequestId;
+  if (raw == null || raw === "") {
+    return { ok: true, clientRequestId: globalThis.crypto.randomUUID(), wasProvided: false };
+  }
+  if (!isUuid(raw)) return { ok: false, error: "invalid_client_request_id" };
+  return { ok: true, clientRequestId: raw.trim(), wasProvided: true };
+}
+
+async function createTusSignature(libraryId: string, apiKey: string, expirationTime: number, videoId: string) {
+  const signatureInput = `${libraryId}${apiKey}${expirationTime}${videoId}`;
+  const encoder = new TextEncoder();
+  const data = encoder.encode(signatureInput);
+  const hashBuffer = await crypto.subtle.digest("SHA-256", data);
+  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  return hashArray.map((b) => b.toString(16).padStart(2, "0")).join("");
+}
 
 async function enqueueDurableOrphanCleanup(
   adminSupabase: AdminSupabaseClient,
@@ -173,6 +214,32 @@ async function cleanupCreatedVideo({
   }
 }
 
+async function markVibeVideoUploadAttemptFailed(
+  adminSupabase: AdminSupabaseClient,
+  uploadAttemptId: string | null,
+  providerObjectId: string,
+  userId: string,
+  projectRef: string,
+  errorDetail: string,
+) {
+  if (!uploadAttemptId) return;
+  const { error } = await adminSupabase
+    .from("vibe_video_uploads")
+    .update({ status: "failed", error_detail: errorDetail })
+    .eq("id", uploadAttemptId)
+    .eq("provider_object_id", providerObjectId);
+
+  if (error) {
+    logVibeVideo("error", "create_video_upload_attempt_fail_mark_failed", {
+      user_id: userId,
+      video_guid: providerObjectId,
+      upload_attempt_id: uploadAttemptId,
+      project_ref: projectRef,
+      error_code: error.code ?? "attempt_fail_mark_failed",
+    });
+  }
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
@@ -193,6 +260,7 @@ serve(async (req) => {
   let cleanupLibraryId: string | null = null;
   let cleanupApiKey: string | null = null;
   let cleanupAdminSupabase: AdminSupabaseClient | null = null;
+  let cleanupUploadAttemptId: string | null = null;
 
   try {
     logVibeVideo("info", "create_video_upload_request_received", {
@@ -210,8 +278,13 @@ serve(async (req) => {
 
     // Parse body once (before auth, since body stream is single-consume)
     let uploadContext: "onboarding" | "profile_studio" = "profile_studio";
+    let requestBody: CreateVideoUploadRequestBody = {};
     try {
-      const body = await req.json();
+      const parsedBody = await req.json();
+      requestBody = parsedBody && typeof parsedBody === "object"
+        ? parsedBody as CreateVideoUploadRequestBody
+        : {};
+      const body = requestBody;
       if (body?.context === "onboarding") uploadContext = "onboarding";
     } catch {
       // No body or non-JSON — default to profile_studio
@@ -237,6 +310,23 @@ serve(async (req) => {
       upload_context: uploadContext,
     });
     cleanupUserId = user.id;
+
+    const clientRequest = parseClientRequestId(requestBody);
+    if (!clientRequest.ok) {
+      logVibeVideo("warn", "create_video_upload_rejected", {
+        project_ref: projectRef,
+        user_id: user.id,
+        reason: clientRequest.error,
+      });
+      return json({ success: false, error: clientRequest.error, code: clientRequest.error }, 400);
+    }
+    const clientRequestId = clientRequest.clientRequestId;
+    logVibeVideo("info", "create_video_upload_client_request_resolved", {
+      project_ref: projectRef,
+      user_id: user.id,
+      client_request_id: clientRequestId,
+      client_request_id_provided: clientRequest.wasProvided,
+    });
 
     const libraryId = Deno.env.get("BUNNY_STREAM_LIBRARY_ID");
     const apiKey = Deno.env.get("BUNNY_STREAM_API_KEY");
@@ -313,6 +403,81 @@ serve(async (req) => {
 
     const existingVideoId = profileRow.bunny_video_uid;
 
+    if (clientRequest.wasProvided) {
+      const { data: existingAttempt, error: existingAttemptError } = await adminSupabase
+        .from("vibe_video_uploads")
+        .select("id,provider_object_id,status,draft_media_session_id,media_asset_id,upload_context")
+        .eq("user_id", user.id)
+        .eq("client_request_id", clientRequestId)
+        .maybeSingle();
+
+      if (existingAttemptError) {
+        logVibeVideo("error", "create_video_upload_attempt_lookup_failed", {
+          user_id: user.id,
+          client_request_id: clientRequestId,
+          project_ref: projectRef,
+          error_code: existingAttemptError.code ?? "attempt_lookup_failed",
+        });
+        return json(
+          { success: false, error: "Failed to read upload attempt", code: "upload_attempt_lookup_failed" },
+          500,
+        );
+      }
+
+      if (existingAttempt?.provider_object_id) {
+        const existingStatus = typeof existingAttempt.status === "string" ? existingAttempt.status : null;
+        if (!isReusableVibeVideoUploadAttemptStatus(existingStatus)) {
+          logVibeVideo("warn", "create_video_upload_attempt_terminal_reuse_rejected", {
+            user_id: user.id,
+            client_request_id: clientRequestId,
+            upload_attempt_id: typeof existingAttempt.id === "string" ? existingAttempt.id : null,
+            video_guid: String(existingAttempt.provider_object_id),
+            status: existingStatus,
+            project_ref: projectRef,
+          });
+          return json(
+            { success: false, error: "Upload attempt is no longer reusable", code: "upload_attempt_terminal" },
+            409,
+          );
+        }
+
+        const retryVideoId = String(existingAttempt.provider_object_id);
+        const expirationTime = Math.floor(Date.now() / 1000) + 3600;
+        const signature = await createTusSignature(libraryId, apiKey, expirationTime, retryVideoId);
+        logVibeVideo("info", "create_video_upload_attempt_reused", {
+          user_id: user.id,
+          client_request_id: clientRequestId,
+          video_guid: retryVideoId,
+          upload_attempt_id: typeof existingAttempt.id === "string" ? existingAttempt.id : null,
+          media_session_id: typeof existingAttempt.draft_media_session_id === "string"
+            ? existingAttempt.draft_media_session_id
+            : null,
+          media_asset_id: typeof existingAttempt.media_asset_id === "string" ? existingAttempt.media_asset_id : null,
+          status: existingStatus,
+          project_ref: projectRef,
+        });
+        uploadCredentialsReturned = true;
+        return json(
+          {
+            success: true,
+            videoId: retryVideoId,
+            libraryId,
+            expirationTime,
+            signature,
+            cdnHostname,
+            sessionId: typeof existingAttempt.draft_media_session_id === "string"
+              ? existingAttempt.draft_media_session_id
+              : null,
+            sessionStatus: existingStatus ?? "uploading",
+            clientRequestId,
+            uploadAttemptId: existingAttempt.id,
+            repairableLifecycleState: false,
+          },
+          200,
+        );
+      }
+    }
+
     // ── Create new Bunny Stream video ────────────────────────────────────────
     const createResponse = await fetch(
       `https://video.bunnycdn.com/library/${libraryId}/videos`,
@@ -322,7 +487,7 @@ serve(async (req) => {
           "AccessKey": apiKey,
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ title: `vibe-${user.id}-${Date.now()}` }),
+        body: JSON.stringify({ title: `vibe-${user.id}-${clientRequestId}` }),
       },
     );
 
@@ -342,7 +507,19 @@ serve(async (req) => {
     }
 
     cleanupFailurePath = "bunny_create_response_parse";
-    const { guid: videoId } = await createResponse.json();
+    const createPayload = await createResponse.json().catch(() => null) as { guid?: unknown } | null;
+    const videoId = typeof createPayload?.guid === "string" ? createPayload.guid.trim() : "";
+    if (!isValidVideoGuid(videoId)) {
+      logVibeVideo("error", "create_video_upload_bunny_create_invalid_response", {
+        user_id: user.id,
+        project_ref: projectRef,
+        error_code: "bunny_create_invalid_response",
+      });
+      return json(
+        { success: false, error: "Failed to create video on Bunny", code: "bunny_create_invalid_response" },
+        502,
+      );
+    }
     createdVideoId = videoId;
     logVibeVideo("info", "create_video_upload_bunny_video_created", {
       user_id: user.id,
@@ -354,12 +531,130 @@ serve(async (req) => {
     // ── TUS signature ────────────────────────────────────────────────────────
     cleanupFailurePath = "tus_signature_generation";
     const expirationTime = Math.floor(Date.now() / 1000) + 3600;
-    const signatureInput = `${libraryId}${apiKey}${expirationTime}${videoId}`;
-    const encoder = new TextEncoder();
-    const data = encoder.encode(signatureInput);
-    const hashBuffer = await crypto.subtle.digest("SHA-256", data);
-    const hashArray = Array.from(new Uint8Array(hashBuffer));
-    const signature = hashArray.map((b) => b.toString(16).padStart(2, "0")).join("");
+    const signature = await createTusSignature(libraryId, apiKey, expirationTime, videoId);
+
+    // Reserve the idempotency row before touching profile/session state. This
+    // keeps duplicate client_request_id races from activating a losing upload.
+    cleanupFailurePath = "create_vibe_video_upload_attempt";
+    const { data: attemptRow, error: attemptCreateError } = await adminSupabase
+      .from("vibe_video_uploads")
+      .insert({
+        user_id: user.id,
+        client_request_id: clientRequestId,
+        media_asset_id: null,
+        draft_media_session_id: null,
+        provider_object_id: videoId,
+        upload_context: uploadContext,
+        status: "uploading",
+        expires_at: new Date(expirationTime * 1000).toISOString(),
+      })
+      .select("id,status")
+      .single();
+
+    if (attemptCreateError || !attemptRow) {
+      if (clientRequest.wasProvided && attemptCreateError?.code === "23505") {
+        const { data: duplicateAttempt, error: duplicateLookupError } = await adminSupabase
+          .from("vibe_video_uploads")
+          .select("id,provider_object_id,status,draft_media_session_id,media_asset_id,upload_context")
+          .eq("user_id", user.id)
+          .eq("client_request_id", clientRequestId)
+          .maybeSingle();
+
+        if (!duplicateLookupError && duplicateAttempt?.provider_object_id) {
+          const duplicateStatus = typeof duplicateAttempt.status === "string" ? duplicateAttempt.status : null;
+          await cleanupCreatedVideo({
+            adminSupabase,
+            libraryId,
+            apiKey,
+            videoId,
+            userId: user.id,
+            projectRef,
+            reason: "duplicate_client_request_id",
+            context: {
+              failure_path: "create_vibe_video_upload_attempt_duplicate",
+              upload_context: uploadContext,
+            },
+            requireDurableBeforeImmediate: true,
+          });
+
+          if (!isReusableVibeVideoUploadAttemptStatus(duplicateStatus)) {
+            logVibeVideo("warn", "create_video_upload_attempt_terminal_reuse_rejected", {
+              user_id: user.id,
+              client_request_id: clientRequestId,
+              upload_attempt_id: typeof duplicateAttempt.id === "string" ? duplicateAttempt.id : null,
+              video_guid: String(duplicateAttempt.provider_object_id),
+              status: duplicateStatus,
+              project_ref: projectRef,
+            });
+            return json(
+              { success: false, error: "Upload attempt is no longer reusable", code: "upload_attempt_terminal" },
+              409,
+            );
+          }
+
+          const retryVideoId = String(duplicateAttempt.provider_object_id);
+          const retryExpirationTime = Math.floor(Date.now() / 1000) + 3600;
+          const retrySignature = await createTusSignature(libraryId, apiKey, retryExpirationTime, retryVideoId);
+          logVibeVideo("info", "create_video_upload_attempt_reused_after_duplicate", {
+            user_id: user.id,
+            client_request_id: clientRequestId,
+            video_guid: retryVideoId,
+            upload_attempt_id: typeof duplicateAttempt.id === "string" ? duplicateAttempt.id : null,
+            media_session_id: typeof duplicateAttempt.draft_media_session_id === "string"
+              ? duplicateAttempt.draft_media_session_id
+              : null,
+            media_asset_id: typeof duplicateAttempt.media_asset_id === "string" ? duplicateAttempt.media_asset_id : null,
+            status: duplicateStatus,
+            project_ref: projectRef,
+          });
+          uploadCredentialsReturned = true;
+          return json(
+            {
+              success: true,
+              videoId: retryVideoId,
+              libraryId,
+              expirationTime: retryExpirationTime,
+              signature: retrySignature,
+              cdnHostname,
+              sessionId: typeof duplicateAttempt.draft_media_session_id === "string"
+                ? duplicateAttempt.draft_media_session_id
+                : null,
+              sessionStatus: duplicateStatus ?? "uploading",
+              clientRequestId,
+              uploadAttemptId: duplicateAttempt.id,
+              repairableLifecycleState: false,
+            },
+            200,
+          );
+        }
+      }
+
+      logVibeVideo("error", "create_video_upload_attempt_create_failed", {
+        user_id: user.id,
+        client_request_id: clientRequestId,
+        video_guid: videoId,
+        error_code: attemptCreateError?.code ?? "attempt_create_failed",
+      });
+      await cleanupCreatedVideo({
+        adminSupabase,
+        libraryId,
+        apiKey,
+        videoId,
+        userId: user.id,
+        projectRef,
+        reason: "vibe_video_upload_attempt_create_failed",
+        context: {
+          failure_path: "create_vibe_video_upload_attempt",
+          upload_context: uploadContext,
+        },
+        requireDurableBeforeImmediate: true,
+      });
+      return json(
+        { success: false, error: "Failed to create upload attempt", code: "vibe_video_upload_attempt_create_failed" },
+        500,
+      );
+    }
+    cleanupUploadAttemptId = typeof attemptRow.id === "string" ? attemptRow.id : null;
 
     // ── Create draft media session (server-owned upload tracking) ────────────
     // Uses adminSupabase (service_role) — the RPC is granted to service_role
@@ -382,6 +677,14 @@ serve(async (req) => {
         video_guid: videoId,
         error_code: sessionError.code ?? "session_creation_failed",
       });
+      await markVibeVideoUploadAttemptFailed(
+        adminSupabase,
+        cleanupUploadAttemptId,
+        videoId,
+        user.id,
+        projectRef,
+        "session_creation_failed",
+      );
       await cleanupCreatedVideo({
         adminSupabase,
         libraryId,
@@ -412,6 +715,14 @@ serve(async (req) => {
         video_guid: videoId,
         error_code: typeof sr?.error === "string" ? sr.error : "session_rpc_failed",
       });
+      await markVibeVideoUploadAttemptFailed(
+        adminSupabase,
+        cleanupUploadAttemptId,
+        videoId,
+        user.id,
+        projectRef,
+        typeof sr?.error === "string" ? sr.error : "session_rpc_failed",
+      );
       await cleanupCreatedVideo({
         adminSupabase,
         libraryId,
@@ -469,6 +780,14 @@ serve(async (req) => {
         p_new_status: "failed",
         p_error_detail: "profile_update_failed",
       });
+      await markVibeVideoUploadAttemptFailed(
+        adminSupabase,
+        cleanupUploadAttemptId,
+        videoId,
+        user.id,
+        projectRef,
+        "profile_update_failed",
+      );
       await cleanupCreatedVideo({
         adminSupabase,
         libraryId,
@@ -502,6 +821,14 @@ serve(async (req) => {
         p_new_status: "failed",
         p_error_detail: "profile_update_rejected",
       });
+      await markVibeVideoUploadAttemptFailed(
+        adminSupabase,
+        cleanupUploadAttemptId,
+        videoId,
+        user.id,
+        projectRef,
+        "profile_update_rejected",
+      );
       await cleanupCreatedVideo({
         adminSupabase,
         libraryId,
@@ -521,6 +848,7 @@ serve(async (req) => {
         500,
       );
     }
+    const mediaAssetId = typeof lr.asset_id === "string" ? lr.asset_id : null;
 
     let sessionStatus = "created";
     cleanupFailurePath = "mark_media_session_uploading";
@@ -545,10 +873,86 @@ serve(async (req) => {
       sessionStatus = "uploading";
     }
 
+    cleanupFailurePath = "link_vibe_video_upload_attempt";
+    const { data: linkedAttemptRow, error: attemptLinkError } = await adminSupabase
+      .from("vibe_video_uploads")
+      .update({
+        media_asset_id: mediaAssetId,
+        draft_media_session_id: typeof sessionId === "string" ? sessionId : null,
+      })
+      .eq("id", attemptRow.id)
+      .eq("provider_object_id", videoId)
+      .select("id,status")
+      .single();
+
+    if (attemptLinkError || !linkedAttemptRow) {
+      logVibeVideo("error", "create_video_upload_attempt_link_failed", {
+        user_id: user.id,
+        client_request_id: clientRequestId,
+        video_guid: videoId,
+        media_session_id: typeof sessionId === "string" ? sessionId : null,
+        upload_attempt_id: typeof attemptRow.id === "string" ? attemptRow.id : null,
+        media_asset_id: mediaAssetId,
+        error_code: attemptLinkError?.code ?? "attempt_link_failed",
+      });
+      await adminSupabase.rpc("update_media_session_status", {
+        p_provider_id: videoId,
+        p_new_status: "failed",
+        p_error_detail: "vibe_video_upload_attempt_link_failed",
+      });
+      await markVibeVideoUploadAttemptFailed(
+        adminSupabase,
+        cleanupUploadAttemptId,
+        videoId,
+        user.id,
+        projectRef,
+        "vibe_video_upload_attempt_link_failed",
+      );
+      await cleanupCreatedVideo({
+        adminSupabase,
+        libraryId,
+        apiKey,
+        videoId,
+        userId: user.id,
+        projectRef,
+        reason: "vibe_video_upload_attempt_link_failed",
+        context: {
+          failure_path: "link_vibe_video_upload_attempt",
+          session_id: typeof sessionId === "string" ? sessionId : null,
+          upload_context: uploadContext,
+        },
+        requireDurableBeforeImmediate: true,
+      });
+      return json(
+        { success: false, error: "Failed to link upload attempt", code: "vibe_video_upload_attempt_link_failed" },
+        500,
+      );
+    }
+
+    const { error: supersedeError } = await adminSupabase
+      .from("vibe_video_uploads")
+      .update({ status: "superseded", error_detail: "replaced_by_new_upload" })
+      .eq("user_id", user.id)
+      .neq("provider_object_id", videoId)
+      .in("status", ["uploading", "processing", "ready"]);
+
+    if (supersedeError) {
+      logVibeVideo("warn", "create_video_upload_previous_attempt_supersede_failed", {
+        user_id: user.id,
+        client_request_id: clientRequestId,
+        video_guid: videoId,
+        upload_attempt_id: typeof attemptRow.id === "string" ? attemptRow.id : null,
+        error_code: supersedeError.code ?? "previous_attempt_supersede_failed",
+      });
+    }
+
     logVibeVideo("info", "create_video_upload_profile_uid_write_succeeded", {
       user_id: user.id,
+      client_request_id: clientRequestId,
       video_guid: videoId,
       media_session_id: typeof sessionId === "string" ? sessionId : null,
+      upload_attempt_id: typeof attemptRow.id === "string" ? attemptRow.id : null,
+      media_asset_id: mediaAssetId,
       media_session_status: sessionStatus,
       replaced_existing_video: !!existingVideoId,
       project_ref: projectRef,
@@ -565,11 +969,23 @@ serve(async (req) => {
         cdnHostname,
         sessionId,
         sessionStatus,
+        clientRequestId,
+        uploadAttemptId: attemptRow.id,
         repairableLifecycleState: sessionStatus !== "uploading",
       },
       200,
     );
   } catch (err) {
+    if (cleanupAdminSupabase && cleanupUploadAttemptId && createdVideoId && cleanupUserId) {
+      await markVibeVideoUploadAttemptFailed(
+        cleanupAdminSupabase,
+        cleanupUploadAttemptId,
+        createdVideoId,
+        cleanupUserId,
+        projectRef,
+        cleanupFailurePath,
+      );
+    }
     if (
       createdVideoId &&
       !uploadCredentialsReturned &&
