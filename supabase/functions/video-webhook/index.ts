@@ -219,13 +219,16 @@ serve(async (req) => {
 
   try {
     const { VideoGuid, Status, VideoLibraryId } = body;
+    const libraryIdRaw = VideoLibraryId == null ? null : String(VideoLibraryId);
+    const libraryIdTrimmed = libraryIdRaw == null ? null : libraryIdRaw.trim();
     const allowedLibraryIds = [
       Deno.env.get("BUNNY_STREAM_LIBRARY_ID")?.trim(),
       Deno.env.get("BUNNY_CHAT_STREAM_LIBRARY_ID")?.trim(),
     ].filter((value): value is string => !!value);
     logWebhook("info", "video_webhook_payload_parsed", {
       bunny_status: typeof Status === "number" ? Status : null,
-      library_id: VideoLibraryId == null ? null : String(VideoLibraryId),
+      library_id: libraryIdTrimmed,
+      library_id_raw: libraryIdRaw,
       video_guid: isValidVideoGuid(VideoGuid) ? VideoGuid : null,
       has_video_guid: typeof VideoGuid === "string" && VideoGuid.trim().length > 0,
     });
@@ -239,20 +242,22 @@ serve(async (req) => {
 
     if (
       allowedLibraryIds.length > 0 &&
-      VideoLibraryId != null &&
-      !allowedLibraryIds.includes(String(VideoLibraryId).trim())
+      libraryIdTrimmed != null &&
+      !allowedLibraryIds.includes(libraryIdTrimmed)
     ) {
       logWebhook("warn", "video_webhook_rejected", {
         reason: "library_mismatch",
         video_guid: VideoGuid,
-        library_id: String(VideoLibraryId),
+        library_id: libraryIdTrimmed,
+        library_id_raw: libraryIdRaw,
         allowed_library_ids: allowedLibraryIds.join(","),
       });
       return new Response("Forbidden", { status: 403 });
     }
     logWebhook("info", "video_webhook_library_validated", {
       video_guid: VideoGuid,
-      library_id: VideoLibraryId == null ? null : String(VideoLibraryId),
+      library_id: libraryIdTrimmed,
+      library_id_raw: libraryIdRaw,
       library_validation: allowedLibraryIds.length > 0 ? "matched_or_absent" : "not_configured",
     });
 
