@@ -302,7 +302,7 @@ test("dashboard request reduction defers rows and avoids obvious overfetch", () 
 
 test("media routing only promotes verified Bunny-backed prefixes", () => {
   const imageUrl = read("src/utils/imageUrl.ts");
-  const chatMedia = read("src/lib/chatMediaResolver.ts");
+  const chatMedia = read("src/lib/mediaAssetResolver.ts");
 
   assert.match(imageUrl, /CONFIRMED_BUNNY_STORAGE_PREFIXES\s*=\s*\["photos\/",\s*"events\/",\s*"voice\/",\s*"media\/"\]/);
   assert.doesNotMatch(imageUrl, /"chat-videos\/"/);

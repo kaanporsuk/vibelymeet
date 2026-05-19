@@ -16,11 +16,11 @@ import {
   safeRemoveExpoSharedObjectSubscription,
 } from '@/lib/expoSharedObjectSafe';
 import { durationBucketFromSeconds, threadBucketFromCount } from '../../../../shared/chat/vibeClipAnalytics';
+import { useMediaAsset } from '@/hooks/useMediaAsset';
 import {
-  refreshCachedChatMediaUrl,
   syncChatVibeClipStatus,
   type ChatVibeClipProcessingStatus,
-} from '@/lib/chatMediaResolver';
+} from '@/lib/mediaAssetResolver';
 
 type Props = {
   meta: VibeClipDisplayMeta;
@@ -806,6 +806,22 @@ export function VibeClipCard(props: Props) {
   const statusSyncInFlightRef = useRef(false);
   const statusSyncRunIdRef = useRef(0);
   const isMountedRef = useRef(true);
+  const { url: videoAssetUrl, refresh: refreshVideoAsset } = useMediaAsset({
+    kind: 'vibe_clip',
+    messageId: sparkMessageId,
+    sourceRef: videoSourceRef,
+    initialUrl: meta.videoUrl,
+    autoResolve: false,
+    onResolvedUrl: onResolvedVideoUrl,
+  });
+  const { url: thumbnailAssetUrl, refresh: refreshThumbnailAsset } = useMediaAsset({
+    kind: 'thumbnail',
+    messageId: sparkMessageId,
+    sourceRef: thumbnailSourceRef,
+    initialUrl: meta.thumbnailUrl,
+    autoResolve: false,
+    onResolvedUrl: onResolvedThumbnailUrl,
+  });
 
   useEffect(() => {
     isMountedRef.current = true;
@@ -833,6 +849,19 @@ export function VibeClipCard(props: Props) {
     statusSyncRunIdRef.current += 1;
     statusSyncInFlightRef.current = false;
   }, [meta.processingStatus, meta.thumbnailUrl, meta.videoUrl, sparkMessageId]);
+
+  useEffect(() => {
+    if (!videoAssetUrl || videoAssetUrl === playableVideoUrlRef.current) return;
+    playableVideoUrlRef.current = videoAssetUrl;
+    setPlayableVideoUrl(videoAssetUrl);
+  }, [videoAssetUrl]);
+
+  useEffect(() => {
+    const nextThumbnailUrl = thumbnailAssetUrl ?? null;
+    if (!nextThumbnailUrl || nextThumbnailUrl === playableThumbnailUrlRef.current) return;
+    playableThumbnailUrlRef.current = nextThumbnailUrl;
+    setPlayableThumbnailUrl(nextThumbnailUrl);
+  }, [thumbnailAssetUrl]);
 
   const processingStatus = syncedProcessingStatus ?? meta.processingStatus;
   const isSyncableServerProcessing =
@@ -950,7 +979,7 @@ export function VibeClipCard(props: Props) {
       playbackRefreshAttemptCountRef.current += 1;
     }
     const freshThumbnailUri = thumbnailSourceRef
-      ? await refreshCachedChatMediaUrl(sparkMessageId, 'thumbnail', thumbnailSourceRef, refreshOptions)
+      ? await refreshThumbnailAsset(reason === 'manual' ? 'manual' : 'preview', refreshOptions)
       : null;
     if (freshThumbnailUri) {
       playableThumbnailUrlRef.current = freshThumbnailUri;
@@ -961,7 +990,7 @@ export function VibeClipCard(props: Props) {
     if (reason === 'preview') return !!freshThumbnailUri;
     if (!videoSourceRef) return false;
 
-    const freshVideoUri = await refreshCachedChatMediaUrl(sparkMessageId, 'vibe_clip', videoSourceRef, refreshOptions);
+    const freshVideoUri = await refreshVideoAsset(reason, refreshOptions);
     if (!freshVideoUri || freshVideoUri === playableVideoUrl) return false;
     playableVideoUrlRef.current = freshVideoUri;
     setPlayableVideoUrl(freshVideoUri);
@@ -972,6 +1001,8 @@ export function VibeClipCard(props: Props) {
     onResolvedVideoUrl,
     playableThumbnailUrl,
     playableVideoUrl,
+    refreshThumbnailAsset,
+    refreshVideoAsset,
     sparkMessageId,
     thumbnailSourceRef,
     videoSourceRef,

@@ -36,7 +36,6 @@ import { LinearGradient } from 'expo-linear-gradient';
 import * as WebBrowser from 'expo-web-browser';
 import {
   useAudioRecorder,
-  RecordingPresets,
   setAudioModeAsync,
   requestRecordingPermissionsAsync,
 } from 'expo-audio';
@@ -101,7 +100,8 @@ import {
   inferChatMediaRenderKind,
   parseChatImageMessageContent,
 } from '@/lib/chatMessageContent';
-import { refreshCachedChatMediaUrl } from '@/lib/chatMediaResolver';
+import { refreshMediaAssetUrl } from '@/lib/mediaAssetResolver';
+import { useMediaAsset } from '@/hooks/useMediaAsset';
 import { extractVibeClipMeta } from '../../../../shared/chat/messageRouting';
 import { VibeClipCard, type VibeClipLocalRecovery, type VibeClipPosterPreviewState } from '@/components/chat/VibeClipCard';
 import {
@@ -148,6 +148,9 @@ import {
 } from '@/lib/expoSharedObjectSafe';
 import { durationBucketFromSeconds, threadBucketFromCount } from '../../../../shared/chat/vibeClipAnalytics';
 import { outboxPhaseStatusLabel, type OutboxPayloadKind } from '../../../../shared/chat/outgoingStatusLabels';
+import { nativeMediaTranscodeHooks } from '@clientShared/media-sdk';
+
+const CHAT_VOICE_RECORDING_OPTIONS = nativeMediaTranscodeHooks.voiceRecordingOptions() as Parameters<typeof useAudioRecorder>[0];
 
 const WEB_APP_ORIGIN = process.env.EXPO_PUBLIC_WEB_APP_URL ?? 'https://www.vibelymeet.com';
 const MATCHES_TAB_HREF = '/(tabs)/matches' as const;
@@ -584,23 +587,31 @@ type ChatVideoCardProps = {
 function ChatVideoCard(props: ChatVideoCardProps) {
   const { mediaKind, messageId, onResolvedUri, sourceRef, uri } = props;
   const [retryNonce, setRetryNonce] = useState(0);
-  const [playableUri, setPlayableUri] = useState(uri);
   const refreshAttemptedForUriRef = useRef<string | null>(null);
+  const { url: mediaAssetUrl, refresh: refreshMediaAsset } = useMediaAsset({
+    kind: mediaKind ?? 'video',
+    messageId,
+    sourceRef,
+    initialUrl: uri,
+    autoResolve: false,
+    onResolvedUrl: onResolvedUri,
+  });
+  const [playableUri, setPlayableUri] = useState(mediaAssetUrl ?? uri);
 
   useEffect(() => {
-    setPlayableUri(uri);
+    setPlayableUri(mediaAssetUrl ?? uri);
     refreshAttemptedForUriRef.current = null;
-  }, [uri]);
+  }, [mediaAssetUrl, uri]);
 
   const refreshMediaUri = useCallback(async (): Promise<boolean> => {
     if (!messageId || !sourceRef || refreshAttemptedForUriRef.current === playableUri) return false;
-    const freshUri = await refreshCachedChatMediaUrl(messageId, mediaKind ?? 'video', sourceRef);
+    const freshUri = await refreshMediaAsset('playback');
     if (!freshUri || freshUri === playableUri) return false;
     refreshAttemptedForUriRef.current = playableUri;
     setPlayableUri(freshUri);
     onResolvedUri?.(freshUri);
     return true;
-  }, [mediaKind, messageId, onResolvedUri, playableUri, sourceRef]);
+  }, [messageId, onResolvedUri, playableUri, refreshMediaAsset, sourceRef]);
 
   return (
     <ChatVideoCardBody
@@ -849,7 +860,7 @@ export default function ChatThreadScreen() {
   } | null>(null);
   const [photoViewer, setPhotoViewer] = useState<{ initialId: string } | null>(null);
   const [videoViewer, setVideoViewer] = useState<ChatVideoViewerState | null>(null);
-  const audioRecorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
+  const audioRecorder = useAudioRecorder(CHAT_VOICE_RECORDING_OPTIONS);
   const voiceRecordStartedAtRef = useRef<number | null>(null);
   const voiceStopIntentRef = useRef<'send' | 'cancel' | null>(null);
   const voiceStopInFlightRef = useRef(false);
@@ -1123,14 +1134,14 @@ export default function ChatThreadScreen() {
   );
   const refreshPhotoUriForMessage = useCallback(async (message: ThreadMessage): Promise<string | null> => {
     if (isLocalMediaMessage(message) || isLocalTextMessage(message) || !message.image_source_ref) return null;
-    const freshUri = await refreshCachedChatMediaUrl(message.id, 'image', message.image_source_ref);
+    const freshUri = await refreshMediaAssetUrl(message.id, 'image', message.image_source_ref);
     if (!freshUri) return null;
     setPhotoUriOverridesById((prev) => (prev[message.id] === freshUri ? prev : { ...prev, [message.id]: freshUri }));
     return freshUri;
   }, []);
   const refreshPhotoViewerItem = useCallback(async (item: ChatThreadPhotoItem): Promise<string | null> => {
     if (!item.sourceRef) return null;
-    const freshUri = await refreshCachedChatMediaUrl(item.id, 'image', item.sourceRef);
+    const freshUri = await refreshMediaAssetUrl(item.id, 'image', item.sourceRef);
     if (!freshUri) return null;
     setPhotoUriOverridesById((prev) => (prev[item.id] === freshUri ? prev : { ...prev, [item.id]: freshUri }));
     return freshUri;
@@ -1167,13 +1178,13 @@ export default function ChatThreadScreen() {
   );
   const refreshVideoViewerMedia = useCallback(async () => {
     if (!videoViewer?.messageId || !videoViewer.sourceRef) return null;
-    const freshUri = await refreshCachedChatMediaUrl(
+    const freshUri = await refreshMediaAssetUrl(
       videoViewer.messageId,
       videoViewer.mediaKind ?? 'video',
       videoViewer.sourceRef,
     );
     const freshPosterUri = videoViewer.thumbnailSourceRef
-      ? await refreshCachedChatMediaUrl(videoViewer.messageId, 'thumbnail', videoViewer.thumbnailSourceRef)
+      ? await refreshMediaAssetUrl(videoViewer.messageId, 'thumbnail', videoViewer.thumbnailSourceRef)
       : null;
     if (freshPosterUri) rememberResolvedThumbnailUri(videoViewer.messageId, freshPosterUri);
     if (freshUri) rememberResolvedVideoUri(videoViewer.messageId, freshUri);

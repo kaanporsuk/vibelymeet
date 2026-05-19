@@ -3,10 +3,12 @@ import { motion } from "framer-motion";
 import { Plus, X, Loader2, Crown, AlertCircle, RotateCcw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { newUploadClientRequestId, uploadImageToBunny } from "@/services/imageUploadService";
+import { uploadImageWithMediaSdk } from "@/lib/mediaSdk/webStorageUploads";
 import { supabase } from "@/integrations/supabase/client";
 import { isAllowedProfilePhotoUploadFile, PROFILE_PHOTO_ACCEPT } from "@/lib/photoUtils";
 import { getImageUrl } from "@/utils/imageUrl";
 import { toast } from "sonner";
+import { useFeatureFlag } from "@/hooks/useFeatureFlag";
 
 const MAX_PHOTOS = 6;
 const MIN_PHOTOS = 2;
@@ -30,6 +32,7 @@ interface PhotosStepProps {
 export const PhotosStep = ({ photos, onPhotosChange, onNext, onBusyStateChange }: PhotosStepProps) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [queue, setQueue] = useState<QueueItem[]>([]);
+  const mediaV2Photo = useFeatureFlag("media_v2_photo");
 
   // Always-current photos ref so async callbacks don't capture stale prop value
   const photosRef = useRef(photos);
@@ -60,7 +63,14 @@ export const PhotosStep = ({ photos, onPhotosChange, onNext, onBusyStateChange }
 
   const uploadItem = useCallback(async (item: QueueItem, session: { access_token: string }) => {
     try {
-      const { path } = await uploadImageToBunny(item.file, session.access_token, "onboarding", undefined, item.id);
+      const { path } = mediaV2Photo.enabled
+        ? await uploadImageWithMediaSdk({
+            file: item.file,
+            accessToken: session.access_token,
+            context: "onboarding",
+            clientRequestId: item.id,
+          })
+        : await uploadImageToBunny(item.file, session.access_token, "onboarding", undefined, item.id);
       if (!isQueueItemActive(item.id, "uploading")) {
         revokeBlob(item.preview);
         return null;
@@ -80,7 +90,7 @@ export const PhotosStep = ({ photos, onPhotosChange, onNext, onBusyStateChange }
       );
       return null;
     }
-  }, [isQueueItemActive, revokeBlob]);
+  }, [isQueueItemActive, mediaV2Photo.enabled, revokeBlob]);
 
   const handleFileSelect = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files ?? []);

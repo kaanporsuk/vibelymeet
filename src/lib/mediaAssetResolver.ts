@@ -5,7 +5,14 @@ import {
 } from "@/lib/chatMessageContent";
 import { isNetworkInvokeError, type FunctionInvokeErrorShape } from "@/lib/supabaseFunctionInvokeErrors";
 
-export type ChatMediaKind = "image" | "voice" | "video" | "vibe_clip" | "thumbnail";
+export type MediaAssetKind = "image" | "voice" | "video" | "vibe_clip" | "thumbnail";
+export type MediaAssetResolveResult = {
+  url: string;
+  posterUrl: string | null;
+  playbackKind: "hls" | "progressive";
+  provider: "bunny_stream" | "bunny_storage" | "local" | "remote";
+  expiresAtMs: number;
+};
 export type ChatVibeClipProcessingStatus = "uploading" | "processing" | "ready" | "failed";
 export type ChatVibeClipStatusSyncResult = {
   status: ChatVibeClipProcessingStatus;
@@ -23,16 +30,13 @@ type ResolverResponse = {
   error?: string;
 };
 
-type CachedMediaUrl = {
-  url: string;
-  expiresAtMs: number;
-};
+type CachedMediaUrl = MediaAssetResolveResult;
 
 type MediaUrlIssueResult =
   | { kind: "response"; payload: ResolverResponse | null }
   | { kind: "transient_failure" };
 
-type ChatMediaRefreshOptions = {
+export type MediaAssetRefreshOptions = {
   bypassFailureCooldown?: boolean;
 };
 
@@ -41,15 +45,27 @@ const SIGNED_MEDIA_TTL_SAFETY_MS = 15 * 1000;
 const SIGNED_MEDIA_FAILURE_COOLDOWN_MS = 8_000;
 const mediaUrlCache = new Map<string, CachedMediaUrl>();
 const mediaUrlFailureCache = new Map<string, { expiresAtMs: number }>();
-const mediaUrlInFlightRequests = new Map<string, Promise<string | null>>();
-let testMediaUrlIssuer: ((messageId: string, mediaKind: ChatMediaKind) => Promise<ResolverResponse | null>) | null = null;
+const mediaUrlInFlightRequests = new Map<string, Promise<MediaAssetResolveResult | null>>();
+let testMediaUrlIssuer: ((messageId: string, mediaKind: MediaAssetKind) => Promise<ResolverResponse | null>) | null = null;
 
-function isLocalPreviewRef(value: string): boolean {
+export function isLocalMediaAssetRef(value: string): boolean {
   return value.startsWith("blob:") || value.startsWith("file:") || value.startsWith("data:");
 }
 
-function isAlreadyResolvedMediaUrl(value: string): boolean {
+export function isResolvedMediaAssetUrl(value: string): boolean {
   return /^https?:\/\//i.test(value);
+}
+
+export function isPlayableMediaAssetUrl(value: string | null | undefined): value is string {
+  return !!value && (isLocalMediaAssetRef(value) || isResolvedMediaAssetUrl(value));
+}
+
+export function isResolvableMediaAssetRef(value: string | null | undefined): value is string {
+  return !!value && !isPlayableMediaAssetUrl(value);
+}
+
+export function isHlsMediaAssetUrl(value: string | null | undefined): boolean {
+  return !!value && /\.m3u8(?:[?#]|$)/i.test(value);
 }
 
 function isBunnyStreamRef(value: string): boolean {
@@ -108,38 +124,64 @@ async function issueResultForFunctionInvokeError(
 
 async function resolveChatMediaUrl(
   messageId: string,
-  mediaKind: ChatMediaKind,
+  mediaKind: MediaAssetKind,
   rawRef: string | null | undefined,
 ): Promise<string | null> {
   if (!rawRef) return null;
   if ((mediaKind === "vibe_clip" || mediaKind === "video") && isBunnyStreamRef(rawRef)) return rawRef;
-  if (isLocalPreviewRef(rawRef) || isAlreadyResolvedMediaUrl(rawRef) || !isUuid(messageId)) return rawRef;
+  if (isLocalMediaAssetRef(rawRef) || isResolvedMediaAssetUrl(rawRef) || !isUuid(messageId)) return rawRef;
 
-  return getCachedChatMediaUrl(messageId, mediaKind, rawRef);
+  return getCachedMediaAssetUrl(messageId, mediaKind, rawRef);
 }
 
-export async function getCachedChatMediaUrl(
-  messageId: string,
-  mediaKind: ChatMediaKind,
-  rawRef: string | null | undefined,
-): Promise<string | null> {
-  if (!rawRef) return null;
-  if ((mediaKind === "vibe_clip" || mediaKind === "video") && isBunnyStreamRef(rawRef)) return rawRef;
-  if (isLocalPreviewRef(rawRef) || isAlreadyResolvedMediaUrl(rawRef) || !isUuid(messageId)) return rawRef;
-
-  return issueAndCacheChatMediaUrl(messageId, mediaKind, rawRef, false);
+function passthroughMediaAsset(rawRef: string): MediaAssetResolveResult {
+  return {
+    url: rawRef,
+    posterUrl: null,
+    playbackKind: isHlsMediaAssetUrl(rawRef) ? "hls" : "progressive",
+    provider: isResolvedMediaAssetUrl(rawRef) ? "remote" : "local",
+    expiresAtMs: Number.POSITIVE_INFINITY,
+  };
 }
 
-export async function refreshCachedChatMediaUrl(
+export async function getCachedMediaAsset(
   messageId: string,
-  mediaKind: ChatMediaKind,
+  mediaKind: MediaAssetKind,
   rawRef: string | null | undefined,
-  options: ChatMediaRefreshOptions = {},
-): Promise<string | null> {
+): Promise<MediaAssetResolveResult | null> {
   if (!rawRef) return null;
-  if (isLocalPreviewRef(rawRef) || !isUuid(messageId)) return rawRef;
+  if (isLocalMediaAssetRef(rawRef) || isResolvedMediaAssetUrl(rawRef) || !isUuid(messageId)) return passthroughMediaAsset(rawRef);
 
-  return issueAndCacheChatMediaUrl(messageId, mediaKind, rawRef, true, options);
+  return issueAndCacheMediaAsset(messageId, mediaKind, rawRef, false);
+}
+
+export async function getCachedMediaAssetUrl(
+  messageId: string,
+  mediaKind: MediaAssetKind,
+  rawRef: string | null | undefined,
+): Promise<string | null> {
+  return (await getCachedMediaAsset(messageId, mediaKind, rawRef))?.url ?? null;
+}
+
+export async function refreshMediaAsset(
+  messageId: string,
+  mediaKind: MediaAssetKind,
+  rawRef: string | null | undefined,
+  options: MediaAssetRefreshOptions = {},
+): Promise<MediaAssetResolveResult | null> {
+  if (!rawRef) return null;
+  if (isLocalMediaAssetRef(rawRef) || !isUuid(messageId)) return passthroughMediaAsset(rawRef);
+
+  return issueAndCacheMediaAsset(messageId, mediaKind, rawRef, true, options);
+}
+
+export async function refreshMediaAssetUrl(
+  messageId: string,
+  mediaKind: MediaAssetKind,
+  rawRef: string | null | undefined,
+  options: MediaAssetRefreshOptions = {},
+): Promise<string | null> {
+  return (await refreshMediaAsset(messageId, mediaKind, rawRef, options))?.url ?? null;
 }
 
 export async function syncChatVibeClipUploadStatus(input: {
@@ -182,17 +224,17 @@ export async function syncChatVibeClipStatus(messageId: string): Promise<ChatVib
   return result?.status ?? null;
 }
 
-async function issueAndCacheChatMediaUrl(
+async function issueAndCacheMediaAsset(
   messageId: string,
-  mediaKind: ChatMediaKind,
+  mediaKind: MediaAssetKind,
   rawRef: string,
   forceRefresh: boolean,
-  options: ChatMediaRefreshOptions = {},
-): Promise<string | null> {
+  options: MediaAssetRefreshOptions = {},
+): Promise<MediaAssetResolveResult | null> {
   const cacheKey = `${messageId}:${mediaKind}:${rawRef}`;
   const now = Date.now();
   const cached = mediaUrlCache.get(cacheKey);
-  if (!forceRefresh && cached && cached.expiresAtMs > now) return cached.url;
+  if (!forceRefresh && cached && cached.expiresAtMs > now) return cached;
   const recentFailure = mediaUrlFailureCache.get(cacheKey);
   if (!options.bypassFailureCooldown && recentFailure && recentFailure.expiresAtMs > now) return null;
   mediaUrlFailureCache.delete(cacheKey);
@@ -231,10 +273,14 @@ async function issueAndCacheChatMediaUrl(
         ? Math.max(1_000, payload.expiresInSeconds * 1000 - SIGNED_MEDIA_TTL_SAFETY_MS)
         : DEFAULT_SIGNED_MEDIA_TTL_MS;
     const expiresAtMs = Date.now() + expiresInMs;
-    mediaUrlCache.set(cacheKey, {
+    const resolvedAsset: MediaAssetResolveResult = {
       url: payload.url,
+      posterUrl: typeof payload.posterUrl === "string" && payload.posterUrl ? payload.posterUrl : null,
+      playbackKind: payload.playbackKind === "hls" ? "hls" : "progressive",
+      provider: payload.provider === "bunny_stream" || payload.provider === "bunny_storage" ? payload.provider : "remote",
       expiresAtMs,
-    });
+    };
+    mediaUrlCache.set(cacheKey, resolvedAsset);
     const thumbnailRef =
       payload.provider === "bunny_stream" && (mediaKind === "vibe_clip" || mediaKind === "video")
         ? bunnyStreamThumbnailRefFor(rawRef)
@@ -242,10 +288,13 @@ async function issueAndCacheChatMediaUrl(
     if (thumbnailRef && typeof payload.posterUrl === "string" && payload.posterUrl) {
       mediaUrlCache.set(`${messageId}:thumbnail:${thumbnailRef}`, {
         url: payload.posterUrl,
+        posterUrl: null,
+        playbackKind: "progressive",
+        provider: "bunny_stream",
         expiresAtMs,
       });
     }
-    return payload.url;
+    return resolvedAsset;
   });
 
   mediaUrlInFlightRequests.set(cacheKey, resolved);
@@ -269,12 +318,12 @@ export function __chatMediaUrlCacheSizeForTests() {
 }
 
 export function __setChatMediaUrlIssuerForTests(
-  issuer: ((messageId: string, mediaKind: ChatMediaKind) => Promise<ResolverResponse | null>) | null,
+  issuer: ((messageId: string, mediaKind: MediaAssetKind) => Promise<ResolverResponse | null>) | null,
 ) {
   testMediaUrlIssuer = issuer;
 }
 
-export async function resolveChatMessageMediaForDisplay<
+export async function resolveMessageMediaForDisplay<
   T extends {
     id: string;
     content: string;

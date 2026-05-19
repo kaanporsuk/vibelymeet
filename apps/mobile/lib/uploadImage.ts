@@ -14,6 +14,8 @@ export interface ImagePickerAsset {
   uri: string;
   mimeType?: string;
   fileName?: string;
+  width?: number | null;
+  height?: number | null;
 }
 
 /**

@@ -42,6 +42,13 @@ export type WebPhotoTranscoder = (
   source: WebMediaSource,
   input: WebPhotoUploadInput,
 ) => Promise<WebMediaSource> | WebMediaSource;
+export type WebVoiceRecorderConfig = {
+  constraints: MediaStreamConstraints;
+  options: MediaRecorderOptions;
+  mimeType: string | null;
+  audioBitsPerSecond: number;
+  numberOfChannels: number;
+};
 
 export type WebLegacyMediaDelegates = {
   video?: {
@@ -374,13 +381,42 @@ export function createIndexedDbMediaUploadQueue(): MediaUploadQueue {
   return new IndexedDbMediaUploadQueue();
 }
 
+type Heic2Any = (options: {
+  blob: Blob;
+  toType?: string;
+  quality?: number;
+  multiple?: true;
+}) => Promise<Blob | Blob[]>;
+
+type WebPhotoCanvasSource = {
+  source: CanvasImageSource;
+  width: number;
+  height: number;
+  close: () => void;
+};
+
+function normalizedWebMediaType(source: WebMediaSource): string {
+  return typeof source.type === "string" ? source.type.split(";")[0].trim().toLowerCase() : "";
+}
+
+function webMediaSourceName(source: WebMediaSource): string {
+  const maybeFile = source as File;
+  return typeof maybeFile.name === "string" ? maybeFile.name.trim() : "";
+}
+
+function isHeicWebSource(source: WebMediaSource): boolean {
+  const type = normalizedWebMediaType(source);
+  if (type === "image/heic" || type === "image/heif") return true;
+  return /\.(heic|heif)$/i.test(webMediaSourceName(source));
+}
+
 function isImageWebSource(source: WebMediaSource): boolean {
-  return typeof source.type === "string" && source.type.split(";")[0].trim().toLowerCase().startsWith("image/");
+  const type = normalizedWebMediaType(source);
+  return type.startsWith("image/") || (!type && isHeicWebSource(source));
 }
 
 function webPhotoFileName(source: WebMediaSource): string {
-  const maybeFile = source as File;
-  const rawName = typeof maybeFile.name === "string" && maybeFile.name.trim() ? maybeFile.name.trim() : "photo";
+  const rawName = webMediaSourceName(source) || "photo";
   return `${rawName.replace(/\.[^.]+$/, "") || "photo"}.jpg`;
 }
 
@@ -390,22 +426,129 @@ function canvasToBlob(canvas: HTMLCanvasElement, mimeType: string, quality: numb
   });
 }
 
+function hasUsableImageSize(width: number, height: number): boolean {
+  return width > 0 && height > 0;
+}
+
+function closeImageBitmap(bitmap: ImageBitmap | null): void {
+  bitmap?.close?.();
+}
+
+function canvasSourceFromImageBitmap(bitmap: ImageBitmap | null): WebPhotoCanvasSource | null {
+  if (!bitmap || !hasUsableImageSize(bitmap.width, bitmap.height)) {
+    closeImageBitmap(bitmap);
+    return null;
+  }
+  return {
+    source: bitmap,
+    width: bitmap.width,
+    height: bitmap.height,
+    close: () => closeImageBitmap(bitmap),
+  };
+}
+
+async function canvasSourceFromImageElement(blob: Blob): Promise<WebPhotoCanvasSource | null> {
+  if (
+    typeof Image === "undefined" ||
+    typeof URL === "undefined" ||
+    typeof URL.createObjectURL !== "function" ||
+    typeof URL.revokeObjectURL !== "function"
+  ) {
+    return null;
+  }
+
+  const objectUrl = URL.createObjectURL(blob);
+  const image = new Image();
+  image.decoding = "async";
+
+  try {
+    await new Promise<void>((resolve, reject) => {
+      image.onload = () => resolve();
+      image.onerror = () => reject(new Error("image_decode_failed"));
+      image.src = objectUrl;
+    });
+    const width = image.naturalWidth || image.width;
+    const height = image.naturalHeight || image.height;
+    if (!hasUsableImageSize(width, height)) {
+      URL.revokeObjectURL(objectUrl);
+      return null;
+    }
+    return {
+      source: image,
+      width,
+      height,
+      close: () => URL.revokeObjectURL(objectUrl),
+    };
+  } catch {
+    URL.revokeObjectURL(objectUrl);
+    return null;
+  }
+}
+
+async function convertHeicToJpegBlob(source: WebMediaSource): Promise<Blob | null> {
+  try {
+    const mod = await import("heic2any");
+    const heic2any = mod.default as Heic2Any;
+    const converted = await heic2any({ blob: source, toType: "image/jpeg", quality: 0.85 });
+    const blob = Array.isArray(converted) ? converted[0] : converted;
+    return blob instanceof Blob && blob.size > 0 ? blob : null;
+  } catch {
+    return null;
+  }
+}
+
+async function canvasSourceFromBlob(blob: Blob): Promise<WebPhotoCanvasSource | null> {
+  if (typeof createImageBitmap === "function") {
+    const bitmap = canvasSourceFromImageBitmap(await createImageBitmap(blob).catch(() => null));
+    if (bitmap) return bitmap;
+  }
+  return canvasSourceFromImageElement(blob);
+}
+
+async function canvasSourceForWebPhotoSource(source: WebMediaSource): Promise<WebPhotoCanvasSource | null> {
+  const directSource = await canvasSourceFromBlob(source);
+  if (directSource) return directSource;
+
+  if (!isHeicWebSource(source)) return null;
+  const convertedHeic = await convertHeicToJpegBlob(source);
+  if (!convertedHeic) return null;
+
+  return canvasSourceFromBlob(convertedHeic);
+}
+
+const WEB_VOICE_AUDIO_BITS_PER_SECOND = 96_000;
+const WEB_VOICE_CHANNEL_COUNT = 1;
+const WEB_VOICE_MIME_TYPES = [
+  "audio/webm;codecs=opus",
+  "audio/webm",
+  "audio/mp4",
+  "audio/aac",
+  "audio/mpeg",
+] as const;
+
+function supportedWebVoiceMimeType(): string | null {
+  if (typeof MediaRecorder === "undefined" || typeof MediaRecorder.isTypeSupported !== "function") {
+    return null;
+  }
+  return WEB_VOICE_MIME_TYPES.find((type) => MediaRecorder.isTypeSupported(type)) ?? null;
+}
+
 export const webMediaTranscode = {
   async preparePhotoForUpload<TSource extends WebMediaSource>(source: TSource): Promise<WebMediaSource> {
     assertWebMediaSource(source);
     if (!isImageWebSource(source)) return source;
-    if (typeof document === "undefined" || typeof HTMLCanvasElement === "undefined" || typeof createImageBitmap === "undefined") {
+    if (typeof document === "undefined" || typeof HTMLCanvasElement === "undefined") {
       return source;
     }
 
-    const bitmap = await createImageBitmap(source).catch(() => null);
-    if (!bitmap || bitmap.width <= 0 || bitmap.height <= 0) return source;
+    const decoded = await canvasSourceForWebPhotoSource(source);
+    if (!decoded) return source;
 
     try {
       const maxEdge = 2048;
-      const scale = Math.min(1, maxEdge / Math.max(bitmap.width, bitmap.height));
-      const targetWidth = Math.max(1, Math.round(bitmap.width * scale));
-      const targetHeight = Math.max(1, Math.round(bitmap.height * scale));
+      const scale = Math.min(1, maxEdge / Math.max(decoded.width, decoded.height));
+      const targetWidth = Math.max(1, Math.round(decoded.width * scale));
+      const targetHeight = Math.max(1, Math.round(decoded.height * scale));
       const canvas = document.createElement("canvas");
       canvas.width = targetWidth;
       canvas.height = targetHeight;
@@ -414,7 +557,7 @@ export const webMediaTranscode = {
 
       ctx.fillStyle = "#fff";
       ctx.fillRect(0, 0, targetWidth, targetHeight);
-      ctx.drawImage(bitmap, 0, 0, targetWidth, targetHeight);
+      ctx.drawImage(decoded.source, 0, 0, targetWidth, targetHeight);
 
       const blob = await canvasToBlob(canvas, "image/jpeg", 0.85);
       if (!blob || blob.size <= 0) return source;
@@ -427,19 +570,42 @@ export const webMediaTranscode = {
       }
       return new Blob([blob], { type: "image/jpeg" });
     } finally {
-      bitmap.close?.();
+      decoded.close();
     }
   },
   async prepareVoiceForUpload<TSource extends WebMediaSource>(source: TSource): Promise<TSource> {
     return source;
+  },
+  voiceRecordingConfig(): WebVoiceRecorderConfig {
+    const mimeType = supportedWebVoiceMimeType();
+    return {
+      constraints: {
+        audio: {
+          channelCount: { ideal: WEB_VOICE_CHANNEL_COUNT },
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+        },
+      },
+      options: {
+        ...(mimeType ? { mimeType } : {}),
+        audioBitsPerSecond: WEB_VOICE_AUDIO_BITS_PER_SECOND,
+      },
+      mimeType,
+      audioBitsPerSecond: WEB_VOICE_AUDIO_BITS_PER_SECOND,
+      numberOfChannels: WEB_VOICE_CHANNEL_COUNT,
+    };
   },
   capabilities() {
     return {
       canvas: typeof HTMLCanvasElement !== "undefined",
       webCodecs: "VideoEncoder" in globalThis,
       phase: "phase_5_photo_transcode",
+      voice: {
+        phase: "phase_5_voice_record_web",
+        audioBitsPerSecond: WEB_VOICE_AUDIO_BITS_PER_SECOND,
+        numberOfChannels: WEB_VOICE_CHANNEL_COUNT,
+      },
     };
   },
 };
-
-export const webMediaTranscodeStubs = webMediaTranscode;

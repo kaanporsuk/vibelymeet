@@ -32,11 +32,13 @@ function readTreeFiles(dir: string, extensions: ReadonlySet<string>, ignored = n
   return out;
 }
 
-test("inline VibePlayer uses the shared HLS attachment path", () => {
+test("inline VibePlayer uses the unified media asset playback hook", () => {
   const player = read("src/components/vibe-video/VibePlayer.tsx");
+  const hook = read("src/hooks/useMediaAsset.ts");
   const attach = read("src/lib/vibeVideo/attachHlsPlayback.ts");
 
-  assert.match(player, /attachHlsPlayback/);
+  assert.match(player, /useMediaAssetPlayback/);
+  assert.match(hook, /attachHlsPlayback/);
   assert.doesNotMatch(player, /src=\{shouldLoad \? videoUrl : undefined\}/);
   assert.match(attach, /import\("hls\.js"\)/);
   assert.match(attach, /Hls\.isSupported\(\)/);

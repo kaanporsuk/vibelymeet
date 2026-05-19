@@ -19,7 +19,7 @@ const webChat = read("src/pages/Chat.tsx");
 const webMessagesHook = read("src/hooks/useMessages.ts");
 const webOutboxContext = read("src/contexts/WebChatOutboxContext.tsx");
 const webOutboxExecute = read("src/lib/webChatOutbox/execute.ts");
-const webChatMediaResolver = read("src/lib/chatMediaResolver.ts");
+const webChatMediaResolver = read("src/lib/mediaAssetResolver.ts");
 const webUploadMime = read("src/lib/webUploadMime.ts");
 const webVibeClipBubble = read("src/components/chat/VibeClipBubble.tsx");
 const webVideoBubble = read("src/components/chat/VideoMessageBubble.tsx");
@@ -36,7 +36,7 @@ const nativeStreamUpload = read("apps/mobile/lib/chatVibeClipStreamUpload.ts");
 const nativeMediaSdkVideoUploads = read("apps/mobile/lib/mediaSdk/nativeVideoUploads.ts");
 const nativeMediaCache = read("apps/mobile/lib/chatOutbox/mediaCache.ts");
 const nativeOutboxContext = read("apps/mobile/lib/chatOutbox/ChatOutboxContext.tsx");
-const nativeChatMediaResolver = read("apps/mobile/lib/chatMediaResolver.ts");
+const nativeChatMediaResolver = read("apps/mobile/lib/mediaAssetResolver.ts");
 const uploadChatVideo = read("supabase/functions/upload-chat-video/index.ts");
 const uploadImage = read("supabase/functions/upload-image/index.ts");
 const uploadVoice = read("supabase/functions/upload-voice/index.ts");
@@ -272,14 +272,14 @@ test("web queue and upload preserve validated library video metadata", () => {
 test("Chat Vibe Clip media v2 cutover stays flag-gated at the durable outbox boundary", () => {
   assert.match(webOutboxContext, /useFeatureFlag\("media_v2_video"\)/);
   assert.match(webOutboxContext, /mediaV2VideoEnabled: mediaV2Video\.enabled/);
-  assert.match(webOutboxExecute, /options: \{ mediaV2VideoEnabled\?: boolean \} = \{\}/);
+  assert.match(webOutboxExecute, /options: \{ mediaV2VideoEnabled\?: boolean; mediaV2PhotoEnabled\?: boolean; mediaV2VoiceEnabled\?: boolean \} = \{\}/);
   assert.match(webOutboxExecute, /uploadAndPublishChatVibeClipWithMediaSdk/);
   assert.match(webOutboxExecute, /options\.mediaV2VideoEnabled[\s\S]{0,140}uploadAndPublishChatVibeClipWithMediaSdk\(uploadParams\)[\s\S]{0,140}uploadAndPublishChatVibeClipToBunnyStream\(uploadParams\)/);
   assert.match(webOutboxExecute, /isBunnyStreamPlaybackRef\(item\.uploadedMediaUrl\)[\s\S]{0,160}completePublishedChatVibeClipUpload/);
 
   assert.match(nativeOutboxContext, /useFeatureFlag\('media_v2_video'\)/);
   assert.match(nativeOutboxContext, /mediaV2VideoEnabled: mediaV2Video\.enabled/);
-  assert.match(nativeOutboxExecute, /options: \{ mediaV2VideoEnabled\?: boolean \} = \{\}/);
+  assert.match(nativeOutboxExecute, /options: \{ mediaV2VideoEnabled\?: boolean; mediaV2PhotoEnabled\?: boolean; mediaV2VoiceEnabled\?: boolean \} = \{\}/);
   assert.match(nativeOutboxExecute, /uploadAndPublishChatVibeClipWithMediaSdk/);
   assert.match(nativeOutboxExecute, /options\.mediaV2VideoEnabled[\s\S]{0,140}uploadAndPublishChatVibeClipWithMediaSdk\(uploadParams\)[\s\S]{0,140}uploadAndPublishChatVibeClipToBunnyStream\(uploadParams\)/);
   assert.match(nativeOutboxExecute, /isBunnyStreamPlaybackRef\(item\.uploadedMediaUrl\)[\s\S]{0,160}completePublishedChatVibeClipUpload/);

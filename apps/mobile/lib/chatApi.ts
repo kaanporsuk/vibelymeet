@@ -5,7 +5,7 @@ import { avatarUrl } from '@/lib/imageUrl';
 import { resolvePrimaryProfilePhotoPath } from '../../../shared/profilePhoto/resolvePrimaryProfilePhotoPath';
 import { bestMatchSortKey, compatibilityPercent, type MatchScoreInput } from '@/lib/matchSortScore';
 import { uploadVoiceMessage } from '@/lib/chatMediaUpload';
-import { resolveChatMessageMediaForDisplay } from '@/lib/chatMediaResolver';
+import { resolveMessageMediaForDisplay } from '@/lib/mediaAssetResolver';
 import { parseChatImageMessageContent } from '@/lib/chatMessageContent';
 import {
   collapseVibeGameMessageRows,
@@ -543,7 +543,7 @@ export async function hydrateChatRowsForDisplay(params: {
   const { rows, currentUserId, otherUserId } = params;
   const rowsForGames = rows.map((row) => mapRawRowToGameRow(normalizeRawMessage(row)));
   const resolvedRowsForGames = await Promise.all(
-    rowsForGames.map((row) => resolveChatMessageMediaForDisplay(row)),
+    rowsForGames.map((row) => resolveMessageMediaForDisplay(row)),
   );
 
   const mapStatus = (m: { sender_id: string; read_at: string | null }): MessageStatusType => {

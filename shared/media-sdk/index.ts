@@ -50,7 +50,6 @@ export {
   createWebMediaSdk,
   IndexedDbMediaUploadQueue,
   webMediaTranscode,
-  webMediaTranscodeStubs,
 } from "./adapters/web";
 export type {
   WebLegacyMediaDelegates,
@@ -62,6 +61,7 @@ export type {
   WebPhotoTranscoder,
   WebPhotoUploadInput,
   WebVideoUploadInput,
+  WebVoiceRecorderConfig,
   WebVoiceUploadInput,
 } from "./adapters/web";
 export {

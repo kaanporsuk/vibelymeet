@@ -2,7 +2,7 @@ import { useState, useRef, useCallback, useEffect, useMemo } from "react";
 import { Play, Pause, Loader2, AlertCircle } from "lucide-react";
 import { motion } from "framer-motion";
 import { cn } from "@/lib/utils";
-import { refreshCachedChatMediaUrl } from "@/lib/chatMediaResolver";
+import { useMediaAsset } from "@/hooks/useMediaAsset";
 import { waveformHeightsFromSeed } from "../../../shared/chat/voiceWaveformSeed";
 
 interface VoiceMessageBubbleProps {
@@ -26,10 +26,17 @@ export const VoiceMessageBubble = ({
   const [resolvedDuration, setResolvedDuration] = useState(initialDuration);
   const [isLoading, setIsLoading] = useState(false);
   const [hasError, setHasError] = useState(false);
-  const [playableUrl, setPlayableUrl] = useState(audioUrl);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const pendingAutoplayRef = useRef(false);
   const refreshAttemptedForUrlRef = useRef<string | null>(null);
+  const { url: mediaAssetUrl, refresh: refreshMediaAsset } = useMediaAsset({
+    kind: "voice",
+    messageId,
+    sourceRef: audioSourceRef,
+    initialUrl: audioUrl,
+    autoResolve: false,
+  });
+  const [playableUrl, setPlayableUrl] = useState(mediaAssetUrl ?? audioUrl);
   const waveformData = useMemo(
     () => waveformHeightsFromSeed(`${audioSourceRef ?? playableUrl ?? ""}|${initialDuration}`, 28),
     [audioSourceRef, playableUrl, initialDuration],
@@ -42,18 +49,18 @@ export const VoiceMessageBubble = ({
   })();
 
   useEffect(() => {
-    setPlayableUrl(audioUrl);
+    setPlayableUrl(mediaAssetUrl ?? audioUrl);
     setHasError(false);
     refreshAttemptedForUrlRef.current = null;
-  }, [audioUrl]);
+  }, [audioUrl, mediaAssetUrl]);
 
   const refreshAudioUrl = useCallback(async (): Promise<string | null> => {
     if (!messageId || !audioSourceRef) return null;
-    const freshUrl = await refreshCachedChatMediaUrl(messageId, "voice", audioSourceRef);
+    const freshUrl = await refreshMediaAsset("playback");
     if (!freshUrl) return null;
     setPlayableUrl(freshUrl);
     return freshUrl;
-  }, [audioSourceRef, messageId]);
+  }, [audioSourceRef, messageId, refreshMediaAsset]);
 
   // Create and configure audio element
   useEffect(() => {

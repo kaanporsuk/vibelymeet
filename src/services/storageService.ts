@@ -1,5 +1,6 @@
 import { supabase } from "@/integrations/supabase/client";
 import { clientRequestIdForUploadFile, uploadImageToBunny } from "@/services/imageUploadService";
+import { uploadImageWithMediaSdk } from "@/lib/mediaSdk/webStorageUploads";
 
 /**
  * Check if a URL is a blob URL (local) vs a storage URL
@@ -14,7 +15,8 @@ export const isBlobUrl = (url: string): boolean => {
 export const persistPhotos = async (
   photos: string[],
   files: (File | null)[],
-  userId: string
+  userId: string,
+  options: { mediaV2PhotoEnabled?: boolean } = {},
 ): Promise<string[]> => {
   const { data: { session } } = await supabase.auth.getSession();
   if (!session) throw new Error("Not authenticated");
@@ -28,13 +30,21 @@ export const persistPhotos = async (
     if (isBlobUrl(photo) && file) {
       // Upload via Bunny edge function
       try {
-        const { path: newPath } = await uploadImageToBunny(
-          file,
-          session.access_token,
-          "profile_studio",
-          undefined,
-          clientRequestIdForUploadFile(file, `profile-studio:${userId}:${i}`),
-        );
+        const clientRequestId = clientRequestIdForUploadFile(file, `profile-studio:${userId}:${i}`);
+        const { path: newPath } = options.mediaV2PhotoEnabled
+          ? await uploadImageWithMediaSdk({
+              file,
+              accessToken: session.access_token,
+              context: "profile_studio",
+              clientRequestId,
+            })
+          : await uploadImageToBunny(
+              file,
+              session.access_token,
+              "profile_studio",
+              undefined,
+              clientRequestId,
+            );
         persistedUrls.push(newPath);
       } catch (err) {
         console.error("[persistPhotos] Upload failed for slot", i, ":", err);
