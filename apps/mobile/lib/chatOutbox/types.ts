@@ -1,3 +1,5 @@
+import type { VibeClipRecoveryResumeStrategy } from '../../../../shared/chat/vibeClipRecovery';
+
 export type ChatOutboxQueueState =
   | 'queued'
   | 'waiting_for_network'
@@ -38,4 +40,5 @@ export type ChatOutboxItem = {
   hydrationLastCheckedAtMs?: number;
   /** Bounded deadline for awaiting_hydration before transitioning to recoverable failure. */
   hydrationDeadlineAtMs?: number;
+  vibeClipResumeStrategy?: VibeClipRecoveryResumeStrategy;
 };

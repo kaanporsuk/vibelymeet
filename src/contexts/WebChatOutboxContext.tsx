@@ -23,13 +23,52 @@ import { syncChatVibeClipUploadStatus } from "@/lib/mediaAssetResolver";
 import { isLikelyNetworkFailure, outboxFailureUserMessage } from "@/lib/webChatOutbox/network";
 import { invalidateAfterThreadMutation } from "@/hooks/useMessages";
 import { useFeatureFlag } from "@/hooks/useFeatureFlag";
+import { trackVibeClipEvent } from "@/lib/vibeClipAnalytics";
 import type { WebChatOutboxItem, WebChatOutboxPayload, WebChatOutboxQueueState } from "@/lib/webChatOutbox/types";
 import type { ThreadInvalidateScope } from "../../shared/chat/queryKeys";
+import type {
+  VibeClipRecoveryResumeStrategy,
+  VibeClipServerUpload,
+  VibeClipUploadStatus,
+} from "../../shared/chat/vibeClipRecovery";
 
 const HYDRATION_CHECK_INTERVAL_MS = 10_000;
 const HYDRATION_TIMEOUT_MS = 90_000;
 const HYDRATION_RECOVERY_BACKOFF_MS = 5_000;
 const INTERRUPTED_SENDING_RECOVERY_MS = 2 * 60 * 1000;
+const STALE_VIBE_CLIP_UPLOAD_AGE_MS = 60_000;
+
+type VibeClipRecoverySweepTrigger = "mount_sweep" | "foreground" | "poll" | "manual";
+type VibeClipRecoverySweepOutcome =
+  | "none"
+  | "self_healed"
+  | "provider_unreachable"
+  | "terminal_failed"
+  | "stuck"
+  | "query_failed";
+
+type ChatVibeClipUploadSweepRow = {
+  id: string;
+  match_id: string;
+  client_request_id: string;
+  status: VibeClipUploadStatus;
+  provider_object_id: string | null;
+  expires_at: string | null;
+  updated_at: string | null;
+  published_message_id?: string | null;
+  duration_ms?: number | null;
+  aspect_ratio?: number | null;
+  source_bytes?: number | null;
+  mime_type?: string | null;
+};
+
+type ChatVibeClipUploadSweepQuery = {
+  eq: (column: string, value: unknown) => ChatVibeClipUploadSweepQuery;
+  in: (column: string, values: unknown[]) => ChatVibeClipUploadSweepQuery;
+  lt: (column: string, value: string) => ChatVibeClipUploadSweepQuery;
+  order: (column: string, options?: { ascending?: boolean }) => ChatVibeClipUploadSweepQuery;
+  limit: (count: number) => Promise<{ data: ChatVibeClipUploadSweepRow[] | null; error: { message?: string } | null }>;
+};
 
 function isOnline(): boolean {
   return typeof navigator !== "undefined" ? navigator.onLine : true;
@@ -39,6 +78,23 @@ function itemPayloadBlobKey(item: WebChatOutboxItem): string | null {
   const p = item.payload;
   if (p.kind === "text") return null;
   return p.blobKey;
+}
+
+function rowToVibeClipServerUpload(row: ChatVibeClipUploadSweepRow): VibeClipServerUpload {
+  return {
+    id: row.id,
+    matchId: row.match_id,
+    clientRequestId: row.client_request_id,
+    status: row.status,
+    providerObjectId: row.provider_object_id,
+    expiresAt: row.expires_at,
+    updatedAt: row.updated_at,
+    publishedMessageId: row.published_message_id ?? null,
+    durationMs: row.duration_ms ?? null,
+    aspectRatio: row.aspect_ratio ?? null,
+    sourceBytes: row.source_bytes ?? null,
+    mimeType: row.mime_type ?? null,
+  };
 }
 
 function isEligibleToSend(item: WebChatOutboxItem, online: boolean): boolean {
@@ -82,6 +138,19 @@ function recoverInterruptedSendingItems(
   return changed ? next : items;
 }
 
+function recoverySweepOutcome(stats: {
+  selfHealedCount: number;
+  providerUnreachableCount: number;
+  terminalFailedCount: number;
+  stuckCount: number;
+}): VibeClipRecoverySweepOutcome {
+  if (stats.selfHealedCount > 0) return "self_healed";
+  if (stats.providerUnreachableCount > 0) return "provider_unreachable";
+  if (stats.terminalFailedCount > 0) return "terminal_failed";
+  if (stats.stuckCount > 0) return "stuck";
+  return "none";
+}
+
 type WebChatOutboxContextValue = {
   items: WebChatOutboxItem[];
   enqueue: (input: {
@@ -92,8 +161,11 @@ type WebChatOutboxContextValue = {
     invalidateScope?: ThreadInvalidateScope;
   }) => string | null;
   retry: (itemId: string) => void;
+  retryVibeClipUpload: (clientRequestId: string, resumeStrategy?: VibeClipRecoveryResumeStrategy | null) => void;
   remove: (itemId: string) => void;
   itemsForMatch: (matchId: string) => WebChatOutboxItem[];
+  runVibeClipRecoverySweep: (trigger: VibeClipRecoverySweepTrigger, matchId?: string | null) => Promise<void>;
+  staleVibeClipUploadsForMatch: (matchId: string) => VibeClipServerUpload[];
   reconcileWithServerIds: (serverMessageIds: Set<string>) => void;
   processTick: (queryClient: QueryClient) => Promise<void>;
 };
@@ -107,6 +179,7 @@ export function WebChatOutboxProvider({ children }: { children: ReactNode }) {
   const mediaV2Photo = useFeatureFlag("media_v2_photo");
   const mediaV2Voice = useFeatureFlag("media_v2_voice");
   const [items, setItems] = useState<WebChatOutboxItem[]>([]);
+  const [staleVibeClipUploads, setStaleVibeClipUploads] = useState<VibeClipServerUpload[]>([]);
   const itemsRef = useRef(items);
   const processingRef = useRef<Set<string>>(new Set());
 
@@ -117,6 +190,7 @@ export function WebChatOutboxProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (!userId) {
       setItems([]);
+      setStaleVibeClipUploads([]);
       return;
     }
     let cancelled = false;
@@ -175,7 +249,7 @@ export function WebChatOutboxProvider({ children }: { children: ReactNode }) {
     [userId],
   );
 
-  const retry = useCallback((itemId: string) => {
+  const retryVibeClipUpload = useCallback((itemId: string, resumeStrategy?: VibeClipRecoveryResumeStrategy | null) => {
     setItems((prev) =>
       prev.map((it) =>
         it.id === itemId
@@ -185,12 +259,17 @@ export function WebChatOutboxProvider({ children }: { children: ReactNode }) {
               lastError: undefined,
               nextRetryAtMs: undefined,
               uploadProgress: undefined,
+              vibeClipResumeStrategy: it.payload.kind === "video" ? resumeStrategy ?? undefined : undefined,
               updatedAtMs: Date.now(),
             }
           : it,
       ),
     );
   }, []);
+
+  const retry = useCallback((itemId: string) => {
+    retryVibeClipUpload(itemId, null);
+  }, [retryVibeClipUpload]);
 
   const remove = useCallback((itemId: string) => {
     const toCleanup: string[] = [];
@@ -228,6 +307,102 @@ export function WebChatOutboxProvider({ children }: { children: ReactNode }) {
       items.filter((it) => it.matchId === matchId && it.state !== "canceled" && it.state !== "sent"),
     [items],
   );
+
+  const staleVibeClipUploadsForMatch = useCallback(
+    (matchId: string) => staleVibeClipUploads.filter((upload) => upload.matchId === matchId),
+    [staleVibeClipUploads],
+  );
+
+  const runVibeClipRecoverySweep = useCallback(async (trigger: VibeClipRecoverySweepTrigger, matchId?: string | null) => {
+    if (!userId) return;
+    const startedAtMs = Date.now();
+    const staleBefore = new Date(Date.now() - STALE_VIBE_CLIP_UPLOAD_AGE_MS).toISOString();
+    let query = (supabase as unknown as {
+      from: (table: "chat_vibe_clip_uploads") => {
+        select: (columns: string) => ChatVibeClipUploadSweepQuery;
+      };
+    })
+      .from("chat_vibe_clip_uploads")
+      .select(
+        "id, match_id, client_request_id, status, provider_object_id, expires_at, updated_at, published_message_id, duration_ms, aspect_ratio, source_bytes, mime_type",
+      );
+    query = query
+      .eq("sender_id", userId)
+      .in("status", ["uploading", "processing"])
+      .lt("updated_at", staleBefore);
+    if (matchId) query = query.eq("match_id", matchId);
+
+    const { data, error } = await query.order("updated_at", { ascending: true }).limit(20);
+    if (error) {
+      trackVibeClipEvent("clip_recovery_status", {
+        trigger,
+        outcome: "query_failed",
+        checked_count: 0,
+        latency_ms: Date.now() - startedAtMs,
+      });
+      return;
+    }
+
+    const rows = Array.isArray(data) ? data : [];
+    const stillStuck: VibeClipServerUpload[] = [];
+    let selfHealedCount = 0;
+    let providerUnreachableCount = 0;
+    let terminalFailedCount = 0;
+    for (const row of rows) {
+      const upload = rowToVibeClipServerUpload(row);
+      const synced = await syncChatVibeClipUploadStatus({
+        uploadId: upload.id,
+        clientRequestId: upload.clientRequestId,
+      });
+      const syncedStatus = synced?.status ?? upload.status;
+      if (synced?.providerReachable === false) providerUnreachableCount += 1;
+      if (syncedStatus === "ready") {
+        selfHealedCount += 1;
+        continue;
+      }
+      if (syncedStatus === "failed") terminalFailedCount += 1;
+      stillStuck.push({
+        ...upload,
+        status: syncedStatus,
+        providerObjectId: synced?.providerObjectId ?? upload.providerObjectId,
+        expiresAt: synced?.expiresAt ?? upload.expiresAt,
+        updatedAt: synced?.updatedAt ?? upload.updatedAt,
+        publishedMessageId: synced?.messageId ?? upload.publishedMessageId,
+      });
+    }
+    if (rows.length > 0) {
+      const stuckCount = stillStuck.filter((upload) => upload.status !== "failed").length;
+      trackVibeClipEvent("clip_recovery_status", {
+        trigger,
+        outcome: recoverySweepOutcome({
+          selfHealedCount,
+          providerUnreachableCount,
+          terminalFailedCount,
+          stuckCount,
+        }),
+        checked_count: rows.length,
+        self_healed_count: selfHealedCount,
+        provider_unreachable_count: providerUnreachableCount,
+        terminal_failed_count: terminalFailedCount,
+        stuck_count: stuckCount,
+        latency_ms: Date.now() - startedAtMs,
+      });
+    }
+
+    setStaleVibeClipUploads((prev) => {
+      const nextById = new Map<string, VibeClipServerUpload>();
+      for (const upload of prev) {
+        if (matchId && upload.matchId === matchId) continue;
+        nextById.set(upload.id, upload);
+      }
+      for (const upload of stillStuck) nextById.set(upload.id, upload);
+      return Array.from(nextById.values()).sort((a, b) => {
+        const at = new Date(a.updatedAt ?? 0).getTime();
+        const bt = new Date(b.updatedAt ?? 0).getTime();
+        return at - bt;
+      });
+    });
+  }, [userId]);
 
   const processTick = useCallback(
     async (queryClient: QueryClient) => {
@@ -405,6 +580,7 @@ export function WebChatOutboxProvider({ children }: { children: ReactNode }) {
                     uploadedPublicUrl: uploadedPublicUrl ?? it.uploadedPublicUrl,
                     uploadedMediaUrl: uploadedMediaUrl ?? it.uploadedMediaUrl,
                     uploadProgress: undefined,
+                    vibeClipResumeStrategy: undefined,
                     state: "awaiting_hydration" as const,
                     lastError: undefined,
                     nextRetryAtMs: undefined,
@@ -454,12 +630,26 @@ export function WebChatOutboxProvider({ children }: { children: ReactNode }) {
       items,
       enqueue,
       retry,
+      retryVibeClipUpload,
       remove,
       itemsForMatch,
+      runVibeClipRecoverySweep,
+      staleVibeClipUploadsForMatch,
       reconcileWithServerIds,
       processTick,
     }),
-    [items, enqueue, retry, remove, itemsForMatch, reconcileWithServerIds, processTick],
+    [
+      items,
+      enqueue,
+      retry,
+      retryVibeClipUpload,
+      remove,
+      itemsForMatch,
+      runVibeClipRecoverySweep,
+      staleVibeClipUploadsForMatch,
+      reconcileWithServerIds,
+      processTick,
+    ],
   );
 
   return <WebChatOutboxContext.Provider value={value}>{children}</WebChatOutboxContext.Provider>;

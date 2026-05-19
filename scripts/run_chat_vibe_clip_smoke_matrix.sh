@@ -19,12 +19,17 @@ Live web env:
   VIBELY_CVC_WEB_CHAT_URL=https://<staging-host>/chat/<matched-profile-id>
   VIBELY_CVC_WEB_STORAGE_STATE=/absolute/path/to/playwright-storage-state.json
   VIBELY_CVC_FIXTURE_VIDEO=/absolute/path/to/short-valid-video.mp4
+  VIBELY_CVC_STUCK_CLIENT_REQUEST_ID=<uuid> # only for app-launch-stuck-processing-nudge
   VIBELY_CVC_DISRUPTION_SMOKE=1        # only for kill-mid-tus
   VIBELY_CVC_EXPECT_READY=1            # optional stricter webhook-delayed assertion
 
 Live native env:
   VIBELY_CVC_NATIVE_SMOKE=1
   VIBELY_CVC_NATIVE_CHAT_DEEPLINK=vibely://chat/<matched-profile-id>
+  EXPO_PUBLIC_VIBELY_CVC_NATIVE_FIXTURE_UPLOAD=1
+  EXPO_PUBLIC_VIBELY_CVC_NATIVE_FIXTURE_URL=https://<staging-host>/fixtures/chat-vibe-clip.mp4
+  VIBELY_CVC_NATIVE_FIXTURE_UPLOAD=1      # accepted by this runner; app builds should use EXPO_PUBLIC_*
+  VIBELY_CVC_NATIVE_FIXTURE_URL=https://<staging-host>/fixtures/chat-vibe-clip.mp4
   MAESTRO_RUN=1
 
 Scenario ids:
@@ -32,6 +37,8 @@ Scenario ids:
   4g-throttle
   kill-mid-tus
   webhook-delayed
+  signed-url-mid-expiry
+  app-launch-stuck-processing-nudge
 USAGE
 }
 
@@ -77,9 +84,9 @@ run_static() {
   run_step npx tsx shared/chat/vibeClipSmokeMatrix.test.ts
   echo
   echo "Chat Vibe Clip live smoke matrix is defined for:"
-  echo "  web: happy-path, 4g-throttle, kill-mid-tus, webhook-delayed"
-  echo "  ios: happy-path, 4g-throttle, kill-mid-tus, webhook-delayed"
-  echo "  android: happy-path, 4g-throttle, kill-mid-tus, webhook-delayed"
+  echo "  web: happy-path, 4g-throttle, kill-mid-tus, webhook-delayed, signed-url-mid-expiry, app-launch-stuck-processing-nudge"
+  echo "  ios: happy-path, 4g-throttle, kill-mid-tus, webhook-delayed, signed-url-mid-expiry, app-launch-stuck-processing-nudge"
+  echo "  android: happy-path, 4g-throttle, kill-mid-tus, webhook-delayed, signed-url-mid-expiry, app-launch-stuck-processing-nudge"
 }
 
 run_web() {
@@ -97,6 +104,12 @@ run_native() {
   fi
   if [[ -z "${VIBELY_CVC_NATIVE_CHAT_DEEPLINK:-}" ]]; then
     echo "Missing VIBELY_CVC_NATIVE_CHAT_DEEPLINK." >&2
+    exit 1
+  fi
+  local fixture_upload="${EXPO_PUBLIC_VIBELY_CVC_NATIVE_FIXTURE_UPLOAD:-${VIBELY_CVC_NATIVE_FIXTURE_UPLOAD:-}}"
+  local fixture_url="${EXPO_PUBLIC_VIBELY_CVC_NATIVE_FIXTURE_URL:-${VIBELY_CVC_NATIVE_FIXTURE_URL:-}}"
+  if [[ "$fixture_upload" != "1" || -z "$fixture_url" ]]; then
+    echo "Missing EXPO_PUBLIC_VIBELY_CVC_NATIVE_FIXTURE_UPLOAD=1 or EXPO_PUBLIC_VIBELY_CVC_NATIVE_FIXTURE_URL." >&2
     exit 1
   fi
   if ! command -v maestro >/dev/null 2>&1; then
@@ -125,4 +138,3 @@ case "$MODE" in
     run_native
     ;;
 esac
-

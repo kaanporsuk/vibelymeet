@@ -91,6 +91,12 @@ import { recordUserAction } from "@/lib/browserDiagnostics";
 import { useUserProfile } from "@/contexts/AuthContext";
 import { useMatchCall } from "@/hooks/useMatchCall";
 import { threadMessagesQueryKey } from "../../shared/chat/queryKeys";
+import {
+  buildVibeClipRecovery,
+  type VibeClipRecoveryDecision,
+  type VibeClipRecoveryResumeStrategy,
+  type VibeClipServerUpload,
+} from "../../shared/chat/vibeClipRecovery";
 import { format } from "date-fns";
 import { buildThreadPresentationRows } from "../../shared/chat/threadPresentation";
 import { resolvePrimaryProfilePhotoPath } from "../../shared/profilePhoto/resolvePrimaryProfilePhotoPath";
@@ -176,6 +182,8 @@ interface ChatMessage {
   clientRequestId?: string;
   /** Durable web outbox row id for retry */
   outboxItemId?: string;
+  /** Server upload row rendered because it is stuck and no local optimistic row exists. */
+  serverRecoveryUploadId?: string;
   /** Secondary line under timestamp (queued / offline / uploading) */
   statusSubtext?: string;
 }
@@ -206,39 +214,75 @@ function mergeServerAndLocalChatMessages(realMsgs: ChatMessage[], localMessages:
 
 type TextMessage = ChatMessage & { type: "text" };
 
-function vibeClipRecoveryForOutboxItem(
-  item: WebChatOutboxItem | undefined,
-  sendError: string | undefined,
-  onResume?: () => void,
+function vibeClipRecoveryFromDecision(
+  decision: VibeClipRecoveryDecision | null,
+  onResume?: (strategy: VibeClipRecoveryResumeStrategy | null) => void,
   onDiscardAndSendAgain?: () => void,
+  onTelemetry?: (action: "manual_resume" | "manual_discard", decision: VibeClipRecoveryDecision) => void,
 ): VibeClipLocalRecovery | null {
-  if (!item || item.payload.kind !== "video") return null;
-  const canResume = item.state === "failed" || item.state === "waiting_for_network";
-  const canDiscard = item.state !== "sending" && item.state !== "awaiting_hydration";
-  const uploadPercent =
-    item.state === "sending" &&
-    typeof item.uploadProgress === "number" &&
-    Number.isFinite(item.uploadProgress)
-      ? Math.max(0, Math.min(100, Math.round(item.uploadProgress * 100)))
-      : null;
-  const stateLabel = sendError ??
-    (uploadPercent != null
-      ? `Uploading ${uploadPercent}%`
-      : item.state === "awaiting_hydration"
-        ? "Uploaded. Waiting for the message to appear."
-        : item.state === "waiting_for_network"
-          ? "Upload paused until you're back online."
-          : item.state === "failed"
-            ? "Upload needs attention."
-            : "Upload is queued.");
-
+  if (!decision?.showPanel) return null;
   return {
-    stateLabel,
-    error: sendError,
-    canResume,
-    canDiscard,
-    onResume,
-    onDiscardAndSendAgain,
+    stateLabel: decision.stateLabel,
+    error: decision.error,
+    canResume: decision.canResume,
+    canDiscard: decision.canDiscard,
+    onResume: decision.canResume ? () => {
+      onTelemetry?.("manual_resume", decision);
+      onResume?.(decision.resumeStrategy);
+    } : undefined,
+    onDiscardAndSendAgain: decision.canDiscard && onDiscardAndSendAgain ? () => {
+      onTelemetry?.("manual_discard", decision);
+      onDiscardAndSendAgain();
+    } : undefined,
+  };
+}
+
+function webOutboxVibeClipSummary(item: WebChatOutboxItem | undefined) {
+  if (!item || item.payload.kind !== "video") return null;
+  return {
+    id: item.id,
+    payloadKind: item.payload.kind,
+    state: item.state,
+    uploadProgress: item.uploadProgress,
+    lastError: item.lastError,
+  };
+}
+
+function serverVibeClipRecoveryMessage(upload: VibeClipServerUpload): ChatMessage {
+  const sortAtMs = new Date(upload.updatedAt ?? Date.now()).getTime();
+  const providerRef = upload.providerObjectId ? `bunny_stream:${upload.providerObjectId}` : "";
+  return {
+    id: `recovery-${upload.id}`,
+    text: "Vibe Clip",
+    sender: "me",
+    time: Number.isFinite(sortAtMs)
+      ? new Date(sortAtMs).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+      : "",
+    type: "vibe_clip",
+    videoUrl: providerRef,
+    videoSourceRef: providerRef || undefined,
+    videoDuration: upload.durationMs ? Math.max(1, Math.round(upload.durationMs / 1000)) : undefined,
+    thumbnailSourceRef: upload.providerObjectId ? `bunny_stream:${upload.providerObjectId}:thumbnail` : undefined,
+    status: "sending",
+    statusSubtext: "Recovery available",
+    sortAtMs: Number.isFinite(sortAtMs) ? sortAtMs : Date.now(),
+    clientRequestId: upload.clientRequestId,
+    serverRecoveryUploadId: upload.id,
+    structuredPayload: {
+      v: 3,
+      kind: "vibe_clip",
+      client_request_id: upload.clientRequestId,
+      duration_ms: upload.durationMs ?? null,
+      aspect_ratio: upload.aspectRatio ?? null,
+      thumbnail_url: null,
+      poster_ref: upload.providerObjectId ? `bunny_stream:${upload.providerObjectId}:thumbnail` : null,
+      poster_source: "bunny_stream_thumbnail",
+      processing_status: upload.status,
+      provider_object_id: upload.providerObjectId,
+      playback_ref: providerRef || null,
+      upload_provider: "bunny_stream",
+      provider: "bunny_stream",
+    },
   };
 }
 
@@ -258,8 +302,10 @@ function VibeClipMessageRow({
   onResolvedThumbnailUrl,
   threadVisualRecede,
   localOutboxItem,
-  onResumeOutbox,
-  onDiscardOutboxAndSendAgain,
+  serverUpload,
+  localSourcePresent,
+  onResumeRecovery,
+  onDiscardRecoveryAndSendAgain,
 }: {
   message: ChatMessage & { isFirstInGroup?: boolean; isLastInGroup?: boolean; showAvatar?: boolean };
   otherUser: { avatar_url: string | null } | null;
@@ -276,8 +322,10 @@ function VibeClipMessageRow({
   onResolvedThumbnailUrl?: (messageId: string, url: string) => void;
   threadVisualRecede?: boolean;
   localOutboxItem?: WebChatOutboxItem;
-  onResumeOutbox?: () => void;
-  onDiscardOutboxAndSendAgain?: () => void;
+  serverUpload?: VibeClipServerUpload | null;
+  localSourcePresent?: boolean;
+  onResumeRecovery?: (strategy: VibeClipRecoveryResumeStrategy | null) => void;
+  onDiscardRecoveryAndSendAgain?: () => void;
 }) {
   const baseClipMeta = extractVibeClipMeta({
     video_url: message.videoUrl,
@@ -293,11 +341,27 @@ function VibeClipMessageRow({
       }
     : null;
   const isMine = message.sender === "me";
-  const localRecovery = vibeClipRecoveryForOutboxItem(
-    localOutboxItem,
-    message.sendError,
-    onResumeOutbox,
-    onDiscardOutboxAndSendAgain,
+  const recoveryDecision = buildVibeClipRecovery({
+    outboxItem: webOutboxVibeClipSummary(localOutboxItem),
+    serverUpload: serverUpload ?? null,
+    localSourcePresent: localSourcePresent === true,
+    nowMs: Date.now(),
+    sendError: message.sendError,
+  });
+  const localRecovery = vibeClipRecoveryFromDecision(
+    recoveryDecision,
+    onResumeRecovery,
+    onDiscardRecoveryAndSendAgain,
+    (trigger, decision) => {
+      trackVibeClipEvent("clip_recovery_status", {
+        trigger,
+        outcome: decision.telemetryOutcome,
+        resume_strategy: decision.resumeStrategy ?? "none",
+        local_source_present: localSourcePresent === true,
+        server_status: serverUpload?.status ?? "none",
+        latency_ms: 0,
+      });
+    },
   );
   return (
     <div
@@ -398,6 +462,7 @@ const Chat = () => {
     isFetchingNextPage,
   } = useMessages(id || "", currentUserId);
   const webOutbox = useWebChatOutbox();
+  const runWebVibeClipRecoverySweep = webOutbox.runVibeClipRecoverySweep;
   const { data: dateSuggestions = [], refetch: refetchDateSuggestions } = useMatchDateSuggestions(
     chatData?.matchId,
   );
@@ -711,11 +776,58 @@ const Chat = () => {
     [],
   );
 
-  const outboxMatchItems = webOutbox.itemsForMatch(chatData?.matchId ?? "");
+  const webOutboxItemsForMatch = webOutbox.itemsForMatch;
+  const webStaleVibeClipUploadsForMatch = webOutbox.staleVibeClipUploadsForMatch;
+  const outboxMatchItems = useMemo(
+    () => webOutboxItemsForMatch(chatData?.matchId ?? ""),
+    [chatData?.matchId, webOutboxItemsForMatch],
+  );
   const outboxItemsById = useMemo(() => {
     const map = new Map<string, WebChatOutboxItem>();
     for (const item of outboxMatchItems) map.set(item.id, item);
     return map;
+  }, [outboxMatchItems]);
+  const staleVibeClipUploads = useMemo(
+    () => webStaleVibeClipUploadsForMatch(chatData?.matchId ?? ""),
+    [chatData?.matchId, webStaleVibeClipUploadsForMatch],
+  );
+  const staleVibeClipUploadsByClientRequestId = useMemo(() => {
+    const map = new Map<string, VibeClipServerUpload>();
+    for (const upload of staleVibeClipUploads) map.set(upload.clientRequestId, upload);
+    return map;
+  }, [staleVibeClipUploads]);
+  const staleVibeClipUploadsById = useMemo(() => {
+    const map = new Map<string, VibeClipServerUpload>();
+    for (const upload of staleVibeClipUploads) map.set(upload.id, upload);
+    return map;
+  }, [staleVibeClipUploads]);
+  const [vibeClipLocalSourceById, setVibeClipLocalSourceById] = useState<Record<string, boolean>>({});
+  const [dismissedServerVibeClipRecoveryIds, setDismissedServerVibeClipRecoveryIds] = useState<Set<string>>(
+    () => new Set(),
+  );
+
+  useEffect(() => {
+    setDismissedServerVibeClipRecoveryIds(new Set());
+  }, [chatData?.matchId]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      const next: Record<string, boolean> = {};
+      for (const item of outboxMatchItems) {
+        if (item.payload.kind !== "video") continue;
+        try {
+          const blob = await getOutboxBlob(item.payload.blobKey);
+          next[item.id] = Boolean(blob && blob.size > 0);
+        } catch {
+          next[item.id] = false;
+        }
+      }
+      if (!cancelled) setVibeClipLocalSourceById(next);
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, [outboxMatchItems]);
 
   useEffect(() => {
@@ -824,8 +936,27 @@ const Chat = () => {
       };
     });
     const outboxRows = webOutboxItemsToRows(outboxMatchItems, outboxPreviews) as ChatMessage[];
-    return mergeServerAndLocalChatMessages(realMsgs, outboxRows);
-  }, [chatData?.messages, outboxMatchItems, outboxPreviews, reactionByMessageId]);
+    const existingClientRequestIds = new Set<string>();
+    for (const m of realMsgs) {
+      const cid = clientRequestIdFromStructured(m.structuredPayload);
+      if (cid) existingClientRequestIds.add(cid);
+    }
+    for (const m of outboxRows) {
+      if (m.clientRequestId) existingClientRequestIds.add(m.clientRequestId);
+    }
+    const recoveryRows = staleVibeClipUploads
+      .filter((upload) => !dismissedServerVibeClipRecoveryIds.has(upload.id))
+      .filter((upload) => !existingClientRequestIds.has(upload.clientRequestId))
+      .map(serverVibeClipRecoveryMessage);
+    return mergeServerAndLocalChatMessages(realMsgs, [...outboxRows, ...recoveryRows]);
+  }, [
+    chatData?.messages,
+    dismissedServerVibeClipRecoveryIds,
+    outboxMatchItems,
+    outboxPreviews,
+    reactionByMessageId,
+    staleVibeClipUploads,
+  ]);
 
   const displayMessages = useMemo(() => {
     return dedupeLatestByRefId(messages, {
@@ -1457,6 +1588,39 @@ const Chat = () => {
         : undefined,
     [id, currentUserId, chatData?.matchId],
   );
+
+  const refreshThreadAfterVibeClipRecoverySweep = useCallback(async () => {
+    if (!id || !currentUserId) return;
+    await queryClient.invalidateQueries({
+      queryKey: threadMessagesQueryKey(id, currentUserId),
+      exact: true,
+    });
+  }, [currentUserId, id, queryClient]);
+
+  const runVibeClipRecoverySweepForThread = useCallback(
+    async (trigger: "mount_sweep" | "foreground") => {
+      const matchId = chatData?.matchId;
+      if (!matchId) return;
+      await runWebVibeClipRecoverySweep(trigger, matchId);
+      await refreshThreadAfterVibeClipRecoverySweep();
+    },
+    [chatData?.matchId, refreshThreadAfterVibeClipRecoverySweep, runWebVibeClipRecoverySweep],
+  );
+
+  useEffect(() => {
+    void runVibeClipRecoverySweepForThread("mount_sweep");
+  }, [runVibeClipRecoverySweepForThread]);
+
+  useEffect(() => {
+    if (typeof document === "undefined") return;
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") {
+        void runVibeClipRecoverySweepForThread("foreground");
+      }
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => document.removeEventListener("visibilitychange", onVisibility);
+  }, [runVibeClipRecoverySweepForThread]);
 
   const sendTextMessage = useCallback(
     (opts?: { text?: string }) => {
@@ -2203,17 +2367,33 @@ const Chat = () => {
                   onReactionPick={(emoji) => handleReaction(groupedMessage.id, emoji)}
                   threadVisualRecede={mediaRecede}
                   localOutboxItem={groupedMessage.outboxItemId ? outboxItemsById.get(groupedMessage.outboxItemId) : undefined}
-                  onResumeOutbox={
-                    groupedMessage.outboxItemId ? () => webOutbox.retry(groupedMessage.outboxItemId!) : undefined
+                  serverUpload={
+                    groupedMessage.clientRequestId
+                      ? staleVibeClipUploadsByClientRequestId.get(groupedMessage.clientRequestId) ??
+                        (groupedMessage.serverRecoveryUploadId
+                          ? staleVibeClipUploadsById.get(groupedMessage.serverRecoveryUploadId)
+                          : null)
+                      : groupedMessage.serverRecoveryUploadId
+                        ? staleVibeClipUploadsById.get(groupedMessage.serverRecoveryUploadId)
+                        : null
                   }
-                  onDiscardOutboxAndSendAgain={
+                  localSourcePresent={
+                    groupedMessage.outboxItemId ? vibeClipLocalSourceById[groupedMessage.outboxItemId] === true : false
+                  }
+                  onResumeRecovery={
                     groupedMessage.outboxItemId
-                      ? () => {
-                          webOutbox.remove(groupedMessage.outboxItemId!);
-                          openVibeClipOptions();
-                        }
+                      ? (strategy) => webOutbox.retryVibeClipUpload(groupedMessage.outboxItemId!, strategy)
                       : undefined
                   }
+                  onDiscardRecoveryAndSendAgain={() => {
+                    if (groupedMessage.outboxItemId) {
+                      webOutbox.remove(groupedMessage.outboxItemId);
+                    }
+                    if (groupedMessage.serverRecoveryUploadId) {
+                      setDismissedServerVibeClipRecoveryIds((prev) => new Set(prev).add(groupedMessage.serverRecoveryUploadId!));
+                    }
+                    openVibeClipOptions();
+                  }}
                 />
               ) : groupedMessage.type === "video" ? (
                 <div

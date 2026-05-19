@@ -11,7 +11,8 @@ const webRows = CHAT_VIBE_CLIP_SMOKE_MATRIX.filter((row) => row.platform === "we
 const liveSmokeEnabled = process.env.VIBELY_CVC_SMOKE === "1";
 const storageState = process.env.VIBELY_CVC_WEB_STORAGE_STATE;
 
-// Matrix scenario ids: happy-path, 4g-throttle, kill-mid-tus, webhook-delayed.
+// Matrix scenario ids: happy-path, 4g-throttle, kill-mid-tus, webhook-delayed,
+// signed-url-mid-expiry, app-launch-stuck-processing-nudge.
 
 function requiredEnv(name: (typeof CHAT_VIBE_CLIP_WEB_SMOKE_ENV)[number]) {
   const value = process.env[name]?.trim();
@@ -50,6 +51,10 @@ async function runLibraryUploadScenario(
   test.skip(
     row.id === "kill-mid-tus" && process.env.VIBELY_CVC_DISRUPTION_SMOKE !== "1",
     "Set VIBELY_CVC_DISRUPTION_SMOKE=1 on staging to inject the kill-mid-TUS reload.",
+  );
+  test.skip(
+    row.id === "app-launch-stuck-processing-nudge",
+    "app-launch-stuck-processing-nudge uses the stale-row mount path, not a fresh library upload.",
   );
   statSync(fixtureVideo);
 
@@ -104,6 +109,13 @@ async function runLibraryUploadScenario(
     evidence.final_processing_status = await bubble.getAttribute("data-processing-status");
   }
 
+  if (row.id === "signed-url-mid-expiry") {
+    const video = bubble.locator("video").first();
+    await video.evaluate((node) => node.dispatchEvent(new Event("error"))).catch(() => undefined);
+    await expect(bubble).toBeVisible({ timeout: 5_000 });
+    evidence.signed_url_refresh_probe = "video error dispatched; bubble stayed mounted for refresh path";
+  }
+
   if (cdpSession) {
     await cdpSession.send("Network.emulateNetworkConditions", {
       offline: false,
@@ -121,13 +133,51 @@ async function runLibraryUploadScenario(
   });
 }
 
+async function runStuckProcessingNudgeScenario(
+  row: ChatVibeClipSmokeRow,
+  page: import("@playwright/test").Page,
+  testInfo: import("@playwright/test").TestInfo,
+) {
+  testInfo.setTimeout(row.timeoutMs);
+  const chatUrl = requiredEnv("VIBELY_CVC_WEB_CHAT_URL");
+  const clientRequestId = requiredEnv("VIBELY_CVC_STUCK_CLIENT_REQUEST_ID");
+  const evidence: Record<string, unknown> = {
+    row_id: row.rowId,
+    scenario: row.id,
+    required_evidence: row.requiredEvidence,
+    client_request_id: clientRequestId,
+    started_at: new Date().toISOString(),
+  };
+
+  const syncResponsePromise = page.waitForResponse((response) =>
+    response.url().includes("/functions/v1/sync-chat-vibe-clip-status") &&
+    response.request().method() === "POST",
+  );
+  await page.goto(chatUrl);
+  const syncResponse = await syncResponsePromise;
+  evidence.sync_status = syncResponse.status();
+  expect(syncResponse.ok(), "sync-chat-vibe-clip-status returned 2xx").toBeTruthy();
+  await expect(
+    page.getByTestId("vibe-clip-recovery-panel").or(page.getByTestId("vibe-clip-bubble")).last(),
+  ).toBeVisible({ timeout: 5_000 });
+  evidence.finished_at = new Date().toISOString();
+  await testInfo.attach(`${row.id}-evidence`, {
+    body: JSON.stringify(evidence, null, 2),
+    contentType: "application/json",
+  });
+}
+
 test.describe("@chat-vibe-clip Chat Vibe Clip live smoke matrix", () => {
   test.skip(!liveSmokeEnabled, "Set VIBELY_CVC_SMOKE=1 to run live staging Chat Vibe Clip smoke.");
   if (storageState) test.use({ storageState });
 
   for (const row of webRows) {
     test(`${row.id}: ${row.title}`, async ({ page }, testInfo) => {
-      await runLibraryUploadScenario(row, page, testInfo);
+      if (row.id === "app-launch-stuck-processing-nudge") {
+        await runStuckProcessingNudgeScenario(row, page, testInfo);
+      } else {
+        await runLibraryUploadScenario(row, page, testInfo);
+      }
     });
   }
 });
