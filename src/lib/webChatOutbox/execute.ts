@@ -8,6 +8,7 @@ import {
   uploadAndPublishChatVibeClipToBunnyStream,
 } from "@/services/chatVibeClipStreamUploadService";
 import { uploadAndPublishChatVibeClipWithMediaSdk } from "@/lib/mediaSdk/webVideoUploads";
+import { uploadImageWithMediaSdk, uploadVoiceWithMediaSdk } from "@/lib/mediaSdk/webStorageUploads";
 import { uploadImageToBunny } from "@/services/imageUploadService";
 import { formatChatImageMessageContent } from "@/lib/chatMessageContent";
 import { invalidateAfterThreadMutation } from "@/hooks/useMessages";
@@ -142,7 +143,7 @@ export async function executeWebOutboxItem(
   item: WebChatOutboxItem,
   queryClient: QueryClient,
   onUploadProgress?: (fraction: number) => void,
-  options: { mediaV2VideoEnabled?: boolean } = {},
+  options: { mediaV2VideoEnabled?: boolean; mediaV2PhotoEnabled?: boolean; mediaV2VoiceEnabled?: boolean } = {},
 ): Promise<{ serverMessageId: string; uploadedPublicUrl?: string; uploadedMediaUrl?: string }> {
   const { id: clientRequestId, matchId, userId, payload } = item;
   const scope = item.invalidateScope;
@@ -174,7 +175,15 @@ export async function executeWebOutboxItem(
           imageMimeTypeForUpload(payload.mimeType, storedName) ??
           GENERIC_UPLOAD_MIME_TYPE;
         const file = new File([blob], uploadFileNameForMimeType("image", "chat", mimeType, storedName), { type: mimeType });
-        const { path } = await uploadImageToBunny(file, session.access_token, "chat", matchId, clientRequestId);
+        const { path } = options.mediaV2PhotoEnabled
+          ? await uploadImageWithMediaSdk({
+              file,
+              accessToken: session.access_token,
+              context: "chat",
+              matchId,
+              clientRequestId,
+            })
+          : await uploadImageToBunny(file, session.access_token, "chat", matchId, clientRequestId);
         mediaRef = path;
       }
       uploadedPublicUrl = mediaRef;
@@ -188,7 +197,14 @@ export async function executeWebOutboxItem(
         if (!blob) throw new WebOutboxExecuteError("Voice data missing — try recording again.");
         const { data: { session } } = await supabase.auth.getSession();
         if (!session?.access_token) throw new Error("Not authenticated");
-        audioUrl = await uploadVoiceToBunny(blob, session.access_token, matchId, clientRequestId);
+        audioUrl = options.mediaV2VoiceEnabled
+          ? await uploadVoiceWithMediaSdk({
+              blob,
+              accessToken: session.access_token,
+              matchId,
+              clientRequestId,
+            })
+          : await uploadVoiceToBunny(blob, session.access_token, matchId, clientRequestId);
       }
       uploadedMediaUrl = audioUrl;
       const row = await invokePublishVoiceMessage({

@@ -468,12 +468,37 @@ export const nativeMediaTranscodeHooks = {
   },
   voiceRecordingOptions(audio?: NativeAudioHooks): Record<string, unknown> {
     return audio?.preferredVoiceRecordingOptions ?? {
+      isMeteringEnabled: true,
       extension: ".m4a",
-      outputFormat: "mpeg4aac",
       sampleRate: 44100,
       numberOfChannels: 1,
       bitRate: 96000,
-      phase: "phase_5_voice_capture_pending",
+      android: {
+        extension: ".m4a",
+        outputFormat: "mpeg4",
+        audioEncoder: "aac",
+      },
+      ios: {
+        extension: ".m4a",
+        outputFormat: "aac ",
+        audioQuality: 0x60,
+        linearPCMBitDepth: 16,
+        linearPCMIsBigEndian: false,
+        linearPCMIsFloat: false,
+      },
+      web: {
+        mimeType: "audio/webm",
+        bitsPerSecond: 96000,
+      },
+    };
+  },
+  voiceRecordingCapabilities() {
+    return {
+      phase: "phase_5_voice_record_native",
+      extension: ".m4a",
+      sampleRate: 44100,
+      numberOfChannels: 1,
+      bitRate: 96000,
     };
   },
 };

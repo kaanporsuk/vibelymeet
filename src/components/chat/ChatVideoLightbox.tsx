@@ -1,8 +1,7 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { motion } from "framer-motion";
 import { Loader2, X, AlertCircle } from "lucide-react";
-import { getCachedChatMediaUrl, refreshCachedChatMediaUrl, type ChatMediaKind } from "@/lib/chatMediaResolver";
-import { attachHlsPlayback } from "@/lib/vibeVideo/attachHlsPlayback";
+import { useMediaAsset, useMediaAssetPlayback, type MediaAssetKind } from "@/hooks/useMediaAsset";
 
 type ChatVideoLightboxProps = {
   videoUrl: string;
@@ -10,7 +9,7 @@ type ChatVideoLightboxProps = {
   messageId?: string;
   videoSourceRef?: string | null;
   thumbnailSourceRef?: string | null;
-  mediaKind?: Extract<ChatMediaKind, "video" | "vibe_clip">;
+  mediaKind?: Extract<MediaAssetKind, "video" | "vibe_clip">;
   onResolvedVideoUrl?: (url: string) => void;
   onResolvedThumbnailUrl?: (url: string) => void;
   onClose: () => void;
@@ -47,6 +46,22 @@ export function ChatVideoLightbox({
   const [playablePosterUrl, setPlayablePosterUrl] = useState(posterUrl ?? null);
   const playbackRefreshAttemptCountRef = useRef(0);
   const playableVideoUrlRef = useRef(playableVideoUrl);
+  const { url: videoAssetUrl, refresh: refreshVideoAsset } = useMediaAsset({
+    kind: mediaKind,
+    messageId,
+    sourceRef: videoSourceRef,
+    initialUrl: videoUrl,
+    autoResolve: false,
+    onResolvedUrl: onResolvedVideoUrl,
+  });
+  const { url: posterAssetUrl, refresh: refreshPosterAsset } = useMediaAsset({
+    kind: "thumbnail",
+    messageId,
+    sourceRef: thumbnailSourceRef,
+    initialUrl: posterUrl,
+    autoResolve: false,
+    onResolvedUrl: onResolvedThumbnailUrl,
+  });
 
   const resetPhase = useCallback(() => setPhase("loading"), []);
   const revealPlayer = useCallback(() => {
@@ -77,6 +92,16 @@ export function ChatVideoLightbox({
     playableVideoUrlRef.current = playableVideoUrl;
   }, [playableVideoUrl]);
 
+  useEffect(() => {
+    if (!videoAssetUrl) return;
+    setPlayableVideoUrl(videoAssetUrl);
+    playableVideoUrlRef.current = videoAssetUrl;
+  }, [videoAssetUrl]);
+
+  useEffect(() => {
+    setPlayablePosterUrl(posterAssetUrl ?? posterUrl ?? null);
+  }, [posterAssetUrl, posterUrl]);
+
   const refreshMedia = useCallback(async (reason: LightboxMediaRefreshReason = "playback"): Promise<boolean> => {
     const currentUrl = playableVideoUrlRef.current;
     if (!messageId || !videoSourceRef) return false;
@@ -85,11 +110,11 @@ export function ChatVideoLightbox({
       if (playbackRefreshAttemptCountRef.current >= MAX_LIGHTBOX_PLAYBACK_REFRESH_ATTEMPTS) return false;
       playbackRefreshAttemptCountRef.current += 1;
     }
-    const freshVideoUrl = await refreshCachedChatMediaUrl(messageId, mediaKind, videoSourceRef, refreshOptions);
+    const freshVideoUrl = await refreshVideoAsset(reason, refreshOptions);
     const freshPosterUrl = thumbnailSourceRef && reason !== "playback"
       ? reason === "manual"
-        ? await refreshCachedChatMediaUrl(messageId, "thumbnail", thumbnailSourceRef, refreshOptions)
-        : await getCachedChatMediaUrl(messageId, "thumbnail", thumbnailSourceRef)
+        ? await refreshPosterAsset("manual", refreshOptions)
+        : await refreshPosterAsset("cache")
       : null;
     if (freshPosterUrl) {
       setPlayablePosterUrl(freshPosterUrl);
@@ -100,10 +125,11 @@ export function ChatVideoLightbox({
     onResolvedVideoUrl?.(freshVideoUrl);
     return true;
   }, [
-    mediaKind,
     messageId,
     onResolvedThumbnailUrl,
     onResolvedVideoUrl,
+    refreshPosterAsset,
+    refreshVideoAsset,
     thumbnailSourceRef,
     videoSourceRef,
   ]);
@@ -135,20 +161,19 @@ export function ChatVideoLightbox({
     };
   }, [posterUrl, refreshMedia, resetPhase, revealPlayer, videoSourceRef, videoUrl]);
 
-  useEffect(() => {
-    const v = videoRef.current;
-    if (!v || !isRemoteUrl || !isHlsUrl) return;
-    return attachHlsPlayback(v, playableVideoUrl, {
-      autoPlay: true,
-      onAutoplayBlocked: revealPlayer,
-      onManifestParsed: revealPlayer,
-      onError: () => {
-        void refreshMedia().then((didRefresh) => {
-          if (!didRefresh) setPhase("error");
-        });
-      },
+  const handlePlaybackAttachError = useCallback(() => {
+    void refreshMedia().then((didRefresh) => {
+      if (!didRefresh) setPhase("error");
     });
-  }, [isHlsUrl, isRemoteUrl, playableVideoUrl, refreshMedia, revealPlayer]);
+  }, [refreshMedia]);
+
+  useMediaAssetPlayback(videoRef, playableVideoUrl, {
+    enabled: isRemoteUrl && isHlsUrl,
+    autoPlay: true,
+    onAutoplayBlocked: revealPlayer,
+    onManifestParsed: revealPlayer,
+    onError: handlePlaybackAttachError,
+  });
 
   useEffect(() => {
     if (phase !== "loading" || !canMountPlayer) return;

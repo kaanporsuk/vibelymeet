@@ -19,7 +19,7 @@ import {
   nextBackoffMs,
   WebOutboxExecuteError,
 } from "@/lib/webChatOutbox/execute";
-import { syncChatVibeClipUploadStatus } from "@/lib/chatMediaResolver";
+import { syncChatVibeClipUploadStatus } from "@/lib/mediaAssetResolver";
 import { isLikelyNetworkFailure, outboxFailureUserMessage } from "@/lib/webChatOutbox/network";
 import { invalidateAfterThreadMutation } from "@/hooks/useMessages";
 import { useFeatureFlag } from "@/hooks/useFeatureFlag";
@@ -104,6 +104,8 @@ export function WebChatOutboxProvider({ children }: { children: ReactNode }) {
   const { user } = useUserProfile();
   const userId = user?.id ?? null;
   const mediaV2Video = useFeatureFlag("media_v2_video");
+  const mediaV2Photo = useFeatureFlag("media_v2_photo");
+  const mediaV2Voice = useFeatureFlag("media_v2_voice");
   const [items, setItems] = useState<WebChatOutboxItem[]>([]);
   const itemsRef = useRef(items);
   const processingRef = useRef<Set<string>>(new Set());
@@ -387,7 +389,11 @@ export function WebChatOutboxProvider({ children }: { children: ReactNode }) {
                 ),
               );
             },
-            { mediaV2VideoEnabled: mediaV2Video.enabled },
+            {
+              mediaV2VideoEnabled: mediaV2Video.enabled,
+              mediaV2PhotoEnabled: mediaV2Photo.enabled,
+              mediaV2VoiceEnabled: mediaV2Voice.enabled,
+            },
           );
           const successAtMs = Date.now();
           setItems((prev) =>
@@ -440,7 +446,7 @@ export function WebChatOutboxProvider({ children }: { children: ReactNode }) {
         }
       }
     },
-    [mediaV2Video.enabled, userId],
+    [mediaV2Photo.enabled, mediaV2Video.enabled, mediaV2Voice.enabled, userId],
   );
 
   const value = useMemo<WebChatOutboxContextValue>(

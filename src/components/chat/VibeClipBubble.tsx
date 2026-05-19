@@ -22,12 +22,11 @@ import { CLIP_DATE_ACTION_HINT } from "../../../shared/dateSuggestions/dateCompo
 import { trackVibeClipEvent } from "@/lib/vibeClipAnalytics";
 import { durationBucketFromSeconds, threadBucketFromCount } from "../../../shared/chat/vibeClipAnalytics";
 import { cn } from "@/lib/utils";
+import { useMediaAsset, useMediaAssetPlayback } from "@/hooks/useMediaAsset";
 import {
-  refreshCachedChatMediaUrl,
   syncChatVibeClipStatus,
   type ChatVibeClipProcessingStatus,
-} from "@/lib/chatMediaResolver";
-import { attachHlsPlayback } from "@/lib/vibeVideo/attachHlsPlayback";
+} from "@/lib/mediaAssetResolver";
 
 type VideoElementWithWebkitFullscreen = HTMLVideoElement & {
   webkitEnterFullscreen?: () => void;
@@ -126,6 +125,22 @@ export const VibeClipBubble = ({
   const statusSyncInFlightRef = useRef(false);
   const statusSyncRunIdRef = useRef(0);
   const isMountedRef = useRef(true);
+  const { url: videoAssetUrl, refresh: refreshVideoAsset } = useMediaAsset({
+    kind: "vibe_clip",
+    messageId: sparkMessageId,
+    sourceRef: videoSourceRef,
+    initialUrl: meta.videoUrl,
+    autoResolve: false,
+    onResolvedUrl: onResolvedVideoUrl,
+  });
+  const { url: thumbnailAssetUrl, refresh: refreshThumbnailAsset } = useMediaAsset({
+    kind: "thumbnail",
+    messageId: sparkMessageId,
+    sourceRef: thumbnailSourceRef,
+    initialUrl: meta.thumbnailUrl,
+    autoResolve: false,
+    onResolvedUrl: onResolvedThumbnailUrl,
+  });
 
   const hasPrimary = !!(onReplyWithClip || onVoiceReply);
   const hasSecondary = !!(onSuggestDate || onReactionPick);
@@ -178,6 +193,19 @@ export const VibeClipBubble = ({
   useEffect(() => {
     setShowReactBar(false);
   }, [meta.videoUrl]);
+
+  useEffect(() => {
+    if (!videoAssetUrl || videoAssetUrl === playableVideoUrlRef.current) return;
+    playableVideoUrlRef.current = videoAssetUrl;
+    setPlayableVideoUrl(videoAssetUrl);
+  }, [videoAssetUrl]);
+
+  useEffect(() => {
+    const nextThumbnailUrl = thumbnailAssetUrl ?? null;
+    if (!nextThumbnailUrl || nextThumbnailUrl === playableThumbnailUrlRef.current) return;
+    playableThumbnailUrlRef.current = nextThumbnailUrl;
+    setPlayableThumbnailUrl(nextThumbnailUrl);
+  }, [thumbnailAssetUrl]);
 
   const processingStatus = syncedProcessingStatus ?? meta.processingStatus;
   const displayMeta = useMemo(
@@ -289,7 +317,7 @@ export const VibeClipBubble = ({
       playbackRefreshAttemptCountRef.current += 1;
     }
     const freshThumbnailUrl = thumbnailSourceRef
-      ? await refreshCachedChatMediaUrl(sparkMessageId, "thumbnail", thumbnailSourceRef, refreshOptions)
+      ? await refreshThumbnailAsset(reason === "manual" ? "manual" : "preview", refreshOptions)
       : null;
     if (freshThumbnailUrl) {
       playableThumbnailUrlRef.current = freshThumbnailUrl;
@@ -299,13 +327,22 @@ export const VibeClipBubble = ({
     if (reason === "preview") return !!freshThumbnailUrl;
     if (!videoSourceRef) return false;
 
-    const freshVideoUrl = await refreshCachedChatMediaUrl(sparkMessageId, "vibe_clip", videoSourceRef, refreshOptions);
+    const freshVideoUrl = await refreshVideoAsset(reason, refreshOptions);
     if (!freshVideoUrl || freshVideoUrl === playableVideoUrl) return false;
     playableVideoUrlRef.current = freshVideoUrl;
     setPlayableVideoUrl(freshVideoUrl);
     onResolvedVideoUrl?.(freshVideoUrl);
     return true;
-  }, [onResolvedThumbnailUrl, onResolvedVideoUrl, playableVideoUrl, sparkMessageId, thumbnailSourceRef, videoSourceRef]);
+  }, [
+    onResolvedThumbnailUrl,
+    onResolvedVideoUrl,
+    playableVideoUrl,
+    refreshThumbnailAsset,
+    refreshVideoAsset,
+    sparkMessageId,
+    thumbnailSourceRef,
+    videoSourceRef,
+  ]);
 
   const requestImmersiveWithCurrentMedia = useCallback(() => {
     onRequestImmersive?.({
@@ -348,20 +385,18 @@ export const VibeClipBubble = ({
     return () => clearTimeout(t);
   }, [hasMetadata, isIosSafari, isReady, loadError]);
 
-  useEffect(() => {
-    const video = videoRef.current;
-    if (!video || !canMountPlayer) return;
-    if (!isHlsUrl) return;
-    return attachHlsPlayback(video, displayMeta.videoUrl, {
-      autoPlay: false,
-      onManifestParsed: markReadyIfPossible,
-      onError: () => {
-        void refreshClipMedia().then((didRefresh) => {
-          if (!didRefresh) setLoadError(true);
-        });
-      },
+  const handlePlaybackAttachError = useCallback(() => {
+    void refreshClipMedia().then((didRefresh) => {
+      if (!didRefresh) setLoadError(true);
     });
-  }, [canMountPlayer, displayMeta.videoUrl, isHlsUrl, markReadyIfPossible, refreshClipMedia]);
+  }, [refreshClipMedia]);
+
+  useMediaAssetPlayback(videoRef, displayMeta.videoUrl, {
+    enabled: canMountPlayer && isHlsUrl,
+    autoPlay: false,
+    onManifestParsed: markReadyIfPossible,
+    onError: handlePlaybackAttachError,
+  });
 
   useEffect(() => {
     if (!playRequested || !isReady) return;

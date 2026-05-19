@@ -4,10 +4,11 @@
  * Worker Edge Function that drains the media_delete_jobs queue.
  *
  * Real execution flow:
- *   1. promote_purgeable_assets — move expired soft_deleted → purge_ready + enqueue
- *   2. claim_media_delete_jobs — SKIP LOCKED batch claim
- *   3. For each job: call provider delete via _shared/bunny-media.ts
- *   4. complete_media_delete_job — record result (success/fail)
+ *   1. enqueue_uploaded_media_orphan_deletes — sweep old uploaded/no-ref assets
+ *   2. promote_purgeable_assets — move expired soft_deleted → purge_ready + enqueue
+ *   3. claim_media_delete_jobs — SKIP LOCKED batch claim
+ *   4. For each job: call provider delete via _shared/bunny-media.ts
+ *   5. complete_media_delete_job — record result (success/fail)
  *
  * Dry-run flow ({"dry_run": true}):
  *   Pure read-only.  Zero mutating operations of any kind.
@@ -57,6 +58,7 @@ interface DryRunPreviewRow {
 }
 
 interface WorkerStats {
+  uploadedOrphans: number;
   promoted: number;
   claimed: number;
   completed: number;
@@ -101,6 +103,7 @@ Deno.serve(async (req) => {
 
   const workerId = `worker-${crypto.randomUUID().slice(0, 8)}-${Date.now()}`;
   const stats: WorkerStats = {
+    uploadedOrphans: 0,
     promoted: 0,
     claimed: 0,
     completed: 0,
@@ -170,14 +173,33 @@ Deno.serve(async (req) => {
       return json({
         success: true,
         dry_run: true,
-        message: "Dry-run preview only — zero mutations performed. Only previews existing pending/failed jobs; does NOT simulate promote_purgeable_assets.",
+        message: "Dry-run preview only — zero mutations performed. Only previews existing pending/failed jobs; does NOT simulate uploaded-orphan enqueue or promote_purgeable_assets.",
         worker_id: workerId,
         preview_count,
         stats
       });
     }
 
-    // ── Step 1: Promote purgeable assets (real execution only) ───────────────
+    // ── Step 1a: Enqueue uploaded-but-unattached orphan assets ──────────────
+    // Chat uploads that never publish are swept after 24h; profile/event draft
+    // uploads after 7d. The SQL helper owns the family thresholds.
+    const { data: orphanResult, error: orphanError } = await supabase.rpc(
+      "enqueue_uploaded_media_orphan_deletes",
+      { p_limit: batchSize * 2, p_family_filter: familyFilter },
+    );
+
+    if (orphanError) {
+      console.error(`[${workerId}] enqueue_uploaded_media_orphan_deletes error:`, orphanError.message);
+      stats.errors.push(`uploaded_orphans: ${orphanError.message}`);
+    } else {
+      stats.uploadedOrphans = typeof orphanResult === "number" ? orphanResult : 0;
+    }
+
+    console.log(
+      `[${workerId}] uploaded_orphans=${stats.uploadedOrphans} family=${familyFilter ?? "all"} batch=${batchSize}`,
+    );
+
+    // ── Step 1b: Promote purgeable soft-deleted assets (real execution only) ─
     const { data: promoteResult, error: promoteError } = await supabase.rpc(
       "promote_purgeable_assets",
       { p_limit: batchSize * 2, p_family_filter: familyFilter },
@@ -231,6 +253,49 @@ Deno.serve(async (req) => {
         `provider=${job.provider} type=${job.job_type} ` +
         `attempt=${job.attempts + 1}/${job.max_attempts}`,
       );
+
+      if (job.job_type !== "admin_purge" && job.job_type !== "account_delete") {
+        const { count: activeRefs, error: activeRefsError } = await supabase
+          .from("media_references")
+          .select("id", { count: "exact", head: true })
+          .eq("asset_id", job.asset_id)
+          .eq("is_active", true);
+
+        if (activeRefsError) {
+          console.error(`[${workerId}] active-ref guard job=${job.id} error:`, activeRefsError.message);
+          stats.errors.push(`active-ref guard ${job.id}: ${activeRefsError.message}`);
+          await supabase.rpc("complete_media_delete_job", {
+            p_job_id: job.id,
+            p_success: false,
+            p_error: `active_ref_guard_failed:${activeRefsError.message}`,
+          });
+          stats.failed++;
+          continue;
+        }
+
+        if ((activeRefs ?? 0) > 0) {
+          await supabase
+            .from("media_assets")
+            .update({
+              status: "active",
+              deleted_at: null,
+              purge_after: null,
+              purged_at: null,
+              last_error: null,
+            })
+            .eq("id", job.asset_id);
+          await supabase
+            .from("media_delete_jobs")
+            .delete()
+            .eq("id", job.id)
+            .in("status", ["claimed", "pending", "failed"]);
+          console.log(
+            `[${workerId}] skipped job=${job.id} asset=${job.asset_id} active_refs=${activeRefs}`,
+          );
+          stats.skipped++;
+          continue;
+        }
+      }
 
       const result = await deleteMediaAsset(
         job.provider,

@@ -14,6 +14,8 @@ export type NormalizedImageAsset = {
   uri: string;
   mimeType: string;
   fileName: string;
+  width?: number | null;
+  height?: number | null;
 };
 
 /** Result of HEIC→JPEG normalization; call `cleanup` after upload completes. */
@@ -22,6 +24,7 @@ export type PreparedProfilePhotoAsset = NormalizedImageAsset & {
 };
 
 const PROFILE_JPEG_QUALITY = 0.88;
+const PROFILE_PHOTO_MAX_EDGE = 2048;
 
 const MIME_BY_EXT: Record<string, string> = {
   jpg: 'image/jpeg',
@@ -50,6 +53,10 @@ function inferMimeFromUri(uri: string): string | undefined {
   return MIME_BY_EXT[ext];
 }
 
+function finitePositiveNumber(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : null;
+}
+
 /**
  * Picks a stable filename segment for multipart (Edge Function uses File.type for validation).
  */
@@ -57,6 +64,8 @@ export function normalizeImageAssetForUpload(asset: {
   uri: string;
   mimeType?: string | null;
   fileName?: string | null;
+  width?: number | null;
+  height?: number | null;
 }): NormalizedImageAsset {
   const uri = asset.uri?.trim() ?? '';
   const rawMime = (asset.mimeType ?? '').trim().toLowerCase();
@@ -93,11 +102,17 @@ export function normalizeImageAssetForUpload(asset: {
     fileName = `${fileName}.${ext}`;
   }
 
-  return { uri, mimeType: mime, fileName };
+  return {
+    uri,
+    mimeType: mime,
+    fileName,
+    width: finitePositiveNumber(asset.width),
+    height: finitePositiveNumber(asset.height),
+  };
 }
 
 export function normalizePickerAssetForUpload(
-  asset: Pick<ExpoImagePickerAsset, 'uri' | 'mimeType' | 'fileName'>,
+  asset: Pick<ExpoImagePickerAsset, 'uri' | 'mimeType' | 'fileName' | 'width' | 'height'>,
 ): NormalizedImageAsset | null {
   const uri = asset.uri?.trim();
   if (!uri) return null;
@@ -105,6 +120,8 @@ export function normalizePickerAssetForUpload(
     uri,
     mimeType: asset.mimeType,
     fileName: asset.fileName,
+    width: asset.width,
+    height: asset.height,
   });
 }
 
@@ -139,6 +156,20 @@ function jpgFileNameFromNormalized(asset: NormalizedImageAsset): string {
   return `${safe}.jpg`;
 }
 
+function resizeActionsForProfilePhoto(asset: NormalizedImageAsset): Parameters<typeof manipulateAsync>[1] {
+  const width = finitePositiveNumber(asset.width);
+  const height = finitePositiveNumber(asset.height);
+
+  if (width && height) {
+    if (Math.max(width, height) <= PROFILE_PHOTO_MAX_EDGE) return [];
+    return width >= height
+      ? [{ resize: { width: PROFILE_PHOTO_MAX_EDGE } }]
+      : [{ resize: { height: PROFILE_PHOTO_MAX_EDGE } }];
+  }
+
+  return [{ resize: { width: PROFILE_PHOTO_MAX_EDGE } }];
+}
+
 /**
  * Ensures profile-photo uploads are browser-safe rasters: HEIC/HEIF (by MIME or extension) is
  * re-encoded to JPEG; JPEG/PNG/WebP are unchanged.
@@ -147,6 +178,8 @@ export async function prepareProfilePhotoAssetForUpload(asset: {
   uri: string;
   mimeType?: string | null;
   fileName?: string | null;
+  width?: number | null;
+  height?: number | null;
 }): Promise<PreparedProfilePhotoAsset> {
   const normalized = normalizeImageAssetForUpload(asset);
   if (!isHeicOrHeifNormalized(normalized)) {
@@ -155,7 +188,7 @@ export async function prepareProfilePhotoAssetForUpload(asset: {
 
   const manipulated = await manipulateAsync(
     normalized.uri,
-    [],
+    resizeActionsForProfilePhoto(normalized),
     { compress: PROFILE_JPEG_QUALITY, format: SaveFormat.JPEG },
   );
 
@@ -170,6 +203,8 @@ export async function prepareProfilePhotoAssetForUpload(asset: {
     uri: outUri,
     mimeType: 'image/jpeg',
     fileName,
+    width: finitePositiveNumber(manipulated.width) ?? normalized.width,
+    height: finitePositiveNumber(manipulated.height) ?? normalized.height,
     cleanup,
   };
 }

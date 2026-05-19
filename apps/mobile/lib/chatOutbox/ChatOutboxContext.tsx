@@ -14,7 +14,7 @@ import { supabase } from '@/lib/supabase';
 import { loadOutboxItems, saveOutboxItems } from '@/lib/chatOutbox/store';
 import { newOutboxClientRequestId } from '@/lib/chatOutbox/id';
 import { executeOutboxItem, nextBackoffMs, OutboxExecuteError } from '@/lib/chatOutbox/execute';
-import { syncChatVibeClipUploadStatus } from '@/lib/chatMediaResolver';
+import { syncChatVibeClipUploadStatus } from '@/lib/mediaAssetResolver';
 import { isLikelyNetworkFailure, outboxFailureUserMessage } from '@/lib/networkErrorMessage';
 import { cleanupOutboxCacheUri } from '@/lib/chatOutbox/mediaCache';
 import type { ChatOutboxItem, ChatOutboxPayload, ChatOutboxQueueState } from '@/lib/chatOutbox/types';
@@ -95,6 +95,8 @@ export function ChatOutboxProvider({ children }: { children: React.ReactNode }) 
   const { user } = useAuth();
   const userId = user?.id ?? null;
   const mediaV2Video = useFeatureFlag('media_v2_video');
+  const mediaV2Photo = useFeatureFlag('media_v2_photo');
+  const mediaV2Voice = useFeatureFlag('media_v2_voice');
   const [items, setItems] = useState<ChatOutboxItem[]>([]);
   const itemsRef = useRef(items);
   const processingRef = useRef<Set<string>>(new Set());
@@ -374,7 +376,11 @@ export function ChatOutboxProvider({ children }: { children: React.ReactNode }) 
                 )
               );
             },
-            { mediaV2VideoEnabled: mediaV2Video.enabled }
+            {
+              mediaV2VideoEnabled: mediaV2Video.enabled,
+              mediaV2PhotoEnabled: mediaV2Photo.enabled,
+              mediaV2VoiceEnabled: mediaV2Voice.enabled,
+            }
           );
           const successAtMs = Date.now();
           setItems((prev) =>
@@ -443,7 +449,7 @@ export function ChatOutboxProvider({ children }: { children: React.ReactNode }) 
         }
       }
     },
-    [mediaV2Video.enabled, userId]
+    [mediaV2Photo.enabled, mediaV2Video.enabled, mediaV2Voice.enabled, userId]
   );
 
   const value = useMemo<ChatOutboxContextValue>(

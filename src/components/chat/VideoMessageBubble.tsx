@@ -3,13 +3,13 @@ import { motion } from "framer-motion";
 import { Play, Volume2, VolumeX, Maximize, AlertCircle, Loader2 } from "lucide-react";
 import { AspectRatio } from "@/components/ui/aspect-ratio";
 import { cn } from "@/lib/utils";
-import { refreshCachedChatMediaUrl, type ChatMediaKind } from "@/lib/chatMediaResolver";
+import { useMediaAsset, type MediaAssetKind } from "@/hooks/useMediaAsset";
 
 interface VideoMessageBubbleProps {
   videoUrl: string;
   videoSourceRef?: string | null;
   messageId?: string;
-  mediaKind?: Extract<ChatMediaKind, "video" | "vibe_clip">;
+  mediaKind?: Extract<MediaAssetKind, "video" | "vibe_clip">;
   onResolvedVideoUrl?: (url: string) => void;
   duration: number;
   isMine: boolean;
@@ -53,8 +53,16 @@ export const VideoMessageBubble = ({
   const [isReady, setIsReady] = useState(false);
   const [hasMetadata, setHasMetadata] = useState(false);
   const [loadError, setLoadError] = useState(false);
-  const [playableVideoUrl, setPlayableVideoUrl] = useState(videoUrl);
   const playbackRefreshAttemptCountRef = useRef(0);
+  const { url: mediaAssetUrl, refresh: refreshMediaAsset } = useMediaAsset({
+    kind: mediaKind,
+    messageId,
+    sourceRef: videoSourceRef,
+    initialUrl: videoUrl,
+    autoResolve: false,
+    onResolvedUrl: onResolvedVideoUrl,
+  });
+  const [playableVideoUrl, setPlayableVideoUrl] = useState(mediaAssetUrl ?? videoUrl);
 
   const isIosSafari = useMemo(() => {
     if (typeof navigator === "undefined") return false;
@@ -67,7 +75,7 @@ export const VideoMessageBubble = ({
   }, []);
 
   useEffect(() => {
-    setPlayableVideoUrl(videoUrl);
+    setPlayableVideoUrl(mediaAssetUrl ?? videoUrl);
     setIsPlaying(false);
     setCurrentTime(0);
     setIsLoading(true);
@@ -75,18 +83,18 @@ export const VideoMessageBubble = ({
     setHasMetadata(false);
     setLoadError(false);
     playbackRefreshAttemptCountRef.current = 0;
-  }, [videoUrl]);
+  }, [mediaAssetUrl, videoUrl]);
 
   const refreshVideoUrl = useCallback(
     async (options?: { bypassFailureCooldown?: boolean }): Promise<string | null> => {
       if (!messageId || !videoSourceRef) return null;
-      const freshUrl = await refreshCachedChatMediaUrl(messageId, mediaKind, videoSourceRef, options);
+      const freshUrl = await refreshMediaAsset(options?.bypassFailureCooldown ? "manual" : "playback", options);
       if (!freshUrl) return null;
       setPlayableVideoUrl(freshUrl);
       onResolvedVideoUrl?.(freshUrl);
       return freshUrl;
     },
-    [mediaKind, messageId, onResolvedVideoUrl, videoSourceRef],
+    [messageId, onResolvedVideoUrl, refreshMediaAsset, videoSourceRef],
   );
 
   const tryRefreshAfterFailure = useCallback(async (): Promise<boolean> => {

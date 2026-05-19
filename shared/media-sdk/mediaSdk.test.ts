@@ -217,6 +217,10 @@ test("web photo adapter prepares photo sources before invoking legacy delegates"
 test("web photo transcode hook is real canvas/jpeg work and keeps unsupported runtimes safe", async () => {
   const adapter = readFileSync("shared/media-sdk/adapters/web.ts", "utf8");
   assert.match(adapter, /createImageBitmap/);
+  assert.match(adapter, /canvasSourceFromImageElement/);
+  assert.match(adapter, /isHeicWebSource/);
+  assert.match(adapter, /import\("heic2any"\)/);
+  assert.match(adapter, /canvasSourceFromBlob\(convertedHeic\)/);
   assert.match(adapter, /document\.createElement\("canvas"\)/);
   assert.match(adapter, /canvas\.toBlob/);
   assert.match(adapter, /new File\(\[blob\], webPhotoFileName\(source\)/);
@@ -225,6 +229,26 @@ test("web photo transcode hook is real canvas/jpeg work and keeps unsupported ru
 
   const nonImage = new Blob(["not-image"], { type: "text/plain" });
   assert.equal(await webMediaTranscode.preparePhotoForUpload(nonImage), nonImage);
+});
+
+test("web voice recording config targets mono 96 kbps MediaRecorder capture", () => {
+  const adapter = readFileSync("shared/media-sdk/adapters/web.ts", "utf8");
+  assert.match(adapter, /WEB_VOICE_AUDIO_BITS_PER_SECOND = 96_000/);
+  assert.match(adapter, /WEB_VOICE_CHANNEL_COUNT = 1/);
+  assert.match(adapter, /audioBitsPerSecond: WEB_VOICE_AUDIO_BITS_PER_SECOND/);
+  assert.match(adapter, /channelCount: \{ ideal: WEB_VOICE_CHANNEL_COUNT \}/);
+  assert.match(adapter, /phase_5_voice_record_web/);
+
+  const config = webMediaTranscode.voiceRecordingConfig();
+  assert.equal(config.audioBitsPerSecond, 96_000);
+  assert.equal(config.numberOfChannels, 1);
+  assert.equal(config.options.audioBitsPerSecond, 96_000);
+  assert.deepEqual(config.constraints.audio, {
+    channelCount: { ideal: 1 },
+    echoCancellation: true,
+    noiseSuppression: true,
+    autoGainControl: true,
+  });
 });
 
 test("web adapter fails closed when the media feature flag is disabled", async () => {
@@ -496,6 +520,37 @@ test("native photo transcode hook uses expo-image-manipulator shape for resize a
   assert.equal(prepared.sizeBytes, 950_000);
   assert.equal(prepared.width, 1536);
   assert.equal(prepared.height, 2048);
+});
+
+test("native voice recording config uses expo-audio AAC mono at capture time", () => {
+  const adapter = readFileSync("shared/media-sdk/adapters/native.ts", "utf8");
+  assert.match(adapter, /voiceRecordingOptions/);
+  assert.match(adapter, /numberOfChannels: 1/);
+  assert.match(adapter, /bitRate: 96000/);
+  assert.match(adapter, /outputFormat: "mpeg4"/);
+  assert.match(adapter, /audioEncoder: "aac"/);
+  assert.match(adapter, /phase_5_voice_record_native/);
+  assert.doesNotMatch(adapter, /expo-av/);
+
+  const options = nativeMediaTranscodeHooks.voiceRecordingOptions() as {
+    extension: string;
+    sampleRate: number;
+    numberOfChannels: number;
+    bitRate: number;
+    android: { outputFormat: string; audioEncoder: string };
+    ios: { outputFormat: string; audioQuality: number };
+    web: { bitsPerSecond: number };
+  };
+  assert.equal(options.extension, ".m4a");
+  assert.equal(options.sampleRate, 44100);
+  assert.equal(options.numberOfChannels, 1);
+  assert.equal(options.bitRate, 96_000);
+  assert.equal(options.android.outputFormat, "mpeg4");
+  assert.equal(options.android.audioEncoder, "aac");
+  assert.equal(options.ios.outputFormat, "aac ");
+  assert.equal(options.ios.audioQuality, 0x60);
+  assert.equal(options.web.bitsPerSecond, 96_000);
+  assert.equal(nativeMediaTranscodeHooks.voiceRecordingCapabilities().phase, "phase_5_voice_record_native");
 });
 
 test("native adapter fails closed when the media feature flag is disabled", async () => {

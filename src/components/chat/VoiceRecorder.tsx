@@ -3,6 +3,7 @@ import { motion } from 'framer-motion';
 import { Mic, Send, Trash2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
+import { webMediaTranscode } from '@clientShared/media-sdk';
 
 interface VoiceRecorderProps {
   onRecordingComplete: (audioBlob: Blob, duration: number) => void;
@@ -135,7 +136,8 @@ const VoiceRecorder = ({
         throw new DOMException('MediaRecorder is not available', 'NotSupportedError');
       }
 
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const recorderConfig = webMediaTranscode.voiceRecordingConfig();
+      const stream = await navigator.mediaDevices.getUserMedia(recorderConfig.constraints);
       if (!mountedRef.current) {
         stream.getTracks().forEach((track) => track.stop());
         startInFlightRef.current = false;
@@ -158,24 +160,7 @@ const VoiceRecorder = ({
       source.connect(analyser);
       analyserRef.current = analyser;
 
-      // Detect best supported MIME type (Safari doesn't support webm)
-      const supportedTypes = [
-        'audio/webm;codecs=opus',
-        'audio/webm',
-        'audio/mp4',
-        'audio/aac',
-        'audio/mpeg',
-      ];
-      let mimeType = '';
-      for (const type of supportedTypes) {
-        if (typeof MediaRecorder !== 'undefined' && MediaRecorder.isTypeSupported(type)) {
-          mimeType = type;
-          break;
-        }
-      }
-      // Set up media recorder with detected MIME type
-      const options = mimeType ? { mimeType } : undefined;
-      const mediaRecorder = new MediaRecorder(stream, options);
+      const mediaRecorder = new MediaRecorder(stream, recorderConfig.options);
       const sessionId = recordingSessionRef.current + 1;
       let stopHandled = false;
       recordingSessionRef.current = sessionId;
@@ -196,7 +181,7 @@ const VoiceRecorder = ({
         stopHandled = true;
         const wasCancelled = cancelledSessionRef.current === sessionId;
         const recordedDuration = durationRef.current;
-        const blobType = mimeType || 'audio/webm';
+        const blobType = recorderConfig.mimeType || 'audio/webm';
 
         mediaRecorderRef.current = null;
         durationRef.current = 0;

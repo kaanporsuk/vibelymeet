@@ -34,7 +34,7 @@ import {
   inferChatMediaRenderKind,
   parseChatImageMessageContent,
 } from "@/lib/chatMessageContent";
-import { refreshCachedChatMediaUrl } from "@/lib/chatMediaResolver";
+import { refreshMediaAssetUrl } from "@/lib/mediaAssetResolver";
 import { extractVibeClipMeta } from "../../shared/chat/messageRouting";
 import { clientRequestIdFromStructured } from "../../shared/chat/clientRequestId";
 import { cn } from "@/lib/utils";
@@ -843,14 +843,14 @@ const Chat = () => {
   );
   const refreshPhotoUrlForMessage = useCallback(async (message: ChatMessage): Promise<string | null> => {
     if (!message.imageSourceRef) return null;
-    const freshUrl = await refreshCachedChatMediaUrl(message.id, "image", message.imageSourceRef);
+    const freshUrl = await refreshMediaAssetUrl(message.id, "image", message.imageSourceRef);
     if (!freshUrl) return null;
     setPhotoUrlOverridesById((prev) => (prev[message.id] === freshUrl ? prev : { ...prev, [message.id]: freshUrl }));
     return freshUrl;
   }, []);
   const refreshPhotoLightboxItem = useCallback(async (item: { id: string; sourceRef?: string | null }) => {
     if (!item.sourceRef) return null;
-    const freshUrl = await refreshCachedChatMediaUrl(item.id, "image", item.sourceRef);
+    const freshUrl = await refreshMediaAssetUrl(item.id, "image", item.sourceRef);
     if (!freshUrl) return null;
     setPhotoUrlOverridesById((prev) => (prev[item.id] === freshUrl ? prev : { ...prev, [item.id]: freshUrl }));
     return freshUrl;

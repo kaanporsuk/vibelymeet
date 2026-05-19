@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { Volume2, VolumeX, Pencil, Play, Loader2 } from "lucide-react";
 import * as Sentry from "@sentry/react";
 import { cn } from "@/lib/utils";
-import { attachHlsPlayback } from "@/lib/vibeVideo/attachHlsPlayback";
+import { useMediaAsset, useMediaAssetPlayback } from "@/hooks/useMediaAsset";
 import { trackVibeVideoEvent, VIBE_VIDEO_EVENTS } from "@/lib/vibeVideo/vibeVideoTelemetry";
 
 // IntersectionObserver-based iOS hardware decoder management
@@ -44,6 +44,13 @@ export const VibePlayer = ({
   const containerRef = useRef<HTMLDivElement>(null);
   const playbackAttemptedRef = useRef(false);
   const playbackSucceededRef = useRef(false);
+  const { url: mediaAssetUrl } = useMediaAsset({
+    kind: "vibe_video",
+    sourceRef: videoUrl,
+    initialUrl: videoUrl,
+    autoResolve: false,
+  });
+  const playbackUrl = mediaAssetUrl ?? videoUrl;
 
   // Reset state when videoUrl changes
   useEffect(() => {
@@ -126,22 +133,25 @@ export const VibePlayer = ({
       data: { surface: "vibe_player", kind },
     });
   }, [backendReportsReady]);
+  const handlePlaybackAttachError = useCallback((kind: "native" | "unsupported" | "fatal", detail?: unknown) => {
+    reportPlaybackError(kind);
+    if (detail && typeof window !== "undefined" && window.localStorage.getItem("__vibely_diag") === "1") {
+      console.warn("[VibeVideo] inline hls playback error", detail);
+    }
+  }, [reportPlaybackError]);
 
   useEffect(() => {
     const videoEl = videoRef.current;
-    if (!videoEl || !shouldLoad || !videoUrl) return;
+    if (!videoEl || !shouldLoad || !playbackUrl) return;
 
     setIsLoading(true);
-    return attachHlsPlayback(videoEl, videoUrl, {
-      autoPlay: false,
-      onError: (kind, detail) => {
-        reportPlaybackError(kind);
-        if (detail && typeof window !== "undefined" && window.localStorage.getItem("__vibely_diag") === "1") {
-          console.warn("[VibeVideo] inline hls playback error", detail);
-        }
-      },
-    });
-  }, [videoUrl, shouldLoad, reportPlaybackError]);
+  }, [playbackUrl, shouldLoad]);
+
+  useMediaAssetPlayback(videoRef, playbackUrl, {
+    enabled: shouldLoad && !!playbackUrl,
+    autoPlay: false,
+    onError: handlePlaybackAttachError,
+  });
 
   useEffect(() => {
     const videoEl = videoRef.current;

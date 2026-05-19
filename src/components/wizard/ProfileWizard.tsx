@@ -10,8 +10,10 @@ import PromptCards from "./PromptCards";
 import VibeTagCloud from "./VibeTagCloud";
 import { useUserProfile } from "@/contexts/AuthContext";
 import { clientRequestIdForUploadFile, uploadImageToBunny } from "@/services/imageUploadService";
+import { uploadImageWithMediaSdk } from "@/lib/mediaSdk/webStorageUploads";
 import { supabase } from "@/integrations/supabase/client";
 import { useQueryClient } from "@tanstack/react-query";
+import { useFeatureFlag } from "@/hooks/useFeatureFlag";
 
 interface ProfileWizardProps {
   isOpen: boolean;
@@ -66,6 +68,7 @@ const ProfileWizard = ({ isOpen, onClose, onComplete, onOpenVibeStudio }: Profil
   const { user } = useUserProfile();
   const userId = user?.id ?? null;
   const queryClient = useQueryClient();
+  const mediaV2Photo = useFeatureFlag("media_v2_photo");
   const [currentStep, setCurrentStep] = useState(0);
   const [photos, setPhotos] = useState<string[]>(Array(6).fill(""));
   const [photoFiles, setPhotoFiles] = useState<(File | null)[]>(Array(6).fill(null));
@@ -302,13 +305,21 @@ const ProfileWizard = ({ isOpen, onClose, onComplete, onOpenVibeStudio }: Profil
         if (photo && file) {
           const { data: { session } } = await supabase.auth.getSession();
           if (!session) throw new Error("Not authenticated");
-          const { path } = await uploadImageToBunny(
-            file,
-            session.access_token,
-            "profile_studio",
-            undefined,
-            clientRequestIdForUploadFile(file, `profile-wizard:${userId}:${i}`),
-          );
+          const clientRequestId = clientRequestIdForUploadFile(file, `profile-wizard:${userId}:${i}`);
+          const { path } = mediaV2Photo.enabled
+            ? await uploadImageWithMediaSdk({
+                file,
+                accessToken: session.access_token,
+                context: "profile_studio",
+                clientRequestId,
+              })
+            : await uploadImageToBunny(
+                file,
+                session.access_token,
+                "profile_studio",
+                undefined,
+                clientRequestId,
+              );
           uploadedPhotoUrls.push(path);
         } else if (photo && !photo.startsWith("blob:")) {
           // Already persisted storage path / URL from a previous save
@@ -622,13 +633,21 @@ const ProfileWizard = ({ isOpen, onClose, onComplete, onOpenVibeStudio }: Profil
                                   if (photo && file) {
                                     const { data: { session: sess } } = await supabase.auth.getSession();
                                     if (!sess) throw new Error("Not authenticated");
-                                    const { path } = await uploadImageToBunny(
-                                      file,
-                                      sess.access_token,
-                                      "profile_studio",
-                                      undefined,
-                                      clientRequestIdForUploadFile(file, `profile-wizard:${user.id}:${i}`),
-                                    );
+                                    const clientRequestId = clientRequestIdForUploadFile(file, `profile-wizard:${user.id}:${i}`);
+                                    const { path } = mediaV2Photo.enabled
+                                      ? await uploadImageWithMediaSdk({
+                                          file,
+                                          accessToken: sess.access_token,
+                                          context: "profile_studio",
+                                          clientRequestId,
+                                        })
+                                      : await uploadImageToBunny(
+                                          file,
+                                          sess.access_token,
+                                          "profile_studio",
+                                          undefined,
+                                          clientRequestId,
+                                        );
                                     uploadedPhotoUrls.push(path);
                                   } else if (photo && !photo.startsWith("blob:")) {
                                     uploadedPhotoUrls.push(photo);

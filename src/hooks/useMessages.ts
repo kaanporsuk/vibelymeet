@@ -9,7 +9,7 @@ import { useEffect } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { captureSupabaseError } from "@/lib/errorTracking";
 import { collapseVibeGameRowsForWeb, type WebHydratedGameSessionView } from "@/lib/webChatGameSessions";
-import { resolveChatMessageMediaForDisplay } from "@/lib/chatMediaResolver";
+import { resolveMessageMediaForDisplay } from "@/lib/mediaAssetResolver";
 import { parseChatImageMessageContent } from "@/lib/chatMessageContent";
 import { toRenderableMessageKind } from "../../shared/chat/messageRouting";
 import { threadMessagesQueryKey, type ThreadInvalidateScope } from "../../shared/chat/queryKeys";
@@ -304,7 +304,7 @@ export async function hydrateChatRowsForDisplay(
   const mediaSourceRefsById = new Map(
     collapsedRows.map((row) => [row.id, collectChatMediaSourceRefs(row)] as const),
   );
-  const displayRows = await Promise.all(collapsedRows.map((row) => resolveChatMessageMediaForDisplay(row)));
+  const displayRows = await Promise.all(collapsedRows.map((row) => resolveMessageMediaForDisplay(row)));
 
   return displayRows.map((row) => {
     const sourceRefs = mediaSourceRefsById.get(row.id);

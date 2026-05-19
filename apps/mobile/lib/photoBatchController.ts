@@ -9,6 +9,8 @@ import {
 import { getDocumentAsyncSafe, isDocumentPickerAvailable } from '@/lib/safeDocumentPicker';
 import { supabase } from '@/lib/supabase';
 import { uploadProfilePhoto } from '@/lib/uploadImage';
+import { uploadProfilePhotoWithMediaSdk } from '@/lib/mediaSdk/nativeStorageUploads';
+import { useFeatureFlag } from '@/hooks/useFeatureFlag';
 
 const MAX_PHOTOS_DEFAULT = 6;
 
@@ -42,6 +44,8 @@ export type PhotoUploadAsset = {
   uri: string;
   mimeType?: string;
   fileName?: string;
+  width?: number | null;
+  height?: number | null;
 };
 
 export type PhotoDraftItem = {
@@ -176,6 +180,7 @@ export function usePhotoBatchController({
   show,
   maxPhotos = MAX_PHOTOS_DEFAULT,
 }: UsePhotoBatchControllerOptions) {
+  const mediaV2Photo = useFeatureFlag('media_v2_photo');
   const [items, setItems] = useState<PhotoDraftItem[]>(() => initialPhotos.map(createExistingDraft));
   const [activeUploadIds, setActiveUploadIds] = useState<Set<string>>(() => new Set());
   const itemsRef = useRef(items);
@@ -265,10 +270,17 @@ export function usePhotoBatchController({
     async (draftId: string, asset: PhotoUploadAsset, expectedVersion: number) => {
       const ac = takeAbortSlot(draftId);
       try {
-        const result = await uploadProfilePhoto(asset, context, {
-          signal: ac.signal,
-          clientRequestId: draftId,
-        });
+        const result = mediaV2Photo.enabled
+          ? await uploadProfilePhotoWithMediaSdk({
+              asset,
+              context,
+              signal: ac.signal,
+              clientRequestId: draftId,
+            })
+          : await uploadProfilePhoto(asset, context, {
+              signal: ac.signal,
+              clientRequestId: draftId,
+            });
         if (ac.signal.aborted) return;
         if (!isMountedRef.current || expectedVersion !== sessionVersionRef.current) {
           void markPhotoDraftsDeletedOnServer([result.path]);
@@ -321,7 +333,7 @@ export function usePhotoBatchController({
         }
       }
     },
-    [context, releaseAbortSlot, takeAbortSlot],
+    [context, mediaV2Photo.enabled, releaseAbortSlot, takeAbortSlot],
   );
 
   const trimAssetsToRemaining = useCallback(

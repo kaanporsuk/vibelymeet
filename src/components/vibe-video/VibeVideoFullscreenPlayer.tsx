@@ -1,9 +1,9 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { X } from "lucide-react";
 import * as Sentry from "@sentry/react";
 import { resolveWebVibeVideoState } from "@/lib/vibeVideo/webVibeVideoState";
-import { attachHlsPlayback } from "@/lib/vibeVideo/attachHlsPlayback";
+import { useMediaAsset, useMediaAssetPlayback } from "@/hooks/useMediaAsset";
 import { trackVibeVideoEvent, VIBE_VIDEO_EVENTS } from "@/lib/vibeVideo/vibeVideoTelemetry";
 
 type Props = {
@@ -29,14 +29,44 @@ export function VibeVideoFullscreenPlayer({ show, bunnyVideoUid, bunnyVideoStatu
     vibe_caption: vibeCaption,
   });
   const isReady = vibeVideoInfo.state === "ready" && !!vibeVideoInfo.uid;
+  const { url: mediaAssetUrl } = useMediaAsset({
+    kind: "vibe_video",
+    sourceRef: vibeVideoInfo.playbackUrl,
+    initialUrl: vibeVideoInfo.playbackUrl,
+    autoResolve: false,
+  });
+  const playbackUrl = mediaAssetUrl ?? vibeVideoInfo.playbackUrl;
+
+  const reportSucceeded = useCallback(() => {
+    if (playbackSucceededRef.current) return;
+    playbackSucceededRef.current = true;
+    trackVibeVideoEvent(VIBE_VIDEO_EVENTS.playbackSucceeded, {
+      source: "vibe_player_fullscreen",
+      video_guid: vibeVideoInfo.uid,
+    });
+  }, [vibeVideoInfo.uid]);
+
+  const reportPlaybackError = useCallback((kind: "native" | "unsupported" | "fatal", detail?: unknown) => {
+    setPlaybackFailed(true);
+    trackVibeVideoEvent(VIBE_VIDEO_EVENTS.playbackFailed, {
+      source: "vibe_player_fullscreen",
+      kind,
+      video_guid: vibeVideoInfo.uid,
+    });
+    Sentry.addBreadcrumb({
+      category: "vibe-video-playback",
+      message: kind === "fatal" ? "fullscreen_hls_fatal" : "fullscreen_video_element_error",
+      level: "error",
+      data: { surface: "fullscreen", kind, detail: kind === "fatal" ? (detail as { type?: unknown })?.type : undefined },
+    });
+  }, [vibeVideoInfo.uid]);
 
   useEffect(() => {
     setPlaybackFailed(false);
     playbackSucceededRef.current = false;
     if (!show || !isReady || !vibeVideoInfo.uid) return;
 
-    const src = vibeVideoInfo.playbackUrl;
-    if (!src) {
+    if (!playbackUrl) {
       setPlaybackFailed(true);
       trackVibeVideoEvent(VIBE_VIDEO_EVENTS.playbackFailed, {
         source: "vibe_player_fullscreen",
@@ -61,39 +91,18 @@ export function VibeVideoFullscreenPlayer({ show, bunnyVideoUid, bunnyVideoStatu
       video_guid: vibeVideoInfo.uid,
     });
 
-    const reportSucceeded = () => {
-      if (playbackSucceededRef.current) return;
-      playbackSucceededRef.current = true;
-      trackVibeVideoEvent(VIBE_VIDEO_EVENTS.playbackSucceeded, {
-        source: "vibe_player_fullscreen",
-        video_guid: vibeVideoInfo.uid,
-      });
-    };
     videoEl.addEventListener("play", reportSucceeded);
-
-    const cleanupHls = attachHlsPlayback(videoEl, src, {
-      autoPlay: true,
-      onManifestParsed: reportSucceeded,
-      onError: (kind, detail) => {
-        setPlaybackFailed(true);
-        trackVibeVideoEvent(VIBE_VIDEO_EVENTS.playbackFailed, {
-          source: "vibe_player_fullscreen",
-          kind,
-          video_guid: vibeVideoInfo.uid,
-        });
-        Sentry.addBreadcrumb({
-          category: "vibe-video-playback",
-          message: kind === "fatal" ? "fullscreen_hls_fatal" : "fullscreen_video_element_error",
-          level: "error",
-          data: { surface: "fullscreen", kind, detail: kind === "fatal" ? (detail as { type?: unknown })?.type : undefined },
-        });
-      },
-    });
     return () => {
       videoEl.removeEventListener("play", reportSucceeded);
-      cleanupHls();
     };
-  }, [show, isReady, vibeVideoInfo.playbackUrl, vibeVideoInfo.uid]);
+  }, [show, isReady, playbackUrl, reportSucceeded, vibeVideoInfo.uid]);
+
+  useMediaAssetPlayback(videoRef, playbackUrl, {
+    enabled: show && isReady && !!playbackUrl,
+    autoPlay: true,
+    onManifestParsed: reportSucceeded,
+    onError: reportPlaybackError,
+  });
 
   const poster = vibeVideoInfo.thumbnailUrl;
 

@@ -38,9 +38,11 @@ import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { thumbnailUrl, fullScreenUrl } from "@/utils/imageUrl";
 import { newUploadClientRequestId, uploadImageToBunny } from "@/services/imageUploadService";
+import { uploadImageWithMediaSdk } from "@/lib/mediaSdk/webStorageUploads";
 import { supabase } from "@/integrations/supabase/client";
 import { markEphemeralPhotoPathsDeleted } from "@/lib/photoDraftReconcile";
 import { isAllowedProfilePhotoUploadFile, PROFILE_PHOTO_ACCEPT } from "@/lib/photoUtils";
+import { useFeatureFlag } from "@/hooks/useFeatureFlag";
 
 // ─── Types ──────────────────────────────────────────────────────
 
@@ -544,6 +546,7 @@ export default function PhotoManageDrawer({
   const [failedSlots, setFailedSlots] = useState<FailedSlots>(new Map());
   const [activeId, setActiveId] = useState<string | null>(null);
   const [selectedIndex, setSelectedIndex] = useState(0);
+  const mediaV2Photo = useFeatureFlag("media_v2_photo");
 
   // Track blob URLs for cleanup
   const blobUrlsRef = useRef<string[]>([]);
@@ -695,13 +698,20 @@ export default function PhotoManageDrawer({
       setPendingPreviews((prev) => new Map(prev).set(replaceIndex, preview));
       setUploadingSlots((prev) => new Set(prev).add(replaceIndex));
       try {
-        const { path } = await uploadImageToBunny(
-          file,
-          session.access_token,
-          "profile_studio",
-          undefined,
-          clientRequestId,
-        );
+        const { path } = mediaV2Photo.enabled
+          ? await uploadImageWithMediaSdk({
+              file,
+              accessToken: session.access_token,
+              context: "profile_studio",
+              clientRequestId,
+            })
+          : await uploadImageToBunny(
+              file,
+              session.access_token,
+              "profile_studio",
+              undefined,
+              clientRequestId,
+            );
         if (sessionAtBatchStart !== uploadSessionRef.current) {
           void markEphemeralPhotoPathsDeleted([path]);
           return;
@@ -776,13 +786,20 @@ export default function PhotoManageDrawer({
         const slot = slotIndices[i];
         const clientRequestId = clientRequestIds[i];
         try {
-          const { path } = await uploadImageToBunny(
-            file,
-            session.access_token,
-            "profile_studio",
-            undefined,
-            clientRequestId,
-          );
+          const { path } = mediaV2Photo.enabled
+            ? await uploadImageWithMediaSdk({
+                file,
+                accessToken: session.access_token,
+                context: "profile_studio",
+                clientRequestId,
+              })
+            : await uploadImageToBunny(
+                file,
+                session.access_token,
+                "profile_studio",
+                undefined,
+                clientRequestId,
+              );
           if (sessionAtBatchStart !== uploadSessionRef.current) {
             void markEphemeralPhotoPathsDeleted([path]);
             return { slot, path: null, file, preview: previews[i], stale: true };
@@ -834,7 +851,7 @@ export default function PhotoManageDrawer({
     if (newFailures.size > 0) {
       setFailedSlots((prev) => new Map([...prev, ...newFailures]));
     }
-  }, [failedSlots, hasTransientSlots, localPhotos, revokePreview, transientSlotsMessage]);
+  }, [failedSlots, hasTransientSlots, localPhotos, mediaV2Photo.enabled, revokePreview, transientSlotsMessage]);
 
   const openFilePicker = useCallback(() => {
     if (hasTransientSlots) {
@@ -874,13 +891,20 @@ export default function PhotoManageDrawer({
     setUploadingSlots((prev) => new Set(prev).add(slot));
 
     try {
-      const { path } = await uploadImageToBunny(
-        failed.file,
-        session.access_token,
-        "profile_studio",
-        undefined,
-        failed.clientRequestId,
-      );
+      const { path } = mediaV2Photo.enabled
+        ? await uploadImageWithMediaSdk({
+            file: failed.file,
+            accessToken: session.access_token,
+            context: "profile_studio",
+            clientRequestId: failed.clientRequestId,
+          })
+        : await uploadImageToBunny(
+            failed.file,
+            session.access_token,
+            "profile_studio",
+            undefined,
+            failed.clientRequestId,
+          );
 
       if (sessionAtRetry !== uploadSessionRef.current) {
         void markEphemeralPhotoPathsDeleted([path]);
@@ -902,7 +926,7 @@ export default function PhotoManageDrawer({
       setPendingPreviews((prev) => { const next = new Map(prev); next.delete(slot); return next; });
       setUploadingSlots((prev) => { const next = new Set(prev); next.delete(slot); return next; });
     }
-  }, [failedSlots, revokePreview]);
+  }, [failedSlots, mediaV2Photo.enabled, revokePreview]);
 
   const removeFailedSlot = useCallback((slot: number) => {
     const failed = failedSlots.get(slot);

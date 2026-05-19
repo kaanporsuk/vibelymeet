@@ -9,7 +9,7 @@ import {
   safeExpoSharedObjectRead,
   safeRemoveExpoSharedObjectSubscription,
 } from '@/lib/expoSharedObjectSafe';
-import { refreshCachedChatMediaUrl } from '@/lib/chatMediaResolver';
+import { useMediaAsset } from '@/hooks/useMediaAsset';
 import { waveformHeightsFromSeed } from '../../../../shared/chat/voiceWaveformSeed';
 
 export function formatVoiceDurationClock(seconds: number): string {
@@ -64,7 +64,14 @@ export function VoiceMessagePlayer({
   footer,
   wrapStyle,
 }: VoiceMessagePlayerProps) {
-  const [playableUri, setPlayableUri] = useState(uri);
+  const { url: mediaAssetUrl, refresh: refreshMediaAsset } = useMediaAsset({
+    kind: 'voice',
+    messageId,
+    sourceRef,
+    initialUrl: uri,
+    autoResolve: false,
+  });
+  const [playableUri, setPlayableUri] = useState(mediaAssetUrl ?? uri);
   const [refreshing, setRefreshing] = useState(false);
   const refreshAttemptedForUriRef = useRef<string | null>(null);
   const pendingPlayAfterRefreshRef = useRef(false);
@@ -121,16 +128,16 @@ export function VoiceMessagePlayer({
   );
 
   useEffect(() => {
-    setPlayableUri(uri);
+    setPlayableUri(mediaAssetUrl ?? uri);
     setHasError(false);
     refreshAttemptedForUriRef.current = null;
-  }, [uri]);
+  }, [mediaAssetUrl, uri]);
 
   const refreshUri = useCallback(async (): Promise<string | null> => {
     if (!messageId || !sourceRef) return null;
     setRefreshing(true);
     try {
-      const fresh = await refreshCachedChatMediaUrl(messageId, 'voice', sourceRef);
+      const fresh = await refreshMediaAsset('playback');
       if (fresh) {
         setPlayableUri(fresh);
         return fresh;
@@ -139,7 +146,7 @@ export function VoiceMessagePlayer({
     } finally {
       setRefreshing(false);
     }
-  }, [messageId, sourceRef]);
+  }, [messageId, refreshMediaAsset, sourceRef]);
 
   const playCurrent = useCallback((): boolean => {
     const didCall = safeExpoSharedObjectCall(

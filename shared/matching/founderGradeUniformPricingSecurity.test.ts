@@ -103,6 +103,6 @@ test("chat media writes private refs and renders through authorized resolver", (
   assert.match(webOutbox, /formatChatImageMessageContent\(mediaRef\)/);
   assert.doesNotMatch(webOutbox, /getImageUrl\(path/);
   assert.match(nativeOutbox, /formatChatImageMessageContent\(mediaRef\)/);
-  assert.match(webMessages, /resolveChatMessageMediaForDisplay/);
-  assert.match(nativeMessages, /resolveChatMessageMediaForDisplay/);
+  assert.match(webMessages, /resolveMessageMediaForDisplay/);
+  assert.match(nativeMessages, /resolveMessageMediaForDisplay/);
 });
