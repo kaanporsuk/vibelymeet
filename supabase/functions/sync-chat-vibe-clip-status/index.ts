@@ -10,6 +10,16 @@ import {
   updateChatVibeClipStatusByProvider,
 } from "../_shared/chat-vibe-clips.ts";
 
+type MessageScopeRow = {
+  id: string;
+  match_id: string;
+};
+type MatchScopeRow = {
+  id: string;
+  profile_id_1: string;
+  profile_id_2: string;
+};
+
 function logSyncTransition(event: string, fields: Record<string, unknown> = {}) {
   console.info(JSON.stringify({
     scope: "chat_vibe_clip_upload",
@@ -32,19 +42,21 @@ async function getAuthedUser(req: Request) {
   return data.user;
 }
 
-async function userCanReadMessage(admin: ReturnType<typeof createClient>, userId: string, messageId: string): Promise<boolean> {
+async function userCanReadMessage(admin: any, userId: string, messageId: string): Promise<boolean> {
   const { data: message } = await admin
     .from("messages")
     .select("id, match_id")
     .eq("id", messageId)
     .maybeSingle();
-  if (!message?.match_id) return false;
+  const messageRow = message as MessageScopeRow | null;
+  if (!messageRow?.match_id) return false;
   const { data: match } = await admin
     .from("matches")
     .select("id, profile_id_1, profile_id_2")
-    .eq("id", message.match_id)
+    .eq("id", messageRow.match_id)
     .maybeSingle();
-  return Boolean(match && (match.profile_id_1 === userId || match.profile_id_2 === userId));
+  const matchRow = match as MatchScopeRow | null;
+  return Boolean(matchRow && (matchRow.profile_id_1 === userId || matchRow.profile_id_2 === userId));
 }
 
 async function readBunnyStatus(videoId: string): Promise<{ status: "processing" | "ready" | "failed"; rawStatus: unknown }> {
