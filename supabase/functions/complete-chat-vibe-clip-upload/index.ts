@@ -2,6 +2,7 @@ import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.88.0";
 import { jsonResponse, preflightResponse } from "../_shared/cors.ts";
 import {
+  ChatVibeClipStatus,
   ChatVibeClipUploadRow,
   ensureChatVibeClipMessage,
   getAdminClient,
@@ -117,7 +118,7 @@ serve(async (req) => {
       published_message_id: upload.published_message_id ?? null,
     });
     const bunnyStatus = await getBunnyStatus(upload.provider_object_id);
-    let status = bunnyStatus === "ready" ? "ready" : bunnyStatus === "failed" ? "failed" : "processing";
+    let status: ChatVibeClipStatus = bunnyStatus === "ready" ? "ready" : bunnyStatus === "failed" ? "failed" : "processing";
     if (upload.status === "ready" && status !== "ready") status = "ready";
     if (upload.status === "failed" && status === "processing") status = "failed";
     logCompleteTransition("bunny_status_checked", {

@@ -9,7 +9,7 @@
  * for dual-write / lifecycle coordination while legacy product contracts remain active.
  */
 
-import { createClient, SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { createClient, SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.88.0";
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 
