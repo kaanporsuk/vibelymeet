@@ -70,7 +70,7 @@ interface VibeClipBubbleProps {
   threadMessageCount?: number;
   sparkMessageId?: string;
   /** Opens chat fullscreen video viewer (preferred over browser fullscreen). */
-  onRequestImmersive?: () => void;
+  onRequestImmersive?: (media?: { videoUrl: string; thumbnailUrl?: string | null }) => void;
   /** Pause inline preview while immersive viewer is open for this clip URL. */
   immersiveActive?: boolean;
   videoSourceRef?: string | null;
@@ -121,6 +121,8 @@ export const VibeClipBubble = ({
   const playCompleteTracked = useRef(false);
   const playbackRefreshAttemptCountRef = useRef(0);
   const posterRefreshAttemptedForRef = useRef<string | null>(null);
+  const playableVideoUrlRef = useRef(meta.videoUrl);
+  const playableThumbnailUrlRef = useRef<string | null>(meta.thumbnailUrl ?? null);
   const statusSyncInFlightRef = useRef(false);
   const statusSyncRunIdRef = useRef(0);
   const isMountedRef = useRef(true);
@@ -151,6 +153,8 @@ export const VibeClipBubble = ({
   }, []);
 
   useEffect(() => {
+    playableVideoUrlRef.current = meta.videoUrl;
+    playableThumbnailUrlRef.current = meta.thumbnailUrl ?? null;
     setPlayableVideoUrl(meta.videoUrl);
     setPlayableThumbnailUrl(meta.thumbnailUrl ?? null);
     setIsPlaying(false);
@@ -288,6 +292,7 @@ export const VibeClipBubble = ({
       ? await refreshCachedChatMediaUrl(sparkMessageId, "thumbnail", thumbnailSourceRef, refreshOptions)
       : null;
     if (freshThumbnailUrl) {
+      playableThumbnailUrlRef.current = freshThumbnailUrl;
       setPlayableThumbnailUrl(freshThumbnailUrl);
       onResolvedThumbnailUrl?.(freshThumbnailUrl);
     }
@@ -296,10 +301,18 @@ export const VibeClipBubble = ({
 
     const freshVideoUrl = await refreshCachedChatMediaUrl(sparkMessageId, "vibe_clip", videoSourceRef, refreshOptions);
     if (!freshVideoUrl || freshVideoUrl === playableVideoUrl) return false;
+    playableVideoUrlRef.current = freshVideoUrl;
     setPlayableVideoUrl(freshVideoUrl);
     onResolvedVideoUrl?.(freshVideoUrl);
     return true;
   }, [onResolvedThumbnailUrl, onResolvedVideoUrl, playableVideoUrl, sparkMessageId, thumbnailSourceRef, videoSourceRef]);
+
+  const requestImmersiveWithCurrentMedia = useCallback(() => {
+    onRequestImmersive?.({
+      videoUrl: playableVideoUrlRef.current,
+      thumbnailUrl: playableThumbnailUrlRef.current,
+    });
+  }, [onRequestImmersive]);
 
   useEffect(() => {
     const posterResolveKey = thumbnailSourceRef ?? playableThumbnailUrl ?? "";
@@ -442,11 +455,11 @@ export const VibeClipBubble = ({
       if (onRequestImmersive) {
         if (!canMountPlayer) {
           void refreshClipMedia("initial").then((didRefresh) => {
-            if (didRefresh) onRequestImmersive();
+            if (didRefresh) requestImmersiveWithCurrentMedia();
             else setLoadError(true);
           });
         } else {
-          onRequestImmersive();
+          requestImmersiveWithCurrentMedia();
         }
         return;
       }
@@ -459,7 +472,7 @@ export const VibeClipBubble = ({
         webkitVideo.webkitEnterFullscreen?.();
       }
     },
-    [canMountPlayer, isServerProcessing, onRequestImmersive, refreshClipMedia],
+    [canMountPlayer, isServerProcessing, onRequestImmersive, refreshClipMedia, requestImmersiveWithCurrentMedia],
   );
 
   useEffect(() => {
@@ -474,16 +487,16 @@ export const VibeClipBubble = ({
     if (onRequestImmersive) {
       if (!canMountPlayer) {
         void refreshClipMedia("initial").then((didRefresh) => {
-          if (didRefresh) onRequestImmersive();
+          if (didRefresh) requestImmersiveWithCurrentMedia();
           else setLoadError(true);
         });
       } else {
-        onRequestImmersive();
+        requestImmersiveWithCurrentMedia();
       }
       return;
     }
     togglePlay();
-  }, [canMountPlayer, isServerProcessing, onRequestImmersive, refreshClipMedia, togglePlay]);
+  }, [canMountPlayer, isServerProcessing, onRequestImmersive, refreshClipMedia, requestImmersiveWithCurrentMedia, togglePlay]);
 
   const handleTimeUpdate = useCallback(() => {
     if (videoRef.current) setCurrentTime(videoRef.current.currentTime);

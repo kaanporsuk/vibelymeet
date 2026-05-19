@@ -1,24 +1,28 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2.88.0";
+import { createClient, SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.88.0";
 import { corsHeadersForRequest, jsonResponse, preflightResponse } from "../_shared/cors.ts";
 import { syncChatMessageMedia } from "../_shared/media-lifecycle.ts";
 
 type MediaKind = "image" | "voice" | "video" | "vibe_clip" | "thumbnail";
-type ChatMediaUrlLogLevel = "info" | "warn" | "error";
-type SafeLogValue = string | number | boolean | null | undefined;
-type SafeLogFields = Record<string, SafeLogValue>;
+
+const TOKEN_TTL_SECONDS = 15 * 60;
+const encoder = new TextEncoder();
+
 type MessageScopeRow = {
   id: string;
-  match_id: string;
-  structured_payload?: Record<string, unknown> | null;
+  match_id: string | null;
+  structured_payload?: unknown;
+  client_request_id?: string | null;
 };
+
 type MatchScopeRow = {
   id: string;
-  profile_id_1: string;
-  profile_id_2: string;
+  profile_id_1: string | null;
+  profile_id_2: string | null;
 };
+
 type MediaAssetRow = {
-  id: string | null;
+  id: string;
   provider: string | null;
   provider_object_id: string | null;
   provider_path: string | null;
@@ -27,8 +31,10 @@ type MediaAssetRow = {
   media_family: string | null;
 };
 
-const TOKEN_TTL_SECONDS = 15 * 60;
-const encoder = new TextEncoder();
+type ChatMediaUrlLogLevel = "info" | "warn" | "error";
+type SafeLogValue = string | number | boolean | null | undefined;
+type SafeLogFields = Record<string, SafeLogValue>;
+
 const SENSITIVE_LOG_KEY_PATTERN =
   /(auth|authorization|bearer|token|secret|signature|apikey|accesskey|headers?|url|uri|path|(?:^|_)(?:file|filename)(?:$|_))/i;
 
@@ -73,10 +79,7 @@ function base64UrlJson(value: unknown): string {
 
 function decodeBase64UrlJson<T>(value: string): T | null {
   try {
-    const padded = value
-      .replace(/-/g, "+")
-      .replace(/_/g, "/")
-      .padEnd(Math.ceil(value.length / 4) * 4, "=");
+    const padded = value.replace(/-/g, "+").replace(/_/g, "/").padEnd(Math.ceil(value.length / 4) * 4, "=");
     const bytes = Uint8Array.from(atob(padded), (char) => char.charCodeAt(0));
     return JSON.parse(new TextDecoder().decode(bytes)) as T;
   } catch {
@@ -85,9 +88,13 @@ function decodeBase64UrlJson<T>(value: string): T | null {
 }
 
 async function signPayload(secret: string, payload: string): Promise<string> {
-  const key = await crypto.subtle.importKey("raw", encoder.encode(secret), { name: "HMAC", hash: "SHA-256" }, false, [
-    "sign",
-  ]);
+  const key = await crypto.subtle.importKey(
+    "raw",
+    encoder.encode(secret),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"],
+  );
   const signature = await crypto.subtle.sign("HMAC", key, encoder.encode(payload));
   return base64Url(new Uint8Array(signature));
 }
@@ -117,7 +124,10 @@ async function signBunnyStreamDirectoryUrl(params: {
 }): Promise<string> {
   const tokenPath = `/${params.videoId}/`;
   const signingData = sortedSigningData({ token_path: tokenPath });
-  const token = `HS256-${await signPayload(params.securityKey, `${tokenPath}${params.expires}${signingData}`)}`;
+  const token = `HS256-${await signPayload(
+    params.securityKey,
+    `${tokenPath}${params.expires}${signingData}`,
+  )}`;
   const tokenSegment = `bcdn_token=${token}&expires=${params.expires}&token_path=${encodeURIComponent(tokenPath)}`;
   return `https://${normalizeHostname(params.hostname)}/${tokenSegment}/${params.videoId}/${params.fileName}`;
 }
@@ -160,42 +170,51 @@ function mediaFamilyForKind(kind: MediaKind): string {
 }
 
 function isUuid(value: unknown): value is string {
-  return (
-    typeof value === "string" &&
-    /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value)
-  );
+  return typeof value === "string"
+    && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
 }
 
-async function userCanReadMessage(serviceClient: any, userId: string, messageId: string): Promise<MessageScopeRow | null> {
-  const { data: message, error: messageError } = await serviceClient
-    .from("messages")
-    .select("id, match_id, structured_payload")
-    .eq("id", messageId)
-    .maybeSingle();
-
-  const messageRow = message as MessageScopeRow | null;
-  if (messageError || !messageRow?.match_id) return null;
-
-  const { data: match, error: matchError } = await serviceClient
-    .from("matches")
-    .select("id, profile_id_1, profile_id_2")
-    .eq("id", messageRow.match_id)
-    .maybeSingle();
-
-  const matchRow = match as MatchScopeRow | null;
-  if (matchError || !matchRow) return null;
-  if (matchRow.profile_id_1 !== userId && matchRow.profile_id_2 !== userId) return null;
-  return messageRow;
-}
-
-function clientRequestIdFromMessage(message: Record<string, unknown> | null | undefined): string | null {
+function extractClientRequestId(message: MessageScopeRow | null): string | null {
   const payload = message?.structured_payload;
-  if (!payload || typeof payload !== "object" || Array.isArray(payload)) return null;
+  if (!payload || typeof payload !== "object") return null;
   const clientRequestId = (payload as Record<string, unknown>).client_request_id;
   return typeof clientRequestId === "string" && clientRequestId.trim() ? clientRequestId.trim() : null;
 }
 
-async function resolveMessageAsset(serviceClient: any, messageId: string, kind: MediaKind): Promise<MediaAssetRow | null> {
+async function userCanReadMessage(
+  serviceClient: SupabaseClient,
+  userId: string,
+  messageId: string,
+): Promise<MessageScopeRow | null> {
+  const { data: messageData, error: messageError } = await serviceClient
+    .from("messages")
+    .select("id, match_id, structured_payload")
+    .eq("id", messageId)
+    .maybeSingle();
+  const message = messageData as MessageScopeRow | null;
+
+  if (messageError || !message?.match_id) return null;
+
+  const { data: matchData, error: matchError } = await serviceClient
+    .from("matches")
+    .select("id, profile_id_1, profile_id_2")
+    .eq("id", message.match_id)
+    .maybeSingle();
+  const match = matchData as MatchScopeRow | null;
+
+  if (matchError || !match) return null;
+  if (match.profile_id_1 !== userId && match.profile_id_2 !== userId) return null;
+  return {
+    ...message,
+    client_request_id: extractClientRequestId(message),
+  };
+}
+
+async function resolveMessageAsset(
+  serviceClient: SupabaseClient,
+  messageId: string,
+  kind: MediaKind,
+): Promise<MediaAssetRow | null> {
   const { data, error } = await serviceClient
     .from("media_assets")
     .select("id, provider, provider_object_id, provider_path, mime_type, status, media_family")
@@ -207,10 +226,10 @@ async function resolveMessageAsset(serviceClient: any, messageId: string, kind: 
     .limit(5);
 
   if (error || !Array.isArray(data)) return null;
-  const rows = data as MediaAssetRow[];
 
-  return (
-    rows.find((asset) => {
+  const assets = data as MediaAssetRow[];
+  return assets
+    .find((asset) => {
       const objectId = typeof asset?.provider_object_id === "string" ? asset.provider_object_id : "";
       if (
         asset?.provider === "bunny_stream" &&
@@ -227,8 +246,7 @@ async function resolveMessageAsset(serviceClient: any, messageId: string, kind: 
       if (kind === "voice") return path.startsWith("voice/");
       if (kind === "thumbnail") return path.includes("_thumb.");
       return path.startsWith("chat-videos/") && !path.includes("_thumb.");
-    }) ?? null
-  );
+    }) ?? null;
 }
 
 async function handleIssueUrl(req: Request): Promise<Response> {
@@ -236,29 +254,22 @@ async function handleIssueUrl(req: Request): Promise<Response> {
   const authHeader = req.headers.get("Authorization");
   if (!authHeader?.startsWith("Bearer ")) {
     logChatMediaUrl("warn", "issue_request_rejected", {
-      reason: "unauthorized",
+      reason: "missing_auth_header",
     });
     return jsonResponse(req, { success: false, error: "Unauthorized" }, { status: 401, headers: corsHeaders });
   }
 
-  const body = (await req.json().catch(() => null)) as {
-    messageId?: unknown;
-    mediaKind?: unknown;
-  } | null;
+  const body = await req.json().catch(() => null) as { messageId?: unknown; mediaKind?: unknown } | null;
   const messageId = body?.messageId;
   const mediaKind = normalizeMediaKind(body?.mediaKind);
   if (!isUuid(messageId) || !mediaKind) {
     logChatMediaUrl("warn", "issue_request_rejected", {
       reason: "invalid_request",
-      message_id: typeof messageId === "string" ? messageId : null,
-      media_kind: mediaKind,
+      has_message_id: typeof messageId === "string" && messageId.trim().length > 0,
+      media_kind: typeof body?.mediaKind === "string" ? body.mediaKind : null,
     });
     return jsonResponse(req, { success: false, error: "invalid_request" }, { status: 400, headers: corsHeaders });
   }
-  logChatMediaUrl("info", "issue_request_validated", {
-    message_id: messageId,
-    media_kind: mediaKind,
-  });
 
   const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
   const anonKey = Deno.env.get("SUPABASE_ANON_KEY")!;
@@ -270,53 +281,56 @@ async function handleIssueUrl(req: Request): Promise<Response> {
   });
   const serviceClient = createClient(supabaseUrl, serviceRoleKey);
 
-  const {
-    data: { user },
-    error: userError,
-  } = await userClient.auth.getUser();
+  const { data: { user }, error: userError } = await userClient.auth.getUser();
   if (userError || !user) {
     logChatMediaUrl("warn", "issue_request_rejected", {
-      reason: "unauthorized",
+      reason: "auth_user_missing",
       message_id: messageId,
       media_kind: mediaKind,
+      error_code: userError ? "auth_user_lookup_failed" : null,
     });
     return jsonResponse(req, { success: false, error: "Unauthorized" }, { status: 401, headers: corsHeaders });
   }
+  logChatMediaUrl("info", "issue_request_validated", {
+    message_id: messageId,
+    media_kind: mediaKind,
+    requester_id: user.id,
+  });
 
   const message = await userCanReadMessage(serviceClient, user.id, messageId);
   if (!message) {
     logChatMediaUrl("warn", "message_scope_rejected", {
-      requester_id: user.id,
       message_id: messageId,
       media_kind: mediaKind,
+      requester_id: user.id,
     });
     return jsonResponse(req, { success: false, error: "not_found" }, { status: 404, headers: corsHeaders });
   }
-  const clientRequestId = clientRequestIdFromMessage(message as Record<string, unknown>);
+  const clientRequestId = message.client_request_id ?? null;
   logChatMediaUrl("info", "message_scope_verified", {
-    requester_id: user.id,
     message_id: messageId,
-    match_id: typeof message.match_id === "string" ? message.match_id : null,
     media_kind: mediaKind,
+    requester_id: user.id,
+    match_id: message.match_id,
     client_request_id: clientRequestId,
   });
 
   let asset = await resolveMessageAsset(serviceClient, messageId, mediaKind);
   if (!asset?.provider_path && !asset?.provider_object_id) {
     logChatMediaUrl("info", "asset_missing_sync_requested", {
-      requester_id: user.id,
       message_id: messageId,
       media_kind: mediaKind,
+      requester_id: user.id,
       client_request_id: clientRequestId,
     });
     const syncResult = await syncChatMessageMedia(serviceClient, messageId);
     if (!syncResult.success) {
       logChatMediaUrl("error", "asset_sync_failed", {
-        requester_id: user.id,
         message_id: messageId,
         media_kind: mediaKind,
+        requester_id: user.id,
         client_request_id: clientRequestId,
-        error_code: syncResult.error,
+        error_code: "sync_chat_message_media_failed",
       });
     }
     asset = await resolveMessageAsset(serviceClient, messageId, mediaKind);
@@ -332,12 +346,12 @@ async function handleIssueUrl(req: Request): Promise<Response> {
     const securityKey = Deno.env.get("BUNNY_CHAT_STREAM_TOKEN_SECURITY_KEY")?.trim();
     if (!hostname || !securityKey) {
       logChatMediaUrl("error", "stream_token_config_missing", {
-        requester_id: user.id,
         message_id: messageId,
         media_kind: mediaKind,
+        requester_id: user.id,
         client_request_id: clientRequestId,
-        asset_id: typeof asset.id === "string" ? asset.id : null,
         provider_object_id: streamVideoId,
+        asset_id: asset.id,
       });
       return jsonResponse(
         req,
@@ -354,24 +368,23 @@ async function handleIssueUrl(req: Request): Promise<Response> {
       fileName: mediaKind === "thumbnail" ? "thumbnail.jpg" : "playlist.m3u8",
       expires,
     });
-    const posterUrl =
-      mediaKind === "thumbnail"
-        ? null
-        : await signBunnyStreamDirectoryUrl({
-            hostname,
-            securityKey,
-            videoId: streamVideoId,
-            fileName: "thumbnail.jpg",
-            expires,
-          });
+    const posterUrl = mediaKind === "thumbnail"
+      ? null
+      : await signBunnyStreamDirectoryUrl({
+        hostname,
+        securityKey,
+        videoId: streamVideoId,
+        fileName: "thumbnail.jpg",
+        expires,
+      });
 
     logChatMediaUrl("info", "stream_url_issued", {
-      requester_id: user.id,
       message_id: messageId,
       media_kind: mediaKind,
+      requester_id: user.id,
       client_request_id: clientRequestId,
-      asset_id: typeof asset.id === "string" ? asset.id : null,
       provider_object_id: streamVideoId,
+      asset_id: asset.id,
       playback_kind: mediaKind === "thumbnail" ? "progressive" : "hls",
       expires_in_seconds: TOKEN_TTL_SECONDS,
     });
@@ -391,9 +404,9 @@ async function handleIssueUrl(req: Request): Promise<Response> {
 
   if (!asset?.provider_path) {
     logChatMediaUrl("warn", "asset_not_found", {
-      requester_id: user.id,
       message_id: messageId,
       media_kind: mediaKind,
+      requester_id: user.id,
       client_request_id: clientRequestId,
     });
     return jsonResponse(req, { success: false, error: "media_not_found" }, { status: 404, headers: corsHeaders });
@@ -409,13 +422,12 @@ async function handleIssueUrl(req: Request): Promise<Response> {
   });
 
   logChatMediaUrl("info", "storage_proxy_token_issued", {
-    requester_id: user.id,
     message_id: messageId,
     media_kind: mediaKind,
+    requester_id: user.id,
     client_request_id: clientRequestId,
-    asset_id: typeof asset.id === "string" ? asset.id : null,
-    provider: "bunny_storage",
-    playback_kind: "progressive",
+    asset_id: asset.id,
+    provider: asset.provider,
     expires_in_seconds: TOKEN_TTL_SECONDS,
   });
   return jsonResponse(
@@ -442,8 +454,8 @@ async function handleProxy(req: Request): Promise<Response> {
   if (!claims || !path || path.includes("..")) {
     logChatMediaUrl("warn", "proxy_request_rejected", {
       reason: "invalid_token",
-      message_id: typeof claims?.mid === "string" ? claims.mid : null,
-      media_kind: normalizeMediaKind(claims?.kind),
+      has_claims: Boolean(claims),
+      has_media_reference: path.length > 0,
     });
     return jsonResponse(req, { success: false, error: "invalid_token" }, { status: 401, headers: corsHeaders });
   }
@@ -461,8 +473,9 @@ async function handleProxy(req: Request): Promise<Response> {
   if (!upstream.ok || !upstream.body) {
     logChatMediaUrl("error", "storage_proxy_fetch_failed", {
       message_id: typeof claims.mid === "string" ? claims.mid : null,
-      media_kind: normalizeMediaKind(claims.kind),
-      provider_status: upstream.status,
+      media_kind: typeof claims.kind === "string" ? claims.kind : null,
+      requester_id: typeof claims.sub === "string" ? claims.sub : null,
+      upstream_status: upstream.status,
       has_range: Boolean(range),
     });
     return jsonResponse(req, { success: false, error: "media_fetch_failed" }, { status: 502, headers: corsHeaders });
@@ -479,8 +492,9 @@ async function handleProxy(req: Request): Promise<Response> {
 
   logChatMediaUrl("info", "storage_proxy_stream_started", {
     message_id: typeof claims.mid === "string" ? claims.mid : null,
-    media_kind: normalizeMediaKind(claims.kind),
-    provider_status: upstream.status,
+    media_kind: typeof claims.kind === "string" ? claims.kind : null,
+    requester_id: typeof claims.sub === "string" ? claims.sub : null,
+    upstream_status: upstream.status,
     has_range: Boolean(range),
   });
   return new Response(upstream.body, { status: upstream.status, headers });
@@ -490,9 +504,5 @@ serve(async (req) => {
   if (req.method === "OPTIONS") return preflightResponse(req);
   if (req.method === "GET") return handleProxy(req);
   if (req.method === "POST") return handleIssueUrl(req);
-  return jsonResponse(
-    req,
-    { success: false, error: "method_not_allowed" },
-    { status: 405, headers: corsHeadersForRequest(req) },
-  );
+  return jsonResponse(req, { success: false, error: "method_not_allowed" }, { status: 405, headers: corsHeadersForRequest(req) });
 });

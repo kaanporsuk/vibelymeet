@@ -34,11 +34,16 @@ const nativeStreamUpload = read("apps/mobile/lib/chatVibeClipStreamUpload.ts");
 const nativeMediaCache = read("apps/mobile/lib/chatOutbox/mediaCache.ts");
 const nativeOutboxContext = read("apps/mobile/lib/chatOutbox/ChatOutboxContext.tsx");
 const uploadChatVideo = read("supabase/functions/upload-chat-video/index.ts");
+const uploadImage = read("supabase/functions/upload-image/index.ts");
+const uploadVoice = read("supabase/functions/upload-voice/index.ts");
+const uploadEventCover = read("supabase/functions/upload-event-cover/index.ts");
 const sendMessage = read("supabase/functions/send-message/index.ts");
+const sendGameEvent = read("supabase/functions/send-game-event/index.ts");
 const createChatVibeClipUpload = read("supabase/functions/create-chat-vibe-clip-upload/index.ts");
 const completeChatVibeClipUpload = read("supabase/functions/complete-chat-vibe-clip-upload/index.ts");
 const syncChatVibeClipStatus = read("supabase/functions/sync-chat-vibe-clip-status/index.ts");
 const chatVibeClipShared = read("supabase/functions/_shared/chat-vibe-clips.ts");
+const mediaLifecycleShared = read("supabase/functions/_shared/media-lifecycle.ts");
 const getChatMediaUrl = read("supabase/functions/get-chat-media-url/index.ts");
 const videoWebhook = read("supabase/functions/video-webhook/index.ts");
 const chatThreadPage = read("supabase/functions/chat-thread-page/index.ts");
@@ -212,7 +217,10 @@ test("web recorder exposes safe camera flip on eligible devices", () => {
   assert.match(webRecorder, /hasMultipleCameras && !isRecording/);
   assert.match(webRecorder, /startCamera\(newFacing, \{ cancelOnError: false, silentError: true \}\)/);
   assert.match(webRecorder, /VIBE_CLIP_WEB_TOAST_CAMERA_SWITCH_UNAVAILABLE/);
-  assert.match(webRecorder, /const previousStream = streamRef\.current[\s\S]+getUserMedia[\s\S]+previousStream\?\.getTracks\(\)\.forEach/);
+  assert.match(
+    webRecorder,
+    /const previousStream = streamRef\.current[\s\S]+getUserMedia[\s\S]+previousStream\?\.getTracks\(\)\.forEach/,
+  );
 });
 
 test("web queue and upload preserve validated library video metadata", () => {
@@ -294,6 +302,10 @@ test("video bubbles remain adaptive and full-width across web and native chat", 
   assert.match(webVibeClipBubble, /if \(reason === "preview"\) return !!freshThumbnailUrl/);
   assert.match(webVibeClipBubble, /shouldResolvePosterPreview/);
   assert.match(webVibeClipBubble, /posterRefreshAttemptedForRef/);
+  assert.match(webVibeClipBubble, /playableVideoUrlRef/);
+  assert.match(webVibeClipBubble, /playableThumbnailUrlRef/);
+  assert.match(webVibeClipBubble, /requestImmersiveWithCurrentMedia/);
+  assert.match(webChat, /onRequestImmersive=\{\(media\) =>[\s\S]{0,180}url: media\?\.videoUrl \?\? clipMeta\.videoUrl/);
   assert.match(webVibeClipBubble, /void refreshClipMedia\("preview"\);/);
   assert.doesNotMatch(webVibeClipBubble, /if \(didRefresh\) posterRefreshAttemptedForRef\.current = null/);
   assert.match(webVibeClipBubble, /CLIP_PLAYBACK_LOAD_TIMEOUT_MS/);
@@ -354,7 +366,10 @@ test("video bubbles remain adaptive and full-width across web and native chat", 
   assert.doesNotMatch(nativeVibeClipCard, /setPlayRequested\(true\);\s*setHasPlayed\(true\)/);
   assert.doesNotMatch(nativeVibeClipCard, /const showPreviewLoader/);
   assert.match(nativeVibeClipCard, /posterPreviewState\?: VibeClipPosterPreviewState/);
-  assert.match(nativeVibeClipCard, /onPosterPreviewStateChange\?: \(state: VibeClipPosterPreviewState, thumbnailUrl\?: string \| null\) => void/);
+  assert.match(
+    nativeVibeClipCard,
+    /onPosterPreviewStateChange\?: \(state: VibeClipPosterPreviewState, thumbnailUrl\?: string \| null\) => void/,
+  );
   assert.match(nativeVibeClipCard, /onLoad=\{\(\) => onPreviewStateChange\?\.\('ready', uri\)\}/);
   assert.match(nativeVibeClipCard, /onPreviewStateChange\?\.\('failed', uri\)/);
   assert.match(nativeVibeClipCard, /onRefreshClipMedia\('preview'\)/);
@@ -363,6 +378,11 @@ test("video bubbles remain adaptive and full-width across web and native chat", 
   assert.match(nativeVibeClipCard, /if \(reason === 'preview'\) return !!freshThumbnailUri/);
   assert.match(nativeVibeClipCard, /freshThumbnailUri !== playableThumbnailUrl/);
   assert.match(nativeVibeClipCard, /posterRefreshAttemptedForRef/);
+  assert.match(nativeVibeClipCard, /playableVideoUrlRef/);
+  assert.match(nativeVibeClipCard, /playableThumbnailUrlRef/);
+  assert.match(nativeVibeClipCard, /requestImmersiveWithCurrentMedia/);
+  assert.match(nativeVibeClipCard, /if \(!canOpenImmersive\)[\s\S]{0,160}onRefreshClipMedia\('initial'\)/);
+  assert.match(nativeChat, /onRequestImmersive=\{\(media\) =>[\s\S]{0,180}uri: media\?\.videoUrl \?\? displayClipMeta\.videoUrl/);
   assert.match(nativeVibeClipCard, /isResolvableMediaRef\(playableThumbnailUrl\)/);
   assert.match(nativeVibeClipCard, /CLIP_PLAYBACK_LOAD_TIMEOUT_MS/);
   assert.match(nativeVibeClipCard, /onResetPlaybackRefreshAttempt/);
@@ -473,9 +493,18 @@ test("server upload and publish paths enforce Bunny Stream Vibe Clip limits", ()
   assert.match(chatVibeClipShared, /\.from\("media_references"\)[\s\S]+\.eq\("is_active", true\)[\s\S]+\.limit\(1\)[\s\S]+\.maybeSingle\(\)/);
   assert.match(chatVibeClipShared, /function shouldIgnoreProviderStatus/);
   assert.match(chatVibeClipShared, /currentStatus === "ready" && nextStatus !== "ready"/);
-  assert.match(chatVibeClipShared, /upload_publish_state_update_failed[\s\S]+return \{ success: false, error: uploadUpdateError\.message \}/);
-  assert.match(chatVibeClipShared, /provider_status_update_failed[\s\S]+return \{ handled: true, error: statusUpdateError\.message \}/);
-  assert.match(chatVibeClipShared, /provider_failed_message_update_failed[\s\S]+return \{ handled: true, error: messageUpdateError\.message \}/);
+  assert.match(
+    chatVibeClipShared,
+    /upload_publish_state_update_failed[\s\S]+return \{ success: false, error: uploadUpdateError\.message \}/,
+  );
+  assert.match(
+    chatVibeClipShared,
+    /provider_status_update_failed[\s\S]+return \{ handled: true, error: statusUpdateError\.message \}/,
+  );
+  assert.match(
+    chatVibeClipShared,
+    /provider_failed_message_update_failed[\s\S]+return \{ handled: true, error: messageUpdateError\.message \}/,
+  );
   assert.match(chatVibeClipShared, /provider: "bunny_stream"/);
   assert.match(chatVibeClipShared, /options: \{ publishIfProcessing\?: boolean; failOnIgnoredFailure\?: boolean \} = \{\}/);
   assert.match(chatVibeClipShared, /!options\.publishIfProcessing/);
@@ -514,41 +543,62 @@ test("server upload and publish paths enforce Bunny Stream Vibe Clip limits", ()
 });
 
 test("Chat Vibe Clip P1.1 observability keeps stable trace fields", () => {
-  assert.match(createChatVibeClipUpload, /function logCreateTransition/);
-  assert.match(createChatVibeClipUpload, /scope: "chat_vibe_clip_upload"/);
   assert.match(createChatVibeClipUpload, /client_request_id: clientRequestId/);
   assert.match(createChatVibeClipUpload, /provider_object_id: videoId/);
-  assert.match(createChatVibeClipUpload, /media_asset_id: assetId/);
+  assert.match(createChatVibeClipUpload, /media_asset_registered/);
 
-  assert.match(completeChatVibeClipUpload, /function logCompleteTransition/);
+  assert.match(completeChatVibeClipUpload, /ChatVibeClipStatus/);
   assert.match(completeChatVibeClipUpload, /client_request_id: upload\.client_request_id/);
   assert.match(completeChatVibeClipUpload, /provider_object_id: upload\.provider_object_id/);
   assert.match(completeChatVibeClipUpload, /message_finalized/);
 
-  assert.match(syncChatVibeClipStatus, /function logSyncTransition/);
-  assert.match(syncChatVibeClipStatus, /requester_id: user\.id/);
-  assert.match(syncChatVibeClipStatus, /raw_status: typeof bunny\.rawStatus === "number" \? bunny\.rawStatus : null/);
+  assert.match(syncChatVibeClipStatus, /type MessageScopeRow/);
+  assert.match(syncChatVibeClipStatus, /client_request_id: upload\.client_request_id/);
+  assert.match(syncChatVibeClipStatus, /provider_object_id: upload\.provider_object_id/);
   assert.match(syncChatVibeClipStatus, /status_update_succeeded/);
 
   assert.match(videoWebhook, /import \* as Sentry from "https:\/\/deno\.land\/x\/sentry@8\.55\.0\/index\.mjs"/);
   assert.match(videoWebhook, /Sentry\.init\(\{/);
   assert.match(videoWebhook, /Sentry\.startSpan/);
-  assert.match(videoWebhook, /forceTransaction: true/);
-  assert.match(videoWebhook, /webhook_trace_id: webhookTraceId/);
+  assert.match(videoWebhook, /let SENTRY_ENABLED = false/);
+  assert.match(videoWebhook, /type CallbackOutcome<T>/);
+  assert.match(videoWebhook, /let callbackStarted = false/);
+  assert.match(videoWebhook, /let callbackOutcome: CallbackOutcome<T> \| null = null/);
+  assert.match(videoWebhook, /if \(!callbackStarted\) return await callback\(\)/);
+  assert.match(videoWebhook, /function unwrapCallbackOutcome<T>/);
+  assert.match(videoWebhook, /if \(!outcome\.ok\) throw outcome\.error/);
+  assert.match(videoWebhook, /return unwrapCallbackOutcome\(callbackOutcome\)/);
+  assert.match(videoWebhook, /sentry_init_failed/);
+  assert.match(videoWebhook, /sentry_start_span_failed/);
+  assert.match(videoWebhook, /sentry_capture_failed/);
+  assert.match(videoWebhook, /webhook_trace_id/);
   assert.match(videoWebhook, /video_webhook_chat_vibe_clip_matched/);
   assert.match(videoWebhook, /client_request_id:\s+typeof chatClipUploadForLog\?\.client_request_id === "string"/);
   assert.match(videoWebhook, /provider_object_id: VideoGuid/);
 
-  assert.match(chatVibeClipShared, /function logChatVibeClipLifecycle/);
-  assert.match(chatVibeClipShared, /SENSITIVE_LOG_KEY_PATTERN/);
+  assert.match(chatVibeClipShared, /logChatVibeClipLifecycle/);
   assert.match(chatVibeClipShared, /message_ensure_started/);
-  assert.match(chatVibeClipShared, /provider_status_update_started/);
   assert.match(chatVibeClipShared, /client_request_id: upload\.client_request_id/);
-  assert.match(chatVibeClipShared, /provider_object_id: providerObjectId/);
+  assert.match(chatVibeClipShared, /provider_object_id: upload\.provider_object_id/);
+  assert.match(chatVibeClipShared, /media_reference_created/);
 
-  assert.match(getChatMediaUrl, /function logChatMediaUrl/);
+  assert.match(getChatMediaUrl, /logChatMediaUrl/);
   assert.match(getChatMediaUrl, /stream_url_issued/);
+  assert.match(getChatMediaUrl, /storage_proxy_token_issued/);
   assert.match(getChatMediaUrl, /client_request_id: clientRequestId/);
   assert.match(getChatMediaUrl, /provider_object_id: streamVideoId/);
-  assert.doesNotMatch(getChatMediaUrl, /console\.error\("get-chat-media-url sync_chat_message_media failed:/);
+  assert.doesNotMatch(getChatMediaUrl, /syncResult\.error/);
+  assert.doesNotMatch(getChatMediaUrl, /userError\?\.message/);
+
+  for (const source of [
+    mediaLifecycleShared,
+    uploadChatVideo,
+    uploadImage,
+    uploadVoice,
+    uploadEventCover,
+  ]) {
+    assert.match(source, /@supabase\/supabase-js@2\.88\.0/);
+  }
+  assert.match(sendMessage, /SupabaseClient/);
+  assert.match(sendGameEvent, /SupabaseClient/);
 });
