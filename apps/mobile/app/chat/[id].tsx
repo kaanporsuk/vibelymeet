@@ -117,6 +117,12 @@ import {
   type ThreadPresentationRow,
 } from '../../../../shared/chat/threadPresentation';
 import { threadMessagesQueryKey } from '../../../../shared/chat/queryKeys';
+import {
+  buildVibeClipRecovery,
+  type VibeClipRecoveryDecision,
+  type VibeClipRecoveryResumeStrategy,
+  type VibeClipServerUpload,
+} from '../../../../shared/chat/vibeClipRecovery';
 import { useChatOutbox } from '@/lib/chatOutbox/ChatOutboxContext';
 import type { ChatOutboxItem, ChatOutboxQueueState } from '@/lib/chatOutbox/types';
 import { cleanupOutboxCacheUri, copyUriToChatOutboxCache, extForPayload, mimeForPayload } from '@/lib/chatOutbox/mediaCache';
@@ -154,6 +160,13 @@ const CHAT_VOICE_RECORDING_OPTIONS = nativeMediaTranscodeHooks.voiceRecordingOpt
 
 const WEB_APP_ORIGIN = process.env.EXPO_PUBLIC_WEB_APP_URL ?? 'https://www.vibelymeet.com';
 const MATCHES_TAB_HREF = '/(tabs)/matches' as const;
+const NATIVE_VIBE_CLIP_SMOKE_FIXTURE_URL =
+  process.env.EXPO_PUBLIC_VIBELY_CVC_NATIVE_FIXTURE_URL ??
+  process.env.VIBELY_CVC_NATIVE_FIXTURE_URL ??
+  '';
+const NATIVE_VIBE_CLIP_SMOKE_FIXTURE_ENABLED =
+  process.env.EXPO_PUBLIC_VIBELY_CVC_NATIVE_FIXTURE_UPLOAD === '1' ||
+  process.env.VIBELY_CVC_NATIVE_FIXTURE_UPLOAD === '1';
 
 /** When true, Games chip includes "Open in browser" alongside native game starts. */
 const GAMES_WEB_FALLBACK = true;
@@ -293,7 +306,10 @@ type LocalTextMeta = {
 };
 
 type LocalTextChatMessage = ChatMessage & { localText: LocalTextMeta };
-type ThreadMessage = ChatMessage | LocalMediaChatMessage | LocalTextChatMessage;
+type ThreadMessage = (ChatMessage | LocalMediaChatMessage | LocalTextChatMessage) & {
+  clientRequestId?: string;
+  serverRecoveryUploadId?: string;
+};
 
 type ChatListRow = ThreadPresentationRow<ThreadMessage>;
 
@@ -387,39 +403,74 @@ function outboxFooterPrimaryLabel(phase: ChatOutboxQueueState | undefined, paylo
   return label || null;
 }
 
-function vibeClipRecoveryForOutboxItem(
-  item: ChatOutboxItem | undefined,
-  sendError: string | undefined,
-  onResume?: () => void,
+function vibeClipRecoveryFromDecision(
+  decision: VibeClipRecoveryDecision | null,
+  onResume?: (strategy: VibeClipRecoveryResumeStrategy | null) => void,
   onDiscardAndSendAgain?: () => void,
+  onTelemetry?: (action: 'manual_resume' | 'manual_discard', decision: VibeClipRecoveryDecision) => void,
 ): VibeClipLocalRecovery | null {
-  if (!item || item.payload.kind !== 'video') return null;
-  const canResume = item.state === 'failed' || item.state === 'waiting_for_network';
-  const canDiscard = item.state !== 'sending' && item.state !== 'awaiting_hydration';
-  const uploadPercent =
-    item.state === 'sending' &&
-    typeof item.uploadProgress === 'number' &&
-    Number.isFinite(item.uploadProgress)
-      ? Math.max(0, Math.min(100, Math.round(item.uploadProgress * 100)))
-      : null;
-  const stateLabel = sendError ??
-    (uploadPercent != null
-      ? `Uploading ${uploadPercent}%`
-      : item.state === 'awaiting_hydration'
-        ? 'Uploaded. Waiting for the message to appear.'
-        : item.state === 'waiting_for_network'
-          ? "Upload paused until you're back online."
-          : item.state === 'failed'
-            ? 'Upload needs attention.'
-            : 'Upload is queued.');
-
+  if (!decision?.showPanel) return null;
   return {
-    stateLabel,
-    error: sendError,
-    canResume,
-    canDiscard,
-    onResume,
-    onDiscardAndSendAgain,
+    stateLabel: decision.stateLabel,
+    error: decision.error,
+    canResume: decision.canResume,
+    canDiscard: decision.canDiscard,
+    onResume: decision.canResume ? () => {
+      onTelemetry?.('manual_resume', decision);
+      onResume?.(decision.resumeStrategy);
+    } : undefined,
+    onDiscardAndSendAgain: decision.canDiscard && onDiscardAndSendAgain ? () => {
+      onTelemetry?.('manual_discard', decision);
+      onDiscardAndSendAgain();
+    } : undefined,
+  };
+}
+
+function nativeOutboxVibeClipSummary(item: ChatOutboxItem | undefined) {
+  if (!item || item.payload.kind !== 'video') return null;
+  return {
+    id: item.id,
+    payloadKind: item.payload.kind,
+    state: item.state,
+    uploadProgress: item.uploadProgress,
+    lastError: item.lastError,
+  };
+}
+
+function serverVibeClipRecoveryThreadMessage(upload: VibeClipServerUpload): ThreadMessage {
+  const sortAtMs = new Date(upload.updatedAt ?? Date.now()).getTime();
+  const providerRef = upload.providerObjectId ? `bunny_stream:${upload.providerObjectId}` : '';
+  return {
+    id: `recovery-${upload.id}`,
+    text: 'Vibe Clip',
+    sender: 'me',
+    time: Number.isFinite(sortAtMs)
+      ? new Date(sortAtMs).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+      : '',
+    sortAtMs: Number.isFinite(sortAtMs) ? sortAtMs : Date.now(),
+    status: 'sending',
+    video_url: providerRef,
+    video_source_ref: providerRef || null,
+    video_duration_seconds: upload.durationMs ? Math.max(1, Math.round(upload.durationMs / 1000)) : null,
+    thumbnail_source_ref: upload.providerObjectId ? `bunny_stream:${upload.providerObjectId}:thumbnail` : null,
+    messageKind: 'vibe_clip',
+    clientRequestId: upload.clientRequestId,
+    serverRecoveryUploadId: upload.id,
+    structuredPayload: {
+      v: 3,
+      kind: 'vibe_clip',
+      client_request_id: upload.clientRequestId,
+      duration_ms: upload.durationMs ?? null,
+      aspect_ratio: upload.aspectRatio ?? null,
+      thumbnail_url: null,
+      poster_ref: upload.providerObjectId ? `bunny_stream:${upload.providerObjectId}:thumbnail` : null,
+      poster_source: 'bunny_stream_thumbnail',
+      processing_status: upload.status,
+      provider_object_id: upload.providerObjectId,
+      playback_ref: providerRef || null,
+      upload_provider: 'bunny_stream',
+      provider: 'bunny_stream',
+    },
   };
 }
 
@@ -816,7 +867,16 @@ export default function ChatThreadScreen() {
   const shellLoading = isLoading && !data;
   const cachedMatches = user?.id ? queryClient.getQueryData<MatchListItem[]>(['matches', user.id]) ?? [] : [];
   const matchRowEarly = otherUserId ? cachedMatches.find((m) => m.id === otherUserId) : undefined;
-  const { enqueue, retry, remove, itemsForMatch, reconcileWithServerIds } = useChatOutbox();
+  const {
+    enqueue,
+    retry,
+    retryVibeClipUpload,
+    remove,
+    itemsForMatch,
+    runVibeClipRecoverySweep,
+    staleVibeClipUploadsForMatch,
+    reconcileWithServerIds,
+  } = useChatOutbox();
   useRealtimeMessages({
     matchId: data?.matchId ?? null,
     enabled: !!data?.matchId && !!otherUserId && !!user?.id,
@@ -1071,6 +1131,48 @@ export default function ChatThreadScreen() {
     for (const item of outboxForMatch) map.set(item.id, item);
     return map;
   }, [outboxForMatch]);
+  const staleVibeClipUploads = useMemo(
+    () => staleVibeClipUploadsForMatch(data?.matchId ?? ''),
+    [data?.matchId, staleVibeClipUploadsForMatch],
+  );
+  const staleVibeClipUploadsByClientRequestId = useMemo(() => {
+    const map = new Map<string, VibeClipServerUpload>();
+    for (const upload of staleVibeClipUploads) map.set(upload.clientRequestId, upload);
+    return map;
+  }, [staleVibeClipUploads]);
+  const staleVibeClipUploadsById = useMemo(() => {
+    const map = new Map<string, VibeClipServerUpload>();
+    for (const upload of staleVibeClipUploads) map.set(upload.id, upload);
+    return map;
+  }, [staleVibeClipUploads]);
+  const [vibeClipLocalSourceById, setVibeClipLocalSourceById] = useState<Record<string, boolean>>({});
+  const [dismissedServerVibeClipRecoveryIds, setDismissedServerVibeClipRecoveryIds] = useState<Set<string>>(
+    () => new Set(),
+  );
+
+  useEffect(() => {
+    setDismissedServerVibeClipRecoveryIds(new Set());
+  }, [data?.matchId]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      const next: Record<string, boolean> = {};
+      for (const item of outboxForMatch) {
+        if (item.payload.kind !== 'video') continue;
+        try {
+          const info = await FileSystem.getInfoAsync(item.payload.uri);
+          next[item.id] = Boolean(info.exists && !info.isDirectory && typeof info.size === 'number' && info.size > 0);
+        } catch {
+          next[item.id] = false;
+        }
+      }
+      if (!cancelled) setVibeClipLocalSourceById(next);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [outboxForMatch]);
 
   useEffect(() => {
     const ids = new Set((data?.messages ?? []).map((m) => m.id));
@@ -1094,9 +1196,18 @@ export default function ChatThreadScreen() {
       if (!cid) return true;
       return !serverClientIds.has(cid);
     });
-    const merged = [...server, ...locals];
+    const existingClientRequestIds = new Set(serverClientIds);
+    for (const row of locals) {
+      const cid = outboxRowClientRequestId(row);
+      if (cid) existingClientRequestIds.add(cid);
+    }
+    const recoveryRows = staleVibeClipUploads
+      .filter((upload) => !dismissedServerVibeClipRecoveryIds.has(upload.id))
+      .filter((upload) => !existingClientRequestIds.has(upload.clientRequestId))
+      .map(serverVibeClipRecoveryThreadMessage);
+    const merged = [...server, ...locals, ...recoveryRows];
     return merged.sort((a, b) => threadSortKey(a) - threadSortKey(b));
-  }, [data?.messages, outboxThreadMessages]);
+  }, [data?.messages, dismissedServerVibeClipRecoveryIds, outboxThreadMessages, staleVibeClipUploads]);
 
   /** True while any outbox item is actively sending (UI indicators only — must not lock the TextInput or iOS dismisses the keyboard). */
   const outboxBusy = useMemo(
@@ -1647,6 +1758,38 @@ export default function ChatThreadScreen() {
     return () => sub.remove();
   }, [scheduleMarkThreadRead]);
 
+  const refreshThreadAfterVibeClipRecoverySweep = useCallback(async () => {
+    if (!otherUserId || !user?.id) return;
+    await queryClient.invalidateQueries({
+      queryKey: threadMessagesQueryKey(otherUserId, user.id),
+      exact: true,
+    });
+    await refetch();
+  }, [otherUserId, queryClient, refetch, user?.id]);
+
+  const runVibeClipRecoverySweepForThread = useCallback(
+    async (trigger: 'mount_sweep' | 'foreground') => {
+      const matchId = data?.matchId;
+      if (!matchId) return;
+      await runVibeClipRecoverySweep(trigger, matchId);
+      await refreshThreadAfterVibeClipRecoverySweep();
+    },
+    [data?.matchId, refreshThreadAfterVibeClipRecoverySweep, runVibeClipRecoverySweep],
+  );
+
+  useEffect(() => {
+    void runVibeClipRecoverySweepForThread('mount_sweep');
+  }, [runVibeClipRecoverySweepForThread]);
+
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (next: AppStateStatus) => {
+      if (next === 'active') {
+        void runVibeClipRecoverySweepForThread('foreground');
+      }
+    });
+    return () => sub.remove();
+  }, [runVibeClipRecoverySweepForThread]);
+
   useEffect(() => {
     scheduleMarkThreadRead();
     return () => {
@@ -2037,6 +2180,64 @@ export default function ChatThreadScreen() {
       } else {
         setVideoError(null);
       }
+    }
+  };
+
+  const enqueueSmokeFixtureVideo = async () => {
+    if (!data?.matchId || !user?.id || composerInputLocked) return;
+    if (!NATIVE_VIBE_CLIP_SMOKE_FIXTURE_ENABLED || !NATIVE_VIBE_CLIP_SMOKE_FIXTURE_URL.trim()) return;
+    setVideoError(null);
+    try {
+      const cacheRoot = FileSystem.cacheDirectory;
+      if (!cacheRoot) throw new Error('Smoke fixture cache is unavailable');
+      const downloaded = await FileSystem.downloadAsync(
+        NATIVE_VIBE_CLIP_SMOKE_FIXTURE_URL.trim(),
+        `${cacheRoot}chat-vibe-clip-smoke-${Date.now()}.mp4`,
+      );
+      if (downloaded.status < 200 || downloaded.status >= 300) {
+        await FileSystem.deleteAsync(downloaded.uri, { idempotent: true }).catch(() => {});
+        throw new Error('Smoke fixture download failed');
+      }
+      const stable = await copyUriToChatOutboxCache(downloaded.uri, 'mp4');
+      if (stable !== downloaded.uri) {
+        await FileSystem.deleteAsync(downloaded.uri, { idempotent: true }).catch(() => {});
+      }
+      const info = await FileSystem.getInfoAsync(stable);
+      if (!info.exists || info.isDirectory || !info.size) {
+        await cleanupOutboxCacheUri(stable);
+        throw new Error(VIBE_CLIP_UPLOAD_EMPTY_FILE);
+      }
+      if (info.size > VIBE_CLIP_MAX_SOURCE_BYTES) {
+        await cleanupOutboxCacheUri(stable);
+        throw new Error(VIBE_CLIP_UPLOAD_TOO_LARGE());
+      }
+      void enqueue({
+        matchId: data.matchId,
+        otherUserId: otherUserId ?? '',
+        payload: {
+          kind: 'video',
+          uri: stable,
+          durationSeconds: 5,
+          mimeType: 'video/mp4',
+          aspectRatio: 9 / 16,
+        },
+      });
+      trackVibeClipEvent('clip_send_attempted', {
+        capture_source: 'library',
+        duration_bucket: durationBucketFromSeconds(5),
+        has_poster: false,
+        thread_bucket: threadBucketFromCount(displayMessages.length),
+        is_sender: true,
+      });
+    } catch (e) {
+      const msg = chatFriendlyErrorFromUnknown(e, { isVibeClip: true });
+      setVideoError(msg);
+      showAppDialog({
+        title: 'Vibe Clip',
+        message: msg,
+        variant: 'warning',
+        primaryAction: { label: 'OK', onPress: () => {} },
+      });
     }
   };
 
@@ -2554,6 +2755,25 @@ export default function ChatThreadScreen() {
         };
         const shouldMountPlayer = videoViewer?.uri === displayClipMeta.videoUrl;
         const posterPreviewState = vibeClipPosterPreviewStateForMessage(item.id, displayClipMeta.thumbnailUrl);
+        const clientRequestId =
+          outboxItemId ??
+          clientRequestIdFromStructured((item.structuredPayload as Record<string, unknown> | null) ?? null) ??
+          item.clientRequestId ??
+          null;
+        const serverUpload = clientRequestId
+          ? staleVibeClipUploadsByClientRequestId.get(clientRequestId) ??
+            (item.serverRecoveryUploadId ? staleVibeClipUploadsById.get(item.serverRecoveryUploadId) : null)
+          : item.serverRecoveryUploadId
+            ? staleVibeClipUploadsById.get(item.serverRecoveryUploadId)
+            : null;
+        const outboxItem = outboxItemId ? outboxById.get(outboxItemId) : undefined;
+        const recoveryDecision = buildVibeClipRecovery({
+          outboxItem: nativeOutboxVibeClipSummary(outboxItem),
+          serverUpload: serverUpload ?? null,
+          localSourcePresent: outboxItemId ? vibeClipLocalSourceById[outboxItemId] === true : false,
+          nowMs: Date.now(),
+          sendError: localMedia?.errorMessage,
+        });
         return (
           <View style={[styles.mediaContentWrap, { width: mediaCardWidth }]}>
             <VibeClipCard
@@ -2596,16 +2816,26 @@ export default function ChatThreadScreen() {
               immersiveActive={videoViewer?.uri === displayClipMeta.videoUrl}
               shouldMountPlayer={shouldMountPlayer}
               threadVisualRecede={threadVisualRecede}
-              localRecovery={vibeClipRecoveryForOutboxItem(
-                outboxItemId ? outboxById.get(outboxItemId) : undefined,
-                localMedia?.errorMessage,
-                outboxItemId ? () => retry(outboxItemId) : undefined,
-                outboxItemId
-                  ? () => {
-                      remove(outboxItemId);
-                      openVideoMessageOptions();
-                    }
-                  : undefined,
+              localRecovery={vibeClipRecoveryFromDecision(
+                recoveryDecision,
+                outboxItemId ? (strategy) => retryVibeClipUpload(outboxItemId, strategy) : undefined,
+                () => {
+                  if (outboxItemId) remove(outboxItemId);
+                  if (item.serverRecoveryUploadId) {
+                    setDismissedServerVibeClipRecoveryIds((prev) => new Set(prev).add(item.serverRecoveryUploadId!));
+                  }
+                  openVideoMessageOptions();
+                },
+                (trigger, decision) => {
+                  trackVibeClipEvent('clip_recovery_status', {
+                    trigger,
+                    outcome: decision.telemetryOutcome,
+                    resume_strategy: decision.resumeStrategy ?? 'none',
+                    local_source_present: outboxItemId ? vibeClipLocalSourceById[outboxItemId] === true : false,
+                    server_status: serverUpload?.status ?? 'none',
+                    latency_ms: 0,
+                  });
+                },
               )}
             />
             <View style={styles.mediaMetaBlock}>
@@ -3570,6 +3800,11 @@ export default function ChatThreadScreen() {
           setShowVibeClipSendSheet(false);
           void pickVideoFromLibrary();
         }}
+        onChooseDebugFixture={() => {
+          setShowVibeClipSendSheet(false);
+          void enqueueSmokeFixtureVideo();
+        }}
+        showDebugFixture={NATIVE_VIBE_CLIP_SMOKE_FIXTURE_ENABLED && !!NATIVE_VIBE_CLIP_SMOKE_FIXTURE_URL.trim()}
         disabled={composerInputLocked}
         promptSeed={data?.matchId ?? otherUserId ?? ''}
       />

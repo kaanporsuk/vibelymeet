@@ -5,6 +5,7 @@ import {
   VIBE_CLIP_UPLOAD_EMPTY_FILE,
   VIBE_CLIP_UPLOAD_TOO_LARGE,
 } from "../../shared/chat/vibeClipCaptureCopy";
+import type { VibeClipRecoveryResumeStrategy } from "../../shared/chat/vibeClipRecovery";
 
 const TUS_CHUNK_SIZE = 5 * 1024 * 1024;
 
@@ -30,6 +31,27 @@ type CompleteChatVibeClipUploadResponse = {
   message_id?: string;
   provider_object_id?: string;
   error?: string;
+};
+
+type ChatVibeClipUploadParams = {
+  matchId: string;
+  clientRequestId: string;
+  file: File;
+  durationMs: number;
+  aspectRatio?: number | null;
+  resumeStrategy?: VibeClipRecoveryResumeStrategy | null;
+  onProgress?: (fraction: number) => void;
+};
+
+type CreatedUploadCredentials = {
+  uploadId: string;
+  videoId: string;
+  endpoint: string;
+  signature: string;
+  expirationTime: number;
+  libraryId: number | string;
+  mimeType: string;
+  status?: "uploading" | "processing" | "ready" | "failed";
 };
 
 export type ChatVibeClipStreamUploadResult = {
@@ -96,6 +118,22 @@ async function invokeCreate(params: {
   return payload;
 }
 
+function requireCreatedUploadCredentials(created: CreateChatVibeClipUploadResponse): CreatedUploadCredentials {
+  if (!created.upload_id || !created.video_id || !created.signature || !created.expiration_time || !created.library_id || !created.mime_type) {
+    throw new Error("Clip upload service returned an incomplete response.");
+  }
+  return {
+    uploadId: created.upload_id,
+    videoId: created.video_id,
+    endpoint: created.tus_endpoint || "https://video.bunnycdn.com/tusupload",
+    signature: created.signature,
+    expirationTime: created.expiration_time,
+    libraryId: created.library_id,
+    mimeType: created.mime_type,
+    status: created.status,
+  };
+}
+
 async function invokeComplete(params: {
   uploadId?: string;
   clientRequestId: string;
@@ -120,6 +158,7 @@ function uploadTus(params: {
   videoId: string;
   libraryId: number | string;
   mimeType: string;
+  resumePrevious?: boolean;
   onProgress?: (fraction: number) => void;
 }): Promise<void> {
   return new Promise((resolve, reject) => {
@@ -151,10 +190,20 @@ function uploadTus(params: {
     });
 
     upload.findPreviousUploads().then((previousUploads) => {
-      if (previousUploads.length) upload.resumeFromPreviousUpload(previousUploads[0]);
+      if (params.resumePrevious !== false && previousUploads.length) upload.resumeFromPreviousUpload(previousUploads[0]);
       upload.start();
     }).catch(() => upload.start());
   });
+}
+
+function tusHttpStatus(error: unknown): number | null {
+  const status = (error as { originalResponse?: { getStatus?: () => number } })?.originalResponse?.getStatus?.();
+  return typeof status === "number" && Number.isFinite(status) ? status : null;
+}
+
+function isStaleTusCredentialError(error: unknown): boolean {
+  const status = tusHttpStatus(error);
+  return status === 401 || status === 403 || status === 410;
 }
 
 function providerObjectIdFromPlaybackRef(ref: string | null | undefined): string | null {
@@ -200,36 +249,51 @@ export async function completePublishedChatVibeClipUpload(params: {
   });
 }
 
-export async function uploadAndPublishChatVibeClipToBunnyStream(params: {
-  matchId: string;
-  clientRequestId: string;
-  file: File;
-  durationMs: number;
-  aspectRatio?: number | null;
-  onProgress?: (fraction: number) => void;
-}): Promise<ChatVibeClipStreamUploadResult> {
+export async function uploadAndPublishChatVibeClipToBunnyStream(params: ChatVibeClipUploadParams): Promise<ChatVibeClipStreamUploadResult> {
   if (!params.file.size) throw new Error(VIBE_CLIP_UPLOAD_EMPTY_FILE);
   if (params.file.size > VIBE_CLIP_MAX_SOURCE_BYTES) throw new Error(VIBE_CLIP_UPLOAD_TOO_LARGE());
 
-  const created = await invokeCreate(params);
-  const uploadId = created.upload_id;
-  const videoId = created.video_id;
-  if (!uploadId || !videoId || !created.signature || !created.expiration_time || !created.library_id || !created.mime_type) {
-    throw new Error("Clip upload service returned an incomplete response.");
-  }
+  let created = requireCreatedUploadCredentials(await invokeCreate(params));
+  const uploadId = created.uploadId;
+  const videoId = created.videoId;
 
   if (created.status === "failed") throw new Error("Clip processing failed. Please try a new clip.");
   if (!created.status || created.status === "uploading") {
-    await uploadTus({
-      file: params.file,
-      endpoint: created.tus_endpoint || "https://video.bunnycdn.com/tusupload",
-      signature: created.signature,
-      expirationTime: created.expiration_time,
-      videoId,
-      libraryId: created.library_id,
-      mimeType: created.mime_type,
-      onProgress: params.onProgress,
-    });
+    try {
+      await uploadTus({
+        file: params.file,
+        endpoint: created.endpoint,
+        signature: created.signature,
+        expirationTime: created.expirationTime,
+        videoId,
+        libraryId: created.libraryId,
+        mimeType: created.mimeType,
+        onProgress: params.onProgress,
+      });
+    } catch (error) {
+      if (!isStaleTusCredentialError(error)) throw error;
+      const shouldResumePreviousUpload = tusHttpStatus(error) !== 410;
+      const refreshed = requireCreatedUploadCredentials(await invokeCreate(params));
+      if (refreshed.videoId !== videoId || refreshed.uploadId !== uploadId) {
+        throw new Error("Clip recovery returned a different upload target. Please send the clip again.");
+      }
+      created = refreshed;
+      if (!created.status || created.status === "uploading") {
+        await uploadTus({
+          file: params.file,
+          endpoint: created.endpoint,
+          signature: created.signature,
+          expirationTime: created.expirationTime,
+          videoId,
+          libraryId: created.libraryId,
+          mimeType: created.mimeType,
+          resumePrevious: shouldResumePreviousUpload,
+          onProgress: params.onProgress,
+        });
+      } else {
+        params.onProgress?.(1);
+      }
+    }
   } else {
     params.onProgress?.(1);
   }

@@ -8,6 +8,7 @@ import {
   VIBE_CLIP_UPLOAD_INVALID_TYPE,
   VIBE_CLIP_UPLOAD_TOO_LARGE,
 } from '../../../shared/chat/vibeClipCaptureCopy';
+import type { VibeClipRecoveryResumeStrategy } from '../../../shared/chat/vibeClipRecovery';
 
 const TUS_CHUNK_SIZE = 5 * 1024 * 1024;
 
@@ -31,6 +32,28 @@ type CompleteResponse = {
   message_id?: string;
   provider_object_id?: string;
   error?: string;
+};
+
+type ChatVibeClipUploadParams = {
+  matchId: string;
+  clientRequestId: string;
+  uri: string;
+  durationMs: number;
+  mimeType?: string | null;
+  aspectRatio?: number | null;
+  resumeStrategy?: VibeClipRecoveryResumeStrategy | null;
+  onProgress?: (fraction: number) => void;
+};
+
+type CreatedUploadCredentials = {
+  uploadId: string;
+  videoId: string;
+  endpoint: string;
+  signature: string;
+  expirationTime: number;
+  libraryId: number | string;
+  mimeType?: string;
+  status?: 'uploading' | 'processing' | 'ready' | 'failed';
 };
 
 export type ChatVibeClipStreamUploadResult = {
@@ -164,6 +187,22 @@ async function createUpload(params: {
   return payload;
 }
 
+function requireCreatedUploadCredentials(created: CreateResponse): CreatedUploadCredentials {
+  if (!created.upload_id || !created.video_id || !created.signature || !created.expiration_time || !created.library_id) {
+    throw new Error('Clip upload service returned an incomplete response.');
+  }
+  return {
+    uploadId: created.upload_id,
+    videoId: created.video_id,
+    endpoint: created.tus_endpoint || 'https://video.bunnycdn.com/tusupload',
+    signature: created.signature,
+    expirationTime: created.expiration_time,
+    libraryId: created.library_id,
+    mimeType: created.mime_type,
+    status: created.status,
+  };
+}
+
 async function completeUpload(params: {
   uploadId?: string;
   clientRequestId: string;
@@ -192,6 +231,7 @@ function uploadTus(params: {
   expirationTime: number;
   videoId: string;
   libraryId: number | string;
+  resumePrevious?: boolean;
   onProgress?: (fraction: number) => void;
 }): Promise<void> {
   const rnFileSource = { uri: params.fileUri, name: params.fileName, type: params.mimeType };
@@ -224,10 +264,20 @@ function uploadTus(params: {
       },
     });
     upload.findPreviousUploads().then((previousUploads) => {
-      if (previousUploads.length) upload.resumeFromPreviousUpload(previousUploads[0]);
+      if (params.resumePrevious !== false && previousUploads.length) upload.resumeFromPreviousUpload(previousUploads[0]);
       upload.start();
     }).catch(() => upload.start());
   });
+}
+
+function tusHttpStatus(error: unknown): number | null {
+  const status = (error as { originalResponse?: { getStatus?: () => number } })?.originalResponse?.getStatus?.();
+  return typeof status === 'number' && Number.isFinite(status) ? status : null;
+}
+
+function isStaleTusCredentialError(error: unknown): boolean {
+  const status = tusHttpStatus(error);
+  return status === 401 || status === 403 || status === 410;
 }
 
 function providerObjectIdFromPlaybackRef(ref: string | null | undefined): string | null {
@@ -276,15 +326,7 @@ export async function completePublishedChatVibeClipUpload(params: {
   });
 }
 
-export async function uploadAndPublishChatVibeClipToBunnyStream(params: {
-  matchId: string;
-  clientRequestId: string;
-  uri: string;
-  durationMs: number;
-  mimeType?: string | null;
-  aspectRatio?: number | null;
-  onProgress?: (fraction: number) => void;
-}): Promise<ChatVibeClipStreamUploadResult> {
+export async function uploadAndPublishChatVibeClipToBunnyStream(params: ChatVibeClipUploadParams): Promise<ChatVibeClipStreamUploadResult> {
   const accessToken = await getFreshCachedAccessToken();
   if (!accessToken) throw new Error('Not authenticated');
 
@@ -298,7 +340,7 @@ export async function uploadAndPublishChatVibeClipToBunnyStream(params: {
     const mimeType = mimeFromExtension(originalExt ?? '', params.mimeType);
     if (!mimeType) throw new Error(VIBE_CLIP_UPLOAD_INVALID_TYPE);
     const fileName = `chat-vibe-clip.${extensionForMimeType(mimeType, originalExt)}`;
-    const created = await createUpload({
+    let created = requireCreatedUploadCredentials(await createUpload({
       matchId: params.matchId,
       clientRequestId: params.clientRequestId,
       accessToken,
@@ -307,25 +349,60 @@ export async function uploadAndPublishChatVibeClipToBunnyStream(params: {
       mimeType,
       fileName,
       aspectRatio: params.aspectRatio,
-    });
-    if (!created.upload_id || !created.video_id || !created.signature || !created.expiration_time || !created.library_id) {
-      throw new Error('Clip upload service returned an incomplete response.');
-    }
+    }));
 
     if (created.status === 'failed') throw new Error('Clip processing failed. Please try a new clip.');
     if (!created.status || created.status === 'uploading') {
-      await uploadTus({
-        fileUri: stable.uri,
-        fileName,
-        fileSize: info.size,
-        mimeType: created.mime_type || mimeType,
-        endpoint: created.tus_endpoint || 'https://video.bunnycdn.com/tusupload',
-        signature: created.signature,
-        expirationTime: created.expiration_time,
-        videoId: created.video_id,
-        libraryId: created.library_id,
-        onProgress: params.onProgress,
-      });
+      try {
+        await uploadTus({
+          fileUri: stable.uri,
+          fileName,
+          fileSize: info.size,
+          mimeType: created.mimeType || mimeType,
+          endpoint: created.endpoint,
+          signature: created.signature,
+          expirationTime: created.expirationTime,
+          videoId: created.videoId,
+          libraryId: created.libraryId,
+          onProgress: params.onProgress,
+        });
+      } catch (error) {
+        if (!isStaleTusCredentialError(error)) throw error;
+        const shouldResumePreviousUpload = tusHttpStatus(error) !== 410;
+        const refreshedToken = await getFreshCachedAccessToken();
+        if (!refreshedToken) throw new Error('Not authenticated');
+        const refreshed = requireCreatedUploadCredentials(await createUpload({
+          matchId: params.matchId,
+          clientRequestId: params.clientRequestId,
+          accessToken: refreshedToken,
+          durationMs: params.durationMs,
+          sourceBytes: info.size,
+          mimeType,
+          fileName,
+          aspectRatio: params.aspectRatio,
+        }));
+        if (refreshed.videoId !== created.videoId || refreshed.uploadId !== created.uploadId) {
+          throw new Error('Clip recovery returned a different upload target. Please send the clip again.');
+        }
+        created = refreshed;
+        if (!created.status || created.status === 'uploading') {
+          await uploadTus({
+            fileUri: stable.uri,
+            fileName,
+            fileSize: info.size,
+            mimeType: created.mimeType || mimeType,
+            endpoint: created.endpoint,
+            signature: created.signature,
+            expirationTime: created.expirationTime,
+            videoId: created.videoId,
+            libraryId: created.libraryId,
+            resumePrevious: shouldResumePreviousUpload,
+            onProgress: params.onProgress,
+          });
+        } else {
+          params.onProgress?.(1);
+        }
+      }
     } else {
       params.onProgress?.(1);
     }
@@ -335,20 +412,20 @@ export async function uploadAndPublishChatVibeClipToBunnyStream(params: {
       const completionToken = await getFreshCachedAccessToken();
       if (!completionToken) throw new Error('Not authenticated');
       completed = await completeUpload({
-        uploadId: created.upload_id,
+        uploadId: created.uploadId,
         clientRequestId: params.clientRequestId,
         accessToken: completionToken,
       });
     } catch (error) {
       throw new ChatVibeClipUploadedButUnpublishedError(
         error instanceof Error ? error.message : 'Clip uploaded but could not be published yet.',
-        { uploadId: created.upload_id, videoId: created.video_id, cause: error },
+        { uploadId: created.uploadId, videoId: created.videoId, cause: error },
       );
     }
 
     return resultFromCompletedUpload({
-      uploadId: created.upload_id,
-      videoId: created.video_id,
+      uploadId: created.uploadId,
+      videoId: created.videoId,
       completed,
     });
   } finally {

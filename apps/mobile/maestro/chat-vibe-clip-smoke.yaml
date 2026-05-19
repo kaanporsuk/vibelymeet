@@ -4,14 +4,18 @@
 # - 4g-throttle
 # - kill-mid-tus
 # - webhook-delayed
+# - signed-url-mid-expiry
+# - app-launch-stuck-processing-nudge
 #
 # Requires an already authenticated staging build and a non-production chat deep link:
 #   VIBELY_CVC_NATIVE_SMOKE=1
 #   VIBELY_CVC_NATIVE_CHAT_DEEPLINK=vibely://chat/<matched-profile-id>
+#   EXPO_PUBLIC_VIBELY_CVC_NATIVE_FIXTURE_UPLOAD=1
+#   EXPO_PUBLIC_VIBELY_CVC_NATIVE_FIXTURE_URL=https://<staging-host>/fixtures/chat-vibe-clip.mp4
 #
-# This Maestro flow verifies the native entry/sheet contract. The OS camera/library
-# picker upload rows remain operator-run until the app exposes an internal media
-# fixture picker or Detox-native picker controls.
+# This Maestro flow verifies the native entry/sheet contract and, when the
+# explicit smoke fixture flag is compiled into the staging build, bypasses OS
+# pickers through the debug-only fixture upload button.
 appId: com.vibelymeet.vibely
 ---
 - openLink: ${VIBELY_CVC_NATIVE_CHAT_DEEPLINK}
@@ -32,4 +36,10 @@ appId: com.vibelymeet.vibely
     id: "vibe-clip-record-option"
 - assertVisible:
     id: "vibe-clip-library-option"
-
+- assertVisible:
+    id: "vibe-clip-debug-fixture-option"
+- tapOn:
+    id: "vibe-clip-debug-fixture-option"
+- extendedWaitUntil:
+    id: "vibe-clip-bubble"
+    timeout: 120000

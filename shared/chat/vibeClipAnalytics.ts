@@ -22,6 +22,7 @@ export const VIBE_CLIP_EVENTS = {
   clip_date_cta_clicked: 'clip_date_cta_clicked',
   clip_date_flow_opened: 'clip_date_flow_opened',
   clip_date_submitted_from_clip: 'clip_date_submitted_from_clip',
+  clip_recovery_status: 'clip_recovery_status',
 } as const;
 
 export type VibeClipEventName = (typeof VIBE_CLIP_EVENTS)[keyof typeof VIBE_CLIP_EVENTS];

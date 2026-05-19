@@ -3,7 +3,9 @@ export type ChatVibeClipSmokeScenarioId =
   | "happy-path"
   | "4g-throttle"
   | "kill-mid-tus"
-  | "webhook-delayed";
+  | "webhook-delayed"
+  | "signed-url-mid-expiry"
+  | "app-launch-stuck-processing-nudge";
 
 export type ChatVibeClipSmokeScenario = {
   id: ChatVibeClipSmokeScenarioId;
@@ -69,6 +71,30 @@ export const CHAT_VIBE_CLIP_SMOKE_SCENARIOS: readonly ChatVibeClipSmokeScenario[
     ],
     timeoutMs: 240_000,
   },
+  {
+    id: "signed-url-mid-expiry",
+    title: "Signed URL expires mid-playback",
+    purpose: "Proves media playback refreshes an expired signed URL without losing the clip bubble.",
+    requiredEvidence: [
+      "initial signed media URL is resolved",
+      "playback refresh is triggered after URL expiry or simulated expiry",
+      "fresh signed media URL is resolved",
+      "clip remains playable without a duplicate message",
+    ],
+    timeoutMs: 180_000,
+  },
+  {
+    id: "app-launch-stuck-processing-nudge",
+    title: "App launch stale processing nudge",
+    purpose: "Proves a stale uploading/processing row is swept on thread mount and nudged within five seconds.",
+    requiredEvidence: [
+      "stale chat_vibe_clip_uploads row is present before mount",
+      "sync-chat-vibe-clip-status invoked on mount or foreground",
+      "recovery panel or terminal message state appears within five seconds",
+      "no duplicate message for the same client_request_id",
+    ],
+    timeoutMs: 120_000,
+  },
 ];
 
 export const CHAT_VIBE_CLIP_SMOKE_MATRIX: readonly ChatVibeClipSmokeRow[] =
@@ -85,11 +111,15 @@ export const CHAT_VIBE_CLIP_WEB_SMOKE_ENV = [
   "VIBELY_CVC_WEB_CHAT_URL",
   "VIBELY_CVC_WEB_STORAGE_STATE",
   "VIBELY_CVC_FIXTURE_VIDEO",
+  "VIBELY_CVC_STUCK_CLIENT_REQUEST_ID",
 ] as const;
 
 export const CHAT_VIBE_CLIP_NATIVE_SMOKE_ENV = [
   "VIBELY_CVC_NATIVE_SMOKE",
   "VIBELY_CVC_NATIVE_CHAT_DEEPLINK",
+  "EXPO_PUBLIC_VIBELY_CVC_NATIVE_FIXTURE_URL",
+  "EXPO_PUBLIC_VIBELY_CVC_NATIVE_FIXTURE_UPLOAD",
+  "VIBELY_CVC_NATIVE_FIXTURE_URL",
+  "VIBELY_CVC_NATIVE_FIXTURE_UPLOAD",
   "MAESTRO_RUN",
 ] as const;
-

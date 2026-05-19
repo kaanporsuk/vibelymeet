@@ -1,4 +1,5 @@
 import type { ThreadInvalidateScope } from "../../../shared/chat/queryKeys";
+import type { VibeClipRecoveryResumeStrategy } from "../../../shared/chat/vibeClipRecovery";
 
 export type WebChatOutboxQueueState =
   | "queued"
@@ -41,5 +42,6 @@ export type WebChatOutboxItem = {
   uploadProgress?: number;
   hydrationLastCheckedAtMs?: number;
   hydrationDeadlineAtMs?: number;
+  vibeClipResumeStrategy?: VibeClipRecoveryResumeStrategy;
   invalidateScope?: ThreadInvalidateScope;
 };

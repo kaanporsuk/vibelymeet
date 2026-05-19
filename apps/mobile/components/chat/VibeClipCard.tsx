@@ -95,7 +95,8 @@ const INLINE_CLIP_MAX_HEIGHT = 360;
 const POSTER_PREVIEW_TIMEOUT_MS = 3500;
 const CLIP_PLAYBACK_LOAD_TIMEOUT_MS = 12_000;
 const MAX_CLIP_PLAYBACK_REFRESH_ATTEMPTS = 1;
-const CHAT_VIBE_CLIP_STATUS_SYNC_DELAY_MS = 2500;
+const CHAT_VIBE_CLIP_STATUS_SYNC_FAST_INTERVAL_MS = 5_000;
+const CHAT_VIBE_CLIP_STATUS_SYNC_FAST_WINDOW_MS = 30_000;
 const CHAT_VIBE_CLIP_STATUS_SYNC_INTERVAL_MS = 12_000;
 
 function isLocalPreviewUri(uri: string): boolean {
@@ -870,7 +871,9 @@ export function VibeClipCard(props: Props) {
   useEffect(() => {
     if (!isSyncableServerProcessing || !sparkMessageId) return;
     let cancelled = false;
-    let intervalId: ReturnType<typeof setInterval> | undefined;
+    let terminalReached = false;
+    let timeoutId: ReturnType<typeof setTimeout> | undefined;
+    const startedAtMs = Date.now();
 
     const syncStatus = async () => {
       if (statusSyncInFlightRef.current) return;
@@ -885,7 +888,8 @@ export function VibeClipCard(props: Props) {
           if (status) {
             setSyncedProcessingStatus(status);
             if (status === 'ready' || status === 'failed') {
-              if (intervalId) clearInterval(intervalId);
+              terminalReached = true;
+              if (timeoutId) clearTimeout(timeoutId);
             }
           }
         }
@@ -899,17 +903,22 @@ export function VibeClipCard(props: Props) {
       }
     };
 
-    const timeoutId = setTimeout(() => {
-      void syncStatus();
-      intervalId = setInterval(() => {
-        void syncStatus();
-      }, CHAT_VIBE_CLIP_STATUS_SYNC_INTERVAL_MS);
-    }, CHAT_VIBE_CLIP_STATUS_SYNC_DELAY_MS);
+    const scheduleNextSync = () => {
+      if (cancelled || terminalReached) return;
+      const elapsedMs = Date.now() - startedAtMs;
+      const delayMs = elapsedMs < CHAT_VIBE_CLIP_STATUS_SYNC_FAST_WINDOW_MS
+        ? CHAT_VIBE_CLIP_STATUS_SYNC_FAST_INTERVAL_MS
+        : CHAT_VIBE_CLIP_STATUS_SYNC_INTERVAL_MS;
+      timeoutId = setTimeout(() => {
+        void syncStatus().finally(scheduleNextSync);
+      }, delayMs);
+    };
+
+    void syncStatus().finally(scheduleNextSync);
 
     return () => {
       cancelled = true;
-      clearTimeout(timeoutId);
-      if (intervalId) clearInterval(intervalId);
+      if (timeoutId) clearTimeout(timeoutId);
     };
   }, [isSyncableServerProcessing, sparkMessageId]);
 

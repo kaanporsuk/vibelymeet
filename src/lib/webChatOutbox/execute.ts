@@ -241,6 +241,7 @@ export async function executeWebOutboxItem(
             file,
             durationMs: Math.round(payload.durationSeconds * 1000),
             aspectRatio: payload.aspectRatio,
+            resumeStrategy: item.vibeClipResumeStrategy,
             onProgress: onUploadProgress,
           };
           uploaded = options.mediaV2VideoEnabled

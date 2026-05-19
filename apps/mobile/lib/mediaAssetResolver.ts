@@ -16,9 +16,16 @@ export type MediaAssetResolveResult = {
 };
 export type ChatVibeClipProcessingStatus = 'uploading' | 'processing' | 'ready' | 'failed';
 export type ChatVibeClipStatusSyncResult = {
+  uploadId: string | null;
+  matchId: string | null;
+  clientRequestId: string | null;
   status: ChatVibeClipProcessingStatus;
   messageId: string | null;
   providerObjectId: string | null;
+  expiresAt: string | null;
+  updatedAt: string | null;
+  providerReachable: boolean;
+  providerError: string | null;
 };
 
 type ResolverResponse = {
@@ -226,16 +233,38 @@ export async function syncChatVibeClipUploadStatus(input: {
       headers: { Authorization: `Bearer ${accessToken}` },
     });
     if (error) return null;
-    const payload = data as { status?: unknown; message_id?: unknown; provider_object_id?: unknown } | null;
+    const payload = data as {
+      upload_id?: unknown;
+      match_id?: unknown;
+      client_request_id?: unknown;
+      status?: unknown;
+      message_id?: unknown;
+      provider_object_id?: unknown;
+      expires_at?: unknown;
+      updated_at?: unknown;
+      provider_reachable?: unknown;
+      provider_error?: unknown;
+    } | null;
     const status = payload?.status;
     if (status !== 'uploading' && status !== 'processing' && status !== 'ready' && status !== 'failed') {
       return null;
     }
     return {
+      uploadId: typeof payload?.upload_id === 'string' && isUuid(payload.upload_id) ? payload.upload_id : null,
+      matchId: typeof payload?.match_id === 'string' && isUuid(payload.match_id) ? payload.match_id : null,
+      clientRequestId: typeof payload?.client_request_id === 'string' && isUuid(payload.client_request_id)
+        ? payload.client_request_id
+        : null,
       status,
       messageId: typeof payload?.message_id === 'string' && isUuid(payload.message_id) ? payload.message_id : null,
       providerObjectId: typeof payload?.provider_object_id === 'string' && payload.provider_object_id.trim()
         ? payload.provider_object_id.trim()
+        : null,
+      expiresAt: typeof payload?.expires_at === 'string' && payload.expires_at.trim() ? payload.expires_at.trim() : null,
+      updatedAt: typeof payload?.updated_at === 'string' && payload.updated_at.trim() ? payload.updated_at.trim() : null,
+      providerReachable: payload?.provider_reachable !== false,
+      providerError: typeof payload?.provider_error === 'string' && payload.provider_error.trim()
+        ? payload.provider_error.trim()
         : null,
     };
   } catch {

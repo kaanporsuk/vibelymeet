@@ -23,7 +23,9 @@ type Props = {
   onClose: () => void;
   onRecord: () => void;
   onChooseLibrary: () => void;
+  onChooseDebugFixture?: () => void;
   disabled?: boolean;
+  showDebugFixture?: boolean;
   /** Stabilizes rotating capture ideas (e.g. match id). */
   promptSeed?: string;
 };
@@ -36,7 +38,9 @@ export function VibeClipSendOptionsSheet({
   onClose,
   onRecord,
   onChooseLibrary,
+  onChooseDebugFixture,
   disabled,
+  showDebugFixture = false,
   promptSeed,
 }: Props) {
   const theme = Colors[useColorScheme()];
@@ -117,6 +121,33 @@ export function VibeClipSendOptionsSheet({
           </View>
         </Pressable>
 
+        {showDebugFixture && onChooseDebugFixture ? (
+          <Pressable
+            disabled={disabled}
+            onPress={() => {
+              if (!disabled) onChooseDebugFixture();
+            }}
+            style={({ pressed }) => [
+              styles.secondaryBtn,
+              styles.debugFixtureBtn,
+              {
+                borderColor: 'rgba(139,92,246,0.38)',
+                backgroundColor: 'rgba(139,92,246,0.1)',
+                opacity: pressed && !disabled ? 0.9 : 1,
+              },
+            ]}
+            accessibilityRole="button"
+            accessibilityLabel="Use smoke test video fixture"
+            testID="vibe-clip-debug-fixture-option"
+          >
+            <Ionicons name="flask-outline" size={20} color={ACCENT} />
+            <View style={styles.secondaryTextCol}>
+              <Text style={[styles.secondaryLabel, { color: theme.text }]}>Use smoke fixture</Text>
+              <Text style={[styles.secondaryHint, { color: theme.textSecondary }]}>CI-only upload path</Text>
+            </View>
+          </Pressable>
+        ) : null}
+
         <Pressable onPress={onClose} style={styles.cancelBtn} accessibilityRole="button" accessibilityLabel="Cancel">
           <Text style={[styles.cancelText, { color: theme.textSecondary }]}>Not now</Text>
         </Pressable>
@@ -194,6 +225,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.md,
     borderRadius: radius.lg,
     borderWidth: StyleSheet.hairlineWidth,
+  },
+  debugFixtureBtn: {
+    marginTop: spacing.sm,
   },
   secondaryTextCol: {
     flex: 1,

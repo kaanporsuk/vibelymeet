@@ -65,6 +65,7 @@ jobs:
       VIBELY_CVC_WEB_CHAT_URL: ${{ secrets.VIBELY_CVC_WEB_CHAT_URL }}
       VIBELY_CVC_WEB_STORAGE_STATE_JSON: ${{ secrets.VIBELY_CVC_WEB_STORAGE_STATE_JSON }}
       VIBELY_CVC_FIXTURE_VIDEO_BASE64: ${{ secrets.VIBELY_CVC_FIXTURE_VIDEO_BASE64 }}
+      VIBELY_CVC_STUCK_CLIENT_REQUEST_ID: ${{ secrets.VIBELY_CVC_STUCK_CLIENT_REQUEST_ID }}
       VIBELY_CVC_EXPECT_READY: '1'
     steps:
       - uses: actions/checkout@v6
@@ -100,7 +101,7 @@ jobs:
         if: env.VIBELY_CVC_SMOKE == '1'
         run: bash scripts/run_chat_vibe_clip_smoke_matrix.sh --web
 
-      # Matrix scenarios: happy-path, 4g-throttle, kill-mid-tus, webhook-delayed.
+      # Matrix scenarios: happy-path, 4g-throttle, kill-mid-tus, webhook-delayed,
+      # signed-url-mid-expiry, app-launch-stuck-processing-nudge.
       # kill-mid-tus stays opt-in via VIBELY_CVC_DISRUPTION_SMOKE to avoid creating
       # interrupted uploads on every scheduled run.
-
