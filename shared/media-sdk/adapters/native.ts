@@ -308,6 +308,17 @@ function createNativeUploadTask(input: NativeMediaUploadInput, options: Resolved
         enabled,
         adapter: "native",
       });
+      if (!enabled) {
+        controls.dispatch({
+          type: "fail",
+          error: {
+            code: "media_feature_disabled",
+            message: `${flag} is disabled`,
+            retryable: false,
+          },
+        });
+        return;
+      }
 
       const delegate = delegateForInput(input, options.delegates);
       if (!delegate) {

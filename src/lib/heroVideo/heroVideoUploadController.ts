@@ -37,6 +37,8 @@ export interface HeroVideoControllerState {
   phase: HeroVideoPhase;
   /** 0–100 during uploading; 100 after tus success */
   uploadProgress: number;
+  /** Active upload idempotency key; null for profile-resumed/background-only polls. */
+  clientRequestId: string | null;
   /** Set once create-video-upload returns credentials */
   videoId: string | null;
   errorMessage: string | null;
@@ -56,6 +58,7 @@ type HotImportMeta = ImportMeta & {
 let _state: HeroVideoControllerState = {
   phase: "idle",
   uploadProgress: 0,
+  clientRequestId: null,
   videoId: null,
   errorMessage: null,
 };
@@ -70,6 +73,7 @@ let _visibilityListenerAttached = false;
 let _visibilityChangeHandler: (() => void) | null = null;
 let _visibilityResumeInFlight = false;
 let _activePollVideoId: string | null = null;
+let _activeClientRequestId: string | null = null;
 
 /** 36 × 5 s = 3 min max poll window before silently going idle */
 const POLL_MAX_ATTEMPTS = 36;
@@ -92,6 +96,10 @@ function _stopPoll(): void {
   _activePollVideoId = null;
 }
 
+function _isCurrentPoll(expectedVideoId: string): boolean {
+  return _activePollVideoId === expectedVideoId;
+}
+
 function newHeroVideoClientRequestId(): string {
   const cryptoApi = globalThis.crypto;
   if (cryptoApi?.randomUUID) return cryptoApi.randomUUID();
@@ -110,6 +118,7 @@ function newHeroVideoClientRequestId(): string {
 }
 
 async function _pollTick(expectedVideoId: string): Promise<void> {
+  if (!_isCurrentPoll(expectedVideoId)) return;
   _pollAttempts++;
 
   try {
@@ -119,6 +128,7 @@ async function _pollTick(expectedVideoId: string): Promise<void> {
     if (!user) return;
 
     await syncCurrentVibeVideoStatus(expectedVideoId, "processing_poll");
+    if (!_isCurrentPoll(expectedVideoId)) return;
 
     const { data, error } = await supabase
       .from("profiles")
@@ -127,6 +137,7 @@ async function _pollTick(expectedVideoId: string): Promise<void> {
       .maybeSingle();
 
     if (error) return; // transient — keep polling
+    if (!_isCurrentPoll(expectedVideoId)) return;
 
     const rowUid =
       typeof data?.bunny_video_uid === "string" ? data.bunny_video_uid.trim() : "";
@@ -136,7 +147,8 @@ async function _pollTick(expectedVideoId: string): Promise<void> {
     // state cannot resurrect a processing card on the profile page.
     if (!rowUid) {
       _stopPoll();
-      _setState({ phase: "idle", uploadProgress: 0, videoId: null, errorMessage: null });
+      _activeClientRequestId = null;
+      _setState({ phase: "idle", uploadProgress: 0, clientRequestId: null, videoId: null, errorMessage: null });
       void queryClient.invalidateQueries({ queryKey: ["my-profile"] });
       return;
     }
@@ -144,7 +156,8 @@ async function _pollTick(expectedVideoId: string): Promise<void> {
     // If the profile now points to a different video, the user replaced it elsewhere
     if (rowUid && rowUid !== expectedVideoId) {
       _stopPoll();
-      _setState({ phase: "idle", videoId: null, errorMessage: null });
+      _activeClientRequestId = null;
+      _setState({ phase: "idle", clientRequestId: null, videoId: null, errorMessage: null });
       void queryClient.invalidateQueries({ queryKey: ["my-profile"] });
       return;
     }
@@ -177,6 +190,7 @@ async function _pollTick(expectedVideoId: string): Promise<void> {
     }
 
     if (st === "ready") {
+      if (!_isCurrentPoll(expectedVideoId)) return;
       _stopPoll();
       _setState({ phase: "ready", errorMessage: null });
       trackVibeVideoEvent(VIBE_VIDEO_EVENTS.readyObserved, {
@@ -189,6 +203,7 @@ async function _pollTick(expectedVideoId: string): Promise<void> {
     }
 
     if (st === "failed") {
+      if (!_isCurrentPoll(expectedVideoId)) return;
       _stopPoll();
       _setState({ phase: "failed", errorMessage: "Processing did not complete. Try uploading again." });
       trackVibeVideoEvent(VIBE_VIDEO_EVENTS.failedObserved, {
@@ -210,6 +225,7 @@ async function _pollTick(expectedVideoId: string): Promise<void> {
 
   // Timeout: keep the video visible as an in-progress asset and offer repair copy.
   if (_pollAttempts >= POLL_MAX_ATTEMPTS) {
+    if (!_isCurrentPoll(expectedVideoId)) return;
     _stopPoll();
     _setState({
       phase: "stalled",
@@ -282,9 +298,11 @@ export function heroVideoResumePollingForProfile(
     });
   }
 
+  _activeClientRequestId = null;
   _setState({
     phase: "processing",
     uploadProgress: 100,
+    clientRequestId: null,
     videoId: info.uid,
     errorMessage: null,
   });
@@ -310,7 +328,13 @@ function _handleVisibilityChange(): void {
     video_guid: videoId,
   });
 
+  _activePollVideoId = videoId;
+  _pollAttempts = 0;
+  _lastPollStatus = null;
   void _pollTick(videoId).finally(() => {
+    if (_activePollVideoId === videoId && _pollTimerId === null && _state.phase === "stalled") {
+      _activePollVideoId = null;
+    }
     _visibilityResumeInFlight = false;
   });
 }
@@ -366,6 +390,16 @@ export function heroVideoStart(
   caption?: string,
   context: HeroVideoUploadContext = "profile_studio",
 ): void {
+  heroVideoStartWithClientRequestId(file, caption, context);
+}
+
+export function heroVideoStartWithClientRequestId(
+  file: File | Blob,
+  caption?: string,
+  context: HeroVideoUploadContext = "profile_studio",
+  clientRequestId: string = newHeroVideoClientRequestId(),
+): void {
+  const uploadClientRequestId = clientRequestId.trim() || newHeroVideoClientRequestId();
   // Cancel existing upload if any
   if (_activeTus) {
     trackVibeVideoEvent(VIBE_VIDEO_EVENTS.replaceStarted, {
@@ -381,13 +415,19 @@ export function heroVideoStart(
     _activeTus = null;
   }
   _stopPoll();
+  _activeClientRequestId = uploadClientRequestId;
 
-  _setState({ phase: "uploading", uploadProgress: 0, videoId: null, errorMessage: null });
+  _setState({
+    phase: "uploading",
+    uploadProgress: 0,
+    clientRequestId: uploadClientRequestId,
+    videoId: null,
+    errorMessage: null,
+  });
   _activeRunStartedAt = Date.now();
-  const clientRequestId = newHeroVideoClientRequestId();
 
   // Run async in background
-  void _run(file, caption, context, clientRequestId);
+  void _run(file, caption, context, uploadClientRequestId);
 }
 
 async function _run(
@@ -398,14 +438,21 @@ async function _run(
 ): Promise<void> {
   let failurePhase: "credentials" | "tus" | "processing" = "credentials";
   let activeVideoId: string | null = null;
+  const isCurrentRun = () => _activeClientRequestId === clientRequestId;
+  const setStateIfCurrent = (patch: Partial<HeroVideoControllerState>) => {
+    if (!isCurrentRun()) return false;
+    _setState(patch);
+    return true;
+  };
 
   try {
     const {
       data: { session },
     } = await supabase.auth.getSession();
+    if (!isCurrentRun()) return;
 
     if (!session?.access_token) {
-      _setState({ phase: "failed", errorMessage: "Not authenticated. Please sign in." });
+      setStateIfCurrent({ phase: "failed", errorMessage: "Not authenticated. Please sign in." });
       trackVibeVideoEvent(VIBE_VIDEO_EVENTS.credentialsRequestFailed, {
         source: "hero_video_controller",
         upload_context: context,
@@ -434,7 +481,7 @@ async function _run(
         },
       );
     } catch (error) {
-      _setState({ phase: "failed", errorMessage: "Network error. Check your connection and try again." });
+      setStateIfCurrent({ phase: "failed", errorMessage: "Network error. Check your connection and try again." });
       trackVibeVideoEvent(VIBE_VIDEO_EVENTS.credentialsRequestFailed, {
         source: "hero_video_controller",
         upload_context: context,
@@ -447,6 +494,7 @@ async function _run(
       });
       return;
     }
+    if (!isCurrentRun()) return;
 
     let creds: Record<string, unknown> = {};
     try {
@@ -454,10 +502,11 @@ async function _run(
     } catch {
       /* empty body */
     }
+    if (!isCurrentRun()) return;
 
     if (!credRes.ok || creds.success !== true) {
       const msg = String(creds.error ?? creds.message ?? `Upload service error (${credRes.status})`);
-      _setState({ phase: "failed", errorMessage: msg });
+      setStateIfCurrent({ phase: "failed", errorMessage: msg });
       trackVibeVideoEvent(VIBE_VIDEO_EVENTS.credentialsRequestFailed, {
         source: "hero_video_controller",
         upload_context: context,
@@ -474,7 +523,7 @@ async function _run(
     const signature = String(creds.signature ?? "");
 
     if (!videoId || !signature || libraryId == null || expirationTime == null) {
-      _setState({ phase: "failed", errorMessage: "Incomplete upload credentials. Please try again." });
+      setStateIfCurrent({ phase: "failed", errorMessage: "Incomplete upload credentials. Please try again." });
       trackVibeVideoEvent(VIBE_VIDEO_EVENTS.credentialsRequestFailed, {
         source: "hero_video_controller",
         upload_context: context,
@@ -484,7 +533,7 @@ async function _run(
       return;
     }
 
-    _setState({ videoId });
+    if (!setStateIfCurrent({ videoId })) return;
     activeVideoId = videoId;
     trackVibeVideoEvent(VIBE_VIDEO_EVENTS.credentialsRequestSucceeded, {
       source: "hero_video_controller",
@@ -523,7 +572,7 @@ async function _run(
         },
         onProgress: (bytesUploaded: number, bytesTotal: number) => {
           if (bytesTotal > 0) {
-            _setState({ uploadProgress: Math.round((bytesUploaded / bytesTotal) * 100) });
+            setStateIfCurrent({ uploadProgress: Math.round((bytesUploaded / bytesTotal) * 100) });
           }
         },
         onSuccess: () => {
@@ -534,6 +583,7 @@ async function _run(
       _activeTus = upload;
       upload.start();
     });
+    if (!isCurrentRun()) return;
 
     _activeTus = null;
     trackVibeVideoEvent(VIBE_VIDEO_EVENTS.tusUploadSucceeded, {
@@ -560,9 +610,10 @@ async function _run(
     }
 
     // ── Move to processing, start backend poll ────────────────────────────────
-    _setState({ phase: "processing", uploadProgress: 100 });
+    if (!setStateIfCurrent({ phase: "processing", uploadProgress: 100 })) return;
     _startPoll(videoId);
   } catch (err) {
+    if (!isCurrentRun()) return;
     _activeTus = null;
     _stopPoll();
     const msg = err instanceof Error ? err.message : "Upload failed. Please try again.";
@@ -621,5 +672,6 @@ export function heroVideoReset(): void {
     _activeTus = null;
   }
   _stopPoll();
-  _setState({ phase: "idle", uploadProgress: 0, videoId: null, errorMessage: null });
+  _activeClientRequestId = null;
+  _setState({ phase: "idle", uploadProgress: 0, clientRequestId: null, videoId: null, errorMessage: null });
 }

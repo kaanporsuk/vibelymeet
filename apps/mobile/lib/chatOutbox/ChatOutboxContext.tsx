@@ -20,6 +20,7 @@ import { cleanupOutboxCacheUri } from '@/lib/chatOutbox/mediaCache';
 import type { ChatOutboxItem, ChatOutboxPayload, ChatOutboxQueueState } from '@/lib/chatOutbox/types';
 import { trackVibeClipEvent } from '@/lib/vibeClipAnalytics';
 import { invalidateAfterThreadMutation } from '@/lib/chatApi';
+import { useFeatureFlag } from '@/hooks/useFeatureFlag';
 import { classifySendFailureMessage, durationBucketFromSeconds } from '../../../../shared/chat/vibeClipAnalytics';
 
 type ChatOutboxContextValue = {
@@ -93,6 +94,7 @@ function recoverInterruptedSendingItems(
 export function ChatOutboxProvider({ children }: { children: React.ReactNode }) {
   const { user } = useAuth();
   const userId = user?.id ?? null;
+  const mediaV2Video = useFeatureFlag('media_v2_video');
   const [items, setItems] = useState<ChatOutboxItem[]>([]);
   const itemsRef = useRef(items);
   const processingRef = useRef<Set<string>>(new Set());
@@ -371,7 +373,8 @@ export function ChatOutboxProvider({ children }: { children: React.ReactNode }) 
                     : it
                 )
               );
-            }
+            },
+            { mediaV2VideoEnabled: mediaV2Video.enabled }
           );
           const successAtMs = Date.now();
           setItems((prev) =>
@@ -440,7 +443,7 @@ export function ChatOutboxProvider({ children }: { children: React.ReactNode }) 
         }
       }
     },
-    [userId]
+    [mediaV2Video.enabled, userId]
   );
 
   const value = useMemo<ChatOutboxContextValue>(

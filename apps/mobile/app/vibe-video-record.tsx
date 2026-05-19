@@ -3,7 +3,7 @@
  *
  * Stages owned by this screen: idle → recording → preview
  * After the user taps "Upload Vibe Video":
- *   1. nativeHeroVideoStart() hands off to the controller.
+ *   1. startNativeVibeVideoUpload() hands off to SDK/controller.
  *   2. This screen navigates immediately back to Vibe Studio (or onboarding).
  *   3. The controller runs tus upload + poll in the background.
  *   4. Vibe Studio subscribes to the controller and shows live status.
@@ -40,8 +40,9 @@ import { fetchMyProfile, MY_PROFILE_STALE_TIME_MS, myProfileQueryKey } from '@/l
 import { setSafeAudioMode } from '@/lib/safeAudioMode';
 import { KeyboardAwareCenteredModal } from '@/components/keyboard/KeyboardAwareCenteredModal';
 import { useVibelyDialog } from '@/components/VibelyDialog';
-import { nativeHeroVideoStart } from '@/lib/nativeHeroVideoUploadController';
 import { useAuth } from '@/context/AuthContext';
+import { useFeatureFlag } from '@/hooks/useFeatureFlag';
+import { startNativeVibeVideoUpload } from '@/lib/mediaSdk/nativeVideoUploads';
 
 const MAX_DURATION_SEC = 15;
 const CAPTION_MAX = 50;
@@ -81,6 +82,7 @@ export default function VibeVideoRecordScreen() {
   const { show, dialog } = useVibelyDialog();
   const { user } = useAuth();
   const userId = user?.id ?? null;
+  const mediaV2Video = useFeatureFlag('media_v2_video');
 
   const { data: myProfile } = useQuery({
     queryKey: myProfileQueryKey(userId ?? 'none'),
@@ -291,7 +293,13 @@ export default function VibeVideoRecordScreen() {
         had_existing_caption: existingCaption.length > 0,
       });
     }
-    nativeHeroVideoStart(recordedUri, caption, context, uploadSourceRef.current);
+    startNativeVibeVideoUpload({
+      uri: recordedUri,
+      caption,
+      context,
+      uploadSource: uploadSourceRef.current,
+      mediaV2VideoEnabled: mediaV2Video.enabled,
+    });
 
     if (onboardingFlow) {
       returnToOnboarding();

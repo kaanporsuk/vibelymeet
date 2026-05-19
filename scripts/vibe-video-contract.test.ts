@@ -307,7 +307,8 @@ test("web stalled Vibe Video polling resumes once when the tab becomes visible",
   assert.match(webController, /_visibilityResumeInFlight = true/);
   assert.match(webController, /VIBE_VIDEO_EVENTS\.pollStalledVisible/);
   assert.match(webController, /VIBE_VIDEO_EVENTS\.visibilityResumePoll/);
-  assert.match(webController, /void _pollTick\(videoId\)\.finally\(\(\) => \{[\s\S]*?_visibilityResumeInFlight = false/);
+  assert.match(webController, /_activePollVideoId = videoId[\s\S]{0,80}_pollAttempts = 0[\s\S]{0,80}_lastPollStatus = null/);
+  assert.match(webController, /void _pollTick\(videoId\)\.finally\(\(\) => \{[\s\S]*?_state\.phase === "stalled"[\s\S]*?_activePollVideoId = null[\s\S]*?_visibilityResumeInFlight = false/);
 });
 
 test("UID-only Vibe Score and onboarding UID preservation remain source-backed", () => {
@@ -886,7 +887,9 @@ test("native upload flow preserves real source telemetry and 15-second duration 
   assert.match(controller, /\{ signal: uploadAc\.signal, uploadSource \}/);
   assert.doesNotMatch(controller, /uploadSource: 'unknown'/);
 
-  assert.match(record, /nativeHeroVideoStart\(recordedUri, caption, context, uploadSourceRef\.current\)/);
+  assert.match(record, /useFeatureFlag\('media_v2_video'\)/);
+  assert.match(record, /startNativeVibeVideoUpload\(\{[\s\S]{0,220}uri: recordedUri[\s\S]{0,220}uploadSource: uploadSourceRef\.current/);
+  assert.match(record, /mediaV2VideoEnabled: mediaV2Video\.enabled/);
   assert.match(record, /videoMaxDuration: MAX_DURATION_SEC/);
   assert.doesNotMatch(record, /videoMaxDuration: 20/);
   assert.match(onboardingStep, /Up to 15 seconds/);
@@ -934,11 +937,14 @@ test("media v2 Vibe Video attempts are schema-backed and dual-written by server 
   assert.match(createUpload, /@supabase\/supabase-js@2\.88\.0/);
 
   assert.match(webController, /newHeroVideoClientRequestId/);
+  assert.match(webController, /heroVideoStartWithClientRequestId/);
+  assert.match(webController, /const uploadClientRequestId = clientRequestId\.trim\(\) \|\| newHeroVideoClientRequestId\(\)/);
   assert.match(webController, /body: JSON\.stringify\(\{ context, client_request_id: clientRequestId \}\)/);
   assert.match(webController, /title: `vibe-video-\$\{clientRequestId\}`/);
   assert.match(nativeApi, /export function newVibeVideoClientRequestId/);
   assert.match(nativeApi, /client_request_id: clientRequestId/);
-  assert.match(nativeController, /const clientRequestId = newVibeVideoClientRequestId\(\)/);
+  assert.match(nativeController, /nativeHeroVideoStartWithClientRequestId/);
+  assert.match(nativeController, /const uploadClientRequestId = clientRequestId\.trim\(\) \|\| newVibeVideoClientRequestId\(\)/);
   assert.match(nativeController, /getCreateVideoUploadCredentials\(\{ context, clientRequestId \}\)/);
 
   assert.match(syncStatus, /\.from\("vibe_video_uploads"\)/);
@@ -959,4 +965,55 @@ test("media v2 Vibe Video attempts are schema-backed and dual-written by server 
   assert.match(webhook, /draftMediaSessionId: typeof sr\.session_id === "string" \? sr\.session_id : null/);
   assert.match(webhook, /video_webhook_vibe_video_upload_attempt_update_failed/);
   assert.match(webhook, /upload_attempt_id: attemptSync\.attemptId/);
+});
+
+test("media v2 Vibe Video caller cutover is flag-gated and still controller-backed", () => {
+  const webStep = read("src/pages/onboarding/steps/VibeVideoStep.tsx");
+  const webModal = read("src/components/vibe-video/VibeStudioModal.tsx");
+  const webSdk = read("src/lib/mediaSdk/webVideoUploads.ts");
+  const nativeRecord = read("apps/mobile/app/vibe-video-record.tsx");
+  const nativeSdk = read("apps/mobile/lib/mediaSdk/nativeVideoUploads.ts");
+
+  assert.doesNotMatch(webStep, /import \{ heroVideoStart \}/);
+  assert.match(webStep, /useFeatureFlag\("media_v2_video"\)/);
+  assert.match(webStep, /startWebVibeVideoUpload\(\{[\s\S]{0,180}source: file[\s\S]{0,160}context: "onboarding"/);
+  assert.match(webStep, /mediaV2VideoEnabled: mediaV2Video\.enabled/);
+
+  assert.doesNotMatch(webModal, /import \{ heroVideoStart \}/);
+  assert.match(webModal, /useFeatureFlag\("media_v2_video"\)/);
+  assert.match(webModal, /startWebVibeVideoUpload\(\{[\s\S]{0,180}caption: captionForUpload[\s\S]{0,180}context: uploadContext/);
+  assert.match(webModal, /mediaV2VideoEnabled: mediaV2Video\.enabled/);
+
+  assert.doesNotMatch(nativeRecord, /import \{ nativeHeroVideoStart \}/);
+  assert.match(nativeRecord, /useFeatureFlag\('media_v2_video'\)/);
+  assert.match(nativeRecord, /startNativeVibeVideoUpload\(\{[\s\S]{0,220}uri: recordedUri[\s\S]{0,220}context,[\s\S]{0,160}uploadSource: uploadSourceRef\.current/);
+  assert.match(nativeRecord, /mediaV2VideoEnabled: mediaV2Video\.enabled/);
+
+  assert.match(webSdk, /createWebMediaSdk/);
+  assert.match(webSdk, /createStaticMediaFeatureFlagGate\(\{ media_v2_video: true \}\)/);
+  assert.match(webSdk, /uploadVibeVideo: uploadWebVibeVideoViaController/);
+  assert.match(webSdk, /heroVideoStartWithClientRequestId/);
+  assert.match(webSdk, /heroVideoStart\(params\.source, params\.caption, context\)/);
+  assert.match(webSdk, /mirrorHeroVideoControllerToSdk/);
+  assert.match(webSdk, /state\.clientRequestId !== clientRequestId/);
+  assert.match(webSdk, /vibe_video_upload_replaced/);
+  assert.match(webSdk, /controls\.snapshot\(\)\.clientRequestId/);
+  assert.match(webSdk, /shouldResetHeroVideoForTask\(state: HeroVideoControllerState, clientRequestId: string\)/);
+  assert.match(webSdk, /state\.clientRequestId === clientRequestId && state\.phase !== "ready"/);
+  assert.match(webSdk, /shouldResetHeroVideoForTask\(heroVideoGetState\(\), clientRequestId\)[\s\S]{0,80}heroVideoReset\(\)/);
+
+  assert.match(nativeSdk, /createNativeMediaSdk/);
+  assert.match(nativeSdk, /createStaticMediaFeatureFlagGate\(\{ media_v2_video: true \}\)/);
+  assert.match(nativeSdk, /AsyncStorage/);
+  assert.match(nativeSdk, /FileSystem/);
+  assert.match(nativeSdk, /uploadVibeVideo: uploadNativeVibeVideoViaController/);
+  assert.match(nativeSdk, /nativeHeroVideoStartWithClientRequestId/);
+  assert.match(nativeSdk, /nativeHeroVideoStart\(params\.uri, params\.caption, context, params\.uploadSource\)/);
+  assert.match(nativeSdk, /mirrorNativeHeroVideoControllerToSdk/);
+  assert.match(nativeSdk, /state\.clientRequestId !== clientRequestId/);
+  assert.match(nativeSdk, /vibe_video_upload_replaced/);
+  assert.match(nativeSdk, /controls\.snapshot\(\)\.clientRequestId/);
+  assert.match(nativeSdk, /shouldResetHeroVideoForTask\(state: NativeHeroVideoControllerState, clientRequestId: string\)/);
+  assert.match(nativeSdk, /state\.clientRequestId === clientRequestId && state\.phase !== 'ready'/);
+  assert.match(nativeSdk, /shouldResetHeroVideoForTask\(nativeHeroVideoGetState\(\), clientRequestId\)[\s\S]{0,80}nativeHeroVideoReset\(\)/);
 });

@@ -154,6 +154,17 @@ function createWebUploadTask(input: WebMediaUploadInput, options: Required<WebMe
         enabled,
         adapter: "web",
       });
+      if (!enabled) {
+        controls.dispatch({
+          type: "fail",
+          error: {
+            code: "media_feature_disabled",
+            message: `${flag} is disabled`,
+            retryable: false,
+          },
+        });
+        return;
+      }
 
       const delegate = delegateForInput(input, options.delegates);
       if (!delegate) {
