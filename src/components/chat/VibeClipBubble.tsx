@@ -234,15 +234,8 @@ export const VibeClipBubble = ({
     ) {
       return;
     }
-    let cancelled = false;
     posterRefreshAttemptedForRef.current = posterResolveKey;
-    void refreshClipMedia("preview").then((didRefresh) => {
-      if (cancelled) return;
-      if (didRefresh) posterRefreshAttemptedForRef.current = null;
-    });
-    return () => {
-      cancelled = true;
-    };
+    void refreshClipMedia("preview");
   }, [playableThumbnailUrl, refreshClipMedia, shouldResolvePosterPreview, thumbnailSourceRef]);
 
   const markReadyIfPossible = useCallback(() => {

@@ -50,6 +50,7 @@ class FakeVideoElement {
   loadCount = 0;
   removedSrc = false;
   canPlayTypeValue = "";
+  playError: unknown = null;
   listeners = new Map<string, Set<() => void>>();
 
   canPlayType(): string {
@@ -58,6 +59,7 @@ class FakeVideoElement {
 
   play(): Promise<void> {
     this.playCount++;
+    if (this.playError) return Promise.reject(this.playError);
     return Promise.resolve();
   }
 
@@ -156,12 +158,13 @@ test("attachHlsPlayback uses Safari native-HLS path and cleanup", () => {
   const cleanup = attachHlsPlayback(video as unknown as HTMLVideoElement, "https://cdn.example/video/playlist.m3u8");
 
   assert.equal(video.src, "https://cdn.example/video/playlist.m3u8");
+  assert.equal(video.loadCount, 1);
   assert.equal(video.playCount, 1);
 
   cleanup();
 
   assert.equal(video.pauseCount, 1);
-  assert.equal(video.loadCount, 1);
+  assert.equal(video.loadCount, 2);
   assert.equal(video.removedSrc, true);
 });
 
@@ -219,6 +222,30 @@ test("attachHlsPlayback reports unsupported and only the first playback error", 
 
   fatalVideo.dispatch("error");
   assert.equal(errors.at(-1), "fatal");
+  __setHlsLoaderForTest(null);
+});
+
+test("attachHlsPlayback reports autoplay blocking separately from fatal media errors", async () => {
+  resetFakeHls();
+  const video = new FakeVideoElement();
+  video.playError = Object.assign(new Error("autoplay blocked"), { name: "NotAllowedError" });
+  const errors: string[] = [];
+  const autoplayBlocks: unknown[] = [];
+
+  attachHlsPlayback(video as unknown as HTMLVideoElement, "https://cdn.example/video/playlist.m3u8", {
+    onAutoplayBlocked: (detail) => autoplayBlocks.push(detail),
+    onError: (kind) => errors.push(kind),
+  });
+  await flushPromises();
+  FakeHls.instances[0].emit(FakeHls.Events.MANIFEST_PARSED);
+  await flushPromises();
+
+  assert.equal(video.playCount, 1);
+  assert.equal(autoplayBlocks.length, 1);
+  assert.deepEqual(errors, []);
+
+  FakeHls.instances[0].emit(FakeHls.Events.ERROR, { fatal: true, type: "networkError" });
+  assert.deepEqual(errors, ["fatal"]);
   __setHlsLoaderForTest(null);
 });
 

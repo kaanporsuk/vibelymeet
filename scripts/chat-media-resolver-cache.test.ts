@@ -271,6 +271,7 @@ assert.match(webClipBubble, /type VibeClipMediaRefreshReason = "preview" \| "ini
 assert.match(webClipBubble, /reason === "manual" \? \{ bypassFailureCooldown: true \} : undefined/);
 assert.match(webClipBubble, /refreshCachedChatMediaUrl\(sparkMessageId, "vibe_clip", videoSourceRef, refreshOptions\)/);
 assert.match(webClipBubble, /refreshCachedChatMediaUrl\(sparkMessageId, "thumbnail", thumbnailSourceRef, refreshOptions\)/);
+assert.doesNotMatch(webClipBubble, /if \(didRefresh\) posterRefreshAttemptedForRef\.current = null/);
 assert.match(
   webClipBubble,
   /if \(reason === "playback"\) \{[\s\S]*playbackRefreshAttemptCountRef\.current \+= 1;[\s\S]*const freshThumbnailUrl/,
@@ -297,8 +298,19 @@ assert.match(
 );
 assert.match(webVideoLightbox, /type LightboxMediaRefreshReason = "initial" \| "playback" \| "manual"/);
 assert.match(webVideoLightbox, /reason === "manual" \? \{ bypassFailureCooldown: true \} : undefined/);
+assert.match(webVideoLightbox, /getCachedChatMediaUrl\(messageId, "thumbnail", thumbnailSourceRef\)/);
+assert.match(webVideoLightbox, /onAutoplayBlocked: revealPlayer/);
+assert.doesNotMatch(webVideoLightbox, /onWaiting=\{\(\) => setPhase\("loading"\)\}/);
 assert.match(webVideoLightbox, /CLIP_PLAYBACK_LOAD_TIMEOUT_MS/);
 assert.match(webVideoLightbox, /phase !== "loading" \|\| !canMountPlayer/);
+assert.match(
+  webVideoLightbox,
+  /const timeoutId = window\.setTimeout\(\(\) => \{[\s\S]{0,80}revealPlayer\(\);[\s\S]{0,80}\}, CLIP_PLAYBACK_LOAD_TIMEOUT_MS\);/,
+);
+assert.doesNotMatch(
+  webVideoLightbox,
+  /const timeoutId = window\.setTimeout\(\(\) => \{[\s\S]{0,180}refreshMedia\(\)/,
+);
 assert.match(webClipBubble, /playbackRefreshAttemptCountRef\.current = 0;[\s\S]{0,160}setLoadError\(false\)/);
 assert.match(webMediaResolver, /type MediaUrlIssueResult/);
 assert.match(webMediaResolver, /if \(error\) return \{ kind: "transient_failure" \};/);
@@ -336,6 +348,7 @@ assert.match(nativeClipCard, /onResolvedVideoUrl\?\.\(freshVideoUri\)/);
 assert.match(nativeClipCard, /onResolvedThumbnailUrl\?\.\(freshThumbnailUri\)/);
 assert.match(nativeClipCard, /\(!videoSourceRef && !thumbnailSourceRef\)/);
 assert.match(nativeClipCard, /freshThumbnailUri !== playableThumbnailUrl/);
+assert.doesNotMatch(nativeClipCard, /if \(didRefresh\) posterRefreshAttemptedForRef\.current = null/);
 assert.match(
   nativeChatScreen,
   /if \(!freshUri \|\| freshUri === playableUri\) return false;[\s\S]{0,80}refreshAttemptedForUriRef\.current = playableUri;[\s\S]{0,160}return true;/,
@@ -370,6 +383,14 @@ assert.match(
 );
 assert.match(nativeMediaViewer, /CLIP_PLAYBACK_LOAD_TIMEOUT_MS/);
 assert.match(nativeMediaViewer, /phase !== 'loading'/);
+assert.match(
+  nativeMediaViewer,
+  /const timeoutId = setTimeout\(\(\) => \{[\s\S]{0,80}revealPlayer\(\);[\s\S]{0,80}\}, CLIP_PLAYBACK_LOAD_TIMEOUT_MS\);/,
+);
+assert.doesNotMatch(
+  nativeMediaViewer,
+  /const timeoutId = setTimeout\(\(\) => \{[\s\S]{0,180}onRefreshMedia\(\)/,
+);
 assert.match(nativeMediaViewer, /onResetPlaybackRefreshAttempt/);
 assert.match(nativeMediaResolver, /type MediaUrlIssueResult/);
 assert.match(nativeMediaResolver, /if \(!accessToken\) return \{ kind: 'transient_failure' \};/);
