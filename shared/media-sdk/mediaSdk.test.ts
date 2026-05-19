@@ -576,7 +576,7 @@ test("native photo transcode hook probes dimensions before one lossy resize pass
   );
 
   assert.deepEqual(calls, [
-    { uri: source.uri, actions: [], options: undefined },
+    { uri: source.uri, actions: [], options: { compress: 1, format: "png" } },
     { uri: source.uri, actions: [{ resize: { width: 2048 } }], options: { compress: 0.85, format: "jpeg" } },
   ]);
   assert.equal(prepared.uri, "file:///tmp/cached-chat-photo-ready.jpg");

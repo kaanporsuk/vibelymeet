@@ -385,6 +385,12 @@ test("create-video-upload requires durable media-session state before credential
   assert.match(edge, /isReusableVibeVideoUploadAttemptStatus/);
   assert.match(edge, /create_video_upload_attempt_terminal_reuse_rejected/);
   assert.match(edge, /create_video_upload_attempt_reuse_waiting_for_durable_link/);
+  assert.match(edge, /REUSABLE_ATTEMPT_LINK_WAIT_DELAYS_MS/);
+  assert.match(edge, /isDurablyLinkedUploadAttempt/);
+  assert.match(edge, /waitForDurableReusableUploadAttempt/);
+  assert.match(edge, /has_media_session/);
+  assert.match(edge, /has_media_asset/);
+  assert.match(edge, /profile_linked/);
   assert.match(edge, /create_video_upload_attempt_session_link_failed/);
   assert.match(edge, /create_video_upload_attempt_asset_link_failed_but_repairable/);
   assert.match(edge, /bunny_create_invalid_response/);
@@ -934,6 +940,8 @@ test("media v2 Vibe Video attempts are schema-backed and dual-written by server 
   assert.match(createUpload, /create_video_upload_attempt_reused_after_duplicate/);
   assert.match(createUpload, /upload_attempt_terminal/);
   assert.match(createUpload, /upload_attempt_not_durable/);
+  assert.match(createUpload, /durable_via_profile/);
+  assert.match(createUpload, /repairableLifecycleState: durableAttemptMediaAssetId\(reusableAttempt\) == null/);
   assert.match(createUpload, /provider_object_id: videoId/);
   assert.match(createUpload, /media_asset_id: mediaAssetId/);
   assert.match(createUpload, /draft_media_session_id: sessionId/);

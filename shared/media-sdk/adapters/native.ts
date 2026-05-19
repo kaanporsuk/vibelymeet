@@ -457,11 +457,15 @@ export const nativeMediaTranscodeHooks = {
       compress: options.compress ?? 0.85,
       format: options.format ?? "jpeg",
     };
+    const dimensionProbeOptions = {
+      compress: 1,
+      format: "png",
+    };
     const actions = resizeActionsForNativePhoto(source, maxEdge);
     const result = hasNativePhotoDimensions(source)
       ? await imageManipulator.manipulateAsync(source.uri, actions, manipulationOptions)
       : await (async () => {
-          const probe = await imageManipulator.manipulateAsync(source.uri, [], undefined);
+          const probe = await imageManipulator.manipulateAsync(source.uri, [], dimensionProbeOptions);
           const followUpActions = resizeActionsForNativePhoto(probe, maxEdge);
           return imageManipulator.manipulateAsync(source.uri, followUpActions, manipulationOptions);
         })();
