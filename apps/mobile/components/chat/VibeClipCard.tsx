@@ -40,7 +40,7 @@ type Props = {
   onResolvedVideoUrl?: (url: string) => void;
   onResolvedThumbnailUrl?: (url: string) => void;
   /** Opens full-screen chat video viewer. */
-  onRequestImmersive?: () => void;
+  onRequestImmersive?: (media?: { videoUrl: string; thumbnailUrl?: string | null }) => void;
   /** Pause inline preview while immersive viewer is open for this URL. */
   immersiveActive?: boolean;
   /** Mount the native player only after an explicit play/open request. */
@@ -487,7 +487,7 @@ function VibeClipCardInner({
 
         {onRequestImmersive ? (
           <Pressable
-            onPress={onRequestImmersive}
+            onPress={() => onRequestImmersive()}
             style={({ pressed }) => [
               styles.expandBtn,
               {
@@ -682,6 +682,7 @@ function VibeClipCardPosterOnly({
   const hasPosterVisual = !!meta.thumbnailUrl && posterState !== 'failed';
   const isProcessing = isServerProcessingClip(meta);
   const isFailed = isFailedClip(meta);
+  const canOpenImmersive = isRemotePlaybackUri(meta.videoUrl) || isLocalPreviewUri(meta.videoUrl);
 
   return (
     <View
@@ -709,7 +710,15 @@ function VibeClipCardPosterOnly({
 
         {onRequestImmersive && !isProcessing && !isFailed ? (
           <Pressable
-            onPress={onRequestImmersive}
+            onPress={() => {
+              if (!canOpenImmersive) {
+                void onRefreshClipMedia('initial').then((didRefresh) => {
+                  if (didRefresh) onRequestImmersive();
+                });
+                return;
+              }
+              onRequestImmersive();
+            }}
             style={({ pressed }) => [
               styles.expandBtn,
               {
@@ -772,6 +781,7 @@ export function VibeClipCard(props: Props) {
     meta,
     onResolvedThumbnailUrl,
     onResolvedVideoUrl,
+    onRequestImmersive,
     onPosterPreviewStateChange,
     posterPreviewState,
     shouldMountPlayer: shouldMountPlayerProp,
@@ -791,6 +801,8 @@ export function VibeClipCard(props: Props) {
     useState<VibeClipPosterPreviewState>('unknown');
   const playbackRefreshAttemptCountRef = useRef(0);
   const posterRefreshAttemptedForRef = useRef<string | null>(null);
+  const playableVideoUrlRef = useRef(meta.videoUrl);
+  const playableThumbnailUrlRef = useRef<string | null>(meta.thumbnailUrl ?? null);
   const statusSyncInFlightRef = useRef(false);
   const statusSyncRunIdRef = useRef(0);
   const isMountedRef = useRef(true);
@@ -805,6 +817,8 @@ export function VibeClipCard(props: Props) {
   }, []);
 
   useEffect(() => {
+    playableVideoUrlRef.current = meta.videoUrl;
+    playableThumbnailUrlRef.current = meta.thumbnailUrl ?? null;
     setForceMountPlayer(false);
     setInlinePlayRequestToken(0);
     setRetryNonce(0);
@@ -939,6 +953,7 @@ export function VibeClipCard(props: Props) {
       ? await refreshCachedChatMediaUrl(sparkMessageId, 'thumbnail', thumbnailSourceRef, refreshOptions)
       : null;
     if (freshThumbnailUri) {
+      playableThumbnailUrlRef.current = freshThumbnailUri;
       if (freshThumbnailUri !== playableThumbnailUrl) setFallbackPosterPreviewState('unknown');
       setPlayableThumbnailUrl(freshThumbnailUri);
       onResolvedThumbnailUrl?.(freshThumbnailUri);
@@ -948,6 +963,7 @@ export function VibeClipCard(props: Props) {
 
     const freshVideoUri = await refreshCachedChatMediaUrl(sparkMessageId, 'vibe_clip', videoSourceRef, refreshOptions);
     if (!freshVideoUri || freshVideoUri === playableVideoUrl) return false;
+    playableVideoUrlRef.current = freshVideoUri;
     setPlayableVideoUrl(freshVideoUri);
     onResolvedVideoUrl?.(freshVideoUri);
     return true;
@@ -960,6 +976,13 @@ export function VibeClipCard(props: Props) {
     thumbnailSourceRef,
     videoSourceRef,
   ]);
+
+  const requestImmersiveWithCurrentMedia = useCallback(() => {
+    onRequestImmersive?.({
+      videoUrl: playableVideoUrlRef.current,
+      thumbnailUrl: playableThumbnailUrlRef.current,
+    });
+  }, [onRequestImmersive]);
 
   useEffect(() => {
     const posterResolveKey = thumbnailSourceRef ?? playableThumbnailUrl ?? '';
@@ -990,6 +1013,7 @@ export function VibeClipCard(props: Props) {
     meta: resolvedMeta,
     posterPreviewState: effectivePosterPreviewState,
     onPosterPreviewStateChange: setPosterPreviewState,
+    onRequestImmersive: requestImmersiveWithCurrentMedia,
   };
 
   const canMountPlayer = isRemotePlaybackUri(playableVideoUrl) || isLocalPreviewUri(playableVideoUrl);

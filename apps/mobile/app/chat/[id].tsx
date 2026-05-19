@@ -2568,10 +2568,10 @@ export default function ChatThreadScreen() {
                       setReactionPickerMessageId(item.id);
                     }
               }
-              onRequestImmersive={() =>
+              onRequestImmersive={(media) =>
                 setVideoViewer({
-                  uri: displayClipMeta.videoUrl,
-                  poster: displayClipMeta.thumbnailUrl ?? null,
+                  uri: media?.videoUrl ?? displayClipMeta.videoUrl,
+                  poster: media?.thumbnailUrl ?? displayClipMeta.thumbnailUrl ?? null,
                   messageId: item.id,
                   sourceRef: item.video_source_ref,
                   thumbnailSourceRef: item.thumbnail_source_ref,

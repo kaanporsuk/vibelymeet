@@ -2,7 +2,7 @@
  * Persist Vibe Arcade game events (append-only). Sync validation rules with shared/vibely-games/.
  */
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2.88.0";
+import { createClient, SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.88.0";
 import { syncChatMessageMedia } from "../_shared/media-lifecycle.ts";
 
 const corsHeaders = {
@@ -63,27 +63,33 @@ function isSafeUrl(s: string): boolean {
   }
 }
 
+type BlockedUserRow = {
+  id: string;
+};
+
 async function isPairBlocked(
-  serviceClient: ReturnType<typeof createClient>,
+  serviceClient: SupabaseClient,
   userA: string,
   userB: string,
 ): Promise<boolean> {
-  const { data: blockA, error: blockAError } = await serviceClient
+  const { data: blockAData, error: blockAError } = await serviceClient
     .from("blocked_users")
     .select("id")
     .eq("blocker_id", userA)
     .eq("blocked_id", userB)
     .maybeSingle();
+  const blockA = blockAData as BlockedUserRow | null;
 
   if (blockAError) throw blockAError;
   if (blockA?.id) return true;
 
-  const { data: blockB, error: blockBError } = await serviceClient
+  const { data: blockBData, error: blockBError } = await serviceClient
     .from("blocked_users")
     .select("id")
     .eq("blocker_id", userB)
     .eq("blocked_id", userA)
     .maybeSingle();
+  const blockB = blockBData as BlockedUserRow | null;
 
   if (blockBError) throw blockBError;
   return Boolean(blockB?.id);
@@ -126,7 +132,7 @@ type SessionRow = {
 };
 
 async function loadSessionRows(
-  serviceClient: ReturnType<typeof createClient>,
+  serviceClient: SupabaseClient,
   matchId: string,
   gameSessionId: string,
 ): Promise<SessionRow[]> {
@@ -327,7 +333,7 @@ function completeReason(gameType: string, eventType: string): string {
 }
 
 async function ensureGameMessageMediaOrRollback(
-  serviceClient: ReturnType<typeof createClient>,
+  serviceClient: SupabaseClient,
   messageId: string,
 ): Promise<boolean> {
   const syncResult = await syncChatMessageMedia(serviceClient, messageId);
@@ -556,7 +562,10 @@ serve(async (req) => {
 
     const content = contentLabel(gameType, eventType);
 
-    const insertRow = async (id: string, env: Record<string, unknown>, cont: string) => {
+    const insertRow = async (id: string, env: Record<string, unknown>, cont: string): Promise<{
+      data: SessionRow | null;
+      error: unknown;
+    }> => {
       const { data, error } = await serviceClient
         .from("messages")
         .insert({
@@ -569,13 +578,13 @@ serve(async (req) => {
         })
         .select("id, match_id, sender_id, content, created_at, message_kind, structured_payload")
         .single();
-      return { data, error };
+      return { data: data as SessionRow | null, error };
     };
 
     const { data: inserted, error: insertError } = await insertRow(messageId, envelope, content);
 
-    if (insertError) {
-      const code = (insertError as { code?: string }).code;
+    if (insertError || !inserted) {
+      const code = (insertError as { code?: string } | null | undefined)?.code;
       if (code === "23505") {
         const allRows = await loadSessionRows(serviceClient, matchId, gameSessionId);
         if (clientRequestId && isUuid(clientRequestId)) {

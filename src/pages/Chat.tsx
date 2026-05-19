@@ -330,10 +330,10 @@ function VibeClipMessageRow({
             onSuggestDate={isMine ? undefined : onSuggestDate}
             onReactionPick={isMine ? undefined : onReactionPick}
             reactionPair={message.reactionPair}
-            onRequestImmersive={() =>
+            onRequestImmersive={(media) =>
               onRequestImmersiveVideo({
-                url: clipMeta.videoUrl,
-                posterUrl: clipMeta.thumbnailUrl ?? null,
+                url: media?.videoUrl ?? clipMeta.videoUrl,
+                posterUrl: media?.thumbnailUrl ?? clipMeta.thumbnailUrl ?? null,
                 messageId: message.id,
                 videoSourceRef: message.videoSourceRef,
                 thumbnailSourceRef: message.thumbnailSourceRef,
