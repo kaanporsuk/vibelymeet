@@ -10,7 +10,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { captureSupabaseError } from "@/lib/errorTracking";
 import { collapseVibeGameRowsForWeb, type WebHydratedGameSessionView } from "@/lib/webChatGameSessions";
 import { resolveMessageMediaForDisplay } from "@/lib/mediaAssetResolver";
-import { parseChatImageMessageContent } from "@/lib/chatMessageContent";
+import { extractChatImageMediaRef } from "@/lib/chatMessageContent";
 import { toRenderableMessageKind } from "../../shared/chat/messageRouting";
 import { threadMessagesQueryKey, type ThreadInvalidateScope } from "../../shared/chat/queryKeys";
 import { resolvePrimaryProfilePhotoPath } from "../../shared/profilePhoto/resolvePrimaryProfilePhotoPath";
@@ -209,7 +209,7 @@ function collectChatMediaSourceRefs(row: {
   return {
     audio: durableChatMediaSourceRef(row.audio_url),
     image: durableChatMediaSourceRef(
-      parseChatImageMessageContent(row.content, { allowPrivateMediaRefs: true }),
+      extractChatImageMediaRef(row, { allowPrivateMediaRefs: true }),
     ),
     video: durableChatMediaSourceRef(row.video_url),
     thumbnail: durableChatMediaSourceRef(thumbnailRef),

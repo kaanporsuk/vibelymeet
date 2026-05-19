@@ -33,6 +33,8 @@ export type UserProfileView = {
   avatar_url: string | null;
   bunny_video_uid: string | null;
   bunny_video_status: string | null;
+  vibe_video_signed_playback_required: boolean;
+  vibe_video_playback_ref: string | null;
   vibe_caption: string | null;
   lifestyle: Record<string, string> | null;
   prompts: Array<{ question: string; answer: string }> | null;
@@ -146,6 +148,13 @@ function rpcJsonToUserProfileView(raw: unknown): UserProfileView | null {
       typeof row.bunny_video_status === 'string'
         ? row.bunny_video_status
         : row.bunny_video_status === null
+          ? null
+          : null,
+    vibe_video_signed_playback_required: row.vibe_video_signed_playback_required === true,
+    vibe_video_playback_ref:
+      typeof row.vibe_video_playback_ref === 'string'
+        ? row.vibe_video_playback_ref
+        : row.vibe_video_playback_ref === null
           ? null
           : null,
     vibe_caption: typeof row.vibe_caption === 'string' ? row.vibe_caption : row.vibe_caption === null ? null : null,

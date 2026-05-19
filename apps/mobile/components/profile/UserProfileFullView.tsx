@@ -37,6 +37,7 @@ import type { UserProfileView } from '@/lib/fetchUserProfile';
 import { getImageUrl } from '@/lib/imageUrl';
 import { formatBirthdayUsWithZodiac } from '@/lib/profileApi';
 import { resolveVibeVideoState } from '@/lib/vibeVideoState';
+import { useMediaAsset } from '@/hooks/useMediaAsset';
 import { PROMPT_EMOJIS } from '@/components/profile/PROMPT_CONSTANTS';
 import { getLookingForDisplay } from '@/components/profile/RelationshipIntentSelector';
 import FullscreenVibeVideoModal from '@/components/video/FullscreenVibeVideoModal';
@@ -379,12 +380,32 @@ export function UserProfileFullView({
   const workLabel = job && company ? `${job} at ${company}` : job || company;
   const zodiac = profile.zodiac?.trim() || getZodiacFromBirthDate(profile.birth_date);
   const vibeInfo = resolveVibeVideoState(profile);
-  const hasPlayableVibeVideo = vibeInfo.state === 'ready' && vibeInfo.canPlay;
-  const vibeReadyAwaitingPlayback = vibeInfo.state === 'ready' && !vibeInfo.canPlay;
+  const signedVibeVideoRef =
+    profile.vibe_video_signed_playback_required && profile.vibe_video_playback_ref
+      ? profile.vibe_video_playback_ref
+      : null;
+  const {
+    url: signedVibeVideoUrl,
+    posterUrl: signedVibeVideoPosterUrl,
+    status: signedVibeVideoStatus,
+  } = useMediaAsset({
+    kind: 'profile_vibe_video',
+    sourceRef: signedVibeVideoRef,
+    initialUrl: null,
+    autoResolve: !!signedVibeVideoRef,
+    enabled: vibeInfo.state === 'ready' && !!signedVibeVideoRef,
+  });
+  const vibePlaybackUrl = signedVibeVideoRef ? signedVibeVideoUrl : vibeInfo.playbackUrl;
+  const hasPlayableVibeVideo = vibeInfo.state === 'ready' && (
+    signedVibeVideoRef
+      ? signedVibeVideoStatus === 'ready' && !!vibePlaybackUrl
+      : !!vibePlaybackUrl
+  );
+  const vibeReadyAwaitingPlayback = vibeInfo.state === 'ready' && !hasPlayableVibeVideo;
   const vibeProcessing = vibeInfo.state === 'processing' || vibeInfo.state === 'stale_processing';
   const vibeStaleProcessing = vibeInfo.state === 'stale_processing';
   const vibeFailedOrError = vibeInfo.state === 'failed' || vibeInfo.state === 'error';
-  const thumbnailUrl = vibeInfo.thumbnailUrl;
+  const thumbnailUrl = signedVibeVideoRef ? signedVibeVideoPosterUrl : vibeInfo.thumbnailUrl;
   const caption = vibeInfo.caption ?? '';
 
   const aboutMeRaw = profile.about_me?.trim() ?? '';
@@ -397,7 +418,7 @@ export function UserProfileFullView({
 
   useEffect(() => {
     setHideVibingOnLabelAfterComplete(false);
-  }, [vibeInfo.playbackUrl, vibeInfo.uid, profile.id]);
+  }, [vibePlaybackUrl, vibeInfo.uid, profile.id]);
 
   const vibeItems = useMemo(() => {
     const metadata = normalizeOtherUserVibes(profile.vibe_tags);
@@ -663,9 +684,9 @@ export function UserProfileFullView({
                     style={s.videoPlayBtn}
                     accessibilityRole="button"
                     accessibilityLabel="Play vibe video"
-                    disabled={!vibeInfo.canPlay}
+                    disabled={!hasPlayableVibeVideo}
                     onPress={() => {
-                      if (vibeInfo.canPlay) setShowFullscreenVibe(true);
+                      if (hasPlayableVibeVideo) setShowFullscreenVibe(true);
                     }}
                   >
                     <Ionicons name="play" size={28} color="#fff" />
@@ -840,13 +861,13 @@ export function UserProfileFullView({
       ) : null}
 
       <FullscreenVibeVideoModal
-        visible={showFullscreenVibe && vibeInfo.canPlay}
+        visible={showFullscreenVibe && hasPlayableVibeVideo}
         onClose={() => setShowFullscreenVibe(false)}
-        playbackUrl={vibeInfo.playbackUrl}
+        playbackUrl={vibePlaybackUrl}
         bunnyVideoUid={vibeInfo.uid}
         vibeVideoState={vibeInfo.state}
         vibeCaption={caption}
-        posterUrl={vibeInfo.thumbnailUrl}
+        posterUrl={thumbnailUrl}
         onPlayToEnd={() => setHideVibingOnLabelAfterComplete(true)}
       />
 

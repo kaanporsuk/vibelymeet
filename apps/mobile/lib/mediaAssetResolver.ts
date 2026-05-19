@@ -3,10 +3,10 @@ import { getFreshCachedAccessToken } from '@/lib/nativeAuthSession';
 import { isNetworkInvokeError, type FunctionInvokeErrorShape } from '@clientShared/supabaseFunctionInvokeErrors';
 import {
   formatChatImageMessageContent,
-  parseChatImageMessageContent,
+  extractChatImageMediaRef,
 } from '@/lib/chatMessageContent';
 
-export type MediaAssetKind = 'image' | 'voice' | 'video' | 'vibe_clip' | 'thumbnail';
+export type MediaAssetKind = 'image' | 'voice' | 'video' | 'vibe_clip' | 'thumbnail' | 'profile_vibe_video';
 export type MediaAssetResolveResult = {
   url: string;
   posterUrl: string | null;
@@ -75,6 +75,23 @@ function isBunnyStreamRef(value: string): boolean {
 function bunnyStreamThumbnailRefFor(rawRef: string): string | null {
   const match = /^bunny_stream:([0-9a-f-]{32,36})$/i.exec(rawRef.trim());
   return match ? `bunny_stream:${match[1]}:thumbnail` : null;
+}
+
+export type ProfileVibeVideoRef = {
+  profileId: string;
+  videoId: string;
+};
+
+export function parseProfileVibeVideoRef(value: string | null | undefined): ProfileVibeVideoRef | null {
+  if (!value) return null;
+  const match =
+    /^profile_vibe_video:([0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}):([0-9a-f-]{32,36})$/i
+      .exec(value.trim());
+  return match ? { profileId: match[1], videoId: match[2] } : null;
+}
+
+export function isProfileVibeVideoRef(value: string | null | undefined): value is string {
+  return !!parseProfileVibeVideoRef(value);
 }
 
 function isUuid(value: string): boolean {
@@ -150,6 +167,8 @@ export async function getCachedMediaAsset(
   rawRef: string | null | undefined,
 ): Promise<MediaAssetResolveResult | null> {
   if (!rawRef) return null;
+  const profileRef = mediaKind === 'profile_vibe_video' ? parseProfileVibeVideoRef(rawRef) : null;
+  if (profileRef) return issueAndCacheMediaAsset(profileRef.profileId, mediaKind, rawRef, false);
   if (isLocalMediaAssetRef(rawRef) || isResolvedMediaAssetUrl(rawRef) || !isUuid(messageId)) return passthroughMediaAsset(rawRef);
 
   return issueAndCacheMediaAsset(messageId, mediaKind, rawRef, false);
@@ -170,6 +189,8 @@ export async function refreshMediaAsset(
   options: MediaAssetRefreshOptions = {},
 ): Promise<MediaAssetResolveResult | null> {
   if (!rawRef) return null;
+  const profileRef = mediaKind === 'profile_vibe_video' ? parseProfileVibeVideoRef(rawRef) : null;
+  if (profileRef) return issueAndCacheMediaAsset(profileRef.profileId, mediaKind, rawRef, true, options);
   if (isLocalMediaAssetRef(rawRef) || !isUuid(messageId)) return passthroughMediaAsset(rawRef);
 
   return issueAndCacheMediaAsset(messageId, mediaKind, rawRef, true, options);
@@ -249,8 +270,11 @@ async function issueAndCacheMediaAsset(
     try {
       const accessToken = await getFreshCachedAccessToken();
       if (!accessToken) return { kind: 'transient_failure' };
+      const profileRef = mediaKind === 'profile_vibe_video' ? parseProfileVibeVideoRef(rawRef) : null;
       const { data, error, response } = await supabase.functions.invoke('get-chat-media-url', {
-        body: { messageId, mediaKind },
+        body: profileRef
+          ? { profileId: profileRef.profileId, mediaKind, sourceRef: rawRef }
+          : { messageId, mediaKind },
         headers: { Authorization: `Bearer ${accessToken}` },
       });
       if (error) return issueResultForFunctionInvokeError(error, response);
@@ -345,10 +369,14 @@ export async function resolveMessageMediaForDisplay<
     resolved.structured_payload = payload;
   }
 
-  const imageRef = parseChatImageMessageContent(row.content, { allowPrivateMediaRefs: true });
+  const imageRef = extractChatImageMediaRef(row, { allowPrivateMediaRefs: true });
   if (imageRef) {
     const imageUrl = await resolveChatMediaUrl(row.id, 'image', imageRef);
     resolved.content = imageUrl ? formatChatImageMessageContent(imageUrl) : formatChatImageMessageContent('');
+    if (payload?.kind === 'chat_image' && payload.v === 2 && payload.provider === 'bunny_storage') {
+      payload.media_ref = imageUrl ?? '';
+      resolved.structured_payload = payload;
+    }
   }
 
   return resolved;

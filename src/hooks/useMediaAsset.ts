@@ -26,6 +26,7 @@ type UseMediaAssetOptions = {
 
 type UseMediaAssetResult = {
   url: string | null;
+  posterUrl: string | null;
   status: UseMediaAssetStatus;
   error: string | null;
   expiresAtMs: number | null;
@@ -77,8 +78,9 @@ export function useMediaAsset({
   enabled = true,
   onResolvedUrl,
 }: UseMediaAssetOptions): UseMediaAssetResult {
-  const initial = initialUrl ?? sourceRef ?? null;
+  const initial = initialUrl === null ? null : initialUrl ?? sourceRef ?? null;
   const [url, setUrl] = useState<string | null>(initial);
+  const [posterUrl, setPosterUrl] = useState<string | null>(null);
   const [status, setStatus] = useState<UseMediaAssetStatus>(() => mediaStatusForUrl(initial));
   const [error, setError] = useState<string | null>(null);
   const [expiresAtMs, setExpiresAtMs] = useState<number | null>(null);
@@ -90,8 +92,9 @@ export function useMediaAsset({
   }, [onResolvedUrl]);
 
   useEffect(() => {
-    const next = initialUrl ?? sourceRef ?? null;
+    const next = initialUrl === null ? null : initialUrl ?? sourceRef ?? null;
     setUrl(next);
+    setPosterUrl(null);
     setStatus(mediaStatusForUrl(next));
     setError(null);
     setExpiresAtMs(null);
@@ -106,6 +109,7 @@ export function useMediaAsset({
       return null;
     }
     setUrl(result.url);
+    setPosterUrl(result.posterUrl);
     setStatus("ready");
     setError(null);
     setExpiresAtMs(Number.isFinite(result.expiresAtMs) ? result.expiresAtMs : null);
@@ -122,7 +126,8 @@ export function useMediaAsset({
       const rawRef = sourceRef ?? initialUrl ?? null;
       if (!rawRef) return null;
 
-      if (kind === "vibe_video" || !messageId || !sourceRef) {
+      const canResolveProfileVibeVideo = kind === "profile_vibe_video" && !!sourceRef;
+      if (kind === "vibe_video" || (!messageId && !canResolveProfileVibeVideo) || !sourceRef) {
         const result = passthroughAsset(rawRef);
         const seq = requestSeqRef.current + 1;
         requestSeqRef.current = seq;
@@ -133,7 +138,7 @@ export function useMediaAsset({
       requestSeqRef.current = seq;
       if (reason !== "proactive" && reason !== "cache") setStatus("loading");
       const resolver = reason === "cache" ? getCachedMediaAsset : refreshMediaAsset;
-      const result = await resolver(messageId, kind, sourceRef, options);
+      const result = await resolver(messageId ?? "", kind, sourceRef, options);
       return commitResult(seq, result);
     },
     [commitResult, enabled, initialUrl, kind, messageId, sourceRef],
@@ -148,25 +153,27 @@ export function useMediaAsset({
   }, [autoResolve, enabled, initialUrl, refresh, sourceRef]);
 
   useEffect(() => {
-    if (!enabled || !messageId || !sourceRef || !expiresAtMs || !Number.isFinite(expiresAtMs)) return;
+    const canRefreshScopedAsset = !!messageId || kind === "profile_vibe_video";
+    if (!enabled || !canRefreshScopedAsset || !sourceRef || !expiresAtMs || !Number.isFinite(expiresAtMs)) return;
     const delayMs = proactiveRefreshDelayMs(expiresAtMs);
     if (delayMs === null) return;
     const timeout = window.setTimeout(() => {
       void refresh("proactive");
     }, delayMs);
     return () => window.clearTimeout(timeout);
-  }, [enabled, expiresAtMs, messageId, refresh, sourceRef]);
+  }, [enabled, expiresAtMs, kind, messageId, refresh, sourceRef]);
 
   return useMemo(
     () => ({
       url,
+      posterUrl,
       status,
       error,
       expiresAtMs,
       isPlayable: isPlayableMediaAssetUrl(url),
       refresh,
     }),
-    [error, expiresAtMs, refresh, status, url],
+    [error, expiresAtMs, posterUrl, refresh, status, url],
   );
 }
 

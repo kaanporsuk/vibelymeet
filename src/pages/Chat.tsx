@@ -32,7 +32,7 @@ import { MessageStatus } from "@/components/chat/MessageStatus";
 import {
   formatChatImageMessageContent,
   inferChatMediaRenderKind,
-  parseChatImageMessageContent,
+  extractChatImageMediaRef,
 } from "@/lib/chatMessageContent";
 import { refreshMediaAssetUrl } from "@/lib/mediaAssetResolver";
 import { extractVibeClipMeta } from "../../shared/chat/messageRouting";
@@ -807,6 +807,7 @@ const Chat = () => {
           audioUrl: m.audioUrl,
           videoUrl: m.videoUrl,
           messageKind: m.messageKind,
+          structuredPayload: m.structuredPayload,
         }) as ChatMessage["type"],
         audioUrl: m.audioUrl,
         audioSourceRef: m.audioSourceRef,
@@ -838,7 +839,10 @@ const Chat = () => {
   const photoUrlForMessage = useCallback(
     (message: ChatMessage): string | null =>
       photoUrlOverridesById[message.id] ??
-      parseChatImageMessageContent(message.text, { allowLocalPreviewUrls: true }),
+      extractChatImageMediaRef({
+        content: message.text,
+        structured_payload: message.structuredPayload,
+      }, { allowLocalPreviewUrls: true, allowPrivateMediaRefs: true }),
     [photoUrlOverridesById],
   );
   const refreshPhotoUrlForMessage = useCallback(async (message: ChatMessage): Promise<string | null> => {

@@ -31,6 +31,7 @@ import { PhotoPreviewModal } from "@/components/PhotoPreviewModal";
 import { ProfilePrompt } from "@/components/ProfilePrompt";
 import { VibeTag } from "@/components/VibeTag";
 import { VibePlayer } from "@/components/vibe-video/VibePlayer";
+import { useMediaAsset } from "@/hooks/useMediaAsset";
 import { resolveWebVibeVideoState } from "@/lib/vibeVideo/webVibeVideoState";
 import { cn } from "@/lib/utils";
 import { AdaptiveProfileMedia } from "./AdaptiveProfileMedia";
@@ -152,7 +153,28 @@ export function OtherUserFullProfileView({
       }),
     [profile.vibeVideo.uid, profile.vibeVideo.status, profile.updatedAt, profile.vibeVideo.caption],
   );
-  const hasPlayableVibeVideo = vibeVideo.state === "ready" && !!vibeVideo.playbackUrl;
+  const signedVibeVideoRef =
+    profile.vibeVideo.signedPlaybackRequired && profile.vibeVideo.playbackRef
+      ? profile.vibeVideo.playbackRef
+      : null;
+  const {
+    url: signedVibeVideoUrl,
+    posterUrl: signedVibeVideoPosterUrl,
+    status: signedVibeVideoStatus,
+  } = useMediaAsset({
+    kind: "profile_vibe_video",
+    sourceRef: signedVibeVideoRef,
+    initialUrl: null,
+    autoResolve: !!signedVibeVideoRef,
+    enabled: vibeVideo.state === "ready" && !!signedVibeVideoRef,
+  });
+  const vibeVideoPlaybackUrl = signedVibeVideoRef ? signedVibeVideoUrl : vibeVideo.playbackUrl;
+  const vibeVideoThumbnailUrl = signedVibeVideoRef ? signedVibeVideoPosterUrl : vibeVideo.thumbnailUrl;
+  const hasPlayableVibeVideo = vibeVideo.state === "ready" && (
+    signedVibeVideoRef
+      ? signedVibeVideoStatus === "ready" && !!vibeVideoPlaybackUrl
+      : !!vibeVideoPlaybackUrl
+  );
   const verificationBadges = [
     profile.verification.email ? { label: "Email verified", icon: Mail } : null,
     profile.verification.phone ? { label: "Phone verified", icon: Phone } : null,
@@ -319,12 +341,12 @@ export function OtherUserFullProfileView({
 
           {vibeVideo.state !== "none" ? (
             <Section title="Vibe Video" icon={Video}>
-              {hasPlayableVibeVideo && vibeVideo.playbackUrl ? (
+              {hasPlayableVibeVideo && vibeVideoPlaybackUrl ? (
                 <div className="overflow-hidden rounded-2xl border border-border bg-card">
                   {showVideoPlayer ? (
                     <VibePlayer
-                      videoUrl={vibeVideo.playbackUrl}
-                      thumbnailUrl={vibeVideo.thumbnailUrl ?? undefined}
+                      videoUrl={vibeVideoPlaybackUrl}
+                      thumbnailUrl={vibeVideoThumbnailUrl ?? undefined}
                       vibeCaption={vibeVideo.caption ?? undefined}
                       className="aspect-video"
                       backendReportsReady
@@ -336,9 +358,9 @@ export function OtherUserFullProfileView({
                       onClick={() => setShowVideoPlayer(true)}
                       aria-label="Watch Intro"
                     >
-                      {vibeVideo.thumbnailUrl ? (
+                      {vibeVideoThumbnailUrl ? (
                         <img
-                          src={vibeVideo.thumbnailUrl}
+                          src={vibeVideoThumbnailUrl}
                           alt=""
                           className="h-full w-full object-cover"
                         />
@@ -406,7 +428,7 @@ export function OtherUserFullProfileView({
                 </div>
               ) : null}
 
-              {vibeVideo.state === "ready" && !vibeVideo.playbackUrl ? (
+              {vibeVideo.state === "ready" && !hasPlayableVibeVideo ? (
                 <div className="rounded-2xl border border-border bg-card/70 p-4">
                   <div className="flex items-start gap-3">
                     <AlertCircle className="mt-0.5 h-5 w-5 text-amber-400" aria-hidden />

@@ -6,7 +6,7 @@ import { resolvePrimaryProfilePhotoPath } from '../../../shared/profilePhoto/res
 import { bestMatchSortKey, compatibilityPercent, type MatchScoreInput } from '@/lib/matchSortScore';
 import { uploadVoiceMessage } from '@/lib/chatMediaUpload';
 import { resolveMessageMediaForDisplay } from '@/lib/mediaAssetResolver';
-import { parseChatImageMessageContent } from '@/lib/chatMessageContent';
+import { extractChatImageMediaRef } from '@/lib/chatMessageContent';
 import {
   collapseVibeGameMessageRows,
   type ChatGameSessionMessageRow,
@@ -472,7 +472,7 @@ function collectChatMediaSourceRefs(row: {
   return {
     audio: durableChatMediaSourceRef(row.audio_url),
     image: durableChatMediaSourceRef(
-      parseChatImageMessageContent(row.content, { allowPrivateMediaRefs: true }),
+      extractChatImageMediaRef(row, { allowPrivateMediaRefs: true }),
     ),
     video: durableChatMediaSourceRef(row.video_url),
     thumbnail: durableChatMediaSourceRef(thumbnailRef),

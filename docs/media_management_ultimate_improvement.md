@@ -436,13 +436,13 @@ Ordering matters within this phase. Migrations land first; helpers and EFs next;
 | 7.2 | `spike/native-bg-uploads` | Prototype-only path: native iOS URLSession/BGProcessing and Android `WorkManager` / foreground-service evaluation. Requires native rebuild + store binary. | **NO-GO research-only** until real-device matrix + measured floors in [media-background-upload-phase7-decision.md](./media-background-upload-phase7-decision.md) pass. |
 | 7.3 | `decision/bg-uploads-go-no-go` | Decision document; defines product gate if go. | Phase 7 closed as **NO-GO research-only**; foreground persistent queue remains production source of truth. |
 
-### Phase 8 — Optional follow-ons (not committed)
+### Phase 8 — Optional follow-ons (code-complete)
 
 | PR | Branch | Scope | Exit |
 |---|---|---|---|
-| 8.1 | `explore/bunny-storage-presign` | Investigate any Bunny Storage direct-upload presign mechanism. If available, prototype retiring EF `PUT` for photos / voice. | Investigation note. |
-| 8.2 | `feat/vibe-video-signed-urls` | If product wants private-mode profiles, route Vibe Video playback through `get-chat-media-url`-equivalent signing. | Privacy posture in A.10 updated. |
-| 8.3 | `feat/chat-image-structured-payload` | New forward-compatible structured chat-image marker on `messages` (alongside existing `content` text marker for legacy rendering). No retro-fit. | Renderers prefer structured field. |
+| 8.1 | `explore/bunny-storage-presign` | Investigate any Bunny Storage direct-upload presign mechanism. If available, prototype retiring EF `PUT` for photos / voice. | Closed: no documented Storage presign; keep EF-mediated uploads. See [media-phase8-closure.md](./media-phase8-closure.md). |
+| 8.2 | `feat/vibe-video-signed-urls` | If product wants private-mode profiles, route Vibe Video playback through `get-chat-media-url`-equivalent signing. | Closed: private/non-discoverable profile Vibe Videos resolve through signed HLS refs. Bunny token auth remains an ops prerequisite. |
+| 8.3 | `feat/chat-image-structured-payload` | New forward-compatible structured chat-image marker on `messages` (alongside existing `content` text marker for legacy rendering). No retro-fit. | Closed: new sends write structured payload and renderers prefer it with legacy fallback. |
 
 ---
 

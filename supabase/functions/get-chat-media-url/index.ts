@@ -3,7 +3,7 @@ import { createClient, SupabaseClient } from "https://esm.sh/@supabase/supabase-
 import { corsHeadersForRequest, jsonResponse, preflightResponse } from "../_shared/cors.ts";
 import { syncChatMessageMedia } from "../_shared/media-lifecycle.ts";
 
-type MediaKind = "image" | "voice" | "video" | "vibe_clip" | "thumbnail";
+type MediaKind = "image" | "voice" | "video" | "vibe_clip" | "thumbnail" | "profile_vibe_video";
 
 const TOKEN_TTL_SECONDS = 15 * 60;
 const encoder = new TextEncoder();
@@ -29,6 +29,17 @@ type MediaAssetRow = {
   mime_type: string | null;
   status: string | null;
   media_family: string | null;
+};
+
+type ProfileVibeVideoRpcPayload = {
+  id?: unknown;
+  vibe_video_playback_ref?: unknown;
+  vibe_video_signed_playback_required?: unknown;
+};
+
+type ProfileVideoRef = {
+  profileId: string;
+  videoId: string;
 };
 
 type ChatMediaUrlLogLevel = "info" | "warn" | "error";
@@ -157,7 +168,12 @@ async function verifyToken(secret: string, token: string): Promise<Record<string
 }
 
 function normalizeMediaKind(value: unknown): MediaKind | null {
-  return value === "image" || value === "voice" || value === "video" || value === "vibe_clip" || value === "thumbnail"
+  return value === "image" ||
+    value === "voice" ||
+    value === "video" ||
+    value === "vibe_clip" ||
+    value === "thumbnail" ||
+    value === "profile_vibe_video"
     ? value
     : null;
 }
@@ -165,6 +181,7 @@ function normalizeMediaKind(value: unknown): MediaKind | null {
 function mediaFamilyForKind(kind: MediaKind): string {
   if (kind === "image") return "chat_image";
   if (kind === "voice") return "voice_message";
+  if (kind === "profile_vibe_video") return "vibe_video";
   if (kind === "thumbnail") return "chat_video_thumbnail";
   return "chat_video";
 }
@@ -172,6 +189,18 @@ function mediaFamilyForKind(kind: MediaKind): string {
 function isUuid(value: unknown): value is string {
   return typeof value === "string"
     && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
+}
+
+function parseProfileVibeVideoRef(value: unknown): ProfileVideoRef | null {
+  if (typeof value !== "string") return null;
+  const match =
+    /^profile_vibe_video:([0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}):([0-9a-f-]{32,36})$/i
+      .exec(value.trim());
+  return match ? { profileId: match[1], videoId: match[2] } : null;
+}
+
+function profileVibeVideoRef(profileId: string, videoId: string): string {
+  return `profile_vibe_video:${profileId}:${videoId}`;
 }
 
 function extractClientRequestId(message: MessageScopeRow | null): string | null {
@@ -249,6 +278,183 @@ async function resolveMessageAsset(
     }) ?? null;
 }
 
+async function handleProfileVibeVideoIssue(params: {
+  req: Request;
+  corsHeaders: Record<string, string>;
+  userClient: SupabaseClient;
+  serviceClient: SupabaseClient;
+  requesterId: string;
+  profileId: string;
+  sourceRef?: unknown;
+}): Promise<Response> {
+  const expectedRef = parseProfileVibeVideoRef(params.sourceRef);
+  if (!expectedRef) {
+    logChatMediaUrl("warn", "profile_vibe_video_ref_rejected", {
+      reason: "missing_or_invalid_profile_ref",
+      requester_id: params.requesterId,
+      profile_id: params.profileId,
+    });
+    return jsonResponse(
+      params.req,
+      { success: false, error: "invalid_request" },
+      { status: 400, headers: params.corsHeaders },
+    );
+  }
+
+  if (expectedRef.profileId !== params.profileId) {
+    logChatMediaUrl("warn", "profile_vibe_video_ref_rejected", {
+      reason: "profile_ref_mismatch",
+      requester_id: params.requesterId,
+      profile_id: params.profileId,
+    });
+    return jsonResponse(
+      params.req,
+      { success: false, error: "stale_profile_vibe_video_ref" },
+      { status: 409, headers: params.corsHeaders },
+    );
+  }
+
+  const { data: safeProfile, error: profileRpcError } = await params.userClient.rpc("get_profile_for_viewer", {
+    p_target_id: params.profileId,
+  });
+  const profilePayload =
+    safeProfile && typeof safeProfile === "object" && !Array.isArray(safeProfile)
+      ? safeProfile as ProfileVibeVideoRpcPayload
+      : null;
+  if (profileRpcError || !profilePayload || profilePayload.id !== params.profileId) {
+    logChatMediaUrl("warn", "profile_scope_rejected", {
+      requester_id: params.requesterId,
+      profile_id: params.profileId,
+      media_kind: "profile_vibe_video",
+      error_code: profileRpcError ? "profile_rpc_failed" : "profile_not_visible",
+    });
+    return jsonResponse(
+      params.req,
+      { success: false, error: "not_found" },
+      { status: 404, headers: params.corsHeaders },
+    );
+  }
+
+  const { data: profileRow, error: profileLookupError } = await params.serviceClient
+    .from("profiles")
+    .select("id, bunny_video_uid, bunny_video_status")
+    .eq("id", params.profileId)
+    .maybeSingle();
+  const profile = profileRow as { id?: string; bunny_video_uid?: string | null; bunny_video_status?: string | null } | null;
+  const streamVideoId = typeof profile?.bunny_video_uid === "string" ? profile.bunny_video_uid.trim() : "";
+  if (profileLookupError || !streamVideoId) {
+    logChatMediaUrl("warn", "profile_vibe_video_missing", {
+      requester_id: params.requesterId,
+      profile_id: params.profileId,
+      media_kind: "profile_vibe_video",
+      error_code: profileLookupError ? "profile_lookup_failed" : "profile_video_missing",
+    });
+    return jsonResponse(
+      params.req,
+      { success: false, error: "media_not_found" },
+      { status: 404, headers: params.corsHeaders },
+    );
+  }
+
+  if (expectedRef.videoId !== streamVideoId) {
+    logChatMediaUrl("warn", "profile_vibe_video_ref_rejected", {
+      reason: "video_ref_mismatch",
+      requester_id: params.requesterId,
+      profile_id: params.profileId,
+    });
+    return jsonResponse(
+      params.req,
+      { success: false, error: "stale_profile_vibe_video_ref" },
+      { status: 409, headers: params.corsHeaders },
+    );
+  }
+
+  const profilePlaybackRef =
+    typeof profilePayload.vibe_video_playback_ref === "string"
+      ? profilePayload.vibe_video_playback_ref.trim()
+      : "";
+  if (profilePlaybackRef && profilePlaybackRef !== profileVibeVideoRef(params.profileId, streamVideoId)) {
+    logChatMediaUrl("warn", "profile_vibe_video_ref_rejected", {
+      reason: "rpc_ref_mismatch",
+      requester_id: params.requesterId,
+      profile_id: params.profileId,
+    });
+    return jsonResponse(
+      params.req,
+      { success: false, error: "stale_profile_vibe_video_ref" },
+      { status: 409, headers: params.corsHeaders },
+    );
+  }
+
+  if (profile.bunny_video_status !== "ready") {
+    logChatMediaUrl("warn", "profile_vibe_video_not_ready", {
+      requester_id: params.requesterId,
+      profile_id: params.profileId,
+      media_kind: "profile_vibe_video",
+      provider_object_id: streamVideoId,
+    });
+    return jsonResponse(
+      params.req,
+      { success: false, error: "media_not_found" },
+      { status: 404, headers: params.corsHeaders },
+    );
+  }
+
+  const hostname = Deno.env.get("BUNNY_STREAM_CDN_HOSTNAME")?.trim();
+  const securityKey = Deno.env.get("BUNNY_STREAM_TOKEN_SECURITY_KEY")?.trim();
+  if (!hostname || !securityKey) {
+    logChatMediaUrl("error", "profile_stream_token_config_missing", {
+      requester_id: params.requesterId,
+      profile_id: params.profileId,
+      media_kind: "profile_vibe_video",
+      provider_object_id: streamVideoId,
+    });
+    return jsonResponse(
+      params.req,
+      { success: false, error: "missing_bunny_profile_stream_token_config" },
+      { status: 503, headers: params.corsHeaders },
+    );
+  }
+
+  const expires = Math.floor(Date.now() / 1000) + TOKEN_TTL_SECONDS;
+  const url = await signBunnyStreamDirectoryUrl({
+    hostname,
+    securityKey,
+    videoId: streamVideoId,
+    fileName: "playlist.m3u8",
+    expires,
+  });
+  const posterUrl = await signBunnyStreamDirectoryUrl({
+    hostname,
+    securityKey,
+    videoId: streamVideoId,
+    fileName: "thumbnail.jpg",
+    expires,
+  });
+
+  logChatMediaUrl("info", "profile_stream_url_issued", {
+    requester_id: params.requesterId,
+    profile_id: params.profileId,
+    media_kind: "profile_vibe_video",
+    provider_object_id: streamVideoId,
+    playback_kind: "hls",
+    expires_in_seconds: TOKEN_TTL_SECONDS,
+    signed_required: profilePayload.vibe_video_signed_playback_required === true,
+  });
+  return jsonResponse(
+    params.req,
+    {
+      success: true,
+      url,
+      posterUrl,
+      playbackKind: "hls",
+      provider: "bunny_stream",
+      expiresInSeconds: TOKEN_TTL_SECONDS,
+    },
+    { headers: params.corsHeaders },
+  );
+}
+
 async function handleIssueUrl(req: Request): Promise<Response> {
   const corsHeaders = corsHeadersForRequest(req);
   const authHeader = req.headers.get("Authorization");
@@ -259,13 +465,24 @@ async function handleIssueUrl(req: Request): Promise<Response> {
     return jsonResponse(req, { success: false, error: "Unauthorized" }, { status: 401, headers: corsHeaders });
   }
 
-  const body = await req.json().catch(() => null) as { messageId?: unknown; mediaKind?: unknown } | null;
+  const body = await req.json().catch(() => null) as {
+    messageId?: unknown;
+    profileId?: unknown;
+    mediaKind?: unknown;
+    sourceRef?: unknown;
+  } | null;
   const messageId = body?.messageId;
+  const profileId = body?.profileId;
   const mediaKind = normalizeMediaKind(body?.mediaKind);
-  if (!isUuid(messageId) || !mediaKind) {
+  const isProfileVibeVideoRequest = mediaKind === "profile_vibe_video";
+  if (
+    !mediaKind ||
+    (isProfileVibeVideoRequest ? !isUuid(profileId) : !isUuid(messageId))
+  ) {
     logChatMediaUrl("warn", "issue_request_rejected", {
       reason: "invalid_request",
       has_message_id: typeof messageId === "string" && messageId.trim().length > 0,
+      has_profile_id: typeof profileId === "string" && profileId.trim().length > 0,
       media_kind: typeof body?.mediaKind === "string" ? body.mediaKind : null,
     });
     return jsonResponse(req, { success: false, error: "invalid_request" }, { status: 400, headers: corsHeaders });
@@ -285,22 +502,37 @@ async function handleIssueUrl(req: Request): Promise<Response> {
   if (userError || !user) {
     logChatMediaUrl("warn", "issue_request_rejected", {
       reason: "auth_user_missing",
-      message_id: messageId,
+      message_id: isProfileVibeVideoRequest ? null : messageId as string,
+      profile_id: isProfileVibeVideoRequest ? profileId as string : null,
       media_kind: mediaKind,
       error_code: userError ? "auth_user_lookup_failed" : null,
     });
     return jsonResponse(req, { success: false, error: "Unauthorized" }, { status: 401, headers: corsHeaders });
   }
   logChatMediaUrl("info", "issue_request_validated", {
-    message_id: messageId,
+    message_id: isProfileVibeVideoRequest ? null : messageId as string,
+    profile_id: isProfileVibeVideoRequest ? profileId as string : null,
     media_kind: mediaKind,
     requester_id: user.id,
   });
 
-  const message = await userCanReadMessage(serviceClient, user.id, messageId);
+  if (isProfileVibeVideoRequest) {
+    return handleProfileVibeVideoIssue({
+      req,
+      corsHeaders,
+      userClient,
+      serviceClient,
+      requesterId: user.id,
+      profileId: profileId as string,
+      sourceRef: body?.sourceRef,
+    });
+  }
+
+  const scopedMessageId = messageId as string;
+  const message = await userCanReadMessage(serviceClient, user.id, scopedMessageId);
   if (!message) {
     logChatMediaUrl("warn", "message_scope_rejected", {
-      message_id: messageId,
+      message_id: scopedMessageId,
       media_kind: mediaKind,
       requester_id: user.id,
     });
@@ -308,32 +540,32 @@ async function handleIssueUrl(req: Request): Promise<Response> {
   }
   const clientRequestId = message.client_request_id ?? null;
   logChatMediaUrl("info", "message_scope_verified", {
-    message_id: messageId,
+    message_id: scopedMessageId,
     media_kind: mediaKind,
     requester_id: user.id,
     match_id: message.match_id,
     client_request_id: clientRequestId,
   });
 
-  let asset = await resolveMessageAsset(serviceClient, messageId, mediaKind);
+  let asset = await resolveMessageAsset(serviceClient, scopedMessageId, mediaKind);
   if (!asset?.provider_path && !asset?.provider_object_id) {
     logChatMediaUrl("info", "asset_missing_sync_requested", {
-      message_id: messageId,
+      message_id: scopedMessageId,
       media_kind: mediaKind,
       requester_id: user.id,
       client_request_id: clientRequestId,
     });
-    const syncResult = await syncChatMessageMedia(serviceClient, messageId);
+    const syncResult = await syncChatMessageMedia(serviceClient, scopedMessageId);
     if (!syncResult.success) {
       logChatMediaUrl("error", "asset_sync_failed", {
-        message_id: messageId,
+        message_id: scopedMessageId,
         media_kind: mediaKind,
         requester_id: user.id,
         client_request_id: clientRequestId,
         error_code: "sync_chat_message_media_failed",
       });
     }
-    asset = await resolveMessageAsset(serviceClient, messageId, mediaKind);
+    asset = await resolveMessageAsset(serviceClient, scopedMessageId, mediaKind);
   }
 
   const streamVideoId = typeof asset?.provider_object_id === "string" ? asset.provider_object_id.trim() : "";
@@ -346,7 +578,7 @@ async function handleIssueUrl(req: Request): Promise<Response> {
     const securityKey = Deno.env.get("BUNNY_CHAT_STREAM_TOKEN_SECURITY_KEY")?.trim();
     if (!hostname || !securityKey) {
       logChatMediaUrl("error", "stream_token_config_missing", {
-        message_id: messageId,
+        message_id: scopedMessageId,
         media_kind: mediaKind,
         requester_id: user.id,
         client_request_id: clientRequestId,
@@ -379,7 +611,7 @@ async function handleIssueUrl(req: Request): Promise<Response> {
       });
 
     logChatMediaUrl("info", "stream_url_issued", {
-      message_id: messageId,
+      message_id: scopedMessageId,
       media_kind: mediaKind,
       requester_id: user.id,
       client_request_id: clientRequestId,
@@ -404,7 +636,7 @@ async function handleIssueUrl(req: Request): Promise<Response> {
 
   if (!asset?.provider_path) {
     logChatMediaUrl("warn", "asset_not_found", {
-      message_id: messageId,
+      message_id: scopedMessageId,
       media_kind: mediaKind,
       requester_id: user.id,
       client_request_id: clientRequestId,
@@ -414,7 +646,7 @@ async function handleIssueUrl(req: Request): Promise<Response> {
 
   const token = await createToken(tokenSecret, {
     sub: user.id,
-    mid: messageId,
+    mid: scopedMessageId,
     kind: mediaKind,
     path: asset.provider_path,
     mime: asset.mime_type ?? "application/octet-stream",
@@ -422,7 +654,7 @@ async function handleIssueUrl(req: Request): Promise<Response> {
   });
 
   logChatMediaUrl("info", "storage_proxy_token_issued", {
-    message_id: messageId,
+    message_id: scopedMessageId,
     media_kind: mediaKind,
     requester_id: user.id,
     client_request_id: clientRequestId,
