@@ -313,7 +313,11 @@ assert.doesNotMatch(
 );
 assert.match(webClipBubble, /playbackRefreshAttemptCountRef\.current = 0;[\s\S]{0,160}setLoadError\(false\)/);
 assert.match(webMediaResolver, /type MediaUrlIssueResult/);
-assert.match(webMediaResolver, /if \(error\) return \{ kind: "transient_failure" \};/);
+assert.match(webMediaResolver, /isNetworkInvokeError/);
+assert.match(webMediaResolver, /invokeError\.name === "FunctionsHttpError"/);
+assert.match(webMediaResolver, /return \{[\s\S]{0,80}kind: "response",[\s\S]{0,120}payload: await readResolverPayloadFromResponse/);
+assert.match(webMediaResolver, /if \(error\) return issueResultForFunctionInvokeError\(error, response\);/);
+assert.doesNotMatch(webMediaResolver, /if \(error\) return \{ kind: "transient_failure" \};/);
 assert.match(webMediaResolver, /catch \{[\s\S]{0,80}return \{ kind: "transient_failure" \};[\s\S]{0,80}\}/);
 assert.match(webMediaResolver, /if \(result\.kind === "transient_failure"\) return null;/);
 assert.match(webMediaResolver, /function bunnyStreamThumbnailRefFor/);
@@ -394,7 +398,11 @@ assert.doesNotMatch(
 assert.match(nativeMediaViewer, /onResetPlaybackRefreshAttempt/);
 assert.match(nativeMediaResolver, /type MediaUrlIssueResult/);
 assert.match(nativeMediaResolver, /if \(!accessToken\) return \{ kind: 'transient_failure' \};/);
-assert.match(nativeMediaResolver, /if \(error\) return \{ kind: 'transient_failure' \};/);
+assert.match(nativeMediaResolver, /isNetworkInvokeError/);
+assert.match(nativeMediaResolver, /invokeError\.name === 'FunctionsHttpError'/);
+assert.match(nativeMediaResolver, /return \{[\s\S]{0,80}kind: 'response',[\s\S]{0,120}payload: await readResolverPayloadFromResponse/);
+assert.match(nativeMediaResolver, /if \(error\) return issueResultForFunctionInvokeError\(error, response\);/);
+assert.doesNotMatch(nativeMediaResolver, /if \(error\) return \{ kind: 'transient_failure' \};/);
 assert.match(nativeMediaResolver, /catch \{[\s\S]{0,80}return \{ kind: 'transient_failure' \};[\s\S]{0,80}\}/);
 assert.match(nativeMediaResolver, /if \(result\.kind === 'transient_failure'\) return null;/);
 assert.match(nativeMediaResolver, /mediaUrlInFlightRequests/);

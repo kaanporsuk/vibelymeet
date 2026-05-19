@@ -1,5 +1,6 @@
 import { supabase } from '@/lib/supabase';
 import { getFreshCachedAccessToken } from '@/lib/nativeAuthSession';
+import { isNetworkInvokeError, type FunctionInvokeErrorShape } from '@clientShared/supabaseFunctionInvokeErrors';
 import {
   formatChatImageMessageContent,
   parseChatImageMessageContent,
@@ -57,6 +58,47 @@ function bunnyStreamThumbnailRefFor(rawRef: string): string | null {
 
 function isUuid(value: string): boolean {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
+}
+
+function isResponseLike(value: unknown): value is Response {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    typeof (value as Response).clone === 'function' &&
+    typeof (value as Response).text === 'function'
+  );
+}
+
+async function readResolverPayloadFromResponse(response: Response | null | undefined): Promise<ResolverResponse | null> {
+  if (!response) return null;
+  try {
+    const text = await response.clone().text();
+    if (!text) return null;
+    const parsed = JSON.parse(text) as ResolverResponse;
+    return parsed && typeof parsed === 'object' ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+async function issueResultForFunctionInvokeError(
+  error: unknown,
+  response: Response | null | undefined,
+): Promise<MediaUrlIssueResult> {
+  const invokeError = error as FunctionInvokeErrorShape | null;
+  if (!invokeError || isNetworkInvokeError(invokeError) || invokeError.name === 'FunctionsRelayError') {
+    return { kind: 'transient_failure' };
+  }
+
+  if (invokeError.name === 'FunctionsHttpError') {
+    const contextResponse = isResponseLike(invokeError.context) ? invokeError.context : null;
+    return {
+      kind: 'response',
+      payload: await readResolverPayloadFromResponse(response ?? contextResponse),
+    };
+  }
+
+  return { kind: 'transient_failure' };
 }
 
 async function resolveChatMediaUrl(
@@ -136,11 +178,11 @@ async function issueAndCacheChatMediaUrl(
     try {
       const accessToken = await getFreshCachedAccessToken();
       if (!accessToken) return { kind: 'transient_failure' };
-      const { data, error } = await supabase.functions.invoke('get-chat-media-url', {
+      const { data, error, response } = await supabase.functions.invoke('get-chat-media-url', {
         body: { messageId, mediaKind },
         headers: { Authorization: `Bearer ${accessToken}` },
       });
-      if (error) return { kind: 'transient_failure' };
+      if (error) return issueResultForFunctionInvokeError(error, response);
       return { kind: 'response', payload: data as ResolverResponse | null };
     } catch {
       return { kind: 'transient_failure' };
