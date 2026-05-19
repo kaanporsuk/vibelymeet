@@ -174,7 +174,7 @@ export async function executeWebOutboxItem(
           imageMimeTypeForUpload(payload.mimeType, storedName) ??
           GENERIC_UPLOAD_MIME_TYPE;
         const file = new File([blob], uploadFileNameForMimeType("image", "chat", mimeType, storedName), { type: mimeType });
-        const { path } = await uploadImageToBunny(file, session.access_token, "chat", matchId);
+        const { path } = await uploadImageToBunny(file, session.access_token, "chat", matchId, clientRequestId);
         mediaRef = path;
       }
       uploadedPublicUrl = mediaRef;

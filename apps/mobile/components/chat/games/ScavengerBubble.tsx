@@ -11,6 +11,7 @@ import type { ScavengerSnapshot } from '@/lib/vibelyGamesTypes';
 import {
   buildScavengerPhotoParams,
   formatSendGameEventError,
+  newGameClientRequestId,
   useSendScavengerChoice,
   type ThreadInvalidateScope,
 } from '@/lib/gamesApi';
@@ -64,6 +65,7 @@ export function ScavengerBubble({ view, matchId, currentUserId, partnerName, tim
   const { mutateAsync, isPending } = useSendScavengerChoice();
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [selectedPhotoUrl, setSelectedPhotoUrl] = useState<string | null>(null);
+  const [selectedPhotoClientRequestId, setSelectedPhotoClientRequestId] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
   const tapGuard = useRef(false);
 
@@ -75,6 +77,7 @@ export function ScavengerBubble({ view, matchId, currentUserId, partnerName, tim
     if (!hasScavengerSnap) return;
     setSubmitError(null);
     setSelectedPhotoUrl(null);
+    setSelectedPhotoClientRequestId(null);
   }, [
     hasScavengerSnap,
     view.gameSessionId,
@@ -145,8 +148,10 @@ export function ScavengerBubble({ view, matchId, currentUserId, partnerName, tim
       if (result.canceled || !result.assets?.[0]) return;
       setUploading(true);
       const asset = result.assets[0];
-      const url = await uploadChatImageMessage(asset.uri, asset.mimeType ?? null, matchId);
+      const clientRequestId = newGameClientRequestId();
+      const url = await uploadChatImageMessage(asset.uri, asset.mimeType ?? null, matchId, clientRequestId);
       setSelectedPhotoUrl(url);
+      setSelectedPhotoClientRequestId(clientRequestId);
     } catch (e) {
       setSubmitError(e instanceof Error ? e.message : 'Could not upload photo.');
     } finally {
@@ -160,7 +165,13 @@ export function ScavengerBubble({ view, matchId, currentUserId, partnerName, tim
     tapGuard.current = true;
     setSubmitError(null);
     try {
-      const result = await mutateAsync({ view, matchId, receiverPhotoUrl: selectedPhotoUrl, invalidateScope });
+      const result = await mutateAsync({
+        view,
+        matchId,
+        receiverPhotoUrl: selectedPhotoUrl,
+        invalidateScope,
+        clientRequestId: selectedPhotoClientRequestId ?? undefined,
+      });
       if (!result.ok) setSubmitError(formatSendGameEventError(result.error));
     } catch (e) {
       setSubmitError(e instanceof Error ? e.message : 'Something went wrong.');

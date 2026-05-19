@@ -265,7 +265,10 @@ export function usePhotoBatchController({
     async (draftId: string, asset: PhotoUploadAsset, expectedVersion: number) => {
       const ac = takeAbortSlot(draftId);
       try {
-        const result = await uploadProfilePhoto(asset, context, { signal: ac.signal });
+        const result = await uploadProfilePhoto(asset, context, {
+          signal: ac.signal,
+          clientRequestId: draftId,
+        });
         if (ac.signal.aborted) return;
         if (!isMountedRef.current || expectedVersion !== sessionVersionRef.current) {
           void markPhotoDraftsDeletedOnServer([result.path]);

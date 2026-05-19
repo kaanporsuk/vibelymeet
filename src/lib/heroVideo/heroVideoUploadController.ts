@@ -148,7 +148,7 @@ async function _pollTick(expectedVideoId: string): Promise<void> {
     if (!rowUid) {
       _stopPoll();
       _activeClientRequestId = null;
-      _setState({ phase: "idle", uploadProgress: 0, clientRequestId: null, videoId: null, errorMessage: null });
+      _setState({ phase: "idle", uploadProgress: 0, videoId: null, clientRequestId: null, errorMessage: null });
       void queryClient.invalidateQueries({ queryKey: ["my-profile"] });
       return;
     }
@@ -157,7 +157,7 @@ async function _pollTick(expectedVideoId: string): Promise<void> {
     if (rowUid && rowUid !== expectedVideoId) {
       _stopPoll();
       _activeClientRequestId = null;
-      _setState({ phase: "idle", clientRequestId: null, videoId: null, errorMessage: null });
+      _setState({ phase: "idle", uploadProgress: 0, videoId: null, clientRequestId: null, errorMessage: null });
       void queryClient.invalidateQueries({ queryKey: ["my-profile"] });
       return;
     }

@@ -10,6 +10,7 @@ import { randomScavengerPrompt } from '@/lib/scavengerPrompts';
 import { uploadChatImageMessage } from '@/lib/chatMediaUpload';
 import {
   formatSendGameEventError,
+  newGameClientRequestId,
   newVibeGameSessionId,
   useStartScavengerGame,
   type ThreadInvalidateScope,
@@ -30,6 +31,7 @@ export function ScavengerStartSheet({ visible, onClose, matchId, partnerName, in
   const { mutateAsync, isPending } = useStartScavengerGame();
   const [prompt, setPrompt] = useState<string>(() => randomScavengerPrompt());
   const [senderPhotoUrl, setSenderPhotoUrl] = useState<string | null>(null);
+  const [senderPhotoClientRequestId, setSenderPhotoClientRequestId] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const submitGuard = useRef(false);
@@ -39,6 +41,7 @@ export function ScavengerStartSheet({ visible, onClose, matchId, partnerName, in
     if (!visible) return;
     setPrompt(randomScavengerPrompt());
     setSenderPhotoUrl(null);
+    setSenderPhotoClientRequestId(null);
     setUploading(false);
     setError(null);
     submitGuard.current = false;
@@ -79,8 +82,10 @@ export function ScavengerStartSheet({ visible, onClose, matchId, partnerName, in
       if (result.canceled || !result.assets?.[0]) return;
       setUploading(true);
       const asset = result.assets[0];
-      const url = await uploadChatImageMessage(asset.uri, asset.mimeType ?? null, matchId);
+      const clientRequestId = newGameClientRequestId();
+      const url = await uploadChatImageMessage(asset.uri, asset.mimeType ?? null, matchId, clientRequestId);
       setSenderPhotoUrl(url);
+      setSenderPhotoClientRequestId(clientRequestId);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Could not upload photo.');
     } finally {
@@ -108,6 +113,7 @@ export function ScavengerStartSheet({ visible, onClose, matchId, partnerName, in
         prompt: prompt.trim(),
         senderPhotoUrl,
         invalidateScope,
+        clientRequestId: senderPhotoClientRequestId ?? undefined,
       });
       if (!result.ok) {
         setError(formatSendGameEventError(result.error));

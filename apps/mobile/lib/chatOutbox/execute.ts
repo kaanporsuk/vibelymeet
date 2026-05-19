@@ -65,7 +65,7 @@ export async function executeOutboxItem(
     } else if (payload.kind === 'image') {
       let mediaRef = item.uploadedPublicUrl;
       if (!mediaRef) {
-        mediaRef = await uploadChatImageMessage(payload.uri, payload.mimeType, matchId);
+        mediaRef = await uploadChatImageMessage(payload.uri, payload.mimeType, matchId, clientRequestId);
       }
       uploadedPublicUrl = mediaRef;
       const row = await invokeSendMessageEdge({

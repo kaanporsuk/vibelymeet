@@ -23,7 +23,7 @@ export interface ImagePickerAsset {
 export async function uploadProfilePhoto(
   asset: ImagePickerAsset | NormalizedImageAsset,
   context?: 'onboarding' | 'profile_studio',
-  options?: { signal?: AbortSignal },
+  options?: { signal?: AbortSignal; clientRequestId?: string },
 ): Promise<UploadImageResult> {
   const accessToken = await getCachedAccessToken();
   if (!accessToken) throw new Error('Not authenticated');
@@ -46,11 +46,16 @@ export async function uploadProfilePhoto(
     if (context) {
       formData.append('context', context);
     }
+    const stableClientRequestId = options?.clientRequestId?.trim();
+    if (stableClientRequestId) {
+      formData.append('client_request_id', stableClientRequestId);
+    }
 
     const res = await fetch(`${SUPABASE_URL}/functions/v1/upload-image`, {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${accessToken}`,
+        ...(stableClientRequestId ? { 'x-client-request-id': stableClientRequestId } : {}),
       },
       body: formData,
       signal: options?.signal,

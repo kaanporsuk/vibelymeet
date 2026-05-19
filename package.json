@@ -38,6 +38,7 @@
     "test:media-upload-sniffing": "tsx supabase/functions/_shared/media-upload-sniffing.test.ts",
     "test": "node scripts/run-targeted-test.mjs",
     "test:media-sdk": "tsx shared/media-sdk/mediaSdk.test.ts",
+    "test:media-idempotency": "tsx shared/mediaAssetsIdempotencyContracts.test.ts",
     "test:client-feature-flags": "tsx shared/featureFlags/clientFeatureFlagsContracts.test.ts",
     "test:profile-privacy-contract": "tsx shared/profile/profileDirectPrivacyContracts.test.ts",
     "test:send-email-auth": "tsx supabase/functions/send-email/sendEmailAuthBypass.test.ts",

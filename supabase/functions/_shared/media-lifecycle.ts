@@ -72,9 +72,10 @@ export interface RegisterAssetParams {
   providerPath?: string | null;
   mimeType?: string | null;
   bytes?: number | null;
+  contentSha256?: string | null;
   legacyTable?: string | null;
   legacyId?: string | null;
-  status?: "uploading" | "active" | "soft_deleted";
+  status?: "uploading" | "uploaded" | "active" | "soft_deleted";
 }
 
 /**
@@ -87,82 +88,46 @@ export async function registerMediaAsset(
   admin: SupabaseClient,
   params: RegisterAssetParams,
 ): Promise<{ success: boolean; assetId?: string; created?: boolean; error?: string }> {
-  const desiredStatus = params.status ?? "active";
-
-  let lookup = admin
-    .from("media_assets")
-    .select("id,status")
-    .eq("provider", params.provider)
-    .limit(1);
-
-  if (params.providerObjectId) {
-    lookup = lookup.eq("provider_object_id", params.providerObjectId);
-  } else if (params.providerPath) {
-    lookup = lookup.eq("provider_path", params.providerPath);
-  } else {
+  if (!params.providerObjectId && !params.providerPath) {
     return { success: false, error: "providerObjectId or providerPath is required" };
   }
 
-  const { data: existing, error: lookupError } = await lookup.maybeSingle();
-  if (lookupError) {
-    return { success: false, error: lookupError.message };
-  }
-
-  if (existing?.id) {
-    const updates: Record<string, unknown> = {
-      media_family: params.mediaFamily,
-      owner_user_id: params.ownerUserId,
-      provider_object_id: params.providerObjectId ?? null,
-      provider_path: params.providerPath ?? null,
-      mime_type: params.mimeType ?? null,
-      bytes: params.bytes ?? null,
-      legacy_table: params.legacyTable ?? null,
-      legacy_id: params.legacyId ?? null,
-    };
-
-    if (desiredStatus === "active") {
-      updates.status = "active";
-      updates.deleted_at = null;
-      updates.purge_after = null;
-      updates.purged_at = null;
-      updates.last_error = null;
-    } else if (existing.status !== "active") {
-      updates.status = desiredStatus;
-    }
-
-    const { error: updateError } = await admin
-      .from("media_assets")
-      .update(updates)
-      .eq("id", existing.id);
-
-    if (updateError) {
-      return { success: false, error: updateError.message };
-    }
-
-    return { success: true, assetId: existing.id, created: false };
-  }
-
-  const { data, error } = await admin
-    .from("media_assets")
-    .insert({
-      provider: params.provider,
-      media_family: params.mediaFamily,
-      owner_user_id: params.ownerUserId,
-      provider_object_id: params.providerObjectId ?? null,
-      provider_path: params.providerPath ?? null,
-      mime_type: params.mimeType ?? null,
-      bytes: params.bytes ?? null,
-      status: desiredStatus,
-      legacy_table: params.legacyTable ?? null,
-      legacy_id: params.legacyId ?? null,
-    })
-    .select("id")
-    .single();
+  const { data, error } = await admin.rpc("upsert_media_asset", {
+    p_provider: params.provider,
+    p_media_family: params.mediaFamily,
+    p_owner_user_id: params.ownerUserId,
+    p_provider_object_id: params.providerObjectId ?? null,
+    p_provider_path: params.providerPath ?? null,
+    p_mime_type: params.mimeType ?? null,
+    p_bytes: params.bytes ?? null,
+    p_content_sha256: params.contentSha256 ?? null,
+    p_status: params.status ?? "active",
+    p_legacy_table: params.legacyTable ?? null,
+    p_legacy_id: params.legacyId ?? null,
+  });
 
   if (error) {
     return { success: false, error: error.message };
   }
-  return { success: true, assetId: data.id, created: true };
+
+  const result = data as Record<string, unknown> | null;
+  if (!result?.success) {
+    return {
+      success: false,
+      error: typeof result?.error === "string" ? result.error : "media_asset_upsert_failed",
+    };
+  }
+
+  const assetId = typeof result.asset_id === "string" ? result.asset_id : null;
+  if (!assetId) {
+    return { success: false, error: "media_asset_upsert_missing_id" };
+  }
+
+  return {
+    success: true,
+    assetId,
+    created: result.created === true,
+  };
 }
 
 // ─── Reference management ───────────────────────────────────────────────────
@@ -182,23 +147,32 @@ export async function createMediaReference(
   admin: SupabaseClient,
   params: CreateReferenceParams,
 ): Promise<{ success: boolean; referenceId?: string; error?: string }> {
-  const { data, error } = await admin
-    .from("media_references")
-    .insert({
-      asset_id: params.assetId,
-      ref_type: params.refType,
-      ref_table: params.refTable,
-      ref_id: params.refId,
-      ref_key: params.refKey ?? null,
-      is_active: true,
-    })
-    .select("id")
-    .single();
+  const { data, error } = await admin.rpc("attach_media_reference", {
+    p_asset_id: params.assetId,
+    p_ref_type: params.refType,
+    p_ref_table: params.refTable,
+    p_ref_id: params.refId,
+    p_ref_key: params.refKey ?? null,
+  });
 
   if (error) {
     return { success: false, error: error.message };
   }
-  return { success: true, referenceId: data.id };
+
+  const result = data as Record<string, unknown> | null;
+  if (!result?.success) {
+    return {
+      success: false,
+      error: typeof result?.error === "string" ? result.error : "media_reference_attach_failed",
+    };
+  }
+
+  const referenceId = typeof result.reference_id === "string" ? result.reference_id : null;
+  if (!referenceId) {
+    return { success: false, error: "media_reference_attach_missing_id" };
+  }
+
+  return { success: true, referenceId };
 }
 
 /**

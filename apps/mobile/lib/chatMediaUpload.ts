@@ -72,6 +72,7 @@ export async function uploadChatImageMessage(
   imageUri: string,
   mimeType: string | null | undefined,
   matchId: string,
+  clientRequestId?: string,
 ): Promise<string> {
   const accessToken = await getCachedAccessToken();
   if (!accessToken) throw new Error('Not authenticated');
@@ -83,6 +84,10 @@ export async function uploadChatImageMessage(
   const formData = new FormData();
   formData.append('context', 'chat');
   formData.append('match_id', matchId);
+  const stableClientRequestId = clientRequestId?.trim();
+  if (stableClientRequestId) {
+    formData.append('client_request_id', stableClientRequestId);
+  }
   const uploadMimeType = normalizedImageMimeType(mimeType, imageUri);
   const ext =
     uploadMimeType.includes('png') ? 'png' :
@@ -101,7 +106,10 @@ export async function uploadChatImageMessage(
 
   const res = await fetch(`${SUPABASE_URL}/functions/v1/upload-image`, {
     method: 'POST',
-    headers: { Authorization: `Bearer ${accessToken}` },
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      ...(stableClientRequestId ? { 'x-client-request-id': stableClientRequestId } : {}),
+    },
     body: formData,
   });
 
