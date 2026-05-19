@@ -46,14 +46,16 @@ interface JobRow {
 }
 
 interface DryRunPreviewRow {
-  job_id: string;
+  id: string;
   asset_id: string;
   provider: string;
   job_type: string;
   provider_object_id: string | null;
   provider_path: string | null;
-  media_family: string;
-  owner_user_id: string | null;
+  media_assets?: {
+    media_family?: string | null;
+    owner_user_id?: string | null;
+  } | null;
   attempts: number;
 }
 
@@ -161,7 +163,7 @@ Deno.serve(async (req) => {
 
       for (const row of rows) {
         console.log(
-          `[${workerId}] DRY_RUN would_delete job=${row.job_id ?? row.id} ` +
+          `[${workerId}] DRY_RUN would_delete job=${row.id} ` +
           `asset=${row.asset_id} provider=${row.provider} ` +
           `object_id=${row.provider_object_id} path=${row.provider_path} ` +
           `attempts=${row.attempts}`,
