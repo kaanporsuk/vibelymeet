@@ -23,6 +23,8 @@ export type NativeLocalUriSource = {
   name?: string | null;
   mimeType?: string | null;
   sizeBytes?: number | null;
+  width?: number | null;
+  height?: number | null;
 };
 
 export type NativeMediaUploadInput = MediaUploadInput<NativeLocalUriSource>;
@@ -44,6 +46,11 @@ export type NativeMediaUploadDelegate<TInput extends NativeMediaUploadInput = Na
   input: TInput,
   controls: MediaTaskRunContext,
 ) => Promise<void> | void;
+export type NativePhotoTranscoder = (
+  source: NativeLocalUriSource,
+  input: NativePhotoUploadInput,
+  imageManipulator?: NativeImageManipulatorLike | null,
+) => Promise<NativeLocalUriSource> | NativeLocalUriSource;
 
 export type NativeAsyncStorageLike = {
   getItem(key: string): Promise<string | null>;
@@ -88,6 +95,7 @@ export type NativeMediaSdkOptions = {
   telemetry?: MediaTelemetry;
   telemetrySinks?: readonly MediaTelemetrySink[];
   delegates?: NativeLegacyMediaDelegates;
+  photoTranscoder?: NativePhotoTranscoder | null;
   platform?: "native" | "ios" | "android";
 };
 
@@ -101,6 +109,7 @@ type ResolvedNativeMediaSdkOptions = {
   telemetry: MediaTelemetry;
   telemetrySinks: readonly MediaTelemetrySink[];
   delegates: NativeLegacyMediaDelegates;
+  photoTranscoder: NativePhotoTranscoder | null;
   platform: "native" | "ios" | "android";
 };
 
@@ -164,6 +173,21 @@ function delegateForInput(input: NativeMediaUploadInput, delegates: NativeLegacy
     case "voice_note":
       return delegates?.voice?.uploadVoiceNote as NativeMediaUploadDelegate | undefined;
   }
+}
+
+function isPhotoUploadInput(input: NativeMediaUploadInput): input is NativePhotoUploadInput {
+  return input.family === "profile_photo" || input.family === "chat_photo" || input.family === "event_cover";
+}
+
+async function inputWithPreparedPhotoSource(
+  input: NativeMediaUploadInput,
+  options: ResolvedNativeMediaSdkOptions,
+): Promise<NativeMediaUploadInput> {
+  if (!isPhotoUploadInput(input) || !options.photoTranscoder) return input;
+  const preparedSource = await options.photoTranscoder(input.source, input, options.imageManipulator);
+  assertNativeUriSource(preparedSource);
+  if (preparedSource === input.source) return input;
+  return { ...input, source: preparedSource };
 }
 
 export class NativeAsyncStorageMediaUploadQueue implements MediaUploadQueue {
@@ -333,7 +357,8 @@ function createNativeUploadTask(input: NativeMediaUploadInput, options: Resolved
         return;
       }
 
-      await delegate(input, controls);
+      const delegateInput = await inputWithPreparedPhotoSource(input, options);
+      await delegate(delegateInput, controls);
       if (controls.snapshot().state === "uploading") {
         controls.dispatch({ type: "upload_complete" });
       }
@@ -373,6 +398,9 @@ function withNativeDefaults(options: NativeMediaSdkOptions): ResolvedNativeMedia
     telemetry: options.telemetry ?? createMediaTelemetry(options.telemetrySinks),
     telemetrySinks: options.telemetrySinks ?? [],
     delegates: options.delegates ?? {},
+    photoTranscoder: options.photoTranscoder === undefined
+      ? (source, _input, imageManipulator) => nativeMediaTranscodeHooks.preparePhotoForUpload(source, imageManipulator)
+      : options.photoTranscoder,
     platform: options.platform ?? "native",
   };
 }
@@ -392,10 +420,51 @@ export function createNativeMediaSdk(options: NativeMediaSdkOptions = {}): Nativ
   };
 }
 
+function finitePositiveNumber(value: number | null | undefined): number | null {
+  return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : null;
+}
+
+function nativePhotoFileName(source: NativeLocalUriSource): string {
+  const uriName = source.uri.split(/[/?#]/).filter(Boolean).pop();
+  const rawName = source.name?.trim() || uriName || "photo";
+  return `${rawName.replace(/\.[^.]+$/, "") || "photo"}.jpg`;
+}
+
+function resizeActionsForNativePhoto(source: NativeLocalUriSource, maxEdge: number): readonly unknown[] {
+  const width = finitePositiveNumber(source.width);
+  const height = finitePositiveNumber(source.height);
+  if (!width || !height || Math.max(width, height) <= maxEdge) return [];
+  return width >= height
+    ? [{ resize: { width: maxEdge } }]
+    : [{ resize: { height: maxEdge } }];
+}
+
 export const nativeMediaTranscodeHooks = {
-  async preparePhotoForUpload(source: NativeLocalUriSource): Promise<NativeLocalUriSource> {
+  async preparePhotoForUpload(
+    source: NativeLocalUriSource,
+    imageManipulator?: NativeImageManipulatorLike | null,
+    options: { maxEdge?: number; compress?: number; format?: string } = {},
+  ): Promise<NativeLocalUriSource> {
     assertNativeUriSource(source);
-    return source;
+    if (!imageManipulator) return source;
+
+    const maxEdge = options.maxEdge ?? 2048;
+    const actions = resizeActionsForNativePhoto(source, maxEdge);
+    const result = await imageManipulator.manipulateAsync(source.uri, actions, {
+      compress: options.compress ?? 0.85,
+      format: options.format ?? "jpeg",
+    });
+
+    return {
+      ...source,
+      ...result,
+      uri: result.uri,
+      name: nativePhotoFileName(source),
+      mimeType: "image/jpeg",
+      sizeBytes: result.sizeBytes ?? source.sizeBytes ?? null,
+      width: result.width ?? source.width ?? null,
+      height: result.height ?? source.height ?? null,
+    };
   },
   voiceRecordingOptions(audio?: NativeAudioHooks): Record<string, unknown> {
     return audio?.preferredVoiceRecordingOptions ?? {
@@ -404,7 +473,7 @@ export const nativeMediaTranscodeHooks = {
       sampleRate: 44100,
       numberOfChannels: 1,
       bitRate: 96000,
-      phase: "phase_5_stub",
+      phase: "phase_5_voice_capture_pending",
     };
   },
 };

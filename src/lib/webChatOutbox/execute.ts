@@ -188,7 +188,7 @@ export async function executeWebOutboxItem(
         if (!blob) throw new WebOutboxExecuteError("Voice data missing — try recording again.");
         const { data: { session } } = await supabase.auth.getSession();
         if (!session?.access_token) throw new Error("Not authenticated");
-        audioUrl = await uploadVoiceToBunny(blob, session.access_token, matchId);
+        audioUrl = await uploadVoiceToBunny(blob, session.access_token, matchId, clientRequestId);
       }
       uploadedMediaUrl = audioUrl;
       const row = await invokePublishVoiceMessage({

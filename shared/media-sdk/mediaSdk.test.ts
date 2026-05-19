@@ -4,9 +4,10 @@ import test from "node:test";
 import {
   assertNativeUriSource,
   createNativeMediaSdk,
+  nativeMediaTranscodeHooks,
   NativeAsyncStorageMediaUploadQueue,
 } from "./adapters/native";
-import { assertWebMediaSource, createWebMediaSdk, IndexedDbMediaUploadQueue } from "./adapters/web";
+import { assertWebMediaSource, createWebMediaSdk, IndexedDbMediaUploadQueue, webMediaTranscode } from "./adapters/web";
 import { createNativeMediaSdk as createNativeMediaSdkFromRoot, createWebMediaSdk as createWebMediaSdkFromRoot } from ".";
 import { createStaticMediaFeatureFlagGate } from "./core/flag-gate";
 import { MemoryMediaUploadQueue, type MediaUploadQueueRecord } from "./core/queue";
@@ -172,6 +173,58 @@ test("web adapter routes Chat Vibe Clips through the video SDK flag and delegate
   assert.equal(task.snapshot().state, "ready");
   assert.equal(task.snapshot().result?.providerObjectId, "chat-clip-video");
   assert.deepEqual(events, ["chat_vibe_clip:media_v2_video:true"]);
+});
+
+test("web photo adapter prepares photo sources before invoking legacy delegates", async () => {
+  const original = new Blob(["raw-png"], { type: "image/png" });
+  const prepared = new Blob(["prepared-jpeg"], { type: "image/jpeg" });
+  let transcoderCalls = 0;
+  let delegateSource: Blob | null = null;
+
+  const sdk = createWebMediaSdk({
+    queue: new MemoryMediaUploadQueue(),
+    flagGate: createStaticMediaFeatureFlagGate({ media_v2_photo: true }),
+    photoTranscoder: async (source, input) => {
+      transcoderCalls += 1;
+      assert.equal(source, original);
+      assert.equal(input.family, "chat_photo");
+      return prepared;
+    },
+    delegates: {
+      photo: {
+        uploadChatPhoto: (input, controls) => {
+          delegateSource = input.source;
+          controls.dispatch({ type: "ready", result: { providerPath: "photos/ready.jpg" } });
+        },
+      },
+    },
+  });
+
+  const task = sdk.photo.upload({
+    family: "chat_photo",
+    source: original,
+    context: { uploadContext: "chat", scopeKey: "match:1" },
+    options: { clientRequestId: uuid },
+  });
+
+  await flushMediaTask();
+
+  assert.equal(transcoderCalls, 1);
+  assert.equal(delegateSource, prepared);
+  assert.equal(task.snapshot().state, "ready");
+});
+
+test("web photo transcode hook is real canvas/jpeg work and keeps unsupported runtimes safe", async () => {
+  const adapter = readFileSync("shared/media-sdk/adapters/web.ts", "utf8");
+  assert.match(adapter, /createImageBitmap/);
+  assert.match(adapter, /document\.createElement\("canvas"\)/);
+  assert.match(adapter, /canvas\.toBlob/);
+  assert.match(adapter, /new File\(\[blob\], webPhotoFileName\(source\)/);
+  assert.match(adapter, /phase_5_photo_transcode/);
+  assert.equal(webMediaTranscode.capabilities().phase, "phase_5_photo_transcode");
+
+  const nonImage = new Blob(["not-image"], { type: "text/plain" });
+  assert.equal(await webMediaTranscode.preparePhotoForUpload(nonImage), nonImage);
 });
 
 test("web adapter fails closed when the media feature flag is disabled", async () => {
@@ -362,6 +415,87 @@ test("native adapter delegates URI uploads without Base64 materialization", asyn
 
   const nativeAdapter = readFileSync("shared/media-sdk/adapters/native.ts", "utf8");
   assert.doesNotMatch(nativeAdapter, /readAsStringAsync|Base64|base64|expo-av/);
+});
+
+test("native photo adapter prepares photo URIs before invoking legacy delegates", async () => {
+  const queue = new MemoryMediaUploadQueue();
+  const original = { uri: "file:///tmp/photo.heic", name: "photo.heic", mimeType: "image/heic", width: 4032, height: 3024 };
+  const prepared = { uri: "file:///tmp/photo.jpg", name: "photo.jpg", mimeType: "image/jpeg", width: 2048, height: 1536 };
+  let transcoderCalls = 0;
+  let delegateSource: typeof prepared | null = null;
+
+  const sdk = createNativeMediaSdk({
+    queue,
+    fileSystem: {
+      async getInfoAsync() {
+        return { exists: true, size: 5_000_000 };
+      },
+    },
+    flagGate: createStaticMediaFeatureFlagGate({ media_v2_photo: true }),
+    photoTranscoder: async (source, input) => {
+      transcoderCalls += 1;
+      assert.equal(source, original);
+      assert.equal(input.family, "profile_photo");
+      return prepared;
+    },
+    delegates: {
+      photo: {
+        uploadProfilePhoto: (input, controls) => {
+          delegateSource = input.source as typeof prepared;
+          controls.dispatch({ type: "ready", result: { providerPath: "photos/native-ready.jpg" } });
+        },
+      },
+    },
+    platform: "ios",
+  });
+
+  const task = sdk.photo.upload({
+    family: "profile_photo",
+    source: original,
+    context: { uploadContext: "profile_studio", scopeKey: "profile:self" },
+    options: { clientRequestId: uuid },
+  });
+
+  await flushMediaTask();
+
+  assert.equal(transcoderCalls, 1);
+  assert.equal(delegateSource, prepared);
+  assert.equal(task.snapshot().state, "ready");
+});
+
+test("native photo transcode hook uses expo-image-manipulator shape for resize and EXIF stripping", async () => {
+  const actionsSeen: unknown[][] = [];
+  const optionsSeen: Array<Record<string, unknown> | undefined> = [];
+  const source = {
+    uri: "file:///tmp/portrait.heic",
+    name: "portrait.heic",
+    mimeType: "image/heic",
+    sizeBytes: 7_000_000,
+    width: 3024,
+    height: 4032,
+  };
+  const prepared = await nativeMediaTranscodeHooks.preparePhotoForUpload(source, {
+    async manipulateAsync(uri, actions, options) {
+      assert.equal(uri, source.uri);
+      actionsSeen.push([...actions]);
+      optionsSeen.push(options);
+      return {
+        uri: "file:///tmp/portrait.jpg",
+        sizeBytes: 950_000,
+        width: 1536,
+        height: 2048,
+      };
+    },
+  });
+
+  assert.deepEqual(actionsSeen, [[{ resize: { height: 2048 } }]]);
+  assert.deepEqual(optionsSeen, [{ compress: 0.85, format: "jpeg" }]);
+  assert.equal(prepared.uri, "file:///tmp/portrait.jpg");
+  assert.equal(prepared.name, "portrait.jpg");
+  assert.equal(prepared.mimeType, "image/jpeg");
+  assert.equal(prepared.sizeBytes, 950_000);
+  assert.equal(prepared.width, 1536);
+  assert.equal(prepared.height, 2048);
 });
 
 test("native adapter fails closed when the media feature flag is disabled", async () => {

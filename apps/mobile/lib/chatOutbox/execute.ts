@@ -75,7 +75,7 @@ export async function executeOutboxItem(
       });
       serverMessageId = getServerMessageId(row);
     } else if (payload.kind === 'voice') {
-      const audioUrl = item.uploadedMediaUrl ?? (await uploadVoiceMessage(payload.uri, matchId));
+      const audioUrl = item.uploadedMediaUrl ?? (await uploadVoiceMessage(payload.uri, matchId, clientRequestId));
       uploadedMediaUrl = audioUrl;
       const row = await invokePublishVoiceMessage({
         matchId,

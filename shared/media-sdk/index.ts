@@ -49,6 +49,7 @@ export {
   createIndexedDbMediaUploadQueue,
   createWebMediaSdk,
   IndexedDbMediaUploadQueue,
+  webMediaTranscode,
   webMediaTranscodeStubs,
 } from "./adapters/web";
 export type {
@@ -58,6 +59,7 @@ export type {
   WebMediaSource,
   WebMediaUploadDelegate,
   WebMediaUploadInput,
+  WebPhotoTranscoder,
   WebPhotoUploadInput,
   WebVideoUploadInput,
   WebVoiceUploadInput,
@@ -79,6 +81,7 @@ export type {
   NativeMediaSdkOptions,
   NativeMediaUploadDelegate,
   NativeMediaUploadInput,
+  NativePhotoTranscoder,
   NativePhotoUploadInput,
   NativeVideoUploadInput,
   NativeVoiceUploadInput,

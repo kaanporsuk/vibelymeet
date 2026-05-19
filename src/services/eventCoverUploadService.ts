@@ -3,18 +3,36 @@ const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 type UploadEventCoverResponse = {
   success?: boolean;
   error?: string;
-  url: string;
+  code?: string;
+  path?: string;
+  url?: string;
+  assetId?: string | null;
+  referenceId?: string | null;
+  receiptId?: string | null;
+};
+
+type UploadEventCoverOptions = {
+  clientRequestId?: string | null;
+  expectedCurrentCoverAssetId?: string | null;
 };
 
 export async function uploadEventCoverToBunny(
   file: File,
   accessToken: string,
-  eventId?: string
-): Promise<string> {
+  eventId?: string,
+  options: UploadEventCoverOptions = {},
+): Promise<{ url: string; path: string | null; assetId: string | null }> {
   const formData = new FormData();
   formData.append("file", file);
   if (eventId) {
     formData.append("event_id", eventId);
+    if (options.expectedCurrentCoverAssetId !== undefined) {
+      formData.append("expected_current_cover_asset_id", options.expectedCurrentCoverAssetId?.trim() || "__none__");
+    }
+  }
+  const stableClientRequestId = options.clientRequestId?.trim();
+  if (stableClientRequestId) {
+    formData.append("client_request_id", stableClientRequestId);
   }
 
   const res = await fetch(
@@ -23,6 +41,7 @@ export async function uploadEventCoverToBunny(
       method: "POST",
       headers: {
         Authorization: `Bearer ${accessToken}`,
+        ...(stableClientRequestId ? { "x-client-request-id": stableClientRequestId } : {}),
       },
       body: formData,
     }
@@ -38,6 +57,13 @@ export async function uploadEventCoverToBunny(
   if (!data.success) {
     throw new Error(data.error || "Event cover upload failed");
   }
+  if (!data.url) {
+    throw new Error("Event cover upload failed");
+  }
 
-  return data.url;
+  return {
+    url: data.url,
+    path: data.path ?? null,
+    assetId: data.assetId ?? null,
+  };
 }

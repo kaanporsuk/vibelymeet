@@ -4,13 +4,15 @@ type UploadVoiceResponse = {
   success?: boolean;
   error?: string;
   path?: string;
-  url: string;
+  url?: string;
+  assetId?: string | null;
 };
 
 export async function uploadVoiceToBunny(
   blob: Blob,
   accessToken: string,
-  conversationId: string
+  conversationId: string,
+  clientRequestId?: string,
 ): Promise<string> {
   const formData = new FormData();
 
@@ -32,6 +34,10 @@ export async function uploadVoiceToBunny(
 
   formData.append("file", blob, `voice.${ext}`);
   formData.append("conversation_id", conversationId);
+  const stableClientRequestId = clientRequestId?.trim();
+  if (stableClientRequestId) {
+    formData.append("client_request_id", stableClientRequestId);
+  }
 
   const res = await fetch(
     `${SUPABASE_URL}/functions/v1/upload-voice`,
@@ -39,6 +45,7 @@ export async function uploadVoiceToBunny(
       method: "POST",
       headers: {
         Authorization: `Bearer ${accessToken}`,
+        ...(stableClientRequestId ? { "x-client-request-id": stableClientRequestId } : {}),
       },
       body: formData,
     }
@@ -55,5 +62,10 @@ export async function uploadVoiceToBunny(
     throw new Error(data.error || "Voice upload failed");
   }
 
-  return data.path || data.url;
+  const mediaRef = data.path || data.url;
+  if (!mediaRef) {
+    throw new Error("Voice upload failed");
+  }
+
+  return mediaRef;
 }

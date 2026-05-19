@@ -10,11 +10,18 @@ function read(path: string): string {
 }
 
 const migration = read("supabase/migrations/20260519150000_media_atomic_idempotency.sql");
+const phase5Migration = read("supabase/migrations/20260519170000_media_phase_5_6_10.sql");
 const mediaLifecycle = read("supabase/functions/_shared/media-lifecycle.ts");
 const uploadImage = read("supabase/functions/upload-image/index.ts");
+const uploadVoice = read("supabase/functions/upload-voice/index.ts");
+const uploadEventCover = read("supabase/functions/upload-event-cover/index.ts");
 const webImageUploadService = read("src/services/imageUploadService.ts");
+const webVoiceUploadService = read("src/services/voiceUploadService.ts");
+const webEventCoverUploadService = read("src/services/eventCoverUploadService.ts");
 const webStorageService = read("src/services/storageService.ts");
 const webOutboxExecute = read("src/lib/webChatOutbox/execute.ts");
+const webAdminEventFormModal = read("src/components/admin/AdminEventFormModal.tsx");
+const webAdminEventsPanel = read("src/components/admin/AdminEventsPanel.tsx");
 const webOnboardingPhotos = read("src/pages/onboarding/steps/PhotosStep.tsx");
 const webPhotoManageDrawer = read("src/components/photos/PhotoManageDrawer.tsx");
 const webProfileWizard = read("src/components/wizard/ProfileWizard.tsx");
@@ -25,6 +32,8 @@ const nativePhotoBatchController = read("apps/mobile/lib/photoBatchController.ts
 const nativeGamesApi = read("apps/mobile/lib/gamesApi.ts");
 const nativeScavengerStartSheet = read("apps/mobile/components/chat/games/ScavengerStartSheet.tsx");
 const nativeScavengerBubble = read("apps/mobile/components/chat/games/ScavengerBubble.tsx");
+const webMediaSdkAdapter = read("shared/media-sdk/adapters/web.ts");
+const nativeMediaSdkAdapter = read("shared/media-sdk/adapters/native.ts");
 
 test("media assets migration adds uploaded status, SHA-256, and provider identity uniqueness", () => {
   assert.match(migration, /ADD COLUMN IF NOT EXISTS content_sha256 text/);
@@ -90,6 +99,97 @@ test("upload-image reserves before PUT, sends Bunny Checksum, and registers uplo
   assert.match(uploadImage, /contentSha256,/);
   assert.match(uploadImage, /status: "uploaded"/);
   assert.match(uploadImage, /\.from\("media_upload_receipts"\)[\s\S]+status: "uploaded"/);
+});
+
+test("upload-voice is receipt-backed, hash-bound, and wired to durable outbox ids", () => {
+  assert.match(uploadVoice, /function clientRequestIdForUpload/);
+  assert.match(uploadVoice, /client_request_id_conflict/);
+  assert.match(uploadVoice, /const contentSha256 = await sha256Hex\(fileBuffer\)/);
+  assert.match(uploadVoice, /const mediaFamily = MEDIA_FAMILIES\.VOICE_MESSAGE/);
+  assert.match(uploadVoice, /const scopeKey = `match:\$\{conversationId\}`/);
+  assert.match(uploadVoice, /adminSupabase\.rpc\("reserve_media_upload"/);
+  assert.match(uploadVoice, /p_client_request_id: clientRequestId/);
+  assert.match(uploadVoice, /const storagePath = `voice\/\$\{conversationId\}\/req-\$\{requestPathToken\}\.\$\{sniffedMedia\.extension\}`/);
+  assert.match(uploadVoice, /"Checksum": contentSha256\.toUpperCase\(\)/);
+  assert.match(uploadVoice, /contentSha256,/);
+  assert.match(uploadVoice, /status: "uploaded"/);
+  assert.match(uploadVoice, /\.from\("media_upload_receipts"\)[\s\S]+status: "uploaded"/);
+
+  assert.match(webVoiceUploadService, /clientRequestId\?: string/);
+  assert.match(webVoiceUploadService, /formData\.append\("client_request_id", stableClientRequestId\)/);
+  assert.match(webVoiceUploadService, /"x-client-request-id": stableClientRequestId/);
+  assert.match(webOutboxExecute, /uploadVoiceToBunny\(blob, session\.access_token, matchId, clientRequestId\)/);
+
+  assert.match(nativeChatMediaUpload, /uploadVoiceMessage\(audioUri: string, matchId: string, clientRequestId\?: string\)/);
+  assert.match(nativeChatMediaUpload, /formData\.append\('client_request_id', stableClientRequestId\)/);
+  assert.match(nativeChatMediaUpload, /'x-client-request-id': stableClientRequestId/);
+  assert.match(nativeOutboxExecute, /uploadVoiceMessage\(payload\.uri, matchId, clientRequestId\)/);
+});
+
+test("upload-event-cover uses strong sniffing, stale cover guards, and attached receipts", () => {
+  assert.match(uploadEventCover, /validateImageUploadBytes\(fileBuffer, file\.type\)/);
+  assert.match(uploadEventCover, /function clientRequestIdForUpload/);
+  assert.match(uploadEventCover, /expected_current_cover_asset_id/);
+  assert.match(uploadEventCover, /expected_current_cover_asset_id_required/);
+  assert.match(uploadEventCover, /stale_cover_update/);
+  assert.match(uploadEventCover, /fetchCurrentEventCover/);
+  assert.match(uploadEventCover, /const contentSha256 = await sha256Hex\(fileBuffer\)/);
+  assert.match(uploadEventCover, /const mediaFamily = MEDIA_FAMILIES\.EVENT_COVER/);
+  assert.match(uploadEventCover, /adminSupabase\.rpc\("reserve_media_upload"/);
+  assert.match(uploadEventCover, /"Checksum": contentSha256\.toUpperCase\(\)/);
+  assert.match(uploadEventCover, /contentSha256,/);
+  assert.match(uploadEventCover, /status: "uploaded"/);
+  assert.match(uploadEventCover, /reservedStatus === "attached"/);
+  assert.match(uploadEventCover, /reservedStatus === "uploaded" && eventId/);
+  assert.match(uploadEventCover, /reservedAssetIsCurrent/);
+  assert.match(uploadEventCover, /receipt attached repair failed/);
+  assert.match(uploadEventCover, /receipt uploaded mark failed/);
+  assert.match(uploadEventCover, /adminSupabase\.rpc\("replace_event_cover_media_reference"/);
+  assert.match(uploadEventCover, /receiptStatus = "attached"/);
+  assert.match(uploadEventCover, /\.from\("media_upload_receipts"\)[\s\S]+status: receiptStatus/);
+
+  assert.match(webEventCoverUploadService, /expectedCurrentCoverAssetId\?: string \| null/);
+  assert.match(webEventCoverUploadService, /formData\.append\("expected_current_cover_asset_id", options\.expectedCurrentCoverAssetId\?\.trim\(\) \|\| "__none__"\)/);
+  assert.match(webEventCoverUploadService, /formData\.append\("client_request_id", stableClientRequestId\)/);
+  assert.match(webEventCoverUploadService, /"x-client-request-id": stableClientRequestId/);
+  assert.match(webAdminEventFormModal, /cover_media_asset_id\?: string \| null/);
+  assert.match(webAdminEventFormModal, /function isSupportedCoverImageFile/);
+  assert.match(webAdminEventFormModal, /clientRequestIdForUploadFile\(file, `event-cover:\$\{event\?\.id \?\? "new"\}`\)/);
+  assert.match(webAdminEventFormModal, /expectedCurrentCoverAssetId: event\?\.id \? currentCoverAssetId : undefined/);
+  assert.match(webAdminEventFormModal, /setCurrentCoverAssetId\(uploaded\.assetId\)/);
+  assert.match(webAdminEventsPanel, /cover_media_asset_id\?: string \| null/);
+});
+
+test("chat media sync and admin event listing consume atomic reference primitives", () => {
+  assert.match(phase5Migration, /CREATE OR REPLACE FUNCTION public\.attach_chat_media_asset_to_match/);
+  assert.match(phase5Migration, /public\.attach_media_reference\(/);
+  assert.match(phase5Migration, /CREATE OR REPLACE FUNCTION public\.replace_event_cover_media_reference/);
+  assert.match(phase5Migration, /stale_cover_update/);
+  assert.match(phase5Migration, /CREATE OR REPLACE FUNCTION public\.sync_event_cover_media_lifecycle/);
+  assert.match(phase5Migration, /public\.upsert_media_asset\(/);
+  assert.match(phase5Migration, /CREATE OR REPLACE FUNCTION public\.admin_list_events/);
+  assert.match(phase5Migration, /cover\.asset_id AS cover_media_asset_id/);
+  assert.match(phase5Migration, /r\.ref_type = 'event_cover'/);
+  assert.match(phase5Migration, /r\.ref_key = 'cover_image'/);
+});
+
+test("phase 5 photo transcode hooks are real web/native preprocessors", () => {
+  assert.match(webMediaSdkAdapter, /export const webMediaTranscode =/);
+  assert.match(webMediaSdkAdapter, /createImageBitmap/);
+  assert.match(webMediaSdkAdapter, /document\.createElement\("canvas"\)/);
+  assert.match(webMediaSdkAdapter, /canvas\.toBlob/);
+  assert.match(webMediaSdkAdapter, /inputWithPreparedPhotoSource/);
+  assert.match(webMediaSdkAdapter, /photoTranscoder/);
+  assert.match(webMediaSdkAdapter, /phase_5_photo_transcode/);
+
+  assert.match(nativeMediaSdkAdapter, /width\?: number \| null/);
+  assert.match(nativeMediaSdkAdapter, /height\?: number \| null/);
+  assert.match(nativeMediaSdkAdapter, /NativeImageManipulatorLike/);
+  assert.match(nativeMediaSdkAdapter, /resizeActionsForNativePhoto/);
+  assert.match(nativeMediaSdkAdapter, /manipulateAsync\(source\.uri, actions/);
+  assert.match(nativeMediaSdkAdapter, /format: options\.format \?\? "jpeg"/);
+  assert.match(nativeMediaSdkAdapter, /inputWithPreparedPhotoSource/);
+  assert.match(nativeMediaSdkAdapter, /photoTranscoder/);
 });
 
 test("web and native chat image retries pass durable outbox ids to upload-image", () => {
