@@ -9,7 +9,7 @@ import PhotoUploadGrid from "./PhotoUploadGrid";
 import PromptCards from "./PromptCards";
 import VibeTagCloud from "./VibeTagCloud";
 import { useUserProfile } from "@/contexts/AuthContext";
-import { uploadImageToBunny } from "@/services/imageUploadService";
+import { clientRequestIdForUploadFile, uploadImageToBunny } from "@/services/imageUploadService";
 import { supabase } from "@/integrations/supabase/client";
 import { useQueryClient } from "@tanstack/react-query";
 
@@ -302,7 +302,13 @@ const ProfileWizard = ({ isOpen, onClose, onComplete, onOpenVibeStudio }: Profil
         if (photo && file) {
           const { data: { session } } = await supabase.auth.getSession();
           if (!session) throw new Error("Not authenticated");
-          const { path } = await uploadImageToBunny(file, session.access_token, "profile_studio");
+          const { path } = await uploadImageToBunny(
+            file,
+            session.access_token,
+            "profile_studio",
+            undefined,
+            clientRequestIdForUploadFile(file, `profile-wizard:${userId}:${i}`),
+          );
           uploadedPhotoUrls.push(path);
         } else if (photo && !photo.startsWith("blob:")) {
           // Already persisted storage path / URL from a previous save
@@ -613,11 +619,17 @@ const ProfileWizard = ({ isOpen, onClose, onComplete, onOpenVibeStudio }: Profil
                                 for (let i = 0; i < photos.length; i++) {
                                   const photo = photos[i];
                                   const file = photoFiles[i];
-                                    if (photo && file) {
-                                      const { data: { session: sess } } = await supabase.auth.getSession();
-                                      if (!sess) throw new Error("Not authenticated");
-                                      const { path } = await uploadImageToBunny(file, sess.access_token, "profile_studio");
-                                      uploadedPhotoUrls.push(path);
+                                  if (photo && file) {
+                                    const { data: { session: sess } } = await supabase.auth.getSession();
+                                    if (!sess) throw new Error("Not authenticated");
+                                    const { path } = await uploadImageToBunny(
+                                      file,
+                                      sess.access_token,
+                                      "profile_studio",
+                                      undefined,
+                                      clientRequestIdForUploadFile(file, `profile-wizard:${user.id}:${i}`),
+                                    );
+                                    uploadedPhotoUrls.push(path);
                                   } else if (photo && !photo.startsWith("blob:")) {
                                     uploadedPhotoUrls.push(photo);
                                   }

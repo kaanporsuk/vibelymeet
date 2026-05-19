@@ -2,7 +2,7 @@ import { useRef, useState, useEffect, useCallback } from "react";
 import { motion } from "framer-motion";
 import { Plus, X, Loader2, Crown, AlertCircle, RotateCcw } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { uploadImageToBunny } from "@/services/imageUploadService";
+import { newUploadClientRequestId, uploadImageToBunny } from "@/services/imageUploadService";
 import { supabase } from "@/integrations/supabase/client";
 import { isAllowedProfilePhotoUploadFile, PROFILE_PHOTO_ACCEPT } from "@/lib/photoUtils";
 import { getImageUrl } from "@/utils/imageUrl";
@@ -60,7 +60,7 @@ export const PhotosStep = ({ photos, onPhotosChange, onNext, onBusyStateChange }
 
   const uploadItem = useCallback(async (item: QueueItem, session: { access_token: string }) => {
     try {
-      const { path } = await uploadImageToBunny(item.file, session.access_token, "onboarding");
+      const { path } = await uploadImageToBunny(item.file, session.access_token, "onboarding", undefined, item.id);
       if (!isQueueItemActive(item.id, "uploading")) {
         revokeBlob(item.preview);
         return null;
@@ -109,7 +109,7 @@ export const PhotosStep = ({ photos, onPhotosChange, onNext, onBusyStateChange }
     const newItems: QueueItem[] = toAdd.map((file) => {
       const preview = URL.createObjectURL(file);
       blobUrlsRef.current.push(preview);
-      return { id: crypto.randomUUID(), file, preview, status: "uploading" as const };
+      return { id: newUploadClientRequestId(), file, preview, status: "uploading" as const };
     });
 
     setQueue((prev) => [...prev, ...newItems]);

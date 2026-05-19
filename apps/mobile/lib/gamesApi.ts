@@ -158,7 +158,7 @@ function randomUuidV4(): string {
   });
 }
 
-function newClientRequestId(): string {
+export function newGameClientRequestId(): string {
   return randomUuidV4();
 }
 
@@ -171,7 +171,7 @@ export function newVibeGameSessionId(): string {
  * POST `send-game-event` with current session JWT. Parses success rows and typed rejections.
  */
 export async function sendGameEvent(input: SendGameEventInput): Promise<SendGameEventResult> {
-  const clientRequestId = input.client_request_id?.trim() || newClientRequestId();
+  const clientRequestId = input.client_request_id?.trim() || newGameClientRequestId();
 
   const body = {
     match_id: input.match_id,
@@ -947,12 +947,14 @@ export function useStartScavengerGame() {
       prompt: string;
       senderPhotoUrl: string;
       invalidateScope: ThreadInvalidateScope;
+      clientRequestId?: string;
     }) =>
       startScavengerGame({
         matchId: vars.matchId,
         gameSessionId: vars.gameSessionId,
         prompt: vars.prompt,
         senderPhotoUrl: vars.senderPhotoUrl,
+        client_request_id: vars.clientRequestId,
       }),
     onSuccess: (result, vars) => {
       if (!result.ok) return;
@@ -1095,7 +1097,8 @@ export function useSendScavengerChoice() {
       matchId: string;
       receiverPhotoUrl: string;
       invalidateScope: ThreadInvalidateScope;
-    }) => sendScavengerChoice(vars.view, vars.matchId, vars.receiverPhotoUrl),
+      clientRequestId?: string;
+    }) => sendScavengerChoice(vars.view, vars.matchId, vars.receiverPhotoUrl, vars.clientRequestId),
     onSuccess: (result, vars) => {
       if (!result.ok) return;
       invalidateAfterThreadMutation(qc, vars.invalidateScope);

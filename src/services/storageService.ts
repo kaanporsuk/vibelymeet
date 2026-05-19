@@ -1,5 +1,5 @@
 import { supabase } from "@/integrations/supabase/client";
-import { uploadImageToBunny } from "@/services/imageUploadService";
+import { clientRequestIdForUploadFile, uploadImageToBunny } from "@/services/imageUploadService";
 
 /**
  * Check if a URL is a blob URL (local) vs a storage URL
@@ -28,7 +28,13 @@ export const persistPhotos = async (
     if (isBlobUrl(photo) && file) {
       // Upload via Bunny edge function
       try {
-        const { path: newPath } = await uploadImageToBunny(file, session.access_token, "profile_studio");
+        const { path: newPath } = await uploadImageToBunny(
+          file,
+          session.access_token,
+          "profile_studio",
+          undefined,
+          clientRequestIdForUploadFile(file, `profile-studio:${userId}:${i}`),
+        );
         persistedUrls.push(newPath);
       } catch (err) {
         console.error("[persistPhotos] Upload failed for slot", i, ":", err);

@@ -37,7 +37,7 @@ import { toast } from "sonner";
 
 import { cn } from "@/lib/utils";
 import { thumbnailUrl, fullScreenUrl } from "@/utils/imageUrl";
-import { uploadImageToBunny } from "@/services/imageUploadService";
+import { newUploadClientRequestId, uploadImageToBunny } from "@/services/imageUploadService";
 import { supabase } from "@/integrations/supabase/client";
 import { markEphemeralPhotoPathsDeleted } from "@/lib/photoDraftReconcile";
 import { isAllowedProfilePhotoUploadFile, PROFILE_PHOTO_ACCEPT } from "@/lib/photoUtils";
@@ -63,6 +63,7 @@ type FailedUpload = {
   file: File;
   preview: string;
   error: string;
+  clientRequestId: string;
   /** Local-only marker so failed staged Replace can revert to the current photo */
   replaceOldPath?: string;
 };
@@ -687,13 +688,20 @@ export default function PhotoManageDrawer({
       const file = validFiles[0];
       const preview = URL.createObjectURL(file);
       const oldPath = localPhotos[replaceIndex];
+      const clientRequestId = newUploadClientRequestId();
       blobUrlsRef.current.push(preview);
       // Clear any prior failure on this slot
       setFailedSlots((prev) => { const next = new Map(prev); next.delete(replaceIndex); return next; });
       setPendingPreviews((prev) => new Map(prev).set(replaceIndex, preview));
       setUploadingSlots((prev) => new Set(prev).add(replaceIndex));
       try {
-        const { path } = await uploadImageToBunny(file, session.access_token, "profile_studio");
+        const { path } = await uploadImageToBunny(
+          file,
+          session.access_token,
+          "profile_studio",
+          undefined,
+          clientRequestId,
+        );
         if (sessionAtBatchStart !== uploadSessionRef.current) {
           void markEphemeralPhotoPathsDeleted([path]);
           return;
@@ -710,6 +718,7 @@ export default function PhotoManageDrawer({
           file,
           preview,
           error: msg,
+          clientRequestId,
           replaceOldPath: oldPath,
         }));
       } finally {
@@ -743,6 +752,7 @@ export default function PhotoManageDrawer({
       blobUrlsRef.current.push(url);
       return url;
     });
+    const clientRequestIds = toUpload.map(() => newUploadClientRequestId());
 
     setPendingPreviews((prev) => {
       const next = new Map(prev);
@@ -758,13 +768,21 @@ export default function PhotoManageDrawer({
       file: File;
       preview: string;
       error?: string;
+      clientRequestId?: string;
       stale?: boolean;
     };
     const results: SlotResult[] = await Promise.all(
       toUpload.map(async (file, i): Promise<SlotResult> => {
         const slot = slotIndices[i];
+        const clientRequestId = clientRequestIds[i];
         try {
-          const { path } = await uploadImageToBunny(file, session.access_token, "profile_studio");
+          const { path } = await uploadImageToBunny(
+            file,
+            session.access_token,
+            "profile_studio",
+            undefined,
+            clientRequestId,
+          );
           if (sessionAtBatchStart !== uploadSessionRef.current) {
             void markEphemeralPhotoPathsDeleted([path]);
             return { slot, path: null, file, preview: previews[i], stale: true };
@@ -772,7 +790,7 @@ export default function PhotoManageDrawer({
           return { slot, path, file, preview: previews[i] };
         } catch (err) {
           const msg = err instanceof Error ? err.message : `${file.name} failed to upload`;
-          return { slot, path: null, file, preview: previews[i], error: msg };
+          return { slot, path: null, file, preview: previews[i], error: msg, clientRequestId };
         }
       })
     );
@@ -805,7 +823,12 @@ export default function PhotoManageDrawer({
         revokePreview(r.preview);
       } else {
         // Failure — keep blob alive for retry overlay
-        newFailures.set(r.slot, { file: r.file, preview: r.preview, error: r.error! });
+        newFailures.set(r.slot, {
+          file: r.file,
+          preview: r.preview,
+          error: r.error!,
+          clientRequestId: r.clientRequestId!,
+        });
       }
     }
     if (newFailures.size > 0) {
@@ -855,6 +878,8 @@ export default function PhotoManageDrawer({
         failed.file,
         session.access_token,
         "profile_studio",
+        undefined,
+        failed.clientRequestId,
       );
 
       if (sessionAtRetry !== uploadSessionRef.current) {
