@@ -19,6 +19,19 @@ export type ChatMediaRenderKind = "text" | "image" | "voice" | "video" | "vibe_c
 export const CHAT_IMAGE_MESSAGE_PREFIX = "__IMAGE__|";
 
 /**
+ * Forward-compatible structured payload for chat photo messages.
+ * New rows keep the legacy `content = "__IMAGE__|<ref>"` marker for old clients,
+ * while modern renderers prefer this top-level media reference.
+ */
+export interface ChatImagePayload {
+  v: 2;
+  kind: "chat_image";
+  client_request_id?: string;
+  media_ref: string;
+  provider: "bunny_storage";
+}
+
+/**
  * Canonical structured_payload shape for vibe_clip messages.
  * Stored in `messages.structured_payload` when `message_kind = 'vibe_clip'`.
  *
@@ -132,6 +145,39 @@ function isPrivateChatImageRef(url: string): boolean {
   return /^photos\/[^?#\s]+/i.test(url);
 }
 
+function structuredPayloadObject(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : null;
+}
+
+function validChatImageRef(value: unknown, options?: ParseChatImageMessageOptions): string | null {
+  if (typeof value !== "string") return null;
+  const ref = value.trim();
+  if (/^https?:\/\//i.test(ref)) return ref;
+  if (options?.allowLocalPreviewUrls && isLocalPreviewImageUrl(ref)) return ref;
+  if (options?.allowPrivateMediaRefs && isPrivateChatImageRef(ref)) return ref;
+  return null;
+}
+
+/** Returns the canonical chat image ref from `structured_payload`, when present. */
+export function parseChatImageStructuredPayload(
+  structuredPayload: unknown,
+  options?: ParseChatImageMessageOptions,
+): string | null {
+  const payload = structuredPayloadObject(structuredPayload);
+  if (!payload || payload.kind !== "chat_image") return null;
+  if (payload.v !== 2 || payload.provider !== "bunny_storage") return null;
+  return validChatImageRef(payload.media_ref, options);
+}
+
+/** Prefer structured chat-image payloads, then fall back to the legacy text marker. */
+export function extractChatImageMediaRef(
+  row: { content?: string | null; structured_payload?: unknown },
+  options?: ParseChatImageMessageOptions,
+): string | null {
+  return parseChatImageStructuredPayload(row.structured_payload, options)
+    ?? parseChatImageMessageContent(row.content ?? "", options);
+}
+
 /** Returns image URL when this text should render as a photo bubble. */
 export function parseChatImageMessageContent(
   content: string,
@@ -139,11 +185,7 @@ export function parseChatImageMessageContent(
 ): string | null {
   const t = content.trim();
   if (t.startsWith(CHAT_IMAGE_MESSAGE_PREFIX)) {
-    const u = t.slice(CHAT_IMAGE_MESSAGE_PREFIX.length).trim();
-    if (/^https?:\/\//i.test(u)) return u;
-    if (options?.allowLocalPreviewUrls && isLocalPreviewImageUrl(u)) return u;
-    if (options?.allowPrivateMediaRefs && isPrivateChatImageRef(u)) return u;
-    return null;
+    return validChatImageRef(t.slice(CHAT_IMAGE_MESSAGE_PREFIX.length), options);
   }
   // Legacy / plain URL-only photo sends (Supabase storage or CDN)
   if (/^https?:\/\/\S+$/i.test(t) && /\.(jpe?g|png|gif|webp)(\?|#|$)/i.test(t)) {
@@ -207,10 +249,14 @@ export function inferChatMediaRenderKind(params: {
   audioUrl?: string | null;
   videoUrl?: string | null;
   messageKind?: string | null;
+  structuredPayload?: unknown;
 }): ChatMediaRenderKind {
   if (params.messageKind === "vibe_clip") return "vibe_clip";
   if (params.videoUrl) return "video";
   if (params.audioUrl) return "voice";
-  if (parseChatImageMessageContent(params.content)) return "image";
+  if (extractChatImageMediaRef({
+    content: params.content,
+    structured_payload: params.structuredPayload,
+  }, { allowPrivateMediaRefs: true })) return "image";
   return "text";
 }

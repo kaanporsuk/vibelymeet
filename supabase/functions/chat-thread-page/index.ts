@@ -185,6 +185,22 @@ function parsePrivateChatImageRef(content: string | null | undefined): string | 
   return /^photos\/[^?#\s]+/i.test(ref) ? ref : null;
 }
 
+function parseStructuredChatImageRef(payload: unknown): string | null {
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) return null;
+  const row = payload as Record<string, unknown>;
+  if (row.kind !== "chat_image") return null;
+  if (row.v !== 2 || row.provider !== "bunny_storage") return null;
+  const ref = typeof row.media_ref === "string" ? row.media_ref.trim() : "";
+  return /^photos\/[^?#\s]+/i.test(ref) ? ref : null;
+}
+
+function extractChatImageMediaRef(row: {
+  content?: string | null;
+  structured_payload?: unknown;
+}): string | null {
+  return parseStructuredChatImageRef(row.structured_payload) ?? parsePrivateChatImageRef(row.content);
+}
+
 function formatChatImageMessageContent(mediaRef: string): string {
   return `${CHAT_IMAGE_MESSAGE_PREFIX}${mediaRef}`;
 }
@@ -272,10 +288,16 @@ async function resolvePageMediaUrls(params: {
         next.structured_payload = payload;
       }
 
-      const imageRef = parsePrivateChatImageRef(next.content);
+      const imageRef = extractChatImageMediaRef(next);
       if (imageRef) {
         const durableImageRef = durableAssetRef(next.id, "image");
-        if (durableImageRef) next.content = formatChatImageMessageContent(durableImageRef);
+        if (durableImageRef) {
+          next.content = formatChatImageMessageContent(durableImageRef);
+          if (payload?.kind === "chat_image" && payload.v === 2 && payload.provider === "bunny_storage") {
+            payload.media_ref = durableImageRef;
+            next.structured_payload = payload;
+          }
+        }
       }
 
       return next;

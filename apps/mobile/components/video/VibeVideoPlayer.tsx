@@ -14,6 +14,7 @@ import {
   safeRemoveExpoSharedObjectSubscription,
 } from '@/lib/expoSharedObjectSafe';
 import { useMediaAsset } from '@/hooks/useMediaAsset';
+import { isProfileVibeVideoRef } from '@/lib/mediaAssetResolver';
 
 export type VibeVideoPlayerProps = {
   sourceUri: string;
@@ -49,13 +50,18 @@ export function VibeVideoPlayer({
   const warnedRef = useRef(false);
   const playbackAttemptedRef = useRef(false);
   const playbackSucceededRef = useRef(false);
-  const { url: mediaAssetUrl } = useMediaAsset({
-    kind: 'vibe_video',
+  const signedResolveFailureReportedRef = useRef(false);
+  const usesSignedProfileRef = isProfileVibeVideoRef(sourceUri);
+  const {
+    url: mediaAssetUrl,
+    status: mediaAssetStatus,
+  } = useMediaAsset({
+    kind: usesSignedProfileRef ? 'profile_vibe_video' : 'vibe_video',
     sourceRef: sourceUri,
-    initialUrl: sourceUri,
-    autoResolve: false,
+    initialUrl: usesSignedProfileRef ? null : sourceUri,
+    autoResolve: usesSignedProfileRef,
   });
-  const playbackSourceUri = mediaAssetUrl ?? sourceUri;
+  const playbackSourceUri = mediaAssetUrl ?? (usesSignedProfileRef ? '' : sourceUri);
   const [showPoster, setShowPoster] = useState(!!posterUri);
   const isRemoteHls = playbackSourceUri.startsWith('https://') || playbackSourceUri.startsWith('http://');
 
@@ -78,13 +84,22 @@ export function VibeVideoPlayer({
     warnedRef.current = false;
     playbackAttemptedRef.current = false;
     playbackSucceededRef.current = false;
+    signedResolveFailureReportedRef.current = false;
   }, [playbackSourceUri]);
+
+  useEffect(() => {
+    if (usesSignedProfileRef && mediaAssetStatus === 'error' && !signedResolveFailureReportedRef.current) {
+      signedResolveFailureReportedRef.current = true;
+      onPlayerFatalError?.();
+    }
+  }, [mediaAssetStatus, onPlayerFatalError, usesSignedProfileRef]);
 
   useEffect(() => {
     setShowPoster(!!posterUri);
   }, [playbackSourceUri, posterUri]);
 
   useEffect(() => {
+    if (!playbackSourceUri) return;
     vibeVideoDiagVerbose('player.load_start', {
       context: diagContext,
       isRemoteHls,
@@ -105,6 +120,7 @@ export function VibeVideoPlayer({
   }, [playbackSourceUri, player, diagContext, isRemoteHls]);
 
   useEffect(() => {
+    if (!playbackSourceUri) return;
     const label = playing ? 'vibeVideo.player.play' : 'vibeVideo.player.pause';
     if (playing) {
       const result = safeExpoSharedObjectCall(() => player.play(), {
@@ -119,7 +135,7 @@ export function VibeVideoPlayer({
       });
       attachSafeExpoSharedObjectPromise(result, undefined, label);
     }
-  }, [playing, player]);
+  }, [playing, playbackSourceUri, player]);
 
   useEffect(() => {
     const sub = safeExpoSharedObjectCall(

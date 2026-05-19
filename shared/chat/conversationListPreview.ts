@@ -7,9 +7,9 @@ import { parseVibeGameEnvelopeFromStructuredPayload } from "../vibely-games/pars
 import type { GameType } from "../vibely-games/types";
 import {
   CHAT_IMAGE_MESSAGE_PREFIX,
+  extractChatImageMediaRef,
   inferChatMediaRenderKind,
   normalizeChatDbMessageKind,
-  parseChatImageMessageContent,
   type ChatDbMessageKind,
 } from "./messageRouting";
 
@@ -183,6 +183,7 @@ export function getConversationPreview(
     audioUrl,
     videoUrl,
     messageKind: kind,
+    structuredPayload: row.structured_payload,
   });
 
   if (mediaKind === "image") {
@@ -198,7 +199,10 @@ export function getConversationPreview(
     return { prefix, text: "Video", kind: "video", presentation: "label" };
   }
 
-  if (parseChatImageMessageContent(trimmed)) {
+  if (extractChatImageMediaRef({
+    content: trimmed,
+    structured_payload: row.structured_payload,
+  }, { allowPrivateMediaRefs: true })) {
     return { prefix, text: "Photo", kind: "image", presentation: "label" };
   }
 

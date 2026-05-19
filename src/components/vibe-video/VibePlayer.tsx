@@ -4,6 +4,7 @@ import { Volume2, VolumeX, Pencil, Play, Loader2 } from "lucide-react";
 import * as Sentry from "@sentry/react";
 import { cn } from "@/lib/utils";
 import { useMediaAsset, useMediaAssetPlayback } from "@/hooks/useMediaAsset";
+import { isProfileVibeVideoRef } from "@/lib/mediaAssetResolver";
 import { trackVibeVideoEvent, VIBE_VIDEO_EVENTS } from "@/lib/vibeVideo/vibeVideoTelemetry";
 
 // IntersectionObserver-based iOS hardware decoder management
@@ -44,13 +45,19 @@ export const VibePlayer = ({
   const containerRef = useRef<HTMLDivElement>(null);
   const playbackAttemptedRef = useRef(false);
   const playbackSucceededRef = useRef(false);
-  const { url: mediaAssetUrl } = useMediaAsset({
-    kind: "vibe_video",
+  const usesSignedProfileRef = isProfileVibeVideoRef(videoUrl);
+  const {
+    url: mediaAssetUrl,
+    posterUrl: mediaAssetPosterUrl,
+    status: mediaAssetStatus,
+  } = useMediaAsset({
+    kind: usesSignedProfileRef ? "profile_vibe_video" : "vibe_video",
     sourceRef: videoUrl,
-    initialUrl: videoUrl,
-    autoResolve: false,
+    initialUrl: usesSignedProfileRef ? null : videoUrl,
+    autoResolve: usesSignedProfileRef,
   });
-  const playbackUrl = mediaAssetUrl ?? videoUrl;
+  const playbackUrl = mediaAssetUrl ?? (usesSignedProfileRef ? null : videoUrl);
+  const posterUrl = mediaAssetPosterUrl ?? thumbnailUrl;
 
   // Reset state when videoUrl changes
   useEffect(() => {
@@ -139,6 +146,12 @@ export const VibePlayer = ({
       console.warn("[VibeVideo] inline hls playback error", detail);
     }
   }, [reportPlaybackError]);
+
+  useEffect(() => {
+    if (usesSignedProfileRef && mediaAssetStatus === "error") {
+      reportPlaybackError("signed_url_resolve_failed");
+    }
+  }, [mediaAssetStatus, reportPlaybackError, usesSignedProfileRef]);
 
   useEffect(() => {
     const videoEl = videoRef.current;
@@ -269,7 +282,7 @@ export const VibePlayer = ({
         onCanPlay={handleCanPlay}
         onError={handleError}
         onClick={handleVideoClick}
-        poster={thumbnailUrl}
+        poster={posterUrl}
       />
 
       {/* Vibe Caption Overlay */}

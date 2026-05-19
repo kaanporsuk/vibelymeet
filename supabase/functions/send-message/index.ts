@@ -47,6 +47,19 @@ function imageMarkerUrl(trimmed: string): string | null {
   return url || null;
 }
 
+function chatImageStructuredPayload(mediaRef: string, clientRequestId: string): Record<string, unknown> {
+  const payload: Record<string, unknown> = {
+    v: 2,
+    kind: "chat_image",
+    provider: "bunny_storage",
+    media_ref: mediaRef,
+  };
+  if (clientRequestId && isUuid(clientRequestId)) {
+    payload.client_request_id = clientRequestId;
+  }
+  return payload;
+}
+
 function mediaRefHasStorageSegment(value: string, segment: "photos" | "voice" | "chat-videos"): boolean {
   const raw = value.trim();
   if (raw.startsWith(`${segment}/`) && !raw.includes("..")) return true;
@@ -560,7 +573,9 @@ serve(async (req) => {
         sender_id: actorId,
         content: trimmed,
       };
-      if (clientRequestId && isUuid(clientRequestId)) {
+      if (chatImageMarkerUrl) {
+        insertRow.structured_payload = chatImageStructuredPayload(chatImageMarkerUrl, clientRequestId);
+      } else if (clientRequestId && isUuid(clientRequestId)) {
         insertRow.structured_payload = { client_request_id: clientRequestId, v: 1 };
       }
 

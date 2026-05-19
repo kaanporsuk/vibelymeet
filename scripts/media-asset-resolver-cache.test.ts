@@ -5,8 +5,10 @@ import {
   __chatMediaUrlCacheSizeForTests,
   __clearChatMediaUrlCacheForTests,
   __setChatMediaUrlIssuerForTests,
+  getCachedMediaAsset,
   getCachedMediaAssetUrl,
   refreshMediaAssetUrl,
+  resolveMessageMediaForDisplay,
 } from "../src/lib/mediaAssetResolver";
 import { resolvePreservedMediaSelectionId } from "../shared/chat/mediaSelection";
 
@@ -143,6 +145,36 @@ try {
   __clearChatMediaUrlCacheForTests();
 }
 
+let profileStreamInvokeCount = 0;
+__setChatMediaUrlIssuerForTests(async (profileId, mediaKind) => {
+  profileStreamInvokeCount += 1;
+  assert.equal(profileId, "550e8400-e29b-41d4-a716-446655440099");
+  assert.equal(mediaKind, "profile_vibe_video");
+  return {
+    success: true,
+    url: "https://vz-profile.example/bcdn_token=HS256-profile/profile-video/playlist.m3u8",
+    posterUrl: "https://vz-profile.example/bcdn_token=HS256-profile/profile-video/thumbnail.jpg",
+    provider: "bunny_stream",
+    playbackKind: "hls",
+    expiresInSeconds: 300,
+  };
+});
+try {
+  const profileRef =
+    "profile_vibe_video:550e8400-e29b-41d4-a716-446655440099:33333333-3333-4333-8333-333333333333";
+  const first = await getCachedMediaAsset("", "profile_vibe_video", profileRef);
+  const second = await getCachedMediaAssetUrl("", "profile_vibe_video", profileRef);
+
+  assert.equal(first?.url, "https://vz-profile.example/bcdn_token=HS256-profile/profile-video/playlist.m3u8");
+  assert.equal(first?.posterUrl, "https://vz-profile.example/bcdn_token=HS256-profile/profile-video/thumbnail.jpg");
+  assert.equal(second, first?.url);
+  assert.equal(profileStreamInvokeCount, 1);
+  assert.equal(__chatMediaUrlCacheSizeForTests(), 1);
+} finally {
+  __setChatMediaUrlIssuerForTests(null);
+  __clearChatMediaUrlCacheForTests();
+}
+
 let concurrentInvokeCount = 0;
 __setChatMediaUrlIssuerForTests(async () => {
   concurrentInvokeCount += 1;
@@ -189,6 +221,31 @@ try {
   assert.equal(failedRefresh, null);
   assert.equal(recoveredRefresh, "https://signed.example.com/recovered-after-transient");
   assert.equal(transientInvokeCount, 2);
+} finally {
+  __setChatMediaUrlIssuerForTests(null);
+  __clearChatMediaUrlCacheForTests();
+}
+
+__setChatMediaUrlIssuerForTests(async () => ({
+  success: true,
+  url: "https://signed.example.com/legacy-image",
+  expiresInSeconds: 300,
+}));
+try {
+  const malformedPayload = {
+    v: 3,
+    kind: "chat_image",
+    provider: "bunny_storage",
+    media_ref: "photos/malformed/should-not-be-mutated.jpg",
+  };
+  const resolved = await resolveMessageMediaForDisplay({
+    id: "550e8400-e29b-41d4-a716-446655440012",
+    content: "__IMAGE__|photos/legacy/fallback.jpg",
+    structured_payload: malformedPayload,
+  });
+
+  assert.equal(resolved.content, "__IMAGE__|https://signed.example.com/legacy-image");
+  assert.deepEqual(resolved.structured_payload, malformedPayload);
 } finally {
   __setChatMediaUrlIssuerForTests(null);
   __clearChatMediaUrlCacheForTests();
@@ -372,6 +429,7 @@ assert.match(webMediaResolver, /payload\.posterUrl/);
 assert.match(webMediaResolver, /mediaUrlInFlightRequests/);
 assert.match(webMediaResolver, /mediaUrlFailureCache/);
 assert.match(webMediaResolver, /bypassFailureCooldown/);
+assert.match(webMediaResolver, /payload\?\.kind === "chat_image" && payload\.v === 2 && payload\.provider === "bunny_storage"/);
 assert.match(nativeBubble, /useMediaAsset/);
 assert.doesNotMatch(nativeBubble, wholeHookResultDependencyPattern);
 assert.match(nativeBubble, /refreshMediaAsset\('playback'\)/);
@@ -462,6 +520,7 @@ assert.match(nativeMediaResolver, /if \(result\.kind === 'transient_failure'\) r
 assert.match(nativeMediaResolver, /mediaUrlInFlightRequests/);
 assert.match(nativeMediaResolver, /mediaUrlFailureCache/);
 assert.match(nativeMediaResolver, /bypassFailureCooldown/);
+assert.match(nativeMediaResolver, /payload\?\.kind === 'chat_image' && payload\.v === 2 && payload\.provider === 'bunny_storage'/);
 assert.match(nativeMediaResolver, /getFreshCachedAccessToken/);
 assert.match(nativeMediaResolver, /headers: \{ Authorization: `Bearer \$\{accessToken\}` \}/);
 assert.match(nativeMediaResolver, /function bunnyStreamThumbnailRefFor/);
@@ -477,6 +536,7 @@ assert.match(threadPage, /const durableThumbnailRef = durableAssetRef\(next\.id,
 assert.match(threadPage, /kind === "thumbnail" && asset\.provider === "bunny_stream" && asset\.media_family === "chat_video"/);
 assert.match(threadPage, /payload\.thumbnail_url = durableThumbnailRef/);
 assert.match(threadPage, /payload\.poster_ref = durableThumbnailRef/);
+assert.match(threadPage, /payload\?\.kind === "chat_image" && payload\.v === 2 && payload\.provider === "bunny_storage"/);
 assert.match(threadPage, /formatChatImageMessageContent\(durableImageRef\)/);
 assert.match(threadPage, /function parseThreadPageCursor/);
 assert.match(threadPage, /\.order\("created_at", \{ ascending: false \}\)[\s\S]{0,120}\.order\("id", \{ ascending: false \}\)/);

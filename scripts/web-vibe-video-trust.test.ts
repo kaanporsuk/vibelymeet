@@ -20,14 +20,15 @@ test("canonical web full profile shows non-playable Vibe Video states to all vie
   assert.match(canonicalProfile, /vibeVideo\.state === "failed" \|\| vibeVideo\.state === "error"/);
   assert.match(canonicalProfile, /Vibe Video needs a fresh take/);
   assert.match(canonicalProfile, /Vibe Video unavailable/);
-  assert.match(canonicalProfile, /vibeVideo\.state === "ready" && !vibeVideo\.playbackUrl/);
+  assert.match(canonicalProfile, /vibeVideo\.state === "ready" && !hasPlayableVibeVideo/);
   assert.match(canonicalProfile, /Vibe Video preview syncing/);
 });
 
 test("canonical web full profile still shows ready playable Vibe Video", () => {
   const canonicalProfile = read("src/components/profile/OtherUserFullProfileView.tsx");
 
-  assert.match(canonicalProfile, /hasPlayableVibeVideo && vibeVideo\.playbackUrl/);
+  assert.match(canonicalProfile, /hasPlayableVibeVideo && vibeVideoPlaybackUrl/);
+  assert.match(canonicalProfile, /signedVibeVideoStatus === "ready"/);
   assert.match(canonicalProfile, /<VibePlayer/);
   assert.match(canonicalProfile, /aria-label="Watch Intro"/);
 });

@@ -4,6 +4,7 @@ import { X } from "lucide-react";
 import * as Sentry from "@sentry/react";
 import { resolveWebVibeVideoState } from "@/lib/vibeVideo/webVibeVideoState";
 import { useMediaAsset, useMediaAssetPlayback } from "@/hooks/useMediaAsset";
+import { isProfileVibeVideoRef } from "@/lib/mediaAssetResolver";
 import { trackVibeVideoEvent, VIBE_VIDEO_EVENTS } from "@/lib/vibeVideo/vibeVideoTelemetry";
 
 type Props = {
@@ -29,13 +30,14 @@ export function VibeVideoFullscreenPlayer({ show, bunnyVideoUid, bunnyVideoStatu
     vibe_caption: vibeCaption,
   });
   const isReady = vibeVideoInfo.state === "ready" && !!vibeVideoInfo.uid;
-  const { url: mediaAssetUrl } = useMediaAsset({
-    kind: "vibe_video",
+  const usesSignedProfileRef = isProfileVibeVideoRef(vibeVideoInfo.playbackUrl);
+  const { url: mediaAssetUrl, posterUrl: mediaAssetPosterUrl } = useMediaAsset({
+    kind: usesSignedProfileRef ? "profile_vibe_video" : "vibe_video",
     sourceRef: vibeVideoInfo.playbackUrl,
-    initialUrl: vibeVideoInfo.playbackUrl,
-    autoResolve: false,
+    initialUrl: usesSignedProfileRef ? null : vibeVideoInfo.playbackUrl,
+    autoResolve: usesSignedProfileRef,
   });
-  const playbackUrl = mediaAssetUrl ?? vibeVideoInfo.playbackUrl;
+  const playbackUrl = mediaAssetUrl ?? (usesSignedProfileRef ? null : vibeVideoInfo.playbackUrl);
 
   const reportSucceeded = useCallback(() => {
     if (playbackSucceededRef.current) return;
@@ -104,7 +106,7 @@ export function VibeVideoFullscreenPlayer({ show, bunnyVideoUid, bunnyVideoStatu
     onError: reportPlaybackError,
   });
 
-  const poster = vibeVideoInfo.thumbnailUrl;
+  const poster = mediaAssetPosterUrl ?? vibeVideoInfo.thumbnailUrl;
 
   return (
     <AnimatePresence>

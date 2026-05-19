@@ -40,6 +40,8 @@ export type OtherUserFullProfileSource = {
   avatar_url?: string | null;
   bunny_video_uid?: string | null;
   bunny_video_status?: string | null;
+  vibe_video_signed_playback_required?: boolean | null;
+  vibe_video_playback_ref?: string | null;
   vibe_caption?: string | null;
   photo_verified?: boolean | null;
   phone_verified?: boolean | null;
@@ -76,6 +78,8 @@ export type OtherUserFullProfileViewModel = {
   vibeVideo: {
     uid: string | null;
     status: string | null;
+    signedPlaybackRequired: boolean;
+    playbackRef: string | null;
     caption: string | null;
   };
   verification: {
@@ -359,6 +363,8 @@ export function normalizeOtherUserFullProfile(
     vibeVideo: {
       uid: cleanString(source.bunny_video_uid),
       status: cleanString(source.bunny_video_status),
+      signedPlaybackRequired: source.vibe_video_signed_playback_required === true,
+      playbackRef: cleanString(source.vibe_video_playback_ref),
       caption: cleanString(source.vibe_caption),
     },
     verification: {

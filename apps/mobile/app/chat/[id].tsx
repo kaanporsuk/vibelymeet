@@ -98,7 +98,7 @@ import { supabase } from '@/lib/supabase';
 import {
   formatChatImageMessageContent,
   inferChatMediaRenderKind,
-  parseChatImageMessageContent,
+  extractChatImageMediaRef,
 } from '@/lib/chatMessageContent';
 import { refreshMediaAssetUrl } from '@/lib/mediaAssetResolver';
 import { useMediaAsset } from '@/hooks/useMediaAsset';
@@ -372,6 +372,7 @@ function threadMessageMediaKind(message: ThreadMessage) {
     audioUrl: message.audio_url,
     videoUrl: message.video_url,
     messageKind: message.messageKind,
+    structuredPayload: message.structuredPayload,
   });
 }
 
@@ -1128,7 +1129,10 @@ export default function ChatThreadScreen() {
       if (isLocalMediaMessage(message) && message.localMedia.payload.kind === 'image') {
         return message.localMedia.payload.uri;
       }
-      return photoUriOverridesById[message.id] ?? parseChatImageMessageContent(message.text);
+      return photoUriOverridesById[message.id] ?? extractChatImageMediaRef({
+        content: message.text,
+        structured_payload: message.structuredPayload,
+      }, { allowPrivateMediaRefs: true });
     },
     [photoUriOverridesById],
   );
