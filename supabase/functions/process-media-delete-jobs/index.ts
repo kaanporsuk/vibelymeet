@@ -274,7 +274,7 @@ Deno.serve(async (req) => {
         }
 
         if ((activeRefs ?? 0) > 0) {
-          await supabase
+          const { error: assetResetError } = await supabase
             .from("media_assets")
             .update({
               status: "active",
@@ -284,11 +284,42 @@ Deno.serve(async (req) => {
               last_error: null,
             })
             .eq("id", job.asset_id);
-          await supabase
+          if (assetResetError) {
+            console.error(`[${workerId}] active-ref asset reset job=${job.id} error:`, assetResetError.message);
+            stats.errors.push(`active-ref asset reset ${job.id}: ${assetResetError.message}`);
+            const { error: completeError } = await supabase.rpc("complete_media_delete_job", {
+              p_job_id: job.id,
+              p_success: false,
+              p_error: `active_ref_asset_reset_failed:${assetResetError.message}`,
+            });
+            if (completeError) {
+              console.error(`[${workerId}] complete active-ref reset failure job=${job.id} error:`, completeError.message);
+              stats.errors.push(`complete active-ref reset ${job.id}: ${completeError.message}`);
+            }
+            stats.failed++;
+            continue;
+          }
+
+          const { error: jobDeleteError } = await supabase
             .from("media_delete_jobs")
             .delete()
             .eq("id", job.id)
             .in("status", ["claimed", "pending", "failed"]);
+          if (jobDeleteError) {
+            console.error(`[${workerId}] active-ref job delete job=${job.id} error:`, jobDeleteError.message);
+            stats.errors.push(`active-ref job delete ${job.id}: ${jobDeleteError.message}`);
+            const { error: completeError } = await supabase.rpc("complete_media_delete_job", {
+              p_job_id: job.id,
+              p_success: false,
+              p_error: `active_ref_job_delete_failed:${jobDeleteError.message}`,
+            });
+            if (completeError) {
+              console.error(`[${workerId}] complete active-ref delete failure job=${job.id} error:`, completeError.message);
+              stats.errors.push(`complete active-ref delete ${job.id}: ${completeError.message}`);
+            }
+            stats.failed++;
+            continue;
+          }
           console.log(
             `[${workerId}] skipped job=${job.id} asset=${job.asset_id} active_refs=${activeRefs}`,
           );

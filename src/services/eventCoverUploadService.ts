@@ -4,6 +4,7 @@ type UploadEventCoverResponse = {
   success?: boolean;
   error?: string;
   code?: string;
+  currentCoverAssetId?: string | null;
   path?: string;
   url?: string;
   assetId?: string | null;
@@ -15,6 +16,18 @@ type UploadEventCoverOptions = {
   clientRequestId?: string | null;
   expectedCurrentCoverAssetId?: string | null;
 };
+
+export class EventCoverUploadError extends Error {
+  readonly code: string | null;
+  readonly currentCoverAssetId: string | null;
+
+  constructor(message: string, response: UploadEventCoverResponse) {
+    super(message);
+    this.name = "EventCoverUploadError";
+    this.code = response.code ?? null;
+    this.currentCoverAssetId = response.currentCoverAssetId ?? null;
+  }
+}
 
 export async function uploadEventCoverToBunny(
   file: File,
@@ -55,7 +68,7 @@ export async function uploadEventCoverToBunny(
   }
 
   if (!data.success) {
-    throw new Error(data.error || "Event cover upload failed");
+    throw new EventCoverUploadError(data.error || "Event cover upload failed", data);
   }
   if (!data.url) {
     throw new Error("Event cover upload failed");

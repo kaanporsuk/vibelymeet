@@ -371,6 +371,12 @@ const AdminEventFormModal = ({ event, onClose }: AdminEventFormModalProps) => {
       if (uploaded.assetId) setCurrentCoverAssetId(uploaded.assetId);
       toast.success('Cover image uploaded');
     } catch (error: unknown) {
+      if (error && typeof error === "object" && "code" in error && error.code === "stale_cover_update") {
+        const nextCoverAssetId = "currentCoverAssetId" in error && typeof error.currentCoverAssetId === "string"
+          ? error.currentCoverAssetId
+          : null;
+        setCurrentCoverAssetId(nextCoverAssetId);
+      }
       toast.error('Failed to upload image', {
         description: error instanceof Error ? error.message : "Please try again.",
       });

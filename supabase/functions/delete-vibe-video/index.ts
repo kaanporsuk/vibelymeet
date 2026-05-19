@@ -133,7 +133,7 @@ serve(async (req) => {
       .update({ status: "superseded", error_detail: "user_deleted" })
       .eq("user_id", user.id)
       .eq("provider_object_id", videoId)
-      .in("status", ["uploading", "processing", "ready", "superseded"])
+      .in("status", ["uploading", "processing", "ready", "failed", "superseded"])
       .select("id,status")
       .maybeSingle();
 

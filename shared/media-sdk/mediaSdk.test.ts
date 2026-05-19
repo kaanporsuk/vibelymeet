@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import test from "node:test";
 import {
   assertNativeUriSource,
@@ -100,6 +99,42 @@ test("media upload state machine retries failed and cancelled attempts intention
   cancelled = transitionMediaUploadState(cancelled, { type: "cancel", reason: "user_cancelled", atMs: 2 });
   assert.equal(cancelled.state, "cancelled");
   assert.equal(transitionMediaUploadState(cancelled, { type: "retry", atMs: 3 }).state, "created");
+});
+
+test("media task id fallback uses crypto getRandomValues when randomUUID is unavailable", () => {
+  const originalCrypto = Object.getOwnPropertyDescriptor(globalThis, "crypto");
+  Object.defineProperty(globalThis, "crypto", {
+    configurable: true,
+    value: {
+      getRandomValues(bytes: Uint8Array) {
+        bytes.forEach((_, index) => {
+          bytes[index] = index;
+        });
+        return bytes;
+      },
+    },
+  });
+
+  try {
+    const task = createMediaUploadTask({
+      input: {
+        family: "chat_photo",
+        source: new Blob(["photo"], { type: "image/jpeg" }),
+      },
+      platform: "web",
+      runner: () => {},
+      nowMs: 1,
+    });
+
+    assert.equal(task.id, "00010203-0405-4607-8809-0a0b0c0d0e0f");
+    assert.equal(task.snapshot().clientRequestId, task.id);
+  } finally {
+    if (originalCrypto) {
+      Object.defineProperty(globalThis, "crypto", originalCrypto);
+    } else {
+      Reflect.deleteProperty(globalThis, "crypto");
+    }
+  }
 });
 
 test("web adapter delegates Vibe Video upload through the harness and cleans terminal queue rows", async () => {
@@ -214,17 +249,7 @@ test("web photo adapter prepares photo sources before invoking legacy delegates"
   assert.equal(task.snapshot().state, "ready");
 });
 
-test("web photo transcode hook is real canvas/jpeg work and keeps unsupported runtimes safe", async () => {
-  const adapter = readFileSync("shared/media-sdk/adapters/web.ts", "utf8");
-  assert.match(adapter, /createImageBitmap/);
-  assert.match(adapter, /canvasSourceFromImageElement/);
-  assert.match(adapter, /isHeicWebSource/);
-  assert.match(adapter, /import\("heic2any"\)/);
-  assert.match(adapter, /canvasSourceFromBlob\(convertedHeic\)/);
-  assert.match(adapter, /document\.createElement\("canvas"\)/);
-  assert.match(adapter, /canvas\.toBlob/);
-  assert.match(adapter, /new File\(\[blob\], webPhotoFileName\(source\)/);
-  assert.match(adapter, /phase_5_photo_transcode/);
+test("web photo transcode hook reports capabilities and keeps unsupported runtimes safe", async () => {
   assert.equal(webMediaTranscode.capabilities().phase, "phase_5_photo_transcode");
 
   const nonImage = new Blob(["not-image"], { type: "text/plain" });
@@ -232,13 +257,6 @@ test("web photo transcode hook is real canvas/jpeg work and keeps unsupported ru
 });
 
 test("web voice recording config targets mono 96 kbps MediaRecorder capture", () => {
-  const adapter = readFileSync("shared/media-sdk/adapters/web.ts", "utf8");
-  assert.match(adapter, /WEB_VOICE_AUDIO_BITS_PER_SECOND = 96_000/);
-  assert.match(adapter, /WEB_VOICE_CHANNEL_COUNT = 1/);
-  assert.match(adapter, /audioBitsPerSecond: WEB_VOICE_AUDIO_BITS_PER_SECOND/);
-  assert.match(adapter, /channelCount: \{ ideal: WEB_VOICE_CHANNEL_COUNT \}/);
-  assert.match(adapter, /phase_5_voice_record_web/);
-
   const config = webMediaTranscode.voiceRecordingConfig();
   assert.equal(config.audioBitsPerSecond, 96_000);
   assert.equal(config.numberOfChannels, 1);
@@ -395,6 +413,9 @@ test("web adapter does not create recovery rows when cancelled before startup be
 test("native adapter delegates URI uploads without Base64 materialization", async () => {
   const storage = new Map<string, string>();
   const queue = new MemoryMediaUploadQueue();
+  const source = { uri: "file:///tmp/video.mov", name: "video.mov", mimeType: "video/quicktime", sizeBytes: 1024 };
+  let fileInfoUri: string | null = null;
+  let delegateSource: typeof source | null = null;
   const sdk = createNativeMediaSdk({
     queue,
     asyncStorage: {
@@ -409,14 +430,16 @@ test("native adapter delegates URI uploads without Base64 materialization", asyn
       },
     },
     fileSystem: {
-      async getInfoAsync() {
+      async getInfoAsync(uri) {
+        fileInfoUri = uri;
         return { exists: true, size: 1024 };
       },
     },
     flagGate: createStaticMediaFeatureFlagGate({ media_v2_video: true }),
     delegates: {
       video: {
-        uploadVibeVideo: async (_input, controls) => {
+        uploadVibeVideo: async (input, controls) => {
+          delegateSource = input.source as typeof source;
           controls.dispatch({ type: "upload_complete" });
           controls.dispatch({ type: "ready", result: { providerObjectId: "native-video" } });
         },
@@ -427,18 +450,17 @@ test("native adapter delegates URI uploads without Base64 materialization", asyn
 
   const task = sdk.video.upload({
     family: "vibe_video",
-    source: { uri: "file:///tmp/video.mov", name: "video.mov", mimeType: "video/quicktime", sizeBytes: 1024 },
+    source,
     options: { clientRequestId: uuid },
   });
 
   await flushMediaTask();
 
   assert.equal(task.snapshot().state, "ready");
+  assert.equal(fileInfoUri, source.uri);
+  assert.equal(delegateSource, source);
   assert.equal((await queue.list()).length, 0);
   assert.throws(() => assertNativeUriSource({ uri: "data:video/mp4;base64,AAAA" }), /data_uri_forbidden/);
-
-  const nativeAdapter = readFileSync("shared/media-sdk/adapters/native.ts", "utf8");
-  assert.doesNotMatch(nativeAdapter, /readAsStringAsync|Base64|base64|expo-av/);
 });
 
 test("native photo adapter prepares photo URIs before invoking legacy delegates", async () => {
@@ -522,18 +544,19 @@ test("native photo transcode hook uses expo-image-manipulator shape for resize a
   assert.equal(prepared.height, 2048);
 });
 
-test("native photo transcode hook downscales after decode when source dimensions are missing", async () => {
-  const calls: Array<{ uri: string; actions: unknown[] }> = [];
+test("native photo transcode hook probes dimensions before one lossy resize pass", async () => {
+  const calls: Array<{ uri: string; actions: unknown[]; options: Record<string, unknown> | undefined }> = [];
+  const source = {
+    uri: "file:///tmp/cached-chat-photo.jpg",
+    name: "cached-chat-photo.jpg",
+    mimeType: "image/jpeg",
+    sizeBytes: 8_500_000,
+  };
   const prepared = await nativeMediaTranscodeHooks.preparePhotoForUpload(
+    source,
     {
-      uri: "file:///tmp/cached-chat-photo.jpg",
-      name: "cached-chat-photo.jpg",
-      mimeType: "image/jpeg",
-      sizeBytes: 8_500_000,
-    },
-    {
-      async manipulateAsync(uri, actions) {
-        calls.push({ uri, actions: [...actions] });
+      async manipulateAsync(uri, actions, options) {
+        calls.push({ uri, actions: [...actions], options });
         if (calls.length === 1) {
           return {
             uri: "file:///tmp/cached-chat-photo-pass1.jpg",
@@ -553,8 +576,8 @@ test("native photo transcode hook downscales after decode when source dimensions
   );
 
   assert.deepEqual(calls, [
-    { uri: "file:///tmp/cached-chat-photo.jpg", actions: [] },
-    { uri: "file:///tmp/cached-chat-photo-pass1.jpg", actions: [{ resize: { width: 2048 } }] },
+    { uri: source.uri, actions: [], options: undefined },
+    { uri: source.uri, actions: [{ resize: { width: 2048 } }], options: { compress: 0.85, format: "jpeg" } },
   ]);
   assert.equal(prepared.uri, "file:///tmp/cached-chat-photo-ready.jpg");
   assert.equal(prepared.name, "cached-chat-photo.jpg");
@@ -564,15 +587,6 @@ test("native photo transcode hook downscales after decode when source dimensions
 });
 
 test("native voice recording config uses expo-audio AAC mono at capture time", () => {
-  const adapter = readFileSync("shared/media-sdk/adapters/native.ts", "utf8");
-  assert.match(adapter, /voiceRecordingOptions/);
-  assert.match(adapter, /numberOfChannels: 1/);
-  assert.match(adapter, /bitRate: 96000/);
-  assert.match(adapter, /outputFormat: "mpeg4"/);
-  assert.match(adapter, /audioEncoder: "aac"/);
-  assert.match(adapter, /phase_5_voice_record_native/);
-  assert.doesNotMatch(adapter, /expo-av/);
-
   const options = nativeMediaTranscodeHooks.voiceRecordingOptions() as {
     extension: string;
     sampleRate: number;

@@ -70,7 +70,7 @@ if (SENTRY_DSN) {
 }
 
 async function withSentryWebhookTransaction<T>(fields: SafeTraceFields, callback: () => Promise<T>): Promise<T> {
-  if (!SENTRY_ENABLED) return await callback();
+  if (!SENTRY_ENABLED || typeof Sentry.startSpan !== "function") return await callback();
   let callbackStarted = false;
   let callbackOutcome: CallbackOutcome<T> | null = null;
   try {
@@ -108,7 +108,7 @@ async function withSentryWebhookTransaction<T>(fields: SafeTraceFields, callback
 }
 
 async function captureSentryWebhookException(error: unknown, fields: SafeTraceFields): Promise<void> {
-  if (!SENTRY_ENABLED) return;
+  if (!SENTRY_ENABLED || typeof Sentry.captureException !== "function") return;
   try {
     Sentry.captureException(error, {
       tags: {
@@ -118,7 +118,16 @@ async function captureSentryWebhookException(error: unknown, fields: SafeTraceFi
       },
       extra: fields,
     });
-    await Sentry.flush(SENTRY_FLUSH_TIMEOUT_MS);
+    if (typeof Sentry.flush === "function") {
+      void Sentry.flush(SENTRY_FLUSH_TIMEOUT_MS).catch((sentryError) => {
+        console.warn(JSON.stringify({
+          scope: "video_webhook_sentry",
+          function: "video-webhook",
+          event: "sentry_flush_failed",
+          error_code: sentryError instanceof Error ? sentryError.name : "unknown",
+        }));
+      });
+    }
   } catch (sentryError) {
     console.warn(JSON.stringify({
       scope: "video_webhook_sentry",
@@ -461,10 +470,10 @@ serve(async (req) => {
     const chatClipResult = await updateChatVibeClipStatusByProvider(
       supabase,
       VideoGuid,
-      chatClipStatus,
-      chatClipStatus === "failed" ? `bunny_status_${Status}` : null,
-      { publishIfProcessing: Status === 7, failOnIgnoredFailure: true },
-    );
+	      chatClipStatus,
+	      chatClipStatus === "failed" ? `bunny_status_${Status}` : null,
+	      { publishIfProcessing: Status === 7, failOnIgnoredNonReady: true },
+	    );
     if (chatClipResult.handled) {
       logWebhook(chatClipResult.error ? "error" : "info", "video_webhook_chat_vibe_clip_update", {
         video_guid: VideoGuid,
