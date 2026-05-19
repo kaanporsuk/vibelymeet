@@ -1,5 +1,5 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.88.0";
 import { logVibeVideo } from "../_shared/vibe-video-logs.ts";
 
 const corsHeaders = {
@@ -128,9 +128,31 @@ serve(async (req) => {
       });
     }
 
+    const { data: attemptRow, error: attemptError } = await adminSupabase
+      .from("vibe_video_uploads")
+      .update({ status: "superseded", error_detail: "user_deleted" })
+      .eq("user_id", user.id)
+      .eq("provider_object_id", videoId)
+      .in("status", ["uploading", "processing", "ready", "superseded"])
+      .select("id,status")
+      .maybeSingle();
+
+    if (attemptError) {
+      logVibeVideo("error", "delete_vibe_video_upload_attempt_supersede_failed", {
+        user_id: user.id,
+        video_guid: videoId,
+        error_code: attemptError.code ?? "attempt_supersede_failed",
+      });
+      return json(
+        { success: false, error: "Failed to update vibe video upload attempt", code: "attempt_supersede_failed" },
+        500,
+      );
+    }
+
     logVibeVideo("info", "delete_vibe_video_profile_clear_succeeded", {
       user_id: user.id,
       video_guid: videoId,
+      upload_attempt_id: typeof attemptRow?.id === "string" ? attemptRow.id : null,
       had_video_to_delete: true,
       references_released: referencesReleased,
     });
@@ -157,6 +179,7 @@ serve(async (req) => {
         possibleBunnyOrphan: true,
         deleteDeferredToWorker: true,
         remoteDeleteState: "deferred_to_media_delete_worker",
+        uploadAttemptId: attemptRow?.id ?? null,
       },
       200,
     );

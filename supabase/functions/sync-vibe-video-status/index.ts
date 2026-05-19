@@ -1,5 +1,5 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.88.0";
 import { logVibeVideo } from "../_shared/vibe-video-logs.ts";
 
 const corsHeaders = {
@@ -277,18 +277,46 @@ serve(async (req) => {
       return json({ success: false, error: "Failed to update video status", code: "session_update_failed" }, 500);
     }
 
+    const attemptPatch: Record<string, string | null> = {
+      status: mappedStatus,
+      error_detail: mappedStatus === "failed" ? `bunny_status_${bunnyStatus ?? "unknown"}` : null,
+    };
+    if (typeof sr.session_id === "string") {
+      attemptPatch.draft_media_session_id = sr.session_id;
+    }
+    const { data: attemptRow, error: attemptUpdateError } = await adminSupabase
+      .from("vibe_video_uploads")
+      .update(attemptPatch)
+      .eq("provider_object_id", requestedVideoId)
+      .select("id,status")
+      .maybeSingle();
+
+    if (attemptUpdateError) {
+      logVibeVideo("error", "sync_vibe_video_upload_attempt_update_failed", {
+        project_ref: projectRef,
+        user_id: user.id,
+        video_guid: requestedVideoId,
+        mapped_status: mappedStatus,
+        media_session_id: typeof sr.session_id === "string" ? sr.session_id : null,
+        error_code: attemptUpdateError.code ?? "attempt_update_failed",
+      });
+      return json({ success: false, error: "Failed to update upload attempt", code: "attempt_update_failed" }, 500);
+    }
+
     logVibeVideo("info", "sync_vibe_video_status_succeeded", {
       project_ref: projectRef,
       user_id: user.id,
       video_guid: requestedVideoId,
       mapped_status: mappedStatus,
       previous_status: typeof sr.previous_status === "string" ? sr.previous_status : null,
+      upload_attempt_id: typeof attemptRow?.id === "string" ? attemptRow.id : null,
     });
 
     return json({
       success: true,
       synced: true,
       videoId: requestedVideoId,
+      uploadAttemptId: attemptRow?.id ?? null,
       bunnyStatus,
       mappedStatus,
       previousStatus: typeof sr.previous_status === "string" ? sr.previous_status : null,

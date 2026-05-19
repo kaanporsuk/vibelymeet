@@ -19,6 +19,7 @@ const webChat = read("src/pages/Chat.tsx");
 const webMessagesHook = read("src/hooks/useMessages.ts");
 const webOutboxContext = read("src/contexts/WebChatOutboxContext.tsx");
 const webOutboxExecute = read("src/lib/webChatOutbox/execute.ts");
+const webChatMediaResolver = read("src/lib/chatMediaResolver.ts");
 const webUploadMime = read("src/lib/webUploadMime.ts");
 const webVibeClipBubble = read("src/components/chat/VibeClipBubble.tsx");
 const webVideoBubble = read("src/components/chat/VideoMessageBubble.tsx");
@@ -33,6 +34,7 @@ const nativeOutboxExecute = read("apps/mobile/lib/chatOutbox/execute.ts");
 const nativeStreamUpload = read("apps/mobile/lib/chatVibeClipStreamUpload.ts");
 const nativeMediaCache = read("apps/mobile/lib/chatOutbox/mediaCache.ts");
 const nativeOutboxContext = read("apps/mobile/lib/chatOutbox/ChatOutboxContext.tsx");
+const nativeChatMediaResolver = read("apps/mobile/lib/chatMediaResolver.ts");
 const uploadChatVideo = read("supabase/functions/upload-chat-video/index.ts");
 const uploadImage = read("supabase/functions/upload-image/index.ts");
 const uploadVoice = read("supabase/functions/upload-voice/index.ts");
@@ -315,6 +317,14 @@ test("video bubbles remain adaptive and full-width across web and native chat", 
   assert.match(webOutboxContext, /function recoverInterruptedSendingItems/);
   assert.match(webOutboxContext, /activeProcessingIds: processingRef\.current/);
   assert.match(webOutboxContext, /force: true/);
+  assert.match(webChatMediaResolver, /export async function syncChatVibeClipUploadStatus/);
+  assert.match(webChatMediaResolver, /clientRequestId\?: string \| null/);
+  assert.match(webChatMediaResolver, /if \(isUuid\(clientRequestId\)\) body\.client_request_id = clientRequestId/);
+  assert.match(webChatMediaResolver, /messageId: typeof payload\?\.message_id === "string"/);
+  assert.match(webOutboxContext, /syncChatVibeClipUploadStatus/);
+  assert.match(webOutboxContext, /item\.payload\.kind === "video" && \(dueForCheck \|\| pastDeadline\)/);
+  assert.match(webOutboxContext, /clientRequestId: item\.id/);
+  assert.match(webOutboxContext, /serverMessageId = synced\.messageId/);
 
   assert.match(webVideoBubble, /w-\[min\(17\.5rem,calc\(100vw-4rem\)\)\] max-w-full/);
   assert.match(webVideoBubble, /<AspectRatio ratio=\{9 \/ 16\}>/);
@@ -397,6 +407,14 @@ test("video bubbles remain adaptive and full-width across web and native chat", 
   assert.match(nativeOutboxContext, /function recoverInterruptedSendingItems/);
   assert.match(nativeOutboxContext, /force: true/);
   assert.match(nativeOutboxContext, /activeProcessingIds: processingRef\.current/);
+  assert.match(nativeChatMediaResolver, /export async function syncChatVibeClipUploadStatus/);
+  assert.match(nativeChatMediaResolver, /clientRequestId\?: string \| null/);
+  assert.match(nativeChatMediaResolver, /if \(isUuid\(clientRequestId\)\) body\.client_request_id = clientRequestId/);
+  assert.match(nativeChatMediaResolver, /messageId: typeof payload\?\.message_id === 'string'/);
+  assert.match(nativeOutboxContext, /syncChatVibeClipUploadStatus/);
+  assert.match(nativeOutboxContext, /item\.payload\.kind === 'video' && \(dueForCheck \|\| pastDeadline\)/);
+  assert.match(nativeOutboxContext, /clientRequestId: item\.id/);
+  assert.match(nativeOutboxContext, /serverMessageId = synced\.messageId/);
 });
 
 test("native chat validates library and camera video before enqueue", () => {

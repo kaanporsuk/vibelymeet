@@ -1,5 +1,5 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2.88.0";
+import { createClient, type SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.88.0";
 import * as Sentry from "https://deno.land/x/sentry@8.55.0/index.mjs";
 import {
   constantTimeCompare,
@@ -14,9 +14,11 @@ import { logVibeVideo } from "../_shared/vibe-video-logs.ts";
 
 type SafeTraceValue = string | number | boolean | null | undefined;
 type SafeTraceFields = Record<string, SafeTraceValue>;
+type AdminSupabaseClient = SupabaseClient<any, "public", any>;
 type CallbackOutcome<T> =
   | { ok: true; value: T }
   | { ok: false; error: unknown };
+type VibeVideoUploadAttemptStatus = "processing" | "ready" | "failed";
 
 function numericEnv(name: string, fallback: number): number {
   const raw = Deno.env.get(name);
@@ -140,6 +142,32 @@ function getProjectRef(url: string | undefined): string {
 function isValidVideoGuid(value: unknown): value is string {
   return typeof value === "string" &&
     /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value.trim());
+}
+
+async function syncVibeVideoUploadAttemptFromWebhook(
+  supabase: AdminSupabaseClient,
+  params: {
+    providerObjectId: string;
+    status: VibeVideoUploadAttemptStatus;
+    errorDetail: string | null;
+    draftMediaSessionId?: string | null;
+  },
+): Promise<{ ok: true; attemptId: string | null } | { ok: false; errorCode: string }> {
+  const patch: Record<string, string | null> = {
+    status: params.status,
+    error_detail: params.errorDetail,
+  };
+  if (params.draftMediaSessionId) {
+    patch.draft_media_session_id = params.draftMediaSessionId;
+  }
+  const { data, error } = await supabase
+    .from("vibe_video_uploads")
+    .update(patch)
+    .eq("provider_object_id", params.providerObjectId)
+    .select("id")
+    .maybeSingle();
+  if (error) return { ok: false, errorCode: error.code ?? "attempt_update_failed" };
+  return { ok: true, attemptId: typeof data?.id === "string" ? data.id : null };
 }
 
 type WebhookAuthMode = "signature" | "bearer" | "legacy_query_token";
@@ -388,7 +416,7 @@ serve(async (req) => {
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
     );
 
-    let mappedStatus = "processing";
+    let mappedStatus: VibeVideoUploadAttemptStatus = "processing";
     if (Status === 3) mappedStatus = "ready";
     if (Status === 4) mappedStatus = "ready";
     if (Status === 5) mappedStatus = "failed";
@@ -484,12 +512,29 @@ serve(async (req) => {
     }
 
     if (sr?.success) {
+      const attemptSync = await syncVibeVideoUploadAttemptFromWebhook(supabase, {
+        providerObjectId: VideoGuid,
+        status: mappedStatus,
+        errorDetail: mappedStatus === "failed" ? `bunny_status_${Status}` : null,
+        draftMediaSessionId: typeof sr.session_id === "string" ? sr.session_id : null,
+      });
+      if (!attemptSync.ok) {
+        logVibeVideo("error", "video_webhook_vibe_video_upload_attempt_update_failed", {
+          project_ref: projectRef,
+          video_guid: VideoGuid,
+          mapped_status: mappedStatus,
+          media_session_id: typeof sr.session_id === "string" ? sr.session_id : null,
+          error_code: attemptSync.errorCode,
+        });
+        return new Response("error", { status: 500 });
+      }
       logVibeVideo("info", "video_webhook_media_session_update_succeeded", {
         project_ref: projectRef,
         video_guid: VideoGuid,
         media_session_id: typeof sr.session_id === "string" ? sr.session_id : null,
         previous_status: typeof sr.previous_status === "string" ? sr.previous_status : null,
         mapped_status: mappedStatus,
+        upload_attempt_id: attemptSync.attemptId,
       });
       // The RPC is authoritative for active sessions and now keeps the profile
       // snapshot in sync for processing/ready/failed with a UID guard.
@@ -572,11 +617,27 @@ serve(async (req) => {
       return new Response("ok", { status: 200 });
     }
 
+    const legacyAttemptSync = await syncVibeVideoUploadAttemptFromWebhook(supabase, {
+      providerObjectId: VideoGuid,
+      status: mappedStatus,
+      errorDetail: mappedStatus === "failed" ? `bunny_status_${Status}` : null,
+    });
+    if (!legacyAttemptSync.ok) {
+      logVibeVideo("error", "video_webhook_vibe_video_upload_attempt_update_failed", {
+        project_ref: projectRef,
+        video_guid: VideoGuid,
+        mapped_status: mappedStatus,
+        error_code: legacyAttemptSync.errorCode,
+      });
+      return new Response("error", { status: 500 });
+    }
+
     logVibeVideo("info", "video_webhook_legacy_profile_update_succeeded", {
       project_ref: projectRef,
       video_guid: VideoGuid,
       rows: n,
       mapped_status: mappedStatus,
+      upload_attempt_id: legacyAttemptSync.attemptId,
     });
     return new Response("ok", { status: 200 });
   } catch (err) {

@@ -41,7 +41,25 @@ export type CreateVideoUploadCredentials = {
   signature: string;
   cdnHostname: string | undefined;
   sessionId: string | null;
+  clientRequestId: string;
+  uploadAttemptId: string | null;
 };
+
+export function newVibeVideoClientRequestId(): string {
+  const c = globalThis.crypto;
+  if (c?.getRandomValues) {
+    const bytes = new Uint8Array(16);
+    c.getRandomValues(bytes);
+    bytes[6] = (bytes[6] & 0x0f) | 0x40;
+    bytes[8] = (bytes[8] & 0x3f) | 0x80;
+    const hex = [...bytes].map((b) => b.toString(16).padStart(2, '0')).join('');
+    return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+  }
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (ch) => {
+    const n = (Math.random() * 16) | 0;
+    return (ch === 'x' ? n : (n & 0x3) | 0x8).toString(16);
+  });
+}
 
 async function readJsonBody(res: Response): Promise<{ ok: boolean; data: unknown; rawText: string }> {
   const rawText = await res.text();
@@ -136,13 +154,14 @@ async function deleteLocalFileQuiet(uri: string): Promise<void> {
 }
 
 export async function getCreateVideoUploadCredentials(
-  options?: { context?: 'onboarding' | 'profile_studio' },
+  options?: { context?: 'onboarding' | 'profile_studio'; clientRequestId?: string },
 ): Promise<CreateVideoUploadCredentials> {
   const accessToken = await getCachedAccessToken();
   if (!accessToken) throw new Error('Not authenticated');
 
   const url = `${SUPABASE_URL}/functions/v1/create-video-upload`;
   const projectRef = getProjectRefFromSupabaseUrl(SUPABASE_URL);
+  const clientRequestId = options?.clientRequestId?.trim() || newVibeVideoClientRequestId();
   let res: Response;
   try {
     res = await fetch(url, {
@@ -151,7 +170,10 @@ export async function getCreateVideoUploadCredentials(
         Authorization: `Bearer ${accessToken}`,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({ context: options?.context ?? 'profile_studio' }),
+      body: JSON.stringify({
+        context: options?.context ?? 'profile_studio',
+        client_request_id: clientRequestId,
+      }),
     });
   } catch (e) {
     vibeVideoDiagVerbose('create-upload.network', { message: e instanceof Error ? e.message : String(e) });
@@ -190,6 +212,8 @@ export async function getCreateVideoUploadCredentials(
   const libraryId = pickNumber(data, 'libraryId');
   const expirationTime = pickNumber(data, 'expirationTime');
   const cdnHostname = pickString(data, 'cdnHostname');
+  const responseClientRequestId = pickString(data, 'clientRequestId') ?? clientRequestId;
+  const uploadAttemptId = pickString(data, 'uploadAttemptId') ?? null;
 
   if (!videoId) {
     vibeVideoDiagVerbose('create-upload.missing_videoId', { keys: Object.keys(data) });
@@ -222,6 +246,8 @@ export async function getCreateVideoUploadCredentials(
     libraryId,
     hasCdnHostname: !!cdnHostname,
     projectRef,
+    clientRequestId: responseClientRequestId,
+    uploadAttemptId,
   });
 
   const sessionId = pickString(data, 'sessionId') ?? null;
@@ -233,6 +259,8 @@ export async function getCreateVideoUploadCredentials(
     signature,
     cdnHostname,
     sessionId,
+    clientRequestId: responseClientRequestId,
+    uploadAttemptId,
   };
 }
 

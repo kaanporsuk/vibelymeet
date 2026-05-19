@@ -355,10 +355,16 @@ test("create-video-upload requires durable media-session state before credential
   const edge = read("supabase/functions/create-video-upload/index.ts");
   const orphanMigration = read("supabase/migrations/20260501130000_vibe_video_upload_orphan_cleanup.sql");
 
+  const attemptCreateIdx = edge.indexOf('cleanupFailurePath = "create_vibe_video_upload_attempt"');
   const sessionCreateIdx = edge.indexOf('"create_media_session"');
   const profileActivateIdx = edge.indexOf('"activate_profile_vibe_video"');
+  assert.ok(attemptCreateIdx >= 0, "vibe_video_uploads idempotency reservation missing");
   assert.ok(sessionCreateIdx >= 0, "create_media_session call missing");
   assert.ok(profileActivateIdx >= 0, "activate_profile_vibe_video call missing");
+  assert.ok(
+    attemptCreateIdx < sessionCreateIdx,
+    "upload attempt must be reserved before durable session/profile writes",
+  );
   assert.ok(
     sessionCreateIdx < profileActivateIdx,
     "media session must be durable before profile UID activation",
@@ -371,6 +377,12 @@ test("create-video-upload requires durable media-session state before credential
   assert.match(edge, /failure_path: "create_media_session_rejected"/);
   assert.match(edge, /failure_path: "activate_profile_vibe_video_error"/);
   assert.match(edge, /failure_path: "activate_profile_vibe_video_rejected"/);
+  assert.match(edge, /attemptCreateError\?\.code === "23505"/);
+  assert.match(edge, /create_video_upload_attempt_reused_after_duplicate/);
+  assert.match(edge, /isReusableVibeVideoUploadAttemptStatus/);
+  assert.match(edge, /create_video_upload_attempt_terminal_reuse_rejected/);
+  assert.match(edge, /bunny_create_invalid_response/);
+  assert.match(edge, /markVibeVideoUploadAttemptFailed/);
   assert.ok(
     edge.indexOf("enqueueDurableOrphanCleanup") < edge.indexOf('method: "DELETE"'),
     "durable orphan cleanup must be enqueued before best-effort Bunny DELETE",
@@ -879,4 +891,72 @@ test("native upload flow preserves real source telemetry and 15-second duration 
   assert.doesNotMatch(record, /videoMaxDuration: 20/);
   assert.match(onboardingStep, /Up to 15 seconds/);
   assert.doesNotMatch(onboardingStep, /30-second intro videos/);
+});
+
+test("media v2 Vibe Video attempts are schema-backed and dual-written by server paths", () => {
+  const migration = read("supabase/migrations/20260519133000_vibe_video_uploads.sql");
+  const createUpload = read("supabase/functions/create-video-upload/index.ts");
+  const syncStatus = read("supabase/functions/sync-vibe-video-status/index.ts");
+  const deleteVideo = read("supabase/functions/delete-vibe-video/index.ts");
+  const webhook = read("supabase/functions/video-webhook/index.ts");
+  const webController = read("src/lib/heroVideo/heroVideoUploadController.ts");
+  const nativeApi = read("apps/mobile/lib/vibeVideoApi.ts");
+  const nativeController = read("apps/mobile/lib/nativeHeroVideoUploadController.ts");
+
+  assert.match(migration, /CREATE TABLE IF NOT EXISTS public\.vibe_video_uploads/);
+  assert.match(migration, /client_request_id\s+uuid\s+NOT NULL/);
+  assert.match(migration, /CHECK \(status IN \('uploading', 'processing', 'ready', 'failed', 'superseded'\)\)/);
+  assert.match(migration, /UNIQUE \(user_id, client_request_id\)/);
+  assert.match(migration, /UNIQUE \(provider_object_id\)/);
+  assert.match(migration, /ALTER TABLE public\.vibe_video_uploads ENABLE ROW LEVEL SECURITY/);
+  assert.match(migration, /USING \(auth\.uid\(\) = user_id\)/);
+  assert.match(migration, /GRANT SELECT ON TABLE public\.vibe_video_uploads TO authenticated/);
+  assert.match(migration, /GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public\.vibe_video_uploads TO service_role/);
+  assert.match(migration, /CREATE TRIGGER trg_sync_vibe_video_upload_from_dms/);
+  assert.match(migration, /public\.vibe_video_upload_status_from_session\(NEW\.status\)/);
+  assert.match(migration, /WHEN 'deleted' THEN 'superseded'/);
+  assert.match(migration, /WHEN 'abandoned' THEN 'superseded'/);
+
+  assert.match(createUpload, /parseClientRequestId/);
+  assert.match(createUpload, /isValidVideoGuid/);
+  assert.match(createUpload, /client_request_id: clientRequestId/);
+  assert.match(createUpload, /\.from\("vibe_video_uploads"\)/);
+  assert.match(createUpload, /\.eq\("user_id", user\.id\)[\s\S]+\.eq\("client_request_id", clientRequestId\)/);
+  assert.match(createUpload, /create_video_upload_attempt_reused/);
+  assert.match(createUpload, /create_video_upload_attempt_reused_after_duplicate/);
+  assert.match(createUpload, /upload_attempt_terminal/);
+  assert.match(createUpload, /provider_object_id: videoId/);
+  assert.match(createUpload, /media_asset_id: mediaAssetId/);
+  assert.match(createUpload, /draft_media_session_id: typeof sessionId === "string" \? sessionId : null/);
+  assert.match(createUpload, /link_vibe_video_upload_attempt/);
+  assert.match(createUpload, /uploadAttemptId: attemptRow\.id/);
+  assert.match(createUpload, /status: "superseded", error_detail: "replaced_by_new_upload"/);
+  assert.match(createUpload, /@supabase\/supabase-js@2\.88\.0/);
+
+  assert.match(webController, /newHeroVideoClientRequestId/);
+  assert.match(webController, /body: JSON\.stringify\(\{ context, client_request_id: clientRequestId \}\)/);
+  assert.match(webController, /title: `vibe-video-\$\{clientRequestId\}`/);
+  assert.match(nativeApi, /export function newVibeVideoClientRequestId/);
+  assert.match(nativeApi, /client_request_id: clientRequestId/);
+  assert.match(nativeController, /const clientRequestId = newVibeVideoClientRequestId\(\)/);
+  assert.match(nativeController, /getCreateVideoUploadCredentials\(\{ context, clientRequestId \}\)/);
+
+  assert.match(syncStatus, /\.from\("vibe_video_uploads"\)/);
+  assert.match(syncStatus, /attemptPatch/);
+  assert.match(syncStatus, /status: mappedStatus/);
+  assert.match(syncStatus, /uploadAttemptId: attemptRow\?\.id \?\? null/);
+  assert.match(syncStatus, /@supabase\/supabase-js@2\.88\.0/);
+
+  assert.match(deleteVideo, /\.from\("vibe_video_uploads"\)/);
+  assert.match(deleteVideo, /status: "superseded", error_detail: "user_deleted"/);
+  assert.match(deleteVideo, /\.in\("status", \["uploading", "processing", "ready", "superseded"\]\)/);
+  assert.match(deleteVideo, /uploadAttemptId: attemptRow\?\.id \?\? null/);
+  assert.match(deleteVideo, /@supabase\/supabase-js@2\.88\.0/);
+
+  assert.match(webhook, /type VibeVideoUploadAttemptStatus = "processing" \| "ready" \| "failed"/);
+  assert.match(webhook, /syncVibeVideoUploadAttemptFromWebhook/);
+  assert.match(webhook, /\.from\("vibe_video_uploads"\)/);
+  assert.match(webhook, /draftMediaSessionId: typeof sr\.session_id === "string" \? sr\.session_id : null/);
+  assert.match(webhook, /video_webhook_vibe_video_upload_attempt_update_failed/);
+  assert.match(webhook, /upload_attempt_id: attemptSync\.attemptId/);
 });
