@@ -294,6 +294,10 @@ test("uploaded orphan cleanup is worker-owned and guarded against late active re
   assert.match(worker, /active_ref_asset_reset_failed/);
   assert.match(worker, /active_ref_job_delete_failed/);
   assert.match(worker, /\.from\("media_delete_jobs"\)[\s\S]+\.delete\(\)[\s\S]+\.eq\("id", job\.id\)/);
+  assert.match(worker, /interface DryRunPreviewRow \{[\s\S]+id: string/);
+  assert.match(worker, /media_assets\?: \{[\s\S]+media_family\?: string \| null/);
+  assert.match(worker, /DRY_RUN would_delete job=\$\{row\.id\}/);
+  assert.doesNotMatch(worker, /row\.job_id \?\? row\.id/);
 });
 
 test("web and native chat image retries pass durable outbox ids to upload-image", () => {
