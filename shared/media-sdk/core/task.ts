@@ -1,0 +1,252 @@
+import {
+  createInitialMediaUploadSnapshot,
+  transitionMediaUploadState,
+  type MediaUploadTransition,
+} from "./state-machine";
+import type { MediaTelemetry } from "./telemetry";
+import { noopMediaTelemetry } from "./telemetry";
+import type {
+  MediaUploadInput,
+  MediaUploadPlatform,
+  MediaUploadSnapshot,
+  MediaUploadTask,
+  MediaUploadTaskEvent,
+  MediaUploadTaskListener,
+} from "./types";
+
+export type MediaTaskLifecycleControls = {
+  pause?: () => Promise<void> | void;
+  resume?: () => Promise<void> | void;
+  cancel?: () => Promise<void> | void;
+};
+
+export type MediaTaskRunContext = {
+  input: MediaUploadInput;
+  snapshot: () => MediaUploadSnapshot;
+  dispatch: (transition: MediaUploadTransition) => MediaUploadSnapshot;
+  bindLifecycle: (controls: MediaTaskLifecycleControls) => void;
+  emitTelemetry: (name: string, fields?: Record<string, string | number | boolean | null | undefined>) => void;
+};
+
+export type MediaTaskRunner = (context: MediaTaskRunContext) => Promise<void> | void;
+
+function randomMediaId(): string {
+  const cryptoApi = globalThis.crypto;
+  if (cryptoApi?.randomUUID) return cryptoApi.randomUUID();
+  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (ch) => {
+    const n = Math.floor(Math.random() * 16);
+    return (ch === "x" ? n : (n & 0x3) | 0x8).toString(16);
+  });
+}
+
+export function createMediaUploadTask(params: {
+  input: MediaUploadInput;
+  platform: MediaUploadPlatform;
+  telemetry?: MediaTelemetry;
+  runner: MediaTaskRunner;
+  beforeStart?: (
+    initialSnapshot: MediaUploadSnapshot,
+    currentSnapshot: () => MediaUploadSnapshot,
+  ) => Promise<void> | void;
+  nowMs?: number;
+}): MediaUploadTask {
+  const id = randomMediaId();
+  const clientRequestId = params.input.options?.clientRequestId?.trim() || id;
+  const telemetry = params.telemetry ?? noopMediaTelemetry;
+  const abortSignal = params.input.options?.signal ?? null;
+  let lifecycleControls: MediaTaskLifecycleControls = {};
+  let running = false;
+  let rerunAfterCurrent = false;
+  let abortListenerArmed = false;
+  let snapshot = createInitialMediaUploadSnapshot({
+    id,
+    clientRequestId,
+    family: params.input.family,
+    platform: params.platform,
+    nowMs: params.nowMs,
+  });
+  const listeners = new Map<MediaUploadTaskEvent, Set<MediaUploadTaskListener>>();
+
+  const emit = (event: MediaUploadTaskEvent) => {
+    for (const listener of listeners.get(event) ?? []) {
+      try {
+        listener(snapshot);
+      } catch (error) {
+        telemetry.exception(error, {
+          family: snapshot.family,
+          platform: snapshot.platform,
+          state: snapshot.state,
+          client_request_id: snapshot.clientRequestId,
+          event,
+        });
+      }
+    }
+  };
+
+  const removeAbortListener = () => {
+    if (!abortListenerArmed) return;
+    abortSignal?.removeEventListener?.("abort", handleAbort);
+    abortListenerArmed = false;
+  };
+
+  const armAbortListener = () => {
+    if (!abortSignal || abortSignal.aborted || abortListenerArmed) return;
+    abortSignal.addEventListener?.("abort", handleAbort, { once: true });
+    abortListenerArmed = true;
+  };
+
+  const dispatch = (transition: MediaUploadTransition): MediaUploadSnapshot => {
+    const previous = snapshot;
+    snapshot = transitionMediaUploadState(snapshot, transition);
+    if (snapshot === previous) return snapshot;
+    if (snapshot.state !== previous.state) emit("state");
+    if (snapshot.progress !== previous.progress) emit("progress");
+    if (transition.type === "fail") emit("error");
+    if (snapshot.state === "ready" || snapshot.state === "failed" || snapshot.state === "cancelled") {
+      removeAbortListener();
+    }
+    return snapshot;
+  };
+
+  const cancelTask = async (reason = "user_cancelled") => {
+    try {
+      await lifecycleControls.cancel?.();
+    } finally {
+      dispatch({ type: "cancel", reason });
+    }
+  };
+
+  function handleAbort() {
+    void cancelTask("aborted").catch((error) => {
+      telemetry.exception(error, {
+        family: snapshot.family,
+        platform: snapshot.platform,
+        client_request_id: snapshot.clientRequestId,
+      });
+    });
+  }
+
+  const run = async () => {
+    if (running) return;
+    running = true;
+    lifecycleControls = {};
+    try {
+      if (snapshot.state !== "created") return;
+      await params.beforeStart?.(snapshot, () => snapshot);
+      if (snapshot.state !== "created") return;
+      const started = dispatch({ type: "begin_upload" });
+      if (started.state !== "uploading") return;
+      await params.runner({
+        input: params.input,
+        snapshot: () => snapshot,
+        dispatch,
+        bindLifecycle: (controls) => {
+          lifecycleControls = controls;
+        },
+        emitTelemetry: (name, fields) => {
+          telemetry.emit({
+            name,
+            family: snapshot.family,
+            platform: snapshot.platform,
+            state: snapshot.state,
+            clientRequestId: snapshot.clientRequestId,
+            fields,
+          });
+          emit("telemetry");
+        },
+      });
+    } catch (error) {
+      telemetry.exception(error, {
+        family: snapshot.family,
+        platform: snapshot.platform,
+        client_request_id: snapshot.clientRequestId,
+      });
+      dispatch({
+        type: "fail",
+        error: {
+          code: error instanceof Error ? error.name : "upload_exception",
+          message: error instanceof Error ? error.message : "Upload failed",
+          retryable: true,
+        },
+      });
+    } finally {
+      running = false;
+      if (rerunAfterCurrent && snapshot.state === "created") {
+        rerunAfterCurrent = false;
+        await run();
+      }
+    }
+  };
+
+  const start = () => {
+    void run();
+  };
+  if (abortSignal?.aborted) {
+    void cancelTask("aborted").catch((error) => {
+      telemetry.exception(error, {
+        family: snapshot.family,
+        platform: snapshot.platform,
+        client_request_id: snapshot.clientRequestId,
+      });
+    });
+  } else {
+    armAbortListener();
+  }
+  if (typeof queueMicrotask === "function") queueMicrotask(start);
+  else setTimeout(start, 0);
+
+  return {
+    id,
+    clientRequestId,
+    family: params.input.family,
+    on(event, cb) {
+      const set = listeners.get(event) ?? new Set<MediaUploadTaskListener>();
+      set.add(cb);
+      listeners.set(event, set);
+      return () => {
+        set.delete(cb);
+      };
+    },
+    async pause() {
+      await lifecycleControls.pause?.();
+      telemetry.emit({
+        name: "media_upload_pause_requested",
+        family: snapshot.family,
+        platform: snapshot.platform,
+        state: snapshot.state,
+        clientRequestId: snapshot.clientRequestId,
+      });
+      emit("telemetry");
+    },
+    async resume() {
+      await lifecycleControls.resume?.();
+      telemetry.emit({
+        name: "media_upload_resume_requested",
+        family: snapshot.family,
+        platform: snapshot.platform,
+        state: snapshot.state,
+        clientRequestId: snapshot.clientRequestId,
+      });
+      emit("telemetry");
+    },
+    async cancel(reason = "user_cancelled") {
+      await cancelTask(reason);
+    },
+    async retry() {
+      const before = snapshot;
+      dispatch({ type: "retry" });
+      if (snapshot !== before && snapshot.state === "created") {
+        if (abortSignal?.aborted) {
+          await cancelTask("aborted");
+          return;
+        }
+        armAbortListener();
+        if (running) rerunAfterCurrent = true;
+        else await run();
+      }
+    },
+    snapshot() {
+      return snapshot;
+    },
+  };
+}
