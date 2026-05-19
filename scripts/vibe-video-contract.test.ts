@@ -384,6 +384,9 @@ test("create-video-upload requires durable media-session state before credential
   assert.match(edge, /create_video_upload_attempt_reused_after_duplicate/);
   assert.match(edge, /isReusableVibeVideoUploadAttemptStatus/);
   assert.match(edge, /create_video_upload_attempt_terminal_reuse_rejected/);
+  assert.match(edge, /create_video_upload_attempt_reuse_waiting_for_durable_link/);
+  assert.match(edge, /create_video_upload_attempt_session_link_failed/);
+  assert.match(edge, /create_video_upload_attempt_asset_link_failed_but_repairable/);
   assert.match(edge, /bunny_create_invalid_response/);
   assert.match(edge, /markVibeVideoUploadAttemptFailed/);
   assert.ok(
@@ -930,10 +933,12 @@ test("media v2 Vibe Video attempts are schema-backed and dual-written by server 
   assert.match(createUpload, /create_video_upload_attempt_reused/);
   assert.match(createUpload, /create_video_upload_attempt_reused_after_duplicate/);
   assert.match(createUpload, /upload_attempt_terminal/);
+  assert.match(createUpload, /upload_attempt_not_durable/);
   assert.match(createUpload, /provider_object_id: videoId/);
   assert.match(createUpload, /media_asset_id: mediaAssetId/);
-  assert.match(createUpload, /draft_media_session_id: typeof sessionId === "string" \? sessionId : null/);
-  assert.match(createUpload, /link_vibe_video_upload_attempt/);
+  assert.match(createUpload, /draft_media_session_id: sessionId/);
+  assert.match(createUpload, /link_vibe_video_upload_attempt_session/);
+  assert.match(createUpload, /attemptAssetLinkRepairable/);
   assert.match(createUpload, /uploadAttemptId: attemptRow\.id/);
   assert.match(createUpload, /status: "superseded", error_detail: "replaced_by_new_upload"/);
   assert.match(createUpload, /@supabase\/supabase-js@2\.88\.0/);
@@ -957,7 +962,7 @@ test("media v2 Vibe Video attempts are schema-backed and dual-written by server 
 
   assert.match(deleteVideo, /\.from\("vibe_video_uploads"\)/);
   assert.match(deleteVideo, /status: "superseded", error_detail: "user_deleted"/);
-  assert.match(deleteVideo, /\.in\("status", \["uploading", "processing", "ready", "superseded"\]\)/);
+  assert.match(deleteVideo, /\.in\("status", \["uploading", "processing", "ready", "failed", "superseded"\]\)/);
   assert.match(deleteVideo, /uploadAttemptId: attemptRow\?\.id \?\? null/);
   assert.match(deleteVideo, /@supabase\/supabase-js@2\.88\.0/);
 

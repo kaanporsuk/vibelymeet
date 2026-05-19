@@ -621,12 +621,12 @@ test("server upload and publish paths enforce Bunny Stream Vibe Clip limits", ()
     /provider_failed_message_update_failed[\s\S]+return \{ handled: true, error: messageUpdateError\.message \}/,
   );
   assert.match(chatVibeClipShared, /provider: "bunny_stream"/);
-  assert.match(chatVibeClipShared, /options: \{ publishIfProcessing\?: boolean; failOnIgnoredFailure\?: boolean \} = \{\}/);
+  assert.match(chatVibeClipShared, /failOnIgnoredNonReady\?: boolean/);
   assert.match(chatVibeClipShared, /!options\.publishIfProcessing/);
   assert.match(chatVibeClipShared, /function isTerminalChatVibeClipStatus/);
   assert.match(chatVibeClipShared, /shouldIgnoreProviderStatus\(upload\.status, status\)/);
   assert.match(chatVibeClipShared, /ignoredProviderStatus\?: boolean/);
-  assert.match(chatVibeClipShared, /options\.failOnIgnoredFailure && status === "failed"/);
+  assert.match(chatVibeClipShared, /options\.failOnIgnoredNonReady[\s\S]+status !== "ready"/);
   assert.match(chatVibeClipShared, /ignoredProviderStatus: true/);
   assert.match(getChatMediaUrl, /BUNNY_CHAT_STREAM_CDN_HOSTNAME/);
   assert.match(getChatMediaUrl, /BUNNY_CHAT_STREAM_TOKEN_SECURITY_KEY/);
@@ -645,7 +645,7 @@ test("server upload and publish paths enforce Bunny Stream Vibe Clip limits", ()
   assert.match(videoWebhook, /library_id_raw: libraryIdRaw/);
   assert.match(videoWebhook, /logWebhook\("warn", "video_webhook_rejected", \{[\s\S]{0,160}reason: "library_mismatch"/);
   assert.match(videoWebhook, /updateChatVibeClipStatusByProvider/);
-  assert.match(videoWebhook, /\{ publishIfProcessing: Status === 7, failOnIgnoredFailure: true \}/);
+  assert.match(videoWebhook, /\{ publishIfProcessing: Status === 7, failOnIgnoredNonReady: true \}/);
   assert.match(videoWebhook, /ignored_provider_status: chatClipResult\.ignoredProviderStatus === true/);
   assert.match(syncChatVibeClipStatus, /\{ publishIfProcessing: bunny\.rawStatus === 7 && upload\.sender_id === user\.id \}/);
   assert.match(chatThreadPage, /kind === "thumbnail" && asset\.provider === "bunny_stream" && asset\.media_family === "chat_video"/);
@@ -685,7 +685,9 @@ test("Chat Vibe Clip P1.1 observability keeps stable trace fields", () => {
   assert.match(videoWebhook, /if \(!outcome\.ok\) throw outcome\.error/);
   assert.match(videoWebhook, /return unwrapCallbackOutcome\(callbackOutcome\)/);
   assert.match(videoWebhook, /sentry_init_failed/);
+  assert.match(videoWebhook, /typeof Sentry\.startSpan !== "function"/);
   assert.match(videoWebhook, /sentry_start_span_failed/);
+  assert.match(videoWebhook, /void Sentry\.flush\(SENTRY_FLUSH_TIMEOUT_MS\)/);
   assert.match(videoWebhook, /sentry_capture_failed/);
   assert.match(videoWebhook, /webhook_trace_id/);
   assert.match(videoWebhook, /video_webhook_chat_vibe_clip_matched/);

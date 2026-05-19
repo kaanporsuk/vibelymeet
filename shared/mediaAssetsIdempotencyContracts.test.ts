@@ -161,6 +161,8 @@ test("upload-event-cover uses strong sniffing, stale cover guards, and attached 
   assert.match(uploadEventCover, /\.from\("media_upload_receipts"\)[\s\S]+status: receiptStatus/);
 
   assert.match(webEventCoverUploadService, /expectedCurrentCoverAssetId\?: string \| null/);
+  assert.match(webEventCoverUploadService, /currentCoverAssetId\?: string \| null/);
+  assert.match(webEventCoverUploadService, /EventCoverUploadError/);
   assert.match(webEventCoverUploadService, /formData\.append\("expected_current_cover_asset_id", options\.expectedCurrentCoverAssetId\?\.trim\(\) \|\| "__none__"\)/);
   assert.match(webEventCoverUploadService, /formData\.append\("client_request_id", stableClientRequestId\)/);
   assert.match(webEventCoverUploadService, /"x-client-request-id": stableClientRequestId/);
@@ -168,6 +170,8 @@ test("upload-event-cover uses strong sniffing, stale cover guards, and attached 
   assert.match(webAdminEventFormModal, /function isSupportedCoverImageFile/);
   assert.match(webAdminEventFormModal, /clientRequestIdForUploadFile\(file, `event-cover:\$\{event\?\.id \?\? "new"\}`\)/);
   assert.match(webAdminEventFormModal, /expectedCurrentCoverAssetId: event\?\.id \? currentCoverAssetId : undefined/);
+  assert.match(webAdminEventFormModal, /error\.code === "stale_cover_update"/);
+  assert.match(webAdminEventFormModal, /setCurrentCoverAssetId\(nextCoverAssetId\)/);
   assert.match(webAdminEventFormModal, /setCurrentCoverAssetId\(uploaded\.assetId\)/);
   assert.match(webAdminEventsPanel, /cover_media_asset_id\?: string \| null/);
 });
@@ -287,6 +291,8 @@ test("uploaded orphan cleanup is worker-owned and guarded against late active re
   assert.match(worker, /stats\.uploadedOrphans/);
   assert.match(worker, /\.from\("media_references"\)[\s\S]+\.eq\("asset_id", job\.asset_id\)[\s\S]+\.eq\("is_active", true\)/);
   assert.match(worker, /\.from\("media_assets"\)[\s\S]+\.update\(\{[\s\S]+status: "active"/);
+  assert.match(worker, /active_ref_asset_reset_failed/);
+  assert.match(worker, /active_ref_job_delete_failed/);
   assert.match(worker, /\.from\("media_delete_jobs"\)[\s\S]+\.delete\(\)[\s\S]+\.eq\("id", job\.id\)/);
 });
 

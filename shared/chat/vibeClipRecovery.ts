@@ -100,17 +100,17 @@ export function buildVibeClipRecovery(input: {
   if (!outboxItem && !serverUpload) return null;
   if (outboxItem && outboxItem.payloadKind !== "video") return null;
 
+  if (serverUpload?.publishedMessageId) return null;
+
   if (serverUpload?.status === "ready") {
-    return serverUpload.publishedMessageId
-      ? null
-      : {
-          canResume: false,
-          canDiscard: false,
-          resumeStrategy: null,
-          stateLabel: "Clip is ready. Refreshing the thread.",
-          showPanel: false,
-          telemetryOutcome: "self_healed",
-        };
+    return {
+      canResume: false,
+      canDiscard: false,
+      resumeStrategy: null,
+      stateLabel: "Clip is ready. Refreshing the thread.",
+      showPanel: false,
+      telemetryOutcome: "self_healed",
+    };
   }
 
   if (serverUpload?.status === "failed") {

@@ -9,7 +9,7 @@ const targets = new Map([
 
 if (!target || !targets.has(target)) {
   const available = [...targets.keys()].sort().join(", ");
-  console.error(`Usage: npm run test -- <target>`);
+  console.error(`Usage: npm run test:targeted -- <target>`);
   console.error(`Available targets: ${available}`);
   process.exit(1);
 }

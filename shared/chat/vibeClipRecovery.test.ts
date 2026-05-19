@@ -73,6 +73,20 @@ test("missing local source falls through to discard-only", () => {
   assert.equal(decision?.telemetryOutcome, "discard_only");
 });
 
+test("published server uploads hide recovery even when local source is gone", () => {
+  const decision = buildVibeClipRecovery({
+    outboxItem: outbox(),
+    serverUpload: server({
+      status: "processing",
+      publishedMessageId: "55555555-5555-4555-8555-555555555555",
+    }),
+    localSourcePresent: false,
+    nowMs: NOW,
+  });
+
+  assert.equal(decision, null);
+});
+
 test("server-only stuck row shows a discard/check-status affordance", () => {
   const decision = buildVibeClipRecovery({
     outboxItem: null,
