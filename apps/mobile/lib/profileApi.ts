@@ -27,6 +27,7 @@ export type ProfileRow = {
   avatar_url: string | null;
   bunny_video_uid: string | null;
   bunny_video_status: string | null;
+  vibe_video_playback_ref?: string | null;
   events_attended?: number | null;
   total_matches: number | null;
   total_conversations: number | null;
@@ -204,6 +205,10 @@ export async function fetchMyProfile(userId: string): Promise<ProfileRow | null>
       events_attended: row.events_attended ?? null,
       total_matches: row.total_matches ?? null,
       total_conversations: row.total_conversations ?? null,
+      vibe_video_playback_ref:
+        typeof row.vibe_video_playback_ref === 'string' && row.vibe_video_playback_ref.trim().length > 0
+          ? row.vibe_video_playback_ref.trim()
+          : null,
       prompts: (row.prompts as ProfileRow['prompts']) ?? null,
       vibes,
       lifestyle: (row.lifestyle as ProfileRow['lifestyle']) ?? null,

@@ -37,11 +37,65 @@ export interface VibeVideoInfo {
   canRecord: boolean;
 }
 
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const BUNNY_STREAM_VIDEO_ID_PATTERN = /^[0-9a-f-]{32,36}$/i;
+const PROFILE_VIBE_VIDEO_REF_PATTERN =
+  /^profile_vibe_video:([0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}):([0-9a-f-]{32,36})$/i;
+
+export function getProfileVibeVideoPlaybackRef(
+  profileId: string | null | undefined,
+  bunnyVideoUid: string | null | undefined,
+): string | null {
+  const id = typeof profileId === 'string' ? profileId.trim() : '';
+  const uid = typeof bunnyVideoUid === 'string' ? bunnyVideoUid.trim() : '';
+  if (!UUID_PATTERN.test(id) || !BUNNY_STREAM_VIDEO_ID_PATTERN.test(uid)) return null;
+  return `profile_vibe_video:${id}:${uid}`;
+}
+
+function normalizeProfileVibeVideoPlaybackRef(value: unknown, uid?: string | null): string | null {
+  const ref = typeof value === 'string' ? value.trim() : '';
+  const match = PROFILE_VIBE_VIDEO_REF_PATTERN.exec(ref);
+  if (!match) return null;
+  if (uid && match[2].toLowerCase() !== uid.toLowerCase()) return null;
+  return ref;
+}
+
+function pickProfileId(profile: {
+  id?: string | null;
+  profile_id?: string | null;
+  profileId?: string | null;
+} | null | undefined): string | null {
+  const raw = profile?.id ?? profile?.profile_id ?? profile?.profileId;
+  return typeof raw === 'string' ? raw.trim() || null : null;
+}
+
+function pickPlaybackRef(profile: {
+  id?: string | null;
+  profile_id?: string | null;
+  profileId?: string | null;
+  vibe_video_playback_ref?: string | null;
+  vibeVideoPlaybackRef?: string | null;
+  playbackRef?: string | null;
+} | null | undefined, uid: string | null): string | null {
+  return (
+    normalizeProfileVibeVideoPlaybackRef(profile?.vibe_video_playback_ref, uid) ??
+    normalizeProfileVibeVideoPlaybackRef(profile?.vibeVideoPlaybackRef, uid) ??
+    normalizeProfileVibeVideoPlaybackRef(profile?.playbackRef, uid) ??
+    getProfileVibeVideoPlaybackRef(pickProfileId(profile), uid)
+  );
+}
+
 export function resolveVibeVideoState(profile: {
+  id?: string | null;
+  profile_id?: string | null;
+  profileId?: string | null;
   bunny_video_uid?: string | null;
   bunny_video_status?: string | null;
   bunny_video_updated_at?: string | number | Date | null;
   updated_at?: string | number | Date | null;
+  vibe_video_playback_ref?: string | null;
+  vibeVideoPlaybackRef?: string | null;
+  playbackRef?: string | null;
   vibe_caption?: string | null;
   vibe_video_captions?: unknown;
   captions?: unknown;
@@ -89,8 +143,9 @@ export function resolveVibeVideoState(profile: {
   }
 
   if (canonical.state === 'ready') {
-    const playbackUrl = getVibeVideoPlaybackUrl(uid);
-    const thumbnailUrl = getVibeVideoThumbnailUrl(uid);
+    const playbackRef = pickPlaybackRef(profile, uid);
+    const playbackUrl = playbackRef ?? getVibeVideoPlaybackUrl(uid);
+    const thumbnailUrl = playbackRef ? null : getVibeVideoThumbnailUrl(uid);
     return {
       state: 'ready',
       uid, normalizedStatus: normStatus,

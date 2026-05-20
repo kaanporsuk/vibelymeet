@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { Play, X } from "lucide-react";
+import { Loader2, Play, X } from "lucide-react";
 import * as Sentry from "@sentry/react";
 import { resolveWebVibeVideoState } from "@/lib/vibeVideo/webVibeVideoState";
 import { useMediaAsset, useMediaAssetPlayback } from "@/hooks/useMediaAsset";
@@ -19,6 +19,8 @@ type Props = {
   show: boolean;
   bunnyVideoUid: string | null;
   bunnyVideoStatus: string;
+  playbackRef?: string | null;
+  profileId?: string | null;
   vibeCaption: string;
   captions?: MediaCaptions | null;
   onClose: () => void;
@@ -28,7 +30,16 @@ type Props = {
  * Fullscreen HLS playback (Safari native + hls.js elsewhere) with honest error overlay
  * when the stream is "ready" in DB but manifest/media fails.
  */
-export function VibeVideoFullscreenPlayer({ show, bunnyVideoUid, bunnyVideoStatus, vibeCaption, captions = null, onClose }: Props) {
+export function VibeVideoFullscreenPlayer({
+  show,
+  bunnyVideoUid,
+  bunnyVideoStatus,
+  playbackRef = null,
+  profileId = null,
+  vibeCaption,
+  captions = null,
+  onClose,
+}: Props) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const playbackSucceededRef = useRef(false);
   const [playbackFailed, setPlaybackFailed] = useState(false);
@@ -38,17 +49,20 @@ export function VibeVideoFullscreenPlayer({ show, bunnyVideoUid, bunnyVideoStatu
   const prefersReducedMotion = usePrefersReducedMotion();
 
   const vibeVideoInfo = resolveWebVibeVideoState({
+    id: profileId,
     bunny_video_uid: bunnyVideoUid,
     bunny_video_status: bunnyVideoStatus,
+    playbackRef,
     vibe_caption: vibeCaption,
   });
   const isReady = vibeVideoInfo.state === "ready" && !!vibeVideoInfo.uid;
   const usesSignedProfileRef = isProfileVibeVideoRef(vibeVideoInfo.playbackUrl);
-  const { url: mediaAssetUrl, posterUrl: mediaAssetPosterUrl } = useMediaAsset({
+  const { url: mediaAssetUrl, posterUrl: mediaAssetPosterUrl, status: mediaAssetStatus } = useMediaAsset({
     kind: usesSignedProfileRef ? "profile_vibe_video" : "vibe_video",
     sourceRef: vibeVideoInfo.playbackUrl,
     initialUrl: usesSignedProfileRef ? null : vibeVideoInfo.playbackUrl,
     autoResolve: usesSignedProfileRef,
+    enabled: show && isReady,
   });
   const playbackUrl = mediaAssetUrl ?? (usesSignedProfileRef ? null : vibeVideoInfo.playbackUrl);
   const captionText = captionTextFromMediaCaptions(captions);
@@ -109,17 +123,18 @@ export function VibeVideoFullscreenPlayer({ show, bunnyVideoUid, bunnyVideoStatu
     if (!show || !isReady || !vibeVideoInfo.uid) return;
 
     if (!playbackUrl) {
+      if (usesSignedProfileRef && mediaAssetStatus !== "error") return;
       setPlaybackFailed(true);
       trackVibeVideoEvent(VIBE_VIDEO_EVENTS.playbackFailed, {
         source: "vibe_player_fullscreen",
-        kind: "missing_src",
+        kind: usesSignedProfileRef ? "signed_resolve_failed" : "missing_src",
         has_uid: true,
       });
       Sentry.addBreadcrumb({
         category: "vibe-video-playback",
-        message: "fullscreen_missing_cdn_or_uid",
+        message: usesSignedProfileRef ? "fullscreen_signed_media_resolve_failed" : "fullscreen_missing_cdn_or_uid",
         level: "warning",
-        data: { hasUid: true },
+        data: { hasUid: true, usesSignedProfileRef },
       });
       return;
     }
@@ -139,7 +154,17 @@ export function VibeVideoFullscreenPlayer({ show, bunnyVideoUid, bunnyVideoStatu
     return () => {
       videoEl.removeEventListener("play", reportSucceeded);
     };
-  }, [show, isReady, playbackUrl, reportSucceeded, vibeVideoInfo.uid, prefersReducedMotion, shouldAttachPlayback]);
+  }, [
+    show,
+    isReady,
+    playbackUrl,
+    usesSignedProfileRef,
+    mediaAssetStatus,
+    reportSucceeded,
+    vibeVideoInfo.uid,
+    prefersReducedMotion,
+    shouldAttachPlayback,
+  ]);
 
   useMediaAssetPlayback(videoRef, playbackUrl, {
     enabled: show && isReady && !!playbackUrl && shouldAttachPlayback,
@@ -158,6 +183,8 @@ export function VibeVideoFullscreenPlayer({ show, bunnyVideoUid, bunnyVideoStatu
   });
 
   const poster = mediaAssetPosterUrl ?? vibeVideoInfo.thumbnailUrl;
+  const signedProfileRefPlaybackPending =
+    usesSignedProfileRef && !playbackUrl && mediaAssetStatus !== "error" && !playbackFailed;
 
   return (
     <AnimatePresence>
@@ -239,6 +266,16 @@ export function VibeVideoFullscreenPlayer({ show, bunnyVideoUid, bunnyVideoStatu
                 <Play className="ml-1 h-8 w-8" />
               </span>
             </button>
+          ) : null}
+
+          {signedProfileRefPlaybackPending ? (
+            <div
+              className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-3 bg-black/35 text-white"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <Loader2 className="h-6 w-6 animate-spin" />
+              <p className="text-sm font-medium text-white/85">Preparing playback...</p>
+            </div>
           ) : null}
 
           {playbackFailed && (

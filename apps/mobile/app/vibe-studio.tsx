@@ -38,12 +38,14 @@ import {
 } from '@/lib/profileApi';
 import { vibeVideoDiagVerbose } from '@/lib/vibeVideoDiagnostics';
 import { resolveVibeVideoState } from '@/lib/vibeVideoState';
+import { isProfileVibeVideoRef } from '@/lib/mediaAssetResolver';
 import {
   trackStaleVibeVideoProcessing,
   trackVibeVideoEvent,
   VIBE_VIDEO_EVENTS,
 } from '@/lib/vibeVideoTelemetry';
 import { useNativeHeroVideoUpload } from '@/hooks/useNativeHeroVideoUpload';
+import { useMediaAsset } from '@/hooks/useMediaAsset';
 
 const CAPTION_MAX = 50;
 
@@ -110,10 +112,6 @@ export default function VibeStudioScreen() {
     setCaptionDraft(profile?.vibe_caption ?? '');
   }, [profile?.vibe_caption]);
 
-  useEffect(() => {
-    setThumbnailError(false);
-  }, [profile?.bunny_video_uid, profile?.bunny_video_status]);
-
   // When the controller reaches a terminal/stalled state, reload profile so the page
   // reflects the latest backend truth without a manual refresh tap.
   const prevCtrlPhaseRef = useRef<string>('idle');
@@ -125,7 +123,31 @@ export default function VibeStudioScreen() {
     }
   }, [ctrl.phase, refetch]);
 
-  const videoInfo = useMemo(() => resolveVibeVideoState(profile ?? null), [profile]);
+  const effectiveVideoProfile = useMemo(() => {
+    if (ctrl.phase === 'ready' && ctrl.videoId && userId) {
+      return {
+        id: profile?.id ?? userId,
+        bunny_video_uid: ctrl.videoId,
+        bunny_video_status: 'ready',
+        vibe_caption: profile?.vibe_caption ?? null,
+        vibe_video_captions: profile?.vibe_video_captions ?? null,
+      };
+    }
+    return profile ?? null;
+  }, [ctrl.phase, ctrl.videoId, profile, userId]);
+  const videoInfo = useMemo(() => resolveVibeVideoState(effectiveVideoProfile), [effectiveVideoProfile]);
+  const signedProfileVibeVideoRef = isProfileVibeVideoRef(videoInfo.playbackUrl) ? videoInfo.playbackUrl : null;
+  const { posterUrl: signedPosterUrl } = useMediaAsset({
+    kind: 'profile_vibe_video',
+    sourceRef: signedProfileVibeVideoRef,
+    initialUrl: null,
+    autoResolve: !!signedProfileVibeVideoRef,
+    enabled: videoInfo.state === 'ready' && !!signedProfileVibeVideoRef,
+  });
+  const videoPosterUrl = signedProfileVibeVideoRef ? signedPosterUrl : videoInfo.thumbnailUrl;
+  useEffect(() => {
+    setThumbnailError(false);
+  }, [videoInfo.uid, videoInfo.state, videoPosterUrl]);
   const readyAwaitingPlaybackUrl = videoInfo.state === 'ready' && !videoInfo.canPlay;
   const captionChanged = captionDraft !== (profile?.vibe_caption ?? '');
 
@@ -550,9 +572,9 @@ export default function VibeStudioScreen() {
                   onPress={() => setShowFullscreen(true)}
                   style={[styles.previewCard, { borderColor: theme.glassBorder }]}
                 >
-                  {videoInfo.thumbnailUrl && !thumbnailError ? (
+                  {videoPosterUrl && !thumbnailError ? (
                     <Image
-                      source={{ uri: videoInfo.thumbnailUrl }}
+                      source={{ uri: videoPosterUrl }}
                       style={StyleSheet.absoluteFill}
                       resizeMode="cover"
                       onError={() => setThumbnailError(true)}
@@ -756,7 +778,7 @@ export default function VibeStudioScreen() {
         vibeVideoState={videoInfo.state}
         vibeCaption={videoInfo.caption ?? ''}
         captions={videoInfo.captions}
-        posterUrl={videoInfo.thumbnailUrl}
+        posterUrl={videoPosterUrl}
       />
 
       {dialog}

@@ -36,6 +36,7 @@ export interface ProfileData {
   
   bunnyVideoUid: string | null;
   bunnyVideoStatus: string;
+  vibeVideoPlaybackRef: string | null;
   vibeCaption: string;
   vibeVideoCaptions: MediaCaptions | null;
   photoVerified: boolean;
@@ -65,6 +66,7 @@ type BackendOwnedProfileUpdateFields =
   | "locationData"
   | "bunnyVideoUid"
   | "bunnyVideoStatus"
+  | "vibeVideoPlaybackRef"
   | "vibeScore"
   | "vibeScoreLabel"
   | "stats"
@@ -103,6 +105,7 @@ interface DbProfile {
   
   bunny_video_uid: string | null;
   bunny_video_status: string;
+  vibe_video_playback_ref?: string | null;
   vibe_caption?: string | null;
   vibe_video_captions?: unknown;
   photo_verified: boolean | null;
@@ -197,6 +200,10 @@ export const dbToProfile = (dbProfile: DbProfile, vibes: string[] = []): Profile
     
     bunnyVideoUid: dbProfile.bunny_video_uid || null,
     bunnyVideoStatus: dbProfile.bunny_video_status || "none",
+    vibeVideoPlaybackRef:
+      typeof dbProfile.vibe_video_playback_ref === "string" && dbProfile.vibe_video_playback_ref.trim().length > 0
+        ? dbProfile.vibe_video_playback_ref.trim()
+        : null,
     vibeCaption: dbProfile.vibe_caption || "",
     vibeVideoCaptions: parseMediaCaptions(dbProfile.vibe_video_captions),
     photoVerified: dbProfile.photo_verified || false,
