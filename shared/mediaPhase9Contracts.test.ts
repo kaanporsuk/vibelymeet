@@ -155,12 +155,16 @@ test("chat shared video lightbox does not reset loading phase for unchanged medi
   );
   assert.match(chatVideoLightbox, /refreshMediaRef\.current = refreshMedia/);
   assert.match(chatVideoLightbox, /const refresh = refreshMediaRef\.current/);
-  assert.ok(
-    chatVideoLightbox.includes("}, [posterUrl, prefersReducedMotion, resetPhase, revealPlayer, videoSourceRef, videoUrl]);"),
-  );
+  assert.match(chatVideoLightbox, /const posterUrlRef = useRef\(posterUrl \?\? null\)/);
+  assert.ok(chatVideoLightbox.includes("}, [resetPhase, videoSourceRef, videoUrl]);"));
+  assert.ok(chatVideoLightbox.includes("}, [canMountPlayer, isHlsUrl, playableVideoUrl, prefersReducedMotion, revealPlayer]);"));
   assert.doesNotMatch(
     chatVideoLightbox,
     /\[posterUrl, prefersReducedMotion, refreshMedia, resetPhase, revealPlayer, videoSourceRef, videoUrl\]/,
+  );
+  assert.doesNotMatch(
+    chatVideoLightbox,
+    /\[posterUrl, prefersReducedMotion, resetPhase, revealPlayer, videoSourceRef, videoUrl\]/,
   );
 });
 
