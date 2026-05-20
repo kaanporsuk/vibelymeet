@@ -86,6 +86,7 @@ import {
   threadBucketFromCount,
   type CaptureSource,
 } from "../../shared/chat/vibeClipAnalytics";
+import type { MediaCaptions } from "../../shared/media/captions";
 import { trackVibeClipEvent } from "@/lib/vibeClipAnalytics";
 import { recordUserAction } from "@/lib/browserDiagnostics";
 import { useUserProfile } from "@/contexts/AuthContext";
@@ -1897,7 +1898,13 @@ const Chat = () => {
   const handleVideoRecordingComplete = async (
     videoBlob: Blob,
     duration: number,
-    meta?: { captureSource?: CaptureSource; mimeType?: string; aspectRatio?: number | null; fileName?: string },
+    meta?: {
+      captureSource?: CaptureSource;
+      mimeType?: string;
+      aspectRatio?: number | null;
+      fileName?: string;
+      captions?: MediaCaptions | null;
+    },
   ) => {
     setIsRecordingVideo(false);
 
@@ -1962,6 +1969,7 @@ const Chat = () => {
           mimeType: videoMimeType,
           fileName: storedVideoName,
           aspectRatio: meta?.aspectRatio ?? null,
+          captions: meta?.captions ?? null,
         },
         invalidateScope: threadInvalidateScope,
       });
@@ -1978,7 +1986,13 @@ const Chat = () => {
   const handleVibeClipLibraryReady = async (
     videoBlob: Blob,
     duration: number,
-    meta?: { captureSource?: CaptureSource; mimeType?: string; aspectRatio?: number | null; fileName?: string },
+    meta?: {
+      captureSource?: CaptureSource;
+      mimeType?: string;
+      aspectRatio?: number | null;
+      fileName?: string;
+      captions?: MediaCaptions | null;
+    },
   ) => {
     await handleVideoRecordingComplete(videoBlob, duration, meta);
   };

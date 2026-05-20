@@ -14,6 +14,8 @@ import {
   safeRemoveExpoSharedObjectSubscription,
 } from '@/lib/expoSharedObjectSafe';
 import { useMediaAsset } from '@/hooks/useMediaAsset';
+import { useNativeMediaPlaybackQoE } from '@/hooks/useNativeMediaPlaybackQoE';
+import { useReduceMotion } from '@/hooks/useReduceMotion';
 import { isProfileVibeVideoRef } from '@/lib/mediaAssetResolver';
 
 export type VibeVideoPlayerProps = {
@@ -51,6 +53,7 @@ export function VibeVideoPlayer({
   const playbackAttemptedRef = useRef(false);
   const playbackSucceededRef = useRef(false);
   const signedResolveFailureReportedRef = useRef(false);
+  const reduceMotion = useReduceMotion();
   const usesSignedProfileRef = isProfileVibeVideoRef(sourceUri);
   const {
     url: mediaAssetUrl,
@@ -64,6 +67,15 @@ export function VibeVideoPlayer({
   const playbackSourceUri = mediaAssetUrl ?? (usesSignedProfileRef ? '' : sourceUri);
   const [showPoster, setShowPoster] = useState(!!posterUri);
   const isRemoteHls = playbackSourceUri.startsWith('https://') || playbackSourceUri.startsWith('http://');
+  const effectivePlaying = playing && !reduceMotion;
+  const qoe = useNativeMediaPlaybackQoE({
+    family: usesSignedProfileRef ? 'profile_vibe_video' : 'vibe_video',
+    surface: diagContext,
+    provider: usesSignedProfileRef ? 'bunny_stream' : 'remote',
+    sourceRef: playbackSourceUri || sourceUri,
+    autoplay: effectivePlaying,
+    muted: false,
+  });
 
   const player = useVideoPlayer(playbackSourceUri, (p) => {
     p.loop = loop;
@@ -121,8 +133,8 @@ export function VibeVideoPlayer({
 
   useEffect(() => {
     if (!playbackSourceUri) return;
-    const label = playing ? 'vibeVideo.player.play' : 'vibeVideo.player.pause';
-    if (playing) {
+    const label = effectivePlaying ? 'vibeVideo.player.play' : 'vibeVideo.player.pause';
+    if (effectivePlaying) {
       const result = safeExpoSharedObjectCall(() => player.play(), {
         label,
         swallowAll: true,
@@ -135,7 +147,7 @@ export function VibeVideoPlayer({
       });
       attachSafeExpoSharedObjectPromise(result, undefined, label);
     }
-  }, [playing, playbackSourceUri, player]);
+  }, [effectivePlaying, playbackSourceUri, player]);
 
   useEffect(() => {
     const sub = safeExpoSharedObjectCall(
@@ -146,6 +158,7 @@ export function VibeVideoPlayer({
           status: st,
         });
         if (st === 'readyToPlay') {
+          qoe.markReady();
           vibeVideoDiagVerbose('player.ready', {
             context: diagContext,
             isRemoteHls,
@@ -157,6 +170,9 @@ export function VibeVideoPlayer({
               remote_hls: isRemoteHls,
             });
           }
+        }
+        if (st === 'loading') {
+          qoe.markBuffering();
         }
         if (st !== 'error') return;
         if (warnedRef.current) return;
@@ -187,6 +203,7 @@ export function VibeVideoPlayer({
           kind: urlKind,
           stream_hostname_source: hostSource,
         });
+        qoe.markError();
 
         onPlayerFatalError?.();
       }),
@@ -197,12 +214,13 @@ export function VibeVideoPlayer({
       },
     );
     return () => safeRemoveExpoSharedObjectSubscription(sub, 'vibeVideo.player.statusListener.remove');
-  }, [player, playbackSourceUri, isRemoteHls, diagContext, onPlayerFatalError]);
+  }, [player, playbackSourceUri, isRemoteHls, diagContext, onPlayerFatalError, qoe]);
 
   useEffect(() => {
     if (!onPlayToEnd) return;
     const sub = safeExpoSharedObjectCall(
       () => player.addListener('playToEnd', () => {
+        qoe.markEnded();
         onPlayToEnd();
       }),
       {
@@ -212,7 +230,7 @@ export function VibeVideoPlayer({
       },
     );
     return () => safeRemoveExpoSharedObjectSubscription(sub, 'vibeVideo.player.playToEndListener.remove');
-  }, [player, onPlayToEnd]);
+  }, [player, onPlayToEnd, qoe]);
 
   useEffect(
     () => () => {

@@ -23,6 +23,7 @@ import {
   type LayoutChangeEvent,
   type NativeSyntheticEvent,
   type NativeScrollEvent,
+  type ViewToken,
 } from 'react-native';
 import { useLocalSearchParams, router } from 'expo-router';
 import { useFocusEffect } from '@react-navigation/native';
@@ -943,6 +944,25 @@ export default function ChatThreadScreen() {
   const goToMatchesInteractionRef = useRef<ReturnType<typeof InteractionManager.runAfterInteractions> | null>(null);
   const stickySnapRafRef = useRef<number | null>(null);
   const stickySnapUntilRef = useRef(0);
+  const [visibleVibeClipMessageIds, setVisibleVibeClipMessageIds] = useState<Set<string> | null>(null);
+  const vibeClipViewabilityConfigRef = useRef({
+    itemVisiblePercentThreshold: 45,
+    minimumViewTime: 150,
+  });
+  const onVibeClipViewableItemsChangedRef = useRef(
+    ({ viewableItems }: { viewableItems: Array<ViewToken<ChatListRow>> }) => {
+      const next = new Set<string>();
+      for (const token of viewableItems) {
+        const row = token.item;
+        if (!token.isViewable || row?.type !== 'message' || row.message.messageKind !== 'vibe_clip') continue;
+        next.add(row.message.id);
+      }
+      setVisibleVibeClipMessageIds((prev) => {
+        if (prev && prev.size === next.size && [...prev].every((id) => next.has(id))) return prev;
+        return next;
+      });
+    },
+  );
 
   const clearGoToMatchesScheduled = useCallback(() => {
     for (const t of goToMatchesTimersRef.current) clearTimeout(t);
@@ -2754,6 +2774,7 @@ export default function ChatThreadScreen() {
           thumbnailUrl: thumbnailUriOverridesById[item.id] ?? clipMeta.thumbnailUrl,
         };
         const shouldMountPlayer = videoViewer?.uri === displayClipMeta.videoUrl;
+        const isViewportActive = visibleVibeClipMessageIds === null || visibleVibeClipMessageIds.has(item.id);
         const posterPreviewState = vibeClipPosterPreviewStateForMessage(item.id, displayClipMeta.thumbnailUrl);
         const clientRequestId =
           outboxItemId ??
@@ -2815,6 +2836,7 @@ export default function ChatThreadScreen() {
               }
               immersiveActive={videoViewer?.uri === displayClipMeta.videoUrl}
               shouldMountPlayer={shouldMountPlayer}
+              isViewportActive={isViewportActive}
               threadVisualRecede={threadVisualRecede}
               localRecovery={vibeClipRecoveryFromDecision(
                 recoveryDecision,
@@ -3424,6 +3446,8 @@ export default function ChatThreadScreen() {
               listRef.current?.scrollToIndex({ index, animated: true, viewPosition: 0.5 });
             }, 120);
           }}
+          viewabilityConfig={vibeClipViewabilityConfigRef.current}
+          onViewableItemsChanged={onVibeClipViewableItemsChangedRef.current}
           maintainVisibleContentPosition={{ minIndexForVisible: 0 }}
           scrollEventThrottle={16}
           alwaysBounceVertical

@@ -8,6 +8,7 @@ import {
   VIBE_CLIP_UPLOAD_TOO_LONG,
 } from "../../shared/chat/vibeClipCaptureCopy";
 import type { CaptureSource } from "../../shared/chat/vibeClipAnalytics";
+import type { MediaCaptions } from "../../shared/media/captions";
 import { GENERIC_UPLOAD_MIME_TYPE, videoMimeTypeForUpload } from "./webUploadMime";
 
 export type WebVibeClipCompleteMeta = {
@@ -15,6 +16,7 @@ export type WebVibeClipCompleteMeta = {
   mimeType?: string;
   aspectRatio?: number | null;
   fileName?: string;
+  captions?: MediaCaptions | null;
 };
 
 type SelectedVideoMetadata = {

@@ -11,6 +11,7 @@ import {
   CalendarPlus,
   Heart,
   Mic,
+  Captions,
 } from "lucide-react";
 import { AspectRatio } from "@/components/ui/aspect-ratio";
 import { EmojiBar, type ReactionEmoji } from "@/components/chat/EmojiBar";
@@ -21,8 +22,12 @@ import { replyPromptForContext } from "../../../shared/chat/vibeClipPrompts";
 import { CLIP_DATE_ACTION_HINT } from "../../../shared/dateSuggestions/dateComposerLaunch";
 import { trackVibeClipEvent } from "@/lib/vibeClipAnalytics";
 import { durationBucketFromSeconds, threadBucketFromCount } from "../../../shared/chat/vibeClipAnalytics";
+import { captionTextFromMediaCaptions, mediaCaptionsToWebVtt } from "../../../shared/media/captions";
 import { cn } from "@/lib/utils";
 import { useMediaAsset, useMediaAssetPlayback } from "@/hooks/useMediaAsset";
+import { useMediaPlaybackQoE } from "@/hooks/useMediaPlaybackQoE";
+import { usePrefersReducedMotion } from "@/hooks/usePrefersReducedMotion";
+import { useMediaVideoPreloadForVisibility } from "@/hooks/useMediaVideoPreloadPolicy";
 import {
   syncChatVibeClipStatus,
   type ChatVibeClipProcessingStatus,
@@ -34,11 +39,10 @@ type VideoElementWithWebkitFullscreen = HTMLVideoElement & {
 type VibeClipMediaRefreshReason = "preview" | "initial" | "playback" | "manual";
 
 const CLIP_BUBBLE_WIDTH_CLASS = "w-[min(17.5rem,calc(100vw-4rem))] max-w-full";
-const CHAT_VIBE_CLIP_STATUS_SYNC_FAST_INTERVAL_MS = 5_000;
-const CHAT_VIBE_CLIP_STATUS_SYNC_FAST_WINDOW_MS = 30_000;
-const CHAT_VIBE_CLIP_STATUS_SYNC_INTERVAL_MS = 12_000;
+const CHAT_VIBE_CLIP_STATUS_SYNC_SAFETY_NET_INTERVAL_MS = 30_000;
 const CLIP_PLAYBACK_LOAD_TIMEOUT_MS = 12_000;
 const MAX_CLIP_PLAYBACK_REFRESH_ATTEMPTS = 1;
+const VIBE_CLIP_CAPTIONS_PREF_KEY = "vibely:vibe-clip-captions";
 
 export type VibeClipLocalRecovery = {
   stateLabel?: string;
@@ -55,6 +59,15 @@ function isLocalPreviewUrl(value: string): boolean {
 
 function isResolvableMediaRef(value: string | null | undefined): boolean {
   return !!value && !isLocalPreviewUrl(value) && !/^https?:\/\//i.test(value);
+}
+
+function initialCaptionPreference(): boolean {
+  if (typeof window === "undefined") return true;
+  try {
+    return window.localStorage.getItem(VIBE_CLIP_CAPTIONS_PREF_KEY) !== "0";
+  } catch {
+    return true;
+  }
 }
 
 interface VibeClipBubbleProps {
@@ -102,6 +115,7 @@ export const VibeClipBubble = ({
   localRecovery = null,
 }: VibeClipBubbleProps) => {
   const videoRef = useRef<HTMLVideoElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [isMuted, setIsMuted] = useState(true);
   const [currentTime, setCurrentTime] = useState(0);
@@ -117,15 +131,23 @@ export const VibeClipBubble = ({
   const [syncedProcessingStatus, setSyncedProcessingStatus] = useState<ChatVibeClipProcessingStatus | null>(null);
   const [syncAttemptCount, setSyncAttemptCount] = useState(0);
   const [isSyncingStatus, setIsSyncingStatus] = useState(false);
+  const [showCaptions, setShowCaptions] = useState(initialCaptionPreference);
+  const [captionTrackUrl, setCaptionTrackUrl] = useState<string | null>(null);
+  const [isViewportVisible, setIsViewportVisible] = useState(true);
+  const prefersReducedMotion = usePrefersReducedMotion();
   const playStartTracked = useRef(false);
   const playCompleteTracked = useRef(false);
   const playbackRefreshAttemptCountRef = useRef(0);
   const posterRefreshAttemptedForRef = useRef<string | null>(null);
   const playableVideoUrlRef = useRef(meta.videoUrl);
   const playableThumbnailUrlRef = useRef<string | null>(meta.thumbnailUrl ?? null);
+  const readyRefreshKeyRef = useRef<string | null>(null);
   const statusSyncInFlightRef = useRef(false);
   const statusSyncRunIdRef = useRef(0);
   const isMountedRef = useRef(true);
+  const handleRealtimeProcessingStatus = useCallback((status: ChatVibeClipProcessingStatus) => {
+    setSyncedProcessingStatus(status);
+  }, []);
   const { url: videoAssetUrl, refresh: refreshVideoAsset } = useMediaAsset({
     kind: "vibe_clip",
     messageId: sparkMessageId,
@@ -133,6 +155,7 @@ export const VibeClipBubble = ({
     initialUrl: meta.videoUrl,
     autoResolve: false,
     onResolvedUrl: onResolvedVideoUrl,
+    onProcessingStatusChange: handleRealtimeProcessingStatus,
   });
   const { url: thumbnailAssetUrl, refresh: refreshThumbnailAsset } = useMediaAsset({
     kind: "thumbnail",
@@ -181,12 +204,15 @@ export const VibeClipBubble = ({
     setHasMetadata(false);
     setLoadError(false);
     setSyncedProcessingStatus(null);
+    setShowCaptions(initialCaptionPreference());
+    setCaptionTrackUrl(null);
     setSyncAttemptCount(0);
     setIsSyncingStatus(false);
     playStartTracked.current = false;
     playCompleteTracked.current = false;
     playbackRefreshAttemptCountRef.current = 0;
     posterRefreshAttemptedForRef.current = null;
+    readyRefreshKeyRef.current = null;
     statusSyncRunIdRef.current += 1;
     statusSyncInFlightRef.current = false;
   }, [meta.processingStatus, meta.thumbnailUrl, meta.videoUrl, sparkMessageId]);
@@ -229,6 +255,11 @@ export const VibeClipBubble = ({
     !!displayMeta.thumbnailUrl &&
     (isLocalPreviewUrl(displayMeta.thumbnailUrl) || /^https?:\/\//i.test(displayMeta.thumbnailUrl));
   const showPreparingOverlay = isServerProcessing || (!isReady && !isAwaitingPlaybackIntent && !isLocalPreview);
+  const captionText = useMemo(() => captionTextFromMediaCaptions(displayMeta.captions), [displayMeta.captions]);
+  const videoPreload = useMediaVideoPreloadForVisibility(
+    !immersiveActive && isViewportVisible && canMountPlayer && !isServerProcessing,
+    displayMeta.videoUrl,
+  );
   const shouldResolvePosterPreview =
     !isServerProcessing &&
     !!thumbnailSourceRef &&
@@ -239,7 +270,6 @@ export const VibeClipBubble = ({
     let cancelled = false;
     let terminalReached = false;
     let timeoutId: ReturnType<typeof setTimeout> | undefined;
-    const startedAtMs = Date.now();
 
     const syncStatus = async () => {
       if (statusSyncInFlightRef.current) return;
@@ -271,13 +301,9 @@ export const VibeClipBubble = ({
 
     const scheduleNextSync = () => {
       if (cancelled || terminalReached) return;
-      const elapsedMs = Date.now() - startedAtMs;
-      const delayMs = elapsedMs < CHAT_VIBE_CLIP_STATUS_SYNC_FAST_WINDOW_MS
-        ? CHAT_VIBE_CLIP_STATUS_SYNC_FAST_INTERVAL_MS
-        : CHAT_VIBE_CLIP_STATUS_SYNC_INTERVAL_MS;
       timeoutId = setTimeout(() => {
         void syncStatus().finally(scheduleNextSync);
-      }, delayMs);
+      }, CHAT_VIBE_CLIP_STATUS_SYNC_SAFETY_NET_INTERVAL_MS);
     };
 
     void syncStatus().finally(scheduleNextSync);
@@ -353,6 +379,15 @@ export const VibeClipBubble = ({
     videoSourceRef,
   ]);
 
+  useEffect(() => {
+    if (processingStatus !== "ready" || syncedProcessingStatus !== "ready" || !sparkMessageId) return;
+    if (!videoSourceRef && !thumbnailSourceRef) return;
+    const refreshKey = `${sparkMessageId}:${videoSourceRef ?? ""}:${thumbnailSourceRef ?? ""}`;
+    if (readyRefreshKeyRef.current === refreshKey) return;
+    readyRefreshKeyRef.current = refreshKey;
+    void refreshClipMedia("manual");
+  }, [processingStatus, refreshClipMedia, sparkMessageId, syncedProcessingStatus, thumbnailSourceRef, videoSourceRef]);
+
   const requestImmersiveWithCurrentMedia = useCallback(() => {
     onRequestImmersive?.({
       videoUrl: playableVideoUrlRef.current,
@@ -372,6 +407,25 @@ export const VibeClipBubble = ({
     posterRefreshAttemptedForRef.current = posterResolveKey;
     void refreshClipMedia("preview");
   }, [playableThumbnailUrl, refreshClipMedia, shouldResolvePosterPreview, thumbnailSourceRef]);
+
+  useEffect(() => {
+    const vtt = mediaCaptionsToWebVtt(displayMeta.captions, displayMeta.durationMs);
+    if (!vtt) {
+      setCaptionTrackUrl(null);
+      return;
+    }
+    const nextUrl = URL.createObjectURL(new Blob([vtt], { type: "text/vtt" }));
+    setCaptionTrackUrl(nextUrl);
+    return () => URL.revokeObjectURL(nextUrl);
+  }, [displayMeta.captions, displayMeta.durationMs]);
+
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video) return;
+    for (const track of Array.from(video.textTracks)) {
+      track.mode = showCaptions ? "showing" : "disabled";
+    }
+  }, [captionTrackUrl, showCaptions]);
 
   const markReadyIfPossible = useCallback(() => {
     const video = videoRef.current;
@@ -400,6 +454,16 @@ export const VibeClipBubble = ({
     });
   }, [refreshClipMedia]);
 
+  useMediaPlaybackQoE(videoRef, {
+    enabled: canMountPlayer && !isServerProcessing,
+    family: "vibe_clip",
+    surface: "chat_vibe_clip_bubble",
+    provider: displayMeta.provider ?? "bunny_stream",
+    sourceRef: videoSourceRef ?? displayMeta.videoUrl,
+    messageId: sparkMessageId ?? null,
+    muted: isMuted,
+    autoplay: false,
+  });
   useMediaAssetPlayback(videoRef, displayMeta.videoUrl, {
     enabled: canMountPlayer && isHlsUrl,
     autoPlay: false,
@@ -520,11 +584,22 @@ export const VibeClipBubble = ({
   );
 
   useEffect(() => {
-    if (immersiveActive) {
+    if (immersiveActive || !isViewportVisible) {
       videoRef.current?.pause();
       setIsPlaying(false);
     }
-  }, [immersiveActive]);
+  }, [immersiveActive, isViewportVisible]);
+
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container || typeof IntersectionObserver === "undefined") return;
+    const observer = new IntersectionObserver(
+      ([entry]) => setIsViewportVisible(entry.isIntersecting),
+      { threshold: 0.01 },
+    );
+    observer.observe(container);
+    return () => observer.disconnect();
+  }, []);
 
   const onVideoSurfaceClick = useCallback(() => {
     if (isServerProcessing) return;
@@ -559,6 +634,19 @@ export const VibeClipBubble = ({
       });
     }
   }, [displayMeta.durationSec, displayMeta.thumbnailUrl, isMine, threadMessageCount]);
+
+  const toggleCaptions = useCallback((event: React.MouseEvent) => {
+    event.stopPropagation();
+    setShowCaptions((visible) => {
+      const next = !visible;
+      try {
+        window.localStorage.setItem(VIBE_CLIP_CAPTIONS_PREF_KEY, next ? "1" : "0");
+      } catch {
+        // Caption visibility preference is best-effort.
+      }
+      return next;
+    });
+  }, []);
 
   const progress = displayMeta.durationSec > 0 ? (currentTime / displayMeta.durationSec) * 100 : 0;
   const isBuffering = isReady && isLoading && isPlaying;
@@ -608,6 +696,7 @@ export const VibeClipBubble = ({
 
   return (
     <div
+      ref={containerRef}
       className={cn(
         CLIP_BUBBLE_WIDTH_CLASS,
         "rounded-xl overflow-hidden relative group transition-opacity duration-200",
@@ -658,9 +747,9 @@ export const VibeClipBubble = ({
               <motion.div
                 aria-hidden
                 className="absolute inset-0"
-                initial={{ x: "-120%" }}
-                animate={{ x: "120%" }}
-                transition={{ duration: 1.4, repeat: Infinity, ease: "easeInOut" }}
+                initial={prefersReducedMotion ? false : { x: "-120%" }}
+                animate={prefersReducedMotion ? false : { x: "120%" }}
+                transition={prefersReducedMotion ? undefined : { duration: 1.4, repeat: Infinity, ease: "easeInOut" }}
                 style={{
                   background:
                     "linear-gradient(90deg, rgba(255,255,255,0) 0%, rgba(255,255,255,0.08) 50%, rgba(255,255,255,0) 100%)",
@@ -687,7 +776,7 @@ export const VibeClipBubble = ({
               poster={displayMeta.thumbnailUrl ?? undefined}
               playsInline
               muted={isMuted}
-              preload="metadata"
+              preload={videoPreload}
               onLoadStart={() => setIsLoading(true)}
               onLoadedMetadata={() => {
                 setHasMetadata(true);
@@ -709,7 +798,17 @@ export const VibeClipBubble = ({
                 "w-full h-full object-cover bg-black transition-opacity duration-300",
                 isReady || isLocalPreview ? "opacity-100" : "opacity-0",
               ].join(" ")}
-            />
+            >
+              {captionTrackUrl ? (
+                <track kind="subtitles" src={captionTrackUrl} srcLang="en" label="Captions" default={showCaptions} />
+              ) : null}
+            </video>
+          ) : null}
+
+          {captionText && showCaptions && !isServerProcessing ? (
+            <div className="pointer-events-none absolute inset-x-3 bottom-10 z-[6] rounded-md bg-black/62 px-2.5 py-1.5 text-center text-[11px] font-medium leading-snug text-white shadow-lg">
+              {captionText}
+            </div>
           ) : null}
 
           {/* Play overlay */}
@@ -759,6 +858,16 @@ export const VibeClipBubble = ({
                     {isMuted ? <VolumeX className="w-3 h-3" /> : <Volume2 className="w-3 h-3" />}
                   </button>
                 ) : null}
+                {captionText ? (
+                  <button
+                    type="button"
+                    onClick={toggleCaptions}
+                    aria-label={showCaptions ? "Hide captions" : "Show captions"}
+                    className="rounded-md border border-white/10 bg-black/30 p-1 text-white/75 hover:bg-white/10 hover:text-white transition-colors"
+                  >
+                    <Captions className="w-3 h-3" />
+                  </button>
+                ) : null}
                 <button
                   type="button"
                   onClick={handleFullscreen}
@@ -783,7 +892,9 @@ export const VibeClipBubble = ({
               ? localRecovery.error
               : localRecovery?.stateLabel
                 ? localRecovery.stateLabel
-                : "Still preparing this clip."}
+                : isServerProcessing
+                  ? "Processing - usually about 30 s."
+                  : "Still preparing this clip."}
           </p>
           <div className="mt-2 flex flex-wrap items-center gap-1.5">
             {localRecovery?.canResume && localRecovery.onResume ? (

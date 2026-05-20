@@ -4,6 +4,9 @@ import { Volume2, VolumeX, Pencil, Play, Loader2 } from "lucide-react";
 import * as Sentry from "@sentry/react";
 import { cn } from "@/lib/utils";
 import { useMediaAsset, useMediaAssetPlayback } from "@/hooks/useMediaAsset";
+import { useMediaPlaybackQoE } from "@/hooks/useMediaPlaybackQoE";
+import { usePrefersReducedMotion } from "@/hooks/usePrefersReducedMotion";
+import { useMediaVideoPreloadForVisibility } from "@/hooks/useMediaVideoPreloadPolicy";
 import { isProfileVibeVideoRef } from "@/lib/mediaAssetResolver";
 import { trackVibeVideoEvent, VIBE_VIDEO_EVENTS } from "@/lib/vibeVideo/vibeVideoTelemetry";
 
@@ -45,6 +48,7 @@ export const VibePlayer = ({
   const containerRef = useRef<HTMLDivElement>(null);
   const playbackAttemptedRef = useRef(false);
   const playbackSucceededRef = useRef(false);
+  const prefersReducedMotion = usePrefersReducedMotion();
   const usesSignedProfileRef = isProfileVibeVideoRef(videoUrl);
   const {
     url: mediaAssetUrl,
@@ -58,6 +62,8 @@ export const VibePlayer = ({
   });
   const playbackUrl = mediaAssetUrl ?? (usesSignedProfileRef ? null : videoUrl);
   const posterUrl = mediaAssetPosterUrl ?? thumbnailUrl;
+  const effectiveAutoPlay = autoPlay && !prefersReducedMotion;
+  const videoPreload = useMediaVideoPreloadForVisibility(shouldLoad, playbackUrl);
 
   // Reset state when videoUrl changes
   useEffect(() => {
@@ -100,24 +106,23 @@ export const VibePlayer = ({
         playbackAttemptedRef.current = true;
         trackVibeVideoEvent(VIBE_VIDEO_EVENTS.playbackAttempted, {
           source: "vibe_player_inline",
-          autoplay: true,
+          autoplay: effectiveAutoPlay,
           backend_reports_ready: backendReportsReady,
         });
       }
       videoRef.current.play().then(() => {
         setIsPlaying(true);
-      }).catch((err) => {
-        console.log("Autoplay blocked:", err);
+      }).catch(() => {
         setIsPlaying(false);
       });
     }
-  }, [isLoaded, hasError, backendReportsReady]);
+  }, [isLoaded, hasError, backendReportsReady, effectiveAutoPlay]);
 
   useEffect(() => {
-    if (autoPlay && isLoaded && shouldLoad) {
+    if (effectiveAutoPlay && isLoaded && shouldLoad) {
       attemptPlay();
     }
-  }, [autoPlay, isLoaded, shouldLoad, attemptPlay]);
+  }, [effectiveAutoPlay, isLoaded, shouldLoad, attemptPlay]);
 
   useEffect(() => {
     if (videoRef.current) {
@@ -160,6 +165,15 @@ export const VibePlayer = ({
     setIsLoading(true);
   }, [playbackUrl, shouldLoad]);
 
+  useMediaPlaybackQoE(videoRef, {
+    enabled: shouldLoad && !!playbackUrl,
+    family: usesSignedProfileRef ? "profile_vibe_video" : "vibe_video",
+    surface: "vibe_player_inline",
+    provider: usesSignedProfileRef ? "bunny_stream" : "remote",
+    sourceRef: videoUrl,
+    muted: isMuted,
+    autoplay: effectiveAutoPlay,
+  });
   useMediaAssetPlayback(videoRef, playbackUrl, {
     enabled: shouldLoad && !!playbackUrl,
     autoPlay: false,
@@ -210,7 +224,10 @@ export const VibePlayer = ({
       }
       videoRef.current.play().then(() => {
         setIsPlaying(true);
-      }).catch(console.error);
+      }).catch(() => {
+        setIsPlaying(false);
+        reportPlaybackError("play_rejected");
+      });
     }
   };
 
@@ -277,7 +294,7 @@ export const VibePlayer = ({
         loop
         muted={isMuted}
         playsInline
-        preload="metadata"
+        preload={videoPreload}
         onLoadedData={handleLoadedData}
         onCanPlay={handleCanPlay}
         onError={handleError}

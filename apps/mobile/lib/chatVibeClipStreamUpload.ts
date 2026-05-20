@@ -41,6 +41,7 @@ type ChatVibeClipUploadParams = {
   durationMs: number;
   mimeType?: string | null;
   aspectRatio?: number | null;
+  captions?: unknown;
   resumeStrategy?: VibeClipRecoveryResumeStrategy | null;
   onProgress?: (fraction: number) => void;
 };
@@ -167,6 +168,7 @@ async function createUpload(params: {
   mimeType: string;
   fileName: string;
   aspectRatio?: number | null;
+  captions?: unknown;
 }): Promise<CreateResponse> {
   const { data, error } = await supabase.functions.invoke('create-chat-vibe-clip-upload', {
     body: {
@@ -177,6 +179,7 @@ async function createUpload(params: {
       mime_type: params.mimeType,
       file_name: params.fileName,
       aspect_ratio: params.aspectRatio ?? null,
+      captions: params.captions ?? null,
       capture_source: 'native',
     },
     headers: { Authorization: `Bearer ${params.accessToken}` },
@@ -349,6 +352,7 @@ export async function uploadAndPublishChatVibeClipToBunnyStream(params: ChatVibe
       mimeType,
       fileName,
       aspectRatio: params.aspectRatio,
+      captions: params.captions,
     }));
 
     if (created.status === 'failed') throw new Error('Clip processing failed. Please try a new clip.');

@@ -39,6 +39,7 @@ type ChatVibeClipUploadParams = {
   file: File;
   durationMs: number;
   aspectRatio?: number | null;
+  captions?: unknown;
   resumeStrategy?: VibeClipRecoveryResumeStrategy | null;
   onProgress?: (fraction: number) => void;
 };
@@ -99,6 +100,7 @@ async function invokeCreate(params: {
   durationMs: number;
   file: File;
   aspectRatio?: number | null;
+  captions?: unknown;
 }): Promise<CreateChatVibeClipUploadResponse> {
   const { data, error } = await supabase.functions.invoke("create-chat-vibe-clip-upload", {
     body: {
@@ -109,6 +111,7 @@ async function invokeCreate(params: {
       mime_type: params.file.type,
       file_name: uploadFileName(params.file),
       aspect_ratio: params.aspectRatio ?? null,
+      captions: params.captions ?? null,
       capture_source: "web",
     },
   });

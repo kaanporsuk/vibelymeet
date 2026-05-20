@@ -234,6 +234,7 @@ export async function executeWebOutboxItem(
             file,
             durationMs: Math.round(payload.durationSeconds * 1000),
             aspectRatio: payload.aspectRatio,
+            captions: payload.captions ?? null,
             resumeStrategy: item.vibeClipResumeStrategy,
             onProgress: onUploadProgress,
           };

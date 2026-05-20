@@ -71,6 +71,13 @@ export function attachHlsPlayback(
         onManifestParsed?.();
         playIfNeeded();
       });
+      hls.on(Hls.Events.LEVEL_SWITCHED, () => {
+        if (cancelled) return;
+        const event = typeof CustomEvent === "function"
+          ? new CustomEvent("vibely-hls-level-switched")
+          : new Event("vibely-hls-level-switched");
+        videoEl.dispatchEvent(event);
+      });
       hls.on(Hls.Events.ERROR, (_event: unknown, data: { fatal?: boolean }) => {
         if (!cancelled && data.fatal) {
           reportError("fatal", data);

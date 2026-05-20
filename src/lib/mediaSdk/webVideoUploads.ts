@@ -219,6 +219,7 @@ async function uploadWebChatVibeClipViaLegacyService(
       file: fileFromWebVideoSource(input.source),
       durationMs: requiredContextNumber(input, "durationMs"),
       aspectRatio: typeof input.context?.aspectRatio === "number" ? input.context.aspectRatio : null,
+      captions: input.context?.captions,
       resumeStrategy: input.context?.resumeStrategy === "reissue_credentials" ? "reissue_credentials" : undefined,
       onProgress: (fraction) => {
         controls.dispatch({ type: "progress", progress: fraction });
@@ -345,6 +346,7 @@ export async function uploadAndPublishChatVibeClipWithMediaSdk(
       matchId: params.matchId,
       durationMs: params.durationMs,
       aspectRatio: params.aspectRatio ?? null,
+      captions: params.captions,
       resumeStrategy: params.resumeStrategy ?? null,
     },
     options: {

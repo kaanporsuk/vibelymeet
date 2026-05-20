@@ -239,6 +239,7 @@ test("web queue and upload preserve validated library video metadata", () => {
   assert.match(webChat, /fileName: storedVideoName/);
   assert.doesNotMatch(webChat, /videoBlob\.type \|\| "video\/mp4"/);
   assert.match(webChat, /aspectRatio: meta\?\.aspectRatio \?\? null/);
+  assert.match(webChat, /captions: meta\?\.captions \?\? null/);
   assert.match(webChat, /videoBlob\.size > VIBE_CLIP_MAX_SOURCE_BYTES/);
   assert.match(webChat, /videoBlob\.size > VIBE_CLIP_SOFT_SOURCE_BYTES/);
   assert.match(webChat, /videoMimeType === GENERIC_UPLOAD_MIME_TYPE/);
@@ -248,6 +249,7 @@ test("web queue and upload preserve validated library video metadata", () => {
   assert.match(webOutboxExecute, /uploadFileNameForMimeType\("video", "chat-vibe-clip", mimeType, storedName\)/);
   assert.match(webOutboxExecute, /uploadAndPublishChatVibeClipToBunnyStream/);
   assert.match(webOutboxExecute, /completePublishedChatVibeClipUpload/);
+  assert.match(webOutboxExecute, /captions: payload\.captions \?\? null/);
   assert.match(webOutboxExecute, /ChatVibeClipUploadedButUnpublishedError/);
   assert.match(webOutboxExecute, /isBunnyStreamPlaybackRef\(item\.uploadedMediaUrl\)/);
   assert.doesNotMatch(webOutboxExecute, /invokePublishVibeClip/);
@@ -335,9 +337,9 @@ test("video bubbles remain adaptive and full-width across web and native chat", 
   assert.match(webVibeClipBubble, /<AspectRatio ratio=\{clipAspectRatio\}>/);
   assert.match(webVibeClipBubble, /w-full h-full object-cover bg-black/);
   assert.match(webVibeClipBubble, /syncChatVibeClipStatus/);
-  assert.match(webVibeClipBubble, /CHAT_VIBE_CLIP_STATUS_SYNC_FAST_INTERVAL_MS = 5_000/);
-  assert.match(webVibeClipBubble, /CHAT_VIBE_CLIP_STATUS_SYNC_FAST_WINDOW_MS = 30_000/);
+  assert.match(webVibeClipBubble, /CHAT_VIBE_CLIP_STATUS_SYNC_SAFETY_NET_INTERVAL_MS = 30_000/);
   assert.doesNotMatch(webVibeClipBubble, /CHAT_VIBE_CLIP_STATUS_SYNC_DELAY_MS/);
+  assert.doesNotMatch(webVibeClipBubble, /CHAT_VIBE_CLIP_STATUS_SYNC_FAST_INTERVAL_MS/);
   assert.match(webVibeClipBubble, /statusSyncInFlightRef/);
   assert.match(webVibeClipBubble, /statusSyncRunIdRef/);
   assert.match(webVibeClipBubble, /isMountedRef\.current = true/);
@@ -430,9 +432,9 @@ test("video bubbles remain adaptive and full-width across web and native chat", 
   assert.match(nativeVibeClipCard, /shouldMountPlayer/);
   assert.match(nativeVibeClipCard, /type ClipPreviewState/);
   assert.match(nativeVibeClipCard, /syncChatVibeClipStatus/);
-  assert.match(nativeVibeClipCard, /CHAT_VIBE_CLIP_STATUS_SYNC_FAST_INTERVAL_MS = 5_000/);
-  assert.match(nativeVibeClipCard, /CHAT_VIBE_CLIP_STATUS_SYNC_FAST_WINDOW_MS = 30_000/);
+  assert.match(nativeVibeClipCard, /CHAT_VIBE_CLIP_STATUS_SYNC_SAFETY_NET_INTERVAL_MS = 30_000/);
   assert.doesNotMatch(nativeVibeClipCard, /CHAT_VIBE_CLIP_STATUS_SYNC_DELAY_MS/);
+  assert.doesNotMatch(nativeVibeClipCard, /CHAT_VIBE_CLIP_STATUS_SYNC_FAST_INTERVAL_MS/);
   assert.match(nativeVibeClipCard, /statusSyncInFlightRef/);
   assert.match(nativeVibeClipCard, /statusSyncRunIdRef/);
   assert.match(nativeVibeClipCard, /isMountedRef\.current = true/);
@@ -531,6 +533,7 @@ test("native upload and cache keep mobile video formats intact", () => {
   assert.doesNotMatch(nativeUpload, /upload-chat-video/);
   assert.equal(existsSync(join(root, "apps/mobile/lib/chatVibeClipThumbnail.ts")), false);
   assert.match(nativeOutboxExecute, /completePublishedChatVibeClipUpload/);
+  assert.match(nativeOutboxExecute, /captions: payload\.captions \?\? null/);
   assert.match(nativeOutboxExecute, /ChatVibeClipUploadedButUnpublishedError/);
   assert.match(nativeOutboxExecute, /isBunnyStreamPlaybackRef\(item\.uploadedMediaUrl\)/);
   assert.match(nativeStreamUpload, /new tus\.Upload\(rnFileSource as unknown as File/);

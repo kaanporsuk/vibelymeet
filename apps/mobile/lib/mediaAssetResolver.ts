@@ -14,6 +14,12 @@ export type MediaAssetResolveResult = {
   provider: 'bunny_stream' | 'bunny_storage' | 'local' | 'remote';
   expiresAtMs: number;
 };
+export type MediaAssetResolveErrorCode =
+  | 'network_error'
+  | 'auth_expired'
+  | 'asset_deleted'
+  | 'provider_unreachable'
+  | 'resolver_error';
 export type ChatVibeClipProcessingStatus = 'uploading' | 'processing' | 'ready' | 'failed';
 export type ChatVibeClipStatusSyncResult = {
   uploadId: string | null;
@@ -38,11 +44,16 @@ type ResolverResponse = {
   error?: string;
 };
 
-type CachedMediaUrl = MediaAssetResolveResult;
+type CachedMediaUrl = MediaAssetResolveResult & { lastAccessedMs: number };
+type CachedMediaFailure = {
+  expiresAtMs: number;
+  attempts: number;
+  errorCode: MediaAssetResolveErrorCode;
+};
 
 type MediaUrlIssueResult =
   | { kind: 'response'; payload: ResolverResponse | null }
-  | { kind: 'transient_failure' };
+  | { kind: 'transient_failure'; errorCode: MediaAssetResolveErrorCode };
 
 export type MediaAssetRefreshOptions = {
   bypassFailureCooldown?: boolean;
@@ -51,8 +62,10 @@ export type MediaAssetRefreshOptions = {
 const DEFAULT_SIGNED_MEDIA_TTL_MS = 4 * 60 * 1000;
 const SIGNED_MEDIA_TTL_SAFETY_MS = 15 * 1000;
 const SIGNED_MEDIA_FAILURE_COOLDOWN_MS = 8_000;
+const SIGNED_MEDIA_FAILURE_COOLDOWN_MAX_MS = 5 * 60 * 1000;
+const MEDIA_URL_CACHE_MAX_ENTRIES = 200;
 const mediaUrlCache = new Map<string, CachedMediaUrl>();
-const mediaUrlFailureCache = new Map<string, { expiresAtMs: number }>();
+const mediaUrlFailureCache = new Map<string, CachedMediaFailure>();
 const mediaUrlInFlightRequests = new Map<string, Promise<MediaAssetResolveResult | null>>();
 
 export function isLocalMediaAssetRef(value: string): boolean {
@@ -126,24 +139,36 @@ async function readResolverPayloadFromResponse(response: Response | null | undef
   }
 }
 
+async function resolverPayloadForHttpFailure(response: Response | null | undefined): Promise<ResolverResponse | null> {
+  if (!response) return null;
+  const payload = await readResolverPayloadFromResponse(response);
+  if (payload) return payload;
+  if (response.status === 401 || response.status === 403) return { success: false, error: 'auth_expired' };
+  if (response.status === 404 || response.status === 410) return { success: false, error: 'asset_deleted' };
+  if (response.status === 502 || response.status === 503 || response.status === 504) {
+    return { success: false, error: 'provider_unreachable' };
+  }
+  return { success: false, error: `http_${response.status}` };
+}
+
 async function issueResultForFunctionInvokeError(
   error: unknown,
   response: Response | null | undefined,
 ): Promise<MediaUrlIssueResult> {
   const invokeError = error as FunctionInvokeErrorShape | null;
   if (!invokeError || isNetworkInvokeError(invokeError) || invokeError.name === 'FunctionsRelayError') {
-    return { kind: 'transient_failure' };
+    return { kind: 'transient_failure', errorCode: 'network_error' };
   }
 
   if (invokeError.name === 'FunctionsHttpError') {
     const contextResponse = isResponseLike(invokeError.context) ? invokeError.context : null;
     return {
       kind: 'response',
-      payload: await readResolverPayloadFromResponse(response ?? contextResponse),
+      payload: await resolverPayloadForHttpFailure(response ?? contextResponse),
     };
   }
 
-  return { kind: 'transient_failure' };
+  return { kind: 'transient_failure', errorCode: 'resolver_error' };
 }
 
 async function resolveChatMediaUrl(
@@ -210,6 +235,65 @@ export async function refreshMediaAssetUrl(
   options: MediaAssetRefreshOptions = {},
 ): Promise<string | null> {
   return (await refreshMediaAsset(messageId, mediaKind, rawRef, options))?.url ?? null;
+}
+
+function cacheKeyForMediaAsset(messageId: string, mediaKind: MediaAssetKind, rawRef: string): string {
+  const profileRef = mediaKind === 'profile_vibe_video' ? parseProfileVibeVideoRef(rawRef) : null;
+  return `${profileRef?.profileId ?? messageId}:${mediaKind}:${rawRef}`;
+}
+
+function classifyResolverFailure(payload: ResolverResponse | null): MediaAssetResolveErrorCode {
+  const error = typeof payload?.error === 'string' ? payload.error : '';
+  if (/auth|token|jwt|unauthori[sz]ed|forbidden|permission/i.test(error)) return 'auth_expired';
+  if (/not[_ -]?found|missing|deleted|asset_deleted/i.test(error)) return 'asset_deleted';
+  if (/provider|bunny|cdn|unreachable|timeout/i.test(error)) return 'provider_unreachable';
+  return 'resolver_error';
+}
+
+function sweepExpiredMediaUrlEntries(nowMs = Date.now()) {
+  for (const [key, value] of mediaUrlCache.entries()) {
+    if (value.expiresAtMs <= nowMs) mediaUrlCache.delete(key);
+  }
+  for (const [key, value] of mediaUrlFailureCache.entries()) {
+    if (value.expiresAtMs + SIGNED_MEDIA_FAILURE_COOLDOWN_MAX_MS <= nowMs) mediaUrlFailureCache.delete(key);
+  }
+}
+
+function pruneMediaUrlCache() {
+  if (mediaUrlCache.size <= MEDIA_URL_CACHE_MAX_ENTRIES) return;
+  const entries = [...mediaUrlCache.entries()].sort((a, b) => a[1].lastAccessedMs - b[1].lastAccessedMs);
+  for (const [key] of entries.slice(0, mediaUrlCache.size - MEDIA_URL_CACHE_MAX_ENTRIES)) {
+    mediaUrlCache.delete(key);
+  }
+}
+
+function cacheMediaUrl(cacheKey: string, asset: MediaAssetResolveResult, nowMs = Date.now()) {
+  mediaUrlCache.set(cacheKey, { ...asset, lastAccessedMs: nowMs });
+  pruneMediaUrlCache();
+}
+
+function recordMediaUrlFailure(cacheKey: string, errorCode: MediaAssetResolveErrorCode) {
+  const previous = mediaUrlFailureCache.get(cacheKey);
+  const attempts = Math.min((previous?.attempts ?? 0) + 1, 7);
+  const cooldownMs = Math.min(
+    SIGNED_MEDIA_FAILURE_COOLDOWN_MS * 2 ** Math.max(0, attempts - 1),
+    SIGNED_MEDIA_FAILURE_COOLDOWN_MAX_MS,
+  );
+  mediaUrlFailureCache.set(cacheKey, {
+    attempts,
+    errorCode,
+    expiresAtMs: Date.now() + cooldownMs,
+  });
+}
+
+export function getCachedMediaAssetFailureCode(
+  messageId: string,
+  mediaKind: MediaAssetKind,
+  rawRef: string | null | undefined,
+): MediaAssetResolveErrorCode | null {
+  if (!rawRef) return null;
+  const failure = mediaUrlFailureCache.get(cacheKeyForMediaAsset(messageId, mediaKind, rawRef));
+  return failure?.errorCode ?? null;
 }
 
 export async function syncChatVibeClipUploadStatus(input: {
@@ -284,13 +368,16 @@ async function issueAndCacheMediaAsset(
   forceRefresh: boolean,
   options: MediaAssetRefreshOptions = {},
 ): Promise<MediaAssetResolveResult | null> {
-  const cacheKey = `${messageId}:${mediaKind}:${rawRef}`;
+  const cacheKey = cacheKeyForMediaAsset(messageId, mediaKind, rawRef);
   const now = Date.now();
+  sweepExpiredMediaUrlEntries(now);
   const cached = mediaUrlCache.get(cacheKey);
-  if (!forceRefresh && cached && cached.expiresAtMs > now) return cached;
+  if (!forceRefresh && cached && cached.expiresAtMs > now) {
+    cached.lastAccessedMs = now;
+    return cached;
+  }
   const recentFailure = mediaUrlFailureCache.get(cacheKey);
   if (!options.bypassFailureCooldown && recentFailure && recentFailure.expiresAtMs > now) return null;
-  mediaUrlFailureCache.delete(cacheKey);
 
   const inFlight = mediaUrlInFlightRequests.get(cacheKey);
   if (inFlight) return inFlight;
@@ -298,7 +385,7 @@ async function issueAndCacheMediaAsset(
   const request = (async (): Promise<MediaUrlIssueResult> => {
     try {
       const accessToken = await getFreshCachedAccessToken();
-      if (!accessToken) return { kind: 'transient_failure' };
+      if (!accessToken) return { kind: 'transient_failure', errorCode: 'auth_expired' };
       const profileRef = mediaKind === 'profile_vibe_video' ? parseProfileVibeVideoRef(rawRef) : null;
       const { data, error, response } = await supabase.functions.invoke('get-chat-media-url', {
         body: profileRef
@@ -309,15 +396,18 @@ async function issueAndCacheMediaAsset(
       if (error) return issueResultForFunctionInvokeError(error, response);
       return { kind: 'response', payload: data as ResolverResponse | null };
     } catch {
-      return { kind: 'transient_failure' };
+      return { kind: 'transient_failure', errorCode: 'network_error' };
     }
   })();
 
   const resolved = request.then((result) => {
-    if (result.kind === 'transient_failure') return null;
+    if (result.kind === 'transient_failure') {
+      recordMediaUrlFailure(cacheKey, result.errorCode);
+      return null;
+    }
     const { payload } = result;
     if (!payload?.success || typeof payload.url !== 'string' || !payload.url) {
-      mediaUrlFailureCache.set(cacheKey, { expiresAtMs: Date.now() + SIGNED_MEDIA_FAILURE_COOLDOWN_MS });
+      recordMediaUrlFailure(cacheKey, classifyResolverFailure(payload));
       return null;
     }
 
@@ -336,13 +426,13 @@ async function issueAndCacheMediaAsset(
       provider: payload.provider === 'bunny_stream' || payload.provider === 'bunny_storage' ? payload.provider : 'remote',
       expiresAtMs,
     };
-    mediaUrlCache.set(cacheKey, resolvedAsset);
+    cacheMediaUrl(cacheKey, resolvedAsset);
     const thumbnailRef =
       payload.provider === 'bunny_stream' && (mediaKind === 'vibe_clip' || mediaKind === 'video')
         ? bunnyStreamThumbnailRefFor(rawRef)
         : null;
     if (thumbnailRef && typeof payload.posterUrl === 'string' && payload.posterUrl) {
-      mediaUrlCache.set(`${messageId}:thumbnail:${thumbnailRef}`, {
+      cacheMediaUrl(`${messageId}:thumbnail:${thumbnailRef}`, {
         url: payload.posterUrl,
         posterUrl: null,
         playbackKind: 'progressive',

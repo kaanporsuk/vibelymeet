@@ -21,6 +21,38 @@ import {
   prepareWebVibeClipLibraryFile,
   type WebVibeClipCompleteMeta,
 } from "@/lib/webVibeClipLibraryUpload";
+import type { MediaCaptions } from "../../../shared/media/captions";
+
+type BrowserSpeechRecognitionAlternative = {
+  transcript?: string;
+};
+
+type BrowserSpeechRecognitionResult = {
+  isFinal: boolean;
+  [index: number]: BrowserSpeechRecognitionAlternative | undefined;
+};
+
+type BrowserSpeechRecognitionEvent = {
+  resultIndex: number;
+  results: {
+    length: number;
+    [index: number]: BrowserSpeechRecognitionResult | undefined;
+  };
+};
+
+type BrowserSpeechRecognition = {
+  continuous: boolean;
+  interimResults: boolean;
+  lang: string;
+  onresult: ((event: BrowserSpeechRecognitionEvent) => void) | null;
+  onerror: (() => void) | null;
+  onend: (() => void) | null;
+  start: () => void;
+  stop: () => void;
+  abort: () => void;
+};
+
+type BrowserSpeechRecognitionConstructor = new () => BrowserSpeechRecognition;
 
 interface VideoMessageRecorderProps {
   onRecordingComplete: (videoBlob: Blob, duration: number, meta?: WebVibeClipCompleteMeta) => void;
@@ -52,6 +84,11 @@ const VideoMessageRecorder = ({
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const durationRef = useRef(0);
   const mimeTypeRef = useRef("");
+  const captionSegmentsRef = useRef<string[]>([]);
+  const captionInterimRef = useRef("");
+  const speechRecognitionRef = useRef<BrowserSpeechRecognition | null>(null);
+  const speechRecognitionStoppingRef = useRef(false);
+  const recordingActiveRef = useRef(false);
 
   const captureSpark = useMemo(
     () => capturePromptForSeed(`${promptSeed ?? 'web'}|${Date.now()}`),
@@ -71,6 +108,77 @@ const VideoMessageRecorder = ({
       setHasMultipleCameras(videoInputs.length > 1);
     } catch {
       setHasMultipleCameras(false);
+    }
+  }, []);
+
+  const stopCaptionCapture = useCallback((mode: "stop" | "abort" = "stop") => {
+    const recognition = speechRecognitionRef.current;
+    speechRecognitionRef.current = null;
+    speechRecognitionStoppingRef.current = true;
+    if (!recognition) return;
+    recognition.onend = null;
+    recognition.onerror = null;
+    try {
+      if (mode === "abort") recognition.abort();
+      else recognition.stop();
+    } catch {
+      // Browser speech APIs can throw if recognition already stopped.
+    }
+  }, []);
+
+  const captionsFromTranscript = useCallback((): MediaCaptions | null => {
+    const text = [...captionSegmentsRef.current, captionInterimRef.current]
+      .join(" ")
+      .replace(/\s+/g, " ")
+      .trim()
+      .slice(0, 5_000);
+    if (!text) return null;
+    const language = typeof navigator !== "undefined" && navigator.language ? navigator.language.slice(0, 16) : undefined;
+    return { text, ...(language ? { language } : {}) };
+  }, []);
+
+  const startCaptionCapture = useCallback(() => {
+    captionSegmentsRef.current = [];
+    captionInterimRef.current = "";
+    if (typeof window === "undefined") return;
+    const scope = window as Window & {
+      SpeechRecognition?: BrowserSpeechRecognitionConstructor;
+      webkitSpeechRecognition?: BrowserSpeechRecognitionConstructor;
+    };
+    const SpeechRecognitionCtor = scope.SpeechRecognition ?? scope.webkitSpeechRecognition;
+    if (!SpeechRecognitionCtor) return;
+
+    try {
+      const recognition = new SpeechRecognitionCtor();
+      recognition.continuous = true;
+      recognition.interimResults = true;
+      recognition.lang = navigator.language || "en-US";
+      recognition.onresult = (event) => {
+        const next = [...captionSegmentsRef.current];
+        let interim = "";
+        for (let index = event.resultIndex; index < event.results.length; index += 1) {
+          const result = event.results[index];
+          const transcript = result?.[0]?.transcript?.trim();
+          if (result?.isFinal && transcript) next.push(transcript);
+          else if (transcript) interim = transcript;
+        }
+        captionSegmentsRef.current = next;
+        captionInterimRef.current = interim;
+      };
+      recognition.onerror = () => {};
+      recognition.onend = () => {
+        if (!recordingActiveRef.current || speechRecognitionStoppingRef.current) return;
+        try {
+          recognition.start();
+        } catch {
+          // Some browsers reject immediate restarts; the recording continues without captions.
+        }
+      };
+      speechRecognitionStoppingRef.current = false;
+      speechRecognitionRef.current = recognition;
+      recognition.start();
+    } catch {
+      speechRecognitionRef.current = null;
     }
   }, []);
 
@@ -119,6 +227,8 @@ const VideoMessageRecorder = ({
   useEffect(() => {
     startCamera(facingMode, { cancelOnError: false });
     return () => {
+      recordingActiveRef.current = false;
+      stopCaptionCapture("abort");
       if (streamRef.current) {
         streamRef.current.getTracks().forEach((t) => t.stop());
       }
@@ -202,14 +312,22 @@ const VideoMessageRecorder = ({
     mediaRecorderRef.current = recorder;
     chunksRef.current = [];
     durationRef.current = 0;
+    recordingActiveRef.current = true;
+    startCaptionCapture();
 
     recorder.ondataavailable = (e) => {
       if (e.data.size > 0) chunksRef.current.push(e.data);
     };
 
     recorder.onstop = () => {
+      recordingActiveRef.current = false;
+      stopCaptionCapture();
       const blob = new Blob(chunksRef.current, { type: mimeTypeRef.current || "video/webm" });
-      onRecordingComplete(blob, durationRef.current);
+      onRecordingComplete(blob, durationRef.current, {
+        captureSource: "web_recorder",
+        mimeType: mimeTypeRef.current || undefined,
+        captions: captionsFromTranscript(),
+      });
     };
 
     recorder.start(100);
@@ -245,6 +363,7 @@ const VideoMessageRecorder = ({
       });
       mediaRecorderRef.current.stop();
     }
+    recordingActiveRef.current = false;
     if (timerRef.current) clearInterval(timerRef.current);
     if (streamRef.current) {
       streamRef.current.getTracks().forEach((t) => t.stop());
@@ -257,6 +376,8 @@ const VideoMessageRecorder = ({
   }, []);
 
   const handleCancel = () => {
+    recordingActiveRef.current = false;
+    stopCaptionCapture("abort");
     if (mediaRecorderRef.current) {
       mediaRecorderRef.current.ondataavailable = null;
       mediaRecorderRef.current.onstop = null;
