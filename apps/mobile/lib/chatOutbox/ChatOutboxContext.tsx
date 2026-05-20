@@ -396,12 +396,14 @@ export function ChatOutboxProvider({ children }: { children: React.ReactNode }) 
 
     const recoverableRows = Array.isArray(recoverableResult.data) ? recoverableResult.data : [];
     let rows = recoverableRows;
+    let failedTopUpQueryFailed = false;
     if (recoverableRows.length < VIBE_CLIP_RECOVERY_SWEEP_LIMIT) {
       const failedResult = await selectStaleUploadRows(
         ['failed'],
         VIBE_CLIP_RECOVERY_SWEEP_LIMIT - recoverableRows.length,
       );
       if (failedResult.error) {
+        failedTopUpQueryFailed = true;
         trackVibeClipEvent('clip_recovery_status', {
           trigger,
           outcome: 'query_failed',
@@ -488,7 +490,10 @@ export function ChatOutboxProvider({ children }: { children: React.ReactNode }) 
     setStaleVibeClipUploads((prev) => {
       const nextById = new Map<string, VibeClipServerUpload>();
       for (const upload of prev) {
-        if (matchId && upload.matchId === matchId) continue;
+        if (matchId && upload.matchId === matchId) {
+          if (failedTopUpQueryFailed && upload.status === 'failed') nextById.set(upload.id, upload);
+          continue;
+        }
         nextById.set(upload.id, upload);
       }
       for (const upload of stillStuck) nextById.set(upload.id, upload);
