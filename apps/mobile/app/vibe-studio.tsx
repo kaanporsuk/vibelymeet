@@ -755,6 +755,7 @@ export default function VibeStudioScreen() {
         bunnyVideoUid={videoInfo.uid}
         vibeVideoState={videoInfo.state}
         vibeCaption={videoInfo.caption ?? ''}
+        captions={videoInfo.captions}
         posterUrl={videoInfo.thumbnailUrl}
       />
 

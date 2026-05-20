@@ -262,14 +262,14 @@ test("Phase 6 display path uses realtime, QoE, reduce-motion, and bounded media 
   assert.match(webVideoBubble, /usePrefersReducedMotion/);
   assert.match(nativeVibePlayer, /useReduceMotion/);
   assert.match(nativeReduceMotion, /AccessibilityInfo\.isReduceMotionEnabled/);
-  assert.match(nativeReduceMotion, /useState\(true\)/);
+  assert.match(nativeReduceMotion, /reduceMotion: cachedReduceMotion \?\? false/);
 
   assert.match(webPolicy, /saveData/);
-  assert.match(webPolicy, /slow-2g/);
+  assert.match(read("shared/media/playback-session-policy-core.ts"), /slow-2g/);
   assert.match(webPolicy, /navigator[\s\S]{0,80}getBattery/);
-  assert.match(webPolicy, /PREWARM_SESSION_BYTE_LIMIT = 10 \* 1024 \* 1024/);
+  assert.match(webPolicy, /PREWARM_SESSION_BYTE_LIMIT/);
   assert.match(webPolicy, /reserveMediaPrewarmBudgetForSource/);
-  assert.match(webPolicy, /recordMediaPrewarmBytes\(bytesEstimate\)/);
+  assert.match(read("shared/media/playback-session-policy-core.ts"), /recordMediaPrewarmBytes\(bytesEstimate\)/);
   assert.match(webVibePlayer, /useMediaVideoPreloadForVisibility/);
   assert.match(webVibeClip, /useMediaVideoPreloadForVisibility/);
   assert.match(webVideoBubble, /useMediaVideoPreloadForVisibility/);

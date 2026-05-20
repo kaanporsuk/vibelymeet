@@ -24,6 +24,12 @@ export const VIBE_CLIP_EVENTS = {
   clip_date_submitted_from_clip: 'clip_date_submitted_from_clip',
   clip_recovery_status: 'clip_recovery_status',
   media_upload_suspended_recovery: 'media_upload_suspended_recovery',
+  caption_capture_unavailable: 'caption_capture_unavailable',
+  caption_capture_started: 'caption_capture_started',
+  caption_capture_succeeded: 'caption_capture_succeeded',
+  caption_capture_aborted: 'caption_capture_aborted',
+  caption_capture_failed: 'caption_capture_failed',
+  caption_toggle_changed: 'caption_toggle_changed',
 } as const;
 
 export type VibeClipEventName = (typeof VIBE_CLIP_EVENTS)[keyof typeof VIBE_CLIP_EVENTS];

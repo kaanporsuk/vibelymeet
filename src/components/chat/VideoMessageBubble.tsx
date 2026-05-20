@@ -318,7 +318,7 @@ export const VideoMessageBubble = ({
 
             <div className="absolute inset-0 flex items-center justify-center">
               <div className="flex items-center gap-2 rounded-full bg-black/55 px-3.5 py-2 backdrop-blur-md border border-fuchsia-500/15 shadow-[0_0_24px_rgba(168,85,247,0.12)]">
-                <Loader2 className="h-3.5 w-3.5 animate-spin text-fuchsia-300/90" />
+                <Loader2 className={cn("h-3.5 w-3.5 text-fuchsia-300/90", !prefersReducedMotion && "animate-spin")} />
                 <span className="text-[11px] text-white/88 font-medium tracking-tight">Preparing…</span>
               </div>
             </div>
@@ -365,7 +365,7 @@ export const VideoMessageBubble = ({
         {isBuffering ? (
           <div className="pointer-events-none absolute inset-0 z-[5] flex items-center justify-center bg-black/25">
             <div className="flex items-center gap-2 rounded-full border border-white/12 bg-black/55 px-3 py-1.5 backdrop-blur-sm">
-              <Loader2 className="h-3 w-3 animate-spin text-fuchsia-300/90" />
+              <Loader2 className={cn("h-3 w-3 text-fuchsia-300/90", !prefersReducedMotion && "animate-spin")} />
               <span className="text-[10px] font-medium text-white/85">Buffering…</span>
             </div>
           </div>
@@ -374,8 +374,9 @@ export const VideoMessageBubble = ({
         {/* Play overlay */}
         {!isPlaying && isReady && (
           <motion.div
-            initial={{ opacity: 0 }}
+            initial={prefersReducedMotion ? false : { opacity: 0 }}
             animate={{ opacity: 1 }}
+            transition={{ duration: prefersReducedMotion ? 0 : 0.2 }}
             className="absolute inset-0 flex items-center justify-center bg-black/40"
           >
             <div className="w-12 h-12 rounded-full bg-gradient-to-br from-white/20 to-white/5 backdrop-blur-md border border-white/25 flex items-center justify-center shadow-lg shadow-fuchsia-500/10 ring-1 ring-fuchsia-400/20">

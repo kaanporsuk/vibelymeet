@@ -11,6 +11,7 @@ import {
   type BunnyVideoStatusNormalized,
   type CanonicalVibeVideoState,
 } from "@clientShared/vibeVideoSemantics";
+import { parseMediaCaptions, type MediaCaptions } from "../../../shared/media/captions";
 
 export { normalizeBunnyVideoStatus };
 export type { BunnyVideoStatusNormalized };
@@ -74,6 +75,7 @@ export interface WebVibeVideoInfo {
   playbackUrl: string | null;
   thumbnailUrl: string | null;
   caption: string | null;
+  captions: MediaCaptions | null;
   isScoreEligible: boolean;
   canPlay: boolean;
   canManage: boolean;
@@ -92,6 +94,9 @@ type ProfileVibeInput = {
   updatedAt?: string | number | Date | null;
   vibe_caption?: string | null;
   vibeCaption?: string | null;
+  vibe_video_captions?: unknown;
+  vibeVideoCaptions?: unknown;
+  captions?: unknown;
 } | null | undefined;
 
 function pickUid(p: ProfileVibeInput): string | null {
@@ -112,6 +117,10 @@ function pickCaption(p: ProfileVibeInput): string | null {
   return typeof c === "string" ? c.trim() || null : null;
 }
 
+function pickCaptions(p: ProfileVibeInput): MediaCaptions | null {
+  return parseMediaCaptions(p?.vibe_video_captions ?? p?.vibeVideoCaptions ?? p?.captions);
+}
+
 export function resolveWebVibeVideoState(profile: ProfileVibeInput): WebVibeVideoInfo {
   const uid = pickUid(profile);
   const canonical = resolveCanonicalVibeVideoState({
@@ -121,6 +130,7 @@ export function resolveWebVibeVideoState(profile: ProfileVibeInput): WebVibeVide
   });
   const normStatus = canonical.status;
   const caption = pickCaption(profile);
+  const captions = pickCaptions(profile);
 
   const NONE: WebVibeVideoInfo = {
     state: "none",
@@ -131,6 +141,7 @@ export function resolveWebVibeVideoState(profile: ProfileVibeInput): WebVibeVide
     playbackUrl: null,
     thumbnailUrl: null,
     caption: null,
+    captions: null,
     isScoreEligible: false,
     canPlay: false,
     canManage: false,
@@ -149,6 +160,7 @@ export function resolveWebVibeVideoState(profile: ProfileVibeInput): WebVibeVide
       playbackUrl: null,
       thumbnailUrl: null,
       caption,
+      captions,
       isScoreEligible: false,
       canPlay: false,
       canManage: false,
@@ -167,6 +179,7 @@ export function resolveWebVibeVideoState(profile: ProfileVibeInput): WebVibeVide
       playbackUrl: null,
       thumbnailUrl: null,
       caption,
+      captions,
       isScoreEligible: true,
       canPlay: false,
       canManage: true,
@@ -187,6 +200,7 @@ export function resolveWebVibeVideoState(profile: ProfileVibeInput): WebVibeVide
       playbackUrl,
       thumbnailUrl,
       caption,
+      captions,
       isScoreEligible: true,
       canPlay: !!playbackUrl,
       canManage: true,
@@ -205,6 +219,7 @@ export function resolveWebVibeVideoState(profile: ProfileVibeInput): WebVibeVide
       playbackUrl: null,
       thumbnailUrl: null,
       caption,
+      captions,
       isScoreEligible: true,
       canPlay: false,
       canManage: true,
@@ -222,6 +237,7 @@ export function resolveWebVibeVideoState(profile: ProfileVibeInput): WebVibeVide
     playbackUrl: null,
     thumbnailUrl: null,
     caption,
+    captions,
     isScoreEligible: true,
     canPlay: false,
     canManage: true,

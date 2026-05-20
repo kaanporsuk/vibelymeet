@@ -38,6 +38,7 @@ import { getImageUrl } from '@/lib/imageUrl';
 import { formatBirthdayUsWithZodiac } from '@/lib/profileApi';
 import { resolveVibeVideoState } from '@/lib/vibeVideoState';
 import { useMediaAsset } from '@/hooks/useMediaAsset';
+import { useReduceMotion } from '@/hooks/useReduceMotion';
 import { PROMPT_EMOJIS } from '@/components/profile/PROMPT_CONSTANTS';
 import { getLookingForDisplay } from '@/components/profile/RelationshipIntentSelector';
 import FullscreenVibeVideoModal from '@/components/video/FullscreenVibeVideoModal';
@@ -153,6 +154,7 @@ function ZoomableProfilePhotoPage({
   const pinchBaseTy = useSharedValue(0);
   const isActiveSV = useSharedValue(isActive);
   const [zoomed, setZoomed] = useState(false);
+  const reduceMotion = useReduceMotion();
 
   useEffect(() => {
     isActiveSV.value = isActive;
@@ -205,19 +207,19 @@ function ZoomableProfilePhotoPage({
   const handleAccessibilityAction = useCallback(
     (event: AccessibilityActionEvent) => {
       if (event.nativeEvent.actionName !== 'activate') return;
-      scale.value = withSpring(zoomed ? 1 : PHOTO_ZOOM_SCALE, PHOTO_ZOOM_SPRING);
-      tx.value = withSpring(0, PHOTO_ZOOM_SPRING);
-      ty.value = withSpring(0, PHOTO_ZOOM_SPRING);
+      scale.value = reduceMotion ? (zoomed ? 1 : PHOTO_ZOOM_SCALE) : withSpring(zoomed ? 1 : PHOTO_ZOOM_SCALE, PHOTO_ZOOM_SPRING);
+      tx.value = reduceMotion ? 0 : withSpring(0, PHOTO_ZOOM_SPRING);
+      ty.value = reduceMotion ? 0 : withSpring(0, PHOTO_ZOOM_SPRING);
     },
-    [scale, tx, ty, zoomed],
+    [reduceMotion, scale, tx, ty, zoomed],
   );
 
   const gesture = useMemo(() => {
     const resetZoom = () => {
       'worklet';
-      scale.value = withSpring(1, PHOTO_ZOOM_SPRING);
-      tx.value = withSpring(0, PHOTO_ZOOM_SPRING);
-      ty.value = withSpring(0, PHOTO_ZOOM_SPRING);
+      scale.value = reduceMotion ? 1 : withSpring(1, PHOTO_ZOOM_SPRING);
+      tx.value = reduceMotion ? 0 : withSpring(0, PHOTO_ZOOM_SPRING);
+      ty.value = reduceMotion ? 0 : withSpring(0, PHOTO_ZOOM_SPRING);
     };
 
     const doubleTap = Gesture.Tap()
@@ -228,9 +230,9 @@ function ZoomableProfilePhotoPage({
         if (scale.value >= PHOTO_ZOOM_LOCK_SCALE) {
           resetZoom();
         } else {
-          scale.value = withSpring(PHOTO_ZOOM_SCALE, PHOTO_ZOOM_SPRING);
-          tx.value = withSpring(0, PHOTO_ZOOM_SPRING);
-          ty.value = withSpring(0, PHOTO_ZOOM_SPRING);
+          scale.value = reduceMotion ? PHOTO_ZOOM_SCALE : withSpring(PHOTO_ZOOM_SCALE, PHOTO_ZOOM_SPRING);
+          tx.value = reduceMotion ? 0 : withSpring(0, PHOTO_ZOOM_SPRING);
+          ty.value = reduceMotion ? 0 : withSpring(0, PHOTO_ZOOM_SPRING);
         }
       });
 
@@ -259,8 +261,8 @@ function ZoomableProfilePhotoPage({
           resetZoom();
         } else {
           const clamped = clampPhotoPan(tx.value, ty.value, scale.value, width, height);
-          tx.value = withSpring(clamped.x, PHOTO_ZOOM_SPRING);
-          ty.value = withSpring(clamped.y, PHOTO_ZOOM_SPRING);
+          tx.value = reduceMotion ? clamped.x : withSpring(clamped.x, PHOTO_ZOOM_SPRING);
+          ty.value = reduceMotion ? clamped.y : withSpring(clamped.y, PHOTO_ZOOM_SPRING);
         }
       });
 
@@ -291,6 +293,7 @@ function ZoomableProfilePhotoPage({
     pinchBaseScale,
     pinchBaseTx,
     pinchBaseTy,
+    reduceMotion,
     scale,
     tx,
     ty,
@@ -340,6 +343,7 @@ export function UserProfileFullView({
   const { width: winWidth, height: winHeight } = useWindowDimensions();
   const colorScheme = useColorScheme();
   const theme = Colors[colorScheme];
+  const reduceMotion = useReduceMotion();
   const [showFullscreenVibe, setShowFullscreenVibe] = useState(false);
   const [hideVibingOnLabelAfterComplete, setHideVibingOnLabelAfterComplete] = useState(false);
   const [photoViewerIndex, setPhotoViewerIndex] = useState<number | null>(null);
@@ -870,6 +874,7 @@ export function UserProfileFullView({
         bunnyVideoUid={vibeInfo.uid}
         vibeVideoState={effectiveVibeVideoState}
         vibeCaption={caption}
+        captions={vibeInfo.captions}
         posterUrl={thumbnailUrl}
         onPlayToEnd={() => setHideVibingOnLabelAfterComplete(true)}
       />
@@ -877,7 +882,7 @@ export function UserProfileFullView({
       <Modal
         visible={photoViewerIndex !== null && photos.length > 0}
         transparent
-        animationType="fade"
+        animationType={reduceMotion ? 'none' : 'fade'}
         statusBarTranslucent
         onRequestClose={closePhotoViewer}
       >

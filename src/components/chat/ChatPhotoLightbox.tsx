@@ -3,6 +3,7 @@ import { motion } from "framer-motion";
 import { X, ChevronLeft, ChevronRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { usePrefersReducedMotion } from "@/hooks/usePrefersReducedMotion";
 import { resolvePreservedMediaSelectionId } from "../../../shared/chat/mediaSelection";
 
 export type ChatPhotoItem = { id: string; url: string; sourceRef?: string | null };
@@ -18,6 +19,7 @@ const MIN_SCALE = 1;
 const MAX_SCALE = 4;
 
 export function ChatPhotoLightbox({ items, initialId, onClose, onRefreshItem }: ChatPhotoLightboxProps) {
+  const prefersReducedMotion = usePrefersReducedMotion();
   const [selectedId, setSelectedId] = useState(
     () => items.find((it) => it.id === initialId)?.id ?? items[0]?.id ?? initialId,
   );
@@ -151,10 +153,10 @@ export function ChatPhotoLightbox({ items, initialId, onClose, onRefreshItem }: 
       role="dialog"
       aria-modal="true"
       aria-label="Photo viewer"
-      initial={{ opacity: 0 }}
+      initial={prefersReducedMotion ? false : { opacity: 0 }}
       animate={{ opacity: 1 }}
-      exit={{ opacity: 0 }}
-      transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
+      exit={prefersReducedMotion ? undefined : { opacity: 0 }}
+      transition={{ duration: prefersReducedMotion ? 0 : 0.22, ease: [0.22, 1, 0.36, 1] }}
       className="fixed inset-0 z-[200] flex flex-col bg-black"
     >
       <div className="relative z-10 flex items-center justify-between px-3 pt-[max(0.75rem,env(safe-area-inset-top))] pb-2">
@@ -252,9 +254,9 @@ export function ChatPhotoLightbox({ items, initialId, onClose, onRefreshItem }: 
               onError={() => {
                 void refreshCurrent();
               }}
-              initial={{ opacity: 0, scale: 0.94 }}
+              initial={prefersReducedMotion ? false : { opacity: 0, scale: 0.94 }}
               animate={{ opacity: 1, scale: 1 }}
-              transition={{ duration: 0.2, ease: [0.22, 1, 0.36, 1] }}
+              transition={{ duration: prefersReducedMotion ? 0 : 0.2, ease: [0.22, 1, 0.36, 1] }}
               className="max-h-[min(88dvh,880px)] max-w-[min(96vw,1200px)] select-none object-contain"
             />
           </div>

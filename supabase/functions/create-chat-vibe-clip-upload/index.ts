@@ -18,6 +18,10 @@ function stringValue(value: unknown): string | null {
   return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
+function hasNonEmptyCaptionInput(value: unknown): boolean {
+  return value != null && !(typeof value === "string" && value.trim() === "");
+}
+
 function logCreateTransition(event: string, fields: Record<string, unknown> = {}) {
   console.info(JSON.stringify({
     scope: "chat_vibe_clip_upload",
@@ -173,6 +177,9 @@ serve(async (req) => {
       sender_id: user.id,
     });
     const normalizedCaptions = normalizeChatVibeClipCaptions(body.captions);
+    if (hasNonEmptyCaptionInput(body.captions) && !normalizedCaptions) {
+      return jsonResponse(req, { success: false, error: "invalid_captions" }, { status: 400 });
+    }
 
     const existing = await admin
       .from("chat_vibe_clip_uploads")

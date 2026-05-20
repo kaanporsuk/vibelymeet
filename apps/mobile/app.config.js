@@ -33,6 +33,14 @@ module.exports = () => {
   ensurePlugin(plugins, 'expo-video');
   ensurePlugin(plugins, 'expo-audio');
   ensurePlugin(plugins, 'expo-localization');
+  ensurePlugin(plugins, [
+    'expo-speech-recognition',
+    {
+      microphonePermission: 'Allow Vibely to use the microphone for video captions.',
+      speechRecognitionPermission: 'Allow Vibely to create captions from your speech.',
+      androidSpeechServicePackages: ['com.google.android.googlequicksearchbox', 'com.google.android.as'],
+    },
+  ]);
   ensurePlugin(plugins, 'expo-secure-store');
   ensurePlugin(plugins, 'expo-web-browser');
   ensurePlugin(plugins, [

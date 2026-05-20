@@ -3,6 +3,8 @@ import { motion, AnimatePresence } from "framer-motion";
 import { X, SwitchCamera, Film, Sparkles, Upload, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
+import { trackEvent } from "@/lib/analytics";
+import { usePrefersReducedMotion } from "@/hooks/usePrefersReducedMotion";
 import {
   VIBE_CLIP_MAX_DURATION_SEC,
   VIBE_CLIP_RECORDER_IDLE_HINT,
@@ -54,6 +56,14 @@ type BrowserSpeechRecognition = {
 
 type BrowserSpeechRecognitionConstructor = new () => BrowserSpeechRecognition;
 
+type PendingRecording = {
+  blob: Blob;
+  url: string;
+  duration: number;
+  meta: WebVibeClipCompleteMeta;
+  captionText: string;
+};
+
 interface VideoMessageRecorderProps {
   onRecordingComplete: (videoBlob: Blob, duration: number, meta?: WebVibeClipCompleteMeta) => void;
   onCancel: () => void;
@@ -75,6 +85,7 @@ const VideoMessageRecorder = ({
   const [facingMode, setFacingMode] = useState<"user" | "environment">("user");
   const [hasMultipleCameras, setHasMultipleCameras] = useState(false);
   const [cameraReady, setCameraReady] = useState(false);
+  const [pendingRecording, setPendingRecording] = useState<PendingRecording | null>(null);
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -89,6 +100,8 @@ const VideoMessageRecorder = ({
   const speechRecognitionRef = useRef<BrowserSpeechRecognition | null>(null);
   const speechRecognitionStoppingRef = useRef(false);
   const recordingActiveRef = useRef(false);
+  const pendingRecordingUrlRef = useRef<string | null>(null);
+  const prefersReducedMotion = usePrefersReducedMotion();
 
   const captureSpark = useMemo(
     () => capturePromptForSeed(`${promptSeed ?? 'web'}|${Date.now()}`),
@@ -146,7 +159,13 @@ const VideoMessageRecorder = ({
       webkitSpeechRecognition?: BrowserSpeechRecognitionConstructor;
     };
     const SpeechRecognitionCtor = scope.SpeechRecognition ?? scope.webkitSpeechRecognition;
-    if (!SpeechRecognitionCtor) return;
+    if (!SpeechRecognitionCtor) {
+      trackEvent("caption_capture_unavailable", {
+        surface: "chat_vibe_clip_recorder",
+        reason: "speech_recognition_missing",
+      });
+      return;
+    }
 
     try {
       const recognition = new SpeechRecognitionCtor();
@@ -165,20 +184,28 @@ const VideoMessageRecorder = ({
         captionSegmentsRef.current = next;
         captionInterimRef.current = interim;
       };
-      recognition.onerror = () => {};
+      recognition.onerror = () => {
+        trackEvent("caption_capture_failed", { surface: "chat_vibe_clip_recorder" });
+      };
       recognition.onend = () => {
         if (!recordingActiveRef.current || speechRecognitionStoppingRef.current) return;
         try {
           recognition.start();
         } catch {
           // Some browsers reject immediate restarts; the recording continues without captions.
+          trackEvent("caption_capture_aborted", { surface: "chat_vibe_clip_recorder", reason: "restart_failed" });
         }
       };
       speechRecognitionStoppingRef.current = false;
       speechRecognitionRef.current = recognition;
       recognition.start();
+      trackEvent("caption_capture_started", { surface: "chat_vibe_clip_recorder" });
     } catch {
       speechRecognitionRef.current = null;
+      trackEvent("caption_capture_unavailable", {
+        surface: "chat_vibe_clip_recorder",
+        reason: "speech_recognition_start_failed",
+      });
     }
   }, []);
 
@@ -232,6 +259,7 @@ const VideoMessageRecorder = ({
       if (streamRef.current) {
         streamRef.current.getTracks().forEach((t) => t.stop());
       }
+      if (pendingRecordingUrlRef.current) URL.revokeObjectURL(pendingRecordingUrlRef.current);
       if (timerRef.current) clearInterval(timerRef.current);
     };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
@@ -323,10 +351,24 @@ const VideoMessageRecorder = ({
       recordingActiveRef.current = false;
       stopCaptionCapture();
       const blob = new Blob(chunksRef.current, { type: mimeTypeRef.current || "video/webm" });
-      onRecordingComplete(blob, durationRef.current, {
+      const captions = captionsFromTranscript();
+      const captionText = typeof captions === "string" ? captions : captions?.text ?? "";
+      trackEvent(captionText ? "caption_capture_succeeded" : "caption_capture_aborted", {
+        surface: "chat_vibe_clip_recorder",
+        has_text: !!captionText,
+      });
+      const url = URL.createObjectURL(blob);
+      pendingRecordingUrlRef.current = url;
+      setPendingRecording({
+        blob,
+        url,
+        duration: durationRef.current,
+        captionText,
+        meta: {
         captureSource: "web_recorder",
         mimeType: mimeTypeRef.current || undefined,
-        captions: captionsFromTranscript(),
+          captions,
+        },
       });
     };
 
@@ -390,7 +432,32 @@ const VideoMessageRecorder = ({
       streamRef.current.getTracks().forEach((t) => t.stop());
     }
     setCameraReady(false);
+    if (pendingRecording?.url) URL.revokeObjectURL(pendingRecording.url);
+    pendingRecordingUrlRef.current = null;
+    setPendingRecording(null);
     onCancel();
+  };
+
+  const sendPendingRecording = () => {
+    if (!pendingRecording) return;
+    const captionText = pendingRecording.captionText.replace(/\s+/g, " ").trim().slice(0, 5_000);
+    const language = typeof navigator !== "undefined" && navigator.language ? navigator.language.slice(0, 16) : undefined;
+    onRecordingComplete(pendingRecording.blob, pendingRecording.duration, {
+      ...pendingRecording.meta,
+      captions: captionText ? { text: captionText, ...(language ? { language } : {}) } : null,
+    });
+    URL.revokeObjectURL(pendingRecording.url);
+    pendingRecordingUrlRef.current = null;
+    setPendingRecording(null);
+  };
+
+  const retakePendingRecording = () => {
+    if (pendingRecording?.url) URL.revokeObjectURL(pendingRecording.url);
+    pendingRecordingUrlRef.current = null;
+    setPendingRecording(null);
+    setDuration(0);
+    durationRef.current = 0;
+    void startCamera(facingMode, { cancelOnError: false });
   };
 
   const formatDuration = (s: number) => {
@@ -401,9 +468,9 @@ const VideoMessageRecorder = ({
 
   return (
     <motion.div
-      initial={{ opacity: 0 }}
+      initial={prefersReducedMotion ? false : { opacity: 0 }}
       animate={{ opacity: 1 }}
-      exit={{ opacity: 0 }}
+      exit={prefersReducedMotion ? undefined : { opacity: 0 }}
       className="fixed inset-0 z-50 bg-black flex flex-col"
     >
       {showLibraryUpload ? (
@@ -419,16 +486,28 @@ const VideoMessageRecorder = ({
         />
       ) : null}
 
-      <video
-        ref={videoRef}
-        autoPlay
-        playsInline
-        muted
-        className={cn(
-          "absolute inset-0 w-full h-full object-cover",
-          facingMode === "user" && "scale-x-[-1]",
-        )}
-      />
+      {pendingRecording ? (
+        <video
+          src={pendingRecording.url}
+          autoPlay={!prefersReducedMotion}
+          controls={prefersReducedMotion}
+          playsInline
+          muted
+          loop
+          className="absolute inset-0 w-full h-full object-cover"
+        />
+      ) : (
+        <video
+          ref={videoRef}
+          autoPlay
+          playsInline
+          muted
+          className={cn(
+            "absolute inset-0 w-full h-full object-cover",
+            facingMode === "user" && "scale-x-[-1]",
+          )}
+        />
+      )}
 
       {/* Cinematic bottom vignette + subtle side falloff */}
       <div
@@ -443,7 +522,7 @@ const VideoMessageRecorder = ({
       <div className="relative z-10 flex flex-col h-full">
         <div className="flex items-center justify-between p-4 pt-safe">
           <motion.button
-            whileTap={{ scale: 0.9 }}
+            whileTap={prefersReducedMotion ? undefined : { scale: 0.9 }}
             onClick={handleCancel}
             className="w-10 h-10 rounded-full bg-black/50 backdrop-blur-md flex items-center justify-center ring-1 ring-white/10"
             type="button"
@@ -457,14 +536,14 @@ const VideoMessageRecorder = ({
             {isRecording ? (
               <motion.div
                 key="timer"
-                initial={{ opacity: 0, scale: 0.8 }}
+                initial={prefersReducedMotion ? false : { opacity: 0, scale: 0.8 }}
                 animate={{ opacity: 1, scale: 1 }}
-                exit={{ opacity: 0 }}
+                exit={prefersReducedMotion ? undefined : { opacity: 0 }}
                 className="flex items-center gap-2 px-4 py-2 rounded-full bg-black/55 backdrop-blur-md ring-1 ring-white/10"
               >
                 <motion.div
-                  animate={{ scale: [1, 1.3, 1] }}
-                  transition={{ repeat: Infinity, duration: 1 }}
+                  animate={prefersReducedMotion ? undefined : { scale: [1, 1.3, 1] }}
+                  transition={prefersReducedMotion ? undefined : { repeat: Infinity, duration: 1 }}
                   className="w-2.5 h-2.5 rounded-full bg-red-500 shadow-[0_0_12px_rgba(239,68,68,0.7)]"
                 />
                 <span className="font-mono text-sm font-semibold text-white tabular-nums">
@@ -474,9 +553,9 @@ const VideoMessageRecorder = ({
             ) : (
               <motion.div
                 key="brand"
-                initial={{ opacity: 0, y: -8 }}
+                initial={prefersReducedMotion ? false : { opacity: 0, y: -8 }}
                 animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0 }}
+                exit={prefersReducedMotion ? undefined : { opacity: 0 }}
                 className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-violet-500/25 backdrop-blur-md border border-violet-400/35 shadow-[0_0_20px_rgba(139,92,246,0.25)]"
               >
                 <Film className="w-3.5 h-3.5 text-violet-200" />
@@ -487,7 +566,7 @@ const VideoMessageRecorder = ({
 
           {hasMultipleCameras && !isRecording ? (
             <motion.button
-              whileTap={{ scale: 0.9 }}
+              whileTap={prefersReducedMotion ? undefined : { scale: 0.9 }}
               onClick={flipCamera}
               disabled={isProcessingUpload}
               className="w-10 h-10 rounded-full bg-black/50 backdrop-blur-md flex items-center justify-center ring-1 ring-white/10 disabled:pointer-events-none disabled:opacity-45"
@@ -502,7 +581,7 @@ const VideoMessageRecorder = ({
         </div>
 
         {/* Center framing — idle only */}
-        {!isRecording && (
+        {!isRecording && !pendingRecording && (
           <div className="absolute left-0 right-0 top-[28%] flex flex-col items-center px-6 pointer-events-none">
             <div className="flex items-center gap-1.5 rounded-full bg-white/10 backdrop-blur-sm px-3 py-1.5 border border-white/15 mb-2">
               <Sparkles className="w-3.5 h-3.5 text-amber-200/90" aria-hidden />
@@ -522,14 +601,45 @@ const VideoMessageRecorder = ({
         <div className="flex-1" />
 
         <div className="flex flex-col items-center gap-3 pb-safe p-6">
-          {isRecording && (
+          {pendingRecording ? (
+            <div className="w-full max-w-sm rounded-2xl border border-white/10 bg-black/55 p-4 backdrop-blur-md">
+              <p className="text-xs font-semibold uppercase tracking-wide text-white/70">Captions</p>
+              <textarea
+                value={pendingRecording.captionText}
+                onChange={(event) =>
+                  setPendingRecording((recording) =>
+                    recording ? { ...recording, captionText: event.target.value.slice(0, 5_000) } : recording,
+                  )
+                }
+                placeholder="No captions captured. Add them before sending."
+                className="mt-2 min-h-20 w-full resize-none rounded-xl border border-white/10 bg-black/40 px-3 py-2 text-sm text-white placeholder:text-white/35 focus:outline-none focus:ring-2 focus:ring-violet-400"
+              />
+              <div className="mt-3 flex items-center justify-between gap-3">
+                <button
+                  type="button"
+                  onClick={retakePendingRecording}
+                  className="h-10 flex-1 rounded-full bg-white/10 px-4 text-xs font-semibold text-white/80 ring-1 ring-white/15"
+                >
+                  Retake
+                </button>
+                <button
+                  type="button"
+                  onClick={sendPendingRecording}
+                  className="h-10 flex-1 rounded-full bg-violet-500 px-4 text-xs font-semibold text-white"
+                >
+                  Send clip
+                </button>
+              </div>
+            </div>
+          ) : isRecording && (
             <p className="text-white/80 text-xs font-medium">
               {VIBE_CLIP_RECORDER_RECORDING_REMAINING(VIBE_CLIP_MAX_DURATION_SEC - duration)}
             </p>
           )}
 
+          {!pendingRecording ? (
           <motion.button
-            whileTap={{ scale: 0.92 }}
+            whileTap={prefersReducedMotion ? undefined : { scale: 0.92 }}
             onClick={isRecording ? stopRecording : startRecording}
             disabled={!isRecording && (!cameraReady || isProcessingUpload)}
             className={cn(
@@ -544,7 +654,7 @@ const VideoMessageRecorder = ({
           >
             {isRecording ? (
               <motion.div
-                initial={{ scale: 0 }}
+                initial={prefersReducedMotion ? false : { scale: 0 }}
                 animate={{ scale: 1 }}
                 className="w-8 h-8 rounded-md bg-red-500 shadow-lg"
               />
@@ -552,8 +662,9 @@ const VideoMessageRecorder = ({
               <div className="w-[3.35rem] h-[3.35rem] rounded-full bg-gradient-to-br from-violet-400 to-violet-600 shadow-inner" />
             )}
           </motion.button>
+          ) : null}
 
-          {!isRecording && (
+          {!isRecording && !pendingRecording && (
             <>
               {showLibraryUpload ? (
                 <button
@@ -565,7 +676,7 @@ const VideoMessageRecorder = ({
                   data-testid="vibe-clip-recorder-library-option"
                 >
                   {isProcessingUpload ? (
-                    <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+                    <Loader2 className={cn("h-4 w-4", !prefersReducedMotion && "animate-spin")} aria-hidden />
                   ) : (
                     <Upload className="h-4 w-4" aria-hidden />
                   )}

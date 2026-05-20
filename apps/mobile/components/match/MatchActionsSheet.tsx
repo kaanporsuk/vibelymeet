@@ -7,6 +7,7 @@ import { Ionicons } from '@expo/vector-icons';
 import Colors from '@/constants/Colors';
 import { useColorScheme } from '@/components/useColorScheme';
 import { spacing, radius } from '@/constants/theme';
+import { useReduceMotion } from '@/hooks/useReduceMotion';
 import {
   MATCH_MUTE_DURATIONS,
   getMatchMuteDurationDescription,
@@ -24,6 +25,7 @@ type MatchActionsSheetProps = {
   isArchived?: boolean;
   isMuted?: boolean;
   onViewProfile?: () => void;
+  onOpenMediaHealth?: () => void;
   onUnmatch: () => void;
   onArchive: () => void;
   onUnarchive: () => void;
@@ -41,6 +43,7 @@ export function MatchActionsSheet({
   isArchived = false,
   isMuted = false,
   onViewProfile,
+  onOpenMediaHealth,
   onUnmatch,
   onArchive,
   onUnarchive,
@@ -51,6 +54,7 @@ export function MatchActionsSheet({
   loading = null,
 }: MatchActionsSheetProps) {
   const theme = Colors[useColorScheme()];
+  const reduceMotion = useReduceMotion();
   const [mode, setMode] = React.useState<'main' | 'mute'>('main');
 
   React.useEffect(() => {
@@ -92,7 +96,7 @@ export function MatchActionsSheet({
   );
 
   return (
-    <Modal visible transparent animationType="fade">
+    <Modal visible transparent animationType={reduceMotion ? 'none' : 'fade'}>
       <Pressable style={styles.backdrop} onPress={onClose}>
         <Pressable style={[styles.sheet, { backgroundColor: theme.glassSurface, borderColor: theme.glassBorder }]} onPress={(e) => e.stopPropagation()}>
           <View style={[styles.handle, { backgroundColor: theme.muted }]} />
@@ -100,6 +104,7 @@ export function MatchActionsSheet({
             <>
               <Text style={[styles.title, { color: theme.text }]} numberOfLines={1}>{matchName}</Text>
               {onViewProfile ? row('person-outline', 'View Profile', onViewProfile) : null}
+              {onOpenMediaHealth ? row('pulse-outline', 'Media health', onOpenMediaHealth) : null}
               {row('archive-outline', isArchived ? 'Unarchive' : 'Archive', isArchived ? onUnarchive : onArchive)}
               {row(
                 isMuted ? 'notifications-outline' : 'notifications-off-outline',

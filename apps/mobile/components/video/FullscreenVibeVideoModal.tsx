@@ -19,7 +19,9 @@ import { resolveVibeVideoStreamHostnameSync } from '@/lib/vibeVideoPlaybackUrl';
 import { setSafeAudioMode } from '@/lib/safeAudioMode';
 import VibeVideoPlayer from '@/components/video/VibeVideoPlayer';
 import { vibeVideoDiagVerbose } from '@/lib/vibeVideoDiagnostics';
+import { useReduceMotion } from '@/hooks/useReduceMotion';
 import type { VibeVideoState } from '@/lib/vibeVideoState';
+import type { MediaCaptions } from '../../../../shared/media/captions';
 
 export interface FullscreenVibeVideoModalProps {
   visible: boolean;
@@ -31,6 +33,7 @@ export interface FullscreenVibeVideoModalProps {
   /** Canonical resolver state from `resolveVibeVideoState`; avoids ad hoc availability copy. */
   vibeVideoState: VibeVideoState;
   vibeCaption?: string;
+  captions?: MediaCaptions | null;
   /** Bunny thumbnail while the HLS buffer starts */
   posterUrl?: string | null;
   /**
@@ -47,10 +50,12 @@ export function FullscreenVibeVideoModal({
   bunnyVideoUid,
   vibeVideoState,
   vibeCaption = '',
+  captions,
   posterUrl,
   onPlayToEnd,
 }: FullscreenVibeVideoModalProps) {
   const insets = useSafeAreaInsets();
+  const reduceMotion = useReduceMotion();
   const { width: windowWidth } = useWindowDimensions();
   const captionMaxWidth = Math.round(windowWidth * 0.75);
   const [playbackSurfaceError, setPlaybackSurfaceError] = useState(false);
@@ -190,7 +195,7 @@ export function FullscreenVibeVideoModal({
   return (
     <Modal
       visible={visible}
-      animationType="fade"
+      animationType={reduceMotion ? 'none' : 'fade'}
       presentationStyle="fullScreen"
       statusBarTranslucent
       onRequestClose={onClose}
@@ -214,6 +219,7 @@ export function FullscreenVibeVideoModal({
                         diagContext="fullscreen"
                         nativeControls
                         contentFit="contain"
+                        captions={captions}
                         onPlayerFatalError={handlePlaybackIssue}
                         onPlayToEnd={handlePlayToEnd}
                       />

@@ -16,6 +16,7 @@ import {
   type BunnyVideoStatusNormalized,
   type CanonicalVibeVideoState,
 } from '@clientShared/vibeVideoSemantics';
+import { parseMediaCaptions, type MediaCaptions } from '../../../shared/media/captions';
 
 export type VibeVideoState = CanonicalVibeVideoState;
 
@@ -28,6 +29,7 @@ export interface VibeVideoInfo {
   playbackUrl: string | null;
   thumbnailUrl: string | null;
   caption: string | null;
+  captions: MediaCaptions | null;
   isScoreEligible: boolean;
   canPlay: boolean;
   canManage: boolean;
@@ -41,6 +43,8 @@ export function resolveVibeVideoState(profile: {
   bunny_video_updated_at?: string | number | Date | null;
   updated_at?: string | number | Date | null;
   vibe_caption?: string | null;
+  vibe_video_captions?: unknown;
+  captions?: unknown;
 } | null | undefined): VibeVideoInfo {
   const uid = normalizeBunnyVideoUid(profile?.bunny_video_uid);
   const canonical = resolveCanonicalVibeVideoState({
@@ -50,12 +54,13 @@ export function resolveVibeVideoState(profile: {
   });
   const normStatus = canonical.status;
   const caption = profile?.vibe_caption?.trim() || null;
+  const captions = parseMediaCaptions(profile?.vibe_video_captions ?? profile?.captions);
 
   const NONE: VibeVideoInfo = {
     state: 'none',
     uid: null, normalizedStatus: normStatus,
     statusUpdatedAt: canonical.statusUpdatedAt, statusAgeMs: canonical.statusAgeMs,
-    playbackUrl: null, thumbnailUrl: null, caption: null,
+    playbackUrl: null, thumbnailUrl: null, caption: null, captions: null,
     isScoreEligible: false,
     canPlay: false, canManage: false, canDelete: false, canRecord: true,
   };
@@ -66,7 +71,7 @@ export function resolveVibeVideoState(profile: {
       state: 'error',
       uid: null, normalizedStatus: normStatus,
       statusUpdatedAt: canonical.statusUpdatedAt, statusAgeMs: canonical.statusAgeMs,
-      playbackUrl: null, thumbnailUrl: null, caption,
+      playbackUrl: null, thumbnailUrl: null, caption, captions,
       isScoreEligible: false,
       canPlay: false, canManage: false, canDelete: false, canRecord: true,
     };
@@ -77,7 +82,7 @@ export function resolveVibeVideoState(profile: {
       state: canonical.state,
       uid, normalizedStatus: normStatus,
       statusUpdatedAt: canonical.statusUpdatedAt, statusAgeMs: canonical.statusAgeMs,
-      playbackUrl: null, thumbnailUrl: null, caption,
+      playbackUrl: null, thumbnailUrl: null, caption, captions,
       isScoreEligible: true,
       canPlay: false, canManage: true, canDelete: true, canRecord: canonical.state === 'stale_processing',
     };
@@ -90,7 +95,7 @@ export function resolveVibeVideoState(profile: {
       state: 'ready',
       uid, normalizedStatus: normStatus,
       statusUpdatedAt: canonical.statusUpdatedAt, statusAgeMs: canonical.statusAgeMs,
-      playbackUrl, thumbnailUrl, caption,
+      playbackUrl, thumbnailUrl, caption, captions,
       isScoreEligible: true,
       canPlay: !!playbackUrl,
       canManage: true,
@@ -104,7 +109,7 @@ export function resolveVibeVideoState(profile: {
       state: 'failed',
       uid, normalizedStatus: normStatus,
       statusUpdatedAt: canonical.statusUpdatedAt, statusAgeMs: canonical.statusAgeMs,
-      playbackUrl: null, thumbnailUrl: null, caption,
+      playbackUrl: null, thumbnailUrl: null, caption, captions,
       isScoreEligible: true,
       canPlay: false, canManage: true, canDelete: true, canRecord: true,
     };
@@ -115,7 +120,7 @@ export function resolveVibeVideoState(profile: {
     state: 'processing',
     uid, normalizedStatus: normStatus,
     statusUpdatedAt: canonical.statusUpdatedAt, statusAgeMs: canonical.statusAgeMs,
-    playbackUrl: null, thumbnailUrl: null, caption,
+    playbackUrl: null, thumbnailUrl: null, caption, captions,
     isScoreEligible: true,
     canPlay: false, canManage: true, canDelete: true, canRecord: false,
   };

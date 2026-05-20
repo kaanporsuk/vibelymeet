@@ -1,3 +1,5 @@
+import { parseMediaCaptions, type MediaCaptions } from "../media/captions";
+
 export type OtherUserPrompt = {
   question: string;
   answer: string;
@@ -43,6 +45,7 @@ export type OtherUserFullProfileSource = {
   vibe_video_signed_playback_required?: boolean | null;
   vibe_video_playback_ref?: string | null;
   vibe_caption?: string | null;
+  vibe_video_captions?: unknown;
   photo_verified?: boolean | null;
   phone_verified?: boolean | null;
   email_verified?: boolean | null;
@@ -81,6 +84,7 @@ export type OtherUserFullProfileViewModel = {
     signedPlaybackRequired: boolean;
     playbackRef: string | null;
     caption: string | null;
+    captions: MediaCaptions | null;
   };
   verification: {
     email: boolean;
@@ -366,6 +370,7 @@ export function normalizeOtherUserFullProfile(
       signedPlaybackRequired: source.vibe_video_signed_playback_required === true,
       playbackRef: cleanString(source.vibe_video_playback_ref),
       caption: cleanString(source.vibe_caption),
+      captions: parseMediaCaptions(source.vibe_video_captions),
     },
     verification: {
       email: source.email_verified === true,

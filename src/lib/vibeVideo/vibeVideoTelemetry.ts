@@ -27,6 +27,7 @@ export const VIBE_VIDEO_EVENTS = {
   captionPreserved: "vibe_video_caption_preserved",
   captionEdited: "vibe_video_caption_edited",
   captionCleared: "vibe_video_caption_cleared",
+  captionToggleChanged: "caption_toggle_changed",
   profileReportSubmitted: "vibe_video_profile_report_submitted",
 } as const;
 

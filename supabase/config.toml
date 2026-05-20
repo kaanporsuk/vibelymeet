@@ -192,3 +192,8 @@ verify_jwt = true
 # Bearer CRON_SECRET; the function performs its own cron/admin auth.
 [functions.check-daily-drop-health]
 verify_jwt = false
+
+# Bunny CDN synthetic health. Gateway JWT must stay off because pg_cron uses
+# Bearer CRON_SECRET; the function performs its own cron auth.
+[functions.check-bunny-cdn-health]
+verify_jwt = false

@@ -1,17 +1,26 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { X } from "lucide-react";
+import { Play, X } from "lucide-react";
 import * as Sentry from "@sentry/react";
 import { resolveWebVibeVideoState } from "@/lib/vibeVideo/webVibeVideoState";
 import { useMediaAsset, useMediaAssetPlayback } from "@/hooks/useMediaAsset";
+import { useMediaPlaybackQoE } from "@/hooks/useMediaPlaybackQoE";
+import { usePrefersReducedMotion } from "@/hooks/usePrefersReducedMotion";
 import { isProfileVibeVideoRef } from "@/lib/mediaAssetResolver";
 import { trackVibeVideoEvent, VIBE_VIDEO_EVENTS } from "@/lib/vibeVideo/vibeVideoTelemetry";
+import {
+  captionTextFromMediaCaptions,
+  mediaCaptionLanguage,
+  mediaCaptionsToWebVtt,
+  type MediaCaptions,
+} from "../../../shared/media/captions";
 
 type Props = {
   show: boolean;
   bunnyVideoUid: string | null;
   bunnyVideoStatus: string;
   vibeCaption: string;
+  captions?: MediaCaptions | null;
   onClose: () => void;
 };
 
@@ -19,10 +28,14 @@ type Props = {
  * Fullscreen HLS playback (Safari native + hls.js elsewhere) with honest error overlay
  * when the stream is "ready" in DB but manifest/media fails.
  */
-export function VibeVideoFullscreenPlayer({ show, bunnyVideoUid, bunnyVideoStatus, vibeCaption, onClose }: Props) {
+export function VibeVideoFullscreenPlayer({ show, bunnyVideoUid, bunnyVideoStatus, vibeCaption, captions = null, onClose }: Props) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const playbackSucceededRef = useRef(false);
   const [playbackFailed, setPlaybackFailed] = useState(false);
+  const [manualPlaybackRequested, setManualPlaybackRequested] = useState(false);
+  const [showCaptions, setShowCaptions] = useState(true);
+  const [captionTrackUrl, setCaptionTrackUrl] = useState<string | null>(null);
+  const prefersReducedMotion = usePrefersReducedMotion();
 
   const vibeVideoInfo = resolveWebVibeVideoState({
     bunny_video_uid: bunnyVideoUid,
@@ -38,6 +51,29 @@ export function VibeVideoFullscreenPlayer({ show, bunnyVideoUid, bunnyVideoStatu
     autoResolve: usesSignedProfileRef,
   });
   const playbackUrl = mediaAssetUrl ?? (usesSignedProfileRef ? null : vibeVideoInfo.playbackUrl);
+  const captionText = captionTextFromMediaCaptions(captions);
+  const captionLanguage = mediaCaptionLanguage(captions) ?? "und";
+  const shouldAttachPlayback = !prefersReducedMotion || manualPlaybackRequested;
+  const shouldPlayOnAttach = !prefersReducedMotion || manualPlaybackRequested;
+
+  useEffect(() => {
+    const vtt = mediaCaptionsToWebVtt(captions, 15_000);
+    if (!vtt) {
+      setCaptionTrackUrl(null);
+      return;
+    }
+    const blobUrl = URL.createObjectURL(new Blob([vtt], { type: "text/vtt" }));
+    setCaptionTrackUrl(blobUrl);
+    return () => URL.revokeObjectURL(blobUrl);
+  }, [captions]);
+
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video) return;
+    for (const track of Array.from(video.textTracks)) {
+      track.mode = showCaptions ? "showing" : "disabled";
+    }
+  }, [captionTrackUrl, showCaptions]);
 
   const reportSucceeded = useCallback(() => {
     if (playbackSucceededRef.current) return;
@@ -66,6 +102,10 @@ export function VibeVideoFullscreenPlayer({ show, bunnyVideoUid, bunnyVideoStatu
   useEffect(() => {
     setPlaybackFailed(false);
     playbackSucceededRef.current = false;
+    setManualPlaybackRequested(false);
+  }, [show, playbackUrl]);
+
+  useEffect(() => {
     if (!show || !isReady || !vibeVideoInfo.uid) return;
 
     if (!playbackUrl) {
@@ -84,12 +124,14 @@ export function VibeVideoFullscreenPlayer({ show, bunnyVideoUid, bunnyVideoStatu
       return;
     }
 
+    if (!shouldAttachPlayback) return;
+
     const videoEl = videoRef.current;
     if (!videoEl) return;
 
     trackVibeVideoEvent(VIBE_VIDEO_EVENTS.playbackAttempted, {
       source: "vibe_player_fullscreen",
-      autoplay: true,
+      autoplay: !prefersReducedMotion,
       video_guid: vibeVideoInfo.uid,
     });
 
@@ -97,13 +139,22 @@ export function VibeVideoFullscreenPlayer({ show, bunnyVideoUid, bunnyVideoStatu
     return () => {
       videoEl.removeEventListener("play", reportSucceeded);
     };
-  }, [show, isReady, playbackUrl, reportSucceeded, vibeVideoInfo.uid]);
+  }, [show, isReady, playbackUrl, reportSucceeded, vibeVideoInfo.uid, prefersReducedMotion, shouldAttachPlayback]);
 
   useMediaAssetPlayback(videoRef, playbackUrl, {
-    enabled: show && isReady && !!playbackUrl,
-    autoPlay: true,
+    enabled: show && isReady && !!playbackUrl && shouldAttachPlayback,
+    autoPlay: shouldPlayOnAttach,
     onManifestParsed: reportSucceeded,
     onError: reportPlaybackError,
+  });
+  useMediaPlaybackQoE(videoRef, {
+    enabled: show && isReady && !!playbackUrl && shouldAttachPlayback,
+    family: usesSignedProfileRef ? "profile_vibe_video" : "vibe_video",
+    surface: "vibe_player_fullscreen",
+    provider: usesSignedProfileRef ? "bunny_stream" : "remote",
+    sourceRef: vibeVideoInfo.playbackUrl,
+    muted: false,
+    autoplay: !prefersReducedMotion,
   });
 
   const poster = mediaAssetPosterUrl ?? vibeVideoInfo.thumbnailUrl;
@@ -112,10 +163,10 @@ export function VibeVideoFullscreenPlayer({ show, bunnyVideoUid, bunnyVideoStatu
     <AnimatePresence>
       {show && isReady && vibeVideoInfo.uid && (
         <motion.div
-          initial={{ opacity: 0 }}
+          initial={prefersReducedMotion ? false : { opacity: 0 }}
           animate={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
-          transition={{ duration: 0.2 }}
+          exit={prefersReducedMotion ? undefined : { opacity: 0 }}
+          transition={{ duration: prefersReducedMotion ? 0 : 0.2 }}
           className="fixed inset-0 bg-black flex items-center justify-center z-[9999]"
           style={{ height: "100dvh" }}
           onClick={onClose}
@@ -136,8 +187,59 @@ export function VibeVideoFullscreenPlayer({ show, bunnyVideoUid, bunnyVideoStatu
             poster={poster ?? undefined}
             playsInline
             loop
+            controls={prefersReducedMotion}
+            preload={prefersReducedMotion ? "none" : "metadata"}
             onClick={(e) => e.stopPropagation()}
-          />
+          >
+            {captionTrackUrl ? (
+              <track kind="subtitles" src={captionTrackUrl} srcLang={captionLanguage} label="Captions" default={showCaptions} />
+            ) : null}
+          </video>
+
+          {captionText && !playbackFailed ? (
+            <>
+              <button
+                type="button"
+                className="absolute top-4 right-16 z-30 w-10 h-10 rounded-full flex items-center justify-center text-xs font-semibold text-white"
+                style={{ background: "rgba(255,255,255,0.15)", backdropFilter: "blur(8px)" }}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  setShowCaptions((visible) => {
+                    const next = !visible;
+                    trackVibeVideoEvent(VIBE_VIDEO_EVENTS.captionToggleChanged, {
+                      surface: "vibe_player_fullscreen",
+                      enabled: next,
+                    });
+                    return next;
+                  });
+                }}
+                aria-label={showCaptions ? "Hide captions" : "Show captions"}
+              >
+                CC
+              </button>
+              {showCaptions ? (
+                <div className="pointer-events-none absolute inset-x-8 bottom-28 z-20 rounded-md bg-black/65 px-3 py-2 text-center text-sm font-medium leading-snug text-white shadow-lg">
+                  {captionText}
+                </div>
+              ) : null}
+            </>
+          ) : null}
+
+          {prefersReducedMotion && !manualPlaybackRequested && !playbackFailed ? (
+            <button
+              type="button"
+              className="absolute inset-0 z-20 flex items-center justify-center bg-black/20 text-white"
+              onClick={(event) => {
+                event.stopPropagation();
+                setManualPlaybackRequested(true);
+              }}
+              aria-label="Play video"
+            >
+              <span className="flex h-16 w-16 items-center justify-center rounded-full bg-white/20 backdrop-blur-md">
+                <Play className="ml-1 h-8 w-8" />
+              </span>
+            </button>
+          ) : null}
 
           {playbackFailed && (
             <div

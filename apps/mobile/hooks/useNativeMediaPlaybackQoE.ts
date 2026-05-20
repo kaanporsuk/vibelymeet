@@ -1,9 +1,16 @@
 import { useCallback, useEffect, useMemo, useRef } from 'react';
 import { Platform } from 'react-native';
 import { trackEvent } from '@/lib/analytics';
-import { isMediaPlaybackQoeDegraded, recordMediaPlaybackRebuffer } from '@/lib/mediaPlaybackSessionPolicy';
+import {
+  isMediaPlaybackQoeDegraded,
+  mediaConnectionSnapshot,
+  recordMediaPlaybackRebuffer,
+  recordMediaPlaybackStartup,
+} from '@/lib/mediaPlaybackSessionPolicy';
+import { telemetrySafeSourceRef } from '../../../shared/media/telemetry-safe-ref';
 
 type NativeMediaPlaybackQoEOptions = {
+  enabled?: boolean;
   family: string;
   surface: string;
   provider?: string | null;
@@ -13,17 +20,8 @@ type NativeMediaPlaybackQoEOptions = {
   autoplay?: boolean;
 };
 
-function telemetrySafeSourceRef(value: string | null): string {
-  if (!value) return 'none';
-  if (/^https?:\/\//i.test(value)) return 'remote_url';
-  if (/^(file:|content:|assets-library:|ph:|data:)/i.test(value)) return 'local_media';
-  if (value.startsWith('bunny_stream:')) return 'bunny_stream_ref';
-  if (value.startsWith('bunny_storage:')) return 'bunny_storage_ref';
-  if (value.startsWith('profile_vibe_video:')) return 'profile_vibe_video_ref';
-  return 'opaque_ref';
-}
-
 export function useNativeMediaPlaybackQoE({
+  enabled = true,
   family,
   surface,
   provider = null,
@@ -40,8 +38,10 @@ export function useNativeMediaPlaybackQoE({
   const emittedRef = useRef(false);
 
   const emit = useCallback((reason: 'ended' | 'error' | 'unmount') => {
+    if (!enabled) return;
     if (emittedRef.current && reason !== 'error') return;
     emittedRef.current = true;
+    const connection = mediaConnectionSnapshot();
     trackEvent('media_playback_qoe', {
       family,
       surface,
@@ -55,12 +55,16 @@ export function useNativeMediaPlaybackQoE({
       muted,
       autoplay,
       device_class: `native_${Platform.OS}`,
+      connection_type: connection.connectionType,
+      effective_type: connection.effectiveType,
+      save_data: connection.saveData,
       qoe_degraded: isMediaPlaybackQoeDegraded(),
       platform_player: 'expo-video',
     });
-  }, [autoplay, family, messageId, muted, provider, sourceRef, surface]);
+  }, [autoplay, enabled, family, messageId, muted, provider, sourceRef, surface]);
 
   useEffect(() => {
+    if (!enabled) return;
     loadStartedAtMsRef.current = Date.now();
     startupMsRef.current = null;
     rebufferCountRef.current = 0;
@@ -70,36 +74,45 @@ export function useNativeMediaPlaybackQoE({
     return () => {
       emit('unmount');
     };
-  }, [emit, sourceRef]);
+  }, [emit, enabled, sourceRef]);
 
   return useMemo(() => ({
     markReady() {
+      if (!enabled) return;
       if (loadStartedAtMsRef.current !== null && startupMsRef.current === null) {
         startupMsRef.current = Math.max(0, Date.now() - loadStartedAtMsRef.current);
+        recordMediaPlaybackStartup(startupMsRef.current);
       }
       sawReadyRef.current = true;
       bufferingRef.current = false;
     },
     markBuffering() {
+      if (!enabled) return;
       if (!sawReadyRef.current || bufferingRef.current) return;
       bufferingRef.current = true;
       rebufferCountRef.current += 1;
       const degraded = recordMediaPlaybackRebuffer();
+      const connection = mediaConnectionSnapshot();
       trackEvent('media_playback_qoe_rebuffer', {
         family,
         surface,
         provider: provider ?? 'unknown',
         message_id: messageId ?? 'none',
         rebuffer_count: rebufferCountRef.current,
+        connection_type: connection.connectionType,
+        effective_type: connection.effectiveType,
+        save_data: connection.saveData,
         qoe_degraded: degraded,
         platform_player: 'expo-video',
       });
     },
     markEnded() {
+      if (!enabled) return;
       emit('ended');
     },
     markError() {
+      if (!enabled) return;
       emit('error');
     },
-  }), [emit, family, messageId, provider, surface]);
+  }), [emit, enabled, family, messageId, provider, surface]);
 }

@@ -551,7 +551,10 @@ test("native chat validates library and camera video before enqueue", () => {
   assert.match(nativeChat, /sizeBytes === 0[\s\S]{0,120}cleanupOutboxCacheUri/);
   assert.match(nativeChat, /sizeBytes > VIBE_CLIP_MAX_SOURCE_BYTES/);
   assert.match(nativeChat, /VIBE_CLIP_UPLOAD_LARGE_SOFT_WARNING/);
-  assert.match(nativeChat, /cameraType: ImagePicker\.CameraType\.front/);
+  assert.match(nativeChat, /function NativeVibeClipCameraModal/);
+  assert.match(nativeChat, /CameraView/);
+  assert.match(nativeChat, /recordAsync/);
+  assert.match(nativeChat, /useNativeCaptionCapture/);
   assert.match(nativeChat, /aspectRatioForVideoAsset\(asset\)/);
 });
 

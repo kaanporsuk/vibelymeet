@@ -1,10 +1,12 @@
 import { useEffect, type RefObject } from "react";
 import { trackEvent } from "@/lib/analytics";
 import {
+  recordMediaPlaybackStartup,
   isMediaPlaybackQoeDegraded,
   mediaConnectionSnapshot,
   recordMediaPlaybackRebuffer,
 } from "@/lib/mediaPlaybackSessionPolicy";
+import { telemetrySafeSourceRef } from "../../shared/media/telemetry-safe-ref";
 
 type UseMediaPlaybackQoEOptions = {
   enabled?: boolean;
@@ -32,16 +34,6 @@ function deviceClass(): "desktop" | "mobile" | "tablet" | "unknown" {
   if (/iPad|Tablet|PlayBook/i.test(ua) || (touchPoints > 1 && /Macintosh/i.test(ua))) return "tablet";
   if (/Mobi|Android|iPhone|iPod/i.test(ua)) return "mobile";
   return "desktop";
-}
-
-function telemetrySafeSourceRef(value: string | null): string {
-  if (!value) return "none";
-  if (/^https?:\/\//i.test(value)) return "remote_url";
-  if (/^(blob:|file:|data:)/i.test(value)) return "local_media";
-  if (value.startsWith("bunny_stream:")) return "bunny_stream_ref";
-  if (value.startsWith("bunny_storage:")) return "bunny_storage_ref";
-  if (value.startsWith("profile_vibe_video:")) return "profile_vibe_video_ref";
-  return "opaque_ref";
 }
 
 export function useMediaPlaybackQoE(
@@ -110,6 +102,7 @@ export function useMediaPlaybackQoE(
     const handlePlaying = () => {
       if (!sawPlaying && startupStartedAtMs !== null) {
         startupMs = Math.max(0, Math.round(performance.now() - startupStartedAtMs));
+        recordMediaPlaybackStartup(startupMs);
       }
       sawPlaying = true;
       buffering = false;

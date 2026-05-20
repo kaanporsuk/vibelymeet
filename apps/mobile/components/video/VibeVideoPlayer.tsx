@@ -2,9 +2,9 @@
  * Canonical native Vibe Video / HLS player — expo-video only.
  * Use for record preview, fullscreen HLS, and any other vibe-video playback surface.
  */
-import React, { useEffect, useRef, useState } from 'react';
-import { Image, StyleSheet, type StyleProp, type ViewStyle } from 'react-native';
-import { VideoView, useVideoPlayer } from 'expo-video';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { Image, Pressable, StyleSheet, Text, View, type StyleProp, type ViewStyle } from 'react-native';
+import { VideoView, useVideoPlayer, type VideoSource } from 'expo-video';
 import { resolveVibeVideoStreamHostnameSync } from '@/lib/vibeVideoPlaybackUrl';
 import { vibeVideoDiagVerbose } from '@/lib/vibeVideoDiagnostics';
 import { trackVibeVideoEvent, VIBE_VIDEO_EVENTS } from '@/lib/vibeVideoTelemetry';
@@ -15,8 +15,10 @@ import {
 } from '@/lib/expoSharedObjectSafe';
 import { useMediaAsset } from '@/hooks/useMediaAsset';
 import { useNativeMediaPlaybackQoE } from '@/hooks/useNativeMediaPlaybackQoE';
-import { useReduceMotion } from '@/hooks/useReduceMotion';
+import { useReduceMotionState } from '@/hooks/useReduceMotion';
 import { isProfileVibeVideoRef } from '@/lib/mediaAssetResolver';
+import { trackEvent } from '@/lib/analytics';
+import { captionTextFromMediaCaptions, type MediaCaptions } from '../../../../shared/media/captions';
 
 export type VibeVideoPlayerProps = {
   sourceUri: string;
@@ -34,6 +36,7 @@ export type VibeVideoPlayerProps = {
   onPlayerFatalError?: () => void;
   /** Fires when the current source plays through to its end (expo-video `playToEnd`). Not pause/seek/buffer. */
   onPlayToEnd?: () => void;
+  captions?: MediaCaptions | null;
   style?: StyleProp<ViewStyle>;
 };
 
@@ -47,13 +50,15 @@ export function VibeVideoPlayer({
   diagContext,
   onPlayerFatalError,
   onPlayToEnd,
+  captions,
   style,
 }: VibeVideoPlayerProps) {
   const warnedRef = useRef(false);
   const playbackAttemptedRef = useRef(false);
   const playbackSucceededRef = useRef(false);
   const signedResolveFailureReportedRef = useRef(false);
-  const reduceMotion = useReduceMotion();
+  const { reduceMotion, resolved: reduceMotionResolved } = useReduceMotionState();
+  const [manualPlaybackRequested, setManualPlaybackRequested] = useState(false);
   const usesSignedProfileRef = isProfileVibeVideoRef(sourceUri);
   const {
     url: mediaAssetUrl,
@@ -66,9 +71,20 @@ export function VibeVideoPlayer({
   });
   const playbackSourceUri = mediaAssetUrl ?? (usesSignedProfileRef ? '' : sourceUri);
   const [showPoster, setShowPoster] = useState(!!posterUri);
+  const [showCaptions, setShowCaptions] = useState(true);
+  const captionText = useMemo(() => captionTextFromMediaCaptions(captions), [captions]);
   const isRemoteHls = playbackSourceUri.startsWith('https://') || playbackSourceUri.startsWith('http://');
-  const effectivePlaying = playing && !reduceMotion;
+  const shouldAttachPlayback = Boolean(playbackSourceUri) &&
+    playing &&
+    reduceMotionResolved &&
+    (!reduceMotion || manualPlaybackRequested);
+  const effectivePlaying = shouldAttachPlayback;
+  const playerSource = useMemo<VideoSource>(() => (shouldAttachPlayback ? playbackSourceUri : null), [
+    playbackSourceUri,
+    shouldAttachPlayback,
+  ]);
   const qoe = useNativeMediaPlaybackQoE({
+    enabled: shouldAttachPlayback,
     family: usesSignedProfileRef ? 'profile_vibe_video' : 'vibe_video',
     surface: diagContext,
     provider: usesSignedProfileRef ? 'bunny_stream' : 'remote',
@@ -77,7 +93,7 @@ export function VibeVideoPlayer({
     muted: false,
   });
 
-  const player = useVideoPlayer(playbackSourceUri, (p) => {
+  const player = useVideoPlayer(playerSource, (p) => {
     p.loop = loop;
   });
 
@@ -97,6 +113,7 @@ export function VibeVideoPlayer({
     playbackAttemptedRef.current = false;
     playbackSucceededRef.current = false;
     signedResolveFailureReportedRef.current = false;
+    setManualPlaybackRequested(false);
   }, [playbackSourceUri]);
 
   useEffect(() => {
@@ -111,7 +128,7 @@ export function VibeVideoPlayer({
   }, [playbackSourceUri, posterUri]);
 
   useEffect(() => {
-    if (!playbackSourceUri) return;
+    if (!shouldAttachPlayback || !playbackSourceUri) return;
     vibeVideoDiagVerbose('player.load_start', {
       context: diagContext,
       isRemoteHls,
@@ -129,10 +146,10 @@ export function VibeVideoPlayer({
       swallowAll: true,
     });
     attachSafeExpoSharedObjectPromise(result, undefined, 'vibeVideo.player.replace');
-  }, [playbackSourceUri, player, diagContext, isRemoteHls]);
+  }, [playbackSourceUri, player, diagContext, isRemoteHls, shouldAttachPlayback]);
 
   useEffect(() => {
-    if (!playbackSourceUri) return;
+    if (!shouldAttachPlayback || !playbackSourceUri) return;
     const label = effectivePlaying ? 'vibeVideo.player.play' : 'vibeVideo.player.pause';
     if (effectivePlaying) {
       const result = safeExpoSharedObjectCall(() => player.play(), {
@@ -147,9 +164,19 @@ export function VibeVideoPlayer({
       });
       attachSafeExpoSharedObjectPromise(result, undefined, label);
     }
-  }, [effectivePlaying, playbackSourceUri, player]);
+  }, [effectivePlaying, playbackSourceUri, player, shouldAttachPlayback]);
 
   useEffect(() => {
+    if (shouldAttachPlayback) return;
+    const result = safeExpoSharedObjectCall(() => player.pause(), {
+      label: 'vibeVideo.player.pause.detached',
+      swallowAll: true,
+    });
+    attachSafeExpoSharedObjectPromise(result, undefined, 'vibeVideo.player.pause.detached');
+  }, [player, shouldAttachPlayback]);
+
+  useEffect(() => {
+    if (!shouldAttachPlayback) return;
     const sub = safeExpoSharedObjectCall(
       () => player.addListener('statusChange', (payload) => {
         const st = payload.status;
@@ -214,10 +241,10 @@ export function VibeVideoPlayer({
       },
     );
     return () => safeRemoveExpoSharedObjectSubscription(sub, 'vibeVideo.player.statusListener.remove');
-  }, [player, playbackSourceUri, isRemoteHls, diagContext, onPlayerFatalError, qoe]);
+  }, [player, playbackSourceUri, isRemoteHls, diagContext, onPlayerFatalError, qoe, shouldAttachPlayback]);
 
   useEffect(() => {
-    if (!onPlayToEnd) return;
+    if (!shouldAttachPlayback || !onPlayToEnd) return;
     const sub = safeExpoSharedObjectCall(
       () => player.addListener('playToEnd', () => {
         qoe.markEnded();
@@ -230,7 +257,7 @@ export function VibeVideoPlayer({
       },
     );
     return () => safeRemoveExpoSharedObjectSubscription(sub, 'vibeVideo.player.playToEndListener.remove');
-  }, [player, onPlayToEnd, qoe]);
+  }, [player, onPlayToEnd, qoe, shouldAttachPlayback]);
 
   useEffect(
     () => () => {
@@ -259,6 +286,42 @@ export function VibeVideoPlayer({
         contentFit={contentFit}
         onFirstFrameRender={() => setShowPoster(false)}
       />
+      {playing && reduceMotionResolved && reduceMotion && !manualPlaybackRequested && playbackSourceUri ? (
+        <Pressable
+          style={styles.reduceMotionPlayOverlay}
+          onPress={() => setManualPlaybackRequested(true)}
+          accessibilityRole="button"
+          accessibilityLabel="Play video"
+        >
+          <Text style={styles.reduceMotionPlayIcon}>Play</Text>
+        </Pressable>
+      ) : null}
+      {captionText ? (
+        <>
+          {showCaptions ? (
+            <View style={styles.captionOverlay} pointerEvents="none">
+              <Text style={styles.captionText} numberOfLines={3}>{captionText}</Text>
+            </View>
+          ) : null}
+          <Pressable
+            style={styles.captionToggle}
+            onPress={() => {
+              const next = !showCaptions;
+              setShowCaptions(next);
+              trackEvent('caption_toggle_changed', {
+                surface: diagContext,
+                platform: 'native',
+                enabled: next,
+                media_kind: usesSignedProfileRef ? 'profile_vibe_video' : 'vibe_video',
+              });
+            }}
+            accessibilityRole="button"
+            accessibilityLabel={showCaptions ? 'Hide captions' : 'Show captions'}
+          >
+            <Text style={styles.captionToggleText}>CC</Text>
+          </Pressable>
+        </>
+      ) : null}
     </>
   );
 }
@@ -266,6 +329,66 @@ export function VibeVideoPlayer({
 const styles = StyleSheet.create({
   posterZ: { zIndex: 0 },
   videoZ: { zIndex: 1 },
+  captionOverlay: {
+    position: 'absolute',
+    left: 16,
+    right: 16,
+    bottom: 54,
+    zIndex: 4,
+    alignItems: 'center',
+  },
+  captionText: {
+    overflow: 'hidden',
+    borderRadius: 12,
+    backgroundColor: 'rgba(0,0,0,0.62)',
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '600',
+    lineHeight: 19,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    textAlign: 'center',
+  },
+  captionToggle: {
+    position: 'absolute',
+    right: 14,
+    bottom: 12,
+    zIndex: 5,
+    minWidth: 42,
+    minHeight: 32,
+    borderRadius: 999,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(0,0,0,0.62)',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(255,255,255,0.24)',
+  },
+  captionToggleText: {
+    color: '#fff',
+    fontSize: 12,
+    fontWeight: '800',
+    letterSpacing: 0.4,
+  },
+  reduceMotionPlayOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    zIndex: 6,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(0,0,0,0.16)',
+  },
+  reduceMotionPlayIcon: {
+    overflow: 'hidden',
+    minWidth: 64,
+    minHeight: 44,
+    borderRadius: 999,
+    backgroundColor: 'rgba(0,0,0,0.62)',
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '800',
+    lineHeight: 44,
+    paddingHorizontal: 18,
+    textAlign: 'center',
+  },
 });
 
 export default VibeVideoPlayer;

@@ -29,6 +29,7 @@ export type MyProfileSettingsRow = Record<string, unknown> & {
   bunny_video_status?: string | null;
   vibe_video_status?: string | null;
   vibe_caption?: string | null;
+  vibe_video_captions?: unknown;
   photo_verified?: boolean | null;
   photo_verified_at?: string | null;
   photo_verification_expires_at?: string | null;

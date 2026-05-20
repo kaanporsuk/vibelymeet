@@ -7,16 +7,17 @@ export function useMediaVideoPreloadForVisibility(
   isVisible: boolean,
   sourceUrl: string | null | undefined,
   bytesEstimate = DEFAULT_METADATA_PREWARM_ESTIMATE_BYTES,
+  disabled = false,
 ): "metadata" | "none" {
   const [preload, setPreload] = useState<"metadata" | "none">("none");
 
   useEffect(() => {
-    if (!isVisible || !sourceUrl) {
+    if (disabled || !isVisible || !sourceUrl) {
       setPreload("none");
       return;
     }
     setPreload(reserveMediaPrewarmBudgetForSource(sourceUrl, bytesEstimate) ? "metadata" : "none");
-  }, [bytesEstimate, isVisible, sourceUrl]);
+  }, [bytesEstimate, disabled, isVisible, sourceUrl]);
 
   return preload;
 }

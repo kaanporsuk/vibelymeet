@@ -25,6 +25,7 @@ import { invalidateAfterThreadMutation } from "@/hooks/useMessages";
 import { trackVibeClipEvent } from "@/lib/vibeClipAnalytics";
 import type { WebChatOutboxItem, WebChatOutboxPayload, WebChatOutboxQueueState } from "@/lib/webChatOutbox/types";
 import type { ThreadInvalidateScope } from "../../shared/chat/queryKeys";
+import { getSessionUploadSummary, type SessionUploadSummary } from "../../shared/media/session-upload-summary";
 import {
   mediaUploadSuspendedRecoveryTelemetry,
   type MediaUploadSuspendedRecoveryOutcome,
@@ -178,6 +179,7 @@ type WebChatOutboxContextValue = {
   items: WebChatOutboxItem[];
   staleVibeClipUploads: VibeClipServerUpload[];
   recoveryAttentionCount: number;
+  sessionUploadSummary: SessionUploadSummary;
   enqueue: (input: {
     matchId: string;
     otherUserId: string;
@@ -186,6 +188,7 @@ type WebChatOutboxContextValue = {
     invalidateScope?: ThreadInvalidateScope;
   }) => string | null;
   retry: (itemId: string) => void;
+  retryAllFailed: () => void;
   retryVibeClipUpload: (clientRequestId: string, resumeStrategy?: VibeClipRecoveryResumeStrategy | null) => void;
   remove: (itemId: string) => void;
   itemsForMatch: (matchId: string) => WebChatOutboxItem[];
@@ -202,6 +205,7 @@ export function WebChatOutboxProvider({ children }: { children: ReactNode }) {
   const userId = user?.id ?? null;
   const [items, setItems] = useState<WebChatOutboxItem[]>([]);
   const [staleVibeClipUploads, setStaleVibeClipUploads] = useState<VibeClipServerUpload[]>([]);
+  const [sessionUploadStats, setSessionUploadStats] = useState({ enqueued: 0, succeeded: 0, failed: 0 });
   const itemsRef = useRef(items);
   const processingRef = useRef<Set<string>>(new Set());
 
@@ -266,6 +270,9 @@ export function WebChatOutboxProvider({ children }: { children: ReactNode }) {
         invalidateScope: input.invalidateScope,
       };
       setItems((prev) => [...prev, item].sort((a, b) => a.createdAtMs - b.createdAtMs));
+      if (isMediaOutboxItem(item)) {
+        setSessionUploadStats((prev) => ({ ...prev, enqueued: prev.enqueued + 1 }));
+      }
       return id;
     },
     [userId],
@@ -292,6 +299,23 @@ export function WebChatOutboxProvider({ children }: { children: ReactNode }) {
   const retry = useCallback((itemId: string) => {
     retryVibeClipUpload(itemId, null);
   }, [retryVibeClipUpload]);
+
+  const retryAllFailed = useCallback(() => {
+    setItems((prev) =>
+      prev.map((it) =>
+        it.state === "failed"
+          ? {
+              ...it,
+              state: isOnline() ? ("queued" as const) : ("waiting_for_network" as const),
+              lastError: undefined,
+              nextRetryAtMs: undefined,
+              uploadProgress: undefined,
+              updatedAtMs: Date.now(),
+            }
+          : it,
+      ),
+    );
+  }, []);
 
   const remove = useCallback((itemId: string) => {
     const toCleanup: string[] = [];
@@ -545,6 +569,9 @@ export function WebChatOutboxProvider({ children }: { children: ReactNode }) {
                 : it,
             ),
           );
+          if (isMediaOutboxItem(item)) {
+            setSessionUploadStats((prev) => ({ ...prev, succeeded: prev.succeeded + 1 }));
+          }
           invalidateAfterThreadMutation(queryClient, item.invalidateScope);
           continue;
         }
@@ -666,6 +693,9 @@ export function WebChatOutboxProvider({ children }: { children: ReactNode }) {
                 : it,
             ),
           );
+          if (isMediaOutboxItem(next)) {
+            setSessionUploadStats((prev) => ({ ...prev, failed: prev.failed + 1 }));
+          }
         } finally {
           processingRef.current.delete(next.id);
         }
@@ -679,8 +709,21 @@ export function WebChatOutboxProvider({ children }: { children: ReactNode }) {
       items,
       staleVibeClipUploads,
       recoveryAttentionCount,
+      sessionUploadSummary: getSessionUploadSummary({
+        enqueued: sessionUploadStats.enqueued,
+        succeeded: sessionUploadStats.succeeded,
+        failed: sessionUploadStats.failed,
+        failedInQueue: items.filter((it) => isMediaOutboxItem(it) && it.state === "failed").length,
+        inFlight: items.filter((it) =>
+          isMediaOutboxItem(it) && (it.state === "sending" || it.state === "awaiting_hydration")
+        ).length,
+        queued: items.filter((it) =>
+          isMediaOutboxItem(it) && (it.state === "queued" || it.state === "waiting_for_network")
+        ).length,
+      }),
       enqueue,
       retry,
+      retryAllFailed,
       retryVibeClipUpload,
       remove,
       itemsForMatch,
@@ -693,8 +736,10 @@ export function WebChatOutboxProvider({ children }: { children: ReactNode }) {
       items,
       staleVibeClipUploads,
       recoveryAttentionCount,
+      sessionUploadStats,
       enqueue,
       retry,
+      retryAllFailed,
       retryVibeClipUpload,
       remove,
       itemsForMatch,

@@ -86,6 +86,7 @@ import { format, startOfDay, addDays } from "date-fns";
 import { trackEvent } from "@/lib/analytics";
 import { useQueryClient } from "@tanstack/react-query";
 import { useUserProfile } from "@/contexts/AuthContext";
+import type { MediaCaptions } from "../../shared/media/captions";
 
 const PhotoManageDrawer = lazy(() => import("@/components/photos/PhotoManageDrawer"));
 const VibeVideoFullscreenPlayer = lazy(() =>
@@ -142,6 +143,7 @@ interface UserProfile {
   bunnyVideoUid: string | null;
   bunnyVideoStatus: string;
   vibeCaption: string;
+  vibeVideoCaptions: MediaCaptions | null;
   stats: {
     events: number;
     matches: number;
@@ -177,6 +179,7 @@ const initialProfile: UserProfile = {
   bunnyVideoUid: null,
   bunnyVideoStatus: "none",
   vibeCaption: "",
+  vibeVideoCaptions: null,
   stats: { events: 0, matches: 0, conversations: 0 },
   vibeScore: 0,
   vibeScoreLabel: "New",
@@ -392,6 +395,7 @@ const ProfileStudio = () => {
             bunnyVideoUid: data.bunnyVideoUid || null,
             bunnyVideoStatus: data.bunnyVideoStatus || "none",
             vibeCaption: data.vibeCaption || "",
+            vibeVideoCaptions: data.vibeVideoCaptions ?? null,
             stats: data.stats,
             vibeScore: data.vibeScore ?? 0,
             vibeScoreLabel: data.vibeScoreLabel ?? "New",
@@ -553,6 +557,7 @@ const ProfileStudio = () => {
         bunnyVideoStatus: "ready",
         updatedAt: profile.updatedAt,
         vibeCaption: profile.vibeCaption,
+        captions: profile.vibeVideoCaptions,
       };
     }
     return {
@@ -561,6 +566,7 @@ const ProfileStudio = () => {
       bunnyVideoStatus: profile.bunnyVideoStatus,
       updatedAt: profile.updatedAt,
       vibeCaption: profile.vibeCaption,
+      captions: profile.vibeVideoCaptions,
     };
   }, [
     heroVideoUpload.phase,
@@ -570,6 +576,7 @@ const ProfileStudio = () => {
     profile.bunnyVideoStatus,
     profile.updatedAt,
     profile.vibeCaption,
+    profile.vibeVideoCaptions,
   ]);
   const resolvedVibeVideo = useMemo(
     () =>
@@ -2133,6 +2140,7 @@ const ProfileStudio = () => {
             bunnyVideoUid={effectiveVibeVideo.bunnyVideoUid}
             bunnyVideoStatus={effectiveVibeVideo.bunnyVideoStatus}
             vibeCaption={effectiveVibeVideo.vibeCaption}
+            captions={effectiveVibeVideo.captions}
             onClose={() => setShowVibePlayer(false)}
           />
         ) : null}

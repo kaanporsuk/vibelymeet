@@ -351,6 +351,7 @@ export function OtherUserFullProfileView({
                       videoUrl={vibeVideoPlaybackUrl}
                       thumbnailUrl={vibeVideoThumbnailUrl ?? undefined}
                       vibeCaption={vibeVideo.caption ?? undefined}
+                      captions={vibeVideo.captions}
                       className="aspect-video"
                       backendReportsReady
                     />
