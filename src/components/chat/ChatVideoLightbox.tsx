@@ -48,6 +48,10 @@ export function ChatVideoLightbox({
   const [playablePosterUrl, setPlayablePosterUrl] = useState(posterUrl ?? null);
   const playbackRefreshAttemptCountRef = useRef(0);
   const playableVideoUrlRef = useRef(playableVideoUrl);
+  const onCloseRef = useRef(onClose);
+  const onResolvedVideoUrlRef = useRef(onResolvedVideoUrl);
+  const onResolvedThumbnailUrlRef = useRef(onResolvedThumbnailUrl);
+  const refreshMediaRef = useRef<((reason?: LightboxMediaRefreshReason) => Promise<boolean>) | null>(null);
   const { url: videoAssetUrl, refresh: refreshVideoAsset } = useMediaAsset({
     kind: mediaKind,
     messageId,
@@ -64,6 +68,18 @@ export function ChatVideoLightbox({
     autoResolve: false,
     onResolvedUrl: onResolvedThumbnailUrl,
   });
+
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  }, [onClose]);
+
+  useEffect(() => {
+    onResolvedVideoUrlRef.current = onResolvedVideoUrl;
+  }, [onResolvedVideoUrl]);
+
+  useEffect(() => {
+    onResolvedThumbnailUrlRef.current = onResolvedThumbnailUrl;
+  }, [onResolvedThumbnailUrl]);
 
   const resetPhase = useCallback(() => setPhase("loading"), []);
   const revealPlayer = useCallback(() => {
@@ -84,11 +100,11 @@ export function ChatVideoLightbox({
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
+      if (e.key === "Escape") onCloseRef.current();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
+  }, []);
 
   useEffect(() => {
     playableVideoUrlRef.current = playableVideoUrl;
@@ -120,21 +136,23 @@ export function ChatVideoLightbox({
       : null;
     if (freshPosterUrl) {
       setPlayablePosterUrl(freshPosterUrl);
-      onResolvedThumbnailUrl?.(freshPosterUrl);
+      onResolvedThumbnailUrlRef.current?.(freshPosterUrl);
     }
     if (!freshVideoUrl || freshVideoUrl === currentUrl) return false;
     setPlayableVideoUrl(freshVideoUrl);
-    onResolvedVideoUrl?.(freshVideoUrl);
+    onResolvedVideoUrlRef.current?.(freshVideoUrl);
     return true;
   }, [
     messageId,
-    onResolvedThumbnailUrl,
-    onResolvedVideoUrl,
     refreshPosterAsset,
     refreshVideoAsset,
     thumbnailSourceRef,
     videoSourceRef,
   ]);
+
+  useEffect(() => {
+    refreshMediaRef.current = refreshMedia;
+  }, [refreshMedia]);
 
   useEffect(() => {
     playableVideoUrlRef.current = videoUrl;
@@ -144,7 +162,12 @@ export function ChatVideoLightbox({
     resetPhase();
     const v = videoRef.current;
     if (!isPlayableMediaUrl(videoUrl) && videoSourceRef) {
-      void refreshMedia("initial").then((didRefresh) => {
+      const refresh = refreshMediaRef.current;
+      if (!refresh) {
+        setPhase("error");
+        return;
+      }
+      void refresh("initial").then((didRefresh) => {
         if (!didRefresh) setPhase("error");
       });
       return;
@@ -161,7 +184,7 @@ export function ChatVideoLightbox({
       window.clearTimeout(t);
       v.pause();
     };
-  }, [posterUrl, prefersReducedMotion, refreshMedia, resetPhase, revealPlayer, videoSourceRef, videoUrl]);
+  }, [posterUrl, prefersReducedMotion, resetPhase, revealPlayer, videoSourceRef, videoUrl]);
 
   const handlePlaybackAttachError = useCallback(() => {
     void refreshMedia().then((didRefresh) => {

@@ -130,6 +130,57 @@ test("Phase 9 reduce-motion defaults, animation gates, and preload policy are pi
   assert.match(webRecorder, /controls=\{prefersReducedMotion\}/);
 });
 
+test("chat shared video playback keeps HLS attached when only callback props change", () => {
+  const mediaAssetHook = read("src/hooks/useMediaAsset.ts");
+
+  assert.match(mediaAssetHook, /const onAutoplayBlockedRef = useRef\(onAutoplayBlocked\)/);
+  assert.match(mediaAssetHook, /const onManifestParsedRef = useRef\(onManifestParsed\)/);
+  assert.match(mediaAssetHook, /const onErrorRef = useRef\(onError\)/);
+  assert.match(mediaAssetHook, /onAutoplayBlocked: \(detail\) => onAutoplayBlockedRef\.current\?\.\(detail\)/);
+  assert.match(mediaAssetHook, /onManifestParsed: \(\) => onManifestParsedRef\.current\?\.\(\)/);
+  assert.match(mediaAssetHook, /onError: \(kind, detail\) => onErrorRef\.current\?\.\(kind, detail\)/);
+  assert.ok(mediaAssetHook.includes("}, [autoPlay, enabled, sourceUrl, videoRef]);"));
+  assert.doesNotMatch(
+    mediaAssetHook,
+    /\[autoPlay, enabled, onAutoplayBlocked, onError, onManifestParsed, sourceUrl, videoRef\]/,
+  );
+});
+
+test("chat shared video lightbox does not reset loading phase for unchanged media URLs", () => {
+  const chatVideoLightbox = read("src/components/chat/ChatVideoLightbox.tsx");
+
+  assert.match(
+    chatVideoLightbox,
+    /const refreshMediaRef = useRef<\(\(reason\?: LightboxMediaRefreshReason\) => Promise<boolean>\) \| null>\(null\)/,
+  );
+  assert.match(chatVideoLightbox, /refreshMediaRef\.current = refreshMedia/);
+  assert.match(chatVideoLightbox, /const refresh = refreshMediaRef\.current/);
+  assert.ok(
+    chatVideoLightbox.includes("}, [posterUrl, prefersReducedMotion, resetPhase, revealPlayer, videoSourceRef, videoUrl]);"),
+  );
+  assert.doesNotMatch(
+    chatVideoLightbox,
+    /\[posterUrl, prefersReducedMotion, refreshMedia, resetPhase, revealPlayer, videoSourceRef, videoUrl\]/,
+  );
+});
+
+test("chat shared video callbacks are stable across row and lightbox rerenders", () => {
+  const webChat = read("src/pages/Chat.tsx");
+
+  assert.match(webChat, /const handleResolvedVideoUrl = useCallback/);
+  assert.match(webChat, /const handleResolvedThumbnailUrl = useCallback/);
+  assert.match(webChat, /const handleRequestClipImmersive = useCallback/);
+  assert.match(webChat, /onResolvedVideoUrl=\{handleResolvedVideoUrl\}/);
+  assert.match(webChat, /onResolvedThumbnailUrl=\{handleResolvedThumbnailUrl\}/);
+  assert.match(webChat, /onRequestImmersive=\{handleRequestClipImmersive\}/);
+  assert.match(webChat, /const handleVideoLightboxResolvedVideoUrl = useCallback/);
+  assert.match(webChat, /const handleVideoLightboxResolvedThumbnailUrl = useCallback/);
+  assert.match(webChat, /onResolvedVideoUrl=\{handleVideoLightboxResolvedVideoUrl\}/);
+  assert.match(webChat, /onResolvedThumbnailUrl=\{handleVideoLightboxResolvedThumbnailUrl\}/);
+  assert.match(webChat, /onClose=\{closeVideoLightbox\}/);
+  assert.doesNotMatch(webChat, /onResolvedVideoUrl=\{\(url\) => onResolvedVideoUrl\?\.\(message\.id, url\)\}/);
+});
+
 test("Phase 9 caption parser validates shape, size, language, and WebVTT escaping", () => {
   assert.equal(parseMediaCaptions(null), null);
   assert.equal(parseMediaCaptions(" hello "), "hello");
