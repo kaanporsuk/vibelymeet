@@ -214,6 +214,7 @@ export function WebChatOutboxProvider({ children }: { children: ReactNode }) {
   }, [items]);
 
   useEffect(() => {
+    setSessionUploadStats({ enqueued: 0, succeeded: 0, failed: 0 });
     if (!userId) {
       setItems([]);
       setStaleVibeClipUploads([]);
@@ -693,7 +694,7 @@ export function WebChatOutboxProvider({ children }: { children: ReactNode }) {
                 : it,
             ),
           );
-          if (isMediaOutboxItem(next)) {
+          if (isMediaOutboxItem(next) && !treatAsOfflineWait) {
             setSessionUploadStats((prev) => ({ ...prev, failed: prev.failed + 1 }));
           }
         } finally {

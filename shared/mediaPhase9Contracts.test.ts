@@ -183,6 +183,9 @@ test("Phase 9 caption parity covers web/native chat clips and profile Vibe Video
   assert.match(createVideoUpload, /normalizeMediaCaptions/);
   assert.match(createVideoUpload, /invalid_captions/);
   assert.match(createVideoUpload, /vibe_video_captions/);
+  assert.doesNotMatch(createVideoUpload, /if \(captions\) \{[\s\S]*vibe_video_captions/);
+  assert.match(createVideoUpload, /\.update\(\{ vibe_video_captions: captions \}\)/);
+  assert.match(createVideoUpload, /\.update\(\{ captions \}\)/);
   assert.match(webVibePlayer, /captions\?: MediaCaptions/);
   assert.match(webFullscreen, /captions\?: MediaCaptions/);
   assert.match(nativePlayer, /captionTextFromMediaCaptions/);
@@ -210,8 +213,12 @@ test("Phase 9 user-facing media health panel and retry surfaces are wired", () =
   }
   assert.match(webOutbox, /getSessionUploadSummary/);
   assert.match(webOutbox, /retryAllFailed/);
+  assert.match(webOutbox, /setSessionUploadStats\(\{ enqueued: 0, succeeded: 0, failed: 0 \}\)/);
+  assert.match(webOutbox, /isMediaOutboxItem\(next\) && !treatAsOfflineWait/);
   assert.match(nativeOutbox, /getSessionUploadSummary/);
   assert.match(nativeOutbox, /retryAllFailed/);
+  assert.match(nativeOutbox, /setSessionUploadStats\(\{ enqueued: 0, succeeded: 0, failed: 0 \}\)/);
+  assert.match(nativeOutbox, /isMediaOutboxItem\(next\) && !treatAsOfflineWait/);
   assert.match(chatHeader, /onOpenMediaHealth/);
   assert.match(webChat, /MediaHealthPanel/);
   assert.match(nativeActions, /onOpenMediaHealth/);
