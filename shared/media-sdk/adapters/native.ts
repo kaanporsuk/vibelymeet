@@ -15,6 +15,7 @@ import {
   type MediaUploadQueueReconciler,
   type MediaUploadReconcileResult,
 } from "../core/reconcile";
+import { mediaBackgroundUploadPolicyTelemetryFields } from "../background-upload-policy";
 import type {
   MediaPhotoUploadInput,
   MediaUploadInput,
@@ -670,9 +671,21 @@ function withNativeDefaults(options: NativeMediaSdkOptions): ResolvedNativeMedia
   };
 }
 
+function emitNativeMediaSdkInitialized(telemetry: MediaTelemetry, platform: ResolvedNativeMediaSdkOptions["platform"]): void {
+  try {
+    telemetry.emit({
+      name: "media_sdk_initialized",
+      platform,
+      fields: mediaBackgroundUploadPolicyTelemetryFields(),
+    });
+  } catch {
+  }
+}
+
 export function createNativeMediaSdk(options: NativeMediaSdkOptions = {}): NativeMediaSdk {
   const resolved = withNativeDefaults(options);
   const activeRehydratedTaskIds = new Set<string>();
+  emitNativeMediaSdkInitialized(resolved.telemetry, resolved.platform);
   return {
     video: {
       upload: (input) => createNativeUploadTask(input as NativeMediaUploadInput, resolved),

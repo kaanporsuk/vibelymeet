@@ -120,6 +120,7 @@ import {
 import { threadMessagesQueryKey } from '../../../../shared/chat/queryKeys';
 import {
   buildVibeClipRecovery,
+  mediaUploadSuspendedRecoveryTelemetry,
   type VibeClipRecoveryDecision,
   type VibeClipRecoveryResumeStrategy,
   type VibeClipServerUpload,
@@ -435,6 +436,7 @@ function nativeOutboxVibeClipSummary(item: ChatOutboxItem | undefined) {
     state: item.state,
     uploadProgress: item.uploadProgress,
     lastError: item.lastError,
+    updatedAtMs: item.updatedAtMs,
   };
 }
 
@@ -2849,6 +2851,7 @@ export default function ChatThreadScreen() {
                   openVideoMessageOptions();
                 },
                 (trigger, decision) => {
+                  const recoveryOutcome = trigger === 'manual_resume' ? 'resumed' : 'discarded';
                   trackVibeClipEvent('clip_recovery_status', {
                     trigger,
                     outcome: decision.telemetryOutcome,
@@ -2857,6 +2860,16 @@ export default function ChatThreadScreen() {
                     server_status: serverUpload?.status ?? 'none',
                     latency_ms: 0,
                   });
+                  trackVibeClipEvent('media_upload_suspended_recovery', mediaUploadSuspendedRecoveryTelemetry({
+                    clientRequestId,
+                    trigger,
+                    recoveryOutcome,
+                    nowMs: Date.now(),
+                    serverUpload: serverUpload ?? null,
+                    outboxItem: nativeOutboxVibeClipSummary(outboxItem),
+                    localSourcePresent: outboxItemId ? vibeClipLocalSourceById[outboxItemId] === true : false,
+                    resumeStrategy: decision.resumeStrategy,
+                  }));
                 },
               )}
             />

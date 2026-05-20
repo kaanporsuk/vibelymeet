@@ -44,9 +44,9 @@ npx expo run:ios
 ```
 
 - **Behavior:** Runs `pod install` (if needed), then Xcode build for the `mobile` scheme, then launches the app on the default simulator (or device if selected). Starts Metro bundler unless you pass `--no-bundler`.
-- **Alternative (build only, no launch):**  
+- **Alternative (build only, no launch):**
   `npx expo run:ios --no-bundler` — builds the native app and installs on simulator without starting the dev server (useful for verifying compile-only).
-- **Alternative (specific simulator):**  
+- **Alternative (specific simulator):**
   `npx expo run:ios --device "iPhone 16"` (or another simulator name from `xcrun simctl list devices`).
 
 ### Step 3: Open in Xcode (optional, for debugging)
@@ -112,7 +112,7 @@ open ios/mobile.xcworkspace
 
 ### Provider-side blocker
 
-- Unchanged from Phase 7 Stage 5: RevenueCat/OneSignal/Daily proof still require real device or simulator runs and provider dashboards (see `docs/phase7-stage5-release-readiness-and-go-nogo.md` and `docs/native-final-blocker-matrix.md`).
+- Unchanged from Phase 7 Stage 5: RevenueCat/OneSignal/Daily proof still require real device or simulator runs and provider dashboards (see `docs/native-release-readiness/stage5-release-readiness-and-go-nogo.md` and `docs/native-final-blocker-matrix.md`).
 
 ### Non-blocking
 

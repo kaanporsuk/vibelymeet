@@ -62,7 +62,7 @@ Repo-declared iOS capabilities/permissions:
 - Apple Sign In: `usesAppleSignIn: true`
 - Push entitlement: `aps-environment` is owned by `onesignal-expo-plugin` during native generation.
 - OneSignal mode: `app.config.js` sets `development` locally and `production` for EAS `preview` and `production`.
-- Background modes: `remote-notification`, `voip`
+- Background modes: `remote-notification`, `audio` (`voip` is intentionally not requested without PushKit incoming-call support)
 - Camera, microphone, photo library, and location usage descriptions
 - OneSignal Notification Service Extension with app group `group.com.vibelymeet.vibely.onesignal`
 

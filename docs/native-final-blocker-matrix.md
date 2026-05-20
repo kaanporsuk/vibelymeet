@@ -142,4 +142,4 @@ npm run rc-smoke
 - Video-date hardening closure handoff: `docs/video-date-hardening-closure-handoff.md`
 - Operator execution sheet: `docs/kaan-launch-closure-execution-sheet.md`
 - Canonical launch runbook: `docs/native-launch-closure-master-runbook.md`
-- Strict go/no-go background: `docs/phase7-stage5-release-readiness-and-go-nogo.md`
+- Strict go/no-go background: `docs/native-release-readiness/stage5-release-readiness-and-go-nogo.md`

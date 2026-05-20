@@ -29,7 +29,7 @@ Sprint 5 implements the real video date room on mobile using the same backend an
 ## Video provider integration
 
 - **SDK:** `@daily-co/react-native-daily-js` + `@daily-co/react-native-webrtc` (exact version 124.0.6-daily.1). Expo: `@daily-co/config-plugin-rn-daily-js` in `app.json` plugins.
-- **Native config:** iOS: `NSCameraUsageDescription`, `NSMicrophoneUsageDescription`, `UIBackgroundModes` including `voip`. Android: permissions and foreground service are configured by the Expo config plugin (development build required; not Expo Go).
+- **Native config:** iOS: `NSCameraUsageDescription`, `NSMicrophoneUsageDescription`, `UIBackgroundModes` limited to `remote-notification` and `audio` for push delivery plus active-call media continuity. `voip` is intentionally not requested without a PushKit incoming-call stack. Android: permissions and foreground service are configured by the Expo config plugin (development build required; not Expo Go).
 - **Same backend:** No new Edge Functions or RPCs; mobile uses existing `daily-room` and `video_date_transition`.
 
 ## Backend / shared changes

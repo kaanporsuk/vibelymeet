@@ -9,22 +9,30 @@ import { useChatOutbox } from '@/lib/chatOutbox/ChatOutboxContext';
  */
 export function ChatOutboxRunner() {
   const queryClient = useQueryClient();
-  const { processTick } = useChatOutbox();
+  const { processTick, runVibeClipRecoverySweep } = useChatOutbox();
 
   const tick = useCallback(async () => {
     await processTick(queryClient);
   }, [processTick, queryClient]);
 
+  const sweep = useCallback(async (trigger: 'mount_sweep' | 'foreground') => {
+    await runVibeClipRecoverySweep(trigger, null);
+  }, [runVibeClipRecoverySweep]);
+
   useEffect(() => {
     void tick();
-  }, [tick]);
+    void sweep('mount_sweep');
+  }, [sweep, tick]);
 
   useEffect(() => {
     const unsubNet = connectivityService.subscribe(() => {
       void tick();
     });
     const onAppState = (next: AppStateStatus) => {
-      if (next === 'active') void tick();
+      if (next === 'active') {
+        void tick();
+        void sweep('foreground');
+      }
     };
     const subApp = AppState.addEventListener('change', onAppState);
     const interval = setInterval(() => {
@@ -35,7 +43,7 @@ export function ChatOutboxRunner() {
       subApp.remove();
       clearInterval(interval);
     };
-  }, [tick]);
+  }, [sweep, tick]);
 
   return null;
 }

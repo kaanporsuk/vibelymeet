@@ -147,5 +147,5 @@ npx expo config --type prebuild
 **Reference docs:**  
 - Full checklist: `docs/native-external-setup-checklist.md`.  
 - Runbook order: `docs/native-sprint6-launch-closure-runbook.md`.  
-- iOS build/runtime: `docs/phase7-stage4-ios-build-and-runtime-validation.md`.  
+- iOS build/runtime: `docs/native-release-readiness/stage4-ios-build-and-runtime-validation.md`.
 - Manual tests: `docs/native-manual-test-matrix.md`.

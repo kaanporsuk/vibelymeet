@@ -3,9 +3,12 @@ import test from "node:test";
 
 import {
   buildVibeClipRecovery,
+  mediaUploadSuspendedRecoveryTelemetry,
   type VibeClipRecoveryOutboxSummary,
   type VibeClipServerUpload,
 } from "./vibeClipRecovery";
+import { VIBE_CLIP_EVENTS } from "./vibeClipAnalytics";
+import { sanitizeProductIntelligenceProperties } from "../analytics/productIntelligence";
 
 const NOW = Date.parse("2026-05-20T12:00:00.000Z");
 
@@ -128,4 +131,45 @@ test("sync self-healed ready published rows hide the recovery panel", () => {
   });
 
   assert.equal(decision, null);
+});
+
+test("suspended recovery telemetry preserves Phase 7 background-would-have-helped fields", () => {
+  assert.equal(VIBE_CLIP_EVENTS.media_upload_suspended_recovery, "media_upload_suspended_recovery");
+
+  const fields = mediaUploadSuspendedRecoveryTelemetry({
+    clientRequestId: "client-123",
+    trigger: "manual_resume",
+    recoveryOutcome: "resumed",
+    nowMs: NOW,
+    serverUpload: server({ updatedAt: "2026-05-20T11:58:30.000Z" }),
+    outboxItem: outbox({ uploadProgress: 0.42, updatedAtMs: NOW - 120_000 }),
+    localSourcePresent: true,
+    resumeStrategy: "tus_offset",
+  });
+
+  assert.deepEqual(fields, {
+    family: "chat_vibe_clip",
+    client_request_id: "client-123",
+    suspension_duration_ms: 90_000,
+    bytes_already_uploaded_pct: 42,
+    recovery_outcome: "resumed",
+    trigger: "manual_resume",
+    resume_strategy: "tus_offset",
+    local_source_present: true,
+    server_status: "uploading",
+    would_benefit_from_background: true,
+  });
+  assert.deepEqual(sanitizeProductIntelligenceProperties(fields, { platform: "web" }), {
+    platform: "web",
+    family: "chat_vibe_clip",
+    client_request_id: "client-123",
+    suspension_duration_ms: 90_000,
+    bytes_already_uploaded_pct: 42,
+    recovery_outcome: "resumed",
+    trigger: "manual_resume",
+    resume_strategy: "tus_offset",
+    local_source_present: true,
+    server_status: "uploading",
+    would_benefit_from_background: true,
+  });
 });

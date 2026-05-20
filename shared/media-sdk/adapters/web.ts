@@ -15,6 +15,7 @@ import {
   type MediaUploadQueueReconciler,
   type MediaUploadReconcileResult,
 } from "../core/reconcile";
+import { mediaBackgroundUploadPolicyTelemetryFields } from "../background-upload-policy";
 import type {
   MediaPhotoUploadInput,
   MediaUploadInput,
@@ -435,9 +436,21 @@ function withWebDefaults(options: WebMediaSdkOptions): ResolvedWebMediaSdkOption
   };
 }
 
+function emitWebMediaSdkInitialized(telemetry: MediaTelemetry): void {
+  try {
+    telemetry.emit({
+      name: "media_sdk_initialized",
+      platform: "web",
+      fields: mediaBackgroundUploadPolicyTelemetryFields(),
+    });
+  } catch {
+  }
+}
+
 export function createWebMediaSdk(options: WebMediaSdkOptions = {}): WebMediaSdk {
   const resolved = withWebDefaults(options);
   const activeRehydratedTaskIds = new Set<string>();
+  emitWebMediaSdkInitialized(resolved.telemetry);
   return {
     video: {
       upload: (input) => createWebUploadTask(input as WebMediaUploadInput, resolved),

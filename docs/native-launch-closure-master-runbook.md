@@ -55,7 +55,7 @@ Complete in order. **Do not** skip RevenueCat webhook + Supabase deploy before d
 | 7 | Production build + submit (when ready) | Checklist §6–7; runbook Phase 6 |
 
 Phased narrative with implementation-agent/Kaan roles: `docs/native-sprint6-launch-closure-runbook.md`.
-Strict matrix: `docs/phase7-stage5-release-readiness-and-go-nogo.md`.
+Strict matrix: `docs/native-release-readiness/stage5-release-readiness-and-go-nogo.md`.
 
 ---
 

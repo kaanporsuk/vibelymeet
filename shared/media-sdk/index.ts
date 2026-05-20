@@ -70,14 +70,20 @@ export { createMediaUploadTask, waitForMediaUploadTaskTerminal } from "./core/ta
 export type { MediaTaskLifecycleControls, MediaTaskRunContext, MediaTaskRunner } from "./core/task";
 export {
   getMediaBackgroundUploadPolicy,
+  mediaBackgroundUploadPolicyReviewWarning,
+  mediaBackgroundUploadPolicyTelemetryFields,
+  MEDIA_BACKGROUND_UPLOAD_CANDIDATES,
+  MEDIA_BACKGROUND_UPLOAD_DECIDED_AT,
   MEDIA_BACKGROUND_UPLOAD_PHASE,
   MEDIA_BACKGROUND_UPLOAD_POLICY,
   MEDIA_BACKGROUND_UPLOAD_PRODUCTION_ENABLED,
+  MEDIA_BACKGROUND_UPLOAD_REVIEW_AFTER,
   MEDIA_BACKGROUND_UPLOAD_SOURCE_OF_TRUTH,
   shouldEnableOsBackgroundUploads,
 } from "./background-upload-policy";
 export type {
   MediaBackgroundUploadDecision,
+  MediaBackgroundUploadCandidate,
   MediaBackgroundUploadPlatform,
   MediaBackgroundUploadPlatformGate,
   MediaBackgroundUploadPolicy,

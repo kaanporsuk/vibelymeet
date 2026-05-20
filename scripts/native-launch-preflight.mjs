@@ -17,7 +17,7 @@ const REQUIRED_DOCS = [
   "docs/kaan-launch-closure-execution-sheet.md",
   "docs/native-external-setup-checklist.md",
   "docs/native-sprint6-launch-closure-runbook.md",
-  "docs/phase7-stage5-release-readiness-and-go-nogo.md",
+  "docs/native-release-readiness/stage5-release-readiness-and-go-nogo.md",
   "docs/native-release-readiness.md",
   "docs/native-final-blocker-matrix.md",
   "docs/browser-auth-runtime-proof-results.md",
@@ -40,6 +40,30 @@ function readJson(path) {
 
 function readText(path) {
   return readFileSync(path, "utf8");
+}
+
+function phase7BackgroundUploadPolicyReviewWarning() {
+  const policyPath = join(ROOT, "shared", "media-sdk", "background-upload-policy.ts");
+  if (!existsSync(policyPath)) {
+    return `Missing ${policyPath}; cannot verify Phase 7 background-upload policy review cadence.`;
+  }
+  const policy = readText(policyPath);
+  const exposesReviewAfter = /reviewAfter:\s*MEDIA_BACKGROUND_UPLOAD_REVIEW_AFTER|reviewAfter:\s*"[^"]+"/.test(policy);
+  const explicitDate =
+    /MEDIA_BACKGROUND_UPLOAD_REVIEW_AFTER\s*=\s*"([^"]+)"/.exec(policy)?.[1] ??
+    /reviewAfter:\s*"([^"]+)"/.exec(policy)?.[1] ??
+    null;
+  if (!exposesReviewAfter || !explicitDate) {
+    return "Phase 7 background-upload policy must expose reviewAfter for launch preflight visibility.";
+  }
+  const reviewAfterMs = Date.parse(`${explicitDate}T23:59:59.999Z`);
+  if (!Number.isFinite(reviewAfterMs)) {
+    return `Phase 7 background-upload policy reviewAfter is not a parseable date: ${explicitDate}`;
+  }
+  if (Date.now() > reviewAfterMs) {
+    return `Phase 7 background-upload NO-GO decision is overdue for review; reviewAfter=${explicitDate}.`;
+  }
+  return null;
 }
 
 function readResolvedExpoConfig(errors, profile) {
@@ -93,6 +117,9 @@ function main() {
   const errors = [];
   const warnings = [];
   const info = [];
+
+  const phase7ReviewWarning = phase7BackgroundUploadPolicyReviewWarning();
+  if (phase7ReviewWarning) warnings.push(phase7ReviewWarning);
 
   const app = readResolvedExpoConfig(errors);
   const previewApp = readResolvedExpoConfig(errors, "preview");

@@ -25,10 +25,12 @@ import { invalidateAfterThreadMutation } from "@/hooks/useMessages";
 import { trackVibeClipEvent } from "@/lib/vibeClipAnalytics";
 import type { WebChatOutboxItem, WebChatOutboxPayload, WebChatOutboxQueueState } from "@/lib/webChatOutbox/types";
 import type { ThreadInvalidateScope } from "../../shared/chat/queryKeys";
-import type {
-  VibeClipRecoveryResumeStrategy,
-  VibeClipServerUpload,
-  VibeClipUploadStatus,
+import {
+  mediaUploadSuspendedRecoveryTelemetry,
+  type MediaUploadSuspendedRecoveryOutcome,
+  type VibeClipRecoveryResumeStrategy,
+  type VibeClipServerUpload,
+  type VibeClipUploadStatus,
 } from "../../shared/chat/vibeClipRecovery";
 
 const HYDRATION_CHECK_INTERVAL_MS = 10_000;
@@ -71,6 +73,28 @@ type ChatVibeClipUploadSweepQuery = {
 
 function isOnline(): boolean {
   return typeof navigator !== "undefined" ? navigator.onLine : true;
+}
+
+function isMediaOutboxItem(item: WebChatOutboxItem): boolean {
+  return item.payload.kind !== "text";
+}
+
+function needsRecoveryAttention(item: WebChatOutboxItem): boolean {
+  return isMediaOutboxItem(item) && item.state === "failed";
+}
+
+function recoveryAttentionCountFor(
+  items: WebChatOutboxItem[],
+  staleUploads: VibeClipServerUpload[],
+): number {
+  const keys = new Set<string>();
+  for (const item of items) {
+    if (needsRecoveryAttention(item)) keys.add(item.id);
+  }
+  for (const upload of staleUploads) {
+    keys.add(upload.clientRequestId || upload.id);
+  }
+  return keys.size;
 }
 
 function itemPayloadBlobKey(item: WebChatOutboxItem): string | null {
@@ -152,6 +176,8 @@ function recoverySweepOutcome(stats: {
 
 type WebChatOutboxContextValue = {
   items: WebChatOutboxItem[];
+  staleVibeClipUploads: VibeClipServerUpload[];
+  recoveryAttentionCount: number;
   enqueue: (input: {
     matchId: string;
     otherUserId: string;
@@ -309,6 +335,11 @@ export function WebChatOutboxProvider({ children }: { children: ReactNode }) {
     [staleVibeClipUploads],
   );
 
+  const recoveryAttentionCount = useMemo(
+    () => recoveryAttentionCountFor(items, staleVibeClipUploads),
+    [items, staleVibeClipUploads],
+  );
+
   const runVibeClipRecoverySweep = useCallback(async (trigger: VibeClipRecoverySweepTrigger, matchId?: string | null) => {
     if (!userId) return;
     const startedAtMs = Date.now();
@@ -354,6 +385,21 @@ export function WebChatOutboxProvider({ children }: { children: ReactNode }) {
       if (synced?.providerReachable === false) providerUnreachableCount += 1;
       if (syncedStatus === "ready") {
         selfHealedCount += 1;
+        trackVibeClipEvent("media_upload_suspended_recovery", mediaUploadSuspendedRecoveryTelemetry({
+          clientRequestId: upload.clientRequestId,
+          trigger,
+          recoveryOutcome: "self_healed",
+          nowMs: Date.now(),
+          serverUpload: {
+            ...upload,
+            status: "ready",
+            providerObjectId: synced?.providerObjectId ?? upload.providerObjectId,
+            expiresAt: synced?.expiresAt ?? upload.expiresAt,
+            updatedAt: upload.updatedAt,
+            publishedMessageId: synced?.messageId ?? upload.publishedMessageId,
+          },
+          localSourcePresent: false,
+        }));
         continue;
       }
       if (syncedStatus === "failed") terminalFailedCount += 1;
@@ -368,6 +414,18 @@ export function WebChatOutboxProvider({ children }: { children: ReactNode }) {
     }
     if (rows.length > 0) {
       const stuckCount = stillStuck.filter((upload) => upload.status !== "failed").length;
+      for (const upload of stillStuck) {
+        const recoveryOutcome: MediaUploadSuspendedRecoveryOutcome =
+          upload.status === "failed" ? "failed" : "stuck";
+        trackVibeClipEvent("media_upload_suspended_recovery", mediaUploadSuspendedRecoveryTelemetry({
+          clientRequestId: upload.clientRequestId,
+          trigger,
+          recoveryOutcome,
+          nowMs: Date.now(),
+          serverUpload: upload,
+          localSourcePresent: false,
+        }));
+      }
       trackVibeClipEvent("clip_recovery_status", {
         trigger,
         outcome: recoverySweepOutcome({
@@ -619,6 +677,8 @@ export function WebChatOutboxProvider({ children }: { children: ReactNode }) {
   const value = useMemo<WebChatOutboxContextValue>(
     () => ({
       items,
+      staleVibeClipUploads,
+      recoveryAttentionCount,
       enqueue,
       retry,
       retryVibeClipUpload,
@@ -631,6 +691,8 @@ export function WebChatOutboxProvider({ children }: { children: ReactNode }) {
     }),
     [
       items,
+      staleVibeClipUploads,
+      recoveryAttentionCount,
       enqueue,
       retry,
       retryVibeClipUpload,
@@ -657,31 +719,43 @@ export function useWebChatOutbox(): WebChatOutboxContextValue {
 /** Background driver: online/offline + interval (mirrors native ChatOutboxRunner). */
 export function WebChatOutboxRunner() {
   const queryClient = useQueryClient();
-  const { processTick } = useWebChatOutbox();
+  const { processTick, runVibeClipRecoverySweep } = useWebChatOutbox();
 
   const tick = useCallback(async () => {
     await processTick(queryClient);
   }, [processTick, queryClient]);
 
+  const sweep = useCallback(async (trigger: VibeClipRecoverySweepTrigger) => {
+    await runVibeClipRecoverySweep(trigger, null);
+  }, [runVibeClipRecoverySweep]);
+
   useEffect(() => {
     void tick();
-  }, [tick]);
+    void sweep("mount_sweep");
+  }, [sweep, tick]);
 
   useEffect(() => {
     const onNet = () => {
       void tick();
     };
+    const onVisibility = () => {
+      if (document.visibilityState !== "visible") return;
+      void tick();
+      void sweep("foreground");
+    };
     window.addEventListener("online", onNet);
     window.addEventListener("offline", onNet);
+    document.addEventListener("visibilitychange", onVisibility);
     const interval = setInterval(() => {
       void tick();
     }, 4000);
     return () => {
       window.removeEventListener("online", onNet);
       window.removeEventListener("offline", onNet);
+      document.removeEventListener("visibilitychange", onVisibility);
       clearInterval(interval);
     };
-  }, [tick]);
+  }, [sweep, tick]);
 
   return null;
 }

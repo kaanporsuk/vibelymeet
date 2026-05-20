@@ -94,6 +94,7 @@ import { useMatchCall } from "@/hooks/useMatchCall";
 import { threadMessagesQueryKey } from "../../shared/chat/queryKeys";
 import {
   buildVibeClipRecovery,
+  mediaUploadSuspendedRecoveryTelemetry,
   type VibeClipRecoveryDecision,
   type VibeClipRecoveryResumeStrategy,
   type VibeClipServerUpload,
@@ -246,6 +247,7 @@ function webOutboxVibeClipSummary(item: WebChatOutboxItem | undefined) {
     state: item.state,
     uploadProgress: item.uploadProgress,
     lastError: item.lastError,
+    updatedAtMs: item.updatedAtMs,
   };
 }
 
@@ -354,6 +356,7 @@ function VibeClipMessageRow({
     onResumeRecovery,
     onDiscardRecoveryAndSendAgain,
     (trigger, decision) => {
+      const recoveryTrigger = trigger === "manual_resume" ? "resumed" : "discarded";
       trackVibeClipEvent("clip_recovery_status", {
         trigger,
         outcome: decision.telemetryOutcome,
@@ -362,6 +365,16 @@ function VibeClipMessageRow({
         server_status: serverUpload?.status ?? "none",
         latency_ms: 0,
       });
+      trackVibeClipEvent("media_upload_suspended_recovery", mediaUploadSuspendedRecoveryTelemetry({
+        clientRequestId: message.clientRequestId,
+        trigger,
+        recoveryOutcome: recoveryTrigger,
+        nowMs: Date.now(),
+        serverUpload: serverUpload ?? null,
+        outboxItem: webOutboxVibeClipSummary(localOutboxItem),
+        localSourcePresent: localSourcePresent === true,
+        resumeStrategy: decision.resumeStrategy,
+      }));
     },
   );
   return (

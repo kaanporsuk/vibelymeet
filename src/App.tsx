@@ -4,11 +4,12 @@ import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { queryClient } from "@/lib/queryClient";
-import { BrowserRouter, Routes, Route, useLocation, Navigate } from "react-router-dom";
+import { BrowserRouter, Routes, Route, useLocation, Navigate, useNavigate } from "react-router-dom";
 import { AlertTriangle, WifiOff } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { OfflineBanner } from "@/components/connectivity/OfflineBanner";
-import { lazy, Suspense, useEffect, useState } from "react";
+import { lazy, Suspense, useEffect, useRef, useState } from "react";
+import { toast } from "sonner";
 import { NotificationProvider } from "./contexts/NotificationContext";
 import { SessionHydrationProvider } from "./contexts/SessionHydrationContext";
 import { EntitlementsProvider } from "./contexts/EntitlementsContext";
@@ -23,7 +24,7 @@ import { useAppBootstrap } from "./hooks/useAppBootstrap";
 import { WebOnBreakBanner } from "@/components/layout/WebOnBreakBanner";
 import { WebPendingDeletionBanner } from "@/components/layout/WebPendingDeletionBanner";
 import { MatchCallProvider } from "@/hooks/useMatchCall";
-import { WebChatOutboxProvider, WebChatOutboxRunner } from "@/contexts/WebChatOutboxContext";
+import { useWebChatOutbox, WebChatOutboxProvider, WebChatOutboxRunner } from "@/contexts/WebChatOutboxContext";
 import { WebPostDateOutboxRunner } from "@/lib/postDateOutbox/WebPostDateOutboxRunner";
 import { supabase } from "@/integrations/supabase/client";
 import {
@@ -190,6 +191,70 @@ const WebProfileWarmup = () => {
       if (timeoutHandle !== null) window.clearTimeout(timeoutHandle);
     };
   }, [isAuthenticated, isLoading, userId]);
+
+  return null;
+};
+
+const WebUploadRecoveryNotifier = () => {
+  const { items, staleVibeClipUploads, recoveryAttentionCount } = useWebChatOutbox();
+  const navigate = useNavigate();
+  const lastAttentionKeyRef = useRef<string>("");
+  const hiddenWithActiveUploadRef = useRef(false);
+
+  const firstAttentionItem = items.find((item) => item.payload.kind !== "text" && item.state === "failed");
+  const firstStaleUpload = staleVibeClipUploads[0] ?? null;
+  const attentionKey =
+    recoveryAttentionCount > 0
+      ? `${recoveryAttentionCount}:${firstAttentionItem?.id ?? firstStaleUpload?.id ?? "server"}`
+      : "";
+  const activeUploadCount = items.filter(
+    (item) =>
+      item.payload.kind !== "text" &&
+      (item.state === "queued" ||
+        item.state === "sending" ||
+        item.state === "waiting_for_network" ||
+        item.state === "awaiting_hydration"),
+  ).length;
+
+  useEffect(() => {
+    if (!attentionKey || recoveryAttentionCount <= 0) {
+      lastAttentionKeyRef.current = "";
+      return;
+    }
+    if (lastAttentionKeyRef.current === attentionKey) return;
+    lastAttentionKeyRef.current = attentionKey;
+    const route = firstAttentionItem?.otherUserId ? `/chat/${firstAttentionItem.otherUserId}` : "/matches";
+    toast.info(
+      recoveryAttentionCount === 1
+        ? "1 upload needs attention"
+        : `${recoveryAttentionCount} uploads need attention`,
+      {
+        id: "media-upload-recovery-attention",
+        duration: 7000,
+        action: {
+          label: "Review",
+          onClick: () => navigate(route),
+        },
+      },
+    );
+  }, [attentionKey, firstAttentionItem?.otherUserId, navigate, recoveryAttentionCount]);
+
+  useEffect(() => {
+    const onVisibility = () => {
+      if (document.visibilityState === "hidden") {
+        hiddenWithActiveUploadRef.current = activeUploadCount > 0;
+        return;
+      }
+      if (!hiddenWithActiveUploadRef.current) return;
+      hiddenWithActiveUploadRef.current = false;
+      toast.info("Uploads resume when you return. We'll continue from saved progress.", {
+        id: "media-upload-foreground-resume",
+        duration: 5000,
+      });
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => document.removeEventListener("visibilitychange", onVisibility);
+  }, [activeUploadCount]);
 
   return null;
 };
@@ -405,6 +470,7 @@ const App = () => {
               <BrowserRouter>
                 <MatchCallProvider>
                   <WebChatOutboxRunner />
+                  <WebUploadRecoveryNotifier />
                   <WebPostDateOutboxRunner />
                   <WebPasswordRecoveryHandler />
                   <PostHogPageTracker />

@@ -20,7 +20,7 @@
       "infoPlist": {
         "UIBackgroundModes": [
           "remote-notification",
-          "voip"
+          "audio"
         ],
         "NSCameraUsageDescription": "Vibely needs camera access for video dates and vibe video.",
         "NSMicrophoneUsageDescription": "Vibely needs microphone access for video dates and vibe video.",

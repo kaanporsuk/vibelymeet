@@ -110,4 +110,4 @@
 
 - **Web:** `src/pages/*` (Dashboard, Onboarding, Events, EventDetails, EventLobby, Matches, Chat, Profile, Settings, Premium, Credits, etc.), `src/components/*` (schedule, notifications, lobby, chat, events, profile, settings).
 - **Native:** `apps/mobile/app/**/*.tsx` (tabs, auth, onboarding, event, lobby, chat, matches, profile, settings, premium, daily-drop, ready), `apps/mobile/lib/*.ts` (eventsApi, chatApi, profileApi, etc.), `apps/mobile/components/*`.
-- **Docs:** `docs/native-final-blocker-matrix.md`, `docs/phase7-stage5-release-readiness-and-go-nogo.md`, `src/App.tsx` (routes).
+- **Docs:** `docs/native-final-blocker-matrix.md`, `docs/native-release-readiness/stage5-release-readiness-and-go-nogo.md`, `src/App.tsx` (routes).
