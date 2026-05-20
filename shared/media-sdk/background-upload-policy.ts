@@ -2,13 +2,24 @@ export const MEDIA_BACKGROUND_UPLOAD_PHASE = "phase_7_background_upload_spike" a
 export const MEDIA_BACKGROUND_UPLOAD_SOURCE_OF_TRUTH =
   "phase_1_6_foreground_persistent_queue_and_recovery" as const;
 export const MEDIA_BACKGROUND_UPLOAD_PRODUCTION_ENABLED = false as const;
+export const MEDIA_BACKGROUND_UPLOAD_DECIDED_AT = "2026-05-19" as const;
+export const MEDIA_BACKGROUND_UPLOAD_REVIEW_AFTER = "2026-11-19" as const;
 
 export type MediaBackgroundUploadPlatform = "web" | "ios" | "android";
 export type MediaBackgroundUploadDecision = "no_go_research_only";
 
+export const MEDIA_BACKGROUND_UPLOAD_CANDIDATES = {
+  web: "non_root_service_worker_background_sync_probe",
+  ios: "native_background_urlsession_or_bgprocessing_recovery_probe",
+  android: "workmanager_or_user_visible_foreground_service_probe",
+} as const satisfies Record<MediaBackgroundUploadPlatform, string>;
+
+export type MediaBackgroundUploadCandidate =
+  (typeof MEDIA_BACKGROUND_UPLOAD_CANDIDATES)[MediaBackgroundUploadPlatform];
+
 export type MediaBackgroundUploadPlatformGate = {
   readonly platform: MediaBackgroundUploadPlatform;
-  readonly candidate: string;
+  readonly candidate: MediaBackgroundUploadCandidate;
   readonly productionEnabled: false;
   readonly prototypeOnly: true;
   readonly blockingRisks: readonly string[];
@@ -18,7 +29,8 @@ export type MediaBackgroundUploadPlatformGate = {
 
 export type MediaBackgroundUploadPolicy = {
   readonly phase: typeof MEDIA_BACKGROUND_UPLOAD_PHASE;
-  readonly decidedAt: string;
+  readonly decidedAt: typeof MEDIA_BACKGROUND_UPLOAD_DECIDED_AT;
+  readonly reviewAfter: typeof MEDIA_BACKGROUND_UPLOAD_REVIEW_AFTER;
   readonly productionCutover: MediaBackgroundUploadDecision;
   readonly productionEnabled: false;
   readonly sourceOfTruth: typeof MEDIA_BACKGROUND_UPLOAD_SOURCE_OF_TRUTH;
@@ -30,7 +42,8 @@ export type MediaBackgroundUploadPolicy = {
 
 export const MEDIA_BACKGROUND_UPLOAD_POLICY: MediaBackgroundUploadPolicy = {
   phase: MEDIA_BACKGROUND_UPLOAD_PHASE,
-  decidedAt: "2026-05-19",
+  decidedAt: MEDIA_BACKGROUND_UPLOAD_DECIDED_AT,
+  reviewAfter: MEDIA_BACKGROUND_UPLOAD_REVIEW_AFTER,
   productionCutover: "no_go_research_only",
   productionEnabled: MEDIA_BACKGROUND_UPLOAD_PRODUCTION_ENABLED,
   sourceOfTruth: MEDIA_BACKGROUND_UPLOAD_SOURCE_OF_TRUTH,
@@ -39,7 +52,7 @@ export const MEDIA_BACKGROUND_UPLOAD_POLICY: MediaBackgroundUploadPolicy = {
   platforms: {
     web: {
       platform: "web",
-      candidate: "non_root_service_worker_background_sync_probe",
+      candidate: MEDIA_BACKGROUND_UPLOAD_CANDIDATES.web,
       productionEnabled: false,
       prototypeOnly: true,
       blockingRisks: [
@@ -62,7 +75,7 @@ export const MEDIA_BACKGROUND_UPLOAD_POLICY: MediaBackgroundUploadPolicy = {
     },
     ios: {
       platform: "ios",
-      candidate: "native_background_urlsession_or_bgprocessing_recovery_probe",
+      candidate: MEDIA_BACKGROUND_UPLOAD_CANDIDATES.ios,
       productionEnabled: false,
       prototypeOnly: true,
       blockingRisks: [
@@ -85,7 +98,7 @@ export const MEDIA_BACKGROUND_UPLOAD_POLICY: MediaBackgroundUploadPolicy = {
     },
     android: {
       platform: "android",
-      candidate: "workmanager_or_user_visible_foreground_service_probe",
+      candidate: MEDIA_BACKGROUND_UPLOAD_CANDIDATES.android,
       productionEnabled: false,
       prototypeOnly: true,
       blockingRisks: [
@@ -128,4 +141,21 @@ export function shouldEnableOsBackgroundUploads(): false {
 
 export function getMediaBackgroundUploadPolicy(): MediaBackgroundUploadPolicy {
   return MEDIA_BACKGROUND_UPLOAD_POLICY;
+}
+
+export function mediaBackgroundUploadPolicyTelemetryFields(): Record<string, string | boolean> {
+  const policy = getMediaBackgroundUploadPolicy();
+  return {
+    background_upload_policy_phase: policy.phase,
+    background_upload_production_enabled: shouldEnableOsBackgroundUploads(),
+    background_upload_decided_at: policy.decidedAt,
+    background_upload_review_after: policy.reviewAfter,
+    background_upload_source_of_truth: policy.sourceOfTruth,
+  };
+}
+
+export function mediaBackgroundUploadPolicyReviewWarning(nowMs = Date.now()): string | null {
+  const reviewAfterMs = Date.parse(`${MEDIA_BACKGROUND_UPLOAD_POLICY.reviewAfter}T23:59:59.999Z`);
+  if (!Number.isFinite(reviewAfterMs) || nowMs <= reviewAfterMs) return null;
+  return `Phase 7 media background-upload decision review is overdue; review_after=${MEDIA_BACKGROUND_UPLOAD_POLICY.reviewAfter}`;
 }

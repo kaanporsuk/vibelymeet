@@ -11,7 +11,7 @@ Purpose: Keep one current execution path visible for native launch closure and m
 2. **Operator execution sheet:** `docs/kaan-launch-closure-execution-sheet.md`
 3. **Canonical runbook:** `docs/native-launch-closure-master-runbook.md`
 4. **Active blocker matrix and evidence log:** `docs/native-final-blocker-matrix.md`
-5. **Strict go/no-go:** `docs/phase7-stage5-release-readiness-and-go-nogo.md`
+5. **Strict go/no-go:** `docs/native-release-readiness/stage5-release-readiness-and-go-nogo.md`
 
 Use `docs/native-external-setup-checklist.md` for provider/store depth and `docs/native-sprint6-launch-closure-runbook.md` for the phase-by-phase narrative only after starting from the chain above.
 
@@ -79,7 +79,7 @@ Use `docs/native-external-setup-checklist.md` for provider/store depth and `docs
 | Operator execution sheet | `docs/kaan-launch-closure-execution-sheet.md` |
 | Canonical launch-closure runbook | `docs/native-launch-closure-master-runbook.md` |
 | Active launch backlog and blocker matrix | `docs/native-final-blocker-matrix.md` |
-| Strict release-readiness decision | `docs/phase7-stage5-release-readiness-and-go-nogo.md` |
+| Strict release-readiness decision | `docs/native-release-readiness/stage5-release-readiness-and-go-nogo.md` |
 | Provider and store setup depth | `docs/native-external-setup-checklist.md` |
 | **Native external setup closure gate** | `docs/native-external-setup-closure.md` |
 | Phased operator detail | `docs/native-sprint6-launch-closure-runbook.md` |

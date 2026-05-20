@@ -18,12 +18,23 @@ Required upload-start events:
 
 Required SDK lifecycle events:
 
+- `media_sdk_initialized`
 - `media_upload_pause_requested`
 - `media_upload_resume_requested`
 - `media_upload_queue_reconciled_terminal`
 - `media_upload_queue_pruned`
 
+`media_sdk_initialized` must include the Phase 7 background-upload no-go policy fields so operators can verify that foreground persistent recovery is the enforced production path:
+
+- `background_upload_policy_phase`
+- `background_upload_production_enabled`
+- `background_upload_decided_at`
+- `background_upload_review_after`
+- `background_upload_source_of_truth`
+
 Raw user ids, signed URLs, local file paths, auth headers, tokens, and arbitrary context payloads must not be emitted. Use `client_request_id`, `family`, `platform`, `state`, rollout fields, and `user_id_bucket`.
+
+See [media-sdk-background-policy.md](./media-sdk-background-policy.md) for the Phase 7 runtime policy and review cadence.
 
 ## Recovery And Reconciliation
 

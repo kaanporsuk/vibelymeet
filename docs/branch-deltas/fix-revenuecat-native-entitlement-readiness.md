@@ -46,7 +46,7 @@ RevenueCat is already part of the installed native stack:
 - `supabase/functions/stripe-webhook/index.ts`
 - `supabase/functions/_shared/creditPacks.ts`
 - RevenueCat and Stripe provider docs:
-  - `docs/phase7-stage2-revenuecat-validation.md`
+  - `docs/native-release-readiness/stage2-revenuecat-validation.md`
   - `docs/entitlements-migration-guide.md`
   - `docs/native-deployment-validation-sequence.md`
   - `docs/branch-deltas/fix-premium-credits-observability.md`

@@ -52,7 +52,7 @@ Close remaining release-readiness and metadata gaps, update docs/checklists to c
 |------|--------|
 | **Build** | `npx expo prebuild --platform ios` succeeded. `npx expo run:ios` was started; Pods compiled (Hermes, RN, Daily, OneSignal, RevenueCat, etc.); full build not observed to completion in automation. |
 | **Config** | Bundle ID `com.vibelymeet.vibely`, appleTeamId, deploymentTarget 15.1, infoPlist usage strings, OneSignal NSE, aps-environment. |
-| **Validation** | First launch and runtime checklist (startup, auth, shell, dashboard, profile, events, matches, chat, media, Daily, RevenueCat, OneSignal) to be filled after local run (see phase7-stage4-ios-build-and-runtime-validation.md). |
+| **Validation** | First launch and runtime checklist (startup, auth, shell, dashboard, profile, events, matches, chat, media, Daily, RevenueCat, OneSignal) to be filled after local run (see `docs/native-release-readiness/stage4-ios-build-and-runtime-validation.md`). |
 | **Blocker** | No code blocker. Signing and first-run proof require local Xcode/device or EAS build. |
 
 **Verdict:** **Beta-ready from code/config perspective** once a full `expo run:ios` (or EAS iOS build) completes and first-run checklist is executed. **Not proven** until first successful launch and at least one full pass documented.
@@ -147,40 +147,40 @@ Close remaining release-readiness and metadata gaps, update docs/checklists to c
 
 ## 10. Exact Next Actions: Beta-Ready → Submission-Ready
 
-1. **Provider and backend (Kaan)**  
-   - RevenueCat: project, iOS/Android apps, products, entitlement, offering, webhook URL + auth; App Store Connect / Play Console products.  
-   - Supabase: migrations applied; `revenuecat-webhook` deployed; `REVENUECAT_WEBHOOK_AUTHORIZATION` set.  
-   - OneSignal: same project as web; iOS app (bundle ID, APNs); Android app (FCM); set `EXPO_PUBLIC_ONESIGNAL_APP_ID` in .env and EAS secrets.  
+1. **Provider and backend (Kaan)**
+   - RevenueCat: project, iOS/Android apps, products, entitlement, offering, webhook URL + auth; App Store Connect / Play Console products.
+   - Supabase: migrations applied; `revenuecat-webhook` deployed; `REVENUECAT_WEBHOOK_AUTHORIZATION` set.
+   - OneSignal: same project as web; iOS app (bundle ID, APNs); Android app (FCM); set `EXPO_PUBLIC_ONESIGNAL_APP_ID` in .env and EAS secrets.
    - EAS secrets for preview/production: Supabase, OneSignal, RevenueCat (and optional Bunny).
 
-2. **Build and device proof (Kaan)**  
-   - iOS: `npx expo run:ios` on Mac (or `eas build --profile preview --platform ios`), install, run through phase7-stage4 runtime checklist; fix any signing/runtime blockers.  
-   - Android: device/emulator, `npx expo run:android` (or EAS preview build), install, run through manual test matrix.  
+2. **Build and device proof (Kaan)**
+   - iOS: `npx expo run:ios` on Mac (or `eas build --profile preview --platform ios`), install, run through the Stage 4 runtime checklist; fix any signing/runtime blockers.
+   - Android: device/emulator, `npx expo run:android` (or EAS preview build), install, run through manual test matrix.
    - Record pass/fail in native-final-blocker-matrix.md § Sprint 6 test results.
 
 3. **Real-device provider validation (Kaan)**
-   - RevenueCat: sandbox purchase + restore on device; confirm webhook and DB.  
-   - OneSignal: test push send from dashboard to device; confirm receive.  
+   - RevenueCat: sandbox purchase + restore on device; confirm webhook and DB.
+   - OneSignal: test push send from dashboard to device; confirm receive.
    - Daily: repeat a native build/device video-date join when preparing store submission; the web/backend Video Date Handshake release is already recorded as complete in `docs/video-date-hardening-closure-report.md`.
 
 4. **Web and rehearsal (Kaan / implementation agent)**
-   - OneSignal web: production service-worker at root; OneSignal dashboard origin/service-worker for production; verify web push.  
+   - OneSignal web: production service-worker at root; OneSignal dashboard origin/service-worker for production; verify web push.
    - Rebuild rehearsal: run full clean rebuild (and web smoke if applicable); log; fix any breakage.
 
-5. **Store submission (Kaan)**  
-   - App Store Connect: app record, IAP products, TestFlight upload (e.g. `eas submit`).  
-   - Play Console: app record, subscription products, internal track upload.  
+5. **Store submission (Kaan)**
+   - App Store Connect: app record, IAP products, TestFlight upload (e.g. `eas submit`).
+   - Play Console: app record, subscription products, internal track upload.
    - Store listings: screenshots, descriptions, privacy policy, etc., per platform.
 
-6. **Repo health (maintenance)**  
+6. **Repo health (maintenance)**
    - Keep `npm run launch:preflight` and `npm run typecheck` green after material changes. **CF** only if either fails for non-secret reasons.
 
-**Step-by-step instructions for store consoles and provider dashboards:**  
-- **Single-page order:** `docs/kaan-launch-closure-execution-sheet.md`.  
-- **RevenueCat + Supabase:** `docs/native-external-setup-checklist.md` §1–2.  
-- **OneSignal:** `docs/native-external-setup-checklist.md` §3 (mobile + web notes).  
-- **EAS builds and submit:** `docs/native-sprint6-launch-closure-runbook.md` + master runbook `docs/native-launch-closure-master-runbook.md`.  
-- **Device validation:** `docs/phase7-stage4-ios-build-and-runtime-validation.md` §7; `docs/phase7-stage1-android-validation.md` §4; `docs/native-manual-test-matrix.md`.
+**Step-by-step instructions for store consoles and provider dashboards:**
+- **Single-page order:** `docs/kaan-launch-closure-execution-sheet.md`.
+- **RevenueCat + Supabase:** `docs/native-external-setup-checklist.md` §1–2.
+- **OneSignal:** `docs/native-external-setup-checklist.md` §3 (mobile + web notes).
+- **EAS builds and submit:** `docs/native-sprint6-launch-closure-runbook.md` + master runbook `docs/native-launch-closure-master-runbook.md`.
+- **Device validation:** `docs/native-release-readiness/stage4-ios-build-and-runtime-validation.md` §7; `docs/native-release-readiness/stage1-android-validation.md` §4; `docs/native-manual-test-matrix.md`.
 
 ---
 
@@ -216,29 +216,29 @@ Close remaining release-readiness and metadata gaps, update docs/checklists to c
 
 **Shortest remaining critical path to submission-ready:**
 
-1. Complete **native-external-setup-checklist.md** (RevenueCat dashboard + webhook + Supabase deploy + secret; OneSignal dashboard iOS + Android + APNs + FCM; EAS secrets).  
-2. Run **one successful EAS preview build** for iOS and one for Android (or local run:ios / run:android with device).  
-3. Install on **real devices**; run **RevenueCat** (purchase + restore) and **OneSignal** (test push receive) and **Daily** (one join/leave).  
-4. Optional **KD** audit: OneSignal web dashboard origin/service-worker vs production after deploys; run **manual** web push prompt + tap if product requires it; run **rebuild rehearsal** and log.  
-5. ~~Fix **typecheck** in apps/mobile~~ **Done** (Phase 7 closure; see `docs/phase7-closure-typecheck-and-repo-ready.md`).  
+1. Complete **native-external-setup-checklist.md** (RevenueCat dashboard + webhook + Supabase deploy + secret; OneSignal dashboard iOS + Android + APNs + FCM; EAS secrets).
+2. Run **one successful EAS preview build** for iOS and one for Android (or local run:ios / run:android with device).
+3. Install on **real devices**; run **RevenueCat** (purchase + restore) and **OneSignal** (test push receive) and **Daily** (one join/leave).
+4. Optional **KD** audit: OneSignal web dashboard origin/service-worker vs production after deploys; run **manual** web push prompt + tap if product requires it; run **rebuild rehearsal** and log.
+5. ~~Fix **typecheck** in apps/mobile~~ **Done** (Phase 7 closure; see `docs/phase7-closure-typecheck-and-repo-ready.md`).
 6. Complete **store** metadata and **submit** to TestFlight / Play internal.
 
 ---
 
 ## 14. Rebuild Delta / Docs Update Note (Phase 7)
 
-- **Phase 7 code changes:**  
-  - `app/index.tsx`: wait for onboardingComplete (no redirect to tabs when null).  
-  - `app/settings/index.tsx`: add radius import.  
-  - `app/premium.tsx`: offerings effect dependency on user?.id; setOfferingsLoading at start of effect.  
-  - `app/date/[id].tsx`: unmount cleanup calls endVideoDate(sessionId).  
+- **Phase 7 code changes:**
+  - `app/index.tsx`: wait for onboardingComplete (no redirect to tabs when null).
+  - `app/settings/index.tsx`: add radius import.
+  - `app/premium.tsx`: offerings effect dependency on user?.id; setOfferingsLoading at start of effect.
+  - `app/date/[id].tsx`: unmount cleanup calls endVideoDate(sessionId).
   - **Phase 7 closure (typecheck):** `components/ui.tsx` Chip `backgroundColor`/`borderColor`/`labelColor` typed as `string`; `app/(tabs)/matches/index.tsx` VibelyText `variant` added (6 usages); `app/(tabs)/profile/index.tsx` zodiac `Text`: `title` → `accessibilityLabel`; `app/daily-drop.tsx` VibelyButton given `onPress={() => {}}`.
 
-- **Docs updated in Stage 5 / closure:**  
-  - This file: phase7-stage5-release-readiness-and-go-nogo.md (new).  
-  - native-release-readiness.md: updated to reflect Phase 7 and current truth.  
-  - native-final-blocker-matrix.md: Phase 7 status; OneSignal web caveat; Sprint 6 test results reference.  
-  - native-external-setup-checklist.md: OneSignal web (production service-worker / origin) note added.  
+- **Docs updated in Stage 5 / closure:**
+  - This file: native-release-readiness/stage5-release-readiness-and-go-nogo.md (new).
+  - native-release-readiness.md: updated to reflect Phase 7 and current truth.
+  - native-final-blocker-matrix.md: Phase 7 status; OneSignal web caveat; Sprint 6 test results reference.
+  - native-external-setup-checklist.md: OneSignal web (production service-worker / origin) note added.
   - **Phase 7 closure:** `docs/phase7-closure-typecheck-and-repo-ready.md` (typecheck fixes, repo-ready status, remaining blockers, Kaan step-by-step).
 
 - **Config:** No Expo config, eas.json, or env schema changes in Phase 7 Stage 5 or closure. OneSignal web and rebuild rehearsal are documented as known risks and next actions.

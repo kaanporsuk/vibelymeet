@@ -21,10 +21,12 @@ import type { ChatOutboxItem, ChatOutboxPayload, ChatOutboxQueueState } from '@/
 import { trackVibeClipEvent } from '@/lib/vibeClipAnalytics';
 import { invalidateAfterThreadMutation } from '@/lib/chatApi';
 import { classifySendFailureMessage, durationBucketFromSeconds } from '../../../../shared/chat/vibeClipAnalytics';
-import type {
-  VibeClipRecoveryResumeStrategy,
-  VibeClipServerUpload,
-  VibeClipUploadStatus,
+import {
+  mediaUploadSuspendedRecoveryTelemetry,
+  type MediaUploadSuspendedRecoveryOutcome,
+  type VibeClipRecoveryResumeStrategy,
+  type VibeClipServerUpload,
+  type VibeClipUploadStatus,
 } from '../../../../shared/chat/vibeClipRecovery';
 
 type VibeClipRecoverySweepTrigger = 'mount_sweep' | 'foreground' | 'poll' | 'manual';
@@ -61,6 +63,8 @@ type ChatVibeClipUploadSweepQuery = {
 
 type ChatOutboxContextValue = {
   items: ChatOutboxItem[];
+  staleVibeClipUploads: VibeClipServerUpload[];
+  recoveryAttentionCount: number;
   /** Returns client_request_id (outbox item id) */
   enqueue: (input: {
     matchId: string;
@@ -89,6 +93,28 @@ const STALE_VIBE_CLIP_UPLOAD_AGE_MS = 60_000;
 function itemPayloadUri(item: ChatOutboxItem): string | null {
   if (item.payload.kind === 'text') return null;
   return item.payload.uri;
+}
+
+function isMediaOutboxItem(item: ChatOutboxItem): boolean {
+  return item.payload.kind !== 'text';
+}
+
+function needsRecoveryAttention(item: ChatOutboxItem): boolean {
+  return isMediaOutboxItem(item) && item.state === 'failed';
+}
+
+function recoveryAttentionCountFor(
+  items: ChatOutboxItem[],
+  staleUploads: VibeClipServerUpload[],
+): number {
+  const keys = new Set<string>();
+  for (const item of items) {
+    if (needsRecoveryAttention(item)) keys.add(item.id);
+  }
+  for (const upload of staleUploads) {
+    keys.add(upload.clientRequestId || upload.id);
+  }
+  return keys.size;
 }
 
 function rowToVibeClipServerUpload(row: ChatVibeClipUploadSweepRow): VibeClipServerUpload {
@@ -290,6 +316,11 @@ export function ChatOutboxProvider({ children }: { children: React.ReactNode }) 
     [staleVibeClipUploads]
   );
 
+  const recoveryAttentionCount = useMemo(
+    () => recoveryAttentionCountFor(items, staleVibeClipUploads),
+    [items, staleVibeClipUploads],
+  );
+
   const runVibeClipRecoverySweep = useCallback(async (trigger: VibeClipRecoverySweepTrigger, matchId?: string | null) => {
     if (!userId) return;
     const startedAtMs = Date.now();
@@ -335,6 +366,21 @@ export function ChatOutboxProvider({ children }: { children: React.ReactNode }) 
       if (synced?.providerReachable === false) providerUnreachableCount += 1;
       if (syncedStatus === 'ready') {
         selfHealedCount += 1;
+        trackVibeClipEvent('media_upload_suspended_recovery', mediaUploadSuspendedRecoveryTelemetry({
+          clientRequestId: upload.clientRequestId,
+          trigger,
+          recoveryOutcome: 'self_healed',
+          nowMs: Date.now(),
+          serverUpload: {
+            ...upload,
+            status: 'ready',
+            providerObjectId: synced?.providerObjectId ?? upload.providerObjectId,
+            expiresAt: synced?.expiresAt ?? upload.expiresAt,
+            updatedAt: upload.updatedAt,
+            publishedMessageId: synced?.messageId ?? upload.publishedMessageId,
+          },
+          localSourcePresent: false,
+        }));
         continue;
       }
       if (syncedStatus === 'failed') terminalFailedCount += 1;
@@ -349,6 +395,18 @@ export function ChatOutboxProvider({ children }: { children: React.ReactNode }) 
     }
     if (rows.length > 0) {
       const stuckCount = stillStuck.filter((upload) => upload.status !== 'failed').length;
+      for (const upload of stillStuck) {
+        const recoveryOutcome: MediaUploadSuspendedRecoveryOutcome =
+          upload.status === 'failed' ? 'failed' : 'stuck';
+        trackVibeClipEvent('media_upload_suspended_recovery', mediaUploadSuspendedRecoveryTelemetry({
+          clientRequestId: upload.clientRequestId,
+          trigger,
+          recoveryOutcome,
+          nowMs: Date.now(),
+          serverUpload: upload,
+          localSourcePresent: false,
+        }));
+      }
       trackVibeClipEvent('clip_recovery_status', {
         trigger,
         outcome: recoverySweepOutcome({
@@ -621,6 +679,8 @@ export function ChatOutboxProvider({ children }: { children: React.ReactNode }) 
   const value = useMemo<ChatOutboxContextValue>(
     () => ({
       items,
+      staleVibeClipUploads,
+      recoveryAttentionCount,
       enqueue,
       retry,
       retryVibeClipUpload,
@@ -633,6 +693,8 @@ export function ChatOutboxProvider({ children }: { children: React.ReactNode }) 
     }),
     [
       items,
+      staleVibeClipUploads,
+      recoveryAttentionCount,
       enqueue,
       retry,
       retryVibeClipUpload,

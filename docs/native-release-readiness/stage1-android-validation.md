@@ -97,7 +97,7 @@ No changes were made to dashboard, profile, events, matches, premium, notificati
 
 - **Config/build:** No change to app.json, eas.json, or native config.
 - **Runtime assumptions:** Index now assumes that when `onboardingComplete === null` and session exists, we are still “loading” for routing purposes; we keep showing a blank screen until onboarding is resolved (same as initial load).
-- **Docs:** This file (`docs/phase7-stage1-android-validation.md`) is the Phase 7 Stage 1 record. If you maintain a single “native validation” or “rebuild delta” doc, add: “Phase 7 Stage 1: auth/index onboarding race fix; settings radius import fix; Android device/emulator validation still required.”
+- **Docs:** This file (`docs/native-release-readiness/stage1-android-validation.md`) is the Phase 7 Stage 1 record. If you maintain a single “native validation” or “rebuild delta” doc, add: “Phase 7 Stage 1: auth/index onboarding race fix; settings radius import fix; Android device/emulator validation still required.”
 
 ---
 
@@ -114,7 +114,7 @@ No changes were made to dashboard, profile, events, matches, premium, notificati
    - If port 8081 is in use: `npx expo start --android --port 8083`
    - When Metro is up, open the app on the device (Expo Go or existing dev client).
 
-3. **For full native modules (Daily, RevenueCat)**  
+3. **For full native modules (Daily, RevenueCat)**
    Use a dev client:
    ```bash
    cd apps/mobile

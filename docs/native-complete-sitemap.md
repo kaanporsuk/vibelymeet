@@ -375,7 +375,7 @@ Settings → link to **`https://www.vibelymeet.com/how-it-works`** OR in-app `/h
 | SymbolView | SF Symbols names | Material mapping in `SymbolView` props |
 | Open settings | `app-settings:` | `Linking.openSettings()` |
 | Permissions copy | Info.plist strings | Android permission list in app.json |
-| Background modes | `remote-notification`, `voip` | Foreground service camera/mic |
+| Background modes | `remote-notification`, `audio` | Foreground service camera/mic |
 | Predictive back | — | `predictiveBackGestureEnabled: false` |
 | Keyboard | KAV on onboarding | KAV optional |
 

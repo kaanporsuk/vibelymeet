@@ -25,7 +25,7 @@ import { StatusBar } from 'expo-status-bar';
 import * as WebBrowser from 'expo-web-browser';
 import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
 import { DeactivatedAccountReactivationPrompt } from '@/components/DeactivatedAccountReactivationPrompt';
-import { ActivityIndicator, AppState, type AppStateStatus, LogBox, View } from 'react-native';
+import { ActivityIndicator, AppState, Pressable, StyleSheet, Text, type AppStateStatus, LogBox, View } from 'react-native';
 import { useGlobalMessagesInboxInvalidation } from '@/lib/chatApi';
 import { useRealtimeEvents } from '@/lib/useRealtimeEvents';
 import { useBadgeCount } from '@/lib/useBadgeCount';
@@ -53,7 +53,7 @@ import { useActivityHeartbeat } from '@/lib/useActivityHeartbeat';
 import { useAccountPauseStatus } from '@/hooks/useAccountPauseStatus';
 import { initStreamCdnHostname } from '@/lib/vibeVideoPlaybackUrl';
 import { pruneDuplicateRealtimeChannels } from '@/lib/realtimeLifecycle';
-import { ChatOutboxProvider } from '@/lib/chatOutbox/ChatOutboxContext';
+import { ChatOutboxProvider, useChatOutbox } from '@/lib/chatOutbox/ChatOutboxContext';
 import { ChatOutboxRunner } from '@/lib/chatOutbox/ChatOutboxRunner';
 import { PostDateOutboxRunner } from '@/lib/postDateOutbox/PostDateOutboxRunner';
 import { MatchCallProvider } from '@/lib/useMatchCall';
@@ -212,6 +212,48 @@ function RevenueCatUserSync() {
     }
   }, [user?.id]);
   return null;
+}
+
+function NativeUploadRecoveryGlobalBanner({ theme }: { theme: typeof Colors.dark }) {
+  const { items, staleVibeClipUploads, recoveryAttentionCount } = useChatOutbox();
+  const firstAttentionItem = items.find((item) => item.payload.kind !== 'text' && item.state === 'failed');
+  const firstStaleUpload = staleVibeClipUploads[0] ?? null;
+
+  if (recoveryAttentionCount <= 0) return null;
+
+  const handlePress = () => {
+    if (firstAttentionItem?.otherUserId) {
+      router.push({ pathname: '/chat/[id]', params: { id: firstAttentionItem.otherUserId } });
+      return;
+    }
+    if (firstStaleUpload?.matchId) {
+      router.push('/(tabs)/matches');
+      return;
+    }
+    router.push('/(tabs)/matches');
+  };
+
+  return (
+    <Pressable
+      onPress={handlePress}
+      accessibilityRole="button"
+      accessibilityLabel={`${recoveryAttentionCount} upload${recoveryAttentionCount === 1 ? '' : 's'} need attention`}
+      style={[
+        uploadRecoveryStyles.banner,
+        { backgroundColor: theme.surface, borderColor: theme.border },
+      ]}
+    >
+      <View style={uploadRecoveryStyles.bannerText}>
+        <Text style={[uploadRecoveryStyles.title, { color: theme.text }]}>
+          {recoveryAttentionCount === 1 ? '1 upload needs attention' : `${recoveryAttentionCount} uploads need attention`}
+        </Text>
+        <Text style={[uploadRecoveryStyles.subtitle, { color: theme.mutedForeground }]}>
+          Review or recover it from the saved foreground queue.
+        </Text>
+      </View>
+      <Text style={[uploadRecoveryStyles.action, { color: theme.tint }]}>Review</Text>
+    </Pressable>
+  );
 }
 
 /** Emits the server-owned activity heartbeat every 5 minutes while foregrounded, skipped when on a break. */
@@ -640,6 +682,7 @@ function RootLayoutNav() {
                 )}
               </View>
               <OfflineBanner />
+              <NativeUploadRecoveryGlobalBanner theme={theme} />
             </View>
             </ChatOutboxProvider>
           </MatchCallProvider>
@@ -652,5 +695,46 @@ function RootLayoutNav() {
 
   return navContent;
 }
+
+const uploadRecoveryStyles = StyleSheet.create({
+  banner: {
+    position: 'absolute',
+    left: 16,
+    right: 16,
+    top: 52,
+    zIndex: 40,
+    minHeight: 58,
+    borderRadius: 8,
+    borderWidth: 1,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+    shadowColor: '#000',
+    shadowOpacity: 0.24,
+    shadowRadius: 14,
+    shadowOffset: { width: 0, height: 8 },
+    elevation: 8,
+  },
+  bannerText: {
+    flex: 1,
+    minWidth: 0,
+  },
+  title: {
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  subtitle: {
+    marginTop: 2,
+    fontSize: 12,
+    lineHeight: 16,
+  },
+  action: {
+    fontSize: 13,
+    fontWeight: '700',
+  },
+});
 
 export default Sentry.wrap(RootLayout);

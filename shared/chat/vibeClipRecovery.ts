@@ -10,6 +10,14 @@ export type VibeClipRecoveryTelemetryOutcome =
   | "self_healed"
   | "terminal_failed";
 
+export type MediaUploadSuspendedRecoveryOutcome =
+  | "resumed"
+  | "discarded"
+  | "lost"
+  | "stuck"
+  | "self_healed"
+  | "failed";
+
 export type VibeClipServerUpload = {
   id: string;
   matchId: string;
@@ -31,6 +39,7 @@ export type VibeClipRecoveryOutboxSummary = {
   state: string;
   uploadProgress?: number | null;
   lastError?: string | null;
+  updatedAtMs?: number | null;
 };
 
 export type VibeClipRecoveryDecision = {
@@ -54,10 +63,46 @@ function isExpired(expiresAt: string | null | undefined, nowMs: number): boolean
 }
 
 function outboxUploadPercent(item: VibeClipRecoveryOutboxSummary | null | undefined): number | null {
-  if (!item || item.state !== "sending") return null;
+  if (!item) return null;
   const progress = item.uploadProgress;
   if (typeof progress !== "number" || !Number.isFinite(progress)) return null;
   return Math.max(0, Math.min(100, Math.round(progress * 100)));
+}
+
+function suspensionDurationMs(updatedAt: string | number | null | undefined, nowMs: number): number | null {
+  if (updatedAt == null) return null;
+  const updatedAtMs = typeof updatedAt === "number" ? updatedAt : new Date(updatedAt).getTime();
+  if (!Number.isFinite(updatedAtMs)) return null;
+  return Math.max(0, nowMs - updatedAtMs);
+}
+
+export function mediaUploadSuspendedRecoveryTelemetry(input: {
+  clientRequestId: string | null | undefined;
+  recoveryOutcome: MediaUploadSuspendedRecoveryOutcome;
+  trigger: string;
+  nowMs: number;
+  serverUpload?: VibeClipServerUpload | null;
+  outboxItem?: VibeClipRecoveryOutboxSummary | null;
+  localSourcePresent?: boolean | null;
+  resumeStrategy?: VibeClipRecoveryResumeStrategy | null;
+}): Record<string, string | number | boolean | null> {
+  const serverUpload = input.serverUpload ?? null;
+  const outboxItem = input.outboxItem ?? null;
+  const duration =
+    suspensionDurationMs(serverUpload?.updatedAt, input.nowMs) ??
+    suspensionDurationMs(outboxItem?.updatedAtMs, input.nowMs);
+  return {
+    family: "chat_vibe_clip",
+    client_request_id: input.clientRequestId ?? serverUpload?.clientRequestId ?? outboxItem?.id ?? null,
+    suspension_duration_ms: duration,
+    bytes_already_uploaded_pct: outboxUploadPercent(outboxItem),
+    recovery_outcome: input.recoveryOutcome,
+    trigger: input.trigger,
+    resume_strategy: input.resumeStrategy ?? "none",
+    local_source_present: input.localSourcePresent ?? null,
+    server_status: serverUpload?.status ?? null,
+    would_benefit_from_background: true,
+  };
 }
 
 function stateLabelForInput(params: {

@@ -72,7 +72,7 @@ cd apps/mobile && npm start
 - `docs/native-final-blocker-matrix.md` — single active launch backlog and evidence log.
 - `docs/native-external-setup-checklist.md` — Supabase migrations/functions/secrets, RevenueCat, OneSignal, Daily, Expo/EAS, App Store Connect, Play Console, env vars.
 - `docs/native-manual-test-matrix.md` — manual test matrix for all domains and cross-platform (web ↔ iOS/Android).
-- `docs/phase7-stage5-release-readiness-and-go-nogo.md` — strict release-readiness matrix and go/no-go.
+- `docs/native-release-readiness/stage5-release-readiness-and-go-nogo.md` — strict release-readiness matrix and go/no-go.
 
 ## Checks
 

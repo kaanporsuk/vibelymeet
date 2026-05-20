@@ -131,6 +131,6 @@ When preview is green: `eas build --profile production`; `eas submit` or console
 
 - `docs/native-external-setup-checklist.md` — provider steps, env tables  
 - `docs/native-sprint6-launch-closure-runbook.md` — phased roles (implementation agent vs Kaan)
-- `docs/phase7-stage5-release-readiness-and-go-nogo.md` — strict go/no-go matrix  
+- `docs/native-release-readiness/stage5-release-readiness-and-go-nogo.md` — strict go/no-go matrix
 - `docs/native-release-readiness.md` — what is done vs blocked at product level  
 - `docs/native-final-blocker-matrix.md` — **live blocker + test result log**

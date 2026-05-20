@@ -344,6 +344,70 @@ test("shared client request ids and foreground reconcile guard are deterministic
   assert.equal(shouldRunMediaSdkForegroundReconcile("web:user-1", 1_400_001), false);
 });
 
+test("SDK factories emit Phase 7 background-upload policy at initialization", () => {
+  const webEvents: Array<{ name: string; platform?: string; fields?: Record<string, unknown> }> = [];
+  const nativeEvents: Array<{ name: string; platform?: string; fields?: Record<string, unknown> }> = [];
+
+  createWebMediaSdk({
+    queue: new MemoryMediaUploadQueue(),
+    telemetry: {
+      emit(event) {
+        webEvents.push({ name: event.name, platform: event.platform, fields: event.fields });
+      },
+      exception() {},
+    },
+  });
+  createNativeMediaSdk({
+    queue: new MemoryMediaUploadQueue(),
+    platform: "ios",
+    telemetry: {
+      emit(event) {
+        nativeEvents.push({ name: event.name, platform: event.platform, fields: event.fields });
+      },
+      exception() {},
+    },
+  });
+
+  assert.equal(webEvents[0]?.name, "media_sdk_initialized");
+  assert.equal(webEvents[0]?.platform, "web");
+  assert.equal(webEvents[0]?.fields?.background_upload_policy_phase, "phase_7_background_upload_spike");
+  assert.equal(webEvents[0]?.fields?.background_upload_production_enabled, false);
+  assert.equal(webEvents[0]?.fields?.background_upload_decided_at, "2026-05-19");
+  assert.equal(webEvents[0]?.fields?.background_upload_review_after, "2026-11-19");
+  assert.equal(
+    webEvents[0]?.fields?.background_upload_source_of_truth,
+    "phase_1_6_foreground_persistent_queue_and_recovery",
+  );
+  assert.equal(nativeEvents[0]?.name, "media_sdk_initialized");
+  assert.equal(nativeEvents[0]?.platform, "ios");
+});
+
+test("SDK initialization telemetry failures are isolated from factory creation", () => {
+  assert.doesNotThrow(() =>
+    createWebMediaSdk({
+      queue: new MemoryMediaUploadQueue(),
+      telemetry: {
+        emit() {
+          throw new Error("analytics_init_failed");
+        },
+        exception() {},
+      },
+    }),
+  );
+  assert.doesNotThrow(() =>
+    createNativeMediaSdk({
+      queue: new MemoryMediaUploadQueue(),
+      platform: "android",
+      telemetry: {
+        emit() {
+          throw new Error("analytics_init_failed");
+        },
+        exception() {},
+      },
+    }),
+  );
+});
+
 test("web adapter delegates Vibe Video upload through the harness and cleans terminal queue rows", async () => {
   const queue = new MemoryMediaUploadQueue();
   const seenStates: string[] = [];
@@ -375,7 +439,7 @@ test("web adapter delegates Vibe Video upload through the harness and cleans ter
   assert.equal((await queue.list()).length, 0);
 });
 
-test("web adapter routes Chat Vibe Clips through the video SDK delegate without internal flag telemetry", async () => {
+test("web adapter routes Chat Vibe Clips through the video SDK delegate without internal flag telemetry beyond SDK init", async () => {
   const events: string[] = [];
   let delegateClientRequestId: string | null = null;
   const sdk = createWebMediaSdk({
@@ -410,7 +474,7 @@ test("web adapter routes Chat Vibe Clips through the video SDK delegate without 
   assert.equal(delegateClientRequestId, uuid);
   assert.equal(task.snapshot().state, "ready");
   assert.equal(task.snapshot().result?.providerObjectId, "chat-clip-video");
-  assert.deepEqual(events, []);
+  assert.deepEqual(events, ["media_sdk_initialized"]);
 });
 
 test("web photo adapter prepares photo sources before invoking legacy delegates", async () => {

@@ -1,0 +1,71 @@
+name: Phase 7 Media Background Upload Policy
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/phase-7-media-background-policy.yml'
+      - 'apps/mobile/app.base.json'
+      - 'apps/mobile/app.config.js'
+      - 'apps/mobile/ios/**/Info.plist'
+      - 'apps/mobile/package-lock.json'
+      - 'apps/mobile/package.json'
+      - 'docs/media-background-upload-phase7-decision.md'
+      - 'docs/architecture/media-sdk-background-policy.md'
+      - 'docs/architecture/media-sdk-telemetry.md'
+      - 'package-lock.json'
+      - 'package.json'
+      - 'public/OneSignalSDK.sw.js'
+      - 'public/OneSignalSDKWorker.js'
+      - 'public/sw.js'
+      - 'shared/media-sdk/background-upload-policy.ts'
+      - 'shared/media-sdk/backgroundUploadPolicy.test.ts'
+      - 'src/hooks/useServiceWorker.ts'
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/phase-7-media-background-policy.yml'
+      - 'apps/mobile/app.base.json'
+      - 'apps/mobile/app.config.js'
+      - 'apps/mobile/ios/**/Info.plist'
+      - 'apps/mobile/package-lock.json'
+      - 'apps/mobile/package.json'
+      - 'docs/media-background-upload-phase7-decision.md'
+      - 'docs/architecture/media-sdk-background-policy.md'
+      - 'docs/architecture/media-sdk-telemetry.md'
+      - 'package-lock.json'
+      - 'package.json'
+      - 'public/OneSignalSDK.sw.js'
+      - 'public/OneSignalSDKWorker.js'
+      - 'public/sw.js'
+      - 'shared/media-sdk/background-upload-policy.ts'
+      - 'shared/media-sdk/backgroundUploadPolicy.test.ts'
+      - 'src/hooks/useServiceWorker.ts'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  policy:
+    name: Phase 7 no-go guardrails
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            apps/mobile/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run Phase 7 background-upload policy contracts
+        run: npm run test:media-background-upload

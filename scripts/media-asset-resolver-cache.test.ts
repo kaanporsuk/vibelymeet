@@ -204,6 +204,9 @@ try {
 }
 
 let transientInvokeCount = 0;
+const originalTransientDateNow = Date.now;
+const transientBaseNow = originalTransientDateNow();
+Date.now = () => transientBaseNow;
 __setChatMediaUrlIssuerForTests(async () => {
   transientInvokeCount += 1;
   if (transientInvokeCount === 1) throw new Error("network_down");
@@ -216,12 +219,16 @@ __setChatMediaUrlIssuerForTests(async () => {
 try {
   const messageId = "550e8400-e29b-41d4-a716-446655440000";
   const failedRefresh = await refreshMediaAssetUrl(messageId, "voice", "voice/test.webm");
+  const cooledDownRefresh = await refreshMediaAssetUrl(messageId, "voice", "voice/test.webm");
+  Date.now = () => transientBaseNow + 8_500;
   const recoveredRefresh = await refreshMediaAssetUrl(messageId, "voice", "voice/test.webm");
 
   assert.equal(failedRefresh, null);
+  assert.equal(cooledDownRefresh, null);
   assert.equal(recoveredRefresh, "https://signed.example.com/recovered-after-transient");
   assert.equal(transientInvokeCount, 2);
 } finally {
+  Date.now = originalTransientDateNow;
   __setChatMediaUrlIssuerForTests(null);
   __clearChatMediaUrlCacheForTests();
 }
@@ -266,7 +273,7 @@ try {
   const bypassed = await refreshMediaAssetUrl(messageId, "image", "photos/missing.jpg", {
     bypassFailureCooldown: true,
   });
-  Date.now = () => failureBaseNow + 8_500;
+  Date.now = () => failureBaseNow + 16_500;
   const third = await refreshMediaAssetUrl(messageId, "image", "photos/missing.jpg");
 
   assert.equal(first, null);
@@ -419,11 +426,11 @@ assert.match(webClipBubble, /playbackRefreshAttemptCountRef\.current = 0;[\s\S]{
 assert.match(webMediaResolver, /type MediaUrlIssueResult/);
 assert.match(webMediaResolver, /isNetworkInvokeError/);
 assert.match(webMediaResolver, /invokeError\.name === "FunctionsHttpError"/);
-assert.match(webMediaResolver, /return \{[\s\S]{0,80}kind: "response",[\s\S]{0,120}payload: await readResolverPayloadFromResponse/);
+assert.match(webMediaResolver, /return \{[\s\S]{0,80}kind: "response",[\s\S]{0,120}payload: await resolverPayloadForHttpFailure/);
 assert.match(webMediaResolver, /if \(error\) return issueResultForFunctionInvokeError\(error, response\);/);
 assert.doesNotMatch(webMediaResolver, /if \(error\) return \{ kind: "transient_failure" \};/);
-assert.match(webMediaResolver, /catch \{[\s\S]{0,80}return \{ kind: "transient_failure" \};[\s\S]{0,80}\}/);
-assert.match(webMediaResolver, /if \(result\.kind === "transient_failure"\) return null;/);
+assert.match(webMediaResolver, /catch \{[\s\S]{0,100}return \{ kind: "transient_failure", errorCode: "network_error" \};[\s\S]{0,80}\}/);
+assert.match(webMediaResolver, /if \(result\.kind === "transient_failure"\) \{[\s\S]{0,120}recordMediaUrlFailure\(cacheKey, result\.errorCode\);[\s\S]{0,80}return null;/);
 assert.match(webMediaResolver, /function bunnyStreamThumbnailRefFor/);
 assert.match(webMediaResolver, /payload\.posterUrl/);
 assert.match(webMediaResolver, /mediaUrlInFlightRequests/);
@@ -509,14 +516,14 @@ assert.match(nativeMediaAssetHook, /Math\.min\(MIN_PROACTIVE_REFRESH_DELAY_MS, M
 assert.doesNotMatch(nativeMediaAssetHook, /Math\.max\(MIN_PROACTIVE_REFRESH_DELAY_MS, Math\.floor\(remainingMs \/ 2\)\)/);
 assert.match(nativeMediaViewer, /onResetPlaybackRefreshAttempt/);
 assert.match(nativeMediaResolver, /type MediaUrlIssueResult/);
-assert.match(nativeMediaResolver, /if \(!accessToken\) return \{ kind: 'transient_failure' \};/);
+assert.match(nativeMediaResolver, /if \(!accessToken\) return \{ kind: 'transient_failure', errorCode: 'auth_expired' \};/);
 assert.match(nativeMediaResolver, /isNetworkInvokeError/);
 assert.match(nativeMediaResolver, /invokeError\.name === 'FunctionsHttpError'/);
-assert.match(nativeMediaResolver, /return \{[\s\S]{0,80}kind: 'response',[\s\S]{0,120}payload: await readResolverPayloadFromResponse/);
+assert.match(nativeMediaResolver, /return \{[\s\S]{0,80}kind: 'response',[\s\S]{0,120}payload: await resolverPayloadForHttpFailure/);
 assert.match(nativeMediaResolver, /if \(error\) return issueResultForFunctionInvokeError\(error, response\);/);
 assert.doesNotMatch(nativeMediaResolver, /if \(error\) return \{ kind: 'transient_failure' \};/);
-assert.match(nativeMediaResolver, /catch \{[\s\S]{0,80}return \{ kind: 'transient_failure' \};[\s\S]{0,80}\}/);
-assert.match(nativeMediaResolver, /if \(result\.kind === 'transient_failure'\) return null;/);
+assert.match(nativeMediaResolver, /catch \{[\s\S]{0,100}return \{ kind: 'transient_failure', errorCode: 'network_error' \};[\s\S]{0,80}\}/);
+assert.match(nativeMediaResolver, /if \(result\.kind === 'transient_failure'\) \{[\s\S]{0,120}recordMediaUrlFailure\(cacheKey, result\.errorCode\);[\s\S]{0,80}return null;/);
 assert.match(nativeMediaResolver, /mediaUrlInFlightRequests/);
 assert.match(nativeMediaResolver, /mediaUrlFailureCache/);
 assert.match(nativeMediaResolver, /bypassFailureCooldown/);

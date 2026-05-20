@@ -1,11 +1,15 @@
 import assert from "node:assert/strict";
-import { readdirSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import test from "node:test";
 import {
+  MEDIA_BACKGROUND_UPLOAD_CANDIDATES,
   getMediaBackgroundUploadPolicy,
+  mediaBackgroundUploadPolicyReviewWarning,
+  mediaBackgroundUploadPolicyTelemetryFields,
   MEDIA_BACKGROUND_UPLOAD_POLICY,
   shouldEnableOsBackgroundUploads,
 } from ".";
+import { sanitizeProductIntelligenceProperties } from "../analytics/productIntelligence";
 
 function read(path: string): string {
   return readFileSync(path, "utf8");
@@ -45,15 +49,29 @@ function runtimeSourceCorpus(paths: readonly string[]): string {
     .join("\n");
 }
 
+function plistArrayForKey(path: string, key: string): string[] {
+  const text = read(path);
+  const match = new RegExp(`<key>${key}</key>\\s*<array>([\\s\\S]*?)</array>`).exec(text);
+  if (!match) return [];
+  return Array.from(match[1].matchAll(/<string>([^<]+)<\/string>/g), (entry) => entry[1]);
+}
+
 test("Phase 7 OS-level background uploads stay research-only until measured platform gates pass", () => {
   const policy = getMediaBackgroundUploadPolicy();
 
   assert.equal(policy, MEDIA_BACKGROUND_UPLOAD_POLICY);
   assert.equal(policy.phase, "phase_7_background_upload_spike");
+  assert.equal(policy.decidedAt, "2026-05-19");
+  assert.equal(policy.reviewAfter, "2026-11-19");
   assert.equal(policy.productionCutover, "no_go_research_only");
   assert.equal(policy.productionEnabled, false);
   assert.equal(shouldEnableOsBackgroundUploads(), false);
   assert.equal(policy.sourceOfTruth, "phase_1_6_foreground_persistent_queue_and_recovery");
+  assert.equal(mediaBackgroundUploadPolicyReviewWarning(Date.parse("2026-11-19T23:59:59.999Z")), null);
+  assert.match(
+    mediaBackgroundUploadPolicyReviewWarning(Date.parse("2026-11-20T00:00:00.000Z")) ?? "",
+    /review is overdue/,
+  );
 
   for (const platform of ["web", "ios", "android"] as const) {
     assert.equal(policy.platforms[platform].productionEnabled, false);
@@ -66,8 +84,26 @@ test("Phase 7 OS-level background uploads stay research-only until measured plat
   assert.match(policy.platforms.web.candidate, /service_worker_background_sync/);
   assert.match(policy.platforms.ios.candidate, /urlsession|bgprocessing/i);
   assert.match(policy.platforms.android.candidate, /workmanager|foreground_service/i);
+  assert.equal(policy.platforms.web.candidate, MEDIA_BACKGROUND_UPLOAD_CANDIDATES.web);
+  assert.equal(policy.platforms.ios.candidate, MEDIA_BACKGROUND_UPLOAD_CANDIDATES.ios);
+  assert.equal(policy.platforms.android.candidate, MEDIA_BACKGROUND_UPLOAD_CANDIDATES.android);
   assert.ok(policy.manualOnlyGates.some((gate) => /native rebuild/i.test(gate)));
   assert.ok(policy.manualOnlyGates.some((gate) => /OneSignal root service-worker/i.test(gate)));
+
+  const telemetry = mediaBackgroundUploadPolicyTelemetryFields();
+  assert.equal(telemetry.background_upload_policy_phase, policy.phase);
+  assert.equal(telemetry.background_upload_production_enabled, false);
+  assert.equal(telemetry.background_upload_decided_at, policy.decidedAt);
+  assert.equal(telemetry.background_upload_review_after, policy.reviewAfter);
+  assert.equal(telemetry.background_upload_source_of_truth, policy.sourceOfTruth);
+  assert.deepEqual(sanitizeProductIntelligenceProperties(telemetry, { platform: "web" }), {
+    platform: "web",
+    background_upload_policy_phase: policy.phase,
+    background_upload_production_enabled: false,
+    background_upload_decided_at: policy.decidedAt,
+    background_upload_review_after: policy.reviewAfter,
+    background_upload_source_of_truth: policy.sourceOfTruth,
+  });
 });
 
 test("Phase 7 does not introduce runtime background upload dependencies or service-worker registration", () => {
@@ -135,8 +171,27 @@ test("native app config does not request background upload execution modes", () 
   const modes = expo?.ios?.infoPlist?.UIBackgroundModes;
 
   assert.ok(Array.isArray(modes));
+  assert.deepEqual(modes, ["remote-notification", "audio"]);
+  assert.doesNotMatch(modes.join("\n"), /^voip$/m);
   assert.doesNotMatch(modes.join("\n"), /^fetch$/m);
   assert.doesNotMatch(modes.join("\n"), /^processing$/m);
+
+  const plistPaths = ["apps/mobile/ios/mobile/Info.plist", "apps/mobile/ios/Vibely/Info.plist"].filter((path) =>
+    existsSync(path),
+  );
+  assert.ok(plistPaths.length >= 1, "at least one app Info.plist must be present for UIBackgroundModes parity");
+  for (const plistPath of plistPaths) {
+    assert.deepEqual(
+      plistArrayForKey(plistPath, "UIBackgroundModes"),
+      modes,
+      `${plistPath} UIBackgroundModes must match apps/mobile/app.base.json exactly`,
+    );
+  }
+
+  assert.match(read("apps/mobile/app.base.json"), /@daily-co\/config-plugin-rn-daily-js/);
+  assert.match(read("docs/media-background-upload-phase7-decision.md"), /does not include a PushKit\/PKPush incoming-call stack/);
+  assert.match(read("docs/media-background-upload-phase7-decision.md"), /active-call media continuity/);
+  assert.match(read("docs/media-background-upload-phase7-decision.md"), /Neither mode is a media-upload execution mode/);
 });
 
 test("Phase 7 decision documents the no-go call, platform risks, and future measured floors", () => {
@@ -152,6 +207,9 @@ test("Phase 7 decision documents the no-go call, platform risks, and future meas
     "WorkManager",
     "measured floors",
     "foreground persistent queue",
+    "TUS",
+    "reviewAfter",
+    "Service-Worker-Allowed",
   ]) {
     assert.match(decision, new RegExp(required, "i"));
   }
@@ -161,4 +219,15 @@ test("Phase 7 decision documents the no-go call, platform risks, and future meas
   assert.match(canonicalPlan, /decision\/bg-uploads-go-no-go/);
   assert.match(canonicalPlan, /NO-GO research-only/);
   assert.match(canonicalPlan, /media-background-upload-phase7-decision\.md/);
+});
+
+test("Phase 7 policy test is wired directly into CI", () => {
+  const packageJson = readJson("package.json");
+  const scripts = packageJson.scripts as Record<string, string>;
+  assert.equal(scripts["test:media-background-upload"], "tsx shared/media-sdk/backgroundUploadPolicy.test.ts");
+
+  const workflow = read(".github/workflows/phase-7-media-background-policy.yml");
+  assert.match(workflow, /npm run test:media-background-upload/);
+  assert.match(workflow, /shared\/media-sdk\/backgroundUploadPolicy\.test\.ts/);
+  assert.doesNotMatch(workflow, /continue-on-error:\s*true/);
 });
