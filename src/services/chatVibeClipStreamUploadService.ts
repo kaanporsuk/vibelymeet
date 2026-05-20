@@ -42,6 +42,7 @@ type ChatVibeClipUploadParams = {
   captions?: unknown;
   resumeStrategy?: VibeClipRecoveryResumeStrategy | null;
   onProgress?: (fraction: number) => void;
+  signal?: AbortSignal | null;
 };
 
 type CreatedUploadCredentials = {
@@ -92,6 +93,20 @@ function pickServerMessageId(row: unknown): string | null {
 
 function uploadFileName(file: File): string {
   return file.name?.trim() || "chat-vibe-clip.mp4";
+}
+
+function abortError(): Error {
+  const error = new Error("Upload cancelled.");
+  error.name = "AbortError";
+  return error;
+}
+
+function throwIfAborted(signal?: AbortSignal | null): void {
+  if (signal?.aborted) throw abortError();
+}
+
+function isAbortError(error: unknown): boolean {
+  return error instanceof Error && error.name === "AbortError";
 }
 
 async function invokeCreate(params: {
@@ -163,8 +178,27 @@ function uploadTus(params: {
   mimeType: string;
   resumePrevious?: boolean;
   onProgress?: (fraction: number) => void;
+  signal?: AbortSignal | null;
 }): Promise<void> {
   return new Promise((resolve, reject) => {
+    if (params.signal?.aborted) {
+      reject(abortError());
+      return;
+    }
+    let settled = false;
+    let cleanupAbortListener = () => {};
+    const resolveOnce = () => {
+      if (settled) return;
+      settled = true;
+      cleanupAbortListener();
+      resolve();
+    };
+    const rejectOnce = (error: unknown) => {
+      if (settled) return;
+      settled = true;
+      cleanupAbortListener();
+      reject(error);
+    };
     const upload = new tus.Upload(params.file, {
       endpoint: params.endpoint,
       retryDelays: [0, 3000, 5000, 10000, 20000],
@@ -183,19 +217,40 @@ function uploadTus(params: {
       onProgress: (bytesUploaded, bytesTotal) => {
         params.onProgress?.(bytesTotal > 0 ? bytesUploaded / bytesTotal : 0);
       },
-      onError: (error) => reject(error),
-      onSuccess: () => resolve(),
+      onError: (error) => rejectOnce(error),
+      onSuccess: () => resolveOnce(),
       onShouldRetry: (error, retryAttempt) => {
+        if (params.signal?.aborted) return false;
         const status = (error as { originalResponse?: { getStatus?: () => number } })?.originalResponse?.getStatus?.();
         if (status != null && status >= 400 && status < 500) return false;
         return retryAttempt < 4;
       },
     });
+    const onAbort = () => {
+      try {
+        void Promise.resolve(upload.abort()).catch(() => undefined);
+      } catch {
+        // ignore abort cleanup errors; the caller only needs deterministic rejection
+      }
+      rejectOnce(abortError());
+    };
+    params.signal?.addEventListener("abort", onAbort, { once: true });
+    cleanupAbortListener = () => params.signal?.removeEventListener("abort", onAbort);
 
     upload.findPreviousUploads().then((previousUploads) => {
+      if (params.signal?.aborted) {
+        onAbort();
+        return;
+      }
       if (params.resumePrevious !== false && previousUploads.length) upload.resumeFromPreviousUpload(previousUploads[0]);
       upload.start();
-    }).catch(() => upload.start());
+    }).catch(() => {
+      if (params.signal?.aborted) {
+        onAbort();
+        return;
+      }
+      upload.start();
+    });
   });
 }
 
@@ -253,13 +308,16 @@ export async function completePublishedChatVibeClipUpload(params: {
 }
 
 export async function uploadAndPublishChatVibeClipToBunnyStream(params: ChatVibeClipUploadParams): Promise<ChatVibeClipStreamUploadResult> {
+  throwIfAborted(params.signal);
   if (!params.file.size) throw new Error(VIBE_CLIP_UPLOAD_EMPTY_FILE);
   if (params.file.size > VIBE_CLIP_MAX_SOURCE_BYTES) throw new Error(VIBE_CLIP_UPLOAD_TOO_LARGE());
 
+  throwIfAborted(params.signal);
   let created = requireCreatedUploadCredentials(await invokeCreate(params));
   const uploadId = created.uploadId;
   const videoId = created.videoId;
 
+  throwIfAborted(params.signal);
   if (created.status === "failed") throw new Error("Clip processing failed. Please try a new clip.");
   if (!created.status || created.status === "uploading") {
     try {
@@ -272,15 +330,18 @@ export async function uploadAndPublishChatVibeClipToBunnyStream(params: ChatVibe
         libraryId: created.libraryId,
         mimeType: created.mimeType,
         onProgress: params.onProgress,
+        signal: params.signal,
       });
     } catch (error) {
       if (!isStaleTusCredentialError(error)) throw error;
       const shouldResumePreviousUpload = tusHttpStatus(error) !== 410;
+      throwIfAborted(params.signal);
       const refreshed = requireCreatedUploadCredentials(await invokeCreate(params));
       if (refreshed.videoId !== videoId || refreshed.uploadId !== uploadId) {
         throw new Error("Clip recovery returned a different upload target. Please send the clip again.");
       }
       created = refreshed;
+      throwIfAborted(params.signal);
       if (!created.status || created.status === "uploading") {
         await uploadTus({
           file: params.file,
@@ -292,6 +353,7 @@ export async function uploadAndPublishChatVibeClipToBunnyStream(params: ChatVibe
           mimeType: created.mimeType,
           resumePrevious: shouldResumePreviousUpload,
           onProgress: params.onProgress,
+          signal: params.signal,
         });
       } else {
         params.onProgress?.(1);
@@ -303,11 +365,13 @@ export async function uploadAndPublishChatVibeClipToBunnyStream(params: ChatVibe
 
   let completed: CompleteChatVibeClipUploadResponse;
   try {
+    throwIfAborted(params.signal);
     completed = await invokeComplete({
       uploadId,
       clientRequestId: params.clientRequestId,
     });
   } catch (error) {
+    if (isAbortError(error)) throw error;
     throw new ChatVibeClipUploadedButUnpublishedError(
       error instanceof Error ? error.message : "Clip uploaded but could not be published yet.",
       { uploadId, videoId, cause: error },

@@ -220,6 +220,7 @@ async function uploadNativeChatVibeClipViaLegacyService(
       aspectRatio: typeof input.context?.aspectRatio === 'number' ? input.context.aspectRatio : null,
       captions: input.context?.captions,
       resumeStrategy: input.context?.resumeStrategy === 'reissue_credentials' ? 'reissue_credentials' : undefined,
+      signal: (input.options?.signal as AbortSignal | null | undefined) ?? undefined,
       onProgress: (fraction) => {
         controls.dispatch({ type: 'progress', progress: fraction });
         onProgress?.(fraction);
@@ -377,6 +378,7 @@ export async function uploadAndPublishChatVibeClipWithMediaSdk(
     },
     options: {
       clientRequestId,
+      signal: params.signal ?? null,
     },
   });
   chatClipProgressByClientRequestId.set(clientRequestId, params.onProgress);

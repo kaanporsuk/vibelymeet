@@ -141,6 +141,7 @@ export async function executeWebOutboxItem(
   item: WebChatOutboxItem,
   queryClient: QueryClient,
   onUploadProgress?: (fraction: number) => void,
+  options: { signal?: AbortSignal | null } = {},
 ): Promise<{ serverMessageId: string; uploadedPublicUrl?: string; uploadedMediaUrl?: string }> {
   const { id: clientRequestId, matchId, payload } = item;
   const scope = item.invalidateScope;
@@ -237,6 +238,7 @@ export async function executeWebOutboxItem(
             captions: payload.captions ?? null,
             resumeStrategy: item.vibeClipResumeStrategy,
             onProgress: onUploadProgress,
+            signal: options.signal ?? null,
           };
           uploaded = await uploadAndPublishChatVibeClipWithMediaSdk(uploadParams);
         } catch (error) {
