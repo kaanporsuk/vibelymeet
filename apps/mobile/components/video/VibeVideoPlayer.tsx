@@ -62,6 +62,7 @@ export function VibeVideoPlayer({
   const usesSignedProfileRef = isProfileVibeVideoRef(sourceUri);
   const {
     url: mediaAssetUrl,
+    posterUrl: mediaAssetPosterUrl,
     status: mediaAssetStatus,
   } = useMediaAsset({
     kind: usesSignedProfileRef ? 'profile_vibe_video' : 'vibe_video',
@@ -70,6 +71,7 @@ export function VibeVideoPlayer({
     autoResolve: usesSignedProfileRef,
   });
   const playbackSourceUri = mediaAssetUrl ?? (usesSignedProfileRef ? '' : sourceUri);
+  const effectivePosterUri = mediaAssetPosterUrl ?? posterUri ?? null;
   const [showPoster, setShowPoster] = useState(!!posterUri);
   const [showCaptions, setShowCaptions] = useState(true);
   const captionText = useMemo(() => captionTextFromMediaCaptions(captions), [captions]);
@@ -124,8 +126,8 @@ export function VibeVideoPlayer({
   }, [mediaAssetStatus, onPlayerFatalError, usesSignedProfileRef]);
 
   useEffect(() => {
-    setShowPoster(!!posterUri);
-  }, [playbackSourceUri, posterUri]);
+    setShowPoster(!!effectivePosterUri);
+  }, [playbackSourceUri, effectivePosterUri]);
 
   useEffect(() => {
     if (!shouldAttachPlayback || !playbackSourceUri) return;
@@ -272,9 +274,9 @@ export function VibeVideoPlayer({
 
   return (
     <>
-      {showPoster && posterUri ? (
+      {showPoster && effectivePosterUri ? (
         <Image
-          source={{ uri: posterUri }}
+          source={{ uri: effectivePosterUri }}
           style={[StyleSheet.absoluteFill, styles.posterZ]}
           resizeMode="cover"
         />

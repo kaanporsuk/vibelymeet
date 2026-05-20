@@ -37,6 +37,10 @@ test("Phase 9 QoE contracts and prewarm policy constants are pinned", () => {
   assert.match(fullscreen, /sourceRef: vibeVideoInfo\.playbackUrl/);
   assert.match(fullscreen, /surface: "vibe_player_fullscreen"/);
   assert.match(fullscreen, /video\.textTracks/);
+  assert.match(fullscreen, /playbackRef\?: string \| null/);
+  assert.match(fullscreen, /profileId\?: string \| null/);
+  assert.match(fullscreen, /if \(usesSignedProfileRef && mediaAssetStatus !== "error"\) return/);
+  assert.match(fullscreen, /signedProfileRefPlaybackPending/);
 
   assert.match(sharedPolicy, /REBUFFER_DEGRADE_WINDOW_MS = 30_000/);
   assert.match(sharedPolicy, /REBUFFER_DEGRADE_THRESHOLD = 2/);

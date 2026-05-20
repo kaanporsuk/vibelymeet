@@ -141,18 +141,20 @@ const VibeStudio = () => {
   const effectiveVibeVideo = useMemo(() => {
     if (ctrl.phase === "ready" && ctrl.videoId) {
       return {
-        id: profile?.id ?? null,
+        id: profile?.id ?? userId ?? null,
         bunnyVideoUid: ctrl.videoId,
         bunnyVideoStatus: "ready",
+        playbackRef: null,
         updatedAt: profile?.updatedAt ?? null,
         vibeCaption: profile?.vibeCaption ?? "",
         captions: profile?.vibeVideoCaptions ?? null,
       };
     }
     return {
-      id: profile?.id ?? null,
+      id: profile?.id ?? userId ?? null,
       bunnyVideoUid: profile?.bunnyVideoUid ?? null,
       bunnyVideoStatus: profile?.bunnyVideoStatus ?? "none",
+      playbackRef: profile?.vibeVideoPlaybackRef ?? null,
       updatedAt: profile?.updatedAt ?? null,
       vibeCaption: profile?.vibeCaption ?? "",
       captions: profile?.vibeVideoCaptions ?? null,
@@ -161,8 +163,10 @@ const VibeStudio = () => {
     ctrl.phase,
     ctrl.videoId,
     profile?.id,
+    userId,
     profile?.bunnyVideoUid,
     profile?.bunnyVideoStatus,
+    profile?.vibeVideoPlaybackRef,
     profile?.updatedAt,
     profile?.vibeCaption,
     profile?.vibeVideoCaptions,
@@ -171,8 +175,10 @@ const VibeStudio = () => {
   const videoInfo = useMemo(
     () =>
       resolveWebVibeVideoState({
+        id: effectiveVibeVideo.id,
         bunnyVideoUid: effectiveVibeVideo.bunnyVideoUid,
         bunnyVideoStatus: effectiveVibeVideo.bunnyVideoStatus,
+        playbackRef: effectiveVibeVideo.playbackRef,
         vibeCaption: effectiveVibeVideo.vibeCaption,
       }),
     [effectiveVibeVideo],
@@ -554,6 +560,8 @@ const VibeStudio = () => {
         show={showPlayer}
         bunnyVideoUid={effectiveVibeVideo.bunnyVideoUid}
         bunnyVideoStatus={effectiveVibeVideo.bunnyVideoStatus}
+        playbackRef={effectiveVibeVideo.playbackRef}
+        profileId={effectiveVibeVideo.id}
         vibeCaption={effectiveVibeVideo.vibeCaption}
         captions={effectiveVibeVideo.captions}
         onClose={() => setShowPlayer(false)}

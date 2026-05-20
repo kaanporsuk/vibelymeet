@@ -14,13 +14,13 @@ const read = (path: string) => readFileSync(join(root, path), "utf8");
 test("canonical web full profile shows non-playable Vibe Video states to all viewers", () => {
   const canonicalProfile = read("src/components/profile/OtherUserFullProfileView.tsx");
 
-  assert.match(canonicalProfile, /vibeVideo\.state === "processing" \|\| vibeVideo\.state === "stale_processing"/);
+  assert.match(canonicalProfile, /effectiveVibeVideoState === "processing" \|\| effectiveVibeVideoState === "stale_processing"/);
   assert.match(canonicalProfile, /Vibe Video still processing/);
   assert.match(canonicalProfile, /Vibe Video processing/);
-  assert.match(canonicalProfile, /vibeVideo\.state === "failed" \|\| vibeVideo\.state === "error"/);
+  assert.match(canonicalProfile, /effectiveVibeVideoState === "failed" \|\| effectiveVibeVideoState === "error"/);
   assert.match(canonicalProfile, /Vibe Video needs a fresh take/);
   assert.match(canonicalProfile, /Vibe Video unavailable/);
-  assert.match(canonicalProfile, /vibeVideo\.state === "ready" && !hasPlayableVibeVideo/);
+  assert.match(canonicalProfile, /effectiveVibeVideoState === "ready" && !hasPlayableVibeVideo/);
   assert.match(canonicalProfile, /Vibe Video preview syncing/);
 });
 

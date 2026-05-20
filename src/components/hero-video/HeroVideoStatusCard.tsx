@@ -10,11 +10,13 @@
  * tus connection is open, then transitions to backend truth once the controller resets.
  */
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { AlertCircle, CheckCircle2, Loader2, Play, RefreshCw, Video } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useHeroVideoUpload } from "@/hooks/useHeroVideoUpload";
 import { resolveWebVibeVideoState } from "@/lib/vibeVideo/webVibeVideoState";
+import { useMediaAsset } from "@/hooks/useMediaAsset";
+import { isProfileVibeVideoRef } from "@/lib/mediaAssetResolver";
 
 interface ProfileSnap {
   id?: string | null;
@@ -22,6 +24,8 @@ interface ProfileSnap {
   bunnyVideoStatus?: string | null;
   bunnyVideoUpdatedAt?: string | number | Date | null;
   updatedAt?: string | number | Date | null;
+  vibeVideoPlaybackRef?: string | null;
+  playbackRef?: string | null;
   vibeCaption?: string | null;
 }
 
@@ -45,13 +49,14 @@ export function HeroVideoStatusCard({
 }: HeroVideoStatusCardProps) {
   const ctrl = useHeroVideoUpload();
   const [thumbErr, setThumbErr] = useState(false);
-  const prevUidRef = useRef<string | null | undefined>(null);
 
   const backendInfo = resolveWebVibeVideoState(
     profile
       ? {
           bunny_video_uid: profile.bunnyVideoUid,
           bunny_video_status: profile.bunnyVideoStatus,
+          id: profile.id,
+          playbackRef: profile.vibeVideoPlaybackRef ?? profile.playbackRef,
           bunnyVideoUpdatedAt: profile.bunnyVideoUpdatedAt,
           updatedAt: profile.updatedAt,
           vibe_caption: profile.vibeCaption,
@@ -63,18 +68,11 @@ export function HeroVideoStatusCard({
       ? {
           bunny_video_uid: ctrl.videoId,
           bunny_video_status: ctrl.phase,
+          id: profile?.id,
           vibe_caption: profile?.vibeCaption,
         }
       : null,
   );
-
-  // Reset thumbnail error when the video UID changes
-  useEffect(() => {
-    if (prevUidRef.current !== backendInfo.uid) {
-      prevUidRef.current = backendInfo.uid;
-      setThumbErr(false);
-    }
-  }, [backendInfo.uid]);
 
   // Effective phase: controller overrides profile when it has an active session
   const controllerIsActive =
@@ -84,10 +82,29 @@ export function HeroVideoStatusCard({
 
   const effectivePhase =
     controllerIsActive || controllerIsTerminal ? ctrl.phase : backendInfo.state;
+  const effectiveReadyInfo = ctrl.phase === "ready" && controllerInfo.uid ? controllerInfo : backendInfo;
+  const signedProfileVibeVideoRef = isProfileVibeVideoRef(effectiveReadyInfo.playbackUrl)
+    ? effectiveReadyInfo.playbackUrl
+    : null;
+  const { posterUrl: signedPosterUrl } = useMediaAsset({
+    kind: "profile_vibe_video",
+    sourceRef: signedProfileVibeVideoRef,
+    initialUrl: null,
+    autoResolve: !!signedProfileVibeVideoRef,
+    enabled: effectivePhase === "ready" && !!signedProfileVibeVideoRef,
+  });
+  const displayThumbnailUrl = signedProfileVibeVideoRef
+    ? signedPosterUrl
+    : effectiveReadyInfo.thumbnailUrl;
+
+  // Reset thumbnail error when the displayed video identity or signed poster URL changes.
+  useEffect(() => {
+    setThumbErr(false);
+  }, [effectiveReadyInfo.uid, displayThumbnailUrl]);
 
   // ── Ready ──────────────────────────────────────────────────────────────────
   if (effectivePhase === "ready") {
-    const info = ctrl.phase === "ready" && controllerInfo.uid ? controllerInfo : backendInfo;
+    const info = effectiveReadyInfo;
     const isPlayable = info.canPlay && !!info.playbackUrl;
     return (
       <div className={cn("rounded-2xl overflow-hidden bg-white/5 border border-white/10", className)}>
@@ -99,9 +116,9 @@ export function HeroVideoStatusCard({
           style={{ aspectRatio: "16/9" }}
           onClick={isPlayable ? onOpenPlayer : undefined}
         >
-          {info.thumbnailUrl && !thumbErr ? (
+          {displayThumbnailUrl && !thumbErr ? (
             <img
-              src={info.thumbnailUrl}
+              src={displayThumbnailUrl}
               alt="Vibe Video"
               className="w-full h-full object-cover"
               onError={() => setThumbErr(true)}

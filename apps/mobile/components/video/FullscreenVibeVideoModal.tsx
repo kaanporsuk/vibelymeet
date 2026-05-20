@@ -20,6 +20,7 @@ import { setSafeAudioMode } from '@/lib/safeAudioMode';
 import VibeVideoPlayer from '@/components/video/VibeVideoPlayer';
 import { vibeVideoDiagVerbose } from '@/lib/vibeVideoDiagnostics';
 import { useReduceMotion } from '@/hooks/useReduceMotion';
+import { isProfileVibeVideoRef } from '@/lib/mediaAssetResolver';
 import type { VibeVideoState } from '@/lib/vibeVideoState';
 import type { MediaCaptions } from '../../../../shared/media/captions';
 
@@ -64,10 +65,11 @@ export function FullscreenVibeVideoModal({
   const [hasCompletedInitialPlayback, setHasCompletedInitialPlayback] = useState(false);
 
   const { hostname: streamHostname } = resolveVibeVideoStreamHostnameSync();
-  const configMissing = !streamHostname;
+  const usesSignedProfileRef = isProfileVibeVideoRef(playbackUrl);
+  const configMissing = !usesSignedProfileRef && !streamHostname;
   const uid = typeof bunnyVideoUid === 'string' ? bunnyVideoUid.trim() : '';
   const expectedPatternUrl =
-    uid && streamHostname ? `https://${streamHostname}/${uid}/playlist.m3u8` : null;
+    !usesSignedProfileRef && uid && streamHostname ? `https://${streamHostname}/${uid}/playlist.m3u8` : null;
 
   const errorKind: 'none' | 'config' | 'url' | 'playback' = (() => {
     if (!visible) return 'none';
@@ -116,10 +118,11 @@ export function FullscreenVibeVideoModal({
       bunnyVideoUid: uid || null,
       resolvedHostname: streamHostname,
       hasPlaybackUrl: !!playbackUrl,
+      usesSignedProfileRef,
       errorKind: 'playback',
     });
     setPlaybackSurfaceError(true);
-  }, [uid, playbackUrl, streamHostname]);
+  }, [uid, playbackUrl, streamHostname, usesSignedProfileRef]);
 
   const handleRetryPlayback = useCallback(() => {
     setPlaybackSurfaceError(false);
@@ -132,6 +135,7 @@ export function FullscreenVibeVideoModal({
       bunnyVideoUid: uid || null,
       resolvedHostname: streamHostname,
       hasPlaybackUrl: !!playbackUrl,
+      usesSignedProfileRef,
       hasExpectedPatternUrl: !!expectedPatternUrl,
       patternMatch: !!(playbackUrl && expectedPatternUrl && playbackUrl === expectedPatternUrl),
     });
@@ -140,11 +144,12 @@ export function FullscreenVibeVideoModal({
       bunnyVideoUid: uid || null,
       resolvedHostname: streamHostname,
       hasPlaybackUrl: !!playbackUrl,
+      usesSignedProfileRef,
       errorKind,
       configMissing,
       hasExpectedPatternUrl: !!expectedPatternUrl,
     });
-  }, [visible, errorKind, uid, playbackUrl, streamHostname, configMissing, expectedPatternUrl]);
+  }, [visible, errorKind, uid, playbackUrl, streamHostname, usesSignedProfileRef, configMissing, expectedPatternUrl]);
 
   const renderErrorCard = (title: string, body: string, showRetry?: boolean) => (
     <View style={styles.errorWrap}>

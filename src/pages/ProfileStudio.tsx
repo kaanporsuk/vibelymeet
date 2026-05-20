@@ -142,6 +142,7 @@ interface UserProfile {
   photoVerified: boolean;
   bunnyVideoUid: string | null;
   bunnyVideoStatus: string;
+  vibeVideoPlaybackRef: string | null;
   vibeCaption: string;
   vibeVideoCaptions: MediaCaptions | null;
   stats: {
@@ -178,6 +179,7 @@ const initialProfile: UserProfile = {
   photoVerified: false,
   bunnyVideoUid: null,
   bunnyVideoStatus: "none",
+  vibeVideoPlaybackRef: null,
   vibeCaption: "",
   vibeVideoCaptions: null,
   stats: { events: 0, matches: 0, conversations: 0 },
@@ -394,6 +396,7 @@ const ProfileStudio = () => {
             photoVerified: data.photoVerified || false,
             bunnyVideoUid: data.bunnyVideoUid || null,
             bunnyVideoStatus: data.bunnyVideoStatus || "none",
+            vibeVideoPlaybackRef: data.vibeVideoPlaybackRef,
             vibeCaption: data.vibeCaption || "",
             vibeVideoCaptions: data.vibeVideoCaptions ?? null,
             stats: data.stats,
@@ -555,6 +558,7 @@ const ProfileStudio = () => {
         id: profile.id,
         bunnyVideoUid: heroVideoUpload.videoId,
         bunnyVideoStatus: "ready",
+        playbackRef: null,
         updatedAt: profile.updatedAt,
         vibeCaption: profile.vibeCaption,
         captions: profile.vibeVideoCaptions,
@@ -564,6 +568,7 @@ const ProfileStudio = () => {
       id: profile.id,
       bunnyVideoUid: profile.bunnyVideoUid,
       bunnyVideoStatus: profile.bunnyVideoStatus,
+      playbackRef: profile.vibeVideoPlaybackRef,
       updatedAt: profile.updatedAt,
       vibeCaption: profile.vibeCaption,
       captions: profile.vibeVideoCaptions,
@@ -574,6 +579,7 @@ const ProfileStudio = () => {
     profile.id,
     profile.bunnyVideoUid,
     profile.bunnyVideoStatus,
+    profile.vibeVideoPlaybackRef,
     profile.updatedAt,
     profile.vibeCaption,
     profile.vibeVideoCaptions,
@@ -581,8 +587,10 @@ const ProfileStudio = () => {
   const resolvedVibeVideo = useMemo(
     () =>
       resolveWebVibeVideoState({
+        id: effectiveVibeVideo.id,
         bunnyVideoUid: effectiveVibeVideo.bunnyVideoUid,
         bunnyVideoStatus: effectiveVibeVideo.bunnyVideoStatus,
+        playbackRef: effectiveVibeVideo.playbackRef,
         updatedAt: effectiveVibeVideo.updatedAt,
         vibeCaption: effectiveVibeVideo.vibeCaption,
       }),
@@ -2139,6 +2147,8 @@ const ProfileStudio = () => {
             show={showVibePlayer}
             bunnyVideoUid={effectiveVibeVideo.bunnyVideoUid}
             bunnyVideoStatus={effectiveVibeVideo.bunnyVideoStatus}
+            playbackRef={effectiveVibeVideo.playbackRef}
+            profileId={effectiveVibeVideo.id}
             vibeCaption={effectiveVibeVideo.vibeCaption}
             captions={effectiveVibeVideo.captions}
             onClose={() => setShowVibePlayer(false)}

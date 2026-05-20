@@ -44,9 +44,11 @@ import { saveCurrentDeviceLocationToProfile } from '@/lib/locationProfileUpdate'
 import { isDocumentPickerAvailable } from '@/lib/safeDocumentPicker';
 import { type PhotoBatchLaunchAction } from '@/lib/photoBatchController';
 import { resolveVibeVideoState } from '@/lib/vibeVideoState';
+import { isProfileVibeVideoRef } from '@/lib/mediaAssetResolver';
 import { vibeVideoDiagVerbose } from '@/lib/vibeVideoDiagnostics';
 import { nativeHeroVideoResumePollingForProfile } from '@/lib/nativeHeroVideoUploadController';
 import { trackStaleVibeVideoProcessing } from '@/lib/vibeVideoTelemetry';
+import { useMediaAsset } from '@/hooks/useMediaAsset';
 
 import { PromptEditSheet } from '@/components/profile/PromptEditSheet';
 import { TaglineEditorSheet } from '@/components/profile/TaglineEditorSheet';
@@ -232,7 +234,6 @@ export default function ProfileStudio() {
     setJobEdit(profile.job ?? '');
     setHeightEdit(profile.height_cm ? String(profile.height_cm) : '');
     setLifestyleEdit(profile.lifestyle ?? {});
-    setThumbnailError(false);
     const stored = (profile.lifestyle as Record<string, string> | null)?.meeting_preference;
     if (stored === 'events' || stored === 'dates' || stored === 'both') {
       setMeetingPref(stored);
@@ -250,10 +251,6 @@ export default function ProfileStudio() {
   useEffect(() => {
     void refreshPhotoVerificationState();
   }, [refreshPhotoVerificationState]);
-
-  // ═══════════════════════════════════════════════
-  // End of hooks — only plain values / handlers below until loading/error early returns.
-  // ═══════════════════════════════════════════════
 
   // Verification counts
   const verificationStepTotal = 3;
@@ -293,9 +290,22 @@ export default function ProfileStudio() {
     return { label: 'No schedule set', color: '#6B7280' };
   })();
 
-  /** Vibe video UI state — must not use hooks; same call order every render (incl. loading/error paths). */
+  /** Vibe video UI state — keep hooks above all loading/error returns so call order stays stable. */
   const videoInfo = resolveVibeVideoState(profile ?? null);
+  const signedProfileVibeVideoRef = isProfileVibeVideoRef(videoInfo.playbackUrl) ? videoInfo.playbackUrl : null;
+  const { posterUrl: signedPosterUrl } = useMediaAsset({
+    kind: 'profile_vibe_video',
+    sourceRef: signedProfileVibeVideoRef,
+    initialUrl: null,
+    autoResolve: !!signedProfileVibeVideoRef,
+    enabled: videoInfo.state === 'ready' && !!signedProfileVibeVideoRef,
+  });
+  const videoPosterUrl = signedProfileVibeVideoRef ? signedPosterUrl : videoInfo.thumbnailUrl;
   const showVibeVideoManageLabel = videoInfo.canManage || videoInfo.state === 'error';
+
+  useEffect(() => {
+    setThumbnailError(false);
+  }, [videoInfo.uid, videoInfo.state, videoPosterUrl]);
 
   useEffect(() => {
     if (!profile) return;
@@ -836,7 +846,7 @@ export default function ProfileStudio() {
   const isVibeVideoStaleProcessing = videoInfo.state === 'stale_processing';
   const isVibeVideoFailed = videoInfo.state === 'failed';
   const isVibeVideoError = videoInfo.state === 'error';
-  const thumbnailUrl = videoInfo.thumbnailUrl;
+  const thumbnailUrl = videoPosterUrl;
   const caption = videoInfo.caption ?? '';
   const profilePhotos = profile?.photos ?? [];
   const lookingForDisplay = getLookingForDisplay(profile?.relationship_intent ?? profile?.looking_for);

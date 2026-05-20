@@ -64,6 +64,29 @@ export function getWebVibeVideoThumbnailUrl(bunnyVideoUid: string | null | undef
   return `https://${hostname}/${uid}/thumbnail.jpg`;
 }
 
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const BUNNY_STREAM_VIDEO_ID_PATTERN = /^[0-9a-f-]{32,36}$/i;
+const PROFILE_VIBE_VIDEO_REF_PATTERN =
+  /^profile_vibe_video:([0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}):([0-9a-f-]{32,36})$/i;
+
+export function getWebProfileVibeVideoPlaybackRef(
+  profileId: string | null | undefined,
+  bunnyVideoUid: string | null | undefined,
+): string | null {
+  const id = typeof profileId === "string" ? profileId.trim() : "";
+  const uid = typeof bunnyVideoUid === "string" ? bunnyVideoUid.trim() : "";
+  if (!UUID_PATTERN.test(id) || !BUNNY_STREAM_VIDEO_ID_PATTERN.test(uid)) return null;
+  return `profile_vibe_video:${id}:${uid}`;
+}
+
+function normalizeProfileVibeVideoPlaybackRef(value: unknown, uid?: string | null): string | null {
+  const ref = typeof value === "string" ? value.trim() : "";
+  const match = PROFILE_VIBE_VIDEO_REF_PATTERN.exec(ref);
+  if (!match) return null;
+  if (uid && match[2].toLowerCase() !== uid.toLowerCase()) return null;
+  return ref;
+}
+
 export type WebVibeVideoState = CanonicalVibeVideoState;
 
 export interface WebVibeVideoInfo {
@@ -84,6 +107,9 @@ export interface WebVibeVideoInfo {
 }
 
 type ProfileVibeInput = {
+  id?: string | null;
+  profile_id?: string | null;
+  profileId?: string | null;
   bunny_video_uid?: string | null;
   bunny_video_status?: string | null;
   bunny_video_updated_at?: string | number | Date | null;
@@ -94,14 +120,31 @@ type ProfileVibeInput = {
   updatedAt?: string | number | Date | null;
   vibe_caption?: string | null;
   vibeCaption?: string | null;
+  vibe_video_playback_ref?: string | null;
+  vibeVideoPlaybackRef?: string | null;
+  playbackRef?: string | null;
   vibe_video_captions?: unknown;
   vibeVideoCaptions?: unknown;
   captions?: unknown;
 } | null | undefined;
 
+function pickProfileId(p: ProfileVibeInput): string | null {
+  const raw = p?.id ?? p?.profile_id ?? p?.profileId;
+  return typeof raw === "string" ? raw.trim() || null : null;
+}
+
 function pickUid(p: ProfileVibeInput): string | null {
   const raw = p?.bunny_video_uid ?? p?.bunnyVideoUid;
   return normalizeBunnyVideoUid(raw);
+}
+
+function pickPlaybackRef(p: ProfileVibeInput, uid: string | null): string | null {
+  return (
+    normalizeProfileVibeVideoPlaybackRef(p?.vibe_video_playback_ref, uid) ??
+    normalizeProfileVibeVideoPlaybackRef(p?.vibeVideoPlaybackRef, uid) ??
+    normalizeProfileVibeVideoPlaybackRef(p?.playbackRef, uid) ??
+    getWebProfileVibeVideoPlaybackRef(pickProfileId(p), uid)
+  );
 }
 
 function pickStatus(p: ProfileVibeInput): string | null | undefined {
@@ -189,8 +232,9 @@ export function resolveWebVibeVideoState(profile: ProfileVibeInput): WebVibeVide
   }
 
   if (canonical.state === "ready") {
-    const playbackUrl = getWebVibeVideoPlaybackUrl(uid);
-    const thumbnailUrl = getWebVibeVideoThumbnailUrl(uid);
+    const playbackRef = pickPlaybackRef(profile, uid);
+    const playbackUrl = playbackRef ?? getWebVibeVideoPlaybackUrl(uid);
+    const thumbnailUrl = playbackRef ? null : getWebVibeVideoThumbnailUrl(uid);
     return {
       state: "ready",
       uid,

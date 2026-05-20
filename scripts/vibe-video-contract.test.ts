@@ -878,7 +878,8 @@ test("native Stream CDN missing config is explicit and not hidden by a hardcoded
   assert.match(playbackUrl, /VIBE_VIDEO_EVENTS\.cdnHostnameFallbackUsed/);
   assert.match(playbackUrl, /let cachedCdnHostname: string \| null = null/);
   assert.match(playbackUrl, /if \(!uid \|\| !hostname\) return null/);
-  assert.match(fullscreenModal, /const configMissing = !streamHostname;/);
+  assert.match(fullscreenModal, /const usesSignedProfileRef = isProfileVibeVideoRef\(playbackUrl\);/);
+  assert.match(fullscreenModal, /const configMissing = !usesSignedProfileRef && !streamHostname;/);
   assert.match(fullscreenModal, /vibeVideoState: VibeVideoState/);
   assert.match(fullscreenModal, /Video still processing/);
   assert.doesNotMatch(fullscreenModal, /No\s+video/);
