@@ -6,6 +6,7 @@
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.88.0";
 import * as Sentry from "https://deno.land/x/sentry@8.55.0/index.mjs";
+import { signBunnyStreamDirectoryUrl } from "../_shared/bunny-stream-tokens.ts";
 import { capture } from "../_shared/posthog.ts";
 
 const corsHeaders = {
@@ -25,6 +26,8 @@ type ProbeResult = {
   contentType: string | null;
   error: string | null;
 };
+
+type HealthStatus = "healthy" | "degraded" | "misconfigured";
 
 type HealthStateRow = {
   probe: string;
@@ -47,6 +50,36 @@ function redactedProbeUrl(value: string): string {
     return `${url.protocol}//${url.hostname}${url.pathname}`;
   } catch {
     return "invalid_url";
+  }
+}
+
+function healthStatusFor(results: ProbeResult[]): HealthStatus {
+  if (results.some((result) => !result.configured)) return "misconfigured";
+  if (results.every((result) => result.ok)) return "healthy";
+  return "degraded";
+}
+
+async function resolveStreamProbeUrl(): Promise<string | undefined> {
+  const configuredUrl = Deno.env.get("BUNNY_CDN_HEALTH_STREAM_URL")?.trim();
+  if (!configuredUrl) return undefined;
+  if (configuredUrl.includes("bcdn_token=")) return configuredUrl;
+
+  const securityKey = Deno.env.get("BUNNY_STREAM_TOKEN_SECURITY_KEY")?.trim();
+  if (!securityKey) return configuredUrl;
+
+  try {
+    const url = new URL(configuredUrl);
+    const [, videoId, fileName] = url.pathname.split("/");
+    if (!videoId || !fileName) return configuredUrl;
+    return await signBunnyStreamDirectoryUrl({
+      hostname: url.hostname,
+      securityKey,
+      videoId,
+      fileName,
+      expires: Math.floor(Date.now() / 1000) + 5 * 60,
+    });
+  } catch {
+    return configuredUrl;
   }
 }
 
@@ -147,11 +180,12 @@ Deno.serve(async (req) => {
   const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
   const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
   const supabase = createClient(supabaseUrl, serviceRoleKey);
+  const streamProbeUrl = await resolveStreamProbeUrl();
 
   const results = await Promise.all([
     probeUrl(
       "stream_hls",
-      Deno.env.get("BUNNY_CDN_HEALTH_STREAM_URL"),
+      streamProbeUrl,
       /(?:application\/vnd\.apple\.mpegurl|mpegurl|x-mpegurl|octet-stream)/i,
     ),
     probeUrl("storage_object", Deno.env.get("BUNNY_CDN_HEALTH_STORAGE_URL")),
@@ -215,10 +249,12 @@ Deno.serve(async (req) => {
   }
 
   const healthy = results.every((result) => result.ok);
+  const status = healthStatusFor(results);
   return jsonResponse({
     success: true,
+    status,
     healthy,
     probes: results,
     state: stateUpdates,
-  }, healthy ? 200 : 503);
+  });
 });
