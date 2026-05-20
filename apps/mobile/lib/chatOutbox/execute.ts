@@ -112,6 +112,7 @@ export async function executeOutboxItem(
               typeof payload.aspectRatio === 'number' && Number.isFinite(payload.aspectRatio) && payload.aspectRatio > 0
                 ? payload.aspectRatio
                 : null,
+            captions: payload.captions ?? null,
             resumeStrategy: item.vibeClipResumeStrategy,
             onProgress: onUploadProgress,
           };

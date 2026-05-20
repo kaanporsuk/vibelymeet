@@ -1,3 +1,5 @@
+import type { MediaCaptions } from "../media/captions";
+
 export type ChatDbMessageKind =
   | "text"
   | "date_suggestion"
@@ -54,6 +56,7 @@ export interface VibeClipPayload {
   provider?: "bunny_stream" | "bunny_storage";
   provider_object_id?: string | null;
   playback_ref?: string | null;
+  captions?: MediaCaptions | null;
 }
 
 export const VIBE_CLIP_CONTENT_LABEL = "🎬 Vibe Clip";
@@ -74,6 +77,7 @@ export interface VibeClipDisplayMeta {
   providerObjectId?: string | null;
   playbackRef?: string | null;
   posterRef?: string | null;
+  captions?: MediaCaptions | null;
 }
 
 /**
@@ -124,6 +128,11 @@ export function extractVibeClipMeta(row: {
     providerObjectId: typeof sp?.provider_object_id === "string" ? sp.provider_object_id : null,
     playbackRef: typeof sp?.playback_ref === "string" ? sp.playback_ref : null,
     posterRef: typeof sp?.poster_ref === "string" ? sp.poster_ref : null,
+    captions:
+      typeof sp?.captions === "string" ||
+      (sp?.captions && typeof sp.captions === "object" && !Array.isArray(sp.captions))
+        ? (sp.captions as MediaCaptions)
+        : null,
   };
 }
 

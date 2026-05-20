@@ -4,6 +4,9 @@ import { Play, Volume2, VolumeX, Maximize, AlertCircle, Loader2 } from "lucide-r
 import { AspectRatio } from "@/components/ui/aspect-ratio";
 import { cn } from "@/lib/utils";
 import { useMediaAsset, type MediaAssetKind } from "@/hooks/useMediaAsset";
+import { useMediaPlaybackQoE } from "@/hooks/useMediaPlaybackQoE";
+import { usePrefersReducedMotion } from "@/hooks/usePrefersReducedMotion";
+import { useMediaVideoPreloadForVisibility } from "@/hooks/useMediaVideoPreloadPolicy";
 
 interface VideoMessageBubbleProps {
   videoUrl: string;
@@ -46,6 +49,7 @@ export const VideoMessageBubble = ({
   threadVisualRecede = false,
 }: VideoMessageBubbleProps) => {
   const videoRef = useRef<HTMLVideoElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [isMuted, setIsMuted] = useState(true);
   const [currentTime, setCurrentTime] = useState(0);
@@ -53,6 +57,8 @@ export const VideoMessageBubble = ({
   const [isReady, setIsReady] = useState(false);
   const [hasMetadata, setHasMetadata] = useState(false);
   const [loadError, setLoadError] = useState(false);
+  const [isViewportVisible, setIsViewportVisible] = useState(true);
+  const prefersReducedMotion = usePrefersReducedMotion();
   const playbackRefreshAttemptCountRef = useRef(0);
   const { url: mediaAssetUrl, refresh: refreshMediaAsset } = useMediaAsset({
     kind: mediaKind,
@@ -107,11 +113,22 @@ export const VideoMessageBubble = ({
   }, [messageId, playableVideoUrl, refreshVideoUrl, videoSourceRef]);
 
   useEffect(() => {
-    if (immersiveActive) {
+    if (immersiveActive || !isViewportVisible) {
       videoRef.current?.pause();
       setIsPlaying(false);
     }
-  }, [immersiveActive]);
+  }, [immersiveActive, isViewportVisible]);
+
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container || typeof IntersectionObserver === "undefined") return;
+    const observer = new IntersectionObserver(
+      ([entry]) => setIsViewportVisible(entry.isIntersecting),
+      { threshold: 0.01 },
+    );
+    observer.observe(container);
+    return () => observer.disconnect();
+  }, []);
 
   const markReadyIfPossible = useCallback(() => {
     const video = videoRef.current;
@@ -209,8 +226,24 @@ export const VideoMessageBubble = ({
     setCurrentTime(0);
   }, []);
 
+  useMediaPlaybackQoE(videoRef, {
+    enabled: !loadError,
+    family: mediaKind,
+    surface: "chat_video_message_bubble",
+    provider: "bunny_storage",
+    sourceRef: videoSourceRef ?? playableVideoUrl,
+    messageId: messageId ?? null,
+    muted: isMuted,
+    autoplay: false,
+  });
+
   const progress = duration > 0 ? (currentTime / duration) * 100 : 0;
   const isBuffering = isReady && isLoading && isPlaying;
+  const canPreloadPlayableVideo = /^https?:\/\//i.test(playableVideoUrl) || /^(blob:|file:|data:)/i.test(playableVideoUrl);
+  const videoPreload = useMediaVideoPreloadForVisibility(
+    !immersiveActive && isViewportVisible && canPreloadPlayableVideo,
+    playableVideoUrl,
+  );
 
   if (loadError) {
     return (
@@ -245,6 +278,7 @@ export const VideoMessageBubble = ({
 
   return (
     <div
+      ref={containerRef}
       className={cn(
         VIDEO_BUBBLE_WIDTH_CLASS,
         "rounded-xl overflow-hidden relative group cursor-pointer shadow-md shadow-black/20 ring-1 ring-white/10 transition-opacity duration-200",
@@ -273,9 +307,9 @@ export const VideoMessageBubble = ({
             <motion.div
               aria-hidden
               className="absolute inset-0"
-              initial={{ x: "-120%" }}
-              animate={{ x: "120%" }}
-              transition={{ duration: 1.4, repeat: Infinity, ease: "easeInOut" }}
+              initial={prefersReducedMotion ? false : { x: "-120%" }}
+              animate={prefersReducedMotion ? false : { x: "120%" }}
+              transition={prefersReducedMotion ? undefined : { duration: 1.4, repeat: Infinity, ease: "easeInOut" }}
               style={{
                 background:
                   "linear-gradient(90deg, rgba(255,255,255,0) 0%, rgba(255,255,255,0.08) 50%, rgba(255,255,255,0) 100%)",
@@ -303,7 +337,7 @@ export const VideoMessageBubble = ({
           src={playableVideoUrl}
           playsInline
           muted={isMuted}
-          preload="metadata"
+          preload={videoPreload}
           onLoadStart={() => setIsLoading(true)}
           onLoadedMetadata={() => {
             setHasMetadata(true);

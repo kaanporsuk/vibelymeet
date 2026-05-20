@@ -1,9 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from "react";
+import { supabase } from "@/integrations/supabase/client";
 import {
   getCachedMediaAsset,
+  getCachedMediaAssetFailureCode,
   isHlsMediaAssetUrl,
   isPlayableMediaAssetUrl,
   refreshMediaAsset,
+  type ChatVibeClipProcessingStatus,
   type MediaAssetKind,
   type MediaAssetRefreshOptions,
   type MediaAssetResolveResult,
@@ -22,6 +25,7 @@ type UseMediaAssetOptions = {
   autoResolve?: boolean;
   enabled?: boolean;
   onResolvedUrl?: (url: string) => void;
+  onProcessingStatusChange?: (status: ChatVibeClipProcessingStatus) => void;
 };
 
 type UseMediaAssetResult = {
@@ -45,6 +49,20 @@ type UseMediaAssetPlaybackOptions = {
 const PROACTIVE_REFRESH_LEAD_MS = 5 * 60 * 1000;
 const MIN_PROACTIVE_REFRESH_DELAY_MS = 30 * 1000;
 const IMMEDIATE_PROACTIVE_REFRESH_THRESHOLD_MS = 2 * 1000;
+
+function isChatRealtimeMediaKind(kind: MediaAssetKind | "vibe_video"): boolean {
+  return kind === "image" || kind === "voice" || kind === "video" || kind === "vibe_clip" || kind === "thumbnail";
+}
+
+function processingStatusFromPayload(payload: unknown): ChatVibeClipProcessingStatus | null {
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) return null;
+  const status = (payload as { processing_status?: unknown }).processing_status;
+  return status === "uploading" || status === "processing" || status === "ready" || status === "failed" ? status : null;
+}
+
+function realtimeChannelName(messageId: string, kind: MediaAssetKind | "vibe_video"): string {
+  return `media-asset-message:${messageId}:${kind}`;
+}
 
 function passthroughAsset(url: string): MediaAssetResolveResult {
   return {
@@ -77,6 +95,7 @@ export function useMediaAsset({
   autoResolve = true,
   enabled = true,
   onResolvedUrl,
+  onProcessingStatusChange,
 }: UseMediaAssetOptions): UseMediaAssetResult {
   const initial = initialUrl === null ? null : initialUrl ?? sourceRef ?? null;
   const [url, setUrl] = useState<string | null>(initial);
@@ -85,11 +104,16 @@ export function useMediaAsset({
   const [error, setError] = useState<string | null>(null);
   const [expiresAtMs, setExpiresAtMs] = useState<number | null>(null);
   const onResolvedUrlRef = useRef(onResolvedUrl);
+  const onProcessingStatusChangeRef = useRef(onProcessingStatusChange);
   const requestSeqRef = useRef(0);
 
   useEffect(() => {
     onResolvedUrlRef.current = onResolvedUrl;
   }, [onResolvedUrl]);
+
+  useEffect(() => {
+    onProcessingStatusChangeRef.current = onProcessingStatusChange;
+  }, [onProcessingStatusChange]);
 
   useEffect(() => {
     const next = initialUrl === null ? null : initialUrl ?? sourceRef ?? null;
@@ -101,11 +125,15 @@ export function useMediaAsset({
     requestSeqRef.current += 1;
   }, [initialUrl, sourceRef]);
 
-  const commitResult = useCallback((seq: number, result: MediaAssetResolveResult | null): string | null => {
+  const commitResult = useCallback((
+    seq: number,
+    result: MediaAssetResolveResult | null,
+    failureCode?: string | null,
+  ): string | null => {
     if (requestSeqRef.current !== seq) return null;
     if (!result?.url) {
       setStatus("error");
-      setError("media_asset_unavailable");
+      setError(failureCode ?? "media_asset_unavailable");
       return null;
     }
     setUrl(result.url);
@@ -139,10 +167,17 @@ export function useMediaAsset({
       if (reason !== "proactive" && reason !== "cache") setStatus("loading");
       const resolver = reason === "cache" ? getCachedMediaAsset : refreshMediaAsset;
       const result = await resolver(messageId ?? "", kind, sourceRef, options);
-      return commitResult(seq, result);
+      const failureCode = !result?.url ? getCachedMediaAssetFailureCode(messageId ?? "", kind, sourceRef) : null;
+      return commitResult(seq, result, failureCode);
     },
     [commitResult, enabled, initialUrl, kind, messageId, sourceRef],
   );
+
+  const refreshRef = useRef(refresh);
+
+  useEffect(() => {
+    refreshRef.current = refresh;
+  }, [refresh]);
 
   useEffect(() => {
     if (!enabled || !autoResolve) return;
@@ -162,6 +197,39 @@ export function useMediaAsset({
     }, delayMs);
     return () => window.clearTimeout(timeout);
   }, [enabled, expiresAtMs, kind, messageId, refresh, sourceRef]);
+
+  useEffect(() => {
+    if (!enabled || !messageId || !sourceRef || !onProcessingStatusChange || !isChatRealtimeMediaKind(kind)) return;
+    let active = true;
+    const channel = supabase
+      .channel(realtimeChannelName(messageId, kind))
+      .on(
+        "postgres_changes",
+        { event: "UPDATE", schema: "public", table: "messages", filter: `id=eq.${messageId}` },
+        (payload) => {
+          if (!active) return;
+          const nextStatus = processingStatusFromPayload(
+            (payload.new as { structured_payload?: unknown } | null)?.structured_payload,
+          );
+          if (!nextStatus) return;
+          onProcessingStatusChangeRef.current?.(nextStatus);
+          if (nextStatus === "ready") {
+            setError(null);
+            void refreshRef.current("manual", { bypassFailureCooldown: true });
+          } else if (nextStatus === "failed") {
+            requestSeqRef.current += 1;
+            setStatus("error");
+            setError("media_asset_processing_failed");
+          }
+        },
+      )
+      .subscribe();
+
+    return () => {
+      active = false;
+      void supabase.removeChannel(channel);
+    };
+  }, [enabled, kind, messageId, onProcessingStatusChange, sourceRef]);
 
   return useMemo(
     () => ({

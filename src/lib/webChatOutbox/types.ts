@@ -1,5 +1,6 @@
 import type { ThreadInvalidateScope } from "../../../shared/chat/queryKeys";
 import type { VibeClipRecoveryResumeStrategy } from "../../../shared/chat/vibeClipRecovery";
+import type { MediaCaptions } from "../../../shared/media/captions";
 
 export type WebChatOutboxQueueState =
   | "queued"
@@ -21,6 +22,7 @@ export type WebChatOutboxPayload =
       mimeType: string;
       fileName?: string;
       aspectRatio?: number | null;
+      captions?: MediaCaptions | null;
     };
 
 export type WebChatOutboxItem = {

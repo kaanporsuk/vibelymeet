@@ -8,6 +8,7 @@ import {
   createTusSignature,
   getAdminClient,
   getChatStreamConfig,
+  normalizeChatVibeClipCaptions,
   validateChatVibeClipCreateInput,
   verifyChatVibeClipMatch,
 } from "../_shared/chat-vibe-clips.ts";
@@ -171,6 +172,7 @@ serve(async (req) => {
       match_id: matchId,
       sender_id: user.id,
     });
+    const normalizedCaptions = normalizeChatVibeClipCaptions(body.captions);
 
     const existing = await admin
       .from("chat_vibe_clip_uploads")
@@ -210,6 +212,28 @@ serve(async (req) => {
       videoId = existing.data.provider_object_id;
       assetId = existing.data.media_asset_id ?? null;
       status = existing.data.status ?? "uploading";
+      if (!existing.data.published_message_id && !existing.data.captions && normalizedCaptions) {
+        const { error: captionsUpdateError } = await admin
+          .from("chat_vibe_clip_uploads")
+          .update({ captions: normalizedCaptions })
+          .eq("id", uploadId);
+        if (captionsUpdateError) {
+          logCreateTransition("upload_session_caption_sync_failed", {
+            client_request_id: clientRequestId,
+            match_id: matchId,
+            sender_id: user.id,
+            upload_id: uploadId,
+            error: captionsUpdateError.message,
+          });
+        } else {
+          logCreateTransition("upload_session_caption_synced", {
+            client_request_id: clientRequestId,
+            match_id: matchId,
+            sender_id: user.id,
+            upload_id: uploadId,
+          });
+        }
+      }
       logCreateTransition("upload_session_reused", {
         client_request_id: clientRequestId,
         match_id: matchId,
@@ -309,6 +333,7 @@ serve(async (req) => {
           aspect_ratio: aspectRatio,
           source_bytes: input.sourceBytes,
           mime_type: input.mimeType,
+          captions: normalizedCaptions,
           status: "uploading",
           expires_at: expiresAt,
         })

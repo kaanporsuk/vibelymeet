@@ -216,6 +216,7 @@ async function uploadNativeChatVibeClipViaLegacyService(
       durationMs: requiredContextNumber(input, 'durationMs'),
       mimeType: input.source.mimeType ?? optionalString(input.context?.mimeType) ?? null,
       aspectRatio: typeof input.context?.aspectRatio === 'number' ? input.context.aspectRatio : null,
+      captions: input.context?.captions,
       resumeStrategy: input.context?.resumeStrategy === 'reissue_credentials' ? 'reissue_credentials' : undefined,
       onProgress: (fraction) => {
         controls.dispatch({ type: 'progress', progress: fraction });
@@ -365,6 +366,7 @@ export async function uploadAndPublishChatVibeClipWithMediaSdk(
       durationMs: params.durationMs,
       mimeType: params.mimeType ?? null,
       aspectRatio: params.aspectRatio ?? null,
+      captions: params.captions,
       resumeStrategy: params.resumeStrategy ?? null,
     },
     options: {
