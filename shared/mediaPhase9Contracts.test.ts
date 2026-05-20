@@ -284,6 +284,7 @@ test("Phase 9 contracts are wired directly into CI and cloud validation", () => 
   assert.match(workflow, /shared\/mediaPhase9Contracts\.test\.ts/);
   assert.match(workflow, /src\/hooks\/useMediaPlaybackQoE\.ts/);
   assert.match(workflow, /apps\/mobile\/\*\*/);
+  assert.match(workflow, /supabase\/functions\/_shared\/\*\*/);
   assert.match(workflow, /supabase\/functions\/check-bunny-cdn-health\/\*\*/);
   assert.match(workflow, /supabase\/functions\/get-chat-media-url\/\*\*/);
   assert.match(workflow, /supabase\/functions\/process-media-delete-jobs\/\*\*/);

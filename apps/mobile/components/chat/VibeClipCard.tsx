@@ -521,6 +521,7 @@ function VibeClipCardInner({
 
   return (
     <View
+      testID="vibe-clip-bubble"
       style={[
         styles.outer,
         {
@@ -768,6 +769,7 @@ function VibeClipCardPosterOnly({
 
   return (
     <View
+      testID="vibe-clip-bubble"
       style={[
         styles.outer,
         {

@@ -439,7 +439,8 @@ test("video bubbles remain adaptive and full-width across web and native chat", 
   assert.doesNotMatch(webOutboxContext, /syncedStatus === "ready" \|\| syncedStatus === "failed"/);
   assert.match(webOutboxContext, /retryVibeClipUpload/);
   assert.match(webOutboxContext, /\.from\("chat_vibe_clip_uploads"\)/);
-  assert.match(webOutboxContext, /\.in\("status", \["uploading", "processing", "failed"\]\)/);
+  assert.match(webOutboxContext, /selectStaleUploadRows\(\["uploading", "processing"\], VIBE_CLIP_RECOVERY_SWEEP_LIMIT\)/);
+  assert.match(webOutboxContext, /selectStaleUploadRows\(\s+\["failed"\]/);
   assert.match(webOutboxContext, /\.is\("published_message_id", null\)/);
   assert.match(webChat, /getOutboxBlob\(item\.payload\.blobKey\)/);
   assert.match(webOutboxContext, /item\.payload\.kind === "video" && \(dueForCheck \|\| pastDeadline\)/);
@@ -561,7 +562,8 @@ test("video bubbles remain adaptive and full-width across web and native chat", 
   assert.doesNotMatch(nativeOutboxContext, /syncedStatus === 'ready' \|\| syncedStatus === 'failed'/);
   assert.match(nativeOutboxContext, /retryVibeClipUpload/);
   assert.match(nativeOutboxContext, /\.from\('chat_vibe_clip_uploads'\)/);
-  assert.match(nativeOutboxContext, /\.in\('status', \['uploading', 'processing', 'failed'\]\)/);
+  assert.match(nativeOutboxContext, /selectStaleUploadRows\(\['uploading', 'processing'\], VIBE_CLIP_RECOVERY_SWEEP_LIMIT\)/);
+  assert.match(nativeOutboxContext, /selectStaleUploadRows\(\s+\['failed'\]/);
   assert.match(nativeOutboxContext, /\.is\('published_message_id', null\)/);
   assert.match(nativeChat, /FileSystem\.getInfoAsync\(item\.payload\.uri\)/);
   assert.match(nativeOutboxContext, /item\.payload\.kind === 'video' && \(dueForCheck \|\| pastDeadline\)/);

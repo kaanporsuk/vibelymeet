@@ -1122,15 +1122,19 @@ function NativeVibeClipCameraModal({
   );
 }
 
-function normalizeRouteUserId(raw: string | string[] | undefined): string | undefined {
+function normalizeRouteParam(raw: string | string[] | undefined): string | undefined {
   if (typeof raw === 'string' && raw.trim()) return raw.trim();
   if (Array.isArray(raw) && typeof raw[0] === 'string' && raw[0].trim()) return raw[0].trim();
   return undefined;
 }
 
 export default function ChatThreadScreen() {
-  const { id: routeChatId } = useLocalSearchParams<{ id: string | string[] }>();
-  const otherUserId = normalizeRouteUserId(routeChatId);
+  const { id: routeChatId, smokeScenario } = useLocalSearchParams<{
+    id: string | string[];
+    smokeScenario?: string | string[];
+  }>();
+  const otherUserId = normalizeRouteParam(routeChatId);
+  const nativeSmokeScenarioId = normalizeRouteParam(smokeScenario);
   const { width: windowWidth } = useWindowDimensions();
   const insets = useSafeAreaInsets();
   const colorScheme = useColorScheme();
@@ -2536,6 +2540,7 @@ export default function ChatThreadScreen() {
         has_poster: false,
         thread_bucket: threadBucketFromCount(displayMessages.length),
         is_sender: true,
+        smoke_scenario: nativeSmokeScenarioId,
       });
     } catch (e) {
       const msg = chatFriendlyErrorFromUnknown(e, { isVibeClip: true });
