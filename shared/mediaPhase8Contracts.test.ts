@@ -91,6 +91,7 @@ test("Phase 8 server contracts write and hydrate structured chat-image payloads"
 test("Phase 8 private profile Vibe Video uses signed playback refs", () => {
   const migration = read("supabase/migrations/20260519210000_media_phase_8_profile_vibe_signing.sql");
   const closureMigration = read("supabase/migrations/20260520210000_media_phase8_bulletproof_closure.sql");
+  const effectiveProfileRpcMigration = read("supabase/migrations/20260520230000_media_phase9_completion.sql");
   const validation = read("supabase/validation/media_phase8_profile_vibe_signing.sql");
   const resolver = read("supabase/functions/get-chat-media-url/index.ts");
   const tokenHelper = read("supabase/functions/_shared/bunny-stream-tokens.ts");
@@ -115,6 +116,12 @@ test("Phase 8 private profile Vibe Video uses signed playback refs", () => {
   assert.match(closureMigration, /WHEN v_vibe_video_ready THEN/);
   assert.match(closureMigration, /vibe_video_playback_ref is the only client playback handle/);
   assert.match(closureMigration, /Ready public\/self\/admin profile videos may also include the ref/);
+  assert.match(effectiveProfileRpcMigration, /CREATE OR REPLACE FUNCTION public\.get_profile_for_viewer\(p_target_id uuid\)/);
+  assert.match(effectiveProfileRpcMigration, /v_vibe_video_signed_playback_required :=[\s\S]+NOT public\.is_profile_discoverable\(p_target_id, v_viewer_id\)/);
+  assert.match(effectiveProfileRpcMigration, /'bunny_video_uid', CASE[\s\S]+WHEN v_vibe_video_signed_playback_required THEN NULL[\s\S]+ELSE v_profile\.bunny_video_uid/);
+  assert.match(effectiveProfileRpcMigration, /'bunny_video_status', CASE[\s\S]+WHEN v_vibe_video_signed_playback_required THEN NULL[\s\S]+ELSE v_profile\.bunny_video_status/);
+  assert.match(effectiveProfileRpcMigration, /'vibe_video_playback_ref', CASE[\s\S]+WHEN v_vibe_video_ready THEN[\s\S]+concat\('profile_vibe_video:'/);
+  assert.match(effectiveProfileRpcMigration, /COMMENT ON FUNCTION public\.get_profile_for_viewer\(uuid\)[\s\S]+private signed playback masking/);
   assert.match(validation, /hidden_matched_profile_masks_raw_video_and_returns_ref/);
   assert.match(validation, /account_paused_matched_profile_masks_raw_video_and_returns_ref/);
   assert.match(validation, /undiscoverable_matched_profile_masks_raw_video_and_returns_ref/);
@@ -192,6 +199,19 @@ test("Phase 8 Bunny Storage presign decision stays documented as EF mediated", (
   assert.match(uploadEventCover, /storage\.bunnycdn\.com/);
   assert.doesNotMatch(`${uploadImage}\n${uploadVoice}\n${uploadEventCover}`, /presign|presigned|signedUpload/i);
   assert.match(sdkIndex, /getMediaStoragePresignPolicy/);
+});
+
+test("Phase 8 media privacy contracts are wired directly into CI", () => {
+  const packageJson = JSON.parse(read("package.json")) as { scripts?: Record<string, string> };
+  assert.equal(packageJson.scripts?.["test:media-phase8"], "tsx shared/mediaPhase8Contracts.test.ts");
+
+  const workflow = read(".github/workflows/phase-8-media-privacy-policy.yml");
+  assert.match(workflow, /npm run test:media-phase8/);
+  assert.match(workflow, /shared\/mediaPhase8Contracts\.test\.ts/);
+  assert.match(workflow, /supabase\/functions\/get-chat-media-url\/\*\*/);
+  assert.match(workflow, /supabase\/migrations\/\*\*/);
+  assert.match(workflow, /supabase\/validation\/media_phase8_profile_vibe_signing\.sql/);
+  assert.doesNotMatch(workflow, /continue-on-error:\s*true/);
 });
 
 test("Phase 6 display path uses realtime, QoE, reduce-motion, and bounded media caches", () => {
