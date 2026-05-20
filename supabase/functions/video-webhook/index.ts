@@ -472,7 +472,7 @@ serve(async (req) => {
       VideoGuid,
       chatClipStatus,
       chatClipStatus === "failed" ? `bunny_status_${Status}` : null,
-      { publishIfProcessing: Status === 7, failOnIgnoredNonReady: true },
+      { publishIfProcessing: Status === 7 },
     );
     if (chatClipResult.handled) {
       logWebhook(chatClipResult.error ? "error" : "info", "video_webhook_chat_vibe_clip_update", {

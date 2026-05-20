@@ -687,7 +687,8 @@ test("server upload and publish paths enforce Bunny Stream Vibe Clip limits", ()
   assert.match(videoWebhook, /library_id_raw: libraryIdRaw/);
   assert.match(videoWebhook, /logWebhook\("warn", "video_webhook_rejected", \{[\s\S]{0,160}reason: "library_mismatch"/);
   assert.match(videoWebhook, /updateChatVibeClipStatusByProvider/);
-  assert.match(videoWebhook, /\{ publishIfProcessing: Status === 7, failOnIgnoredNonReady: true \}/);
+  assert.match(videoWebhook, /\{ publishIfProcessing: Status === 7 \}/);
+  assert.doesNotMatch(videoWebhook, /failOnIgnoredNonReady: true/);
   assert.match(videoWebhook, /ignored_provider_status: chatClipResult\.ignoredProviderStatus === true/);
   assert.match(syncChatVibeClipStatus, /\{ publishIfProcessing: bunny\.rawStatus === 7 && upload\.sender_id === user\.id \}/);
   assert.match(chatThreadPage, /kind === "thumbnail" && asset\.provider === "bunny_stream" && asset\.media_family === "chat_video"/);
