@@ -87,7 +87,7 @@ Release evidence:
 - Set **Signing & Capabilities** for the main app and **OneSignalNotificationServiceExtension** when building for a physical device.
 - Use **EAS** when a shareable or store-like artifact is needed (TestFlight, etc.).
 
-See [native-release-readiness/stage4-ios-build-and-runtime-validation.md](./native-release-readiness/stage4-ios-build-and-runtime-validation.md) and [phase7-closure-typecheck-and-repo-ready.md](./phase7-closure-typecheck-and-repo-ready.md).
+See [native-release-readiness/stage4-ios-build-and-runtime-validation.md](./native-release-readiness/stage4-ios-build-and-runtime-validation.md) and [native-release-readiness/closure-typecheck-and-repo-ready.md](./native-release-readiness/closure-typecheck-and-repo-ready.md).
 
 ---
 

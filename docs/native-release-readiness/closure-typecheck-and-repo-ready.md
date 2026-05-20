@@ -1,8 +1,10 @@
-# Phase 7 Closure — Typecheck and Repo-Ready for Device Proof
+# Native Release Readiness Closure — Typecheck and Repo-Ready for Device Proof
 
 ## Goal
 
 Remove remaining repo-side blockers before manual/device proof: fix typecheck and confirm build/config does not block `expo run:android`, `expo run:ios`, or `expo start --dev-client --tunnel`.
+
+This note belongs to the native release-readiness track, not the v9 media Phase 7 background-upload no-go decision. The media decision remains at `docs/media-background-upload-phase7-decision.md`.
 
 ---
 

@@ -141,7 +141,7 @@ Close remaining release-readiness and metadata gaps, update docs/checklists to c
 | **OneSignal web — interactive gap** | **KV** (manual browser) | Close prompt acceptance + delivered-notification tap in a real browser session; worker/subscribed state already in `docs/browser-auth-runtime-proof-results.md`. |
 | **OneSignal web — dashboard / origin drift** | **KD** | After production web changes, quick audit that OneSignal dashboard origin + service-worker paths match the live site. |
 | **Rebuild rehearsal stale** | **KD** / **CF** | Re-run clean rebuild + smoke per `docs/rebuild-rehearsal-log.md`; **CF** only if the rehearsal fails for a repo defect. |
-| **Repo typecheck regression** | **CF** (if CI/local fails) | `npm run typecheck` at repo root is **closed** — keep green; **CF** only when a merge introduces errors (see `docs/phase7-closure-typecheck-and-repo-ready.md`). |
+| **Repo typecheck regression** | **CF** (if CI/local fails) | `npm run typecheck` at repo root is **closed** — keep green; **CF** only when a merge introduces errors (see `docs/native-release-readiness/closure-typecheck-and-repo-ready.md`). |
 
 ---
 
@@ -204,7 +204,7 @@ Close remaining release-readiness and metadata gaps, update docs/checklists to c
 2. **First device validation not yet done:** Full iOS and Android runtime checklists (Phase 7 Stage 4 and manual test matrix) require a successful build and device run; results not yet recorded.
 3. **OneSignal web — interactive proof:** Worker + subscribed browser state are proven; manual prompt + notification-tap proof still recommended before treating web push as “fully signed off.”
 4. **Rebuild rehearsal:** A post–Phase 7 clean rebuild rehearsal (and web smoke if applicable) should be run and logged before submission.
-5. ~~**TypeScript:** Existing tsc errors in apps/mobile~~ **Resolved in Phase 7 closure:** `npm run typecheck` now passes (see `docs/phase7-closure-typecheck-and-repo-ready.md`).
+5. ~~**TypeScript:** Existing tsc errors in apps/mobile~~ **Resolved in Phase 7 closure:** `npm run typecheck` now passes (see `docs/native-release-readiness/closure-typecheck-and-repo-ready.md`).
 
 ---
 
@@ -220,7 +220,7 @@ Close remaining release-readiness and metadata gaps, update docs/checklists to c
 2. Run **one successful EAS preview build** for iOS and one for Android (or local run:ios / run:android with device).
 3. Install on **real devices**; run **RevenueCat** (purchase + restore) and **OneSignal** (test push receive) and **Daily** (one join/leave).
 4. Optional **KD** audit: OneSignal web dashboard origin/service-worker vs production after deploys; run **manual** web push prompt + tap if product requires it; run **rebuild rehearsal** and log.
-5. ~~Fix **typecheck** in apps/mobile~~ **Done** (Phase 7 closure; see `docs/phase7-closure-typecheck-and-repo-ready.md`).
+5. ~~Fix **typecheck** in apps/mobile~~ **Done** (Phase 7 closure; see `docs/native-release-readiness/closure-typecheck-and-repo-ready.md`).
 6. Complete **store** metadata and **submit** to TestFlight / Play internal.
 
 ---
@@ -239,6 +239,6 @@ Close remaining release-readiness and metadata gaps, update docs/checklists to c
   - native-release-readiness.md: updated to reflect Phase 7 and current truth.
   - native-final-blocker-matrix.md: Phase 7 status; OneSignal web caveat; Sprint 6 test results reference.
   - native-external-setup-checklist.md: OneSignal web (production service-worker / origin) note added.
-  - **Phase 7 closure:** `docs/phase7-closure-typecheck-and-repo-ready.md` (typecheck fixes, repo-ready status, remaining blockers, Kaan step-by-step).
+  - **Phase 7 closure:** `docs/native-release-readiness/closure-typecheck-and-repo-ready.md` (typecheck fixes, repo-ready status, remaining blockers, Kaan step-by-step).
 
 - **Config:** No Expo config, eas.json, or env schema changes in Phase 7 Stage 5 or closure. OneSignal web and rebuild rehearsal are documented as known risks and next actions.

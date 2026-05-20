@@ -206,11 +206,12 @@ export function ChatOutboxProvider({ children }: { children: React.ReactNode }) 
   }, [items]);
 
   useEffect(() => {
+    const controllers = processingAbortControllersRef.current;
     return () => {
-      for (const controller of processingAbortControllersRef.current.values()) {
+      for (const controller of controllers.values()) {
         controller.abort();
       }
-      processingAbortControllersRef.current.clear();
+      controllers.clear();
     };
   }, []);
 
