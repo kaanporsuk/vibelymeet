@@ -69,7 +69,7 @@ Used for:
 ## D. Bunny Optimizer
 Bunny Optimizer is **OFF** and is not required for the current runtime contract.
 
-Client image helpers keep their width/height/quality/crop option signatures for compatibility, but Bunny Storage URLs resolve to plain CDN object URLs without Dynamic Images query parameters. Upload-time photo transcode in the media SDK is the preferred cost-control path. Revisit Optimizer only with real Bunny traffic data, e.g. if original image CDN traffic crosses roughly 1-2 TB/month or image latency becomes a launch blocker.
+Client image helpers keep their width/height/quality/crop option signatures for compatibility, but Bunny Storage URLs resolve to plain CDN object URLs without Dynamic Images query parameters. The resolvers also strip stale query/hash decorations from relative Bunny Storage paths and configured Bunny CDN URLs, so older `?width=...` variants cannot survive at render time. Upload-time photo transcode in the media SDK is the preferred cost-control path. Revisit Optimizer only with real Bunny traffic data, e.g. if original image CDN traffic crosses roughly 1-2 TB/month or image latency becomes a launch blocker.
 
 ---
 

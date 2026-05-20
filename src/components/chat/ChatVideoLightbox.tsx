@@ -48,6 +48,7 @@ export function ChatVideoLightbox({
   const [playablePosterUrl, setPlayablePosterUrl] = useState(posterUrl ?? null);
   const playbackRefreshAttemptCountRef = useRef(0);
   const playableVideoUrlRef = useRef(playableVideoUrl);
+  const posterUrlRef = useRef(posterUrl ?? null);
   const onCloseRef = useRef(onClose);
   const onResolvedVideoUrlRef = useRef(onResolvedVideoUrl);
   const onResolvedThumbnailUrlRef = useRef(onResolvedThumbnailUrl);
@@ -111,6 +112,10 @@ export function ChatVideoLightbox({
   }, [playableVideoUrl]);
 
   useEffect(() => {
+    posterUrlRef.current = posterUrl ?? null;
+  }, [posterUrl]);
+
+  useEffect(() => {
     if (!videoAssetUrl) return;
     setPlayableVideoUrl(videoAssetUrl);
     playableVideoUrlRef.current = videoAssetUrl;
@@ -157,10 +162,9 @@ export function ChatVideoLightbox({
   useEffect(() => {
     playableVideoUrlRef.current = videoUrl;
     setPlayableVideoUrl(videoUrl);
-    setPlayablePosterUrl(posterUrl ?? null);
+    setPlayablePosterUrl(posterUrlRef.current);
     playbackRefreshAttemptCountRef.current = 0;
     resetPhase();
-    const v = videoRef.current;
     if (!isPlayableMediaUrl(videoUrl) && videoSourceRef) {
       const refresh = refreshMediaRef.current;
       if (!refresh) {
@@ -176,7 +180,11 @@ export function ChatVideoLightbox({
       setPhase("error");
       return;
     }
-    if (!v || isHlsMediaUrl(videoUrl) || prefersReducedMotion) return;
+  }, [resetPhase, videoSourceRef, videoUrl]);
+
+  useEffect(() => {
+    const v = videoRef.current;
+    if (!v || !canMountPlayer || isHlsUrl || prefersReducedMotion) return;
     const t = window.setTimeout(() => {
       void v.play().catch(() => revealPlayer());
     }, 120);
@@ -184,7 +192,7 @@ export function ChatVideoLightbox({
       window.clearTimeout(t);
       v.pause();
     };
-  }, [posterUrl, prefersReducedMotion, resetPhase, revealPlayer, videoSourceRef, videoUrl]);
+  }, [canMountPlayer, isHlsUrl, playableVideoUrl, prefersReducedMotion, revealPlayer]);
 
   const handlePlaybackAttachError = useCallback(() => {
     void refreshMedia().then((didRefresh) => {

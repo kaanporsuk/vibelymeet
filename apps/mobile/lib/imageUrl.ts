@@ -54,6 +54,11 @@ function normalizeImagePath(path: string | null | undefined): string | null {
   return out || null;
 }
 
+function stripBunnyStorageDecorations(value: string): string {
+  // Stale Optimizer/cache params are not part of Bunny Storage object paths.
+  return value.split(/[?#]/, 1)[0] || value;
+}
+
 export function getImageUrl(
   path: string | null | undefined,
   // Reserved for callers that describe intended display size. Bunny Optimizer is off, so CDN URLs stay untransformed.
@@ -65,13 +70,19 @@ export function getImageUrl(
     return PLACEHOLDER;
   }
   if (p.includes('supabase.co') || p.includes('supabase.in')) return p;
-  if (p.startsWith('http://') || p.startsWith('https://') || p.startsWith('data:')) return p;
+  if (p.startsWith('http://') || p.startsWith('https://') || p.startsWith('data:')) {
+    if (BUNNY_CDN && p.startsWith(`${BUNNY_CDN}/`)) {
+      return stripBunnyStorageDecorations(p);
+    }
+    return p;
+  }
   if (CONFIRMED_BUNNY_STORAGE_PREFIXES.some((prefix) => p.startsWith(prefix))) {
     if (!BUNNY_CDN) {
       return PLACEHOLDER;
     }
     void opts;
-    const pathPart = BUNNY_CDN_PATH_PREFIX ? `${BUNNY_CDN_PATH_PREFIX}/${p}` : p;
+    const storagePath = stripBunnyStorageDecorations(p);
+    const pathPart = BUNNY_CDN_PATH_PREFIX ? `${BUNNY_CDN_PATH_PREFIX}/${storagePath}` : storagePath;
     const url = `${BUNNY_CDN}/${pathPart}`;
     if (__DEV__ && traceLabel && tracedLabels && !tracedLabels.has(traceLabel)) {
       tracedLabels.add(traceLabel);

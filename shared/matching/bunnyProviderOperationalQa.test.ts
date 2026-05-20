@@ -167,7 +167,11 @@ test("URL resolvers support confirmed Bunny Storage prefixes and preserve legacy
 
 test("Bunny Storage image URLs stay plain CDN URLs while Optimizer is off", () => {
   for (const source of [webImageUrl, nativeImageUrl]) {
-    assert.match(source, /BUNNY_CDN_PATH_PREFIX \? `\$\{BUNNY_CDN_PATH_PREFIX\}\/\$\{p\}` : p/);
+    assert.match(source, /function stripBunnyStorageDecorations\(value: string\): string \{[\s\S]+value\.split\(\/\[\?\#\]\/, 1\)\[0\] \|\| value/);
+    assert.match(source, /if \(BUNNY_CDN && p\.startsWith\(`\$\{BUNNY_CDN\}\/`\)\) \{\s*return stripBunnyStorageDecorations\(p\);\s*\}/);
+    assert.match(source, /const storagePath = stripBunnyStorageDecorations\(p\)/);
+    assert.match(source, /BUNNY_CDN_PATH_PREFIX \? `\$\{BUNNY_CDN_PATH_PREFIX\}\/\$\{storagePath\}` : storagePath/);
+    assert.doesNotMatch(source, /BUNNY_CDN_PATH_PREFIX \? `\$\{BUNNY_CDN_PATH_PREFIX\}\/\$\{p\}` : p/);
     assert.match(source, /void opts/);
     assert.doesNotMatch(source, /new URLSearchParams\(/);
     assert.doesNotMatch(source, /params\.set\(["'](?:width|height|quality|crop_gravity|format)["']/);
