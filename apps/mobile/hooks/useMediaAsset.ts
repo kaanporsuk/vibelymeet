@@ -23,6 +23,7 @@ type UseMediaAssetOptions = {
   initialUrl?: string | null;
   autoResolve?: boolean;
   enabled?: boolean;
+  processingStatus?: ChatVibeClipProcessingStatus | null;
   onResolvedUrl?: (url: string) => void;
   onProcessingStatusChange?: (status: ChatVibeClipProcessingStatus) => void;
 };
@@ -49,6 +50,10 @@ function processingStatusFromPayload(payload: unknown): ChatVibeClipProcessingSt
   if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return null;
   const status = (payload as { processing_status?: unknown }).processing_status;
   return status === 'uploading' || status === 'processing' || status === 'ready' || status === 'failed' ? status : null;
+}
+
+function isActiveProcessingStatus(status: ChatVibeClipProcessingStatus | null | undefined): boolean {
+  return status === 'uploading' || status === 'processing';
 }
 
 function realtimeChannelName(messageId: string, kind: MediaAssetKind | 'vibe_video'): string {
@@ -85,6 +90,7 @@ export function useMediaAsset({
   initialUrl,
   autoResolve = true,
   enabled = true,
+  processingStatus,
   onResolvedUrl,
   onProcessingStatusChange,
 }: UseMediaAssetOptions): UseMediaAssetResult {
@@ -190,7 +196,16 @@ export function useMediaAsset({
   }, [enabled, expiresAtMs, kind, messageId, refresh, sourceRef]);
 
   useEffect(() => {
-    if (!enabled || !messageId || !sourceRef || !onProcessingStatusChange || !isChatRealtimeMediaKind(kind)) return;
+    if (
+      !enabled ||
+      !messageId ||
+      !sourceRef ||
+      !onProcessingStatusChange ||
+      !isChatRealtimeMediaKind(kind) ||
+      !isActiveProcessingStatus(processingStatus)
+    ) {
+      return;
+    }
     let active = true;
     const channel = supabase
       .channel(realtimeChannelName(messageId, kind))
@@ -220,7 +235,7 @@ export function useMediaAsset({
       active = false;
       void supabase.removeChannel(channel);
     };
-  }, [enabled, kind, messageId, onProcessingStatusChange, sourceRef]);
+  }, [enabled, kind, messageId, onProcessingStatusChange, processingStatus, sourceRef]);
 
   return useMemo(
     () => ({

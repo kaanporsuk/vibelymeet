@@ -4,11 +4,7 @@ on:
   pull_request:
     paths:
       - '.github/workflows/phase-7-media-background-policy.yml'
-      - 'apps/mobile/app.base.json'
-      - 'apps/mobile/app.config.js'
-      - 'apps/mobile/ios/**/Info.plist'
-      - 'apps/mobile/package-lock.json'
-      - 'apps/mobile/package.json'
+      - 'apps/mobile/**'
       - 'docs/media-background-upload-phase7-decision.md'
       - 'docs/architecture/media-sdk-background-policy.md'
       - 'docs/architecture/media-sdk-telemetry.md'
@@ -17,18 +13,15 @@ on:
       - 'public/OneSignalSDK.sw.js'
       - 'public/OneSignalSDKWorker.js'
       - 'public/sw.js'
+      - 'shared/media-sdk/**'
       - 'shared/media-sdk/background-upload-policy.ts'
       - 'shared/media-sdk/backgroundUploadPolicy.test.ts'
-      - 'src/hooks/useServiceWorker.ts'
+      - 'src/**'
   push:
     branches: [main]
     paths:
       - '.github/workflows/phase-7-media-background-policy.yml'
-      - 'apps/mobile/app.base.json'
-      - 'apps/mobile/app.config.js'
-      - 'apps/mobile/ios/**/Info.plist'
-      - 'apps/mobile/package-lock.json'
-      - 'apps/mobile/package.json'
+      - 'apps/mobile/**'
       - 'docs/media-background-upload-phase7-decision.md'
       - 'docs/architecture/media-sdk-background-policy.md'
       - 'docs/architecture/media-sdk-telemetry.md'
@@ -37,9 +30,10 @@ on:
       - 'public/OneSignalSDK.sw.js'
       - 'public/OneSignalSDKWorker.js'
       - 'public/sw.js'
+      - 'shared/media-sdk/**'
       - 'shared/media-sdk/background-upload-policy.ts'
       - 'shared/media-sdk/backgroundUploadPolicy.test.ts'
-      - 'src/hooks/useServiceWorker.ts'
+      - 'src/**'
 
 permissions:
   contents: read

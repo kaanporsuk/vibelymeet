@@ -384,6 +384,7 @@ export async function uploadAndPublishChatVibeClipToBunnyStream(params: ChatVibe
           mimeType,
           fileName,
           aspectRatio: params.aspectRatio,
+          captions: params.captions,
         }));
         if (refreshed.videoId !== created.videoId || refreshed.uploadId !== created.uploadId) {
           throw new Error('Clip recovery returned a different upload target. Please send the clip again.');
