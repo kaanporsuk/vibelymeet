@@ -265,10 +265,17 @@ test("Phase 9 Bunny CDN health, geo docs, and privacy docs are present", () => {
   assert.match(migration, /bunny-cdn-health-minutely/);
   assert.match(health, /BUNNY_CDN_HEALTH_STREAM_URL/);
   assert.match(health, /BUNNY_CDN_HEALTH_STORAGE_URL/);
+  assert.match(health, /BUNNY_STREAM_TOKEN_SECURITY_KEY/);
+  assert.match(health, /resolveStreamProbeUrl/);
+  assert.match(health, /signBunnyStreamDirectoryUrl/);
   assert.match(health, /bunny_cdn_health/);
   assert.match(health, /consecutiveFailures >= 3/);
+  assert.match(health, /type HealthStatus = "healthy" \| "degraded" \| "misconfigured"/);
+  assert.match(health, /status,\s*healthy,/);
+  assert.doesNotMatch(health, /healthy \? 200 : 503/);
   assert.match(geoDoc, /BUNNY_ARCHIVE_STORAGE_ZONE/);
   assert.match(geoDoc, /check-bunny-cdn-health/);
+  assert.match(geoDoc, /returns HTTP 200 for healthy, degraded, and misconfigured probe outcomes/);
   assert.match(privacyDoc, /profiles\.encryption_pub_key/);
   assert.match(privacyDoc, /matches\.encrypted_conversation_keys/);
   assert.match(privacyDoc, /server stores and hashes ciphertext only/);

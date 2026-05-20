@@ -40,7 +40,11 @@ Required probe URLs:
 - `BUNNY_CDN_HEALTH_STREAM_URL`: a known-good short Stream `playlist.m3u8`.
 - `BUNNY_CDN_HEALTH_STORAGE_URL`: a known-good small Storage object.
 
+If Stream token authentication is enabled, store the unsigned `playlist.m3u8` URL in `BUNNY_CDN_HEALTH_STREAM_URL`. The monitor signs the probe URL at runtime with `BUNNY_STREAM_TOKEN_SECURITY_KEY` instead of storing an expiring signed URL.
+
 The function writes per-probe state to `public.bunny_cdn_health_state`, emits `bunny_cdn_health` to PostHog, and sends Sentry after three consecutive failures.
+
+The function returns HTTP 200 for healthy, degraded, and misconfigured probe outcomes. Read the JSON `status` and `healthy` fields for the Bunny verdict. HTTP 401 is reserved for bad cron auth, and 5xx responses are reserved for monitor execution failures; Bunny CDN degradation must not make the Supabase API surface look down.
 
 ## Cold Tiering
 
