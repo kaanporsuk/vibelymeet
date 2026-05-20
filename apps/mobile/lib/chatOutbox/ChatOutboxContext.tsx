@@ -57,6 +57,7 @@ type ChatVibeClipUploadSweepRow = {
 type ChatVibeClipUploadSweepQuery = {
   eq: (column: string, value: unknown) => ChatVibeClipUploadSweepQuery;
   in: (column: string, values: unknown[]) => ChatVibeClipUploadSweepQuery;
+  is: (column: string, value: unknown) => ChatVibeClipUploadSweepQuery;
   lt: (column: string, value: string) => ChatVibeClipUploadSweepQuery;
   order: (column: string, options?: { ascending?: boolean }) => ChatVibeClipUploadSweepQuery;
   limit: (count: number) => Promise<{ data: ChatVibeClipUploadSweepRow[] | null; error: { message?: string } | null }>;
@@ -361,7 +362,8 @@ export function ChatOutboxProvider({ children }: { children: React.ReactNode }) 
       );
     query = query
       .eq('sender_id', userId)
-      .in('status', ['uploading', 'processing'])
+      .in('status', ['uploading', 'processing', 'failed'])
+      .is('published_message_id', null)
       .lt('updated_at', staleBefore);
     if (matchId) query = query.eq('match_id', matchId);
 

@@ -10,12 +10,15 @@
 # Requires an already authenticated staging build and a non-production chat deep link:
 #   VIBELY_CVC_NATIVE_SMOKE=1
 #   VIBELY_CVC_NATIVE_CHAT_DEEPLINK=vibely://chat/<matched-profile-id>
+#   VIBELY_CVC_NATIVE_SCENARIO_ID=<scenario-id>
 #   EXPO_PUBLIC_VIBELY_CVC_NATIVE_FIXTURE_UPLOAD=1
 #   EXPO_PUBLIC_VIBELY_CVC_NATIVE_FIXTURE_URL=https://<staging-host>/fixtures/chat-vibe-clip.mp4
 #
 # This Maestro flow verifies the native entry/sheet contract and, when the
 # explicit smoke fixture flag is compiled into the staging build, bypasses OS
-# pickers through the debug-only fixture upload button.
+# pickers through the debug-only fixture upload button. The matrix runner invokes
+# this flow once per VIBELY_CVC_NATIVE_SCENARIO_ID so evidence cannot collapse to
+# a single native happy-path run.
 appId: com.vibelymeet.vibely
 ---
 - openLink: ${VIBELY_CVC_NATIVE_CHAT_DEEPLINK}

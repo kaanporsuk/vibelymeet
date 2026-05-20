@@ -26,6 +26,7 @@ Live web env:
 Live native env:
   VIBELY_CVC_NATIVE_SMOKE=1
   VIBELY_CVC_NATIVE_CHAT_DEEPLINK=vibely://chat/<matched-profile-id>
+  VIBELY_CVC_NATIVE_SCENARIO_ID=<scenario-id> # optional; --native runs all scenarios when unset
   EXPO_PUBLIC_VIBELY_CVC_NATIVE_FIXTURE_UPLOAD=1
   EXPO_PUBLIC_VIBELY_CVC_NATIVE_FIXTURE_URL=https://<staging-host>/fixtures/chat-vibe-clip.mp4
   VIBELY_CVC_NATIVE_FIXTURE_UPLOAD=1      # accepted by this runner; app builds should use EXPO_PUBLIC_*
@@ -40,6 +41,24 @@ Scenario ids:
   signed-url-mid-expiry
   app-launch-stuck-processing-nudge
 USAGE
+}
+
+CHAT_VIBE_CLIP_SCENARIOS=(
+  happy-path
+  4g-throttle
+  kill-mid-tus
+  webhook-delayed
+  signed-url-mid-expiry
+  app-launch-stuck-processing-nudge
+)
+
+is_known_chat_vibe_clip_scenario() {
+  local candidate="$1"
+  local scenario
+  for scenario in "${CHAT_VIBE_CLIP_SCENARIOS[@]}"; do
+    [[ "$scenario" == "$candidate" ]] && return 0
+  done
+  return 1
 }
 
 MODE="dry-run"
@@ -84,9 +103,16 @@ run_static() {
   run_step npx tsx shared/chat/vibeClipSmokeMatrix.test.ts
   echo
   echo "Chat Vibe Clip live smoke matrix is defined for:"
-  echo "  web: happy-path, 4g-throttle, kill-mid-tus, webhook-delayed, signed-url-mid-expiry, app-launch-stuck-processing-nudge"
-  echo "  ios: happy-path, 4g-throttle, kill-mid-tus, webhook-delayed, signed-url-mid-expiry, app-launch-stuck-processing-nudge"
-  echo "  android: happy-path, 4g-throttle, kill-mid-tus, webhook-delayed, signed-url-mid-expiry, app-launch-stuck-processing-nudge"
+  local scenarios_csv
+  scenarios_csv=""
+  local scenario
+  for scenario in "${CHAT_VIBE_CLIP_SCENARIOS[@]}"; do
+    [[ -n "$scenarios_csv" ]] && scenarios_csv+=", "
+    scenarios_csv+="$scenario"
+  done
+  echo "  web: ${scenarios_csv}"
+  echo "  ios: ${scenarios_csv}"
+  echo "  android: ${scenarios_csv}"
 }
 
 run_web() {
@@ -117,7 +143,23 @@ run_native() {
     exit 1
   fi
   run_step bash apps/mobile/scripts/rc-smoke-check.sh
-  run_step bash -lc "cd apps/mobile && maestro test maestro/chat-vibe-clip-smoke.yaml"
+  local native_scenarios=("${CHAT_VIBE_CLIP_SCENARIOS[@]}")
+  if [[ -n "${VIBELY_CVC_NATIVE_SCENARIO_ID:-}" ]]; then
+    if ! is_known_chat_vibe_clip_scenario "$VIBELY_CVC_NATIVE_SCENARIO_ID"; then
+      echo "Unknown VIBELY_CVC_NATIVE_SCENARIO_ID: ${VIBELY_CVC_NATIVE_SCENARIO_ID}" >&2
+      exit 1
+    fi
+    native_scenarios=("${VIBELY_CVC_NATIVE_SCENARIO_ID}")
+  fi
+  for native_scenario in "${native_scenarios[@]}"; do
+    echo
+    echo "==> native Chat Vibe Clip scenario: ${native_scenario}"
+    (
+      export VIBELY_CVC_NATIVE_SCENARIO_ID="${native_scenario}"
+      cd apps/mobile
+      maestro test maestro/chat-vibe-clip-smoke.yaml
+    )
+  done
 }
 
 case "$MODE" in
