@@ -28,6 +28,7 @@ test("Phase 9 QoE contracts and prewarm policy constants are pinned", () => {
     assert.match(qoe, /telemetrySafeSourceRef/);
     assert.match(qoe, /startup_ms/);
     assert.match(qoe, /rebuffer_count/);
+    assert.match(qoe, /client_request_id/);
     assert.match(qoe, /connection_type/);
     assert.match(qoe, /recordMediaPlaybackStartup/);
   }

@@ -216,6 +216,7 @@ test("Phase 6 display path uses realtime, QoE, reduce-motion, and bounded media 
   const nativeOutboxExecute = read("apps/mobile/lib/chatOutbox/execute.ts");
   const webQoe = read("src/hooks/useMediaPlaybackQoE.ts");
   const nativeQoe = read("apps/mobile/hooks/useNativeMediaPlaybackQoE.ts");
+  const messageRouting = read("shared/chat/messageRouting.ts");
   const webPolicy = read("src/lib/mediaPlaybackSessionPolicy.ts");
   const nativeReduceMotion = read("apps/mobile/hooks/useReduceMotion.ts");
 
@@ -244,19 +245,25 @@ test("Phase 6 display path uses realtime, QoE, reduce-motion, and bounded media 
   assert.match(webQoe, /media_playback_qoe/);
   assert.match(webQoe, /media_playback_qoe_rebuffer/);
   assert.match(webQoe, /source_ref: telemetrySafeSourceRef\(sourceRef\)/);
+  assert.match(webQoe, /client_request_id: clientRequestId \?\? "none"/);
   assert.match(webQoe, /device_class: deviceClass\(\)/);
   assert.match(webQoe, /bitrate_switch_count: bitrateSwitchCount/);
   assert.match(webQoe, /vibely-hls-level-switched/);
   assert.match(nativeQoe, /media_playback_qoe/);
   assert.match(nativeQoe, /media_playback_qoe_rebuffer/);
   assert.match(nativeQoe, /source_ref: telemetrySafeSourceRef\(sourceRef\)/);
+  assert.match(nativeQoe, /client_request_id: clientRequestId \?\? 'none'/);
   assert.match(nativeQoe, /device_class: `native_\$\{Platform\.OS\}`/);
   assert.match(nativeQoe, /bitrate_switch_count: -1/);
   assert.match(webVibePlayer, /useMediaPlaybackQoE/);
   assert.match(webVibeClip, /useMediaPlaybackQoE/);
+  assert.match(webVibeClip, /clientRequestId: clientRequestId \?\? displayMeta\.clientRequestId \?\? null/);
   assert.match(webVideoBubble, /useMediaPlaybackQoE/);
   assert.match(nativeVibePlayer, /useNativeMediaPlaybackQoE/);
   assert.match(nativeVibeClip, /useNativeMediaPlaybackQoE/);
+  assert.match(nativeVibeClip, /clientRequestId: clientRequestId \?\? meta\.clientRequestId \?\? null/);
+  assert.match(messageRouting, /clientRequestId\?: string \| null/);
+  assert.match(messageRouting, /sp\.client_request_id\.trim\(\)/);
 
   assert.match(webVibePlayer, /usePrefersReducedMotion/);
   assert.match(webVideoBubble, /usePrefersReducedMotion/);

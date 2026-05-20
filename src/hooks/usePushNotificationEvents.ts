@@ -1,5 +1,4 @@
 import { useState, useEffect, useCallback } from "react";
-import { supabase } from "@/integrations/supabase/client";
 import { callAdminRpc, type AdminRpcPayload } from "@/lib/adminRpc";
 import { fetchUserProfiles } from "@/services/fetchUserProfile";
 
@@ -45,6 +44,12 @@ type PushCampaignTitlesPayload = AdminRpcPayload & {
     id: string;
     title: string;
   }>;
+};
+
+type PushNotificationEventsPayload = AdminRpcPayload & {
+  events?: PushNotificationEvent[];
+  limit?: number;
+  source?: "admin_list_push_notification_events";
 };
 
 const EMPTY_NOTIFICATION_STATS: NotificationStats = {
@@ -104,22 +109,14 @@ export function usePushNotificationEvents(limit: number = 50) {
 
   const fetchEvents = useCallback(async () => {
     try {
-      const { data: eventsData, error: eventsError } = await supabase
-        .from("push_notification_events_admin")
-        .select("*")
-        .order("created_at", { ascending: false })
-        .limit(limit);
-
-      if (eventsError) {
-        console.error("Error fetching push events:", eventsError);
-        setEvents([]);
-        setStats(emptyNotificationStats());
-        return;
-      }
+      const eventsPayload = await callAdminRpc<PushNotificationEventsPayload>("admin_list_push_notification_events", {
+        p_limit: limit,
+      });
+      const eventsData = eventsPayload.events ?? [];
 
       // Fetch campaign titles through the governed admin read model; the browser
       // should not select directly from push campaign tables.
-      const rawCampaignIds = eventsData?.map((e) => e.campaign_id) ?? [];
+      const rawCampaignIds = eventsData.map((e) => e.campaign_id);
       const campaignIds = [...new Set(rawCampaignIds.filter((id): id is string => !!id))];
       let campaigns: PushCampaignTitlesPayload["campaigns"] = [];
       if (campaignIds.length > 0) {
@@ -138,7 +135,7 @@ export function usePushNotificationEvents(limit: number = 50) {
 
       // Fetch user names through the canonical safe profile read surface. Admin
       // role is handled by the RPC, so this does not depend on browser profile grants.
-      const rawUserIds = eventsData?.map((e) => e.user_id) ?? [];
+      const rawUserIds = eventsData.map((e) => e.user_id);
       const userIds = [...new Set(rawUserIds.filter((id): id is string => !!id))];
       const profiles = userIds.length > 0 ? await fetchUserProfiles(userIds) : [];
 
@@ -146,7 +143,7 @@ export function usePushNotificationEvents(limit: number = 50) {
         (profiles || []).map((p) => [p.id, p.name] as [string, string | null])
       );
 
-      const transformedEvents: PushNotificationEvent[] = (eventsData || [])
+      const transformedEvents: PushNotificationEvent[] = eventsData
         .filter((event): event is typeof event & {
           id: string;
           user_id: string;
@@ -200,7 +197,7 @@ export function usePushNotificationEvents(limit: number = 50) {
     }
   }, [limit]);
 
-  // Poll the redacted admin telemetry view. Avoid subscribing to the raw table:
+  // Poll the redacted admin telemetry RPC. Avoid subscribing to the raw table:
   // database change-feed payloads are not the admin redaction boundary.
   useEffect(() => {
     void fetchEvents();

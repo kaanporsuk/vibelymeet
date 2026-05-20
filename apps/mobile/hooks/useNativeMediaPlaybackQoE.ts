@@ -16,6 +16,7 @@ type NativeMediaPlaybackQoEOptions = {
   provider?: string | null;
   sourceRef?: string | null;
   messageId?: string | null;
+  clientRequestId?: string | null;
   muted?: boolean;
   autoplay?: boolean;
 };
@@ -27,6 +28,7 @@ export function useNativeMediaPlaybackQoE({
   provider = null,
   sourceRef = null,
   messageId = null,
+  clientRequestId = null,
   muted = false,
   autoplay = false,
 }: NativeMediaPlaybackQoEOptions) {
@@ -48,6 +50,7 @@ export function useNativeMediaPlaybackQoE({
       provider: provider ?? 'unknown',
       source_ref: telemetrySafeSourceRef(sourceRef),
       message_id: messageId ?? 'none',
+      client_request_id: clientRequestId ?? 'none',
       reason,
       startup_ms: startupMsRef.current ?? -1,
       rebuffer_count: rebufferCountRef.current,
@@ -61,7 +64,7 @@ export function useNativeMediaPlaybackQoE({
       qoe_degraded: isMediaPlaybackQoeDegraded(),
       platform_player: 'expo-video',
     });
-  }, [autoplay, enabled, family, messageId, muted, provider, sourceRef, surface]);
+  }, [autoplay, clientRequestId, enabled, family, messageId, muted, provider, sourceRef, surface]);
 
   useEffect(() => {
     if (!enabled) return;
@@ -98,6 +101,7 @@ export function useNativeMediaPlaybackQoE({
         surface,
         provider: provider ?? 'unknown',
         message_id: messageId ?? 'none',
+        client_request_id: clientRequestId ?? 'none',
         rebuffer_count: rebufferCountRef.current,
         connection_type: connection.connectionType,
         effective_type: connection.effectiveType,
@@ -114,5 +118,5 @@ export function useNativeMediaPlaybackQoE({
       if (!enabled) return;
       emit('error');
     },
-  }), [emit, enabled, family, messageId, provider, surface]);
+  }), [clientRequestId, emit, enabled, family, messageId, provider, surface]);
 }

@@ -24,7 +24,7 @@ export type AdminEngagementProviderTotals = {
   delivery_rate: number;
   open_rate: number;
   click_rate: number;
-  source: "push_notification_events_admin";
+  source: "push_notification_events";
 };
 
 export type AdminEngagementAppLogTotals = {

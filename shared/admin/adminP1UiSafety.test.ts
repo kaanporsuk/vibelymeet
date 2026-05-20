@@ -446,7 +446,8 @@ test("live push monitor is labeled as admin telemetry rather than full delivery 
   assert.match(usePushNotificationEvents, /fetchUserProfiles\(userIds\)/);
   assert.match(usePushNotificationEvents, /userIds\.length > 0/);
   assert.match(usePushNotificationEvents, /campaignIds\.length > 0/);
-  assert.match(usePushNotificationEvents, /Poll the redacted admin telemetry view/);
+  assert.match(usePushNotificationEvents, /admin_list_push_notification_events/);
+  assert.match(usePushNotificationEvents, /Poll the redacted admin telemetry RPC/);
   assert.match(usePushNotificationEvents, /isNotificationPlatform/);
   assert.match(usePushNotificationEvents, /calculateNotificationStats/);
   assert.match(usePushNotificationEvents, /window\.setInterval/);

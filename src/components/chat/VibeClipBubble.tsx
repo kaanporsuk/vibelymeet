@@ -90,6 +90,8 @@ interface VibeClipBubbleProps {
   thumbnailSourceRef?: string | null;
   onResolvedVideoUrl?: (url: string) => void;
   onResolvedThumbnailUrl?: (url: string) => void;
+  /** Canonical upload idempotency key for QoE/upload correlation. */
+  clientRequestId?: string | null;
   /** Older clips in the thread sit visually quieter than the latest. */
   threadVisualRecede?: boolean;
   localRecovery?: VibeClipLocalRecovery | null;
@@ -111,6 +113,7 @@ export const VibeClipBubble = ({
   thumbnailSourceRef,
   onResolvedVideoUrl,
   onResolvedThumbnailUrl,
+  clientRequestId,
   threadVisualRecede = false,
   localRecovery = null,
 }: VibeClipBubbleProps) => {
@@ -465,6 +468,7 @@ export const VibeClipBubble = ({
     provider: displayMeta.provider ?? "bunny_stream",
     sourceRef: videoSourceRef ?? displayMeta.videoUrl,
     messageId: sparkMessageId ?? null,
+    clientRequestId: clientRequestId ?? displayMeta.clientRequestId ?? null,
     muted: isMuted,
     autoplay: false,
   });

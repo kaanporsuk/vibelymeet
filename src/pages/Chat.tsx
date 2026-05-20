@@ -403,6 +403,7 @@ function VibeClipMessageRow({
             thumbnailSourceRef={message.thumbnailSourceRef}
             onResolvedVideoUrl={(url) => onResolvedVideoUrl?.(message.id, url)}
             onResolvedThumbnailUrl={(url) => onResolvedThumbnailUrl?.(message.id, url)}
+            clientRequestId={message.clientRequestId ?? clipMeta.clientRequestId ?? null}
             threadMessageCount={threadMessageCount}
             sparkMessageId={message.id}
             onReplyWithClip={isMine ? undefined : onReplyWithClip}

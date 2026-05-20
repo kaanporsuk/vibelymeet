@@ -43,6 +43,8 @@ type Props = {
   thumbnailSourceRef?: string | null;
   onResolvedVideoUrl?: (url: string) => void;
   onResolvedThumbnailUrl?: (url: string) => void;
+  /** Canonical upload idempotency key for QoE/upload correlation. */
+  clientRequestId?: string | null;
   /** Opens full-screen chat video viewer. */
   onRequestImmersive?: (media?: { videoUrl: string; thumbnailUrl?: string | null }) => void;
   /** Pause inline preview while immersive viewer is open for this URL. */
@@ -269,6 +271,7 @@ function VibeClipCardInner({
   onResetPlaybackRefreshAttempt,
   playRequestToken,
   localRecovery,
+  clientRequestId,
   syncAttemptCount,
   isSyncingStatus,
   onManualStatusSync,
@@ -295,6 +298,7 @@ function VibeClipCardInner({
     provider: meta.provider ?? 'bunny_stream',
     sourceRef: meta.playbackRef ?? meta.videoUrl,
     messageId: sparkMessageId ?? null,
+    clientRequestId: clientRequestId ?? meta.clientRequestId ?? null,
     muted: false,
     autoplay: false,
   });
