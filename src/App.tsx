@@ -443,6 +443,7 @@ const App = () => {
                       <Route path="/date/:id" element={<ProtectedRoute><VideoDate /></ProtectedRoute>} />
                       <Route path="/ready/:readyId" element={<ProtectedRoute><ReadyRedirect /></ProtectedRoute>} />
                       <Route path="/admin/create-event" element={<ProtectedRoute requireAdmin><AdminCreateEvent /></ProtectedRoute>} />
+                      <Route path="/admin/feature-flags" element={<ProtectedRoute requireAdmin requireOnboarding={false}><Navigate to="/kaan/dashboard?panel=feature-flags" replace /></ProtectedRoute>} />
                       <Route path="/vibe-studio" element={<ProtectedRoute><VibeStudio /></ProtectedRoute>} />
                       <Route path="/schedule" element={<ProtectedRoute><Schedule /></ProtectedRoute>} />
                       <Route path="/how-it-works" element={<HowItWorks />} />

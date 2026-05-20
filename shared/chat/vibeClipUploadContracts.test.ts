@@ -271,25 +271,29 @@ test("web queue and upload preserve validated library video metadata", () => {
   assert.match(webUploadMime, /"video\/m4v": "video\/x-m4v"/);
 });
 
-test("Chat Vibe Clip media v2 cutover stays flag-gated at the durable outbox boundary", () => {
-  assert.match(webOutboxContext, /useFeatureFlag\("media_v2_video"\)/);
-  assert.match(webOutboxContext, /mediaV2VideoEnabled: mediaV2Video\.enabled/);
-  assert.match(webOutboxExecute, /options: \{ mediaV2VideoEnabled\?: boolean; mediaV2PhotoEnabled\?: boolean; mediaV2VoiceEnabled\?: boolean \} = \{\}/);
+test("Chat Vibe Clip media v2 cutover is upload-start gated inside the platform facade", () => {
+  assert.doesNotMatch(webOutboxContext, /useFeatureFlag\("media_v2_video"\)/);
+  assert.doesNotMatch(webOutboxContext, /mediaV2VideoEnabled: mediaV2Video\.enabled/);
+  assert.doesNotMatch(webOutboxExecute, /options: \{ mediaV2VideoEnabled\?: boolean; mediaV2PhotoEnabled\?: boolean; mediaV2VoiceEnabled\?: boolean \} = \{\}/);
   assert.match(webOutboxExecute, /uploadAndPublishChatVibeClipWithMediaSdk/);
-  assert.match(webOutboxExecute, /options\.mediaV2VideoEnabled[\s\S]{0,140}uploadAndPublishChatVibeClipWithMediaSdk\(uploadParams\)[\s\S]{0,140}uploadAndPublishChatVibeClipToBunnyStream\(uploadParams\)/);
+  assert.doesNotMatch(webOutboxExecute, /options\.mediaV2VideoEnabled/);
   assert.match(webOutboxExecute, /isBunnyStreamPlaybackRef\(item\.uploadedMediaUrl\)[\s\S]{0,160}completePublishedChatVibeClipUpload/);
 
-  assert.match(nativeOutboxContext, /useFeatureFlag\('media_v2_video'\)/);
-  assert.match(nativeOutboxContext, /mediaV2VideoEnabled: mediaV2Video\.enabled/);
-  assert.match(nativeOutboxExecute, /options: \{ mediaV2VideoEnabled\?: boolean; mediaV2PhotoEnabled\?: boolean; mediaV2VoiceEnabled\?: boolean \} = \{\}/);
+  assert.doesNotMatch(nativeOutboxContext, /useFeatureFlag\('media_v2_video'\)/);
+  assert.doesNotMatch(nativeOutboxContext, /mediaV2VideoEnabled: mediaV2Video\.enabled/);
+  assert.doesNotMatch(nativeOutboxExecute, /options: \{ mediaV2VideoEnabled\?: boolean; mediaV2PhotoEnabled\?: boolean; mediaV2VoiceEnabled\?: boolean \} = \{\}/);
   assert.match(nativeOutboxExecute, /uploadAndPublishChatVibeClipWithMediaSdk/);
-  assert.match(nativeOutboxExecute, /options\.mediaV2VideoEnabled[\s\S]{0,140}uploadAndPublishChatVibeClipWithMediaSdk\(uploadParams\)[\s\S]{0,140}uploadAndPublishChatVibeClipToBunnyStream\(uploadParams\)/);
+  assert.doesNotMatch(nativeOutboxExecute, /options\.mediaV2VideoEnabled/);
   assert.match(nativeOutboxExecute, /isBunnyStreamPlaybackRef\(item\.uploadedMediaUrl\)[\s\S]{0,160}completePublishedChatVibeClipUpload/);
 
+  assert.match(webMediaSdkVideoUploads, /evaluateClientFeatureFlagForUpload\("media_v2_video"\)/);
+  assert.match(webMediaSdkVideoUploads, /media_upload_started/);
   assert.match(webMediaSdkVideoUploads, /uploadChatVibeClip: uploadWebChatVibeClipViaLegacyService/);
-  assert.match(webMediaSdkVideoUploads, /uploadAndPublishChatVibeClipToBunnyStream\(\{/);
+  assert.match(webMediaSdkVideoUploads, /return uploadAndPublishChatVibeClipToBunnyStream\(\{ \.\.\.params, clientRequestId \}\)/);
   assert.match(webMediaSdkVideoUploads, /chatClipResultsByClientRequestId/);
   assert.match(webMediaSdkVideoUploads, /chatClipErrorsByClientRequestId/);
+  assert.match(nativeMediaSdkVideoUploads, /evaluateClientFeatureFlagForUpload\('media_v2_video'\)/);
+  assert.match(nativeMediaSdkVideoUploads, /media_upload_started/);
   assert.match(webMediaSdkVideoUploads, /chatClipProgressByClientRequestId/);
   assert.match(webMediaSdkVideoUploads, /function fileFromWebVideoSource\(source: File \| Blob\): File/);
   assert.match(webMediaSdkVideoUploads, /web_media_file_constructor_missing/);

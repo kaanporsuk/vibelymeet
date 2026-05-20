@@ -5,7 +5,6 @@ import {
   invalidateAfterThreadMutation,
 } from '@/lib/chatApi';
 import { formatChatImageMessageContent } from '@/lib/chatMessageContent';
-import { uploadChatImageMessage, uploadVoiceMessage } from '@/lib/chatMediaUpload';
 import type { ChatOutboxItem } from '@/lib/chatOutbox/types';
 import {
   ChatVibeClipUploadedButUnpublishedError,
@@ -50,9 +49,8 @@ export async function executeOutboxItem(
   item: ChatOutboxItem,
   queryClient: QueryClient,
   onUploadProgress?: (fraction: number) => void,
-  options: { mediaV2VideoEnabled?: boolean; mediaV2PhotoEnabled?: boolean; mediaV2VoiceEnabled?: boolean } = {},
 ): Promise<{ serverMessageId: string; uploadedPublicUrl?: string; uploadedMediaUrl?: string }> {
-  const { id: clientRequestId, matchId, userId, payload } = item;
+  const { id: clientRequestId, matchId, payload } = item;
 
   let serverMessageId: string | null = null;
   let uploadedPublicUrl: string | undefined;
@@ -69,14 +67,12 @@ export async function executeOutboxItem(
     } else if (payload.kind === 'image') {
       let mediaRef = item.uploadedPublicUrl;
       if (!mediaRef) {
-        mediaRef = options.mediaV2PhotoEnabled
-          ? await uploadChatImageWithMediaSdk({
-              uri: payload.uri,
-              mimeType: payload.mimeType,
-              matchId,
-              clientRequestId,
-            })
-          : await uploadChatImageMessage(payload.uri, payload.mimeType, matchId, clientRequestId);
+        mediaRef = await uploadChatImageWithMediaSdk({
+          uri: payload.uri,
+          mimeType: payload.mimeType,
+          matchId,
+          clientRequestId,
+        });
       }
       uploadedPublicUrl = mediaRef;
       const row = await invokeSendMessageEdge({
@@ -86,11 +82,9 @@ export async function executeOutboxItem(
       });
       serverMessageId = getServerMessageId(row);
     } else if (payload.kind === 'voice') {
-      const audioUrl = item.uploadedMediaUrl ?? (
-        options.mediaV2VoiceEnabled
-          ? await uploadVoiceWithMediaSdk({ uri: payload.uri, matchId, clientRequestId })
-          : await uploadVoiceMessage(payload.uri, matchId, clientRequestId)
-      );
+      const audioUrl =
+        item.uploadedMediaUrl ??
+        (await uploadVoiceWithMediaSdk({ uri: payload.uri, matchId, clientRequestId }));
       uploadedMediaUrl = audioUrl;
       const row = await invokePublishVoiceMessage({
         matchId,
@@ -121,9 +115,7 @@ export async function executeOutboxItem(
             resumeStrategy: item.vibeClipResumeStrategy,
             onProgress: onUploadProgress,
           };
-          uploaded = options.mediaV2VideoEnabled
-            ? await uploadAndPublishChatVibeClipWithMediaSdk(uploadParams)
-            : await uploadAndPublishChatVibeClipToBunnyStream(uploadParams);
+          uploaded = await uploadAndPublishChatVibeClipWithMediaSdk(uploadParams);
         } catch (error) {
           if (error instanceof ChatVibeClipUploadedButUnpublishedError) {
             uploadedMediaUrl = error.playbackRef;

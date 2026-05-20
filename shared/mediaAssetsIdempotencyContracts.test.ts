@@ -126,16 +126,20 @@ test("upload-voice is receipt-backed, hash-bound, and wired to durable outbox id
   assert.match(webVoiceUploadService, /clientRequestId\?: string/);
   assert.match(webVoiceUploadService, /formData\.append\("client_request_id", stableClientRequestId\)/);
   assert.match(webVoiceUploadService, /"x-client-request-id": stableClientRequestId/);
-  assert.match(webOutboxExecute, /options\.mediaV2VoiceEnabled/);
+  assert.doesNotMatch(webOutboxExecute, /options\.mediaV2VoiceEnabled/);
   assert.match(webOutboxExecute, /uploadVoiceWithMediaSdk\(\{[\s\S]+blob,[\s\S]+accessToken: session\.access_token,[\s\S]+matchId,[\s\S]+clientRequestId/);
-  assert.match(webOutboxExecute, /uploadVoiceToBunny\(blob, session\.access_token, matchId, clientRequestId\)/);
+  assert.doesNotMatch(webOutboxExecute, /uploadVoiceToBunny\(blob, session\.access_token, matchId, clientRequestId\)/);
+  assert.match(webStorageSdkUploads, /evaluateClientFeatureFlagForUpload\("media_v2_voice"\)/);
+  assert.match(webStorageSdkUploads, /return uploadVoiceToBunny\(params\.blob, params\.accessToken, params\.matchId, clientRequestId\)/);
 
   assert.match(nativeChatMediaUpload, /uploadVoiceMessage\(audioUri: string, matchId: string, clientRequestId\?: string\)/);
   assert.match(nativeChatMediaUpload, /formData\.append\('client_request_id', stableClientRequestId\)/);
   assert.match(nativeChatMediaUpload, /'x-client-request-id': stableClientRequestId/);
-  assert.match(nativeOutboxExecute, /options\.mediaV2VoiceEnabled/);
+  assert.doesNotMatch(nativeOutboxExecute, /options\.mediaV2VoiceEnabled/);
   assert.match(nativeOutboxExecute, /uploadVoiceWithMediaSdk\(\{ uri: payload\.uri, matchId, clientRequestId \}\)/);
-  assert.match(nativeOutboxExecute, /uploadVoiceMessage\(payload\.uri, matchId, clientRequestId\)/);
+  assert.doesNotMatch(nativeOutboxExecute, /uploadVoiceMessage\(payload\.uri, matchId, clientRequestId\)/);
+  assert.match(nativeStorageSdkUploads, /evaluateClientFeatureFlagForUpload\('media_v2_voice'\)/);
+  assert.match(nativeStorageSdkUploads, /return uploadVoiceMessage\(params\.uri, params\.matchId, clientRequestId\)/);
 });
 
 test("upload-event-cover uses strong sniffing, stale cover guards, and attached receipts", () => {
@@ -240,33 +244,37 @@ test("phase 5 voice capture hooks are configured for 96 kbps mono without expo-a
 
 test("photo and voice callers are cut to storage SDK wrappers behind durable flags", () => {
   assert.match(webStorageSdkUploads, /createWebMediaSdk/);
-  assert.match(webStorageSdkUploads, /media_v2_photo: true/);
-  assert.match(webStorageSdkUploads, /media_v2_voice: true/);
+  assert.doesNotMatch(webStorageSdkUploads, /media_v2_photo: true/);
+  assert.doesNotMatch(webStorageSdkUploads, /media_v2_voice: true/);
+  assert.match(webStorageSdkUploads, /evaluateClientFeatureFlagForUpload\("media_v2_photo"\)/);
+  assert.match(webStorageSdkUploads, /media_upload_started/);
   assert.match(webStorageSdkUploads, /uploadProfilePhoto: uploadWebPhotoViaLegacyService/);
   assert.match(webStorageSdkUploads, /uploadChatPhoto: uploadWebPhotoViaLegacyService/);
   assert.match(webStorageSdkUploads, /uploadVoiceNote: uploadWebVoiceViaLegacyService/);
 
-  assert.match(webOutboxContext, /useFeatureFlag\("media_v2_photo"\)/);
-  assert.match(webOutboxContext, /useFeatureFlag\("media_v2_voice"\)/);
-  assert.match(webOutboxContext, /mediaV2PhotoEnabled: mediaV2Photo\.enabled/);
-  assert.match(webOutboxContext, /mediaV2VoiceEnabled: mediaV2Voice\.enabled/);
-  assert.match(webOutboxExecute, /options\.mediaV2PhotoEnabled/);
+  assert.doesNotMatch(webOutboxContext, /useFeatureFlag\("media_v2_photo"\)/);
+  assert.doesNotMatch(webOutboxContext, /useFeatureFlag\("media_v2_voice"\)/);
+  assert.doesNotMatch(webOutboxContext, /mediaV2PhotoEnabled: mediaV2Photo\.enabled/);
+  assert.doesNotMatch(webOutboxContext, /mediaV2VoiceEnabled: mediaV2Voice\.enabled/);
+  assert.doesNotMatch(webOutboxExecute, /options\.mediaV2PhotoEnabled/);
   assert.match(webOutboxExecute, /uploadImageWithMediaSdk\(\{[\s\S]+file,[\s\S]+accessToken: session\.access_token,[\s\S]+context: "chat"/);
-  assert.match(webOutboxExecute, /uploadImageToBunny\(file, session\.access_token, "chat", matchId, clientRequestId\)/);
+  assert.doesNotMatch(webOutboxExecute, /uploadImageToBunny\(file, session\.access_token, "chat", matchId, clientRequestId\)/);
 
   assert.match(nativeStorageSdkUploads, /createNativeMediaSdk/);
-  assert.match(nativeStorageSdkUploads, /media_v2_photo: true/);
-  assert.match(nativeStorageSdkUploads, /media_v2_voice: true/);
+  assert.doesNotMatch(nativeStorageSdkUploads, /media_v2_photo: true/);
+  assert.doesNotMatch(nativeStorageSdkUploads, /media_v2_voice: true/);
+  assert.match(nativeStorageSdkUploads, /evaluateClientFeatureFlagForUpload\('media_v2_photo'\)/);
+  assert.match(nativeStorageSdkUploads, /media_upload_started/);
   assert.match(nativeStorageSdkUploads, /imageManipulator: nativeImageManipulator/);
   assert.match(nativeStorageSdkUploads, /uploadProfilePhoto: uploadNativePhotoViaLegacyService/);
   assert.match(nativeStorageSdkUploads, /uploadChatPhoto: uploadNativePhotoViaLegacyService/);
   assert.match(nativeStorageSdkUploads, /uploadVoiceNote: uploadNativeVoiceViaLegacyService/);
 
-  assert.match(nativeOutboxContext, /useFeatureFlag\('media_v2_photo'\)/);
-  assert.match(nativeOutboxContext, /useFeatureFlag\('media_v2_voice'\)/);
-  assert.match(nativeOutboxContext, /mediaV2PhotoEnabled: mediaV2Photo\.enabled/);
-  assert.match(nativeOutboxContext, /mediaV2VoiceEnabled: mediaV2Voice\.enabled/);
-  assert.match(nativeOutboxExecute, /options\.mediaV2PhotoEnabled/);
+  assert.doesNotMatch(nativeOutboxContext, /useFeatureFlag\('media_v2_photo'\)/);
+  assert.doesNotMatch(nativeOutboxContext, /useFeatureFlag\('media_v2_voice'\)/);
+  assert.doesNotMatch(nativeOutboxContext, /mediaV2PhotoEnabled: mediaV2Photo\.enabled/);
+  assert.doesNotMatch(nativeOutboxContext, /mediaV2VoiceEnabled: mediaV2Voice\.enabled/);
+  assert.doesNotMatch(nativeOutboxExecute, /options\.mediaV2PhotoEnabled/);
   assert.match(nativeOutboxExecute, /uploadChatImageWithMediaSdk\(\{[\s\S]+uri: payload\.uri,[\s\S]+mimeType: payload\.mimeType/);
 });
 
@@ -307,43 +315,44 @@ test("web and native chat image retries pass durable outbox ids to upload-image"
   assert.match(webImageUploadService, /formData\.append\("client_request_id", stableClientRequestId\)/);
   assert.match(webImageUploadService, /"x-client-request-id": stableClientRequestId/);
   assert.match(webOutboxExecute, /uploadImageWithMediaSdk/);
-  assert.match(webOutboxExecute, /uploadImageToBunny\(file, session\.access_token, "chat", matchId, clientRequestId\)/);
+  assert.doesNotMatch(webOutboxExecute, /uploadImageToBunny\(file, session\.access_token, "chat", matchId, clientRequestId\)/);
+  assert.match(webOutboxExecute, /uploadImageWithMediaSdk\(\{[\s\S]+clientRequestId/);
 
   assert.match(nativeChatMediaUpload, /clientRequestId\?: string/);
   assert.match(nativeChatMediaUpload, /formData\.append\('client_request_id', stableClientRequestId\)/);
   assert.match(nativeChatMediaUpload, /'x-client-request-id': stableClientRequestId/);
   assert.match(nativeOutboxExecute, /uploadChatImageWithMediaSdk/);
-  assert.match(nativeOutboxExecute, /uploadChatImageMessage\(payload\.uri, payload\.mimeType, matchId, clientRequestId\)/);
+  assert.doesNotMatch(nativeOutboxExecute, /uploadChatImageMessage\(payload\.uri, payload\.mimeType, matchId, clientRequestId\)/);
 });
 
 test("profile photo retry surfaces keep the same client request id for failed retries", () => {
-  assert.match(webOnboardingPhotos, /mediaV2Photo\.enabled/);
+  assert.doesNotMatch(webOnboardingPhotos, /mediaV2Photo\.enabled/);
   assert.match(webOnboardingPhotos, /uploadImageWithMediaSdk\(\{[\s\S]+file: item\.file,[\s\S]+clientRequestId: item\.id/);
-  assert.match(webOnboardingPhotos, /uploadImageToBunny\(item\.file, session\.access_token, "onboarding", undefined, item\.id\)/);
+  assert.doesNotMatch(webOnboardingPhotos, /uploadImageToBunny\(item\.file, session\.access_token, "onboarding", undefined, item\.id\)/);
   assert.match(webOnboardingPhotos, /newUploadClientRequestId\(\)/);
   assert.match(webPhotoManageDrawer, /clientRequestId: string/);
   assert.match(webPhotoManageDrawer, /const clientRequestId = newUploadClientRequestId\(\)/);
   assert.match(webPhotoManageDrawer, /failed\.clientRequestId/);
   assert.match(webPhotoManageDrawer, /uploadImageWithMediaSdk/);
   assert.match(webStorageService, /clientRequestIdForUploadFile\(file, `profile-studio:\$\{userId\}:\$\{i\}`\)/);
-  assert.match(webStorageService, /mediaV2PhotoEnabled/);
+  assert.doesNotMatch(webStorageService, /mediaV2PhotoEnabled/);
   assert.match(webProfileWizard, /clientRequestIdForUploadFile\(file, `profile-wizard:\$\{userId\}:\$\{i\}`\)/);
   assert.match(webProfileWizard, /clientRequestIdForUploadFile\(file, `profile-wizard:\$\{user\.id\}:\$\{i\}`\)/);
   assert.match(webProfileWizard, /uploadImageWithMediaSdk/);
 
   assert.match(nativeUploadImage, /clientRequestId\?: string/);
   assert.match(nativeUploadImage, /formData\.append\('client_request_id', stableClientRequestId\)/);
-  assert.match(nativePhotoBatchController, /mediaV2Photo\.enabled/);
+  assert.doesNotMatch(nativePhotoBatchController, /mediaV2Photo\.enabled/);
   assert.match(nativePhotoBatchController, /uploadProfilePhotoWithMediaSdk/);
   assert.match(nativePhotoBatchController, /clientRequestId: draftId/);
   assert.match(nativeGamesApi, /export function newGameClientRequestId/);
   assert.match(nativeGamesApi, /sendScavengerChoice\(vars\.view, vars\.matchId, vars\.receiverPhotoUrl, vars\.clientRequestId\)/);
-  assert.match(nativeScavengerStartSheet, /mediaV2Photo\.enabled/);
+  assert.doesNotMatch(nativeScavengerStartSheet, /mediaV2Photo\.enabled/);
   assert.match(nativeScavengerStartSheet, /uploadChatImageWithMediaSdk/);
-  assert.match(nativeScavengerStartSheet, /uploadChatImageMessage\(asset\.uri, asset\.mimeType \?\? null, matchId, clientRequestId\)/);
+  assert.doesNotMatch(nativeScavengerStartSheet, /uploadChatImageMessage\(asset\.uri, asset\.mimeType \?\? null, matchId, clientRequestId\)/);
   assert.match(nativeScavengerStartSheet, /clientRequestId: senderPhotoClientRequestId \?\? undefined/);
-  assert.match(nativeScavengerBubble, /mediaV2Photo\.enabled/);
+  assert.doesNotMatch(nativeScavengerBubble, /mediaV2Photo\.enabled/);
   assert.match(nativeScavengerBubble, /uploadChatImageWithMediaSdk/);
-  assert.match(nativeScavengerBubble, /uploadChatImageMessage\(asset\.uri, asset\.mimeType \?\? null, matchId, clientRequestId\)/);
+  assert.doesNotMatch(nativeScavengerBubble, /uploadChatImageMessage\(asset\.uri, asset\.mimeType \?\? null, matchId, clientRequestId\)/);
   assert.match(nativeScavengerBubble, /clientRequestId: selectedPhotoClientRequestId \?\? undefined/);
 });

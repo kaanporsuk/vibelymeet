@@ -898,9 +898,9 @@ test("native upload flow preserves real source telemetry and 15-second duration 
   assert.match(controller, /\{ signal: uploadAc\.signal, uploadSource \}/);
   assert.doesNotMatch(controller, /uploadSource: 'unknown'/);
 
-  assert.match(record, /useFeatureFlag\('media_v2_video'\)/);
+  assert.doesNotMatch(record, /useFeatureFlag\('media_v2_video'\)/);
   assert.match(record, /startNativeVibeVideoUpload\(\{[\s\S]{0,220}uri: recordedUri[\s\S]{0,220}uploadSource: uploadSourceRef\.current/);
-  assert.match(record, /mediaV2VideoEnabled: mediaV2Video\.enabled/);
+  assert.doesNotMatch(record, /mediaV2VideoEnabled: mediaV2Video\.enabled/);
   assert.match(record, /videoMaxDuration: MAX_DURATION_SEC/);
   assert.doesNotMatch(record, /videoMaxDuration: 20/);
   assert.match(onboardingStep, /Up to 15 seconds/);
@@ -982,7 +982,7 @@ test("media v2 Vibe Video attempts are schema-backed and dual-written by server 
   assert.match(webhook, /upload_attempt_id: attemptSync\.attemptId/);
 });
 
-test("media v2 Vibe Video caller cutover is flag-gated and still controller-backed", () => {
+test("media v2 Vibe Video caller cutover is upload-start gated and still controller-backed", () => {
   const webStep = read("src/pages/onboarding/steps/VibeVideoStep.tsx");
   const webModal = read("src/components/vibe-video/VibeStudioModal.tsx");
   const webSdk = read("src/lib/mediaSdk/webVideoUploads.ts");
@@ -990,25 +990,27 @@ test("media v2 Vibe Video caller cutover is flag-gated and still controller-back
   const nativeSdk = read("apps/mobile/lib/mediaSdk/nativeVideoUploads.ts");
 
   assert.doesNotMatch(webStep, /import \{ heroVideoStart \}/);
-  assert.match(webStep, /useFeatureFlag\("media_v2_video"\)/);
+  assert.doesNotMatch(webStep, /useFeatureFlag\("media_v2_video"\)/);
   assert.match(webStep, /startWebVibeVideoUpload\(\{[\s\S]{0,180}source: file[\s\S]{0,160}context: "onboarding"/);
-  assert.match(webStep, /mediaV2VideoEnabled: mediaV2Video\.enabled/);
+  assert.doesNotMatch(webStep, /mediaV2VideoEnabled: mediaV2Video\.enabled/);
 
   assert.doesNotMatch(webModal, /import \{ heroVideoStart \}/);
-  assert.match(webModal, /useFeatureFlag\("media_v2_video"\)/);
+  assert.doesNotMatch(webModal, /useFeatureFlag\("media_v2_video"\)/);
   assert.match(webModal, /startWebVibeVideoUpload\(\{[\s\S]{0,180}caption: captionForUpload[\s\S]{0,180}context: uploadContext/);
-  assert.match(webModal, /mediaV2VideoEnabled: mediaV2Video\.enabled/);
+  assert.doesNotMatch(webModal, /mediaV2VideoEnabled: mediaV2Video\.enabled/);
 
   assert.doesNotMatch(nativeRecord, /import \{ nativeHeroVideoStart \}/);
-  assert.match(nativeRecord, /useFeatureFlag\('media_v2_video'\)/);
+  assert.doesNotMatch(nativeRecord, /useFeatureFlag\('media_v2_video'\)/);
   assert.match(nativeRecord, /startNativeVibeVideoUpload\(\{[\s\S]{0,220}uri: recordedUri[\s\S]{0,220}context,[\s\S]{0,160}uploadSource: uploadSourceRef\.current/);
-  assert.match(nativeRecord, /mediaV2VideoEnabled: mediaV2Video\.enabled/);
+  assert.doesNotMatch(nativeRecord, /mediaV2VideoEnabled: mediaV2Video\.enabled/);
 
   assert.match(webSdk, /createWebMediaSdk/);
-  assert.match(webSdk, /createStaticMediaFeatureFlagGate\(\{ media_v2_video: true \}\)/);
+  assert.doesNotMatch(webSdk, /createStaticMediaFeatureFlagGate/);
+  assert.match(webSdk, /evaluateClientFeatureFlagForUpload\("media_v2_video"\)/);
+  assert.match(webSdk, /media_upload_started/);
   assert.match(webSdk, /uploadVibeVideo: uploadWebVibeVideoViaController/);
   assert.match(webSdk, /heroVideoStartWithClientRequestId/);
-  assert.match(webSdk, /heroVideoStart\(params\.source, params\.caption, context\)/);
+  assert.match(webSdk, /heroVideoStartWithClientRequestId\(params\.source, params\.caption, context, clientRequestId\)/);
   assert.match(webSdk, /mirrorHeroVideoControllerToSdk/);
   assert.match(webSdk, /state\.clientRequestId !== clientRequestId/);
   assert.match(webSdk, /vibe_video_upload_replaced/);
@@ -1018,12 +1020,14 @@ test("media v2 Vibe Video caller cutover is flag-gated and still controller-back
   assert.match(webSdk, /shouldResetHeroVideoForTask\(heroVideoGetState\(\), clientRequestId\)[\s\S]{0,80}heroVideoReset\(\)/);
 
   assert.match(nativeSdk, /createNativeMediaSdk/);
-  assert.match(nativeSdk, /createStaticMediaFeatureFlagGate\(\{ media_v2_video: true \}\)/);
+  assert.doesNotMatch(nativeSdk, /createStaticMediaFeatureFlagGate/);
+  assert.match(nativeSdk, /evaluateClientFeatureFlagForUpload\('media_v2_video'\)/);
+  assert.match(nativeSdk, /media_upload_started/);
   assert.match(nativeSdk, /AsyncStorage/);
   assert.match(nativeSdk, /FileSystem/);
   assert.match(nativeSdk, /uploadVibeVideo: uploadNativeVibeVideoViaController/);
   assert.match(nativeSdk, /nativeHeroVideoStartWithClientRequestId/);
-  assert.match(nativeSdk, /nativeHeroVideoStart\(params\.uri, params\.caption, context, params\.uploadSource\)/);
+  assert.match(nativeSdk, /nativeHeroVideoStartWithClientRequestId\([\s\S]{0,120}params\.uri[\s\S]{0,120}clientRequestId/);
   assert.match(nativeSdk, /mirrorNativeHeroVideoControllerToSdk/);
   assert.match(nativeSdk, /state\.clientRequestId !== clientRequestId/);
   assert.match(nativeSdk, /vibe_video_upload_replaced/);

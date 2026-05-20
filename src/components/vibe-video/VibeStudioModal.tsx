@@ -13,7 +13,6 @@ import { toast } from "sonner";
 import { trackEvent } from "@/lib/analytics";
 import { trackVibeVideoEvent, VIBE_VIDEO_EVENTS } from "@/lib/vibeVideo/vibeVideoTelemetry";
 import { MAX_VIBE_CAPTION_LEN, MAX_VIBE_VIDEO_DURATION_S } from "@/lib/vibeVideo/constants";
-import { useFeatureFlag } from "@/hooks/useFeatureFlag";
 import { startWebVibeVideoUpload } from "@/lib/mediaSdk/webVideoUploads";
 
 interface VibeStudioModalProps {
@@ -83,7 +82,6 @@ export const VibeStudioModal = ({
   const fileInputRef = useRef<HTMLInputElement>(null);
   // Store detected mimeType for use in onstop
   const detectedMimeTypeRef = useRef<string | null>(null);
-  const mediaV2Video = useFeatureFlag("media_v2_video");
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -377,7 +375,6 @@ export const VibeStudioModal = ({
       source: file,
       caption: captionForUpload,
       context: uploadContext,
-      mediaV2VideoEnabled: mediaV2Video.enabled,
     });
     onConfirmed?.();
 
@@ -393,7 +390,7 @@ export const VibeStudioModal = ({
     setCaptionEdited(false);
 
     trackEvent('vibe_video_confirmed');
-  }, [recordedBlob, uploadedFile, recordedVideoUrl, vibeCaption, captionEdited, uploadContext, mediaV2Video.enabled, onConfirmed, onOpenChange, stopCameraTracks, existingCaption, hasExistingVideo, existingVideoUrl]);
+  }, [recordedBlob, uploadedFile, recordedVideoUrl, vibeCaption, captionEdited, uploadContext, onConfirmed, onOpenChange, stopCameraTracks, existingCaption, hasExistingVideo, existingVideoUrl]);
 
   const handleClose = useCallback(() => {
     onOpenChange(false);

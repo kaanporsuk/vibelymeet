@@ -4,7 +4,6 @@ import { supabase } from '@/lib/supabase';
 import { avatarUrl } from '@/lib/imageUrl';
 import { resolvePrimaryProfilePhotoPath } from '../../../shared/profilePhoto/resolvePrimaryProfilePhotoPath';
 import { bestMatchSortKey, compatibilityPercent, type MatchScoreInput } from '@/lib/matchSortScore';
-import { uploadVoiceMessage } from '@/lib/chatMediaUpload';
 import { resolveMessageMediaForDisplay } from '@/lib/mediaAssetResolver';
 import { extractChatImageMediaRef } from '@/lib/chatMessageContent';
 import {

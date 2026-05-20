@@ -1,4 +1,3 @@
-import { defaultOffMediaFeatureFlagGate, mediaFlagForFamily, type MediaFeatureFlagGate } from "../core/flag-gate";
 import {
   assertMediaUploadQueueSourceBinding,
   matchesMediaUploadQueueFilter,
@@ -67,7 +66,6 @@ export type WebLegacyMediaDelegates = {
 
 export type WebMediaSdkOptions = {
   queue?: MediaUploadQueue;
-  flagGate?: MediaFeatureFlagGate;
   telemetry?: MediaTelemetry;
   telemetrySinks?: readonly MediaTelemetrySink[];
   delegates?: WebLegacyMediaDelegates;
@@ -76,7 +74,6 @@ export type WebMediaSdkOptions = {
 
 type ResolvedWebMediaSdkOptions = {
   queue: MediaUploadQueue;
-  flagGate: MediaFeatureFlagGate;
   telemetry: MediaTelemetry;
   telemetrySinks: readonly MediaTelemetrySink[];
   delegates: WebLegacyMediaDelegates;
@@ -183,25 +180,6 @@ function createWebUploadTask(input: WebMediaUploadInput, options: ResolvedWebMed
     platform: "web",
     telemetry: options.telemetry,
     runner: async (controls) => {
-      const flag = mediaFlagForFamily(input.family);
-      const enabled = await options.flagGate.isEnabled(flag, input);
-      controls.emitTelemetry("media_upload_sdk_flag_evaluated", {
-        flag,
-        enabled,
-        adapter: "web",
-      });
-      if (!enabled) {
-        controls.dispatch({
-          type: "fail",
-          error: {
-            code: "media_feature_disabled",
-            message: `${flag} is disabled`,
-            retryable: false,
-          },
-        });
-        return;
-      }
-
       const delegate = delegateForInput(input, options.delegates);
       if (!delegate) {
         controls.dispatch({
@@ -248,7 +226,6 @@ function createWebUploadTask(input: WebMediaUploadInput, options: ResolvedWebMed
 function withWebDefaults(options: WebMediaSdkOptions): ResolvedWebMediaSdkOptions {
   return {
     queue: options.queue ?? createIndexedDbMediaUploadQueue(),
-    flagGate: options.flagGate ?? defaultOffMediaFeatureFlagGate,
     telemetry: options.telemetry ?? createMediaTelemetry(options.telemetrySinks),
     telemetrySinks: options.telemetrySinks ?? [],
     delegates: options.delegates ?? {},

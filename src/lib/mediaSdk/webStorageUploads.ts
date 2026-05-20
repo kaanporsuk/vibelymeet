@@ -1,5 +1,4 @@
 import {
-  createStaticMediaFeatureFlagGate,
   createWebMediaSdk,
   isMediaUploadTerminalState,
   type MediaTaskRunContext,
@@ -9,6 +8,8 @@ import {
   type WebPhotoUploadInput,
   type WebVoiceUploadInput,
 } from "@clientShared/media-sdk";
+import { trackEvent } from "@/lib/analytics";
+import { evaluateClientFeatureFlagForUpload, type ClientFeatureFlagEvaluation } from "@/lib/clientFeatureFlags";
 import {
   uploadImageToBunny,
   type UploadImageContext,
@@ -31,11 +32,6 @@ type WebVoiceSdkUploadParams = {
   clientRequestId?: string;
 };
 
-const mediaV2StorageGate = createStaticMediaFeatureFlagGate({
-  media_v2_photo: true,
-  media_v2_voice: true,
-});
-
 const photoResultsByClientRequestId = new Map<string, UploadImageToBunnyResult>();
 const voiceResultsByClientRequestId = new Map<string, string>();
 const storageErrorsByClientRequestId = new Map<string, unknown>();
@@ -44,6 +40,36 @@ let mediaSdk: WebMediaSdk | null = null;
 
 function storageResultKey(family: WebPhotoUploadInput["family"] | WebVoiceUploadInput["family"], clientRequestId: string): string {
   return `${family}:${clientRequestId}`;
+}
+
+function createClientRequestId(): string {
+  if (globalThis.crypto?.randomUUID) return globalThis.crypto.randomUUID();
+  return `media-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
+function trackMediaUploadStarted(params: {
+  flag: "media_v2_photo" | "media_v2_voice";
+  evaluation: ClientFeatureFlagEvaluation;
+  path: "media_sdk" | "legacy";
+  family: WebPhotoUploadInput["family"] | WebVoiceUploadInput["family"];
+  clientRequestId: string;
+}): void {
+  try {
+    trackEvent("media_upload_started", {
+      active_flag: params.flag,
+      active_flag_enabled: params.evaluation.enabled,
+      active_flag_source: params.evaluation.source,
+      active_flag_bucket: params.evaluation.bucket,
+      active_flag_rollout_bps: params.evaluation.rolloutBps,
+      user_id_bucket: params.evaluation.userIdBucket,
+      path_selected: params.path,
+      family: params.family,
+      platform: "web",
+      client_request_id: params.clientRequestId,
+    });
+  } catch {
+    /* upload telemetry is best-effort and must not block media uploads */
+  }
 }
 
 function requiredContextString(input: WebPhotoUploadInput | WebVoiceUploadInput, key: string): string {
@@ -130,7 +156,6 @@ async function uploadWebVoiceViaLegacyService(
 function getWebStorageMediaSdk(): WebMediaSdk {
   if (!mediaSdk) {
     mediaSdk = createWebMediaSdk({
-      flagGate: mediaV2StorageGate,
       delegates: {
         photo: {
           uploadProfilePhoto: uploadWebPhotoViaLegacyService,
@@ -162,6 +187,27 @@ export async function uploadImageWithMediaSdk(
 ): Promise<UploadImageToBunnyResult> {
   const context = params.context ?? "profile_studio";
   const family = context === "chat" ? "chat_photo" : "profile_photo";
+  const clientRequestId = params.clientRequestId ?? createClientRequestId();
+  const evaluation = await evaluateClientFeatureFlagForUpload("media_v2_photo");
+  const path = evaluation.enabled ? "media_sdk" : "legacy";
+  trackMediaUploadStarted({
+    flag: "media_v2_photo",
+    evaluation,
+    path,
+    family,
+    clientRequestId,
+  });
+
+  if (!evaluation.enabled) {
+    return uploadImageToBunny(
+      fileFromWebPhotoSource(params.file),
+      params.accessToken,
+      context,
+      params.matchId,
+      clientRequestId,
+    );
+  }
+
   const task = getWebStorageMediaSdk().photo.upload({
     family,
     source: params.file,
@@ -172,10 +218,9 @@ export async function uploadImageWithMediaSdk(
       matchId: params.matchId,
     },
     options: {
-      clientRequestId: params.clientRequestId,
+      clientRequestId,
     },
   });
-  const clientRequestId = task.clientRequestId;
   const resultKey = storageResultKey(family, clientRequestId);
 
   try {
@@ -199,6 +244,21 @@ export async function uploadImageWithMediaSdk(
 }
 
 export async function uploadVoiceWithMediaSdk(params: WebVoiceSdkUploadParams): Promise<string> {
+  const clientRequestId = params.clientRequestId ?? createClientRequestId();
+  const evaluation = await evaluateClientFeatureFlagForUpload("media_v2_voice");
+  const path = evaluation.enabled ? "media_sdk" : "legacy";
+  trackMediaUploadStarted({
+    flag: "media_v2_voice",
+    evaluation,
+    path,
+    family: "voice_note",
+    clientRequestId,
+  });
+
+  if (!evaluation.enabled) {
+    return uploadVoiceToBunny(params.blob, params.accessToken, params.matchId, clientRequestId);
+  }
+
   const task = getWebStorageMediaSdk().voice.upload({
     family: "voice_note",
     source: params.blob,
@@ -209,10 +269,9 @@ export async function uploadVoiceWithMediaSdk(params: WebVoiceSdkUploadParams): 
       matchId: params.matchId,
     },
     options: {
-      clientRequestId: params.clientRequestId,
+      clientRequestId,
     },
   });
-  const clientRequestId = task.clientRequestId;
   const resultKey = storageResultKey("voice_note", clientRequestId);
 
   try {

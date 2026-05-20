@@ -1,5 +1,4 @@
 import {
-  createStaticMediaFeatureFlagGate,
   createWebMediaSdk,
   isMediaUploadTerminalState,
   type MediaTaskRunContext,
@@ -8,10 +7,11 @@ import {
   type WebMediaSdk,
   type WebVideoUploadInput,
 } from "@clientShared/media-sdk";
+import { trackEvent } from "@/lib/analytics";
+import { evaluateClientFeatureFlagForUpload, type ClientFeatureFlagEvaluation } from "@/lib/clientFeatureFlags";
 import {
   heroVideoGetState,
   heroVideoReset,
-  heroVideoStart,
   heroVideoStartWithClientRequestId,
   heroVideoSubscribe,
   type HeroVideoControllerState,
@@ -24,7 +24,6 @@ import {
 
 type WebChatVibeClipSdkUploadParams = Parameters<typeof uploadAndPublishChatVibeClipToBunnyStream>[0];
 
-const mediaV2VideoGate = createStaticMediaFeatureFlagGate({ media_v2_video: true });
 const chatClipResultsByClientRequestId = new Map<string, ChatVibeClipStreamUploadResult>();
 const chatClipErrorsByClientRequestId = new Map<string, unknown>();
 const chatClipProgressByClientRequestId = new Map<string, ((fraction: number) => void) | undefined>();
@@ -33,6 +32,49 @@ let mediaSdk: WebMediaSdk | null = null;
 
 function optionalString(value: unknown): string | undefined {
   return typeof value === "string" ? value : undefined;
+}
+
+function createClientRequestId(): string {
+  if (globalThis.crypto?.randomUUID) return globalThis.crypto.randomUUID();
+  return `media-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
+function failClosedVideoEvaluation(): ClientFeatureFlagEvaluation {
+  const now = Date.now();
+  return {
+    flag: "media_v2_video",
+    enabled: false,
+    source: "error",
+    bucket: null,
+    rolloutBps: null,
+    userIdBucket: null,
+    fetchedAtMs: now,
+    expiresAtMs: now,
+  };
+}
+
+function trackMediaUploadStarted(params: {
+  evaluation: ClientFeatureFlagEvaluation;
+  path: "media_sdk" | "legacy";
+  family: WebVideoUploadInput["family"];
+  clientRequestId: string;
+}): void {
+  try {
+    trackEvent("media_upload_started", {
+      active_flag: "media_v2_video",
+      active_flag_enabled: params.evaluation.enabled,
+      active_flag_source: params.evaluation.source,
+      active_flag_bucket: params.evaluation.bucket,
+      active_flag_rollout_bps: params.evaluation.rolloutBps,
+      user_id_bucket: params.evaluation.userIdBucket,
+      path_selected: params.path,
+      family: params.family,
+      platform: "web",
+      client_request_id: params.clientRequestId,
+    });
+  } catch {
+    /* upload telemetry is best-effort and must not block media uploads */
+  }
 }
 
 function uploadContextFromInput(input: WebVideoUploadInput): HeroVideoUploadContext {
@@ -194,7 +236,6 @@ async function uploadWebChatVibeClipViaLegacyService(
 function getWebVideoMediaSdk(): WebMediaSdk {
   if (!mediaSdk) {
     mediaSdk = createWebMediaSdk({
-      flagGate: mediaV2VideoGate,
       delegates: {
         video: {
           uploadVibeVideo: uploadWebVibeVideoViaController,
@@ -222,14 +263,39 @@ export function startWebVibeVideoUpload(params: {
   source: File | Blob;
   caption?: string;
   context?: HeroVideoUploadContext;
-  mediaV2VideoEnabled: boolean;
 }): void {
   const context = params.context ?? "profile_studio";
-  if (!params.mediaV2VideoEnabled) {
-    heroVideoStart(params.source, params.caption, context);
+  const clientRequestId = createClientRequestId();
+  void startWebVibeVideoUploadAfterGate(params, context, clientRequestId);
+}
+
+async function startWebVibeVideoUploadAfterGate(
+  params: {
+    source: File | Blob;
+    caption?: string;
+    context?: HeroVideoUploadContext;
+  },
+  context: HeroVideoUploadContext,
+  clientRequestId: string,
+): Promise<void> {
+  let evaluation: ClientFeatureFlagEvaluation;
+  try {
+    evaluation = await evaluateClientFeatureFlagForUpload("media_v2_video");
+  } catch {
+    evaluation = failClosedVideoEvaluation();
+  }
+  const path = evaluation.enabled ? "media_sdk" : "legacy";
+  trackMediaUploadStarted({
+    evaluation,
+    path,
+    family: "vibe_video",
+    clientRequestId,
+  });
+
+  if (!evaluation.enabled) {
+    heroVideoStartWithClientRequestId(params.source, params.caption, context, clientRequestId);
     return;
   }
-
   getWebVideoMediaSdk().video.upload({
     family: "vibe_video",
     source: params.source,
@@ -237,12 +303,34 @@ export function startWebVibeVideoUpload(params: {
       uploadContext: context,
       caption: params.caption,
     },
+    options: {
+      clientRequestId,
+    },
   });
 }
 
 export async function uploadAndPublishChatVibeClipWithMediaSdk(
   params: WebChatVibeClipSdkUploadParams,
 ): Promise<ChatVibeClipStreamUploadResult> {
+  const clientRequestId = params.clientRequestId ?? createClientRequestId();
+  let evaluation: ClientFeatureFlagEvaluation;
+  try {
+    evaluation = await evaluateClientFeatureFlagForUpload("media_v2_video");
+  } catch {
+    evaluation = failClosedVideoEvaluation();
+  }
+  const path = evaluation.enabled ? "media_sdk" : "legacy";
+  trackMediaUploadStarted({
+    evaluation,
+    path,
+    family: "chat_vibe_clip",
+    clientRequestId,
+  });
+
+  if (!evaluation.enabled) {
+    return uploadAndPublishChatVibeClipToBunnyStream({ ...params, clientRequestId });
+  }
+
   const task = getWebVideoMediaSdk().video.upload({
     family: "chat_vibe_clip",
     source: params.file,
@@ -255,10 +343,9 @@ export async function uploadAndPublishChatVibeClipWithMediaSdk(
       resumeStrategy: params.resumeStrategy ?? null,
     },
     options: {
-      clientRequestId: params.clientRequestId,
+      clientRequestId,
     },
   });
-  const clientRequestId = task.clientRequestId;
   chatClipProgressByClientRequestId.set(clientRequestId, params.onProgress);
 
   try {

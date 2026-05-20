@@ -41,7 +41,6 @@ import { setSafeAudioMode } from '@/lib/safeAudioMode';
 import { KeyboardAwareCenteredModal } from '@/components/keyboard/KeyboardAwareCenteredModal';
 import { useVibelyDialog } from '@/components/VibelyDialog';
 import { useAuth } from '@/context/AuthContext';
-import { useFeatureFlag } from '@/hooks/useFeatureFlag';
 import { startNativeVibeVideoUpload } from '@/lib/mediaSdk/nativeVideoUploads';
 
 const MAX_DURATION_SEC = 15;
@@ -82,7 +81,6 @@ export default function VibeVideoRecordScreen() {
   const { show, dialog } = useVibelyDialog();
   const { user } = useAuth();
   const userId = user?.id ?? null;
-  const mediaV2Video = useFeatureFlag('media_v2_video');
 
   const { data: myProfile } = useQuery({
     queryKey: myProfileQueryKey(userId ?? 'none'),
@@ -298,7 +296,6 @@ export default function VibeVideoRecordScreen() {
       caption,
       context,
       uploadSource: uploadSourceRef.current,
-      mediaV2VideoEnabled: mediaV2Video.enabled,
     });
 
     if (onboardingFlow) {

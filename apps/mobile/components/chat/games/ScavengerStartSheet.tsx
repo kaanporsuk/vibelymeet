@@ -7,7 +7,6 @@ import Colors from '@/constants/Colors';
 import { useColorScheme } from '@/components/useColorScheme';
 import { spacing, radius } from '@/constants/theme';
 import { randomScavengerPrompt } from '@/lib/scavengerPrompts';
-import { uploadChatImageMessage } from '@/lib/chatMediaUpload';
 import { uploadChatImageWithMediaSdk } from '@/lib/mediaSdk/nativeStorageUploads';
 import {
   formatSendGameEventError,
@@ -17,7 +16,6 @@ import {
   type ThreadInvalidateScope,
 } from '@/lib/gamesApi';
 import { useVibelyDialog } from '@/components/VibelyDialog';
-import { useFeatureFlag } from '@/hooks/useFeatureFlag';
 
 type Props = {
   visible: boolean;
@@ -31,7 +29,6 @@ export function ScavengerStartSheet({ visible, onClose, matchId, partnerName, in
   const theme = Colors[useColorScheme()];
   const insets = useSafeAreaInsets();
   const { mutateAsync, isPending } = useStartScavengerGame();
-  const mediaV2Photo = useFeatureFlag('media_v2_photo');
   const [prompt, setPrompt] = useState<string>(() => randomScavengerPrompt());
   const [senderPhotoUrl, setSenderPhotoUrl] = useState<string | null>(null);
   const [senderPhotoClientRequestId, setSenderPhotoClientRequestId] = useState<string | null>(null);
@@ -86,14 +83,12 @@ export function ScavengerStartSheet({ visible, onClose, matchId, partnerName, in
       setUploading(true);
       const asset = result.assets[0];
       const clientRequestId = newGameClientRequestId();
-      const url = mediaV2Photo.enabled
-        ? await uploadChatImageWithMediaSdk({
-            uri: asset.uri,
-            mimeType: asset.mimeType ?? null,
-            matchId,
-            clientRequestId,
-          })
-        : await uploadChatImageMessage(asset.uri, asset.mimeType ?? null, matchId, clientRequestId);
+      const url = await uploadChatImageWithMediaSdk({
+        uri: asset.uri,
+        mimeType: asset.mimeType ?? null,
+        matchId,
+        clientRequestId,
+      });
       setSenderPhotoUrl(url);
       setSenderPhotoClientRequestId(clientRequestId);
     } catch (e) {

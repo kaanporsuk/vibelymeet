@@ -15,7 +15,7 @@ import {
 } from '@expo-google-fonts/space-grotesk';
 import * as Sentry from '@sentry/react-native';
 import { DarkTheme, ThemeProvider } from '@react-navigation/native';
-import { focusManager, QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { focusManager, QueryClientProvider } from '@tanstack/react-query';
 import { useFonts } from 'expo-font';
 import * as Linking from 'expo-linking';
 import { Redirect, Stack, router, usePathname, useSegments } from 'expo-router';
@@ -60,6 +60,7 @@ import { supabase } from '@/lib/supabase';
 import { completeSessionFromAuthReturnUrl } from '@/lib/nativeAuthRedirect';
 import { applyNativeReferralAttribution, captureNativeReferral } from '@/lib/referrals';
 import { RC_CATEGORY, rcBreadcrumb } from '@/lib/nativeRcDiagnostics';
+import { queryClient } from '@/lib/queryClient';
 
 // ─── Sentry (matches web src/main.tsx)
 const SENTRY_DSN = process.env.EXPO_PUBLIC_SENTRY_DSN ?? '';
@@ -94,15 +95,6 @@ if (__DEV__) {
     'packages configured',
   ]);
 }
-
-const queryClient = new QueryClient({
-  defaultOptions: {
-    queries: {
-      staleTime: 30_000,
-      retry: 1,
-    },
-  },
-});
 
 // Wire the module-level native hero upload controller to the query client so it
 // can invalidate ['my-profile'] after upload/processing completes — even when no

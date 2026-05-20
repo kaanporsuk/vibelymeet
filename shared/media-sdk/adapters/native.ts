@@ -1,4 +1,3 @@
-import { defaultOffMediaFeatureFlagGate, mediaFlagForFamily, type MediaFeatureFlagGate } from "../core/flag-gate";
 import {
   assertMediaUploadQueueSourceBinding,
   matchesMediaUploadQueueFilter,
@@ -91,7 +90,6 @@ export type NativeMediaSdkOptions = {
   fileSystem?: NativeFileSystemLike;
   imageManipulator?: NativeImageManipulatorLike;
   audio?: NativeAudioHooks;
-  flagGate?: MediaFeatureFlagGate;
   telemetry?: MediaTelemetry;
   telemetrySinks?: readonly MediaTelemetrySink[];
   delegates?: NativeLegacyMediaDelegates;
@@ -105,7 +103,6 @@ type ResolvedNativeMediaSdkOptions = {
   fileSystem: NativeFileSystemLike | null;
   imageManipulator: NativeImageManipulatorLike | null;
   audio: NativeAudioHooks;
-  flagGate: MediaFeatureFlagGate;
   telemetry: MediaTelemetry;
   telemetrySinks: readonly MediaTelemetrySink[];
   delegates: NativeLegacyMediaDelegates;
@@ -325,25 +322,6 @@ function createNativeUploadTask(input: NativeMediaUploadInput, options: Resolved
     telemetry: options.telemetry,
     runner: async (controls) => {
       await validateNativeSource(input, options.fileSystem);
-      const flag = mediaFlagForFamily(input.family);
-      const enabled = await options.flagGate.isEnabled(flag, input);
-      controls.emitTelemetry("media_upload_sdk_flag_evaluated", {
-        flag,
-        enabled,
-        adapter: "native",
-      });
-      if (!enabled) {
-        controls.dispatch({
-          type: "fail",
-          error: {
-            code: "media_feature_disabled",
-            message: `${flag} is disabled`,
-            retryable: false,
-          },
-        });
-        return;
-      }
-
       const delegate = delegateForInput(input, options.delegates);
       if (!delegate) {
         controls.dispatch({
@@ -394,7 +372,6 @@ function withNativeDefaults(options: NativeMediaSdkOptions): ResolvedNativeMedia
     fileSystem: options.fileSystem ?? null,
     imageManipulator: options.imageManipulator ?? null,
     audio: options.audio ?? {},
-    flagGate: options.flagGate ?? defaultOffMediaFeatureFlagGate,
     telemetry: options.telemetry ?? createMediaTelemetry(options.telemetrySinks),
     telemetrySinks: options.telemetrySinks ?? [],
     delegates: options.delegates ?? {},

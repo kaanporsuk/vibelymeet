@@ -4,7 +4,6 @@ import * as ImageManipulator from 'expo-image-manipulator';
 import { Platform } from 'react-native';
 import {
   createNativeMediaSdk,
-  createStaticMediaFeatureFlagGate,
   isMediaUploadTerminalState,
   type MediaTaskRunContext,
   type MediaUploadSnapshot,
@@ -14,6 +13,8 @@ import {
   type NativePhotoUploadInput,
   type NativeVoiceUploadInput,
 } from '@clientShared/media-sdk';
+import { trackEvent } from '@/lib/analytics';
+import { evaluateClientFeatureFlagForUpload, type ClientFeatureFlagEvaluation } from '@/lib/clientFeatureFlags';
 import { uploadChatImageMessage, uploadVoiceMessage } from '@/lib/chatMediaUpload';
 import { uploadProfilePhoto, type UploadImageResult } from '@/lib/uploadImage';
 
@@ -37,11 +38,6 @@ type NativeVoiceSdkUploadParams = {
   clientRequestId?: string;
 };
 
-const mediaV2StorageGate = createStaticMediaFeatureFlagGate({
-  media_v2_photo: true,
-  media_v2_voice: true,
-});
-
 const profilePhotoResultsByClientRequestId = new Map<string, UploadImageResult>();
 const chatImageResultsByClientRequestId = new Map<string, string>();
 const voiceResultsByClientRequestId = new Map<string, string>();
@@ -54,6 +50,36 @@ function storageResultKey(
   clientRequestId: string,
 ): string {
   return `${family}:${clientRequestId}`;
+}
+
+function createClientRequestId(): string {
+  if (globalThis.crypto?.randomUUID) return globalThis.crypto.randomUUID();
+  return `media-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
+function trackMediaUploadStarted(params: {
+  flag: 'media_v2_photo' | 'media_v2_voice';
+  evaluation: ClientFeatureFlagEvaluation;
+  path: 'media_sdk' | 'legacy';
+  family: NativePhotoUploadInput['family'] | NativeVoiceUploadInput['family'];
+  clientRequestId: string;
+}): void {
+  try {
+    trackEvent('media_upload_started', {
+      active_flag: params.flag,
+      active_flag_enabled: params.evaluation.enabled,
+      active_flag_source: params.evaluation.source,
+      active_flag_bucket: params.evaluation.bucket,
+      active_flag_rollout_bps: params.evaluation.rolloutBps,
+      user_id_bucket: params.evaluation.userIdBucket,
+      path_selected: params.path,
+      family: params.family,
+      platform: nativePlatform(),
+      client_request_id: params.clientRequestId,
+    });
+  } catch {
+    /* upload telemetry is best-effort and must not block media uploads */
+  }
 }
 
 const nativeImageManipulator = {
@@ -171,7 +197,6 @@ function getNativeStorageMediaSdk(): NativeMediaSdk {
       asyncStorage: AsyncStorage,
       fileSystem: FileSystem,
       imageManipulator: nativeImageManipulator,
-      flagGate: mediaV2StorageGate,
       platform: nativePlatform(),
       delegates: {
         photo: {
@@ -202,6 +227,32 @@ function waitForTaskTerminal(task: MediaUploadTask): Promise<MediaUploadSnapshot
 export async function uploadProfilePhotoWithMediaSdk(
   params: NativeProfilePhotoSdkUploadParams,
 ): Promise<UploadImageResult> {
+  const clientRequestId = params.clientRequestId ?? createClientRequestId();
+  const evaluation = await evaluateClientFeatureFlagForUpload('media_v2_photo');
+  const path = evaluation.enabled ? 'media_sdk' : 'legacy';
+  trackMediaUploadStarted({
+    flag: 'media_v2_photo',
+    evaluation,
+    path,
+    family: 'profile_photo',
+    clientRequestId,
+  });
+
+  if (!evaluation.enabled) {
+    return uploadProfilePhoto(
+      {
+        uri: params.asset.uri,
+        mimeType: params.asset.mimeType ?? undefined,
+        fileName: params.asset.name ?? params.asset.fileName ?? undefined,
+      },
+      params.context ?? 'profile_studio',
+      {
+        clientRequestId,
+        signal: params.signal,
+      },
+    );
+  }
+
   const task = getNativeStorageMediaSdk().photo.upload({
     family: 'profile_photo',
     source: {
@@ -217,11 +268,10 @@ export async function uploadProfilePhotoWithMediaSdk(
       scopeKey: `profile:${params.context ?? 'profile_studio'}`,
     },
     options: {
-      clientRequestId: params.clientRequestId,
+      clientRequestId,
       signal: params.signal ?? null,
     },
   });
-  const clientRequestId = task.clientRequestId;
   const resultKey = storageResultKey('profile_photo', clientRequestId);
 
   try {
@@ -245,6 +295,21 @@ export async function uploadProfilePhotoWithMediaSdk(
 }
 
 export async function uploadChatImageWithMediaSdk(params: NativeChatImageSdkUploadParams): Promise<string> {
+  const clientRequestId = params.clientRequestId ?? createClientRequestId();
+  const evaluation = await evaluateClientFeatureFlagForUpload('media_v2_photo');
+  const path = evaluation.enabled ? 'media_sdk' : 'legacy';
+  trackMediaUploadStarted({
+    flag: 'media_v2_photo',
+    evaluation,
+    path,
+    family: 'chat_photo',
+    clientRequestId,
+  });
+
+  if (!evaluation.enabled) {
+    return uploadChatImageMessage(params.uri, params.mimeType ?? null, params.matchId, clientRequestId);
+  }
+
   const task = getNativeStorageMediaSdk().photo.upload({
     family: 'chat_photo',
     source: {
@@ -258,10 +323,9 @@ export async function uploadChatImageWithMediaSdk(params: NativeChatImageSdkUplo
       mimeType: params.mimeType ?? null,
     },
     options: {
-      clientRequestId: params.clientRequestId,
+      clientRequestId,
     },
   });
-  const clientRequestId = task.clientRequestId;
   const resultKey = storageResultKey('chat_photo', clientRequestId);
 
   try {
@@ -285,6 +349,21 @@ export async function uploadChatImageWithMediaSdk(params: NativeChatImageSdkUplo
 }
 
 export async function uploadVoiceWithMediaSdk(params: NativeVoiceSdkUploadParams): Promise<string> {
+  const clientRequestId = params.clientRequestId ?? createClientRequestId();
+  const evaluation = await evaluateClientFeatureFlagForUpload('media_v2_voice');
+  const path = evaluation.enabled ? 'media_sdk' : 'legacy';
+  trackMediaUploadStarted({
+    flag: 'media_v2_voice',
+    evaluation,
+    path,
+    family: 'voice_note',
+    clientRequestId,
+  });
+
+  if (!evaluation.enabled) {
+    return uploadVoiceMessage(params.uri, params.matchId, clientRequestId);
+  }
+
   const task = getNativeStorageMediaSdk().voice.upload({
     family: 'voice_note',
     source: {
@@ -298,10 +377,9 @@ export async function uploadVoiceWithMediaSdk(params: NativeVoiceSdkUploadParams
       matchId: params.matchId,
     },
     options: {
-      clientRequestId: params.clientRequestId,
+      clientRequestId,
     },
   });
-  const clientRequestId = task.clientRequestId;
   const resultKey = storageResultKey('voice_note', clientRequestId);
 
   try {

@@ -42,7 +42,7 @@
     "test:media-background-upload": "tsx shared/media-sdk/backgroundUploadPolicy.test.ts",
     "test:media-idempotency": "tsx shared/mediaAssetsIdempotencyContracts.test.ts",
     "test:media-phase8": "tsx shared/mediaPhase8Contracts.test.ts",
-    "test:client-feature-flags": "tsx shared/featureFlags/clientFeatureFlagsContracts.test.ts",
+    "test:client-feature-flags": "tsx shared/featureFlags/clientFeatureFlagsContracts.test.ts && tsx shared/admin/adminClientFeatureFlagsContracts.test.ts",
     "test:profile-privacy-contract": "tsx shared/profile/profileDirectPrivacyContracts.test.ts",
     "test:send-email-auth": "tsx supabase/functions/send-email/sendEmailAuthBypass.test.ts",
     "test:date-suggestion-contracts": "tsx shared/dateSuggestions/actionPolicy.test.ts && tsx shared/dateSuggestions/openStatus.test.ts && tsx shared/dateSuggestions/counterAuthority.contract.test.ts && tsx shared/schedule/planningHub.test.ts && tsx shared/dateSuggestions/scheduleShare.test.ts && tsx shared/dateSuggestions/scheduleShareEditAccept.test.ts && tsx shared/dateSuggestions/sendProposalPayloadContract.test.ts && tsx shared/dateSuggestions/dateTimePickerComposer.contract.test.ts && tsx shared/dateSuggestions/activeSuggestionWindow.contract.test.ts && tsx shared/dateSuggestions/realtimePlanningInvalidation.test.ts && tsx shared/dateSuggestions/confirmedDateLifecycle.test.ts",
