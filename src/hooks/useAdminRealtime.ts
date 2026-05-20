@@ -138,7 +138,7 @@ export const useAdminRealtime = ({ enabled = true }: UseAdminRealtimeOptions = {
       )
       .subscribe();
 
-    // Provider push telemetry is read through the redacted admin view/RPC and refreshed by polling.
+    // Provider push telemetry is read through redacted admin RPCs and refreshed by polling.
     // Realtime authorizes against the base table RLS, which intentionally hides other users' rows.
 
     const engagementNotificationLogChannel = supabase

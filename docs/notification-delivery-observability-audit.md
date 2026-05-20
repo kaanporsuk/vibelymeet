@@ -72,9 +72,9 @@ Important nuance: `user_disabled` is used for both the master `push_enabled` tog
 - `notification_preferences` is the source of backend deliverability: web player ID/subscribed, mobile player ID/subscribed, `push_enabled`, pause, quiet hours, category toggles, and message bundling.
 - `notification_log` records transactional sends and suppressions with `user_id`, `category`, `title`, `body`, `data`, `delivered`, `suppressed_reason`, and `created_at`. It has indexes on `(user_id, category, created_at desc)` and `created_at`.
 - `push_campaigns` and `push_notification_events` are campaign/admin telemetry tables, not the transactional `send-notification` ledger.
-- `push_notification_events_admin` redacts FCM/APNs/device token fields for admin reads.
+- `admin_list_push_notification_events` redacts FCM/APNs/device token fields for admin reads; direct browser reads of `push_notification_events` are not the redaction boundary.
 - `src/components/admin/AdminLiveEventMetrics.tsx` queries `notification_log` by `data->>event_id` for event lifecycle diagnostics.
-- `src/hooks/usePushNotificationEvents.ts` visualizes the redacted `push_notification_events_admin` view and polls it without raw table realtime payloads; `src/hooks/usePushAnalytics.ts` reads the `admin_get_push_delivery_metrics` RPC selected-window summary.
+- `src/hooks/usePushNotificationEvents.ts` visualizes the redacted `admin_list_push_notification_events` RPC payload and polls it without raw table realtime payloads; `src/hooks/usePushAnalytics.ts` reads the `admin_get_push_delivery_metrics` RPC selected-window summary.
 - `src/components/admin/AdminPushCampaignsPanel.tsx` saves draft `push_campaigns` rows through admin RPCs only. It does not enqueue `push_notification_events` rows or send OneSignal pushes for those campaign rows.
 - `notification_outbox` appears in generated Supabase types and prior docs, but current repo searches did not find active Edge Function usage in the delivery path.
 

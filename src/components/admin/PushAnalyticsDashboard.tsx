@@ -130,7 +130,7 @@ const PushAnalyticsDashboard = () => {
           icon={<Database className="w-4 h-4" />}
           label="Provider/Admin Rows"
           value={pushTelemetry.queuedRows.toLocaleString()}
-          detail="push_notification_events_admin rows"
+          detail="push telemetry rows"
         />
         <SummaryMetric
           icon={<Send className="w-4 h-4" />}

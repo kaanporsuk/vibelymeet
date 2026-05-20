@@ -31,7 +31,7 @@ const eventLifecycleFeedMigration = read("supabase/migrations/20260507113000_adm
 const reviewCommentFollowupMigration = read("supabase/migrations/20260507123000_admin_review_comment_followup.sql");
 const accountDeletionsMigration = read("supabase/migrations/20260507140000_admin_account_deletions_backend_authoritative.sql");
 const adminUsersLifecycleMigration = read("supabase/migrations/20260507143000_admin_users_lifecycle_read_models.sql");
-const pushTelemetryViewRedactionMigration = read("supabase/migrations/20260507154000_push_notification_events_admin_null_preserving_redaction.sql");
+const pushTelemetryRpcCleanupMigration = read("supabase/migrations/20260520231000_push_notification_events_admin_rpc_cleanup.sql");
 const eventAnalyticsReadModelsMigration = read("supabase/migrations/20260507163000_admin_event_analytics_backend_read_models.sql");
 const photoVerificationHardeningMigration = read("supabase/migrations/20260507170000_photo_verification_admin_hardening.sql");
 const photoVerificationSupersededFollowupMigration = read(
@@ -92,6 +92,7 @@ const adminEngagementHook = read("src/hooks/useAdminEngagementAnalytics.ts");
 const adminUsers = read("src/components/admin/AdminUsersPanel.tsx");
 const eventAnalytics = read("src/components/admin/AdminLiveEventMetrics.tsx");
 const pushAnalytics = read("src/hooks/usePushAnalytics.ts");
+const pushNotificationEventsHook = read("src/hooks/usePushNotificationEvents.ts");
 const verificationFunction = read("supabase/functions/admin-review-verification/index.ts");
 const generateDailyDropsFunction = read("supabase/functions/generate-daily-drops/index.ts");
 const sendSupportReplyFunction = read("supabase/functions/send-support-reply/index.ts");
@@ -184,18 +185,20 @@ function eventAnalyticsReadModelsFnSection(fnName: string): string {
   return eventAnalyticsReadModelsMigration.slice(start, end);
 }
 
-function engagementAnalyticsFnSection(fnName: string): string {
+function pushTelemetryRpcCleanupFnSection(fnName: string): string {
   const marker = `CREATE OR REPLACE FUNCTION public.${fnName}`;
-  const start = engagementAnalyticsMigration.indexOf(marker);
+  const start = pushTelemetryRpcCleanupMigration.indexOf(marker);
   assert.notEqual(start, -1, `Missing function ${fnName}`);
-  const revoke = engagementAnalyticsMigration.indexOf("\nREVOKE ALL ON FUNCTION", start + marker.length);
-  const classification = engagementAnalyticsMigration.indexOf(
+  const next = pushTelemetryRpcCleanupMigration.indexOf("\nCREATE OR REPLACE FUNCTION public.", start + marker.length);
+  const revoke = pushTelemetryRpcCleanupMigration.indexOf("\nREVOKE ALL ON FUNCTION", start + marker.length);
+  const dropView = pushTelemetryRpcCleanupMigration.indexOf("\nDROP VIEW IF EXISTS", start + marker.length);
+  const classification = pushTelemetryRpcCleanupMigration.indexOf(
     "\nINSERT INTO public.migration_classifications",
     start + marker.length,
   );
-  const candidates = [revoke, classification].filter((i) => i !== -1);
-  const end = candidates.length ? Math.min(...candidates) : engagementAnalyticsMigration.length;
-  return engagementAnalyticsMigration.slice(start, end);
+  const candidates = [next, revoke, dropView, classification].filter((i) => i !== -1);
+  const end = candidates.length ? Math.min(...candidates) : pushTelemetryRpcCleanupMigration.length;
+  return pushTelemetryRpcCleanupMigration.slice(start, end);
 }
 
 function reviewCommentFollowupFnSection(fnName: string): string {
@@ -372,7 +375,8 @@ test("P2 migration adds shared backend admin primitives", () => {
   assert.match(migration, /INTERNAL_ERROR/);
   assert.match(validation, /admin_p2_backend_authoritative_hardening/);
   assert.match(validation, /premium_history/);
-  assert.match(validation, /push_notification_events_admin/);
+  assert.match(validation, /admin_list_push_notification_events/);
+  assert.match(validation, /push_notification_events_admin_view_removed/);
 });
 
 test("P2 admin RPCs are security definer, admin checked, audited, and ACL pinned", () => {
@@ -795,8 +799,11 @@ test("authoritative read surfaces are backend RPC based", () => {
   assert.match(overviewOperationalTruthMigration, /Admin Overview operational truth/);
   assert.match(fnSection("admin_search_users"), /count\(\*\)::integer AS total_count/);
   assert.match(fnSection("admin_get_event_metrics"), /participant_reports_near_event_window/);
-  assert.match(fnSection("admin_get_push_delivery_metrics"), /app_notification_log/);
-  assert.match(fnSection("admin_get_push_delivery_metrics"), /push_telemetry/);
+  const pushDeliveryMetricsSource = pushTelemetryRpcCleanupFnSection("admin_get_push_delivery_metrics");
+  assert.match(pushDeliveryMetricsSource, /app_notification_log/);
+  assert.match(pushDeliveryMetricsSource, /push_telemetry/);
+  assert.match(pushDeliveryMetricsSource, /FROM public\.push_notification_events/);
+  assert.doesNotMatch(pushDeliveryMetricsSource, /push_notification_events_admin/);
   for (const fn of [
     "admin_list_event_analytics_options",
     "admin_get_event_live_analytics",
@@ -849,7 +856,7 @@ test("authoritative read surfaces are backend RPC based", () => {
   assert.match(eventAnalyticsReadModelsMigration, /'20260507163000'/);
   assert.match(eventAnalyticsReadModelsMigration, /'schema-only'/);
 
-  const engagementSource = engagementAnalyticsFnSection("admin_get_engagement_analytics");
+  const engagementSource = pushTelemetryRpcCleanupFnSection("admin_get_engagement_analytics");
   assert.match(engagementSource, /SECURITY DEFINER/);
   assert.match(engagementSource, /SET search_path = public, pg_catalog/);
   assert.match(engagementSource, /auth\.uid\(\)/);
@@ -857,7 +864,8 @@ test("authoritative read surfaces are backend RPC based", () => {
   assert.match(engagementSource, /public\.admin_json_success/);
   assert.match(engagementSource, /date_trunc\('day', p_window_start AT TIME ZONE 'UTC'\)/);
   assert.match(engagementSource, /generate_series\(v_window_start, v_window_end - interval '1 day', interval '1 day'\)/);
-  assert.match(engagementSource, /public\.push_notification_events_admin/);
+  assert.match(engagementSource, /public\.push_notification_events/);
+  assert.doesNotMatch(engagementSource, /push_notification_events_admin/);
   assert.match(engagementSource, /public\.notification_log/);
   assert.match(engagementSource, /public\.daily_drops/);
   assert.match(engagementSource, /public\.messages/);
@@ -1240,23 +1248,30 @@ test("push campaign draft write RPCs are governed, idempotent, audited, and draf
   assert.match(reviewCommentFollowupFnSection("admin_delete_push_campaign_draft"), /DELETE FROM public\.push_campaigns/);
 });
 
-test("push telemetry admin view preserves nullness while redacting sensitive identifiers", () => {
-  assert.match(pushTelemetryViewRedactionMigration, /DROP VIEW IF EXISTS public\.push_notification_events_admin/);
-  assert.match(pushTelemetryViewRedactionMigration, /CREATE VIEW public\.push_notification_events_admin/);
-  assert.match(pushTelemetryViewRedactionMigration, /base table RLS/);
-  assert.match(pushTelemetryViewRedactionMigration, /WITH \(security_barrier = true\)/);
-  assert.doesNotMatch(pushTelemetryViewRedactionMigration, /security_invoker = true/);
-  assert.match(pushTelemetryViewRedactionMigration, /CASE WHEN fcm_message_id IS NULL THEN NULL ELSE '\[REDACTED\]'::text END AS fcm_message_id/);
-  assert.match(pushTelemetryViewRedactionMigration, /CASE WHEN apns_message_id IS NULL THEN NULL ELSE '\[REDACTED\]'::text END AS apns_message_id/);
-  assert.match(pushTelemetryViewRedactionMigration, /CASE WHEN device_token IS NULL THEN NULL ELSE '\[REDACTED\]'::text END AS device_token/);
-  assert.match(pushTelemetryViewRedactionMigration, /FROM public\.push_notification_events/);
-  assert.match(pushTelemetryViewRedactionMigration, /WHERE public\.has_role\(auth\.uid\(\), 'admin'::public\.app_role\)/);
-  assert.match(pushTelemetryViewRedactionMigration, /REVOKE ALL ON public\.push_notification_events_admin FROM PUBLIC/);
-  assert.match(pushTelemetryViewRedactionMigration, /GRANT SELECT ON public\.push_notification_events_admin TO authenticated/);
-  assert.match(pushTelemetryViewRedactionMigration, /INSERT INTO public\.migration_classifications/);
-  assert.match(pushTelemetryViewRedactionMigration, /'20260507154000'/);
-  assert.match(pushTelemetryViewRedactionMigration, /'schema-only'/);
-  assert.match(pushTelemetryViewRedactionMigration, /destructive_requires_signoff = EXCLUDED\.destructive_requires_signoff/);
+test("push telemetry admin RPC replaces the security-definer view with redacted output", () => {
+  const source = pushTelemetryRpcCleanupFnSection("admin_list_push_notification_events");
+
+  assert.match(source, /STABLE/);
+  assert.match(source, /SECURITY DEFINER/);
+  assert.match(source, /SET search_path = public, pg_catalog/);
+  assert.match(source, /auth\.uid\(\)/);
+  assert.match(source, /public\.has_role\(v_admin_id, 'admin'::public\.app_role\)/);
+  assert.match(source, /FROM public\.push_notification_events/);
+  assert.match(source, /CASE WHEN fcm_message_id IS NULL THEN NULL ELSE '\[REDACTED\]'::text END/);
+  assert.match(source, /CASE WHEN apns_message_id IS NULL THEN NULL ELSE '\[REDACTED\]'::text END/);
+  assert.match(source, /CASE WHEN device_token IS NULL THEN NULL ELSE '\[REDACTED\]'::text END/);
+  assert.match(source, /'source', 'admin_list_push_notification_events'/);
+  assert.match(pushTelemetryRpcCleanupMigration, /DROP VIEW IF EXISTS public\.push_notification_events_admin/);
+  assert.doesNotMatch(pushTelemetryRpcCleanupMigration, /CREATE VIEW public\.push_notification_events_admin/);
+  assert.doesNotMatch(pushTelemetryRpcCleanupMigration, /CREATE POLICY[\s\S]{0,160}push_notification_events/);
+  assert.match(pushTelemetryRpcCleanupMigration, /REVOKE ALL ON FUNCTION public\.admin_list_push_notification_events\(integer\) FROM PUBLIC, anon, authenticated/);
+  assert.match(pushTelemetryRpcCleanupMigration, /GRANT EXECUTE ON FUNCTION public\.admin_list_push_notification_events\(integer\) TO authenticated/);
+  assert.match(pushTelemetryRpcCleanupMigration, /REVOKE ALL ON FUNCTION public\.admin_get_push_delivery_metrics\(timestamptz, timestamptz\) FROM PUBLIC, anon, authenticated/);
+  assert.match(pushTelemetryRpcCleanupMigration, /GRANT EXECUTE ON FUNCTION public\.admin_get_push_delivery_metrics\(timestamptz, timestamptz\) TO authenticated/);
+  assert.match(pushTelemetryRpcCleanupMigration, /INSERT INTO public\.migration_classifications/);
+  assert.match(pushTelemetryRpcCleanupMigration, /'20260520231000'/);
+  assert.match(pushTelemetryRpcCleanupMigration, /'schema\+policy'/);
+  assert.match(pushTelemetryRpcCleanupMigration, /destructive_requires_signoff = EXCLUDED\.destructive_requires_signoff/);
 });
 
 test("named residual admin panels use backend read models instead of browser table reads", () => {
@@ -1267,6 +1282,7 @@ test("named residual admin panels use backend read models instead of browser tab
   assert.match(pushCampaigns, /callAdminRpc<PushCampaignsReadModelPayload>\("admin_get_push_campaigns_read_model"/);
   assert.match(pushCampaigns, /callAdminRpc\("admin_upsert_push_campaign_draft"/);
   assert.match(pushCampaigns, /callAdminRpc\("admin_delete_push_campaign_draft"/);
+  assert.match(pushNotificationEventsHook, /callAdminRpc<PushNotificationEventsPayload>\("admin_list_push_notification_events"/);
   assert.match(adminUserDetail, /callAdminRpc<UserDetailReadModelPayload>\("admin_get_user_detail_read_model"/);
   assert.match(adminUserDetail, /<AdminProfilePreview[\s\S]*profile=\{profile\}[\s\S]*vibes=\{vibes\}/);
   assert.match(adminUserDetail, /moderation=\{moderation\}/);
@@ -1284,6 +1300,7 @@ test("named residual admin panels use backend read models instead of browser tab
   assert.doesNotMatch(reports, /\.from\(['"]profiles['"]\)/);
   assert.doesNotMatch(pushCampaigns, /\.from\(['"]push_campaigns['"]\)/);
   assert.doesNotMatch(pushCampaigns, /\.from\(['"]push_notification_events(?:_admin)?['"]\)/);
+  assert.doesNotMatch(pushNotificationEventsHook, /\.from\(['"]push_notification_events(?:_admin)?['"]\)/);
   assert.doesNotMatch(adminDeletions, /\.from\(['"]account_deletion_requests['"]\)/);
   assert.doesNotMatch(adminDeletions, /\.from\(['"]profiles['"]\)/);
   assert.doesNotMatch(adminUserDetail, /\.from\(['"]/);

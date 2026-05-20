@@ -20,9 +20,29 @@ from unnest(array[
   'public.premium_history',
   'public.feedback',
   'public.admin_activity_logs',
-  'public.credit_adjustments',
-  'public.push_notification_events_admin'
+  'public.credit_adjustments'
 ]) as t(obj);
+
+select
+  'push_notification_events_admin_view_removed' as check_name,
+  to_regclass('public.push_notification_events_admin') is null as ok;
+
+select
+  'admin_list_push_notification_events_rpc_acl_and_redaction' as check_name,
+  exists (
+    select 1
+    from pg_proc p
+    join pg_namespace n on n.oid = p.pronamespace
+    where n.nspname = 'public'
+      and p.proname = 'admin_list_push_notification_events'
+      and p.prosecdef
+      and has_function_privilege('authenticated', p.oid, 'EXECUTE')
+      and not has_function_privilege('anon', p.oid, 'EXECUTE')
+      and pg_get_functiondef(p.oid) like '%SET search_path = public, pg_catalog%'
+      and pg_get_functiondef(p.oid) like '%CASE WHEN fcm_message_id IS NULL THEN NULL ELSE ''[REDACTED]''::text END%'
+      and pg_get_functiondef(p.oid) like '%CASE WHEN apns_message_id IS NULL THEN NULL ELSE ''[REDACTED]''::text END%'
+      and pg_get_functiondef(p.oid) like '%CASE WHEN device_token IS NULL THEN NULL ELSE ''[REDACTED]''::text END%'
+  ) as ok;
 
 select
   'admin_p2_rpc_acl_and_security_definer' as check_name,
@@ -55,7 +75,8 @@ where n.nspname = 'public'
     'admin_get_overview_metrics',
     'admin_search_users',
     'admin_get_event_metrics',
-    'admin_get_push_delivery_metrics'
+    'admin_get_push_delivery_metrics',
+    'admin_list_push_notification_events'
   );
 
 select
@@ -83,5 +104,6 @@ where n.nspname = 'public'
     'admin_end_event',
     'admin_extend_event',
     'admin_go_live_event',
-    'admin_delete_notifications'
+    'admin_delete_notifications',
+    'admin_list_push_notification_events'
   );
