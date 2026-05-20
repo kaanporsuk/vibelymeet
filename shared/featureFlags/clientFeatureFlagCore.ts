@@ -287,16 +287,22 @@ export async function prefetchClientFeatureFlags(
       .filter((row): row is ClientFeatureFlagEvaluation => row !== null);
 
     let wroteCache = false;
+    const cacheAcceptedEvaluations: ClientFeatureFlagEvaluation[] = [];
     for (const evaluation of evaluations) {
-      wroteCache =
-        writeCacheIfFresh(clientFeatureFlagCacheKey(evaluation.flag, input.userId), evaluation, sequence, generation) ||
-        wroteCache;
+      const accepted = writeCacheIfFresh(
+        clientFeatureFlagCacheKey(evaluation.flag, input.userId),
+        evaluation,
+        sequence,
+        generation,
+      );
+      if (accepted) cacheAcceptedEvaluations.push(evaluation);
+      wroteCache = accepted || wroteCache;
       emitEvaluationSafely(input.emitEvaluation, evaluation, Date.now() - startedAt);
     }
     if (wroteCache) await persistClientFeatureFlagCache(input.storage);
-    return evaluations;
+    return cacheAcceptedEvaluations;
   } catch {
-    return Promise.all(
+    const evaluations = await Promise.all(
       flags.map((flag) =>
         evaluateClientFeatureFlag({
           flag,
@@ -307,6 +313,9 @@ export async function prefetchClientFeatureFlags(
           emitEvaluation: input.emitEvaluation,
         }),
       ),
+    );
+    return evaluations.filter(
+      (evaluation) => flagCache.get(clientFeatureFlagCacheKey(evaluation.flag, input.userId)) === evaluation,
     );
   }
 }

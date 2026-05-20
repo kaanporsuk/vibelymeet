@@ -131,8 +131,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const warmFeatureFlags = useCallback((userId: string) => {
     void hydrateClientFeatureFlagsForWeb()
       .then(() => prefetchClientFeatureFlagsForUser(userId))
-      .then((evaluations) => {
-        for (const evaluation of evaluations) {
+      .then((cacheAcceptedEvaluations) => {
+        for (const evaluation of cacheAcceptedEvaluations) {
           queryClient.setQueryData(clientFeatureFlagQueryKey(evaluation.flag, userId), evaluation);
         }
       })

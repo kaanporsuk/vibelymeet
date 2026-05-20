@@ -204,6 +204,7 @@ test("platform feature flag libs persist, prefetch, emit evaluation telemetry, a
     assert.match(source, /clearPersistedClientFeatureFlagCache/);
     assert.match(source, /evaluateClientFeatureFlagForUpload/);
     assert.match(source, /failClosedUploadEvaluation/);
+    assert.match(source, /withUploadFlagTimeout\(supabase\.auth\.getSession\(\)\)/);
     assert.match(source, /withUploadFlagTimeout\(fetchClientFeatureFlag\(flag, userId, true\)\)/);
     assert.match(source, /supabase\.auth\.getSession\(\)/);
     assert.doesNotMatch(source, /supabase\.auth\.getUser\(\)/);
@@ -234,6 +235,7 @@ test("auth session lifecycle hydrates/prefetches and sign-out clears feature fla
     assert.match(source, /clientFeatureFlagQueryKey/);
     assert.match(source, /CLIENT_FEATURE_FLAG_QUERY_KEY/);
     assert.match(source, /removeQueries\(\{ queryKey: \[CLIENT_FEATURE_FLAG_QUERY_KEY\] \}\)/);
+    assert.match(source, /cacheAcceptedEvaluations/);
     assert.match(source, /setQueryData\(clientFeatureFlagQueryKey\(evaluation\.flag, userId\), evaluation\)/);
   }
   assert.match(webAuth, /hydrateClientFeatureFlagsForWeb/);
@@ -308,7 +310,7 @@ test("older prefetch responses cannot overwrite newer forced upload decisions", 
     success: true,
     flags: [evaluationRow(flag, true, "rollout")],
   });
-  assert.equal((await prefetch)[0]?.enabled, true);
+  assert.deepEqual(await prefetch, []);
   assert.equal(getRuntimeCachedClientFeatureFlag(flag, userId)?.enabled, false);
   assert.equal(getRuntimeCachedClientFeatureFlag(flag, userId)?.source, "kill_switched");
 });

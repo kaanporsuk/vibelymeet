@@ -58,6 +58,13 @@ type ReusableVibeVideoUploadAttempt = {
   upload_context?: unknown;
   attempt_count?: unknown;
 };
+type DurableReusableUploadAttemptState = {
+  attempt: ReusableVibeVideoUploadAttempt | null;
+  currentProfileVideoId: string | null;
+  durable: boolean;
+  waitedMs: number;
+  errorCode: string | null;
+};
 
 const REUSABLE_ATTEMPT_LINK_WAIT_DELAYS_MS = [150, 300, 600, 1_000] as const;
 const EXPECTED_TUS_CREDENTIAL_TTL_MS = 60 * 60 * 1000;
@@ -170,13 +177,7 @@ async function waitForDurableReusableUploadAttempt(
     initialAttempt: ReusableVibeVideoUploadAttempt;
     initialProfileVideoId: string | null;
   },
-): Promise<{
-  attempt: ReusableVibeVideoUploadAttempt | null;
-  currentProfileVideoId: string | null;
-  durable: boolean;
-  waitedMs: number;
-  errorCode: string | null;
-}> {
+): Promise<DurableReusableUploadAttemptState> {
   let attempt: ReusableVibeVideoUploadAttempt | null = params.initialAttempt;
   let currentProfileVideoId = params.initialProfileVideoId;
   let waitedMs = 0;
@@ -207,6 +208,37 @@ async function waitForDurableReusableUploadAttempt(
   }
 
   return { attempt, currentProfileVideoId, durable: false, waitedMs, errorCode: null };
+}
+
+function uploadAttemptStateRefreshFailureResponse(params: {
+  userId: string;
+  clientRequestId: string;
+  projectRef: string;
+  attempt: ReusableVibeVideoUploadAttempt;
+  state: DurableReusableUploadAttemptState;
+  status: string | null;
+}): Response {
+  logVibeVideo("error", "create_video_upload_attempt_state_refresh_failed", {
+    user_id: params.userId,
+    client_request_id: params.clientRequestId,
+    upload_attempt_id: stringValue(params.attempt.id),
+    video_guid: durableAttemptProviderObjectId(params.attempt),
+    status: params.status,
+    waited_ms: params.state.waitedMs,
+    has_media_session: !!durableAttemptSessionId(params.attempt),
+    has_media_asset: !!durableAttemptMediaAssetId(params.attempt),
+    profile_linked: durableAttemptProviderObjectId(params.attempt) === params.state.currentProfileVideoId,
+    error_code: params.state.errorCode ?? "attempt_state_refresh_failed",
+    project_ref: params.projectRef,
+  });
+  return json(
+    {
+      success: false,
+      error: "Failed to refresh upload attempt state",
+      code: "upload_attempt_state_refresh_failed",
+    },
+    500,
+  );
 }
 
 function parseClientRequestId(body: CreateVideoUploadRequestBody): {
@@ -609,6 +641,16 @@ serve(async (req) => {
         });
         reusableAttempt = reusableState.attempt ?? reusableAttempt;
         existingStatus = uploadAttemptStatus(reusableAttempt);
+        if (reusableState.errorCode) {
+          return uploadAttemptStateRefreshFailureResponse({
+            userId: user.id,
+            clientRequestId,
+            projectRef,
+            attempt: reusableAttempt,
+            state: reusableState,
+            status: existingStatus,
+          });
+        }
         if (!isReusableVibeVideoUploadAttemptStatus(existingStatus)) {
           logVibeVideo("warn", "create_video_upload_attempt_terminal_reuse_rejected", {
             user_id: user.id,
@@ -832,6 +874,16 @@ serve(async (req) => {
           });
           reusableAttempt = reusableState.attempt ?? reusableAttempt;
           duplicateStatus = uploadAttemptStatus(reusableAttempt);
+          if (reusableState.errorCode) {
+            return uploadAttemptStateRefreshFailureResponse({
+              userId: user.id,
+              clientRequestId,
+              projectRef,
+              attempt: reusableAttempt,
+              state: reusableState,
+              status: duplicateStatus,
+            });
+          }
           if (!isReusableVibeVideoUploadAttemptStatus(duplicateStatus)) {
             logVibeVideo("warn", "create_video_upload_attempt_terminal_reuse_rejected", {
               user_id: user.id,

@@ -940,6 +940,13 @@ test("media v2 Vibe Video attempts are schema-backed and dual-written by server 
   assert.match(createUpload, /create_video_upload_attempt_reused_after_duplicate/);
   assert.match(createUpload, /upload_attempt_terminal/);
   assert.match(createUpload, /upload_attempt_not_durable/);
+  assert.match(createUpload, /create_video_upload_attempt_state_refresh_failed/);
+  assert.match(createUpload, /upload_attempt_state_refresh_failed/);
+  assert.equal(
+    createUpload.match(/uploadAttemptStateRefreshFailureResponse\(\{/g)?.length,
+    2,
+    "both reusable-attempt branches must return a 5xx when durable-state refresh fails",
+  );
   assert.match(createUpload, /durable_via_profile/);
   assert.match(createUpload, /repairableLifecycleState: durableAttemptMediaAssetId\(reusableAttempt\) == null/);
   assert.match(createUpload, /provider_object_id: videoId/);
