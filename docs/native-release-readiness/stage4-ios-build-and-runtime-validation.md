@@ -65,7 +65,7 @@ open ios/mobile.xcworkspace
 
 | Item | Status |
 |------|--------|
-| **JitsiWebRTC [CP] Copy XCFrameworks** | **Fixed (Phase 7).** WebRTC.xcframework was missing the `ios-arm64` (device) slice. Podfile `post_install` now restores it from jitsi/webrtc v124.0.2 when missing. See `docs/phase7-ios-jitsi-webrtc-fix.md`. Build now gets past this step. |
+| **JitsiWebRTC [CP] Copy XCFrameworks** | **Fixed (Phase 7).** WebRTC.xcframework was missing the `ios-arm64` (device) slice. Podfile `post_install` now restores it from jitsi/webrtc v124.0.2 when missing. See `docs/native-release-readiness/ios-jitsi-webrtc-fix.md`. Build now gets past this step. |
 | **Xcode build database locked** | **Environmental.** First `expo run:ios` attempt failed with `database is locked ... two concurrent builds`. Fix: close other Xcode builds or remove `~/Library/Developer/Xcode/DerivedData/mobile-*` and retry. |
 | **Prebuild** | No blockers. `expo prebuild --platform ios` completes successfully. |
 | **Compilation** | After JitsiWebRTC fix, compilation proceeds (Hermes, React Native, Daily, OneSignal, RevenueCat, expo-image, libavif, etc.). No compile errors observed in logs. |
@@ -147,7 +147,7 @@ open ios/mobile.xcworkspace
 
 ## 8. Rebuild Delta / Docs Update Note
 
-- **iOS config/build assumptions:** No code or config changes in this Stage 4 pass beyond the existing JitsiWebRTC Podfile workaround (see `docs/phase7-ios-jitsi-webrtc-fix.md`). `app.json` has `ios.bundleIdentifier: com.vibelymeet.vibely`, `appleTeamId`, `deploymentTarget: 15.1`, and OneSignal extension. If you change bundle ID or team, run `npx expo prebuild --platform ios --clean` and re-apply the Podfile `post_install` hook if the generated Podfile does not include it.
+- **iOS config/build assumptions:** No code or config changes in this Stage 4 pass beyond the existing JitsiWebRTC Podfile workaround (see `docs/native-release-readiness/ios-jitsi-webrtc-fix.md`). `app.json` has `ios.bundleIdentifier: com.vibelymeet.vibely`, `appleTeamId`, `deploymentTarget: 15.1`, and OneSignal extension. If you change bundle ID or team, run `npx expo prebuild --platform ios --clean` and re-apply the Podfile `post_install` hook if the generated Podfile does not include it.
 - **Docs:** This file updated with evidence from this run, runtime checklist, remaining blockers, Stage 4 completion status, and Podfile workaround note.
 
 ---

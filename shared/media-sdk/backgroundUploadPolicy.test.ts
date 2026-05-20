@@ -221,6 +221,18 @@ test("Phase 7 decision documents the no-go call, platform risks, and future meas
   assert.match(canonicalPlan, /media-background-upload-phase7-decision\.md/);
 });
 
+test("native release readiness notes do not collide with the media Phase 7 namespace", () => {
+  const legacyTopLevelPhase7Docs = readdirSync("docs")
+    .filter((name) => /^phase7-/i.test(name))
+    .sort();
+  assert.deepEqual(legacyTopLevelPhase7Docs, []);
+
+  const nativeReadinessIndex = read("docs/native-release-readiness/README.md");
+  assert.match(nativeReadinessIndex, /native app release readiness/i);
+  assert.match(nativeReadinessIndex, /separated from the v9 media Phase 7 background-upload decision/i);
+  assert.match(nativeReadinessIndex, /docs\/media-background-upload-phase7-decision\.md/);
+});
+
 test("Phase 7 policy test is wired directly into CI", () => {
   const packageJson = readJson("package.json");
   const scripts = packageJson.scripts as Record<string, string>;

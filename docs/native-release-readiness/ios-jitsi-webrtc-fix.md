@@ -1,4 +1,6 @@
-# Phase 7 — iOS JitsiWebRTC Build Blocker Fix
+# Native Release Readiness — iOS JitsiWebRTC Build Blocker Fix
+
+This note belongs to the native release-readiness track, not the v9 media Phase 7 background-upload no-go decision. The media decision remains at `docs/media-background-upload-phase7-decision.md`.
 
 ## 1. Exact root cause
 
