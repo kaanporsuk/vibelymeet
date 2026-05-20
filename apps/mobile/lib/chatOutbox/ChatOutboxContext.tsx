@@ -408,10 +408,10 @@ export function ChatOutboxProvider({ children }: { children: React.ReactNode }) 
           checked_count: recoverableRows.length,
           latency_ms: Date.now() - startedAtMs,
         });
-        return;
+      } else {
+        const failedRows = Array.isArray(failedResult.data) ? failedResult.data : [];
+        rows = [...recoverableRows, ...failedRows];
       }
-      const failedRows = Array.isArray(failedResult.data) ? failedResult.data : [];
-      rows = [...recoverableRows, ...failedRows];
     }
     const stillStuck: VibeClipServerUpload[] = [];
     let selfHealedCount = 0;
