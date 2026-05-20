@@ -214,6 +214,7 @@ test("platform feature flag libs persist, prefetch, emit evaluation telemetry, a
     assert.match(source, /clearPersistedClientFeatureFlagCache/);
     assert.match(source, /evaluateClientFeatureFlagForUpload/);
     assert.match(source, /failClosedUploadEvaluation/);
+    assert.match(source, /Object\.prototype\.hasOwnProperty\.call\(options, ['"]userId['"]\)/);
     assert.match(source, /withUploadFlagTimeout\(supabase\.auth\.getSession\(\)\)/);
     assert.match(source, /withUploadFlagTimeout\(fetchClientFeatureFlag\(flag, userId, true\)\)/);
     assert.match(source, /supabase\.auth\.getSession\(\)/);

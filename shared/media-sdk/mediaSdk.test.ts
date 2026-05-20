@@ -2102,12 +2102,16 @@ test("production reconcilers cover storage receipt families and foreground resum
   const webStorage = readRepoFile("src/lib/mediaSdk/webStorageUploads.ts");
   const nativeStorage = readRepoFile("apps/mobile/lib/mediaSdk/nativeStorageUploads.ts");
   assert.match(webStorage, /scopeKey: context === "chat" \? `match:\$\{matchId\}` : `profile:\$\{uploadUserId\}:\$\{context\}`/);
-  assert.match(webStorage, /const canUseMediaSdk = evaluation\.enabled && \(context === "chat" \? !!matchId : !!uploadUserId\)/);
+  assert.match(webStorage, /const canUseMediaSdk = evaluation\.enabled && !!uploadUserId && \(context === "chat" \? !!matchId : true\)/);
+  assert.match(webStorage, /const canUseMediaSdk = evaluation\.enabled && !!uploadUserId && !!matchId/);
   assert.match(webStorage, /const path = canUseMediaSdk \? "media_sdk" : "legacy"/);
   assert.match(webStorage, /if \(!canUseMediaSdk\)/);
   assert.match(nativeStorage, /scopeKey: `profile:\$\{uploadUserId\}:\$\{params\.context \?\? 'profile_studio'\}`/);
   assert.match(nativeStorage, /const canUseMediaSdk = evaluation\.enabled && !!uploadUserId/);
-  assert.match(nativeStorage, /const canUseMediaSdk = evaluation\.enabled && !!matchId/);
+  assert.equal(
+    nativeStorage.match(/const canUseMediaSdk = evaluation\.enabled && !!uploadUserId && !!matchId/g)?.length,
+    2,
+  );
   assert.match(nativeStorage, /const path = canUseMediaSdk \? 'media_sdk' : 'legacy'/);
   assert.match(nativeStorage, /if \(!canUseMediaSdk\)/);
 

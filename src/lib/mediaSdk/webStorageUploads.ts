@@ -231,7 +231,7 @@ export async function uploadImageWithMediaSdk(
   } catch {
     evaluation = failClosedUploadEvaluation("media_v2_photo");
   }
-  const canUseMediaSdk = evaluation.enabled && (context === "chat" ? !!matchId : !!uploadUserId);
+  const canUseMediaSdk = evaluation.enabled && !!uploadUserId && (context === "chat" ? !!matchId : true);
   const path = canUseMediaSdk ? "media_sdk" : "legacy";
   trackMediaUploadStarted({
     flag: "media_v2_photo",
@@ -296,7 +296,7 @@ export async function uploadVoiceWithMediaSdk(params: WebVoiceSdkUploadParams): 
   } catch {
     evaluation = failClosedUploadEvaluation("media_v2_voice");
   }
-  const canUseMediaSdk = evaluation.enabled && !!matchId;
+  const canUseMediaSdk = evaluation.enabled && !!uploadUserId && !!matchId;
   const path = canUseMediaSdk ? "media_sdk" : "legacy";
   trackMediaUploadStarted({
     flag: "media_v2_voice",

@@ -334,7 +334,7 @@ export async function uploadChatImageWithMediaSdk(params: NativeChatImageSdkUplo
   } catch {
     evaluation = failClosedUploadEvaluation('media_v2_photo');
   }
-  const canUseMediaSdk = evaluation.enabled && !!matchId;
+  const canUseMediaSdk = evaluation.enabled && !!uploadUserId && !!matchId;
   const path = canUseMediaSdk ? 'media_sdk' : 'legacy';
   trackMediaUploadStarted({
     flag: 'media_v2_photo',
@@ -396,7 +396,7 @@ export async function uploadVoiceWithMediaSdk(params: NativeVoiceSdkUploadParams
   } catch {
     evaluation = failClosedUploadEvaluation('media_v2_voice');
   }
-  const canUseMediaSdk = evaluation.enabled && !!matchId;
+  const canUseMediaSdk = evaluation.enabled && !!uploadUserId && !!matchId;
   const path = canUseMediaSdk ? 'media_sdk' : 'legacy';
   trackMediaUploadStarted({
     flag: 'media_v2_voice',
