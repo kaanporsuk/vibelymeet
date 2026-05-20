@@ -27,6 +27,7 @@ Live native env:
   VIBELY_CVC_NATIVE_SMOKE=1
   VIBELY_CVC_NATIVE_CHAT_DEEPLINK=vibely://chat/<matched-profile-id>
   VIBELY_CVC_NATIVE_SCENARIO_ID=<scenario-id> # optional; --native runs all scenarios when unset
+  VIBELY_CVC_NATIVE_SCENARIO_DEEPLINK=vibely://chat/<matched-profile-id>?smokeScenario=<scenario-id> # runner-set
   EXPO_PUBLIC_VIBELY_CVC_NATIVE_FIXTURE_UPLOAD=1
   EXPO_PUBLIC_VIBELY_CVC_NATIVE_FIXTURE_URL=https://<staging-host>/fixtures/chat-vibe-clip.mp4
   VIBELY_CVC_NATIVE_FIXTURE_UPLOAD=1      # accepted by this runner; app builds should use EXPO_PUBLIC_*
@@ -59,6 +60,15 @@ is_known_chat_vibe_clip_scenario() {
     [[ "$scenario" == "$candidate" ]] && return 0
   done
   return 1
+}
+
+native_scenario_deeplink() {
+  local scenario="$1"
+  local separator="?"
+  if [[ "$VIBELY_CVC_NATIVE_CHAT_DEEPLINK" == *\?* ]]; then
+    separator="&"
+  fi
+  printf '%s%ssmokeScenario=%s' "$VIBELY_CVC_NATIVE_CHAT_DEEPLINK" "$separator" "$scenario"
 }
 
 MODE="dry-run"
@@ -156,6 +166,8 @@ run_native() {
     echo "==> native Chat Vibe Clip scenario: ${native_scenario}"
     (
       export VIBELY_CVC_NATIVE_SCENARIO_ID="${native_scenario}"
+      export VIBELY_CVC_NATIVE_SCENARIO_DEEPLINK
+      VIBELY_CVC_NATIVE_SCENARIO_DEEPLINK="$(native_scenario_deeplink "${native_scenario}")"
       cd apps/mobile
       maestro test maestro/chat-vibe-clip-smoke.yaml
     )

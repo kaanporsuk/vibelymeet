@@ -93,6 +93,7 @@ const HYDRATION_TIMEOUT_MS = 90_000;
 const HYDRATION_RECOVERY_BACKOFF_MS = 5_000;
 const INTERRUPTED_SENDING_RECOVERY_MS = 2 * 60 * 1000;
 const STALE_VIBE_CLIP_UPLOAD_AGE_MS = 60_000;
+const VIBE_CLIP_RECOVERY_SWEEP_LIMIT = 20;
 
 function itemPayloadUri(item: ChatOutboxItem): string | null {
   if (item.payload.kind === 'text') return null;
@@ -363,24 +364,27 @@ export function ChatOutboxProvider({ children }: { children: React.ReactNode }) 
     if (!userId) return;
     const startedAtMs = Date.now();
     const staleBefore = new Date(Date.now() - STALE_VIBE_CLIP_UPLOAD_AGE_MS).toISOString();
-    let query = (supabase as unknown as {
-      from: (table: 'chat_vibe_clip_uploads') => {
-        select: (columns: string) => ChatVibeClipUploadSweepQuery;
-      };
-    })
-      .from('chat_vibe_clip_uploads')
-      .select(
-        'id, match_id, client_request_id, status, provider_object_id, expires_at, updated_at, published_message_id, duration_ms, aspect_ratio, source_bytes, mime_type',
-      );
-    query = query
-      .eq('sender_id', userId)
-      .in('status', ['uploading', 'processing', 'failed'])
-      .is('published_message_id', null)
-      .lt('updated_at', staleBefore);
-    if (matchId) query = query.eq('match_id', matchId);
+    const selectStaleUploadRows = async (statuses: VibeClipUploadStatus[], limit: number) => {
+      if (limit <= 0) return { data: [] as ChatVibeClipUploadSweepRow[], error: null };
+      let query = (supabase as unknown as {
+        from: (table: 'chat_vibe_clip_uploads') => {
+          select: (columns: string) => ChatVibeClipUploadSweepQuery;
+        };
+      })
+        .from('chat_vibe_clip_uploads')
+        .select(
+          'id, match_id, client_request_id, status, provider_object_id, expires_at, updated_at, published_message_id, duration_ms, aspect_ratio, source_bytes, mime_type',
+        )
+        .eq('sender_id', userId)
+        .in('status', statuses)
+        .is('published_message_id', null)
+        .lt('updated_at', staleBefore);
+      if (matchId) query = query.eq('match_id', matchId);
+      return query.order('updated_at', { ascending: true }).limit(limit);
+    };
 
-    const { data, error } = await query.order('updated_at', { ascending: true }).limit(20);
-    if (error) {
+    const recoverableResult = await selectStaleUploadRows(['uploading', 'processing'], VIBE_CLIP_RECOVERY_SWEEP_LIMIT);
+    if (recoverableResult.error) {
       trackVibeClipEvent('clip_recovery_status', {
         trigger,
         outcome: 'query_failed',
@@ -390,7 +394,25 @@ export function ChatOutboxProvider({ children }: { children: React.ReactNode }) 
       return;
     }
 
-    const rows = Array.isArray(data) ? data : [];
+    const recoverableRows = Array.isArray(recoverableResult.data) ? recoverableResult.data : [];
+    let rows = recoverableRows;
+    if (recoverableRows.length < VIBE_CLIP_RECOVERY_SWEEP_LIMIT) {
+      const failedResult = await selectStaleUploadRows(
+        ['failed'],
+        VIBE_CLIP_RECOVERY_SWEEP_LIMIT - recoverableRows.length,
+      );
+      if (failedResult.error) {
+        trackVibeClipEvent('clip_recovery_status', {
+          trigger,
+          outcome: 'query_failed',
+          checked_count: recoverableRows.length,
+          latency_ms: Date.now() - startedAtMs,
+        });
+        return;
+      }
+      const failedRows = Array.isArray(failedResult.data) ? failedResult.data : [];
+      rows = [...recoverableRows, ...failedRows];
+    }
     const stillStuck: VibeClipServerUpload[] = [];
     let selfHealedCount = 0;
     let providerUnreachableCount = 0;

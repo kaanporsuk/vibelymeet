@@ -208,6 +208,7 @@ test("Phase 8 media privacy contracts are wired directly into CI", () => {
   const workflow = read(".github/workflows/phase-8-media-privacy-policy.yml");
   assert.match(workflow, /npm run test:media-phase8/);
   assert.match(workflow, /shared\/mediaPhase8Contracts\.test\.ts/);
+  assert.match(workflow, /supabase\/functions\/send-message\/\*\*/);
   assert.match(workflow, /supabase\/functions\/get-chat-media-url\/\*\*/);
   assert.match(workflow, /supabase\/migrations\/\*\*/);
   assert.match(workflow, /supabase\/validation\/media_phase8_profile_vibe_signing\.sql/);

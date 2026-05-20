@@ -11,6 +11,7 @@
 #   VIBELY_CVC_NATIVE_SMOKE=1
 #   VIBELY_CVC_NATIVE_CHAT_DEEPLINK=vibely://chat/<matched-profile-id>
 #   VIBELY_CVC_NATIVE_SCENARIO_ID=<scenario-id>
+#   VIBELY_CVC_NATIVE_SCENARIO_DEEPLINK=vibely://chat/<matched-profile-id>?smokeScenario=<scenario-id>
 #   EXPO_PUBLIC_VIBELY_CVC_NATIVE_FIXTURE_UPLOAD=1
 #   EXPO_PUBLIC_VIBELY_CVC_NATIVE_FIXTURE_URL=https://<staging-host>/fixtures/chat-vibe-clip.mp4
 #
@@ -21,28 +22,66 @@
 # a single native happy-path run.
 appId: com.vibelymeet.vibely
 ---
-- openLink: ${VIBELY_CVC_NATIVE_CHAT_DEEPLINK}
+- assertTrue: ${["happy-path", "4g-throttle", "kill-mid-tus", "webhook-delayed", "signed-url-mid-expiry", "app-launch-stuck-processing-nudge"].includes(VIBELY_CVC_NATIVE_SCENARIO_ID)}
+- openLink: ${VIBELY_CVC_NATIVE_SCENARIO_DEEPLINK}
 - extendedWaitUntil:
     id: "chat-attachment-toggle"
     timeout: 30000
-- tapOn:
-    id: "chat-attachment-toggle"
-- extendedWaitUntil:
-    id: "chat-attachment-tray"
-    timeout: 10000
-- tapOn:
-    id: "chat-add-vibe-clip"
-- extendedWaitUntil:
-    id: "vibe-clip-send-options"
-    timeout: 10000
-- assertVisible:
-    id: "vibe-clip-record-option"
-- assertVisible:
-    id: "vibe-clip-library-option"
-- assertVisible:
-    id: "vibe-clip-debug-fixture-option"
-- tapOn:
-    id: "vibe-clip-debug-fixture-option"
-- extendedWaitUntil:
-    id: "vibe-clip-bubble"
-    timeout: 120000
+- runFlow:
+    when:
+      true: ${VIBELY_CVC_NATIVE_SCENARIO_ID == "app-launch-stuck-processing-nudge"}
+    commands:
+      - extendedWaitUntil:
+          id: "vibe-clip-recovery-panel"
+          timeout: 5000
+- runFlow:
+    when:
+      true: ${VIBELY_CVC_NATIVE_SCENARIO_ID != "app-launch-stuck-processing-nudge"}
+    commands:
+      - tapOn:
+          id: "chat-attachment-toggle"
+      - extendedWaitUntil:
+          id: "chat-attachment-tray"
+          timeout: 10000
+      - tapOn:
+          id: "chat-add-vibe-clip"
+      - extendedWaitUntil:
+          id: "vibe-clip-send-options"
+          timeout: 10000
+      - assertVisible:
+          id: "vibe-clip-record-option"
+      - assertVisible:
+          id: "vibe-clip-library-option"
+      - assertVisible:
+          id: "vibe-clip-debug-fixture-option"
+      - runFlow:
+          when:
+            true: ${VIBELY_CVC_NATIVE_SCENARIO_ID == "4g-throttle"}
+          commands:
+            - evalScript: ${output.chatVibeClipNetworkProfile = "4g-throttle"}
+      - tapOn:
+          id: "vibe-clip-debug-fixture-option"
+      - runFlow:
+          when:
+            true: ${VIBELY_CVC_NATIVE_SCENARIO_ID == "kill-mid-tus"}
+          commands:
+            - stopApp
+            - openLink: ${VIBELY_CVC_NATIVE_SCENARIO_DEEPLINK}
+            - extendedWaitUntil:
+                id: "chat-attachment-toggle"
+                timeout: 30000
+      - extendedWaitUntil:
+          id: "vibe-clip-bubble"
+          timeout: 120000
+      - runFlow:
+          when:
+            true: ${VIBELY_CVC_NATIVE_SCENARIO_ID == "signed-url-mid-expiry"}
+          commands:
+            - tapOn: "Play clip"
+      - runFlow:
+          when:
+            true: ${VIBELY_CVC_NATIVE_SCENARIO_ID == "webhook-delayed"}
+          commands:
+            - extendedWaitUntil:
+                id: "vibe-clip-bubble"
+                timeout: 120000
