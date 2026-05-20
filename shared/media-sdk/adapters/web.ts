@@ -405,6 +405,8 @@ async function resumeRecoverableWebUploads(
       await failMissingWebRehydrateSource(options, record);
       continue;
     }
+    const input = inputFromWebQueueRecord(record);
+    if (!delegateForInput(input, options.delegates)) continue;
     const task = rehydrateWebUploadTask(record, options);
     activeTaskIds.add(record.id);
     task.on("state", (snapshot) => {

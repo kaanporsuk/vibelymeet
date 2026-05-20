@@ -628,6 +628,8 @@ async function resumeRecoverableNativeUploads(
       await failMissingNativeRehydrateSource(options, record);
       continue;
     }
+    const input = inputFromNativeQueueRecord(record);
+    if (!delegateForInput(input, options.delegates)) continue;
     const task = rehydrateNativeUploadTask(record, options);
     activeTaskIds.add(record.id);
     task.on("state", (snapshot) => {

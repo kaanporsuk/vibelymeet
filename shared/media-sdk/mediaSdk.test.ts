@@ -1332,6 +1332,105 @@ test("SDK reconcile rehydrates recoverable queue records and resumes them once",
   assert.equal(delegateCalls, 1);
 });
 
+test("web reconcile leaves cross-family queue records for the owning SDK delegate", async () => {
+  const queue = new MemoryMediaUploadQueue();
+  const snapshot = transitionMediaUploadState(createInitialMediaUploadSnapshot({
+    id: "web-cross-family-photo",
+    clientRequestId: "11111111-1111-4111-8111-111111111121",
+    family: "chat_photo",
+    platform: "web",
+    nowMs: 1,
+  }), { type: "begin_upload", atMs: 2 });
+  await queue.put({
+    id: snapshot.id,
+    clientRequestId: snapshot.clientRequestId,
+    family: snapshot.family,
+    state: snapshot.state,
+    sourceRef: "chat-photo.jpg:image/jpeg:5",
+    scopeKey: "match:match-web-cross-family",
+    createdAtMs: snapshot.createdAtMs,
+    updatedAtMs: snapshot.updatedAtMs,
+    snapshot,
+    metadata: {
+      source_blob: new Blob(["photo"], { type: "image/jpeg" }),
+      mime_type: "image/jpeg",
+    },
+  });
+
+  let videoDelegateCalls = 0;
+  const sdk = createWebMediaSdk({
+    queue,
+    delegates: {
+      video: {
+        uploadVibeVideo: () => {
+          videoDelegateCalls += 1;
+          throw new Error("wrong_delegate");
+        },
+      },
+    },
+  });
+
+  const result = await sdk.reconcile({ reason: "test_cross_family_skip" });
+  await flushMediaTask();
+
+  const retained = await queue.list();
+  assert.equal(result.checked, 1);
+  assert.equal(result.retained, 1);
+  assert.equal(videoDelegateCalls, 0);
+  assert.equal(retained[0]?.state, "uploading");
+  assert.equal(retained[0]?.snapshot.error, null);
+});
+
+test("native reconcile leaves cross-family queue records for the owning SDK delegate", async () => {
+  const queue = new MemoryMediaUploadQueue();
+  const snapshot = transitionMediaUploadState(createInitialMediaUploadSnapshot({
+    id: "native-cross-family-voice",
+    clientRequestId: "11111111-1111-4111-8111-111111111122",
+    family: "voice_note",
+    platform: "ios",
+    nowMs: 1,
+  }), { type: "begin_upload", atMs: 2 });
+  await queue.put({
+    id: snapshot.id,
+    clientRequestId: snapshot.clientRequestId,
+    family: snapshot.family,
+    state: snapshot.state,
+    sourceRef: "file:///tmp/voice.m4a",
+    scopeKey: "match:match-native-cross-family",
+    createdAtMs: snapshot.createdAtMs,
+    updatedAtMs: snapshot.updatedAtMs,
+    snapshot,
+    metadata: {
+      source_uri: "file:///tmp/voice.m4a",
+      mime_type: "audio/m4a",
+    },
+  });
+
+  let videoDelegateCalls = 0;
+  const sdk = createNativeMediaSdk({
+    queue,
+    delegates: {
+      video: {
+        uploadVibeVideo: () => {
+          videoDelegateCalls += 1;
+          throw new Error("wrong_delegate");
+        },
+      },
+    },
+    platform: "ios",
+  });
+
+  const result = await sdk.reconcile({ reason: "test_cross_family_skip" });
+  await flushMediaTask();
+
+  const retained = await queue.list();
+  assert.equal(result.checked, 1);
+  assert.equal(result.retained, 1);
+  assert.equal(videoDelegateCalls, 0);
+  assert.equal(retained[0]?.state, "uploading");
+  assert.equal(retained[0]?.snapshot.error, null);
+});
+
 test("web storage rehydration restores non-secret delegate context from queue metadata", async () => {
   const queue = new MemoryMediaUploadQueue();
   const snapshot = transitionMediaUploadState(createInitialMediaUploadSnapshot({
