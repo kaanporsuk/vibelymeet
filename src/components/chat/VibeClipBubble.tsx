@@ -154,6 +154,7 @@ export const VibeClipBubble = ({
     sourceRef: videoSourceRef,
     initialUrl: meta.videoUrl,
     autoResolve: false,
+    processingStatus: syncedProcessingStatus ?? meta.processingStatus,
     onResolvedUrl: onResolvedVideoUrl,
     onProcessingStatusChange: handleRealtimeProcessingStatus,
   });

@@ -144,7 +144,8 @@ export async function evaluateClientFeatureFlagForUpload(
   options: { userId?: string | null } = {},
 ): Promise<ClientFeatureFlagEvaluation> {
   try {
-    const userId = options.userId ?? (await supabase.auth.getSession()).data.session?.user?.id ?? null;
+    const userId =
+      options.userId ?? (await withUploadFlagTimeout(supabase.auth.getSession())).data.session?.user?.id ?? null;
     if (!userId) return failClosedUploadEvaluation(flag);
     return await withUploadFlagTimeout(fetchClientFeatureFlag(flag, userId, true));
   } catch {

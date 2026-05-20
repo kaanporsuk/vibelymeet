@@ -229,5 +229,8 @@ test("Phase 7 policy test is wired directly into CI", () => {
   const workflow = read(".github/workflows/phase-7-media-background-policy.yml");
   assert.match(workflow, /npm run test:media-background-upload/);
   assert.match(workflow, /shared\/media-sdk\/backgroundUploadPolicy\.test\.ts/);
+  assert.match(workflow, /apps\/mobile\/\*\*/);
+  assert.match(workflow, /src\/\*\*/);
+  assert.match(workflow, /shared\/media-sdk\/\*\*/);
   assert.doesNotMatch(workflow, /continue-on-error:\s*true/);
 });

@@ -152,10 +152,12 @@ test("Phase 6 display path uses realtime, QoE, reduce-motion, and bounded media 
   assert.match(webHook, /postgres_changes/);
   assert.match(webHook, /table: "messages"/);
   assert.match(webHook, /onProcessingStatusChange/);
+  assert.match(webHook, /isActiveProcessingStatus\(processingStatus\)/);
   assert.match(webHook, /bypassFailureCooldown: true/);
   assert.match(nativeHook, /postgres_changes/);
   assert.match(nativeHook, /table: 'messages'/);
   assert.match(nativeHook, /onProcessingStatusChange/);
+  assert.match(nativeHook, /isActiveProcessingStatus\(processingStatus\)/);
   assert.match(nativeHook, /bypassFailureCooldown: true/);
 
   assert.match(webVibeClip, /CHAT_VIBE_CLIP_STATUS_SYNC_SAFETY_NET_INTERVAL_MS = 30_000/);
@@ -164,6 +166,8 @@ test("Phase 6 display path uses realtime, QoE, reduce-motion, and bounded media 
   assert.doesNotMatch(nativeVibeClip, /CHAT_VIBE_CLIP_STATUS_SYNC_FAST_INTERVAL_MS/);
   assert.equal(webVibeClip.match(/onProcessingStatusChange: handleRealtimeProcessingStatus/g)?.length, 1);
   assert.equal(nativeVibeClip.match(/onProcessingStatusChange: handleRealtimeProcessingStatus/g)?.length, 1);
+  assert.match(webVibeClip, /processingStatus: syncedProcessingStatus \?\? meta\.processingStatus/);
+  assert.match(nativeVibeClip, /processingStatus: syncedProcessingStatus \?\? meta\.processingStatus/);
   assert.match(webVibeClip, /readyRefreshKeyRef/);
   assert.match(nativeVibeClip, /readyRefreshKeyRef/);
 

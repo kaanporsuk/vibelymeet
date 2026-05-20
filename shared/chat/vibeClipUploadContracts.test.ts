@@ -577,6 +577,10 @@ test("native upload and cache keep mobile video formats intact", () => {
   assert.doesNotMatch(nativeStreamUpload, /extensionFromUri\(stable\.uri\) \|\| 'mp4'/);
   assert.match(nativeStreamUpload, /created\.status === 'failed'/);
   assert.match(nativeStreamUpload, /!created\.status \|\| created\.status === 'uploading'/);
+  assert.match(
+    nativeStreamUpload,
+    /isStaleTusCredentialError[\s\S]+captions: params\.captions[\s\S]+refreshed\.videoId/,
+  );
   assert.match(nativeStreamUpload, /if \(!mimeType\) throw new Error\(VIBE_CLIP_UPLOAD_INVALID_TYPE\)/);
   assert.match(nativeStreamUpload, /return null/);
   assert.match(nativeStreamUpload, /create-chat-vibe-clip-upload/);
