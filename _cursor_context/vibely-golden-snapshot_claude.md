@@ -49,7 +49,7 @@
 | Backend | Supabase (PostgreSQL + Edge Functions + Auth + Realtime) | JS client 2.88.0 |
 | Live Video | Daily.co (@daily-co/daily-js) | Latest |
 | VOD Video | Bunny Stream (HLS playback via hls.js) | — |
-| Images | Bunny Storage + CDN + Optimizer | — |
+| Images | Bunny Storage + CDN; Optimizer currently off/not required | — |
 | SMS | Twilio (via Supabase Auth + Edge Function) | — |
 | Email | Resend (via Edge Function) | — |
 | Payments | Stripe (Checkout + Webhooks) | — |
@@ -754,7 +754,7 @@ id (uuid PK), user_id, email_key, sent_at
 - **Upload:** `persistPhotos` in `storageService.ts` → Supabase Storage `profile-photos` bucket
 - **Storage path:** `{userId}/{timestamp}.jpg`
 - **Display:** `resolvePhotoUrl` in `photoUtils.ts` — handles Supabase public URLs, signed URLs, various formats
-- **Target state (Bunny):** `upload-image` Edge Function → Bunny Storage. `getImageUrl()` helper → Bunny CDN + Optimizer
+- **Target state (Bunny):** `upload-image` Edge Function → Bunny Storage. `getImageUrl()` helper → Bunny CDN. Optimizer is currently off/not required.
 
 ### Vibe Videos (PARTIALLY MIGRATED TO BUNNY)
 - **Record:** `VibeStudioModal` component. Browser MediaRecorder API. Codec priority: Safari→MP4, Chrome→WebM
@@ -1032,7 +1032,7 @@ vibelymeet/
 - **Stripe:** Create account, set up products/prices, configure webhook to point at `stripe-webhook` Edge Function URL, set keys in Supabase secrets
 - **Twilio:** Create account, set up Verify service, set credentials in Supabase secrets
 - **Resend:** Create account, verify sending domain, set API key in Supabase secrets
-- **Bunny.net:** Create account, create Stream library, create Storage zone + Pull Zone + Optimizer, set credentials in Supabase secrets and `.env`
+- **Bunny.net:** Create account, create Stream library, create Storage zone + Pull Zone, set credentials in Supabase secrets and `.env`. Optimizer is currently off/not required.
 - **OneSignal:** Create account and app, set credentials in Supabase secrets and `.env`
 - **PostHog:** Create project, set key/host in `.env`
 - **Sentry:** Create project, set DSN in `.env`

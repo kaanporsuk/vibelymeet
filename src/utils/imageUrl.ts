@@ -14,6 +14,7 @@ const PLACEHOLDER =
   "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200' viewBox='0 0 200 200'%3E%3Crect width='200' height='200' fill='%231F1F2E'/%3E%3Ccircle cx='100' cy='80' r='35' fill='%234B4B6B'/%3E%3Cellipse cx='100' cy='160' rx='55' ry='40' fill='%234B4B6B'/%3E%3C/svg%3E";
 
 interface ImageUrlOptions {
+  /** Reserved for callers that describe intended display size. Bunny Optimizer is off, so CDN URLs stay untransformed. */
   width?: number;
   height?: number;
   quality?: number;
@@ -71,13 +72,9 @@ export function getImageUrl(
   // until that source of truth is fully verified.
   if (CONFIRMED_BUNNY_STORAGE_PREFIXES.some((prefix) => p.startsWith(prefix))) {
     if (!BUNNY_CDN) return PLACEHOLDER;
-    const params = new URLSearchParams();
-    if (opts?.width) params.set("width", String(opts.width));
-    if (opts?.height) params.set("height", String(opts.height));
-    if (opts?.crop) params.set("crop_gravity", opts.crop);
-    params.set("quality", String(opts?.quality ?? 85));
+    void opts;
     const pathPart = BUNNY_CDN_PATH_PREFIX ? `${BUNNY_CDN_PATH_PREFIX}/${p}` : p;
-    return `${BUNNY_CDN}/${pathPart}?${params.toString()}`;
+    return `${BUNNY_CDN}/${pathPart}`;
   }
 
   // Legacy Supabase storage path (relative path, no domain)

@@ -3,6 +3,8 @@
 Branch: `feat/native-runtime-stabilization`  
 Focus: physical iPhone runtime correctness, photo loading, media/video classification, branding/rebuild clarity. No Expo cloud builds.
 
+2026-05-21 update: Bunny Optimizer is intentionally **OFF**. Web and native image helpers resolve Bunny Storage paths to plain CDN URLs without Dynamic Images query params.
+
 ---
 
 ## 1. Photo loading — actual failing point and root cause
@@ -16,7 +18,7 @@ Native image non-loading is caused by **one or both** of:
    **Check:** In Metro logs (or a one-off __DEV__ log), confirm whether the hostname is set. A single-run warning was added: when `BUNNY_CDN` is empty in __DEV__, the app logs once: *"EXPO_PUBLIC_BUNNY_CDN_HOSTNAME is unset; … Set it in apps/mobile/.env and restart Metro."*
 
 2. **Wrong URL layer**  
-   If the hostname *is* set and URLs look like `https://cdn.vibelymeet.com/photos/…?width=200&height=200&quality=85`, then failure is below the app: **Bunny CDN** (pull zone, CORS, or image-resize), **network/ATS** on device, or **React Native `Image`** (e.g. redirect/cache). Next step is to log one resolved URL on device and open it in Safari; if it loads in Safari but not in-app, the issue is RN Image or cache.
+   If the hostname *is* set and URLs look like `https://cdn.vibelymeet.com/photos/…`, then failure is below the app: **Bunny CDN** (pull zone, CORS, path prefix/origin mapping), **network/ATS** on device, or **React Native `Image`** (e.g. redirect/cache). Next step is to log one resolved URL on device and open it in Safari; if it loads in Safari but not in-app, the issue is RN Image or cache.
 
 **Exact failing layer (if still broken after this pass):**
 
@@ -33,7 +35,7 @@ Native image non-loading is caused by **one or both** of:
 - `[Vibely photo URL] profile_photo: https://…`
 - `[Vibely photo URL] event_image: https://…`
 
-**Path-building vs web:** Mobile `getImageUrl` matches web: for `photos/` paths we build `https://${BUNNY_CDN_HOSTNAME}/${path}?width=…&height=…&quality=85` (and `crop_gravity=center` for avatars). Stored path shape from upload is `photos/{userId}/{timestamp}.{ext}` — no prefix. So URL construction is correct unless the CDN hostname or path prefix differs on your Bunny pull zone.
+**Path-building vs web:** Mobile `getImageUrl` matches web: for `photos/` paths we build `https://${BUNNY_CDN_HOSTNAME}/${path}` or `https://${BUNNY_CDN_HOSTNAME}/${optionalPrefix}/${path}`. Bunny Optimizer is off, so no `width`, `height`, `quality`, or `crop_gravity` query params are expected. Stored path shape from upload is `photos/{userId}/req-{token32}.{ext}` — no prefix. So URL construction is correct unless the CDN hostname or path prefix differs on your Bunny pull zone.
 
 **How to identify the exact failing layer:**
 
@@ -42,7 +44,7 @@ Native image non-loading is caused by **one or both** of:
 3. **If you see the placeholder URL** (`placehold.co`) in the logs → **URL construction / env**: BUNNY_CDN was empty at bundle time; fix env + restart Metro.
 4. **If you see `https://your-cdn…/photos/…`** → Open that **exact** URL in **Safari on the same iPhone**.  
    - **Safari loads the image** → Failing layer is **React Native `Image`** (e.g. cache, redirect, or HTTPS handling). Next step: try `expo-image` for those surfaces or clear RN image cache.  
-   - **Safari does not load** (404, 403, or error) → Failing layer is **CDN or path** (wrong hostname, pull zone path prefix, or Bunny image-resize/redirect). Fix hostname/path in env or CDN config.
+   - **Safari does not load** (404, 403, or error) → Failing layer is **CDN or path** (wrong hostname, pull zone path prefix, origin mapping, or CDN access rule). Fix hostname/path in env or CDN config.
 
 No code fix is applied for CDN vs RN until the layer is confirmed via this Safari check.
 
@@ -70,7 +72,7 @@ No code fix is applied for CDN vs RN until the layer is confirmed via this Safar
 
 **Exact fix applied:**
 
-- **Optional CDN path prefix:** `EXPO_PUBLIC_BUNNY_CDN_PATH_PREFIX` (mobile) and `VITE_BUNNY_CDN_PATH_PREFIX` (web). If set, Bunny URLs become `https://{host}/{prefix}/{path}?params`. Use when your pull zone or custom domain requires a path prefix (e.g. storage zone name). Same logic on web and mobile.
+- **Optional CDN path prefix:** `EXPO_PUBLIC_BUNNY_CDN_PATH_PREFIX` (mobile) and `VITE_BUNNY_CDN_PATH_PREFIX` (web). If set, Bunny URLs become `https://{host}/{prefix}/{path}`. Use when your pull zone or custom domain requires a path prefix (e.g. storage zone name). Same logic on web and mobile.
 - **.env.example:** Optional `EXPO_PUBLIC_BUNNY_CDN_PATH_PREFIX` documented.
 - **No change** to avatar/Supabase resolution—that’s correct for legacy paths.
 
@@ -82,7 +84,7 @@ No code fix is applied for CDN vs RN until the layer is confirmed via this Safar
 
 **Observed:** Bunny CDN now returns **404 Not Found** (no longer 403). So the request reaches the pull zone but the resource is not found at the requested path.
 
-**Path contract in app:** Upload Edge Function writes to Bunny Storage at `photos/{userId}/{timestamp}.{ext}` (relative to storage zone root). The app builds URLs as `https://{host}/{path}?params` or `https://{host}/{prefix}/{path}?params`. Path in DB is exactly `photos/...` — no storage zone name in the path.
+**Path contract in app:** Upload Edge Function writes to Bunny Storage at `photos/{userId}/req-{token32}.{ext}` (relative to storage zone root). The app builds URLs as `https://{host}/{path}` or `https://{host}/{prefix}/{path}`. Path in DB is exactly `photos/...` — no storage zone name in the path.
 
 **404 root cause (one of):**
 
@@ -110,7 +112,7 @@ No code fix is applied for CDN vs RN until the layer is confirmed via this Safar
 
 | Change | File | Purpose |
 |--------|------|--------|
-| **crop_gravity for avatars** | `apps/mobile/lib/imageUrl.ts` | Avatar URLs now include `crop_gravity=center` to align with web and Bunny image API. |
+| **Plain Bunny CDN image URLs** | `apps/mobile/lib/imageUrl.ts` | Avatar/profile/event URLs no longer include Optimizer query params; Bunny Optimizer is off. |
 | **One-time __DEV__ warning** | `apps/mobile/lib/imageUrl.ts` | When `BUNNY_CDN` is empty, log once so the user knows to set env and restart Metro. |
 | **Doc** | `docs/native-runtime-media-recovery-audit.md` (existing) | Root cause and env instructions. |
 
