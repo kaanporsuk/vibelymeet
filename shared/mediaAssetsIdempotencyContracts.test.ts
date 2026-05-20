@@ -247,7 +247,11 @@ test("photo and voice callers are cut to storage SDK wrappers behind durable fla
   assert.doesNotMatch(webStorageSdkUploads, /media_v2_photo: true/);
   assert.doesNotMatch(webStorageSdkUploads, /media_v2_voice: true/);
   assert.match(webStorageSdkUploads, /evaluateClientFeatureFlagForUpload\("media_v2_photo"\)/);
-  assert.match(webStorageSdkUploads, /media_upload_started/);
+  assert.match(webStorageSdkUploads, /MEDIA_UPLOAD_PATH_EVENT_NAMES/);
+  assert.match(webStorageSdkUploads, /createMediaUploadPathTelemetryFields/);
+  assert.match(webStorageSdkUploads, /waitForMediaUploadTaskTerminal/);
+  assert.match(webStorageSdkUploads, /STORAGE_TRANSIENT_STATE_TTL_MS = 60 \* 60 \* 1000/);
+  assert.match(webStorageSdkUploads, /scheduleStorageTransientStateCleanup/);
   assert.match(webStorageSdkUploads, /uploadProfilePhoto: uploadWebPhotoViaLegacyService/);
   assert.match(webStorageSdkUploads, /uploadChatPhoto: uploadWebPhotoViaLegacyService/);
   assert.match(webStorageSdkUploads, /uploadVoiceNote: uploadWebVoiceViaLegacyService/);
@@ -264,7 +268,11 @@ test("photo and voice callers are cut to storage SDK wrappers behind durable fla
   assert.doesNotMatch(nativeStorageSdkUploads, /media_v2_photo: true/);
   assert.doesNotMatch(nativeStorageSdkUploads, /media_v2_voice: true/);
   assert.match(nativeStorageSdkUploads, /evaluateClientFeatureFlagForUpload\('media_v2_photo'\)/);
-  assert.match(nativeStorageSdkUploads, /media_upload_started/);
+  assert.match(nativeStorageSdkUploads, /MEDIA_UPLOAD_PATH_EVENT_NAMES/);
+  assert.match(nativeStorageSdkUploads, /createMediaUploadPathTelemetryFields/);
+  assert.match(nativeStorageSdkUploads, /waitForMediaUploadTaskTerminal/);
+  assert.match(nativeStorageSdkUploads, /STORAGE_TRANSIENT_STATE_TTL_MS = 60 \* 60 \* 1000/);
+  assert.match(nativeStorageSdkUploads, /scheduleStorageTransientStateCleanup/);
   assert.match(nativeStorageSdkUploads, /imageManipulator: nativeImageManipulator/);
   assert.match(nativeStorageSdkUploads, /uploadProfilePhoto: uploadNativePhotoViaLegacyService/);
   assert.match(nativeStorageSdkUploads, /uploadChatPhoto: uploadNativePhotoViaLegacyService/);

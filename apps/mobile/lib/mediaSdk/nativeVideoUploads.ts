@@ -2,11 +2,11 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as FileSystem from 'expo-file-system/legacy';
 import { Platform } from 'react-native';
 import {
+  createMediaUploadPathTelemetryFields,
   createNativeMediaSdk,
-  isMediaUploadTerminalState,
+  MEDIA_UPLOAD_PATH_EVENT_NAMES,
+  waitForMediaUploadTaskTerminal,
   type MediaTaskRunContext,
-  type MediaUploadSnapshot,
-  type MediaUploadTask,
   type NativeMediaSdk,
   type NativeVideoUploadInput,
 } from '@clientShared/media-sdk';
@@ -19,7 +19,7 @@ import {
   nativeHeroVideoSubscribe,
   type NativeHeroVideoControllerState,
 } from '@/lib/nativeHeroVideoUploadController';
-import type { VibeVideoUploadSource } from '@/lib/vibeVideoApi';
+import { extensionFromFileUri, mimeFromExtension, type VibeVideoUploadSource } from '@/lib/vibeVideoApi';
 import {
   uploadAndPublishChatVibeClipToBunnyStream,
   type ChatVibeClipStreamUploadResult,
@@ -33,6 +33,8 @@ type NativeHeroVideoUploadContext = 'onboarding' | 'profile_studio';
 const chatClipResultsByClientRequestId = new Map<string, ChatVibeClipStreamUploadResult>();
 const chatClipErrorsByClientRequestId = new Map<string, unknown>();
 const chatClipProgressByClientRequestId = new Map<string, ((fraction: number) => void) | undefined>();
+const chatClipCleanupTimersByClientRequestId = new Map<string, ReturnType<typeof setTimeout>>();
+const CHAT_CLIP_TRANSIENT_STATE_TTL_MS = 60 * 60 * 1000;
 
 let mediaSdk: NativeMediaSdk | null = null;
 
@@ -66,37 +68,24 @@ function trackMediaUploadStarted(params: {
   clientRequestId: string;
 }): void {
   try {
-    trackEvent('media_upload_started', {
-      active_flag: 'media_v2_video',
-      active_flag_enabled: params.evaluation.enabled,
-      active_flag_source: params.evaluation.source,
-      active_flag_bucket: params.evaluation.bucket,
-      active_flag_rollout_bps: params.evaluation.rolloutBps,
-      user_id_bucket: params.evaluation.userIdBucket,
-      path_selected: params.path,
+    const fields = createMediaUploadPathTelemetryFields({
+      flag: 'media_v2_video',
+      evaluation: params.evaluation,
+      path: params.path,
       family: params.family,
       platform: nativePlatform(),
-      client_request_id: params.clientRequestId,
+      clientRequestId: params.clientRequestId,
     });
-    trackEvent('media_upload_sdk_flag_evaluated', {
-      active_flag: 'media_v2_video',
-      active_flag_enabled: params.evaluation.enabled,
-      active_flag_source: params.evaluation.source,
-      active_flag_bucket: params.evaluation.bucket,
-      active_flag_rollout_bps: params.evaluation.rolloutBps,
-      user_id_bucket: params.evaluation.userIdBucket,
-      path_selected: params.path,
-      family: params.family,
-      platform: nativePlatform(),
-      client_request_id: params.clientRequestId,
-    });
+    for (const eventName of MEDIA_UPLOAD_PATH_EVENT_NAMES) trackEvent(eventName, fields);
   } catch {
     /* upload telemetry is best-effort and must not block media uploads */
   }
 }
 
 function uploadContextFromInput(input: NativeVideoUploadInput): NativeHeroVideoUploadContext {
-  return input.context?.uploadContext === 'onboarding' ? 'onboarding' : 'profile_studio';
+  const value = input.context?.uploadContext ?? 'profile_studio';
+  if (value === 'onboarding' || value === 'profile_studio') return value;
+  throw new Error('vibe_video_invalid_upload_context');
 }
 
 function uploadSourceFromInput(input: NativeVideoUploadInput): VibeVideoUploadSource {
@@ -212,6 +201,24 @@ function requiredContextNumber(input: NativeVideoUploadInput, key: string): numb
   throw new Error(`chat_vibe_clip_${key}_missing`);
 }
 
+function clearChatClipTransientState(clientRequestId: string): void {
+  const timer = chatClipCleanupTimersByClientRequestId.get(clientRequestId);
+  if (timer) clearTimeout(timer);
+  chatClipCleanupTimersByClientRequestId.delete(clientRequestId);
+  chatClipProgressByClientRequestId.delete(clientRequestId);
+  chatClipResultsByClientRequestId.delete(clientRequestId);
+  chatClipErrorsByClientRequestId.delete(clientRequestId);
+}
+
+function scheduleChatClipTransientStateCleanup(clientRequestId: string): void {
+  const existing = chatClipCleanupTimersByClientRequestId.get(clientRequestId);
+  if (existing) clearTimeout(existing);
+  const timer = setTimeout(() => {
+    clearChatClipTransientState(clientRequestId);
+  }, CHAT_CLIP_TRANSIENT_STATE_TTL_MS);
+  chatClipCleanupTimersByClientRequestId.set(clientRequestId, timer);
+}
+
 async function uploadNativeChatVibeClipViaLegacyService(
   input: NativeVideoUploadInput,
   controls: MediaTaskRunContext,
@@ -230,9 +237,11 @@ async function uploadNativeChatVibeClipViaLegacyService(
       onProgress: (fraction) => {
         controls.dispatch({ type: 'progress', progress: fraction });
         onProgress?.(fraction);
+        scheduleChatClipTransientStateCleanup(clientRequestId);
       },
     });
     chatClipResultsByClientRequestId.set(clientRequestId, uploaded);
+    scheduleChatClipTransientStateCleanup(clientRequestId);
     controls.dispatch({
       type: 'ready',
       result: {
@@ -244,6 +253,7 @@ async function uploadNativeChatVibeClipViaLegacyService(
     });
   } catch (error) {
     chatClipErrorsByClientRequestId.set(clientRequestId, error);
+    scheduleChatClipTransientStateCleanup(clientRequestId);
     throw error;
   }
 }
@@ -273,18 +283,6 @@ function getNativeVideoMediaSdk(): NativeMediaSdk {
 
 export async function reconcileNativeVideoMediaSdkQueue(reason = 'manual'): Promise<void> {
   await getNativeVideoMediaSdk().reconcile({ reason });
-}
-
-function waitForTaskTerminal(task: MediaUploadTask): Promise<MediaUploadSnapshot> {
-  const current = task.snapshot();
-  if (isMediaUploadTerminalState(current.state)) return Promise.resolve(current);
-  return new Promise((resolve) => {
-    const unsubscribe = task.on('state', (snapshot) => {
-      if (!isMediaUploadTerminalState(snapshot.state)) return;
-      unsubscribe();
-      resolve(snapshot);
-    });
-  });
 }
 
 export function startNativeVibeVideoUpload(params: {
@@ -336,7 +334,7 @@ async function startNativeVibeVideoUploadAfterGate(
     family: 'vibe_video',
     source: {
       uri: params.uri,
-      mimeType: 'video/mp4',
+      mimeType: mimeFromExtension(extensionFromFileUri(params.uri)),
     },
     context: {
       uploadContext: context,
@@ -391,9 +389,10 @@ export async function uploadAndPublishChatVibeClipWithMediaSdk(
     },
   });
   chatClipProgressByClientRequestId.set(clientRequestId, params.onProgress);
+  scheduleChatClipTransientStateCleanup(clientRequestId);
 
   try {
-    const terminal = await waitForTaskTerminal(task);
+    const terminal = await waitForMediaUploadTaskTerminal(task);
     const originalError = chatClipErrorsByClientRequestId.get(clientRequestId);
     if (originalError) throw originalError;
 
@@ -405,8 +404,6 @@ export async function uploadAndPublishChatVibeClipWithMediaSdk(
     }
     throw new Error('Vibe Clip upload completed without a publish result.');
   } finally {
-    chatClipProgressByClientRequestId.delete(clientRequestId);
-    chatClipResultsByClientRequestId.delete(clientRequestId);
-    chatClipErrorsByClientRequestId.delete(clientRequestId);
+    clearChatClipTransientState(clientRequestId);
   }
 }

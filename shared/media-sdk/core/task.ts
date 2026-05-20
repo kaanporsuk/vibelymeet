@@ -1,5 +1,6 @@
 import {
   createInitialMediaUploadSnapshot,
+  isMediaUploadTerminalState,
   transitionMediaUploadState,
   type MediaUploadTransition,
 } from "./state-machine";
@@ -350,4 +351,26 @@ export function createMediaUploadTask(params: {
       return snapshot;
     },
   };
+}
+
+export function waitForMediaUploadTaskTerminal(task: MediaUploadTask): Promise<MediaUploadSnapshot> {
+  const current = task.snapshot();
+  if (isMediaUploadTerminalState(current.state)) return Promise.resolve(current);
+
+  return new Promise((resolve) => {
+    let settled = false;
+    let unsubscribe: (() => void) | null = null;
+    let unsubscribeAfterSubscribe = false;
+    const maybeResolve = (snapshot: MediaUploadSnapshot) => {
+      if (settled || !isMediaUploadTerminalState(snapshot.state)) return;
+      settled = true;
+      if (unsubscribe) unsubscribe();
+      else unsubscribeAfterSubscribe = true;
+      resolve(snapshot);
+    };
+
+    unsubscribe = task.on("state", maybeResolve);
+    if (unsubscribeAfterSubscribe) unsubscribe();
+    maybeResolve(task.snapshot());
+  });
 }

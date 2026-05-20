@@ -287,27 +287,36 @@ test("Chat Vibe Clip media v2 cutover is upload-start gated inside the platform 
   assert.match(nativeOutboxExecute, /isBunnyStreamPlaybackRef\(item\.uploadedMediaUrl\)[\s\S]{0,160}completePublishedChatVibeClipUpload/);
 
   assert.match(webMediaSdkVideoUploads, /evaluateClientFeatureFlagForUpload\("media_v2_video"\)/);
-  assert.match(webMediaSdkVideoUploads, /media_upload_started/);
+  assert.match(webMediaSdkVideoUploads, /MEDIA_UPLOAD_PATH_EVENT_NAMES/);
+  assert.match(webMediaSdkVideoUploads, /createMediaUploadPathTelemetryFields/);
   assert.match(webMediaSdkVideoUploads, /uploadChatVibeClip: uploadWebChatVibeClipViaLegacyService/);
   assert.match(webMediaSdkVideoUploads, /return uploadAndPublishChatVibeClipToBunnyStream\(\{ \.\.\.params, clientRequestId \}\)/);
   assert.match(webMediaSdkVideoUploads, /chatClipResultsByClientRequestId/);
   assert.match(webMediaSdkVideoUploads, /chatClipErrorsByClientRequestId/);
+  assert.match(webMediaSdkVideoUploads, /scheduleChatClipTransientStateCleanup/);
   assert.match(nativeMediaSdkVideoUploads, /evaluateClientFeatureFlagForUpload\('media_v2_video'\)/);
-  assert.match(nativeMediaSdkVideoUploads, /media_upload_started/);
+  assert.match(nativeMediaSdkVideoUploads, /MEDIA_UPLOAD_PATH_EVENT_NAMES/);
+  assert.match(nativeMediaSdkVideoUploads, /createMediaUploadPathTelemetryFields/);
   assert.match(webMediaSdkVideoUploads, /chatClipProgressByClientRequestId/);
+  assert.match(webMediaSdkVideoUploads, /CHAT_CLIP_TRANSIENT_STATE_TTL_MS = 60 \* 60 \* 1000/);
   assert.match(webMediaSdkVideoUploads, /function fileFromWebVideoSource\(source: File \| Blob\): File/);
   assert.match(webMediaSdkVideoUploads, /web_media_file_constructor_missing/);
   assert.doesNotMatch(webMediaSdkVideoUploads, /: new File\(\[input\.source\]/);
   assert.match(webMediaSdkVideoUploads, /controls\.dispatch\(\{[\s\S]{0,80}type: "ready"/);
-  assert.match(webMediaSdkVideoUploads, /waitForTaskTerminal/);
+  assert.match(webMediaSdkVideoUploads, /onProgress\?\.\(fraction\);[\s\S]{0,80}scheduleChatClipTransientStateCleanup\(clientRequestId\)/);
+  assert.match(webMediaSdkVideoUploads, /waitForMediaUploadTaskTerminal/);
 
   assert.match(nativeMediaSdkVideoUploads, /uploadChatVibeClip: uploadNativeChatVibeClipViaLegacyService/);
   assert.match(nativeMediaSdkVideoUploads, /uploadAndPublishChatVibeClipToBunnyStream\(\{/);
   assert.match(nativeMediaSdkVideoUploads, /chatClipResultsByClientRequestId/);
   assert.match(nativeMediaSdkVideoUploads, /chatClipErrorsByClientRequestId/);
   assert.match(nativeMediaSdkVideoUploads, /chatClipProgressByClientRequestId/);
+  assert.match(nativeMediaSdkVideoUploads, /CHAT_CLIP_TRANSIENT_STATE_TTL_MS = 60 \* 60 \* 1000/);
+  assert.match(nativeMediaSdkVideoUploads, /scheduleChatClipTransientStateCleanup/);
+  assert.match(nativeMediaSdkVideoUploads, /mimeFromExtension\(extensionFromFileUri\(params\.uri\)\)/);
   assert.match(nativeMediaSdkVideoUploads, /controls\.dispatch\(\{[\s\S]{0,80}type: 'ready'/);
-  assert.match(nativeMediaSdkVideoUploads, /waitForTaskTerminal/);
+  assert.match(nativeMediaSdkVideoUploads, /onProgress\?\.\(fraction\);[\s\S]{0,80}scheduleChatClipTransientStateCleanup\(clientRequestId\)/);
+  assert.match(nativeMediaSdkVideoUploads, /waitForMediaUploadTaskTerminal/);
 });
 
 test("web chat image outbox no longer invents JPEG declarations", () => {
