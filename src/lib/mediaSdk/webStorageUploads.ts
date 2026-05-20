@@ -1,9 +1,9 @@
 import {
+  createMediaUploadPathTelemetryFields,
   createWebMediaSdk,
-  isMediaUploadTerminalState,
+  MEDIA_UPLOAD_PATH_EVENT_NAMES,
+  waitForMediaUploadTaskTerminal,
   type MediaTaskRunContext,
-  type MediaUploadSnapshot,
-  type MediaUploadTask,
   type WebMediaSdk,
   type WebPhotoUploadInput,
   type WebVoiceUploadInput,
@@ -37,6 +37,8 @@ type WebVoiceSdkUploadParams = {
 const photoResultsByClientRequestId = new Map<string, UploadImageToBunnyResult>();
 const voiceResultsByClientRequestId = new Map<string, string>();
 const storageErrorsByClientRequestId = new Map<string, unknown>();
+const storageCleanupTimersByResultKey = new Map<string, ReturnType<typeof setTimeout>>();
+const STORAGE_TRANSIENT_STATE_TTL_MS = 60 * 60 * 1000;
 
 let mediaSdk: WebMediaSdk | null = null;
 
@@ -71,30 +73,15 @@ function trackMediaUploadStarted(params: {
   clientRequestId: string;
 }): void {
   try {
-    trackEvent("media_upload_started", {
-      active_flag: params.flag,
-      active_flag_enabled: params.evaluation.enabled,
-      active_flag_source: params.evaluation.source,
-      active_flag_bucket: params.evaluation.bucket,
-      active_flag_rollout_bps: params.evaluation.rolloutBps,
-      user_id_bucket: params.evaluation.userIdBucket,
-      path_selected: params.path,
+    const fields = createMediaUploadPathTelemetryFields({
+      flag: params.flag,
+      evaluation: params.evaluation,
+      path: params.path,
       family: params.family,
       platform: "web",
-      client_request_id: params.clientRequestId,
+      clientRequestId: params.clientRequestId,
     });
-    trackEvent("media_upload_sdk_flag_evaluated", {
-      active_flag: params.flag,
-      active_flag_enabled: params.evaluation.enabled,
-      active_flag_source: params.evaluation.source,
-      active_flag_bucket: params.evaluation.bucket,
-      active_flag_rollout_bps: params.evaluation.rolloutBps,
-      user_id_bucket: params.evaluation.userIdBucket,
-      path_selected: params.path,
-      family: params.family,
-      platform: "web",
-      client_request_id: params.clientRequestId,
-    });
+    for (const eventName of MEDIA_UPLOAD_PATH_EVENT_NAMES) trackEvent(eventName, fields);
   } catch {
     /* upload telemetry is best-effort and must not block media uploads */
   }
@@ -124,6 +111,24 @@ function fileFromWebPhotoSource(source: File | Blob): File {
   return new File([source], "photo.jpg", { type: source.type || "image/jpeg" });
 }
 
+function clearStorageTransientState(resultKey: string): void {
+  const timer = storageCleanupTimersByResultKey.get(resultKey);
+  if (timer) clearTimeout(timer);
+  storageCleanupTimersByResultKey.delete(resultKey);
+  photoResultsByClientRequestId.delete(resultKey);
+  voiceResultsByClientRequestId.delete(resultKey);
+  storageErrorsByClientRequestId.delete(resultKey);
+}
+
+function scheduleStorageTransientStateCleanup(resultKey: string): void {
+  const existing = storageCleanupTimersByResultKey.get(resultKey);
+  if (existing) clearTimeout(existing);
+  const timer = setTimeout(() => {
+    clearStorageTransientState(resultKey);
+  }, STORAGE_TRANSIENT_STATE_TTL_MS);
+  storageCleanupTimersByResultKey.set(resultKey, timer);
+}
+
 async function uploadWebPhotoViaLegacyService(
   input: WebPhotoUploadInput,
   controls: MediaTaskRunContext,
@@ -139,6 +144,7 @@ async function uploadWebPhotoViaLegacyService(
       clientRequestId,
     );
     photoResultsByClientRequestId.set(resultKey, result);
+    scheduleStorageTransientStateCleanup(resultKey);
     controls.dispatch({
       type: "ready",
       result: {
@@ -149,6 +155,7 @@ async function uploadWebPhotoViaLegacyService(
     });
   } catch (error) {
     storageErrorsByClientRequestId.set(resultKey, error);
+    scheduleStorageTransientStateCleanup(resultKey);
     throw error;
   }
 }
@@ -167,6 +174,7 @@ async function uploadWebVoiceViaLegacyService(
       clientRequestId,
     );
     voiceResultsByClientRequestId.set(resultKey, result);
+    scheduleStorageTransientStateCleanup(resultKey);
     controls.dispatch({
       type: "ready",
       result: {
@@ -177,6 +185,7 @@ async function uploadWebVoiceViaLegacyService(
     });
   } catch (error) {
     storageErrorsByClientRequestId.set(resultKey, error);
+    scheduleStorageTransientStateCleanup(resultKey);
     throw error;
   }
 }
@@ -202,18 +211,6 @@ function getWebStorageMediaSdk(): WebMediaSdk {
 
 export async function reconcileWebStorageMediaSdkQueue(reason = "manual"): Promise<void> {
   await getWebStorageMediaSdk().reconcile({ reason });
-}
-
-function waitForTaskTerminal(task: MediaUploadTask): Promise<MediaUploadSnapshot> {
-  const current = task.snapshot();
-  if (isMediaUploadTerminalState(current.state)) return Promise.resolve(current);
-  return new Promise((resolve) => {
-    const unsubscribe = task.on("state", (snapshot) => {
-      if (!isMediaUploadTerminalState(snapshot.state)) return;
-      unsubscribe();
-      resolve(snapshot);
-    });
-  });
 }
 
 export async function uploadImageWithMediaSdk(
@@ -261,9 +258,10 @@ export async function uploadImageWithMediaSdk(
     },
   });
   const resultKey = storageResultKey(family, clientRequestId);
+  scheduleStorageTransientStateCleanup(resultKey);
 
   try {
-    const terminal = await waitForTaskTerminal(task);
+    const terminal = await waitForMediaUploadTaskTerminal(task);
     const originalError = storageErrorsByClientRequestId.get(resultKey);
     if (originalError) throw originalError;
 
@@ -277,8 +275,7 @@ export async function uploadImageWithMediaSdk(
     if (providerPath) return { path: providerPath, sessionId: null };
     throw new Error("Image upload completed without a storage path.");
   } finally {
-    photoResultsByClientRequestId.delete(resultKey);
-    storageErrorsByClientRequestId.delete(resultKey);
+    clearStorageTransientState(resultKey);
   }
 }
 
@@ -317,9 +314,10 @@ export async function uploadVoiceWithMediaSdk(params: WebVoiceSdkUploadParams): 
     },
   });
   const resultKey = storageResultKey("voice_note", clientRequestId);
+  scheduleStorageTransientStateCleanup(resultKey);
 
   try {
-    const terminal = await waitForTaskTerminal(task);
+    const terminal = await waitForMediaUploadTaskTerminal(task);
     const originalError = storageErrorsByClientRequestId.get(resultKey);
     if (originalError) throw originalError;
 
@@ -333,7 +331,6 @@ export async function uploadVoiceWithMediaSdk(params: WebVoiceSdkUploadParams): 
     if (mediaRef) return mediaRef;
     throw new Error("Voice upload completed without a media reference.");
   } finally {
-    voiceResultsByClientRequestId.delete(resultKey);
-    storageErrorsByClientRequestId.delete(resultKey);
+    clearStorageTransientState(resultKey);
   }
 }

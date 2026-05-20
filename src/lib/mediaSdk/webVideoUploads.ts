@@ -1,9 +1,9 @@
 import {
+  createMediaUploadPathTelemetryFields,
   createWebMediaSdk,
-  isMediaUploadTerminalState,
+  MEDIA_UPLOAD_PATH_EVENT_NAMES,
+  waitForMediaUploadTaskTerminal,
   type MediaTaskRunContext,
-  type MediaUploadSnapshot,
-  type MediaUploadTask,
   type WebMediaSdk,
   type WebVideoUploadInput,
 } from "@clientShared/media-sdk";
@@ -29,6 +29,8 @@ type WebChatVibeClipSdkUploadParams = Parameters<typeof uploadAndPublishChatVibe
 const chatClipResultsByClientRequestId = new Map<string, ChatVibeClipStreamUploadResult>();
 const chatClipErrorsByClientRequestId = new Map<string, unknown>();
 const chatClipProgressByClientRequestId = new Map<string, ((fraction: number) => void) | undefined>();
+const chatClipCleanupTimersByClientRequestId = new Map<string, ReturnType<typeof setTimeout>>();
+const CHAT_CLIP_TRANSIENT_STATE_TTL_MS = 60 * 60 * 1000;
 
 let mediaSdk: WebMediaSdk | null = null;
 
@@ -62,37 +64,24 @@ function trackMediaUploadStarted(params: {
   clientRequestId: string;
 }): void {
   try {
-    trackEvent("media_upload_started", {
-      active_flag: "media_v2_video",
-      active_flag_enabled: params.evaluation.enabled,
-      active_flag_source: params.evaluation.source,
-      active_flag_bucket: params.evaluation.bucket,
-      active_flag_rollout_bps: params.evaluation.rolloutBps,
-      user_id_bucket: params.evaluation.userIdBucket,
-      path_selected: params.path,
+    const fields = createMediaUploadPathTelemetryFields({
+      flag: "media_v2_video",
+      evaluation: params.evaluation,
+      path: params.path,
       family: params.family,
       platform: "web",
-      client_request_id: params.clientRequestId,
+      clientRequestId: params.clientRequestId,
     });
-    trackEvent("media_upload_sdk_flag_evaluated", {
-      active_flag: "media_v2_video",
-      active_flag_enabled: params.evaluation.enabled,
-      active_flag_source: params.evaluation.source,
-      active_flag_bucket: params.evaluation.bucket,
-      active_flag_rollout_bps: params.evaluation.rolloutBps,
-      user_id_bucket: params.evaluation.userIdBucket,
-      path_selected: params.path,
-      family: params.family,
-      platform: "web",
-      client_request_id: params.clientRequestId,
-    });
+    for (const eventName of MEDIA_UPLOAD_PATH_EVENT_NAMES) trackEvent(eventName, fields);
   } catch {
     /* upload telemetry is best-effort and must not block media uploads */
   }
 }
 
 function uploadContextFromInput(input: WebVideoUploadInput): HeroVideoUploadContext {
-  return input.context?.uploadContext === "onboarding" ? "onboarding" : "profile_studio";
+  const value = input.context?.uploadContext ?? "profile_studio";
+  if (value === "onboarding" || value === "profile_studio") return value;
+  throw new Error("vibe_video_invalid_upload_context");
 }
 
 function captionFromInput(input: WebVideoUploadInput): string | undefined {
@@ -209,7 +198,29 @@ function requiredContextNumber(input: WebVideoUploadInput, key: string): number 
 function fileFromWebVideoSource(source: File | Blob): File {
   if (typeof File !== "undefined" && source instanceof File) return source;
   if (typeof File === "undefined") throw new Error("web_media_file_constructor_missing");
-  return new File([source], "chat-vibe-clip.mp4", { type: source.type || "video/mp4" });
+  const candidateName = (source as { name?: unknown }).name;
+  const fileName = typeof candidateName === "string" && candidateName.trim()
+    ? candidateName.trim()
+    : "chat-vibe-clip.mp4";
+  return new File([source], fileName, { type: source.type || "video/mp4" });
+}
+
+function clearChatClipTransientState(clientRequestId: string): void {
+  const timer = chatClipCleanupTimersByClientRequestId.get(clientRequestId);
+  if (timer) clearTimeout(timer);
+  chatClipCleanupTimersByClientRequestId.delete(clientRequestId);
+  chatClipProgressByClientRequestId.delete(clientRequestId);
+  chatClipResultsByClientRequestId.delete(clientRequestId);
+  chatClipErrorsByClientRequestId.delete(clientRequestId);
+}
+
+function scheduleChatClipTransientStateCleanup(clientRequestId: string): void {
+  const existing = chatClipCleanupTimersByClientRequestId.get(clientRequestId);
+  if (existing) clearTimeout(existing);
+  const timer = setTimeout(() => {
+    clearChatClipTransientState(clientRequestId);
+  }, CHAT_CLIP_TRANSIENT_STATE_TTL_MS);
+  chatClipCleanupTimersByClientRequestId.set(clientRequestId, timer);
 }
 
 async function uploadWebChatVibeClipViaLegacyService(
@@ -229,9 +240,11 @@ async function uploadWebChatVibeClipViaLegacyService(
       onProgress: (fraction) => {
         controls.dispatch({ type: "progress", progress: fraction });
         onProgress?.(fraction);
+        scheduleChatClipTransientStateCleanup(clientRequestId);
       },
     });
     chatClipResultsByClientRequestId.set(clientRequestId, uploaded);
+    scheduleChatClipTransientStateCleanup(clientRequestId);
     controls.dispatch({
       type: "ready",
       result: {
@@ -243,6 +256,7 @@ async function uploadWebChatVibeClipViaLegacyService(
     });
   } catch (error) {
     chatClipErrorsByClientRequestId.set(clientRequestId, error);
+    scheduleChatClipTransientStateCleanup(clientRequestId);
     throw error;
   }
 }
@@ -265,18 +279,6 @@ function getWebVideoMediaSdk(): WebMediaSdk {
 
 export async function reconcileWebVideoMediaSdkQueue(reason = "manual"): Promise<void> {
   await getWebVideoMediaSdk().reconcile({ reason });
-}
-
-function waitForTaskTerminal(task: MediaUploadTask): Promise<MediaUploadSnapshot> {
-  const current = task.snapshot();
-  if (isMediaUploadTerminalState(current.state)) return Promise.resolve(current);
-  return new Promise((resolve) => {
-    const unsubscribe = task.on("state", (snapshot) => {
-      if (!isMediaUploadTerminalState(snapshot.state)) return;
-      unsubscribe();
-      resolve(snapshot);
-    });
-  });
 }
 
 export function startWebVibeVideoUpload(params: {
@@ -367,9 +369,10 @@ export async function uploadAndPublishChatVibeClipWithMediaSdk(
     },
   });
   chatClipProgressByClientRequestId.set(clientRequestId, params.onProgress);
+  scheduleChatClipTransientStateCleanup(clientRequestId);
 
   try {
-    const terminal = await waitForTaskTerminal(task);
+    const terminal = await waitForMediaUploadTaskTerminal(task);
     const originalError = chatClipErrorsByClientRequestId.get(clientRequestId);
     if (originalError) throw originalError;
 
@@ -381,8 +384,6 @@ export async function uploadAndPublishChatVibeClipWithMediaSdk(
     }
     throw new Error("Vibe Clip upload completed without a publish result.");
   } finally {
-    chatClipProgressByClientRequestId.delete(clientRequestId);
-    chatClipResultsByClientRequestId.delete(clientRequestId);
-    chatClipErrorsByClientRequestId.delete(clientRequestId);
+    clearChatClipTransientState(clientRequestId);
   }
 }

@@ -47,7 +47,19 @@ export type { MediaUploadQueue, MediaUploadQueueFilter, MediaUploadQueueRecord }
 export { createMediaTelemetry, noopMediaTelemetry } from "./core/telemetry";
 export { safeTelemetryFields } from "./core/telemetry";
 export type { MediaTelemetry, MediaTelemetryEvent, MediaTelemetryFields, MediaTelemetrySink } from "./core/telemetry";
-export { createMediaUploadTask } from "./core/task";
+export {
+  createMediaUploadPathTelemetryFields,
+  MEDIA_UPLOAD_PATH_EVENT_NAMES,
+  mediaUploadRuntimePath,
+} from "./core/facade-telemetry";
+export type {
+  MediaUploadFeatureFlag,
+  MediaUploadPathEvaluation,
+  MediaUploadPathEventName,
+  MediaUploadPathSelected,
+  MediaUploadRuntimePath,
+} from "./core/facade-telemetry";
+export { createMediaUploadTask, waitForMediaUploadTaskTerminal } from "./core/task";
 export type { MediaTaskLifecycleControls, MediaTaskRunContext, MediaTaskRunner } from "./core/task";
 export {
   getMediaBackgroundUploadPolicy,

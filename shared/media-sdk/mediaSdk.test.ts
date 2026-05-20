@@ -12,8 +12,13 @@ import { createNativeMediaSdk as createNativeMediaSdkFromRoot, createWebMediaSdk
 import { MemoryMediaUploadQueue, type MediaUploadQueueRecord } from "./core/queue";
 import type { MediaTelemetrySink } from "./core/telemetry";
 import { safeTelemetryFields } from "./core/telemetry";
+import {
+  createMediaUploadPathTelemetryFields,
+  MEDIA_UPLOAD_PATH_EVENT_NAMES,
+  mediaUploadRuntimePath,
+} from "./core/facade-telemetry";
 import { reconcileMediaUploadQueue } from "./core/reconcile";
-import { createMediaUploadTask } from "./core/task";
+import { createMediaUploadTask, waitForMediaUploadTaskTerminal } from "./core/task";
 import {
   createInitialMediaUploadSnapshot,
   transitionMediaUploadState,
@@ -197,6 +202,37 @@ test("media task does not claim paused or resumed when lifecycle controls are un
     { name: "media_upload_pause_requested", state: "uploading", reason: "unsupported" },
     { name: "media_upload_resume_requested", state: "uploading", reason: "unsupported" },
   ]);
+});
+
+test("waitForMediaUploadTaskTerminal re-checks after subscribing", async () => {
+  const task = createMediaUploadTask({
+    input: {
+      family: "vibe_video",
+      source: new Blob(["video"], { type: "video/mp4" }),
+      options: { clientRequestId: uuid },
+    },
+    platform: "web",
+    autoStart: false,
+    runner: () => undefined,
+  });
+
+  const originalOn = task.on.bind(task);
+  let subscribed = false;
+  const taskWithSynchronousTerminalTransition = {
+    ...task,
+    on: ((event, listener) => {
+      const unsubscribe = originalOn(event, listener);
+      subscribed = true;
+      task.applyServerSnapshot({ state: "ready", result: { providerObjectId: "ready-between-checks" } });
+      return unsubscribe;
+    }) satisfies typeof task.on,
+  };
+
+  const terminal = await waitForMediaUploadTaskTerminal(taskWithSynchronousTerminalTransition);
+
+  assert.equal(subscribed, true);
+  assert.equal(terminal.state, "ready");
+  assert.equal(terminal.result?.providerObjectId, "ready-between-checks");
 });
 
 test("media upload state machine retries failed and cancelled attempts intentionally", () => {
@@ -1082,13 +1118,51 @@ test("rehydrated tasks keep persisted ids and accept authoritative server-ready 
 test("telemetry redaction strips non-allowlisted and sensitive fields at the SDK boundary", () => {
   assert.deepEqual(safeTelemetryFields({
     client_request_id: uuid,
+    path: "v2",
     path_selected: "media_sdk",
     match_token: "secret",
     signed_url: "https://example.test/private",
     Authorization: "Bearer secret",
   }), {
     client_request_id: uuid,
+    path: "v2",
     path_selected: "media_sdk",
+  });
+});
+
+test("upload facade telemetry fields stay consistent across platform wrappers", () => {
+  assert.deepEqual(MEDIA_UPLOAD_PATH_EVENT_NAMES, [
+    "media_upload_started",
+    "media_upload_path_taken",
+    "media_upload_sdk_flag_evaluated",
+  ]);
+  assert.equal(mediaUploadRuntimePath("media_sdk"), "v2");
+  assert.equal(mediaUploadRuntimePath("legacy"), "legacy");
+  assert.deepEqual(createMediaUploadPathTelemetryFields({
+    flag: "media_v2_video",
+    evaluation: {
+      enabled: true,
+      source: "rollout",
+      bucket: 1234,
+      rolloutBps: 5000,
+      userIdBucket: "bucket-7",
+    },
+    path: "media_sdk",
+    family: "vibe_video",
+    platform: "ios",
+    clientRequestId: uuid,
+  }), {
+    active_flag: "media_v2_video",
+    active_flag_enabled: true,
+    active_flag_source: "rollout",
+    active_flag_bucket: 1234,
+    active_flag_rollout_bps: 5000,
+    user_id_bucket: "bucket-7",
+    path: "v2",
+    path_selected: "media_sdk",
+    family: "vibe_video",
+    platform: "ios",
+    client_request_id: uuid,
   });
 });
 
@@ -1366,7 +1440,8 @@ test("production media SDK factories wire telemetry sinks and reconciliation", (
     const source = readRepoFile(path);
     assert.match(source, /telemetrySinks:\s*(webMediaTelemetrySinks|nativeMediaTelemetrySinks)/, path);
     assert.match(source, /reconciler:\s*create(Web|Native)MediaUploadReconciler\(\)/, path);
-    assert.match(source, /media_upload_sdk_flag_evaluated/, path);
+    assert.match(source, /MEDIA_UPLOAD_PATH_EVENT_NAMES/, path);
+    assert.match(source, /createMediaUploadPathTelemetryFields/, path);
     assert.match(source, /catch\s*\{[\s\S]{0,120}failClosed/, `${path} must fail closed to legacy on flag evaluation errors`);
   }
 });

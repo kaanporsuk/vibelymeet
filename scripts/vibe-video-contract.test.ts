@@ -1007,7 +1007,8 @@ test("media v2 Vibe Video caller cutover is upload-start gated and still control
   assert.match(webSdk, /createWebMediaSdk/);
   assert.doesNotMatch(webSdk, /createStaticMediaFeatureFlagGate/);
   assert.match(webSdk, /evaluateClientFeatureFlagForUpload\("media_v2_video"\)/);
-  assert.match(webSdk, /media_upload_started/);
+  assert.match(webSdk, /MEDIA_UPLOAD_PATH_EVENT_NAMES/);
+  assert.match(webSdk, /createMediaUploadPathTelemetryFields/);
   assert.match(webSdk, /uploadVibeVideo: uploadWebVibeVideoViaController/);
   assert.match(webSdk, /heroVideoStartWithClientRequestId/);
   assert.match(webSdk, /heroVideoStartWithClientRequestId\(params\.source, params\.caption, context, clientRequestId\)/);
@@ -1018,11 +1019,14 @@ test("media v2 Vibe Video caller cutover is upload-start gated and still control
   assert.match(webSdk, /shouldResetHeroVideoForTask\(state: HeroVideoControllerState, clientRequestId: string\)/);
   assert.match(webSdk, /state\.clientRequestId === clientRequestId && state\.phase !== "ready"/);
   assert.match(webSdk, /shouldResetHeroVideoForTask\(heroVideoGetState\(\), clientRequestId\)[\s\S]{0,80}heroVideoReset\(\)/);
+  assert.match(webSdk, /vibe_video_invalid_upload_context/);
+  assert.match(webSdk, /waitForMediaUploadTaskTerminal/);
 
   assert.match(nativeSdk, /createNativeMediaSdk/);
   assert.doesNotMatch(nativeSdk, /createStaticMediaFeatureFlagGate/);
   assert.match(nativeSdk, /evaluateClientFeatureFlagForUpload\('media_v2_video'\)/);
-  assert.match(nativeSdk, /media_upload_started/);
+  assert.match(nativeSdk, /MEDIA_UPLOAD_PATH_EVENT_NAMES/);
+  assert.match(nativeSdk, /createMediaUploadPathTelemetryFields/);
   assert.match(nativeSdk, /AsyncStorage/);
   assert.match(nativeSdk, /FileSystem/);
   assert.match(nativeSdk, /uploadVibeVideo: uploadNativeVibeVideoViaController/);
@@ -1035,4 +1039,7 @@ test("media v2 Vibe Video caller cutover is upload-start gated and still control
   assert.match(nativeSdk, /shouldResetHeroVideoForTask\(state: NativeHeroVideoControllerState, clientRequestId: string\)/);
   assert.match(nativeSdk, /state\.clientRequestId === clientRequestId && state\.phase !== 'ready'/);
   assert.match(nativeSdk, /shouldResetHeroVideoForTask\(nativeHeroVideoGetState\(\), clientRequestId\)[\s\S]{0,80}nativeHeroVideoReset\(\)/);
+  assert.match(nativeSdk, /vibe_video_invalid_upload_context/);
+  assert.match(nativeSdk, /mimeFromExtension\(extensionFromFileUri\(params\.uri\)\)/);
+  assert.match(nativeSdk, /waitForMediaUploadTaskTerminal/);
 });

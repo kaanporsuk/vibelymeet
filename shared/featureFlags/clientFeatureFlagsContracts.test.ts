@@ -211,7 +211,8 @@ test("feature flag and upload telemetry are best-effort and never gate routing",
     assert.match(source, /analytics failures must not change feature flag behavior/);
   }
   for (const source of [webStorageUploads, webVideoUploads, nativeStorageUploads, nativeVideoUploads]) {
-    assert.match(source, /try \{[\s\S]+media_upload_started[\s\S]+catch \{/);
+    assert.match(source, /try \{[\s\S]+MEDIA_UPLOAD_PATH_EVENT_NAMES[\s\S]+catch \{/);
+    assert.match(source, /createMediaUploadPathTelemetryFields/);
     assert.match(source, /upload telemetry is best-effort and must not block media uploads/);
   }
 });

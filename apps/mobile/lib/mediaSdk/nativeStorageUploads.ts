@@ -3,11 +3,11 @@ import * as FileSystem from 'expo-file-system/legacy';
 import * as ImageManipulator from 'expo-image-manipulator';
 import { Platform } from 'react-native';
 import {
+  createMediaUploadPathTelemetryFields,
   createNativeMediaSdk,
-  isMediaUploadTerminalState,
+  MEDIA_UPLOAD_PATH_EVENT_NAMES,
+  waitForMediaUploadTaskTerminal,
   type MediaTaskRunContext,
-  type MediaUploadSnapshot,
-  type MediaUploadTask,
   type NativeLocalUriSource,
   type NativeMediaSdk,
   type NativePhotoUploadInput,
@@ -44,6 +44,8 @@ const profilePhotoResultsByClientRequestId = new Map<string, UploadImageResult>(
 const chatImageResultsByClientRequestId = new Map<string, string>();
 const voiceResultsByClientRequestId = new Map<string, string>();
 const storageErrorsByClientRequestId = new Map<string, unknown>();
+const storageCleanupTimersByResultKey = new Map<string, ReturnType<typeof setTimeout>>();
+const STORAGE_TRANSIENT_STATE_TTL_MS = 60 * 60 * 1000;
 
 let mediaSdk: NativeMediaSdk | null = null;
 
@@ -81,30 +83,15 @@ function trackMediaUploadStarted(params: {
   clientRequestId: string;
 }): void {
   try {
-    trackEvent('media_upload_started', {
-      active_flag: params.flag,
-      active_flag_enabled: params.evaluation.enabled,
-      active_flag_source: params.evaluation.source,
-      active_flag_bucket: params.evaluation.bucket,
-      active_flag_rollout_bps: params.evaluation.rolloutBps,
-      user_id_bucket: params.evaluation.userIdBucket,
-      path_selected: params.path,
+    const fields = createMediaUploadPathTelemetryFields({
+      flag: params.flag,
+      evaluation: params.evaluation,
+      path: params.path,
       family: params.family,
       platform: nativePlatform(),
-      client_request_id: params.clientRequestId,
+      clientRequestId: params.clientRequestId,
     });
-    trackEvent('media_upload_sdk_flag_evaluated', {
-      active_flag: params.flag,
-      active_flag_enabled: params.evaluation.enabled,
-      active_flag_source: params.evaluation.source,
-      active_flag_bucket: params.evaluation.bucket,
-      active_flag_rollout_bps: params.evaluation.rolloutBps,
-      user_id_bucket: params.evaluation.userIdBucket,
-      path_selected: params.path,
-      family: params.family,
-      platform: nativePlatform(),
-      client_request_id: params.clientRequestId,
-    });
+    for (const eventName of MEDIA_UPLOAD_PATH_EVENT_NAMES) trackEvent(eventName, fields);
   } catch {
     /* upload telemetry is best-effort and must not block media uploads */
   }
@@ -139,6 +126,25 @@ function profileContextFromPhotoInput(input: NativePhotoUploadInput): 'onboardin
   return input.context?.uploadContext === 'onboarding' ? 'onboarding' : 'profile_studio';
 }
 
+function clearStorageTransientState(resultKey: string): void {
+  const timer = storageCleanupTimersByResultKey.get(resultKey);
+  if (timer) clearTimeout(timer);
+  storageCleanupTimersByResultKey.delete(resultKey);
+  profilePhotoResultsByClientRequestId.delete(resultKey);
+  chatImageResultsByClientRequestId.delete(resultKey);
+  voiceResultsByClientRequestId.delete(resultKey);
+  storageErrorsByClientRequestId.delete(resultKey);
+}
+
+function scheduleStorageTransientStateCleanup(resultKey: string): void {
+  const existing = storageCleanupTimersByResultKey.get(resultKey);
+  if (existing) clearTimeout(existing);
+  const timer = setTimeout(() => {
+    clearStorageTransientState(resultKey);
+  }, STORAGE_TRANSIENT_STATE_TTL_MS);
+  storageCleanupTimersByResultKey.set(resultKey, timer);
+}
+
 async function uploadNativePhotoViaLegacyService(
   input: NativePhotoUploadInput,
   controls: MediaTaskRunContext,
@@ -154,6 +160,7 @@ async function uploadNativePhotoViaLegacyService(
         clientRequestId,
       );
       chatImageResultsByClientRequestId.set(resultKey, result);
+      scheduleStorageTransientStateCleanup(resultKey);
       controls.dispatch({
         type: 'ready',
         result: {
@@ -178,6 +185,7 @@ async function uploadNativePhotoViaLegacyService(
       },
     );
     profilePhotoResultsByClientRequestId.set(resultKey, result);
+    scheduleStorageTransientStateCleanup(resultKey);
     controls.dispatch({
       type: 'ready',
       result: {
@@ -188,6 +196,7 @@ async function uploadNativePhotoViaLegacyService(
     });
   } catch (error) {
     storageErrorsByClientRequestId.set(resultKey, error);
+    scheduleStorageTransientStateCleanup(resultKey);
     throw error;
   }
 }
@@ -205,6 +214,7 @@ async function uploadNativeVoiceViaLegacyService(
       clientRequestId,
     );
     voiceResultsByClientRequestId.set(resultKey, result);
+    scheduleStorageTransientStateCleanup(resultKey);
     controls.dispatch({
       type: 'ready',
       result: {
@@ -215,6 +225,7 @@ async function uploadNativeVoiceViaLegacyService(
     });
   } catch (error) {
     storageErrorsByClientRequestId.set(resultKey, error);
+    scheduleStorageTransientStateCleanup(resultKey);
     throw error;
   }
 }
@@ -244,18 +255,6 @@ function getNativeStorageMediaSdk(): NativeMediaSdk {
 
 export async function reconcileNativeStorageMediaSdkQueue(reason = 'manual'): Promise<void> {
   await getNativeStorageMediaSdk().reconcile({ reason });
-}
-
-function waitForTaskTerminal(task: MediaUploadTask): Promise<MediaUploadSnapshot> {
-  const current = task.snapshot();
-  if (isMediaUploadTerminalState(current.state)) return Promise.resolve(current);
-  return new Promise((resolve) => {
-    const unsubscribe = task.on('state', (snapshot) => {
-      if (!isMediaUploadTerminalState(snapshot.state)) return;
-      unsubscribe();
-      resolve(snapshot);
-    });
-  });
 }
 
 export async function uploadProfilePhotoWithMediaSdk(
@@ -312,9 +311,10 @@ export async function uploadProfilePhotoWithMediaSdk(
     },
   });
   const resultKey = storageResultKey('profile_photo', clientRequestId);
+  scheduleStorageTransientStateCleanup(resultKey);
 
   try {
-    const terminal = await waitForTaskTerminal(task);
+    const terminal = await waitForMediaUploadTaskTerminal(task);
     const originalError = storageErrorsByClientRequestId.get(resultKey);
     if (originalError) throw originalError;
 
@@ -328,8 +328,7 @@ export async function uploadProfilePhotoWithMediaSdk(
     if (providerPath) return { path: providerPath, sessionId: null };
     throw new Error('Image upload completed without a storage path.');
   } finally {
-    profilePhotoResultsByClientRequestId.delete(resultKey);
-    storageErrorsByClientRequestId.delete(resultKey);
+    clearStorageTransientState(resultKey);
   }
 }
 
@@ -371,9 +370,10 @@ export async function uploadChatImageWithMediaSdk(params: NativeChatImageSdkUplo
     },
   });
   const resultKey = storageResultKey('chat_photo', clientRequestId);
+  scheduleStorageTransientStateCleanup(resultKey);
 
   try {
-    const terminal = await waitForTaskTerminal(task);
+    const terminal = await waitForMediaUploadTaskTerminal(task);
     const originalError = storageErrorsByClientRequestId.get(resultKey);
     if (originalError) throw originalError;
 
@@ -387,8 +387,7 @@ export async function uploadChatImageWithMediaSdk(params: NativeChatImageSdkUplo
     if (mediaRef) return mediaRef;
     throw new Error('Image upload completed without a media reference.');
   } finally {
-    chatImageResultsByClientRequestId.delete(resultKey);
-    storageErrorsByClientRequestId.delete(resultKey);
+    clearStorageTransientState(resultKey);
   }
 }
 
@@ -430,9 +429,10 @@ export async function uploadVoiceWithMediaSdk(params: NativeVoiceSdkUploadParams
     },
   });
   const resultKey = storageResultKey('voice_note', clientRequestId);
+  scheduleStorageTransientStateCleanup(resultKey);
 
   try {
-    const terminal = await waitForTaskTerminal(task);
+    const terminal = await waitForMediaUploadTaskTerminal(task);
     const originalError = storageErrorsByClientRequestId.get(resultKey);
     if (originalError) throw originalError;
 
@@ -446,7 +446,6 @@ export async function uploadVoiceWithMediaSdk(params: NativeVoiceSdkUploadParams
     if (mediaRef) return mediaRef;
     throw new Error('Voice upload completed without a media reference.');
   } finally {
-    voiceResultsByClientRequestId.delete(resultKey);
-    storageErrorsByClientRequestId.delete(resultKey);
+    clearStorageTransientState(resultKey);
   }
 }

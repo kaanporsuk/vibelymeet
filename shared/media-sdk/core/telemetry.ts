@@ -40,6 +40,7 @@ const SAFE_FIELD_KEYS = new Set([
   "event",
   "family",
   "network_type",
+  "path",
   "path_selected",
   "platform",
   "progress",
