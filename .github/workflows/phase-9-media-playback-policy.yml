@@ -1,0 +1,97 @@
+name: Phase 9 Media Playback Policy
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/phase-9-media-playback-policy.yml'
+      - 'apps/mobile/**'
+      - 'docs/architecture/media-privacy.md'
+      - 'docs/operations/bunny-geo-replication.md'
+      - 'package-lock.json'
+      - 'package.json'
+      - 'shared/chat/**'
+      - 'shared/media/**'
+      - 'shared/mediaPhase9Contracts.test.ts'
+      - 'src/components/chat/**'
+      - 'src/components/media/**'
+      - 'src/components/vibe-video/**'
+      - 'src/hooks/useMediaAsset.ts'
+      - 'src/hooks/useMediaPlaybackQoE.ts'
+      - 'src/hooks/useMediaVideoPreloadPolicy.ts'
+      - 'src/hooks/usePrefersReducedMotion.ts'
+      - 'src/lib/mediaAssetResolver.ts'
+      - 'src/lib/mediaPlaybackSessionPolicy.ts'
+      - 'src/lib/vibeVideo/**'
+      - 'supabase/config.toml'
+      - 'supabase/functions/_shared/bunny-media.ts'
+      - 'supabase/functions/_shared/bunny-stream-tokens.ts'
+      - 'supabase/functions/_shared/media-captions.ts'
+      - 'supabase/functions/check-bunny-cdn-health/**'
+      - 'supabase/functions/create-chat-vibe-clip-upload/**'
+      - 'supabase/functions/create-video-upload/**'
+      - 'supabase/functions/get-chat-media-url/**'
+      - 'supabase/functions/process-media-delete-jobs/**'
+      - 'supabase/migrations/**'
+      - 'supabase/validation/media_phase9_completion.sql'
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/phase-9-media-playback-policy.yml'
+      - 'apps/mobile/**'
+      - 'docs/architecture/media-privacy.md'
+      - 'docs/operations/bunny-geo-replication.md'
+      - 'package-lock.json'
+      - 'package.json'
+      - 'shared/chat/**'
+      - 'shared/media/**'
+      - 'shared/mediaPhase9Contracts.test.ts'
+      - 'src/components/chat/**'
+      - 'src/components/media/**'
+      - 'src/components/vibe-video/**'
+      - 'src/hooks/useMediaAsset.ts'
+      - 'src/hooks/useMediaPlaybackQoE.ts'
+      - 'src/hooks/useMediaVideoPreloadPolicy.ts'
+      - 'src/hooks/usePrefersReducedMotion.ts'
+      - 'src/lib/mediaAssetResolver.ts'
+      - 'src/lib/mediaPlaybackSessionPolicy.ts'
+      - 'src/lib/vibeVideo/**'
+      - 'supabase/config.toml'
+      - 'supabase/functions/_shared/bunny-media.ts'
+      - 'supabase/functions/_shared/bunny-stream-tokens.ts'
+      - 'supabase/functions/_shared/media-captions.ts'
+      - 'supabase/functions/check-bunny-cdn-health/**'
+      - 'supabase/functions/create-chat-vibe-clip-upload/**'
+      - 'supabase/functions/create-video-upload/**'
+      - 'supabase/functions/get-chat-media-url/**'
+      - 'supabase/functions/process-media-delete-jobs/**'
+      - 'supabase/migrations/**'
+      - 'supabase/validation/media_phase9_completion.sql'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  media-phase9:
+    name: Phase 9 playback, captions, and lifecycle contracts
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            apps/mobile/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run Phase 9 media playback contracts
+        run: npm run test:media-phase9

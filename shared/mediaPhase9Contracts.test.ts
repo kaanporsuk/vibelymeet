@@ -228,6 +228,7 @@ test("Phase 9 user-facing media health panel and retry surfaces are wired", () =
 
 test("Phase 9 cold storage tiering and URL routing are wired", () => {
   const migration = read("supabase/migrations/20260520230000_media_phase9_completion.sql");
+  const grantLockdownMigration = read("supabase/migrations/20260520233000_media_phase9_mark_accessed_grant_lockdown.sql");
   const bunnyMedia = read("supabase/functions/_shared/bunny-media.ts");
   const worker = read("supabase/functions/process-media-delete-jobs/index.ts");
   const resolver = read("supabase/functions/get-chat-media-url/index.ts");
@@ -247,6 +248,9 @@ test("Phase 9 cold storage tiering and URL routing are wired", () => {
   assert.match(resolver, /bunnyStorageConfigForTier/);
   assert.match(resolver, /encodeStoragePathForProxy/);
   assert.match(createChatVibeClipUpload, /invalid_captions/);
+  assert.match(grantLockdownMigration, /REVOKE ALL ON FUNCTION public\.mark_media_asset_accessed\(uuid\) FROM anon/);
+  assert.match(grantLockdownMigration, /REVOKE ALL ON FUNCTION public\.mark_media_asset_accessed\(uuid\) FROM authenticated/);
+  assert.match(grantLockdownMigration, /GRANT EXECUTE ON FUNCTION public\.mark_media_asset_accessed\(uuid\) TO service_role/);
 });
 
 test("Phase 9 Bunny CDN health, geo docs, and privacy docs are present", () => {
@@ -269,6 +273,32 @@ test("Phase 9 Bunny CDN health, geo docs, and privacy docs are present", () => {
   assert.match(privacyDoc, /matches\.encrypted_conversation_keys/);
   assert.match(privacyDoc, /server stores and hashes ciphertext only/);
   assert.match(privacyDoc, /Runtime client-side encryption\/decryption[\s\S]*is not active yet/);
+});
+
+test("Phase 9 contracts are wired directly into CI and cloud validation", () => {
+  const packageJson = JSON.parse(read("package.json")) as { scripts?: Record<string, string> };
+  assert.equal(packageJson.scripts?.["test:media-phase9"], "tsx shared/mediaPhase9Contracts.test.ts");
+
+  const workflow = read(".github/workflows/phase-9-media-playback-policy.yml");
+  assert.match(workflow, /npm run test:media-phase9/);
+  assert.match(workflow, /shared\/mediaPhase9Contracts\.test\.ts/);
+  assert.match(workflow, /src\/hooks\/useMediaPlaybackQoE\.ts/);
+  assert.match(workflow, /apps\/mobile\/\*\*/);
+  assert.match(workflow, /supabase\/functions\/check-bunny-cdn-health\/\*\*/);
+  assert.match(workflow, /supabase\/functions\/get-chat-media-url\/\*\*/);
+  assert.match(workflow, /supabase\/functions\/process-media-delete-jobs\/\*\*/);
+  assert.match(workflow, /supabase\/migrations\/\*\*/);
+  assert.match(workflow, /supabase\/validation\/media_phase9_completion\.sql/);
+  assert.doesNotMatch(workflow, /continue-on-error:\s*true/);
+
+  const validation = read("supabase/validation/media_phase9_completion.sql");
+  assert.match(validation, /media_phase9_completion_ok/);
+  assert.match(validation, /vibe_video_uploads', 'captions/);
+  assert.match(validation, /profiles', 'vibe_video_captions/);
+  assert.match(validation, /media_assets', 'storage_zone/);
+  assert.match(validation, /media_captions_jsonb_valid/);
+  assert.match(validation, /mark_media_asset_accessed must stay service-role only/);
+  assert.match(validation, /bunny-cdn-health-minutely/);
 });
 
 test("Phase 9 telemetry-safe source ref classification is PII-safe", () => {
