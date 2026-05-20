@@ -38,7 +38,7 @@ The mapping is captured in `docs/qa/screenshot-led-native-visual-parity-capture-
 
 No screenshot-backed visual differences were found because screenshots were unavailable.
 
-The older `docs/phase8-stage1-parity-and-functionality-audit.md` remains useful product-parity context, but it is not a screenshot evidence pack. Many of its findings are functional/backlog-sized and out of Stream 18 scope.
+The older `docs/native-release-readiness/native-parity-audit-stage1.md` remains useful product-parity context, but it is not a screenshot evidence pack. Many of its findings are functional/backlog-sized and out of Stream 18 scope.
 
 ## Fixes Made
 

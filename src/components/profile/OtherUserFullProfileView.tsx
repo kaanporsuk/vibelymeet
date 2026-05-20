@@ -153,10 +153,9 @@ export function OtherUserFullProfileView({
       }),
     [profile.vibeVideo.uid, profile.vibeVideo.status, profile.updatedAt, profile.vibeVideo.caption],
   );
-  const signedVibeVideoRef =
-    profile.vibeVideo.signedPlaybackRequired && profile.vibeVideo.playbackRef
-      ? profile.vibeVideo.playbackRef
-      : null;
+  const signedVibeVideoRef = profile.vibeVideo.playbackRef ?? null;
+  const signedPlaybackRequired = profile.vibeVideo.signedPlaybackRequired && !!signedVibeVideoRef;
+  const effectiveVibeVideoState = signedVibeVideoRef ? "ready" : vibeVideo.state;
   const {
     url: signedVibeVideoUrl,
     posterUrl: signedVibeVideoPosterUrl,
@@ -166,13 +165,17 @@ export function OtherUserFullProfileView({
     sourceRef: signedVibeVideoRef,
     initialUrl: null,
     autoResolve: !!signedVibeVideoRef,
-    enabled: vibeVideo.state === "ready" && !!signedVibeVideoRef,
+    enabled: effectiveVibeVideoState === "ready" && !!signedVibeVideoRef,
   });
-  const vibeVideoPlaybackUrl = signedVibeVideoRef ? signedVibeVideoUrl : vibeVideo.playbackUrl;
-  const vibeVideoThumbnailUrl = signedVibeVideoRef ? signedVibeVideoPosterUrl : vibeVideo.thumbnailUrl;
-  const hasPlayableVibeVideo = vibeVideo.state === "ready" && (
+  const signedVibeVideoReady = signedVibeVideoStatus === "ready" && !!signedVibeVideoUrl;
+  const allowUnsignedFallback = !signedPlaybackRequired && signedVibeVideoStatus === "error";
+  const vibeVideoPlaybackUrl =
+    signedVibeVideoRef && !allowUnsignedFallback ? signedVibeVideoUrl : vibeVideo.playbackUrl;
+  const vibeVideoThumbnailUrl =
+    signedVibeVideoRef && !allowUnsignedFallback ? signedVibeVideoPosterUrl : vibeVideo.thumbnailUrl;
+  const hasPlayableVibeVideo = effectiveVibeVideoState === "ready" && (
     signedVibeVideoRef
-      ? signedVibeVideoStatus === "ready" && !!vibeVideoPlaybackUrl
+      ? signedVibeVideoReady || (allowUnsignedFallback && !!vibeVideoPlaybackUrl)
       : !!vibeVideoPlaybackUrl
   );
   const verificationBadges = [
@@ -339,7 +342,7 @@ export function OtherUserFullProfileView({
             </div>
           </section>
 
-          {vibeVideo.state !== "none" ? (
+          {effectiveVibeVideoState !== "none" ? (
             <Section title="Vibe Video" icon={Video}>
               {hasPlayableVibeVideo && vibeVideoPlaybackUrl ? (
                 <div className="overflow-hidden rounded-2xl border border-border bg-card">
@@ -386,22 +389,22 @@ export function OtherUserFullProfileView({
                 </div>
               ) : null}
 
-              {vibeVideo.state === "processing" || vibeVideo.state === "stale_processing" ? (
+              {effectiveVibeVideoState === "processing" || effectiveVibeVideoState === "stale_processing" ? (
                 <div className="rounded-2xl border border-border bg-card/70 p-4">
                   <div className="flex items-start gap-3">
-                    {vibeVideo.state === "stale_processing" ? (
+                    {effectiveVibeVideoState === "stale_processing" ? (
                       <AlertCircle className="mt-0.5 h-5 w-5 text-amber-400" aria-hidden />
                     ) : (
                       <Loader2 className="mt-0.5 h-5 w-5 animate-spin text-primary" aria-hidden />
                     )}
                     <div>
                       <h3 className="text-sm font-semibold text-foreground">
-                        {vibeVideo.state === "stale_processing"
+                        {effectiveVibeVideoState === "stale_processing"
                           ? "Vibe Video still processing"
                           : "Vibe Video processing"}
                       </h3>
                       <p className="mt-1 text-sm text-muted-foreground">
-                        {vibeVideo.state === "stale_processing"
+                        {effectiveVibeVideoState === "stale_processing"
                           ? "Their clip is saved, but playback is taking longer than usual."
                           : "Their clip is saved and getting ready for playback."}
                       </p>
@@ -410,16 +413,16 @@ export function OtherUserFullProfileView({
                 </div>
               ) : null}
 
-              {vibeVideo.state === "failed" || vibeVideo.state === "error" ? (
+              {effectiveVibeVideoState === "failed" || effectiveVibeVideoState === "error" ? (
                 <div className="rounded-2xl border border-amber-500/25 bg-card/70 p-4">
                   <div className="flex items-start gap-3">
                     <AlertCircle className="mt-0.5 h-5 w-5 text-amber-400" aria-hidden />
                     <div>
                       <h3 className="text-sm font-semibold text-foreground">
-                        {vibeVideo.state === "failed" ? "Vibe Video needs a fresh take" : "Vibe Video unavailable"}
+                        {effectiveVibeVideoState === "failed" ? "Vibe Video needs a fresh take" : "Vibe Video unavailable"}
                       </h3>
                       <p className="mt-1 text-sm text-muted-foreground">
-                        {vibeVideo.state === "failed"
+                        {effectiveVibeVideoState === "failed"
                           ? "This clip did not finish processing."
                           : "This intro is unavailable right now."}
                       </p>
@@ -428,7 +431,7 @@ export function OtherUserFullProfileView({
                 </div>
               ) : null}
 
-              {vibeVideo.state === "ready" && !hasPlayableVibeVideo ? (
+              {effectiveVibeVideoState === "ready" && !hasPlayableVibeVideo ? (
                 <div className="rounded-2xl border border-border bg-card/70 p-4">
                   <div className="flex items-start gap-3">
                     <AlertCircle className="mt-0.5 h-5 w-5 text-amber-400" aria-hidden />

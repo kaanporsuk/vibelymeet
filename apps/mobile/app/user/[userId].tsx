@@ -186,7 +186,10 @@ export default function PublicProfileScreen() {
           reportedName={profile?.name ?? 'User'}
           reporterId={user.id}
           sourceSurface="native_public_profile"
-          reportedHasVibeVideo={!!profile?.bunny_video_uid?.trim()}
+          reportedHasVibeVideo={
+            !!profile?.bunny_video_uid?.trim() ||
+            !!profile?.vibe_video_playback_ref?.trim()
+          }
         />
       ) : null}
     </View>

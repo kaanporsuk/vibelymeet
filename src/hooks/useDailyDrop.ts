@@ -102,6 +102,13 @@ export function useDailyDrop() {
       photos: (row.photos as string[] | null) ?? null,
       bunny_video_uid: (row.bunny_video_uid as string | null) ?? null,
       bunny_video_status: (row.bunny_video_status as string | null) ?? null,
+      vibe_video_signed_playback_required: row.vibe_video_signed_playback_required === true,
+      vibe_video_playback_ref:
+        typeof row.vibe_video_playback_ref === 'string'
+          ? row.vibe_video_playback_ref
+          : row.vibe_video_playback_ref === null
+            ? null
+            : null,
       vibe_caption: (row.vibe_caption as string | null) ?? null,
       vibes,
     });

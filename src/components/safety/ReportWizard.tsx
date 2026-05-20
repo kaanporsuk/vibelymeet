@@ -124,7 +124,9 @@ const ReportWizard = ({ onBack, onComplete, preSelectedUser }: ReportWizardProps
           interactionType: "Match",
           interactionDate: formatDistanceToNow(new Date(m.matched_at), { addSuffix: true }),
           reportedHasVibeVideo:
-            typeof profile?.bunny_video_uid === "string" && profile.bunny_video_uid.trim().length > 0,
+            (typeof profile?.bunny_video_uid === "string" && profile.bunny_video_uid.trim().length > 0) ||
+            (typeof profile?.vibe_video_playback_ref === "string" &&
+              profile.vibe_video_playback_ref.trim().length > 0),
         };
       });
     },

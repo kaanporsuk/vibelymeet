@@ -10,6 +10,8 @@ export interface DailyDropPartner {
   photos: string[] | null;
   bunny_video_uid: string | null;
   bunny_video_status: string | null;
+  vibe_video_signed_playback_required?: boolean | null;
+  vibe_video_playback_ref?: string | null;
   updated_at?: string | null;
   vibe_caption: string | null;
   vibes: string[]; // vibe tag labels

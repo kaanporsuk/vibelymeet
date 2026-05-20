@@ -9,6 +9,11 @@ import {
   parseChatImageStructuredPayload,
 } from "./chat/messageRouting.ts";
 import { captionTextFromMediaCaptions, mediaCaptionsToWebVtt } from "./media/captions.ts";
+import {
+  getMediaStoragePresignPolicy,
+  mediaStoragePresignPolicyReviewWarning,
+  shouldEnableBunnyStoragePresignUploads,
+} from "./media-sdk/storage-presign-policy.ts";
 
 const root = process.cwd();
 const read = (path: string) => readFileSync(join(root, path), "utf8");
@@ -54,6 +59,13 @@ test("Phase 8 chat images prefer structured payload while preserving legacy mark
     }, { allowPrivateMediaRefs: true }),
     "photos/legacy/fallback.jpg",
   );
+  assert.equal(
+    extractChatImageMediaRef({
+      content: "__IMAGE__|photos/legacy-only.jpg",
+      structured_payload: null,
+    }, { allowPrivateMediaRefs: true }),
+    "photos/legacy-only.jpg",
+  );
 });
 
 test("Phase 8 server contracts write and hydrate structured chat-image payloads", () => {
@@ -78,7 +90,11 @@ test("Phase 8 server contracts write and hydrate structured chat-image payloads"
 
 test("Phase 8 private profile Vibe Video uses signed playback refs", () => {
   const migration = read("supabase/migrations/20260519210000_media_phase_8_profile_vibe_signing.sql");
+  const closureMigration = read("supabase/migrations/20260520210000_media_phase8_bulletproof_closure.sql");
+  const validation = read("supabase/validation/media_phase8_profile_vibe_signing.sql");
   const resolver = read("supabase/functions/get-chat-media-url/index.ts");
+  const tokenHelper = read("supabase/functions/_shared/bunny-stream-tokens.ts");
+  const chatThreadPage = read("supabase/functions/chat-thread-page/index.ts");
   const webResolver = read("src/lib/mediaAssetResolver.ts");
   const nativeResolver = read("apps/mobile/lib/mediaAssetResolver.ts");
   const webProfile = read("src/components/profile/OtherUserFullProfileView.tsx");
@@ -87,11 +103,26 @@ test("Phase 8 private profile Vibe Video uses signed playback refs", () => {
   const nativeMediaAssetHook = read("apps/mobile/hooks/useMediaAsset.ts");
   const webFetcher = read("src/services/fetchUserProfile.ts");
   const nativeFetcher = read("apps/mobile/lib/fetchUserProfile.ts");
+  const webDailyDropHook = read("src/hooks/useDailyDrop.ts");
+  const webDailyDropCard = read("src/components/matches/DropsTabContent.tsx");
 
   assert.match(migration, /vibe_video_signed_playback_required/);
   assert.match(migration, /vibe_video_playback_ref/);
   assert.match(migration, /NOT public\.is_profile_discoverable\(p_target_id, v_viewer_id\)/);
   assert.match(migration, /concat\('profile_vibe_video:'/);
+  assert.match(closureMigration, /WHEN v_vibe_video_signed_playback_required THEN NULL[\s\S]+ELSE v_profile\.bunny_video_uid/);
+  assert.match(closureMigration, /WHEN v_vibe_video_signed_playback_required THEN NULL[\s\S]+ELSE v_profile\.bunny_video_status/);
+  assert.match(closureMigration, /WHEN v_vibe_video_ready THEN/);
+  assert.match(closureMigration, /vibe_video_playback_ref is the only client playback handle/);
+  assert.match(closureMigration, /Ready public\/self\/admin profile videos may also include the ref/);
+  assert.match(validation, /hidden_matched_profile_masks_raw_video_and_returns_ref/);
+  assert.match(validation, /account_paused_matched_profile_masks_raw_video_and_returns_ref/);
+  assert.match(validation, /undiscoverable_matched_profile_masks_raw_video_and_returns_ref/);
+  assert.match(validation, /discoverable_matched_profile_keeps_public_video_contract/);
+  assert.match(validation, /no_established_access_profile_is_denied/);
+  assert.match(validation, /admin_view_keeps_raw_video_contract/);
+  assert.match(validation, /Phase 8 profile Vibe signing validation failed/);
+  assert.match(validation, /ROLLBACK;/);
 
   assert.match(resolver, /"profile_vibe_video"/);
   assert.match(resolver, /BUNNY_STREAM_TOKEN_SECURITY_KEY/);
@@ -99,7 +130,18 @@ test("Phase 8 private profile Vibe Video uses signed playback refs", () => {
   assert.match(resolver, /stale_profile_vibe_video_ref/);
   assert.match(resolver, /missing_or_invalid_profile_ref/);
   assert.match(resolver, /profile_stream_url_issued/);
-  assert.match(resolver, /token_path/);
+  assert.match(resolver, /profile_vibe_video_signed_url_issued/);
+  assert.match(resolver, /profile_vibe_video_token_config_missing/);
+  assert.match(resolver, /handleHealth/);
+  assert.match(resolver, /profile_stream_token_security_key_configured/);
+  assert.match(resolver, /sha256TelemetryHash/);
+  assert.match(resolver, /signBunnyStreamDirectoryUrl/);
+  assert.equal(resolver.split(/\r?\n/).some((line) => line.trim() === "return assets;"), false);
+  assert.match(tokenHelper, /export async function signBunnyStreamDirectoryUrl/);
+  assert.match(tokenHelper, /token_path/);
+
+  assert.match(chatThreadPage, /userClient\.rpc\("get_profile_for_viewer"/);
+  assert.doesNotMatch(chatThreadPage, /\.from\("profiles"\)[\s\S]{0,180}\.select\("id, name, age, avatar_url, photos, photo_verified, subscription_tier, bunny_video_uid"\)/);
 
   assert.match(webResolver, /parseProfileVibeVideoRef/);
   assert.match(webResolver, /profileId: profileRef\.profileId, mediaKind, sourceRef: rawRef/);
@@ -107,21 +149,49 @@ test("Phase 8 private profile Vibe Video uses signed playback refs", () => {
   assert.match(nativeResolver, /profileId: profileRef\.profileId, mediaKind, sourceRef: rawRef/);
 
   assert.match(webProfile, /signedVibeVideoRef/);
+  assert.match(webProfile, /effectiveVibeVideoState = signedVibeVideoRef \? "ready" : vibeVideo\.state/);
   assert.match(webProfile, /kind: "profile_vibe_video"/);
   assert.match(webProfile, /signedVibeVideoStatus === "ready"/);
   assert.match(nativeProfile, /signedVibeVideoRef/);
+  assert.match(nativeProfile, /effectiveVibeVideoState = signedVibeVideoRef \? 'ready' : vibeInfo\.state/);
   assert.match(nativeProfile, /kind: 'profile_vibe_video'/);
   assert.match(nativeProfile, /signedVibeVideoStatus === 'ready'/);
   assert.match(webMediaAssetHook, /initialUrl === null \? null : initialUrl \?\? sourceRef \?\? null/);
   assert.match(nativeMediaAssetHook, /initialUrl === null \? null : initialUrl \?\? sourceRef \?\? null/);
   assert.match(webFetcher, /vibe_video_signed_playback_required/);
   assert.match(nativeFetcher, /vibe_video_playback_ref/);
+  assert.match(webDailyDropHook, /vibe_video_playback_ref/);
+  assert.match(webDailyDropCard, /hasSignedVibeVideoRef/);
 });
 
 test("Phase 8 Bunny Storage presign decision stays documented as EF mediated", () => {
   const closure = read("docs/media-phase8-closure.md");
+  const uploadImage = read("supabase/functions/upload-image/index.ts");
+  const uploadVoice = read("supabase/functions/upload-voice/index.ts");
+  const uploadEventCover = read("supabase/functions/upload-event-cover/index.ts");
+  const sdkIndex = read("shared/media-sdk/index.ts");
+  const policy = getMediaStoragePresignPolicy();
+
+  assert.equal(policy.productionCutover, "no_go_documented_api_gap");
+  assert.equal(policy.productionEnabled, false);
+  assert.equal(policy.reviewAfter, "2026-11-20");
+  assert.equal(shouldEnableBunnyStoragePresignUploads(), false);
+  assert.equal(mediaStoragePresignPolicyReviewWarning(Date.parse("2026-11-20T23:59:59.999Z")), null);
+  assert.match(
+    mediaStoragePresignPolicyReviewWarning(Date.parse("2026-11-21T00:00:00.000Z")) ?? "",
+    /review is overdue/,
+  );
+
   assert.match(closure, /does not expose an S3-style presigned direct-upload URL/);
   assert.match(closure, /keep photos, voice notes, and event covers flowing through Edge Functions/);
+  assert.match(closure, /key configured \+ Bunny token authentication enabled/);
+  assert.match(closure, /bunny_video_uid = null/);
+  assert.match(closure, /profile_vibe_video:<profile_id>:<video_id>/);
+  assert.match(uploadImage, /storage\.bunnycdn\.com/);
+  assert.match(uploadVoice, /storage\.bunnycdn\.com/);
+  assert.match(uploadEventCover, /storage\.bunnycdn\.com/);
+  assert.doesNotMatch(`${uploadImage}\n${uploadVoice}\n${uploadEventCover}`, /presign|presigned|signedUpload/i);
+  assert.match(sdkIndex, /getMediaStoragePresignPolicy/);
 });
 
 test("Phase 6 display path uses realtime, QoE, reduce-motion, and bounded media caches", () => {

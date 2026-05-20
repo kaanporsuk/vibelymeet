@@ -310,8 +310,11 @@ function PartnerCard({ partner, pickReasons }: { partner: DailyDropPartner | nul
     updated_at: partner.updated_at,
     vibe_caption: partner.vibe_caption,
   });
+  const hasSignedVibeVideoRef =
+    typeof partner.vibe_video_playback_ref === 'string' &&
+    partner.vibe_video_playback_ref.trim().length > 0;
   const vibeVideoBadgeLabel =
-    vibeVideoInfo.state === 'ready' && vibeVideoInfo.canPlay
+    (hasSignedVibeVideoRef || (vibeVideoInfo.state === 'ready' && vibeVideoInfo.canPlay))
       ? 'Has a Vibe Video'
       : vibeVideoInfo.state === 'processing' || vibeVideoInfo.state === 'stale_processing'
         ? 'Vibe Video processing'

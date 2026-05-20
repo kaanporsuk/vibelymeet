@@ -182,7 +182,7 @@ test("Stream 18 adds no native modules or expo-av usage", () => {
 
 test("prior native parity and QA artifacts remain present", () => {
   for (const path of [
-    "docs/phase8-stage1-parity-and-functionality-audit.md",
+    "docs/native-release-readiness/native-parity-audit-stage1.md",
     "docs/branch-deltas/fix-native-ready-gate-parity-contract.md",
     "docs/branch-deltas/fix-native-video-date-contract-recovery.md",
     "docs/branch-deltas/qa-native-physical-device-flow.md",

@@ -114,6 +114,8 @@ type ChatOtherUser = {
   photo_verified: boolean | null;
   subscription_tier: string | null;
   bunny_video_uid: string | null;
+  vibe_video_signed_playback_required?: boolean | null;
+  vibe_video_playback_ref?: string | null;
 } | null;
 
 type ChatPresenceRow = {
@@ -410,6 +412,8 @@ async function fetchDirectChatThreadPage(params: {
         photo_verified: otherUserRes.photo_verified,
         subscription_tier: otherUserRes.subscription_tier,
         bunny_video_uid: otherUserRes.bunny_video_uid,
+        vibe_video_signed_playback_required: otherUserRes.vibe_video_signed_playback_required,
+        vibe_video_playback_ref: otherUserRes.vibe_video_playback_ref,
         avatar_url: resolvePrimaryProfilePhotoPath({
           photos: otherUserRes.photos,
           avatar_url: otherUserRes.avatar_url,

@@ -468,11 +468,7 @@ serve(async (req) => {
 
     const [messagesRes, profileRes, presenceRes, archiveRes] = await Promise.all([
       messagesQuery,
-      serviceClient
-        .from("profiles")
-        .select("id, name, age, avatar_url, photos, photo_verified, subscription_tier, bunny_video_uid")
-        .eq("id", otherUserId)
-        .maybeSingle(),
+      userClient.rpc("get_profile_for_viewer", { p_target_id: otherUserId }),
       userClient.rpc("get_chat_partner_presence", { p_match_id: match.id }).maybeSingle(),
       serviceClient
         .from("match_archives")
@@ -501,11 +497,17 @@ serve(async (req) => {
       ? presenceRes.data as { is_online?: boolean | null; last_seen_at?: string | null }
       : null;
 
-    const profile = profileRes.data;
+    const profile =
+      profileRes.data && typeof profileRes.data === "object" && !Array.isArray(profileRes.data)
+        ? profileRes.data as Record<string, unknown>
+        : null;
     const otherUser = profile
       ? {
           ...profile,
-          avatar_url: primaryPhotoPath(profile),
+          avatar_url: primaryPhotoPath({
+            photos: profile.photos,
+            avatar_url: typeof profile.avatar_url === "string" ? profile.avatar_url : null,
+          }),
           last_seen_at: presence?.last_seen_at ?? null,
           is_online: presence?.is_online === true,
         }

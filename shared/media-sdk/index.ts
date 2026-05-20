@@ -89,6 +89,21 @@ export type {
   MediaBackgroundUploadPolicy,
 } from "./background-upload-policy";
 export {
+  getMediaStoragePresignPolicy,
+  mediaStoragePresignPolicyReviewWarning,
+  MEDIA_STORAGE_PRESIGN_DECIDED_AT,
+  MEDIA_STORAGE_PRESIGN_PHASE,
+  MEDIA_STORAGE_PRESIGN_POLICY,
+  MEDIA_STORAGE_PRESIGN_PRODUCTION_ENABLED,
+  MEDIA_STORAGE_PRESIGN_REVIEW_AFTER,
+  MEDIA_STORAGE_PRESIGN_SOURCE_OF_TRUTH,
+  shouldEnableBunnyStoragePresignUploads,
+} from "./storage-presign-policy";
+export type {
+  MediaStoragePresignDecision,
+  MediaStoragePresignPolicy,
+} from "./storage-presign-policy";
+export {
   assertWebMediaSource,
   createIndexedDbMediaUploadQueue,
   createWebMediaSdk,

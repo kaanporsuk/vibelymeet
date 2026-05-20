@@ -754,6 +754,7 @@ const Chat = () => {
         photoVerified: ou.photo_verified || false,
         subscription_tier: ou.subscription_tier ?? null,
         bunnyVideoUid: ou.bunny_video_uid ?? null,
+        vibeVideoPlaybackRef: ou.vibe_video_playback_ref ?? null,
       };
     }
     return {
@@ -767,6 +768,7 @@ const Chat = () => {
       photoVerified: false,
       subscription_tier: null,
       bunnyVideoUid: null,
+      vibeVideoPlaybackRef: null,
     };
   }, [chatData?.otherUser, id]);
 

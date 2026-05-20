@@ -1906,6 +1906,7 @@ export default function ChatThreadScreen() {
           name: otherName,
           archived_at: matchArchiveState?.archived_at ?? null,
           bunnyVideoUid: data.otherUser?.bunny_video_uid ?? currentMatchRow?.bunnyVideoUid ?? null,
+          vibeVideoPlaybackRef: data.otherUser?.vibe_video_playback_ref ?? currentMatchRow?.vibeVideoPlaybackRef ?? null,
         }
       : shellLoading && matchRowEarly && otherUserId
         ? {
@@ -1914,6 +1915,7 @@ export default function ChatThreadScreen() {
             name: otherName,
             archived_at: matchRowEarly.archived_at ?? null,
             bunnyVideoUid: currentMatchRow?.bunnyVideoUid ?? null,
+            vibeVideoPlaybackRef: currentMatchRow?.vibeVideoPlaybackRef ?? null,
           }
         : null;
 
@@ -3410,8 +3412,10 @@ export default function ChatThreadScreen() {
             reporterId={user?.id ?? ''}
             sourceSurface="native_chat"
             reportedHasVibeVideo={
-              typeof matchForActions.bunnyVideoUid === 'string' &&
-              matchForActions.bunnyVideoUid.trim().length > 0
+              (typeof matchForActions.bunnyVideoUid === 'string' &&
+                matchForActions.bunnyVideoUid.trim().length > 0) ||
+              (typeof matchForActions.vibeVideoPlaybackRef === 'string' &&
+                matchForActions.vibeVideoPlaybackRef.trim().length > 0)
             }
           />
           <UnmatchSnackbar

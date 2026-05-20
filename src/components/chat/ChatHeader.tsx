@@ -59,6 +59,7 @@ interface ChatUser {
   photoVerified?: boolean;
   subscription_tier?: string | null;
   bunnyVideoUid?: string | null;
+  vibeVideoPlaybackRef?: string | null;
 }
 
 export type ChatHeaderActivityLine = { text: string; variant: "online" | "muted" };
@@ -490,8 +491,8 @@ export const ChatHeader = ({
               interactionType: "Match",
               interactionDate: "Recent",
               reportedHasVibeVideo:
-                typeof user.bunnyVideoUid === "string" &&
-                user.bunnyVideoUid.trim().length > 0,
+                (typeof user.bunnyVideoUid === "string" && user.bunnyVideoUid.trim().length > 0) ||
+                (typeof user.vibeVideoPlaybackRef === "string" && user.vibeVideoPlaybackRef.trim().length > 0),
             }}
           />
         </SheetContent>

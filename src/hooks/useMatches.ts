@@ -36,6 +36,7 @@ type MatchesListProfileRow = {
   lifestyle: unknown;
   tagline: string | null;
   bunny_video_uid: string | null;
+  vibe_video_playback_ref: string | null;
   vibes?: string[];
 };
 
@@ -108,6 +109,7 @@ function profileViewToMatchRow(profile: UserProfileView | null): MatchesListProf
     lifestyle: profile.lifestyle,
     tagline: profile.tagline,
     bunny_video_uid: profile.bunny_video_uid,
+    vibe_video_playback_ref: profile.vibe_video_playback_ref ?? null,
     vibes: profile.vibes,
   };
 }
@@ -194,6 +196,7 @@ export interface Match {
   lifestyle?: Record<string, string>;
   tagline?: string | null;
   bunnyVideoUid?: string | null;
+  vibeVideoPlaybackRef?: string | null;
   /** Deterministic sort key for "Best Match" (larger = stronger). */
   bestMatchScore: number;
   /** Same inputs as bestMatchScore; row / drawer compatibility %. */
@@ -449,6 +452,7 @@ export const useMatches = () => {
               : undefined,
           tagline: profile?.tagline ?? null,
           bunnyVideoUid: profile?.bunny_video_uid ?? null,
+          vibeVideoPlaybackRef: profile?.vibe_video_playback_ref ?? null,
         };
       });
     },
