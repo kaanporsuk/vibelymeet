@@ -700,8 +700,10 @@ const Matches = () => {
               interactionType: "Match",
               interactionDate: reportTarget.time || "Recent",
               reportedHasVibeVideo:
-                typeof reportTarget.bunnyVideoUid === "string" &&
-                reportTarget.bunnyVideoUid.trim().length > 0,
+                (typeof reportTarget.bunnyVideoUid === "string" &&
+                  reportTarget.bunnyVideoUid.trim().length > 0) ||
+                (typeof reportTarget.vibeVideoPlaybackRef === "string" &&
+                  reportTarget.vibeVideoPlaybackRef.trim().length > 0),
             } : undefined}
           />
         </SheetContent>

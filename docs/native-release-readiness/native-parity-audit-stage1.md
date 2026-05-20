@@ -1,4 +1,4 @@
-# Phase 8 Stage 1 — Full Native Parity and Functionality Audit
+# Native Parity Audit Stage 1 — Full Native Parity and Functionality Audit
 
 **Scope:** Screen-by-screen and flow-by-flow audit of `apps/mobile` against the web app (source of truth).  
 **Constraints:** No new app or architecture; web = design/product source of truth; shared backend contracts and providers (RevenueCat, OneSignal, Daily, Supabase) preserved.  

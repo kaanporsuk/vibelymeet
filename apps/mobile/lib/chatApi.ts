@@ -34,6 +34,8 @@ type ChatMatchesProfileRow = {
   relationship_intent?: string | null;
   location?: string | null;
   bunny_video_uid?: string | null;
+  vibe_video_signed_playback_required?: boolean | null;
+  vibe_video_playback_ref?: string | null;
   vibes?: string[];
 };
 
@@ -55,6 +57,8 @@ function profileViewToChatMatchRow(profile: UserProfileView | null): ChatMatches
     relationship_intent: profile.relationship_intent,
     location: profile.display_location ?? profile.location,
     bunny_video_uid: profile.bunny_video_uid,
+    vibe_video_signed_playback_required: profile.vibe_video_signed_playback_required,
+    vibe_video_playback_ref: profile.vibe_video_playback_ref,
     vibes: profile.vibes,
   };
 }
@@ -144,6 +148,7 @@ export type MatchListItem = {
   archived_at: string | null;
   archived_by: string | null;
   bunnyVideoUid?: string | null;
+  vibeVideoPlaybackRef?: string | null;
   /** Vibe labels from `profile_vibes` / `vibe_tags` (all tags for search; web list UI may show fewer). */
   vibes: string[];
   looking_for: string | null;
@@ -319,6 +324,7 @@ export function useMatches(userId: string | null | undefined) {
           location,
           eventName: eventTitle,
           bunnyVideoUid: profile?.bunny_video_uid ?? null,
+          vibeVideoPlaybackRef: profile?.vibe_video_playback_ref ?? null,
           bestMatchScore,
           compatibilityPercent: compatPct,
         };
@@ -363,6 +369,8 @@ export type ChatOtherUser = {
   photos: string[] | null;
   last_seen_at: string | null;
   bunny_video_uid?: string | null;
+  vibe_video_signed_playback_required?: boolean | null;
+  vibe_video_playback_ref?: string | null;
 };
 
 type ChatPresenceRow = {
@@ -420,6 +428,8 @@ type ChatThreadPagePayload = {
     photos?: string[] | null;
     last_seen_at?: string | null;
     bunny_video_uid?: string | null;
+    vibe_video_signed_playback_required?: boolean | null;
+    vibe_video_playback_ref?: string | null;
   } | null;
   match_archive?: { archived_at?: string | null; archived_by?: string | null } | null;
   messages?: ChatRawMessageRow[];
@@ -652,6 +662,8 @@ async function fetchDirectChatThreadPage(params: {
         photos: otherUserRes.photos ?? null,
         last_seen_at: presence?.last_seen_at ?? null,
         bunny_video_uid: otherUserRes.bunny_video_uid ?? null,
+        vibe_video_signed_playback_required: otherUserRes.vibe_video_signed_playback_required ?? null,
+        vibe_video_playback_ref: otherUserRes.vibe_video_playback_ref ?? null,
       }
     : null;
 
@@ -695,6 +707,8 @@ async function fetchEdgeChatThreadPage(params: {
         photos: payload.other_user.photos ?? null,
         last_seen_at: payload.other_user.last_seen_at ?? null,
         bunny_video_uid: payload.other_user.bunny_video_uid ?? null,
+        vibe_video_signed_playback_required: payload.other_user.vibe_video_signed_playback_required ?? null,
+        vibe_video_playback_ref: payload.other_user.vibe_video_playback_ref ?? null,
       }
     : null;
   return {

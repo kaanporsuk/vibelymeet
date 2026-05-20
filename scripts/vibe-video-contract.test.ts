@@ -807,7 +807,8 @@ test("native Vibe Video surfaces use canonical resolver state for non-playable U
   assert.match(fullView, /Vibe Video still processing/);
   assert.match(fullView, /Their clip is saved and getting ready for playback/);
   assert.match(fullView, /Their clip is saved, but playback is taking longer than usual/);
-  assert.match(fullView, /vibeVideoState=\{vibeInfo\.state\}/);
+  assert.match(fullView, /effectiveVibeVideoState = signedVibeVideoRef \? 'ready' : vibeInfo\.state/);
+  assert.match(fullView, /vibeVideoState=\{effectiveVibeVideoState\}/);
   assert.match(fullscreenModal, /canonicalUrlState/);
   assert.match(studio, /vibeVideoState=\{videoInfo\.state\}/);
   assert.match(controller, /phase: 'processing'/);

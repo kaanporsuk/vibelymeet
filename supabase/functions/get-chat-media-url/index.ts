@@ -1,12 +1,26 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient, SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.88.0";
+import * as Sentry from "https://deno.land/x/sentry@8.55.0/index.mjs";
+import { signBunnyStreamDirectoryUrl } from "../_shared/bunny-stream-tokens.ts";
 import { corsHeadersForRequest, jsonResponse, preflightResponse } from "../_shared/cors.ts";
 import { syncChatMessageMedia } from "../_shared/media-lifecycle.ts";
+import { capture as capturePosthog } from "../_shared/posthog.ts";
 
 type MediaKind = "image" | "voice" | "video" | "vibe_clip" | "thumbnail" | "profile_vibe_video";
 
 const TOKEN_TTL_SECONDS = 15 * 60;
+const SENTRY_FLUSH_TIMEOUT_MS = 1000;
 const encoder = new TextEncoder();
+let sentryInitialized = false;
+
+if (!Deno.env.get("BUNNY_STREAM_TOKEN_SECURITY_KEY")?.trim()) {
+  console.warn(JSON.stringify({
+    scope: "chat_media_url",
+    function: "get-chat-media-url",
+    event: "profile_stream_token_config_missing_at_init",
+    profile_stream_token_security_key_configured: false,
+  }));
+}
 
 type MessageScopeRow = {
   id: string;
@@ -78,6 +92,29 @@ function logChatMediaUrl(level: ChatMediaUrlLogLevel, event: string, fields: Saf
   }
 }
 
+function captureProfileVibeVideoConfigMissingWithSentry(fields: Record<string, unknown>) {
+  const dsn = Deno.env.get("SENTRY_DSN")?.trim();
+  if (!dsn) return;
+  try {
+    if (!sentryInitialized) {
+      Sentry.init({ dsn, tracesSampleRate: 0 });
+      sentryInitialized = true;
+    }
+    Sentry.captureMessage("profile_vibe_video_token_config_missing", {
+      level: "error",
+      tags: {
+        function: "get-chat-media-url",
+        media_kind: "profile_vibe_video",
+        provider: "bunny_stream",
+      },
+      extra: fields,
+    });
+    void Sentry.flush(SENTRY_FLUSH_TIMEOUT_MS).catch(() => {});
+  } catch {
+    // Observability must never break media URL issuance.
+  }
+}
+
 function base64Url(bytes: Uint8Array): string {
   let binary = "";
   for (const byte of bytes) binary += String.fromCharCode(byte);
@@ -110,39 +147,6 @@ async function signPayload(secret: string, payload: string): Promise<string> {
   return base64Url(new Uint8Array(signature));
 }
 
-function sortedSigningData(params: Record<string, string>): string {
-  return Object.entries(params)
-    .sort(([left], [right]) => left.localeCompare(right))
-    .map(([key, value]) => `${key}=${value}`)
-    .join("&");
-}
-
-function normalizeHostname(value: string): string {
-  return value
-    .trim()
-    .replace(/^["']|["']$/g, "")
-    .replace(/^https?:\/\//i, "")
-    .split("/")[0]
-    .toLowerCase();
-}
-
-async function signBunnyStreamDirectoryUrl(params: {
-  hostname: string;
-  securityKey: string;
-  videoId: string;
-  fileName: string;
-  expires: number;
-}): Promise<string> {
-  const tokenPath = `/${params.videoId}/`;
-  const signingData = sortedSigningData({ token_path: tokenPath });
-  const token = `HS256-${await signPayload(
-    params.securityKey,
-    `${tokenPath}${params.expires}${signingData}`,
-  )}`;
-  const tokenSegment = `bcdn_token=${token}&expires=${params.expires}&token_path=${encodeURIComponent(tokenPath)}`;
-  return `https://${normalizeHostname(params.hostname)}/${tokenSegment}/${params.videoId}/${params.fileName}`;
-}
-
 async function createToken(secret: string, claims: Record<string, unknown>): Promise<string> {
   const payload = base64UrlJson(claims);
   const signature = await signPayload(secret, payload);
@@ -165,6 +169,11 @@ async function verifyToken(secret: string, token: string): Promise<Record<string
   const exp = typeof claims?.exp === "number" ? claims.exp : 0;
   if (!claims || exp <= Math.floor(Date.now() / 1000)) return null;
   return claims;
+}
+
+async function sha256TelemetryHash(value: string): Promise<string> {
+  const digest = await crypto.subtle.digest("SHA-256", encoder.encode(value));
+  return base64Url(new Uint8Array(digest)).slice(0, 24);
 }
 
 function normalizeMediaKind(value: unknown): MediaKind | null {
@@ -391,7 +400,6 @@ async function handleProfileVibeVideoIssue(params: {
       requester_id: params.requesterId,
       profile_id: params.profileId,
       media_kind: "profile_vibe_video",
-      provider_object_id: streamVideoId,
     });
     return jsonResponse(
       params.req,
@@ -403,11 +411,29 @@ async function handleProfileVibeVideoIssue(params: {
   const hostname = Deno.env.get("BUNNY_STREAM_CDN_HOSTNAME")?.trim();
   const securityKey = Deno.env.get("BUNNY_STREAM_TOKEN_SECURITY_KEY")?.trim();
   if (!hostname || !securityKey) {
-    logChatMediaUrl("error", "profile_stream_token_config_missing", {
-      requester_id: params.requesterId,
-      profile_id: params.profileId,
+    const [viewerIdHash, targetProfileIdHash] = await Promise.all([
+      sha256TelemetryHash(params.requesterId),
+      sha256TelemetryHash(params.profileId),
+    ]);
+    const configFields = {
+      requester_id_hash: viewerIdHash,
+      target_profile_id_hash: targetProfileIdHash,
       media_kind: "profile_vibe_video",
-      provider_object_id: streamVideoId,
+      hostname_configured: Boolean(hostname),
+      token_security_key_configured: Boolean(securityKey),
+    };
+    logChatMediaUrl("error", "profile_stream_token_config_missing", {
+      ...configFields,
+    });
+    captureProfileVibeVideoConfigMissingWithSentry(configFields);
+    void capturePosthog({
+      event: "profile_vibe_video_token_config_missing",
+      distinct_id: viewerIdHash,
+      properties: {
+        function: "get-chat-media-url",
+        provider: "bunny_stream",
+        ...configFields,
+      },
     });
     return jsonResponse(
       params.req,
@@ -431,15 +457,31 @@ async function handleProfileVibeVideoIssue(params: {
     fileName: "thumbnail.jpg",
     expires,
   });
-
-  logChatMediaUrl("info", "profile_stream_url_issued", {
-    requester_id: params.requesterId,
-    profile_id: params.profileId,
+  const [viewerIdHash, targetProfileIdHash] = await Promise.all([
+    sha256TelemetryHash(params.requesterId),
+    sha256TelemetryHash(params.profileId),
+  ]);
+  const issuedTelemetry = {
+    viewer_id_hash: viewerIdHash,
+    target_profile_id_hash: targetProfileIdHash,
     media_kind: "profile_vibe_video",
-    provider_object_id: streamVideoId,
     playback_kind: "hls",
     expires_in_seconds: TOKEN_TTL_SECONDS,
     signed_required: profilePayload.vibe_video_signed_playback_required === true,
+    security_key_configured: true,
+  };
+
+  logChatMediaUrl("info", "profile_stream_url_issued", {
+    ...issuedTelemetry,
+  });
+  void capturePosthog({
+    event: "profile_vibe_video_signed_url_issued",
+    distinct_id: viewerIdHash,
+    properties: {
+      function: "get-chat-media-url",
+      provider: "bunny_stream",
+      ...issuedTelemetry,
+    },
   });
   return jsonResponse(
     params.req,
@@ -452,6 +494,56 @@ async function handleProfileVibeVideoIssue(params: {
       expiresInSeconds: TOKEN_TTL_SECONDS,
     },
     { headers: params.corsHeaders },
+  );
+}
+
+async function handleHealth(req: Request): Promise<Response> {
+  const corsHeaders = corsHeadersForRequest(req);
+  const authHeader = req.headers.get("Authorization");
+  if (!authHeader?.startsWith("Bearer ")) {
+    return jsonResponse(req, { success: false, error: "Unauthorized" }, { status: 401, headers: corsHeaders });
+  }
+
+  const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+  const anonKey = Deno.env.get("SUPABASE_ANON_KEY")!;
+  const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+  const bearer = authHeader.slice("Bearer ".length).trim();
+  const serviceRoleRequest = bearer === serviceRoleKey;
+
+  if (!serviceRoleRequest) {
+    const userClient = createClient(supabaseUrl, anonKey, {
+      global: { headers: { Authorization: authHeader } },
+    });
+    const serviceClient = createClient(supabaseUrl, serviceRoleKey);
+    const { data: { user }, error: userError } = await userClient.auth.getUser();
+    if (userError || !user) {
+      return jsonResponse(req, { success: false, error: "Unauthorized" }, { status: 401, headers: corsHeaders });
+    }
+    const { data: roleRow, error: roleError } = await serviceClient
+      .from("user_roles")
+      .select("role")
+      .eq("user_id", user.id)
+      .eq("role", "admin")
+      .maybeSingle();
+    if (roleError || !roleRow) {
+      return jsonResponse(req, { success: false, error: "forbidden" }, { status: 403, headers: corsHeaders });
+    }
+  }
+
+  return jsonResponse(
+    req,
+    {
+      success: true,
+      function: "get-chat-media-url",
+      token_ttl_seconds: TOKEN_TTL_SECONDS,
+      chat_stream_hostname_configured: Boolean(Deno.env.get("BUNNY_CHAT_STREAM_CDN_HOSTNAME")?.trim()),
+      chat_stream_token_security_key_configured: Boolean(Deno.env.get("BUNNY_CHAT_STREAM_TOKEN_SECURITY_KEY")?.trim()),
+      profile_stream_hostname_configured: Boolean(Deno.env.get("BUNNY_STREAM_CDN_HOSTNAME")?.trim()),
+      profile_stream_token_security_key_configured: Boolean(Deno.env.get("BUNNY_STREAM_TOKEN_SECURITY_KEY")?.trim()),
+      storage_zone_configured: Boolean(Deno.env.get("BUNNY_STORAGE_ZONE")?.trim()),
+      storage_api_key_configured: Boolean(Deno.env.get("BUNNY_STORAGE_API_KEY")?.trim()),
+    },
+    { headers: corsHeaders },
   );
 }
 
@@ -734,6 +826,7 @@ async function handleProxy(req: Request): Promise<Response> {
 
 serve(async (req) => {
   if (req.method === "OPTIONS") return preflightResponse(req);
+  if (req.method === "GET" && new URL(req.url).searchParams.get("health") === "1") return handleHealth(req);
   if (req.method === "GET") return handleProxy(req);
   if (req.method === "POST") return handleIssueUrl(req);
   return jsonResponse(req, { success: false, error: "method_not_allowed" }, { status: 405, headers: corsHeadersForRequest(req) });

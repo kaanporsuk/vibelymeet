@@ -22,6 +22,8 @@ export const CHAT_IMAGE_MESSAGE_PREFIX = "__IMAGE__|";
 
 /**
  * Forward-compatible structured payload for chat photo messages.
+ * v:2 is the first structured payload version from Phase 8.3; the implicit
+ * "v:1" was the legacy text marker `__IMAGE__|<ref>`.
  * New rows keep the legacy `content = "__IMAGE__|<ref>"` marker for old clients,
  * while modern renderers prefer this top-level media reference.
  */

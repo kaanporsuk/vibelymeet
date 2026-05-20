@@ -69,7 +69,7 @@ On iOS silent mode, audio may be muted until a future native rebuild adds audio-
 
 Native Vibe Video telemetry lives in `apps/mobile/lib/vibeVideoTelemetry.ts` and emits PostHog events plus Sentry breadcrumbs. Event props are sanitized; do not add local file paths, auth headers, signed URLs, or tokens.
 
-Native emits upload, processing, stale-processing, playback, delete, replace, caption, CDN-missing, and profile-report events. `vibe_video_stale_processing_observed` includes user id, video uid, normalized status, age, status timestamp, platform, and surface after sanitization. The native public profile report flow passes `reportedHasVibeVideo` into `ReportFlowModal`; successful reports for profiles with a Vibe Video UID emit `vibe_video_profile_report_submitted`.
+Native emits upload, processing, stale-processing, playback, delete, replace, caption, CDN-missing, and profile-report events. `vibe_video_stale_processing_observed` includes user id, video uid, normalized status, age, status timestamp, platform, and surface after sanitization. The native public profile report flow passes `reportedHasVibeVideo` into `ReportFlowModal`; successful reports for profiles with a Vibe Video UID or signed playback ref emit `vibe_video_profile_report_submitted`.
 
 Foreground/profile-load recovery:
 

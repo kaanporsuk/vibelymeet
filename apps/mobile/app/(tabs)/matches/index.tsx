@@ -921,8 +921,10 @@ export default function MatchesListScreen() {
               id: actionsMatch.id,
               name: actionsMatch.name,
               reportedHasVibeVideo:
-                typeof actionsMatch.bunnyVideoUid === 'string' &&
-                actionsMatch.bunnyVideoUid.trim().length > 0,
+                (typeof actionsMatch.bunnyVideoUid === 'string' &&
+                  actionsMatch.bunnyVideoUid.trim().length > 0) ||
+                (typeof actionsMatch.vibeVideoPlaybackRef === 'string' &&
+                  actionsMatch.vibeVideoPlaybackRef.trim().length > 0),
             });
             setActionsMatch(null);
           }
@@ -965,8 +967,10 @@ export default function MatchesListScreen() {
               id: unmatchSheetMatch.id,
               name: unmatchSheetMatch.name,
               reportedHasVibeVideo:
-                typeof unmatchSheetMatch.bunnyVideoUid === 'string' &&
-                unmatchSheetMatch.bunnyVideoUid.trim().length > 0,
+                (typeof unmatchSheetMatch.bunnyVideoUid === 'string' &&
+                  unmatchSheetMatch.bunnyVideoUid.trim().length > 0) ||
+                (typeof unmatchSheetMatch.vibeVideoPlaybackRef === 'string' &&
+                  unmatchSheetMatch.vibeVideoPlaybackRef.trim().length > 0),
             });
           }
         }}

@@ -75,7 +75,8 @@ test("other-user age, zodiac, work, lifestyle aliases, and verification badges a
       email_verified: true,
       phone_verified: true,
       photo_verified: true,
-      bunny_video_uid: "11111111-1111-4111-8111-111111111111",
+      bunny_video_uid: null,
+      bunny_video_status: null,
       vibe_video_signed_playback_required: true,
       vibe_video_playback_ref: "profile_vibe_video:550e8400-e29b-41d4-a716-446655440000:11111111-1111-4111-8111-111111111111",
     },
@@ -88,6 +89,7 @@ test("other-user age, zodiac, work, lifestyle aliases, and verification badges a
   assert.deepEqual(vm.photos, ["photos/a.jpg"]);
   assert.deepEqual(vm.verification, { email: true, phone: true, photo: true });
   assert.deepEqual(vm.lifestyleDetails, [{ key: "exercise", label: "Workout", value: "Daily" }]);
+  assert.equal(vm.vibeVideo.uid, null);
   assert.equal(vm.vibeVideo.signedPlaybackRequired, true);
   assert.equal(
     vm.vibeVideo.playbackRef,
