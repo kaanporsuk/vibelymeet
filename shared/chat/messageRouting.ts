@@ -71,6 +71,7 @@ export interface VibeClipDisplayMeta {
   durationSec: number;
   durationMs: number;
   durationLabel: string;
+  clientRequestId?: string | null;
   thumbnailUrl: string | null;
   posterSource: "uploaded_thumbnail" | "first_frame" | "bunny_stream_thumbnail";
   aspectRatio: number | null;
@@ -105,6 +106,10 @@ export function extractVibeClipMeta(row: {
     durationMs,
     durationSec,
     durationLabel: `${mins}:${secs.toString().padStart(2, "0")}`,
+    clientRequestId:
+      typeof sp?.client_request_id === "string" && sp.client_request_id.trim().length > 0
+        ? sp.client_request_id.trim()
+        : null,
     thumbnailUrl:
       typeof sp?.thumbnail_url === "string" && sp.thumbnail_url
         ? sp.thumbnail_url

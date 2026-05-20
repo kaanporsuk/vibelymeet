@@ -3080,6 +3080,7 @@ export default function ChatThreadScreen() {
               thumbnailSourceRef={item.thumbnail_source_ref}
               onResolvedVideoUrl={(uri) => rememberResolvedVideoUri(item.id, uri)}
               onResolvedThumbnailUrl={(uri) => rememberResolvedThumbnailUri(item.id, uri)}
+              clientRequestId={clientRequestId}
               posterPreviewState={posterPreviewState}
               onPosterPreviewStateChange={(state, thumbnailUrl) =>
                 rememberVibeClipPosterPreviewState(item.id, thumbnailUrl ?? displayClipMeta.thumbnailUrl, state)

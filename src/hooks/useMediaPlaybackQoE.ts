@@ -117,6 +117,7 @@ export function useMediaPlaybackQoE(
         surface,
         provider: provider ?? "unknown",
         message_id: messageId ?? "none",
+        client_request_id: clientRequestId ?? "none",
         rebuffer_count: rebufferCount,
         qoe_degraded: degraded,
       });
