@@ -30,6 +30,7 @@ export {
 } from "@clientShared/featureFlags/clientFeatureFlagCore";
 
 let webHydrated = false;
+const UPLOAD_FLAG_EVALUATION_TIMEOUT_MS = 1_500;
 
 function getWebFeatureFlagStorage(): ClientFeatureFlagStorage | null {
   if (typeof window === "undefined") return null;
@@ -151,15 +152,34 @@ function failClosedUploadEvaluation(flag: ClientFeatureFlagKey): ClientFeatureFl
   };
 }
 
+function withUploadFlagTimeout<T>(promise: Promise<T>): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timeoutId = setTimeout(
+      () => reject(new Error("client_feature_flag_upload_timeout")),
+      UPLOAD_FLAG_EVALUATION_TIMEOUT_MS,
+    );
+    promise.then(
+      (value) => {
+        clearTimeout(timeoutId);
+        resolve(value);
+      },
+      (error) => {
+        clearTimeout(timeoutId);
+        reject(error);
+      },
+    );
+  });
+}
+
 export async function evaluateClientFeatureFlagForUpload(
   flag: ClientFeatureFlagKey,
 ): Promise<ClientFeatureFlagEvaluation> {
   try {
     const {
       data: { user },
-    } = await supabase.auth.getUser();
+    } = await withUploadFlagTimeout(supabase.auth.getUser());
     if (!user?.id) return failClosedUploadEvaluation(flag);
-    return await fetchClientFeatureFlag(flag, user.id, true);
+    return await withUploadFlagTimeout(fetchClientFeatureFlag(flag, user.id, true));
   } catch {
     return failClosedUploadEvaluation(flag);
   }

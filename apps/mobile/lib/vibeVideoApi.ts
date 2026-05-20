@@ -93,7 +93,7 @@ function pickNumber(r: Record<string, unknown>, key: string): number | undefined
   return undefined;
 }
 
-function extensionFromFileUri(fileUri: string): string {
+export function extensionFromFileUri(fileUri: string): string {
   const pathOnly = fileUri.split('?')[0].split('#')[0];
   const lastSeg = pathOnly.split('/').pop() ?? '';
   const dot = lastSeg.lastIndexOf('.');
@@ -101,7 +101,7 @@ function extensionFromFileUri(fileUri: string): string {
   return lastSeg.slice(dot + 1).toLowerCase();
 }
 
-function mimeFromExtension(extension: string): string {
+export function mimeFromExtension(extension: string): string {
   if (extension === 'mov') return 'video/quicktime';
   if (extension === 'mp4' || extension === 'm4v') return 'video/mp4';
   if (extension === 'webm') return 'video/webm';
@@ -154,7 +154,12 @@ async function deleteLocalFileQuiet(uri: string): Promise<void> {
 }
 
 export async function getCreateVideoUploadCredentials(
-  options?: { context?: 'onboarding' | 'profile_studio'; clientRequestId?: string },
+  options?: {
+    context?: 'onboarding' | 'profile_studio';
+    clientRequestId?: string;
+    sourceBytes?: number | null;
+    mimeType?: string | null;
+  },
 ): Promise<CreateVideoUploadCredentials> {
   const accessToken = await getCachedAccessToken();
   if (!accessToken) throw new Error('Not authenticated');
@@ -173,6 +178,8 @@ export async function getCreateVideoUploadCredentials(
       body: JSON.stringify({
         context: options?.context ?? 'profile_studio',
         client_request_id: clientRequestId,
+        source_bytes: options?.sourceBytes ?? null,
+        mime_type: options?.mimeType ?? null,
       }),
     });
   } catch (e) {

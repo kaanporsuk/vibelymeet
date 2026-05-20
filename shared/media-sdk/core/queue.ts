@@ -23,6 +23,7 @@ export type MediaUploadQueueFilter = {
 export interface MediaUploadQueue {
   put(record: MediaUploadQueueRecord): Promise<void>;
   get(id: string): Promise<MediaUploadQueueRecord | null>;
+  findByClientRequestId(clientRequestId: string, scopeKey?: string | null): Promise<MediaUploadQueueRecord | null>;
   update(id: string, patch: Partial<Omit<MediaUploadQueueRecord, "id">>): Promise<MediaUploadQueueRecord | null>;
   remove(id: string): Promise<void>;
   list(filter?: MediaUploadQueueFilter): Promise<MediaUploadQueueRecord[]>;
@@ -83,6 +84,11 @@ export class MemoryMediaUploadQueue implements MediaUploadQueue {
   async get(id: string): Promise<MediaUploadQueueRecord | null> {
     const record = this.records.get(id);
     return record ? { ...record } : null;
+  }
+
+  async findByClientRequestId(clientRequestId: string, scopeKey?: string | null): Promise<MediaUploadQueueRecord | null> {
+    const rows = await this.list(scopeKey === undefined ? {} : { scopeKey });
+    return rows.find((record) => record.clientRequestId === clientRequestId) ?? null;
   }
 
   async update(

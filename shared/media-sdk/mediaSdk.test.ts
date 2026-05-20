@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 import {
   assertNativeUriSource,
@@ -10,6 +11,8 @@ import { assertWebMediaSource, createWebMediaSdk, IndexedDbMediaUploadQueue, web
 import { createNativeMediaSdk as createNativeMediaSdkFromRoot, createWebMediaSdk as createWebMediaSdkFromRoot } from ".";
 import { MemoryMediaUploadQueue, type MediaUploadQueueRecord } from "./core/queue";
 import type { MediaTelemetrySink } from "./core/telemetry";
+import { safeTelemetryFields } from "./core/telemetry";
+import { reconcileMediaUploadQueue } from "./core/reconcile";
 import { createMediaUploadTask } from "./core/task";
 import {
   createInitialMediaUploadSnapshot,
@@ -17,6 +20,11 @@ import {
 } from "./core/state-machine";
 
 const uuid = "11111111-1111-4111-8111-111111111111";
+const repoRoot = process.cwd();
+
+function readRepoFile(path: string): string {
+  return readFileSync(`${repoRoot}/${path}`, "utf8");
+}
 
 async function flushMediaTask(): Promise<void> {
   await new Promise<void>((resolve) => setTimeout(resolve, 0));
@@ -47,6 +55,10 @@ test("media upload state machine follows the canonical upload lifecycle", () => 
   assert.equal(snapshot.progress, 0.4);
   snapshot = transitionMediaUploadState(snapshot, { type: "progress", progress: 0.2, atMs: 4 });
   assert.equal(snapshot.progress, 0.4, "progress cannot move backwards");
+  snapshot = transitionMediaUploadState(snapshot, { type: "pause", atMs: 4.5 });
+  assert.equal(snapshot.state, "paused");
+  snapshot = transitionMediaUploadState(snapshot, { type: "resume", atMs: 4.75 });
+  assert.equal(snapshot.state, "uploading");
   snapshot = transitionMediaUploadState(snapshot, { type: "upload_complete", atMs: 5 });
   assert.equal(snapshot.state, "processing");
   assert.equal(snapshot.progress, 1);
@@ -64,6 +76,127 @@ test("media upload state machine follows the canonical upload lifecycle", () => 
     atMs: 7,
   });
   assert.equal(terminal.state, "ready", "ready is terminal and ignores late failures");
+});
+
+test("media task pause and resume update visible state and telemetry", async () => {
+  const events: string[] = [];
+  const task = createMediaUploadTask({
+    input: {
+      family: "vibe_video",
+      source: new Blob(["video"], { type: "video/mp4" }),
+      options: { clientRequestId: uuid },
+    },
+    platform: "web",
+    telemetry: {
+      emit(event) {
+        events.push(event.name);
+      },
+      exception() {},
+    },
+    runner: (controls) => {
+      controls.bindLifecycle({
+        pause: () => undefined,
+        resume: () => undefined,
+      });
+    },
+  });
+
+  await flushMediaTask();
+  assert.equal(task.snapshot().state, "uploading");
+  await task.pause();
+  assert.equal(task.snapshot().state, "paused");
+  await task.resume();
+  assert.equal(task.snapshot().state, "uploading");
+  assert.deepEqual(events, ["media_upload_pause_requested", "media_upload_resume_requested"]);
+});
+
+test("media task reports lifecycle pause and resume control failures", async () => {
+  const exceptions: Array<{ error: unknown; fields?: Record<string, unknown> }> = [];
+  const telemetry = {
+    emit() {},
+    exception(error: unknown, fields?: Record<string, unknown>) {
+      exceptions.push({ error, fields });
+    },
+  };
+  const pauseTask = createMediaUploadTask({
+    input: {
+      family: "vibe_video",
+      source: new Blob(["video"], { type: "video/mp4" }),
+      options: { clientRequestId: `${uuid}-pause` },
+    },
+    platform: "web",
+    telemetry,
+    runner: (controls) => {
+      controls.bindLifecycle({
+        pause: () => {
+          throw new Error("pause exploded");
+        },
+      });
+    },
+  });
+
+  await flushMediaTask();
+  await assert.rejects(() => pauseTask.pause(), /pause exploded/);
+  assert.equal(pauseTask.snapshot().state, "uploading");
+  assert.equal(exceptions[0]?.fields?.event, "pause");
+
+  const resumeTask = createMediaUploadTask({
+    input: {
+      family: "vibe_video",
+      source: new Blob(["video"], { type: "video/mp4" }),
+      options: { clientRequestId: `${uuid}-resume` },
+    },
+    platform: "web",
+    telemetry,
+    runner: (controls) => {
+      controls.bindLifecycle({
+        pause: () => undefined,
+        resume: () => {
+          throw new Error("resume exploded");
+        },
+      });
+    },
+  });
+
+  await flushMediaTask();
+  await resumeTask.pause();
+  await assert.rejects(() => resumeTask.resume(), /resume exploded/);
+  assert.equal(resumeTask.snapshot().state, "paused");
+  assert.equal(exceptions[1]?.fields?.event, "resume");
+});
+
+test("media task does not claim paused or resumed when lifecycle controls are unsupported", async () => {
+  const events: Array<{ name: string; state?: string; reason?: unknown }> = [];
+  const task = createMediaUploadTask({
+    input: {
+      family: "vibe_video",
+      source: new Blob(["video"], { type: "video/mp4" }),
+      options: { clientRequestId: uuid },
+    },
+    platform: "web",
+    telemetry: {
+      emit(event) {
+        events.push({
+          name: event.name,
+          state: event.state,
+          reason: event.fields?.reason,
+        });
+      },
+      exception() {},
+    },
+    runner: () => undefined,
+  });
+
+  await flushMediaTask();
+  assert.equal(task.snapshot().state, "uploading");
+  await task.pause();
+  assert.equal(task.snapshot().state, "uploading");
+  await task.resume();
+  assert.equal(task.snapshot().state, "uploading");
+  assert.deepEqual(events, [
+    { name: "media_upload_pause_requested", state: "uploading", reason: "unsupported" },
+    { name: "media_upload_resume_requested", state: "uploading", reason: "unsupported" },
+  ]);
 });
 
 test("media upload state machine retries failed and cancelled attempts intentionally", () => {
@@ -658,6 +791,46 @@ test("native AsyncStorage queue falls back to memory without leaking removed row
   assert.equal((await queue.list()).length, 0);
 });
 
+test("native AsyncStorage queue stores per-record rows and supports client-request lookup", async () => {
+  const storage = new Map<string, string>();
+  const queue = new NativeAsyncStorageMediaUploadQueue({
+    async getItem(key) {
+      return storage.get(key) ?? null;
+    },
+    async setItem(key, value) {
+      storage.set(key, value);
+    },
+    async removeItem(key) {
+      storage.delete(key);
+    },
+  });
+  const snapshot = createInitialMediaUploadSnapshot({
+    id: "native-recorded",
+    clientRequestId: uuid,
+    family: "vibe_video",
+    platform: "ios",
+    nowMs: 1,
+  });
+
+  await queue.put({
+    id: snapshot.id,
+    clientRequestId: snapshot.clientRequestId,
+    family: snapshot.family,
+    state: snapshot.state,
+    sourceRef: "file:///tmp/video.mp4",
+    sourceSha256: "sha256-native",
+    scopeKey: "profile:self",
+    createdAtMs: snapshot.createdAtMs,
+    updatedAtMs: snapshot.updatedAtMs,
+    snapshot,
+  });
+
+  assert.equal(storage.has("vibely.upload-queue"), false);
+  assert.ok(storage.has("vibely.upload-queue:index"));
+  assert.ok(storage.has("vibely.upload-queue:record:native-recorded"));
+  assert.equal((await queue.findByClientRequestId(uuid, "profile:self"))?.id, "native-recorded");
+});
+
 test("indexedDB queue falls back to memory when the browser store is unavailable", async () => {
   const queue = new IndexedDbMediaUploadQueue();
   const snapshot = createInitialMediaUploadSnapshot({
@@ -684,6 +857,239 @@ test("indexedDB queue falls back to memory when the browser store is unavailable
 
   await queue.remove(snapshot.id);
   assert.equal((await queue.list()).length, 0);
+});
+
+test("queue reconciliation removes server-terminal and stale failed rows without touching active rows", async () => {
+  const queue = new MemoryMediaUploadQueue();
+  const active = createInitialMediaUploadSnapshot({
+    id: "active",
+    clientRequestId: "11111111-1111-4111-8111-111111111112",
+    family: "vibe_video",
+    platform: "web",
+    nowMs: 1,
+  });
+  const terminal = createInitialMediaUploadSnapshot({
+    id: "terminal",
+    clientRequestId: "11111111-1111-4111-8111-111111111113",
+    family: "chat_vibe_clip",
+    platform: "web",
+    nowMs: 1,
+  });
+  const failed = transitionMediaUploadState(createInitialMediaUploadSnapshot({
+    id: "failed-old",
+    clientRequestId: "11111111-1111-4111-8111-111111111114",
+    family: "vibe_video",
+    platform: "web",
+    nowMs: 1,
+  }), { type: "fail", error: { code: "network" }, atMs: 2 });
+
+  for (const snapshot of [active, terminal, failed]) {
+    await queue.put({
+      id: snapshot.id,
+      clientRequestId: snapshot.clientRequestId,
+      family: snapshot.family,
+      state: snapshot.state,
+      sourceRef: "source",
+      scopeKey: "profile:self",
+      createdAtMs: snapshot.createdAtMs,
+      updatedAtMs: snapshot.updatedAtMs,
+      snapshot,
+    });
+  }
+
+  const result = await reconcileMediaUploadQueue({
+    queue,
+    nowMs: 20 * 60 * 1000,
+    staleSweepGracePeriodMs: 10 * 60 * 1000,
+    reconciler: {
+      async fetch(record) {
+        if (record.id === "terminal") return { state: "ready", result: { providerObjectId: "ready-video" } };
+        if (record.id === "failed-old") return null;
+        return { state: "processing", expiresAtMs: 20 * 60 * 1000 + 60_000 };
+      },
+    },
+  });
+
+  assert.equal(result.checked, 3);
+  assert.equal(result.removed, 2);
+  const retained = await queue.list();
+  assert.deepEqual(retained.map((record) => record.id), ["active"]);
+  assert.equal(retained[0]?.state, "processing");
+  assert.equal(retained[0]?.snapshot.progress, 1);
+});
+
+test("queue reconciliation trusts server-active state before pruning stale local failures", async () => {
+  const queue = new MemoryMediaUploadQueue();
+  const failed = transitionMediaUploadState(createInitialMediaUploadSnapshot({
+    id: "locally-failed-server-active",
+    clientRequestId: "11111111-1111-4111-8111-111111111115",
+    family: "vibe_video",
+    platform: "web",
+    nowMs: 1,
+  }), { type: "fail", error: { code: "offline_timeout" }, atMs: 2 });
+  await queue.put({
+    id: failed.id,
+    clientRequestId: failed.clientRequestId,
+    family: failed.family,
+    state: failed.state,
+    sourceRef: "source",
+    scopeKey: "profile:self",
+    createdAtMs: failed.createdAtMs,
+    updatedAtMs: failed.updatedAtMs,
+    snapshot: failed,
+  });
+
+  const result = await reconcileMediaUploadQueue({
+    queue,
+    nowMs: 20 * 60 * 1000,
+    staleSweepGracePeriodMs: 10 * 60 * 1000,
+    reconciler: {
+      async fetch() {
+        return { state: "processing", updatedAtMs: 20 * 60 * 1000 };
+      },
+    },
+  });
+
+  const retained = await queue.list();
+  assert.equal(result.removed, 0);
+  assert.equal(result.retained, 1);
+  assert.equal(retained[0]?.state, "processing");
+  assert.equal(retained[0]?.snapshot.error, null);
+});
+
+test("queue reconciliation syncs active nudged server state before resume decisions", async () => {
+  const queue = new MemoryMediaUploadQueue();
+  const uploading = transitionMediaUploadState(createInitialMediaUploadSnapshot({
+    id: "expired-uploading",
+    clientRequestId: "11111111-1111-4111-8111-111111111116",
+    family: "vibe_video",
+    platform: "web",
+    nowMs: 1,
+  }), { type: "begin_upload", atMs: 2 });
+  await queue.put({
+    id: uploading.id,
+    clientRequestId: uploading.clientRequestId,
+    family: uploading.family,
+    state: uploading.state,
+    sourceRef: "source",
+    scopeKey: "profile:self",
+    createdAtMs: uploading.createdAtMs,
+    updatedAtMs: uploading.updatedAtMs,
+    snapshot: uploading,
+  });
+
+  const result = await reconcileMediaUploadQueue({
+    queue,
+    nowMs: 20 * 60 * 1000,
+    reconciler: {
+      async fetch() {
+        return { state: "uploading", expiresAtMs: 1, updatedAtMs: 2 };
+      },
+      async nudge() {
+        return { state: "processing", updatedAtMs: 20 * 60 * 1000 };
+      },
+    },
+  });
+
+  const retained = await queue.list();
+  assert.equal(result.nudged, 1);
+  assert.equal(result.retained, 1);
+  assert.equal(retained[0]?.state, "processing");
+  assert.equal(retained[0]?.snapshot.progress, 1);
+});
+
+test("SDK reconcile rehydrates recoverable queue records and resumes them once", async () => {
+  const queue = new MemoryMediaUploadQueue();
+  const snapshot = transitionMediaUploadState(createInitialMediaUploadSnapshot({
+    id: "recoverable-upload",
+    clientRequestId: uuid,
+    family: "vibe_video",
+    platform: "web",
+    nowMs: 1,
+  }), { type: "begin_upload", atMs: 2 });
+  await queue.put({
+    id: snapshot.id,
+    clientRequestId: snapshot.clientRequestId,
+    family: snapshot.family,
+    state: snapshot.state,
+    sourceRef: "recoverable.mp4:video/mp4:5",
+    sourceSha256: "recoverable-sha",
+    scopeKey: "profile:self",
+    createdAtMs: snapshot.createdAtMs,
+    updatedAtMs: snapshot.updatedAtMs,
+    snapshot,
+    metadata: {
+      source_blob: new Blob(["video"], { type: "video/mp4" }),
+      mime_type: "video/mp4",
+    },
+  });
+
+  let delegateCalls = 0;
+  const sdk = createWebMediaSdk({
+    queue,
+    delegates: {
+      video: {
+        uploadVibeVideo: (_input, controls) => {
+          delegateCalls += 1;
+          controls.dispatch({ type: "ready", result: { providerObjectId: "resumed-video" } });
+        },
+      },
+    },
+  });
+
+  const result = await sdk.reconcile({ reason: "test_resume" });
+  await flushMediaTask();
+  await flushMediaTask();
+
+  assert.equal(result.checked, 1);
+  assert.equal(delegateCalls, 1);
+  assert.equal((await queue.list()).length, 0);
+
+  await sdk.reconcile({ reason: "test_resume" });
+  await flushMediaTask();
+  assert.equal(delegateCalls, 1);
+});
+
+test("rehydrated tasks keep persisted ids and accept authoritative server-ready transitions", () => {
+  const queue = new MemoryMediaUploadQueue();
+  const sdk = createWebMediaSdk({ queue });
+  const snapshot = transitionMediaUploadState(createInitialMediaUploadSnapshot({
+    id: "persisted-task",
+    clientRequestId: uuid,
+    family: "vibe_video",
+    platform: "web",
+    nowMs: 1,
+  }), { type: "fail", error: { code: "local_timeout" }, atMs: 2 });
+  const task = sdk.video.rehydrate({
+    id: snapshot.id,
+    clientRequestId: snapshot.clientRequestId,
+    family: snapshot.family,
+    state: snapshot.state,
+    sourceRef: "video.mp4:video/mp4:5",
+    scopeKey: "profile:self",
+    createdAtMs: snapshot.createdAtMs,
+    updatedAtMs: snapshot.updatedAtMs,
+    snapshot,
+  });
+
+  assert.equal(task.id, "persisted-task");
+  assert.equal(task.snapshot().state, "failed");
+  task.applyServerSnapshot({ state: "ready", result: { providerObjectId: "server-ready" } });
+  assert.equal(task.snapshot().state, "ready");
+  assert.equal(task.snapshot().result?.providerObjectId, "server-ready");
+});
+
+test("telemetry redaction strips non-allowlisted and sensitive fields at the SDK boundary", () => {
+  assert.deepEqual(safeTelemetryFields({
+    client_request_id: uuid,
+    path_selected: "media_sdk",
+    match_token: "secret",
+    signed_url: "https://example.test/private",
+    Authorization: "Bearer secret",
+  }), {
+    client_request_id: uuid,
+    path_selected: "media_sdk",
+  });
 });
 
 test("local queue binding rejects same client request id with a different source hash in one scope", async () => {
@@ -947,4 +1353,39 @@ test("platform adapters fail closed on invalid sources and root SDK exports both
   assert.equal(webTask.snapshot().state, "failed");
   assert.equal(webTask.snapshot().error?.code, "Error");
   assert.match(webTask.snapshot().error?.message ?? "", /web_media_blob_required/);
+});
+
+test("production media SDK factories wire telemetry sinks and reconciliation", () => {
+  const files = [
+    "src/lib/mediaSdk/webVideoUploads.ts",
+    "src/lib/mediaSdk/webStorageUploads.ts",
+    "apps/mobile/lib/mediaSdk/nativeVideoUploads.ts",
+    "apps/mobile/lib/mediaSdk/nativeStorageUploads.ts",
+  ];
+  for (const path of files) {
+    const source = readRepoFile(path);
+    assert.match(source, /telemetrySinks:\s*(webMediaTelemetrySinks|nativeMediaTelemetrySinks)/, path);
+    assert.match(source, /reconciler:\s*create(Web|Native)MediaUploadReconciler\(\)/, path);
+    assert.match(source, /media_upload_sdk_flag_evaluated/, path);
+    assert.match(source, /catch\s*\{[\s\S]{0,120}failClosed/, `${path} must fail closed to legacy on flag evaluation errors`);
+  }
+});
+
+test("phase 3 schema and delete contracts preserve recovery observability", () => {
+  const migration = readRepoFile("supabase/migrations/20260520143000_media_sdk_phase3_hardening.sql");
+  assert.match(migration, /ADD COLUMN IF NOT EXISTS duration_ms/);
+  assert.match(migration, /ADD COLUMN IF NOT EXISTS aspect_ratio/);
+  assert.match(migration, /ADD COLUMN IF NOT EXISTS source_bytes/);
+  assert.match(migration, /ADD COLUMN IF NOT EXISTS mime_type/);
+  assert.match(migration, /ADD COLUMN IF NOT EXISTS attempt_count/);
+  assert.match(migration, /idx_vibe_video_uploads_retry_attempts/);
+  assert.match(migration, /GRANT SELECT ON TABLE public\.chat_vibe_clip_uploads TO authenticated/);
+  assert.match(migration, /GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public\.chat_vibe_clip_uploads TO service_role/);
+  assert.match(migration, /increment_vibe_video_upload_attempt_count/);
+  assert.match(migration, /GRANT EXECUTE ON FUNCTION public\.increment_vibe_video_upload_attempt_count\(uuid\)\s+TO service_role/);
+  assert.match(migration, /user_id.*sender_id/s);
+  assert.match(migration, /EXPECTED_TUS_CREDENTIAL_TTL_MS/);
+
+  const deleteVibeVideo = readRepoFile("supabase/functions/delete-vibe-video/index.ts");
+  assert.match(deleteVibeVideo, /\.in\("status",\s*\[[^\]]*"failed"[^\]]*\]\)/s);
 });

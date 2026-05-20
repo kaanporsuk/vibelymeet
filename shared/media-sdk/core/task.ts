@@ -40,6 +40,9 @@ function randomMediaId(): string {
     const hex = Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
     return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
   }
+  if (typeof console !== "undefined" && typeof console.warn === "function") {
+    console.warn("[media-sdk] crypto.randomUUID/getRandomValues unavailable; falling back to Math.random id generation");
+  }
   return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (ch) => {
     const n = Math.floor(Math.random() * 16);
     return (ch === "x" ? n : (n & 0x3) | 0x8).toString(16);
@@ -47,6 +50,9 @@ function randomMediaId(): string {
 }
 
 export function createMediaUploadTask(params: {
+  id?: string;
+  initialSnapshot?: MediaUploadSnapshot | null;
+  autoStart?: boolean;
   input: MediaUploadInput;
   platform: MediaUploadPlatform;
   telemetry?: MediaTelemetry;
@@ -57,21 +63,26 @@ export function createMediaUploadTask(params: {
   ) => Promise<void> | void;
   nowMs?: number;
 }): MediaUploadTask {
-  const id = randomMediaId();
-  const clientRequestId = params.input.options?.clientRequestId?.trim() || id;
+  const id = params.id?.trim() || params.initialSnapshot?.id || randomMediaId();
+  const clientRequestId =
+    params.input.options?.clientRequestId?.trim() ||
+    params.initialSnapshot?.clientRequestId ||
+    id;
   const telemetry = params.telemetry ?? noopMediaTelemetry;
   const abortSignal = params.input.options?.signal ?? null;
   let lifecycleControls: MediaTaskLifecycleControls = {};
   let running = false;
   let rerunAfterCurrent = false;
   let abortListenerArmed = false;
-  let snapshot = createInitialMediaUploadSnapshot({
-    id,
-    clientRequestId,
-    family: params.input.family,
-    platform: params.platform,
-    nowMs: params.nowMs,
-  });
+  let snapshot = params.initialSnapshot
+    ? { ...params.initialSnapshot, id, clientRequestId, family: params.input.family, platform: params.platform }
+    : createInitialMediaUploadSnapshot({
+        id,
+        clientRequestId,
+        family: params.input.family,
+        platform: params.platform,
+        nowMs: params.nowMs,
+      });
   const listeners = new Map<MediaUploadTaskEvent, Set<MediaUploadTaskListener>>();
 
   const emit = (event: MediaUploadTaskEvent) => {
@@ -188,6 +199,15 @@ export function createMediaUploadTask(params: {
   const start = () => {
     void run();
   };
+  const runFromCreated = async () => {
+    if (abortSignal?.aborted) {
+      await cancelTask("aborted");
+      return;
+    }
+    armAbortListener();
+    if (running) rerunAfterCurrent = true;
+    else await run();
+  };
   if (abortSignal?.aborted) {
     void cancelTask("aborted").catch((error) => {
       telemetry.exception(error, {
@@ -199,8 +219,10 @@ export function createMediaUploadTask(params: {
   } else {
     armAbortListener();
   }
-  if (typeof queueMicrotask === "function") queueMicrotask(start);
-  else setTimeout(start, 0);
+  if (params.autoStart !== false) {
+    if (typeof queueMicrotask === "function") queueMicrotask(start);
+    else setTimeout(start, 0);
+  }
 
   return {
     id,
@@ -214,8 +236,59 @@ export function createMediaUploadTask(params: {
         set.delete(cb);
       };
     },
+    applyServerSnapshot(serverSnapshot) {
+      if (serverSnapshot.state === "ready") {
+        return dispatch({
+          type: "ready",
+          result: serverSnapshot.result ?? null,
+          atMs: serverSnapshot.atMs,
+        });
+      }
+      if (serverSnapshot.state === "failed") {
+        return dispatch({
+          type: "fail",
+          error: serverSnapshot.error ?? { code: "server_failed", retryable: true },
+          atMs: serverSnapshot.atMs,
+        });
+      }
+      if (serverSnapshot.state === "cancelled") {
+        return dispatch({ type: "cancel", reason: serverSnapshot.error?.message ?? "server_cancelled", atMs: serverSnapshot.atMs });
+      }
+      if (serverSnapshot.state === "processing") {
+        if (snapshot.state === "paused") dispatch({ type: "resume", atMs: serverSnapshot.atMs });
+        return dispatch({ type: "upload_complete", atMs: serverSnapshot.atMs });
+      }
+      if (serverSnapshot.state === "uploading" && snapshot.state === "paused") {
+        return dispatch({ type: "resume", atMs: serverSnapshot.atMs });
+      }
+      return snapshot;
+    },
     async pause() {
-      await lifecycleControls.pause?.();
+      if (!lifecycleControls.pause) {
+        telemetry.emit({
+          name: "media_upload_pause_requested",
+          family: snapshot.family,
+          platform: snapshot.platform,
+          state: snapshot.state,
+          clientRequestId: snapshot.clientRequestId,
+          fields: { reason: "unsupported" },
+        });
+        emit("telemetry");
+        return;
+      }
+      try {
+        await lifecycleControls.pause();
+      } catch (error) {
+        telemetry.exception(error, {
+          family: snapshot.family,
+          platform: snapshot.platform,
+          state: snapshot.state,
+          client_request_id: snapshot.clientRequestId,
+          event: "pause",
+        });
+        throw error;
+      }
+      dispatch({ type: "pause" });
       telemetry.emit({
         name: "media_upload_pause_requested",
         family: snapshot.family,
@@ -226,7 +299,31 @@ export function createMediaUploadTask(params: {
       emit("telemetry");
     },
     async resume() {
-      await lifecycleControls.resume?.();
+      if (!lifecycleControls.resume) {
+        telemetry.emit({
+          name: "media_upload_resume_requested",
+          family: snapshot.family,
+          platform: snapshot.platform,
+          state: snapshot.state,
+          clientRequestId: snapshot.clientRequestId,
+          fields: { reason: "unsupported" },
+        });
+        emit("telemetry");
+        return;
+      }
+      try {
+        await lifecycleControls.resume();
+      } catch (error) {
+        telemetry.exception(error, {
+          family: snapshot.family,
+          platform: snapshot.platform,
+          state: snapshot.state,
+          client_request_id: snapshot.clientRequestId,
+          event: "resume",
+        });
+        throw error;
+      }
+      dispatch({ type: "resume" });
       telemetry.emit({
         name: "media_upload_resume_requested",
         family: snapshot.family,
@@ -240,17 +337,14 @@ export function createMediaUploadTask(params: {
       await cancelTask(reason);
     },
     async retry() {
-      const before = snapshot;
-      dispatch({ type: "retry" });
-      if (snapshot !== before && snapshot.state === "created") {
-        if (abortSignal?.aborted) {
-          await cancelTask("aborted");
-          return;
-        }
-        armAbortListener();
-        if (running) rerunAfterCurrent = true;
-        else await run();
+      if (snapshot.state === "created") {
+        await runFromCreated();
+        return;
       }
+      if (running && (snapshot.state === "uploading" || snapshot.state === "paused")) return;
+      const before = snapshot;
+      const next = dispatch({ type: "retry" });
+      if (next !== before) await runFromCreated();
     },
     snapshot() {
       return snapshot;

@@ -21,6 +21,8 @@
 
 import {
   getCreateVideoUploadCredentials,
+  extensionFromFileUri,
+  mimeFromExtension,
   newVibeVideoClientRequestId,
   uploadVibeVideoToBunny,
   type VibeVideoUploadSource,
@@ -509,7 +511,11 @@ async function _run(
       upload_source: uploadSource,
       client_request_id: clientRequestId,
     });
-    const creds = await getCreateVideoUploadCredentials({ context, clientRequestId });
+    const creds = await getCreateVideoUploadCredentials({
+      context,
+      clientRequestId,
+      mimeType: mimeFromExtension(extensionFromFileUri(videoUri)),
+    });
     if (!_isCurrent(runId)) return;
     activeVideoId = creds.videoId;
 

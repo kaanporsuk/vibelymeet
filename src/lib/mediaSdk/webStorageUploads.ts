@@ -16,6 +16,8 @@ import {
   type UploadImageToBunnyResult,
 } from "@/services/imageUploadService";
 import { uploadVoiceToBunny } from "@/services/voiceUploadService";
+import { createWebMediaUploadReconciler } from "@/lib/mediaSdk/reconciliation";
+import { webMediaTelemetrySinks } from "@/lib/mediaSdk/sinks";
 
 type WebImageSdkUploadParams = {
   file: File | Blob;
@@ -47,6 +49,20 @@ function createClientRequestId(): string {
   return `media-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }
 
+function failClosedStorageEvaluation(flag: "media_v2_photo" | "media_v2_voice"): ClientFeatureFlagEvaluation {
+  const now = Date.now();
+  return {
+    flag,
+    enabled: false,
+    source: "error",
+    bucket: null,
+    rolloutBps: null,
+    userIdBucket: null,
+    fetchedAtMs: now,
+    expiresAtMs: now,
+  };
+}
+
 function trackMediaUploadStarted(params: {
   flag: "media_v2_photo" | "media_v2_voice";
   evaluation: ClientFeatureFlagEvaluation;
@@ -56,6 +72,18 @@ function trackMediaUploadStarted(params: {
 }): void {
   try {
     trackEvent("media_upload_started", {
+      active_flag: params.flag,
+      active_flag_enabled: params.evaluation.enabled,
+      active_flag_source: params.evaluation.source,
+      active_flag_bucket: params.evaluation.bucket,
+      active_flag_rollout_bps: params.evaluation.rolloutBps,
+      user_id_bucket: params.evaluation.userIdBucket,
+      path_selected: params.path,
+      family: params.family,
+      platform: "web",
+      client_request_id: params.clientRequestId,
+    });
+    trackEvent("media_upload_sdk_flag_evaluated", {
       active_flag: params.flag,
       active_flag_enabled: params.evaluation.enabled,
       active_flag_source: params.evaluation.source,
@@ -156,6 +184,8 @@ async function uploadWebVoiceViaLegacyService(
 function getWebStorageMediaSdk(): WebMediaSdk {
   if (!mediaSdk) {
     mediaSdk = createWebMediaSdk({
+      telemetrySinks: webMediaTelemetrySinks,
+      reconciler: createWebMediaUploadReconciler(),
       delegates: {
         photo: {
           uploadProfilePhoto: uploadWebPhotoViaLegacyService,
@@ -168,6 +198,10 @@ function getWebStorageMediaSdk(): WebMediaSdk {
     });
   }
   return mediaSdk;
+}
+
+export async function reconcileWebStorageMediaSdkQueue(reason = "manual"): Promise<void> {
+  await getWebStorageMediaSdk().reconcile({ reason });
 }
 
 function waitForTaskTerminal(task: MediaUploadTask): Promise<MediaUploadSnapshot> {
@@ -188,7 +222,12 @@ export async function uploadImageWithMediaSdk(
   const context = params.context ?? "profile_studio";
   const family = context === "chat" ? "chat_photo" : "profile_photo";
   const clientRequestId = params.clientRequestId ?? createClientRequestId();
-  const evaluation = await evaluateClientFeatureFlagForUpload("media_v2_photo");
+  let evaluation: ClientFeatureFlagEvaluation;
+  try {
+    evaluation = await evaluateClientFeatureFlagForUpload("media_v2_photo");
+  } catch {
+    evaluation = failClosedStorageEvaluation("media_v2_photo");
+  }
   const path = evaluation.enabled ? "media_sdk" : "legacy";
   trackMediaUploadStarted({
     flag: "media_v2_photo",
@@ -245,7 +284,12 @@ export async function uploadImageWithMediaSdk(
 
 export async function uploadVoiceWithMediaSdk(params: WebVoiceSdkUploadParams): Promise<string> {
   const clientRequestId = params.clientRequestId ?? createClientRequestId();
-  const evaluation = await evaluateClientFeatureFlagForUpload("media_v2_voice");
+  let evaluation: ClientFeatureFlagEvaluation;
+  try {
+    evaluation = await evaluateClientFeatureFlagForUpload("media_v2_voice");
+  } catch {
+    evaluation = failClosedStorageEvaluation("media_v2_voice");
+  }
   const path = evaluation.enabled ? "media_sdk" : "legacy";
   trackMediaUploadStarted({
     flag: "media_v2_voice",

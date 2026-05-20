@@ -477,7 +477,12 @@ async function _run(
             Authorization: `Bearer ${session.access_token}`,
             "Content-Type": "application/json",
           },
-          body: JSON.stringify({ context, client_request_id: clientRequestId }),
+          body: JSON.stringify({
+            context,
+            client_request_id: clientRequestId,
+            source_bytes: typeof file.size === "number" ? file.size : null,
+            mime_type: file.type || "video/mp4",
+          }),
         },
       );
     } catch (error) {

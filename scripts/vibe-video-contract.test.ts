@@ -954,13 +954,13 @@ test("media v2 Vibe Video attempts are schema-backed and dual-written by server 
   assert.match(webController, /newHeroVideoClientRequestId/);
   assert.match(webController, /heroVideoStartWithClientRequestId/);
   assert.match(webController, /const uploadClientRequestId = clientRequestId\.trim\(\) \|\| newHeroVideoClientRequestId\(\)/);
-  assert.match(webController, /body: JSON\.stringify\(\{ context, client_request_id: clientRequestId \}\)/);
+  assert.match(webController, /body: JSON\.stringify\(\{[\s\S]+context,[\s\S]+client_request_id: clientRequestId,[\s\S]+source_bytes:[\s\S]+mime_type:[\s\S]+\}\)/);
   assert.match(webController, /title: `vibe-video-\$\{clientRequestId\}`/);
   assert.match(nativeApi, /export function newVibeVideoClientRequestId/);
   assert.match(nativeApi, /client_request_id: clientRequestId/);
   assert.match(nativeController, /nativeHeroVideoStartWithClientRequestId/);
   assert.match(nativeController, /const uploadClientRequestId = clientRequestId\.trim\(\) \|\| newVibeVideoClientRequestId\(\)/);
-  assert.match(nativeController, /getCreateVideoUploadCredentials\(\{ context, clientRequestId \}\)/);
+  assert.match(nativeController, /getCreateVideoUploadCredentials\(\{[\s\S]+context,[\s\S]+clientRequestId,[\s\S]+mimeType:[\s\S]+\}\)/);
 
   assert.match(syncStatus, /\.from\("vibe_video_uploads"\)/);
   assert.match(syncStatus, /attemptPatch/);

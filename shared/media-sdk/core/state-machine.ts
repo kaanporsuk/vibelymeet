@@ -10,6 +10,8 @@ import type {
 export type MediaUploadTransition =
   | { type: "begin_upload"; atMs?: number }
   | { type: "progress"; progress: number; bytesUploaded?: number; bytesTotal?: number; atMs?: number }
+  | { type: "pause"; atMs?: number }
+  | { type: "resume"; atMs?: number }
   | { type: "upload_complete"; atMs?: number }
   | { type: "ready"; result?: MediaUploadResult | null; atMs?: number }
   | { type: "fail"; error: MediaUploadErrorInfo; atMs?: number }
@@ -19,6 +21,7 @@ export type MediaUploadTransition =
 export const MEDIA_UPLOAD_STATES: readonly MediaUploadState[] = [
   "created",
   "uploading",
+  "paused",
   "processing",
   "ready",
   "failed",
@@ -78,12 +81,20 @@ export function transitionMediaUploadState(
       const nextProgress = Math.max(snapshot.progress, clampUploadProgress(transition.progress));
       return touch({ state: "uploading", progress: nextProgress, error: null });
     }
+    case "pause": {
+      if (snapshot.state !== "uploading") return snapshot;
+      return touch({ state: "paused" });
+    }
+    case "resume": {
+      if (snapshot.state !== "paused") return snapshot;
+      return touch({ state: "uploading", error: null });
+    }
     case "upload_complete": {
       if (snapshot.state !== "created" && snapshot.state !== "uploading") return snapshot;
       return touch({ state: "processing", progress: 1, error: null });
     }
     case "ready": {
-      if (isMediaUploadTerminalState(snapshot.state)) return snapshot;
+      if (snapshot.state === "ready" || snapshot.state === "cancelled") return snapshot;
       return touch({
         state: "ready",
         progress: 1,
@@ -92,7 +103,7 @@ export function transitionMediaUploadState(
       });
     }
     case "fail": {
-      if (isMediaUploadTerminalState(snapshot.state)) return snapshot;
+      if (snapshot.state === "ready" || snapshot.state === "failed" || snapshot.state === "cancelled") return snapshot;
       return touch({
         state: "failed",
         error: transition.error,
@@ -108,7 +119,12 @@ export function transitionMediaUploadState(
       });
     }
     case "retry": {
-      if (snapshot.state !== "failed" && snapshot.state !== "cancelled") return snapshot;
+      if (
+        snapshot.state !== "failed" &&
+        snapshot.state !== "cancelled" &&
+        snapshot.state !== "paused" &&
+        snapshot.state !== "uploading"
+      ) return snapshot;
       return touch({
         state: "created",
         progress: 0,

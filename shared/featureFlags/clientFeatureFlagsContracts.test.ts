@@ -199,7 +199,9 @@ test("platform feature flag libs persist, prefetch, emit evaluation telemetry, a
     assert.match(source, /clearPersistedClientFeatureFlagCache/);
     assert.match(source, /evaluateClientFeatureFlagForUpload/);
     assert.match(source, /failClosedUploadEvaluation/);
-    assert.match(source, /fetchClientFeatureFlag\(flag, user\.id, true\)/);
+    assert.match(source, /UPLOAD_FLAG_EVALUATION_TIMEOUT_MS\s*=\s*1_500/);
+    assert.match(source, /client_feature_flag_upload_timeout/);
+    assert.match(source, /withUploadFlagTimeout\(fetchClientFeatureFlag\(flag, user\.id, true\)\)/);
   }
 });
 
