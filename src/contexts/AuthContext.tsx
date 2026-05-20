@@ -13,6 +13,14 @@ import {
 import { clearPreparedVideoDateEntryCache } from "@clientShared/matching/videoDatePrepareEntry";
 import { clearMyLocationDataCache } from "@/services/myLocationData";
 import { recordBrowserEvent, removeAllRealtimeChannels } from "@/lib/browserDiagnostics";
+import { queryClient } from "@/lib/queryClient";
+import {
+  CLIENT_FEATURE_FLAG_QUERY_KEY,
+  clearClientFeatureFlagCache,
+  clientFeatureFlagQueryKey,
+  hydrateClientFeatureFlagsForWeb,
+  prefetchClientFeatureFlagsForUser,
+} from "@/lib/clientFeatureFlags";
 
 interface User {
   id: string;
@@ -111,6 +119,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const authUserIdRef = useRef<string | null>(null);
   const sessionUserRef = useRef<SupabaseUser | null>(null);
 
+  const clearFeatureFlagState = useCallback(async () => {
+    await clearClientFeatureFlagCache();
+    queryClient.removeQueries({ queryKey: [CLIENT_FEATURE_FLAG_QUERY_KEY] });
+  }, []);
+
+  const warmFeatureFlags = useCallback((userId: string) => {
+    void hydrateClientFeatureFlagsForWeb()
+      .then(() => prefetchClientFeatureFlagsForUser(userId))
+      .then((evaluations) => {
+        for (const evaluation of evaluations) {
+          queryClient.setQueryData(clientFeatureFlagQueryKey(evaluation.flag, userId), evaluation);
+        }
+      })
+      .catch(() => undefined);
+  }, []);
+
   useEffect(() => {
     let cancelled = false;
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
@@ -123,6 +147,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (!nextUserId) {
           clearPreparedVideoDateEntryCache();
           clearMyLocationDataCache();
+          void clearFeatureFlagState();
           setEntryState(null);
           setEntryStateLoading(false);
           return;
@@ -130,6 +155,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (nextUserId !== previousUserId) {
           clearPreparedVideoDateEntryCache();
           clearMyLocationDataCache();
+          if (previousUserId) {
+            void clearFeatureFlagState();
+          } else {
+            queryClient.removeQueries({ queryKey: [CLIENT_FEATURE_FLAG_QUERY_KEY] });
+          }
           // Drop prior user's entry decision immediately so routing cannot use it
           // while the new session is already active (see currentUserId effect refresh).
           setEntryState(null);
@@ -173,7 +203,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       subscription.unsubscribe();
       window.removeEventListener("online", handleOnline);
     };
-  }, []);
+  }, [clearFeatureFlagState]);
 
   useEffect(() => {
     authUserIdRef.current = currentUserId;
@@ -294,6 +324,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (currentUserId) {
+      warmFeatureFlags(currentUserId);
       void refreshProfile();
       setEntryStateLoading(true);
       void refreshEntryState();
@@ -302,7 +333,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setEntryState(null);
       setEntryStateLoading(false);
     }
-  }, [currentUserId, refreshEntryState, refreshProfile]);
+  }, [currentUserId, refreshEntryState, refreshProfile, warmFeatureFlags]);
 
   const signIn = async (email: string, password: string): Promise<{ error: Error | null }> => {
     const { error } = await supabase.auth.signInWithPassword({ email, password });
@@ -335,6 +366,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
     }
     await withBootTimeout(supabase.auth.signOut(), "auth.signOut", AUTH_SESSION_TIMEOUT_MS).catch(() => undefined);
+    await clearFeatureFlagState();
     sessionUserRef.current = null;
     authUserIdRef.current = null;
     setUser(null);

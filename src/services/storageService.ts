@@ -1,5 +1,5 @@
 import { supabase } from "@/integrations/supabase/client";
-import { clientRequestIdForUploadFile, uploadImageToBunny } from "@/services/imageUploadService";
+import { clientRequestIdForUploadFile } from "@/services/imageUploadService";
 import { uploadImageWithMediaSdk } from "@/lib/mediaSdk/webStorageUploads";
 
 /**
@@ -16,7 +16,6 @@ export const persistPhotos = async (
   photos: string[],
   files: (File | null)[],
   userId: string,
-  options: { mediaV2PhotoEnabled?: boolean } = {},
 ): Promise<string[]> => {
   const { data: { session } } = await supabase.auth.getSession();
   if (!session) throw new Error("Not authenticated");
@@ -31,20 +30,12 @@ export const persistPhotos = async (
       // Upload via Bunny edge function
       try {
         const clientRequestId = clientRequestIdForUploadFile(file, `profile-studio:${userId}:${i}`);
-        const { path: newPath } = options.mediaV2PhotoEnabled
-          ? await uploadImageWithMediaSdk({
-              file,
-              accessToken: session.access_token,
-              context: "profile_studio",
-              clientRequestId,
-            })
-          : await uploadImageToBunny(
-              file,
-              session.access_token,
-              "profile_studio",
-              undefined,
-              clientRequestId,
-            );
+        const { path: newPath } = await uploadImageWithMediaSdk({
+          file,
+          accessToken: session.access_token,
+          context: "profile_studio",
+          clientRequestId,
+        });
         persistedUrls.push(newPath);
       } catch (err) {
         console.error("[persistPhotos] Upload failed for slot", i, ":", err);

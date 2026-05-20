@@ -36,12 +36,6 @@ export {
 export type { MediaUploadQueue, MediaUploadQueueFilter, MediaUploadQueueRecord } from "./core/queue";
 export { createMediaTelemetry, noopMediaTelemetry } from "./core/telemetry";
 export type { MediaTelemetry, MediaTelemetryEvent, MediaTelemetryFields, MediaTelemetrySink } from "./core/telemetry";
-export {
-  createStaticMediaFeatureFlagGate,
-  defaultOffMediaFeatureFlagGate,
-  mediaFlagForFamily,
-} from "./core/flag-gate";
-export type { MediaFeatureFlagGate, MediaV2FlagKey } from "./core/flag-gate";
 export { createMediaUploadTask } from "./core/task";
 export type { MediaTaskLifecycleControls, MediaTaskRunContext, MediaTaskRunner } from "./core/task";
 export {

@@ -3,7 +3,6 @@ import * as FileSystem from 'expo-file-system/legacy';
 import { Platform } from 'react-native';
 import {
   createNativeMediaSdk,
-  createStaticMediaFeatureFlagGate,
   isMediaUploadTerminalState,
   type MediaTaskRunContext,
   type MediaUploadSnapshot,
@@ -11,10 +10,11 @@ import {
   type NativeMediaSdk,
   type NativeVideoUploadInput,
 } from '@clientShared/media-sdk';
+import { trackEvent } from '@/lib/analytics';
+import { evaluateClientFeatureFlagForUpload, type ClientFeatureFlagEvaluation } from '@/lib/clientFeatureFlags';
 import {
   nativeHeroVideoGetState,
   nativeHeroVideoReset,
-  nativeHeroVideoStart,
   nativeHeroVideoStartWithClientRequestId,
   nativeHeroVideoSubscribe,
   type NativeHeroVideoControllerState,
@@ -28,7 +28,6 @@ import {
 type NativeChatVibeClipSdkUploadParams = Parameters<typeof uploadAndPublishChatVibeClipToBunnyStream>[0];
 type NativeHeroVideoUploadContext = 'onboarding' | 'profile_studio';
 
-const mediaV2VideoGate = createStaticMediaFeatureFlagGate({ media_v2_video: true });
 const chatClipResultsByClientRequestId = new Map<string, ChatVibeClipStreamUploadResult>();
 const chatClipErrorsByClientRequestId = new Map<string, unknown>();
 const chatClipProgressByClientRequestId = new Map<string, ((fraction: number) => void) | undefined>();
@@ -37,6 +36,35 @@ let mediaSdk: NativeMediaSdk | null = null;
 
 function optionalString(value: unknown): string | undefined {
   return typeof value === 'string' ? value : undefined;
+}
+
+function createClientRequestId(): string {
+  if (globalThis.crypto?.randomUUID) return globalThis.crypto.randomUUID();
+  return `media-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
+function trackMediaUploadStarted(params: {
+  evaluation: ClientFeatureFlagEvaluation;
+  path: 'media_sdk' | 'legacy';
+  family: NativeVideoUploadInput['family'];
+  clientRequestId: string;
+}): void {
+  try {
+    trackEvent('media_upload_started', {
+      active_flag: 'media_v2_video',
+      active_flag_enabled: params.evaluation.enabled,
+      active_flag_source: params.evaluation.source,
+      active_flag_bucket: params.evaluation.bucket,
+      active_flag_rollout_bps: params.evaluation.rolloutBps,
+      user_id_bucket: params.evaluation.userIdBucket,
+      path_selected: params.path,
+      family: params.family,
+      platform: nativePlatform(),
+      client_request_id: params.clientRequestId,
+    });
+  } catch {
+    /* upload telemetry is best-effort and must not block media uploads */
+  }
 }
 
 function uploadContextFromInput(input: NativeVideoUploadInput): NativeHeroVideoUploadContext {
@@ -201,7 +229,6 @@ function getNativeVideoMediaSdk(): NativeMediaSdk {
     mediaSdk = createNativeMediaSdk({
       asyncStorage: AsyncStorage,
       fileSystem: FileSystem,
-      flagGate: mediaV2VideoGate,
       platform: nativePlatform(),
       delegates: {
         video: {
@@ -231,14 +258,41 @@ export function startNativeVibeVideoUpload(params: {
   caption?: string;
   context?: NativeHeroVideoUploadContext;
   uploadSource?: VibeVideoUploadSource;
-  mediaV2VideoEnabled: boolean;
 }): void {
   const context = params.context ?? 'profile_studio';
-  if (!params.mediaV2VideoEnabled) {
-    nativeHeroVideoStart(params.uri, params.caption, context, params.uploadSource);
+  const clientRequestId = createClientRequestId();
+  void startNativeVibeVideoUploadAfterGate(params, context, clientRequestId);
+}
+
+async function startNativeVibeVideoUploadAfterGate(
+  params: {
+    uri: string;
+    caption?: string;
+    context?: NativeHeroVideoUploadContext;
+    uploadSource?: VibeVideoUploadSource;
+  },
+  context: NativeHeroVideoUploadContext,
+  clientRequestId: string,
+): Promise<void> {
+  const evaluation = await evaluateClientFeatureFlagForUpload('media_v2_video');
+  const path = evaluation.enabled ? 'media_sdk' : 'legacy';
+  trackMediaUploadStarted({
+    evaluation,
+    path,
+    family: 'vibe_video',
+    clientRequestId,
+  });
+
+  if (!evaluation.enabled) {
+    nativeHeroVideoStartWithClientRequestId(
+      params.uri,
+      params.caption,
+      context,
+      params.uploadSource,
+      clientRequestId,
+    );
     return;
   }
-
   getNativeVideoMediaSdk().video.upload({
     family: 'vibe_video',
     source: {
@@ -250,12 +304,29 @@ export function startNativeVibeVideoUpload(params: {
       caption: params.caption,
       uploadSource: params.uploadSource ?? 'unknown',
     },
+    options: {
+      clientRequestId,
+    },
   });
 }
 
 export async function uploadAndPublishChatVibeClipWithMediaSdk(
   params: NativeChatVibeClipSdkUploadParams,
 ): Promise<ChatVibeClipStreamUploadResult> {
+  const clientRequestId = params.clientRequestId ?? createClientRequestId();
+  const evaluation = await evaluateClientFeatureFlagForUpload('media_v2_video');
+  const path = evaluation.enabled ? 'media_sdk' : 'legacy';
+  trackMediaUploadStarted({
+    evaluation,
+    path,
+    family: 'chat_vibe_clip',
+    clientRequestId,
+  });
+
+  if (!evaluation.enabled) {
+    return uploadAndPublishChatVibeClipToBunnyStream({ ...params, clientRequestId });
+  }
+
   const task = getNativeVideoMediaSdk().video.upload({
     family: 'chat_vibe_clip',
     source: {
@@ -272,10 +343,9 @@ export async function uploadAndPublishChatVibeClipWithMediaSdk(
       resumeStrategy: params.resumeStrategy ?? null,
     },
     options: {
-      clientRequestId: params.clientRequestId,
+      clientRequestId,
     },
   });
-  const clientRequestId = task.clientRequestId;
   chatClipProgressByClientRequestId.set(clientRequestId, params.onProgress);
 
   try {

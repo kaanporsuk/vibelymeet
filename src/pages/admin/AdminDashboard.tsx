@@ -46,8 +46,9 @@ const AdminGhostBootstrapPanel = lazy(() =>
   }))
 );
 const AdminMediaLifecyclePanel = lazy(() => import("@/components/admin/AdminMediaLifecyclePanel"));
+const AdminClientFeatureFlagsPanel = lazy(() => import("@/components/admin/AdminClientFeatureFlagsPanel"));
 
-type ActivePanel = 'overview' | 'operations' | 'intelligence' | 'users' | 'events' | 'reports' | 'export' | 'event-analytics' | 'video-date-timeline' | 'activity-log' | 'engagement' | 'campaigns' | 'photo-verification' | 'deletions' | 'support' | 'tier-config' | 'ghost-bootstrap' | 'media-lifecycle';
+type ActivePanel = 'overview' | 'operations' | 'intelligence' | 'users' | 'events' | 'reports' | 'export' | 'event-analytics' | 'video-date-timeline' | 'activity-log' | 'engagement' | 'campaigns' | 'photo-verification' | 'deletions' | 'support' | 'tier-config' | 'ghost-bootstrap' | 'media-lifecycle' | 'feature-flags';
 
 const ADMIN_PANEL_IDS = [
   'overview',
@@ -68,6 +69,7 @@ const ADMIN_PANEL_IDS = [
   'tier-config',
   'ghost-bootstrap',
   'media-lifecycle',
+  'feature-flags',
 ] as const satisfies readonly ActivePanel[];
 
 const isAdminPanel = (value: string | null): value is ActivePanel =>
@@ -190,6 +192,7 @@ const AdminDashboard = () => {
                   {activePanel === 'campaigns' && 'Push Campaigns'}
                   {activePanel === 'photo-verification' && 'Photo Verification'}
                   {activePanel === 'media-lifecycle' && 'Media Lifecycle'}
+                  {activePanel === 'feature-flags' && 'Feature Flags'}
                   {activePanel === 'deletions' && 'Account Deletions'}
                   {activePanel === 'support' && 'Support inbox'}
                   {activePanel === 'tier-config' && 'Tier configuration'}
@@ -210,6 +213,7 @@ const AdminDashboard = () => {
                   {activePanel === 'campaigns' && 'Draft campaign copy and supported targeting until backend delivery is available'}
                   {activePanel === 'photo-verification' && 'Review and approve user photo verifications'}
                   {activePanel === 'media-lifecycle' && 'Retention policy controls, worker readiness, and guarded cron rollout planning'}
+                  {activePanel === 'feature-flags' && 'Ramp media-v2 safely with hard kills and audited overrides'}
                   {activePanel === 'deletions' && 'Manage account deletion requests and recoveries'}
                   {activePanel === 'support' && 'Support tickets, safety reports, and user replies'}
                   {activePanel === 'tier-config' && 'Live overrides for subscription tier capabilities (merged with code defaults)'}
@@ -281,6 +285,7 @@ const AdminDashboard = () => {
             {activePanel === 'campaigns' && <AdminPushCampaignsPanel />}
             {activePanel === 'photo-verification' && <AdminPhotoVerificationPanel />}
             {activePanel === 'media-lifecycle' && <AdminMediaLifecyclePanel />}
+            {activePanel === 'feature-flags' && <AdminClientFeatureFlagsPanel />}
             {activePanel === 'deletions' && <AdminDeletionsPanel />}
             {activePanel === 'support' && <SupportInbox />}
             {activePanel === 'tier-config' && <AdminTierConfigPanel />}

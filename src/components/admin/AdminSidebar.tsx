@@ -21,10 +21,11 @@ import {
   GitBranch,
   Server,
   Brain,
+  Flag,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
-type ActivePanel = 'overview' | 'operations' | 'intelligence' | 'users' | 'events' | 'reports' | 'export' | 'event-analytics' | 'video-date-timeline' | 'activity-log' | 'engagement' | 'campaigns' | 'photo-verification' | 'deletions' | 'support' | 'tier-config' | 'ghost-bootstrap' | 'media-lifecycle';
+type ActivePanel = 'overview' | 'operations' | 'intelligence' | 'users' | 'events' | 'reports' | 'export' | 'event-analytics' | 'video-date-timeline' | 'activity-log' | 'engagement' | 'campaigns' | 'photo-verification' | 'deletions' | 'support' | 'tier-config' | 'ghost-bootstrap' | 'media-lifecycle' | 'feature-flags';
 
 interface AdminSidebarProps {
   activePanel: ActivePanel;
@@ -49,6 +50,7 @@ const AdminSidebar = ({ activePanel, setActivePanel, onLogout, isOpen, onClose, 
     { id: 'campaigns' as const, label: 'Push Campaigns', icon: Bell },
     { id: 'photo-verification' as const, label: 'Photo Verification', icon: ShieldCheck },
     { id: 'media-lifecycle' as const, label: 'Media Lifecycle', icon: Archive },
+    { id: 'feature-flags' as const, label: 'Feature Flags', icon: Flag },
     { id: 'reports' as const, label: 'Reports', icon: AlertTriangle },
     { id: 'deletions' as const, label: 'Deletions', icon: UserMinus },
     { id: 'ghost-bootstrap' as const, label: 'Ghost Accounts', icon: Zap },

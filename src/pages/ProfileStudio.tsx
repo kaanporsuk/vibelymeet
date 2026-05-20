@@ -48,7 +48,6 @@ import { useLogout } from "@/hooks/useLogout";
 import { useEntitlements } from "@/hooks/useEntitlements";
 import { useSchedule, type TimeBlock } from "@/hooks/useSchedule";
 import { useHeroVideoUpload } from "@/hooks/useHeroVideoUpload";
-import { useFeatureFlag } from "@/hooks/useFeatureFlag";
 import { heroVideoResumePollingForProfile } from "@/lib/heroVideo/heroVideoUploadController";
 import { resolveWebVibeVideoState } from "@/lib/vibeVideo/webVibeVideoState";
 import { toast } from "sonner";
@@ -302,7 +301,6 @@ const ProfileStudio = () => {
   const [showPhotoViewer, setShowPhotoViewer] = useState(false);
   const [showPhotoDrawer, setShowPhotoDrawer] = useState(false);
   const heroVideoUpload = useHeroVideoUpload();
-  const mediaV2Photo = useFeatureFlag("media_v2_photo");
 
   const [profileRefreshKey, setProfileRefreshKey] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
@@ -727,9 +725,7 @@ const ProfileStudio = () => {
         case "photos": {
           const { data: { user } } = await supabase.auth.getUser();
           if (!user) throw new Error("Not authenticated");
-          const persisted = await persistPhotos(editForm.photos, editPhotoFiles, user.id, {
-            mediaV2PhotoEnabled: mediaV2Photo.enabled,
-          });
+          const persisted = await persistPhotos(editForm.photos, editPhotoFiles, user.id);
           const { data: pubResult, error: pubError } = await supabase.rpc("publish_photo_set", {
             p_user_id: user.id,
             p_photos: persisted,

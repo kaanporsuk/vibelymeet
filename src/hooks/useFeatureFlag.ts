@@ -1,81 +1,54 @@
 import { useEffect, useMemo } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { supabase } from "@/integrations/supabase/client";
 import { useUserProfile } from "@/contexts/AuthContext";
+import {
+  CLIENT_FEATURE_FLAG_TTL_MS,
+  clientFeatureFlagQueryKey,
+  clearClientFeatureFlagCache,
+  clearClientFeatureFlagCacheForTests,
+  fetchClientFeatureFlag,
+  getCachedClientFeatureFlag,
+  hydrateWebClientFeatureFlagCache,
+  shouldRefreshClientFeatureFlag,
+  type ClientFeatureFlagEvaluation,
+  type ClientFeatureFlagKey,
+} from "@/lib/clientFeatureFlags";
 
-export type ClientFeatureFlagKey = "media_v2_video" | "media_v2_photo" | "media_v2_voice";
-
-export const CLIENT_FEATURE_FLAG_TTL_MS = 60_000;
-
-type CachedFlag = {
-  enabled: boolean;
-  expiresAtMs: number;
-};
-
-const flagCache = new Map<string, CachedFlag>();
-const inFlight = new Map<string, Promise<boolean>>();
-
-function cacheKey(flag: ClientFeatureFlagKey, userId: string) {
-  return `${userId}:${flag}`;
-}
-
-async function fetchFeatureFlag(flag: ClientFeatureFlagKey, userId: string, force = false): Promise<boolean> {
-  const key = cacheKey(flag, userId);
-  const now = Date.now();
-  const cached = flagCache.get(key);
-  if (!force && cached && cached.expiresAtMs > now) return cached.enabled;
-
-  const existing = inFlight.get(key);
-  if (existing) return existing;
-
-  const request = (async () => {
-    let enabled = false;
-    try {
-      const { data, error } = await supabase.rpc("evaluate_client_feature_flag", {
-        p_flag: flag,
-        p_user: userId,
-      });
-      enabled = error ? false : data === true;
-    } catch {
-      enabled = false;
-    }
-    flagCache.set(key, { enabled, expiresAtMs: Date.now() + CLIENT_FEATURE_FLAG_TTL_MS });
-    return enabled;
-  })();
-
-  inFlight.set(key, request);
-  try {
-    return await request;
-  } finally {
-    if (inFlight.get(key) === request) inFlight.delete(key);
-  }
-}
-
-export function clearClientFeatureFlagCacheForTests() {
-  flagCache.clear();
-  inFlight.clear();
-}
+export {
+  CLIENT_FEATURE_FLAG_TTL_MS,
+  clearClientFeatureFlagCache,
+  clearClientFeatureFlagCacheForTests,
+  type ClientFeatureFlagKey,
+} from "@/lib/clientFeatureFlags";
 
 export function useFeatureFlag(flag: ClientFeatureFlagKey) {
   const { user } = useUserProfile();
   const userId = user?.id ?? null;
   const queryClient = useQueryClient();
-  const queryKey = useMemo(() => ["client-feature-flag", flag, userId] as const, [flag, userId]);
+  const queryKey = useMemo(() => clientFeatureFlagQueryKey(flag, userId), [flag, userId]);
+  const initialData = useMemo<ClientFeatureFlagEvaluation | undefined>(() => {
+    if (!userId) return undefined;
+    hydrateWebClientFeatureFlagCache();
+    return getCachedClientFeatureFlag(flag, userId) ?? undefined;
+  }, [flag, userId]);
+
   const query = useQuery({
     queryKey,
     enabled: !!userId,
     staleTime: CLIENT_FEATURE_FLAG_TTL_MS,
     gcTime: CLIENT_FEATURE_FLAG_TTL_MS * 5,
-    queryFn: () => fetchFeatureFlag(flag, userId!, false),
-    placeholderData: false,
+    queryFn: () => fetchClientFeatureFlag(flag, userId!, false),
+    initialData,
+    initialDataUpdatedAt: initialData?.fetchedAtMs,
   });
 
   useEffect(() => {
     if (!userId || typeof document === "undefined") return undefined;
     const onVisibilityChange = () => {
       if (document.visibilityState !== "visible") return;
-      void fetchFeatureFlag(flag, userId, true).then((enabled) => {
-        queryClient.setQueryData(queryKey, enabled);
+      if (!shouldRefreshClientFeatureFlag(flag, userId)) return;
+      void fetchClientFeatureFlag(flag, userId, true).then((evaluation) => {
+        queryClient.setQueryData(queryKey, evaluation);
       });
     };
     document.addEventListener("visibilitychange", onVisibilityChange);
@@ -83,7 +56,11 @@ export function useFeatureFlag(flag: ClientFeatureFlagKey) {
   }, [flag, queryClient, queryKey, userId]);
 
   return {
-    enabled: query.data === true,
+    enabled: query.data?.enabled === true,
+    source: query.data?.source,
+    bucket: query.data?.bucket ?? null,
+    rolloutBps: query.data?.rolloutBps ?? null,
+    userIdBucket: query.data?.userIdBucket ?? null,
     isLoading: query.isLoading,
     isFetching: query.isFetching,
     error: query.error,

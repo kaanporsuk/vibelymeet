@@ -26,6 +26,14 @@ import { RC_CATEGORY, rcBreadcrumb } from '@/lib/nativeRcDiagnostics';
 import { clearPreparedVideoDateEntryCache } from '@clientShared/matching/videoDatePrepareEntry';
 import { removeAllRealtimeChannels } from '@/lib/realtimeLifecycle';
 import { clearMyLocationDataCache } from '@/lib/myLocationData';
+import { queryClient } from '@/lib/queryClient';
+import {
+  CLIENT_FEATURE_FLAG_QUERY_KEY,
+  clearClientFeatureFlagCache,
+  clientFeatureFlagQueryKey,
+  hydrateNativeClientFeatureFlagCache,
+  prefetchClientFeatureFlagsForUser,
+} from '@/lib/clientFeatureFlags';
 
 type AuthState = {
   user: User | null;
@@ -74,15 +82,32 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const currentAuthProvider = getAuthProvider(session?.user);
   const authUserIdRef = useRef<string | null>(null);
 
+  const clearFeatureFlagState = useCallback(async () => {
+    await clearClientFeatureFlagCache();
+    queryClient.removeQueries({ queryKey: [CLIENT_FEATURE_FLAG_QUERY_KEY] });
+  }, []);
+
+  const warmFeatureFlags = useCallback((userId: string) => {
+    void hydrateNativeClientFeatureFlagCache()
+      .then(() => prefetchClientFeatureFlagsForUser(userId))
+      .then((evaluations) => {
+        for (const evaluation of evaluations) {
+          queryClient.setQueryData(clientFeatureFlagQueryKey(evaluation.flag, userId), evaluation);
+        }
+      })
+      .catch(() => undefined);
+  }, []);
+
   const clearAuthState = useCallback(() => {
     clearPreparedVideoDateEntryCache();
     clearMyLocationDataCache();
+    void clearFeatureFlagState();
     authUserIdRef.current = null;
     setSession(null);
     setUser(null);
     setEntryState(null);
     setEntryStateLoading(false);
-  }, []);
+  }, [clearFeatureFlagState]);
 
   const applyAuthSession = useCallback((s: Session | null) => {
     const nextUserId = s?.user?.id ?? null;
@@ -91,11 +116,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (!nextUserId) {
       clearPreparedVideoDateEntryCache();
       clearMyLocationDataCache();
+      void clearFeatureFlagState();
       setEntryState(null);
       setEntryStateLoading(false);
     } else if (nextUserId !== previousUserId) {
       clearPreparedVideoDateEntryCache();
       clearMyLocationDataCache();
+      if (previousUserId) {
+        void clearFeatureFlagState();
+      } else {
+        queryClient.removeQueries({ queryKey: [CLIENT_FEATURE_FLAG_QUERY_KEY] });
+      }
       // Clear stale entry state before session/user update so the new user is never
       // routed using the previous account's resolve_entry_state result.
       setEntryState(null);
@@ -107,7 +138,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setEntryState(null);
       setEntryStateLoading(false);
     }
-  }, []);
+  }, [clearFeatureFlagState]);
 
   const refreshEntryState = useCallback(async () => {
     if (!currentUserId) {
@@ -207,6 +238,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         }
 
         if (!isMounted) return;
+        if (s?.user?.id) {
+          await hydrateNativeClientFeatureFlagCache();
+        }
         applyAuthSession(s);
         setLoading(false);
       } catch (error) {
@@ -249,13 +283,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     if (currentUserId) {
+      warmFeatureFlags(currentUserId);
       setEntryStateLoading(true);
       void refreshEntryState();
     } else {
       setEntryState(null);
       setEntryStateLoading(false);
     }
-  }, [currentUserId, refreshEntryState]);
+  }, [currentUserId, refreshEntryState, warmFeatureFlags]);
 
   const signIn = useCallback(async (email: string, password: string) => {
     const result = await signInWithEmail(email, password);
@@ -297,6 +332,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (isInvalidRefreshTokenError(signOutError) || isNoSessionError(signOutError)) {
         await recoverNativeAuthSession('sign-out', signOutError);
         invalidateCachedSession();
+        await clearFeatureFlagState();
         clearAuthState();
         return;
       }
@@ -310,8 +346,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       console.warn('[signOut] auth storage purge incomplete:', storageCleanup.failedKeys);
     }
 
+    await clearFeatureFlagState();
     clearAuthState();
-  }, [clearAuthState, currentUserId]);
+  }, [clearAuthState, clearFeatureFlagState, currentUserId]);
 
   const refreshOnboarding = useCallback(async () => {
     await refreshEntryState();

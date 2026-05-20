@@ -20,7 +20,6 @@ import { cleanupOutboxCacheUri } from '@/lib/chatOutbox/mediaCache';
 import type { ChatOutboxItem, ChatOutboxPayload, ChatOutboxQueueState } from '@/lib/chatOutbox/types';
 import { trackVibeClipEvent } from '@/lib/vibeClipAnalytics';
 import { invalidateAfterThreadMutation } from '@/lib/chatApi';
-import { useFeatureFlag } from '@/hooks/useFeatureFlag';
 import { classifySendFailureMessage, durationBucketFromSeconds } from '../../../../shared/chat/vibeClipAnalytics';
 import type {
   VibeClipRecoveryResumeStrategy,
@@ -165,9 +164,6 @@ function recoverySweepOutcome(stats: {
 export function ChatOutboxProvider({ children }: { children: React.ReactNode }) {
   const { user } = useAuth();
   const userId = user?.id ?? null;
-  const mediaV2Video = useFeatureFlag('media_v2_video');
-  const mediaV2Photo = useFeatureFlag('media_v2_photo');
-  const mediaV2Voice = useFeatureFlag('media_v2_voice');
   const [items, setItems] = useState<ChatOutboxItem[]>([]);
   const [staleVibeClipUploads, setStaleVibeClipUploads] = useState<VibeClipServerUpload[]>([]);
   const itemsRef = useRef(items);
@@ -550,11 +546,6 @@ export function ChatOutboxProvider({ children }: { children: React.ReactNode }) 
                 )
               );
             },
-            {
-              mediaV2VideoEnabled: mediaV2Video.enabled,
-              mediaV2PhotoEnabled: mediaV2Photo.enabled,
-              mediaV2VoiceEnabled: mediaV2Voice.enabled,
-            }
           );
           const successAtMs = Date.now();
           setItems((prev) =>
@@ -624,7 +615,7 @@ export function ChatOutboxProvider({ children }: { children: React.ReactNode }) 
         }
       }
     },
-    [mediaV2Photo.enabled, mediaV2Video.enabled, mediaV2Voice.enabled, userId]
+    [userId]
   );
 
   const value = useMemo<ChatOutboxContextValue>(

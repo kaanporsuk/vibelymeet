@@ -1,7 +1,6 @@
 import type { QueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { captureSupabaseError } from "@/lib/errorTracking";
-import { uploadVoiceToBunny } from "@/services/voiceUploadService";
 import {
   ChatVibeClipUploadedButUnpublishedError,
   completePublishedChatVibeClipUpload,
@@ -9,7 +8,6 @@ import {
 } from "@/services/chatVibeClipStreamUploadService";
 import { uploadAndPublishChatVibeClipWithMediaSdk } from "@/lib/mediaSdk/webVideoUploads";
 import { uploadImageWithMediaSdk, uploadVoiceWithMediaSdk } from "@/lib/mediaSdk/webStorageUploads";
-import { uploadImageToBunny } from "@/services/imageUploadService";
 import { formatChatImageMessageContent } from "@/lib/chatMessageContent";
 import { invalidateAfterThreadMutation } from "@/hooks/useMessages";
 import {
@@ -143,9 +141,8 @@ export async function executeWebOutboxItem(
   item: WebChatOutboxItem,
   queryClient: QueryClient,
   onUploadProgress?: (fraction: number) => void,
-  options: { mediaV2VideoEnabled?: boolean; mediaV2PhotoEnabled?: boolean; mediaV2VoiceEnabled?: boolean } = {},
 ): Promise<{ serverMessageId: string; uploadedPublicUrl?: string; uploadedMediaUrl?: string }> {
-  const { id: clientRequestId, matchId, userId, payload } = item;
+  const { id: clientRequestId, matchId, payload } = item;
   const scope = item.invalidateScope;
 
   let serverMessageId: string | null = null;
@@ -175,15 +172,13 @@ export async function executeWebOutboxItem(
           imageMimeTypeForUpload(payload.mimeType, storedName) ??
           GENERIC_UPLOAD_MIME_TYPE;
         const file = new File([blob], uploadFileNameForMimeType("image", "chat", mimeType, storedName), { type: mimeType });
-        const { path } = options.mediaV2PhotoEnabled
-          ? await uploadImageWithMediaSdk({
-              file,
-              accessToken: session.access_token,
-              context: "chat",
-              matchId,
-              clientRequestId,
-            })
-          : await uploadImageToBunny(file, session.access_token, "chat", matchId, clientRequestId);
+        const { path } = await uploadImageWithMediaSdk({
+          file,
+          accessToken: session.access_token,
+          context: "chat",
+          matchId,
+          clientRequestId,
+        });
         mediaRef = path;
       }
       uploadedPublicUrl = mediaRef;
@@ -197,14 +192,12 @@ export async function executeWebOutboxItem(
         if (!blob) throw new WebOutboxExecuteError("Voice data missing — try recording again.");
         const { data: { session } } = await supabase.auth.getSession();
         if (!session?.access_token) throw new Error("Not authenticated");
-        audioUrl = options.mediaV2VoiceEnabled
-          ? await uploadVoiceWithMediaSdk({
-              blob,
-              accessToken: session.access_token,
-              matchId,
-              clientRequestId,
-            })
-          : await uploadVoiceToBunny(blob, session.access_token, matchId, clientRequestId);
+        audioUrl = await uploadVoiceWithMediaSdk({
+          blob,
+          accessToken: session.access_token,
+          matchId,
+          clientRequestId,
+        });
       }
       uploadedMediaUrl = audioUrl;
       const row = await invokePublishVoiceMessage({
@@ -244,9 +237,7 @@ export async function executeWebOutboxItem(
             resumeStrategy: item.vibeClipResumeStrategy,
             onProgress: onUploadProgress,
           };
-          uploaded = options.mediaV2VideoEnabled
-            ? await uploadAndPublishChatVibeClipWithMediaSdk(uploadParams)
-            : await uploadAndPublishChatVibeClipToBunnyStream(uploadParams);
+          uploaded = await uploadAndPublishChatVibeClipWithMediaSdk(uploadParams);
         } catch (error) {
           if (error instanceof ChatVibeClipUploadedButUnpublishedError) {
             uploadedMediaUrl = error.playbackRef;

@@ -8,7 +8,6 @@ import {
 } from "./adapters/native";
 import { assertWebMediaSource, createWebMediaSdk, IndexedDbMediaUploadQueue, webMediaTranscode } from "./adapters/web";
 import { createNativeMediaSdk as createNativeMediaSdkFromRoot, createWebMediaSdk as createWebMediaSdkFromRoot } from ".";
-import { createStaticMediaFeatureFlagGate } from "./core/flag-gate";
 import { MemoryMediaUploadQueue, type MediaUploadQueueRecord } from "./core/queue";
 import type { MediaTelemetrySink } from "./core/telemetry";
 import { createMediaUploadTask } from "./core/task";
@@ -142,7 +141,6 @@ test("web adapter delegates Vibe Video upload through the harness and cleans ter
   const seenStates: string[] = [];
   const sdk = createWebMediaSdk({
     queue,
-    flagGate: createStaticMediaFeatureFlagGate({ media_v2_video: true }),
     delegates: {
       video: {
         uploadVibeVideo: async (_input, controls) => {
@@ -169,18 +167,15 @@ test("web adapter delegates Vibe Video upload through the harness and cleans ter
   assert.equal((await queue.list()).length, 0);
 });
 
-test("web adapter routes Chat Vibe Clips through the video SDK flag and delegate", async () => {
+test("web adapter routes Chat Vibe Clips through the video SDK delegate without internal flag telemetry", async () => {
   const events: string[] = [];
   let delegateClientRequestId: string | null = null;
   const sdk = createWebMediaSdk({
     queue: new MemoryMediaUploadQueue(),
-    flagGate: createStaticMediaFeatureFlagGate({ media_v2_video: true }),
     telemetrySinks: [
       {
         capture(event) {
-          if (event.name === "media_upload_sdk_flag_evaluated") {
-            events.push(`${event.family}:${event.fields?.flag}:${event.fields?.enabled}`);
-          }
+          events.push(event.name);
         },
       },
     ],
@@ -207,7 +202,7 @@ test("web adapter routes Chat Vibe Clips through the video SDK flag and delegate
   assert.equal(delegateClientRequestId, uuid);
   assert.equal(task.snapshot().state, "ready");
   assert.equal(task.snapshot().result?.providerObjectId, "chat-clip-video");
-  assert.deepEqual(events, ["chat_vibe_clip:media_v2_video:true"]);
+  assert.deepEqual(events, []);
 });
 
 test("web photo adapter prepares photo sources before invoking legacy delegates", async () => {
@@ -218,7 +213,6 @@ test("web photo adapter prepares photo sources before invoking legacy delegates"
 
   const sdk = createWebMediaSdk({
     queue: new MemoryMediaUploadQueue(),
-    flagGate: createStaticMediaFeatureFlagGate({ media_v2_photo: true }),
     photoTranscoder: async (source, input) => {
       transcoderCalls += 1;
       assert.equal(source, original);
@@ -269,15 +263,15 @@ test("web voice recording config targets mono 96 kbps MediaRecorder capture", ()
   });
 });
 
-test("web adapter fails closed when the media feature flag is disabled", async () => {
+test("web adapter delegates unconditionally after the platform facade admits an upload", async () => {
   let delegateCalls = 0;
   const sdk = createWebMediaSdk({
     queue: new MemoryMediaUploadQueue(),
-    flagGate: createStaticMediaFeatureFlagGate({ media_v2_video: false }),
     delegates: {
       video: {
-        uploadVibeVideo: () => {
+        uploadVibeVideo: (_input, controls) => {
           delegateCalls += 1;
+          controls.dispatch({ type: "ready", result: { providerObjectId: "ungated-web-video" } });
         },
       },
     },
@@ -292,9 +286,9 @@ test("web adapter fails closed when the media feature flag is disabled", async (
 
   await flushMediaTask();
 
-  assert.equal(delegateCalls, 0);
-  assert.equal(task.snapshot().state, "failed");
-  assert.equal(task.snapshot().error?.code, "media_feature_disabled");
+  assert.equal(delegateCalls, 1);
+  assert.equal(task.snapshot().state, "ready");
+  assert.equal(task.snapshot().result?.providerObjectId, "ungated-web-video");
 });
 
 test("web adapter persists the recovery row before a fast delegate can finish", async () => {
@@ -312,7 +306,6 @@ test("web adapter persists the recovery row before a fast delegate can finish", 
   let delegateCalls = 0;
   const sdk = createWebMediaSdk({
     queue,
-    flagGate: createStaticMediaFeatureFlagGate({ media_v2_video: true }),
     delegates: {
       video: {
         uploadVibeVideo: async (_input, controls) => {
@@ -356,7 +349,6 @@ test("web adapter reconciles cancellation during startup queue binding", async (
   let delegateCalls = 0;
   const sdk = createWebMediaSdk({
     queue,
-    flagGate: createStaticMediaFeatureFlagGate({ media_v2_video: true }),
     delegates: {
       video: {
         uploadVibeVideo: () => {
@@ -387,7 +379,6 @@ test("web adapter does not create recovery rows when cancelled before startup be
   let delegateCalls = 0;
   const sdk = createWebMediaSdk({
     queue,
-    flagGate: createStaticMediaFeatureFlagGate(true),
     delegates: {
       video: {
         uploadVibeVideo: () => {
@@ -435,7 +426,6 @@ test("native adapter delegates URI uploads without Base64 materialization", asyn
         return { exists: true, size: 1024 };
       },
     },
-    flagGate: createStaticMediaFeatureFlagGate({ media_v2_video: true }),
     delegates: {
       video: {
         uploadVibeVideo: async (input, controls) => {
@@ -477,7 +467,6 @@ test("native photo adapter prepares photo URIs before invoking legacy delegates"
         return { exists: true, size: 5_000_000 };
       },
     },
-    flagGate: createStaticMediaFeatureFlagGate({ media_v2_photo: true }),
     photoTranscoder: async (source, input) => {
       transcoderCalls += 1;
       assert.equal(source, original);
@@ -608,7 +597,7 @@ test("native voice recording config uses expo-audio AAC mono at capture time", (
   assert.equal(nativeMediaTranscodeHooks.voiceRecordingCapabilities().phase, "phase_5_voice_record_native");
 });
 
-test("native adapter fails closed when the media feature flag is disabled", async () => {
+test("native adapter delegates unconditionally after the platform facade admits an upload", async () => {
   let delegateCalls = 0;
   const sdk = createNativeMediaSdk({
     queue: new MemoryMediaUploadQueue(),
@@ -617,11 +606,11 @@ test("native adapter fails closed when the media feature flag is disabled", asyn
         return { exists: true, size: 1024 };
       },
     },
-    flagGate: createStaticMediaFeatureFlagGate({ media_v2_video: false }),
     delegates: {
       video: {
-        uploadVibeVideo: () => {
+        uploadVibeVideo: (_input, controls) => {
           delegateCalls += 1;
+          controls.dispatch({ type: "ready", result: { providerObjectId: "ungated-native-video" } });
         },
       },
     },
@@ -636,9 +625,9 @@ test("native adapter fails closed when the media feature flag is disabled", asyn
 
   await flushMediaTask();
 
-  assert.equal(delegateCalls, 0);
-  assert.equal(task.snapshot().state, "failed");
-  assert.equal(task.snapshot().error?.code, "media_feature_disabled");
+  assert.equal(delegateCalls, 1);
+  assert.equal(task.snapshot().state, "ready");
+  assert.equal(task.snapshot().result?.providerObjectId, "ungated-native-video");
 });
 
 test("native AsyncStorage queue falls back to memory without leaking removed rows", async () => {
@@ -722,7 +711,6 @@ test("local queue binding rejects same client request id with a different source
   let delegateCalls = 0;
   const sdk = createWebMediaSdk({
     queue,
-    flagGate: createStaticMediaFeatureFlagGate(true),
     delegates: {
       video: {
         uploadVibeVideo: () => {
@@ -861,7 +849,6 @@ test("observer listener failures are isolated from upload execution", async () =
   };
   const sdk = createWebMediaSdk({
     queue: new MemoryMediaUploadQueue(),
-    flagGate: createStaticMediaFeatureFlagGate(true),
     telemetrySinks: [telemetrySink],
     delegates: {
       video: {
@@ -921,7 +908,6 @@ test("abort signals and throwing lifecycle cancels still settle deterministicall
 test("missing platform delegate fails closed instead of starting a second upload path", async () => {
   const sdk = createWebMediaSdk({
     queue: new MemoryMediaUploadQueue(),
-    flagGate: createStaticMediaFeatureFlagGate(true),
   });
   const task = sdk.photo.upload({
     family: "chat_photo",
@@ -943,7 +929,6 @@ test("platform adapters fail closed on invalid sources and root SDK exports both
 
   const webTask = createWebMediaSdk({
     queue: new MemoryMediaUploadQueue(),
-    flagGate: createStaticMediaFeatureFlagGate(true),
     delegates: {
       video: {
         uploadVibeVideo: () => {

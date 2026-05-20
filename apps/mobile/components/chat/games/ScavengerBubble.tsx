@@ -15,10 +15,8 @@ import {
   useSendScavengerChoice,
   type ThreadInvalidateScope,
 } from '@/lib/gamesApi';
-import { uploadChatImageMessage } from '@/lib/chatMediaUpload';
 import { uploadChatImageWithMediaSdk } from '@/lib/mediaSdk/nativeStorageUploads';
 import { useVibelyDialog } from '@/components/VibelyDialog';
-import { useFeatureFlag } from '@/hooks/useFeatureFlag';
 
 const EXPIRY_MS = 48 * 60 * 60 * 1000;
 
@@ -65,7 +63,6 @@ export function ScavengerBubble({ view, matchId, currentUserId, partnerName, tim
   const theme = Colors[useColorScheme()];
   const { show: showDialog, dialog: dialogEl } = useVibelyDialog();
   const { mutateAsync, isPending } = useSendScavengerChoice();
-  const mediaV2Photo = useFeatureFlag('media_v2_photo');
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [selectedPhotoUrl, setSelectedPhotoUrl] = useState<string | null>(null);
   const [selectedPhotoClientRequestId, setSelectedPhotoClientRequestId] = useState<string | null>(null);
@@ -152,14 +149,12 @@ export function ScavengerBubble({ view, matchId, currentUserId, partnerName, tim
       setUploading(true);
       const asset = result.assets[0];
       const clientRequestId = newGameClientRequestId();
-      const url = mediaV2Photo.enabled
-        ? await uploadChatImageWithMediaSdk({
-            uri: asset.uri,
-            mimeType: asset.mimeType ?? null,
-            matchId,
-            clientRequestId,
-          })
-        : await uploadChatImageMessage(asset.uri, asset.mimeType ?? null, matchId, clientRequestId);
+      const url = await uploadChatImageWithMediaSdk({
+        uri: asset.uri,
+        mimeType: asset.mimeType ?? null,
+        matchId,
+        clientRequestId,
+      });
       setSelectedPhotoUrl(url);
       setSelectedPhotoClientRequestId(clientRequestId);
     } catch (e) {
