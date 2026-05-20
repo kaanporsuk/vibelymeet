@@ -1283,28 +1283,26 @@ serve(async (req) => {
     }
     const mediaAssetId = typeof lr.asset_id === "string" ? lr.asset_id : null;
 
-    if (captions) {
-      const [profileCaptionsUpdate, primaryVideoCaptionsUpdate] = await Promise.all([
-        adminSupabase
-          .from("profiles")
-          .update({ vibe_video_captions: captions })
-          .eq("id", user.id),
-        mediaAssetId
-          ? adminSupabase
-            .from("profile_vibe_videos")
-            .update({ captions })
-            .eq("asset_id", mediaAssetId)
-          : Promise.resolve({ error: null }),
-      ]);
-      if (profileCaptionsUpdate.error || primaryVideoCaptionsUpdate.error) {
-        logVibeVideo("warn", "create_video_upload_captions_sync_failed", {
-          user_id: user.id,
-          video_guid: videoId,
-          media_asset_id: mediaAssetId,
-          profile_error_code: profileCaptionsUpdate.error?.code ?? null,
-          profile_video_error_code: primaryVideoCaptionsUpdate.error?.code ?? null,
-        });
-      }
+    const [profileCaptionsUpdate, primaryVideoCaptionsUpdate] = await Promise.all([
+      adminSupabase
+        .from("profiles")
+        .update({ vibe_video_captions: captions })
+        .eq("id", user.id),
+      mediaAssetId
+        ? adminSupabase
+          .from("profile_vibe_videos")
+          .update({ captions })
+          .eq("asset_id", mediaAssetId)
+        : Promise.resolve({ error: null }),
+    ]);
+    if (profileCaptionsUpdate.error || primaryVideoCaptionsUpdate.error) {
+      logVibeVideo("warn", "create_video_upload_captions_sync_failed", {
+        user_id: user.id,
+        video_guid: videoId,
+        media_asset_id: mediaAssetId,
+        profile_error_code: profileCaptionsUpdate.error?.code ?? null,
+        profile_video_error_code: primaryVideoCaptionsUpdate.error?.code ?? null,
+      });
     }
 
     let sessionStatus = "created";

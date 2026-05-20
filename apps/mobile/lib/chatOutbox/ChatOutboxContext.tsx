@@ -204,6 +204,7 @@ export function ChatOutboxProvider({ children }: { children: React.ReactNode }) 
   }, [items]);
 
   useEffect(() => {
+    setSessionUploadStats({ enqueued: 0, succeeded: 0, failed: 0 });
     if (!userId) {
       setItems([]);
       setStaleVibeClipUploads([]);
