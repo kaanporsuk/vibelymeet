@@ -186,6 +186,14 @@ type AuditAwareResponse = {
   audit_error?: string | null;
 };
 
+type WorkerDryRunPreview = {
+  preview_count?: number;
+  queued_jobs?: unknown[];
+  promotable_assets?: unknown[];
+  uploaded_orphan_candidates?: unknown[];
+  message?: string;
+};
+
 const FAMILY_LABELS: Record<OwnedFamily, string> = {
   vibe_video: "Vibe videos",
   profile_photo: "Profile photos",
@@ -563,6 +571,7 @@ export default function AdminMediaLifecyclePanel() {
     event_cover: false,
   });
   const [chatDirty, setChatDirty] = useState(false);
+  const [workerDryRunPreview, setWorkerDryRunPreview] = useState<WorkerDryRunPreview | null>(null);
   const [confirmation, setConfirmation] = useState<{
     title: string;
     description: string;
@@ -698,12 +707,29 @@ export default function AdminMediaLifecyclePanel() {
     onError: (error) => toast.error(error instanceof Error ? error.message : "Could not repair event covers"),
   });
 
+  const workerDryRunMutation = useMutation({
+    mutationFn: async () => {
+      const { data, error } = await supabase.functions.invoke("admin-media-lifecycle-controls", {
+        body: { action: "worker_dry_run", batch_size: 20 },
+      });
+      if (error || !data?.success) throw new Error(data?.error || error?.message || "Dry run failed");
+      return data as { preview?: WorkerDryRunPreview } & AuditAwareResponse;
+    },
+    onSuccess: (result) => {
+      warnIfAuditMissing(result);
+      setWorkerDryRunPreview(result.preview ?? null);
+      toast.success(`Previewed ${result.preview?.preview_count ?? 0} media worker candidate${result.preview?.preview_count === 1 ? "" : "s"}`);
+    },
+    onError: (error) => toast.error(error instanceof Error ? error.message : "Could not preview worker run"),
+  });
+
   const mediaMutationPending =
     saveFamilyMutation.isPending ||
     saveChatMutation.isPending ||
     retryFailedMutation.isPending ||
     requeueStaleMutation.isPending ||
-    repairOrphanEventCoversMutation.isPending;
+    repairOrphanEventCoversMutation.isPending ||
+    workerDryRunMutation.isPending;
 
   const assetStatusRows = useMemo(() => data?.readiness.asset_status_counts ?? [], [data]);
   const jobStatusRows = useMemo(() => data?.readiness.job_status_counts ?? [], [data]);
@@ -829,6 +855,36 @@ export default function AdminMediaLifecyclePanel() {
               <span className="text-muted-foreground">Orphan-like assets</span>
               <span className="font-semibold">{orphanLikeTotal}</span>
             </div>
+            <Button
+              variant="outline"
+              size="sm"
+              className="w-full gap-2"
+              onClick={() => workerDryRunMutation.mutate()}
+              disabled={workerDryRunMutation.isPending}
+            >
+              {workerDryRunMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Clock3 className="h-4 w-4" />}
+              Worker dry run
+            </Button>
+            {workerDryRunPreview && (
+              <div className="rounded-md border border-border/50 bg-secondary/20 p-3 text-xs text-muted-foreground">
+                <div className="flex items-center justify-between">
+                  <span>Total previewed</span>
+                  <span className="font-semibold text-foreground">{workerDryRunPreview.preview_count ?? 0}</span>
+                </div>
+                <div className="mt-1 flex items-center justify-between">
+                  <span>Uploaded orphans</span>
+                  <span>{workerDryRunPreview.uploaded_orphan_candidates?.length ?? 0}</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span>Promotable</span>
+                  <span>{workerDryRunPreview.promotable_assets?.length ?? 0}</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span>Queued jobs</span>
+                  <span>{workerDryRunPreview.queued_jobs?.length ?? 0}</span>
+                </div>
+              </div>
+            )}
           </CardContent>
         </Card>
       </div>

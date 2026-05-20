@@ -21,6 +21,10 @@ import {
   hydrateClientFeatureFlagsForWeb,
   prefetchClientFeatureFlagsForUser,
 } from "@/lib/clientFeatureFlags";
+import {
+  markMediaSdkForegroundReconcile,
+  shouldRunMediaSdkForegroundReconcile,
+} from "@clientShared/media-sdk";
 
 interface User {
   id: string;
@@ -336,6 +340,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (currentUserId) {
       warmFeatureFlags(currentUserId);
+      markMediaSdkForegroundReconcile(`web:${currentUserId}`);
       reconcileMediaUploadQueues("auth_session_start");
       void refreshProfile();
       setEntryStateLoading(true);
@@ -350,7 +355,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (!currentUserId || typeof document === "undefined") return;
     const onVisibilityChange = () => {
-      if (document.visibilityState === "visible") {
+      if (
+        document.visibilityState === "visible" &&
+        shouldRunMediaSdkForegroundReconcile(`web:${currentUserId}`)
+      ) {
         reconcileMediaUploadQueues("visibility_active");
       }
     };

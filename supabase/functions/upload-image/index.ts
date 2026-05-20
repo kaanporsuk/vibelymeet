@@ -1,6 +1,8 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.88.0";
-import { MEDIA_FAMILIES, PROVIDERS, registerMediaAsset } from "../_shared/media-lifecycle.ts";
+import { bunnyCdnUrl } from "../_shared/bunny-media.ts";
+import { MEDIA_FAMILIES, PROVIDERS } from "../_shared/media-lifecycle.ts";
+import { captureReceiptTransition } from "../_shared/media-upload-telemetry.ts";
 import { validateImageUploadBytes } from "../_shared/media-upload-sniffing.ts";
 
 const corsHeaders = {
@@ -47,7 +49,9 @@ async function sha256Hex(buffer: ArrayBuffer): Promise<string> {
 async function stableUploadToken(parts: readonly string[]): Promise<string> {
   const encoded = new TextEncoder().encode(parts.join("\u001f"));
   const digest = await crypto.subtle.digest("SHA-256", encoded);
-  return hexFromBytes(new Uint8Array(digest)).slice(0, 16);
+  // 128-bit deterministic token keeps new Bunny object paths collision-resistant;
+  // media_upload_receipts remains the canonical idempotency authority.
+  return hexFromBytes(new Uint8Array(digest)).slice(0, 32);
 }
 
 function optionalFormString(formData: FormData, key: string): string | null {
@@ -171,7 +175,9 @@ serve(async (req) => {
       clientRequestId,
       contentSha256,
     ]);
-    const storagePath = `photos/${user.id}/req-${requestPathToken}.${ext}`;
+    const storagePath = context === "chat" && matchId
+      ? `photos/match-${matchId}/${user.id}/req-${requestPathToken}.${ext}`
+      : `photos/${user.id}/req-${requestPathToken}.${ext}`;
     const baseReceiptMetadata: Record<string, unknown> = {
       context: context ?? "legacy",
       storage_zone: storageZone,
@@ -208,17 +214,76 @@ serve(async (req) => {
     const receiptId = typeof reserve.receipt_id === "string" ? reserve.receipt_id : null;
     const reservedStatus = typeof reserve.status === "string" ? reserve.status : "reserved";
     const reservedPath = typeof reserve.provider_path === "string" ? reserve.provider_path : storagePath;
+    const uploadPath = reservedPath;
+    let reservedAssetId = typeof reserve.asset_id === "string" ? reserve.asset_id : null;
     const reserveMetadata = isRecord(reserve.metadata) ? reserve.metadata : {};
+    let reservedSessionId = typeof reserveMetadata.session_id === "string" ? reserveMetadata.session_id : null;
+    void captureReceiptTransition({
+      ownerUserId: user.id,
+      mediaFamily,
+      clientRequestId,
+      receiptId,
+      assetId: reservedAssetId,
+      provider: PROVIDERS.BUNNY_STORAGE,
+      providerPath: reservedPath,
+      statusTo: reservedStatus,
+      contentSha256,
+      source: "upload-image.reserve",
+    });
     if ((reservedStatus === "uploaded" || reservedStatus === "attached") && reservedPath) {
+      if (mediaFamily === MEDIA_FAMILIES.PROFILE_PHOTO && receiptId && !reservedSessionId) {
+        const metadata = {
+          ...baseReceiptMetadata,
+          uploaded_at: new Date().toISOString(),
+        };
+        const { data: repairData, error: repairError } = await adminSupabase.rpc(
+          "complete_profile_photo_media_upload",
+          {
+            p_receipt_id: receiptId,
+            p_owner_user_id: user.id,
+            p_context: context ?? "profile_studio",
+            p_provider: PROVIDERS.BUNNY_STORAGE,
+            p_provider_path: reservedPath,
+            p_mime_type: sniffedMedia.mimeType,
+            p_bytes: file.size,
+            p_content_sha256: contentSha256,
+            p_metadata: metadata,
+          },
+        );
+        if (repairError) {
+          console.error(`[upload-image] receipt/session repair failed userId=${user.id} path=${reservedPath} err=${repairError.message}`);
+        } else {
+          const repaired = isRecord(repairData) ? repairData : {};
+          reservedSessionId = typeof repaired.session_id === "string" ? repaired.session_id : reservedSessionId;
+          reservedAssetId = typeof repaired.asset_id === "string" ? repaired.asset_id : reservedAssetId;
+          void captureReceiptTransition({
+            ownerUserId: user.id,
+            mediaFamily,
+            clientRequestId,
+            receiptId,
+            assetId: reservedAssetId,
+            provider: PROVIDERS.BUNNY_STORAGE,
+            providerPath: reservedPath,
+            statusFrom: typeof repaired.status_from === "string" ? repaired.status_from : reservedStatus,
+            statusTo: typeof repaired.status_to === "string" ? repaired.status_to : reservedStatus,
+            contentSha256,
+            source: "upload-image.profile_receipt_repair",
+          });
+        }
+      }
       return json({
         success: true,
         path: reservedPath,
-        sessionId: typeof reserveMetadata.session_id === "string" ? reserveMetadata.session_id : null,
+        url: bunnyCdnUrl(reservedPath),
+        assetId: reservedAssetId,
+        contentSha256,
+        receiptId,
+        sessionId: reservedSessionId,
       });
     }
 
     const uploadRes = await fetch(
-      `https://${storageHostname}/${storageZone}/${storagePath}`,
+      `https://${storageHostname}/${storageZone}/${uploadPath}`,
       {
         method: "PUT",
         headers: {
@@ -233,173 +298,121 @@ serve(async (req) => {
     if (!uploadRes.ok) {
       console.error("[upload-image] Bunny upload failed:", await providerErrorMeta(uploadRes));
       if (receiptId) {
-        await adminSupabase
-          .from("media_upload_receipts")
-          .update({ status: "failed", last_error: `provider_upload_failed:${uploadRes.status}` })
-          .eq("id", receiptId);
+        const { data: failedData } = await adminSupabase.rpc("mark_media_upload_receipt_failed", {
+          p_receipt_id: receiptId,
+          p_owner_user_id: user.id,
+          p_last_error: `provider_upload_failed:${uploadRes.status}`,
+          p_metadata: { provider_status: uploadRes.status },
+        });
+        const failed = isRecord(failedData) ? failedData : {};
+        void captureReceiptTransition({
+          ownerUserId: user.id,
+          mediaFamily,
+          clientRequestId,
+          receiptId,
+          provider: PROVIDERS.BUNNY_STORAGE,
+          providerPath: uploadPath,
+          statusFrom: typeof failed.status_from === "string" ? failed.status_from : reservedStatus,
+          statusTo: "failed",
+          contentSha256,
+          source: "upload-image.provider_failed",
+        });
       }
       return json({ success: false, error: "Upload to CDN failed" });
     }
 
-    // ── Media lifecycle registration / draft session tracking ────────────────
-    // Profile-photo callers keep the draft-safe session flow; chat callers now
-    // register chat_image assets without touching profile-photo semantics.
     let sessionId: string | null = null;
     let assetId: string | null = null;
-    let lifecycleErrorMessage: string | null = null;
-    if (context === "onboarding" || context === "profile_studio") {
-      try {
-        const { data: existingSession, error: existingSessionError } = await adminSupabase
-          .from("draft_media_sessions")
-          .select("id")
-          .eq("user_id", user.id)
-          .eq("media_type", "photo")
-          .eq("provider_id", storagePath)
-          .eq("storage_path", storagePath)
-          .eq("context", context)
-          .in("status", ["created", "ready"])
-          .order("created_at", { ascending: false })
-          .limit(1)
-          .maybeSingle();
-
-        if (existingSessionError) {
-          console.error(
-            `[upload-image] existing session lookup failed userId=${user.id} path=${storagePath} err=${existingSessionError.message}`,
-          );
-        }
-
-        if (typeof existingSession?.id === "string") {
-          sessionId = existingSession.id;
-          await adminSupabase
-            .from("draft_media_sessions")
-            .update({ status: "ready" })
-            .eq("id", sessionId);
-        } else {
-          const { data: sessionResult, error: sessionError } = await adminSupabase.rpc(
-            "create_media_session",
-            {
-              p_user_id: user.id,
-              p_media_type: "photo",
-              p_provider_id: storagePath,
-              p_provider_meta: {
-                storageZone,
-                fileType: sniffedMedia.mimeType,
-                fileSize: file.size,
-                contentSha256,
-                clientRequestId,
-                ...(safeReplacedPath ? { replacesStoragePath: safeReplacedPath } : {}),
-              },
-              p_context: context,
-              p_storage_path: storagePath,
-            },
-          );
-
-          if (sessionError) {
-            console.error(`[upload-image] session creation failed userId=${user.id} path=${storagePath} err=${sessionError.message}`);
-          } else {
-            const sr = sessionResult as Record<string, unknown> | null;
-            if (sr?.success) {
-              sessionId = typeof sr.session_id === "string" ? sr.session_id : null;
-              if (sessionId) {
-                // Advance session directly to 'ready' since Bunny upload is complete
-                await adminSupabase
-                  .from("draft_media_sessions")
-                  .update({ status: "ready" })
-                  .eq("id", sessionId);
-              } else {
-                console.error(`[upload-image] session RPC returned no session_id userId=${user.id} path=${storagePath}`);
-              }
-            } else {
-              console.error(`[upload-image] session RPC failed userId=${user.id} error=${sr?.error}`);
-            }
-          }
-        }
-
-        const lifecycle = await registerMediaAsset(adminSupabase, {
-          provider: PROVIDERS.BUNNY_STORAGE,
-          mediaFamily: MEDIA_FAMILIES.PROFILE_PHOTO,
-          ownerUserId: user.id,
-          providerPath: storagePath,
-          mimeType: sniffedMedia.mimeType,
-          bytes: file.size,
-          contentSha256,
-          legacyTable: sessionId ? "draft_media_sessions" : "profiles",
-          legacyId: sessionId ?? `${user.id}:draft:${storagePath}`,
-          status: "uploaded",
-        });
-
-        if (!lifecycle.success) {
-          lifecycleErrorMessage = lifecycle.error ?? "asset_register_failed";
-          console.error(`[upload-image] media asset registration failed userId=${user.id} path=${storagePath} err=${lifecycle.error}`);
-        } else {
-          assetId = lifecycle.assetId ?? null;
-        }
-      } catch (e) {
-        lifecycleErrorMessage = e instanceof Error ? e.message : "asset_register_exception";
-        console.error("[upload-image] session/lifecycle tracking error:", e);
-      }
-    } else if (context === "chat" && matchId) {
-      try {
-        const lifecycle = await registerMediaAsset(adminSupabase, {
-          provider: PROVIDERS.BUNNY_STORAGE,
-          mediaFamily: MEDIA_FAMILIES.CHAT_IMAGE,
-          ownerUserId: user.id,
-          providerPath: storagePath,
-          mimeType: sniffedMedia.mimeType,
-          bytes: file.size,
-          contentSha256,
-          legacyTable: "matches",
-          legacyId: matchId,
-          status: "uploaded",
-        });
-
-        if (!lifecycle.success) {
-          lifecycleErrorMessage = lifecycle.error ?? "asset_register_failed";
-          console.error(
-            `[upload-image] chat media asset registration failed userId=${user.id} matchId=${matchId} path=${storagePath} err=${lifecycle.error}`,
-          );
-        } else {
-          assetId = lifecycle.assetId ?? null;
-        }
-      } catch (e) {
-        lifecycleErrorMessage = e instanceof Error ? e.message : "asset_register_exception";
-        console.error("[upload-image] chat lifecycle tracking error:", e);
-      }
-    }
-
-    if (lifecycleErrorMessage) {
-      if (receiptId) {
-        await adminSupabase
-          .from("media_upload_receipts")
-          .update({ status: "failed", last_error: lifecycleErrorMessage })
-          .eq("id", receiptId);
-      }
-      return json({ success: false, error: "Upload lifecycle registration failed" });
-    }
-
+    const completionMetadata = {
+      ...baseReceiptMetadata,
+      uploaded_at: new Date().toISOString(),
+    };
     if (receiptId) {
-      const receiptMetadata = {
-        ...baseReceiptMetadata,
-        ...(sessionId ? { session_id: sessionId } : {}),
-      };
-      const { error: receiptUpdateError } = await adminSupabase
-        .from("media_upload_receipts")
-        .update({
-          status: "uploaded",
-          asset_id: assetId,
-          provider_path: storagePath,
-          metadata: receiptMetadata,
-          last_error: null,
+      const completionCall = mediaFamily === MEDIA_FAMILIES.PROFILE_PHOTO
+        ? adminSupabase.rpc("complete_profile_photo_media_upload", {
+          p_receipt_id: receiptId,
+          p_owner_user_id: user.id,
+          p_context: context ?? "profile_studio",
+          p_provider: PROVIDERS.BUNNY_STORAGE,
+          p_provider_path: uploadPath,
+          p_mime_type: sniffedMedia.mimeType,
+          p_bytes: file.size,
+          p_content_sha256: contentSha256,
+          p_metadata: completionMetadata,
         })
-        .eq("id", receiptId);
+        : adminSupabase.rpc("complete_storage_media_upload", {
+          p_receipt_id: receiptId,
+          p_owner_user_id: user.id,
+          p_media_family: mediaFamily,
+          p_provider: PROVIDERS.BUNNY_STORAGE,
+          p_provider_path: uploadPath,
+          p_provider_object_id: null,
+          p_mime_type: sniffedMedia.mimeType,
+          p_bytes: file.size,
+          p_content_sha256: contentSha256,
+          p_legacy_table: "matches",
+          p_legacy_id: matchId,
+          p_receipt_status: "uploaded",
+          p_metadata: completionMetadata,
+          p_reference_id: null,
+          p_last_error: null,
+        });
 
-      if (receiptUpdateError) {
-        console.error(`[upload-image] receipt completion failed userId=${user.id} path=${storagePath} err=${receiptUpdateError.message}`);
+      const { data: completionData, error: completionError } = await completionCall;
+      const completion = isRecord(completionData) ? completionData : {};
+      if (completionError || completion.success !== true) {
+        const lifecycleErrorMessage =
+          completionError?.message ||
+          (typeof completion.error === "string" ? completion.error : "asset_register_failed");
+        console.error(`[upload-image] receipt completion failed userId=${user.id} path=${uploadPath} err=${lifecycleErrorMessage}`);
+        const { data: failedData } = await adminSupabase.rpc("mark_media_upload_receipt_failed", {
+          p_receipt_id: receiptId,
+          p_owner_user_id: user.id,
+          p_last_error: lifecycleErrorMessage,
+          p_metadata: { completion_failed_at: new Date().toISOString() },
+        });
+        const failed = isRecord(failedData) ? failedData : {};
+        void captureReceiptTransition({
+          ownerUserId: user.id,
+          mediaFamily,
+          clientRequestId,
+          receiptId,
+          provider: PROVIDERS.BUNNY_STORAGE,
+          providerPath: uploadPath,
+          statusFrom: typeof failed.status_from === "string" ? failed.status_from : reservedStatus,
+          statusTo: "failed",
+          contentSha256,
+          source: "upload-image.lifecycle_failed",
+        });
         return json({ success: false, error: "Upload receipt completion failed" });
       }
+
+      assetId = typeof completion.asset_id === "string" ? completion.asset_id : null;
+      sessionId = typeof completion.session_id === "string" ? completion.session_id : null;
+      void captureReceiptTransition({
+        ownerUserId: user.id,
+        mediaFamily,
+        clientRequestId,
+        receiptId,
+        assetId,
+        provider: PROVIDERS.BUNNY_STORAGE,
+        providerPath: uploadPath,
+        statusFrom: typeof completion.status_from === "string" ? completion.status_from : reservedStatus,
+        statusTo: typeof completion.status_to === "string" ? completion.status_to : "uploaded",
+        contentSha256,
+        source: "upload-image.completed",
+      });
     }
 
-    return json({ success: true, path: storagePath, sessionId });
+    return json({
+      success: true,
+      path: uploadPath,
+      url: bunnyCdnUrl(uploadPath),
+      assetId,
+      contentSha256,
+      receiptId,
+      sessionId,
+    });
 
   } catch (err) {
     console.error("[upload-image] Unexpected error:", safeUnexpectedError(err));

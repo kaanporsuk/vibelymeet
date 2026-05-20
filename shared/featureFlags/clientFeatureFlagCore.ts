@@ -9,6 +9,7 @@ export type ClientFeatureFlagKey = (typeof ALL_CLIENT_FEATURE_FLAGS)[number];
 export const CLIENT_FEATURE_FLAG_TTL_MS = 60_000;
 export const CLIENT_FEATURE_FLAG_QUERY_KEY = "client-feature-flag";
 export const CLIENT_FEATURE_FLAG_STORAGE_KEY = "vibely.client-feature-flags.v1";
+export const UPLOAD_FLAG_EVALUATION_TIMEOUT_MS = 1_500;
 
 export type ClientFeatureFlagSource =
   | "cache"
@@ -65,6 +66,41 @@ export type ClientFeatureFlagStorage = {
   setItem(key: string, value: string): void | Promise<void>;
   removeItem(key: string): void | Promise<void>;
 };
+
+export function failClosedUploadEvaluation(flag: ClientFeatureFlagKey, nowMs = Date.now()): ClientFeatureFlagEvaluation {
+  return {
+    flag,
+    enabled: false,
+    source: "error",
+    bucket: null,
+    rolloutBps: null,
+    userIdBucket: null,
+    fetchedAtMs: nowMs,
+    expiresAtMs: nowMs,
+  };
+}
+
+export function withUploadFlagTimeout<T>(
+  promise: Promise<T>,
+  timeoutMs = UPLOAD_FLAG_EVALUATION_TIMEOUT_MS,
+): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timeoutId = setTimeout(
+      () => reject(new Error("client_feature_flag_upload_timeout")),
+      timeoutMs,
+    );
+    promise.then(
+      (value) => {
+        clearTimeout(timeoutId);
+        resolve(value);
+      },
+      (error) => {
+        clearTimeout(timeoutId);
+        reject(error);
+      },
+    );
+  });
+}
 
 type StoredClientFeatureFlagCache = {
   version: 1;

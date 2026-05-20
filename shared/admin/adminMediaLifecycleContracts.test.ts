@@ -8,11 +8,13 @@ const read = (path: string) => readFileSync(join(root, path), "utf8");
 
 const hardeningMigration = read("supabase/migrations/20260507213000_media_lifecycle_admin_hardening.sql");
 const cronResilienceMigration = read("supabase/migrations/20260508123000_media_cron_status_resilience.sql");
-const mediaLifecycleMigrations = `${hardeningMigration}\n${cronResilienceMigration}`;
+const phase5BulletproofMigration = read("supabase/migrations/20260520170000_media_phase5_bulletproof_closure.sql");
+const mediaLifecycleMigrations = `${hardeningMigration}\n${cronResilienceMigration}\n${phase5BulletproofMigration}`;
 const adminFunction = read("supabase/functions/admin-media-lifecycle-controls/index.ts");
 const workerFunction = read("supabase/functions/process-media-delete-jobs/index.ts");
 const panel = read("src/components/admin/AdminMediaLifecyclePanel.tsx");
 const packageJson = read("package.json");
+const mediaDocs = read("docs/architecture/media.md");
 
 test("media lifecycle snapshot uses aggregate SQL instead of Edge full-table scans", () => {
   assert.match(hardeningMigration, /CREATE OR REPLACE FUNCTION public\.summarize_media_lifecycle_snapshot\(\)/);
@@ -114,6 +116,32 @@ test("worker promotion accepts family filter before claiming jobs", () => {
   assert.match(workerFunction, /p_family_filter: familyFilter/);
 });
 
+test("media delete worker dry run uses read-only preview from SQL through admin UI", () => {
+  assert.match(phase5BulletproofMigration, /CREATE OR REPLACE FUNCTION public\.preview_media_delete_worker_run/);
+  assert.match(phase5BulletproofMigration, /'dry_run', true/);
+  assert.match(phase5BulletproofMigration, /'Read-only preview; zero mutations performed\.'/);
+  assert.match(phase5BulletproofMigration, /queued_jobs/);
+  assert.match(phase5BulletproofMigration, /promotable_assets/);
+  assert.match(phase5BulletproofMigration, /uploaded_orphan_candidates/);
+  assert.match(phase5BulletproofMigration, /CREATE OR REPLACE FUNCTION public\.enqueue_uploaded_media_orphan_delete_rows/);
+  assert.match(phase5BulletproofMigration, /CREATE OR REPLACE FUNCTION public\.enqueue_uploaded_media_orphan_deletes/);
+  assert.match(phase5BulletproofMigration, /SELECT count\(\*\)::integer[\s\S]+enqueue_uploaded_media_orphan_delete_rows/);
+  assert.match(workerFunction, /preview_media_delete_worker_run/);
+  assert.match(workerFunction, /success: true,[\s\S]+dry_run: true/);
+  assert.doesNotMatch(workerFunction, /if \(isDryRun\)[\s\S]{0,500}promote_purgeable_assets/);
+  assert.match(workerFunction, /enqueue_uploaded_media_orphan_delete_rows/);
+  assert.match(workerFunction, /media_uploaded_orphan_delete_enqueued/);
+  assert.match(adminFunction, /action === "worker_dry_run"/);
+  assert.match(adminFunction, /preview_media_delete_worker_run/);
+  assert.match(adminFunction, /media_delete_worker_dry_run_previewed/);
+  assert.match(panel, /workerDryRunMutation/);
+  assert.match(panel, /Worker dry run/);
+  assert.match(panel, /uploaded_orphan_candidates/);
+  assert.match(mediaDocs, /every 15 minutes/);
+  assert.match(mediaDocs, /batch_size \* 2/);
+  assert.match(mediaDocs, /SQL[\s\S]+cap(?:ped| is| of)?[\s\S]+500/i);
+});
+
 test("service-role media lifecycle RPC grants are not inherited through PUBLIC", () => {
   for (const signature of [
     "summarize_media_lifecycle_snapshot\\(\\)",
@@ -126,14 +154,17 @@ test("service-role media lifecycle RPC grants are not inherited through PUBLIC",
     "sync_event_cover_media_lifecycle\\(uuid\\)",
     "soft_delete_orphan_event_cover_assets\\(integer\\)",
     "repair_event_cover_media_lifecycle\\(integer\\)",
+    "preview_media_delete_worker_run\\(integer, text\\)",
+    "enqueue_uploaded_media_orphan_delete_rows\\(integer, text\\)",
+    "enqueue_uploaded_media_orphan_deletes\\(integer, text\\)",
   ]) {
     assert.match(
       mediaLifecycleMigrations,
-      new RegExp(`REVOKE ALL ON FUNCTION public\\.${signature} FROM PUBLIC, anon, authenticated;`),
+      new RegExp(`REVOKE ALL ON FUNCTION public\\.${signature}\\s+FROM PUBLIC, anon, authenticated;`),
     );
     assert.match(
       mediaLifecycleMigrations,
-      new RegExp(`GRANT EXECUTE ON FUNCTION public\\.${signature} TO service_role;`),
+      new RegExp(`GRANT EXECUTE ON FUNCTION public\\.${signature}\\s+TO service_role;`),
     );
   }
 });

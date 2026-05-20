@@ -2,20 +2,23 @@ import {
   createMediaUploadPathTelemetryFields,
   createWebMediaSdk,
   MEDIA_UPLOAD_PATH_EVENT_NAMES,
+  createMediaClientRequestId,
   waitForMediaUploadTaskTerminal,
   type MediaTaskRunContext,
   type WebMediaSdk,
   type WebPhotoUploadInput,
   type WebVoiceUploadInput,
 } from "@clientShared/media-sdk";
+import { failClosedUploadEvaluation } from "@clientShared/featureFlags/clientFeatureFlagCore";
 import { trackEvent } from "@/lib/analytics";
 import { evaluateClientFeatureFlagForUpload, type ClientFeatureFlagEvaluation } from "@/lib/clientFeatureFlags";
+import { supabase } from "@/integrations/supabase/client";
 import {
   uploadImageToBunny,
   type UploadImageContext,
   type UploadImageToBunnyResult,
 } from "@/services/imageUploadService";
-import { uploadVoiceToBunny } from "@/services/voiceUploadService";
+import { uploadVoiceToBunny, type UploadVoiceToBunnyResult } from "@/services/voiceUploadService";
 import { createWebMediaUploadReconciler } from "@/lib/mediaSdk/reconciliation";
 import { webMediaTelemetrySinks } from "@/lib/mediaSdk/sinks";
 
@@ -35,7 +38,7 @@ type WebVoiceSdkUploadParams = {
 };
 
 const photoResultsByClientRequestId = new Map<string, UploadImageToBunnyResult>();
-const voiceResultsByClientRequestId = new Map<string, string>();
+const voiceResultsByClientRequestId = new Map<string, UploadVoiceToBunnyResult>();
 const storageErrorsByClientRequestId = new Map<string, unknown>();
 const storageCleanupTimersByResultKey = new Map<string, ReturnType<typeof setTimeout>>();
 const STORAGE_TRANSIENT_STATE_TTL_MS = 60 * 60 * 1000;
@@ -44,25 +47,6 @@ let mediaSdk: WebMediaSdk | null = null;
 
 function storageResultKey(family: WebPhotoUploadInput["family"] | WebVoiceUploadInput["family"], clientRequestId: string): string {
   return `${family}:${clientRequestId}`;
-}
-
-function createClientRequestId(): string {
-  if (globalThis.crypto?.randomUUID) return globalThis.crypto.randomUUID();
-  return `media-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-}
-
-function failClosedStorageEvaluation(flag: "media_v2_photo" | "media_v2_voice"): ClientFeatureFlagEvaluation {
-  const now = Date.now();
-  return {
-    flag,
-    enabled: false,
-    source: "error",
-    bucket: null,
-    rolloutBps: null,
-    userIdBucket: null,
-    fetchedAtMs: now,
-    expiresAtMs: now,
-  };
 }
 
 function trackMediaUploadStarted(params: {
@@ -98,6 +82,14 @@ function optionalContextString(input: WebPhotoUploadInput | WebVoiceUploadInput,
   return typeof value === "string" && value.trim() ? value : undefined;
 }
 
+async function accessTokenForWebStorageInput(input: WebPhotoUploadInput | WebVoiceUploadInput): Promise<string> {
+  const value = optionalContextString(input, "accessToken");
+  if (value) return value;
+  const token = (await supabase.auth.getSession()).data.session?.access_token;
+  if (token) return token;
+  throw new Error("web_storage_accessToken_missing");
+}
+
 function uploadContextFromPhotoInput(input: WebPhotoUploadInput): UploadImageContext {
   if (input.family === "chat_photo") return "chat";
   const value = input.context?.uploadContext;
@@ -109,6 +101,14 @@ function fileFromWebPhotoSource(source: File | Blob): File {
   if (typeof File !== "undefined" && source instanceof File) return source;
   if (typeof File === "undefined") throw new Error("web_media_file_constructor_missing");
   return new File([source], "photo.jpg", { type: source.type || "image/jpeg" });
+}
+
+async function getCachedUploadUserId(): Promise<string | null> {
+  try {
+    return (await supabase.auth.getSession()).data.session?.user?.id ?? null;
+  } catch {
+    return null;
+  }
 }
 
 function clearStorageTransientState(resultKey: string): void {
@@ -138,7 +138,7 @@ async function uploadWebPhotoViaLegacyService(
   try {
     const result = await uploadImageToBunny(
       fileFromWebPhotoSource(input.source),
-      requiredContextString(input, "accessToken"),
+      await accessTokenForWebStorageInput(input),
       uploadContextFromPhotoInput(input),
       optionalContextString(input, "matchId"),
       clientRequestId,
@@ -150,6 +150,8 @@ async function uploadWebPhotoViaLegacyService(
       result: {
         providerPath: result.path,
         mediaRef: result.path,
+        assetId: result.assetId ?? null,
+        contentSha256: result.contentSha256 ?? null,
         status: "uploaded",
       },
     });
@@ -169,7 +171,7 @@ async function uploadWebVoiceViaLegacyService(
   try {
     const result = await uploadVoiceToBunny(
       input.source,
-      requiredContextString(input, "accessToken"),
+      await accessTokenForWebStorageInput(input),
       requiredContextString(input, "matchId"),
       clientRequestId,
     );
@@ -178,8 +180,10 @@ async function uploadWebVoiceViaLegacyService(
     controls.dispatch({
       type: "ready",
       result: {
-        providerPath: result,
-        mediaRef: result,
+        providerPath: result.path,
+        mediaRef: result.path,
+        assetId: result.assetId ?? null,
+        contentSha256: result.contentSha256 ?? null,
         status: "uploaded",
       },
     });
@@ -218,14 +222,17 @@ export async function uploadImageWithMediaSdk(
 ): Promise<UploadImageToBunnyResult> {
   const context = params.context ?? "profile_studio";
   const family = context === "chat" ? "chat_photo" : "profile_photo";
-  const clientRequestId = params.clientRequestId ?? createClientRequestId();
+  const matchId = params.matchId?.trim() || undefined;
+  const clientRequestId = params.clientRequestId ?? createMediaClientRequestId();
+  const uploadUserId = await getCachedUploadUserId();
   let evaluation: ClientFeatureFlagEvaluation;
   try {
-    evaluation = await evaluateClientFeatureFlagForUpload("media_v2_photo");
+    evaluation = await evaluateClientFeatureFlagForUpload("media_v2_photo", { userId: uploadUserId });
   } catch {
-    evaluation = failClosedStorageEvaluation("media_v2_photo");
+    evaluation = failClosedUploadEvaluation("media_v2_photo");
   }
-  const path = evaluation.enabled ? "media_sdk" : "legacy";
+  const canUseMediaSdk = evaluation.enabled && (context === "chat" ? !!matchId : !!uploadUserId);
+  const path = canUseMediaSdk ? "media_sdk" : "legacy";
   trackMediaUploadStarted({
     flag: "media_v2_photo",
     evaluation,
@@ -234,12 +241,12 @@ export async function uploadImageWithMediaSdk(
     clientRequestId,
   });
 
-  if (!evaluation.enabled) {
+  if (!canUseMediaSdk) {
     return uploadImageToBunny(
       fileFromWebPhotoSource(params.file),
       params.accessToken,
       context,
-      params.matchId,
+      matchId,
       clientRequestId,
     );
   }
@@ -249,9 +256,9 @@ export async function uploadImageWithMediaSdk(
     source: params.file,
     context: {
       uploadContext: context,
-      scopeKey: context === "chat" && params.matchId ? `match:${params.matchId}` : `profile:${context}`,
+      scopeKey: context === "chat" ? `match:${matchId}` : `profile:${uploadUserId}:${context}`,
       accessToken: params.accessToken,
-      matchId: params.matchId,
+      matchId,
     },
     options: {
       clientRequestId,
@@ -280,14 +287,17 @@ export async function uploadImageWithMediaSdk(
 }
 
 export async function uploadVoiceWithMediaSdk(params: WebVoiceSdkUploadParams): Promise<string> {
-  const clientRequestId = params.clientRequestId ?? createClientRequestId();
+  const matchId = typeof params.matchId === "string" ? params.matchId.trim() : "";
+  const clientRequestId = params.clientRequestId ?? createMediaClientRequestId();
+  const uploadUserId = await getCachedUploadUserId();
   let evaluation: ClientFeatureFlagEvaluation;
   try {
-    evaluation = await evaluateClientFeatureFlagForUpload("media_v2_voice");
+    evaluation = await evaluateClientFeatureFlagForUpload("media_v2_voice", { userId: uploadUserId });
   } catch {
-    evaluation = failClosedStorageEvaluation("media_v2_voice");
+    evaluation = failClosedUploadEvaluation("media_v2_voice");
   }
-  const path = evaluation.enabled ? "media_sdk" : "legacy";
+  const canUseMediaSdk = evaluation.enabled && !!matchId;
+  const path = canUseMediaSdk ? "media_sdk" : "legacy";
   trackMediaUploadStarted({
     flag: "media_v2_voice",
     evaluation,
@@ -296,8 +306,8 @@ export async function uploadVoiceWithMediaSdk(params: WebVoiceSdkUploadParams): 
     clientRequestId,
   });
 
-  if (!evaluation.enabled) {
-    return uploadVoiceToBunny(params.blob, params.accessToken, params.matchId, clientRequestId);
+  if (!canUseMediaSdk) {
+    return (await uploadVoiceToBunny(params.blob, params.accessToken, matchId, clientRequestId)).path;
   }
 
   const task = getWebStorageMediaSdk().voice.upload({
@@ -305,9 +315,9 @@ export async function uploadVoiceWithMediaSdk(params: WebVoiceSdkUploadParams): 
     source: params.blob,
     context: {
       uploadContext: "chat",
-      scopeKey: `match:${params.matchId}`,
+      scopeKey: `match:${matchId}`,
       accessToken: params.accessToken,
-      matchId: params.matchId,
+      matchId,
     },
     options: {
       clientRequestId,
@@ -322,7 +332,7 @@ export async function uploadVoiceWithMediaSdk(params: WebVoiceSdkUploadParams): 
     if (originalError) throw originalError;
 
     const uploaded = voiceResultsByClientRequestId.get(resultKey);
-    if (uploaded) return uploaded;
+    if (uploaded) return uploaded.path;
 
     if (terminal.state === "failed") {
       throw new Error(terminal.error?.message ?? "Voice upload failed");

@@ -16,6 +16,7 @@ import {
 import * as Sentry from '@sentry/react-native';
 import { DarkTheme, ThemeProvider } from '@react-navigation/native';
 import { focusManager, QueryClientProvider } from '@tanstack/react-query';
+import { shouldRunMediaSdkForegroundReconcile } from '@clientShared/media-sdk';
 import { useFonts } from 'expo-font';
 import * as Linking from 'expo-linking';
 import { Redirect, Stack, router, usePathname, useSegments } from 'expo-router';
@@ -359,7 +360,8 @@ function ReactQueryAppStateBridge() {
 
 function NativeMediaSdkReconcileAppStateBridge() {
   const { session } = useAuth();
-  const hasSession = Boolean(session?.user?.id);
+  const sessionUserId = session?.user?.id ?? null;
+  const hasSession = Boolean(sessionUserId);
 
   useEffect(() => {
     if (!hasSession) return;
@@ -375,11 +377,13 @@ function NativeMediaSdkReconcileAppStateBridge() {
     };
 
     const subscription = AppState.addEventListener('change', (nextState: AppStateStatus) => {
-      if (nextState === 'active') run('app_state_active');
+      if (nextState === 'active' && shouldRunMediaSdkForegroundReconcile(`native:${sessionUserId ?? 'unknown'}`)) {
+        run('app_state_active');
+      }
     });
 
     return () => subscription.remove();
-  }, [hasSession]);
+  }, [hasSession, sessionUserId]);
 
   return null;
 }

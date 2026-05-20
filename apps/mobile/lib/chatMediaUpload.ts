@@ -8,6 +8,15 @@ import { getCachedAccessToken } from '@/lib/nativeAuthSession';
 const SUPABASE_URL = process.env.EXPO_PUBLIC_SUPABASE_URL ?? '';
 const GENERIC_UPLOAD_MIME_TYPE = 'application/octet-stream';
 
+export type UploadChatStorageResult = {
+  path: string;
+  url: string | null;
+  assetId: string | null;
+  contentSha256: string | null;
+  receiptId: string | null;
+  sessionId: string | null;
+};
+
 function extensionFromUri(uri: string): string | null {
   const clean = uri.trim().split(/[?#]/)[0] ?? uri;
   const last = clean.split('/').pop() ?? clean;
@@ -32,7 +41,15 @@ function normalizedImageMimeType(mimeType: string | null | undefined, imageUri: 
   return GENERIC_UPLOAD_MIME_TYPE;
 }
 
-export async function uploadVoiceMessage(audioUri: string, matchId: string, clientRequestId?: string): Promise<string> {
+/**
+ * @deprecated Use uploadVoiceWithMediaSdk so durable queueing, reconciliation,
+ * and receipt telemetry remain active. This remains as the SDK delegate.
+ */
+export async function uploadVoiceMessage(
+  audioUri: string,
+  matchId: string,
+  clientRequestId?: string,
+): Promise<UploadChatStorageResult> {
   const accessToken = await getCachedAccessToken();
   if (!accessToken) throw new Error('Not authenticated');
 
@@ -65,7 +82,16 @@ export async function uploadVoiceMessage(audioUri: string, matchId: string, clie
   });
 
   const text = await res.text().catch(() => '');
-  let data: { success?: boolean; path?: string; url?: string; error?: string };
+  let data: {
+    success?: boolean;
+    path?: string;
+    url?: string | null;
+    assetId?: string | null;
+    contentSha256?: string | null;
+    receiptId?: string | null;
+    sessionId?: string | null;
+    error?: string;
+  };
   try {
     data = JSON.parse(text);
   } catch {
@@ -75,15 +101,27 @@ export async function uploadVoiceMessage(audioUri: string, matchId: string, clie
   if (!res.ok || !data.success || !mediaRef) {
     throw new Error(data.error || `Upload failed with status ${res.status}`);
   }
-  return mediaRef;
+  return {
+    path: mediaRef,
+    url: data.url ?? null,
+    assetId: data.assetId ?? null,
+    contentSha256: data.contentSha256 ?? null,
+    receiptId: data.receiptId ?? null,
+    sessionId: data.sessionId ?? null,
+  };
 }
 
+/**
+ * @deprecated Use uploadChatImageWithMediaSdk so durable queueing,
+ * reconciliation, and receipt telemetry remain active. This remains as the SDK
+ * delegate.
+ */
 export async function uploadChatImageMessage(
   imageUri: string,
   mimeType: string | null | undefined,
   matchId: string,
   clientRequestId?: string,
-): Promise<string> {
+): Promise<UploadChatStorageResult> {
   const accessToken = await getCachedAccessToken();
   if (!accessToken) throw new Error('Not authenticated');
 
@@ -124,7 +162,16 @@ export async function uploadChatImageMessage(
   });
 
   const text = await res.text().catch(() => '');
-  let data: { success?: boolean; path?: string; error?: string };
+  let data: {
+    success?: boolean;
+    path?: string;
+    url?: string | null;
+    assetId?: string | null;
+    contentSha256?: string | null;
+    receiptId?: string | null;
+    sessionId?: string | null;
+    error?: string;
+  };
   try {
     data = JSON.parse(text);
   } catch {
@@ -133,5 +180,12 @@ export async function uploadChatImageMessage(
   if (!res.ok || !data.success || !data.path) {
     throw new Error(data.error || `Upload failed with status ${res.status}`);
   }
-  return data.path;
+  return {
+    path: data.path,
+    url: data.url ?? null,
+    assetId: data.assetId ?? null,
+    contentSha256: data.contentSha256 ?? null,
+    receiptId: data.receiptId ?? null,
+    sessionId: data.sessionId ?? null,
+  };
 }

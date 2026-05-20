@@ -8,7 +8,14 @@ import { getCachedAccessToken } from '@/lib/nativeAuthSession';
 
 const SUPABASE_URL = process.env.EXPO_PUBLIC_SUPABASE_URL ?? '';
 
-export type UploadImageResult = { path: string; sessionId: string | null };
+export type UploadImageResult = {
+  path: string;
+  sessionId: string | null;
+  url?: string | null;
+  assetId?: string | null;
+  contentSha256?: string | null;
+  receiptId?: string | null;
+};
 
 export interface ImagePickerAsset {
   uri: string;
@@ -19,8 +26,9 @@ export interface ImagePickerAsset {
 }
 
 /**
- * Upload an image from a local URI (e.g. from expo-image-picker) to Bunny via upload-image EF.
- * Superseded committed photos are reconciled later by final publish, not during staged upload.
+ * @deprecated Use uploadProfilePhotoWithMediaSdk so durable queueing,
+ * reconciliation, and receipt telemetry remain active. This remains as the SDK
+ * delegate.
  */
 export async function uploadProfilePhoto(
   asset: ImagePickerAsset | NormalizedImageAsset,
@@ -64,7 +72,16 @@ export async function uploadProfilePhoto(
     });
 
     const text = await res.text();
-    let data: { success?: boolean; path?: string; sessionId?: string | null; error?: string };
+    let data: {
+      success?: boolean;
+      path?: string;
+      url?: string | null;
+      assetId?: string | null;
+      contentSha256?: string | null;
+      receiptId?: string | null;
+      sessionId?: string | null;
+      error?: string;
+    };
     try {
       data = JSON.parse(text);
     } catch {
@@ -78,6 +95,10 @@ export async function uploadProfilePhoto(
     return {
       path: data.path,
       sessionId: data.sessionId ?? null,
+      url: data.url ?? null,
+      assetId: data.assetId ?? null,
+      contentSha256: data.contentSha256 ?? null,
+      receiptId: data.receiptId ?? null,
     };
   } finally {
     prepared.cleanup?.();

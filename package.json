@@ -41,6 +41,7 @@
     "test:media-sdk": "tsx shared/media-sdk/mediaSdk.test.ts && tsx shared/media-sdk/backgroundUploadPolicy.test.ts",
     "test:media-background-upload": "tsx shared/media-sdk/backgroundUploadPolicy.test.ts",
     "test:media-idempotency": "tsx shared/mediaAssetsIdempotencyContracts.test.ts",
+    "test:media-storage-smoke": "tsx scripts/media-storage-idempotency-smoke.ts",
     "test:media-phase8": "tsx shared/mediaPhase8Contracts.test.ts",
     "test:client-feature-flags": "tsx shared/featureFlags/clientFeatureFlagsContracts.test.ts && tsx shared/admin/adminClientFeatureFlagsContracts.test.ts",
     "test:profile-privacy-contract": "tsx shared/profile/profileDirectPrivacyContracts.test.ts",

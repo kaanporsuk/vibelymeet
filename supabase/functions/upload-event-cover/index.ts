@@ -5,8 +5,8 @@ import {
   MEDIA_FAMILIES,
   PROVIDERS,
   REF_TYPES,
-  registerMediaAsset,
 } from "../_shared/media-lifecycle.ts";
+import { captureReceiptTransition } from "../_shared/media-upload-telemetry.ts";
 import { validateImageUploadBytes } from "../_shared/media-upload-sniffing.ts";
 
 const corsHeaders = {
@@ -54,7 +54,9 @@ async function sha256Hex(buffer: ArrayBuffer): Promise<string> {
 async function stableUploadToken(parts: readonly string[]): Promise<string> {
   const encoded = new TextEncoder().encode(parts.join("\u001f"));
   const digest = await crypto.subtle.digest("SHA-256", encoded);
-  return hexFromBytes(new Uint8Array(digest)).slice(0, 16);
+  // 128-bit deterministic token keeps new Bunny object paths collision-resistant;
+  // media_upload_receipts remains the canonical idempotency authority.
+  return hexFromBytes(new Uint8Array(digest)).slice(0, 32);
 }
 
 function optionalFormString(formData: FormData, key: string): string | null {
@@ -292,8 +294,21 @@ serve(async (req) => {
     const receiptId = typeof reserve.receipt_id === "string" ? reserve.receipt_id : null;
     const reservedStatus = typeof reserve.status === "string" ? reserve.status : "reserved";
     const reservedPath = typeof reserve.provider_path === "string" ? reserve.provider_path : storagePath;
+    const uploadPath = reservedPath;
     const reservedAssetId = typeof reserve.asset_id === "string" ? reserve.asset_id : null;
     const reserveMetadata = isRecord(reserve.metadata) ? reserve.metadata : {};
+    void captureReceiptTransition({
+      ownerUserId: user.id,
+      mediaFamily,
+      clientRequestId,
+      receiptId,
+      assetId: reservedAssetId,
+      provider: PROVIDERS.BUNNY_STORAGE,
+      providerPath: reservedPath,
+      statusTo: reservedStatus,
+      contentSha256,
+      source: "upload-event-cover.reserve",
+    });
 
     let currentCover: CurrentEventCover | null = null;
     const getCurrentCover = async () => {
@@ -309,7 +324,9 @@ serve(async (req) => {
           path: reservedPath,
           url: bunnyCdnUrl(reservedPath),
           assetId: reservedAssetId,
+          contentSha256,
           receiptId,
+          sessionId: null,
           referenceId: typeof reserveMetadata.reference_id === "string" ? reserveMetadata.reference_id : null,
         });
       }
@@ -331,7 +348,9 @@ serve(async (req) => {
             path: reservedPath,
             url: bunnyCdnUrl(reservedPath),
             assetId: reservedAssetId,
+            contentSha256,
             receiptId,
+            sessionId: null,
             referenceId: typeof reserveMetadata.reference_id === "string" ? reserveMetadata.reference_id : current.referenceId,
           });
         }
@@ -341,24 +360,50 @@ serve(async (req) => {
 
       if (reservedStatus === "uploaded" && reservedAssetIsCurrent) {
         if (receiptId) {
-          const { error: receiptRepairError } = await adminSupabase
-            .from("media_upload_receipts")
-            .update({
-              status: "attached",
-              asset_id: reservedAssetId,
-              provider_path: reservedPath,
-              metadata: {
+          const { data: repairData, error: receiptRepairError } = await adminSupabase.rpc(
+            "complete_storage_media_upload",
+            {
+              p_receipt_id: receiptId,
+              p_owner_user_id: user.id,
+              p_media_family: mediaFamily,
+              p_provider: PROVIDERS.BUNNY_STORAGE,
+              p_provider_path: reservedPath,
+              p_provider_object_id: null,
+              p_mime_type: sniffedMedia.mimeType,
+              p_bytes: file.size,
+              p_content_sha256: contentSha256,
+              p_legacy_table: "events",
+              p_legacy_id: eventId,
+              p_receipt_status: "attached",
+              p_metadata: {
                 ...reserveMetadata,
-                ...(current.referenceId ? { reference_id: current.referenceId } : {}),
                 uploaded_at: typeof reserveMetadata.uploaded_at === "string"
                   ? reserveMetadata.uploaded_at
                   : new Date().toISOString(),
               },
-              last_error: null,
-            })
-            .eq("id", receiptId);
-          if (receiptRepairError) {
-            console.error(`[upload-event-cover] receipt attached repair failed path=${reservedPath} err=${receiptRepairError.message}`);
+              p_reference_id: current.referenceId,
+              p_last_error: null,
+            },
+          );
+          const repair = isRecord(repairData) ? repairData : {};
+          if (receiptRepairError || repair.success !== true) {
+            console.error(
+              `[upload-event-cover] receipt attached repair failed path=${reservedPath} err=${receiptRepairError?.message ?? repair.error}`,
+            );
+          } else {
+            void captureReceiptTransition({
+              ownerUserId: user.id,
+              mediaFamily,
+              clientRequestId,
+              receiptId,
+              assetId: reservedAssetId,
+              provider: PROVIDERS.BUNNY_STORAGE,
+              providerPath: reservedPath,
+              statusFrom: typeof repair.status_from === "string" ? repair.status_from : reservedStatus,
+              statusTo: typeof repair.status_to === "string" ? repair.status_to : "attached",
+              contentSha256,
+              source: "upload-event-cover.attached_repair",
+            });
           }
         }
 
@@ -367,7 +412,9 @@ serve(async (req) => {
           path: reservedPath,
           url: bunnyCdnUrl(reservedPath),
           assetId: reservedAssetId,
+          contentSha256,
           receiptId,
+          sessionId: null,
           referenceId: current.referenceId,
         });
       }
@@ -384,7 +431,7 @@ serve(async (req) => {
     let assetId = reservedStatus === "uploaded" && eventId ? reservedAssetId : null;
     if (!assetId) {
       const uploadRes = await fetch(
-        `https://storage.bunnycdn.com/${storageZone}/${storagePath}`,
+        `https://storage.bunnycdn.com/${storageZone}/${uploadPath}`,
         {
           method: "PUT",
           headers: {
@@ -399,60 +446,108 @@ serve(async (req) => {
       if (!uploadRes.ok) {
         console.error("[upload-event-cover] Bunny upload failed:", await providerErrorMeta(uploadRes));
         if (receiptId) {
-          await adminSupabase
-            .from("media_upload_receipts")
-            .update({ status: "failed", last_error: `provider_upload_failed:${uploadRes.status}` })
-            .eq("id", receiptId);
+          const { data: failedData } = await adminSupabase.rpc("mark_media_upload_receipt_failed", {
+            p_receipt_id: receiptId,
+            p_owner_user_id: user.id,
+            p_last_error: `provider_upload_failed:${uploadRes.status}`,
+            p_metadata: { provider_status: uploadRes.status },
+          });
+          const failed = isRecord(failedData) ? failedData : {};
+          void captureReceiptTransition({
+            ownerUserId: user.id,
+            mediaFamily,
+            clientRequestId,
+            receiptId,
+            provider: PROVIDERS.BUNNY_STORAGE,
+            providerPath: uploadPath,
+            statusFrom: typeof failed.status_from === "string" ? failed.status_from : reservedStatus,
+            statusTo: "failed",
+            contentSha256,
+            source: "upload-event-cover.provider_failed",
+          });
         }
         return json({ success: false, error: "Upload to CDN failed" });
       }
 
-      const lifecycle = await registerMediaAsset(adminSupabase, {
-        provider: PROVIDERS.BUNNY_STORAGE,
-        mediaFamily,
-        ownerUserId: user.id,
-        providerPath: storagePath,
-        mimeType: sniffedMedia.mimeType,
-        bytes: file.size,
-        contentSha256,
-        legacyTable: "events",
-        legacyId: eventId ?? null,
-        status: "uploaded",
-      });
-
-      if (!lifecycle.success || !lifecycle.assetId) {
-        const lastError = lifecycle.error ?? "asset_register_failed";
-        console.error(`[upload-event-cover] media asset registration failed path=${storagePath} err=${lastError}`);
-        if (receiptId) {
-          await adminSupabase
-            .from("media_upload_receipts")
-            .update({ status: "failed", last_error: lastError })
-            .eq("id", receiptId);
-        }
-        return json({ success: false, error: "Upload lifecycle registration failed" });
-      }
-
-      assetId = lifecycle.assetId;
-
       if (receiptId) {
-        const { error: receiptUploadedError } = await adminSupabase
-          .from("media_upload_receipts")
-          .update({
-            status: "uploaded",
-            asset_id: assetId,
-            provider_path: storagePath,
-            metadata: {
+        const { data: completionData, error: completionError } = await adminSupabase.rpc(
+          "complete_storage_media_upload",
+          {
+            p_receipt_id: receiptId,
+            p_owner_user_id: user.id,
+            p_media_family: mediaFamily,
+            p_provider: PROVIDERS.BUNNY_STORAGE,
+            p_provider_path: uploadPath,
+            p_provider_object_id: null,
+            p_mime_type: sniffedMedia.mimeType,
+            p_bytes: file.size,
+            p_content_sha256: contentSha256,
+            p_legacy_table: "events",
+            p_legacy_id: eventId ?? null,
+            p_receipt_status: "uploaded",
+            p_metadata: {
               ...baseReceiptMetadata,
               uploaded_at: new Date().toISOString(),
             },
-            last_error: null,
-          })
-          .eq("id", receiptId);
-
-        if (receiptUploadedError) {
-          console.error(`[upload-event-cover] receipt uploaded mark failed path=${storagePath} err=${receiptUploadedError.message}`);
-          return json({ success: false, error: "Upload receipt completion failed" });
+            p_reference_id: null,
+            p_last_error: null,
+          },
+        );
+        const completion = isRecord(completionData) ? completionData : {};
+        if (completionError || completion.success !== true) {
+          const lastError = completionError?.message ||
+            (typeof completion.error === "string" ? completion.error : "asset_register_failed");
+          console.error(`[upload-event-cover] media asset registration failed path=${uploadPath} err=${lastError}`);
+          const { data: failedData } = await adminSupabase.rpc("mark_media_upload_receipt_failed", {
+            p_receipt_id: receiptId,
+            p_owner_user_id: user.id,
+            p_last_error: lastError,
+            p_metadata: { completion_failed_at: new Date().toISOString() },
+          });
+          const failed = isRecord(failedData) ? failedData : {};
+          void captureReceiptTransition({
+            ownerUserId: user.id,
+            mediaFamily,
+            clientRequestId,
+            receiptId,
+            provider: PROVIDERS.BUNNY_STORAGE,
+            providerPath: uploadPath,
+            statusFrom: typeof failed.status_from === "string" ? failed.status_from : reservedStatus,
+            statusTo: "failed",
+            contentSha256,
+            source: "upload-event-cover.lifecycle_failed",
+          });
+          return json({ success: false, error: "Upload lifecycle registration failed" });
         }
+
+        assetId = typeof completion.asset_id === "string" ? completion.asset_id : null;
+        void captureReceiptTransition({
+          ownerUserId: user.id,
+          mediaFamily,
+          clientRequestId,
+          receiptId,
+          assetId,
+          provider: PROVIDERS.BUNNY_STORAGE,
+          providerPath: uploadPath,
+          statusFrom: typeof completion.status_from === "string" ? completion.status_from : reservedStatus,
+          statusTo: typeof completion.status_to === "string" ? completion.status_to : "uploaded",
+          contentSha256,
+          source: "upload-event-cover.uploaded",
+        });
+      }
+
+      if (!assetId) {
+        const lastError = "asset_register_failed";
+        console.error(`[upload-event-cover] media asset registration failed path=${uploadPath} err=${lastError}`);
+        if (receiptId) {
+          await adminSupabase.rpc("mark_media_upload_receipt_failed", {
+            p_receipt_id: receiptId,
+            p_owner_user_id: user.id,
+            p_last_error: lastError,
+            p_metadata: { completion_failed_at: new Date().toISOString() },
+          });
+        }
+        return json({ success: false, error: "Upload lifecycle registration failed" });
       }
     }
 
@@ -470,15 +565,23 @@ serve(async (req) => {
           `[upload-event-cover] media reference replace failed assetId=${assetId} eventId=${eventId} err=${replaceError.message}`,
         );
         if (receiptId) {
-          await adminSupabase
-            .from("media_upload_receipts")
-            .update({
-              status: "uploaded",
-              asset_id: assetId,
-              provider_path: storagePath,
-              last_error: replaceError.message,
-            })
-            .eq("id", receiptId);
+          await adminSupabase.rpc("complete_storage_media_upload", {
+            p_receipt_id: receiptId,
+            p_owner_user_id: user.id,
+            p_media_family: mediaFamily,
+            p_provider: PROVIDERS.BUNNY_STORAGE,
+            p_provider_path: uploadPath,
+            p_provider_object_id: null,
+            p_mime_type: sniffedMedia.mimeType,
+            p_bytes: file.size,
+            p_content_sha256: contentSha256,
+            p_legacy_table: "events",
+            p_legacy_id: eventId,
+            p_receipt_status: "uploaded",
+            p_metadata: { ...baseReceiptMetadata, uploaded_at: new Date().toISOString() },
+            p_reference_id: null,
+            p_last_error: replaceError.message,
+          });
         }
         return json({ success: false, error: "Upload lifecycle registration failed" });
       }
@@ -486,15 +589,23 @@ serve(async (req) => {
       const refResult = parseReplaceEventCoverResult(replaceData);
       if (!refResult.success) {
         if (receiptId) {
-          await adminSupabase
-            .from("media_upload_receipts")
-            .update({
-              status: "uploaded",
-              asset_id: assetId,
-              provider_path: storagePath,
-              last_error: refResult.error,
-            })
-            .eq("id", receiptId);
+          await adminSupabase.rpc("complete_storage_media_upload", {
+            p_receipt_id: receiptId,
+            p_owner_user_id: user.id,
+            p_media_family: mediaFamily,
+            p_provider: PROVIDERS.BUNNY_STORAGE,
+            p_provider_path: uploadPath,
+            p_provider_object_id: null,
+            p_mime_type: sniffedMedia.mimeType,
+            p_bytes: file.size,
+            p_content_sha256: contentSha256,
+            p_legacy_table: "events",
+            p_legacy_id: eventId,
+            p_receipt_status: "uploaded",
+            p_metadata: { ...baseReceiptMetadata, uploaded_at: new Date().toISOString() },
+            p_reference_id: null,
+            p_last_error: refResult.error,
+          });
         }
         return json(
           {
@@ -512,34 +623,60 @@ serve(async (req) => {
     }
 
     if (receiptId) {
-      const { error: receiptUpdateError } = await adminSupabase
-        .from("media_upload_receipts")
-        .update({
-          status: receiptStatus,
-          asset_id: assetId,
-          provider_path: storagePath,
-          metadata: {
+      const { data: completionData, error: receiptUpdateError } = await adminSupabase.rpc(
+        "complete_storage_media_upload",
+        {
+          p_receipt_id: receiptId,
+          p_owner_user_id: user.id,
+          p_media_family: mediaFamily,
+          p_provider: PROVIDERS.BUNNY_STORAGE,
+          p_provider_path: uploadPath,
+          p_provider_object_id: null,
+          p_mime_type: sniffedMedia.mimeType,
+          p_bytes: file.size,
+          p_content_sha256: contentSha256,
+          p_legacy_table: "events",
+          p_legacy_id: eventId ?? null,
+          p_receipt_status: receiptStatus,
+          p_metadata: {
             ...baseReceiptMetadata,
-            ...(referenceId ? { reference_id: referenceId } : {}),
             uploaded_at: new Date().toISOString(),
           },
-          last_error: null,
-        })
-        .eq("id", receiptId);
-
-      if (receiptUpdateError) {
-        console.error(`[upload-event-cover] receipt completion failed path=${storagePath} err=${receiptUpdateError.message}`);
+          p_reference_id: referenceId,
+          p_last_error: null,
+        },
+      );
+      const completion = isRecord(completionData) ? completionData : {};
+      if (receiptUpdateError || completion.success !== true) {
+        console.error(
+          `[upload-event-cover] receipt completion failed path=${uploadPath} err=${receiptUpdateError?.message ?? completion.error}`,
+        );
         return json({ success: false, error: "Upload receipt completion failed" });
       }
+      void captureReceiptTransition({
+        ownerUserId: user.id,
+        mediaFamily,
+        clientRequestId,
+        receiptId,
+        assetId,
+        provider: PROVIDERS.BUNNY_STORAGE,
+        providerPath: uploadPath,
+        statusFrom: typeof completion.status_from === "string" ? completion.status_from : reservedStatus,
+        statusTo: typeof completion.status_to === "string" ? completion.status_to : receiptStatus,
+        contentSha256,
+        source: "upload-event-cover.completed",
+      });
     }
 
     return json({
       success: true,
-      path: storagePath,
-      url: bunnyCdnUrl(storagePath),
+      path: uploadPath,
+      url: bunnyCdnUrl(uploadPath),
       assetId,
+      contentSha256,
       referenceId,
       receiptId,
+      sessionId: null,
     });
   } catch (err) {
     console.error("[upload-event-cover] Unexpected error:", safeUnexpectedError(err));

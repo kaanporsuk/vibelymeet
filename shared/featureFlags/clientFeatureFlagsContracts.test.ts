@@ -190,6 +190,11 @@ test("web/native hooks use the shared core with persisted initial data and debou
 });
 
 test("platform feature flag libs persist, prefetch, emit evaluation telemetry, and fail closed at upload-start", () => {
+  assert.match(core, /export const UPLOAD_FLAG_EVALUATION_TIMEOUT_MS = 1_500/);
+  assert.match(core, /export function failClosedUploadEvaluation/);
+  assert.match(core, /export function withUploadFlagTimeout/);
+  assert.match(core, /client_feature_flag_upload_timeout/);
+
   for (const source of [webLib, nativeLib]) {
     assert.match(source, /evaluate_client_feature_flag_detail/);
     assert.match(source, /evaluate_client_feature_flags/);
@@ -199,9 +204,14 @@ test("platform feature flag libs persist, prefetch, emit evaluation telemetry, a
     assert.match(source, /clearPersistedClientFeatureFlagCache/);
     assert.match(source, /evaluateClientFeatureFlagForUpload/);
     assert.match(source, /failClosedUploadEvaluation/);
-    assert.match(source, /UPLOAD_FLAG_EVALUATION_TIMEOUT_MS\s*=\s*1_500/);
-    assert.match(source, /client_feature_flag_upload_timeout/);
-    assert.match(source, /withUploadFlagTimeout\(fetchClientFeatureFlag\(flag, user\.id, true\)\)/);
+    assert.match(source, /withUploadFlagTimeout\(fetchClientFeatureFlag\(flag, userId, true\)\)/);
+    assert.match(source, /supabase\.auth\.getSession\(\)/);
+    assert.doesNotMatch(source, /supabase\.auth\.getUser\(\)/);
+  }
+
+  for (const source of [webStorageUploads, nativeStorageUploads]) {
+    assert.match(source, /evaluateClientFeatureFlagForUpload\((["'])media_v2_photo\1, \{ userId: uploadUserId \}\)/);
+    assert.match(source, /evaluateClientFeatureFlagForUpload\((["'])media_v2_voice\1, \{ userId: uploadUserId \}\)/);
   }
 });
 

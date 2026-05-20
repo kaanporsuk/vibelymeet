@@ -4,6 +4,7 @@ import * as ImageManipulator from 'expo-image-manipulator';
 import { Platform } from 'react-native';
 import {
   createMediaUploadPathTelemetryFields,
+  createMediaClientRequestId,
   createNativeMediaSdk,
   MEDIA_UPLOAD_PATH_EVENT_NAMES,
   waitForMediaUploadTaskTerminal,
@@ -13,10 +14,12 @@ import {
   type NativePhotoUploadInput,
   type NativeVoiceUploadInput,
 } from '@clientShared/media-sdk';
+import { failClosedUploadEvaluation } from '@clientShared/featureFlags/clientFeatureFlagCore';
 import { trackEvent } from '@/lib/analytics';
 import { evaluateClientFeatureFlagForUpload, type ClientFeatureFlagEvaluation } from '@/lib/clientFeatureFlags';
-import { uploadChatImageMessage, uploadVoiceMessage } from '@/lib/chatMediaUpload';
+import { uploadChatImageMessage, uploadVoiceMessage, type UploadChatStorageResult } from '@/lib/chatMediaUpload';
 import { uploadProfilePhoto, type UploadImageResult } from '@/lib/uploadImage';
+import { getCachedUserId } from '@/lib/nativeAuthSession';
 import { createNativeMediaUploadReconciler } from '@/lib/mediaSdk/reconciliation';
 import { nativeMediaTelemetrySinks } from '@/lib/mediaSdk/sinks';
 
@@ -41,8 +44,8 @@ type NativeVoiceSdkUploadParams = {
 };
 
 const profilePhotoResultsByClientRequestId = new Map<string, UploadImageResult>();
-const chatImageResultsByClientRequestId = new Map<string, string>();
-const voiceResultsByClientRequestId = new Map<string, string>();
+const chatImageResultsByClientRequestId = new Map<string, UploadChatStorageResult>();
+const voiceResultsByClientRequestId = new Map<string, UploadChatStorageResult>();
 const storageErrorsByClientRequestId = new Map<string, unknown>();
 const storageCleanupTimersByResultKey = new Map<string, ReturnType<typeof setTimeout>>();
 const STORAGE_TRANSIENT_STATE_TTL_MS = 60 * 60 * 1000;
@@ -54,25 +57,6 @@ function storageResultKey(
   clientRequestId: string,
 ): string {
   return `${family}:${clientRequestId}`;
-}
-
-function createClientRequestId(): string {
-  if (globalThis.crypto?.randomUUID) return globalThis.crypto.randomUUID();
-  return `media-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-}
-
-function failClosedStorageEvaluation(flag: 'media_v2_photo' | 'media_v2_voice'): ClientFeatureFlagEvaluation {
-  const now = Date.now();
-  return {
-    flag,
-    enabled: false,
-    source: 'error',
-    bucket: null,
-    rolloutBps: null,
-    userIdBucket: null,
-    fetchedAtMs: now,
-    expiresAtMs: now,
-  };
 }
 
 function trackMediaUploadStarted(params: {
@@ -164,8 +148,10 @@ async function uploadNativePhotoViaLegacyService(
       controls.dispatch({
         type: 'ready',
         result: {
-          providerPath: result,
-          mediaRef: result,
+          providerPath: result.path,
+          mediaRef: result.path,
+          assetId: result.assetId,
+          contentSha256: result.contentSha256,
           status: 'uploaded',
         },
       });
@@ -191,6 +177,8 @@ async function uploadNativePhotoViaLegacyService(
       result: {
         providerPath: result.path,
         mediaRef: result.path,
+        assetId: result.assetId ?? null,
+        contentSha256: result.contentSha256 ?? null,
         status: 'uploaded',
       },
     });
@@ -218,8 +206,10 @@ async function uploadNativeVoiceViaLegacyService(
     controls.dispatch({
       type: 'ready',
       result: {
-        providerPath: result,
-        mediaRef: result,
+        providerPath: result.path,
+        mediaRef: result.path,
+        assetId: result.assetId,
+        contentSha256: result.contentSha256,
         status: 'uploaded',
       },
     });
@@ -260,14 +250,16 @@ export async function reconcileNativeStorageMediaSdkQueue(reason = 'manual'): Pr
 export async function uploadProfilePhotoWithMediaSdk(
   params: NativeProfilePhotoSdkUploadParams,
 ): Promise<UploadImageResult> {
-  const clientRequestId = params.clientRequestId ?? createClientRequestId();
+  const clientRequestId = params.clientRequestId ?? createMediaClientRequestId();
+  const uploadUserId = await getCachedUserId();
   let evaluation: ClientFeatureFlagEvaluation;
   try {
-    evaluation = await evaluateClientFeatureFlagForUpload('media_v2_photo');
+    evaluation = await evaluateClientFeatureFlagForUpload('media_v2_photo', { userId: uploadUserId });
   } catch {
-    evaluation = failClosedStorageEvaluation('media_v2_photo');
+    evaluation = failClosedUploadEvaluation('media_v2_photo');
   }
-  const path = evaluation.enabled ? 'media_sdk' : 'legacy';
+  const canUseMediaSdk = evaluation.enabled && !!uploadUserId;
+  const path = canUseMediaSdk ? 'media_sdk' : 'legacy';
   trackMediaUploadStarted({
     flag: 'media_v2_photo',
     evaluation,
@@ -276,7 +268,7 @@ export async function uploadProfilePhotoWithMediaSdk(
     clientRequestId,
   });
 
-  if (!evaluation.enabled) {
+  if (!canUseMediaSdk) {
     return uploadProfilePhoto(
       {
         uri: params.asset.uri,
@@ -303,7 +295,7 @@ export async function uploadProfilePhotoWithMediaSdk(
     },
     context: {
       uploadContext: params.context ?? 'profile_studio',
-      scopeKey: `profile:${params.context ?? 'profile_studio'}`,
+      scopeKey: `profile:${uploadUserId}:${params.context ?? 'profile_studio'}`,
     },
     options: {
       clientRequestId,
@@ -333,14 +325,17 @@ export async function uploadProfilePhotoWithMediaSdk(
 }
 
 export async function uploadChatImageWithMediaSdk(params: NativeChatImageSdkUploadParams): Promise<string> {
-  const clientRequestId = params.clientRequestId ?? createClientRequestId();
+  const clientRequestId = params.clientRequestId ?? createMediaClientRequestId();
+  const matchId = typeof params.matchId === 'string' ? params.matchId.trim() : '';
+  const uploadUserId = await getCachedUserId();
   let evaluation: ClientFeatureFlagEvaluation;
   try {
-    evaluation = await evaluateClientFeatureFlagForUpload('media_v2_photo');
+    evaluation = await evaluateClientFeatureFlagForUpload('media_v2_photo', { userId: uploadUserId });
   } catch {
-    evaluation = failClosedStorageEvaluation('media_v2_photo');
+    evaluation = failClosedUploadEvaluation('media_v2_photo');
   }
-  const path = evaluation.enabled ? 'media_sdk' : 'legacy';
+  const canUseMediaSdk = evaluation.enabled && !!matchId;
+  const path = canUseMediaSdk ? 'media_sdk' : 'legacy';
   trackMediaUploadStarted({
     flag: 'media_v2_photo',
     evaluation,
@@ -349,8 +344,8 @@ export async function uploadChatImageWithMediaSdk(params: NativeChatImageSdkUplo
     clientRequestId,
   });
 
-  if (!evaluation.enabled) {
-    return uploadChatImageMessage(params.uri, params.mimeType ?? null, params.matchId, clientRequestId);
+  if (!canUseMediaSdk) {
+    return (await uploadChatImageMessage(params.uri, params.mimeType ?? null, matchId, clientRequestId)).path;
   }
 
   const task = getNativeStorageMediaSdk().photo.upload({
@@ -361,8 +356,8 @@ export async function uploadChatImageWithMediaSdk(params: NativeChatImageSdkUplo
     },
     context: {
       uploadContext: 'chat',
-      scopeKey: `match:${params.matchId}`,
-      matchId: params.matchId,
+      scopeKey: `match:${matchId}`,
+      matchId,
       mimeType: params.mimeType ?? null,
     },
     options: {
@@ -378,7 +373,7 @@ export async function uploadChatImageWithMediaSdk(params: NativeChatImageSdkUplo
     if (originalError) throw originalError;
 
     const uploaded = chatImageResultsByClientRequestId.get(resultKey);
-    if (uploaded) return uploaded;
+    if (uploaded) return uploaded.path;
 
     if (terminal.state === 'failed') {
       throw new Error(terminal.error?.message ?? 'Image upload failed');
@@ -392,14 +387,17 @@ export async function uploadChatImageWithMediaSdk(params: NativeChatImageSdkUplo
 }
 
 export async function uploadVoiceWithMediaSdk(params: NativeVoiceSdkUploadParams): Promise<string> {
-  const clientRequestId = params.clientRequestId ?? createClientRequestId();
+  const clientRequestId = params.clientRequestId ?? createMediaClientRequestId();
+  const matchId = typeof params.matchId === 'string' ? params.matchId.trim() : '';
+  const uploadUserId = await getCachedUserId();
   let evaluation: ClientFeatureFlagEvaluation;
   try {
-    evaluation = await evaluateClientFeatureFlagForUpload('media_v2_voice');
+    evaluation = await evaluateClientFeatureFlagForUpload('media_v2_voice', { userId: uploadUserId });
   } catch {
-    evaluation = failClosedStorageEvaluation('media_v2_voice');
+    evaluation = failClosedUploadEvaluation('media_v2_voice');
   }
-  const path = evaluation.enabled ? 'media_sdk' : 'legacy';
+  const canUseMediaSdk = evaluation.enabled && !!matchId;
+  const path = canUseMediaSdk ? 'media_sdk' : 'legacy';
   trackMediaUploadStarted({
     flag: 'media_v2_voice',
     evaluation,
@@ -408,8 +406,8 @@ export async function uploadVoiceWithMediaSdk(params: NativeVoiceSdkUploadParams
     clientRequestId,
   });
 
-  if (!evaluation.enabled) {
-    return uploadVoiceMessage(params.uri, params.matchId, clientRequestId);
+  if (!canUseMediaSdk) {
+    return (await uploadVoiceMessage(params.uri, matchId, clientRequestId)).path;
   }
 
   const task = getNativeStorageMediaSdk().voice.upload({
@@ -421,8 +419,8 @@ export async function uploadVoiceWithMediaSdk(params: NativeVoiceSdkUploadParams
     },
     context: {
       uploadContext: 'chat',
-      scopeKey: `match:${params.matchId}`,
-      matchId: params.matchId,
+      scopeKey: `match:${matchId}`,
+      matchId,
     },
     options: {
       clientRequestId,
@@ -437,7 +435,7 @@ export async function uploadVoiceWithMediaSdk(params: NativeVoiceSdkUploadParams
     if (originalError) throw originalError;
 
     const uploaded = voiceResultsByClientRequestId.get(resultKey);
-    if (uploaded) return uploaded;
+    if (uploaded) return uploaded.path;
 
     if (terminal.state === 'failed') {
       throw new Error(terminal.error?.message ?? 'Voice upload failed');

@@ -12,7 +12,9 @@ function read(path: string): string {
 const migration = read("supabase/migrations/20260519150000_media_atomic_idempotency.sql");
 const phase5Migration = read("supabase/migrations/20260519170000_media_phase_5_6_10.sql");
 const phase5ClosureMigration = read("supabase/migrations/20260519190000_media_phase_5_11_15.sql");
+const phase5BulletproofMigration = read("supabase/migrations/20260520170000_media_phase5_bulletproof_closure.sql");
 const mediaLifecycle = read("supabase/functions/_shared/media-lifecycle.ts");
+const mediaUploadTelemetry = read("supabase/functions/_shared/media-upload-telemetry.ts");
 const uploadImage = read("supabase/functions/upload-image/index.ts");
 const uploadVoice = read("supabase/functions/upload-voice/index.ts");
 const uploadEventCover = read("supabase/functions/upload-event-cover/index.ts");
@@ -42,6 +44,7 @@ const nativeScavengerStartSheet = read("apps/mobile/components/chat/games/Scaven
 const nativeScavengerBubble = read("apps/mobile/components/chat/games/ScavengerBubble.tsx");
 const webMediaSdkAdapter = read("shared/media-sdk/adapters/web.ts");
 const nativeMediaSdkAdapter = read("shared/media-sdk/adapters/native.ts");
+const mediaArchitectureDoc = read("docs/architecture/media.md");
 
 test("media assets migration adds uploaded status, SHA-256, and provider identity uniqueness", () => {
   assert.match(migration, /ADD COLUMN IF NOT EXISTS content_sha256 text/);
@@ -100,13 +103,25 @@ test("upload-image reserves before PUT, sends Bunny Checksum, and registers uplo
   assert.match(uploadImage, /async function sha256Hex/);
   assert.match(uploadImage, /const contentSha256 = await sha256Hex\(fileBuffer\)/);
   assert.match(uploadImage, /adminSupabase\.rpc\("reserve_media_upload"/);
-  assert.match(uploadImage, /const storagePath = `photos\/\$\{user\.id\}\/req-\$\{requestPathToken\}\.\$\{ext\}`/);
+  assert.match(uploadImage, /\.slice\(0, 32\)/);
+  assert.match(uploadImage, /`photos\/match-\$\{matchId\}\/\$\{user\.id\}\/req-\$\{requestPathToken\}\.\$\{ext\}`/);
+  assert.match(uploadImage, /`photos\/\$\{user\.id\}\/req-\$\{requestPathToken\}\.\$\{ext\}`/);
+  assert.match(uploadImage, /const uploadPath = reservedPath/);
+  assert.match(uploadImage, /storageZone\}\/\$\{uploadPath\}/);
+  assert.match(uploadImage, /p_provider_path: uploadPath/);
   assert.match(uploadImage, /"Checksum": contentSha256\.toUpperCase\(\)/);
-  assert.match(uploadImage, /last_error: `provider_upload_failed:\$\{uploadRes\.status\}`/);
-  assert.match(uploadImage, /\.from\("draft_media_sessions"\)[\s\S]+\.eq\("provider_id", storagePath\)[\s\S]+\.maybeSingle\(\)/);
+  assert.match(uploadImage, /mark_media_upload_receipt_failed/);
+  assert.match(uploadImage, /complete_profile_photo_media_upload/);
+  assert.match(uploadImage, /complete_storage_media_upload/);
+  assert.match(uploadImage, /\(reservedStatus === "uploaded" \|\| reservedStatus === "attached"\)[\s\S]+!reservedSessionId/);
+  assert.doesNotMatch(uploadImage, /\.from\("draft_media_sessions"\)[\s\S]+\.maybeSingle\(\)/);
   assert.match(uploadImage, /contentSha256,/);
-  assert.match(uploadImage, /status: "uploaded"/);
-  assert.match(uploadImage, /\.from\("media_upload_receipts"\)[\s\S]+status: "uploaded"/);
+  assert.match(uploadImage, /assetId,/);
+  assert.match(uploadImage, /receiptId,/);
+  assert.match(uploadImage, /sessionId,/);
+  assert.match(uploadImage, /url: bunnyCdnUrl/);
+  assert.match(uploadImage, /captureReceiptTransition/);
+  assert.match(mediaUploadTelemetry, /media_upload_receipt_transition/);
 });
 
 test("upload-voice is receipt-backed, hash-bound, and wired to durable outbox ids", () => {
@@ -117,11 +132,19 @@ test("upload-voice is receipt-backed, hash-bound, and wired to durable outbox id
   assert.match(uploadVoice, /const scopeKey = `match:\$\{conversationId\}`/);
   assert.match(uploadVoice, /adminSupabase\.rpc\("reserve_media_upload"/);
   assert.match(uploadVoice, /p_client_request_id: clientRequestId/);
-  assert.match(uploadVoice, /const storagePath = `voice\/\$\{conversationId\}\/req-\$\{requestPathToken\}\.\$\{sniffedMedia\.extension\}`/);
+  assert.match(uploadVoice, /\.slice\(0, 32\)/);
+  assert.match(uploadVoice, /const storagePath = `voice\/match-\$\{conversationId\}\/\$\{user\.id\}\/req-\$\{requestPathToken\}\.\$\{sniffedMedia\.extension\}`/);
+  assert.match(uploadVoice, /const uploadPath = reservedPath/);
+  assert.match(uploadVoice, /storageZone\}\/\$\{uploadPath\}/);
+  assert.match(uploadVoice, /p_provider_path: uploadPath/);
   assert.match(uploadVoice, /"Checksum": contentSha256\.toUpperCase\(\)/);
+  assert.match(uploadVoice, /complete_storage_media_upload/);
+  assert.match(uploadVoice, /mark_media_upload_receipt_failed/);
   assert.match(uploadVoice, /contentSha256,/);
-  assert.match(uploadVoice, /status: "uploaded"/);
-  assert.match(uploadVoice, /\.from\("media_upload_receipts"\)[\s\S]+status: "uploaded"/);
+  assert.match(uploadVoice, /assetId,/);
+  assert.match(uploadVoice, /receiptId,/);
+  assert.match(uploadVoice, /sessionId: null/);
+  assert.match(uploadVoice, /url: audioUrl/);
 
   assert.match(webVoiceUploadService, /clientRequestId\?: string/);
   assert.match(webVoiceUploadService, /formData\.append\("client_request_id", stableClientRequestId\)/);
@@ -129,20 +152,22 @@ test("upload-voice is receipt-backed, hash-bound, and wired to durable outbox id
   assert.doesNotMatch(webOutboxExecute, /options\.mediaV2VoiceEnabled/);
   assert.match(webOutboxExecute, /uploadVoiceWithMediaSdk\(\{[\s\S]+blob,[\s\S]+accessToken: session\.access_token,[\s\S]+matchId,[\s\S]+clientRequestId/);
   assert.doesNotMatch(webOutboxExecute, /uploadVoiceToBunny\(blob, session\.access_token, matchId, clientRequestId\)/);
-  assert.match(webStorageSdkUploads, /evaluateClientFeatureFlagForUpload\("media_v2_voice"\)/);
-  assert.match(webStorageSdkUploads, /return uploadVoiceToBunny\(params\.blob, params\.accessToken, params\.matchId, clientRequestId\)/);
+  assert.match(webStorageSdkUploads, /evaluateClientFeatureFlagForUpload\("media_v2_voice", \{ userId: uploadUserId \}\)/);
+  assert.match(webStorageSdkUploads, /return \(await uploadVoiceToBunny\(params\.blob, params\.accessToken, matchId, clientRequestId\)\)\.path/);
 
-  assert.match(nativeChatMediaUpload, /uploadVoiceMessage\(audioUri: string, matchId: string, clientRequestId\?: string\)/);
+  assert.match(nativeChatMediaUpload, /uploadVoiceMessage\([\s\S]+audioUri: string,[\s\S]+matchId: string,[\s\S]+clientRequestId\?: string/);
   assert.match(nativeChatMediaUpload, /formData\.append\('client_request_id', stableClientRequestId\)/);
   assert.match(nativeChatMediaUpload, /'x-client-request-id': stableClientRequestId/);
   assert.doesNotMatch(nativeOutboxExecute, /options\.mediaV2VoiceEnabled/);
   assert.match(nativeOutboxExecute, /uploadVoiceWithMediaSdk\(\{ uri: payload\.uri, matchId, clientRequestId \}\)/);
   assert.doesNotMatch(nativeOutboxExecute, /uploadVoiceMessage\(payload\.uri, matchId, clientRequestId\)/);
-  assert.match(nativeStorageSdkUploads, /evaluateClientFeatureFlagForUpload\('media_v2_voice'\)/);
-  assert.match(nativeStorageSdkUploads, /return uploadVoiceMessage\(params\.uri, params\.matchId, clientRequestId\)/);
+  assert.match(nativeStorageSdkUploads, /evaluateClientFeatureFlagForUpload\('media_v2_voice', \{ userId: uploadUserId \}\)/);
+  assert.match(nativeStorageSdkUploads, /return \(await uploadVoiceMessage\(params\.uri, matchId, clientRequestId\)\)\.path/);
 });
 
 test("upload-event-cover uses strong sniffing, stale cover guards, and attached receipts", () => {
+  assert.match(uploadEventCover, /\.from\("user_roles"\)[\s\S]+\.eq\("role", "admin"\)/);
+  assert.match(mediaArchitectureDoc, /Event-cover uploads remain admin-only[\s\S]+events` schema has no[\s\S]+owner\/host column/);
   assert.match(uploadEventCover, /validateImageUploadBytes\(fileBuffer, file\.type\)/);
   assert.match(uploadEventCover, /function clientRequestIdForUpload/);
   assert.match(uploadEventCover, /expected_current_cover_asset_id/);
@@ -152,17 +177,26 @@ test("upload-event-cover uses strong sniffing, stale cover guards, and attached 
   assert.match(uploadEventCover, /const contentSha256 = await sha256Hex\(fileBuffer\)/);
   assert.match(uploadEventCover, /const mediaFamily = MEDIA_FAMILIES\.EVENT_COVER/);
   assert.match(uploadEventCover, /adminSupabase\.rpc\("reserve_media_upload"/);
+  assert.match(uploadEventCover, /\.slice\(0, 32\)/);
+  assert.match(uploadEventCover, /const uploadPath = reservedPath/);
+  assert.match(uploadEventCover, /storageZone\}\/\$\{uploadPath\}/);
+  assert.match(uploadEventCover, /p_provider_path: uploadPath/);
   assert.match(uploadEventCover, /"Checksum": contentSha256\.toUpperCase\(\)/);
+  assert.match(uploadEventCover, /complete_storage_media_upload/);
+  assert.match(uploadEventCover, /mark_media_upload_receipt_failed/);
   assert.match(uploadEventCover, /contentSha256,/);
-  assert.match(uploadEventCover, /status: "uploaded"/);
+  assert.match(uploadEventCover, /assetId,/);
+  assert.match(uploadEventCover, /receiptId,/);
+  assert.match(uploadEventCover, /referenceId,/);
+  assert.match(uploadEventCover, /sessionId: null/);
   assert.match(uploadEventCover, /reservedStatus === "attached"/);
   assert.match(uploadEventCover, /reservedStatus === "uploaded" && eventId/);
   assert.match(uploadEventCover, /reservedAssetIsCurrent/);
   assert.match(uploadEventCover, /receipt attached repair failed/);
-  assert.match(uploadEventCover, /receipt uploaded mark failed/);
+  assert.match(uploadEventCover, /receipt completion failed/);
   assert.match(uploadEventCover, /adminSupabase\.rpc\("replace_event_cover_media_reference"/);
   assert.match(uploadEventCover, /receiptStatus = "attached"/);
-  assert.match(uploadEventCover, /\.from\("media_upload_receipts"\)[\s\S]+status: receiptStatus/);
+  assert.doesNotMatch(uploadEventCover, /\.from\("media_upload_receipts"\)[\s\S]+status: receiptStatus/);
 
   assert.match(webEventCoverUploadService, /expectedCurrentCoverAssetId\?: string \| null/);
   assert.match(webEventCoverUploadService, /currentCoverAssetId\?: string \| null/);
@@ -246,7 +280,7 @@ test("photo and voice callers are cut to storage SDK wrappers behind durable fla
   assert.match(webStorageSdkUploads, /createWebMediaSdk/);
   assert.doesNotMatch(webStorageSdkUploads, /media_v2_photo: true/);
   assert.doesNotMatch(webStorageSdkUploads, /media_v2_voice: true/);
-  assert.match(webStorageSdkUploads, /evaluateClientFeatureFlagForUpload\("media_v2_photo"\)/);
+  assert.match(webStorageSdkUploads, /evaluateClientFeatureFlagForUpload\("media_v2_photo", \{ userId: uploadUserId \}\)/);
   assert.match(webStorageSdkUploads, /MEDIA_UPLOAD_PATH_EVENT_NAMES/);
   assert.match(webStorageSdkUploads, /createMediaUploadPathTelemetryFields/);
   assert.match(webStorageSdkUploads, /waitForMediaUploadTaskTerminal/);
@@ -267,7 +301,7 @@ test("photo and voice callers are cut to storage SDK wrappers behind durable fla
   assert.match(nativeStorageSdkUploads, /createNativeMediaSdk/);
   assert.doesNotMatch(nativeStorageSdkUploads, /media_v2_photo: true/);
   assert.doesNotMatch(nativeStorageSdkUploads, /media_v2_voice: true/);
-  assert.match(nativeStorageSdkUploads, /evaluateClientFeatureFlagForUpload\('media_v2_photo'\)/);
+  assert.match(nativeStorageSdkUploads, /evaluateClientFeatureFlagForUpload\('media_v2_photo', \{ userId: uploadUserId \}\)/);
   assert.match(nativeStorageSdkUploads, /MEDIA_UPLOAD_PATH_EVENT_NAMES/);
   assert.match(nativeStorageSdkUploads, /createMediaUploadPathTelemetryFields/);
   assert.match(nativeStorageSdkUploads, /waitForMediaUploadTaskTerminal/);
@@ -289,6 +323,10 @@ test("photo and voice callers are cut to storage SDK wrappers behind durable fla
 test("uploaded orphan cleanup is worker-owned and guarded against late active references", () => {
   const worker = read("supabase/functions/process-media-delete-jobs/index.ts");
   assert.match(phase5ClosureMigration, /CREATE OR REPLACE FUNCTION public\.enqueue_uploaded_media_orphan_deletes/);
+  assert.match(phase5BulletproofMigration, /CREATE OR REPLACE FUNCTION public\.enqueue_uploaded_media_orphan_delete_rows/);
+  assert.match(phase5BulletproofMigration, /CREATE OR REPLACE FUNCTION public\.preview_media_delete_worker_run/);
+  assert.match(phase5BulletproofMigration, /'chat_image', 'voice_message', 'chat_video', 'chat_video_thumbnail', 'profile_photo', 'event_cover'/);
+  assert.match(phase5BulletproofMigration, /ON CONFLICT \(media_family\) DO UPDATE[\s\S]+SET worker_enabled = true/);
   assert.match(phase5ClosureMigration, /a\.status = 'uploaded'/);
   assert.match(phase5ClosureMigration, /interval '24 hours'/);
   assert.match(phase5ClosureMigration, /interval '7 days'/);
@@ -303,17 +341,49 @@ test("uploaded orphan cleanup is worker-owned and guarded against late active re
   assert.match(phase5ClosureMigration, /SET status = 'purging'/);
   assert.match(phase5ClosureMigration, /JOIN marked_assets ON marked_assets\.id = claimable\.asset_id/);
   assert.match(phase5ClosureMigration, /SET status = 'purge_ready'[\s\S]+AND status = 'purging'/);
-  assert.match(worker, /enqueue_uploaded_media_orphan_deletes/);
+  assert.match(worker, /enqueue_uploaded_media_orphan_delete_rows/);
+  assert.match(worker, /preview_media_delete_worker_run/);
+  assert.match(worker, /media_uploaded_orphan_delete_enqueued/);
   assert.match(worker, /stats\.uploadedOrphans/);
   assert.match(worker, /\.from\("media_references"\)[\s\S]+\.eq\("asset_id", job\.asset_id\)[\s\S]+\.eq\("is_active", true\)/);
   assert.match(worker, /\.from\("media_assets"\)[\s\S]+\.update\(\{[\s\S]+status: "active"/);
   assert.match(worker, /active_ref_asset_reset_failed/);
   assert.match(worker, /active_ref_job_delete_failed/);
   assert.match(worker, /\.from\("media_delete_jobs"\)[\s\S]+\.delete\(\)[\s\S]+\.eq\("id", job\.id\)/);
-  assert.match(worker, /interface DryRunPreviewRow \{[\s\S]+id: string/);
-  assert.match(worker, /media_assets\?: \{[\s\S]+media_family\?: string \| null/);
-  assert.match(worker, /DRY_RUN would_delete job=\$\{row\.id\}/);
-  assert.doesNotMatch(worker, /row\.job_id \?\? row\.id/);
+  assert.match(worker, /const previewRecord = \(preview \?\? \{\}\) as Record<string, unknown>/);
+  assert.match(worker, /preview_count/);
+  assert.match(worker, /Dry-run preview failed/);
+  assert.doesNotMatch(worker, /DRY_RUN would_delete job=\$\{row\.id\}/);
+});
+
+test("phase 5 bulletproof closure exposes owner-scoped receipt reconciliation and coordinated completion RPCs", () => {
+  assert.match(phase5BulletproofMigration, /ADD COLUMN IF NOT EXISTS attempt_count integer NOT NULL DEFAULT 0/);
+  assert.match(phase5BulletproofMigration, /ADD COLUMN IF NOT EXISTS last_failed_at timestamptz/);
+  assert.match(phase5BulletproofMigration, /ADD COLUMN IF NOT EXISTS next_retry_at timestamptz/);
+  assert.match(phase5BulletproofMigration, /CREATE OR REPLACE FUNCTION public\.get_media_upload_receipt_status/);
+  assert.match(phase5BulletproofMigration, /owner_user_id = v_uid/);
+  assert.match(phase5BulletproofMigration, /Compatibility for Phase 5 pre-closure profile SDK queue rows/);
+  assert.match(phase5BulletproofMigration, /p_scope_key = 'profile:profile_studio' OR p_scope_key = 'profile:self'/);
+  assert.match(phase5BulletproofMigration, /format\('profile:%s:%s', v_uid, split_part\(p_scope_key, ':', 2\)\)/);
+  assert.match(phase5BulletproofMigration, /GRANT EXECUTE ON FUNCTION public\.get_media_upload_receipt_status\(text, text, text\)[\s\S]+TO authenticated, service_role/);
+  assert.match(phase5BulletproofMigration, /CREATE OR REPLACE FUNCTION public\.complete_storage_media_upload/);
+  assert.match(phase5BulletproofMigration, /CREATE OR REPLACE FUNCTION public\.complete_profile_photo_media_upload/);
+  assert.match(phase5BulletproofMigration, /FOR UPDATE/);
+  assert.match(phase5BulletproofMigration, /provider_mismatch/);
+  assert.match(phase5BulletproofMigration, /provider_path_mismatch/);
+  assert.match(phase5BulletproofMigration, /public\.upsert_media_asset/);
+  assert.match(phase5BulletproofMigration, /public\.draft_media_sessions/);
+  assert.ok(
+    phase5BulletproofMigration.indexOf("v_asset_result := public.upsert_media_asset") <
+      phase5BulletproofMigration.indexOf("FROM public.draft_media_sessions"),
+    "profile completion must validate/upsert the asset before writing draft_media_sessions",
+  );
+  assert.match(phase5BulletproofMigration, /UPDATE public\.media_assets[\s\S]+legacy_table = 'draft_media_sessions'[\s\S]+legacy_id = v_session_id::text/);
+  assert.match(phase5BulletproofMigration, /jsonb_build_object\('session_id', v_session_id\)/);
+  assert.match(phase5BulletproofMigration, /CREATE OR REPLACE FUNCTION public\.mark_media_upload_receipt_failed/);
+  assert.match(phase5BulletproofMigration, /power\(5, LEAST\(v_receipt\.attempt_count, 4\)\)/);
+  assert.match(phase5BulletproofMigration, /REVOKE ALL ON FUNCTION public\.complete_storage_media_upload[\s\S]+FROM PUBLIC, anon, authenticated/);
+  assert.match(phase5BulletproofMigration, /GRANT EXECUTE ON FUNCTION public\.complete_storage_media_upload[\s\S]+TO service_role/);
 });
 
 test("web and native chat image retries pass durable outbox ids to upload-image", () => {
