@@ -54,6 +54,7 @@ const chatVibeClipShared = read("supabase/functions/_shared/chat-vibe-clips.ts")
 const vibeClipAnalytics = read("shared/chat/vibeClipAnalytics.ts");
 const mediaLifecycleShared = read("supabase/functions/_shared/media-lifecycle.ts");
 const getChatMediaUrl = read("supabase/functions/get-chat-media-url/index.ts");
+const bunnyStreamTokens = read("supabase/functions/_shared/bunny-stream-tokens.ts");
 const videoWebhook = read("supabase/functions/video-webhook/index.ts");
 const chatThreadPage = read("supabase/functions/chat-thread-page/index.ts");
 const chatVibeClipMigration = read("supabase/migrations/20260518120000_chat_vibe_clip_bunny_stream.sql");
@@ -677,10 +678,11 @@ test("server upload and publish paths enforce Bunny Stream Vibe Clip limits", ()
   assert.match(getChatMediaUrl, /BUNNY_CHAT_STREAM_CDN_HOSTNAME/);
   assert.match(getChatMediaUrl, /BUNNY_CHAT_STREAM_TOKEN_SECURITY_KEY/);
   assert.doesNotMatch(getChatMediaUrl, /async function hmacSha256Base64Url/);
-  assert.match(getChatMediaUrl, /const signingData = sortedSigningData\(\{ token_path: tokenPath \}\)/);
-  assert.match(getChatMediaUrl, /const token = `HS256-\$\{await signPayload/);
-  assert.match(getChatMediaUrl, /`\$\{tokenPath\}\$\{params\.expires\}\$\{signingData\}`/);
-  assert.match(getChatMediaUrl, /bcdn_token=\$\{token\}&expires=\$\{params\.expires\}&token_path=\$\{encodeURIComponent\(tokenPath\)\}/);
+  assert.match(getChatMediaUrl, /signBunnyStreamDirectoryUrl/);
+  assert.match(bunnyStreamTokens, /const signingData = sortedSigningData\(\{ token_path: tokenPath \}\)/);
+  assert.match(bunnyStreamTokens, /const token = `HS256-\$\{await signPayload/);
+  assert.match(bunnyStreamTokens, /`\$\{tokenPath\}\$\{params\.expires\}\$\{signingData\}`/);
+  assert.match(bunnyStreamTokens, /bcdn_token=\$\{token\}&expires=\$\{params\.expires\}&token_path=\$\{encodeURIComponent\(tokenPath\)\}/);
   assert.match(getChatMediaUrl, /playbackKind: mediaKind === "thumbnail" \? "progressive" : "hls"/);
   assert.match(getChatMediaUrl, /expiresInSeconds: TOKEN_TTL_SECONDS/);
   assert.match(videoWebhook, /BUNNY_CHAT_STREAM_LIBRARY_ID/);
