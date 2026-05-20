@@ -8,6 +8,12 @@ import {
 } from "../core/queue";
 import { createMediaTelemetry, type MediaTelemetry, type MediaTelemetrySink } from "../core/telemetry";
 import { createMediaUploadTask, type MediaTaskRunContext } from "../core/task";
+import {
+  DEFAULT_MEDIA_UPLOAD_STALE_SWEEP_GRACE_MS,
+  reconcileMediaUploadQueue,
+  type MediaUploadQueueReconciler,
+  type MediaUploadReconcileResult,
+} from "../core/reconcile";
 import type {
   MediaPhotoUploadInput,
   MediaUploadInput,
@@ -25,13 +31,17 @@ export type WebVoiceUploadInput = MediaVoiceUploadInput<WebMediaSource>;
 export type WebMediaSdk = {
   video: {
     upload: (input: WebVideoUploadInput) => MediaUploadTask;
+    rehydrate: (record: MediaUploadQueueRecord) => MediaUploadTask;
   };
   photo: {
     upload: (input: WebPhotoUploadInput) => MediaUploadTask;
+    rehydrate: (record: MediaUploadQueueRecord) => MediaUploadTask;
   };
   voice: {
     upload: (input: WebVoiceUploadInput) => MediaUploadTask;
+    rehydrate: (record: MediaUploadQueueRecord) => MediaUploadTask;
   };
+  reconcile: (options?: { reason?: string; resume?: boolean }) => Promise<MediaUploadReconcileResult>;
 };
 export type WebMediaUploadDelegate<TInput extends WebMediaUploadInput = WebMediaUploadInput> = (
   input: TInput,
@@ -68,6 +78,8 @@ export type WebMediaSdkOptions = {
   queue?: MediaUploadQueue;
   telemetry?: MediaTelemetry;
   telemetrySinks?: readonly MediaTelemetrySink[];
+  reconciler?: MediaUploadQueueReconciler | null;
+  staleSweepGracePeriodMs?: number;
   delegates?: WebLegacyMediaDelegates;
   photoTranscoder?: WebPhotoTranscoder | null;
 };
@@ -76,6 +88,8 @@ type ResolvedWebMediaSdkOptions = {
   queue: MediaUploadQueue;
   telemetry: MediaTelemetry;
   telemetrySinks: readonly MediaTelemetrySink[];
+  reconciler: MediaUploadQueueReconciler | null;
+  staleSweepGracePeriodMs: number;
   delegates: WebLegacyMediaDelegates;
   photoTranscoder: WebPhotoTranscoder | null;
 };
@@ -118,6 +132,8 @@ function recordForSnapshot(input: WebMediaUploadInput, snapshot: MediaUploadSnap
     metadata: {
       adapter: "web",
       source_type: typeof File !== "undefined" && input.source instanceof File ? "file" : "blob",
+      source_blob: input.source,
+      mime_type: input.source.type || null,
     },
   };
 }
@@ -174,6 +190,29 @@ async function syncQueueSnapshot(
   });
 }
 
+function placeholderWebSourceForRecord(record: MediaUploadQueueRecord): WebMediaSource {
+  if (typeof Blob !== "undefined" && record.metadata?.source_blob instanceof Blob) {
+    return record.metadata.source_blob;
+  }
+  if (typeof Blob === "undefined") {
+    return {} as WebMediaSource;
+  }
+  const type = typeof record.metadata?.mime_type === "string" ? record.metadata.mime_type : "application/octet-stream";
+  return new Blob([], { type });
+}
+
+function inputFromWebQueueRecord(record: MediaUploadQueueRecord): WebMediaUploadInput {
+  return {
+    family: record.family,
+    source: placeholderWebSourceForRecord(record),
+    context: { scopeKey: record.scopeKey, rehydrated: true },
+    options: {
+      clientRequestId: record.clientRequestId,
+      sourceSha256: record.sourceSha256 ?? null,
+    },
+  };
+}
+
 function createWebUploadTask(input: WebMediaUploadInput, options: ResolvedWebMediaSdkOptions): MediaUploadTask {
   const task = createMediaUploadTask({
     input,
@@ -223,11 +262,107 @@ function createWebUploadTask(input: WebMediaUploadInput, options: ResolvedWebMed
   return task;
 }
 
+function rehydrateWebUploadTask(record: MediaUploadQueueRecord, options: ResolvedWebMediaSdkOptions): MediaUploadTask {
+  const input = inputFromWebQueueRecord(record);
+  const task = createMediaUploadTask({
+    id: record.id,
+    initialSnapshot: record.snapshot,
+    autoStart: false,
+    input,
+    platform: "web",
+    telemetry: options.telemetry,
+    runner: async (controls) => {
+      if (!(typeof Blob !== "undefined" && input.source instanceof Blob) || input.source.size === 0) {
+        controls.dispatch({
+          type: "fail",
+          error: {
+            code: "media_rehydrate_source_missing",
+            message: "The original browser upload source is no longer available.",
+            retryable: false,
+          },
+        });
+        return;
+      }
+      const delegate = delegateForInput(input, options.delegates);
+      if (!delegate) {
+        controls.dispatch({
+          type: "fail",
+          error: {
+            code: "media_delegate_missing",
+            message: `No web media delegate registered for ${input.family}`,
+            retryable: false,
+          },
+        });
+        return;
+      }
+      const delegateInput = await inputWithPreparedPhotoSource(input, options);
+      await delegate(delegateInput, controls);
+      if (controls.snapshot().state === "uploading") {
+        controls.dispatch({ type: "upload_complete" });
+      }
+    },
+    beforeStart: async (snapshot, currentSnapshot) => {
+      await assertMediaUploadQueueSourceBinding({
+        queue: options.queue,
+        family: input.family,
+        scopeKey: scopeKeyForInput(input),
+        clientRequestId: snapshot.clientRequestId,
+        sourceSha256: sourceSha256ForInput(input),
+      });
+      await options.queue.put(recordForSnapshot(input, snapshot));
+      const latest = currentSnapshot();
+      if (latest !== snapshot) await syncQueueSnapshot(options.queue, latest.id, latest);
+    },
+  });
+
+  task.on("state", (snapshot) => {
+    void syncQueueSnapshot(options.queue, task.id, snapshot);
+  });
+  task.on("progress", (snapshot) => {
+    void syncQueueSnapshot(options.queue, task.id, snapshot);
+  });
+  return task;
+}
+
+const RECOVERABLE_REHYDRATE_STATES = ["created", "uploading", "paused"] as const;
+
+function hasWebRehydrateSource(record: MediaUploadQueueRecord): boolean {
+  return Boolean(typeof Blob !== "undefined" && record.metadata?.source_blob instanceof Blob && record.metadata.source_blob.size > 0);
+}
+
+async function resumeRecoverableWebUploads(
+  options: ResolvedWebMediaSdkOptions,
+  activeTaskIds: Set<string>,
+): Promise<void> {
+  const records = await options.queue.list({ states: RECOVERABLE_REHYDRATE_STATES });
+  for (const record of records) {
+    if (activeTaskIds.has(record.id) || !hasWebRehydrateSource(record)) continue;
+    const task = rehydrateWebUploadTask(record, options);
+    activeTaskIds.add(record.id);
+    task.on("state", (snapshot) => {
+      if (snapshot.state === "ready" || snapshot.state === "failed" || snapshot.state === "cancelled") {
+        activeTaskIds.delete(record.id);
+      }
+    });
+    void task.retry().catch((error) => {
+      activeTaskIds.delete(record.id);
+      options.telemetry.exception(error, {
+        family: record.family,
+        platform: record.snapshot.platform,
+        client_request_id: record.clientRequestId,
+        reason: "rehydrate_retry_failed",
+      });
+    });
+  }
+}
+
 function withWebDefaults(options: WebMediaSdkOptions): ResolvedWebMediaSdkOptions {
   return {
     queue: options.queue ?? createIndexedDbMediaUploadQueue(),
     telemetry: options.telemetry ?? createMediaTelemetry(options.telemetrySinks),
     telemetrySinks: options.telemetrySinks ?? [],
+    reconciler: options.reconciler ?? null,
+    staleSweepGracePeriodMs: options.staleSweepGracePeriodMs ?? DEFAULT_MEDIA_UPLOAD_STALE_SWEEP_GRACE_MS,
     delegates: options.delegates ?? {},
     photoTranscoder: options.photoTranscoder === undefined ? webMediaTranscode.preparePhotoForUpload : options.photoTranscoder,
   };
@@ -235,15 +370,30 @@ function withWebDefaults(options: WebMediaSdkOptions): ResolvedWebMediaSdkOption
 
 export function createWebMediaSdk(options: WebMediaSdkOptions = {}): WebMediaSdk {
   const resolved = withWebDefaults(options);
+  const activeRehydratedTaskIds = new Set<string>();
   return {
     video: {
       upload: (input) => createWebUploadTask(input as WebMediaUploadInput, resolved),
+      rehydrate: (record) => rehydrateWebUploadTask(record, resolved),
     },
     photo: {
       upload: (input) => createWebUploadTask(input as WebMediaUploadInput, resolved),
+      rehydrate: (record) => rehydrateWebUploadTask(record, resolved),
     },
     voice: {
       upload: (input) => createWebUploadTask(input as WebMediaUploadInput, resolved),
+      rehydrate: (record) => rehydrateWebUploadTask(record, resolved),
+    },
+    reconcile: async (options) => {
+      const result = await reconcileMediaUploadQueue({
+        queue: resolved.queue,
+        reconciler: resolved.reconciler,
+        telemetry: resolved.telemetry,
+        staleSweepGracePeriodMs: resolved.staleSweepGracePeriodMs,
+        reason: options?.reason,
+      });
+      if (options?.resume !== false) await resumeRecoverableWebUploads(resolved, activeRehydratedTaskIds);
+      return result;
     },
   };
 }
@@ -310,6 +460,13 @@ export class IndexedDbMediaUploadQueue implements MediaUploadQueue {
     } catch {
       return this.fallback.get(id);
     }
+  }
+
+  async findByClientRequestId(clientRequestId: string, scopeKey?: string | null): Promise<MediaUploadQueueRecord | null> {
+    const fallbackRecord = await this.fallback.findByClientRequestId(clientRequestId, scopeKey);
+    if (fallbackRecord) return fallbackRecord;
+    const rows = await this.list(scopeKey === undefined ? {} : { scopeKey });
+    return rows.find((record) => record.clientRequestId === clientRequestId) ?? null;
   }
 
   async update(

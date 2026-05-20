@@ -135,6 +135,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       .catch(() => undefined);
   }, []);
 
+  const reconcileMediaUploadQueues = useCallback((reason: string) => {
+    void Promise.all([
+      import("@/lib/mediaSdk/webVideoUploads").then(({ reconcileWebVideoMediaSdkQueue }) =>
+        reconcileWebVideoMediaSdkQueue(reason),
+      ),
+      import("@/lib/mediaSdk/webStorageUploads").then(({ reconcileWebStorageMediaSdkQueue }) =>
+        reconcileWebStorageMediaSdkQueue(reason),
+      ),
+    ]).catch(() => undefined);
+  }, []);
+
   useEffect(() => {
     let cancelled = false;
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
@@ -325,6 +336,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (currentUserId) {
       warmFeatureFlags(currentUserId);
+      reconcileMediaUploadQueues("auth_session_start");
       void refreshProfile();
       setEntryStateLoading(true);
       void refreshEntryState();
@@ -333,7 +345,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setEntryState(null);
       setEntryStateLoading(false);
     }
-  }, [currentUserId, refreshEntryState, refreshProfile, warmFeatureFlags]);
+  }, [currentUserId, reconcileMediaUploadQueues, refreshEntryState, refreshProfile, warmFeatureFlags]);
+
+  useEffect(() => {
+    if (!currentUserId || typeof document === "undefined") return;
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        reconcileMediaUploadQueues("visibility_active");
+      }
+    };
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    return () => document.removeEventListener("visibilitychange", onVisibilityChange);
+  }, [currentUserId, reconcileMediaUploadQueues]);
 
   const signIn = async (email: string, password: string): Promise<{ error: Error | null }> => {
     const { error } = await supabase.auth.signInWithPassword({ email, password });

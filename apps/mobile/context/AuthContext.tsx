@@ -98,6 +98,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       .catch(() => undefined);
   }, []);
 
+  const reconcileMediaUploadQueues = useCallback((reason: string) => {
+    void Promise.all([
+      import('@/lib/mediaSdk/nativeVideoUploads').then(({ reconcileNativeVideoMediaSdkQueue }) =>
+        reconcileNativeVideoMediaSdkQueue(reason),
+      ),
+      import('@/lib/mediaSdk/nativeStorageUploads').then(({ reconcileNativeStorageMediaSdkQueue }) =>
+        reconcileNativeStorageMediaSdkQueue(reason),
+      ),
+    ]).catch(() => undefined);
+  }, []);
+
   const clearAuthState = useCallback(() => {
     clearPreparedVideoDateEntryCache();
     clearMyLocationDataCache();
@@ -284,13 +295,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (currentUserId) {
       warmFeatureFlags(currentUserId);
+      reconcileMediaUploadQueues('auth_session_start');
       setEntryStateLoading(true);
       void refreshEntryState();
     } else {
       setEntryState(null);
       setEntryStateLoading(false);
     }
-  }, [currentUserId, refreshEntryState, warmFeatureFlags]);
+  }, [currentUserId, reconcileMediaUploadQueues, refreshEntryState, warmFeatureFlags]);
 
   const signIn = useCallback(async (email: string, password: string) => {
     const result = await signInWithEmail(email, password);

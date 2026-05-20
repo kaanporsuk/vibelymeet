@@ -1,6 +1,7 @@
 export type MediaUploadState =
   | "created"
   | "uploading"
+  | "paused"
   | "processing"
   | "ready"
   | "failed"
@@ -22,7 +23,6 @@ export type MediaUploadContext = {
 export type MediaUploadOptions = {
   clientRequestId?: string | null;
   sourceSha256?: string | null;
-  userId?: string | null;
   expectedCurrentCoverAssetId?: string | null;
   signal?: AbortSignal | null;
   [key: string]: unknown;
@@ -85,6 +85,12 @@ export type MediaUploadTask = {
   readonly clientRequestId: string;
   readonly family: MediaUploadFamily;
   on: (event: MediaUploadTaskEvent, cb: MediaUploadTaskListener) => () => void;
+  applyServerSnapshot: (snapshot: {
+    state: Extract<MediaUploadState, "uploading" | "processing" | "ready" | "failed" | "cancelled">;
+    result?: MediaUploadResult | null;
+    error?: MediaUploadErrorInfo | null;
+    atMs?: number;
+  }) => MediaUploadSnapshot;
   pause: () => Promise<void>;
   resume: () => Promise<void>;
   cancel: (reason?: string) => Promise<void>;
@@ -95,11 +101,15 @@ export type MediaUploadTask = {
 export type MediaSdk = {
   video: {
     upload: <TSource>(input: MediaVideoUploadInput<TSource>) => MediaUploadTask;
+    rehydrate: (record: import("./queue").MediaUploadQueueRecord) => MediaUploadTask;
   };
   photo: {
     upload: <TSource>(input: MediaPhotoUploadInput<TSource>) => MediaUploadTask;
+    rehydrate: (record: import("./queue").MediaUploadQueueRecord) => MediaUploadTask;
   };
   voice: {
     upload: <TSource>(input: MediaVoiceUploadInput<TSource>) => MediaUploadTask;
+    rehydrate: (record: import("./queue").MediaUploadQueueRecord) => MediaUploadTask;
   };
+  reconcile: (options?: { reason?: string; resume?: boolean }) => Promise<import("./reconcile").MediaUploadReconcileResult>;
 };

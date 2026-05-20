@@ -27,6 +27,16 @@ export {
   transitionMediaUploadState,
 } from "./core/state-machine";
 export type { MediaUploadTransition } from "./core/state-machine";
+export {
+  DEFAULT_MEDIA_UPLOAD_STALE_SWEEP_GRACE_MS,
+  reconcileMediaUploadQueue,
+} from "./core/reconcile";
+export type {
+  MediaUploadQueueReconciler,
+  MediaUploadReconcileResult,
+  MediaUploadServerRecord,
+  MediaUploadServerState,
+} from "./core/reconcile";
 export { MemoryMediaUploadQueue } from "./core/queue";
 export {
   assertMediaUploadQueueSourceBinding,
@@ -35,6 +45,7 @@ export {
 } from "./core/queue";
 export type { MediaUploadQueue, MediaUploadQueueFilter, MediaUploadQueueRecord } from "./core/queue";
 export { createMediaTelemetry, noopMediaTelemetry } from "./core/telemetry";
+export { safeTelemetryFields } from "./core/telemetry";
 export type { MediaTelemetry, MediaTelemetryEvent, MediaTelemetryFields, MediaTelemetrySink } from "./core/telemetry";
 export { createMediaUploadTask } from "./core/task";
 export type { MediaTaskLifecycleControls, MediaTaskRunContext, MediaTaskRunner } from "./core/task";

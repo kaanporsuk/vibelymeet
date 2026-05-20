@@ -24,6 +24,8 @@ import {
   uploadAndPublishChatVibeClipToBunnyStream,
   type ChatVibeClipStreamUploadResult,
 } from '@/lib/chatVibeClipStreamUpload';
+import { createNativeMediaUploadReconciler } from '@/lib/mediaSdk/reconciliation';
+import { nativeMediaTelemetrySinks } from '@/lib/mediaSdk/sinks';
 
 type NativeChatVibeClipSdkUploadParams = Parameters<typeof uploadAndPublishChatVibeClipToBunnyStream>[0];
 type NativeHeroVideoUploadContext = 'onboarding' | 'profile_studio';
@@ -43,6 +45,20 @@ function createClientRequestId(): string {
   return `media-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }
 
+function failClosedVideoEvaluation(): ClientFeatureFlagEvaluation {
+  const now = Date.now();
+  return {
+    flag: 'media_v2_video',
+    enabled: false,
+    source: 'error',
+    bucket: null,
+    rolloutBps: null,
+    userIdBucket: null,
+    fetchedAtMs: now,
+    expiresAtMs: now,
+  };
+}
+
 function trackMediaUploadStarted(params: {
   evaluation: ClientFeatureFlagEvaluation;
   path: 'media_sdk' | 'legacy';
@@ -51,6 +67,18 @@ function trackMediaUploadStarted(params: {
 }): void {
   try {
     trackEvent('media_upload_started', {
+      active_flag: 'media_v2_video',
+      active_flag_enabled: params.evaluation.enabled,
+      active_flag_source: params.evaluation.source,
+      active_flag_bucket: params.evaluation.bucket,
+      active_flag_rollout_bps: params.evaluation.rolloutBps,
+      user_id_bucket: params.evaluation.userIdBucket,
+      path_selected: params.path,
+      family: params.family,
+      platform: nativePlatform(),
+      client_request_id: params.clientRequestId,
+    });
+    trackEvent('media_upload_sdk_flag_evaluated', {
       active_flag: 'media_v2_video',
       active_flag_enabled: params.evaluation.enabled,
       active_flag_source: params.evaluation.source,
@@ -230,6 +258,8 @@ function getNativeVideoMediaSdk(): NativeMediaSdk {
       asyncStorage: AsyncStorage,
       fileSystem: FileSystem,
       platform: nativePlatform(),
+      telemetrySinks: nativeMediaTelemetrySinks,
+      reconciler: createNativeMediaUploadReconciler(),
       delegates: {
         video: {
           uploadVibeVideo: uploadNativeVibeVideoViaController,
@@ -239,6 +269,10 @@ function getNativeVideoMediaSdk(): NativeMediaSdk {
     });
   }
   return mediaSdk;
+}
+
+export async function reconcileNativeVideoMediaSdkQueue(reason = 'manual'): Promise<void> {
+  await getNativeVideoMediaSdk().reconcile({ reason });
 }
 
 function waitForTaskTerminal(task: MediaUploadTask): Promise<MediaUploadSnapshot> {
@@ -274,7 +308,12 @@ async function startNativeVibeVideoUploadAfterGate(
   context: NativeHeroVideoUploadContext,
   clientRequestId: string,
 ): Promise<void> {
-  const evaluation = await evaluateClientFeatureFlagForUpload('media_v2_video');
+  let evaluation: ClientFeatureFlagEvaluation;
+  try {
+    evaluation = await evaluateClientFeatureFlagForUpload('media_v2_video');
+  } catch {
+    evaluation = failClosedVideoEvaluation();
+  }
   const path = evaluation.enabled ? 'media_sdk' : 'legacy';
   trackMediaUploadStarted({
     evaluation,
@@ -314,7 +353,12 @@ export async function uploadAndPublishChatVibeClipWithMediaSdk(
   params: NativeChatVibeClipSdkUploadParams,
 ): Promise<ChatVibeClipStreamUploadResult> {
   const clientRequestId = params.clientRequestId ?? createClientRequestId();
-  const evaluation = await evaluateClientFeatureFlagForUpload('media_v2_video');
+  let evaluation: ClientFeatureFlagEvaluation;
+  try {
+    evaluation = await evaluateClientFeatureFlagForUpload('media_v2_video');
+  } catch {
+    evaluation = failClosedVideoEvaluation();
+  }
   const path = evaluation.enabled ? 'media_sdk' : 'legacy';
   trackMediaUploadStarted({
     evaluation,

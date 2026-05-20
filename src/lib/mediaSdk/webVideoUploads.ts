@@ -21,6 +21,8 @@ import {
   uploadAndPublishChatVibeClipToBunnyStream,
   type ChatVibeClipStreamUploadResult,
 } from "@/services/chatVibeClipStreamUploadService";
+import { createWebMediaUploadReconciler } from "@/lib/mediaSdk/reconciliation";
+import { webMediaTelemetrySinks } from "@/lib/mediaSdk/sinks";
 
 type WebChatVibeClipSdkUploadParams = Parameters<typeof uploadAndPublishChatVibeClipToBunnyStream>[0];
 
@@ -61,6 +63,18 @@ function trackMediaUploadStarted(params: {
 }): void {
   try {
     trackEvent("media_upload_started", {
+      active_flag: "media_v2_video",
+      active_flag_enabled: params.evaluation.enabled,
+      active_flag_source: params.evaluation.source,
+      active_flag_bucket: params.evaluation.bucket,
+      active_flag_rollout_bps: params.evaluation.rolloutBps,
+      user_id_bucket: params.evaluation.userIdBucket,
+      path_selected: params.path,
+      family: params.family,
+      platform: "web",
+      client_request_id: params.clientRequestId,
+    });
+    trackEvent("media_upload_sdk_flag_evaluated", {
       active_flag: "media_v2_video",
       active_flag_enabled: params.evaluation.enabled,
       active_flag_source: params.evaluation.source,
@@ -236,6 +250,8 @@ async function uploadWebChatVibeClipViaLegacyService(
 function getWebVideoMediaSdk(): WebMediaSdk {
   if (!mediaSdk) {
     mediaSdk = createWebMediaSdk({
+      telemetrySinks: webMediaTelemetrySinks,
+      reconciler: createWebMediaUploadReconciler(),
       delegates: {
         video: {
           uploadVibeVideo: uploadWebVibeVideoViaController,
@@ -245,6 +261,10 @@ function getWebVideoMediaSdk(): WebMediaSdk {
     });
   }
   return mediaSdk;
+}
+
+export async function reconcileWebVideoMediaSdkQueue(reason = "manual"): Promise<void> {
+  await getWebVideoMediaSdk().reconcile({ reason });
 }
 
 function waitForTaskTerminal(task: MediaUploadTask): Promise<MediaUploadSnapshot> {

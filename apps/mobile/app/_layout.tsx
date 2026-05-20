@@ -357,6 +357,33 @@ function ReactQueryAppStateBridge() {
   return null;
 }
 
+function NativeMediaSdkReconcileAppStateBridge() {
+  const { session } = useAuth();
+  const hasSession = Boolean(session?.user?.id);
+
+  useEffect(() => {
+    if (!hasSession) return;
+    const run = (reason: string) => {
+      void Promise.all([
+        import('@/lib/mediaSdk/nativeVideoUploads').then(({ reconcileNativeVideoMediaSdkQueue }) =>
+          reconcileNativeVideoMediaSdkQueue(reason),
+        ),
+        import('@/lib/mediaSdk/nativeStorageUploads').then(({ reconcileNativeStorageMediaSdkQueue }) =>
+          reconcileNativeStorageMediaSdkQueue(reason),
+        ),
+      ]).catch(() => undefined);
+    };
+
+    const subscription = AppState.addEventListener('change', (nextState: AppStateStatus) => {
+      if (nextState === 'active') run('app_state_active');
+    });
+
+    return () => subscription.remove();
+  }, [hasSession]);
+
+  return null;
+}
+
 function RealtimeLifecycleJanitor() {
   const pathname = usePathname();
 
@@ -581,6 +608,7 @@ function RootLayoutNav() {
           <MatchCallProvider>
             <ChatOutboxProvider>
             <SupabaseAutoRefreshAppStateBridge />
+            <NativeMediaSdkReconcileAppStateBridge />
             <RealtimeLifecycleJanitor />
             <AuthRedirectHandler onReferralCaptured={() => setReferralSyncTick((t) => t + 1)} />
             <ReferralAttributionSync syncTick={referralSyncTick} />

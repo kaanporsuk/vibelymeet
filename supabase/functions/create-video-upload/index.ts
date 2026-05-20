@@ -32,6 +32,10 @@ type CreateVideoUploadRequestBody = {
   context?: unknown;
   client_request_id?: unknown;
   clientRequestId?: unknown;
+  duration_ms?: unknown;
+  aspect_ratio?: unknown;
+  source_bytes?: unknown;
+  mime_type?: unknown;
 };
 
 type CleanupCreatedVideoArgs = {
@@ -52,9 +56,11 @@ type ReusableVibeVideoUploadAttempt = {
   draft_media_session_id?: unknown;
   media_asset_id?: unknown;
   upload_context?: unknown;
+  attempt_count?: unknown;
 };
 
 const REUSABLE_ATTEMPT_LINK_WAIT_DELAYS_MS = [150, 300, 600, 1_000] as const;
+const EXPECTED_TUS_CREDENTIAL_TTL_MS = 60 * 60 * 1000;
 
 function isUuid(value: unknown): value is string {
   return typeof value === "string" &&
@@ -72,6 +78,16 @@ function isReusableVibeVideoUploadAttemptStatus(value: unknown): boolean {
 
 function stringValue(value: unknown): string | null {
   return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function optionalPositiveInteger(value: unknown, max: number): number | null {
+  if (typeof value !== "number" || !Number.isFinite(value)) return null;
+  const next = Math.trunc(value);
+  return next > 0 && next <= max ? next : null;
+}
+
+function optionalPositiveNumber(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : null;
 }
 
 function sleep(ms: number): Promise<void> {
@@ -120,7 +136,7 @@ async function readReusableUploadAttemptState(
   const [attemptResult, profileResult] = await Promise.all([
     adminSupabase
       .from("vibe_video_uploads")
-      .select("id,provider_object_id,status,draft_media_session_id,media_asset_id,upload_context")
+      .select("id,provider_object_id,status,draft_media_session_id,media_asset_id,upload_context,attempt_count")
       .eq("user_id", userId)
       .eq("client_request_id", clientRequestId)
       .maybeSingle(),
@@ -412,6 +428,10 @@ serve(async (req) => {
     // Parse body once (before auth, since body stream is single-consume)
     let uploadContext: "onboarding" | "profile_studio" = "profile_studio";
     let requestBody: CreateVideoUploadRequestBody = {};
+    let durationMs: number | null = null;
+    let aspectRatio: number | null = null;
+    let sourceBytes: number | null = null;
+    let mimeType: string | null = null;
     try {
       const parsedBody = await req.json();
       requestBody = parsedBody && typeof parsedBody === "object"
@@ -419,6 +439,12 @@ serve(async (req) => {
         : {};
       const body = requestBody;
       if (body?.context === "onboarding") uploadContext = "onboarding";
+      durationMs = optionalPositiveInteger(body.duration_ms, 30_250);
+      aspectRatio = optionalPositiveNumber(body.aspect_ratio);
+      sourceBytes = optionalPositiveInteger(body.source_bytes, 209_715_200);
+      mimeType = typeof body.mime_type === "string" && body.mime_type.trim()
+        ? body.mime_type.trim().slice(0, 120)
+        : null;
     } catch {
       // No body or non-JSON — default to profile_studio
     }
@@ -716,7 +742,7 @@ serve(async (req) => {
 
     // ── TUS signature ────────────────────────────────────────────────────────
     cleanupFailurePath = "tus_signature_generation";
-    const expirationTime = Math.floor(Date.now() / 1000) + 3600;
+    const expirationTime = Math.floor((Date.now() + EXPECTED_TUS_CREDENTIAL_TTL_MS) / 1000);
     const signature = await createTusSignature(libraryId, apiKey, expirationTime, videoId);
 
     // Reserve the idempotency row before touching profile/session state. This
@@ -733,6 +759,10 @@ serve(async (req) => {
         upload_context: uploadContext,
         status: "uploading",
         expires_at: new Date(expirationTime * 1000).toISOString(),
+        duration_ms: durationMs,
+        aspect_ratio: aspectRatio,
+        source_bytes: sourceBytes,
+        mime_type: mimeType,
       })
       .select("id,status")
       .single();
@@ -741,7 +771,7 @@ serve(async (req) => {
       if (clientRequest.wasProvided && attemptCreateError?.code === "23505") {
         const { data: duplicateAttempt, error: duplicateLookupError } = await adminSupabase
           .from("vibe_video_uploads")
-          .select("id,provider_object_id,status,draft_media_session_id,media_asset_id,upload_context")
+          .select("id,provider_object_id,status,draft_media_session_id,media_asset_id,upload_context,attempt_count")
           .eq("user_id", user.id)
           .eq("client_request_id", clientRequestId)
           .maybeSingle();
@@ -777,6 +807,21 @@ serve(async (req) => {
               { success: false, error: "Upload attempt is no longer reusable", code: "upload_attempt_terminal" },
               409,
             );
+          }
+          const uploadAttemptId = stringValue(reusableAttempt.id);
+          const { error: attemptCountIncrementError } = uploadAttemptId
+            ? await adminSupabase.rpc("increment_vibe_video_upload_attempt_count", {
+              p_upload_id: uploadAttemptId,
+            })
+            : { error: new Error("missing_upload_attempt_id") };
+          if (attemptCountIncrementError) {
+            logVibeVideo("warn", "create_video_upload_attempt_count_update_failed", {
+              user_id: user.id,
+              client_request_id: clientRequestId,
+              upload_attempt_id: uploadAttemptId,
+              project_ref: projectRef,
+              error: attemptCountIncrementError.message,
+            });
           }
 
           const reusableState = await waitForDurableReusableUploadAttempt(adminSupabase, {

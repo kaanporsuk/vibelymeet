@@ -35,6 +35,7 @@ const nativeFeatureFlagStorage: ClientFeatureFlagStorage = {
   removeItem: (key) => AsyncStorage.removeItem(key),
 };
 
+const UPLOAD_FLAG_EVALUATION_TIMEOUT_MS = 1_500;
 let hydratePromise: Promise<void> | null = null;
 
 export function hydrateNativeClientFeatureFlagCache(): Promise<void> {
@@ -136,15 +137,34 @@ function failClosedUploadEvaluation(flag: ClientFeatureFlagKey): ClientFeatureFl
   };
 }
 
+function withUploadFlagTimeout<T>(promise: Promise<T>): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timeoutId = setTimeout(
+      () => reject(new Error('client_feature_flag_upload_timeout')),
+      UPLOAD_FLAG_EVALUATION_TIMEOUT_MS,
+    );
+    promise.then(
+      (value) => {
+        clearTimeout(timeoutId);
+        resolve(value);
+      },
+      (error) => {
+        clearTimeout(timeoutId);
+        reject(error);
+      },
+    );
+  });
+}
+
 export async function evaluateClientFeatureFlagForUpload(
   flag: ClientFeatureFlagKey,
 ): Promise<ClientFeatureFlagEvaluation> {
   try {
     const {
       data: { user },
-    } = await supabase.auth.getUser();
+    } = await withUploadFlagTimeout(supabase.auth.getUser());
     if (!user?.id) return failClosedUploadEvaluation(flag);
-    return await fetchClientFeatureFlag(flag, user.id, true);
+    return await withUploadFlagTimeout(fetchClientFeatureFlag(flag, user.id, true));
   } catch {
     return failClosedUploadEvaluation(flag);
   }
