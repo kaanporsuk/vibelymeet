@@ -66,6 +66,11 @@ Used for:
 - voice-message delivery via `BUNNY_CDN_HOSTNAME`
 - vibe-video HLS playback via `VITE_BUNNY_STREAM_CDN_HOSTNAME`
 
+## D. Bunny Optimizer
+Bunny Optimizer is **OFF** and is not required for the current runtime contract.
+
+Client image helpers keep their width/height/quality/crop option signatures for compatibility, but Bunny Storage URLs resolve to plain CDN object URLs without Dynamic Images query parameters. Upload-time photo transcode in the media SDK is the preferred cost-control path. Revisit Optimizer only with real Bunny traffic data, e.g. if original image CDN traffic crosses roughly 1-2 TB/month or image latency becomes a launch blocker.
+
 ---
 
 ## 4. Important boundary: what Bunny does **not** own
@@ -289,6 +294,7 @@ This can create delayed/orphaned remote media if Stream credentials, retention c
 Frontend helper `src/utils/imageUrl.ts` resolves Bunny image paths like:
 - if path starts with `photos/` → serve from `https://${VITE_BUNNY_CDN_HOSTNAME}/{optional-prefix}/...`
 - if path is a legacy Supabase storage path → serve from Supabase storage URL
+- Bunny Optimizer is off, so the helper does **not** append `width`, `height`, `quality`, `format`, or crop query parameters to Bunny Storage CDN URLs.
 
 Chat image sends must not persist placeholder or `https://undefined/...` URLs. Web and native outbox executors validate the resolved `photos/` CDN URL before calling `send-message`.
 
@@ -373,6 +379,7 @@ The following must exist externally:
 - API key with write/delete ability
 - CDN or custom hostname aligned with `BUNNY_CDN_HOSTNAME`
 - DNS/origin mapping if using `cdn.vibelymeet.com`
+- Bunny Optimizer does not need to be enabled for profile/event/avatar image rendering
 
 ### The repo does **not** fully preserve
 - actual Bunny dashboard objects

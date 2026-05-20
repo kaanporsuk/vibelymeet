@@ -56,6 +56,7 @@ function normalizeImagePath(path: string | null | undefined): string | null {
 
 export function getImageUrl(
   path: string | null | undefined,
+  // Reserved for callers that describe intended display size. Bunny Optimizer is off, so CDN URLs stay untransformed.
   opts?: { width?: number; height?: number; quality?: number; crop?: 'center' | 'top' | 'bottom' },
   traceLabel?: PhotoTraceLabel
 ): string {
@@ -69,13 +70,9 @@ export function getImageUrl(
     if (!BUNNY_CDN) {
       return PLACEHOLDER;
     }
-    const params = new URLSearchParams();
-    if (opts?.width) params.set('width', String(opts.width));
-    if (opts?.height) params.set('height', String(opts.height));
-    if (opts?.crop) params.set('crop_gravity', opts.crop);
-    params.set('quality', String(opts?.quality ?? 85));
+    void opts;
     const pathPart = BUNNY_CDN_PATH_PREFIX ? `${BUNNY_CDN_PATH_PREFIX}/${p}` : p;
-    const url = `${BUNNY_CDN}/${pathPart}?${params.toString()}`;
+    const url = `${BUNNY_CDN}/${pathPart}`;
     if (__DEV__ && traceLabel && tracedLabels && !tracedLabels.has(traceLabel)) {
       tracedLabels.add(traceLabel);
       if (__DEV__) console.log(`[Vibely photo URL] ${traceLabel}: ${url}`);
