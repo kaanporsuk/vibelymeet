@@ -7,6 +7,7 @@ export const ALL_CLIENT_FEATURE_FLAGS = [
 export type ClientFeatureFlagKey = (typeof ALL_CLIENT_FEATURE_FLAGS)[number];
 
 export const CLIENT_FEATURE_FLAG_TTL_MS = 60_000;
+export const CLIENT_FEATURE_FLAG_FOREGROUND_REFRESH_MS = CLIENT_FEATURE_FLAG_TTL_MS;
 export const CLIENT_FEATURE_FLAG_QUERY_KEY = "client-feature-flag";
 export const CLIENT_FEATURE_FLAG_STORAGE_KEY = "vibely.client-feature-flags.v1";
 export const UPLOAD_FLAG_EVALUATION_TIMEOUT_MS = 1_500;
