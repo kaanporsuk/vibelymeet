@@ -332,19 +332,30 @@ function VibeClipMessageRow({
   onResumeRecovery?: (strategy: VibeClipRecoveryResumeStrategy | null) => void;
   onDiscardRecoveryAndSendAgain?: () => void;
 }) {
-  const baseClipMeta = extractVibeClipMeta({
-    video_url: message.videoUrl,
-    video_duration_seconds: message.videoDuration,
-    structured_payload: (message.structuredPayload as Record<string, unknown>) ?? null,
-    message_kind: "vibe_clip",
-  });
-  const clipMeta = baseClipMeta
-    ? {
-        ...baseClipMeta,
-        videoUrl: videoUrlOverride ?? baseClipMeta.videoUrl,
-        thumbnailUrl: thumbnailUrlOverride ?? baseClipMeta.thumbnailUrl,
-      }
-    : null;
+  const baseClipMeta = useMemo(
+    () =>
+      extractVibeClipMeta({
+        video_url: message.videoUrl,
+        video_duration_seconds: message.videoDuration,
+        structured_payload: (message.structuredPayload as Record<string, unknown>) ?? null,
+        message_kind: "vibe_clip",
+      }),
+    [message.structuredPayload, message.videoDuration, message.videoUrl],
+  );
+  const clipMeta = useMemo(
+    () =>
+      baseClipMeta
+        ? {
+            ...baseClipMeta,
+            videoUrl: videoUrlOverride ?? baseClipMeta.videoUrl,
+            thumbnailUrl: thumbnailUrlOverride ?? baseClipMeta.thumbnailUrl,
+          }
+        : null,
+    [baseClipMeta, thumbnailUrlOverride, videoUrlOverride],
+  );
+  const clipVideoUrl = clipMeta?.videoUrl ?? null;
+  const clipThumbnailUrl = clipMeta?.thumbnailUrl ?? null;
+  const fallbackVideoUrl = videoUrlOverride ?? message.videoUrl ?? "";
   const isMine = message.sender === "me";
   const recoveryDecision = buildVibeClipRecovery({
     outboxItem: webOutboxVibeClipSummary(localOutboxItem),
@@ -379,6 +390,43 @@ function VibeClipMessageRow({
       }));
     },
   );
+  const handleResolvedVideoUrl = useCallback((url: string) => {
+    onResolvedVideoUrl?.(message.id, url);
+  }, [message.id, onResolvedVideoUrl]);
+  const handleResolvedThumbnailUrl = useCallback((url: string) => {
+    onResolvedThumbnailUrl?.(message.id, url);
+  }, [message.id, onResolvedThumbnailUrl]);
+  const handleRequestClipImmersive = useCallback(
+    (media?: { videoUrl: string; thumbnailUrl?: string | null }) => {
+      if (!clipVideoUrl) return;
+      onRequestImmersiveVideo({
+        url: media?.videoUrl ?? clipVideoUrl,
+        posterUrl: media?.thumbnailUrl ?? clipThumbnailUrl,
+        messageId: message.id,
+        videoSourceRef: message.videoSourceRef,
+        thumbnailSourceRef: message.thumbnailSourceRef,
+        mediaKind: "vibe_clip",
+      });
+    },
+    [
+      clipThumbnailUrl,
+      clipVideoUrl,
+      message.id,
+      message.thumbnailSourceRef,
+      message.videoSourceRef,
+      onRequestImmersiveVideo,
+    ],
+  );
+  const handleRequestFallbackImmersive = useCallback(() => {
+    if (!fallbackVideoUrl) return;
+    onRequestImmersiveVideo({
+      url: fallbackVideoUrl,
+      posterUrl: null,
+      messageId: message.id,
+      videoSourceRef: message.videoSourceRef,
+      mediaKind: "vibe_clip",
+    });
+  }, [fallbackVideoUrl, message.id, message.videoSourceRef, onRequestImmersiveVideo]);
   return (
     <div
       className={cn(
@@ -401,8 +449,8 @@ function VibeClipMessageRow({
             isMine={isMine}
             videoSourceRef={message.videoSourceRef}
             thumbnailSourceRef={message.thumbnailSourceRef}
-            onResolvedVideoUrl={(url) => onResolvedVideoUrl?.(message.id, url)}
-            onResolvedThumbnailUrl={(url) => onResolvedThumbnailUrl?.(message.id, url)}
+            onResolvedVideoUrl={handleResolvedVideoUrl}
+            onResolvedThumbnailUrl={handleResolvedThumbnailUrl}
             clientRequestId={message.clientRequestId ?? clipMeta.clientRequestId ?? null}
             threadMessageCount={threadMessageCount}
             sparkMessageId={message.id}
@@ -411,42 +459,22 @@ function VibeClipMessageRow({
             onSuggestDate={isMine ? undefined : onSuggestDate}
             onReactionPick={isMine ? undefined : onReactionPick}
             reactionPair={message.reactionPair}
-            onRequestImmersive={(media) =>
-              onRequestImmersiveVideo({
-                url: media?.videoUrl ?? clipMeta.videoUrl,
-                posterUrl: media?.thumbnailUrl ?? clipMeta.thumbnailUrl ?? null,
-                messageId: message.id,
-                videoSourceRef: message.videoSourceRef,
-                thumbnailSourceRef: message.thumbnailSourceRef,
-                mediaKind: "vibe_clip",
-              })
-            }
-            immersiveActive={immersiveVideoUrl === clipMeta.videoUrl}
+            onRequestImmersive={handleRequestClipImmersive}
+            immersiveActive={!!clipVideoUrl && immersiveVideoUrl === clipVideoUrl}
             threadVisualRecede={threadVisualRecede}
             localRecovery={localRecovery}
           />
         ) : (
           <VideoMessageBubble
-            videoUrl={videoUrlOverride ?? message.videoUrl!}
+            videoUrl={fallbackVideoUrl}
             videoSourceRef={message.videoSourceRef}
             messageId={message.id}
             mediaKind="vibe_clip"
-            onResolvedVideoUrl={(url) => onResolvedVideoUrl?.(message.id, url)}
+            onResolvedVideoUrl={handleResolvedVideoUrl}
             duration={message.videoDuration || 0}
             isMine={isMine}
-            onRequestImmersive={
-              message.videoUrl
-                ? () =>
-                    onRequestImmersiveVideo({
-                      url: videoUrlOverride ?? message.videoUrl!,
-                      posterUrl: null,
-                      messageId: message.id,
-                      videoSourceRef: message.videoSourceRef,
-                      mediaKind: "vibe_clip",
-                    })
-                : undefined
-            }
-            immersiveActive={!!message.videoUrl && immersiveVideoUrl === (videoUrlOverride ?? message.videoUrl)}
+            onRequestImmersive={message.videoUrl ? handleRequestFallbackImmersive : undefined}
+            immersiveActive={!!message.videoUrl && immersiveVideoUrl === fallbackVideoUrl}
             threadVisualRecede={threadVisualRecede}
           />
         )}
@@ -1018,6 +1046,15 @@ const Chat = () => {
   const rememberResolvedThumbnailUrl = useCallback((messageId: string, url: string) => {
     setThumbnailUrlOverridesById((prev) => (prev[messageId] === url ? prev : { ...prev, [messageId]: url }));
   }, []);
+  const closeVideoLightbox = useCallback(() => setVideoLightbox(null), []);
+  const handleVideoLightboxResolvedVideoUrl = useCallback((url: string) => {
+    const messageId = videoLightbox?.messageId;
+    if (messageId) rememberResolvedVideoUrl(messageId, url);
+  }, [rememberResolvedVideoUrl, videoLightbox?.messageId]);
+  const handleVideoLightboxResolvedThumbnailUrl = useCallback((url: string) => {
+    const messageId = videoLightbox?.messageId;
+    if (messageId) rememberResolvedThumbnailUrl(messageId, url);
+  }, [rememberResolvedThumbnailUrl, videoLightbox?.messageId]);
   const videoUrlForMessage = useCallback(
     (message: ChatMessage): string | undefined => videoUrlOverridesById[message.id] ?? message.videoUrl,
     [videoUrlOverridesById],
@@ -3235,13 +3272,9 @@ const Chat = () => {
               videoSourceRef={videoLightbox.videoSourceRef}
               thumbnailSourceRef={videoLightbox.thumbnailSourceRef}
               mediaKind={videoLightbox.mediaKind}
-              onResolvedVideoUrl={(url) => {
-                if (videoLightbox.messageId) rememberResolvedVideoUrl(videoLightbox.messageId, url);
-              }}
-              onResolvedThumbnailUrl={(url) => {
-                if (videoLightbox.messageId) rememberResolvedThumbnailUrl(videoLightbox.messageId, url);
-              }}
-              onClose={() => setVideoLightbox(null)}
+              onResolvedVideoUrl={handleVideoLightboxResolvedVideoUrl}
+              onResolvedThumbnailUrl={handleVideoLightboxResolvedThumbnailUrl}
+              onClose={closeVideoLightbox}
             />
           ) : null}
         </AnimatePresence>

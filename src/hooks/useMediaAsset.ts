@@ -271,6 +271,22 @@ export function useMediaAssetPlayback(
     onError,
   }: UseMediaAssetPlaybackOptions = {},
 ): void {
+  const onAutoplayBlockedRef = useRef(onAutoplayBlocked);
+  const onManifestParsedRef = useRef(onManifestParsed);
+  const onErrorRef = useRef(onError);
+
+  useEffect(() => {
+    onAutoplayBlockedRef.current = onAutoplayBlocked;
+  }, [onAutoplayBlocked]);
+
+  useEffect(() => {
+    onManifestParsedRef.current = onManifestParsed;
+  }, [onManifestParsed]);
+
+  useEffect(() => {
+    onErrorRef.current = onError;
+  }, [onError]);
+
   useEffect(() => {
     const video = videoRef.current;
     if (!enabled || !video || !sourceUrl) return;
@@ -278,21 +294,21 @@ export function useMediaAssetPlayback(
     if (isHlsMediaAssetUrl(sourceUrl)) {
       return attachHlsPlayback(video, sourceUrl, {
         autoPlay,
-        onAutoplayBlocked,
-        onManifestParsed,
-        onError,
+        onAutoplayBlocked: (detail) => onAutoplayBlockedRef.current?.(detail),
+        onManifestParsed: () => onManifestParsedRef.current?.(),
+        onError: (kind, detail) => onErrorRef.current?.(kind, detail),
       });
     }
 
     video.src = sourceUrl;
     video.load();
     if (autoPlay) {
-      void video.play().catch((error: unknown) => onAutoplayBlocked?.(error));
+      void video.play().catch((error: unknown) => onAutoplayBlockedRef.current?.(error));
     }
     return () => {
       video.pause();
       video.removeAttribute("src");
       video.load();
     };
-  }, [autoPlay, enabled, onAutoplayBlocked, onError, onManifestParsed, sourceUrl, videoRef]);
+  }, [autoPlay, enabled, sourceUrl, videoRef]);
 }

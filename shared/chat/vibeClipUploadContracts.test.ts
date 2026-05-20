@@ -400,7 +400,9 @@ test("video bubbles remain adaptive and full-width across web and native chat", 
   assert.match(webVibeClipBubble, /playableVideoUrlRef/);
   assert.match(webVibeClipBubble, /playableThumbnailUrlRef/);
   assert.match(webVibeClipBubble, /requestImmersiveWithCurrentMedia/);
-  assert.match(webChat, /onRequestImmersive=\{\(media\) =>[\s\S]{0,180}url: media\?\.videoUrl \?\? clipMeta\.videoUrl/);
+  assert.match(webChat, /const handleRequestClipImmersive = useCallback/);
+  assert.match(webChat, /url: media\?\.videoUrl \?\? clipVideoUrl/);
+  assert.match(webChat, /onRequestImmersive=\{handleRequestClipImmersive\}/);
   assert.match(webVibeClipBubble, /void refreshClipMedia\("preview"\);/);
   assert.doesNotMatch(webVibeClipBubble, /if \(didRefresh\) posterRefreshAttemptedForRef\.current = null/);
   assert.match(webVibeClipBubble, /CLIP_PLAYBACK_LOAD_TIMEOUT_MS/);
