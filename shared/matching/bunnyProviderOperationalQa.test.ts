@@ -50,6 +50,7 @@ const uploadChatVideo = read("supabase/functions/upload-chat-video/index.ts");
 const processMediaDeleteJobs = read("supabase/functions/process-media-delete-jobs/index.ts");
 const bunnyMedia = read("supabase/functions/_shared/bunny-media.ts");
 const webImageUrl = read("src/utils/imageUrl.ts");
+const profilePhotoUi = read("src/components/ui/ProfilePhoto.tsx");
 const nativeImageUrl = read("apps/mobile/lib/imageUrl.ts");
 const webVibeState = read("src/lib/vibeVideo/webVibeVideoState.ts");
 const webHeroController = read("src/lib/heroVideo/heroVideoUploadController.ts");
@@ -164,6 +165,20 @@ test("URL resolvers support confirmed Bunny Storage prefixes and preserve legacy
   }
 });
 
+test("Bunny Storage image URLs stay plain CDN URLs while Optimizer is off", () => {
+  for (const source of [webImageUrl, nativeImageUrl]) {
+    assert.match(source, /BUNNY_CDN_PATH_PREFIX \? `\$\{BUNNY_CDN_PATH_PREFIX\}\/\$\{p\}` : p/);
+    assert.match(source, /void opts/);
+    assert.doesNotMatch(source, /new URLSearchParams\(/);
+    assert.doesNotMatch(source, /params\.set\(["'](?:width|height|quality|crop_gravity|format)["']/);
+    assert.doesNotMatch(source, /\?\$\{params\.toString\(\)\}/);
+  }
+
+  assert.doesNotMatch(profilePhotoUi, /appendCdnParams/);
+  assert.doesNotMatch(profilePhotoUi, /width=1200&quality=85|width=600&height=338&quality=85|width=300&quality=80/);
+  assert.match(providerSheet, /Bunny Optimizer is \*\*OFF\*\* and is not required/);
+});
+
 test("Vibe Video playback URL uses Bunny Stream CDN and playlist.m3u8", () => {
   assert.match(webVibeState, /VITE_BUNNY_STREAM_CDN_HOSTNAME/);
   assert.match(webVibeState, /`https:\/\/\$\{hostname\}\/\$\{uid\}\/playlist\.m3u8`/);
@@ -223,10 +238,18 @@ test("no new Bunny env vars, native modules, or Supabase migration were added fo
   ).sort();
 
   assert.deepEqual(bunnyEnvNames, [
+    "BUNNY_ARCHIVE_CDN_HOSTNAME",
+    "BUNNY_ARCHIVE_CDN_PATH_PREFIX",
+    "BUNNY_ARCHIVE_STORAGE_API_KEY",
+    "BUNNY_ARCHIVE_STORAGE_ZONE",
+    "BUNNY_CDN_ARCHIVE_HOSTNAME",
+    "BUNNY_CDN_ARCHIVE_PATH_PREFIX",
     "BUNNY_CDN_HOSTNAME",
     "BUNNY_CDN_PATH_PREFIX",
     "BUNNY_CHAT_STREAM_LIBRARY_ID",
     "BUNNY_STORAGE_API_KEY",
+    "BUNNY_STORAGE_ARCHIVE_API_KEY",
+    "BUNNY_STORAGE_ARCHIVE_ZONE",
     "BUNNY_STORAGE_ZONE",
     "BUNNY_STREAM_API_KEY",
     "BUNNY_STREAM_CDN_HOSTNAME",

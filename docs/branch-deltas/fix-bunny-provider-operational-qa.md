@@ -179,7 +179,7 @@ Posture:
 
 ## Code Fixes
 
-- Runtime media/provider code did not require changes.
+- 2026-05-21 update: web/native image URL helpers now keep display-size option signatures but stop emitting Bunny Optimizer query params. Bunny Storage images resolve as plain CDN URLs because Bunny Optimizer is off/not required.
 - `_cursor_context/vibely_bunny_provider_sheet.md` was corrected where it described old immediate-delete / old-photo-delete / voice fallback behavior that no longer matches the lifecycle-backed implementation.
 
 ## Tests Added
@@ -230,7 +230,7 @@ No real production media smoke was run in this stream.
 
 - Supabase migration requirement: none
 - Edge Function deploy requirement: none because no Edge Function changed
-- Web/static deploy requirement: normal host deployment after merge only for docs/tests; no runtime web/media resolver file changed
+- Web/static deploy requirement: normal host deployment after merge because web image URL resolver behavior changed
 - Env var changes: none
 - Native module changes: none
 - `expo-av`: not used
