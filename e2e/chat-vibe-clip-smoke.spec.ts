@@ -71,6 +71,18 @@ async function runLibraryUploadScenario(
     evidence.network_throttle = "chromium 4g-ish latency/throughput";
   }
 
+  const signedMediaUrlResponses: number[] = [];
+  if (row.id === "signed-url-mid-expiry") {
+    page.on("response", (response) => {
+      if (
+        response.url().includes("/functions/v1/get-chat-media-url") &&
+        response.request().method() === "POST"
+      ) {
+        signedMediaUrlResponses.push(response.status());
+      }
+    });
+  }
+
   await page.goto(chatUrl);
   await openVibeClipLibraryPicker(page);
 
@@ -110,10 +122,22 @@ async function runLibraryUploadScenario(
   }
 
   if (row.id === "signed-url-mid-expiry") {
+    await expect(bubble).toHaveAttribute("data-processing-status", "ready", { timeout: row.timeoutMs / 2 });
     const video = bubble.locator("video").first();
-    await video.evaluate((node) => node.dispatchEvent(new Event("error"))).catch(() => undefined);
+    await expect(video).toBeAttached({ timeout: 10_000 });
+    evidence.signed_url_initial_resolution_count = signedMediaUrlResponses.length;
+    const refreshResponsePromise = page.waitForResponse((response) =>
+      response.url().includes("/functions/v1/get-chat-media-url") &&
+      response.request().method() === "POST",
+      { timeout: 20_000 },
+    ).catch(() => null);
+    await video.evaluate((node) => node.dispatchEvent(new Event("error")));
+    const refreshResponse = await refreshResponsePromise;
+    evidence.signed_url_refresh_status = refreshResponse?.status() ?? null;
+    expect(refreshResponse, "fresh signed media URL resolver call after playback error").not.toBeNull();
+    expect(refreshResponse?.ok(), "fresh signed media URL resolver call returned 2xx").toBeTruthy();
     await expect(bubble).toBeVisible({ timeout: 5_000 });
-    evidence.signed_url_refresh_probe = "video error dispatched; bubble stayed mounted for refresh path";
+    evidence.signed_url_refresh_probe = "video error dispatched; fresh get-chat-media-url call succeeded";
   }
 
   if (cdpSession) {

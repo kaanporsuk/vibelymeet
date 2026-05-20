@@ -24,6 +24,10 @@ on:
         description: 'Run live staging web rows when secrets are configured'
         required: false
         default: 'false'
+      run_live_native:
+        description: 'Run live staging native rows when secrets and Maestro are configured'
+        required: false
+        default: 'false'
   schedule:
     - cron: '17 2 * * *'
 
@@ -105,3 +109,38 @@ jobs:
       # signed-url-mid-expiry, app-launch-stuck-processing-nudge.
       # kill-mid-tus stays opt-in via VIBELY_CVC_DISRUPTION_SMOKE to avoid creating
       # interrupted uploads on every scheduled run.
+
+  staging-native:
+    name: Staging native matrix
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    needs: static-matrix
+    if: github.event_name == 'workflow_dispatch' && inputs.run_live_native == 'true'
+    env:
+      VIBELY_CVC_NATIVE_SMOKE: ${{ secrets.VIBELY_CVC_NATIVE_SMOKE }}
+      VIBELY_CVC_NATIVE_CHAT_DEEPLINK: ${{ secrets.VIBELY_CVC_NATIVE_CHAT_DEEPLINK }}
+      VIBELY_CVC_NATIVE_FIXTURE_UPLOAD: ${{ secrets.VIBELY_CVC_NATIVE_FIXTURE_UPLOAD }}
+      VIBELY_CVC_NATIVE_FIXTURE_URL: ${{ secrets.VIBELY_CVC_NATIVE_FIXTURE_URL }}
+      EXPO_PUBLIC_VIBELY_CVC_NATIVE_FIXTURE_UPLOAD: ${{ secrets.VIBELY_CVC_NATIVE_FIXTURE_UPLOAD }}
+      EXPO_PUBLIC_VIBELY_CVC_NATIVE_FIXTURE_URL: ${{ secrets.VIBELY_CVC_NATIVE_FIXTURE_URL }}
+      MAESTRO_RUN: ${{ secrets.MAESTRO_RUN }}
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Maestro
+        if: env.MAESTRO_RUN == '1'
+        run: curl -Ls "https://get.maestro.mobile.dev" | bash
+
+      - name: Run staging native smoke matrix
+        run: |
+          export PATH="$HOME/.maestro/bin:$PATH"
+          bash scripts/run_chat_vibe_clip_smoke_matrix.sh --native

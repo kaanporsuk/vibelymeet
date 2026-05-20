@@ -1,8 +1,9 @@
-import { useEffect, useMemo } from 'react';
+import { useCallback, useEffect, useMemo } from 'react';
 import { AppState } from 'react-native';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '@/context/AuthContext';
 import {
+  CLIENT_FEATURE_FLAG_FOREGROUND_REFRESH_MS,
   CLIENT_FEATURE_FLAG_TTL_MS,
   clientFeatureFlagQueryKey,
   clearClientFeatureFlagCache,
@@ -19,6 +20,7 @@ export {
   CLIENT_FEATURE_FLAG_TTL_MS,
   clearClientFeatureFlagCache,
   clearClientFeatureFlagCacheForTests,
+  CLIENT_FEATURE_FLAG_FOREGROUND_REFRESH_MS,
   type ClientFeatureFlagKey,
 } from '@/lib/clientFeatureFlags';
 
@@ -50,17 +52,33 @@ export function useFeatureFlag(flag: ClientFeatureFlagKey) {
     initialDataUpdatedAt: initialData?.fetchedAtMs,
   });
 
+  const refreshFlag = useCallback(() => {
+    if (!userId) return;
+    void fetchClientFeatureFlag(flag, userId, true)
+      .then((evaluation) => {
+        queryClient.setQueryData(queryKey, evaluation);
+      })
+      .catch(() => undefined);
+  }, [flag, queryClient, queryKey, userId]);
+
   useEffect(() => {
     if (!userId) return undefined;
     const subscription = AppState.addEventListener('change', (nextState) => {
       if (nextState !== 'active') return;
       if (!shouldRefreshClientFeatureFlag(flag, userId)) return;
-      void fetchClientFeatureFlag(flag, userId, true).then((evaluation) => {
-        queryClient.setQueryData(queryKey, evaluation);
-      });
+      refreshFlag();
     });
     return () => subscription.remove();
-  }, [flag, queryClient, queryKey, userId]);
+  }, [flag, refreshFlag, userId]);
+
+  useEffect(() => {
+    if (!userId) return undefined;
+    const refreshIntervalId = setInterval(() => {
+      if (AppState.currentState !== 'active') return;
+      refreshFlag();
+    }, CLIENT_FEATURE_FLAG_FOREGROUND_REFRESH_MS);
+    return () => clearInterval(refreshIntervalId);
+  }, [refreshFlag, userId]);
 
   return {
     enabled: query.data?.enabled === true,

@@ -157,6 +157,8 @@ test("media v2 flags are seeded disabled with zero rollout", () => {
 
 test("web/native hooks use the shared core with persisted initial data and debounced refresh", () => {
   assert.match(core, /export const ALL_CLIENT_FEATURE_FLAGS/);
+  assert.match(core, /export const CLIENT_FEATURE_FLAG_TTL_MS = 60_000/);
+  assert.match(core, /export const CLIENT_FEATURE_FLAG_FOREGROUND_REFRESH_MS = CLIENT_FEATURE_FLAG_TTL_MS/);
   assert.match(core, /const flagCache = new Map<string, ClientFeatureFlagEvaluation>/);
   assert.match(core, /const inFlight = new Map<string, Promise<ClientFeatureFlagEvaluation>>/);
   assert.match(core, /latestRequestSequenceByKey/);
@@ -172,21 +174,29 @@ test("web/native hooks use the shared core with persisted initial data and debou
   assert.match(core, /failClosedEvaluation/);
 
   assert.match(webHook, /from "@\/lib\/clientFeatureFlags"/);
+  assert.match(webHook, /CLIENT_FEATURE_FLAG_FOREGROUND_REFRESH_MS/);
   assert.match(webHook, /hydrateWebClientFeatureFlagCache\(\)/);
   assert.match(webHook, /initialData/);
   assert.match(webHook, /initialDataUpdatedAt: initialData\?\.fetchedAtMs/);
   assert.doesNotMatch(webHook, /placeholderData:\s*false/);
   assert.match(webHook, /shouldRefreshClientFeatureFlag\(flag, userId\)/);
   assert.match(webHook, /fetchClientFeatureFlag\(flag, userId, true\)/);
+  assert.match(webHook, /window\.setInterval\([\s\S]+CLIENT_FEATURE_FLAG_FOREGROUND_REFRESH_MS/);
+  assert.match(webHook, /document\.visibilityState !== "visible"/);
+  assert.match(webHook, /window\.clearInterval\(refreshIntervalId\)/);
   assert.match(webHook, /clearClientFeatureFlagCache/);
 
   assert.match(nativeHook, /from '@\/lib\/clientFeatureFlags'/);
+  assert.match(nativeHook, /CLIENT_FEATURE_FLAG_FOREGROUND_REFRESH_MS/);
   assert.match(nativeHook, /hydrateNativeClientFeatureFlagCache\(\)/);
   assert.match(nativeHook, /initialData/);
   assert.match(nativeHook, /initialDataUpdatedAt: initialData\?\.fetchedAtMs/);
   assert.doesNotMatch(nativeHook, /placeholderData:\s*false/);
   assert.match(nativeHook, /shouldRefreshClientFeatureFlag\(flag, userId\)/);
   assert.match(nativeHook, /AppState\.addEventListener\('change'/);
+  assert.match(nativeHook, /setInterval\([\s\S]+CLIENT_FEATURE_FLAG_FOREGROUND_REFRESH_MS/);
+  assert.match(nativeHook, /AppState\.currentState !== 'active'/);
+  assert.match(nativeHook, /clearInterval\(refreshIntervalId\)/);
 });
 
 test("platform feature flag libs persist, prefetch, emit evaluation telemetry, and fail closed at upload-start", () => {

@@ -9,6 +9,9 @@ export function createMediaClientRequestId(): string {
     const hex = [...bytes].map((byte) => byte.toString(16).padStart(2, "0")).join("");
     return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
   }
+  if (typeof console !== "undefined" && typeof console.warn === "function") {
+    console.warn("[media-sdk] crypto.randomUUID/getRandomValues unavailable; falling back to Math.random client request id generation");
+  }
   return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (ch) => {
     const n = (Math.random() * 16) | 0;
     return (ch === "x" ? n : (n & 0x3) | 0x8).toString(16);

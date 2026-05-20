@@ -344,6 +344,34 @@ test("shared client request ids and foreground reconcile guard are deterministic
   assert.equal(shouldRunMediaSdkForegroundReconcile("web:user-1", 1_400_001), false);
 });
 
+test("client request id fallback is visible when strong crypto is unavailable", () => {
+  const originalCrypto = Object.getOwnPropertyDescriptor(globalThis, "crypto");
+  const originalWarn = console.warn;
+  const warnings: string[] = [];
+  Object.defineProperty(globalThis, "crypto", {
+    configurable: true,
+    value: {},
+  });
+  console.warn = (message?: unknown) => {
+    warnings.push(String(message));
+  };
+
+  try {
+    assert.match(createMediaClientRequestId(), /^[0-9a-f-]{36}$/);
+    assert.equal(
+      warnings.some((message) => message.includes("falling back to Math.random client request id generation")),
+      true,
+    );
+  } finally {
+    console.warn = originalWarn;
+    if (originalCrypto) {
+      Object.defineProperty(globalThis, "crypto", originalCrypto);
+    } else {
+      Reflect.deleteProperty(globalThis, "crypto");
+    }
+  }
+});
+
 test("SDK factories emit Phase 7 background-upload policy at initialization", () => {
   const webEvents: Array<{ name: string; platform?: string; fields?: Record<string, unknown> }> = [];
   const nativeEvents: Array<{ name: string; platform?: string; fields?: Record<string, unknown> }> = [];

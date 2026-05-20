@@ -49,6 +49,7 @@ export async function executeOutboxItem(
   item: ChatOutboxItem,
   queryClient: QueryClient,
   onUploadProgress?: (fraction: number) => void,
+  options: { signal?: AbortSignal | null } = {},
 ): Promise<{ serverMessageId: string; uploadedPublicUrl?: string; uploadedMediaUrl?: string }> {
   const { id: clientRequestId, matchId, payload } = item;
 
@@ -115,6 +116,7 @@ export async function executeOutboxItem(
             captions: payload.captions ?? null,
             resumeStrategy: item.vibeClipResumeStrategy,
             onProgress: onUploadProgress,
+            signal: options.signal ?? null,
           };
           uploaded = await uploadAndPublishChatVibeClipWithMediaSdk(uploadParams);
         } catch (error) {

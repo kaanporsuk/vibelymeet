@@ -57,6 +57,7 @@ type ChatVibeClipUploadSweepRow = {
 type ChatVibeClipUploadSweepQuery = {
   eq: (column: string, value: unknown) => ChatVibeClipUploadSweepQuery;
   in: (column: string, values: unknown[]) => ChatVibeClipUploadSweepQuery;
+  is: (column: string, value: unknown) => ChatVibeClipUploadSweepQuery;
   lt: (column: string, value: string) => ChatVibeClipUploadSweepQuery;
   order: (column: string, options?: { ascending?: boolean }) => ChatVibeClipUploadSweepQuery;
   limit: (count: number) => Promise<{ data: ChatVibeClipUploadSweepRow[] | null; error: { message?: string } | null }>;
@@ -198,10 +199,20 @@ export function ChatOutboxProvider({ children }: { children: React.ReactNode }) 
   const [sessionUploadStats, setSessionUploadStats] = useState({ enqueued: 0, succeeded: 0, failed: 0 });
   const itemsRef = useRef(items);
   const processingRef = useRef<Set<string>>(new Set());
+  const processingAbortControllersRef = useRef<Map<string, AbortController>>(new Map());
 
   useEffect(() => {
     itemsRef.current = items;
   }, [items]);
+
+  useEffect(() => {
+    return () => {
+      for (const controller of processingAbortControllersRef.current.values()) {
+        controller.abort();
+      }
+      processingAbortControllersRef.current.clear();
+    };
+  }, []);
 
   useEffect(() => {
     setSessionUploadStats({ enqueued: 0, succeeded: 0, failed: 0 });
@@ -302,6 +313,7 @@ export function ChatOutboxProvider({ children }: { children: React.ReactNode }) 
 
   const remove = useCallback((itemId: string) => {
     const toCleanup: string[] = [];
+    processingAbortControllersRef.current.get(itemId)?.abort();
     setItems((prev) =>
       prev.filter((it) => {
         if (it.id !== itemId) return true;
@@ -361,7 +373,8 @@ export function ChatOutboxProvider({ children }: { children: React.ReactNode }) 
       );
     query = query
       .eq('sender_id', userId)
-      .in('status', ['uploading', 'processing'])
+      .in('status', ['uploading', 'processing', 'failed'])
+      .is('published_message_id', null)
       .lt('updated_at', staleBefore);
     if (matchId) query = query.eq('match_id', matchId);
 
@@ -608,6 +621,8 @@ export function ChatOutboxProvider({ children }: { children: React.ReactNode }) 
         if (processingRef.current.has(next.id)) continue;
 
         processingRef.current.add(next.id);
+        const abortController = new AbortController();
+        processingAbortControllersRef.current.set(next.id, abortController);
 
         const attemptCount = next.attemptCount + 1;
         setItems((prev) =>
@@ -632,6 +647,7 @@ export function ChatOutboxProvider({ children }: { children: React.ReactNode }) 
                 )
               );
             },
+            { signal: abortController.signal },
           );
           const successAtMs = Date.now();
           setItems((prev) =>
@@ -700,6 +716,7 @@ export function ChatOutboxProvider({ children }: { children: React.ReactNode }) 
             setSessionUploadStats((prev) => ({ ...prev, failed: prev.failed + 1 }));
           }
         } finally {
+          processingAbortControllersRef.current.delete(next.id);
           processingRef.current.delete(next.id);
         }
       }

@@ -45,5 +45,12 @@ test("Chat Vibe Clip smoke entrypoints stay wired to the canonical matrix", () =
   for (const envName of [...CHAT_VIBE_CLIP_WEB_SMOKE_ENV, ...CHAT_VIBE_CLIP_NATIVE_SMOKE_ENV]) {
     assert.match(runner, new RegExp(envName), `runner documents ${envName}`);
   }
-});
 
+  assert.match(playwright, /get-chat-media-url/, "Playwright signed-url row waits for a fresh signed URL");
+  assert.match(playwright, /signed_url_refresh_status/, "Playwright records signed URL refresh evidence");
+  assert.match(runner, /CHAT_VIBE_CLIP_SCENARIOS=\(/, "runner owns an executable native scenario list");
+  assert.match(runner, /for native_scenario in "\$\{native_scenarios\[@\]\}"/, "runner executes each native scenario");
+  assert.match(runner, /VIBELY_CVC_NATIVE_SCENARIO_ID="\$\{native_scenario\}"/, "runner passes the active native scenario id");
+  assert.match(workflow, /run_live_native/, "workflow exposes manual native matrix dispatch");
+  assert.match(workflow, /scripts\/run_chat_vibe_clip_smoke_matrix\.sh --native/, "workflow can run the native matrix");
+});

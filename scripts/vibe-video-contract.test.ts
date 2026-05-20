@@ -1019,7 +1019,7 @@ test("media v2 Vibe Video caller cutover is upload-start gated and still control
   assert.match(webSdk, /createMediaUploadPathTelemetryFields/);
   assert.match(webSdk, /uploadVibeVideo: uploadWebVibeVideoViaController/);
   assert.match(webSdk, /heroVideoStartWithClientRequestId/);
-  assert.match(webSdk, /heroVideoStartWithClientRequestId\(params\.source, params\.caption, context, clientRequestId\)/);
+  assert.match(webSdk, /heroVideoStartWithClientRequestId\(\s*params\.source,\s*params\.caption,\s*context,\s*clientRequestId,\s*params\.captions \?\? null,?\s*\)/);
   assert.match(webSdk, /mirrorHeroVideoControllerToSdk/);
   assert.match(webSdk, /state\.clientRequestId !== clientRequestId/);
   assert.match(webSdk, /vibe_video_upload_replaced/);
