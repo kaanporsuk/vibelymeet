@@ -21,6 +21,7 @@ import type { ChatOutboxItem, ChatOutboxPayload, ChatOutboxQueueState } from '@/
 import { trackVibeClipEvent } from '@/lib/vibeClipAnalytics';
 import { invalidateAfterThreadMutation } from '@/lib/chatApi';
 import { classifySendFailureMessage, durationBucketFromSeconds } from '../../../../shared/chat/vibeClipAnalytics';
+import { getSessionUploadSummary, type SessionUploadSummary } from '../../../../shared/media/session-upload-summary';
 import {
   mediaUploadSuspendedRecoveryTelemetry,
   type MediaUploadSuspendedRecoveryOutcome,
@@ -65,6 +66,7 @@ type ChatOutboxContextValue = {
   items: ChatOutboxItem[];
   staleVibeClipUploads: VibeClipServerUpload[];
   recoveryAttentionCount: number;
+  sessionUploadSummary: SessionUploadSummary;
   /** Returns client_request_id (outbox item id) */
   enqueue: (input: {
     matchId: string;
@@ -72,6 +74,7 @@ type ChatOutboxContextValue = {
     payload: ChatOutboxPayload;
   }) => string | null;
   retry: (itemId: string) => void;
+  retryAllFailed: () => void;
   retryVibeClipUpload: (clientRequestId: string, resumeStrategy?: VibeClipRecoveryResumeStrategy | null) => void;
   remove: (itemId: string) => void;
   itemsForMatch: (matchId: string) => ChatOutboxItem[];
@@ -192,6 +195,7 @@ export function ChatOutboxProvider({ children }: { children: React.ReactNode }) 
   const userId = user?.id ?? null;
   const [items, setItems] = useState<ChatOutboxItem[]>([]);
   const [staleVibeClipUploads, setStaleVibeClipUploads] = useState<VibeClipServerUpload[]>([]);
+  const [sessionUploadStats, setSessionUploadStats] = useState({ enqueued: 0, succeeded: 0, failed: 0 });
   const itemsRef = useRef(items);
   const processingRef = useRef<Set<string>>(new Set());
 
@@ -248,6 +252,9 @@ export function ChatOutboxProvider({ children }: { children: React.ReactNode }) 
         attemptCount: 0,
       };
       setItems((prev) => [...prev, item].sort((a, b) => a.createdAtMs - b.createdAtMs));
+      if (isMediaOutboxItem(item)) {
+        setSessionUploadStats((prev) => ({ ...prev, enqueued: prev.enqueued + 1 }));
+      }
       return id;
     },
     [userId]
@@ -274,6 +281,23 @@ export function ChatOutboxProvider({ children }: { children: React.ReactNode }) 
   const retry = useCallback((itemId: string) => {
     retryVibeClipUpload(itemId, null);
   }, [retryVibeClipUpload]);
+
+  const retryAllFailed = useCallback(() => {
+    setItems((prev) =>
+      prev.map((it) =>
+        it.state === 'failed'
+          ? {
+              ...it,
+              state: connectivityService.getState() === 'online' ? 'queued' : 'waiting_for_network',
+              lastError: undefined,
+              nextRetryAtMs: undefined,
+              uploadProgress: undefined,
+              updatedAtMs: Date.now(),
+            }
+          : it
+      )
+    );
+  }, []);
 
   const remove = useCallback((itemId: string) => {
     const toCleanup: string[] = [];
@@ -532,6 +556,9 @@ export function ChatOutboxProvider({ children }: { children: React.ReactNode }) 
             currentUserId: item.userId,
             matchId: item.matchId,
           });
+          if (isMediaOutboxItem(item)) {
+            setSessionUploadStats((prev) => ({ ...prev, succeeded: prev.succeeded + 1 }));
+          }
           continue;
         }
 
@@ -668,6 +695,9 @@ export function ChatOutboxProvider({ children }: { children: React.ReactNode }) 
               failure_class: classifySendFailureMessage(rawMsg),
             });
           }
+          if (isMediaOutboxItem(next) && !treatAsOfflineWait) {
+            setSessionUploadStats((prev) => ({ ...prev, failed: prev.failed + 1 }));
+          }
         } finally {
           processingRef.current.delete(next.id);
         }
@@ -681,8 +711,21 @@ export function ChatOutboxProvider({ children }: { children: React.ReactNode }) 
       items,
       staleVibeClipUploads,
       recoveryAttentionCount,
+      sessionUploadSummary: getSessionUploadSummary({
+        enqueued: sessionUploadStats.enqueued,
+        succeeded: sessionUploadStats.succeeded,
+        failed: sessionUploadStats.failed,
+        failedInQueue: items.filter((it) => isMediaOutboxItem(it) && it.state === 'failed').length,
+        inFlight: items.filter((it) =>
+          isMediaOutboxItem(it) && (it.state === 'sending' || it.state === 'awaiting_hydration')
+        ).length,
+        queued: items.filter((it) =>
+          isMediaOutboxItem(it) && (it.state === 'queued' || it.state === 'waiting_for_network')
+        ).length,
+      }),
       enqueue,
       retry,
+      retryAllFailed,
       retryVibeClipUpload,
       remove,
       itemsForMatch,
@@ -695,8 +738,10 @@ export function ChatOutboxProvider({ children }: { children: React.ReactNode }) 
       items,
       staleVibeClipUploads,
       recoveryAttentionCount,
+      sessionUploadStats,
       enqueue,
       retry,
+      retryAllFailed,
       retryVibeClipUpload,
       remove,
       itemsForMatch,

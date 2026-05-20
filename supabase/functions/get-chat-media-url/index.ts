@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient, SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.88.0";
 import * as Sentry from "https://deno.land/x/sentry@8.55.0/index.mjs";
+import { bunnyStorageConfigForTier, type BunnyStorageZoneTier } from "../_shared/bunny-media.ts";
 import { signBunnyStreamDirectoryUrl } from "../_shared/bunny-stream-tokens.ts";
 import { corsHeadersForRequest, jsonResponse, preflightResponse } from "../_shared/cors.ts";
 import { syncChatMessageMedia } from "../_shared/media-lifecycle.ts";
@@ -43,6 +44,7 @@ type MediaAssetRow = {
   mime_type: string | null;
   status: string | null;
   media_family: string | null;
+  storage_zone: string | null;
 };
 
 type ProfileVibeVideoRpcPayload = {
@@ -90,6 +92,14 @@ function logChatMediaUrl(level: ChatMediaUrlLogLevel, event: string, fields: Saf
   } else {
     console.info(payload);
   }
+}
+
+function normalizeStoragePathForProxy(value: string): string {
+  return value.trim().replace(/^\/+/, "");
+}
+
+function encodeStoragePathForProxy(value: string): string {
+  return normalizeStoragePathForProxy(value).split("/").map(encodeURIComponent).join("/");
 }
 
 function captureProfileVibeVideoConfigMissingWithSentry(fields: Record<string, unknown>) {
@@ -255,7 +265,7 @@ async function resolveMessageAsset(
 ): Promise<MediaAssetRow | null> {
   const { data, error } = await serviceClient
     .from("media_assets")
-    .select("id, provider, provider_object_id, provider_path, mime_type, status, media_family")
+    .select("id, provider, provider_object_id, provider_path, mime_type, status, media_family, storage_zone")
     .eq("legacy_table", "messages")
     .eq("legacy_id", messageId)
     .in("media_family", kind === "thumbnail" ? ["chat_video", "chat_video_thumbnail"] : [mediaFamilyForKind(kind)])
@@ -395,7 +405,7 @@ async function handleProfileVibeVideoIssue(params: {
     );
   }
 
-  if (profile.bunny_video_status !== "ready") {
+  if (!profile || profile.bunny_video_status !== "ready") {
     logChatMediaUrl("warn", "profile_vibe_video_not_ready", {
       requester_id: params.requesterId,
       profile_id: params.profileId,
@@ -542,6 +552,14 @@ async function handleHealth(req: Request): Promise<Response> {
       profile_stream_token_security_key_configured: Boolean(Deno.env.get("BUNNY_STREAM_TOKEN_SECURITY_KEY")?.trim()),
       storage_zone_configured: Boolean(Deno.env.get("BUNNY_STORAGE_ZONE")?.trim()),
       storage_api_key_configured: Boolean(Deno.env.get("BUNNY_STORAGE_API_KEY")?.trim()),
+      archive_storage_zone_configured: Boolean(
+        Deno.env.get("BUNNY_ARCHIVE_STORAGE_ZONE")?.trim() ||
+          Deno.env.get("BUNNY_STORAGE_ARCHIVE_ZONE")?.trim(),
+      ),
+      archive_storage_api_key_configured: Boolean(
+        Deno.env.get("BUNNY_ARCHIVE_STORAGE_API_KEY")?.trim() ||
+          Deno.env.get("BUNNY_STORAGE_ARCHIVE_API_KEY")?.trim(),
+      ),
     },
     { headers: corsHeaders },
   );
@@ -702,6 +720,8 @@ async function handleIssueUrl(req: Request): Promise<Response> {
         expires,
       });
 
+    void serviceClient.rpc("mark_media_asset_accessed", { p_asset_id: asset.id });
+
     logChatMediaUrl("info", "stream_url_issued", {
       message_id: scopedMessageId,
       media_kind: mediaKind,
@@ -736,11 +756,15 @@ async function handleIssueUrl(req: Request): Promise<Response> {
     return jsonResponse(req, { success: false, error: "media_not_found" }, { status: 404, headers: corsHeaders });
   }
 
+  const storageZone: BunnyStorageZoneTier = asset.storage_zone === "archive" ? "archive" : "hot";
+  void serviceClient.rpc("mark_media_asset_accessed", { p_asset_id: asset.id });
+
   const token = await createToken(tokenSecret, {
     sub: user.id,
     mid: scopedMessageId,
     kind: mediaKind,
     path: asset.provider_path,
+    zone: storageZone,
     mime: asset.mime_type ?? "application/octet-stream",
     exp: Math.floor(Date.now() / 1000) + TOKEN_TTL_SECONDS,
   });
@@ -752,6 +776,7 @@ async function handleIssueUrl(req: Request): Promise<Response> {
     client_request_id: clientRequestId,
     asset_id: asset.id,
     provider: asset.provider,
+    storage_zone: storageZone,
     expires_in_seconds: TOKEN_TTL_SECONDS,
   });
   return jsonResponse(
@@ -773,7 +798,8 @@ async function handleProxy(req: Request): Promise<Response> {
   const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
   const tokenSecret = Deno.env.get("CHAT_MEDIA_PROXY_SECRET") || serviceRoleKey;
   const claims = await verifyToken(tokenSecret, token);
-  const path = typeof claims?.path === "string" ? claims.path : "";
+  const path = typeof claims?.path === "string" ? normalizeStoragePathForProxy(claims.path) : "";
+  const storageTier: BunnyStorageZoneTier = claims?.zone === "archive" ? "archive" : "hot";
   const mime = typeof claims?.mime === "string" ? claims.mime : "application/octet-stream";
   if (!claims || !path || path.includes("..")) {
     logChatMediaUrl("warn", "proxy_request_rejected", {
@@ -784,13 +810,24 @@ async function handleProxy(req: Request): Promise<Response> {
     return jsonResponse(req, { success: false, error: "invalid_token" }, { status: 401, headers: corsHeaders });
   }
 
-  const storageZone = Deno.env.get("BUNNY_STORAGE_ZONE")!;
-  const apiKey = Deno.env.get("BUNNY_STORAGE_API_KEY")!;
-  const upstreamHeaders: Record<string, string> = { AccessKey: apiKey };
+  let storageConfig: ReturnType<typeof bunnyStorageConfigForTier>;
+  try {
+    storageConfig = bunnyStorageConfigForTier(storageTier);
+  } catch (err) {
+    logChatMediaUrl("error", "storage_proxy_config_missing", {
+      message_id: typeof claims.mid === "string" ? claims.mid : null,
+      media_kind: typeof claims.kind === "string" ? claims.kind : null,
+      requester_id: typeof claims.sub === "string" ? claims.sub : null,
+      storage_zone: storageTier,
+      error_code: String(err).slice(0, 120),
+    });
+    return jsonResponse(req, { success: false, error: "storage_config_missing" }, { status: 503, headers: corsHeaders });
+  }
+  const upstreamHeaders: Record<string, string> = { AccessKey: storageConfig.apiKey };
   const range = req.headers.get("Range");
   if (range) upstreamHeaders.Range = range;
 
-  const upstream = await fetch(`https://storage.bunnycdn.com/${storageZone}/${path}`, {
+  const upstream = await fetch(`https://storage.bunnycdn.com/${storageConfig.zone}/${encodeStoragePathForProxy(path)}`, {
     headers: upstreamHeaders,
   });
 
@@ -799,6 +836,7 @@ async function handleProxy(req: Request): Promise<Response> {
       message_id: typeof claims.mid === "string" ? claims.mid : null,
       media_kind: typeof claims.kind === "string" ? claims.kind : null,
       requester_id: typeof claims.sub === "string" ? claims.sub : null,
+      storage_zone: storageTier,
       upstream_status: upstream.status,
       has_range: Boolean(range),
     });
@@ -818,6 +856,7 @@ async function handleProxy(req: Request): Promise<Response> {
     message_id: typeof claims.mid === "string" ? claims.mid : null,
     media_kind: typeof claims.kind === "string" ? claims.kind : null,
     requester_id: typeof claims.sub === "string" ? claims.sub : null,
+    storage_zone: storageTier,
     upstream_status: upstream.status,
     has_range: Boolean(range),
   });

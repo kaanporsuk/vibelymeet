@@ -6,6 +6,7 @@ import {
 import type { EventDiscoveryPrefs } from "@shared/eventDiscoveryContracts";
 import { parseEventDiscoveryPrefs, serializeEventDiscoveryPrefs } from "@shared/eventDiscoveryContracts";
 import { fetchMyProfileSettings } from "@/services/myProfileSettings";
+import { parseMediaCaptions, type MediaCaptions } from "../../shared/media/captions";
 
 // Frontend profile interface (camelCase)
 export interface ProfileData {
@@ -36,6 +37,7 @@ export interface ProfileData {
   bunnyVideoUid: string | null;
   bunnyVideoStatus: string;
   vibeCaption: string;
+  vibeVideoCaptions: MediaCaptions | null;
   photoVerified: boolean;
   phoneVerified: boolean;
   stats: {
@@ -102,6 +104,7 @@ interface DbProfile {
   bunny_video_uid: string | null;
   bunny_video_status: string;
   vibe_caption?: string | null;
+  vibe_video_captions?: unknown;
   photo_verified: boolean | null;
   phone_verified: boolean | null;
   events_attended?: number | null;
@@ -195,6 +198,7 @@ export const dbToProfile = (dbProfile: DbProfile, vibes: string[] = []): Profile
     bunnyVideoUid: dbProfile.bunny_video_uid || null,
     bunnyVideoStatus: dbProfile.bunny_video_status || "none",
     vibeCaption: dbProfile.vibe_caption || "",
+    vibeVideoCaptions: parseMediaCaptions(dbProfile.vibe_video_captions),
     photoVerified: dbProfile.photo_verified || false,
     phoneVerified: dbProfile.phone_verified || false,
     stats: {

@@ -28,6 +28,7 @@ import {
   VIBE_VIDEO_EVENTS,
 } from "@/lib/vibeVideo/vibeVideoTelemetry";
 import { syncCurrentVibeVideoStatus } from "@/lib/vibeVideo/syncVibeVideoStatus";
+import type { MediaCaptions } from "../../../shared/media/captions";
 
 // ─── Public types ─────────────────────────────────────────────────────────────
 
@@ -389,8 +390,9 @@ export function heroVideoStart(
   file: File | Blob,
   caption?: string,
   context: HeroVideoUploadContext = "profile_studio",
+  captions?: MediaCaptions | null,
 ): void {
-  heroVideoStartWithClientRequestId(file, caption, context);
+  heroVideoStartWithClientRequestId(file, caption, context, undefined, captions);
 }
 
 export function heroVideoStartWithClientRequestId(
@@ -398,6 +400,7 @@ export function heroVideoStartWithClientRequestId(
   caption?: string,
   context: HeroVideoUploadContext = "profile_studio",
   clientRequestId: string = newHeroVideoClientRequestId(),
+  captions?: MediaCaptions | null,
 ): void {
   const uploadClientRequestId = clientRequestId.trim() || newHeroVideoClientRequestId();
   // Cancel existing upload if any
@@ -427,7 +430,7 @@ export function heroVideoStartWithClientRequestId(
   _activeRunStartedAt = Date.now();
 
   // Run async in background
-  void _run(file, caption, context, uploadClientRequestId);
+  void _run(file, caption, context, uploadClientRequestId, captions);
 }
 
 async function _run(
@@ -435,6 +438,7 @@ async function _run(
   caption?: string,
   context: HeroVideoUploadContext = "profile_studio",
   clientRequestId: string = newHeroVideoClientRequestId(),
+  captions?: MediaCaptions | null,
 ): Promise<void> {
   let failurePhase: "credentials" | "tus" | "processing" = "credentials";
   let activeVideoId: string | null = null;
@@ -482,6 +486,7 @@ async function _run(
             client_request_id: clientRequestId,
             source_bytes: typeof file.size === "number" ? file.size : null,
             mime_type: file.type || "video/mp4",
+            captions: captions ?? null,
           }),
         },
       );

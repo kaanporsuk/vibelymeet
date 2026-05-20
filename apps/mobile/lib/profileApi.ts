@@ -35,6 +35,7 @@ export type ProfileRow = {
   vibes: string[];
   lifestyle: Record<string, string> | null;
   vibe_caption: string | null;
+  vibe_video_captions?: unknown;
   photo_verified: boolean | null;
   phone_number: string | null;
   phone_verified: boolean | null;
@@ -207,6 +208,7 @@ export async function fetchMyProfile(userId: string): Promise<ProfileRow | null>
       vibes,
       lifestyle: (row.lifestyle as ProfileRow['lifestyle']) ?? null,
       vibe_caption: row.vibe_caption ?? null,
+      vibe_video_captions: row.vibe_video_captions ?? null,
       photo_verified: row.photo_verified ?? null,
       phone_number: row.phone_number ?? null,
       phone_verified: row.phone_verified ?? null,

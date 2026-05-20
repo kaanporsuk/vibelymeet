@@ -36,6 +36,7 @@ export type UserProfileView = {
   vibe_video_signed_playback_required: boolean;
   vibe_video_playback_ref: string | null;
   vibe_caption: string | null;
+  vibe_video_captions?: unknown;
   lifestyle: Record<string, string> | null;
   prompts: Array<{ question: string; answer: string }> | null;
   photo_verified: boolean | null;
@@ -158,6 +159,7 @@ function rpcJsonToUserProfileView(raw: unknown): UserProfileView | null {
           ? null
           : null,
     vibe_caption: typeof row.vibe_caption === 'string' ? row.vibe_caption : row.vibe_caption === null ? null : null,
+    vibe_video_captions: row.vibe_video_captions ?? null,
     lifestyle:
       row.lifestyle && typeof row.lifestyle === 'object' && !Array.isArray(row.lifestyle)
         ? (row.lifestyle as Record<string, string>)

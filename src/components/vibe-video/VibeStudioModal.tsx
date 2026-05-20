@@ -14,6 +14,39 @@ import { trackEvent } from "@/lib/analytics";
 import { trackVibeVideoEvent, VIBE_VIDEO_EVENTS } from "@/lib/vibeVideo/vibeVideoTelemetry";
 import { MAX_VIBE_CAPTION_LEN, MAX_VIBE_VIDEO_DURATION_S } from "@/lib/vibeVideo/constants";
 import { startWebVibeVideoUpload } from "@/lib/mediaSdk/webVideoUploads";
+import { usePrefersReducedMotion } from "@/hooks/usePrefersReducedMotion";
+import type { MediaCaptions } from "../../../shared/media/captions";
+
+type BrowserSpeechRecognitionAlternative = {
+  transcript?: string;
+};
+
+type BrowserSpeechRecognitionResult = {
+  isFinal: boolean;
+  [index: number]: BrowserSpeechRecognitionAlternative | undefined;
+};
+
+type BrowserSpeechRecognitionEvent = {
+  resultIndex: number;
+  results: {
+    length: number;
+    [index: number]: BrowserSpeechRecognitionResult | undefined;
+  };
+};
+
+type BrowserSpeechRecognition = {
+  continuous: boolean;
+  interimResults: boolean;
+  lang: string;
+  onresult: ((event: BrowserSpeechRecognitionEvent) => void) | null;
+  onerror: (() => void) | null;
+  onend: (() => void) | null;
+  start: () => void;
+  stop: () => void;
+  abort: () => void;
+};
+
+type BrowserSpeechRecognitionConstructor = new () => BrowserSpeechRecognition;
 
 interface VibeStudioModalProps {
   open: boolean;
@@ -54,6 +87,7 @@ export const VibeStudioModal = ({
   uploadContext = "profile_studio",
   onConfirmed,
 }: VibeStudioModalProps) => {
+  const prefersReducedMotion = usePrefersReducedMotion();
   // Stages: idle → recording → preview (local)
   // After confirm, modal closes immediately; controller owns the upload/processing states.
   const [stage, setStage] = useState<"idle" | "recording" | "preview">("idle");
@@ -69,6 +103,8 @@ export const VibeStudioModal = ({
   const [vibeCaption, setVibeCaption] = useState(existingCaption);
   const [captionEdited, setCaptionEdited] = useState(false);
   const [isEditingCaption, setIsEditingCaption] = useState(false);
+  const [captionReviewText, setCaptionReviewText] = useState("");
+  const [captionCaptureUnavailable, setCaptionCaptureUnavailable] = useState(false);
   const [facingMode, setFacingMode] = useState<'user' | 'environment'>('user');
   const [hasMultipleCameras, setHasMultipleCameras] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -82,6 +118,105 @@ export const VibeStudioModal = ({
   const fileInputRef = useRef<HTMLInputElement>(null);
   // Store detected mimeType for use in onstop
   const detectedMimeTypeRef = useRef<string | null>(null);
+  const captionSegmentsRef = useRef<string[]>([]);
+  const captionInterimRef = useRef("");
+  const speechRecognitionRef = useRef<BrowserSpeechRecognition | null>(null);
+  const speechRecognitionStoppingRef = useRef(false);
+  const recordingActiveRef = useRef(false);
+
+  const captionsFromReview = useCallback((): MediaCaptions | null => {
+    const text = captionReviewText.replace(/\s+/g, " ").trim().slice(0, 5_000);
+    if (!text) return null;
+    const language = typeof navigator !== "undefined" && navigator.language ? navigator.language.slice(0, 16) : undefined;
+    return { text, ...(language ? { language } : {}) };
+  }, [captionReviewText]);
+
+  const stopCaptionCapture = useCallback((mode: "stop" | "abort" = "stop") => {
+    const recognition = speechRecognitionRef.current;
+    speechRecognitionRef.current = null;
+    speechRecognitionStoppingRef.current = true;
+    if (!recognition) return;
+    recognition.onend = null;
+    recognition.onerror = null;
+    try {
+      if (mode === "abort") recognition.abort();
+      else recognition.stop();
+    } catch {
+      // Browser speech APIs can throw if recognition already stopped.
+    }
+  }, []);
+
+  const captionsFromTranscript = useCallback((): MediaCaptions | null => {
+    const text = [...captionSegmentsRef.current, captionInterimRef.current]
+      .join(" ")
+      .replace(/\s+/g, " ")
+      .trim()
+      .slice(0, 5_000);
+    if (!text) return null;
+    const language = typeof navigator !== "undefined" && navigator.language ? navigator.language.slice(0, 16) : undefined;
+    return { text, ...(language ? { language } : {}) };
+  }, []);
+
+  const startCaptionCapture = useCallback(() => {
+    captionSegmentsRef.current = [];
+    captionInterimRef.current = "";
+    setCaptionCaptureUnavailable(false);
+    if (typeof window === "undefined") return;
+    const scope = window as Window & {
+      SpeechRecognition?: BrowserSpeechRecognitionConstructor;
+      webkitSpeechRecognition?: BrowserSpeechRecognitionConstructor;
+    };
+    const SpeechRecognitionCtor = scope.SpeechRecognition ?? scope.webkitSpeechRecognition;
+    if (!SpeechRecognitionCtor) {
+      setCaptionCaptureUnavailable(true);
+      trackEvent("caption_capture_unavailable", {
+        surface: "vibe_studio_modal",
+        reason: "speech_recognition_missing",
+      });
+      return;
+    }
+
+    try {
+      const recognition = new SpeechRecognitionCtor();
+      recognition.continuous = true;
+      recognition.interimResults = true;
+      recognition.lang = navigator.language || "en-US";
+      recognition.onresult = (event) => {
+        const next = [...captionSegmentsRef.current];
+        let interim = "";
+        for (let index = event.resultIndex; index < event.results.length; index += 1) {
+          const result = event.results[index];
+          const transcript = result?.[0]?.transcript?.trim();
+          if (result?.isFinal && transcript) next.push(transcript);
+          else if (transcript) interim = transcript;
+        }
+        captionSegmentsRef.current = next;
+        captionInterimRef.current = interim;
+      };
+      recognition.onerror = () => {
+        trackEvent("caption_capture_failed", { surface: "vibe_studio_modal" });
+      };
+      recognition.onend = () => {
+        if (!recordingActiveRef.current || speechRecognitionStoppingRef.current) return;
+        try {
+          recognition.start();
+        } catch {
+          trackEvent("caption_capture_aborted", { surface: "vibe_studio_modal", reason: "restart_failed" });
+        }
+      };
+      speechRecognitionStoppingRef.current = false;
+      speechRecognitionRef.current = recognition;
+      recognition.start();
+      trackEvent("caption_capture_started", { surface: "vibe_studio_modal" });
+    } catch {
+      speechRecognitionRef.current = null;
+      setCaptionCaptureUnavailable(true);
+      trackEvent("caption_capture_unavailable", {
+        surface: "vibe_studio_modal",
+        reason: "speech_recognition_start_failed",
+      });
+    }
+  }, []);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -172,6 +307,8 @@ export const VibeStudioModal = ({
           // Ignore
         }
       }
+      recordingActiveRef.current = false;
+      stopCaptionCapture("abort");
       // 2. Stop ALL tracks on the stream
       if (streamRef.current) {
         streamRef.current.getTracks().forEach(track => track.stop());
@@ -188,7 +325,7 @@ export const VibeStudioModal = ({
         audioContextRef.current.close();
       }
     };
-  }, [open, facingMode]);
+  }, [open, facingMode, stopCaptionCapture]);
 
   // Rotate coach tips
   useEffect(() => {
@@ -249,6 +386,8 @@ export const VibeStudioModal = ({
     }
 
     chunksRef.current = [];
+    setCaptionReviewText("");
+    setCaptionCaptureUnavailable(false);
 
     // Safari supports MP4 recording and plays it back natively.
     // Chrome/Firefox support WebM recording. Prioritize each browser's native format.
@@ -283,6 +422,15 @@ export const VibeStudioModal = ({
       };
 
       mediaRecorder.onstop = () => {
+        recordingActiveRef.current = false;
+        stopCaptionCapture();
+        const capturedCaptions = captionsFromTranscript();
+        const capturedText = typeof capturedCaptions === "string" ? capturedCaptions : capturedCaptions?.text ?? "";
+        setCaptionReviewText(capturedText);
+        trackEvent(capturedText ? "caption_capture_succeeded" : "caption_capture_aborted", {
+          surface: "vibe_studio_modal",
+          has_text: !!capturedText,
+        });
         const detectedType = detectedMimeTypeRef.current;
         const blobType = detectedType?.startsWith("video/") ? detectedType.split(";")[0] : "video/webm";
         const blob = new Blob(chunksRef.current, { type: blobType });
@@ -302,13 +450,15 @@ export const VibeStudioModal = ({
 
       mediaRecorderRef.current = mediaRecorder;
       mediaRecorder.start(250);
+      recordingActiveRef.current = true;
+      startCaptionCapture();
       setCountdown(RECORDING_DURATION);
       setStage("recording");
     } catch (err) {
       console.error("Failed to start recording:", err);
       toast.error("Recording not supported on this device/browser");
     }
-  }, []);
+  }, [captionsFromTranscript, startCaptionCapture, stopCaptionCapture]);
 
   // Stop all camera tracks so browser tab recording dot disappears
   const stopCameraTracks = useCallback(() => {
@@ -328,6 +478,8 @@ export const VibeStudioModal = ({
     setRecordedVideoUrl(null);
     setRecordedBlob(null);
     setUploadedFile(null);
+    setCaptionReviewText("");
+    setCaptionCaptureUnavailable(false);
     setStage("idle");
     setCountdown(RECORDING_DURATION);
   }, [recordedVideoUrl]);
@@ -374,6 +526,7 @@ export const VibeStudioModal = ({
     startWebVibeVideoUpload({
       source: file,
       caption: captionForUpload,
+      captions: captionsFromReview(),
       context: uploadContext,
     });
     onConfirmed?.();
@@ -388,9 +541,11 @@ export const VibeStudioModal = ({
     setUploadedFile(null);
     setVibeCaption(existingCaption);
     setCaptionEdited(false);
+    setCaptionReviewText("");
+    setCaptionCaptureUnavailable(false);
 
     trackEvent('vibe_video_confirmed');
-  }, [recordedBlob, uploadedFile, recordedVideoUrl, vibeCaption, captionEdited, uploadContext, onConfirmed, onOpenChange, stopCameraTracks, existingCaption, hasExistingVideo, existingVideoUrl]);
+  }, [recordedBlob, uploadedFile, recordedVideoUrl, vibeCaption, captionEdited, uploadContext, onConfirmed, onOpenChange, stopCameraTracks, existingCaption, hasExistingVideo, existingVideoUrl, captionsFromReview]);
 
   const handleClose = useCallback(() => {
     onOpenChange(false);
@@ -409,7 +564,11 @@ export const VibeStudioModal = ({
     setUploadedFile(null);
     setVibeCaption(existingCaption);
     setCaptionEdited(false);
-  }, [onOpenChange, recordedVideoUrl, stopCameraTracks, existingCaption]);
+    setCaptionReviewText("");
+    setCaptionCaptureUnavailable(false);
+    recordingActiveRef.current = false;
+    stopCaptionCapture("abort");
+  }, [onOpenChange, recordedVideoUrl, stopCameraTracks, existingCaption, stopCaptionCapture]);
 
   const toggleMic = useCallback(() => {
     if (streamRef.current) {
@@ -473,6 +632,12 @@ export const VibeStudioModal = ({
 
     setRecordedVideoUrl(url);
     setUploadedFile(file);
+    setCaptionReviewText("");
+    setCaptionCaptureUnavailable(true);
+    trackEvent("caption_capture_unavailable", {
+      surface: "vibe_studio_modal",
+      reason: "library_upload",
+    });
     setStage("preview");
   }, []);
 
@@ -513,18 +678,20 @@ export const VibeStudioModal = ({
     videoEl.addEventListener("play", onPlay);
     videoEl.addEventListener("pause", onPause);
 
-    // Attempt autoplay — on iOS this may be silently blocked, that is fine
-    setTimeout(() => {
-      videoEl.play().catch(() => {
-        // Autoplay blocked — user will tap Play manually, state stays false
-      });
-    }, 100);
+    if (!prefersReducedMotion) {
+      // Attempt autoplay — on iOS this may be silently blocked, that is fine.
+      setTimeout(() => {
+        videoEl.play().catch(() => {
+          // Autoplay blocked — user will tap Play manually, state stays false.
+        });
+      }, 100);
+    }
 
     return () => {
       videoEl.removeEventListener("play", onPlay);
       videoEl.removeEventListener("pause", onPause);
     };
-  }, [stage, recordedVideoUrl]);
+  }, [prefersReducedMotion, stage, recordedVideoUrl]);
 
   // Seed the editor from the current profile caption when opening studio.
   useEffect(() => {
@@ -576,6 +743,7 @@ export const VibeStudioModal = ({
                   src={recordedVideoUrl}
                   className="w-full h-full object-cover"
                   playsInline
+                  controls={prefersReducedMotion}
                   loop
                   onClick={toggleVideoPlayback}
                 />
@@ -644,9 +812,9 @@ export const VibeStudioModal = ({
               <AnimatePresence>
                 {isEditingCaption && (
                   <motion.div
-                    initial={{ opacity: 0 }}
+                    initial={prefersReducedMotion ? false : { opacity: 0 }}
                     animate={{ opacity: 1 }}
-                    exit={{ opacity: 0 }}
+                    exit={prefersReducedMotion ? undefined : { opacity: 0 }}
                     className="absolute inset-0 bg-background/90 backdrop-blur-md z-50 flex flex-col items-center justify-center p-6"
                   >
                     <div className="w-full max-w-sm space-y-4">
@@ -694,9 +862,9 @@ export const VibeStudioModal = ({
                 {stage === "idle" && (
                   <motion.div
                     key={tipIndex}
-                    initial={{ opacity: 0, y: 10 }}
+                    initial={prefersReducedMotion ? false : { opacity: 0, y: 10 }}
                     animate={{ opacity: 1, y: 0 }}
-                    exit={{ opacity: 0, y: -10 }}
+                    exit={prefersReducedMotion ? undefined : { opacity: 0, y: -10 }}
                     className="absolute top-36 left-4 right-4 z-20 text-center"
                   >
                     <p className="text-sm text-muted-foreground/80 italic">
@@ -709,13 +877,13 @@ export const VibeStudioModal = ({
               {/* Recording Timer */}
               {stage === "recording" && (
                 <motion.div
-                  initial={{ scale: 0 }}
+                  initial={prefersReducedMotion ? false : { scale: 0 }}
                   animate={{ scale: 1 }}
                   className="absolute top-36 left-1/2 -translate-x-1/2 z-20"
                 >
                   <div className="flex items-center gap-2 px-4 py-2 rounded-full bg-destructive/90 backdrop-blur-sm">
                     <span className="relative flex h-3 w-3">
-                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-white opacity-75" />
+                      <span className={cn(!prefersReducedMotion && "animate-ping", "absolute inline-flex h-full w-full rounded-full bg-white opacity-75")} />
                       <span className="relative inline-flex rounded-full h-3 w-3 bg-white" />
                     </span>
                     <span className="text-sm font-bold text-white">
@@ -728,15 +896,16 @@ export const VibeStudioModal = ({
               {/* Audio Waveform Visualizer */}
               {stage === "recording" && (
                 <motion.div
-                  initial={{ opacity: 0 }}
+                  initial={prefersReducedMotion ? false : { opacity: 0 }}
                   animate={{ opacity: 1 }}
                   className="absolute bottom-44 left-1/2 -translate-x-1/2 z-20 flex items-end gap-1 h-12"
                 >
                   {audioLevels.map((level, i) => (
                     <motion.div
                       key={i}
-                      animate={{ height: `${Math.max(level * 100, 10)}%` }}
-                      transition={{ duration: 0.05 }}
+                      animate={prefersReducedMotion ? false : { height: `${Math.max(level * 100, 10)}%` }}
+                      transition={{ duration: prefersReducedMotion ? 0 : 0.05 }}
+                      style={prefersReducedMotion ? { height: "45%" } : undefined}
                       className={cn(
                         "w-1.5 rounded-full",
                         i % 2 === 0
@@ -751,14 +920,23 @@ export const VibeStudioModal = ({
               {/* Preview State - Note */}
               {stage === "preview" && (
                 <motion.div
-                  initial={{ opacity: 0, y: 20 }}
+                  initial={prefersReducedMotion ? false : { opacity: 0, y: 20 }}
                   animate={{ opacity: 1, y: 0 }}
                   className="absolute bottom-44 left-4 right-4 z-20"
                 >
-                  <div className="glass-card p-3 rounded-xl text-center">
+                  <div className="glass-card p-3 rounded-lg text-center">
                     <p className="text-xs text-muted-foreground">
-                      📹 Review your video before posting
+                      Review your video before posting
                     </p>
+                    <label className="mt-3 block text-left text-[11px] font-semibold uppercase tracking-wide text-white/70">
+                      Captions
+                    </label>
+                    <textarea
+                      value={captionReviewText}
+                      onChange={(event) => setCaptionReviewText(event.target.value.slice(0, 5_000))}
+                      placeholder={captionCaptureUnavailable ? "Captions unavailable for this recording." : "Add captions before posting."}
+                      className="mt-1 min-h-16 w-full resize-none rounded-lg border border-white/10 bg-black/35 px-3 py-2 text-xs text-white placeholder:text-white/35 focus:outline-none focus:ring-2 focus:ring-primary/60"
+                    />
                   </div>
                 </motion.div>
               )}
@@ -768,7 +946,7 @@ export const VibeStudioModal = ({
           {/* Bottom Controls */}
           {hasPermission !== false && (
             <motion.div
-              initial={{ y: 50, opacity: 0 }}
+              initial={prefersReducedMotion ? false : { y: 50, opacity: 0 }}
               animate={{ y: 0, opacity: 1 }}
               className="absolute bottom-0 left-0 right-0 z-30 p-6 pb-safe bg-gradient-to-t from-background via-background/95 to-transparent"
             >
@@ -814,8 +992,8 @@ export const VibeStudioModal = ({
 
                   {/* Record Button */}
                   <motion.button
-                    whileHover={{ scale: 1.05 }}
-                    whileTap={{ scale: 0.95 }}
+                    whileHover={prefersReducedMotion ? undefined : { scale: 1.05 }}
+                    whileTap={prefersReducedMotion ? undefined : { scale: 0.95 }}
                     onClick={startRecording}
                     className="relative w-20 h-20 rounded-full"
                   >
@@ -868,7 +1046,7 @@ export const VibeStudioModal = ({
                       />
                     </svg>
                     <motion.button
-                      whileTap={{ scale: 0.9 }}
+                      whileTap={prefersReducedMotion ? undefined : { scale: 0.9 }}
                       onClick={stopRecording}
                       className="absolute inset-3 rounded-full bg-destructive flex items-center justify-center"
                     >
@@ -887,8 +1065,8 @@ export const VibeStudioModal = ({
                 <div className="flex items-center justify-center gap-6">
                   {/* Retake Button */}
                   <motion.button
-                    whileHover={{ scale: 1.1 }}
-                    whileTap={{ scale: 0.9 }}
+                    whileHover={prefersReducedMotion ? undefined : { scale: 1.1 }}
+                    whileTap={prefersReducedMotion ? undefined : { scale: 0.9 }}
                     onClick={handleRetake}
                     className="flex flex-col items-center gap-2"
                   >
@@ -900,8 +1078,8 @@ export const VibeStudioModal = ({
 
                   {/* Play/Pause Button */}
                   <motion.button
-                    whileHover={{ scale: 1.1 }}
-                    whileTap={{ scale: 0.9 }}
+                    whileHover={prefersReducedMotion ? undefined : { scale: 1.1 }}
+                    whileTap={prefersReducedMotion ? undefined : { scale: 0.9 }}
                     onClick={toggleVideoPlayback}
                     className="flex flex-col items-center gap-2"
                   >
@@ -917,19 +1095,19 @@ export const VibeStudioModal = ({
 
                   {/* Confirm Button */}
                   <motion.button
-                    whileHover={{ scale: 1.1 }}
-                    whileTap={{ scale: 0.9 }}
+                    whileHover={prefersReducedMotion ? undefined : { scale: 1.1 }}
+                    whileTap={prefersReducedMotion ? undefined : { scale: 0.9 }}
                     onClick={handleConfirm}
                     className="flex flex-col items-center gap-2"
                   >
                     <motion.div
-                      animate={{
+                      animate={prefersReducedMotion ? undefined : {
                         boxShadow: [
                           "0 0 0 0 hsl(142 76% 36% / 0.4)",
                           "0 0 0 10px hsl(142 76% 36% / 0)",
                         ],
                       }}
-                      transition={{ duration: 1.5, repeat: Infinity }}
+                      transition={{ duration: prefersReducedMotion ? 0 : 1.5, repeat: prefersReducedMotion ? 0 : Infinity }}
                       className="w-14 h-14 rounded-full bg-green-500 flex items-center justify-center"
                     >
                       <Check className="w-7 h-7 text-white" />

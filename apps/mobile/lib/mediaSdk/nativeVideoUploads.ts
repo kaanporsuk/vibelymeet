@@ -28,6 +28,7 @@ import {
 } from '@/lib/chatVibeClipStreamUpload';
 import { createNativeMediaUploadReconciler } from '@/lib/mediaSdk/reconciliation';
 import { nativeMediaTelemetrySinks } from '@/lib/mediaSdk/sinks';
+import type { MediaCaptions } from '../../../../shared/media/captions';
 
 type NativeChatVibeClipSdkUploadParams = Parameters<typeof uploadAndPublishChatVibeClipToBunnyStream>[0];
 type NativeHeroVideoUploadContext = 'onboarding' | 'profile_studio';
@@ -168,6 +169,7 @@ async function uploadNativeVibeVideoViaController(
     uploadContextFromInput(input),
     uploadSourceFromInput(input),
     clientRequestId,
+    (input.context?.captions as MediaCaptions | null | undefined) ?? null,
   );
   await mirrorNativeHeroVideoControllerToSdk(controls);
 }
@@ -272,6 +274,7 @@ export async function reconcileNativeVideoMediaSdkQueue(reason = 'manual'): Prom
 export function startNativeVibeVideoUpload(params: {
   uri: string;
   caption?: string;
+  captions?: MediaCaptions | null;
   context?: NativeHeroVideoUploadContext;
   uploadSource?: VibeVideoUploadSource;
 }): void {
@@ -284,6 +287,7 @@ async function startNativeVibeVideoUploadAfterGate(
   params: {
     uri: string;
     caption?: string;
+    captions?: MediaCaptions | null;
     context?: NativeHeroVideoUploadContext;
     uploadSource?: VibeVideoUploadSource;
   },
@@ -311,6 +315,7 @@ async function startNativeVibeVideoUploadAfterGate(
       context,
       params.uploadSource,
       clientRequestId,
+      params.captions ?? null,
     );
     return;
   }
@@ -323,6 +328,7 @@ async function startNativeVibeVideoUploadAfterGate(
     context: {
       uploadContext: context,
       caption: params.caption,
+      captions: params.captions ?? null,
       uploadSource: params.uploadSource ?? 'unknown',
     },
     options: {

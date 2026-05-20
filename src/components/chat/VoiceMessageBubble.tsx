@@ -3,6 +3,7 @@ import { Play, Pause, Loader2, AlertCircle } from "lucide-react";
 import { motion } from "framer-motion";
 import { cn } from "@/lib/utils";
 import { useMediaAsset } from "@/hooks/useMediaAsset";
+import { usePrefersReducedMotion } from "@/hooks/usePrefersReducedMotion";
 import { waveformHeightsFromSeed } from "../../../shared/chat/voiceWaveformSeed";
 
 interface VoiceMessageBubbleProps {
@@ -29,6 +30,7 @@ export const VoiceMessageBubble = ({
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const pendingAutoplayRef = useRef(false);
   const refreshAttemptedForUrlRef = useRef<string | null>(null);
+  const prefersReducedMotion = usePrefersReducedMotion();
   const { url: mediaAssetUrl, refresh: refreshMediaAsset } = useMediaAsset({
     kind: "voice",
     messageId,
@@ -242,17 +244,18 @@ export const VoiceMessageBubble = ({
     <div className="flex items-center gap-1.5 min-w-[140px] w-full max-w-[min(18rem,100%)]">
       {/* Play/Pause button */}
       <motion.button
-        whileTap={{ scale: 0.94 }}
+        whileTap={prefersReducedMotion ? undefined : { scale: 0.94 }}
         onClick={hasError ? retry : togglePlay}
         className={cn(
-          "w-8 h-8 rounded-full flex items-center justify-center shrink-0 transition-all duration-200 ring-1 shadow-sm",
+          "w-8 h-8 rounded-full flex items-center justify-center shrink-0 ring-1 shadow-sm",
+          !prefersReducedMotion && "transition-all duration-200",
           isMine
             ? "bg-primary-foreground/18 hover:bg-primary-foreground/28 ring-primary-foreground/25 shadow-[0_0_20px_rgba(255,255,255,0.08)]"
             : "bg-primary/14 hover:bg-primary/24 ring-fuchsia-400/25 shadow-[0_0_24px_hsl(var(--primary)/0.2)]"
         )}
       >
         {isLoading ? (
-          <Loader2 className={cn("w-3.5 h-3.5 animate-spin", isMine ? "text-primary-foreground" : "text-primary")} />
+          <Loader2 className={cn("w-3.5 h-3.5", !prefersReducedMotion && "animate-spin", isMine ? "text-primary-foreground" : "text-primary")} />
         ) : hasError ? (
           <AlertCircle className="w-3.5 h-3.5 text-destructive" />
         ) : isPlaying ? (
@@ -289,7 +292,8 @@ export const VoiceMessageBubble = ({
               <div
                 key={i}
                 className={cn(
-                  "w-[2px] rounded-full transition-colors duration-150",
+                  "w-[2px] rounded-full",
+                  !prefersReducedMotion && "transition-colors duration-150",
                   isMine
                     ? isPlayed
                       ? "bg-primary-foreground shadow-[0_0_6px_rgba(255,255,255,0.25)]"

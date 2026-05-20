@@ -29,6 +29,8 @@ import { VoiceMessageBubble } from "@/components/chat/VoiceMessageBubble";
 import { VideoMessageBubble } from "@/components/chat/VideoMessageBubble";
 import { VibeClipBubble, type VibeClipLocalRecovery } from "@/components/chat/VibeClipBubble";
 import { MessageStatus } from "@/components/chat/MessageStatus";
+import { MediaHealthPanel } from "@/components/media/MediaHealthPanel";
+import { Sheet, SheetContent } from "@/components/ui/sheet";
 import {
   formatChatImageMessageContent,
   inferChatMediaRenderKind,
@@ -493,6 +495,7 @@ const Chat = () => {
   const [showPhotoCamera, setShowPhotoCamera] = useState(false);
   const [showVibeClipOptions, setShowVibeClipOptions] = useState(false);
   const [showScheduleShare, setShowScheduleShare] = useState(false);
+  const [showMediaHealth, setShowMediaHealth] = useState(false);
   const [showActiveDateSuggestionWarning, setShowActiveDateSuggestionWarning] = useState(false);
   const [editScheduleShareSuggestionId, setEditScheduleShareSuggestionId] =
     useState<string | null>(null);
@@ -2184,6 +2187,7 @@ const Chat = () => {
         onBack={returnToMatches}
         onVideoCall={startMatchCall}
         onFocusInput={() => inputRef.current?.focus()}
+        onOpenMediaHealth={() => setShowMediaHealth(true)}
       />
 
       <div className="flex-1 flex flex-col min-h-0 relative z-10">
@@ -3140,6 +3144,15 @@ const Chat = () => {
           open={showActiveDateSuggestionWarning}
           onOpenChange={handleActiveDateSuggestionWarningOpenChange}
         />
+
+        <Sheet open={showMediaHealth} onOpenChange={setShowMediaHealth}>
+          <SheetContent side="bottom" className="h-[min(85vh,34rem)] overflow-y-auto rounded-t-3xl p-0">
+            <MediaHealthPanel
+              uploadSummary={webOutbox.sessionUploadSummary}
+              onRetryFailed={webOutbox.retryAllFailed}
+            />
+          </SheetContent>
+        </Sheet>
 
         <VibeArcadeMenu
           isOpen={showArcade}

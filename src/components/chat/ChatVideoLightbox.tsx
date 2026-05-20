@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, useCallback } from "react";
 import { motion } from "framer-motion";
 import { Loader2, X, AlertCircle } from "lucide-react";
 import { useMediaAsset, useMediaAssetPlayback, type MediaAssetKind } from "@/hooks/useMediaAsset";
+import { usePrefersReducedMotion } from "@/hooks/usePrefersReducedMotion";
 
 type ChatVideoLightboxProps = {
   videoUrl: string;
@@ -41,6 +42,7 @@ export function ChatVideoLightbox({
   onClose,
 }: ChatVideoLightboxProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
+  const prefersReducedMotion = usePrefersReducedMotion();
   const [phase, setPhase] = useState<LightboxPhase>("loading");
   const [playableVideoUrl, setPlayableVideoUrl] = useState(videoUrl);
   const [playablePosterUrl, setPlayablePosterUrl] = useState(posterUrl ?? null);
@@ -151,7 +153,7 @@ export function ChatVideoLightbox({
       setPhase("error");
       return;
     }
-    if (!v || isHlsMediaUrl(videoUrl)) return;
+    if (!v || isHlsMediaUrl(videoUrl) || prefersReducedMotion) return;
     const t = window.setTimeout(() => {
       void v.play().catch(() => revealPlayer());
     }, 120);
@@ -159,7 +161,7 @@ export function ChatVideoLightbox({
       window.clearTimeout(t);
       v.pause();
     };
-  }, [posterUrl, refreshMedia, resetPhase, revealPlayer, videoSourceRef, videoUrl]);
+  }, [posterUrl, prefersReducedMotion, refreshMedia, resetPhase, revealPlayer, videoSourceRef, videoUrl]);
 
   const handlePlaybackAttachError = useCallback(() => {
     void refreshMedia().then((didRefresh) => {
@@ -169,7 +171,7 @@ export function ChatVideoLightbox({
 
   useMediaAssetPlayback(videoRef, playableVideoUrl, {
     enabled: isRemoteUrl && isHlsUrl,
-    autoPlay: true,
+    autoPlay: !prefersReducedMotion,
     onAutoplayBlocked: revealPlayer,
     onManifestParsed: revealPlayer,
     onError: handlePlaybackAttachError,
@@ -188,10 +190,10 @@ export function ChatVideoLightbox({
       role="dialog"
       aria-modal="true"
       aria-label="Video viewer"
-      initial={{ opacity: 0 }}
+      initial={prefersReducedMotion ? false : { opacity: 0 }}
       animate={{ opacity: 1 }}
-      exit={{ opacity: 0 }}
-      transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
+      exit={prefersReducedMotion ? undefined : { opacity: 0 }}
+      transition={{ duration: prefersReducedMotion ? 0 : 0.22, ease: [0.22, 1, 0.36, 1] }}
       className="fixed inset-0 z-[200] flex flex-col bg-[#030308]"
     >
       {/* Immersive vignette + subtle grid (Neon Noir) */}
@@ -230,15 +232,18 @@ export function ChatVideoLightbox({
         onClick={(e) => e.stopPropagation()}
       >
         <motion.div
-          initial={{ opacity: 0, scale: 0.97, y: 8 }}
+          initial={prefersReducedMotion ? false : { opacity: 0, scale: 0.97, y: 8 }}
           animate={{ opacity: 1, scale: 1, y: 0 }}
-          transition={{ duration: 0.28, ease: [0.22, 1, 0.36, 1] }}
+          transition={{ duration: prefersReducedMotion ? 0 : 0.28, ease: [0.22, 1, 0.36, 1] }}
           className="relative w-full max-w-4xl overflow-hidden rounded-2xl border border-white/[0.08] bg-black shadow-[0_0_0_1px_rgba(168,85,247,0.12),0_24px_80px_-12px_rgba(0,0,0,0.85),0_0_120px_-20px_rgba(168,85,247,0.15)] ring-1 ring-fuchsia-500/10"
         >
           {phase === "loading" ? (
             <div className="pointer-events-none absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 bg-black/55 backdrop-blur-[2px]">
               <div className="flex items-center gap-2.5 rounded-full border border-white/10 bg-black/50 px-4 py-2.5 shadow-inner">
-                <Loader2 className="h-5 w-5 animate-spin text-fuchsia-300/90" aria-hidden />
+                <Loader2
+                  className={`h-5 w-5 text-fuchsia-300/90 ${prefersReducedMotion ? "" : "animate-spin"}`}
+                  aria-hidden
+                />
                 <span className="text-[12px] font-medium tracking-tight text-white/88">Preparing playback…</span>
               </div>
             </div>

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Modal,
   View,
@@ -25,6 +25,7 @@ import {
   safeExpoSharedObjectCall,
   safeRemoveExpoSharedObjectSubscription,
 } from '@/lib/expoSharedObjectSafe';
+import { useReduceMotionState } from '@/hooks/useReduceMotion';
 
 export type ChatThreadPhotoItem = { id: string; uri: string; sourceRef?: string | null };
 
@@ -59,6 +60,7 @@ function ZoomablePhotoPage({
   const panStartTx = useSharedValue(0);
   const panStartTy = useSharedValue(0);
   const dismissY = useSharedValue(0);
+  const { reduceMotion } = useReduceMotionState();
 
   const pinch = Gesture.Pinch()
     .onBegin(() => {
@@ -71,10 +73,10 @@ function ZoomablePhotoPage({
     .onEnd(() => {
       savedScale.value = scale.value;
       if (scale.value < 1.02) {
-        scale.value = withSpring(1, SPRING);
+        scale.value = reduceMotion ? 1 : withSpring(1, SPRING);
         savedScale.value = 1;
-        tx.value = withSpring(0, SPRING);
-        ty.value = withSpring(0, SPRING);
+        tx.value = reduceMotion ? 0 : withSpring(0, SPRING);
+        ty.value = reduceMotion ? 0 : withSpring(0, SPRING);
       }
     });
 
@@ -98,7 +100,7 @@ function ZoomablePhotoPage({
       if (Math.abs(dismissY.value) > 88 || Math.abs(e.velocityY) > 800) {
         runOnJS(onSwipeDismiss)();
       }
-      dismissY.value = withSpring(0, SPRING);
+      dismissY.value = reduceMotion ? 0 : withSpring(0, SPRING);
     });
 
   const composed = Gesture.Simultaneous(pinch, pan);
@@ -268,10 +270,12 @@ export function ChatThreadPhotoViewerModal({
   onClose: () => void;
   onRefreshItem?: (item: ChatThreadPhotoItem) => Promise<string | null>;
 }) {
+  const { reduceMotion } = useReduceMotionState();
+
   if (!visible || items.length === 0) return null;
 
   return (
-    <Modal visible animationType="fade" presentationStyle="fullScreen" onRequestClose={onClose}>
+    <Modal visible animationType={reduceMotion ? 'none' : 'fade'} presentationStyle="fullScreen" onRequestClose={onClose}>
       <PhotoViewerBody items={items} initialId={initialId} onClose={onClose} onRefreshItem={onRefreshItem} />
     </Modal>
   );
@@ -418,15 +422,37 @@ function VideoViewerStage({
 }) {
   const insets = useSafeAreaInsets();
   const [phase, setPhase] = useState<'loading' | 'ready' | 'error'>('loading');
+  const [manualPlaybackRequested, setManualPlaybackRequested] = useState(false);
+  const { reduceMotion, resolved: reduceMotionResolved } = useReduceMotionState();
+  const shouldAttachPlayback = reduceMotionResolved && (!reduceMotion || manualPlaybackRequested);
+  const playerSource = useMemo<VideoSource>(() => (shouldAttachPlayback ? videoSourceForUri(uri) : null), [
+    shouldAttachPlayback,
+    uri,
+  ]);
   const revealPlayer = useCallback(() => {
     setPhase((current) => (current === 'error' ? current : 'ready'));
   }, []);
 
-  const player = useVideoPlayer(videoSourceForUri(uri), (p) => {
+  const player = useVideoPlayer(playerSource, (p) => {
     p.loop = false;
   });
 
   useEffect(() => {
+    setManualPlaybackRequested(false);
+    setPhase('loading');
+  }, [uri]);
+
+  useEffect(() => {
+    if (!shouldAttachPlayback) return;
+    const result = safeExpoSharedObjectCall(() => player.replace(videoSourceForUri(uri)), {
+      label: 'chat.viewerVideo.replace',
+      swallowAll: true,
+    });
+    attachSafeExpoSharedObjectPromise(result, undefined, 'chat.viewerVideo.replace');
+  }, [player, shouldAttachPlayback, uri]);
+
+  useEffect(() => {
+    if (!shouldAttachPlayback) return;
     const sub = safeExpoSharedObjectCall(
       () => player.addListener('statusChange', (payload) => {
         if (payload.status === 'error') {
@@ -451,9 +477,10 @@ function VideoViewerStage({
       },
     );
     return () => safeRemoveExpoSharedObjectSubscription(sub, 'chat.viewerVideo.statusListener.remove');
-  }, [onRefreshMedia, player, revealPlayer]);
+  }, [onRefreshMedia, player, revealPlayer, shouldAttachPlayback]);
 
   useEffect(() => {
+    if (!shouldAttachPlayback) return;
     const playResult = safeExpoSharedObjectCall(() => player.play(), {
       label: 'chat.viewerVideo.play',
       swallowAll: true,
@@ -466,7 +493,7 @@ function VideoViewerStage({
       });
       attachSafeExpoSharedObjectPromise(pauseResult, undefined, 'chat.viewerVideo.pause.unmount');
     };
-  }, [player]);
+  }, [player, shouldAttachPlayback]);
 
   useEffect(() => {
     if (phase !== 'loading') return;
@@ -503,13 +530,26 @@ function VideoViewerStage({
 
           <VideoView style={styles.videoView} player={player} nativeControls contentFit="contain" />
 
-          {phase === 'loading' ? (
+          {phase === 'loading' && shouldAttachPlayback ? (
             <View style={styles.videoLoadingOverlay} pointerEvents="none">
               <View style={styles.videoLoadingPill}>
                 <ActivityIndicator color="rgba(216,180,254,0.95)" size="small" />
                 <Text style={styles.videoLoadingText}>Preparing playback…</Text>
               </View>
             </View>
+          ) : null}
+
+          {reduceMotionResolved && reduceMotion && !manualPlaybackRequested ? (
+            <Pressable
+              style={styles.videoPlayOverlay}
+              onPress={() => setManualPlaybackRequested(true)}
+              accessibilityRole="button"
+              accessibilityLabel="Play video"
+            >
+              <View style={styles.videoPlayButton}>
+                <Text style={styles.videoPlayText}>Play</Text>
+              </View>
+            </Pressable>
           ) : null}
 
           {phase === 'error' ? (
@@ -551,10 +591,12 @@ export function ChatThreadVideoViewerModal({
   onRefreshMedia?: () => Promise<{ uri?: string | null; posterUri?: string | null } | null>;
   onClose: () => void;
 }) {
+  const { reduceMotion } = useReduceMotionState();
+
   if (!visible || !uri) return null;
 
   return (
-    <Modal visible animationType="fade" presentationStyle="fullScreen" onRequestClose={onClose}>
+    <Modal visible animationType={reduceMotion ? 'none' : 'fade'} presentationStyle="fullScreen" onRequestClose={onClose}>
       <VideoViewerBody key={uri} uri={uri} posterUri={posterUri} onRefreshMedia={onRefreshMedia} onClose={onClose} />
     </Modal>
   );
@@ -695,5 +737,28 @@ const styles = StyleSheet.create({
   videoView: {
     flex: 1,
     width: '100%',
+  },
+  videoPlayOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    zIndex: 9,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(0,0,0,0.18)',
+  },
+  videoPlayButton: {
+    minWidth: 68,
+    minHeight: 44,
+    borderRadius: 999,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(255,255,255,0.24)',
+    backgroundColor: 'rgba(0,0,0,0.62)',
+    paddingHorizontal: 18,
+  },
+  videoPlayText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '800',
   },
 });

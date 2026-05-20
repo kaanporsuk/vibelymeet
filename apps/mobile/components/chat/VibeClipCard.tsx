@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Image, Pressable, StyleSheet, Text, View } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons } from '@expo/vector-icons';
@@ -20,6 +20,7 @@ import { durationBucketFromSeconds, threadBucketFromCount } from '../../../../sh
 import { captionTextFromMediaCaptions } from '../../../../shared/media/captions';
 import { useMediaAsset } from '@/hooks/useMediaAsset';
 import { useNativeMediaPlaybackQoE } from '@/hooks/useNativeMediaPlaybackQoE';
+import { useReduceMotionState } from '@/hooks/useReduceMotion';
 import {
   syncChatVibeClipStatus,
   type ChatVibeClipProcessingStatus,
@@ -279,9 +280,16 @@ function VibeClipCardInner({
   const [hasPlayed, setHasPlayed] = useState(false);
   const [playRequested, setPlayRequested] = useState(() => playRequestToken > 0);
   const [showCaptions, setShowCaptions] = useState(true);
+  const { reduceMotion, resolved: reduceMotionResolved } = useReduceMotionState();
   const playStartTracked = useRef(false);
   const playCompleteTracked = useRef(false);
+  const shouldAttachPlayback = !immersiveActive && reduceMotionResolved && (!reduceMotion || playRequested);
+  const playerSource = useMemo<VideoSource>(() => (shouldAttachPlayback ? videoSourceForUri(meta.videoUrl) : null), [
+    meta.videoUrl,
+    shouldAttachPlayback,
+  ]);
   const qoe = useNativeMediaPlaybackQoE({
+    enabled: shouldAttachPlayback,
     family: 'vibe_clip',
     surface: 'chat_vibe_clip_card',
     provider: meta.provider ?? 'bunny_stream',
@@ -291,7 +299,7 @@ function VibeClipCardInner({
     autoplay: false,
   });
 
-  const player = useVideoPlayer(videoSourceForUri(meta.videoUrl), (p) => {
+  const player = useVideoPlayer(playerSource, (p) => {
     p.loop = false;
   });
 
@@ -329,6 +337,16 @@ function VibeClipCardInner({
   }, [playRequestToken]);
 
   useEffect(() => {
+    if (!shouldAttachPlayback) return;
+    const result = safeExpoSharedObjectCall(() => player.replace(videoSourceForUri(meta.videoUrl)), {
+      label: 'vibeClip.player.replace',
+      swallowAll: true,
+    });
+    attachSafeExpoSharedObjectPromise(result, undefined, 'vibeClip.player.replace');
+  }, [meta.videoUrl, player, shouldAttachPlayback]);
+
+  useEffect(() => {
+    if (!shouldAttachPlayback) return;
     const sub = safeExpoSharedObjectCall(
       () => player.addListener('statusChange', (payload) => {
         if (payload.status === 'error') {
@@ -357,7 +375,7 @@ function VibeClipCardInner({
       },
     );
     return () => safeRemoveExpoSharedObjectSubscription(sub, 'vibeClip.player.statusListener.remove');
-  }, [onRefreshClipMedia, player, qoe]);
+  }, [onRefreshClipMedia, player, qoe, shouldAttachPlayback]);
 
   const playInline = useCallback(() => {
     setPlayRequested(true);
@@ -370,13 +388,13 @@ function VibeClipCardInner({
   }, [isReady, player]);
 
   useEffect(() => {
-    if (!playRequested || !isReady) return;
+    if (!shouldAttachPlayback || !playRequested || !isReady) return;
     const result = safeExpoSharedObjectCall(() => player.play(), {
       label: 'vibeClip.player.playRequested',
       swallowAll: true,
     });
     attachSafeExpoSharedObjectPromise(result, undefined, 'vibeClip.player.playRequested');
-  }, [isReady, playRequested, player]);
+  }, [isReady, playRequested, player, shouldAttachPlayback]);
 
   useEffect(() => {
     if (!playRequested || isReady || hasError) return;
@@ -400,6 +418,7 @@ function VibeClipCardInner({
   }, [immersiveActive, player]);
 
   useEffect(() => {
+    if (!shouldAttachPlayback) return;
     const sub = safeExpoSharedObjectCall(
       () => player.addListener('playingChange', (ev) => {
         if (ev.isPlaying) setHasPlayed(true);
@@ -411,7 +430,7 @@ function VibeClipCardInner({
       },
     );
     return () => safeRemoveExpoSharedObjectSubscription(sub, 'vibeClip.player.playingListener.remove');
-  }, [player]);
+  }, [player, shouldAttachPlayback]);
 
   useEffect(() => {
     playStartTracked.current = false;
@@ -419,6 +438,7 @@ function VibeClipCardInner({
   }, [meta.videoUrl]);
 
   useEffect(() => {
+    if (!shouldAttachPlayback) return;
     const sub1 = safeExpoSharedObjectCall(
       () => player.addListener('playingChange', (ev) => {
         if (!ev.isPlaying || playStartTracked.current) return;
@@ -458,7 +478,7 @@ function VibeClipCardInner({
       safeRemoveExpoSharedObjectSubscription(sub1, 'vibeClip.player.analyticsPlayingListener.remove');
       safeRemoveExpoSharedObjectSubscription(sub2, 'vibeClip.player.playToEndListener.remove');
     };
-  }, [player, isMine, threadMessageCount, meta.videoUrl, meta.durationSec, meta.thumbnailUrl, qoe]);
+  }, [player, isMine, threadMessageCount, meta.videoUrl, meta.durationSec, meta.thumbnailUrl, qoe, shouldAttachPlayback]);
 
   useEffect(
     () => () => {

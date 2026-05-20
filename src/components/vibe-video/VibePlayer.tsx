@@ -1,6 +1,6 @@
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Volume2, VolumeX, Pencil, Play, Loader2 } from "lucide-react";
+import { Captions, Volume2, VolumeX, Pencil, Play, Loader2 } from "lucide-react";
 import * as Sentry from "@sentry/react";
 import { cn } from "@/lib/utils";
 import { useMediaAsset, useMediaAssetPlayback } from "@/hooks/useMediaAsset";
@@ -9,6 +9,12 @@ import { usePrefersReducedMotion } from "@/hooks/usePrefersReducedMotion";
 import { useMediaVideoPreloadForVisibility } from "@/hooks/useMediaVideoPreloadPolicy";
 import { isProfileVibeVideoRef } from "@/lib/mediaAssetResolver";
 import { trackVibeVideoEvent, VIBE_VIDEO_EVENTS } from "@/lib/vibeVideo/vibeVideoTelemetry";
+import {
+  captionTextFromMediaCaptions,
+  mediaCaptionLanguage,
+  mediaCaptionsToWebVtt,
+  type MediaCaptions,
+} from "../../../shared/media/captions";
 
 // IntersectionObserver-based iOS hardware decoder management
 
@@ -16,6 +22,7 @@ interface VibePlayerProps {
   videoUrl: string;
   thumbnailUrl?: string;
   vibeCaption?: string;
+  captions?: MediaCaptions | null;
   autoPlay?: boolean;
   showControls?: boolean;
   isOwner?: boolean;
@@ -30,6 +37,7 @@ export const VibePlayer = ({
   videoUrl,
   thumbnailUrl,
   vibeCaption,
+  captions = null,
   autoPlay = true,
   showControls = true,
   isOwner = false,
@@ -44,7 +52,11 @@ export const VibePlayer = ({
   const [hasError, setHasError] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [shouldLoad, setShouldLoad] = useState(true);
+  const [manualPlaybackRequested, setManualPlaybackRequested] = useState(false);
+  const [showCaptions, setShowCaptions] = useState(true);
+  const [captionTrackUrl, setCaptionTrackUrl] = useState<string | null>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
+  const manualPlayPendingRef = useRef(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const playbackAttemptedRef = useRef(false);
   const playbackSucceededRef = useRef(false);
@@ -63,7 +75,29 @@ export const VibePlayer = ({
   const playbackUrl = mediaAssetUrl ?? (usesSignedProfileRef ? null : videoUrl);
   const posterUrl = mediaAssetPosterUrl ?? thumbnailUrl;
   const effectiveAutoPlay = autoPlay && !prefersReducedMotion;
-  const videoPreload = useMediaVideoPreloadForVisibility(shouldLoad, playbackUrl);
+  const shouldAttachPlayback = shouldLoad && !!playbackUrl && (!prefersReducedMotion || manualPlaybackRequested);
+  const videoPreload = useMediaVideoPreloadForVisibility(shouldLoad, playbackUrl, undefined, prefersReducedMotion);
+  const captionText = useMemo(() => captionTextFromMediaCaptions(captions), [captions]);
+  const captionLanguage = useMemo(() => mediaCaptionLanguage(captions) ?? "und", [captions]);
+
+  useEffect(() => {
+    const vtt = mediaCaptionsToWebVtt(captions, 15_000);
+    if (!vtt) {
+      setCaptionTrackUrl(null);
+      return;
+    }
+    const blobUrl = URL.createObjectURL(new Blob([vtt], { type: "text/vtt" }));
+    setCaptionTrackUrl(blobUrl);
+    return () => URL.revokeObjectURL(blobUrl);
+  }, [captions]);
+
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video) return;
+    for (const track of Array.from(video.textTracks)) {
+      track.mode = showCaptions ? "showing" : "disabled";
+    }
+  }, [captionTrackUrl, showCaptions]);
 
   // Reset state when videoUrl changes
   useEffect(() => {
@@ -71,6 +105,8 @@ export const VibePlayer = ({
     setHasError(false);
     setIsLoading(true);
     setIsPlaying(false);
+    setManualPlaybackRequested(false);
+    manualPlayPendingRef.current = false;
     playbackAttemptedRef.current = false;
     playbackSucceededRef.current = false;
   }, [videoUrl]);
@@ -125,6 +161,12 @@ export const VibePlayer = ({
   }, [effectiveAutoPlay, isLoaded, shouldLoad, attemptPlay]);
 
   useEffect(() => {
+    if (!manualPlayPendingRef.current || !isLoaded || hasError) return;
+    manualPlayPendingRef.current = false;
+    attemptPlay();
+  }, [attemptPlay, hasError, isLoaded]);
+
+  useEffect(() => {
     if (videoRef.current) {
       videoRef.current.muted = isMuted;
     }
@@ -166,7 +208,7 @@ export const VibePlayer = ({
   }, [playbackUrl, shouldLoad]);
 
   useMediaPlaybackQoE(videoRef, {
-    enabled: shouldLoad && !!playbackUrl,
+    enabled: shouldAttachPlayback,
     family: usesSignedProfileRef ? "profile_vibe_video" : "vibe_video",
     surface: "vibe_player_inline",
     provider: usesSignedProfileRef ? "bunny_stream" : "remote",
@@ -175,7 +217,7 @@ export const VibePlayer = ({
     autoplay: effectiveAutoPlay,
   });
   useMediaAssetPlayback(videoRef, playbackUrl, {
-    enabled: shouldLoad && !!playbackUrl,
+    enabled: shouldAttachPlayback,
     autoPlay: false,
     onError: handlePlaybackAttachError,
   });
@@ -214,6 +256,12 @@ export const VibePlayer = ({
       videoRef.current.pause();
       setIsPlaying(false);
     } else {
+      if (prefersReducedMotion && !manualPlaybackRequested) {
+        manualPlayPendingRef.current = true;
+        setManualPlaybackRequested(true);
+        setIsLoading(true);
+        return;
+      }
       if (!playbackAttemptedRef.current) {
         playbackAttemptedRef.current = true;
         trackVibeVideoEvent(VIBE_VIDEO_EVENTS.playbackAttempted, {
@@ -245,9 +293,9 @@ export const VibePlayer = ({
   return (
     <div ref={containerRef} className={cn("relative overflow-hidden bg-secondary", className)}>
       {/* Loading state */}
-      {isLoading && !hasError && (
+      {isLoading && !hasError && (!prefersReducedMotion || manualPlaybackRequested) && (
         <div className="absolute inset-0 flex items-center justify-center bg-secondary z-10">
-          <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
+          <Loader2 className={cn("w-8 h-8 text-muted-foreground", !prefersReducedMotion && "animate-spin")} />
         </div>
       )}
 
@@ -268,17 +316,17 @@ export const VibePlayer = ({
 
       {/* Play button overlay when paused */}
       <AnimatePresence>
-        {!isPlaying && isLoaded && !hasError && (
+        {!isPlaying && !hasError && (isLoaded || (prefersReducedMotion && !manualPlaybackRequested)) && (
           <motion.div
-            initial={{ opacity: 0 }}
+            initial={prefersReducedMotion ? false : { opacity: 0 }}
             animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
+            exit={prefersReducedMotion ? undefined : { opacity: 0 }}
             className="absolute inset-0 flex items-center justify-center z-10 bg-background/30"
             onClick={handleVideoClick}
           >
             <motion.div
-              whileHover={{ scale: 1.1 }}
-              whileTap={{ scale: 0.9 }}
+              whileHover={prefersReducedMotion ? undefined : { scale: 1.1 }}
+              whileTap={prefersReducedMotion ? undefined : { scale: 0.9 }}
               className="w-16 h-16 rounded-full bg-background/80 backdrop-blur-sm flex items-center justify-center cursor-pointer"
             >
               <Play className="w-8 h-8 text-foreground ml-1" />
@@ -300,14 +348,24 @@ export const VibePlayer = ({
         onError={handleError}
         onClick={handleVideoClick}
         poster={posterUrl}
-      />
+      >
+        {captionTrackUrl ? (
+          <track kind="subtitles" src={captionTrackUrl} srcLang={captionLanguage} label="Captions" default={showCaptions} />
+        ) : null}
+      </video>
+
+      {captionText && showCaptions && !hasError ? (
+        <div className="pointer-events-none absolute inset-x-6 bottom-24 z-20 rounded-md bg-black/65 px-3 py-2 text-center text-xs font-medium leading-snug text-white shadow-lg">
+          {captionText}
+        </div>
+      ) : null}
 
       {/* Vibe Caption Overlay */}
       {vibeCaption && (
         <motion.div
-          initial={{ opacity: 0, y: 20 }}
+          initial={prefersReducedMotion ? false : { opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.3 }}
+          transition={{ delay: prefersReducedMotion ? 0 : 0.3, duration: prefersReducedMotion ? 0 : undefined }}
           className={cn(
             "absolute bottom-0 left-0 right-0 z-10 px-6 pb-6",
             overlayClassName
@@ -347,29 +405,55 @@ export const VibePlayer = ({
 
       {/* Mute/Unmute Control */}
       {showControls && isLoaded && !hasError && (
-        <motion.button
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          whileHover={{ scale: 1.1 }}
-          whileTap={{ scale: 0.9 }}
-          onClick={handleToggleMute}
-          className="absolute top-4 right-4 z-20 w-10 h-10 rounded-full bg-background/50 backdrop-blur-md flex items-center justify-center hover:bg-background/70 transition-colors"
-        >
-          {isMuted ? (
-            <VolumeX className="w-5 h-5 text-foreground" />
-          ) : (
-            <Volume2 className="w-5 h-5 text-foreground" />
-          )}
-        </motion.button>
+        <div className="absolute top-4 right-4 z-20 flex items-center gap-2">
+          {captionText ? (
+            <motion.button
+              initial={prefersReducedMotion ? false : { opacity: 0 }}
+              animate={{ opacity: 1 }}
+              whileHover={prefersReducedMotion ? undefined : { scale: 1.1 }}
+              whileTap={prefersReducedMotion ? undefined : { scale: 0.9 }}
+              onClick={(event) => {
+                event.stopPropagation();
+                setShowCaptions((visible) => {
+                  const next = !visible;
+                  trackVibeVideoEvent(VIBE_VIDEO_EVENTS.captionToggleChanged, {
+                    surface: "vibe_player_inline",
+                    enabled: next,
+                  });
+                  return next;
+                });
+              }}
+              className="w-10 h-10 rounded-full bg-background/50 backdrop-blur-md flex items-center justify-center hover:bg-background/70 transition-colors"
+              aria-label={showCaptions ? "Hide captions" : "Show captions"}
+            >
+              <Captions className="w-5 h-5 text-foreground" />
+            </motion.button>
+          ) : null}
+          <motion.button
+            initial={prefersReducedMotion ? false : { opacity: 0 }}
+            animate={{ opacity: 1 }}
+            whileHover={prefersReducedMotion ? undefined : { scale: 1.1 }}
+            whileTap={prefersReducedMotion ? undefined : { scale: 0.9 }}
+            onClick={handleToggleMute}
+            className="w-10 h-10 rounded-full bg-background/50 backdrop-blur-md flex items-center justify-center hover:bg-background/70 transition-colors"
+            aria-label={isMuted ? "Unmute video" : "Mute video"}
+          >
+            {isMuted ? (
+              <VolumeX className="w-5 h-5 text-foreground" />
+            ) : (
+              <Volume2 className="w-5 h-5 text-foreground" />
+            )}
+          </motion.button>
+        </div>
       )}
 
       {/* Owner Update Button */}
       {isOwner && onUpdateClick && (
         <motion.button
-          initial={{ opacity: 0, scale: 0.8 }}
+          initial={prefersReducedMotion ? false : { opacity: 0, scale: 0.8 }}
           animate={{ opacity: 1, scale: 1 }}
-          whileHover={{ scale: 1.1 }}
-          whileTap={{ scale: 0.9 }}
+          whileHover={prefersReducedMotion ? undefined : { scale: 1.1 }}
+          whileTap={prefersReducedMotion ? undefined : { scale: 0.9 }}
           onClick={onUpdateClick}
           className="absolute bottom-4 right-4 z-20 flex items-center gap-2 px-4 py-2 rounded-full bg-primary text-primary-foreground font-medium text-sm shadow-lg"
         >

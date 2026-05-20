@@ -12,6 +12,7 @@ import {
   Platform,
   ActivityIndicator,
   Image,
+  Modal,
   Vibration,
   useWindowDimensions,
   AppState,
@@ -30,7 +31,12 @@ import { useFocusEffect } from '@react-navigation/native';
 import * as Haptics from 'expo-haptics';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { useCameraPermissions } from 'expo-camera';
+import {
+  CameraView,
+  useCameraPermissions,
+  useMicrophonePermissions,
+  type CameraType,
+} from 'expo-camera';
 import * as ImagePicker from 'expo-image-picker';
 import * as FileSystem from 'expo-file-system/legacy';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -68,6 +74,7 @@ import { useBlockUser } from '@/lib/useBlockUser';
 import { useArchiveMatch } from '@/lib/useArchiveMatch';
 import { useMuteMatch, type MuteDuration } from '@/lib/useMuteMatch';
 import { MatchActionsSheet } from '@/components/match/MatchActionsSheet';
+import { MediaHealthPanel } from '@/components/media/MediaHealthPanel';
 import { ReportFlowModal } from '@/components/match/ReportFlowModal';
 import { UnmatchSnackbar } from '@/components/match/UnmatchSnackbar';
 import { TypingIndicator } from '@/components/chat/TypingIndicator';
@@ -92,6 +99,7 @@ import { useMatchDateSuggestions, type DateSuggestionWithRelations } from '@/lib
 import { useQueryClient, type InfiniteData } from '@tanstack/react-query';
 import { useMatchCall } from '@/lib/useMatchCall';
 import { useConnectivity } from '@/lib/useConnectivity';
+import { useReduceMotion } from '@/hooks/useReduceMotion';
 import { chatFriendlyErrorFromUnknown, isLikelyNetworkFailure } from '@/lib/networkErrorMessage';
 import { avatarUrl } from '@/lib/imageUrl';
 import { getChatPartnerActivityLine } from '@/lib/chatActivityStatus';
@@ -157,6 +165,8 @@ import {
 import { durationBucketFromSeconds, threadBucketFromCount } from '../../../../shared/chat/vibeClipAnalytics';
 import { outboxPhaseStatusLabel, type OutboxPayloadKind } from '../../../../shared/chat/outgoingStatusLabels';
 import { nativeMediaTranscodeHooks } from '@clientShared/media-sdk';
+import { useNativeCaptionCapture } from '@/hooks/useNativeCaptionCapture';
+import type { MediaCaptions } from '../../../../shared/media/captions';
 
 const CHAT_VOICE_RECORDING_OPTIONS = nativeMediaTranscodeHooks.voiceRecordingOptions() as Parameters<typeof useAudioRecorder>[0];
 
@@ -276,7 +286,7 @@ function getAdaptiveChatMediaWidth(windowWidth: number): number {
 type LocalMediaSendPayload =
   | { kind: 'image'; uri: string; mimeType: string }
   | { kind: 'voice'; uri: string; durationSeconds: number }
-  | { kind: 'video'; uri: string; durationSeconds: number; mimeType?: string; aspectRatio?: number };
+  | { kind: 'video'; uri: string; durationSeconds: number; mimeType?: string; aspectRatio?: number; captions?: MediaCaptions | null };
 
 type LocalMediaSendState = 'sending' | 'failed' | 'sent';
 
@@ -551,6 +561,7 @@ function outboxItemToThreadMessage(item: ChatOutboxItem): ThreadMessage {
         kind: 'vibe_clip',
         client_request_id: item.id,
         duration_ms: Math.round(p.durationSeconds * 1000),
+        captions: p.captions ?? null,
         thumbnail_url: null,
         poster_ref: null,
         poster_source: 'bunny_stream_thumbnail',
@@ -843,6 +854,274 @@ function ChatVideoCardBody({
   );
 }
 
+type NativeCapturedVibeClip = {
+  uri: string;
+  durationSeconds: number;
+  mimeType?: string;
+  aspectRatio?: number;
+  captions?: MediaCaptions | null;
+};
+
+function captionsFromNativeReviewText(text: string, language: string): MediaCaptions | null {
+  const trimmed = text.replace(/\s+/g, ' ').trim();
+  if (!trimmed) return null;
+  return {
+    text: trimmed,
+    language: language || 'und',
+    cues: [
+      {
+        startMs: 0,
+        endMs: Math.max(1000, Math.min(VIBE_CLIP_MAX_DURATION_SEC * 1000, trimmed.length * 45)),
+        text: trimmed,
+      },
+    ],
+  };
+}
+
+function NativeVibeClipPreviewPlayer({ uri }: { uri: string }) {
+  const reduceMotion = useReduceMotion();
+  const player = useVideoPlayer(uri, (p) => {
+    p.loop = true;
+  });
+
+  useEffect(() => {
+    if (reduceMotion) return;
+    const result = safeExpoSharedObjectCall(() => player.play(), {
+      label: 'chat.nativeVibeClipPreview.play',
+      swallowAll: true,
+    });
+    attachSafeExpoSharedObjectPromise(result, undefined, 'chat.nativeVibeClipPreview.play');
+    return () => {
+      const pause = safeExpoSharedObjectCall(() => player.pause(), {
+        label: 'chat.nativeVibeClipPreview.pause',
+        swallowAll: true,
+      });
+      attachSafeExpoSharedObjectPromise(pause, undefined, 'chat.nativeVibeClipPreview.pause');
+    };
+  }, [player, reduceMotion]);
+
+  return <VideoView player={player} style={StyleSheet.absoluteFill} contentFit="cover" nativeControls />;
+}
+
+function NativeVibeClipCameraModal({
+  visible,
+  theme,
+  threadCount,
+  disabled,
+  onClose,
+  onRecorded,
+}: {
+  visible: boolean;
+  theme: (typeof Colors)['light'];
+  threadCount: number;
+  disabled?: boolean;
+  onClose: () => void;
+  onRecorded: (clip: NativeCapturedVibeClip) => Promise<void> | void;
+}) {
+  const reduceMotion = useReduceMotion();
+  const [camPermission, requestCamPermission] = useCameraPermissions();
+  const [micPermission, requestMicPermission] = useMicrophonePermissions();
+  const cameraRef = useRef<CameraView | null>(null);
+  const startedAtRef = useRef<number | null>(null);
+  const [stage, setStage] = useState<'idle' | 'recording' | 'preview'>('idle');
+  const [facing, setFacing] = useState<CameraType>('front');
+  const [recorded, setRecorded] = useState<{ uri: string; durationSeconds: number } | null>(null);
+  const [captionReviewText, setCaptionReviewText] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const {
+    start: startCaptionCapture,
+    stop: stopCaptionCapture,
+    abort: abortCaptionCapture,
+    reset: resetCaptionCapture,
+    language: captionLanguage,
+    unavailableReason: captionUnavailableReason,
+  } = useNativeCaptionCapture('native_chat_vibe_clip_recorder');
+  const hasPermission = camPermission?.granted && micPermission?.granted;
+
+  const reset = useCallback(() => {
+    startedAtRef.current = null;
+    setStage('idle');
+    setRecorded(null);
+    setCaptionReviewText('');
+    setSubmitting(false);
+    resetCaptionCapture();
+  }, [resetCaptionCapture]);
+
+  useEffect(() => {
+    if (!visible) {
+      abortCaptionCapture();
+      reset();
+    }
+  }, [abortCaptionCapture, reset, visible]);
+
+  const requestPermissions = useCallback(async () => {
+    await requestCamPermission();
+    await requestMicPermission();
+  }, [requestCamPermission, requestMicPermission]);
+
+  const startRecording = useCallback(async () => {
+    if (!hasPermission || !cameraRef.current || stage !== 'idle' || disabled) return;
+    startedAtRef.current = Date.now();
+    setCaptionReviewText('');
+    setStage('recording');
+    trackVibeClipEvent('clip_record_started', {
+      capture_source: 'camera',
+      thread_bucket: threadBucketFromCount(threadCount),
+      is_sender: true,
+    });
+    void startCaptionCapture().catch(() => undefined);
+    try {
+      const result = await cameraRef.current.recordAsync({ maxDuration: VIBE_CLIP_MAX_DURATION_SEC });
+      const elapsedMs = Math.max(500, Date.now() - (startedAtRef.current ?? Date.now()));
+      const captionSnapshot = stopCaptionCapture();
+      setCaptionReviewText(captionSnapshot.text);
+      if (result?.uri) {
+        const durationSeconds = Math.max(1, Math.min(VIBE_CLIP_MAX_DURATION_SEC, Math.round(elapsedMs / 1000)));
+        setRecorded({ uri: result.uri, durationSeconds });
+        setStage('preview');
+        trackVibeClipEvent('clip_record_completed', {
+          capture_source: 'camera',
+          duration_bucket: durationBucketFromSeconds(durationSeconds),
+          thread_bucket: threadBucketFromCount(threadCount),
+          is_sender: true,
+        });
+      } else {
+        setStage('idle');
+      }
+    } catch {
+      abortCaptionCapture();
+      setStage('idle');
+    } finally {
+      startedAtRef.current = null;
+    }
+  }, [abortCaptionCapture, disabled, hasPermission, stage, startCaptionCapture, stopCaptionCapture, threadCount]);
+
+  const stopRecording = useCallback(() => {
+    try {
+      cameraRef.current?.stopRecording();
+    } catch {
+      abortCaptionCapture();
+      setStage('idle');
+    }
+  }, [abortCaptionCapture]);
+
+  const submit = useCallback(async () => {
+    if (!recorded || submitting) return;
+    setSubmitting(true);
+    await onRecorded({
+      uri: recorded.uri,
+      durationSeconds: recorded.durationSeconds,
+      mimeType: 'video/mp4',
+      captions: captionsFromNativeReviewText(captionReviewText, captionLanguage),
+    });
+    reset();
+    onClose();
+  }, [captionLanguage, captionReviewText, onClose, onRecorded, recorded, reset, submitting]);
+
+  return (
+    <Modal visible={visible} animationType={reduceMotion ? 'none' : 'slide'} presentationStyle="fullScreen" onRequestClose={onClose}>
+      <View style={styles.nativeClipCameraRoot}>
+        {stage === 'preview' && recorded ? (
+          <View style={styles.nativeClipCameraRoot}>
+            <NativeVibeClipPreviewPlayer uri={recorded.uri} />
+            <View style={styles.nativeClipPreviewScrim} pointerEvents="none" />
+            <View style={styles.nativeClipPreviewPanel}>
+              <Text style={styles.nativeClipPreviewTitle}>Captions</Text>
+              <TextInput
+                value={captionReviewText}
+                onChangeText={setCaptionReviewText}
+                placeholder={
+                  captionUnavailableReason
+                    ? 'Captions unavailable on this device.'
+                    : 'Edit generated captions before sending.'
+                }
+                placeholderTextColor="rgba(255,255,255,0.46)"
+                multiline
+                style={styles.nativeClipCaptionInput}
+              />
+              <View style={styles.nativeClipPreviewActions}>
+                <Pressable
+                  style={styles.nativeClipSecondaryButton}
+                  onPress={reset}
+                  disabled={submitting}
+                  accessibilityRole="button"
+                >
+                  <Text style={styles.nativeClipSecondaryText}>Retake</Text>
+                </Pressable>
+                <Pressable
+                  style={[styles.nativeClipPrimaryButton, submitting && { opacity: 0.6 }]}
+                  onPress={() => void submit()}
+                  disabled={submitting}
+                  accessibilityRole="button"
+                >
+                  {submitting ? (
+                    <ActivityIndicator color="#fff" />
+                  ) : (
+                    <Text style={styles.nativeClipPrimaryText}>Send clip</Text>
+                  )}
+                </Pressable>
+              </View>
+            </View>
+          </View>
+        ) : hasPermission ? (
+          <>
+            <CameraView
+              ref={cameraRef}
+              style={StyleSheet.absoluteFill}
+              mode="video"
+              facing={facing}
+              mirror={facing === 'front'}
+            />
+            <View style={styles.nativeClipCameraTop}>
+              <Pressable style={styles.nativeClipRoundButton} onPress={onClose} accessibilityLabel="Close camera">
+                <Ionicons name="close" size={26} color="#fff" />
+              </Pressable>
+              <Pressable
+                style={styles.nativeClipRoundButton}
+                onPress={() => setFacing((current) => (current === 'front' ? 'back' : 'front'))}
+                accessibilityLabel="Flip camera"
+              >
+                <Ionicons name="camera-reverse-outline" size={24} color="#fff" />
+              </Pressable>
+            </View>
+            <View style={styles.nativeClipCameraBottom}>
+              {stage === 'recording' ? (
+                <Pressable style={styles.nativeClipStopButton} onPress={stopRecording} accessibilityLabel="Stop recording">
+                  <View style={styles.nativeClipStopIcon} />
+                </Pressable>
+              ) : (
+                <Pressable
+                  style={styles.nativeClipRecordButton}
+                  onPress={() => void startRecording()}
+                  disabled={disabled}
+                  accessibilityLabel="Record Vibe Clip"
+                >
+                  <View style={styles.nativeClipRecordInner} />
+                </Pressable>
+              )}
+              <Text style={styles.nativeClipHint}>
+                {stage === 'recording' ? 'Recording with captions' : `Tap to record (${VIBE_CLIP_MAX_DURATION_SEC}s)`}
+              </Text>
+            </View>
+          </>
+        ) : (
+          <View style={[styles.nativeClipPermission, { backgroundColor: theme.background }]}>
+            <Text style={[styles.nativeClipPermissionText, { color: theme.text }]}>
+              Camera and microphone access are needed for captioned clips.
+            </Text>
+            <Pressable style={[styles.nativeClipPrimaryButton, { minWidth: 180 }]} onPress={() => void requestPermissions()}>
+              <Text style={styles.nativeClipPrimaryText}>Allow</Text>
+            </Pressable>
+            <Pressable style={styles.nativeClipSecondaryButton} onPress={onClose}>
+              <Text style={styles.nativeClipSecondaryText}>Close</Text>
+            </Pressable>
+          </View>
+        )}
+      </View>
+    </Modal>
+  );
+}
+
 function normalizeRouteUserId(raw: string | string[] | undefined): string | undefined {
   if (typeof raw === 'string' && raw.trim()) return raw.trim();
   if (Array.isArray(raw) && typeof raw[0] === 'string' && raw[0].trim()) return raw[0].trim();
@@ -856,6 +1135,7 @@ export default function ChatThreadScreen() {
   const insets = useSafeAreaInsets();
   const colorScheme = useColorScheme();
   const theme = Colors[colorScheme];
+  const reduceMotion = useReduceMotion();
   const [, requestPhotoCameraPermission] = useCameraPermissions();
   const mediaCardWidth = useMemo(
     () => getAdaptiveChatMediaWidth(windowWidth),
@@ -879,6 +1159,8 @@ export default function ChatThreadScreen() {
     runVibeClipRecoverySweep,
     staleVibeClipUploadsForMatch,
     reconcileWithServerIds,
+    sessionUploadSummary,
+    retryAllFailed,
   } = useChatOutbox();
   useRealtimeMessages({
     matchId: data?.matchId ?? null,
@@ -906,6 +1188,8 @@ export default function ChatThreadScreen() {
   const [showPhotoOptionsSheet, setShowPhotoOptionsSheet] = useState(false);
   const [showPhotoCameraModal, setShowPhotoCameraModal] = useState(false);
   const [showVibeClipSendSheet, setShowVibeClipSendSheet] = useState(false);
+  const [showNativeVibeClipCamera, setShowNativeVibeClipCamera] = useState(false);
+  const [showMediaHealth, setShowMediaHealth] = useState(false);
   const [showCharadesStart, setShowCharadesStart] = useState(false);
   const [showIntuitionStart, setShowIntuitionStart] = useState(false);
   const [showRouletteStart, setShowRouletteStart] = useState(false);
@@ -2265,47 +2549,18 @@ export default function ChatThreadScreen() {
     }
   };
 
-  /** Primary video-message flow: record with the device camera (not library-only). */
-  const recordVideoWithCamera = async () => {
+  const handleNativeVibeClipRecorded = useCallback(async (clip: NativeCapturedVibeClip) => {
     if (!data?.matchId || !user?.id || composerInputLocked) return;
     setVideoError(null);
     try {
-      const { status } = await ImagePicker.requestCameraPermissionsAsync();
-      if (status !== 'granted') {
-        showAppDialog({
-          title: VIBE_CLIP_PERM_CAMERA_TITLE,
-          message: VIBE_CLIP_PERM_CAMERA_MESSAGE,
-          variant: 'info',
-          primaryAction: { label: 'OK', onPress: () => {} },
-        });
-        return;
-      }
-      trackVibeClipEvent('clip_record_started', {
-        capture_source: 'camera',
-        thread_bucket: threadBucketFromCount(displayMessages.length),
-        is_sender: true,
-      });
-      const result = await ImagePicker.launchCameraAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Videos,
-        cameraType: ImagePicker.CameraType.front,
-        videoMaxDuration: VIBE_CLIP_MAX_DURATION_SEC,
-      });
-      if (result.canceled || !result.assets?.[0]) return;
-      const asset = result.assets[0];
-      if (!isPickedVideoAsset(asset)) throw new Error(VIBE_CLIP_UPLOAD_INVALID_TYPE);
-      const durationSec = imagePickerDurationSeconds(asset);
+      const durationSec = clip.durationSeconds;
       if (durationSec != null && durationSec > VIBE_CLIP_MAX_DURATION_SEC + 0.25) {
         throw new Error(VIBE_CLIP_UPLOAD_TOO_LONG());
       }
-      trackVibeClipEvent('clip_record_completed', {
-        capture_source: 'camera',
-        duration_bucket: durationBucketFromSeconds(durationSec),
-        thread_bucket: threadBucketFromCount(displayMessages.length),
-        is_sender: true,
-      });
-      const videoMimeType = mimeForPayload('video', asset.mimeType ?? null, asset.fileName ?? asset.uri);
-      const stable = await copyUriToChatOutboxCache(asset.uri, extForPayload('video', videoMimeType, asset.fileName ?? asset.uri));
-      const sizeBytes = await fileSizeBytesForVideoAsset(asset, stable);
+      const videoMimeType = mimeForPayload('video', clip.mimeType ?? null, clip.uri);
+      const stable = await copyUriToChatOutboxCache(clip.uri, extForPayload('video', videoMimeType, clip.uri));
+      const info = await FileSystem.getInfoAsync(stable);
+      const sizeBytes = info.exists && !info.isDirectory && typeof info.size === 'number' ? info.size : null;
       if (sizeBytes === 0) {
         await cleanupOutboxCacheUri(stable);
         throw new Error(VIBE_CLIP_UPLOAD_EMPTY_FILE);
@@ -2330,7 +2585,8 @@ export default function ChatThreadScreen() {
           uri: stable,
           durationSeconds: durationSec != null ? Math.max(1, Math.round(durationSec)) : 1,
           mimeType: videoMimeType,
-          aspectRatio: aspectRatioForVideoAsset(asset),
+          aspectRatio: clip.aspectRatio,
+          captions: clip.captions ?? null,
         },
       });
       trackVibeClipEvent('clip_send_attempted', {
@@ -2354,6 +2610,22 @@ export default function ChatThreadScreen() {
         setVideoError(null);
       }
     }
+  }, [
+    composerInputLocked,
+    data?.matchId,
+    displayMessages.length,
+    isOffline,
+    otherUserId,
+    showAppDialog,
+    user?.id,
+    enqueue,
+  ]);
+
+  /** Primary video-message flow: in-app camera recorder so caption capture runs during recording. */
+  const recordVideoWithCamera = async () => {
+    if (!data?.matchId || !user?.id || composerInputLocked) return;
+    setVideoError(null);
+    setShowNativeVibeClipCamera(true);
   };
 
   const openVideoMessageOptions = () => {
@@ -3290,6 +3562,10 @@ export default function ChatThreadScreen() {
               setShowActions(false);
               openOtherProfile();
             }}
+            onOpenMediaHealth={() => {
+              setShowActions(false);
+              setShowMediaHealth(true);
+            }}
             isArchived={!!matchForActions.archived_at}
             isMuted={isMatchMuted(matchForActions.matchId)}
             onUnarchive={async () => {
@@ -3427,6 +3703,23 @@ export default function ChatThreadScreen() {
               setPendingUnmatchName('');
             }}
           />
+          <Modal visible={showMediaHealth} transparent animationType={reduceMotion ? 'none' : 'fade'} onRequestClose={() => setShowMediaHealth(false)}>
+            <Pressable style={styles.mediaHealthBackdrop} onPress={() => setShowMediaHealth(false)}>
+              <Pressable
+                style={[styles.mediaHealthSheet, { backgroundColor: theme.background, borderColor: theme.border }]}
+                onPress={(event) => event.stopPropagation()}
+              >
+                <View style={[styles.mediaHealthHandle, { backgroundColor: theme.muted }]} />
+                <MediaHealthPanel
+                  uploadSummary={sessionUploadSummary}
+                  onRetryFailed={() => {
+                    retryAllFailed();
+                    setShowMediaHealth(false);
+                  }}
+                />
+              </Pressable>
+            </Pressable>
+          </Modal>
         </>
       )}
 
@@ -4008,6 +4301,14 @@ export default function ChatThreadScreen() {
         onSendPhoto={uploadPhotoUriAndSend}
         disabled={sendingPhoto}
       />
+      <NativeVibeClipCameraModal
+        visible={showNativeVibeClipCamera}
+        theme={theme}
+        threadCount={displayMessages.length}
+        disabled={composerInputLocked}
+        onClose={() => setShowNativeVibeClipCamera(false)}
+        onRecorded={handleNativeVibeClipRecorded}
+      />
       {appDialog}
     </View>
   );
@@ -4035,6 +4336,25 @@ const styles = StyleSheet.create({
     minHeight: 44,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  mediaHealthBackdrop: {
+    flex: 1,
+    justifyContent: 'flex-end',
+    backgroundColor: 'rgba(0,0,0,0.72)',
+  },
+  mediaHealthSheet: {
+    maxHeight: '86%',
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    overflow: 'hidden',
+  },
+  mediaHealthHandle: {
+    width: 96,
+    height: 7,
+    borderRadius: 999,
+    alignSelf: 'center',
+    marginTop: 12,
   },
   headerCenter: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 10, minWidth: 0, minHeight: 44 },
   headerAvatar: { width: 44, height: 44, borderRadius: 22 },
@@ -4400,6 +4720,150 @@ const styles = StyleSheet.create({
     padding: 6,
     borderRadius: 10,
     backgroundColor: 'rgba(0,0,0,0.55)',
+  },
+  nativeClipCameraRoot: {
+    flex: 1,
+    backgroundColor: '#000',
+  },
+  nativeClipCameraTop: {
+    position: 'absolute',
+    top: 52,
+    left: 16,
+    right: 16,
+    zIndex: 10,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+  nativeClipRoundButton: {
+    width: 46,
+    height: 46,
+    borderRadius: 23,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(0,0,0,0.48)',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(255,255,255,0.18)',
+  },
+  nativeClipCameraBottom: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    zIndex: 10,
+    alignItems: 'center',
+    paddingBottom: 44,
+    paddingTop: 18,
+    backgroundColor: 'rgba(0,0,0,0.45)',
+    gap: 10,
+  },
+  nativeClipRecordButton: {
+    width: 78,
+    height: 78,
+    borderRadius: 39,
+    borderWidth: 4,
+    borderColor: '#f43f5e',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  nativeClipRecordInner: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: '#f43f5e',
+  },
+  nativeClipStopButton: {
+    width: 74,
+    height: 74,
+    borderRadius: 37,
+    backgroundColor: '#f43f5e',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  nativeClipStopIcon: {
+    width: 28,
+    height: 28,
+    borderRadius: 5,
+    backgroundColor: '#fff',
+  },
+  nativeClipHint: {
+    color: 'rgba(255,255,255,0.72)',
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  nativeClipPreviewScrim: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0,0,0,0.16)',
+  },
+  nativeClipPreviewPanel: {
+    position: 'absolute',
+    left: 16,
+    right: 16,
+    bottom: 28,
+    zIndex: 12,
+    borderRadius: 22,
+    padding: 14,
+    gap: 10,
+    backgroundColor: 'rgba(9,9,13,0.9)',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(255,255,255,0.16)',
+  },
+  nativeClipPreviewTitle: {
+    color: '#fff',
+    fontSize: 13,
+    fontWeight: '800',
+  },
+  nativeClipCaptionInput: {
+    minHeight: 76,
+    maxHeight: 132,
+    borderRadius: 14,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    backgroundColor: 'rgba(255,255,255,0.08)',
+    color: '#fff',
+    fontSize: 14,
+    textAlignVertical: 'top',
+  },
+  nativeClipPreviewActions: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  nativeClipPrimaryButton: {
+    flex: 1,
+    minHeight: 48,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#8B5CF6',
+  },
+  nativeClipPrimaryText: {
+    color: '#fff',
+    fontSize: 15,
+    fontWeight: '800',
+  },
+  nativeClipSecondaryButton: {
+    flex: 1,
+    minHeight: 48,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255,255,255,0.1)',
+  },
+  nativeClipSecondaryText: {
+    color: 'rgba(255,255,255,0.82)',
+    fontSize: 15,
+    fontWeight: '700',
+  },
+  nativeClipPermission: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 24,
+    gap: 14,
+  },
+  nativeClipPermissionText: {
+    fontSize: 16,
+    textAlign: 'center',
+    lineHeight: 22,
   },
   videoDurationBadge: {
     position: 'absolute',

@@ -2,6 +2,7 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient, type SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.88.0";
 import { crypto } from "https://deno.land/std@0.168.0/crypto/mod.ts";
 import { logVibeVideo } from "../_shared/vibe-video-logs.ts";
+import { normalizeMediaCaptions, type NormalizedMediaCaptions } from "../_shared/media-captions.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -25,6 +26,10 @@ function getProjectRef(url: string | undefined): string {
   }
 }
 
+function hasNonEmptyCaptionInput(value: unknown): boolean {
+  return value != null && !(typeof value === "string" && value.trim() === "");
+}
+
 type AdminSupabaseClient = SupabaseClient<any, "public", any>;
 
 type OrphanCleanupContext = Record<string, string | number | boolean | null>;
@@ -36,6 +41,7 @@ type CreateVideoUploadRequestBody = {
   aspect_ratio?: unknown;
   source_bytes?: unknown;
   mime_type?: unknown;
+  captions?: unknown;
 };
 
 type CleanupCreatedVideoArgs = {
@@ -464,6 +470,7 @@ serve(async (req) => {
     let aspectRatio: number | null = null;
     let sourceBytes: number | null = null;
     let mimeType: string | null = null;
+    let captions: NormalizedMediaCaptions | null = null;
     try {
       const parsedBody = await req.json();
       requestBody = parsedBody && typeof parsedBody === "object"
@@ -477,6 +484,10 @@ serve(async (req) => {
       mimeType = typeof body.mime_type === "string" && body.mime_type.trim()
         ? body.mime_type.trim().slice(0, 120)
         : null;
+      captions = normalizeMediaCaptions(body.captions);
+      if (hasNonEmptyCaptionInput(body.captions) && !captions) {
+        return json({ success: false, error: "Invalid captions", code: "invalid_captions" }, 400);
+      }
     } catch {
       // No body or non-JSON — default to profile_studio
     }
@@ -805,6 +816,7 @@ serve(async (req) => {
         aspect_ratio: aspectRatio,
         source_bytes: sourceBytes,
         mime_type: mimeType,
+        captions,
       })
       .select("id,status")
       .single();
@@ -1270,6 +1282,30 @@ serve(async (req) => {
       );
     }
     const mediaAssetId = typeof lr.asset_id === "string" ? lr.asset_id : null;
+
+    if (captions) {
+      const [profileCaptionsUpdate, primaryVideoCaptionsUpdate] = await Promise.all([
+        adminSupabase
+          .from("profiles")
+          .update({ vibe_video_captions: captions })
+          .eq("id", user.id),
+        mediaAssetId
+          ? adminSupabase
+            .from("profile_vibe_videos")
+            .update({ captions })
+            .eq("asset_id", mediaAssetId)
+          : Promise.resolve({ error: null }),
+      ]);
+      if (profileCaptionsUpdate.error || primaryVideoCaptionsUpdate.error) {
+        logVibeVideo("warn", "create_video_upload_captions_sync_failed", {
+          user_id: user.id,
+          video_guid: videoId,
+          media_asset_id: mediaAssetId,
+          profile_error_code: profileCaptionsUpdate.error?.code ?? null,
+          profile_video_error_code: primaryVideoCaptionsUpdate.error?.code ?? null,
+        });
+      }
+    }
 
     let sessionStatus = "created";
     cleanupFailurePath = "mark_media_session_uploading";

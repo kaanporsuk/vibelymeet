@@ -4,11 +4,12 @@
  * Worker Edge Function that drains the media_delete_jobs queue.
  *
  * Real execution flow:
- *   1. enqueue_uploaded_media_orphan_deletes — sweep old uploaded/no-ref assets
- *   2. promote_purgeable_assets — move expired soft_deleted → purge_ready + enqueue
- *   3. claim_media_delete_jobs — SKIP LOCKED batch claim
- *   4. For each job: call provider delete via _shared/bunny-media.ts
- *   5. complete_media_delete_job — record result (success/fail)
+ *   1. cold-tier active hot Bunny Storage assets that have gone cold
+ *   2. enqueue_uploaded_media_orphan_deletes — sweep old uploaded/no-ref assets
+ *   3. promote_purgeable_assets — move expired soft_deleted → purge_ready + enqueue
+ *   4. claim_media_delete_jobs — SKIP LOCKED batch claim
+ *   5. For each job: call provider delete via _shared/bunny-media.ts
+ *   6. complete_media_delete_job — record result (success/fail)
  *
  * Dry-run flow ({"dry_run": true}):
  *   Pure read-only.  Zero mutating operations of any kind.
@@ -24,10 +25,18 @@
  *   CRON_SECRET, SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY,
  *   BUNNY_STREAM_LIBRARY_ID, BUNNY_STREAM_API_KEY,
  *   BUNNY_STORAGE_ZONE, BUNNY_STORAGE_API_KEY
+ *
+ * Optional for cold tiering:
+ *   BUNNY_ARCHIVE_STORAGE_ZONE, BUNNY_ARCHIVE_STORAGE_API_KEY
  */
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { deleteMediaAsset } from "../_shared/bunny-media.ts";
+import {
+  archiveBunnyStorageFile,
+  deleteBunnyStorageFile,
+  deleteMediaAsset,
+  type BunnyStorageZoneTier,
+} from "../_shared/bunny-media.ts";
 import { capture } from "../_shared/posthog.ts";
 
 const corsHeaders: Record<string, string> = {
@@ -46,6 +55,20 @@ interface JobRow {
   max_attempts: number;
 }
 
+interface MediaAssetStorageTierRow {
+  storage_zone?: string | null;
+}
+
+interface ColdTierCandidateRow {
+  id: string;
+  media_family: string | null;
+  provider: string | null;
+  provider_path: string | null;
+  storage_zone: string | null;
+  last_accessed_at: string | null;
+  created_at: string | null;
+}
+
 interface UploadedOrphanRow {
   asset_id: string;
   media_family: string;
@@ -62,6 +85,8 @@ interface WorkerStats {
   completed: number;
   failed: number;
   skipped: number;
+  archived: number;
+  archiveFailed: number;
   errors: string[];
 }
 
@@ -107,6 +132,8 @@ Deno.serve(async (req) => {
     completed: 0,
     failed: 0,
     skipped: 0,
+    archived: 0,
+    archiveFailed: 0,
     errors: [],
   };
 
@@ -116,11 +143,29 @@ Deno.serve(async (req) => {
   );
 
   try {
+    const archiveZoneConfigured = Boolean(
+      Deno.env.get("BUNNY_ARCHIVE_STORAGE_ZONE")?.trim() ||
+        Deno.env.get("BUNNY_STORAGE_ARCHIVE_ZONE")?.trim(),
+    );
+    const archiveKeyConfigured = Boolean(
+      Deno.env.get("BUNNY_ARCHIVE_STORAGE_API_KEY")?.trim() ||
+        Deno.env.get("BUNNY_STORAGE_ARCHIVE_API_KEY")?.trim(),
+    );
+    if (archiveZoneConfigured !== archiveKeyConfigured) {
+      const missing = archiveZoneConfigured ? "archive API key" : "archive storage zone";
+      const message = `cold-tier skipped: missing ${missing}`;
+      console.error(`[${workerId}] ${message}`);
+      stats.errors.push(message);
+    }
+    const archiveConfigured = archiveZoneConfigured && archiveKeyConfigured;
+    const coldAccessCutoff = new Date(Date.now() - 60 * 24 * 60 * 60 * 1000).toISOString();
+    const coldCreatedCutoff = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString();
+
     // ── Dry-run path: pure read-only preview ────────────────────────────────
     // Dry-run executes ZERO mutating operations.  No promote, no claim, no
-      // complete, no status change, no attempt increment.  It reads claimable
-      // jobs plus promotion/orphan candidates and reports what a real run would
-      // process or enqueue.
+    // complete, no status change, no attempt increment.  It reads claimable
+    // jobs plus promotion/orphan/cold-tier candidates and reports what a real
+    // run would process or enqueue.
     if (isDryRun) {
       console.log(
         `[${workerId}] DRY_RUN preview family=${familyFilter ?? "all"} batch=${batchSize}`,
@@ -138,6 +183,26 @@ Deno.serve(async (req) => {
 
       const previewRecord = (preview ?? {}) as Record<string, unknown>;
       const preview_count = typeof previewRecord.preview_count === "number" ? previewRecord.preview_count : 0;
+      let coldTierPreview: ColdTierCandidateRow[] = [];
+      if (archiveConfigured) {
+        let coldPreviewQuery = supabase
+          .from("media_assets")
+          .select("id, media_family, provider, provider_path, storage_zone, last_accessed_at, created_at")
+          .eq("status", "active")
+          .eq("provider", "bunny_storage")
+          .eq("storage_zone", "hot")
+          .lt("created_at", coldCreatedCutoff)
+          .or(`last_accessed_at.is.null,last_accessed_at.lt.${coldAccessCutoff}`)
+          .order("last_accessed_at", { ascending: true, nullsFirst: true })
+          .limit(Math.min(Math.max(1, batchSize), 100));
+        if (familyFilter) coldPreviewQuery = coldPreviewQuery.eq("media_family", familyFilter);
+        const { data: coldPreviewRows, error: coldPreviewError } = await coldPreviewQuery;
+        if (coldPreviewError) {
+          stats.errors.push(`cold-tier dry-run select: ${coldPreviewError.message}`);
+        } else {
+          coldTierPreview = (coldPreviewRows ?? []) as ColdTierCandidateRow[];
+        }
+      }
 
       console.log(`[${workerId}] dry-run complete, ${preview_count} rows previewed, zero mutations`);
       return json({
@@ -146,12 +211,123 @@ Deno.serve(async (req) => {
         message: "Dry-run preview only — zero mutations performed.",
         worker_id: workerId,
         preview_count,
+        cold_tier_preview_count: coldTierPreview.length,
+        cold_tier_preview: coldTierPreview,
         preview,
         stats,
       });
     }
 
-    // ── Step 1a: Enqueue uploaded-but-unattached orphan assets ──────────────
+    // ── Step 1: Cold-tier eligible active hot Bunny Storage assets ─────────
+    // Assets become archive candidates only after they are both old enough and
+    // unused recently. URL issuance updates last_accessed_at.
+    if (archiveConfigured) {
+      let coldQuery = supabase
+        .from("media_assets")
+        .select("id, media_family, provider, provider_path, storage_zone, last_accessed_at, created_at")
+        .eq("status", "active")
+        .eq("provider", "bunny_storage")
+        .eq("storage_zone", "hot")
+        .lt("created_at", coldCreatedCutoff)
+        .or(`last_accessed_at.is.null,last_accessed_at.lt.${coldAccessCutoff}`)
+        .order("last_accessed_at", { ascending: true, nullsFirst: true })
+        .limit(Math.min(Math.max(1, batchSize), 100));
+      if (familyFilter) coldQuery = coldQuery.eq("media_family", familyFilter);
+
+      const { data: coldRows, error: coldError } = await coldQuery;
+      if (coldError) {
+        console.error(`[${workerId}] cold-tier select error:`, coldError.message);
+        stats.errors.push(`cold-tier select: ${coldError.message}`);
+      } else {
+        for (const row of (coldRows ?? []) as ColdTierCandidateRow[]) {
+          if (!row.provider_path) {
+            stats.archiveFailed++;
+            stats.errors.push(`cold-tier ${row.id}: missing_provider_path`);
+            continue;
+          }
+          const result = await archiveBunnyStorageFile(row.provider_path);
+          if (!result.success) {
+            stats.archiveFailed++;
+            const detail = result.error ?? result.detail;
+            await supabase
+              .from("media_assets")
+              .update({ archive_error: detail.slice(0, 500) })
+              .eq("id", row.id)
+              .eq("storage_zone", "hot");
+            void capture({
+              event: "media_archive_failed",
+              distinct_id: row.id,
+              properties: {
+                feature: "media-sdk",
+                worker_id: workerId,
+                asset_id: row.id,
+                media_family: row.media_family,
+                provider: row.provider,
+                error: detail.slice(0, 500),
+              },
+            });
+            continue;
+          }
+
+          const { data: updatedArchiveRow, error: updateArchiveError } = await supabase
+            .from("media_assets")
+            .update({
+              storage_zone: "archive",
+              archived_at: new Date().toISOString(),
+              archive_error: null,
+            })
+            .eq("id", row.id)
+            .eq("storage_zone", "hot")
+            .select("id")
+            .maybeSingle();
+          if (updateArchiveError || !updatedArchiveRow) {
+            stats.archiveFailed++;
+            const detail = updateArchiveError?.message ?? "row_not_updated";
+            stats.errors.push(`cold-tier update ${row.id}: ${detail}`);
+            continue;
+          }
+
+          stats.archived++;
+          const hotDeleteResult = await deleteBunnyStorageFile(row.provider_path, "hot");
+          if (!hotDeleteResult.success) {
+            const detail = hotDeleteResult.error ?? hotDeleteResult.detail;
+            stats.errors.push(`cold-tier hot cleanup ${row.id}: ${detail}`);
+            void capture({
+              event: "media_archive_hot_delete_failed",
+              distinct_id: row.id,
+              properties: {
+                feature: "media-sdk",
+                worker_id: workerId,
+                asset_id: row.id,
+                media_family: row.media_family,
+                provider: row.provider,
+                error: detail.slice(0, 500),
+              },
+            });
+          }
+          void capture({
+            event: "media_archived_to_cold_storage",
+            distinct_id: row.id,
+            properties: {
+              feature: "media-sdk",
+              worker_id: workerId,
+              asset_id: row.id,
+              media_family: row.media_family,
+              provider: row.provider,
+              last_accessed_at: row.last_accessed_at,
+              created_at: row.created_at,
+            },
+          });
+        }
+      }
+    }
+
+    console.log(
+      `[${workerId}] archived=${stats.archived} archive_failed=${stats.archiveFailed} ` +
+        `family=${familyFilter ?? "all"} batch=${batchSize}`,
+    );
+
+    // ── Step 2a: Enqueue uploaded-but-unattached orphan assets ──────────────
     // Chat uploads that never publish are swept after 24h; profile/event draft
     // uploads after 7d. The SQL helper owns the family thresholds.
     const { data: orphanRowsResult, error: orphanError } = await supabase.rpc(
@@ -187,7 +363,7 @@ Deno.serve(async (req) => {
       `[${workerId}] uploaded_orphans=${stats.uploadedOrphans} family=${familyFilter ?? "all"} batch=${batchSize}`,
     );
 
-    // ── Step 1b: Promote purgeable soft-deleted assets (real execution only) ─
+    // ── Step 2b: Promote purgeable soft-deleted assets (real execution only) ─
     const { data: promoteResult, error: promoteError } = await supabase.rpc(
       "promote_purgeable_assets",
       { p_limit: batchSize * 2, p_family_filter: familyFilter },
@@ -204,7 +380,7 @@ Deno.serve(async (req) => {
       `[${workerId}] promoted=${stats.promoted} family=${familyFilter ?? "all"} batch=${batchSize}`,
     );
 
-    // ── Step 2: Claim jobs ───────────────────────────────────────────────────
+    // ── Step 3: Claim jobs ───────────────────────────────────────────────────
     const { data: jobs, error: claimError } = await supabase.rpc(
       "claim_media_delete_jobs",
       {
@@ -234,7 +410,7 @@ Deno.serve(async (req) => {
 
     console.log(`[${workerId}] claimed ${claimed.length} jobs`);
 
-    // ── Step 3: Process each claimed job ─────────────────────────────────────
+    // ── Step 4: Process each claimed job ─────────────────────────────────────
     for (const job of claimed) {
       console.log(
         `[${workerId}] processing job=${job.id} asset=${job.asset_id} ` +
@@ -316,10 +492,22 @@ Deno.serve(async (req) => {
         }
       }
 
+      let storageTier: BunnyStorageZoneTier = "hot";
+      if (job.provider === "bunny_storage") {
+        const { data: assetTierRow } = await supabase
+          .from("media_assets")
+          .select("storage_zone")
+          .eq("id", job.asset_id)
+          .maybeSingle();
+        const tier = (assetTierRow as MediaAssetStorageTierRow | null)?.storage_zone;
+        storageTier = tier === "archive" ? "archive" : "hot";
+      }
+
       const result = await deleteMediaAsset(
         job.provider,
         job.provider_object_id,
         job.provider_path,
+        storageTier,
       );
 
       console.log(
@@ -347,7 +535,8 @@ Deno.serve(async (req) => {
     }
 
     console.log(
-      `[${workerId}] done promoted=${stats.promoted} claimed=${stats.claimed} ` +
+      `[${workerId}] done archived=${stats.archived} archive_failed=${stats.archiveFailed} ` +
+      `promoted=${stats.promoted} claimed=${stats.claimed} ` +
       `completed=${stats.completed} failed=${stats.failed} skipped=${stats.skipped}`,
     );
 

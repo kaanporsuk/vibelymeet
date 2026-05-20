@@ -1,4 +1,5 @@
 import { supabase } from "@/integrations/supabase/client";
+import { parseMediaCaptions, type MediaCaptions } from "../../shared/media/captions";
 
 const PROFILE_BATCH_SIZE = 100;
 const PROFILE_BATCH_FALLBACK_CONCURRENCY = 8;
@@ -29,6 +30,7 @@ export type UserProfileView = {
   vibe_video_signed_playback_required: boolean;
   vibe_video_playback_ref: string | null;
   vibe_caption: string | null;
+  vibe_video_captions: MediaCaptions | null;
   lifestyle: Record<string, string> | null;
   prompts: Array<{ question: string; answer: string }> | null;
   photo_verified: boolean | null;
@@ -148,6 +150,7 @@ function rpcJsonToUserProfileView(raw: unknown): UserProfileView | null {
           ? null
           : null,
     vibe_caption: typeof row.vibe_caption === "string" ? row.vibe_caption : row.vibe_caption === null ? null : null,
+    vibe_video_captions: parseMediaCaptions(row.vibe_video_captions),
     lifestyle:
       row.lifestyle && typeof row.lifestyle === "object" && !Array.isArray(row.lifestyle)
         ? (row.lifestyle as Record<string, string>)

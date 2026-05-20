@@ -23,6 +23,14 @@ export interface BunnyDeleteResult {
   error?: string;
 }
 
+export type BunnyStorageZoneTier = "hot" | "archive";
+
+export interface BunnyStorageConfig {
+  tier: BunnyStorageZoneTier;
+  zone: string;
+  apiKey: string;
+}
+
 // ─── Env helpers ────────────────────────────────────────────────────────────
 
 function requireEnv(name: string): string {
@@ -35,16 +43,67 @@ function optionalEnv(name: string): string {
   return Deno.env.get(name)?.trim() ?? "";
 }
 
+function normalizeStorageTier(value: string | null | undefined): BunnyStorageZoneTier {
+  return value === "archive" ? "archive" : "hot";
+}
+
+export function bunnyStorageConfigForTier(tier: string | null | undefined = "hot"): BunnyStorageConfig {
+  const normalizedTier = normalizeStorageTier(tier);
+  if (normalizedTier === "archive") {
+    const zone =
+      optionalEnv("BUNNY_ARCHIVE_STORAGE_ZONE") ||
+      optionalEnv("BUNNY_STORAGE_ARCHIVE_ZONE");
+    const apiKey =
+      optionalEnv("BUNNY_ARCHIVE_STORAGE_API_KEY") ||
+      optionalEnv("BUNNY_STORAGE_ARCHIVE_API_KEY");
+    if (!zone) throw new Error("[bunny-media] missing required env: BUNNY_ARCHIVE_STORAGE_ZONE");
+    if (!apiKey) throw new Error("[bunny-media] missing required env: BUNNY_ARCHIVE_STORAGE_API_KEY");
+    return { tier: "archive", zone, apiKey };
+  }
+  return {
+    tier: "hot",
+    zone: requireEnv("BUNNY_STORAGE_ZONE"),
+    apiKey: requireEnv("BUNNY_STORAGE_API_KEY"),
+  };
+}
+
+function normalizeStoragePath(storagePath: string): string {
+  return storagePath.trim().replace(/^\/+/, "");
+}
+
+function encodeStoragePath(storagePath: string): string {
+  return storagePath.split("/").map(encodeURIComponent).join("/");
+}
+
+function rejectUnsafeStoragePath(storagePath: string): BunnyDeleteResult | null {
+  const normalizedPath = normalizeStoragePath(storagePath);
+  if (!normalizedPath || normalizedPath.includes("..")) {
+    return {
+      success: false,
+      httpStatus: null,
+      alreadyGone: false,
+      detail: `Rejected invalid Bunny Storage path: ${storagePath}`,
+      error: "invalid_storage_path",
+    };
+  }
+  return null;
+}
+
 /**
  * Build a Bunny CDN URL for a Bunny Storage object path. Supports pull-zone
  * setups where the storage zone is exposed under an extra CDN path prefix.
  */
-export function bunnyCdnUrl(storagePath: string): string {
-  const host = requireEnv("BUNNY_CDN_HOSTNAME")
+export function bunnyCdnUrl(storagePath: string, storageTier: BunnyStorageZoneTier = "hot"): string {
+  const archiveHost =
+    optionalEnv("BUNNY_ARCHIVE_CDN_HOSTNAME") ||
+    optionalEnv("BUNNY_CDN_ARCHIVE_HOSTNAME");
+  const host = (storageTier === "archive" && archiveHost ? archiveHost : requireEnv("BUNNY_CDN_HOSTNAME"))
     .trim()
     .replace(/^https?:\/\//i, "")
     .replace(/^\/+|\/+$/g, "");
-  const prefix = optionalEnv("BUNNY_CDN_PATH_PREFIX").replace(/^\/+|\/+$/g, "");
+  const prefix = (storageTier === "archive"
+    ? optionalEnv("BUNNY_ARCHIVE_CDN_PATH_PREFIX") || optionalEnv("BUNNY_CDN_ARCHIVE_PATH_PREFIX")
+    : optionalEnv("BUNNY_CDN_PATH_PREFIX")).replace(/^\/+|\/+$/g, "");
   const normalizedPath = storagePath.trim().replace(/^\/+/, "");
 
   if (!host) throw new Error("[bunny-media] missing required env: BUNNY_CDN_HOSTNAME");
@@ -118,22 +177,18 @@ export async function deleteBunnyStreamVideo(videoId: string): Promise<BunnyDele
  *
  * Idempotent: 404 → success (already deleted).
  */
-export async function deleteBunnyStorageFile(storagePath: string): Promise<BunnyDeleteResult> {
-  const storageZone = requireEnv("BUNNY_STORAGE_ZONE");
-  const apiKey = requireEnv("BUNNY_STORAGE_API_KEY");
+export async function deleteBunnyStorageFile(
+  storagePath: string,
+  storageTier: BunnyStorageZoneTier = "hot",
+): Promise<BunnyDeleteResult> {
+  const invalidPath = rejectUnsafeStoragePath(storagePath);
+  if (invalidPath) return invalidPath;
 
-  // Prevent path traversal
-  if (storagePath.includes("..")) {
-    return {
-      success: false,
-      httpStatus: null,
-      alreadyGone: false,
-      detail: `Rejected path with traversal: ${storagePath}`,
-      error: "path_traversal_rejected",
-    };
-  }
+  const { zone: storageZone, apiKey } = bunnyStorageConfigForTier(storageTier);
+  const normalizedPath = normalizeStoragePath(storagePath);
+  const encodedPath = encodeStoragePath(normalizedPath);
 
-  const url = `https://storage.bunnycdn.com/${storageZone}/${storagePath}`;
+  const url = `https://storage.bunnycdn.com/${storageZone}/${encodedPath}`;
 
   try {
     const res = await fetch(url, {
@@ -149,8 +204,8 @@ export async function deleteBunnyStorageFile(storagePath: string): Promise<Bunny
         httpStatus: res.status,
         alreadyGone,
         detail: alreadyGone
-          ? `Bunny Storage file ${storagePath} already deleted (${res.status})`
-          : `Bunny Storage file ${storagePath} deleted (${res.status})`,
+          ? `Bunny Storage file ${normalizedPath} already deleted (${res.status})`
+          : `Bunny Storage file ${normalizedPath} deleted from ${storageTier} (${res.status})`,
       };
     }
 
@@ -159,7 +214,7 @@ export async function deleteBunnyStorageFile(storagePath: string): Promise<Bunny
       success: false,
       httpStatus: res.status,
       alreadyGone: false,
-      detail: `Bunny Storage DELETE failed for ${storagePath}: ${res.status}`,
+      detail: `Bunny Storage DELETE failed for ${normalizedPath} in ${storageTier}: ${res.status}`,
       error: body.slice(0, 500),
     };
   } catch (err) {
@@ -167,7 +222,89 @@ export async function deleteBunnyStorageFile(storagePath: string): Promise<Bunny
       success: false,
       httpStatus: null,
       alreadyGone: false,
-      detail: `Bunny Storage network error for ${storagePath}`,
+      detail: `Bunny Storage network error for ${normalizedPath} in ${storageTier}`,
+      error: String(err).slice(0, 500),
+    };
+  }
+}
+
+/**
+ * Copy a hot Bunny Storage object to the archive zone.
+ * Bunny's storage API does not expose a universally available server-side copy
+ * primitive, so this worker path uses a bounded stream-through copy that keeps
+ * the implementation portable across Bunny accounts.
+ *
+ * The caller must update the DB row to `storage_zone='archive'` before deleting
+ * the hot copy. That order preserves playback routing if the DB update fails.
+ */
+export async function archiveBunnyStorageFile(storagePath: string): Promise<BunnyDeleteResult> {
+  const invalidPath = rejectUnsafeStoragePath(storagePath);
+  if (invalidPath) return invalidPath;
+
+  let hot: BunnyStorageConfig;
+  let archive: BunnyStorageConfig;
+  const normalizedPath = normalizeStoragePath(storagePath);
+  const encodedPath = encodeStoragePath(normalizedPath);
+  try {
+    hot = bunnyStorageConfigForTier("hot");
+    archive = bunnyStorageConfigForTier("archive");
+  } catch (err) {
+    return {
+      success: false,
+      httpStatus: null,
+      alreadyGone: false,
+      detail: `Bunny archive config error for ${normalizedPath}`,
+      error: String(err).slice(0, 500),
+    };
+  }
+
+  const hotUrl = `https://storage.bunnycdn.com/${hot.zone}/${encodedPath}`;
+  const archiveUrl = `https://storage.bunnycdn.com/${archive.zone}/${encodedPath}`;
+
+  try {
+    const read = await fetch(hotUrl, { headers: { "AccessKey": hot.apiKey } });
+    if (!read.ok || !read.body) {
+      const body = await read.text().catch(() => "");
+      return {
+        success: false,
+        httpStatus: read.status,
+        alreadyGone: read.status === 404 || read.status === 410,
+        detail: `Bunny hot fetch failed for archive copy ${normalizedPath}: ${read.status}`,
+        error: body.slice(0, 500) || "hot_fetch_failed",
+      };
+    }
+
+    const putHeaders: Record<string, string> = { "AccessKey": archive.apiKey };
+    const contentType = read.headers.get("Content-Type");
+    if (contentType) putHeaders["Content-Type"] = contentType;
+    const write = await fetch(archiveUrl, {
+      method: "PUT",
+      headers: putHeaders,
+      body: read.body,
+    });
+    if (!write.ok) {
+      const body = await write.text().catch(() => "");
+      return {
+        success: false,
+        httpStatus: write.status,
+        alreadyGone: false,
+        detail: `Bunny archive upload failed for ${normalizedPath}: ${write.status}`,
+        error: body.slice(0, 500) || "archive_upload_failed",
+      };
+    }
+
+    return {
+      success: true,
+      httpStatus: write.status,
+      alreadyGone: false,
+      detail: `Bunny Storage file ${normalizedPath} copied from hot to archive`,
+    };
+  } catch (err) {
+    return {
+      success: false,
+      httpStatus: null,
+      alreadyGone: false,
+      detail: `Bunny archive copy network error for ${normalizedPath}`,
       error: String(err).slice(0, 500),
     };
   }
@@ -250,6 +387,7 @@ export async function deleteMediaAsset(
   provider: string,
   providerObjectId: string | null,
   providerPath: string | null,
+  storageTier: BunnyStorageZoneTier = "hot",
 ): Promise<BunnyDeleteResult> {
   switch (provider) {
     case "bunny_stream": {
@@ -274,7 +412,7 @@ export async function deleteMediaAsset(
           error: "missing_provider_path",
         };
       }
-      return deleteBunnyStorageFile(providerPath);
+      return deleteBunnyStorageFile(providerPath, storageTier);
     }
     case "supabase_storage": {
       if (!providerPath) {

@@ -14,6 +14,7 @@ import {
   Flag,
   Archive,
   Clock,
+  Activity,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ProfileDetailDrawer } from "@/components/ProfileDetailDrawer";
@@ -76,6 +77,7 @@ interface ChatHeaderProps {
   onBack: () => void;
   onVideoCall: (type: "voice" | "video") => void;
   onFocusInput: () => void;
+  onOpenMediaHealth?: () => void;
 }
 
 export const ChatHeader = ({
@@ -87,6 +89,7 @@ export const ChatHeader = ({
   onBack,
   onVideoCall,
   onFocusInput,
+  onOpenMediaHealth,
 }: ChatHeaderProps) => {
   const [showUnmatchDialog, setShowUnmatchDialog] = useState(false);
   const [showArchiveDialog, setShowArchiveDialog] = useState(false);
@@ -379,6 +382,12 @@ export const ChatHeader = ({
                 <DropdownMenuItem onClick={handleViewProfile}>
                   View Profile
                 </DropdownMenuItem>
+                {onOpenMediaHealth ? (
+                  <DropdownMenuItem onClick={onOpenMediaHealth}>
+                    <Activity className="w-4 h-4 mr-2" />
+                    Media health
+                  </DropdownMenuItem>
+                ) : null}
                 <DropdownMenuItem onClick={() => setShowArchiveDialog(true)} disabled={!matchId}>
                   <Archive className="w-4 h-4 mr-2" />
                   Archive Chat

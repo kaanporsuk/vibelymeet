@@ -1,4 +1,5 @@
 import type HlsInstance from "hls.js";
+import { isMediaPlaybackQoeDegraded } from "@/lib/mediaPlaybackSessionPolicy";
 
 type HlsPlaybackErrorKind = "native" | "unsupported" | "fatal";
 
@@ -18,12 +19,20 @@ export function __setHlsLoaderForTest(loader: HlsLoader | null): void {
   hlsLoader = loader ?? (() => import("hls.js"));
 }
 
+function constrainHlsAbrForDegradedQoe(hls: HlsInstance): void {
+  const levels = Array.isArray(hls.levels) ? hls.levels : [];
+  if (!levels.length) return;
+  hls.autoLevelCapping = Math.min(1, levels.length - 1);
+  hls.startLevel = 0;
+}
+
 export function attachHlsPlayback(
   videoEl: HTMLVideoElement,
   src: string,
   options: AttachHlsPlaybackOptions = {},
 ): () => void {
   const { autoPlay = true, onAutoplayBlocked, onError, onManifestParsed } = options;
+  const constrainAbr = isMediaPlaybackQoeDegraded();
   let cancelled = false;
   let errorReported = false;
   let hls: HlsInstance | null = null;
@@ -68,6 +77,7 @@ export function attachHlsPlayback(
       hls.attachMedia(videoEl);
       hls.on(Hls.Events.MANIFEST_PARSED, () => {
         if (cancelled) return;
+        if (constrainAbr && hls) constrainHlsAbrForDegradedQoe(hls);
         onManifestParsed?.();
         playIfNeeded();
       });

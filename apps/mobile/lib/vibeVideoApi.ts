@@ -17,6 +17,7 @@ import * as FileSystem from 'expo-file-system/legacy';
 import { getCachedAccessToken } from '@/lib/nativeAuthSession';
 import { getVibeVideoPlaybackUrl, persistStreamCdnHostnameFromEdge } from '@/lib/vibeVideoPlaybackUrl';
 import { vibeVideoDiagVerbose, vibeVideoDiagProdHint } from '@/lib/vibeVideoDiagnostics';
+import type { MediaCaptions } from '../../../shared/media/captions';
 
 const SUPABASE_URL = process.env.EXPO_PUBLIC_SUPABASE_URL ?? '';
 
@@ -159,6 +160,7 @@ export async function getCreateVideoUploadCredentials(
     clientRequestId?: string;
     sourceBytes?: number | null;
     mimeType?: string | null;
+    captions?: MediaCaptions | null;
   },
 ): Promise<CreateVideoUploadCredentials> {
   const accessToken = await getCachedAccessToken();
@@ -180,6 +182,7 @@ export async function getCreateVideoUploadCredentials(
         client_request_id: clientRequestId,
         source_bytes: options?.sourceBytes ?? null,
         mime_type: options?.mimeType ?? null,
+        captions: options?.captions ?? null,
       }),
     });
   } catch (e) {

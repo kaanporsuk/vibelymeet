@@ -6,6 +6,7 @@ import {
   REF_TYPES,
   registerMediaAsset,
 } from "./media-lifecycle.ts";
+import { normalizeMediaCaptions, type NormalizedMediaCaptions } from "./media-captions.ts";
 
 export const CHAT_VIBE_CLIP_MAX_DURATION_MS = 30_000;
 export const CHAT_VIBE_CLIP_DURATION_TOLERANCE_MS = 250;
@@ -107,8 +108,9 @@ export type ChatVibeClipUploadRow = {
   mime_type: string | null;
   status: ChatVibeClipStatus;
   error_detail: string | null;
-  captions: unknown | null;
+  captions: NormalizedMediaCaptions | null;
   expires_at: string;
+  updated_at: string | null;
 };
 
 export type ChatStreamConfig = {
@@ -123,41 +125,7 @@ export function isUuid(value: unknown): value is string {
     /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value.trim());
 }
 
-export function normalizeChatVibeClipCaptions(value: unknown): string | Record<string, unknown> | null {
-  if (typeof value === "string") {
-    const text = value.trim();
-    return text ? text.slice(0, 5_000) : null;
-  }
-  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
-  const source = value as Record<string, unknown>;
-  const text = typeof source.text === "string" && source.text.trim() ? source.text.trim().slice(0, 5_000) : null;
-  const language = typeof source.language === "string" && source.language.trim()
-    ? source.language.trim().slice(0, 16)
-    : undefined;
-  const cues = Array.isArray(source.cues)
-    ? source.cues.slice(0, 120).map((cue) => {
-      if (!cue || typeof cue !== "object" || Array.isArray(cue)) return null;
-      const cueRecord = cue as Record<string, unknown>;
-      const cueText = typeof cueRecord.text === "string" && cueRecord.text.trim()
-        ? cueRecord.text.trim().slice(0, 1_000)
-        : null;
-      if (!cueText) return null;
-      const startMs = typeof cueRecord.startMs === "number" && Number.isFinite(cueRecord.startMs)
-        ? Math.max(0, Math.floor(cueRecord.startMs))
-        : undefined;
-      const endMs = typeof cueRecord.endMs === "number" && Number.isFinite(cueRecord.endMs)
-        ? Math.max(startMs ?? 0, Math.floor(cueRecord.endMs))
-        : undefined;
-      return { text: cueText, ...(startMs !== undefined ? { startMs } : {}), ...(endMs !== undefined ? { endMs } : {}) };
-    }).filter((cue): cue is { text: string; startMs?: number; endMs?: number } => !!cue)
-    : [];
-  if (!text && cues.length === 0) return null;
-  return {
-    ...(text ? { text } : {}),
-    ...(language ? { language } : {}),
-    ...(cues.length ? { cues } : {}),
-  };
-}
+export const normalizeChatVibeClipCaptions = normalizeMediaCaptions;
 
 export function getAdminClient(): SupabaseClient {
   return createClient(
