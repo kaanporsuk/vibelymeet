@@ -12,8 +12,8 @@
  *
  * Dry-run flow ({"dry_run": true}):
  *   Pure read-only.  Zero mutating operations of any kind.
- *   1. SELECT existing pending/failed jobs (no lock, no claim)
- *   2. Log what a real run would process
+ *   1. Preview pending/failed jobs, promotable soft-deletes, and uploaded orphans
+ *   2. Log what a real run would process or enqueue
  *   3. Return preview
  *   No promote, no claim, no complete, no status change, no attempt increment.
  *
@@ -28,6 +28,7 @@
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { deleteMediaAsset } from "../_shared/bunny-media.ts";
+import { capture } from "../_shared/posthog.ts";
 
 const corsHeaders: Record<string, string> = {
   "Access-Control-Allow-Origin": "*",
@@ -45,18 +46,13 @@ interface JobRow {
   max_attempts: number;
 }
 
-interface DryRunPreviewRow {
-  id: string;
+interface UploadedOrphanRow {
   asset_id: string;
+  media_family: string;
   provider: string;
-  job_type: string;
   provider_object_id: string | null;
   provider_path: string | null;
-  media_assets?: {
-    media_family?: string | null;
-    owner_user_id?: string | null;
-  } | null;
-  attempts: number;
+  job_id: string | null;
 }
 
 interface WorkerStats {
@@ -122,79 +118,69 @@ Deno.serve(async (req) => {
   try {
     // ── Dry-run path: pure read-only preview ────────────────────────────────
     // Dry-run executes ZERO mutating operations.  No promote, no claim, no
-    // complete, no status change, no attempt increment.  It reads existing
-    // pending/failed jobs and reports what a real run would process.
+      // complete, no status change, no attempt increment.  It reads claimable
+      // jobs plus promotion/orphan candidates and reports what a real run would
+      // process or enqueue.
     if (isDryRun) {
-      // Dry-run: preview only, no mutations, no claims, no promote, no status changes.
       console.log(
         `[${workerId}] DRY_RUN preview family=${familyFilter ?? "all"} batch=${batchSize}`,
       );
 
-      let query = supabase
-        .from("media_delete_jobs")
-        .select(`
-          id,
-          asset_id,
-          provider,
-          job_type,
-          provider_object_id,
-          provider_path,
-          attempts,
-          media_assets!inner ( media_family, owner_user_id )
-        `)
-        .in("status", ["pending", "failed"])
-        .lte("next_attempt_at", new Date().toISOString())
-        .order("next_attempt_at", { ascending: true })
-        .limit(batchSize);
-
-      if (familyFilter) {
-        query = query.eq("media_assets.media_family", familyFilter);
-      }
-
-      const { data: preview, error: previewError } = await query;
+      const { data: preview, error: previewError } = await supabase.rpc(
+        "preview_media_delete_worker_run",
+        { p_limit: batchSize, p_family_filter: familyFilter },
+      );
 
       if (previewError) {
         console.error(`[${workerId}] dry-run preview error:`, previewError.message);
         return json({ success: false, error: "Dry-run preview failed", detail: previewError.message, stats }, 500);
       }
 
-      const rows = (preview ?? []) as unknown as DryRunPreviewRow[];
-      const preview_count = rows.length;
+      const previewRecord = (preview ?? {}) as Record<string, unknown>;
+      const preview_count = typeof previewRecord.preview_count === "number" ? previewRecord.preview_count : 0;
 
-      for (const row of rows) {
-        console.log(
-          `[${workerId}] DRY_RUN would_delete job=${row.id} ` +
-          `asset=${row.asset_id} provider=${row.provider} ` +
-          `object_id=${row.provider_object_id} path=${row.provider_path} ` +
-          `attempts=${row.attempts}`,
-        );
-      }
-
-      console.log(`[${workerId}] dry-run complete, ${preview_count} jobs previewed, zero mutations`);
-      // Explicitly do not report 'claimed' in dry-run, only preview_count.
+      console.log(`[${workerId}] dry-run complete, ${preview_count} rows previewed, zero mutations`);
       return json({
         success: true,
         dry_run: true,
-        message: "Dry-run preview only — zero mutations performed. Only previews existing pending/failed jobs; does NOT simulate uploaded-orphan enqueue or promote_purgeable_assets.",
+        message: "Dry-run preview only — zero mutations performed.",
         worker_id: workerId,
         preview_count,
-        stats
+        preview,
+        stats,
       });
     }
 
     // ── Step 1a: Enqueue uploaded-but-unattached orphan assets ──────────────
     // Chat uploads that never publish are swept after 24h; profile/event draft
     // uploads after 7d. The SQL helper owns the family thresholds.
-    const { data: orphanResult, error: orphanError } = await supabase.rpc(
-      "enqueue_uploaded_media_orphan_deletes",
+    const { data: orphanRowsResult, error: orphanError } = await supabase.rpc(
+      "enqueue_uploaded_media_orphan_delete_rows",
       { p_limit: batchSize * 2, p_family_filter: familyFilter },
     );
 
     if (orphanError) {
-      console.error(`[${workerId}] enqueue_uploaded_media_orphan_deletes error:`, orphanError.message);
+      console.error(`[${workerId}] enqueue_uploaded_media_orphan_delete_rows error:`, orphanError.message);
       stats.errors.push(`uploaded_orphans: ${orphanError.message}`);
     } else {
-      stats.uploadedOrphans = typeof orphanResult === "number" ? orphanResult : 0;
+      const orphanRows = (orphanRowsResult ?? []) as UploadedOrphanRow[];
+      stats.uploadedOrphans = orphanRows.length;
+      for (const row of orphanRows) {
+        void capture({
+          event: "media_uploaded_orphan_delete_enqueued",
+          distinct_id: row.asset_id,
+          properties: {
+            feature: "media-sdk",
+            worker_id: workerId,
+            asset_id: row.asset_id,
+            media_family: row.media_family,
+            provider: row.provider,
+            provider_path: row.provider_path,
+            provider_object_id: row.provider_object_id,
+            job_id: row.job_id,
+          },
+        });
+      }
     }
 
     console.log(

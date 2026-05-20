@@ -8,7 +8,14 @@ import {
   NativeAsyncStorageMediaUploadQueue,
 } from "./adapters/native";
 import { assertWebMediaSource, createWebMediaSdk, IndexedDbMediaUploadQueue, webMediaTranscode } from "./adapters/web";
-import { createNativeMediaSdk as createNativeMediaSdkFromRoot, createWebMediaSdk as createWebMediaSdkFromRoot } from ".";
+import {
+  clearMediaSdkForegroundReconcileForTests,
+  createMediaClientRequestId,
+  createNativeMediaSdk as createNativeMediaSdkFromRoot,
+  createWebMediaSdk as createWebMediaSdkFromRoot,
+  markMediaSdkForegroundReconcile,
+  shouldRunMediaSdkForegroundReconcile,
+} from ".";
 import { MemoryMediaUploadQueue, type MediaUploadQueueRecord } from "./core/queue";
 import type { MediaTelemetrySink } from "./core/telemetry";
 import { safeTelemetryFields } from "./core/telemetry";
@@ -303,6 +310,38 @@ test("media task id fallback uses crypto getRandomValues when randomUUID is unav
       Reflect.deleteProperty(globalThis, "crypto");
     }
   }
+});
+
+test("shared client request ids and foreground reconcile guard are deterministic", () => {
+  const originalCrypto = Object.getOwnPropertyDescriptor(globalThis, "crypto");
+  Object.defineProperty(globalThis, "crypto", {
+    configurable: true,
+    value: {
+      getRandomValues(bytes: Uint8Array) {
+        bytes.forEach((_, index) => {
+          bytes[index] = index;
+        });
+        return bytes;
+      },
+    },
+  });
+
+  try {
+    assert.equal(createMediaClientRequestId(), "00010203-0405-4607-8809-0a0b0c0d0e0f");
+  } finally {
+    if (originalCrypto) {
+      Object.defineProperty(globalThis, "crypto", originalCrypto);
+    } else {
+      Reflect.deleteProperty(globalThis, "crypto");
+    }
+  }
+
+  clearMediaSdkForegroundReconcileForTests();
+  assert.equal(shouldRunMediaSdkForegroundReconcile("web:user-1", 1_000_000), true);
+  assert.equal(shouldRunMediaSdkForegroundReconcile("web:user-1", 1_060_000), false);
+  assert.equal(shouldRunMediaSdkForegroundReconcile("web:user-1", 1_300_000), true);
+  markMediaSdkForegroundReconcile("web:user-1", 1_400_000);
+  assert.equal(shouldRunMediaSdkForegroundReconcile("web:user-1", 1_400_001), false);
 });
 
 test("web adapter delegates Vibe Video upload through the harness and cleans terminal queue rows", async () => {
@@ -667,6 +706,115 @@ test("native photo adapter prepares photo URIs before invoking legacy delegates"
   assert.equal(task.snapshot().state, "ready");
 });
 
+test("native photo adapter cleans temporary transcode files after delegate completion", async () => {
+  const queue = new MemoryMediaUploadQueue();
+  const source = { uri: "file:///tmp/original-photo.jpg", name: "original-photo.jpg", mimeType: "image/jpeg" };
+  const deletedUris: string[] = [];
+  const manipulatedCalls: string[] = [];
+  let delegateSourceUri: string | null = null;
+
+  const sdk = createNativeMediaSdk({
+    queue,
+    fileSystem: {
+      async getInfoAsync() {
+        return { exists: true, size: 5_000_000 };
+      },
+      async deleteAsync(uri) {
+        deletedUris.push(uri);
+      },
+    },
+    imageManipulator: {
+      async manipulateAsync(uri, actions) {
+        manipulatedCalls.push(`${uri}:${actions.length}`);
+        if (manipulatedCalls.length === 1) {
+          return {
+            uri: "file:///tmp/original-photo-probe.png",
+            width: 4032,
+            height: 3024,
+            sizeBytes: 4_500_000,
+          };
+        }
+        return {
+          uri: "file:///tmp/original-photo-ready.jpg",
+          width: 2048,
+          height: 1536,
+          sizeBytes: 920_000,
+        };
+      },
+    },
+    delegates: {
+      photo: {
+        uploadChatPhoto: (input, controls) => {
+          delegateSourceUri = input.source.uri;
+          controls.dispatch({ type: "ready", result: { providerPath: "photos/match-1/user/req-token.jpg" } });
+        },
+      },
+    },
+    platform: "ios",
+  });
+
+  const task = sdk.photo.upload({
+    family: "chat_photo",
+    source,
+    context: { uploadContext: "chat", scopeKey: "match:match-1", matchId: "match-1" },
+    options: { clientRequestId: uuid },
+  });
+
+  await flushMediaTask();
+
+  assert.equal(task.snapshot().state, "ready");
+  assert.equal(delegateSourceUri, "file:///tmp/original-photo-ready.jpg");
+  assert.deepEqual(deletedUris, [
+    "file:///tmp/original-photo-probe.png",
+    "file:///tmp/original-photo-ready.jpg",
+  ]);
+});
+
+test("native photo adapter cleans temporary transcode files when delegates fail", async () => {
+  const deletedUris: string[] = [];
+  const sdk = createNativeMediaSdk({
+    queue: new MemoryMediaUploadQueue(),
+    fileSystem: {
+      async getInfoAsync() {
+        return { exists: true, size: 5_000_000 };
+      },
+      async deleteAsync(uri) {
+        deletedUris.push(uri);
+      },
+    },
+    imageManipulator: {
+      async manipulateAsync() {
+        return {
+          uri: "file:///tmp/failing-photo-ready.jpg",
+          width: 2048,
+          height: 1536,
+          sizeBytes: 920_000,
+        };
+      },
+    },
+    delegates: {
+      photo: {
+        uploadProfilePhoto: () => {
+          throw new Error("delegate_upload_failed");
+        },
+      },
+    },
+    platform: "ios",
+  });
+
+  const task = sdk.photo.upload({
+    family: "profile_photo",
+    source: { uri: "file:///tmp/failing-photo.heic", name: "failing-photo.heic", mimeType: "image/heic", width: 3024, height: 4032 },
+    context: { uploadContext: "profile_studio", scopeKey: "profile:user-1:profile_studio" },
+    options: { clientRequestId: uuid },
+  });
+
+  await flushMediaTask();
+
+  assert.equal(task.snapshot().state, "failed");
+  assert.deepEqual(deletedUris, ["file:///tmp/failing-photo-ready.jpg"]);
+});
+
 test("native photo transcode hook uses expo-image-manipulator shape for resize and EXIF stripping", async () => {
   const actionsSeen: unknown[][] = [];
   const optionsSeen: Array<Record<string, unknown> | undefined> = [];
@@ -954,6 +1102,40 @@ test("queue reconciliation removes server-terminal and stale failed rows without
   assert.equal(retained[0]?.snapshot.progress, 1);
 });
 
+test("queue reconciliation treats superseded server records as terminal removals", async () => {
+  const queue = new MemoryMediaUploadQueue();
+  const snapshot = createInitialMediaUploadSnapshot({
+    id: "superseded-video",
+    clientRequestId: "11111111-1111-4111-8111-111111111117",
+    family: "vibe_video",
+    platform: "web",
+    nowMs: 1,
+  });
+  await queue.put({
+    id: snapshot.id,
+    clientRequestId: snapshot.clientRequestId,
+    family: snapshot.family,
+    state: snapshot.state,
+    sourceRef: "source",
+    scopeKey: "profile:self",
+    createdAtMs: snapshot.createdAtMs,
+    updatedAtMs: snapshot.updatedAtMs,
+    snapshot,
+  });
+
+  const result = await reconcileMediaUploadQueue({
+    queue,
+    reconciler: {
+      async fetch() {
+        return { state: "superseded" };
+      },
+    },
+  });
+
+  assert.equal(result.removed, 1);
+  assert.equal((await queue.list()).length, 0);
+});
+
 test("queue reconciliation trusts server-active state before pruning stale local failures", async () => {
   const queue = new MemoryMediaUploadQueue();
   const failed = transitionMediaUploadState(createInitialMediaUploadSnapshot({
@@ -1084,6 +1266,262 @@ test("SDK reconcile rehydrates recoverable queue records and resumes them once",
   await sdk.reconcile({ reason: "test_resume" });
   await flushMediaTask();
   assert.equal(delegateCalls, 1);
+});
+
+test("web storage rehydration restores non-secret delegate context from queue metadata", async () => {
+  const queue = new MemoryMediaUploadQueue();
+  const snapshot = transitionMediaUploadState(createInitialMediaUploadSnapshot({
+    id: "recoverable-chat-photo",
+    clientRequestId: "11111111-1111-4111-8111-111111111118",
+    family: "chat_photo",
+    platform: "web",
+    nowMs: 1,
+  }), { type: "begin_upload", atMs: 2 });
+  await queue.put({
+    id: snapshot.id,
+    clientRequestId: snapshot.clientRequestId,
+    family: snapshot.family,
+    state: snapshot.state,
+    sourceRef: "chat-photo.jpg:image/jpeg:5",
+    scopeKey: "match:match-1",
+    createdAtMs: snapshot.createdAtMs,
+    updatedAtMs: snapshot.updatedAtMs,
+    snapshot,
+    metadata: {
+      source_blob: new Blob(["photo"], { type: "image/jpeg" }),
+      mime_type: "image/jpeg",
+      upload_context: "chat",
+      match_id: "match-1",
+    },
+  });
+
+  let delegateCalls = 0;
+  const sdk = createWebMediaSdk({
+    queue,
+    delegates: {
+      photo: {
+        uploadChatPhoto: (input, controls) => {
+          delegateCalls += 1;
+          assert.equal(input.context?.uploadContext, "chat");
+          assert.equal(input.context?.matchId, "match-1");
+          assert.equal(input.context?.accessToken, undefined, "rehydration must not persist bearer tokens");
+          controls.dispatch({ type: "ready", result: { providerPath: "photos/match-match-1/user/req-token.jpg" } });
+        },
+      },
+    },
+  });
+
+  await sdk.reconcile({ reason: "test_storage_resume" });
+  await flushMediaTask();
+
+  assert.equal(delegateCalls, 1);
+  assert.equal((await queue.list()).length, 0);
+});
+
+test("native storage rehydration derives match context from scoped queue rows", async () => {
+  const queue = new MemoryMediaUploadQueue();
+  const snapshot = transitionMediaUploadState(createInitialMediaUploadSnapshot({
+    id: "recoverable-voice-note",
+    clientRequestId: "11111111-1111-4111-8111-111111111119",
+    family: "voice_note",
+    platform: "ios",
+    nowMs: 1,
+  }), { type: "begin_upload", atMs: 2 });
+  await queue.put({
+    id: snapshot.id,
+    clientRequestId: snapshot.clientRequestId,
+    family: snapshot.family,
+    state: snapshot.state,
+    sourceRef: "file:///tmp/voice.m4a",
+    scopeKey: "match:match-2",
+    createdAtMs: snapshot.createdAtMs,
+    updatedAtMs: snapshot.updatedAtMs,
+    snapshot,
+    metadata: {
+      source_uri: "file:///tmp/voice.m4a",
+      mime_type: "audio/m4a",
+    },
+  });
+
+  let delegateCalls = 0;
+  const sdk = createNativeMediaSdk({
+    queue,
+    fileSystem: {
+      async getInfoAsync() {
+        return { exists: true, size: 1024 };
+      },
+    },
+    delegates: {
+      voice: {
+        uploadVoiceNote: (input, controls) => {
+          delegateCalls += 1;
+          assert.equal(input.context?.uploadContext, "chat");
+          assert.equal(input.context?.matchId, "match-2");
+          controls.dispatch({ type: "ready", result: { providerPath: "voice/match-match-2/user/req-token.m4a" } });
+        },
+      },
+    },
+    platform: "ios",
+  });
+
+  await sdk.reconcile({ reason: "test_storage_resume" });
+  await flushMediaTask();
+
+  assert.equal(delegateCalls, 1);
+  assert.equal((await queue.list()).length, 0);
+});
+
+test("web storage rehydration preserves legacy profile scope context", async () => {
+  const queue = new MemoryMediaUploadQueue();
+  const snapshot = transitionMediaUploadState(createInitialMediaUploadSnapshot({
+    id: "legacy-profile-photo",
+    clientRequestId: "11111111-1111-4111-8111-111111111120",
+    family: "profile_photo",
+    platform: "web",
+    nowMs: 1,
+  }), { type: "begin_upload", atMs: 2 });
+  await queue.put({
+    id: snapshot.id,
+    clientRequestId: snapshot.clientRequestId,
+    family: snapshot.family,
+    state: snapshot.state,
+    sourceRef: "profile.jpg:image/jpeg:5",
+    scopeKey: "profile:onboarding",
+    createdAtMs: snapshot.createdAtMs,
+    updatedAtMs: snapshot.updatedAtMs,
+    snapshot,
+    metadata: {
+      source_blob: new Blob(["photo"], { type: "image/jpeg" }),
+      mime_type: "image/jpeg",
+    },
+  });
+
+  let delegateCalls = 0;
+  const sdk = createWebMediaSdk({
+    queue,
+    delegates: {
+      photo: {
+        uploadProfilePhoto: (input, controls) => {
+          delegateCalls += 1;
+          assert.equal(input.context?.uploadContext, "onboarding");
+          assert.equal(input.context?.accessToken, undefined, "legacy rehydration must not persist bearer tokens");
+          controls.dispatch({ type: "ready", result: { providerPath: "photos/user/req-token.jpg" } });
+        },
+      },
+    },
+  });
+
+  await sdk.reconcile({ reason: "test_legacy_profile_resume" });
+  await flushMediaTask();
+
+  assert.equal(delegateCalls, 1);
+  assert.equal((await queue.list()).length, 0);
+});
+
+test("native storage rehydration maps legacy profile self scope to profile studio", async () => {
+  const queue = new MemoryMediaUploadQueue();
+  const snapshot = transitionMediaUploadState(createInitialMediaUploadSnapshot({
+    id: "legacy-native-profile-photo",
+    clientRequestId: "11111111-1111-4111-8111-111111111121",
+    family: "profile_photo",
+    platform: "android",
+    nowMs: 1,
+  }), { type: "begin_upload", atMs: 2 });
+  await queue.put({
+    id: snapshot.id,
+    clientRequestId: snapshot.clientRequestId,
+    family: snapshot.family,
+    state: snapshot.state,
+    sourceRef: "file:///tmp/profile.jpg",
+    scopeKey: "profile:self",
+    createdAtMs: snapshot.createdAtMs,
+    updatedAtMs: snapshot.updatedAtMs,
+    snapshot,
+    metadata: {
+      source_uri: "file:///tmp/profile.jpg",
+      mime_type: "image/jpeg",
+    },
+  });
+
+  let delegateCalls = 0;
+  const sdk = createNativeMediaSdk({
+    queue,
+    fileSystem: {
+      async getInfoAsync() {
+        return { exists: true, size: 1024 };
+      },
+    },
+    delegates: {
+      photo: {
+        uploadProfilePhoto: (input, controls) => {
+          delegateCalls += 1;
+          assert.equal(input.context?.uploadContext, "profile_studio");
+          controls.dispatch({ type: "ready", result: { providerPath: "photos/user/req-token.jpg" } });
+        },
+      },
+    },
+    platform: "android",
+  });
+
+  await sdk.reconcile({ reason: "test_legacy_native_profile_resume" });
+  await flushMediaTask();
+
+  assert.equal(delegateCalls, 1);
+  assert.equal((await queue.list()).length, 0);
+});
+
+test("storage rehydration fails missing local sources instead of leaking rows", async () => {
+  const webQueue = new MemoryMediaUploadQueue();
+  const webSnapshot = transitionMediaUploadState(createInitialMediaUploadSnapshot({
+    id: "web-missing-source",
+    clientRequestId: "11111111-1111-4111-8111-111111111122",
+    family: "chat_photo",
+    platform: "web",
+    nowMs: 1,
+  }), { type: "begin_upload", atMs: 2 });
+  await webQueue.put({
+    id: webSnapshot.id,
+    clientRequestId: webSnapshot.clientRequestId,
+    family: webSnapshot.family,
+    state: webSnapshot.state,
+    sourceRef: "missing.jpg:image/jpeg:5",
+    scopeKey: "match:match-3",
+    createdAtMs: webSnapshot.createdAtMs,
+    updatedAtMs: webSnapshot.updatedAtMs,
+    snapshot: webSnapshot,
+    metadata: { mime_type: "image/jpeg" },
+  });
+
+  await createWebMediaSdk({ queue: webQueue }).reconcile({ reason: "test_missing_web_source" });
+  const failedWebRow = (await webQueue.list())[0];
+  assert.equal(failedWebRow?.state, "failed");
+  assert.equal(failedWebRow?.snapshot.error?.code, "media_rehydrate_source_missing");
+
+  const nativeQueue = new MemoryMediaUploadQueue();
+  const nativeSnapshot = transitionMediaUploadState(createInitialMediaUploadSnapshot({
+    id: "native-missing-source",
+    clientRequestId: "11111111-1111-4111-8111-111111111123",
+    family: "voice_note",
+    platform: "ios",
+    nowMs: 1,
+  }), { type: "begin_upload", atMs: 2 });
+  await nativeQueue.put({
+    id: nativeSnapshot.id,
+    clientRequestId: nativeSnapshot.clientRequestId,
+    family: nativeSnapshot.family,
+    state: nativeSnapshot.state,
+    sourceRef: "file:///tmp/missing.m4a",
+    scopeKey: "match:match-4",
+    createdAtMs: nativeSnapshot.createdAtMs,
+    updatedAtMs: nativeSnapshot.updatedAtMs,
+    snapshot: nativeSnapshot,
+    metadata: { mime_type: "audio/m4a" },
+  });
+
+  await createNativeMediaSdk({ queue: nativeQueue, platform: "ios" }).reconcile({ reason: "test_missing_native_source" });
+  const failedNativeRow = (await nativeQueue.list())[0];
+  assert.equal(failedNativeRow?.state, "failed");
+  assert.equal(failedNativeRow?.snapshot.error?.code, "media_rehydrate_source_missing");
 });
 
 test("rehydrated tasks keep persisted ids and accept authoritative server-ready transitions", () => {
@@ -1444,6 +1882,52 @@ test("production media SDK factories wire telemetry sinks and reconciliation", (
     assert.match(source, /createMediaUploadPathTelemetryFields/, path);
     assert.match(source, /catch\s*\{[\s\S]{0,120}failClosed/, `${path} must fail closed to legacy on flag evaluation errors`);
   }
+});
+
+test("production reconcilers cover storage receipt families and foreground resumes are throttled", () => {
+  const webReconciler = readRepoFile("src/lib/mediaSdk/reconciliation.ts");
+  const nativeReconciler = readRepoFile("apps/mobile/lib/mediaSdk/reconciliation.ts");
+  for (const source of [webReconciler, nativeReconciler]) {
+    assert.match(source, /get_media_upload_receipt_status/);
+    assert.match(source, /profile_photo:\s*["']profile_photo["']/);
+    assert.match(source, /chat_photo:\s*["']chat_image["']/);
+    assert.match(source, /event_cover:\s*["']event_cover["']/);
+    assert.match(source, /voice_note:\s*["']voice_message["']/);
+    assert.match(source, /if \(status === ["']reserved["']\) return ["']uploading["']/);
+    assert.match(source, /if \(status === ["']uploaded["'] \|\| status === ["']attached["']\) return ["']ready["']/);
+    assert.match(source, /if \(status === ["']failed["']\) return ["']failed["']/);
+    assert.match(source, /STORAGE_RECEIPT_FAILED_TERMINAL_MS = 60 \* 60 \* 1000/);
+    assert.match(source, /next_retry_at/);
+    assert.match(source, /failedStorageReceiptState/);
+    assert.match(source, /nextRetryAtMs !== null && nextRetryAtMs > nowMs \? ["']processing["'] : ["']uploading["']/);
+    assert.match(source, /STORAGE_RECOVERABLE_MISSING_STATES/);
+    assert.match(source, /record\.state/);
+    assert.match(source, /if \(status === ["']superseded["']\) return ["']superseded["']/);
+    assert.match(source, /providerPath/);
+    assert.match(source, /contentSha256/);
+    assert.match(source, /provider_object_id: providerObjectId/);
+  }
+
+  const webStorage = readRepoFile("src/lib/mediaSdk/webStorageUploads.ts");
+  const nativeStorage = readRepoFile("apps/mobile/lib/mediaSdk/nativeStorageUploads.ts");
+  assert.match(webStorage, /scopeKey: context === "chat" \? `match:\$\{matchId\}` : `profile:\$\{uploadUserId\}:\$\{context\}`/);
+  assert.match(webStorage, /const canUseMediaSdk = evaluation\.enabled && \(context === "chat" \? !!matchId : !!uploadUserId\)/);
+  assert.match(webStorage, /const path = canUseMediaSdk \? "media_sdk" : "legacy"/);
+  assert.match(webStorage, /if \(!canUseMediaSdk\)/);
+  assert.match(nativeStorage, /scopeKey: `profile:\$\{uploadUserId\}:\$\{params\.context \?\? 'profile_studio'\}`/);
+  assert.match(nativeStorage, /const canUseMediaSdk = evaluation\.enabled && !!uploadUserId/);
+  assert.match(nativeStorage, /const canUseMediaSdk = evaluation\.enabled && !!matchId/);
+  assert.match(nativeStorage, /const path = canUseMediaSdk \? 'media_sdk' : 'legacy'/);
+  assert.match(nativeStorage, /if \(!canUseMediaSdk\)/);
+
+  const webAuth = readRepoFile("src/contexts/AuthContext.tsx");
+  const nativeAuth = readRepoFile("apps/mobile/context/AuthContext.tsx");
+  const nativeLayout = readRepoFile("apps/mobile/app/_layout.tsx");
+  assert.match(webAuth, /markMediaSdkForegroundReconcile\(`web:\$\{currentUserId\}`\)/);
+  assert.match(webAuth, /shouldRunMediaSdkForegroundReconcile\(`web:\$\{currentUserId\}`\)/);
+  assert.match(nativeAuth, /markMediaSdkForegroundReconcile\(`native:\$\{currentUserId\}`\)/);
+  assert.match(nativeLayout, /const sessionUserId = session\?\.user\?\.id \?\? null/);
+  assert.match(nativeLayout, /shouldRunMediaSdkForegroundReconcile\(`native:\$\{sessionUserId \?\? 'unknown'\}`\)/);
 });
 
 test("phase 3 schema and delete contracts preserve recovery observability", () => {

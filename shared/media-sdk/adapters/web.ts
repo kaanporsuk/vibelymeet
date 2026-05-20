@@ -8,6 +8,7 @@ import {
 } from "../core/queue";
 import { createMediaTelemetry, type MediaTelemetry, type MediaTelemetrySink } from "../core/telemetry";
 import { createMediaUploadTask, type MediaTaskRunContext } from "../core/task";
+import { transitionMediaUploadState } from "../core/state-machine";
 import {
   DEFAULT_MEDIA_UPLOAD_STALE_SWEEP_GRACE_MS,
   reconcileMediaUploadQueue,
@@ -117,7 +118,34 @@ function sourceSha256ForInput(input: WebMediaUploadInput): string | null {
   return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
+function optionalStringRecordValue(input: Record<string, unknown> | null | undefined, key: string): string | null {
+  const value = input?.[key];
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function matchIdFromScopeKey(scopeKey: string | null): string | null {
+  if (!scopeKey?.startsWith("match:")) return null;
+  const matchId = scopeKey.slice("match:".length).trim();
+  return matchId || null;
+}
+
+function normalizedProfileUploadContext(value: string | null | undefined): string | null {
+  const context = value?.trim();
+  if (context === "onboarding") return "onboarding";
+  if (context === "profile_studio" || context === "self") return "profile_studio";
+  return null;
+}
+
+function profileContextFromScopeKey(scopeKey: string | null): string | null {
+  if (!scopeKey?.startsWith("profile:")) return null;
+  const parts = scopeKey.split(":");
+  if (parts.length === 2) return normalizedProfileUploadContext(parts[1]);
+  return parts.length >= 3 ? normalizedProfileUploadContext(parts.slice(2).join(":")) : null;
+}
+
 function recordForSnapshot(input: WebMediaUploadInput, snapshot: MediaUploadSnapshot): MediaUploadQueueRecord {
+  const uploadContext = optionalStringRecordValue(input.context, "uploadContext");
+  const matchId = optionalStringRecordValue(input.context, "matchId") ?? matchIdFromScopeKey(scopeKeyForInput(input));
   return {
     id: snapshot.id,
     clientRequestId: snapshot.clientRequestId,
@@ -134,6 +162,8 @@ function recordForSnapshot(input: WebMediaUploadInput, snapshot: MediaUploadSnap
       source_type: typeof File !== "undefined" && input.source instanceof File ? "file" : "blob",
       source_blob: input.source,
       mime_type: input.source.type || null,
+      upload_context: uploadContext,
+      match_id: matchId,
     },
   };
 }
@@ -202,10 +232,19 @@ function placeholderWebSourceForRecord(record: MediaUploadQueueRecord): WebMedia
 }
 
 function inputFromWebQueueRecord(record: MediaUploadQueueRecord): WebMediaUploadInput {
+  const uploadContext = optionalStringRecordValue(record.metadata, "upload_context")
+    ?? (record.family === "chat_photo" || record.family === "voice_note" ? "chat" : profileContextFromScopeKey(record.scopeKey));
+  const matchId = optionalStringRecordValue(record.metadata, "match_id") ?? matchIdFromScopeKey(record.scopeKey);
   return {
     family: record.family,
     source: placeholderWebSourceForRecord(record),
-    context: { scopeKey: record.scopeKey, rehydrated: true },
+    context: {
+      scopeKey: record.scopeKey,
+      rehydrated: true,
+      ...(uploadContext ? { uploadContext } : {}),
+      ...(matchId ? { matchId } : {}),
+      ...(typeof record.metadata?.mime_type === "string" ? { mimeType: record.metadata.mime_type } : {}),
+    },
     options: {
       clientRequestId: record.clientRequestId,
       sourceSha256: record.sourceSha256 ?? null,
@@ -330,13 +369,41 @@ function hasWebRehydrateSource(record: MediaUploadQueueRecord): boolean {
   return Boolean(typeof Blob !== "undefined" && record.metadata?.source_blob instanceof Blob && record.metadata.source_blob.size > 0);
 }
 
+async function failMissingWebRehydrateSource(options: ResolvedWebMediaSdkOptions, record: MediaUploadQueueRecord): Promise<void> {
+  const snapshot = transitionMediaUploadState(record.snapshot, {
+    type: "fail",
+    error: {
+      code: "media_rehydrate_source_missing",
+      message: "The original browser upload source is no longer available.",
+      retryable: false,
+    },
+  });
+  await options.queue.update(record.id, {
+    state: snapshot.state,
+    updatedAtMs: snapshot.updatedAtMs,
+    snapshot,
+  });
+  options.telemetry.emit({
+    name: "media_upload_rehydrate_source_missing",
+    family: record.family,
+    platform: record.snapshot.platform,
+    state: snapshot.state,
+    clientRequestId: record.clientRequestId,
+    fields: { adapter: "web" },
+  });
+}
+
 async function resumeRecoverableWebUploads(
   options: ResolvedWebMediaSdkOptions,
   activeTaskIds: Set<string>,
 ): Promise<void> {
   const records = await options.queue.list({ states: RECOVERABLE_REHYDRATE_STATES });
   for (const record of records) {
-    if (activeTaskIds.has(record.id) || !hasWebRehydrateSource(record)) continue;
+    if (activeTaskIds.has(record.id)) continue;
+    if (!hasWebRehydrateSource(record)) {
+      await failMissingWebRehydrateSource(options, record);
+      continue;
+    }
     const task = rehydrateWebUploadTask(record, options);
     activeTaskIds.add(record.id);
     task.on("state", (snapshot) => {

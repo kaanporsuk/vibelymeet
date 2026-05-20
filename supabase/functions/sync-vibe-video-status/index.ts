@@ -185,9 +185,11 @@ serve(async (req) => {
       });
     }
 
-    const body = await req.json().catch(() => ({})) as { videoId?: unknown };
+    const body = await req.json().catch(() => ({})) as { provider_object_id?: unknown; videoId?: unknown };
     const requestedVideoId =
-      typeof body.videoId === "string" && body.videoId.trim().length > 0
+      typeof body.provider_object_id === "string" && body.provider_object_id.trim().length > 0
+        ? body.provider_object_id.trim()
+        : typeof body.videoId === "string" && body.videoId.trim().length > 0
         ? body.videoId.trim()
         : currentVideoId;
 

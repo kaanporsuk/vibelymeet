@@ -34,6 +34,7 @@ import {
   hydrateNativeClientFeatureFlagCache,
   prefetchClientFeatureFlagsForUser,
 } from '@/lib/clientFeatureFlags';
+import { markMediaSdkForegroundReconcile } from '@clientShared/media-sdk';
 
 type AuthState = {
   user: User | null;
@@ -295,6 +296,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (currentUserId) {
       warmFeatureFlags(currentUserId);
+      markMediaSdkForegroundReconcile(`native:${currentUserId}`);
       reconcileMediaUploadQueues('auth_session_start');
       setEntryStateLoading(true);
       void refreshEntryState();

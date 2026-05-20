@@ -75,7 +75,7 @@ test("create-video-upload reads required Bunny Stream env names", () => {
 test("create-video-upload creates Bunny Stream object before returning TUS credentials", () => {
   assertOrder(createVideoUpload, [
     ["Bunny Stream create", "https://video.bunnycdn.com/library/${libraryId}/videos"],
-    ["TUS signature input", "const signatureInput = `${libraryId}${apiKey}${expirationTime}${videoId}`"],
+    ["TUS signature creation", "const signature = await createTusSignature(libraryId, apiKey, expirationTime, videoId)"],
     ["media session create", "\"create_media_session\""],
     ["profile activation", "\"activate_profile_vibe_video\""],
     ["successful credentials response", "repairableLifecycleState: sessionStatus !== \"uploading\""],
@@ -95,10 +95,11 @@ test("create-video-upload writes bunny video uid and uploading status through th
 });
 
 test("video-webhook maps Bunny status to ready, failed, or processing", () => {
-  assert.match(videoWebhook, /let mappedStatus = "processing"/);
+  assert.match(videoWebhook, /let mappedStatus:\s*VibeVideoUploadAttemptStatus\s*=\s*"processing"/);
   assert.match(videoWebhook, /if \(Status === 3\) mappedStatus = "ready"/);
   assert.match(videoWebhook, /if \(Status === 4\) mappedStatus = "ready"/);
   assert.match(videoWebhook, /if \(Status === 5\) mappedStatus = "failed"/);
+  assert.match(videoWebhook, /if \(Status === 8\) mappedStatus = "failed"/);
 });
 
 test("video-webhook updates active media session or legacy profile by Bunny video UID", () => {
@@ -123,8 +124,10 @@ test("delete-vibe-video clears local profile state and hands remote deletion to 
 test("upload-image uses Bunny Storage and the photos path convention", () => {
   assert.match(uploadImage, /BUNNY_STORAGE_ZONE/);
   assert.match(uploadImage, /BUNNY_STORAGE_API_KEY/);
-  assert.match(uploadImage, /https:\/\/\$\{storageHostname\}\/\$\{storageZone\}\/\$\{storagePath\}/);
-  assert.match(uploadImage, /const storagePath = `photos\/\$\{user\.id\}\/\$\{uniqueId\}\.\$\{ext\}`/);
+  assert.match(uploadImage, /https:\/\/\$\{storageHostname\}\/\$\{storageZone\}\/\$\{uploadPath\}/);
+  assert.match(uploadImage, /const storagePath = context === "chat" && matchId[\s\S]+photos\/match-\$\{matchId\}\/\$\{user\.id\}\/req-\$\{requestPathToken\}\.\$\{ext\}/);
+  assert.match(uploadImage, /: `photos\/\$\{user\.id\}\/req-\$\{requestPathToken\}\.\$\{ext\}`/);
+  assert.match(uploadImage, /\.slice\(0, 32\)/);
   assert.match(uploadImage, /MEDIA_FAMILIES\.PROFILE_PHOTO/);
 });
 
@@ -132,18 +135,20 @@ test("upload-event-cover uses Bunny Storage and the events path convention", () 
   assert.match(uploadEventCover, /\.from\("user_roles"\)[\s\S]{0,160}\.eq\("role", "admin"\)/);
   assert.match(uploadEventCover, /BUNNY_STORAGE_ZONE/);
   assert.match(uploadEventCover, /BUNNY_STORAGE_API_KEY/);
-  assert.match(uploadEventCover, /https:\/\/storage\.bunnycdn\.com\/\$\{storageZone\}\/\$\{storagePath\}/);
-  assert.match(uploadEventCover, /const folder = eventId \? `events\/\$\{eventId\}` : `events\/covers`/);
-  assert.match(uploadEventCover, /const coverUrl = `https:\/\/\$\{cdnHostname\}\/\$\{storagePath\}`/);
+  assert.match(uploadEventCover, /https:\/\/storage\.bunnycdn\.com\/\$\{storageZone\}\/\$\{uploadPath\}/);
+  assert.match(uploadEventCover, /const folder = eventId \? `events\/\$\{eventId\}` : ["']events\/covers["']/);
+  assert.match(uploadEventCover, /url: bunnyCdnUrl\(uploadPath\)/);
+  assert.match(uploadEventCover, /\.slice\(0, 32\)/);
 });
 
 test("upload-voice uses Bunny Storage and the voice path convention", () => {
   assert.match(uploadVoice, /conversation_id is required/);
   assert.match(uploadVoice, /BUNNY_STORAGE_ZONE/);
   assert.match(uploadVoice, /BUNNY_STORAGE_API_KEY/);
-  assert.match(uploadVoice, /https:\/\/storage\.bunnycdn\.com\/\$\{storageZone\}\/\$\{storagePath\}/);
-  assert.match(uploadVoice, /const folder = `voice\/\$\{conversationId\.trim\(\)\}`/);
-  assert.match(uploadVoice, /const audioUrl = bunnyCdnUrl\(storagePath\)/);
+  assert.match(uploadVoice, /https:\/\/storage\.bunnycdn\.com\/\$\{storageZone\}\/\$\{uploadPath\}/);
+  assert.match(uploadVoice, /const storagePath = `voice\/match-\$\{conversationId\}\/\$\{user\.id\}\/req-\$\{requestPathToken\}\.\$\{sniffedMedia\.extension\}`/);
+  assert.match(uploadVoice, /const audioUrl = bunnyCdnUrl\(uploadPath\)/);
+  assert.match(uploadVoice, /\.slice\(0, 32\)/);
 });
 
 test("URL resolvers support confirmed Bunny Storage prefixes and preserve legacy/Supabase paths", () => {
@@ -211,7 +216,7 @@ test("no new Bunny env vars, native modules, or Supabase migration were added fo
   ].join("\n");
   const bunnyEnvNames = Array.from(
     new Set(
-      [...envSource.matchAll(/(?:Deno\.env\.get\(["']|optionalEnv\(["']|import\.meta\.env\??\.|process\.env\.)([A-Z0-9_]+)/g)]
+      [...envSource.matchAll(/(?:Deno\.env\.get\(["']|optionalEnv\(["']|requireEnv\(["']|import\.meta\.env\??\.|process\.env\.)([A-Z0-9_]+)/g)]
         .map((match) => match[1])
         .filter((name) => name.includes("BUNNY")),
     ),
@@ -220,6 +225,7 @@ test("no new Bunny env vars, native modules, or Supabase migration were added fo
   assert.deepEqual(bunnyEnvNames, [
     "BUNNY_CDN_HOSTNAME",
     "BUNNY_CDN_PATH_PREFIX",
+    "BUNNY_CHAT_STREAM_LIBRARY_ID",
     "BUNNY_STORAGE_API_KEY",
     "BUNNY_STORAGE_ZONE",
     "BUNNY_STREAM_API_KEY",

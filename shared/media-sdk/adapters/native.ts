@@ -8,6 +8,7 @@ import {
 } from "../core/queue";
 import { createMediaTelemetry, type MediaTelemetry, type MediaTelemetrySink } from "../core/telemetry";
 import { createMediaUploadTask, type MediaTaskRunContext } from "../core/task";
+import { transitionMediaUploadState } from "../core/state-machine";
 import {
   DEFAULT_MEDIA_UPLOAD_STALE_SWEEP_GRACE_MS,
   reconcileMediaUploadQueue,
@@ -69,6 +70,7 @@ export type NativeAsyncStorageLike = {
 
 export type NativeFileSystemLike = {
   getInfoAsync(uri: string): Promise<{ exists: boolean; isDirectory?: boolean; size?: number | null }>;
+  deleteAsync?: (uri: string, options?: { idempotent?: boolean }) => Promise<void>;
 };
 
 export type NativeImageManipulatorLike = {
@@ -121,6 +123,7 @@ type ResolvedNativeMediaSdkOptions = {
   staleSweepGracePeriodMs: number;
   delegates: NativeLegacyMediaDelegates;
   photoTranscoder: NativePhotoTranscoder | null;
+  cleanupPreparedPhotoFiles: boolean;
   platform: "native" | "ios" | "android";
 };
 
@@ -150,7 +153,34 @@ function sourceSha256ForInput(input: NativeMediaUploadInput): string | null {
   return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
+function optionalStringRecordValue(input: Record<string, unknown> | null | undefined, key: string): string | null {
+  const value = input?.[key];
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function matchIdFromScopeKey(scopeKey: string | null): string | null {
+  if (!scopeKey?.startsWith("match:")) return null;
+  const matchId = scopeKey.slice("match:".length).trim();
+  return matchId || null;
+}
+
+function normalizedProfileUploadContext(value: string | null | undefined): string | null {
+  const context = value?.trim();
+  if (context === "onboarding") return "onboarding";
+  if (context === "profile_studio" || context === "self") return "profile_studio";
+  return null;
+}
+
+function profileContextFromScopeKey(scopeKey: string | null): string | null {
+  if (!scopeKey?.startsWith("profile:")) return null;
+  const parts = scopeKey.split(":");
+  if (parts.length === 2) return normalizedProfileUploadContext(parts[1]);
+  return parts.length >= 3 ? normalizedProfileUploadContext(parts.slice(2).join(":")) : null;
+}
+
 function recordForSnapshot(input: NativeMediaUploadInput, snapshot: MediaUploadSnapshot): MediaUploadQueueRecord {
+  const uploadContext = optionalStringRecordValue(input.context, "uploadContext");
+  const matchId = optionalStringRecordValue(input.context, "matchId") ?? matchIdFromScopeKey(scopeKeyForInput(input));
   return {
     id: snapshot.id,
     clientRequestId: snapshot.clientRequestId,
@@ -167,6 +197,8 @@ function recordForSnapshot(input: NativeMediaUploadInput, snapshot: MediaUploadS
       uri_scheme: input.source.uri.includes(":") ? input.source.uri.split(":")[0] : "path",
       source_uri: input.source.uri,
       mime_type: input.source.mimeType ?? null,
+      upload_context: uploadContext,
+      match_id: matchId,
     },
   };
 }
@@ -201,6 +233,17 @@ async function inputWithPreparedPhotoSource(
   assertNativeUriSource(preparedSource);
   if (preparedSource === input.source) return input;
   return { ...input, source: preparedSource };
+}
+
+async function cleanupPreparedNativePhotoSource(
+  originalInput: NativeMediaUploadInput,
+  preparedInput: NativeMediaUploadInput | null,
+  options: ResolvedNativeMediaSdkOptions,
+): Promise<void> {
+  if (!options.cleanupPreparedPhotoFiles || !isPhotoUploadInput(originalInput) || !preparedInput) return;
+  const preparedUri = preparedInput.source.uri;
+  if (!preparedUri || preparedUri === originalInput.source.uri) return;
+  await options.fileSystem?.deleteAsync?.(preparedUri, { idempotent: true }).catch(() => {});
 }
 
 export class NativeAsyncStorageMediaUploadQueue implements MediaUploadQueue {
@@ -410,10 +453,19 @@ function sourceFromNativeQueueRecord(record: MediaUploadQueueRecord): NativeLoca
 }
 
 function inputFromNativeQueueRecord(record: MediaUploadQueueRecord): NativeMediaUploadInput {
+  const uploadContext = optionalStringRecordValue(record.metadata, "upload_context")
+    ?? (record.family === "chat_photo" || record.family === "voice_note" ? "chat" : profileContextFromScopeKey(record.scopeKey));
+  const matchId = optionalStringRecordValue(record.metadata, "match_id") ?? matchIdFromScopeKey(record.scopeKey);
   return {
     family: record.family,
     source: sourceFromNativeQueueRecord(record),
-    context: { scopeKey: record.scopeKey, rehydrated: true },
+    context: {
+      scopeKey: record.scopeKey,
+      rehydrated: true,
+      ...(uploadContext ? { uploadContext } : {}),
+      ...(matchId ? { matchId } : {}),
+      ...(typeof record.metadata?.mime_type === "string" ? { mimeType: record.metadata.mime_type } : {}),
+    },
     options: {
       clientRequestId: record.clientRequestId,
       sourceSha256: record.sourceSha256 ?? null,
@@ -441,8 +493,13 @@ function createNativeUploadTask(input: NativeMediaUploadInput, options: Resolved
         return;
       }
 
-      const delegateInput = await inputWithPreparedPhotoSource(input, options);
-      await delegate(delegateInput, controls);
+      let delegateInput: NativeMediaUploadInput | null = null;
+      try {
+        delegateInput = await inputWithPreparedPhotoSource(input, options);
+        await delegate(delegateInput, controls);
+      } finally {
+        await cleanupPreparedNativePhotoSource(input, delegateInput, options);
+      }
       if (controls.snapshot().state === "uploading") {
         controls.dispatch({ type: "upload_complete" });
       }
@@ -494,8 +551,13 @@ function rehydrateNativeUploadTask(record: MediaUploadQueueRecord, options: Reso
         });
         return;
       }
-      const delegateInput = await inputWithPreparedPhotoSource(input, options);
-      await delegate(delegateInput, controls);
+      let delegateInput: NativeMediaUploadInput | null = null;
+      try {
+        delegateInput = await inputWithPreparedPhotoSource(input, options);
+        await delegate(delegateInput, controls);
+      } finally {
+        await cleanupPreparedNativePhotoSource(input, delegateInput, options);
+      }
       if (controls.snapshot().state === "uploading") {
         controls.dispatch({ type: "upload_complete" });
       }
@@ -530,13 +592,41 @@ function hasNativeRehydrateSource(record: MediaUploadQueueRecord): boolean {
   return Boolean(uri && !/^data:/i.test(uri));
 }
 
+async function failMissingNativeRehydrateSource(options: ResolvedNativeMediaSdkOptions, record: MediaUploadQueueRecord): Promise<void> {
+  const snapshot = transitionMediaUploadState(record.snapshot, {
+    type: "fail",
+    error: {
+      code: "media_rehydrate_source_missing",
+      message: "The original native upload source is no longer available.",
+      retryable: false,
+    },
+  });
+  await options.queue.update(record.id, {
+    state: snapshot.state,
+    updatedAtMs: snapshot.updatedAtMs,
+    snapshot,
+  });
+  options.telemetry.emit({
+    name: "media_upload_rehydrate_source_missing",
+    family: record.family,
+    platform: record.snapshot.platform,
+    state: snapshot.state,
+    clientRequestId: record.clientRequestId,
+    fields: { adapter: "native" },
+  });
+}
+
 async function resumeRecoverableNativeUploads(
   options: ResolvedNativeMediaSdkOptions,
   activeTaskIds: Set<string>,
 ): Promise<void> {
   const records = await options.queue.list({ states: RECOVERABLE_REHYDRATE_STATES });
   for (const record of records) {
-    if (activeTaskIds.has(record.id) || !hasNativeRehydrateSource(record)) continue;
+    if (activeTaskIds.has(record.id)) continue;
+    if (!hasNativeRehydrateSource(record)) {
+      await failMissingNativeRehydrateSource(options, record);
+      continue;
+    }
     const task = rehydrateNativeUploadTask(record, options);
     activeTaskIds.add(record.id);
     task.on("state", (snapshot) => {
@@ -557,10 +647,11 @@ async function resumeRecoverableNativeUploads(
 }
 
 function withNativeDefaults(options: NativeMediaSdkOptions): ResolvedNativeMediaSdkOptions {
+  const fileSystem = options.fileSystem ?? null;
   return {
     queue: options.queue ?? new NativeAsyncStorageMediaUploadQueue(options.asyncStorage),
     asyncStorage: options.asyncStorage ?? null,
-    fileSystem: options.fileSystem ?? null,
+    fileSystem,
     imageManipulator: options.imageManipulator ?? null,
     audio: options.audio ?? {},
     telemetry: options.telemetry ?? createMediaTelemetry(options.telemetrySinks),
@@ -569,8 +660,12 @@ function withNativeDefaults(options: NativeMediaSdkOptions): ResolvedNativeMedia
     staleSweepGracePeriodMs: options.staleSweepGracePeriodMs ?? DEFAULT_MEDIA_UPLOAD_STALE_SWEEP_GRACE_MS,
     delegates: options.delegates ?? {},
     photoTranscoder: options.photoTranscoder === undefined
-      ? (source, _input, imageManipulator) => nativeMediaTranscodeHooks.preparePhotoForUpload(source, { imageManipulator })
+      ? (source, _input, imageManipulator) => nativeMediaTranscodeHooks.preparePhotoForUpload(source, {
+          imageManipulator,
+          fileSystem,
+        })
       : options.photoTranscoder,
+    cleanupPreparedPhotoFiles: options.photoTranscoder === undefined,
     platform: options.platform ?? "native",
   };
 }
@@ -645,6 +740,7 @@ export const nativeMediaTranscodeHooks = {
     source: NativeLocalUriSource,
     inputOrOptions?: NativePhotoUploadInput | NativeImageManipulatorLike | {
       imageManipulator?: NativeImageManipulatorLike | null;
+      fileSystem?: Pick<NativeFileSystemLike, "deleteAsync"> | null;
       maxEdge?: number;
       compress?: number;
       format?: string;
@@ -652,7 +748,13 @@ export const nativeMediaTranscodeHooks = {
     imageManipulatorArg?: NativeImageManipulatorLike | null,
   ): Promise<NativeLocalUriSource> {
     assertNativeUriSource(source);
-    const options: { imageManipulator?: NativeImageManipulatorLike | null; maxEdge?: number; compress?: number; format?: string } =
+    const options: {
+      imageManipulator?: NativeImageManipulatorLike | null;
+      fileSystem?: Pick<NativeFileSystemLike, "deleteAsync"> | null;
+      maxEdge?: number;
+      compress?: number;
+      format?: string;
+    } =
       isNativeImageManipulatorLike(inputOrOptions) || isNativePhotoUploadInputLike(inputOrOptions)
         ? {}
         : inputOrOptions ?? {};
@@ -673,12 +775,20 @@ export const nativeMediaTranscodeHooks = {
       format: "png",
     };
     const actions = resizeActionsForNativePhoto(source, maxEdge);
+    const cleanupProbeUri = async (uri: string | null | undefined): Promise<void> => {
+      if (!uri || uri === source.uri) return;
+      await options.fileSystem?.deleteAsync?.(uri, { idempotent: true }).catch(() => {});
+    };
     const result = hasNativePhotoDimensions(source)
       ? await imageManipulator.manipulateAsync(source.uri, actions, manipulationOptions)
       : await (async () => {
           const probe = await imageManipulator.manipulateAsync(source.uri, [], dimensionProbeOptions);
           const followUpActions = resizeActionsForNativePhoto(probe, maxEdge);
-          return imageManipulator.manipulateAsync(source.uri, followUpActions, manipulationOptions);
+          try {
+            return await imageManipulator.manipulateAsync(source.uri, followUpActions, manipulationOptions);
+          } finally {
+            await cleanupProbeUri(probe.uri);
+          }
         })();
 
     return {

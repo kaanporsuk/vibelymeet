@@ -146,8 +146,8 @@ function buildSnapshotFromSummary(settings: SettingsRow[], summary: SnapshotSumm
       failed_job_total: failedJobTotal,
       orphan_like_total: orphanLikeTotal,
       notes: [
-        "The process-media-delete-jobs dry-run only previews existing queued pending/failed jobs.",
-        "This admin snapshot uses aggregate SQL to include promotable soft_deleted assets without scanning raw rows in the Edge Function.",
+        "The process-media-delete-jobs dry-run previews queued pending/failed jobs, promotable soft_deleted assets, and uploaded orphan candidates without mutating them.",
+        "This admin snapshot uses aggregate SQL for readiness counts without scanning raw rows in the Edge Function.",
         "verification_selfie remains worker-disabled and is excluded from rollout recommendations.",
       ],
     },
@@ -540,6 +540,36 @@ Deno.serve(async (req) => {
         failed_jobs: opsJobs.failed_jobs,
         stale_claimed_jobs: opsJobs.stale_claimed_jobs,
       });
+    }
+
+    if (action === "worker_dry_run") {
+      const batchSize = typeof body.batch_size === "number" && Number.isFinite(body.batch_size)
+        ? Math.min(Math.max(1, Math.trunc(body.batch_size)), 200)
+        : 20;
+      const family = typeof body.family === "string" && body.family.trim()
+        ? body.family.trim()
+        : null;
+
+      const { data: preview, error: previewError } = await auth.admin.rpc(
+        "preview_media_delete_worker_run",
+        { p_limit: batchSize, p_family_filter: family },
+      );
+
+      if (previewError) {
+        console.error("worker_dry_run preview RPC failed:", previewError.message);
+        return json({ success: false, error: previewError.message }, 500);
+      }
+
+      const audit = await logAdminAction(
+        auth.admin,
+        auth.userId,
+        "media_delete_worker_dry_run_previewed",
+        "media_delete_jobs",
+        family,
+        { batch_size: batchSize, preview },
+      );
+
+      return json({ success: true, dry_run: true, preview, ...audit });
     }
 
     // ── Mutation: requeue_stale ───────────────────────────────────────────────

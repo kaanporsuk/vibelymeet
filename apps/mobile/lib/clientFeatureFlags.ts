@@ -11,6 +11,8 @@ import {
   hydrateClientFeatureFlagCache,
   prefetchClientFeatureFlags,
   shouldRefreshClientFeatureFlag,
+  failClosedUploadEvaluation,
+  withUploadFlagTimeout,
   type ClientFeatureFlagEvaluation,
   type ClientFeatureFlagKey,
   type ClientFeatureFlagStorage,
@@ -35,7 +37,6 @@ const nativeFeatureFlagStorage: ClientFeatureFlagStorage = {
   removeItem: (key) => AsyncStorage.removeItem(key),
 };
 
-const UPLOAD_FLAG_EVALUATION_TIMEOUT_MS = 1_500;
 let hydratePromise: Promise<void> | null = null;
 
 export function hydrateNativeClientFeatureFlagCache(): Promise<void> {
@@ -123,48 +124,14 @@ export function clearClientFeatureFlagCacheForTests(): void {
   clearCoreClientFeatureFlagCache();
 }
 
-function failClosedUploadEvaluation(flag: ClientFeatureFlagKey): ClientFeatureFlagEvaluation {
-  const now = Date.now();
-  return {
-    flag,
-    enabled: false,
-    source: 'error',
-    bucket: null,
-    rolloutBps: null,
-    userIdBucket: null,
-    fetchedAtMs: now,
-    expiresAtMs: now,
-  };
-}
-
-function withUploadFlagTimeout<T>(promise: Promise<T>): Promise<T> {
-  return new Promise((resolve, reject) => {
-    const timeoutId = setTimeout(
-      () => reject(new Error('client_feature_flag_upload_timeout')),
-      UPLOAD_FLAG_EVALUATION_TIMEOUT_MS,
-    );
-    promise.then(
-      (value) => {
-        clearTimeout(timeoutId);
-        resolve(value);
-      },
-      (error) => {
-        clearTimeout(timeoutId);
-        reject(error);
-      },
-    );
-  });
-}
-
 export async function evaluateClientFeatureFlagForUpload(
   flag: ClientFeatureFlagKey,
+  options: { userId?: string | null } = {},
 ): Promise<ClientFeatureFlagEvaluation> {
   try {
-    const {
-      data: { user },
-    } = await withUploadFlagTimeout(supabase.auth.getUser());
-    if (!user?.id) return failClosedUploadEvaluation(flag);
-    return await withUploadFlagTimeout(fetchClientFeatureFlag(flag, user.id, true));
+    const userId = options.userId ?? (await supabase.auth.getSession()).data.session?.user?.id ?? null;
+    if (!userId) return failClosedUploadEvaluation(flag);
+    return await withUploadFlagTimeout(fetchClientFeatureFlag(flag, userId, true));
   } catch {
     return failClosedUploadEvaluation(flag);
   }

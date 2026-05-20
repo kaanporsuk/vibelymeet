@@ -31,6 +31,13 @@ export {
   DEFAULT_MEDIA_UPLOAD_STALE_SWEEP_GRACE_MS,
   reconcileMediaUploadQueue,
 } from "./core/reconcile";
+export { createMediaClientRequestId } from "./core/client-request-id";
+export {
+  clearMediaSdkForegroundReconcileForTests,
+  markMediaSdkForegroundReconcile,
+  MEDIA_SDK_FOREGROUND_RECONCILE_MIN_MS,
+  shouldRunMediaSdkForegroundReconcile,
+} from "./core/reconcile-foreground";
 export type {
   MediaUploadQueueReconciler,
   MediaUploadReconcileResult,

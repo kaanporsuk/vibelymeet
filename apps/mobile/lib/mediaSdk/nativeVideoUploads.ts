@@ -3,6 +3,7 @@ import * as FileSystem from 'expo-file-system/legacy';
 import { Platform } from 'react-native';
 import {
   createMediaUploadPathTelemetryFields,
+  createMediaClientRequestId,
   createNativeMediaSdk,
   MEDIA_UPLOAD_PATH_EVENT_NAMES,
   waitForMediaUploadTaskTerminal,
@@ -10,6 +11,7 @@ import {
   type NativeMediaSdk,
   type NativeVideoUploadInput,
 } from '@clientShared/media-sdk';
+import { failClosedUploadEvaluation } from '@clientShared/featureFlags/clientFeatureFlagCore';
 import { trackEvent } from '@/lib/analytics';
 import { evaluateClientFeatureFlagForUpload, type ClientFeatureFlagEvaluation } from '@/lib/clientFeatureFlags';
 import {
@@ -40,25 +42,6 @@ let mediaSdk: NativeMediaSdk | null = null;
 
 function optionalString(value: unknown): string | undefined {
   return typeof value === 'string' ? value : undefined;
-}
-
-function createClientRequestId(): string {
-  if (globalThis.crypto?.randomUUID) return globalThis.crypto.randomUUID();
-  return `media-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-}
-
-function failClosedVideoEvaluation(): ClientFeatureFlagEvaluation {
-  const now = Date.now();
-  return {
-    flag: 'media_v2_video',
-    enabled: false,
-    source: 'error',
-    bucket: null,
-    rolloutBps: null,
-    userIdBucket: null,
-    fetchedAtMs: now,
-    expiresAtMs: now,
-  };
 }
 
 function trackMediaUploadStarted(params: {
@@ -292,7 +275,7 @@ export function startNativeVibeVideoUpload(params: {
   uploadSource?: VibeVideoUploadSource;
 }): void {
   const context = params.context ?? 'profile_studio';
-  const clientRequestId = createClientRequestId();
+  const clientRequestId = createMediaClientRequestId();
   void startNativeVibeVideoUploadAfterGate(params, context, clientRequestId);
 }
 
@@ -310,7 +293,7 @@ async function startNativeVibeVideoUploadAfterGate(
   try {
     evaluation = await evaluateClientFeatureFlagForUpload('media_v2_video');
   } catch {
-    evaluation = failClosedVideoEvaluation();
+    evaluation = failClosedUploadEvaluation('media_v2_video');
   }
   const path = evaluation.enabled ? 'media_sdk' : 'legacy';
   trackMediaUploadStarted({
@@ -350,12 +333,12 @@ async function startNativeVibeVideoUploadAfterGate(
 export async function uploadAndPublishChatVibeClipWithMediaSdk(
   params: NativeChatVibeClipSdkUploadParams,
 ): Promise<ChatVibeClipStreamUploadResult> {
-  const clientRequestId = params.clientRequestId ?? createClientRequestId();
+  const clientRequestId = params.clientRequestId ?? createMediaClientRequestId();
   let evaluation: ClientFeatureFlagEvaluation;
   try {
     evaluation = await evaluateClientFeatureFlagForUpload('media_v2_video');
   } catch {
-    evaluation = failClosedVideoEvaluation();
+    evaluation = failClosedUploadEvaluation('media_v2_video');
   }
   const path = evaluation.enabled ? 'media_sdk' : 'legacy';
   trackMediaUploadStarted({

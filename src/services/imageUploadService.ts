@@ -1,3 +1,5 @@
+import { createMediaClientRequestId } from "@clientShared/media-sdk";
+
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 
 export type UploadImageContext = "onboarding" | "profile_studio" | "chat";
@@ -5,25 +7,16 @@ export type UploadImageContext = "onboarding" | "profile_studio" | "chat";
 export type UploadImageToBunnyResult = {
   path: string;
   sessionId: string | null;
+  url?: string | null;
+  assetId?: string | null;
+  contentSha256?: string | null;
+  receiptId?: string | null;
 };
 
 const uploadClientRequestIds = new WeakMap<File, Map<string, string>>();
 
 export function newUploadClientRequestId(): string {
-  const cryptoApi = globalThis.crypto;
-  if (cryptoApi?.randomUUID) return cryptoApi.randomUUID();
-  if (cryptoApi?.getRandomValues) {
-    const bytes = new Uint8Array(16);
-    cryptoApi.getRandomValues(bytes);
-    bytes[6] = (bytes[6] & 0x0f) | 0x40;
-    bytes[8] = (bytes[8] & 0x3f) | 0x80;
-    const hex = [...bytes].map((byte) => byte.toString(16).padStart(2, "0")).join("");
-    return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
-  }
-  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (ch) => {
-    const n = (Math.random() * 16) | 0;
-    return (ch === "x" ? n : (n & 0x3) | 0x8).toString(16);
-  });
+  return createMediaClientRequestId();
 }
 
 export function clientRequestIdForUploadFile(file: File, scope: string): string {
@@ -42,6 +35,10 @@ export function clientRequestIdForUploadFile(file: File, scope: string): string 
   return next;
 }
 
+/**
+ * @deprecated Use uploadImageWithMediaSdk so durable queueing, reconciliation,
+ * and receipt telemetry remain active. This remains as the SDK delegate.
+ */
 export async function uploadImageToBunny(
   file: File,
   accessToken: string,
@@ -62,7 +59,16 @@ export async function uploadImageToBunny(
     formData.append("client_request_id", stableClientRequestId);
   }
 
-  let data: { success?: boolean; path?: string; sessionId?: string | null; error?: string };
+  let data: {
+    success?: boolean;
+    path?: string;
+    url?: string | null;
+    assetId?: string | null;
+    contentSha256?: string | null;
+    receiptId?: string | null;
+    sessionId?: string | null;
+    error?: string;
+  };
   try {
     const res = await fetch(
       `${SUPABASE_URL}/functions/v1/upload-image`,
@@ -100,5 +106,9 @@ export async function uploadImageToBunny(
   return {
     path: data.path,
     sessionId: data.sessionId ?? null,
+    url: data.url ?? null,
+    assetId: data.assetId ?? null,
+    contentSha256: data.contentSha256 ?? null,
+    receiptId: data.receiptId ?? null,
   };
 }

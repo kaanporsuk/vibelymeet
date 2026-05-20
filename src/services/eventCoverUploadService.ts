@@ -8,8 +8,10 @@ type UploadEventCoverResponse = {
   path?: string;
   url?: string;
   assetId?: string | null;
+  contentSha256?: string | null;
   referenceId?: string | null;
   receiptId?: string | null;
+  sessionId?: string | null;
 };
 
 type UploadEventCoverOptions = {
@@ -34,7 +36,15 @@ export async function uploadEventCoverToBunny(
   accessToken: string,
   eventId?: string,
   options: UploadEventCoverOptions = {},
-): Promise<{ url: string; path: string | null; assetId: string | null }> {
+): Promise<{
+  url: string;
+  path: string | null;
+  assetId: string | null;
+  contentSha256: string | null;
+  referenceId: string | null;
+  receiptId: string | null;
+  sessionId: string | null;
+}> {
   const formData = new FormData();
   formData.append("file", file);
   if (eventId) {
@@ -78,5 +88,9 @@ export async function uploadEventCoverToBunny(
     url: data.url,
     path: data.path ?? null,
     assetId: data.assetId ?? null,
+    contentSha256: data.contentSha256 ?? null,
+    referenceId: data.referenceId ?? null,
+    receiptId: data.receiptId ?? null,
+    sessionId: data.sessionId ?? null,
   };
 }

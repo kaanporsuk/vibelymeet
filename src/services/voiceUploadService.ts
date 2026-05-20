@@ -6,14 +6,30 @@ type UploadVoiceResponse = {
   path?: string;
   url?: string;
   assetId?: string | null;
+  contentSha256?: string | null;
+  receiptId?: string | null;
+  sessionId?: string | null;
 };
 
+export type UploadVoiceToBunnyResult = {
+  path: string;
+  url: string | null;
+  assetId: string | null;
+  contentSha256: string | null;
+  receiptId: string | null;
+  sessionId: string | null;
+};
+
+/**
+ * @deprecated Use uploadVoiceWithMediaSdk so durable queueing, reconciliation,
+ * and receipt telemetry remain active. This remains as the SDK delegate.
+ */
 export async function uploadVoiceToBunny(
   blob: Blob,
   accessToken: string,
   conversationId: string,
   clientRequestId?: string,
-): Promise<string> {
+): Promise<UploadVoiceToBunnyResult> {
   const formData = new FormData();
 
   // Determine correct MIME type
@@ -62,10 +78,16 @@ export async function uploadVoiceToBunny(
     throw new Error(data.error || "Voice upload failed");
   }
 
-  const mediaRef = data.path || data.url;
-  if (!mediaRef) {
+  if (!data.path && !data.url) {
     throw new Error("Voice upload failed");
   }
 
-  return mediaRef;
+  return {
+    path: data.path || data.url || "",
+    url: data.url ?? null,
+    assetId: data.assetId ?? null,
+    contentSha256: data.contentSha256 ?? null,
+    receiptId: data.receiptId ?? null,
+    sessionId: data.sessionId ?? null,
+  };
 }
