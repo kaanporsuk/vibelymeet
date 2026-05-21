@@ -8,6 +8,10 @@ const phase2Migration = readFileSync(
   join(root, "supabase/migrations/20260521203000_video_date_phase2_transaction_engine.sql"),
   "utf8",
 );
+const phase2CronTrimMigration = readFileSync(
+  join(root, "supabase/migrations/20260522005000_video_date_phase2_trim_worker_cron_secret.sql"),
+  "utf8",
+);
 const config = readFileSync(join(root, "supabase/config.toml"), "utf8");
 const outboxDrainer = readFileSync(
   join(root, "supabase/functions/video-date-outbox-drainer/index.ts"),
@@ -112,6 +116,11 @@ test("Phase 2 workers can be scheduled through Vault-backed pg_cron without hard
   assert.match(phase2Migration, /pg_extension WHERE extname = 'pg_cron'/);
   assert.match(phase2Migration, /pg_extension WHERE extname = 'pg_net'/);
   assert.match(phase2Migration, /vault\.decrypted_secrets/);
+  assert.match(phase2Migration, /'Authorization', 'Bearer ' \|\| trim\(\(select decrypted_secret from vault\.decrypted_secrets where name = 'cron_secret'\)\)/);
+  assert.doesNotMatch(phase2Migration, /'Authorization', 'Bearer ' \|\| \(select decrypted_secret from vault\.decrypted_secrets where name = 'cron_secret'\)/);
+  assert.match(phase2CronTrimMigration, /cron\.unschedule\(jobid\)[\s\S]+video-date-outbox-drainer[\s\S]+video-date-deadline-finalizer/);
+  assert.match(phase2CronTrimMigration, /trim\(\(select decrypted_secret from vault\.decrypted_secrets where name = 'project_url' limit 1\)\)/);
+  assert.match(phase2CronTrimMigration, /'Authorization', 'Bearer ' \|\| trim\(\(select decrypted_secret from vault\.decrypted_secrets where name = 'cron_secret' limit 1\)\)/);
   assert.match(phase2Migration, /missing Vault project_url or cron_secret/);
   assert.match(phase2Migration, /EXCEPTION[\s\S]+WHEN OTHERS THEN[\s\S]+worker cron scheduling skipped/);
 });

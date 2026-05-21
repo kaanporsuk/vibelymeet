@@ -1,6 +1,7 @@
 import { supabase } from "@/integrations/supabase/client";
 import {
   normalizeVideoDateSnapshot,
+  normalizeVideoDateSnapshotInvokeError,
   VIDEO_DATE_SNAPSHOT_FUNCTION_NAME,
   type VideoDateSnapshot,
 } from "@clientShared/matching/videoDateSnapshot";
@@ -17,7 +18,7 @@ export async function fetchVideoDateSnapshot(
       body: { session_id: sessionId, include_token: options.includeToken !== false },
     });
     if (error) {
-      return { ok: false, error: "snapshot_function_failed", retryable: true };
+      return await normalizeVideoDateSnapshotInvokeError(error);
     }
     return normalizeVideoDateSnapshot(data);
   } catch {
