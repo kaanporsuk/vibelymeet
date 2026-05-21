@@ -184,6 +184,17 @@ verify_jwt = false
 [functions.video-date-deadline-finalizer]
 verify_jwt = false
 
+# Daily webhook reconciliation endpoint. Gateway JWT stays off because Daily
+# signs requests with X-Webhook-Signature/X-Webhook-Timestamp; the function
+# fail-closes without DAILY_WEBHOOK_SECRET and stores no Daily tokens.
+[functions.video-date-daily-webhook]
+verify_jwt = false
+
+# V4 Daily orphan-room cleanup (Bearer CRON_SECRET; checks DB state and Daily
+# presence before destructive delete).
+[functions.video-date-orphan-room-cleanup]
+verify_jwt = false
+
 [functions.send-email]
 verify_jwt = false
 
