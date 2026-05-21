@@ -72,6 +72,10 @@ test("audit hardening dispatches recovery alerts without exposing them to client
   assert.match(dispatcher, /shouldSendSentry/);
   assert.match(dispatcher, /shouldSendSlack/);
   assert.match(dispatcher, /claimDispatchChannel/);
+  assert.match(dispatcher, /DISPATCH_CLAIM_STALE_MS = 15 \* 60 \* 1000/);
+  assert.match(dispatcher, /reclaimStaleDispatchClaims/);
+  assert.match(dispatcher, /isStaleDispatchClaim/);
+  assert.match(dispatcher, /stale_claim_reclaim_error/);
   assert.match(dispatcher, /\.is\(sentColumn, null\)[\s\S]+\.is\(claimedColumn, null\)/);
   assert.match(dispatcher, /finishDispatchChannel/);
   assert.match(dispatcher, /retried/);

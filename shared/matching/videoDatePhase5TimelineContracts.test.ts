@@ -285,6 +285,8 @@ test("native ready keeps ambiguous active snapshots on canonical truth fallback"
 
   assert.match(nativeReadyRedirect, /recovery\.action === ['"]lobby['"] && recovery\.reason !== ['"]not_date_ready['"]/);
   assert.match(nativeReadyRedirect, /standalone_snapshot_lobby_deferred_to_truth/);
+  assert.match(nativeReadyRedirect, /initial_snapshot_\$\{recovery\.reason\}_nav_suppressed/);
+  assert.match(nativeReadyRedirect, /if \(navigated\) return/);
 });
 
 test("Phase 5 contracts are included in the v4 verification script", () => {

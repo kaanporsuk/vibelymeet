@@ -1,7 +1,5 @@
--- Reschedule Phase 2 Video Date workers with trimmed Vault values. The
--- original scheduler validated trimmed secrets but built Authorization from
--- the raw Vault value, so leading/trailing whitespace could make pg_cron calls
--- fail CRON_SECRET auth.
+-- Forward fixes for review follow-ups after the Phase 2 cron trim and alert
+-- dispatch claim migrations had already been applied to cloud.
 
 DO $$
 DECLARE
@@ -69,10 +67,22 @@ BEGIN
         $cron$
       );
     ELSE
-      RAISE NOTICE 'video-date phase2 workers not rescheduled: missing Vault project_url or cron_secret';
+      RAISE NOTICE 'video-date phase2 workers not rescheduled with btrim: missing Vault project_url or cron_secret';
     END IF;
   END IF;
 EXCEPTION
   WHEN OTHERS THEN
-    RAISE NOTICE 'video-date phase2 worker cron trim reschedule skipped: %', SQLERRM;
+    RAISE NOTICE 'video-date phase2 worker cron btrim reschedule skipped: %', SQLERRM;
 END $$;
+
+UPDATE public.video_date_recovery_alert_dispatches
+SET sentry_claimed_at = NULL
+WHERE sentry_sent_at IS NULL
+  AND sentry_claimed_at IS NOT NULL
+  AND sentry_claimed_at <= now() - interval '15 minutes';
+
+UPDATE public.video_date_recovery_alert_dispatches
+SET slack_claimed_at = NULL
+WHERE slack_sent_at IS NULL
+  AND slack_claimed_at IS NOT NULL
+  AND slack_claimed_at <= now() - interval '15 minutes';
