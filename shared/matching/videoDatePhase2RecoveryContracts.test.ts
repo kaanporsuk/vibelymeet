@@ -99,7 +99,13 @@ test("PR 2.6 Daily orphan-room cleanup is cron-protected and presence-gated befo
   assert.match(orphanCleanup, /safeEqual/);
   assert.match(orphanCleanup, /const VIDEO_DATE_ROOM_RE = \/\^date-\[0-9a-f\]\{32\}\$\/;/);
   assert.match(orphanCleanup, /DEFAULT_ROOM_LIST_MAX_PAGES = 10/);
+  assert.match(orphanCleanup, /DAILY_ROOM_LIST_PAGE_LIMIT = 100/);
   assert.match(orphanCleanup, /pagesScanned < maxPages/);
+  assert.doesNotMatch(orphanCleanup, /while \(rooms\.length < limit && pagesScanned < maxPages\)/);
+  assert.match(orphanCleanup, /listDailyVideoDateRooms\(maxPages\)/);
+  assert.match(orphanCleanup, /compareDailyRoomsOldestFirst/);
+  assert.match(orphanCleanup, /deleteAttempts >= batchSize/);
+  assert.match(orphanCleanup, /SESSION_ROOM_LOOKUP_CHUNK_SIZE/);
   assert.match(orphanCleanup, /max_pages/);
   assert.equal(orphanCleanup.includes("!isTerminalSession(row) && isTerminalSession(existing)"), true);
   assert.match(orphanCleanup, /url\.searchParams\.set\("ending_before", endingBefore\)/);

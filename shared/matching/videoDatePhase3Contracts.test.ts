@@ -8,6 +8,10 @@ const migration = readFileSync(
   join(root, "supabase/migrations/20260521223000_video_date_phase3_transition_rpcs.sql"),
   "utf8",
 );
+const forfeitReasonMigration = readFileSync(
+  join(root, "supabase/migrations/20260522010000_video_date_phase3_forfeit_preserve_transition_reason.sql"),
+  "utf8",
+);
 const transitionCommands = readFileSync(
   join(root, "shared/matching/videoDateTransitionCommands.ts"),
   "utf8",
@@ -65,6 +69,17 @@ test("PR 3.1-3.3 transition RPCs wrap legacy state machines with v4 command idem
   assert.match(migration, /public\.ready_gate_transition\(p_session_id, 'forfeit', v_reason\)/);
   assert.match(migration, /public\.video_date_transition\(p_session_id, 'vibe', NULL\)/);
   assert.doesNotMatch(migration, /public\.video_date_transition\(p_session_id, 'vibe', 'continue_handshake_v2'\)/);
+
+  const forfeit = functionBody("video_session_forfeit_v2");
+  assert.match(forfeit, /v_result_reason text/);
+  assert.match(forfeit, /NULLIF\(v_transition->>'reason', ''\)/);
+  assert.match(forfeit, /NULLIF\(v_transition->>'error', ''\)/);
+  assert.match(forfeit, /'reason', v_result_reason/);
+  assert.doesNotMatch(forfeit, /'reason', v_reason,[\s\S]+session_seq/);
+  assert.match(forfeitReasonMigration, /CREATE OR REPLACE FUNCTION public\.video_session_forfeit_v2/);
+  assert.match(forfeitReasonMigration, /v_result_reason text/);
+  assert.match(forfeitReasonMigration, /NULLIF\(v_transition->>'reason', ''\)/);
+  assert.match(forfeitReasonMigration, /'reason', v_result_reason/);
 });
 
 test("Phase 3 SQL function blocks have one clean signature and declaration set each", () => {
