@@ -312,6 +312,25 @@ export default function ReadyGateScreen() {
               await reconcileFromCanonicalTruth(`initial_snapshot_${recovery.reason}`);
               return;
             }
+            if (recovery.action === 'survey') {
+              setTransitioning(true);
+              const navigated = navigateToDateSessionGuarded({
+                sessionId: recovery.sessionId,
+                pathname,
+                mode: 'replace',
+                onSuppressed: ({ reason: suppressReason, target }) => {
+                  rcBreadcrumb(RC_CATEGORY.readyGate, 'standalone_snapshot_survey_nav_suppressed', {
+                    session_id: recovery.sessionId,
+                    reason: suppressReason,
+                    target: String(target),
+                  });
+                },
+              });
+              if (!navigated) {
+                setTransitioning(false);
+              }
+              return;
+            }
             if (recovery.action === 'home' && recovery.reason === 'missing_event') {
               explainInvalidToTabs();
               return;
@@ -406,7 +425,7 @@ export default function ReadyGateScreen() {
       }
     };
     void load();
-  }, [reconcileFromCanonicalTruth, sessionId, showDialog, snapshotV2.enabled, user?.id]);
+  }, [pathname, reconcileFromCanonicalTruth, sessionId, showDialog, snapshotV2.enabled, user?.id]);
 
   useEffect(() => {
     if (isBothReady && sessionId) {

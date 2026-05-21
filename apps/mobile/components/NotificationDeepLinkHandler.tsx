@@ -122,12 +122,12 @@ async function reconcileHrefWithRegistration(
   if (options?.snapshotRecoveryV2 === true) {
     const snapshot = await fetchVideoDateSnapshot(sid, { includeToken: false });
     const recovery = resolveVideoDateSnapshotRecovery(snapshot, { expectedSessionId: sid });
-    if (recovery.action === 'date') {
+    if (recovery.action === 'date' || recovery.action === 'survey') {
       markVideoDateEntryPipelineStarted(recovery.sessionId);
       rcBreadcrumb(RC_CATEGORY.notifDeepLink, 'date_route_snapshot_recovery', {
         session_id: recovery.sessionId,
         event_id: recovery.eventId,
-        decision: 'navigate_date',
+        decision: recovery.action === 'survey' ? 'navigate_survey' : 'navigate_date',
         reason: recovery.reason,
         routed_to: 'date',
       });
@@ -167,8 +167,8 @@ async function reconcileHrefWithRegistration(
       });
       return tabsRootHref();
     }
-    // Retryable failures, queued rescue, and ended/verdict states fall through to
-    // the legacy truth path so pending surveys and queue drain recovery stay intact.
+    // Retryable failures, queued rescue, and non-survey terminal states fall
+    // through to legacy truth so queue drain and stale-ended recovery stay intact.
   }
 
   const { data: vs } = await supabase
