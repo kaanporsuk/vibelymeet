@@ -199,6 +199,28 @@ serve(async (req) => {
       status: upload.status,
       published_message_id: upload.published_message_id ?? null,
     });
+    if (upload.recovery_dismissed_at && !upload.published_message_id) {
+      logCompleteTransition("dismissed_upload_publish_rejected", {
+        upload_id: upload.id,
+        client_request_id: upload.client_request_id,
+        match_id: upload.match_id,
+        sender_id: upload.sender_id,
+        provider_object_id: upload.provider_object_id,
+        media_asset_id: upload.media_asset_id ?? null,
+        status: upload.status,
+        recovery_dismissed_at: upload.recovery_dismissed_at,
+      });
+      return jsonResponse(req, {
+        success: false,
+        error: "upload_dismissed",
+        status: upload.status,
+        upload_id: upload.id,
+        match_id: upload.match_id,
+        client_request_id: upload.client_request_id,
+        provider_object_id: upload.provider_object_id,
+        recovery_dismissed_at: upload.recovery_dismissed_at,
+      }, { status: 409 });
+    }
     const bunny = await getBunnyStatus(upload.provider_object_id);
     if (!bunny.providerReachable) {
       recordProviderUnavailable({

@@ -1162,6 +1162,7 @@ export default function ChatThreadScreen() {
     itemsForMatch,
     runVibeClipRecoverySweep,
     staleVibeClipUploadsForMatch,
+    dismissStaleVibeClipUpload,
     reconcileWithServerIds,
     sessionUploadSummary,
     retryAllFailed,
@@ -3124,10 +3125,40 @@ export default function ChatThreadScreen() {
                 recoveryDecision,
                 outboxItemId ? (strategy) => retryVibeClipUpload(outboxItemId, strategy) : undefined,
                 () => {
-                  if (outboxItemId) remove(outboxItemId);
-                  if (item.serverRecoveryUploadId) {
-                    setDismissedServerVibeClipRecoveryIds((prev) => new Set(prev).add(item.serverRecoveryUploadId!));
+                  const serverRecoveryUploadId = item.serverRecoveryUploadId;
+                  if (serverRecoveryUploadId) {
+                    void (async () => {
+                      const dismissResult = await dismissStaleVibeClipUpload(serverRecoveryUploadId);
+                      if (!screenMountedRef.current || exitingRef.current) return;
+                      if (!dismissResult) {
+                        showAppDialog({
+                          title: 'Couldn’t clear upload',
+                          message: 'Try again in a moment before recording a new clip.',
+                          variant: 'warning',
+                          primaryAction: { label: 'OK', onPress: () => {} },
+                        });
+                        return;
+                      }
+                      if (outboxItemId) {
+                        remove(outboxItemId);
+                      }
+                      setDismissedServerVibeClipRecoveryIds((prev) => new Set(prev).add(serverRecoveryUploadId));
+                      if (dismissResult === 'already_published') {
+                        await refreshThreadAfterVibeClipRecoverySweep().catch(() => undefined);
+                        if (!screenMountedRef.current || exitingRef.current) return;
+                        showAppDialog({
+                          title: 'Clip already sent',
+                          message: 'The chat has been refreshed with your sent clip.',
+                          variant: 'info',
+                          primaryAction: { label: 'OK', onPress: () => {} },
+                        });
+                        return;
+                      }
+                      openVideoMessageOptions();
+                    })();
+                    return;
                   }
+                  if (outboxItemId) remove(outboxItemId);
                   openVideoMessageOptions();
                 },
                 (trigger, decision) => {

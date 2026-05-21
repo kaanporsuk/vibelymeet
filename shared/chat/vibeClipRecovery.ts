@@ -2,6 +2,8 @@ export type VibeClipUploadStatus = "uploading" | "processing" | "ready" | "faile
 
 export type VibeClipRecoveryResumeStrategy = "tus_offset" | "reissue_credentials";
 
+export type VibeClipRecoveryDismissResult = "dismissed" | "already_published";
+
 export type VibeClipRecoveryTelemetryOutcome =
   | "hidden"
   | "resumable"
@@ -21,11 +23,13 @@ export type MediaUploadSuspendedRecoveryOutcome =
 export type VibeClipServerUpload = {
   id: string;
   matchId: string;
+  otherUserId?: string | null;
   clientRequestId: string;
   status: VibeClipUploadStatus;
   providerObjectId: string | null;
   expiresAt: string | null;
   updatedAt: string | null;
+  recoveryDismissedAt?: string | null;
   publishedMessageId?: string | null;
   durationMs?: number | null;
   aspectRatio?: number | null;

@@ -25,6 +25,7 @@ import { getSessionUploadSummary, type SessionUploadSummary } from '../../../../
 import {
   mediaUploadSuspendedRecoveryTelemetry,
   type MediaUploadSuspendedRecoveryOutcome,
+  type VibeClipRecoveryDismissResult,
   type VibeClipRecoveryResumeStrategy,
   type VibeClipServerUpload,
   type VibeClipUploadStatus,
@@ -47,11 +48,18 @@ type ChatVibeClipUploadSweepRow = {
   provider_object_id: string | null;
   expires_at: string | null;
   updated_at: string | null;
+  recovery_dismissed_at?: string | null;
   published_message_id?: string | null;
   duration_ms?: number | null;
   aspect_ratio?: number | null;
   source_bytes?: number | null;
   mime_type?: string | null;
+};
+
+type MatchPeerRow = {
+  id: string;
+  profile_id_1: string | null;
+  profile_id_2: string | null;
 };
 
 type ChatVibeClipUploadSweepQuery = {
@@ -77,6 +85,7 @@ type ChatOutboxContextValue = {
   retry: (itemId: string) => void;
   retryAllFailed: () => void;
   retryVibeClipUpload: (clientRequestId: string, resumeStrategy?: VibeClipRecoveryResumeStrategy | null) => void;
+  dismissStaleVibeClipUpload: (uploadId: string) => Promise<VibeClipRecoveryDismissResult | false>;
   remove: (itemId: string) => void;
   itemsForMatch: (matchId: string) => ChatOutboxItem[];
   runVibeClipRecoverySweep: (trigger: VibeClipRecoverySweepTrigger, matchId?: string | null) => Promise<void>;
@@ -117,6 +126,7 @@ function recoveryAttentionCountFor(
     if (needsRecoveryAttention(item)) keys.add(item.id);
   }
   for (const upload of staleUploads) {
+    if (upload.recoveryDismissedAt) continue;
     keys.add(upload.clientRequestId || upload.id);
   }
   return keys.size;
@@ -131,12 +141,42 @@ function rowToVibeClipServerUpload(row: ChatVibeClipUploadSweepRow): VibeClipSer
     providerObjectId: row.provider_object_id,
     expiresAt: row.expires_at,
     updatedAt: row.updated_at,
+    recoveryDismissedAt: row.recovery_dismissed_at ?? null,
     publishedMessageId: row.published_message_id ?? null,
     durationMs: row.duration_ms ?? null,
     aspectRatio: row.aspect_ratio ?? null,
     sourceBytes: row.source_bytes ?? null,
     mimeType: row.mime_type ?? null,
   };
+}
+
+async function attachOtherUserIdsToStaleUploads(
+  uploads: VibeClipServerUpload[],
+  userId: string,
+): Promise<VibeClipServerUpload[]> {
+  const matchIds = Array.from(new Set(uploads.map((upload) => upload.matchId).filter(Boolean)));
+  if (matchIds.length === 0) return uploads;
+
+  const { data, error } = await supabase
+    .from('matches')
+    .select('id, profile_id_1, profile_id_2')
+    .in('id', matchIds);
+  if (error || !Array.isArray(data)) return uploads;
+
+  const peerByMatchId = new Map<string, string | null>();
+  for (const row of data as MatchPeerRow[]) {
+    const peerId = row.profile_id_1 === userId
+      ? row.profile_id_2
+      : row.profile_id_2 === userId
+        ? row.profile_id_1
+        : null;
+    peerByMatchId.set(row.id, peerId);
+  }
+
+  return uploads.map((upload) => ({
+    ...upload,
+    otherUserId: peerByMatchId.get(upload.matchId) ?? upload.otherUserId ?? null,
+  }));
 }
 
 function isEligibleToSend(item: ChatOutboxItem, online: boolean): boolean {
@@ -313,6 +353,43 @@ export function ChatOutboxProvider({ children }: { children: React.ReactNode }) 
     );
   }, []);
 
+  const dismissStaleVibeClipUpload = useCallback(async (uploadId: string): Promise<VibeClipRecoveryDismissResult | false> => {
+    if (!userId) return false;
+    const id = uploadId.trim();
+    if (!id) return false;
+    const trackDismissFailure = () => {
+      trackVibeClipEvent('clip_recovery_status', {
+        trigger: 'manual_discard',
+        outcome: 'query_failed',
+        upload_id: id,
+        latency_ms: 0,
+      });
+    };
+    let data: unknown = null;
+    let error: unknown = null;
+    try {
+      const result = await supabase.functions.invoke('dismiss-chat-vibe-clip-upload', {
+        body: {
+          upload_id: id,
+          reason: 'user_discard_send_again',
+        },
+      });
+      data = result.data;
+      error = result.error;
+    } catch {
+      trackDismissFailure();
+      return false;
+    }
+    const response = data as { success?: boolean; already_published?: boolean } | null;
+    const success = !error && response?.success === true;
+    if (!success) {
+      trackDismissFailure();
+      return false;
+    }
+    setStaleVibeClipUploads((prev) => prev.filter((upload) => upload.id !== id));
+    return response.already_published ? 'already_published' : 'dismissed';
+  }, [userId]);
+
   const remove = useCallback((itemId: string) => {
     const toCleanup: string[] = [];
     processingAbortControllersRef.current.get(itemId)?.abort();
@@ -373,11 +450,12 @@ export function ChatOutboxProvider({ children }: { children: React.ReactNode }) 
       })
         .from('chat_vibe_clip_uploads')
         .select(
-          'id, match_id, client_request_id, status, provider_object_id, expires_at, updated_at, published_message_id, duration_ms, aspect_ratio, source_bytes, mime_type',
+          'id, match_id, client_request_id, status, provider_object_id, expires_at, updated_at, recovery_dismissed_at, published_message_id, duration_ms, aspect_ratio, source_bytes, mime_type',
         )
         .eq('sender_id', userId)
         .in('status', statuses)
         .is('published_message_id', null)
+        .is('recovery_dismissed_at', null)
         .lt('updated_at', staleBefore);
       if (matchId) query = query.eq('match_id', matchId);
       return query.order('updated_at', { ascending: true }).limit(limit);
@@ -456,9 +534,10 @@ export function ChatOutboxProvider({ children }: { children: React.ReactNode }) 
         publishedMessageId: synced?.messageId ?? upload.publishedMessageId,
       });
     }
+    const stillStuckWithPeers = await attachOtherUserIdsToStaleUploads(stillStuck, userId);
     if (rows.length > 0) {
-      const stuckCount = stillStuck.filter((upload) => upload.status !== 'failed').length;
-      for (const upload of stillStuck) {
+      const stuckCount = stillStuckWithPeers.filter((upload) => upload.status !== 'failed').length;
+      for (const upload of stillStuckWithPeers) {
         const recoveryOutcome: MediaUploadSuspendedRecoveryOutcome =
           upload.status === 'failed' ? 'failed' : 'stuck';
         trackVibeClipEvent('media_upload_suspended_recovery', mediaUploadSuspendedRecoveryTelemetry({
@@ -490,13 +569,17 @@ export function ChatOutboxProvider({ children }: { children: React.ReactNode }) 
     setStaleVibeClipUploads((prev) => {
       const nextById = new Map<string, VibeClipServerUpload>();
       for (const upload of prev) {
+        if (!matchId) {
+          if (failedTopUpQueryFailed && upload.status === 'failed') nextById.set(upload.id, upload);
+          continue;
+        }
         if (matchId && upload.matchId === matchId) {
           if (failedTopUpQueryFailed && upload.status === 'failed') nextById.set(upload.id, upload);
           continue;
         }
         nextById.set(upload.id, upload);
       }
-      for (const upload of stillStuck) nextById.set(upload.id, upload);
+      for (const upload of stillStuckWithPeers) nextById.set(upload.id, upload);
       return Array.from(nextById.values()).sort((a, b) => {
         const at = new Date(a.updatedAt ?? 0).getTime();
         const bt = new Date(b.updatedAt ?? 0).getTime();
@@ -773,6 +856,7 @@ export function ChatOutboxProvider({ children }: { children: React.ReactNode }) 
       retry,
       retryAllFailed,
       retryVibeClipUpload,
+      dismissStaleVibeClipUpload,
       remove,
       itemsForMatch,
       runVibeClipRecoverySweep,
@@ -789,6 +873,7 @@ export function ChatOutboxProvider({ children }: { children: React.ReactNode }) 
       retry,
       retryAllFailed,
       retryVibeClipUpload,
+      dismissStaleVibeClipUpload,
       remove,
       itemsForMatch,
       runVibeClipRecoverySweep,

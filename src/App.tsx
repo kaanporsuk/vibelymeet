@@ -5,10 +5,10 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { queryClient } from "@/lib/queryClient";
 import { BrowserRouter, Routes, Route, useLocation, Navigate, useNavigate } from "react-router-dom";
-import { AlertTriangle, WifiOff } from "lucide-react";
+import { AlertCircle, AlertTriangle, WifiOff } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { OfflineBanner } from "@/components/connectivity/OfflineBanner";
-import { lazy, Suspense, useEffect, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { NotificationProvider } from "./contexts/NotificationContext";
 import { SessionHydrationProvider } from "./contexts/SessionHydrationContext";
@@ -54,6 +54,24 @@ import {
   myProfileQueryKey,
   profileLiveCountsQueryKey,
 } from "@/services/profileService";
+
+const WEB_UPLOAD_ATTENTION_TOAST_SEEN_PREFIX = "vibelymeet:web-upload-attention-toast:v1:";
+
+function hasSeenWebUploadAttentionToast(attentionKey: string): boolean {
+  try {
+    return localStorage.getItem(`${WEB_UPLOAD_ATTENTION_TOAST_SEEN_PREFIX}${attentionKey}`) === "1";
+  } catch {
+    return false;
+  }
+}
+
+function markWebUploadAttentionToastSeen(attentionKey: string): void {
+  try {
+    localStorage.setItem(`${WEB_UPLOAD_ATTENTION_TOAST_SEEN_PREFIX}${attentionKey}`, "1");
+  } catch {
+    // Storage can be unavailable in private browsing; per-mount de-dupe still applies.
+  }
+}
 
 const Index = lazyWithPreload(routeLoaders.index);
 const Auth = lazyWithPreload(routeLoaders.auth);
@@ -200,13 +218,40 @@ const WebUploadRecoveryNotifier = () => {
   const navigate = useNavigate();
   const lastAttentionKeyRef = useRef<string>("");
   const hiddenWithActiveUploadRef = useRef(false);
+  const [snoozedAttentionKey, setSnoozedAttentionKey] = useState("");
+  const [discoveryToastKey, setDiscoveryToastKey] = useState("");
 
   const firstAttentionItem = items.find((item) => item.payload.kind !== "text" && item.state === "failed");
   const firstStaleUpload = staleVibeClipUploads[0] ?? null;
+  const attentionIds = useMemo(() => {
+    const ids = new Map<string, string>();
+    for (const item of items) {
+      if (item.payload.kind !== "text" && item.state === "failed") ids.set(item.id, `${item.id}:local:${item.updatedAtMs}`);
+    }
+    for (const upload of staleVibeClipUploads) {
+      if (upload.recoveryDismissedAt) continue;
+      const id = upload.clientRequestId || upload.id;
+      if (!ids.has(id)) ids.set(id, `${id}:server:${upload.status}:${upload.updatedAt ?? ""}`);
+    }
+    return Array.from(ids.values()).sort();
+  }, [items, staleVibeClipUploads]);
   const attentionKey =
     recoveryAttentionCount > 0
-      ? `${recoveryAttentionCount}:${firstAttentionItem?.id ?? firstStaleUpload?.id ?? "server"}`
+      ? `${recoveryAttentionCount}:${attentionIds.join("|") || "server"}`
       : "";
+  const isSnoozed = snoozedAttentionKey === attentionKey;
+  const reviewRoute = firstAttentionItem?.otherUserId
+    ? `/chat/${firstAttentionItem.otherUserId}`
+    : firstStaleUpload?.otherUserId
+      ? `/chat/${firstStaleUpload.otherUserId}`
+      : "/matches";
+  const handleReview = useCallback(() => {
+    if (attentionKey) {
+      setSnoozedAttentionKey(attentionKey);
+      setDiscoveryToastKey("");
+    }
+    navigate(reviewRoute);
+  }, [attentionKey, navigate, reviewRoute]);
   const activeUploadCount = items.filter(
     (item) =>
       item.payload.kind !== "text" &&
@@ -219,11 +264,14 @@ const WebUploadRecoveryNotifier = () => {
   useEffect(() => {
     if (!attentionKey || recoveryAttentionCount <= 0) {
       lastAttentionKeyRef.current = "";
+      setDiscoveryToastKey("");
       return;
     }
     if (lastAttentionKeyRef.current === attentionKey) return;
     lastAttentionKeyRef.current = attentionKey;
-    const route = firstAttentionItem?.otherUserId ? `/chat/${firstAttentionItem.otherUserId}` : "/matches";
+    if (hasSeenWebUploadAttentionToast(attentionKey)) return;
+    markWebUploadAttentionToastSeen(attentionKey);
+    setDiscoveryToastKey(attentionKey);
     toast.info(
       recoveryAttentionCount === 1
         ? "1 upload needs attention"
@@ -233,11 +281,15 @@ const WebUploadRecoveryNotifier = () => {
         duration: 7000,
         action: {
           label: "Review",
-          onClick: () => navigate(route),
+          onClick: handleReview,
         },
       },
     );
-  }, [attentionKey, firstAttentionItem?.otherUserId, navigate, recoveryAttentionCount]);
+    const timeout = window.setTimeout(() => {
+      setDiscoveryToastKey((current) => current === attentionKey ? "" : current);
+    }, 7200);
+    return () => window.clearTimeout(timeout);
+  }, [attentionKey, handleReview, recoveryAttentionCount]);
 
   useEffect(() => {
     const onVisibility = () => {
@@ -256,7 +308,43 @@ const WebUploadRecoveryNotifier = () => {
     return () => document.removeEventListener("visibilitychange", onVisibility);
   }, [activeUploadCount]);
 
-  return null;
+  if (recoveryAttentionCount <= 0 || (!isSnoozed && discoveryToastKey === attentionKey)) return null;
+
+  const attentionLabel = recoveryAttentionCount === 1
+    ? "1 upload needs attention"
+    : `${recoveryAttentionCount} uploads need attention`;
+
+  return (
+    <div
+      role="region"
+      aria-label={attentionLabel}
+      aria-live="polite"
+      className="fixed left-3 right-3 top-[calc(env(safe-area-inset-top)+0.75rem)] z-[70] mx-auto flex max-w-md items-center gap-3 rounded-lg border border-cyan-400/30 bg-background/95 px-3 py-2 text-foreground shadow-xl shadow-black/30 backdrop-blur-md"
+    >
+      <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-cyan-500/15 text-cyan-300">
+        <AlertCircle className="h-4 w-4" aria-hidden="true" />
+      </span>
+      <div className="min-w-0 flex-1">
+        <p className="truncate text-sm font-semibold">
+          {attentionLabel}
+        </p>
+        {!isSnoozed ? (
+          <p className="truncate text-xs text-muted-foreground">
+            Review or recover from the saved upload queue.
+          </p>
+        ) : null}
+      </div>
+      <Button
+        size="sm"
+        variant="secondary"
+        className="h-8 px-3"
+        aria-label="Review upload needing attention"
+        onClick={handleReview}
+      >
+        Review
+      </Button>
+    </div>
+  );
 };
 
 const RoutePrefetcher = () => {
