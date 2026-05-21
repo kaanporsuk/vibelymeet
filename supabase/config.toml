@@ -3,6 +3,9 @@ project_id = "schdyxcunwcvddlcshwd"
 [functions.daily-room]
 verify_jwt = true
 
+[functions.video-date-snapshot]
+verify_jwt = true
+
 [functions.delete-account]
 verify_jwt = true
 

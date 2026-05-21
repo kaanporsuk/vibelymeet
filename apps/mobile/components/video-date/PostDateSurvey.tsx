@@ -19,6 +19,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { typography, spacing, radius, shadows } from '@/constants/theme';
 import Colors from '@/constants/Colors';
 import { useColorScheme } from '@/components/useColorScheme';
+import { useFeatureFlag } from '@/hooks/useFeatureFlag';
 import { trackEvent } from '@/lib/analytics';
 import { submitNativePostDateOutboxItem } from '@/lib/postDateOutbox/execute';
 import { LobbyPostDateEvents } from '@clientShared/analytics/lobbyToPostDateJourney';
@@ -43,6 +44,10 @@ import {
   mapPostDateSafetyCategoryToReasonId,
 } from '../../../../shared/safety/submitUserReportRpc';
 import type { PostDateSafetyReportPayload } from '../../../../shared/postDateOutbox/types';
+import {
+  getVideoDateMicroVerdictCopy,
+  getVideoDateMicroVerdictRemainingSeconds,
+} from '../../../../shared/matching/videoDateMicroVerdict';
 
 type Props = {
   sessionId: string;
@@ -210,6 +215,7 @@ export function PostDateSurvey({
 }: Props) {
   const colorScheme = useColorScheme();
   const theme = Colors[colorScheme];
+  const microVerdictV2 = useFeatureFlag('video_date.micro_verdict_v2');
   const [step, setStep] = useState<SurveyStep>('verdict');
   const [submitting, setSubmitting] = useState(false);
   const [finishing, setFinishing] = useState(false);
@@ -248,6 +254,8 @@ export function PostDateSurvey({
   const verdictImpressionRef = useRef(false);
   const reportBeforeVerdictRef = useRef(false);
   const reportPassVerdictSavedRef = useRef(false);
+  const verdictOpenedAtMsRef = useRef(Date.now());
+  const [microVerdictNowMs, setMicroVerdictNowMs] = useState(Date.now());
 
   useEffect(() => {
     shellImpressionRef.current = false;
@@ -257,8 +265,21 @@ export function PostDateSurvey({
     queuedDrainAttemptKeyRef.current = null;
     reportBeforeVerdictRef.current = false;
     reportPassVerdictSavedRef.current = false;
+    verdictOpenedAtMsRef.current = Date.now();
+    setMicroVerdictNowMs(Date.now());
     setCelebrationData(null);
   }, [sessionId]);
+
+  useEffect(() => {
+    if (!microVerdictV2.enabled || step !== 'verdict') return undefined;
+    const interval = setInterval(() => setMicroVerdictNowMs(Date.now()), 1000);
+    return () => clearInterval(interval);
+  }, [microVerdictV2.enabled, step]);
+
+  const microVerdictRemainingSeconds = useMemo(
+    () => getVideoDateMicroVerdictRemainingSeconds(verdictOpenedAtMsRef.current, microVerdictNowMs),
+    [microVerdictNowMs],
+  );
 
   useEffect(() => {
     if (!sessionId || shellImpressionRef.current) return;
@@ -1255,6 +1276,14 @@ export function PostDateSurvey({
           <Text style={[styles.verdictSub, { color: theme.mutedForeground }]}>
             If you both choose Vibe, the match opens. Otherwise, this stays quiet.
           </Text>
+          {microVerdictV2.enabled ? (
+            <Text
+              style={[styles.microVerdictText, { color: theme.mutedForeground }]}
+              accessibilityLiveRegion="polite"
+            >
+              {getVideoDateMicroVerdictCopy(microVerdictRemainingSeconds)}
+            </Text>
+          ) : null}
 
           {verdictError ? (
             <View style={[styles.errorWrap, styles.verdictErrorWrap]}>
@@ -1441,6 +1470,14 @@ const styles = StyleSheet.create({
     lineHeight: 20,
     maxWidth: 286,
     marginBottom: spacing.xl,
+  },
+  microVerdictText: {
+    ...typography.caption,
+    textAlign: 'center',
+    lineHeight: 18,
+    maxWidth: 286,
+    marginTop: -spacing.md,
+    marginBottom: spacing.lg,
   },
   verdictErrorWrap: {
     marginTop: -spacing.sm,

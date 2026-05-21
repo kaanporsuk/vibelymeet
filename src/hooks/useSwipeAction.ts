@@ -137,6 +137,8 @@ interface UseSwipeActionOptions {
    */
   onMatchQueued?: (videoSessionId: string) => void;
   onVideoSessionQueued?: (videoSessionId: string) => void;
+  canAttemptPairing?: boolean;
+  readinessBlockMessage?: string | null;
 }
 
 /**
@@ -151,6 +153,8 @@ export const useSwipeAction = ({
   onVideoSessionReady,
   onMatchQueued,
   onVideoSessionQueued,
+  canAttemptPairing = true,
+  readinessBlockMessage,
 }: UseSwipeActionOptions) => {
   const { user } = useUserProfile();
   const { session } = useAuth();
@@ -161,6 +165,12 @@ export const useSwipeAction = ({
       if (!user?.id || !eventId) return null;
       if (!navigator.onLine) {
         toast.error("You're offline — swipes need a connection");
+        return null;
+      }
+      if (swipeType !== "pass" && !canAttemptPairing) {
+        toast.info(readinessBlockMessage ?? "Camera and microphone access are needed before you can pair.", {
+          duration: 4200,
+        });
         return null;
       }
 
@@ -423,7 +433,17 @@ export const useSwipeAction = ({
         setIsProcessing(false);
       }
     },
-    [user?.id, eventId, session, onMatch, onVideoSessionReady, onMatchQueued, onVideoSessionQueued]
+    [
+      user?.id,
+      eventId,
+      session,
+      onMatch,
+      onVideoSessionReady,
+      onMatchQueued,
+      onVideoSessionQueued,
+      canAttemptPairing,
+      readinessBlockMessage,
+    ]
   );
 
   return { swipe, isProcessing };

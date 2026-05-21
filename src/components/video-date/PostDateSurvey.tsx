@@ -13,6 +13,7 @@ import MatchSuccessModal from "@/components/match/MatchSuccessModal";
 import { cn } from "@/lib/utils";
 import { useUserProfile } from "@/contexts/AuthContext";
 import { useEventStatus } from "@/hooks/useEventStatus";
+import { useFeatureFlag } from "@/hooks/useFeatureFlag";
 import { useEventLifecycle } from "@/hooks/useEventLifecycle";
 import { useMatchQueue } from "@/hooks/useMatchQueue";
 import { supabase } from "@/integrations/supabase/client";
@@ -36,6 +37,10 @@ import {
 import {
   mapPostDateSafetyCategoryToReasonId,
 } from "@clientShared/safety/submitUserReportRpc";
+import {
+  getVideoDateMicroVerdictCopy,
+  getVideoDateMicroVerdictRemainingSeconds,
+} from "@clientShared/matching/videoDateMicroVerdict";
 
 interface PostDateSurveyProps {
   isOpen: boolean;
@@ -106,6 +111,7 @@ export const PostDateSurvey = ({
   const navigate = useNavigate();
   const { user } = useUserProfile();
   const { setStatus } = useEventStatus({ eventId });
+  const microVerdictV2 = useFeatureFlag("video_date.micro_verdict_v2");
   const [step, setStep] = useState<SurveyStep>("verdict");
   const [showEventEnded, setShowEventEnded] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -126,9 +132,13 @@ export const PostDateSurvey = ({
   const queuedNavigationStartedRef = useRef(false);
   const reportBeforeVerdictRef = useRef(false);
   const reportPassVerdictSavedRef = useRef(false);
+  const verdictOpenedAtMsRef = useRef(Date.now());
+  const [microVerdictNowMs, setMicroVerdictNowMs] = useState(Date.now());
 
   useEffect(() => {
     if (!isOpen || !sessionId) return;
+    verdictOpenedAtMsRef.current = Date.now();
+    setMicroVerdictNowMs(Date.now());
     if (surveyShellImpressionRef.current) return;
     surveyShellImpressionRef.current = true;
     trackEvent(LobbyPostDateEvents.POST_DATE_SURVEY_IMPRESSION, {
@@ -145,6 +155,17 @@ export const PostDateSurvey = ({
       outcome: "no_op",
     });
   }, [isOpen, sessionId, eventId]);
+
+  useEffect(() => {
+    if (!microVerdictV2.enabled || !isOpen || step !== "verdict") return undefined;
+    const interval = window.setInterval(() => setMicroVerdictNowMs(Date.now()), 1000);
+    return () => window.clearInterval(interval);
+  }, [isOpen, microVerdictV2.enabled, step]);
+
+  const microVerdictRemainingSeconds = useMemo(
+    () => getVideoDateMicroVerdictRemainingSeconds(verdictOpenedAtMsRef.current, microVerdictNowMs),
+    [microVerdictNowMs],
+  );
 
   useEffect(() => {
     if (!isOpen || step !== "verdict" || !sessionId) return;
@@ -951,6 +972,11 @@ export const PostDateSurvey = ({
                     onReport={handleReportFromVerdict}
                     isSubmitting={isSubmitting}
                   />
+                  {microVerdictV2.enabled && (
+                    <p className="text-center text-xs leading-relaxed text-white/[0.5]" aria-live="polite">
+                      {getVideoDateMicroVerdictCopy(microVerdictRemainingSeconds)}
+                    </p>
+                  )}
                   {verdictError && (
                     <div
                       role="alert"

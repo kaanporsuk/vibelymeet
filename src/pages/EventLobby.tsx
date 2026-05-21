@@ -11,6 +11,9 @@ import { useEventDetails, useIsRegisteredForEvent } from "@/hooks/useEventDetail
 import { useEventDeck, DeckProfile } from "@/hooks/useEventDeck";
 import { useSwipeAction } from "@/hooks/useSwipeAction";
 import { useEventStatus } from "@/hooks/useEventStatus";
+import { useFeatureFlag } from "@/hooks/useFeatureFlag";
+import { useNonBlockingVideoDateReadiness } from "@/hooks/useVideoDateReadiness";
+import { persistReadyGateSuppressionV2 } from "@/lib/videoDateReadiness";
 import { useMatchQueue } from "@/hooks/useMatchQueue";
 import { useActiveSession } from "@/hooks/useActiveSession";
 import { useEventActiveSession } from "@/contexts/SessionHydrationContext";
@@ -176,6 +179,11 @@ const EventLobby = () => {
     enabled: deckEnabled,
   });
   const { setStatus, currentStatus } = useEventStatus({ eventId, enabled: lobbySideEffectsEnabled });
+  const readinessV2 = useFeatureFlag("video_date.readiness_v2");
+  const videoDateReadiness = useNonBlockingVideoDateReadiness(
+    eventId,
+    readinessV2.enabled && lobbySideEffectsEnabled,
+  );
 
   const [searchParams, setSearchParams] = useSearchParams();
 
@@ -367,14 +375,15 @@ const EventLobby = () => {
   }, []);
 
   const suppressReadyGateSessionAfterManualExit = useCallback((sessionId: string) => {
-    readyGateManualExitSuppressUntilRef.current.set(
-      sessionId,
-      Date.now() + READY_GATE_MANUAL_EXIT_SUPPRESS_MS,
-    );
+    const suppressUntilMs = Date.now() + READY_GATE_MANUAL_EXIT_SUPPRESS_MS;
+    readyGateManualExitSuppressUntilRef.current.set(sessionId, suppressUntilMs);
+    if (readinessV2.enabled) {
+      void persistReadyGateSuppressionV2(sessionId, suppressUntilMs);
+    }
     if (activeSessionIdRef.current === sessionId) {
       clearReadyGateSession("ready_gate_manual_exit_confirmed");
     }
-  }, [clearReadyGateSession]);
+  }, [clearReadyGateSession, readinessV2.enabled]);
 
   useEffect(() => {
     if (!eventId || !event) return;
@@ -647,6 +656,8 @@ const EventLobby = () => {
   // Swipe action — show Ready Gate on immediate match
   const { swipe, isProcessing } = useSwipeAction({
     eventId: eventId || "",
+    canAttemptPairing: !readinessV2.enabled || videoDateReadiness.canAttemptPairing,
+    readinessBlockMessage: videoDateReadiness.reason,
     onVideoSessionReady: (videoSessionId) => {
       openReadyGateSession(videoSessionId, "swipe_result");
       scheduleLobbyConvergenceRefresh(videoSessionId, "swipe_result");

@@ -3,6 +3,7 @@ export type DateRoomAction =
   | "create_date_room"
   | "join_date_room"
   | "prepare_date_entry"
+  | "prepare_diagnostic_entry"
   | "prepare_solo_entry"
   | "video_date_leave";
 
@@ -32,6 +33,10 @@ export function videoDateRoomNameForSession(sessionId: string): string {
 
 export function videoDateRoomUrlForName(roomName: string, dailyDomain: string): string {
   return `https://${dailyDomain}/${roomName}`;
+}
+
+export function videoDateDiagnosticRoomNameForUser(userId: string): string {
+  return `date-diag-${userId.replace(/-/g, "").slice(0, 40)}`;
 }
 
 export function resolveCanonicalVideoDateRoom(params: {
