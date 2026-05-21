@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { normalizeVideoDateSnapshot } from "./videoDateSnapshot";
+import { normalizeVideoDateSnapshot, normalizeVideoDateSnapshotInvokeError } from "./videoDateSnapshot";
 import {
   VIDEO_DATE_DIAGNOSTIC_THROTTLE_MS,
   shouldRunVideoDateDiagnostic,
@@ -70,6 +70,7 @@ test("PR 1.1 snapshot wrapper keeps tokens in Edge only", () => {
   assert.match(webReadyRedirect, /snapshot\.eventId/);
   assert.match(webSnapshotLib, /try\s*{[\s\S]+functions\.invoke/);
   assert.match(webSnapshotLib, /include_token: options\.includeToken !== false/);
+  assert.match(webSnapshotLib, /normalizeVideoDateSnapshotInvokeError\(error\)/);
   assert.match(webSnapshotLib, /snapshot_function_failed/);
   assert.match(nativeReadyRoute, /video_date\.snapshot_v2/);
   assert.match(nativeReadyRoute, /fetchVideoDateSnapshot/);
@@ -77,7 +78,22 @@ test("PR 1.1 snapshot wrapper keeps tokens in Edge only", () => {
   assert.match(nativeReadyRoute, /snapshot\.eventId/);
   assert.match(nativeSnapshotLib, /try\s*{[\s\S]+functions\.invoke/);
   assert.match(nativeSnapshotLib, /include_token: options\.includeToken !== false/);
+  assert.match(nativeSnapshotLib, /normalizeVideoDateSnapshotInvokeError\(error\)/);
   assert.match(nativeSnapshotLib, /snapshot_function_failed/);
+});
+
+test("snapshot invoke errors preserve typed Edge function failures", async () => {
+  const typed = await normalizeVideoDateSnapshotInvokeError({
+    context: new Response(JSON.stringify({ ok: false, error: "not_participant", retryable: false }), {
+      status: 403,
+    }),
+  });
+  assert.deepEqual(typed, { ok: false, error: "not_participant", retryable: false });
+
+  const invalid = await normalizeVideoDateSnapshotInvokeError({
+    context: new Response("not json", { status: 500 }),
+  });
+  assert.deepEqual(invalid, { ok: false, error: "snapshot_function_failed", retryable: true });
 });
 
 test("PR 1.2 dedicated diagnostics and runtime readiness are wired for web and native", () => {

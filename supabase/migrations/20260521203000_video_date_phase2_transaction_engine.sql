@@ -1132,11 +1132,11 @@ BEGIN
         '* * * * *',
         $cron$
         SELECT net.http_post(
-          url := (select decrypted_secret from vault.decrypted_secrets where name = 'project_url')
+          url := trim((select decrypted_secret from vault.decrypted_secrets where name = 'project_url'))
             || '/functions/v1/video-date-outbox-drainer',
           headers := jsonb_build_object(
             'Content-Type', 'application/json',
-            'Authorization', 'Bearer ' || (select decrypted_secret from vault.decrypted_secrets where name = 'cron_secret')
+            'Authorization', 'Bearer ' || trim((select decrypted_secret from vault.decrypted_secrets where name = 'cron_secret'))
           ),
           body := jsonb_build_object('source', 'pg_cron', 'batch_size', 25)
         );
@@ -1148,11 +1148,11 @@ BEGIN
         '* * * * *',
         $cron$
         SELECT net.http_post(
-          url := (select decrypted_secret from vault.decrypted_secrets where name = 'project_url')
+          url := trim((select decrypted_secret from vault.decrypted_secrets where name = 'project_url'))
             || '/functions/v1/video-date-deadline-finalizer',
           headers := jsonb_build_object(
             'Content-Type', 'application/json',
-            'Authorization', 'Bearer ' || (select decrypted_secret from vault.decrypted_secrets where name = 'cron_secret')
+            'Authorization', 'Bearer ' || trim((select decrypted_secret from vault.decrypted_secrets where name = 'cron_secret'))
           ),
           body := jsonb_build_object('source', 'pg_cron', 'batch_size', 25)
         );

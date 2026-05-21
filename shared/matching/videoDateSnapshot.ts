@@ -99,6 +99,60 @@ export function normalizeVideoDateSnapshot(payload: unknown): VideoDateSnapshot 
   };
 }
 
+type SnapshotInvokeErrorResponseLike = {
+  clone?: () => SnapshotInvokeErrorResponseLike;
+  json?: () => Promise<unknown>;
+  text?: () => Promise<string>;
+};
+
+export async function normalizeVideoDateSnapshotInvokeError(error: unknown): Promise<VideoDateSnapshotError> {
+  const response = snapshotInvokeErrorResponse(error);
+  if (response) {
+    const payload = await readSnapshotInvokeErrorPayload(response);
+    if (payload && typeof payload === "object") {
+      const record = payload as Record<string, unknown>;
+      if (record.ok === false || typeof record.error === "string") {
+        const normalized = normalizeVideoDateSnapshot(payload);
+        if (normalized.ok === false) return normalized;
+      }
+    }
+  }
+  return { ok: false, error: "snapshot_function_failed", retryable: true };
+}
+
+function snapshotInvokeErrorResponse(error: unknown): SnapshotInvokeErrorResponseLike | null {
+  if (!error || typeof error !== "object") return null;
+  const context = (error as { context?: unknown }).context;
+  if (!context || typeof context !== "object") return null;
+  const response = context as SnapshotInvokeErrorResponseLike;
+  return typeof response.clone === "function" ||
+    typeof response.json === "function" ||
+    typeof response.text === "function"
+    ? response
+    : null;
+}
+
+async function readSnapshotInvokeErrorPayload(response: SnapshotInvokeErrorResponseLike): Promise<unknown> {
+  if (typeof response.json === "function") {
+    const readable = typeof response.clone === "function" ? response.clone() : response;
+    try {
+      return await readable.json?.();
+    } catch {
+      // Try text below when a clone is available; otherwise the body may be consumed.
+    }
+  }
+  if (typeof response.text === "function") {
+    const readable = typeof response.clone === "function" ? response.clone() : response;
+    try {
+      const text = await readable.text?.();
+      return text?.trim() ? JSON.parse(text) : null;
+    } catch {
+      return null;
+    }
+  }
+  return null;
+}
+
 function normalizeParticipant(value: unknown): VideoDateSnapshotParticipant | null {
   if (!value || typeof value !== "object") return null;
   const record = value as Record<string, unknown>;
