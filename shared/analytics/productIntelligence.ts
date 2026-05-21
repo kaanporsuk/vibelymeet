@@ -56,6 +56,7 @@ export const ProductIntelligenceEvents = {
     QUALITY_BUDGET_OBSERVED: "quality.budget_observed",
     APP_STARTUP_OBSERVED: "quality.app_startup_observed",
     VIDEO_DATE_JOIN_LATENCY_OBSERVED: "quality.video_date_join_latency_observed",
+    CHAT_SEND_LATENCY_OBSERVED: "quality.chat_send_latency_observed",
   },
   experiments: {
     ASSIGNED: "experiments.assigned",
@@ -132,6 +133,7 @@ const safeStringKeys = new Set([
   "from_status",
   "guard",
   "latency_bucket",
+  "latency_phase",
   "lifecycle",
   "match_id",
   "method",
@@ -145,6 +147,7 @@ const safeStringKeys = new Set([
   "phase",
   "plan",
   "platform",
+  "payload_kind",
   "product_id",
   "provider",
   "provider_status",
@@ -174,6 +177,7 @@ const safeStringKeys = new Set([
   "to_status",
   "transition",
   "trigger",
+  "thread_bucket",
   "variant_key",
 ]);
 

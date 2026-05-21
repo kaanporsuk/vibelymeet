@@ -8,6 +8,9 @@ interface MessageStatusProps {
   status: MessageStatusType;
   time: string;
   isMyMessage?: boolean;
+  suppressSendingIndicator?: boolean;
+  showSendingSpinner?: boolean;
+  assistiveLabel?: string;
 }
 
 const Checkmark = ({ 
@@ -60,7 +63,14 @@ const Checkmark = ({
   </motion.svg>
 );
 
-export const MessageStatus = ({ status, time, isMyMessage = true }: MessageStatusProps) => {
+export const MessageStatus = ({
+  status,
+  time,
+  isMyMessage = true,
+  suppressSendingIndicator = false,
+  showSendingSpinner = true,
+  assistiveLabel,
+}: MessageStatusProps) => {
   if (!isMyMessage) {
     return (
       <span className="text-[10px] text-muted-foreground">
@@ -69,21 +79,28 @@ export const MessageStatus = ({ status, time, isMyMessage = true }: MessageStatu
     );
   }
 
+  const quietSending = status === "sending" && suppressSendingIndicator;
+
   return (
     <div className="flex items-center gap-1.5">
       <span className="text-[10px] text-primary-foreground/70">
         {time}
       </span>
+      {quietSending && assistiveLabel ? (
+        <span className="sr-only" role="status" aria-live="polite">{assistiveLabel}</span>
+      ) : null}
       
       <div className="flex items-center">
-        {status === "sending" && (
+        {status === "sending" && !quietSending && (
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 0.85 }}
             className="flex items-center gap-1 text-primary-foreground/75"
           >
-            <span className="text-[10px] font-medium tracking-tight">Sending…</span>
-            <Loader2 className="w-3 h-3 animate-spin shrink-0" />
+            {assistiveLabel ? (
+              <span className="sr-only" role="status" aria-live="polite">{assistiveLabel}</span>
+            ) : null}
+            {showSendingSpinner ? <Loader2 className="w-3 h-3 animate-spin shrink-0" /> : null}
           </motion.div>
         )}
         

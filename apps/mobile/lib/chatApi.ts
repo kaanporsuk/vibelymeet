@@ -1,5 +1,6 @@
 import { useInfiniteQuery, useQuery, useMutation, useQueryClient, type InfiniteData, type QueryClient } from '@tanstack/react-query';
 import { useEffect, useCallback, useState, useRef } from 'react';
+import { AppState, type AppStateStatus } from 'react-native';
 import { supabase } from '@/lib/supabase';
 import { avatarUrl } from '@/lib/imageUrl';
 import { resolvePrimaryProfilePhotoPath } from '../../../shared/profilePhoto/resolvePrimaryProfilePhotoPath';
@@ -20,6 +21,7 @@ import {
 } from '../../../shared/chat/conversationListPreview';
 import type { ReactionPair } from '../../../shared/chat/messageReactionModel';
 import { threadMessagesQueryKey, type ThreadInvalidateScope } from '../../../shared/chat/queryKeys';
+import { SEND_MESSAGE_RESPONSE_TIMEOUT_MS } from '../../../shared/chat/sendMessageTransport';
 import type { DateSuggestionWithRelations } from '@/lib/useDateSuggestionData';
 import { fetchUserProfile, fetchUserProfiles, type UserProfileView } from '@/lib/fetchUserProfile';
 
@@ -593,6 +595,61 @@ export async function hydrateChatRowsForDisplay(params: {
   return collapseVibeGameMessageRows(resolvedRowsForGames, currentUserId, otherUserId, mapDbRowToChatMessage);
 }
 
+export async function patchThreadCacheFromRawMessage(params: {
+  queryClient: QueryClient;
+  otherUserId: string;
+  currentUserId: string;
+  matchId?: string | null;
+  raw: unknown;
+}): Promise<boolean> {
+  const { queryClient, otherUserId, currentUserId, matchId, raw } = params;
+  if (!otherUserId || !currentUserId) return false;
+  if (!raw || typeof raw !== 'object' || !('id' in raw)) return false;
+
+  const row = normalizeRawMessage(raw as Partial<ChatRawMessageRow> & { id: string });
+  if (matchId && row.match_id && row.match_id !== matchId) return false;
+
+  const renderableKind = toRenderableMessageKind(row.message_kind);
+  if (row.message_kind === 'vibe_game' || renderableKind === 'vibe_game_session') return false;
+
+  let hydrated: ChatMessage[];
+  try {
+    hydrated = await hydrateChatRowsForDisplay({ rows: [row], currentUserId, otherUserId });
+  } catch {
+    return false;
+  }
+  const message = hydrated[0];
+  if (!message) return false;
+
+  const key = threadMessagesQueryKey(otherUserId, currentUserId);
+  let patched = false;
+  queryClient.setQueryData<InfiniteData<ChatThreadPage>>(key, (old) => {
+    if (!old?.pages?.length) return old;
+    const pages = old.pages.map((page, pageIndex) => {
+      const existingIndex = page.messages.findIndex((m) => m.id === message.id);
+      if (existingIndex >= 0) {
+        patched = true;
+        return {
+          ...page,
+          messages: page.messages.map((m) => (m.id === message.id ? { ...m, ...message } : m)),
+        };
+      }
+      if (pageIndex === 0) {
+        patched = true;
+        const latestById = new Map<string, ChatMessage>();
+        for (const m of [...page.messages, message]) latestById.set(m.id, m);
+        return {
+          ...page,
+          messages: Array.from(latestById.values()).sort((a, b) => (a.sortAtMs ?? 0) - (b.sortAtMs ?? 0)),
+        };
+      }
+      return page;
+    });
+    return { ...old, pages };
+  });
+  return patched;
+}
+
 async function fetchDirectChatThreadPage(params: {
   otherUserId: string;
   currentUserId: string;
@@ -855,7 +912,10 @@ export async function invokeSendMessageEdge(params: {
   if (clientRequestId?.trim()) {
     body.client_request_id = clientRequestId.trim();
   }
-  const { data, error } = await supabase.functions.invoke('send-message', { body });
+  const { data, error } = await supabase.functions.invoke('send-message', {
+    body,
+    timeout: SEND_MESSAGE_RESPONSE_TIMEOUT_MS,
+  });
   if (error) await throwMappedSendMessageError(error);
   const payload = data as { success?: boolean; message?: unknown; error?: string; code?: string };
   assertSendMessagePayload(payload, 'Send failed');
@@ -876,7 +936,10 @@ export async function invokePublishVoiceMessage(params: {
     audio_duration_seconds: Math.round(params.durationSeconds),
     client_request_id: params.clientRequestId,
   };
-  const { data, error } = await supabase.functions.invoke('send-message', { body });
+  const { data, error } = await supabase.functions.invoke('send-message', {
+    body,
+    timeout: SEND_MESSAGE_RESPONSE_TIMEOUT_MS,
+  });
   if (error) await throwMappedSendMessageError(error);
   const payload = data as { success?: boolean; message?: unknown; error?: string; code?: string };
   assertSendMessagePayload(payload, 'Voice message publish failed');
@@ -919,6 +982,8 @@ export function useRealtimeMessages(opts: {
 }) {
   const { matchId, enabled, threadOtherUserId, threadCurrentUserId } = opts;
   const qc = useQueryClient();
+  const [retryNonce, setRetryNonce] = useState(0);
+  const retryCountRef = useRef(0);
   const invalidateThread = useCallback(() => {
     if (threadOtherUserId && threadCurrentUserId) {
       qc.invalidateQueries({
@@ -1015,7 +1080,16 @@ export function useRealtimeMessages(opts: {
   );
 
   useEffect(() => {
-    if (!matchId || !enabled) return;
+    if (!matchId || !enabled || !threadCurrentUserId) return;
+    let retryTimer: ReturnType<typeof setTimeout> | null = null;
+    let retryAttempted = false;
+    let disposed = false;
+    const clearRetryTimer = () => {
+      if (retryTimer) {
+        clearTimeout(retryTimer);
+        retryTimer = null;
+      }
+    };
     const channel = supabase
       .channel(`messages-${matchId}`)
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages', filter: `match_id=eq.${matchId}` }, (payload) => {
@@ -1024,9 +1098,43 @@ export function useRealtimeMessages(opts: {
       .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'messages', filter: `match_id=eq.${matchId}` }, (payload) => {
         void patchMessage('UPDATE', payload.new);
       })
-      .subscribe();
-    return () => { supabase.removeChannel(channel); };
-  }, [matchId, enabled, patchMessage]);
+      .subscribe((status) => {
+        if (disposed) return;
+        if (status === 'SUBSCRIBED') {
+          clearRetryTimer();
+          retryAttempted = false;
+          retryCountRef.current = 0;
+          invalidateThread();
+          invalidatePeripheralCaches(matchId);
+          return;
+        }
+        if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
+          invalidateThread();
+          invalidatePeripheralCaches(matchId);
+          if (!retryAttempted && retryCountRef.current < 2) {
+            retryAttempted = true;
+            retryCountRef.current += 1;
+            retryTimer = setTimeout(() => setRetryNonce((value) => value + 1), 1500);
+          }
+        }
+      });
+    return () => {
+      disposed = true;
+      clearRetryTimer();
+      supabase.removeChannel(channel);
+    };
+  }, [matchId, enabled, invalidatePeripheralCaches, invalidateThread, patchMessage, retryNonce, threadCurrentUserId]);
+
+  useEffect(() => {
+    if (!matchId || !enabled || !threadCurrentUserId) return;
+    const onAppState = (next: AppStateStatus) => {
+      if (next !== 'active') return;
+      invalidateThread();
+      invalidatePeripheralCaches(matchId);
+    };
+    const sub = AppState.addEventListener('change', onAppState);
+    return () => sub.remove();
+  }, [enabled, invalidatePeripheralCaches, invalidateThread, matchId, threadCurrentUserId]);
 }
 
 /**
@@ -1039,9 +1147,9 @@ export function useRealtimeMessages(opts: {
  * to focused chat invalidation, match archive invalidation, and polling rather than table-wide fan-out.
  * Channel `private` / `realtime.messages` policies apply to Broadcast/Presence, not Postgres Changes.
  *
- * Intentional overlap: `useRealtimeMessages` still runs in open chat for scoped `messages` query
- * invalidation; this hook only touches `unread-message-count` + `badge-count`. No feedback loop:
- * `invalidateQueries` does not emit Realtime events.
+ * Intentional overlap: `useRealtimeMessages` still runs in open chat for scoped thread repair;
+ * this hook keeps inbox badges, match lists, and lightweight profile counters fresh. No feedback
+ * loop: `invalidateQueries` does not emit Realtime events.
  */
 export function useGlobalMessagesInboxInvalidation(userId: string | null | undefined) {
   const qc = useQueryClient();
@@ -1052,6 +1160,8 @@ export function useGlobalMessagesInboxInvalidation(userId: string | null | undef
       qc.invalidateQueries({ queryKey: ['badge-count'] });
       qc.invalidateQueries({ queryKey: ['unread-home'] });
       qc.invalidateQueries({ queryKey: ['unread-home-info-bar'] });
+      qc.invalidateQueries({ queryKey: ['matches'] });
+      qc.invalidateQueries({ queryKey: ['profile-live-counts'] });
     };
     const channel = supabase
       .channel('global-messages-inbox')

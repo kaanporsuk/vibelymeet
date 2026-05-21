@@ -6,10 +6,11 @@ import {
   completePublishedChatVibeClipUpload,
   uploadAndPublishChatVibeClipToBunnyStream,
 } from "@/services/chatVibeClipStreamUploadService";
+import { SEND_MESSAGE_RESPONSE_TIMEOUT_MS } from "../../../shared/chat/sendMessageTransport";
 import { uploadAndPublishChatVibeClipWithMediaSdk } from "@/lib/mediaSdk/webVideoUploads";
 import { uploadImageWithMediaSdk, uploadVoiceWithMediaSdk } from "@/lib/mediaSdk/webStorageUploads";
 import { formatChatImageMessageContent } from "@/lib/chatMessageContent";
-import { invalidateAfterThreadMutation } from "@/hooks/useMessages";
+import { invalidateAfterThreadMutation, patchThreadCacheFromRawMessage } from "@/hooks/useMessages";
 import {
   GENERIC_UPLOAD_MIME_TYPE,
   imageMimeTypeForUpload,
@@ -48,7 +49,6 @@ function isBunnyStreamPlaybackRef(value: string | null | undefined): value is st
 }
 
 const BLOCKED_MESSAGE_COPY = "You can't message this person.";
-
 type SendMessagePayload = {
   success?: boolean;
   message?: unknown;
@@ -103,7 +103,10 @@ async function invokeSendMessageEdge(params: {
     client_request_id: params.clientRequestId.trim(),
   };
 
-  const { data, error } = await supabase.functions.invoke("send-message", { body });
+  const { data, error } = await supabase.functions.invoke("send-message", {
+    body,
+    timeout: SEND_MESSAGE_RESPONSE_TIMEOUT_MS,
+  });
   if (error) {
     captureSupabaseError("send-message", error);
     await throwMappedSendMessageError(error);
@@ -127,7 +130,10 @@ async function invokePublishVoiceMessage(params: {
     client_request_id: params.clientRequestId,
   };
 
-  const { data, error } = await supabase.functions.invoke("send-message", { body });
+  const { data, error } = await supabase.functions.invoke("send-message", {
+    body,
+    timeout: SEND_MESSAGE_RESPONSE_TIMEOUT_MS,
+  });
   if (error) {
     captureSupabaseError("publish-voice-message", error);
     await throwMappedSendMessageError(error);
@@ -142,11 +148,17 @@ export async function executeWebOutboxItem(
   queryClient: QueryClient,
   onUploadProgress?: (fraction: number) => void,
   options: { signal?: AbortSignal | null } = {},
-): Promise<{ serverMessageId: string; uploadedPublicUrl?: string; uploadedMediaUrl?: string }> {
+): Promise<{
+  serverMessageId: string;
+  uploadedPublicUrl?: string;
+  uploadedMediaUrl?: string;
+  patchedThreadCache?: boolean;
+}> {
   const { id: clientRequestId, matchId, payload } = item;
   const scope = item.invalidateScope;
 
   let serverMessageId: string | null = null;
+  let serverMessage: unknown;
   let uploadedPublicUrl: string | undefined;
   let uploadedMediaUrl: string | undefined;
 
@@ -158,6 +170,7 @@ export async function executeWebOutboxItem(
         clientRequestId,
       });
       serverMessageId = getServerMessageId(row);
+      serverMessage = row;
     } else if (payload.kind === "image") {
       let mediaRef = item.uploadedPublicUrl;
       if (!mediaRef) {
@@ -186,6 +199,7 @@ export async function executeWebOutboxItem(
       const content = formatChatImageMessageContent(mediaRef);
       const row = await invokeSendMessageEdge({ matchId, content, clientRequestId });
       serverMessageId = getServerMessageId(row);
+      serverMessage = row;
     } else if (payload.kind === "voice") {
       let audioUrl = item.uploadedMediaUrl;
       if (!audioUrl) {
@@ -208,6 +222,7 @@ export async function executeWebOutboxItem(
         clientRequestId,
       });
       serverMessageId = getServerMessageId(row);
+      serverMessage = row;
     } else {
       let uploaded: Awaited<ReturnType<typeof uploadAndPublishChatVibeClipToBunnyStream>>;
       if (isBunnyStreamPlaybackRef(item.uploadedMediaUrl)) {
@@ -252,6 +267,7 @@ export async function executeWebOutboxItem(
       uploadedMediaUrl = uploaded.playbackRef;
       uploadedPublicUrl = uploaded.posterRef;
       serverMessageId = uploaded.messageId || getServerMessageId(uploaded.message);
+      serverMessage = uploaded.message;
     }
   } catch (e) {
     const msg = e instanceof Error ? e.message : "Send failed";
@@ -262,9 +278,14 @@ export async function executeWebOutboxItem(
     throw new Error("Send succeeded but no message id returned.");
   }
 
+  const patchedThreadCache =
+    payload.kind !== "video" && serverMessage
+      ? await patchThreadCacheFromRawMessage(queryClient, scope, serverMessage)
+      : false;
+
   invalidateAfterThreadMutation(queryClient, scope);
 
-  return { serverMessageId, uploadedPublicUrl, uploadedMediaUrl };
+  return { serverMessageId, uploadedPublicUrl, uploadedMediaUrl, patchedThreadCache };
 }
 
 export function nextBackoffMs(attemptCount: number): number {

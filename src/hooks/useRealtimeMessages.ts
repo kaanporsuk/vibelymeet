@@ -58,6 +58,7 @@ export const useRealtimeMessages = ({
         invalidateMessages();
         return;
       }
+      if (matchId && row.match_id !== matchId) return;
 
       // Game rows are collapsed across multiple DB events, so a direct single-row patch can
       // leave stale presentation state. Keep those on the conservative refetch path.
@@ -124,6 +125,7 @@ export const useRealtimeMessages = ({
 
     let retryTimer: ReturnType<typeof setTimeout> | null = null;
     let retryAttempted = false;
+    let disposed = false;
     const clearRetryTimer = () => {
       if (retryTimer) {
         clearTimeout(retryTimer);
@@ -159,16 +161,18 @@ export const useRealtimeMessages = ({
         }
       )
       .subscribe((status) => {
+        if (disposed) return;
         if (status === "SUBSCRIBED") {
           clearRetryTimer();
           retryAttempted = false;
           retryCountRef.current = 0;
+          invalidateMessages();
           return;
         }
-        if (status === "CHANNEL_ERROR") {
+        if (status === "CHANNEL_ERROR" || status === "TIMED_OUT" || status === "CLOSED") {
           invalidateMessages();
           if (import.meta.env.DEV) {
-            console.warn("[useRealtimeMessages] channel error", { matchId });
+            console.warn("[useRealtimeMessages] channel status requires recovery", { matchId, status });
           }
           if (!retryAttempted && retryCountRef.current < 2) {
             retryAttempted = true;
@@ -179,10 +183,25 @@ export const useRealtimeMessages = ({
       });
 
     return () => {
+      disposed = true;
       clearRetryTimer();
       supabase.removeChannel(channel);
     };
   }, [matchId, enabled, hasSession, invalidateMessages, patchMessage, retryNonce, threadCurrentUserId]);
+
+  useEffect(() => {
+    if (!matchId || !enabled || !threadCurrentUserId || !hasSession) return;
+    const reconcile = () => invalidateMessages();
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") reconcile();
+    };
+    window.addEventListener("online", reconcile);
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      window.removeEventListener("online", reconcile);
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
+  }, [enabled, hasSession, invalidateMessages, matchId, threadCurrentUserId]);
 
   return { invalidateMessages };
 };

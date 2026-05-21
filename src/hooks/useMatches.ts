@@ -221,6 +221,13 @@ export const useMatches = () => {
       queryClient.invalidateQueries({ queryKey: ["dashboard-matches"] });
       queryClient.invalidateQueries({ queryKey: ["profile-live-counts"] });
     };
+    const invalidateMatchListsForMessage = () => {
+      queryClient.invalidateQueries({ queryKey: ["matches"] });
+      queryClient.invalidateQueries({ queryKey: ["dashboard-matches"] });
+      queryClient.invalidateQueries({ queryKey: ["profile-live-counts"] });
+      queryClient.invalidateQueries({ queryKey: ["unread-home"] });
+      queryClient.invalidateQueries({ queryKey: ["unread-home-info-bar"] });
+    };
 
     const channel = supabase.channel(`matches-realtime-${userId}`);
     for (const filter of [`profile_id_1=eq.${userId}`, `profile_id_2=eq.${userId}`]) {
@@ -247,6 +254,18 @@ export const useMatches = () => {
         );
     }
     channel
+      // Surface-scoped message realtime: active only while match list consumers are mounted.
+      // Postgres Changes are RLS-filtered, so this keeps lists immediate without an app-boot messages channel.
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "messages" },
+        invalidateMatchListsForMessage,
+      )
+      .on(
+        "postgres_changes",
+        { event: "UPDATE", schema: "public", table: "messages" },
+        invalidateMatchListsForMessage,
+      )
       .on(
         "postgres_changes",
         {
@@ -463,6 +482,40 @@ export const useMatches = () => {
 export const useDashboardMatches = () => {
   const { user } = useUserProfile();
   const userId = user?.id;
+  const queryClient = useQueryClient();
+
+  useEffect(() => {
+    if (!userId) return;
+    const invalidateDashboardConversationPreview = () => {
+      queryClient.invalidateQueries({ queryKey: ["dashboard-matches"] });
+      queryClient.invalidateQueries({ queryKey: ["profile-live-counts"] });
+      queryClient.invalidateQueries({ queryKey: ["unread-home"] });
+      queryClient.invalidateQueries({ queryKey: ["unread-home-info-bar"] });
+    };
+    const channel = supabase
+      .channel(`dashboard-message-realtime-${userId}`)
+      // Surface-scoped message realtime: active only while Home/Dashboard is mounted.
+      // This preserves immediate unread rail updates without restoring an app-boot messages channel.
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "messages" },
+        invalidateDashboardConversationPreview,
+      )
+      .on(
+        "postgres_changes",
+        { event: "UPDATE", schema: "public", table: "messages" },
+        invalidateDashboardConversationPreview,
+      )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "match_archives", filter: `user_id=eq.${userId}` },
+        invalidateDashboardConversationPreview,
+      )
+      .subscribe();
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [queryClient, userId]);
 
   return useQuery<DashboardMatchPreview[]>({
     queryKey: ["dashboard-matches", userId],

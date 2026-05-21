@@ -2,6 +2,10 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import test from "node:test";
+import {
+  SLOW_TEXT_SEND_LABEL_AFTER_MS,
+  outboxPhaseStatusPresentation,
+} from "../shared/chat/outgoingStatusLabels";
 
 const root = process.cwd();
 
@@ -11,8 +15,23 @@ function read(path: string): string {
 
 const webChat = read("src/pages/Chat.tsx");
 const dateSuggestionChip = read("src/components/chat/DateSuggestionChip.tsx");
+const webMatches = read("src/hooks/useMatches.ts");
 const nativeChat = read("apps/mobile/app/chat/[id].tsx");
 const nativeChatApi = read("apps/mobile/lib/chatApi.ts");
+const webApp = read("src/App.tsx");
+const webRealtimeMessages = read("src/hooks/useRealtimeMessages.ts");
+const outgoingStatusLabels = read("shared/chat/outgoingStatusLabels.ts");
+const webMessageStatus = read("src/components/chat/MessageStatus.tsx");
+const nativeMessageStatus = read("apps/mobile/components/chat/MessageStatus.tsx");
+const webOutboxContext = read("src/contexts/WebChatOutboxContext.tsx");
+const nativeOutboxContext = read("apps/mobile/lib/chatOutbox/ChatOutboxContext.tsx");
+const nativeOutboxRunner = read("apps/mobile/lib/chatOutbox/ChatOutboxRunner.tsx");
+const webOutboxExecute = read("src/lib/webChatOutbox/execute.ts");
+const webOutboxRows = read("src/lib/webChatOutbox/toChatMessages.ts");
+const nativeOutboxExecute = read("apps/mobile/lib/chatOutbox/execute.ts");
+const sendMessageTransport = read("shared/chat/sendMessageTransport.ts");
+const sendMessageFunction = read("supabase/functions/send-message/index.ts");
+const productIntelligence = read("shared/analytics/productIntelligence.ts");
 
 test("web chat scrolling owns the real scroller and preserves user intent", () => {
   assert.match(
@@ -124,6 +143,11 @@ test("native chat FlatList separates user drag intent from automatic bottom stic
   assert.match(nativeChat, /onMomentumScrollEnd=\{settleListUserScrollIntent\}/);
   assert.match(nativeChat, /keyboardDismissMode=\{Platform\.OS === 'ios' \? 'interactive' : 'on-drag'\}/);
   assert.match(nativeChat, /nestedScrollEnabled/);
+  assert.match(nativeChat, /initialNumToRender=\{18\}/);
+  assert.match(nativeChat, /maxToRenderPerBatch=\{8\}/);
+  assert.match(nativeChat, /updateCellsBatchingPeriod=\{16\}/);
+  assert.match(nativeChat, /windowSize=\{7\}/);
+  assert.doesNotMatch(nativeChat, /removeClippedSubviews/);
 });
 
 test("native chat tracks keyboard and layout transitions before sticky keyboard snaps", () => {
@@ -184,4 +208,141 @@ test("native chat keeps clip browsing poster-first and mounts players only by in
   assert.match(nativeChat, /vibeClipPosterPreviewByKey/);
   assert.match(nativeChat, /const shouldMountPlayer = videoViewer\?\.uri === displayClipMeta\.videoUrl/);
   assert.match(nativeChat, /shouldMountPlayer=\{shouldMountPlayer\}/);
+});
+
+test("outgoing text status uses silent ticks while preserving meaningful visible states", () => {
+  const queued = outboxPhaseStatusPresentation("queued", "text", { ageMs: 0 });
+  const sending = outboxPhaseStatusPresentation("sending", "text", { ageMs: 0 });
+  const awaiting = outboxPhaseStatusPresentation("awaiting_hydration", "text", { ageMs: 0 });
+  assert.equal(queued.visibleLabel, null);
+  assert.equal(sending.visibleLabel, null);
+  assert.equal(awaiting.visibleLabel, null);
+  assert.equal(sending.showSpinner, false);
+
+  const slow = outboxPhaseStatusPresentation("sending", "text", {
+    ageMs: SLOW_TEXT_SEND_LABEL_AFTER_MS,
+  });
+  assert.equal(slow.visibleLabel, "Still sending…");
+
+  const offline = outboxPhaseStatusPresentation("waiting_for_network", "text");
+  assert.equal(offline.visibleLabel, "Offline - sends when back");
+  assert.equal(offline.assistiveLabel, "Offline - sends when back");
+
+  const media = outboxPhaseStatusPresentation("sending", "image", { uploadPercent: 42 });
+  assert.equal(media.visibleLabel, "Uploading 42%");
+  assert.equal(media.showSpinner, true);
+
+  const failed = outboxPhaseStatusPresentation("failed", "text");
+  assert.match(failed.visibleLabel ?? "", /Retry/);
+  assert.match(failed.assistiveLabel, /couldn't send/i);
+
+  assert.doesNotMatch(outgoingStatusLabels, /return ['"]Queued['"]/);
+  assert.doesNotMatch(outgoingStatusLabels, /return ['"]Sending…['"]/);
+  assert.match(webMessageStatus, /suppressSendingIndicator/);
+  assert.match(nativeMessageStatus, /suppressSendingIndicator/);
+  assert.doesNotMatch(webMessageStatus, />Sending…</);
+  assert.doesNotMatch(nativeMessageStatus, />Sending…</);
+  assert.match(webChat, /const \[outboxStatusNowMs, setOutboxStatusNowMs\] = useState/);
+  assert.match(webChat, /setInterval\(\(\) => setOutboxStatusNowMs\(Date\.now\(\)\), 500\)/);
+  assert.match(webChat, /webOutboxItemsToRows\(outboxMatchItems, outboxPreviews, outboxStatusNowMs\)/);
+  assert.match(webChat, /onRemoveFailedSend/);
+  assert.match(webChat, /groupedMessage\.statusSubtext/);
+  assert.match(webOutboxRows, /it\.payload\.kind !== "text"[\s\S]{0,120}uploadProgress/);
+  assert.match(nativeChat, /const \[outboxStatusNowMs, setOutboxStatusNowMs\] = useState/);
+  assert.match(nativeChat, /setInterval\(\(\) => setOutboxStatusNowMs\(Date\.now\(\)\), 500\)/);
+  assert.match(nativeChat, /outboxPayloadKind !== 'text'[\s\S]{0,120}uploadProgress/);
+});
+
+test("web and native outbox wake immediately and keep interval fallback", () => {
+  for (const source of [webOutboxContext, nativeOutboxContext]) {
+    assert.match(source, /const requestProcessTick = useCallback/);
+    assert.match(source, /queueMicrotask\(run\)/);
+    assert.match(source, /const prev = itemsRef\.current;[\s\S]{0,120}itemsRef\.current = next;[\s\S]{0,80}setItems\(next\)/);
+    assert.match(source, /updateItems\(\(prev\) => \[\.\.\.prev, item\]\.sort/);
+    assert.match(source, /requestProcessTick\(\);[\s\S]{0,120}if \(isMediaOutboxItem\(item\)\)/);
+    assert.match(source, /list\.some\(\(it\) => it\.state === ['"]sending['"] \|\| processingRef\.current\.has\(it\.id\)\)/);
+    assert.match(source, /finally \{[\s\S]*requestProcessTick\(\);[\s\S]*\}/);
+    assert.match(source, /processTick: \(\) => Promise<void>/);
+  }
+  assert.match(webOutboxContext, /setInterval\(\(\) => \{[\s\S]*void tick\(\);[\s\S]*\}, 4000\)/);
+  assert.match(nativeOutboxRunner, /setInterval\(\(\) => \{[\s\S]*void tick\(\);[\s\S]*\}, 4000\)/);
+  assert.doesNotMatch(nativeOutboxRunner, /useQueryClient/);
+});
+
+test("successful text image and voice sends can patch thread cache from send-message response", () => {
+  assert.match(webOutboxExecute, /patchThreadCacheFromRawMessage/);
+  assert.match(nativeOutboxExecute, /patchThreadCacheFromRawMessage/);
+  assert.match(webOutboxContext, /completeImmediately = next\.payload\.kind !== "video" && patchedThreadCache === true/);
+  assert.match(nativeOutboxContext, /completeImmediately = next\.payload\.kind !== 'video' && patchedThreadCache === true/);
+  assert.match(sendMessageTransport, /SEND_MESSAGE_RESPONSE_TIMEOUT_MS = 20_000/);
+  assert.match(webOutboxExecute, /shared\/chat\/sendMessageTransport/);
+  assert.match(webOutboxExecute, /supabase\.functions\.invoke\("send-message", \{[\s\S]{0,80}timeout: SEND_MESSAGE_RESPONSE_TIMEOUT_MS/);
+  assert.match(nativeChatApi, /shared\/chat\/sendMessageTransport/);
+  assert.match(nativeChatApi, /supabase\.functions\.invoke\('send-message', \{[\s\S]{0,80}timeout: SEND_MESSAGE_RESPONSE_TIMEOUT_MS/);
+});
+
+test("send-message backgrounds push notifications after durable insert", () => {
+  assert.match(sendMessageFunction, /runtime\.waitUntil\(promise\)/);
+  assert.match(sendMessageFunction, /runBackgroundTask\("send-message vibe_clip notification"/);
+  assert.match(sendMessageFunction, /runBackgroundTask\("send-message voice notification"/);
+  assert.match(sendMessageFunction, /runBackgroundTask\("send-message notification"/);
+  assert.doesNotMatch(sendMessageFunction, /await serviceClient\.functions\.invoke\("send-notification"/);
+});
+
+test("chat send latency telemetry is sanitized and content-free", () => {
+  assert.match(productIntelligence, /CHAT_SEND_LATENCY_OBSERVED: "quality\.chat_send_latency_observed"/);
+  assert.match(productIntelligence, /"payload_kind"/);
+  assert.match(productIntelligence, /"latency_phase"/);
+  assert.match(productIntelligence, /"thread_bucket"/);
+  assert.match(webOutboxContext, /quality\.chat_send_latency_observed/);
+  assert.match(nativeOutboxContext, /quality\.chat_send_latency_observed/);
+  assert.match(sendMessageTransport, /type ChatSendThreadBucket = 'cold' \| 'warm' \| 'unknown'/);
+  assert.match(webChat, /const sendThreadBucket = useMemo/);
+  assert.match(webChat, /threadBucket: sendThreadBucket/);
+  assert.match(nativeChat, /const sendThreadBucket = useMemo/);
+  assert.match(nativeChat, /threadBucket: sendThreadBucket/);
+  assert.match(webOutboxContext, /thread_bucket: next\.threadBucket \?\? "unknown"/);
+  assert.match(nativeOutboxContext, /thread_bucket: next\.threadBucket \?\? 'unknown'/);
+  assert.doesNotMatch(webOutboxContext, /message_content|content:/);
+  assert.doesNotMatch(nativeOutboxContext, /message_content|content:/);
+});
+
+test("focused thread realtime self-heals on drops and foreground resume", () => {
+  assert.match(webRealtimeMessages, /status === "CHANNEL_ERROR" \|\| status === "TIMED_OUT" \|\| status === "CLOSED"/);
+  assert.match(webRealtimeMessages, /setRetryNonce\(\(value\) => value \+ 1\)/);
+  assert.match(webRealtimeMessages, /status === "SUBSCRIBED"[\s\S]*invalidateMessages\(\)/);
+  assert.match(webRealtimeMessages, /window\.addEventListener\("online", reconcile\)/);
+  assert.match(webRealtimeMessages, /document\.addEventListener\("visibilitychange", onVisibility\)/);
+  assert.match(webRealtimeMessages, /let disposed = false/);
+  assert.match(webRealtimeMessages, /if \(disposed\) return/);
+  assert.match(webRealtimeMessages, /disposed = true;[\s\S]{0,80}clearRetryTimer\(\)/);
+  assert.match(webRealtimeMessages, /if \(matchId && row\.match_id !== matchId\) return;/);
+
+  assert.match(nativeChatApi, /import \{ AppState, type AppStateStatus \} from 'react-native'/);
+  assert.match(nativeChatApi, /const \[retryNonce, setRetryNonce\] = useState\(0\)/);
+  assert.match(nativeChatApi, /status === 'CHANNEL_ERROR' \|\| status === 'TIMED_OUT' \|\| status === 'CLOSED'/);
+  assert.match(nativeChatApi, /setRetryNonce\(\(value\) => value \+ 1\)/);
+  assert.match(nativeChatApi, /status === 'SUBSCRIBED'[\s\S]*invalidateThread\(\)/);
+  assert.match(nativeChatApi, /let disposed = false/);
+  assert.match(nativeChatApi, /if \(disposed\) return/);
+  assert.match(nativeChatApi, /disposed = true;[\s\S]{0,80}clearRetryTimer\(\)/);
+  assert.match(nativeChatApi, /AppState\.addEventListener\('change', onAppState\)/);
+});
+
+test("inbox subscriptions keep conversation lists immediate on message changes", () => {
+  assert.doesNotMatch(webApp, /table:\s*"messages"/);
+  assert.match(webMatches, /Surface-scoped message realtime/);
+  assert.match(webMatches, /event: "INSERT"[\s\S]*table: "messages"/);
+  assert.match(webMatches, /event: "UPDATE"[\s\S]*table: "messages"/);
+  assert.match(webMatches, /dashboard-message-realtime/);
+  assert.match(webMatches, /immediate unread rail updates/);
+  assert.match(webMatches, /queryKey: \["dashboard-matches"\]/);
+  assert.match(webMatches, /queryKey: \["matches"\]/);
+  assert.match(webMatches, /queryKey: \["profile-live-counts"\]/);
+
+  assert.match(nativeChatApi, /\.channel\('global-messages-inbox'\)/);
+  assert.match(nativeChatApi, /\{ event: 'INSERT', schema: 'public', table: 'messages' \}/);
+  assert.match(nativeChatApi, /\{ event: 'UPDATE', schema: 'public', table: 'messages' \}/);
+  assert.match(nativeChatApi, /queryKey: \['matches'\]/);
+  assert.match(nativeChatApi, /queryKey: \['profile-live-counts'\]/);
 });

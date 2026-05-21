@@ -1,3 +1,4 @@
+import type { ChatSendThreadBucket } from '../../../../shared/chat/sendMessageTransport';
 import type { VibeClipRecoveryResumeStrategy } from '../../../../shared/chat/vibeClipRecovery';
 import type { MediaCaptions } from '../../../../shared/media/captions';
 
@@ -37,6 +38,7 @@ export type ChatOutboxItem = {
   uploadedMediaUrl?: string;
   /** 0..1 progress for direct media uploads. */
   uploadProgress?: number;
+  threadBucket?: ChatSendThreadBucket;
   /** Last time we checked whether serverMessageId is visible on authoritative server state. */
   hydrationLastCheckedAtMs?: number;
   /** Bounded deadline for awaiting_hydration before transitioning to recoverable failure. */

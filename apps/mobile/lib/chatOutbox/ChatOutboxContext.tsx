@@ -7,7 +7,7 @@ import React, {
   useRef,
   useState,
 } from 'react';
-import type { QueryClient } from '@tanstack/react-query';
+import { useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '@/context/AuthContext';
 import { connectivityService } from '@/lib/connectivityService';
 import { supabase } from '@/lib/supabase';
@@ -17,6 +17,7 @@ import { executeOutboxItem, nextBackoffMs, OutboxExecuteError } from '@/lib/chat
 import { syncChatVibeClipUploadStatus } from '@/lib/mediaAssetResolver';
 import { isLikelyNetworkFailure, outboxFailureUserMessage } from '@/lib/networkErrorMessage';
 import { cleanupOutboxCacheUri } from '@/lib/chatOutbox/mediaCache';
+import { trackEvent } from '@/lib/analytics';
 import type { ChatOutboxItem, ChatOutboxPayload, ChatOutboxQueueState } from '@/lib/chatOutbox/types';
 import { trackVibeClipEvent } from '@/lib/vibeClipAnalytics';
 import { invalidateAfterThreadMutation } from '@/lib/chatApi';
@@ -81,6 +82,7 @@ type ChatOutboxContextValue = {
     matchId: string;
     otherUserId: string;
     payload: ChatOutboxPayload;
+    threadBucket?: ChatOutboxItem['threadBucket'];
   }) => string | null;
   retry: (itemId: string) => void;
   retryAllFailed: () => void;
@@ -93,7 +95,7 @@ type ChatOutboxContextValue = {
   /** Remove items whose server row is now in the hydrated thread */
   reconcileWithServerIds: (serverMessageIds: Set<string>) => void;
   /** Called by ChatOutboxRunner only */
-  processTick: (queryClient: QueryClient) => Promise<void>;
+  processTick: () => Promise<void>;
 };
 
 const ChatOutboxContext = createContext<ChatOutboxContextValue | null>(null);
@@ -234,6 +236,7 @@ function recoverySweepOutcome(stats: {
 
 export function ChatOutboxProvider({ children }: { children: React.ReactNode }) {
   const { user } = useAuth();
+  const queryClient = useQueryClient();
   const userId = user?.id ?? null;
   const [items, setItems] = useState<ChatOutboxItem[]>([]);
   const [staleVibeClipUploads, setStaleVibeClipUploads] = useState<VibeClipServerUpload[]>([]);
@@ -241,10 +244,33 @@ export function ChatOutboxProvider({ children }: { children: React.ReactNode }) 
   const itemsRef = useRef(items);
   const processingRef = useRef<Set<string>>(new Set());
   const processingAbortControllersRef = useRef<Map<string, AbortController>>(new Map());
+  const processTickRef = useRef<() => Promise<void>>(async () => undefined);
+  const tickScheduledRef = useRef(false);
 
   useEffect(() => {
     itemsRef.current = items;
   }, [items]);
+
+  const updateItems = useCallback((updater: ChatOutboxItem[] | ((prev: ChatOutboxItem[]) => ChatOutboxItem[])) => {
+    const prev = itemsRef.current;
+    const next = typeof updater === 'function' ? updater(prev) : updater;
+    itemsRef.current = next;
+    setItems(next);
+  }, []);
+
+  const requestProcessTick = useCallback(() => {
+    if (tickScheduledRef.current) return;
+    tickScheduledRef.current = true;
+    const run = () => {
+      tickScheduledRef.current = false;
+      void processTickRef.current();
+    };
+    if (typeof queueMicrotask === 'function') {
+      queueMicrotask(run);
+    } else {
+      setTimeout(run, 0);
+    }
+  }, []);
 
   useEffect(() => {
     const controllers = processingAbortControllersRef.current;
@@ -259,25 +285,26 @@ export function ChatOutboxProvider({ children }: { children: React.ReactNode }) 
   useEffect(() => {
     setSessionUploadStats({ enqueued: 0, succeeded: 0, failed: 0 });
     if (!userId) {
-      setItems([]);
+      updateItems([]);
       setStaleVibeClipUploads([]);
       return;
     }
     let cancelled = false;
     void loadOutboxItems(userId).then((loaded) => {
       if (cancelled) return;
-      setItems(
+      updateItems(
         recoverInterruptedSendingItems(loaded, {
           now: Date.now(),
           online: connectivityService.getState() === 'online',
           force: true,
         }),
       );
+      requestProcessTick();
     });
     return () => {
       cancelled = true;
     };
-  }, [userId]);
+  }, [requestProcessTick, updateItems, userId]);
 
   useEffect(() => {
     if (!userId) return;
@@ -288,7 +315,12 @@ export function ChatOutboxProvider({ children }: { children: React.ReactNode }) 
   }, [items, userId]);
 
   const enqueue = useCallback(
-    (input: { matchId: string; otherUserId: string; payload: ChatOutboxPayload }): string | null => {
+    (input: {
+      matchId: string;
+      otherUserId: string;
+      payload: ChatOutboxPayload;
+      threadBucket?: ChatOutboxItem['threadBucket'];
+    }): string | null => {
       if (!userId) return null;
       const id = newOutboxClientRequestId();
       const now = Date.now();
@@ -304,18 +336,20 @@ export function ChatOutboxProvider({ children }: { children: React.ReactNode }) 
         createdAtMs: now,
         updatedAtMs: now,
         attemptCount: 0,
+        threadBucket: input.threadBucket ?? 'unknown',
       };
-      setItems((prev) => [...prev, item].sort((a, b) => a.createdAtMs - b.createdAtMs));
+      updateItems((prev) => [...prev, item].sort((a, b) => a.createdAtMs - b.createdAtMs));
+      requestProcessTick();
       if (isMediaOutboxItem(item)) {
         setSessionUploadStats((prev) => ({ ...prev, enqueued: prev.enqueued + 1 }));
       }
       return id;
     },
-    [userId]
+    [requestProcessTick, updateItems, userId]
   );
 
   const retryVibeClipUpload = useCallback((itemId: string, resumeStrategy?: VibeClipRecoveryResumeStrategy | null) => {
-    setItems((prev) =>
+    updateItems((prev) =>
       prev.map((it) =>
         it.id === itemId
           ? {
@@ -330,14 +364,15 @@ export function ChatOutboxProvider({ children }: { children: React.ReactNode }) 
           : it
       )
     );
-  }, []);
+    requestProcessTick();
+  }, [requestProcessTick, updateItems]);
 
   const retry = useCallback((itemId: string) => {
     retryVibeClipUpload(itemId, null);
   }, [retryVibeClipUpload]);
 
   const retryAllFailed = useCallback(() => {
-    setItems((prev) =>
+    updateItems((prev) =>
       prev.map((it) =>
         it.state === 'failed'
           ? {
@@ -351,7 +386,8 @@ export function ChatOutboxProvider({ children }: { children: React.ReactNode }) 
           : it
       )
     );
-  }, []);
+    requestProcessTick();
+  }, [requestProcessTick, updateItems]);
 
   const dismissStaleVibeClipUpload = useCallback(async (uploadId: string): Promise<VibeClipRecoveryDismissResult | false> => {
     if (!userId) return false;
@@ -393,7 +429,7 @@ export function ChatOutboxProvider({ children }: { children: React.ReactNode }) 
   const remove = useCallback((itemId: string) => {
     const toCleanup: string[] = [];
     processingAbortControllersRef.current.get(itemId)?.abort();
-    setItems((prev) =>
+    updateItems((prev) =>
       prev.filter((it) => {
         if (it.id !== itemId) return true;
         const uri = itemPayloadUri(it);
@@ -404,11 +440,11 @@ export function ChatOutboxProvider({ children }: { children: React.ReactNode }) 
     if (toCleanup.length > 0) {
       void Promise.all(toCleanup.map((uri) => cleanupOutboxCacheUri(uri)));
     }
-  }, []);
+  }, [updateItems]);
 
   const reconcileWithServerIds = useCallback((serverMessageIds: Set<string>) => {
     const toCleanup: string[] = [];
-    setItems((prev) =>
+    updateItems((prev) =>
       prev.filter((it) => {
         if (!it.serverMessageId) return true;
         if (!serverMessageIds.has(it.serverMessageId)) return true;
@@ -420,7 +456,7 @@ export function ChatOutboxProvider({ children }: { children: React.ReactNode }) 
     if (toCleanup.length > 0) {
       void Promise.all(toCleanup.map((uri) => cleanupOutboxCacheUri(uri)));
     }
-  }, []);
+  }, [updateItems]);
 
   const itemsForMatch = useCallback(
     (matchId: string) => items.filter((it) => it.matchId === matchId && it.state !== 'canceled' && it.state !== 'sent'),
@@ -589,7 +625,7 @@ export function ChatOutboxProvider({ children }: { children: React.ReactNode }) 
   }, [userId]);
 
   const processTick = useCallback(
-    async (queryClient: QueryClient) => {
+    async () => {
       if (!userId) return;
       const online = connectivityService.getState() === 'online';
       const now = Date.now();
@@ -600,7 +636,7 @@ export function ChatOutboxProvider({ children }: { children: React.ReactNode }) 
       });
       if (recovered !== itemsRef.current) {
         itemsRef.current = recovered;
-        setItems(recovered);
+        updateItems(recovered);
       }
 
       // Bounded recovery: awaiting_hydration is not terminal.
@@ -618,7 +654,7 @@ export function ChatOutboxProvider({ children }: { children: React.ReactNode }) 
           });
           if (synced?.messageId && synced.messageId !== serverMessageId) {
             serverMessageId = synced.messageId;
-            setItems((prev) =>
+            updateItems((prev) =>
               prev.map((it) =>
                 it.id === item.id
                   ? {
@@ -634,7 +670,7 @@ export function ChatOutboxProvider({ children }: { children: React.ReactNode }) 
           }
         }
         if (!serverMessageId) {
-          setItems((prev) =>
+          updateItems((prev) =>
             prev.map((it) =>
               it.id === item.id
                 ? {
@@ -663,7 +699,7 @@ export function ChatOutboxProvider({ children }: { children: React.ReactNode }) 
         if (serverRow?.id) {
           const uri = itemPayloadUri(item);
           if (uri) void cleanupOutboxCacheUri(uri);
-          setItems((prev) =>
+          updateItems((prev) =>
             prev.map((it) =>
               it.id === item.id
                 ? {
@@ -688,7 +724,7 @@ export function ChatOutboxProvider({ children }: { children: React.ReactNode }) 
         }
 
         if (pastDeadline) {
-          setItems((prev) =>
+          updateItems((prev) =>
             prev.map((it) =>
               it.id === item.id
                 ? {
@@ -704,7 +740,7 @@ export function ChatOutboxProvider({ children }: { children: React.ReactNode }) 
             )
           );
         } else {
-          setItems((prev) =>
+          updateItems((prev) =>
             prev.map((it) =>
               it.id === item.id
                 ? {
@@ -727,16 +763,17 @@ export function ChatOutboxProvider({ children }: { children: React.ReactNode }) 
 
       for (const [, list] of byMatch) {
         list.sort((a, b) => a.createdAtMs - b.createdAtMs);
+        if (list.some((it) => it.state === 'sending' || processingRef.current.has(it.id))) continue;
         const next = list.find((it) => isEligibleToSend(it, online));
         if (!next) continue;
-        if (processingRef.current.has(next.id)) continue;
 
         processingRef.current.add(next.id);
         const abortController = new AbortController();
         processingAbortControllersRef.current.set(next.id, abortController);
 
         const attemptCount = next.attemptCount + 1;
-        setItems((prev) =>
+        const attemptStartedAtMs = Date.now();
+        updateItems((prev) =>
           prev.map((it) =>
             it.id === next.id
               ? { ...it, state: 'sending' as const, attemptCount, updatedAtMs: Date.now() }
@@ -745,12 +782,12 @@ export function ChatOutboxProvider({ children }: { children: React.ReactNode }) 
         );
 
         try {
-          const { serverMessageId, uploadedPublicUrl, uploadedMediaUrl } = await executeOutboxItem(
+          const { serverMessageId, uploadedPublicUrl, uploadedMediaUrl, patchedThreadCache } = await executeOutboxItem(
             { ...next, attemptCount },
             queryClient,
             (fraction) => {
               const uploadProgress = Math.max(0, Math.min(1, fraction));
-              setItems((prev) =>
+              updateItems((prev) =>
                 prev.map((it) =>
                   it.id === next.id
                     ? { ...it, uploadProgress, updatedAtMs: Date.now() }
@@ -761,7 +798,12 @@ export function ChatOutboxProvider({ children }: { children: React.ReactNode }) 
             { signal: abortController.signal },
           );
           const successAtMs = Date.now();
-          setItems((prev) =>
+          const completeImmediately = next.payload.kind !== 'video' && patchedThreadCache === true;
+          if (completeImmediately) {
+            const uri = itemPayloadUri(next);
+            if (uri) void cleanupOutboxCacheUri(uri);
+          }
+          updateItems((prev) =>
             prev.map((it) =>
               it.id === next.id
                 ? {
@@ -771,26 +813,40 @@ export function ChatOutboxProvider({ children }: { children: React.ReactNode }) 
                     uploadedMediaUrl: uploadedMediaUrl ?? it.uploadedMediaUrl,
                     uploadProgress: undefined,
                     vibeClipResumeStrategy: undefined,
-                    state: 'awaiting_hydration' as const,
+                    state: completeImmediately ? ('sent' as const) : ('awaiting_hydration' as const),
                     lastError: undefined,
                     nextRetryAtMs: undefined,
                     hydrationLastCheckedAtMs: undefined,
-                    hydrationDeadlineAtMs: successAtMs + HYDRATION_TIMEOUT_MS,
+                    hydrationDeadlineAtMs: completeImmediately ? undefined : successAtMs + HYDRATION_TIMEOUT_MS,
                     updatedAtMs: successAtMs,
                   }
                 : it
             )
           );
+          if (completeImmediately && isMediaOutboxItem(next)) {
+            setSessionUploadStats((prev) => ({ ...prev, succeeded: prev.succeeded + 1 }));
+          }
+          trackEvent('quality.chat_send_latency_observed', {
+            payload_kind: next.payload.kind,
+            latency_phase: completeImmediately ? 'response_patched' : 'response_waiting_hydration',
+            outcome: 'success',
+            attempt_count: attemptCount,
+            enqueue_to_attempt_ms: attemptStartedAtMs - next.createdAtMs,
+            attempt_to_response_ms: successAtMs - attemptStartedAtMs,
+            response_to_hydration_ms: completeImmediately ? Date.now() - successAtMs : 0,
+            thread_bucket: next.threadBucket ?? 'unknown',
+          });
           if (next.payload.kind === 'video') {
             const dur = next.payload.durationSeconds;
             trackVibeClipEvent('clip_send_succeeded', {
               duration_bucket: durationBucketFromSeconds(dur),
               has_poster: !!(uploadedPublicUrl ?? next.uploadedPublicUrl),
-              thread_bucket: 'unknown',
+              thread_bucket: next.threadBucket ?? 'unknown',
               is_sender: true,
             });
           }
         } catch (e) {
+          const responseAtMs = Date.now();
           const rawMsg = e instanceof Error ? e.message : 'Send failed';
           const backoff = nextBackoffMs(attemptCount);
           const uploadedPublicUrl =
@@ -801,7 +857,7 @@ export function ChatOutboxProvider({ children }: { children: React.ReactNode }) 
           const likelyNet = isLikelyNetworkFailure(e);
           const treatAsOfflineWait = offlineNow || likelyNet;
           const isClip = next.payload.kind === 'video';
-          setItems((prev) =>
+          updateItems((prev) =>
             prev.map((it) =>
               it.id === next.id
                 ? {
@@ -826,14 +882,31 @@ export function ChatOutboxProvider({ children }: { children: React.ReactNode }) 
           if (isMediaOutboxItem(next) && !treatAsOfflineWait) {
             setSessionUploadStats((prev) => ({ ...prev, failed: prev.failed + 1 }));
           }
+          trackEvent('quality.chat_send_latency_observed', {
+            payload_kind: next.payload.kind,
+            latency_phase: 'response_error',
+            outcome: treatAsOfflineWait ? 'offline_wait' : 'failed',
+            attempt_count: attemptCount,
+            enqueue_to_attempt_ms: attemptStartedAtMs - next.createdAtMs,
+            attempt_to_response_ms: responseAtMs - attemptStartedAtMs,
+            response_to_hydration_ms: 0,
+            thread_bucket: next.threadBucket ?? 'unknown',
+          });
         } finally {
           processingAbortControllersRef.current.delete(next.id);
           processingRef.current.delete(next.id);
+          if (itemsRef.current.some((it) => it.matchId === next.matchId && isEligibleToSend(it, connectivityService.getState() === 'online'))) {
+            requestProcessTick();
+          }
         }
       }
     },
-    [userId]
+    [queryClient, requestProcessTick, updateItems, userId]
   );
+
+  useEffect(() => {
+    processTickRef.current = processTick;
+  }, [processTick]);
 
   const value = useMemo<ChatOutboxContextValue>(
     () => ({

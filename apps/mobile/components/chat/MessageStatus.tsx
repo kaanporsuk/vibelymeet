@@ -13,9 +13,19 @@ type MessageStatusProps = {
   status: MessageStatusType;
   time: string;
   isMyMessage?: boolean;
+  suppressSendingIndicator?: boolean;
+  showSendingSpinner?: boolean;
+  assistiveLabel?: string;
 };
 
-export function MessageStatus({ status, time, isMyMessage = true }: MessageStatusProps) {
+export function MessageStatus({
+  status,
+  time,
+  isMyMessage = true,
+  suppressSendingIndicator = false,
+  showSendingSpinner = true,
+  assistiveLabel,
+}: MessageStatusProps) {
   const theme = Colors[useColorScheme()];
   const color = isMyMessage ? 'rgba(255,255,255,0.85)' : theme.textSecondary;
 
@@ -24,12 +34,15 @@ export function MessageStatus({ status, time, isMyMessage = true }: MessageStatu
   }
 
   return (
-    <View style={styles.wrap}>
+    <View
+      style={styles.wrap}
+      accessibilityRole={status === 'sending' ? 'text' : undefined}
+      accessibilityLabel={status === 'sending' ? assistiveLabel ?? 'Sending message' : undefined}
+    >
       <Text style={[styles.time, { color }]}>{time}</Text>
-      {status === 'sending' ? (
+      {status === 'sending' && !suppressSendingIndicator ? (
         <>
-          <Text style={[styles.sendingLabel, { color }]}>Sending…</Text>
-          <ActivityIndicator size="small" color={color} style={styles.spinner} />
+          {showSendingSpinner ? <ActivityIndicator size="small" color={color} style={styles.spinner} /> : null}
         </>
       ) : null}
       {status === 'sent' && <Ionicons name="checkmark" size={12} color={color} />}

@@ -3,6 +3,7 @@ import {
   invokeSendMessageEdge,
   invokePublishVoiceMessage,
   invalidateAfterThreadMutation,
+  patchThreadCacheFromRawMessage,
 } from '@/lib/chatApi';
 import { formatChatImageMessageContent } from '@/lib/chatMessageContent';
 import type { ChatOutboxItem } from '@/lib/chatOutbox/types';
@@ -50,10 +51,16 @@ export async function executeOutboxItem(
   queryClient: QueryClient,
   onUploadProgress?: (fraction: number) => void,
   options: { signal?: AbortSignal | null } = {},
-): Promise<{ serverMessageId: string; uploadedPublicUrl?: string; uploadedMediaUrl?: string }> {
+): Promise<{
+  serverMessageId: string;
+  uploadedPublicUrl?: string;
+  uploadedMediaUrl?: string;
+  patchedThreadCache?: boolean;
+}> {
   const { id: clientRequestId, matchId, payload } = item;
 
   let serverMessageId: string | null = null;
+  let serverMessage: unknown;
   let uploadedPublicUrl: string | undefined;
   let uploadedMediaUrl: string | undefined;
 
@@ -65,6 +72,7 @@ export async function executeOutboxItem(
         clientRequestId,
       });
       serverMessageId = getServerMessageId(row);
+      serverMessage = row;
     } else if (payload.kind === 'image') {
       let mediaRef = item.uploadedPublicUrl;
       if (!mediaRef) {
@@ -82,6 +90,7 @@ export async function executeOutboxItem(
         clientRequestId,
       });
       serverMessageId = getServerMessageId(row);
+      serverMessage = row;
     } else if (payload.kind === 'voice') {
       const audioUrl =
         item.uploadedMediaUrl ??
@@ -94,6 +103,7 @@ export async function executeOutboxItem(
         clientRequestId,
       });
       serverMessageId = getServerMessageId(row);
+      serverMessage = row;
     } else {
       let uploaded: Awaited<ReturnType<typeof uploadAndPublishChatVibeClipToBunnyStream>>;
       if (isBunnyStreamPlaybackRef(item.uploadedMediaUrl)) {
@@ -130,6 +140,7 @@ export async function executeOutboxItem(
       uploadedMediaUrl = uploaded.playbackRef;
       uploadedPublicUrl = uploaded.posterRef;
       serverMessageId = uploaded.messageId || getServerMessageId(uploaded.message);
+      serverMessage = uploaded.message;
     }
   } catch (e) {
     const msg = e instanceof Error ? e.message : 'Send failed';
@@ -140,13 +151,25 @@ export async function executeOutboxItem(
     throw new Error('Send succeeded but no message id returned.');
   }
 
-  invalidateAfterThreadMutation(queryClient, {
+  const scope = {
     otherUserId: item.otherUserId,
     currentUserId: item.userId,
     matchId: item.matchId,
-  });
+  };
+  const patchedThreadCache =
+    payload.kind !== 'video' && serverMessage
+      ? await patchThreadCacheFromRawMessage({
+          queryClient,
+          otherUserId: item.otherUserId,
+          currentUserId: item.userId,
+          matchId: item.matchId,
+          raw: serverMessage,
+        })
+      : false;
 
-  return { serverMessageId, uploadedPublicUrl, uploadedMediaUrl };
+  invalidateAfterThreadMutation(queryClient, scope);
+
+  return { serverMessageId, uploadedPublicUrl, uploadedMediaUrl, patchedThreadCache };
 }
 
 export function nextBackoffMs(attemptCount: number): number {

@@ -1,4 +1,5 @@
 import type { ThreadInvalidateScope } from "../../../shared/chat/queryKeys";
+import type { ChatSendThreadBucket } from "../../../shared/chat/sendMessageTransport";
 import type { VibeClipRecoveryResumeStrategy } from "../../../shared/chat/vibeClipRecovery";
 import type { MediaCaptions } from "../../../shared/media/captions";
 
@@ -42,6 +43,7 @@ export type WebChatOutboxItem = {
   uploadedPublicUrl?: string;
   uploadedMediaUrl?: string;
   uploadProgress?: number;
+  threadBucket?: ChatSendThreadBucket;
   hydrationLastCheckedAtMs?: number;
   hydrationDeadlineAtMs?: number;
   vibeClipResumeStrategy?: VibeClipRecoveryResumeStrategy;

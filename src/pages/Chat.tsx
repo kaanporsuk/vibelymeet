@@ -190,6 +190,9 @@ interface ChatMessage {
   serverRecoveryUploadId?: string;
   /** Secondary line under timestamp (queued / offline / uploading) */
   statusSubtext?: string;
+  statusAssistive?: string;
+  suppressSendingIndicator?: boolean;
+  showSendingSpinner?: boolean;
 }
 
 type ChatVideoLightboxState = {
@@ -479,12 +482,20 @@ function VibeClipMessageRow({
           />
         )}
         {message.isLastInGroup && (
-          <div className={cn("mt-1 flex", isMine ? "justify-end" : "justify-start")}>
-            <MessageStatus
-              status={message.status || "delivered"}
-              time={message.time}
-              isMyMessage={isMine}
-            />
+          <div className={cn("mt-1 flex flex-col gap-1", isMine ? "items-end" : "items-start")}>
+            {isMine && message.statusSubtext ? (
+              <span className="text-[10px] text-muted-foreground">{message.statusSubtext}</span>
+            ) : null}
+            <div className={cn("flex", isMine ? "justify-end" : "justify-start")}>
+              <MessageStatus
+                status={message.status || "delivered"}
+                time={message.time}
+                isMyMessage={isMine}
+                suppressSendingIndicator={message.suppressSendingIndicator}
+                showSendingSpinner={message.showSendingSpinner}
+                assistiveLabel={message.statusAssistive}
+              />
+            </div>
           </div>
         )}
       </div>
@@ -838,6 +849,21 @@ const Chat = () => {
     () => webOutboxItemsForMatch(chatData?.matchId ?? ""),
     [chatData?.matchId, webOutboxItemsForMatch],
   );
+  const [outboxStatusNowMs, setOutboxStatusNowMs] = useState(() => Date.now());
+  const hasPendingTextOutboxStatus = useMemo(
+    () =>
+      outboxMatchItems.some(
+        (item) =>
+          item.payload.kind === "text" &&
+          (item.state === "queued" || item.state === "sending" || item.state === "awaiting_hydration"),
+      ),
+    [outboxMatchItems],
+  );
+  useEffect(() => {
+    if (!hasPendingTextOutboxStatus) return;
+    const timer = setInterval(() => setOutboxStatusNowMs(Date.now()), 500);
+    return () => clearInterval(timer);
+  }, [hasPendingTextOutboxStatus]);
   const outboxItemsById = useMemo(() => {
     const map = new Map<string, WebChatOutboxItem>();
     for (const item of outboxMatchItems) map.set(item.id, item);
@@ -991,7 +1017,7 @@ const Chat = () => {
         sortAtMs,
       };
     });
-    const outboxRows = webOutboxItemsToRows(outboxMatchItems, outboxPreviews) as ChatMessage[];
+    const outboxRows = webOutboxItemsToRows(outboxMatchItems, outboxPreviews, outboxStatusNowMs) as ChatMessage[];
     const existingClientRequestIds = new Set<string>();
     for (const m of realMsgs) {
       const cid = clientRequestIdFromStructured(m.structuredPayload);
@@ -1010,6 +1036,7 @@ const Chat = () => {
     dismissedServerVibeClipRecoveryIds,
     outboxMatchItems,
     outboxPreviews,
+    outboxStatusNowMs,
     reactionByMessageId,
     staleVibeClipUploads,
   ]);
@@ -1021,6 +1048,10 @@ const Chat = () => {
       getId: (m) => m.id,
     });
   }, [messages]);
+  const sendThreadBucket = useMemo(
+    () => threadBucketFromCount(displayMessages.length),
+    [displayMessages.length],
+  );
 
   const [photoUrlOverridesById, setPhotoUrlOverridesById] = useState<Record<string, string>>({});
   const photoUrlForMessage = useCallback(
@@ -1705,12 +1736,13 @@ const Chat = () => {
         userId: currentUserId,
         payload: { kind: "text", text },
         invalidateScope: threadInvalidateScope,
+        threadBucket: sendThreadBucket,
       });
       if (oid && typeof navigator !== "undefined" && navigator.vibrate) {
         navigator.vibrate(8);
       }
     },
-    [chatData?.matchId, currentUserId, id, newMessage, threadInvalidateScope, webOutbox],
+    [chatData?.matchId, currentUserId, id, newMessage, sendThreadBucket, threadInvalidateScope, webOutbox],
   );
 
   const queuePhotoFile = useCallback(
@@ -1738,6 +1770,7 @@ const Chat = () => {
           userId: currentUserId,
           payload: { kind: "image", blobKey, mimeType: imageMimeType, fileName: file.name || undefined },
           invalidateScope: threadInvalidateScope,
+          threadBucket: sendThreadBucket,
         });
         if (typeof navigator !== "undefined" && navigator.vibrate) {
           navigator.vibrate(8);
@@ -1751,7 +1784,7 @@ const Chat = () => {
         setSendingPhoto(false);
       }
     },
-    [chatData?.matchId, currentUserId, id, threadInvalidateScope, user?.id, webOutbox],
+    [chatData?.matchId, currentUserId, id, sendThreadBucket, threadInvalidateScope, user?.id, webOutbox],
   );
 
   const handlePhotoFileChange = useCallback(
@@ -1943,6 +1976,7 @@ const Chat = () => {
         userId: currentUserId,
         payload: { kind: "voice", blobKey, durationSeconds: Math.max(1, duration) },
         invalidateScope: threadInvalidateScope,
+        threadBucket: sendThreadBucket,
       });
     } catch (err) {
       console.error("Voice message queue error:", err);
@@ -2036,6 +2070,7 @@ const Chat = () => {
           captions: meta?.captions ?? null,
         },
         invalidateScope: threadInvalidateScope,
+        threadBucket: sendThreadBucket,
       });
     } catch (err) {
       console.error("Vibe Clip queue error:", err);
@@ -2288,6 +2323,7 @@ const Chat = () => {
                   userId: currentUserId,
                   payload: { kind: "text", text: "👋" },
                   invalidateScope: threadInvalidateScope,
+                  threadBucket: sendThreadBucket,
                 });
               }}
               disabled={!hasActiveConversation}
@@ -2547,6 +2583,9 @@ const Chat = () => {
                           status={groupedMessage.status || "delivered"}
                           time={groupedMessage.time}
                           isMyMessage={groupedMessage.sender === "me"}
+                          suppressSendingIndicator={groupedMessage.suppressSendingIndicator}
+                          showSendingSpinner={groupedMessage.showSendingSpinner}
+                          assistiveLabel={groupedMessage.statusAssistive}
                         />
                       </div>
                     )}
@@ -2604,17 +2643,29 @@ const Chat = () => {
                       >
                         {groupedMessage.sender === "me" && groupedMessage.sendError ? (
                           <>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                if (groupedMessage.outboxItemId) {
-                                  webOutbox.retry(groupedMessage.outboxItemId);
-                                }
-                              }}
-                              className="text-[10px] underline underline-offset-2 text-muted-foreground hover:text-foreground"
-                            >
-                              {groupedMessage.sendError}
-                            </button>
+                            <span className="text-[10px] text-muted-foreground">{groupedMessage.sendError}</span>
+                            <span className="flex items-center gap-2">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  if (groupedMessage.outboxItemId) {
+                                    webOutbox.retry(groupedMessage.outboxItemId);
+                                  }
+                                }}
+                                className="text-[10px] font-medium underline underline-offset-2 text-muted-foreground hover:text-foreground"
+                              >
+                                Retry
+                              </button>
+                              {groupedMessage.outboxItemId ? (
+                                <button
+                                  type="button"
+                                  onClick={() => webOutbox.remove(groupedMessage.outboxItemId!)}
+                                  className="text-[10px] underline underline-offset-2 text-muted-foreground hover:text-foreground"
+                                >
+                                  Remove
+                                </button>
+                              ) : null}
+                            </span>
                             <span className="text-[10px] text-muted-foreground">
                               {groupedMessage.time} · failed
                             </span>
@@ -2628,6 +2679,9 @@ const Chat = () => {
                               status={groupedMessage.status || "delivered"}
                               time={groupedMessage.time}
                               isMyMessage={groupedMessage.sender === "me"}
+                              suppressSendingIndicator={groupedMessage.suppressSendingIndicator}
+                              showSendingSpinner={groupedMessage.showSendingSpinner}
+                              assistiveLabel={groupedMessage.statusAssistive}
                             />
                           </>
                         )}
@@ -2667,6 +2721,63 @@ const Chat = () => {
                       duration={groupedMessage.audioDuration || 0}
                       isMine={groupedMessage.sender === "me"}
                     />
+                    {groupedMessage.isLastInGroup ? (
+                      <div
+                        className={cn(
+                          "mt-1 flex flex-col gap-1",
+                          groupedMessage.sender === "me" ? "items-end" : "items-start",
+                        )}
+                      >
+                        {groupedMessage.sender === "me" && groupedMessage.sendError ? (
+                          <>
+                            <span className="text-[10px] text-primary-foreground/75">
+                              {groupedMessage.sendError}
+                            </span>
+                            <span className="flex items-center gap-2">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  if (groupedMessage.outboxItemId) {
+                                    webOutbox.retry(groupedMessage.outboxItemId);
+                                  }
+                                }}
+                                className="text-[10px] font-medium underline underline-offset-2 text-primary-foreground/90 hover:text-primary-foreground"
+                              >
+                                Retry
+                              </button>
+                              {groupedMessage.outboxItemId ? (
+                                <button
+                                  type="button"
+                                  onClick={() => webOutbox.remove(groupedMessage.outboxItemId!)}
+                                  className="text-[10px] underline underline-offset-2 text-primary-foreground/70 hover:text-primary-foreground"
+                                >
+                                  Remove
+                                </button>
+                              ) : null}
+                            </span>
+                            <span className="text-[10px] text-primary-foreground/60 tabular-nums">
+                              {groupedMessage.time} · failed
+                            </span>
+                          </>
+                        ) : (
+                          <>
+                            {groupedMessage.sender === "me" && groupedMessage.statusSubtext ? (
+                              <span className="text-[10px] text-primary-foreground/70">
+                                {groupedMessage.statusSubtext}
+                              </span>
+                            ) : null}
+                            <MessageStatus
+                              status={groupedMessage.status || "delivered"}
+                              time={groupedMessage.time}
+                              isMyMessage={groupedMessage.sender === "me"}
+                              suppressSendingIndicator={groupedMessage.suppressSendingIndicator}
+                              showSendingSpinner={groupedMessage.showSendingSpinner}
+                              assistiveLabel={groupedMessage.statusAssistive}
+                            />
+                          </>
+                        )}
+                      </div>
+                    ) : null}
                   </div>
                 </div>
               ) : groupedMessage.type === "text" ? (
@@ -2681,6 +2792,11 @@ const Chat = () => {
                   onRetryFailedSend={(mid) => {
                     if (mid.startsWith("outbox-")) {
                       webOutbox.retry(mid.slice("outbox-".length));
+                    }
+                  }}
+                  onRemoveFailedSend={(mid) => {
+                    if (mid.startsWith("outbox-")) {
+                      webOutbox.remove(mid.slice("outbox-".length));
                     }
                   }}
                 />
