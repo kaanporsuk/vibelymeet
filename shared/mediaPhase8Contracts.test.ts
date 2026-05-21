@@ -80,6 +80,10 @@ test("Phase 8 server contracts write and hydrate structured chat-image payloads"
   assert.match(sendMessage, /provider: "bunny_storage"/);
   assert.match(sendMessage, /media_ref: mediaRef/);
   assert.match(sendMessage, /insertRow\.structured_payload = chatImageStructuredPayload/);
+  assert.match(sendMessage, /async function runBackgroundTask\(label: string, task: \(\) => Promise<unknown>\): Promise<void>/);
+  assert.match(sendMessage, /if \(runtime\?\.waitUntil\) \{[\s\S]+runtime\.waitUntil\(promise\);[\s\S]+\} else \{[\s\S]+await promise;[\s\S]+\}/);
+  assert.equal(sendMessage.match(/await runBackgroundTask\("send-message (?:vibe_clip notification|voice notification|notification)"/g)?.length, 3);
+  assert.doesNotMatch(sendMessage, /void promise/);
   assert.match(threadPage, /function parseStructuredChatImageRef/);
   assert.match(threadPage, /extractChatImageMediaRef\(next\)/);
   assert.match(threadPage, /payload\.media_ref = durableImageRef/);

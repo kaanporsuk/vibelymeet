@@ -11,7 +11,7 @@ type EdgeRuntimeWithWaitUntil = {
   waitUntil?: (promise: Promise<unknown>) => void;
 };
 
-function runBackgroundTask(label: string, task: () => Promise<unknown>) {
+async function runBackgroundTask(label: string, task: () => Promise<unknown>): Promise<void> {
   const promise = (async () => {
     try {
       await task();
@@ -23,7 +23,7 @@ function runBackgroundTask(label: string, task: () => Promise<unknown>) {
   if (runtime?.waitUntil) {
     runtime.waitUntil(promise);
   } else {
-    void promise;
+    await promise;
   }
 }
 
@@ -411,7 +411,7 @@ serve(async (req) => {
         );
       }
 
-      runBackgroundTask("send-message vibe_clip notification", async () => {
+      await runBackgroundTask("send-message vibe_clip notification", async () => {
         const { data: senderProfile } = await serviceClient
           .from("profiles")
           .select("name")
@@ -518,7 +518,7 @@ serve(async (req) => {
         );
       }
 
-      runBackgroundTask("send-message voice notification", async () => {
+      await runBackgroundTask("send-message voice notification", async () => {
         const { data: senderProfile } = await serviceClient
           .from("profiles")
           .select("name")
@@ -652,7 +652,7 @@ serve(async (req) => {
     }
 
     if (!idempotent) {
-      runBackgroundTask("send-message notification", async () => {
+      await runBackgroundTask("send-message notification", async () => {
         const { data: senderProfile } = await serviceClient
           .from("profiles")
           .select("name")
