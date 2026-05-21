@@ -272,6 +272,25 @@ interface VideoDateOpsWindow {
     source_error?: string;
     truncated?: boolean;
   };
+  queue_fairness: {
+    event_count: number;
+    active_event_count?: number;
+    queued_session_count: number;
+    queued_participant_slots: number;
+    starved_slots_120s: number;
+    starved_slots_300s: number;
+    starvation_rate_120s: number | null;
+    oldest_wait_seconds: number | null;
+    p95_wait_seconds: number | null;
+    both_hot_ready_slots: number;
+    not_both_hot_ready_slots: number;
+    reliability_penalized_slots: number;
+    no_match_attempts_15m: number;
+    runtime_blocked_attempts_15m: number;
+    status: VideoDateOpsStatus;
+    source_error?: string;
+    truncated?: boolean;
+  };
   timer_drift_recovered_by_server_truth: {
     status: VideoDateOpsStatus;
     source: "posthog";
@@ -728,6 +747,7 @@ const AdminLiveEventMetrics = () => {
                   const swipe = window.simultaneous_swipe_recovery;
                   const survey = window.survey_to_next_ready_gate_conversion;
                   const drain = window.queue_drain_failures;
+                  const fairness = window.queue_fairness;
                   const timer = window.timer_drift_recovered_by_server_truth;
                   const truncated = [
                     readyTapToFrame.truncated,
@@ -735,6 +755,7 @@ const AdminLiveEventMetrics = () => {
                     swipe.truncated,
                     survey.truncated,
                     drain.truncated,
+                    fairness?.truncated,
                   ].some(Boolean);
                   const rawFirstFrameCount = readyTapToFrame.raw_sample_count ?? readyTapToFrame.sample_count;
                   const firstFrameSampleText =
@@ -747,6 +768,8 @@ const AdminLiveEventMetrics = () => {
                   const drainFailureReasons = formatReasonCounts(drain.top_failure_reasons ?? []);
                   const drainNoOpReasons = formatReasonCounts(drain.top_no_op_reasons ?? []);
                   const drainBlockedReasons = formatReasonCounts(drain.top_blocked_reasons ?? []);
+                  const queueFairnessDetail = fairness?.source_error
+                    || `${fairness?.queued_session_count ?? 0} queued sessions, ${fairness?.starved_slots_120s ?? 0}/${fairness?.queued_participant_slots ?? 0} slots over 120s, ${fairness?.no_match_attempts_15m ?? 0} no-match attempts in 15m`;
 
                   return (
                     <div key={window.id} className="rounded-xl border border-white/10 bg-secondary/10 p-4 space-y-3">
@@ -813,6 +836,12 @@ const AdminLiveEventMetrics = () => {
                             }`
                           }
                           status={drain.status}
+                        />
+                        <VideoDateOpsTile
+                          label="Queue fairness"
+                          value={`${formatMs((fairness?.oldest_wait_seconds ?? 0) * 1000)} oldest`}
+                          detail={queueFairnessDetail}
+                          status={fairness?.status ?? "unknown"}
                         />
                         <VideoDateOpsTile
                           label="Timer drift recovered"

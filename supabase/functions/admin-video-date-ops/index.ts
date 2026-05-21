@@ -7,6 +7,7 @@ import {
   dedupeEarliestRowsBySessionActor,
   hasVideoDateTimelineRole,
   isValidUuid,
+  percentile,
   safeVideoDateTimelineRows,
   safeRate,
   summarizeLatencyMs,
@@ -29,7 +30,29 @@ const SLOW_LAUNCH_SESSION_LIMIT = 20;
 const SLOW_LAUNCH_TIMELINE_SESSION_LIMIT = 5;
 const SLOW_LAUNCH_TIMELINE_ROW_LIMIT = 12;
 
-type SupabaseClientLike = ReturnType<typeof createClient>;
+type SupabaseErrorLike = { message: string };
+type SupabaseRowsResult = { data: unknown[] | null; error: SupabaseErrorLike | null };
+type SupabaseSingleResult = { data: unknown | null; error: SupabaseErrorLike | null };
+type SupabaseRpcResult = { data: unknown; error: SupabaseErrorLike | null };
+
+type SupabaseQueryLike = PromiseLike<SupabaseRowsResult> & {
+  eq(column: string, value: unknown): SupabaseQueryLike;
+  gte(column: string, value: unknown): SupabaseQueryLike;
+  in(column: string, values: readonly unknown[]): SupabaseQueryLike;
+  not(column: string, operator: string, value: unknown): SupabaseQueryLike;
+  order(column: string, options?: { ascending?: boolean; nullsFirst?: boolean }): SupabaseQueryLike;
+  limit(count: number): SupabaseQueryLike;
+  maybeSingle(): PromiseLike<SupabaseSingleResult>;
+};
+
+type SupabaseFromBuilderLike = {
+  select(columns: string): SupabaseQueryLike;
+};
+
+type SupabaseClientLike = {
+  from(table: string): SupabaseFromBuilderLike;
+  rpc(functionName: string, args?: Record<string, unknown>): PromiseLike<SupabaseRpcResult>;
+};
 
 type EventLoopRow = {
   created_at: string;
@@ -57,6 +80,28 @@ type FeedbackRow = {
 type QueueDrainRow = {
   outcome: string | null;
   reason_code: string | null;
+};
+
+type QueueFairnessHealthRow = {
+  event_id: string | null;
+  queued_session_count: number | null;
+  queued_participant_slots: number | null;
+  oldest_wait_seconds: number | null;
+  p95_wait_seconds: number | null;
+  starved_slots_120s: number | null;
+  starved_slots_300s: number | null;
+  both_hot_ready_slots: number | null;
+  not_both_hot_ready_slots: number | null;
+  reliability_penalized_slots: number | null;
+  max_candidate_score: number | null;
+  avg_candidate_score: number | null;
+  actor_platform_slots: Record<string, number> | null;
+  actor_gender_slots: Record<string, number> | null;
+  drain_attempts_15m: number | null;
+  drain_successes_15m: number | null;
+  no_match_attempts_15m: number | null;
+  runtime_blocked_attempts_15m: number | null;
+  fairness_status: MetricStatus | null;
 };
 
 type LaunchLatencyCheckpointRow = {
@@ -164,10 +209,10 @@ function firstJoinedAtMs(session: VideoSessionRow): number | null {
 }
 
 async function fetchRows<T>(
-  query: PromiseLike<{ data: T[] | null; error: { message: string } | null }>,
+  query: PromiseLike<SupabaseRowsResult>,
 ): Promise<QueryResult<T>> {
   const { data, error } = await query;
-  const rows = data ?? [];
+  const rows = (data ?? []) as T[];
   return {
     rows,
     error: error?.message,
@@ -458,7 +503,7 @@ async function getReadyTapToFirstRemoteFrameLatency(
       daily_prewarm: prewarmOutcome,
     };
     const key = Object.entries(dimensions).map(([name, value]) => `${name}:${value}`).join("|");
-    const existing = cohortValues.get(key) ?? { dimensions, values: [] };
+    const existing = cohortValues.get(key) ?? { dimensions, values: [] as number[] };
     existing.values.push(latencyMs);
     cohortValues.set(key, existing);
   }
@@ -720,6 +765,109 @@ async function getQueueDrainFailures(
   };
 }
 
+function worstMetricStatus(statuses: Array<MetricStatus | null | undefined>): MetricStatus {
+  if (statuses.includes("critical")) return "critical";
+  if (statuses.includes("warning")) return "warning";
+  if (statuses.includes("unknown")) return "unknown";
+  return "healthy";
+}
+
+async function getQueueFairnessHealth(
+  service: SupabaseClientLike,
+  eventId: string | null,
+) {
+  let query = service
+    .from("v_video_date_queue_fairness_event_health")
+    .select(
+      "event_id,queued_session_count,queued_participant_slots,oldest_wait_seconds,p95_wait_seconds,starved_slots_120s,starved_slots_300s,both_hot_ready_slots,not_both_hot_ready_slots,reliability_penalized_slots,max_candidate_score,avg_candidate_score,actor_platform_slots,actor_gender_slots,drain_attempts_15m,drain_successes_15m,no_match_attempts_15m,runtime_blocked_attempts_15m,fairness_status",
+    )
+    .order("oldest_wait_seconds", { ascending: false })
+    .limit(MAX_ROWS);
+
+  if (eventId) query = query.eq("event_id", eventId);
+
+  const result = await fetchRows<QueueFairnessHealthRow>(query);
+  if (result.error) {
+    return {
+      event_count: 0,
+      queued_session_count: 0,
+      queued_participant_slots: 0,
+      starved_slots_120s: 0,
+      starved_slots_300s: 0,
+      starvation_rate_120s: null,
+      oldest_wait_seconds: null,
+      p95_wait_seconds: null,
+      both_hot_ready_slots: 0,
+      not_both_hot_ready_slots: 0,
+      reliability_penalized_slots: 0,
+      no_match_attempts_15m: 0,
+      runtime_blocked_attempts_15m: 0,
+      top_events: [] as QueueFairnessHealthRow[],
+      status: "unknown" as MetricStatus,
+      source_error: result.error,
+      truncated: result.truncated,
+    };
+  }
+
+  const totals = result.rows.reduce(
+    (acc, row) => {
+      const queuedParticipantSlots = Number(row.queued_participant_slots ?? 0);
+      acc.queued_session_count += Number(row.queued_session_count ?? 0);
+      acc.queued_participant_slots += queuedParticipantSlots;
+      acc.starved_slots_120s += Number(row.starved_slots_120s ?? 0);
+      acc.starved_slots_300s += Number(row.starved_slots_300s ?? 0);
+      acc.both_hot_ready_slots += Number(row.both_hot_ready_slots ?? 0);
+      acc.not_both_hot_ready_slots += Number(row.not_both_hot_ready_slots ?? 0);
+      acc.reliability_penalized_slots += Number(row.reliability_penalized_slots ?? 0);
+      acc.no_match_attempts_15m += Number(row.no_match_attempts_15m ?? 0);
+      acc.runtime_blocked_attempts_15m += Number(row.runtime_blocked_attempts_15m ?? 0);
+      acc.oldest_wait_seconds = Math.max(acc.oldest_wait_seconds, Number(row.oldest_wait_seconds ?? 0));
+      if (typeof row.p95_wait_seconds === "number" && Number.isFinite(row.p95_wait_seconds)) {
+        acc.p95_wait_values.push(row.p95_wait_seconds);
+      }
+      if (queuedParticipantSlots > 0) acc.active_event_count += 1;
+      return acc;
+    },
+    {
+      queued_session_count: 0,
+      queued_participant_slots: 0,
+      starved_slots_120s: 0,
+      starved_slots_300s: 0,
+      both_hot_ready_slots: 0,
+      not_both_hot_ready_slots: 0,
+      reliability_penalized_slots: 0,
+      no_match_attempts_15m: 0,
+      runtime_blocked_attempts_15m: 0,
+      oldest_wait_seconds: 0,
+      p95_wait_values: [] as number[],
+      active_event_count: 0,
+    },
+  );
+
+  const starvationRate = safeRate(totals.starved_slots_120s, totals.queued_participant_slots);
+  const status = worstMetricStatus(result.rows.map((row) => row.fairness_status));
+
+  return {
+    event_count: result.rows.length,
+    active_event_count: totals.active_event_count,
+    queued_session_count: totals.queued_session_count,
+    queued_participant_slots: totals.queued_participant_slots,
+    starved_slots_120s: totals.starved_slots_120s,
+    starved_slots_300s: totals.starved_slots_300s,
+    starvation_rate_120s: starvationRate,
+    oldest_wait_seconds: totals.oldest_wait_seconds || null,
+    p95_wait_seconds: percentile(totals.p95_wait_values, 0.95),
+    both_hot_ready_slots: totals.both_hot_ready_slots,
+    not_both_hot_ready_slots: totals.not_both_hot_ready_slots,
+    reliability_penalized_slots: totals.reliability_penalized_slots,
+    no_match_attempts_15m: totals.no_match_attempts_15m,
+    runtime_blocked_attempts_15m: totals.runtime_blocked_attempts_15m,
+    top_events: result.rows.slice(0, 8),
+    status,
+    truncated: result.truncated,
+  };
+}
+
 function getTimerDriftExternalMetric() {
   return {
     status: "external_only" as MetricStatus,
@@ -744,12 +892,14 @@ async function buildWindowMetrics(
     simultaneousSwipeRecovery,
     surveyToNextReadyGate,
     queueDrainFailures,
+    queueFairness,
   ] = await Promise.all([
     getReadyTapToFirstRemoteFrameLatency(service, sinceIso, eventId),
     getReadyGateLatency(service, sinceIso, eventId),
     getSwipeRecovery(service, sinceIso, eventId),
     getSurveyToNextReadyGate(service, sinceIso, eventId),
     getQueueDrainFailures(service, sinceIso, eventId),
+    getQueueFairnessHealth(service, eventId),
   ]);
 
   return {
@@ -762,6 +912,7 @@ async function buildWindowMetrics(
     simultaneous_swipe_recovery: simultaneousSwipeRecovery,
     survey_to_next_ready_gate_conversion: surveyToNextReadyGate,
     queue_drain_failures: queueDrainFailures,
+    queue_fairness: queueFairness,
     timer_drift_recovered_by_server_truth: getTimerDriftExternalMetric(),
   };
 }
@@ -850,7 +1001,7 @@ serve(async (req) => {
       return typedErrorResponse("internal_error", "Function is not configured", 500);
     }
 
-    const service = createClient(supabaseUrl, serviceKey);
+    const service = createClient(supabaseUrl, serviceKey) as unknown as SupabaseClientLike;
 
     if (action === "get_session_timeline") {
       const sessionId = parseSessionId(body);
