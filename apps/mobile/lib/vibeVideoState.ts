@@ -69,6 +69,10 @@ function pickProfileId(profile: {
   return typeof raw === 'string' ? raw.trim() || null : null;
 }
 
+function isSourceReadyStatus(status: string | null | undefined): boolean {
+  return typeof status === 'string' && status.trim().toLowerCase() === 'ready';
+}
+
 function pickPlaybackRef(profile: {
   id?: string | null;
   profile_id?: string | null;
@@ -76,12 +80,12 @@ function pickPlaybackRef(profile: {
   vibe_video_playback_ref?: string | null;
   vibeVideoPlaybackRef?: string | null;
   playbackRef?: string | null;
-} | null | undefined, uid: string | null): string | null {
+} | null | undefined, uid: string | null, allowSyntheticRef: boolean): string | null {
   return (
     normalizeProfileVibeVideoPlaybackRef(profile?.vibe_video_playback_ref, uid) ??
     normalizeProfileVibeVideoPlaybackRef(profile?.vibeVideoPlaybackRef, uid) ??
     normalizeProfileVibeVideoPlaybackRef(profile?.playbackRef, uid) ??
-    getProfileVibeVideoPlaybackRef(pickProfileId(profile), uid)
+    (allowSyntheticRef ? getProfileVibeVideoPlaybackRef(pickProfileId(profile), uid) : null)
   );
 }
 
@@ -101,9 +105,10 @@ export function resolveVibeVideoState(profile: {
   captions?: unknown;
 } | null | undefined): VibeVideoInfo {
   const uid = normalizeBunnyVideoUid(profile?.bunny_video_uid);
+  const sourceStatus = profile?.bunny_video_status;
   const canonical = resolveCanonicalVibeVideoState({
     bunnyVideoUid: uid,
-    bunnyVideoStatus: profile?.bunny_video_status,
+    bunnyVideoStatus: sourceStatus,
     bunnyVideoUpdatedAt: profile?.bunny_video_updated_at ?? profile?.updated_at,
   });
   const normStatus = canonical.status;
@@ -143,7 +148,7 @@ export function resolveVibeVideoState(profile: {
   }
 
   if (canonical.state === 'ready') {
-    const playbackRef = pickPlaybackRef(profile, uid);
+    const playbackRef = pickPlaybackRef(profile, uid, isSourceReadyStatus(sourceStatus));
     const playbackUrl = playbackRef ?? getVibeVideoPlaybackUrl(uid);
     const thumbnailUrl = playbackRef ? null : getVibeVideoThumbnailUrl(uid);
     return {

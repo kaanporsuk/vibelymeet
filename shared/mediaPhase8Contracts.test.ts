@@ -173,9 +173,11 @@ test("Phase 8 private profile Vibe Video uses signed playback refs", () => {
   assert.match(nativeResolver, /profileId: profileRef\.profileId, mediaKind, sourceRef: rawRef/);
   assert.match(webVibeVideoState, /getWebProfileVibeVideoPlaybackRef/);
   assert.match(webVibeVideoState, /normalizeProfileVibeVideoPlaybackRef\(p\?\.playbackRef, uid\)/);
+  assert.match(webVibeVideoState, /pickPlaybackRef\(profile, uid, isSourceReadyStatus\(sourceStatus\)\)/);
   assert.match(webVibeVideoState, /const thumbnailUrl = playbackRef \? null : getWebVibeVideoThumbnailUrl\(uid\)/);
   assert.match(nativeVibeVideoState, /getProfileVibeVideoPlaybackRef/);
   assert.match(nativeVibeVideoState, /normalizeProfileVibeVideoPlaybackRef\(profile\?\.playbackRef, uid\)/);
+  assert.match(nativeVibeVideoState, /pickPlaybackRef\(profile, uid, isSourceReadyStatus\(sourceStatus\)\)/);
   assert.match(nativeVibeVideoState, /const thumbnailUrl = playbackRef \? null : getVibeVideoThumbnailUrl\(uid\)/);
 
   assert.match(webProfile, /signedVibeVideoRef/);
