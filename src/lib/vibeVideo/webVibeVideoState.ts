@@ -138,12 +138,16 @@ function pickUid(p: ProfileVibeInput): string | null {
   return normalizeBunnyVideoUid(raw);
 }
 
-function pickPlaybackRef(p: ProfileVibeInput, uid: string | null): string | null {
+function isSourceReadyStatus(status: string | null | undefined): boolean {
+  return typeof status === "string" && status.trim().toLowerCase() === "ready";
+}
+
+function pickPlaybackRef(p: ProfileVibeInput, uid: string | null, allowSyntheticRef: boolean): string | null {
   return (
     normalizeProfileVibeVideoPlaybackRef(p?.vibe_video_playback_ref, uid) ??
     normalizeProfileVibeVideoPlaybackRef(p?.vibeVideoPlaybackRef, uid) ??
     normalizeProfileVibeVideoPlaybackRef(p?.playbackRef, uid) ??
-    getWebProfileVibeVideoPlaybackRef(pickProfileId(p), uid)
+    (allowSyntheticRef ? getWebProfileVibeVideoPlaybackRef(pickProfileId(p), uid) : null)
   );
 }
 
@@ -166,9 +170,10 @@ function pickCaptions(p: ProfileVibeInput): MediaCaptions | null {
 
 export function resolveWebVibeVideoState(profile: ProfileVibeInput): WebVibeVideoInfo {
   const uid = pickUid(profile);
+  const sourceStatus = pickStatus(profile);
   const canonical = resolveCanonicalVibeVideoState({
     bunnyVideoUid: uid,
-    bunnyVideoStatus: pickStatus(profile),
+    bunnyVideoStatus: sourceStatus,
     bunnyVideoUpdatedAt: pickUpdatedAt(profile),
   });
   const normStatus = canonical.status;
@@ -232,7 +237,7 @@ export function resolveWebVibeVideoState(profile: ProfileVibeInput): WebVibeVide
   }
 
   if (canonical.state === "ready") {
-    const playbackRef = pickPlaybackRef(profile, uid);
+    const playbackRef = pickPlaybackRef(profile, uid, isSourceReadyStatus(sourceStatus));
     const playbackUrl = playbackRef ?? getWebVibeVideoPlaybackUrl(uid);
     const thumbnailUrl = playbackRef ? null : getWebVibeVideoThumbnailUrl(uid);
     return {

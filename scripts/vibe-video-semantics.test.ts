@@ -113,6 +113,38 @@ test("ready state still requires a playable URL before canPlay is true", () => {
   assert.equal(readyWithoutConfiguredHostname.isScoreEligible, true);
 });
 
+test("web resolver only synthesizes profile refs for source ready status", () => {
+  const profileId = "550e8400-e29b-41d4-a716-446655440000";
+  const uid = "11111111-1111-4111-8111-111111111111";
+  const profileRef = `profile_vibe_video:${profileId}:${uid}`;
+
+  const sourceReady = resolveWebVibeVideoState({
+    id: profileId,
+    bunny_video_uid: uid,
+    bunny_video_status: "ready",
+  });
+  assert.equal(sourceReady.playbackUrl, profileRef);
+  assert.equal(sourceReady.thumbnailUrl, null);
+
+  const legacyReady = resolveWebVibeVideoState({
+    id: profileId,
+    bunny_video_uid: uid,
+    bunny_video_status: "3",
+  });
+  assert.equal(legacyReady.state, "ready");
+  assert.equal(legacyReady.normalizedStatus, "ready");
+  assert.notEqual(legacyReady.playbackUrl, profileRef);
+  assert.equal(legacyReady.playbackUrl?.startsWith("profile_vibe_video:") ?? false, false);
+
+  const serverProvidedRef = resolveWebVibeVideoState({
+    id: profileId,
+    bunny_video_uid: uid,
+    bunny_video_status: "3",
+    vibe_video_playback_ref: profileRef,
+  });
+  assert.equal(serverProvidedRef.playbackUrl, profileRef);
+});
+
 test("web resolver keeps UID-backed pipeline and failed states manageable", () => {
   const processing = resolveWebVibeVideoState({
     bunny_video_uid: "video-processing",
