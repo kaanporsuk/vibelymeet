@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { supabase, SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY } from "@/integrations/supabase/client";
 import { useAuth, useUserProfile } from "@/contexts/AuthContext";
+import { useFeatureFlag } from "@/hooks/useFeatureFlag";
+import { recordVideoDateHeartbeatV2 } from "@/lib/videoDateReadiness";
 
 /** Values the client may write via `update_participant_status` (server-owned statuses are excluded). */
 export type ClientWritableParticipantStatus =
@@ -28,6 +30,7 @@ export const useEventStatus = ({ eventId, enabled = true }: UseEventStatusOption
   const enabledRef = useRef(enabled);
   const heartbeatRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const [currentStatus, setCurrentStatus] = useState<ParticipantStatus>("idle");
+  const readinessV2 = useFeatureFlag("video_date.readiness_v2");
 
   useEffect(() => {
     enabledRef.current = enabled;
@@ -61,16 +64,23 @@ export const useEventStatus = ({ eventId, enabled = true }: UseEventStatusOption
 
     heartbeatRef.current = setInterval(async () => {
       try {
-        await supabase.rpc("mark_event_participant_heartbeat", {
-          p_event_id: eventId,
-        });
+        if (readinessV2.enabled) {
+          await recordVideoDateHeartbeatV2(eventId, {
+            foreground: typeof document === "undefined" || document.visibilityState === "visible",
+            clientPlatform: "web",
+          });
+        } else {
+          await supabase.rpc("mark_event_participant_heartbeat", {
+            p_event_id: eventId,
+          });
+        }
       } catch {}
     }, 30000);
 
     return () => {
       if (heartbeatRef.current) clearInterval(heartbeatRef.current);
     };
-  }, [enabled, eventId, user?.id]);
+  }, [enabled, eventId, readinessV2.enabled, user?.id]);
 
   // Set offline on page unload
   useEffect(() => {

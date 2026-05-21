@@ -10,6 +10,7 @@ import {
   isIncomingMatchCallForRequester,
   planDailyProviderRoomRecovery,
   resolveCanonicalVideoDateRoom,
+  videoDateDiagnosticRoomNameForUser,
   videoDateRoomNameForSession,
   videoDateRoomUrlForName as buildVideoDateRoomUrlForName,
   type DateRoomAction,
@@ -40,7 +41,9 @@ const DAILY_MATCH_CALL_ROOM_TTL_SECONDS = 60 * 60;
 // while covering the normal 5-minute flow plus generous extension/reconnect room.
 const DAILY_VIDEO_DATE_TOKEN_TTL_SECONDS = 15 * 60;
 const DAILY_VIDEO_DATE_SOLO_PREJOIN_TOKEN_TTL_SECONDS = 60;
+const DAILY_VIDEO_DATE_DIAGNOSTIC_TOKEN_TTL_SECONDS = 60;
 const DAILY_VIDEO_DATE_ROOM_TTL_SECONDS = 14_400;
+const DAILY_VIDEO_DATE_DIAGNOSTIC_ROOM_TTL_SECONDS = 10 * 60;
 const DAILY_VIDEO_DATE_PROVIDER_PROOF_FRESH_MS = 90_000;
 const DAILY_VIDEO_DATE_PROVIDER_PROOF_CLOCK_SKEW_MS = 5_000;
 const EDGE_PROCESS_STARTED_AT_MS = Date.now();
@@ -197,6 +200,7 @@ function readVideoDateTraceContext(body: Record<string, unknown>, action: unknow
   const providedTraceId = sanitizeEntryAttemptId(body?.video_date_trace_id ?? body?.videoDateTraceId);
   const shouldGenerateTrace =
     action === "prepare_date_entry" ||
+    action === "prepare_diagnostic_entry" ||
     action === "prepare_solo_entry" ||
     action === "ensure_date_room" ||
     action === "create_date_room" ||
@@ -1125,6 +1129,21 @@ function videoDateRoomProperties(): Record<string, unknown> {
   };
 }
 
+function videoDateDiagnosticRoomProperties(): Record<string, unknown> {
+  return {
+    max_participants: 1,
+    enable_chat: false,
+    enable_screenshare: false,
+    enable_recording: false,
+    enable_knocking: false,
+    enforce_unique_user_ids: true,
+    start_video_off: false,
+    start_audio_off: false,
+    exp: Math.floor(Date.now() / 1000) + DAILY_VIDEO_DATE_DIAGNOSTIC_ROOM_TTL_SECONDS,
+    eject_at_room_exp: true,
+  };
+}
+
 function matchCallRoomProperties(callTypeValue: "voice" | "video"): Record<string, unknown> {
   return {
     max_participants: 2,
@@ -1921,6 +1940,111 @@ serve(async (req) => {
         authenticatedUserId: user.id,
         source: body.source,
       });
+    }
+
+    // ── ACTION: prepare_diagnostic_entry ──
+    // Dedicated one-person Daily room for non-blocking device/network checks.
+    // It never creates or mutates a video_session and cannot be reused as a date room.
+    if (action === "prepare_diagnostic_entry") {
+      const actionName: DateRoomAction = "prepare_diagnostic_entry";
+      const timings: Record<string, number> = {
+        edge_cold_start_ms: edgeProcessUptimeMs,
+        edge_process_uptime_ms: edgeProcessUptimeMs,
+      };
+      if (authTimingMs != null) timings.auth_ms = authTimingMs;
+      const startedAt = Date.now();
+      const roomName = videoDateDiagnosticRoomNameForUser(user.id);
+      const roomUrl = videoDateRoomUrlForName(roomName);
+
+      try {
+        const lookupStartedAt = Date.now();
+        const providerState = await getDailyRoomProviderState(roomName);
+        timings.provider_lookup_ms = Date.now() - lookupStartedAt;
+        let providerRoomRecovered = false;
+        const providerExpiresAtMs = providerState.expiresAt ? Date.parse(providerState.expiresAt) : null;
+        const providerRoomExpiringSoon =
+          providerExpiresAtMs == null ||
+          providerExpiresAtMs <= Date.now() + (DAILY_VIDEO_DATE_DIAGNOSTIC_TOKEN_TTL_SECONDS + 30) * 1000;
+        const shouldRefreshProviderRoom =
+          providerState.expired || (providerState.exists && providerRoomExpiringSoon);
+
+        if (shouldRefreshProviderRoom) {
+          const deleteStartedAt = Date.now();
+          await deleteDailyRoom(roomName, { throwOnProviderError: true });
+          timings.provider_delete_stale_ms = Date.now() - deleteStartedAt;
+        }
+
+        if (!providerState.exists || shouldRefreshProviderRoom) {
+          const createStartedAt = Date.now();
+          await createDailyRoom(roomName, videoDateDiagnosticRoomProperties());
+          timings.room_create_ms = Date.now() - createStartedAt;
+          providerRoomRecovered = true;
+        }
+
+        const tokenStartedAt = Date.now();
+        const token = await createMeetingToken(
+          roomName,
+          user.id,
+          DAILY_VIDEO_DATE_DIAGNOSTIC_TOKEN_TTL_SECONDS,
+          2,
+          { ejectAtTokenExp: true },
+        );
+        timings.token_ms = Date.now() - tokenStartedAt;
+        timings.total_ms = Date.now() - startedAt;
+
+        console.log(JSON.stringify({
+          event: "prepare_diagnostic_entry_ok",
+          user_id: user.id,
+          room_name: roomName,
+          provider_room_recovered: providerRoomRecovered,
+          provider_room_expiring_soon: providerRoomExpiringSoon,
+          timings,
+        }));
+        return new Response(
+          JSON.stringify({
+            success: true,
+            ok: true,
+            action: actionName,
+            room_name: roomName,
+            room_url: roomUrl,
+            token,
+            token_expires_at: meetingTokenExpiresAtIso(DAILY_VIDEO_DATE_DIAGNOSTIC_TOKEN_TTL_SECONDS),
+            token_ttl_seconds: DAILY_VIDEO_DATE_DIAGNOSTIC_TOKEN_TTL_SECONDS,
+            provider_room_recovered: providerRoomRecovered,
+            timings,
+          }),
+          { headers: { ...corsHeaders, "Content-Type": "application/json", "Cache-Control": "no-store" } },
+        );
+      } catch (error) {
+        const providerError = isDailyProviderError(error) ? error : null;
+        if (providerError) {
+          logDailyProviderFailure(providerError, {
+            action: actionName,
+            sessionId: null,
+            userId: user.id,
+            roomName,
+          });
+        }
+        console.error(JSON.stringify({
+          event: "prepare_diagnostic_entry_failed",
+          user_id: user.id,
+          room_name: roomName,
+          error: error instanceof Error ? error.message : "unknown",
+        }));
+        return new Response(
+          JSON.stringify({
+            success: false,
+            ok: false,
+            code: providerError?.vibelyCode ?? "DIAGNOSTIC_ENTRY_FAILED",
+            error: providerError?.clientMessage ?? "Video diagnostics are temporarily unavailable.",
+            retryable: true,
+          }),
+          {
+            status: providerError?.httpStatus ?? 503,
+            headers: { ...corsHeaders, "Content-Type": "application/json", "Cache-Control": "no-store" },
+          },
+        );
+      }
     }
 
     // ── ACTION: video_date_leave ──

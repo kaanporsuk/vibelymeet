@@ -55,6 +55,7 @@ import { LiveSurfaceOfflineStrip } from '@/components/connectivity/LiveSurfaceOf
 import { useVibelyDialog } from '@/components/VibelyDialog';
 import { useQueryClient } from '@tanstack/react-query';
 import { useAccountPauseStatus } from '@/hooks/useAccountPauseStatus';
+import { useFeatureFlag } from '@/hooks/useFeatureFlag';
 import { useActiveSession } from '@/lib/useActiveSession';
 import { RC_CATEGORY, rcBreadcrumb } from '@/lib/nativeRcDiagnostics';
 import { endAccountBreakForUser } from '@/lib/endAccountBreak';
@@ -63,6 +64,10 @@ import { navigateToDateSessionGuarded } from '@/lib/dateNavigationGuard';
 import { clearDateEntryTransition, isDateEntryTransitionActive } from '@/lib/dateEntryTransitionLatch';
 import { ensureVideoDateStartableBeforeNavigation } from '@/lib/videoDateEntryStartable';
 import { prepareVideoDateEntry } from '@/lib/videoDatePrepareEntry';
+import {
+  persistReadyGateSuppressionV2,
+  useNonBlockingVideoDateReadiness,
+} from '@/lib/videoDateReadiness';
 import { markNativeVideoDateLaunchIntent, videoDateLaunchBreadcrumb } from '@/lib/videoDateLaunchTrace';
 import {
   canAttemptDailyRoomFromVideoSessionTruth,
@@ -287,6 +292,11 @@ export default function EventLobbyScreen() {
       isConfirmedSeat &&
       !pauseStatus.isPaused &&
       isLiveWindow
+  );
+  const readinessV2 = useFeatureFlag('video_date.readiness_v2');
+  const videoDateReadiness = useNonBlockingVideoDateReadiness(
+    id,
+    readinessV2.enabled && lobbySideEffectsEnabled,
   );
   const deckQueryEnabled = lobbySideEffectsEnabled;
   const {
@@ -977,17 +987,18 @@ export default function EventLobbyScreen() {
   );
 
   const suppressReadyGateAfterManualExit = useCallback((sessionId: string) => {
-    readyGateManualExitSuppressUntilRef.current.set(
-      sessionId,
-      Date.now() + READY_GATE_MANUAL_EXIT_SUPPRESS_MS,
-    );
+    const suppressUntilMs = Date.now() + READY_GATE_MANUAL_EXIT_SUPPRESS_MS;
+    readyGateManualExitSuppressUntilRef.current.set(sessionId, suppressUntilMs);
+    if (readinessV2.enabled) {
+      void persistReadyGateSuppressionV2(sessionId, suppressUntilMs);
+    }
     if (lastOpenedSessionRef.current === sessionId) {
       lastOpenedSessionRef.current = null;
     }
     setActiveSessionId((current) => (current === sessionId ? null : current));
     setActiveSessionPartnerName(null);
     setActiveSessionPartnerImage(null);
-  }, []);
+  }, [readinessV2.enabled]);
 
   const refreshQueueAndSuperVibe = useCallback(async () => {
     if (!id || !user?.id || !lobbySideEffectsEnabled) {
@@ -1922,6 +1933,15 @@ export default function EventLobbyScreen() {
         title: 'You’re offline',
         message: 'Reconnect to swipe and match in the lobby.',
         variant: 'warning',
+        primaryAction: { label: 'OK', onPress: () => {} },
+      });
+      return;
+    }
+    if (swipeType !== 'pass' && readinessV2.enabled && !videoDateReadiness.canAttemptPairing) {
+      show({
+        title: 'Camera and mic needed',
+        message: videoDateReadiness.reason ?? 'Enable camera and microphone access before pairing for a video date.',
+        variant: 'info',
         primaryAction: { label: 'OK', onPress: () => {} },
       });
       return;

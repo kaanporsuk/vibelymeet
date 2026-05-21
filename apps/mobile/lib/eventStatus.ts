@@ -6,6 +6,8 @@
 
 import { useCallback, useEffect, useRef } from 'react';
 import { markEventParticipantHeartbeat, updateParticipantStatus } from '@/lib/videoDateApi';
+import { useFeatureFlag } from '@/hooks/useFeatureFlag';
+import { recordVideoDateHeartbeatV2 } from '@/lib/videoDateReadiness';
 
 export type ClientWritableParticipantStatus =
   | 'browsing'
@@ -23,6 +25,7 @@ const HEARTBEAT_MS = 30000;
 
 export function useEventStatus(eventId: string | undefined, userId: string | undefined, enabled = true) {
   const enabledRef = useRef(enabled);
+  const readinessV2 = useFeatureFlag('video_date.readiness_v2');
 
   useEffect(() => {
     enabledRef.current = enabled;
@@ -48,14 +51,16 @@ export function useEventStatus(eventId: string | undefined, userId: string | und
       if (!ok && __DEV__) console.warn('[eventStatus] initial status update failed');
     })();
     const heartbeat = setInterval(async () => {
-      const ok = await markEventParticipantHeartbeat(eventId);
+      const ok = readinessV2.enabled
+        ? await recordVideoDateHeartbeatV2(eventId)
+        : await markEventParticipantHeartbeat(eventId);
       if (!ok && __DEV__) console.warn('[eventStatus] heartbeat update failed');
     }, HEARTBEAT_MS);
     return () => {
       clearInterval(heartbeat);
       updateParticipantStatus(eventId, 'offline').catch(() => {});
     };
-  }, [enabled, eventId, userId]);
+  }, [enabled, eventId, readinessV2.enabled, userId]);
 
   return { setStatus };
 }

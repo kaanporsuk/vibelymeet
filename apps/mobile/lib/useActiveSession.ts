@@ -53,6 +53,42 @@ type ActiveSessionVideoTruth = Parameters<typeof decideVideoSessionRouteFromTrut
   participant_2_id?: string | null;
 };
 
+function isReadyGateSuppressionActive(
+  suppressedUntil: unknown,
+  suppressedSessionId: unknown,
+  sessionId: string,
+  nowMs = Date.now(),
+): boolean {
+  if (suppressedSessionId !== sessionId) return false;
+  const value = suppressedUntil;
+  if (typeof value !== 'string' || !value) return false;
+  const suppressedUntilMs = Date.parse(value);
+  return Number.isFinite(suppressedUntilMs) && suppressedUntilMs > nowMs;
+}
+
+async function isReadyGateSuppressedForSession(
+  userId: string,
+  eventId: string,
+  sessionId: string,
+  nowMs: number,
+): Promise<boolean> {
+  const { data, error } = await supabase
+    .from('event_registrations')
+    .select('current_room_id, ready_gate_suppressed_until, ready_gate_suppressed_session_id')
+    .eq('profile_id', userId)
+    .eq('event_id', eventId)
+    .maybeSingle();
+  if (error) return false;
+  if (!data) return false;
+  if (data.current_room_id && data.current_room_id !== sessionId) return false;
+  return isReadyGateSuppressionActive(
+    data.ready_gate_suppressed_until,
+    (data as Record<string, unknown>).ready_gate_suppressed_session_id,
+    sessionId,
+    nowMs,
+  );
+}
+
 async function fetchPartnerNameForViewer(partnerId: string): Promise<string | null> {
   const { data: profile, error } = await supabase.rpc('get_profile_for_viewer', { p_target_id: partnerId });
   if (error) {
@@ -265,6 +301,13 @@ async function findDirectVideoSessionFallback(
   const decision = decideVideoSessionRouteFromTruth(candidate, nowMs);
   const canAttemptDaily = canAttemptDailyRoomFromVideoSessionTruth(candidate, nowMs);
   if (!canAttemptDaily && decision !== 'navigate_date' && decision !== 'navigate_ready') return null;
+  if (
+    decision === 'navigate_ready' &&
+    !canAttemptDaily &&
+    await isReadyGateSuppressedForSession(userId, candidate.event_id as string, candidate.id as string, nowMs)
+  ) {
+    return null;
+  }
 
   const partnerId =
     candidate.participant_1_id === userId
@@ -396,6 +439,20 @@ export function useActiveSession(
               partnerName: pendingSurvey.partnerName,
               queueStatus: 'in_survey',
             });
+            setHydrated(true);
+          }
+          return;
+        }
+        if (
+          await isReadyGateSuppressedForSession(
+            userId,
+            reg.event_id as string,
+            reg.current_room_id as string,
+            Date.now(),
+          )
+        ) {
+          if (mounted.current) {
+            setActiveSession(null);
             setHydrated(true);
           }
           return;
