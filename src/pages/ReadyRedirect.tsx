@@ -4,6 +4,8 @@ import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { useUserProfile } from "@/contexts/AuthContext";
 import { markVideoDateEntryPipelineStarted } from "@/lib/dateEntryTransitionLatch";
+import { useFeatureFlag } from "@/hooks/useFeatureFlag";
+import { fetchVideoDateSnapshot } from "@/lib/videoDateSnapshot";
 import { canAttemptDailyRoomFromVideoSessionTruth } from "@clientShared/matching/activeSession";
 import {
   READY_GATE_DEEP_LINK_INVALID_USER_MESSAGE,
@@ -12,14 +14,15 @@ import {
 
 /**
  * Web `/ready/:readyId` entry: safe reconciliation fallback, not a standalone Ready Gate surface.
- * Validates session row, participation, not ended, and `in_ready_gate` before sending the user
- * to the event lobby (canonical web surface for Ready Gate UI). Invalid/stale links get a safe
- * fallback (events home or lobby) instead of blindly treating the param as an event id.
+ * Snapshot v2 validates participation through the token-free Edge/Postgres path and recovers
+ * the exact event lobby without minting Daily tokens. Legacy fallback still validates the
+ * session row and registration state directly while the flag ramps.
  */
 const ReadyRedirect = () => {
   const navigate = useNavigate();
   const { readyId } = useParams<{ readyId: string }>();
   const { user } = useUserProfile();
+  const snapshotV2 = useFeatureFlag("video_date.snapshot_v2");
   const toastShownForReadyKeyRef = useRef<string | null>(null);
 
   useEffect(() => {
@@ -46,6 +49,43 @@ const ReadyRedirect = () => {
       }
 
       const candidate = readyId.trim();
+
+      if (snapshotV2.enabled) {
+        const snapshot = await fetchVideoDateSnapshot(candidate, { includeToken: false });
+        if (cancelled) return;
+        if (snapshot.ok === true) {
+          if ((snapshot.phase === "handshake" || snapshot.phase === "date") && snapshot.room?.url) {
+            markVideoDateEntryPipelineStarted(candidate);
+            navigate(`/date/${encodeURIComponent(candidate)}`, { replace: true });
+            return;
+          }
+
+          if (!snapshot.eventId) {
+            notifyOnce(READY_GATE_DEEP_LINK_INVALID_USER_MESSAGE);
+            navigate("/events", { replace: true });
+            return;
+          }
+
+          if (snapshot.phase === "ended" || snapshot.phase === "verdict") {
+            notifyOnce(READY_GATE_STALE_OR_ENDED_USER_MESSAGE);
+          }
+          navigate(`/event/${encodeURIComponent(snapshot.eventId)}/lobby`, { replace: true });
+          return;
+        }
+
+        if (
+          snapshot.ok === false &&
+          (
+            snapshot.error === "not_participant" ||
+            snapshot.error === "session_not_found" ||
+            snapshot.error === "invalid_session_id"
+          )
+        ) {
+          notifyOnce(READY_GATE_DEEP_LINK_INVALID_USER_MESSAGE);
+          navigate("/events", { replace: true });
+          return;
+        }
+      }
 
       const { data: session, error } = await supabase
         .from("video_sessions")
@@ -114,7 +154,7 @@ const ReadyRedirect = () => {
     return () => {
       cancelled = true;
     };
-  }, [readyId, navigate, user?.id]);
+  }, [readyId, navigate, snapshotV2.enabled, user?.id]);
 
   return null;
 };

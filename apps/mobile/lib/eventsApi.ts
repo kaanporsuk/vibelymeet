@@ -590,14 +590,14 @@ export type { DeckProfile };
 
 export function useEventDeck(eventId: string, viewerProfileId: string | null, enabled: boolean) {
   const deckDealV2 = useFeatureFlag('video_date.deck_deal_v2');
-  return useQuery({
+  const query = useQuery({
     queryKey: ['event-deck', eventId, viewerProfileId, deckDealV2.enabled ? 'deck_v2' : 'deck_v1'],
     queryFn: async (): Promise<DeckProfile[]> => {
       if (!viewerProfileId || !eventId) return [];
       const { data, error } = await supabase.rpc(deckDealV2.enabled ? 'get_event_deck_v2' : 'get_event_deck', {
         p_event_id: eventId,
         p_user_id: viewerProfileId,
-        p_limit: 50,
+        p_limit: deckDealV2.enabled ? 1 : 50,
       });
       if (error) throw error;
       return parseEventDeckProfiles(data);
@@ -607,6 +607,12 @@ export function useEventDeck(eventId: string, viewerProfileId: string | null, en
     refetchIntervalInBackground: false,
     staleTime: 10000,
   });
+  const profiles = query.data ?? [];
+  return {
+    ...query,
+    data: profiles,
+    isLoading: query.isLoading || (query.isFetching && profiles.length === 0),
+  };
 }
 
 /** @alias SwipeSessionStageResult — `match` / `match_queued` ids are `video_sessions.id`, not `matches.id`. */

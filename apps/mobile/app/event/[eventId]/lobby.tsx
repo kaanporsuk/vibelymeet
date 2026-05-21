@@ -294,6 +294,7 @@ export default function EventLobbyScreen() {
       isLiveWindow
   );
   const readinessV2 = useFeatureFlag('video_date.readiness_v2');
+  const deckDealV2 = useFeatureFlag('video_date.deck_deal_v2');
   const videoDateReadiness = useNonBlockingVideoDateReadiness(
     id,
     readinessV2.enabled && lobbySideEffectsEnabled,
@@ -369,16 +370,18 @@ export default function EventLobbyScreen() {
   }, []);
 
   const sortedProfiles = useMemo(() => {
-    // deckNonce intentionally invalidates the ref-filtered deck after a card is marked seen.
+    // deckNonce invalidates the visible deck after a card is advanced locally.
     void deckNonce;
-    const filtered = profiles.filter((p) => !seenProfileIdsRef.current.has(p.id));
+    const filtered = deckDealV2.enabled
+      ? [...profiles]
+      : profiles.filter((p) => !seenProfileIdsRef.current.has(p.id));
     filtered.sort((a, b) => {
       if (a.has_super_vibed && !b.has_super_vibed) return -1;
       if (!a.has_super_vibed && b.has_super_vibed) return 1;
       return 0;
     });
     return filtered;
-  }, [profiles, deckNonce]);
+  }, [deckDealV2.enabled, profiles, deckNonce]);
 
   const [processing, setProcessing] = useState(false);
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
@@ -868,6 +871,33 @@ export default function EventLobbyScreen() {
       }, delayMs);
     },
     [id, queryClient, user?.id],
+  );
+
+  const advanceDeckAfterSwipe = useCallback(
+    (targetId: string): number => {
+      let remainingVisible = 0;
+      if (deckDealV2.enabled) {
+        queryClient.setQueryData<DeckProfile[]>(
+          ['event-deck', id, user?.id, 'deck_v2'],
+          (current) => {
+            if (!Array.isArray(current)) return current;
+            const next = current.filter((profile) => profile.id !== targetId);
+            remainingVisible = next.length;
+            return next;
+          },
+        );
+        void queryClient.invalidateQueries({ queryKey: ['event-deck', id, user?.id] });
+        if (remainingVisible === 0) {
+          remainingVisible = profiles.filter((profile) => profile.id !== targetId).length;
+        }
+      } else {
+        seenProfileIdsRef.current.add(targetId);
+        remainingVisible = profiles.filter((profile) => !seenProfileIdsRef.current.has(profile.id)).length;
+      }
+      setDeckNonce((n) => n + 1);
+      return remainingVisible;
+    },
+    [deckDealV2.enabled, id, profiles, queryClient, user?.id],
   );
 
   useEffect(() => {
@@ -2027,10 +2057,10 @@ export default function EventLobbyScreen() {
           });
         }
         if (shouldAdvanceLobbyDeckAfterSwipe(failureOutcome)) {
-          seenProfileIdsRef.current.add(targetId);
-          setDeckNonce((n) => n + 1);
-          scheduleDeckRefresh('swipe_failure_advance_deck');
-          const remainingVisible = profiles.filter((p) => !seenProfileIdsRef.current.has(p.id)).length;
+          const remainingVisible = advanceDeckAfterSwipe(targetId);
+          if (!deckDealV2.enabled) {
+            scheduleDeckRefresh('swipe_failure_advance_deck');
+          }
           if (remainingVisible === 0) {
             scheduleDeckRefresh('swipe_failure_visible_deck_empty', 0);
           }
@@ -2203,10 +2233,10 @@ export default function EventLobbyScreen() {
         return;
       }
 
-      seenProfileIdsRef.current.add(targetId);
-      setDeckNonce((n) => n + 1);
-      scheduleDeckRefresh('swipe_advance_deck');
-      const remainingVisible = profiles.filter((p) => !seenProfileIdsRef.current.has(p.id)).length;
+      const remainingVisible = advanceDeckAfterSwipe(targetId);
+      if (!deckDealV2.enabled) {
+        scheduleDeckRefresh('swipe_advance_deck');
+      }
       if (remainingVisible === 0) {
         scheduleDeckRefresh('swipe_visible_deck_empty', 0);
       }

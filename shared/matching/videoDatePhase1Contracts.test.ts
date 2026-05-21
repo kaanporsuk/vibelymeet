@@ -3,6 +3,10 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { normalizeVideoDateSnapshot } from "./videoDateSnapshot";
+import {
+  VIDEO_DATE_DIAGNOSTIC_THROTTLE_MS,
+  shouldRunVideoDateDiagnostic,
+} from "./videoDateReadinessV2";
 
 const root = process.cwd();
 const config = readFileSync(join(root, "supabase/config.toml"), "utf8");
@@ -10,10 +14,16 @@ const phase1Migration = readFileSync(
   join(root, "supabase/migrations/20260521172000_video_date_phase1_client_wiring.sql"),
   "utf8",
 );
+const snapshotEventIdMigration = readFileSync(
+  join(root, "supabase/migrations/20260521193000_video_date_phase1_snapshot_event_id.sql"),
+  "utf8",
+);
 const snapshotFunction = readFileSync(
   join(root, "supabase/functions/video-date-snapshot/index.ts"),
   "utf8",
 );
+const webSnapshotLib = readFileSync(join(root, "src/lib/videoDateSnapshot.ts"), "utf8");
+const nativeSnapshotLib = readFileSync(join(root, "apps/mobile/lib/videoDateSnapshot.ts"), "utf8");
 const dailyRoomIndex = readFileSync(join(root, "supabase/functions/daily-room/index.ts"), "utf8");
 const dailyRoomContracts = readFileSync(join(root, "supabase/functions/daily-room/dailyRoomContracts.ts"), "utf8");
 const webDeckHook = readFileSync(join(root, "src/hooks/useEventDeck.ts"), "utf8");
@@ -25,6 +35,8 @@ const webReadinessLib = readFileSync(join(root, "src/lib/videoDateReadiness.ts")
 const nativeReadiness = readFileSync(join(root, "apps/mobile/lib/videoDateReadiness.ts"), "utf8");
 const webLobby = readFileSync(join(root, "src/pages/EventLobby.tsx"), "utf8");
 const nativeLobby = readFileSync(join(root, "apps/mobile/app/event/[eventId]/lobby.tsx"), "utf8");
+const webReadyRedirect = readFileSync(join(root, "src/pages/ReadyRedirect.tsx"), "utf8");
+const nativeReadyRoute = readFileSync(join(root, "apps/mobile/app/ready/[id].tsx"), "utf8");
 const webActiveSession = readFileSync(join(root, "src/hooks/useActiveSession.ts"), "utf8");
 const nativeActiveSession = readFileSync(join(root, "apps/mobile/lib/useActiveSession.ts"), "utf8");
 const webSurvey = readFileSync(join(root, "src/components/video-date/PostDateSurvey.tsx"), "utf8");
@@ -35,6 +47,8 @@ test("PR 1.1 snapshot wrapper keeps tokens in Edge only", () => {
   assert.match(snapshotFunction, /get_video_date_snapshot_core/);
   assert.match(snapshotFunction, /DAILY_API_KEY/);
   assert.match(snapshotFunction, /\/meeting-tokens/);
+  assert.match(snapshotFunction, /include_token/);
+  assert.match(snapshotFunction, /if \(!includeToken\)/);
   assert.match(snapshotFunction, /ejectAtTokenExp: true/);
   assert.match(snapshotFunction, /tokenExpiresAt/);
   assert.match(snapshotFunction, /"Cache-Control": "no-store"/);
@@ -44,6 +58,22 @@ test("PR 1.1 snapshot wrapper keeps tokens in Edge only", () => {
   assert.doesNotMatch(snapshotFunction, /\.from\(/);
   assert.doesNotMatch(snapshotFunction, /outbox/i);
   assert.doesNotMatch(phase1Migration, /token/i);
+  assert.match(snapshotEventIdMigration, /'eventId', v_session\.event_id/);
+  assert.doesNotMatch(snapshotEventIdMigration, /\/meeting-tokens|DAILY_API_KEY|video_date_outbox/i);
+  assert.match(webReadyRedirect, /video_date\.snapshot_v2/);
+  assert.match(webReadyRedirect, /fetchVideoDateSnapshot/);
+  assert.match(webReadyRedirect, /includeToken: false/);
+  assert.match(webReadyRedirect, /snapshot\.eventId/);
+  assert.match(webSnapshotLib, /try\s*{[\s\S]+functions\.invoke/);
+  assert.match(webSnapshotLib, /include_token: options\.includeToken !== false/);
+  assert.match(webSnapshotLib, /snapshot_function_failed/);
+  assert.match(nativeReadyRoute, /video_date\.snapshot_v2/);
+  assert.match(nativeReadyRoute, /fetchVideoDateSnapshot/);
+  assert.match(nativeReadyRoute, /includeToken: false/);
+  assert.match(nativeReadyRoute, /snapshot\.eventId/);
+  assert.match(nativeSnapshotLib, /try\s*{[\s\S]+functions\.invoke/);
+  assert.match(nativeSnapshotLib, /include_token: options\.includeToken !== false/);
+  assert.match(nativeSnapshotLib, /snapshot_function_failed/);
 });
 
 test("PR 1.2 dedicated diagnostics and runtime readiness are wired for web and native", () => {
@@ -57,11 +87,21 @@ test("PR 1.2 dedicated diagnostics and runtime readiness are wired for web and n
   assert.match(webStatusHook, /recordVideoDateHeartbeatV2/);
   assert.match(nativeStatusHook, /recordVideoDateHeartbeatV2/);
   assert.match(webReadinessHook, /recordVideoDateReadinessCheckV2/);
+  assert.match(webReadinessHook, /shouldRunVideoDateDiagnostic/);
   assert.match(webReadinessHook, /permissionsGranted[\s\S]+hasCameraDevice === false/);
   assert.match(webReadinessHook, /diagnosticRoomPathDefined: true/);
+  assert.match(webReadinessHook, /dailyDiagnostic/);
+  assert.match(webReadinessHook, /diagnostic_entry_exception/);
+  assert.doesNotMatch(webReadinessHook, /token:\s*diagnostic\.token/);
+  assert.match(webReadinessLib, /try\s*{[\s\S]+prepare_diagnostic_entry/);
   assert.match(webReadinessLib, /diagnostic_entry_invalid_response/);
   assert.match(nativeReadiness, /record_readiness_check_v2/);
+  assert.match(nativeReadiness, /shouldRunVideoDateDiagnostic/);
   assert.match(nativeReadiness, /diagnosticRoomPathDefined: true/);
+  assert.match(nativeReadiness, /dailyDiagnostic/);
+  assert.match(nativeReadiness, /diagnostic_entry_exception/);
+  assert.doesNotMatch(nativeReadiness, /token:\s*diagnostic\.token/);
+  assert.match(nativeReadiness, /try\s*{[\s\S]+prepare_diagnostic_entry/);
   assert.match(nativeReadiness, /diagnostic_entry_invalid_response/);
   assert.match(webLobby, /canAttemptPairing: !readinessV2\.enabled \|\| videoDateReadiness\.canAttemptPairing/);
   assert.match(nativeLobby, /swipeType !== 'pass' && readinessV2\.enabled && !videoDateReadiness\.canAttemptPairing/);
@@ -70,8 +110,18 @@ test("PR 1.2 dedicated diagnostics and runtime readiness are wired for web and n
 test("PR 1.3 deck v2 and persistent ready-gate suppression are adopted behind flags", () => {
   assert.match(webDeckHook, /video_date\.deck_deal_v2/);
   assert.match(webDeckHook, /get_event_deck_v2/);
+  assert.match(webDeckHook, /p_limit: deckDealV2\.enabled \? 1 : 50/);
+  assert.match(webDeckHook, /query\.isFetching && profiles\.length === 0/);
   assert.match(nativeEventsApi, /video_date\.deck_deal_v2/);
   assert.match(nativeEventsApi, /get_event_deck_v2/);
+  assert.match(nativeEventsApi, /p_limit: deckDealV2\.enabled \? 1 : 50/);
+  assert.match(nativeEventsApi, /query\.isFetching && profiles\.length === 0/);
+  assert.match(webLobby, /deckDealV2\.enabled[\s\S]+\?\s*\[\.\.\.profiles\]/);
+  assert.match(nativeLobby, /deckDealV2\.enabled[\s\S]+\?\s*\[\.\.\.profiles\]/);
+  assert.match(webLobby, /setQueryData<DeckProfile\[\]>\(\s*\["event-deck", eventId, user\?\.id, "deck_v2"\]/);
+  assert.match(nativeLobby, /setQueryData<DeckProfile\[\]>\(\s*\['event-deck', id, user\?\.id, 'deck_v2'\]/);
+  assert.match(webLobby, /deckDealV2\.enabled[\s\S]+invalidateQueries\(\{ queryKey: \["event-deck", eventId, user\?\.id\] \}\)/);
+  assert.match(nativeLobby, /deckDealV2\.enabled[\s\S]+invalidateQueries\(\{ queryKey: \['event-deck', id, user\?\.id\] \}\)/);
   assert.match(phase1Migration, /CREATE OR REPLACE FUNCTION public\.persist_ready_gate_suppression_v2/);
   assert.match(phase1Migration, /ADD COLUMN IF NOT EXISTS ready_gate_suppressed_session_id uuid/);
   assert.match(phase1Migration, /FOR UPDATE/);
@@ -113,6 +163,7 @@ test("snapshot normalization rejects malformed ok payloads instead of hydrating 
     sessionId: "11111111-1111-4111-8111-111111111111",
     seq: 7,
     serverNow: 123,
+    eventId: "22222222-2222-4222-8222-222222222222",
     phase: "handshake",
     allowedActions: ["continue", null, "end_call"],
     participants: [{ id: "self", isSelf: true, isPartner: false, mediaJoinedAt: 123 }],
@@ -122,7 +173,20 @@ test("snapshot normalization rejects malformed ok payloads instead of hydrating 
   assert.equal(normalized.ok, true);
   if (normalized.ok) {
     assert.equal(normalized.sessionId, "11111111-1111-4111-8111-111111111111");
+    assert.equal(normalized.eventId, "22222222-2222-4222-8222-222222222222");
     assert.deepEqual(normalized.allowedActions, ["continue", "end_call"]);
     assert.equal(normalized.room?.token, null);
   }
+});
+
+test("readiness diagnostics run in the background only when useful and throttled", () => {
+  const nowMs = 1_000_000;
+  assert.equal(shouldRunVideoDateDiagnostic("blocked", null, nowMs), false);
+  assert.equal(shouldRunVideoDateDiagnostic("unchecked", null, nowMs), false);
+  assert.equal(shouldRunVideoDateDiagnostic("warning", null, nowMs), true);
+  assert.equal(shouldRunVideoDateDiagnostic("ready", nowMs - 1000, nowMs), false);
+  assert.equal(
+    shouldRunVideoDateDiagnostic("ready", nowMs - VIDEO_DATE_DIAGNOSTIC_THROTTLE_MS, nowMs),
+    true,
+  );
 });

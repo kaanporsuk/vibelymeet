@@ -2,9 +2,13 @@ import { useEffect, useMemo, useState } from "react";
 import {
   VIDEO_DATE_READINESS_BLOCKED_COPY,
   resolveVideoDateReadinessGate,
+  shouldRunVideoDateDiagnostic,
   type VideoDateReadinessStatus,
 } from "@clientShared/matching/videoDateReadinessV2";
-import { recordVideoDateReadinessCheckV2 } from "@/lib/videoDateReadiness";
+import {
+  prepareVideoDateDiagnosticEntry,
+  recordVideoDateReadinessCheckV2,
+} from "@/lib/videoDateReadiness";
 
 type WebPermissionState = "granted" | "denied" | "prompt" | "unsupported" | "unknown";
 
@@ -21,6 +25,7 @@ const initialReadiness: NonBlockingReadiness = {
   reason: null,
   checked: false,
 };
+const diagnosticLastRunAtMsByEvent = new Map<string, number>();
 
 export function useNonBlockingVideoDateReadiness(
   eventId: string | undefined,
@@ -48,7 +53,8 @@ export function useNonBlockingVideoDateReadiness(
         status: nextStatus,
         capabilities,
         clientPlatform: "web",
-      });
+      }).catch(() => undefined);
+      void maybeRunDiagnostic(eventId, nextStatus, capabilities, () => cancelled);
     };
 
     void inspect();
@@ -146,6 +152,46 @@ function resolveWebReadinessStatus(capabilities: Record<string, unknown>): Video
   }
   if (capabilities.cameraPermission === "granted" && capabilities.microphonePermission === "granted") return "ready";
   return "warning";
+}
+
+async function maybeRunDiagnostic(
+  eventId: string,
+  status: VideoDateReadinessStatus,
+  capabilities: Record<string, unknown>,
+  isCancelled: () => boolean,
+) {
+  const nowMs = Date.now();
+  if (!shouldRunVideoDateDiagnostic(status, diagnosticLastRunAtMsByEvent.get(eventId), nowMs)) return;
+  diagnosticLastRunAtMsByEvent.set(eventId, nowMs);
+  let diagnostic: Awaited<ReturnType<typeof prepareVideoDateDiagnosticEntry>>;
+  try {
+    diagnostic = await prepareVideoDateDiagnosticEntry();
+  } catch {
+    diagnostic = { ok: false, error: "diagnostic_entry_exception", retryable: true };
+  }
+  if (isCancelled()) return;
+  const dailyDiagnostic = diagnostic.ok === true
+    ? {
+        ok: true,
+        roomNamePresent: Boolean(diagnostic.roomName),
+        roomUrlPresent: Boolean(diagnostic.roomUrl),
+        tokenReceived: true,
+        tokenTtlSeconds: diagnostic.tokenTtlSeconds,
+      }
+    : {
+        ok: false,
+        error: diagnostic.error,
+        retryable: diagnostic.retryable,
+      };
+  void recordVideoDateReadinessCheckV2({
+    eventId,
+    status,
+    capabilities: {
+      ...capabilities,
+      dailyDiagnostic,
+    },
+    clientPlatform: "web",
+  }).catch(() => undefined);
 }
 
 export { VIDEO_DATE_READINESS_BLOCKED_COPY };
