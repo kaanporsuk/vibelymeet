@@ -490,21 +490,8 @@ BEGIN
     );
   END IF;
 
-  SELECT
-    vs,
-    jsonb_build_object(
-      'queue_scoring_version', 'phase6_v1',
-      'candidate_score', fair.candidate_score,
-      'queued_age_seconds', fair.queued_age_seconds,
-      'ttl_remaining_seconds', fair.ttl_remaining_seconds,
-      'both_hot_ready', fair.both_hot_ready,
-      'actor_hot_ready', fair.actor_hot_ready,
-      'partner_hot_ready', fair.partner_hot_ready,
-      'actor_recent_no_match_attempts', fair.actor_recent_no_match_attempts,
-      'actor_recent_reliability_penalty', fair.actor_recent_reliability_penalty,
-      'partner_recent_reliability_penalty', fair.partner_recent_reliability_penalty
-    )
-  INTO v_match, v_fairness
+  SELECT vs.*
+  INTO v_match
   FROM public.video_sessions vs
   JOIN public.v_video_date_queue_fairness_candidates fair
     ON fair.session_id = vs.id
@@ -542,6 +529,25 @@ BEGIN
     );
     RETURN jsonb_build_object('found', false, 'reason', 'no_queued_session');
   END IF;
+
+  SELECT jsonb_build_object(
+    'queue_scoring_version', 'phase6_v1',
+    'candidate_score', fair.candidate_score,
+    'queued_age_seconds', fair.queued_age_seconds,
+    'ttl_remaining_seconds', fair.ttl_remaining_seconds,
+    'both_hot_ready', fair.both_hot_ready,
+    'actor_hot_ready', fair.actor_hot_ready,
+    'partner_hot_ready', fair.partner_hot_ready,
+    'actor_recent_no_match_attempts', fair.actor_recent_no_match_attempts,
+    'actor_recent_reliability_penalty', fair.actor_recent_reliability_penalty,
+    'partner_recent_reliability_penalty', fair.partner_recent_reliability_penalty
+  )
+  INTO v_fairness
+  FROM public.v_video_date_queue_fairness_candidates fair
+  WHERE fair.session_id = v_match.id
+    AND fair.actor_id = v_actor;
+
+  v_fairness := COALESCE(v_fairness, jsonb_build_object('queue_scoring_version', 'phase6_v1'));
 
   v_partner_id := CASE
     WHEN v_match.participant_1_id = v_actor THEN v_match.participant_2_id
