@@ -17,6 +17,7 @@ const UUID_PATTERN =
 type SnapshotPayload = {
   ok?: boolean;
   error?: string;
+  eventId?: string | null;
   phase?: string | null;
   room?: {
     name?: string | null;
@@ -122,6 +123,7 @@ serve(async (req) => {
     : typeof body?.sessionId === "string"
       ? body.sessionId
       : null;
+  const includeToken = body?.include_token !== false && body?.includeToken !== false;
   if (!sessionId) {
     return jsonResponse({ ok: false, error: "missing_session_id" }, 400);
   }
@@ -150,6 +152,9 @@ serve(async (req) => {
   const phase = typeof snapshot.phase === "string" ? snapshot.phase : null;
   const roomName = snapshot.room?.name ?? null;
   if (phase !== "handshake" && phase !== "date") {
+    return jsonResponse(snapshot);
+  }
+  if (!includeToken) {
     return jsonResponse(snapshot);
   }
   if (!roomName) {

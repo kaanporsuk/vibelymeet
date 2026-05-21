@@ -14,12 +14,14 @@ import { spacing, radius, typography } from '@/constants/theme';
 import { withAlpha } from '@/lib/colorUtils';
 import { useColorScheme } from '@/components/useColorScheme';
 import { useVibelyDialog } from '@/components/VibelyDialog';
+import { useFeatureFlag } from '@/hooks/useFeatureFlag';
 import { RC_CATEGORY, rcBreadcrumb } from '@/lib/nativeRcDiagnostics';
 import { eventLobbyHref, tabsRootHref } from '@/lib/activeSessionRoutes';
 import { navigateToDateSessionGuarded } from '@/lib/dateNavigationGuard';
 import { clearDateEntryTransition } from '@/lib/dateEntryTransitionLatch';
 import { ensureVideoDateStartableBeforeNavigation } from '@/lib/videoDateEntryStartable';
 import { fetchVideoSessionDateEntryTruthCoalesced } from '@/lib/videoDateApi';
+import { fetchVideoDateSnapshot } from '@/lib/videoDateSnapshot';
 import { markNativeVideoDateLaunchIntent, videoDateLaunchBreadcrumb } from '@/lib/videoDateLaunchTrace';
 import {
   canAttemptDailyRoomFromVideoSessionTruth,
@@ -50,6 +52,7 @@ export default function ReadyGateScreen() {
   const colorScheme = useColorScheme();
   const theme = Colors[colorScheme];
   const { user } = useAuth();
+  const snapshotV2 = useFeatureFlag('video_date.snapshot_v2');
   const {
     iAmReady,
     partnerReady,
@@ -294,6 +297,44 @@ export default function ReadyGateScreen() {
       let revealReadyUi = false;
       setPermissionRequestEligible(false);
       try {
+        if (snapshotV2.enabled) {
+          const snapshot = await fetchVideoDateSnapshot(String(sessionId), { includeToken: false });
+          if (snapshot.ok === true) {
+            rcBreadcrumb(RC_CATEGORY.readyGate, 'standalone_snapshot_v2_loaded', {
+              session_id: sessionId,
+              event_id: snapshot.eventId,
+              phase: snapshot.phase,
+              room_present: Boolean(snapshot.room?.url),
+            });
+            if ((snapshot.phase === 'handshake' || snapshot.phase === 'date') && snapshot.room?.url) {
+              await reconcileFromCanonicalTruth(`initial_snapshot_${snapshot.phase}`);
+              return;
+            }
+            if (!snapshot.eventId) {
+              explainInvalidToTabs();
+              return;
+            }
+            if (snapshot.phase === 'ended' || snapshot.phase === 'verdict') {
+              router.replace(eventLobbyHref(snapshot.eventId));
+              return;
+            }
+          } else if (
+            snapshot.ok === false &&
+            (
+              snapshot.error === 'not_participant' ||
+              snapshot.error === 'session_not_found' ||
+              snapshot.error === 'invalid_session_id'
+            )
+          ) {
+            rcBreadcrumb(RC_CATEGORY.readyGate, 'standalone_snapshot_v2_rejected', {
+              session_id: sessionId,
+              error: snapshot.error,
+            });
+            explainInvalidToTabs();
+            return;
+          }
+        }
+
         const { data: session } = await supabase
           .from('video_sessions')
           .select('participant_1_id, participant_2_id, event_id, ended_at')
@@ -370,7 +411,7 @@ export default function ReadyGateScreen() {
       }
     };
     void load();
-  }, [reconcileFromCanonicalTruth, sessionId, user?.id, showDialog]);
+  }, [reconcileFromCanonicalTruth, sessionId, showDialog, snapshotV2.enabled, user?.id]);
 
   useEffect(() => {
     if (isBothReady && sessionId) {

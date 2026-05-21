@@ -49,13 +49,18 @@ export async function recordVideoDateReadinessCheckV2(params: {
 }
 
 export async function prepareVideoDateDiagnosticEntry(): Promise<VideoDateDiagnosticEntryResult> {
-  const { data, error } = await supabase.functions.invoke("daily-room", {
-    body: { action: "prepare_diagnostic_entry" },
-  });
-  if (error) {
+  let payload: Record<string, unknown> | null;
+  try {
+    const { data, error } = await supabase.functions.invoke("daily-room", {
+      body: { action: "prepare_diagnostic_entry" },
+    });
+    if (error) {
+      return { ok: false, error: "diagnostic_entry_failed", retryable: true };
+    }
+    payload = data as Record<string, unknown> | null;
+  } catch {
     return { ok: false, error: "diagnostic_entry_failed", retryable: true };
   }
-  const payload = data as Record<string, unknown> | null;
   if (!payload || payload.ok !== true || typeof payload.token !== "string") {
     return {
       ok: false,

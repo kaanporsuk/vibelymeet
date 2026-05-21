@@ -27,7 +27,7 @@ export const useEventDeck = ({ eventId, enabled = true }: UseEventDeckOptions) =
       const { data, error } = await supabase.rpc(deckDealV2.enabled ? "get_event_deck_v2" : "get_event_deck", {
         p_event_id: eventId,
         p_user_id: viewerProfileId,
-        p_limit: 50,
+        p_limit: deckDealV2.enabled ? 1 : 50,
       });
 
       if (error) {
@@ -44,9 +44,11 @@ export const useEventDeck = ({ eventId, enabled = true }: UseEventDeckOptions) =
     staleTime: 10000,
   });
 
+  const profiles = query.data || [];
+
   return {
-    profiles: query.data || [],
-    isLoading: query.isLoading,
+    profiles,
+    isLoading: query.isLoading || (query.isFetching && profiles.length === 0),
     isError: query.isError,
     error: query.error,
     refetch: query.refetch,

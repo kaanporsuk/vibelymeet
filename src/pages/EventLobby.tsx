@@ -180,6 +180,7 @@ const EventLobby = () => {
   });
   const { setStatus, currentStatus } = useEventStatus({ eventId, enabled: lobbySideEffectsEnabled });
   const readinessV2 = useFeatureFlag("video_date.readiness_v2");
+  const deckDealV2 = useFeatureFlag("video_date.deck_deal_v2");
   const videoDateReadiness = useNonBlockingVideoDateReadiness(
     eventId,
     readinessV2.enabled && lobbySideEffectsEnabled,
@@ -1088,14 +1089,17 @@ const EventLobby = () => {
 
   // Filter out already-seen profiles, then sort: super vibes first
   const sortedProfiles = useMemo(() => {
-    const filtered = profiles.filter((p) => !seenProfileIds.current.has(p.id));
+    void deckNonce;
+    const filtered = deckDealV2.enabled
+      ? [...profiles]
+      : profiles.filter((p) => !seenProfileIds.current.has(p.id));
     filtered.sort((a, b) => {
       if (a.has_super_vibed && !b.has_super_vibed) return -1;
       if (!a.has_super_vibed && b.has_super_vibed) return 1;
       return 0;
     });
     return filtered;
-  }, [profiles]);
+  }, [deckDealV2.enabled, deckNonce, profiles]);
 
   const currentProfile = sortedProfiles[0] || null;
   const nextProfile = sortedProfiles[1] || null;
@@ -1215,13 +1219,21 @@ const EventLobby = () => {
 
   const advanceDeckAfterSwipe = useCallback(
     (targetId: string) => {
-      seenProfileIds.current.add(targetId);
-      setDeckNonce((n) => n + 1);
-      scheduleDeferredLobbyWork("deck_invalidate_after_swipe", () => {
+      if (deckDealV2.enabled) {
+        queryClient.setQueryData<DeckProfile[]>(
+          ["event-deck", eventId, user?.id, "deck_v2"],
+          (current) => Array.isArray(current) ? current.filter((profile) => profile.id !== targetId) : current,
+        );
         void queryClient.invalidateQueries({ queryKey: ["event-deck", eventId, user?.id] });
-      });
+      } else {
+        seenProfileIds.current.add(targetId);
+        scheduleDeferredLobbyWork("deck_invalidate_after_swipe", () => {
+          void queryClient.invalidateQueries({ queryKey: ["event-deck", eventId, user?.id] });
+        });
+      }
+      setDeckNonce((n) => n + 1);
     },
-    [eventId, queryClient, scheduleDeferredLobbyWork, user?.id]
+    [deckDealV2.enabled, eventId, queryClient, scheduleDeferredLobbyWork, user?.id]
   );
 
   const handleVibe = useCallback(async () => {

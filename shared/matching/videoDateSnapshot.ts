@@ -26,6 +26,7 @@ export type VideoDateSnapshotRoom = {
 export type VideoDateSnapshotOk = {
   ok: true;
   sessionId: string;
+  eventId: string | null;
   seq: number;
   serverNow: number;
   phase: VideoDateSnapshotPhase;
@@ -72,6 +73,7 @@ export function normalizeVideoDateSnapshot(payload: unknown): VideoDateSnapshot 
   return {
     ok: true,
     sessionId,
+    eventId: nullableString(record.eventId),
     seq: numberOrDefault(record.seq, 0),
     serverNow: numberOrDefault(record.serverNow, Date.now()),
     phase: typeof record.phase === "string" ? record.phase : "queued",

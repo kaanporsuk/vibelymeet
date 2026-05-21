@@ -4,10 +4,12 @@ import { Camera } from 'expo-camera';
 import { supabase } from '@/lib/supabase';
 import {
   resolveVideoDateReadinessGate,
+  shouldRunVideoDateDiagnostic,
   type VideoDateReadinessStatus,
 } from '@clientShared/matching/videoDateReadinessV2';
 
 type NativePlatform = 'ios' | 'android';
+const diagnosticLastRunAtMsByEvent = new Map<string, number>();
 
 export async function recordVideoDateHeartbeatV2(
   eventId: string,
@@ -54,13 +56,18 @@ export type VideoDateDiagnosticEntryResult =
     };
 
 export async function prepareVideoDateDiagnosticEntry(): Promise<VideoDateDiagnosticEntryResult> {
-  const { data, error } = await supabase.functions.invoke('daily-room', {
-    body: { action: 'prepare_diagnostic_entry' },
-  });
-  if (error) {
+  let payload: Record<string, unknown> | null;
+  try {
+    const { data, error } = await supabase.functions.invoke('daily-room', {
+      body: { action: 'prepare_diagnostic_entry' },
+    });
+    if (error) {
+      return { ok: false, error: 'diagnostic_entry_failed', retryable: true };
+    }
+    payload = data as Record<string, unknown> | null;
+  } catch {
     return { ok: false, error: 'diagnostic_entry_failed', retryable: true };
   }
-  const payload = data as Record<string, unknown> | null;
   if (!payload || payload.ok !== true || typeof payload.token !== 'string') {
     return {
       ok: false,
@@ -128,7 +135,8 @@ export function useNonBlockingVideoDateReadiness(
         eventId,
         status: nextStatus,
         capabilities,
-      });
+      }).catch(() => undefined);
+      void maybeRunDiagnostic(eventId, nextStatus, capabilities, () => cancelled);
     };
 
     void inspect();
@@ -159,6 +167,45 @@ export function useNonBlockingVideoDateReadiness(
       checked,
     };
   }, [checked, status]);
+}
+
+async function maybeRunDiagnostic(
+  eventId: string,
+  status: VideoDateReadinessStatus,
+  capabilities: Record<string, unknown>,
+  isCancelled: () => boolean,
+) {
+  const nowMs = Date.now();
+  if (!shouldRunVideoDateDiagnostic(status, diagnosticLastRunAtMsByEvent.get(eventId), nowMs)) return;
+  diagnosticLastRunAtMsByEvent.set(eventId, nowMs);
+  let diagnostic: Awaited<ReturnType<typeof prepareVideoDateDiagnosticEntry>>;
+  try {
+    diagnostic = await prepareVideoDateDiagnosticEntry();
+  } catch {
+    diagnostic = { ok: false, error: 'diagnostic_entry_exception', retryable: true };
+  }
+  if (isCancelled()) return;
+  const dailyDiagnostic = diagnostic.ok === true
+    ? {
+        ok: true,
+        roomNamePresent: Boolean(diagnostic.roomName),
+        roomUrlPresent: Boolean(diagnostic.roomUrl),
+        tokenReceived: true,
+        tokenTtlSeconds: diagnostic.tokenTtlSeconds,
+      }
+    : {
+        ok: false,
+        error: diagnostic.error,
+        retryable: diagnostic.retryable,
+      };
+  void recordVideoDateReadinessCheckV2({
+    eventId,
+    status,
+    capabilities: {
+      ...capabilities,
+      dailyDiagnostic,
+    },
+  }).catch(() => undefined);
 }
 
 async function inspectNativeVideoDateCapabilities(): Promise<Record<string, unknown>> {
