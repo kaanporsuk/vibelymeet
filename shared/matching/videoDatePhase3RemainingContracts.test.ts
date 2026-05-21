@@ -12,6 +12,14 @@ const replayMigration = readFileSync(
   join(root, "supabase/migrations/20260522011500_video_date_phase3_replay_and_safety_errors.sql"),
   "utf8",
 );
+const handshakeDeadlineFinalizerMigration = readFileSync(
+  join(root, "supabase/migrations/20260503090000_video_date_encounter_survey_and_pair_guard.sql"),
+  "utf8",
+);
+const surveyContinuityMigration = readFileSync(
+  join(root, "supabase/migrations/20260503110000_video_date_survey_continuity_cleanup.sql"),
+  "utf8",
+);
 const transitionCommands = readFileSync(
   join(root, "shared/matching/videoDateTransitionCommands.ts"),
   "utf8",
@@ -32,6 +40,14 @@ function functionBody(name: string): string {
       `CREATE OR REPLACE FUNCTION public\\.${name}[\\s\\S]+?COMMENT ON FUNCTION public\\.${name}`,
     ),
   );
+  assert.ok(match, `missing ${name} function block`);
+  return match[0];
+}
+
+function migrationFunctionBody(source: string, name: string): string {
+  const match =
+    source.match(new RegExp(`CREATE OR REPLACE FUNCTION public\\.${name}[\\s\\S]+?COMMENT ON FUNCTION public\\.${name}`)) ??
+    source.match(new RegExp(`CREATE OR REPLACE FUNCTION public\\.${name}[\\s\\S]+?REVOKE ALL ON FUNCTION public\\.${name}`));
   assert.ok(match, `missing ${name} function block`);
   return match[0];
 }
@@ -87,6 +103,32 @@ test("deadline wrappers avoid poisoning idempotency before server deadlines are 
   );
 });
 
+test("deadline transition helpers stay atomic under the v2 wrappers", () => {
+  const handshake = functionBody("video_session_handshake_auto_promote_v2");
+  const timeout = functionBody("video_session_date_timeout_v2");
+  const finalizer = migrationFunctionBody(handshakeDeadlineFinalizerMigration, "finalize_video_date_handshake_deadline");
+  const dateTransition = migrationFunctionBody(surveyContinuityMigration, "video_date_transition");
+
+  assert.match(handshake, /public\.finalize_video_date_handshake_deadline\(/);
+  assert.match(timeout, /public\.video_date_transition\(p_session_id, 'end', 'date_timeout'\)/);
+  assert.match(finalizer, /FROM public\.video_sessions[\s\S]+WHERE id = p_session_id[\s\S]+FOR UPDATE;/);
+  assert.match(finalizer, /UPDATE public\.video_sessions[\s\S]+state = 'date'::public\.video_date_state[\s\S]+state_updated_at = v_now/);
+  assert.match(finalizer, /UPDATE public\.video_sessions[\s\S]+state = 'ended'::public\.video_date_state[\s\S]+state_updated_at = v_now/);
+  assert.ok(
+    finalizer.indexOf("FOR UPDATE;") < finalizer.indexOf("UPDATE public.video_sessions"),
+    "handshake finalizer must lock the session before any terminal/date mutation",
+  );
+  assert.match(dateTransition, /v_result := public\.video_date_transition_20260503110000_survey_continuity_base\(/);
+  assert.ok(
+    dateTransition.indexOf("video_date_transition_20260503110000_survey_continuity_base") <
+      dateTransition.indexOf("UPDATE public.event_registrations"),
+    "survey continuity wrapper must delegate the canonical state transition before registration side effects",
+  );
+  for (const source of [handshake, timeout, finalizer, dateTransition]) {
+    assert.doesNotMatch(source, /\b(COMMIT|ROLLBACK|START TRANSACTION|BEGIN TRANSACTION)\b/i);
+  }
+});
+
 test("remaining Phase 3 events are visibility-safe and sequence-aware", () => {
   assert.match(migration, /'handshake_auto_promoted_to_date'/);
   assert.match(migration, /'handshake_auto_promoted_terminal'/);
@@ -133,6 +175,12 @@ test("extension v2 refuses charge when known Daily room expiry cannot cover max 
   );
   assert.match(extension, /daily_room_expiring_before_extension[\s\S]+public\.video_session_command_finish_v2\(v_command_id, v_actor, 'rejected', v_result\)/);
   assert.match(extension, /public\.spend_video_date_credit_extension\(/);
+  const postSpend = extension.slice(extension.indexOf("public.spend_video_date_credit_extension("));
+  assert.doesNotMatch(
+    postSpend,
+    /daily\.|DAILY_API_KEY|createMeetingToken|meeting[_-]?token|provider[_-]?token|fetch\(/i,
+    "extension v2 must not perform provider work after spending credits; provider failure after charge is impossible in this RPC",
+  );
   assert.match(extension, /'date_extension_applied'/);
   assert.match(replayMigration, /ALTER FUNCTION public\.video_session_extend_date_v2\(uuid, text, text, text\)[\s\S]+RENAME TO video_session_extend_date_v2_20260522011000_replay_base/);
   assert.match(replayMigration, /FROM public\.video_session_commands[\s\S]+idempotency_key = v_key[\s\S]+FOR UPDATE/);

@@ -2372,13 +2372,13 @@ test("web and native countdown-zero paths complete handshake and last-10s urgenc
   assert.match(nativeVideoDateRoute, /countdownCompletionKeyRef/);
   assert.doesNotMatch(nativeVideoDateRoute, /handshake_grace_expiry/);
   assert.match(webVibeCheckButton, /const isFinalTenSeconds = timeLeft <= 10/);
-  assert.match(webVibeCheckButton, /Choose when it feels right/);
+  assert.match(webVibeCheckButton, /Continue when ready/);
   assert.doesNotMatch(webVibeCheckButton, /Soft nudge/);
   assert.doesNotMatch(webVibeCheckButton, /Choose from the feeling/);
   assert.match(webHandshakeTimer, /const isUrgent = timeLeft <= 10/);
   assert.match(nativeVideoDateRoute, /phase === 'handshake' && handshakeTimerStarted && displayTimeLeft <= 10/);
   assert.match(nativeVibeCheckButton, /const isFinalTenSeconds = timeLeft <= 10/);
-  assert.match(nativeVibeCheckButton, /Choose only when it feels right/);
+  assert.match(nativeVibeCheckButton, /Continue when ready/);
   assert.doesNotMatch(nativeVibeCheckButton, /Your choice only continues after it saves/);
   assert.doesNotMatch(nativeVibeCheckButton, /Soft nudge/);
   assert.doesNotMatch(nativeVibeCheckButton, /Choose from the feeling/);

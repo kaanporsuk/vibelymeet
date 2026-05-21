@@ -9,6 +9,7 @@ export const VIDEO_DATE_V4_CLIENT_FEATURE_FLAGS = [
   "video_date.extension_mutual_v2",
   "video_date.safety_always_on_v2",
   "video_date.daily_pool_v2",
+  "video_date.multi_device_v2",
   "video_date.outbox_v2.mark_ready",
   "video_date.outbox_v2.forfeit",
   "video_date.outbox_v2.continue_handshake",

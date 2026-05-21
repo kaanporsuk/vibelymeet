@@ -46,7 +46,7 @@ export const VibeCheckButton = ({
         <div className="relative flex min-h-12 items-center gap-2 rounded-full border border-primary/50 bg-black/55 px-6 py-3 shadow-[0_18px_45px_rgba(0,0,0,0.34)] backdrop-blur-2xl cursor-default">
           <Check className="w-5 h-5 text-primary" />
           <span className="text-sm font-display font-semibold text-primary">
-            {decision ? "Vibe saved" : "Pass saved"}
+            {decision ? "Ready to continue" : "Pass saved"}
           </span>
         </div>
       </div>
@@ -56,7 +56,7 @@ export const VibeCheckButton = ({
   return (
     <div className="flex w-full flex-col items-center gap-2 px-4">
       <p className="text-center text-[12.5px] font-medium leading-none text-white/[0.74]">
-        Choose when it feels right
+        Continue when ready
       </p>
       <div className="flex h-[68px] w-[min(calc(100vw-48px),340px)] items-center justify-center gap-2.5 rounded-full border border-white/[0.10] bg-[rgba(10,10,16,0.62)] p-2 shadow-[0_14px_44px_rgba(0,0,0,0.35),0_0_28px_rgba(139,92,246,0.10),inset_0_1px_0_rgba(255,255,255,0.08)] backdrop-blur-2xl">
         <motion.button
@@ -88,13 +88,13 @@ export const VibeCheckButton = ({
               : {}
           }
           transition={isFinalTenSeconds ? { duration: 0.82, repeat: Infinity, ease: "easeInOut" } : {}}
-          aria-label="Vibe"
+          aria-label="Continue when ready"
           className="relative flex h-[52px] flex-[1.12] items-center justify-center gap-2 overflow-hidden rounded-full border border-white/20 bg-gradient-to-r from-primary to-accent px-5 text-primary-foreground shadow-[0_18px_44px_hsl(var(--primary)/0.34)] transition-colors disabled:opacity-60"
         >
           <span className="absolute inset-0 bg-[radial-gradient(circle_at_30%_20%,rgba(255,255,255,0.34),transparent_34%)]" aria-hidden />
           <Heart className="relative w-5 h-5 fill-primary-foreground/25" />
           <span className="relative text-[15px] font-display font-semibold leading-none">
-            {submitting === "vibe" ? "Saving..." : "Vibe"}
+            {submitting === "vibe" ? "Saving..." : "Continue"}
           </span>
         </motion.button>
       </div>

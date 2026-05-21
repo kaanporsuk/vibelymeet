@@ -982,6 +982,7 @@ const VideoDate = () => {
 
   const trackTimerDriftRecovery = useCallback(
     (correctedTimeLeftSeconds: number, recoverySource: "session_reload" | "realtime" | "foreground_reconcile") => {
+      if (timelineV2.enabled) return;
       if (!timerDriftTrackingReadyRef.current) return;
       const payload = buildVideoDateTimerDriftRecoveredPayload({
         platform: "web",
@@ -1008,7 +1009,7 @@ const VideoDate = () => {
         recoverySource,
       });
     },
-    [id],
+    [id, timelineV2.enabled],
   );
 
   const applyTimelineSnapshot = useCallback(
@@ -2552,7 +2553,7 @@ const VideoDate = () => {
           });
           if (event === "handshake_decision_rpc_after") {
             vdbg("video_date_transition_after", {
-              action: "vibe",
+              action,
               sessionId: id,
               actorUserId: user.id,
               currentPhase: phaseRef.current,
@@ -2571,6 +2572,29 @@ const VideoDate = () => {
 
       if (!("reason" in result)) {
         setHandshakeTruth(result.truth);
+        const transitionedToDate =
+          action === "vibe" &&
+          (result.state === "date" ||
+            result.truth.state === "date" ||
+            result.truth.phase === "date" ||
+            Boolean(result.truth.date_started_at));
+        if (transitionedToDate) {
+          clearHandshakeGraceState();
+          markDateFlowEntered();
+          const dateStartedAt = result.truth.date_started_at ?? new Date().toISOString();
+          const nextExtraSeconds = normalizedDateExtraSeconds(result.truth.date_extra_seconds);
+          setDateStartedAt(dateStartedAt);
+          setDateExtraSeconds(nextExtraSeconds);
+          setPhase("date");
+          setTimeLeft(
+            remainingDatePhaseSeconds({
+              dateStartedAtIso: dateStartedAt,
+              baseDateSeconds: DATE_TIME,
+              dateExtraSeconds: nextExtraSeconds,
+            }),
+          );
+          setShowMutualToast(true);
+        }
         vdbg("handshake_decision_ui_result", {
           sessionId: id,
           actorUserId: user.id,
@@ -2623,7 +2647,14 @@ const VideoDate = () => {
     } finally {
       handshakeDecisionInFlightRef.current = false;
     }
-  }, [id, user?.id, continueHandshakeV2.enabled, clearHandshakeGraceState, endCall]);
+  }, [
+    id,
+    user?.id,
+    continueHandshakeV2.enabled,
+    clearHandshakeGraceState,
+    markDateFlowEntered,
+    endCall,
+  ]);
 
   const handleUserVibe = useCallback(() => {
     recordUserAction("video_date_handshake_decision_clicked", {
@@ -3777,17 +3808,17 @@ const VideoDate = () => {
   return (
     <div className="fixed inset-0 overflow-hidden bg-[radial-gradient(circle_at_50%_10%,hsl(var(--primary)/0.18),transparent_32%),radial-gradient(circle_at_50%_95%,hsl(var(--accent)/0.14),transparent_30%),hsl(var(--background))] md:flex md:items-center md:justify-center md:p-4">
       <div className="pointer-events-none absolute inset-0 hidden bg-[linear-gradient(135deg,rgba(10,10,16,0.92),rgba(5,5,9,0.98))] md:block" aria-hidden />
-      {dupBlocked && !callStarted && videoDateAccess === "allowed" && !showFeedback && (
+      {dupBlocked && videoDateAccess === "allowed" && !showFeedback && (
         <div className="fixed inset-0 z-[60] flex flex-col items-center justify-center gap-4 bg-background/95 p-6 text-center">
           <p className="text-lg font-display font-semibold text-foreground max-w-sm">
-            This date is already open in another window
+            This date is already open on another device
           </p>
           <p className="text-sm text-muted-foreground max-w-sm">
-            Continue here only if you closed the other tab, or you may disconnect the call there.
+            Switch here only if you want this device to take over the live call.
           </p>
           <div className="flex flex-col sm:flex-row gap-2 w-full max-w-xs">
             <Button type="button" className="w-full" onClick={() => takeOver()}>
-              Continue here
+              Switch here
             </Button>
             <Button
               type="button"
