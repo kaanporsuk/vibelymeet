@@ -215,6 +215,19 @@ serve(async (req) => {
         });
         return jsonResponse(req, { success: false, error: "client_request_id_conflict" }, { status: 409 });
       }
+      if (existing.data.recovery_dismissed_at && !existing.data.published_message_id) {
+        logCreateTransition("dismissed_upload_reuse_rejected", {
+          client_request_id: clientRequestId,
+          match_id: matchId,
+          sender_id: user.id,
+          upload_id: existing.data.id,
+          provider_object_id: existing.data.provider_object_id,
+          media_asset_id: existing.data.media_asset_id ?? null,
+          status: existing.data.status ?? null,
+          recovery_dismissed_at: existing.data.recovery_dismissed_at,
+        });
+        return jsonResponse(req, { success: false, error: "upload_dismissed" }, { status: 409 });
+      }
       uploadId = existing.data.id;
       videoId = existing.data.provider_object_id;
       assetId = existing.data.media_asset_id ?? null;

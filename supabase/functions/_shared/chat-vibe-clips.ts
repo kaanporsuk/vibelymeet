@@ -4,7 +4,9 @@ import {
   MEDIA_FAMILIES,
   PROVIDERS,
   REF_TYPES,
+  RELEASE_REASONS,
   registerMediaAsset,
+  releaseMediaReference,
 } from "./media-lifecycle.ts";
 import { normalizeMediaCaptions, type NormalizedMediaCaptions } from "./media-captions.ts";
 
@@ -109,6 +111,9 @@ export type ChatVibeClipUploadRow = {
   status: ChatVibeClipStatus;
   error_detail: string | null;
   captions: NormalizedMediaCaptions | null;
+  recovery_dismissed_at?: string | null;
+  recovery_dismissed_by?: string | null;
+  recovery_dismissed_reason?: string | null;
   expires_at: string;
   updated_at: string | null;
 };
@@ -383,6 +388,48 @@ async function ensureParticipantRetentionReferences(admin: SupabaseClient, uploa
   });
 }
 
+async function cleanupInsertedMessageAfterDismissedPublish(
+  admin: SupabaseClient,
+  upload: ChatVibeClipUploadRow,
+  params: {
+    messageId: string;
+    insertedMessageId: string | null;
+    assetId?: string | null;
+  },
+): Promise<{ success: true; cleanedMessage: boolean; releasedRefs: number } | { success: false; error: string }> {
+  if (params.insertedMessageId !== params.messageId) {
+    return { success: true, cleanedMessage: false, releasedRefs: 0 };
+  }
+
+  let releasedRefs = 0;
+  if (params.assetId) {
+    const { data: refs, error: refsError } = await admin
+      .from("media_references")
+      .select("id")
+      .eq("asset_id", params.assetId)
+      .eq("is_active", true);
+    if (refsError) return { success: false, error: refsError.message };
+
+    for (const ref of Array.isArray(refs) ? refs : []) {
+      const referenceId = typeof ref.id === "string" ? ref.id : null;
+      if (!referenceId) continue;
+      const released = await releaseMediaReference(admin, referenceId, RELEASE_REASONS.USER_ACTION);
+      if (!released.success) return { success: false, error: released.error ?? "media_reference_release_failed" };
+      releasedRefs += 1;
+    }
+  }
+
+  const { error: deleteInsertedError } = await admin
+    .from("messages")
+    .delete()
+    .eq("id", params.messageId)
+    .eq("match_id", upload.match_id)
+    .eq("sender_id", upload.sender_id);
+  if (deleteInsertedError) return { success: false, error: deleteInsertedError.message };
+
+  return { success: true, cleanedMessage: true, releasedRefs };
+}
+
 export function chatVibeClipPayload(upload: ChatVibeClipUploadRow, status: ChatVibeClipStatus) {
   const videoId = upload.provider_object_id;
   const aspectRatio =
@@ -571,6 +618,7 @@ export async function ensureChatVibeClipMessage(
     return { success: true, message: data as Record<string, unknown> };
   };
 
+  let insertedMessageId: string | null = null;
   if (!message) {
     const { data, error } = await admin
       .from("messages")
@@ -622,6 +670,7 @@ export async function ensureChatVibeClipMessage(
       }
     } else {
       message = data as Record<string, unknown>;
+      insertedMessageId = String(data.id);
       logChatVibeClipLifecycle("info", "message_inserted", {
         upload_id: upload.id,
         client_request_id: upload.client_request_id,
@@ -640,6 +689,48 @@ export async function ensureChatVibeClipMessage(
 
   if (!message) return { success: false, error: "message_publish_missing" };
   const messageId = String(message.id);
+  const { data: activeUpload, error: activeUploadError } = await admin
+    .from("chat_vibe_clip_uploads")
+    .select("id, recovery_dismissed_at")
+    .eq("id", upload.id)
+    .is("recovery_dismissed_at", null)
+    .maybeSingle();
+  if (activeUploadError || !activeUpload) {
+    let cleanupResult: Awaited<ReturnType<typeof cleanupInsertedMessageAfterDismissedPublish>> | null = null;
+    if (!activeUploadError) {
+      cleanupResult = await cleanupInsertedMessageAfterDismissedPublish(admin, upload, {
+        messageId,
+        insertedMessageId,
+      });
+      if (!cleanupResult.success) {
+        logChatVibeClipLifecycle("error", "dismissed_publish_message_cleanup_failed", {
+          upload_id: upload.id,
+          client_request_id: upload.client_request_id,
+          match_id: upload.match_id,
+          sender_id: upload.sender_id,
+          provider_object_id: upload.provider_object_id,
+          message_id: messageId,
+          target_status: status,
+          error_code: cleanupResult.error,
+        });
+        return { success: false, error: cleanupResult.error };
+      }
+    }
+    logChatVibeClipLifecycle(activeUploadError ? "error" : "warn", "upload_publish_preflight_rejected", {
+      upload_id: upload.id,
+      client_request_id: upload.client_request_id,
+      match_id: upload.match_id,
+      sender_id: upload.sender_id,
+      provider_object_id: upload.provider_object_id,
+      message_id: messageId,
+      target_status: status,
+      inserted_message_cleaned_up: cleanupResult?.cleanedMessage ?? false,
+      released_reference_count: cleanupResult?.releasedRefs ?? 0,
+      error_code: activeUploadError?.message ?? "upload_dismissed",
+    });
+    return { success: false, error: activeUploadError?.message ?? "upload_dismissed" };
+  }
+
   let assetId = upload.media_asset_id;
   if (!assetId) {
     const registered = await registerMediaAsset(admin, {
@@ -740,7 +831,7 @@ export async function ensureChatVibeClipMessage(
     return { success: false, error: error instanceof Error ? error.message : "media_reference_failed" };
   }
 
-  const { error: uploadUpdateError } = await admin
+  const { data: publishedUpload, error: uploadUpdateError } = await admin
     .from("chat_vibe_clip_uploads")
     .update({
       media_asset_id: assetId,
@@ -748,8 +839,54 @@ export async function ensureChatVibeClipMessage(
       status,
       error_detail: status === "failed" ? "bunny_processing_failed" : null,
     })
-    .eq("id", upload.id);
-  if (uploadUpdateError) {
+    .eq("id", upload.id)
+    .is("recovery_dismissed_at", null)
+    .select("id, recovery_dismissed_at")
+    .maybeSingle();
+  if (uploadUpdateError || !publishedUpload) {
+    if (!uploadUpdateError) {
+      const { data: latest } = await admin
+        .from("chat_vibe_clip_uploads")
+        .select("id, recovery_dismissed_at")
+        .eq("id", upload.id)
+        .maybeSingle();
+      if (!latest || latest.recovery_dismissed_at) {
+        const cleanupResult = await cleanupInsertedMessageAfterDismissedPublish(admin, upload, {
+          messageId,
+          insertedMessageId,
+          assetId,
+        });
+        if (!cleanupResult.success) {
+          logChatVibeClipLifecycle("error", "dismissed_publish_message_cleanup_failed", {
+            upload_id: upload.id,
+            client_request_id: upload.client_request_id,
+            match_id: upload.match_id,
+            sender_id: upload.sender_id,
+            asset_id: assetId,
+            provider_object_id: upload.provider_object_id,
+            message_id: messageId,
+            target_status: status,
+            error_code: cleanupResult.error,
+          });
+          return { success: false, error: cleanupResult.error };
+        }
+        logChatVibeClipLifecycle("warn", "upload_publish_state_update_skipped_dismissed", {
+          upload_id: upload.id,
+          client_request_id: upload.client_request_id,
+          match_id: upload.match_id,
+          sender_id: upload.sender_id,
+          asset_id: assetId,
+          provider_object_id: upload.provider_object_id,
+          message_id: messageId,
+          target_status: status,
+          inserted_message_cleaned_up: cleanupResult.cleanedMessage,
+          released_reference_count: cleanupResult.releasedRefs,
+          recovery_dismissed_at: latest?.recovery_dismissed_at ?? null,
+          error_code: latest ? "upload_dismissed" : "upload_missing",
+        });
+        return { success: false, error: latest ? "upload_dismissed" : "upload_missing" };
+      }
+    }
     logChatVibeClipLifecycle("error", "upload_publish_state_update_failed", {
       upload_id: upload.id,
       client_request_id: upload.client_request_id,
@@ -759,9 +896,9 @@ export async function ensureChatVibeClipMessage(
       provider_object_id: upload.provider_object_id,
       message_id: messageId,
       target_status: status,
-      error_code: uploadUpdateError.message,
+      error_code: uploadUpdateError?.message ?? "upload_publish_state_update_missing",
     });
-    return { success: false, error: uploadUpdateError.message };
+    return { success: false, error: uploadUpdateError?.message ?? "upload_publish_state_update_missing" };
   } else {
     logChatVibeClipLifecycle("info", "upload_publish_state_updated", {
       upload_id: upload.id,
@@ -849,6 +986,21 @@ export async function updateChatVibeClipStatusByProvider(
       ignoredProviderStatus: true,
       ...(ignoredError ? { error: ignoredError } : {}),
     };
+  }
+
+  if (upload.recovery_dismissed_at && !upload.published_message_id) {
+    logChatVibeClipLifecycle("info", "dismissed_provider_status_ignored", {
+      upload_id: upload.id,
+      client_request_id: upload.client_request_id,
+      match_id: upload.match_id,
+      sender_id: upload.sender_id,
+      media_asset_id: upload.media_asset_id ?? null,
+      provider_object_id: providerObjectId,
+      previous_status: upload.status,
+      target_status: status,
+      recovery_dismissed_at: upload.recovery_dismissed_at,
+    });
+    return { handled: true, messageId: null };
   }
 
   const { error: statusUpdateError } = await admin

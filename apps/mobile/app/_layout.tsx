@@ -216,18 +216,34 @@ function RevenueCatUserSync() {
 
 function NativeUploadRecoveryGlobalBanner({ theme }: { theme: typeof Colors.dark }) {
   const { items, staleVibeClipUploads, recoveryAttentionCount } = useChatOutbox();
+  const [snoozedAttentionKey, setSnoozedAttentionKey] = useState('');
   const firstAttentionItem = items.find((item) => item.payload.kind !== 'text' && item.state === 'failed');
   const firstStaleUpload = staleVibeClipUploads[0] ?? null;
+  const attentionIds = useMemo(() => {
+    const ids = new Map<string, string>();
+    for (const item of items) {
+      if (item.payload.kind !== 'text' && item.state === 'failed') ids.set(item.id, `${item.id}:local:${item.updatedAtMs}`);
+    }
+    for (const upload of staleVibeClipUploads) {
+      if (upload.recoveryDismissedAt) continue;
+      const id = upload.clientRequestId || upload.id;
+      if (!ids.has(id)) ids.set(id, `${id}:server:${upload.status}:${upload.updatedAt ?? ''}`);
+    }
+    return Array.from(ids.values()).sort();
+  }, [items, staleVibeClipUploads]);
 
   if (recoveryAttentionCount <= 0) return null;
 
+  const attentionKey = `${recoveryAttentionCount}:${attentionIds.join('|') || 'server'}`;
+  const isSnoozed = snoozedAttentionKey === attentionKey;
   const handlePress = () => {
+    setSnoozedAttentionKey(attentionKey);
     if (firstAttentionItem?.otherUserId) {
       router.push({ pathname: '/chat/[id]', params: { id: firstAttentionItem.otherUserId } });
       return;
     }
-    if (firstStaleUpload?.matchId) {
-      router.push('/(tabs)/matches');
+    if (firstStaleUpload?.otherUserId) {
+      router.push({ pathname: '/chat/[id]', params: { id: firstStaleUpload.otherUserId } });
       return;
     }
     router.push('/(tabs)/matches');
@@ -237,9 +253,10 @@ function NativeUploadRecoveryGlobalBanner({ theme }: { theme: typeof Colors.dark
     <Pressable
       onPress={handlePress}
       accessibilityRole="button"
-      accessibilityLabel={`${recoveryAttentionCount} upload${recoveryAttentionCount === 1 ? '' : 's'} need attention`}
+      accessibilityLabel={recoveryAttentionCount === 1 ? '1 upload needs attention' : `${recoveryAttentionCount} uploads need attention`}
       style={[
         uploadRecoveryStyles.banner,
+        isSnoozed ? uploadRecoveryStyles.bannerSnoozed : null,
         { backgroundColor: theme.surface, borderColor: theme.border },
       ]}
     >
@@ -247,9 +264,11 @@ function NativeUploadRecoveryGlobalBanner({ theme }: { theme: typeof Colors.dark
         <Text style={[uploadRecoveryStyles.title, { color: theme.text }]}>
           {recoveryAttentionCount === 1 ? '1 upload needs attention' : `${recoveryAttentionCount} uploads need attention`}
         </Text>
-        <Text style={[uploadRecoveryStyles.subtitle, { color: theme.mutedForeground }]}>
-          Review or recover it from the saved foreground queue.
-        </Text>
+        {!isSnoozed ? (
+          <Text style={[uploadRecoveryStyles.subtitle, { color: theme.mutedForeground }]}>
+            Review or recover from the saved upload queue.
+          </Text>
+        ) : null}
       </View>
       <Text style={[uploadRecoveryStyles.action, { color: theme.tint }]}>Review</Text>
     </Pressable>
@@ -717,6 +736,10 @@ const uploadRecoveryStyles = StyleSheet.create({
     shadowRadius: 14,
     shadowOffset: { width: 0, height: 8 },
     elevation: 8,
+  },
+  bannerSnoozed: {
+    minHeight: 44,
+    paddingVertical: 8,
   },
   bannerText: {
     flex: 1,

@@ -549,6 +549,7 @@ const Chat = () => {
   const threadContentRef = useRef<HTMLDivElement>(null);
   const composerChromeRef = useRef<HTMLDivElement>(null);
   const mainScrollRef = useRef<HTMLElement | null>(null);
+  const chatMountedRef = useRef(true);
   const stickToBottomRef = useRef(true);
   const userScrollIntentUntilRef = useRef(0);
   const lastTouchYRef = useRef<number | null>(null);
@@ -575,6 +576,13 @@ const Chat = () => {
       : Math.max(window.visualViewport?.height ?? 0, window.innerHeight ?? 0),
   );
   const [mobileKeyboardViewportStyle, setMobileKeyboardViewportStyle] = useState<CSSProperties | undefined>();
+
+  useEffect(() => {
+    chatMountedRef.current = true;
+    return () => {
+      chatMountedRef.current = false;
+    };
+  }, []);
 
   const clearChatBackNavWatchdogs = useCallback(() => {
     if (typeof window === "undefined") return;
@@ -2457,11 +2465,30 @@ const Chat = () => {
                       : undefined
                   }
                   onDiscardRecoveryAndSendAgain={() => {
+                    const serverRecoveryUploadId = groupedMessage.serverRecoveryUploadId;
+                    if (serverRecoveryUploadId) {
+                      void (async () => {
+                        const dismissResult = await webOutbox.dismissStaleVibeClipUpload(serverRecoveryUploadId);
+                        if (!chatMountedRef.current) return;
+                        if (!dismissResult) {
+                          toast.error("Could not clear the saved upload yet. Try again in a moment.");
+                          return;
+                        }
+                        if (groupedMessage.outboxItemId) {
+                          webOutbox.remove(groupedMessage.outboxItemId);
+                        }
+                        setDismissedServerVibeClipRecoveryIds((prev) => new Set(prev).add(serverRecoveryUploadId));
+                        if (dismissResult === "already_published") {
+                          toast.info("That clip was already sent. Refreshing the chat.");
+                          await refreshThreadAfterVibeClipRecoverySweep().catch(() => undefined);
+                          return;
+                        }
+                        openVibeClipOptions();
+                      })();
+                      return;
+                    }
                     if (groupedMessage.outboxItemId) {
                       webOutbox.remove(groupedMessage.outboxItemId);
-                    }
-                    if (groupedMessage.serverRecoveryUploadId) {
-                      setDismissedServerVibeClipRecoveryIds((prev) => new Set(prev).add(groupedMessage.serverRecoveryUploadId!));
                     }
                     openVibeClipOptions();
                   }}
