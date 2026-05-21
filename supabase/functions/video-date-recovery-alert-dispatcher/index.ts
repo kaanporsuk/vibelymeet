@@ -24,6 +24,8 @@ type DispatchRow = {
 };
 type DispatchChannel = "sentry" | "slack";
 
+const DISPATCH_CLAIM_STALE_MS = 15 * 60 * 1000;
+
 let sentryInitialized = false;
 
 function json(body: Record<string, unknown>, status = 200): Response {
@@ -90,6 +92,12 @@ function scrubAlertPayload(alert: JsonObject): JsonObject {
       : {},
     generated_at: typeof alert.generated_at === "string" ? alert.generated_at : null,
   };
+}
+
+function isStaleDispatchClaim(claimedAt: string | null, nowMs = Date.now()): boolean {
+  if (!claimedAt) return false;
+  const claimedAtMs = Date.parse(claimedAt);
+  return Number.isFinite(claimedAtMs) && nowMs - claimedAtMs >= DISPATCH_CLAIM_STALE_MS;
 }
 
 async function captureSentryPage(alert: JsonObject, fingerprint: string): Promise<boolean> {
@@ -175,6 +183,39 @@ async function claimDispatchChannel(
     return false;
   }
   return Boolean(claim.data?.id);
+}
+
+async function reclaimStaleDispatchClaims(
+  supabase: ReturnType<typeof serviceClient>,
+  dispatch: DispatchRow,
+): Promise<DispatchRow> {
+  const update: Partial<Pick<DispatchRow, "sentry_claimed_at" | "slack_claimed_at">> = {};
+  if (!dispatch.sentry_sent_at && isStaleDispatchClaim(dispatch.sentry_claimed_at)) {
+    update.sentry_claimed_at = null;
+  }
+  if (!dispatch.slack_sent_at && isStaleDispatchClaim(dispatch.slack_claimed_at)) {
+    update.slack_claimed_at = null;
+  }
+  if (!Object.prototype.hasOwnProperty.call(update, "sentry_claimed_at") &&
+      !Object.prototype.hasOwnProperty.call(update, "slack_claimed_at")) {
+    return dispatch;
+  }
+
+  const reclaimed = await supabase
+    .from("video_date_recovery_alert_dispatches")
+    .update(update)
+    .eq("id", dispatch.id)
+    .select("id,sentry_sent_at,slack_sent_at,sentry_claimed_at,slack_claimed_at")
+    .maybeSingle();
+
+  if (reclaimed.error || !reclaimed.data?.id) {
+    console.error(
+      "video-date-recovery-alert-dispatcher stale_claim_reclaim_error",
+      reclaimed.error?.message ?? "missing_row",
+    );
+    return dispatch;
+  }
+  return reclaimed.data as DispatchRow;
 }
 
 async function finishDispatchChannel(
@@ -264,6 +305,7 @@ Deno.serve(async (req) => {
 
     const isNewDispatch = insert.error == null;
     if (isNewDispatch) claimed += 1;
+    dispatch = await reclaimStaleDispatchClaims(supabase, dispatch);
 
     const shouldSendSentry = severity === "page" && !dispatch.sentry_sent_at && !dispatch.sentry_claimed_at;
     const shouldSendSlack =

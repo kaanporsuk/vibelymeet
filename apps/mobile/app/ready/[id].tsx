@@ -328,8 +328,11 @@ export default function ReadyGateScreen() {
               });
               if (!navigated) {
                 setTransitioning(false);
+                revealReadyUi = true;
+                const recovered = await reconcileFromCanonicalTruth(`initial_snapshot_${recovery.reason}_nav_suppressed`);
+                if (recovered) return;
               }
-              return;
+              if (navigated) return;
             }
             if (recovery.action === 'home' && recovery.reason === 'missing_event') {
               explainInvalidToTabs();
