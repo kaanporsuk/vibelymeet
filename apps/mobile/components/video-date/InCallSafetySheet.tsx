@@ -1,8 +1,9 @@
 /**
- * Minimal in-call safety: canonical `submit_user_report` only (parity with web InCallSafetyModal).
+ * In-call safety: canonical `submit_user_report` fallback, with v4 video-date
+ * safety command wiring available behind the default-off safety flag.
  */
 
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -19,29 +20,50 @@ import { spacing, radius, typography } from '@/constants/theme';
 import Colors from '@/constants/Colors';
 import { useColorScheme } from '@/components/useColorScheme';
 import { REPORT_REASONS, type ReportReasonId } from '@clientShared/safety/reportReasons';
-import { submitUserReportRpc } from '@clientShared/safety/submitUserReportRpc';
+import {
+  submitUserReportRpc,
+  submitVideoDateSafetyReportRpc,
+  type SubmitVideoDateSafetyReportRpcResult,
+} from '@clientShared/safety/submitUserReportRpc';
+import {
+  buildVideoDateSafetyIdempotencyKey,
+  createVideoDateClientRequestId,
+} from '@clientShared/matching/videoDateTransitionCommands';
 import { supabase } from '@/lib/supabase';
 
 type Props = {
   visible: boolean;
   onClose: () => void;
   reportedUserId: string | null;
+  sessionId?: string | null;
+  safetyV2?: boolean;
   onEndAfterReport: () => void | Promise<void>;
+  onServerEndedAfterReport?: (result: Extract<SubmitVideoDateSafetyReportRpcResult, { ok: true }>) => void | Promise<void>;
 };
 
-export function InCallSafetySheet({ visible, onClose, reportedUserId, onEndAfterReport }: Props) {
+export function InCallSafetySheet({
+  visible,
+  onClose,
+  reportedUserId,
+  sessionId,
+  safetyV2 = false,
+  onEndAfterReport,
+  onServerEndedAfterReport,
+}: Props) {
   const colorScheme = useColorScheme();
   const theme = Colors[colorScheme];
   const [reason, setReason] = useState<ReportReasonId>('harassment');
   const [details, setDetails] = useState('');
   const [alsoBlock, setAlsoBlock] = useState(false);
   const [busy, setBusy] = useState<'idle' | 'report' | 'end'>('idle');
+  const requestRef = useRef<{ mode: 'report' | 'end'; key: string; payloadSignature: string } | null>(null);
 
   const reset = () => {
     setReason('harassment');
     setDetails('');
     setAlsoBlock(false);
     setBusy('idle');
+    requestRef.current = null;
   };
 
   const submit = async (mode: 'report' | 'end') => {
@@ -50,12 +72,52 @@ export function InCallSafetySheet({ visible, onClose, reportedUserId, onEndAfter
       return;
     }
     setBusy(mode);
-    const result = await submitUserReportRpc(supabase, {
-      reportedId: reportedUserId,
-      reason,
-      details: details.trim() || null,
-      alsoBlock,
-    });
+    const trimmedDetails = details.trim() || null;
+    let result: SubmitVideoDateSafetyReportRpcResult = { ok: false, error: 'Could not send report. Try again.' };
+    try {
+      if (safetyV2 && sessionId) {
+        const payloadSignature = JSON.stringify({
+          reason,
+          details: trimmedDetails,
+          alsoBlock,
+          endSession: mode === 'end',
+        });
+        const existing =
+          requestRef.current?.mode === mode && requestRef.current.payloadSignature === payloadSignature
+            ? requestRef.current
+            : null;
+        const key =
+          existing?.key ??
+          buildVideoDateSafetyIdempotencyKey(
+            sessionId,
+            mode === 'end' ? 'end_report' : 'report',
+            createVideoDateClientRequestId(),
+          );
+        requestRef.current = { mode, key, payloadSignature };
+        result = await submitVideoDateSafetyReportRpc(supabase, {
+          sessionId,
+          reason,
+          details: trimmedDetails,
+          alsoBlock,
+          endSession: mode === 'end',
+          idempotencyKey: key,
+        });
+      } else {
+        const legacyResult = await submitUserReportRpc(supabase, {
+          reportedId: reportedUserId,
+          reason,
+          details: trimmedDetails,
+          alsoBlock,
+        });
+        if (legacyResult.ok === true) {
+          result = { ok: true, reportId: legacyResult.reportId, ended: false, surveyRequired: false, idempotent: false };
+        } else {
+          result = { ok: false, error: legacyResult.error };
+        }
+      }
+    } catch (error) {
+      result = { ok: false, error: error instanceof Error ? error.message : 'Could not send report. Try again.' };
+    }
     setBusy('idle');
     if (!result.ok) {
       Alert.alert('Could not send report', result.error || 'Try again.');
@@ -63,6 +125,10 @@ export function InCallSafetySheet({ visible, onClose, reportedUserId, onEndAfter
     }
     reset();
     onClose();
+    if (safetyV2 && result.ended) {
+      await onServerEndedAfterReport?.(result);
+      return;
+    }
     if (mode === 'report') {
       Alert.alert('Thanks', 'We received your report.');
       return;

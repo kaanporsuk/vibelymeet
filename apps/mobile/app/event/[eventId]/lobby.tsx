@@ -295,6 +295,7 @@ export default function EventLobbyScreen() {
   );
   const readinessV2 = useFeatureFlag('video_date.readiness_v2');
   const deckDealV2 = useFeatureFlag('video_date.deck_deal_v2');
+  const drainQueueV2 = useFeatureFlag('video_date.outbox_v2.drain_match_queue');
   const videoDateReadiness = useNonBlockingVideoDateReadiness(
     id,
     readinessV2.enabled && lobbySideEffectsEnabled,
@@ -1108,7 +1109,10 @@ export default function EventLobbyScreen() {
 
     const tick = async () => {
       if (cancelled) return;
-      const result = await drainMatchQueue(id, user.id);
+      const result = await drainMatchQueue(id, user.id, {
+        drainMatchQueueV2: drainQueueV2.enabled,
+        sourceAction: 'queue_drain_interval',
+      });
       const promotedSessionId = videoSessionIdFromDrainPayload(result ?? undefined);
       if (result?.found && promotedSessionId) {
         openReadyGateWithSession(promotedSessionId, 'queue_drain_interval');
@@ -1143,13 +1147,17 @@ export default function EventLobbyScreen() {
     openReadyGateWithSession,
     scheduleLobbyRefreshBurst,
     showDrainReasonInfoOnce,
+    drainQueueV2.enabled,
   ]);
 
   useEffect(() => {
     if (!id || !user?.id || !lobbySideEffectsEnabled) return;
     let cancelled = false;
     const run = async () => {
-      const result = await drainMatchQueue(id, user.id);
+      const result = await drainMatchQueue(id, user.id, {
+        drainMatchQueueV2: drainQueueV2.enabled,
+        sourceAction: 'queue_drain_initial',
+      });
       const sessionId = videoSessionIdFromDrainPayload(result ?? undefined);
       if (result?.found && sessionId) {
         openReadyGateWithSession(sessionId, 'queue_drain_initial');
@@ -1163,7 +1171,15 @@ export default function EventLobbyScreen() {
     return () => {
       cancelled = true;
     };
-  }, [id, user?.id, lobbySideEffectsEnabled, openReadyGateWithSession, scheduleLobbyRefreshBurst, showDrainReasonInfoOnce]);
+  }, [
+    id,
+    user?.id,
+    lobbySideEffectsEnabled,
+    openReadyGateWithSession,
+    scheduleLobbyRefreshBurst,
+    showDrainReasonInfoOnce,
+    drainQueueV2.enabled,
+  ]);
 
   useEffect(() => {
     if (!id) return;
@@ -1292,7 +1308,10 @@ export default function EventLobbyScreen() {
         return;
       }
       if (status === 'queued') {
-        const drainResult = await drainMatchQueue(id, user.id);
+        const drainResult = await drainMatchQueue(id, user.id, {
+          drainMatchQueueV2: drainQueueV2.enabled,
+          sourceAction: 'video_session_insert_queue_drain',
+        });
         const promotedId = videoSessionIdFromDrainPayload(drainResult ?? undefined);
         if (drainResult?.found && promotedId) {
           openReadyGateWithSession(promotedId, 'video_session_insert_queue_drain');
@@ -1331,7 +1350,16 @@ export default function EventLobbyScreen() {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [id, user?.id, openReadyGateWithSession, scheduleLobbyRefreshBurst, show, showDrainReasonInfoOnce, navigateToDateSession]);
+  }, [
+    id,
+    user?.id,
+    openReadyGateWithSession,
+    scheduleLobbyRefreshBurst,
+    show,
+    showDrainReasonInfoOnce,
+    navigateToDateSession,
+    drainQueueV2.enabled,
+  ]);
 
   const timeRemaining = useCountdown(eventEndTime);
 

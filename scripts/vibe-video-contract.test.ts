@@ -995,6 +995,10 @@ test("media v2 Vibe Video caller cutover is upload-start gated and still control
   const webStep = read("src/pages/onboarding/steps/VibeVideoStep.tsx");
   const webModal = read("src/components/vibe-video/VibeStudioModal.tsx");
   const webSdk = read("src/lib/mediaSdk/webVideoUploads.ts");
+  const webVibeUploadSection = webSdk.slice(
+    webSdk.indexOf("export function startWebVibeVideoUpload"),
+    webSdk.indexOf("export async function uploadAndPublishChatVibeClipWithMediaSdk"),
+  );
   const nativeRecord = read("apps/mobile/app/vibe-video-record.tsx");
   const nativeSdk = read("apps/mobile/lib/mediaSdk/nativeVideoUploads.ts");
 
@@ -1020,7 +1024,8 @@ test("media v2 Vibe Video caller cutover is upload-start gated and still control
   assert.match(webSdk, /createMediaUploadPathTelemetryFields/);
   assert.match(webSdk, /uploadVibeVideo: uploadWebVibeVideoViaController/);
   assert.match(webSdk, /heroVideoStartWithClientRequestId/);
-  assert.match(webSdk, /heroVideoStartWithClientRequestId\(\s*params\.source,\s*params\.caption,\s*context,\s*clientRequestId,\s*params\.captions \?\? null,?\s*\)/);
+  assert.match(webVibeUploadSection, /heroVideoStartWithClientRequestId\(\s*params\.source,\s*params\.caption,\s*context,\s*clientRequestId,?\s*\)/);
+  assert.doesNotMatch(webVibeUploadSection, /params\.captions|captions: params\.captions|captions: params\.captions \?\? null/);
   assert.match(webSdk, /mirrorHeroVideoControllerToSdk/);
   assert.match(webSdk, /state\.clientRequestId !== clientRequestId/);
   assert.match(webSdk, /vibe_video_upload_replaced/);

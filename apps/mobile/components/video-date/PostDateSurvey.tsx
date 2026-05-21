@@ -216,6 +216,7 @@ export function PostDateSurvey({
   const colorScheme = useColorScheme();
   const theme = Colors[colorScheme];
   const microVerdictV2 = useFeatureFlag('video_date.micro_verdict_v2');
+  const drainQueueV2 = useFeatureFlag('video_date.outbox_v2.drain_match_queue');
   const [step, setStep] = useState<SurveyStep>('verdict');
   const [submitting, setSubmitting] = useState(false);
   const [finishing, setFinishing] = useState(false);
@@ -343,14 +344,18 @@ export function PostDateSurvey({
 
   useEffect(() => {
     if (!eventId || !userId || queuedNavigationStartedRef.current) return;
-    const drainKey = `${sessionId}:${eventId}:${userId}`;
+    const drainKey = `${sessionId}:${eventId}:${userId}:${drainQueueV2.enabled ? 'v2' : 'legacy'}`;
     if (queuedDrainAttemptKeyRef.current === drainKey) return;
     queuedDrainAttemptKeyRef.current = drainKey;
     let cancelled = false;
     setIsDrainingQueue(true);
     void (async () => {
       try {
-        const result = await drainMatchQueue(eventId, userId);
+        const result = await drainMatchQueue(eventId, userId, {
+          drainMatchQueueV2: drainQueueV2.enabled,
+          sourceAction: 'survey_queue_drain',
+          sourceSurface: 'post_date_survey',
+        });
         if (cancelled) return;
         const nextSessionId = videoSessionIdFromDrainPayload(result ?? undefined);
         if (result?.found && nextSessionId) {
@@ -418,7 +423,7 @@ export function PostDateSurvey({
     return () => {
       cancelled = true;
     };
-  }, [eventId, onQueuedVideoSessionReady, sessionId, userId]);
+  }, [drainQueueV2.enabled, eventId, onQueuedVideoSessionReady, sessionId, userId]);
 
   useEffect(() => {
     if (step !== 'celebration' || !userId || !partnerId) return;

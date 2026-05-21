@@ -27,6 +27,7 @@ import {
   videoSessionHasPostDateSurveyTruth,
 } from '@clientShared/matching/activeSession';
 import { clearDateEntryTransition, markVideoDateEntryPipelineStarted } from '@/lib/dateEntryTransitionLatch';
+import { useFeatureFlag } from '@/hooks/useFeatureFlag';
 import {
   clearPendingNotificationDeepLink,
   queueNotificationDeepLinkPath,
@@ -107,7 +108,11 @@ const LOBBY_IDLE_STATUSES = new Set(['browsing', 'idle', 'offline']);
  * otherwise fail closed to lobby/tabs. Date notifications must not bypass
  * provider-prepared truth.
  */
-async function reconcileHrefWithRegistration(href: string, userId: string): Promise<Href> {
+async function reconcileHrefWithRegistration(
+  href: string,
+  userId: string,
+  options?: { drainMatchQueueV2?: boolean },
+): Promise<Href> {
   const m = href.match(/^\/date\/([^/?#]+)/);
   if (!m) return href as Href;
   const sid = m[1];
@@ -207,7 +212,11 @@ async function reconcileHrefWithRegistration(href: string, userId: string): Prom
     } catch {
       /* best-effort — drain still runs */
     }
-    await drainMatchQueue(vs.event_id as string, userId);
+    await drainMatchQueue(vs.event_id as string, userId, {
+      drainMatchQueueV2: options?.drainMatchQueueV2 === true,
+      sourceAction: 'notification_queued_session_rescue',
+      sourceSurface: 'notification_deep_link',
+    });
     reg = await fetchReg();
     truth = await fetchVideoSessionDateEntryTruth(sid);
     truthDecision = decideVideoSessionRouteFromTruth(truth);
@@ -258,6 +267,7 @@ export function NotificationRouteTracker() {
 
 export function NotificationDeepLinkHandler() {
   const { user, session, loading, entryState, entryStateLoading } = useAuth();
+  const drainQueueV2 = useFeatureFlag('video_date.outbox_v2.drain_match_queue');
   const prevUserIdRef = useRef<string | undefined>(undefined);
 
   const entryReady = isEntryReadyForNotificationDeepLink(
@@ -280,13 +290,15 @@ export function NotificationDeepLinkHandler() {
     const pending = takePendingNotificationDeepLinkPath();
     if (!pending) return;
     void (async () => {
-      const href = await reconcileHrefWithRegistration(pending, user.id);
+      const href = await reconcileHrefWithRegistration(pending, user.id, {
+        drainMatchQueueV2: drainQueueV2.enabled,
+      });
       rcBreadcrumb(RC_CATEGORY.notifDeepLink, 'notification_pending_navigate', {
         href: String(href),
       });
       router.push(href);
     })();
-  }, [user?.id, entryReady]);
+  }, [drainQueueV2.enabled, user?.id, entryReady]);
 
   useEffect(() => {
     const onClick = (event: unknown) => {
@@ -349,7 +361,9 @@ export function NotificationDeepLinkHandler() {
           rcBreadcrumb(RC_CATEGORY.notifDeepLink, 'notification_tap_queued', { href: pathStr });
           return;
         }
-        const nextHref = await reconcileHrefWithRegistration(pathStr, user.id);
+        const nextHref = await reconcileHrefWithRegistration(pathStr, user.id, {
+          drainMatchQueueV2: drainQueueV2.enabled,
+        });
         rcBreadcrumb(RC_CATEGORY.notifDeepLink, 'notification_tap_navigate', {
           href: String(nextHref),
         });
@@ -398,7 +412,7 @@ export function NotificationDeepLinkHandler() {
       OneSignal.Notifications.removeEventListener('click', onClick);
       OneSignal.Notifications.removeEventListener('foregroundWillDisplay', onForeground);
     };
-  }, [user?.id, entryReady]);
+  }, [drainQueueV2.enabled, user?.id, entryReady]);
 
   return null;
 }

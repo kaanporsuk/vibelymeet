@@ -2203,10 +2203,12 @@ test("post-date survey retries verdicts and exposes half-verdict pending state o
 test("native post-date survey drains queued ready gates across the whole survey lifecycle", () => {
   assert.match(nativePostDateSurvey, /queuedNavigationStartedRef/);
   assert.match(nativePostDateSurvey, /queuedDrainAttemptKeyRef/);
-  assert.match(nativePostDateSurvey, /const drainKey = `\$\{sessionId\}:\$\{eventId\}:\$\{userId\}`/);
-  assert.match(nativePostDateSurvey, /const result = await drainMatchQueue\(eventId, userId\)/);
+  assert.match(nativePostDateSurvey, /const drainKey = `\$\{sessionId\}:\$\{eventId\}:\$\{userId\}:\$\{drainQueueV2\.enabled \? 'v2' : 'legacy'\}`/);
+  assert.match(nativePostDateSurvey, /const result = await drainMatchQueue\(eventId, userId, \{/);
+  assert.match(nativePostDateSurvey, /drainMatchQueueV2: drainQueueV2\.enabled/);
+  assert.match(nativePostDateSurvey, /sourceSurface: 'post_date_survey'/);
   assert.match(nativePostDateSurvey, /onQueuedVideoSessionReady\?\.\(nextSessionId\)/);
-  assert.match(nativePostDateSurvey, /\}, \[eventId, onQueuedVideoSessionReady, sessionId, userId\]\);/);
+  assert.match(nativePostDateSurvey, /\}, \[drainQueueV2\.enabled, eventId, onQueuedVideoSessionReady, sessionId, userId\]\);/);
   assert.doesNotMatch(nativePostDateSurvey, /step !== 'safety'/);
   assert.doesNotMatch(nativePostDateSurvey, /drainMatchQueue\(eventId, userId\)[\s\S]{0,900}\[eventId, onQueuedVideoSessionReady, step, userId\]/);
 });

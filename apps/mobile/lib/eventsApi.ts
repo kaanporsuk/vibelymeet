@@ -16,7 +16,12 @@ import {
 import {
   buildQueueDrainResultPayload,
   EventLobbyObservabilityEvents,
+  type QueueDrainSourceSurface,
 } from '@clientShared/observability/eventLobbyObservability';
+import {
+  buildVideoDateQueueDrainIdempotencyKey,
+  createVideoDateClientRequestId,
+} from '@clientShared/matching/videoDateTransitionCommands';
 import { resolveEventLifecycle } from '@clientShared/eventLifecycle';
 import type { EventCategory } from '@clientShared/eventCategories';
 
@@ -666,39 +671,66 @@ const SUPER_VIBE_LIMIT_PER_EVENT = 3;
 export async function drainMatchQueue(
   eventId: string,
   userId: string,
+  options?: { drainMatchQueueV2?: boolean; sourceAction?: string; sourceSurface?: QueueDrainSourceSurface },
 ): Promise<DrainMatchQueueResult | null> {
+  const sourceAction = options?.sourceAction ?? 'drain_match_queue';
+  const sourceSurface = options?.sourceSurface ?? 'event_lobby';
   trackEvent(EventLobbyObservabilityEvents.QUEUE_DRAIN_ATTEMPTED, {
     platform: 'native',
     event_id: eventId,
-    source_surface: 'event_lobby',
-    source_action: 'drain_match_queue',
+    source_surface: sourceSurface,
+    source_action: sourceAction,
   });
-  const { data, error } = await supabase.rpc('drain_match_queue', {
-    p_event_id: eventId,
-  });
-  if (error) {
+  try {
+    const { data, error } = options?.drainMatchQueueV2 === true
+      ? await supabase.rpc('drain_match_queue_v2' as never, {
+          p_event_id: eventId,
+          p_idempotency_key: buildVideoDateQueueDrainIdempotencyKey(
+            eventId,
+            createVideoDateClientRequestId(),
+          ),
+        } as never)
+      : await supabase.rpc('drain_match_queue', {
+          p_event_id: eventId,
+        });
+    if (error) {
+      trackEvent(
+        EventLobbyObservabilityEvents.QUEUE_DRAIN_RESULT,
+        buildQueueDrainResultPayload({
+          eventId,
+          platform: 'native',
+          sourceSurface,
+          error,
+          sourceAction,
+        }),
+      );
+      return null;
+    }
+    const result = data as DrainMatchQueueResult;
     trackEvent(
       EventLobbyObservabilityEvents.QUEUE_DRAIN_RESULT,
       buildQueueDrainResultPayload({
         eventId,
         platform: 'native',
+        sourceSurface,
+        result,
+        sourceAction,
+      }),
+    );
+    return result;
+  } catch (error) {
+    trackEvent(
+      EventLobbyObservabilityEvents.QUEUE_DRAIN_RESULT,
+      buildQueueDrainResultPayload({
+        eventId,
+        platform: 'native',
+        sourceSurface,
         error,
-        sourceAction: 'drain_match_queue',
+        sourceAction,
       }),
     );
     return null;
   }
-  const result = data as DrainMatchQueueResult;
-  trackEvent(
-    EventLobbyObservabilityEvents.QUEUE_DRAIN_RESULT,
-    buildQueueDrainResultPayload({
-      eventId,
-      platform: 'native',
-      result,
-      sourceAction: 'drain_match_queue',
-    }),
-  );
-  return result;
 }
 
 /** Count of queued matches (ready_gate_status = 'queued') for this user in this event. */

@@ -2,6 +2,7 @@ import { useEffect, useCallback, useState, useRef } from "react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { useUserProfile } from "@/contexts/AuthContext";
+import { useFeatureFlag } from "@/hooks/useFeatureFlag";
 import {
   type DrainMatchQueueResult,
   isVideoSessionQueuedTtlExpiryTransition,
@@ -15,6 +16,10 @@ import {
   buildQueueDrainResultPayload,
   EventLobbyObservabilityEvents,
 } from "@clientShared/observability/eventLobbyObservability";
+import {
+  buildVideoDateQueueDrainIdempotencyKey,
+  createVideoDateClientRequestId,
+} from "@clientShared/matching/videoDateTransitionCommands";
 
 type MatchQueueSourceSurface = "event_lobby" | "post_date_survey";
 
@@ -46,6 +51,7 @@ export const useMatchQueue = ({
   onQueuedSessionExpired,
 }: UseMatchQueueOptions) => {
   const { user } = useUserProfile();
+  const drainMatchQueueV2 = useFeatureFlag("video_date.outbox_v2.drain_match_queue");
   const [queuedCount, setQueuedCount] = useState(0);
   const [isDraining, setIsDraining] = useState(false);
   const onReadyRef = useRef(onVideoSessionReady);
@@ -132,9 +138,31 @@ export const useMatchQueue = ({
         queue_status: currentStatus,
       });
       try {
-        const { data } = await supabase.rpc("drain_match_queue", {
-          p_event_id: eventId,
-        });
+        const { data, error } = drainMatchQueueV2.enabled
+          ? await supabase.rpc("drain_match_queue_v2" as never, {
+              p_event_id: eventId,
+              p_idempotency_key: buildVideoDateQueueDrainIdempotencyKey(
+                eventId,
+                createVideoDateClientRequestId(),
+              ),
+            } as never)
+          : await supabase.rpc("drain_match_queue", {
+              p_event_id: eventId,
+            });
+
+        if (error) {
+          trackEvent(EventLobbyObservabilityEvents.QUEUE_DRAIN_RESULT, {
+            ...buildQueueDrainResultPayload({
+              eventId,
+              platform: "web",
+              error,
+              sourceAction: "use_match_queue",
+            }),
+            source_surface: sourceSurface,
+            queue_status: currentStatus,
+          });
+          return;
+        }
 
         const result = data as DrainMatchQueueResult;
         trackEvent(EventLobbyObservabilityEvents.QUEUE_DRAIN_RESULT, {
@@ -217,6 +245,7 @@ export const useMatchQueue = ({
     suppressDrainReasonToasts,
     refreshQueueCount,
     notifyReadyOnce,
+    drainMatchQueueV2.enabled,
   ]);
 
   useEffect(() => {

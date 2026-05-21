@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Shield } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -14,36 +14,53 @@ import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import { REPORT_REASONS, type ReportReasonId } from "@clientShared/safety/reportReasons";
-import { submitUserReportRpc } from "@clientShared/safety/submitUserReportRpc";
+import {
+  submitUserReportRpc,
+  submitVideoDateSafetyReportRpc,
+  type SubmitVideoDateSafetyReportRpcResult,
+} from "@clientShared/safety/submitUserReportRpc";
+import {
+  buildVideoDateSafetyIdempotencyKey,
+  createVideoDateClientRequestId,
+} from "@clientShared/matching/videoDateTransitionCommands";
 import { supabase } from "@/integrations/supabase/client";
 
 type Props = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   reportedUserId: string | null;
+  sessionId?: string | null;
+  safetyV2?: boolean;
   /** Submit report only; stay on call */
   onReportOnlySuccess?: () => void;
   /** After successful report, end call + survey (parent handles end) */
   onEndAfterReport?: () => void | Promise<void>;
+  /** v2 path: report RPC already ended server state; parent cleans local media + opens the right terminal UX. */
+  onServerEndedAfterReport?: (result: Extract<SubmitVideoDateSafetyReportRpcResult, { ok: true }>) => void | Promise<void>;
 };
 
 export function InCallSafetyModal({
   open,
   onOpenChange,
   reportedUserId,
+  sessionId,
+  safetyV2 = false,
   onReportOnlySuccess,
   onEndAfterReport,
+  onServerEndedAfterReport,
 }: Props) {
   const [reason, setReason] = useState<ReportReasonId>("harassment");
   const [details, setDetails] = useState("");
   const [alsoBlock, setAlsoBlock] = useState(false);
   const [submitting, setSubmitting] = useState<"idle" | "report" | "end">("idle");
+  const requestRef = useRef<{ mode: "report" | "end"; key: string; payloadSignature: string } | null>(null);
 
   const reset = () => {
     setReason("harassment");
     setDetails("");
     setAlsoBlock(false);
     setSubmitting("idle");
+    requestRef.current = null;
   };
 
   const handleOpenChange = (next: boolean) => {
@@ -54,12 +71,52 @@ export function InCallSafetyModal({
   const submit = async (mode: "report" | "end") => {
     if (!reportedUserId) return;
     setSubmitting(mode);
-    const result = await submitUserReportRpc(supabase, {
-      reportedId: reportedUserId,
-      reason,
-      details: details.trim() || null,
-      alsoBlock,
-    });
+    const trimmedDetails = details.trim() || null;
+    let result: SubmitVideoDateSafetyReportRpcResult = { ok: false, error: "Could not send report. Try again." };
+    try {
+      if (safetyV2 && sessionId) {
+        const payloadSignature = JSON.stringify({
+          reason,
+          details: trimmedDetails,
+          alsoBlock,
+          endSession: mode === "end",
+        });
+        const existing =
+          requestRef.current?.mode === mode && requestRef.current.payloadSignature === payloadSignature
+            ? requestRef.current
+            : null;
+        const key =
+          existing?.key ??
+          buildVideoDateSafetyIdempotencyKey(
+            sessionId,
+            mode === "end" ? "end_report" : "report",
+            createVideoDateClientRequestId(),
+          );
+        requestRef.current = { mode, key, payloadSignature };
+        result = await submitVideoDateSafetyReportRpc(supabase, {
+          sessionId,
+          reason,
+          details: trimmedDetails,
+          alsoBlock,
+          endSession: mode === "end",
+          idempotencyKey: key,
+        });
+      } else {
+        const legacyResult = await submitUserReportRpc(supabase, {
+          reportedId: reportedUserId,
+          reason,
+          details: trimmedDetails,
+          alsoBlock,
+        });
+        if (legacyResult.ok === true) {
+          result = { ok: true, reportId: legacyResult.reportId, ended: false, surveyRequired: false, idempotent: false };
+        } else {
+          result = { ok: false, error: legacyResult.error };
+        }
+      }
+    } catch (error) {
+      result = { ok: false, error: error instanceof Error ? error.message : "Could not send report. Try again." };
+    }
     setSubmitting("idle");
     if (!result.ok) {
       toast.error("error" in result ? result.error : "Could not send report. Try again.");
@@ -68,7 +125,9 @@ export function InCallSafetyModal({
     toast.success(mode === "end" ? "Report sent — ending the date." : "Thanks — we received your report.");
     reset();
     handleOpenChange(false);
-    if (mode === "report") {
+    if (safetyV2 && result.ended) {
+      await onServerEndedAfterReport?.(result);
+    } else if (mode === "report") {
       onReportOnlySuccess?.();
     } else {
       await onEndAfterReport?.();

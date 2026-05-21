@@ -147,7 +147,6 @@ const VibeStudio = () => {
         playbackRef: null,
         updatedAt: profile?.updatedAt ?? null,
         vibeCaption: profile?.vibeCaption ?? "",
-        captions: profile?.vibeVideoCaptions ?? null,
       };
     }
     return {
@@ -157,7 +156,6 @@ const VibeStudio = () => {
       playbackRef: profile?.vibeVideoPlaybackRef ?? null,
       updatedAt: profile?.updatedAt ?? null,
       vibeCaption: profile?.vibeCaption ?? "",
-      captions: profile?.vibeVideoCaptions ?? null,
     };
   }, [
     ctrl.phase,
@@ -169,7 +167,6 @@ const VibeStudio = () => {
     profile?.vibeVideoPlaybackRef,
     profile?.updatedAt,
     profile?.vibeCaption,
-    profile?.vibeVideoCaptions,
   ]);
 
   const videoInfo = useMemo(
@@ -563,7 +560,7 @@ const VibeStudio = () => {
         playbackRef={effectiveVibeVideo.playbackRef}
         profileId={effectiveVibeVideo.id}
         vibeCaption={effectiveVibeVideo.vibeCaption}
-        captions={effectiveVibeVideo.captions}
+        captions={null}
         onClose={() => setShowPlayer(false)}
       />
 

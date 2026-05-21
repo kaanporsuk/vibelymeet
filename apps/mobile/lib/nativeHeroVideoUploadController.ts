@@ -37,7 +37,6 @@ import {
   trackVibeVideoEvent,
   VIBE_VIDEO_EVENTS,
 } from '@/lib/vibeVideoTelemetry';
-import type { MediaCaptions } from '../../../shared/media/captions';
 
 // ─── Public types ─────────────────────────────────────────────────────────────
 
@@ -448,9 +447,8 @@ export function nativeHeroVideoStart(
   caption?: string,
   context?: 'onboarding' | 'profile_studio',
   uploadSource?: VibeVideoUploadSource,
-  captions?: MediaCaptions | null,
 ): void {
-  nativeHeroVideoStartWithClientRequestId(videoUri, caption, context, uploadSource, undefined, captions);
+  nativeHeroVideoStartWithClientRequestId(videoUri, caption, context, uploadSource);
 }
 
 export function nativeHeroVideoStartWithClientRequestId(
@@ -459,7 +457,6 @@ export function nativeHeroVideoStartWithClientRequestId(
   context?: 'onboarding' | 'profile_studio',
   uploadSource?: VibeVideoUploadSource,
   clientRequestId: string = newVibeVideoClientRequestId(),
-  captions?: MediaCaptions | null,
 ): void {
   const uploadClientRequestId = clientRequestId.trim() || newVibeVideoClientRequestId();
   const uploadContext = context ?? 'profile_studio';
@@ -492,7 +489,7 @@ export function nativeHeroVideoStartWithClientRequestId(
     errorMessage: null,
   });
 
-  void _run(videoUri, caption, uploadContext, resolvedUploadSource, _uploadAbort, runId, uploadClientRequestId, captions);
+  void _run(videoUri, caption, uploadContext, resolvedUploadSource, _uploadAbort, runId, uploadClientRequestId);
 }
 
 async function _run(
@@ -503,7 +500,6 @@ async function _run(
   uploadAc: AbortController,
   runId: number,
   clientRequestId: string,
-  captions: MediaCaptions | null | undefined,
 ): Promise<void> {
   let failurePhase: 'credentials' | 'tus' | 'processing' = 'credentials';
   let activeVideoId: string | null = null;
@@ -519,7 +515,6 @@ async function _run(
       context,
       clientRequestId,
       mimeType: mimeFromExtension(extensionFromFileUri(videoUri)),
-      captions: captions ?? null,
     });
     if (!_isCurrent(runId)) return;
     activeVideoId = creds.videoId;

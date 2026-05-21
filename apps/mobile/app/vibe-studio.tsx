@@ -130,7 +130,6 @@ export default function VibeStudioScreen() {
         bunny_video_uid: ctrl.videoId,
         bunny_video_status: 'ready',
         vibe_caption: profile?.vibe_caption ?? null,
-        vibe_video_captions: profile?.vibe_video_captions ?? null,
       };
     }
     return profile ?? null;
@@ -777,7 +776,7 @@ export default function VibeStudioScreen() {
         bunnyVideoUid={videoInfo.uid}
         vibeVideoState={videoInfo.state}
         vibeCaption={videoInfo.caption ?? ''}
-        captions={videoInfo.captions}
+        captions={null}
         posterUrl={videoPosterUrl}
       />
 
