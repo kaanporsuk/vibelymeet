@@ -72,6 +72,7 @@ import {
   resolveVideoDatePhaseCountdown,
   startedAtCountdownDeadlineMs,
 } from '@clientShared/matching/videoDateCountdown';
+import { resolveVideoDateTimelineCountdown } from '@clientShared/matching/videoDateTimeline';
 import { nextConvergenceDelayMs } from '@clientShared/matching/convergenceScheduling';
 import {
   canAttemptDailyRoomFromVideoSessionTruth,
@@ -807,6 +808,7 @@ export default function VideoDateScreen() {
   const submitVerdictV3 = useFeatureFlag('video_date.outbox_v2.submit_verdict');
   const extensionV2 = useFeatureFlag('video_date.outbox_v2.extension');
   const safetyV2 = useFeatureFlag('video_date.outbox_v2.safety');
+  const timelineV2 = useFeatureFlag('video_date.timeline_v2');
   const colorScheme = useColorScheme();
   const theme = Colors[colorScheme];
   const insets = useSafeAreaInsets();
@@ -816,6 +818,7 @@ export default function VideoDateScreen() {
     partner: basicPartner,
     phase,
     timeLeft: serverTimeLeft,
+    timeline: serverTimeline,
     loading: sessionLoading,
     error: sessionError,
     refetch: refetchVideoSession,
@@ -6549,16 +6552,33 @@ export default function VideoDateScreen() {
       return;
     }
 
+    const candidateTimeline = serverTimeline;
+    const timelineForHandshake =
+      timelineV2.enabled &&
+      candidateTimeline !== null &&
+      candidateTimeline.sessionId === sessionId &&
+      candidateTimeline.phase === 'handshake'
+        ? candidateTimeline
+        : null;
+    const timelineDeadlineMs = timelineForHandshake
+      ? timelineForHandshake.phaseDeadlineAtMs
+      : null;
     const handshakeStartedAt = session?.handshake_started_at ?? null;
-    if (!handshakeStartedAt) return;
-
-    const deadlineKey = `${sessionId}:${handshakeStartedAt}`;
-    const deadlineMs = startedAtCountdownDeadlineMs({
-      startedAtIso: handshakeStartedAt,
-      durationSeconds: HANDSHAKE_SECONDS,
-    });
+    const legacyDeadlineMs = handshakeStartedAt
+      ? startedAtCountdownDeadlineMs({
+          startedAtIso: handshakeStartedAt,
+          durationSeconds: HANDSHAKE_SECONDS,
+        })
+      : null;
+    const deadlineMs = timelineDeadlineMs ?? legacyDeadlineMs;
     if (!deadlineMs) return;
-    const delayMs = Math.max(0, deadlineMs - Date.now());
+    const deadlineKey = `${sessionId}:${deadlineMs}`;
+    const localNowMs = Date.now();
+    const serverNowEstimateMs =
+      timelineDeadlineMs !== null && timelineForHandshake
+        ? localNowMs + timelineForHandshake.clockSkewMs
+        : localNowMs;
+    const delayMs = Math.max(0, deadlineMs - serverNowEstimateMs);
     const fire = () => {
       if (handshakeCompletionDeadlineKeyRef.current === deadlineKey) return;
       handshakeCompletionDeadlineKeyRef.current = deadlineKey;
@@ -6573,7 +6593,9 @@ export default function VideoDateScreen() {
     session?.ended_at,
     session?.handshake_started_at,
     sessionId,
+    serverTimeline,
     showFeedback,
+    timelineV2.enabled,
   ]);
 
   useEffect(() => {
@@ -6585,8 +6607,19 @@ export default function VideoDateScreen() {
   // Authoritative visible countdown: recompute from server-owned phase timestamps every tick.
   useEffect(() => {
     if (showFeedback || phase === 'ended') return;
-    const hasAuthoritativeStart =
-      phase === 'handshake'
+    const candidateTimeline = serverTimeline;
+    const timelineForCountdown =
+      timelineV2.enabled &&
+      candidateTimeline !== null &&
+      candidateTimeline.sessionId === sessionId &&
+      candidateTimeline.phase === phase &&
+      (phase === 'handshake' || phase === 'date') &&
+      candidateTimeline.phaseDeadlineAtMs !== null
+        ? candidateTimeline
+        : null;
+    const hasAuthoritativeStart = timelineForCountdown
+      ? true
+      : phase === 'handshake'
         ? Boolean(session?.handshake_started_at)
         : phase === 'date'
           ? Boolean(session?.date_started_at)
@@ -6595,14 +6628,16 @@ export default function VideoDateScreen() {
 
     let completionFired = false;
     const tick = () => {
-      const countdown = resolveVideoDatePhaseCountdown({
-        phase,
-        handshakeStartedAtIso: session?.handshake_started_at,
-        dateStartedAtIso: session?.date_started_at,
-        handshakeDurationSeconds: HANDSHAKE_SECONDS,
-        dateDurationSeconds: DATE_SECONDS,
-        dateExtraSeconds: session?.date_extra_seconds,
-      });
+      const countdown = timelineForCountdown
+        ? resolveVideoDateTimelineCountdown(timelineForCountdown)
+        : resolveVideoDatePhaseCountdown({
+            phase,
+            handshakeStartedAtIso: session?.handshake_started_at,
+            dateStartedAtIso: session?.date_started_at,
+            handshakeDurationSeconds: HANDSHAKE_SECONDS,
+            dateDurationSeconds: DATE_SECONDS,
+            dateExtraSeconds: session?.date_extra_seconds,
+          });
       const next = countdown.remainingSeconds ?? 0;
       setLocalTimeLeft(next);
 
@@ -6632,9 +6667,11 @@ export default function VideoDateScreen() {
     sessionId,
     handleCallEnd,
     completeHandshakeFromServerDeadline,
+    serverTimeline,
     session?.date_extra_seconds,
     session?.date_started_at,
     session?.handshake_started_at,
+    timelineV2.enabled,
   ]);
 
   const toggleMute = useCallback(() => {

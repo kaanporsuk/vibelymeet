@@ -20,12 +20,14 @@ import {
 } from '@/lib/activeSessionRoutes';
 import { drainMatchQueue } from '@/lib/eventsApi';
 import { supabase } from '@/lib/supabase';
+import { fetchVideoDateSnapshot } from '@/lib/videoDateSnapshot';
 import { fetchVideoSessionDateEntryTruth } from '@/lib/videoDateApi';
 import {
   canAttemptDailyRoomFromVideoSessionTruth,
   decideVideoSessionRouteFromTruth,
   videoSessionHasPostDateSurveyTruth,
 } from '@clientShared/matching/activeSession';
+import { resolveVideoDateSnapshotRecovery } from '@clientShared/matching/videoDateTimeline';
 import { clearDateEntryTransition, markVideoDateEntryPipelineStarted } from '@/lib/dateEntryTransitionLatch';
 import { useFeatureFlag } from '@/hooks/useFeatureFlag';
 import {
@@ -111,11 +113,63 @@ const LOBBY_IDLE_STATUSES = new Set(['browsing', 'idle', 'offline']);
 async function reconcileHrefWithRegistration(
   href: string,
   userId: string,
-  options?: { drainMatchQueueV2?: boolean },
+  options?: { drainMatchQueueV2?: boolean; snapshotRecoveryV2?: boolean },
 ): Promise<Href> {
   const m = href.match(/^\/date\/([^/?#]+)/);
   if (!m) return href as Href;
   const sid = m[1];
+
+  if (options?.snapshotRecoveryV2 === true) {
+    const snapshot = await fetchVideoDateSnapshot(sid, { includeToken: false });
+    const recovery = resolveVideoDateSnapshotRecovery(snapshot, { expectedSessionId: sid });
+    if (recovery.action === 'date') {
+      markVideoDateEntryPipelineStarted(recovery.sessionId);
+      rcBreadcrumb(RC_CATEGORY.notifDeepLink, 'date_route_snapshot_recovery', {
+        session_id: recovery.sessionId,
+        event_id: recovery.eventId,
+        decision: 'navigate_date',
+        reason: recovery.reason,
+        routed_to: 'date',
+      });
+      return videoDateHref(recovery.sessionId);
+    }
+    if (recovery.action === 'ready_gate' && recovery.reason === 'ready_gate') {
+      clearDateEntryTransition(recovery.sessionId);
+      rcBreadcrumb(RC_CATEGORY.notifDeepLink, 'date_route_snapshot_recovery', {
+        session_id: recovery.sessionId,
+        event_id: recovery.eventId,
+        decision: 'navigate_ready',
+        reason: recovery.reason,
+        routed_to: 'ready',
+      });
+      return readyGateHref(recovery.sessionId);
+    }
+    if (recovery.action === 'lobby' && recovery.reason === 'not_date_ready') {
+      clearDateEntryTransition(recovery.sessionId);
+      rcBreadcrumb(RC_CATEGORY.notifDeepLink, 'date_route_snapshot_recovery', {
+        session_id: recovery.sessionId,
+        event_id: recovery.eventId,
+        decision: 'stay_lobby',
+        reason: recovery.reason,
+        routed_to: 'lobby',
+      });
+      return eventLobbyHref(recovery.eventId);
+    }
+    if (recovery.action === 'home' && recovery.reason === 'missing_event') {
+      clearDateEntryTransition(sid);
+      return tabsRootHref();
+    }
+    if (recovery.action === 'invalid') {
+      clearDateEntryTransition(sid);
+      rcBreadcrumb(RC_CATEGORY.notifDeepLink, 'date_route_snapshot_rejected', {
+        session_id: sid,
+        reason: recovery.reason,
+      });
+      return tabsRootHref();
+    }
+    // Retryable failures, queued rescue, and ended/verdict states fall through to
+    // the legacy truth path so pending surveys and queue drain recovery stay intact.
+  }
 
   const { data: vs } = await supabase
     .from('video_sessions')
@@ -268,6 +322,7 @@ export function NotificationRouteTracker() {
 export function NotificationDeepLinkHandler() {
   const { user, session, loading, entryState, entryStateLoading } = useAuth();
   const drainQueueV2 = useFeatureFlag('video_date.outbox_v2.drain_match_queue');
+  const snapshotV2 = useFeatureFlag('video_date.snapshot_v2');
   const prevUserIdRef = useRef<string | undefined>(undefined);
 
   const entryReady = isEntryReadyForNotificationDeepLink(
@@ -292,13 +347,14 @@ export function NotificationDeepLinkHandler() {
     void (async () => {
       const href = await reconcileHrefWithRegistration(pending, user.id, {
         drainMatchQueueV2: drainQueueV2.enabled,
+        snapshotRecoveryV2: snapshotV2.enabled,
       });
       rcBreadcrumb(RC_CATEGORY.notifDeepLink, 'notification_pending_navigate', {
         href: String(href),
       });
       router.push(href);
     })();
-  }, [drainQueueV2.enabled, user?.id, entryReady]);
+  }, [drainQueueV2.enabled, snapshotV2.enabled, user?.id, entryReady]);
 
   useEffect(() => {
     const onClick = (event: unknown) => {
@@ -363,6 +419,7 @@ export function NotificationDeepLinkHandler() {
         }
         const nextHref = await reconcileHrefWithRegistration(pathStr, user.id, {
           drainMatchQueueV2: drainQueueV2.enabled,
+          snapshotRecoveryV2: snapshotV2.enabled,
         });
         rcBreadcrumb(RC_CATEGORY.notifDeepLink, 'notification_tap_navigate', {
           href: String(nextHref),
@@ -412,7 +469,7 @@ export function NotificationDeepLinkHandler() {
       OneSignal.Notifications.removeEventListener('click', onClick);
       OneSignal.Notifications.removeEventListener('foregroundWillDisplay', onForeground);
     };
-  }, [drainQueueV2.enabled, user?.id, entryReady]);
+  }, [drainQueueV2.enabled, snapshotV2.enabled, user?.id, entryReady]);
 
   return null;
 }

@@ -97,6 +97,11 @@ import {
   type VideoDateSessionBroadcastEvent,
 } from "@clientShared/matching/videoDateSessionChannel";
 import {
+  applyVideoDateTimelineSnapshot,
+  resolveVideoDateTimelineCountdown,
+  type VideoDateTimelineState,
+} from "@clientShared/matching/videoDateTimeline";
+import {
   getVideoDateWarmupChoiceNotice,
   type VideoDateWarmupChoiceNotice,
 } from "@clientShared/matching/videoDateWarmupChoiceNotice";
@@ -113,6 +118,11 @@ import {
 
 const HANDSHAKE_TIME = 60;
 const DATE_TIME = 300;
+
+function isoFromTimelineMs(value: number | null | undefined): string | null {
+  if (typeof value !== "number" || !Number.isFinite(value)) return null;
+  return new Date(value).toISOString();
+}
 const WEB_LIFECYCLE_AWAY_GRACE_MS = 12_000;
 const VIDEO_DATE_ACCESS_LOADING_WATCHDOG_MS = 8_000;
 const VIDEO_DATE_MANUAL_EXIT_CLEANUP_TIMEOUT_MS = 2_500;
@@ -367,6 +377,7 @@ const VideoDate = () => {
   const { id } = useParams();
   const { user } = useUserProfile();
   const broadcastV2 = useFeatureFlag("video_date.broadcast_v2");
+  const timelineV2 = useFeatureFlag("video_date.timeline_v2");
   const continueHandshakeV2 = useFeatureFlag("video_date.outbox_v2.continue_handshake");
   const handshakeAutoPromoteV2 = useFeatureFlag("video_date.outbox_v2.handshake_auto_promote");
   const dateTimeoutV2 = useFeatureFlag("video_date.outbox_v2.date_timeout");
@@ -397,6 +408,7 @@ const VideoDate = () => {
   const [isLeavingVideoDate, setIsLeavingVideoDate] = useState(false);
   const [handshakeStartedAt, setHandshakeStartedAt] = useState<string | null>(null);
   const [handshakeTruth, setHandshakeTruth] = useState<VideoDateHandshakeTruth | null>(null);
+  const [serverTimeline, setServerTimeline] = useState<VideoDateTimelineState | null>(null);
   const [timingRefreshNonce, setTimingRefreshNonce] = useState(0);
   const [isParticipant1, setIsParticipant1] = useState(false);
   const [partnerId, setPartnerId] = useState<string>("");
@@ -446,6 +458,7 @@ const VideoDate = () => {
   const manualExitInFlightRef = useRef(false);
   const sessionSeqRef = useRef<number | null>(null);
   const broadcastRefetchInFlightRef = useRef(false);
+  const serverTimelineRef = useRef<VideoDateTimelineState | null>(null);
   /** Set after `handleCallEnd` is defined — avoids TDZ when `handleHandshakeDecision` closes over end UX. */
   const handleCallEndRef = useRef<((reason?: VideoDateEndReason) => Promise<void>) | null>(null);
 
@@ -927,7 +940,13 @@ const VideoDate = () => {
     sessionIdRef.current = id;
     sessionSeqRef.current = null;
     broadcastRefetchInFlightRef.current = false;
+    serverTimelineRef.current = null;
+    setServerTimeline(null);
   }, [id]);
+
+  useEffect(() => {
+    serverTimelineRef.current = serverTimeline;
+  }, [serverTimeline]);
 
   useEffect(() => {
     if (typeof handshakeTruth?.session_seq === "number" && Number.isFinite(handshakeTruth.session_seq)) {
@@ -988,6 +1007,55 @@ const VideoDate = () => {
       });
     },
     [id],
+  );
+
+  const applyTimelineSnapshot = useCallback(
+    (snapshot: Awaited<ReturnType<typeof fetchVideoDateSnapshot>>, source: string) => {
+      if (!timelineV2.enabled) return null;
+      const decision = applyVideoDateTimelineSnapshot(snapshot, serverTimelineRef.current, {
+        clientNowMs: Date.now(),
+        expectedSessionId: id,
+      });
+      if (decision.action !== "accepted") return decision;
+
+      const timeline = decision.timeline;
+      if (sessionSeqRef.current !== null && timeline.seq < sessionSeqRef.current) {
+        return { action: "stale", timeline: serverTimelineRef.current, reason: "snapshot_seq_behind_cursor" };
+      }
+      serverTimelineRef.current = timeline;
+      setServerTimeline(timeline);
+      if (timeline.eventId) setEventId(timeline.eventId);
+      sessionSeqRef.current = Math.max(sessionSeqRef.current ?? 0, timeline.seq);
+
+      const countdown = resolveVideoDateTimelineCountdown(timeline);
+      if (timeline.phase === "handshake" || timeline.phase === "date") {
+        setPhase(timeline.phase);
+        setTimeLeft(countdown.remainingSeconds ?? 0);
+        const startedIso = isoFromTimelineMs(timeline.phaseStartedAtMs);
+        if (timeline.phase === "handshake") {
+          setHandshakeStartedAt(startedIso);
+          setDateStartedAt(null);
+        } else {
+          setHandshakeStartedAt(null);
+          setDateStartedAt(startedIso);
+        }
+      } else if (timeline.phase === "ended") {
+        setPhase("ended");
+        setTimeLeft(0);
+      }
+
+      vdbg("video_date_timeline_snapshot_applied", {
+        sessionId: timeline.sessionId,
+        eventId: timeline.eventId,
+        source,
+        phase: timeline.phase,
+        seq: timeline.seq,
+        clockSkewMs: timeline.clockSkewMs,
+        phaseDeadlineAtMs: timeline.phaseDeadlineAtMs,
+      });
+      return decision;
+    },
+    [id, timelineV2.enabled],
   );
 
   useEffect(() => {
@@ -1143,6 +1211,34 @@ const VideoDate = () => {
       cancelled = true;
     };
   }, [eventId, id, user?.id, logJourney]);
+
+  useEffect(() => {
+    if (!timelineV2.enabled || !id || !user?.id || videoDateAccess !== "allowed") return;
+    let cancelled = false;
+    void (async () => {
+      const snapshot = await fetchVideoDateSnapshot(id, { includeToken: false });
+      if (cancelled) return;
+      const decision = applyTimelineSnapshot(snapshot, "date_route_timeline_refresh");
+      if (
+        !cancelled &&
+        snapshot.ok &&
+        decision?.action === "accepted" &&
+        (snapshot.phase === "ended" || snapshot.phase === "verdict")
+      ) {
+        await recoverTerminalPostDateSurvey("timeline_snapshot_terminal");
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    applyTimelineSnapshot,
+    id,
+    recoverTerminalPostDateSurvey,
+    timelineV2.enabled,
+    user?.id,
+    videoDateAccess,
+  ]);
 
   useEffect(() => {
     if (!id || !user?.id || videoDateAccess !== "loading") return;
@@ -1962,7 +2058,8 @@ const VideoDate = () => {
         if (decision.action === "gap") {
           const snapshot = await fetchVideoDateSnapshot(id, { includeToken: false });
           if (snapshot.ok) {
-            sessionSeqRef.current = snapshot.seq;
+            applyTimelineSnapshot(snapshot, "broadcast_seq_gap");
+            sessionSeqRef.current = Math.max(sessionSeqRef.current ?? 0, snapshot.seq);
             if (snapshot.phase === "ended") {
               const handled = await recoverTerminalPostDateSurvey("broadcast_snapshot_terminal");
               if (handled) return;
@@ -1987,7 +2084,7 @@ const VideoDate = () => {
         broadcastRefetchInFlightRef.current = false;
       }
     },
-    [eventId, id, recoverTerminalPostDateSurvey, user?.id, videoDateAccess],
+    [applyTimelineSnapshot, eventId, id, recoverTerminalPostDateSurvey, user?.id, videoDateAccess],
   );
 
   useEffect(() => {
@@ -2099,20 +2196,35 @@ const VideoDate = () => {
   // Countdown timer: display derives from server-owned phase timestamps, never from route mount time.
   useEffect(() => {
     if (showFeedback || phase === "ended") return;
-    const hasAuthoritativeStart =
-      phase === "handshake" ? Boolean(handshakeStartedAt) : phase === "date" ? Boolean(dateStartedAt) : false;
+    const candidateTimeline = serverTimeline;
+    const timelineForCountdown =
+      candidateTimeline !== null &&
+      candidateTimeline.sessionId === id &&
+      candidateTimeline.phase === phase &&
+      (phase === "handshake" || phase === "date") &&
+      candidateTimeline.phaseDeadlineAtMs !== null
+        ? candidateTimeline
+        : null;
+    const useTimelineCountdown =
+      timelineV2.enabled &&
+      timelineForCountdown !== null;
+    const hasAuthoritativeStart = useTimelineCountdown
+      ? true
+      : phase === "handshake" ? Boolean(handshakeStartedAt) : phase === "date" ? Boolean(dateStartedAt) : false;
     if (!hasAuthoritativeStart) return;
 
     let completionFired = false;
     const tick = () => {
-      const countdown = resolveVideoDatePhaseCountdown({
-        phase,
-        handshakeStartedAtIso: handshakeStartedAt,
-        dateStartedAtIso: dateStartedAt,
-        handshakeDurationSeconds: HANDSHAKE_TIME,
-        dateDurationSeconds: DATE_TIME,
-        dateExtraSeconds,
-      });
+      const countdown = useTimelineCountdown
+        ? resolveVideoDateTimelineCountdown(timelineForCountdown)
+        : resolveVideoDatePhaseCountdown({
+            phase,
+            handshakeStartedAtIso: handshakeStartedAt,
+            dateStartedAtIso: dateStartedAt,
+            handshakeDurationSeconds: HANDSHAKE_TIME,
+            dateDurationSeconds: DATE_TIME,
+            dateExtraSeconds,
+          });
       const next = countdown.remainingSeconds ?? 0;
       setTimeLeft(next);
 
@@ -2143,6 +2255,8 @@ const VideoDate = () => {
     dateStartedAt,
     dateExtraSeconds,
     handshakeStartedAt,
+    serverTimeline,
+    timelineV2.enabled,
   ]);
 
   const dismissIceBreakerTemporarily = useCallback(() => {
@@ -2717,17 +2831,37 @@ const VideoDate = () => {
     if (
       !id ||
       phase !== "handshake" ||
-      showFeedback ||
-      !handshakeStartedAt
+      showFeedback
     ) {
       return;
     }
 
-    const startedMs = new Date(handshakeStartedAt).getTime();
-    if (!Number.isFinite(startedMs)) return;
+    const candidateTimeline = serverTimeline;
+    const timelineForHandshake =
+      timelineV2.enabled &&
+      candidateTimeline !== null &&
+      candidateTimeline.sessionId === id &&
+      candidateTimeline.phase === "handshake"
+        ? candidateTimeline
+        : null;
+    const timelineDeadlineMs = timelineForHandshake
+      ? timelineForHandshake.phaseDeadlineAtMs
+      : null;
+    const startedMs = handshakeStartedAt ? new Date(handshakeStartedAt).getTime() : null;
+    const legacyDeadlineMs =
+      typeof startedMs === "number" && Number.isFinite(startedMs)
+        ? startedMs + HANDSHAKE_TIME * 1000
+        : null;
+    const deadlineMs = timelineDeadlineMs ?? legacyDeadlineMs;
+    if (!deadlineMs) return;
 
-    const deadlineKey = `${id}:${handshakeStartedAt}`;
-    const delayMs = Math.max(0, startedMs + HANDSHAKE_TIME * 1000 - Date.now());
+    const deadlineKey = `${id}:${deadlineMs}`;
+    const localNowMs = Date.now();
+    const serverNowEstimateMs =
+      timelineDeadlineMs !== null && timelineForHandshake
+        ? localNowMs + timelineForHandshake.clockSkewMs
+        : localNowMs;
+    const delayMs = Math.max(0, deadlineMs - serverNowEstimateMs);
     const fire = () => {
       if (handshakeCompletionDeadlineKeyRef.current === deadlineKey) return;
       handshakeCompletionDeadlineKeyRef.current = deadlineKey;
@@ -2741,7 +2875,9 @@ const VideoDate = () => {
     handshakeStartedAt,
     id,
     phase,
+    serverTimeline,
     showFeedback,
+    timelineV2.enabled,
   ]);
 
   const handleMutualToastComplete = useCallback(async () => {

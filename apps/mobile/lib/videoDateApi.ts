@@ -29,6 +29,11 @@ import {
   resolveVideoDateSessionSeqDecision,
   type VideoDateSessionBroadcastEvent,
 } from '@clientShared/matching/videoDateSessionChannel';
+import {
+  applyVideoDateTimelineSnapshot,
+  resolveVideoDateTimelineCountdown,
+  type VideoDateTimelineState,
+} from '@clientShared/matching/videoDateTimeline';
 import { resolveVideoDatePhaseCountdown } from '@clientShared/matching/videoDateCountdown';
 import {
   VIDEO_DATE_HANDSHAKE_TRUTH_SELECT,
@@ -193,23 +198,37 @@ export function useVideoDateSession(
   userId: string | null | undefined
 ) {
   const broadcastV2 = useFeatureFlag('video_date.broadcast_v2');
+  const timelineV2 = useFeatureFlag('video_date.timeline_v2');
   const [session, setSession] = useState<VideoDateSession | null>(null);
   const [partner, setPartner] = useState<VideoDatePartner | null>(null);
   const [phase, setPhase] = useState<'handshake' | 'date' | 'ended'>('handshake');
   const [timeLeft, setTimeLeft] = useState<number | null>(null);
+  const [timeline, setTimeline] = useState<VideoDateTimelineState | null>(null);
   const [loading, setLoading] = useState(true);
   /** True during post-mount refetches; does not drive full-screen loading in date UI. */
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   /** After first completed fetch for `sessionId:userId`, further refetches use `isRefreshing` only. */
   const lastCompletedSessionKeyRef = useRef<string | null>(null);
+  const currentSessionKeyRef = useRef<string | null>(null);
   const sessionSeqRef = useRef<number | null>(null);
   const broadcastRefetchInFlightRef = useRef(false);
+  const timelineRef = useRef<VideoDateTimelineState | null>(null);
 
   useEffect(() => {
+    currentSessionKeyRef.current = sessionId && userId ? `${sessionId}:${userId}` : null;
     sessionSeqRef.current = null;
     broadcastRefetchInFlightRef.current = false;
+    timelineRef.current = null;
+    setTimeline(null);
+    return () => {
+      currentSessionKeyRef.current = null;
+    };
   }, [sessionId, userId]);
+
+  useEffect(() => {
+    timelineRef.current = timeline;
+  }, [timeline]);
 
   type PhaseResolution = {
     phase: 'handshake' | 'date' | 'ended';
@@ -285,6 +304,7 @@ export function useVideoDateSession(
   const fetchSession = useCallback(async () => {
     if (!sessionId || !userId) return;
     const sessionKey = `${sessionId}:${userId}`;
+    currentSessionKeyRef.current = sessionKey;
     const isInitialLoad = lastCompletedSessionKeyRef.current !== sessionKey;
 
     setError(null);
@@ -362,9 +382,34 @@ export function useVideoDateSession(
         });
       }
 
-      const resolved = resolvePhaseAndTime(s);
-      setPhase(resolved.phase);
-      setTimeLeft(resolved.timeLeft);
+      const legacyResolved = resolvePhaseAndTime(s);
+      setPhase(legacyResolved.phase);
+      setTimeLeft(legacyResolved.timeLeft);
+
+      if (timelineV2.enabled) {
+        void (async () => {
+          const snapshot = await fetchVideoDateSnapshot(sessionId, { includeToken: false });
+          if (currentSessionKeyRef.current !== sessionKey) return;
+          const decision = applyVideoDateTimelineSnapshot(snapshot, timelineRef.current, {
+            clientNowMs: Date.now(),
+            expectedSessionId: sessionId,
+          });
+          if (decision.action === 'accepted') {
+            if (sessionSeqRef.current !== null && decision.timeline.seq < sessionSeqRef.current) return;
+            timelineRef.current = decision.timeline;
+            setTimeline(decision.timeline);
+            sessionSeqRef.current = Math.max(sessionSeqRef.current ?? 0, decision.timeline.seq);
+            if (decision.timeline.phase === 'handshake' || decision.timeline.phase === 'date') {
+              const countdown = resolveVideoDateTimelineCountdown(decision.timeline);
+              setPhase(decision.timeline.phase);
+              setTimeLeft(countdown.remainingSeconds ?? 0);
+            } else if (decision.timeline.phase === 'ended') {
+              setPhase('ended');
+              setTimeLeft(0);
+            }
+          }
+        })();
+      }
     } finally {
       setLoading(false);
       setIsRefreshing(false);
@@ -380,7 +425,7 @@ export function useVideoDateSession(
         },
       });
     }
-  }, [sessionId, userId, resolvePhaseAndTime]);
+  }, [sessionId, userId, resolvePhaseAndTime, timelineV2.enabled]);
 
   useEffect(() => {
     fetchSession();
@@ -454,7 +499,22 @@ export function useVideoDateSession(
       try {
         if (decision.action === 'gap') {
           const snapshot = await fetchVideoDateSnapshot(sessionId, { includeToken: false });
-          if (snapshot.ok) sessionSeqRef.current = snapshot.seq;
+          if (snapshot.ok) {
+            if (timelineV2.enabled) {
+              const timelineDecision = applyVideoDateTimelineSnapshot(snapshot, timelineRef.current, {
+                clientNowMs: Date.now(),
+                expectedSessionId: sessionId,
+              });
+              if (
+                timelineDecision.action === 'accepted' &&
+                (sessionSeqRef.current === null || timelineDecision.timeline.seq >= sessionSeqRef.current)
+              ) {
+                timelineRef.current = timelineDecision.timeline;
+                setTimeline(timelineDecision.timeline);
+              }
+            }
+            sessionSeqRef.current = Math.max(sessionSeqRef.current ?? 0, snapshot.seq);
+          }
           Sentry.addBreadcrumb({
             category: 'video-date-broadcast',
             message: 'snapshot_refetch_on_seq_gap',
@@ -473,7 +533,7 @@ export function useVideoDateSession(
         broadcastRefetchInFlightRef.current = false;
       }
     },
-    [fetchSession, sessionId, userId],
+    [fetchSession, sessionId, timelineV2.enabled, userId],
   );
 
   useEffect(() => {
@@ -511,7 +571,7 @@ export function useVideoDateSession(
     };
   }, [broadcastV2.enabled, reconcileBroadcastEvent, sessionId, userId]);
 
-  return { session, partner, phase, timeLeft, loading, isRefreshing, error, refetch: fetchSession };
+  return { session, partner, phase, timeLeft, timeline, loading, isRefreshing, error, refetch: fetchSession };
 }
 
 /** Get Daily room token via daily-room Edge Function (prepare_date_entry). Same contract as web; returns classified errors. */

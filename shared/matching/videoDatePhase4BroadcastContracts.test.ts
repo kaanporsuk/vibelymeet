@@ -79,7 +79,10 @@ test("PR 4.4 sequence gaps refetch token-free snapshots before normal reconcilia
     assert.match(source, /decision\.action === ["']gap["']/);
     assert.match(source, /fetchVideoDateSnapshot\(sessionId|fetchVideoDateSnapshot\(id/);
     assert.match(source, /includeToken: false/);
-    assert.match(source, /snapshot\.ok[\s\S]+sessionSeqRef\.current = snapshot\.seq/);
+    assert.match(
+      source,
+      /snapshot\.ok[\s\S]+sessionSeqRef\.current = (?:snapshot\.seq|Math\.max\(sessionSeqRef\.current \?\? 0, snapshot\.seq\))/,
+    );
   }
 
   assert.equal(videoDateSessionTopic("11111111-1111-4111-8111-111111111111"), "session:11111111-1111-4111-8111-111111111111");
