@@ -176,6 +176,14 @@ verify_jwt = false
 [functions.synthetic-video-date-monitor]
 verify_jwt = false
 
+# V4 provider outbox drainer (Bearer CRON_SECRET; no Daily tokens persisted).
+[functions.video-date-outbox-drainer]
+verify_jwt = false
+
+# V4 server deadline finalizer (Bearer CRON_SECRET; claims deadline leases).
+[functions.video-date-deadline-finalizer]
+verify_jwt = false
+
 [functions.send-email]
 verify_jwt = false
 
