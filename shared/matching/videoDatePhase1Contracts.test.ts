@@ -14,6 +14,10 @@ const phase1Migration = readFileSync(
   join(root, "supabase/migrations/20260521172000_video_date_phase1_client_wiring.sql"),
   "utf8",
 );
+const readyGateSuppressionHardeningMigration = readFileSync(
+  join(root, "supabase/migrations/20260522004000_ready_gate_suppression_active_gate_only.sql"),
+  "utf8",
+);
 const snapshotEventIdMigration = readFileSync(
   join(root, "supabase/migrations/20260521193000_video_date_phase1_snapshot_event_id.sql"),
   "utf8",
@@ -125,12 +129,20 @@ test("PR 1.3 deck v2 and persistent ready-gate suppression are adopted behind fl
   assert.match(phase1Migration, /CREATE OR REPLACE FUNCTION public\.persist_ready_gate_suppression_v2/);
   assert.match(phase1Migration, /ADD COLUMN IF NOT EXISTS ready_gate_suppressed_session_id uuid/);
   assert.match(phase1Migration, /FOR UPDATE/);
+  assert.match(phase1Migration, /ready_gate_status/);
+  assert.match(phase1Migration, /ready_gate_status,?[\s\S]+handshake_started_at/);
+  assert.match(phase1Migration, /state::text IS DISTINCT FROM 'ready_gate'[\s\S]+COALESCE\(v_session\.phase, ''\) IS DISTINCT FROM 'ready_gate'/);
+  assert.match(phase1Migration, /COALESCE\(v_session\.ready_gate_status, ''\) NOT IN \('ready', 'ready_a', 'ready_b', 'snoozed'\)/);
   assert.match(phase1Migration, /WHEN ready_gate_suppressed_session_id = p_session_id THEN GREATEST/);
   assert.match(phase1Migration, /ready_gate_suppressed_session_id = p_session_id/);
   assert.match(phase1Migration, /error', 'not_ready_gate'/);
   assert.match(phase1Migration, /current_room_id = p_session_id AND queue_status = 'in_ready_gate'/);
   assert.match(phase1Migration, /participant_1_id[\s\S]+participant_2_id/);
   assert.match(phase1Migration, /ready_gate_suppressed_until/);
+  assert.match(readyGateSuppressionHardeningMigration, /CREATE OR REPLACE FUNCTION public\.persist_ready_gate_suppression_v2/);
+  assert.match(readyGateSuppressionHardeningMigration, /COALESCE\(v_session\.ready_gate_status, ''\) NOT IN \('ready', 'ready_a', 'ready_b', 'snoozed'\)/);
+  assert.match(readyGateSuppressionHardeningMigration, /Rejects queued\/pre-gate sessions/);
+  assert.match(readyGateSuppressionHardeningMigration, /NOTIFY pgrst, 'reload schema'/);
   assert.match(webLobby, /persistReadyGateSuppressionV2/);
   assert.match(nativeLobby, /persistReadyGateSuppressionV2/);
   assert.match(webActiveSession, /ready_gate_suppressed_until/);

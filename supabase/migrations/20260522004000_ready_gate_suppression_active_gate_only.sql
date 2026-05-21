@@ -1,12 +1,6 @@
--- Phase 1 client wiring: persist local Ready Gate suppression so refresh,
--- reconnect, and mobile background recovery cannot immediately reopen the
--- same manually dismissed gate.
-
-ALTER TABLE public.event_registrations
-  ADD COLUMN IF NOT EXISTS ready_gate_suppressed_session_id uuid;
-
-COMMENT ON COLUMN public.event_registrations.ready_gate_suppressed_session_id IS
-  'Session-scopes ready_gate_suppressed_until so dismissing one Ready Gate never hides a later Ready Gate.';
+-- Restrict Ready Gate manual-exit suppression to sessions whose gate is
+-- actively visible. Queued sessions must not be able to pre-seed suppression
+-- before the Ready Gate is shown.
 
 CREATE OR REPLACE FUNCTION public.persist_ready_gate_suppression_v2(
   p_session_id uuid,
@@ -105,4 +99,6 @@ GRANT EXECUTE ON FUNCTION public.persist_ready_gate_suppression_v2(uuid, timesta
   TO authenticated, service_role;
 
 COMMENT ON FUNCTION public.persist_ready_gate_suppression_v2(uuid, timestamptz) IS
-  'Participant-only Ready Gate manual-exit suppression. Keeps local dismissals stable across refresh/reconnect without exposing partner/safety data.';
+  'Participant-only active Ready Gate manual-exit suppression. Rejects queued/pre-gate sessions so suppression cannot be pre-seeded before the gate is visible.';
+
+NOTIFY pgrst, 'reload schema';
