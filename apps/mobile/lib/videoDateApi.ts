@@ -15,6 +15,7 @@ import { LobbyPostDateEvents } from '@clientShared/analytics/lobbyToPostDateJour
 import { videoSessionRowIndicatesHandshakeOrDate } from '@clientShared/matching/activeSession';
 import type { DailyRoomFailureKind } from '@clientShared/matching/dailyRoomFailure';
 import { sendVideoDateSignalWithRetry } from '@clientShared/matching/videoDateSignalRetry';
+import { buildVideoDateTransitionIdempotencyKey } from '@clientShared/matching/videoDateTransitionCommands';
 import {
   parseSpendVideoDateCreditExtensionPayload,
 } from '@clientShared/matching/videoDateExtensionSpend';
@@ -122,6 +123,10 @@ export type CompleteHandshakeResult = {
 type VideoDateTransitionDiagnostics = {
   actorUserId?: string | null;
   phase?: string | null;
+};
+
+type RecordHandshakeDecisionOptions = {
+  continueHandshakeV2?: boolean;
 };
 
 export class VideoDateRequestTimeoutError extends Error {
@@ -783,7 +788,8 @@ export async function deleteDailyRoom(roomName: string): Promise<void> {
 export async function recordHandshakeDecision(
   sessionId: string,
   action: 'vibe' | 'pass',
-  diagnostics?: VideoDateTransitionDiagnostics
+  diagnostics?: VideoDateTransitionDiagnostics,
+  options?: RecordHandshakeDecisionOptions
 ): Promise<PersistHandshakeDecisionResult> {
   const actorUserId = diagnostics?.actorUserId ?? null;
   const expectedDecision = action === 'vibe';
@@ -818,7 +824,16 @@ export async function recordHandshakeDecision(
         currentPhase: diagnostics?.phase ?? null,
         args,
       });
-      const { data, error } = await supabase.rpc('video_date_transition', args);
+      const { data, error } =
+        action === 'vibe' && options?.continueHandshakeV2 === true
+          ? await supabase.rpc('video_session_continue_handshake_v2' as never, {
+              p_session_id: args.p_session_id,
+              p_idempotency_key: buildVideoDateTransitionIdempotencyKey(
+                args.p_session_id,
+                'continue_handshake',
+              ),
+            } as never)
+          : await supabase.rpc('video_date_transition', args);
       return {
         data: data ?? null,
         error: error ? { code: error.code, message: error.message, name: error.name } : null,
@@ -874,9 +889,10 @@ export async function recordHandshakeDecision(
 /** Record that current user "vibed" during handshake. */
 export async function recordVibe(
   sessionId: string,
-  diagnostics?: VideoDateTransitionDiagnostics
+  diagnostics?: VideoDateTransitionDiagnostics,
+  options?: RecordHandshakeDecisionOptions
 ): Promise<PersistHandshakeDecisionResult> {
-  return recordHandshakeDecision(sessionId, 'vibe', diagnostics);
+  return recordHandshakeDecision(sessionId, 'vibe', diagnostics, options);
 }
 
 /** At handshake end: check mutual vibe. Returns { state: 'date' } if both liked, else terminal/waiting state. */

@@ -30,6 +30,7 @@ import { useVideoCall, type VideoCallStartFailure } from "@/hooks/useVideoCall";
 import { useCredits } from "@/hooks/useCredits";
 import { useReconnection } from "@/hooks/useReconnection";
 import { useVideoDateDupTabGuard } from "@/hooks/useVideoDateDupTabGuard";
+import { useFeatureFlag } from "@/hooks/useFeatureFlag";
 import { useUserProfile } from "@/contexts/AuthContext";
 import { useEventStatus } from "@/hooks/useEventStatus";
 import { SUPABASE_PUBLISHABLE_KEY, SUPABASE_URL, supabase } from "@/integrations/supabase/client";
@@ -71,6 +72,7 @@ import {
   resolveVideoDatePhaseCountdown,
 } from "@clientShared/matching/videoDateCountdown";
 import { sendVideoDateSignalWithRetry } from "@clientShared/matching/videoDateSignalRetry";
+import { buildVideoDateTransitionIdempotencyKey } from "@clientShared/matching/videoDateTransitionCommands";
 import {
   canAttemptDailyRoomFromVideoSessionTruth,
   decideVideoSessionRouteFromTruth,
@@ -355,6 +357,7 @@ const VideoDate = () => {
   const navigate = useNavigate();
   const { id } = useParams();
   const { user } = useUserProfile();
+  const continueHandshakeV2 = useFeatureFlag("video_date.outbox_v2.continue_handshake");
 
   const [phase, setPhase] = useState<CallPhase>("handshake");
   /** Server-owned extension seconds (`video_sessions.date_extra_seconds`) for reconciliation after refetch/rejoin. */
@@ -2279,7 +2282,16 @@ const VideoDate = () => {
             currentPhase: phaseRef.current,
             args,
           });
-          const { data, error } = await supabase.rpc("video_date_transition", args);
+          const { data, error } =
+            action === "vibe" && continueHandshakeV2.enabled
+              ? await supabase.rpc("video_session_continue_handshake_v2" as never, {
+                  p_session_id: args.p_session_id,
+                  p_idempotency_key: buildVideoDateTransitionIdempotencyKey(
+                    args.p_session_id,
+                    "continue_handshake",
+                  ),
+                } as never)
+              : await supabase.rpc("video_date_transition", args);
           return {
             data: data ?? null,
             error: error ? { code: error.code, message: error.message, name: error.name } : null,
@@ -2374,7 +2386,7 @@ const VideoDate = () => {
     } finally {
       handshakeDecisionInFlightRef.current = false;
     }
-  }, [id, user?.id, clearHandshakeGraceState, endCall]);
+  }, [id, user?.id, continueHandshakeV2.enabled, clearHandshakeGraceState, endCall]);
 
   const handleUserVibe = useCallback(() => {
     recordUserAction("video_date_handshake_decision_clicked", {
