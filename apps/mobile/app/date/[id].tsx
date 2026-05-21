@@ -33,6 +33,7 @@ import { Camera } from 'expo-camera';
 import { DailyMediaView } from '@daily-co/react-native-daily-js';
 import type { DailyParticipant } from '@daily-co/react-native-daily-js';
 import { useAuth } from '@/context/AuthContext';
+import { useFeatureFlag } from '@/hooks/useFeatureFlag';
 import {
   useVideoDateSession,
   getDailyRoomTokenWithTimeout,
@@ -799,6 +800,7 @@ export default function VideoDateScreen() {
   const { id: sessionId } = useLocalSearchParams<{ id: string }>();
   const pathname = usePathname();
   const { user, loading: authLoading } = useAuth();
+  const continueHandshakeV2 = useFeatureFlag('video_date.outbox_v2.continue_handshake');
   const colorScheme = useColorScheme();
   const theme = Colors[colorScheme];
   const insets = useSafeAreaInsets();
@@ -3773,6 +3775,8 @@ export default function VideoDateScreen() {
       const result = await recordHandshakeDecision(sessionId, action, {
         actorUserId: user.id,
         phase: phaseRef.current,
+      }, {
+        continueHandshakeV2: continueHandshakeV2.enabled,
       });
       vdbg('handshake_decision_ui_result', {
         sessionId,
@@ -3825,7 +3829,14 @@ export default function VideoDateScreen() {
     } finally {
       handshakeDecisionInFlightRef.current = false;
     }
-  }, [sessionId, user?.id, refetchVideoSession, clearHandshakeGraceState, handleCallEnd]);
+  }, [
+    sessionId,
+    user?.id,
+    continueHandshakeV2.enabled,
+    refetchVideoSession,
+    clearHandshakeGraceState,
+    handleCallEnd,
+  ]);
 
   const handleUserVibe = useCallback(() => handleHandshakeDecision('vibe'), [handleHandshakeDecision]);
   const handleUserPass = useCallback(() => handleHandshakeDecision('pass'), [handleHandshakeDecision]);

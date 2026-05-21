@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { supabase } from '@/lib/supabase';
+import { useFeatureFlag } from '@/hooks/useFeatureFlag';
 import { RC_CATEGORY, rcBreadcrumb } from '@/lib/nativeRcDiagnostics';
 import { trackEvent } from '@/lib/analytics';
 import { LobbyPostDateEvents } from '@clientShared/analytics/lobbyToPostDateJourney';
@@ -17,6 +18,7 @@ import {
   initialReadyGateReadinessState,
   type ReadyGateParticipantPosition,
 } from '@clientShared/matching/readyGateReadiness';
+import { buildVideoDateTransitionIdempotencyKey } from '@clientShared/matching/videoDateTransitionCommands';
 
 const BOTH_READY = 'both_ready';
 const FORFEITED = 'forfeited';
@@ -112,6 +114,8 @@ export function useReadyGate(
   userId: string | null | undefined,
   options?: UseReadyGateOptions,
 ) {
+  const markReadyV2 = useFeatureFlag('video_date.outbox_v2.mark_ready');
+  const forfeitV2 = useFeatureFlag('video_date.outbox_v2.forfeit');
   const [state, setState] = useState<ReadyGateState>({
     status: 'queued',
     iAmReady: initialReadyGateReadinessState.iAmReady,
@@ -348,7 +352,19 @@ export function useReadyGate(
     );
     // Static smoke contract: terminal actions still await
     // const { error } = await supabase.rpc('ready_gate_transition' before closing.
-    const transitionResult = await supabase.rpc('ready_gate_transition', { p_session_id: sessionId, p_action: action });
+    const transitionResult =
+      action === 'mark_ready' && markReadyV2.enabled
+        ? await supabase.rpc('video_session_mark_ready_v2' as never, {
+            p_session_id: sessionId,
+            p_idempotency_key: buildVideoDateTransitionIdempotencyKey(sessionId, 'mark_ready'),
+          } as never)
+        : action === 'forfeit' && forfeitV2.enabled
+          ? await supabase.rpc('video_session_forfeit_v2' as never, {
+              p_session_id: sessionId,
+              p_reason: 'ready_gate_forfeit',
+              p_idempotency_key: buildVideoDateTransitionIdempotencyKey(sessionId, 'forfeit'),
+            } as never)
+          : await supabase.rpc('ready_gate_transition', { p_session_id: sessionId, p_action: action });
     const { error } = transitionResult;
     const data = transitionResult.data;
     if (error) {
@@ -547,7 +563,18 @@ export function useReadyGate(
       reason: action,
       terminal: state.status === BOTH_READY || state.status === FORFEITED || state.status === EXPIRED,
     };
-  }, [sessionId, userId, options?.eventId, applyReadyGateTruth, fetchSession, notifyTerminal, state.expiresAt, state.status]);
+  }, [
+    sessionId,
+    userId,
+    options?.eventId,
+    markReadyV2.enabled,
+    forfeitV2.enabled,
+    applyReadyGateTruth,
+    fetchSession,
+    notifyTerminal,
+    state.expiresAt,
+    state.status,
+  ]);
 
   const syncSession = useCallback(async (): Promise<ReadyGateSyncResult> => {
     if (!sessionId || !userId) return { ok: false, error: 'missing_session_or_user' };
