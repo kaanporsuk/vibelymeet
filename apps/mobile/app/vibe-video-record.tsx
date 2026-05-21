@@ -42,31 +42,13 @@ import { KeyboardAwareCenteredModal } from '@/components/keyboard/KeyboardAwareC
 import { useVibelyDialog } from '@/components/VibelyDialog';
 import { useAuth } from '@/context/AuthContext';
 import { startNativeVibeVideoUpload } from '@/lib/mediaSdk/nativeVideoUploads';
-import { useNativeCaptionCapture } from '@/hooks/useNativeCaptionCapture';
 import { useReduceMotion } from '@/hooks/useReduceMotion';
-import type { MediaCaptions } from '../../../shared/media/captions';
 
 const MAX_DURATION_SEC = 15;
 const CAPTION_MAX = 50;
 
 // Local stages only — no 'uploading' here; controller owns that.
 type Stage = 'idle' | 'recording' | 'preview';
-
-function captionsFromReviewText(text: string, language: string): MediaCaptions | null {
-  const trimmed = text.replace(/\s+/g, ' ').trim();
-  if (!trimmed) return null;
-  return {
-    text: trimmed,
-    language: language || 'und',
-    cues: [
-      {
-        startMs: 0,
-        endMs: Math.max(1000, Math.min(MAX_DURATION_SEC * 1000, trimmed.length * 45)),
-        text: trimmed,
-      },
-    ],
-  };
-}
 
 function useLibraryUriParam(): string | null {
   const params = useLocalSearchParams();
@@ -101,14 +83,6 @@ export default function VibeVideoRecordScreen() {
   const { show, dialog } = useVibelyDialog();
   const { user } = useAuth();
   const userId = user?.id ?? null;
-  const {
-    start: startGeneratedCaptionCapture,
-    stop: stopGeneratedCaptionCapture,
-    abort: abortGeneratedCaptionCapture,
-    reset: resetGeneratedCaptionCapture,
-    language: generatedCaptionLanguage,
-    unavailableReason: generatedCaptionUnavailableReason,
-  } = useNativeCaptionCapture('native_vibe_video_recorder');
 
   const { data: myProfile } = useQuery({
     queryKey: myProfileQueryKey(userId ?? 'none'),
@@ -123,7 +97,6 @@ export default function VibeVideoRecordScreen() {
   const libraryHandled = useRef(false);
   const captionSeededFromProfile = useRef(false);
   const sourceIntentHandledRef = useRef(false);
-  const mountedRef = useRef(true);
   const uploadSourceRef = useRef<'camera' | 'library' | 'unknown'>('unknown');
 
   const [stage, setStage] = useState<Stage>('idle');
@@ -134,15 +107,6 @@ export default function VibeVideoRecordScreen() {
   const [captionEdited, setCaptionEdited] = useState(false);
   const [captionModal, setCaptionModal] = useState(false);
   const [captionDraft, setCaptionDraft] = useState('');
-  const [captionReviewText, setCaptionReviewText] = useState('');
-
-  useEffect(() => {
-    mountedRef.current = true;
-    return () => {
-      mountedRef.current = false;
-      abortGeneratedCaptionCapture();
-    };
-  }, [abortGeneratedCaptionCapture]);
 
   // Seed caption from existing profile
   useEffect(() => {
@@ -159,12 +123,10 @@ export default function VibeVideoRecordScreen() {
     if (libraryParam && !libraryHandled.current) {
       libraryHandled.current = true;
       uploadSourceRef.current = 'library';
-      resetGeneratedCaptionCapture();
-      setCaptionReviewText('');
       setRecordedUri(libraryParam);
       setStage('preview');
     }
-  }, [libraryParam, resetGeneratedCaptionCapture]);
+  }, [libraryParam]);
 
   // Set audio mode for preview playback
   useEffect(() => {
@@ -211,15 +173,11 @@ export default function VibeVideoRecordScreen() {
     if (!cameraRef.current || !permission) return;
     if (stage !== 'idle') return;
     setRecording(true);
-    setCaptionReviewText('');
-    void startGeneratedCaptionCapture().catch(() => undefined);
     try {
       const result = await cameraRef.current.recordAsync({
         maxDuration: MAX_DURATION_SEC,
       });
       setRecording(false);
-      const captionSnapshot = stopGeneratedCaptionCapture();
-      setCaptionReviewText(captionSnapshot.text);
       if (result?.uri) {
         uploadSourceRef.current = 'camera';
         setRecordedUri(result.uri);
@@ -227,7 +185,6 @@ export default function VibeVideoRecordScreen() {
       }
     } catch (e) {
       setRecording(false);
-      abortGeneratedCaptionCapture();
       show({
         title: 'Recording failed',
         message: e instanceof Error ? e.message : 'Please try again.',
@@ -248,8 +205,6 @@ export default function VibeVideoRecordScreen() {
   const retake = () => {
     uploadSourceRef.current = 'unknown';
     setRecordedUri(null);
-    setCaptionReviewText('');
-    resetGeneratedCaptionCapture();
     setStage('idle');
   };
 
@@ -271,8 +226,6 @@ export default function VibeVideoRecordScreen() {
     });
     if (result.canceled || !result.assets[0]?.uri) return;
     uploadSourceRef.current = 'library';
-    resetGeneratedCaptionCapture();
-    setCaptionReviewText('');
     setRecordedUri(result.assets[0].uri);
     setStage('preview');
   };
@@ -302,7 +255,6 @@ export default function VibeVideoRecordScreen() {
         : undefined;
     const context = onboardingFlow ? 'onboarding' : 'profile_studio';
     const nextCaption = vibeCaption.trim();
-    const captions = captionsFromReviewText(captionReviewText, generatedCaptionLanguage);
 
     vibeVideoDiagVerbose('upload.confirm', {
       source: uploadSourceRef.current,
@@ -336,7 +288,6 @@ export default function VibeVideoRecordScreen() {
     startNativeVibeVideoUpload({
       uri: recordedUri,
       caption,
-      captions,
       context,
       uploadSource: uploadSourceRef.current,
     });
@@ -358,24 +309,6 @@ export default function VibeVideoRecordScreen() {
     setCaptionEdited(true);
     setCaptionModal(false);
   };
-
-  const generatedCaptionEditor = stage === 'preview' && uploadSourceRef.current === 'camera' ? (
-    <View style={styles.generatedCaptionCard}>
-      <Text style={styles.generatedCaptionTitle}>Captions</Text>
-      <TextInput
-        value={captionReviewText}
-        onChangeText={setCaptionReviewText}
-        placeholder={
-          generatedCaptionUnavailableReason
-            ? 'Captions were unavailable for this recording.'
-            : 'Add or edit captions before posting.'
-        }
-        placeholderTextColor="rgba(255,255,255,0.42)"
-        multiline
-        style={styles.generatedCaptionInput}
-      />
-    </View>
-  ) : null;
 
   const captionModalEl = (
     <KeyboardAwareCenteredModal
@@ -495,8 +428,6 @@ export default function VibeVideoRecordScreen() {
                 { paddingBottom: Math.max(insets.bottom, 16) + 8 },
               ]}
             >
-              {generatedCaptionEditor}
-
               <LinearGradient
                 colors={['#8B5CF6', '#E84393']}
                 start={{ x: 0, y: 0 }}
@@ -690,30 +621,6 @@ const styles = StyleSheet.create({
     fontSize: 16,
     textAlign: 'center',
     marginBottom: 8,
-  },
-  generatedCaptionCard: {
-    borderRadius: 8,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: 'rgba(255,255,255,0.16)',
-    backgroundColor: 'rgba(255,255,255,0.08)',
-    padding: 12,
-    gap: 8,
-  },
-  generatedCaptionTitle: {
-    color: '#fff',
-    fontSize: 13,
-    fontWeight: '700',
-  },
-  generatedCaptionInput: {
-    minHeight: 68,
-    maxHeight: 120,
-    borderRadius: 8,
-    backgroundColor: 'rgba(0,0,0,0.28)',
-    color: '#fff',
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    fontSize: 14,
-    textAlignVertical: 'top',
   },
   captionModalActions: { flexDirection: 'row', justifyContent: 'space-between', gap: 12 },
   captionModalGhost: { flex: 1, paddingVertical: 12, alignItems: 'center' },

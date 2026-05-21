@@ -15,38 +15,6 @@ import { trackVibeVideoEvent, VIBE_VIDEO_EVENTS } from "@/lib/vibeVideo/vibeVide
 import { MAX_VIBE_CAPTION_LEN, MAX_VIBE_VIDEO_DURATION_S } from "@/lib/vibeVideo/constants";
 import { startWebVibeVideoUpload } from "@/lib/mediaSdk/webVideoUploads";
 import { usePrefersReducedMotion } from "@/hooks/usePrefersReducedMotion";
-import type { MediaCaptions } from "../../../shared/media/captions";
-
-type BrowserSpeechRecognitionAlternative = {
-  transcript?: string;
-};
-
-type BrowserSpeechRecognitionResult = {
-  isFinal: boolean;
-  [index: number]: BrowserSpeechRecognitionAlternative | undefined;
-};
-
-type BrowserSpeechRecognitionEvent = {
-  resultIndex: number;
-  results: {
-    length: number;
-    [index: number]: BrowserSpeechRecognitionResult | undefined;
-  };
-};
-
-type BrowserSpeechRecognition = {
-  continuous: boolean;
-  interimResults: boolean;
-  lang: string;
-  onresult: ((event: BrowserSpeechRecognitionEvent) => void) | null;
-  onerror: (() => void) | null;
-  onend: (() => void) | null;
-  start: () => void;
-  stop: () => void;
-  abort: () => void;
-};
-
-type BrowserSpeechRecognitionConstructor = new () => BrowserSpeechRecognition;
 
 interface VibeStudioModalProps {
   open: boolean;
@@ -103,8 +71,6 @@ export const VibeStudioModal = ({
   const [vibeCaption, setVibeCaption] = useState(existingCaption);
   const [captionEdited, setCaptionEdited] = useState(false);
   const [isEditingCaption, setIsEditingCaption] = useState(false);
-  const [captionReviewText, setCaptionReviewText] = useState("");
-  const [captionCaptureUnavailable, setCaptionCaptureUnavailable] = useState(false);
   const [facingMode, setFacingMode] = useState<'user' | 'environment'>('user');
   const [hasMultipleCameras, setHasMultipleCameras] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -118,105 +84,6 @@ export const VibeStudioModal = ({
   const fileInputRef = useRef<HTMLInputElement>(null);
   // Store detected mimeType for use in onstop
   const detectedMimeTypeRef = useRef<string | null>(null);
-  const captionSegmentsRef = useRef<string[]>([]);
-  const captionInterimRef = useRef("");
-  const speechRecognitionRef = useRef<BrowserSpeechRecognition | null>(null);
-  const speechRecognitionStoppingRef = useRef(false);
-  const recordingActiveRef = useRef(false);
-
-  const captionsFromReview = useCallback((): MediaCaptions | null => {
-    const text = captionReviewText.replace(/\s+/g, " ").trim().slice(0, 5_000);
-    if (!text) return null;
-    const language = typeof navigator !== "undefined" && navigator.language ? navigator.language.slice(0, 16) : undefined;
-    return { text, ...(language ? { language } : {}) };
-  }, [captionReviewText]);
-
-  const stopCaptionCapture = useCallback((mode: "stop" | "abort" = "stop") => {
-    const recognition = speechRecognitionRef.current;
-    speechRecognitionRef.current = null;
-    speechRecognitionStoppingRef.current = true;
-    if (!recognition) return;
-    recognition.onend = null;
-    recognition.onerror = null;
-    try {
-      if (mode === "abort") recognition.abort();
-      else recognition.stop();
-    } catch {
-      // Browser speech APIs can throw if recognition already stopped.
-    }
-  }, []);
-
-  const captionsFromTranscript = useCallback((): MediaCaptions | null => {
-    const text = [...captionSegmentsRef.current, captionInterimRef.current]
-      .join(" ")
-      .replace(/\s+/g, " ")
-      .trim()
-      .slice(0, 5_000);
-    if (!text) return null;
-    const language = typeof navigator !== "undefined" && navigator.language ? navigator.language.slice(0, 16) : undefined;
-    return { text, ...(language ? { language } : {}) };
-  }, []);
-
-  const startCaptionCapture = useCallback(() => {
-    captionSegmentsRef.current = [];
-    captionInterimRef.current = "";
-    setCaptionCaptureUnavailable(false);
-    if (typeof window === "undefined") return;
-    const scope = window as Window & {
-      SpeechRecognition?: BrowserSpeechRecognitionConstructor;
-      webkitSpeechRecognition?: BrowserSpeechRecognitionConstructor;
-    };
-    const SpeechRecognitionCtor = scope.SpeechRecognition ?? scope.webkitSpeechRecognition;
-    if (!SpeechRecognitionCtor) {
-      setCaptionCaptureUnavailable(true);
-      trackEvent("caption_capture_unavailable", {
-        surface: "vibe_studio_modal",
-        reason: "speech_recognition_missing",
-      });
-      return;
-    }
-
-    try {
-      const recognition = new SpeechRecognitionCtor();
-      recognition.continuous = true;
-      recognition.interimResults = true;
-      recognition.lang = navigator.language || "en-US";
-      recognition.onresult = (event) => {
-        const next = [...captionSegmentsRef.current];
-        let interim = "";
-        for (let index = event.resultIndex; index < event.results.length; index += 1) {
-          const result = event.results[index];
-          const transcript = result?.[0]?.transcript?.trim();
-          if (result?.isFinal && transcript) next.push(transcript);
-          else if (transcript) interim = transcript;
-        }
-        captionSegmentsRef.current = next;
-        captionInterimRef.current = interim;
-      };
-      recognition.onerror = () => {
-        trackEvent("caption_capture_failed", { surface: "vibe_studio_modal" });
-      };
-      recognition.onend = () => {
-        if (!recordingActiveRef.current || speechRecognitionStoppingRef.current) return;
-        try {
-          recognition.start();
-        } catch {
-          trackEvent("caption_capture_aborted", { surface: "vibe_studio_modal", reason: "restart_failed" });
-        }
-      };
-      speechRecognitionStoppingRef.current = false;
-      speechRecognitionRef.current = recognition;
-      recognition.start();
-      trackEvent("caption_capture_started", { surface: "vibe_studio_modal" });
-    } catch {
-      speechRecognitionRef.current = null;
-      setCaptionCaptureUnavailable(true);
-      trackEvent("caption_capture_unavailable", {
-        surface: "vibe_studio_modal",
-        reason: "speech_recognition_start_failed",
-      });
-    }
-  }, []);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -307,8 +174,6 @@ export const VibeStudioModal = ({
           // Ignore
         }
       }
-      recordingActiveRef.current = false;
-      stopCaptionCapture("abort");
       // 2. Stop ALL tracks on the stream
       if (streamRef.current) {
         streamRef.current.getTracks().forEach(track => track.stop());
@@ -325,7 +190,7 @@ export const VibeStudioModal = ({
         audioContextRef.current.close();
       }
     };
-  }, [open, facingMode, stopCaptionCapture]);
+  }, [open, facingMode]);
 
   // Rotate coach tips
   useEffect(() => {
@@ -386,8 +251,6 @@ export const VibeStudioModal = ({
     }
 
     chunksRef.current = [];
-    setCaptionReviewText("");
-    setCaptionCaptureUnavailable(false);
 
     // Safari supports MP4 recording and plays it back natively.
     // Chrome/Firefox support WebM recording. Prioritize each browser's native format.
@@ -422,15 +285,6 @@ export const VibeStudioModal = ({
       };
 
       mediaRecorder.onstop = () => {
-        recordingActiveRef.current = false;
-        stopCaptionCapture();
-        const capturedCaptions = captionsFromTranscript();
-        const capturedText = typeof capturedCaptions === "string" ? capturedCaptions : capturedCaptions?.text ?? "";
-        setCaptionReviewText(capturedText);
-        trackEvent(capturedText ? "caption_capture_succeeded" : "caption_capture_aborted", {
-          surface: "vibe_studio_modal",
-          has_text: !!capturedText,
-        });
         const detectedType = detectedMimeTypeRef.current;
         const blobType = detectedType?.startsWith("video/") ? detectedType.split(";")[0] : "video/webm";
         const blob = new Blob(chunksRef.current, { type: blobType });
@@ -450,15 +304,13 @@ export const VibeStudioModal = ({
 
       mediaRecorderRef.current = mediaRecorder;
       mediaRecorder.start(250);
-      recordingActiveRef.current = true;
-      startCaptionCapture();
       setCountdown(RECORDING_DURATION);
       setStage("recording");
     } catch (err) {
       console.error("Failed to start recording:", err);
       toast.error("Recording not supported on this device/browser");
     }
-  }, [captionsFromTranscript, startCaptionCapture, stopCaptionCapture]);
+  }, []);
 
   // Stop all camera tracks so browser tab recording dot disappears
   const stopCameraTracks = useCallback(() => {
@@ -478,8 +330,6 @@ export const VibeStudioModal = ({
     setRecordedVideoUrl(null);
     setRecordedBlob(null);
     setUploadedFile(null);
-    setCaptionReviewText("");
-    setCaptionCaptureUnavailable(false);
     setStage("idle");
     setCountdown(RECORDING_DURATION);
   }, [recordedVideoUrl]);
@@ -526,7 +376,6 @@ export const VibeStudioModal = ({
     startWebVibeVideoUpload({
       source: file,
       caption: captionForUpload,
-      captions: captionsFromReview(),
       context: uploadContext,
     });
     onConfirmed?.();
@@ -541,11 +390,9 @@ export const VibeStudioModal = ({
     setUploadedFile(null);
     setVibeCaption(existingCaption);
     setCaptionEdited(false);
-    setCaptionReviewText("");
-    setCaptionCaptureUnavailable(false);
 
     trackEvent('vibe_video_confirmed');
-  }, [recordedBlob, uploadedFile, recordedVideoUrl, vibeCaption, captionEdited, uploadContext, onConfirmed, onOpenChange, stopCameraTracks, existingCaption, hasExistingVideo, existingVideoUrl, captionsFromReview]);
+  }, [recordedBlob, uploadedFile, recordedVideoUrl, vibeCaption, captionEdited, uploadContext, onConfirmed, onOpenChange, stopCameraTracks, existingCaption, hasExistingVideo, existingVideoUrl]);
 
   const handleClose = useCallback(() => {
     onOpenChange(false);
@@ -564,11 +411,7 @@ export const VibeStudioModal = ({
     setUploadedFile(null);
     setVibeCaption(existingCaption);
     setCaptionEdited(false);
-    setCaptionReviewText("");
-    setCaptionCaptureUnavailable(false);
-    recordingActiveRef.current = false;
-    stopCaptionCapture("abort");
-  }, [onOpenChange, recordedVideoUrl, stopCameraTracks, existingCaption, stopCaptionCapture]);
+  }, [onOpenChange, recordedVideoUrl, stopCameraTracks, existingCaption]);
 
   const toggleMic = useCallback(() => {
     if (streamRef.current) {
@@ -632,12 +475,6 @@ export const VibeStudioModal = ({
 
     setRecordedVideoUrl(url);
     setUploadedFile(file);
-    setCaptionReviewText("");
-    setCaptionCaptureUnavailable(true);
-    trackEvent("caption_capture_unavailable", {
-      surface: "vibe_studio_modal",
-      reason: "library_upload",
-    });
     setStage("preview");
   }, []);
 
@@ -928,15 +765,6 @@ export const VibeStudioModal = ({
                     <p className="text-xs text-muted-foreground">
                       Review your video before posting
                     </p>
-                    <label className="mt-3 block text-left text-[11px] font-semibold uppercase tracking-wide text-white/70">
-                      Captions
-                    </label>
-                    <textarea
-                      value={captionReviewText}
-                      onChange={(event) => setCaptionReviewText(event.target.value.slice(0, 5_000))}
-                      placeholder={captionCaptureUnavailable ? "Captions unavailable for this recording." : "Add captions before posting."}
-                      className="mt-1 min-h-16 w-full resize-none rounded-lg border border-white/10 bg-black/35 px-3 py-2 text-xs text-white placeholder:text-white/35 focus:outline-none focus:ring-2 focus:ring-primary/60"
-                    />
                   </div>
                 </motion.div>
               )}

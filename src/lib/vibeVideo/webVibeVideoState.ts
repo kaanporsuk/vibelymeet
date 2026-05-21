@@ -11,7 +11,7 @@ import {
   type BunnyVideoStatusNormalized,
   type CanonicalVibeVideoState,
 } from "@clientShared/vibeVideoSemantics";
-import { parseMediaCaptions, type MediaCaptions } from "../../../shared/media/captions";
+import type { MediaCaptions } from "../../../shared/media/captions";
 
 export { normalizeBunnyVideoStatus };
 export type { BunnyVideoStatusNormalized };
@@ -164,10 +164,6 @@ function pickCaption(p: ProfileVibeInput): string | null {
   return typeof c === "string" ? c.trim() || null : null;
 }
 
-function pickCaptions(p: ProfileVibeInput): MediaCaptions | null {
-  return parseMediaCaptions(p?.vibe_video_captions ?? p?.vibeVideoCaptions ?? p?.captions);
-}
-
 export function resolveWebVibeVideoState(profile: ProfileVibeInput): WebVibeVideoInfo {
   const uid = pickUid(profile);
   const sourceStatus = pickStatus(profile);
@@ -178,7 +174,7 @@ export function resolveWebVibeVideoState(profile: ProfileVibeInput): WebVibeVide
   });
   const normStatus = canonical.status;
   const caption = pickCaption(profile);
-  const captions = pickCaptions(profile);
+  const captions = null;
 
   const NONE: WebVibeVideoInfo = {
     state: "none",

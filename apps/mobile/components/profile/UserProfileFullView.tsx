@@ -874,7 +874,7 @@ export function UserProfileFullView({
         bunnyVideoUid={vibeInfo.uid}
         vibeVideoState={effectiveVibeVideoState}
         vibeCaption={caption}
-        captions={vibeInfo.captions}
+        captions={null}
         posterUrl={thumbnailUrl}
         onPlayToEnd={() => setHideVibingOnLabelAfterComplete(true)}
       />

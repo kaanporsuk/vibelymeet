@@ -16,7 +16,7 @@ import {
   type BunnyVideoStatusNormalized,
   type CanonicalVibeVideoState,
 } from '@clientShared/vibeVideoSemantics';
-import { parseMediaCaptions, type MediaCaptions } from '../../../shared/media/captions';
+import type { MediaCaptions } from '../../../shared/media/captions';
 
 export type VibeVideoState = CanonicalVibeVideoState;
 
@@ -113,7 +113,7 @@ export function resolveVibeVideoState(profile: {
   });
   const normStatus = canonical.status;
   const caption = profile?.vibe_caption?.trim() || null;
-  const captions = parseMediaCaptions(profile?.vibe_video_captions ?? profile?.captions);
+  const captions = null;
 
   const NONE: VibeVideoInfo = {
     state: 'none',

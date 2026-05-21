@@ -806,6 +806,7 @@ export default function VideoDateScreen() {
   const dateTimeoutV2 = useFeatureFlag('video_date.outbox_v2.date_timeout');
   const submitVerdictV3 = useFeatureFlag('video_date.outbox_v2.submit_verdict');
   const extensionV2 = useFeatureFlag('video_date.outbox_v2.extension');
+  const safetyV2 = useFeatureFlag('video_date.outbox_v2.safety');
   const colorScheme = useColorScheme();
   const theme = Colors[colorScheme];
   const insets = useSafeAreaInsets();
@@ -3283,6 +3284,33 @@ export default function VideoDateScreen() {
   const handleEndAfterInCallReport = useCallback(async () => {
     await handleCallEnd('local_end');
   }, [handleCallEnd]);
+
+  const handleServerEndedAfterInCallReport = useCallback(
+    async (result: { surveyRequired?: boolean }) => {
+      if (sessionId && !videoDateEndedRef.current) {
+        videoDateEndedRef.current = true;
+        trackEvent('video_date_ended', {
+          session_id: sessionId,
+          reason: 'ended_from_client',
+          source: 'safety_report_v2',
+          survey_required: result.surveyRequired === true,
+        });
+      }
+      const recoveredSurvey = await openNativePostDateSurveyFromTerminalTruth('local_end_confirmed');
+      if (result.surveyRequired === true) {
+        logJourney(
+          'survey_opened',
+          { source: 'safety_report_v2_server_end' },
+          'survey_opened_safety_report_v2_server_end',
+        );
+        if (!recoveredSurvey) setShowFeedback(true);
+      } else {
+        setShowFeedback(false);
+      }
+      await cleanupForAbortWithoutServerEnd();
+    },
+    [cleanupForAbortWithoutServerEnd, logJourney, openNativePostDateSurveyFromTerminalTruth, sessionId],
+  );
 
   /** Foreground/background: make app backgrounding server-observable and bounded. */
   useEffect(() => {
@@ -7994,7 +8022,10 @@ export default function VideoDateScreen() {
         visible={showInCallSafety}
         onClose={() => setShowInCallSafety(false)}
         reportedUserId={partnerId || null}
+        sessionId={sessionId ?? null}
+        safetyV2={safetyV2.enabled}
         onEndAfterReport={handleEndAfterInCallReport}
+        onServerEndedAfterReport={handleServerEndedAfterInCallReport}
       />
 
       {fullPartner && partnerId ? (

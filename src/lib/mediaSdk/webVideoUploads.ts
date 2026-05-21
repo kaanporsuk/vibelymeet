@@ -25,7 +25,6 @@ import {
 } from "@/services/chatVibeClipStreamUploadService";
 import { createWebMediaUploadReconciler } from "@/lib/mediaSdk/reconciliation";
 import { webMediaTelemetrySinks } from "@/lib/mediaSdk/sinks";
-import type { MediaCaptions } from "../../../shared/media/captions";
 
 type WebChatVibeClipSdkUploadParams = Parameters<typeof uploadAndPublishChatVibeClipToBunnyStream>[0];
 
@@ -70,10 +69,6 @@ function uploadContextFromInput(input: WebVideoUploadInput): HeroVideoUploadCont
 
 function captionFromInput(input: WebVideoUploadInput): string | undefined {
   return optionalString(input.context?.caption);
-}
-
-function captionsFromInput(input: WebVideoUploadInput): MediaCaptions | null {
-  return (input.context?.captions ?? null) as MediaCaptions | null;
 }
 
 function failSnapshotForHeroState(state: HeroVideoControllerState): {
@@ -167,7 +162,6 @@ async function uploadWebVibeVideoViaController(
     captionFromInput(input),
     uploadContextFromInput(input),
     clientRequestId,
-    captionsFromInput(input),
   );
   await mirrorHeroVideoControllerToSdk(controls);
 }
@@ -275,7 +269,6 @@ export async function reconcileWebVideoMediaSdkQueue(reason = "manual"): Promise
 export function startWebVibeVideoUpload(params: {
   source: File | Blob;
   caption?: string;
-  captions?: MediaCaptions | null;
   context?: HeroVideoUploadContext;
 }): void {
   const context = params.context ?? "profile_studio";
@@ -287,7 +280,6 @@ async function startWebVibeVideoUploadAfterGate(
   params: {
     source: File | Blob;
     caption?: string;
-    captions?: MediaCaptions | null;
     context?: HeroVideoUploadContext;
   },
   context: HeroVideoUploadContext,
@@ -308,7 +300,7 @@ async function startWebVibeVideoUploadAfterGate(
   });
 
   if (!evaluation.enabled) {
-    heroVideoStartWithClientRequestId(params.source, params.caption, context, clientRequestId, params.captions ?? null);
+    heroVideoStartWithClientRequestId(params.source, params.caption, context, clientRequestId);
     return;
   }
   getWebVideoMediaSdk().video.upload({
@@ -317,7 +309,6 @@ async function startWebVibeVideoUploadAfterGate(
     context: {
       uploadContext: context,
       caption: params.caption,
-      captions: params.captions ?? null,
     },
     options: {
       clientRequestId,

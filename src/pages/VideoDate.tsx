@@ -364,6 +364,7 @@ const VideoDate = () => {
   const handshakeAutoPromoteV2 = useFeatureFlag("video_date.outbox_v2.handshake_auto_promote");
   const dateTimeoutV2 = useFeatureFlag("video_date.outbox_v2.date_timeout");
   const extensionV2 = useFeatureFlag("video_date.outbox_v2.extension");
+  const safetyV2 = useFeatureFlag("video_date.outbox_v2.safety");
 
   const [phase, setPhase] = useState<CallPhase>("handshake");
   /** Server-owned extension seconds (`video_sessions.date_extra_seconds`) for reconciliation after refetch/rejoin. */
@@ -3223,6 +3224,40 @@ const VideoDate = () => {
     await handleCallEnd();
   }, [endCall, handleCallEnd]);
 
+  const handleServerEndedAfterInCallReport = useCallback(
+    async (result: { surveyRequired?: boolean }) => {
+      await endCall("end_after_in_call_report");
+      explicitEndRequestedRef.current = "acked";
+      recordUserAction("video_date_safety_end_succeeded", {
+        surface: "video_date",
+        session_id: id,
+        phase,
+        survey_required: result.surveyRequired === true,
+      });
+      if (result.surveyRequired === true) {
+        markDateFlowEntered();
+        clearHandshakeGraceState();
+        openPostDateSurvey("local_end");
+        return;
+      }
+      setShowFeedback(false);
+      const target = resolveVideoDateExitTarget(eventId);
+      vdbgRedirect(target, "safety_report_server_ended_no_survey", { sessionId: id ?? null, eventId: eventId ?? null });
+      navigate(target, { replace: true });
+    },
+    [
+      clearHandshakeGraceState,
+      endCall,
+      eventId,
+      id,
+      markDateFlowEntered,
+      navigate,
+      openPostDateSurvey,
+      phase,
+      resolveVideoDateExitTarget,
+    ],
+  );
+
   const dupLeaseNavigateRef = useRef(false);
   useEffect(() => {
     if (!dupBlocked || !callStarted) return;
@@ -3917,7 +3952,10 @@ const VideoDate = () => {
         open={showInCallSafety}
         onOpenChange={setShowInCallSafety}
         reportedUserId={partnerId || null}
+        sessionId={id || null}
+        safetyV2={safetyV2.enabled}
         onEndAfterReport={handleEndAfterInCallReport}
+        onServerEndedAfterReport={handleServerEndedAfterInCallReport}
       />
 
       {/* ─── Post-Date Survey ─── */}

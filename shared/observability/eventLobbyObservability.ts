@@ -1,4 +1,5 @@
 export type EventLobbyPlatform = "web" | "native";
+export type QueueDrainSourceSurface = "event_lobby" | "post_date_survey" | "notification_deep_link";
 
 export const EventLobbyObservabilityEvents = {
   LOBBY_ENTERED: "lobby_entered",
@@ -241,6 +242,7 @@ export function buildLobbySwipeResultPayload(input: {
 export function buildQueueDrainResultPayload(input: {
   eventId: string;
   platform: EventLobbyPlatform;
+  sourceSurface?: QueueDrainSourceSurface;
   result?: {
     found?: boolean | null;
     queued?: boolean | null;
@@ -257,7 +259,7 @@ export function buildQueueDrainResultPayload(input: {
   return {
     event_id: input.eventId,
     platform: input.platform,
-    source_surface: "event_lobby",
+    source_surface: input.sourceSurface ?? "event_lobby",
     source_action: input.sourceAction ?? "drain_match_queue",
     outcome: input.error ? "error" : input.result?.found ? "promoted" : input.result?.queued ? "queued" : "no_match",
     reason,

@@ -23,6 +23,21 @@ test("maps invalid events to user-facing copy", () => {
   });
 });
 
+test("maps v2 runtime and safety drain blocks to calm lobby copy", () => {
+  assert.equal(
+    getMatchQueueDrainReasonCopy({ found: false, reason: "self_runtime_not_ready" })?.title,
+    "Still checking your setup",
+  );
+  assert.equal(
+    getMatchQueueDrainReasonCopy({ found: false, reason: "partner_runtime_not_ready" })?.title,
+    "Waiting for your match",
+  );
+  assert.equal(
+    getMatchQueueDrainReasonCopy({ found: false, reason: "blocked_or_reported_pair" })?.title,
+    "Match unavailable",
+  );
+});
+
 test("ignores unknown, null, and non-string reasons", () => {
   assert.equal(getMatchQueueDrainReasonCopy(null), null);
   assert.equal(getMatchQueueDrainReasonCopy(undefined), null);
