@@ -9,6 +9,7 @@ export type VideoDateOperatorMetricId =
   | "simultaneous_swipe_collision_rate"
   | "survey_to_next_ready_gate_conversion"
   | "queue_drain_failure_rate"
+  | "queue_fairness_starvation_rate"
   | "timer_drift_recovered_by_server_truth";
 
 export type VideoDateOperatorMetricSource =
@@ -92,6 +93,19 @@ export const VIDEO_DATE_OPERATOR_METRIC_DEFINITIONS = [
     primarySources: ["v_event_loop_drain_events", "v_event_loop_observability_metric_streams"],
     thresholds: { warning: 0.05, critical: 0.15, direction: "lower_is_better" },
     unit: "rate",
+  },
+  {
+    id: "queue_fairness_starvation_rate",
+    label: "Queue fairness starvation rate",
+    source: "database_truth",
+    primarySources: [
+      "v_video_date_queue_fairness_candidates",
+      "v_video_date_queue_fairness_event_health",
+      "get_video_date_queue_fairness_health",
+    ],
+    thresholds: { warning: 0.05, critical: 0.15, direction: "lower_is_better" },
+    unit: "rate",
+    limitation: "Current queued-slot health uses a 120s starvation threshold and 15-minute no-match/runtime-block windows.",
   },
   {
     id: "timer_drift_recovered_by_server_truth",

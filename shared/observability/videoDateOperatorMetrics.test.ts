@@ -26,6 +26,7 @@ test("video date operator metric ids stay stable", () => {
     "simultaneous_swipe_collision_rate",
     "survey_to_next_ready_gate_conversion",
     "queue_drain_failure_rate",
+    "queue_fairness_starvation_rate",
     "timer_drift_recovered_by_server_truth",
   ]);
 });
