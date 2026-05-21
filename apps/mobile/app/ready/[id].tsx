@@ -35,6 +35,7 @@ import {
   getReadyGateRemainingSeconds,
   READY_GATE_DEFAULT_TIMEOUT_SECONDS,
 } from '@clientShared/matching/readyGateCountdown';
+import { resolveVideoDateSnapshotRecovery } from '@clientShared/matching/videoDateTimeline';
 import {
   isReadyGatePrepareEntryNonRetryable,
   resolveReadyGateTerminalRecovery,
@@ -299,6 +300,7 @@ export default function ReadyGateScreen() {
       try {
         if (snapshotV2.enabled) {
           const snapshot = await fetchVideoDateSnapshot(String(sessionId), { includeToken: false });
+          const recovery = resolveVideoDateSnapshotRecovery(snapshot, { expectedSessionId: String(sessionId) });
           if (snapshot.ok === true) {
             rcBreadcrumb(RC_CATEGORY.readyGate, 'standalone_snapshot_v2_loaded', {
               session_id: sessionId,
@@ -306,29 +308,22 @@ export default function ReadyGateScreen() {
               phase: snapshot.phase,
               room_present: Boolean(snapshot.room?.url),
             });
-            if ((snapshot.phase === 'handshake' || snapshot.phase === 'date') && snapshot.room?.url) {
-              await reconcileFromCanonicalTruth(`initial_snapshot_${snapshot.phase}`);
+            if (recovery.action === 'date') {
+              await reconcileFromCanonicalTruth(`initial_snapshot_${recovery.reason}`);
               return;
             }
-            if (!snapshot.eventId) {
+            if (recovery.action === 'home' && recovery.reason === 'missing_event') {
               explainInvalidToTabs();
               return;
             }
-            if (snapshot.phase === 'ended' || snapshot.phase === 'verdict') {
-              router.replace(eventLobbyHref(snapshot.eventId));
+            if (recovery.action === 'lobby') {
+              router.replace(eventLobbyHref(recovery.eventId));
               return;
             }
-          } else if (
-            snapshot.ok === false &&
-            (
-              snapshot.error === 'not_participant' ||
-              snapshot.error === 'session_not_found' ||
-              snapshot.error === 'invalid_session_id'
-            )
-          ) {
+          } else if (recovery.action === 'invalid') {
             rcBreadcrumb(RC_CATEGORY.readyGate, 'standalone_snapshot_v2_rejected', {
               session_id: sessionId,
-              error: snapshot.error,
+              error: recovery.reason,
             });
             explainInvalidToTabs();
             return;

@@ -7,6 +7,7 @@ import { markVideoDateEntryPipelineStarted } from "@/lib/dateEntryTransitionLatc
 import { useFeatureFlag } from "@/hooks/useFeatureFlag";
 import { fetchVideoDateSnapshot } from "@/lib/videoDateSnapshot";
 import { canAttemptDailyRoomFromVideoSessionTruth } from "@clientShared/matching/activeSession";
+import { resolveVideoDateSnapshotRecovery } from "@clientShared/matching/videoDateTimeline";
 import {
   READY_GATE_DEEP_LINK_INVALID_USER_MESSAGE,
   READY_GATE_STALE_OR_ENDED_USER_MESSAGE,
@@ -53,34 +54,27 @@ const ReadyRedirect = () => {
       if (snapshotV2.enabled) {
         const snapshot = await fetchVideoDateSnapshot(candidate, { includeToken: false });
         if (cancelled) return;
-        if (snapshot.ok === true) {
-          if ((snapshot.phase === "handshake" || snapshot.phase === "date") && snapshot.room?.url) {
-            markVideoDateEntryPipelineStarted(candidate);
-            navigate(`/date/${encodeURIComponent(candidate)}`, { replace: true });
-            return;
-          }
-
-          if (!snapshot.eventId) {
-            notifyOnce(READY_GATE_DEEP_LINK_INVALID_USER_MESSAGE);
-            navigate("/events", { replace: true });
-            return;
-          }
-
-          if (snapshot.phase === "ended" || snapshot.phase === "verdict") {
-            notifyOnce(READY_GATE_STALE_OR_ENDED_USER_MESSAGE);
-          }
-          navigate(`/event/${encodeURIComponent(snapshot.eventId)}/lobby`, { replace: true });
+        const recovery = resolveVideoDateSnapshotRecovery(snapshot, { expectedSessionId: candidate });
+        const snapshotEventId = snapshot.ok ? snapshot.eventId : null;
+        if (recovery.action === "date") {
+          markVideoDateEntryPipelineStarted(candidate);
+          navigate(`/date/${encodeURIComponent(recovery.sessionId)}`, { replace: true });
           return;
         }
-
-        if (
-          snapshot.ok === false &&
-          (
-            snapshot.error === "not_participant" ||
-            snapshot.error === "session_not_found" ||
-            snapshot.error === "invalid_session_id"
-          )
-        ) {
+        if (recovery.action === "ready_gate" || recovery.action === "lobby") {
+          const recoveryEventId = snapshotEventId ?? recovery.eventId;
+          if (recovery.reason === "ended" || recovery.reason === "verdict") {
+            notifyOnce(READY_GATE_STALE_OR_ENDED_USER_MESSAGE);
+          }
+          navigate(`/event/${encodeURIComponent(recoveryEventId)}/lobby`, { replace: true });
+          return;
+        }
+        if (recovery.action === "home" && recovery.reason === "missing_event") {
+          notifyOnce(READY_GATE_DEEP_LINK_INVALID_USER_MESSAGE);
+          navigate("/events", { replace: true });
+          return;
+        }
+        if (recovery.action === "invalid") {
           notifyOnce(READY_GATE_DEEP_LINK_INVALID_USER_MESSAGE);
           navigate("/events", { replace: true });
           return;
