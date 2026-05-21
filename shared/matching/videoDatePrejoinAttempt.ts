@@ -7,6 +7,7 @@ export type PrejoinAttemptStep =
   | "enter_handshake"
   | "refetch_video_session"
   | "daily_room_truth_guard"
+  | "surface_claim"
   | "daily_room_guard"
   | "daily_room"
   | "daily_join";
@@ -17,6 +18,7 @@ export function shouldPreservePrejoinAttemptOnCleanup(step: PrejoinAttemptStep):
     step === "enter_handshake" ||
     step === "refetch_video_session" ||
     step === "daily_room_truth_guard" ||
+    step === "surface_claim" ||
     step === "daily_room_guard" ||
     step === "daily_room" ||
     step === "daily_join"

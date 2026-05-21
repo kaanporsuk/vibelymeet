@@ -204,6 +204,8 @@ const NATIVE_REMOTE_RENDER_REMOUNT_ATTEMPT_TTL_MS = 30_000;
 const NATIVE_REMOTE_RENDER_REMOUNT_MAX_ATTEMPT_KEYS = 24;
 const NATIVE_CAMERA_SWITCH_COMMIT_TIMEOUT_MS = 1_800;
 const NATIVE_CAMERA_SWITCH_COMMIT_POLL_MS = 80;
+const NATIVE_VIDEO_DATE_SURFACE_CLAIM_TTL_SECONDS = 12;
+const NATIVE_VIDEO_DATE_SURFACE_CLAIM_REFRESH_MS = 4_000;
 // Minimum time (ms) the Vibe/Pass CTA must be visible after first playable remote
 // media before the server deadline is allowed to call completeHandshake.
 // Prevents expiry on slow Daily join where media arrives just before the 60 s mark.
@@ -809,6 +811,7 @@ export default function VideoDateScreen() {
   const extensionV2 = useFeatureFlag('video_date.outbox_v2.extension');
   const safetyV2 = useFeatureFlag('video_date.outbox_v2.safety');
   const timelineV2 = useFeatureFlag('video_date.timeline_v2');
+  const multiDeviceV2 = useFeatureFlag('video_date.multi_device_v2');
   const colorScheme = useColorScheme();
   const theme = Colors[colorScheme];
   const insets = useSafeAreaInsets();
@@ -862,6 +865,8 @@ export default function VideoDateScreen() {
   const [dateEntryPermissionEligible, setDateEntryPermissionEligible] = useState(false);
   const [captureProfile, setCaptureProfile] = useState<NativeVideoDateCaptureProfile>('ideal');
   const [isAbortingConnection, setIsAbortingConnection] = useState(false);
+  const [surfaceClaimBlocked, setSurfaceClaimBlocked] = useState(false);
+  const [surfaceClaimTakeoverBusy, setSurfaceClaimTakeoverBusy] = useState(false);
 
   const callRef = useRef<DailyCallObject | null>(null);
   const captureProfileRef = useRef<NativeVideoDateCaptureProfile>('ideal');
@@ -898,6 +903,9 @@ export default function VideoDateScreen() {
   const reconnectSyncCountRef = useRef(0);
   const reconnectSyncWindowStartedAtRef = useRef<number | null>(null);
   const requestReconnectSyncRef = useRef<(reason: string) => void>(() => {});
+  const videoDateClientInstanceIdRef = useRef(
+    `vd-native-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`,
+  );
   const enterHandshakeSucceededRef = useRef(false);
   const handleCallEndRef = useRef<((source?: 'local_end' | 'server_end') => Promise<void>) | null>(null);
   const handshakeAnalyticsRef = useRef(false);
@@ -3828,6 +3836,116 @@ export default function VideoDateScreen() {
     [cleanupForAbortWithoutServerEnd, eventId, sessionId]
   );
 
+  const claimNativeVideoDateSurface = useCallback(
+    async (takeover = false): Promise<boolean> => {
+      if (!multiDeviceV2.enabled || !sessionId || !user?.id || showFeedback || phaseRef.current === 'ended') {
+        setSurfaceClaimBlocked(false);
+        return true;
+      }
+      const { data, error } = await supabase.rpc('claim_video_date_surface' as never, {
+        p_session_id: sessionId,
+        p_surface: 'video_date',
+        p_client_instance_id: videoDateClientInstanceIdRef.current,
+        p_takeover: takeover,
+        p_ttl_seconds: NATIVE_VIDEO_DATE_SURFACE_CLAIM_TTL_SECONDS,
+      } as never);
+      const payload = data as { success?: boolean; code?: string } | null;
+      if (error || payload?.success === false) {
+        const blocked = payload?.code === 'SURFACE_CLAIM_CONFLICT';
+        setSurfaceClaimBlocked(blocked);
+        vdbg('native_video_date_surface_claim_result', {
+          sessionId,
+          userId: user.id,
+          ok: false,
+          takeover,
+          blocked,
+          code: payload?.code ?? null,
+          error: error ? { code: error.code, message: error.message } : null,
+        });
+        return !blocked;
+      }
+      setSurfaceClaimBlocked(false);
+      vdbg('native_video_date_surface_claim_result', {
+        sessionId,
+        userId: user.id,
+        ok: true,
+        takeover,
+      });
+      return true;
+    },
+    [multiDeviceV2.enabled, sessionId, showFeedback, user?.id],
+  );
+
+  const handleSwitchDeviceHere = useCallback(async () => {
+    if (surfaceClaimTakeoverBusy) return;
+    setSurfaceClaimTakeoverBusy(true);
+    try {
+      const claimed = await claimNativeVideoDateSurface(true);
+      if (claimed) setSurfaceClaimBlocked(false);
+    } finally {
+      setSurfaceClaimTakeoverBusy(false);
+    }
+  }, [claimNativeVideoDateSurface, surfaceClaimTakeoverBusy]);
+
+  const handleLeaveBlockedSurface = useCallback(async () => {
+    try {
+      await cleanupForAbortWithoutServerEnd();
+    } catch (error) {
+      vdbg('native_surface_claim_cleanup_failed', {
+        sessionId: sessionId ?? null,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+    if (eventId) {
+      const target = eventLobbyHref(eventId);
+      vdbgRedirect(target, 'native_surface_claim_back', { sessionId: sessionId ?? null, eventId });
+      router.replace(target);
+      return;
+    }
+    const target = '/(tabs)/events';
+    vdbgRedirect(target, 'native_surface_claim_back', { sessionId: sessionId ?? null });
+    router.replace(target);
+  }, [cleanupForAbortWithoutServerEnd, eventId, sessionId]);
+
+  useEffect(() => {
+    const activeVideoSurface =
+      multiDeviceV2.enabled &&
+      Boolean(sessionId) &&
+      Boolean(user?.id) &&
+      !showFeedback &&
+      (phase === 'handshake' || phase === 'date');
+    if (!activeVideoSurface) {
+      setSurfaceClaimBlocked(false);
+      return;
+    }
+    let cancelled = false;
+    const clientInstanceId = videoDateClientInstanceIdRef.current;
+    const tick = async () => {
+      const claimed = await claimNativeVideoDateSurface(false);
+      if (!cancelled && !claimed) {
+        vdbg('native_video_date_surface_claim_blocked', {
+          sessionId,
+          userId: user?.id ?? null,
+          phase,
+        });
+      }
+    };
+    void tick();
+    const interval = setInterval(() => {
+      void tick();
+    }, NATIVE_VIDEO_DATE_SURFACE_CLAIM_REFRESH_MS);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+      if (sessionId) {
+        void supabase.rpc('release_video_date_surface_claim' as never, {
+          p_session_id: sessionId,
+          p_client_instance_id: clientInstanceId,
+        } as never);
+      }
+    };
+  }, [claimNativeVideoDateSurface, multiDeviceV2.enabled, phase, sessionId, showFeedback, user?.id]);
+
   const handleHandshakeDecision = useCallback(async (action: 'vibe' | 'pass'): Promise<boolean> => {
     if (!sessionId || !user?.id) return false;
     if (handshakeDecisionInFlightRef.current) return false;
@@ -3882,6 +4000,16 @@ export default function VideoDateScreen() {
         return false;
       }
       setCallError(null);
+      const transitionedToDate =
+        action === 'vibe' &&
+        (result.state === 'date' ||
+          result.truth.state === 'date' ||
+          result.truth.phase === 'date' ||
+          Boolean(result.truth.date_started_at));
+      if (transitionedToDate) {
+        clearHandshakeGraceState();
+        setShowMutualToast(true);
+      }
       // Immediately reconcile UI from server truth so that localHandshakeDecision
       // reflects the persisted decision even if the Realtime UPDATE arrives late
       // or the component remounts before it does.
@@ -5167,6 +5295,26 @@ export default function VideoDateScreen() {
         }
       }
 
+      currentStep = setPrejoinStep('surface_claim');
+      const surfaceClaimed = await claimNativeVideoDateSurface(false);
+      if (!surfaceClaimed) {
+        clearDateEntryTransition(sessionId);
+        vdbg('prejoin_step_prejoin_daily_room_skipped', {
+          sessionId,
+          userId: user.id,
+          reason: 'surface_claim_conflict',
+          ...prejoinLogContext(),
+        });
+        vdbg('prejoin_state_isConnecting', { value: false, sessionId, userId: user.id, step: currentStep });
+        setIsConnecting(false);
+        hasStartedJoinRef.current = false;
+        vdbg('prejoin_state_hasStartedJoinRef', { value: false, sessionId, userId: user.id, step: currentStep });
+        vdbg('prejoin_state_joining', { value: false, sessionId, userId: user.id, step: currentStep });
+        setJoining(false);
+        prejoinCompleted = true;
+        return;
+      }
+
       currentStep = setPrejoinStep('daily_room_guard');
       vdbg('prejoin_step_prejoin_daily_room_guard', {
         sessionId,
@@ -6315,6 +6463,7 @@ export default function VideoDateScreen() {
     detachCallListeners,
     refetchVideoSession,
     recoverFromNotStartableDateTruth,
+    claimNativeVideoDateSurface,
     resetNativeRemoteRenderRecovery,
     beginBootstrapTiming,
     endBootstrapTiming,
@@ -7611,6 +7760,47 @@ export default function VideoDateScreen() {
   return (
     <View style={[styles.container, { backgroundColor: theme.background }]}>
       <LiveSurfaceOfflineStrip />
+      {surfaceClaimBlocked && !showFeedback ? (
+        <View style={styles.initialTimeoutWrap}>
+          <View style={[styles.initialTimeoutCard, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+            <Text style={[styles.initialTimeoutTitle, { color: theme.text }]}>
+              You are already in this call on another device
+            </Text>
+            <Text style={[styles.initialTimeoutSub, { color: theme.mutedForeground }]}>
+              Switch here only if you want this device to take over the live call.
+            </Text>
+            <View style={styles.initialTimeoutActions}>
+              <Pressable
+                onPress={() => void handleSwitchDeviceHere()}
+                disabled={surfaceClaimTakeoverBusy}
+                style={({ pressed }) => [
+                  styles.initialRetryBtn,
+                  { backgroundColor: theme.tint },
+                  pressed && styles.initialBtnPressed,
+                ]}
+                accessibilityRole="button"
+                accessibilityLabel="Switch here"
+              >
+                <Text style={styles.initialRetryText}>
+                  {surfaceClaimTakeoverBusy ? 'Switching...' : 'Switch here'}
+                </Text>
+              </Pressable>
+              <Pressable
+                onPress={() => void handleLeaveBlockedSurface()}
+                style={({ pressed }) => [
+                  styles.initialBackBtn,
+                  { borderColor: theme.border },
+                  pressed && styles.initialBtnPressed,
+                ]}
+                accessibilityRole="button"
+                accessibilityLabel="Back to lobby"
+              >
+                <Text style={[styles.initialBackText, { color: theme.text }]}>Back to lobby</Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      ) : null}
       <View style={styles.remoteContainer}>
         {remoteParticipant ? (
           <>

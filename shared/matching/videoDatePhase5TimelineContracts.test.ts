@@ -13,12 +13,19 @@ import type { VideoDateSnapshotOk } from "./videoDateSnapshot";
 const root = process.cwd();
 const timeline = readFileSync(join(root, "shared/matching/videoDateTimeline.ts"), "utf8");
 const webDate = readFileSync(join(root, "src/pages/VideoDate.tsx"), "utf8");
+const webVibeCheckButton = readFileSync(join(root, "src/components/video-date/VibeCheckButton.tsx"), "utf8");
 const nativeDate = readFileSync(join(root, "apps/mobile/app/date/[id].tsx"), "utf8");
+const nativeVibeCheckButton = readFileSync(join(root, "apps/mobile/components/video-date/VibeCheckButton.tsx"), "utf8");
 const nativeVideoDateApi = readFileSync(join(root, "apps/mobile/lib/videoDateApi.ts"), "utf8");
+const webDupTabGuard = readFileSync(join(root, "src/hooks/useVideoDateDupTabGuard.ts"), "utf8");
 const webReadyRedirect = readFileSync(join(root, "src/pages/ReadyRedirect.tsx"), "utf8");
 const nativeReadyRedirect = readFileSync(join(root, "apps/mobile/app/ready/[id].tsx"), "utf8");
 const nativeNotificationDeepLink = readFileSync(join(root, "apps/mobile/components/NotificationDeepLinkHandler.tsx"), "utf8");
 const packageJson = readFileSync(join(root, "package.json"), "utf8");
+const phase5AuditMigration = readFileSync(
+  join(root, "supabase/migrations/20260522013000_video_date_phase5_audit_hardening.sql"),
+  "utf8",
+);
 
 const baseSnapshot: VideoDateSnapshotOk = {
   ok: true,
@@ -79,6 +86,7 @@ test("PR 5.2 web and native date surfaces use the timeline flag with fallback co
   assert.match(webDate, /const countdown = useTimelineCountdown[\s\S]+resolveVideoDateTimelineCountdown/);
   assert.match(webDate, /timeline\.seq < sessionSeqRef\.current/);
   assert.match(webDate, /Math\.max\(sessionSeqRef\.current \?\? 0, snapshot\.seq\)/);
+  assert.match(webDate, /if \(timelineV2\.enabled\) return;[\s\S]+timerDriftTrackingReadyRef/);
   assert.match(nativeVideoDateApi, /applyVideoDateTimelineSnapshot/);
   assert.match(nativeVideoDateApi, /includeToken: false/);
   assert.match(nativeVideoDateApi, /expectedSessionId: sessionId/);
@@ -89,6 +97,20 @@ test("PR 5.2 web and native date surfaces use the timeline flag with fallback co
   assert.match(nativeVideoDateApi, /timelineDecision\.timeline\.seq >= sessionSeqRef\.current/);
   assert.match(nativeVideoDateApi, /Math\.max\(sessionSeqRef\.current \?\? 0, snapshot\.seq\)/);
   assert.match(nativeVideoDateApi, /return \{ session, partner, phase, timeLeft, timeline,/);
+});
+
+test("Phase 5 early-continue handshake is an explicit UX affordance on web and native", () => {
+  for (const source of [webVibeCheckButton, nativeVibeCheckButton]) {
+    assert.match(source, /Continue when ready/);
+    assert.match(source, /Ready to continue/);
+    assert.match(source, /Continue/);
+  }
+  assert.match(webDate, /useFeatureFlag\(["']video_date\.outbox_v2\.continue_handshake["']\)/);
+  assert.match(nativeDate, /useFeatureFlag\(['"]video_date\.outbox_v2\.continue_handshake['"]\)/);
+  assert.match(webDate, /video_session_continue_handshake_v2/);
+  assert.match(nativeVideoDateApi, /video_session_continue_handshake_v2/);
+  assert.match(webDate, /action === "vibe"[\s\S]+setShowMutualToast\(true\)/);
+  assert.match(nativeDate, /action === 'vibe'[\s\S]+setShowMutualToast\(true\)/);
 });
 
 test("PR 5.3 push and deep-link recovery share one snapshot decision helper", () => {
@@ -241,6 +263,20 @@ test("PR 5.5 active multi-device snapshots are explicit rejoin decisions", () =>
   });
 
   assert.match(nativeNotificationDeepLink, /decision: recovery\.action === ["']survey["'] \? ["']navigate_survey["'] : ["']navigate_date["']/);
+  assert.match(webDupTabGuard, /claim_video_date_surface/);
+  assert.match(webDupTabGuard, /p_takeover: true/);
+  assert.match(webDate, /already open on another device/);
+  assert.match(webDate, /Switch here only if you want this device to take over/);
+  assert.match(nativeDate, /useFeatureFlag\(['"]video_date\.multi_device_v2['"]\)/);
+  assert.match(nativeDate, /claim_video_date_surface/);
+  assert.match(nativeDate, /p_takeover: takeover/);
+  assert.match(nativeDate, /surface_claim_conflict/);
+  assert.match(nativeDate, /You are already in this call on another device/);
+  assert.match(nativeDate, /Switch here only if you want this device to take over/);
+  assert.match(phase5AuditMigration, /'video_date\.multi_device_v2'/);
+  assert.match(phase5AuditMigration, /CREATE OR REPLACE VIEW public\.vw_video_date_multi_device_health/);
+  assert.match(phase5AuditMigration, /audit_active_video_date_surface_conflicts\(\)/);
+  assert.match(phase5AuditMigration, /GRANT SELECT ON public\.vw_video_date_multi_device_health TO service_role/);
 });
 
 test("PR 5.6 queued and retryable snapshots do not bypass queue/lobby recovery", () => {

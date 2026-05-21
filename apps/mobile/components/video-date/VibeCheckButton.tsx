@@ -90,7 +90,7 @@ export function VibeCheckButton({ timeLeft, decision, onVibe, onPass, disabled }
             adjustsFontSizeToFit
             minimumFontScale={0.86}
           >
-            {decision ? 'Vibe saved' : 'Pass saved'}
+            {decision ? 'Ready to continue' : 'Pass saved'}
           </Text>
         </View>
       </View>
@@ -153,7 +153,7 @@ export function VibeCheckButton({ timeLeft, decision, onVibe, onPass, disabled }
             onPress={() => void handlePress('vibe')}
             disabled={disabled || submitting !== null}
             accessibilityRole="button"
-            accessibilityLabel="Vibe"
+            accessibilityLabel="Continue when ready"
             style={({ pressed }) => [styles.vibeShell, (pressed || disabled || submitting !== null) && styles.pressed]}
           >
             <LinearGradient
@@ -174,7 +174,7 @@ export function VibeCheckButton({ timeLeft, decision, onVibe, onPass, disabled }
                     adjustsFontSizeToFit
                     minimumFontScale={0.86}
                   >
-                    Vibe
+                    Continue
                   </Text>
                 </>
               )}
@@ -190,7 +190,7 @@ export function VibeCheckButton({ timeLeft, decision, onVibe, onPass, disabled }
         adjustsFontSizeToFit
         minimumFontScale={0.88}
       >
-        Choose only when it feels right
+        Continue when ready
       </Text>
 
       {error ? (

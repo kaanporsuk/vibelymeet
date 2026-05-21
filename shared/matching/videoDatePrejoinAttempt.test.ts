@@ -8,6 +8,7 @@ test("prejoin cleanup preserves server-mutating and Daily acquisition steps", ()
     "enter_handshake",
     "refetch_video_session",
     "daily_room_truth_guard",
+    "surface_claim",
     "daily_room_guard",
     "daily_room",
     "daily_join",

@@ -13,6 +13,10 @@ const migration = readFileSync(
   join(root, "supabase/migrations/20260522003000_video_date_phase4_private_broadcast.sql"),
   "utf8",
 );
+const phase5AuditMigration = readFileSync(
+  join(root, "supabase/migrations/20260522013000_video_date_phase5_audit_hardening.sql"),
+  "utf8",
+);
 const sessionChannel = readFileSync(
   join(root, "shared/matching/videoDateSessionChannel.ts"),
   "utf8",
@@ -21,6 +25,10 @@ const webReadyGate = readFileSync(join(root, "src/hooks/useReadyGate.ts"), "utf8
 const webVideoDate = readFileSync(join(root, "src/pages/VideoDate.tsx"), "utf8");
 const nativeReadyGate = readFileSync(join(root, "apps/mobile/lib/readyGateApi.ts"), "utf8");
 const nativeVideoDateApi = readFileSync(join(root, "apps/mobile/lib/videoDateApi.ts"), "utf8");
+const realtimeRlsRuntime = readFileSync(
+  join(root, "shared/matching/videoDateRealtimeRlsRuntime.test.ts"),
+  "utf8",
+);
 const handshakePersistence = readFileSync(
   join(root, "shared/matching/videoDateHandshakePersistence.ts"),
   "utf8",
@@ -158,6 +166,35 @@ test("broadcast payload normalizer accepts database envelope and rejects raw or 
     }),
     null,
   );
+});
+
+test("participant broadcast sanitized_payload has defense-in-depth sensitive-key checks", () => {
+  assert.match(phase5AuditMigration, /CREATE OR REPLACE FUNCTION public\.video_date_jsonb_has_secret_key\(p_value jsonb\)/);
+  for (const key of [
+    "password",
+    "safetydetails",
+    "reportreason",
+    "idempotencykey",
+    "dailytoken",
+    "meetingtoken",
+    "accesstoken",
+    "refreshtoken",
+  ]) {
+    assert.match(phase5AuditMigration, new RegExp(`'${key}'`));
+  }
+  assert.match(phase5AuditMigration, /LIKE '%bearer%'/);
+  assert.match(phase5AuditMigration, /video_session_events_no_sanitized_payload_sensitive_keys_v2/);
+  assert.match(phase5AuditMigration, /CHECK \(NOT public\.video_date_jsonb_has_secret_key\(sanitized_payload\)\)/);
+  assert.match(phase5AuditMigration, /NOT VALID/);
+});
+
+test("Realtime RLS has an opt-in runtime participant/non-participant subscription test", () => {
+  assert.match(realtimeRlsRuntime, /VIDEO_DATE_RLS_PARTICIPANT_JWT/);
+  assert.match(realtimeRlsRuntime, /VIDEO_DATE_RLS_NON_PARTICIPANT_JWT/);
+  assert.match(realtimeRlsRuntime, /client\.channel\(`session:\$\{runtimeEnv\.sessionId\}`/);
+  assert.match(realtimeRlsRuntime, /assert\.equal\(participant\.status, "SUBSCRIBED"\)/);
+  assert.match(realtimeRlsRuntime, /assert\.notEqual\(nonParticipant\.status, "SUBSCRIBED"\)/);
+  assert.match(packageJson, /shared\/matching\/videoDateRealtimeRlsRuntime\.test\.ts/);
 });
 
 test("Phase 4 contracts are included in the v4 verification script", () => {

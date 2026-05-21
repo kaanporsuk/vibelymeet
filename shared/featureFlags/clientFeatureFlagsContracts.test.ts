@@ -13,7 +13,9 @@ import {
 const baseMigration = readFileSync("supabase/migrations/20260519120000_client_feature_flags.sql", "utf8");
 const hardeningMigration = readFileSync("supabase/migrations/20260520120000_client_feature_flags_hardening.sql", "utf8");
 const videoDatePhase0Migration = readFileSync("supabase/migrations/20260521161000_video_date_phase0_observability_flags.sql", "utf8");
-const migration = `${baseMigration}\n${hardeningMigration}\n${videoDatePhase0Migration}`;
+const videoDatePhase5AuditMigration = readFileSync("supabase/migrations/20260522013000_video_date_phase5_audit_hardening.sql", "utf8");
+const migration = `${baseMigration}\n${hardeningMigration}\n${videoDatePhase0Migration}\n${videoDatePhase5AuditMigration}`;
+const videoDateFlagSeedMigration = `${videoDatePhase0Migration}\n${videoDatePhase5AuditMigration}`;
 const core = readFileSync("shared/featureFlags/clientFeatureFlagCore.ts", "utf8");
 const videoDateFlags = readFileSync("shared/featureFlags/videoDateV4Flags.ts", "utf8");
 const webHook = readFileSync("src/hooks/useFeatureFlag.ts", "utf8");
@@ -169,6 +171,7 @@ test("video date v4 flags are typed, prefetched, and use namespaced stable rollo
     "video_date.extension_mutual_v2",
     "video_date.safety_always_on_v2",
     "video_date.daily_pool_v2",
+    "video_date.multi_device_v2",
     "video_date.outbox_v2.mark_ready",
     "video_date.outbox_v2.forfeit",
     "video_date.outbox_v2.continue_handshake",
@@ -180,8 +183,10 @@ test("video date v4 flags are typed, prefetched, and use namespaced stable rollo
     "video_date.outbox_v2.drain_match_queue",
   ]) {
     assert.match(videoDateFlags, new RegExp(`"${flag.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}"`));
-    assert.match(videoDatePhase0Migration, new RegExp(`'${flag.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}', false, 0`));
+    assert.match(videoDateFlagSeedMigration, new RegExp(`'${flag.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}',\\s*false,\\s*0`));
   }
+  assert.doesNotMatch(videoDateFlagSeedMigration, /INSERT INTO public\.client_feature_flags \(flag,/);
+  assert.match(videoDateFlagSeedMigration, /INSERT INTO public\.client_feature_flags \(flag_key, enabled, rollout_bps, description, kill_switch_active\)/);
 
   assert.match(core, /VIDEO_DATE_V4_CLIENT_FEATURE_FLAGS/);
   assert.match(core, /export const CLIENT_FEATURE_FLAG_TELEMETRY_EVENT = "client_feature_flag_evaluated"/);
