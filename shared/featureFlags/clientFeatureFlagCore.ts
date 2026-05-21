@@ -1,7 +1,15 @@
+import { VIDEO_DATE_V4_CLIENT_FEATURE_FLAGS } from "./videoDateV4Flags";
+
+export { VIDEO_DATE_V4_CLIENT_FEATURE_FLAGS, type VideoDateV4ClientFeatureFlagKey } from "./videoDateV4Flags";
+
+export const CLIENT_FEATURE_FLAG_TELEMETRY_EVENT = "client_feature_flag_evaluated";
+export const LEGACY_CLIENT_FEATURE_FLAG_TELEMETRY_EVENT = "media_v2_flag_evaluated";
+
 export const ALL_CLIENT_FEATURE_FLAGS = [
   "media_v2_video",
   "media_v2_photo",
   "media_v2_voice",
+  ...VIDEO_DATE_V4_CLIENT_FEATURE_FLAGS,
 ] as const;
 
 export type ClientFeatureFlagKey = (typeof ALL_CLIENT_FEATURE_FLAGS)[number];

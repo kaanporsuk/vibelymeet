@@ -9,6 +9,7 @@ const scanRoots = ["src", "apps", "shared"];
 const sourceExtensions = new Set([".ts", ".tsx", ".js", ".jsx"]);
 const skippedDirectories = new Set(["node_modules", "dist", "build", "coverage", ".expo", ".turbo"]);
 const htmlEntityPattern = /&(?:[a-zA-Z][a-zA-Z0-9]+|#[0-9]+|#x[0-9a-fA-F]+);/;
+const intentionalEscapedOutputHelperPattern = /^(?:escape|encode).*(?:html|xml)$|^cleanWebVttCueText$/i;
 
 interface RuntimeEntityHit {
   path: string;
@@ -104,7 +105,7 @@ function isInsideIntentionalEscapeHelper(node: ts.Node): boolean {
 
   while (current) {
     const name = functionNameFor(current);
-    if (name && /^(?:escape|encode).*(?:html|xml)$/i.test(name)) {
+    if (name && intentionalEscapedOutputHelperPattern.test(name)) {
       return true;
     }
     current = current.parent;

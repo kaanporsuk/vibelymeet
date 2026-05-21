@@ -169,6 +169,10 @@ verify_jwt = false
 [functions.video-date-room-cleanup]
 verify_jwt = false
 
+# Synthetic Video Date fixture monitor (Bearer CRON_SECRET; service-role-only dashboards).
+[functions.synthetic-video-date-monitor]
+verify_jwt = false
+
 [functions.send-email]
 verify_jwt = false
 

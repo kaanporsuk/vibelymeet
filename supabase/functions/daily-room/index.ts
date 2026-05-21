@@ -2465,6 +2465,8 @@ serve(async (req) => {
           roomProof.roomName,
           user.id,
           DAILY_VIDEO_DATE_SOLO_PREJOIN_TOKEN_TTL_SECONDS,
+          undefined,
+          { ejectAtTokenExp: true },
         );
         timings.token_ms = Date.now() - tokenStartedAt;
         timings.total_ms = Date.now() - totalStartedAt;
@@ -2807,7 +2809,13 @@ serve(async (req) => {
 
         const tokenStartedAt = Date.now();
         const tokenExpiresAt = meetingTokenExpiresAtIso(DAILY_VIDEO_DATE_TOKEN_TTL_SECONDS, tokenStartedAt);
-        const token = await createMeetingToken(roomName, user.id, DAILY_VIDEO_DATE_TOKEN_TTL_SECONDS);
+        const token = await createMeetingToken(
+          roomName,
+          user.id,
+          DAILY_VIDEO_DATE_TOKEN_TTL_SECONDS,
+          undefined,
+          { ejectAtTokenExp: true },
+        );
         timings.token_ms = Date.now() - tokenStartedAt;
         await recordVideoDateProviderObservability({
           serviceClient,
@@ -3129,7 +3137,13 @@ serve(async (req) => {
 
         const tokenStartedAt = Date.now();
         const tokenExpiresAt = meetingTokenExpiresAtIso(DAILY_VIDEO_DATE_TOKEN_TTL_SECONDS, tokenStartedAt);
-        const token = await createMeetingToken(roomName, user.id, DAILY_VIDEO_DATE_TOKEN_TTL_SECONDS);
+        const token = await createMeetingToken(
+          roomName,
+          user.id,
+          DAILY_VIDEO_DATE_TOKEN_TTL_SECONDS,
+          undefined,
+          { ejectAtTokenExp: true },
+        );
         await recordVideoDateProviderObservability({
           serviceClient,
           operation: "create_date_room_token_issued",
@@ -3401,6 +3415,8 @@ serve(async (req) => {
           roomProof.roomName,
           user.id,
           DAILY_VIDEO_DATE_TOKEN_TTL_SECONDS,
+          undefined,
+          { ejectAtTokenExp: true },
         );
         await recordVideoDateProviderObservability({
           serviceClient,

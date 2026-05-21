@@ -2,7 +2,9 @@ import { supabase } from "@/integrations/supabase/client";
 import { trackEvent } from "@/lib/analytics";
 import {
   ALL_CLIENT_FEATURE_FLAGS,
+  CLIENT_FEATURE_FLAG_TELEMETRY_EVENT,
   CLIENT_FEATURE_FLAG_STORAGE_KEY,
+  LEGACY_CLIENT_FEATURE_FLAG_TELEMETRY_EVENT,
   clearClientFeatureFlagCache as clearCoreClientFeatureFlagCache,
   clearPersistedClientFeatureFlagCache,
   evaluateClientFeatureFlag,
@@ -24,7 +26,9 @@ export {
   CLIENT_FEATURE_FLAG_FOREGROUND_REFRESH_MS,
   CLIENT_FEATURE_FLAG_QUERY_KEY,
   CLIENT_FEATURE_FLAG_STORAGE_KEY,
+  CLIENT_FEATURE_FLAG_TELEMETRY_EVENT,
   CLIENT_FEATURE_FLAG_TTL_MS,
+  LEGACY_CLIENT_FEATURE_FLAG_TELEMETRY_EVENT,
   clientFeatureFlagQueryKey,
   getCachedClientFeatureFlag,
   shouldRefreshClientFeatureFlag,
@@ -60,19 +64,25 @@ export function hydrateWebClientFeatureFlagCache(): void {
 }
 
 function emitFlagEvaluation(event: ClientFeatureFlagTelemetryEvent): void {
-  try {
-    trackEvent("media_v2_flag_evaluated", {
-      flag: event.flag,
-      enabled: event.enabled,
-      source: event.source,
-      latency_ms: event.latencyMs,
-      user_id_bucket: event.userIdBucket,
-      bucket: event.bucket,
-      rollout_bps: event.rolloutBps,
-      platform: "web",
-    });
-  } catch {
-    /* analytics failures must not change feature flag behavior */
+  const payload = {
+    flag: event.flag,
+    enabled: event.enabled,
+    source: event.source,
+    latency_ms: event.latencyMs,
+    user_id_bucket: event.userIdBucket,
+    bucket: event.bucket,
+    rollout_bps: event.rolloutBps,
+    platform: "web",
+  };
+  const eventNames = event.flag.startsWith("media_v2_")
+    ? [LEGACY_CLIENT_FEATURE_FLAG_TELEMETRY_EVENT, CLIENT_FEATURE_FLAG_TELEMETRY_EVENT]
+    : [CLIENT_FEATURE_FLAG_TELEMETRY_EVENT];
+  for (const eventName of eventNames) {
+    try {
+      trackEvent(eventName, payload);
+    } catch {
+      /* analytics failures must not change feature flag behavior */
+    }
   }
 }
 

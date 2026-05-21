@@ -1,0 +1,23 @@
+export const VIDEO_DATE_V4_CLIENT_FEATURE_FLAGS = [
+  "video_date.snapshot_v2",
+  "video_date.deck_deal_v2",
+  "video_date.readiness_v2",
+  "video_date.micro_verdict_v2",
+  "video_date.broadcast_v2",
+  "video_date.timeline_v2",
+  "video_date.daily_webhooks_v2",
+  "video_date.extension_mutual_v2",
+  "video_date.safety_always_on_v2",
+  "video_date.daily_pool_v2",
+  "video_date.outbox_v2.mark_ready",
+  "video_date.outbox_v2.forfeit",
+  "video_date.outbox_v2.continue_handshake",
+  "video_date.outbox_v2.handshake_auto_promote",
+  "video_date.outbox_v2.date_timeout",
+  "video_date.outbox_v2.submit_verdict",
+  "video_date.outbox_v2.extension",
+  "video_date.outbox_v2.safety",
+  "video_date.outbox_v2.drain_match_queue",
+] as const;
+
+export type VideoDateV4ClientFeatureFlagKey = (typeof VIDEO_DATE_V4_CLIENT_FEATURE_FLAGS)[number];
