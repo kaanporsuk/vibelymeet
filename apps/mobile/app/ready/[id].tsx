@@ -335,9 +335,16 @@ export default function ReadyGateScreen() {
               explainInvalidToTabs();
               return;
             }
-            if (recovery.action === 'lobby') {
+            if (recovery.action === 'lobby' && recovery.reason !== 'not_date_ready') {
               router.replace(eventLobbyHref(recovery.eventId));
               return;
+            }
+            if (recovery.action === 'lobby' && recovery.reason === 'not_date_ready') {
+              rcBreadcrumb(RC_CATEGORY.readyGate, 'standalone_snapshot_lobby_deferred_to_truth', {
+                session_id: sessionId,
+                event_id: recovery.eventId,
+                phase: snapshot.phase,
+              });
             }
           } else if (recovery.action === 'invalid') {
             rcBreadcrumb(RC_CATEGORY.readyGate, 'standalone_snapshot_v2_rejected', {

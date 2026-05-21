@@ -458,6 +458,7 @@ const VideoDate = () => {
   const manualExitInFlightRef = useRef(false);
   const sessionSeqRef = useRef<number | null>(null);
   const broadcastRefetchInFlightRef = useRef(false);
+  const broadcastPendingRefetchSeqRef = useRef<number | null>(null);
   const serverTimelineRef = useRef<VideoDateTimelineState | null>(null);
   /** Set after `handleCallEnd` is defined — avoids TDZ when `handleHandshakeDecision` closes over end UX. */
   const handleCallEndRef = useRef<((reason?: VideoDateEndReason) => Promise<void>) | null>(null);
@@ -940,6 +941,7 @@ const VideoDate = () => {
     sessionIdRef.current = id;
     sessionSeqRef.current = null;
     broadcastRefetchInFlightRef.current = false;
+    broadcastPendingRefetchSeqRef.current = null;
     serverTimelineRef.current = null;
     setServerTimeline(null);
   }, [id]);
@@ -2052,13 +2054,26 @@ const VideoDate = () => {
       if (decision.action === "invalid" || decision.action === "duplicate") return;
 
       sessionSeqRef.current = event.sessionSeq;
-      if (broadcastRefetchInFlightRef.current) return;
+      if (broadcastRefetchInFlightRef.current) {
+        broadcastPendingRefetchSeqRef.current = Math.max(
+          broadcastPendingRefetchSeqRef.current ?? 0,
+          event.sessionSeq,
+        );
+        return;
+      }
       broadcastRefetchInFlightRef.current = true;
       try {
-        if (decision.action === "gap") {
+        const initialExpectedSeq = decision.action === "gap" ? decision.expectedSeq : null;
+        let pendingRefetchSeq: number | null = decision.action === "gap" ? event.sessionSeq : null;
+        while (pendingRefetchSeq !== null) {
+          const refetchSeq = pendingRefetchSeq;
+          broadcastPendingRefetchSeqRef.current = null;
           const snapshot = await fetchVideoDateSnapshot(id, { includeToken: false });
           if (snapshot.ok) {
-            applyTimelineSnapshot(snapshot, "broadcast_seq_gap");
+            applyTimelineSnapshot(
+              snapshot,
+              refetchSeq === event.sessionSeq ? "broadcast_seq_gap" : "broadcast_queued_seq",
+            );
             sessionSeqRef.current = Math.max(sessionSeqRef.current ?? 0, snapshot.seq);
             if (snapshot.phase === "ended") {
               const handled = await recoverTerminalPostDateSurvey("broadcast_snapshot_terminal");
@@ -2073,11 +2088,12 @@ const VideoDate = () => {
               session_id: id,
               event_id: eventId ?? null,
               event_kind: event.kind,
-              incoming_seq: event.sessionSeq,
-              expected_seq: decision.expectedSeq,
+              incoming_seq: refetchSeq,
+              expected_seq: refetchSeq === event.sessionSeq ? initialExpectedSeq : null,
               snapshot_ok: snapshot.ok,
             },
           });
+          pendingRefetchSeq = broadcastPendingRefetchSeqRef.current;
         }
         setTimingRefreshNonce((n) => n + 1);
       } finally {

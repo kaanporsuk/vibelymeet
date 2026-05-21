@@ -106,6 +106,17 @@ test("PR 4.4 sequence gaps refetch token-free snapshots before normal reconcilia
   });
 });
 
+test("broadcast gap refetch queues follow-up snapshots for newer events that arrive mid-sync", () => {
+  assert.match(webVideoDate, /broadcastPendingRefetchSeqRef/);
+  assert.match(
+    webVideoDate,
+    /if \(broadcastRefetchInFlightRef\.current\) \{[\s\S]*broadcastPendingRefetchSeqRef\.current = Math\.max/,
+  );
+  assert.match(webVideoDate, /while \(pendingRefetchSeq !== null\)/);
+  assert.match(webVideoDate, /broadcastPendingRefetchSeqRef\.current = null/);
+  assert.match(webVideoDate, /broadcast_queued_seq/);
+});
+
 test("Phase 4 consumers seed and reset session sequence state across web and native surfaces", () => {
   assert.match(webReadyGate, /\.select\("[^"]*session_seq[^"]*"\)/);
   assert.match(nativeReadyGate, /\.select\(\s*'[^']*session_seq[^']*'/);

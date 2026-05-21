@@ -270,6 +270,23 @@ test("PR 5.6 queued and retryable snapshots do not bypass queue/lobby recovery",
   assert.match(nativeNotificationDeepLink, /Retryable failures, queued rescue, and non-survey terminal states/);
 });
 
+test("native ready keeps ambiguous active snapshots on canonical truth fallback", () => {
+  const ambiguousActiveRecovery = resolveVideoDateSnapshotRecovery({
+    ...baseSnapshot,
+    phase: "handshake",
+    room: null,
+  });
+  assert.deepEqual(ambiguousActiveRecovery, {
+    action: "lobby",
+    sessionId: baseSnapshot.sessionId,
+    eventId: baseSnapshot.eventId!,
+    reason: "not_date_ready",
+  });
+
+  assert.match(nativeReadyRedirect, /recovery\.action === ['"]lobby['"] && recovery\.reason !== ['"]not_date_ready['"]/);
+  assert.match(nativeReadyRedirect, /standalone_snapshot_lobby_deferred_to_truth/);
+});
+
 test("Phase 5 contracts are included in the v4 verification script", () => {
   assert.match(packageJson, /shared\/matching\/videoDatePhase5TimelineContracts\.test\.ts/);
 });
