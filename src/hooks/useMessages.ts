@@ -333,6 +333,62 @@ export async function hydrateChatRowsForDisplay(
   });
 }
 
+export async function patchThreadCacheFromRawMessage(
+  qc: QueryClient,
+  scope: ThreadInvalidateScope | undefined,
+  raw: unknown,
+): Promise<boolean> {
+  if (!scope?.otherUserId || !scope.currentUserId) return false;
+  if (!raw || typeof raw !== "object" || !("id" in raw)) return false;
+
+  const row = normalizeRawMessage(raw as Partial<ChatRawMessageRow> & { id: string });
+  if (scope.matchId && row.match_id && row.match_id !== scope.matchId) return false;
+
+  const renderableKind = toRenderableMessageKind(row.message_kind);
+  if (row.message_kind === "vibe_game" || renderableKind === "vibe_game_session") return false;
+
+  let hydrated: Message[];
+  try {
+    hydrated = await hydrateChatRowsForDisplay([row], scope.currentUserId);
+  } catch {
+    return false;
+  }
+  const message = hydrated[0];
+  if (!message) return false;
+
+  const key = threadMessagesQueryKey(scope.otherUserId, scope.currentUserId);
+  let patched = false;
+  qc.setQueryData<InfiniteData<ChatThreadPage>>(key, (old) => {
+    if (!old?.pages?.length) return old;
+    const pages = old.pages.map((page, pageIndex) => {
+      const existingIndex = page.messages.findIndex((m) => m.id === message.id);
+      if (existingIndex >= 0) {
+        patched = true;
+        return {
+          ...page,
+          messages: page.messages.map((m) => (m.id === message.id ? { ...m, ...message } : m)),
+        };
+      }
+      if (pageIndex === 0) {
+        patched = true;
+        const latestById = new Map<string, Message>();
+        for (const m of [...page.messages, message]) latestById.set(m.id, m);
+        return {
+          ...page,
+          messages: Array.from(latestById.values()).sort((a, b) => {
+            const at = new Date(a.createdAt).getTime();
+            const bt = new Date(b.createdAt).getTime();
+            return at - bt;
+          }),
+        };
+      }
+      return page;
+    });
+    return { ...old, pages };
+  });
+  return patched;
+}
+
 async function hydrateChatPageRowsForDisplay(params: {
   matchId: string | null | undefined;
   rows: ChatRawMessageRow[];

@@ -163,7 +163,7 @@ import {
   safeRemoveExpoSharedObjectSubscription,
 } from '@/lib/expoSharedObjectSafe';
 import { durationBucketFromSeconds, threadBucketFromCount } from '../../../../shared/chat/vibeClipAnalytics';
-import { outboxPhaseStatusLabel, type OutboxPayloadKind } from '../../../../shared/chat/outgoingStatusLabels';
+import { outboxPhaseStatusPresentation, type OutboxPayloadKind } from '../../../../shared/chat/outgoingStatusLabels';
 import { nativeMediaTranscodeHooks } from '@clientShared/media-sdk';
 import { useNativeCaptionCapture } from '@/hooks/useNativeCaptionCapture';
 import type { MediaCaptions } from '../../../../shared/media/captions';
@@ -409,10 +409,13 @@ function mapOutboxToLocalSendState(state: ChatOutboxQueueState): LocalTextSendSt
   return 'sending';
 }
 
-function outboxFooterPrimaryLabel(phase: ChatOutboxQueueState | undefined, payloadKind?: string): string | null {
+function outboxFooterPrimaryLabel(
+  phase: ChatOutboxQueueState | undefined,
+  payloadKind: OutboxPayloadKind,
+  opts?: { ageMs?: number; uploadPercent?: number | null },
+): string | null {
   if (!phase) return null;
-  const label = outboxPhaseStatusLabel(phase, payloadKind as OutboxPayloadKind);
-  return label || null;
+  return outboxPhaseStatusPresentation(phase, payloadKind, opts).visibleLabel;
 }
 
 function vibeClipRecoveryFromDecision(
@@ -1437,6 +1440,21 @@ export default function ChatThreadScreen() {
     if (!data?.matchId) return [];
     return itemsForMatch(data.matchId);
   }, [data?.matchId, itemsForMatch]);
+  const [outboxStatusNowMs, setOutboxStatusNowMs] = useState(() => Date.now());
+  const hasPendingTextOutboxStatus = useMemo(
+    () =>
+      outboxForMatch.some(
+        (item) =>
+          item.payload.kind === 'text' &&
+          (item.state === 'queued' || item.state === 'sending' || item.state === 'awaiting_hydration'),
+      ),
+    [outboxForMatch],
+  );
+  useEffect(() => {
+    if (!hasPendingTextOutboxStatus) return;
+    const timer = setInterval(() => setOutboxStatusNowMs(Date.now()), 500);
+    return () => clearInterval(timer);
+  }, [hasPendingTextOutboxStatus]);
   const outboxById = useMemo(() => {
     const map = new Map<string, ChatOutboxItem>();
     for (const item of outboxForMatch) map.set(item.id, item);
@@ -1544,6 +1562,10 @@ export default function ChatThreadScreen() {
       getId: (m) => m.id,
     });
   }, [threadMessages]);
+  const sendThreadBucket = useMemo(
+    () => threadBucketFromCount(displayMessages.length),
+    [displayMessages.length],
+  );
 
   const [photoUriOverridesById, setPhotoUriOverridesById] = useState<Record<string, string>>({});
   const photoUriForMessage = useCallback(
@@ -2217,6 +2239,7 @@ export default function ChatThreadScreen() {
       matchId: data.matchId,
       otherUserId: otherUserId ?? '',
       payload: { kind: 'text', text },
+      threadBucket: sendThreadBucket,
     });
     setInput('');
     setIsTyping(false);
@@ -2367,6 +2390,7 @@ export default function ChatThreadScreen() {
         matchId: data.matchId,
         otherUserId: otherUserId ?? '',
         payload: { kind: 'voice', uri: stable, durationSeconds: durationSec },
+        threadBucket: sendThreadBucket,
       });
       if (queuedId && stable !== uri) {
         await discardTemporaryVoiceUri(uri);
@@ -2472,6 +2496,7 @@ export default function ChatThreadScreen() {
           mimeType: videoMimeType,
           aspectRatio: aspectRatioForVideoAsset(asset),
         },
+        threadBucket: sendThreadBucket,
       });
       trackVibeClipEvent('clip_send_attempted', {
         capture_source: 'library',
@@ -2534,6 +2559,7 @@ export default function ChatThreadScreen() {
           mimeType: 'video/mp4',
           aspectRatio: 9 / 16,
         },
+        threadBucket: sendThreadBucket,
       });
       trackVibeClipEvent('clip_send_attempted', {
         capture_source: 'library',
@@ -2594,12 +2620,13 @@ export default function ChatThreadScreen() {
           aspectRatio: clip.aspectRatio,
           captions: clip.captions ?? null,
         },
+        threadBucket: sendThreadBucket,
       });
       trackVibeClipEvent('clip_send_attempted', {
         capture_source: 'camera',
         duration_bucket: durationBucketFromSeconds(durationSec),
         has_poster: false,
-        thread_bucket: threadBucketFromCount(displayMessages.length),
+        thread_bucket: sendThreadBucket,
         is_sender: true,
       });
     } catch (e) {
@@ -2619,9 +2646,9 @@ export default function ChatThreadScreen() {
   }, [
     composerInputLocked,
     data?.matchId,
-    displayMessages.length,
     isOffline,
     otherUserId,
+    sendThreadBucket,
     showAppDialog,
     user?.id,
     enqueue,
@@ -2650,6 +2677,7 @@ export default function ChatThreadScreen() {
         matchId: data.matchId,
         otherUserId: otherUserId ?? '',
         payload: { kind: 'image', uri: stable, mimeType: imageMimeType ?? 'application/octet-stream' },
+        threadBucket: sendThreadBucket,
       });
       return true;
     } catch (e) {
@@ -2971,26 +2999,31 @@ export default function ChatThreadScreen() {
     const localSendState = localMedia?.state ?? localText?.state ?? null;
     const outboxPhase = localMedia?.outboxPhase ?? localText?.outboxPhase;
     const outboxItemId = localMedia?.outboxItemId ?? localText?.outboxItemId;
-    const outboxPayloadKind = localMedia?.payload.kind ?? (localText ? 'text' : undefined);
+    const outboxPayloadKind = (localMedia?.payload.kind ?? (localText ? 'text' : undefined)) as OutboxPayloadKind;
     const uploadProgress =
-      outboxPayloadKind === 'video' &&
+      outboxPayloadKind !== 'text' &&
       outboxPhase === 'sending' &&
       typeof localMedia?.uploadProgress === 'number' &&
       Number.isFinite(localMedia.uploadProgress)
         ? Math.max(0, Math.min(100, Math.round(localMedia.uploadProgress * 100)))
         : null;
+    const outboxCreatedAtMs = localMedia?.createdAtMs ?? localText?.createdAtMs ?? null;
+    const outboxAgeMs = outboxCreatedAtMs != null ? Math.max(0, outboxStatusNowMs - outboxCreatedAtMs) : undefined;
+    const outboxPresentation = outboxPhase
+      ? outboxPhaseStatusPresentation(outboxPhase, outboxPayloadKind, {
+          ageMs: outboxAgeMs,
+          uploadPercent: uploadProgress,
+        })
+      : null;
     const outboxPrimary =
-      uploadProgress != null
-        ? `Uploading ${uploadProgress}%`
-        : outboxFooterPrimaryLabel(outboxPhase, outboxPayloadKind) ??
-      (localSendState === 'sending'
-        ? 'Sending…'
-        : localSendState === 'failed'
-          ? 'Failed to send'
-          : item.time);
+      outboxFooterPrimaryLabel(outboxPhase, outboxPayloadKind, {
+        ageMs: outboxAgeMs,
+        uploadPercent: uploadProgress,
+      }) ?? (localSendState === 'failed' ? 'Failed to send' : null);
     const outboxSendingLocked =
       outboxPhase === 'sending' || outboxPhase === 'awaiting_hydration';
-    const localSendFooter = isMe && localSendState ? (
+    const shouldShowLocalSendFooter = Boolean(isMe && localSendState && (outboxPrimary || localSendState === 'failed'));
+    const localSendFooter = shouldShowLocalSendFooter ? (
       <View style={[styles.localSendRow, localSendState === 'failed' ? styles.localSendRowFailed : null]}>
         <Text style={[styles.localSendText, { color: localSendState === 'failed' ? theme.danger : timeColor }]}>
           {outboxPrimary}
@@ -3017,7 +3050,16 @@ export default function ChatThreadScreen() {
       </View>
     ) : null;
     const statusOrTime = isMe ? (
-      localSendFooter ?? <MessageStatus status={item.status ?? 'delivered'} time={item.time} isMyMessage />
+      localSendFooter ?? (
+        <MessageStatus
+          status={item.status ?? 'delivered'}
+          time={item.time}
+          isMyMessage
+          suppressSendingIndicator={Boolean(outboxPresentation && !outboxPresentation.showSpinner)}
+          showSendingSpinner={outboxPresentation?.showSpinner}
+          assistiveLabel={outboxPresentation?.assistiveLabel}
+        />
+      )
     ) : (
       <Text style={[styles.bubbleTime, { color: timeColor }]}>{item.time}</Text>
     );
@@ -3772,6 +3814,10 @@ export default function ChatThreadScreen() {
           renderItem={renderItem}
           keyExtractor={chatListRowKey}
           inverted
+          initialNumToRender={18}
+          maxToRenderPerBatch={8}
+          updateCellsBatchingPeriod={16}
+          windowSize={7}
           style={styles.messageList}
           keyboardShouldPersistTaps="handled"
           keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}

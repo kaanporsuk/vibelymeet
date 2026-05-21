@@ -4,7 +4,10 @@ import {
 } from "@/lib/chatMessageContent";
 import type { MessageStatusType } from "@/components/chat/MessageStatus";
 import type { WebChatOutboxItem } from "./types";
-import { outboxPhaseStatusLabel, type OutboxPayloadKind } from "../../../shared/chat/outgoingStatusLabels";
+import {
+  outboxPhaseStatusPresentation,
+  type OutboxPayloadKind,
+} from "../../../shared/chat/outgoingStatusLabels";
 
 export type OutboxPreviewMap = Record<string, { image?: string; audio?: string; video?: string }>;
 
@@ -34,9 +37,16 @@ export type OutboxChatMessageRow = {
   structuredPayload?: Record<string, unknown> | null;
   outboxItemId?: string;
   statusSubtext?: string;
+  statusAssistive?: string;
+  suppressSendingIndicator?: boolean;
+  showSendingSpinner?: boolean;
 };
 
-export function webOutboxItemsToRows(items: WebChatOutboxItem[], previews: OutboxPreviewMap): OutboxChatMessageRow[] {
+export function webOutboxItemsToRows(
+  items: WebChatOutboxItem[],
+  previews: OutboxPreviewMap,
+  nowMs = Date.now(),
+): OutboxChatMessageRow[] {
   const rows: OutboxChatMessageRow[] = [];
   for (const it of items) {
     if (it.state === "sent" || it.state === "canceled") continue;
@@ -44,15 +54,16 @@ export function webOutboxItemsToRows(items: WebChatOutboxItem[], previews: Outbo
     const t = new Date(it.createdAtMs).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
     const labelKind = payloadKindForLabel(it);
     const uploadPercent =
-      it.payload.kind === "video" &&
+      it.payload.kind !== "text" &&
       it.state === "sending" &&
       typeof it.uploadProgress === "number" &&
       Number.isFinite(it.uploadProgress)
         ? Math.max(0, Math.min(100, Math.round(it.uploadProgress * 100)))
         : null;
-    const sub = uploadPercent != null
-      ? `Uploading ${uploadPercent}%`
-      : outboxPhaseStatusLabel(it.state as Parameters<typeof outboxPhaseStatusLabel>[0], labelKind);
+    const presentation = outboxPhaseStatusPresentation(it.state, labelKind, {
+      ageMs: Math.max(0, nowMs - it.createdAtMs),
+      uploadPercent,
+    });
 
     let status: MessageStatusType = "sending";
     let sendError: string | undefined;
@@ -68,7 +79,10 @@ export function webOutboxItemsToRows(items: WebChatOutboxItem[], previews: Outbo
       clientRequestId: it.id,
       outboxItemId: it.id,
       sortAtMs: it.createdAtMs,
-      statusSubtext: it.state === "failed" ? undefined : sub,
+      statusSubtext: it.state === "failed" ? undefined : presentation.visibleLabel ?? undefined,
+      statusAssistive: presentation.assistiveLabel,
+      suppressSendingIndicator: !presentation.showSpinner,
+      showSendingSpinner: presentation.showSpinner,
     };
 
     if (it.payload.kind === "text") {

@@ -1,11 +1,42 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
-import { createClient, SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.88.0";
+import { createClient, type SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.88.0";
 import { syncChatMessageMedia } from "../_shared/media-lifecycle.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
+
+type EdgeRuntimeWithWaitUntil = {
+  waitUntil?: (promise: Promise<unknown>) => void;
+};
+
+function runBackgroundTask(label: string, task: () => Promise<unknown>) {
+  const promise = (async () => {
+    try {
+      await task();
+    } catch (error) {
+      console.error(`${label} error:`, error);
+    }
+  })();
+  const runtime = (globalThis as typeof globalThis & { EdgeRuntime?: EdgeRuntimeWithWaitUntil }).EdgeRuntime;
+  if (runtime?.waitUntil) {
+    runtime.waitUntil(promise);
+  } else {
+    void promise;
+  }
+}
+
+function invokeSendNotification(
+  serviceClient: SupabaseClient,
+  serviceRoleKey: string,
+  body: Record<string, unknown>,
+) {
+  return serviceClient.functions.invoke("send-notification", {
+    headers: { Authorization: `Bearer ${serviceRoleKey}` },
+    body,
+  });
+}
 
 function isUuid(s: string): boolean {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
@@ -380,26 +411,21 @@ serve(async (req) => {
         );
       }
 
-      try {
+      runBackgroundTask("send-message vibe_clip notification", async () => {
         const { data: senderProfile } = await serviceClient
           .from("profiles")
           .select("name")
           .eq("id", actorId)
           .maybeSingle();
 
-        await serviceClient.functions.invoke("send-notification", {
-          headers: { Authorization: `Bearer ${serviceRoleKey}` },
-          body: {
-            user_id: recipientId,
-            category: "messages",
-            title: senderProfile?.name || "New message",
-            body: "\uD83C\uDFAC Sent you a Vibe Clip",
-            data: { url: `/chat/${actorId}`, match_id, sender_id: actorId },
-          },
+        await invokeSendNotification(serviceClient, serviceRoleKey, {
+          user_id: recipientId,
+          category: "messages",
+          title: senderProfile?.name || "New message",
+          body: "\uD83C\uDFAC Sent you a Vibe Clip",
+          data: { url: `/chat/${actorId}`, match_id, sender_id: actorId },
         });
-      } catch (notifyError) {
-        console.error("send-message vibe_clip notification error:", notifyError);
-      }
+      });
 
       return new Response(
         JSON.stringify({ success: true, idempotent: false, message: insertedClip }),
@@ -492,26 +518,21 @@ serve(async (req) => {
         );
       }
 
-      try {
+      runBackgroundTask("send-message voice notification", async () => {
         const { data: senderProfile } = await serviceClient
           .from("profiles")
           .select("name")
           .eq("id", actorId)
           .maybeSingle();
 
-        await serviceClient.functions.invoke("send-notification", {
-          headers: { Authorization: `Bearer ${serviceRoleKey}` },
-          body: {
-            user_id: recipientId,
-            category: "messages",
-            title: senderProfile?.name || "New message",
-            body: "🎤 Sent a voice message",
-            data: { url: `/chat/${actorId}`, match_id, sender_id: actorId },
-          },
+        await invokeSendNotification(serviceClient, serviceRoleKey, {
+          user_id: recipientId,
+          category: "messages",
+          title: senderProfile?.name || "New message",
+          body: "🎤 Sent a voice message",
+          data: { url: `/chat/${actorId}`, match_id, sender_id: actorId },
         });
-      } catch (notifyError) {
-        console.error("send-message voice notification error:", notifyError);
-      }
+      });
 
       return new Response(
         JSON.stringify({ success: true, idempotent: false, message: insertedVoice }),
@@ -631,7 +652,7 @@ serve(async (req) => {
     }
 
     if (!idempotent) {
-      try {
+      runBackgroundTask("send-message notification", async () => {
         const { data: senderProfile } = await serviceClient
           .from("profiles")
           .select("name")
@@ -640,23 +661,18 @@ serve(async (req) => {
 
         const preview = notificationPreviewFromTextContent(trimmed);
 
-        await serviceClient.functions.invoke("send-notification", {
-          headers: { Authorization: `Bearer ${serviceRoleKey}` },
-          body: {
-            user_id: recipientId,
-            category: "messages",
-            title: senderProfile?.name || "New message",
-            body: preview,
-            data: {
-              url: `/chat/${actorId}`,
-              match_id,
-              sender_id: actorId,
-            },
+        await invokeSendNotification(serviceClient, serviceRoleKey, {
+          user_id: recipientId,
+          category: "messages",
+          title: senderProfile?.name || "New message",
+          body: preview,
+          data: {
+            url: `/chat/${actorId}`,
+            match_id,
+            sender_id: actorId,
           },
         });
-      } catch (notifyError) {
-        console.error("send-message notification error:", notifyError);
-      }
+      });
     }
 
     return new Response(

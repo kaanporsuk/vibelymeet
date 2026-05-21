@@ -397,6 +397,8 @@ const WebHomeUnreadInvalidator = () => {
     const invalidateHomeUnread = () => {
       void queryClient.invalidateQueries({ queryKey: ["unread-home"] });
       void queryClient.invalidateQueries({ queryKey: ["unread-home-info-bar"] });
+      void queryClient.invalidateQueries({ queryKey: ["matches"] });
+      void queryClient.invalidateQueries({ queryKey: ["profile-live-counts"] });
     };
     const channel = supabase
       .channel(`web-home-unread-${userId}`)

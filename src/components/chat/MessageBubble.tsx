@@ -18,6 +18,9 @@ interface Message {
   sendError?: string;
   /** Queued / offline / sending (web durable outbox) */
   statusSubtext?: string;
+  statusAssistive?: string;
+  suppressSendingIndicator?: boolean;
+  showSendingSpinner?: boolean;
 }
 
 interface MessageBubbleProps {
@@ -28,6 +31,7 @@ interface MessageBubbleProps {
   avatarUrl?: string;
   onReaction?: (messageId: string, emoji: ReactionEmoji | null) => void;
   onRetryFailedSend?: (messageId: string) => void;
+  onRemoveFailedSend?: (messageId: string) => void;
 }
 
 export const MessageBubble = ({
@@ -38,6 +42,7 @@ export const MessageBubble = ({
   avatarUrl,
   onReaction,
   onRetryFailedSend,
+  onRemoveFailedSend,
 }: MessageBubbleProps) => {
   const isMe = message.sender === "me";
   const [showEmojiBar, setShowEmojiBar] = useState(false);
@@ -157,12 +162,27 @@ export const MessageBubble = ({
       >
         <p className="text-[13px] leading-relaxed">{message.text}</p>
         {isMe && message.sendError ? (
-          <button
-            onClick={() => onRetryFailedSend?.(message.id)}
-            className="mt-1 text-[10px] underline underline-offset-2 text-primary-foreground/85 hover:text-primary-foreground"
-          >
-            {message.sendError}
-          </button>
+          <div className="mt-1 flex flex-col items-end gap-1 text-right">
+            <span className="text-[10px] text-primary-foreground/80">{message.sendError}</span>
+            <span className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => onRetryFailedSend?.(message.id)}
+                className="text-[10px] font-medium underline underline-offset-2 text-primary-foreground/90 hover:text-primary-foreground"
+              >
+                Retry
+              </button>
+              {onRemoveFailedSend ? (
+                <button
+                  type="button"
+                  onClick={() => onRemoveFailedSend(message.id)}
+                  className="text-[10px] underline underline-offset-2 text-primary-foreground/70 hover:text-primary-foreground"
+                >
+                  Remove
+                </button>
+              ) : null}
+            </span>
+          </div>
         ) : null}
         {isLastInGroup && (
           <div className={cn(
@@ -183,6 +203,9 @@ export const MessageBubble = ({
                   status={message.status || "delivered"}
                   time={message.time}
                   isMyMessage={isMe}
+                  suppressSendingIndicator={message.suppressSendingIndicator}
+                  showSendingSpinner={message.showSendingSpinner}
+                  assistiveLabel={message.statusAssistive}
                 />
               )}
             </div>
