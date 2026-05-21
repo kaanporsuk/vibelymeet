@@ -56,14 +56,14 @@ const ReadyRedirect = () => {
         if (cancelled) return;
         const recovery = resolveVideoDateSnapshotRecovery(snapshot, { expectedSessionId: candidate });
         const snapshotEventId = snapshot.ok ? snapshot.eventId : null;
-        if (recovery.action === "date") {
+        if (recovery.action === "date" || recovery.action === "survey") {
           markVideoDateEntryPipelineStarted(candidate);
           navigate(`/date/${encodeURIComponent(recovery.sessionId)}`, { replace: true });
           return;
         }
         if (recovery.action === "ready_gate" || recovery.action === "lobby") {
           const recoveryEventId = snapshotEventId ?? recovery.eventId;
-          if (recovery.reason === "ended" || recovery.reason === "verdict") {
+          if (recovery.reason === "ended") {
             notifyOnce(READY_GATE_STALE_OR_ENDED_USER_MESSAGE);
           }
           navigate(`/event/${encodeURIComponent(recoveryEventId)}/lobby`, { replace: true });

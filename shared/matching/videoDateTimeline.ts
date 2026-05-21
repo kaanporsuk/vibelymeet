@@ -7,6 +7,7 @@ import type {
   VideoDateSnapshotOk,
   VideoDateSnapshotPhase,
 } from "./videoDateSnapshot";
+import { POST_DATE_SURVEY_INELIGIBLE_ENDED_REASONS } from "./activeSession";
 
 export type VideoDateTimelineState = {
   sessionId: string;
@@ -29,9 +30,10 @@ export type VideoDateTimelineSnapshotDecision =
   | { action: "invalid"; timeline: VideoDateTimelineState | null; reason: string };
 
 export type VideoDateDeepLinkRecovery =
-  | { action: "date"; sessionId: string; eventId: string | null; reason: "handshake" | "date" }
-  | { action: "ready_gate"; sessionId: string; eventId: string; reason: "ready_gate" | "queued" }
-  | { action: "lobby"; sessionId: string; eventId: string; reason: "ended" | "verdict" | "not_date_ready" }
+  | { action: "date"; sessionId: string; eventId: string | null; reason: "handshake" | "date" | "already_joined" }
+  | { action: "survey"; sessionId: string; eventId: string | null; reason: "verdict" | "terminal_encounter" }
+  | { action: "ready_gate"; sessionId: string; eventId: string; reason: "ready_gate" }
+  | { action: "lobby"; sessionId: string; eventId: string; reason: "ended" | "queued" | "not_date_ready" }
   | { action: "home"; sessionId: string | null; reason: "missing_event" | "snapshot_retryable" }
   | { action: "invalid"; sessionId: string | null; reason: string };
 
@@ -135,29 +137,58 @@ export function resolveVideoDateSnapshotRecovery(
       action: "date",
       sessionId: snapshot.sessionId,
       eventId: snapshot.eventId,
-      reason: snapshot.phase,
+      reason: snapshotSelfHasJoined(snapshot) ? "already_joined" : snapshot.phase,
     };
   }
 
-  if (snapshot.phase === "ready_gate" || snapshot.phase === "queued") {
+  if (snapshot.phase === "ready_gate") {
     if (snapshot.eventId) {
       return {
         action: "ready_gate",
         sessionId: snapshot.sessionId,
         eventId: snapshot.eventId,
-        reason: snapshot.phase === "queued" ? "queued" : "ready_gate",
+        reason: "ready_gate",
       };
     }
     return { action: "home", sessionId: snapshot.sessionId, reason: "missing_event" };
   }
 
-  if (snapshot.phase === "ended" || snapshot.phase === "verdict") {
+  if (snapshot.phase === "queued") {
     if (snapshot.eventId) {
       return {
         action: "lobby",
         sessionId: snapshot.sessionId,
         eventId: snapshot.eventId,
-        reason: snapshot.phase === "verdict" ? "verdict" : "ended",
+        reason: "queued",
+      };
+    }
+    return { action: "home", sessionId: snapshot.sessionId, reason: "missing_event" };
+  }
+
+  if (snapshot.phase === "verdict") {
+    return {
+      action: "survey",
+      sessionId: snapshot.sessionId,
+      eventId: snapshot.eventId,
+      reason: "verdict",
+    };
+  }
+
+  if (snapshot.phase === "ended") {
+    if (snapshotHasTerminalSurveyEvidence(snapshot)) {
+      return {
+        action: "survey",
+        sessionId: snapshot.sessionId,
+        eventId: snapshot.eventId,
+        reason: "terminal_encounter",
+      };
+    }
+    if (snapshot.eventId) {
+      return {
+        action: "lobby",
+        sessionId: snapshot.sessionId,
+        eventId: snapshot.eventId,
+        reason: "ended",
       };
     }
     return { action: "home", sessionId: snapshot.sessionId, reason: "missing_event" };
@@ -180,6 +211,35 @@ function timelineDurationMs(timeline: VideoDateTimelineState): number {
   const deadlineMs = nullableFiniteNumber(timeline.phaseDeadlineAtMs);
   if (startedAtMs === null || deadlineMs === null || deadlineMs <= startedAtMs) return 0;
   return deadlineMs - startedAtMs;
+}
+
+const postDateSurveyIneligibleEndedReasons = new Set<string>(
+  POST_DATE_SURVEY_INELIGIBLE_ENDED_REASONS,
+);
+
+const terminalSurveyRecoveryEndedReasons = new Set<string>([
+  "date_timeout",
+  "ended_from_client",
+  "reconnect_grace_expired",
+]);
+
+function snapshotSelfHasJoined(snapshot: VideoDateSnapshotOk): boolean {
+  return snapshot.participants.some(
+    (participant) => participant.isSelf && nullableFiniteNumber(participant.mediaJoinedAt) !== null,
+  );
+}
+
+function snapshotPartnerHasJoined(snapshot: VideoDateSnapshotOk): boolean {
+  return snapshot.participants.some(
+    (participant) => participant.isPartner && nullableFiniteNumber(participant.mediaJoinedAt) !== null,
+  );
+}
+
+function snapshotHasTerminalSurveyEvidence(snapshot: VideoDateSnapshotOk): boolean {
+  if (snapshot.phase !== "ended" || nullableFiniteNumber(snapshot.endedAt) === null) return false;
+  if (snapshot.endedReason && postDateSurveyIneligibleEndedReasons.has(snapshot.endedReason)) return false;
+  if (snapshot.endedReason && terminalSurveyRecoveryEndedReasons.has(snapshot.endedReason)) return true;
+  return snapshotSelfHasJoined(snapshot) && snapshotPartnerHasJoined(snapshot);
 }
 
 function emptyTimelineCountdown(remainingSeconds: number | null, durationMs: number): VideoDatePhaseCountdown {

@@ -138,8 +138,136 @@ test("PR 5.3 push and deep-link recovery share one snapshot decision helper", ()
   assert.match(nativeNotificationDeepLink, /fetchVideoDateSnapshot\(sid, \{ includeToken: false \}\)/);
   assert.match(nativeNotificationDeepLink, /expectedSessionId: sid/);
   assert.match(nativeNotificationDeepLink, /snapshotRecoveryV2: snapshotV2\.enabled/);
-  assert.match(nativeNotificationDeepLink, /pending surveys and queue drain recovery stay intact/);
+  assert.match(nativeNotificationDeepLink, /queue drain and stale-ended recovery stay intact/);
   assert.doesNotMatch(timeline, /token|DAILY_API_KEY|meeting[_-]?token/i);
+});
+
+test("PR 5.4 terminal survey snapshots route to date recovery without losing stale-ended fallback", () => {
+  const verdictRecovery = resolveVideoDateSnapshotRecovery({
+    ...baseSnapshot,
+    phase: "verdict",
+    room: null,
+  });
+  assert.deepEqual(verdictRecovery, {
+    action: "survey",
+    sessionId: baseSnapshot.sessionId,
+    eventId: baseSnapshot.eventId,
+    reason: "verdict",
+  });
+
+  const terminalEncounterRecovery = resolveVideoDateSnapshotRecovery({
+    ...baseSnapshot,
+    phase: "ended",
+    room: null,
+    endedAt: baseSnapshot.phaseDeadlineAt,
+    endedReason: "date_timeout",
+    participants: [
+      { id: "self", isSelf: true, isPartner: false, mediaJoinedAt: baseSnapshot.phaseStartedAt, awayAt: null },
+      { id: "partner", isSelf: false, isPartner: true, mediaJoinedAt: baseSnapshot.phaseStartedAt, awayAt: null },
+    ],
+  });
+  assert.deepEqual(terminalEncounterRecovery, {
+    action: "survey",
+    sessionId: baseSnapshot.sessionId,
+    eventId: baseSnapshot.eventId,
+    reason: "terminal_encounter",
+  });
+
+  const dailyJoinEvidenceLossRecovery = resolveVideoDateSnapshotRecovery({
+    ...baseSnapshot,
+    phase: "ended",
+    room: null,
+    endedAt: baseSnapshot.phaseDeadlineAt,
+    endedReason: "date_timeout",
+    participants: [
+      { id: "self", isSelf: true, isPartner: false, mediaJoinedAt: null, awayAt: null },
+      { id: "partner", isSelf: false, isPartner: true, mediaJoinedAt: null, awayAt: null },
+    ],
+  });
+  assert.deepEqual(dailyJoinEvidenceLossRecovery, {
+    action: "survey",
+    sessionId: baseSnapshot.sessionId,
+    eventId: baseSnapshot.eventId,
+    reason: "terminal_encounter",
+  });
+
+  const partialJoinRecovery = resolveVideoDateSnapshotRecovery({
+    ...baseSnapshot,
+    phase: "ended",
+    room: null,
+    endedAt: baseSnapshot.phaseDeadlineAt,
+    endedReason: "partial_join_peer_timeout",
+    participants: [
+      { id: "self", isSelf: true, isPartner: false, mediaJoinedAt: baseSnapshot.phaseStartedAt, awayAt: null },
+      { id: "partner", isSelf: false, isPartner: true, mediaJoinedAt: null, awayAt: null },
+    ],
+  });
+  assert.equal(partialJoinRecovery.action, "lobby");
+  assert.equal(partialJoinRecovery.reason, "ended");
+
+  const ineligibleReasonOutranksMediaEvidence = resolveVideoDateSnapshotRecovery({
+    ...baseSnapshot,
+    phase: "ended",
+    room: null,
+    endedAt: baseSnapshot.phaseDeadlineAt,
+    endedReason: "blocked_pair",
+    participants: [
+      { id: "self", isSelf: true, isPartner: false, mediaJoinedAt: baseSnapshot.phaseStartedAt, awayAt: null },
+      { id: "partner", isSelf: false, isPartner: true, mediaJoinedAt: baseSnapshot.phaseStartedAt, awayAt: null },
+    ],
+  });
+  assert.equal(ineligibleReasonOutranksMediaEvidence.action, "lobby");
+  assert.equal(ineligibleReasonOutranksMediaEvidence.reason, "ended");
+
+  assert.match(webReadyRedirect, /recovery\.action === ["']date["'] \|\| recovery\.action === ["']survey["']/);
+  assert.match(nativeReadyRedirect, /recovery\.action === ["']survey["'][\s\S]+navigateToDateSessionGuarded/);
+  assert.match(nativeNotificationDeepLink, /recovery\.action === ["']date["'] \|\| recovery\.action === ["']survey["']/);
+});
+
+test("PR 5.5 active multi-device snapshots are explicit rejoin decisions", () => {
+  const rejoinRecovery = resolveVideoDateSnapshotRecovery({
+    ...baseSnapshot,
+    phase: "date",
+    participants: [
+      { id: "self", isSelf: true, isPartner: false, mediaJoinedAt: baseSnapshot.phaseStartedAt, awayAt: null },
+      { id: "partner", isSelf: false, isPartner: true, mediaJoinedAt: null, awayAt: null },
+    ],
+  });
+  assert.deepEqual(rejoinRecovery, {
+    action: "date",
+    sessionId: baseSnapshot.sessionId,
+    eventId: baseSnapshot.eventId,
+    reason: "already_joined",
+  });
+
+  assert.match(nativeNotificationDeepLink, /decision: recovery\.action === ["']survey["'] \? ["']navigate_survey["'] : ["']navigate_date["']/);
+});
+
+test("PR 5.6 queued and retryable snapshots do not bypass queue/lobby recovery", () => {
+  const queuedRecovery = resolveVideoDateSnapshotRecovery({
+    ...baseSnapshot,
+    phase: "queued",
+    room: null,
+  });
+  assert.deepEqual(queuedRecovery, {
+    action: "lobby",
+    sessionId: baseSnapshot.sessionId,
+    eventId: baseSnapshot.eventId!,
+    reason: "queued",
+  });
+
+  const retryableRecovery = resolveVideoDateSnapshotRecovery({
+    ok: false,
+    error: "snapshot_function_failed",
+    retryable: true,
+  });
+  assert.deepEqual(retryableRecovery, {
+    action: "home",
+    sessionId: null,
+    reason: "snapshot_retryable",
+  });
+
+  assert.match(nativeNotificationDeepLink, /Retryable failures, queued rescue, and non-survey terminal states/);
 });
 
 test("Phase 5 contracts are included in the v4 verification script", () => {
