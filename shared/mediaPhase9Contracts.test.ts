@@ -219,6 +219,7 @@ test("Phase 9 captions stay on chat clips while profile Vibe Videos suppress gen
   const webProfileStudio = read("src/pages/ProfileStudio.tsx");
   const webVibeStudio = read("src/pages/VibeStudio.tsx");
   const webVibeState = read("src/lib/vibeVideo/webVibeVideoState.ts");
+  const otherUserViewModel = read("shared/profile/otherUserProfileViewModel.ts");
   const migration = read("supabase/migrations/20260520230000_media_phase9_completion.sql");
   const createVideoUpload = read("supabase/functions/create-video-upload/index.ts");
   const webVibePlayer = read("src/components/vibe-video/VibePlayer.tsx");
@@ -257,6 +258,8 @@ test("Phase 9 captions stay on chat clips while profile Vibe Videos suppress gen
   assert.match(webVibeStudio, /captions=\{null\}/);
   assert.match(nativeVibeStudio, /captions=\{null\}/);
   assert.match(nativeProfileFullView, /captions=\{null\}/);
+  assert.match(otherUserViewModel, /captions: null/);
+  assert.doesNotMatch(otherUserViewModel, /parseMediaCaptions/);
   assert.match(webVibePlayer, /captions\?: MediaCaptions/);
   assert.match(webFullscreen, /captions\?: MediaCaptions/);
   assert.match(nativePlayer, /captionTextFromMediaCaptions/);

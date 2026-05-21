@@ -1,4 +1,4 @@
-import { parseMediaCaptions, type MediaCaptions } from "../media/captions";
+import type { MediaCaptions } from "../media/captions";
 
 export type OtherUserPrompt = {
   question: string;
@@ -370,7 +370,7 @@ export function normalizeOtherUserFullProfile(
       signedPlaybackRequired: source.vibe_video_signed_playback_required === true,
       playbackRef: cleanString(source.vibe_video_playback_ref),
       caption: cleanString(source.vibe_caption),
-      captions: parseMediaCaptions(source.vibe_video_captions),
+      captions: null,
     },
     verification: {
       email: source.email_verified === true,
