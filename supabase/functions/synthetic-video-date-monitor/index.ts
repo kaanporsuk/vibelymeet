@@ -25,11 +25,30 @@ type SyntheticHealthRow = {
 type SessionHealthRow = {
   session_id: string;
   event_id: string | null;
+  participant_1_id: string | null;
+  participant_2_id: string | null;
   state: string | null;
   phase: string | null;
   ready_gate_status: string | null;
+  daily_room_name: string | null;
   active_stuck_over_2m: boolean | null;
   active_age_seconds: number | null;
+};
+
+type Phase2ProbeResult = {
+  probe: "daily_webhook" | "orphan_cleanup_dry_run";
+  ok: boolean;
+  status: number | null;
+  reason: string | null;
+  latency_ms: number;
+  mode?: string;
+  result?: unknown;
+};
+
+type DailyWebhookProbeTarget = {
+  sessionId: string;
+  roomName: string;
+  actorId: string;
 };
 
 function jsonResponse(body: unknown, status = 200): Response {
@@ -63,6 +82,184 @@ function toInt(value: number | string | null | undefined): number {
   return 0;
 }
 
+function functionsBaseUrl(supabaseUrl: string): string {
+  return `${supabaseUrl.replace(/\/$/, "")}/functions/v1`;
+}
+
+function hex(bytes: ArrayBuffer): string {
+  return [...new Uint8Array(bytes)]
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("");
+}
+
+async function hmacSha256Hex(secret: string, message: string): Promise<string> {
+  const encoder = new TextEncoder();
+  const key = await crypto.subtle.importKey(
+    "raw",
+    encoder.encode(secret),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"],
+  );
+  const signature = await crypto.subtle.sign("HMAC", key, encoder.encode(message));
+  return hex(signature);
+}
+
+async function readJsonResponse(response: Response): Promise<Record<string, unknown>> {
+  const text = await response.text().catch(() => "");
+  if (!text.trim()) return {};
+  try {
+    const parsed = JSON.parse(text) as unknown;
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? parsed as Record<string, unknown>
+      : {};
+  } catch {
+    return {};
+  }
+}
+
+function dailyWebhookProbeTarget(sessionRows: SessionHealthRow[]): DailyWebhookProbeTarget | null {
+  for (const row of sessionRows) {
+    if (!row.daily_room_name || !row.participant_1_id) continue;
+    if (row.state === "ended" || row.phase === "ended") continue;
+    return {
+      sessionId: row.session_id,
+      roomName: row.daily_room_name,
+      actorId: row.participant_1_id,
+    };
+  }
+  return null;
+}
+
+function webhookProbeOk(
+  response: Response,
+  payload: Record<string, unknown>,
+  target: DailyWebhookProbeTarget | null,
+): boolean {
+  if (!response.ok || payload.ok !== true) return false;
+  const result = typeof payload.result === "string" ? payload.result : "";
+  if (!target) return true;
+  return result.endsWith("_join_reconciled") ||
+    result === "ignored_feature_disabled" ||
+    result === "ignored_terminal_session";
+}
+
+async function probeDailyWebhookPath(
+  supabaseUrl: string,
+  target: DailyWebhookProbeTarget | null,
+): Promise<Phase2ProbeResult> {
+  const startedAt = Date.now();
+  const secret = Deno.env.get("DAILY_WEBHOOK_SECRET")?.trim();
+  if (!secret) {
+    return {
+      probe: "daily_webhook",
+      ok: false,
+      status: null,
+      reason: "daily_webhook_secret_missing",
+      latency_ms: Date.now() - startedAt,
+    };
+  }
+
+  const timestamp = String(Math.floor(Date.now() / 1000));
+  const rawBody = JSON.stringify({
+    id: `synthetic-video-date-monitor-${crypto.randomUUID()}`,
+    type: "participant.joined",
+    room_name: target?.roomName ?? "date-00000000000000000000000000000000",
+    participant: {
+      id: "synthetic-monitor",
+      user_id: target?.actorId ?? "00000000-0000-4000-8000-000000000000",
+    },
+    timestamp: Number(timestamp),
+  });
+  const correctSignature = await hmacSha256Hex(secret, `v0:${timestamp}:${rawBody}`);
+
+  try {
+    const response = await fetch(`${functionsBaseUrl(supabaseUrl)}/video-date-daily-webhook`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-webhook-timestamp": timestamp,
+        "x-webhook-signature": `v0=${correctSignature}`,
+      },
+      body: rawBody,
+    });
+    const payload = await readJsonResponse(response);
+    const ok = webhookProbeOk(response, payload, target);
+    const result = typeof payload.result === "string" ? payload.result : null;
+    return {
+      probe: "daily_webhook",
+      ok,
+      status: response.status,
+      reason: ok
+        ? null
+        : typeof payload.error === "string"
+          ? payload.error
+          : "daily_webhook_probe_failed",
+      latency_ms: Date.now() - startedAt,
+      mode: target
+        ? result?.endsWith("_join_reconciled")
+          ? "synthetic_session_reconciled"
+          : "synthetic_session_guarded"
+        : "endpoint_only_no_synthetic_room",
+      result,
+    };
+  } catch (error) {
+    return {
+      probe: "daily_webhook",
+      ok: false,
+      status: null,
+      reason: error instanceof Error ? error.message.slice(0, 120) : "daily_webhook_probe_exception",
+      latency_ms: Date.now() - startedAt,
+    };
+  }
+}
+
+async function probeOrphanCleanupDryRun(supabaseUrl: string, cronSecret: string): Promise<Phase2ProbeResult> {
+  const startedAt = Date.now();
+  try {
+    const response = await fetch(`${functionsBaseUrl(supabaseUrl)}/video-date-orphan-room-cleanup`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${cronSecret}`,
+      },
+      body: JSON.stringify({
+        source: "synthetic_video_date_monitor",
+        dry_run: true,
+        batch_size: 1,
+        max_pages: 1,
+      }),
+    });
+    const payload = await readJsonResponse(response);
+    return {
+      probe: "orphan_cleanup_dry_run",
+      ok: response.ok && payload.ok !== false,
+      status: response.status,
+      reason: response.ok ? null : typeof payload.error === "string" ? payload.error : "orphan_cleanup_probe_failed",
+      latency_ms: Date.now() - startedAt,
+    };
+  } catch (error) {
+    return {
+      probe: "orphan_cleanup_dry_run",
+      ok: false,
+      status: null,
+      reason: error instanceof Error ? error.message.slice(0, 120) : "orphan_cleanup_probe_exception",
+      latency_ms: Date.now() - startedAt,
+    };
+  }
+}
+
+async function runPhase2PathProbes(
+  supabaseUrl: string,
+  cronSecret: string,
+  webhookTarget: DailyWebhookProbeTarget | null,
+): Promise<Phase2ProbeResult[]> {
+  return Promise.all([
+    probeDailyWebhookPath(supabaseUrl, webhookTarget),
+    probeOrphanCleanupDryRun(supabaseUrl, cronSecret),
+  ]);
+}
+
 function authOk(req: Request): boolean {
   const cronSecret = Deno.env.get("CRON_SECRET");
   if (!cronSecret) return false;
@@ -93,6 +290,7 @@ Deno.serve(async (req) => {
   }
 
   const supabase = createClient(supabaseUrl, serviceKey);
+  const cronSecret = Deno.env.get("CRON_SECRET")?.trim() ?? "";
 
   const healthQuery = supabase
     .from("vw_synthetic_video_date_health")
@@ -122,13 +320,14 @@ Deno.serve(async (req) => {
 
   const healthRows = (rawHealthRows ?? []) as SyntheticHealthRow[];
   const selected = healthRows[0] ?? null;
-  const selectedEventId = selected?.event_id ?? body.event_id ?? null;
+  const requestedEventId = body.event_id ?? null;
+  const selectedEventId = selected?.event_id ?? null;
 
   const [sessionsResult, funnelResult, flagsResult] = await Promise.all([
     selectedEventId
       ? supabase
           .from("vw_session_health")
-          .select("session_id,event_id,state,phase,ready_gate_status,active_stuck_over_2m,active_age_seconds")
+          .select("session_id,event_id,participant_1_id,participant_2_id,state,phase,ready_gate_status,daily_room_name,active_stuck_over_2m,active_age_seconds")
           .eq("event_id", selectedEventId)
           .order("last_state_at", { ascending: false })
           .limit(20)
@@ -148,6 +347,9 @@ Deno.serve(async (req) => {
   const sessionRows = ((sessionsResult.data ?? []) as SessionHealthRow[]).filter(Boolean);
   const stuckSessions = sessionRows.filter((row) => row.active_stuck_over_2m === true);
   const registrationCount = toInt(selected?.registration_count);
+  const webhookTarget = dailyWebhookProbeTarget(sessionRows);
+  const phase2Probes = await runPhase2PathProbes(supabaseUrl, cronSecret, webhookTarget);
+  const failedPhase2Probes = phase2Probes.filter((probe) => !probe.ok);
   const dashboardErrors = [
     sessionsResult.error?.message,
     funnelResult.error?.message,
@@ -157,16 +359,20 @@ Deno.serve(async (req) => {
 
   const reasonCode = dashboardErrors.length > 0
     ? "dashboard_view_error"
+    : failedPhase2Probes.length > 0
+      ? "phase2_path_probe_failed"
     : !selected
     ? "no_test_event"
     : registrationCount < 2
-      ? "synthetic_fixture_underprovisioned"
-      : stuckCount > 0
+    ? "synthetic_fixture_underprovisioned"
+    : stuckCount > 0
         ? "stuck_session_detected"
         : "healthy";
   const outcome = reasonCode === "healthy"
     ? "success"
-    : reasonCode === "stuck_session_detected" || reasonCode === "dashboard_view_error"
+    : reasonCode === "stuck_session_detected" ||
+        reasonCode === "dashboard_view_error" ||
+        reasonCode === "phase2_path_probe_failed"
       ? "failure"
       : "blocked";
 
@@ -180,6 +386,7 @@ Deno.serve(async (req) => {
     p_session_id: stuckSessions[0]?.session_id ?? null,
     p_detail: {
       mode: body.mode ?? "status",
+      requested_event_id: requestedEventId,
       selected_event_id: selectedEventId,
       synthetic_event_count: healthRows.length,
       registration_count: registrationCount,
@@ -190,6 +397,7 @@ Deno.serve(async (req) => {
       sessions_error: sessionsResult.error?.message ?? null,
       funnel_error: funnelResult.error?.message ?? null,
       flags_error: flagsResult.error?.message ?? null,
+      phase2_probes: phase2Probes,
     },
   });
 
@@ -203,6 +411,7 @@ Deno.serve(async (req) => {
     recent_sessions: sessionRows,
     funnel: funnelResult.data ?? [],
     flags: flagsResult.data ?? [],
+    phase2_probes: phase2Probes,
     latency_ms: Date.now() - startedAt,
   });
 });

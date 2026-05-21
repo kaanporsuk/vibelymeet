@@ -63,7 +63,7 @@ test("PR 2.5 Daily webhook endpoint verifies signatures and writes an idempotent
   assert.match(dailyWebhook, /const SIGNATURE_HEADER = "x-webhook-signature"/);
   assert.match(dailyWebhook, /const TIMESTAMP_HEADER = "x-webhook-timestamp"/);
   assert.match(dailyWebhook, /DAILY_WEBHOOK_SECRET/);
-  assert.match(dailyWebhook, /MAX_TIMESTAMP_SKEW_MS = 5 \* 60 \* 1000/);
+  assert.match(dailyWebhook, /MAX_TIMESTAMP_SKEW_MS = 2 \* 60 \* 1000/);
   assert.match(dailyWebhook, /crypto\.subtle\.importKey/);
   assert.match(dailyWebhook, /crypto\.subtle\.sign\(\s*"HMAC"/);
   assert.match(dailyWebhook, /`\$\{SIGNATURE_VERSION\}:\$\{timestampHeader\}:\$\{rawBody\}`/);

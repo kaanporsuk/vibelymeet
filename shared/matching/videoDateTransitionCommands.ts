@@ -1,3 +1,4 @@
+import { generateIdempotencyKey } from "./idempotentRpc";
 import { buildVideoDateSignalIdempotencyKey } from "./videoDateSignalRetry";
 
 export type VideoDatePhase3TransitionAction = "mark_ready" | "forfeit" | "continue_handshake";
@@ -35,10 +36,6 @@ export function buildVideoDateQueueDrainIdempotencyKey(
   return buildVideoDateSignalIdempotencyKey(eventId, `phase3:drain_match_queue:${clientRequestId}`);
 }
 
-export function createVideoDateClientRequestId(nowMs = Date.now()): string {
-  const random =
-    typeof crypto !== "undefined" && "randomUUID" in crypto
-      ? crypto.randomUUID()
-      : Math.random().toString(36).slice(2, 12);
-  return `${nowMs.toString(36)}:${random}`;
+export function createVideoDateClientRequestId(): string {
+  return generateIdempotencyKey();
 }

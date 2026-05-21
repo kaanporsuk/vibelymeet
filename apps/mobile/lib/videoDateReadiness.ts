@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { AppState, Platform } from 'react-native';
 import { Camera } from 'expo-camera';
 import { supabase } from '@/lib/supabase';
+import { createVideoDateDailyDiagnosticCallObject } from '@/lib/videoDateDailyMediaConfig';
 import {
   resolveVideoDateReadinessGate,
   shouldRunVideoDateDiagnostic,
@@ -10,6 +11,8 @@ import {
 
 type NativePlatform = 'ios' | 'android';
 const diagnosticLastRunAtMsByEvent = new Map<string, number>();
+const DAILY_CALL_QUALITY_TIMEOUT_MS = 16_000;
+const DAILY_DIAGNOSTIC_PREAUTH_TIMEOUT_MS = 5_000;
 
 export async function recordVideoDateHeartbeatV2(
   eventId: string,
@@ -192,6 +195,7 @@ async function maybeRunDiagnostic(
         roomUrlPresent: Boolean(diagnostic.roomUrl),
         tokenReceived: true,
         tokenTtlSeconds: diagnostic.tokenTtlSeconds,
+        callQuality: await runNativeDailyCallQualityAdvisory(diagnostic),
       }
     : {
         ok: false,
@@ -206,6 +210,129 @@ async function maybeRunDiagnostic(
       dailyDiagnostic,
     },
   }).catch(() => undefined);
+}
+
+async function runNativeDailyCallQualityAdvisory(
+  diagnostic: Extract<Awaited<ReturnType<typeof prepareVideoDateDiagnosticEntry>>, { ok: true }>,
+): Promise<Record<string, unknown>> {
+  const startedAt = Date.now();
+  const call = createVideoDateDailyDiagnosticCallObject();
+  const callAny = call as unknown as {
+    preAuth?: (options: { url: string; token: string }) => Promise<unknown>;
+    testCallQuality?: () => Promise<unknown>;
+    stopTestCallQuality?: () => void;
+    testWebsocketConnectivity?: () => Promise<unknown>;
+    abortTestWebsocketConnectivity?: () => void;
+    destroy?: () => void | Promise<void>;
+  };
+  try {
+    if (typeof callAny.preAuth === 'function') {
+      const diagnosticToken = diagnostic.token;
+      await withTimeout(
+        Promise.resolve(callAny.preAuth({ url: diagnostic.roomUrl, token: diagnosticToken })),
+        DAILY_DIAGNOSTIC_PREAUTH_TIMEOUT_MS,
+      );
+    }
+    if (typeof callAny.testCallQuality === 'function') {
+      const result = await withTimeout(
+        Promise.resolve(callAny.testCallQuality()),
+        DAILY_CALL_QUALITY_TIMEOUT_MS,
+      );
+      if (!result) {
+        callAny.stopTestCallQuality?.();
+        return { ok: false, api: 'testCallQuality', error: 'call_quality_timeout', latencyMs: Date.now() - startedAt };
+      }
+      return {
+        ok: true,
+        api: 'testCallQuality',
+        latencyMs: Date.now() - startedAt,
+        ...summarizeDailyQualityResult(result),
+      };
+    }
+    if (typeof callAny.testWebsocketConnectivity === 'function') {
+      const result = await withTimeout(
+        Promise.resolve(callAny.testWebsocketConnectivity()),
+        DAILY_CALL_QUALITY_TIMEOUT_MS,
+      );
+      if (!result) {
+        callAny.abortTestWebsocketConnectivity?.();
+        return {
+          ok: false,
+          api: 'testWebsocketConnectivity',
+          error: 'websocket_connectivity_timeout',
+          latencyMs: Date.now() - startedAt,
+        };
+      }
+      return {
+        ok: true,
+        api: 'testWebsocketConnectivity',
+        latencyMs: Date.now() - startedAt,
+        ...summarizeDailyWebsocketResult(result),
+      };
+    }
+    return { ok: false, error: 'call_quality_api_unavailable', latencyMs: Date.now() - startedAt };
+  } catch (error) {
+    return {
+      ok: false,
+      error: error instanceof Error ? error.name || error.message : 'call_quality_failed',
+      latencyMs: Date.now() - startedAt,
+    };
+  } finally {
+    try {
+      await callAny.destroy?.();
+    } catch {
+      /* best-effort cleanup */
+    }
+  }
+}
+
+function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T | null> {
+  return new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => resolve(null), timeoutMs);
+    void promise.then(
+      (value) => {
+        clearTimeout(timeout);
+        resolve(value);
+      },
+      (error) => {
+        clearTimeout(timeout);
+        reject(error);
+      },
+    );
+  });
+}
+
+function summarizeDailyQualityResult(result: unknown): Record<string, unknown> {
+  if (!result || typeof result !== 'object') return { result: 'unknown' };
+  const record = result as Record<string, unknown>;
+  const data = record.data && typeof record.data === 'object' && !Array.isArray(record.data)
+    ? record.data as Record<string, unknown>
+    : {};
+  return {
+    result: typeof record.result === 'string' ? record.result : 'unknown',
+    secondsElapsed: typeof record.secondsElapsed === 'number' ? record.secondsElapsed : null,
+    maxRoundTripTime: typeof data.maxRoundTripTime === 'number' ? data.maxRoundTripTime : null,
+    avgRoundTripTime: typeof data.avgRoundTripTime === 'number' ? data.avgRoundTripTime : null,
+    avgSendPacketLoss: typeof data.avgSendPacketLoss === 'number' ? data.avgSendPacketLoss : null,
+    avgAvailableOutgoingBitrate: typeof data.avgAvailableOutgoingBitrate === 'number'
+      ? data.avgAvailableOutgoingBitrate
+      : null,
+    avgSendBitsPerSecond: typeof data.avgSendBitsPerSecond === 'number' ? data.avgSendBitsPerSecond : null,
+  };
+}
+
+function summarizeDailyWebsocketResult(result: unknown): Record<string, unknown> {
+  if (!result || typeof result !== 'object') return { result: 'unknown' };
+  const record = result as Record<string, unknown>;
+  const abortedRegions = Array.isArray(record.abortedRegions) ? record.abortedRegions.length : 0;
+  const failedRegions = Array.isArray(record.failedRegions) ? record.failedRegions.length : 0;
+  const warningRegions = Array.isArray(record.warningRegions) ? record.warningRegions.length : 0;
+  return {
+    result: typeof record.result === 'string' ? record.result : 'unknown',
+    abortedRegionCount: abortedRegions,
+    failedRegionCount: failedRegions,
+    warningRegionCount: warningRegions,
+  };
 }
 
 async function inspectNativeVideoDateCapabilities(): Promise<Record<string, unknown>> {

@@ -35,4 +35,11 @@ export function createVideoDateDailyCallObject(
   return Daily.createCallObject(videoDateNativeDailyCallOptions(profile));
 }
 
+export function createVideoDateDailyDiagnosticCallObject(): VideoDateDailyCallObject {
+  return Daily.createCallObject({
+    audioSource: false,
+    videoSource: false,
+  } as NativeDailyCallOptions);
+}
+
 export { isVideoDateCameraConstraintError };

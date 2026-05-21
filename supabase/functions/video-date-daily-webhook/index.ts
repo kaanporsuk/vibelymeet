@@ -10,7 +10,7 @@ const corsHeaders: Record<string, string> = {
 const SIGNATURE_HEADER = "x-webhook-signature";
 const TIMESTAMP_HEADER = "x-webhook-timestamp";
 const SIGNATURE_VERSION = "v0";
-const MAX_TIMESTAMP_SKEW_MS = 5 * 60 * 1000;
+const MAX_TIMESTAMP_SKEW_MS = 2 * 60 * 1000;
 
 type JsonObject = Record<string, unknown>;
 type SupabaseRpcError = { code?: string; message: string };
@@ -89,6 +89,7 @@ async function verifyDailySignature(req: Request, rawBody: string): Promise<
     ok: false;
     status: number;
     error: string;
+    skewMs?: number;
   }
 > {
   const webhookSecret = Deno.env.get("DAILY_WEBHOOK_SECRET")?.trim();
@@ -104,7 +105,7 @@ async function verifyDailySignature(req: Request, rawBody: string): Promise<
 
   const skewMs = Math.abs(Date.now() - timestampMs);
   if (skewMs > MAX_TIMESTAMP_SKEW_MS) {
-    return { ok: false, status: 401, error: "timestamp_out_of_range" };
+    return { ok: false, status: 401, error: "timestamp_out_of_range", skewMs };
   }
 
   const expected = await hmacSha256Hex(
@@ -314,7 +315,38 @@ function createServiceClient(): SupabaseServiceClient {
   }) as unknown as SupabaseServiceClient;
 }
 
+async function recordWebhookSecurityMetric(params: {
+  error: string;
+  status: number;
+  latencyMs: number;
+  skewMs?: number;
+}) {
+  try {
+    const supabase = createServiceClient();
+    await supabase.rpc("record_event_loop_observability", {
+      p_operation: "video_date_daily_webhook",
+      p_outcome: "blocked",
+      p_reason_code: params.error === "timestamp_out_of_range"
+        ? "signature_rejected_stale"
+        : "signature_rejected",
+      p_latency_ms: params.latencyMs,
+      p_event_id: null,
+      p_actor_id: null,
+      p_session_id: null,
+      p_detail: {
+        status: params.status,
+        error: params.error,
+        skew_ms: typeof params.skewMs === "number" ? Math.trunc(params.skewMs) : null,
+        max_timestamp_skew_ms: MAX_TIMESTAMP_SKEW_MS,
+      },
+    });
+  } catch {
+    // Signature failures must fail closed even if telemetry is unavailable.
+  }
+}
+
 Deno.serve(async (req) => {
+  const startedAt = Date.now();
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
   }
@@ -325,6 +357,14 @@ Deno.serve(async (req) => {
   const rawBody = await req.text();
   const signature = await verifyDailySignature(req, rawBody);
   if (!signature.ok) {
+    if (signature.error === "timestamp_out_of_range") {
+      await recordWebhookSecurityMetric({
+        error: signature.error,
+        status: signature.status,
+        latencyMs: Date.now() - startedAt,
+        skewMs: signature.skewMs,
+      });
+    }
     return json({ ok: false, error: signature.error }, signature.status);
   }
 
