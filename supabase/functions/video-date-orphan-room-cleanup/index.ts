@@ -12,6 +12,8 @@ const VIDEO_DATE_ROOM_RE = /^date-[0-9a-f]{32}$/;
 const RECENT_ORPHAN_GRACE_MS = 15 * 60 * 1000;
 const TERMINAL_DB_GRACE_MS = 2 * 60 * 1000;
 const DEFAULT_ROOM_LIST_MAX_PAGES = 10;
+const DAILY_ROOM_LIST_PAGE_LIMIT = 100;
+const SESSION_ROOM_LOOKUP_CHUNK_SIZE = 200;
 
 type SupabaseRpcError = { code?: string; message: string };
 type SupabaseQueryResult<T> = {
@@ -232,10 +234,7 @@ function providerFailureReason(status: number | null): string {
   return "provider_check_rejected";
 }
 
-async function listDailyVideoDateRooms(
-  limit: number,
-  maxPages: number,
-): Promise<DailyRoom[]> {
+async function listDailyVideoDateRooms(maxPages: number): Promise<DailyRoom[]> {
   const headers = dailyHeaders();
   if (!headers) throw new Error("daily_api_key_missing");
 
@@ -243,10 +242,9 @@ async function listDailyVideoDateRooms(
   let endingBefore: string | null = null;
   let pagesScanned = 0;
 
-  while (rooms.length < limit && pagesScanned < maxPages) {
-    const pageLimit = 100;
+  while (pagesScanned < maxPages) {
     const url = new URL(`${DAILY_API_URL}/rooms`);
-    url.searchParams.set("limit", String(pageLimit));
+    url.searchParams.set("limit", String(DAILY_ROOM_LIST_PAGE_LIMIT));
     if (endingBefore) url.searchParams.set("ending_before", endingBefore);
 
     const res = await fetch(url.toString(), { method: "GET", headers });
@@ -267,16 +265,29 @@ async function listDailyVideoDateRooms(
     for (const raw of data) {
       const parsed = parseDailyRoom(raw);
       if (parsed) rooms.push(parsed);
-      if (rooms.length >= limit) break;
     }
 
     const last = asObject(data[data.length - 1]);
     const lastId = asString(last?.id);
-    if (!lastId || data.length < pageLimit) break;
+    if (!lastId || data.length < DAILY_ROOM_LIST_PAGE_LIMIT) break;
     endingBefore = lastId;
   }
 
   return rooms;
+}
+
+function oldestKnownRoomTime(room: DailyRoom): number {
+  return room.createdAtMs ?? room.expiresAtMs ?? Number.MAX_SAFE_INTEGER;
+}
+
+function compareDailyRoomsOldestFirst(
+  left: DailyRoom,
+  right: DailyRoom,
+): number {
+  const leftTime = oldestKnownRoomTime(left);
+  const rightTime = oldestKnownRoomTime(right);
+  if (leftTime !== rightTime) return leftTime - rightTime;
+  return left.name.localeCompare(right.name);
 }
 
 async function getDailyRoomPresence(
@@ -388,21 +399,35 @@ async function fetchSessionsByRoom(
   roomNames: string[],
 ): Promise<Map<string, SessionRoomRow>> {
   if (roomNames.length === 0) return new Map();
-  const { data, error } = await supabase
-    .from("video_sessions")
-    .select("id,daily_room_name,ended_at,state,phase")
-    .in("daily_room_name", roomNames);
-
-  if (error) throw new Error(`video_session_lookup_failed:${error.message}`);
-
   const map = new Map<string, SessionRoomRow>();
-  for (const row of (data ?? []) as SessionRoomRow[]) {
-    if (!row.daily_room_name) continue;
-    const existing = map.get(row.daily_room_name);
-    if (!existing || (!isTerminalSession(row) && isTerminalSession(existing))) {
-      map.set(row.daily_room_name, row);
+
+  for (
+    let index = 0;
+    index < roomNames.length;
+    index += SESSION_ROOM_LOOKUP_CHUNK_SIZE
+  ) {
+    const chunk = roomNames.slice(
+      index,
+      index + SESSION_ROOM_LOOKUP_CHUNK_SIZE,
+    );
+    const { data, error } = await supabase
+      .from("video_sessions")
+      .select("id,daily_room_name,ended_at,state,phase")
+      .in("daily_room_name", chunk);
+
+    if (error) throw new Error(`video_session_lookup_failed:${error.message}`);
+
+    for (const row of (data ?? []) as SessionRoomRow[]) {
+      if (!row.daily_room_name) continue;
+      const existing = map.get(row.daily_room_name);
+      if (
+        !existing || (!isTerminalSession(row) && isTerminalSession(existing))
+      ) {
+        map.set(row.daily_room_name, row);
+      }
     }
   }
+
   return map;
 }
 
@@ -505,7 +530,9 @@ Deno.serve(async (req) => {
   const nowMs = Date.now();
   try {
     const supabase = createServiceClient();
-    const rooms = await listDailyVideoDateRooms(batchSize, maxPages);
+    const rooms = (await listDailyVideoDateRooms(maxPages)).sort(
+      compareDailyRoomsOldestFirst,
+    );
     const sessions = await fetchSessionsByRoom(
       supabase,
       rooms.map((room) => room.name),
@@ -517,8 +544,11 @@ Deno.serve(async (req) => {
     let skippedRecent = 0;
     let skippedUnknown = 0;
     let deleteFailed = 0;
+    let deleteAttempts = 0;
 
     for (const room of rooms) {
+      if (deleteAttempts >= batchSize) break;
+
       const session = sessions.get(room.name) ?? null;
       const knownActive = Boolean(session && !isTerminalSession(session));
       const terminalKnown = isTerminalSession(session);
@@ -615,6 +645,7 @@ Deno.serve(async (req) => {
         : "missing_db_session";
       if (dryRun) {
         dryRunDelete += 1;
+        deleteAttempts += 1;
         await recordAudit(supabase, {
           room,
           session,
@@ -640,6 +671,7 @@ Deno.serve(async (req) => {
       }
 
       const removed = await deleteDailyRoom(room.name);
+      deleteAttempts += 1;
       if (!removed) {
         deleteFailed += 1;
         await recordAudit(supabase, {
@@ -670,11 +702,13 @@ Deno.serve(async (req) => {
       scanned: rooms.length,
       deleted,
       dryRunDelete,
+      deleteAttempts,
       skippedActive,
       skippedRecent,
       skippedUnknown,
       deleteFailed,
       dryRun,
+      batchSize,
       maxPages,
     });
   } catch (error) {

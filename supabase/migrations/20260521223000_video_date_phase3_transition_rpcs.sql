@@ -238,6 +238,7 @@ DECLARE
   v_changed boolean := false;
   v_event jsonb := '{}'::jsonb;
   v_delete_room_name text;
+  v_result_reason text;
   v_result jsonb;
 BEGIN
   IF v_actor IS NULL THEN
@@ -346,6 +347,12 @@ BEGIN
     v_transition->>'result_status',
     v_after.ready_gate_status
   );
+  v_result_reason := COALESCE(
+    NULLIF(v_transition->>'reason', ''),
+    NULLIF(v_transition->>'error', ''),
+    NULLIF(v_after.ended_reason, ''),
+    v_reason
+  );
   v_actor_role := CASE
     WHEN v_actor = v_after.participant_1_id THEN 'participant_1'
     WHEN v_actor = v_after.participant_2_id THEN 'participant_2'
@@ -368,12 +375,12 @@ BEGIN
       jsonb_build_object(
         'action', 'forfeit',
         'ready_gate_status', v_status,
-        'reason', v_reason,
+        'reason', v_result_reason,
         'actor_role', v_actor_role
       ),
       jsonb_build_object(
         'ready_gate_status', v_status,
-        'reason', v_reason,
+        'reason', v_result_reason,
         'actor_role', v_actor_role
       ),
       true,
@@ -407,7 +414,7 @@ BEGIN
     'ready_gate_status', v_status,
     'result_status', v_status,
     'result_ready_gate_status', v_status,
-    'reason', v_reason,
+    'reason', v_result_reason,
     'session_seq', COALESCE((v_event->>'sessionSeq')::bigint, v_after.session_seq)
   );
 
