@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import DailyIframe, { type DailyCall } from "@daily-co/daily-js";
 import {
   VIDEO_DATE_READINESS_BLOCKED_COPY,
   resolveVideoDateReadinessGate,
@@ -26,6 +27,8 @@ const initialReadiness: NonBlockingReadiness = {
   checked: false,
 };
 const diagnosticLastRunAtMsByEvent = new Map<string, number>();
+const DAILY_CALL_QUALITY_TIMEOUT_MS = 16_000;
+const DAILY_DIAGNOSTIC_PREAUTH_TIMEOUT_MS = 5_000;
 
 export function useNonBlockingVideoDateReadiness(
   eventId: string | undefined,
@@ -177,6 +180,7 @@ async function maybeRunDiagnostic(
         roomUrlPresent: Boolean(diagnostic.roomUrl),
         tokenReceived: true,
         tokenTtlSeconds: diagnostic.tokenTtlSeconds,
+        callQuality: await runDailyCallQualityAdvisory(diagnostic),
       }
     : {
         ok: false,
@@ -192,6 +196,88 @@ async function maybeRunDiagnostic(
     },
     clientPlatform: "web",
   }).catch(() => undefined);
+}
+
+async function runDailyCallQualityAdvisory(
+  diagnostic: Extract<Awaited<ReturnType<typeof prepareVideoDateDiagnosticEntry>>, { ok: true }>,
+): Promise<Record<string, unknown>> {
+  if (typeof window === "undefined") return { ok: false, skipped: "window_unavailable" };
+  const startedAt = Date.now();
+  let call: DailyCall | null = null;
+  try {
+    call = DailyIframe.createCallObject({ audioSource: false, videoSource: false });
+    if (typeof call.preAuth === "function") {
+      const diagnosticToken = diagnostic.token;
+      await withTimeout(
+        Promise.resolve(call.preAuth({ url: diagnostic.roomUrl, token: diagnosticToken })),
+        DAILY_DIAGNOSTIC_PREAUTH_TIMEOUT_MS,
+      );
+    }
+    if (typeof call.testCallQuality !== "function") {
+      return { ok: false, error: "call_quality_api_unavailable", latencyMs: Date.now() - startedAt };
+    }
+    const result = await withTimeout(
+      Promise.resolve(call.testCallQuality()),
+      DAILY_CALL_QUALITY_TIMEOUT_MS,
+    );
+    if (!result) {
+      call.stopTestCallQuality?.();
+      return { ok: false, error: "call_quality_timeout", latencyMs: Date.now() - startedAt };
+    }
+    return {
+      ok: true,
+      api: "testCallQuality",
+      latencyMs: Date.now() - startedAt,
+      ...summarizeDailyQualityResult(result),
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      error: error instanceof Error ? error.name || error.message : "call_quality_failed",
+      latencyMs: Date.now() - startedAt,
+    };
+  } finally {
+    try {
+      call?.destroy();
+    } catch {
+      /* best-effort cleanup */
+    }
+  }
+}
+
+function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T | null> {
+  return new Promise((resolve, reject) => {
+    const timeout = window.setTimeout(() => resolve(null), timeoutMs);
+    void promise.then(
+      (value) => {
+        window.clearTimeout(timeout);
+        resolve(value);
+      },
+      (error) => {
+        window.clearTimeout(timeout);
+        reject(error);
+      },
+    );
+  });
+}
+
+function summarizeDailyQualityResult(result: unknown): Record<string, unknown> {
+  if (!result || typeof result !== "object") return { result: "unknown" };
+  const record = result as Record<string, unknown>;
+  const data = record.data && typeof record.data === "object" && !Array.isArray(record.data)
+    ? record.data as Record<string, unknown>
+    : {};
+  return {
+    result: typeof record.result === "string" ? record.result : "unknown",
+    secondsElapsed: typeof record.secondsElapsed === "number" ? record.secondsElapsed : null,
+    maxRoundTripTime: typeof data.maxRoundTripTime === "number" ? data.maxRoundTripTime : null,
+    avgRoundTripTime: typeof data.avgRoundTripTime === "number" ? data.avgRoundTripTime : null,
+    avgSendPacketLoss: typeof data.avgSendPacketLoss === "number" ? data.avgSendPacketLoss : null,
+    avgAvailableOutgoingBitrate: typeof data.avgAvailableOutgoingBitrate === "number"
+      ? data.avgAvailableOutgoingBitrate
+      : null,
+    avgSendBitsPerSecond: typeof data.avgSendBitsPerSecond === "number" ? data.avgSendBitsPerSecond : null,
+  };
 }
 
 export { VIDEO_DATE_READINESS_BLOCKED_COPY };

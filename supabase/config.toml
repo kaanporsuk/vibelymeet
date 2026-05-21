@@ -195,6 +195,11 @@ verify_jwt = false
 [functions.video-date-orphan-room-cleanup]
 verify_jwt = false
 
+# V4 recovery alert dispatcher (Bearer CRON_SECRET; service-role recovery
+# dashboards only, Sentry for page alerts, Slack for watch/page).
+[functions.video-date-recovery-alert-dispatcher]
+verify_jwt = false
+
 [functions.send-email]
 verify_jwt = false
 

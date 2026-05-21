@@ -23,7 +23,8 @@ type SnapshotPayload = {
     name?: string | null;
     url?: string | null;
     tokenRequired?: boolean | null;
-    token?: never;
+    token?: string;
+    tokenExpiresAt?: number;
   } | null;
 };
 
@@ -45,6 +46,15 @@ function errorStatus(error: string | undefined): number {
     default:
       return 409;
   }
+}
+
+function withoutToken(snapshot: SnapshotPayload): SnapshotPayload {
+  if (!snapshot.room) return snapshot;
+  const { token: _token, tokenExpiresAt: _tokenExpiresAt, ...room } = snapshot.room;
+  return {
+    ...snapshot,
+    room,
+  };
 }
 
 async function createMeetingToken(roomName: string, userId: string): Promise<{
@@ -152,13 +162,13 @@ serve(async (req) => {
   const phase = typeof snapshot.phase === "string" ? snapshot.phase : null;
   const roomName = snapshot.room?.name ?? null;
   if (phase !== "handshake" && phase !== "date") {
-    return jsonResponse(snapshot);
+    return jsonResponse(withoutToken(snapshot));
   }
   if (!includeToken) {
-    return jsonResponse(snapshot);
+    return jsonResponse(withoutToken(snapshot));
   }
   if (!roomName) {
-    return jsonResponse(snapshot);
+    return jsonResponse(withoutToken(snapshot));
   }
 
   try {
