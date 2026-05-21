@@ -34,6 +34,7 @@ import { useFeatureFlag } from "@/hooks/useFeatureFlag";
 import { useUserProfile } from "@/contexts/AuthContext";
 import { useEventStatus } from "@/hooks/useEventStatus";
 import { SUPABASE_PUBLISHABLE_KEY, SUPABASE_URL, supabase } from "@/integrations/supabase/client";
+import { fetchVideoDateSnapshot } from "@/lib/videoDateSnapshot";
 import { resolvePhotoUrl } from "@/lib/photoUtils";
 import { ProfilePhoto } from "@/components/ui/ProfilePhoto";
 import { trackEvent } from "@/lib/analytics";
@@ -90,6 +91,11 @@ import {
   persistHandshakeDecisionWithVerification,
   type VideoDateHandshakeTruth,
 } from "@clientShared/matching/videoDateHandshakePersistence";
+import {
+  createVideoDateSessionChannel,
+  resolveVideoDateSessionSeqDecision,
+  type VideoDateSessionBroadcastEvent,
+} from "@clientShared/matching/videoDateSessionChannel";
 import {
   getVideoDateWarmupChoiceNotice,
   type VideoDateWarmupChoiceNotice,
@@ -360,6 +366,7 @@ const VideoDate = () => {
   const navigate = useNavigate();
   const { id } = useParams();
   const { user } = useUserProfile();
+  const broadcastV2 = useFeatureFlag("video_date.broadcast_v2");
   const continueHandshakeV2 = useFeatureFlag("video_date.outbox_v2.continue_handshake");
   const handshakeAutoPromoteV2 = useFeatureFlag("video_date.outbox_v2.handshake_auto_promote");
   const dateTimeoutV2 = useFeatureFlag("video_date.outbox_v2.date_timeout");
@@ -437,6 +444,8 @@ const VideoDate = () => {
   const videoJoinOutcomeByCycleRef = useRef(new Set<number>());
   const lastRemoteLayoutDiagnosticKeyRef = useRef<string | null>(null);
   const manualExitInFlightRef = useRef(false);
+  const sessionSeqRef = useRef<number | null>(null);
+  const broadcastRefetchInFlightRef = useRef(false);
   /** Set after `handleCallEnd` is defined — avoids TDZ when `handleHandshakeDecision` closes over end UX. */
   const handleCallEndRef = useRef<((reason?: VideoDateEndReason) => Promise<void>) | null>(null);
 
@@ -915,6 +924,18 @@ const VideoDate = () => {
   }, [eventId]);
 
   useEffect(() => {
+    sessionIdRef.current = id;
+    sessionSeqRef.current = null;
+    broadcastRefetchInFlightRef.current = false;
+  }, [id]);
+
+  useEffect(() => {
+    if (typeof handshakeTruth?.session_seq === "number" && Number.isFinite(handshakeTruth.session_seq)) {
+      sessionSeqRef.current = handshakeTruth.session_seq;
+    }
+  }, [handshakeTruth?.session_seq]);
+
+  useEffect(() => {
     let mounted = true;
     void supabase.auth.getSession().then(({ data }) => {
       if (mounted) leaveSignalTokenRef.current = data.session?.access_token ?? null;
@@ -1219,7 +1240,7 @@ const VideoDate = () => {
       try {
         const { data: sessionRow, error: sessionErr } = await supabase
           .from("video_sessions")
-          .select("participant_1_id, participant_2_id, event_id, daily_room_name, daily_room_url, ended_at, ended_reason, state, phase, handshake_started_at, date_started_at, ready_gate_status, ready_gate_expires_at, participant_1_joined_at, participant_2_joined_at, participant_1_liked, participant_2_liked, participant_1_decided_at, participant_2_decided_at, handshake_grace_expires_at")
+          .select("participant_1_id, participant_2_id, event_id, session_seq, daily_room_name, daily_room_url, ended_at, ended_reason, state, phase, handshake_started_at, date_started_at, ready_gate_status, ready_gate_expires_at, participant_1_joined_at, participant_2_joined_at, participant_1_liked, participant_2_liked, participant_1_decided_at, participant_2_decided_at, handshake_grace_expires_at")
           .eq("id", id)
           .maybeSingle();
 
@@ -1863,7 +1884,10 @@ const VideoDate = () => {
           filter: `id=eq.${id}`,
         },
         (payload) => {
-          const row = payload.new as VideoDateHandshakeTruth;
+          const row = payload.new as VideoDateHandshakeTruth & { session_seq?: number | null };
+          if (typeof row.session_seq === "number" && Number.isFinite(row.session_seq)) {
+            sessionSeqRef.current = row.session_seq;
+          }
           setHandshakeTruth({ id, ...row });
           const newState = row.state || row.phase;
 
@@ -1923,6 +1947,83 @@ const VideoDate = () => {
     markDateFlowEntered,
     recoverTerminalPostDateSurvey,
     trackTimerDriftRecovery,
+  ]);
+
+  const reconcileBroadcastEvent = useCallback(
+    async (event: VideoDateSessionBroadcastEvent) => {
+      if (!id || !user?.id || videoDateAccess !== "allowed") return;
+      const decision = resolveVideoDateSessionSeqDecision(sessionSeqRef.current, event.sessionSeq);
+      if (decision.action === "invalid" || decision.action === "duplicate") return;
+
+      sessionSeqRef.current = event.sessionSeq;
+      if (broadcastRefetchInFlightRef.current) return;
+      broadcastRefetchInFlightRef.current = true;
+      try {
+        if (decision.action === "gap") {
+          const snapshot = await fetchVideoDateSnapshot(id, { includeToken: false });
+          if (snapshot.ok) {
+            sessionSeqRef.current = snapshot.seq;
+            if (snapshot.phase === "ended") {
+              const handled = await recoverTerminalPostDateSurvey("broadcast_snapshot_terminal");
+              if (handled) return;
+            }
+          }
+          Sentry.addBreadcrumb({
+            category: "video-date-broadcast",
+            message: "snapshot_refetch_on_seq_gap",
+            level: snapshot.ok ? "info" : "warning",
+            data: {
+              session_id: id,
+              event_id: eventId ?? null,
+              event_kind: event.kind,
+              incoming_seq: event.sessionSeq,
+              expected_seq: decision.expectedSeq,
+              snapshot_ok: snapshot.ok,
+            },
+          });
+        }
+        setTimingRefreshNonce((n) => n + 1);
+      } finally {
+        broadcastRefetchInFlightRef.current = false;
+      }
+    },
+    [eventId, id, recoverTerminalPostDateSurvey, user?.id, videoDateAccess],
+  );
+
+  useEffect(() => {
+    if (!id || !user?.id || videoDateAccess !== "allowed" || !broadcastV2.enabled) return;
+    const subscription = createVideoDateSessionChannel(supabase, {
+      sessionId: id,
+      onEvent: (event) => {
+        void reconcileBroadcastEvent(event);
+      },
+      onInvalidPayload: () => {
+        vdbg("video_date_broadcast_invalid_payload_ignored", {
+          sessionId: id,
+          eventId: eventId ?? null,
+        });
+      },
+      onStatusChange: (status, error) => {
+        if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
+          vdbg("video_date_broadcast_channel_degraded", {
+            sessionId: id,
+            eventId: eventId ?? null,
+            status,
+            error: error instanceof Error ? error.message : String(error ?? ""),
+          });
+        }
+      },
+    });
+    return () => {
+      subscription.unsubscribe();
+    };
+  }, [
+    broadcastV2.enabled,
+    eventId,
+    id,
+    reconcileBroadcastEvent,
+    user?.id,
+    videoDateAccess,
   ]);
 
   // Progressive blur: clear over 10s when connected + track start
