@@ -8,6 +8,10 @@ const migration = readFileSync(
   join(root, "supabase/migrations/20260522001000_video_date_phase3_safety_queue_rpcs.sql"),
   "utf8",
 );
+const replayAndSafetyErrorsMigration = readFileSync(
+  join(root, "supabase/migrations/20260522011500_video_date_phase3_replay_and_safety_errors.sql"),
+  "utf8",
+);
 const transitionCommands = readFileSync(
   join(root, "shared/matching/videoDateTransitionCommands.ts"),
   "utf8",
@@ -67,10 +71,18 @@ test("PR 3.8 safety v2 stores report details only in user_reports and keeps even
   assert.match(safety, /queue_status = 'in_survey'/);
   assert.match(safety, /public\.block_user_with_cleanup/);
   assert.match(safety, /public\.video_date_transition\(p_session_id, 'end', 'ended_from_client'\)/);
+  assert.match(safety, /v_transition_error text/);
+  assert.match(safety, /NULLIF\(v_transition->>'error', ''\)/);
+  assert.match(safety, /NULLIF\(v_transition->>'reason', ''\)/);
+  assert.match(safety, /'safety_end_transition_rejected'/);
+  assert.match(safety, /WHEN v_success THEN '\{\}'::jsonb[\s\S]+'error', COALESCE\(v_transition_error, 'safety_report_command_rejected'\)/);
   assert.match(safety, /public\.video_date_outbox_enqueue_v2\(/);
   assert.match(safety, /'daily\.delete_video_date_room'/);
   assert.doesNotMatch(safety, /'reason',\s*v_reason[\s\S]{0,240}'participants'/);
   assert.doesNotMatch(safety, /meeting[_-]?token|daily_token|DAILY_API_KEY|createMeetingToken/i);
+  assert.match(replayAndSafetyErrorsMigration, /ALTER FUNCTION public\.submit_video_date_safety_report_v2\(uuid, text, text, boolean, boolean, text\)[\s\S]+RENAME TO submit_video_date_safety_report_v2_20260522011000_error_base/);
+  assert.match(replayAndSafetyErrorsMigration, /NOT \(v_result \? 'error'\)[\s\S]+'error', 'safety_end_transition_rejected'/);
+  assert.match(replayAndSafetyErrorsMigration, /UPDATE public\.video_session_commands[\s\S]+result_payload = COALESCE\(result_payload, '\{\}'::jsonb\)[\s\S]+command_kind = 'safety_report'/);
 });
 
 test("PR 3.9 queue drain v2 revalidates hot eligibility before promotion", () => {

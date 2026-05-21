@@ -922,21 +922,6 @@ BEGIN
     RETURN jsonb_build_object('ok', false, 'success', false, 'error', 'not_in_date_phase');
   END IF;
 
-  v_required_until :=
-    v_before.date_started_at
-    + ((300 + COALESCE(v_before.date_extra_seconds, 0) + v_add_seconds + 120 + 600) * interval '1 second');
-
-  IF v_before.daily_room_expires_at IS NULL OR v_before.daily_room_expires_at <= v_required_until THEN
-    RETURN jsonb_build_object(
-      'ok', false,
-      'success', false,
-      'error', 'daily_room_expiring_before_extension',
-      'room_refresh_required', true,
-      'required_until', v_required_until,
-      'daily_room_expires_at', v_before.daily_room_expires_at
-    );
-  END IF;
-
   v_request := jsonb_build_object(
     'action', 'extension',
     'credit_type', v_credit_type
@@ -987,6 +972,26 @@ BEGIN
   END IF;
 
   v_command_id := (v_begin->>'commandId')::bigint;
+
+  v_required_until :=
+    v_before.date_started_at
+    + ((300 + COALESCE(v_before.date_extra_seconds, 0) + v_add_seconds + 120 + 600) * interval '1 second');
+
+  IF v_before.daily_room_expires_at IS NULL OR v_before.daily_room_expires_at <= v_required_until THEN
+    v_result := jsonb_build_object(
+      'ok', false,
+      'success', false,
+      'error', 'daily_room_expiring_before_extension',
+      'room_refresh_required', true,
+      'required_until', v_required_until,
+      'daily_room_expires_at', v_before.daily_room_expires_at,
+      'commandStatus', 'rejected',
+      'commandId', v_command_id,
+      'requestHash', v_begin->>'requestHash'
+    );
+    PERFORM public.video_session_command_finish_v2(v_command_id, v_actor, 'rejected', v_result);
+    RETURN v_result;
+  END IF;
 
   v_spend := public.spend_video_date_credit_extension(
     p_session_id,

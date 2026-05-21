@@ -46,6 +46,7 @@ DECLARE
   v_was_ended boolean := false;
   v_ended boolean := false;
   v_survey_required boolean := false;
+  v_transition_error text;
 BEGIN
   IF v_actor IS NULL THEN
     RETURN jsonb_build_object('success', false, 'error', 'not_authenticated');
@@ -237,6 +238,11 @@ BEGIN
     v_transition := public.video_date_transition(p_session_id, 'end', 'ended_from_client');
     IF COALESCE((v_transition->>'success')::boolean, false) IS FALSE THEN
       v_success := false;
+      v_transition_error := COALESCE(
+        NULLIF(v_transition->>'error', ''),
+        NULLIF(v_transition->>'reason', ''),
+        'safety_end_transition_rejected'
+      );
     END IF;
   END IF;
 
@@ -326,7 +332,12 @@ BEGIN
     'phase', v_after.phase,
     'ended_at', v_after.ended_at,
     'block', v_block_result
-  );
+  ) || CASE
+    WHEN v_success THEN '{}'::jsonb
+    ELSE jsonb_build_object(
+      'error', COALESCE(v_transition_error, 'safety_report_command_rejected')
+    )
+  END;
 
   PERFORM public.video_session_command_finish_v2(
     v_command_id,

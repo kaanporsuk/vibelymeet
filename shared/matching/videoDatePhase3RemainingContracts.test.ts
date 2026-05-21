@@ -8,6 +8,10 @@ const migration = readFileSync(
   join(root, "supabase/migrations/20260521234500_video_date_phase3_remaining_transition_rpcs.sql"),
   "utf8",
 );
+const replayMigration = readFileSync(
+  join(root, "supabase/migrations/20260522011500_video_date_phase3_replay_and_safety_errors.sql"),
+  "utf8",
+);
 const transitionCommands = readFileSync(
   join(root, "shared/matching/videoDateTransitionCommands.ts"),
   "utf8",
@@ -122,8 +126,18 @@ test("extension v2 refuses charge when known Daily room expiry cannot cover max 
   assert.match(extension, /v_required_until :=[\s\S]+300 \+ COALESCE\(v_before\.date_extra_seconds, 0\) \+ v_add_seconds \+ 120 \+ 600/);
   assert.match(extension, /v_before\.daily_room_expires_at IS NULL OR v_before\.daily_room_expires_at <= v_required_until/);
   assert.match(extension, /'error', 'daily_room_expiring_before_extension'/);
+  assert.ok(
+    extension.indexOf("v_begin := public.video_session_command_begin_v2(") <
+      extension.indexOf("v_required_until :="),
+    "extension idempotent replay must be checked before mutable room-expiry guard",
+  );
+  assert.match(extension, /daily_room_expiring_before_extension[\s\S]+public\.video_session_command_finish_v2\(v_command_id, v_actor, 'rejected', v_result\)/);
   assert.match(extension, /public\.spend_video_date_credit_extension\(/);
   assert.match(extension, /'date_extension_applied'/);
+  assert.match(replayMigration, /ALTER FUNCTION public\.video_session_extend_date_v2\(uuid, text, text, text\)[\s\S]+RENAME TO video_session_extend_date_v2_20260522011000_replay_base/);
+  assert.match(replayMigration, /FROM public\.video_session_commands[\s\S]+idempotency_key = v_key[\s\S]+FOR UPDATE/);
+  assert.match(replayMigration, /v_command\.status IN \('committed', 'rejected'\)/);
+  assert.match(replayMigration, /video_session_extend_date_v2_20260522011000_replay_base/);
 });
 
 test("web and native route PR 3.4-3.7 behind default-off feature flags", () => {
