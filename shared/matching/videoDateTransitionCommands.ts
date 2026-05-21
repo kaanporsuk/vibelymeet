@@ -21,6 +21,14 @@ export function buildVideoDateExtensionIdempotencyKey(
   return buildVideoDateSignalIdempotencyKey(sessionId, `phase3:extension:${creditType}:${clientRequestId}`);
 }
 
+export function buildVideoDateMutualExtensionIdempotencyKey(
+  sessionId: string,
+  creditType: VideoDatePhase3CreditExtensionType,
+  clientRequestId: string,
+): string {
+  return buildVideoDateSignalIdempotencyKey(sessionId, `phase6:extension_mutual:${creditType}:${clientRequestId}`);
+}
+
 export function buildVideoDateSafetyIdempotencyKey(
   sessionId: string,
   action: VideoDatePhase3SafetyAction,

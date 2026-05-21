@@ -4,11 +4,27 @@
  */
 
 export type VideoDateExtendOutcome =
-  | { ok: true; minutesAdded: number; secondsAdded: number; dateExtraSeconds?: number }
+  | {
+      ok: true;
+      minutesAdded: number;
+      secondsAdded: number;
+      dateExtraSeconds?: number;
+      awaitingPartner?: boolean;
+      mutual?: boolean;
+      requestExpiresAt?: string | null;
+    }
   | { ok: false; userMessage: string; silent?: boolean };
 
 export type ParsedExtensionSpend =
-  | { success: true; addedSeconds?: number; dateExtraSeconds?: number; idempotent?: boolean }
+  | {
+      success: true;
+      addedSeconds?: number;
+      dateExtraSeconds?: number;
+      idempotent?: boolean;
+      awaitingPartner?: boolean;
+      mutual?: boolean;
+      requestExpiresAt?: string | null;
+    }
   | { success: false; error: string };
 
 /** Total allowed date-phase length after server-owned extensions (`video_sessions.date_extra_seconds`). */
@@ -43,12 +59,16 @@ export function parseSpendVideoDateCreditExtensionPayload(data: unknown): Parsed
   }
   const row = data as Record<string, unknown>;
   if (row.success === true) {
-    return {
+    const parsed: Extract<ParsedExtensionSpend, { success: true }> = {
       success: true,
       addedSeconds: typeof row.added_seconds === "number" ? row.added_seconds : undefined,
       dateExtraSeconds: typeof row.date_extra_seconds === "number" ? row.date_extra_seconds : undefined,
       idempotent: row.idempotent === true,
     };
+    if (row.awaiting_partner === true) parsed.awaitingPartner = true;
+    if (row.mutual === true) parsed.mutual = true;
+    if (typeof row.request_expires_at === "string") parsed.requestExpiresAt = row.request_expires_at;
+    return parsed;
   }
   const err = typeof row.error === "string" ? row.error : "unknown";
   return { success: false, error: err };
@@ -70,6 +90,8 @@ export function userMessageForExtensionSpendFailure(error: string): string {
     case "unauthorized":
       return "Couldn't add time. Check you're still in this date.";
     case "invalid_credit_type":
+    case "daily_room_expiring_before_extension":
+    case "room_refresh_required":
       return "Couldn't add time. Try again.";
     default:
       return "Couldn't add time. Try again.";

@@ -19,6 +19,7 @@ import type { DailyRoomFailureKind } from '@clientShared/matching/dailyRoomFailu
 import { sendVideoDateSignalWithRetry } from '@clientShared/matching/videoDateSignalRetry';
 import {
   buildVideoDateExtensionIdempotencyKey,
+  buildVideoDateMutualExtensionIdempotencyKey,
   buildVideoDateTransitionIdempotencyKey,
 } from '@clientShared/matching/videoDateTransitionCommands';
 import {
@@ -159,6 +160,7 @@ type SubmitVerdictOptions = {
 
 type SpendVideoDateCreditExtensionOptions = {
   extensionV2?: boolean;
+  extensionMutualV2?: boolean;
 };
 
 export class VideoDateRequestTimeoutError extends Error {
@@ -195,7 +197,8 @@ function withTimeout<T>(
 
 export function useVideoDateSession(
   sessionId: string | null | undefined,
-  userId: string | null | undefined
+  userId: string | null | undefined,
+  options?: { onBroadcastEvent?: (event: VideoDateSessionBroadcastEvent) => void }
 ) {
   const broadcastV2 = useFeatureFlag('video_date.broadcast_v2');
   const timelineV2 = useFeatureFlag('video_date.timeline_v2');
@@ -214,6 +217,7 @@ export function useVideoDateSession(
   const sessionSeqRef = useRef<number | null>(null);
   const broadcastRefetchInFlightRef = useRef(false);
   const timelineRef = useRef<VideoDateTimelineState | null>(null);
+  const onBroadcastEvent = options?.onBroadcastEvent;
 
   useEffect(() => {
     currentSessionKeyRef.current = sessionId && userId ? `${sessionId}:${userId}` : null;
@@ -493,6 +497,7 @@ export function useVideoDateSession(
       const decision = resolveVideoDateSessionSeqDecision(sessionSeqRef.current, event.sessionSeq);
       if (decision.action === 'invalid' || decision.action === 'duplicate') return;
 
+      onBroadcastEvent?.(event);
       sessionSeqRef.current = event.sessionSeq;
       if (broadcastRefetchInFlightRef.current) return;
       broadcastRefetchInFlightRef.current = true;
@@ -533,7 +538,7 @@ export function useVideoDateSession(
         broadcastRefetchInFlightRef.current = false;
       }
     },
-    [fetchSession, sessionId, timelineV2.enabled, userId],
+    [fetchSession, onBroadcastEvent, sessionId, timelineV2.enabled, userId],
   );
 
   useEffect(() => {
@@ -1433,7 +1438,15 @@ export async function fetchUserCredits(userId: string): Promise<{ extraTime: num
 }
 
 export type SpendVideoDateCreditExtensionResult =
-  | { ok: true; addedSeconds: number; dateExtraSeconds: number | null; idempotent?: boolean }
+  | {
+      ok: true;
+      addedSeconds: number;
+      dateExtraSeconds: number | null;
+      idempotent?: boolean;
+      awaitingPartner?: boolean;
+      mutual?: boolean;
+      requestExpiresAt?: string | null;
+    }
   | { ok: false; error: string };
 
 /** Atomic credit spend + server budget for date phase (parity with web VideoDate). */
@@ -1445,24 +1458,36 @@ export async function spendVideoDateCreditExtension(
 ): Promise<SpendVideoDateCreditExtensionResult> {
   const key =
     idempotencyKey ??
-    (options?.extensionV2 === true
-      ? buildVideoDateExtensionIdempotencyKey(
+    (options?.extensionMutualV2 === true
+      ? buildVideoDateMutualExtensionIdempotencyKey(
           sessionId,
           creditType,
           `${Date.now()}-${Math.random().toString(36).slice(2)}`,
         )
-      : undefined);
-  const { data, error } = options?.extensionV2 === true
-    ? await supabase.rpc('video_session_extend_date_v2' as never, {
+      : options?.extensionV2 === true
+        ? buildVideoDateExtensionIdempotencyKey(
+          sessionId,
+          creditType,
+          `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+        )
+        : undefined);
+  const { data, error } = options?.extensionMutualV2 === true
+    ? await supabase.rpc('video_session_request_extension_v2' as never, {
         p_session_id: sessionId,
         p_credit_type: creditType,
         ...(key ? { p_idempotency_key: key } : {}),
       } as never)
-    : await supabase.rpc('spend_video_date_credit_extension', {
+    : options?.extensionV2 === true
+      ? await supabase.rpc('video_session_extend_date_v2' as never, {
         p_session_id: sessionId,
         p_credit_type: creditType,
         ...(key ? { p_idempotency_key: key } : {}),
-      });
+      } as never)
+      : await supabase.rpc('spend_video_date_credit_extension', {
+          p_session_id: sessionId,
+          p_credit_type: creditType,
+          ...(key ? { p_idempotency_key: key } : {}),
+        });
   if (error) {
     return { ok: false, error: 'rpc_transport' };
   }
@@ -1470,9 +1495,12 @@ export async function spendVideoDateCreditExtension(
   if (parsed.success) {
     return {
       ok: true,
-      addedSeconds: parsed.addedSeconds ?? (creditType === 'extra_time' ? 120 : 300),
+      addedSeconds: parsed.awaitingPartner ? 0 : parsed.addedSeconds ?? (creditType === 'extra_time' ? 120 : 300),
       dateExtraSeconds: parsed.dateExtraSeconds ?? null,
       idempotent: parsed.idempotent,
+      awaitingPartner: parsed.awaitingPartner,
+      mutual: parsed.mutual,
+      requestExpiresAt: parsed.requestExpiresAt,
     };
   }
   return { ok: false, error: parsed.error };

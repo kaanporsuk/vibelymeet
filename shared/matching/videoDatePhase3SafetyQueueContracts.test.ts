@@ -135,7 +135,7 @@ test("web and native adapters route safety and queue drain behind default-off fl
   assert.match(safetyRpc, /submit_video_date_safety_report_v2/);
 
   assert.match(webVideoDate, /useFeatureFlag\("video_date\.outbox_v2\.safety"\)/);
-  assert.match(webVideoDate, /safetyV2=\{safetyV2\.enabled\}/);
+  assert.match(webVideoDate, /safetyV2=\{safetyV2\.enabled(?: \|\| safetyAlwaysOnV2\.enabled)?\}/);
   assert.match(webVideoDate, /onServerEndedAfterReport=\{handleServerEndedAfterInCallReport\}/);
   assert.match(webSafetyModal, /submitVideoDateSafetyReportRpc/);
   assert.match(webSafetyModal, /buildVideoDateSafetyIdempotencyKey/);
@@ -144,7 +144,7 @@ test("web and native adapters route safety and queue drain behind default-off fl
   assert.match(webSafetyModal, /safetyV2 && sessionId/);
 
   assert.match(nativeVideoDate, /useFeatureFlag\('video_date\.outbox_v2\.safety'\)/);
-  assert.match(nativeVideoDate, /safetyV2=\{safetyV2\.enabled\}/);
+  assert.match(nativeVideoDate, /safetyV2=\{safetyV2\.enabled(?: \|\| safetyAlwaysOnV2\.enabled)?\}/);
   assert.match(nativeVideoDate, /onServerEndedAfterReport=\{handleServerEndedAfterInCallReport\}/);
   assert.match(nativeSafetySheet, /submitVideoDateSafetyReportRpc/);
   assert.match(nativeSafetySheet, /buildVideoDateSafetyIdempotencyKey/);

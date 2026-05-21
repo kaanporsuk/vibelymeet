@@ -13,6 +13,8 @@ interface KeepTheVibeProps {
   extraTimeCredits: number;
   extendedVibeCredits: number;
   onExtend: (minutes: number, type: "extra_time" | "extended_vibe") => Promise<VideoDateExtendOutcome>;
+  mutualMode?: boolean;
+  pendingPartnerRequestType?: "extra_time" | "extended_vibe" | null;
   analyticsSessionId: string | undefined;
   analyticsEventId: string | undefined;
 }
@@ -21,6 +23,8 @@ export const KeepTheVibe = ({
   extraTimeCredits,
   extendedVibeCredits,
   onExtend,
+  mutualMode = false,
+  pendingPartnerRequestType = null,
   analyticsSessionId,
   analyticsEventId,
 }: KeepTheVibeProps) => {
@@ -31,6 +35,14 @@ export const KeepTheVibe = ({
 
   const withCreditsImpRef = useRef(false);
   const noCreditsImpRef = useRef(false);
+  const extraTimeActionLabel =
+    pendingPartnerRequestType === "extra_time" ? "Accept +2" : mutualMode ? "Ask +2" : "+2 min";
+  const extendedVibeActionLabel =
+    pendingPartnerRequestType === "extended_vibe" ? "Accept +5" : mutualMode ? "Ask +5" : "+5 min";
+  const extraTimeActionVerb =
+    pendingPartnerRequestType === "extra_time" ? "Accept adding" : mutualMode ? "Ask to add" : "Add";
+  const extendedVibeActionVerb =
+    pendingPartnerRequestType === "extended_vibe" ? "Accept adding" : mutualMode ? "Ask to add" : "Add";
 
   useEffect(() => {
     if (!analyticsSessionId) return;
@@ -74,6 +86,18 @@ export const KeepTheVibe = ({
 
     const outcome = await onExtend(minutes, type);
     if (outcome.ok === true) {
+      if (outcome.awaitingPartner === true) {
+        trackEvent("video_date_extension_request_sent", {
+          platform: "web",
+          session_id: analyticsSessionId,
+          event_id: analyticsEventId,
+          credit_type: type,
+          credits_state: creditsState,
+        });
+        toast("Request sent. The date extends if your match accepts.", { duration: 2500 });
+        setIsExtending(false);
+        return;
+      }
       trackEvent(LobbyPostDateEvents.EXTEND_DATE_SUCCESS, {
         platform: "web",
         session_id: analyticsSessionId,
@@ -133,7 +157,7 @@ export const KeepTheVibe = ({
                 whileTap={{ scale: 0.9 }}
                 disabled={isExtending}
                 onClick={() => handleExtend(2, "extra_time")}
-                aria-label={`Add 2 minutes with Extra Time credit, ${extraTimeCredits} remaining`}
+                aria-label={`${extraTimeActionVerb} 2 minutes with Extra Time credit, ${extraTimeCredits} remaining`}
                 className="flex items-center gap-1 px-3 py-1.5 rounded-full bg-card/70 backdrop-blur-md border border-white/10 text-xs font-medium text-foreground hover:bg-card/90 transition-colors disabled:opacity-50"
               >
                 {isExtending ? (
@@ -141,7 +165,7 @@ export const KeepTheVibe = ({
                 ) : (
                   <Clock className="w-3 h-3 text-primary" />
                 )}
-                +2 min
+                {extraTimeActionLabel}
                 <span className="text-muted-foreground">({extraTimeCredits})</span>
               </motion.button>
             )}
@@ -157,6 +181,7 @@ export const KeepTheVibe = ({
                 whileTap={{ scale: 0.9 }}
                 disabled={isExtending}
                 onClick={() => handleExtend(5, "extended_vibe")}
+                aria-label={`${extendedVibeActionVerb} 5 minutes with Extended Vibe credit, ${extendedVibeCredits} remaining`}
                 className="flex items-center gap-1 px-3 py-1.5 rounded-full bg-card/70 backdrop-blur-md border border-white/10 text-xs font-medium text-foreground hover:bg-card/90 transition-colors disabled:opacity-50"
               >
                 {isExtending ? (
@@ -164,7 +189,7 @@ export const KeepTheVibe = ({
                 ) : (
                   <Sparkles className="w-3 h-3 text-accent" />
                 )}
-                +5 min
+                {extendedVibeActionLabel}
                 <span className="text-muted-foreground">({extendedVibeCredits})</span>
               </motion.button>
             )}
