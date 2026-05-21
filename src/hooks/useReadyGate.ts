@@ -5,6 +5,7 @@ import { useUserProfile } from "@/contexts/AuthContext";
 import { ReadyGateStatus } from "@/domain/enums";
 import { trackEvent } from "@/lib/analytics";
 import { useFeatureFlag } from "@/hooks/useFeatureFlag";
+import { fetchVideoDateSnapshot } from "@/lib/videoDateSnapshot";
 import { LobbyPostDateEvents } from "@clientShared/analytics/lobbyToPostDateJourney";
 import {
   EventLobbyObservabilityEvents,
@@ -21,6 +22,11 @@ import {
   type ReadyGateParticipantPosition,
 } from "@clientShared/matching/readyGateReadiness";
 import { buildVideoDateTransitionIdempotencyKey } from "@clientShared/matching/videoDateTransitionCommands";
+import {
+  createVideoDateSessionChannel,
+  resolveVideoDateSessionSeqDecision,
+  type VideoDateSessionBroadcastEvent,
+} from "@clientShared/matching/videoDateSessionChannel";
 
 interface ReadyGateState {
   status: ReadyGateStatus;
@@ -78,6 +84,7 @@ type ReadyGateSessionTruth = {
   event_id?: string | null;
   participant_1_id?: string | null;
   participant_2_id?: string | null;
+  session_seq?: number | null;
   ready_gate_status?: ReadyGateStatus | string | null;
   status?: ReadyGateStatus | string | null;
   result_status?: ReadyGateStatus | string | null;
@@ -203,6 +210,7 @@ function captureReadyGateTransitionDiagnostic(diagnostic: ReadyGateTransitionDia
 
 export const useReadyGate = ({ sessionId, eventId, onBothReady, onForfeited }: UseReadyGateOptions) => {
   const { user } = useUserProfile();
+  const broadcastV2 = useFeatureFlag("video_date.broadcast_v2");
   const markReadyV2 = useFeatureFlag("video_date.outbox_v2.mark_ready");
   const forfeitV2 = useFeatureFlag("video_date.outbox_v2.forfeit");
   const [state, setState] = useState<ReadyGateState>({
@@ -222,6 +230,8 @@ export const useReadyGate = ({ sessionId, eventId, onBothReady, onForfeited }: U
   const terminalHandledRef = useRef<ReadyGateStatus | null>(null);
   const participantPositionRef = useRef<ReadyGateParticipantPosition | null>(null);
   const syncSessionInFlightRef = useRef<Promise<ReadyGateSyncResult> | null>(null);
+  const sessionSeqRef = useRef<number | null>(null);
+  const broadcastRefetchInFlightRef = useRef(false);
 
   useEffect(() => {
     onBothReadyRef.current = onBothReady;
@@ -232,6 +242,8 @@ export const useReadyGate = ({ sessionId, eventId, onBothReady, onForfeited }: U
     terminalHandledRef.current = null;
     participantPositionRef.current = null;
     syncSessionInFlightRef.current = null;
+    sessionSeqRef.current = null;
+    broadcastRefetchInFlightRef.current = false;
   }, [sessionId]);
 
   const notifyTerminal = useCallback((
@@ -278,6 +290,9 @@ export const useReadyGate = ({ sessionId, eventId, onBothReady, onForfeited }: U
     const hasSnoozeExpiresAt = Object.prototype.hasOwnProperty.call(truth, "snooze_expires_at");
     const hasReadyGateExpiresAt = Object.prototype.hasOwnProperty.call(truth, "ready_gate_expires_at");
     const expiresAt = normalizeReadyGateTimestamp(truth.ready_gate_expires_at);
+    if (typeof truth.session_seq === "number" && Number.isFinite(truth.session_seq)) {
+      sessionSeqRef.current = truth.session_seq;
+    }
 
     setState((prev) => {
       const readiness = deriveReadyGateReadinessState({
@@ -341,7 +356,7 @@ export const useReadyGate = ({ sessionId, eventId, onBothReady, onForfeited }: U
 
     const { data: session, error } = await supabase
       .from("video_sessions")
-      .select("participant_1_id, participant_2_id, ready_gate_status, ready_participant_1_at, ready_participant_2_at, ready_gate_expires_at, snoozed_by, snooze_expires_at")
+      .select("participant_1_id, participant_2_id, session_seq, ready_gate_status, ready_participant_1_at, ready_participant_2_at, ready_gate_expires_at, snoozed_by, snooze_expires_at")
       .eq("id", sessionId)
       .maybeSingle();
 
@@ -408,7 +423,10 @@ export const useReadyGate = ({ sessionId, eventId, onBothReady, onForfeited }: U
           filter: `id=eq.${sessionId}`,
         },
         (payload) => {
-          const s = payload.new as ReadyGateRealtimeRow;
+          const s = payload.new as ReadyGateRealtimeRow & { session_seq?: number | null };
+          if (typeof s.session_seq === "number" && Number.isFinite(s.session_seq)) {
+            sessionSeqRef.current = s.session_seq;
+          }
           applyReadyGateTruth(s);
         }
       )
@@ -418,6 +436,70 @@ export const useReadyGate = ({ sessionId, eventId, onBothReady, onForfeited }: U
       supabase.removeChannel(channel);
     };
   }, [sessionId, user?.id, applyReadyGateTruth]);
+
+  const reconcileBroadcastEvent = useCallback(
+    async (event: VideoDateSessionBroadcastEvent) => {
+      if (!sessionId || !user?.id) return;
+      const decision = resolveVideoDateSessionSeqDecision(sessionSeqRef.current, event.sessionSeq);
+      if (decision.action === "invalid" || decision.action === "duplicate") return;
+
+      sessionSeqRef.current = event.sessionSeq;
+      if (broadcastRefetchInFlightRef.current) return;
+      broadcastRefetchInFlightRef.current = true;
+      try {
+        if (decision.action === "gap") {
+          const snapshot = await fetchVideoDateSnapshot(sessionId, { includeToken: false });
+          if (snapshot.ok) sessionSeqRef.current = snapshot.seq;
+          Sentry.addBreadcrumb({
+            category: "ready_gate",
+            level: snapshot.ok ? "info" : "warning",
+            message: "broadcast_seq_gap_snapshot_refetch",
+            data: {
+              session_id: sessionId,
+              event_id: eventId ?? null,
+              event_kind: event.kind,
+              incoming_seq: event.sessionSeq,
+              expected_seq: decision.expectedSeq,
+              snapshot_ok: snapshot.ok,
+            },
+          });
+        }
+        await fetchSession();
+      } finally {
+        broadcastRefetchInFlightRef.current = false;
+      }
+    },
+    [eventId, fetchSession, sessionId, user?.id],
+  );
+
+  useEffect(() => {
+    if (!sessionId || !user?.id || !broadcastV2.enabled) return;
+    const subscription = createVideoDateSessionChannel(supabase, {
+      sessionId,
+      onEvent: (event) => {
+        void reconcileBroadcastEvent(event);
+      },
+      onInvalidPayload: () => {
+        readyGateDebug("broadcast invalid payload ignored", {
+          sessionId,
+          eventId: eventId ?? null,
+        });
+      },
+      onStatusChange: (status, error) => {
+        if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
+          readyGateDebug("broadcast channel degraded", {
+            sessionId,
+            eventId: eventId ?? null,
+            status,
+            error: error instanceof Error ? error.message : String(error ?? ""),
+          });
+        }
+      },
+    });
+    return () => {
+      subscription.unsubscribe();
+    };
+  }, [broadcastV2.enabled, eventId, reconcileBroadcastEvent, sessionId, user?.id]);
 
   // Periodic refresh is owned by ReadyGateOverlay.reconcileSession("poll") + refetchSession(),
   // so we avoid duplicate 2s timers alongside the overlay reconcile loop.

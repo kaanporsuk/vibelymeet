@@ -6,11 +6,13 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import * as Sentry from '@sentry/react-native';
 import { supabase } from '@/lib/supabase';
+import { useFeatureFlag } from '@/hooks/useFeatureFlag';
 import { avatarUrl } from '@/lib/imageUrl';
 import { vdbg } from '@/lib/vdbg';
 import { trackEvent } from '@/lib/analytics';
 import { submitNativePostDateOutboxItem } from '@/lib/postDateOutbox/execute';
 import { prepareVideoDateEntry } from '@/lib/videoDatePrepareEntry';
+import { fetchVideoDateSnapshot } from '@/lib/videoDateSnapshot';
 import { LobbyPostDateEvents } from '@clientShared/analytics/lobbyToPostDateJourney';
 import { videoSessionRowIndicatesHandshakeOrDate } from '@clientShared/matching/activeSession';
 import type { DailyRoomFailureKind } from '@clientShared/matching/dailyRoomFailure';
@@ -22,6 +24,11 @@ import {
 import {
   parseSpendVideoDateCreditExtensionPayload,
 } from '@clientShared/matching/videoDateExtensionSpend';
+import {
+  createVideoDateSessionChannel,
+  resolveVideoDateSessionSeqDecision,
+  type VideoDateSessionBroadcastEvent,
+} from '@clientShared/matching/videoDateSessionChannel';
 import { resolveVideoDatePhaseCountdown } from '@clientShared/matching/videoDateCountdown';
 import {
   VIDEO_DATE_HANDSHAKE_TRUTH_SELECT,
@@ -43,6 +50,7 @@ export type VideoDateSession = {
   participant_1_id: string;
   participant_2_id: string;
   event_id: string;
+  session_seq?: number | null;
   state?: string;
   phase?: string;
   ended_at: string | null;
@@ -184,6 +192,7 @@ export function useVideoDateSession(
   sessionId: string | null | undefined,
   userId: string | null | undefined
 ) {
+  const broadcastV2 = useFeatureFlag('video_date.broadcast_v2');
   const [session, setSession] = useState<VideoDateSession | null>(null);
   const [partner, setPartner] = useState<VideoDatePartner | null>(null);
   const [phase, setPhase] = useState<'handshake' | 'date' | 'ended'>('handshake');
@@ -194,6 +203,13 @@ export function useVideoDateSession(
   const [error, setError] = useState<string | null>(null);
   /** After first completed fetch for `sessionId:userId`, further refetches use `isRefreshing` only. */
   const lastCompletedSessionKeyRef = useRef<string | null>(null);
+  const sessionSeqRef = useRef<number | null>(null);
+  const broadcastRefetchInFlightRef = useRef(false);
+
+  useEffect(() => {
+    sessionSeqRef.current = null;
+    broadcastRefetchInFlightRef.current = false;
+  }, [sessionId, userId]);
 
   type PhaseResolution = {
     phase: 'handshake' | 'date' | 'ended';
@@ -293,7 +309,7 @@ export function useVideoDateSession(
       const { data: row, error: e } = await supabase
         .from('video_sessions')
         .select(
-          'id, participant_1_id, participant_2_id, event_id, state, phase, ended_at, ended_reason, handshake_started_at, handshake_grace_expires_at, date_started_at, date_extra_seconds, daily_room_name, daily_room_url, participant_1_joined_at, participant_2_joined_at, participant_1_liked, participant_2_liked, participant_1_decided_at, participant_2_decided_at'
+          'id, participant_1_id, participant_2_id, event_id, session_seq, state, phase, ended_at, ended_reason, handshake_started_at, handshake_grace_expires_at, date_started_at, date_extra_seconds, daily_room_name, daily_room_url, participant_1_joined_at, participant_2_joined_at, participant_1_liked, participant_2_liked, participant_1_decided_at, participant_2_decided_at'
         )
         .eq('id', sessionId)
         .maybeSingle();
@@ -307,6 +323,10 @@ export function useVideoDateSession(
       }
 
       const s = row as unknown as VideoDateSession;
+      const maybeSeq = (row as unknown as { session_seq?: unknown }).session_seq;
+      if (typeof maybeSeq === 'number' && Number.isFinite(maybeSeq)) {
+        sessionSeqRef.current = maybeSeq;
+      }
 
       const isParticipant = userId === s.participant_1_id || userId === s.participant_2_id;
       if (!isParticipant) {
@@ -421,6 +441,75 @@ export function useVideoDateSession(
       supabase.removeChannel(channel);
     };
   }, [sessionId, resolvePhaseAndTime]);
+
+  const reconcileBroadcastEvent = useCallback(
+    async (event: VideoDateSessionBroadcastEvent) => {
+      if (!sessionId || !userId) return;
+      const decision = resolveVideoDateSessionSeqDecision(sessionSeqRef.current, event.sessionSeq);
+      if (decision.action === 'invalid' || decision.action === 'duplicate') return;
+
+      sessionSeqRef.current = event.sessionSeq;
+      if (broadcastRefetchInFlightRef.current) return;
+      broadcastRefetchInFlightRef.current = true;
+      try {
+        if (decision.action === 'gap') {
+          const snapshot = await fetchVideoDateSnapshot(sessionId, { includeToken: false });
+          if (snapshot.ok) sessionSeqRef.current = snapshot.seq;
+          Sentry.addBreadcrumb({
+            category: 'video-date-broadcast',
+            message: 'snapshot_refetch_on_seq_gap',
+            level: snapshot.ok ? 'info' : 'warning',
+            data: {
+              session_id: sessionId,
+              event_kind: event.kind,
+              incoming_seq: event.sessionSeq,
+              expected_seq: decision.expectedSeq,
+              snapshot_ok: snapshot.ok,
+            },
+          });
+        }
+        await fetchSession();
+      } finally {
+        broadcastRefetchInFlightRef.current = false;
+      }
+    },
+    [fetchSession, sessionId, userId],
+  );
+
+  useEffect(() => {
+    if (!sessionId || !userId || !broadcastV2.enabled) return;
+    const subscription = createVideoDateSessionChannel(supabase, {
+      sessionId,
+      onEvent: (event) => {
+        void reconcileBroadcastEvent(event);
+      },
+      onInvalidPayload: () => {
+        Sentry.addBreadcrumb({
+          category: 'video-date-broadcast',
+          message: 'invalid_payload_ignored',
+          level: 'warning',
+          data: { session_id: sessionId },
+        });
+      },
+      onStatusChange: (status, error) => {
+        if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+          Sentry.addBreadcrumb({
+            category: 'video-date-broadcast',
+            message: 'session_channel_status',
+            level: 'warning',
+            data: {
+              session_id: sessionId,
+              status,
+              error: error instanceof Error ? error.message : String(error ?? ''),
+            },
+          });
+        }
+      },
+    });
+    return () => {
+      subscription.unsubscribe();
+    };
+  }, [broadcastV2.enabled, reconcileBroadcastEvent, sessionId, userId]);
 
   return { session, partner, phase, timeLeft, loading, isRefreshing, error, refetch: fetchSession };
 }

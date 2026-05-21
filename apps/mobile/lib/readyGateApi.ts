@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { supabase } from '@/lib/supabase';
 import { useFeatureFlag } from '@/hooks/useFeatureFlag';
+import { fetchVideoDateSnapshot } from '@/lib/videoDateSnapshot';
 import { RC_CATEGORY, rcBreadcrumb } from '@/lib/nativeRcDiagnostics';
 import { trackEvent } from '@/lib/analytics';
 import { LobbyPostDateEvents } from '@clientShared/analytics/lobbyToPostDateJourney';
@@ -19,6 +20,11 @@ import {
   type ReadyGateParticipantPosition,
 } from '@clientShared/matching/readyGateReadiness';
 import { buildVideoDateTransitionIdempotencyKey } from '@clientShared/matching/videoDateTransitionCommands';
+import {
+  createVideoDateSessionChannel,
+  resolveVideoDateSessionSeqDecision,
+  type VideoDateSessionBroadcastEvent,
+} from '@clientShared/matching/videoDateSessionChannel';
 
 const BOTH_READY = 'both_ready';
 const FORFEITED = 'forfeited';
@@ -50,6 +56,7 @@ export type ReadyGateState = {
 type ReadyGateSessionTruth = {
   participant_1_id?: string | null;
   participant_2_id?: string | null;
+  session_seq?: number | null;
   ready_gate_status?: string | null;
   status?: string | null;
   result_status?: string | null;
@@ -114,6 +121,7 @@ export function useReadyGate(
   userId: string | null | undefined,
   options?: UseReadyGateOptions,
 ) {
+  const broadcastV2 = useFeatureFlag('video_date.broadcast_v2');
   const markReadyV2 = useFeatureFlag('video_date.outbox_v2.mark_ready');
   const forfeitV2 = useFeatureFlag('video_date.outbox_v2.forfeit');
   const [state, setState] = useState<ReadyGateState>({
@@ -138,6 +146,8 @@ export function useReadyGate(
   const terminalHandledRef = useRef<string | null>(null);
   const participantPositionRef = useRef<ReadyGateParticipantPosition | null>(null);
   const syncSessionInFlightRef = useRef<Promise<ReadyGateSyncResult> | null>(null);
+  const sessionSeqRef = useRef<number | null>(null);
+  const broadcastRefetchInFlightRef = useRef(false);
   useEffect(() => {
     onBothReadyRef.current = options?.onBothReady;
     onForfeitedRef.current = options?.onForfeited;
@@ -147,6 +157,8 @@ export function useReadyGate(
     terminalHandledRef.current = null;
     participantPositionRef.current = null;
     syncSessionInFlightRef.current = null;
+    sessionSeqRef.current = null;
+    broadcastRefetchInFlightRef.current = false;
   }, [sessionId]);
 
   const notifyTerminal = useCallback((
@@ -191,6 +203,9 @@ export function useReadyGate(
     const hasSnoozeExpiresAt = Object.prototype.hasOwnProperty.call(truth, 'snooze_expires_at');
     const hasReadyGateExpiresAt = Object.prototype.hasOwnProperty.call(truth, 'ready_gate_expires_at');
     const expiresAt = typeof truth.ready_gate_expires_at === 'string' ? truth.ready_gate_expires_at : null;
+    if (typeof truth.session_seq === 'number' && Number.isFinite(truth.session_seq)) {
+      sessionSeqRef.current = truth.session_seq;
+    }
 
     setState((prev) => {
       const readiness = deriveReadyGateReadinessState({
@@ -260,7 +275,7 @@ export function useReadyGate(
     const { data: session, error } = await supabase
       .from('video_sessions')
       .select(
-        'participant_1_id, participant_2_id, ready_gate_status, ready_participant_1_at, ready_participant_2_at, ready_gate_expires_at, snoozed_by, snooze_expires_at, ended_reason',
+        'participant_1_id, participant_2_id, session_seq, ready_gate_status, ready_participant_1_at, ready_participant_2_at, ready_gate_expires_at, snoozed_by, snooze_expires_at, ended_reason',
       )
       .eq('id', sessionId)
       .maybeSingle();
@@ -313,6 +328,65 @@ export function useReadyGate(
       supabase.removeChannel(channel);
     };
   }, [sessionId, userId, applyReadyGateTruth]);
+
+  const reconcileBroadcastEvent = useCallback(
+    async (event: VideoDateSessionBroadcastEvent) => {
+      if (!sessionId || !userId) return;
+      const decision = resolveVideoDateSessionSeqDecision(sessionSeqRef.current, event.sessionSeq);
+      if (decision.action === 'invalid' || decision.action === 'duplicate') return;
+
+      sessionSeqRef.current = event.sessionSeq;
+      if (broadcastRefetchInFlightRef.current) return;
+      broadcastRefetchInFlightRef.current = true;
+      try {
+        if (decision.action === 'gap') {
+          const snapshot = await fetchVideoDateSnapshot(sessionId, { includeToken: false });
+          if (snapshot.ok) sessionSeqRef.current = snapshot.seq;
+          rcBreadcrumb(RC_CATEGORY.readyGate, 'broadcast_seq_gap_snapshot_refetch', {
+            sessionId,
+            eventId: options?.eventId ?? null,
+            eventKind: event.kind,
+            incomingSeq: event.sessionSeq,
+            expectedSeq: decision.expectedSeq,
+            snapshotOk: snapshot.ok,
+          });
+        }
+        await fetchSession();
+      } finally {
+        broadcastRefetchInFlightRef.current = false;
+      }
+    },
+    [fetchSession, options?.eventId, sessionId, userId],
+  );
+
+  useEffect(() => {
+    if (!sessionId || !userId || !broadcastV2.enabled) return;
+    const subscription = createVideoDateSessionChannel(supabase, {
+      sessionId,
+      onEvent: (event) => {
+        void reconcileBroadcastEvent(event);
+      },
+      onInvalidPayload: () => {
+        rcBreadcrumb(RC_CATEGORY.readyGate, 'broadcast_invalid_payload_ignored', {
+          sessionId,
+          eventId: options?.eventId ?? null,
+        });
+      },
+      onStatusChange: (status, error) => {
+        if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+          rcBreadcrumb(RC_CATEGORY.readyGate, 'broadcast_channel_degraded', {
+            sessionId,
+            eventId: options?.eventId ?? null,
+            status,
+            error: error instanceof Error ? error.message : String(error ?? ''),
+          });
+        }
+      },
+    });
+    return () => {
+      subscription.unsubscribe();
+    };
+  }, [broadcastV2.enabled, options?.eventId, reconcileBroadcastEvent, sessionId, userId]);
 
   // Fallback sync while ready gate is active in case realtime misses transitions.
   useEffect(() => {
