@@ -12,8 +12,10 @@ import {
 
 const baseMigration = readFileSync("supabase/migrations/20260519120000_client_feature_flags.sql", "utf8");
 const hardeningMigration = readFileSync("supabase/migrations/20260520120000_client_feature_flags_hardening.sql", "utf8");
-const migration = `${baseMigration}\n${hardeningMigration}`;
+const videoDatePhase0Migration = readFileSync("supabase/migrations/20260521161000_video_date_phase0_observability_flags.sql", "utf8");
+const migration = `${baseMigration}\n${hardeningMigration}\n${videoDatePhase0Migration}`;
 const core = readFileSync("shared/featureFlags/clientFeatureFlagCore.ts", "utf8");
+const videoDateFlags = readFileSync("shared/featureFlags/videoDateV4Flags.ts", "utf8");
 const webHook = readFileSync("src/hooks/useFeatureFlag.ts", "utf8");
 const nativeHook = readFileSync("apps/mobile/hooks/useFeatureFlag.ts", "utf8");
 const webLib = readFileSync("src/lib/clientFeatureFlags.ts", "utf8");
@@ -155,6 +157,37 @@ test("media v2 flags are seeded disabled with zero rollout", () => {
   }
 });
 
+test("video date v4 flags are typed, prefetched, and use namespaced stable rollout keys", () => {
+  for (const flag of [
+    "video_date.snapshot_v2",
+    "video_date.deck_deal_v2",
+    "video_date.readiness_v2",
+    "video_date.micro_verdict_v2",
+    "video_date.broadcast_v2",
+    "video_date.timeline_v2",
+    "video_date.daily_webhooks_v2",
+    "video_date.extension_mutual_v2",
+    "video_date.safety_always_on_v2",
+    "video_date.daily_pool_v2",
+    "video_date.outbox_v2.mark_ready",
+    "video_date.outbox_v2.forfeit",
+    "video_date.outbox_v2.continue_handshake",
+    "video_date.outbox_v2.handshake_auto_promote",
+    "video_date.outbox_v2.date_timeout",
+    "video_date.outbox_v2.submit_verdict",
+    "video_date.outbox_v2.extension",
+    "video_date.outbox_v2.safety",
+    "video_date.outbox_v2.drain_match_queue",
+  ]) {
+    assert.match(videoDateFlags, new RegExp(`"${flag.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}"`));
+    assert.match(videoDatePhase0Migration, new RegExp(`'${flag.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}', false, 0`));
+  }
+
+  assert.match(core, /VIDEO_DATE_V4_CLIENT_FEATURE_FLAGS/);
+  assert.match(core, /export const CLIENT_FEATURE_FLAG_TELEMETRY_EVENT = "client_feature_flag_evaluated"/);
+  assert.match(core, /export const LEGACY_CLIENT_FEATURE_FLAG_TELEMETRY_EVENT = "media_v2_flag_evaluated"/);
+});
+
 test("web/native hooks use the shared core with persisted initial data and debounced refresh", () => {
   assert.match(core, /export const ALL_CLIENT_FEATURE_FLAGS/);
   assert.match(core, /export const CLIENT_FEATURE_FLAG_TTL_MS = 60_000/);
@@ -208,7 +241,12 @@ test("platform feature flag libs persist, prefetch, emit evaluation telemetry, a
   for (const source of [webLib, nativeLib]) {
     assert.match(source, /evaluate_client_feature_flag_detail/);
     assert.match(source, /evaluate_client_feature_flags/);
-    assert.match(source, /media_v2_flag_evaluated/);
+    assert.match(source, /LEGACY_CLIENT_FEATURE_FLAG_TELEMETRY_EVENT/);
+    assert.match(source, /CLIENT_FEATURE_FLAG_TELEMETRY_EVENT/);
+    assert.match(source, /event\.flag\.startsWith\(['"]media_v2_['"]\)/);
+    assert.match(source, /\[LEGACY_CLIENT_FEATURE_FLAG_TELEMETRY_EVENT, CLIENT_FEATURE_FLAG_TELEMETRY_EVENT\]/);
+    assert.match(source, /\[CLIENT_FEATURE_FLAG_TELEMETRY_EVENT\]/);
+    assert.match(source, /trackEvent\(eventName, payload\)/);
     assert.match(source, /platform: (?:['"]web['"]|nativePlatform\(\))/);
     assert.match(source, /user_id_bucket/);
     assert.match(source, /clearPersistedClientFeatureFlagCache/);
@@ -229,7 +267,7 @@ test("platform feature flag libs persist, prefetch, emit evaluation telemetry, a
 
 test("feature flag and upload telemetry are best-effort and never gate routing", () => {
   for (const source of [webLib, nativeLib]) {
-    assert.match(source, /try \{[\s\S]+media_v2_flag_evaluated[\s\S]+catch \{/);
+    assert.match(source, /const eventNames = event\.flag\.startsWith\(['"]media_v2_['"]\)[\s\S]+for \(const eventName of eventNames\)[\s\S]+try \{[\s\S]+trackEvent\(eventName, payload\)[\s\S]+catch \{/);
     assert.match(source, /analytics failures must not change feature flag behavior/);
   }
   for (const source of [webStorageUploads, webVideoUploads, nativeStorageUploads, nativeVideoUploads]) {
