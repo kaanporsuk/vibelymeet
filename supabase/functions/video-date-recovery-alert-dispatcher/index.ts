@@ -19,7 +19,10 @@ type DispatchRow = {
   id: number;
   sentry_sent_at: string | null;
   slack_sent_at: string | null;
+  sentry_claimed_at: string | null;
+  slack_claimed_at: string | null;
 };
+type DispatchChannel = "sentry" | "slack";
 
 let sentryInitialized = false;
 
@@ -151,6 +154,49 @@ async function postSlackAlert(alert: JsonObject, fingerprint: string): Promise<b
   }
 }
 
+async function claimDispatchChannel(
+  supabase: ReturnType<typeof serviceClient>,
+  dispatchId: number,
+  channel: DispatchChannel,
+): Promise<boolean> {
+  const sentColumn = channel === "sentry" ? "sentry_sent_at" : "slack_sent_at";
+  const claimedColumn = channel === "sentry" ? "sentry_claimed_at" : "slack_claimed_at";
+  const claim = await supabase
+    .from("video_date_recovery_alert_dispatches")
+    .update({ [claimedColumn]: new Date().toISOString() })
+    .eq("id", dispatchId)
+    .is(sentColumn, null)
+    .is(claimedColumn, null)
+    .select("id")
+    .maybeSingle();
+
+  if (claim.error) {
+    console.error(`video-date-recovery-alert-dispatcher ${channel}_claim_error`, claim.error.message);
+    return false;
+  }
+  return Boolean(claim.data?.id);
+}
+
+async function finishDispatchChannel(
+  supabase: ReturnType<typeof serviceClient>,
+  dispatchId: number,
+  channel: DispatchChannel,
+  sent: boolean,
+): Promise<void> {
+  const sentColumn = channel === "sentry" ? "sentry_sent_at" : "slack_sent_at";
+  const claimedColumn = channel === "sentry" ? "sentry_claimed_at" : "slack_claimed_at";
+  const values = sent
+    ? { [sentColumn]: new Date().toISOString(), [claimedColumn]: null }
+    : { [claimedColumn]: null };
+  const update = await supabase
+    .from("video_date_recovery_alert_dispatches")
+    .update(values)
+    .eq("id", dispatchId);
+  if (update.error) {
+    console.error(`video-date-recovery-alert-dispatcher ${channel}_finish_error`, update.error.message);
+  }
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
   if (req.method !== "POST") return json({ ok: false, error: "method_not_allowed" }, 405);
@@ -190,7 +236,7 @@ Deno.serve(async (req) => {
         hour_bucket: bucket,
         alert_payload: sanitized,
       })
-      .select("id,sentry_sent_at,slack_sent_at")
+      .select("id,sentry_sent_at,slack_sent_at,sentry_claimed_at,slack_claimed_at")
       .maybeSingle();
 
     let dispatch = insert.data as DispatchRow | null;
@@ -198,7 +244,7 @@ Deno.serve(async (req) => {
       if (insert.error.code === "23505") {
         const existing = await supabase
           .from("video_date_recovery_alert_dispatches")
-          .select("id,sentry_sent_at,slack_sent_at")
+          .select("id,sentry_sent_at,slack_sent_at,sentry_claimed_at,slack_claimed_at")
           .eq("severity", severity)
           .eq("fingerprint", fingerprint)
           .eq("hour_bucket", bucket)
@@ -219,26 +265,27 @@ Deno.serve(async (req) => {
     const isNewDispatch = insert.error == null;
     if (isNewDispatch) claimed += 1;
 
-    const shouldSendSentry = severity === "page" && !dispatch.sentry_sent_at;
-    const shouldSendSlack = (severity === "page" || severity === "watch") && !dispatch.slack_sent_at;
+    const shouldSendSentry = severity === "page" && !dispatch.sentry_sent_at && !dispatch.sentry_claimed_at;
+    const shouldSendSlack =
+      (severity === "page" || severity === "watch") && !dispatch.slack_sent_at && !dispatch.slack_claimed_at;
     if (!shouldSendSentry && !shouldSendSlack) continue;
 
-    const sentryOk = shouldSendSentry ? await captureSentryPage(alert, fingerprint) : false;
-    const slackOk = shouldSendSlack
-      ? await postSlackAlert(alert, fingerprint)
+    const claimedSentry = shouldSendSentry
+      ? await claimDispatchChannel(supabase, dispatch.id, "sentry")
       : false;
+    const claimedSlack = shouldSendSlack
+      ? await claimDispatchChannel(supabase, dispatch.id, "slack")
+      : false;
+    if (!claimedSentry && !claimedSlack) continue;
+
+    const sentryOk = claimedSentry ? await captureSentryPage(alert, fingerprint) : false;
+    const slackOk = claimedSlack ? await postSlackAlert(alert, fingerprint) : false;
 
     if (sentryOk) sentrySent += 1;
     if (slackOk) slackSent += 1;
 
-    const sentAt = new Date().toISOString();
-    await supabase
-      .from("video_date_recovery_alert_dispatches")
-      .update({
-        sentry_sent_at: sentryOk ? sentAt : dispatch.sentry_sent_at,
-        slack_sent_at: slackOk ? sentAt : dispatch.slack_sent_at,
-      })
-      .eq("id", dispatch.id);
+    if (claimedSentry) await finishDispatchChannel(supabase, dispatch.id, "sentry", sentryOk);
+    if (claimedSlack) await finishDispatchChannel(supabase, dispatch.id, "slack", slackOk);
   }
 
   return json({

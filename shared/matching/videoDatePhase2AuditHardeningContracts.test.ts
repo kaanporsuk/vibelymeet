@@ -15,6 +15,10 @@ const hardening = readFileSync(
   join(root, "supabase/migrations/20260522002000_video_date_phase2_audit_hardening.sql"),
   "utf8",
 );
+const dispatchClaims = readFileSync(
+  join(root, "supabase/migrations/20260522012000_video_date_recovery_alert_dispatch_claims.sql"),
+  "utf8",
+);
 const config = readFileSync(join(root, "supabase/config.toml"), "utf8");
 const dispatcher = readFileSync(
   join(root, "supabase/functions/video-date-recovery-alert-dispatcher/index.ts"),
@@ -49,6 +53,10 @@ test("audit hardening dispatches recovery alerts without exposing them to client
   assert.match(hardening, /CREATE TABLE IF NOT EXISTS public\.video_date_recovery_alert_dispatches/);
   assert.match(hardening, /UNIQUE INDEX[\s\S]+severity, fingerprint, hour_bucket/);
   assert.match(hardening, /video_date_recovery_alert_dispatches_no_secret_keys/);
+  assert.match(dispatchClaims, /sentry_claimed_at timestamptz/);
+  assert.match(dispatchClaims, /slack_claimed_at timestamptz/);
+  assert.match(dispatchClaims, /idx_video_date_recovery_alert_dispatches_sentry_claims/);
+  assert.match(dispatchClaims, /idx_video_date_recovery_alert_dispatches_slack_claims/);
   assert.match(hardening, /REVOKE ALL ON TABLE public\.video_date_recovery_alert_dispatches FROM PUBLIC, anon, authenticated/);
   assert.match(hardening, /video-date-recovery-alert-dispatcher/);
   assert.match(hardening, /\*\/5 \* \* \* \*/);
@@ -63,6 +71,9 @@ test("audit hardening dispatches recovery alerts without exposing them to client
   assert.match(dispatcher, /\.eq\("fingerprint", fingerprint\)/);
   assert.match(dispatcher, /shouldSendSentry/);
   assert.match(dispatcher, /shouldSendSlack/);
+  assert.match(dispatcher, /claimDispatchChannel/);
+  assert.match(dispatcher, /\.is\(sentColumn, null\)[\s\S]+\.is\(claimedColumn, null\)/);
+  assert.match(dispatcher, /finishDispatchChannel/);
   assert.match(dispatcher, /retried/);
   assert.doesNotMatch(dispatcher, /meeting-tokens|createMeetingToken|daily_token|tokenExpiresAt/);
 });
