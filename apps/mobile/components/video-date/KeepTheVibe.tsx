@@ -1,5 +1,5 @@
 /**
- * +2 min / +5 min credit extension during DATE phase. Partner not notified.
+ * +2 min / +5 min credit extension during DATE phase.
  */
 
 import React, { useEffect, useRef } from 'react';
@@ -18,6 +18,8 @@ type Props = {
   extraTimeCredits: number;
   extendedVibeCredits: number;
   onExtend: (minutes: number, type: 'extra_time' | 'extended_vibe') => Promise<VideoDateExtendOutcome>;
+  mutualMode?: boolean;
+  pendingPartnerRequestType?: 'extra_time' | 'extended_vibe' | null;
   isExtending?: boolean;
   onGetCredits?: () => void;
   analyticsSessionId: string | undefined;
@@ -28,6 +30,8 @@ export function KeepTheVibe({
   extraTimeCredits,
   extendedVibeCredits,
   onExtend,
+  mutualMode = false,
+  pendingPartnerRequestType = null,
   isExtending = false,
   onGetCredits,
   analyticsSessionId,
@@ -41,6 +45,14 @@ export function KeepTheVibe({
 
   const withCreditsImpRef = useRef(false);
   const noCreditsImpRef = useRef(false);
+  const extraTimeActionLabel =
+    pendingPartnerRequestType === 'extra_time' ? 'Accept +2' : mutualMode ? 'Ask +2' : '+2 min';
+  const extendedVibeActionLabel =
+    pendingPartnerRequestType === 'extended_vibe' ? 'Accept +5' : mutualMode ? 'Ask +5' : '+5 min';
+  const extraTimeActionVerb =
+    pendingPartnerRequestType === 'extra_time' ? 'Accept adding' : mutualMode ? 'Ask to add' : 'Add';
+  const extendedVibeActionVerb =
+    pendingPartnerRequestType === 'extended_vibe' ? 'Accept adding' : mutualMode ? 'Ask to add' : 'Add';
 
   useEffect(() => {
     if (!analyticsSessionId) return;
@@ -81,6 +93,16 @@ export function KeepTheVibe({
     });
     const outcome = await onExtend(minutes, type);
     if (outcome.ok === true) {
+      if (outcome.awaitingPartner === true) {
+        trackEvent('video_date_extension_request_sent', {
+          platform: 'native',
+          session_id: analyticsSessionId,
+          event_id: analyticsEventId,
+          credit_type: type,
+          credits_state: creditsState,
+        });
+        return;
+      }
       trackEvent(LobbyPostDateEvents.EXTEND_DATE_SUCCESS, {
         platform: 'native',
         session_id: analyticsSessionId,
@@ -152,14 +174,14 @@ export function KeepTheVibe({
             pressed && styles.pressed,
           ]}
           accessibilityRole="button"
-          accessibilityLabel={`Add 2 minutes with Extra Time, ${extraTimeCredits} credit${extraTimeCredits === 1 ? '' : 's'} left`}
+          accessibilityLabel={`${extraTimeActionVerb} 2 minutes with Extra Time, ${extraTimeCredits} credit${extraTimeCredits === 1 ? '' : 's'} left`}
         >
           {isExtending ? (
             <ActivityIndicator size="small" color={theme.tint} />
           ) : (
             <>
               <Text style={styles.pillIcon}>⏱</Text>
-              <Text style={[styles.pillText, { color: theme.text }]}>+2 min</Text>
+              <Text style={[styles.pillText, { color: theme.text }]}>{extraTimeActionLabel}</Text>
               <Text style={[styles.pillCount, { color: theme.mutedForeground }]}>({extraTimeCredits})</Text>
             </>
           )}
@@ -175,14 +197,14 @@ export function KeepTheVibe({
             pressed && styles.pressed,
           ]}
           accessibilityRole="button"
-          accessibilityLabel={`Add 5 minutes with Extended Vibe, ${extendedVibeCredits} credit${extendedVibeCredits === 1 ? '' : 's'} left`}
+          accessibilityLabel={`${extendedVibeActionVerb} 5 minutes with Extended Vibe, ${extendedVibeCredits} credit${extendedVibeCredits === 1 ? '' : 's'} left`}
         >
           {isExtending ? (
             <ActivityIndicator size="small" color={theme.accent} />
           ) : (
             <>
               <Text style={styles.pillIcon}>✨</Text>
-              <Text style={[styles.pillText, { color: theme.text }]}>+5 min</Text>
+              <Text style={[styles.pillText, { color: theme.text }]}>{extendedVibeActionLabel}</Text>
               <Text style={[styles.pillCount, { color: theme.mutedForeground }]}>({extendedVibeCredits})</Text>
             </>
           )}
