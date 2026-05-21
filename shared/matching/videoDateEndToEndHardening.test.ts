@@ -2121,7 +2121,7 @@ test("native local date end waits for server terminal truth before survey", () =
   );
   assert.match(
     nativeVideoDateRoute,
-    /let terminalConfirmed = false;[\s\S]*terminalConfirmed = await endVideoDate\(sessionId\);[\s\S]*terminalConfirmed = await fetchServerTerminalTruth\(\);[\s\S]*if \(!terminalConfirmed\) \{[\s\S]*setShowFeedback\(false\)[\s\S]*Alert\.alert\('Could not end date yet'[\s\S]*return;[\s\S]*logJourney\('survey_opened', \{ source: 'local_end_confirmed' \}/s,
+    /let terminalConfirmed = false;[\s\S]*terminalConfirmed = await endVideoDate\(sessionId, reason,[\s\S]*dateTimeoutV2: dateTimeoutV2\.enabled[\s\S]*terminalConfirmed = await fetchServerTerminalTruth\(\);[\s\S]*if \(!terminalConfirmed\) \{[\s\S]*setShowFeedback\(false\)[\s\S]*Alert\.alert\('Could not end date yet'[\s\S]*return;[\s\S]*logJourney\('survey_opened', \{ source: 'local_end_confirmed' \}/s,
   );
 });
 

@@ -19,6 +19,7 @@ export type PostDateOutboxPayload =
       kind: "verdict";
       liked: boolean;
       report?: PostDateSafetyReportPayload | null;
+      backendVersion?: "v2" | "v3";
     }
   | {
       kind: "report";
@@ -56,4 +57,3 @@ export type PostDateOutboxResultPayload = {
   report_id?: string;
   idempotent?: boolean;
 };
-

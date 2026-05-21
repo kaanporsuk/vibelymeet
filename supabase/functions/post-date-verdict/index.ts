@@ -53,6 +53,7 @@ serve(async (req) => {
       liked?: boolean;
       idempotency_key?: string;
       safety_report?: unknown;
+      transition_version?: "v2" | "v3";
     } | null;
     const action = body?.action ?? "verdict";
     const sessionId = body?.session_id;
@@ -83,12 +84,19 @@ serve(async (req) => {
           p_safety_report: body?.safety_report ?? null,
         })
       : idempotencyKey
-        ? await userClient.rpc("submit_post_date_verdict_v2", {
-            p_session_id: sessionId,
-            p_liked: liked as boolean,
-            p_idempotency_key: idempotencyKey,
-            p_safety_report: body?.safety_report ?? null,
-          })
+        ? body?.transition_version === "v3"
+          ? await userClient.rpc("submit_post_date_verdict_v3", {
+              p_session_id: sessionId,
+              p_liked: liked as boolean,
+              p_idempotency_key: idempotencyKey,
+              p_safety_report: body?.safety_report ?? null,
+            })
+          : await userClient.rpc("submit_post_date_verdict_v2", {
+              p_session_id: sessionId,
+              p_liked: liked as boolean,
+              p_idempotency_key: idempotencyKey,
+              p_safety_report: body?.safety_report ?? null,
+            })
         : await userClient.rpc("submit_post_date_verdict", {
             p_session_id: sessionId,
             p_liked: liked as boolean,
