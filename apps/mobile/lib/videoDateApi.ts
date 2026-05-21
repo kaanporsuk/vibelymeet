@@ -15,7 +15,10 @@ import { LobbyPostDateEvents } from '@clientShared/analytics/lobbyToPostDateJour
 import { videoSessionRowIndicatesHandshakeOrDate } from '@clientShared/matching/activeSession';
 import type { DailyRoomFailureKind } from '@clientShared/matching/dailyRoomFailure';
 import { sendVideoDateSignalWithRetry } from '@clientShared/matching/videoDateSignalRetry';
-import { buildVideoDateTransitionIdempotencyKey } from '@clientShared/matching/videoDateTransitionCommands';
+import {
+  buildVideoDateExtensionIdempotencyKey,
+  buildVideoDateTransitionIdempotencyKey,
+} from '@clientShared/matching/videoDateTransitionCommands';
 import {
   parseSpendVideoDateCreditExtensionPayload,
 } from '@clientShared/matching/videoDateExtensionSpend';
@@ -127,6 +130,22 @@ type VideoDateTransitionDiagnostics = {
 
 type RecordHandshakeDecisionOptions = {
   continueHandshakeV2?: boolean;
+};
+
+type EndVideoDateOptions = {
+  dateTimeoutV2?: boolean;
+};
+
+type CompleteHandshakeOptions = {
+  handshakeAutoPromoteV2?: boolean;
+};
+
+type SubmitVerdictOptions = {
+  submitVerdictV3?: boolean;
+};
+
+type SpendVideoDateCreditExtensionOptions = {
+  extensionV2?: boolean;
 };
 
 export class VideoDateRequestTimeoutError extends Error {
@@ -721,7 +740,12 @@ export async function markReconnectReturn(sessionId: string): Promise<void> {
 }
 
 /** Server-owned: end the date. Idempotent. */
-export async function endVideoDate(sessionId: string, reason?: string): Promise<boolean> {
+export async function endVideoDate(
+  sessionId: string,
+  reason?: string,
+  options?: EndVideoDateOptions
+): Promise<boolean> {
+  const useDateTimeoutV2 = reason === 'date_timeout' && options?.dateTimeoutV2 === true;
   const args = {
     p_session_id: sessionId,
     p_action: 'end',
@@ -730,9 +754,15 @@ export async function endVideoDate(sessionId: string, reason?: string): Promise<
   vdbg('video_date_transition_before', { action: 'end', args });
   const result = await sendVideoDateSignalWithRetry({
     sessionId,
-    action: 'end',
+    action: useDateTimeoutV2 ? 'phase3:date_timeout' : 'end',
     operation: async (attempt, idempotencyKey) => {
-      const { data, error } = await supabase.rpc('video_date_transition', args);
+      const { data, error } =
+        useDateTimeoutV2
+          ? await supabase.rpc('video_session_date_timeout_v2' as never, {
+              p_session_id: sessionId,
+              p_idempotency_key: idempotencyKey,
+            } as never)
+          : await supabase.rpc('video_date_transition', args);
       vdbg('video_date_transition_after', {
         action: 'end',
         ok: !error,
@@ -744,7 +774,12 @@ export async function endVideoDate(sessionId: string, reason?: string): Promise<
       if (error) throw error;
       return data;
     },
-    isSuccess: (data) => (data as { success?: boolean } | null)?.success !== false,
+    isSuccess: (data) => {
+      const payload = data as { success?: boolean; state?: string; phase?: string; already_ended?: boolean } | null;
+      if (payload?.success === false) return false;
+      if (!useDateTimeoutV2) return true;
+      return payload?.already_ended === true || payload?.state === 'ended' || payload?.phase === 'ended';
+    },
   });
   return result.ok;
 }
@@ -896,7 +931,10 @@ export async function recordVibe(
 }
 
 /** At handshake end: check mutual vibe. Returns { state: 'date' } if both liked, else terminal/waiting state. */
-export async function completeHandshake(sessionId: string): Promise<CompleteHandshakeResult | null> {
+export async function completeHandshake(
+  sessionId: string,
+  options?: CompleteHandshakeOptions
+): Promise<CompleteHandshakeResult | null> {
   const args = {
     p_session_id: sessionId,
     p_action: 'complete_handshake',
@@ -908,7 +946,15 @@ export async function completeHandshake(sessionId: string): Promise<CompleteHand
     ...handshakeTruthLogPayload(truthBefore),
   });
   vdbg('video_date_transition_before', { action: 'complete_handshake', args });
-  const { data, error } = await supabase.rpc('video_date_transition', args);
+  const { data, error } = options?.handshakeAutoPromoteV2 === true
+    ? await supabase.rpc('video_session_handshake_auto_promote_v2' as never, {
+        p_session_id: args.p_session_id,
+        p_idempotency_key: buildVideoDateTransitionIdempotencyKey(
+          args.p_session_id,
+          'handshake_auto_promote',
+        ),
+      } as never)
+    : await supabase.rpc('video_date_transition', args);
   const truthAfter = await fetchVideoSessionDateEntryTruth(sessionId);
   vdbg('video_date_transition_after', {
     action: 'complete_handshake',
@@ -1163,12 +1209,17 @@ export async function submitVerdictAndCheckMutual(
   sessionId: string,
   userId: string,
   _partnerId: string,
-  liked: boolean
+  liked: boolean,
+  options?: SubmitVerdictOptions
 ): Promise<SubmitVerdictAndCheckMutualResult> {
   const row = await submitNativePostDateOutboxItem({
     userId,
     sessionId,
-    payload: { kind: 'verdict', liked },
+    payload: {
+      kind: 'verdict',
+      liked,
+      backendVersion: options?.submitVerdictV3 === true ? 'v3' : 'v2',
+    },
   }) as PostDateVerdictResponseBody | null;
   if (!row || typeof row !== 'object') {
     verdictBreadcrumb('verdict_invoke_failed', { detail: 'missing_body' });
@@ -1240,13 +1291,29 @@ export type SpendVideoDateCreditExtensionResult =
 export async function spendVideoDateCreditExtension(
   sessionId: string,
   creditType: 'extra_time' | 'extended_vibe',
-  idempotencyKey?: string
+  idempotencyKey?: string,
+  options?: SpendVideoDateCreditExtensionOptions
 ): Promise<SpendVideoDateCreditExtensionResult> {
-  const { data, error } = await supabase.rpc('spend_video_date_credit_extension', {
-    p_session_id: sessionId,
-    p_credit_type: creditType,
-    ...(idempotencyKey ? { p_idempotency_key: idempotencyKey } : {}),
-  });
+  const key =
+    idempotencyKey ??
+    (options?.extensionV2 === true
+      ? buildVideoDateExtensionIdempotencyKey(
+          sessionId,
+          creditType,
+          `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+        )
+      : undefined);
+  const { data, error } = options?.extensionV2 === true
+    ? await supabase.rpc('video_session_extend_date_v2' as never, {
+        p_session_id: sessionId,
+        p_credit_type: creditType,
+        ...(key ? { p_idempotency_key: key } : {}),
+      } as never)
+    : await supabase.rpc('spend_video_date_credit_extension', {
+        p_session_id: sessionId,
+        p_credit_type: creditType,
+        ...(key ? { p_idempotency_key: key } : {}),
+      });
   if (error) {
     return { ok: false, error: 'rpc_transport' };
   }

@@ -121,6 +121,7 @@ test("Phase 3 events are visibility-safe, sequence-aware, and token-free", () =>
 
 test("web and native route Phase 3 transitions behind the same default-off flags", () => {
   assert.match(transitionCommands, /VideoDatePhase3TransitionAction = "mark_ready" \| "forfeit" \| "continue_handshake"/);
+  assert.match(transitionCommands, /VideoDatePhase3DeadlineAction = "handshake_auto_promote" \| "date_timeout"/);
   assert.match(transitionCommands, /buildVideoDateSignalIdempotencyKey\(sessionId, `phase3:\$\{action\}`\)/);
   assert.match(migration, /p_session_id::text \|\| ':phase3:mark_ready'/);
   assert.match(migration, /p_session_id::text \|\| ':phase3:forfeit'/);

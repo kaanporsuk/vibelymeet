@@ -112,6 +112,7 @@ export const PostDateSurvey = ({
   const { user } = useUserProfile();
   const { setStatus } = useEventStatus({ eventId });
   const microVerdictV2 = useFeatureFlag("video_date.micro_verdict_v2");
+  const submitVerdictV3 = useFeatureFlag("video_date.outbox_v2.submit_verdict");
   const [step, setStep] = useState<SurveyStep>("verdict");
   const [showEventEnded, setShowEventEnded] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -642,7 +643,11 @@ export const PostDateSurvey = ({
           userId: user.id,
           sessionId,
           eventId,
-          payload: { kind: "verdict", liked },
+          payload: {
+            kind: "verdict",
+            liked,
+            backendVersion: submitVerdictV3.enabled ? "v3" : "v2",
+          },
         });
 
         if (result && result.success === false) {
@@ -732,7 +737,7 @@ export const PostDateSurvey = ({
         setIsSubmitting(false);
       }
     },
-    [user?.id, sessionId, eventId, isSubmitting, logJourney]
+    [user?.id, sessionId, eventId, isSubmitting, logJourney, submitVerdictV3.enabled]
   );
 
   const recordReportPassVerdict = useCallback(
@@ -742,7 +747,12 @@ export const PostDateSurvey = ({
         userId: user.id,
         sessionId,
         eventId,
-        payload: { kind: "verdict", liked: false, report: report ?? null },
+        payload: {
+          kind: "verdict",
+          liked: false,
+          report: report ?? null,
+          backendVersion: submitVerdictV3.enabled ? "v3" : "v2",
+        },
       });
       if (result.success === false) {
         trackEvent(LobbyPostDateEvents.POST_DATE_VERDICT_SUBMIT_FAILED, {
@@ -763,7 +773,7 @@ export const PostDateSurvey = ({
       });
       return true;
     },
-    [eventId, sessionId, user?.id],
+    [eventId, sessionId, submitVerdictV3.enabled, user?.id],
   );
 
   // Screen 2: Highlights (optional)
@@ -844,7 +854,12 @@ export const PostDateSurvey = ({
             userId: user.id,
             sessionId,
             eventId,
-            payload: { kind: "verdict", liked: false, report: reportPayload },
+            payload: {
+              kind: "verdict",
+              liked: false,
+              report: reportPayload,
+              backendVersion: submitVerdictV3.enabled ? "v3" : "v2",
+            },
           })
         : await submitWebPostDateOutboxItem({
             userId: user.id,
@@ -869,7 +884,7 @@ export const PostDateSurvey = ({
           : "Report submitted. We'll review it promptly."
       );
     },
-    [user?.id, sessionId, eventId]
+    [user?.id, sessionId, eventId, submitVerdictV3.enabled]
   );
 
   const handleReportFromVerdict = useCallback(() => {

@@ -81,6 +81,7 @@ import {
   videoSessionHasPostDateSurveyTruth,
   videoSessionRowIndicatesHandshakeOrDate,
 } from '@clientShared/matching/activeSession';
+import { buildVideoDateExtensionIdempotencyKey } from '@clientShared/matching/videoDateTransitionCommands';
 import { handshakeDecisionFailureIndicatesSessionEnded } from '@clientShared/matching/videoDateHandshakePersistence';
 import {
   createVideoDateCameraSwitchRenderHint,
@@ -306,7 +307,7 @@ function makeExtensionIdempotencyKey(sessionId: string, type: 'extra_time' | 'ex
     typeof crypto !== 'undefined' && 'randomUUID' in crypto
       ? crypto.randomUUID()
       : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-  return `${sessionId}:${type}:${random}`;
+  return buildVideoDateExtensionIdempotencyKey(sessionId, type, random);
 }
 
 type PrejoinAttemptState = {
@@ -801,6 +802,10 @@ export default function VideoDateScreen() {
   const pathname = usePathname();
   const { user, loading: authLoading } = useAuth();
   const continueHandshakeV2 = useFeatureFlag('video_date.outbox_v2.continue_handshake');
+  const handshakeAutoPromoteV2 = useFeatureFlag('video_date.outbox_v2.handshake_auto_promote');
+  const dateTimeoutV2 = useFeatureFlag('video_date.outbox_v2.date_timeout');
+  const submitVerdictV3 = useFeatureFlag('video_date.outbox_v2.submit_verdict');
+  const extensionV2 = useFeatureFlag('video_date.outbox_v2.extension');
   const colorScheme = useColorScheme();
   const theme = Colors[colorScheme];
   const insets = useSafeAreaInsets();
@@ -3190,55 +3195,80 @@ export default function VideoDateScreen() {
     return sync?.ended === true;
   }, [sessionId]);
 
-  const handleCallEnd = useCallback(async (source: 'local_end' | 'server_end' = 'local_end') => {
-    const dateWasEstablished = dateEstablishedRef.current;
-    if (sessionId && !videoDateEndedRef.current) {
-      videoDateEndedRef.current = true;
-      trackEvent('video_date_ended', { session_id: sessionId });
-    }
-    addVideoDateBreadcrumb('Call ended (user)', 'info', { sessionId, source, dateWasEstablished });
-    if (source === 'server_end') {
-      const recoveredSurvey = await openNativePostDateSurveyFromTerminalTruth(source);
-      if (recoveredSurvey || dateWasEstablished) {
-        logJourney('survey_opened', { source }, `survey_opened_${source}`);
-        if (!recoveredSurvey) setShowFeedback(true);
-      } else {
-        setShowFeedback(false);
+  const handleCallEnd = useCallback(
+    async (
+      source: 'local_end' | 'server_end' = 'local_end',
+      reason: 'ended_from_client' | 'date_timeout' = 'ended_from_client',
+    ) => {
+      const dateWasEstablished = dateEstablishedRef.current;
+      const emitConfirmedEndedAnalytics = () => {
+        if (sessionId && !videoDateEndedRef.current) {
+          videoDateEndedRef.current = true;
+          trackEvent('video_date_ended', { session_id: sessionId, reason });
+        }
+      };
+      if (reason !== 'date_timeout') {
+        emitConfirmedEndedAnalytics();
       }
-      await cleanupForAbortWithoutServerEnd();
-      return;
-    }
-
-    if (dateWasEstablished) {
-      let terminalConfirmed = false;
-      if (sessionId) {
-        terminalConfirmed = await endVideoDate(sessionId);
-      }
-      if (!terminalConfirmed) {
-        terminalConfirmed = await fetchServerTerminalTruth();
-      }
-      if (!terminalConfirmed) {
-        setShowFeedback(false);
+      addVideoDateBreadcrumb('Call ended (user)', 'info', { sessionId, source, dateWasEstablished });
+      if (source === 'server_end') {
+        const recoveredSurvey = await openNativePostDateSurveyFromTerminalTruth(source);
+        if (recoveredSurvey || dateWasEstablished) {
+          logJourney('survey_opened', { source }, `survey_opened_${source}`);
+          if (!recoveredSurvey) setShowFeedback(true);
+        } else {
+          setShowFeedback(false);
+        }
         await cleanupForAbortWithoutServerEnd();
-        Alert.alert('Could not end date yet', 'Please try ending the date again in a moment.');
         return;
       }
 
-      logJourney('survey_opened', { source: 'local_end_confirmed' }, 'survey_opened_local_end_confirmed');
-      const recoveredSurvey = await openNativePostDateSurveyFromTerminalTruth('local_end_confirmed');
-      if (!recoveredSurvey) setShowFeedback(true);
+      if (dateWasEstablished) {
+        let terminalConfirmed = false;
+        if (sessionId) {
+          terminalConfirmed = await endVideoDate(sessionId, reason, {
+            dateTimeoutV2: dateTimeoutV2.enabled,
+          });
+        }
+        if (!terminalConfirmed) {
+          terminalConfirmed = await fetchServerTerminalTruth();
+        }
+        if (!terminalConfirmed) {
+          if (reason === 'date_timeout') {
+            videoDateEndedRef.current = false;
+            countdownCompletionKeyRef.current = null;
+            setShowFeedback(false);
+            await refetchVideoSession();
+            return;
+          }
+          setShowFeedback(false);
+          await cleanupForAbortWithoutServerEnd();
+          Alert.alert('Could not end date yet', 'Please try ending the date again in a moment.');
+          return;
+        }
+
+        if (reason === 'date_timeout') {
+          emitConfirmedEndedAnalytics();
+        }
+        logJourney('survey_opened', { source: 'local_end_confirmed' }, 'survey_opened_local_end_confirmed');
+        const recoveredSurvey = await openNativePostDateSurveyFromTerminalTruth('local_end_confirmed');
+        if (!recoveredSurvey) setShowFeedback(true);
+        await cleanupForAbortWithoutServerEnd();
+        return;
+      }
+      setShowFeedback(false);
       await cleanupForAbortWithoutServerEnd();
-      return;
-    }
-    setShowFeedback(false);
-    await cleanupForAbortWithoutServerEnd();
-  }, [
-    cleanupForAbortWithoutServerEnd,
-    sessionId,
-    logJourney,
-    fetchServerTerminalTruth,
-    openNativePostDateSurveyFromTerminalTruth,
-  ]);
+    },
+    [
+      cleanupForAbortWithoutServerEnd,
+      sessionId,
+      dateTimeoutV2.enabled,
+      logJourney,
+      fetchServerTerminalTruth,
+      openNativePostDateSurveyFromTerminalTruth,
+      refetchVideoSession,
+    ],
+  );
 
   useEffect(() => {
     handleCallEndRef.current = handleCallEnd;
@@ -3888,7 +3918,9 @@ export default function VideoDateScreen() {
           setExtendBanner({ kind: 'error', message: msg });
           return { ok: false, userMessage: msg };
         }
-        const result = await spendVideoDateCreditExtension(sessionId, type, idempotencyKey);
+        const result = await spendVideoDateCreditExtension(sessionId, type, idempotencyKey, {
+          extensionV2: extensionV2.enabled,
+        });
         void fetchUserCredits(user.id).then(setCredits);
         if (result.ok) {
           extensionSpendRetryRef.current = null;
@@ -3941,7 +3973,15 @@ export default function VideoDateScreen() {
         setIsExtending(false);
       }
     },
-    [user?.id, sessionId, eventId, refetchVideoSession, session?.date_extra_seconds, session?.date_started_at]
+    [
+      user?.id,
+      sessionId,
+      eventId,
+      extensionV2.enabled,
+      refetchVideoSession,
+      session?.date_extra_seconds,
+      session?.date_started_at,
+    ]
   );
 
   useEffect(() => {
@@ -6362,7 +6402,9 @@ export default function VideoDateScreen() {
           trigger: 'server_deadline',
           ctaTelemetry,
         });
-        const result = await completeHandshake(sessionId);
+        const result = await completeHandshake(sessionId, {
+          handshakeAutoPromoteV2: handshakeAutoPromoteV2.enabled,
+        });
         if (phaseRef.current !== 'handshake') return;
 
         if (!result) {
@@ -6464,6 +6506,7 @@ export default function VideoDateScreen() {
       openNativePostDateSurveyFromTerminalTruth,
       refetchVideoSession,
       sessionId,
+      handshakeAutoPromoteV2.enabled,
       showWarmupChoiceNotice,
     ]
   );
@@ -6542,7 +6585,7 @@ export default function VideoDateScreen() {
       countdownCompletionKeyRef.current = completionKey;
 
       if (phaseRef.current === 'date') {
-        void handleCallEnd('local_end');
+        void handleCallEnd('local_end', 'date_timeout');
       } else if (phaseRef.current === 'handshake') {
         vdbg('handshake_visible_countdown_elapsed', {
           sessionId: sessionId ?? null,
@@ -7344,8 +7387,10 @@ export default function VideoDateScreen() {
 
   const handleSurveySubmit = useCallback(
     (liked: boolean) =>
-      submitVerdictAndCheckMutual(sessionId!, user!.id, partnerId, liked),
-    [sessionId, user, partnerId]
+      submitVerdictAndCheckMutual(sessionId!, user!.id, partnerId, liked, {
+        submitVerdictV3: submitVerdictV3.enabled,
+      }),
+    [sessionId, user, partnerId, submitVerdictV3.enabled]
   );
 
   const handleSurveyMutualMatch = useCallback(() => {

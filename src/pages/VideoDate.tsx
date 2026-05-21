@@ -72,7 +72,10 @@ import {
   resolveVideoDatePhaseCountdown,
 } from "@clientShared/matching/videoDateCountdown";
 import { sendVideoDateSignalWithRetry } from "@clientShared/matching/videoDateSignalRetry";
-import { buildVideoDateTransitionIdempotencyKey } from "@clientShared/matching/videoDateTransitionCommands";
+import {
+  buildVideoDateExtensionIdempotencyKey,
+  buildVideoDateTransitionIdempotencyKey,
+} from "@clientShared/matching/videoDateTransitionCommands";
 import {
   canAttemptDailyRoomFromVideoSessionTruth,
   decideVideoSessionRouteFromTruth,
@@ -113,7 +116,7 @@ const REMOTE_DATE_VIDEO_CONTAINER_CLASS = "flex-1 relative bg-black";
 // Do not switch this to cover/scale/transform; use a separate decorative layer for cinematic crops.
 const REMOTE_DATE_VIDEO_CLASS = "w-full h-full object-contain object-center";
 
-type VideoDateEndReason = "ended_from_client" | "partial_join_peer_timeout";
+type VideoDateEndReason = "ended_from_client" | "partial_join_peer_timeout" | "date_timeout";
 type VideoDateManualExitStepStatus = "completed" | "failed" | "timed_out";
 
 type WebLifecycleLeaveSource = "beforeunload" | "pagehide" | "visibilitychange" | "freeze";
@@ -127,7 +130,7 @@ function makeExtensionIdempotencyKey(sessionId: string, type: "extra_time" | "ex
     typeof crypto !== "undefined" && "randomUUID" in crypto
       ? crypto.randomUUID()
       : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-  return `${sessionId}:${type}:${random}`;
+  return buildVideoDateExtensionIdempotencyKey(sessionId, type, random);
 }
 
 function serializeManualExitError(error: unknown): Record<string, unknown> | string {
@@ -358,6 +361,9 @@ const VideoDate = () => {
   const { id } = useParams();
   const { user } = useUserProfile();
   const continueHandshakeV2 = useFeatureFlag("video_date.outbox_v2.continue_handshake");
+  const handshakeAutoPromoteV2 = useFeatureFlag("video_date.outbox_v2.handshake_auto_promote");
+  const dateTimeoutV2 = useFeatureFlag("video_date.outbox_v2.date_timeout");
+  const extensionV2 = useFeatureFlag("video_date.outbox_v2.extension");
 
   const [phase, setPhase] = useState<CallPhase>("handshake");
   /** Server-owned extension seconds (`video_sessions.date_extra_seconds`) for reconciliation after refetch/rejoin. */
@@ -431,7 +437,7 @@ const VideoDate = () => {
   const lastRemoteLayoutDiagnosticKeyRef = useRef<string | null>(null);
   const manualExitInFlightRef = useRef(false);
   /** Set after `handleCallEnd` is defined — avoids TDZ when `handleHandshakeDecision` closes over end UX. */
-  const handleCallEndRef = useRef<(() => Promise<void>) | null>(null);
+  const handleCallEndRef = useRef<((reason?: VideoDateEndReason) => Promise<void>) | null>(null);
 
   const clearHandshakeGraceState = useCallback(() => {}, []);
 
@@ -2015,8 +2021,7 @@ const VideoDate = () => {
       countdownCompletionKeyRef.current = completionKey;
 
       if (phaseRef.current === "date") {
-        toast("Time flies! Thanks for a great date 💚", { duration: 2500 });
-        void handleCallEndRef.current?.();
+        void handleCallEndRef.current?.("date_timeout");
       } else if (phaseRef.current === "handshake") {
         vdbg("handshake_visible_countdown_elapsed", {
           sessionId: id ?? null,
@@ -2486,7 +2491,15 @@ const VideoDate = () => {
         ...handshakeTruthLogPayload((truthBefore as VideoDateHandshakeTruth | null) ?? null),
       });
       vdbg("video_date_transition_before", { action: "complete_handshake", source, args });
-      const { data: result, error } = await supabase.rpc("video_date_transition", args);
+      const { data: result, error } = handshakeAutoPromoteV2.enabled
+        ? await supabase.rpc("video_session_handshake_auto_promote_v2" as never, {
+            p_session_id: args.p_session_id,
+            p_idempotency_key: buildVideoDateTransitionIdempotencyKey(
+              args.p_session_id,
+              "handshake_auto_promote",
+            ),
+          } as never)
+        : await supabase.rpc("video_date_transition", args);
       if (phaseRef.current !== "handshake") return;
       const { data: truthAfter } = await supabase
         .from("video_sessions")
@@ -2579,7 +2592,15 @@ const VideoDate = () => {
     } finally {
       handshakeCompletionInFlightRef.current = false;
     }
-  }, [id, eventId, endCall, clearHandshakeGraceState, markDateFlowEntered, recoverTerminalPostDateSurvey]);
+  }, [
+    id,
+    eventId,
+    endCall,
+    clearHandshakeGraceState,
+    markDateFlowEntered,
+    recoverTerminalPostDateSurvey,
+    handshakeAutoPromoteV2.enabled,
+  ]);
 
   useEffect(() => {
     checkMutualVibeRef.current = checkMutualVibe;
@@ -2663,13 +2684,22 @@ const VideoDate = () => {
         credit_type: type,
       });
       try {
-        const { data, error } = await supabase.rpc("spend_video_date_credit_extension", {
-          p_session_id: id,
-          p_credit_type: type,
-          p_idempotency_key: idempotencyKey,
-        } as never);
+        const { data, error } = extensionV2.enabled
+          ? await supabase.rpc("video_session_extend_date_v2" as never, {
+              p_session_id: id,
+              p_credit_type: type,
+              p_idempotency_key: idempotencyKey,
+            } as never)
+          : await supabase.rpc("spend_video_date_credit_extension", {
+              p_session_id: id,
+              p_credit_type: type,
+              p_idempotency_key: idempotencyKey,
+            } as never);
         if (error) {
-          captureSupabaseError("spend_video_date_credit_extension", error);
+          captureSupabaseError(
+            extensionV2.enabled ? "video_session_extend_date_v2" : "spend_video_date_credit_extension",
+            error,
+          );
           trackEvent(LobbyPostDateEvents.VIDEO_DATE_EXTENSION_FAILED, {
             platform: "web",
             session_id: id,
@@ -2741,7 +2771,7 @@ const VideoDate = () => {
         extensionSpendInFlightRef.current = false;
       }
     },
-    [dateExtraSeconds, dateStartedAt, eventId, id, refetchCredits]
+    [dateExtraSeconds, dateStartedAt, eventId, extensionV2.enabled, id, refetchCredits]
   );
 
   // End call: server-owned `video_date_transition(end, …)` + survey/navigation UX (no direct session row writes here).
@@ -2758,11 +2788,17 @@ const VideoDate = () => {
       phase === "handshake"
         ? HANDSHAKE_TIME
         : HANDSHAKE_TIME + effectiveDateDurationSeconds(DATE_TIME, dateExtraSeconds);
-    trackEvent('video_date_ended', {
-      session_id: id,
-      duration_seconds: analyticsBudgetSeconds - (timeLeft ?? 0),
-      phase,
-    });
+    const emitConfirmedEndedAnalytics = () => {
+      trackEvent('video_date_ended', {
+        session_id: id,
+        duration_seconds: analyticsBudgetSeconds - (timeLeft ?? 0),
+        phase,
+        reason,
+      });
+    };
+    if (reason !== "date_timeout") {
+      emitConfirmedEndedAnalytics();
+    }
     if (!id) {
       explicitEndRequestedRef.current = "idle";
       return;
@@ -2773,12 +2809,18 @@ const VideoDate = () => {
       p_action: "end",
       p_reason: reason,
     };
+    const useDateTimeoutV2 = reason === "date_timeout" && dateTimeoutV2.enabled;
     vdbg("video_date_transition_before", { action: "end", args });
     const transitionResult = await sendVideoDateSignalWithRetry({
       sessionId: id,
-      action: "end",
+      action: useDateTimeoutV2 ? "phase3:date_timeout" : "end",
       operation: async (attempt, idempotencyKey) => {
-        const { data, error } = await supabase.rpc("video_date_transition", args);
+        const { data, error } = useDateTimeoutV2
+          ? await supabase.rpc("video_session_date_timeout_v2" as never, {
+              p_session_id: id,
+              p_idempotency_key: idempotencyKey,
+            } as never)
+          : await supabase.rpc("video_date_transition", args);
         vdbg("video_date_transition_after", {
           action: "end",
           ok: !error,
@@ -2790,7 +2832,12 @@ const VideoDate = () => {
         if (error) throw error;
         return data;
       },
-      isSuccess: (data) => (data as { success?: boolean } | null)?.success !== false,
+      isSuccess: (data) => {
+        const payload = data as { success?: boolean; state?: string; phase?: string; already_ended?: boolean } | null;
+        if (payload?.success === false) return false;
+        if (!useDateTimeoutV2) return true;
+        return payload?.already_ended === true || payload?.state === "ended" || payload?.phase === "ended";
+      },
     });
 
     try {
@@ -2817,11 +2864,21 @@ const VideoDate = () => {
           explicitEndRequestedRef.current = "acked";
           return;
         }
+        if (reason === "date_timeout") {
+          countdownCompletionKeyRef.current = null;
+          setTimingRefreshNonce((n) => n + 1);
+          explicitEndRequestedRef.current = "idle";
+          return;
+        }
         toast.error("Couldn't finish ending the date. Please try again.");
         explicitEndRequestedRef.current = "idle";
         return;
       }
 
+      if (reason === "date_timeout") {
+        toast("Time flies! Thanks for a great date 💚", { duration: 2500 });
+        emitConfirmedEndedAnalytics();
+      }
       explicitEndRequestedRef.current = "acked";
       recordUserAction("video_date_end_succeeded", {
         surface: "video_date",
@@ -2863,7 +2920,17 @@ const VideoDate = () => {
       toast.error("Couldn't finish ending the date. Please try again.");
       explicitEndRequestedRef.current = "idle";
     }
-  }, [id, phase, timeLeft, dateExtraSeconds, recoverTerminalPostDateSurvey, markDateFlowEntered, clearHandshakeGraceState, openPostDateSurvey]);
+  }, [
+    id,
+    phase,
+    timeLeft,
+    dateExtraSeconds,
+    dateTimeoutV2.enabled,
+    recoverTerminalPostDateSurvey,
+    markDateFlowEntered,
+    clearHandshakeGraceState,
+    openPostDateSurvey,
+  ]);
 
   useEffect(() => {
     handleCallEndRef.current = handleCallEnd;
