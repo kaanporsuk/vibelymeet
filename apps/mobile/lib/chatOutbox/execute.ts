@@ -56,6 +56,7 @@ export async function executeOutboxItem(
   uploadedPublicUrl?: string;
   uploadedMediaUrl?: string;
   patchedThreadCache?: boolean;
+  displayReady?: boolean;
 }> {
   const { id: clientRequestId, matchId, payload } = item;
 
@@ -156,7 +157,7 @@ export async function executeOutboxItem(
     currentUserId: item.userId,
     matchId: item.matchId,
   };
-  const patchedThreadCache =
+  const patchResult =
     payload.kind !== 'video' && serverMessage
       ? await patchThreadCacheFromRawMessage({
           queryClient,
@@ -165,11 +166,17 @@ export async function executeOutboxItem(
           matchId: item.matchId,
           raw: serverMessage,
         })
-      : false;
+      : { patched: false, displayReady: false };
 
   invalidateAfterThreadMutation(queryClient, scope);
 
-  return { serverMessageId, uploadedPublicUrl, uploadedMediaUrl, patchedThreadCache };
+  return {
+    serverMessageId,
+    uploadedPublicUrl,
+    uploadedMediaUrl,
+    patchedThreadCache: patchResult.patched,
+    displayReady: patchResult.displayReady,
+  };
 }
 
 export function nextBackoffMs(attemptCount: number): number {

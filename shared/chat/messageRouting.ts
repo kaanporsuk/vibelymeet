@@ -161,6 +161,12 @@ function isPrivateChatImageRef(url: string): boolean {
   return /^photos\/[^?#\s]+/i.test(url);
 }
 
+export function isRenderableChatImageUrl(value: unknown): value is string {
+  if (typeof value !== "string") return false;
+  const ref = value.trim();
+  return /^https?:\/\//i.test(ref) || isLocalPreviewImageUrl(ref);
+}
+
 function structuredPayloadObject(value: unknown): Record<string, unknown> | null {
   return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : null;
 }
@@ -192,6 +198,14 @@ export function extractChatImageMediaRef(
 ): string | null {
   return parseChatImageStructuredPayload(row.structured_payload, options)
     ?? parseChatImageMessageContent(row.content ?? "", options);
+}
+
+export function extractChatImageIdentityRef(row: { content?: string | null; structured_payload?: unknown }): string | null {
+  return extractChatImageMediaRef(row, { allowLocalPreviewUrls: true, allowPrivateMediaRefs: true });
+}
+
+export function extractRenderableChatImageUrl(row: { content?: string | null; structured_payload?: unknown }): string | null {
+  return extractChatImageMediaRef(row, { allowLocalPreviewUrls: true });
 }
 
 /** Returns image URL when this text should render as a photo bubble. */

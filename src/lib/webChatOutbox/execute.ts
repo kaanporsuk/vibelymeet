@@ -153,6 +153,7 @@ export async function executeWebOutboxItem(
   uploadedPublicUrl?: string;
   uploadedMediaUrl?: string;
   patchedThreadCache?: boolean;
+  displayReady?: boolean;
 }> {
   const { id: clientRequestId, matchId, payload } = item;
   const scope = item.invalidateScope;
@@ -278,14 +279,20 @@ export async function executeWebOutboxItem(
     throw new Error("Send succeeded but no message id returned.");
   }
 
-  const patchedThreadCache =
+  const patchResult =
     payload.kind !== "video" && serverMessage
       ? await patchThreadCacheFromRawMessage(queryClient, scope, serverMessage)
-      : false;
+      : { patched: false, displayReady: false };
 
   invalidateAfterThreadMutation(queryClient, scope);
 
-  return { serverMessageId, uploadedPublicUrl, uploadedMediaUrl, patchedThreadCache };
+  return {
+    serverMessageId,
+    uploadedPublicUrl,
+    uploadedMediaUrl,
+    patchedThreadCache: patchResult.patched,
+    displayReady: patchResult.displayReady,
+  };
 }
 
 export function nextBackoffMs(attemptCount: number): number {
