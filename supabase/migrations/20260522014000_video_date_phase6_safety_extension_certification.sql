@@ -493,7 +493,7 @@ SELECT
   count(sp.id)::integer AS extension_spend_count,
   count(sp.id) FILTER (WHERE sp.credit_type = 'extra_time')::integer AS extra_time_spend_count,
   count(sp.id) FILTER (WHERE sp.credit_type = 'extended_vibe')::integer AS extended_vibe_spend_count,
-  bool_or(sp.idempotency_key LIKE 'mutual:%') AS has_mutual_extension_spend,
+  COALESCE(bool_or(sp.idempotency_key LIKE 'mutual:%'), false) AS has_mutual_extension_spend,
   vs.refund_breakdown
 FROM public.video_sessions vs
 LEFT JOIN public.video_date_credit_extension_spends sp ON sp.session_id = vs.id

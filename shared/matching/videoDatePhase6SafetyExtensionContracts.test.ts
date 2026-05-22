@@ -12,6 +12,10 @@ const refundMigration = readFileSync(
   join(root, "supabase/migrations/20260508142000_video_date_refund_on_platform_failure.sql"),
   "utf8",
 );
+const reviewFollowupsMigration = readFileSync(
+  join(root, "supabase/migrations/20260522023000_video_date_review_comment_followups_986_989.sql"),
+  "utf8",
+);
 const transitionCommands = readFileSync(
   join(root, "shared/matching/videoDateTransitionCommands.ts"),
   "utf8",
@@ -88,6 +92,8 @@ test("mutual extension refuses to charge before room-expiry proof passes", () =>
 test("mutual extension spends remain covered by the existing refund engine", () => {
   assert.match(migration, /CREATE OR REPLACE VIEW public\.vw_video_date_extension_refund_certification/);
   assert.match(migration, /has_mutual_extension_spend/);
+  assert.match(migration, /COALESCE\(bool_or\(sp\.idempotency_key LIKE 'mutual:%'\), false\) AS has_mutual_extension_spend/);
+  assert.match(reviewFollowupsMigration, /COALESCE\(bool_or\(sp\.idempotency_key LIKE 'mutual:%'\), false\) AS has_mutual_extension_spend/);
   assert.match(refundMigration, /FROM public\.video_date_credit_extension_spends[\s\S]+WHERE session_id = p_session_id/);
   assert.match(refundMigration, /extra_time_refunded/);
   assert.match(refundMigration, /extended_vibe_refunded/);

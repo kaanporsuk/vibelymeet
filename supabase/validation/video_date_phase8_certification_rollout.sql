@@ -1,5 +1,6 @@
 -- Video Date v4 Phase 8 certification and rollout validation.
 -- Read-only. Run with service role or a database-owner SQL session before each rollout step.
+-- Optional scope: SELECT set_config('app.video_date_phase8_event_id', '<event_uuid>', false);
 
 SELECT
   'phase8_certification_ledger_exists' AS check_name,
@@ -25,6 +26,34 @@ SELECT
   AND to_regprocedure('public.record_video_date_phase8_legacy_cleanup_v2(text, jsonb, text, timestamp with time zone)') IS NOT NULL
   AND to_regprocedure('public.get_video_date_phase8_release_closure()') IS NOT NULL AS ok;
 
+WITH target_event AS (
+  SELECT NULLIF(current_setting('app.video_date_phase8_event_id', true), '')::uuid AS event_id
+),
+readiness_scope AS (
+  SELECT readiness.*
+  FROM public.vw_video_date_phase8_rollout_readiness readiness
+  CROSS JOIN target_event target
+  WHERE (
+      target.event_id IS NOT NULL
+      AND readiness.event_id = target.event_id
+    )
+    OR (
+      target.event_id IS NULL
+      AND EXISTS (
+        SELECT 1
+        FROM public.video_date_phase8_certification_runs runs
+        WHERE runs.event_id = readiness.event_id
+          AND runs.run_kind IN (
+            'two_user_e2e',
+            'native_smoke',
+            'rls_negative',
+            'chaos',
+            'load',
+            'rollout_step'
+          )
+      )
+    )
+)
 SELECT
   'phase8_no_next_rollout_blockers' AS check_name,
   COALESCE(bool_and(can_advance_rollout), false) AS ok,
@@ -38,7 +67,7 @@ SELECT
     )
     ORDER BY event_id, window_id, target_rollout_bps
   ) FILTER (WHERE NOT can_advance_rollout) AS blockers
-FROM public.vw_video_date_phase8_rollout_readiness
+FROM readiness_scope
 WHERE target_rollout_bps = CASE
   WHEN current_rollout_bps < 100 THEN 100
   WHEN current_rollout_bps < 1000 THEN 1000

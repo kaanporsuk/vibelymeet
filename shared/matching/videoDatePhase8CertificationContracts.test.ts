@@ -26,6 +26,10 @@ const closureMigration = readFileSync(
   join(root, "supabase/migrations/20260522021000_video_date_phase8_release_closure.sql"),
   "utf8",
 );
+const reviewFollowupsMigration = readFileSync(
+  join(root, "supabase/migrations/20260522023000_video_date_review_comment_followups_986_989.sql"),
+  "utf8",
+);
 const twoUserHarness = readFileSync(join(root, "e2e/video-date-two-user.staging.spec.ts"), "utf8");
 const runtimeRlsTest = readFileSync(join(root, "shared/matching/videoDateRealtimeRlsRuntime.test.ts"), "utf8");
 const runbook = readFileSync(join(root, "docs/video-date-v4-phase8-certification-rollout.md"), "utf8");
@@ -187,6 +191,11 @@ test("PR 8.3 adds service-role certification ledger, views, RPC, and token-free 
   assert.match(migration, /'deck_deal_100pct_not_baked'/);
   assert.match(migration, /NOT EXISTS \([\s\S]*r\.event_id = es\.event_id[\s\S]*r\.run_kind = 'two_user_e2e'[\s\S]*r\.event_id IS NULL/);
   assert.match(migration, /public\.vw_video_date_phase8_rollout_step_latest r[\s\S]*r\.event_id = es\.event_id[\s\S]*r\.event_id IS NULL/);
+  assert.match(migration, /r\.run_kind = 'rollout_step'[\s\S]+r\.platform = 'ops'[\s\S]+r\.rollout_bps = 100/);
+  assert.match(migration, /r\.run_kind = 'rollout_step'[\s\S]+r\.platform = 'ops'[\s\S]+r\.rollout_bps = 1000/);
+  assert.match(migration, /r\.run_kind = 'rollout_step'[\s\S]+r\.platform = 'ops'[\s\S]+r\.rollout_bps = 5000/);
+  assert.match(reviewFollowupsMigration, /CREATE OR REPLACE VIEW public\.vw_video_date_phase8_rollout_readiness/);
+  assert.match(reviewFollowupsMigration, /r\.run_kind = 'rollout_step'[\s\S]+r\.platform = 'ops'[\s\S]+r\.rollout_bps = 100/);
   assert.doesNotMatch(migration, /vs\.created_at/);
   assert.doesNotMatch(migration, /DAILY_API_KEY|createMeetingToken|meeting_token|daily_token|Bearer/i);
 });
@@ -260,6 +269,8 @@ test("Phase 8 validation and legacy cleanup docs are wired to the rollout gate",
   assert.match(validationSql, /record_video_date_phase8_legacy_cleanup_v2/);
   assert.match(validationSql, /get_video_date_phase8_release_closure/);
   assert.match(validationSql, /phase8_no_next_rollout_blockers/);
+  assert.match(validationSql, /current_setting\('app\.video_date_phase8_event_id', true\)/);
+  assert.match(validationSql, /FROM public\.video_date_phase8_certification_runs runs[\s\S]+runs\.event_id = readiness\.event_id/);
   assert.match(validationSql, /current_rollout_bps < 1000 THEN 1000/);
   assert.match(validationSql, /phase8_legacy_deck_cleanup_ready/);
   assert.match(validationSql, /phase8_release_closure_has_no_blockers/);
