@@ -9,6 +9,12 @@ function read(path: string): string {
   return readFileSync(join(root, path), "utf8");
 }
 
+function assertAttemptMarkerAfterRefresh(source: string, awaitExpression: string, assignment: string): void {
+  const awaitIndex = source.indexOf(awaitExpression);
+  assert.ok(awaitIndex >= 0, `${awaitExpression} should be present`);
+  assert.ok(source.indexOf(assignment, awaitIndex) > awaitIndex, `${assignment} should happen after refresh succeeds`);
+}
+
 const migration = read("supabase/migrations/20260519150000_media_atomic_idempotency.sql");
 const phase5Migration = read("supabase/migrations/20260519170000_media_phase_5_6_10.sql");
 const phase5ClosureMigration = read("supabase/migrations/20260519190000_media_phase_5_11_15.sql");
@@ -209,7 +215,19 @@ test("media placeholders and derivative refs are durable without Bunny Image Opt
   assert.match(nativeChatThread, /chatMediaPlaceholderColor/);
   assert.match(nativeChatThread, /variant: 'original'/);
   assert.match(webChatPhotoLightbox, /void refreshCurrent\(\)/);
+  assert.match(webChatPhotoLightbox, /refreshInFlightForUrlRef\.current === currentUrl/);
+  assertAttemptMarkerAfterRefresh(
+    webChatPhotoLightbox,
+    "const freshUrl = await onRefreshItem(current);",
+    "refreshAttemptedForUrlRef.current = currentUrl;",
+  );
   assert.match(nativeChatThreadMediaViewer, /void refreshCurrent\(\)/);
+  assert.match(nativeChatThreadMediaViewer, /refreshInFlightForUriRef\.current === currentUri/);
+  assertAttemptMarkerAfterRefresh(
+    nativeChatThreadMediaViewer,
+    "const freshUri = await onRefreshItem(current);",
+    "refreshAttemptedForUriRef.current = currentUri;",
+  );
 
   assert.match(sharedProfilePhotoDerivatives, /normalizeProfilePhotoDerivatives/);
   assert.match(webFetchUserProfile, /rememberProfilePhotoDerivativeMap\(row\.photo_derivatives\)/);

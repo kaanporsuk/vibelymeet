@@ -28,6 +28,7 @@ export function ChatPhotoLightbox({ items, initialId, onClose, onRefreshItem }: 
   const pinchRef = useRef<{ dist: number } | null>(null);
   const [urlOverridesById, setUrlOverridesById] = useState<Record<string, string>>({});
   const refreshAttemptedForUrlRef = useRef<string | null>(null);
+  const refreshInFlightForUrlRef = useRef<string | null>(null);
   const autoRefreshAttemptedForIdRef = useRef<string | null>(null);
   const lastInitialIdRef = useRef(initialId);
   const previousItemsRef = useRef(items);
@@ -107,11 +108,28 @@ export function ChatPhotoLightbox({ items, initialId, onClose, onRefreshItem }: 
   }, [current?.id]);
 
   const refreshCurrent = useCallback(async () => {
-    if (!current || !currentUrl || !onRefreshItem || refreshAttemptedForUrlRef.current === currentUrl) return;
-    refreshAttemptedForUrlRef.current = currentUrl;
-    const freshUrl = await onRefreshItem(current);
-    if (!freshUrl || freshUrl === currentUrl) return;
-    setUrlOverridesById((prev) => (prev[current.id] === freshUrl ? prev : { ...prev, [current.id]: freshUrl }));
+    if (
+      !current ||
+      !currentUrl ||
+      !onRefreshItem ||
+      refreshAttemptedForUrlRef.current === currentUrl ||
+      refreshInFlightForUrlRef.current === currentUrl
+    ) {
+      return;
+    }
+    refreshInFlightForUrlRef.current = currentUrl;
+    try {
+      const freshUrl = await onRefreshItem(current);
+      if (!freshUrl || freshUrl === currentUrl) return;
+      refreshAttemptedForUrlRef.current = currentUrl;
+      setUrlOverridesById((prev) => (prev[current.id] === freshUrl ? prev : { ...prev, [current.id]: freshUrl }));
+    } catch {
+      // Keep transient refresh failures retryable for the current signed URL.
+    } finally {
+      if (refreshInFlightForUrlRef.current === currentUrl) {
+        refreshInFlightForUrlRef.current = null;
+      }
+    }
   }, [current, currentUrl, onRefreshItem]);
 
   useEffect(() => {
