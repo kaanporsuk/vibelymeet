@@ -711,22 +711,20 @@ export function WebChatOutboxProvider({ children }: { children: ReactNode }) {
           };
           const patchResult = await patchThreadCacheFromRawMessage(queryClient, patchScope, serverRow);
           if (item.payload.kind === "image" && patchResult.patched && !patchResult.displayReady) {
-            if (!pastDeadline) {
-              updateItems((prev) =>
-                prev.map((it) =>
-                  it.id === item.id
-                    ? {
-                        ...it,
-                        hydrationLastCheckedAtMs: now,
-                        hydrationDeadlineAtMs: deadlineAtMs,
-                        updatedAtMs: now,
-                      }
-                    : it,
-                ),
-              );
-              invalidateAfterThreadMutation(queryClient, patchScope);
-              continue;
-            }
+            updateItems((prev) =>
+              prev.map((it) =>
+                it.id === item.id
+                  ? {
+                      ...it,
+                      hydrationLastCheckedAtMs: now,
+                      hydrationDeadlineAtMs: pastDeadline ? now + HYDRATION_TIMEOUT_MS : deadlineAtMs,
+                      updatedAtMs: now,
+                    }
+                  : it,
+              ),
+            );
+            invalidateAfterThreadMutation(queryClient, patchScope);
+            continue;
           } else {
             const key = itemPayloadBlobKey(item);
             if (key) void deleteOutboxBlob(key);

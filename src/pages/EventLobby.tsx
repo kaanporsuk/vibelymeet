@@ -282,6 +282,7 @@ const EventLobby = () => {
   const deckPrefetchLoadedRef = useRef<Set<string>>(new Set());
   const deckPrefetchCacheHitTrackedRef = useRef<Set<string>>(new Set());
   const lobbyBroadcastSessionSeqRef = useRef<number | null>(null);
+  const lobbyBroadcastSessionSeqSessionRef = useRef<string | null>(null);
   const lifecycleDebugKeyRef = useRef<string | null>(null);
 
   useEffect(() => {
@@ -1144,6 +1145,7 @@ const EventLobby = () => {
   const reconcileLobbyBroadcastEvent = useCallback(
     (event: VideoDateSessionBroadcastEvent) => {
       if (!eventId || !user?.id) return;
+      if (event.sessionId !== lobbyBroadcastSessionId) return;
       const decision = resolveVideoDateSessionSeqDecision(lobbyBroadcastSessionSeqRef.current, event.sessionSeq);
       if (decision.action === "invalid" || decision.action === "duplicate") return;
       lobbyBroadcastSessionSeqRef.current = event.sessionSeq;
@@ -1158,6 +1160,7 @@ const EventLobby = () => {
     [
       deckPrefetchPolishV2.enabled,
       eventId,
+      lobbyBroadcastSessionId,
       prepareAndNavigateToDateSession,
       queryClient,
       scheduleLobbyConvergenceRefresh,
@@ -1168,7 +1171,12 @@ const EventLobby = () => {
   useEffect(() => {
     if (!eventId || !user?.id || !lobbyTimelineV2.enabled || !lobbyBroadcastSessionId) {
       lobbyBroadcastSessionSeqRef.current = null;
+      lobbyBroadcastSessionSeqSessionRef.current = null;
       return;
+    }
+    if (lobbyBroadcastSessionSeqSessionRef.current !== lobbyBroadcastSessionId) {
+      lobbyBroadcastSessionSeqRef.current = null;
+      lobbyBroadcastSessionSeqSessionRef.current = lobbyBroadcastSessionId;
     }
     const subscription = createVideoDateSessionChannel(supabase, {
       sessionId: lobbyBroadcastSessionId,

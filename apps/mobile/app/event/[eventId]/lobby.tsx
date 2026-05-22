@@ -536,6 +536,7 @@ export default function EventLobbyScreen() {
   const deckRefreshBurstTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lobbyRefreshBurstTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lobbyBroadcastSessionSeqRef = useRef<number | null>(null);
+  const lobbyBroadcastSessionSeqSessionRef = useRef<string | null>(null);
   /** Dedupe queued-TTL expiry dialog per `video_sessions.id` for this screen. */
   const queuedTtlExpiryNotifiedIdsRef = useRef<Set<string>>(new Set());
   /** Dedupe informational drain-reason toasts per user/event/reason for this screen. */
@@ -1540,6 +1541,7 @@ export default function EventLobbyScreen() {
   const reconcileLobbyBroadcastEvent = useCallback(
     (event: VideoDateSessionBroadcastEvent) => {
       if (!id || !user?.id) return;
+      if (event.sessionId !== lobbyBroadcastSessionId) return;
       const decision = resolveVideoDateSessionSeqDecision(lobbyBroadcastSessionSeqRef.current, event.sessionSeq);
       if (decision.action === 'invalid' || decision.action === 'duplicate') return;
       lobbyBroadcastSessionSeqRef.current = event.sessionSeq;
@@ -1549,13 +1551,26 @@ export default function EventLobbyScreen() {
         navigateToDateSession(event.sessionId, 'broadcast_ready_gate_both_ready', 'replace');
       }
     },
-    [deckPrefetchPolishV2.enabled, id, navigateToDateSession, scheduleDeckRefresh, scheduleLobbyRefreshBurst, user?.id],
+    [
+      deckPrefetchPolishV2.enabled,
+      id,
+      lobbyBroadcastSessionId,
+      navigateToDateSession,
+      scheduleDeckRefresh,
+      scheduleLobbyRefreshBurst,
+      user?.id,
+    ],
   );
 
   useEffect(() => {
     if (!id || !user?.id || !lobbyTimelineV2.enabled || !lobbyBroadcastSessionId) {
       lobbyBroadcastSessionSeqRef.current = null;
+      lobbyBroadcastSessionSeqSessionRef.current = null;
       return;
+    }
+    if (lobbyBroadcastSessionSeqSessionRef.current !== lobbyBroadcastSessionId) {
+      lobbyBroadcastSessionSeqRef.current = null;
+      lobbyBroadcastSessionSeqSessionRef.current = lobbyBroadcastSessionId;
     }
     const subscription = createVideoDateSessionChannel(supabase, {
       sessionId: lobbyBroadcastSessionId,

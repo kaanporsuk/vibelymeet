@@ -230,6 +230,7 @@ type DailyReceiveSettingsCapable = {
 type SharedDailyCallEntryState = 'creating' | 'joining' | 'joined' | 'failed' | 'leaving' | 'idle';
 type SharedDailyCallEntry = {
   sessionId: string;
+  userId: string;
   call: DailyCallObject;
   roomName: string | null;
   captureProfile: NativeVideoDateCaptureProfile;
@@ -1291,6 +1292,7 @@ export default function VideoDateScreen() {
       vdbg('daily_call_singleton_release', {
         reason,
         sessionId: sharedDailyCallEntry.sessionId,
+        userId: sharedDailyCallEntry.userId,
         roomName: sharedDailyCallEntry.roomName,
         state: sharedDailyCallEntry.state,
         joinInFlight: Boolean(sharedDailyCallEntry.joinPromise),
@@ -1316,6 +1318,7 @@ export default function VideoDateScreen() {
         vdbg('daily_call_singleton_idle_destroy', {
           reason: 'idle_timeout',
           sessionId: entry.sessionId,
+          userId: entry.userId,
           roomName: entry.roomName,
           idleMs: NATIVE_DAILY_CALL_SINGLETON_IDLE_MS,
         });
@@ -1329,6 +1332,7 @@ export default function VideoDateScreen() {
       vdbg('daily_call_singleton_parked', {
         reason,
         sessionId: sharedDailyCallEntry.sessionId,
+        userId: sharedDailyCallEntry.userId,
         roomName: sharedDailyCallEntry.roomName,
         idleMs: NATIVE_DAILY_CALL_SINGLETON_IDLE_MS,
       });
@@ -4995,6 +4999,16 @@ export default function VideoDateScreen() {
         });
         return true;
       };
+      const sharedCallCandidate = sharedDailyCallEntry;
+      if (sharedCallCandidate && sharedCallCandidate.userId !== user.id) {
+        vdbg('daily_call_singleton_owner_mismatch_destroy', {
+          sessionId: sharedCallCandidate.sessionId,
+          entryUserId: sharedCallCandidate.userId,
+          currentUserId: user.id,
+          state: sharedCallCandidate.state,
+        });
+        await destroySharedCallForRetry(sharedCallCandidate, 'owner_mismatch');
+      }
       const sharedCall = sharedDailyCallEntry;
       if (sharedCall && sharedCall.sessionId === sessionId) {
         const canReuseIdleSharedCall = dailyCallSingletonV2.enabled && sharedCall.state === 'idle';
@@ -5981,12 +5995,41 @@ export default function VideoDateScreen() {
         video_date_trace_id: videoDateTraceId,
       });
 
-      const idleSingletonEntry =
+      let idleSingletonEntry =
         dailyCallSingletonV2.enabled &&
         sharedDailyCallEntry &&
         sharedDailyCallEntry.state === 'idle'
           ? sharedDailyCallEntry
           : null;
+      if (idleSingletonEntry) {
+        const idleAgeMs = idleSingletonEntry.parkedAtMs
+          ? Math.max(0, Date.now() - idleSingletonEntry.parkedAtMs)
+          : Number.POSITIVE_INFINITY;
+        let rejectIdleReason: string | null = null;
+        if (idleSingletonEntry.userId !== user.id) {
+          rejectIdleReason = 'idle_owner_mismatch';
+        } else if (!Number.isFinite(idleAgeMs) || idleAgeMs >= NATIVE_DAILY_CALL_SINGLETON_IDLE_MS) {
+          rejectIdleReason = 'idle_expired';
+        } else {
+          try {
+            idleSingletonEntry.call.participants();
+          } catch {
+            rejectIdleReason = 'idle_call_unusable';
+          }
+        }
+        if (rejectIdleReason) {
+          vdbg('daily_call_singleton_idle_reuse_rejected', {
+            reason: rejectIdleReason,
+            previousSessionId: idleSingletonEntry.sessionId,
+            nextSessionId: sessionId,
+            entryUserId: idleSingletonEntry.userId,
+            currentUserId: user.id,
+            idleAgeMs: Number.isFinite(idleAgeMs) ? idleAgeMs : null,
+          });
+          await destroySharedCallForRetry(idleSingletonEntry, rejectIdleReason);
+          idleSingletonEntry = null;
+        }
+      }
       if (idleSingletonEntry?.idleDestroyTimer) {
         clearTimeout(idleSingletonEntry.idleDestroyTimer);
         idleSingletonEntry.idleDestroyTimer = null;
@@ -6067,6 +6110,7 @@ export default function VideoDateScreen() {
         dailyPrewarmConsumedForJoin = reusedPrewarmed;
         sharedDailyCallEntry = {
           sessionId,
+          userId: user.id,
           call: nextCall,
           roomName: tokenResult.room_name,
           captureProfile: profile,

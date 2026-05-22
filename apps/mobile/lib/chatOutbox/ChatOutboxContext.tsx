@@ -702,22 +702,20 @@ export function ChatOutboxProvider({ children }: { children: React.ReactNode }) 
             raw: serverRow,
           });
           if (item.payload.kind === 'image' && patchResult.patched && !patchResult.displayReady) {
-            if (!pastDeadline) {
-              updateItems((prev) =>
-                prev.map((it) =>
-                  it.id === item.id
-                    ? {
-                        ...it,
-                        hydrationLastCheckedAtMs: now,
-                        hydrationDeadlineAtMs: deadlineAtMs,
-                        updatedAtMs: now,
-                      }
-                    : it
-                )
-              );
-              invalidateAfterThreadMutation(queryClient, patchScope);
-              continue;
-            }
+            updateItems((prev) =>
+              prev.map((it) =>
+                it.id === item.id
+                  ? {
+                      ...it,
+                      hydrationLastCheckedAtMs: now,
+                      hydrationDeadlineAtMs: pastDeadline ? now + HYDRATION_TIMEOUT_MS : deadlineAtMs,
+                      updatedAtMs: now,
+                    }
+                  : it
+              )
+            );
+            invalidateAfterThreadMutation(queryClient, patchScope);
+            continue;
           } else {
             const uri = itemPayloadUri(item);
             if (uri) void cleanupOutboxCacheUri(uri);
