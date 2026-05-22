@@ -314,6 +314,21 @@ interface VideoDateOpsWindow {
     source_error?: string;
     truncated?: boolean;
   };
+  daily_performance_emission_health?: {
+    missing_for_rollout_gate_count: number;
+    segments: Array<{
+      segment_key: string | null;
+      segment_label: string | null;
+      sample_count: number | null;
+      minimum_samples: number | null;
+      emission_status: string | null;
+      last_sample_at: string | null;
+      missing_for_rollout_gate: boolean | null;
+    }>;
+    status: VideoDateOpsStatus;
+    source_error?: string;
+    truncated?: boolean;
+  };
   timer_drift_recovered_by_server_truth: {
     status: VideoDateOpsStatus;
     source: "posthog";
@@ -772,6 +787,7 @@ const AdminLiveEventMetrics = () => {
                   const drain = window.queue_drain_failures;
                   const fairness = window.queue_fairness;
                   const dailyDecision = window.daily_performance_decision;
+                  const dailyEmission = window.daily_performance_emission_health;
                   const timer = window.timer_drift_recovered_by_server_truth;
                   const truncated = [
                     readyTapToFrame.truncated,
@@ -781,6 +797,7 @@ const AdminLiveEventMetrics = () => {
                     drain.truncated,
                     fairness?.truncated,
                     dailyDecision?.truncated,
+                    dailyEmission?.truncated,
                   ].some(Boolean);
                   const rawFirstFrameCount = readyTapToFrame.raw_sample_count ?? readyTapToFrame.sample_count;
                   const firstFrameSampleText =
@@ -797,6 +814,13 @@ const AdminLiveEventMetrics = () => {
                     || `${fairness?.queued_session_count ?? 0} queued sessions, ${fairness?.starved_slots_120s ?? 0}/${fairness?.queued_participant_slots ?? 0} slots over 120s, ${fairness?.no_match_attempts_15m ?? 0} no-match attempts in 15m`;
                   const dailyPoolDetail = dailyDecision?.source_error
                     || `${dailyDecision?.decision_reason ?? "unknown"}; frame ${formatMs(dailyDecision?.first_frame_p95_ms)} p95 / ${formatMs(dailyDecision?.first_frame_p99_ms)} p99 (${dailyDecision?.first_frame_sample_count ?? 0} samples), room ${formatMs(dailyDecision?.room_p95_ms)} p95 / ${formatMs(dailyDecision?.room_p99_ms)} p99`;
+                  const dailyEmissionDetail = dailyEmission?.source_error || (
+                    dailyEmission?.segments?.length
+                      ? dailyEmission.segments.map((segment) => (
+                          `${segment.segment_label ?? segment.segment_key ?? "segment"}: ${segment.emission_status ?? "unknown"} (${segment.sample_count ?? 0}/${segment.minimum_samples ?? 0})`
+                        )).join("; ")
+                      : "No Daily join / first-frame emission rows returned"
+                  );
 
                   return (
                     <div key={window.id} className="rounded-xl border border-white/10 bg-secondary/10 p-4 space-y-3">
@@ -875,6 +899,12 @@ const AdminLiveEventMetrics = () => {
                           value={dailyDecision?.room_pool_recommended ? "Evaluate pool" : "No pool"}
                           detail={dailyPoolDetail}
                           status={dailyDecision?.decision_status ?? "unknown"}
+                        />
+                        <VideoDateOpsTile
+                          label="Daily emitters"
+                          value={`${dailyEmission?.missing_for_rollout_gate_count ?? 0} dark`}
+                          detail={dailyEmissionDetail}
+                          status={dailyEmission?.status ?? "unknown"}
                         />
                         <VideoDateOpsTile
                           label="Timer drift recovered"

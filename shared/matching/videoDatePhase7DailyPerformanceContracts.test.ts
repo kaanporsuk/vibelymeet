@@ -1,11 +1,15 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 const root = process.cwd();
 const migration = readFileSync(
   join(root, "supabase/migrations/20260522015000_video_date_phase7_daily_performance_decision.sql"),
+  "utf8",
+);
+const auditHardeningMigration = readFileSync(
+  join(root, "supabase/migrations/20260522024000_video_date_phase7_8_audit_automation_hardening.sql"),
   "utf8",
 );
 const operatorMetrics = readFileSync(
@@ -19,6 +23,7 @@ const launchObservability = readFileSync(
 const webPrepareEntry = readFileSync(join(root, "src/lib/videoDatePrepareEntry.ts"), "utf8");
 const nativePrepareEntry = readFileSync(join(root, "apps/mobile/lib/videoDatePrepareEntry.ts"), "utf8");
 const sharedPrepareEntry = readFileSync(join(root, "shared/matching/videoDatePrepareEntry.ts"), "utf8");
+const webUseVideoCall = readFileSync(join(root, "src/hooks/useVideoCall.ts"), "utf8");
 const webVideoDate = readFileSync(join(root, "src/pages/VideoDate.tsx"), "utf8");
 const nativeVideoDate = readFileSync(join(root, "apps/mobile/app/date/[id].tsx"), "utf8");
 const adminOps = readFileSync(join(root, "supabase/functions/admin-video-date-ops/index.ts"), "utf8");
@@ -82,6 +87,10 @@ test("shared telemetry allowlists Phase 7 checkpoints and safe segment payloads"
     "daily_token_mint_started",
     "daily_token_mint_success",
     "daily_token_mint_failure",
+    "daily_join_started",
+    "daily_join_success",
+    "daily_join_failure",
+    "first_remote_frame",
     "daily_reconnect_started",
     "daily_reconnect_success",
     "daily_reconnect_failure",
@@ -97,6 +106,13 @@ test("shared telemetry allowlists Phase 7 checkpoints and safe segment payloads"
     "daily_performance_segment",
     "daily_room_create_ms",
     "daily_token_mint_ms",
+    "daily_join_ms",
+    "ready_tap_to_daily_join_ms",
+    "both_ready_to_daily_join_ms",
+    "date_route_to_daily_join_ms",
+    "daily_join_to_first_remote_frame_ms",
+    "ready_tap_to_first_remote_frame_ms",
+    "both_ready_to_first_remote_frame_ms",
     "daily_reconnect_ms",
     "extension_refresh_ms",
     "extension_mode",
@@ -111,11 +127,13 @@ test("shared telemetry allowlists Phase 7 checkpoints and safe segment payloads"
 
   assert.match(launchObservability, /checkpoint === "daily_token_mint_success"/);
   assert.match(launchObservability, /payload\.daily_token_mint_ms/);
+  assert.match(launchObservability, /checkpoint === "first_remote_frame"/);
+  assert.match(launchObservability, /payload\.ready_tap_to_first_remote_frame_ms/);
   assert.match(launchObservability, /checkpoint === "extension_refresh_failure"/);
   assert.match(launchObservability, /payload\.extension_refresh_ms/);
 });
 
-test("PR 7.2 web and native emit provider, reconnect, and extension performance checkpoints", () => {
+test("PR 7.2 web and native emit provider, join, first-frame, reconnect, and extension performance checkpoints", () => {
   for (const prepareEntry of [webPrepareEntry, nativePrepareEntry]) {
     assert.match(prepareEntry, /daily_room_create_started/);
     assert.match(prepareEntry, /daily_room_create_success/);
@@ -134,6 +152,16 @@ test("PR 7.2 web and native emit provider, reconnect, and extension performance 
   assert.match(sharedPrepareEntry, /async function readFailureProviderOperation/);
   assert.match(sharedPrepareEntry, /maybeResponse\.clone/);
 
+  for (const dateSurface of [webUseVideoCall, nativeVideoDate]) {
+    assert.match(dateSurface, /daily_join_started/);
+    assert.match(dateSurface, /daily_join_success/);
+    assert.match(dateSurface, /daily_join_failure/);
+    assert.match(dateSurface, /first_remote_frame/);
+    assert.match(dateSurface, /VIDEO_DATE_DAILY_JOIN_STARTED/);
+    assert.match(dateSurface, /VIDEO_DATE_DAILY_JOIN_SUCCESS/);
+    assert.match(dateSurface, /VIDEO_DATE_FIRST_REMOTE_FRAME/);
+  }
+
   for (const dateSurface of [webVideoDate, nativeVideoDate]) {
     assert.match(dateSurface, /trackDailyPerformanceCheckpoint/);
     assert.match(dateSurface, /daily_reconnect_started/);
@@ -147,13 +175,48 @@ test("PR 7.2 web and native emit provider, reconnect, and extension performance 
   }
 });
 
+test("Phase 7 audit hardening explicitly ingests join and first-frame samples and surfaces dark emitters", () => {
+  assert.match(auditHardeningMigration, /ALTER FUNCTION public\.record_video_date_launch_latency_checkpoint/);
+  assert.match(auditHardeningMigration, /record_vd_launch_latency_202605220240_base/);
+  assert.match(auditHardeningMigration, /'daily_join_started'[\s\S]*'daily_join_success'[\s\S]*'daily_join_failure'[\s\S]*'first_remote_frame'/);
+  assert.match(auditHardeningMigration, /v_checkpoint = 'first_remote_frame'[\s\S]*both_ready_to_first_remote_frame_ms/);
+  assert.match(auditHardeningMigration, /v_checkpoint IN \('daily_join_success', 'daily_join_failure'\)[\s\S]*daily_join_ms/);
+  assert.match(auditHardeningMigration, /'daily_performance_segment'[\s\S]*'daily_join'[\s\S]*'first_remote_frame'/);
+  assert.match(auditHardeningMigration, /CREATE OR REPLACE VIEW public\.vw_video_date_daily_performance_emission_health/);
+  assert.match(auditHardeningMigration, /'daily_join'::text, 'Daily join'::text, 20::integer, true::boolean/);
+  assert.match(auditHardeningMigration, /'first_remote_frame'::text, 'First remote frame'::text, 20::integer, true::boolean/);
+  assert.match(auditHardeningMigration, /es\.event_id IS NULL[\s\S]+OR h\.event_id IS NOT DISTINCT FROM es\.event_id/);
+  assert.match(auditHardeningMigration, /missing_for_rollout_gate/);
+  assert.match(auditHardeningMigration, /CREATE OR REPLACE FUNCTION public\.get_video_date_daily_performance_emission_health/);
+  assert.match(auditHardeningMigration, /GRANT SELECT ON TABLE public\.vw_video_date_daily_performance_emission_health TO service_role/);
+  assert.match(auditHardeningMigration, /GRANT EXECUTE ON FUNCTION public\.get_video_date_daily_performance_emission_health\(uuid\)\s+TO service_role/);
+  assert.doesNotMatch(auditHardeningMigration, /DAILY_API_KEY|createMeetingToken|meeting_token|daily_token|Bearer|room\.token/i);
+});
+
+test("Daily pool remains unbuilt until the measured decision gate says it is worth it", () => {
+  const migrations = readdirSync(join(root, "supabase/migrations"))
+    .filter((name) => name.endsWith(".sql"))
+    .map((name) => readFileSync(join(root, "supabase/migrations", name), "utf8"))
+    .join("\n");
+  assert.doesNotMatch(migrations, /CREATE TABLE(?: IF NOT EXISTS)? public\.daily_room_pool/i);
+  assert.doesNotMatch(migrations, /daily-room-pool-refill/i);
+  assert.match(migration, /COALESCE\(r\.room_p95_ms, 0\) >= 1500/);
+  assert.match(migration, /COALESCE\(r\.room_p99_ms, 0\) >= 3000/);
+});
+
 test("PR 7.3 exposes the Daily room-pool decision in operator tooling", () => {
   assert.match(adminOps, /type DailyPerformanceDecisionRow/);
+  assert.match(adminOps, /type DailyPerformanceEmissionHealthRow/);
   assert.match(adminOps, /from\("vw_video_date_daily_pool_decision"\)/);
+  assert.match(adminOps, /from\("vw_video_date_daily_performance_emission_health"\)/);
   assert.match(adminOps, /\.order\("event_id", \{ ascending: true, nullsFirst: true \}\)[\s\S]+\.limit\(1\)/);
+  assert.match(adminOps, /if \(result\.rows\.length === 0\)[\s\S]+missing_for_rollout_gate_count: 2[\s\S]+status: "critical"/);
   assert.match(adminOps, /daily_performance_decision: dailyPerformanceDecision/);
+  assert.match(adminOps, /daily_performance_emission_health: dailyPerformanceEmissionHealth/);
   assert.match(adminLiveMetrics, /daily_performance_decision:/);
+  assert.match(adminLiveMetrics, /daily_performance_emission_health/);
   assert.match(adminLiveMetrics, /label="Daily pool decision"/);
+  assert.match(adminLiveMetrics, /label="Daily emitters"/);
   assert.match(adminLiveMetrics, /room_pool_recommended \? "Evaluate pool" : "No pool"/);
 });
 

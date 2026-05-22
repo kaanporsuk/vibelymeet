@@ -3,6 +3,7 @@ import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const e2eDir = dirname(fileURLToPath(import.meta.url));
+const useExternalServer = process.env.VIBELY_E2E_USE_EXTERNAL_SERVER === "1";
 
 /**
  * Minimal web E2E — smoke only. Requires dev server (see webServer).
@@ -20,13 +21,15 @@ export default defineConfig({
     trace: "on-first-retry",
   },
   projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"] } }],
-  webServer: {
-    command: "npm run dev -- --host 127.0.0.1 --port 5173",
-    env: {
-      VITE_ONESIGNAL_APP_ID: "e2e-onesignal-app-id",
-    },
-    url: "http://127.0.0.1:5173",
-    reuseExistingServer: !process.env.CI,
-    timeout: 120_000,
-  },
+  webServer: useExternalServer
+    ? undefined
+    : {
+        command: "npm run dev -- --host 127.0.0.1 --port 5173",
+        env: {
+          VITE_ONESIGNAL_APP_ID: "e2e-onesignal-app-id",
+        },
+        url: "http://127.0.0.1:5173",
+        reuseExistingServer: !process.env.CI,
+        timeout: 120_000,
+      },
 });

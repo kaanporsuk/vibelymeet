@@ -348,6 +348,31 @@ test("launch latency checkpoint observability preserves safe first-frame dimensi
   assert.equal(capturedArgs?.p_latency_ms, 1900);
 });
 
+test("launch latency checkpoint sanitization rejects secret-shaped payload keys", () => {
+  assert.deepEqual(
+    sanitizeVideoDateLaunchLatencyPayload({
+      platform: "web",
+      source_surface: "video_date_daily",
+      source_action: "daily_join_success",
+      outcome: "success",
+      daily_join_ms: 612,
+      token: "must_not_survive",
+      daily_token: "must_not_survive",
+      meeting_token: "must_not_survive",
+      api_key: "must_not_survive",
+      Authorization: "Bearer must_not_survive",
+      nested: { token: "must_not_survive" },
+    }),
+    {
+      platform: "web",
+      source_surface: "video_date_daily",
+      source_action: "daily_join_success",
+      outcome: "success",
+      daily_join_ms: 612,
+    },
+  );
+});
+
 test("permission prewarm skip checkpoint is safe and allowlisted", async () => {
   const rawProperties = {
     session_id: "3a54f630-2dec-4529-8dfa-349741bc593c",

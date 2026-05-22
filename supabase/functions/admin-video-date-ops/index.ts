@@ -39,6 +39,7 @@ type SupabaseQueryLike = PromiseLike<SupabaseRowsResult> & {
   eq(column: string, value: unknown): SupabaseQueryLike;
   gte(column: string, value: unknown): SupabaseQueryLike;
   in(column: string, values: readonly unknown[]): SupabaseQueryLike;
+  is(column: string, value: unknown): SupabaseQueryLike;
   not(column: string, operator: string, value: unknown): SupabaseQueryLike;
   order(column: string, options?: { ascending?: boolean; nullsFirst?: boolean }): SupabaseQueryLike;
   limit(count: number): SupabaseQueryLike;
@@ -127,6 +128,24 @@ type DailyPerformanceDecisionRow = {
   room_pool_recommended: boolean | null;
   decision_reason: string | null;
   decision_status: MetricStatus | "insufficient_data" | null;
+};
+
+type DailyPerformanceEmissionHealthRow = {
+  window_id: string | null;
+  window_label: string | null;
+  event_id: string | null;
+  segment_key: string | null;
+  segment_label: string | null;
+  sample_count: number | null;
+  success_count: number | null;
+  failure_count: number | null;
+  p95_ms: number | null;
+  p99_ms: number | null;
+  last_sample_at: string | null;
+  minimum_samples: number | null;
+  blocks_rollout_gate: boolean | null;
+  emission_status: string | null;
+  missing_for_rollout_gate: boolean | null;
 };
 
 type LaunchLatencyCheckpointRow = {
@@ -994,6 +1013,53 @@ async function getDailyPerformanceDecision(
   };
 }
 
+async function getDailyPerformanceEmissionHealth(
+  service: SupabaseClientLike,
+  window: VideoDateOpsWindowDefinition,
+  eventId: string | null,
+) {
+  let query = service
+    .from("vw_video_date_daily_performance_emission_health")
+    .select(
+      "window_id,window_label,event_id,segment_key,segment_label,sample_count,success_count,failure_count,p95_ms,p99_ms,last_sample_at,minimum_samples,blocks_rollout_gate,emission_status,missing_for_rollout_gate",
+    )
+    .eq("window_id", window.id)
+    .in("segment_key", ["daily_join", "first_remote_frame"])
+    .order("segment_key", { ascending: true })
+    .limit(4);
+
+  query = eventId ? query.eq("event_id", eventId) : query.is("event_id", null);
+
+  const result = await fetchRows<DailyPerformanceEmissionHealthRow>(query);
+  if (result.error) {
+    return {
+      missing_for_rollout_gate_count: 0,
+      segments: [] as DailyPerformanceEmissionHealthRow[],
+      status: "unknown" as MetricStatus,
+      source_error: result.error,
+      truncated: result.truncated,
+    };
+  }
+
+  if (result.rows.length === 0) {
+    return {
+      missing_for_rollout_gate_count: 2,
+      segments: [] as DailyPerformanceEmissionHealthRow[],
+      status: "critical" as MetricStatus,
+      truncated: result.truncated,
+    };
+  }
+
+  const missing = result.rows.filter((row) => row.missing_for_rollout_gate === true);
+  const staleOrDark = result.rows.filter((row) => row.emission_status === "dark" || row.emission_status === "stale");
+  return {
+    missing_for_rollout_gate_count: missing.length,
+    segments: result.rows,
+    status: missing.length > 0 ? "critical" as MetricStatus : staleOrDark.length > 0 ? "warning" as MetricStatus : "healthy" as MetricStatus,
+    truncated: result.truncated,
+  };
+}
+
 async function buildWindowMetrics(
   service: SupabaseClientLike,
   window: VideoDateOpsWindowDefinition,
@@ -1008,6 +1074,7 @@ async function buildWindowMetrics(
     queueDrainFailures,
     queueFairness,
     dailyPerformanceDecision,
+    dailyPerformanceEmissionHealth,
   ] = await Promise.all([
     getReadyTapToFirstRemoteFrameLatency(service, sinceIso, eventId),
     getReadyGateLatency(service, sinceIso, eventId),
@@ -1016,6 +1083,7 @@ async function buildWindowMetrics(
     getQueueDrainFailures(service, sinceIso, eventId),
     getQueueFairnessHealth(service, eventId),
     getDailyPerformanceDecision(service, window, eventId),
+    getDailyPerformanceEmissionHealth(service, window, eventId),
   ]);
 
   return {
@@ -1030,6 +1098,7 @@ async function buildWindowMetrics(
     queue_drain_failures: queueDrainFailures,
     queue_fairness: queueFairness,
     daily_performance_decision: dailyPerformanceDecision,
+    daily_performance_emission_health: dailyPerformanceEmissionHealth,
     timer_drift_recovered_by_server_truth: getTimerDriftExternalMetric(),
   };
 }
