@@ -8,6 +8,7 @@ import { syncChatMessageMedia } from "../_shared/media-lifecycle.ts";
 import { capture as capturePosthog } from "../_shared/posthog.ts";
 
 type MediaKind = "image" | "voice" | "video" | "vibe_clip" | "thumbnail" | "profile_vibe_video";
+type MediaResolveVariant = "display" | "original";
 
 const TOKEN_TTL_SECONDS = 15 * 60;
 const SENTRY_FLUSH_TIMEOUT_MS = 1000;
@@ -41,6 +42,11 @@ type MediaAssetRow = {
   provider: string | null;
   provider_object_id: string | null;
   provider_path: string | null;
+  derivative_thumb_path?: string | null;
+  derivative_hero_path?: string | null;
+  placeholder_kind?: string | null;
+  placeholder_hash?: string | null;
+  dominant_color?: string | null;
   mime_type: string | null;
   status: string | null;
   media_family: string | null;
@@ -61,6 +67,8 @@ type ProfileVideoRef = {
 type ChatMediaUrlLogLevel = "info" | "warn" | "error";
 type SafeLogValue = string | number | boolean | null | undefined;
 type SafeLogFields = Record<string, SafeLogValue>;
+const MEDIA_ASSET_RESOLVE_SELECT =
+  "id, provider, provider_object_id, provider_path, derivative_thumb_path, derivative_hero_path, placeholder_kind, placeholder_hash, dominant_color, mime_type, status, media_family, storage_zone";
 
 const SENSITIVE_LOG_KEY_PATTERN =
   /(auth|authorization|bearer|token|secret|signature|apikey|accesskey|headers?|url|uri|path|(?:^|_)(?:file|filename)(?:$|_))/i;
@@ -229,6 +237,55 @@ function extractClientRequestId(message: MessageScopeRow | null): string | null 
   return typeof clientRequestId === "string" && clientRequestId.trim() ? clientRequestId.trim() : null;
 }
 
+function normalizedAssetPath(value: string | null | undefined): string | null {
+  const path = typeof value === "string" ? value.trim() : "";
+  if (!path || path.startsWith("/") || path.includes("..") || path.includes("://")) return null;
+  return path;
+}
+
+function mimeTypeForStoragePath(path: string, fallback: string | null | undefined): string {
+  const ext = path.split(/[?#]/, 1)[0]?.split(".").pop()?.toLowerCase() ?? "";
+  if (ext === "jpg" || ext === "jpeg") return "image/jpeg";
+  if (ext === "png") return "image/png";
+  if (ext === "webp") return "image/webp";
+  if (ext === "gif") return "image/gif";
+  if (ext === "m4a") return "audio/mp4";
+  if (ext === "aac") return "audio/aac";
+  if (ext === "mp3") return "audio/mpeg";
+  if (ext === "mp4" || ext === "m4v") return "video/mp4";
+  if (ext === "mov") return "video/quicktime";
+  if (ext === "webm") return "video/webm";
+  return fallback ?? "application/octet-stream";
+}
+
+function storageObjectForAssetKind(
+  asset: MediaAssetRow,
+  kind: MediaKind,
+  variant: MediaResolveVariant,
+): { path: string; mimeType: string } | null {
+  if (kind === "image" && variant !== "original") {
+    const derivativePath = normalizedAssetPath(asset.derivative_hero_path);
+    if (derivativePath) return { path: derivativePath, mimeType: mimeTypeForStoragePath(derivativePath, "image/jpeg") };
+  }
+  const providerPath = normalizedAssetPath(asset.provider_path);
+  return providerPath ? { path: providerPath, mimeType: mimeTypeForStoragePath(providerPath, asset.mime_type) } : null;
+}
+
+function assetPresentationPayload(asset: MediaAssetRow | null | undefined): Record<string, string | null> {
+  const placeholderKind = asset?.placeholder_kind === "dominant_color" ? "dominant_color" : null;
+  const placeholderHash = placeholderKind && typeof asset?.placeholder_hash === "string" && asset.placeholder_hash.trim()
+    ? asset.placeholder_hash.trim()
+    : null;
+  const dominantColor = typeof asset?.dominant_color === "string" && /^#[0-9a-f]{6}$/i.test(asset.dominant_color)
+    ? asset.dominant_color.toLowerCase()
+    : null;
+  return {
+    placeholderKind,
+    placeholderHash,
+    dominantColor,
+  };
+}
+
 async function userCanReadMessage(
   serviceClient: SupabaseClient,
   userId: string,
@@ -265,7 +322,7 @@ async function resolveMessageAsset(
 ): Promise<MediaAssetRow | null> {
   const { data, error } = await serviceClient
     .from("media_assets")
-    .select("id, provider, provider_object_id, provider_path, mime_type, status, media_family, storage_zone")
+    .select(MEDIA_ASSET_RESOLVE_SELECT)
     .eq("legacy_table", "messages")
     .eq("legacy_id", messageId)
     .in("media_family", kind === "thumbnail" ? ["chat_video", "chat_video_thumbnail"] : [mediaFamilyForKind(kind)])
@@ -418,6 +475,18 @@ async function handleProfileVibeVideoIssue(params: {
     );
   }
 
+  const { data: assetRow } = await params.serviceClient
+    .from("media_assets")
+    .select(MEDIA_ASSET_RESOLVE_SELECT)
+    .eq("provider", "bunny_stream")
+    .eq("provider_object_id", streamVideoId)
+    .eq("media_family", "vibe_video")
+    .neq("status", "purged")
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  const profileAsset = assetRow as MediaAssetRow | null;
+
   const hostname = Deno.env.get("BUNNY_STREAM_CDN_HOSTNAME")?.trim();
   const securityKey = Deno.env.get("BUNNY_STREAM_TOKEN_SECURITY_KEY")?.trim();
   if (!hostname || !securityKey) {
@@ -493,6 +562,9 @@ async function handleProfileVibeVideoIssue(params: {
       ...issuedTelemetry,
     },
   });
+  if (profileAsset?.id) {
+    void params.serviceClient.rpc("mark_media_asset_accessed", { p_asset_id: profileAsset.id });
+  }
   return jsonResponse(
     params.req,
     {
@@ -502,6 +574,7 @@ async function handleProfileVibeVideoIssue(params: {
       playbackKind: "hls",
       provider: "bunny_stream",
       expiresInSeconds: TOKEN_TTL_SECONDS,
+      ...assetPresentationPayload(profileAsset),
     },
     { headers: params.corsHeaders },
   );
@@ -580,10 +653,12 @@ async function handleIssueUrl(req: Request): Promise<Response> {
     profileId?: unknown;
     mediaKind?: unknown;
     sourceRef?: unknown;
+    variant?: unknown;
   } | null;
   const messageId = body?.messageId;
   const profileId = body?.profileId;
   const mediaKind = normalizeMediaKind(body?.mediaKind);
+  const resolveVariant: MediaResolveVariant = body?.variant === "original" ? "original" : "display";
   const isProfileVibeVideoRequest = mediaKind === "profile_vibe_video";
   if (
     !mediaKind ||
@@ -741,6 +816,7 @@ async function handleIssueUrl(req: Request): Promise<Response> {
         playbackKind: mediaKind === "thumbnail" ? "progressive" : "hls",
         provider: "bunny_stream",
         expiresInSeconds: TOKEN_TTL_SECONDS,
+        ...assetPresentationPayload(asset),
       },
       { headers: corsHeaders },
     );
@@ -759,13 +835,24 @@ async function handleIssueUrl(req: Request): Promise<Response> {
   const storageZone: BunnyStorageZoneTier = asset.storage_zone === "archive" ? "archive" : "hot";
   void serviceClient.rpc("mark_media_asset_accessed", { p_asset_id: asset.id });
 
+  const storageObject = storageObjectForAssetKind(asset, mediaKind, resolveVariant);
+  if (!storageObject) {
+    logChatMediaUrl("warn", "asset_not_found", {
+      message_id: scopedMessageId,
+      media_kind: mediaKind,
+      requester_id: user.id,
+      client_request_id: clientRequestId,
+    });
+    return jsonResponse(req, { success: false, error: "media_not_found" }, { status: 404, headers: corsHeaders });
+  }
+
   const token = await createToken(tokenSecret, {
     sub: user.id,
     mid: scopedMessageId,
     kind: mediaKind,
-    path: asset.provider_path,
+    path: storageObject.path,
     zone: storageZone,
-    mime: asset.mime_type ?? "application/octet-stream",
+    mime: storageObject.mimeType,
     exp: Math.floor(Date.now() / 1000) + TOKEN_TTL_SECONDS,
   });
 
@@ -778,6 +865,7 @@ async function handleIssueUrl(req: Request): Promise<Response> {
     provider: asset.provider,
     storage_zone: storageZone,
     expires_in_seconds: TOKEN_TTL_SECONDS,
+    variant: resolveVariant,
   });
   return jsonResponse(
     req,
@@ -787,6 +875,7 @@ async function handleIssueUrl(req: Request): Promise<Response> {
       playbackKind: "progressive",
       provider: "bunny_storage",
       expiresInSeconds: TOKEN_TTL_SECONDS,
+      ...assetPresentationPayload(asset),
     },
     { headers: corsHeaders },
   );

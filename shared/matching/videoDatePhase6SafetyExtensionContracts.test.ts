@@ -119,6 +119,18 @@ test("mutual extension spends remain covered by the existing refund engine", () 
   assert.match(refundMigration, /WHEN \(NEW\.ended_reason IS NOT NULL[\s\S]+NEW\.refund_status IS NULL\)/);
 });
 
+test("mutual extension performs no provider work after credit debit", () => {
+  const fn = functionBody("video_session_request_extension_v2");
+  const debitIndex = fn.indexOf("UPDATE public.user_credits");
+  assert.ok(debitIndex > -1, "missing canonical credit debit");
+  const afterDebit = fn.slice(debitIndex);
+  assert.doesNotMatch(
+    afterDebit,
+    /video_date_outbox_enqueue_v2|net\.http|http_post|createMeetingToken|DAILY_API_KEY|meeting[_-]?token|daily[_-]?token/i,
+    "Daily/provider failures after a successful extension debit must be impossible by construction",
+  );
+});
+
 test("PR 6.3 always-on safety flag drives web and native v2 safety surfaces", () => {
   assert.match(webVideoDate, /useFeatureFlag\("video_date\.safety_always_on_v2"\)/);
   assert.match(webVideoDate, /isConnected \|\| safetyAlwaysOnV2\.enabled/);

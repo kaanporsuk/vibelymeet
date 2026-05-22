@@ -4,6 +4,12 @@
  */
 
 import { getCachedAccessToken } from '@/lib/nativeAuthSession';
+import {
+  prepareImageDerivativeAssetsForUpload,
+  prepareProfilePhotoAssetForUpload,
+  type PreparedImageDerivativeAsset,
+} from '@/lib/imageAssetNormalize';
+import { rememberImageDerivatives } from '@/lib/imageUrl';
 
 const SUPABASE_URL = process.env.EXPO_PUBLIC_SUPABASE_URL ?? '';
 const GENERIC_UPLOAD_MIME_TYPE = 'application/octet-stream';
@@ -15,6 +21,7 @@ export type UploadChatStorageResult = {
   contentSha256: string | null;
   receiptId: string | null;
   sessionId: string | null;
+  derivatives?: { thumb?: string; hero?: string } | null;
 };
 
 function extensionFromUri(uri: string): string | null {
@@ -129,37 +136,60 @@ export async function uploadChatImageMessage(
     throw new Error('[chatMediaUpload] EXPO_PUBLIC_SUPABASE_URL is not set.');
   }
 
-  const formData = new FormData();
-  formData.append('context', 'chat');
-  formData.append('match_id', matchId);
   const stableClientRequestId = clientRequestId?.trim();
-  if (stableClientRequestId) {
-    formData.append('client_request_id', stableClientRequestId);
-  }
-  const uploadMimeType = normalizedImageMimeType(mimeType, imageUri);
+  const normalizedMimeType = normalizedImageMimeType(mimeType, imageUri);
   const ext =
-    uploadMimeType.includes('png') ? 'png' :
-    uploadMimeType.includes('webp') ? 'webp' :
-    uploadMimeType.includes('heic') || uploadMimeType.includes('heif') ? 'heic' :
-    uploadMimeType === GENERIC_UPLOAD_MIME_TYPE ? (extensionFromUri(imageUri) ?? 'bin') :
+    normalizedMimeType.includes('png') ? 'png' :
+    normalizedMimeType.includes('webp') ? 'webp' :
+    normalizedMimeType.includes('heic') || normalizedMimeType.includes('heif') ? 'heic' :
+    normalizedMimeType === GENERIC_UPLOAD_MIME_TYPE ? (extensionFromUri(imageUri) ?? 'bin') :
     'jpg';
-  formData.append(
-    'file',
-    {
-      uri: imageUri,
-      type: uploadMimeType,
-      name: `chat-image.${ext}`,
-    } as unknown as Blob
-  );
-
-  const res = await fetch(`${SUPABASE_URL}/functions/v1/upload-image`, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-      ...(stableClientRequestId ? { 'x-client-request-id': stableClientRequestId } : {}),
-    },
-    body: formData,
+  const prepared = await prepareProfilePhotoAssetForUpload({
+    uri: imageUri,
+    mimeType: normalizedMimeType,
+    fileName: `chat-image.${ext}`,
   });
+  let derivatives: PreparedImageDerivativeAsset[] = [];
+  let res: Response;
+  try {
+    derivatives = await prepareImageDerivativeAssetsForUpload(prepared).catch(() => []);
+    const formData = new FormData();
+    formData.append('context', 'chat');
+    formData.append('match_id', matchId);
+    if (stableClientRequestId) {
+      formData.append('client_request_id', stableClientRequestId);
+    }
+    formData.append(
+      'file',
+      {
+        uri: prepared.uri,
+        type: prepared.mimeType,
+        name: prepared.fileName,
+      } as unknown as Blob,
+    );
+    for (const derivative of derivatives) {
+      formData.append(
+        derivative.kind === 'thumb' ? 'derivative_thumb' : 'derivative_hero',
+        {
+          uri: derivative.uri,
+          type: derivative.mimeType,
+          name: derivative.fileName,
+        } as unknown as Blob,
+      );
+    }
+
+    res = await fetch(`${SUPABASE_URL}/functions/v1/upload-image`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        ...(stableClientRequestId ? { 'x-client-request-id': stableClientRequestId } : {}),
+      },
+      body: formData,
+    });
+  } finally {
+    for (const derivative of derivatives) derivative.cleanup();
+    prepared.cleanup?.();
+  }
 
   const text = await res.text().catch(() => '');
   let data: {
@@ -170,6 +200,7 @@ export async function uploadChatImageMessage(
     contentSha256?: string | null;
     receiptId?: string | null;
     sessionId?: string | null;
+    derivatives?: { thumb?: string; hero?: string } | null;
     error?: string;
   };
   try {
@@ -180,6 +211,8 @@ export async function uploadChatImageMessage(
   if (!res.ok || !data.success || !data.path) {
     throw new Error(data.error || `Upload failed with status ${res.status}`);
   }
+  rememberImageDerivatives(data.path, data.derivatives);
+
   return {
     path: data.path,
     url: data.url ?? null,
@@ -187,5 +220,6 @@ export async function uploadChatImageMessage(
     contentSha256: data.contentSha256 ?? null,
     receiptId: data.receiptId ?? null,
     sessionId: data.sessionId ?? null,
+    derivatives: data.derivatives ?? null,
   };
 }

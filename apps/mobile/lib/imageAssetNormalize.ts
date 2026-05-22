@@ -23,8 +23,17 @@ export type PreparedProfilePhotoAsset = NormalizedImageAsset & {
   cleanup?: () => void;
 };
 
+export type PreparedImageDerivativeAsset = {
+  kind: 'thumb' | 'hero';
+  uri: string;
+  mimeType: 'image/jpeg';
+  fileName: string;
+  cleanup: () => void;
+};
+
 const PROFILE_JPEG_QUALITY = 0.88;
 const PROFILE_PHOTO_MAX_EDGE = 2048;
+const IMAGE_DERIVATIVE_QUALITY = 0.84;
 
 const MIME_BY_EXT: Record<string, string> = {
   jpg: 'image/jpeg',
@@ -156,6 +165,13 @@ function jpgFileNameFromNormalized(asset: NormalizedImageAsset): string {
   return `${safe}.jpg`;
 }
 
+function derivativeJpgFileNameFromNormalized(asset: NormalizedImageAsset, kind: PreparedImageDerivativeAsset['kind']): string {
+  const raw = asset.fileName.trim();
+  const base = raw.replace(/\.[^.]+$/i, '') || `photo-${Date.now()}`;
+  const safe = base.replace(/[^\w.-]+/g, '_') || 'photo';
+  return `${safe}-${kind}.jpg`;
+}
+
 function resizeActionsForProfilePhoto(asset: NormalizedImageAsset): Parameters<typeof manipulateAsync>[1] {
   const width = finitePositiveNumber(asset.width);
   const height = finitePositiveNumber(asset.height);
@@ -168,6 +184,53 @@ function resizeActionsForProfilePhoto(asset: NormalizedImageAsset): Parameters<t
   }
 
   return [{ resize: { width: PROFILE_PHOTO_MAX_EDGE } }];
+}
+
+function resizeActionsForMaxEdge(asset: NormalizedImageAsset, maxEdge: number): Parameters<typeof manipulateAsync>[1] {
+  const width = finitePositiveNumber(asset.width);
+  const height = finitePositiveNumber(asset.height);
+  if (!width || !height) return [{ resize: { width: maxEdge } }];
+  if (Math.max(width, height) <= maxEdge) return [];
+  return width >= height ? [{ resize: { width: maxEdge } }] : [{ resize: { height: maxEdge } }];
+}
+
+export async function prepareImageDerivativeAssetsForUpload(asset: {
+  uri: string;
+  mimeType?: string | null;
+  fileName?: string | null;
+  width?: number | null;
+  height?: number | null;
+}): Promise<PreparedImageDerivativeAsset[]> {
+  const normalized = normalizeImageAssetForUpload(asset);
+  const specs: Array<{ kind: PreparedImageDerivativeAsset['kind']; maxEdge: number; compress: number }> = [
+    { kind: 'thumb', maxEdge: 420, compress: 0.78 },
+    { kind: 'hero', maxEdge: 1400, compress: IMAGE_DERIVATIVE_QUALITY },
+  ];
+  const derivatives: PreparedImageDerivativeAsset[] = [];
+  for (const spec of specs) {
+    try {
+      const manipulated = await manipulateAsync(
+        normalized.uri,
+        resizeActionsForMaxEdge(normalized, spec.maxEdge),
+        { compress: spec.compress, format: SaveFormat.JPEG },
+      );
+      const outUri = manipulated.uri;
+      derivatives.push({
+        kind: spec.kind,
+        uri: outUri,
+        mimeType: 'image/jpeg',
+        fileName: derivativeJpgFileNameFromNormalized(normalized, spec.kind),
+        cleanup: () => {
+          void FileSystem.deleteAsync(outUri, { idempotent: true }).catch(() => {});
+        },
+      });
+    } catch {
+      // Derivatives are acceleration-only; the caller must still upload the canonical image.
+    }
+  }
+  if (derivatives.length === specs.length) return derivatives;
+  for (const derivative of derivatives) derivative.cleanup();
+  return [];
 }
 
 /**

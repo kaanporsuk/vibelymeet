@@ -9,7 +9,7 @@ import { useEffect } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { captureSupabaseError } from "@/lib/errorTracking";
 import { collapseVibeGameRowsForWeb, type WebHydratedGameSessionView } from "@/lib/webChatGameSessions";
-import { resolveMessageMediaForDisplay } from "@/lib/mediaAssetResolver";
+import { prewarmMediaAssets, resolveMessageMediaForDisplay, type MediaAssetPrewarmInput } from "@/lib/mediaAssetResolver";
 import { extractChatImageMediaRef } from "@/lib/chatMessageContent";
 import { toRenderableMessageKind } from "../../shared/chat/messageRouting";
 import { threadMessagesQueryKey, type ThreadInvalidateScope } from "../../shared/chat/queryKeys";
@@ -306,7 +306,24 @@ export async function hydrateChatRowsForDisplay(
   const mediaSourceRefsById = new Map(
     collapsedRows.map((row) => [row.id, collectChatMediaSourceRefs(row)] as const),
   );
-  const displayRows = await Promise.all(collapsedRows.map((row) => resolveMessageMediaForDisplay(row)));
+  const prewarmInputs: MediaAssetPrewarmInput[] = [];
+  for (const row of collapsedRows) {
+    const refs = mediaSourceRefsById.get(row.id);
+    if (!refs) continue;
+    if (refs.audio) prewarmInputs.push({ messageId: row.id, kind: "voice", sourceRef: refs.audio });
+    if (refs.image) prewarmInputs.push({ messageId: row.id, kind: "image", sourceRef: refs.image });
+    if (refs.video) {
+      prewarmInputs.push({
+        messageId: row.id,
+        kind: row.message_kind === "vibe_clip" ? "vibe_clip" : "video",
+        sourceRef: refs.video,
+      });
+    }
+    if (refs.thumbnail) prewarmInputs.push({ messageId: row.id, kind: "thumbnail", sourceRef: refs.thumbnail });
+  }
+  const displayRowsPromise = Promise.all(collapsedRows.map((row) => resolveMessageMediaForDisplay(row)));
+  void prewarmMediaAssets(prewarmInputs, { concurrency: 6 }).catch(() => {});
+  const displayRows = await displayRowsPromise;
 
   return displayRows.map((row) => {
     const sourceRefs = mediaSourceRefsById.get(row.id);

@@ -5,7 +5,7 @@ import { supabase } from '@/lib/supabase';
 import { avatarUrl } from '@/lib/imageUrl';
 import { resolvePrimaryProfilePhotoPath } from '../../../shared/profilePhoto/resolvePrimaryProfilePhotoPath';
 import { bestMatchSortKey, compatibilityPercent, type MatchScoreInput } from '@/lib/matchSortScore';
-import { resolveMessageMediaForDisplay } from '@/lib/mediaAssetResolver';
+import { prewarmMediaAssets, resolveMessageMediaForDisplay, type MediaAssetPrewarmInput } from '@/lib/mediaAssetResolver';
 import { extractChatImageMediaRef } from '@/lib/chatMessageContent';
 import {
   collapseVibeGameMessageRows,
@@ -553,9 +553,26 @@ export async function hydrateChatRowsForDisplay(params: {
 }): Promise<ChatMessage[]> {
   const { rows, currentUserId, otherUserId } = params;
   const rowsForGames = rows.map((row) => mapRawRowToGameRow(normalizeRawMessage(row)));
-  const resolvedRowsForGames = await Promise.all(
+  const prewarmInputs: MediaAssetPrewarmInput[] = [];
+  for (const row of rowsForGames) {
+    if (row.audio_source_ref) prewarmInputs.push({ messageId: row.id, kind: 'voice', sourceRef: row.audio_source_ref });
+    if (row.image_source_ref) prewarmInputs.push({ messageId: row.id, kind: 'image', sourceRef: row.image_source_ref });
+    if (row.video_source_ref) {
+      prewarmInputs.push({
+        messageId: row.id,
+        kind: row.message_kind === 'vibe_clip' ? 'vibe_clip' : 'video',
+        sourceRef: row.video_source_ref,
+      });
+    }
+    if (row.thumbnail_source_ref) {
+      prewarmInputs.push({ messageId: row.id, kind: 'thumbnail', sourceRef: row.thumbnail_source_ref });
+    }
+  }
+  const resolvedRowsPromise = Promise.all(
     rowsForGames.map((row) => resolveMessageMediaForDisplay(row)),
   );
+  void prewarmMediaAssets(prewarmInputs, { concurrency: 6 }).catch(() => {});
+  const resolvedRowsForGames = await resolvedRowsPromise;
 
   const mapStatus = (m: { sender_id: string; read_at: string | null }): MessageStatusType => {
     if (m.sender_id !== currentUserId) return 'sent';

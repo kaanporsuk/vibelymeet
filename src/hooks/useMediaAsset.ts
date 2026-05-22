@@ -32,6 +32,9 @@ type UseMediaAssetOptions = {
 type UseMediaAssetResult = {
   url: string | null;
   posterUrl: string | null;
+  placeholderKind: "dominant_color" | null;
+  placeholderHash: string | null;
+  dominantColor: string | null;
   status: UseMediaAssetStatus;
   error: string | null;
   expiresAtMs: number | null;
@@ -69,6 +72,28 @@ function realtimeChannelName(messageId: string, kind: MediaAssetKind | "vibe_vid
   return `media-asset-message:${messageId}:${kind}`;
 }
 
+function mediaAssetOwnerTopic(userId: string): string {
+  return `media:user:${userId}`;
+}
+
+function mediaFamilyMatchesKind(mediaFamily: unknown, kind: MediaAssetKind | "vibe_video"): boolean {
+  if (kind === "image") return mediaFamily === "chat_image";
+  if (kind === "voice") return mediaFamily === "voice_message";
+  if (kind === "profile_vibe_video" || kind === "vibe_video") return mediaFamily === "vibe_video";
+  if (kind === "thumbnail") return mediaFamily === "chat_video" || mediaFamily === "chat_video_thumbnail";
+  if (kind === "video" || kind === "vibe_clip") return mediaFamily === "chat_video";
+  return false;
+}
+
+function mediaAssetBroadcastPayload(message: unknown): Record<string, unknown> | null {
+  const payload = message && typeof message === "object" && !Array.isArray(message)
+    ? (message as { payload?: unknown }).payload
+    : null;
+  return payload && typeof payload === "object" && !Array.isArray(payload)
+    ? payload as Record<string, unknown>
+    : null;
+}
+
 function passthroughAsset(url: string): MediaAssetResolveResult {
   return {
     url,
@@ -76,6 +101,9 @@ function passthroughAsset(url: string): MediaAssetResolveResult {
     playbackKind: isHlsMediaAssetUrl(url) ? "hls" : "progressive",
     provider: /^https?:\/\//i.test(url) ? "remote" : "local",
     expiresAtMs: Number.POSITIVE_INFINITY,
+    placeholderKind: null,
+    placeholderHash: null,
+    dominantColor: null,
   };
 }
 
@@ -106,6 +134,9 @@ export function useMediaAsset({
   const initial = initialUrl === null ? null : initialUrl ?? sourceRef ?? null;
   const [url, setUrl] = useState<string | null>(initial);
   const [posterUrl, setPosterUrl] = useState<string | null>(null);
+  const [placeholderKind, setPlaceholderKind] = useState<"dominant_color" | null>(null);
+  const [placeholderHash, setPlaceholderHash] = useState<string | null>(null);
+  const [dominantColor, setDominantColor] = useState<string | null>(null);
   const [status, setStatus] = useState<UseMediaAssetStatus>(() => mediaStatusForUrl(initial));
   const [error, setError] = useState<string | null>(null);
   const [expiresAtMs, setExpiresAtMs] = useState<number | null>(null);
@@ -125,6 +156,9 @@ export function useMediaAsset({
     const next = initialUrl === null ? null : initialUrl ?? sourceRef ?? null;
     setUrl(next);
     setPosterUrl(null);
+    setPlaceholderKind(null);
+    setPlaceholderHash(null);
+    setDominantColor(null);
     setStatus(mediaStatusForUrl(next));
     setError(null);
     setExpiresAtMs(null);
@@ -144,6 +178,9 @@ export function useMediaAsset({
     }
     setUrl(result.url);
     setPosterUrl(result.posterUrl);
+    setPlaceholderKind(result.placeholderKind);
+    setPlaceholderHash(result.placeholderHash);
+    setDominantColor(result.dominantColor);
     setStatus("ready");
     setError(null);
     setExpiresAtMs(Number.isFinite(result.expiresAtMs) ? result.expiresAtMs : null);
@@ -246,17 +283,48 @@ export function useMediaAsset({
     };
   }, [enabled, kind, messageId, onProcessingStatusChange, processingStatus, sourceRef]);
 
+  useEffect(() => {
+    const useOwnerBroadcast =
+      kind === "profile_vibe_video" ||
+      kind === "vibe_video" ||
+      isActiveProcessingStatus(processingStatus);
+    if (!enabled || !sourceRef || !useOwnerBroadcast) {
+      return;
+    }
+    let active = true;
+    let channel: ReturnType<typeof supabase.channel> | null = null;
+    void supabase.auth.getUser().then(({ data }) => {
+      if (!active || !data.user?.id) return;
+      channel = supabase
+        .channel(mediaAssetOwnerTopic(data.user.id), { config: { private: true } })
+        .on("broadcast", { event: "media_asset_event" }, (message) => {
+          if (!active) return;
+          const payload = mediaAssetBroadcastPayload(message);
+          if (!payload || !mediaFamilyMatchesKind(payload.mediaFamily, kind)) return;
+          void refreshRef.current("manual", { bypassFailureCooldown: true });
+        })
+        .subscribe();
+    }).catch(() => {});
+    return () => {
+      active = false;
+      if (channel) void supabase.removeChannel(channel);
+    };
+  }, [enabled, kind, processingStatus, sourceRef]);
+
   return useMemo(
     () => ({
       url,
       posterUrl,
+      placeholderKind,
+      placeholderHash,
+      dominantColor,
       status,
       error,
       expiresAtMs,
       isPlayable: isPlayableMediaAssetUrl(url),
       refresh,
     }),
-    [error, expiresAtMs, posterUrl, refresh, status, url],
+    [dominantColor, error, expiresAtMs, placeholderHash, placeholderKind, posterUrl, refresh, status, url],
   );
 }
 

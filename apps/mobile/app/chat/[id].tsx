@@ -404,6 +404,16 @@ function threadMessageMediaKind(message: ThreadMessage) {
   });
 }
 
+function chatMediaPlaceholderColor(message: ThreadMessage): string | null {
+  if (isLocalMediaMessage(message) || isLocalTextMessage(message)) return null;
+  const payload = message.structuredPayload;
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return null;
+  const placeholder = (payload as { media_placeholder?: unknown }).media_placeholder;
+  if (!placeholder || typeof placeholder !== 'object' || Array.isArray(placeholder)) return null;
+  const color = (placeholder as { dominant_color?: unknown }).dominant_color;
+  return typeof color === 'string' && /^#[0-9a-f]{6}$/i.test(color) ? color : null;
+}
+
 function mapOutboxToLocalSendState(state: ChatOutboxQueueState): LocalTextSendState | LocalMediaSendState {
   if (state === 'failed') return 'failed';
   return 'sending';
@@ -603,19 +613,21 @@ function threadSortKey(m: ThreadMessage): number {
 function ChatImageCard({
   uri,
   isMine,
+  placeholderColor,
   theme: _theme,
   onPress,
   onLoadError,
 }: {
   uri: string;
   isMine: boolean;
+  placeholderColor?: string | null;
   theme: (typeof Colors)['light'];
   onPress?: () => void;
   onLoadError?: () => void;
 }) {
   const frameBorder = isMine ? 'rgba(236,72,153,0.45)' : 'rgba(255,255,255,0.16)';
   const inner = (
-    <View style={[styles.chatImageOuter, { borderColor: frameBorder }]}>
+    <View style={[styles.chatImageOuter, { borderColor: frameBorder, backgroundColor: placeholderColor ?? 'rgba(0,0,0,0.2)' }]}>
       <Image
         source={{ uri }}
         style={styles.chatImage}
@@ -1589,7 +1601,10 @@ export default function ChatThreadScreen() {
   }, []);
   const refreshPhotoViewerItem = useCallback(async (item: ChatThreadPhotoItem): Promise<string | null> => {
     if (!item.sourceRef) return null;
-    const freshUri = await refreshMediaAssetUrl(item.id, 'image', item.sourceRef);
+    const freshUri = await refreshMediaAssetUrl(item.id, 'image', item.sourceRef, {
+      bypassFailureCooldown: true,
+      variant: 'original',
+    });
     if (!freshUri) return null;
     setPhotoUriOverridesById((prev) => (prev[item.id] === freshUri ? prev : { ...prev, [item.id]: freshUri }));
     return freshUri;
@@ -3272,6 +3287,7 @@ export default function ChatThreadScreen() {
           <ChatImageCard
             uri={imageUrl}
             isMine={isMe}
+            placeholderColor={chatMediaPlaceholderColor(item)}
             theme={theme}
             onPress={() => setPhotoViewer({ initialId: item.id })}
             onLoadError={() => {

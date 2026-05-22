@@ -76,7 +76,8 @@ Release evidence:
 
 - Migration applied: `20260501170000_video_date_handshake_starts_after_daily_join.sql`.
 - Edge Function redeployed: `daily-room`.
-- Required Supabase secret names were present at release check: `DAILY_API_KEY`, `DAILY_DOMAIN`, `SUPABASE_URL`, `SUPABASE_ANON_KEY`.
+- Required Supabase secret names were present at release check: `DAILY_API_KEY`, `DAILY_DOMAIN`, `DAILY_WEBHOOK_SECRET`, `SUPABASE_URL`, `SUPABASE_ANON_KEY`.
+- Video Date Daily webhook endpoint: `https://schdyxcunwcvddlcshwd.supabase.co/functions/v1/video-date-daily-webhook`, `verify_jwt=false`, protected by Daily HMAC/timestamp validation. `DAILY_WEBHOOK_SECRET` stores Daily's base64 webhook `hmac` exactly as returned by Daily.
 - Two-person Daily/provider runtime QA for the handshake release is recorded as completed.
 
 ---

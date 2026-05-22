@@ -43,11 +43,32 @@ export async function pollVibeVideoUntilTerminal(options: {
   vibeVideoDiagVerbose('poll.start', { expectedVideoId, maxAttempts, intervalMs });
 
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    if (attempt > 0) {
+      try {
+        await sleep(intervalMs, signal);
+      } catch {
+        vibeVideoDiagVerbose('poll.aborted_signal', { expectedVideoId, attempt });
+        return 'aborted';
+      }
+    }
+
     try {
-      await sleep(intervalMs, signal);
-    } catch {
-      vibeVideoDiagVerbose('poll.aborted_signal', { expectedVideoId, attempt });
-      return 'aborted';
+      const { error } = await supabase.functions.invoke('sync-vibe-video-status', {
+        body: { videoId: expectedVideoId },
+      });
+      if (error) {
+        vibeVideoDiagVerbose('poll.sync_status_error', {
+          expectedVideoId,
+          attempt,
+          message: error.message,
+        });
+      }
+    } catch (error) {
+      vibeVideoDiagVerbose('poll.sync_status_failed', {
+        expectedVideoId,
+        attempt,
+        message: error instanceof Error ? error.message : String(error),
+      });
     }
 
     const {

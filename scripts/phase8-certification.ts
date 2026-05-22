@@ -55,6 +55,14 @@ type ParsedArgs = {
   options: Record<string, string | true>;
 };
 
+type RolloutReadinessRow = {
+  event_id: string | null;
+  window_id: string | null;
+  target_rollout_bps: number | null;
+  can_advance_rollout: boolean | null;
+  rollout_blockers: string[] | null;
+};
+
 function usage(): never {
   console.error(`Usage:
   npx tsx scripts/phase8-certification.ts record --run-kind two_user_e2e --platform web --status passed [--event-id uuid] [--commit-sha sha] [--report-json '{}']
@@ -190,6 +198,43 @@ async function recordCertification(input: {
   console.log(JSON.stringify(result, null, 2));
 }
 
+function normalizeRolloutBlockers(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter((entry): entry is string => typeof entry === "string" && entry.trim().length > 0);
+}
+
+function formatRolloutReadinessBlockers(rows: RolloutReadinessRow[]): string {
+  return rows
+    .map((row) => {
+      const eventId = row.event_id ?? "global";
+      const windowId = row.window_id ?? "unknown_window";
+      const target = row.target_rollout_bps ?? "unknown_target";
+      const blockers = normalizeRolloutBlockers(row.rollout_blockers).join(", ") || "unknown_blocker";
+      return `- event=${eventId} window=${windowId} target_rollout_bps=${target} blockers=${blockers}`;
+    })
+    .join("\n");
+}
+
+async function assertRolloutReadiness(eventId: string | null, rolloutBps: number): Promise<void> {
+  const { data, error } = await supabaseAdmin().rpc("get_video_date_phase8_rollout_readiness", {
+    p_event_id: eventId,
+  });
+  if (error) throw new Error(`rollout readiness preflight failed: ${error.message}`);
+
+  const rows = (Array.isArray(data) ? data : []) as RolloutReadinessRow[];
+  const targetRows = rows.filter((row) => Number(row.target_rollout_bps) === rolloutBps);
+  if (targetRows.length === 0) {
+    throw new Error(`rollout_readiness_missing: no readiness rows for target_rollout_bps=${rolloutBps}`);
+  }
+
+  const blockedRows = targetRows.filter((row) => row.can_advance_rollout !== true);
+  if (blockedRows.length > 0) {
+    console.error("Phase 8 rollout readiness blockers:");
+    console.error(formatRolloutReadinessBlockers(blockedRows));
+    throw new Error(`rollout_readiness_blocked: ${blockedRows.length} blocked readiness row(s)`);
+  }
+}
+
 async function recordRolloutStep(input: {
   eventId?: string | null;
   rolloutBps: number;
@@ -199,6 +244,7 @@ async function recordRolloutStep(input: {
   expiresAt?: string | null;
 }) {
   assertNoSecretKeys(input.report ?? {});
+  await assertRolloutReadiness(input.eventId ?? null, input.rolloutBps);
   const { data, error } = await supabaseAdmin().rpc("record_video_date_phase8_rollout_step_v2", {
     p_event_id: input.eventId ?? null,
     p_rollout_bps: input.rolloutBps,

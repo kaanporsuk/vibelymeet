@@ -113,6 +113,10 @@ export function ChatPhotoLightbox({ items, initialId, onClose, onRefreshItem }: 
     setUrlOverridesById((prev) => (prev[current.id] === freshUrl ? prev : { ...prev, [current.id]: freshUrl }));
   }, [current, currentUrl, onRefreshItem]);
 
+  useEffect(() => {
+    void refreshCurrent();
+  }, [refreshCurrent]);
+
   const onWheel = useCallback((e: React.WheelEvent) => {
     e.preventDefault();
     const delta = -e.deltaY * 0.002;

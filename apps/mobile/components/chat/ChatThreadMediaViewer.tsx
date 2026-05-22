@@ -181,6 +181,11 @@ function PhotoViewerBody({
     refreshAttemptedForUriRef.current = currentUri;
     setUriOverridesById((prev) => (prev[current.id] === freshUri ? prev : { ...prev, [current.id]: freshUri }));
   }, [current, currentUri, onRefreshItem]);
+
+  useEffect(() => {
+    void refreshCurrent();
+  }, [refreshCurrent]);
+
   const goPrev = useCallback(() => {
     setSelectedId((prevId) => {
       if (!items.length) return prevId;

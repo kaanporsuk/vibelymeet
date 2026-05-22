@@ -59,6 +59,110 @@ function optionalFormString(formData: FormData, key: string): string | null {
   return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
+type ImageDerivativeKind = "thumb" | "hero";
+type ImageDerivativeUpload = {
+  kind: ImageDerivativeKind;
+  buffer: ArrayBuffer;
+  mimeType: string;
+  extension: string;
+  path: string;
+};
+type ImagePlaceholderMetadata = {
+  placeholder_kind: "dominant_color";
+  placeholder_hash: string;
+  dominant_color: string;
+};
+type MediaAssetPresentationClient = {
+  from(table: "media_assets"): {
+    update(values: Record<string, unknown>): {
+      eq(column: "id", value: string): PromiseLike<{ error: { message: string } | null }>;
+    };
+  };
+};
+
+async function readDerivativeFile(formData: FormData, key: string, kind: ImageDerivativeKind) {
+  const value = formData.get(key);
+  if (!isUploadFile(value) || value.size <= 0 || value.size > 2 * 1024 * 1024) return null;
+  const buffer = await value.arrayBuffer();
+  const validation = validateImageUploadBytes(buffer, value.type);
+  if (!validation.ok) return null;
+  return {
+    kind,
+    buffer,
+    mimeType: validation.media.mimeType,
+    extension: validation.media.extension,
+  };
+}
+
+async function readDerivativeSet(formData: FormData) {
+  const [thumb, hero] = await Promise.all([
+    readDerivativeFile(formData, "derivative_thumb", "thumb"),
+    readDerivativeFile(formData, "derivative_hero", "hero"),
+  ]);
+  return thumb && hero ? { thumb, hero } : null;
+}
+
+function derivativePathForOriginal(originalPath: string, kind: ImageDerivativeKind, extension: string): string {
+  if (/@orig\.[a-z0-9]+$/i.test(originalPath)) {
+    return originalPath.replace(/@orig\.[a-z0-9]+$/i, `@${kind}.${extension}`);
+  }
+  return originalPath.replace(/\.([a-z0-9]+)$/i, `@${kind}.${extension}`);
+}
+
+function normalizeDominantColor(value: string | null): string | null {
+  if (!value) return null;
+  const color = value.trim();
+  return /^#[0-9a-f]{6}$/i.test(color) ? color.toLowerCase() : null;
+}
+
+function readImagePlaceholderMetadata(formData: FormData): ImagePlaceholderMetadata | null {
+  const dominantColor = normalizeDominantColor(optionalFormString(formData, "dominant_color"));
+  if (!dominantColor) return null;
+  const placeholderKind = optionalFormString(formData, "placeholder_kind") ?? "dominant_color";
+  if (placeholderKind !== "dominant_color") return null;
+  const placeholderHash = normalizeDominantColor(optionalFormString(formData, "placeholder_hash")) ?? dominantColor;
+  return {
+    placeholder_kind: "dominant_color",
+    placeholder_hash: placeholderHash,
+    dominant_color: dominantColor,
+  };
+}
+
+async function updateMediaAssetPresentation(
+  adminSupabase: MediaAssetPresentationClient,
+  assetId: string | null,
+  params: {
+    derivatives?: Record<string, string>;
+    placeholder?: ImagePlaceholderMetadata | null;
+  },
+): Promise<void> {
+  if (!assetId) return;
+  const update: Record<string, unknown> = {};
+  const thumb = typeof params.derivatives?.thumb === "string" && params.derivatives.thumb.trim()
+    ? params.derivatives.thumb.trim()
+    : null;
+  const hero = typeof params.derivatives?.hero === "string" && params.derivatives.hero.trim()
+    ? params.derivatives.hero.trim()
+    : null;
+  if (thumb) update.derivative_thumb_path = thumb;
+  if (hero) update.derivative_hero_path = hero;
+  if (params.placeholder) {
+    update.placeholder_kind = params.placeholder.placeholder_kind;
+    update.placeholder_hash = params.placeholder.placeholder_hash;
+    update.dominant_color = params.placeholder.dominant_color;
+    update.placeholder_updated_at = new Date().toISOString();
+  }
+  if (Object.keys(update).length === 0) return;
+
+  const { error } = await adminSupabase
+    .from("media_assets")
+    .update(update)
+    .eq("id", assetId);
+  if (error) {
+    console.error(`[upload-image] media asset presentation update failed assetId=${assetId} err=${error.message}`);
+  }
+}
+
 type ClientRequestIdResult =
   | { ok: true; clientRequestId: string }
   | { ok: false; error: "client_request_id_conflict" | "client_request_id_invalid" };
@@ -159,6 +263,8 @@ serve(async (req) => {
     const sniffedMedia = mediaValidation.media;
     const ext = sniffedMedia.extension;
     const contentSha256 = await sha256Hex(fileBuffer);
+    const derivativeSet = await readDerivativeSet(formData);
+    const placeholderMetadata = readImagePlaceholderMetadata(formData);
     const clientRequest = clientRequestIdForUpload(req, formData);
     if (!clientRequest.ok) {
       return json({ success: false, error: clientRequest.error }, 400);
@@ -178,11 +284,26 @@ serve(async (req) => {
     const storagePath = context === "chat" && matchId
       ? `photos/match-${matchId}/${user.id}/req-${requestPathToken}.${ext}`
       : `photos/${user.id}/req-${requestPathToken}.${ext}`;
+    const derivatives: Record<string, string> = {};
+    const derivativeUploads: ImageDerivativeUpload[] = derivativeSet
+      ? [
+        {
+          ...derivativeSet.thumb,
+          path: derivativePathForOriginal(storagePath, "thumb", derivativeSet.thumb.extension),
+        },
+        {
+          ...derivativeSet.hero,
+          path: derivativePathForOriginal(storagePath, "hero", derivativeSet.hero.extension),
+        },
+      ]
+      : [];
     const baseReceiptMetadata: Record<string, unknown> = {
       context: context ?? "legacy",
       storage_zone: storageZone,
       mime_type: sniffedMedia.mimeType,
       bytes: file.size,
+      ...(placeholderMetadata ? { placeholder: placeholderMetadata } : {}),
+      ...(derivativeUploads.length ? { derivative_targets: derivativeUploads.map((item) => item.kind) } : {}),
       ...(matchId ? { match_id: matchId } : {}),
       ...(safeReplacedPath ? { replaces_storage_path: safeReplacedPath } : {}),
     };
@@ -256,6 +377,10 @@ serve(async (req) => {
           const repaired = isRecord(repairData) ? repairData : {};
           reservedSessionId = typeof repaired.session_id === "string" ? repaired.session_id : reservedSessionId;
           reservedAssetId = typeof repaired.asset_id === "string" ? repaired.asset_id : reservedAssetId;
+          await updateMediaAssetPresentation(adminSupabase, reservedAssetId, {
+            derivatives: isRecord(reserveMetadata.derivatives) ? reserveMetadata.derivatives as Record<string, string> : undefined,
+            placeholder: placeholderMetadata,
+          });
           void captureReceiptTransition({
             ownerUserId: user.id,
             mediaFamily,
@@ -271,6 +396,10 @@ serve(async (req) => {
           });
         }
       }
+      await updateMediaAssetPresentation(adminSupabase, reservedAssetId, {
+        derivatives: isRecord(reserveMetadata.derivatives) ? reserveMetadata.derivatives as Record<string, string> : undefined,
+        placeholder: placeholderMetadata,
+      });
       return json({
         success: true,
         path: reservedPath,
@@ -279,6 +408,14 @@ serve(async (req) => {
         contentSha256,
         receiptId,
         sessionId: reservedSessionId,
+        placeholder: placeholderMetadata
+          ? {
+            kind: placeholderMetadata.placeholder_kind,
+            hash: placeholderMetadata.placeholder_hash,
+            dominantColor: placeholderMetadata.dominant_color,
+          }
+          : undefined,
+        derivatives: isRecord(reserveMetadata.derivatives) ? reserveMetadata.derivatives : undefined,
       });
     }
 
@@ -321,10 +458,34 @@ serve(async (req) => {
       return json({ success: false, error: "Upload to CDN failed" });
     }
 
+    for (const derivative of derivativeUploads) {
+      try {
+        const derivativeRes = await fetch(
+          `https://${storageHostname}/${storageZone}/${derivative.path}`,
+          {
+            method: "PUT",
+            headers: {
+              "AccessKey": apiKey,
+              "Content-Type": derivative.mimeType,
+            },
+            body: derivative.buffer,
+          },
+        );
+        if (!derivativeRes.ok) {
+          console.error("[upload-image] Bunny derivative upload failed:", await providerErrorMeta(derivativeRes));
+          continue;
+        }
+        derivatives[derivative.kind] = derivative.path;
+      } catch (error) {
+        console.error("[upload-image] Bunny derivative upload error:", safeUnexpectedError(error));
+      }
+    }
+
     let sessionId: string | null = null;
     let assetId: string | null = null;
     const completionMetadata = {
       ...baseReceiptMetadata,
+      ...(Object.keys(derivatives).length ? { derivatives } : {}),
       uploaded_at: new Date().toISOString(),
     };
     if (receiptId) {
@@ -389,6 +550,10 @@ serve(async (req) => {
 
       assetId = typeof completion.asset_id === "string" ? completion.asset_id : null;
       sessionId = typeof completion.session_id === "string" ? completion.session_id : null;
+      await updateMediaAssetPresentation(adminSupabase, assetId, {
+        derivatives,
+        placeholder: placeholderMetadata,
+      });
       void captureReceiptTransition({
         ownerUserId: user.id,
         mediaFamily,
@@ -412,6 +577,14 @@ serve(async (req) => {
       contentSha256,
       receiptId,
       sessionId,
+      placeholder: placeholderMetadata
+        ? {
+          kind: placeholderMetadata.placeholder_kind,
+          hash: placeholderMetadata.placeholder_hash,
+          dominantColor: placeholderMetadata.dominant_color,
+        }
+        : undefined,
+      derivatives: Object.keys(derivatives).length ? derivatives : undefined,
     });
 
   } catch (err) {

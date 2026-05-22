@@ -230,6 +230,7 @@ Daily powers live video rooms/tokens for event dates and match/video call flows.
 ### Repo touchpoints
 **Function**
 - `daily-room`
+- `video-date-daily-webhook`
 
 **Frontend**
 - `src/hooks/useMatchCall.ts`
@@ -239,6 +240,7 @@ Daily powers live video rooms/tokens for event dates and match/video call flows.
 ### Secrets/config expected by code
 - `DAILY_API_KEY`
 - `DAILY_DOMAIN`
+- `DAILY_WEBHOOK_SECRET`
 
 ### Hardcoded runtime assumptions
 - function falls back to `vibelyapp.daily.co` if `DAILY_DOMAIN` is absent
@@ -247,14 +249,20 @@ Daily powers live video rooms/tokens for event dates and match/video call flows.
 - Daily account
 - domain/subdomain owned by the account, expected to be `vibelyapp.daily.co` unless intentionally changed
 - API key with room-management rights
+- webhook registration targeting `https://schdyxcunwcvddlcshwd.supabase.co/functions/v1/video-date-daily-webhook`
+- Daily webhook `hmac` stored in Supabase as `DAILY_WEBHOOK_SECRET` exactly as Daily returns it (base64)
+- subscribed webhook events `participant.joined` and `participant.left`
 
 ### Rebuild-critical notes
 - the fallback domain makes this dependency easy to miss because the app may appear configured even if env is incomplete
+- missing or mismatched `DAILY_WEBHOOK_SECRET` makes `video-date-daily-webhook` fail closed while `daily-room` can still appear healthy
+- missing provider registration means video-date join/leave recovery cannot be production-verified
 - if the account or domain ownership changed, the fallback becomes dangerous rather than helpful
 
 ### Known unknowns to verify
 - whether `vibelyapp.daily.co` is still the intended production domain
 - whether any Daily dashboard settings are required beyond API-key possession
+- whether the Daily webhook remains ACTIVE with `failedCount = 0` after a real two-user video-date smoke
 
 ---
 
@@ -574,6 +582,7 @@ These items remain partially or fully outside recoverable repo truth and should 
 - exact DNS/CDN origin mappings
 - exact hosting setup for `vibelymeet.com`
 - exact Daily account/domain ownership state
+- exact Daily webhook registration state for `video-date-daily-webhook`
 - any Supabase dashboard-only settings not represented in migrations/config
 
 ---
