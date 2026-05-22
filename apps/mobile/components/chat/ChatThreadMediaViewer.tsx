@@ -147,6 +147,7 @@ function PhotoViewerBody({
   );
   const [uriOverridesById, setUriOverridesById] = useState<Record<string, string>>({});
   const refreshAttemptedForUriRef = useRef<string | null>(null);
+  const refreshInFlightForUriRef = useRef<string | null>(null);
   const autoRefreshAttemptedForIdRef = useRef<string | null>(null);
   const lastInitialIdRef = useRef(initialId);
   const previousItemsRef = useRef(items);
@@ -176,11 +177,28 @@ function PhotoViewerBody({
   }, [current?.id]);
 
   const refreshCurrent = useCallback(async () => {
-    if (!current || !currentUri || !onRefreshItem || refreshAttemptedForUriRef.current === currentUri) return;
-    refreshAttemptedForUriRef.current = currentUri;
-    const freshUri = await onRefreshItem(current);
-    if (!freshUri || freshUri === currentUri) return;
-    setUriOverridesById((prev) => (prev[current.id] === freshUri ? prev : { ...prev, [current.id]: freshUri }));
+    if (
+      !current ||
+      !currentUri ||
+      !onRefreshItem ||
+      refreshAttemptedForUriRef.current === currentUri ||
+      refreshInFlightForUriRef.current === currentUri
+    ) {
+      return;
+    }
+    refreshInFlightForUriRef.current = currentUri;
+    try {
+      const freshUri = await onRefreshItem(current);
+      if (!freshUri || freshUri === currentUri) return;
+      refreshAttemptedForUriRef.current = currentUri;
+      setUriOverridesById((prev) => (prev[current.id] === freshUri ? prev : { ...prev, [current.id]: freshUri }));
+    } catch {
+      // Keep transient refresh failures retryable for the current signed URI.
+    } finally {
+      if (refreshInFlightForUriRef.current === currentUri) {
+        refreshInFlightForUriRef.current = null;
+      }
+    }
   }, [current, currentUri, onRefreshItem]);
 
   useEffect(() => {
