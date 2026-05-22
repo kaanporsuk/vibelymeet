@@ -21,7 +21,6 @@ import { trackEvent } from "@/lib/analytics";
 import { submitWebPostDateOutboxItem } from "@/lib/postDateOutbox/execute";
 import { LobbyPostDateEvents } from "@clientShared/analytics/lobbyToPostDateJourney";
 import type { PostDateSafetyReportPayload } from "@clientShared/postDateOutbox/types";
-import { buildEventLobbyPendingSessionUrl } from "@shared/matching/videoSessionFlow";
 import {
   getPostDateSurveyContinuityDecision,
   isPostDateEventNearlyOver,
@@ -307,31 +306,18 @@ export const PostDateSurvey = ({
         outcome: "success",
         next_session_id: videoSessionId,
       });
-      toast("Your next date is ready — head to the event lobby 💚", { duration: 2000 });
-      if (eventId) {
-        const target = `${buildEventLobbyPendingSessionUrl(eventId, videoSessionId)}&postSurveyComplete=1`;
-        trackEvent(LobbyPostDateEvents.POST_DATE_CONTINUITY_ROUTE_TAKEN, {
-          platform: "web",
-          session_id: sessionId,
-          event_id: eventId,
-          action: "ready_gate",
-          route: "event_lobby_pending_ready_gate",
-          video_session_id: videoSessionId,
-        });
-        vdbgRedirect(target, "survey_queue_match_ready", { sessionId, eventId, pendingVideoSession: videoSessionId });
-        navigate(target);
-      } else {
-        trackEvent(LobbyPostDateEvents.POST_DATE_CONTINUITY_ROUTE_TAKEN, {
-          platform: "web",
-          session_id: sessionId,
-          event_id: eventId,
-          action: "home",
-          route: "home",
-          video_session_id: videoSessionId,
-        });
-        vdbgRedirect("/home", "survey_queue_match_ready", { sessionId, pendingVideoSession: videoSessionId });
-        navigate("/home");
-      }
+      toast("Your next date is ready 💚", { duration: 2000 });
+      const target = `/ready/${encodeURIComponent(videoSessionId)}`;
+      trackEvent(LobbyPostDateEvents.POST_DATE_CONTINUITY_ROUTE_TAKEN, {
+        platform: "web",
+        session_id: sessionId,
+        event_id: eventId,
+        action: "ready_gate",
+        route: "ready_gate",
+        video_session_id: videoSessionId,
+      });
+      vdbgRedirect(target, "survey_queue_match_ready", { sessionId, eventId, readyGateSessionId: videoSessionId });
+      navigate(target, { replace: true });
     },
     [navigate, eventId, sessionId]
   );
@@ -407,19 +393,19 @@ export const PostDateSurvey = ({
           next_session_id: serverNext.nextSessionId,
         });
 
-        if (serverNext.action === "ready_gate" && nextEventId && nextSessionId) {
+        if (serverNext.action === "ready_gate" && nextSessionId) {
           queuedNavigationStartedRef.current = true;
-          const target = `${buildEventLobbyPendingSessionUrl(nextEventId, nextSessionId)}&postSurveyComplete=1`;
+          const target = `/ready/${encodeURIComponent(nextSessionId)}`;
           trackEvent(LobbyPostDateEvents.POST_DATE_CONTINUITY_ROUTE_TAKEN, {
             platform: "web",
             session_id: sessionId,
             event_id: nextEventId,
             action: "ready_gate",
-            route: "event_lobby_pending_ready_gate",
+            route: "ready_gate",
             video_session_id: nextSessionId,
           });
           vdbgRedirect(target, "survey_finish_server_ready_gate", { sessionId, eventId: nextEventId, nextSessionId });
-          navigate(target);
+          navigate(target, { replace: true });
           return;
         }
 

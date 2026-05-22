@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 interface ActiveCallBannerProps {
   sessionId: string;
   partnerName?: string | null;
-  /** ready_gate = lobby overlay destination; survey/video = /date */
+  /** ready_gate = standalone Ready Gate; survey/video = /date */
   mode?: "video" | "ready_gate" | "survey";
   onRejoin: () => void;
   onEnd?: () => void;
@@ -33,8 +33,8 @@ export const ActiveCallBanner = ({
   const subtitle =
     mode === "ready_gate"
       ? partnerName
-        ? `${partnerName} — open the event lobby to finish Ready Gate`
-        : "Open the event lobby to finish Ready Gate"
+        ? `${partnerName} — open Ready Gate to sync up`
+        : "Open Ready Gate to sync up"
       : mode === "survey"
         ? "Tell us how it went"
         : partnerName

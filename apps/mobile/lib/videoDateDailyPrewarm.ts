@@ -85,7 +85,7 @@ function publicEntry(entry: NativeDailyPrewarmEntry): NativeDailyPrewarmPublicEn
 }
 
 function prewarmEnabled(): boolean {
-  return String(process.env.EXPO_PUBLIC_VIDEO_DATE_DAILY_PREWARM ?? 'false').toLowerCase() === 'true';
+  return String(process.env.EXPO_PUBLIC_VIDEO_DATE_DAILY_PREWARM ?? 'true').toLowerCase() === 'true';
 }
 
 function joinPrewarmEnabled(joinSource: NativeDailyPrewarmJoinSource): boolean {
@@ -93,7 +93,8 @@ function joinPrewarmEnabled(joinSource: NativeDailyPrewarmJoinSource): boolean {
   const flagName = joinSource === 'solo_prejoin'
     ? 'EXPO_PUBLIC_VIDEO_DATE_DAILY_SOLO_PREJOIN'
     : 'EXPO_PUBLIC_VIDEO_DATE_DAILY_JOIN_PREWARM';
-  return String(process.env[flagName] ?? 'false').toLowerCase() === 'true';
+  const defaultValue = joinSource === 'solo_prejoin' ? 'false' : 'true';
+  return String(process.env[flagName] ?? defaultValue).toLowerCase() === 'true';
 }
 
 function keyFor(sessionId: string, userId: string): string {

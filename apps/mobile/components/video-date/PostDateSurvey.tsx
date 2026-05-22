@@ -399,7 +399,7 @@ export function PostDateSurvey({
             session_id: sessionId,
             event_id: eventId,
             action: 'ready_gate',
-            route: 'event_lobby_pending_ready_gate',
+            route: 'ready_gate',
             video_session_id: nextSessionId,
           });
           onQueuedVideoSessionReady?.(nextSessionId);
@@ -542,7 +542,7 @@ export function PostDateSurvey({
             session_id: sessionId,
             event_id: nextEventId,
             action: 'ready_gate',
-            route: 'event_lobby_pending_ready_gate',
+            route: 'ready_gate',
             video_session_id: nextSessionId,
           });
           onQueuedVideoSessionReady(nextSessionId);

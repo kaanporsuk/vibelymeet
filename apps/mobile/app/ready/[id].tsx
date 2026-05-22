@@ -22,6 +22,12 @@ import { clearDateEntryTransition } from '@/lib/dateEntryTransitionLatch';
 import { ensureVideoDateStartableBeforeNavigation } from '@/lib/videoDateEntryStartable';
 import { fetchVideoSessionDateEntryTruthCoalesced } from '@/lib/videoDateApi';
 import { fetchVideoDateSnapshot } from '@/lib/videoDateSnapshot';
+import { prepareVideoDateEntry } from '@/lib/videoDatePrepareEntry';
+import {
+  joinNativeVideoDateDailyPrewarm,
+  preAuthNativeVideoDateDailyPrewarm,
+  startNativeVideoDateDailyPrewarm,
+} from '@/lib/videoDateDailyPrewarm';
 import { markNativeVideoDateLaunchIntent, videoDateLaunchBreadcrumb } from '@/lib/videoDateLaunchTrace';
 import {
   canAttemptDailyRoomFromVideoSessionTruth,
@@ -173,6 +179,61 @@ export default function ReadyGateScreen() {
           return true;
         }
         dateNavigationStartedRef.current = true;
+        const prepared = await prepareVideoDateEntry(sid, {
+          eventId: eventId ?? null,
+          userId: user.id,
+          source: `ready_standalone_${source}`,
+        });
+        if (prepared.ok !== true) {
+          dateNavigationStartedRef.current = false;
+          setTransitioning(false);
+          clearDateEntryTransition(sid);
+          rcBreadcrumb(RC_CATEGORY.readyGate, 'standalone_prepare_entry_failed_before_date_nav', {
+            session_id: sid,
+            user_id: user.id,
+            event_id: eventId,
+            source,
+            code: prepared.code,
+            retryable: prepared.retryable,
+          });
+          if (
+            isReadyGatePrepareEntryNonRetryable({
+              code: prepared.code,
+              errorCode: prepared.code,
+              source: 'prepare_entry',
+            })
+          ) {
+            nonRetryablePrepareBlockerRef.current = `${sid}:${prepared.code}`;
+          }
+          return false;
+        }
+        const prewarm = startNativeVideoDateDailyPrewarm({
+          sessionId: sid,
+          userId: user.id,
+          eventId: eventId ?? null,
+          roomName: prepared.data.room_name,
+          roomUrl: prepared.data.room_url,
+          source: `ready_standalone_${source}`,
+        });
+        if (prewarm.ok) {
+          void preAuthNativeVideoDateDailyPrewarm({
+            sessionId: sid,
+            userId: user.id,
+            eventId: eventId ?? null,
+            roomUrl: prepared.data.room_url,
+            token: prepared.data.token,
+            source: `ready_standalone_${source}`,
+          });
+          void joinNativeVideoDateDailyPrewarm({
+            sessionId: sid,
+            userId: user.id,
+            eventId: eventId ?? null,
+            roomUrl: prepared.data.room_url,
+            token: prepared.data.token,
+            source: `ready_standalone_${source}`,
+            joinSource: 'both_ready',
+          });
+        }
         rcBreadcrumb(RC_CATEGORY.readyGate, 'standalone_navigate_to_date', {
           session_id: sid,
           source,
@@ -227,7 +288,7 @@ export default function ReadyGateScreen() {
       router.replace(startable.recommendHref);
       return true;
     },
-    [pathname, sessionId, user?.id]
+    [eventId, pathname, sessionId, user?.id]
   );
 
   useEffect(() => {

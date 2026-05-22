@@ -7,6 +7,9 @@ const root = process.cwd();
 const read = (path: string) => readFileSync(join(root, path), "utf8");
 
 const migration = read("supabase/migrations/20260508143000_video_date_surface_claims_post_date_continuity.sql");
+const readyGateRouteLabelCleanupMigration = read(
+  "supabase/migrations/20260522162000_video_date_ready_gate_route_label_cleanup.sql",
+);
 const webDupGuard = read("src/hooks/useVideoDateDupTabGuard.ts");
 const webSurvey = read("src/components/video-date/PostDateSurvey.tsx");
 const nativeSurvey = read("apps/mobile/components/video-date/PostDateSurvey.tsx");
@@ -61,6 +64,12 @@ test("post-date continuity is backend-resolved before client event fallback", ()
     nativeSurvey.indexOf("resolve_post_date_next_surface") < nativeSurvey.indexOf("const continuation = await getEventContinuationSnapshot"),
     "native survey should ask backend for next surface before falling back to client lifecycle checks",
   );
+});
+
+test("post-date continuity uses the standalone Ready Gate route label", () => {
+  assert.match(readyGateRouteLabelCleanupMigration, /CREATE OR REPLACE FUNCTION public\.resolve_post_date_next_surface/);
+  assert.match(readyGateRouteLabelCleanupMigration, /'action', 'ready_gate'[\s\S]*'route', 'ready_gate'/);
+  assert.doesNotMatch(readyGateRouteLabelCleanupMigration, /event_lobby_pending_ready_gate/);
 });
 
 test("optional post-date details use participant-checked RPC instead of direct client updates", () => {

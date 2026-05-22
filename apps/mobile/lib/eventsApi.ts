@@ -21,6 +21,7 @@ import {
   buildVideoDateQueueDrainIdempotencyKey,
   createVideoDateClientRequestId,
 } from '@clientShared/matching/videoDateTransitionCommands';
+import { VIDEO_DATE_DECK_BUFFER_LIMIT } from '@clientShared/matching/videoDateInstantExperience';
 import { resolveEventLifecycle } from '@clientShared/eventLifecycle';
 import type { EventCategory } from '@clientShared/eventCategories';
 
@@ -536,12 +537,22 @@ export function useRegisterForEvent() {
         .eq('event_id', eventId)
         .eq('profile_id', user.id)
         .maybeSingle();
+      const admissionStatus = reg?.admission_status ?? null;
       trackEvent('event_registration_success', {
         event_id: eventId,
-        admission_status: reg?.admission_status ?? null,
+        admission_status: admissionStatus,
       });
+      return { userId: user.id, admissionStatus };
     },
-    onSuccess: (_, eventId) => {
+    onSuccess: (result, eventId) => {
+      qc.setQueryData(['event-registration-check', eventId, result.userId], {
+        isConfirmed: result.admissionStatus === 'confirmed',
+        isWaitlisted: result.admissionStatus === 'waitlisted',
+      });
+      qc.setQueryData<string[] | undefined>(['user-registered-event-ids', result.userId], (current) => {
+        if (!current) return current;
+        return current.includes(eventId) ? current : [...current, eventId];
+      });
       qc.invalidateQueries({ queryKey: ['event-registration-check'] });
       qc.invalidateQueries({ queryKey: ['events-discover'] });
       qc.invalidateQueries({ queryKey: ['next-registered-event'] });
@@ -600,7 +611,7 @@ export function useEventDeck(eventId: string, viewerProfileId: string | null, en
       const { data, error } = await supabase.rpc('get_event_deck_v2', {
         p_event_id: eventId,
         p_user_id: viewerProfileId,
-        p_limit: 1,
+        p_limit: VIDEO_DATE_DECK_BUFFER_LIMIT,
       });
       if (error) throw error;
       return parseEventDeckProfiles(data);
