@@ -3954,11 +3954,19 @@ export default function VideoDateScreen() {
     setSurfaceClaimTakeoverBusy(true);
     try {
       const claimed = await claimNativeVideoDateSurface(true);
-      if (claimed) setSurfaceClaimBlocked(false);
+      if (claimed) {
+        setSurfaceClaimBlocked(false);
+        hasStartedJoinRef.current = false;
+        vdbg('native_video_date_surface_takeover_retry', {
+          sessionId: sessionId ?? null,
+          userId: user?.id ?? null,
+        });
+        setJoinAttemptNonce((n) => n + 1);
+      }
     } finally {
       setSurfaceClaimTakeoverBusy(false);
     }
-  }, [claimNativeVideoDateSurface, surfaceClaimTakeoverBusy]);
+  }, [claimNativeVideoDateSurface, sessionId, surfaceClaimTakeoverBusy, user?.id]);
 
   const handleLeaveBlockedSurface = useCallback(async () => {
     try {

@@ -273,6 +273,8 @@ test("PR 5.5 active multi-device snapshots are explicit rejoin decisions", () =>
   assert.match(nativeDate, /surface_claim_conflict/);
   assert.match(nativeDate, /You are already in this call on another device/);
   assert.match(nativeDate, /Switch here only if you want this device to take over/);
+  assert.match(nativeDate, /native_video_date_surface_takeover_retry/);
+  assert.match(nativeDate, /const claimed = await claimNativeVideoDateSurface\(true\)[\s\S]+setJoinAttemptNonce\(\(n\) => n \+ 1\)/);
   assert.match(phase5AuditMigration, /'video_date\.multi_device_v2'/);
   assert.match(phase5AuditMigration, /CREATE OR REPLACE VIEW public\.vw_video_date_multi_device_health/);
   assert.match(phase5AuditMigration, /audit_active_video_date_surface_conflicts\(\)/);
