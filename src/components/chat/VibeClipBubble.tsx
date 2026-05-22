@@ -29,7 +29,7 @@ import { useMediaPlaybackQoE } from "@/hooks/useMediaPlaybackQoE";
 import { usePrefersReducedMotion } from "@/hooks/usePrefersReducedMotion";
 import { useMediaVideoPreloadForVisibility } from "@/hooks/useMediaVideoPreloadPolicy";
 import {
-  syncChatVibeClipStatus,
+  syncChatVibeClipUploadStatus,
   type ChatVibeClipProcessingStatus,
 } from "@/lib/mediaAssetResolver";
 
@@ -252,9 +252,13 @@ export const VibeClipBubble = ({
   const isRemotePlayableUrl = /^https?:\/\//i.test(displayMeta.videoUrl);
   const isHlsUrl = /\.m3u8(?:[?#]|$)/i.test(displayMeta.videoUrl);
   const canMountPlayer = isRemotePlayableUrl || isLocalPreview;
-  const isServerProcessing = (processingStatus === "uploading" || processingStatus === "processing") && !isLocalPreview;
+  const isUploadPendingStatus = processingStatus === "uploading" || processingStatus === "processing";
+  const isServerProcessing = isUploadPendingStatus && !isLocalPreview;
   const isAwaitingPlaybackIntent = !isServerProcessing && !canMountPlayer;
   const isSurfaceInteractive = !isServerProcessing;
+  const effectiveClientRequestId = clientRequestId ?? meta.clientRequestId ?? null;
+  const shouldAutoSyncProcessingStatus =
+    isServerProcessing && (processingStatus === "processing" || Boolean(videoSourceRef || thumbnailSourceRef));
   const canShowPosterImage =
     !!displayMeta.thumbnailUrl &&
     (isLocalPreviewUrl(displayMeta.thumbnailUrl) || /^https?:\/\//i.test(displayMeta.thumbnailUrl));
@@ -272,8 +276,16 @@ export const VibeClipBubble = ({
     !!thumbnailSourceRef &&
     (!playableThumbnailUrl || isResolvableMediaRef(playableThumbnailUrl) || !canShowPosterImage);
 
+  const syncCurrentClipStatus = useCallback(async (): Promise<ChatVibeClipProcessingStatus | null> => {
+    const result = await syncChatVibeClipUploadStatus({
+      messageId: sparkMessageId,
+      clientRequestId: effectiveClientRequestId,
+    });
+    return result?.status ?? null;
+  }, [effectiveClientRequestId, sparkMessageId]);
+
   useEffect(() => {
-    if (!isServerProcessing || !sparkMessageId) return;
+    if (!shouldAutoSyncProcessingStatus) return;
     let cancelled = false;
     let terminalReached = false;
     let timeoutId: ReturnType<typeof setTimeout> | undefined;
@@ -285,7 +297,7 @@ export const VibeClipBubble = ({
       statusSyncInFlightRef.current = true;
       setIsSyncingStatus(true);
       try {
-        const status = await syncChatVibeClipStatus(sparkMessageId);
+        const status = await syncCurrentClipStatus();
         if (!cancelled) {
           setSyncAttemptCount((count) => count + 1);
           if (status) {
@@ -319,24 +331,24 @@ export const VibeClipBubble = ({
       cancelled = true;
       if (timeoutId) clearTimeout(timeoutId);
     };
-  }, [isServerProcessing, sparkMessageId]);
+  }, [shouldAutoSyncProcessingStatus, syncCurrentClipStatus]);
 
   useEffect(() => {
-    if (!isServerProcessing) {
+    if (!shouldAutoSyncProcessingStatus) {
       statusSyncRunIdRef.current += 1;
       statusSyncInFlightRef.current = false;
       setIsSyncingStatus(false);
     }
-  }, [isServerProcessing]);
+  }, [shouldAutoSyncProcessingStatus]);
 
   const requestManualStatusSync = useCallback(async () => {
-    if (!sparkMessageId || statusSyncInFlightRef.current) return;
+    if (statusSyncInFlightRef.current) return;
     const runId = statusSyncRunIdRef.current + 1;
     statusSyncRunIdRef.current = runId;
     statusSyncInFlightRef.current = true;
     setIsSyncingStatus(true);
     try {
-      const status = await syncChatVibeClipStatus(sparkMessageId);
+      const status = await syncCurrentClipStatus();
       if (!isMountedRef.current) return;
       setSyncAttemptCount((count) => count + 1);
       if (status) setSyncedProcessingStatus(status);
@@ -348,7 +360,7 @@ export const VibeClipBubble = ({
         if (isMountedRef.current) setIsSyncingStatus(false);
       }
     }
-  }, [sparkMessageId]);
+  }, [syncCurrentClipStatus]);
 
   const refreshClipMedia = useCallback(async (reason: VibeClipMediaRefreshReason = "playback"): Promise<boolean> => {
     if (!sparkMessageId || (!videoSourceRef && !thumbnailSourceRef)) return false;
@@ -460,6 +472,23 @@ export const VibeClipBubble = ({
       if (!didRefresh) setLoadError(true);
     });
   }, [refreshClipMedia]);
+
+  const handleVideoLoadError = useCallback(() => {
+    setIsLoading(false);
+    if (isLocalPreview && isUploadPendingStatus) {
+      playableVideoUrlRef.current = "";
+      setPlayableVideoUrl("");
+      setIsPlaying(false);
+      setPlayRequested(false);
+      setIsReady(false);
+      setHasMetadata(false);
+      setLoadError(false);
+      return;
+    }
+    void refreshClipMedia().then((didRefresh) => {
+      if (!didRefresh) setLoadError(true);
+    });
+  }, [isLocalPreview, isUploadPendingStatus, refreshClipMedia]);
 
   useMediaPlaybackQoE(videoRef, {
     enabled: canMountPlayer && !isServerProcessing,
@@ -664,6 +693,7 @@ export const VibeClipBubble = ({
   const progress = displayMeta.durationSec > 0 ? (currentTime / displayMeta.durationSec) * 100 : 0;
   const isBuffering = isReady && isLoading && isPlaying;
   const isProcessingFailed = processingStatus === "failed";
+  const shouldShowLoadError = loadError && !isUploadPendingStatus;
   const clipAspectRatio =
     typeof displayMeta.aspectRatio === "number" && Number.isFinite(displayMeta.aspectRatio) && displayMeta.aspectRatio > 0
       ? Math.max(0.5, Math.min(1.2, displayMeta.aspectRatio))
@@ -672,7 +702,7 @@ export const VibeClipBubble = ({
   const showServerProcessingNudge = isMine && isServerProcessing && syncAttemptCount > 0 && !hasLocalRecoveryAction;
   const showRecoveryPanel = isMine && (hasLocalRecoveryAction || showServerProcessingNudge);
 
-  if (loadError || isProcessingFailed) {
+  if (shouldShowLoadError || isProcessingFailed) {
     return (
       <div
       className={cn(
@@ -799,12 +829,7 @@ export const VibeClipBubble = ({
               onCanPlay={markReadyIfPossible}
               onPlaying={() => setIsLoading(false)}
               onWaiting={() => setIsLoading(true)}
-              onError={() => {
-                setIsLoading(false);
-                void refreshClipMedia().then((didRefresh) => {
-                  if (!didRefresh) setLoadError(true);
-                });
-              }}
+              onError={handleVideoLoadError}
               onTimeUpdate={handleTimeUpdate}
               onEnded={handleEnded}
               className={[

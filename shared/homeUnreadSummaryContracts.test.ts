@@ -10,6 +10,7 @@ const migration = read("supabase/migrations/20260513003000_last6_codex_review_fo
 const webDashboard = read("src/pages/Dashboard.tsx");
 const nativeDashboard = read("apps/mobile/app/(tabs)/index.tsx");
 const webApp = read("src/App.tsx");
+const webMatches = read("src/hooks/useMatches.ts");
 const nativeChatApi = read("apps/mobile/lib/chatApi.ts");
 
 test("Home unread summary counts visible unarchived matches server-side", () => {
@@ -31,11 +32,12 @@ test("Home dashboards use aggregate unread summary instead of raw row paging", (
 });
 
 test("Home unread realtime invalidation avoids unscoped message deletes", () => {
-  assert.doesNotMatch(webApp, /\{\s*event: "\*", schema: "public", table: "messages"\s*\}/);
-  assert.doesNotMatch(webApp, /\{\s*event: "DELETE", schema: "public", table: "messages"\s*\}/);
-  assert.match(webApp, /\{\s*event: "INSERT", schema: "public", table: "messages"\s*\}/);
-  assert.match(webApp, /\{\s*event: "UPDATE", schema: "public", table: "messages"\s*\}/);
-  assert.match(webApp, /table: "match_archives", filter: `user_id=eq\.\$\{userId\}`/);
+  assert.doesNotMatch(webApp, /table:\s*"messages"/);
+  assert.doesNotMatch(webMatches, /\{\s*event: "\*", schema: "public", table: "messages"\s*\}/);
+  assert.doesNotMatch(webMatches, /\{\s*event: "DELETE", schema: "public", table: "messages"\s*\}/);
+  assert.match(webMatches, /\{\s*event: "INSERT", schema: "public", table: "messages"\s*\}/);
+  assert.match(webMatches, /\{\s*event: "UPDATE", schema: "public", table: "messages"\s*\}/);
+  assert.match(webMatches, /table: "match_archives", filter: `user_id=eq\.\$\{userId\}`/);
   assert.doesNotMatch(nativeChatApi, /\{\s*event: '\*', schema: 'public', table: 'messages'\s*\}/);
   assert.match(nativeChatApi, /\{\s*event: 'INSERT', schema: 'public', table: 'messages'\s*\}/);
   assert.match(nativeChatApi, /\{\s*event: 'UPDATE', schema: 'public', table: 'messages'\s*\}/);

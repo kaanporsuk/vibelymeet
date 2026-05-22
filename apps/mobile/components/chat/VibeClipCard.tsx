@@ -22,7 +22,7 @@ import { useMediaAsset } from '@/hooks/useMediaAsset';
 import { useNativeMediaPlaybackQoE } from '@/hooks/useNativeMediaPlaybackQoE';
 import { useReduceMotionState } from '@/hooks/useReduceMotion';
 import {
-  syncChatVibeClipStatus,
+  syncChatVibeClipUploadStatus,
   type ChatVibeClipProcessingStatus,
 } from '@/lib/mediaAssetResolver';
 
@@ -73,6 +73,7 @@ type VibeClipMediaRefreshReason = 'preview' | 'initial' | 'playback' | 'manual';
 
 type VibeClipCardInnerProps = Props & {
   onRefreshClipMedia: (reason?: VibeClipMediaRefreshReason) => Promise<boolean>;
+  onLocalPreviewUnavailable: () => void;
   onRemountPlayer: () => void;
   onResetPlaybackRefreshAttempt: () => void;
   playRequestToken: number;
@@ -110,6 +111,14 @@ function isLocalPreviewUri(uri: string): boolean {
   return uri.startsWith('file:') || uri.startsWith('blob:') || uri.startsWith('data:');
 }
 
+function isUploadPendingStatus(status: VibeClipDisplayMeta['processingStatus']): boolean {
+  return status === 'uploading' || status === 'processing';
+}
+
+function isPendingLocalPreviewClip(meta: VibeClipDisplayMeta): boolean {
+  return isUploadPendingStatus(meta.processingStatus) && isLocalPreviewUri(meta.videoUrl);
+}
+
 function isRemotePlaybackUri(uri: string): boolean {
   return /^https?:\/\//i.test(uri);
 }
@@ -127,10 +136,7 @@ function videoSourceForUri(uri: string): VideoSource {
 }
 
 function isServerProcessingClip(meta: VibeClipDisplayMeta): boolean {
-  return (
-    (meta.processingStatus === 'uploading' || meta.processingStatus === 'processing') &&
-    !isLocalPreviewUri(meta.videoUrl)
-  );
+  return isUploadPendingStatus(meta.processingStatus) && !isLocalPreviewUri(meta.videoUrl);
 }
 
 function isFailedClip(meta: VibeClipDisplayMeta): boolean {
@@ -267,6 +273,7 @@ function VibeClipCardInner({
   posterPreviewState,
   onPosterPreviewStateChange,
   onRefreshClipMedia,
+  onLocalPreviewUnavailable,
   onRemountPlayer,
   onResetPlaybackRefreshAttempt,
   playRequestToken,
@@ -287,6 +294,7 @@ function VibeClipCardInner({
   const playStartTracked = useRef(false);
   const playCompleteTracked = useRef(false);
   const shouldAttachPlayback = !immersiveActive && reduceMotionResolved && (!reduceMotion || playRequested);
+  const isPendingLocalPreview = isPendingLocalPreviewClip(meta);
   const playerSource = useMemo<VideoSource>(() => (shouldAttachPlayback ? videoSourceForUri(meta.videoUrl) : null), [
     meta.videoUrl,
     shouldAttachPlayback,
@@ -349,12 +357,24 @@ function VibeClipCardInner({
     attachSafeExpoSharedObjectPromise(result, undefined, 'vibeClip.player.replace');
   }, [meta.videoUrl, player, shouldAttachPlayback]);
 
+  const handlePendingLocalPreviewFailure = useCallback(() => {
+    onLocalPreviewUnavailable();
+    setHasError(false);
+    setIsBuffering(false);
+    setIsReady(false);
+    setPlayRequested(false);
+  }, [onLocalPreviewUnavailable]);
+
   useEffect(() => {
     if (!shouldAttachPlayback) return;
     const sub = safeExpoSharedObjectCall(
       () => player.addListener('statusChange', (payload) => {
         if (payload.status === 'error') {
           qoe.markError();
+          if (isPendingLocalPreview) {
+            handlePendingLocalPreviewFailure();
+            return;
+          }
           void onRefreshClipMedia('playback')
             .then((didRefresh) => {
               if (!didRefresh) setHasError(true);
@@ -379,7 +399,14 @@ function VibeClipCardInner({
       },
     );
     return () => safeRemoveExpoSharedObjectSubscription(sub, 'vibeClip.player.statusListener.remove');
-  }, [onRefreshClipMedia, player, qoe, shouldAttachPlayback]);
+  }, [
+    handlePendingLocalPreviewFailure,
+    isPendingLocalPreview,
+    onRefreshClipMedia,
+    player,
+    qoe,
+    shouldAttachPlayback,
+  ]);
 
   const playInline = useCallback(() => {
     setPlayRequested(true);
@@ -403,6 +430,10 @@ function VibeClipCardInner({
   useEffect(() => {
     if (!playRequested || isReady || hasError) return;
     const timeoutId = setTimeout(() => {
+      if (isPendingLocalPreview) {
+        handlePendingLocalPreviewFailure();
+        return;
+      }
       void onRefreshClipMedia('playback')
         .then((didRefresh) => {
           if (!didRefresh) setHasError(true);
@@ -410,7 +441,7 @@ function VibeClipCardInner({
         .catch(() => setHasError(true));
     }, CLIP_PLAYBACK_LOAD_TIMEOUT_MS);
     return () => clearTimeout(timeoutId);
-  }, [hasError, isReady, onRefreshClipMedia, playRequested]);
+  }, [handlePendingLocalPreviewFailure, hasError, isPendingLocalPreview, isReady, onRefreshClipMedia, playRequested]);
 
   useEffect(() => {
     if (!immersiveActive) return;
@@ -873,6 +904,7 @@ export function VibeClipCard(props: Props) {
     sparkMessageId,
     thumbnailSourceRef,
     videoSourceRef,
+    clientRequestId,
   } = props;
   const [retryNonce, setRetryNonce] = useState(0);
   const [forceMountPlayer, setForceMountPlayer] = useState(false);
@@ -886,6 +918,7 @@ export function VibeClipCard(props: Props) {
     useState<VibeClipPosterPreviewState>('unknown');
   const playbackRefreshAttemptCountRef = useRef(0);
   const posterRefreshAttemptedForRef = useRef<string | null>(null);
+  const localPreviewUnavailableForRef = useRef<string | null>(null);
   const playableVideoUrlRef = useRef(meta.videoUrl);
   const playableThumbnailUrlRef = useRef<string | null>(meta.thumbnailUrl ?? null);
   const readyRefreshKeyRef = useRef<string | null>(null);
@@ -924,12 +957,16 @@ export function VibeClipCard(props: Props) {
   }, []);
 
   useEffect(() => {
-    playableVideoUrlRef.current = meta.videoUrl;
+    if (!isUploadPendingStatus(meta.processingStatus) || localPreviewUnavailableForRef.current !== meta.videoUrl) {
+      localPreviewUnavailableForRef.current = null;
+    }
+    const nextVideoUrl = localPreviewUnavailableForRef.current === meta.videoUrl ? '' : meta.videoUrl;
+    playableVideoUrlRef.current = nextVideoUrl;
     playableThumbnailUrlRef.current = meta.thumbnailUrl ?? null;
     setForceMountPlayer(false);
     setInlinePlayRequestToken(0);
     setRetryNonce(0);
-    setPlayableVideoUrl(meta.videoUrl);
+    setPlayableVideoUrl(nextVideoUrl);
     setPlayableThumbnailUrl(meta.thumbnailUrl ?? null);
     setSyncedProcessingStatus(null);
     setSyncAttemptCount(0);
@@ -944,6 +981,7 @@ export function VibeClipCard(props: Props) {
 
   useEffect(() => {
     if (!videoAssetUrl || videoAssetUrl === playableVideoUrlRef.current) return;
+    localPreviewUnavailableForRef.current = null;
     playableVideoUrlRef.current = videoAssetUrl;
     setPlayableVideoUrl(videoAssetUrl);
   }, [videoAssetUrl]);
@@ -963,10 +1001,31 @@ export function VibeClipCard(props: Props) {
 
   const processingStatus = syncedProcessingStatus ?? meta.processingStatus;
   const isSyncableServerProcessing =
-    (processingStatus === 'uploading' || processingStatus === 'processing') && !isLocalPreviewUri(playableVideoUrl);
+    isUploadPendingStatus(processingStatus) && !isLocalPreviewUri(playableVideoUrl);
+  const effectiveClientRequestId = clientRequestId ?? meta.clientRequestId ?? null;
+  const shouldAutoSyncProcessingStatus =
+    isSyncableServerProcessing && (processingStatus === 'processing' || Boolean(videoSourceRef || thumbnailSourceRef));
+
+  const handleLocalPreviewUnavailable = useCallback(() => {
+    const currentPreviewUri = playableVideoUrlRef.current;
+    if (!isUploadPendingStatus(processingStatus) || !isLocalPreviewUri(currentPreviewUri)) return;
+    localPreviewUnavailableForRef.current = currentPreviewUri;
+    playableVideoUrlRef.current = '';
+    setPlayableVideoUrl('');
+    setForceMountPlayer(false);
+    setInlinePlayRequestToken(0);
+  }, [processingStatus]);
+
+  const syncCurrentClipStatus = useCallback(async (): Promise<ChatVibeClipProcessingStatus | null> => {
+    const result = await syncChatVibeClipUploadStatus({
+      messageId: sparkMessageId,
+      clientRequestId: effectiveClientRequestId,
+    });
+    return result?.status ?? null;
+  }, [effectiveClientRequestId, sparkMessageId]);
 
   useEffect(() => {
-    if (!isSyncableServerProcessing || !sparkMessageId) return;
+    if (!shouldAutoSyncProcessingStatus) return;
     let cancelled = false;
     let terminalReached = false;
     let timeoutId: ReturnType<typeof setTimeout> | undefined;
@@ -978,7 +1037,7 @@ export function VibeClipCard(props: Props) {
       statusSyncInFlightRef.current = true;
       setIsSyncingStatus(true);
       try {
-        const status = await syncChatVibeClipStatus(sparkMessageId);
+        const status = await syncCurrentClipStatus();
         if (!cancelled) {
           setSyncAttemptCount((count) => count + 1);
           if (status) {
@@ -1012,23 +1071,23 @@ export function VibeClipCard(props: Props) {
       cancelled = true;
       if (timeoutId) clearTimeout(timeoutId);
     };
-  }, [isSyncableServerProcessing, sparkMessageId]);
+  }, [shouldAutoSyncProcessingStatus, syncCurrentClipStatus]);
 
   useEffect(() => {
-    if (!isSyncableServerProcessing) {
+    if (!shouldAutoSyncProcessingStatus) {
       statusSyncRunIdRef.current += 1;
       statusSyncInFlightRef.current = false;
       setIsSyncingStatus(false);
     }
-  }, [isSyncableServerProcessing]);
+  }, [shouldAutoSyncProcessingStatus]);
 
   const requestManualStatusSync = useCallback(() => {
-    if (!sparkMessageId || statusSyncInFlightRef.current) return;
+    if (statusSyncInFlightRef.current) return;
     const runId = statusSyncRunIdRef.current + 1;
     statusSyncRunIdRef.current = runId;
     statusSyncInFlightRef.current = true;
     setIsSyncingStatus(true);
-    void syncChatVibeClipStatus(sparkMessageId)
+    void syncCurrentClipStatus()
       .then((status) => {
         if (!isMountedRef.current) return;
         setSyncAttemptCount((count) => count + 1);
@@ -1043,7 +1102,7 @@ export function VibeClipCard(props: Props) {
           if (isMountedRef.current) setIsSyncingStatus(false);
         }
       });
-  }, [sparkMessageId]);
+  }, [syncCurrentClipStatus]);
 
   const parentPosterPreviewState =
     playableThumbnailUrl === (meta.thumbnailUrl ?? null) ? posterPreviewState : undefined;
@@ -1093,6 +1152,7 @@ export function VibeClipCard(props: Props) {
 
     const freshVideoUri = await refreshVideoAsset(reason, refreshOptions);
     if (!freshVideoUri || freshVideoUri === playableVideoUrl) return false;
+    localPreviewUnavailableForRef.current = null;
     playableVideoUrlRef.current = freshVideoUri;
     setPlayableVideoUrl(freshVideoUri);
     onResolvedVideoUrl?.(freshVideoUri);
@@ -1190,6 +1250,7 @@ export function VibeClipCard(props: Props) {
       key={`${playableVideoUrl}-${retryNonce}`}
       {...resolvedProps}
       onRefreshClipMedia={refreshClipMedia}
+      onLocalPreviewUnavailable={handleLocalPreviewUnavailable}
       onRemountPlayer={() => setRetryNonce((n) => n + 1)}
       onResetPlaybackRefreshAttempt={() => {
         playbackRefreshAttemptCountRef.current = 0;

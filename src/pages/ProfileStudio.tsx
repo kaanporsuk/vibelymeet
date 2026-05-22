@@ -74,6 +74,7 @@ import {
   getZodiacSign,
   getZodiacEmoji,
   calculateAge,
+  MY_PROFILE_STALE_TIME_MS,
   PROFILE_LIVE_COUNTS_STALE_TIME_MS,
   myProfileQueryKey,
   profileLiveCountsQueryKey,
@@ -373,10 +374,11 @@ const ProfileStudio = () => {
       }
 
       try {
+        const forceFresh = profileRefreshKey > 0;
         const profilePromise = queryClient.fetchQuery({
           queryKey: myProfileQueryKey(profileUser.id),
           queryFn: () => fetchMyProfile(profileUser.id),
-          staleTime: 0,
+          staleTime: forceFresh ? 0 : MY_PROFILE_STALE_TIME_MS,
         });
 
         const data = await profilePromise;

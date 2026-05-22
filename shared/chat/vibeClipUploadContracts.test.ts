@@ -367,7 +367,10 @@ test("video bubbles remain adaptive and full-width across web and native chat", 
   assert.match(webVibeClipBubble, /Math\.max\(0\.5, Math\.min\(1\.2, displayMeta\.aspectRatio\)\)/);
   assert.match(webVibeClipBubble, /<AspectRatio ratio=\{clipAspectRatio\}>/);
   assert.match(webVibeClipBubble, /w-full h-full object-cover bg-black/);
-  assert.match(webVibeClipBubble, /syncChatVibeClipStatus/);
+  assert.match(webVibeClipBubble, /syncChatVibeClipUploadStatus/);
+  assert.match(webVibeClipBubble, /const shouldAutoSyncProcessingStatus =/);
+  assert.match(webVibeClipBubble, /const effectiveClientRequestId = clientRequestId \?\? meta\.clientRequestId \?\? null/);
+  assert.match(webVibeClipBubble, /clientRequestId: effectiveClientRequestId/);
   assert.match(webVibeClipBubble, /CHAT_VIBE_CLIP_STATUS_SYNC_SAFETY_NET_INTERVAL_MS = 30_000/);
   assert.doesNotMatch(webVibeClipBubble, /CHAT_VIBE_CLIP_STATUS_SYNC_DELAY_MS/);
   assert.doesNotMatch(webVibeClipBubble, /CHAT_VIBE_CLIP_STATUS_SYNC_FAST_INTERVAL_MS/);
@@ -404,7 +407,7 @@ test("video bubbles remain adaptive and full-width across web and native chat", 
   assert.match(webVibeClipBubble, /playableThumbnailUrlRef/);
   assert.match(webVibeClipBubble, /requestImmersiveWithCurrentMedia/);
   assert.match(webChat, /const handleRequestClipImmersive = useCallback/);
-  assert.match(webChat, /url: media\?\.videoUrl \?\? clipVideoUrl/);
+  assert.match(webChat, /url: media\?\.videoUrl \?\? displayClipVideoUrl/);
   assert.match(webChat, /onRequestImmersive=\{handleRequestClipImmersive\}/);
   assert.match(webVibeClipBubble, /void refreshClipMedia\("preview"\);/);
   assert.doesNotMatch(webVibeClipBubble, /if \(didRefresh\) posterRefreshAttemptedForRef\.current = null/);
@@ -500,7 +503,9 @@ test("video bubbles remain adaptive and full-width across web and native chat", 
   assert.match(nativeVibeClipCard, /contentFit="cover"/);
   assert.match(nativeVibeClipCard, /shouldMountPlayer/);
   assert.match(nativeVibeClipCard, /type ClipPreviewState/);
-  assert.match(nativeVibeClipCard, /syncChatVibeClipStatus/);
+  assert.match(nativeVibeClipCard, /syncChatVibeClipUploadStatus/);
+  assert.match(nativeVibeClipCard, /const shouldAutoSyncProcessingStatus =/);
+  assert.match(nativeVibeClipCard, /clientRequestId: effectiveClientRequestId/);
   assert.match(nativeVibeClipCard, /CHAT_VIBE_CLIP_STATUS_SYNC_SAFETY_NET_INTERVAL_MS = 30_000/);
   assert.doesNotMatch(nativeVibeClipCard, /CHAT_VIBE_CLIP_STATUS_SYNC_DELAY_MS/);
   assert.doesNotMatch(nativeVibeClipCard, /CHAT_VIBE_CLIP_STATUS_SYNC_FAST_INTERVAL_MS/);
@@ -615,6 +620,50 @@ test("video bubbles remain adaptive and full-width across web and native chat", 
   assert.match(nativeOutboxContext, /serverMessageId = synced\.messageId/);
   assert.match(nativeChat, /dismissResult === 'already_published'[\s\S]{0,180}refreshThreadAfterVibeClipRecoverySweep/);
   assert.match(nativeChat, /Couldn’t clear upload/);
+});
+
+test("web pending Vibe Clip uploads avoid generic video errors and dedupe success toasts", () => {
+  assert.match(webChat, /function isPendingVibeClipOutboxItem/);
+  assert.match(webChat, /function pendingVibeClipMetaFromOutboxItem/);
+  assert.match(webChat, /const pendingClipMeta = useMemo/);
+  assert.match(webChat, /const displayClipMeta = clipMeta \?\? pendingClipMeta/);
+  assert.match(webChat, /displayClipMeta \? \(/);
+  assert.match(webChat, /outboxClipSentToastIdsRef/);
+  assert.match(webChat, /!outboxClipSentToastIdsRef\.current\.has\(it\.id\)/);
+  assert.match(webChat, /outboxClipSentToastIdsRef\.current\.add\(it\.id\)/);
+  assert.match(webChat, /toast\.success\(VIBE_CLIP_TOAST_SENT, \{ id: `vibe-clip-sent:\$\{it\.id\}` \}\)/);
+  assert.match(webVibeClipBubble, /const isUploadPendingStatus = processingStatus === "uploading" \|\| processingStatus === "processing"/);
+  assert.match(webVibeClipBubble, /const isServerProcessing = isUploadPendingStatus && !isLocalPreview/);
+  assert.match(webVibeClipBubble, /const handleVideoLoadError = useCallback/);
+  assert.match(
+    webVibeClipBubble,
+    /if \(isLocalPreview && isUploadPendingStatus\) \{[\s\S]{0,260}setPlayableVideoUrl\(""\)[\s\S]{0,220}setLoadError\(false\)/,
+  );
+  assert.match(webVibeClipBubble, /const shouldShowLoadError = loadError && !isUploadPendingStatus/);
+  assert.match(webVibeClipBubble, /if \(shouldShowLoadError \|\| isProcessingFailed\)/);
+  assert.match(webVibeClipBubble, /onError=\{handleVideoLoadError\}/);
+});
+
+test("native pending Vibe Clip local preview failures stay in preparing state", () => {
+  assert.match(nativeVibeClipCard, /function isUploadPendingStatus\(status: VibeClipDisplayMeta\['processingStatus'\]\): boolean/);
+  assert.match(nativeVibeClipCard, /function isPendingLocalPreviewClip/);
+  assert.match(nativeVibeClipCard, /const isPendingLocalPreview = isPendingLocalPreviewClip\(meta\)/);
+  assert.match(nativeVibeClipCard, /const handlePendingLocalPreviewFailure = useCallback/);
+  assert.match(
+    nativeVibeClipCard,
+    /if \(isPendingLocalPreview\) \{[\s\S]{0,140}handlePendingLocalPreviewFailure\(\)/,
+  );
+  assert.match(nativeVibeClipCard, /const localPreviewUnavailableForRef = useRef<string \| null>\(null\)/);
+  assert.match(
+    nativeVibeClipCard,
+    /localPreviewUnavailableForRef\.current = currentPreviewUri[\s\S]{0,140}setPlayableVideoUrl\(''\)/,
+  );
+  assert.match(
+    nativeVibeClipCard,
+    /const nextVideoUrl = localPreviewUnavailableForRef\.current === meta\.videoUrl \? '' : meta\.videoUrl/,
+  );
+  assert.match(nativeVibeClipCard, /const isProcessing = isServerProcessingClip\(resolvedMeta\)/);
+  assert.match(nativeVibeClipCard, /if \(!didRefresh\) setHasError\(true\)/);
 });
 
 test("native chat validates library and camera video before enqueue", () => {
