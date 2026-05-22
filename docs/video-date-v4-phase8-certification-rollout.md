@@ -4,9 +4,9 @@ Phase 8 is the release gate for the v4 Video Date system. It does not change the
 
 ## Current Deployed Baseline
 
-As of 2026-05-22, Phase 0 through Phase 8.6 plus the Phase 7/8 audit-automation closure are merged to `main` / `origin/main` at commit `196fd676a840970c13197eee71a4bbbd78c9dd06` from PR #992 (`Harden video date phase 8 automation`).
+As of 2026-05-22, Phase 0 through Phase 8.6, the Phase 7/8 audit-automation closure, and the Daily webhook compatibility/provider-registration closure are merged to `main` / `origin/main`. Commit `196fd676a840970c13197eee71a4bbbd78c9dd06` from PR #992 (`Harden video date phase 8 automation`) is the Phase 7/8 automation baseline; commit `e6f086eef` (`Fix Daily webhook signature contract`) is the merged Daily webhook compatibility closure.
 
-Supabase project `schdyxcunwcvddlcshwd` has migration `20260522024000_video_date_phase7_8_audit_automation_hardening.sql` applied. `admin-video-date-ops` is deployed at version `310`, and the latest post-deploy `supabase db push --linked --dry-run` reported the remote database is up to date.
+Supabase project `schdyxcunwcvddlcshwd` has migration `20260522024000_video_date_phase7_8_audit_automation_hardening.sql` applied. `admin-video-date-ops` is deployed at version `310`, `video-date-daily-webhook` is deployed at version `7`, and `synthetic-video-date-monitor` is deployed at version `9`.
 
 Do not recreate already-closed provider resources during certification. Daily webhook provider registration is closed under webhook UUID `a5407924-6f29-4a35-835a-ff5185eeae5c`; use the real two-user smoke below for delivery proof instead of creating another webhook or rotating/printing `DAILY_WEBHOOK_SECRET`.
 
@@ -127,17 +127,21 @@ where window_id = '24h'
   and segment_key in ('daily_join', 'first_remote_frame');
 ```
 
+Daily room pooling remains disabled unless `get_video_date_daily_performance_decision()` recommends it for the target event/window. Keep the decision auditable in `docs/video-date-daily-room-pool-decision-log.md`.
+
 Before the first 1% ramp, stage the v4 flags as `enabled=true`, `rollout_bps=0`, `kill_switch_active=false`. This is still user-off, but it proves the rollout population is controlled by `rollout_bps` rather than the hard disabled path.
 
 Ramp only in this order: `1% -> 10% -> 50% -> 100%`. A row is eligible only when `can_advance_rollout=true` and `rollout_blockers` is empty for the target. Do not override blockers with a client-side flag edit.
 
 Event-specific certification records override global records. If a synthetic/staging event has a failed or blocked event-specific proof, a global pass will not clear that event's rollout gate.
 
-After each successful production slice, record an exact `rollout_step` pass before opening the next slice. The readiness gate blocks 10% until `rollout_bps=100` is both certified and still the live flag minimum, blocks 50% until `rollout_bps=1000` is certified and live, and blocks 100% until `rollout_bps=5000` is certified and live.
+After each successful production slice, record an exact `rollout_step` pass before opening the next slice. The `phase8:rollout` CLI and `record_video_date_phase8_rollout_step_v2()` RPC both preflight `get_video_date_phase8_rollout_readiness()` for the requested target and refuse to record if any 24h/7d event row is blocked. The readiness gate blocks 10% until `rollout_bps=100` is both certified and still the live flag minimum, blocks 50% until `rollout_bps=1000` is certified and live, and blocks 100% until `rollout_bps=5000` is certified and live.
 
 ## PR 8.4 - Operational Proof Wrappers
 
 Prefer the narrow service-role wrappers for rollout and cleanup proof instead of hand-writing generic ledger rows. They reject token/secret-shaped report payloads and enforce the operational preconditions that are easy to forget during an incident.
+
+Generic passed `rollout_step` and `legacy_cleanup` rows are rejected by `record_video_date_phase8_certification_run_v2`; use the dedicated wrappers below. Failed or blocked rows may still be recorded generically by the live certification wrapper so a bad nightly run leaves an audit trail.
 
 Use an event id for event-specific synthetic/staging proof. Use `null` for global production rollout proof that should count toward final Phase 8 release closure.
 

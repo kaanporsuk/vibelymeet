@@ -1,7 +1,7 @@
 # VIBELY - DAILY PROVIDER SHEET
 
 **Last audited:** 2026-05-01
-**Baseline:** Stream 13 Daily provider operational QA
+**Baseline:** Stream 13 Daily provider operational QA + 2026-05-22 Video Date webhook closure
 **Priority:** Tier 1 / live-session-critical
 
 ---
@@ -28,10 +28,12 @@ Daily is the live-session backbone for:
 - room creation and recovery
 - user-scoped meeting token issuance
 - provider room cleanup
+- signed provider webhooks for video-date join/leave recovery
 
 A rebuild can fail subtly:
 - `DAILY_API_KEY` can be wrong while the Edge Function still deploys
 - `DAILY_DOMAIN` can drift while the fallback hides the issue
+- `DAILY_WEBHOOK_SECRET` can be missing or mismatched while room creation still works
 - room creation can work but meeting-token creation can fail
 - a video-date room can exist in DB while missing or expired at Daily
 - reconnect or cleanup can leave stale rooms for cron cleanup
@@ -96,6 +98,11 @@ Daily fields in `match_calls`:
 - `SUPABASE_ANON_KEY`
 - `SUPABASE_SERVICE_ROLE_KEY`
 
+`video-date-daily-webhook` reads:
+- `DAILY_WEBHOOK_SECRET`
+- `SUPABASE_URL`
+- `SUPABASE_SERVICE_ROLE_KEY`
+
 The function calls Daily REST at:
 - `https://api.daily.co/v1`
 
@@ -104,6 +111,7 @@ If `DAILY_DOMAIN` is absent, `daily-room` falls back to:
 
 Operational posture:
 - `DAILY_DOMAIN` is present in production secrets as of the 2026-05-01 read-only check.
+- `DAILY_WEBHOOK_SECRET` must be the base64 Daily webhook `hmac` exactly as returned by Daily, not a decoded/plain string.
 - The fallback is still code-supported for resilience, but production should not rely on it silently.
 - Dashboard/domain ownership must be verified manually because the repo cannot prove the live Daily account or domain binding.
 
@@ -114,6 +122,10 @@ Operational posture:
 `daily-room` is configured with:
 - `verify_jwt = true`
 
+`video-date-daily-webhook` is configured with:
+- `verify_jwt = false`
+- provider-public access protected by Daily HMAC/timestamp validation inside the function
+
 Supported actions:
 - `prepare_date_entry`
 - `create_date_room`
@@ -123,6 +135,11 @@ Supported actions:
 - `join_match_call`
 - `answer_match_call`
 - `delete_room`
+
+Daily webhook target:
+- `https://schdyxcunwcvddlcshwd.supabase.co/functions/v1/video-date-daily-webhook`
+- subscribed events: `participant.joined`, `participant.left`
+- accepted compatibility aliases in DB reconciliation: `participant.join`, `participant.leave`
 
 Auth posture:
 - all actions require a bearer auth header
@@ -324,6 +341,7 @@ Not proven by repo:
 - live domain ownership
 - provider quota/rate-limit health
 - dashboard settings that may affect private rooms/tokens
+- Daily webhook registration state, unless verified against webhook UUID/provider dashboard
 - physical-device camera/mic behavior
 
 ---
@@ -339,8 +357,9 @@ Not proven by repo:
 7. Confirm room expiration/eject behavior is acceptable for 15-minute video-date tokens and 4-hour video-date rooms.
 8. Confirm match-call 2-hour rooms/tokens are acceptable.
 9. Confirm no recording, transcription, or dashboard automation settings unexpectedly affect rooms.
-10. Confirm provider quotas/rate limits are healthy.
-11. Run controlled internal QA only with test users:
+10. Confirm the Video Date webhook points to `https://schdyxcunwcvddlcshwd.supabase.co/functions/v1/video-date-daily-webhook`, is ACTIVE, uses the same base64 HMAC stored as `DAILY_WEBHOOK_SECRET`, and subscribes to `participant.joined` / `participant.left`.
+11. Confirm provider quotas/rate limits are healthy.
+12. Run controlled internal QA only with test users:
     - video-date prepare entry
     - room create/reuse
     - both participants join
@@ -350,6 +369,7 @@ Not proven by repo:
     - video match call
     - answer/rejoin
     - terminal match-call room cleanup
+    - real Daily webhook join/leave delivery with `failedCount = 0` and accepted rows in `video_date_daily_webhook_events`
 
 ---
 
@@ -360,6 +380,7 @@ Not proven by repo:
 - Client cleanup is best effort; cron cleanup is the safety net.
 - Web and native media permission behavior still requires physical-device/browser QA.
 - Provider dashboard settings and quotas remain manual verification items.
+- Daily webhook registration and HMAC drift remain manual provider validation items; missing webhook recovery does not necessarily break room creation.
 
 ---
 

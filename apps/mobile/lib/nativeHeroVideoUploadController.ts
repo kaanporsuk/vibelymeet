@@ -20,6 +20,7 @@
  */
 
 import {
+  deleteStagedVibeVideoUpload,
   getCreateVideoUploadCredentials,
   extensionFromFileUri,
   mimeFromExtension,
@@ -264,7 +265,9 @@ function _beginStatusPoll(options: {
     if (!_isActivePoll(pollId, ownerRunId)) return;
 
     if (result === 'ready') {
+      const completedClientRequestId = _state.clientRequestId;
       _setState({ phase: 'ready', uploadProgress: 100, videoId, errorMessage: null });
+      void deleteStagedVibeVideoUpload(completedClientRequestId);
       trackVibeVideoEvent(VIBE_VIDEO_EVENTS.readyObserved, {
         source: source === 'upload_complete' ? 'native_hero_video_controller' : 'native_hero_video_resume',
         upload_context: uploadContext,
@@ -649,9 +652,11 @@ async function _run(
  * Aborts any in-flight tus and stops polling.
  */
 export function nativeHeroVideoReset(): void {
+  const resetClientRequestId = _state.clientRequestId;
   _uploadAbort?.abort();
   _abortPoll();
   _uploadAbort = null;
   _generation++;
+  void deleteStagedVibeVideoUpload(resetClientRequestId);
   _setState({ phase: 'idle', uploadProgress: 0, clientRequestId: null, videoId: null, errorMessage: null });
 }

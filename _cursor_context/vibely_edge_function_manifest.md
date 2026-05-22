@@ -88,8 +88,8 @@ This manifest started as a frozen/post-hardening baseline artifact. The current 
 
 | Item | Count |
 |------|------:|
-| Deployable Edge Function directories (`supabase/functions/*`, excluding `_shared`) | **55** |
-| `[functions.<name>]` entries in `supabase/config.toml` | **55** |
+| Deployable Edge Function directories (`supabase/functions/*`, excluding `_shared`) | **67** |
+| `[functions.<name>]` entries in `supabase/config.toml` | **67** |
 
 The `_shared` directory is shared Deno helpers only — **not** a deployable function slug.
 
@@ -97,7 +97,7 @@ For a machine-readable list, regenerate `_cursor_context/vibely_machine_readable
 
 ### Historical baseline (frozen golden; superseded)
 
-The original golden export documented **34** deployable functions; subsequent notes sometimes said **45**, **46**, **49**, **51**, or **53** while the repo grew. **None of those older counts matches the current tree.** Use **55** for ops, config review, and rebuild checklists. Sprint notes in §1 (e.g. `admin-media-lifecycle-controls`, media lifecycle dual-writes) remain valid as history.
+The original golden export documented **34** deployable functions; subsequent notes sometimes said **45**, **46**, **49**, **51**, **53**, or **55** while the repo grew. **None of those older counts matches the current tree.** Use **67** for ops, config review, and rebuild checklists. Sprint notes in §1 (e.g. `admin-media-lifecycle-controls`, media lifecycle dual-writes) remain valid as history.
 
 ### Gateway JWT posture from config (post-hardening)
 
@@ -105,7 +105,7 @@ The original golden export documented **34** deployable functions; subsequent no
 daily-room, delete-account, email-verification, event-notifications, verify-admin, geocode, phone-verify, admin-review-verification, admin-media-lifecycle-controls, admin-data-export, create-video-upload, sync-vibe-video-status, delete-vibe-video, upload-image, upload-voice, upload-chat-video, upload-event-cover, create-checkout-session, create-event-checkout, create-portal-session, cancel-deletion, sync-revenuecat-subscriber, send-notification, daily-drop-actions, send-message, send-game-event, swipe-actions, post-date-verdict, forward-geocode, date-suggestion-actions, send-support-reply, admin-proof-selfie-sign, admin-video-date-ops.
 
 **Public-but-protected (`verify_jwt = false`):**  
-event-reminders, video-webhook, get-chat-media-url, stripe-webhook, create-credits-checkout, request-account-deletion, revenuecat-webhook, generate-daily-drops, check-daily-drop-health, post-date-verdict-reminders, push-webhook, record-growth-attribution, health, date-suggestion-expiry, credit-replenish, date-reminder-cron, process-waitlist-promotion-notify-queue, process-media-delete-jobs, match-call-room-cleanup, video-date-room-cleanup, send-email.
+event-reminders, video-webhook, get-chat-media-url, stripe-webhook, create-credits-checkout, request-account-deletion, revenuecat-webhook, generate-daily-drops, post-date-verdict-reminders, push-webhook, health, date-suggestion-expiry, credit-replenish, date-reminder-cron, process-waitlist-promotion-notify-queue, process-media-delete-jobs, match-call-room-cleanup, video-date-room-cleanup, synthetic-video-date-monitor, video-date-outbox-drainer, video-date-deadline-finalizer, video-date-daily-webhook, video-date-orphan-room-cleanup, video-date-recovery-alert-dispatcher, send-email, record-growth-attribution, check-daily-drop-health, check-bunny-cdn-health.
 
 ---
 
@@ -333,6 +333,15 @@ The function exists in source but is not represented in `supabase/config.toml`.
 - **Env vars:** `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `DAILY_API_KEY`, `DAILY_DOMAIN`
 - **Rebuild notes:** defaults `DAILY_DOMAIN` to `vibelyapp.daily.co` if missing; VideoDate beforeunload cleanup must send JWT via fetch keepalive; `create_match_call` inserts `match_calls` via service role and enforces archived match, blocks, suspension/pause, and at most one `ringing`/`active` row per match (app precheck + DB partial unique index `uniq_match_calls_match_id_open`; insert **`23505`** → **409** `DUPLICATE_ACTIVE_CALL`, Daily room deleted; Daily room also deleted if caller token creation fails); `join_match_call` issues fresh tokens for authenticated participants of `active` match calls; structured logs include `reject_layer` (`precheck` vs `db_unique`), `answer_match_call_not_found`, token-failure context, and `daily_room_unhandled_exception` on unexpected errors; `answer_match_call` runs `match_call_transition('answer')` before issuing a Daily token (rollback `join_failed` + **503** `TOKEN_ISSUE_FAILED` if token issuance fails); `match_call` push prefs use `notification_preferences.notify_match_calls` via `send-notification`; active call clients send `joined`/`heartbeat` via `match_call_transition`
 
+### `video-date-daily-webhook`
+- **Purpose:** receives Daily provider participant join/leave webhooks and records/reconciles Video Date v4 provider evidence
+- **Auth posture:** Class B — public provider webhook endpoint, `verify_jwt = false`; verifies Daily `X-Webhook-Signature` and `X-Webhook-Timestamp` inside the function
+- **Frontend call sites:** none; provider callback target only
+- **Primary tables/functions touched:** `video_date_daily_webhook_events`, `video_sessions`, `record_video_date_daily_webhook_event_v2`
+- **Env vars:** `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `DAILY_WEBHOOK_SECRET`
+- **External services:** Daily.co webhooks
+- **Rebuild notes:** endpoint URL is `https://schdyxcunwcvddlcshwd.supabase.co/functions/v1/video-date-daily-webhook`; `DAILY_WEBHOOK_SECRET` must be the base64 Daily webhook `hmac` exactly as returned by Daily; the function decodes that base64 secret, signs `X-Webhook-Timestamp + "." + rawBody`, compares to the base64 `X-Webhook-Signature`, and rejects stale timestamps. Daily provider registration must subscribe to `participant.joined` and `participant.left`; the database helper also tolerates `participant.join` / `participant.leave`. Missing secret or provider registration means Daily join/leave recovery cannot be production-verified even if `daily-room` still creates rooms.
+
 ### `vibe-notification`
 - **Purpose:** records and dispatches vibe-related notification events between users in event contexts
 - **Auth posture:** Class C — `verify_jwt = true`
@@ -556,6 +565,7 @@ Functions not directly invoked from the normal frontend but still operationally 
 
 ### Daily.co
 - `daily-room`
+- `video-date-daily-webhook`
 
 ### Resend
 - `email-verification`
@@ -582,6 +592,7 @@ Functions not directly invoked from the normal frontend but still operationally 
 These flows will not recover automatically from code alone:
 - `stripe-webhook`
 - `video-webhook` (Bunny must send URL with `?token=BUNNY_VIDEO_WEBHOOK_TOKEN`)
+- `video-date-daily-webhook` (Daily must send signed webhooks to `/functions/v1/video-date-daily-webhook`)
 - `push-webhook` (caller must send `x-webhook-secret`)
 - `email-drip` scheduler / cron trigger
 
@@ -591,6 +602,7 @@ These must be set for hardened behavior; missing = fail-closed or degraded:
 - `UNSUB_HMAC_SECRET`
 - `CRON_SECRET`
 - `BUNNY_VIDEO_WEBHOOK_TOKEN`
+- `DAILY_WEBHOOK_SECRET`
 
 ### 3. Hardcoded production-domain coupling
 Several email/notification flows depend on `vibelymeet.com` assumptions beyond simple env replacement.
@@ -602,6 +614,7 @@ These functions fail operationally if secrets mismatch provider setup:
 - `unsubscribe`
 - `email-drip`
 - `video-webhook`
+- `video-date-daily-webhook`
 - `phone-verify` (Twilio)
 
 ---
@@ -610,10 +623,10 @@ These functions fail operationally if secrets mismatch provider setup:
 
 For rebuild fidelity (post-hardening):
 
-1. Deploy all 28 functions (config.toml covers all; no gaps).  
-2. Set required secrets: `PUSH_WEBHOOK_SECRET`, `UNSUB_HMAC_SECRET`, `CRON_SECRET`, `BUNNY_VIDEO_WEBHOOK_TOKEN`, plus existing Stripe/Bunny/Daily/Resend/Twilio/OneSignal vars.  
-3. JWT-at-gateway functions (21) will reject unauthenticated requests; public-but-protected (7) use secret/token in code.  
-4. Re-register provider webhooks: Stripe signature; Bunny video callback URL with `?token=...`; push webhook with `x-webhook-secret`; email-drip cron with Bearer CRON_SECRET.  
+1. Deploy all 67 functions only during a full rebuild (config.toml covers all; no gaps).
+2. Set required secrets: `PUSH_WEBHOOK_SECRET`, `UNSUB_HMAC_SECRET`, `CRON_SECRET`, `BUNNY_VIDEO_WEBHOOK_TOKEN`, `DAILY_WEBHOOK_SECRET`, plus existing Stripe/Bunny/Daily/Resend/Twilio/OneSignal vars.
+3. JWT-at-gateway functions (39) will reject unauthenticated requests; public-but-protected (28) use provider signatures, secret/token checks, cron auth, or explicit public behavior in code.
+4. Re-register provider webhooks: Stripe signature; Bunny video callback URL with `?token=...`; Daily `video-date-daily-webhook` with base64 HMAC and `participant.joined` / `participant.left`; push webhook with `x-webhook-secret`; email-drip cron with Bearer CRON_SECRET.
 5. Smoke-test frontend call paths and provider callback paths separately.
 
 ---

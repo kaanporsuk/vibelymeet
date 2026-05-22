@@ -9,12 +9,13 @@ const BUNNY_CDN_PATH_PREFIX = (() => {
 })();
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 const CONFIRMED_BUNNY_STORAGE_PREFIXES = ["photos/", "events/", "voice/", "media/"];
+const imageDerivativePathsByOriginalPath = new Map<string, { thumb?: string; hero?: string }>();
 
 const PLACEHOLDER =
   "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200' viewBox='0 0 200 200'%3E%3Crect width='200' height='200' fill='%231F1F2E'/%3E%3Ccircle cx='100' cy='80' r='35' fill='%234B4B6B'/%3E%3Cellipse cx='100' cy='160' rx='55' ry='40' fill='%234B4B6B'/%3E%3C/svg%3E";
 
 interface ImageUrlOptions {
-  /** Reserved for callers that describe intended display size. Bunny Optimizer is off, so CDN URLs stay untransformed. */
+  /** Intended display size. Derivative-ready Bunny paths use this to pick a right-sized object. */
   width?: number;
   height?: number;
   quality?: number;
@@ -51,6 +52,47 @@ function stripBunnyStorageDecorations(value: string): string {
   return value.split(/[?#]/, 1)[0] || value;
 }
 
+export function rememberImageDerivatives(
+  originalPath: string | null | undefined,
+  derivatives: { thumb?: string | null; hero?: string | null } | null | undefined,
+): void {
+  const normalized = normalizeImagePath(originalPath);
+  if (!normalized || !derivatives) return;
+  const clean = stripBunnyStorageDecorations(normalized);
+  const thumb = normalizeImagePath(derivatives.thumb)?.trim();
+  const hero = normalizeImagePath(derivatives.hero)?.trim();
+  if (!thumb && !hero) return;
+  imageDerivativePathsByOriginalPath.set(clean, {
+    ...(thumb ? { thumb: stripBunnyStorageDecorations(thumb) } : {}),
+    ...(hero ? { hero: stripBunnyStorageDecorations(hero) } : {}),
+  });
+}
+
+function derivativeStoragePathForDisplay(storagePath: string, opts?: ImageUrlOptions): string {
+  const clean = stripBunnyStorageDecorations(storagePath);
+  const requestedEdge = Math.max(
+    typeof opts?.width === "number" && Number.isFinite(opts.width) ? opts.width : 0,
+    typeof opts?.height === "number" && Number.isFinite(opts.height) ? opts.height : 0,
+  );
+  const knownDerivatives = imageDerivativePathsByOriginalPath.get(clean);
+  if (knownDerivatives && requestedEdge > 0 && requestedEdge <= 420 && knownDerivatives.thumb) {
+    return knownDerivatives.thumb;
+  }
+  if (knownDerivatives && requestedEdge > 0 && requestedEdge <= 1400 && knownDerivatives.hero) {
+    return knownDerivatives.hero;
+  }
+
+  if (!/@orig\.[a-z0-9]+$/i.test(clean)) return clean;
+
+  if (requestedEdge > 0 && requestedEdge <= 420) {
+    return clean.replace(/@orig\.([a-z0-9]+)$/i, "@thumb.$1");
+  }
+  if (requestedEdge > 0 && requestedEdge <= 1400) {
+    return clean.replace(/@orig\.([a-z0-9]+)$/i, "@hero.$1");
+  }
+  return clean;
+}
+
 export function getImageUrl(
   path: string | null | undefined,
   opts?: ImageUrlOptions
@@ -80,8 +122,7 @@ export function getImageUrl(
   // until that source of truth is fully verified.
   if (CONFIRMED_BUNNY_STORAGE_PREFIXES.some((prefix) => p.startsWith(prefix))) {
     if (!BUNNY_CDN) return PLACEHOLDER;
-    void opts;
-    const storagePath = stripBunnyStorageDecorations(p);
+    const storagePath = derivativeStoragePathForDisplay(p, opts);
     const pathPart = BUNNY_CDN_PATH_PREFIX ? `${BUNNY_CDN_PATH_PREFIX}/${storagePath}` : storagePath;
     return `${BUNNY_CDN}/${pathPart}`;
   }

@@ -13,9 +13,11 @@ const migration = read("supabase/migrations/20260519150000_media_atomic_idempote
 const phase5Migration = read("supabase/migrations/20260519170000_media_phase_5_6_10.sql");
 const phase5ClosureMigration = read("supabase/migrations/20260519190000_media_phase_5_11_15.sql");
 const phase5BulletproofMigration = read("supabase/migrations/20260520170000_media_phase5_bulletproof_closure.sql");
+const mediaUxAccelerationMigration = read("supabase/migrations/20260522161000_media_derivatives_placeholders_realtime.sql");
 const mediaLifecycle = read("supabase/functions/_shared/media-lifecycle.ts");
 const mediaUploadTelemetry = read("supabase/functions/_shared/media-upload-telemetry.ts");
 const uploadImage = read("supabase/functions/upload-image/index.ts");
+const getChatMediaUrl = read("supabase/functions/get-chat-media-url/index.ts");
 const uploadVoice = read("supabase/functions/upload-voice/index.ts");
 const uploadEventCover = read("supabase/functions/upload-event-cover/index.ts");
 const webImageUploadService = read("src/services/imageUploadService.ts");
@@ -36,6 +38,12 @@ const nativeImageAssetNormalize = read("apps/mobile/lib/imageAssetNormalize.ts")
 const nativeOutboxExecute = read("apps/mobile/lib/chatOutbox/execute.ts");
 const nativeOutboxContext = read("apps/mobile/lib/chatOutbox/ChatOutboxContext.tsx");
 const nativeUploadImage = read("apps/mobile/lib/uploadImage.ts");
+const webMediaAssetResolver = read("src/lib/mediaAssetResolver.ts");
+const nativeMediaAssetResolver = read("apps/mobile/lib/mediaAssetResolver.ts");
+const webMediaAssetHook = read("src/hooks/useMediaAsset.ts");
+const nativeMediaAssetHook = read("apps/mobile/hooks/useMediaAsset.ts");
+const webChatPhotoLightbox = read("src/components/chat/ChatPhotoLightbox.tsx");
+const nativeChatThreadMediaViewer = read("apps/mobile/components/chat/ChatThreadMediaViewer.tsx");
 const nativeStorageSdkUploads = read("apps/mobile/lib/mediaSdk/nativeStorageUploads.ts");
 const nativeChatThread = read("apps/mobile/app/chat/[id].tsx");
 const nativePhotoBatchController = read("apps/mobile/lib/photoBatchController.ts");
@@ -122,6 +130,74 @@ test("upload-image reserves before PUT, sends Bunny Checksum, and registers uplo
   assert.match(uploadImage, /url: bunnyCdnUrl/);
   assert.match(uploadImage, /captureReceiptTransition/);
   assert.match(mediaUploadTelemetry, /media_upload_receipt_transition/);
+});
+
+test("image derivatives are best-effort acceleration and never canonical upload requirements", () => {
+  assert.match(uploadImage, /readDerivativeFile\(formData, "derivative_thumb", "thumb"\)/);
+  assert.match(uploadImage, /readDerivativeFile\(formData, "derivative_hero", "hero"\)/);
+  assert.match(uploadImage, /value\.size > 2 \* 1024 \* 1024/);
+  assert.match(uploadImage, /return thumb && hero \? \{ thumb, hero \} : null/);
+  assert.match(uploadImage, /const uploadRes = await fetch\([\s\S]+body: fileBuffer/);
+  assert.match(uploadImage, /for \(const derivative of derivativeUploads\)[\s\S]+continue;[\s\S]+catch \(error\)/);
+  assert.match(uploadImage, /\.\.\.\(derivativeUploads\.length \? \{ derivative_targets: derivativeUploads\.map/);
+  assert.match(uploadImage, /\.\.\.\(Object\.keys\(derivatives\)\.length \? \{ derivatives \} : \{\}\)/);
+  assert.match(webImageUploadService, /catch \{[\s\S]+Derivatives are an acceleration layer; never block the canonical upload/);
+  assert.match(nativeImageAssetNormalize, /if \(derivatives\.length === specs\.length\) return derivatives/);
+  assert.match(nativeImageAssetNormalize, /for \(const derivative of derivatives\) derivative\.cleanup\(\)/);
+  assert.match(nativeUploadImage, /rememberImageDerivatives\(data\.path, data\.derivatives\)/);
+  assert.match(nativeChatMediaUpload, /rememberImageDerivatives\(data\.path, data\.derivatives\)/);
+  const voiceUploadBody = nativeChatMediaUpload.slice(
+    nativeChatMediaUpload.indexOf("export async function uploadVoiceMessage"),
+    nativeChatMediaUpload.indexOf("export async function uploadChatImageMessage"),
+  );
+  assert.doesNotMatch(voiceUploadBody, /rememberImageDerivatives/);
+});
+
+test("media placeholders and derivative refs are durable without Bunny Image Optimizer", () => {
+  assert.match(mediaUxAccelerationMigration, /derivative_thumb_path/);
+  assert.match(mediaUxAccelerationMigration, /derivative_hero_path/);
+  assert.match(mediaUxAccelerationMigration, /placeholder_kind/);
+  assert.match(mediaUxAccelerationMigration, /dominant_color/);
+  assert.match(mediaUxAccelerationMigration, /broadcast_media_asset_event_v1/);
+  assert.match(mediaUxAccelerationMigration, /realtime\.send/);
+  assert.doesNotMatch(mediaUxAccelerationMigration, /BUNNY_IMAGE_OPTIMIZER|image_optimizer/i);
+
+  assert.match(uploadImage, /readImagePlaceholderMetadata\(formData\)/);
+  assert.match(uploadImage, /updateMediaAssetPresentation\(adminSupabase, assetId/);
+  assert.match(uploadImage, /derivative_thumb_path/);
+  assert.match(uploadImage, /derivative_hero_path/);
+  assert.match(uploadImage, /dominant_color/);
+
+  assert.match(webImageUploadService, /dominantColorForImage/);
+  assert.match(webImageUploadService, /formData\.append\("placeholder_kind", "dominant_color"\)/);
+  assert.match(webImageUploadService, /if \(thumb && hero\)/);
+  assert.match(nativeChatMediaUpload, /prepareProfilePhotoAssetForUpload/);
+
+  assert.match(getChatMediaUrl, /MEDIA_ASSET_RESOLVE_SELECT/);
+  assert.match(getChatMediaUrl, /derivative_hero_path/);
+  assert.match(getChatMediaUrl, /storageObjectForAssetKind/);
+  assert.match(getChatMediaUrl, /mimeTypeForStoragePath/);
+  assert.match(getChatMediaUrl, /variant\?: unknown/);
+  assert.match(getChatMediaUrl, /body\?\.variant === "original"/);
+  assert.match(getChatMediaUrl, /assetPresentationPayload/);
+  assert.match(getChatMediaUrl, /placeholderKind/);
+
+  assert.match(webMediaAssetResolver, /placeholderKind: "dominant_color" \| null/);
+  assert.match(webMediaAssetResolver, /variant\?: "display" \| "original"/);
+  assert.match(webMediaAssetResolver, /prefetchRenderableAsset/);
+  assert.match(webMediaAssetResolver, /media_placeholder/);
+  assert.match(nativeMediaAssetResolver, /placeholderKind: 'dominant_color' \| null/);
+  assert.match(nativeMediaAssetResolver, /variant\?: 'display' \| 'original'/);
+  assert.match(nativeMediaAssetResolver, /Image\.prefetch/);
+  assert.match(nativeMediaAssetResolver, /media_placeholder/);
+  assert.match(webMediaAssetHook, /media_asset_event/);
+  assert.match(nativeMediaAssetHook, /media_asset_event/);
+  assert.match(webMediaAssetHook, /dominantColor/);
+  assert.match(nativeMediaAssetHook, /dominantColor/);
+  assert.match(nativeChatThread, /chatMediaPlaceholderColor/);
+  assert.match(nativeChatThread, /variant: 'original'/);
+  assert.match(webChatPhotoLightbox, /void refreshCurrent\(\)/);
+  assert.match(nativeChatThreadMediaViewer, /void refreshCurrent\(\)/);
 });
 
 test("upload-voice is receipt-backed, hash-bound, and wired to durable outbox ids", () => {

@@ -586,7 +586,15 @@ async function _run(
       });
 
       _activeTus = upload;
-      upload.start();
+      const startUpload = () => {
+        if (_activeTus !== upload) return;
+        upload.start();
+      };
+      upload.findPreviousUploads().then((previousUploads) => {
+        if (_activeTus !== upload) return;
+        if (previousUploads.length) upload.resumeFromPreviousUpload(previousUploads[0]);
+        startUpload();
+      }).catch(startUpload);
     });
     if (!isCurrentRun()) return;
 

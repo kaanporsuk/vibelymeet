@@ -1063,6 +1063,14 @@ const Chat = () => {
       }, { allowLocalPreviewUrls: true, allowPrivateMediaRefs: true }),
     [photoUrlOverridesById],
   );
+  const photoPlaceholderColorForMessage = useCallback((message: ChatMessage): string | null => {
+    const payload = message.structuredPayload;
+    if (!payload || typeof payload !== "object" || Array.isArray(payload)) return null;
+    const placeholder = (payload as { media_placeholder?: unknown }).media_placeholder;
+    if (!placeholder || typeof placeholder !== "object" || Array.isArray(placeholder)) return null;
+    const color = (placeholder as { dominant_color?: unknown }).dominant_color;
+    return typeof color === "string" && /^#[0-9a-f]{6}$/i.test(color) ? color : null;
+  }, []);
   const refreshPhotoUrlForMessage = useCallback(async (message: ChatMessage): Promise<string | null> => {
     if (!message.imageSourceRef) return null;
     const freshUrl = await refreshMediaAssetUrl(message.id, "image", message.imageSourceRef);
@@ -1072,7 +1080,10 @@ const Chat = () => {
   }, []);
   const refreshPhotoLightboxItem = useCallback(async (item: { id: string; sourceRef?: string | null }) => {
     if (!item.sourceRef) return null;
-    const freshUrl = await refreshMediaAssetUrl(item.id, "image", item.sourceRef);
+    const freshUrl = await refreshMediaAssetUrl(item.id, "image", item.sourceRef, {
+      bypassFailureCooldown: true,
+      variant: "original",
+    });
     if (!freshUrl) return null;
     setPhotoUrlOverridesById((prev) => (prev[item.id] === freshUrl ? prev : { ...prev, [item.id]: freshUrl }));
     return freshUrl;
@@ -2593,6 +2604,7 @@ const Chat = () => {
                 </div>
               ) : groupedMessage.type === "image" ? (() => {
                 const imageUrl = photoUrlForMessage(groupedMessage);
+                const imagePlaceholderColor = photoPlaceholderColorForMessage(groupedMessage);
                 return (
                   <div
                     key={groupedMessage.id}
@@ -2617,7 +2629,10 @@ const Chat = () => {
                         onClick={() => setPhotoLightboxInitialId(groupedMessage.id)}
                       >
                         {imageUrl?.trim() ? (
-                          <span className="block aspect-[4/5] w-60 max-w-full overflow-hidden rounded-2xl border border-border/30 bg-secondary/40">
+                          <span
+                            className="block aspect-[4/5] w-60 max-w-full overflow-hidden rounded-2xl border border-border/30 bg-secondary/40"
+                            style={imagePlaceholderColor ? { backgroundColor: imagePlaceholderColor } : undefined}
+                          >
                             <img
                               src={imageUrl}
                               alt="Shared image"

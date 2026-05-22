@@ -26,6 +26,10 @@ const closureMigration = readFileSync(
   join(root, "supabase/migrations/20260522021000_video_date_phase8_release_closure.sql"),
   "utf8",
 );
+const rolloutSelfCheckMigration = readFileSync(
+  join(root, "supabase/migrations/20260522150000_video_date_phase8_rollout_readiness_self_check.sql"),
+  "utf8",
+);
 const reviewFollowupsMigration = readFileSync(
   join(root, "supabase/migrations/20260522023000_video_date_review_comment_followups_986_989.sql"),
   "utf8",
@@ -38,6 +42,7 @@ const phase8RolloutScript = readFileSync(join(root, "scripts/phase8-rollout.sh")
 const phase8Workflow = readFileSync(join(root, ".github/workflows/video-date-phase8-certification.yml"), "utf8");
 const runbook = readFileSync(join(root, "docs/video-date-v4-phase8-certification-rollout.md"), "utf8");
 const legacyChecklist = readFileSync(join(root, "docs/video-date-v4-legacy-cleanup-checklist.md"), "utf8");
+const dailyRoomPoolDecisionLog = readFileSync(join(root, "docs/video-date-daily-room-pool-decision-log.md"), "utf8");
 const packageJson = readFileSync(join(root, "package.json"), "utf8");
 const webDeckHook = readFileSync(join(root, "src/hooks/useEventDeck.ts"), "utf8");
 const webLobby = readFileSync(join(root, "src/pages/EventLobby.tsx"), "utf8");
@@ -221,6 +226,34 @@ test("PR 8.4 and PR 8.6 add narrow ops wrappers and release closure without toke
   assert.doesNotMatch(closureMigration, /DAILY_API_KEY|createMeetingToken|meeting_token|daily_token|Bearer/i);
 });
 
+test("end-state rollout proof is fail-safe against blocked readiness rows", () => {
+  assert.match(rolloutSelfCheckMigration, /CREATE OR REPLACE FUNCTION public\.record_video_date_phase8_certification_run_v2/);
+  assert.match(rolloutSelfCheckMigration, /'error', 'dedicated_rollout_step_recorder_required'/);
+  assert.match(rolloutSelfCheckMigration, /'error', 'dedicated_legacy_cleanup_recorder_required'/);
+  assert.match(rolloutSelfCheckMigration, /CREATE OR REPLACE FUNCTION public\.record_video_date_phase8_rollout_step_v2/);
+  assert.match(rolloutSelfCheckMigration, /public\.get_video_date_phase8_rollout_readiness\(p_event_id\)/);
+  assert.match(rolloutSelfCheckMigration, /r\.target_rollout_bps = p_rollout_bps/);
+  assert.match(rolloutSelfCheckMigration, /COALESCE\(tr\.can_advance_rollout, false\) IS NOT TRUE/);
+  assert.match(rolloutSelfCheckMigration, /'error', 'rollout_readiness_missing'/);
+  assert.match(rolloutSelfCheckMigration, /'error', 'rollout_readiness_blocked'/);
+  assert.match(rolloutSelfCheckMigration, /'blocked_rows', v_blocked_rows/);
+  assert.match(rolloutSelfCheckMigration, /'blockers', v_blockers/);
+  assert.match(rolloutSelfCheckMigration, /'readiness_rows_checked', v_readiness_rows/);
+  assert.match(rolloutSelfCheckMigration, /INSERT INTO public\.video_date_phase8_certification_runs \([\s\S]*'rollout_step'[\s\S]*'ops'[\s\S]*'passed'/);
+  assert.match(rolloutSelfCheckMigration, /CREATE OR REPLACE FUNCTION public\.record_video_date_phase8_legacy_cleanup_v2/);
+  assert.match(rolloutSelfCheckMigration, /'error', 'legacy_cleanup_not_ready'/);
+  assert.match(rolloutSelfCheckMigration, /INSERT INTO public\.video_date_phase8_certification_runs \([\s\S]*'legacy_cleanup'[\s\S]*'ops'[\s\S]*'passed'/);
+  assert.doesNotMatch(
+    rolloutSelfCheckMigration.match(/CREATE OR REPLACE FUNCTION public\.record_video_date_phase8_rollout_step_v2[\s\S]+?COMMENT ON FUNCTION public\.record_video_date_phase8_rollout_step_v2/)?.[0] ?? "",
+    /record_video_date_phase8_certification_run_v2/,
+  );
+  assert.doesNotMatch(
+    rolloutSelfCheckMigration.match(/CREATE OR REPLACE FUNCTION public\.record_video_date_phase8_legacy_cleanup_v2[\s\S]+?COMMENT ON FUNCTION public\.record_video_date_phase8_legacy_cleanup_v2/)?.[0] ?? "",
+    /record_video_date_phase8_certification_run_v2/,
+  );
+  assert.doesNotMatch(rolloutSelfCheckMigration, /DAILY_API_KEY|createMeetingToken|meeting_token|daily_token|Bearer/i);
+});
+
 test("PR 8.5 retires client-only deck fallback on web and native", () => {
   assert.match(webDeckHook, /rpc\("get_event_deck_v2"/);
   assert.match(webDeckHook, /p_limit: 1/);
@@ -304,6 +337,21 @@ test("Phase 8 certification tooling records native smoke and rollout proof witho
   assert.match(phase8CertificationScript, /SECRET_KEY_PATTERN/);
   assert.match(phase8CertificationScript, /Refusing to record secret-shaped report key/);
   assert.match(phase8CertificationScript, /PHASE8_STAGING_SUPABASE_SERVICE_ROLE_KEY/);
+  assert.match(phase8CertificationScript, /function formatRolloutReadinessBlockers/);
+  assert.match(phase8CertificationScript, /async function assertRolloutReadiness/);
+  assert.match(phase8CertificationScript, /get_video_date_phase8_rollout_readiness/);
+  assert.match(phase8CertificationScript, /targetRows = rows\.filter\(\(row\) => Number\(row\.target_rollout_bps\) === rolloutBps\)/);
+  assert.match(phase8CertificationScript, /Phase 8 rollout readiness blockers:/);
+  assert.match(phase8CertificationScript, /rollout_readiness_blocked/);
+  const rolloutStepBody = phase8CertificationScript.match(
+    /async function recordRolloutStep[\s\S]+?async function recordLegacyCleanup/,
+  )?.[0];
+  assert.ok(rolloutStepBody, "missing recordRolloutStep body");
+  assert.ok(
+    rolloutStepBody.indexOf("await assertRolloutReadiness") <
+      rolloutStepBody.indexOf("record_video_date_phase8_rollout_step_v2"),
+    "CLI must preflight rollout readiness before recording rollout proof",
+  );
   assert.match(phase8RolloutScript, /phase8-certification\.ts rollout-step/);
   assert.match(phase8RolloutScript, /phase8-certification\.ts legacy-cleanup/);
   assert.match(packageJson, /"phase8:certify": "tsx scripts\/phase8-certification\.ts"/);
@@ -350,6 +398,8 @@ test("Phase 8 validation and legacy cleanup docs are wired to the rollout gate",
   assert.match(validationSql, /phase8_release_closure_has_no_blockers/);
   assert.match(runbook, /1% -> 10% -> 50% -> 100%/);
   assert.match(runbook, /get_video_date_phase8_rollout_readiness/);
+  assert.match(runbook, /phase8:rollout[\s\S]+record_video_date_phase8_rollout_step_v2[\s\S]+both preflight/);
+  assert.match(runbook, /Generic passed `rollout_step` and `legacy_cleanup` rows are rejected/);
   assert.match(runbook, /record_video_date_phase8_rollout_step_v2/);
   assert.match(runbook, /record_video_date_phase8_legacy_cleanup_v2/);
   assert.match(runbook, /get_video_date_phase8_release_closure/);
@@ -357,6 +407,14 @@ test("Phase 8 validation and legacy cleanup docs are wired to the rollout gate",
   assert.match(legacyChecklist, /vw_video_date_legacy_deck_cleanup_readiness/);
   assert.match(legacyChecklist, /get_video_date_phase8_release_closure/);
   assert.doesNotMatch(legacyChecklist, /acceptable duplicate-card prevention/);
+});
+
+test("Daily room-pool deferral has an explicit operator decision log", () => {
+  assert.match(dailyRoomPoolDecisionLog, /video_date\.daily_pool_v2` remains disabled/);
+  assert.match(dailyRoomPoolDecisionLog, /get_video_date_daily_performance_decision/);
+  assert.match(dailyRoomPoolDecisionLog, /room_pool_recommended = true/);
+  assert.match(dailyRoomPoolDecisionLog, /evaluate_daily_room_pool_room_create_is_bottleneck/);
+  assert.match(runbook, /docs\/video-date-daily-room-pool-decision-log\.md/);
 });
 
 test("Phase 8 contracts are included in the v4 verification script", () => {

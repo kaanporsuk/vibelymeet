@@ -1,4 +1,5 @@
 import { createMediaClientRequestId } from "@clientShared/media-sdk";
+import { rememberImageDerivatives } from "@/utils/imageUrl";
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 
@@ -11,9 +12,107 @@ export type UploadImageToBunnyResult = {
   assetId?: string | null;
   contentSha256?: string | null;
   receiptId?: string | null;
+  placeholder?: {
+    kind: "dominant_color";
+    hash: string;
+    dominantColor: string;
+  } | null;
+  derivatives?: {
+    thumb?: string;
+    hero?: string;
+  } | null;
 };
 
 const uploadClientRequestIds = new WeakMap<File, Map<string, string>>();
+
+function canvasToBlob(canvas: HTMLCanvasElement, mimeType: string, quality: number): Promise<Blob | null> {
+  return new Promise((resolve) => {
+    canvas.toBlob((blob) => resolve(blob), mimeType, quality);
+  });
+}
+
+async function derivativeFileForImage(file: File, maxEdge: number, label: "thumb" | "hero"): Promise<File | null> {
+  if (!file.type.startsWith("image/") || file.type === "image/heic" || file.type === "image/heif") return null;
+  if (typeof document === "undefined" || typeof createImageBitmap !== "function") return null;
+  const bitmap = await createImageBitmap(file).catch(() => null);
+  if (!bitmap || bitmap.width <= 0 || bitmap.height <= 0) return null;
+  try {
+    const scale = Math.min(1, maxEdge / Math.max(bitmap.width, bitmap.height));
+    const width = Math.max(1, Math.round(bitmap.width * scale));
+    const height = Math.max(1, Math.round(bitmap.height * scale));
+    const canvas = document.createElement("canvas");
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return null;
+    ctx.fillStyle = "#fff";
+    ctx.fillRect(0, 0, width, height);
+    ctx.drawImage(bitmap, 0, 0, width, height);
+    const blob = await canvasToBlob(canvas, "image/jpeg", label === "thumb" ? 0.78 : 0.84);
+    if (!blob || blob.size <= 0) return null;
+    const baseName = file.name.replace(/\.[^.]+$/i, "") || "photo";
+    return new File([blob], `${baseName}-${label}.jpg`, { type: "image/jpeg", lastModified: file.lastModified });
+  } finally {
+    bitmap.close();
+  }
+}
+
+async function dominantColorForImage(file: File): Promise<string | null> {
+  if (!file.type.startsWith("image/") || file.type === "image/heic" || file.type === "image/heif") return null;
+  if (typeof document === "undefined" || typeof createImageBitmap !== "function") return null;
+  const bitmap = await createImageBitmap(file).catch(() => null);
+  if (!bitmap || bitmap.width <= 0 || bitmap.height <= 0) return null;
+  try {
+    const edge = 24;
+    const canvas = document.createElement("canvas");
+    canvas.width = edge;
+    canvas.height = edge;
+    const ctx = canvas.getContext("2d", { willReadFrequently: true });
+    if (!ctx) return null;
+    ctx.drawImage(bitmap, 0, 0, edge, edge);
+    const { data } = ctx.getImageData(0, 0, edge, edge);
+    let red = 0;
+    let green = 0;
+    let blue = 0;
+    let alphaTotal = 0;
+    for (let i = 0; i < data.length; i += 4) {
+      const alpha = data[i + 3] / 255;
+      if (alpha <= 0.05) continue;
+      red += data[i] * alpha;
+      green += data[i + 1] * alpha;
+      blue += data[i + 2] * alpha;
+      alphaTotal += alpha;
+    }
+    if (alphaTotal <= 0) return null;
+    const toHex = (value: number) => Math.max(0, Math.min(255, Math.round(value / alphaTotal)))
+      .toString(16)
+      .padStart(2, "0");
+    return `#${toHex(red)}${toHex(green)}${toHex(blue)}`;
+  } finally {
+    bitmap.close();
+  }
+}
+
+async function appendImageDerivatives(formData: FormData, file: File): Promise<void> {
+  try {
+    const [thumb, hero, dominantColor] = await Promise.all([
+      derivativeFileForImage(file, 420, "thumb"),
+      derivativeFileForImage(file, 1400, "hero"),
+      dominantColorForImage(file),
+    ]);
+    if (thumb && hero) {
+      formData.append("derivative_thumb", thumb);
+      formData.append("derivative_hero", hero);
+    }
+    if (dominantColor) {
+      formData.append("placeholder_kind", "dominant_color");
+      formData.append("placeholder_hash", dominantColor);
+      formData.append("dominant_color", dominantColor);
+    }
+  } catch {
+    // Derivatives are an acceleration layer; never block the canonical upload.
+  }
+}
 
 export function newUploadClientRequestId(): string {
   return createMediaClientRequestId();
@@ -48,6 +147,7 @@ export async function uploadImageToBunny(
 ): Promise<UploadImageToBunnyResult> {
   const formData = new FormData();
   formData.append("file", file);
+  await appendImageDerivatives(formData, file);
   if (context) {
     formData.append("context", context);
   }
@@ -67,6 +167,8 @@ export async function uploadImageToBunny(
     contentSha256?: string | null;
     receiptId?: string | null;
     sessionId?: string | null;
+    placeholder?: UploadImageToBunnyResult["placeholder"];
+    derivatives?: UploadImageToBunnyResult["derivatives"];
     error?: string;
   };
   try {
@@ -103,6 +205,8 @@ export async function uploadImageToBunny(
     throw new Error("Image upload failed");
   }
 
+  rememberImageDerivatives(data.path, data.derivatives);
+
   return {
     path: data.path,
     sessionId: data.sessionId ?? null,
@@ -110,5 +214,7 @@ export async function uploadImageToBunny(
     assetId: data.assetId ?? null,
     contentSha256: data.contentSha256 ?? null,
     receiptId: data.receiptId ?? null,
+    placeholder: data.placeholder ?? null,
+    derivatives: data.derivatives ?? null,
   };
 }

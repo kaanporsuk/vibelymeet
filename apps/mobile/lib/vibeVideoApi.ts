@@ -111,7 +111,8 @@ export function mimeFromExtension(extension: string): string {
 async function resolveStableUploadUri(
   videoUri: string,
   uploadSource: VibeVideoUploadSource,
-): Promise<{ fileUri: string; copiedToCache: boolean }> {
+  clientRequestId: string,
+): Promise<string> {
   const trimmed = videoUri.trim();
   if (!trimmed) {
     throw new Error('Empty video URI');
@@ -125,22 +126,38 @@ async function resolveStableUploadUri(
   const cacheRoot = FileSystem.cacheDirectory;
   if (!cacheRoot) {
     vibeVideoDiagVerbose('upload.prepare.no_cache_dir', {});
-    return { fileUri: trimmed, copiedToCache: false };
+    return trimmed;
   }
 
-  const extGuess = /\.mov$/i.test(trimmed) ? 'mov' : 'mp4';
-  const dest = `${cacheRoot}vibe-tus-${Date.now()}.${extGuess}`;
+  const extGuess = extensionFromFileUri(trimmed) || (/\.mov$/i.test(trimmed) ? 'mov' : 'mp4');
+  const safeClientRequestId = clientRequestId.replace(/[^a-z0-9_-]/gi, '_').slice(0, 128) || 'unknown';
+  const dest = `${cacheRoot}vibe-tus-${safeClientRequestId}.${extGuess}`;
 
   try {
+    const [existing, sourceInfo] = await Promise.all([
+      FileSystem.getInfoAsync(dest),
+      FileSystem.getInfoAsync(trimmed).catch(() => null),
+    ]);
+    if (existing.exists && !existing.isDirectory && (existing.size ?? 0) > 0) {
+      if (!sourceInfo?.exists || sourceInfo.isDirectory || !sourceInfo.size) {
+        vibeVideoDiagVerbose('upload.prepare.reuse_staged_copy', { destTail: dest.slice(-48), reason: 'source_missing' });
+        return dest;
+      }
+      if (sourceInfo.size === existing.size) {
+        vibeVideoDiagVerbose('upload.prepare.reuse_staged_copy', { destTail: dest.slice(-48), reason: 'same_size' });
+        return dest;
+      }
+      await FileSystem.deleteAsync(dest, { idempotent: true }).catch(() => {});
+    }
     await FileSystem.copyAsync({ from: trimmed, to: dest });
-    vibeVideoDiagVerbose('upload.prepare.copied', { destTail: dest.slice(-40) });
-    return { fileUri: dest, copiedToCache: true };
+    vibeVideoDiagVerbose('upload.prepare.copied', { destTail: dest.slice(-48) });
+    return dest;
   } catch (e) {
     vibeVideoDiagVerbose('upload.prepare.copy_failed', {
       message: e instanceof Error ? e.message : String(e),
       fallbackUri: true,
     });
-    return { fileUri: trimmed, copiedToCache: false };
+    return trimmed;
   }
 }
 
@@ -151,6 +168,15 @@ async function deleteLocalFileQuiet(uri: string): Promise<void> {
   } catch {
     /* ignore */
   }
+}
+
+export async function deleteStagedVibeVideoUpload(clientRequestId: string | null | undefined): Promise<void> {
+  const cacheRoot = FileSystem.cacheDirectory;
+  const safeClientRequestId = clientRequestId?.replace(/[^a-z0-9_-]/gi, '_').slice(0, 128);
+  if (!cacheRoot || !safeClientRequestId) return;
+  await Promise.all(
+    ['mp4', 'mov', 'm4v', 'webm'].map((ext) => deleteLocalFileQuiet(`${cacheRoot}vibe-tus-${safeClientRequestId}.${ext}`)),
+  );
 }
 
 export async function getCreateVideoUploadCredentials(
@@ -304,7 +330,7 @@ export function uploadVibeVideoToBunny(
       throw Object.assign(new Error('Upload cancelled'), { name: 'AbortError' });
     }
 
-    const { fileUri, copiedToCache } = await resolveStableUploadUri(videoUri, uploadSource);
+    const fileUri = await resolveStableUploadUri(videoUri, uploadSource, credentials.clientRequestId);
 
     const fileInfo = await FileSystem.getInfoAsync(fileUri);
     if (!fileInfo.exists || fileInfo.isDirectory) {
@@ -334,86 +360,79 @@ export function uploadVibeVideoToBunny(
     // Never read the file into a JS string (Base64 / data: URL) — that crashes Hermes.
     const rnFileSource = { uri: fileUri, name: fileName, type: mimeType };
 
-    try {
-      await new Promise<void>((resolve, reject) => {
-        const upload = new tus.Upload(rnFileSource as unknown as File, {
-          endpoint: 'https://video.bunnycdn.com/tusupload',
-          retryDelays: [0, 3000, 5000, 10000],
-          chunkSize: TUS_CHUNK_SIZE,
-          uploadSize: fileSize,
-          headers: {
-            AuthorizationSignature: credentials.signature,
-            AuthorizationExpire: String(credentials.expirationTime),
-            VideoId: credentials.videoId,
-            LibraryId: String(credentials.libraryId),
-          },
-          metadata: {
-            filetype: mimeType,
-            title: fileName,
-          },
-          onError: (error: unknown) => {
-            const err = error as { message?: string; originalResponse?: { getStatus?: () => number } };
-            const msg = boundedErrorMessage(error);
-            const status = err?.originalResponse?.getStatus?.();
-            vibeVideoDiagVerbose('upload.tus.error', { message: msg, status });
-            if (/expired|401|403|signature/i.test(msg)) {
-              reject(new Error('Upload session expired. Please try uploading again.'));
-              return;
-            }
-            reject(error instanceof Error ? error : new Error('Upload failed. Please try again.'));
-          },
-          onProgress: (bytesUploaded: number, bytesTotal: number) => {
-            const pct = bytesTotal > 0 ? bytesUploaded / bytesTotal : 0;
-            vibeVideoDiagVerbose('upload.tus.progress', {
-              bytesUploaded,
-              bytesTotal,
-              pct: (pct * 100).toFixed(1),
-            });
-            onProgress?.(bytesUploaded, bytesTotal);
-          },
-          onSuccess: () => {
-            vibeVideoDiagVerbose('upload.tus.success', { videoId: credentials.videoId });
-            const playUrl = getVibeVideoPlaybackUrl(credentials.videoId);
-            vibeVideoDiagVerbose('tus.complete', {
-              videoId: credentials.videoId,
-              hasConstructedPlaybackUrl: !!playUrl,
-            });
-            resolve();
-          },
-          onShouldRetry: (err: unknown, retryAttempt: number, _options: unknown) => {
-            const e = err as { originalResponse?: { getStatus?: () => number } };
-            const status = e?.originalResponse?.getStatus?.();
-            if (status !== undefined && status >= 400 && status < 500) return false;
-            return retryAttempt < 3;
-          },
-        });
-
-        if (signal) {
-          const onAbort = () => {
-            try {
-              void upload.abort(true);
-            } catch {
-              /* ignore */
-            }
-            reject(Object.assign(new Error('Upload cancelled'), { name: 'AbortError' }));
-          };
-          if (signal.aborted) onAbort();
-          else signal.addEventListener('abort', onAbort, { once: true });
-        }
-
-        vibeVideoDiagVerbose('tus.client_start', {
-          videoId: credentials.videoId,
-          phase: 'tus_start',
-          sizeBytes: fileSize,
-        });
-        upload.start();
+    await new Promise<void>((resolve, reject) => {
+      const upload = new tus.Upload(rnFileSource as unknown as File, {
+        endpoint: 'https://video.bunnycdn.com/tusupload',
+        retryDelays: [0, 3000, 5000, 10000],
+        chunkSize: TUS_CHUNK_SIZE,
+        uploadSize: fileSize,
+        headers: {
+          AuthorizationSignature: credentials.signature,
+          AuthorizationExpire: String(credentials.expirationTime),
+          VideoId: credentials.videoId,
+          LibraryId: String(credentials.libraryId),
+        },
+        metadata: {
+          filetype: mimeType,
+          title: fileName,
+        },
+        onError: (error: unknown) => {
+          const err = error as { message?: string; originalResponse?: { getStatus?: () => number } };
+          const msg = boundedErrorMessage(error);
+          const status = err?.originalResponse?.getStatus?.();
+          vibeVideoDiagVerbose('upload.tus.error', { message: msg, status });
+          if (/expired|401|403|signature/i.test(msg)) {
+            reject(new Error('Upload session expired. Please try uploading again.'));
+            return;
+          }
+          reject(error instanceof Error ? error : new Error('Upload failed. Please try again.'));
+        },
+        onProgress: (bytesUploaded: number, bytesTotal: number) => {
+          const pct = bytesTotal > 0 ? bytesUploaded / bytesTotal : 0;
+          vibeVideoDiagVerbose('upload.tus.progress', {
+            bytesUploaded,
+            bytesTotal,
+            pct: (pct * 100).toFixed(1),
+          });
+          onProgress?.(bytesUploaded, bytesTotal);
+        },
+        onSuccess: () => {
+          vibeVideoDiagVerbose('upload.tus.success', { videoId: credentials.videoId });
+          const playUrl = getVibeVideoPlaybackUrl(credentials.videoId);
+          vibeVideoDiagVerbose('tus.complete', {
+            videoId: credentials.videoId,
+            hasConstructedPlaybackUrl: !!playUrl,
+          });
+          resolve();
+        },
+        onShouldRetry: (err: unknown, retryAttempt: number, _options: unknown) => {
+          const e = err as { originalResponse?: { getStatus?: () => number } };
+          const status = e?.originalResponse?.getStatus?.();
+          if (status !== undefined && status >= 400 && status < 500) return false;
+          return retryAttempt < 3;
+        },
       });
-    } catch (e) {
-      if (copiedToCache) await deleteLocalFileQuiet(fileUri);
-      throw e;
-    }
 
-    if (copiedToCache) await deleteLocalFileQuiet(fileUri);
+      if (signal) {
+        const onAbort = () => {
+          try {
+            void upload.abort(true);
+          } catch {
+            /* ignore */
+          }
+          reject(Object.assign(new Error('Upload cancelled'), { name: 'AbortError' }));
+        };
+        if (signal.aborted) onAbort();
+        else signal.addEventListener('abort', onAbort, { once: true });
+      }
+
+      vibeVideoDiagVerbose('tus.client_start', {
+        videoId: credentials.videoId,
+        phase: 'tus_start',
+        sizeBytes: fileSize,
+      });
+      upload.start();
+    });
   })();
 }
 

@@ -12,6 +12,9 @@ export type MediaAssetResolveResult = {
   playbackKind: "hls" | "progressive";
   provider: "bunny_stream" | "bunny_storage" | "local" | "remote";
   expiresAtMs: number;
+  placeholderKind: "dominant_color" | null;
+  placeholderHash: string | null;
+  dominantColor: string | null;
 };
 export type MediaAssetResolveErrorCode =
   | "network_error"
@@ -40,6 +43,9 @@ type ResolverResponse = {
   playbackKind?: "hls" | "progressive";
   provider?: "bunny_stream" | "bunny_storage";
   expiresInSeconds?: number;
+  placeholderKind?: "dominant_color" | null;
+  placeholderHash?: string | null;
+  dominantColor?: string | null;
   error?: string;
 };
 
@@ -56,6 +62,18 @@ type MediaUrlIssueResult =
 
 export type MediaAssetRefreshOptions = {
   bypassFailureCooldown?: boolean;
+  variant?: "display" | "original";
+};
+
+export type MediaAssetPrewarmInput = {
+  messageId?: string | null;
+  kind: MediaAssetKind;
+  sourceRef?: string | null;
+};
+
+export type MediaAssetPrewarmOptions = {
+  concurrency?: number;
+  forceRefresh?: boolean;
 };
 
 const DEFAULT_SIGNED_MEDIA_TTL_MS = 4 * 60 * 1000;
@@ -63,10 +81,12 @@ const SIGNED_MEDIA_TTL_SAFETY_MS = 15 * 1000;
 const SIGNED_MEDIA_FAILURE_COOLDOWN_MS = 8_000;
 const SIGNED_MEDIA_FAILURE_COOLDOWN_MAX_MS = 5 * 60 * 1000;
 const MEDIA_URL_CACHE_MAX_ENTRIES = 200;
+const MEDIA_URL_CACHE_STORAGE_KEY = "vibely.media-url-cache.v1";
 const mediaUrlCache = new Map<string, CachedMediaUrl>();
 const mediaUrlFailureCache = new Map<string, CachedMediaFailure>();
 const mediaUrlInFlightRequests = new Map<string, Promise<MediaAssetResolveResult | null>>();
 let testMediaUrlIssuer: ((messageId: string, mediaKind: MediaAssetKind) => Promise<ResolverResponse | null>) | null = null;
+let activePersistentMediaUrlCacheKey: string | null = null;
 
 export function isLocalMediaAssetRef(value: string): boolean {
   return value.startsWith("blob:") || value.startsWith("file:") || value.startsWith("data:");
@@ -190,6 +210,9 @@ function passthroughMediaAsset(rawRef: string): MediaAssetResolveResult {
     playbackKind: isHlsMediaAssetUrl(rawRef) ? "hls" : "progressive",
     provider: isResolvedMediaAssetUrl(rawRef) ? "remote" : "local",
     expiresAtMs: Number.POSITIVE_INFINITY,
+    placeholderKind: null,
+    placeholderHash: null,
+    dominantColor: null,
   };
 }
 
@@ -237,9 +260,18 @@ export async function refreshMediaAssetUrl(
   return (await refreshMediaAsset(messageId, mediaKind, rawRef, options))?.url ?? null;
 }
 
-function cacheKeyForMediaAsset(messageId: string, mediaKind: MediaAssetKind, rawRef: string): string {
+function resolveVariantKey(options?: Pick<MediaAssetRefreshOptions, "variant">): "display" | "original" {
+  return options?.variant === "original" ? "original" : "display";
+}
+
+function cacheKeyForMediaAsset(
+  messageId: string,
+  mediaKind: MediaAssetKind,
+  rawRef: string,
+  variant: "display" | "original" = "display",
+): string {
   const profileRef = mediaKind === "profile_vibe_video" ? parseProfileVibeVideoRef(rawRef) : null;
-  return `${profileRef?.profileId ?? messageId}:${mediaKind}:${rawRef}`;
+  return `${profileRef?.profileId ?? messageId}:${mediaKind}:${variant}:${rawRef}`;
 }
 
 function classifyResolverFailure(payload: ResolverResponse | null): MediaAssetResolveErrorCode {
@@ -251,12 +283,17 @@ function classifyResolverFailure(payload: ResolverResponse | null): MediaAssetRe
 }
 
 function sweepExpiredMediaUrlEntries(nowMs = Date.now()) {
+  let changed = false;
   for (const [key, value] of mediaUrlCache.entries()) {
-    if (value.expiresAtMs <= nowMs) mediaUrlCache.delete(key);
+    if (value.expiresAtMs <= nowMs) {
+      mediaUrlCache.delete(key);
+      changed = true;
+    }
   }
   for (const [key, value] of mediaUrlFailureCache.entries()) {
     if (value.expiresAtMs + SIGNED_MEDIA_FAILURE_COOLDOWN_MAX_MS <= nowMs) mediaUrlFailureCache.delete(key);
   }
+  if (changed) persistMediaUrlCache();
 }
 
 function pruneMediaUrlCache() {
@@ -270,6 +307,110 @@ function pruneMediaUrlCache() {
 function cacheMediaUrl(cacheKey: string, asset: MediaAssetResolveResult, nowMs = Date.now()) {
   mediaUrlCache.set(cacheKey, { ...asset, lastAccessedMs: nowMs });
   pruneMediaUrlCache();
+  persistMediaUrlCache();
+}
+
+function canUseSessionStorage(): boolean {
+  return typeof window !== "undefined" && typeof window.sessionStorage !== "undefined";
+}
+
+function isPersistableCachedMediaUrl(value: CachedMediaUrl, nowMs = Date.now()): boolean {
+  return (
+    typeof value.url === "string" &&
+    value.url.length > 0 &&
+    Number.isFinite(value.expiresAtMs) &&
+    value.expiresAtMs > nowMs
+  );
+}
+
+function readCachedMediaUrl(value: unknown): CachedMediaUrl | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const record = value as Partial<CachedMediaUrl>;
+  if (typeof record.url !== "string" || !record.url) return null;
+  const playbackKind = record.playbackKind === "hls" ? "hls" : "progressive";
+  const provider =
+    record.provider === "bunny_stream" ||
+    record.provider === "bunny_storage" ||
+    record.provider === "local" ||
+    record.provider === "remote"
+      ? record.provider
+      : "remote";
+  const expiresAtMs =
+    typeof record.expiresAtMs === "number" && Number.isFinite(record.expiresAtMs)
+      ? record.expiresAtMs
+      : 0;
+  const lastAccessedMs =
+    typeof record.lastAccessedMs === "number" && Number.isFinite(record.lastAccessedMs)
+      ? record.lastAccessedMs
+      : 0;
+  return {
+    url: record.url,
+    posterUrl: typeof record.posterUrl === "string" && record.posterUrl ? record.posterUrl : null,
+    playbackKind,
+    provider,
+    expiresAtMs,
+    placeholderKind: record.placeholderKind === "dominant_color" ? "dominant_color" : null,
+    placeholderHash: typeof record.placeholderHash === "string" && record.placeholderHash ? record.placeholderHash : null,
+    dominantColor: typeof record.dominantColor === "string" && /^#[0-9a-f]{6}$/i.test(record.dominantColor)
+      ? record.dominantColor.toLowerCase()
+      : null,
+    lastAccessedMs,
+  };
+}
+
+async function currentPersistentMediaUrlCacheKey(): Promise<string | null> {
+  if (!canUseSessionStorage()) return null;
+  try {
+    const { data: { session } } = await supabase.auth.getSession();
+    const userId = session?.user?.id;
+    return userId ? `${MEDIA_URL_CACHE_STORAGE_KEY}:${userId}` : null;
+  } catch {
+    return null;
+  }
+}
+
+async function hydratePersistentMediaUrlCache(nowMs = Date.now()) {
+  const storageKey = await currentPersistentMediaUrlCacheKey();
+  if (activePersistentMediaUrlCacheKey === storageKey) return;
+  mediaUrlCache.clear();
+  mediaUrlFailureCache.clear();
+  mediaUrlInFlightRequests.clear();
+  activePersistentMediaUrlCacheKey = storageKey;
+  if (!storageKey || !canUseSessionStorage()) return;
+  try {
+    const raw = window.sessionStorage.getItem(storageKey);
+    if (!raw) return;
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed)) return;
+    for (const entry of parsed) {
+      if (!Array.isArray(entry) || entry.length !== 2 || typeof entry[0] !== "string") continue;
+      const cached = readCachedMediaUrl(entry[1]);
+      if (cached && isPersistableCachedMediaUrl(cached, nowMs)) {
+        mediaUrlCache.set(entry[0], cached);
+      }
+    }
+    pruneMediaUrlCache();
+  } catch {
+    try {
+      window.sessionStorage.removeItem(storageKey);
+    } catch {
+      // Ignore storage failures; media can always be re-issued.
+    }
+  }
+}
+
+function persistMediaUrlCache(nowMs = Date.now()) {
+  const storageKey = activePersistentMediaUrlCacheKey;
+  if (!storageKey || !canUseSessionStorage()) return;
+  try {
+    const entries = [...mediaUrlCache.entries()]
+      .filter(([, value]) => isPersistableCachedMediaUrl(value, nowMs))
+      .sort((a, b) => b[1].lastAccessedMs - a[1].lastAccessedMs)
+      .slice(0, MEDIA_URL_CACHE_MAX_ENTRIES);
+    window.sessionStorage.setItem(storageKey, JSON.stringify(entries));
+  } catch {
+    // Storage quota/private mode should not affect playback.
+  }
 }
 
 function recordMediaUrlFailure(cacheKey: string, errorCode: MediaAssetResolveErrorCode) {
@@ -365,7 +506,9 @@ async function issueAndCacheMediaAsset(
   forceRefresh: boolean,
   options: MediaAssetRefreshOptions = {},
 ): Promise<MediaAssetResolveResult | null> {
-  const cacheKey = cacheKeyForMediaAsset(messageId, mediaKind, rawRef);
+  await hydratePersistentMediaUrlCache();
+  const variant = resolveVariantKey(options);
+  const cacheKey = cacheKeyForMediaAsset(messageId, mediaKind, rawRef, variant);
   const now = Date.now();
   sweepExpiredMediaUrlEntries(now);
   const cached = mediaUrlCache.get(cacheKey);
@@ -388,7 +531,7 @@ async function issueAndCacheMediaAsset(
       const { data, error, response } = await supabase.functions.invoke("get-chat-media-url", {
         body: profileRef
           ? { profileId: profileRef.profileId, mediaKind, sourceRef: rawRef }
-          : { messageId, mediaKind },
+          : { messageId, mediaKind, ...(variant === "original" ? { variant } : {}) },
       });
       if (error) return issueResultForFunctionInvokeError(error, response);
       return { kind: "response", payload: data as ResolverResponse | null };
@@ -422,6 +565,11 @@ async function issueAndCacheMediaAsset(
       playbackKind: payload.playbackKind === "hls" ? "hls" : "progressive",
       provider: payload.provider === "bunny_stream" || payload.provider === "bunny_storage" ? payload.provider : "remote",
       expiresAtMs,
+      placeholderKind: payload.placeholderKind === "dominant_color" ? "dominant_color" : null,
+      placeholderHash: typeof payload.placeholderHash === "string" && payload.placeholderHash ? payload.placeholderHash : null,
+      dominantColor: typeof payload.dominantColor === "string" && /^#[0-9a-f]{6}$/i.test(payload.dominantColor)
+        ? payload.dominantColor.toLowerCase()
+        : null,
     };
     cacheMediaUrl(cacheKey, resolvedAsset);
     const thumbnailRef =
@@ -429,12 +577,15 @@ async function issueAndCacheMediaAsset(
         ? bunnyStreamThumbnailRefFor(rawRef)
         : null;
     if (thumbnailRef && typeof payload.posterUrl === "string" && payload.posterUrl) {
-      cacheMediaUrl(`${messageId}:thumbnail:${thumbnailRef}`, {
+      cacheMediaUrl(cacheKeyForMediaAsset(messageId, "thumbnail", thumbnailRef), {
         url: payload.posterUrl,
         posterUrl: null,
         playbackKind: "progressive",
         provider: "bunny_stream",
         expiresAtMs,
+        placeholderKind: resolvedAsset.placeholderKind,
+        placeholderHash: resolvedAsset.placeholderHash,
+        dominantColor: resolvedAsset.dominantColor,
       });
     }
     return resolvedAsset;
@@ -450,10 +601,79 @@ async function issueAndCacheMediaAsset(
   }
 }
 
+function prewarmKeyForInput(input: MediaAssetPrewarmInput): string | null {
+  const sourceRef = input.sourceRef?.trim();
+  if (!sourceRef) return null;
+  const messageId = input.messageId?.trim() ?? "";
+  return cacheKeyForMediaAsset(messageId, input.kind, sourceRef);
+}
+
+function prefetchRenderableAsset(input: MediaAssetPrewarmInput, result: MediaAssetResolveResult): void {
+  if (typeof window === "undefined" || typeof window.Image === "undefined") return;
+  const url =
+    input.kind === "image" || input.kind === "thumbnail"
+      ? result.url
+      : result.posterUrl;
+  if (!url || !/^https?:\/\//i.test(url)) return;
+  try {
+    const image = new window.Image();
+    image.decoding = "async";
+    image.src = url;
+  } catch {
+    // Decode prefetch is opportunistic; signed URL cache remains the source of truth.
+  }
+}
+
+export async function prewarmMediaAssets(
+  inputs: readonly MediaAssetPrewarmInput[],
+  options: MediaAssetPrewarmOptions = {},
+): Promise<MediaAssetResolveResult[]> {
+  if (!inputs.length) return [];
+  const uniqueInputs = new Map<string, MediaAssetPrewarmInput>();
+  for (const input of inputs) {
+    const key = prewarmKeyForInput(input);
+    if (!key || uniqueInputs.has(key)) continue;
+    uniqueInputs.set(key, input);
+  }
+  const queue = [...uniqueInputs.values()];
+  if (!queue.length) return [];
+
+  const concurrency = Math.max(1, Math.min(8, Math.floor(options.concurrency ?? 4)));
+  const results: MediaAssetResolveResult[] = [];
+  let cursor = 0;
+  async function worker() {
+    while (cursor < queue.length) {
+      const input = queue[cursor++];
+      const sourceRef = input.sourceRef?.trim();
+      if (!sourceRef) continue;
+      const messageId = input.messageId?.trim() ?? "";
+      const result = options.forceRefresh
+        ? await refreshMediaAsset(messageId, input.kind, sourceRef, { bypassFailureCooldown: true })
+        : await getCachedMediaAsset(messageId, input.kind, sourceRef);
+      if (result?.url) {
+        results.push(result);
+        prefetchRenderableAsset(input, result);
+      }
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(concurrency, queue.length) }, () => worker()));
+  return results;
+}
+
 export function __clearChatMediaUrlCacheForTests() {
   mediaUrlCache.clear();
   mediaUrlFailureCache.clear();
   mediaUrlInFlightRequests.clear();
+  if (canUseSessionStorage()) {
+    try {
+      if (activePersistentMediaUrlCacheKey) {
+        window.sessionStorage.removeItem(activePersistentMediaUrlCacheKey);
+      }
+    } catch {
+      // Ignore storage failures in test/locked-down runtimes.
+    }
+  }
+  activePersistentMediaUrlCacheKey = null;
 }
 
 export function __chatMediaUrlCacheSizeForTests() {
@@ -464,6 +684,17 @@ export function __setChatMediaUrlIssuerForTests(
   issuer: ((messageId: string, mediaKind: MediaAssetKind) => Promise<ResolverResponse | null>) | null,
 ) {
   testMediaUrlIssuer = issuer;
+}
+
+function mediaPlaceholderPayload(result: MediaAssetResolveResult | null): Record<string, string> | null {
+  if (result?.placeholderKind === "dominant_color" && result.dominantColor) {
+    return {
+      kind: "dominant_color",
+      hash: result.placeholderHash ?? result.dominantColor,
+      dominant_color: result.dominantColor,
+    };
+  }
+  return null;
 }
 
 export async function resolveMessageMediaForDisplay<
@@ -497,16 +728,22 @@ export async function resolveMessageMediaForDisplay<
       : null;
   const thumbnailRef = typeof payload?.thumbnail_url === "string" ? payload.thumbnail_url : null;
   if (payload && thumbnailRef) {
-    payload.thumbnail_url = await resolveChatMediaUrl(row.id, "thumbnail", thumbnailRef);
+    const thumbnailAsset = await getCachedMediaAsset(row.id, "thumbnail", thumbnailRef);
+    payload.thumbnail_url = thumbnailAsset?.url ?? "";
+    const placeholder = mediaPlaceholderPayload(thumbnailAsset);
+    if (placeholder) payload.thumbnail_placeholder = placeholder;
     resolved.structured_payload = payload;
   }
 
   const imageRef = extractChatImageMediaRef(row, { allowPrivateMediaRefs: true });
   if (imageRef) {
-    const imageUrl = await resolveChatMediaUrl(row.id, "image", imageRef);
+    const imageAsset = await getCachedMediaAsset(row.id, "image", imageRef);
+    const imageUrl = imageAsset?.url ?? null;
     resolved.content = imageUrl ? formatChatImageMessageContent(imageUrl) : formatChatImageMessageContent("");
     if (payload?.kind === "chat_image" && payload.v === 2 && payload.provider === "bunny_storage") {
       payload.media_ref = imageUrl ?? "";
+      const placeholder = mediaPlaceholderPayload(imageAsset);
+      if (placeholder) payload.media_placeholder = placeholder;
       resolved.structured_payload = payload;
     }
   }

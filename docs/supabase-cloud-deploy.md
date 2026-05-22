@@ -75,6 +75,24 @@ supabase functions deploy <function-name> --project-ref schdyxcunwcvddlcshwd
 
 Secrets (Stripe, Twilio, etc.) are **not** in git — set in Dashboard → Edge Functions → Secrets or `supabase secrets set --project-ref schdyxcunwcvddlcshwd KEY=value`.
 
+### Daily video-date webhook secret
+
+`video-date-daily-webhook` is a provider-public endpoint (`verify_jwt = false`) that verifies Daily's `X-Webhook-Signature` and `X-Webhook-Timestamp` inside the function. The required secret is:
+
+- `DAILY_WEBHOOK_SECRET`: Daily webhook `hmac` exactly as returned by Daily; it is base64 encoded and the function decodes it before signing `timestamp + "." + rawBody`.
+
+Safe set pattern that avoids shell history/log exposure:
+
+```bash
+read -rsp "Daily webhook hmac (base64): " DAILY_WEBHOOK_SECRET; printf "\n"
+tmp="$(mktemp)"; chmod 600 "$tmp"
+printf 'DAILY_WEBHOOK_SECRET=%s\n' "$DAILY_WEBHOOK_SECRET" > "$tmp"
+supabase secrets set --env-file "$tmp" --project-ref schdyxcunwcvddlcshwd
+rm -f "$tmp"; unset DAILY_WEBHOOK_SECRET
+```
+
+Daily provider registration must target `https://schdyxcunwcvddlcshwd.supabase.co/functions/v1/video-date-daily-webhook` and subscribe to `participant.joined` / `participant.left`. After the secret is set, unsigned probes should return `401 timestamp_missing` or `401 signature_invalid`, not `webhook_secret_missing`.
+
 ## Agent / MCP
 
 If **user-supabase** MCP or any authenticated Supabase agent tooling is enabled, tools such as `list_migrations`, `list_tables`, `execute_sql`, `apply_migration`, and `deploy_edge_function` can read or change the project **that tool is authenticated to**. Confirm the authenticated project points at **`schdyxcunwcvddlcshwd`** so agent actions match this CLI-linked project.

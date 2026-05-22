@@ -3,7 +3,12 @@
  * Returns storage path + draft session id for reconciliation.
  */
 
-import { prepareProfilePhotoAssetForUpload, type NormalizedImageAsset } from '@/lib/imageAssetNormalize';
+import {
+  prepareImageDerivativeAssetsForUpload,
+  prepareProfilePhotoAssetForUpload,
+  type NormalizedImageAsset,
+} from '@/lib/imageAssetNormalize';
+import { rememberImageDerivatives } from '@/lib/imageUrl';
 import { getCachedAccessToken } from '@/lib/nativeAuthSession';
 
 const SUPABASE_URL = process.env.EXPO_PUBLIC_SUPABASE_URL ?? '';
@@ -15,6 +20,7 @@ export type UploadImageResult = {
   assetId?: string | null;
   contentSha256?: string | null;
   receiptId?: string | null;
+  derivatives?: { thumb?: string; hero?: string } | null;
 };
 
 export interface ImagePickerAsset {
@@ -43,6 +49,7 @@ export async function uploadProfilePhoto(
   }
 
   const prepared = await prepareProfilePhotoAssetForUpload(asset);
+  const derivatives = await prepareImageDerivativeAssetsForUpload(prepared).catch(() => []);
   try {
     const formData = new FormData();
     formData.append(
@@ -53,6 +60,16 @@ export async function uploadProfilePhoto(
         name: prepared.fileName ?? `photo-${Date.now()}.jpg`,
       } as unknown as Blob,
     );
+    for (const derivative of derivatives) {
+      formData.append(
+        derivative.kind === 'thumb' ? 'derivative_thumb' : 'derivative_hero',
+        {
+          uri: derivative.uri,
+          type: derivative.mimeType,
+          name: derivative.fileName,
+        } as unknown as Blob,
+      );
+    }
     if (context) {
       formData.append('context', context);
     }
@@ -80,6 +97,7 @@ export async function uploadProfilePhoto(
       contentSha256?: string | null;
       receiptId?: string | null;
       sessionId?: string | null;
+      derivatives?: { thumb?: string; hero?: string } | null;
       error?: string;
     };
     try {
@@ -92,6 +110,8 @@ export async function uploadProfilePhoto(
       throw new Error(data.error ?? 'Image upload failed');
     }
 
+    rememberImageDerivatives(data.path, data.derivatives);
+
     return {
       path: data.path,
       sessionId: data.sessionId ?? null,
@@ -99,8 +119,10 @@ export async function uploadProfilePhoto(
       assetId: data.assetId ?? null,
       contentSha256: data.contentSha256 ?? null,
       receiptId: data.receiptId ?? null,
+      derivatives: data.derivatives ?? null,
     };
   } finally {
+    for (const derivative of derivatives) derivative.cleanup();
     prepared.cleanup?.();
   }
 }

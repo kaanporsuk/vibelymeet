@@ -6,10 +6,10 @@ Use the current v4.2 baseline for live Video Date rollout, certification, and mo
 
 Current Video Date v4.2 baseline as of 2026-05-22:
 
-- Baseline main HEAD: `196fd676a840970c13197eee71a4bbbd78c9dd06` from PR #992 (`Harden video date phase 8 automation`).
+- Baseline main HEAD: `e6f086eef` (`Fix Daily webhook signature contract`). PR #992 at `196fd676a840970c13197eee71a4bbbd78c9dd06` remains the Phase 7/8 automation baseline.
 - Supabase project: `schdyxcunwcvddlcshwd`.
 - Latest applied Video Date migration: `20260522024000_video_date_phase7_8_audit_automation_hardening.sql`.
-- Latest verified operational function from the audit closure: `admin-video-date-ops` version `310`.
+- Latest verified operational functions from the audit closures: `admin-video-date-ops` version `310`, `video-date-daily-webhook` version `7`, and `synthetic-video-date-monitor` version `9`.
 - Post-deploy database status: `supabase db push --linked --dry-run` reported the remote database is up to date.
 - Manual app smoke remains separate. Do not run web/native builds from this monitoring runbook.
 - Do not recreate the Daily webhook or rotate/print `DAILY_WEBHOOK_SECRET`; use webhook UUID `a5407924-6f29-4a35-835a-ff5185eeae5c`.

@@ -57,11 +57,17 @@ function base64(bytes: ArrayBuffer): string {
   return btoa(binary);
 }
 
+function toArrayBuffer(bytes: Uint8Array): ArrayBuffer {
+  const buffer = new ArrayBuffer(bytes.byteLength);
+  new Uint8Array(buffer).set(bytes);
+  return buffer;
+}
+
 async function hmacSha256Base64(secretBytes: Uint8Array, message: string): Promise<string> {
   const encoder = new TextEncoder();
   const key = await crypto.subtle.importKey(
     "raw",
-    secretBytes,
+    toArrayBuffer(secretBytes),
     { name: "HMAC", hash: "SHA-256" },
     false,
     ["sign"],

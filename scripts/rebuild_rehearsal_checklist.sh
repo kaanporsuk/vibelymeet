@@ -34,7 +34,7 @@ echo "Edge Function secrets (must exist in Supabase project):"
 echo "- SUPABASE_URL, SUPABASE_ANON_KEY, SUPABASE_SERVICE_ROLE_KEY"
 echo "- BUNNY_STORAGE_ZONE, BUNNY_STORAGE_API_KEY, BUNNY_CDN_HOSTNAME"
 echo "- BUNNY_STREAM_LIBRARY_ID, BUNNY_STREAM_API_KEY, BUNNY_STREAM_CDN_HOSTNAME"
-echo "- DAILY_API_KEY, DAILY_DOMAIN"
+echo "- DAILY_API_KEY, DAILY_DOMAIN, DAILY_WEBHOOK_SECRET"
 echo "- STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET, STRIPE_MONTHLY_PRICE_ID, STRIPE_ANNUAL_PRICE_ID"
 echo "- RESEND_API_KEY"
 echo "- TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_VERIFY_SERVICE_SID"
@@ -43,7 +43,7 @@ echo "- CRON_SECRET, UNSUB_HMAC_SECRET, PUSH_WEBHOOK_SECRET, BUNNY_VIDEO_WEBHOOK
 echo
 echo "## 3) Edge Function deployment readiness"
 echo "- Confirm all expected functions exist in project and match verify_jwt posture in supabase/config.toml."
-echo "- Spot-check hardened public endpoints: stripe-webhook, push-webhook, video-webhook, email-drip, unsubscribe, generate-daily-drops, request-account-deletion."
+echo "- Spot-check hardened public endpoints: stripe-webhook, push-webhook, video-webhook, video-date-daily-webhook, email-drip, unsubscribe, generate-daily-drops, request-account-deletion."
 echo "- Spot-check JWT-at-gateway endpoints used by app: daily-room, forward-geocode, create-checkout-session, etc."
 echo
 echo "## 4) Storage/provider checks"
@@ -61,6 +61,8 @@ echo "- Checkout + portal create sessions succeed; webhook delivers and settles 
 echo
 echo "Daily checks:"
 echo "- daily-room works with verify_jwt=true; unload cleanup uses fetch keepalive."
+echo "- Daily webhook targets https://schdyxcunwcvddlcshwd.supabase.co/functions/v1/video-date-daily-webhook with participant.joined/participant.left and base64 hmac in DAILY_WEBHOOK_SECRET."
+echo "- Unsigned video-date-daily-webhook probe fails with timestamp/signature validation, not webhook_secret_missing."
 echo
 echo "## 5) Smoke test flows"
 echo "- New Bunny-hosted chat video send/play"
