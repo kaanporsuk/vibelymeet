@@ -948,6 +948,7 @@ async function getDailyPerformanceDecision(
       "window_id,window_label,event_id,first_frame_sample_count,first_frame_p95_ms,first_frame_p99_ms,room_sample_count,room_p95_ms,room_p99_ms,token_sample_count,token_p95_ms,token_p99_ms,join_sample_count,join_p95_ms,join_p99_ms,reconnect_sample_count,reconnect_p95_ms,extension_refresh_sample_count,extension_refresh_p95_ms,room_pool_recommended,decision_reason,decision_status",
     )
     .eq("window_id", window.id)
+    .order("event_id", { ascending: true, nullsFirst: true })
     .limit(1);
 
   if (eventId) query = query.eq("event_id", eventId);

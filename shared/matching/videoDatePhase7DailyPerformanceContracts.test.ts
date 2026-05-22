@@ -150,6 +150,7 @@ test("PR 7.2 web and native emit provider, reconnect, and extension performance 
 test("PR 7.3 exposes the Daily room-pool decision in operator tooling", () => {
   assert.match(adminOps, /type DailyPerformanceDecisionRow/);
   assert.match(adminOps, /from\("vw_video_date_daily_pool_decision"\)/);
+  assert.match(adminOps, /\.order\("event_id", \{ ascending: true, nullsFirst: true \}\)[\s\S]+\.limit\(1\)/);
   assert.match(adminOps, /daily_performance_decision: dailyPerformanceDecision/);
   assert.match(adminLiveMetrics, /daily_performance_decision:/);
   assert.match(adminLiveMetrics, /label="Daily pool decision"/);
