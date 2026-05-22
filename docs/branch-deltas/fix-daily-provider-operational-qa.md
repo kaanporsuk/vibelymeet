@@ -203,6 +203,65 @@ Coverage:
    - answer/rejoin
    - terminal match-call cleanup
 
+## Daily Webhook Provider Registration Closure
+
+Date: 2026-05-22
+
+Provider registration is closed for the Video Date Daily webhook. Do not retry webhook creation unless this registration is deliberately removed from Daily.
+
+Registered webhook:
+
+- UUID: `a5407924-6f29-4a35-835a-ff5185eeae5c`
+- URL: `https://schdyxcunwcvddlcshwd.supabase.co/functions/v1/video-date-daily-webhook`
+- Event types: `participant.joined`, `participant.left`
+- State: `ACTIVE`
+- Retry type: `exponential`
+- Failed count at closure: `0`
+
+Validation evidence:
+
+- Signed Daily verification probe body `{"test":"test"}` returned HTTP 200 with `{"ok":true,"test":true}`.
+- Daily `POST /webhooks` returned HTTP 200.
+- `lastMomentPushed` is still `null` because no real subscribed Daily event has been delivered yet.
+
+Secret handling:
+
+- `DAILY_WEBHOOK_SECRET` must not be printed, inferred, rotated, or copied into runbooks.
+- Daily webhook signing uses the provider HMAC contract only; operational evidence should mention status, UUIDs, URLs, event types, and non-secret counters.
+
+## Real Two-User Daily Webhook Smoke
+
+Goal: deliver real `participant.joined` and `participant.left` events through the registered Daily webhook and prove provider plus ledger behavior without creating another webhook.
+
+Setup:
+
+1. Use two internal test users in a controlled event where Video Date v4/Daily webhook flags are enabled for both users.
+2. Start one real video-date session through the normal app flow; do not manually create Daily rooms.
+3. Record the non-secret identifiers before joining: `event_id`, `video_session_id`, expected `daily_room_name`, and both participant user ids.
+4. Keep Daily dashboard open on webhook `a5407924-6f29-4a35-835a-ff5185eeae5c`.
+5. Keep Supabase Edge Function logs open for `video-date-daily-webhook`.
+
+Smoke actions:
+
+1. User A joins the Daily room from the app and waits until media join succeeds.
+2. User B joins the same Daily room from the app and waits until both participants are visible.
+3. User A leaves the call through the normal app path.
+4. User B leaves or ends the date through the normal app path.
+
+Expected provider evidence:
+
+- Daily webhook `lastMomentPushed` becomes non-null after the first real subscribed event.
+- Daily webhook `failedCount` remains `0`.
+- Daily shows deliveries for `participant.joined` and `participant.left`.
+
+Expected Supabase evidence:
+
+- `video-date-daily-webhook` invocations are accepted for real events.
+- `video_date_daily_webhook_events` has rows for the provider event ids, event types, Daily room name, participant ids, and processed state/result.
+- For a matched participant join, the corresponding `video_sessions.participant_1_joined_at` or `participant_2_joined_at` is set or already present.
+- For a matched participant leave, the corresponding away timestamp is set when the session is still non-terminal.
+- Duplicate provider deliveries are idempotent and do not rewrite session truth incorrectly.
+
 ## Deploy Requirements
 
 Supabase migration requirement: none.

@@ -2,7 +2,19 @@
 
 ## Release Baseline
 
-Use this checklist for the first live event or beta after the Video Date hardening chain in PRs #562 through #568.
+Use the current v4.2 baseline for live Video Date rollout, certification, and monitoring. The older PR #562-#568 baseline below is retained only as historical context for the first hardening campaign.
+
+Current Video Date v4.2 baseline as of 2026-05-22:
+
+- Baseline main HEAD: `196fd676a840970c13197eee71a4bbbd78c9dd06` from PR #992 (`Harden video date phase 8 automation`).
+- Supabase project: `schdyxcunwcvddlcshwd`.
+- Latest applied Video Date migration: `20260522024000_video_date_phase7_8_audit_automation_hardening.sql`.
+- Latest verified operational function from the audit closure: `admin-video-date-ops` version `310`.
+- Post-deploy database status: `supabase db push --linked --dry-run` reported the remote database is up to date.
+- Manual app smoke remains separate. Do not run web/native builds from this monitoring runbook.
+- Do not recreate the Daily webhook or rotate/print `DAILY_WEBHOOK_SECRET`; use webhook UUID `a5407924-6f29-4a35-835a-ff5185eeae5c`.
+
+Historical baseline for the first hardening campaign:
 
 - Baseline main HEAD: `e4142cbb3b91a6e5677c17d63b54f369cf4240d5`
 - Applied migrations: `20260501131000`, `20260501132000`, `20260501133000`
@@ -32,11 +44,11 @@ Never paste Daily meeting tokens, auth headers, provider secrets, raw profile ob
 Check:
 
 - Vercel production deployment is healthy for the release commit.
-- Supabase functions are ACTIVE: `daily-room`, `video-date-room-cleanup`, `post-date-verdict`, `swipe-actions`, `admin-video-date-ops`.
-- Migrations `20260501131000`, `20260501132000`, and `20260501133000` are local and remote.
+- Supabase functions are ACTIVE for the current v4.2 surface: `daily-room`, `video-date-snapshot`, `video-date-outbox-drainer`, `video-date-deadline-finalizer`, `video-date-daily-webhook`, `video-date-orphan-room-cleanup`, `video-date-recovery-alert-dispatcher`, `synthetic-video-date-monitor`, `post-date-verdict`, `swipe-actions`, and `admin-video-date-ops`.
+- Current Video Date v4 migrations through `20260522024000_video_date_phase7_8_audit_automation_hardening.sql` are local and remote.
 - Daily dashboard/service status is healthy.
 - PostHog/Sentry search by `session_id` and `event_id` is ready.
-- Native build or OTA carrying PRs #563, #564, #567, and #568 is delivered before native QA.
+- Native build or OTA carrying the v4.2 Video Date client surface is delivered before native QA; manual native smoke is recorded through the Phase 8 ledger.
 
 Healthy signals:
 
@@ -62,6 +74,75 @@ Immediate action:
 - Pause beta start if a red-alert signal is present.
 - Use web-only beta if native delivery has not landed.
 - Escalate provider outage separately before touching Vibely state.
+
+## Daily Webhook Registration
+
+Daily webhook provider registration is complete. Do not create another webhook and do not rotate or print `DAILY_WEBHOOK_SECRET` during monitoring.
+
+Registered provider state:
+
+- Webhook UUID: `a5407924-6f29-4a35-835a-ff5185eeae5c`
+- URL: `https://schdyxcunwcvddlcshwd.supabase.co/functions/v1/video-date-daily-webhook`
+- Event types: `participant.joined`, `participant.left`
+- State at closure: `ACTIVE`
+- Retry type: `exponential`
+- Failed count at closure: `0`
+
+Registration proof:
+
+- Signed `{"test":"test"}` probe returned HTTP 200 with `{"ok":true,"test":true}`.
+- Daily `POST /webhooks` returned HTTP 200.
+- `lastMomentPushed` remains `null` until a real subscribed participant event is delivered.
+
+Real two-user webhook smoke:
+
+1. Use two internal test users in a controlled event and enter a video date through the normal app flow.
+2. Record only non-secret identifiers: `event_id`, `video_session_id`, `daily_room_name`, and both participant user ids.
+3. User A joins, then User B joins, and both confirm the same Daily room.
+4. User A leaves through the normal app path; then User B leaves or ends the date normally.
+5. In Daily, confirm `lastMomentPushed` is non-null, `failedCount` remains `0`, and deliveries include `participant.joined` and `participant.left`.
+6. In Supabase Edge logs, confirm `video-date-daily-webhook` accepted real-event invocations with HTTP 200.
+7. In the webhook ledger, confirm rows exist for the provider event ids, room name, event type, participant ids, and processed result.
+8. In `video_sessions`, confirm matched joins set or preserve the participant joined timestamp, and matched leaves set away timestamp only when the session is still non-terminal.
+
+Read-only ledger check shape:
+
+```sql
+select
+  provider_event_id,
+  event_type,
+  room_name,
+  provider_participant_id,
+  provider_user_id,
+  processing_state,
+  processing_result,
+  session_id,
+  occurred_at,
+  processed_at
+from public.video_date_daily_webhook_events
+where room_name = '<daily_room_name>'
+order by occurred_at desc
+limit 20;
+```
+
+Read-only session check shape:
+
+```sql
+select
+  id,
+  daily_room_name,
+  participant_1_id,
+  participant_2_id,
+  participant_1_joined_at,
+  participant_2_joined_at,
+  participant_1_away_at,
+  participant_2_away_at,
+  state,
+  phase,
+  ended_at
+from public.video_sessions
+where id = '<video_session_id>';
+```
 
 ## Swipe And Ready Gate
 

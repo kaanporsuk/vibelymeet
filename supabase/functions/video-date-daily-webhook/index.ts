@@ -9,7 +9,6 @@ const corsHeaders: Record<string, string> = {
 
 const SIGNATURE_HEADER = "x-webhook-signature";
 const TIMESTAMP_HEADER = "x-webhook-timestamp";
-const SIGNATURE_VERSION = "v0";
 const MAX_TIMESTAMP_SKEW_MS = 2 * 60 * 1000;
 
 type JsonObject = Record<string, unknown>;
@@ -37,17 +36,32 @@ function safeEqual(a: string, b: string): boolean {
   return mismatch === 0;
 }
 
-function hex(bytes: ArrayBuffer): string {
-  return [...new Uint8Array(bytes)]
-    .map((byte) => byte.toString(16).padStart(2, "0"))
-    .join("");
+function base64ToBytes(value: string): Uint8Array | null {
+  try {
+    const binary = atob(value);
+    const bytes = new Uint8Array(binary.length);
+    for (let index = 0; index < binary.length; index += 1) {
+      bytes[index] = binary.charCodeAt(index);
+    }
+    return bytes;
+  } catch {
+    return null;
+  }
 }
 
-async function hmacSha256Hex(secret: string, message: string): Promise<string> {
+function base64(bytes: ArrayBuffer): string {
+  let binary = "";
+  for (const byte of new Uint8Array(bytes)) {
+    binary += String.fromCharCode(byte);
+  }
+  return btoa(binary);
+}
+
+async function hmacSha256Base64(secretBytes: Uint8Array, message: string): Promise<string> {
   const encoder = new TextEncoder();
   const key = await crypto.subtle.importKey(
     "raw",
-    encoder.encode(secret),
+    secretBytes,
     { name: "HMAC", hash: "SHA-256" },
     false,
     ["sign"],
@@ -57,20 +71,7 @@ async function hmacSha256Hex(secret: string, message: string): Promise<string> {
     key,
     encoder.encode(message),
   );
-  return hex(signature);
-}
-
-function signatureFromHeader(header: string | null): string | null {
-  if (!header) return null;
-  for (const part of header.split(",")) {
-    const trimmed = part.trim();
-    if (trimmed.startsWith(`${SIGNATURE_VERSION}=`)) {
-      const candidate = trimmed.slice(`${SIGNATURE_VERSION}=`.length).trim()
-        .toLowerCase();
-      if (/^[0-9a-f]{64}$/.test(candidate)) return candidate;
-    }
-  }
-  return null;
+  return base64(signature);
 }
 
 function timestampMillis(value: string | null): number | null {
@@ -96,6 +97,10 @@ async function verifyDailySignature(req: Request, rawBody: string): Promise<
   if (!webhookSecret) {
     return { ok: false, status: 503, error: "webhook_secret_missing" };
   }
+  const webhookSecretBytes = base64ToBytes(webhookSecret);
+  if (!webhookSecretBytes) {
+    return { ok: false, status: 503, error: "webhook_secret_invalid" };
+  }
 
   const timestampHeader = req.headers.get(TIMESTAMP_HEADER);
   const timestampMs = timestampMillis(timestampHeader);
@@ -108,11 +113,11 @@ async function verifyDailySignature(req: Request, rawBody: string): Promise<
     return { ok: false, status: 401, error: "timestamp_out_of_range", skewMs };
   }
 
-  const expected = await hmacSha256Hex(
-    webhookSecret,
-    `${SIGNATURE_VERSION}:${timestampHeader}:${rawBody}`,
+  const expected = await hmacSha256Base64(
+    webhookSecretBytes,
+    `${timestampHeader}.${rawBody}`,
   );
-  const received = signatureFromHeader(req.headers.get(SIGNATURE_HEADER));
+  const received = req.headers.get(SIGNATURE_HEADER)?.trim() ?? null;
   if (!received || !safeEqual(received, expected)) {
     return { ok: false, status: 401, error: "signature_invalid" };
   }
@@ -132,6 +137,10 @@ function asString(value: unknown): string | null {
 
 function asObject(value: unknown): JsonObject | null {
   return isObject(value) ? value : null;
+}
+
+function isDailyVerificationProbe(payload: JsonObject): boolean {
+  return payload.test === "test" && Object.keys(payload).length === 1;
 }
 
 function hasSecretishKey(key: string): boolean {
@@ -377,6 +386,10 @@ Deno.serve(async (req) => {
     payload = parsed;
   } catch {
     return json({ ok: false, error: "invalid_json" }, 400);
+  }
+
+  if (isDailyVerificationProbe(payload)) {
+    return json({ ok: true, test: true });
   }
 
   const providerEventId = providerEventIdFromPayload(payload);
