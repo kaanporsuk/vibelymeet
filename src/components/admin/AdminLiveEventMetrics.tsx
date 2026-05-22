@@ -291,6 +291,29 @@ interface VideoDateOpsWindow {
     source_error?: string;
     truncated?: boolean;
   };
+  daily_performance_decision: {
+    first_frame_sample_count: number;
+    first_frame_p95_ms: number | null;
+    first_frame_p99_ms: number | null;
+    room_sample_count: number;
+    room_p95_ms: number | null;
+    room_p99_ms: number | null;
+    token_sample_count: number;
+    token_p95_ms: number | null;
+    token_p99_ms: number | null;
+    join_sample_count: number;
+    join_p95_ms: number | null;
+    join_p99_ms: number | null;
+    reconnect_sample_count: number;
+    reconnect_p95_ms: number | null;
+    extension_refresh_sample_count: number;
+    extension_refresh_p95_ms: number | null;
+    room_pool_recommended: boolean;
+    decision_reason: string;
+    decision_status: VideoDateOpsStatus;
+    source_error?: string;
+    truncated?: boolean;
+  };
   timer_drift_recovered_by_server_truth: {
     status: VideoDateOpsStatus;
     source: "posthog";
@@ -707,7 +730,7 @@ const AdminLiveEventMetrics = () => {
                   Video Date Ops
                 </h3>
                 <p className="text-xs text-muted-foreground mt-1">
-                  Service-role aggregate health for first-frame latency, Ready Gate, swipe recovery, post-survey continuity, drain, and timer drift.
+                  Service-role aggregate health for first-frame latency, Daily performance, room-pool decisioning, Ready Gate, swipe recovery, post-survey continuity, drain, and timer drift.
                 </p>
               </div>
               {videoDateOps?.generated_at && (
@@ -748,6 +771,7 @@ const AdminLiveEventMetrics = () => {
                   const survey = window.survey_to_next_ready_gate_conversion;
                   const drain = window.queue_drain_failures;
                   const fairness = window.queue_fairness;
+                  const dailyDecision = window.daily_performance_decision;
                   const timer = window.timer_drift_recovered_by_server_truth;
                   const truncated = [
                     readyTapToFrame.truncated,
@@ -756,6 +780,7 @@ const AdminLiveEventMetrics = () => {
                     survey.truncated,
                     drain.truncated,
                     fairness?.truncated,
+                    dailyDecision?.truncated,
                   ].some(Boolean);
                   const rawFirstFrameCount = readyTapToFrame.raw_sample_count ?? readyTapToFrame.sample_count;
                   const firstFrameSampleText =
@@ -770,6 +795,8 @@ const AdminLiveEventMetrics = () => {
                   const drainBlockedReasons = formatReasonCounts(drain.top_blocked_reasons ?? []);
                   const queueFairnessDetail = fairness?.source_error
                     || `${fairness?.queued_session_count ?? 0} queued sessions, ${fairness?.starved_slots_120s ?? 0}/${fairness?.queued_participant_slots ?? 0} slots over 120s, ${fairness?.no_match_attempts_15m ?? 0} no-match attempts in 15m`;
+                  const dailyPoolDetail = dailyDecision?.source_error
+                    || `${dailyDecision?.decision_reason ?? "unknown"}; frame ${formatMs(dailyDecision?.first_frame_p95_ms)} p95 / ${formatMs(dailyDecision?.first_frame_p99_ms)} p99 (${dailyDecision?.first_frame_sample_count ?? 0} samples), room ${formatMs(dailyDecision?.room_p95_ms)} p95 / ${formatMs(dailyDecision?.room_p99_ms)} p99`;
 
                   return (
                     <div key={window.id} className="rounded-xl border border-white/10 bg-secondary/10 p-4 space-y-3">
@@ -842,6 +869,12 @@ const AdminLiveEventMetrics = () => {
                           value={`${formatMs((fairness?.oldest_wait_seconds ?? 0) * 1000)} oldest`}
                           detail={queueFairnessDetail}
                           status={fairness?.status ?? "unknown"}
+                        />
+                        <VideoDateOpsTile
+                          label="Daily pool decision"
+                          value={dailyDecision?.room_pool_recommended ? "Evaluate pool" : "No pool"}
+                          detail={dailyPoolDetail}
+                          status={dailyDecision?.decision_status ?? "unknown"}
                         />
                         <VideoDateOpsTile
                           label="Timer drift recovered"

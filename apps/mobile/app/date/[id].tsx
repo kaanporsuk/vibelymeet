@@ -126,6 +126,8 @@ import {
   buildVideoDateTimerDriftRecoveredPayload,
   bucketVideoDateLatencyMs,
   recordReadyGateToDateLatencyCheckpoint,
+  type ReadyGateToDateLatencyCheckpoint,
+  type VideoDateOperatorOutcome,
 } from '@clientShared/observability/videoDateOperatorMetrics';
 import { getVideoDatePermissionHandoff } from '@clientShared/matching/videoDatePermissionHandoff';
 import { LiveSurfaceOfflineStrip } from '@/components/connectivity/LiveSurfaceOfflineStrip';
@@ -955,6 +957,8 @@ export default function VideoDateScreen() {
     key: string;
     mutual: boolean;
   } | null>(null);
+  const dailyReconnectPerformanceStartedAtRef = useRef<number | null>(null);
+  const dailyReconnectPerformanceSourceRef = useRef<string | null>(null);
   /** True once we have ever observed a remote Daily participant (survives transient participant-left). */
   const [partnerEverJoined, setPartnerEverJoined] = useState(false);
   const prevLocalInDailyRef = useRef(false);
@@ -1111,6 +1115,8 @@ export default function VideoDateScreen() {
 
   useEffect(() => {
     surveyOpenedRef.current = false;
+    dailyReconnectPerformanceStartedAtRef.current = null;
+    dailyReconnectPerformanceSourceRef.current = null;
     if (warmupChoiceNoticeTimerRef.current) {
       clearTimeout(warmupChoiceNoticeTimerRef.current);
       warmupChoiceNoticeTimerRef.current = null;
@@ -4109,6 +4115,46 @@ export default function VideoDateScreen() {
     );
   }, [clearHandshakeGraceState, session?.date_extra_seconds, session?.date_started_at]);
 
+  const trackDailyPerformanceCheckpoint = useCallback(
+    ({
+      checkpoint,
+      sourceAction,
+      outcome,
+      reasonCode,
+      durationMs,
+      extra,
+    }: {
+      checkpoint: ReadyGateToDateLatencyCheckpoint;
+      sourceAction: string;
+      outcome: VideoDateOperatorOutcome;
+      reasonCode?: string | null;
+      durationMs?: number | null;
+      extra?: Record<string, string | number | boolean | null | undefined>;
+    }) => {
+      if (!sessionId) return;
+      const context = recordReadyGateToDateLatencyCheckpoint({
+        sessionId,
+        platform: 'native',
+        eventId: eventId || null,
+        sourceSurface: 'video_date_daily_performance',
+        checkpoint,
+      });
+      trackEvent(
+        LobbyPostDateEvents.READY_GATE_TO_DATE_LATENCY_CHECKPOINT,
+        buildReadyGateToDateLatencyPayload({
+          context,
+          checkpoint,
+          sourceAction,
+          outcome,
+          reasonCode,
+          durationMs,
+          extra,
+        }),
+      );
+    },
+    [eventId, sessionId],
+  );
+
   const handleExtend = useCallback(
     async (minutes: number, type: 'extra_time' | 'extended_vibe'): Promise<VideoDateExtendOutcome> => {
       if (!user?.id) {
@@ -4135,6 +4181,35 @@ export default function VideoDateScreen() {
         event_id: eventId,
         credit_type: type,
       });
+      const extensionMode = useMutualExtension ? 'mutual_v2' : extensionV2.enabled ? 'single_v2' : 'legacy';
+      const extensionRefreshStartedAt = Date.now();
+      const trackExtensionRefreshCheckpoint = (
+        checkpoint: 'extension_refresh_started' | 'extension_refresh_success' | 'extension_refresh_failure',
+        outcome: 'success' | 'failure',
+        reasonCode?: string | null,
+        extra?: Record<string, string | number | boolean | null | undefined>,
+      ) => {
+        const durationMs =
+          checkpoint === 'extension_refresh_started'
+            ? null
+            : Math.max(0, Date.now() - extensionRefreshStartedAt);
+        trackDailyPerformanceCheckpoint({
+          checkpoint,
+          sourceAction: checkpoint,
+          outcome,
+          reasonCode,
+          durationMs,
+          extra: {
+            daily_performance_segment: 'extension_refresh',
+            extension_refresh_ms: durationMs,
+            extension_mode: extensionMode,
+            credit_type: type,
+            extension_mutual: useMutualExtension,
+            ...(extra ?? {}),
+          },
+        });
+      };
+      trackExtensionRefreshCheckpoint('extension_refresh_started', 'success');
       setIsExtending(true);
       setExtendBanner(null);
       try {
@@ -4147,6 +4222,10 @@ export default function VideoDateScreen() {
             event_id: eventId,
             credit_type: type,
             reason: 'session_not_found',
+          });
+          trackExtensionRefreshCheckpoint('extension_refresh_failure', 'failure', 'session_not_found', {
+            extension_awaiting_partner: false,
+            extension_applied: false,
           });
           setExtendBanner({ kind: 'error', message: msg });
           return { ok: false, userMessage: msg };
@@ -4166,6 +4245,10 @@ export default function VideoDateScreen() {
               event_id: eventId,
               credit_type: type,
               request_expires_at: result.requestExpiresAt ?? null,
+            });
+            trackExtensionRefreshCheckpoint('extension_refresh_success', 'success', 'awaiting_partner', {
+              extension_awaiting_partner: true,
+              extension_applied: false,
             });
             return {
               ok: true,
@@ -4205,6 +4288,10 @@ export default function VideoDateScreen() {
             date_extra_seconds: nextExtra,
             idempotent: result.idempotent === true,
           });
+          trackExtensionRefreshCheckpoint('extension_refresh_success', 'success', 'extension_applied', {
+            extension_awaiting_partner: false,
+            extension_applied: true,
+          });
           return {
             ok: true,
             mutual: result.mutual === true,
@@ -4222,6 +4309,26 @@ export default function VideoDateScreen() {
           credit_type: type,
           reason: result.error,
         });
+        trackExtensionRefreshCheckpoint('extension_refresh_failure', 'failure', result.error, {
+          extension_awaiting_partner: false,
+          extension_applied: false,
+        });
+        setExtendBanner({ kind: 'error', message: msg });
+        return { ok: false, userMessage: msg };
+      } catch (error) {
+        const msg = userMessageForExtensionSpendFailure('rpc_transport');
+        trackEvent(LobbyPostDateEvents.VIDEO_DATE_EXTENSION_FAILED, {
+          platform: 'native',
+          session_id: sessionId,
+          event_id: eventId,
+          credit_type: type,
+          reason: 'exception',
+          error_name: error instanceof Error ? error.name : 'unknown',
+        });
+        trackExtensionRefreshCheckpoint('extension_refresh_failure', 'failure', 'exception', {
+          extension_awaiting_partner: false,
+          extension_applied: false,
+        });
         setExtendBanner({ kind: 'error', message: msg });
         return { ok: false, userMessage: msg };
       } finally {
@@ -4238,6 +4345,7 @@ export default function VideoDateScreen() {
       refetchVideoSession,
       session?.date_extra_seconds,
       session?.date_started_at,
+      trackDailyPerformanceCheckpoint,
     ]
   );
 
@@ -7381,12 +7489,67 @@ export default function VideoDateScreen() {
     }
     if (postJoinStage === 'reconnecting') {
       videoDateDailyDiagnostic('reconnecting_entered', { session_id: sessionId ?? '' });
+      if (dailyReconnectPerformanceStartedAtRef.current === null) {
+        dailyReconnectPerformanceStartedAtRef.current = Date.now();
+        dailyReconnectPerformanceSourceRef.current = 'post_join_stage_reconnecting';
+        trackDailyPerformanceCheckpoint({
+          checkpoint: 'daily_reconnect_started',
+          sourceAction: 'daily_reconnect_started',
+          outcome: 'success',
+          extra: {
+            daily_performance_segment: 'daily_reconnect',
+            reconnect_source: 'post_join_stage_reconnecting',
+          },
+        });
+      }
     }
     if (prev === 'reconnecting' && postJoinStage === 'active_call') {
       videoDateDailyDiagnostic('reconnecting_exited', { session_id: sessionId ?? '' });
+      const startedAt = dailyReconnectPerformanceStartedAtRef.current;
+      if (startedAt !== null) {
+        const durationMs = Math.max(0, Date.now() - startedAt);
+        const reconnectSource = dailyReconnectPerformanceSourceRef.current ?? 'post_join_stage_reconnecting';
+        dailyReconnectPerformanceStartedAtRef.current = null;
+        dailyReconnectPerformanceSourceRef.current = null;
+        trackDailyPerformanceCheckpoint({
+          checkpoint: 'daily_reconnect_success',
+          sourceAction: 'daily_reconnect_success',
+          outcome: 'success',
+          durationMs,
+          extra: {
+            daily_performance_segment: 'daily_reconnect',
+            daily_reconnect_ms: durationMs,
+            reconnect_source: reconnectSource,
+          },
+        });
+      }
+    }
+    if (
+      prev === 'reconnecting' &&
+      (postJoinStage === 'peer_missing_timeout' || postJoinStage === 'fatal_join_error' || postJoinStage === 'ended')
+    ) {
+      const startedAt = dailyReconnectPerformanceStartedAtRef.current;
+      if (startedAt !== null) {
+        const durationMs = Math.max(0, Date.now() - startedAt);
+        const reconnectSource = dailyReconnectPerformanceSourceRef.current ?? 'post_join_stage_reconnecting';
+        dailyReconnectPerformanceStartedAtRef.current = null;
+        dailyReconnectPerformanceSourceRef.current = null;
+        trackDailyPerformanceCheckpoint({
+          checkpoint: 'daily_reconnect_failure',
+          sourceAction: 'daily_reconnect_failure',
+          outcome: 'failure',
+          reasonCode: postJoinStage,
+          durationMs,
+          extra: {
+            daily_performance_segment: 'daily_reconnect',
+            daily_reconnect_ms: durationMs,
+            reconnect_source: reconnectSource,
+          },
+        });
+      }
     }
     lastLoggedPostJoinStageRef.current = postJoinStage;
-  }, [postJoinStage, sessionId]);
+  }, [postJoinStage, sessionId, trackDailyPerformanceCheckpoint]);
 
   const showOpeningRoomTopPill = !showFeedback && (joining || isConnecting) && !localInDailyRoom;
   const showTopBarWaitingPill =

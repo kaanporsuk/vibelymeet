@@ -183,8 +183,12 @@ test("latency buckets and context durations are stable", () => {
     remoteSeenToFirstRemoteFrameMs: null,
     firstRemoteFrameToReadableMs: null,
     dailyTokenDurationMs: null,
+    dailyTokenMintDurationMs: null,
     dailyJoinDurationMs: null,
+    dailyReconnectDurationMs: null,
+    extensionRefreshDurationMs: null,
     roomWarmupDurationMs: null,
+    dailyRoomCreateDurationMs: null,
     prepareEntryDurationMs: null,
     providerVerifyDurationMs: null,
     permissionCheckDurationMs: null,
@@ -199,6 +203,88 @@ test("latency buckets and context durations are stable", () => {
     }).latency_bucket,
     "1_2s",
   );
+});
+
+test("Phase 7 Daily performance checkpoints compute token-free segment durations", async () => {
+  const ctx = startReadyGateToDateLatencyContext({
+    platform: "web",
+    sessionId: "session-phase7",
+    eventId: "event-phase7",
+    sourceSurface: "video_date_daily_performance",
+    nowMs: 10_000,
+  });
+  recordReadyGateToDateLatencyCheckpoint({
+    sessionId: "session-phase7",
+    sourceSurface: "video_date_daily_performance",
+    checkpoint: "daily_room_create_started",
+    nowMs: 11_000,
+  });
+  recordReadyGateToDateLatencyCheckpoint({
+    sessionId: "session-phase7",
+    sourceSurface: "video_date_daily_performance",
+    checkpoint: "daily_room_create_success",
+    nowMs: 12_250,
+  });
+  recordReadyGateToDateLatencyCheckpoint({
+    sessionId: "session-phase7",
+    sourceSurface: "video_date_daily_performance",
+    checkpoint: "daily_token_mint_started",
+    nowMs: 12_300,
+  });
+  recordReadyGateToDateLatencyCheckpoint({
+    sessionId: "session-phase7",
+    sourceSurface: "video_date_daily_performance",
+    checkpoint: "daily_token_mint_success",
+    nowMs: 12_470,
+  });
+
+  const payload = buildReadyGateToDateLatencyPayload({
+    context: ctx,
+    checkpoint: "daily_token_mint_success",
+    sourceAction: "daily_token_mint_success",
+    outcome: "success",
+    extra: {
+      daily_performance_segment: "token_mint",
+      daily_token_mint_ms: 170,
+      token_ms: 170,
+      token: "must_not_survive",
+    },
+  });
+
+  assert.equal(payload.daily_room_create_ms, 1_250);
+  assert.equal(payload.daily_token_mint_ms, 170);
+  assert.deepEqual(sanitizeVideoDateLaunchLatencyPayload(payload), {
+    platform: "web",
+    source_surface: "video_date_daily_performance",
+    source_action: "daily_token_mint_success",
+    outcome: "success",
+    latency_bucket: "2_5s",
+    daily_performance_segment: "token_mint",
+    duration_ms: 2470,
+    daily_room_create_ms: 1250,
+    daily_token_mint_ms: 170,
+    token_ms: 170,
+  });
+
+  let capturedArgs: Record<string, unknown> | null = null;
+  const result = await emitVideoDateLaunchLatencyCheckpointObservability({
+    client: {
+      rpc: async (_fn, args) => {
+        capturedArgs = args;
+        return { data: { inserted: true }, error: null };
+      },
+    },
+    eventName: LobbyPostDateEvents.READY_GATE_TO_DATE_LATENCY_CHECKPOINT,
+    properties: {
+      session_id: "42c3c061-6339-4ef5-98d6-b45ed2c26723",
+      checkpoint: "daily_token_mint_success",
+      ...payload,
+    },
+  });
+
+  assert.deepEqual(result, { ok: true, inserted: true });
+  assert.equal(capturedArgs?.p_checkpoint, "daily_token_mint_success");
+  assert.equal(capturedArgs?.p_latency_ms, 170);
 });
 
 test("launch latency checkpoint observability preserves safe first-frame dimensions", async () => {

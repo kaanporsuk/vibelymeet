@@ -110,6 +110,8 @@ import {
   buildReadyGateToDateLatencyPayload,
   buildVideoDateTimerDriftRecoveredPayload,
   recordReadyGateToDateLatencyCheckpoint,
+  type ReadyGateToDateLatencyCheckpoint,
+  type VideoDateOperatorOutcome,
 } from "@clientShared/observability/videoDateOperatorMetrics";
 import {
   VIDEO_DATE_REMOTE_OBJECT_FIT,
@@ -461,6 +463,8 @@ const VideoDate = () => {
     key: string;
     mutual: boolean;
   } | null>(null);
+  const dailyReconnectPerformanceStartedAtRef = useRef<number | null>(null);
+  const dailyReconnectPerformanceSourceRef = useRef<string | null>(null);
   const extensionBroadcastSeenRef = useRef<Set<number>>(new Set());
   const explicitEndRequestedRef = useRef<"idle" | "sending" | "acked">("idle");
   const leaveSignalTokenRef = useRef<string | null>(null);
@@ -960,6 +964,8 @@ const VideoDate = () => {
     broadcastRefetchInFlightRef.current = false;
     broadcastPendingRefetchSeqRef.current = null;
     serverTimelineRef.current = null;
+    dailyReconnectPerformanceStartedAtRef.current = null;
+    dailyReconnectPerformanceSourceRef.current = null;
     extensionBroadcastSeenRef.current.clear();
     setPendingPartnerExtension(null);
     setServerTimeline(null);
@@ -1047,6 +1053,116 @@ const VideoDate = () => {
     },
     [id, timelineV2.enabled],
   );
+
+  const trackDailyPerformanceCheckpoint = useCallback(
+    ({
+      checkpoint,
+      sourceAction,
+      outcome,
+      reasonCode,
+      durationMs,
+      extra,
+    }: {
+      checkpoint: ReadyGateToDateLatencyCheckpoint;
+      sourceAction: string;
+      outcome: VideoDateOperatorOutcome;
+      reasonCode?: string | null;
+      durationMs?: number | null;
+      extra?: Record<string, string | number | boolean | null | undefined>;
+    }) => {
+      if (!id) return;
+      const context = recordReadyGateToDateLatencyCheckpoint({
+        sessionId: id,
+        platform: "web",
+        eventId: eventId ?? null,
+        sourceSurface: "video_date_daily_performance",
+        checkpoint,
+      });
+      trackEvent(
+        LobbyPostDateEvents.READY_GATE_TO_DATE_LATENCY_CHECKPOINT,
+        buildReadyGateToDateLatencyPayload({
+          context,
+          checkpoint,
+          sourceAction,
+          outcome,
+          reasonCode,
+          durationMs,
+          extra,
+        }),
+      );
+    },
+    [eventId, id],
+  );
+
+  useEffect(() => {
+    if (!id || showFeedback || phase === "ended") {
+      dailyReconnectPerformanceStartedAtRef.current = null;
+      dailyReconnectPerformanceSourceRef.current = null;
+      return;
+    }
+
+    const isReconnectActive =
+      dailyReconnectState === "interrupted" ||
+      dailyReconnectState === "partner_reconnecting" ||
+      dailyReconnectState === "partner_left_grace";
+
+    if (isReconnectActive && dailyReconnectPerformanceStartedAtRef.current === null) {
+      const startedAt = Date.now();
+      dailyReconnectPerformanceStartedAtRef.current = startedAt;
+      dailyReconnectPerformanceSourceRef.current = dailyReconnectState;
+      trackDailyPerformanceCheckpoint({
+        checkpoint: "daily_reconnect_started",
+        sourceAction: "daily_reconnect_started",
+        outcome: "success",
+        extra: {
+          daily_performance_segment: "daily_reconnect",
+          reconnect_source: dailyReconnectState,
+        },
+      });
+      return;
+    }
+
+    const startedAt = dailyReconnectPerformanceStartedAtRef.current;
+    if (startedAt === null) return;
+
+    if (dailyReconnectState === "recovered" || dailyReconnectState === "connected") {
+      const durationMs = Math.max(0, Date.now() - startedAt);
+      const reconnectSource = dailyReconnectPerformanceSourceRef.current ?? dailyReconnectState;
+      dailyReconnectPerformanceStartedAtRef.current = null;
+      dailyReconnectPerformanceSourceRef.current = null;
+      trackDailyPerformanceCheckpoint({
+        checkpoint: "daily_reconnect_success",
+        sourceAction: "daily_reconnect_success",
+        outcome: "success",
+        durationMs,
+        extra: {
+          daily_performance_segment: "daily_reconnect",
+          daily_reconnect_ms: durationMs,
+          reconnect_source: reconnectSource,
+        },
+      });
+      return;
+    }
+
+    if (dailyReconnectState === "failed_after_grace") {
+      const durationMs = Math.max(0, Date.now() - startedAt);
+      const reconnectSource = dailyReconnectPerformanceSourceRef.current ?? dailyReconnectState;
+      dailyReconnectPerformanceStartedAtRef.current = null;
+      dailyReconnectPerformanceSourceRef.current = null;
+      trackDailyPerformanceCheckpoint({
+        checkpoint: "daily_reconnect_failure",
+        sourceAction: "daily_reconnect_failure",
+        outcome: "failure",
+        reasonCode: "failed_after_grace",
+        durationMs,
+        extra: {
+          daily_performance_segment: "daily_reconnect",
+          daily_reconnect_ms: durationMs,
+          reconnect_source: reconnectSource,
+        },
+      });
+    }
+  }, [dailyReconnectState, id, phase, showFeedback, trackDailyPerformanceCheckpoint]);
 
   const applyTimelineSnapshot = useCallback(
     (snapshot: Awaited<ReturnType<typeof fetchVideoDateSnapshot>>, source: string) => {
@@ -3066,6 +3182,35 @@ const VideoDate = () => {
         event_id: eventId,
         credit_type: type,
       });
+      const extensionMode = useMutualExtension ? "mutual_v2" : extensionV2.enabled ? "single_v2" : "legacy";
+      const extensionRefreshStartedAt = Date.now();
+      const trackExtensionRefreshCheckpoint = (
+        checkpoint: "extension_refresh_started" | "extension_refresh_success" | "extension_refresh_failure",
+        outcome: "success" | "failure",
+        reasonCode?: string | null,
+        extra?: Record<string, string | number | boolean | null | undefined>,
+      ) => {
+        const durationMs =
+          checkpoint === "extension_refresh_started"
+            ? null
+            : Math.max(0, Date.now() - extensionRefreshStartedAt);
+        trackDailyPerformanceCheckpoint({
+          checkpoint,
+          sourceAction: checkpoint,
+          outcome,
+          reasonCode,
+          durationMs,
+          extra: {
+            daily_performance_segment: "extension_refresh",
+            extension_refresh_ms: durationMs,
+            extension_mode: extensionMode,
+            credit_type: type,
+            extension_mutual: useMutualExtension,
+            ...(extra ?? {}),
+          },
+        });
+      };
+      trackExtensionRefreshCheckpoint("extension_refresh_started", "success");
       try {
         const { data, error } = useMutualExtension
           ? await supabase.rpc("video_session_request_extension_v2" as never, {
@@ -3100,6 +3245,10 @@ const VideoDate = () => {
             credit_type: type,
             reason: "rpc_transport",
           });
+          trackExtensionRefreshCheckpoint("extension_refresh_failure", "failure", "rpc_transport", {
+            extension_awaiting_partner: false,
+            extension_applied: false,
+          });
           void refetchCredits();
           return { ok: false, userMessage: userMessageForExtensionSpendFailure("rpc_transport") };
         }
@@ -3112,6 +3261,10 @@ const VideoDate = () => {
             event_id: eventId,
             credit_type: type,
             reason: parsed.error,
+          });
+          trackExtensionRefreshCheckpoint("extension_refresh_failure", "failure", parsed.error, {
+            extension_awaiting_partner: false,
+            extension_applied: false,
           });
           void refetchCredits();
           return { ok: false, userMessage: userMessageForExtensionSpendFailure(parsed.error) };
@@ -3134,6 +3287,10 @@ const VideoDate = () => {
             event_id: eventId,
             credit_type: type,
             request_expires_at: parsed.requestExpiresAt ?? null,
+          });
+          trackExtensionRefreshCheckpoint("extension_refresh_success", "success", "awaiting_partner", {
+            extension_awaiting_partner: true,
+            extension_applied: false,
           });
           return {
             ok: true,
@@ -3182,6 +3339,10 @@ const VideoDate = () => {
           date_extra_seconds: nextExtra,
           idempotent: parsed.idempotent === true,
         });
+        trackExtensionRefreshCheckpoint("extension_refresh_success", "success", "extension_applied", {
+          extension_awaiting_partner: false,
+          extension_applied: true,
+        });
         void refetchCredits();
         return {
           ok: true,
@@ -3190,11 +3351,35 @@ const VideoDate = () => {
           secondsAdded: addedSeconds,
           dateExtraSeconds: nextExtra,
         };
+      } catch (error) {
+        captureSupabaseError("video_date_extension_refresh_exception", error);
+        trackEvent(LobbyPostDateEvents.VIDEO_DATE_EXTENSION_FAILED, {
+          platform: "web",
+          session_id: id,
+          event_id: eventId,
+          credit_type: type,
+          reason: "exception",
+        });
+        trackExtensionRefreshCheckpoint("extension_refresh_failure", "failure", "exception", {
+          extension_awaiting_partner: false,
+          extension_applied: false,
+        });
+        void refetchCredits();
+        return { ok: false, userMessage: userMessageForExtensionSpendFailure("rpc_transport") };
       } finally {
         extensionSpendInFlightRef.current = false;
       }
     },
-    [dateExtraSeconds, dateStartedAt, eventId, extensionMutualV2.enabled, extensionV2.enabled, id, refetchCredits]
+    [
+      dateExtraSeconds,
+      dateStartedAt,
+      eventId,
+      extensionMutualV2.enabled,
+      extensionV2.enabled,
+      id,
+      refetchCredits,
+      trackDailyPerformanceCheckpoint,
+    ]
   );
 
   // End call: server-owned `video_date_transition(end, …)` + survey/navigation UX (no direct session row writes here).
