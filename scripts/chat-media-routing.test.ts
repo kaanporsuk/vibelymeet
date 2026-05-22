@@ -1,7 +1,11 @@
 import assert from "node:assert/strict";
 import {
+  extractChatImageIdentityRef,
+  extractChatImageMediaRef,
+  extractRenderableChatImageUrl,
   formatChatImageMessageContent,
   inferChatMediaRenderKind,
+  isRenderableChatImageUrl,
   parseChatImageMessageContent,
 } from "../shared/chat/messageRouting";
 
@@ -34,5 +38,24 @@ assert.equal(
   }),
   null,
 );
+
+const privatePhotoRef = "photos/thread/photo.jpg";
+const privatePhotoRow = {
+  content: formatChatImageMessageContent(privatePhotoRef),
+  structured_payload: {
+    v: 2,
+    kind: "chat_image",
+    provider: "bunny_storage",
+    media_ref: privatePhotoRef,
+  },
+};
+assert.equal(extractChatImageMediaRef(privatePhotoRow), null);
+assert.equal(extractChatImageMediaRef(privatePhotoRow, { allowPrivateMediaRefs: true }), privatePhotoRef);
+assert.equal(extractChatImageIdentityRef(privatePhotoRow), privatePhotoRef);
+assert.equal(extractRenderableChatImageUrl(privatePhotoRow), null);
+assert.equal(isRenderableChatImageUrl(privatePhotoRef), false);
+assert.equal(isRenderableChatImageUrl(remotePhoto), true);
+assert.equal(isRenderableChatImageUrl(localFile), true);
+assert.equal(inferChatMediaRenderKind(privatePhotoRow), "image");
 
 console.log("chat-media-routing tests passed");

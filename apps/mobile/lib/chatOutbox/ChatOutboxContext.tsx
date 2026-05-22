@@ -20,7 +20,7 @@ import { cleanupOutboxCacheUri } from '@/lib/chatOutbox/mediaCache';
 import { trackEvent } from '@/lib/analytics';
 import type { ChatOutboxItem, ChatOutboxPayload, ChatOutboxQueueState } from '@/lib/chatOutbox/types';
 import { trackVibeClipEvent } from '@/lib/vibeClipAnalytics';
-import { invalidateAfterThreadMutation } from '@/lib/chatApi';
+import { CHAT_MESSAGE_SELECT, invalidateAfterThreadMutation, patchThreadCacheFromRawMessage } from '@/lib/chatApi';
 import { classifySendFailureMessage, durationBucketFromSeconds } from '../../../../shared/chat/vibeClipAnalytics';
 import { getSessionUploadSummary, type SessionUploadSummary } from '../../../../shared/media/session-upload-summary';
 import {
@@ -444,15 +444,18 @@ export function ChatOutboxProvider({ children }: { children: React.ReactNode }) 
 
   const reconcileWithServerIds = useCallback((serverMessageIds: Set<string>) => {
     const toCleanup: string[] = [];
-    updateItems((prev) =>
-      prev.filter((it) => {
+    updateItems((prev) => {
+      let changed = false;
+      const next = prev.filter((it) => {
         if (!it.serverMessageId) return true;
         if (!serverMessageIds.has(it.serverMessageId)) return true;
         const uri = itemPayloadUri(it);
         if (uri) toCleanup.push(uri);
+        changed = true;
         return false;
-      })
-    );
+      });
+      return changed ? next : prev;
+    });
     if (toCleanup.length > 0) {
       void Promise.all(toCleanup.map((uri) => cleanupOutboxCacheUri(uri)));
     }
@@ -691,36 +694,61 @@ export function ChatOutboxProvider({ children }: { children: React.ReactNode }) 
 
         const { data: serverRow } = await supabase
           .from('messages')
-          .select('id')
+          .select(CHAT_MESSAGE_SELECT)
           .eq('id', serverMessageId)
           .eq('match_id', item.matchId)
           .maybeSingle();
 
         if (serverRow?.id) {
-          const uri = itemPayloadUri(item);
-          if (uri) void cleanupOutboxCacheUri(uri);
-          updateItems((prev) =>
-            prev.map((it) =>
-              it.id === item.id
-                ? {
-                    ...it,
-                    state: 'sent' as const,
-                    hydrationLastCheckedAtMs: now,
-                    hydrationDeadlineAtMs: deadlineAtMs,
-                    updatedAtMs: now,
-                  }
-                : it
-            )
-          );
-          invalidateAfterThreadMutation(queryClient, {
+          const patchScope = {
             otherUserId: item.otherUserId,
             currentUserId: item.userId,
             matchId: item.matchId,
+          };
+          const patchResult = await patchThreadCacheFromRawMessage({
+            queryClient,
+            ...patchScope,
+            raw: serverRow,
           });
-          if (isMediaOutboxItem(item)) {
-            setSessionUploadStats((prev) => ({ ...prev, succeeded: prev.succeeded + 1 }));
+          if (item.payload.kind === 'image' && patchResult.patched && !patchResult.displayReady) {
+            if (!pastDeadline) {
+              updateItems((prev) =>
+                prev.map((it) =>
+                  it.id === item.id
+                    ? {
+                        ...it,
+                        hydrationLastCheckedAtMs: now,
+                        hydrationDeadlineAtMs: deadlineAtMs,
+                        updatedAtMs: now,
+                      }
+                    : it
+                )
+              );
+              invalidateAfterThreadMutation(queryClient, patchScope);
+              continue;
+            }
+          } else {
+            const uri = itemPayloadUri(item);
+            if (uri) void cleanupOutboxCacheUri(uri);
+            updateItems((prev) =>
+              prev.map((it) =>
+                it.id === item.id
+                  ? {
+                      ...it,
+                      state: 'sent' as const,
+                      hydrationLastCheckedAtMs: now,
+                      hydrationDeadlineAtMs: deadlineAtMs,
+                      updatedAtMs: now,
+                    }
+                  : it
+              )
+            );
+            invalidateAfterThreadMutation(queryClient, patchScope);
+            if (isMediaOutboxItem(item)) {
+              setSessionUploadStats((prev) => ({ ...prev, succeeded: prev.succeeded + 1 }));
+            }
+            continue;
           }
-          continue;
         }
 
         if (pastDeadline) {
@@ -782,7 +810,7 @@ export function ChatOutboxProvider({ children }: { children: React.ReactNode }) 
         );
 
         try {
-          const { serverMessageId, uploadedPublicUrl, uploadedMediaUrl, patchedThreadCache } = await executeOutboxItem(
+          const { serverMessageId, uploadedPublicUrl, uploadedMediaUrl, patchedThreadCache, displayReady } = await executeOutboxItem(
             { ...next, attemptCount },
             queryClient,
             (fraction) => {
@@ -798,7 +826,10 @@ export function ChatOutboxProvider({ children }: { children: React.ReactNode }) 
             { signal: abortController.signal },
           );
           const successAtMs = Date.now();
-          const completeImmediately = next.payload.kind !== 'video' && patchedThreadCache === true;
+          const completeImmediately =
+            next.payload.kind !== 'video' &&
+            patchedThreadCache === true &&
+            (next.payload.kind !== 'image' || displayReady === true);
           if (completeImmediately) {
             const uri = itemPayloadUri(next);
             if (uri) void cleanupOutboxCacheUri(uri);

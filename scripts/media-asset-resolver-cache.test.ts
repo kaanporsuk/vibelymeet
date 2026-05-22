@@ -10,6 +10,11 @@ import {
   refreshMediaAssetUrl,
   resolveMessageMediaForDisplay,
 } from "../src/lib/mediaAssetResolver";
+import {
+  extractChatImageIdentityRef,
+  extractRenderableChatImageUrl,
+  formatChatImageMessageContent,
+} from "../shared/chat/messageRouting";
 import { resolvePreservedMediaSelectionId } from "../shared/chat/mediaSelection";
 
 const root = process.cwd();
@@ -283,6 +288,65 @@ try {
   assert.equal(failureInvokeCount, 3);
 } finally {
   Date.now = originalFailureDateNow;
+  __setChatMediaUrlIssuerForTests(null);
+  __clearChatMediaUrlCacheForTests();
+}
+
+let missingImageResolveInvokeCount = 0;
+__setChatMediaUrlIssuerForTests(async () => {
+  missingImageResolveInvokeCount += 1;
+  return null;
+});
+try {
+  const payload = {
+    v: 2,
+    kind: "chat_image",
+    provider: "bunny_storage",
+    media_ref: "photos/delayed/photo.jpg",
+    client_request_id: "delayed-photo-request",
+  } as const;
+  const resolved = await resolveMessageMediaForDisplay({
+    id: "550e8400-e29b-41d4-a716-446655440013",
+    content: formatChatImageMessageContent(payload.media_ref),
+    structured_payload: payload,
+  });
+
+  assert.equal(resolved.content, formatChatImageMessageContent(payload.media_ref));
+  assert.deepEqual(resolved.structured_payload, payload);
+  assert.equal(extractChatImageIdentityRef(resolved), payload.media_ref);
+  assert.equal(extractRenderableChatImageUrl(resolved), null);
+  assert.equal(missingImageResolveInvokeCount, 1);
+} finally {
+  __setChatMediaUrlIssuerForTests(null);
+  __clearChatMediaUrlCacheForTests();
+}
+
+__setChatMediaUrlIssuerForTests(async () => ({
+  success: true,
+  url: "https://signed.example.com/structured-image",
+  expiresInSeconds: 300,
+}));
+try {
+  const payload = {
+    v: 2,
+    kind: "chat_image",
+    provider: "bunny_storage",
+    media_ref: "photos/ready/photo.jpg",
+    client_request_id: "ready-photo-request",
+  } as const;
+  const resolved = await resolveMessageMediaForDisplay({
+    id: "550e8400-e29b-41d4-a716-446655440014",
+    content: formatChatImageMessageContent(payload.media_ref),
+    structured_payload: payload,
+  });
+
+  assert.equal(resolved.content, formatChatImageMessageContent("https://signed.example.com/structured-image"));
+  assert.equal(
+    (resolved.structured_payload as { media_ref?: string } | null)?.media_ref,
+    "https://signed.example.com/structured-image",
+  );
+  assert.equal(extractRenderableChatImageUrl(resolved), "https://signed.example.com/structured-image");
+} finally {
   __setChatMediaUrlIssuerForTests(null);
   __clearChatMediaUrlCacheForTests();
 }

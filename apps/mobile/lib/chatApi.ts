@@ -6,7 +6,11 @@ import { avatarUrl, rememberProfilePhotoDerivativeMap } from '@/lib/imageUrl';
 import { resolvePrimaryProfilePhotoPath } from '../../../shared/profilePhoto/resolvePrimaryProfilePhotoPath';
 import { bestMatchSortKey, compatibilityPercent, type MatchScoreInput } from '@/lib/matchSortScore';
 import { prewarmMediaAssets, resolveMessageMediaForDisplay, type MediaAssetPrewarmInput } from '@/lib/mediaAssetResolver';
-import { extractChatImageMediaRef } from '@/lib/chatMessageContent';
+import {
+  extractChatImageIdentityRef,
+  extractChatImageMediaRef,
+  extractRenderableChatImageUrl,
+} from '@/lib/chatMessageContent';
 import {
   collapseVibeGameMessageRows,
   type ChatGameSessionMessageRow,
@@ -383,9 +387,14 @@ type ChatPresenceRow = {
 };
 
 const CHAT_THREAD_PAGE_SIZE = 28;
-const CHAT_MESSAGE_SELECT =
+export const CHAT_MESSAGE_SELECT =
   'id, match_id, sender_id, content, created_at, read_at, audio_url, audio_duration_seconds, video_url, video_duration_seconds, message_kind, ref_id, structured_payload';
 let chatThreadPageEdgeUnavailable = false;
+
+export type ThreadCachePatchResult = {
+  patched: boolean;
+  displayReady: boolean;
+};
 
 export type ChatRawMessageRow = {
   id: string;
@@ -614,31 +623,44 @@ export async function hydrateChatRowsForDisplay(params: {
   return collapseVibeGameMessageRows(resolvedRowsForGames, currentUserId, otherUserId, mapDbRowToChatMessage);
 }
 
+function isMessageDisplayReadyForOutboxCompletion(message: ChatMessage): boolean {
+  const mediaRow = {
+    content: message.text,
+    structured_payload: message.structuredPayload,
+  };
+  const imageIdentity = message.image_source_ref ?? extractChatImageIdentityRef(mediaRow);
+  if (!imageIdentity) return true;
+  return Boolean(extractRenderableChatImageUrl(mediaRow));
+}
+
 export async function patchThreadCacheFromRawMessage(params: {
   queryClient: QueryClient;
   otherUserId: string;
   currentUserId: string;
   matchId?: string | null;
   raw: unknown;
-}): Promise<boolean> {
+}): Promise<ThreadCachePatchResult> {
   const { queryClient, otherUserId, currentUserId, matchId, raw } = params;
-  if (!otherUserId || !currentUserId) return false;
-  if (!raw || typeof raw !== 'object' || !('id' in raw)) return false;
+  if (!otherUserId || !currentUserId) return { patched: false, displayReady: false };
+  if (!raw || typeof raw !== 'object' || !('id' in raw)) return { patched: false, displayReady: false };
 
   const row = normalizeRawMessage(raw as Partial<ChatRawMessageRow> & { id: string });
-  if (matchId && row.match_id && row.match_id !== matchId) return false;
+  if (matchId && row.match_id && row.match_id !== matchId) return { patched: false, displayReady: false };
 
   const renderableKind = toRenderableMessageKind(row.message_kind);
-  if (row.message_kind === 'vibe_game' || renderableKind === 'vibe_game_session') return false;
+  if (row.message_kind === 'vibe_game' || renderableKind === 'vibe_game_session') {
+    return { patched: false, displayReady: false };
+  }
 
   let hydrated: ChatMessage[];
   try {
     hydrated = await hydrateChatRowsForDisplay({ rows: [row], currentUserId, otherUserId });
   } catch {
-    return false;
+    return { patched: false, displayReady: false };
   }
   const message = hydrated[0];
-  if (!message) return false;
+  if (!message) return { patched: false, displayReady: false };
+  const displayReady = isMessageDisplayReadyForOutboxCompletion(message);
 
   const key = threadMessagesQueryKey(otherUserId, currentUserId);
   let patched = false;
@@ -666,7 +688,7 @@ export async function patchThreadCacheFromRawMessage(params: {
     });
     return { ...old, pages };
   });
-  return patched;
+  return { patched, displayReady: patched && displayReady };
 }
 
 async function fetchDirectChatThreadPage(params: {

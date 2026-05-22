@@ -739,12 +739,14 @@ export async function resolveMessageMediaForDisplay<
   if (imageRef) {
     const imageAsset = await getCachedMediaAsset(row.id, "image", imageRef);
     const imageUrl = imageAsset?.url ?? null;
-    resolved.content = imageUrl ? formatChatImageMessageContent(imageUrl) : formatChatImageMessageContent("");
-    if (payload?.kind === "chat_image" && payload.v === 2 && payload.provider === "bunny_storage") {
-      payload.media_ref = imageUrl ?? "";
-      const placeholder = mediaPlaceholderPayload(imageAsset);
-      if (placeholder) payload.media_placeholder = placeholder;
-      resolved.structured_payload = payload;
+    if (imageUrl) {
+      resolved.content = formatChatImageMessageContent(imageUrl);
+      if (payload?.kind === "chat_image" && payload.v === 2 && payload.provider === "bunny_storage") {
+        payload.media_ref = imageUrl;
+        const placeholder = mediaPlaceholderPayload(imageAsset);
+        if (placeholder) payload.media_placeholder = placeholder;
+        resolved.structured_payload = payload;
+      }
     }
   }
 

@@ -11,7 +11,11 @@ import { captureSupabaseError } from "@/lib/errorTracking";
 import { rememberProfilePhotoDerivativeMap } from "@/utils/imageUrl";
 import { collapseVibeGameRowsForWeb, type WebHydratedGameSessionView } from "@/lib/webChatGameSessions";
 import { prewarmMediaAssets, resolveMessageMediaForDisplay, type MediaAssetPrewarmInput } from "@/lib/mediaAssetResolver";
-import { extractChatImageMediaRef } from "@/lib/chatMessageContent";
+import {
+  extractChatImageIdentityRef,
+  extractChatImageMediaRef,
+  extractRenderableChatImageUrl,
+} from "@/lib/chatMessageContent";
 import { toRenderableMessageKind } from "../../shared/chat/messageRouting";
 import { threadMessagesQueryKey, type ThreadInvalidateScope } from "../../shared/chat/queryKeys";
 import { resolvePrimaryProfilePhotoPath } from "../../shared/profilePhoto/resolvePrimaryProfilePhotoPath";
@@ -38,9 +42,14 @@ export function invalidateAfterThreadMutation(qc: QueryClient, scope: ThreadInva
 
 const BLOCKED_MESSAGE_COPY = "You can't message this person.";
 const CHAT_THREAD_PAGE_SIZE = 28;
-const CHAT_MESSAGE_SELECT =
+export const CHAT_MESSAGE_SELECT =
   "id, match_id, sender_id, content, created_at, read_at, audio_url, audio_duration_seconds, video_url, video_duration_seconds, message_kind, ref_id, structured_payload";
 let chatThreadPageEdgeUnavailable = false;
+
+export type ThreadCachePatchResult = {
+  patched: boolean;
+  displayReady: boolean;
+};
 
 type SendMessagePayload = {
   success?: boolean;
@@ -352,28 +361,41 @@ export async function hydrateChatRowsForDisplay(
   });
 }
 
+function isMessageDisplayReadyForOutboxCompletion(message: Message): boolean {
+  const mediaRow = {
+    content: message.text,
+    structured_payload: message.structuredPayload,
+  };
+  const imageIdentity = message.imageSourceRef ?? extractChatImageIdentityRef(mediaRow);
+  if (!imageIdentity) return true;
+  return Boolean(extractRenderableChatImageUrl(mediaRow));
+}
+
 export async function patchThreadCacheFromRawMessage(
   qc: QueryClient,
   scope: ThreadInvalidateScope | undefined,
   raw: unknown,
-): Promise<boolean> {
-  if (!scope?.otherUserId || !scope.currentUserId) return false;
-  if (!raw || typeof raw !== "object" || !("id" in raw)) return false;
+): Promise<ThreadCachePatchResult> {
+  if (!scope?.otherUserId || !scope.currentUserId) return { patched: false, displayReady: false };
+  if (!raw || typeof raw !== "object" || !("id" in raw)) return { patched: false, displayReady: false };
 
   const row = normalizeRawMessage(raw as Partial<ChatRawMessageRow> & { id: string });
-  if (scope.matchId && row.match_id && row.match_id !== scope.matchId) return false;
+  if (scope.matchId && row.match_id && row.match_id !== scope.matchId) return { patched: false, displayReady: false };
 
   const renderableKind = toRenderableMessageKind(row.message_kind);
-  if (row.message_kind === "vibe_game" || renderableKind === "vibe_game_session") return false;
+  if (row.message_kind === "vibe_game" || renderableKind === "vibe_game_session") {
+    return { patched: false, displayReady: false };
+  }
 
   let hydrated: Message[];
   try {
     hydrated = await hydrateChatRowsForDisplay([row], scope.currentUserId);
   } catch {
-    return false;
+    return { patched: false, displayReady: false };
   }
   const message = hydrated[0];
-  if (!message) return false;
+  if (!message) return { patched: false, displayReady: false };
+  const displayReady = isMessageDisplayReadyForOutboxCompletion(message);
 
   const key = threadMessagesQueryKey(scope.otherUserId, scope.currentUserId);
   let patched = false;
@@ -405,7 +427,7 @@ export async function patchThreadCacheFromRawMessage(
     });
     return { ...old, pages };
   });
-  return patched;
+  return { patched, displayReady: patched && displayReady };
 }
 
 async function hydrateChatPageRowsForDisplay(params: {

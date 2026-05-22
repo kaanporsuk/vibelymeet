@@ -18,6 +18,9 @@ const dateSuggestionChip = read("src/components/chat/DateSuggestionChip.tsx");
 const webMatches = read("src/hooks/useMatches.ts");
 const nativeChat = read("apps/mobile/app/chat/[id].tsx");
 const nativeChatApi = read("apps/mobile/lib/chatApi.ts");
+const webMessagesHook = read("src/hooks/useMessages.ts");
+const webMediaResolver = read("src/lib/mediaAssetResolver.ts");
+const nativeMediaResolver = read("apps/mobile/lib/mediaAssetResolver.ts");
 const webApp = read("src/App.tsx");
 const webRealtimeMessages = read("src/hooks/useRealtimeMessages.ts");
 const outgoingStatusLabels = read("shared/chat/outgoingStatusLabels.ts");
@@ -61,7 +64,7 @@ test("web chat avoids jumpy rich-content reflow and older-message prepend snaps"
     /olderPageScrollSnapshotRef\.current = null;[\s\S]*userScrollIntentUntilRef\.current = Date\.now\(\) \+ 900;[\s\S]*el\.scrollTop = el\.scrollHeight - snapshot\.scrollHeight \+ snapshot\.scrollTop;/,
   );
   assert.match(webChat, /setNewBelowCue\(true\)/);
-  assert.match(webChat, /<span className="block aspect-\[4\/5\] w-60 max-w-full overflow-hidden/);
+  assert.match(webChat, /<span[\s\S]{0,80}className="block aspect-\[4\/5\] w-60 max-w-full overflow-hidden/);
 });
 
 test("web chat gates mobile keyboard viewport styling to focused mobile composer", () => {
@@ -272,13 +275,54 @@ test("web and native outbox wake immediately and keep interval fallback", () => 
 test("successful text image and voice sends can patch thread cache from send-message response", () => {
   assert.match(webOutboxExecute, /patchThreadCacheFromRawMessage/);
   assert.match(nativeOutboxExecute, /patchThreadCacheFromRawMessage/);
-  assert.match(webOutboxContext, /completeImmediately = next\.payload\.kind !== "video" && patchedThreadCache === true/);
-  assert.match(nativeOutboxContext, /completeImmediately = next\.payload\.kind !== 'video' && patchedThreadCache === true/);
+  assert.match(
+    webOutboxContext,
+    /completeImmediately =[\s\S]{0,220}next\.payload\.kind !== "video"[\s\S]{0,160}patchedThreadCache === true[\s\S]{0,160}next\.payload\.kind !== "image" \|\| displayReady === true/,
+  );
+  assert.match(
+    nativeOutboxContext,
+    /completeImmediately =[\s\S]{0,220}next\.payload\.kind !== 'video'[\s\S]{0,160}patchedThreadCache === true[\s\S]{0,160}next\.payload\.kind !== 'image' \|\| displayReady === true/,
+  );
   assert.match(sendMessageTransport, /SEND_MESSAGE_RESPONSE_TIMEOUT_MS = 20_000/);
   assert.match(webOutboxExecute, /shared\/chat\/sendMessageTransport/);
   assert.match(webOutboxExecute, /supabase\.functions\.invoke\("send-message", \{[\s\S]{0,80}timeout: SEND_MESSAGE_RESPONSE_TIMEOUT_MS/);
   assert.match(nativeChatApi, /shared\/chat\/sendMessageTransport/);
   assert.match(nativeChatApi, /supabase\.functions\.invoke\('send-message', \{[\s\S]{0,80}timeout: SEND_MESSAGE_RESPONSE_TIMEOUT_MS/);
+});
+
+test("photo outbox handoff waits for renderable server images", () => {
+  assert.match(webChat, /function shouldPreferLocalImageUntilServerRenderable/);
+  assert.match(webChat, /const localClientIdsToPrefer = new Set<string>\(\)/);
+  assert.match(webChat, /extractRenderableChatImageUrl/);
+  assert.match(webChat, /outboxPreviewSourceKeysRef/);
+  assert.match(webChat, /threadLayoutAnchorKey/);
+  assert.match(webChat, /reconcileWebOutboxWithServerIds/);
+  assert.match(webChat, /photoUrlOverridesById\[message\.id\] \?\?[\s\S]{0,120}extractRenderableChatImageUrl/);
+  assert.doesNotMatch(webChat, /photoUrlOverridesById\[message\.id\] \?\?[\s\S]{0,160}allowPrivateMediaRefs: true/);
+
+  assert.match(nativeChat, /function shouldPreferLocalImageUntilServerRenderable/);
+  assert.match(nativeChat, /const localClientIdsToPrefer = new Set<string>\(\)/);
+  assert.match(nativeChat, /extractRenderableChatImageUrl/);
+  assert.match(nativeChat, /Preparing photo\.\.\./);
+  assert.match(nativeChat, /photoUriOverridesById\[message\.id\] \?\? extractRenderableChatImageUrl/);
+  assert.doesNotMatch(nativeChat, /photoUriOverridesById\[message\.id\] \?\?[\s\S]{0,160}allowPrivateMediaRefs: true/);
+
+  assert.match(webMessagesHook, /type ThreadCachePatchResult = \{[\s\S]{0,80}displayReady: boolean/);
+  assert.match(webMessagesHook, /function isMessageDisplayReadyForOutboxCompletion/);
+  assert.match(webMessagesHook, /extractRenderableChatImageUrl/);
+  assert.match(webMessagesHook, /return \{ patched, displayReady: patched && displayReady \}/);
+  assert.match(nativeChatApi, /type ThreadCachePatchResult = \{[\s\S]{0,80}displayReady: boolean/);
+  assert.match(nativeChatApi, /function isMessageDisplayReadyForOutboxCompletion/);
+  assert.match(nativeChatApi, /extractRenderableChatImageUrl/);
+  assert.match(nativeChatApi, /return \{ patched, displayReady: patched && displayReady \}/);
+
+  for (const source of [webOutboxContext, nativeOutboxContext]) {
+    assert.match(source, /let changed = false;[\s\S]{0,500}return changed \? next : prev/);
+    assert.match(source, /select\(CHAT_MESSAGE_SELECT\)/);
+    assert.match(source, /patchResult\.patched && !patchResult\.displayReady/);
+  }
+  assert.doesNotMatch(webMediaResolver, /formatChatImageMessageContent\(""\)/);
+  assert.doesNotMatch(nativeMediaResolver, /formatChatImageMessageContent\(''\)/);
 });
 
 test("send-message backgrounds push notifications after durable insert", () => {
@@ -330,7 +374,10 @@ test("focused thread realtime self-heals on drops and foreground resume", () => 
 });
 
 test("inbox subscriptions keep conversation lists immediate on message changes", () => {
-  assert.doesNotMatch(webApp, /table:\s*"messages"/);
+  assert.doesNotMatch(webApp, /\{\s*event: "\*", schema: "public", table: "messages"\s*\}/);
+  assert.doesNotMatch(webApp, /\{\s*event: "DELETE", schema: "public", table: "messages"\s*\}/);
+  assert.match(webApp, /\{\s*event: "INSERT", schema: "public", table: "messages"\s*\}/);
+  assert.match(webApp, /\{\s*event: "UPDATE", schema: "public", table: "messages"\s*\}/);
   assert.match(webMatches, /Surface-scoped message realtime/);
   assert.match(webMatches, /event: "INSERT"[\s\S]*table: "messages"/);
   assert.match(webMatches, /event: "UPDATE"[\s\S]*table: "messages"/);

@@ -20,7 +20,7 @@ import {
 } from "@/lib/webChatOutbox/execute";
 import { syncChatVibeClipUploadStatus } from "@/lib/mediaAssetResolver";
 import { isLikelyNetworkFailure, outboxFailureUserMessage } from "@/lib/webChatOutbox/network";
-import { invalidateAfterThreadMutation } from "@/hooks/useMessages";
+import { CHAT_MESSAGE_SELECT, invalidateAfterThreadMutation, patchThreadCacheFromRawMessage } from "@/hooks/useMessages";
 import { trackEvent } from "@/lib/analytics";
 import { trackVibeClipEvent } from "@/lib/vibeClipAnalytics";
 import type { WebChatOutboxItem, WebChatOutboxPayload, WebChatOutboxQueueState } from "@/lib/webChatOutbox/types";
@@ -457,15 +457,18 @@ export function WebChatOutboxProvider({ children }: { children: ReactNode }) {
 
   const reconcileWithServerIds = useCallback((serverMessageIds: Set<string>) => {
     const toCleanup: string[] = [];
-    updateItems((prev) =>
-      prev.filter((it) => {
+    updateItems((prev) => {
+      let changed = false;
+      const next = prev.filter((it) => {
         if (!it.serverMessageId) return true;
         if (!serverMessageIds.has(it.serverMessageId)) return true;
         const key = itemPayloadBlobKey(it);
         if (key) toCleanup.push(key);
+        changed = true;
         return false;
-      }),
-    );
+      });
+      return changed ? next : prev;
+    });
     if (toCleanup.length > 0) {
       void Promise.all(toCleanup.map((k) => deleteOutboxBlob(k)));
     }
@@ -704,35 +707,62 @@ export function WebChatOutboxProvider({ children }: { children: ReactNode }) {
 
         const { data: serverRow } = await supabase
           .from("messages")
-          .select("id")
+          .select(CHAT_MESSAGE_SELECT)
           .eq("id", serverMessageId)
           .eq("match_id", item.matchId)
           .maybeSingle();
 
         if (serverRow?.id) {
-          const key = itemPayloadBlobKey(item);
-          if (key) void deleteOutboxBlob(key);
-          updateItems((prev) =>
-            prev.map((it) =>
-              it.id === item.id
-                ? {
-                    ...it,
-                    state: "sent" as const,
-                    hydrationLastCheckedAtMs: now,
-                    hydrationDeadlineAtMs: deadlineAtMs,
-                    updatedAtMs: now,
-                  }
-                : it,
-            ),
-          );
-          if (isMediaOutboxItem(item)) {
-            setSessionUploadStats((prev) => ({ ...prev, succeeded: prev.succeeded + 1 }));
+          const patchScope: ThreadInvalidateScope = item.invalidateScope ?? {
+            otherUserId: item.otherUserId,
+            currentUserId: item.userId,
+            matchId: item.matchId,
+          };
+          const patchResult = await patchThreadCacheFromRawMessage(queryClient, patchScope, serverRow);
+          if (item.payload.kind === "image" && patchResult.patched && !patchResult.displayReady) {
+            if (!pastDeadline) {
+              updateItems((prev) =>
+                prev.map((it) =>
+                  it.id === item.id
+                    ? {
+                        ...it,
+                        hydrationLastCheckedAtMs: now,
+                        hydrationDeadlineAtMs: deadlineAtMs,
+                        updatedAtMs: now,
+                      }
+                    : it,
+                ),
+              );
+              invalidateAfterThreadMutation(queryClient, patchScope);
+              continue;
+            }
+          } else {
+            const key = itemPayloadBlobKey(item);
+            if (key) void deleteOutboxBlob(key);
+            updateItems((prev) =>
+              prev.map((it) =>
+                it.id === item.id
+                  ? {
+                      ...it,
+                      state: "sent" as const,
+                      hydrationLastCheckedAtMs: now,
+                      hydrationDeadlineAtMs: deadlineAtMs,
+                      updatedAtMs: now,
+                    }
+                  : it,
+              ),
+            );
+            if (isMediaOutboxItem(item)) {
+              setSessionUploadStats((prev) => ({ ...prev, succeeded: prev.succeeded + 1 }));
+            }
+            invalidateAfterThreadMutation(queryClient, patchScope);
+            continue;
           }
-          invalidateAfterThreadMutation(queryClient, item.invalidateScope);
-          continue;
         }
 
         if (pastDeadline) {
+          const key = itemPayloadBlobKey(item);
+          if (serverRow?.id && item.payload.kind !== "image" && key) void deleteOutboxBlob(key);
           updateItems((prev) =>
             prev.map((it) =>
               it.id === item.id
@@ -746,7 +776,7 @@ export function WebChatOutboxProvider({ children }: { children: ReactNode }) {
                     updatedAtMs: now,
                   }
                 : it,
-            ),
+              ),
           );
         } else {
           updateItems((prev) =>
@@ -791,7 +821,7 @@ export function WebChatOutboxProvider({ children }: { children: ReactNode }) {
         );
 
         try {
-          const { serverMessageId, uploadedPublicUrl, uploadedMediaUrl, patchedThreadCache } = await executeWebOutboxItem(
+          const { serverMessageId, uploadedPublicUrl, uploadedMediaUrl, patchedThreadCache, displayReady } = await executeWebOutboxItem(
             { ...next, attemptCount },
             queryClient,
             (fraction) => {
@@ -807,7 +837,10 @@ export function WebChatOutboxProvider({ children }: { children: ReactNode }) {
             { signal: abortController.signal },
           );
           const successAtMs = Date.now();
-          const completeImmediately = next.payload.kind !== "video" && patchedThreadCache === true;
+          const completeImmediately =
+            next.payload.kind !== "video" &&
+            patchedThreadCache === true &&
+            (next.payload.kind !== "image" || displayReady === true);
           if (completeImmediately) {
             const key = itemPayloadBlobKey(next);
             if (key) void deleteOutboxBlob(key);

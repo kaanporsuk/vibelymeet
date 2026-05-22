@@ -105,9 +105,10 @@ import { avatarUrl } from '@/lib/imageUrl';
 import { getChatPartnerActivityLine } from '@/lib/chatActivityStatus';
 import { supabase } from '@/lib/supabase';
 import {
+  extractChatImageIdentityRef,
   formatChatImageMessageContent,
   inferChatMediaRenderKind,
-  extractChatImageMediaRef,
+  extractRenderableChatImageUrl,
 } from '@/lib/chatMessageContent';
 import { refreshMediaAssetUrl } from '@/lib/mediaAssetResolver';
 import { useMediaAsset } from '@/hooks/useMediaAsset';
@@ -395,13 +396,14 @@ function isLocalTextMessage(message: ThreadMessage): message is LocalTextChatMes
 
 function threadMessageMediaKind(message: ThreadMessage) {
   if (isLocalMediaMessage(message) && message.localMedia.payload.kind === 'image') return 'image';
-  return inferChatMediaRenderKind({
+  const kind = inferChatMediaRenderKind({
     content: message.text,
     audioUrl: message.audio_url,
     videoUrl: message.video_url,
     messageKind: message.messageKind,
     structuredPayload: message.structuredPayload,
   });
+  return kind === 'text' && message.image_source_ref ? 'image' : kind;
 }
 
 function chatMediaPlaceholderColor(message: ThreadMessage): string | null {
@@ -602,6 +604,36 @@ function outboxRowClientRequestId(m: ThreadMessage): string | null {
   if (isLocalTextMessage(m)) return m.localText.outboxItemId ?? null;
   if (isLocalMediaMessage(m)) return m.localMedia.outboxItemId ?? null;
   return null;
+}
+
+function threadMessageHasImageIdentity(message: ThreadMessage): boolean {
+  if (isLocalMediaMessage(message) && message.localMedia.payload.kind === 'image') return true;
+  return Boolean(
+    message.image_source_ref ??
+      extractChatImageIdentityRef({
+        content: message.text,
+        structured_payload: message.structuredPayload,
+      }),
+  );
+}
+
+function threadMessageHasRenderableImageUri(message: ThreadMessage): boolean {
+  if (isLocalMediaMessage(message) && message.localMedia.payload.kind === 'image') return true;
+  return Boolean(
+    extractRenderableChatImageUrl({
+      content: message.text,
+      structured_payload: message.structuredPayload,
+    }),
+  );
+}
+
+function shouldPreferLocalImageUntilServerRenderable(local: ThreadMessage, server: ThreadMessage): boolean {
+  return (
+    isLocalMediaMessage(local) &&
+    local.localMedia.payload.kind === 'image' &&
+    threadMessageHasImageIdentity(server) &&
+    !threadMessageHasRenderableImageUri(server)
+  );
 }
 
 function threadSortKey(m: ThreadMessage): number {
@@ -1526,18 +1558,29 @@ export default function ChatThreadScreen() {
   );
 
   const threadMessages = useMemo<ThreadMessage[]>(() => {
-    const server = data?.messages ?? [];
-    const serverClientIds = new Set<string>();
-    for (const m of server) {
+    const serverRows = data?.messages ?? [];
+    const serverByClientId = new Map<string, ThreadMessage>();
+    for (const m of serverRows) {
       const cid = clientRequestIdFromStructured(m.structuredPayload ?? null);
-      if (cid) serverClientIds.add(cid);
+      if (cid) serverByClientId.set(cid, m);
     }
+    const localClientIdsToPrefer = new Set<string>();
     const locals = outboxThreadMessages.filter((row) => {
       const cid = outboxRowClientRequestId(row);
       if (!cid) return true;
-      return !serverClientIds.has(cid);
+      const server = serverByClientId.get(cid);
+      if (!server) return true;
+      if (shouldPreferLocalImageUntilServerRenderable(row, server)) {
+        localClientIdsToPrefer.add(cid);
+        return true;
+      }
+      return false;
     });
-    const existingClientRequestIds = new Set(serverClientIds);
+    const server = serverRows.filter((row) => {
+      const cid = clientRequestIdFromStructured(row.structuredPayload ?? null);
+      return !(cid && localClientIdsToPrefer.has(cid) && threadMessageHasImageIdentity(row) && !threadMessageHasRenderableImageUri(row));
+    });
+    const existingClientRequestIds = new Set(serverByClientId.keys());
     for (const row of locals) {
       const cid = outboxRowClientRequestId(row);
       if (cid) existingClientRequestIds.add(cid);
@@ -1585,10 +1628,10 @@ export default function ChatThreadScreen() {
       if (isLocalMediaMessage(message) && message.localMedia.payload.kind === 'image') {
         return message.localMedia.payload.uri;
       }
-      return photoUriOverridesById[message.id] ?? extractChatImageMediaRef({
+      return photoUriOverridesById[message.id] ?? extractRenderableChatImageUrl({
         content: message.text,
         structured_payload: message.structuredPayload,
-      }, { allowPrivateMediaRefs: true });
+      });
     },
     [photoUriOverridesById],
   );
@@ -3294,6 +3337,32 @@ export default function ChatThreadScreen() {
               void refreshPhotoUriForMessage(item);
             }}
           />
+          <View style={styles.mediaMetaBlock}>
+            {reaction ? <Text style={styles.reactionBadge}>{reaction}</Text> : null}
+            {statusOrTime}
+          </View>
+        </View>
+      );
+    }
+    if (mediaKind === 'image') {
+      return (
+        <View style={[styles.mediaContentWrap, { width: mediaCardWidth }]}>
+          <View
+            style={[
+              styles.chatImageOuter,
+              {
+                borderColor: isMe ? 'rgba(236,72,153,0.45)' : 'rgba(255,255,255,0.16)',
+                backgroundColor: chatMediaPlaceholderColor(item) ?? 'rgba(255,255,255,0.06)',
+              },
+            ]}
+          >
+            <View style={[styles.chatImage, { alignItems: 'center', justifyContent: 'center', padding: 12 }]}>
+              <ActivityIndicator color={theme.tint} size="small" />
+              <Text style={{ color: theme.textSecondary, fontSize: 12, marginTop: 8, textAlign: 'center' }}>
+                Preparing photo...
+              </Text>
+            </View>
+          </View>
           <View style={styles.mediaMetaBlock}>
             {reaction ? <Text style={styles.reactionBadge}>{reaction}</Text> : null}
             {statusOrTime}

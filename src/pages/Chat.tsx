@@ -32,9 +32,10 @@ import { MessageStatus } from "@/components/chat/MessageStatus";
 import { MediaHealthPanel } from "@/components/media/MediaHealthPanel";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
 import {
+  extractChatImageIdentityRef,
   formatChatImageMessageContent,
   inferChatMediaRenderKind,
-  extractChatImageMediaRef,
+  extractRenderableChatImageUrl,
 } from "@/lib/chatMessageContent";
 import { refreshMediaAssetUrl } from "@/lib/mediaAssetResolver";
 import { extractVibeClipMeta } from "../../shared/chat/messageRouting";
@@ -204,15 +205,52 @@ type ChatVideoLightboxState = {
   mediaKind?: "video" | "vibe_clip";
 };
 
-/** Merge server rows with optimistic locals: drop locals once server echoes the same client_request_id; sort by send time */
+function chatMessageHasImageIdentity(message: ChatMessage): boolean {
+  if (message.type === "image") return true;
+  return Boolean(
+    message.imageSourceRef ??
+      extractChatImageIdentityRef({
+        content: message.text,
+        structured_payload: message.structuredPayload,
+      }),
+  );
+}
+
+function chatMessageHasRenderableImageUrl(message: ChatMessage): boolean {
+  return Boolean(
+    extractRenderableChatImageUrl({
+      content: message.text,
+      structured_payload: message.structuredPayload,
+    }),
+  );
+}
+
+function shouldPreferLocalImageUntilServerRenderable(local: ChatMessage, server: ChatMessage): boolean {
+  return local.type === "image" && chatMessageHasImageIdentity(server) && !chatMessageHasRenderableImageUrl(server);
+}
+
+/** Merge server rows with optimistic locals; keep local photos until the echoed server row has a renderable URL. */
 function mergeServerAndLocalChatMessages(realMsgs: ChatMessage[], localMessages: ChatMessage[]): ChatMessage[] {
-  const serverClientIds = new Set<string>();
+  const serverByClientId = new Map<string, ChatMessage>();
   for (const m of realMsgs) {
     const cid = clientRequestIdFromStructured(m.structuredPayload);
-    if (cid) serverClientIds.add(cid);
+    if (cid) serverByClientId.set(cid, m);
   }
-  const locals = localMessages.filter((l) => !(l.clientRequestId && serverClientIds.has(l.clientRequestId)));
-  return [...realMsgs, ...locals].sort((a, b) => {
+  const localClientIdsToPrefer = new Set<string>();
+  const locals = localMessages.filter((l) => {
+    const server = l.clientRequestId ? serverByClientId.get(l.clientRequestId) : null;
+    if (!server) return true;
+    if (l.clientRequestId && shouldPreferLocalImageUntilServerRenderable(l, server)) {
+      localClientIdsToPrefer.add(l.clientRequestId);
+      return true;
+    }
+    return false;
+  });
+  const servers = realMsgs.filter((m) => {
+    const cid = clientRequestIdFromStructured(m.structuredPayload);
+    return !(cid && localClientIdsToPrefer.has(cid) && chatMessageHasImageIdentity(m) && !chatMessageHasRenderableImageUrl(m));
+  });
+  return [...servers, ...locals].sort((a, b) => {
     const t = (a.sortAtMs ?? 0) - (b.sortAtMs ?? 0);
     if (t !== 0) return t;
     return a.id.localeCompare(b.id);
@@ -519,12 +557,14 @@ const Chat = () => {
   } = useMessages(id || "", currentUserId);
   const webOutbox = useWebChatOutbox();
   const runWebVibeClipRecoverySweep = webOutbox.runVibeClipRecoverySweep;
+  const reconcileWebOutboxWithServerIds = webOutbox.reconcileWithServerIds;
   const { data: dateSuggestions = [], refetch: refetchDateSuggestions } = useMatchDateSuggestions(
     chatData?.matchId,
   );
 
   const [exiting, setExiting] = useState(false);
   const [outboxPreviews, setOutboxPreviews] = useState<OutboxPreviewMap>({});
+  const outboxPreviewSourceKeysRef = useRef<Record<string, string>>({});
   const [newMessage, setNewMessage] = useState("");
   const [localTyping, setLocalTyping] = useState(false);
   const [showDateSuggestion, setShowDateSuggestion] = useState(false);
@@ -923,28 +963,70 @@ const Chat = () => {
       }
       return out;
     };
+    const revokePreviewUrls = (preview: OutboxPreviewMap[string] | undefined) => {
+      if (!preview) return;
+      collectUrls({ preview }).forEach((u) => URL.revokeObjectURL(u));
+    };
     void (async () => {
-      const next: OutboxPreviewMap = {};
+      const desiredSourceKeys: Record<string, string> = {};
+      const loaded: OutboxPreviewMap = {};
       for (const it of outboxMatchItems) {
         const p = it.payload;
         if (p.kind === "image") {
+          const sourceKey = `${p.kind}:${p.blobKey}`;
+          desiredSourceKeys[it.id] = sourceKey;
+          if (outboxPreviewSourceKeysRef.current[it.id] === sourceKey) continue;
           const b = await getOutboxBlob(p.blobKey);
-          if (b && !cancelled) next[it.id] = { ...next[it.id], image: URL.createObjectURL(b) };
+          if (b && !cancelled) loaded[it.id] = { image: URL.createObjectURL(b) };
         } else if (p.kind === "voice") {
+          const sourceKey = `${p.kind}:${p.blobKey}`;
+          desiredSourceKeys[it.id] = sourceKey;
+          if (outboxPreviewSourceKeysRef.current[it.id] === sourceKey) continue;
           const b = await getOutboxBlob(p.blobKey);
-          if (b && !cancelled) next[it.id] = { ...next[it.id], audio: URL.createObjectURL(b) };
+          if (b && !cancelled) loaded[it.id] = { audio: URL.createObjectURL(b) };
         } else if (p.kind === "video") {
+          const sourceKey = `${p.kind}:${p.blobKey}`;
+          desiredSourceKeys[it.id] = sourceKey;
+          if (outboxPreviewSourceKeysRef.current[it.id] === sourceKey) continue;
           const b = await getOutboxBlob(p.blobKey);
-          if (b && !cancelled) next[it.id] = { ...next[it.id], video: URL.createObjectURL(b) };
+          if (b && !cancelled) loaded[it.id] = { video: URL.createObjectURL(b) };
         }
       }
       if (cancelled) {
-        collectUrls(next).forEach((u) => URL.revokeObjectURL(u));
+        collectUrls(loaded).forEach((u) => URL.revokeObjectURL(u));
         return;
       }
       setOutboxPreviews((prev) => {
-        collectUrls(prev).forEach((u) => URL.revokeObjectURL(u));
-        return next;
+        const next = { ...prev };
+        const nextSourceKeys = { ...outboxPreviewSourceKeysRef.current };
+        const desiredIds = new Set(Object.keys(desiredSourceKeys));
+        let changed = false;
+
+        for (const id of Object.keys(next)) {
+          if (desiredIds.has(id)) continue;
+          revokePreviewUrls(next[id]);
+          delete next[id];
+          delete nextSourceKeys[id];
+          changed = true;
+        }
+
+        for (const [id, sourceKey] of Object.entries(desiredSourceKeys)) {
+          if (nextSourceKeys[id] === sourceKey && next[id]) continue;
+          const preview = loaded[id];
+          if (!preview) continue;
+          revokePreviewUrls(next[id]);
+          next[id] = preview;
+          nextSourceKeys[id] = sourceKey;
+          changed = true;
+        }
+
+        const retainedUrls = new Set(collectUrls(next));
+        collectUrls(loaded)
+          .filter((u) => !retainedUrls.has(u))
+          .forEach((u) => URL.revokeObjectURL(u));
+
+        outboxPreviewSourceKeysRef.current = nextSourceKeys;
+        return changed ? next : prev;
       });
     })();
     return () => {
@@ -954,8 +1036,8 @@ const Chat = () => {
 
   useEffect(() => {
     const ids = new Set((chatData?.messages ?? []).map((m) => m.id));
-    webOutbox.reconcileWithServerIds(ids);
-  }, [chatData?.messages, webOutbox]);
+    reconcileWebOutboxWithServerIds(ids);
+  }, [chatData?.messages, reconcileWebOutboxWithServerIds]);
 
   const messages: ChatMessage[] = useMemo(() => {
     const statusFromServer = (sender: "me" | "them", readAt?: string | null): MessageStatusType =>
@@ -991,18 +1073,19 @@ const Chat = () => {
           sortAtMs,
         };
       }
+      const mediaRenderKind = inferChatMediaRenderKind({
+        content: m.text,
+        audioUrl: m.audioUrl,
+        videoUrl: m.videoUrl,
+        messageKind: m.messageKind,
+        structuredPayload: m.structuredPayload,
+      });
       return {
         id: m.id,
         text: m.text,
         sender: m.sender,
         time: m.time,
-        type: inferChatMediaRenderKind({
-          content: m.text,
-          audioUrl: m.audioUrl,
-          videoUrl: m.videoUrl,
-          messageKind: m.messageKind,
-          structuredPayload: m.structuredPayload,
-        }) as ChatMessage["type"],
+        type: (mediaRenderKind === "text" && m.imageSourceRef ? "image" : mediaRenderKind) as ChatMessage["type"],
         audioUrl: m.audioUrl,
         audioSourceRef: m.audioSourceRef,
         audioDuration: m.audioDuration,
@@ -1057,10 +1140,10 @@ const Chat = () => {
   const photoUrlForMessage = useCallback(
     (message: ChatMessage): string | null =>
       photoUrlOverridesById[message.id] ??
-      extractChatImageMediaRef({
+      extractRenderableChatImageUrl({
         content: message.text,
         structured_payload: message.structuredPayload,
-      }, { allowLocalPreviewUrls: true, allowPrivateMediaRefs: true }),
+      }),
     [photoUrlOverridesById],
   );
   const photoPlaceholderColorForMessage = useCallback((message: ChatMessage): string | null => {
@@ -1614,6 +1697,20 @@ const Chat = () => {
     });
   }, [threadRows]);
 
+  const threadLayoutAnchorKey = useMemo(
+    () =>
+      rowsWithLayout
+        .map(({ row }) => {
+          if (row.type === "pending_games_summary") return `pending-games:${row.clusterKey}`;
+          if (row.type === "pending_games_collapse") return `pending-games-collapse:${row.clusterKey}`;
+          const message = row.message;
+          const imageReadiness = message.type === "image" ? (photoUrlForMessage(message) ? "ready" : "pending") : "";
+          return `${message.id}:${message.type}:${imageReadiness}`;
+        })
+        .join("|"),
+    [photoUrlForMessage, rowsWithLayout],
+  );
+
   useLayoutEffect(() => {
     lastThreadCountRef.current = 0;
     setNewBelowCue(false);
@@ -1651,7 +1748,7 @@ const Chat = () => {
     if (!stickToBottomRef.current) return;
     if (isUserScrollIntentActive()) return;
     scheduleStickyBottomSnap();
-  }, [rowsWithLayout, isUserScrollIntentActive, scheduleStickyBottomSnap]);
+  }, [threadLayoutAnchorKey, isUserScrollIntentActive, scheduleStickyBottomSnap]);
 
   useEffect(() => {
     const n = displayMessages.length;
