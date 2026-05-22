@@ -28,15 +28,15 @@ This is a rebuild and hardening artifact, not a substitute for reading function 
 - **`match-call-room-cleanup`:** `verify_jwt = false`; auth via `Authorization: Bearer CRON_SECRET` (same as other cron drainers). Deletes Daily.co rooms for **terminal** `match_calls` rows older than ~2 minutes (best-effort if client `delete_room` missed). Env: `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `DAILY_API_KEY`, `CRON_SECRET`. Optional schedule: `20260414190000_schedule_match_call_room_cleanup_cron.sql` (pg_cron + pg_net).
 - **`daily-room` (`create_match_call`):** After inserting `match_calls`, invokes **`send-notification`** with category **`match_call`** (OneSignal + deep link to `/chat/:callerId`). Per-bucket prefs: **`notify_match_calls`** (quiet hours still bypassed for `match_call`).
 
-### Current-state addendum (2026-05-01)
+### Current-state addendum (2026-05-01, refreshed 2026-05-22)
 
-- Current repo inventory is **55** deployable function directories and **55** matching `[functions.<slug>]` entries in `supabase/config.toml`; no source/config gaps were observed.
+- Current repo inventory is **67** deployable function directories and **67** matching `[functions.<slug>]` entries in `supabase/config.toml`; no source/config gaps were observed.
 - **`forward-geocode`:** Explicitly configured with `verify_jwt = true`. It also resolves the Supabase user in code, permits admin/premium users plus onboarding city search, rate-limits by user, and then queries OpenStreetMap Nominatim.
 - **`push-webhook`:** Explicitly configured with `verify_jwt = false` because provider callbacks cannot present a Supabase JWT. It fail-closes unless `PUSH_WEBHOOK_SECRET` is set and the request sends the matching `x-webhook-secret` header. Repo evidence treats it as generic FCM/APNs/web receipt telemetry; OneSignal receipt dashboard wiring is not proven from source.
 
 ### Current-state addendum (2026-04-13)
 
-This manifest started as a frozen/post-hardening baseline artifact. The current repo has moved ahead (inventory reconciled to **55** deployable functions as of 2026-05-09 — see §2):
+This manifest started as a frozen/post-hardening baseline artifact. The current repo has moved ahead (inventory reconciled to **67** deployable functions as of 2026-05-22 — see §2):
 
 - Sprint 1 adds `process-media-delete-jobs` with `verify_jwt = false` and manual `CRON_SECRET` bearer auth in code.
 - Sprint 3 does **not** add a new Edge Function slug, but it changes:
@@ -102,7 +102,7 @@ The original golden export documented **34** deployable functions; subsequent no
 ### Gateway JWT posture from config (post-hardening)
 
 **JWT-at-gateway (`verify_jwt = true`):**  
-daily-room, delete-account, email-verification, event-notifications, verify-admin, geocode, phone-verify, admin-review-verification, admin-media-lifecycle-controls, admin-data-export, create-video-upload, sync-vibe-video-status, delete-vibe-video, upload-image, upload-voice, upload-chat-video, upload-event-cover, create-checkout-session, create-event-checkout, create-portal-session, cancel-deletion, sync-revenuecat-subscriber, send-notification, daily-drop-actions, send-message, send-game-event, swipe-actions, post-date-verdict, forward-geocode, date-suggestion-actions, send-support-reply, admin-proof-selfie-sign, admin-video-date-ops.
+daily-room, video-date-snapshot, delete-account, email-verification, event-notifications, verify-admin, geocode, phone-verify, admin-review-verification, admin-media-lifecycle-controls, create-video-upload, sync-vibe-video-status, delete-vibe-video, upload-image, upload-voice, upload-chat-video, create-chat-vibe-clip-upload, complete-chat-vibe-clip-upload, sync-chat-vibe-clip-status, dismiss-chat-vibe-clip-upload, upload-event-cover, create-checkout-session, create-event-checkout, create-portal-session, cancel-deletion, sync-revenuecat-subscriber, send-notification, daily-drop-actions, send-message, chat-thread-page, send-game-event, swipe-actions, post-date-verdict, forward-geocode, date-suggestion-actions, send-support-reply, admin-proof-selfie-sign, admin-video-date-ops, admin-data-export.
 
 **Public-but-protected (`verify_jwt = false`):**  
 event-reminders, video-webhook, get-chat-media-url, stripe-webhook, create-credits-checkout, request-account-deletion, revenuecat-webhook, generate-daily-drops, post-date-verdict-reminders, push-webhook, health, date-suggestion-expiry, credit-replenish, date-reminder-cron, process-waitlist-promotion-notify-queue, process-media-delete-jobs, match-call-room-cleanup, video-date-room-cleanup, synthetic-video-date-monitor, video-date-outbox-drainer, video-date-deadline-finalizer, video-date-daily-webhook, video-date-orphan-room-cleanup, video-date-recovery-alert-dispatcher, send-email, record-growth-attribution, check-daily-drop-health, check-bunny-cdn-health.

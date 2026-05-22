@@ -1,3 +1,8 @@
+import {
+  normalizeProfilePhotoDerivatives,
+  type ProfilePhotoDerivativeMap,
+} from '../../../shared/profile/photoDerivatives';
+
 /**
  * Resolve profile/event image paths to full URLs.
  * Same logic as web src/utils/imageUrl.ts — Bunny CDN for confirmed Storage prefixes,
@@ -76,6 +81,14 @@ export function rememberImageDerivatives(
   });
 }
 
+export function rememberProfilePhotoDerivativeMap(raw: unknown): ProfilePhotoDerivativeMap {
+  const derivativesByPath = normalizeProfilePhotoDerivatives(raw);
+  for (const [originalPath, derivatives] of Object.entries(derivativesByPath)) {
+    rememberImageDerivatives(originalPath, derivatives);
+  }
+  return derivativesByPath;
+}
+
 function derivativeStoragePathForDisplay(
   storagePath: string,
   opts?: { width?: number; height?: number; quality?: number; crop?: 'center' | 'top' | 'bottom' },
@@ -92,21 +105,12 @@ function derivativeStoragePathForDisplay(
   if (knownDerivatives && requestedEdge > 0 && requestedEdge <= 1400 && knownDerivatives.hero) {
     return knownDerivatives.hero;
   }
-
-  if (!/@orig\.[a-z0-9]+$/i.test(clean)) return clean;
-
-  if (requestedEdge > 0 && requestedEdge <= 420) {
-    return clean.replace(/@orig\.([a-z0-9]+)$/i, '@thumb.$1');
-  }
-  if (requestedEdge > 0 && requestedEdge <= 1400) {
-    return clean.replace(/@orig\.([a-z0-9]+)$/i, '@hero.$1');
-  }
   return clean;
 }
 
 export function getImageUrl(
   path: string | null | undefined,
-  // Intended display size. Derivative-ready Bunny paths can use this to pick a right-sized object.
+  // Intended display size. Confirmed upload-time derivatives may use this to pick a right-sized object.
   opts?: { width?: number; height?: number; quality?: number; crop?: 'center' | 'top' | 'bottom' },
   traceLabel?: PhotoTraceLabel
 ): string {

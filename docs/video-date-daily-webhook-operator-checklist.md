@@ -22,6 +22,12 @@ The computed digest is compared with Daily's base64 `X-Webhook-Signature` header
 
 Official Daily contract: https://docs.daily.co/reference/rest-api/webhooks
 
+Current deploy and rebuild references:
+
+- `docs/supabase-cloud-deploy.md`
+- `_cursor_context/vibely_edge_function_manifest.md`
+- `_cursor_context/vibely_daily_provider_sheet.md`
+
 ## Provider Registration
 
 The Daily dashboard/API webhook must point to:
