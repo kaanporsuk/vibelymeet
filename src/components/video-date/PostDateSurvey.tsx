@@ -1,6 +1,7 @@
 import { useState, useCallback, useEffect, useMemo, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useNavigate } from "react-router-dom";
+import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { vdbg, vdbgRedirect } from "@/lib/vdbg";
 
@@ -14,10 +15,12 @@ import { cn } from "@/lib/utils";
 import { useUserProfile } from "@/contexts/AuthContext";
 import { useEventStatus } from "@/hooks/useEventStatus";
 import { useFeatureFlag } from "@/hooks/useFeatureFlag";
+import { fetchEventDeckProfiles } from "@/hooks/useEventDeck";
 import { useEventLifecycle } from "@/hooks/useEventLifecycle";
 import { useMatchQueue } from "@/hooks/useMatchQueue";
 import { supabase } from "@/integrations/supabase/client";
 import { trackEvent } from "@/lib/analytics";
+import { deckCardUrl } from "@/utils/imageUrl";
 import { submitWebPostDateOutboxItem } from "@/lib/postDateOutbox/execute";
 import { LobbyPostDateEvents } from "@clientShared/analytics/lobbyToPostDateJourney";
 import type { PostDateSafetyReportPayload } from "@clientShared/postDateOutbox/types";
@@ -40,6 +43,7 @@ import {
   getVideoDateMicroVerdictCopy,
   getVideoDateMicroVerdictRemainingSeconds,
 } from "@clientShared/matching/videoDateMicroVerdict";
+import { getVideoDateDeckPrefetchItems } from "@clientShared/matching/videoDateDeckPrefetch";
 
 interface PostDateSurveyProps {
   isOpen: boolean;
@@ -108,10 +112,12 @@ export const PostDateSurvey = ({
   eventId,
 }: PostDateSurveyProps) => {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const { user } = useUserProfile();
   const { setStatus } = useEventStatus({ eventId });
   const microVerdictV2 = useFeatureFlag("video_date.micro_verdict_v2");
   const submitVerdictV3 = useFeatureFlag("video_date.outbox_v2.submit_verdict");
+  const postDateInstantNextV2 = useFeatureFlag("video_date.post_date_instant_next_v2");
   const [step, setStep] = useState<SurveyStep>("verdict");
   const [showEventEnded, setShowEventEnded] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -133,6 +139,7 @@ export const PostDateSurvey = ({
   const reportBeforeVerdictRef = useRef(false);
   const reportPassVerdictSavedRef = useRef(false);
   const verdictOpenedAtMsRef = useRef(Date.now());
+  const instantNextPrefetchKeyRef = useRef<string | null>(null);
   const [microVerdictNowMs, setMicroVerdictNowMs] = useState(Date.now());
 
   useEffect(() => {
@@ -187,6 +194,55 @@ export const PostDateSurvey = ({
     reportPassVerdictSavedRef.current = false;
     setCelebrationData(null);
   }, [sessionId]);
+
+  useEffect(() => {
+    if (!postDateInstantNextV2.enabled || !isOpen || !eventId || !user?.id) return;
+    const key = `${eventId}:${user.id}:${sessionId}`;
+    if (instantNextPrefetchKeyRef.current === key) return;
+    instantNextPrefetchKeyRef.current = key;
+    trackEvent("post_date_instant_next_prewarm_started", {
+      platform: "web",
+      session_id: sessionId,
+      event_id: eventId,
+      source_surface: "post_date_survey",
+    });
+    void queryClient
+      .prefetchQuery({
+        queryKey: ["event-deck", eventId, user.id, "deck_v2"],
+        queryFn: () => fetchEventDeckProfiles(eventId, user.id),
+        staleTime: 10_000,
+      })
+      .then(() => {
+        const profiles = queryClient.getQueryData<Awaited<ReturnType<typeof fetchEventDeckProfiles>>>([
+          "event-deck",
+          eventId,
+          user.id,
+          "deck_v2",
+        ]) ?? [];
+        for (const item of getVideoDateDeckPrefetchItems(profiles)) {
+          const src = deckCardUrl(item.source);
+          if (!src) continue;
+          const image = new Image();
+          image.decoding = "async";
+          image.src = src;
+        }
+        trackEvent("post_date_instant_next_prewarm_result", {
+          platform: "web",
+          session_id: sessionId,
+          event_id: eventId,
+          outcome: "success",
+          deck_count: profiles.length,
+        });
+      })
+      .catch(() => {
+        trackEvent("post_date_instant_next_prewarm_result", {
+          platform: "web",
+          session_id: sessionId,
+          event_id: eventId,
+          outcome: "failure",
+        });
+      });
+  }, [eventId, isOpen, postDateInstantNextV2.enabled, queryClient, sessionId, user?.id]);
 
   const logJourney = useCallback(
     (event: VideoDateJourneyEvent, payload?: Record<string, unknown>, dedupeKey?: string) => {
@@ -614,6 +670,14 @@ export const PostDateSurvey = ({
       setVerdictError(null);
       setVerdictRetryable(false);
       setLastVerdictAttempt(liked);
+      if (postDateInstantNextV2.enabled) {
+        trackEvent("post_date_verdict_optimistic_started", {
+          platform: "web",
+          session_id: sessionId,
+          event_id: eventId,
+          verdict: liked ? "vibe" : "pass",
+        });
+      }
 
       trackEvent(
         liked ? LobbyPostDateEvents.KEEP_THE_VIBE_YES_TAP : LobbyPostDateEvents.KEEP_THE_VIBE_NO_TAP,
@@ -654,7 +718,23 @@ export const PostDateSurvey = ({
                 ? "This date session is no longer available."
                 : "Something went wrong. Please try again.",
           );
+          if (postDateInstantNextV2.enabled) {
+            trackEvent("post_date_verdict_optimistic_rollback", {
+              platform: "web",
+              session_id: sessionId,
+              event_id: eventId,
+              reason: code,
+            });
+          }
           return;
+        }
+        if (postDateInstantNextV2.enabled) {
+          trackEvent("post_date_verdict_optimistic_confirmed", {
+            platform: "web",
+            session_id: sessionId,
+            event_id: eventId,
+            verdict: liked ? "vibe" : "pass",
+          });
         }
 
         trackEvent(LobbyPostDateEvents.POST_DATE_SURVEY_SUBMIT, {
@@ -719,11 +799,19 @@ export const PostDateSurvey = ({
         console.error("Error recording verdict:", err);
         setVerdictRetryable(true);
         setVerdictError("Couldn't save your answer. Tap to retry.");
+        if (postDateInstantNextV2.enabled) {
+          trackEvent("post_date_verdict_optimistic_rollback", {
+            platform: "web",
+            session_id: sessionId,
+            event_id: eventId,
+            reason: "exception",
+          });
+        }
       } finally {
         setIsSubmitting(false);
       }
     },
-    [user?.id, sessionId, eventId, isSubmitting, logJourney, submitVerdictV3.enabled]
+    [user?.id, sessionId, eventId, isSubmitting, logJourney, postDateInstantNextV2.enabled, submitVerdictV3.enabled]
   );
 
   const recordReportPassVerdict = useCallback(

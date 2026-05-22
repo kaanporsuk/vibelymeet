@@ -13,6 +13,10 @@ export type VideoDateSessionBroadcastEvent = {
   correlationId: string | null;
 };
 
+export type VideoDateSessionBroadcastEnvelope =
+  | VideoDateSessionBroadcastEvent
+  | { schemaVersion: 1; sessionId: string; events: VideoDateSessionBroadcastEvent[] };
+
 export type VideoDateSessionSeqDecision =
   | { action: "accept"; sessionSeq: number }
   | { action: "duplicate"; sessionSeq: number }
@@ -65,16 +69,18 @@ export function createVideoDateSessionChannel(
   const channel = client.channel(topic, { config: { private: true } });
   channel
     .on("broadcast", { event: VIDEO_DATE_SESSION_CHANNEL_EVENT }, (message) => {
-      const event = normalizeVideoDateSessionBroadcastEvent(message);
-      if (!event) {
+      const events = normalizeVideoDateSessionBroadcastEvents(message);
+      if (!events) {
         options.onInvalidPayload?.(message);
         return;
       }
-      if (event.sessionId !== options.sessionId) {
+      if (events.some((event) => event.sessionId !== options.sessionId)) {
         options.onInvalidPayload?.(message);
         return;
       }
-      options.onEvent(event);
+      for (const event of events) {
+        options.onEvent(event);
+      }
     })
     .subscribe((status, error) => {
       options.onStatusChange?.(status, error);
@@ -92,16 +98,46 @@ export function createVideoDateSessionChannel(
 export function normalizeVideoDateSessionBroadcastEvent(
   message: unknown,
 ): VideoDateSessionBroadcastEvent | null {
+  const events = normalizeVideoDateSessionBroadcastEvents(message);
+  return events?.length === 1 ? events[0] : null;
+}
+
+export function normalizeVideoDateSessionBroadcastEvents(
+  message: unknown,
+): VideoDateSessionBroadcastEvent[] | null {
   const eventRecord = unwrapBroadcastPayload(message);
   if (!eventRecord) return null;
 
-  const schemaVersion = numericValue(eventRecord.schemaVersion ?? eventRecord.schema_version);
+  const batchedEvents = Array.isArray(eventRecord.events) ? eventRecord.events : null;
+  if (batchedEvents) {
+    const sessionId = stringValue(eventRecord.sessionId ?? eventRecord.session_id);
+    const schemaVersion = numericValue(eventRecord.schemaVersion ?? eventRecord.schema_version);
+    if (schemaVersion !== 1 || !sessionId || batchedEvents.length === 0) return null;
+    const events = batchedEvents
+      .map((event) => normalizeVideoDateSessionBroadcastEventRecord(event))
+      .filter((event): event is VideoDateSessionBroadcastEvent => event !== null);
+    if (events.length !== batchedEvents.length) return null;
+    if (events.some((event) => event.sessionId !== sessionId)) return null;
+    return events.sort((a, b) => a.sessionSeq - b.sessionSeq || a.id - b.id);
+  }
+
+  const event = normalizeVideoDateSessionBroadcastEventRecord(eventRecord);
+  return event ? [event] : null;
+}
+
+function normalizeVideoDateSessionBroadcastEventRecord(
+  eventRecord: unknown,
+): VideoDateSessionBroadcastEvent | null {
+  const record = objectValue(eventRecord);
+  if (!record) return null;
+
+  const schemaVersion = numericValue(record.schemaVersion ?? record.schema_version);
   if (schemaVersion !== 1) return null;
 
-  const id = numericValue(eventRecord.id);
-  const sessionId = stringValue(eventRecord.sessionId ?? eventRecord.session_id);
-  const sessionSeq = normalizeSeq(eventRecord.sessionSeq ?? eventRecord.session_seq);
-  const kind = stringValue(eventRecord.kind);
+  const id = numericValue(record.id);
+  const sessionId = stringValue(record.sessionId ?? record.session_id);
+  const sessionSeq = normalizeSeq(record.sessionSeq ?? record.session_seq);
+  const kind = stringValue(record.kind);
   if (id === null || !sessionId || sessionSeq === null || !kind) return null;
 
   return {
@@ -110,10 +146,10 @@ export function normalizeVideoDateSessionBroadcastEvent(
     sessionId,
     sessionSeq,
     kind,
-    at: stringValue(eventRecord.at),
-    actor: stringValue(eventRecord.actor),
-    payload: objectValue(eventRecord.payload) ?? {},
-    correlationId: stringValue(eventRecord.correlationId ?? eventRecord.correlation_id),
+    at: stringValue(record.at),
+    actor: stringValue(record.actor),
+    payload: objectValue(record.payload) ?? {},
+    correlationId: stringValue(record.correlationId ?? record.correlation_id),
   };
 }
 

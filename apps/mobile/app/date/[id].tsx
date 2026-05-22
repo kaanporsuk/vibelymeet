@@ -28,6 +28,7 @@ import * as Haptics from 'expo-haptics';
 import { useLocalSearchParams, router, usePathname } from 'expo-router';
 import { useFocusEffect } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useQueryClient } from '@tanstack/react-query';
 import { BlurView } from 'expo-blur';
 import { Camera } from 'expo-camera';
 import { DailyMediaView } from '@daily-co/react-native-daily-js';
@@ -110,6 +111,7 @@ import { fonts, spacing } from '@/constants/theme';
 import Colors from '@/constants/Colors';
 import { useColorScheme } from '@/components/useColorScheme';
 import { trackEvent } from '@/lib/analytics';
+import { fetchEventDeckProfiles } from '@/lib/eventsApi';
 import { emitNativeVideoDateClientStuckState } from '@/lib/videoDateClientStuckObservability';
 import { setSafeAudioMode } from '@/lib/safeAudioMode';
 import {
@@ -131,7 +133,7 @@ import {
 } from '@clientShared/observability/videoDateOperatorMetrics';
 import { getVideoDatePermissionHandoff } from '@clientShared/matching/videoDatePermissionHandoff';
 import { LiveSurfaceOfflineStrip } from '@/components/connectivity/LiveSurfaceOfflineStrip';
-import { avatarUrl } from '@/lib/imageUrl';
+import { avatarUrl, deckCardUrl } from '@/lib/imageUrl';
 import {
   clearDateEntryTransition,
   isDateEntryTransitionActive,
@@ -185,6 +187,7 @@ import {
   getVideoDateWarmupChoiceNotice,
   type VideoDateWarmupChoiceNotice,
 } from '@clientShared/matching/videoDateWarmupChoiceNotice';
+import { getVideoDateDeckPrefetchItems } from '@clientShared/matching/videoDateDeckPrefetch';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 const FIRST_CONNECT_TIMEOUT_MS = 25000;
@@ -220,6 +223,9 @@ type NativeVideoDateSurfaceClaimResult = {
 // Prevents expiry on slow Daily join where media arrives just before the 60 s mark.
 const MIN_DECISION_WINDOW_AFTER_MEDIA_MS = 15_000;
 type DailyCallObject = VideoDateDailyCallObject;
+type DailyReceiveSettingsCapable = {
+  updateReceiveSettings?: (settings: Record<string, unknown>) => Promise<unknown>;
+};
 type SharedDailyCallEntryState = 'creating' | 'joining' | 'joined' | 'failed' | 'leaving';
 type SharedDailyCallEntry = {
   sessionId: string;
@@ -831,9 +837,12 @@ export default function VideoDateScreen() {
   const safetyAlwaysOnV2 = useFeatureFlag('video_date.safety_always_on_v2');
   const timelineV2 = useFeatureFlag('video_date.timeline_v2');
   const multiDeviceV2 = useFeatureFlag('video_date.multi_device_v2');
+  const postDateInstantNextV2 = useFeatureFlag('video_date.post_date_instant_next_v2');
+  const resilienceV2 = useFeatureFlag('video_date.resilience_v2');
   const colorScheme = useColorScheme();
   const theme = Colors[colorScheme];
   const insets = useSafeAreaInsets();
+  const queryClient = useQueryClient();
 
   const [localTimeLeft, setLocalTimeLeft] = useState<number | null>(null);
   const [fullPartner, setFullPartner] = useState<PartnerProfileData | null>(null);
@@ -853,6 +862,7 @@ export default function VideoDateScreen() {
   const [showIceBreaker, setShowIceBreaker] = useState(true);
   const [showProfileSheet, setShowProfileSheet] = useState(false);
   const [showFeedback, setShowFeedback] = useState(false);
+  const [postDateSurveyShellPrestaged, setPostDateSurveyShellPrestaged] = useState(false);
   const [controlsStackHeight, setControlsStackHeight] = useState(DATE_CONTROLS_STACK_HEIGHT);
   const [showMutualToast, setShowMutualToast] = useState(false);
   /** Ephemeral feedback after +2 / +5 min credit (web: sonner toasts). */
@@ -1054,6 +1064,9 @@ export default function VideoDateScreen() {
   const localVideoReadyTrackedRef = useRef(false);
   const remoteReadableTrackedRef = useRef(false);
   const warmupTimerStartedTrackedRef = useRef<string | null>(null);
+  const postDatePrestageKeyRef = useRef<string | null>(null);
+  const resilienceModeTrackedKeyRef = useRef<string | null>(null);
+  const resilienceDailyAdaptationKeyRef = useRef<string | null>(null);
   const abortConnectionInFlightRef = useRef(false);
   const warmupChoiceNoticeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   /** Epoch ms when the first playable remote track was mounted; 0 = not yet. */
@@ -1120,6 +1133,9 @@ export default function VideoDateScreen() {
     surveyOpenedRef.current = false;
     dailyReconnectPerformanceStartedAtRef.current = null;
     dailyReconnectPerformanceSourceRef.current = null;
+    postDatePrestageKeyRef.current = null;
+    resilienceDailyAdaptationKeyRef.current = null;
+    setPostDateSurveyShellPrestaged(false);
     if (warmupChoiceNoticeTimerRef.current) {
       clearTimeout(warmupChoiceNoticeTimerRef.current);
       warmupChoiceNoticeTimerRef.current = null;
@@ -7382,6 +7398,123 @@ export default function VideoDateScreen() {
     phase === 'handshake' && handshakeTimerStarted && displayTimeLeft <= 10;
 
   useEffect(() => {
+    if (!postDateInstantNextV2.enabled || !sessionId || !user?.id || showFeedback || phase !== 'date') return;
+    if (displayTimeLeft > 30) return;
+    const surveyEventId = eventId || session?.event_id || '';
+    const key = `${sessionId}:${surveyEventId}:${user.id}`;
+    if (postDatePrestageKeyRef.current === key) return;
+    postDatePrestageKeyRef.current = key;
+    setPostDateSurveyShellPrestaged(true);
+    if (surveyEventId) {
+      void queryClient
+        .prefetchQuery({
+          queryKey: ['event-deck', surveyEventId, user.id, 'deck_v2'],
+          queryFn: () => fetchEventDeckProfiles(surveyEventId, user.id),
+          staleTime: 10_000,
+        })
+        .then(() => {
+          const profiles = queryClient.getQueryData<Awaited<ReturnType<typeof fetchEventDeckProfiles>>>([
+            'event-deck',
+            surveyEventId,
+            user.id,
+            'deck_v2',
+          ]) ?? [];
+          for (const item of getVideoDateDeckPrefetchItems(profiles)) {
+            const src = deckCardUrl(item.source);
+            if (src) void Image.prefetch(src);
+          }
+        })
+        .catch(() => undefined);
+    }
+    if (fullPartner?.avatarUrl || fullPartner?.photos?.[0]) {
+      void Image.prefetch(fullPartner.avatarUrl ?? fullPartner.photos?.[0] ?? '');
+    }
+    trackEvent('post_date_survey_prestaged', {
+      platform: 'native',
+      session_id: sessionId,
+      event_id: surveyEventId || null,
+      remaining_seconds: displayTimeLeft,
+    });
+  }, [
+    displayTimeLeft,
+    eventId,
+    fullPartner?.avatarUrl,
+    fullPartner?.photos,
+    phase,
+    postDateInstantNextV2.enabled,
+    queryClient,
+    session?.event_id,
+    sessionId,
+    showFeedback,
+    user?.id,
+  ]);
+
+  useEffect(() => {
+    if (!resilienceV2.enabled || !sessionId || showFeedback || netQualityTier === 'good') return;
+    const key = `${sessionId}:${netQualityTier}`;
+    if (resilienceModeTrackedKeyRef.current === key) return;
+    resilienceModeTrackedKeyRef.current = key;
+    trackEvent('video_date_resilience_low_quality_mode', {
+      platform: 'native',
+      session_id: sessionId,
+      event_id: eventId || null,
+      network_tier: netQualityTier,
+      adaptation: 'ui_and_daily_capability_checked',
+    });
+  }, [eventId, netQualityTier, resilienceV2.enabled, sessionId, showFeedback]);
+
+  useEffect(() => {
+    if (!resilienceV2.enabled || !sessionId || showFeedback) return;
+    if (!localInDailyRoom) {
+      resilienceDailyAdaptationKeyRef.current = null;
+      return;
+    }
+    const mode = netQualityTier === 'poor' ? 'audio_priority' : 'standard';
+    if (mode === 'standard' && resilienceDailyAdaptationKeyRef.current === null) return;
+    const key = `${sessionId}:${mode}`;
+    if (resilienceDailyAdaptationKeyRef.current === key) return;
+
+    const call = callRef.current as unknown as DailyReceiveSettingsCapable | null;
+    const payload = {
+      platform: 'native',
+      session_id: sessionId,
+      event_id: eventId || null,
+      network_tier: netQualityTier,
+      adaptation: mode,
+    };
+
+    if (!call || typeof call.updateReceiveSettings !== 'function') {
+      resilienceDailyAdaptationKeyRef.current = key;
+      trackEvent('video_date_resilience_daily_adaptation', {
+        ...payload,
+        capability_available: false,
+        outcome: 'unsupported',
+      });
+      return;
+    }
+
+    const receiveSettings = mode === 'audio_priority' ? { '*': { video: { layer: 0 } } } : { '*': 'inherit' };
+    resilienceDailyAdaptationKeyRef.current = key;
+    void call
+      .updateReceiveSettings(receiveSettings)
+      .then(() => {
+        trackEvent('video_date_resilience_daily_adaptation', {
+          ...payload,
+          capability_available: true,
+          outcome: 'applied',
+        });
+      })
+      .catch((error) => {
+        trackEvent('video_date_resilience_daily_adaptation', {
+          ...payload,
+          capability_available: true,
+          outcome: 'failed',
+          reason: error instanceof Error ? error.message.slice(0, 120) : 'unknown',
+        });
+      });
+  }, [eventId, localInDailyRoom, netQualityTier, resilienceV2.enabled, sessionId, showFeedback]);
+
+  useEffect(() => {
     if (!sessionId || !handshakeTimerStarted || phase !== 'handshake') return;
     const key = `${sessionId}:${session?.handshake_started_at ?? 'phase_not_handshake'}`;
     if (warmupTimerStartedTrackedRef.current === key) return;
@@ -8062,6 +8195,20 @@ export default function VideoDateScreen() {
   return (
     <View style={[styles.container, { backgroundColor: theme.background }]}>
       <LiveSurfaceOfflineStrip />
+      {postDateInstantNextV2.enabled && postDateSurveyShellPrestaged && !showFeedback ? (
+        <View
+          pointerEvents="none"
+          accessibilityElementsHidden
+          importantForAccessibility="no-hide-descendants"
+          style={styles.postDateSurveyPrestageShell}
+        >
+          {partnerAvatarUri ? (
+            <Image source={{ uri: partnerAvatarUri }} style={styles.postDateSurveyPrestageImage} />
+          ) : (
+            <View style={[styles.postDateSurveyPrestageImage, { backgroundColor: theme.surface }]} />
+          )}
+        </View>
+      ) : null}
       {surfaceClaimBlocked && !showFeedback ? (
         <View style={styles.initialTimeoutWrap}>
           <View style={[styles.initialTimeoutCard, { backgroundColor: theme.surface, borderColor: theme.border }]}>
@@ -8283,7 +8430,14 @@ export default function VideoDateScreen() {
         )}
 
       {isPartnerDisconnected && partnerEverJoined && (
-        <ReconnectionOverlay isVisible partnerName={partnerName} graceTimeLeft={reconnectionGrace} />
+        <ReconnectionOverlay
+          isVisible
+          partnerName={partnerName}
+          graceTimeLeft={reconnectionGrace}
+          mode="partner_away"
+          networkTier={netQualityTier}
+          resilienceV2={resilienceV2.enabled}
+        />
       )}
 
       {nativeBackgroundStatus !== 'none' && (
@@ -8836,6 +8990,17 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(255,255,255,0.1)',
   },
   waitingTimerText: { fontSize: 12, fontWeight: '700' },
+  postDateSurveyPrestageShell: {
+    position: 'absolute',
+    width: 1,
+    height: 1,
+    opacity: 0,
+    overflow: 'hidden',
+  },
+  postDateSurveyPrestageImage: {
+    width: 1,
+    height: 1,
+  },
   initialTimeoutWrap: {
     ...StyleSheet.absoluteFillObject,
     justifyContent: 'center',

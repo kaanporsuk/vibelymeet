@@ -14,6 +14,23 @@ interface UseEventDeckOptions {
   enabled?: boolean;
 }
 
+export async function fetchEventDeckProfiles(eventId: string, viewerProfileId: string): Promise<DeckProfile[]> {
+  if (!viewerProfileId || !eventId) return [];
+
+  const { data, error } = await supabase.rpc("get_event_deck_v2", {
+    p_event_id: eventId,
+    p_user_id: viewerProfileId,
+    p_limit: VIDEO_DATE_DECK_BUFFER_LIMIT,
+  });
+
+  if (error) {
+    console.error("Error fetching deck:", error);
+    throw error;
+  }
+
+  return parseEventDeckProfiles(data);
+}
+
 export const useEventDeck = ({ eventId, enabled = true }: UseEventDeckOptions) => {
   const { user } = useUserProfile();
 
@@ -22,19 +39,7 @@ export const useEventDeck = ({ eventId, enabled = true }: UseEventDeckOptions) =
     queryFn: async () => {
       const viewerProfileId = user?.id;
       if (!viewerProfileId || !eventId) return [];
-
-      const { data, error } = await supabase.rpc("get_event_deck_v2", {
-        p_event_id: eventId,
-        p_user_id: viewerProfileId,
-        p_limit: VIDEO_DATE_DECK_BUFFER_LIMIT,
-      });
-
-      if (error) {
-        console.error("Error fetching deck:", error);
-        throw error;
-      }
-
-      return parseEventDeckProfiles(data);
+      return fetchEventDeckProfiles(eventId, viewerProfileId);
     },
     enabled: enabled && !!user?.id && !!eventId,
     refetchInterval: () =>

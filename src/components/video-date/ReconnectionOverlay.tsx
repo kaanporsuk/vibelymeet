@@ -6,6 +6,8 @@ interface ReconnectionOverlayProps {
   partnerName: string;
   graceTimeLeft: number;
   mode?: "partner_away" | "network_interrupted";
+  networkTier?: "good" | "fair" | "poor";
+  resilienceV2?: boolean;
 }
 
 export const ReconnectionOverlay = ({
@@ -13,6 +15,8 @@ export const ReconnectionOverlay = ({
   partnerName,
   graceTimeLeft,
   mode = "partner_away",
+  networkTier = "good",
+  resilienceV2 = false,
 }: ReconnectionOverlayProps) => {
   const title =
     mode === "network_interrupted"
@@ -36,7 +40,7 @@ export const ReconnectionOverlay = ({
           className="absolute inset-0 z-40 flex items-center justify-center"
           aria-label={ariaLabel}
         >
-          <div className="absolute inset-0 bg-background/80 backdrop-blur-md" />
+          <div className="absolute inset-0 bg-background/65 backdrop-blur-xl" />
 
           <motion.div
             initial={{ scale: 0.9, opacity: 0 }}
@@ -66,6 +70,12 @@ export const ReconnectionOverlay = ({
                 {graceTimeLeft}s
               </span>
             </div>
+
+            {resilienceV2 && networkTier !== "good" && (
+              <div className="mx-auto inline-flex items-center rounded-full border border-white/10 bg-white/[0.06] px-3 py-1 text-[11px] font-medium text-white/70">
+                {networkTier === "poor" ? "Audio priority mode" : "Stabilizing video"}
+              </div>
+            )}
           </motion.div>
         </motion.div>
       )}

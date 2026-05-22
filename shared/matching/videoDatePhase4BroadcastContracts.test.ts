@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import {
   normalizeVideoDateSessionBroadcastEvent,
+  normalizeVideoDateSessionBroadcastEvents,
   resolveVideoDateSessionSeqDecision,
   videoDateSessionTopic,
 } from "./videoDateSessionChannel";
@@ -15,6 +16,10 @@ const migration = readFileSync(
 );
 const phase5AuditMigration = readFileSync(
   join(root, "supabase/migrations/20260522013000_video_date_phase5_audit_hardening.sql"),
+  "utf8",
+);
+const instantPremiumMigration = readFileSync(
+  join(root, "supabase/migrations/20260522193000_video_date_instant_premium_v2_flags_batched_broadcast.sql"),
   "utf8",
 );
 const sessionChannel = readFileSync(
@@ -166,6 +171,88 @@ test("broadcast payload normalizer accepts database envelope and rejects raw or 
     }),
     null,
   );
+});
+
+test("batched broadcast normalizer accepts ordered sanitized envelopes and rejects malformed batches", () => {
+  const sessionId = "11111111-1111-4111-8111-111111111111";
+  const events = normalizeVideoDateSessionBroadcastEvents({
+    payload: {
+      schemaVersion: 1,
+      sessionId,
+      events: [
+        {
+          schemaVersion: 1,
+          id: 22,
+          sessionId,
+          sessionSeq: 12,
+          kind: "ready_gate_both_ready",
+          at: "2026-05-22T18:00:02Z",
+          actor: null,
+          payload: { ready_gate_status: "both_ready" },
+          correlationId: null,
+        },
+        {
+          schemaVersion: 1,
+          id: 21,
+          sessionId,
+          sessionSeq: 11,
+          kind: "date_started",
+          at: "2026-05-22T18:00:01Z",
+          actor: "22222222-2222-4222-8222-222222222222",
+          payload: {},
+          correlationId: "33333333-3333-4333-8333-333333333333",
+        },
+      ],
+    },
+  });
+  assert.equal(events?.length, 2);
+  assert.deepEqual(events?.map((event) => event.sessionSeq), [11, 12]);
+  assert.equal(events?.[0]?.kind, "date_started");
+  assert.equal(normalizeVideoDateSessionBroadcastEvent({ payload: { schemaVersion: 1, sessionId, events } }), null);
+  assert.equal(
+    normalizeVideoDateSessionBroadcastEvents({
+      payload: {
+        schemaVersion: 1,
+        sessionId,
+        events: [
+          {
+            schemaVersion: 1,
+            id: 1,
+            sessionId: "44444444-4444-4444-8444-444444444444",
+            sessionSeq: 1,
+            kind: "wrong_session",
+          },
+        ],
+      },
+    }),
+    null,
+  );
+  assert.equal(
+    normalizeVideoDateSessionBroadcastEvents({
+      payload: {
+        schemaVersion: 1,
+        sessionId,
+        events: [],
+      },
+    }),
+    null,
+  );
+});
+
+test("instant premium migration adds statement-level batched broadcasts behind full-rollout flag", () => {
+  assert.match(instantPremiumMigration, /'video_date\.broadcast_batched_v2', false, 0/);
+  assert.match(instantPremiumMigration, /CREATE OR REPLACE FUNCTION public\.video_date_broadcast_batched_v2_enabled\(\)/);
+  assert.match(instantPremiumMigration, /rollout_bps >= 10000/);
+  assert.match(instantPremiumMigration, /kill_switch_active = false/);
+  assert.match(instantPremiumMigration, /IF public\.video_date_broadcast_batched_v2_enabled\(\) THEN[\s\S]+RETURN NULL/);
+  assert.match(instantPremiumMigration, /CREATE OR REPLACE FUNCTION public\.broadcast_video_session_events_batched_v2\(\)/);
+  assert.match(instantPremiumMigration, /FROM new_rows nr[\s\S]+WHERE nr\.visibility = 'participants'/);
+  assert.match(instantPremiumMigration, /jsonb_agg\([\s\S]+ORDER BY nr\.session_seq, nr\.id/);
+  assert.match(instantPremiumMigration, /COALESCE\(nr\.sanitized_payload, '\{\}'::jsonb\)/);
+  assert.doesNotMatch(instantPremiumMigration, /nr\.payload/);
+  assert.match(instantPremiumMigration, /CREATE TRIGGER broadcast_video_session_events_batched_v2/);
+  assert.match(instantPremiumMigration, /REFERENCING NEW TABLE AS new_rows/);
+  assert.match(instantPremiumMigration, /FOR EACH STATEMENT/);
 });
 
 test("participant broadcast sanitized_payload has defense-in-depth sensitive-key checks", () => {
