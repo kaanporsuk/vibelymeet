@@ -52,10 +52,24 @@ test("adaptive web media is used for hero, gallery, and fullscreen profile photo
   assert.match(media, /object-cover/);
   assert.match(media, /h-\[clamp\(360px,62dvh,680px\)\]/);
   assert.match(media, /h-\[clamp\(260px,36dvh,420px\)\]/);
+  assert.match(media, /type ImageLoadState/);
+  assert.match(media, /loadState\.src === resolvedSrc && loadState\.status === "loaded"/);
+  assert.match(media, /loadState\.src === resolvedSrc && loadState\.status === "failed"/);
+  assert.match(media, /foregroundRef/);
+  assert.match(media, /\(img\.currentSrc \|\| img\.src\) === resolvedSrc/);
+  assert.match(media, /img\.complete && img\.naturalWidth > 0/);
+  assert.match(media, /fetchPriority=\{variant === "hero" \? "high" : "auto"\}/);
+  assert.doesNotMatch(media, /setLoaded\(false\)|setFailed\(false\)/);
+  assert.doesNotMatch(media, /loadedSrc|failedSrc/);
+  const backgroundStart = media.indexOf('key={`background-${resolvedSrc}`}');
+  const foregroundStart = media.indexOf('key={`foreground-${resolvedSrc}`}');
+  assert.ok(backgroundStart > -1 && foregroundStart > backgroundStart);
+  const backgroundBlock = media.slice(backgroundStart, foregroundStart);
+  assert.doesNotMatch(backgroundBlock, /setLoadState|onError/);
   assert.match(canonical, /variant="hero"/);
   assert.match(canonical, /variant="gallery"/);
   assert.match(canonical, /PhotoPreviewModal/);
-  assert.match(canonical, /vibeVideo\.state === "failed" \|\| vibeVideo\.state === "error"/);
+  assert.match(canonical, /effectiveVibeVideoState === "failed" \|\| effectiveVibeVideoState === "error"/);
   assert.match(fullscreen, /object-contain/);
 });
 
@@ -73,7 +87,7 @@ test("web canonical profile keeps substance above the body photo gallery", () =>
   const chat = read("src/pages/Chat.tsx");
 
   const identityStart = canonical.indexOf("<section className=\"space-y-3\">");
-  const identityEnd = canonical.indexOf("{vibeVideo.state !== \"none\"");
+  const identityEnd = canonical.indexOf("{effectiveVibeVideoState !== \"none\"");
   assert.ok(identityStart > -1 && identityEnd > identityStart);
   const identityBlock = canonical.slice(identityStart, identityEnd);
   assert.match(identityBlock, /Verified/);
@@ -153,6 +167,17 @@ test("native full profile includes adaptive media and explicit verification stat
 
   assert.match(nativeFullView, /AdaptiveNativeProfileMedia/);
   assert.match(nativeFullView, /resizeMode="contain"/);
+  assert.match(nativeFullView, /type NativeImageLoadState/);
+  assert.match(nativeFullView, /imageLoadState\.uri === resolvedUri && imageLoadState\.status === 'failed'/);
+  assert.doesNotMatch(nativeFullView, /failedUri/);
+  assert.match(nativeFullView, /key=\{`background-\$\{resolvedUri\}`\}/);
+  assert.match(nativeFullView, /key=\{`foreground-\$\{resolvedUri\}`\}/);
+  assert.match(nativeFullView, /onLoad=\{\(\) => setImageLoadState\(\{ uri: resolvedUri, status: 'loaded' \}\)\}/);
+  const nativeBackgroundStart = nativeFullView.indexOf('key={`background-${resolvedUri}`}');
+  const nativeForegroundStart = nativeFullView.indexOf('key={`foreground-${resolvedUri}`}');
+  assert.ok(nativeBackgroundStart > -1 && nativeForegroundStart > nativeBackgroundStart);
+  const nativeBackgroundBlock = nativeFullView.slice(nativeBackgroundStart, nativeForegroundStart);
+  assert.doesNotMatch(nativeBackgroundBlock, /setImageLoadState|onError/);
   assert.match(nativeFullView, /Math\.min\(winHeight \* 0\.58, 620\)/);
   assert.match(nativeFullView, /Math\.max\(220, Math\.min\(winHeight \* 0\.4, 420\)\)/);
   assert.match(nativeFullView, /function CompactTrustPill/);

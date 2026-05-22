@@ -59,6 +59,11 @@ export type UserProfileFullViewProps = {
   hideHero?: boolean;
 };
 
+type NativeImageLoadState = {
+  uri: string | null;
+  status: 'loading' | 'loaded' | 'failed';
+};
+
 const PHOTO_ZOOM_SCALE = 2;
 const PHOTO_MAX_PINCH_SCALE = 4;
 const PHOTO_ZOOM_LOCK_SCALE = 1.03;
@@ -86,8 +91,9 @@ function AdaptiveNativeProfileMedia({
   onPress?: () => void;
   accessibilityLabel?: string;
 }) {
-  const [failed, setFailed] = useState(false);
+  const [imageLoadState, setImageLoadState] = useState<NativeImageLoadState>({ uri: null, status: 'loading' });
   const resolvedUri = getImageUrl(uri, { width: 1400, quality: 88 });
+  const failed = imageLoadState.uri === resolvedUri && imageLoadState.status === 'failed';
 
   const content = failed ? (
     <RNView style={[s.adaptiveFallback, { height }]}>
@@ -97,18 +103,20 @@ function AdaptiveNativeProfileMedia({
   ) : (
     <>
       <Image
+        key={`background-${resolvedUri}`}
         source={{ uri: resolvedUri }}
         style={s.adaptiveBackground}
         resizeMode="cover"
         blurRadius={22}
-        onError={() => setFailed(true)}
       />
       <RNView style={s.adaptiveDim} />
       <Image
+        key={`foreground-${resolvedUri}`}
         source={{ uri: resolvedUri }}
         style={s.adaptiveForeground}
         resizeMode="contain"
-        onError={() => setFailed(true)}
+        onLoad={() => setImageLoadState({ uri: resolvedUri, status: 'loaded' })}
+        onError={() => setImageLoadState({ uri: resolvedUri, status: 'failed' })}
       />
     </>
   );
