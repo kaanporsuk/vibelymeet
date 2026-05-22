@@ -28,6 +28,7 @@ export function ChatPhotoLightbox({ items, initialId, onClose, onRefreshItem }: 
   const pinchRef = useRef<{ dist: number } | null>(null);
   const [urlOverridesById, setUrlOverridesById] = useState<Record<string, string>>({});
   const refreshAttemptedForUrlRef = useRef<string | null>(null);
+  const autoRefreshAttemptedForIdRef = useRef<string | null>(null);
   const lastInitialIdRef = useRef(initialId);
   const previousItemsRef = useRef(items);
 
@@ -107,15 +108,17 @@ export function ChatPhotoLightbox({ items, initialId, onClose, onRefreshItem }: 
 
   const refreshCurrent = useCallback(async () => {
     if (!current || !currentUrl || !onRefreshItem || refreshAttemptedForUrlRef.current === currentUrl) return;
+    refreshAttemptedForUrlRef.current = currentUrl;
     const freshUrl = await onRefreshItem(current);
     if (!freshUrl || freshUrl === currentUrl) return;
-    refreshAttemptedForUrlRef.current = currentUrl;
     setUrlOverridesById((prev) => (prev[current.id] === freshUrl ? prev : { ...prev, [current.id]: freshUrl }));
   }, [current, currentUrl, onRefreshItem]);
 
   useEffect(() => {
+    if (!current?.id || autoRefreshAttemptedForIdRef.current === current.id) return;
+    autoRefreshAttemptedForIdRef.current = current.id;
     void refreshCurrent();
-  }, [refreshCurrent]);
+  }, [current?.id, refreshCurrent]);
 
   const onWheel = useCallback((e: React.WheelEvent) => {
     e.preventDefault();
