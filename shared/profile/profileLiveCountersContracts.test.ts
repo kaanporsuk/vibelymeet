@@ -10,9 +10,14 @@ const migration = read("supabase/migrations/20260522190000_profile_live_counter_
 const validation = read("supabase/validation/profile_live_counter_read_model.sql");
 const webProfileStudio = read("src/pages/ProfileStudio.tsx");
 const webApp = read("src/App.tsx");
+const webProfileService = read("src/services/profileService.ts");
+const webMyProfileSettings = read("src/services/myProfileSettings.ts");
 const mobileProfileCountsRealtime = read("apps/mobile/lib/useProfileCountsRealtime.ts");
 const mobileLayout = read("apps/mobile/app/_layout.tsx");
 const mobileChatApi = read("apps/mobile/lib/chatApi.ts");
+const mobileProfileApi = read("apps/mobile/lib/profileApi.ts");
+const mobileMyProfileSettings = read("apps/mobile/lib/myProfileSettings.ts");
+const mobileProfileStudio = read("apps/mobile/app/(tabs)/profile/ProfileStudio.tsx");
 
 test("profile live counter migration maintains the profile read model from source tables", () => {
   assert.match(migration, /CREATE OR REPLACE FUNCTION public\.recompute_profile_live_counts\(p_profile_id uuid\)/);
@@ -55,18 +60,21 @@ test("profile live counter validation exercises backfill and trigger semantics",
   assert.match(validation, /DELETE FROM public\.matches/);
   assert.match(validation, /UPDATE public\.matches[\s\S]*SET last_message_at = now\(\)/);
   assert.match(validation, /UPDATE public\.matches[\s\S]*SET last_message_at = NULL/);
+  assert.match(validation, /RAISE EXCEPTION 'profile live counter validation failed: %'/);
   assert.match(validation, /ROLLBACK;/);
 });
 
 test("web profile studio renders maintained counters first and overlays live query data", () => {
   assert.match(webProfileStudio, /PROFILE_LIVE_COUNTS_STALE_TIME_MS/);
   assert.match(webProfileStudio, /const \{ data: liveCounts, dataUpdatedAt: liveCountsUpdatedAt \} = useQuery\(\{/);
+  assert.match(webProfileStudio, /const profileBelongsToCurrentUser = !!profileUser\?\.id && profile\.id === profileUser\.id;/);
   assert.match(webProfileStudio, /queryKey: profileUser\?\.id \? profileLiveCountsQueryKey\(profileUser\.id\) : profileLiveCountsQueryKey\("none"\)/);
-  assert.match(webProfileStudio, /enabled: !!profileUser\?\.id && !!profile\.id/);
+  assert.match(webProfileStudio, /enabled: profileBelongsToCurrentUser/);
   assert.match(webProfileStudio, /const \[profileStatsLoadedAt, setProfileStatsLoadedAt\] = useState\(0\);/);
   assert.match(webProfileStudio, /staleTime: 0/);
   assert.match(webProfileStudio, /const profileLoadedAt = Date\.now\(\);/);
   assert.match(webProfileStudio, /setProfileStatsLoadedAt\(profileLoadedAt\);/);
+  assert.match(webProfileStudio, /isLoading \|\| \(!!profileUser\?\.id && !!profile\.id && !profileBelongsToCurrentUser\)/);
   assert.match(webProfileStudio, /liveCounts && liveCountsUpdatedAt >= profileStatsLoadedAt \? liveCounts : null/);
   assert.match(webProfileStudio, /const profileDisplayStats = liveCountsFreshForLoadedProfile \?\? profile\.stats;/);
   assert.match(webProfileStudio, /\{ label: "Events", value: profileDisplayStats\.events \}/);
@@ -75,6 +83,29 @@ test("web profile studio renders maintained counters first and overlays live que
 
   assert.doesNotMatch(webProfileStudio, /Error loading profile counts/);
   assert.doesNotMatch(webProfileStudio, /setProfile\(\(prev\) => \(prev\.id === data\.id \? \{ \.\.\.prev, stats: liveCounts \} : prev\)\)/);
+});
+
+test("web and native first profile reads expose maintained profile counter columns", () => {
+  for (const source of [webMyProfileSettings, mobileMyProfileSettings]) {
+    assert.match(source, /events_attended\?: number \| null;/);
+    assert.match(source, /total_matches\?: number \| null;/);
+    assert.match(source, /total_conversations\?: number \| null;/);
+    assert.match(source, /supabase\.rpc\(["']get_my_profile_settings["']\)/);
+  }
+
+  assert.match(webProfileService, /events: dbProfile\.events_attended \|\| 0/);
+  assert.match(webProfileService, /matches: dbProfile\.total_matches \|\| 0/);
+  assert.match(webProfileService, /conversations: dbProfile\.total_conversations \|\| 0/);
+  assert.match(webProfileService, /fetchMyProfileSettings\(\)/);
+
+  assert.match(mobileProfileApi, /events_attended: row\.events_attended \?\? null/);
+  assert.match(mobileProfileApi, /total_matches: row\.total_matches \?\? null/);
+  assert.match(mobileProfileApi, /total_conversations: row\.total_conversations \?\? null/);
+  assert.match(mobileProfileApi, /fetchMyProfileSettings\(\)/);
+
+  assert.match(mobileProfileStudio, /liveCounts\?\.events \?\? profile\?\.events_attended \?\? 0/);
+  assert.match(mobileProfileStudio, /liveCounts\?\.matches \?\? profile\?\.total_matches \?\? 0/);
+  assert.match(mobileProfileStudio, /liveCounts\?\.convos \?\? profile\?\.total_conversations \?\? 0/);
 });
 
 test("web app invalidates profile counters from realtime source-table changes", () => {
