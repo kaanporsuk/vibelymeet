@@ -761,8 +761,6 @@ export function WebChatOutboxProvider({ children }: { children: ReactNode }) {
         }
 
         if (pastDeadline) {
-          const key = itemPayloadBlobKey(item);
-          if (serverRow?.id && item.payload.kind !== "image" && key) void deleteOutboxBlob(key);
           updateItems((prev) =>
             prev.map((it) =>
               it.id === item.id
