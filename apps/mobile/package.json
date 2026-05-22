@@ -4,12 +4,13 @@
   "version": "1.0.0",
   "scripts": {
     "guard:no-expo-crypto": "node scripts/check-no-expo-crypto.mjs",
+    "guard:metro-aliases": "node scripts/check-metro-aliases.mjs",
     "start": "expo start",
     "android": "expo run:android",
     "ios": "expo run:ios",
     "web": "expo start --web",
     "postinstall": "patch-package",
-    "typecheck": "npm run guard:no-expo-crypto && tsc --noEmit",
+    "typecheck": "npm run guard:no-expo-crypto && npm run guard:metro-aliases && tsc --noEmit",
     "rc-smoke": "bash scripts/rc-smoke-check.sh"
   },
   "dependencies": {
