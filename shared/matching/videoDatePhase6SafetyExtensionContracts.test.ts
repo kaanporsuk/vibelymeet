@@ -89,6 +89,18 @@ test("mutual extension refuses to charge before room-expiry proof passes", () =>
   );
 });
 
+test("mutual extension expires stale pending requests and serializes partner races", () => {
+  const fn = functionBody("video_session_request_extension_v2");
+  assert.match(fn, /UPDATE public\.video_date_extension_requests[\s\S]+SET status = 'expired'[\s\S]+failure_reason = COALESCE\(failure_reason, 'request_expired'\)[\s\S]+expires_at <= v_now/);
+  assert.match(fn, /UPDATE public\.video_date_extension_requests[\s\S]+failure_reason = COALESCE\(failure_reason, 'replaced_by_new_request'\)[\s\S]+requester_id = v_actor[\s\S]+status = 'pending'/);
+  assert.match(fn, /SELECT \*[\s\S]+requester_id = v_partner_id[\s\S]+credit_type = v_credit_type[\s\S]+status = 'pending'[\s\S]+expires_at > v_now[\s\S]+ORDER BY created_at ASC[\s\S]+LIMIT 1[\s\S]+FOR UPDATE/);
+  assert.match(fn, /UPDATE public\.video_date_extension_requests[\s\S]+failure_reason = COALESCE\(failure_reason, 'accepted_different_request'\)[\s\S]+requester_id = v_actor[\s\S]+status = 'pending'/);
+  assert.ok(
+    fn.indexOf("SELECT *\n  INTO v_before") < fn.indexOf("UPDATE public.video_date_extension_requests"),
+    "session row lock must be acquired before stale-request cleanup and partner request selection",
+  );
+});
+
 test("mutual extension spends remain covered by the existing refund engine", () => {
   assert.match(migration, /CREATE OR REPLACE VIEW public\.vw_video_date_extension_refund_certification/);
   assert.match(migration, /has_mutual_extension_spend/);
@@ -98,6 +110,13 @@ test("mutual extension spends remain covered by the existing refund engine", () 
   assert.match(refundMigration, /extra_time_refunded/);
   assert.match(refundMigration, /extended_vibe_refunded/);
   assert.match(refundMigration, /refund_failed_video_date/);
+  assert.match(refundMigration, /'partial_join_peer_timeout'/);
+  assert.match(refundMigration, /'prepare_entry_provider_failed_repair'/);
+  assert.match(refundMigration, /'prepare_entry_daily_join_missing'/);
+  assert.match(refundMigration, /'prepare_entry_timeout'/);
+  assert.match(refundMigration, /'reconnect_grace_expired'/);
+  assert.match(refundMigration, /CREATE TRIGGER video_session_refund_on_end/);
+  assert.match(refundMigration, /WHEN \(NEW\.ended_reason IS NOT NULL[\s\S]+NEW\.refund_status IS NULL\)/);
 });
 
 test("PR 6.3 always-on safety flag drives web and native v2 safety surfaces", () => {

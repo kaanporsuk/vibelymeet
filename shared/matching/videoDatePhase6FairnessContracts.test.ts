@@ -111,6 +111,27 @@ test("queue fairness scoring balances wait age, readiness, no-match history, and
   assert.match(migration, /LEAST\(\s*120[\s\S]*ready_gate_forfeit[\s\S]*reconnect_grace_expired/s);
 });
 
+test("queue fairness picker keeps heartbeat freshness authoritative at drain time", () => {
+  const candidateView = migration.match(
+    /CREATE OR REPLACE VIEW public\.v_video_date_queue_fairness_candidates[\s\S]+?COMMENT ON VIEW public\.v_video_date_queue_fairness_candidates/,
+  )?.[0];
+  const drain = functionBody("drain_match_queue_v2");
+
+  assert.ok(candidateView, "missing fairness candidate view block");
+  assert.match(candidateView, /actor_runtime\.last_heartbeat_at >= now\(\) - interval '45 seconds'/);
+  assert.match(candidateView, /partner_runtime\.last_heartbeat_at >= now\(\) - interval '45 seconds'/);
+  assert.match(candidateView, /actor_hot_ready/);
+  assert.match(candidateView, /partner_hot_ready/);
+  assert.match(drain, /v_self_runtime\.last_heartbeat_at >= now\(\) - interval '45 seconds'/);
+  assert.match(drain, /v_partner_runtime\.last_heartbeat_at >= now\(\) - interval '45 seconds'/);
+  assert.match(drain, /'heartbeat_age_seconds', EXTRACT\(EPOCH FROM \(now\(\) - v_self_runtime\.last_heartbeat_at\)\)::int/);
+  assert.match(drain, /'heartbeat_age_seconds', EXTRACT\(EPOCH FROM \(now\(\) - v_partner_runtime\.last_heartbeat_at\)\)::int/);
+  assert.ok(
+    drain.indexOf("FOR UPDATE OF vs SKIP LOCKED") < drain.indexOf("v_self_runtime.last_heartbeat_at"),
+    "heartbeat freshness must be rechecked after the queue row is locked",
+  );
+});
+
 test("operator surfaces include the new queue fairness metric", () => {
   assert.match(operatorMetrics, /"queue_fairness_starvation_rate"/);
   assert.match(operatorMetrics, /v_video_date_queue_fairness_candidates/);

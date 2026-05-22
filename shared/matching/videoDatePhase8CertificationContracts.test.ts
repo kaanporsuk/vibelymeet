@@ -32,6 +32,10 @@ const reviewFollowupsMigration = readFileSync(
 );
 const twoUserHarness = readFileSync(join(root, "e2e/video-date-two-user.staging.spec.ts"), "utf8");
 const runtimeRlsTest = readFileSync(join(root, "shared/matching/videoDateRealtimeRlsRuntime.test.ts"), "utf8");
+const phase8CertificationScript = readFileSync(join(root, "scripts/phase8-certification.ts"), "utf8");
+const phase8LiveCertificationScript = readFileSync(join(root, "scripts/phase8-live-certification.ts"), "utf8");
+const phase8RolloutScript = readFileSync(join(root, "scripts/phase8-rollout.sh"), "utf8");
+const phase8Workflow = readFileSync(join(root, ".github/workflows/video-date-phase8-certification.yml"), "utf8");
 const runbook = readFileSync(join(root, "docs/video-date-v4-phase8-certification-rollout.md"), "utf8");
 const legacyChecklist = readFileSync(join(root, "docs/video-date-v4-legacy-cleanup-checklist.md"), "utf8");
 const packageJson = readFileSync(join(root, "package.json"), "utf8");
@@ -251,6 +255,31 @@ test("PR 8.1 two-user harness covers early continue, reload recovery, and survey
 test("PR 8.2 runtime RLS, chaos, and load certification are documented and recordable", () => {
   assert.match(runtimeRlsTest, /VIDEO_DATE_RLS_NON_PARTICIPANT_JWT/);
   assert.match(runtimeRlsTest, /assert\.notEqual\(nonParticipant\.status, "SUBSCRIBED"\)/);
+  assert.match(phase8LiveCertificationScript, /CHAOS_SCENARIOS = \[[\s\S]*"duplicate_taps"[\s\S]*"broadcast_loss"[\s\S]*"daily_webhook_loss"[\s\S]*"worker_crash_retry"[\s\S]*"delayed_push_deeplink"/);
+  assert.match(phase8LiveCertificationScript, /LOAD_PATHS = \[[\s\S]*"queue_drain"[\s\S]*"deadline_finalizer"[\s\S]*"outbox_drainer"[\s\S]*"snapshot_fetch"[\s\S]*"daily_credentialed_entry"/);
+  assert.match(phase8LiveCertificationScript, /video-date-outbox-drainer/);
+  assert.match(phase8LiveCertificationScript, /video-date-deadline-finalizer/);
+  assert.match(phase8LiveCertificationScript, /synthetic-video-date-monitor/);
+  assert.match(phase8LiveCertificationScript, /video-date-snapshot/);
+  assert.match(phase8LiveCertificationScript, /function assertProbeOk/);
+  assert.match(phase8LiveCertificationScript, /function probeSummary/);
+  assert.match(phase8LiveCertificationScript, /function recordFailure/);
+  assert.match(phase8LiveCertificationScript, /function runCertification/);
+  assert.match(phase8LiveCertificationScript, /statusForFailure/);
+  assert.match(phase8LiveCertificationScript, /"blocked"/);
+  assert.match(phase8LiveCertificationScript, /"failed"/);
+  assert.match(phase8LiveCertificationScript, /payloadOk = payload\.ok !== false/);
+  assert.match(phase8LiveCertificationScript, /assertProbeOk\("synthetic-video-date-monitor", synthetic\)/);
+  assert.match(phase8LiveCertificationScript, /assertProbeOk\("video-date-snapshot load probe", snapshot\)/);
+  assert.match(phase8LiveCertificationScript, /synthetic_monitor: probeSummary\(synthetic\)/);
+  assert.match(phase8LiveCertificationScript, /snapshot_fetch: probeSummary\(snapshot\)/);
+  assert.match(phase8LiveCertificationScript, /throw new Error\("snapshot_probe_env_missing"\)/);
+  assert.match(phase8LiveCertificationScript, /record\("chaos", "cross_platform"/);
+  assert.match(phase8LiveCertificationScript, /record\("load", "backend"/);
+  assert.match(phase8LiveCertificationScript, /runCertification\("two_user_e2e", "web", "two-user-web", runTwoUserWeb\)/);
+  assert.match(phase8LiveCertificationScript, /runCertification\("rls_negative", "backend", "rls", runRuntimeRls\)/);
+  assert.match(phase8LiveCertificationScript, /runCertification\("chaos", "cross_platform", "chaos", runChaos\)/);
+  assert.match(phase8LiveCertificationScript, /runCertification\("load", "backend", "load", runLoad\)/);
   assert.match(runbook, /run_kind='rls_negative'/);
   assert.match(runbook, /run_kind='chaos'/);
   assert.match(runbook, /run_kind='load'/);
@@ -260,6 +289,50 @@ test("PR 8.2 runtime RLS, chaos, and load certification are documented and recor
   assert.match(runbook, /queue drain, deadline finalizer, outbox drainer, snapshot fetch, and Daily token paths/);
 });
 
+test("Phase 8 certification tooling records native smoke and rollout proof without hand-written SQL", () => {
+  assert.match(phase8CertificationScript, /record_video_date_phase8_certification_run_v2/);
+  assert.match(phase8CertificationScript, /record_video_date_phase8_rollout_step_v2/);
+  assert.match(phase8CertificationScript, /record_video_date_phase8_legacy_cleanup_v2/);
+  assert.match(phase8CertificationScript, /NATIVE_SMOKE_FLAGS = \[[\s\S]*"ios"[\s\S]*"android"[\s\S]*"background-foreground"[\s\S]*"delayed-push-deeplink"[\s\S]*"switch-device"[\s\S]*"early-continue"[\s\S]*"safety"[\s\S]*"mutual-extension"[\s\S]*"survey-recovery"/);
+  assert.match(phase8CertificationScript, /function requiredSha/);
+  assert.match(phase8CertificationScript, /passed certification records require --commit-sha or GITHUB_SHA/);
+  assert.match(phase8CertificationScript, /passed \$\{runKind\} records must use the dedicated/);
+  assert.match(phase8CertificationScript, /native-smoke requires --operator or GITHUB_ACTOR/);
+  assert.match(phase8CertificationScript, /commitSha: requiredSha\(commitSha, "native-smoke"\)/);
+  assert.match(phase8CertificationScript, /commitSha: requiredSha\(commitSha, "rollout-step"\)/);
+  assert.match(phase8CertificationScript, /commitSha: requiredSha\(commitSha, "legacy-cleanup"\)/);
+  assert.match(phase8CertificationScript, /SECRET_KEY_PATTERN/);
+  assert.match(phase8CertificationScript, /Refusing to record secret-shaped report key/);
+  assert.match(phase8CertificationScript, /PHASE8_STAGING_SUPABASE_SERVICE_ROLE_KEY/);
+  assert.match(phase8RolloutScript, /phase8-certification\.ts rollout-step/);
+  assert.match(phase8RolloutScript, /phase8-certification\.ts legacy-cleanup/);
+  assert.match(packageJson, /"phase8:certify": "tsx scripts\/phase8-certification\.ts"/);
+  assert.match(packageJson, /"phase8:live-certify": "tsx scripts\/phase8-live-certification\.ts"/);
+  assert.match(packageJson, /"phase8:rollout": "bash scripts\/phase8-rollout\.sh"/);
+});
+
+test("Phase 8 live certification runs nightly and manually against staging, not as a PR build", () => {
+  assert.match(phase8Workflow, /name: Video Date Phase 8 Certification/);
+  assert.match(phase8Workflow, /workflow_dispatch:/);
+  assert.match(phase8Workflow, /schedule:/);
+  assert.doesNotMatch(phase8Workflow, /pull_request:/);
+  assert.match(phase8Workflow, /PHASE8_STAGING_BASE_URL/);
+  assert.match(phase8Workflow, /PHASE8_STAGING_SUPABASE_SERVICE_ROLE_KEY/);
+  assert.match(phase8Workflow, /PHASE8_E2E_USER_A_STATE_JSON/);
+  assert.match(phase8Workflow, /PHASE8_RLS_NON_PARTICIPANT_JWT/);
+  assert.match(phase8Workflow, /scripts\/phase8-live-certification\.ts/);
+  assert.match(phase8Workflow, /npx playwright install --with-deps chromium/);
+  assert.match(phase8LiveCertificationScript, /VIBELY_E2E_USE_EXTERNAL_SERVER/);
+  assert.match(phase8LiveCertificationScript, /video-date-two-user\.staging\.spec\.ts/);
+  assert.match(phase8LiveCertificationScript, /videoDateRealtimeRlsRuntime\.test\.ts/);
+  assert.match(phase8LiveCertificationScript, /app\.video_date_phase8_event_id=\$\{targetEventId\}/);
+  assert.match(phase8LiveCertificationScript, /PGOPTIONS: pgOptions/);
+  assert.match(validationSql, /phase7_daily_performance_emitters_receiving/);
+  assert.match(validationSql, /vw_video_date_daily_performance_emission_health/);
+  assert.match(validationSql, /CROSS JOIN target_event target/);
+  assert.match(validationSql, /h\.event_id IS NOT DISTINCT FROM target\.event_id/);
+});
+
 test("Phase 8 validation and legacy cleanup docs are wired to the rollout gate", () => {
   assert.match(validationSql, /phase8_certification_ledger_exists/);
   assert.match(validationSql, /COUNT\(\*\) = 5 AS ok/);
@@ -267,6 +340,7 @@ test("Phase 8 validation and legacy cleanup docs are wired to the rollout gate",
   assert.match(validationSql, /vw_video_date_phase8_release_closure/);
   assert.match(validationSql, /record_video_date_phase8_rollout_step_v2/);
   assert.match(validationSql, /record_video_date_phase8_legacy_cleanup_v2/);
+  assert.match(validationSql, /get_video_date_daily_performance_emission_health/);
   assert.match(validationSql, /get_video_date_phase8_release_closure/);
   assert.match(validationSql, /phase8_no_next_rollout_blockers/);
   assert.match(validationSql, /current_setting\('app\.video_date_phase8_event_id', true\)/);

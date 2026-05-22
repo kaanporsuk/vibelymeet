@@ -24,7 +24,32 @@ SELECT
   to_regprocedure('public.get_video_date_phase8_rollout_readiness(uuid)') IS NOT NULL
   AND to_regprocedure('public.record_video_date_phase8_rollout_step_v2(uuid, integer, text, jsonb, text, timestamp with time zone)') IS NOT NULL
   AND to_regprocedure('public.record_video_date_phase8_legacy_cleanup_v2(text, jsonb, text, timestamp with time zone)') IS NOT NULL
+  AND to_regprocedure('public.get_video_date_daily_performance_emission_health(uuid)') IS NOT NULL
   AND to_regprocedure('public.get_video_date_phase8_release_closure()') IS NOT NULL AS ok;
+
+WITH target_event AS (
+  SELECT NULLIF(current_setting('app.video_date_phase8_event_id', true), '')::uuid AS event_id
+)
+SELECT
+  'phase7_daily_performance_emitters_receiving' AS check_name,
+  COALESCE(bool_and(NOT h.missing_for_rollout_gate), false) AS ok,
+  jsonb_agg(
+    jsonb_build_object(
+      'event_id', h.event_id,
+      'window_id', h.window_id,
+      'segment_key', h.segment_key,
+      'sample_count', h.sample_count,
+      'minimum_samples', h.minimum_samples,
+      'last_sample_at', h.last_sample_at,
+      'emission_status', h.emission_status
+    )
+    ORDER BY h.event_id NULLS FIRST, h.window_id, h.segment_key
+  ) FILTER (WHERE h.missing_for_rollout_gate) AS missing_segments
+FROM public.vw_video_date_daily_performance_emission_health h
+CROSS JOIN target_event target
+WHERE h.window_id = '24h'
+  AND h.segment_key IN ('daily_join', 'first_remote_frame')
+  AND h.event_id IS NOT DISTINCT FROM target.event_id;
 
 WITH target_event AS (
   SELECT NULLIF(current_setting('app.video_date_phase8_event_id', true), '')::uuid AS event_id

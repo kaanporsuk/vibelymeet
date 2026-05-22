@@ -4,10 +4,18 @@ Phase 8 is the release gate for the v4 Video Date system. It does not change the
 
 ## PR 8.1 - Two-User Certification
 
-Run the opt-in staging harness:
+Preferred automation is the nightly/manual GitHub workflow:
+
+```text
+.github/workflows/video-date-phase8-certification.yml
+```
+
+It runs against staging with `VIBELY_E2E_USE_EXTERNAL_SERVER=1`, materializes the two storage-state files from repository secrets, executes the two-user Playwright spec, and records the Phase 8 ledger row on success. For local or operator use, run the same harness directly:
 
 ```bash
 VIBELY_E2E_TWO_USER_WEB=1 \
+VIBELY_E2E_USE_EXTERNAL_SERVER=1 \
+PLAYWRIGHT_BASE_URL=<staging_url> \
 VIBELY_E2E_USER_A_STATE=./.auth/user-a.json \
 VIBELY_E2E_USER_B_STATE=./.auth/user-b.json \
 VIBELY_E2E_EVENT_ID=<event_uuid> \
@@ -16,7 +24,19 @@ npm run test:e2e -- --grep "ready gate, early continue"
 
 The event must be synthetic or staging-only, with two confirmed users and camera/mic permissions available. The harness covers lobby entry, Ready Gate, Daily entry, early "Continue when ready", reload recovery on `/date/:id`, post-date survey recovery, and browser diagnostics with token redaction.
 
-Record a pass with:
+Record a pass without hand-written SQL:
+
+```bash
+npm run phase8:certify -- record \
+  --run-kind two_user_e2e \
+  --platform web \
+  --status passed \
+  --event-id <event_uuid> \
+  --commit-sha <commit_sha> \
+  --report-json '{"harness":"e2e/video-date-two-user.staging.spec.ts"}'
+```
+
+The underlying RPC remains:
 
 ```sql
 select public.record_video_date_phase8_certification_run_v2(
@@ -32,7 +52,23 @@ select public.record_video_date_phase8_certification_run_v2(
 
 Recording is allowed only from a service-role context or a database-owner SQL session. Browser/mobile authenticated users cannot write certification rows.
 
-Native certification is manual until the native E2E runner exists. Use the same synthetic event on iOS and Android, exercising background/foreground, delayed push/deep link, switch-device prompt, early continue, mutual extension, safety report, and survey recovery. Record `native_smoke` with `platform='native'` only after both iOS and Android are clean.
+Native certification still depends on real iOS and Android devices, but recording is no longer hand-written SQL. Use the same synthetic event on iOS and Android, exercising background/foreground, delayed push/deep link, switch-device prompt, early continue, mutual extension, safety report, and survey recovery. Then record `native_smoke` with explicit evidence flags:
+
+```bash
+npm run phase8:certify -- native-smoke \
+  --event-id <event_uuid> \
+  --commit-sha <commit_sha> \
+  --operator <operator_email> \
+  --ios \
+  --android \
+  --background-foreground \
+  --delayed-push-deeplink \
+  --switch-device \
+  --early-continue \
+  --safety \
+  --mutual-extension \
+  --survey-recovery
+```
 
 ## PR 8.2 - RLS, Chaos, And Load
 
@@ -51,6 +87,17 @@ Chaos certification must include duplicate taps, Broadcast loss, Daily webhook l
 
 Record passes with `run_kind='rls_negative'`, `run_kind='chaos'`, and `run_kind='load'`.
 
+The automation wrapper runs the RLS test, chaos contracts/probes, worker dry-runs, synthetic monitor webhook/cleanup probes, snapshot fetch probe, and Phase 7 performance contracts, then records the ledger rows:
+
+```bash
+npm run phase8:live-certify -- --mode all
+npm run phase8:live-certify -- --mode rls
+npm run phase8:live-certify -- --mode chaos
+npm run phase8:live-certify -- --mode load
+```
+
+Chaos automation covers duplicate taps, Broadcast loss, Daily webhook loss, worker crash/retry, mobile backgrounding, reconnect grace expiry, provider room cleanup dry-run, and delayed push/deep link by combining live probes with the already-deployed contract harnesses. Load automation probes queue drain, deadline finalizer, outbox drainer, snapshot fetch, and Daily token paths through dry-run workers, token-free snapshot fetch, and Phase 7 checkpoint contracts. The live wrapper records `failed` or `blocked` ledger rows on certification failure when service-role credentials are available, so stale green proof cannot silently survive a bad nightly run.
+
 ## PR 8.3 - Rollout Readiness Gate
 
 Use the service-role readiness view before every ramp:
@@ -59,6 +106,15 @@ Use the service-role readiness view before every ramp:
 select *
 from public.get_video_date_phase8_rollout_readiness('<event_uuid>')
 order by window_id, target_rollout_bps;
+```
+
+Also verify Daily performance emission health before the 10% ramp. `daily_join` and `first_remote_frame` must not be dark or stale, otherwise the Phase 8 first-frame SLA gate can become a false negative:
+
+```sql
+select *
+from public.get_video_date_daily_performance_emission_health('<event_uuid>')
+where window_id = '24h'
+  and segment_key in ('daily_join', 'first_remote_frame');
 ```
 
 Before the first 1% ramp, stage the v4 flags as `enabled=true`, `rollout_bps=0`, `kill_switch_active=false`. This is still user-off, but it proves the rollout population is controlled by `rollout_bps` rather than the hard disabled path.
@@ -74,6 +130,12 @@ After each successful production slice, record an exact `rollout_step` pass befo
 Prefer the narrow service-role wrappers for rollout and cleanup proof instead of hand-writing generic ledger rows. They reject token/secret-shaped report payloads and enforce the operational preconditions that are easy to forget during an incident.
 
 Use an event id for event-specific synthetic/staging proof. Use `null` for global production rollout proof that should count toward final Phase 8 release closure.
+
+Preferred wrapper:
+
+```bash
+npm run phase8:rollout -- --bps 100 --commit-sha <commit_sha> --report-json '{"window":"1%","source":"phase8_readiness_gate"}'
+```
 
 ```sql
 select public.record_video_date_phase8_rollout_step_v2(
@@ -98,6 +160,10 @@ from public.vw_video_date_legacy_deck_cleanup_readiness;
 ```
 
 Record final cleanup only through:
+
+```bash
+npm run phase8:rollout -- legacy-cleanup --commit-sha <commit_sha> --report-json '{"source":"server_dealt_deck_final_cutover"}'
+```
 
 ```sql
 select public.record_video_date_phase8_legacy_cleanup_v2(
