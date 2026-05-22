@@ -282,4 +282,22 @@ SELECT check_name, passed, detail
 FROM profile_live_counter_results
 ORDER BY check_name;
 
+DO $$
+DECLARE
+  v_failed jsonb;
+BEGIN
+  SELECT jsonb_agg(jsonb_build_object(
+    'check_name', check_name,
+    'detail', detail
+  ) ORDER BY check_name)
+  INTO v_failed
+  FROM profile_live_counter_results
+  WHERE NOT passed;
+
+  IF v_failed IS NOT NULL THEN
+    RAISE EXCEPTION 'profile live counter validation failed: %', v_failed;
+  END IF;
+END;
+$$;
+
 ROLLBACK;

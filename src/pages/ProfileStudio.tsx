@@ -342,13 +342,14 @@ const ProfileStudio = () => {
   );
 
   const { mySchedule, dateRange, isLoading: scheduleLoading } = useSchedule();
+  const profileBelongsToCurrentUser = !!profileUser?.id && profile.id === profileUser.id;
   const { data: liveCounts, dataUpdatedAt: liveCountsUpdatedAt } = useQuery({
     queryKey: profileUser?.id ? profileLiveCountsQueryKey(profileUser.id) : profileLiveCountsQueryKey("none"),
     queryFn: () =>
       profileUser?.id
         ? fetchProfileLiveCounts(profileUser.id)
         : Promise.resolve(initialProfile.stats),
-    enabled: !!profileUser?.id && !!profile.id,
+    enabled: profileBelongsToCurrentUser,
     staleTime: PROFILE_LIVE_COUNTS_STALE_TIME_MS,
   });
 
@@ -1167,7 +1168,7 @@ const ProfileStudio = () => {
 
   // ── Loading ───────────────────────────────────────────────────
 
-  if (isLoading) {
+  if (isLoading || (!!profileUser?.id && !!profile.id && !profileBelongsToCurrentUser)) {
     return (
       <div className="min-h-screen w-full max-w-[100svw] overflow-x-hidden bg-background flex items-center justify-center">
         <Loader2 className="w-8 h-8 animate-spin text-primary" />
