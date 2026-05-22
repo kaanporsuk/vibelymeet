@@ -666,16 +666,22 @@ export const PostDateSurvey = ({
   const handleVerdict = useCallback(
     async (liked: boolean) => {
       if (!user?.id || isSubmitting) return;
+      const previousStep = step;
+      const optimisticStep: SurveyStep = liked ? "awaiting_partner" : "highlights";
+      let optimisticallyAdvanced = false;
       setIsSubmitting(true);
       setVerdictError(null);
       setVerdictRetryable(false);
       setLastVerdictAttempt(liked);
       if (postDateInstantNextV2.enabled) {
+        setStep(optimisticStep);
+        optimisticallyAdvanced = true;
         trackEvent("post_date_verdict_optimistic_started", {
           platform: "web",
           session_id: sessionId,
           event_id: eventId,
           verdict: liked ? "vibe" : "pass",
+          optimistic_step: optimisticStep,
         });
       }
 
@@ -719,11 +725,13 @@ export const PostDateSurvey = ({
                 : "Something went wrong. Please try again.",
           );
           if (postDateInstantNextV2.enabled) {
+            if (optimisticallyAdvanced) setStep(previousStep);
             trackEvent("post_date_verdict_optimistic_rollback", {
               platform: "web",
               session_id: sessionId,
               event_id: eventId,
               reason: code,
+              rollback_step: previousStep,
             });
           }
           return;
@@ -800,18 +808,20 @@ export const PostDateSurvey = ({
         setVerdictRetryable(true);
         setVerdictError("Couldn't save your answer. Tap to retry.");
         if (postDateInstantNextV2.enabled) {
+          if (optimisticallyAdvanced) setStep(previousStep);
           trackEvent("post_date_verdict_optimistic_rollback", {
             platform: "web",
             session_id: sessionId,
             event_id: eventId,
             reason: "exception",
+            rollback_step: previousStep,
           });
         }
       } finally {
         setIsSubmitting(false);
       }
     },
-    [user?.id, sessionId, eventId, isSubmitting, logJourney, postDateInstantNextV2.enabled, submitVerdictV3.enabled]
+    [user?.id, sessionId, eventId, isSubmitting, logJourney, postDateInstantNextV2.enabled, submitVerdictV3.enabled, step]
   );
 
   const recordReportPassVerdict = useCallback(

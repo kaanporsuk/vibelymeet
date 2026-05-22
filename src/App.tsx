@@ -213,6 +213,61 @@ const WebProfileWarmup = () => {
   return null;
 };
 
+const WebProfileCountsInvalidator = () => {
+  const { session, isAuthenticated, isLoading } = useAuth();
+  const userId = session?.user?.id ?? null;
+
+  useEffect(() => {
+    if (isLoading || !isAuthenticated || !userId) return;
+
+    const invalidateProfileCounts = () => {
+      void queryClient.invalidateQueries({ queryKey: profileLiveCountsQueryKey(userId) });
+      void queryClient.invalidateQueries({ queryKey: myProfileQueryKey(userId) });
+    };
+
+    const channel = supabase
+      .channel(`web-profile-counts-${userId}`)
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "event_registrations", filter: `profile_id=eq.${userId}` },
+        invalidateProfileCounts,
+      )
+      .on(
+        "postgres_changes",
+        { event: "UPDATE", schema: "public", table: "profiles", filter: `id=eq.${userId}` },
+        invalidateProfileCounts,
+      );
+
+    for (const filter of [`profile_id_1=eq.${userId}`, `profile_id_2=eq.${userId}`]) {
+      channel.on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "matches", filter },
+        invalidateProfileCounts,
+      );
+    }
+
+    channel
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "messages" },
+        invalidateProfileCounts,
+      )
+      .on(
+        "postgres_changes",
+        { event: "UPDATE", schema: "public", table: "messages" },
+        invalidateProfileCounts,
+      );
+
+    channel.subscribe();
+
+    return () => {
+      void supabase.removeChannel(channel);
+    };
+  }, [isAuthenticated, isLoading, userId]);
+
+  return null;
+};
+
 const WebUploadRecoveryNotifier = () => {
   const { items, staleVibeClipUploads, recoveryAttentionCount } = useWebChatOutbox();
   const navigate = useNavigate();
@@ -567,6 +622,7 @@ const App = () => {
                   <RealtimeLifecycleJanitor />
                   <RoutePrefetcher />
                   <WebProfileWarmup />
+                  <WebProfileCountsInvalidator />
                   <WebHomeUnreadInvalidator />
                   <SessionRouteHydration />
                   <WebOnBreakBanner />

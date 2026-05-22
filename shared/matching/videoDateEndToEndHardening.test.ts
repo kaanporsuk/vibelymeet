@@ -2838,11 +2838,12 @@ test("Daily prewarm is platform-owned, flag-gated, consumable once, and instrume
   assert.match(webVideoCallHook, /provider_verify_skipped: handoff\.cacheEntry\.value\.provider_verify_skipped/);
   assert.match(webVideoCallHook, /daily_join_skipped_prewarmed_already_joined/);
   assert.match(webVideoCallHook, /daily_join_completed_by_prewarm_inflight/);
-  assert.match(webVideoCallHook, /reusedCallObject: prewarmedCall\.ok === true/);
+  assert.match(webVideoCallHook, /reusedCallObject: singletonCall\.ok === true \|\| prewarmedCall\.ok === true/);
   assert.match(nativeVideoDateRoute, /consumeNativeVideoDateDailyPrewarm/);
   assert.match(nativeVideoDateRoute, /daily_join_skipped_prewarmed_already_joined/);
   assert.match(nativeVideoDateRoute, /daily_join_completed_by_prewarm_inflight/);
-  assert.match(nativeVideoDateRoute, /reusedCallObject: Boolean\(prewarmed\)/);
+  assert.match(nativeVideoDateRoute, /dailyPrewarmConsumedForJoin = reusedPrewarmed/);
+  assert.match(nativeVideoDateRoute, /reusedCallObject: Boolean\(existingCall\)/);
   assert.match(readyGateOverlay, /latestUnmountCleanupContextRef/);
   assert.match(
     readyGateOverlay,

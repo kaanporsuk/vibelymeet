@@ -214,6 +214,7 @@ const NATIVE_CAMERA_SWITCH_COMMIT_TIMEOUT_MS = 1_800;
 const NATIVE_CAMERA_SWITCH_COMMIT_POLL_MS = 80;
 const NATIVE_VIDEO_DATE_SURFACE_CLAIM_TTL_SECONDS = 12;
 const NATIVE_VIDEO_DATE_SURFACE_CLAIM_REFRESH_MS = 4_000;
+const NATIVE_DAILY_CALL_SINGLETON_IDLE_MS = 90_000;
 type NativeVideoDateSurfaceClaimResult = {
   canContinue: boolean;
   confirmed: boolean;
@@ -226,7 +227,7 @@ type DailyCallObject = VideoDateDailyCallObject;
 type DailyReceiveSettingsCapable = {
   updateReceiveSettings?: (settings: Record<string, unknown>) => Promise<unknown>;
 };
-type SharedDailyCallEntryState = 'creating' | 'joining' | 'joined' | 'failed' | 'leaving';
+type SharedDailyCallEntryState = 'creating' | 'joining' | 'joined' | 'failed' | 'leaving' | 'idle';
 type SharedDailyCallEntry = {
   sessionId: string;
   call: DailyCallObject;
@@ -237,6 +238,8 @@ type SharedDailyCallEntry = {
   createdAtMs: number;
   joinStartedAtMs: number | null;
   lastError: string | null;
+  idleDestroyTimer: ReturnType<typeof setTimeout> | null;
+  parkedAtMs: number | null;
 };
 let sharedDailyCallEntry: SharedDailyCallEntry | null = null;
 type NativePrejoinPipelineEntry = {
@@ -838,6 +841,7 @@ export default function VideoDateScreen() {
   const timelineV2 = useFeatureFlag('video_date.timeline_v2');
   const multiDeviceV2 = useFeatureFlag('video_date.multi_device_v2');
   const postDateInstantNextV2 = useFeatureFlag('video_date.post_date_instant_next_v2');
+  const dailyCallSingletonV2 = useFeatureFlag('video_date.daily_call_singleton_v2');
   const resilienceV2 = useFeatureFlag('video_date.resilience_v2');
   const colorScheme = useColorScheme();
   const theme = Colors[colorScheme];
@@ -1280,6 +1284,10 @@ export default function VideoDateScreen() {
     (call: DailyCallObject | null, reason: string) => {
       if (!call) return;
       if (sharedDailyCallEntry?.call !== call) return;
+      if (sharedDailyCallEntry.idleDestroyTimer) {
+        clearTimeout(sharedDailyCallEntry.idleDestroyTimer);
+        sharedDailyCallEntry.idleDestroyTimer = null;
+      }
       vdbg('daily_call_singleton_release', {
         reason,
         sessionId: sharedDailyCallEntry.sessionId,
@@ -1288,6 +1296,43 @@ export default function VideoDateScreen() {
         joinInFlight: Boolean(sharedDailyCallEntry.joinPromise),
       });
       sharedDailyCallEntry = null;
+    },
+    []
+  );
+  const parkSharedCallForWarmHandoff = useCallback(
+    (call: DailyCallObject, reason: string) => {
+      if (sharedDailyCallEntry?.call !== call) return false;
+      if (sharedDailyCallEntry.idleDestroyTimer) {
+        clearTimeout(sharedDailyCallEntry.idleDestroyTimer);
+      }
+      sharedDailyCallEntry.state = 'idle';
+      sharedDailyCallEntry.joinPromise = null;
+      sharedDailyCallEntry.joinStartedAtMs = null;
+      sharedDailyCallEntry.lastError = null;
+      sharedDailyCallEntry.parkedAtMs = Date.now();
+      sharedDailyCallEntry.idleDestroyTimer = setTimeout(() => {
+        const entry = sharedDailyCallEntry;
+        if (!entry || entry.call !== call || entry.state !== 'idle') return;
+        vdbg('daily_call_singleton_idle_destroy', {
+          reason: 'idle_timeout',
+          sessionId: entry.sessionId,
+          roomName: entry.roomName,
+          idleMs: NATIVE_DAILY_CALL_SINGLETON_IDLE_MS,
+        });
+        try {
+          entry.call.destroy();
+        } catch {
+          /* best effort */
+        }
+        sharedDailyCallEntry = null;
+      }, NATIVE_DAILY_CALL_SINGLETON_IDLE_MS);
+      vdbg('daily_call_singleton_parked', {
+        reason,
+        sessionId: sharedDailyCallEntry.sessionId,
+        roomName: sharedDailyCallEntry.roomName,
+        idleMs: NATIVE_DAILY_CALL_SINGLETON_IDLE_MS,
+      });
+      return true;
     },
     []
   );
@@ -3207,13 +3252,23 @@ export default function VideoDateScreen() {
     const call = callRef.current;
     if (call) {
       detachCallListeners('leave_and_cleanup');
+      const shouldParkSingleton =
+        dailyCallSingletonV2.enabled && (dateEstablishedRef.current || showFeedback);
+      let parkedSingleton = false;
       try {
         await call.leave();
-        call.destroy();
+        if (shouldParkSingleton) {
+          parkedSingleton = parkSharedCallForWarmHandoff(call, 'leave_and_cleanup');
+        }
+        if (!parkedSingleton) {
+          call.destroy();
+        }
       } catch (_error) {
         void _error;
       }
-      releaseSharedCallIfOwned(call, 'leave_and_cleanup');
+      if (!parkedSingleton) {
+        releaseSharedCallIfOwned(call, 'leave_and_cleanup');
+      }
       callRef.current = null;
     }
     const roomName = roomNameRef.current;
@@ -3276,7 +3331,10 @@ export default function VideoDateScreen() {
     sessionId,
     eventId,
     user?.id,
+    dailyCallSingletonV2.enabled,
+    showFeedback,
     clearFirstConnectWatchdog,
+    parkSharedCallForWarmHandoff,
     releaseSharedCallIfOwned,
     detachCallListeners,
     clearHandshakeGraceState,
@@ -4939,84 +4997,95 @@ export default function VideoDateScreen() {
       };
       const sharedCall = sharedDailyCallEntry;
       if (sharedCall && sharedCall.sessionId === sessionId) {
-        const reusedCall = sharedCall.call;
-        let participants: ReturnType<DailyCallObject['participants']> | null = null;
-        try {
-          participants = reusedCall.participants();
-        } catch (error) {
-          sharedCall.state = 'failed';
-          sharedCall.lastError = summarizeSharedDailyError(error);
-          participants = null;
-        }
-
-        if (participants && hydrateJoinedSharedCall(sharedCall, participants, 'already_joined_snapshot')) {
-          return;
-        }
-
-        const canAwaitSharedJoin =
-          Boolean(sharedCall.joinPromise) &&
-          (sharedCall.state === 'creating' || sharedCall.state === 'joining');
-        if (canAwaitSharedJoin && sharedCall.joinPromise) {
-          callRef.current = reusedCall;
-          roomNameRef.current = sharedCall.roomName;
-          captureProfileRef.current = sharedCall.captureProfile;
-          setCaptureProfile(sharedCall.captureProfile);
-          bindCallListeners(reusedCall, sharedCall.roomName);
-          setIsConnecting(true);
-          setJoining(true);
-          vdbg('daily_call_singleton_reuse_join_in_flight', {
+        const canReuseIdleSharedCall = dailyCallSingletonV2.enabled && sharedCall.state === 'idle';
+        if (canReuseIdleSharedCall) {
+          vdbg('daily_call_singleton_reuse_same_session_idle_deferred', {
             sessionId,
             userId: user.id,
             roomName: sharedCall.roomName,
             captureProfile: sharedCall.captureProfile,
-            state: sharedCall.state,
-            joinStartedAtMs: sharedCall.joinStartedAtMs,
-            ageMs: Date.now() - sharedCall.createdAtMs,
+            idleAgeMs: sharedCall.parkedAtMs ? Math.max(0, Date.now() - sharedCall.parkedAtMs) : null,
           });
+        } else {
+          const reusedCall = sharedCall.call;
+          let participants: ReturnType<DailyCallObject['participants']> | null = null;
           try {
-            await sharedCall.joinPromise;
-            let joinedParticipants: ReturnType<DailyCallObject['participants']> | null = null;
-            try {
-              joinedParticipants = reusedCall.participants();
-            } catch (error) {
-              sharedCall.state = 'failed';
-              sharedCall.lastError = summarizeSharedDailyError(error);
-              releaseSharedCallIfOwned(reusedCall, 'reuse_join_promise_participants_failed');
-            }
-            if (joinedParticipants && hydrateJoinedSharedCall(sharedCall, joinedParticipants, 'join_promise_resolved')) {
-              return;
-            }
-            await destroySharedCallForRetry(sharedCall, 'reuse_join_promise_resolved_without_local');
+            participants = reusedCall.participants();
           } catch (error) {
             sharedCall.state = 'failed';
-            sharedCall.joinPromise = null;
             sharedCall.lastError = summarizeSharedDailyError(error);
-            vdbg('daily_call_singleton_reuse_join_in_flight_failed', {
+            participants = null;
+          }
+
+          if (participants && hydrateJoinedSharedCall(sharedCall, participants, 'already_joined_snapshot')) {
+            return;
+          }
+
+          const canAwaitSharedJoin =
+            Boolean(sharedCall.joinPromise) &&
+            (sharedCall.state === 'creating' || sharedCall.state === 'joining');
+          if (canAwaitSharedJoin && sharedCall.joinPromise) {
+            callRef.current = reusedCall;
+            roomNameRef.current = sharedCall.roomName;
+            captureProfileRef.current = sharedCall.captureProfile;
+            setCaptureProfile(sharedCall.captureProfile);
+            bindCallListeners(reusedCall, sharedCall.roomName);
+            setIsConnecting(true);
+            setJoining(true);
+            vdbg('daily_call_singleton_reuse_join_in_flight', {
               sessionId,
               userId: user.id,
               roomName: sharedCall.roomName,
-              error: sharedCall.lastError,
+              captureProfile: sharedCall.captureProfile,
+              state: sharedCall.state,
+              joinStartedAtMs: sharedCall.joinStartedAtMs,
+              ageMs: Date.now() - sharedCall.createdAtMs,
             });
-            await destroySharedCallForRetry(sharedCall, 'reuse_join_in_flight_failed');
+            try {
+              await sharedCall.joinPromise;
+              let joinedParticipants: ReturnType<DailyCallObject['participants']> | null = null;
+              try {
+                joinedParticipants = reusedCall.participants();
+              } catch (error) {
+                sharedCall.state = 'failed';
+                sharedCall.lastError = summarizeSharedDailyError(error);
+                releaseSharedCallIfOwned(reusedCall, 'reuse_join_promise_participants_failed');
+              }
+              if (joinedParticipants && hydrateJoinedSharedCall(sharedCall, joinedParticipants, 'join_promise_resolved')) {
+                return;
+              }
+              await destroySharedCallForRetry(sharedCall, 'reuse_join_promise_resolved_without_local');
+            } catch (error) {
+              sharedCall.state = 'failed';
+              sharedCall.joinPromise = null;
+              sharedCall.lastError = summarizeSharedDailyError(error);
+              vdbg('daily_call_singleton_reuse_join_in_flight_failed', {
+                sessionId,
+                userId: user.id,
+                roomName: sharedCall.roomName,
+                error: sharedCall.lastError,
+              });
+              await destroySharedCallForRetry(sharedCall, 'reuse_join_in_flight_failed');
+            }
+          } else if (sharedCall.state === 'joining' || sharedCall.state === 'creating') {
+            callRef.current = reusedCall;
+            roomNameRef.current = sharedCall.roomName;
+            captureProfileRef.current = sharedCall.captureProfile;
+            setCaptureProfile(sharedCall.captureProfile);
+            bindCallListeners(reusedCall, sharedCall.roomName);
+            setIsConnecting(true);
+            setJoining(true);
+            vdbg('daily_call_singleton_reuse_in_flight_without_promise', {
+              sessionId,
+              userId: user.id,
+              roomName: sharedCall.roomName,
+              state: sharedCall.state,
+              ageMs: Date.now() - sharedCall.createdAtMs,
+            });
+            return;
+          } else {
+            await destroySharedCallForRetry(sharedCall, 'reuse_probe_terminal_state_without_local');
           }
-        } else if (sharedCall.state === 'joining' || sharedCall.state === 'creating') {
-          callRef.current = reusedCall;
-          roomNameRef.current = sharedCall.roomName;
-          captureProfileRef.current = sharedCall.captureProfile;
-          setCaptureProfile(sharedCall.captureProfile);
-          bindCallListeners(reusedCall, sharedCall.roomName);
-          setIsConnecting(true);
-          setJoining(true);
-          vdbg('daily_call_singleton_reuse_in_flight_without_promise', {
-            sessionId,
-            userId: user.id,
-            roomName: sharedCall.roomName,
-            state: sharedCall.state,
-            ageMs: Date.now() - sharedCall.createdAtMs,
-          });
-          return;
-        } else {
-          await destroySharedCallForRetry(sharedCall, 'reuse_probe_terminal_state_without_local');
         }
       }
 
@@ -5912,7 +5981,18 @@ export default function VideoDateScreen() {
         video_date_trace_id: videoDateTraceId,
       });
 
-      if (sharedDailyCallEntry && sharedDailyCallEntry.sessionId !== sessionId) {
+      const idleSingletonEntry =
+        dailyCallSingletonV2.enabled &&
+        sharedDailyCallEntry &&
+        sharedDailyCallEntry.state === 'idle'
+          ? sharedDailyCallEntry
+          : null;
+      if (idleSingletonEntry?.idleDestroyTimer) {
+        clearTimeout(idleSingletonEntry.idleDestroyTimer);
+        idleSingletonEntry.idleDestroyTimer = null;
+      }
+
+      if (sharedDailyCallEntry && sharedDailyCallEntry.sessionId !== sessionId && !idleSingletonEntry) {
         vdbg('daily_call_singleton_destroy_previous_session', {
           previousSessionId: sharedDailyCallEntry.sessionId,
           nextSessionId: sessionId,
@@ -5931,18 +6011,32 @@ export default function VideoDateScreen() {
           /* best effort */
         }
         sharedDailyCallEntry = null;
+      } else if (idleSingletonEntry) {
+        const singletonReuseEvent =
+          idleSingletonEntry.sessionId === sessionId
+            ? 'daily_call_singleton_reuse_same_session_idle'
+            : 'daily_call_singleton_reuse_cross_session';
+        vdbg(singletonReuseEvent, {
+          previousSessionId: idleSingletonEntry.sessionId,
+          nextSessionId: sessionId,
+          previousRoomName: idleSingletonEntry.roomName,
+          nextRoomName: tokenResult.room_name,
+          idleAgeMs: idleSingletonEntry.parkedAtMs ? Math.max(0, Date.now() - idleSingletonEntry.parkedAtMs) : null,
+        });
       }
 
-      let callCaptureProfile: NativeVideoDateCaptureProfile = 'ideal';
+      let callCaptureProfile: NativeVideoDateCaptureProfile = idleSingletonEntry?.captureProfile ?? 'ideal';
       let dailyPrewarmConsumedForJoin = false;
-      const prewarmedCall = consumeNativeVideoDateDailyPrewarm({
-        sessionId,
-        userId: user.id,
-        eventId: eventId || null,
-        roomName: tokenResult.room_name,
-        roomUrl: tokenResult.room_url,
-        captureProfile: callCaptureProfile,
-      });
+      const prewarmedCall = idleSingletonEntry
+        ? { ok: false as const, reason: 'daily_call_singleton_reused' }
+        : consumeNativeVideoDateDailyPrewarm({
+            sessionId,
+            userId: user.id,
+            eventId: eventId || null,
+            roomName: tokenResult.room_name,
+            roomUrl: tokenResult.room_url,
+            captureProfile: callCaptureProfile,
+          });
       if (!prewarmedCall.ok) {
         vdbg('daily_prewarm_fallback', {
           sessionId,
@@ -5965,11 +6059,12 @@ export default function VideoDateScreen() {
       prewarmedJoinInFlightRef.current = Boolean(prewarmedJoinPromiseForShared && !prewarmedAlreadyJoined);
       const installDailyCall = (
         profile: NativeVideoDateCaptureProfile,
-        prewarmed?: VideoDateDailyCallObject | null,
+        existingCall?: VideoDateDailyCallObject | null,
+        reuseKind: 'none' | 'prewarm' | 'singleton' = existingCall ? 'prewarm' : 'none',
       ) => {
-        const nextCall = prewarmed ?? createVideoDateDailyCallObject(profile);
-        const reusedPrewarmed = Boolean(prewarmed);
-        dailyPrewarmConsumedForJoin = Boolean(prewarmed);
+        const nextCall = existingCall ?? createVideoDateDailyCallObject(profile);
+        const reusedPrewarmed = reuseKind === 'prewarm';
+        dailyPrewarmConsumedForJoin = reusedPrewarmed;
         sharedDailyCallEntry = {
           sessionId,
           call: nextCall,
@@ -5984,6 +6079,8 @@ export default function VideoDateScreen() {
           createdAtMs: Date.now(),
           joinStartedAtMs: reusedPrewarmed ? prewarmedJoinStartedAtMs : null,
           lastError: null,
+          idleDestroyTimer: null,
+          parkedAtMs: null,
         };
         captureProfileRef.current = profile;
         setCaptureProfile(profile);
@@ -5992,7 +6089,8 @@ export default function VideoDateScreen() {
           userId: user.id,
           roomName: tokenResult.room_name,
           captureProfile: profile,
-          reusedCallObject: Boolean(prewarmed),
+          reusedCallObject: Boolean(existingCall),
+          dailyCallSingletonReused: reuseKind === 'singleton',
           reusedJoinedCallObject: reusedPrewarmed && prewarmedAlreadyJoined,
           reusedJoinInFlight: reusedPrewarmed && Boolean(prewarmedJoinPromiseForShared) && !prewarmedAlreadyJoined,
           prewarmJoinSource: reusedPrewarmed ? prewarmedJoinSource : null,
@@ -6001,7 +6099,8 @@ export default function VideoDateScreen() {
           session_id: sessionId,
           room_name: tokenResult.room_name,
           capture_profile: profile,
-          reused_call_object: Boolean(prewarmed),
+          reused_call_object: Boolean(existingCall),
+          daily_call_singleton_reused: reuseKind === 'singleton',
         });
         callRef.current = nextCall;
         roomNameRef.current = tokenResult.room_name;
@@ -6010,7 +6109,8 @@ export default function VideoDateScreen() {
       };
       let call = installDailyCall(
         callCaptureProfile,
-        prewarmedCall.ok ? prewarmedCall.entry.call : null,
+        idleSingletonEntry?.call ?? (prewarmedCall.ok ? prewarmedCall.entry.call : null),
+        idleSingletonEntry ? 'singleton' : prewarmedCall.ok ? 'prewarm' : 'none',
       );
       let joinPromise: Promise<void> | null = null;
       const markSharedJoinInFlight = () => {
@@ -8437,6 +8537,7 @@ export default function VideoDateScreen() {
           mode="partner_away"
           networkTier={netQualityTier}
           resilienceV2={resilienceV2.enabled}
+          backdropImageUrl={resilienceV2.enabled ? partnerAvatarUri : null}
         />
       )}
 
