@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { ImageOff } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { getImageUrl } from "@/utils/imageUrl";
@@ -11,6 +11,11 @@ type AdaptiveProfileMediaProps = {
   variant: AdaptiveProfileMediaVariant;
   className?: string;
   onClick?: () => void;
+};
+
+type ImageLoadState = {
+  src: string | null;
+  status: "loading" | "loaded" | "failed";
 };
 
 const variantClasses: Record<AdaptiveProfileMediaVariant, string> = {
@@ -34,15 +39,20 @@ export function AdaptiveProfileMedia({
   className,
   onClick,
 }: AdaptiveProfileMediaProps) {
-  const [loaded, setLoaded] = useState(false);
-  const [failed, setFailed] = useState(false);
+  const [loadState, setLoadState] = useState<ImageLoadState>({ src: null, status: "loading" });
+  const foregroundRef = useRef<HTMLImageElement | null>(null);
   const resolvedSrc = useMemo(() => getImageUrl(src, imageOptions[variant]), [src, variant]);
+  const loaded = loadState.src === resolvedSrc && loadState.status === "loaded";
+  const failed = loadState.src === resolvedSrc && loadState.status === "failed";
   const isInteractive = typeof onClick === "function";
   const Wrapper = isInteractive ? "button" : "div";
 
   useEffect(() => {
-    setLoaded(false);
-    setFailed(false);
+    const img = foregroundRef.current;
+    const refStillMatchesSource = img && (img.currentSrc || img.src) === resolvedSrc;
+    if (refStillMatchesSource && img.complete && img.naturalWidth > 0) {
+      setLoadState({ src: resolvedSrc, status: "loaded" });
+    }
   }, [resolvedSrc]);
 
   return (
@@ -61,17 +71,20 @@ export function AdaptiveProfileMedia({
       {!failed ? (
         <>
           <img
+            key={`background-${resolvedSrc}`}
             src={resolvedSrc}
             alt=""
             aria-hidden
             className="absolute inset-0 h-full w-full scale-110 object-cover opacity-40 blur-2xl"
-            onError={() => setFailed(true)}
+            decoding="async"
           />
           <div className="absolute inset-0 bg-black/35" />
           {!loaded ? (
             <div className="absolute inset-0 animate-pulse bg-muted/40" aria-hidden />
           ) : null}
           <img
+            key={`foreground-${resolvedSrc}`}
+            ref={foregroundRef}
             src={resolvedSrc}
             alt={alt}
             className={cn(
@@ -79,8 +92,14 @@ export function AdaptiveProfileMedia({
               loaded ? "opacity-100" : "opacity-0",
             )}
             draggable={false}
-            onLoad={() => setLoaded(true)}
-            onError={() => setFailed(true)}
+            decoding="async"
+            fetchPriority={variant === "hero" ? "high" : "auto"}
+            onLoad={(event) => {
+              if (event.currentTarget.naturalWidth > 0) {
+                setLoadState({ src: resolvedSrc, status: "loaded" });
+              }
+            }}
+            onError={() => setLoadState({ src: resolvedSrc, status: "failed" })}
           />
         </>
       ) : (
