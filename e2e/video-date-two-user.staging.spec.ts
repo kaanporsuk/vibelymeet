@@ -8,7 +8,7 @@ const eventId = process.env.VIBELY_E2E_EVENT_ID;
 test.describe("staging web video date two-user harness", () => {
   test.skip(!enabled, "Set VIBELY_E2E_TWO_USER_WEB=1 to run the staging-only two-user video-date harness.");
 
-  test("ready gate handoff reaches a real two-user video date and post-date survey", async ({ browser, baseURL }, testInfo) => {
+  test("ready gate, early continue, reload recovery, and survey all work for two real users", async ({ browser, baseURL }, testInfo) => {
     test.skip(
       !userAStorageState || !userBStorageState || !eventId,
       "Requires VIBELY_E2E_USER_A_STATE, VIBELY_E2E_USER_B_STATE, and VIBELY_E2E_EVENT_ID.",
@@ -44,6 +44,27 @@ test.describe("staging web video date two-user harness", () => {
         expect(pageA).toHaveURL(/\/date\//, { timeout: 90_000 }),
         expect(pageB).toHaveURL(/\/date\//, { timeout: 90_000 }),
       ]);
+
+      const continueA = pageA.getByRole("button", { name: /continue when ready/i }).first();
+      const continueB = pageB.getByRole("button", { name: /continue when ready/i }).first();
+      await Promise.all([
+        expect(continueA).toBeVisible({ timeout: 90_000 }),
+        expect(continueB).toBeVisible({ timeout: 90_000 }),
+      ]);
+      await Promise.all([
+        continueA.click(),
+        continueB.click(),
+      ]);
+
+      await expect(pageA.getByText(/Ready to continue|Keep the vibe|Vibe|Pass/i).first()).toBeVisible({
+        timeout: 10_000,
+      });
+      await expect(pageB.getByText(/Ready to continue|Keep the vibe|Vibe|Pass/i).first()).toBeVisible({
+        timeout: 10_000,
+      });
+
+      await pageA.reload({ waitUntil: "domcontentloaded", timeout: 60_000 });
+      await expect(pageA).toHaveURL(/\/date\//, { timeout: 60_000 });
 
       await expect(pageA.getByRole("button", { name: /^Vibe$/ })).toBeVisible({ timeout: 90_000 });
       await expect(pageB.getByRole("button", { name: /^Pass$/ })).toBeVisible({ timeout: 90_000 });
