@@ -23,10 +23,10 @@ export type VideoDatePhase8RunStatus =
   | "waived";
 
 export type VideoDatePhase8PrSlice = {
-  pr: "8.1" | "8.2" | "8.3";
+  pr: "8.1" | "8.2" | "8.3" | "8.4" | "8.5" | "8.6";
   title: string;
   requiredRunKinds: VideoDatePhase8RunKind[];
-  ownerSurface: "web_native_backend" | "backend_ops" | "ops_cleanup";
+  ownerSurface: "web_native_backend" | "backend_ops" | "ops_cleanup" | "web_native_cleanup" | "ops_release";
 };
 
 export const VIDEO_DATE_PHASE8_PR_SLICES: readonly VideoDatePhase8PrSlice[] = [
@@ -45,8 +45,26 @@ export const VIDEO_DATE_PHASE8_PR_SLICES: readonly VideoDatePhase8PrSlice[] = [
   {
     pr: "8.3",
     title: "Rollout gates and legacy cleanup readiness",
-    requiredRunKinds: ["rollout_step", "legacy_cleanup"],
+    requiredRunKinds: ["rollout_step"],
     ownerSurface: "ops_cleanup",
+  },
+  {
+    pr: "8.4",
+    title: "Service-role rollout and cleanup proof wrappers",
+    requiredRunKinds: ["rollout_step", "legacy_cleanup"],
+    ownerSurface: "ops_release",
+  },
+  {
+    pr: "8.5",
+    title: "Server-dealt deck final client cutover",
+    requiredRunKinds: ["legacy_cleanup"],
+    ownerSurface: "web_native_cleanup",
+  },
+  {
+    pr: "8.6",
+    title: "Phase 8 release closure gate",
+    requiredRunKinds: ["rollout_step", "legacy_cleanup"],
+    ownerSurface: "ops_release",
   },
 ] as const;
 
@@ -240,4 +258,44 @@ export function isVideoDateLegacyDeckCleanupAllowed(
     input.recoveryPageAlerts === 0 &&
     input.stuckActiveSessionsOver2m === 0
   );
+}
+
+export type VideoDatePhase8ReleaseClosureInput = Pick<
+  VideoDatePhase8CertificationInput,
+  | "coreFlagsEnabled"
+  | "coreFlagsKilled"
+  | "currentRolloutBps"
+  | "deckDeal100PctBaked"
+  | "recoveryPageAlerts"
+  | "stuckActiveSessionsOver2m"
+> & {
+  rollout1PctPassed: boolean;
+  rollout10PctPassed: boolean;
+  rollout50PctPassed: boolean;
+  rollout100PctPassed: boolean;
+  legacyCleanupPassed: boolean;
+};
+
+export function getVideoDatePhase8ReleaseClosureBlockers(
+  input: VideoDatePhase8ReleaseClosureInput,
+): string[] {
+  const blockers: string[] = [];
+  addBlocker(blockers, !input.coreFlagsEnabled, "core_flags_not_enabled");
+  addBlocker(blockers, input.coreFlagsKilled, "core_flag_kill_switch_active");
+  addBlocker(blockers, input.currentRolloutBps < 10000, "current_rollout_bps_below_100pct");
+  addBlocker(blockers, !input.rollout1PctPassed, "rollout_1pct_not_certified");
+  addBlocker(blockers, !input.rollout10PctPassed, "rollout_10pct_not_certified");
+  addBlocker(blockers, !input.rollout50PctPassed, "rollout_50pct_not_certified");
+  addBlocker(blockers, !input.rollout100PctPassed, "rollout_100pct_not_certified");
+  addBlocker(blockers, !input.deckDeal100PctBaked, "deck_deal_100pct_not_baked");
+  addBlocker(blockers, !input.legacyCleanupPassed, "legacy_cleanup_not_certified");
+  addBlocker(blockers, input.recoveryPageAlerts > 0, "recovery_page_alerts_active");
+  addBlocker(blockers, input.stuckActiveSessionsOver2m > 0, "stuck_active_sessions_over_2m");
+  return blockers;
+}
+
+export function isVideoDatePhase8ReleaseClosed(
+  input: VideoDatePhase8ReleaseClosureInput,
+): boolean {
+  return getVideoDatePhase8ReleaseClosureBlockers(input).length === 0;
 }

@@ -294,7 +294,6 @@ export default function EventLobbyScreen() {
       isLiveWindow
   );
   const readinessV2 = useFeatureFlag('video_date.readiness_v2');
-  const deckDealV2 = useFeatureFlag('video_date.deck_deal_v2');
   const drainQueueV2 = useFeatureFlag('video_date.outbox_v2.drain_match_queue');
   const videoDateReadiness = useNonBlockingVideoDateReadiness(
     id,
@@ -320,8 +319,6 @@ export default function EventLobbyScreen() {
     }, [id, user?.id, deckQueryEnabled, queryClient])
   );
 
-  const seenProfileIdsRef = useRef<Set<string>>(new Set());
-  const [deckNonce, setDeckNonce] = useState(0);
   /** Mirrors web `sonner` completion toast after post-date survey (non-blocking). */
   const [postSurveyLobbyBanner, setPostSurveyLobbyBanner] = useState(false);
   const [postSurveyReturnContext, setPostSurveyReturnContext] = useState(false);
@@ -332,8 +329,6 @@ export default function EventLobbyScreen() {
   );
 
   useEffect(() => {
-    seenProfileIdsRef.current = new Set();
-    setDeckNonce((n) => n + 1);
     setPostSurveyReturnContext(false);
     setPostSurveyBridgeVisible(false);
     postSurveyRouteTrackedRef.current = null;
@@ -371,18 +366,15 @@ export default function EventLobbyScreen() {
   }, []);
 
   const sortedProfiles = useMemo(() => {
-    // deckNonce invalidates the visible deck after a card is advanced locally.
-    void deckNonce;
-    const filtered = deckDealV2.enabled
-      ? [...profiles]
-      : profiles.filter((p) => !seenProfileIdsRef.current.has(p.id));
+    // Server-dealt deck v2 is the only active source of deck exclusion truth.
+    const filtered = [...profiles];
     filtered.sort((a, b) => {
       if (a.has_super_vibed && !b.has_super_vibed) return -1;
       if (!a.has_super_vibed && b.has_super_vibed) return 1;
       return 0;
     });
     return filtered;
-  }, [deckDealV2.enabled, profiles, deckNonce]);
+  }, [profiles]);
 
   const [processing, setProcessing] = useState(false);
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
@@ -877,28 +869,22 @@ export default function EventLobbyScreen() {
   const advanceDeckAfterSwipe = useCallback(
     (targetId: string): number => {
       let remainingVisible = 0;
-      if (deckDealV2.enabled) {
-        queryClient.setQueryData<DeckProfile[]>(
-          ['event-deck', id, user?.id, 'deck_v2'],
-          (current) => {
-            if (!Array.isArray(current)) return current;
-            const next = current.filter((profile) => profile.id !== targetId);
-            remainingVisible = next.length;
-            return next;
-          },
-        );
-        void queryClient.invalidateQueries({ queryKey: ['event-deck', id, user?.id] });
-        if (remainingVisible === 0) {
-          remainingVisible = profiles.filter((profile) => profile.id !== targetId).length;
-        }
-      } else {
-        seenProfileIdsRef.current.add(targetId);
-        remainingVisible = profiles.filter((profile) => !seenProfileIdsRef.current.has(profile.id)).length;
+      queryClient.setQueryData<DeckProfile[]>(
+        ['event-deck', id, user?.id, 'deck_v2'],
+        (current) => {
+          if (!Array.isArray(current)) return current;
+          const next = current.filter((profile) => profile.id !== targetId);
+          remainingVisible = next.length;
+          return next;
+        },
+      );
+      void queryClient.invalidateQueries({ queryKey: ['event-deck', id, user?.id] });
+      if (remainingVisible === 0) {
+        remainingVisible = profiles.filter((profile) => profile.id !== targetId).length;
       }
-      setDeckNonce((n) => n + 1);
       return remainingVisible;
     },
-    [deckDealV2.enabled, id, profiles, queryClient, user?.id],
+    [id, profiles, queryClient, user?.id],
   );
 
   useEffect(() => {
@@ -1422,11 +1408,6 @@ export default function EventLobbyScreen() {
     const place = event.location_name?.trim();
     return `${t} · ${place || 'Live room'}`;
   }, [event?.event_date, event?.location_name]);
-
-  const deckProgress = useMemo(() => {
-    if (profiles.length === 0) return 0;
-    return Math.min(1, Math.max(0, (profiles.length - sortedProfiles.length) / profiles.length));
-  }, [profiles.length, sortedProfiles.length]);
 
   const showSwipeToast = useCallback(
     (result: string, options?: { openingReadyGate?: boolean }) => {
@@ -2086,9 +2067,6 @@ export default function EventLobbyScreen() {
         }
         if (shouldAdvanceLobbyDeckAfterSwipe(failureOutcome)) {
           const remainingVisible = advanceDeckAfterSwipe(targetId);
-          if (!deckDealV2.enabled) {
-            scheduleDeckRefresh('swipe_failure_advance_deck');
-          }
           if (remainingVisible === 0) {
             scheduleDeckRefresh('swipe_failure_visible_deck_empty', 0);
           }
@@ -2262,9 +2240,6 @@ export default function EventLobbyScreen() {
       }
 
       const remainingVisible = advanceDeckAfterSwipe(targetId);
-      if (!deckDealV2.enabled) {
-        scheduleDeckRefresh('swipe_advance_deck');
-      }
       if (remainingVisible === 0) {
         scheduleDeckRefresh('swipe_visible_deck_empty', 0);
       }
@@ -2358,7 +2333,7 @@ export default function EventLobbyScreen() {
             <View style={styles.deckProgressLabels}>
               <Text style={[styles.deckProgressLabel, { color: theme.textSecondary }]}>Deck</Text>
               <Text style={[styles.deckProgressCount, { color: theme.text }]}>
-                {sortedProfiles.length > 0 ? `1 / ${sortedProfiles.length} left` : '—'}
+                {sortedProfiles.length > 0 ? 'Next card ready' : '—'}
               </Text>
             </View>
             <View style={[styles.deckProgressTrack, { backgroundColor: withAlpha(theme.text, 0.08) }]}>
@@ -2366,7 +2341,7 @@ export default function EventLobbyScreen() {
                 colors={[theme.tint, theme.neonCyan]}
                 start={{ x: 0, y: 0.5 }}
                 end={{ x: 1, y: 0.5 }}
-                style={[styles.deckProgressFill, { width: `${Math.round(deckProgress * 100)}%` }]}
+                style={[styles.deckProgressFill, { width: '100%' }]}
               />
             </View>
           </View>

@@ -51,7 +51,7 @@ Chaos certification must include duplicate taps, Broadcast loss, Daily webhook l
 
 Record passes with `run_kind='rls_negative'`, `run_kind='chaos'`, and `run_kind='load'`.
 
-## PR 8.3 - Rollout And Legacy Cleanup
+## PR 8.3 - Rollout Readiness Gate
 
 Use the service-role readiness view before every ramp:
 
@@ -69,17 +69,26 @@ Event-specific certification records override global records. If a synthetic/sta
 
 After each successful production slice, record an exact `rollout_step` pass before opening the next slice. The readiness gate blocks 10% until `rollout_bps=100` is both certified and still the live flag minimum, blocks 50% until `rollout_bps=1000` is certified and live, and blocks 100% until `rollout_bps=5000` is certified and live.
 
+## PR 8.4 - Operational Proof Wrappers
+
+Prefer the narrow service-role wrappers for rollout and cleanup proof instead of hand-writing generic ledger rows. They reject token/secret-shaped report payloads and enforce the operational preconditions that are easy to forget during an incident.
+
+Use an event id for event-specific synthetic/staging proof. Use `null` for global production rollout proof that should count toward final Phase 8 release closure.
+
 ```sql
-select public.record_video_date_phase8_certification_run_v2(
-  'rollout_step',
-  'ops',
-  'passed',
-  '<event_uuid>',
+select public.record_video_date_phase8_rollout_step_v2(
+  null,
   100,
   '<commit_sha>',
   jsonb_build_object('window', '1%', 'source', 'phase8_readiness_gate')
 );
 ```
+
+The rollout-step wrapper requires the requested `rollout_bps` to already be live across the core Video Date flags. This keeps the ledger honest: a `10%` pass cannot be recorded while production is still effectively at `1%`.
+
+## PR 8.5 - Final Server-Dealt Deck Cutover
+
+Web and native lobbies now always call `get_event_deck_v2` with `p_limit=1`; `get_event_deck` is no longer an active client fallback. Client-only `seenProfileIds` / swipe-ref filtering has been removed from the active web and native lobby paths, so refresh, crash, reconnect, and swipe-failure recovery all return to the same server-owned impression truth.
 
 Legacy deck cleanup is allowed only after `video_date.deck_deal_v2` has been enabled at 100% with no kill switch for one full week:
 
@@ -88,4 +97,22 @@ select *
 from public.vw_video_date_legacy_deck_cleanup_readiness;
 ```
 
-Until that view returns `deck_deal_100pct_baked=true`, keep fallback code present but treat it as rollback-only. After cleanup, `get_event_deck_v2` / `record_deck_deal_v2` must be the only authoritative impression source on web, native, and mobile.
+Record final cleanup only through:
+
+```sql
+select public.record_video_date_phase8_legacy_cleanup_v2(
+  '<commit_sha>',
+  jsonb_build_object('source', 'server_dealt_deck_final_cutover')
+);
+```
+
+## PR 8.6 - Release Closure
+
+Before calling Phase 8 closed, use the release closure RPC:
+
+```sql
+select *
+from public.get_video_date_phase8_release_closure();
+```
+
+`can_close_phase8=true` requires all rollout slices to be certified, core flags live at 100% with no kill switch, `deck_deal_v2` baked for one week, legacy cleanup recorded, no page-level recovery alerts, and no stuck active sessions over 2 minutes. If any blocker appears, stop the rollout rather than editing flags around it.
