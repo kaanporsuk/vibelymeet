@@ -4,9 +4,9 @@ Phase 8 is the release gate for the v4 Video Date system. It does not change the
 
 ## Current Deployed Baseline
 
-As of 2026-05-22, Phase 0 through Phase 8.6, the Phase 7/8 audit-automation closure, and the Daily webhook compatibility/provider-registration closure are merged to `main` / `origin/main`. Commit `196fd676a840970c13197eee71a4bbbd78c9dd06` from PR #992 (`Harden video date phase 8 automation`) is the Phase 7/8 automation baseline; commit `e6f086eef` (`Fix Daily webhook signature contract`) is the merged Daily webhook compatibility closure.
+As of 2026-05-22, Phase 0 through Phase 8.6, the Phase 7/8 audit-automation closure, the Daily webhook compatibility/provider-registration closure, the rollout-readiness self-check closure, and the profile-photo derivative closure are merged to `main` / `origin/main`. Commit `196fd676a840970c13197eee71a4bbbd78c9dd06` from PR #992 (`Harden video date phase 8 automation`) is the Phase 7/8 automation baseline; commit `e6f086eef` (`Fix Daily webhook signature contract`) is the merged Daily webhook compatibility closure; current live `main` is `be08b60b1` after PR #995.
 
-Supabase project `schdyxcunwcvddlcshwd` has migration `20260522024000_video_date_phase7_8_audit_automation_hardening.sql` applied. `admin-video-date-ops` is deployed at version `310`, `video-date-daily-webhook` is deployed at version `7`, and `synthetic-video-date-monitor` is deployed at version `9`.
+Supabase project `schdyxcunwcvddlcshwd` has migrations through `20260522161000_media_derivatives_placeholders_realtime.sql` applied, including `20260522150000_video_date_phase8_rollout_readiness_self_check.sql`. `admin-video-date-ops` is deployed at version `310`, `video-date-daily-webhook` is deployed at version `8`, and `synthetic-video-date-monitor` is deployed at version `10`.
 
 Do not recreate already-closed provider resources during certification. Daily webhook provider registration is closed under webhook UUID `a5407924-6f29-4a35-835a-ff5185eeae5c`; use the real two-user smoke below for delivery proof instead of creating another webhook or rotating/printing `DAILY_WEBHOOK_SECRET`.
 
