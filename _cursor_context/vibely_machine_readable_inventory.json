@@ -66,7 +66,8 @@
         "Phase 2 (2026-04-23): event_loop_observability_events + instrumented promote/drain/expire/mark_lobby/handle_swipe mutual paths; see migration 20260423120000_event_loop_observability.sql.",
         "Phase 3 (2026-04-24): v_event_loop_* read-model views only; migration 20260424120000_event_loop_read_model_views.sql.",
         "Phase 3c (2026-04-25): prune_event_loop_observability_events() + batched DELETE retention; migration 20260425120000_event_loop_observability_retention_prune.sql; schedule via pg_cron per deploy doc.",
-        "Video Date Daily webhook closure (2026-05-22): video-date-daily-webhook is a provider-public Daily HMAC endpoint using DAILY_WEBHOOK_SECRET and the schdyxcunwcvddlcshwd function URL."
+        "Video Date Daily webhook closure (2026-05-22): video-date-daily-webhook is a provider-public Daily HMAC endpoint using DAILY_WEBHOOK_SECRET and the schdyxcunwcvddlcshwd function URL.",
+        "Media derivatives closure (2026-05-22): 20260522161000_media_derivatives_placeholders_realtime.sql adds durable profile/chat image derivative paths, dominant-color placeholders, owner-scoped realtime media broadcasts, and profile photo derivative hydration through profile_photo_derivatives_for_paths."
       ],
       "repo_inventory_counts": {
         "edge_functions_deployable": 67,
@@ -121,6 +122,10 @@
         "ensure_chat_media_retention_state",
         "ensure_chat_media_retention_states_for_match",
         "sync_chat_message_media",
+        "profile_photo_derivatives_for_paths",
+        "media_asset_realtime_topic_is_user",
+        "media_asset_can_access_user_topic",
+        "broadcast_media_asset_event_v1",
         "release_chat_match_participant",
         "restore_chat_match_participant",
         "apply_account_deletion_media_hold",
@@ -143,6 +148,8 @@
         "Final `account_deleted` chat release and owned profile/vibe media cleanup now happen only when the deletion request becomes `completed`.",
         "Shared chat media remains active while another participant still retains the conversation.",
         "Sprint 4 adds admin-only readiness preview plus retention-setting controls through `admin-media-lifecycle-controls`.",
+        "Media derivatives closure adds nullable media_assets presentation columns: derivative_thumb_path, derivative_hero_path, placeholder_kind, placeholder_hash, dominant_color, and placeholder_updated_at.",
+        "Profile reads now hydrate photo_derivatives from service-role-only profile_photo_derivatives_for_paths; web and native clients only use server-confirmed derivative paths and fall back to original paths.",
         "process-media-delete-jobs cron remains disabled."
       ]
     },
