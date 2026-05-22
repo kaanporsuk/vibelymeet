@@ -297,7 +297,7 @@ Provider gate:
 - [ ] OneSignal iOS/Android apps green.
 - [ ] RevenueCat products/entitlements/offerings/webhook green.
 - [ ] Supabase RevenueCat secret/function ready.
-- [ ] Daily provider/secrets ready.
+- [ ] Daily provider, secrets, and registered Video Date webhook ready; use existing webhook `a5407924-6f29-4a35-835a-ff5185eeae5c` and do not rotate or print `DAILY_WEBHOOK_SECRET`.
 - [ ] Bunny media hostnames/rules ready.
 - [ ] Sentry/PostHog decision made and envs set or intentionally unset.
 

@@ -128,6 +128,10 @@ test("synthetic monitor covers webhook and orphan cleanup paths", () => {
   assert.match(syntheticMonitor, /participant\.joined/);
   assert.match(syntheticMonitor, /x-webhook-signature/);
   assert.match(syntheticMonitor, /DAILY_WEBHOOK_SECRET/);
+  assert.match(syntheticMonitor, /base64ToBytes\(secret\)/);
+  assert.match(syntheticMonitor, /hmacSha256Base64\(secretBytes, `\$\{timestamp\}\.\$\{rawBody\}`\)/);
+  assert.match(syntheticMonitor, /"x-webhook-signature": correctSignature/);
+  assert.doesNotMatch(syntheticMonitor, /v0:|v0=|hmacSha256Hex/);
   assert.match(syntheticMonitor, /synthetic_session_reconciled/);
   assert.match(syntheticMonitor, /synthetic_session_guarded/);
   assert.match(syntheticMonitor, /endpoint_only_no_synthetic_room/);

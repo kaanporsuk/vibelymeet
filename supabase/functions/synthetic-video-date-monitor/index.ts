@@ -86,23 +86,38 @@ function functionsBaseUrl(supabaseUrl: string): string {
   return `${supabaseUrl.replace(/\/$/, "")}/functions/v1`;
 }
 
-function hex(bytes: ArrayBuffer): string {
-  return [...new Uint8Array(bytes)]
-    .map((byte) => byte.toString(16).padStart(2, "0"))
-    .join("");
+function base64ToBytes(value: string): Uint8Array | null {
+  try {
+    const binary = atob(value);
+    const bytes = new Uint8Array(binary.length);
+    for (let index = 0; index < binary.length; index += 1) {
+      bytes[index] = binary.charCodeAt(index);
+    }
+    return bytes;
+  } catch {
+    return null;
+  }
 }
 
-async function hmacSha256Hex(secret: string, message: string): Promise<string> {
+function base64(bytes: ArrayBuffer): string {
+  let binary = "";
+  for (const byte of new Uint8Array(bytes)) {
+    binary += String.fromCharCode(byte);
+  }
+  return btoa(binary);
+}
+
+async function hmacSha256Base64(secretBytes: Uint8Array, message: string): Promise<string> {
   const encoder = new TextEncoder();
   const key = await crypto.subtle.importKey(
     "raw",
-    encoder.encode(secret),
+    secretBytes,
     { name: "HMAC", hash: "SHA-256" },
     false,
     ["sign"],
   );
   const signature = await crypto.subtle.sign("HMAC", key, encoder.encode(message));
-  return hex(signature);
+  return base64(signature);
 }
 
 async function readJsonResponse(response: Response): Promise<Record<string, unknown>> {
@@ -159,6 +174,16 @@ async function probeDailyWebhookPath(
       latency_ms: Date.now() - startedAt,
     };
   }
+  const secretBytes = base64ToBytes(secret);
+  if (!secretBytes) {
+    return {
+      probe: "daily_webhook",
+      ok: false,
+      status: null,
+      reason: "daily_webhook_secret_invalid",
+      latency_ms: Date.now() - startedAt,
+    };
+  }
 
   const timestamp = String(Math.floor(Date.now() / 1000));
   const rawBody = JSON.stringify({
@@ -171,7 +196,7 @@ async function probeDailyWebhookPath(
     },
     timestamp: Number(timestamp),
   });
-  const correctSignature = await hmacSha256Hex(secret, `v0:${timestamp}:${rawBody}`);
+  const correctSignature = await hmacSha256Base64(secretBytes, `${timestamp}.${rawBody}`);
 
   try {
     const response = await fetch(`${functionsBaseUrl(supabaseUrl)}/video-date-daily-webhook`, {
@@ -179,7 +204,7 @@ async function probeDailyWebhookPath(
       headers: {
         "Content-Type": "application/json",
         "x-webhook-timestamp": timestamp,
-        "x-webhook-signature": `v0=${correctSignature}`,
+        "x-webhook-signature": correctSignature,
       },
       body: rawBody,
     });
