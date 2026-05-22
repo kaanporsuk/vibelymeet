@@ -180,7 +180,6 @@ const EventLobby = () => {
   });
   const { setStatus, currentStatus } = useEventStatus({ eventId, enabled: lobbySideEffectsEnabled });
   const readinessV2 = useFeatureFlag("video_date.readiness_v2");
-  const deckDealV2 = useFeatureFlag("video_date.deck_deal_v2");
   const videoDateReadiness = useNonBlockingVideoDateReadiness(
     eventId,
     readinessV2.enabled && lobbySideEffectsEnabled,
@@ -612,9 +611,6 @@ const EventLobby = () => {
     }
   }, [searchParams, setSearchParams, scheduleLobbyConvergenceRefresh]);
 
-  // Track seen profile IDs to prevent duplicates on refetch (bump deckNonce when this changes).
-  const seenProfileIds = useRef<Set<string>>(new Set());
-  const [deckNonce, setDeckNonce] = useState(0);
   // Track whether the deck ever had profiles (to distinguish "initial empty" from "exhausted")
   const deckEverLoadedRef = useRef(false);
   const deckExhaustedFiredRef = useRef(false);
@@ -622,8 +618,6 @@ const EventLobby = () => {
   const superVibeCountDiagLoggedRef = useRef<string | null>(null);
 
   useEffect(() => {
-    seenProfileIds.current = new Set();
-    setDeckNonce((n) => n + 1);
     deckEverLoadedRef.current = false;
     deckExhaustedFiredRef.current = false;
     activeSessionIdRef.current = null;
@@ -902,8 +896,6 @@ const EventLobby = () => {
     if ((!st?.lobbyRefresh && !hasPostSurveyQuery) || !eventId || !user?.id) return;
     setCheckingNextDateAfterSurvey(true);
     setPostSurveyReturnContext(true);
-    seenProfileIds.current = new Set();
-    setDeckNonce((n) => n + 1);
     dateNavigationSessionIdRef.current = null;
     setDateNavigationSessionId(null);
     clearReadyGateSession("lobby_refresh");
@@ -1087,19 +1079,16 @@ const EventLobby = () => {
     return () => clearInterval(interval);
   }, [eventEndTimeMs, eventForLobbyGate]);
 
-  // Filter out already-seen profiles, then sort: super vibes first
+  // Server-dealt deck v2 is the only active source of deck exclusion truth.
   const sortedProfiles = useMemo(() => {
-    void deckNonce;
-    const filtered = deckDealV2.enabled
-      ? [...profiles]
-      : profiles.filter((p) => !seenProfileIds.current.has(p.id));
+    const filtered = [...profiles];
     filtered.sort((a, b) => {
       if (a.has_super_vibed && !b.has_super_vibed) return -1;
       if (!a.has_super_vibed && b.has_super_vibed) return 1;
       return 0;
     });
     return filtered;
-  }, [deckDealV2.enabled, deckNonce, profiles]);
+  }, [profiles]);
 
   const currentProfile = sortedProfiles[0] || null;
   const nextProfile = sortedProfiles[1] || null;
@@ -1219,21 +1208,13 @@ const EventLobby = () => {
 
   const advanceDeckAfterSwipe = useCallback(
     (targetId: string) => {
-      if (deckDealV2.enabled) {
-        queryClient.setQueryData<DeckProfile[]>(
-          ["event-deck", eventId, user?.id, "deck_v2"],
-          (current) => Array.isArray(current) ? current.filter((profile) => profile.id !== targetId) : current,
-        );
-        void queryClient.invalidateQueries({ queryKey: ["event-deck", eventId, user?.id] });
-      } else {
-        seenProfileIds.current.add(targetId);
-        scheduleDeferredLobbyWork("deck_invalidate_after_swipe", () => {
-          void queryClient.invalidateQueries({ queryKey: ["event-deck", eventId, user?.id] });
-        });
-      }
-      setDeckNonce((n) => n + 1);
+      queryClient.setQueryData<DeckProfile[]>(
+        ["event-deck", eventId, user?.id, "deck_v2"],
+        (current) => Array.isArray(current) ? current.filter((profile) => profile.id !== targetId) : current,
+      );
+      void queryClient.invalidateQueries({ queryKey: ["event-deck", eventId, user?.id] });
     },
-    [deckDealV2.enabled, eventId, queryClient, scheduleDeferredLobbyWork, user?.id]
+    [eventId, queryClient, user?.id]
   );
 
   const handleVibe = useCallback(async () => {
@@ -1480,9 +1461,6 @@ const EventLobby = () => {
 
   const isEmpty = sortedProfiles.length === 0;
   const deckRemaining = sortedProfiles.length;
-  const deckPosition = deckRemaining > 0 ? 1 : 0;
-  const deckProgress =
-    profiles.length > 0 ? Math.min(1, (profiles.length - deckRemaining) / profiles.length) : 0;
   const timerUrgent =
     timeRemaining &&
     timeRemaining !== "Ended" &&
@@ -1568,13 +1546,13 @@ const EventLobby = () => {
                   Deck
                 </span>
                 <span className="text-white/55 tabular-nums">
-                  {deckPosition} / {deckRemaining} left
+                  Next card ready
                 </span>
               </div>
               <div className="h-1 rounded-full bg-white/[0.06] overflow-hidden">
                 <div
                   className="h-full rounded-full bg-gradient-to-r from-primary via-neon-cyan to-accent transition-[width] duration-300 ease-out"
-                  style={{ width: `${Math.min(100, deckProgress * 100)}%` }}
+                  style={{ width: "100%" }}
                 />
               </div>
             </div>

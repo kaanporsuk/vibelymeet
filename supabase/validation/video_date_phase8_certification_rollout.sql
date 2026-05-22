@@ -7,19 +7,23 @@ SELECT
 
 SELECT
   'phase8_rollout_views_exist' AS check_name,
-  COUNT(*) = 4 AS ok
+  COUNT(*) = 5 AS ok
 FROM information_schema.views
 WHERE table_schema = 'public'
   AND table_name IN (
     'vw_video_date_phase8_certification_latest',
     'vw_video_date_phase8_rollout_step_latest',
     'vw_video_date_legacy_deck_cleanup_readiness',
-    'vw_video_date_phase8_rollout_readiness'
+    'vw_video_date_phase8_rollout_readiness',
+    'vw_video_date_phase8_release_closure'
   );
 
 SELECT
   'phase8_rollout_rpc_exists' AS check_name,
-  to_regprocedure('public.get_video_date_phase8_rollout_readiness(uuid)') IS NOT NULL AS ok;
+  to_regprocedure('public.get_video_date_phase8_rollout_readiness(uuid)') IS NOT NULL
+  AND to_regprocedure('public.record_video_date_phase8_rollout_step_v2(uuid, integer, text, jsonb, text, timestamp with time zone)') IS NOT NULL
+  AND to_regprocedure('public.record_video_date_phase8_legacy_cleanup_v2(text, jsonb, text, timestamp with time zone)') IS NOT NULL
+  AND to_regprocedure('public.get_video_date_phase8_release_closure()') IS NOT NULL AS ok;
 
 SELECT
   'phase8_no_next_rollout_blockers' AS check_name,
@@ -96,3 +100,15 @@ SELECT
         AND (expires_at IS NULL OR expires_at > now())
     )
   ) AS ok;
+
+SELECT
+  'phase8_release_closure_has_no_blockers' AS check_name,
+  COALESCE(bool_and(COALESCE(array_length(release_blockers, 1), 0) = 0), false) AS ok,
+  jsonb_agg(
+    jsonb_build_object(
+      'release_track', release_track,
+      'current_rollout_bps', current_rollout_bps,
+      'blockers', release_blockers
+    )
+  ) FILTER (WHERE COALESCE(array_length(release_blockers, 1), 0) > 0) AS blockers
+FROM public.vw_video_date_phase8_release_closure;

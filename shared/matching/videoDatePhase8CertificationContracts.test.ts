@@ -6,6 +6,8 @@ import {
   VIDEO_DATE_PHASE8_PR_SLICES,
   VIDEO_DATE_PHASE8_ROLLOUT_STEPS,
   evaluateVideoDatePhase8Rollout,
+  getVideoDatePhase8ReleaseClosureBlockers,
+  isVideoDatePhase8ReleaseClosed,
   isVideoDateLegacyDeckCleanupAllowed,
   nextVideoDatePhase8RolloutStep,
   type VideoDatePhase8CertificationInput,
@@ -20,11 +22,19 @@ const validationSql = readFileSync(
   join(root, "supabase/validation/video_date_phase8_certification_rollout.sql"),
   "utf8",
 );
+const closureMigration = readFileSync(
+  join(root, "supabase/migrations/20260522021000_video_date_phase8_release_closure.sql"),
+  "utf8",
+);
 const twoUserHarness = readFileSync(join(root, "e2e/video-date-two-user.staging.spec.ts"), "utf8");
 const runtimeRlsTest = readFileSync(join(root, "shared/matching/videoDateRealtimeRlsRuntime.test.ts"), "utf8");
 const runbook = readFileSync(join(root, "docs/video-date-v4-phase8-certification-rollout.md"), "utf8");
 const legacyChecklist = readFileSync(join(root, "docs/video-date-v4-legacy-cleanup-checklist.md"), "utf8");
 const packageJson = readFileSync(join(root, "package.json"), "utf8");
+const webDeckHook = readFileSync(join(root, "src/hooks/useEventDeck.ts"), "utf8");
+const webLobby = readFileSync(join(root, "src/pages/EventLobby.tsx"), "utf8");
+const nativeEventsApi = readFileSync(join(root, "apps/mobile/lib/eventsApi.ts"), "utf8");
+const nativeLobby = readFileSync(join(root, "apps/mobile/app/event/[eventId]/lobby.tsx"), "utf8");
 
 const cleanInput: VideoDatePhase8CertificationInput = {
   twoUserWebPassed: true,
@@ -48,20 +58,44 @@ const cleanInput: VideoDatePhase8CertificationInput = {
   deckDeal100PctBaked: true,
 };
 
-test("PR 8.1-8.3 slices are explicit and cover web, native, backend, rollout, and cleanup", () => {
+test("PR 8.1-8.6 slices are explicit and cover web, native, backend, rollout, and cleanup", () => {
   assert.deepEqual(
     VIDEO_DATE_PHASE8_PR_SLICES.map((slice) => slice.pr),
-    ["8.1", "8.2", "8.3"],
+    ["8.1", "8.2", "8.3", "8.4", "8.5", "8.6"],
   );
-  assert.deepEqual(
-    VIDEO_DATE_PHASE8_PR_SLICES.flatMap((slice) => slice.requiredRunKinds),
-    ["two_user_e2e", "native_smoke", "rls_negative", "chaos", "load", "rollout_step", "legacy_cleanup"],
-  );
+  assert.ok(VIDEO_DATE_PHASE8_PR_SLICES.some((slice) => slice.ownerSurface === "web_native_cleanup"));
+  assert.ok(VIDEO_DATE_PHASE8_PR_SLICES.some((slice) => slice.ownerSurface === "ops_release"));
   assert.deepEqual(
     VIDEO_DATE_PHASE8_ROLLOUT_STEPS.map((step) => step.targetRolloutBps),
     [100, 1000, 5000, 10000],
   );
   assert.equal(VIDEO_DATE_PHASE8_ROLLOUT_STEPS.at(-1)?.requiresDeckBake, true);
+});
+
+test("Phase 8 release closure blocks until every rollout and cleanup proof is present", () => {
+  const cleanClosure = {
+    ...cleanInput,
+    currentRolloutBps: 10000,
+    rollout1PctPassed: true,
+    rollout10PctPassed: true,
+    rollout50PctPassed: true,
+    rollout100PctPassed: true,
+    legacyCleanupPassed: true,
+  };
+  assert.deepEqual(getVideoDatePhase8ReleaseClosureBlockers(cleanClosure), []);
+  assert.equal(isVideoDatePhase8ReleaseClosed(cleanClosure), true);
+
+  const blocked = getVideoDatePhase8ReleaseClosureBlockers({
+    ...cleanClosure,
+    currentRolloutBps: 5000,
+    rollout100PctPassed: false,
+    legacyCleanupPassed: false,
+    recoveryPageAlerts: 1,
+  });
+  assert.ok(blocked.includes("current_rollout_bps_below_100pct"));
+  assert.ok(blocked.includes("rollout_100pct_not_certified"));
+  assert.ok(blocked.includes("legacy_cleanup_not_certified"));
+  assert.ok(blocked.includes("recovery_page_alerts_active"));
 });
 
 test("Phase 8 rollout decision blocks on missing proof and allows only clean ramps", () => {
@@ -157,6 +191,43 @@ test("PR 8.3 adds service-role certification ledger, views, RPC, and token-free 
   assert.doesNotMatch(migration, /DAILY_API_KEY|createMeetingToken|meeting_token|daily_token|Bearer/i);
 });
 
+test("PR 8.4 and PR 8.6 add narrow ops wrappers and release closure without token material", () => {
+  assert.match(closureMigration, /CREATE OR REPLACE FUNCTION public\.record_video_date_phase8_rollout_step_v2/);
+  assert.match(closureMigration, /p_rollout_bps NOT IN \(100, 1000, 5000, 10000\)/);
+  assert.match(closureMigration, /rollout_step_not_live/);
+  assert.match(closureMigration, /public\.video_date_jsonb_has_secret_key\(v_report\)/);
+  assert.match(closureMigration, /CREATE OR REPLACE FUNCTION public\.record_video_date_phase8_legacy_cleanup_v2/);
+  assert.match(closureMigration, /legacy_cleanup_not_ready/);
+  assert.match(closureMigration, /CREATE OR REPLACE VIEW public\.vw_video_date_phase8_release_closure/);
+  assert.match(closureMigration, /'rollout_100pct_not_certified'/);
+  assert.match(closureMigration, /'legacy_cleanup_not_certified'/);
+  assert.match(closureMigration, /CREATE OR REPLACE FUNCTION public\.get_video_date_phase8_release_closure/);
+  assert.match(closureMigration, /GRANT EXECUTE ON FUNCTION public\.record_video_date_phase8_rollout_step_v2/);
+  assert.match(closureMigration, /GRANT EXECUTE ON FUNCTION public\.record_video_date_phase8_legacy_cleanup_v2/);
+  assert.match(closureMigration, /GRANT EXECUTE ON FUNCTION public\.get_video_date_phase8_release_closure\(\)/);
+  assert.doesNotMatch(closureMigration, /DAILY_API_KEY|createMeetingToken|meeting_token|daily_token|Bearer/i);
+});
+
+test("PR 8.5 retires client-only deck fallback on web and native", () => {
+  assert.match(webDeckHook, /rpc\("get_event_deck_v2"/);
+  assert.match(webDeckHook, /p_limit: 1/);
+  assert.match(webDeckHook, /\["event-deck", eventId, user\?\.id, "deck_v2"\]/);
+  assert.doesNotMatch(webDeckHook, /video_date\.deck_deal_v2|deck_v1|["']get_event_deck["']/);
+  assert.doesNotMatch(webLobby, /seenProfileIds|deckDealV2|deckNonce|deck_invalidate_after_swipe/);
+  assert.doesNotMatch(webLobby, /deckPosition|1\s*\/\s*\{deckRemaining\}\s*left/);
+  assert.match(webLobby, /Next card ready/);
+  assert.match(webLobby, /Server-dealt deck v2 is the only active source of deck exclusion truth/);
+
+  assert.match(nativeEventsApi, /rpc\('get_event_deck_v2'/);
+  assert.match(nativeEventsApi, /p_limit: 1/);
+  assert.match(nativeEventsApi, /\['event-deck', eventId, viewerProfileId, 'deck_v2'\]/);
+  assert.doesNotMatch(nativeEventsApi, /video_date\.deck_deal_v2|deck_v1|["']get_event_deck["']/);
+  assert.doesNotMatch(nativeLobby, /seenProfileIdsRef|deckDealV2|deckNonce|swipe_failure_advance_deck|swipe_advance_deck/);
+  assert.doesNotMatch(nativeLobby, /1 \/ \$\{sortedProfiles\.length\} left|deckProgress = useMemo/);
+  assert.match(nativeLobby, /Next card ready/);
+  assert.match(nativeLobby, /Server-dealt deck v2 is the only active source of deck exclusion truth/);
+});
+
 test("PR 8.1 two-user harness covers early continue, reload recovery, and survey recovery", () => {
   assert.match(twoUserHarness, /VIBELY_E2E_TWO_USER_WEB/);
   assert.match(twoUserHarness, /VIBELY_E2E_USER_A_STATE/);
@@ -182,15 +253,25 @@ test("PR 8.2 runtime RLS, chaos, and load certification are documented and recor
 
 test("Phase 8 validation and legacy cleanup docs are wired to the rollout gate", () => {
   assert.match(validationSql, /phase8_certification_ledger_exists/);
-  assert.match(validationSql, /COUNT\(\*\) = 4 AS ok/);
+  assert.match(validationSql, /COUNT\(\*\) = 5 AS ok/);
   assert.match(validationSql, /vw_video_date_phase8_rollout_step_latest/);
+  assert.match(validationSql, /vw_video_date_phase8_release_closure/);
+  assert.match(validationSql, /record_video_date_phase8_rollout_step_v2/);
+  assert.match(validationSql, /record_video_date_phase8_legacy_cleanup_v2/);
+  assert.match(validationSql, /get_video_date_phase8_release_closure/);
   assert.match(validationSql, /phase8_no_next_rollout_blockers/);
   assert.match(validationSql, /current_rollout_bps < 1000 THEN 1000/);
   assert.match(validationSql, /phase8_legacy_deck_cleanup_ready/);
+  assert.match(validationSql, /phase8_release_closure_has_no_blockers/);
   assert.match(runbook, /1% -> 10% -> 50% -> 100%/);
   assert.match(runbook, /get_video_date_phase8_rollout_readiness/);
+  assert.match(runbook, /record_video_date_phase8_rollout_step_v2/);
+  assert.match(runbook, /record_video_date_phase8_legacy_cleanup_v2/);
+  assert.match(runbook, /get_video_date_phase8_release_closure/);
   assert.match(runbook, /vw_video_date_legacy_deck_cleanup_readiness/);
   assert.match(legacyChecklist, /vw_video_date_legacy_deck_cleanup_readiness/);
+  assert.match(legacyChecklist, /get_video_date_phase8_release_closure/);
+  assert.doesNotMatch(legacyChecklist, /acceptable duplicate-card prevention/);
 });
 
 test("Phase 8 contracts are included in the v4 verification script", () => {

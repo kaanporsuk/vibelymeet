@@ -160,8 +160,8 @@ test("shared idempotency helper documents server bounds and emits UUID v4 reques
 });
 
 test("legacy duplicate-card fallback cleanup is explicit", () => {
-  assert.match(legacyCleanup, /seenProfileIds/);
-  assert.match(legacyCleanup, /video_date\.deck_deal_v2/);
+  assert.match(legacyCleanup, /get_event_deck_v2/);
+  assert.match(legacyCleanup, /record_deck_deal_v2/);
   assert.match(legacyCleanup, /server-dealt/);
-  assert.match(legacyCleanup, /duplicate-card/);
+  assert.match(legacyCleanup, /Do not restore client-only seen-card memory/);
 });

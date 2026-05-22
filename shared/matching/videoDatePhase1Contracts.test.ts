@@ -127,21 +127,23 @@ test("PR 1.2 dedicated diagnostics and runtime readiness are wired for web and n
   assert.match(nativeLobby, /swipeType !== 'pass' && readinessV2\.enabled && !videoDateReadiness\.canAttemptPairing/);
 });
 
-test("PR 1.3 deck v2 and persistent ready-gate suppression are adopted behind flags", () => {
-  assert.match(webDeckHook, /video_date\.deck_deal_v2/);
+test("PR 1.3 deck v2 and persistent ready-gate suppression are adopted; Phase 8 makes deck v2 mandatory", () => {
   assert.match(webDeckHook, /get_event_deck_v2/);
-  assert.match(webDeckHook, /p_limit: deckDealV2\.enabled \? 1 : 50/);
+  assert.match(webDeckHook, /p_limit: 1/);
   assert.match(webDeckHook, /query\.isFetching && profiles\.length === 0/);
-  assert.match(nativeEventsApi, /video_date\.deck_deal_v2/);
+  assert.doesNotMatch(webDeckHook, /deck_v1|["']get_event_deck["']|video_date\.deck_deal_v2/);
   assert.match(nativeEventsApi, /get_event_deck_v2/);
-  assert.match(nativeEventsApi, /p_limit: deckDealV2\.enabled \? 1 : 50/);
+  assert.match(nativeEventsApi, /p_limit: 1/);
   assert.match(nativeEventsApi, /query\.isFetching && profiles\.length === 0/);
-  assert.match(webLobby, /deckDealV2\.enabled[\s\S]+\?\s*\[\.\.\.profiles\]/);
-  assert.match(nativeLobby, /deckDealV2\.enabled[\s\S]+\?\s*\[\.\.\.profiles\]/);
+  assert.doesNotMatch(nativeEventsApi, /deck_v1|["']get_event_deck["']|video_date\.deck_deal_v2/);
+  assert.match(webLobby, /Server-dealt deck v2 is the only active source of deck exclusion truth/);
+  assert.match(nativeLobby, /Server-dealt deck v2 is the only active source of deck exclusion truth/);
+  assert.doesNotMatch(webLobby, /seenProfileIds|deckDealV2|deckNonce/);
+  assert.doesNotMatch(nativeLobby, /seenProfileIdsRef|deckDealV2|deckNonce/);
   assert.match(webLobby, /setQueryData<DeckProfile\[\]>\(\s*\["event-deck", eventId, user\?\.id, "deck_v2"\]/);
   assert.match(nativeLobby, /setQueryData<DeckProfile\[\]>\(\s*\['event-deck', id, user\?\.id, 'deck_v2'\]/);
-  assert.match(webLobby, /deckDealV2\.enabled[\s\S]+invalidateQueries\(\{ queryKey: \["event-deck", eventId, user\?\.id\] \}\)/);
-  assert.match(nativeLobby, /deckDealV2\.enabled[\s\S]+invalidateQueries\(\{ queryKey: \['event-deck', id, user\?\.id\] \}\)/);
+  assert.match(webLobby, /invalidateQueries\(\{ queryKey: \["event-deck", eventId, user\?\.id\] \}\)/);
+  assert.match(nativeLobby, /invalidateQueries\(\{ queryKey: \['event-deck', id, user\?\.id\] \}\)/);
   assert.match(phase1Migration, /CREATE OR REPLACE FUNCTION public\.persist_ready_gate_suppression_v2/);
   assert.match(phase1Migration, /ADD COLUMN IF NOT EXISTS ready_gate_suppressed_session_id uuid/);
   assert.match(phase1Migration, /FOR UPDATE/);

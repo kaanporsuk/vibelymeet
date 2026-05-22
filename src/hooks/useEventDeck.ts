@@ -5,7 +5,6 @@ import {
   parseEventDeckProfiles,
   type EventDeckProfile as DeckProfile,
 } from "@shared/eventProfileAdapters";
-import { useFeatureFlag } from "@/hooks/useFeatureFlag";
 
 export type { DeckProfile };
 
@@ -16,18 +15,17 @@ interface UseEventDeckOptions {
 
 export const useEventDeck = ({ eventId, enabled = true }: UseEventDeckOptions) => {
   const { user } = useUserProfile();
-  const deckDealV2 = useFeatureFlag("video_date.deck_deal_v2");
 
   const query = useQuery({
-    queryKey: ["event-deck", eventId, user?.id, deckDealV2.enabled ? "deck_v2" : "deck_v1"],
+    queryKey: ["event-deck", eventId, user?.id, "deck_v2"],
     queryFn: async () => {
       const viewerProfileId = user?.id;
       if (!viewerProfileId || !eventId) return [];
 
-      const { data, error } = await supabase.rpc(deckDealV2.enabled ? "get_event_deck_v2" : "get_event_deck", {
+      const { data, error } = await supabase.rpc("get_event_deck_v2", {
         p_event_id: eventId,
         p_user_id: viewerProfileId,
-        p_limit: deckDealV2.enabled ? 1 : 50,
+        p_limit: 1,
       });
 
       if (error) {

@@ -1,6 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { SUPABASE_PUBLISHABLE_KEY, SUPABASE_URL, supabase } from '@/lib/supabase';
-import { useFeatureFlag } from '@/hooks/useFeatureFlag';
 import { getCachedUserId, getFreshCachedAccessToken } from '@/lib/nativeAuthSession';
 import { trackEvent } from '@/lib/analytics';
 import type { DrainMatchQueueResult, SwipeSessionStageResult } from '@shared/matching/videoSessionFlow';
@@ -594,15 +593,14 @@ export function useRegisterForEvent() {
 export type { DeckProfile };
 
 export function useEventDeck(eventId: string, viewerProfileId: string | null, enabled: boolean) {
-  const deckDealV2 = useFeatureFlag('video_date.deck_deal_v2');
   const query = useQuery({
-    queryKey: ['event-deck', eventId, viewerProfileId, deckDealV2.enabled ? 'deck_v2' : 'deck_v1'],
+    queryKey: ['event-deck', eventId, viewerProfileId, 'deck_v2'],
     queryFn: async (): Promise<DeckProfile[]> => {
       if (!viewerProfileId || !eventId) return [];
-      const { data, error } = await supabase.rpc(deckDealV2.enabled ? 'get_event_deck_v2' : 'get_event_deck', {
+      const { data, error } = await supabase.rpc('get_event_deck_v2', {
         p_event_id: eventId,
         p_user_id: viewerProfileId,
-        p_limit: deckDealV2.enabled ? 1 : 50,
+        p_limit: 1,
       });
       if (error) throw error;
       return parseEventDeckProfiles(data);
