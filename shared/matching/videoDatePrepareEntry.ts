@@ -69,6 +69,10 @@ export type PrepareVideoDateEntryFailure = {
   message?: string;
   httpStatus?: number;
   retryable?: boolean;
+  details?: {
+    operation?: unknown;
+    [key: string]: unknown;
+  };
 };
 
 export type PreparedVideoDateEntryCacheEntry = {
@@ -136,6 +140,7 @@ export type PrepareVideoDateEntryResult =
       httpStatus?: number;
       retryable: boolean;
       entryAttemptId?: string | null;
+      providerOperation?: string | null;
     };
 
 export type PrepareVideoDateSoloEntryResult =
@@ -360,6 +365,31 @@ function readFailureMessage(data: unknown, fallback?: string): string | undefine
       : fallback;
 }
 
+function readFailureProviderOperationFromBody(data: unknown): string | null {
+  if (!data || typeof data !== "object") return null;
+  const details = (data as { details?: unknown }).details;
+  if (!details || typeof details !== "object") return null;
+  const operation = (details as { operation?: unknown }).operation;
+  return typeof operation === "string" && operation.trim().length > 0 ? operation.trim() : null;
+}
+
+async function readFailureProviderOperation(data: unknown, response?: unknown): Promise<string | null> {
+  const fromData = readFailureProviderOperationFromBody(data);
+  if (fromData) return fromData;
+
+  if (!response || typeof response !== "object") return null;
+  const maybeResponse = response as Response;
+  if (typeof maybeResponse.clone !== "function" || typeof maybeResponse.text !== "function") return null;
+
+  try {
+    const text = await maybeResponse.clone().text();
+    if (!text) return null;
+    return readFailureProviderOperationFromBody(JSON.parse(text));
+  } catch {
+    return null;
+  }
+}
+
 export async function prepareVideoDateEntryWithClient(
   options: PrepareWithClientOptions,
 ): Promise<PrepareVideoDateEntryResult> {
@@ -431,6 +461,7 @@ export async function prepareVideoDateEntryWithClient(
         httpStatus: failure.httpStatus,
         retryable: failure.retryable,
         entryAttemptId,
+        providerOperation: await readFailureProviderOperation(data, response),
       };
     } catch (error) {
       const failure = await options.classifyFailure({ error, timedOut: false });
@@ -441,6 +472,7 @@ export async function prepareVideoDateEntryWithClient(
         httpStatus: failure.httpStatus,
         retryable: failure.retryable,
         entryAttemptId,
+        providerOperation: await readFailureProviderOperation(undefined, (error as { context?: unknown })?.context),
       };
     } finally {
       prepareEntryInflight.delete(key);

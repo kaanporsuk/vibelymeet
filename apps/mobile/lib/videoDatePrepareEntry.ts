@@ -7,6 +7,7 @@ import {
   buildReadyGateToDateLatencyPayload,
   bucketVideoDateLatencyMs,
   recordReadyGateToDateLatencyCheckpoint,
+  type ReadyGateToDateLatencyCheckpoint,
 } from '@clientShared/observability/videoDateOperatorMetrics';
 import {
   DAILY_ROOM_ACTIONS,
@@ -65,19 +66,7 @@ export async function prepareVideoDateEntry(
   const sourceSurface = 'video_date_entry';
   const attemptCount = options.force ? 2 : 1;
   const trackLatencyCheckpoint = (
-    checkpoint:
-      | 'prepare_entry_started'
-      | 'prepare_entry_success'
-      | 'prepare_entry_failure'
-      | 'provider_verify_started'
-      | 'provider_verify_success'
-      | 'provider_verify_skipped'
-      | 'enter_handshake_started'
-      | 'enter_handshake_success'
-      | 'enter_handshake_failure'
-      | 'daily_token_started'
-      | 'daily_token_success'
-      | 'daily_token_failure',
+    checkpoint: ReadyGateToDateLatencyCheckpoint,
     sourceAction: string,
     outcome: 'success' | 'failure',
     reasonCode?: string | null,
@@ -114,6 +103,12 @@ export async function prepareVideoDateEntry(
   trackLatencyCheckpoint('provider_verify_started', 'prepare_date_entry_started', 'success');
   trackLatencyCheckpoint('enter_handshake_started', 'prepare_date_entry_started', 'success');
   trackLatencyCheckpoint('daily_token_started', 'daily_token_request_started', 'success');
+  trackLatencyCheckpoint('daily_room_create_started', 'daily_room_create_started', 'success', null, null, {
+    daily_performance_segment: 'room_create_or_verify',
+  });
+  trackLatencyCheckpoint('daily_token_mint_started', 'daily_token_mint_started', 'success', null, null, {
+    daily_performance_segment: 'token_mint',
+  });
 
   trackEvent(LobbyPostDateEvents.VIDEO_DATE_PREPARE_ENTRY_STARTED, {
     platform: 'native',
@@ -190,6 +185,8 @@ export async function prepareVideoDateEntry(
     const durationMs = Date.now() - startedAt;
     const tokenDurationMs = result.data.timings?.prepareDurationMs ?? durationMs;
     const providerVerifyDurationMs = result.data.timings?.room_create_or_verify_ms ?? null;
+    const dailyRoomCreateDurationMs = result.data.timings?.room_create_or_verify_ms ?? null;
+    const dailyTokenMintDurationMs = result.data.timings?.token_ms ?? null;
     const providerVerifySkipped = result.data.provider_verify_skipped === true;
     const providerVerifyCheckpoint = providerVerifySkipped ? 'provider_verify_skipped' : 'provider_verify_success';
     const traceId = result.data.video_date_trace_id ?? result.data.entry_attempt_id ?? videoDateTraceId;
@@ -239,6 +236,34 @@ export async function prepareVideoDateEntry(
       null,
       tokenDurationMs,
     );
+    if (!result.cached) {
+      trackLatencyCheckpoint(
+        'daily_room_create_success',
+        'daily_room_create_success',
+        'success',
+        result.data.provider_verify_reason ?? null,
+        dailyRoomCreateDurationMs,
+        {
+          daily_performance_segment: 'room_create_or_verify',
+          daily_room_create_ms: dailyRoomCreateDurationMs,
+          room_create_or_verify_ms: dailyRoomCreateDurationMs,
+          provider_verify_reason: result.data.provider_verify_reason ?? null,
+          provider_verify_skipped: providerVerifySkipped,
+        },
+      );
+      trackLatencyCheckpoint(
+        'daily_token_mint_success',
+        'daily_token_mint_success',
+        'success',
+        null,
+        dailyTokenMintDurationMs,
+        {
+          daily_performance_segment: 'token_mint',
+          daily_token_mint_ms: dailyTokenMintDurationMs,
+          token_ms: dailyTokenMintDurationMs,
+        },
+      );
+    }
     const tokenCreatedContext = recordReadyGateToDateLatencyCheckpoint({
       sessionId,
       platform: 'native',
@@ -386,6 +411,37 @@ export async function prepareVideoDateEntry(
   trackLatencyCheckpoint('prepare_entry_failure', 'prepare_date_entry_failure', 'failure', result.code);
   trackLatencyCheckpoint('enter_handshake_failure', 'prepare_date_entry_failure', 'failure', result.code);
   trackLatencyCheckpoint('daily_token_failure', 'daily_token_failure', 'failure', result.code);
+  const failureDurationMs = Math.max(0, Date.now() - startedAt);
+  const providerOperation = result.providerOperation ?? null;
+  if (providerOperation === 'create_token') {
+    trackLatencyCheckpoint(
+      'daily_token_mint_failure',
+      'daily_token_mint_failure',
+      'failure',
+      result.code,
+      failureDurationMs,
+      {
+        daily_performance_segment: 'token_mint',
+        daily_token_mint_ms: failureDurationMs,
+      },
+    );
+  } else if (
+    providerOperation === 'create_room' ||
+    providerOperation === 'lookup_room' ||
+    providerOperation === 'delete_room'
+  ) {
+    trackLatencyCheckpoint(
+      'daily_room_create_failure',
+      'daily_room_create_failure',
+      'failure',
+      result.code,
+      failureDurationMs,
+      {
+        daily_performance_segment: 'room_create_or_verify',
+        daily_room_create_ms: failureDurationMs,
+      },
+    );
+  }
   Sentry.addBreadcrumb({
     category: 'video-date',
     message: 'prepare_date_entry_failure',

@@ -165,6 +165,9 @@ export type ReadyGateToDateLatencyCheckpoint =
   | "room_pre_create_started"
   | "room_pre_create_success"
   | "room_pre_create_failure"
+  | "daily_room_create_started"
+  | "daily_room_create_success"
+  | "daily_room_create_failure"
   | "room_warmup_started"
   | "room_warmup_success"
   | "room_warmup_failure"
@@ -188,9 +191,18 @@ export type ReadyGateToDateLatencyCheckpoint =
   | "daily_token_started"
   | "daily_token_success"
   | "daily_token_failure"
+  | "daily_token_mint_started"
+  | "daily_token_mint_success"
+  | "daily_token_mint_failure"
   | "daily_join_started"
   | "daily_join_success"
   | "daily_join_failure"
+  | "daily_reconnect_started"
+  | "daily_reconnect_success"
+  | "daily_reconnect_failure"
+  | "extension_refresh_started"
+  | "extension_refresh_success"
+  | "extension_refresh_failure"
   | "local_video_ready"
   | "remote_seen"
   | "first_remote_frame"
@@ -265,6 +277,14 @@ export type ReadyGateToDateLatencyContext = {
   roomPreCreateStartedAtMs?: number;
   roomPreCreateSuccessAtMs?: number;
   roomPreCreateFailureAtMs?: number;
+  dailyRoomCreateStartedAtMs?: number;
+  dailyRoomCreateCompletedAtMs?: number;
+  dailyTokenMintStartedAtMs?: number;
+  dailyTokenMintCompletedAtMs?: number;
+  dailyReconnectStartedAtMs?: number;
+  dailyReconnectCompletedAtMs?: number;
+  extensionRefreshStartedAtMs?: number;
+  extensionRefreshCompletedAtMs?: number;
   attemptCount?: number;
 };
 
@@ -290,8 +310,12 @@ export type ReadyGateToDateLatencyDurations = {
   remoteSeenToFirstRemoteFrameMs: number | null;
   firstRemoteFrameToReadableMs: number | null;
   dailyTokenDurationMs: number | null;
+  dailyTokenMintDurationMs: number | null;
   dailyJoinDurationMs: number | null;
+  dailyReconnectDurationMs: number | null;
+  extensionRefreshDurationMs: number | null;
   roomWarmupDurationMs: number | null;
+  dailyRoomCreateDurationMs: number | null;
   prepareEntryDurationMs: number | null;
   providerVerifyDurationMs: number | null;
   permissionCheckDurationMs: number | null;
@@ -326,6 +350,11 @@ function checkpointField(checkpoint: ReadyGateToDateLatencyCheckpoint): keyof Re
       return "roomPreCreateSuccessAtMs";
     case "room_pre_create_failure":
       return "roomPreCreateFailureAtMs";
+    case "daily_room_create_started":
+      return "dailyRoomCreateStartedAtMs";
+    case "daily_room_create_success":
+    case "daily_room_create_failure":
+      return "dailyRoomCreateCompletedAtMs";
     case "room_warmup_started":
       return "roomWarmupStartedAtMs";
     case "room_warmup_success":
@@ -366,11 +395,26 @@ function checkpointField(checkpoint: ReadyGateToDateLatencyCheckpoint): keyof Re
     case "daily_token_success":
     case "daily_token_failure":
       return "dailyTokenCompletedAtMs";
+    case "daily_token_mint_started":
+      return "dailyTokenMintStartedAtMs";
+    case "daily_token_mint_success":
+    case "daily_token_mint_failure":
+      return "dailyTokenMintCompletedAtMs";
     case "daily_join_started":
       return "dailyJoinStartedAtMs";
     case "daily_join_success":
     case "daily_join_failure":
       return "dailyJoinCompletedAtMs";
+    case "daily_reconnect_started":
+      return "dailyReconnectStartedAtMs";
+    case "daily_reconnect_success":
+    case "daily_reconnect_failure":
+      return "dailyReconnectCompletedAtMs";
+    case "extension_refresh_started":
+      return "extensionRefreshStartedAtMs";
+    case "extension_refresh_success":
+    case "extension_refresh_failure":
+      return "extensionRefreshCompletedAtMs";
     case "local_video_ready":
       return "localVideoReadyAtMs";
     case "remote_seen":
@@ -532,8 +576,12 @@ export function getReadyGateToDateLatencyDurations(
     remoteSeenToFirstRemoteFrameMs: diffMs(context?.remoteSeenAtMs, context?.firstRemoteFrameAtMs),
     firstRemoteFrameToReadableMs: diffMs(context?.firstRemoteFrameAtMs, context?.remoteReadableAtMs),
     dailyTokenDurationMs: diffMs(context?.dailyTokenStartedAtMs, context?.dailyTokenCompletedAtMs),
+    dailyTokenMintDurationMs: diffMs(context?.dailyTokenMintStartedAtMs, context?.dailyTokenMintCompletedAtMs),
     dailyJoinDurationMs: diffMs(context?.dailyJoinStartedAtMs, context?.dailyJoinCompletedAtMs),
+    dailyReconnectDurationMs: diffMs(context?.dailyReconnectStartedAtMs, context?.dailyReconnectCompletedAtMs),
+    extensionRefreshDurationMs: diffMs(context?.extensionRefreshStartedAtMs, context?.extensionRefreshCompletedAtMs),
     roomWarmupDurationMs: diffMs(context?.roomWarmupStartedAtMs, context?.roomWarmupCompletedAtMs),
+    dailyRoomCreateDurationMs: diffMs(context?.dailyRoomCreateStartedAtMs, context?.dailyRoomCreateCompletedAtMs),
     prepareEntryDurationMs: diffMs(context?.prepareEntryStartedAtMs, context?.prepareEntryCompletedAtMs),
     providerVerifyDurationMs: diffMs(context?.providerVerifyStartedAtMs, context?.providerVerifyCompletedAtMs),
     permissionCheckDurationMs: diffMs(context?.permissionCheckStartedAtMs, context?.permissionCheckCompletedAtMs),
@@ -606,8 +654,12 @@ export function buildReadyGateToDateLatencyPayload({
     remote_seen_to_first_remote_frame_ms: durations.remoteSeenToFirstRemoteFrameMs,
     first_remote_frame_to_readable_ms: durations.firstRemoteFrameToReadableMs,
     daily_token_ms: durations.dailyTokenDurationMs,
+    daily_token_mint_ms: durations.dailyTokenMintDurationMs,
     daily_join_ms: durations.dailyJoinDurationMs,
+    daily_reconnect_ms: durations.dailyReconnectDurationMs,
+    extension_refresh_ms: durations.extensionRefreshDurationMs,
     room_warmup_ms: durations.roomWarmupDurationMs,
+    daily_room_create_ms: durations.dailyRoomCreateDurationMs,
     prepare_entry_ms: durations.prepareEntryDurationMs,
     provider_verify_ms: durations.providerVerifyDurationMs,
     permission_check_ms: durations.permissionCheckDurationMs,

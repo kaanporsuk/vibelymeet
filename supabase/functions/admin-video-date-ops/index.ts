@@ -104,6 +104,31 @@ type QueueFairnessHealthRow = {
   fairness_status: MetricStatus | null;
 };
 
+type DailyPerformanceDecisionRow = {
+  window_id: string | null;
+  window_label: string | null;
+  event_id: string | null;
+  first_frame_sample_count: number | null;
+  first_frame_p95_ms: number | null;
+  first_frame_p99_ms: number | null;
+  room_sample_count: number | null;
+  room_p95_ms: number | null;
+  room_p99_ms: number | null;
+  token_sample_count: number | null;
+  token_p95_ms: number | null;
+  token_p99_ms: number | null;
+  join_sample_count: number | null;
+  join_p95_ms: number | null;
+  join_p99_ms: number | null;
+  reconnect_sample_count: number | null;
+  reconnect_p95_ms: number | null;
+  extension_refresh_sample_count: number | null;
+  extension_refresh_p95_ms: number | null;
+  room_pool_recommended: boolean | null;
+  decision_reason: string | null;
+  decision_status: MetricStatus | "insufficient_data" | null;
+};
+
 type LaunchLatencyCheckpointRow = {
   created_at?: string | null;
   latency_ms: number | null;
@@ -880,6 +905,94 @@ function getTimerDriftExternalMetric() {
   };
 }
 
+function emptyDailyPerformanceDecision(
+  window: VideoDateOpsWindowDefinition,
+  eventId: string | null,
+  sourceError?: string,
+) {
+  return {
+    window_id: window.id,
+    window_label: window.label,
+    event_id: eventId,
+    first_frame_sample_count: 0,
+    first_frame_p95_ms: null,
+    first_frame_p99_ms: null,
+    room_sample_count: 0,
+    room_p95_ms: null,
+    room_p99_ms: null,
+    token_sample_count: 0,
+    token_p95_ms: null,
+    token_p99_ms: null,
+    join_sample_count: 0,
+    join_p95_ms: null,
+    join_p99_ms: null,
+    reconnect_sample_count: 0,
+    reconnect_p95_ms: null,
+    extension_refresh_sample_count: 0,
+    extension_refresh_p95_ms: null,
+    room_pool_recommended: false,
+    decision_reason: sourceError ? "source_unavailable" : "no_samples",
+    decision_status: "unknown" as MetricStatus,
+    ...(sourceError ? { source_error: sourceError } : {}),
+  };
+}
+
+async function getDailyPerformanceDecision(
+  service: SupabaseClientLike,
+  window: VideoDateOpsWindowDefinition,
+  eventId: string | null,
+) {
+  let query = service
+    .from("vw_video_date_daily_pool_decision")
+    .select(
+      "window_id,window_label,event_id,first_frame_sample_count,first_frame_p95_ms,first_frame_p99_ms,room_sample_count,room_p95_ms,room_p99_ms,token_sample_count,token_p95_ms,token_p99_ms,join_sample_count,join_p95_ms,join_p99_ms,reconnect_sample_count,reconnect_p95_ms,extension_refresh_sample_count,extension_refresh_p95_ms,room_pool_recommended,decision_reason,decision_status",
+    )
+    .eq("window_id", window.id)
+    .limit(1);
+
+  if (eventId) query = query.eq("event_id", eventId);
+
+  const result = await fetchRows<DailyPerformanceDecisionRow>(query);
+  if (result.error) {
+    return emptyDailyPerformanceDecision(window, eventId, result.error);
+  }
+
+  const row = result.rows[0];
+  if (!row) return emptyDailyPerformanceDecision(window, eventId);
+
+  return {
+    window_id: row.window_id ?? window.id,
+    window_label: row.window_label ?? window.label,
+    event_id: row.event_id ?? eventId,
+    first_frame_sample_count: Number(row.first_frame_sample_count ?? 0),
+    first_frame_p95_ms: row.first_frame_p95_ms ?? null,
+    first_frame_p99_ms: row.first_frame_p99_ms ?? null,
+    room_sample_count: Number(row.room_sample_count ?? 0),
+    room_p95_ms: row.room_p95_ms ?? null,
+    room_p99_ms: row.room_p99_ms ?? null,
+    token_sample_count: Number(row.token_sample_count ?? 0),
+    token_p95_ms: row.token_p95_ms ?? null,
+    token_p99_ms: row.token_p99_ms ?? null,
+    join_sample_count: Number(row.join_sample_count ?? 0),
+    join_p95_ms: row.join_p95_ms ?? null,
+    join_p99_ms: row.join_p99_ms ?? null,
+    reconnect_sample_count: Number(row.reconnect_sample_count ?? 0),
+    reconnect_p95_ms: row.reconnect_p95_ms ?? null,
+    extension_refresh_sample_count: Number(row.extension_refresh_sample_count ?? 0),
+    extension_refresh_p95_ms: row.extension_refresh_p95_ms ?? null,
+    room_pool_recommended: row.room_pool_recommended === true,
+    decision_reason: row.decision_reason ?? "unknown",
+    decision_status:
+      row.decision_status === "healthy" ||
+      row.decision_status === "warning" ||
+      row.decision_status === "critical" ||
+      row.decision_status === "unknown"
+        ? row.decision_status
+        : "unknown",
+    truncated: result.truncated,
+  };
+}
+
 async function buildWindowMetrics(
   service: SupabaseClientLike,
   window: VideoDateOpsWindowDefinition,
@@ -893,6 +1006,7 @@ async function buildWindowMetrics(
     surveyToNextReadyGate,
     queueDrainFailures,
     queueFairness,
+    dailyPerformanceDecision,
   ] = await Promise.all([
     getReadyTapToFirstRemoteFrameLatency(service, sinceIso, eventId),
     getReadyGateLatency(service, sinceIso, eventId),
@@ -900,6 +1014,7 @@ async function buildWindowMetrics(
     getSurveyToNextReadyGate(service, sinceIso, eventId),
     getQueueDrainFailures(service, sinceIso, eventId),
     getQueueFairnessHealth(service, eventId),
+    getDailyPerformanceDecision(service, window, eventId),
   ]);
 
   return {
@@ -913,6 +1028,7 @@ async function buildWindowMetrics(
     survey_to_next_ready_gate_conversion: surveyToNextReadyGate,
     queue_drain_failures: queueDrainFailures,
     queue_fairness: queueFairness,
+    daily_performance_decision: dailyPerformanceDecision,
     timer_drift_recovered_by_server_truth: getTimerDriftExternalMetric(),
   };
 }

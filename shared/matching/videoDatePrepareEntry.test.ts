@@ -436,6 +436,70 @@ test("prepareVideoDateEntryWithClient generates and returns an entry attempt id 
   assert.equal(result.ok === false && result.entryAttemptId, sentAttemptId);
 });
 
+test("prepareVideoDateEntryWithClient preserves provider operation on Daily provider failures", async () => {
+  clearPreparedVideoDateEntryCache();
+
+  const result = await prepareVideoDateEntryWithClient({
+    sessionId: SESSION_ID,
+    userId: USER_ID,
+    nowMs: 1234,
+    invoke: async () => ({
+      data: {
+        success: false,
+        code: "DAILY_PROVIDER_ERROR",
+        error: "provider failed",
+        details: { operation: "create_token", provider_status: 503 },
+      },
+      response: new Response(
+        JSON.stringify({
+          code: "DAILY_PROVIDER_ERROR",
+          details: { operation: "create_token", provider_status: 503 },
+        }),
+        { status: 503 },
+      ),
+    }),
+    classifyFailure: async () => ({
+      kind: "DAILY_PROVIDER_ERROR",
+      serverCode: "DAILY_PROVIDER_ERROR",
+      httpStatus: 503,
+      retryable: true,
+    }),
+  });
+
+  assert.equal(result.ok, false);
+  assert.equal(result.ok === false && result.providerOperation, "create_token");
+});
+
+test("prepareVideoDateEntryWithClient reads provider operation from non-2xx response bodies", async () => {
+  clearPreparedVideoDateEntryCache();
+
+  const result = await prepareVideoDateEntryWithClient({
+    sessionId: SESSION_ID,
+    userId: USER_ID,
+    nowMs: 1234,
+    invoke: async () => ({
+      data: null,
+      error: new Error("Function returned 503"),
+      response: new Response(
+        JSON.stringify({
+          code: "DAILY_PROVIDER_ERROR",
+          details: { operation: "create_room", provider_status: 503 },
+        }),
+        { status: 503 },
+      ),
+    }),
+    classifyFailure: async () => ({
+      kind: "DAILY_PROVIDER_ERROR",
+      serverCode: "DAILY_PROVIDER_ERROR",
+      httpStatus: 503,
+      retryable: true,
+    }),
+  });
+
+  assert.equal(result.ok, false);
+  assert.equal(result.ok === false && result.providerOperation, "create_room");
+});
+
 test("createVideoDateEntryAttemptId has a stable fallback prefix", () => {
   const id = createVideoDateEntryAttemptId(1234);
   assert.ok(id.length > 10);

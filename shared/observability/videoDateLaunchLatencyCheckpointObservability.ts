@@ -43,6 +43,9 @@ const ALLOWED_CHECKPOINTS = new Set<ReadyGateToDateLatencyCheckpoint>([
   "room_pre_create_started",
   "room_pre_create_success",
   "room_pre_create_failure",
+  "daily_room_create_started",
+  "daily_room_create_success",
+  "daily_room_create_failure",
   "room_warmup_started",
   "room_warmup_success",
   "room_warmup_failure",
@@ -66,9 +69,18 @@ const ALLOWED_CHECKPOINTS = new Set<ReadyGateToDateLatencyCheckpoint>([
   "daily_token_started",
   "daily_token_success",
   "daily_token_failure",
+  "daily_token_mint_started",
+  "daily_token_mint_success",
+  "daily_token_mint_failure",
   "daily_join_started",
   "daily_join_success",
   "daily_join_failure",
+  "daily_reconnect_started",
+  "daily_reconnect_success",
+  "daily_reconnect_failure",
+  "extension_refresh_started",
+  "extension_refresh_success",
+  "extension_refresh_failure",
   "local_video_ready",
   "remote_seen",
   "first_remote_frame",
@@ -132,6 +144,11 @@ const SAFE_PAYLOAD_KEYS = new Set([
   "edge_cold_start_ms",
   "edge_process_uptime_ms",
   "edge_total_ms",
+  "daily_performance_segment",
+  "daily_room_create_ms",
+  "daily_token_mint_ms",
+  "daily_reconnect_ms",
+  "extension_refresh_ms",
   "room_warmup_ms",
   "prepare_entry_ms",
   "auth_ms",
@@ -141,6 +158,12 @@ const SAFE_PAYLOAD_KEYS = new Set([
   "confirm_prepare_ms",
   "provider_verify_ms",
   "provider_verify_reason",
+  "extension_mode",
+  "credit_type",
+  "extension_mutual",
+  "extension_awaiting_partner",
+  "extension_applied",
+  "reconnect_source",
   "permission_check_ms",
   "cached_prepare_entry",
   "provider_verify_skipped",
@@ -230,6 +253,30 @@ function latencyMsForCheckpoint(
 ): number | null {
   if (checkpoint === "room_pre_create_success" && typeof payload.mutual_swipe_to_room_ready_ms === "number") {
     return payload.mutual_swipe_to_room_ready_ms;
+  }
+  if (
+    (checkpoint === "daily_room_create_success" || checkpoint === "daily_room_create_failure") &&
+    typeof payload.daily_room_create_ms === "number"
+  ) {
+    return payload.daily_room_create_ms;
+  }
+  if (
+    (checkpoint === "daily_token_mint_success" || checkpoint === "daily_token_mint_failure") &&
+    typeof payload.daily_token_mint_ms === "number"
+  ) {
+    return payload.daily_token_mint_ms;
+  }
+  if (
+    (checkpoint === "daily_reconnect_success" || checkpoint === "daily_reconnect_failure") &&
+    typeof payload.daily_reconnect_ms === "number"
+  ) {
+    return payload.daily_reconnect_ms;
+  }
+  if (
+    (checkpoint === "extension_refresh_success" || checkpoint === "extension_refresh_failure") &&
+    typeof payload.extension_refresh_ms === "number"
+  ) {
+    return payload.extension_refresh_ms;
   }
   if (checkpoint === "date_route_module_preloaded" && typeof payload.date_route_module_preload_ms === "number") {
     return payload.date_route_module_preload_ms;
