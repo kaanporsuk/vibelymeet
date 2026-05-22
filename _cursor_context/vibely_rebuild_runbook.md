@@ -4,7 +4,7 @@
 >
 > **2026-04-11:** Repo hardening removed unrouted `VideoLobby.tsx` and legacy `ReadyGate.tsx`; `/ready/:readyId` uses `ReadyRedirect`. Mentions of those files below are **historical**. Production hosting is **not** Lovable-first — see root `README.md` and `docs/vibely-canonical-project-reference.md`.
 >
-> **2026-04-13:** Repo current-state addendum: the repo now contains **253 migrations** and **45 deployable Edge Functions**. Sprint 1 foundation, Sprint 2 profile-media wiring, and Sprint 3 chat/account cleanup are live. Sprint 4 adds admin lifecycle controls/readiness preview, but `process-media-delete-jobs` cron remains **disabled**.
+> **2026-05-23:** Current dependency-closure addendum: the repo now contains **67 deployable Edge Functions** and **67 matching `supabase/config.toml` entries** for project `schdyxcunwcvddlcshwd`. Older counts in historical sections are superseded; use `_cursor_context/vibely_edge_function_manifest.md` and `supabase/config.toml` as the current function inventory.
 >
 > **2026-04-23:** Phase 2 adds migration `20260423120000_event_loop_observability.sql` (table `event_loop_observability_events` + instrumented queue/promotion/cleanup RPCs). Apply with normal `supabase db push` / linked migration flow; no new Edge deploy or secrets. Operator reads: service-role SQL / dashboard — not anon/authenticated.
 >
@@ -454,8 +454,8 @@ supabase secrets list
 
 Current repo state:
 
-- 55 deployable function directories exist under `supabase/functions`, excluding `_shared`.
-- 55 matching `[functions.<slug>]` entries exist in `supabase/config.toml`.
+- 67 deployable function directories exist under `supabase/functions`, excluding `_shared`.
+- 67 matching `[functions.<slug>]` entries exist in `supabase/config.toml`.
 - Canonical project ref for production rebuilds is `schdyxcunwcvddlcshwd / MVP_Vibe`.
 - Source-of-truth inventory files are `supabase/config.toml` and `_cursor_context/vibely_edge_function_manifest.md`; `_cursor_context/vibely_machine_readable_inventory.json` is historical unless regenerated.
 
@@ -483,68 +483,12 @@ Do not deploy all functions for a scoped repair unless the release plan explicit
 
 ### JWT behavior
 
-`supabase/config.toml` configures all 55 current function entries.
+`supabase/config.toml` configures all 67 current function entries.
 
-**34 functions** have `verify_jwt = true`:
+- 39 functions have gateway JWT verification on.
+- 28 functions have gateway JWT verification off and rely on function-specific controls such as provider signatures, webhook tokens, `CRON_SECRET`, admin/service checks, or intentionally health-only behavior.
 
-- `admin-data-export`
-- `admin-media-lifecycle-controls`
-- `admin-proof-selfie-sign`
-- `admin-review-verification`
-- `admin-video-date-ops`
-- `cancel-deletion`
-- `chat-thread-page`
-- `create-checkout-session`
-- `create-event-checkout`
-- `create-portal-session`
-- `create-video-upload`
-- `daily-drop-actions`
-- `daily-room`
-- `date-suggestion-actions`
-- `delete-account`
-- `delete-vibe-video`
-- `email-verification`
-- `event-notifications`
-- `forward-geocode`
-- `geocode`
-- `phone-verify`
-- `post-date-verdict`
-- `send-game-event`
-- `send-message`
-- `send-notification`
-- `send-support-reply`
-- `swipe-actions`
-- `sync-revenuecat-subscriber`
-- `sync-vibe-video-status`
-- `upload-chat-video`
-- `upload-event-cover`
-- `upload-image`
-- `upload-voice`
-- `verify-admin`
-
-**21 functions** have `verify_jwt = false`:
-
-- `check-daily-drop-health`
-- `create-credits-checkout`
-- `credit-replenish`
-- `date-reminder-cron`
-- `date-suggestion-expiry`
-- `event-reminders`
-- `generate-daily-drops`
-- `get-chat-media-url`
-- `health`
-- `match-call-room-cleanup`
-- `post-date-verdict-reminders`
-- `process-media-delete-jobs`
-- `process-waitlist-promotion-notify-queue`
-- `push-webhook`
-- `record-growth-attribution`
-- `request-account-deletion`
-- `revenuecat-webhook`
-- `send-email`
-- `stripe-webhook`
-- `video-date-room-cleanup`
-- `video-webhook`
+For the current slug-by-slug list, use `_cursor_context/vibely_edge_function_manifest.md` §2. Do not copy older 34/21, 45, 55, or 28-function historical lists into rebuild steps.
 
 Gateway-public functions are still protected by function-specific controls where applicable, such as webhook secrets, cron secrets, admin/service checks, provider signatures, or intentionally health-only behavior. The Supabase CLI function list does not expose `verify_jwt`, so repo config plus deployment logs/dashboard review remain the source of truth for gateway posture.
 
@@ -683,8 +627,8 @@ Run these after migrations, secrets, and function deployments are complete.
 
 - phone verification send/check works
 - email verification flow works
-- unsubscribe links resolve correctly
-- event notification / drip emails render without broken URLs
+- event notification emails render without broken URLs
+- retired `unsubscribe` / `email-drip` flows stay absent unless product deliberately restores them with HMAC/cron posture
 
 ### Golden-path regression runbook (post-hardening)
 
@@ -708,7 +652,7 @@ These are rebuild-sensitive because they are embedded in source rather than clea
 If domain changes, you must audit at least:
 
 - email templates
-- unsubscribe links
+- retired unsubscribe links, if product deliberately restores the endpoint
 - referral links
 - redirect URLs
 - legal text
@@ -769,8 +713,8 @@ A rebuild should not be considered complete until all of the following are true:
 - frontend boots with no missing-env crash
 - all migrations apply cleanly
 - all expected buckets exist with expected access behavior
-- all 28 Edge Functions are deployed
-- JWT behavior matches config (21 JWT-at-gateway, 7 public-but-protected); required secrets set
+- all 67 Edge Functions are deployed when doing a full rebuild
+- JWT behavior matches config (39 JWT-at-gateway, 28 public-but-protected); required secrets set
 - Bunny upload + playback works
 - Stripe checkout + webhook works
 - phone verification works
@@ -784,6 +728,6 @@ A rebuild should not be considered complete until all of the following are true:
 
 - Prefer **rebuild by preservation**, not opportunistic cleanup.
 - **`VideoLobby.tsx` was removed in 2026-04-11** after documentation (`docs/repo-hardening-closure-2026-04-11.md`) — the old “unrouted but keep” warning applied **before** that removal; do not reintroduce without product need.
-- All 28 functions are in config.toml (post-hardening); no exceptions.
+- All 67 current deployable functions are in config.toml; no source/config gaps.
 - Treat the root `.env` as historical artifact, not source of truth.
 - After any successful rebuild, immediately generate updated manifests and a rebuild delta so the next operator is not relying on memory.

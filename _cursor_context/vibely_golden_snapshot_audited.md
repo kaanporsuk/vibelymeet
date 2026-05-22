@@ -157,9 +157,7 @@ Verified in `src/App.tsx`:
 
 ### Function config audit (`supabase/config.toml`) — post-hardening
 
-- All 28 functions are explicitly configured in `config.toml`. No config gaps.
-- **JWT-at-gateway (`verify_jwt = true`):** phone-verify, forward-geocode, daily-room, verify-admin, admin-review-verification, create-checkout-session, create-portal-session, create-event-checkout, create-credits-checkout, delete-account, event-notifications, email-verification, vibe-notification, geocode, create-video-upload, delete-vibe-video, upload-image, upload-voice, upload-event-cover, cancel-deletion, send-notification.
-- **Public-but-protected (`verify_jwt = false`):** stripe-webhook, push-webhook, video-webhook, email-drip, unsubscribe, request-account-deletion, generate-daily-drops.
+- Historical snapshot note: this section originally covered a 28-function subset. Current 2026-05-23 closure evidence shows 67 deployable source directories, 67 `config.toml` function declarations, 39 JWT-at-gateway functions, and 28 public-but-protected functions. Use `_cursor_context/vibely_machine_readable_inventory.json` `current_edge_function_inventory_2026_05_23` for the current slug/JWT list.
 - Required hardening secrets: `PUSH_WEBHOOK_SECRET`, `UNSUB_HMAC_SECRET`, `CRON_SECRET`, `BUNNY_VIDEO_WEBHOOK_TOKEN`.
 
 ### Live Supabase storage buckets
@@ -362,4 +360,3 @@ For a faithful rebuild of this exact baseline, all of the following must be pres
 - High confidence on repo structure, routes, functions, env names, generated database surfaces, and hardcoded integration points.
 - Medium confidence on end-to-end business semantics for every page and hook unless separately exercised at runtime.
 - This document is structural truth for rebuild; runtime correctness still needs separate validation.
-

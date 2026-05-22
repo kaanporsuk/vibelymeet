@@ -109,8 +109,8 @@ Read-only cloud audit:
 
 Repo audit:
 
-- `supabase/functions`: 55 deployable function directories, excluding `_shared`.
-- `supabase/config.toml`: 55 `[functions.<slug>]` entries.
+- 2026-05-23 closure update: `supabase/functions` has 67 deployable function directories, excluding `_shared`.
+- 2026-05-23 closure update: `supabase/config.toml` has 67 `[functions.<slug>]` entries.
 - No config gaps were found.
 - Stream 20 changes no Edge Function source.
 - Stream 20 requires no Edge Function deploy.

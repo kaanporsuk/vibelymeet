@@ -116,7 +116,7 @@ All critical RPCs exist with the expected signatures.
 
 ### 3a. Deployed Edge Functions (historical 2026-03-18 snapshot)
 
-> Update 2026-04-12: the linked project and repo have moved beyond this March snapshot. The current repo contains 44 deployable Edge Functions (excluding `_shared`), and `process-media-delete-jobs` is deployed live with `verify_jwt = false` plus `CRON_SECRET` bearer auth. Use `_cursor_context/vibely_edge_function_manifest.md` plus `supabase functions list` for the canonical current inventory.
+> Update 2026-05-23: the linked project and repo have moved beyond this March snapshot. The current repo contains 67 deployable Edge Functions (excluding `_shared`) and 67 matching `supabase/config.toml` entries. Historical mentions of `email-drip`, `unsubscribe`, `account-pause`, and `account-resume` are superseded for current ops; those slugs are absent unless deliberately restored. Use `_cursor_context/vibely_edge_function_manifest.md` plus `supabase functions list` for the canonical current inventory.
 
 33 functions: `delete-account`, `email-verification`, `event-notifications`, `push-webhook`, `geocode`, `verify-admin`, `forward-geocode`, `daily-room`, `phone-verify`, `admin-review-verification`, `create-video-upload`, `video-webhook`, `delete-vibe-video`, `upload-image`, `upload-voice`, `upload-event-cover`, `create-checkout-session`, `stripe-webhook`, `create-event-checkout`, `create-credits-checkout`, `create-portal-session`, `cancel-deletion`, `request-account-deletion`, `send-notification`, `generate-daily-drops`, `upload-chat-video`, `daily-drop-actions`, `send-message`, `swipe-actions`, `revenuecat-webhook`.
 
@@ -137,8 +137,8 @@ All invoked names resolve to the deployed list (subpaths like `email-verificatio
 ### 3d. Cross-reference
 
 - **Invoked in code but not deployed:** None.
-- **Deployed but not invoked from app code:**  
-  `unsubscribe`, `email-drip`, `video-webhook`, `stripe-webhook`, `revenuecat-webhook`, `generate-daily-drops` (admin-only), `push-webhook` (webhook endpoint). These are webhooks/cron/admin; no issue.
+- **Deployed but not invoked from app code in this historical snapshot:**
+  `video-webhook`, `stripe-webhook`, `revenuecat-webhook`, `generate-daily-drops` (admin-only), `push-webhook` (webhook endpoint). Historical `unsubscribe` and `email-drip` are retired and absent from current source/config/cloud inventory unless deliberately restored.
 - **In repo and deployed:** All 34; no repo-only functions left undeployed.
 
 ### 3e. Function configuration
@@ -259,7 +259,7 @@ No critical divergence: both apps use the same backend tables; web has extra adm
 
 ### 9b. Edge Functions
 
-- **Web-only:** verify-admin, event-notifications, forward-geocode, admin-review-verification, generate-daily-drops (admin), account-pause, account-resume.
+- **Web-only:** verify-admin, event-notifications, forward-geocode, admin-review-verification, generate-daily-drops (admin). Historical `account-pause` and `account-resume` are retired from current source/config.
 - **Native-only:** create-portal-session (settings).
 - **Shared:** daily-room, geocode, create-video-upload, delete-vibe-video, phone-verify, email-verification, request-account-deletion, cancel-deletion, send-message, swipe-actions, daily-drop-actions, create-event-checkout, create-credits-checkout, upload-image, upload-voice, upload-chat-video.
 

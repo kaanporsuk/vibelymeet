@@ -48,9 +48,9 @@ Implementation sprint order for native UI parity. Do not start UI parity impleme
 **Scope:**
 - Profile: view own profile, edit core fields, photo upload (Bunny/Supabase) where in scope.
 - Settings: notifications, account (pause/resume), delete account path, premium/credits entry.
-- Use same backend contracts: profiles, notification_preferences, account-pause, account-resume, delete-account (or link to web).
+- Use same backend contracts: profiles, notification_preferences, current profile pause/account-break helpers, delete-account (or link to web).
 
-**Backend:** profiles, notification_preferences, account-pause, account-resume, delete-account (EF), check_premium_status. No new RPCs/EFs.
+**Backend:** profiles, notification_preferences, delete-account (EF), check_premium_status, current profile pause/account-break helpers. Historical `account-pause` and `account-resume` Edge Functions are retired from current source/config. No new RPCs/EFs.
 
 **Done when:** User can view/edit profile and change settings; account actions and notification prefs persist correctly.
 

@@ -1523,6 +1523,7 @@ export type Database = {
           promoted_at: string | null
           queue_status: string | null
           registered_at: string
+          updated_at: string | null
           waitlisted_at: string | null
         }
         Insert: {
@@ -1545,6 +1546,7 @@ export type Database = {
           promoted_at?: string | null
           queue_status?: string | null
           registered_at?: string
+          updated_at?: string | null
           waitlisted_at?: string | null
         }
         Update: {
@@ -1567,6 +1569,7 @@ export type Database = {
           promoted_at?: string | null
           queue_status?: string | null
           registered_at?: string
+          updated_at?: string | null
           waitlisted_at?: string | null
         }
         Relationships: [

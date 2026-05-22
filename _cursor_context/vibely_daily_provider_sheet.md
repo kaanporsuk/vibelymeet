@@ -112,6 +112,14 @@ If `DAILY_DOMAIN` is absent, `daily-room` falls back to:
 Operational posture:
 - `DAILY_DOMAIN` is present in production secrets as of the 2026-05-01 read-only check.
 - `DAILY_WEBHOOK_SECRET` must be the base64 Daily webhook `hmac` exactly as returned by Daily, not a decoded/plain string.
+- Daily webhook registration is closed by operator evidence as of 2026-05-22:
+  - UUID `a5407924-6f29-4a35-835a-ff5185eeae5c`
+  - URL `https://schdyxcunwcvddlcshwd.supabase.co/functions/v1/video-date-daily-webhook`
+  - events `participant.joined` and `participant.left`
+  - state `ACTIVE`
+  - `failedCount = 0`
+  - signed `{"test":"test"}` probe returned HTTP 200
+  - `lastMomentPushed` was still null before real participant events
 - The fallback is still code-supported for resilience, but production should not rely on it silently.
 - Dashboard/domain ownership must be verified manually because the repo cannot prove the live Daily account or domain binding.
 
@@ -341,7 +349,7 @@ Not proven by repo:
 - live domain ownership
 - provider quota/rate-limit health
 - dashboard settings that may affect private rooms/tokens
-- Daily webhook registration state, unless verified against webhook UUID/provider dashboard
+- Daily real participant join/leave delivery, until `lastMomentPushed` is non-null and Supabase logs show accepted events
 - physical-device camera/mic behavior
 
 ---
@@ -357,7 +365,7 @@ Not proven by repo:
 7. Confirm room expiration/eject behavior is acceptable for 15-minute video-date tokens and 4-hour video-date rooms.
 8. Confirm match-call 2-hour rooms/tokens are acceptable.
 9. Confirm no recording, transcription, or dashboard automation settings unexpectedly affect rooms.
-10. Confirm the Video Date webhook points to `https://schdyxcunwcvddlcshwd.supabase.co/functions/v1/video-date-daily-webhook`, is ACTIVE, uses the same base64 HMAC stored as `DAILY_WEBHOOK_SECRET`, and subscribes to `participant.joined` / `participant.left`.
+10. Confirm the Video Date webhook still has UUID `a5407924-6f29-4a35-835a-ff5185eeae5c`, points to `https://schdyxcunwcvddlcshwd.supabase.co/functions/v1/video-date-daily-webhook`, is ACTIVE, uses the same base64 HMAC stored as `DAILY_WEBHOOK_SECRET`, subscribes to `participant.joined` / `participant.left`, and has `failedCount = 0`.
 11. Confirm provider quotas/rate limits are healthy.
 12. Run controlled internal QA only with test users:
     - video-date prepare entry
@@ -369,7 +377,7 @@ Not proven by repo:
     - video match call
     - answer/rejoin
     - terminal match-call room cleanup
-    - real Daily webhook join/leave delivery with `failedCount = 0` and accepted rows in `video_date_daily_webhook_events`
+    - real Daily webhook join/leave delivery with non-null `lastMomentPushed`, `failedCount = 0`, accepted Supabase logs, and accepted rows in `video_date_daily_webhook_events`
 
 ---
 

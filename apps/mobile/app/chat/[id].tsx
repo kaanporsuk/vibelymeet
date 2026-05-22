@@ -1074,8 +1074,12 @@ function NativeVibeClipCameraModal({
   }, [captionLanguage, captionReviewText, onClose, onRecorded, recorded, reset, submitting]);
 
   return (
+    // keyboard-overlay-audit: allow raw Modal+TextInput - full-screen camera preview uses KeyboardAvoidingView instead of sheet/dialog wrappers.
     <Modal visible={visible} animationType={reduceMotion ? 'none' : 'slide'} presentationStyle="fullScreen" onRequestClose={onClose}>
-      <View style={styles.nativeClipCameraRoot}>
+      <KeyboardAvoidingView
+        style={styles.nativeClipCameraRoot}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      >
         {stage === 'preview' && recorded ? (
           <View style={styles.nativeClipCameraRoot}>
             <NativeVibeClipPreviewPlayer uri={recorded.uri} />
@@ -1172,7 +1176,7 @@ function NativeVibeClipCameraModal({
             </Pressable>
           </View>
         )}
-      </View>
+      </KeyboardAvoidingView>
     </Modal>
   );
 }

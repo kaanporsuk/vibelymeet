@@ -231,7 +231,7 @@
 
 ### Settings → Notifications / Credits / Account / Privacy
 - **Credits:** RevenueCat/Stripe checkout `Linking.openURL(url)`; Alert on error
-- **Account:** Pause (Alert duration picker) → `account-pause`; Resume → `account-resume`; Deletion → `request-account-deletion` + `DeletionRecoveryBanner` data; `PhoneVerificationFlow` / `EmailVerificationFlow` as modals
+- **Account:** Pause/resume uses profile pause fields and account-break helpers; Deletion → `request-account-deletion` + `DeletionRecoveryBanner` data; `PhoneVerificationFlow` / `EmailVerificationFlow` as modals
 - **Privacy:** Toggles + web links for advanced settings
 
 ---
@@ -350,7 +350,7 @@ Edit fields, save, photos, **vibe-video-record**.
 Settings → Account → confirm Alert → `request-account-deletion` → banner on dashboard → `cancel-deletion`.
 
 ### 4.12 Pause
-Account → Alert (24h / week / until resume) → `account-pause` / `account-resume`.
+Account → Alert (24h / week / until resume) → profile pause fields / account-break helpers. Historical `account-pause` and `account-resume` Edge Functions are retired from current source/config.
 
 ### 4.13 Phone verification
 Nudge or Account → `PhoneVerificationFlow` modal.

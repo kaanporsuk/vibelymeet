@@ -101,7 +101,7 @@ PASS: Both functions are explicitly represented in config.
 
 - `supabase/config.toml` contains `[functions.forward-geocode]` with `verify_jwt = true`.
 - `supabase/config.toml` contains `[functions.push-webhook]` with `verify_jwt = false`.
-- Repo inspection found 55 deployable function directories and 55 config entries.
+- Current 2026-05-23 dependency-closure evidence supersedes older function-count snapshots: 67 deployable directories and 67 config entries.
 
 PASS: `forward-geocode` role and auth posture are intentional.
 
@@ -160,24 +160,21 @@ PASS: Manual release gates, rollback notes, and operator steps exist.
 - Go/no-go states repo readiness for controlled internal release rehearsal but no-go for broad public release until manual gates are complete.
 - Rollback notes and next operator steps exist.
 
-WARN: Rebuild runbook has stale historical Edge Function inventory text.
+PASS: Rebuild runbook stale Edge Function inventory text has a current addendum.
 
-- `_cursor_context/vibely_rebuild_runbook.md` Section 13 still lists a historical 30-function deploy baseline and stale `23`/`7` JWT counts.
-- The same section includes obsolete names such as `account-pause`, `account-resume`, `email-drip`, `unsubscribe`, and `vibe-notification`.
-- The section has a warning that the explicit list predates later additions and to prefer current inventory, so this is not an active code/config defect.
-- It still contradicts the current manifest/rehearsal and should be refreshed to prevent operator confusion.
+- `_cursor_context/vibely_rebuild_runbook.md` Section 13 now records 67 deployable functions, 67 config entries, and points operators to the current manifest/config for slug-level JWT posture.
+- Obsolete names such as `account-pause`, `account-resume`, `email-drip`, `unsubscribe`, and `vibe-notification` remain historical only unless deliberately restored.
 
 ## Cross-Final Findings
 
 PASS: External dependency ledger is aligned with current final posture.
 
-- `_cursor_context/vibely_external_dependency_ledger.md` records 55 functions, Stream 19 posture, provider secret names by name only, and manual provider gates.
+- `_cursor_context/vibely_external_dependency_ledger.md` records 67 functions, provider secret names by name only, Daily webhook closure evidence, and manual provider gates.
 
-WARN: Rebuild runbook is partially contradicted by newer release artifacts.
+PASS: Rebuild runbook is aligned by current addendum.
 
-- Current authoritative sources say 55 deployable functions and 55 config entries.
-- The runbook retains an older historical deploy list and counts.
-- Repair recommended: replace that section with the current 55-function inventory and point to the config-backed manifest as source of truth.
+- Current authoritative sources say 67 deployable functions and 67 config entries.
+- The runbook now points to the config-backed manifest as source of truth.
 
 PASS: Function manifest no longer has unresolved `forward-geocode` / `push-webhook` ambiguity.
 

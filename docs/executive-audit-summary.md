@@ -14,7 +14,7 @@
 
 - **Server-owned core flows landed (Streams 1B–2E).**  
   - Pause/resume, Ready Gate, Daily Drop, chat send, and swipe/match transitions are now implemented as **backend RPCs and Edge Functions**:
-    - `profiles` pause columns and `account-pause` / `account-resume`.
+    - `profiles` pause columns and current profile pause/account-break helpers. Historical `account-pause` / `account-resume` Edge Functions are retired from current source/config.
     - `video_date_state_machine.sql` + `video_date_transition`.
     - `ready_gate_transition` and `daily_drop_transition`.
     - `send-message`, `swipe-actions`, `daily-drop-actions`.
@@ -152,4 +152,3 @@
   - Add a very small Android smoke (EAS build + 1–2 critical Detox tests for auth and chat) to catch regressions without slowing development.
 
 Once these are done, the project moves from **“post–first Android build with strong architecture”** to **“multi-platform, provider-backed system with at least one documented end-to-end validation pass”**, leaving most remaining risk in future feature changes rather than in foundational integration.
-
