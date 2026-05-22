@@ -23,6 +23,11 @@ type DispatchRow = {
   slack_claimed_at: string | null;
 };
 type DispatchChannel = "sentry" | "slack";
+type DispatchClaimGuard = {
+  sentColumn: "sentry_sent_at" | "slack_sent_at";
+  claimedColumn: "sentry_claimed_at" | "slack_claimed_at";
+  claimedAt: string;
+};
 
 const DISPATCH_CLAIM_STALE_MS = 15 * 60 * 1000;
 
@@ -190,31 +195,52 @@ async function reclaimStaleDispatchClaims(
   dispatch: DispatchRow,
 ): Promise<DispatchRow> {
   const update: Partial<Pick<DispatchRow, "sentry_claimed_at" | "slack_claimed_at">> = {};
-  if (!dispatch.sentry_sent_at && isStaleDispatchClaim(dispatch.sentry_claimed_at)) {
+  const guards: DispatchClaimGuard[] = [];
+  const sentryClaimedAt = dispatch.sentry_claimed_at;
+  if (!dispatch.sentry_sent_at && sentryClaimedAt && isStaleDispatchClaim(sentryClaimedAt)) {
     update.sentry_claimed_at = null;
+    guards.push({
+      sentColumn: "sentry_sent_at",
+      claimedColumn: "sentry_claimed_at",
+      claimedAt: sentryClaimedAt,
+    });
   }
-  if (!dispatch.slack_sent_at && isStaleDispatchClaim(dispatch.slack_claimed_at)) {
+  const slackClaimedAt = dispatch.slack_claimed_at;
+  if (!dispatch.slack_sent_at && slackClaimedAt && isStaleDispatchClaim(slackClaimedAt)) {
     update.slack_claimed_at = null;
+    guards.push({
+      sentColumn: "slack_sent_at",
+      claimedColumn: "slack_claimed_at",
+      claimedAt: slackClaimedAt,
+    });
   }
   if (!Object.prototype.hasOwnProperty.call(update, "sentry_claimed_at") &&
       !Object.prototype.hasOwnProperty.call(update, "slack_claimed_at")) {
     return dispatch;
   }
 
-  const reclaimed = await supabase
+  let reclaim = supabase
     .from("video_date_recovery_alert_dispatches")
     .update(update)
-    .eq("id", dispatch.id)
+    .eq("id", dispatch.id);
+  for (const guard of guards) {
+    reclaim = reclaim
+      .is(guard.sentColumn, null)
+      .eq(guard.claimedColumn, guard.claimedAt);
+  }
+
+  const reclaimed = await reclaim
     .select("id,sentry_sent_at,slack_sent_at,sentry_claimed_at,slack_claimed_at")
     .maybeSingle();
 
-  if (reclaimed.error || !reclaimed.data?.id) {
+  if (reclaimed.error) {
     console.error(
       "video-date-recovery-alert-dispatcher stale_claim_reclaim_error",
-      reclaimed.error?.message ?? "missing_row",
+      reclaimed.error.message,
     );
     return dispatch;
   }
+  if (!reclaimed.data?.id) return dispatch;
   return reclaimed.data as DispatchRow;
 }
 

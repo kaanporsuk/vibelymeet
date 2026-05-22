@@ -77,6 +77,8 @@ test("audit hardening dispatches recovery alerts without exposing them to client
   assert.match(dispatcher, /isStaleDispatchClaim/);
   assert.match(dispatcher, /stale_claim_reclaim_error/);
   assert.match(dispatcher, /\.is\(sentColumn, null\)[\s\S]+\.is\(claimedColumn, null\)/);
+  assert.match(dispatcher, /sentryClaimedAt[\s\S]+\.is\(guard\.sentColumn, null\)[\s\S]+\.eq\(guard\.claimedColumn, guard\.claimedAt\)/);
+  assert.match(dispatcher, /slackClaimedAt[\s\S]+\.is\(guard\.sentColumn, null\)[\s\S]+\.eq\(guard\.claimedColumn, guard\.claimedAt\)/);
   assert.match(dispatcher, /finishDispatchChannel/);
   assert.match(dispatcher, /retried/);
   assert.doesNotMatch(dispatcher, /meeting-tokens|createMeetingToken|daily_token|tokenExpiresAt/);
