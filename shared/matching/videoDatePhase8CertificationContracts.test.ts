@@ -392,7 +392,10 @@ test("Phase 8 validation and legacy cleanup docs are wired to the rollout gate",
   assert.match(validationSql, /get_video_date_phase8_release_closure/);
   assert.match(validationSql, /phase8_no_next_rollout_blockers/);
   assert.match(validationSql, /current_setting\('app\.video_date_phase8_event_id', true\)/);
-  assert.match(validationSql, /FROM public\.video_date_phase8_certification_runs runs[\s\S]+runs\.event_id = readiness\.event_id/);
+  assert.match(
+    validationSql,
+    /FROM public\.video_date_phase8_certification_runs runs[\s\S]+runs\.event_id IS NOT DISTINCT FROM readiness\.event_id[\s\S]+OR runs\.event_id IS NULL/,
+  );
   assert.match(validationSql, /current_rollout_bps < 1000 THEN 1000/);
   assert.match(validationSql, /phase8_legacy_deck_cleanup_ready/);
   assert.match(validationSql, /phase8_release_closure_has_no_blockers/);

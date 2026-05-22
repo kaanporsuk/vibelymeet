@@ -67,7 +67,10 @@ readiness_scope AS (
       AND EXISTS (
         SELECT 1
         FROM public.video_date_phase8_certification_runs runs
-        WHERE runs.event_id = readiness.event_id
+        WHERE (
+            runs.event_id IS NOT DISTINCT FROM readiness.event_id
+            OR runs.event_id IS NULL
+          )
           AND runs.run_kind IN (
             'two_user_e2e',
             'native_smoke',

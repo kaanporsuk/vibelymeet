@@ -228,6 +228,8 @@ async function recordStatus(
   status: LiveCertificationStatus,
   report: JsonRecord,
 ) {
+  const sha = commitSha();
+  const targetEventId = eventId();
   await runCommand("npx", [
     "tsx",
     "scripts/phase8-certification.ts",
@@ -238,11 +240,10 @@ async function recordStatus(
     platform,
     "--status",
     status,
-    "--commit-sha",
-    commitSha(),
+    ...(sha ? ["--commit-sha", sha] : []),
     "--report-json",
     JSON.stringify({ recorded_via: "scripts/phase8-live-certification.ts", ...report }),
-    ...(eventId() ? ["--event-id", eventId()!] : []),
+    ...(targetEventId ? ["--event-id", targetEventId] : []),
   ]);
 }
 
