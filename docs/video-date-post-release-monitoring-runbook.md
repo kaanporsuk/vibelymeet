@@ -6,10 +6,10 @@ Use the current v4.2 baseline for live Video Date rollout, certification, and mo
 
 Current Video Date v4.2 baseline as of 2026-05-22:
 
-- Baseline main HEAD: `e6f086eef` (`Fix Daily webhook signature contract`). PR #992 at `196fd676a840970c13197eee71a4bbbd78c9dd06` remains the Phase 7/8 automation baseline.
+- Baseline main HEAD: `be08b60b1` (`Harden profile photo derivatives`). PR #992 at `196fd676a840970c13197eee71a4bbbd78c9dd06` remains the Phase 7/8 automation baseline, and `e6f086eef` remains the Daily webhook signature compatibility baseline.
 - Supabase project: `schdyxcunwcvddlcshwd`.
-- Latest applied Video Date migration: `20260522024000_video_date_phase7_8_audit_automation_hardening.sql`.
-- Latest verified operational functions from the audit closures: `admin-video-date-ops` version `310`, `video-date-daily-webhook` version `7`, and `synthetic-video-date-monitor` version `9`.
+- Latest applied Video Date migration: `20260522150000_video_date_phase8_rollout_readiness_self_check.sql`. Latest applied media/profile derivative migration: `20260522161000_media_derivatives_placeholders_realtime.sql`.
+- Latest verified operational functions from the audit closures: `admin-video-date-ops` version `310`, `video-date-daily-webhook` version `8`, and `synthetic-video-date-monitor` version `10`.
 - Post-deploy database status: `supabase db push --linked --dry-run` reported the remote database is up to date.
 - Manual app smoke remains separate. Do not run web/native builds from this monitoring runbook.
 - Do not recreate the Daily webhook or rotate/print `DAILY_WEBHOOK_SECRET`; use webhook UUID `a5407924-6f29-4a35-835a-ff5185eeae5c`.
