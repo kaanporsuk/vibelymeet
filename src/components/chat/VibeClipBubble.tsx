@@ -257,8 +257,7 @@ export const VibeClipBubble = ({
   const isAwaitingPlaybackIntent = !isServerProcessing && !canMountPlayer;
   const isSurfaceInteractive = !isServerProcessing;
   const effectiveClientRequestId = clientRequestId ?? meta.clientRequestId ?? null;
-  const shouldAutoSyncProcessingStatus =
-    isServerProcessing && (processingStatus === "processing" || Boolean(videoSourceRef || thumbnailSourceRef));
+  const shouldAutoSyncProcessingStatus = isServerProcessing;
   const canShowPosterImage =
     !!displayMeta.thumbnailUrl &&
     (isLocalPreviewUrl(displayMeta.thumbnailUrl) || /^https?:\/\//i.test(displayMeta.thumbnailUrl));

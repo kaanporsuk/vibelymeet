@@ -320,6 +320,8 @@ test("photo outbox handoff waits for renderable server images", () => {
     assert.match(source, /let changed = false;[\s\S]{0,500}return changed \? next : prev/);
     assert.match(source, /select\(CHAT_MESSAGE_SELECT\)/);
     assert.match(source, /patchResult\.patched && !patchResult\.displayReady/);
+    assert.match(source, /hydrationDeadlineAtMs: pastDeadline \? now \+ HYDRATION_TIMEOUT_MS : deadlineAtMs/);
+    assert.doesNotMatch(source, /patchResult\.patched && !patchResult\.displayReady\)[\s\S]{0,80}if \(!pastDeadline\)/);
   }
   assert.doesNotMatch(webMediaResolver, /formatChatImageMessageContent\(""\)/);
   assert.doesNotMatch(nativeMediaResolver, /formatChatImageMessageContent\(''\)/);

@@ -71,6 +71,17 @@ test("web profile studio renders maintained counters first and overlays live que
   assert.match(webProfileStudio, /queryKey: profileUser\?\.id \? profileLiveCountsQueryKey\(profileUser\.id\) : profileLiveCountsQueryKey\("none"\)/);
   assert.match(webProfileStudio, /enabled: profileBelongsToCurrentUser/);
   assert.match(webProfileStudio, /const \[profileStatsLoadedAt, setProfileStatsLoadedAt\] = useState\(0\);/);
+  assert.match(webProfileStudio, /const currentUserId = profileUser\.id/);
+  assert.match(webProfileStudio, /return \{ \.\.\.initialProfile, id: currentUserId \}/);
+  assert.match(webProfileStudio, /if \(data\) \{/);
+  assert.match(
+    webProfileStudio,
+    /\} else \{\s*setProfile\(\(prev\) => \(prev\.id === currentUserId \? prev : \{ \.\.\.initialProfile, id: currentUserId \}\)\);/,
+  );
+  assert.match(
+    webProfileStudio,
+    /catch \(error\) \{[\s\S]{0,160}setProfile\(\(prev\) => \(prev\.id === currentUserId \? prev : \{ \.\.\.initialProfile, id: currentUserId \}\)\);/,
+  );
   assert.match(webProfileStudio, /const forceFresh = profileRefreshKey > 0/);
   assert.match(webProfileStudio, /staleTime: forceFresh \? 0 : MY_PROFILE_STALE_TIME_MS/);
   assert.match(webProfileStudio, /const profileLoadedAt = Date\.now\(\);/);

@@ -1003,8 +1003,7 @@ export function VibeClipCard(props: Props) {
   const isSyncableServerProcessing =
     isUploadPendingStatus(processingStatus) && !isLocalPreviewUri(playableVideoUrl);
   const effectiveClientRequestId = clientRequestId ?? meta.clientRequestId ?? null;
-  const shouldAutoSyncProcessingStatus =
-    isSyncableServerProcessing && (processingStatus === 'processing' || Boolean(videoSourceRef || thumbnailSourceRef));
+  const shouldAutoSyncProcessingStatus = isSyncableServerProcessing;
 
   const handleLocalPreviewUnavailable = useCallback(() => {
     const currentPreviewUri = playableVideoUrlRef.current;

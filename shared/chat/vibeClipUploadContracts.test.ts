@@ -650,6 +650,8 @@ test("web pending Vibe Clip uploads avoid generic video errors and dedupe succes
   assert.match(webChat, /toast\.success\(VIBE_CLIP_TOAST_SENT, \{ id: `vibe-clip-sent:\$\{it\.id\}` \}\)/);
   assert.match(webVibeClipBubble, /const isUploadPendingStatus = processingStatus === "uploading" \|\| processingStatus === "processing"/);
   assert.match(webVibeClipBubble, /const isServerProcessing = isUploadPendingStatus && !isLocalPreview/);
+  assert.match(webVibeClipBubble, /const shouldAutoSyncProcessingStatus = isServerProcessing;/);
+  assert.doesNotMatch(webVibeClipBubble, /shouldAutoSyncProcessingStatus =[\s\S]{0,140}videoSourceRef \|\| thumbnailSourceRef/);
   assert.match(webVibeClipBubble, /const handleVideoLoadError = useCallback/);
   assert.match(
     webVibeClipBubble,
@@ -678,6 +680,8 @@ test("native pending Vibe Clip local preview failures stay in preparing state", 
     nativeVibeClipCard,
     /const nextVideoUrl = localPreviewUnavailableForRef\.current === meta\.videoUrl \? '' : meta\.videoUrl/,
   );
+  assert.match(nativeVibeClipCard, /const shouldAutoSyncProcessingStatus = isSyncableServerProcessing;/);
+  assert.doesNotMatch(nativeVibeClipCard, /shouldAutoSyncProcessingStatus =[\s\S]{0,140}videoSourceRef \|\| thumbnailSourceRef/);
   assert.match(nativeVibeClipCard, /const isProcessing = isServerProcessingClip\(resolvedMeta\)/);
   assert.match(nativeVibeClipCard, /if \(!didRefresh\) setHasError\(true\)/);
 });

@@ -171,6 +171,13 @@ test("daily call singleton warm handoff is default-off, web/native gated, and id
   assert.match(nativeVideoDate, /daily_call_singleton_reuse_same_session_idle_deferred/);
   assert.match(nativeVideoDate, /daily_call_singleton_reuse_same_session_idle/);
   assert.match(nativeVideoDate, /daily_call_singleton_reuse_cross_session/);
+  assert.match(nativeVideoDate, /type SharedDailyCallEntry = \{[\s\S]{0,120}userId: string/);
+  assert.match(nativeVideoDate, /sharedCallCandidate\.userId !== user\.id/);
+  assert.match(nativeVideoDate, /daily_call_singleton_owner_mismatch_destroy/);
+  assert.match(nativeVideoDate, /idleSingletonEntry\.userId !== user\.id/);
+  assert.match(nativeVideoDate, /idleAgeMs >= NATIVE_DAILY_CALL_SINGLETON_IDLE_MS/);
+  assert.match(nativeVideoDate, /daily_call_singleton_idle_reuse_rejected/);
+  assert.match(nativeVideoDate, /idleSingletonEntry\.call\.participants\(\)/);
   assert.match(nativeVideoDate, /dailyCallSingletonV2\.enabled && \(dateEstablishedRef\.current \|\| showFeedback\)/);
   assert.doesNotMatch(nativeVideoDate, /dailyCallSingletonV2\.enabled &&[\s\S]{0,120}phaseRef\.current === 'ended'/);
 });

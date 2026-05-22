@@ -373,11 +373,19 @@ const ProfileStudio = () => {
         return;
       }
 
+      const currentUserId = profileUser.id;
+      setIsLoading(true);
+      setProfile((prev) => {
+        if (!prev.id || prev.id === currentUserId) return prev;
+        return { ...initialProfile, id: currentUserId };
+      });
+      setProfileStatsLoadedAt(0);
+
       try {
         const forceFresh = profileRefreshKey > 0;
         const profilePromise = queryClient.fetchQuery({
-          queryKey: myProfileQueryKey(profileUser.id),
-          queryFn: () => fetchMyProfile(profileUser.id),
+          queryKey: myProfileQueryKey(currentUserId),
+          queryFn: () => fetchMyProfile(currentUserId),
           staleTime: forceFresh ? 0 : MY_PROFILE_STALE_TIME_MS,
         });
 
@@ -431,9 +439,16 @@ const ProfileStudio = () => {
           if (stored === "events" || stored === "dates" || stored === "both") {
             setMeetingPref(stored);
           }
+        } else {
+          setProfile((prev) => (prev.id === currentUserId ? prev : { ...initialProfile, id: currentUserId }));
+          setProfileStatsLoadedAt(0);
         }
       } catch (error) {
         console.error("Error loading profile:", error);
+        if (!cancelled) {
+          setProfile((prev) => (prev.id === currentUserId ? prev : { ...initialProfile, id: currentUserId }));
+          setProfileStatsLoadedAt(0);
+        }
       } finally {
         if (!cancelled) setIsLoading(false);
       }

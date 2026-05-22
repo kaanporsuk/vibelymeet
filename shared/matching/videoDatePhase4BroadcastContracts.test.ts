@@ -28,8 +28,10 @@ const sessionChannel = readFileSync(
 );
 const webReadyGate = readFileSync(join(root, "src/hooks/useReadyGate.ts"), "utf8");
 const webVideoDate = readFileSync(join(root, "src/pages/VideoDate.tsx"), "utf8");
+const webEventLobby = readFileSync(join(root, "src/pages/EventLobby.tsx"), "utf8");
 const nativeReadyGate = readFileSync(join(root, "apps/mobile/lib/readyGateApi.ts"), "utf8");
 const nativeVideoDateApi = readFileSync(join(root, "apps/mobile/lib/videoDateApi.ts"), "utf8");
+const nativeEventLobby = readFileSync(join(root, "apps/mobile/app/event/[eventId]/lobby.tsx"), "utf8");
 const realtimeRlsRuntime = readFileSync(
   join(root, "shared/matching/videoDateRealtimeRlsRuntime.test.ts"),
   "utf8",
@@ -138,6 +140,11 @@ test("Phase 4 consumers seed and reset session sequence state across web and nat
   assert.match(handshakePersistence, /VIDEO_DATE_HANDSHAKE_TRUTH_SELECT =[\s\S]*session_seq/);
 
   assert.match(webReadyGate, /sessionSeqRef\.current = null/);
+  for (const lobbySource of [webEventLobby, nativeEventLobby]) {
+    assert.match(lobbySource, /lobbyBroadcastSessionSeqSessionRef/);
+    assert.match(lobbySource, /event\.sessionId !== lobbyBroadcastSessionId/);
+    assert.match(lobbySource, /lobbyBroadcastSessionSeqSessionRef\.current !== lobbyBroadcastSessionId[\s\S]{0,160}lobbyBroadcastSessionSeqRef\.current = null/);
+  }
   assert.match(webVideoDate, /sessionSeqRef\.current = null/);
   assert.match(nativeReadyGate, /sessionSeqRef\.current = null/);
   assert.match(nativeVideoDateApi, /sessionSeqRef\.current = null/);
