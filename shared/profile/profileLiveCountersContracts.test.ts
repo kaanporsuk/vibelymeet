@@ -71,7 +71,8 @@ test("web profile studio renders maintained counters first and overlays live que
   assert.match(webProfileStudio, /queryKey: profileUser\?\.id \? profileLiveCountsQueryKey\(profileUser\.id\) : profileLiveCountsQueryKey\("none"\)/);
   assert.match(webProfileStudio, /enabled: profileBelongsToCurrentUser/);
   assert.match(webProfileStudio, /const \[profileStatsLoadedAt, setProfileStatsLoadedAt\] = useState\(0\);/);
-  assert.match(webProfileStudio, /staleTime: 0/);
+  assert.match(webProfileStudio, /const forceFresh = profileRefreshKey > 0/);
+  assert.match(webProfileStudio, /staleTime: forceFresh \? 0 : MY_PROFILE_STALE_TIME_MS/);
   assert.match(webProfileStudio, /const profileLoadedAt = Date\.now\(\);/);
   assert.match(webProfileStudio, /setProfileStatsLoadedAt\(profileLoadedAt\);/);
   assert.match(webProfileStudio, /isLoading \|\| \(!!profileUser\?\.id && !!profile\.id && !profileBelongsToCurrentUser\)/);
@@ -121,8 +122,7 @@ test("web app invalidates profile counters from realtime source-table changes", 
   assert.match(profileCountsInvalidator, /event: "UPDATE"[\s\S]*table: "profiles"[\s\S]*filter: `id=eq\.\$\{userId\}`/);
   assert.match(profileCountsInvalidator, /\[`profile_id_1=eq\.\$\{userId\}`, `profile_id_2=eq\.\$\{userId\}`\]/);
   assert.match(profileCountsInvalidator, /table: "matches", filter/);
-  assert.match(profileCountsInvalidator, /event: "INSERT"[\s\S]*table: "messages"[\s\S]*invalidateProfileCounts/);
-  assert.match(profileCountsInvalidator, /event: "UPDATE"[\s\S]*table: "messages"[\s\S]*invalidateProfileCounts/);
+  assert.doesNotMatch(profileCountsInvalidator, /table: "messages"/);
   assert.match(webApp, /<WebProfileCountsInvalidator \/>/);
 });
 

@@ -246,18 +246,6 @@ const WebProfileCountsInvalidator = () => {
       );
     }
 
-    channel
-      .on(
-        "postgres_changes",
-        { event: "INSERT", schema: "public", table: "messages" },
-        invalidateProfileCounts,
-      )
-      .on(
-        "postgres_changes",
-        { event: "UPDATE", schema: "public", table: "messages" },
-        invalidateProfileCounts,
-      );
-
     channel.subscribe();
 
     return () => {

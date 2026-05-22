@@ -38,7 +38,7 @@ import {
   extractRenderableChatImageUrl,
 } from "@/lib/chatMessageContent";
 import { refreshMediaAssetUrl } from "@/lib/mediaAssetResolver";
-import { extractVibeClipMeta } from "../../shared/chat/messageRouting";
+import { extractVibeClipMeta, type VibeClipDisplayMeta } from "../../shared/chat/messageRouting";
 import { clientRequestIdFromStructured } from "../../shared/chat/clientRequestId";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
@@ -257,6 +257,16 @@ function mergeServerAndLocalChatMessages(realMsgs: ChatMessage[], localMessages:
   });
 }
 
+function collectOutboxPreviewUrls(previews: OutboxPreviewMap): string[] {
+  const out: string[] = [];
+  for (const preview of Object.values(previews)) {
+    if (preview?.image) out.push(preview.image);
+    if (preview?.audio) out.push(preview.audio);
+    if (preview?.video) out.push(preview.video);
+  }
+  return out;
+}
+
 type TextMessage = ChatMessage & { type: "text" };
 
 function vibeClipRecoveryFromDecision(
@@ -291,6 +301,49 @@ function webOutboxVibeClipSummary(item: WebChatOutboxItem | undefined) {
     uploadProgress: item.uploadProgress,
     lastError: item.lastError,
     updatedAtMs: item.updatedAtMs,
+  };
+}
+
+function isPendingVibeClipOutboxItem(item: WebChatOutboxItem | undefined): item is WebChatOutboxItem & {
+  payload: Extract<WebChatOutboxItem["payload"], { kind: "video" }>;
+} {
+  return Boolean(
+    item?.payload.kind === "video" &&
+      (item.state === "queued" ||
+        item.state === "waiting_for_network" ||
+        item.state === "sending" ||
+        item.state === "awaiting_hydration"),
+  );
+}
+
+function pendingVibeClipMetaFromOutboxItem(
+  item: (WebChatOutboxItem & { payload: Extract<WebChatOutboxItem["payload"], { kind: "video" }> }) | undefined,
+  previewUrl: string,
+): VibeClipDisplayMeta | null {
+  if (!item) return null;
+  const durationSec = Math.max(0, Math.round(item.payload.durationSeconds || 0));
+  const mins = Math.floor(durationSec / 60);
+  const secs = durationSec % 60;
+  return {
+    videoUrl: previewUrl,
+    durationSec,
+    durationMs: Math.round((item.payload.durationSeconds || 0) * 1000),
+    durationLabel: `${mins}:${secs.toString().padStart(2, "0")}`,
+    clientRequestId: item.id,
+    thumbnailUrl: null,
+    posterSource: "bunny_stream_thumbnail",
+    aspectRatio:
+      typeof item.payload.aspectRatio === "number" &&
+      Number.isFinite(item.payload.aspectRatio) &&
+      item.payload.aspectRatio > 0
+        ? item.payload.aspectRatio
+        : null,
+    processingStatus: item.state === "awaiting_hydration" ? "processing" : "uploading",
+    provider: "bunny_stream",
+    providerObjectId: null,
+    playbackRef: null,
+    posterRef: null,
+    captions: item.payload.captions ?? null,
   };
 }
 
@@ -394,9 +447,15 @@ function VibeClipMessageRow({
         : null,
     [baseClipMeta, thumbnailUrlOverride, videoUrlOverride],
   );
-  const clipVideoUrl = clipMeta?.videoUrl ?? null;
-  const clipThumbnailUrl = clipMeta?.thumbnailUrl ?? null;
   const fallbackVideoUrl = videoUrlOverride ?? message.videoUrl ?? "";
+  const pendingOutboxItem = isPendingVibeClipOutboxItem(localOutboxItem) ? localOutboxItem : undefined;
+  const pendingClipMeta = useMemo(
+    () => pendingVibeClipMetaFromOutboxItem(pendingOutboxItem, fallbackVideoUrl),
+    [fallbackVideoUrl, pendingOutboxItem],
+  );
+  const displayClipMeta = clipMeta ?? pendingClipMeta;
+  const displayClipVideoUrl = displayClipMeta?.videoUrl ?? null;
+  const displayClipThumbnailUrl = displayClipMeta?.thumbnailUrl ?? null;
   const isMine = message.sender === "me";
   const recoveryDecision = buildVibeClipRecovery({
     outboxItem: webOutboxVibeClipSummary(localOutboxItem),
@@ -439,10 +498,10 @@ function VibeClipMessageRow({
   }, [message.id, onResolvedThumbnailUrl]);
   const handleRequestClipImmersive = useCallback(
     (media?: { videoUrl: string; thumbnailUrl?: string | null }) => {
-      if (!clipVideoUrl) return;
+      if (!displayClipVideoUrl) return;
       onRequestImmersiveVideo({
-        url: media?.videoUrl ?? clipVideoUrl,
-        posterUrl: media?.thumbnailUrl ?? clipThumbnailUrl,
+        url: media?.videoUrl ?? displayClipVideoUrl,
+        posterUrl: media?.thumbnailUrl ?? displayClipThumbnailUrl,
         messageId: message.id,
         videoSourceRef: message.videoSourceRef,
         thumbnailSourceRef: message.thumbnailSourceRef,
@@ -450,8 +509,8 @@ function VibeClipMessageRow({
       });
     },
     [
-      clipThumbnailUrl,
-      clipVideoUrl,
+      displayClipThumbnailUrl,
+      displayClipVideoUrl,
       message.id,
       message.thumbnailSourceRef,
       message.videoSourceRef,
@@ -484,15 +543,15 @@ function VibeClipMessageRow({
         </div>
       )}
       <div>
-        {clipMeta ? (
+        {displayClipMeta ? (
           <VibeClipBubble
-            meta={clipMeta}
+            meta={displayClipMeta}
             isMine={isMine}
             videoSourceRef={message.videoSourceRef}
             thumbnailSourceRef={message.thumbnailSourceRef}
             onResolvedVideoUrl={handleResolvedVideoUrl}
             onResolvedThumbnailUrl={handleResolvedThumbnailUrl}
-            clientRequestId={message.clientRequestId ?? clipMeta.clientRequestId ?? null}
+            clientRequestId={message.clientRequestId ?? displayClipMeta.clientRequestId ?? null}
             threadMessageCount={threadMessageCount}
             sparkMessageId={message.id}
             onReplyWithClip={isMine ? undefined : onReplyWithClip}
@@ -501,7 +560,7 @@ function VibeClipMessageRow({
             onReactionPick={isMine ? undefined : onReactionPick}
             reactionPair={message.reactionPair}
             onRequestImmersive={handleRequestClipImmersive}
-            immersiveActive={!!clipVideoUrl && immersiveVideoUrl === clipVideoUrl}
+            immersiveActive={!!displayClipVideoUrl && immersiveVideoUrl === displayClipVideoUrl}
             threadVisualRecede={threadVisualRecede}
             localRecovery={localRecovery}
           />
@@ -564,6 +623,7 @@ const Chat = () => {
 
   const [exiting, setExiting] = useState(false);
   const [outboxPreviews, setOutboxPreviews] = useState<OutboxPreviewMap>({});
+  const outboxPreviewsRef = useRef<OutboxPreviewMap>({});
   const outboxPreviewSourceKeysRef = useRef<Record<string, string>>({});
   const [newMessage, setNewMessage] = useState("");
   const [localTyping, setLocalTyping] = useState(false);
@@ -954,18 +1014,9 @@ const Chat = () => {
 
   useEffect(() => {
     let cancelled = false;
-    const collectUrls = (m: OutboxPreviewMap) => {
-      const out: string[] = [];
-      for (const v of Object.values(m)) {
-        if (v?.image) out.push(v.image);
-        if (v?.audio) out.push(v.audio);
-        if (v?.video) out.push(v.video);
-      }
-      return out;
-    };
     const revokePreviewUrls = (preview: OutboxPreviewMap[string] | undefined) => {
       if (!preview) return;
-      collectUrls({ preview }).forEach((u) => URL.revokeObjectURL(u));
+      collectOutboxPreviewUrls({ preview }).forEach((u) => URL.revokeObjectURL(u));
     };
     void (async () => {
       const desiredSourceKeys: Record<string, string> = {};
@@ -993,7 +1044,7 @@ const Chat = () => {
         }
       }
       if (cancelled) {
-        collectUrls(loaded).forEach((u) => URL.revokeObjectURL(u));
+        collectOutboxPreviewUrls(loaded).forEach((u) => URL.revokeObjectURL(u));
         return;
       }
       setOutboxPreviews((prev) => {
@@ -1020,12 +1071,13 @@ const Chat = () => {
           changed = true;
         }
 
-        const retainedUrls = new Set(collectUrls(next));
-        collectUrls(loaded)
+        const retainedUrls = new Set(collectOutboxPreviewUrls(next));
+        collectOutboxPreviewUrls(loaded)
           .filter((u) => !retainedUrls.has(u))
           .forEach((u) => URL.revokeObjectURL(u));
 
         outboxPreviewSourceKeysRef.current = nextSourceKeys;
+        if (changed) outboxPreviewsRef.current = next;
         return changed ? next : prev;
       });
     })();
@@ -1033,6 +1085,18 @@ const Chat = () => {
       cancelled = true;
     };
   }, [outboxMatchItems]);
+
+  useEffect(() => {
+    outboxPreviewsRef.current = outboxPreviews;
+  }, [outboxPreviews]);
+
+  useEffect(() => {
+    return () => {
+      collectOutboxPreviewUrls(outboxPreviewsRef.current).forEach((u) => URL.revokeObjectURL(u));
+      outboxPreviewsRef.current = {};
+      outboxPreviewSourceKeysRef.current = {};
+    };
+  }, []);
 
   useEffect(() => {
     const ids = new Set((chatData?.messages ?? []).map((m) => m.id));
@@ -1194,11 +1258,19 @@ const Chat = () => {
   );
 
   const outboxClipStateRef = useRef<Map<string, string>>(new Map());
+  const outboxClipSentToastIdsRef = useRef<Set<string>>(new Set());
   useEffect(() => {
+    const activeVibeClipOutboxIds = new Set<string>();
     for (const it of webOutbox.items) {
       if (it.payload.kind !== "video") continue;
+      activeVibeClipOutboxIds.add(it.id);
       const prev = outboxClipStateRef.current.get(it.id);
-      if (prev === "sending" && it.state === "awaiting_hydration") {
+      if (
+        prev === "sending" &&
+        it.state === "awaiting_hydration" &&
+        !outboxClipSentToastIdsRef.current.has(it.id)
+      ) {
+        outboxClipSentToastIdsRef.current.add(it.id);
         trackVibeClipEvent("clip_send_succeeded", {
           duration_bucket: durationBucketFromSeconds(
             typeof it.payload.durationSeconds === "number" ? it.payload.durationSeconds : 0,
@@ -1207,9 +1279,15 @@ const Chat = () => {
           thread_bucket: threadBucketFromCount(chatData?.messages?.length ?? 0),
           is_sender: true,
         });
-        toast.success(VIBE_CLIP_TOAST_SENT);
+        toast.success(VIBE_CLIP_TOAST_SENT, { id: `vibe-clip-sent:${it.id}` });
       }
       outboxClipStateRef.current.set(it.id, it.state);
+    }
+    for (const id of outboxClipStateRef.current.keys()) {
+      if (!activeVibeClipOutboxIds.has(id)) outboxClipStateRef.current.delete(id);
+    }
+    for (const id of outboxClipSentToastIdsRef.current) {
+      if (!activeVibeClipOutboxIds.has(id)) outboxClipSentToastIdsRef.current.delete(id);
     }
   }, [webOutbox.items, chatData?.messages?.length]);
 

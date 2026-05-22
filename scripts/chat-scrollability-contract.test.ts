@@ -374,10 +374,7 @@ test("focused thread realtime self-heals on drops and foreground resume", () => 
 });
 
 test("inbox subscriptions keep conversation lists immediate on message changes", () => {
-  assert.doesNotMatch(webApp, /\{\s*event: "\*", schema: "public", table: "messages"\s*\}/);
-  assert.doesNotMatch(webApp, /\{\s*event: "DELETE", schema: "public", table: "messages"\s*\}/);
-  assert.match(webApp, /\{\s*event: "INSERT", schema: "public", table: "messages"\s*\}/);
-  assert.match(webApp, /\{\s*event: "UPDATE", schema: "public", table: "messages"\s*\}/);
+  assert.doesNotMatch(webApp, /table:\s*"messages"/);
   assert.match(webMatches, /Surface-scoped message realtime/);
   assert.match(webMatches, /event: "INSERT"[\s\S]*table: "messages"/);
   assert.match(webMatches, /event: "UPDATE"[\s\S]*table: "messages"/);

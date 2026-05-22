@@ -244,8 +244,8 @@ test("dashboard request reduction defers rows and avoids obvious overfetch", () 
   assert.doesNotMatch(webFetchMyProfile, /fetchProfileLiveCounts/);
   assert.doesNotMatch(webProfileStudio, /queryClient\.ensureQueryData\(\{[\s\S]{0,180}queryKey:\s*myProfileQueryKey\(profileUser\.id\)/);
   assert.match(webProfileStudio, /queryClient\.fetchQuery\(\{[\s\S]{0,180}queryKey:\s*myProfileQueryKey\(profileUser\.id\)[\s\S]{0,180}staleTime:\s*forceFresh \? 0 : MY_PROFILE_STALE_TIME_MS/);
-  assert.match(webProfileStudio, /queryClient\.fetchQuery\(\{[\s\S]{0,180}queryKey:\s*profileLiveCountsQueryKey\(profileUser\.id\)[\s\S]{0,180}staleTime:\s*0/);
-  assert.match(webProfileStudio, /const liveCountsPromise =/);
+  assert.match(webProfileStudio, /useQuery\(\{[\s\S]{0,260}queryKey:\s*profileUser\?\.id \? profileLiveCountsQueryKey\(profileUser\.id\)[\s\S]{0,260}staleTime:\s*PROFILE_LIVE_COUNTS_STALE_TIME_MS/);
+  assert.match(webProfileStudio, /liveCountsUpdatedAt >= profileStatsLoadedAt/);
   assert.doesNotMatch(webProfileStudio, /const \[data, liveCounts\] = await Promise\.all/);
   assert.match(webProfileStudio, /const forceFresh = profileRefreshKey > 0/);
   assert.match(webProfileStudio, /queryClient\.setQueryData<ProfileData \| null>\(myProfileQueryKey\(userId\)/);
