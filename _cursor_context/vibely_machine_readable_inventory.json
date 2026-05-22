@@ -67,7 +67,9 @@
         "Phase 3 (2026-04-24): v_event_loop_* read-model views only; migration 20260424120000_event_loop_read_model_views.sql.",
         "Phase 3c (2026-04-25): prune_event_loop_observability_events() + batched DELETE retention; migration 20260425120000_event_loop_observability_retention_prune.sql; schedule via pg_cron per deploy doc.",
         "Video Date Daily webhook closure (2026-05-22): video-date-daily-webhook is a provider-public Daily HMAC endpoint using DAILY_WEBHOOK_SECRET and the schdyxcunwcvddlcshwd function URL.",
-        "Media derivatives closure (2026-05-22): 20260522161000_media_derivatives_placeholders_realtime.sql adds durable profile/chat image derivative paths, dominant-color placeholders, owner-scoped realtime media broadcasts, and profile photo derivative hydration through profile_photo_derivatives_for_paths."
+        "Media derivatives closure (2026-05-22): 20260522161000_media_derivatives_placeholders_realtime.sql adds durable profile/chat image derivative paths, dominant-color placeholders, owner-scoped realtime media broadcasts, and profile photo derivative hydration through profile_photo_derivatives_for_paths.",
+        "External dependency closure (2026-05-23): Supabase core is healthy; Edge Function inventory is 67 source/config/cloud functions; Daily webhook registration is closed by operator evidence, while real join/leave delivery remains pending until lastMomentPushed is non-null.",
+        "The top-level edge_functions array remains a historical partial inventory; use current_edge_function_inventory_2026_05_23 for current 67-function source/config truth."
       ],
       "repo_inventory_counts": {
         "edge_functions_deployable": 67,
@@ -83,7 +85,8 @@
         "linked_db_public_tables": 67,
         "linked_db_public_views": 11,
         "linked_db_public_functions": 127,
-        "linked_db_public_enum_groups": 4
+        "linked_db_public_enum_groups": 4,
+        "edge_function_config_entries": 67
       },
       "mechanical_trust_closure_2026_04_14": {
         "types_regenerated_from_project_id": "schdyxcunwcvddlcshwd",
@@ -151,7 +154,284 @@
         "Media derivatives closure adds nullable media_assets presentation columns: derivative_thumb_path, derivative_hero_path, placeholder_kind, placeholder_hash, dominant_color, and placeholder_updated_at.",
         "Profile reads now hydrate photo_derivatives from service-role-only profile_photo_derivatives_for_paths; web and native clients only use server-confirmed derivative paths and fall back to original paths.",
         "process-media-delete-jobs cron remains disabled."
-      ]
+      ],
+      "current_edge_function_inventory_2026_05_23": {
+        "source": "supabase/config.toml and supabase/functions/*/index.ts",
+        "deployable_function_count": 67,
+        "config_entry_count": 67,
+        "jwt_at_gateway_count": 39,
+        "public_but_protected_count": 28,
+        "slugs": [
+          {
+            "name": "admin-data-export",
+            "verify_jwt": true
+          },
+          {
+            "name": "admin-media-lifecycle-controls",
+            "verify_jwt": true
+          },
+          {
+            "name": "admin-proof-selfie-sign",
+            "verify_jwt": true
+          },
+          {
+            "name": "admin-review-verification",
+            "verify_jwt": true
+          },
+          {
+            "name": "admin-video-date-ops",
+            "verify_jwt": true
+          },
+          {
+            "name": "cancel-deletion",
+            "verify_jwt": true
+          },
+          {
+            "name": "chat-thread-page",
+            "verify_jwt": true
+          },
+          {
+            "name": "check-bunny-cdn-health",
+            "verify_jwt": false
+          },
+          {
+            "name": "check-daily-drop-health",
+            "verify_jwt": false
+          },
+          {
+            "name": "complete-chat-vibe-clip-upload",
+            "verify_jwt": true
+          },
+          {
+            "name": "create-chat-vibe-clip-upload",
+            "verify_jwt": true
+          },
+          {
+            "name": "create-checkout-session",
+            "verify_jwt": true
+          },
+          {
+            "name": "create-credits-checkout",
+            "verify_jwt": false
+          },
+          {
+            "name": "create-event-checkout",
+            "verify_jwt": true
+          },
+          {
+            "name": "create-portal-session",
+            "verify_jwt": true
+          },
+          {
+            "name": "create-video-upload",
+            "verify_jwt": true
+          },
+          {
+            "name": "credit-replenish",
+            "verify_jwt": false
+          },
+          {
+            "name": "daily-drop-actions",
+            "verify_jwt": true
+          },
+          {
+            "name": "daily-room",
+            "verify_jwt": true
+          },
+          {
+            "name": "date-reminder-cron",
+            "verify_jwt": false
+          },
+          {
+            "name": "date-suggestion-actions",
+            "verify_jwt": true
+          },
+          {
+            "name": "date-suggestion-expiry",
+            "verify_jwt": false
+          },
+          {
+            "name": "delete-account",
+            "verify_jwt": true
+          },
+          {
+            "name": "delete-vibe-video",
+            "verify_jwt": true
+          },
+          {
+            "name": "dismiss-chat-vibe-clip-upload",
+            "verify_jwt": true
+          },
+          {
+            "name": "email-verification",
+            "verify_jwt": true
+          },
+          {
+            "name": "event-notifications",
+            "verify_jwt": true
+          },
+          {
+            "name": "event-reminders",
+            "verify_jwt": false
+          },
+          {
+            "name": "forward-geocode",
+            "verify_jwt": true
+          },
+          {
+            "name": "generate-daily-drops",
+            "verify_jwt": false
+          },
+          {
+            "name": "geocode",
+            "verify_jwt": true
+          },
+          {
+            "name": "get-chat-media-url",
+            "verify_jwt": false
+          },
+          {
+            "name": "health",
+            "verify_jwt": false
+          },
+          {
+            "name": "match-call-room-cleanup",
+            "verify_jwt": false
+          },
+          {
+            "name": "phone-verify",
+            "verify_jwt": true
+          },
+          {
+            "name": "post-date-verdict",
+            "verify_jwt": true
+          },
+          {
+            "name": "post-date-verdict-reminders",
+            "verify_jwt": false
+          },
+          {
+            "name": "process-media-delete-jobs",
+            "verify_jwt": false
+          },
+          {
+            "name": "process-waitlist-promotion-notify-queue",
+            "verify_jwt": false
+          },
+          {
+            "name": "push-webhook",
+            "verify_jwt": false
+          },
+          {
+            "name": "record-growth-attribution",
+            "verify_jwt": false
+          },
+          {
+            "name": "request-account-deletion",
+            "verify_jwt": false
+          },
+          {
+            "name": "revenuecat-webhook",
+            "verify_jwt": false
+          },
+          {
+            "name": "send-email",
+            "verify_jwt": false
+          },
+          {
+            "name": "send-game-event",
+            "verify_jwt": true
+          },
+          {
+            "name": "send-message",
+            "verify_jwt": true
+          },
+          {
+            "name": "send-notification",
+            "verify_jwt": true
+          },
+          {
+            "name": "send-support-reply",
+            "verify_jwt": true
+          },
+          {
+            "name": "stripe-webhook",
+            "verify_jwt": false
+          },
+          {
+            "name": "swipe-actions",
+            "verify_jwt": true
+          },
+          {
+            "name": "sync-chat-vibe-clip-status",
+            "verify_jwt": true
+          },
+          {
+            "name": "sync-revenuecat-subscriber",
+            "verify_jwt": true
+          },
+          {
+            "name": "sync-vibe-video-status",
+            "verify_jwt": true
+          },
+          {
+            "name": "synthetic-video-date-monitor",
+            "verify_jwt": false
+          },
+          {
+            "name": "upload-chat-video",
+            "verify_jwt": true
+          },
+          {
+            "name": "upload-event-cover",
+            "verify_jwt": true
+          },
+          {
+            "name": "upload-image",
+            "verify_jwt": true
+          },
+          {
+            "name": "upload-voice",
+            "verify_jwt": true
+          },
+          {
+            "name": "verify-admin",
+            "verify_jwt": true
+          },
+          {
+            "name": "video-date-daily-webhook",
+            "verify_jwt": false
+          },
+          {
+            "name": "video-date-deadline-finalizer",
+            "verify_jwt": false
+          },
+          {
+            "name": "video-date-orphan-room-cleanup",
+            "verify_jwt": false
+          },
+          {
+            "name": "video-date-outbox-drainer",
+            "verify_jwt": false
+          },
+          {
+            "name": "video-date-recovery-alert-dispatcher",
+            "verify_jwt": false
+          },
+          {
+            "name": "video-date-room-cleanup",
+            "verify_jwt": false
+          },
+          {
+            "name": "video-date-snapshot",
+            "verify_jwt": true
+          },
+          {
+            "name": "video-webhook",
+            "verify_jwt": false
+          }
+        ]
+      }
     },
     "static_assets": {
       "notification_related": [
@@ -581,7 +861,80 @@
     "notes": [
       "The checked-in root .env is partial and includes malformed/non-standard lines.",
       "The true backend env surface must be derived from Edge Function source."
-    ]
+    ],
+    "source_env_var_triage_2026_05_23": {
+      "active": [
+        "APP_URL",
+        "SUPABASE_URL",
+        "SUPABASE_ANON_KEY",
+        "SUPABASE_SERVICE_ROLE_KEY",
+        "DAILY_API_KEY",
+        "DAILY_DOMAIN",
+        "DAILY_WEBHOOK_SECRET",
+        "STRIPE_SECRET_KEY",
+        "STRIPE_WEBHOOK_SECRET",
+        "STRIPE_MONTHLY_PRICE_ID",
+        "STRIPE_ANNUAL_PRICE_ID",
+        "BUNNY_STREAM_LIBRARY_ID",
+        "BUNNY_STREAM_API_KEY",
+        "BUNNY_STREAM_CDN_HOSTNAME",
+        "BUNNY_STORAGE_ZONE",
+        "BUNNY_STORAGE_API_KEY",
+        "BUNNY_CDN_HOSTNAME",
+        "BUNNY_VIDEO_WEBHOOK_TOKEN",
+        "BUNNY_WEBHOOK_SIGNING_KEY",
+        "ONESIGNAL_APP_ID",
+        "ONESIGNAL_REST_API_KEY",
+        "PUSH_WEBHOOK_SECRET",
+        "TWILIO_ACCOUNT_SID",
+        "TWILIO_AUTH_TOKEN",
+        "TWILIO_VERIFY_SERVICE_SID",
+        "RESEND_API_KEY",
+        "EMAIL_VERIFICATION_OTP_SECRET",
+        "FROM_EMAIL",
+        "EMAIL_VERIFICATION_FROM_EMAIL",
+        "REVENUECAT_WEBHOOK_AUTHORIZATION",
+        "REVENUECAT_SECRET_API_KEY",
+        "CRON_SECRET"
+      ],
+      "active_operator_decision": [
+        "TURNSTILE_SECRET_KEY",
+        "ACCOUNT_DELETION_RATE_LIMIT_PEPPER",
+        "BUNNY_ARCHIVE_STORAGE_ZONE",
+        "BUNNY_ARCHIVE_STORAGE_API_KEY",
+        "BUNNY_STORAGE_ARCHIVE_ZONE",
+        "BUNNY_STORAGE_ARCHIVE_API_KEY"
+      ],
+      "optional": [
+        "POSTHOG_API_KEY",
+        "POSTHOG_HOST",
+        "SENTRY_DSN",
+        "SENTRY_ENVIRONMENT",
+        "SENTRY_FLUSH_TIMEOUT_MS",
+        "SENTRY_TRACES_SAMPLE_RATE",
+        "DAILY_DROP_ALERT_EMAILS",
+        "SLACK_WEBHOOK_URL",
+        "VIDEO_DATE_RECOVERY_SLACK_WEBHOOK_URL",
+        "ENVIRONMENT"
+      ],
+      "optional_or_future_only": [
+        "BUNNY_CHAT_STREAM_COLLECTION_ID"
+      ],
+      "runtime_provided_not_operator_secrets": [
+        "SB_EXECUTION_ID",
+        "SB_REGION"
+      ],
+      "typo_do_not_use": [
+        "CRON_SECRET_"
+      ],
+      "retired_current_source_absent": [
+        "UNSUB_HMAC_SECRET for unsubscribe only",
+        "email-drip",
+        "unsubscribe",
+        "account-pause",
+        "account-resume"
+      ]
+    }
   },
   "edge_functions": [
     {
@@ -778,7 +1131,22 @@
         "participant.left"
       ],
       "secret_format": "Daily webhook hmac exactly as returned by Daily; base64 HMAC-SHA256 secret decoded by the function before signing X-Webhook-Timestamp + '.' + raw request body.",
-      "frontend_references": []
+      "frontend_references": [],
+      "provider_webhook": {
+        "provider": "Daily",
+        "uuid": "a5407924-6f29-4a35-835a-ff5185eeae5c",
+        "url": "https://schdyxcunwcvddlcshwd.supabase.co/functions/v1/video-date-daily-webhook",
+        "event_types": [
+          "participant.joined",
+          "participant.left"
+        ],
+        "state": "ACTIVE",
+        "failed_count": 0,
+        "registration_status": "closed_by_operator_evidence",
+        "signed_test_probe_status": "HTTP 200",
+        "last_moment_pushed_status": "pending_real_participant_events",
+        "hmac_recorded": false
+      }
     },
     {
       "name": "date-reminder-cron",
@@ -1643,5 +2011,6 @@
     "migration manifest",
     "machine-readable inventory JSON",
     "Claude snapshot as historical reference only"
-  ]
+  ],
+  "last_addendum_at": "2026-05-23"
 }

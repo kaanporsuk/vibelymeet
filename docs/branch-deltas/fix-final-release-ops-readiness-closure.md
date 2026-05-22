@@ -24,11 +24,11 @@
 
 ## Exact Implementation
 
-- Updated Section 13 of the rebuild runbook to record:
-  - 55 deployable function directories excluding `_shared`
-  - 55 `[functions.<slug>]` entries in `supabase/config.toml`
-  - 34 `verify_jwt = true` functions
-  - 21 `verify_jwt = false` functions
+- Updated Section 13 of the rebuild runbook to record the then-current function inventory. This branch-delta is superseded by the 2026-05-23 external-dependency closure pass:
+  - 67 deployable function directories excluding `_shared`
+  - 67 `[functions.<slug>]` entries in `supabase/config.toml`
+  - 39 `verify_jwt = true` functions
+  - 28 `verify_jwt = false` functions
   - canonical production project ref `schdyxcunwcvddlcshwd / MVP_Vibe`
   - targeted deploy guidance for scoped repairs
   - full rebuild deploy guidance only for planned rebuild/cutover work

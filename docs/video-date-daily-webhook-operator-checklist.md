@@ -9,6 +9,7 @@ This checklist covers the Daily provider webhook that reconciles real participan
 - Function URL: `https://schdyxcunwcvddlcshwd.supabase.co/functions/v1/video-date-daily-webhook`
 - Gateway JWT posture: `verify_jwt = false`
 - Protection model: provider-public endpoint with function-internal Daily HMAC and timestamp validation.
+- Current Daily webhook UUID: `a5407924-6f29-4a35-835a-ff5185eeae5c`
 
 ## Secret Format
 
@@ -43,9 +44,20 @@ Subscribe to:
 
 The server also tolerates legacy/internal `participant.join` and `participant.leave` strings in the reconciliation RPC.
 
+Current operator evidence as of 2026-05-22:
+
+- signed `{"test":"test"}` probe returned HTTP 200
+- Daily `POST /webhooks` returned HTTP 200
+- webhook UUID is `a5407924-6f29-4a35-835a-ff5185eeae5c`
+- webhook state is `ACTIVE`
+- `failedCount` is `0`
+- `lastMomentPushed` is still null until real participant events occur
+
+Do not recreate or update this webhook during verification. The remaining proof is real join/leave delivery.
+
 ## Safe Secret Set Command
 
-Do not print the secret in shell history or logs.
+Do not run this during the 2026-05-23 closure pass; the webhook registration and secret presence are already closed by operator evidence. This command is retained only for a future full rebuild or approved secret recovery. Do not print the secret in shell history or logs.
 
 ```bash
 read -rsp "Daily webhook hmac (base64): " DAILY_WEBHOOK_SECRET; printf "\n"
@@ -99,12 +111,12 @@ For synthetic room/user ids, a successful signature path may still return an ign
 
 Use a controlled two-user video-date smoke to prove provider delivery:
 
-1. Confirm Daily webhook state is `ACTIVE` and points to the exact URL above.
+1. Confirm Daily webhook UUID `a5407924-6f29-4a35-835a-ff5185eeae5c` is still `ACTIVE` and points to the exact URL above.
 2. Start one real video-date session through the app.
 3. Have both participants join the Daily room through normal app flow.
 4. Have both participants leave/end through normal app flow.
 5. Confirm Daily `lastMomentPushed` becomes non-null and `failedCount` remains `0`.
-6. Confirm Supabase Edge logs show accepted `video-date-daily-webhook` invocations.
+6. Confirm Supabase Dashboard Edge Function logs show accepted `participant.joined` and `participant.left` invocations for `video-date-daily-webhook`.
 7. Confirm `video_date_daily_webhook_events` contains non-secret rows for `participant.joined` and `participant.left`.
 
 ## Rebuild Implication

@@ -12,7 +12,7 @@ supabase link --project-ref schdyxcunwcvddlcshwd
 
 **Live DB SQL:** Sections that require Postgres (full RPC enumeration vs `types.ts`, `pg_publication_tables`, RLS dump, triggers, cron, indexes, storage buckets) should be executed in the **Supabase SQL Editor** using the queries in this doc. This report uses **generated types** (`src/integrations/supabase/types.ts`) as the RPC catalog and **migrations** for RLS/trigger hints where live SQL was not executed here.
 
-> Current repo addendum (2026-04-13): this document is still a historical/live audit snapshot. The current repo now contains **45 deployable Edge Functions** and **253 migrations**. Sprint 2 is live and adds `profile_vibe_videos` plus profile-media lifecycle wiring. Sprint 3 is now live and adds `chat_media_retention_states`, authenticated `delete_chat_for_current_user`, chat-media lifecycle registration in `upload-image` / `upload-chat-video` / `upload-voice` / `send-message`, and account-deletion retention-state changes in `request-account-deletion` / `delete-account` / `cancel-deletion`. The grace-period follow-up keeps pending deletion reversible (`account_deletion_pending_at`) and moves final `account_deleted` release to `account_deletion_requests.status = 'completed'`. Sprint 4 adds `admin-media-lifecycle-controls` for admin-only retention controls and readiness preview. `process-media-delete-jobs` cron is still intentionally disabled.
+> Current repo addendum (2026-05-23): this document is a historical/live audit snapshot. The current repo contains **67 deployable Edge Functions** with **67 matching `supabase/config.toml` entries**. Historical rows below that mention `account-pause`, `account-resume`, `email-drip`, or `unsubscribe` are superseded for current ops: those function slugs are absent from current source/config/cloud inventory unless deliberately restored. Use `_cursor_context/vibely_edge_function_manifest.md` and `docs/external-dependency-closure-plan-2026-05-23.md` for current closure state.
 
 ---
 
@@ -28,8 +28,8 @@ Historical 2026-03-18 CLI snapshot: 36 ACTIVE functions.
 
 | Function | Method | verify_jwt | Purpose (1-line) | Web | Native | External APIs |
 |----------|--------|------------|------------------|-----|--------|---------------|
-| account-pause | POST | true | Pause account | AuthContext | — | Supabase |
-| account-resume | POST | true | Resume account | AuthContext | — | Supabase |
+| account-pause | POST | true | Retired historical pause endpoint; absent from current source/config/cloud | historical AuthContext | — | Supabase |
+| account-resume | POST | true | Retired historical resume endpoint; absent from current source/config/cloud | historical AuthContext | — | Supabase |
 | admin-review-verification | POST | true | Admin photo verify actions | AdminPhotoVerificationPanel | — | Supabase |
 | admin-media-lifecycle-controls | POST/GET | true | Admin-only retention controls and read-only worker readiness preview | AdminMediaLifecyclePanel | — | Supabase |
 | cancel-deletion | POST | true | Cancel scheduled deletion | useDeletionRecovery | useDeletionRecovery | Supabase |
@@ -42,7 +42,7 @@ Historical 2026-03-18 CLI snapshot: 36 ACTIVE functions.
 | daily-room | POST | true | Daily.co room CRUD | useMatchCall, VideoDate | videoDateApi, matchCallApi | Daily |
 | delete-account | POST | true | Delete user data | useDeleteAccount | — | Supabase + cascades |
 | delete-vibe-video | POST | true | Remove vibe video | Profile (fetch) | vibeVideoApi (fetch) | Bunny |
-| email-drip | POST | false | Drip emails | — (cron/external) | — | Resend |
+| email-drip | POST | false | Retired historical drip worker; absent from current source/config/cloud | — (historical cron/external) | — | Resend |
 | email-verification/* | POST | true | Send/verify email | useEmailVerification | EmailVerificationFlow | Resend |
 | event-notifications | POST | true | Notify on event ops | Admin modals | — | OneSignal / notify |
 | forward-geocode | POST | true | Address → lat/lng | AdminEventFormModal | — | (geocode svc) |
@@ -56,7 +56,7 @@ Historical 2026-03-18 CLI snapshot: 36 ACTIVE functions.
 | send-notification | POST | true | Server push/email path | notifications.ts | — | OneSignal/Resend |
 | stripe-webhook | POST | false | Stripe events | — | — | Stripe |
 | swipe-actions | POST | true | Event deck swipe + notify | useSwipeAction | eventsApi | RPC + send-notification |
-| unsubscribe | GET/POST | false | Email unsubscribe | — | — | HMAC + DB |
+| unsubscribe | GET/POST | false | Retired historical unsubscribe endpoint; absent from current source/config/cloud | — | — | HMAC + DB |
 | upload-chat-video | POST | true | Legacy chat video compatibility | — | — | Bunny Storage |
 | create-chat-vibe-clip-upload | POST | true | Create Bunny Stream TUS session for Chat Vibe Clip | chatVibeClipStreamUploadService | chatVibeClipStreamUpload | Bunny Stream |
 | complete-chat-vibe-clip-upload | POST | true | Publish completed Chat Vibe Clip upload | chatVibeClipStreamUploadService | chatVibeClipStreamUpload | Bunny Stream |
@@ -74,12 +74,12 @@ Historical 2026-03-18 CLI snapshot: 36 ACTIVE functions.
 |-------|----------|-------|
 | **Web-only invokes** (no native): `verify-admin`, `admin-media-lifecycle-controls`, `upload-event-cover`, `forward-geocode`, `event-notifications`, `admin-review-verification`, `create-checkout-session`, `generate-daily-drops`, `send-notification`, `geocode`, `delete-account` | **LOW–MEDIUM** | Many intentional (admin, Stripe web, marketing). **MEDIUM:** `delete-account` — README defers native delete; users on app only lack parity. |
 | **Native fetch vs web invoke** for same function: `upload-image`, `create-credits-checkout`, `create-video-upload`, `delete-vibe-video` | **LOW** | Same endpoints; ensure auth headers and error handling match. |
-| **Neither client** (webhooks/cron): `stripe-webhook`, `revenuecat-webhook`, `video-webhook`, `push-webhook`, `email-drip`, `unsubscribe`, `generate-daily-drops` (only admin triggers from web), `process-media-delete-jobs` | OK | Expected server-to-server. |
+| **Neither client** (webhooks/cron): `stripe-webhook`, `revenuecat-webhook`, `video-webhook`, `push-webhook`, `generate-daily-drops` (only admin triggers from web), `process-media-delete-jobs`; retired historical `email-drip` / `unsubscribe` | OK | Expected server-to-server for current functions; retired slugs stay absent unless deliberately restored. |
 | **Divergence:** `request-account-deletion` — web uses raw `fetch`, native uses `invoke` | **LOW** | Both hit same function; JWT differs (`verify_jwt=false` — must pass anon key + body correctly on web). |
 
 **Recommendations**
 
-1. Add native `delete-account` + `account-pause` / `account-resume` or deep-link to web for parity (**MEDIUM**).
+1. Add/verify native `delete-account` parity and keep pause/resume on the current profile pause/account-break helper path. Historical `account-pause` / `account-resume` Edge Functions are retired (**MEDIUM**).
 2. If mobile needs city-scoped events like web, add `geocode` or reuse stored `location_data` consistently (**MEDIUM**, see §3).
 
 ---

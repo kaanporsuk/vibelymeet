@@ -175,9 +175,9 @@ Verify:
 
 ## D. Edge Function parity
 Verify:
-- all 55 deployable functions are present and listed in config.toml
+- all 67 deployable functions are present and listed in config.toml
 - `_shared` compiles into dependents correctly
-- 34 functions deployed with JWT enforced; 21 public-but-protected with correct secrets/tokens set
+- 39 functions deployed with JWT enforced; 28 public-but-protected with correct secrets/tokens set
 
 ## E. Secrets parity
 Verify all required secrets exist before testing function flows.
@@ -229,23 +229,24 @@ Do not assume the checked-in root `.env` covers this set. It does not.
 ## 8. Supabase function deployment sheet (post-hardening)
 
 ### Function count
-- 55 deployable functions; all listed in `supabase/config.toml`.
+- 67 deployable functions; all listed in `supabase/config.toml`.
 
 ### JWT-at-gateway (`verify_jwt = true`)
-daily-room, delete-account, email-verification, event-notifications, verify-admin, geocode, phone-verify, admin-review-verification, admin-media-lifecycle-controls, admin-data-export, create-video-upload, sync-vibe-video-status, delete-vibe-video, upload-image, upload-voice, upload-chat-video, upload-event-cover, create-checkout-session, create-event-checkout, create-portal-session, cancel-deletion, sync-revenuecat-subscriber, send-notification, daily-drop-actions, send-message, send-game-event, swipe-actions, post-date-verdict, forward-geocode, date-suggestion-actions, send-support-reply, admin-proof-selfie-sign, admin-video-date-ops.
+39 functions are gateway-JWT protected. Use `supabase/config.toml` and `_cursor_context/vibely_edge_function_manifest.md` for the authoritative slug list.
 
 ### Public-but-protected (`verify_jwt = false`)
-event-reminders, video-webhook, get-chat-media-url, stripe-webhook, create-credits-checkout, request-account-deletion, revenuecat-webhook, generate-daily-drops, check-daily-drop-health, post-date-verdict-reminders, push-webhook, record-growth-attribution, health, date-suggestion-expiry, credit-replenish, date-reminder-cron, process-waitlist-promotion-notify-queue, process-media-delete-jobs, match-call-room-cleanup, video-date-room-cleanup, send-email. These use provider secrets, URL tokens, service-role/admin controls, or CRON_SECRET-style guards in code.
+28 functions are gateway-public but protected by provider signatures, webhook tokens, service-role/admin controls, or `CRON_SECRET`-style guards in code. Use `supabase/config.toml` and `_cursor_context/vibely_edge_function_manifest.md` for the authoritative slug list.
 
 ### Stream 19 rebuild-sensitive posture notes
 - `forward-geocode`: `verify_jwt = true`; also resolves the Supabase user in code, gates admin/premium/onboarding city search, applies a per-user rate limit, and then calls OpenStreetMap Nominatim.
 - `push-webhook`: `verify_jwt = false`; external providers cannot present a Supabase user JWT, so the function fail-closes unless `x-webhook-secret` matches `PUSH_WEBHOOK_SECRET`. Repo evidence treats it as generic FCM/APNs/web receipt telemetry, not proven OneSignal receipt wiring.
 
 ### Required secrets for hardened behavior
-- `PUSH_WEBHOOK_SECRET`, `UNSUB_HMAC_SECRET`, `CRON_SECRET`, `BUNNY_VIDEO_WEBHOOK_TOKEN` (plus existing Stripe/Bunny/Daily/Resend/Twilio/OneSignal).
+- `PUSH_WEBHOOK_SECRET`, `UNSUB_HMAC_SECRET`, `CRON_SECRET`, `BUNNY_VIDEO_WEBHOOK_TOKEN`, `DAILY_WEBHOOK_SECRET` (plus existing Stripe/Bunny/Daily/Resend/Twilio/OneSignal).
 
 ### Functions to review with extra care
-- `stripe-webhook`, `video-webhook`, `push-webhook`, `email-drip`, `unsubscribe`, `generate-daily-drops`, `request-account-deletion`
+- `stripe-webhook`, `video-webhook`, `video-date-daily-webhook`, `push-webhook`, `generate-daily-drops`, `request-account-deletion`
+- Retired historical names `email-drip` and `unsubscribe` stay absent unless deliberately restored.
 
 ---
 
@@ -335,7 +336,7 @@ Confirm:
 
 ### Step 4 — Function check
 Confirm:
-- all 28 functions deployed
+- all 67 current deployable functions are deployed when doing a full rebuild
 - `phone-verify` JWT-enforced
 - `forward-geocode` and `push-webhook` explicitly accounted for
 

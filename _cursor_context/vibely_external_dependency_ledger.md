@@ -96,15 +96,15 @@ It carries:
 ### Rebuild-critical notes (post-hardening)
 - the frozen migration history is not clean schema-only history
 - generated types expose at least two objects not created in the preserved migration set: `feedback`, `premium_history`
-- all 55 deployable functions are in `supabase/config.toml`; 34 JWT-at-gateway, 21 public-but-protected
+- all 67 deployable functions are in `supabase/config.toml`; 39 JWT-at-gateway, 28 public-but-protected
 - Stream 19 posture lock: `forward-geocode` is gateway-JWT protected and internally user-gated/rate-limited before OpenStreetMap Nominatim calls; `push-webhook` is gateway-public for provider callbacks but secret-gated with `PUSH_WEBHOOK_SECRET` / `x-webhook-secret`
 - live Supabase storage buckets (project inventory): historically documented as `chat-videos` and `proof-selfies` among others; **inline chat / Vibe Clip video uploads** in current app code use **`upload-chat-video` → Bunny Storage** (path prefix `chat-videos/…`), not a Supabase upload for that pipeline — see `vibely_bunny_provider_sheet.md` §4
-- required secrets: `PUSH_WEBHOOK_SECRET`, `UNSUB_HMAC_SECRET`, `CRON_SECRET`, `BUNNY_VIDEO_WEBHOOK_TOKEN` (plus existing)
+- required secrets: `PUSH_WEBHOOK_SECRET`, `UNSUB_HMAC_SECRET`, `CRON_SECRET`, `BUNNY_VIDEO_WEBHOOK_TOKEN`, `DAILY_WEBHOOK_SECRET` (plus existing)
 
 ### Verification tasks during rebuild
 - confirm linked project ref is correct
 - confirm all required secrets exist (including hardening secrets above)
-- confirm all 55 Edge Functions are deployed with correct verify_jwt
+- confirm all 67 Edge Functions are deployed with correct verify_jwt
 - confirm live buckets still match project policy (e.g. `proof-selfies`); separately confirm **`upload-chat-video`** Bunny secrets/CDN for chat video sends
 - run migration parity check before any remote migration operations:
   - `./scripts/check_migration_parity.sh`
@@ -252,6 +252,9 @@ Daily powers live video rooms/tokens for event dates and match/video call flows.
 - webhook registration targeting `https://schdyxcunwcvddlcshwd.supabase.co/functions/v1/video-date-daily-webhook`
 - Daily webhook `hmac` stored in Supabase as `DAILY_WEBHOOK_SECRET` exactly as Daily returns it (base64)
 - subscribed webhook events `participant.joined` and `participant.left`
+- current operator-proven webhook UUID: `a5407924-6f29-4a35-835a-ff5185eeae5c`
+- current operator-proven state: `ACTIVE`, `failedCount = 0`, signed `{"test":"test"}` probe returned 200, and `POST /webhooks` returned HTTP 200
+- real delivery smoke remains pending until Daily `lastMomentPushed` is non-null after real participant events
 
 ### Rebuild-critical notes
 - the fallback domain makes this dependency easy to miss because the app may appear configured even if env is incomplete
@@ -359,7 +362,7 @@ OneSignal powers push identity and delivery.
 **Functions**
 - `send-notification`
 - `push-webhook`
-- `vibe-notification` (indirect notification involvement)
+- `vibe-notification` is a retired historical function name; current source/config/cloud inventory uses `send-notification` and `push-webhook`
 
 ### Secrets/config expected by code
 - `ONESIGNAL_APP_ID`
@@ -578,11 +581,11 @@ These items remain partially or fully outside recoverable repo truth and should 
 - exact Stripe webhook registration details
 - exact Bunny webhook registration details
 - exact OneSignal app/dashboard configuration
-- exact scheduler source for `email-drip`
+- exact scheduler source for `email-drip`, only if the retired function is deliberately restored
 - exact DNS/CDN origin mappings
 - exact hosting setup for `vibelymeet.com`
 - exact Daily account/domain ownership state
-- exact Daily webhook registration state for `video-date-daily-webhook`
+- Daily real participant join/leave delivery for `video-date-daily-webhook` after `lastMomentPushed` becomes non-null
 - any Supabase dashboard-only settings not represented in migrations/config
 
 ---
