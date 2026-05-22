@@ -99,13 +99,13 @@ From the frozen baseline and generated types, Supabase owns:
 Legacy / Bunny-migrated (not active Supabase buckets): `profile-photos`, `vibe-videos`, `event-covers`, `voice-messages`. Treat as legacy for rebuild; image/event/voice/vibe media are on Bunny.
 
 ## C. Edge Function layer
-Deployable functions: **55**
+Deployable functions: **67**
 
 Shared helper directory:
 - `_shared`
 
 ### Function config (post-hardening)
-All 55 deployable functions are listed in `supabase/config.toml`. No config gaps. JWT-at-gateway: 34 functions. Public-but-protected (verify_jwt false): 21 functions, including external/provider/cron endpoints such as `push-webhook`, `video-webhook`, `stripe-webhook`, `revenuecat-webhook`, `event-reminders`, `send-email`, `request-account-deletion`, `record-growth-attribution`, `generate-daily-drops`, `check-daily-drop-health`, `get-chat-media-url`, and scheduled cleanup/drainer functions.
+All 67 deployable functions are listed in `supabase/config.toml`. No config gaps. JWT-at-gateway: 39 functions. Public-but-protected (`verify_jwt = false`): 28 functions, including external/provider/cron endpoints such as `push-webhook`, `video-webhook`, `video-date-daily-webhook`, `stripe-webhook`, `revenuecat-webhook`, `event-reminders`, `send-email`, `request-account-deletion`, `record-growth-attribution`, `generate-daily-drops`, `check-daily-drop-health`, `check-bunny-cdn-health`, `get-chat-media-url`, and scheduled cleanup/drainer functions.
 
 ## D. Secrets/runtime layer
 Supabase stores and exposes runtime secrets used by Edge Functions.

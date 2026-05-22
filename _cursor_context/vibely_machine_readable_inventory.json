@@ -71,7 +71,7 @@
       "repo_inventory_counts": {
         "edge_functions_deployable": 67,
         "edge_function_shared_dirs": 1,
-        "migrations": 269,
+        "migrations": 516,
         "live_public_tables_after_sprint3": 48,
         "pages_src_root_ts_tsx": 33,
         "pages_src_all_tsx_recursive": 55,

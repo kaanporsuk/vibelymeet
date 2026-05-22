@@ -38,6 +38,15 @@ const nativeImageAssetNormalize = read("apps/mobile/lib/imageAssetNormalize.ts")
 const nativeOutboxExecute = read("apps/mobile/lib/chatOutbox/execute.ts");
 const nativeOutboxContext = read("apps/mobile/lib/chatOutbox/ChatOutboxContext.tsx");
 const nativeUploadImage = read("apps/mobile/lib/uploadImage.ts");
+const webImageUrl = read("src/utils/imageUrl.ts");
+const nativeImageUrl = read("apps/mobile/lib/imageUrl.ts");
+const webFetchUserProfile = read("src/services/fetchUserProfile.ts");
+const nativeFetchUserProfile = read("apps/mobile/lib/fetchUserProfile.ts");
+const webMyProfileSettings = read("src/services/myProfileSettings.ts");
+const nativeMyProfileSettings = read("apps/mobile/lib/myProfileSettings.ts");
+const webUseMessages = read("src/hooks/useMessages.ts");
+const nativeChatApi = read("apps/mobile/lib/chatApi.ts");
+const sharedProfilePhotoDerivatives = read("shared/profile/photoDerivatives.ts");
 const webMediaAssetResolver = read("src/lib/mediaAssetResolver.ts");
 const nativeMediaAssetResolver = read("apps/mobile/lib/mediaAssetResolver.ts");
 const webMediaAssetHook = read("src/hooks/useMediaAsset.ts");
@@ -160,6 +169,9 @@ test("media placeholders and derivative refs are durable without Bunny Image Opt
   assert.match(mediaUxAccelerationMigration, /dominant_color/);
   assert.match(mediaUxAccelerationMigration, /broadcast_media_asset_event_v1/);
   assert.match(mediaUxAccelerationMigration, /realtime\.send/);
+  assert.match(mediaUxAccelerationMigration, /profile_photo_derivatives_for_paths/);
+  assert.match(mediaUxAccelerationMigration, /'photo_derivatives', COALESCE\(v_photo_derivatives/);
+  assert.match(mediaUxAccelerationMigration, /CREATE OR REPLACE FUNCTION public\.get_my_profile_settings\(\)/);
   assert.doesNotMatch(mediaUxAccelerationMigration, /BUNNY_IMAGE_OPTIMIZER|image_optimizer/i);
 
   assert.match(uploadImage, /readImagePlaceholderMetadata\(formData\)/);
@@ -198,6 +210,21 @@ test("media placeholders and derivative refs are durable without Bunny Image Opt
   assert.match(nativeChatThread, /variant: 'original'/);
   assert.match(webChatPhotoLightbox, /void refreshCurrent\(\)/);
   assert.match(nativeChatThreadMediaViewer, /void refreshCurrent\(\)/);
+
+  assert.match(sharedProfilePhotoDerivatives, /normalizeProfilePhotoDerivatives/);
+  assert.match(webFetchUserProfile, /rememberProfilePhotoDerivativeMap\(row\.photo_derivatives\)/);
+  assert.match(nativeFetchUserProfile, /rememberProfilePhotoDerivativeMap\(row\.photo_derivatives\)/);
+  assert.match(webMyProfileSettings, /rememberProfilePhotoDerivativeMap\(row\.photo_derivatives\)/);
+  assert.match(nativeMyProfileSettings, /rememberProfilePhotoDerivativeMap\(row\.photo_derivatives\)/);
+  assert.match(webUseMessages, /rememberProfilePhotoDerivativeMap\(payload\.other_user\?\.photo_derivatives\)/);
+  assert.match(nativeChatApi, /rememberProfilePhotoDerivativeMap\(payload\.other_user\?\.photo_derivatives\)/);
+});
+
+test("image derivative selection only uses server-confirmed derivative paths", () => {
+  assert.match(webImageUrl, /rememberImageDerivatives/);
+  assert.match(nativeImageUrl, /rememberImageDerivatives/);
+  assert.doesNotMatch(webImageUrl, /@orig\\\.|@thumb\.\$1|@hero\.\$1/);
+  assert.doesNotMatch(nativeImageUrl, /@orig\\\.|@thumb\.\$1|@hero\.\$1/);
 });
 
 test("upload-voice is receipt-backed, hash-bound, and wired to durable outbox ids", () => {

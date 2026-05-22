@@ -1,3 +1,8 @@
+import {
+  normalizeProfilePhotoDerivatives,
+  type ProfilePhotoDerivativeMap,
+} from "../../shared/profile/photoDerivatives";
+
 const BUNNY_CDN = (() => {
   const raw = import.meta.env.VITE_BUNNY_CDN_HOSTNAME ?? "";
   const host = raw.replace(/^["']|["']$/g, "").trim();
@@ -15,7 +20,7 @@ const PLACEHOLDER =
   "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200' viewBox='0 0 200 200'%3E%3Crect width='200' height='200' fill='%231F1F2E'/%3E%3Ccircle cx='100' cy='80' r='35' fill='%234B4B6B'/%3E%3Cellipse cx='100' cy='160' rx='55' ry='40' fill='%234B4B6B'/%3E%3C/svg%3E";
 
 interface ImageUrlOptions {
-  /** Intended display size. Derivative-ready Bunny paths use this to pick a right-sized object. */
+  /** Intended display size. Confirmed upload-time derivatives may use this to pick a right-sized object. */
   width?: number;
   height?: number;
   quality?: number;
@@ -68,6 +73,14 @@ export function rememberImageDerivatives(
   });
 }
 
+export function rememberProfilePhotoDerivativeMap(raw: unknown): ProfilePhotoDerivativeMap {
+  const derivativesByPath = normalizeProfilePhotoDerivatives(raw);
+  for (const [originalPath, derivatives] of Object.entries(derivativesByPath)) {
+    rememberImageDerivatives(originalPath, derivatives);
+  }
+  return derivativesByPath;
+}
+
 function derivativeStoragePathForDisplay(storagePath: string, opts?: ImageUrlOptions): string {
   const clean = stripBunnyStorageDecorations(storagePath);
   const requestedEdge = Math.max(
@@ -80,15 +93,6 @@ function derivativeStoragePathForDisplay(storagePath: string, opts?: ImageUrlOpt
   }
   if (knownDerivatives && requestedEdge > 0 && requestedEdge <= 1400 && knownDerivatives.hero) {
     return knownDerivatives.hero;
-  }
-
-  if (!/@orig\.[a-z0-9]+$/i.test(clean)) return clean;
-
-  if (requestedEdge > 0 && requestedEdge <= 420) {
-    return clean.replace(/@orig\.([a-z0-9]+)$/i, "@thumb.$1");
-  }
-  if (requestedEdge > 0 && requestedEdge <= 1400) {
-    return clean.replace(/@orig\.([a-z0-9]+)$/i, "@hero.$1");
   }
   return clean;
 }

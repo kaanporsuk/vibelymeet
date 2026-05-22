@@ -3,7 +3,7 @@
 Branch: `feat/native-runtime-stabilization`  
 Focus: physical iPhone runtime correctness, photo loading, media/video classification, branding/rebuild clarity. No Expo cloud builds.
 
-2026-05-21 update: Bunny Optimizer is intentionally **OFF**. Web and native image helpers resolve Bunny Storage paths to plain CDN URLs without Dynamic Images query params, and strip stale query/hash decorations from Bunny Storage/CDN image paths at render time.
+2026-05-21 update, refreshed 2026-05-22: Bunny Optimizer is intentionally **OFF**. Web and native image helpers resolve Bunny Storage paths to plain CDN URLs without Dynamic Images query params, strip stale query/hash decorations from Bunny Storage/CDN image paths at render time, and only use upload-time derivative objects when the server response explicitly confirmed those derivative paths.
 
 ---
 
@@ -35,7 +35,7 @@ Native image non-loading is caused by **one or both** of:
 - `[Vibely photo URL] profile_photo: https://…`
 - `[Vibely photo URL] event_image: https://…`
 
-**Path-building vs web:** Mobile `getImageUrl` matches web: for `photos/` paths we build `https://${BUNNY_CDN_HOSTNAME}/${path}` or `https://${BUNNY_CDN_HOSTNAME}/${optionalPrefix}/${path}`. Bunny Optimizer is off, so no `width`, `height`, `quality`, or `crop_gravity` query params are expected; stale query/hash decorations on Bunny Storage/CDN image values are stripped before rendering. Stored path shape from upload is `photos/{userId}/req-{token32}.{ext}` — no prefix. So URL construction is correct unless the CDN hostname or path prefix differs on your Bunny pull zone.
+**Path-building vs web:** Mobile `getImageUrl` matches web: for `photos/` paths we build `https://${BUNNY_CDN_HOSTNAME}/${path}` or `https://${BUNNY_CDN_HOSTNAME}/${optionalPrefix}/${path}`. Bunny Optimizer is off, so no `width`, `height`, `quality`, or `crop_gravity` query params are expected; stale query/hash decorations on Bunny Storage/CDN image values are stripped before rendering. When the upload response includes derivative paths, display-size hints may choose those confirmed derivative objects; otherwise the original path remains the source of truth. Stored path shape from upload is `photos/{userId}/req-{token32}.{ext}` — no prefix. So URL construction is correct unless the CDN hostname or path prefix differs on your Bunny pull zone.
 
 **How to identify the exact failing layer:**
 
@@ -112,7 +112,7 @@ No code fix is applied for CDN vs RN until the layer is confirmed via this Safar
 
 | Change | File | Purpose |
 |--------|------|--------|
-| **Plain Bunny CDN image URLs** | `apps/mobile/lib/imageUrl.ts` | Avatar/profile/event URLs no longer include Optimizer query params; Bunny Optimizer is off. |
+| **Plain Bunny CDN image URLs** | `apps/mobile/lib/imageUrl.ts` | Avatar/profile/event URLs no longer include Optimizer query params; confirmed upload-time derivative paths may be selected, and Bunny Optimizer remains off. |
 | **One-time __DEV__ warning** | `apps/mobile/lib/imageUrl.ts` | When `BUNNY_CDN` is empty, log once so the user knows to set env and restart Metro. |
 | **Doc** | `docs/native-runtime-media-recovery-audit.md` (existing) | Root cause and env instructions. |
 

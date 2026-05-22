@@ -8,6 +8,7 @@ import {
 import { useEffect } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { captureSupabaseError } from "@/lib/errorTracking";
+import { rememberProfilePhotoDerivativeMap } from "@/utils/imageUrl";
 import { collapseVibeGameRowsForWeb, type WebHydratedGameSessionView } from "@/lib/webChatGameSessions";
 import { prewarmMediaAssets, resolveMessageMediaForDisplay, type MediaAssetPrewarmInput } from "@/lib/mediaAssetResolver";
 import { extractChatImageMediaRef } from "@/lib/chatMessageContent";
@@ -109,6 +110,7 @@ type ChatOtherUser = {
   age: number | null;
   avatar_url: string | null;
   photos: unknown;
+  photo_derivatives?: unknown;
   last_seen_at: string | null;
   is_online: boolean;
   photo_verified: boolean | null;
@@ -527,6 +529,7 @@ async function fetchEdgeChatThreadPage(params: {
   if (error) throw error;
   const payload = data as ChatThreadPagePayload | null;
   if (!payload?.success) throw new Error(payload?.error || "chat_thread_page_failed");
+  rememberProfilePhotoDerivativeMap(payload.other_user?.photo_derivatives);
   const rawRows = (payload.messages ?? []).map(normalizeRawMessage);
   return {
     matchId: payload.match_id ?? null,

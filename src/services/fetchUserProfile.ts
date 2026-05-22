@@ -1,5 +1,7 @@
 import { supabase } from "@/integrations/supabase/client";
+import { rememberProfilePhotoDerivativeMap } from "@/utils/imageUrl";
 import { parseMediaCaptions, type MediaCaptions } from "../../shared/media/captions";
+import type { ProfilePhotoDerivativeMap } from "../../shared/profile/photoDerivatives";
 
 const PROFILE_BATCH_SIZE = 100;
 const PROFILE_BATCH_FALLBACK_CONCURRENCY = 8;
@@ -24,6 +26,7 @@ export type UserProfileView = {
   looking_for: string | null;
   relationship_intent: string | null;
   photos: string[] | null;
+  photo_derivatives: ProfilePhotoDerivativeMap;
   avatar_url: string | null;
   bunny_video_uid: string | null;
   bunny_video_status: string | null;
@@ -96,6 +99,7 @@ function rpcJsonToUserProfileView(raw: unknown): UserProfileView | null {
   const photos = Array.isArray(photosRaw)
     ? photosRaw.filter((p): p is string => typeof p === "string")
     : null;
+  const photoDerivatives = rememberProfilePhotoDerivativeMap(row.photo_derivatives);
 
   const vibeScore =
     row.vibe_score === null || row.vibe_score === undefined
@@ -138,6 +142,7 @@ function rpcJsonToUserProfileView(raw: unknown): UserProfileView | null {
           ? null
           : null,
     photos,
+    photo_derivatives: photoDerivatives,
     avatar_url: typeof row.avatar_url === "string" ? row.avatar_url : row.avatar_url === null ? null : null,
     bunny_video_uid: typeof row.bunny_video_uid === "string" ? row.bunny_video_uid : row.bunny_video_uid === null ? null : null,
     bunny_video_status:

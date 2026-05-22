@@ -2,7 +2,7 @@ import { useInfiniteQuery, useQuery, useMutation, useQueryClient, type InfiniteD
 import { useEffect, useCallback, useState, useRef } from 'react';
 import { AppState, type AppStateStatus } from 'react-native';
 import { supabase } from '@/lib/supabase';
-import { avatarUrl } from '@/lib/imageUrl';
+import { avatarUrl, rememberProfilePhotoDerivativeMap } from '@/lib/imageUrl';
 import { resolvePrimaryProfilePhotoPath } from '../../../shared/profilePhoto/resolvePrimaryProfilePhotoPath';
 import { bestMatchSortKey, compatibilityPercent, type MatchScoreInput } from '@/lib/matchSortScore';
 import { prewarmMediaAssets, resolveMessageMediaForDisplay, type MediaAssetPrewarmInput } from '@/lib/mediaAssetResolver';
@@ -428,6 +428,7 @@ type ChatThreadPagePayload = {
     age?: number | null;
     avatar_url?: string | null;
     photos?: string[] | null;
+    photo_derivatives?: unknown;
     last_seen_at?: string | null;
     bunny_video_uid?: string | null;
     vibe_video_signed_playback_required?: boolean | null;
@@ -771,6 +772,7 @@ async function fetchEdgeChatThreadPage(params: {
   if (error) throw error;
   const payload = data as ChatThreadPagePayload | null;
   if (!payload?.success) throw new Error(payload?.error || 'chat_thread_page_failed');
+  rememberProfilePhotoDerivativeMap(payload.other_user?.photo_derivatives);
   const rawRows = (payload.messages ?? []).map(normalizeRawMessage);
   const otherUser: ChatOtherUser | null = payload.other_user
     ? {

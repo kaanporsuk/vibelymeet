@@ -1,4 +1,6 @@
 import { supabase } from '@/lib/supabase';
+import { rememberProfilePhotoDerivativeMap } from '@/lib/imageUrl';
+import type { ProfilePhotoDerivativeMap } from '../../../shared/profile/photoDerivatives';
 
 export type MyProfileSettingsRow = Record<string, unknown> & {
   id: string;
@@ -24,6 +26,7 @@ export type MyProfileSettingsRow = Record<string, unknown> & {
   lifestyle?: Record<string, unknown> | null;
   prompts?: unknown[] | null;
   photos?: string[] | null;
+  photo_derivatives?: ProfilePhotoDerivativeMap | null;
   avatar_url?: string | null;
   bunny_video_uid?: string | null;
   bunny_video_status?: string | null;
@@ -76,5 +79,7 @@ export async function fetchMyProfileSettings(): Promise<MyProfileSettingsRow | n
   const { data, error } = await supabase.rpc('get_my_profile_settings');
   if (error) throw error;
   if (!data || typeof data !== 'object' || Array.isArray(data)) return null;
-  return data as MyProfileSettingsRow;
+  const row = data as MyProfileSettingsRow;
+  row.photo_derivatives = rememberProfilePhotoDerivativeMap(row.photo_derivatives);
+  return row;
 }
