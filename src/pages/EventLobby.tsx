@@ -53,7 +53,17 @@ import {
   QUEUED_MATCH_TIMED_OUT_USER_MESSAGE,
   shouldAdvanceLobbyDeckAfterSwipe,
 } from "@shared/matching/videoSessionFlow";
+import {
+  buildVideoDateDeckPrefetchTelemetryPayload,
+  getVideoDateDeckPrefetchItems,
+  getVideoDateDeckPrefetchSource,
+} from "@clientShared/matching/videoDateDeckPrefetch";
 import { shouldTopUpVideoDateDeck } from "@clientShared/matching/videoDateInstantExperience";
+import {
+  createVideoDateSessionChannel,
+  resolveVideoDateSessionSeqDecision,
+  type VideoDateSessionBroadcastEvent,
+} from "@clientShared/matching/videoDateSessionChannel";
 import {
   bucketEventLobbyCount,
   EventLobbyObservabilityEvents,
@@ -182,6 +192,8 @@ const EventLobby = () => {
   });
   const { setStatus, currentStatus } = useEventStatus({ eventId, enabled: lobbySideEffectsEnabled });
   const readinessV2 = useFeatureFlag("video_date.readiness_v2");
+  const deckPrefetchPolishV2 = useFeatureFlag("video_date.deck_prefetch_polish_v2");
+  const lobbyTimelineV2 = useFeatureFlag("video_date.lobby_timeline_v2");
   const videoDateReadiness = useNonBlockingVideoDateReadiness(
     eventId,
     readinessV2.enabled && lobbySideEffectsEnabled,
@@ -214,6 +226,7 @@ const EventLobby = () => {
   const scopedSessionId = sameEventScopedSession?.sessionId ?? null;
   const scopedSessionKind = sameEventScopedSession?.kind ?? null;
   const scopedSessionQueueStatus = sameEventScopedSession?.queueStatus ?? null;
+  const lobbyBroadcastSessionId = scopedSessionId ?? activeSessionId;
   const hasScopedSession = scopedSessionId !== null;
   const activeSessionIdRef = useRef<string | null>(null);
   const activeServerSessionRef = useRef<string | null>(null);
@@ -227,6 +240,10 @@ const EventLobby = () => {
   const deckLoadedTrackedRef = useRef<string | null>(null);
   const deckEmptyTrackedRef = useRef<string | null>(null);
   const deckErrorTrackedRef = useRef<string | null>(null);
+  const deckPrefetchInFlightRef = useRef<Set<string>>(new Set());
+  const deckPrefetchLoadedRef = useRef<Set<string>>(new Set());
+  const deckPrefetchCacheHitTrackedRef = useRef<Set<string>>(new Set());
+  const lobbyBroadcastSessionSeqRef = useRef<number | null>(null);
   const lifecycleDebugKeyRef = useRef<string | null>(null);
 
   useEffect(() => {
@@ -320,9 +337,25 @@ const EventLobby = () => {
   useEffect(() => {
     setLobbyClockMs(Date.now());
     if (!eventEndTimeMs) return;
+    if (lobbyTimelineV2.enabled && typeof window.requestAnimationFrame === "function") {
+      let rafId = 0;
+      let lastSecond = -1;
+      const tick = () => {
+        const now = Date.now();
+        const second = Math.floor(now / 1000);
+        if (second !== lastSecond) {
+          lastSecond = second;
+          setLobbyClockMs(now);
+        }
+        if (now >= eventEndTimeMs) return;
+        rafId = window.requestAnimationFrame(tick);
+      };
+      rafId = window.requestAnimationFrame(tick);
+      return () => window.cancelAnimationFrame(rafId);
+    }
     const intervalId = setInterval(() => setLobbyClockMs(Date.now()), 1000);
     return () => clearInterval(intervalId);
-  }, [eventEndTimeMs]);
+  }, [eventEndTimeMs, lobbyTimelineV2.enabled]);
 
   const openReadyGateSession = useCallback((sessionId: string, source: string) => {
     if (!sessionId || dateNavigationSessionIdRef.current) return;
@@ -644,6 +677,10 @@ const EventLobby = () => {
     deckLoadedTrackedRef.current = null;
     deckEmptyTrackedRef.current = null;
     deckErrorTrackedRef.current = null;
+    deckPrefetchInFlightRef.current.clear();
+    deckPrefetchLoadedRef.current.clear();
+    deckPrefetchCacheHitTrackedRef.current.clear();
+    lobbyBroadcastSessionSeqRef.current = null;
   }, [eventId]);
 
   /** Remaining super vibes this event (server caps at 3 per event on event_swipes). */
@@ -987,6 +1024,7 @@ const EventLobby = () => {
 
   useEffect(() => {
     if (!user?.id || !eventId) return;
+    if (lobbyTimelineV2.enabled && lobbyBroadcastSessionId) return;
     const handleVideoSessionChange = (
       payload: { new: Record<string, unknown> },
       source: "video_session_realtime" | "video_session_insert"
@@ -998,6 +1036,9 @@ const EventLobby = () => {
       if (!isParticipant) return;
       const sessionId = typeof session.id === "string" ? session.id : null;
       if (!sessionId) return;
+      if (deckPrefetchPolishV2.enabled) {
+        void queryClient.invalidateQueries({ queryKey: ["event-deck", eventId, user.id] });
+      }
 
       if (canAttemptDailyRoomFromVideoSessionTruth(session) || isActiveVideoPhase(session)) {
         lobbyDebug("same-session active date detected from participant-scoped video session realtime", {
@@ -1050,7 +1091,81 @@ const EventLobby = () => {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [user?.id, eventId, prepareAndNavigateToDateSession, openReadyGateSession, scheduleLobbyConvergenceRefresh]);
+  }, [
+    user?.id,
+    eventId,
+    prepareAndNavigateToDateSession,
+    openReadyGateSession,
+    scheduleLobbyConvergenceRefresh,
+    deckPrefetchPolishV2.enabled,
+    lobbyBroadcastSessionId,
+    lobbyTimelineV2.enabled,
+    queryClient,
+  ]);
+
+  const reconcileLobbyBroadcastEvent = useCallback(
+    (event: VideoDateSessionBroadcastEvent) => {
+      if (!eventId || !user?.id) return;
+      const decision = resolveVideoDateSessionSeqDecision(lobbyBroadcastSessionSeqRef.current, event.sessionSeq);
+      if (decision.action === "invalid" || decision.action === "duplicate") return;
+      lobbyBroadcastSessionSeqRef.current = event.sessionSeq;
+      scheduleLobbyConvergenceRefresh(event.sessionId, `broadcast_${event.kind}`);
+      if (deckPrefetchPolishV2.enabled) {
+        void queryClient.invalidateQueries({ queryKey: ["event-deck", eventId, user.id] });
+      }
+      if (event.kind === "ready_gate_both_ready") {
+        prepareAndNavigateToDateSession(event.sessionId, "broadcast_ready_gate_both_ready");
+      }
+    },
+    [
+      deckPrefetchPolishV2.enabled,
+      eventId,
+      prepareAndNavigateToDateSession,
+      queryClient,
+      scheduleLobbyConvergenceRefresh,
+      user?.id,
+    ],
+  );
+
+  useEffect(() => {
+    if (!eventId || !user?.id || !lobbyTimelineV2.enabled || !lobbyBroadcastSessionId) {
+      lobbyBroadcastSessionSeqRef.current = null;
+      return;
+    }
+    const subscription = createVideoDateSessionChannel(supabase, {
+      sessionId: lobbyBroadcastSessionId,
+      onEvent: reconcileLobbyBroadcastEvent,
+      onInvalidPayload: () => {
+        vdbg("lobby_session_broadcast_invalid_payload_ignored", {
+          eventId,
+          sessionId: lobbyBroadcastSessionId,
+        });
+      },
+      onStatusChange: (status, error) => {
+        if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
+          vdbg("lobby_session_broadcast_channel_degraded", {
+            eventId,
+            sessionId: lobbyBroadcastSessionId,
+            status,
+            error: error instanceof Error ? error.message : String(error ?? ""),
+          });
+          scheduleLobbyConvergenceRefresh(lobbyBroadcastSessionId, "broadcast_channel_degraded", 0);
+        }
+      },
+    });
+    return () => {
+      subscription.unsubscribe();
+    };
+  }, [
+    eventId,
+    lobbyBroadcastSessionId,
+    lobbyTimelineV2.enabled,
+    reconcileLobbyBroadcastEvent,
+    scheduleLobbyConvergenceRefresh,
+    user?.id,
+  ]);
+
+  const timelineCountdownTickMs = lobbyTimelineV2.enabled ? lobbyClockMs : null;
 
   // Event countdown timer
   useEffect(() => {
@@ -1077,9 +1192,10 @@ const EventLobby = () => {
     };
 
     tick();
+    if (lobbyTimelineV2.enabled) return;
     const interval = setInterval(tick, 1000);
     return () => clearInterval(interval);
-  }, [eventEndTimeMs, eventForLobbyGate]);
+  }, [eventEndTimeMs, eventForLobbyGate, lobbyTimelineV2.enabled, timelineCountdownTickMs]);
 
   // Server-dealt deck v2 is the only active source of deck exclusion truth.
   const sortedProfiles = useMemo(() => {
@@ -1093,7 +1209,7 @@ const EventLobby = () => {
   }, [profiles]);
 
   useEffect(() => {
-    if (typeof window === "undefined") return;
+    if (typeof window === "undefined" || deckPrefetchPolishV2.enabled) return;
     for (const profile of sortedProfiles.slice(0, 3)) {
       const src = deckCardUrl(profile.primary_photo_path ?? profile.photos?.[0] ?? profile.avatar_url);
       if (!src) continue;
@@ -1101,7 +1217,84 @@ const EventLobby = () => {
       image.decoding = "async";
       image.src = src;
     }
-  }, [sortedProfiles]);
+  }, [deckPrefetchPolishV2.enabled, sortedProfiles]);
+
+  const deckPrefetchItems = useMemo(
+    () =>
+      getVideoDateDeckPrefetchItems(sortedProfiles).map((item) => ({
+        ...item,
+        url: deckCardUrl(item.source),
+      })).filter((item) => Boolean(item.url)),
+    [sortedProfiles],
+  );
+
+  useEffect(() => {
+    if (!deckPrefetchPolishV2.enabled || typeof window === "undefined") return;
+    for (const item of deckPrefetchItems) {
+      const src = item.url;
+      if (!src) continue;
+      if (deckPrefetchLoadedRef.current.has(src)) {
+        const key = `${eventId ?? "event"}:${src}`;
+        if (!deckPrefetchCacheHitTrackedRef.current.has(key)) {
+          deckPrefetchCacheHitTrackedRef.current.add(key);
+          trackEvent("video_date_deck_prefetch_cache_hit", {
+            ...buildVideoDateDeckPrefetchTelemetryPayload({
+              platform: "web",
+              eventId,
+              profileId: item.profileId,
+              rank: item.rank,
+              sourceKind: item.sourceKind,
+            }),
+          });
+        }
+        continue;
+      }
+      if (deckPrefetchInFlightRef.current.has(src)) continue;
+      deckPrefetchInFlightRef.current.add(src);
+      trackEvent("video_date_deck_prefetch_cache_miss", {
+        ...buildVideoDateDeckPrefetchTelemetryPayload({
+          platform: "web",
+          eventId,
+          profileId: item.profileId,
+          rank: item.rank,
+          sourceKind: item.sourceKind,
+        }),
+      });
+      const image = new Image();
+      image.decoding = "async";
+      if ("fetchPriority" in image) {
+        (image as HTMLImageElement & { fetchPriority?: "high" | "low" | "auto" }).fetchPriority =
+          item.rank === 0 ? "high" : "low";
+      }
+      image.onload = () => {
+        deckPrefetchLoadedRef.current.add(src);
+        trackEvent("video_date_deck_prefetch_result", {
+          ...buildVideoDateDeckPrefetchTelemetryPayload({
+            platform: "web",
+            eventId,
+            profileId: item.profileId,
+            rank: item.rank,
+            sourceKind: item.sourceKind,
+          }),
+          outcome: "success",
+        });
+      };
+      image.onerror = () => {
+        deckPrefetchInFlightRef.current.delete(src);
+        trackEvent("video_date_deck_prefetch_result", {
+          ...buildVideoDateDeckPrefetchTelemetryPayload({
+            platform: "web",
+            eventId,
+            profileId: item.profileId,
+            rank: item.rank,
+            sourceKind: item.sourceKind,
+          }),
+          outcome: "failure",
+        });
+      };
+      image.src = src;
+    }
+  }, [deckPrefetchItems, deckPrefetchPolishV2.enabled, eventId]);
 
   const currentProfile = sortedProfiles[0] || null;
   const nextProfile = sortedProfiles[1] || null;
@@ -1221,24 +1414,58 @@ const EventLobby = () => {
 
   const advanceDeckAfterSwipe = useCallback(
     (targetId: string) => {
+      const paintStartedAt =
+        deckPrefetchPolishV2.enabled && typeof performance !== "undefined" ? performance.now() : null;
       let remainingVisible = 0;
+      let nextProfileAfterSwipe: DeckProfile | null = null;
       queryClient.setQueryData<DeckProfile[]>(
         ["event-deck", eventId, user?.id, "deck_v2"],
         (current) => {
           if (!Array.isArray(current)) return current;
           const next = current.filter((profile) => profile.id !== targetId);
           remainingVisible = next.length;
+          nextProfileAfterSwipe = next[0] ?? null;
           return next;
         },
       );
       if (remainingVisible === 0) {
-        remainingVisible = profiles.filter((profile) => profile.id !== targetId).length;
+        const fallbackNext = profiles.filter((profile) => profile.id !== targetId);
+        remainingVisible = fallbackNext.length;
+        nextProfileAfterSwipe = fallbackNext[0] ?? null;
       }
-      if (shouldTopUpVideoDateDeck(remainingVisible)) {
+      const shouldTopUp = shouldTopUpVideoDateDeck(remainingVisible);
+      if (deckPrefetchPolishV2.enabled) {
+        trackEvent("video_date_deck_top_up_decision", {
+          platform: "web",
+          event_id: eventId,
+          remaining_visible: remainingVisible,
+          should_top_up: shouldTopUp,
+          reason: shouldTopUp ? "threshold_reached" : "buffer_sufficient",
+        });
+        if (paintStartedAt !== null) {
+          const schedulePaint =
+            typeof window.requestAnimationFrame === "function"
+              ? (callback: FrameRequestCallback) => window.requestAnimationFrame(callback)
+              : (callback: FrameRequestCallback) => window.setTimeout(() => callback(performance.now()), 0);
+          schedulePaint(() => {
+            const source = getVideoDateDeckPrefetchSource(nextProfileAfterSwipe);
+            const src = source ? deckCardUrl(source.source) : null;
+            trackEvent("video_date_deck_swipe_next_card_paint", {
+              platform: "web",
+              event_id: eventId,
+              duration_ms: Math.max(0, Math.round(performance.now() - paintStartedAt)),
+              cache_hit: src ? deckPrefetchLoadedRef.current.has(src) : null,
+              next_profile_present: Boolean(nextProfileAfterSwipe),
+              remaining_visible: remainingVisible,
+            });
+          });
+        }
+      }
+      if (shouldTopUp) {
         void queryClient.invalidateQueries({ queryKey: ["event-deck", eventId, user?.id] });
       }
     },
-    [eventId, profiles, queryClient, user?.id]
+    [deckPrefetchPolishV2.enabled, eventId, profiles, queryClient, user?.id]
   );
 
   const handleVibe = useCallback(async () => {

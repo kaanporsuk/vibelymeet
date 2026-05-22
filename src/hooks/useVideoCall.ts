@@ -56,6 +56,7 @@ interface UseVideoCallOptions {
   onPartnerLeft?: () => void;
   onPartnerTransientDisconnect?: () => void;
   onPartnerTransientRecover?: () => void;
+  resilienceV2?: boolean;
 }
 
 /** Daily `network-quality-change` — surfaced as lightweight HUD, not toasts. */
@@ -678,10 +679,66 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
   const lastPrewarmedJoinInFlightRef = useRef(false);
   const lastPrewarmedAlreadyJoinedRef = useRef(false);
   const lastProviderVerifySkippedRef = useRef<boolean | null>(null);
+  const resilienceReceiveSettingsKeyRef = useRef<string | null>(null);
 
   useEffect(() => {
     optionsRef.current = options;
   }, [options]);
+
+  useEffect(() => {
+    const sessionId = options?.roomId ?? null;
+    if (!options?.resilienceV2 || !sessionId) return;
+    if (!isConnected) {
+      resilienceReceiveSettingsKeyRef.current = null;
+      return;
+    }
+
+    const mode = networkTier === "poor" ? "audio_priority" : "standard";
+    if (mode === "standard" && resilienceReceiveSettingsKeyRef.current === null) return;
+
+    const key = `${sessionId}:${mode}`;
+    if (resilienceReceiveSettingsKeyRef.current === key) return;
+
+    const call = callObjectRef.current;
+    const payload = {
+      platform: "web",
+      session_id: sessionId,
+      event_id: options.eventId ?? null,
+      network_tier: networkTier,
+      adaptation: mode,
+    };
+
+    if (!call || typeof call.updateReceiveSettings !== "function") {
+      resilienceReceiveSettingsKeyRef.current = key;
+      trackEvent("video_date_resilience_daily_adaptation", {
+        ...payload,
+        capability_available: false,
+        outcome: "unsupported",
+      });
+      return;
+    }
+
+    const receiveSettings: Parameters<DailyCall["updateReceiveSettings"]>[0] =
+      mode === "audio_priority" ? { "*": { video: { layer: 0 } } } : { "*": "inherit" };
+    resilienceReceiveSettingsKeyRef.current = key;
+    void call
+      .updateReceiveSettings(receiveSettings)
+      .then(() => {
+        trackEvent("video_date_resilience_daily_adaptation", {
+          ...payload,
+          capability_available: true,
+          outcome: "applied",
+        });
+      })
+      .catch((error) => {
+        trackEvent("video_date_resilience_daily_adaptation", {
+          ...payload,
+          capability_available: true,
+          outcome: "failed",
+          reason: error instanceof Error ? error.message.slice(0, 120) : "unknown",
+        });
+      });
+  }, [isConnected, networkTier, options?.eventId, options?.resilienceV2, options?.roomId]);
 
   useEffect(() => {
     if (!isConnecting && !isConnected) {

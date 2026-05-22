@@ -12,22 +12,48 @@ type Props = {
   isVisible: boolean;
   partnerName: string;
   graceTimeLeft: number;
+  mode?: 'partner_away' | 'network_interrupted';
+  networkTier?: 'good' | 'fair' | 'poor';
+  resilienceV2?: boolean;
 };
 
-export function ReconnectionOverlay({ isVisible, partnerName, graceTimeLeft }: Props) {
+export function ReconnectionOverlay({
+  isVisible,
+  partnerName,
+  graceTimeLeft,
+  mode = 'partner_away',
+  networkTier = 'good',
+  resilienceV2 = false,
+}: Props) {
   const colorScheme = useColorScheme();
   const theme = Colors[colorScheme];
 
   if (!isVisible) return null;
 
+  const title =
+    mode === 'network_interrupted'
+      ? 'Reconnecting gently...'
+      : `Keeping the room open for ${partnerName}`;
+  const subtitle =
+    mode === 'network_interrupted'
+      ? "The connection softened. We'll hold the room for a few seconds."
+      : "They may be stepping back in. We'll hold this gently.";
+
   return (
     <View style={styles.overlay}>
       <View style={[styles.card, { backgroundColor: theme.surface, borderColor: theme.border }]}>
-        <Text style={[styles.title, { color: theme.text }]}>Keeping the room open for {partnerName}</Text>
-        <Text style={[styles.subtitle, { color: theme.mutedForeground }]}>They may be stepping back in. We'll hold this gently.</Text>
+        <Text style={[styles.title, { color: theme.text }]}>{title}</Text>
+        <Text style={[styles.subtitle, { color: theme.mutedForeground }]}>{subtitle}</Text>
         <View style={styles.countdown}>
           <Text style={[styles.countdownNum, { color: theme.text }]}>{graceTimeLeft}s</Text>
         </View>
+        {resilienceV2 && networkTier !== 'good' ? (
+          <View style={[styles.resiliencePill, { borderColor: theme.border }]}>
+            <Text style={[styles.resilienceText, { color: theme.mutedForeground }]}>
+              {networkTier === 'poor' ? 'Audio priority mode' : 'Stabilizing video'}
+            </Text>
+          </View>
+        ) : null}
       </View>
     </View>
   );
@@ -64,5 +90,16 @@ const styles = StyleSheet.create({
   countdownNum: {
     fontSize: 28,
     fontWeight: '700',
+  },
+  resiliencePill: {
+    marginTop: spacing.md,
+    borderWidth: 1,
+    borderRadius: 999,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.xs,
+  },
+  resilienceText: {
+    fontSize: 12,
+    fontWeight: '600',
   },
 });

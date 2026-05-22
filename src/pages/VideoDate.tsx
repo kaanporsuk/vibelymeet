@@ -1,5 +1,6 @@
 import { useState, useEffect, useLayoutEffect, useRef, useCallback, useMemo } from "react";
 import { useNavigate, useParams } from "react-router-dom";
+import { useQueryClient } from "@tanstack/react-query";
 import { motion, AnimatePresence } from "framer-motion";
 import { toast } from "sonner";
 import { Clock, Sparkles, User } from "lucide-react";
@@ -33,12 +34,16 @@ import { useVideoDateDupTabGuard } from "@/hooks/useVideoDateDupTabGuard";
 import { useFeatureFlag } from "@/hooks/useFeatureFlag";
 import { useUserProfile } from "@/contexts/AuthContext";
 import { useEventStatus } from "@/hooks/useEventStatus";
+import { fetchEventDeckProfiles } from "@/hooks/useEventDeck";
 import { SUPABASE_PUBLISHABLE_KEY, SUPABASE_URL, supabase } from "@/integrations/supabase/client";
 import { fetchVideoDateSnapshot } from "@/lib/videoDateSnapshot";
 import { resolvePhotoUrl } from "@/lib/photoUtils";
 import { ProfilePhoto } from "@/components/ui/ProfilePhoto";
 import { trackEvent } from "@/lib/analytics";
 import { recordUserAction } from "@/lib/browserDiagnostics";
+import { preloadRouteOnIdle } from "@/lib/routePreload";
+import { deckCardUrl } from "@/utils/imageUrl";
+import { getVideoDateDeckPrefetchItems } from "@clientShared/matching/videoDateDeckPrefetch";
 import { LobbyPostDateEvents } from "@clientShared/analytics/lobbyToPostDateJourney";
 import { Button } from "@/components/ui/button";
 import {
@@ -387,6 +392,7 @@ const VideoDate = () => {
   const navigate = useNavigate();
   const { id } = useParams();
   const { user } = useUserProfile();
+  const queryClient = useQueryClient();
   const broadcastV2 = useFeatureFlag("video_date.broadcast_v2");
   const timelineV2 = useFeatureFlag("video_date.timeline_v2");
   const continueHandshakeV2 = useFeatureFlag("video_date.outbox_v2.continue_handshake");
@@ -396,6 +402,8 @@ const VideoDate = () => {
   const extensionMutualV2 = useFeatureFlag("video_date.extension_mutual_v2");
   const safetyV2 = useFeatureFlag("video_date.outbox_v2.safety");
   const safetyAlwaysOnV2 = useFeatureFlag("video_date.safety_always_on_v2");
+  const postDateInstantNextV2 = useFeatureFlag("video_date.post_date_instant_next_v2");
+  const resilienceV2 = useFeatureFlag("video_date.resilience_v2");
 
   const [phase, setPhase] = useState<CallPhase>("handshake");
   /** Server-owned extension seconds (`video_sessions.date_extra_seconds`) for reconciliation after refetch/rejoin. */
@@ -465,6 +473,8 @@ const VideoDate = () => {
   } | null>(null);
   const dailyReconnectPerformanceStartedAtRef = useRef<number | null>(null);
   const dailyReconnectPerformanceSourceRef = useRef<string | null>(null);
+  const postDatePrestageKeyRef = useRef<string | null>(null);
+  const resilienceModeTrackedKeyRef = useRef<string | null>(null);
   const extensionBroadcastSeenRef = useRef<Set<number>>(new Set());
   const explicitEndRequestedRef = useRef<"idle" | "sending" | "acked">("idle");
   const leaveSignalTokenRef = useRef<string | null>(null);
@@ -767,6 +777,7 @@ const VideoDate = () => {
     roomId: id,
     userId: user?.id,
     eventId,
+    resilienceV2: resilienceV2.enabled,
     videoSessionState: phase,
     localDecisionPersisted: Boolean(
       handshakeTruth &&
@@ -1163,6 +1174,55 @@ const VideoDate = () => {
       });
     }
   }, [dailyReconnectState, id, phase, showFeedback, trackDailyPerformanceCheckpoint]);
+
+  useEffect(() => {
+    if (!postDateInstantNextV2.enabled || !id || showFeedback || phase !== "date") return;
+    if ((timeLeft ?? Number.POSITIVE_INFINITY) > 30) return;
+    if (postDatePrestageKeyRef.current === id) return;
+    postDatePrestageKeyRef.current = id;
+    preloadRouteOnIdle("eventLobby");
+    if (eventId && user?.id) {
+      const queryKey = ["event-deck", eventId, user.id, "deck_v2"] as const;
+      void queryClient
+        .prefetchQuery({
+          queryKey,
+          queryFn: () => fetchEventDeckProfiles(eventId, user.id),
+          staleTime: 10_000,
+        })
+        .then(() => {
+          if (typeof window === "undefined") return;
+          const profiles = queryClient.getQueryData<Awaited<ReturnType<typeof fetchEventDeckProfiles>>>(queryKey) ?? [];
+          for (const item of getVideoDateDeckPrefetchItems(profiles)) {
+            const src = deckCardUrl(item.source);
+            if (!src) continue;
+            const image = new Image();
+            image.decoding = "async";
+            image.src = src;
+          }
+        })
+        .catch(() => undefined);
+    }
+    trackEvent("post_date_survey_prestaged", {
+      platform: "web",
+      session_id: id,
+      event_id: eventId ?? null,
+      remaining_seconds: timeLeft ?? null,
+    });
+  }, [eventId, id, phase, postDateInstantNextV2.enabled, queryClient, showFeedback, timeLeft, user?.id]);
+
+  useEffect(() => {
+    if (!resilienceV2.enabled || !id || showFeedback || networkTier === "good") return;
+    const key = `${id}:${networkTier}`;
+    if (resilienceModeTrackedKeyRef.current === key) return;
+    resilienceModeTrackedKeyRef.current = key;
+    trackEvent("video_date_resilience_low_quality_mode", {
+      platform: "web",
+      session_id: id,
+      event_id: eventId ?? null,
+      network_tier: networkTier,
+      adaptation: "ui_and_daily_capability_checked",
+    });
+  }, [eventId, id, networkTier, resilienceV2.enabled, showFeedback]);
 
   const applyTimelineSnapshot = useCallback(
     (snapshot: Awaited<ReturnType<typeof fetchVideoDateSnapshot>>, source: string) => {
@@ -4368,6 +4428,8 @@ const VideoDate = () => {
           partnerName={partner.name}
           graceTimeLeft={transportReconnectVisible ? reconnectGraceTimeLeft : reconnection.graceTimeLeft}
           mode={transportReconnectVisible ? reconnectOverlayMode : "partner_away"}
+          networkTier={networkTier}
+          resilienceV2={resilienceV2.enabled}
         />
 
         {/* Cinematic glass wash */}

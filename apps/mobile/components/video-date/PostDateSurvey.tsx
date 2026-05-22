@@ -16,6 +16,7 @@ import {
   Alert,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
+import { useQueryClient } from '@tanstack/react-query';
 import { typography, spacing, radius, shadows } from '@/constants/theme';
 import Colors from '@/constants/Colors';
 import { useColorScheme } from '@/components/useColorScheme';
@@ -25,9 +26,10 @@ import { submitNativePostDateOutboxItem } from '@/lib/postDateOutbox/execute';
 import { LobbyPostDateEvents } from '@clientShared/analytics/lobbyToPostDateJourney';
 import type { SubmitVerdictAndCheckMutualResult } from '@/lib/videoDateApi';
 import { submitPostDateReportWithOutbox, updateParticipantStatus } from '@/lib/videoDateApi';
-import { drainMatchQueue, getQueuedMatchCount } from '@/lib/eventsApi';
+import { drainMatchQueue, fetchEventDeckProfiles, getQueuedMatchCount } from '@/lib/eventsApi';
 import { MatchCelebrationScreen } from '@/components/match/MatchCelebrationScreen';
 import { supabase } from '@/lib/supabase';
+import { deckCardUrl } from '@/lib/imageUrl';
 import { videoSessionIdFromDrainPayload } from '@shared/matching/videoSessionFlow';
 import {
   getPostDateSurveyContinuityDecision,
@@ -48,6 +50,7 @@ import {
   getVideoDateMicroVerdictCopy,
   getVideoDateMicroVerdictRemainingSeconds,
 } from '../../../../shared/matching/videoDateMicroVerdict';
+import { getVideoDateDeckPrefetchItems } from '../../../../shared/matching/videoDateDeckPrefetch';
 
 type Props = {
   sessionId: string;
@@ -215,8 +218,10 @@ export function PostDateSurvey({
 }: Props) {
   const colorScheme = useColorScheme();
   const theme = Colors[colorScheme];
+  const queryClient = useQueryClient();
   const microVerdictV2 = useFeatureFlag('video_date.micro_verdict_v2');
   const drainQueueV2 = useFeatureFlag('video_date.outbox_v2.drain_match_queue');
+  const postDateInstantNextV2 = useFeatureFlag('video_date.post_date_instant_next_v2');
   const [step, setStep] = useState<SurveyStep>('verdict');
   const [submitting, setSubmitting] = useState(false);
   const [finishing, setFinishing] = useState(false);
@@ -256,6 +261,7 @@ export function PostDateSurvey({
   const reportBeforeVerdictRef = useRef(false);
   const reportPassVerdictSavedRef = useRef(false);
   const verdictOpenedAtMsRef = useRef(Date.now());
+  const instantNextPrefetchKeyRef = useRef<string | null>(null);
   const [microVerdictNowMs, setMicroVerdictNowMs] = useState(Date.now());
 
   useEffect(() => {
@@ -316,6 +322,52 @@ export function PostDateSurvey({
       cancelled = true;
     };
   }, [eventId, userId, sessionId]);
+
+  useEffect(() => {
+    if (!postDateInstantNextV2.enabled || !eventId || !userId) return;
+    const key = `${eventId}:${userId}:${sessionId}`;
+    if (instantNextPrefetchKeyRef.current === key) return;
+    instantNextPrefetchKeyRef.current = key;
+    trackEvent('post_date_instant_next_prewarm_started', {
+      platform: 'native',
+      session_id: sessionId,
+      event_id: eventId,
+      source_surface: 'post_date_survey',
+    });
+    void queryClient
+      .prefetchQuery({
+        queryKey: ['event-deck', eventId, userId, 'deck_v2'],
+        queryFn: () => fetchEventDeckProfiles(eventId, userId),
+        staleTime: 10_000,
+      })
+      .then(() => {
+        const profiles = queryClient.getQueryData<Awaited<ReturnType<typeof fetchEventDeckProfiles>>>([
+          'event-deck',
+          eventId,
+          userId,
+          'deck_v2',
+        ]) ?? [];
+        for (const item of getVideoDateDeckPrefetchItems(profiles)) {
+          const src = deckCardUrl(item.source);
+          if (src) void Image.prefetch(src);
+        }
+        trackEvent('post_date_instant_next_prewarm_result', {
+          platform: 'native',
+          session_id: sessionId,
+          event_id: eventId,
+          outcome: 'success',
+          deck_count: profiles.length,
+        });
+      })
+      .catch(() => {
+        trackEvent('post_date_instant_next_prewarm_result', {
+          platform: 'native',
+          session_id: sessionId,
+          event_id: eventId,
+          outcome: 'failure',
+        });
+      });
+  }, [eventId, postDateInstantNextV2.enabled, queryClient, sessionId, userId]);
 
   useEffect(() => {
     if (step !== 'verdict' || !sessionId || verdictImpressionRef.current) return;
@@ -733,6 +785,14 @@ export function PostDateSurvey({
     setVerdictError(null);
     setVerdictRetryable(false);
     setLastVerdictAttempt(liked);
+    if (postDateInstantNextV2.enabled) {
+      trackEvent('post_date_verdict_optimistic_started', {
+        platform: 'native',
+        session_id: sessionId,
+        event_id: eventId,
+        verdict: liked ? 'vibe' : 'pass',
+      });
+    }
     trackEvent(liked ? LobbyPostDateEvents.KEEP_THE_VIBE_YES_TAP : LobbyPostDateEvents.KEEP_THE_VIBE_NO_TAP, {
       platform: 'native',
       session_id: sessionId,
@@ -765,6 +825,14 @@ export function PostDateSurvey({
       if (!result) {
         setVerdictRetryable(true);
         setVerdictError("Couldn't save your answer. Tap to retry.");
+        if (postDateInstantNextV2.enabled) {
+          trackEvent('post_date_verdict_optimistic_rollback', {
+            platform: 'native',
+            session_id: sessionId,
+            event_id: eventId,
+            reason: 'missing_result',
+          });
+        }
         return;
       }
       if (!result.ok) {
@@ -780,9 +848,25 @@ export function PostDateSurvey({
             !['blocked_pair', 'not_participant', 'session_not_found'].includes(result.code),
         );
         setVerdictError(verdictFailureUserMessage(result));
+        if (postDateInstantNextV2.enabled) {
+          trackEvent('post_date_verdict_optimistic_rollback', {
+            platform: 'native',
+            session_id: sessionId,
+            event_id: eventId,
+            reason: result.reason,
+          });
+        }
         return;
       }
       setVerdictRetryable(false);
+      if (postDateInstantNextV2.enabled) {
+        trackEvent('post_date_verdict_optimistic_confirmed', {
+          platform: 'native',
+          session_id: sessionId,
+          event_id: eventId,
+          verdict: liked ? 'vibe' : 'pass',
+        });
+      }
       trackEvent(LobbyPostDateEvents.POST_DATE_SURVEY_SUBMIT, {
         platform: 'native',
         session_id: sessionId,
@@ -841,6 +925,14 @@ export function PostDateSurvey({
       });
       setVerdictRetryable(true);
       setVerdictError("Couldn't save your answer. Tap to retry.");
+      if (postDateInstantNextV2.enabled) {
+        trackEvent('post_date_verdict_optimistic_rollback', {
+          platform: 'native',
+          session_id: sessionId,
+          event_id: eventId,
+          reason: 'exception',
+        });
+      }
     } finally {
       setSubmitting(false);
     }

@@ -82,6 +82,11 @@ import {
 import { getRelationshipIntentDisplaySafe } from '@shared/profileContracts';
 import { resolvePrimaryProfilePhotoPath } from '../../../../../shared/profilePhoto/resolvePrimaryProfilePhotoPath';
 import {
+  buildVideoDateDeckPrefetchTelemetryPayload,
+  getVideoDateDeckPrefetchItems,
+  getVideoDateDeckPrefetchSource,
+} from '@clientShared/matching/videoDateDeckPrefetch';
+import {
   getSwipeFailureUserMessage,
   videoSessionIdFromSwipePayload,
   videoSessionIdFromDrainPayload,
@@ -92,6 +97,11 @@ import {
   isVideoSessionQueuedTtlExpiryTransition,
 } from '@shared/matching/videoSessionFlow';
 import { shouldTopUpVideoDateDeck } from '@clientShared/matching/videoDateInstantExperience';
+import {
+  createVideoDateSessionChannel,
+  resolveVideoDateSessionSeqDecision,
+  type VideoDateSessionBroadcastEvent,
+} from '@clientShared/matching/videoDateSessionChannel';
 import { nextConvergenceDelayMs } from '@clientShared/matching/convergenceScheduling';
 import { resolveEventLifecycle } from '@clientShared/eventLifecycle';
 import { eventLobbyHref } from '@/lib/activeSessionRoutes';
@@ -141,33 +151,38 @@ function formatHeightCm(cm: number | null | undefined): string | null {
   return `${cm} cm`;
 }
 
-function useCountdown(endTime: Date | null): string {
+function formatEventCountdown(endTimeMs: number | null, nowMs: number): string {
+  if (endTimeMs == null) return '';
+  const diff = Math.max(0, Math.floor((endTimeMs - nowMs) / 1000));
+  if (diff <= 0) return 'Ended';
+  const m = Math.floor(diff / 60);
+  const s = diff % 60;
+  return `${m}:${String(s).padStart(2, '0')}`;
+}
+
+function useCountdown(endTime: Date | null, enabled = true): string {
   const [timeRemaining, setTimeRemaining] = useState('');
   const endTimeMs = endTime?.getTime() ?? null;
 
   useEffect(() => {
-    if (endTimeMs == null) return;
+    if (!enabled || endTimeMs == null) return;
     let intervalId: ReturnType<typeof setInterval> | null = null;
     const tick = () => {
-      const diff = Math.max(0, Math.floor((endTimeMs - Date.now()) / 1000));
-      if (diff <= 0) {
-        setTimeRemaining('Ended');
+      const next = formatEventCountdown(endTimeMs, Date.now());
+      setTimeRemaining(next);
+      if (next === 'Ended') {
         if (intervalId != null) {
           clearInterval(intervalId);
           intervalId = null;
         }
-        return;
       }
-      const m = Math.floor(diff / 60);
-      const s = diff % 60;
-      setTimeRemaining(`${m}:${String(s).padStart(2, '0')}`);
     };
     tick();
     intervalId = setInterval(tick, 1000);
     return () => {
       if (intervalId != null) clearInterval(intervalId);
     };
-  }, [endTimeMs]);
+  }, [enabled, endTimeMs]);
   return timeRemaining;
 }
 
@@ -233,13 +248,6 @@ export default function EventLobbyScreen() {
   const lifecycleDebugKeyRef = useRef<string | null>(null);
 
   useEffect(() => {
-    if (!eventDateValue) return;
-    setLobbyClockMs(Date.now());
-    const interval = setInterval(() => setLobbyClockMs(Date.now()), 1000);
-    return () => clearInterval(interval);
-  }, [eventDateValue, eventEndTimeMs, eventEndedAt, eventArchivedAt, eventStatusRaw]);
-
-  useEffect(() => {
     if (!__DEV__ || !id || !eventDateValue || !resolvedEventLifecycle) return;
     const debugKey = [
       id,
@@ -296,10 +304,42 @@ export default function EventLobbyScreen() {
   );
   const readinessV2 = useFeatureFlag('video_date.readiness_v2');
   const drainQueueV2 = useFeatureFlag('video_date.outbox_v2.drain_match_queue');
+  const deckPrefetchPolishV2 = useFeatureFlag('video_date.deck_prefetch_polish_v2');
+  const lobbyTimelineV2 = useFeatureFlag('video_date.lobby_timeline_v2');
   const videoDateReadiness = useNonBlockingVideoDateReadiness(
     id,
     readinessV2.enabled && lobbySideEffectsEnabled,
   );
+
+  useEffect(() => {
+    if (!eventDateValue) return;
+    setLobbyClockMs(Date.now());
+    if (
+      lobbyTimelineV2.enabled &&
+      typeof requestAnimationFrame === 'function' &&
+      typeof cancelAnimationFrame === 'function'
+    ) {
+      let frameId: number | null = null;
+      let lastSecond = -1;
+      const loop = () => {
+        const now = Date.now();
+        const second = Math.floor(now / 1000);
+        if (second !== lastSecond) {
+          lastSecond = second;
+          setLobbyClockMs(now);
+        }
+        if (eventEndTimeMs != null && now >= eventEndTimeMs) return;
+        frameId = requestAnimationFrame(loop);
+      };
+      frameId = requestAnimationFrame(loop);
+      return () => {
+        if (frameId != null) cancelAnimationFrame(frameId);
+      };
+    }
+    const interval = setInterval(() => setLobbyClockMs(Date.now()), 1000);
+    return () => clearInterval(interval);
+  }, [eventDateValue, eventEndTimeMs, eventEndedAt, eventArchivedAt, eventStatusRaw, lobbyTimelineV2.enabled]);
+
   const deckQueryEnabled = lobbySideEffectsEnabled;
   const {
     data: profiles = [],
@@ -336,6 +376,10 @@ export default function EventLobbyScreen() {
     deckLoadedTrackedRef.current = false;
     deckEmptyTrackedRef.current = false;
     deckErrorTrackedRef.current = false;
+    deckPrefetchInFlightRef.current.clear();
+    deckPrefetchLoadedRef.current.clear();
+    deckPrefetchCacheHitTrackedRef.current.clear();
+    lobbyBroadcastSessionSeqRef.current = null;
     setServerInactiveEventReason(null);
   }, [id]);
 
@@ -378,11 +422,83 @@ export default function EventLobbyScreen() {
   }, [profiles]);
 
   useEffect(() => {
+    if (deckPrefetchPolishV2.enabled) return;
     for (const profile of sortedProfiles.slice(0, 3)) {
       const src = deckCardUrl(profile.primary_photo_path ?? profile.photos?.[0] ?? profile.avatar_url);
       if (src) void Image.prefetch(src);
     }
-  }, [sortedProfiles]);
+  }, [deckPrefetchPolishV2.enabled, sortedProfiles]);
+
+  const deckPrefetchItems = useMemo(
+    () =>
+      getVideoDateDeckPrefetchItems(sortedProfiles)
+        .map((item) => ({ ...item, url: deckCardUrl(item.source) }))
+        .filter((item) => Boolean(item.url)),
+    [sortedProfiles],
+  );
+
+  useEffect(() => {
+    if (!deckPrefetchPolishV2.enabled) return;
+    for (const item of deckPrefetchItems) {
+      const src = item.url;
+      if (!src) continue;
+      if (deckPrefetchLoadedRef.current.has(src)) {
+        const key = `${id}:${src}`;
+        if (!deckPrefetchCacheHitTrackedRef.current.has(key)) {
+          deckPrefetchCacheHitTrackedRef.current.add(key);
+          trackEvent('video_date_deck_prefetch_cache_hit', {
+            ...buildVideoDateDeckPrefetchTelemetryPayload({
+              platform: 'native',
+              eventId: id,
+              profileId: item.profileId,
+              rank: item.rank,
+              sourceKind: item.sourceKind,
+            }),
+          });
+        }
+        continue;
+      }
+      if (deckPrefetchInFlightRef.current.has(src)) continue;
+      deckPrefetchInFlightRef.current.add(src);
+      trackEvent('video_date_deck_prefetch_cache_miss', {
+        ...buildVideoDateDeckPrefetchTelemetryPayload({
+          platform: 'native',
+          eventId: id,
+          profileId: item.profileId,
+          rank: item.rank,
+          sourceKind: item.sourceKind,
+        }),
+      });
+      void Image.prefetch(src)
+        .then((ok) => {
+          if (ok) deckPrefetchLoadedRef.current.add(src);
+          if (!ok) deckPrefetchInFlightRef.current.delete(src);
+          trackEvent('video_date_deck_prefetch_result', {
+            ...buildVideoDateDeckPrefetchTelemetryPayload({
+              platform: 'native',
+              eventId: id,
+              profileId: item.profileId,
+              rank: item.rank,
+              sourceKind: item.sourceKind,
+            }),
+            outcome: ok ? 'success' : 'failure',
+          });
+        })
+        .catch(() => {
+          deckPrefetchInFlightRef.current.delete(src);
+          trackEvent('video_date_deck_prefetch_result', {
+            ...buildVideoDateDeckPrefetchTelemetryPayload({
+              platform: 'native',
+              eventId: id,
+              profileId: item.profileId,
+              rank: item.rank,
+              sourceKind: item.sourceKind,
+            }),
+            outcome: 'failure',
+          });
+        });
+    }
+  }, [deckPrefetchItems, deckPrefetchPolishV2.enabled, id]);
 
   const [processing, setProcessing] = useState(false);
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
@@ -399,8 +515,12 @@ export default function EventLobbyScreen() {
   const deckLoadedTrackedRef = useRef(false);
   const deckEmptyTrackedRef = useRef(false);
   const deckErrorTrackedRef = useRef(false);
+  const deckPrefetchInFlightRef = useRef<Set<string>>(new Set());
+  const deckPrefetchLoadedRef = useRef<Set<string>>(new Set());
+  const deckPrefetchCacheHitTrackedRef = useRef<Set<string>>(new Set());
   const deckRefreshBurstTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lobbyRefreshBurstTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lobbyBroadcastSessionSeqRef = useRef<number | null>(null);
   /** Dedupe queued-TTL expiry dialog per `video_sessions.id` for this screen. */
   const queuedTtlExpiryNotifiedIdsRef = useRef<Set<string>>(new Set());
   /** Dedupe informational drain-reason toasts per user/event/reason for this screen. */
@@ -416,6 +536,7 @@ export default function EventLobbyScreen() {
   } = useActiveSession(user?.id, {
     eventId: id,
   });
+  const lobbyBroadcastSessionId = scopedSession?.sessionId ?? activeSessionId;
 
   const navigateToDateSession = useCallback(
     (sessionIdToOpen: string, trigger: string, mode: 'replace' | 'push' = 'replace') => {
@@ -876,25 +997,58 @@ export default function EventLobbyScreen() {
 
   const advanceDeckAfterSwipe = useCallback(
     (targetId: string): number => {
+      const paintStartedAt = deckPrefetchPolishV2.enabled ? Date.now() : null;
       let remainingVisible = 0;
+      let nextProfileAfterSwipe: DeckProfile | null = null;
       queryClient.setQueryData<DeckProfile[]>(
         ['event-deck', id, user?.id, 'deck_v2'],
         (current) => {
           if (!Array.isArray(current)) return current;
           const next = current.filter((profile) => profile.id !== targetId);
           remainingVisible = next.length;
+          nextProfileAfterSwipe = next[0] ?? null;
           return next;
         },
       );
       if (remainingVisible === 0) {
-        remainingVisible = profiles.filter((profile) => profile.id !== targetId).length;
+        const fallbackNext = profiles.filter((profile) => profile.id !== targetId);
+        remainingVisible = fallbackNext.length;
+        nextProfileAfterSwipe = fallbackNext[0] ?? null;
       }
-      if (shouldTopUpVideoDateDeck(remainingVisible)) {
+      const shouldTopUp = shouldTopUpVideoDateDeck(remainingVisible);
+      if (deckPrefetchPolishV2.enabled) {
+        trackEvent('video_date_deck_top_up_decision', {
+          platform: 'native',
+          event_id: id,
+          remaining_visible: remainingVisible,
+          should_top_up: shouldTopUp,
+          reason: shouldTopUp ? 'threshold_reached' : 'buffer_sufficient',
+        });
+        if (paintStartedAt !== null) {
+          const schedulePaint =
+            typeof requestAnimationFrame === 'function'
+              ? (callback: (time: number) => void) => requestAnimationFrame(callback)
+              : (callback: (time: number) => void) => setTimeout(() => callback(Date.now()), 0) as unknown as number;
+          schedulePaint(() => {
+            const source = getVideoDateDeckPrefetchSource(nextProfileAfterSwipe);
+            const src = source ? deckCardUrl(source.source) : null;
+            trackEvent('video_date_deck_swipe_next_card_paint', {
+              platform: 'native',
+              event_id: id,
+              duration_ms: Math.max(0, Date.now() - paintStartedAt),
+              cache_hit: src ? deckPrefetchLoadedRef.current.has(src) : null,
+              next_profile_present: Boolean(nextProfileAfterSwipe),
+              remaining_visible: remainingVisible,
+            });
+          });
+        }
+      }
+      if (shouldTopUp) {
         void queryClient.invalidateQueries({ queryKey: ['event-deck', id, user?.id] });
       }
       return remainingVisible;
     },
-    [id, profiles, queryClient, user?.id],
+    [deckPrefetchPolishV2.enabled, id, profiles, queryClient, user?.id],
   );
 
   useEffect(() => {
@@ -1247,6 +1401,7 @@ export default function EventLobbyScreen() {
 
   useEffect(() => {
     if (!user?.id || !id) return;
+    if (lobbyTimelineV2.enabled && lobbyBroadcastSessionId) return;
     const handleVideoSessionUpdate = async (payload: {
       new: Record<string, unknown>;
       old?: Record<string, unknown> | null;
@@ -1257,6 +1412,9 @@ export default function EventLobbyScreen() {
       const isParticipant = session.participant_1_id === user.id || session.participant_2_id === user.id;
       if (!isParticipant) return;
       const sid = session.id as string;
+      if (deckPrefetchPolishV2.enabled) {
+        scheduleDeckRefresh('video_session_update_deck_invalidation', 0);
+      }
       if (
         user.id &&
         isVideoSessionQueuedTtlExpiryTransition(old, session, user.id) &&
@@ -1296,6 +1454,9 @@ export default function EventLobbyScreen() {
       if (session.event_id !== id) return;
       const isParticipant = session.participant_1_id === user.id || session.participant_2_id === user.id;
       if (!isParticipant) return;
+      if (deckPrefetchPolishV2.enabled) {
+        scheduleDeckRefresh('video_session_insert_deck_invalidation', 0);
+      }
       scheduleLobbyRefreshBurst('video_session_insert');
       const status = session.ready_gate_status as string;
       const sid = session.id as string;
@@ -1355,9 +1516,66 @@ export default function EventLobbyScreen() {
     showDrainReasonInfoOnce,
     navigateToDateSession,
     drainQueueV2.enabled,
+    deckPrefetchPolishV2.enabled,
+    lobbyBroadcastSessionId,
+    lobbyTimelineV2.enabled,
+    scheduleDeckRefresh,
   ]);
 
-  const timeRemaining = useCountdown(eventEndTime);
+  const reconcileLobbyBroadcastEvent = useCallback(
+    (event: VideoDateSessionBroadcastEvent) => {
+      if (!id || !user?.id) return;
+      const decision = resolveVideoDateSessionSeqDecision(lobbyBroadcastSessionSeqRef.current, event.sessionSeq);
+      if (decision.action === 'invalid' || decision.action === 'duplicate') return;
+      lobbyBroadcastSessionSeqRef.current = event.sessionSeq;
+      scheduleLobbyRefreshBurst(`broadcast_${event.kind}`);
+      if (deckPrefetchPolishV2.enabled) scheduleDeckRefresh(`broadcast_${event.kind}_deck_invalidation`, 0);
+      if (event.kind === 'ready_gate_both_ready') {
+        navigateToDateSession(event.sessionId, 'broadcast_ready_gate_both_ready', 'replace');
+      }
+    },
+    [deckPrefetchPolishV2.enabled, id, navigateToDateSession, scheduleDeckRefresh, scheduleLobbyRefreshBurst, user?.id],
+  );
+
+  useEffect(() => {
+    if (!id || !user?.id || !lobbyTimelineV2.enabled || !lobbyBroadcastSessionId) {
+      lobbyBroadcastSessionSeqRef.current = null;
+      return;
+    }
+    const subscription = createVideoDateSessionChannel(supabase, {
+      sessionId: lobbyBroadcastSessionId,
+      onEvent: reconcileLobbyBroadcastEvent,
+      onInvalidPayload: () => {
+        vdbg('lobby_session_broadcast_invalid_payload_ignored', { eventId: id, sessionId: lobbyBroadcastSessionId });
+      },
+      onStatusChange: (status, error) => {
+        if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+          vdbg('lobby_session_broadcast_channel_degraded', {
+            eventId: id,
+            sessionId: lobbyBroadcastSessionId,
+            status,
+            error: error instanceof Error ? error.message : String(error ?? ''),
+          });
+          scheduleLobbyRefreshBurst('broadcast_channel_degraded');
+        }
+      },
+    });
+    return () => {
+      subscription.unsubscribe();
+    };
+  }, [
+    id,
+    lobbyBroadcastSessionId,
+    lobbyTimelineV2.enabled,
+    reconcileLobbyBroadcastEvent,
+    scheduleLobbyRefreshBurst,
+    user?.id,
+  ]);
+
+  const legacyTimeRemaining = useCountdown(eventEndTime, !lobbyTimelineV2.enabled);
+  const timeRemaining = lobbyTimelineV2.enabled
+    ? formatEventCountdown(eventEndTimeMs, lobbyClockMs)
+    : legacyTimeRemaining;
 
   useEffect(() => {
     if (!hasEvent || !id) return;
