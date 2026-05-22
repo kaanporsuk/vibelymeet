@@ -18,8 +18,12 @@ const videoDateInstantPremiumMigration = readFileSync(
   "supabase/migrations/20260522193000_video_date_instant_premium_v2_flags_batched_broadcast.sql",
   "utf8",
 );
-const migration = `${baseMigration}\n${hardeningMigration}\n${videoDatePhase0Migration}\n${videoDatePhase5AuditMigration}\n${videoDateInstantPremiumMigration}`;
-const videoDateFlagSeedMigration = `${videoDatePhase0Migration}\n${videoDatePhase5AuditMigration}\n${videoDateInstantPremiumMigration}`;
+const videoDateDailySingletonMigration = readFileSync(
+  "supabase/migrations/20260522203000_video_date_daily_singleton_match_eta_hint.sql",
+  "utf8",
+);
+const migration = `${baseMigration}\n${hardeningMigration}\n${videoDatePhase0Migration}\n${videoDatePhase5AuditMigration}\n${videoDateInstantPremiumMigration}\n${videoDateDailySingletonMigration}`;
+const videoDateFlagSeedMigration = `${videoDatePhase0Migration}\n${videoDatePhase5AuditMigration}\n${videoDateInstantPremiumMigration}\n${videoDateDailySingletonMigration}`;
 const core = readFileSync("shared/featureFlags/clientFeatureFlagCore.ts", "utf8");
 const videoDateFlags = readFileSync("shared/featureFlags/videoDateV4Flags.ts", "utf8");
 const webHook = readFileSync("src/hooks/useFeatureFlag.ts", "utf8");
@@ -174,6 +178,7 @@ test("video date v4 flags are typed, prefetched, and use namespaced stable rollo
     "video_date.deck_prefetch_polish_v2",
     "video_date.lobby_timeline_v2",
     "video_date.post_date_instant_next_v2",
+    "video_date.daily_call_singleton_v2",
     "video_date.broadcast_batched_v2",
     "video_date.resilience_v2",
     "video_date.daily_webhooks_v2",

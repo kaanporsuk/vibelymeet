@@ -74,7 +74,7 @@ import {
   getZodiacSign,
   getZodiacEmoji,
   calculateAge,
-  MY_PROFILE_STALE_TIME_MS,
+  PROFILE_LIVE_COUNTS_STALE_TIME_MS,
   myProfileQueryKey,
   profileLiveCountsQueryKey,
   type ProfileData,
@@ -84,7 +84,7 @@ import {
 import { Crown, Star } from "lucide-react";
 import { format, startOfDay, addDays } from "date-fns";
 import { trackEvent } from "@/lib/analytics";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useUserProfile } from "@/contexts/AuthContext";
 import type { MediaCaptions } from "../../shared/media/captions";
 
@@ -309,6 +309,7 @@ const ProfileStudio = () => {
 
   const [profileRefreshKey, setProfileRefreshKey] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
+  const [profileStatsLoadedAt, setProfileStatsLoadedAt] = useState(0);
   const [isSaving, setIsSaving] = useState(false);
   const [isDetectingLocation, setIsDetectingLocation] = useState(false);
   const [showPhotoVerification, setShowPhotoVerification] = useState(false);
@@ -341,6 +342,15 @@ const ProfileStudio = () => {
   );
 
   const { mySchedule, dateRange, isLoading: scheduleLoading } = useSchedule();
+  const { data: liveCounts, dataUpdatedAt: liveCountsUpdatedAt } = useQuery({
+    queryKey: profileUser?.id ? profileLiveCountsQueryKey(profileUser.id) : profileLiveCountsQueryKey("none"),
+    queryFn: () =>
+      profileUser?.id
+        ? fetchProfileLiveCounts(profileUser.id)
+        : Promise.resolve(initialProfile.stats),
+    enabled: !!profileUser?.id && !!profile.id,
+    staleTime: PROFILE_LIVE_COUNTS_STALE_TIME_MS,
+  });
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -356,22 +366,24 @@ const ProfileStudio = () => {
     const loadProfile = async () => {
       if (!profileUser?.id) {
         setProfile(initialProfile);
+        setProfileStatsLoadedAt(0);
         setIsLoading(false);
         return;
       }
 
       try {
-        const forceFresh = profileRefreshKey > 0;
         const profilePromise = queryClient.fetchQuery({
           queryKey: myProfileQueryKey(profileUser.id),
           queryFn: () => fetchMyProfile(profileUser.id),
-          staleTime: forceFresh ? 0 : MY_PROFILE_STALE_TIME_MS,
+          staleTime: 0,
         });
 
         const data = await profilePromise;
         if (cancelled) return;
         if (data) {
+          const profileLoadedAt = Date.now();
           const prompts = data.prompts?.length ? data.prompts : [{ question: "", answer: "" }, { question: "", answer: "" }, { question: "", answer: "" }];
+          setProfileStatsLoadedAt(profileLoadedAt);
           setProfile({
             id: data.id,
             updatedAt: data.updatedAt,
@@ -403,20 +415,6 @@ const ProfileStudio = () => {
             vibeScore: data.vibeScore ?? 0,
             vibeScoreLabel: data.vibeScoreLabel ?? "New",
           });
-          const liveCountsPromise = queryClient.fetchQuery({
-            queryKey: profileLiveCountsQueryKey(profileUser.id),
-            queryFn: () => fetchProfileLiveCounts(profileUser.id),
-            staleTime: 0,
-          }).catch((error) => {
-            if (!cancelled) console.error("Error loading profile counts:", error);
-            return null;
-          });
-          void liveCountsPromise
-            .then((liveCounts) => {
-              if (!liveCounts) return;
-              if (cancelled) return;
-              setProfile((prev) => (prev.id === data.id ? { ...prev, stats: liveCounts } : prev));
-            });
           heroVideoResumePollingForProfile(
             {
               id: data.id,
@@ -1178,6 +1176,9 @@ const ProfileStudio = () => {
   }
 
   const mainPhoto = profile.photos[0] ?? null;
+  const liveCountsFreshForLoadedProfile =
+    liveCounts && liveCountsUpdatedAt >= profileStatsLoadedAt ? liveCounts : null;
+  const profileDisplayStats = liveCountsFreshForLoadedProfile ?? profile.stats;
   const MAX_PROMPTS = 3;
   const promptSlots = [...profile.prompts];
   while (promptSlots.length < MAX_PROMPTS) promptSlots.push({ question: "", answer: "" });
@@ -1345,9 +1346,9 @@ const ProfileStudio = () => {
         <div className="grid grid-cols-3 gap-2 mt-2 md:mt-2.5 mb-3 md:mb-4">
           {(
             [
-              { label: "Events", value: profile.stats.events },
-              { label: "Matches", value: profile.stats.matches },
-              { label: "Convos", value: profile.stats.conversations },
+              { label: "Events", value: profileDisplayStats.events },
+              { label: "Matches", value: profileDisplayStats.matches },
+              { label: "Convos", value: profileDisplayStats.conversations },
             ] as const
           ).map((stat) => (
             <div

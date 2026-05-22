@@ -27,6 +27,7 @@ import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
 import { DeactivatedAccountReactivationPrompt } from '@/components/DeactivatedAccountReactivationPrompt';
 import { ActivityIndicator, AppState, Pressable, StyleSheet, Text, type AppStateStatus, LogBox, View } from 'react-native';
 import { useGlobalMessagesInboxInvalidation } from '@/lib/chatApi';
+import { useProfileCountsRealtime } from '@/lib/useProfileCountsRealtime';
 import { useRealtimeEvents } from '@/lib/useRealtimeEvents';
 import { useBadgeCount } from '@/lib/useBadgeCount';
 import { useCurrentRouteTracker } from '@/lib/useCurrentRoute';
@@ -295,6 +296,13 @@ function BadgeCountUpdater() {
 function EventsRealtimeUpdater() {
   const { user } = useAuth();
   useRealtimeEvents(user?.id);
+  return null;
+}
+
+/** Profile counter source-table changes → profile/live-count cache invalidation. */
+function ProfileCountsRealtimeUpdater() {
+  const { user } = useAuth();
+  useProfileCountsRealtime(user?.id);
   return null;
 }
 
@@ -687,6 +695,7 @@ function RootLayoutNav() {
             <RevenueCatUserSync />
             <BadgeCountUpdater />
             <EventsRealtimeUpdater />
+            <ProfileCountsRealtimeUpdater />
             <ChatOutboxRunner />
             <PostDateOutboxRunner />
             <View style={{ flex: 1, backgroundColor: theme.background }}>

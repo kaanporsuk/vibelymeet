@@ -29,6 +29,11 @@ const instantPremiumMigration = readFileSync(
   join(root, "supabase/migrations/20260522193000_video_date_instant_premium_v2_flags_batched_broadcast.sql"),
   "utf8",
 );
+const dailySingletonMatchEtaMigration = readFileSync(
+  join(root, "supabase/migrations/20260522203000_video_date_daily_singleton_match_eta_hint.sql"),
+  "utf8",
+);
+const instantPremiumMigrations = `${instantPremiumMigration}\n${dailySingletonMatchEtaMigration}`;
 const packageJson = readFileSync(join(root, "package.json"), "utf8");
 
 test("instant premium deck prefetch helper dedupes media and preserves top-2 scope", () => {
@@ -77,6 +82,7 @@ test("web and native lobbies use timeline v2 plus private active-session Broadca
     assert.match(source, /setInterval/);
     assert.match(source, /createVideoDateSessionChannel/);
     assert.match(source, /resolveVideoDateSessionSeqDecision/);
+    assert.match(source, /resolveVideoDateTimelineCountdown/);
     assert.match(source, /ready_gate_both_ready/);
     assert.match(source, /lobbyTimelineV2\.enabled && lobbyBroadcastSessionId/);
   }
@@ -98,6 +104,8 @@ test("post-date instant next is prestaged, deck-prefetched, optimistic for norma
     assert.match(source, /prefetchQuery\(\{/);
     assert.match(source, /fetchEventDeckProfiles/);
     assert.match(source, /getVideoDateDeckPrefetchItems/);
+    assert.match(source, /const optimisticStep: SurveyStep = liked \? ["']awaiting_partner["'] : ["']highlights["']/);
+    assert.match(source, /setStep\(optimisticStep\)/);
     assert.match(source, /post_date_verdict_optimistic_started/);
     assert.match(source, /post_date_verdict_optimistic_confirmed/);
     assert.match(source, /post_date_verdict_optimistic_rollback/);
@@ -121,25 +129,73 @@ test("resilience v2 improves reconnect UI and applies Daily adaptation only behi
   for (const source of [webReconnectOverlay, nativeReconnectOverlay]) {
     assert.match(source, /resilienceV2/);
     assert.match(source, /networkTier/);
+    assert.match(source, /backdropImageUrl/);
     assert.match(source, /Audio priority mode/);
     assert.match(source, /Stabilizing video/);
     assert.match(source, /graceTimeLeft/);
   }
+  assert.match(webVideoDate, /captureRemoteFrameSnapshot/);
+  assert.match(webVideoDate, /video_date_resilience_last_frame_snapshot/);
+  assert.match(nativeVideoDate, /backdropImageUrl=\{resilienceV2\.enabled \? partnerAvatarUri : null\}/);
 });
 
-test("new instant premium flags are default-off and explicitly exclude Daily warm handoff", () => {
+test("daily call singleton warm handoff is default-off, web/native gated, and idle-destroyed", () => {
+  assert.match(flags, /"video_date\.daily_call_singleton_v2"/);
+  assert.match(dailySingletonMatchEtaMigration, /'video_date\.daily_call_singleton_v2', false, 0/);
+  assert.match(webVideoDate, /dailyCallSingletonV2: dailyCallSingletonV2\.enabled/);
+  assert.match(webVideoDate, /dailyCallSingletonEligible:[\s\S]*videoSessionHasEncounterExposureTruth\(handshakeTruth\)/);
+  assert.match(webVideoCall, /WEB_DAILY_CALL_SINGLETON_IDLE_MS = 90_000/);
+  assert.match(webVideoCall, /parkWebDailyCallSingleton/);
+  assert.match(webVideoCall, /consumeWebDailyCallSingleton/);
+  assert.match(webVideoCall, /hasReusableWebDailyCallSingleton/);
+  assert.match(webVideoCall, /expired_before_preflight/);
+  assert.match(webVideoCall, /destroyed_before_preflight/);
+  assert.match(webVideoCall, /expired_before_consume/);
+  assert.match(webVideoCall, /destroyed_before_consume/);
+  assert.match(webVideoCall, /daily_media_permission_preflight_skipped_for_singleton/);
+  assert.match(webVideoCall, /daily_call_singleton_reused/);
+  assert.match(webVideoCall, /Boolean\(optionsRef\.current\?\.dailyCallSingletonEligible\)/);
+  assert.match(webVideoCall, /shouldParkSingleton && userId && callLeftSuccessfully/);
+  assert.match(webVideoCall, /daily_call_singleton_park_skipped/);
+  assert.match(webVideoCall, /singletonCall\.ok === false &&\s*prewarmedCall\.ok === false/);
+  assert.match(webVideoCall, /releaseAppAcquiredMedia\("singleton_call_reused"\)/);
+  assert.match(webVideoCall, /appAcquiredMedia: appAcquiredMediaRef\.current/);
+  assert.match(webVideoCall, /stopMediaStreamTracks\(entry\.appAcquiredMedia\?\.stream\)/);
+  assert.match(webVideoCall, /appAcquiredMediaRef\.current = singletonAppAcquiredMedia/);
+  assert.match(webVideoCall, /clearDailyEventListeners\("daily_call_cleanup"\)/);
+  assert.match(webVideoCall, /clearDailyEventListeners\("before_bind_daily_listeners"\)/);
+  assert.match(webVideoCall, /callObject\.off\(eventName, handler\)/);
+  assert.doesNotMatch(webVideoCall, /const bindDailyEvent[\s\S]{0,260}bindDailyEvent\(eventName, handler\)/);
+  assert.match(nativeVideoDate, /NATIVE_DAILY_CALL_SINGLETON_IDLE_MS = 90_000/);
+  assert.match(nativeVideoDate, /parkSharedCallForWarmHandoff/);
+  assert.match(nativeVideoDate, /daily_call_singleton_reuse_same_session_idle_deferred/);
+  assert.match(nativeVideoDate, /daily_call_singleton_reuse_same_session_idle/);
+  assert.match(nativeVideoDate, /daily_call_singleton_reuse_cross_session/);
+  assert.match(nativeVideoDate, /dailyCallSingletonV2\.enabled && \(dateEstablishedRef\.current \|\| showFeedback\)/);
+  assert.doesNotMatch(nativeVideoDate, /dailyCallSingletonV2\.enabled &&[\s\S]{0,120}phaseRef\.current === 'ended'/);
+});
+
+test("match ETA hint is sanitized, participant-visible, and gated by post-date instant-next full rollout", () => {
+  assert.match(dailySingletonMatchEtaMigration, /emit_video_date_match_eta_hint_v2/);
+  assert.match(dailySingletonMatchEtaMigration, /'match_eta_hint'/);
+  assert.match(dailySingletonMatchEtaMigration, /'participants'/);
+  assert.match(dailySingletonMatchEtaMigration, /flag_key = 'video_date\.post_date_instant_next_v2'/);
+  assert.match(dailySingletonMatchEtaMigration, /rollout_bps >= 10000/);
+  assert.match(dailySingletonMatchEtaMigration, /AFTER UPDATE OF ready_gate_status ON public\.video_sessions/);
+});
+
+test("new instant premium flags are default-off", () => {
   for (const flag of [
     "video_date.deck_prefetch_polish_v2",
     "video_date.lobby_timeline_v2",
     "video_date.post_date_instant_next_v2",
+    "video_date.daily_call_singleton_v2",
     "video_date.broadcast_batched_v2",
     "video_date.resilience_v2",
   ]) {
     assert.match(flags, new RegExp(`"${flag.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}"`));
-    assert.match(instantPremiumMigration, new RegExp(`'${flag.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}', false, 0`));
+    assert.match(instantPremiumMigrations, new RegExp(`'${flag.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}', false, 0`));
   }
-  assert.match(instantPremiumMigration, /Daily warm handoff is intentionally excluded/);
-  assert.doesNotMatch(flags, /warm_handoff|daily_warm_handoff/);
 });
 
 test("instant premium contracts are included in the v4 verification script", () => {

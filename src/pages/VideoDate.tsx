@@ -403,6 +403,7 @@ const VideoDate = () => {
   const safetyV2 = useFeatureFlag("video_date.outbox_v2.safety");
   const safetyAlwaysOnV2 = useFeatureFlag("video_date.safety_always_on_v2");
   const postDateInstantNextV2 = useFeatureFlag("video_date.post_date_instant_next_v2");
+  const dailyCallSingletonV2 = useFeatureFlag("video_date.daily_call_singleton_v2");
   const resilienceV2 = useFeatureFlag("video_date.resilience_v2");
 
   const [phase, setPhase] = useState<CallPhase>("handshake");
@@ -439,6 +440,7 @@ const VideoDate = () => {
   const [partnerId, setPartnerId] = useState<string>("");
   const [eventId, setEventId] = useState<string | undefined>(undefined);
   const [partnerPhotoUrl, setPartnerPhotoUrl] = useState<string | null>(null);
+  const [remoteFrameSnapshotUrl, setRemoteFrameSnapshotUrl] = useState<string | null>(null);
   const [partner, setPartner] = useState<PartnerData>({
     name: "Your date",
     age: 0,
@@ -778,6 +780,12 @@ const VideoDate = () => {
     userId: user?.id,
     eventId,
     resilienceV2: resilienceV2.enabled,
+    dailyCallSingletonV2: dailyCallSingletonV2.enabled,
+    dailyCallSingletonEligible:
+      showFeedback ||
+      phase === "date" ||
+      Boolean(dateStartedAt) ||
+      videoSessionHasEncounterExposureTruth(handshakeTruth),
     videoSessionState: phase,
     localDecisionPersisted: Boolean(
       handshakeTruth &&
@@ -847,6 +855,50 @@ const VideoDate = () => {
       }
     },
     [eventId, id, remoteVideoRef],
+  );
+
+  const captureRemoteFrameSnapshot = useCallback(
+    (source: string) => {
+      if (!resilienceV2.enabled) return;
+      const videoEl = remoteVideoRef.current;
+      if (!videoEl || videoEl.readyState < 2 || videoEl.videoWidth <= 0 || videoEl.videoHeight <= 0) return;
+
+      try {
+        const maxWidth = 480;
+        const scale = Math.min(1, maxWidth / videoEl.videoWidth);
+        const canvas = document.createElement("canvas");
+        canvas.width = Math.max(1, Math.round(videoEl.videoWidth * scale));
+        canvas.height = Math.max(1, Math.round(videoEl.videoHeight * scale));
+        const context = canvas.getContext("2d");
+        if (!context) return;
+        context.drawImage(videoEl, 0, 0, canvas.width, canvas.height);
+        const snapshotUrl = canvas.toDataURL("image/jpeg", 0.72);
+        setRemoteFrameSnapshotUrl(snapshotUrl);
+        vdbg("video_date_resilience_last_frame_snapshot", {
+          sessionId: id ?? null,
+          eventId: eventId ?? null,
+          source,
+          width: canvas.width,
+          height: canvas.height,
+        });
+        trackEvent("video_date_resilience_last_frame_snapshot", {
+          platform: "web",
+          session_id: id ?? null,
+          event_id: eventId ?? null,
+          source,
+          width: canvas.width,
+          height: canvas.height,
+        });
+      } catch (error) {
+        vdbg("video_date_resilience_last_frame_snapshot_failed", {
+          sessionId: id ?? null,
+          eventId: eventId ?? null,
+          source,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    },
+    [eventId, id, remoteVideoRef, resilienceV2.enabled],
   );
 
   useEffect(() => {
@@ -3956,6 +4008,18 @@ const VideoDate = () => {
   const reconnectOverlayMode =
     dailyReconnectState === "partner_left_grace" ? "partner_away" : "network_interrupted";
   const anyReconnectVisible = transportReconnectVisible || reconnection.isPartnerDisconnected;
+
+  useEffect(() => {
+    if (!resilienceV2.enabled) return;
+    if (anyReconnectVisible) {
+      captureRemoteFrameSnapshot("reconnect_visible");
+      return;
+    }
+    if (isConnected) {
+      setRemoteFrameSnapshotUrl(null);
+    }
+  }, [anyReconnectVisible, captureRemoteFrameSnapshot, isConnected, resilienceV2.enabled]);
+
   const showFloatingIceBreaker =
     isConnected &&
     remotePlayback.participantPresent &&
@@ -4430,6 +4494,7 @@ const VideoDate = () => {
           mode={transportReconnectVisible ? reconnectOverlayMode : "partner_away"}
           networkTier={networkTier}
           resilienceV2={resilienceV2.enabled}
+          backdropImageUrl={resilienceV2.enabled ? remoteFrameSnapshotUrl ?? partnerPhotoUrl : null}
         />
 
         {/* Cinematic glass wash */}

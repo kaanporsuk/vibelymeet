@@ -21,7 +21,6 @@ import { supabase } from "@/integrations/supabase/client";
 import { prepareVideoDateEntry } from "@/lib/videoDatePrepareEntry";
 import { preloadRoute, preloadRouteOnIdle } from "@/lib/routePreload";
 import { toast } from "sonner";
-import { differenceInSeconds } from "date-fns";
 import LobbyProfileCard from "@/components/lobby/LobbyProfileCard";
 import LobbyEmptyState from "@/components/lobby/LobbyEmptyState";
 import ReadyGateOverlay from "@/components/lobby/ReadyGateOverlay";
@@ -64,6 +63,10 @@ import {
   resolveVideoDateSessionSeqDecision,
   type VideoDateSessionBroadcastEvent,
 } from "@clientShared/matching/videoDateSessionChannel";
+import {
+  resolveVideoDateTimelineCountdown,
+  type VideoDateTimelineState,
+} from "@clientShared/matching/videoDateTimeline";
 import {
   bucketEventLobbyCount,
   EventLobbyObservabilityEvents,
@@ -109,6 +112,41 @@ function isActiveVideoPhase(row: Record<string, unknown>): boolean {
     handshake_started_at:
       typeof row.handshake_started_at === "string" ? row.handshake_started_at : null,
   });
+}
+
+function buildEventLobbyTimeline(
+  eventId: string | undefined,
+  eventEndTimeMs: number | null,
+  clientNowMs: number,
+): VideoDateTimelineState | null {
+  if (eventEndTimeMs == null) return null;
+  return {
+    sessionId: "event-lobby",
+    eventId: eventId ?? null,
+    seq: 0,
+    phase: "date",
+    phaseStartedAtMs: null,
+    phaseDeadlineAtMs: eventEndTimeMs,
+    serverNowMs: clientNowMs,
+    clientSyncedAtMs: clientNowMs,
+    clockSkewMs: 0,
+    allowedActions: [],
+    endedAtMs: null,
+    endedReason: null,
+  };
+}
+
+function formatEventLobbyCountdown(
+  eventId: string | undefined,
+  eventEndTimeMs: number | null,
+  clientNowMs: number,
+): string {
+  const countdown = resolveVideoDateTimelineCountdown(
+    buildEventLobbyTimeline(eventId, eventEndTimeMs, clientNowMs),
+    { clientNowMs },
+  );
+  if (eventEndTimeMs == null) return "";
+  return (countdown.remainingSeconds ?? 0) <= 0 ? "Ended" : countdown.formattedTime;
 }
 
 const EventLobby = () => {
@@ -1170,7 +1208,6 @@ const EventLobby = () => {
   // Event countdown timer
   useEffect(() => {
     if (!eventEndTimeMs) return;
-    const endTime = new Date(eventEndTimeMs);
 
     const tick = () => {
       const latestLifecycle = eventForLobbyGate
@@ -1185,17 +1222,14 @@ const EventLobby = () => {
         setTimeRemaining("Ended");
         return;
       }
-      const diff = differenceInSeconds(endTime, new Date());
-      const m = Math.floor(diff / 60);
-      const s = diff % 60;
-      setTimeRemaining(`${m}:${String(s).padStart(2, "0")}`);
+      setTimeRemaining(formatEventLobbyCountdown(eventId, eventEndTimeMs, Date.now()));
     };
 
     tick();
     if (lobbyTimelineV2.enabled) return;
     const interval = setInterval(tick, 1000);
     return () => clearInterval(interval);
-  }, [eventEndTimeMs, eventForLobbyGate, lobbyTimelineV2.enabled, timelineCountdownTickMs]);
+  }, [eventEndTimeMs, eventForLobbyGate, eventId, lobbyTimelineV2.enabled, timelineCountdownTickMs]);
 
   // Server-dealt deck v2 is the only active source of deck exclusion truth.
   const sortedProfiles = useMemo(() => {

@@ -102,6 +102,10 @@ import {
   resolveVideoDateSessionSeqDecision,
   type VideoDateSessionBroadcastEvent,
 } from '@clientShared/matching/videoDateSessionChannel';
+import {
+  resolveVideoDateTimelineCountdown,
+  type VideoDateTimelineState,
+} from '@clientShared/matching/videoDateTimeline';
 import { nextConvergenceDelayMs } from '@clientShared/matching/convergenceScheduling';
 import { resolveEventLifecycle } from '@clientShared/eventLifecycle';
 import { eventLobbyHref } from '@/lib/activeSessionRoutes';
@@ -153,11 +157,22 @@ function formatHeightCm(cm: number | null | undefined): string | null {
 
 function formatEventCountdown(endTimeMs: number | null, nowMs: number): string {
   if (endTimeMs == null) return '';
-  const diff = Math.max(0, Math.floor((endTimeMs - nowMs) / 1000));
-  if (diff <= 0) return 'Ended';
-  const m = Math.floor(diff / 60);
-  const s = diff % 60;
-  return `${m}:${String(s).padStart(2, '0')}`;
+  const timeline: VideoDateTimelineState = {
+    sessionId: 'event-lobby',
+    eventId: null,
+    seq: 0,
+    phase: 'date',
+    phaseStartedAtMs: null,
+    phaseDeadlineAtMs: endTimeMs,
+    serverNowMs: nowMs,
+    clientSyncedAtMs: nowMs,
+    clockSkewMs: 0,
+    allowedActions: [],
+    endedAtMs: null,
+    endedReason: null,
+  };
+  const countdown = resolveVideoDateTimelineCountdown(timeline, { clientNowMs: nowMs });
+  return (countdown.remainingSeconds ?? 0) <= 0 ? 'Ended' : countdown.formattedTime;
 }
 
 function useCountdown(endTime: Date | null, enabled = true): string {

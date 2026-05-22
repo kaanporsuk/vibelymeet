@@ -8,6 +8,7 @@ interface ReconnectionOverlayProps {
   mode?: "partner_away" | "network_interrupted";
   networkTier?: "good" | "fair" | "poor";
   resilienceV2?: boolean;
+  backdropImageUrl?: string | null;
 }
 
 export const ReconnectionOverlay = ({
@@ -17,6 +18,7 @@ export const ReconnectionOverlay = ({
   mode = "partner_away",
   networkTier = "good",
   resilienceV2 = false,
+  backdropImageUrl = null,
 }: ReconnectionOverlayProps) => {
   const title =
     mode === "network_interrupted"
@@ -40,6 +42,14 @@ export const ReconnectionOverlay = ({
           className="absolute inset-0 z-40 flex items-center justify-center"
           aria-label={ariaLabel}
         >
+          {backdropImageUrl ? (
+            <img
+              src={backdropImageUrl}
+              alt=""
+              aria-hidden="true"
+              className="pointer-events-none absolute inset-0 h-full w-full scale-110 object-cover opacity-70 blur-2xl"
+            />
+          ) : null}
           <div className="absolute inset-0 bg-background/65 backdrop-blur-xl" />
 
           <motion.div

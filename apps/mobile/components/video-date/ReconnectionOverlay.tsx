@@ -3,7 +3,7 @@
  */
 
 import React from 'react';
-import { View, Text, StyleSheet } from 'react-native';
+import { View, Text, StyleSheet, Image } from 'react-native';
 import { typography, spacing } from '@/constants/theme';
 import Colors from '@/constants/Colors';
 import { useColorScheme } from '@/components/useColorScheme';
@@ -15,6 +15,7 @@ type Props = {
   mode?: 'partner_away' | 'network_interrupted';
   networkTier?: 'good' | 'fair' | 'poor';
   resilienceV2?: boolean;
+  backdropImageUrl?: string | null;
 };
 
 export function ReconnectionOverlay({
@@ -24,6 +25,7 @@ export function ReconnectionOverlay({
   mode = 'partner_away',
   networkTier = 'good',
   resilienceV2 = false,
+  backdropImageUrl = null,
 }: Props) {
   const colorScheme = useColorScheme();
   const theme = Colors[colorScheme];
@@ -41,6 +43,15 @@ export function ReconnectionOverlay({
 
   return (
     <View style={styles.overlay}>
+      {backdropImageUrl ? (
+        <Image
+          source={{ uri: backdropImageUrl }}
+          style={styles.backdropImage}
+          resizeMode="cover"
+          blurRadius={18}
+        />
+      ) : null}
+      <View style={styles.backdropWash} />
       <View style={[styles.card, { backgroundColor: theme.surface, borderColor: theme.border }]}>
         <Text style={[styles.title, { color: theme.text }]}>{title}</Text>
         <Text style={[styles.subtitle, { color: theme.mutedForeground }]}>{subtitle}</Text>
@@ -66,6 +77,15 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     zIndex: 40,
+  },
+  backdropImage: {
+    ...StyleSheet.absoluteFillObject,
+    opacity: 0.68,
+    transform: [{ scale: 1.08 }],
+  },
+  backdropWash: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0,0,0,0.62)',
   },
   card: {
     padding: spacing['2xl'],

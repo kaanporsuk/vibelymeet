@@ -781,16 +781,22 @@ export function PostDateSurvey({
 
   const handleVerdict = async (liked: boolean) => {
     if (submitting) return;
+    const previousStep = step;
+    const optimisticStep: SurveyStep = liked ? 'awaiting_partner' : 'highlights';
+    let optimisticallyAdvanced = false;
     setSubmitting(true);
     setVerdictError(null);
     setVerdictRetryable(false);
     setLastVerdictAttempt(liked);
     if (postDateInstantNextV2.enabled) {
+      setStep(optimisticStep);
+      optimisticallyAdvanced = true;
       trackEvent('post_date_verdict_optimistic_started', {
         platform: 'native',
         session_id: sessionId,
         event_id: eventId,
         verdict: liked ? 'vibe' : 'pass',
+        optimistic_step: optimisticStep,
       });
     }
     trackEvent(liked ? LobbyPostDateEvents.KEEP_THE_VIBE_YES_TAP : LobbyPostDateEvents.KEEP_THE_VIBE_NO_TAP, {
@@ -826,11 +832,13 @@ export function PostDateSurvey({
         setVerdictRetryable(true);
         setVerdictError("Couldn't save your answer. Tap to retry.");
         if (postDateInstantNextV2.enabled) {
+          if (optimisticallyAdvanced) setStep(previousStep);
           trackEvent('post_date_verdict_optimistic_rollback', {
             platform: 'native',
             session_id: sessionId,
             event_id: eventId,
             reason: 'missing_result',
+            rollback_step: previousStep,
           });
         }
         return;
@@ -849,11 +857,13 @@ export function PostDateSurvey({
         );
         setVerdictError(verdictFailureUserMessage(result));
         if (postDateInstantNextV2.enabled) {
+          if (optimisticallyAdvanced) setStep(previousStep);
           trackEvent('post_date_verdict_optimistic_rollback', {
             platform: 'native',
             session_id: sessionId,
             event_id: eventId,
             reason: result.reason,
+            rollback_step: previousStep,
           });
         }
         return;
@@ -926,11 +936,13 @@ export function PostDateSurvey({
       setVerdictRetryable(true);
       setVerdictError("Couldn't save your answer. Tap to retry.");
       if (postDateInstantNextV2.enabled) {
+        if (optimisticallyAdvanced) setStep(previousStep);
         trackEvent('post_date_verdict_optimistic_rollback', {
           platform: 'native',
           session_id: sessionId,
           event_id: eventId,
           reason: 'exception',
+          rollback_step: previousStep,
         });
       }
     } finally {

@@ -24,6 +24,7 @@ import { threadMessagesQueryKey, type ThreadInvalidateScope } from '../../../sha
 import { SEND_MESSAGE_RESPONSE_TIMEOUT_MS } from '../../../shared/chat/sendMessageTransport';
 import type { DateSuggestionWithRelations } from '@/lib/useDateSuggestionData';
 import { fetchUserProfile, fetchUserProfiles, type UserProfileView } from '@/lib/fetchUserProfile';
+import { myProfileQueryKey, profileLiveCountsQueryKey } from '@/lib/profileApi';
 
 /** Matches `profiles` select columns in `useMatches` below (intent fields typed for scoring). */
 type ChatMatchesProfileRow = {
@@ -1180,7 +1181,8 @@ export function useGlobalMessagesInboxInvalidation(userId: string | null | undef
       qc.invalidateQueries({ queryKey: ['unread-home'] });
       qc.invalidateQueries({ queryKey: ['unread-home-info-bar'] });
       qc.invalidateQueries({ queryKey: ['matches'] });
-      qc.invalidateQueries({ queryKey: ['profile-live-counts'] });
+      qc.invalidateQueries({ queryKey: profileLiveCountsQueryKey(userId) });
+      qc.invalidateQueries({ queryKey: myProfileQueryKey(userId) });
     };
     const channel = supabase
       .channel('global-messages-inbox')

@@ -8,6 +8,7 @@ export const VIDEO_DATE_V4_CLIENT_FEATURE_FLAGS = [
   "video_date.deck_prefetch_polish_v2",
   "video_date.lobby_timeline_v2",
   "video_date.post_date_instant_next_v2",
+  "video_date.daily_call_singleton_v2",
   "video_date.broadcast_batched_v2",
   "video_date.resilience_v2",
   "video_date.daily_webhooks_v2",
