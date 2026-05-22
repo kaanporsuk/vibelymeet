@@ -606,6 +606,14 @@ function outboxRowClientRequestId(m: ThreadMessage): string | null {
   return null;
 }
 
+function uploadAttentionIdForThreadMessage(message: ThreadMessage): string | null {
+  if (isLocalMediaMessage(message) && message.localMedia.state === 'failed' && message.localMedia.outboxItemId) {
+    return `local:${message.localMedia.outboxItemId}`;
+  }
+  if (message.serverRecoveryUploadId) return `server:${message.serverRecoveryUploadId}`;
+  return null;
+}
+
 function threadMessageHasImageIdentity(message: ThreadMessage): boolean {
   if (isLocalMediaMessage(message) && message.localMedia.payload.kind === 'image') return true;
   return Boolean(
@@ -1176,12 +1184,16 @@ function normalizeRouteParam(raw: string | string[] | undefined): string | undef
 }
 
 export default function ChatThreadScreen() {
-  const { id: routeChatId, smokeScenario } = useLocalSearchParams<{
+  const { id: routeChatId, smokeScenario, uploadAttention, uploadAttentionNonce } = useLocalSearchParams<{
     id: string | string[];
     smokeScenario?: string | string[];
+    uploadAttention?: string | string[];
+    uploadAttentionNonce?: string | string[];
   }>();
   const otherUserId = normalizeRouteParam(routeChatId);
   const nativeSmokeScenarioId = normalizeRouteParam(smokeScenario);
+  const uploadAttentionTargetId = normalizeRouteParam(uploadAttention) ?? '';
+  const uploadAttentionTargetNonce = normalizeRouteParam(uploadAttentionNonce) ?? '';
   const { width: windowWidth } = useWindowDimensions();
   const insets = useSafeAreaInsets();
   const colorScheme = useColorScheme();
@@ -1325,9 +1337,15 @@ export default function ChatThreadScreen() {
   const allowOlderPageFetchRef = useRef(false);
   const lastThreadCountRef = useRef(0);
   const latestSnapCountRef = useRef(0);
+  const uploadAttentionHandledKeyRef = useRef('');
+  const uploadAttentionRecoveryAttemptedKeyRef = useRef('');
+  const uploadAttentionRecoveryPendingKeyRef = useRef('');
+  const uploadAttentionHighlightTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [awayFromBottom, setAwayFromBottom] = useState(false);
   const [newBelowCue, setNewBelowCue] = useState(false);
   const [sendingPhoto, setSendingPhoto] = useState(false);
+  const [highlightedUploadAttentionId, setHighlightedUploadAttentionId] = useState('');
+  const [uploadAttentionRecoveryTick, setUploadAttentionRecoveryTick] = useState(0);
   const { show: showAppDialog, dialog: appDialog } = useVibelyDialog();
 
   useEffect(() => {
@@ -1415,6 +1433,20 @@ export default function ChatThreadScreen() {
       };
     },
     [],
+  );
+
+  const clearUploadAttentionHighlightTimeout = useCallback(() => {
+    if (uploadAttentionHighlightTimeoutRef.current) {
+      clearTimeout(uploadAttentionHighlightTimeoutRef.current);
+    }
+    uploadAttentionHighlightTimeoutRef.current = null;
+  }, []);
+
+  useEffect(
+    () => () => {
+      clearUploadAttentionHighlightTimeout();
+    },
+    [clearUploadAttentionHighlightTimeout],
   );
 
   useEffect(
@@ -2180,6 +2212,79 @@ export default function ChatThreadScreen() {
     });
     return () => sub.remove();
   }, [runVibeClipRecoverySweepForThread]);
+
+  useEffect(() => {
+    if (!uploadAttentionTargetId || shellLoading || !data?.matchId) return;
+
+    const requestKey = `${otherUserId ?? ''}:${uploadAttentionTargetId}:${uploadAttentionTargetNonce || '0'}`;
+    if (uploadAttentionHandledKeyRef.current === requestKey) return;
+
+    let cancelled = false;
+    let interaction: { cancel?: () => void } | null = null;
+
+    const scrollToTarget = () => {
+      const index = flatListRows.findIndex(
+        (row) =>
+          row.type === 'message' &&
+          uploadAttentionIdForThreadMessage(row.message) === uploadAttentionTargetId,
+      );
+      if (index < 0) return false;
+      uploadAttentionHandledKeyRef.current = requestKey;
+      setHighlightedUploadAttentionId(uploadAttentionTargetId);
+      listRef.current?.scrollToIndex({ index, animated: true, viewPosition: 0.5 });
+      clearUploadAttentionHighlightTimeout();
+      uploadAttentionHighlightTimeoutRef.current = setTimeout(() => {
+        uploadAttentionHighlightTimeoutRef.current = null;
+        setHighlightedUploadAttentionId((current) =>
+          current === uploadAttentionTargetId ? '' : current,
+        );
+      }, 2200);
+      return true;
+    };
+
+    interaction = InteractionManager.runAfterInteractions(() => {
+      requestAnimationFrame(() => {
+        if (cancelled || scrollToTarget()) return;
+        if (uploadAttentionRecoveryAttemptedKeyRef.current !== requestKey) {
+          uploadAttentionRecoveryAttemptedKeyRef.current = requestKey;
+          uploadAttentionRecoveryPendingKeyRef.current = requestKey;
+          void runVibeClipRecoverySweepForThread('foreground').finally(() => {
+            if (uploadAttentionRecoveryPendingKeyRef.current === requestKey) {
+              uploadAttentionRecoveryPendingKeyRef.current = '';
+            }
+            if (screenMountedRef.current) {
+              setUploadAttentionRecoveryTick((tick) => tick + 1);
+            }
+          });
+          return;
+        }
+        if (uploadAttentionRecoveryPendingKeyRef.current === requestKey) return;
+        uploadAttentionHandledKeyRef.current = requestKey;
+        showAppDialog({
+          title: 'Upload already cleared',
+          message: 'That upload was already cleared or sent.',
+          variant: 'info',
+          primaryAction: { label: 'OK', onPress: () => {} },
+        });
+      });
+    });
+
+    return () => {
+      cancelled = true;
+      interaction?.cancel?.();
+    };
+  }, [
+    clearUploadAttentionHighlightTimeout,
+    data?.matchId,
+    flatListRows,
+    otherUserId,
+    runVibeClipRecoverySweepForThread,
+    shellLoading,
+    showAppDialog,
+    uploadAttentionRecoveryTick,
+    uploadAttentionTargetId,
+    uploadAttentionTargetNonce,
+  ]);
 
   useEffect(() => {
     scheduleMarkThreadRead();
@@ -3422,6 +3527,8 @@ export default function ChatThreadScreen() {
     }
 
     const msg = item.message;
+    const uploadAttentionId = uploadAttentionIdForThreadMessage(msg);
+    const isUploadAttentionHighlighted = uploadAttentionId === highlightedUploadAttentionId;
 
     const isDateTimeline =
       msg.messageKind === 'date_suggestion' || msg.messageKind === 'date_suggestion_event';
@@ -3574,7 +3681,13 @@ export default function ChatThreadScreen() {
 
     if (isMe) {
       return (
-        <View style={[styles.rowMe, { marginBottom: bubbleMarginBottom }]}>
+        <View
+          style={[
+            styles.rowMe,
+            { marginBottom: bubbleMarginBottom },
+            isUploadAttentionHighlighted ? styles.uploadAttentionHighlight : null,
+          ]}
+        >
           <View style={styles.bubbleMeWrap}>{bubblePress}</View>
         </View>
       );
@@ -3592,7 +3705,13 @@ export default function ChatThreadScreen() {
       );
 
     return (
-      <View style={[styles.themRow, { marginBottom: bubbleMarginBottom }]}>
+      <View
+        style={[
+          styles.themRow,
+          { marginBottom: bubbleMarginBottom },
+          isUploadAttentionHighlighted ? styles.uploadAttentionHighlight : null,
+        ]}
+      >
         <View style={styles.themAvatarColumn}>{avatarSlot}</View>
         <View style={styles.themBubbleColumn}>{bubblePress}</View>
       </View>
@@ -4606,6 +4725,15 @@ const styles = StyleSheet.create({
   rowMe: { alignItems: 'flex-end', width: '100%' },
   bubbleMeWrap: { maxWidth: '88%', minWidth: 0 },
   themRow: { flexDirection: 'row', alignItems: 'flex-end', width: '100%', gap: 8 },
+  uploadAttentionHighlight: {
+    borderRadius: 24,
+    backgroundColor: 'rgba(34,211,238,0.14)',
+    shadowColor: '#22d3ee',
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.32,
+    shadowRadius: 14,
+    elevation: 4,
+  },
   themAvatarColumn: { width: 32, alignItems: 'center' },
   themAvatarSpacer: { width: 28, height: 28 },
   themBubbleColumn: { flex: 1, maxWidth: '88%', minWidth: 0 },

@@ -54,24 +54,10 @@ import {
   myProfileQueryKey,
   profileLiveCountsQueryKey,
 } from "@/services/profileService";
-
-const WEB_UPLOAD_ATTENTION_TOAST_SEEN_PREFIX = "vibelymeet:web-upload-attention-toast:v1:";
-
-function hasSeenWebUploadAttentionToast(attentionKey: string): boolean {
-  try {
-    return localStorage.getItem(`${WEB_UPLOAD_ATTENTION_TOAST_SEEN_PREFIX}${attentionKey}`) === "1";
-  } catch {
-    return false;
-  }
-}
-
-function markWebUploadAttentionToastSeen(attentionKey: string): void {
-  try {
-    localStorage.setItem(`${WEB_UPLOAD_ATTENTION_TOAST_SEEN_PREFIX}${attentionKey}`, "1");
-  } catch {
-    // Storage can be unavailable in private browsing; per-mount de-dupe still applies.
-  }
-}
+import {
+  recoveryAttentionKey,
+  selectPrimaryRecoveryAttentionTarget,
+} from "../shared/chat/uploadAttentionTargets";
 
 const Index = lazyWithPreload(routeLoaders.index);
 const Auth = lazyWithPreload(routeLoaders.auth);
@@ -256,45 +242,47 @@ const WebProfileCountsInvalidator = () => {
   return null;
 };
 
-const WebUploadRecoveryNotifier = () => {
-  const { items, staleVibeClipUploads, recoveryAttentionCount } = useWebChatOutbox();
-  const navigate = useNavigate();
-  const lastAttentionKeyRef = useRef<string>("");
-  const hiddenWithActiveUploadRef = useRef(false);
-  const [snoozedAttentionKey, setSnoozedAttentionKey] = useState("");
-  const [discoveryToastKey, setDiscoveryToastKey] = useState("");
+function currentChatOtherUserId(pathname: string): string | null {
+  const match = pathname.match(/^\/chat\/([^/?#]+)/);
+  if (!match?.[1]) return null;
+  try {
+    return decodeURIComponent(match[1]);
+  } catch {
+    return match[1];
+  }
+}
 
-  const firstAttentionItem = items.find((item) => item.payload.kind !== "text" && item.state === "failed");
-  const firstStaleUpload = staleVibeClipUploads[0] ?? null;
-  const attentionIds = useMemo(() => {
-    const ids = new Map<string, string>();
-    for (const item of items) {
-      if (item.payload.kind !== "text" && item.state === "failed") ids.set(item.id, `${item.id}:local:${item.updatedAtMs}`);
-    }
-    for (const upload of staleVibeClipUploads) {
-      if (upload.recoveryDismissedAt) continue;
-      const id = upload.clientRequestId || upload.id;
-      if (!ids.has(id)) ids.set(id, `${id}:server:${upload.status}:${upload.updatedAt ?? ""}`);
-    }
-    return Array.from(ids.values()).sort();
-  }, [items, staleVibeClipUploads]);
-  const attentionKey =
-    recoveryAttentionCount > 0
-      ? `${recoveryAttentionCount}:${attentionIds.join("|") || "server"}`
-      : "";
-  const isSnoozed = snoozedAttentionKey === attentionKey;
-  const reviewRoute = firstAttentionItem?.otherUserId
-    ? `/chat/${firstAttentionItem.otherUserId}`
-    : firstStaleUpload?.otherUserId
-      ? `/chat/${firstStaleUpload.otherUserId}`
-      : "/matches";
+const WebUploadRecoveryNotifier = () => {
+  const { items, recoveryAttentionTargets, recoveryAttentionCount } = useWebChatOutbox();
+  const navigate = useNavigate();
+  const location = useLocation();
+  const hiddenWithActiveUploadRef = useRef(false);
+  const [hiddenAttentionKey, setHiddenAttentionKey] = useState("");
+  const attentionKey = useMemo(
+    () => recoveryAttentionKey(recoveryAttentionTargets),
+    [recoveryAttentionTargets],
+  );
+  const currentOtherUserId = useMemo(
+    () => currentChatOtherUserId(location.pathname),
+    [location.pathname],
+  );
+  const primaryTarget = useMemo(
+    () => selectPrimaryRecoveryAttentionTarget(recoveryAttentionTargets, currentOtherUserId),
+    [currentOtherUserId, recoveryAttentionTargets],
+  );
   const handleReview = useCallback(() => {
-    if (attentionKey) {
-      setSnoozedAttentionKey(attentionKey);
-      setDiscoveryToastKey("");
+    if (!primaryTarget) return;
+    if (attentionKey) setHiddenAttentionKey(attentionKey);
+    if (!primaryTarget.otherUserId) {
+      navigate("/matches");
+      return;
     }
-    navigate(reviewRoute);
-  }, [attentionKey, navigate, reviewRoute]);
+    const params = new URLSearchParams({
+      uploadAttention: primaryTarget.attentionId,
+      uploadAttentionNonce: String(Date.now()),
+    });
+    navigate(`/chat/${encodeURIComponent(primaryTarget.otherUserId)}?${params.toString()}`);
+  }, [attentionKey, navigate, primaryTarget]);
   const activeUploadCount = items.filter(
     (item) =>
       item.payload.kind !== "text" &&
@@ -305,34 +293,9 @@ const WebUploadRecoveryNotifier = () => {
   ).length;
 
   useEffect(() => {
-    if (!attentionKey || recoveryAttentionCount <= 0) {
-      lastAttentionKeyRef.current = "";
-      setDiscoveryToastKey("");
-      return;
-    }
-    if (lastAttentionKeyRef.current === attentionKey) return;
-    lastAttentionKeyRef.current = attentionKey;
-    if (hasSeenWebUploadAttentionToast(attentionKey)) return;
-    markWebUploadAttentionToastSeen(attentionKey);
-    setDiscoveryToastKey(attentionKey);
-    toast.info(
-      recoveryAttentionCount === 1
-        ? "1 upload needs attention"
-        : `${recoveryAttentionCount} uploads need attention`,
-      {
-        id: "media-upload-recovery-attention",
-        duration: 7000,
-        action: {
-          label: "Review",
-          onClick: handleReview,
-        },
-      },
-    );
-    const timeout = window.setTimeout(() => {
-      setDiscoveryToastKey((current) => current === attentionKey ? "" : current);
-    }, 7200);
-    return () => window.clearTimeout(timeout);
-  }, [attentionKey, handleReview, recoveryAttentionCount]);
+    if (!hiddenAttentionKey || hiddenAttentionKey === attentionKey) return;
+    setHiddenAttentionKey("");
+  }, [attentionKey, hiddenAttentionKey]);
 
   useEffect(() => {
     const onVisibility = () => {
@@ -351,10 +314,10 @@ const WebUploadRecoveryNotifier = () => {
     return () => document.removeEventListener("visibilitychange", onVisibility);
   }, [activeUploadCount]);
 
-  if (recoveryAttentionCount <= 0 || (!isSnoozed && discoveryToastKey === attentionKey)) return null;
+  if (recoveryAttentionCount <= 0 || !primaryTarget || hiddenAttentionKey === attentionKey) return null;
 
   const attentionLabel = recoveryAttentionCount === 1
-    ? "1 upload needs attention"
+    ? primaryTarget.label
     : `${recoveryAttentionCount} uploads need attention`;
 
   return (
@@ -371,11 +334,9 @@ const WebUploadRecoveryNotifier = () => {
         <p className="truncate text-sm font-semibold">
           {attentionLabel}
         </p>
-        {!isSnoozed ? (
-          <p className="truncate text-xs text-muted-foreground">
-            Review or recover from the saved upload queue.
-          </p>
-        ) : null}
+        <p className="truncate text-xs text-muted-foreground">
+          View the stuck upload in chat.
+        </p>
       </div>
       <Button
         size="sm"

@@ -34,6 +34,10 @@ import {
   type VibeClipServerUpload,
   type VibeClipUploadStatus,
 } from "../../shared/chat/vibeClipRecovery";
+import {
+  buildRecoveryAttentionTargets,
+  type UploadAttentionTarget,
+} from "../../shared/chat/uploadAttentionTargets";
 
 const HYDRATION_CHECK_INTERVAL_MS = 10_000;
 const HYDRATION_TIMEOUT_MS = 90_000;
@@ -88,25 +92,6 @@ function isOnline(): boolean {
 
 function isMediaOutboxItem(item: WebChatOutboxItem): boolean {
   return item.payload.kind !== "text";
-}
-
-function needsRecoveryAttention(item: WebChatOutboxItem): boolean {
-  return isMediaOutboxItem(item) && item.state === "failed";
-}
-
-function recoveryAttentionCountFor(
-  items: WebChatOutboxItem[],
-  staleUploads: VibeClipServerUpload[],
-): number {
-  const keys = new Set<string>();
-  for (const item of items) {
-    if (needsRecoveryAttention(item)) keys.add(item.id);
-  }
-  for (const upload of staleUploads) {
-    if (upload.recoveryDismissedAt) continue;
-    keys.add(upload.clientRequestId || upload.id);
-  }
-  return keys.size;
 }
 
 function itemPayloadBlobKey(item: WebChatOutboxItem): string | null {
@@ -219,6 +204,7 @@ function recoverySweepOutcome(stats: {
 type WebChatOutboxContextValue = {
   items: WebChatOutboxItem[];
   staleVibeClipUploads: VibeClipServerUpload[];
+  recoveryAttentionTargets: UploadAttentionTarget[];
   recoveryAttentionCount: number;
   sessionUploadSummary: SessionUploadSummary;
   enqueue: (input: {
@@ -485,9 +471,14 @@ export function WebChatOutboxProvider({ children }: { children: ReactNode }) {
     [staleVibeClipUploads],
   );
 
-  const recoveryAttentionCount = useMemo(
-    () => recoveryAttentionCountFor(items, staleVibeClipUploads),
+  const recoveryAttentionTargets = useMemo(
+    () => buildRecoveryAttentionTargets(items, staleVibeClipUploads),
     [items, staleVibeClipUploads],
+  );
+
+  const recoveryAttentionCount = useMemo(
+    () => recoveryAttentionTargets.length,
+    [recoveryAttentionTargets],
   );
 
   const runVibeClipRecoverySweep = useCallback(async (trigger: VibeClipRecoverySweepTrigger, matchId?: string | null) => {
@@ -936,6 +927,7 @@ export function WebChatOutboxProvider({ children }: { children: ReactNode }) {
     () => ({
       items,
       staleVibeClipUploads,
+      recoveryAttentionTargets,
       recoveryAttentionCount,
       sessionUploadSummary: getSessionUploadSummary({
         enqueued: sessionUploadStats.enqueued,
@@ -964,6 +956,7 @@ export function WebChatOutboxProvider({ children }: { children: ReactNode }) {
     [
       items,
       staleVibeClipUploads,
+      recoveryAttentionTargets,
       recoveryAttentionCount,
       sessionUploadStats,
       enqueue,
