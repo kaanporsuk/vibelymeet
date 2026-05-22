@@ -59,6 +59,10 @@ import { ChatOutboxRunner } from '@/lib/chatOutbox/ChatOutboxRunner';
 import { PostDateOutboxRunner } from '@/lib/postDateOutbox/PostDateOutboxRunner';
 import { MatchCallProvider } from '@/lib/useMatchCall';
 import { supabase } from '@/lib/supabase';
+import {
+  recoveryAttentionKey,
+  selectPrimaryRecoveryAttentionTarget,
+} from '@clientShared/chat/uploadAttentionTargets';
 import { completeSessionFromAuthReturnUrl } from '@/lib/nativeAuthRedirect';
 import { applyNativeReferralAttribution, captureNativeReferral } from '@/lib/referrals';
 import { RC_CATEGORY, rcBreadcrumb } from '@/lib/nativeRcDiagnostics';
@@ -216,60 +220,70 @@ function RevenueCatUserSync() {
 }
 
 function NativeUploadRecoveryGlobalBanner({ theme }: { theme: typeof Colors.dark }) {
-  const { items, staleVibeClipUploads, recoveryAttentionCount } = useChatOutbox();
-  const [snoozedAttentionKey, setSnoozedAttentionKey] = useState('');
-  const firstAttentionItem = items.find((item) => item.payload.kind !== 'text' && item.state === 'failed');
-  const firstStaleUpload = staleVibeClipUploads[0] ?? null;
-  const attentionIds = useMemo(() => {
-    const ids = new Map<string, string>();
-    for (const item of items) {
-      if (item.payload.kind !== 'text' && item.state === 'failed') ids.set(item.id, `${item.id}:local:${item.updatedAtMs}`);
+  const { recoveryAttentionTargets, recoveryAttentionCount } = useChatOutbox();
+  const pathname = usePathname();
+  const [hiddenAttentionKey, setHiddenAttentionKey] = useState('');
+  const attentionKey = useMemo(
+    () => recoveryAttentionKey(recoveryAttentionTargets),
+    [recoveryAttentionTargets],
+  );
+  const currentOtherUserId = useMemo(() => {
+    const match = pathname.match(/^\/chat\/([^/?#]+)/);
+    if (!match?.[1]) return null;
+    try {
+      return decodeURIComponent(match[1]);
+    } catch {
+      return match[1];
     }
-    for (const upload of staleVibeClipUploads) {
-      if (upload.recoveryDismissedAt) continue;
-      const id = upload.clientRequestId || upload.id;
-      if (!ids.has(id)) ids.set(id, `${id}:server:${upload.status}:${upload.updatedAt ?? ''}`);
-    }
-    return Array.from(ids.values()).sort();
-  }, [items, staleVibeClipUploads]);
+  }, [pathname]);
+  const primaryTarget = useMemo(
+    () => selectPrimaryRecoveryAttentionTarget(recoveryAttentionTargets, currentOtherUserId),
+    [currentOtherUserId, recoveryAttentionTargets],
+  );
 
-  if (recoveryAttentionCount <= 0) return null;
+  useEffect(() => {
+    if (!hiddenAttentionKey || hiddenAttentionKey === attentionKey) return;
+    setHiddenAttentionKey('');
+  }, [attentionKey, hiddenAttentionKey]);
 
-  const attentionKey = `${recoveryAttentionCount}:${attentionIds.join('|') || 'server'}`;
-  const isSnoozed = snoozedAttentionKey === attentionKey;
+  if (recoveryAttentionCount <= 0 || !primaryTarget || hiddenAttentionKey === attentionKey) return null;
+
   const handlePress = () => {
-    setSnoozedAttentionKey(attentionKey);
-    if (firstAttentionItem?.otherUserId) {
-      router.push({ pathname: '/chat/[id]', params: { id: firstAttentionItem.otherUserId } });
-      return;
-    }
-    if (firstStaleUpload?.otherUserId) {
-      router.push({ pathname: '/chat/[id]', params: { id: firstStaleUpload.otherUserId } });
+    if (attentionKey) setHiddenAttentionKey(attentionKey);
+    if (primaryTarget.otherUserId) {
+      router.push({
+        pathname: '/chat/[id]',
+        params: {
+          id: primaryTarget.otherUserId,
+          uploadAttention: primaryTarget.attentionId,
+          uploadAttentionNonce: String(Date.now()),
+        },
+      });
       return;
     }
     router.push('/(tabs)/matches');
   };
+  const attentionLabel = recoveryAttentionCount === 1
+    ? primaryTarget.label
+    : `${recoveryAttentionCount} uploads need attention`;
 
   return (
     <Pressable
       onPress={handlePress}
       accessibilityRole="button"
-      accessibilityLabel={recoveryAttentionCount === 1 ? '1 upload needs attention' : `${recoveryAttentionCount} uploads need attention`}
+      accessibilityLabel={attentionLabel}
       style={[
         uploadRecoveryStyles.banner,
-        isSnoozed ? uploadRecoveryStyles.bannerSnoozed : null,
         { backgroundColor: theme.surface, borderColor: theme.border },
       ]}
     >
       <View style={uploadRecoveryStyles.bannerText}>
         <Text style={[uploadRecoveryStyles.title, { color: theme.text }]}>
-          {recoveryAttentionCount === 1 ? '1 upload needs attention' : `${recoveryAttentionCount} uploads need attention`}
+          {attentionLabel}
         </Text>
-        {!isSnoozed ? (
-          <Text style={[uploadRecoveryStyles.subtitle, { color: theme.mutedForeground }]}>
-            Review or recover from the saved upload queue.
-          </Text>
-        ) : null}
+        <Text style={[uploadRecoveryStyles.subtitle, { color: theme.mutedForeground }]}>
+          View the stuck upload in chat.
+        </Text>
       </View>
       <Text style={[uploadRecoveryStyles.action, { color: theme.tint }]}>Review</Text>
     </Pressable>
@@ -745,10 +759,6 @@ const uploadRecoveryStyles = StyleSheet.create({
     shadowRadius: 14,
     shadowOffset: { width: 0, height: 8 },
     elevation: 8,
-  },
-  bannerSnoozed: {
-    minHeight: 44,
-    paddingVertical: 8,
   },
   bannerText: {
     flex: 1,

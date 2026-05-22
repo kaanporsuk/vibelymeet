@@ -3,7 +3,7 @@ import { flushSync } from "react-dom";
 import * as Sentry from "@sentry/react";
 import { useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
-import { useNavigate, useParams } from "react-router-dom";
+import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Send,
@@ -116,6 +116,9 @@ const CHAT_DESKTOP_VIEWPORT_QUERY = "(min-width: 1024px)";
 const CHAT_MOBILE_KEYBOARD_THRESHOLD_PX = 96;
 const CHAT_MOBILE_KEYBOARD_STYLE_CLEAR_DELAY_MS = 240;
 const MATCHES_ROUTE = "/matches";
+const UPLOAD_ATTENTION_HIGHLIGHT_MS = 2200;
+const UPLOAD_ATTENTION_HIGHLIGHT_CLASS =
+  "rounded-[1.25rem] bg-cyan-400/10 ring-2 ring-cyan-300/80 ring-offset-4 ring-offset-background shadow-[0_0_24px_rgba(34,211,238,0.24)]";
 
 const VoiceRecorder = lazy(() => import("@/components/chat/VoiceRecorder"));
 const VideoMessageRecorder = lazy(() => import("@/components/chat/VideoMessageRecorder"));
@@ -204,6 +207,25 @@ type ChatVideoLightboxState = {
   thumbnailSourceRef?: string | null;
   mediaKind?: "video" | "vibe_clip";
 };
+
+function cssAttributeValue(value: string): string {
+  if (typeof CSS !== "undefined" && typeof CSS.escape === "function") return CSS.escape(value);
+  return value.replace(/["\\]/g, "\\$&");
+}
+
+function uploadAttentionSelector(attentionId: string): string {
+  return `[data-upload-attention-id="${cssAttributeValue(attentionId)}"]`;
+}
+
+function uploadAttentionIdForMessage(
+  message: ChatMessage,
+  localOutboxItem?: WebChatOutboxItem,
+): string | null {
+  const localFailed = localOutboxItem?.state === "failed" || Boolean(message.sendError);
+  if (message.outboxItemId && localFailed) return `local:${message.outboxItemId}`;
+  if (message.serverRecoveryUploadId) return `server:${message.serverRecoveryUploadId}`;
+  return null;
+}
 
 function chatMessageHasImageIdentity(message: ChatMessage): boolean {
   if (message.type === "image") return true;
@@ -405,6 +427,8 @@ function VibeClipMessageRow({
   localSourcePresent,
   onResumeRecovery,
   onDiscardRecoveryAndSendAgain,
+  uploadAttentionId,
+  isUploadAttentionHighlighted = false,
 }: {
   message: ChatMessage & { isFirstInGroup?: boolean; isLastInGroup?: boolean; showAvatar?: boolean };
   otherUser: { avatar_url: string | null } | null;
@@ -425,6 +449,8 @@ function VibeClipMessageRow({
   localSourcePresent?: boolean;
   onResumeRecovery?: (strategy: VibeClipRecoveryResumeStrategy | null) => void;
   onDiscardRecoveryAndSendAgain?: () => void;
+  uploadAttentionId?: string | null;
+  isUploadAttentionHighlighted?: boolean;
 }) {
   const baseClipMeta = useMemo(
     () =>
@@ -529,10 +555,12 @@ function VibeClipMessageRow({
   }, [fallbackVideoUrl, message.id, message.videoSourceRef, onRequestImmersiveVideo]);
   return (
     <div
+      data-upload-attention-id={uploadAttentionId ?? undefined}
       className={cn(
-        "flex items-end gap-2",
+        "flex items-end gap-2 transition-[background-color,box-shadow] duration-300",
         isMine ? "justify-end" : "justify-start",
-        message.isFirstInGroup ? "mt-2" : "mt-1"
+        message.isFirstInGroup ? "mt-2" : "mt-1",
+        isUploadAttentionHighlighted && UPLOAD_ATTENTION_HIGHLIGHT_CLASS,
       )}
     >
       {!isMine && (
@@ -603,9 +631,12 @@ function VibeClipMessageRow({
 const Chat = () => {
   const navigate = useNavigate();
   const { id } = useParams();
+  const [searchParams] = useSearchParams();
   const { user } = useUserProfile();
   const currentUserId = user?.id || "";
   const queryClient = useQueryClient();
+  const uploadAttentionTargetId = searchParams.get("uploadAttention") ?? "";
+  const uploadAttentionNonce = searchParams.get("uploadAttentionNonce") ?? "";
   
   const {
     data: chatData,
@@ -656,6 +687,7 @@ const Chat = () => {
   const [photoLightboxInitialId, setPhotoLightboxInitialId] = useState<string | null>(null);
   const [videoLightbox, setVideoLightbox] = useState<ChatVideoLightboxState | null>(null);
   const [expandedPendingClusterKey, setExpandedPendingClusterKey] = useState<string | null>(null);
+  const [highlightedUploadAttentionId, setHighlightedUploadAttentionId] = useState("");
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const threadContentRef = useRef<HTMLDivElement>(null);
   const composerChromeRef = useRef<HTMLDivElement>(null);
@@ -675,6 +707,11 @@ const Chat = () => {
   const gameStartLockRef = useRef(false);
   const actionLockRef = useRef<Set<string>>(new Set());
   const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const uploadAttentionHandledKeyRef = useRef("");
+  const uploadAttentionRecoveryAttemptedKeyRef = useRef("");
+  const uploadAttentionRecoveryPendingKeyRef = useRef("");
+  const uploadAttentionHighlightTimeoutRef = useRef<number | null>(null);
+  const [uploadAttentionRecoveryTick, setUploadAttentionRecoveryTick] = useState(0);
   const backNavWatchdogTimeoutsRef = useRef<number[]>([]);
   const backNavWatchdogRafRef = useRef<number | null>(null);
   const stickyBottomSnapTimeoutsRef = useRef<number[]>([]);
@@ -694,6 +731,20 @@ const Chat = () => {
       chatMountedRef.current = false;
     };
   }, []);
+
+  const clearUploadAttentionHighlightTimeout = useCallback(() => {
+    if (typeof window !== "undefined" && uploadAttentionHighlightTimeoutRef.current !== null) {
+      window.clearTimeout(uploadAttentionHighlightTimeoutRef.current);
+    }
+    uploadAttentionHighlightTimeoutRef.current = null;
+  }, []);
+
+  useEffect(
+    () => () => {
+      clearUploadAttentionHighlightTimeout();
+    },
+    [clearUploadAttentionHighlightTimeout],
+  );
 
   const clearChatBackNavWatchdogs = useCallback(() => {
     if (typeof window === "undefined") return;
@@ -1789,6 +1840,23 @@ const Chat = () => {
     [photoUrlForMessage, rowsWithLayout],
   );
 
+  const uploadAttentionRowsKey = useMemo(
+    () =>
+      rowsWithLayout
+        .map(({ row }) => {
+          if (row.type === "pending_games_summary" || row.type === "pending_games_collapse") {
+            return `${row.type}:${row.clusterKey}`;
+          }
+          const message = row.message;
+          const localOutboxItem = message.outboxItemId
+            ? outboxItemsById.get(message.outboxItemId)
+            : undefined;
+          return `${message.id}:${uploadAttentionIdForMessage(message, localOutboxItem) ?? ""}`;
+        })
+        .join("|"),
+    [outboxItemsById, rowsWithLayout],
+  );
+
   useLayoutEffect(() => {
     lastThreadCountRef.current = 0;
     setNewBelowCue(false);
@@ -1903,6 +1971,71 @@ const Chat = () => {
     document.addEventListener("visibilitychange", onVisibility);
     return () => document.removeEventListener("visibilitychange", onVisibility);
   }, [runVibeClipRecoverySweepForThread]);
+
+  useEffect(() => {
+    if (!uploadAttentionTargetId || isLoadingChat || !chatData?.matchId) return;
+    if (typeof window === "undefined" || typeof document === "undefined") return;
+
+    const requestKey = `${id ?? ""}:${uploadAttentionTargetId}:${uploadAttentionNonce || "0"}`;
+    if (uploadAttentionHandledKeyRef.current === requestKey) return;
+
+    let cancelled = false;
+    let rafId: number | null = null;
+
+    const scrollToTarget = () => {
+      const el = document.querySelector<HTMLElement>(uploadAttentionSelector(uploadAttentionTargetId));
+      if (!el) return false;
+      uploadAttentionHandledKeyRef.current = requestKey;
+      el.scrollIntoView({ behavior: "smooth", block: "center" });
+      setHighlightedUploadAttentionId(uploadAttentionTargetId);
+      clearUploadAttentionHighlightTimeout();
+      uploadAttentionHighlightTimeoutRef.current = window.setTimeout(() => {
+        uploadAttentionHighlightTimeoutRef.current = null;
+        setHighlightedUploadAttentionId((current) =>
+          current === uploadAttentionTargetId ? "" : current,
+        );
+      }, UPLOAD_ATTENTION_HIGHLIGHT_MS);
+      return true;
+    };
+
+    rafId = window.requestAnimationFrame(() => {
+      if (cancelled || scrollToTarget()) return;
+      if (uploadAttentionRecoveryAttemptedKeyRef.current !== requestKey) {
+        uploadAttentionRecoveryAttemptedKeyRef.current = requestKey;
+        uploadAttentionRecoveryPendingKeyRef.current = requestKey;
+        void runVibeClipRecoverySweepForThread("foreground").finally(() => {
+          if (uploadAttentionRecoveryPendingKeyRef.current === requestKey) {
+            uploadAttentionRecoveryPendingKeyRef.current = "";
+          }
+          if (chatMountedRef.current) {
+            setUploadAttentionRecoveryTick((tick) => tick + 1);
+          }
+        });
+        return;
+      }
+      if (uploadAttentionRecoveryPendingKeyRef.current === requestKey) return;
+      uploadAttentionHandledKeyRef.current = requestKey;
+      toast.info("That upload was already cleared or sent.", {
+        id: `upload-attention-cleared:${requestKey}`,
+        duration: 4000,
+      });
+    });
+
+    return () => {
+      cancelled = true;
+      if (rafId != null) window.cancelAnimationFrame(rafId);
+    };
+  }, [
+    chatData?.matchId,
+    clearUploadAttentionHighlightTimeout,
+    id,
+    isLoadingChat,
+    runVibeClipRecoverySweepForThread,
+    uploadAttentionRecoveryTick,
+    uploadAttentionRowsKey,
+    uploadAttentionNonce,
+    uploadAttentionTargetId,
+  ]);
 
   const sendTextMessage = useCallback(
     (opts?: { text?: string }) => {
@@ -2573,6 +2706,11 @@ const Chat = () => {
               }
               const message = row.message;
               const groupedMessage = { ...message, isFirstInGroup, isLastInGroup, showAvatar };
+              const groupedLocalOutboxItem = groupedMessage.outboxItemId
+                ? outboxItemsById.get(groupedMessage.outboxItemId)
+                : undefined;
+              const uploadAttentionId = uploadAttentionIdForMessage(groupedMessage, groupedLocalOutboxItem);
+              const isUploadAttentionHighlighted = uploadAttentionId === highlightedUploadAttentionId;
               const threadIdx = displayMessages.findIndex((m) => m.id === message.id);
               const mediaRecede =
                 threadIdx >= 0 && lastClipOrVideoIndex >= 0 && threadIdx < lastClipOrVideoIndex;
@@ -2667,7 +2805,7 @@ const Chat = () => {
                   }
                   onReactionPick={(emoji) => handleReaction(groupedMessage.id, emoji)}
                   threadVisualRecede={mediaRecede}
-                  localOutboxItem={groupedMessage.outboxItemId ? outboxItemsById.get(groupedMessage.outboxItemId) : undefined}
+                  localOutboxItem={groupedLocalOutboxItem}
                   serverUpload={
                     groupedMessage.clientRequestId
                       ? staleVibeClipUploadsByClientRequestId.get(groupedMessage.clientRequestId) ??
@@ -2681,6 +2819,8 @@ const Chat = () => {
                   localSourcePresent={
                     groupedMessage.outboxItemId ? vibeClipLocalSourceById[groupedMessage.outboxItemId] === true : false
                   }
+                  uploadAttentionId={uploadAttentionId}
+                  isUploadAttentionHighlighted={isUploadAttentionHighlighted}
                   onResumeRecovery={
                     groupedMessage.outboxItemId
                       ? (strategy) => webOutbox.retryVibeClipUpload(groupedMessage.outboxItemId!, strategy)
@@ -2718,10 +2858,12 @@ const Chat = () => {
               ) : groupedMessage.type === "video" ? (
                 <div
                   key={groupedMessage.id}
+                  data-upload-attention-id={uploadAttentionId ?? undefined}
                   className={cn(
-                    "flex items-end gap-2",
+                    "flex items-end gap-2 transition-[background-color,box-shadow] duration-300",
                     groupedMessage.sender === "me" ? "justify-end" : "justify-start",
                     groupedMessage.isFirstInGroup ? "mt-2" : "mt-1",
+                    isUploadAttentionHighlighted && UPLOAD_ATTENTION_HIGHLIGHT_CLASS,
                   )}
                 >
                   {groupedMessage.sender !== "me" && (
@@ -2783,10 +2925,12 @@ const Chat = () => {
                 return (
                   <div
                     key={groupedMessage.id}
+                    data-upload-attention-id={uploadAttentionId ?? undefined}
                     className={cn(
-                      "flex items-end gap-2",
+                      "flex items-end gap-2 transition-[background-color,box-shadow] duration-300",
                       groupedMessage.sender === "me" ? "justify-end" : "justify-start",
                       groupedMessage.isFirstInGroup ? "mt-2" : "mt-1",
+                      isUploadAttentionHighlighted && UPLOAD_ATTENTION_HIGHLIGHT_CLASS,
                     )}
                   >
                     {groupedMessage.sender !== "me" && (
@@ -2883,10 +3027,12 @@ const Chat = () => {
               })() : groupedMessage.type === "voice" ? (
                 <div
                   key={groupedMessage.id}
+                  data-upload-attention-id={uploadAttentionId ?? undefined}
                   className={cn(
-                    "flex items-end gap-2",
+                    "flex items-end gap-2 transition-[background-color,box-shadow] duration-300",
                     groupedMessage.sender === "me" ? "justify-end" : "justify-start",
                     groupedMessage.isFirstInGroup ? "mt-2" : "mt-1",
+                    isUploadAttentionHighlighted && UPLOAD_ATTENTION_HIGHLIGHT_CLASS,
                   )}
                 >
                   {groupedMessage.sender !== "me" && (
