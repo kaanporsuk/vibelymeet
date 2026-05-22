@@ -3983,9 +3983,24 @@ const VideoDate = () => {
 
   if (videoDateAccess === "loading") {
     return (
-      <div className="min-h-screen bg-background flex flex-col items-center justify-center gap-3">
-        <div className="w-12 h-12 rounded-full border-2 border-primary border-t-transparent animate-spin" />
-        <p className="text-sm text-muted-foreground">Loading your date...</p>
+      <div className="min-h-screen bg-[#050507] text-white flex flex-col">
+        <div className="flex-1 relative overflow-hidden">
+          <div className="absolute inset-0 bg-[#050507]" />
+          <div className="absolute inset-x-5 top-5 flex items-center justify-between text-xs text-white/60">
+            <span className="font-medium">Vibely Video Date</span>
+            <span>Opening room</span>
+          </div>
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 px-6 text-center">
+            <div className="w-24 h-24 rounded-full border border-white/12 bg-white/[0.04] flex items-center justify-center shadow-[0_0_42px_rgba(255,255,255,0.08)]">
+              <div className="w-12 h-12 rounded-full border-2 border-primary border-t-transparent animate-spin" />
+            </div>
+            <div>
+              <p className="text-lg font-display font-semibold">Opening your date</p>
+              <p className="text-sm text-white/55 mt-1">Preparing camera, room, and timing together.</p>
+            </div>
+          </div>
+          <div className="absolute left-5 right-5 bottom-8 h-24 rounded-2xl border border-white/10 bg-white/[0.035]" />
+        </div>
       </div>
     );
   }

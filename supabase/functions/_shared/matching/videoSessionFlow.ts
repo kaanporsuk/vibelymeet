@@ -139,12 +139,6 @@ export function isVideoSessionQueuedTtlExpiryTransition(
   return true;
 }
 
-/** Lobby deep link: opens ready gate overlay when user lands with a pending session. */
-export function buildEventLobbyPendingSessionUrl(eventId: string, videoSessionId: string): string {
-  const enc = encodeURIComponent(videoSessionId);
-  return `/event/${eventId}/lobby?pendingVideoSession=${enc}&pendingMatch=${enc}`;
-}
-
 export function getSwipeFailureUserMessage(
   payload: SwipeSessionStageResult | null | undefined,
 ): string {

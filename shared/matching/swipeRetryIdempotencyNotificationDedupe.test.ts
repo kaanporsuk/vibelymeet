@@ -19,6 +19,7 @@ const swipeActions = read("supabase/functions/swipe-actions/index.ts");
 const videoSessionFlow = read("supabase/functions/_shared/matching/videoSessionFlow.ts");
 const webSwipeHook = read("src/hooks/useSwipeAction.ts");
 const nativeLobby = read("apps/mobile/app/event/[eventId]/lobby.tsx");
+const nativeActiveSessionRoutes = read("apps/mobile/lib/activeSessionRoutes.ts");
 
 function sqlWithoutCommentsOrStringLiterals(sql: string): string {
   return sql
@@ -150,6 +151,11 @@ test("new swipe notification paths remain present only for fresh side-effect-wor
   assert.match(swipeActions, /send-notification/);
   assert.match(swipeActions, /someone_vibed_you/);
   assert.match(swipeActions, /ready_gate/);
+  assert.match(swipeActions, /const path = `\/ready\/\$\{encodeURIComponent\(videoSessionId\)\}`/);
+  assert.match(swipeActions, /session_id: videoSessionId/);
+  assert.doesNotMatch(swipeActions, /pendingVideoSession|pendingMatch|open the event lobby/);
+  assert.doesNotMatch(videoSessionFlow, /buildEventLobbyPendingSessionUrl/);
+  assert.doesNotMatch(nativeActiveSessionRoutes, /eventLobbyHrefPendingVideoSession/);
 });
 
 test("shared and client swipe contracts tolerate already_swiped without deck advancement or noisy toasts", () => {

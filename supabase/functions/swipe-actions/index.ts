@@ -34,11 +34,11 @@ type HandleSwipeSessionPayload = {
 
 /** Deep link + OneSignal `data` for session-stage notifications (ready gate / video date entry). */
 function sessionStageNotificationData(eventId: string, videoSessionId: string): Record<string, string> {
-  const q = `pendingVideoSession=${encodeURIComponent(videoSessionId)}&pendingMatch=${encodeURIComponent(videoSessionId)}`;
-  const path = `/event/${eventId}/lobby?${q}`;
+  const path = `/ready/${encodeURIComponent(videoSessionId)}`;
   return {
     url: path,
     deep_link: path,
+    session_id: videoSessionId,
     video_session_id: videoSessionId,
     event_id: eventId,
     /** @deprecated Same as video_session_id — historical name; not matches.id */
@@ -384,7 +384,7 @@ serve(async (req) => {
         const immediateBody = {
           category: "ready_gate" as const,
           title: "You're synced up! 💚",
-          body: "Open the event lobby for your ready gate and video date.",
+          body: "Open your Ready Gate for the video date.",
           data: dataPayload,
         };
         try {
@@ -482,7 +482,7 @@ serve(async (req) => {
               user_id: target_id,
               ...queuedBody,
               title: "Your video date is ready 📹",
-              body: "Someone mutual-vibed with you — open the event lobby to join the ready gate.",
+              body: "Someone mutual-vibed with you — open your Ready Gate to join.",
             },
           });
           logLifecycle({

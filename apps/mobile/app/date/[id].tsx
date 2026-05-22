@@ -139,7 +139,6 @@ import {
 } from '@/lib/dateEntryTransitionLatch';
 import {
   eventLobbyHref,
-  eventLobbyHrefPendingVideoSession,
   eventLobbyHrefPostSurveyComplete,
   readyGateHref,
   tabsRootHref,
@@ -7938,12 +7937,11 @@ export default function VideoDateScreen() {
   }, [eventId, sessionId, user?.id]);
 
   const handleSurveyQueuedVideoSessionReady = useCallback((videoSessionId: string) => {
-    if (!eventId) return;
-    const target = eventLobbyHrefPendingVideoSession(eventId, videoSessionId);
+    const target = readyGateHref(videoSessionId);
     vdbgRedirect(target, 'survey_queue_match_ready', {
       sessionId: sessionId ?? null,
       eventId,
-      pendingVideoSession: videoSessionId,
+      readyGateSessionId: videoSessionId,
     });
     router.replace(target);
   }, [eventId, sessionId]);
@@ -7997,9 +7995,19 @@ export default function VideoDateScreen() {
 
   if (sessionLoading || !sessionId) {
     return (
-      <View style={[styles.center, { backgroundColor: theme.background }]}>
-        <ActivityIndicator size="large" color={theme.tint} />
-        <Text style={[styles.message, { color: theme.text }]}>Joining your date...</Text>
+      <View style={[styles.container, { backgroundColor: '#050507', justifyContent: 'center', alignItems: 'center', padding: spacing.lg }]}>
+        <View style={{ position: 'absolute', top: insets.top + 20, left: 20, right: 20, flexDirection: 'row', justifyContent: 'space-between' }}>
+          <Text style={{ color: 'rgba(255,255,255,0.62)', fontSize: 12, fontWeight: '600' }}>Vibely Video Date</Text>
+          <Text style={{ color: 'rgba(255,255,255,0.52)', fontSize: 12 }}>Opening room</Text>
+        </View>
+        <View style={{ width: 104, height: 104, borderRadius: 52, borderWidth: 1, borderColor: 'rgba(255,255,255,0.12)', backgroundColor: 'rgba(255,255,255,0.04)', justifyContent: 'center', alignItems: 'center', marginBottom: 18 }}>
+          <ActivityIndicator size="large" color={theme.tint} />
+        </View>
+        <Text style={[styles.message, { color: '#fff', fontWeight: '700' }]}>Opening your date</Text>
+        <Text style={{ color: 'rgba(255,255,255,0.56)', marginTop: 6, textAlign: 'center' }}>
+          Preparing camera, room, and timing together.
+        </Text>
+        <View style={{ position: 'absolute', left: 20, right: 20, bottom: insets.bottom + 28, height: 92, borderRadius: 20, borderWidth: 1, borderColor: 'rgba(255,255,255,0.10)', backgroundColor: 'rgba(255,255,255,0.035)' }} />
       </View>
     );
   }

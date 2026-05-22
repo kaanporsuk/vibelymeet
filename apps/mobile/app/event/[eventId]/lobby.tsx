@@ -91,6 +91,7 @@ import {
   QUEUED_MATCH_TIMED_OUT_USER_MESSAGE,
   isVideoSessionQueuedTtlExpiryTransition,
 } from '@shared/matching/videoSessionFlow';
+import { shouldTopUpVideoDateDeck } from '@clientShared/matching/videoDateInstantExperience';
 import { nextConvergenceDelayMs } from '@clientShared/matching/convergenceScheduling';
 import { resolveEventLifecycle } from '@clientShared/eventLifecycle';
 import { eventLobbyHref } from '@/lib/activeSessionRoutes';
@@ -375,6 +376,13 @@ export default function EventLobbyScreen() {
     });
     return filtered;
   }, [profiles]);
+
+  useEffect(() => {
+    for (const profile of sortedProfiles.slice(0, 3)) {
+      const src = deckCardUrl(profile.primary_photo_path ?? profile.photos?.[0] ?? profile.avatar_url);
+      if (src) void Image.prefetch(src);
+    }
+  }, [sortedProfiles]);
 
   const [processing, setProcessing] = useState(false);
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
@@ -878,9 +886,11 @@ export default function EventLobbyScreen() {
           return next;
         },
       );
-      void queryClient.invalidateQueries({ queryKey: ['event-deck', id, user?.id] });
       if (remainingVisible === 0) {
         remainingVisible = profiles.filter((profile) => profile.id !== targetId).length;
+      }
+      if (shouldTopUpVideoDateDeck(remainingVisible)) {
+        void queryClient.invalidateQueries({ queryKey: ['event-deck', id, user?.id] });
       }
       return remainingVisible;
     },

@@ -218,8 +218,16 @@ const launchLatencyBaselineSql = readFileSync(
   join(process.cwd(), "supabase/validation/video_date_launch_latency_baseline.sql"),
   "utf8",
 );
+const readyGateRouteLabelCleanupMigration = readFileSync(
+  join(process.cwd(), "supabase/migrations/20260522162000_video_date_ready_gate_route_label_cleanup.sql"),
+  "utf8",
+);
 const readyGateOverlay = readFileSync(
   join(process.cwd(), "src/components/lobby/ReadyGateOverlay.tsx"),
+  "utf8",
+);
+const webReadyRedirect = readFileSync(
+  join(process.cwd(), "src/pages/ReadyRedirect.tsx"),
   "utf8",
 );
 const nativeReadyGateOverlay = readFileSync(
@@ -2213,6 +2221,39 @@ test("native post-date survey drains queued ready gates across the whole survey 
   assert.doesNotMatch(nativePostDateSurvey, /drainMatchQueue\(eventId, userId\)[\s\S]{0,900}\[eventId, onQueuedVideoSessionReady, step, userId\]/);
 });
 
+test("post-date queued matches route directly to standalone Ready Gate on web and native", () => {
+  assert.match(webPostDateSurvey, /const target = `\/ready\/\$\{encodeURIComponent\(videoSessionId\)\}`/);
+  assert.match(webPostDateSurvey, /const target = `\/ready\/\$\{encodeURIComponent\(nextSessionId\)\}`/);
+  assert.match(webPostDateSurvey, /serverNext\.action === "ready_gate" && nextSessionId/);
+  assert.match(webPostDateSurvey, /navigate\(target, \{ replace: true \}\)/);
+  assert.match(webPostDateSurvey, /route: "ready_gate"/);
+  assert.doesNotMatch(webPostDateSurvey, /buildEventLobbyPendingSessionUrl|event_lobby_pending_ready_gate/);
+
+  assert.match(nativePostDateSurvey, /route: 'ready_gate'/);
+  assert.doesNotMatch(nativePostDateSurvey, /event_lobby_pending_ready_gate/);
+  assert.match(nativeVideoDateRoute, /const target = readyGateHref\(videoSessionId\)/);
+  assert.doesNotMatch(nativeVideoDateRoute, /eventLobbyHrefPendingVideoSession/);
+});
+
+test("backend post-date router returns the standalone Ready Gate route label", () => {
+  assert.match(readyGateRouteLabelCleanupMigration, /CREATE OR REPLACE FUNCTION public\.resolve_post_date_next_surface/);
+  assert.match(readyGateRouteLabelCleanupMigration, /'action', 'ready_gate'[\s\S]*'route', 'ready_gate'/);
+  assert.doesNotMatch(readyGateRouteLabelCleanupMigration, /event_lobby_pending_ready_gate/);
+  assert.match(readyGateRouteLabelCleanupMigration, /REVOKE ALL ON FUNCTION public\.resolve_post_date_next_surface\(uuid\) FROM PUBLIC, anon/);
+  assert.match(readyGateRouteLabelCleanupMigration, /GRANT EXECUTE ON FUNCTION public\.resolve_post_date_next_surface\(uuid\) TO authenticated, service_role/);
+});
+
+test("web standalone Ready Gate hosts the overlay instead of bouncing through lobby", () => {
+  assert.match(webReadyRedirect, /import ReadyGateOverlay/);
+  assert.match(webReadyRedirect, /recovery\.action === "ready_gate"[\s\S]+setRouteState\(\{ kind: "hosting", eventId: recovery\.eventId \}\)/);
+  assert.match(webReadyRedirect, /READY_GATE_HOSTABLE_STATUSES/);
+  assert.match(webReadyRedirect, /persistReadyGateSuppressionV2/);
+  assert.match(webReadyRedirect, /<ReadyGateOverlay/);
+  assert.match(webReadyRedirect, /onNavigateToDate=\{\(nextSessionId\) => navigateToDate\(nextSessionId\)\}/);
+  assert.match(webReadyRedirect, /onManualExitConfirmed=\{suppressReadyGateSessionAfterManualExit\}/);
+  assert.doesNotMatch(webReadyRedirect, /recovery\.action === "ready_gate" \|\| recovery\.action === "lobby"/);
+});
+
 test("notification date deep links require provider-prepared truth before routing to date", () => {
   assert.match(notificationDeepLinkHandler, /markVideoDateEntryPipelineStarted/);
   assert.match(
@@ -2720,7 +2761,9 @@ test("Daily prewarm is platform-owned, flag-gated, consumable once, and instrume
   assert.match(webEnvExample, /VITE_VIDEO_DATE_DAILY_SOLO_PREJOIN=false/);
   assert.match(webEnvExample, /VITE_VIDEO_DATE_DAILY_BANDWIDTH_OPTIMIZED=false/);
   assert.match(webEnvExample, /VITE_VIDEO_DATE_DAILY_DEVICE_PREFERENCE_COOKIES=false/);
-  assert.match(nativeEnvExample, /EXPO_PUBLIC_VIDEO_DATE_DAILY_JOIN_PREWARM=false/);
+  assert.match(nativeEnvExample, /EXPO_PUBLIC_VIDEO_DATE_ROOM_WARMUP_AFTER_READY=true/);
+  assert.match(nativeEnvExample, /EXPO_PUBLIC_VIDEO_DATE_DAILY_PREWARM=true/);
+  assert.match(nativeEnvExample, /EXPO_PUBLIC_VIDEO_DATE_DAILY_JOIN_PREWARM=true/);
   assert.match(nativeEnvExample, /EXPO_PUBLIC_VIDEO_DATE_DAILY_SOLO_PREJOIN=false/);
   assert.match(nativeEnvExample, /EXPO_PUBLIC_VIDEO_DATE_DAILY_BANDWIDTH_OPTIMIZED=false/);
   assert.match(webDailyPrewarm, /WEB_DAILY_PREWARM_JOIN_NAV_WAIT_MS = 250/);

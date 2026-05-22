@@ -38,6 +38,7 @@ import {
 } from "@clientShared/observability/videoDateOperatorMetrics";
 import { useQueryClient } from "@tanstack/react-query";
 import { END_ACCOUNT_BREAK_PROFILE_UPDATE } from "@/lib/endAccountBreak";
+import { deckCardUrl } from "@/utils/imageUrl";
 import { claimDateNavigation } from "@/lib/dateNavigationGuard";
 import {
   canAttemptDailyRoomFromVideoSessionTruth,
@@ -52,6 +53,7 @@ import {
   QUEUED_MATCH_TIMED_OUT_USER_MESSAGE,
   shouldAdvanceLobbyDeckAfterSwipe,
 } from "@shared/matching/videoSessionFlow";
+import { shouldTopUpVideoDateDeck } from "@clientShared/matching/videoDateInstantExperience";
 import {
   bucketEventLobbyCount,
   EventLobbyObservabilityEvents,
@@ -1090,6 +1092,17 @@ const EventLobby = () => {
     return filtered;
   }, [profiles]);
 
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    for (const profile of sortedProfiles.slice(0, 3)) {
+      const src = deckCardUrl(profile.primary_photo_path ?? profile.photos?.[0] ?? profile.avatar_url);
+      if (!src) continue;
+      const image = new Image();
+      image.decoding = "async";
+      image.src = src;
+    }
+  }, [sortedProfiles]);
+
   const currentProfile = sortedProfiles[0] || null;
   const nextProfile = sortedProfiles[1] || null;
   const thirdProfile = sortedProfiles[2] || null;
@@ -1208,13 +1221,24 @@ const EventLobby = () => {
 
   const advanceDeckAfterSwipe = useCallback(
     (targetId: string) => {
+      let remainingVisible = 0;
       queryClient.setQueryData<DeckProfile[]>(
         ["event-deck", eventId, user?.id, "deck_v2"],
-        (current) => Array.isArray(current) ? current.filter((profile) => profile.id !== targetId) : current,
+        (current) => {
+          if (!Array.isArray(current)) return current;
+          const next = current.filter((profile) => profile.id !== targetId);
+          remainingVisible = next.length;
+          return next;
+        },
       );
-      void queryClient.invalidateQueries({ queryKey: ["event-deck", eventId, user?.id] });
+      if (remainingVisible === 0) {
+        remainingVisible = profiles.filter((profile) => profile.id !== targetId).length;
+      }
+      if (shouldTopUpVideoDateDeck(remainingVisible)) {
+        void queryClient.invalidateQueries({ queryKey: ["event-deck", eventId, user?.id] });
+      }
     },
-    [eventId, queryClient, user?.id]
+    [eventId, profiles, queryClient, user?.id]
   );
 
   const handleVibe = useCallback(async () => {

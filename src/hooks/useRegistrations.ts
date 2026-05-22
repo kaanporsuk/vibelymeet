@@ -71,9 +71,30 @@ export const useRegisterForEvent = () => {
         .eq("event_id", eventId)
         .eq("profile_id", user.id)
         .maybeSingle();
+      const admissionStatus = reg?.admission_status ?? null;
+      queryClient.setQueryData(["event-registration-check", eventId, user.id], {
+        isConfirmed: admissionStatus === "confirmed",
+        isWaitlisted: admissionStatus === "waitlisted",
+      });
+      queryClient.setQueryData<UserEventAdmissionMap | undefined>(
+        ["user-registrations", user.id],
+        (current) => {
+          if (!current) return current;
+          const confirmed = new Set(current?.confirmedEventIds ?? []);
+          const waitlisted = new Set(current?.waitlistedEventIds ?? []);
+          confirmed.delete(eventId);
+          waitlisted.delete(eventId);
+          if (admissionStatus === "confirmed") confirmed.add(eventId);
+          if (admissionStatus === "waitlisted") waitlisted.add(eventId);
+          return {
+            confirmedEventIds: [...confirmed],
+            waitlistedEventIds: [...waitlisted],
+          };
+        },
+      );
       trackEvent("event_registration_success", {
         event_id: eventId,
-        admission_status: reg?.admission_status ?? null,
+        admission_status: admissionStatus,
       });
       await queryClient.invalidateQueries({ queryKey: ["event-registration-check"] });
       await queryClient.invalidateQueries({ queryKey: ["profile-live-counts"] });

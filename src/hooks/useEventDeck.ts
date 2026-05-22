@@ -5,6 +5,7 @@ import {
   parseEventDeckProfiles,
   type EventDeckProfile as DeckProfile,
 } from "@shared/eventProfileAdapters";
+import { VIDEO_DATE_DECK_BUFFER_LIMIT } from "@clientShared/matching/videoDateInstantExperience";
 
 export type { DeckProfile };
 
@@ -25,7 +26,7 @@ export const useEventDeck = ({ eventId, enabled = true }: UseEventDeckOptions) =
       const { data, error } = await supabase.rpc("get_event_deck_v2", {
         p_event_id: eventId,
         p_user_id: viewerProfileId,
-        p_limit: 1,
+        p_limit: VIDEO_DATE_DECK_BUFFER_LIMIT,
       });
 
       if (error) {

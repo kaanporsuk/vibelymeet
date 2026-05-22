@@ -32,6 +32,7 @@ const dailyRoomIndex = readFileSync(join(root, "supabase/functions/daily-room/in
 const dailyRoomContracts = readFileSync(join(root, "supabase/functions/daily-room/dailyRoomContracts.ts"), "utf8");
 const webDeckHook = readFileSync(join(root, "src/hooks/useEventDeck.ts"), "utf8");
 const nativeEventsApi = readFileSync(join(root, "apps/mobile/lib/eventsApi.ts"), "utf8");
+const instantExperience = readFileSync(join(root, "shared/matching/videoDateInstantExperience.ts"), "utf8");
 const webStatusHook = readFileSync(join(root, "src/hooks/useEventStatus.ts"), "utf8");
 const nativeStatusHook = readFileSync(join(root, "apps/mobile/lib/eventStatus.ts"), "utf8");
 const webReadinessHook = readFileSync(join(root, "src/hooks/useVideoDateReadiness.ts"), "utf8");
@@ -129,11 +130,13 @@ test("PR 1.2 dedicated diagnostics and runtime readiness are wired for web and n
 
 test("PR 1.3 deck v2 and persistent ready-gate suppression are adopted; Phase 8 makes deck v2 mandatory", () => {
   assert.match(webDeckHook, /get_event_deck_v2/);
-  assert.match(webDeckHook, /p_limit: 1/);
+  assert.match(webDeckHook, /VIDEO_DATE_DECK_BUFFER_LIMIT/);
+  assert.match(instantExperience, /VIDEO_DATE_DECK_BUFFER_LIMIT = 5/);
+  assert.match(instantExperience, /VIDEO_DATE_DECK_TOP_UP_THRESHOLD = 2/);
   assert.match(webDeckHook, /query\.isFetching && profiles\.length === 0/);
   assert.doesNotMatch(webDeckHook, /deck_v1|["']get_event_deck["']|video_date\.deck_deal_v2/);
   assert.match(nativeEventsApi, /get_event_deck_v2/);
-  assert.match(nativeEventsApi, /p_limit: 1/);
+  assert.match(nativeEventsApi, /VIDEO_DATE_DECK_BUFFER_LIMIT/);
   assert.match(nativeEventsApi, /query\.isFetching && profiles\.length === 0/);
   assert.doesNotMatch(nativeEventsApi, /deck_v1|["']get_event_deck["']|video_date\.deck_deal_v2/);
   assert.match(webLobby, /Server-dealt deck v2 is the only active source of deck exclusion truth/);
@@ -142,6 +145,10 @@ test("PR 1.3 deck v2 and persistent ready-gate suppression are adopted; Phase 8 
   assert.doesNotMatch(nativeLobby, /seenProfileIdsRef|deckDealV2|deckNonce/);
   assert.match(webLobby, /setQueryData<DeckProfile\[\]>\(\s*\["event-deck", eventId, user\?\.id, "deck_v2"\]/);
   assert.match(nativeLobby, /setQueryData<DeckProfile\[\]>\(\s*\['event-deck', id, user\?\.id, 'deck_v2'\]/);
+  assert.match(webLobby, /sortedProfiles\.slice\(0, 3\)[\s\S]+new Image\(\)/);
+  assert.match(nativeLobby, /sortedProfiles\.slice\(0, 3\)[\s\S]+Image\.prefetch\(src\)/);
+  assert.match(webLobby, /shouldTopUpVideoDateDeck\(remainingVisible\)/);
+  assert.match(nativeLobby, /shouldTopUpVideoDateDeck\(remainingVisible\)/);
   assert.match(webLobby, /invalidateQueries\(\{ queryKey: \["event-deck", eventId, user\?\.id\] \}\)/);
   assert.match(nativeLobby, /invalidateQueries\(\{ queryKey: \['event-deck', id, user\?\.id\] \}\)/);
   assert.match(phase1Migration, /CREATE OR REPLACE FUNCTION public\.persist_ready_gate_suppression_v2/);

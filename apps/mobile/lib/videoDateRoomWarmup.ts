@@ -26,7 +26,7 @@ type EnsureVideoDateRoomWarmupOptions = {
 };
 
 export function videoDateRoomWarmupAfterReadyEnabled(): boolean {
-  return String(process.env.EXPO_PUBLIC_VIDEO_DATE_ROOM_WARMUP_AFTER_READY ?? 'false').toLowerCase() === 'true';
+  return String(process.env.EXPO_PUBLIC_VIDEO_DATE_ROOM_WARMUP_AFTER_READY ?? 'true').toLowerCase() === 'true';
 }
 
 export async function ensureVideoDateRoomWarmup(

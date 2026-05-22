@@ -48,6 +48,7 @@ const webDeckHook = readFileSync(join(root, "src/hooks/useEventDeck.ts"), "utf8"
 const webLobby = readFileSync(join(root, "src/pages/EventLobby.tsx"), "utf8");
 const nativeEventsApi = readFileSync(join(root, "apps/mobile/lib/eventsApi.ts"), "utf8");
 const nativeLobby = readFileSync(join(root, "apps/mobile/app/event/[eventId]/lobby.tsx"), "utf8");
+const instantExperience = readFileSync(join(root, "shared/matching/videoDateInstantExperience.ts"), "utf8");
 
 const cleanInput: VideoDatePhase8CertificationInput = {
   twoUserWebPassed: true,
@@ -256,21 +257,27 @@ test("end-state rollout proof is fail-safe against blocked readiness rows", () =
 
 test("PR 8.5 retires client-only deck fallback on web and native", () => {
   assert.match(webDeckHook, /rpc\("get_event_deck_v2"/);
-  assert.match(webDeckHook, /p_limit: 1/);
+  assert.match(webDeckHook, /VIDEO_DATE_DECK_BUFFER_LIMIT/);
+  assert.match(instantExperience, /VIDEO_DATE_DECK_BUFFER_LIMIT = 5/);
+  assert.match(instantExperience, /VIDEO_DATE_DECK_TOP_UP_THRESHOLD = 2/);
   assert.match(webDeckHook, /\["event-deck", eventId, user\?\.id, "deck_v2"\]/);
   assert.doesNotMatch(webDeckHook, /video_date\.deck_deal_v2|deck_v1|["']get_event_deck["']/);
   assert.doesNotMatch(webLobby, /seenProfileIds|deckDealV2|deckNonce|deck_invalidate_after_swipe/);
   assert.doesNotMatch(webLobby, /deckPosition|1\s*\/\s*\{deckRemaining\}\s*left/);
   assert.match(webLobby, /Next card ready/);
+  assert.match(webLobby, /sortedProfiles\.slice\(0, 3\)[\s\S]+new Image\(\)/);
+  assert.match(webLobby, /shouldTopUpVideoDateDeck\(remainingVisible\)/);
   assert.match(webLobby, /Server-dealt deck v2 is the only active source of deck exclusion truth/);
 
   assert.match(nativeEventsApi, /rpc\('get_event_deck_v2'/);
-  assert.match(nativeEventsApi, /p_limit: 1/);
+  assert.match(nativeEventsApi, /VIDEO_DATE_DECK_BUFFER_LIMIT/);
   assert.match(nativeEventsApi, /\['event-deck', eventId, viewerProfileId, 'deck_v2'\]/);
   assert.doesNotMatch(nativeEventsApi, /video_date\.deck_deal_v2|deck_v1|["']get_event_deck["']/);
   assert.doesNotMatch(nativeLobby, /seenProfileIdsRef|deckDealV2|deckNonce|swipe_failure_advance_deck|swipe_advance_deck/);
   assert.doesNotMatch(nativeLobby, /1 \/ \$\{sortedProfiles\.length\} left|deckProgress = useMemo/);
   assert.match(nativeLobby, /Next card ready/);
+  assert.match(nativeLobby, /sortedProfiles\.slice\(0, 3\)[\s\S]+Image\.prefetch\(src\)/);
+  assert.match(nativeLobby, /shouldTopUpVideoDateDeck\(remainingVisible\)/);
   assert.match(nativeLobby, /Server-dealt deck v2 is the only active source of deck exclusion truth/);
 });
 

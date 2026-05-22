@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
@@ -6,6 +6,8 @@ import { useUserProfile } from "@/contexts/AuthContext";
 import { markVideoDateEntryPipelineStarted } from "@/lib/dateEntryTransitionLatch";
 import { useFeatureFlag } from "@/hooks/useFeatureFlag";
 import { fetchVideoDateSnapshot } from "@/lib/videoDateSnapshot";
+import { persistReadyGateSuppressionV2 } from "@/lib/videoDateReadiness";
+import ReadyGateOverlay from "@/components/lobby/ReadyGateOverlay";
 import { canAttemptDailyRoomFromVideoSessionTruth } from "@clientShared/matching/activeSession";
 import { resolveVideoDateSnapshotRecovery } from "@clientShared/matching/videoDateTimeline";
 import {
@@ -13,41 +15,76 @@ import {
   READY_GATE_STALE_OR_ENDED_USER_MESSAGE,
 } from "@shared/matching/videoSessionFlow";
 
+const READY_GATE_HOSTABLE_STATUSES = new Set(["ready", "ready_a", "ready_b", "both_ready", "snoozed"]);
+const READY_GATE_MANUAL_EXIT_SUPPRESS_MS = 45_000;
+
+type ReadyRouteState =
+  | { kind: "loading" }
+  | { kind: "hosting"; eventId: string }
+  | { kind: "redirecting" };
+
 /**
- * Web `/ready/:readyId` entry: safe reconciliation fallback, not a standalone Ready Gate surface.
- * Snapshot v2 validates participation through the token-free Edge/Postgres path and recovers
- * the exact event lobby without minting Daily tokens. Legacy fallback still validates the
- * session row and registration state directly while the flag ramps.
+ * Web `/ready/:readyId` is now a real standalone Ready Gate host.
+ * It still performs the same canonical participant/session recovery before
+ * rendering, but ready sessions no longer need to bounce through event lobby.
  */
 const ReadyRedirect = () => {
   const navigate = useNavigate();
   const { readyId } = useParams<{ readyId: string }>();
   const { user } = useUserProfile();
   const snapshotV2 = useFeatureFlag("video_date.snapshot_v2");
+  const readinessV2 = useFeatureFlag("video_date.readiness_v2");
   const toastShownForReadyKeyRef = useRef<string | null>(null);
+  const [routeState, setRouteState] = useState<ReadyRouteState>({ kind: "loading" });
 
   useEffect(() => {
     toastShownForReadyKeyRef.current = null;
+    setRouteState({ kind: "loading" });
   }, [readyId]);
 
-  useEffect(() => {
-    let cancelled = false;
-
-    const notifyOnce = (message: string) => {
+  const notifyOnce = useCallback(
+    (message: string) => {
       const key = `${readyId ?? ""}:${message.slice(0, 24)}`;
       if (toastShownForReadyKeyRef.current === key) return;
       toastShownForReadyKeyRef.current = key;
       toast.info(message, { duration: 3600 });
-    };
+    },
+    [readyId],
+  );
 
-    const redirect = async () => {
+  const navigateToEventLobby = useCallback(
+    (eventId: string) => {
+      navigate(`/event/${encodeURIComponent(eventId)}/lobby`, { replace: true });
+    },
+    [navigate],
+  );
+
+  const navigateToDate = useCallback(
+    (sessionId: string) => {
+      markVideoDateEntryPipelineStarted(sessionId);
+      navigate(`/date/${encodeURIComponent(sessionId)}`, { replace: true });
+    },
+    [navigate],
+  );
+
+  const suppressReadyGateSessionAfterManualExit = useCallback(
+    (sessionId: string) => {
+      if (!readinessV2.enabled) return;
+      void persistReadyGateSuppressionV2(sessionId, Date.now() + READY_GATE_MANUAL_EXIT_SUPPRESS_MS);
+    },
+    [readinessV2.enabled],
+  );
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const resolveRoute = async () => {
       if (!readyId?.trim()) {
+        setRouteState({ kind: "redirecting" });
         navigate("/events", { replace: true });
         return;
       }
-      if (!user?.id) {
-        return;
-      }
+      if (!user?.id) return;
 
       const candidate = readyId.trim();
 
@@ -56,26 +93,37 @@ const ReadyRedirect = () => {
         if (cancelled) return;
         const recovery = resolveVideoDateSnapshotRecovery(snapshot, { expectedSessionId: candidate });
         const snapshotEventId = snapshot.ok ? snapshot.eventId : null;
+
         if (recovery.action === "date" || recovery.action === "survey") {
-          markVideoDateEntryPipelineStarted(candidate);
-          navigate(`/date/${encodeURIComponent(recovery.sessionId)}`, { replace: true });
+          setRouteState({ kind: "redirecting" });
+          navigateToDate(recovery.sessionId);
           return;
         }
-        if (recovery.action === "ready_gate" || recovery.action === "lobby") {
-          const recoveryEventId = snapshotEventId ?? recovery.eventId;
+
+        if (recovery.action === "ready_gate") {
+          setRouteState({ kind: "hosting", eventId: recovery.eventId });
+          return;
+        }
+
+        if (recovery.action === "lobby") {
           if (recovery.reason === "ended") {
             notifyOnce(READY_GATE_STALE_OR_ENDED_USER_MESSAGE);
           }
-          navigate(`/event/${encodeURIComponent(recoveryEventId)}/lobby`, { replace: true });
+          setRouteState({ kind: "redirecting" });
+          navigateToEventLobby(snapshotEventId ?? recovery.eventId);
           return;
         }
+
         if (recovery.action === "home" && recovery.reason === "missing_event") {
           notifyOnce(READY_GATE_DEEP_LINK_INVALID_USER_MESSAGE);
+          setRouteState({ kind: "redirecting" });
           navigate("/events", { replace: true });
           return;
         }
+
         if (recovery.action === "invalid") {
           notifyOnce(READY_GATE_DEEP_LINK_INVALID_USER_MESSAGE);
+          setRouteState({ kind: "redirecting" });
           navigate("/events", { replace: true });
           return;
         }
@@ -91,6 +139,7 @@ const ReadyRedirect = () => {
 
       if (error || !session) {
         notifyOnce(READY_GATE_DEEP_LINK_INVALID_USER_MESSAGE);
+        setRouteState({ kind: "redirecting" });
         navigate("/events", { replace: true });
         return;
       }
@@ -99,14 +148,16 @@ const ReadyRedirect = () => {
         session.participant_1_id === user.id || session.participant_2_id === user.id;
       if (!isParticipant) {
         notifyOnce(READY_GATE_DEEP_LINK_INVALID_USER_MESSAGE);
+        setRouteState({ kind: "redirecting" });
         navigate("/events", { replace: true });
         return;
       }
 
       if (session.ended_at) {
         notifyOnce(READY_GATE_STALE_OR_ENDED_USER_MESSAGE);
+        setRouteState({ kind: "redirecting" });
         if (session.event_id) {
-          navigate(`/event/${encodeURIComponent(session.event_id)}/lobby`, { replace: true });
+          navigateToEventLobby(session.event_id);
         } else {
           navigate("/home", { replace: true });
         }
@@ -115,13 +166,14 @@ const ReadyRedirect = () => {
 
       if (!session.event_id) {
         notifyOnce(READY_GATE_DEEP_LINK_INVALID_USER_MESSAGE);
+        setRouteState({ kind: "redirecting" });
         navigate("/events", { replace: true });
         return;
       }
 
       if (canAttemptDailyRoomFromVideoSessionTruth(session)) {
-        markVideoDateEntryPipelineStarted(candidate);
-        navigate(`/date/${encodeURIComponent(candidate)}`, { replace: true });
+        setRouteState({ kind: "redirecting" });
+        navigateToDate(candidate);
         return;
       }
 
@@ -134,23 +186,46 @@ const ReadyRedirect = () => {
 
       if (cancelled) return;
 
-      if (reg?.queue_status !== "in_ready_gate") {
-        notifyOnce(READY_GATE_STALE_OR_ENDED_USER_MESSAGE);
-        navigate(`/event/${encodeURIComponent(session.event_id)}/lobby`, { replace: true });
+      if (reg?.queue_status === "in_ready_gate" || READY_GATE_HOSTABLE_STATUSES.has(String(session.ready_gate_status))) {
+        setRouteState({ kind: "hosting", eventId: session.event_id });
         return;
       }
 
-      navigate(`/event/${encodeURIComponent(session.event_id)}/lobby`, { replace: true });
+      notifyOnce(READY_GATE_STALE_OR_ENDED_USER_MESSAGE);
+      setRouteState({ kind: "redirecting" });
+      navigateToEventLobby(session.event_id);
     };
 
-    void redirect();
+    void resolveRoute();
 
     return () => {
       cancelled = true;
     };
-  }, [readyId, navigate, snapshotV2.enabled, user?.id]);
+  }, [navigate, navigateToDate, navigateToEventLobby, notifyOnce, readyId, snapshotV2.enabled, user?.id]);
 
-  return null;
+  if (routeState.kind === "hosting" && readyId?.trim()) {
+    const sessionId = readyId.trim();
+    return (
+      <div className="min-h-screen bg-background">
+        <ReadyGateOverlay
+          sessionId={sessionId}
+          eventId={routeState.eventId}
+          onClose={() => navigateToEventLobby(routeState.eventId)}
+          onNavigateToDate={(nextSessionId) => navigateToDate(nextSessionId)}
+          onManualExitConfirmed={suppressReadyGateSessionAfterManualExit}
+        />
+      </div>
+    );
+  }
+
+  if (routeState.kind === "redirecting") return null;
+
+  return (
+    <div className="min-h-screen bg-background flex flex-col items-center justify-center gap-3">
+      <div className="w-12 h-12 rounded-full border-2 border-primary border-t-transparent animate-spin" />
+      <p className="text-sm text-muted-foreground">Opening Ready Gate...</p>
+    </div>
+  );
 };
 
 export default ReadyRedirect;
