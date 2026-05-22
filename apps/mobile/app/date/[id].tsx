@@ -212,6 +212,10 @@ const NATIVE_CAMERA_SWITCH_COMMIT_TIMEOUT_MS = 1_800;
 const NATIVE_CAMERA_SWITCH_COMMIT_POLL_MS = 80;
 const NATIVE_VIDEO_DATE_SURFACE_CLAIM_TTL_SECONDS = 12;
 const NATIVE_VIDEO_DATE_SURFACE_CLAIM_REFRESH_MS = 4_000;
+type NativeVideoDateSurfaceClaimResult = {
+  canContinue: boolean;
+  confirmed: boolean;
+};
 // Minimum time (ms) the Vibe/Pass CTA must be visible after first playable remote
 // media before the server deadline is allowed to call completeHandshake.
 // Prevents expiry on slow Daily join where media arrives just before the 60 s mark.
@@ -3910,10 +3914,10 @@ export default function VideoDateScreen() {
   );
 
   const claimNativeVideoDateSurface = useCallback(
-    async (takeover = false): Promise<boolean> => {
+    async (takeover = false): Promise<NativeVideoDateSurfaceClaimResult> => {
       if (!multiDeviceV2.enabled || !sessionId || !user?.id || showFeedback || phaseRef.current === 'ended') {
         setSurfaceClaimBlocked(false);
-        return true;
+        return { canContinue: true, confirmed: true };
       }
       const { data, error } = await supabase.rpc('claim_video_date_surface' as never, {
         p_session_id: sessionId,
@@ -3925,7 +3929,7 @@ export default function VideoDateScreen() {
       const payload = data as { success?: boolean; code?: string } | null;
       if (error || payload?.success === false) {
         const blocked = payload?.code === 'SURFACE_CLAIM_CONFLICT';
-        setSurfaceClaimBlocked(blocked);
+        setSurfaceClaimBlocked(blocked || takeover);
         vdbg('native_video_date_surface_claim_result', {
           sessionId,
           userId: user.id,
@@ -3935,7 +3939,7 @@ export default function VideoDateScreen() {
           code: payload?.code ?? null,
           error: error ? { code: error.code, message: error.message } : null,
         });
-        return !blocked;
+        return { canContinue: !blocked, confirmed: false };
       }
       setSurfaceClaimBlocked(false);
       vdbg('native_video_date_surface_claim_result', {
@@ -3944,7 +3948,7 @@ export default function VideoDateScreen() {
         ok: true,
         takeover,
       });
-      return true;
+      return { canContinue: true, confirmed: true };
     },
     [multiDeviceV2.enabled, sessionId, showFeedback, user?.id],
   );
@@ -3953,8 +3957,8 @@ export default function VideoDateScreen() {
     if (surfaceClaimTakeoverBusy) return;
     setSurfaceClaimTakeoverBusy(true);
     try {
-      const claimed = await claimNativeVideoDateSurface(true);
-      if (claimed) {
+      const claim = await claimNativeVideoDateSurface(true);
+      if (claim.confirmed) {
         setSurfaceClaimBlocked(false);
         hasStartedJoinRef.current = false;
         vdbg('native_video_date_surface_takeover_retry', {
@@ -4002,8 +4006,8 @@ export default function VideoDateScreen() {
     let cancelled = false;
     const clientInstanceId = videoDateClientInstanceIdRef.current;
     const tick = async () => {
-      const claimed = await claimNativeVideoDateSurface(false);
-      if (!cancelled && !claimed) {
+      const claim = await claimNativeVideoDateSurface(false);
+      if (!cancelled && !claim.canContinue) {
         vdbg('native_video_date_surface_claim_blocked', {
           sessionId,
           userId: user?.id ?? null,
@@ -5531,8 +5535,8 @@ export default function VideoDateScreen() {
       }
 
       currentStep = setPrejoinStep('surface_claim');
-      const surfaceClaimed = await claimNativeVideoDateSurface(false);
-      if (!surfaceClaimed) {
+      const surfaceClaim = await claimNativeVideoDateSurface(false);
+      if (!surfaceClaim.canContinue) {
         clearDateEntryTransition(sessionId);
         vdbg('prejoin_step_prejoin_daily_room_skipped', {
           sessionId,
