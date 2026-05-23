@@ -1,3 +1,5 @@
+import { imagePlaceholderForImage } from "@/services/imageUploadService";
+
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 
 type UploadEventCoverResponse = {
@@ -49,6 +51,12 @@ export async function uploadEventCoverToBunny(
 ): Promise<UploadEventCoverResult> {
   const formData = new FormData();
   formData.append("file", file);
+  const placeholder = await imagePlaceholderForImage(file);
+  if (placeholder) {
+    formData.append("placeholder_kind", placeholder.kind);
+    formData.append("placeholder_hash", placeholder.hash);
+    formData.append("dominant_color", placeholder.dominantColor);
+  }
   if (eventId) {
     formData.append("event_id", eventId);
     if (options.expectedCurrentCoverAssetId !== undefined) {

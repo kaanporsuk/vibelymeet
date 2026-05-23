@@ -30,6 +30,7 @@ import { VideoMessageBubble } from "@/components/chat/VideoMessageBubble";
 import { VibeClipBubble, type VibeClipLocalRecovery } from "@/components/chat/VibeClipBubble";
 import { MessageStatus } from "@/components/chat/MessageStatus";
 import { MediaHealthPanel } from "@/components/media/MediaHealthPanel";
+import { MediaPlaceholder } from "@/components/media/MediaPlaceholder";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
 import {
   extractChatImageIdentityRef,
@@ -106,6 +107,10 @@ import { format } from "date-fns";
 import { buildThreadPresentationRows } from "../../shared/chat/threadPresentation";
 import { resolvePrimaryProfilePhotoPath } from "../../shared/profilePhoto/resolvePrimaryProfilePhotoPath";
 import { avatarUrl, getImageUrl } from "@/utils/imageUrl";
+import {
+  normalizeMediaPlaceholderPayload,
+  type MediaPlaceholderPayload,
+} from "../../shared/media/placeholders";
 
 type MessageStatusType = "sending" | "sent" | "delivered" | "read";
 type ReactionEmoji = "❤️" | "🔥" | "🤣" | "😮" | "👎";
@@ -1261,13 +1266,11 @@ const Chat = () => {
       }),
     [photoUrlOverridesById],
   );
-  const photoPlaceholderColorForMessage = useCallback((message: ChatMessage): string | null => {
+  const photoPlaceholderForMessage = useCallback((message: ChatMessage): MediaPlaceholderPayload | null => {
     const payload = message.structuredPayload;
     if (!payload || typeof payload !== "object" || Array.isArray(payload)) return null;
     const placeholder = (payload as { media_placeholder?: unknown }).media_placeholder;
-    if (!placeholder || typeof placeholder !== "object" || Array.isArray(placeholder)) return null;
-    const color = (placeholder as { dominant_color?: unknown }).dominant_color;
-    return typeof color === "string" && /^#[0-9a-f]{6}$/i.test(color) ? color : null;
+    return normalizeMediaPlaceholderPayload(placeholder);
   }, []);
   const refreshPhotoUrlForMessage = useCallback(async (message: ChatMessage): Promise<string | null> => {
     if (!message.imageSourceRef) return null;
@@ -2921,7 +2924,7 @@ const Chat = () => {
                 </div>
               ) : groupedMessage.type === "image" ? (() => {
                 const imageUrl = photoUrlForMessage(groupedMessage);
-                const imagePlaceholderColor = photoPlaceholderColorForMessage(groupedMessage);
+                const imagePlaceholder = photoPlaceholderForMessage(groupedMessage);
                 return (
                   <div
                     key={groupedMessage.id}
@@ -2949,13 +2952,18 @@ const Chat = () => {
                       >
                         {imageUrl?.trim() ? (
                           <span
-                            className="block aspect-[4/5] w-60 max-w-full overflow-hidden rounded-2xl border border-border/30 bg-secondary/40"
-                            style={imagePlaceholderColor ? { backgroundColor: imagePlaceholderColor } : undefined}
+                            className="relative block aspect-[4/5] w-60 max-w-full overflow-hidden rounded-2xl border border-border/30 bg-secondary/40"
+                            style={imagePlaceholder?.dominantColor ? { backgroundColor: imagePlaceholder.dominantColor } : undefined}
                           >
+                            <MediaPlaceholder
+                              kind={imagePlaceholder?.kind}
+                              hash={imagePlaceholder?.hash}
+                              dominantColor={imagePlaceholder?.dominantColor}
+                            />
                             <img
                               src={imageUrl}
                               alt="Shared image"
-                              className="h-full w-full object-cover transition-transform duration-200 group-hover:brightness-[1.03] group-active:scale-[0.99]"
+                              className="relative z-[1] h-full w-full object-cover transition-transform duration-200 group-hover:brightness-[1.03] group-active:scale-[0.99]"
                               loading="lazy"
                               onError={() => {
                                 void refreshPhotoUrlForMessage(groupedMessage);

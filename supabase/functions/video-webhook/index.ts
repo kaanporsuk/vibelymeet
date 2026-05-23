@@ -10,6 +10,8 @@ import {
   mapBunnyStatusToChatClipStatus,
   updateChatVibeClipStatusByProvider,
 } from "../_shared/chat-vibe-clips.ts";
+import { createImagePlaceholderMetadata, type MediaPlaceholderMetadata } from "../_shared/media-placeholders.ts";
+import { signBunnyStreamDirectoryUrl } from "../_shared/bunny-stream-tokens.ts";
 import { logVibeVideo } from "../_shared/vibe-video-logs.ts";
 
 type SafeTraceValue = string | number | boolean | null | undefined;
@@ -19,6 +21,7 @@ type CallbackOutcome<T> =
   | { ok: true; value: T }
   | { ok: false; error: unknown };
 type VibeVideoUploadAttemptStatus = "processing" | "ready" | "failed";
+type StreamPlaceholderKind = "chat" | "profile";
 
 function numericEnv(name: string, fallback: number): number {
   const raw = Deno.env.get(name);
@@ -203,6 +206,83 @@ function getBearerToken(headers: Headers): string | null {
   const match = /^Bearer\s+(.+)$/i.exec(authorization);
   const token = match?.[1]?.trim() ?? "";
   return token.length > 0 ? token : null;
+}
+
+function streamPlaceholderConfig(kind: StreamPlaceholderKind): { hostname: string; securityKey: string } | null {
+  const hostname = Deno.env.get(kind === "chat" ? "BUNNY_CHAT_STREAM_CDN_HOSTNAME" : "BUNNY_STREAM_CDN_HOSTNAME")?.trim() ?? "";
+  const securityKey = Deno.env.get(kind === "chat" ? "BUNNY_CHAT_STREAM_TOKEN_SECURITY_KEY" : "BUNNY_STREAM_TOKEN_SECURITY_KEY")?.trim() ?? "";
+  return hostname && securityKey ? { hostname, securityKey } : null;
+}
+
+async function fetchStreamThumbnailPlaceholder(
+  videoId: string,
+  kind: StreamPlaceholderKind,
+): Promise<MediaPlaceholderMetadata | null> {
+  const config = streamPlaceholderConfig(kind);
+  if (!config) return null;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 4_000);
+  try {
+    const url = await signBunnyStreamDirectoryUrl({
+      hostname: config.hostname,
+      securityKey: config.securityKey,
+      videoId,
+      fileName: "thumbnail.jpg",
+      expires: Math.floor(Date.now() / 1000) + 120,
+    });
+    const response = await fetch(url, { signal: controller.signal });
+    if (!response.ok) return null;
+    const buffer = await response.arrayBuffer();
+    return await createImagePlaceholderMetadata(buffer);
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function updateStreamVideoPlaceholder(
+  supabase: AdminSupabaseClient,
+  params: {
+    providerObjectId: string;
+    kind: StreamPlaceholderKind;
+    log: (level: "info" | "warn" | "error", event: string, fields?: Record<string, string | number | boolean | null | undefined>) => void;
+  },
+): Promise<void> {
+  const placeholder = await fetchStreamThumbnailPlaceholder(params.providerObjectId, params.kind);
+  if (!placeholder) {
+    params.log("warn", "video_webhook_thumbnail_placeholder_unavailable", {
+      video_guid: params.providerObjectId,
+      stream_kind: params.kind,
+    });
+    return;
+  }
+  const { data, error } = await supabase
+    .from("media_assets")
+    .update({
+      placeholder_kind: placeholder.placeholder_kind,
+      placeholder_hash: placeholder.placeholder_hash,
+      dominant_color: placeholder.dominant_color,
+      placeholder_updated_at: new Date().toISOString(),
+    })
+    .eq("provider", "bunny_stream")
+    .eq("provider_object_id", params.providerObjectId)
+    .neq("status", "purged")
+    .select("id")
+    .maybeSingle();
+  if (error) {
+    params.log("warn", "video_webhook_thumbnail_placeholder_update_failed", {
+      video_guid: params.providerObjectId,
+      stream_kind: params.kind,
+      error_code: error.code ?? "placeholder_update_failed",
+    });
+    return;
+  }
+  params.log("info", "video_webhook_thumbnail_placeholder_updated", {
+    video_guid: params.providerObjectId,
+    stream_kind: params.kind,
+    media_asset_id: typeof data?.id === "string" ? data.id : null,
+  });
 }
 
 async function authenticateWebhook(
@@ -475,6 +555,13 @@ serve(async (req) => {
       { publishIfProcessing: Status === 7 },
     );
     if (chatClipResult.handled) {
+      if (!chatClipResult.error && chatClipStatus === "ready") {
+        await updateStreamVideoPlaceholder(supabase, {
+          providerObjectId: VideoGuid,
+          kind: "chat",
+          log: logWebhook,
+        });
+      }
       logWebhook(chatClipResult.error ? "error" : "info", "video_webhook_chat_vibe_clip_update", {
         video_guid: VideoGuid,
         provider_object_id: VideoGuid,
@@ -545,6 +632,13 @@ serve(async (req) => {
         mapped_status: mappedStatus,
         upload_attempt_id: attemptSync.attemptId,
       });
+      if (mappedStatus === "ready") {
+        await updateStreamVideoPlaceholder(supabase, {
+          providerObjectId: VideoGuid,
+          kind: "profile",
+          log: logWebhook,
+        });
+      }
       // The RPC is authoritative for active sessions and now keeps the profile
       // snapshot in sync for processing/ready/failed with a UID guard.
       return new Response("ok", { status: 200 });
@@ -648,6 +742,13 @@ serve(async (req) => {
       mapped_status: mappedStatus,
       upload_attempt_id: legacyAttemptSync.attemptId,
     });
+    if (mappedStatus === "ready") {
+      await updateStreamVideoPlaceholder(supabase, {
+        providerObjectId: VideoGuid,
+        kind: "profile",
+        log: logWebhook,
+      });
+    }
     return new Response("ok", { status: 200 });
   } catch (err) {
     logWebhook("error", "video_webhook_unexpected_error", {

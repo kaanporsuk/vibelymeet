@@ -11,6 +11,7 @@ import {
   type MediaAssetRefreshOptions,
   type MediaAssetResolveResult,
 } from '@/lib/mediaAssetResolver';
+import type { MediaPlaceholderKind } from '@clientShared/media/placeholders';
 
 export type { MediaAssetKind } from '@/lib/mediaAssetResolver';
 export type MediaAssetRefreshReason = 'cache' | 'initial' | 'preview' | 'playback' | 'manual' | 'proactive';
@@ -31,7 +32,7 @@ type UseMediaAssetOptions = {
 type UseMediaAssetResult = {
   url: string | null;
   posterUrl: string | null;
-  placeholderKind: 'dominant_color' | null;
+  placeholderKind: MediaPlaceholderKind | null;
   placeholderHash: string | null;
   dominantColor: string | null;
   status: UseMediaAssetStatus;
@@ -125,7 +126,7 @@ export function useMediaAsset({
   const initial = initialUrl === null ? null : initialUrl ?? sourceRef ?? null;
   const [url, setUrl] = useState<string | null>(initial);
   const [posterUrl, setPosterUrl] = useState<string | null>(null);
-  const [placeholderKind, setPlaceholderKind] = useState<'dominant_color' | null>(null);
+  const [placeholderKind, setPlaceholderKind] = useState<MediaPlaceholderKind | null>(null);
   const [placeholderHash, setPlaceholderHash] = useState<string | null>(null);
   const [dominantColor, setDominantColor] = useState<string | null>(null);
   const [status, setStatus] = useState<UseMediaAssetStatus>(() => mediaStatusForUrl(initial));

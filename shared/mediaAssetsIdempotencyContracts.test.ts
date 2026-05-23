@@ -20,12 +20,16 @@ const phase5Migration = read("supabase/migrations/20260519170000_media_phase_5_6
 const phase5ClosureMigration = read("supabase/migrations/20260519190000_media_phase_5_11_15.sql");
 const phase5BulletproofMigration = read("supabase/migrations/20260520170000_media_phase5_bulletproof_closure.sql");
 const mediaUxAccelerationMigration = read("supabase/migrations/20260522161000_media_derivatives_placeholders_realtime.sql");
+const mediaBlurhashMigration = read("supabase/migrations/20260523100000_media_blurhash_placeholders.sql");
+const sharedMediaPlaceholders = read("shared/media/placeholders.ts");
 const mediaLifecycle = read("supabase/functions/_shared/media-lifecycle.ts");
 const mediaUploadTelemetry = read("supabase/functions/_shared/media-upload-telemetry.ts");
 const uploadImage = read("supabase/functions/upload-image/index.ts");
 const getChatMediaUrl = read("supabase/functions/get-chat-media-url/index.ts");
 const uploadVoice = read("supabase/functions/upload-voice/index.ts");
 const uploadEventCover = read("supabase/functions/upload-event-cover/index.ts");
+const backfillMediaPlaceholders = read("supabase/functions/backfill-media-placeholders/index.ts");
+const supabaseConfig = read("supabase/config.toml");
 const webImageUploadService = read("src/services/imageUploadService.ts");
 const webVoiceUploadService = read("src/services/voiceUploadService.ts");
 const webEventCoverUploadService = read("src/services/eventCoverUploadService.ts");
@@ -39,6 +43,7 @@ const webAdminEventsPanel = read("src/components/admin/AdminEventsPanel.tsx");
 const webOnboardingPhotos = read("src/pages/onboarding/steps/PhotosStep.tsx");
 const webPhotoManageDrawer = read("src/components/photos/PhotoManageDrawer.tsx");
 const webProfileWizard = read("src/components/wizard/ProfileWizard.tsx");
+const nativePhotoManageDrawer = read("apps/mobile/components/photos/PhotoManageDrawer.tsx");
 const nativeChatMediaUpload = read("apps/mobile/lib/chatMediaUpload.ts");
 const nativeImageAssetNormalize = read("apps/mobile/lib/imageAssetNormalize.ts");
 const nativeOutboxExecute = read("apps/mobile/lib/chatOutbox/execute.ts");
@@ -179,15 +184,32 @@ test("media placeholders and derivative refs are durable without Bunny Image Opt
   assert.match(mediaUxAccelerationMigration, /'photo_derivatives', COALESCE\(v_photo_derivatives/);
   assert.match(mediaUxAccelerationMigration, /CREATE OR REPLACE FUNCTION public\.get_my_profile_settings\(\)/);
   assert.doesNotMatch(mediaUxAccelerationMigration, /BUNNY_IMAGE_OPTIMIZER|image_optimizer/i);
+  assert.match(mediaBlurhashMigration, /placeholder_kind IN \('dominant_color', 'blurhash'\)/);
+  assert.match(mediaBlurhashMigration, /WHEN placeholder_kind IN \('dominant_color', 'blurhash'\)/);
+  assert.match(mediaBlurhashMigration, /broadcast_media_asset_event_v1/);
+  assert.match(sharedMediaPlaceholders, /export type MediaPlaceholderKind = "dominant_color" \| "blurhash"/);
 
   assert.match(uploadImage, /readImagePlaceholderMetadata\(formData\)/);
+  assert.match(uploadImage, /const serverPlaceholderMetadata = await createImagePlaceholderMetadata\(fileBuffer\);/);
+  assert.doesNotMatch(uploadImage, /clientPlaceholderMetadata\?\.placeholder_kind === "blurhash"[\s\S]{0,120}\? null/);
   assert.match(uploadImage, /updateMediaAssetPresentation\(adminSupabase, assetId/);
   assert.match(uploadImage, /derivative_thumb_path/);
   assert.match(uploadImage, /derivative_hero_path/);
   assert.match(uploadImage, /dominant_color/);
+  assert.match(uploadEventCover, /createImagePlaceholderMetadata\(fileBuffer\)/);
+  assert.match(uploadEventCover, /readImagePlaceholderMetadata\(formData\)/);
+  assert.match(uploadEventCover, /updateMediaAssetPlaceholder/);
+  assert.match(webEventCoverUploadService, /imagePlaceholderForImage/);
+  assert.match(webEventCoverUploadService, /formData\.append\("placeholder_kind", placeholder\.kind\)/);
+  assert.match(backfillMediaPlaceholders, /MEDIA_PLACEHOLDER_BACKFILL_TOKEN/);
+  assert.match(backfillMediaPlaceholders, /placeholderForStorageAsset/);
+  assert.match(backfillMediaPlaceholders, /placeholderForStreamAsset/);
+  assert.match(backfillMediaPlaceholders, /placeholder_kind\.is\.null,placeholder_kind\.neq\.blurhash,placeholder_hash\.is\.null/);
+  assert.match(supabaseConfig, /\[functions\.backfill-media-placeholders\][\s\S]{0,80}verify_jwt = false/);
 
   assert.match(webImageUploadService, /dominantColorForImage/);
-  assert.match(webImageUploadService, /formData\.append\("placeholder_kind", "dominant_color"\)/);
+  assert.match(webImageUploadService, /encodeBlurhash/);
+  assert.match(webImageUploadService, /formData\.append\("placeholder_kind", placeholder\.kind\)/);
   assert.match(webImageUploadService, /if \(thumb && hero\)/);
   assert.match(nativeChatMediaUpload, /prepareProfilePhotoAssetForUpload/);
 
@@ -200,11 +222,11 @@ test("media placeholders and derivative refs are durable without Bunny Image Opt
   assert.match(getChatMediaUrl, /assetPresentationPayload/);
   assert.match(getChatMediaUrl, /placeholderKind/);
 
-  assert.match(webMediaAssetResolver, /placeholderKind: "dominant_color" \| null/);
+  assert.match(webMediaAssetResolver, /placeholderKind: MediaPlaceholderKind \| null/);
   assert.match(webMediaAssetResolver, /variant\?: "display" \| "original"/);
   assert.match(webMediaAssetResolver, /prefetchRenderableAsset/);
   assert.match(webMediaAssetResolver, /media_placeholder/);
-  assert.match(nativeMediaAssetResolver, /placeholderKind: 'dominant_color' \| null/);
+  assert.match(nativeMediaAssetResolver, /placeholderKind: MediaPlaceholderKind \| null/);
   assert.match(nativeMediaAssetResolver, /variant\?: 'display' \| 'original'/);
   assert.match(nativeMediaAssetResolver, /Image\.prefetch/);
   assert.match(nativeMediaAssetResolver, /media_placeholder/);
@@ -212,8 +234,13 @@ test("media placeholders and derivative refs are durable without Bunny Image Opt
   assert.match(nativeMediaAssetHook, /media_asset_event/);
   assert.match(webMediaAssetHook, /dominantColor/);
   assert.match(nativeMediaAssetHook, /dominantColor/);
-  assert.match(nativeChatThread, /chatMediaPlaceholderColor/);
+  assert.match(nativeChatThread, /chatMediaPlaceholder/);
+  assert.match(nativeChatThread, /MediaPlaceholder/);
   assert.match(nativeChatThread, /variant: 'original'/);
+  assert.match(webPhotoManageDrawer, /PhotoUploadSkeleton/);
+  assert.doesNotMatch(webPhotoManageDrawer, /Loader2/);
+  assert.match(nativePhotoManageDrawer, /uploadSkeleton/);
+  assert.doesNotMatch(nativePhotoManageDrawer, /ActivityIndicator/);
   assert.match(webChatPhotoLightbox, /void refreshCurrent\(\)/);
   assert.match(webChatPhotoLightbox, /refreshInFlightForUrlRef\.current === currentUrl/);
   assertAttemptMarkerAfterRefresh(

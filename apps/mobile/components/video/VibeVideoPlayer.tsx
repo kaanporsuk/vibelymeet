@@ -18,6 +18,7 @@ import { useNativeMediaPlaybackQoE } from '@/hooks/useNativeMediaPlaybackQoE';
 import { useReduceMotionState } from '@/hooks/useReduceMotion';
 import { isProfileVibeVideoRef } from '@/lib/mediaAssetResolver';
 import { trackEvent } from '@/lib/analytics';
+import { MediaPlaceholder } from '@/components/media/MediaPlaceholder';
 import { captionTextFromMediaCaptions, type MediaCaptions } from '../../../../shared/media/captions';
 
 export type VibeVideoPlayerProps = {
@@ -69,6 +70,9 @@ export function VibeVideoPlayer({
   const {
     url: mediaAssetUrl,
     posterUrl: mediaAssetPosterUrl,
+    placeholderKind,
+    placeholderHash,
+    dominantColor,
     status: mediaAssetStatus,
     refresh: refreshMediaAsset,
   } = useMediaAsset({
@@ -358,6 +362,12 @@ export function VibeVideoPlayer({
 
   return (
     <>
+      <MediaPlaceholder
+        kind={placeholderKind}
+        hash={placeholderHash}
+        dominantColor={dominantColor}
+        style={styles.placeholderZ}
+      />
       {showPoster && effectivePosterUri ? (
         <Image
           source={{ uri: effectivePosterUri }}
@@ -413,6 +423,7 @@ export function VibeVideoPlayer({
 }
 
 const styles = StyleSheet.create({
+  placeholderZ: { zIndex: 0 },
   posterZ: { zIndex: 0 },
   videoZ: { zIndex: 1 },
   captionOverlay: {

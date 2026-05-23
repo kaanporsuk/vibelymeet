@@ -351,6 +351,73 @@ try {
   __clearChatMediaUrlCacheForTests();
 }
 
+__setChatMediaUrlIssuerForTests(async () => ({
+  success: true,
+  url: "https://signed.example.com/dominant-only-image",
+  expiresInSeconds: 300,
+  dominantColor: "#ABCDEF",
+}));
+try {
+  const payload = {
+    v: 2,
+    kind: "chat_image",
+    provider: "bunny_storage",
+    media_ref: "photos/ready/dominant-only.jpg",
+    client_request_id: "dominant-only-request",
+  } as const;
+  const resolved = await resolveMessageMediaForDisplay({
+    id: "550e8400-e29b-41d4-a716-446655440015",
+    content: formatChatImageMessageContent(payload.media_ref),
+    structured_payload: payload,
+  });
+
+  assert.deepEqual(
+    (resolved.structured_payload as { media_placeholder?: unknown } | null)?.media_placeholder,
+    {
+      kind: "dominant_color",
+      hash: "#abcdef",
+      dominant_color: "#abcdef",
+    },
+  );
+} finally {
+  __setChatMediaUrlIssuerForTests(null);
+  __clearChatMediaUrlCacheForTests();
+}
+
+__setChatMediaUrlIssuerForTests(async () => ({
+  success: true,
+  url: "https://signed.example.com/dominant-hash-only-image",
+  expiresInSeconds: 300,
+  placeholderKind: "dominant_color",
+  placeholderHash: "#FEDCBA",
+}));
+try {
+  const payload = {
+    v: 2,
+    kind: "chat_image",
+    provider: "bunny_storage",
+    media_ref: "photos/ready/dominant-hash-only.jpg",
+    client_request_id: "dominant-hash-only-request",
+  } as const;
+  const resolved = await resolveMessageMediaForDisplay({
+    id: "550e8400-e29b-41d4-a716-446655440016",
+    content: formatChatImageMessageContent(payload.media_ref),
+    structured_payload: payload,
+  });
+
+  assert.deepEqual(
+    (resolved.structured_payload as { media_placeholder?: unknown } | null)?.media_placeholder,
+    {
+      kind: "dominant_color",
+      hash: "#fedcba",
+      dominant_color: "#fedcba",
+    },
+  );
+} finally {
+  __setChatMediaUrlIssuerForTests(null);
+  __clearChatMediaUrlCacheForTests();
+}
+
 let shortTtlInvokeCount = 0;
 const originalDateNow = Date.now;
 __setChatMediaUrlIssuerForTests(async () => {

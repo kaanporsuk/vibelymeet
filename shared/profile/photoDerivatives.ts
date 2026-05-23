@@ -1,7 +1,14 @@
+import {
+  normalizeMediaPlaceholderDominantColor,
+  normalizeMediaPlaceholderHash,
+  normalizeMediaPlaceholderKind,
+  type MediaPlaceholderKind,
+} from "../media/placeholders";
+
 export type ProfilePhotoDerivativeEntry = {
   thumb?: string;
   hero?: string;
-  placeholderKind?: "dominant_color";
+  placeholderKind?: MediaPlaceholderKind;
   placeholderHash?: string;
   dominantColor?: string;
 };
@@ -15,12 +22,6 @@ function cleanPath(value: unknown): string | null {
   return path;
 }
 
-function cleanDominantColor(value: unknown): string | undefined {
-  if (typeof value !== "string") return undefined;
-  const color = value.trim().toLowerCase();
-  return /^#[0-9a-f]{6}$/.test(color) ? color : undefined;
-}
-
 export function normalizeProfilePhotoDerivatives(raw: unknown): ProfilePhotoDerivativeMap {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
 
@@ -32,15 +33,20 @@ export function normalizeProfilePhotoDerivatives(raw: unknown): ProfilePhotoDeri
     const value = rawValue as Record<string, unknown>;
     const thumb = cleanPath(value.thumb);
     const hero = cleanPath(value.hero);
-    const dominantColor = cleanDominantColor(value.dominantColor);
-    const placeholderKind = value.placeholderKind === "dominant_color" ? "dominant_color" : undefined;
-    const placeholderHash = cleanDominantColor(value.placeholderHash);
+    const placeholderKind = normalizeMediaPlaceholderKind(value.placeholderKind) ?? undefined;
+    const placeholderHash = normalizeMediaPlaceholderHash(placeholderKind ?? null, value.placeholderHash) ?? undefined;
+    const effectivePlaceholderKind = placeholderHash ? placeholderKind : undefined;
+    const dominantColor = normalizeMediaPlaceholderDominantColor(
+      placeholderKind ?? null,
+      placeholderHash,
+      value.dominantColor,
+    ) ?? undefined;
 
-    if (!thumb && !hero && !dominantColor) continue;
+    if (!thumb && !hero && !dominantColor && !placeholderHash) continue;
     out[originalPath] = {
       ...(thumb ? { thumb } : {}),
       ...(hero ? { hero } : {}),
-      ...(placeholderKind ? { placeholderKind } : {}),
+      ...(effectivePlaceholderKind ? { placeholderKind: effectivePlaceholderKind } : {}),
       ...(placeholderHash ? { placeholderHash } : {}),
       ...(dominantColor ? { dominantColor } : {}),
     };

@@ -21,6 +21,8 @@ import { captionTextFromMediaCaptions } from '../../../../shared/media/captions'
 import { useMediaAsset } from '@/hooks/useMediaAsset';
 import { useNativeMediaPlaybackQoE } from '@/hooks/useNativeMediaPlaybackQoE';
 import { useReduceMotionState } from '@/hooks/useReduceMotion';
+import { MediaPlaceholder } from '@/components/media/MediaPlaceholder';
+import type { MediaPlaceholderKind } from '@clientShared/media/placeholders';
 import {
   syncChatVibeClipUploadStatus,
   type ChatVibeClipProcessingStatus,
@@ -58,6 +60,9 @@ type Props = {
   onPosterPreviewStateChange?: (state: VibeClipPosterPreviewState, thumbnailUrl?: string | null) => void;
   threadVisualRecede?: boolean;
   localRecovery?: VibeClipLocalRecovery | null;
+  thumbnailPlaceholderKind?: MediaPlaceholderKind | null;
+  thumbnailPlaceholderHash?: string | null;
+  thumbnailDominantColor?: string | null;
 };
 
 export type VibeClipPosterPreviewState = 'unknown' | 'ready' | 'failed';
@@ -160,29 +165,50 @@ function posterStateForMeta(
 function VibeClipPosterImage({
   uri,
   previewState,
+  placeholderKind,
+  placeholderHash,
+  dominantColor,
   onPreviewStateChange,
   onRefreshClipMedia,
 }: {
   uri: string | null;
   previewState: VibeClipPosterPreviewState;
+  placeholderKind?: MediaPlaceholderKind | null;
+  placeholderHash?: string | null;
+  dominantColor?: string | null;
   onPreviewStateChange?: (state: VibeClipPosterPreviewState, thumbnailUrl?: string | null) => void;
   onRefreshClipMedia: (reason?: VibeClipMediaRefreshReason) => Promise<boolean>;
 }) {
-  if (!uri || previewState === 'failed') return null;
+  if (!uri || previewState === 'failed') {
+    return (
+      <MediaPlaceholder
+        kind={placeholderKind}
+        hash={placeholderHash}
+        dominantColor={dominantColor}
+      />
+    );
+  }
   return (
-    <Image
-      source={{ uri }}
-      style={StyleSheet.absoluteFillObject}
-      resizeMode="cover"
-      onLoad={() => onPreviewStateChange?.('ready', uri)}
-      onError={() => {
-        void onRefreshClipMedia('preview')
-          .then((didRefresh) => {
-            if (!didRefresh) onPreviewStateChange?.('failed', uri);
-          })
-          .catch(() => onPreviewStateChange?.('failed', uri));
-      }}
-    />
+    <>
+      <MediaPlaceholder
+        kind={placeholderKind}
+        hash={placeholderHash}
+        dominantColor={dominantColor}
+      />
+      <Image
+        source={{ uri }}
+        style={StyleSheet.absoluteFillObject}
+        resizeMode="cover"
+        onLoad={() => onPreviewStateChange?.('ready', uri)}
+        onError={() => {
+          void onRefreshClipMedia('preview')
+            .then((didRefresh) => {
+              if (!didRefresh) onPreviewStateChange?.('failed', uri);
+            })
+            .catch(() => onPreviewStateChange?.('failed', uri));
+        }}
+      />
+    </>
   );
 }
 
@@ -282,6 +308,9 @@ function VibeClipCardInner({
   syncAttemptCount,
   isSyncingStatus,
   onManualStatusSync,
+  thumbnailPlaceholderKind,
+  thumbnailPlaceholderHash,
+  thumbnailDominantColor,
 }: VibeClipCardInnerProps) {
   const theme = Colors[useColorScheme()];
   const [hasError, setHasError] = useState(false);
@@ -567,12 +596,20 @@ function VibeClipCardInner({
           <VibeClipPosterImage
             uri={meta.thumbnailUrl}
             previewState={posterState}
+            placeholderKind={thumbnailPlaceholderKind}
+            placeholderHash={thumbnailPlaceholderHash}
+            dominantColor={thumbnailDominantColor}
             onPreviewStateChange={onPosterPreviewStateChange}
             onRefreshClipMedia={onRefreshClipMedia}
           />
         ) : null}
         {!isReady && !hasPosterVisual ? (
           <View style={styles.posterFallback} pointerEvents="none">
+            <MediaPlaceholder
+              kind={thumbnailPlaceholderKind}
+              hash={thumbnailPlaceholderHash}
+              dominantColor={thumbnailDominantColor}
+            />
             <Ionicons name="film-outline" size={34} color="rgba(216,180,254,0.42)" />
           </View>
         ) : null}
@@ -790,6 +827,9 @@ function VibeClipCardPosterOnly({
   syncAttemptCount,
   isSyncingStatus,
   onManualStatusSync,
+  thumbnailPlaceholderKind,
+  thumbnailPlaceholderHash,
+  thumbnailDominantColor,
 }: VibeClipPosterProps) {
   const cardAspectRatio = cardAspectRatioForMeta(meta);
   const posterState = posterStateForMeta(meta, posterPreviewState);
@@ -814,11 +854,19 @@ function VibeClipCardPosterOnly({
         <VibeClipPosterImage
           uri={meta.thumbnailUrl}
           previewState={posterState}
+          placeholderKind={thumbnailPlaceholderKind}
+          placeholderHash={thumbnailPlaceholderHash}
+          dominantColor={thumbnailDominantColor}
           onPreviewStateChange={onPosterPreviewStateChange}
           onRefreshClipMedia={onRefreshClipMedia}
         />
         {!hasPosterVisual ? (
           <View style={styles.posterFallback} pointerEvents="none">
+            <MediaPlaceholder
+              kind={thumbnailPlaceholderKind}
+              hash={thumbnailPlaceholderHash}
+              dominantColor={thumbnailDominantColor}
+            />
             <Ionicons name="film-outline" size={34} color="rgba(216,180,254,0.42)" />
           </View>
         ) : null}
@@ -938,7 +986,13 @@ export function VibeClipCard(props: Props) {
     onResolvedUrl: onResolvedVideoUrl,
     onProcessingStatusChange: handleRealtimeProcessingStatus,
   });
-  const { url: thumbnailAssetUrl, refresh: refreshThumbnailAsset } = useMediaAsset({
+  const {
+    url: thumbnailAssetUrl,
+    placeholderKind: thumbnailPlaceholderKind,
+    placeholderHash: thumbnailPlaceholderHash,
+    dominantColor: thumbnailDominantColor,
+    refresh: refreshThumbnailAsset,
+  } = useMediaAsset({
     kind: 'thumbnail',
     messageId: sparkMessageId,
     sourceRef: thumbnailSourceRef,
@@ -1214,6 +1268,9 @@ export function VibeClipCard(props: Props) {
     posterPreviewState: effectivePosterPreviewState,
     onPosterPreviewStateChange: setPosterPreviewState,
     onRequestImmersive: requestImmersiveWithCurrentMedia,
+    thumbnailPlaceholderKind,
+    thumbnailPlaceholderHash,
+    thumbnailDominantColor,
   };
 
   const canMountPlayer = isRemotePlaybackUri(playableVideoUrl) || isLocalPreviewUri(playableVideoUrl);

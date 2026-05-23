@@ -23,7 +23,6 @@ import { CSS } from "@dnd-kit/utilities";
 import {
   X,
   Plus,
-  Loader2,
   Crown,
   Maximize2,
   Trash2,
@@ -76,6 +75,23 @@ function getCoachingMessage(count: number): string {
   if (count < 3) return "Add at least 3 photos — profiles with 4+ get 2x more vibes";
   if (count < 6) return `You have ${6 - count} empty slots — a full set gets more attention`;
   return "Looking great! Your photos tell a complete story.";
+}
+
+function PhotoUploadSkeleton({ className }: { className?: string }) {
+  return (
+    <div
+      aria-hidden="true"
+      className={cn(
+        "pointer-events-none absolute inset-0 overflow-hidden bg-black/35",
+        className,
+      )}
+    >
+      <div className="absolute inset-0 bg-gradient-to-br from-violet-500/25 via-white/[0.06] to-pink-500/20" />
+      <div className="absolute inset-x-4 top-4 h-3 rounded-full bg-white/15" />
+      <div className="absolute inset-x-4 bottom-4 h-2 rounded-full bg-white/10" />
+      <div className="absolute inset-y-0 left-0 w-1/2 -translate-x-full bg-gradient-to-r from-transparent via-white/20 to-transparent animate-pulse" />
+    </div>
+  );
 }
 
 // ─── Sortable tile with hover overlay ───────────────────────────
@@ -152,7 +168,7 @@ function SortableTile({
         )}
       >
         {uploading ? (
-          <Loader2 className="w-6 h-6 text-violet-400 animate-spin" />
+          <PhotoUploadSkeleton className="rounded-xl" />
         ) : (
           <>
             <Plus className="w-7 h-7 text-white/20" />
@@ -199,9 +215,7 @@ function SortableTile({
 
       {/* Upload-in-progress overlay — shown on top of blob preview */}
       {uploading && (
-        <div className="absolute inset-0 bg-black/50 flex items-center justify-center">
-          <Loader2 className="w-7 h-7 text-white animate-spin" />
-        </div>
+        <PhotoUploadSkeleton className="bg-black/45" />
       )}
 
       {/* Failed overlay — persistent until retry or remove */}

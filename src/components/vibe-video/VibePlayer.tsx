@@ -8,6 +8,7 @@ import { useMediaPlaybackQoE } from "@/hooks/useMediaPlaybackQoE";
 import { usePrefersReducedMotion } from "@/hooks/usePrefersReducedMotion";
 import { useMediaVideoPreloadForVisibility } from "@/hooks/useMediaVideoPreloadPolicy";
 import { isHlsMediaAssetUrl, isProfileVibeVideoRef } from "@/lib/mediaAssetResolver";
+import { MediaPlaceholder } from "@/components/media/MediaPlaceholder";
 import { trackVibeVideoEvent, VIBE_VIDEO_EVENTS } from "@/lib/vibeVideo/vibeVideoTelemetry";
 import {
   captionTextFromMediaCaptions,
@@ -67,6 +68,9 @@ export const VibePlayer = ({
   const {
     url: mediaAssetUrl,
     posterUrl: mediaAssetPosterUrl,
+    placeholderKind,
+    placeholderHash,
+    dominantColor,
     status: mediaAssetStatus,
     refresh: refreshMediaAsset,
   } = useMediaAsset({
@@ -323,16 +327,22 @@ export const VibePlayer = ({
 
   return (
     <div ref={containerRef} className={cn("relative overflow-hidden bg-secondary", className)}>
+      <MediaPlaceholder
+        kind={placeholderKind}
+        hash={placeholderHash}
+        dominantColor={dominantColor}
+      />
+
       {/* Loading state */}
       {isLoading && !hasError && (!prefersReducedMotion || manualPlaybackRequested) && (
-        <div className="absolute inset-0 flex items-center justify-center bg-secondary z-10">
-          <Loader2 className={cn("w-8 h-8 text-muted-foreground", !prefersReducedMotion && "animate-spin")} />
+        <div className="absolute inset-0 z-10 flex items-center justify-center bg-background/10">
+          <Loader2 className={cn("w-8 h-8 text-white/80 drop-shadow", !prefersReducedMotion && "animate-spin")} />
         </div>
       )}
 
       {/* Error state — honest when DB says ready but stream fails */}
       {hasError && (
-        <div className="absolute inset-0 flex flex-col items-center justify-center bg-secondary z-10 px-4 text-center">
+        <div className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-background/70 px-4 text-center backdrop-blur-sm">
           <Play className="w-8 h-8 text-muted-foreground mb-2 opacity-80" />
           <p className="text-sm font-medium text-foreground">
             Can't play right now
@@ -369,7 +379,7 @@ export const VibePlayer = ({
       {/* Video */}
       <video
         ref={videoRef}
-        className="w-full h-full object-cover"
+        className="relative z-[1] w-full h-full object-cover"
         loop
         muted={isMuted}
         playsInline

@@ -1,5 +1,6 @@
 import { createMediaClientRequestId } from "@clientShared/media-sdk";
 import { rememberImageDerivatives } from "@/utils/imageUrl";
+import { encode as encodeBlurhash } from "blurhash";
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 
@@ -13,9 +14,9 @@ export type UploadImageToBunnyResult = {
   contentSha256?: string | null;
   receiptId?: string | null;
   placeholder?: {
-    kind: "dominant_color";
+    kind: "dominant_color" | "blurhash";
     hash: string;
-    dominantColor: string;
+    dominantColor: string | null;
   } | null;
   derivatives?: {
     thumb?: string;
@@ -93,21 +94,73 @@ async function dominantColorForImage(file: File): Promise<string | null> {
   }
 }
 
+export async function imagePlaceholderForImage(file: File): Promise<{
+  kind: "blurhash" | "dominant_color";
+  hash: string;
+  dominantColor: string;
+} | null> {
+  if (!file.type.startsWith("image/") || file.type === "image/heic" || file.type === "image/heif") return null;
+  if (typeof document === "undefined" || typeof createImageBitmap !== "function") return null;
+  const bitmap = await createImageBitmap(file).catch(() => null);
+  if (!bitmap || bitmap.width <= 0 || bitmap.height <= 0) return null;
+  try {
+    const maxEdge = 32;
+    const scale = Math.min(1, maxEdge / Math.max(bitmap.width, bitmap.height));
+    const width = Math.max(1, Math.round(bitmap.width * scale));
+    const height = Math.max(1, Math.round(bitmap.height * scale));
+    const canvas = document.createElement("canvas");
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext("2d", { willReadFrequently: true });
+    if (!ctx) return null;
+    ctx.fillStyle = "#fff";
+    ctx.fillRect(0, 0, width, height);
+    ctx.drawImage(bitmap, 0, 0, width, height);
+    const { data } = ctx.getImageData(0, 0, width, height);
+    let red = 0;
+    let green = 0;
+    let blue = 0;
+    let alphaTotal = 0;
+    for (let i = 0; i < data.length; i += 4) {
+      const alpha = data[i + 3] / 255;
+      if (alpha <= 0.05) continue;
+      red += data[i] * alpha;
+      green += data[i + 1] * alpha;
+      blue += data[i + 2] * alpha;
+      alphaTotal += alpha;
+    }
+    if (alphaTotal <= 0) return null;
+    const toHex = (value: number) => Math.max(0, Math.min(255, Math.round(value / alphaTotal)))
+      .toString(16)
+      .padStart(2, "0");
+    const dominantColor = `#${toHex(red)}${toHex(green)}${toHex(blue)}`;
+    const componentX = Math.max(1, Math.min(4, width));
+    const componentY = Math.max(1, Math.min(4, height, Math.round(componentX * (height / width))));
+    const blurhash = encodeBlurhash(data, width, height, componentX, componentY);
+    return { kind: "blurhash", hash: blurhash, dominantColor };
+  } catch {
+    const dominantColor = await dominantColorForImage(file);
+    return dominantColor ? { kind: "dominant_color", hash: dominantColor, dominantColor } : null;
+  } finally {
+    bitmap.close();
+  }
+}
+
 async function appendImageDerivatives(formData: FormData, file: File): Promise<void> {
   try {
-    const [thumb, hero, dominantColor] = await Promise.all([
+    const [thumb, hero, placeholder] = await Promise.all([
       derivativeFileForImage(file, 420, "thumb"),
       derivativeFileForImage(file, 1400, "hero"),
-      dominantColorForImage(file),
+      imagePlaceholderForImage(file),
     ]);
     if (thumb && hero) {
       formData.append("derivative_thumb", thumb);
       formData.append("derivative_hero", hero);
     }
-    if (dominantColor) {
-      formData.append("placeholder_kind", "dominant_color");
-      formData.append("placeholder_hash", dominantColor);
-      formData.append("dominant_color", dominantColor);
+    if (placeholder) {
+      formData.append("placeholder_kind", placeholder.kind);
+      formData.append("placeholder_hash", placeholder.hash);
+      formData.append("dominant_color", placeholder.dominantColor);
     }
   } catch {
     // Derivatives are an acceleration layer; never block the canonical upload.
