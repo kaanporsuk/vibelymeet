@@ -8,7 +8,7 @@ import { isVdbgEnabled, vdbg } from "@/lib/vdbg";
 import { haptics } from "@/lib/haptics";
 import { useUserProfile } from "@/contexts/AuthContext";
 import { useEventDetails, useIsRegisteredForEvent } from "@/hooks/useEventDetails";
-import { useEventDeck, DeckProfile } from "@/hooks/useEventDeck";
+import { useEventDeck, type DeckProfile, type EventDeckFetchResult } from "@/hooks/useEventDeck";
 import { useSwipeAction } from "@/hooks/useSwipeAction";
 import { useEventStatus } from "@/hooks/useEventStatus";
 import { useFeatureFlag } from "@/hooks/useFeatureFlag";
@@ -35,7 +35,7 @@ import {
   buildReadyGateToDateLatencyPayload,
   recordReadyGateToDateLatencyCheckpoint,
 } from "@clientShared/observability/videoDateOperatorMetrics";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { END_ACCOUNT_BREAK_PROFILE_UPDATE } from "@/lib/endAccountBreak";
 import { deckCardUrl } from "@/utils/imageUrl";
 import { claimDateNavigation } from "@/lib/dateNavigationGuard";
@@ -73,9 +73,114 @@ import {
   resolveDeckEmptyReason,
 } from "@clientShared/observability/eventLobbyObservability";
 import { isActiveSessionSingleOwnerEnabled } from "@/lib/runtimeFlags";
+import { fetchVideoDateQueueHint, type VideoDateQueueHint } from "@/lib/videoDateQueueHint";
 
 const READY_GATE_ACTIVE_STATUSES = new Set(["ready", "ready_a", "ready_b", "both_ready", "snoozed"]);
 const READY_GATE_MANUAL_EXIT_SUPPRESS_MS = 45_000;
+
+function formatQueueHintLabel(hint: VideoDateQueueHint | null, fallbackCount: number): string {
+  if (hint?.queued && hint.position != null && hint.position > 0) {
+    const eta = formatQueueEtaLabel(hint.estimatedWaitSeconds);
+    const parts = [`Position ${hint.position}`];
+    if (eta) parts.push(eta);
+    if (hint.reliefActive) parts.push("priority boost");
+    return parts.join(" · ");
+  }
+  const count = Math.max(fallbackCount, hint?.eventQueuedCount ?? 0);
+  return count === 1 ? "1 waiting in queue" : `${count} waiting in queue`;
+}
+
+function formatQueueEtaLabel(seconds: number | null | undefined): string | null {
+  if (seconds == null || seconds < 0) return null;
+  if (seconds <= 5) return "now";
+  if (seconds < 60) return `~${Math.ceil(seconds / 5) * 5}s`;
+  return `~${Math.ceil(seconds / 60)}m`;
+}
+
+function gateFromServerInactiveDeck(inactiveReason: string | null | undefined): EventLobbyGateState {
+  const reason = inactiveReason ?? "event_not_active";
+  if (reason === "event_not_started") {
+    return {
+      kind: "not_started",
+      canFetchDeck: false,
+      canUseLobbyActions: false,
+      canUseLobbySideEffects: false,
+      title: "This event isn't live yet",
+      message: "The server has not opened this lobby yet. Check the event page countdown.",
+      actionLabel: "Back to event",
+      redirectTo: "event",
+    };
+  }
+  if (reason === "event_ended" || reason === "event_outside_live_window") {
+    return {
+      kind: "ended",
+      canFetchDeck: false,
+      canUseLobbyActions: false,
+      canUseLobbySideEffects: false,
+      title: "This event has ended",
+      message: "The live lobby is closed. Check your matches to keep the conversation going.",
+      actionLabel: "View matches",
+      redirectTo: "matches",
+    };
+  }
+  return {
+    kind: "not_live",
+    canFetchDeck: false,
+    canUseLobbyActions: false,
+    canUseLobbySideEffects: false,
+    title: "This lobby is closed",
+    message: "The server says this event is no longer accepting lobby swipes.",
+    actionLabel: "Back to event",
+    redirectTo: "event",
+  };
+}
+
+function deckEmptyCopyFromServerReason(reason: string | null | undefined): {
+  badge: string;
+  title: string;
+  message: string;
+} {
+  if (reason === "no_confirmed_candidates") {
+    return {
+      badge: "Room warming up",
+      title: "No confirmed guests are available yet",
+      message: "Confirmed guests may still join the live room. Your deck refreshes automatically, and you can refresh any time.",
+    };
+  }
+  if (reason === "no_remaining_profiles") {
+    return {
+      badge: "Deck clear",
+      title: "You've seen everyone for now",
+      message: "More people may join the room. Your deck refreshes every few seconds, and you can refresh any time.",
+    };
+  }
+  if (reason === "scan_window_exhausted") {
+    return {
+      badge: "Still checking",
+      title: "We're checking a bigger room",
+      message: "This event has a lot of candidates. Refresh again in a moment while we keep the deck moving.",
+    };
+  }
+  if (reason === "not_registered") {
+    return {
+      badge: "Registration needed",
+      title: "Only confirmed guests can swipe here",
+      message: "Head back to the event page to check your registration status.",
+    };
+  }
+  if (reason === "viewer_paused") {
+    return {
+      badge: "Paused",
+      title: "You're on a break",
+      message: "End your break to become visible in the event deck again.",
+    };
+  }
+  return {
+    badge: "Deck clear",
+    title: "You've seen everyone for now",
+    message: "More people may join the room. Your deck refreshes every few seconds, and you can refresh any time.",
+  };
+}
 
 function lobbyDebug(message: string, data?: Record<string, unknown>) {
   if (!import.meta.env.DEV) return;
@@ -223,11 +328,23 @@ const EventLobby = () => {
     isLoading: deckLoading,
     isError: deckError,
     error: deckFetchError,
+    deckState,
     refetch: refetchDeck,
   } = useEventDeck({
     eventId: eventId || "",
     enabled: deckEnabled,
   });
+  const serverInactiveDeckGate = useMemo(
+    () =>
+      deckState?.reason === "event_not_active"
+        ? gateFromServerInactiveDeck(deckState.inactive_reason)
+        : null,
+    [deckState?.inactive_reason, deckState?.reason],
+  );
+  const emptyDeckCopy = useMemo(
+    () => deckEmptyCopyFromServerReason(deckState?.reason),
+    [deckState?.reason],
+  );
   const { setStatus, currentStatus } = useEventStatus({ eventId, enabled: lobbySideEffectsEnabled });
   const readinessV2 = useFeatureFlag("video_date.readiness_v2");
   const deckPrefetchPolishV2 = useFeatureFlag("video_date.deck_prefetch_polish_v2");
@@ -752,6 +869,19 @@ const EventLobby = () => {
       toast.info(QUEUED_MATCH_TIMED_OUT_USER_MESSAGE, { duration: 4200 });
     },
   });
+  const queueHintEnabled =
+    lobbySideEffectsEnabled &&
+    Boolean(eventId && user?.id) &&
+    queuedCount > 0;
+  const { data: queueHint = null } = useQuery({
+    queryKey: ["video-date-queue-hint", eventId, user?.id],
+    queryFn: () => fetchVideoDateQueueHint(eventId ?? "", user?.id ?? ""),
+    enabled: queueHintEnabled,
+    refetchInterval: queueHintEnabled ? 5_000 : false,
+    refetchIntervalInBackground: false,
+    staleTime: 3_000,
+  });
+  const queueHintLabel = formatQueueHintLabel(queueHint, queuedCount);
 
   useEffect(() => {
     if (!eventId || !lobbySideEffectsEnabled) return;
@@ -1239,7 +1369,7 @@ const EventLobby = () => {
     return () => clearInterval(interval);
   }, [eventEndTimeMs, eventForLobbyGate, eventId, lobbyTimelineV2.enabled, timelineCountdownTickMs]);
 
-  // Server-dealt deck v2 is the only active source of deck exclusion truth.
+  // Server-dealt deck v3 is the only active source of deck exclusion truth.
   const sortedProfiles = useMemo(() => {
     const filtered = [...profiles];
     filtered.sort((a, b) => {
@@ -1359,11 +1489,13 @@ const EventLobby = () => {
         deckEverLoaded: deckEverLoadedRef.current,
         queuedCount,
         userPaused: user?.isPaused ?? false,
+        deckStateReason: deckState?.reason ?? null,
       }),
     [
       deckEnabled,
       deckError,
       deckFetchError,
+      deckState?.reason,
       lobbyGate.kind,
       profiles.length,
       queuedCount,
@@ -1460,14 +1592,21 @@ const EventLobby = () => {
         deckPrefetchPolishV2.enabled && typeof performance !== "undefined" ? performance.now() : null;
       let remainingVisible = 0;
       let nextProfileAfterSwipe: DeckProfile | null = null;
-      queryClient.setQueryData<DeckProfile[]>(
-        ["event-deck", eventId, user?.id, "deck_v2"],
+      queryClient.setQueryData<EventDeckFetchResult>(
+        ["event-deck", eventId, user?.id, "deck_v3"],
         (current) => {
-          if (!Array.isArray(current)) return current;
-          const next = current.filter((profile) => profile.id !== targetId);
+          if (!current) return current;
+          const next = current.profiles.filter((profile) => profile.id !== targetId);
           remainingVisible = next.length;
           nextProfileAfterSwipe = next[0] ?? null;
-          return next;
+          return {
+            ...current,
+            profiles: next,
+            deckState: {
+              ...current.deckState,
+              profile_count: next.length,
+            },
+          };
         },
       );
       if (remainingVisible === 0) {
@@ -1752,6 +1891,15 @@ const EventLobby = () => {
     );
   }
 
+  if (serverInactiveDeckGate && !deckLoading && profiles.length === 0) {
+    return (
+      <>
+        <LobbyUnavailableState gate={serverInactiveDeckGate} eventId={eventId} onNavigate={navigate} />
+        <EventEndedModal isOpen={showEventEndedModal} />
+      </>
+    );
+  }
+
   const isEmpty = sortedProfiles.length === 0;
   const deckRemaining = sortedProfiles.length;
   const timerUrgent =
@@ -1805,10 +1953,10 @@ const EventLobby = () => {
                 {queuedCount > 0 && !activeSessionId && !suppressDeckUiForConvergence && (
                   <span
                     className="inline-flex max-w-[min(200px,46vw)] truncate items-center gap-1 px-2 py-1 rounded-full bg-fuchsia-500/15 text-fuchsia-200 text-[10px] font-semibold border border-fuchsia-400/25"
-                    title="Mutual matches are in the queue ahead of you. You will enter Ready Gate when promoted — not the same as being in Ready Gate right now."
+                    title={`${queueHintLabel}. You will enter Ready Gate when promoted, not while this badge is showing.`}
                   >
                     <Sparkles className="w-3 h-3 shrink-0 opacity-90" />
-                    {queuedCount === 1 ? "1 waiting in queue" : `${queuedCount} waiting in queue`}
+                    {queueHintLabel}
                   </span>
                 )}
               </div>
@@ -1947,9 +2095,9 @@ const EventLobby = () => {
           <LobbyEmptyState
             eventId={eventId}
             onRefresh={refetchDeck}
-            badge={postSurveyReturnContext ? postSurveyContinuityDecision.title : undefined}
-            title={postSurveyReturnContext ? postSurveyContinuityDecision.title : undefined}
-            message={postSurveyReturnContext ? postSurveyContinuityDecision.message : undefined}
+            badge={postSurveyReturnContext ? postSurveyContinuityDecision.title : emptyDeckCopy.badge}
+            title={postSurveyReturnContext ? postSurveyContinuityDecision.title : emptyDeckCopy.title}
+            message={postSurveyReturnContext ? postSurveyContinuityDecision.message : emptyDeckCopy.message}
           />
         ) : (
           <div className="w-full space-y-3">

@@ -155,9 +155,16 @@ export function resolveDeckEmptyReason(input: {
   yieldingToReadyGate?: boolean;
   yieldingToVideoDate?: boolean;
   userPaused?: boolean;
+  deckStateReason?: string | null;
 }): DeckEmptyReason {
   const gateKind = sanitizeReasonCode(input.gateKind, "");
+  const deckStateReason = sanitizeReasonCode(input.deckStateReason, "");
   if (input.deckError) return classifyDeckFetchError(input.deckErrorValue);
+  if (deckStateReason === "event_not_active") return "event_not_active";
+  if (deckStateReason === "not_registered" || deckStateReason === "viewer_paused") return "user_not_eligible";
+  if (deckStateReason === "no_remaining_profiles") return "all_candidates_seen_locally";
+  if (deckStateReason === "no_confirmed_candidates") return "no_confirmed_candidates";
+  if (deckStateReason === "scan_window_exhausted") return "all_candidates_filtered";
   if (input.userPaused || USER_INELIGIBLE_GATE_KINDS.has(gateKind)) return "user_not_eligible";
   if (!input.deckEnabled || EVENT_INACTIVE_GATE_KINDS.has(gateKind)) {
     return EVENT_INACTIVE_GATE_KINDS.has(gateKind) ? "event_not_active" : "user_not_eligible";

@@ -229,6 +229,7 @@ test("event deck, Ready Gate, and Video Date keep safe profile access after dire
   const establishedAccessMigration = read("supabase/migrations/20260430190000_enforce_discovery_audience_in_discovery_surfaces.sql");
   const latestEventDeckMigration = read("supabase/migrations/20260507190000_tier_config_backend_authority.sql");
   const videoDateV4FoundationMigration = read("supabase/migrations/20260521150000_video_date_v4_foundation.sql");
+  const publicApiMigration = read("supabase/migrations/20260523123000_public_api_interface_changes.sql");
   const webEventDeck = read("src/hooks/useEventDeck.ts");
   const webLobby = read("src/pages/EventLobby.tsx");
   const webReadyGate = read("src/components/lobby/ReadyGateOverlay.tsx");
@@ -245,10 +246,13 @@ test("event deck, Ready Gate, and Video Date keep safe profile access after dire
   assert.match(videoDateV4FoundationMigration, /SECURITY DEFINER/);
   assert.match(videoDateV4FoundationMigration, /FROM public\.get_event_deck\(p_event_id, p_user_id, v_scan_limit\)/);
   assert.match(videoDateV4FoundationMigration, /GRANT EXECUTE ON FUNCTION public\.get_event_deck_v2\(uuid, uuid, integer\)[\s\S]*TO authenticated, service_role/);
-  assert.match(webEventDeck, /supabase\.rpc\("get_event_deck_v2"/);
+  assert.match(publicApiMigration, /CREATE OR REPLACE FUNCTION public\.get_event_deck_v3/);
+  assert.match(publicApiMigration, /FROM public\.get_event_deck\(p_event_id, p_user_id, v_scan_limit\)/);
+  assert.match(publicApiMigration, /GRANT EXECUTE ON FUNCTION public\.get_event_deck_v3\(uuid, uuid, integer\)[\s\S]*TO authenticated, service_role/);
+  assert.match(webEventDeck, /supabase\.rpc\("get_event_deck_v3"/);
   assert.doesNotMatch(webEventDeck, /supabase\.rpc\("get_event_deck",/);
   assert.doesNotMatch(webEventDeck, /\.from\(["']profiles["']\)/);
-  assert.match(nativeEventsApi, /rpc\('get_event_deck_v2'/);
+  assert.match(nativeEventsApi, /rpc\('get_event_deck_v3'/);
   assert.doesNotMatch(nativeEventsApi, /rpc\('get_event_deck',/);
 
   const establishedAccessFunction = establishedAccessMigration.slice(

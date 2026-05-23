@@ -77,8 +77,8 @@ test("decision guidance belongs to Pass/Vibe, not icebreaker", () => {
   assert.equal(webIceBreaker.includes("Choose when it feels right"), false);
   assert.equal(nativeIceBreaker.includes("Choose when it feels right"), false);
   assert.equal(nativeIceBreaker.includes("Choose only when it feels right"), false);
-  assert.equal(webDecision.includes("Choose when it feels right"), true);
-  assert.equal(nativeDecision.includes("Choose only when it feels right"), true);
+  assert.equal(webDecision.includes("Continue when ready"), true);
+  assert.equal(nativeDecision.includes("Continue when ready"), true);
   assert.equal(nativeDecision.includes("Your choice only continues after it saves"), false);
   assert.equal(webDecision.includes("Soft nudge"), false);
   assert.equal(nativeDecision.includes("Soft nudge"), false);

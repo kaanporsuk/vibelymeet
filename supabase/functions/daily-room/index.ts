@@ -37,12 +37,13 @@ if (!DAILY_DOMAIN_ENV) {
 const DAILY_API_URL = "https://api.daily.co/v1";
 const DAILY_MATCH_CALL_TOKEN_TTL_SECONDS = 30 * 60;
 const DAILY_MATCH_CALL_ROOM_TTL_SECONDS = 60 * 60;
-// Video dates can be extended with credits; keep provider credentials finite
-// while covering the normal 5-minute flow plus generous extension/reconnect room.
-const DAILY_VIDEO_DATE_TOKEN_TTL_SECONDS = 15 * 60;
+const DAILY_VIDEO_DATE_ROOM_TTL_SECONDS = 14_400;
+// The installed Daily web/native SDKs do not expose a typed meeting-token
+// refresh method after join. Keep video-date tokens finite but aligned with the
+// private provider room lifetime so users are not ejected mid-date by token exp.
+const DAILY_VIDEO_DATE_TOKEN_TTL_SECONDS = DAILY_VIDEO_DATE_ROOM_TTL_SECONDS;
 const DAILY_VIDEO_DATE_SOLO_PREJOIN_TOKEN_TTL_SECONDS = 60;
 const DAILY_VIDEO_DATE_DIAGNOSTIC_TOKEN_TTL_SECONDS = 60;
-const DAILY_VIDEO_DATE_ROOM_TTL_SECONDS = 14_400;
 const DAILY_VIDEO_DATE_DIAGNOSTIC_ROOM_TTL_SECONDS = 10 * 60;
 const DAILY_VIDEO_DATE_PROVIDER_PROOF_FRESH_MS = 90_000;
 const DAILY_VIDEO_DATE_PROVIDER_PROOF_CLOCK_SKEW_MS = 5_000;

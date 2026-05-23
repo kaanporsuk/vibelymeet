@@ -20,6 +20,7 @@ import {
   buildVideoDateQueueDrainIdempotencyKey,
   createVideoDateClientRequestId,
 } from "@clientShared/matching/videoDateTransitionCommands";
+import { fetchVideoDateQueueHint } from "@/lib/videoDateQueueHint";
 
 type MatchQueueSourceSurface = "event_lobby" | "post_date_survey";
 
@@ -91,24 +92,17 @@ export const useMatchQueue = ({
       return;
     }
 
-    const { count, error } = await supabase
-      .from("video_sessions")
-      .select("id", { count: "exact" })
-      .eq("event_id", eventId)
-      .eq("ready_gate_status", "queued")
-      .is("ended_at", null)
-      .or(`participant_1_id.eq.${user.id},participant_2_id.eq.${user.id}`)
-      .limit(1);
+    const hint = await fetchVideoDateQueueHint(eventId, user.id);
 
-    if (error) {
+    if (!hint.ok) {
       if (import.meta.env.DEV) {
-        console.warn("[useMatchQueue] queued count query failed:", error.message);
+        console.warn("[useMatchQueue] queued hint query failed:", hint.reason ?? "unknown");
       }
       setQueuedCount(lastQueuedCountRef.current);
       return;
     }
 
-    const nextCount = count ?? 0;
+    const nextCount = hint.userQueuedCount;
     lastQueuedCountRef.current = nextCount;
     setQueuedCount(nextCount);
   }, [enabled, eventId, user?.id]);

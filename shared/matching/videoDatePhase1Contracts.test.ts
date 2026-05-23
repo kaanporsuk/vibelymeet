@@ -7,6 +7,11 @@ import {
   VIDEO_DATE_DIAGNOSTIC_THROTTLE_MS,
   shouldRunVideoDateDiagnostic,
 } from "./videoDateReadinessV2";
+import {
+  isVideoDateDailyTokenJoinError,
+  normalizeVideoDateQueueHint,
+  shouldRefreshVideoDateTokenBeforeJoin,
+} from "./videoDatePublicApi";
 
 const root = process.cwd();
 const config = readFileSync(join(root, "supabase/config.toml"), "utf8");
@@ -26,8 +31,28 @@ const snapshotFunction = readFileSync(
   join(root, "supabase/functions/video-date-snapshot/index.ts"),
   "utf8",
 );
+const publicApiMigration = readFileSync(
+  join(root, "supabase/migrations/20260523123000_public_api_interface_changes.sql"),
+  "utf8",
+);
+const tokenRefreshFunction = readFileSync(
+  join(root, "supabase/functions/video-date-token-refresh/index.ts"),
+  "utf8",
+);
 const webSnapshotLib = readFileSync(join(root, "src/lib/videoDateSnapshot.ts"), "utf8");
 const nativeSnapshotLib = readFileSync(join(root, "apps/mobile/lib/videoDateSnapshot.ts"), "utf8");
+const webTokenRefreshLib = readFileSync(join(root, "src/lib/videoDateTokenRefresh.ts"), "utf8");
+const nativeTokenRefreshLib = readFileSync(join(root, "apps/mobile/lib/videoDateTokenRefresh.ts"), "utf8");
+const webQueueHintLib = readFileSync(join(root, "src/lib/videoDateQueueHint.ts"), "utf8");
+const nativeQueueHintLib = readFileSync(join(root, "apps/mobile/lib/videoDateQueueHint.ts"), "utf8");
+const publicApiLib = readFileSync(join(root, "shared/matching/videoDatePublicApi.ts"), "utf8");
+const eventProfileAdapters = readFileSync(join(root, "supabase/functions/_shared/eventProfileAdapters.ts"), "utf8");
+const webPaymentStatusLib = readFileSync(join(root, "src/lib/eventTicketPaymentStatus.ts"), "utf8");
+const nativePaymentStatusLib = readFileSync(join(root, "apps/mobile/lib/eventTicketPaymentStatus.ts"), "utf8");
+const webPaymentSuccess = readFileSync(join(root, "src/pages/EventPaymentSuccess.tsx"), "utf8");
+const nativePaymentSuccess = readFileSync(join(root, "apps/mobile/app/event-payment-success.tsx"), "utf8");
+const webVideoCall = readFileSync(join(root, "src/hooks/useVideoCall.ts"), "utf8");
+const nativeVideoDate = readFileSync(join(root, "apps/mobile/app/date/[id].tsx"), "utf8");
 const dailyRoomIndex = readFileSync(join(root, "supabase/functions/daily-room/index.ts"), "utf8");
 const dailyRoomContracts = readFileSync(join(root, "supabase/functions/daily-room/dailyRoomContracts.ts"), "utf8");
 const webDeckHook = readFileSync(join(root, "src/hooks/useEventDeck.ts"), "utf8");
@@ -128,23 +153,25 @@ test("PR 1.2 dedicated diagnostics and runtime readiness are wired for web and n
   assert.match(nativeLobby, /swipeType !== 'pass' && readinessV2\.enabled && !videoDateReadiness\.canAttemptPairing/);
 });
 
-test("PR 1.3 deck v2 and persistent ready-gate suppression are adopted; Phase 8 makes deck v2 mandatory", () => {
-  assert.match(webDeckHook, /get_event_deck_v2/);
+test("PR 1.3 deck v3 and persistent ready-gate suppression are adopted; Phase 8 uses the public deck envelope", () => {
+  assert.match(webDeckHook, /get_event_deck_v3/);
+  assert.match(webDeckHook, /parseEventDeckResponse/);
   assert.match(webDeckHook, /VIDEO_DATE_DECK_BUFFER_LIMIT/);
   assert.match(instantExperience, /VIDEO_DATE_DECK_BUFFER_LIMIT = 5/);
   assert.match(instantExperience, /VIDEO_DATE_DECK_TOP_UP_THRESHOLD = 2/);
   assert.match(webDeckHook, /query\.isFetching && profiles\.length === 0/);
   assert.doesNotMatch(webDeckHook, /deck_v1|["']get_event_deck["']|video_date\.deck_deal_v2/);
-  assert.match(nativeEventsApi, /get_event_deck_v2/);
+  assert.match(nativeEventsApi, /get_event_deck_v3/);
+  assert.match(nativeEventsApi, /parseEventDeckResponse/);
   assert.match(nativeEventsApi, /VIDEO_DATE_DECK_BUFFER_LIMIT/);
   assert.match(nativeEventsApi, /query\.isFetching && profiles\.length === 0/);
   assert.doesNotMatch(nativeEventsApi, /deck_v1|["']get_event_deck["']|video_date\.deck_deal_v2/);
-  assert.match(webLobby, /Server-dealt deck v2 is the only active source of deck exclusion truth/);
-  assert.match(nativeLobby, /Server-dealt deck v2 is the only active source of deck exclusion truth/);
+  assert.match(webLobby, /Server-dealt deck v3 is the only active source of deck exclusion truth/);
+  assert.match(nativeLobby, /Server-dealt deck v3 is the only active source of deck exclusion truth/);
   assert.doesNotMatch(webLobby, /seenProfileIds|deckDealV2|deckNonce/);
   assert.doesNotMatch(nativeLobby, /seenProfileIdsRef|deckDealV2|deckNonce/);
-  assert.match(webLobby, /setQueryData<DeckProfile\[\]>\(\s*\["event-deck", eventId, user\?\.id, "deck_v2"\]/);
-  assert.match(nativeLobby, /setQueryData<DeckProfile\[\]>\(\s*\['event-deck', id, user\?\.id, 'deck_v2'\]/);
+  assert.match(webLobby, /setQueryData<EventDeckFetchResult>\(\s*\["event-deck", eventId, user\?\.id, "deck_v3"\]/);
+  assert.match(nativeLobby, /setQueryData<EventDeckFetchResult>\(\s*\['event-deck', id, user\?\.id, 'deck_v3'\]/);
   assert.match(webLobby, /sortedProfiles\.slice\(0, 3\)[\s\S]+new Image\(\)/);
   assert.match(nativeLobby, /sortedProfiles\.slice\(0, 3\)[\s\S]+Image\.prefetch\(src\)/);
   assert.match(webLobby, /shouldTopUpVideoDateDeck\(remainingVisible\)/);
@@ -178,6 +205,94 @@ test("PR 1.3 deck v2 and persistent ready-gate suppression are adopted; Phase 8 
   assert.match(nativeActiveSession, /ready_gate_suppressed_session_id/);
   assert.match(nativeActiveSession, /if \(error\) return false/);
   assert.match(nativeActiveSession, /isReadyGateSuppressedForSession/);
+});
+
+test("public API interface changes are exposed for deck state, queue hints, payment status, and token refresh", () => {
+  assert.match(config, /\[functions\.video-date-token-refresh\]\s+verify_jwt = true/);
+  assert.match(publicApiMigration, /CREATE OR REPLACE FUNCTION public\.get_event_deck_v3/);
+  assert.match(publicApiMigration, /'deck_state'/);
+  assert.match(publicApiMigration, /'get_event_deck_v3_buffer'/);
+  assert.match(publicApiMigration, /no_remaining_profiles/);
+  assert.match(publicApiMigration, /scan_window_exhausted/);
+  assert.match(publicApiMigration, /v_scan_limit integer := 5000/);
+  assert.match(eventProfileAdapters, /scan_limit: number \| null/);
+  assert.match(publicApiMigration, /CREATE OR REPLACE FUNCTION public\.get_video_date_queue_hint_v1/);
+  assert.match(publicApiMigration, /v_video_date_queue_fairness_candidates/);
+  assert.match(publicApiMigration, /relief_active/);
+  assert.match(publicApiMigration, /estimated_wait_seconds/);
+  assert.match(publicApiMigration, /COALESCE\(vs\.queued_expires_at, COALESCE\(vs\.started_at, now\(\)\) \+ interval '10 minutes'\) > now\(\)/);
+  assert.match(publicApiMigration, /CREATE OR REPLACE FUNCTION public\.get_event_ticket_payment_status_v1/);
+  assert.match(publicApiMigration, /stripe_event_ticket_settlements/);
+  assert.match(publicApiMigration, /ORDER BY er\.registered_at DESC NULLS LAST/);
+  assert.match(publicApiMigration, /NOTIFY pgrst, 'reload schema'/);
+  assert.match(tokenRefreshFunction, /get_video_date_snapshot_core/);
+  assert.match(tokenRefreshFunction, /\/meeting-tokens/);
+  assert.match(tokenRefreshFunction, /DAILY_VIDEO_DATE_ROOM_TTL_SECONDS = 14_400/);
+  assert.match(tokenRefreshFunction, /DAILY_VIDEO_DATE_TOKEN_TTL_SECONDS = DAILY_VIDEO_DATE_ROOM_TTL_SECONDS/);
+  assert.match(tokenRefreshFunction, /ejectAtTokenExp: true/);
+  assert.match(webTokenRefreshLib, /VIDEO_DATE_TOKEN_REFRESH_FUNCTION_NAME/);
+  assert.match(nativeTokenRefreshLib, /VIDEO_DATE_TOKEN_REFRESH_FUNCTION_NAME/);
+  assert.match(webQueueHintLib, /get_video_date_queue_hint_v1/);
+  assert.match(nativeQueueHintLib, /get_video_date_queue_hint_v1/);
+  assert.match(webPaymentStatusLib, /get_event_ticket_payment_status_v1/);
+  assert.match(nativePaymentStatusLib, /get_event_ticket_payment_status_v1/);
+  assert.match(webPaymentSuccess, /fetchEventTicketPaymentStatus/);
+  assert.match(nativePaymentSuccess, /fetchEventTicketPaymentStatus/);
+  assert.match(webPaymentSuccess, /MONTHLY_EVENT_JOIN_LIMIT_REACHED/);
+  assert.match(nativePaymentSuccess, /MONTHLY_EVENT_JOIN_LIMIT_REACHED/);
+  assert.match(publicApiLib, /estimatedWaitSeconds/);
+  assert.match(publicApiLib, /estimated_wait_seconds/);
+  assert.match(publicApiLib, /shouldRefreshVideoDateTokenBeforeJoin/);
+  assert.match(publicApiLib, /isVideoDateDailyTokenJoinError/);
+  assert.doesNotMatch(webDeckHook, /fetchEventDeckProfiles/);
+  assert.doesNotMatch(nativeEventsApi, /fetchEventDeckProfiles/);
+  assert.match(webVideoCall, /refreshVideoDateToken/);
+  assert.match(webVideoCall, /daily_token_refresh_join_retry/);
+  assert.match(webVideoCall, /shouldRefreshVideoDateTokenBeforeJoin/);
+  assert.match(nativeVideoDate, /refreshVideoDateToken/);
+  assert.match(nativeVideoDate, /daily_token_refresh_join_retry/);
+  assert.match(nativeVideoDate, /shouldRefreshVideoDateTokenBeforeJoin/);
+  assert.match(webLobby, /fetchVideoDateQueueHint/);
+  assert.match(webLobby, /gateFromServerInactiveDeck/);
+  assert.match(webLobby, /deckState\?\.reason === "event_not_active"/);
+  assert.match(webLobby, /deckEmptyCopyFromServerReason/);
+  assert.match(webLobby, /no_confirmed_candidates/);
+  assert.match(webLobby, /scan_window_exhausted/);
+  assert.match(webLobby, /formatQueueEtaLabel/);
+  assert.match(nativeLobby, /fetchVideoDateQueueHint/);
+  assert.match(nativeLobby, /deckState\?\.reason !== 'event_not_active'/);
+  assert.match(nativeLobby, /serverInactiveEventCopy/);
+  assert.match(nativeLobby, /deckEmptyCopyFromServerReason/);
+  assert.match(nativeLobby, /no_confirmed_candidates/);
+  assert.match(nativeLobby, /scan_window_exhausted/);
+  assert.match(nativeLobby, /formatQueueEtaLabel/);
+  assert.match(webLobby, /priority boost/);
+  assert.match(nativeLobby, /priority boost/);
+  assert.match(nativeActiveSession, /fetchVideoDateQueueHint/);
+  assert.doesNotMatch(nativeActiveSession, /\.eq\('ready_gate_status', 'queued'\)/);
+});
+
+test("public API helpers handle malformed edge cases conservatively", () => {
+  assert.equal(
+    shouldRefreshVideoDateTokenBeforeJoin("2026-05-23T10:01:30.000Z", Date.parse("2026-05-23T10:00:00.000Z")),
+    true,
+  );
+  assert.equal(
+    shouldRefreshVideoDateTokenBeforeJoin("2026-05-23T10:05:00.000Z", Date.parse("2026-05-23T10:00:00.000Z")),
+    false,
+  );
+  assert.equal(shouldRefreshVideoDateTokenBeforeJoin("not-a-date", Date.parse("2026-05-23T10:00:00.000Z")), true);
+  assert.equal(isVideoDateDailyTokenJoinError({ errorMsg: "Meeting token expired" }), true);
+  assert.equal(isVideoDateDailyTokenJoinError({ message: "Camera permission denied" }), false);
+
+  const queueHint = normalizeVideoDateQueueHint({
+    ok: true,
+    queued: true,
+    estimated_wait_seconds: 45,
+    relief_active: true,
+  });
+  assert.equal(queueHint.estimatedWaitSeconds, 45);
+  assert.equal(queueHint.reliefActive, true);
 });
 
 test("PR 1.4 micro-verdict is UX-only and does not auto-submit verdicts", () => {

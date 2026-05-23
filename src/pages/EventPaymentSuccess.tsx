@@ -8,6 +8,87 @@ import { useQueryClient } from "@tanstack/react-query";
 import confetti from "canvas-confetti";
 import { useUserProfile } from "@/contexts/AuthContext";
 import { trackEvent } from "@/lib/analytics";
+import {
+  fetchEventTicketPaymentStatus,
+  type EventTicketPaymentStatus,
+} from "@/lib/eventTicketPaymentStatus";
+
+type AdmissionStatus = "confirmed" | "waitlisted" | "unknown";
+
+function normalizeAdmissionStatus(value: string | null | undefined): AdmissionStatus {
+  return value === "confirmed" || value === "waitlisted" ? value : "unknown";
+}
+
+function paymentSuccessCopy(
+  isEventCancelled: boolean,
+  admissionStatus: AdmissionStatus,
+  paymentStatus: EventTicketPaymentStatus | null,
+): { headline: string; subline: string } {
+  if (isEventCancelled) {
+    return {
+      headline: "This event was cancelled",
+      subline:
+        "Your payment may still show here while things sync. Open the event page for the latest status.",
+    };
+  }
+
+  const outcome = paymentStatus?.settlement?.outcome ?? null;
+  const code = paymentStatus?.settlement?.code ?? null;
+  const success = paymentStatus?.settlement?.success;
+
+  if (outcome === "rejected_tier" || code === "TIER_MISMATCH") {
+    return {
+      headline: "Payment needs review",
+      subline: "Your payment was received, but this event requires a different access level.",
+    };
+  }
+  if (outcome === "rejected_event" || code === "EVENT_CLOSED") {
+    return {
+      headline: "This event is no longer available",
+      subline: "Your payment was received after registration closed. Support will help with next steps.",
+    };
+  }
+  if (
+    outcome === "rejected_monthly_limit" ||
+    code === "MONTHLY_EVENT_JOIN_LIMIT_REACHED" ||
+    code === "MONTHLY_LIMIT_REACHED"
+  ) {
+    return {
+      headline: "Event limit reached",
+      subline: "Your payment was received, but your current plan has reached its monthly event limit.",
+    };
+  }
+  if (outcome === "rejected_conflict" || outcome === "rejected_unique" || code === "CONFLICT" || code === "UNIQUE") {
+    return {
+      headline: "Registration needs review",
+      subline: "Your payment was received, but we need to reconcile your registration before confirming the event.",
+    };
+  }
+  if (success === false) {
+    return {
+      headline: "Payment needs review",
+      subline: "Your payment was received, but registration did not complete cleanly. Support will help with next steps.",
+    };
+  }
+
+  if (admissionStatus === "waitlisted") {
+    return {
+      headline: "You're on the waitlist",
+      subline: "The event was full when your payment settled. We'll confirm you if a spot opens.",
+    };
+  }
+  if (admissionStatus === "confirmed") {
+    return {
+      headline: "You're on the list! 🎉",
+      subline: "Check your email for confirmation",
+    };
+  }
+
+  return {
+    headline: "Payment received",
+    subline: "Hang tight while we confirm your spot.",
+  };
+}
 
 const EventPaymentSuccess = () => {
   const navigate = useNavigate();
@@ -17,9 +98,8 @@ const EventPaymentSuccess = () => {
   const eventId = searchParams.get("event_id");
   const [eventTitle, setEventTitle] = useState<string | null>(null);
   const [eventRowStatus, setEventRowStatus] = useState<string | null>(null);
-  const [admissionStatus, setAdmissionStatus] = useState<"confirmed" | "waitlisted" | "unknown">(
-    "unknown"
-  );
+  const [admissionStatus, setAdmissionStatus] = useState<AdmissionStatus>("unknown");
+  const [paymentStatus, setPaymentStatus] = useState<EventTicketPaymentStatus | null>(null);
   const analyticsTrackedRef = useRef(false);
 
   useEffect(() => {
@@ -48,16 +128,10 @@ const EventPaymentSuccess = () => {
     if (!eventId || !user?.id) return;
     let cancelled = false;
     const refreshAdmission = async () => {
-      const { data, error } = await supabase
-        .from("event_registrations")
-        .select("admission_status")
-        .eq("event_id", eventId)
-        .eq("profile_id", user.id)
-        .maybeSingle();
-      if (cancelled || error) return;
-      const s = data?.admission_status;
-      if (s === "confirmed" || s === "waitlisted") setAdmissionStatus(s);
-      else setAdmissionStatus("unknown");
+      const status = await fetchEventTicketPaymentStatus(eventId);
+      if (cancelled) return;
+      setPaymentStatus(status);
+      setAdmissionStatus(normalizeAdmissionStatus(status.admissionStatus ?? status.settlement?.admissionStatus));
     };
 
     void refreshAdmission();
@@ -106,22 +180,7 @@ const EventPaymentSuccess = () => {
   }, [eventId, eventRowStatus, admissionStatus]);
 
   const isEventCancelled = eventRowStatus === "cancelled";
-
-  const headline = isEventCancelled
-    ? "This event was cancelled"
-    : admissionStatus === "waitlisted"
-      ? "You're on the waitlist"
-      : admissionStatus === "confirmed"
-        ? "You're on the list! 🎉"
-        : "Payment received";
-
-  const subline = isEventCancelled
-    ? "Your payment may still show here while things sync — open the event page for the latest status. Refund exceptions are handled manually by support."
-    : admissionStatus === "waitlisted"
-      ? "The event was full when your payment settled — we'll confirm you if a spot opens."
-      : admissionStatus === "confirmed"
-        ? "Check your email for confirmation"
-        : "Hang tight while we confirm your spot.";
+  const { headline, subline } = paymentSuccessCopy(isEventCancelled, admissionStatus, paymentStatus);
 
   return (
     <div className="min-h-screen bg-background flex flex-col items-center justify-center px-6 text-center">

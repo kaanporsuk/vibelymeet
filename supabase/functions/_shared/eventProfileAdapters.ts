@@ -34,6 +34,36 @@ export type EventDeckProfile = Omit<
   availability_state: string;
 };
 
+export const EVENT_DECK_STATE_REASONS = [
+  "ready",
+  "event_not_active",
+  "not_registered",
+  "no_confirmed_candidates",
+  "no_remaining_profiles",
+  "scan_window_exhausted",
+  "viewer_paused",
+  "unknown",
+] as const;
+
+export type EventDeckStateReason = (typeof EVENT_DECK_STATE_REASONS)[number];
+
+export type EventDeckState = {
+  reason: EventDeckStateReason;
+  retryable: boolean;
+  inactive_reason: string | null;
+  limit: number | null;
+  scan_limit: number | null;
+  raw_count: number | null;
+  profile_count: number | null;
+  marked_count: number | null;
+};
+
+export type EventDeckFetchResult = {
+  ok: boolean;
+  profiles: EventDeckProfile[];
+  deckState: EventDeckState;
+};
+
 function sanitizeDeckString(value: unknown): string | null {
   if (typeof value !== "string") return null;
   let out = value.trim();
@@ -137,6 +167,62 @@ export function parseEventDeckProfiles(data: unknown): EventDeckProfile[] {
       }),
     ];
   });
+}
+
+function normalizeDeckStateReason(value: unknown): EventDeckStateReason {
+  if (typeof value !== "string") return "unknown";
+  return (EVENT_DECK_STATE_REASONS as readonly string[]).includes(value)
+    ? value as EventDeckStateReason
+    : "unknown";
+}
+
+function finiteNumberOrNull(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function normalizeEventDeckState(raw: unknown, fallbackProfileCount: number): EventDeckState {
+  const source = raw && typeof raw === "object" ? raw as Record<string, unknown> : {};
+  const reason = normalizeDeckStateReason(source.reason ?? (fallbackProfileCount > 0 ? "ready" : "unknown"));
+  return {
+    reason,
+    retryable: source.retryable === true,
+    inactive_reason: typeof source.inactive_reason === "string" ? source.inactive_reason : null,
+    limit: finiteNumberOrNull(source.limit),
+    scan_limit: finiteNumberOrNull(source.scan_limit) ?? finiteNumberOrNull(source.scanLimit),
+    raw_count: finiteNumberOrNull(source.raw_count),
+    profile_count: finiteNumberOrNull(source.profile_count) ?? fallbackProfileCount,
+    marked_count: finiteNumberOrNull(source.marked_count),
+  };
+}
+
+export function parseEventDeckResponse(data: unknown): EventDeckFetchResult {
+  if (Array.isArray(data)) {
+    const profiles = parseEventDeckProfiles(data);
+    return {
+      ok: true,
+      profiles,
+      deckState: normalizeEventDeckState(
+        { reason: profiles.length > 0 ? "ready" : "unknown", profile_count: profiles.length },
+        profiles.length,
+      ),
+    };
+  }
+
+  if (!data || typeof data !== "object") {
+    return {
+      ok: false,
+      profiles: [],
+      deckState: normalizeEventDeckState({ reason: "unknown", retryable: true, profile_count: 0 }, 0),
+    };
+  }
+
+  const source = data as Record<string, unknown>;
+  const profiles = parseEventDeckProfiles(source.profiles);
+  return {
+    ok: source.ok === true,
+    profiles,
+    deckState: normalizeEventDeckState(source.deck_state ?? source.deckState, profiles.length),
+  };
 }
 
 export type EventAttendeePreviewRow = {

@@ -26,7 +26,7 @@ import { submitNativePostDateOutboxItem } from '@/lib/postDateOutbox/execute';
 import { LobbyPostDateEvents } from '@clientShared/analytics/lobbyToPostDateJourney';
 import type { SubmitVerdictAndCheckMutualResult } from '@/lib/videoDateApi';
 import { submitPostDateReportWithOutbox, updateParticipantStatus } from '@/lib/videoDateApi';
-import { drainMatchQueue, fetchEventDeckProfiles, getQueuedMatchCount } from '@/lib/eventsApi';
+import { drainMatchQueue, fetchEventDeck, getQueuedMatchCount, type EventDeckFetchResult } from '@/lib/eventsApi';
 import { MatchCelebrationScreen } from '@/components/match/MatchCelebrationScreen';
 import { supabase } from '@/lib/supabase';
 import { deckCardUrl } from '@/lib/imageUrl';
@@ -336,17 +336,17 @@ export function PostDateSurvey({
     });
     void queryClient
       .prefetchQuery({
-        queryKey: ['event-deck', eventId, userId, 'deck_v2'],
-        queryFn: () => fetchEventDeckProfiles(eventId, userId),
+        queryKey: ['event-deck', eventId, userId, 'deck_v3'],
+        queryFn: () => fetchEventDeck(eventId, userId),
         staleTime: 10_000,
       })
       .then(() => {
-        const profiles = queryClient.getQueryData<Awaited<ReturnType<typeof fetchEventDeckProfiles>>>([
+        const profiles = queryClient.getQueryData<EventDeckFetchResult>([
           'event-deck',
           eventId,
           userId,
-          'deck_v2',
-        ]) ?? [];
+          'deck_v3',
+        ])?.profiles ?? [];
         for (const item of getVideoDateDeckPrefetchItems(profiles)) {
           const src = deckCardUrl(item.source);
           if (src) void Image.prefetch(src);

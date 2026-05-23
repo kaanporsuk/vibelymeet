@@ -30,6 +30,7 @@ import {
   getQueuedMatchCount,
   getSuperVibeRemaining,
   type DeckProfile,
+  type EventDeckFetchResult,
   type SwipeResult,
 } from '@/lib/eventsApi';
 import { avatarUrl, deckCardUrl } from '@/lib/imageUrl';
@@ -56,9 +57,10 @@ import {
 import { bucketVideoDateLatencyMs } from '@clientShared/observability/videoDateOperatorMetrics';
 import { LiveSurfaceOfflineStrip } from '@/components/connectivity/LiveSurfaceOfflineStrip';
 import { useVibelyDialog } from '@/components/VibelyDialog';
-import { useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useAccountPauseStatus } from '@/hooks/useAccountPauseStatus';
 import { useFeatureFlag } from '@/hooks/useFeatureFlag';
+import { fetchVideoDateQueueHint, type VideoDateQueueHint } from '@/lib/videoDateQueueHint';
 import { useActiveSession } from '@/lib/useActiveSession';
 import { RC_CATEGORY, rcBreadcrumb } from '@/lib/nativeRcDiagnostics';
 import { endAccountBreakForUser } from '@/lib/endAccountBreak';
@@ -122,6 +124,87 @@ const GENERIC_SWIPE_FAILURE_OUTCOMES = new Set([
   'invalid_request',
   'unauthorized',
 ]);
+
+function formatQueueHintLabel(hint: VideoDateQueueHint | null, fallbackCount: number): string {
+  if (hint?.queued && hint.position != null && hint.position > 0) {
+    const eta = formatQueueEtaLabel(hint.estimatedWaitSeconds);
+    const parts = [`Position ${hint.position}`];
+    if (eta) parts.push(eta);
+    if (hint.reliefActive) parts.push('priority boost');
+    return parts.join(' · ');
+  }
+  const count = Math.max(fallbackCount, hint?.eventQueuedCount ?? 0);
+  return count === 1 ? '1 waiting in queue' : `${count} waiting in queue`;
+}
+
+function formatQueueEtaLabel(seconds: number | null | undefined): string | null {
+  if (seconds == null || seconds < 0) return null;
+  if (seconds <= 5) return 'now';
+  if (seconds < 60) return `~${Math.ceil(seconds / 5) * 5}s`;
+  return `~${Math.ceil(seconds / 60)}m`;
+}
+
+function serverInactiveEventCopy(reason: string | null): { title: string; message: string; actionLabel: string } {
+  if (reason === 'event_not_started') {
+    return {
+      title: "This event isn't live yet",
+      message: 'The server has not opened this lobby yet. Check the event page countdown.',
+      actionLabel: 'Back to event',
+    };
+  }
+  if (reason === 'event_ended' || reason === 'event_outside_live_window') {
+    return {
+      title: 'This event has ended',
+      message: 'The live lobby is closed. Head back to the event for details.',
+      actionLabel: 'Back to event',
+    };
+  }
+  return {
+    title: 'This lobby is closed',
+    message: 'The server says this event is no longer accepting lobby swipes. Head back to the event page for the latest status.',
+    actionLabel: 'Back to event',
+  };
+}
+
+function deckEmptyCopyFromServerReason(reason: string | null | undefined): {
+  title: string;
+  message: string;
+} {
+  if (reason === 'no_confirmed_candidates') {
+    return {
+      title: 'No confirmed guests are available yet',
+      message: 'Confirmed guests may still join the live room. Your deck refreshes automatically, and you can refresh any time.',
+    };
+  }
+  if (reason === 'no_remaining_profiles') {
+    return {
+      title: "You've seen everyone for now",
+      message: 'More people may join the room. Your deck refreshes every few seconds, and you can refresh any time. Mystery Match is an optional in-app shortcut for a random pairing while you wait (not available on web yet).',
+    };
+  }
+  if (reason === 'scan_window_exhausted') {
+    return {
+      title: "We're checking a bigger room",
+      message: 'This event has a lot of candidates. Refresh again in a moment while we keep the deck moving.',
+    };
+  }
+  if (reason === 'not_registered') {
+    return {
+      title: 'Only confirmed guests can swipe here',
+      message: 'Head back to the event page to check your registration status.',
+    };
+  }
+  if (reason === 'viewer_paused') {
+    return {
+      title: "You're on a break",
+      message: 'End your break to become visible in the event deck again.',
+    };
+  }
+  return {
+    title: "You've seen everyone for now",
+    message: 'More people may join the room. Your deck refreshes every few seconds, and you can refresh any time. Mystery Match is an optional in-app shortcut for a random pairing while you wait (not available on web yet).',
+  };
+}
 
 /**
  * If the in-lobby Ready Gate overlay stops making progress (realtime gaps, missed transitions),
@@ -364,6 +447,7 @@ export default function EventLobbyScreen() {
     isLoading: deckLoading,
     isError: deckError,
     error: deckErrorValue,
+    deckState,
     refetch: refetchDeck,
   } = useEventDeck(
     id,
@@ -429,7 +513,7 @@ export default function EventLobbyScreen() {
   }, []);
 
   const sortedProfiles = useMemo(() => {
-    // Server-dealt deck v2 is the only active source of deck exclusion truth.
+    // Server-dealt deck v3 is the only active source of deck exclusion truth.
     const filtered = [...profiles];
     filtered.sort((a, b) => {
       if (a.has_super_vibed && !b.has_super_vibed) return -1;
@@ -798,6 +882,19 @@ export default function EventLobbyScreen() {
     if (!sessionHydrated || !id || !scopedSession || scopedSession.eventId !== id) return null;
     return scopedSession;
   }, [sessionHydrated, id, scopedSession]);
+  const queueHintEnabled =
+    deckQueryEnabled &&
+    Boolean(id && user?.id) &&
+    (queuedMatchCount > 0 || sameEventActiveSession?.kind === 'syncing');
+  const { data: queueHint = null } = useQuery({
+    queryKey: ['video-date-queue-hint', id, user?.id],
+    queryFn: () => fetchVideoDateQueueHint(id, user?.id ?? ''),
+    enabled: queueHintEnabled,
+    refetchInterval: queueHintEnabled ? 5_000 : false,
+    refetchIntervalInBackground: false,
+    staleTime: 3_000,
+  });
+  const queueHintLabel = formatQueueHintLabel(queueHint, queuedMatchCount);
 
   /** Full-screen yield: server truth says handshake/date — do not show deck-empty underneath. */
   const yieldingToVideoDateUi = useMemo(
@@ -1019,14 +1116,21 @@ export default function EventLobbyScreen() {
       const paintStartedAt = deckPrefetchPolishV2.enabled ? Date.now() : null;
       let remainingVisible = 0;
       let nextProfileAfterSwipe: DeckProfile | null = null;
-      queryClient.setQueryData<DeckProfile[]>(
-        ['event-deck', id, user?.id, 'deck_v2'],
+      queryClient.setQueryData<EventDeckFetchResult>(
+        ['event-deck', id, user?.id, 'deck_v3'],
         (current) => {
-          if (!Array.isArray(current)) return current;
-          const next = current.filter((profile) => profile.id !== targetId);
+          if (!current) return current;
+          const next = current.profiles.filter((profile) => profile.id !== targetId);
           remainingVisible = next.length;
           nextProfileAfterSwipe = next[0] ?? null;
-          return next;
+          return {
+            ...current,
+            profiles: next,
+            deckState: {
+              ...current.deckState,
+              profile_count: next.length,
+            },
+          };
         },
       );
       if (remainingVisible === 0) {
@@ -1863,11 +1967,13 @@ export default function EventLobbyScreen() {
         yieldingToReadyGate: yieldingToReadyGateUi,
         yieldingToVideoDate: yieldingToVideoDateUi,
         userPaused: pauseStatus.isPaused,
+        deckStateReason: deckState?.reason ?? null,
       }),
     [
       deckError,
       deckErrorValue,
       deckGateKind,
+      deckState?.reason,
       deckQueryEnabled,
       pauseStatus.isPaused,
       profiles.length,
@@ -1901,6 +2007,10 @@ export default function EventLobbyScreen() {
       yieldingToReadyGateUi,
       yieldingToVideoDateUi,
     ]
+  );
+  const emptyDeckCopy = useMemo(
+    () => deckEmptyCopyFromServerReason(deckState?.reason),
+    [deckState?.reason],
   );
 
   useEffect(() => {
@@ -1944,6 +2054,12 @@ export default function EventLobbyScreen() {
       data: { eventId: id, reason: deckEmptyReason },
     });
   }, [deckEmptyReason, deckError, id, queryClient]);
+
+  useEffect(() => {
+    if (!id || deckState?.reason !== 'event_not_active') return;
+    setServerInactiveEventReason(deckState.inactive_reason ?? 'event_not_active');
+    void queryClient.invalidateQueries({ queryKey: ['event-details', id] });
+  }, [deckState?.inactive_reason, deckState?.reason, id, queryClient]);
 
   useEffect(() => {
     if (!id || eventLoading || regLoading || deckLoading || deckError) {
@@ -2162,13 +2278,14 @@ export default function EventLobbyScreen() {
   }
 
   if (isEventInactiveByServer) {
+    const inactiveCopy = serverInactiveEventCopy(serverInactiveEventReason);
     return (
       <>
         <View style={[styles.centered, { backgroundColor: theme.background }]}>
           <ErrorState
-            title="This lobby is closed"
-            message="The backend says this event is no longer active. Head back to the event page for the latest status."
-            actionLabel="Back to event"
+            title={inactiveCopy.title}
+            message={inactiveCopy.message}
+            actionLabel={inactiveCopy.actionLabel}
             onActionPress={() => router.replace(`/(tabs)/events/${id}` as const)}
           />
         </View>
@@ -2568,15 +2685,11 @@ export default function EventLobbyScreen() {
               {(queuedMatchCount > 0 || sameEventActiveSession?.kind === 'syncing') && !activeSessionId ? (
                 <View
                   style={[styles.queuedBadge, { backgroundColor: withAlpha(theme.neonPink, 0.14), borderColor: withAlpha(theme.neonPink, 0.35) }]}
-                  accessibilityLabel={
-                    queuedMatchCount === 1
-                      ? 'One mutual match is waiting in the queue before Ready Gate'
-                      : `${queuedMatchCount} mutual matches waiting in the queue before Ready Gate`
-                  }
+                  accessibilityLabel={`${queueHintLabel} before Ready Gate`}
                 >
                   <Ionicons name="sparkles" size={11} color={theme.neonPink} />
                   <Text style={[styles.queuedBadgeText, { color: theme.neonPink }]}>
-                    {queuedMatchCount === 1 ? '1 waiting in queue' : `${queuedMatchCount} waiting in queue`}
+                    {queueHintLabel}
                   </Text>
                 </View>
               ) : null}
@@ -2781,12 +2894,12 @@ export default function EventLobbyScreen() {
                     <Ionicons name="people-outline" size={40} color={theme.tint} />
                   </View>
                   <Text style={[styles.emptyTitle, { color: theme.text }]}>
-                    {postSurveyReturnContext ? postSurveyContinuityDecision.title : "You've seen everyone for now"}
+                    {postSurveyReturnContext ? postSurveyContinuityDecision.title : emptyDeckCopy.title}
                   </Text>
                   <Text style={[styles.emptyMessage, { color: theme.textSecondary }]}>
                     {postSurveyReturnContext
                       ? postSurveyContinuityDecision.message
-                      : 'More people may join the room — your deck refreshes every few seconds. Refresh any time. Mystery Match is an optional in-app shortcut for a random pairing while you wait (not available on web yet).'}
+                      : emptyDeckCopy.message}
                   </Text>
                   <Pressable
                     style={({ pressed }) => [styles.emptyPrimaryBtn, { backgroundColor: theme.tint }, pressed && { opacity: 0.9 }]}

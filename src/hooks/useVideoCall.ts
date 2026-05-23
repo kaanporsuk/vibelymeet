@@ -26,6 +26,7 @@ import {
   prepareVideoDateEntry,
   rejectPreparedVideoDateEntry,
 } from "@/lib/videoDatePrepareEntry";
+import { refreshVideoDateToken } from "@/lib/videoDateTokenRefresh";
 import { LobbyPostDateEvents } from "@clientShared/analytics/lobbyToPostDateJourney";
 import {
   buildReadyGateToDateLatencyPayload,
@@ -38,6 +39,10 @@ import {
   type DailyRoomFailureKind,
 } from "@clientShared/matching/dailyRoomFailure";
 import type { PreparedVideoDateEntryCacheEntry } from "@clientShared/matching/videoDatePrepareEntry";
+import {
+  isVideoDateDailyTokenJoinError,
+  shouldRefreshVideoDateTokenBeforeJoin,
+} from "@clientShared/matching/videoDatePublicApi";
 import {
   VIDEO_DATE_WEB_CAPTURE_PROFILE_ORDER,
   isVideoDateCameraConstraintError,
@@ -2927,12 +2932,116 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
           setIsConnecting(false);
           return { ok: false, failure: roomResult.failure } as VideoCallStartResult;
         }
-        const roomData = roomResult.roomData;
+        let roomData = roomResult.roomData;
         activePreparedEntryCacheRef.current = roomResult.cacheEntry;
         activePreparedEntryCacheHitRef.current = roomResult.cached;
         lastProviderVerifySkippedRef.current = roomData.provider_verify_skipped ?? null;
         const entryAttemptId = roomData.entry_attempt_id ?? roomResult.cacheEntry.entryAttemptId ?? null;
         const videoDateTraceId = roomData.video_date_trace_id ?? entryAttemptId;
+        const refreshDailyTokenForJoin = async (
+          sourceAction: "daily_token_refresh_before_join" | "daily_token_refresh_join_retry",
+          cause?: unknown,
+        ): Promise<boolean> => {
+          const refreshStartedAtMs = Date.now();
+          vdbg(sourceAction, {
+            sessionId,
+            eventId: truthRow.event_id ?? eventId,
+            userId,
+            roomName: roomData.room_name,
+            tokenExpiresAt: roomData.token_expires_at ?? null,
+            cause: cause instanceof Error ? cause.message : cause ? String(cause) : null,
+          });
+          const refresh = await refreshVideoDateToken(sessionId);
+          const durationMs = Date.now() - refreshStartedAtMs;
+          if (refresh.ok === false) {
+            vdbg("daily_token_refresh_failed", {
+              sessionId,
+              eventId: truthRow.event_id ?? eventId,
+              userId,
+              sourceAction,
+              reason: refresh.error,
+              retryable: refresh.retryable ?? null,
+              durationMs,
+            });
+            trackEvent(LobbyPostDateEvents.VIDEO_DATE_DAILY_TOKEN_FAILURE, {
+              platform: "web",
+              session_id: sessionId,
+              event_id: truthRow.event_id ?? eventId,
+              source_surface: "video_date_daily",
+              source_action: sourceAction,
+              code: refresh.error,
+              reason_code: refresh.error,
+              failure_class: classifyDailyRoomTokenFailureClass("network"),
+              retryable: refresh.retryable ?? true,
+              duration_ms: durationMs,
+              latency_bucket: bucketVideoDateLatencyMs(durationMs),
+              attempt_count: 1,
+            });
+            return false;
+          }
+
+          if (refresh.roomName !== roomData.room_name || refresh.roomUrl !== roomData.room_url) {
+            vdbg("daily_token_refresh_room_mismatch", {
+              sessionId,
+              eventId: truthRow.event_id ?? eventId,
+              userId,
+              previousRoomName: roomData.room_name,
+              refreshedRoomName: refresh.roomName,
+              previousRoomUrl: roomData.room_url,
+              refreshedRoomUrl: refresh.roomUrl,
+            });
+            trackEvent(LobbyPostDateEvents.VIDEO_DATE_DAILY_TOKEN_FAILURE, {
+              platform: "web",
+              session_id: sessionId,
+              event_id: truthRow.event_id ?? eventId,
+              source_surface: "video_date_daily",
+              source_action: sourceAction,
+              code: "token_refresh_room_mismatch",
+              reason_code: "token_refresh_room_mismatch",
+              failure_class: classifyDailyRoomTokenFailureClass("network"),
+              retryable: true,
+              duration_ms: durationMs,
+              latency_bucket: bucketVideoDateLatencyMs(durationMs),
+              attempt_count: 1,
+            });
+            return false;
+          }
+
+          roomData = {
+            ...roomData,
+            token: refresh.token,
+            token_expires_at: refresh.tokenExpiresAtIso,
+          };
+          vdbg("daily_token_refresh_success", {
+            sessionId,
+            eventId: truthRow.event_id ?? eventId,
+            userId,
+            sourceAction,
+            roomName: roomData.room_name,
+            tokenExpiresAt: roomData.token_expires_at ?? null,
+            durationMs,
+          });
+          trackEvent(LobbyPostDateEvents.VIDEO_DATE_DAILY_TOKEN_SUCCESS, {
+            platform: "web",
+            session_id: sessionId,
+            event_id: truthRow.event_id ?? eventId,
+            source_surface: "video_date_daily",
+            source_action: sourceAction,
+            cached: false,
+            handoff_used: false,
+            attempt: 1,
+            attempt_count: 1,
+            entry_attempt_id: entryAttemptId,
+            video_date_trace_id: videoDateTraceId,
+            duration_ms: durationMs,
+            latency_bucket: bucketVideoDateLatencyMs(durationMs),
+          });
+          return true;
+        };
+
+        if (shouldRefreshVideoDateTokenBeforeJoin(roomData.token_expires_at)) {
+          await refreshDailyTokenForJoin("daily_token_refresh_before_join");
+        }
 
         roomNameRef.current = roomData.room_name;
 
@@ -3898,7 +4007,20 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
             joinSource: prewarmedCall.ok === true ? prewarmedCall.entry.joinSource : null,
           });
         } else {
-          await callObject.join({ url: roomData.room_url, token: roomData.token });
+          try {
+            await callObject.join({ url: roomData.room_url, token: roomData.token });
+          } catch (joinError) {
+            if (isVideoDateDailyTokenJoinError(joinError)) {
+              const refreshed = await refreshDailyTokenForJoin("daily_token_refresh_join_retry", joinError);
+              if (refreshed) {
+                await callObject.join({ url: roomData.room_url, token: roomData.token });
+              } else {
+                throw joinError;
+              }
+            } else {
+              throw joinError;
+            }
+          }
         }
         const joinDurationMs = Date.now() - dailyJoinStartedAtMs;
         setHasPermission(true);

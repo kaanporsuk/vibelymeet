@@ -102,7 +102,7 @@ test("post-date instant next is prestaged, deck-prefetched, optimistic for norma
   for (const source of [webSurvey, nativeSurvey]) {
     assert.match(source, /useFeatureFlag\(["']video_date\.post_date_instant_next_v2["']\)/);
     assert.match(source, /prefetchQuery\(\{/);
-    assert.match(source, /fetchEventDeckProfiles/);
+    assert.match(source, /fetchEventDeck\(/);
     assert.match(source, /getVideoDateDeckPrefetchItems/);
     assert.match(source, /const optimisticStep: SurveyStep = liked \? ["']awaiting_partner["'] : ["']highlights["']/);
     assert.match(source, /setStep\(optimisticStep\)/);
