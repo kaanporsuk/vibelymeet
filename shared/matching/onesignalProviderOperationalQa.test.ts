@@ -23,7 +23,7 @@ const nativePushForegroundSync = read("apps/mobile/lib/nativePushForegroundSync.
 const nativePushHealth = read("apps/mobile/lib/usePushDeliveryHealth.ts");
 const nativeDeepLink = read("apps/mobile/components/NotificationDeepLinkHandler.tsx");
 const nativeAppConfig = read("apps/mobile/app.config.js");
-const pushSubscriptionOwnershipMigration = read("supabase/migrations/20260523120000_onesignal_push_subscription_ownership.sql");
+const pushSubscriptionOwnershipMigration = read("supabase/migrations/20260523184500_onesignal_push_subscription_ownership.sql");
 const branchDelta = read("docs/branch-deltas/fix-onesignal-provider-operational-qa.md");
 
 test("web OneSignal initialization is env-backed and root-worker aware", () => {

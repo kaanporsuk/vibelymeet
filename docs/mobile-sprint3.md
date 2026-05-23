@@ -26,7 +26,7 @@ Sprint 3 implements chat (matches list, message thread, send message) and push n
    - Adds `mobile_onesignal_player_id` (TEXT) and `mobile_onesignal_subscribed` (BOOLEAN, default false) to `notification_preferences`.  
    - Additive; no change to web behavior.
 
-2. **Migration `20260523120000_onesignal_push_subscription_ownership.sql`**
+2. **Migration `20260523184500_onesignal_push_subscription_ownership.sql`**
    - Adds `push_subscriptions` for multiple OneSignal subscriptions per user.
    - Adds `register_onesignal_push_subscription` / `unregister_onesignal_push_subscription` so a physical device subscription transfers to the currently authenticated user.
    - Keeps the legacy `notification_preferences` columns deduped for compatibility.
