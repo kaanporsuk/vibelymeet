@@ -36,13 +36,14 @@ const webPhotoDraftReconcile = read("src/lib/photoDraftReconcile.ts");
 const nativePhotoBatchController = read("apps/mobile/lib/photoBatchController.ts");
 const supabaseTypes = read("src/integrations/supabase/types.ts");
 const migration = read("supabase/migrations/20260523130000_draft_media_sessions_deprecation.sql");
+const reviewFollowupsMigration = read("supabase/migrations/20260523201000_review_comment_followups_1019_1026.sql");
 
 test("modern Vibe Video status RPC is provider-object keyed and syncs public read models", () => {
   const body = functionBody(migration, "update_vibe_video_upload_status");
   assert.match(migration, /CREATE OR REPLACE FUNCTION public\.update_vibe_video_upload_status/);
   assert.match(migration, /p_provider_object_id text/);
   assert.match(migration, /UPDATE public\.vibe_video_uploads/);
-  assert.match(migration, /UPDATE public\.profile_vibe_videos[\s\S]+SET video_status = p_new_status/);
+  assert.match(migration, /UPDATE public\.profile_vibe_videos pvv[\s\S]+FROM public\.media_assets ma[\s\S]+ma\.provider_object_id = v_provider_object_id/);
   assert.match(migration, /UPDATE public\.profiles[\s\S]+bunny_video_uid = v_provider_object_id/);
   assert.match(body, /SET media_asset_id = v_media_asset_id/);
   assert.match(body, /media_asset_id = COALESCE\(media_asset_id, v_media_asset_id\)/);
@@ -54,6 +55,8 @@ test("modern Vibe Video status RPC is provider-object keyed and syncs public rea
   assert.match(migration, /'upload_not_found'/);
   assert.match(migration, /COMMENT ON TABLE public\.draft_media_sessions[\s\S]+LEGACY COMPATIBILITY ONLY/);
   assert.match(supabaseTypes, /update_vibe_video_upload_status/);
+  assert.match(reviewFollowupsMigration, /CREATE OR REPLACE FUNCTION public\.update_vibe_video_upload_status/);
+  assert.match(reviewFollowupsMigration, /UPDATE public\.profile_vibe_videos pvv[\s\S]+FROM public\.media_assets ma[\s\S]+ma\.provider_object_id = v_provider_object_id/);
   assert.match(migration, /NOTIFY pgrst, 'reload schema'/);
 });
 

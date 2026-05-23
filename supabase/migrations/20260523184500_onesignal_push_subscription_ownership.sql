@@ -209,7 +209,11 @@ BEGIN
     WHERE user_id = v_user_id
       AND provider = 'onesignal'
       AND subscription_id = v_subscription_id
-      AND (v_platform = 'unknown' OR platform = v_platform OR (v_platform = 'native' AND platform IN ('ios', 'android', 'native')));
+      AND (
+        v_platform = 'unknown'
+        OR platform = v_platform
+        OR (v_platform IN ('ios', 'android', 'native') AND platform IN ('ios', 'android', 'native'))
+      );
   END IF;
 
   IF v_platform = 'web' THEN

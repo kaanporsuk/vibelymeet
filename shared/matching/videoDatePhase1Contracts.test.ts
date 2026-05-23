@@ -260,7 +260,9 @@ test("public API interface changes are exposed for deck state, queue hints, paym
   assert.match(webLobby, /scan_window_exhausted/);
   assert.match(webLobby, /formatQueueEtaLabel/);
   assert.match(nativeLobby, /fetchVideoDateQueueHint/);
+  assert.match(nativeLobby, /const deckQueryEnabled = Boolean\([\s\S]+resolvedEventLifecycle\?\.isLive/);
   assert.match(nativeLobby, /deckState\?\.reason !== 'event_not_active'/);
+  assert.match(nativeLobby, /deckState\.reason !== 'event_not_active'[\s\S]+setServerInactiveEventReason\(null\)/);
   assert.match(nativeLobby, /serverInactiveEventCopy/);
   assert.match(nativeLobby, /deckEmptyCopyFromServerReason/);
   assert.match(nativeLobby, /no_confirmed_candidates/);

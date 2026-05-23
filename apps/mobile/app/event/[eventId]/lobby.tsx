@@ -441,7 +441,20 @@ export default function EventLobbyScreen() {
     return () => clearInterval(interval);
   }, [eventDateValue, eventEndTimeMs, eventEndedAt, eventArchivedAt, eventStatusRaw, lobbyTimelineV2.enabled]);
 
-  const deckQueryEnabled = lobbySideEffectsEnabled;
+  const deckQueryEnabled = Boolean(
+    id &&
+      user?.id &&
+      event &&
+      !eventLoading &&
+      !regLoading &&
+      isConfirmedSeat &&
+      !pauseStatus.isPaused &&
+      !isEventCancelled &&
+      !isEventArchived &&
+      !isEventDraft &&
+      !isEventEndedByTruth &&
+      resolvedEventLifecycle?.isLive
+  );
   const {
     data: profiles = [],
     isLoading: deckLoading,
@@ -2060,6 +2073,17 @@ export default function EventLobbyScreen() {
     setServerInactiveEventReason(deckState.inactive_reason ?? 'event_not_active');
     void queryClient.invalidateQueries({ queryKey: ['event-details', id] });
   }, [deckState?.inactive_reason, deckState?.reason, id, queryClient]);
+
+  useEffect(() => {
+    if (!serverInactiveEventReason) return;
+    if (deckState?.reason && deckState.reason !== 'event_not_active') {
+      setServerInactiveEventReason(null);
+      return;
+    }
+    if (!deckError && profiles.length > 0) {
+      setServerInactiveEventReason(null);
+    }
+  }, [deckError, deckState?.reason, profiles.length, serverInactiveEventReason]);
 
   useEffect(() => {
     if (!id || eventLoading || regLoading || deckLoading || deckError) {

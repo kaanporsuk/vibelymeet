@@ -24,6 +24,8 @@ test("authenticated delete-account requires server-verified reauth proof", () =>
   assert.match(edgeFunction, /sendDeletionReauthEmail/);
   assert.match(edgeFunction, /sendDeletionReauthSms/);
   assert.match(edgeFunction, /resolveAvailableReauthTargets/);
+  assert.match(edgeFunction, /availableChannels/);
+  assert.match(edgeFunction, /reauth_channel_unavailable/);
   assert.match(edgeFunction, /consumeOtherReauthChallenges/);
   assert.doesNotMatch(edgeFunction, /auth\.admin\.signOut\(userId\)/);
   assert.match(edgeFunction, /\.update\(\{ verified_at: now, consumed_at: now \}\)[\s\S]*\.select\("id"\)[\s\S]*\.maybeSingle\(\)/);
@@ -45,10 +47,13 @@ test("reauth challenge storage is service-role only and short-lived", () => {
 test("web Settings delete requests OTP before scheduling deletion", () => {
   assert.match(webHook, /requestDeleteAccountVerification/);
   assert.match(webHook, /action: "request_reauth"/);
+  assert.match(webHook, /reauthChannel: channel/);
   assert.match(webHook, /action: "schedule_deletion"/);
   assert.match(webHook, /reauthCode: reauth\.code/);
   assert.match(webHook, /reauthChannel: reauth\.channel/);
+  assert.match(webModal, /alternateReauthChannel/);
   assert.match(webModal, /onRequestVerification/);
+  assert.match(webModal, /Use \{alternateReauthChannel === "phone" \? "phone" : "email"\} instead/);
   assert.match(webModal, /Verify it’s you/);
   assert.match(webModal, /one-time-code/);
   assert.match(webModal, /overflow-y-auto/);
@@ -59,9 +64,12 @@ test("web Settings delete requests OTP before scheduling deletion", () => {
 test("native Settings delete requests OTP before scheduling deletion", () => {
   assert.match(nativeDelete, /requestDeletionVerification/);
   assert.match(nativeDelete, /action: 'request_reauth'/);
+  assert.match(nativeDelete, /reauthChannel: channel/);
   assert.match(nativeDelete, /action: 'schedule_deletion'/);
   assert.match(nativeDelete, /reauthCode: code/);
   assert.match(nativeDelete, /reauthChannel: challenge\.channel/);
+  assert.match(nativeDelete, /alternateReauthChannel/);
+  assert.match(nativeDelete, /Use \{alternateReauthChannel === 'phone' \? 'phone' : 'email'\} instead/);
   assert.match(nativeDelete, /Verify it’s you/);
   assert.match(nativeDelete, /textContentType="oneTimeCode"/);
   assert.match(nativeDelete, /keep using Vibely during the grace window/);

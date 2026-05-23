@@ -27,6 +27,7 @@ const nativeDeepLink = read("apps/mobile/components/NotificationDeepLinkHandler.
 const nativeAppConfig = read("apps/mobile/app.config.js");
 const pushSubscriptionOwnershipMigration = read("supabase/migrations/20260523184500_onesignal_push_subscription_ownership.sql");
 const pushSubscriptionRpcGrantMigration = read("supabase/migrations/20260523193000_restrict_onesignal_push_subscription_rpc_grants.sql");
+const reviewFollowupsMigration = read("supabase/migrations/20260523201000_review_comment_followups_1019_1026.sql");
 const branchDelta = read("docs/branch-deltas/fix-onesignal-provider-operational-qa.md");
 
 test("web OneSignal initialization is env-backed and root-worker aware", () => {
@@ -163,6 +164,9 @@ test("OneSignal subscription ownership migration supports multi-device native de
   assert.match(pushSubscriptionOwnershipMigration, /notification_preferences_onesignal_subscription_dedupe/);
   assert.match(pushSubscriptionOwnershipMigration, /platform IN \('web', 'ios', 'android', 'native', 'unknown'\)/);
   assert.match(pushSubscriptionOwnershipMigration, /IF v_subscription_id IS NOT NULL THEN[\s\S]*DELETE FROM public\.push_subscriptions/);
+  assert.match(pushSubscriptionOwnershipMigration, /v_platform IN \('ios', 'android', 'native'\) AND platform IN \('ios', 'android', 'native'\)/);
+  assert.match(reviewFollowupsMigration, /CREATE OR REPLACE FUNCTION public\.unregister_onesignal_push_subscription/);
+  assert.match(reviewFollowupsMigration, /v_platform IN \('ios', 'android', 'native'\) AND platform IN \('ios', 'android', 'native'\)/);
   assert.match(pushSubscriptionOwnershipMigration, /GRANT EXECUTE ON FUNCTION public\.register_onesignal_push_subscription/);
   assert.match(pushSubscriptionOwnershipMigration, /NOTIFY pgrst, 'reload schema'/);
   assert.doesNotMatch(pushSubscriptionOwnershipMigration, /CREATE POLICY "Users can insert own push subscriptions"/);

@@ -78,6 +78,7 @@ const nativeUserProfileFullView = read("apps/mobile/components/profile/UserProfi
 const webVibePlayer = read("src/components/vibe-video/VibePlayer.tsx");
 const webFullscreenVibePlayer = read("src/components/vibe-video/VibeVideoFullscreenPlayer.tsx");
 const webMediaPlaceholder = read("src/components/media/MediaPlaceholder.tsx");
+const nativeFullscreenVibeModal = read("apps/mobile/components/video/FullscreenVibeVideoModal.tsx");
 const nativeVibeVideoPlayer = read("apps/mobile/components/video/VibeVideoPlayer.tsx");
 const webChatPhotoLightbox = read("src/components/chat/ChatPhotoLightbox.tsx");
 const nativeChatThreadMediaViewer = read("apps/mobile/components/chat/ChatThreadMediaViewer.tsx");
@@ -360,6 +361,11 @@ test("profile and fullscreen vibe video TTFF is prewarmed without hiding posters
   assert.match(nativeUserProfileFullView, /if \(!reduceMotion\) beginNativeProfileVibeVideoTtff\(\)/);
   assert.match(nativeUserProfileFullView, /onPlaybackRequest=\{beginNativeProfileVibeVideoTtff\}/);
   assert.match(nativeUserProfileFullView, /onFirstFrame=\{completeNativeProfileVibeVideoTtff\}/);
+  assert.match(nativeUserProfileFullView, /resetNativeProfileVibeVideoTtff/);
+  assert.match(nativeUserProfileFullView, /onPlaybackAbort=\{resetNativeProfileVibeVideoTtff\}/);
+  assert.match(nativeFullscreenVibeModal, /onPlaybackAbort\?: \(\) => void/);
+  assert.match(nativeFullscreenVibeModal, /onPlaybackAbort\?\.\(\);[\s\S]{0,80}onClose\(\)/);
+  assert.match(nativeFullscreenVibeModal, /onPlaybackRequest\?\.\(\);[\s\S]{0,80}setRetryKey/);
   assert.match(webVibePlayer, /onPlaybackRequest\?: \(\) => void/);
   assert.match(webOtherUserFullProfile, /if \(!prefersReducedMotion\) beginInlineProfileVibeVideoTtff\(\)/);
   assert.match(webOtherUserFullProfile, /onPlaybackRequest=\{beginInlineProfileVibeVideoTtff\}/);

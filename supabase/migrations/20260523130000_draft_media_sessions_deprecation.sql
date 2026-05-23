@@ -67,11 +67,12 @@ BEGIN
   END IF;
 
   IF v_old_status = p_new_status THEN
-    IF v_media_asset_id IS NOT NULL THEN
-      UPDATE public.profile_vibe_videos
-      SET video_status = p_new_status
-      WHERE asset_id = v_media_asset_id;
-    END IF;
+    UPDATE public.profile_vibe_videos pvv
+    SET video_status = p_new_status
+    FROM public.media_assets ma
+    WHERE pvv.asset_id = ma.id
+      AND ma.provider = 'bunny_stream'
+      AND ma.provider_object_id = v_provider_object_id;
 
     UPDATE public.profiles
     SET bunny_video_status = p_new_status
@@ -127,11 +128,12 @@ BEGIN
 
   v_media_asset_id := COALESCE(v_upload.media_asset_id, v_media_asset_id);
 
-  IF v_media_asset_id IS NOT NULL THEN
-    UPDATE public.profile_vibe_videos
-    SET video_status = p_new_status
-    WHERE asset_id = v_media_asset_id;
-  END IF;
+  UPDATE public.profile_vibe_videos pvv
+  SET video_status = p_new_status
+  FROM public.media_assets ma
+  WHERE pvv.asset_id = ma.id
+    AND ma.provider = 'bunny_stream'
+    AND ma.provider_object_id = v_provider_object_id;
 
   UPDATE public.profiles
   SET bunny_video_status = p_new_status
