@@ -199,6 +199,10 @@ export function ChatVideoLightbox({
       if (!didRefresh) setPhase("error");
     });
   }, [refreshMedia]);
+  const refreshPlaybackOnAuthError = useCallback(async () => {
+    const didRefresh = await refreshMedia("playback");
+    return didRefresh ? playableVideoUrlRef.current : null;
+  }, [refreshMedia]);
 
   useMediaAssetPlayback(videoRef, playableVideoUrl, {
     enabled: isRemoteUrl && isHlsUrl,
@@ -206,6 +210,7 @@ export function ChatVideoLightbox({
     onAutoplayBlocked: revealPlayer,
     onManifestParsed: revealPlayer,
     onError: handlePlaybackAttachError,
+    onAuthErrorRefresh: refreshPlaybackOnAuthError,
   });
 
   useEffect(() => {
@@ -318,6 +323,7 @@ export function ChatVideoLightbox({
                 onCanPlay={revealPlayer}
                 onPlaying={revealPlayer}
                 onError={() => {
+                  if (isHlsUrl) return;
                   void refreshMedia().then((didRefresh) => {
                     if (!didRefresh) setPhase("error");
                   });

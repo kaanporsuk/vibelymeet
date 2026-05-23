@@ -26,6 +26,8 @@ type Props = {
   onClose: () => void;
 };
 
+const MAX_HLS_AUTH_REFRESH_ATTEMPTS = 2;
+
 /**
  * Fullscreen HLS playback (Safari native + hls.js elsewhere) with honest error overlay
  * when the stream is "ready" in DB but manifest/media fails.
@@ -42,6 +44,7 @@ export function VibeVideoFullscreenPlayer({
 }: Props) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const playbackSucceededRef = useRef(false);
+  const hlsAuthRefreshAttemptCountRef = useRef(0);
   const [playbackFailed, setPlaybackFailed] = useState(false);
   const [manualPlaybackRequested, setManualPlaybackRequested] = useState(false);
   const [showCaptions, setShowCaptions] = useState(true);
@@ -57,7 +60,12 @@ export function VibeVideoFullscreenPlayer({
   });
   const isReady = vibeVideoInfo.state === "ready" && !!vibeVideoInfo.uid;
   const usesSignedProfileRef = isProfileVibeVideoRef(vibeVideoInfo.playbackUrl);
-  const { url: mediaAssetUrl, posterUrl: mediaAssetPosterUrl, status: mediaAssetStatus } = useMediaAsset({
+  const {
+    url: mediaAssetUrl,
+    posterUrl: mediaAssetPosterUrl,
+    status: mediaAssetStatus,
+    refresh: refreshMediaAsset,
+  } = useMediaAsset({
     kind: usesSignedProfileRef ? "profile_vibe_video" : "vibe_video",
     sourceRef: vibeVideoInfo.playbackUrl,
     initialUrl: usesSignedProfileRef ? null : vibeVideoInfo.playbackUrl,
@@ -116,8 +124,9 @@ export function VibeVideoFullscreenPlayer({
   useEffect(() => {
     setPlaybackFailed(false);
     playbackSucceededRef.current = false;
+    hlsAuthRefreshAttemptCountRef.current = 0;
     setManualPlaybackRequested(false);
-  }, [show, playbackUrl]);
+  }, [show, vibeVideoInfo.playbackUrl]);
 
   useEffect(() => {
     if (!show || !isReady || !vibeVideoInfo.uid) return;
@@ -171,6 +180,28 @@ export function VibeVideoFullscreenPlayer({
     autoPlay: shouldPlayOnAttach,
     onManifestParsed: reportSucceeded,
     onError: reportPlaybackError,
+    onAuthErrorRefresh: async () => {
+      if (!usesSignedProfileRef) return null;
+      if (hlsAuthRefreshAttemptCountRef.current >= MAX_HLS_AUTH_REFRESH_ATTEMPTS) return null;
+      hlsAuthRefreshAttemptCountRef.current += 1;
+      const attempt = hlsAuthRefreshAttemptCountRef.current;
+      try {
+        const freshUrl = await refreshMediaAsset("playback", { bypassFailureCooldown: true });
+        trackVibeVideoEvent(VIBE_VIDEO_EVENTS.tokenRefreshOnAuthError, {
+          source: "vibe_player_fullscreen",
+          attempt,
+          outcome: freshUrl ? "refreshed" : "unavailable",
+        });
+        return freshUrl;
+      } catch {
+        trackVibeVideoEvent(VIBE_VIDEO_EVENTS.tokenRefreshOnAuthError, {
+          source: "vibe_player_fullscreen",
+          attempt,
+          outcome: "failed",
+        });
+        return null;
+      }
+    },
   });
   useMediaPlaybackQoE(videoRef, {
     enabled: show && isReady && !!playbackUrl && shouldAttachPlayback,

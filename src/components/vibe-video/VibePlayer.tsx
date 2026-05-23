@@ -7,7 +7,7 @@ import { useMediaAsset, useMediaAssetPlayback } from "@/hooks/useMediaAsset";
 import { useMediaPlaybackQoE } from "@/hooks/useMediaPlaybackQoE";
 import { usePrefersReducedMotion } from "@/hooks/usePrefersReducedMotion";
 import { useMediaVideoPreloadForVisibility } from "@/hooks/useMediaVideoPreloadPolicy";
-import { isProfileVibeVideoRef } from "@/lib/mediaAssetResolver";
+import { isHlsMediaAssetUrl, isProfileVibeVideoRef } from "@/lib/mediaAssetResolver";
 import { trackVibeVideoEvent, VIBE_VIDEO_EVENTS } from "@/lib/vibeVideo/vibeVideoTelemetry";
 import {
   captionTextFromMediaCaptions,
@@ -17,6 +17,7 @@ import {
 } from "../../../shared/media/captions";
 
 // IntersectionObserver-based iOS hardware decoder management
+const MAX_HLS_AUTH_REFRESH_ATTEMPTS = 2;
 
 interface VibePlayerProps {
   videoUrl: string;
@@ -60,12 +61,14 @@ export const VibePlayer = ({
   const containerRef = useRef<HTMLDivElement>(null);
   const playbackAttemptedRef = useRef(false);
   const playbackSucceededRef = useRef(false);
+  const hlsAuthRefreshAttemptCountRef = useRef(0);
   const prefersReducedMotion = usePrefersReducedMotion();
   const usesSignedProfileRef = isProfileVibeVideoRef(videoUrl);
   const {
     url: mediaAssetUrl,
     posterUrl: mediaAssetPosterUrl,
     status: mediaAssetStatus,
+    refresh: refreshMediaAsset,
   } = useMediaAsset({
     kind: usesSignedProfileRef ? "profile_vibe_video" : "vibe_video",
     sourceRef: videoUrl,
@@ -73,6 +76,7 @@ export const VibePlayer = ({
     autoResolve: usesSignedProfileRef,
   });
   const playbackUrl = mediaAssetUrl ?? (usesSignedProfileRef ? null : videoUrl);
+  const isHlsPlaybackUrl = playbackUrl ? isHlsMediaAssetUrl(playbackUrl) : false;
   const posterUrl = mediaAssetPosterUrl ?? thumbnailUrl;
   const effectiveAutoPlay = autoPlay && !prefersReducedMotion;
   const shouldAttachPlayback = shouldLoad && !!playbackUrl && (!prefersReducedMotion || manualPlaybackRequested);
@@ -109,6 +113,7 @@ export const VibePlayer = ({
     manualPlayPendingRef.current = false;
     playbackAttemptedRef.current = false;
     playbackSucceededRef.current = false;
+    hlsAuthRefreshAttemptCountRef.current = 0;
   }, [videoUrl]);
 
   // iOS Safari has a hard limit on ~4 simultaneous buffering <video> elements.
@@ -193,6 +198,28 @@ export const VibePlayer = ({
       console.warn("[VibeVideo] inline hls playback error", detail);
     }
   }, [reportPlaybackError]);
+  const refreshPlaybackOnAuthError = useCallback(async () => {
+    if (!usesSignedProfileRef) return null;
+    if (hlsAuthRefreshAttemptCountRef.current >= MAX_HLS_AUTH_REFRESH_ATTEMPTS) return null;
+    hlsAuthRefreshAttemptCountRef.current += 1;
+    const attempt = hlsAuthRefreshAttemptCountRef.current;
+    try {
+      const freshUrl = await refreshMediaAsset("playback", { bypassFailureCooldown: true });
+      trackVibeVideoEvent(VIBE_VIDEO_EVENTS.tokenRefreshOnAuthError, {
+        source: "vibe_player_inline",
+        attempt,
+        outcome: freshUrl ? "refreshed" : "unavailable",
+      });
+      return freshUrl;
+    } catch {
+      trackVibeVideoEvent(VIBE_VIDEO_EVENTS.tokenRefreshOnAuthError, {
+        source: "vibe_player_inline",
+        attempt,
+        outcome: "failed",
+      });
+      return null;
+    }
+  }, [refreshMediaAsset, usesSignedProfileRef]);
 
   useEffect(() => {
     if (usesSignedProfileRef && mediaAssetStatus === "error") {
@@ -220,6 +247,7 @@ export const VibePlayer = ({
     enabled: shouldAttachPlayback,
     autoPlay: false,
     onError: handlePlaybackAttachError,
+    onAuthErrorRefresh: refreshPlaybackOnAuthError,
   });
 
   useEffect(() => {
@@ -284,7 +312,10 @@ export const VibePlayer = ({
     setIsLoading(false);
   };
 
-  const handleError = () => reportPlaybackError();
+  const handleError = () => {
+    if (isHlsPlaybackUrl) return;
+    reportPlaybackError();
+  };
 
   const handleCanPlay = () => {
     setIsLoading(false);

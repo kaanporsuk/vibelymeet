@@ -159,10 +159,26 @@ function optionalStringRecordValue(input: Record<string, unknown> | null | undef
   return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
+function optionalNullableStringRecordValue(
+  input: Record<string, unknown> | null | undefined,
+  key: string,
+): string | null | undefined {
+  if (!input || !(key in input)) return undefined;
+  const value = input[key];
+  if (value === null) return null;
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
 function matchIdFromScopeKey(scopeKey: string | null): string | null {
   if (!scopeKey?.startsWith("match:")) return null;
   const matchId = scopeKey.slice("match:".length).trim();
   return matchId || null;
+}
+
+function eventIdFromScopeKey(scopeKey: string | null): string | null {
+  if (!scopeKey?.startsWith("event:")) return null;
+  const eventId = scopeKey.slice("event:".length).trim();
+  return eventId || null;
 }
 
 function normalizedProfileUploadContext(value: string | null | undefined): string | null {
@@ -181,7 +197,10 @@ function profileContextFromScopeKey(scopeKey: string | null): string | null {
 
 function recordForSnapshot(input: NativeMediaUploadInput, snapshot: MediaUploadSnapshot): MediaUploadQueueRecord {
   const uploadContext = optionalStringRecordValue(input.context, "uploadContext");
-  const matchId = optionalStringRecordValue(input.context, "matchId") ?? matchIdFromScopeKey(scopeKeyForInput(input));
+  const scopeKey = scopeKeyForInput(input);
+  const matchId = optionalStringRecordValue(input.context, "matchId") ?? matchIdFromScopeKey(scopeKey);
+  const eventId = optionalStringRecordValue(input.context, "eventId") ?? eventIdFromScopeKey(scopeKey);
+  const expectedCurrentCoverAssetId = optionalNullableStringRecordValue(input.context, "expectedCurrentCoverAssetId");
   return {
     id: snapshot.id,
     clientRequestId: snapshot.clientRequestId,
@@ -189,7 +208,7 @@ function recordForSnapshot(input: NativeMediaUploadInput, snapshot: MediaUploadS
     state: snapshot.state,
     sourceRef: sourceRefForNativeSource(input.source),
     sourceSha256: sourceSha256ForInput(input),
-    scopeKey: scopeKeyForInput(input),
+    scopeKey,
     createdAtMs: snapshot.createdAtMs,
     updatedAtMs: snapshot.updatedAtMs,
     snapshot,
@@ -200,6 +219,8 @@ function recordForSnapshot(input: NativeMediaUploadInput, snapshot: MediaUploadS
       mime_type: input.source.mimeType ?? null,
       upload_context: uploadContext,
       match_id: matchId,
+      event_id: eventId,
+      expected_current_cover_asset_id: expectedCurrentCoverAssetId,
     },
   };
 }
@@ -457,6 +478,8 @@ function inputFromNativeQueueRecord(record: MediaUploadQueueRecord): NativeMedia
   const uploadContext = optionalStringRecordValue(record.metadata, "upload_context")
     ?? (record.family === "chat_photo" || record.family === "voice_note" ? "chat" : profileContextFromScopeKey(record.scopeKey));
   const matchId = optionalStringRecordValue(record.metadata, "match_id") ?? matchIdFromScopeKey(record.scopeKey);
+  const eventId = optionalStringRecordValue(record.metadata, "event_id") ?? eventIdFromScopeKey(record.scopeKey);
+  const expectedCurrentCoverAssetId = optionalNullableStringRecordValue(record.metadata, "expected_current_cover_asset_id");
   return {
     family: record.family,
     source: sourceFromNativeQueueRecord(record),
@@ -465,6 +488,8 @@ function inputFromNativeQueueRecord(record: MediaUploadQueueRecord): NativeMedia
       rehydrated: true,
       ...(uploadContext ? { uploadContext } : {}),
       ...(matchId ? { matchId } : {}),
+      ...(eventId ? { eventId } : {}),
+      ...(expectedCurrentCoverAssetId !== undefined ? { expectedCurrentCoverAssetId } : {}),
       ...(typeof record.metadata?.mime_type === "string" ? { mimeType: record.metadata.mime_type } : {}),
     },
     options: {

@@ -1,4 +1,8 @@
 import * as Sentry from '@sentry/react-native';
+import {
+  sanitizeMediaTelemetryProperties,
+  type MediaTelemetryProperties,
+} from '@clientShared/media/telemetry';
 import { trackEvent } from '@/lib/analytics';
 
 export const VIBE_VIDEO_EVENTS = {
@@ -19,6 +23,7 @@ export const VIBE_VIDEO_EVENTS = {
   playbackAttempted: 'vibe_video_playback_attempted',
   playbackSucceeded: 'vibe_video_playback_succeeded',
   playbackFailed: 'vibe_video_playback_failed',
+  tokenRefreshOnAuthError: 'media_token_refresh_on_hls_error',
   cdnHostnameFallbackUsed: 'vibe_video_cdn_hostname_fallback_used',
   cdnHostnamePersistenceMismatch: 'vibe_video_cdn_hostname_persistence_mismatch',
   deleteRequested: 'vibe_video_delete_requested',
@@ -32,28 +37,14 @@ export const VIBE_VIDEO_EVENTS = {
 
 export type VibeVideoEventName = (typeof VIBE_VIDEO_EVENTS)[keyof typeof VIBE_VIDEO_EVENTS];
 
-type SafeTelemetryValue = string | number | boolean | null | undefined;
-export type VibeVideoTelemetryProperties = Record<string, SafeTelemetryValue>;
+export type VibeVideoTelemetryProperties = MediaTelemetryProperties;
 
 const staleProcessingSeen = new Set<string>();
-
-const SENSITIVE_KEY_PATTERN =
-  /(auth|authorization|bearer|token|secret|signature|url|uri|path|(?:^|_)(?:file|filename)(?:$|_)|headers?)/i;
 
 function sanitizeProperties(
   properties: VibeVideoTelemetryProperties = {},
 ): Record<string, string | number | boolean | null> {
-  const out: Record<string, string | number | boolean | null> = { platform: 'native' };
-
-  for (const [key, value] of Object.entries(properties)) {
-    if (value === undefined) continue;
-    if (SENSITIVE_KEY_PATTERN.test(key)) continue;
-    if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean' || value === null) {
-      out[key] = value;
-    }
-  }
-
-  return out;
+  return sanitizeMediaTelemetryProperties(properties, { defaults: { platform: 'native' } });
 }
 
 export function trackVibeVideoEvent(

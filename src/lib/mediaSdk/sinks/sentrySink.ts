@@ -1,14 +1,15 @@
 import * as Sentry from "@sentry/react";
 import type { MediaTelemetryEvent, MediaTelemetryFields, MediaTelemetrySink } from "@clientShared/media-sdk";
+import { sanitizeMediaTelemetryProperties } from "@clientShared/media/telemetry";
 
 function fieldsForEvent(event: MediaTelemetryEvent): MediaTelemetryFields {
-  return {
+  return sanitizeMediaTelemetryProperties({
     family: event.family ?? null,
     platform: event.platform ?? "web",
     state: event.state ?? null,
     client_request_id: event.clientRequestId ?? null,
     ...(event.fields ?? {}),
-  };
+  }, { allowSensitiveKeys: ["path", "path_selected"] });
 }
 
 export const webMediaSentrySink: MediaTelemetrySink = {

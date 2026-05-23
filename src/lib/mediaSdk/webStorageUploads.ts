@@ -19,6 +19,10 @@ import {
   type UploadImageToBunnyResult,
 } from "@/services/imageUploadService";
 import { uploadVoiceToBunny, type UploadVoiceToBunnyResult } from "@/services/voiceUploadService";
+import {
+  uploadEventCoverToBunny,
+  type UploadEventCoverResult,
+} from "@/services/eventCoverUploadService";
 import { createWebMediaUploadReconciler } from "@/lib/mediaSdk/reconciliation";
 import { webMediaTelemetrySinks } from "@/lib/mediaSdk/sinks";
 
@@ -37,7 +41,16 @@ type WebVoiceSdkUploadParams = {
   clientRequestId?: string;
 };
 
+type WebEventCoverSdkUploadParams = {
+  file: File | Blob;
+  accessToken: string;
+  eventId?: string;
+  expectedCurrentCoverAssetId?: string | null;
+  clientRequestId?: string;
+};
+
 const photoResultsByClientRequestId = new Map<string, UploadImageToBunnyResult>();
+const eventCoverResultsByClientRequestId = new Map<string, UploadEventCoverResult>();
 const voiceResultsByClientRequestId = new Map<string, UploadVoiceToBunnyResult>();
 const storageErrorsByClientRequestId = new Map<string, unknown>();
 const storageCleanupTimersByResultKey = new Map<string, ReturnType<typeof setTimeout>>();
@@ -82,6 +95,13 @@ function optionalContextString(input: WebPhotoUploadInput | WebVoiceUploadInput,
   return typeof value === "string" && value.trim() ? value : undefined;
 }
 
+function optionalNullableContextString(input: WebPhotoUploadInput | WebVoiceUploadInput, key: string): string | null | undefined {
+  if (!input.context || !(key in input.context)) return undefined;
+  const value = input.context[key];
+  if (value === null) return null;
+  return typeof value === "string" && value.trim() ? value : undefined;
+}
+
 async function accessTokenForWebStorageInput(input: WebPhotoUploadInput | WebVoiceUploadInput): Promise<string> {
   const value = optionalContextString(input, "accessToken");
   if (value) return value;
@@ -116,6 +136,7 @@ function clearStorageTransientState(resultKey: string): void {
   if (timer) clearTimeout(timer);
   storageCleanupTimersByResultKey.delete(resultKey);
   photoResultsByClientRequestId.delete(resultKey);
+  eventCoverResultsByClientRequestId.delete(resultKey);
   voiceResultsByClientRequestId.delete(resultKey);
   storageErrorsByClientRequestId.delete(resultKey);
 }
@@ -136,6 +157,32 @@ async function uploadWebPhotoViaLegacyService(
   const clientRequestId = controls.snapshot().clientRequestId;
   const resultKey = storageResultKey(input.family, clientRequestId);
   try {
+    if (input.family === "event_cover") {
+      const expectedCurrentCoverAssetId = optionalNullableContextString(input, "expectedCurrentCoverAssetId");
+      const result = await uploadEventCoverToBunny(
+        fileFromWebPhotoSource(input.source),
+        await accessTokenForWebStorageInput(input),
+        optionalContextString(input, "eventId"),
+        {
+          clientRequestId,
+          ...(expectedCurrentCoverAssetId !== undefined ? { expectedCurrentCoverAssetId } : {}),
+        },
+      );
+      eventCoverResultsByClientRequestId.set(resultKey, result);
+      scheduleStorageTransientStateCleanup(resultKey);
+      controls.dispatch({
+        type: "ready",
+        result: {
+          providerPath: result.path ?? result.url,
+          mediaRef: result.url,
+          assetId: result.assetId ?? null,
+          contentSha256: result.contentSha256 ?? null,
+          status: "uploaded",
+        },
+      });
+      return;
+    }
+
     const result = await uploadImageToBunny(
       fileFromWebPhotoSource(input.source),
       await accessTokenForWebStorageInput(input),
@@ -203,6 +250,7 @@ function getWebStorageMediaSdk(): WebMediaSdk {
         photo: {
           uploadProfilePhoto: uploadWebPhotoViaLegacyService,
           uploadChatPhoto: uploadWebPhotoViaLegacyService,
+          uploadEventCover: uploadWebPhotoViaLegacyService,
         },
         voice: {
           uploadVoiceNote: uploadWebVoiceViaLegacyService,
@@ -281,6 +329,83 @@ export async function uploadImageWithMediaSdk(
     const providerPath = terminal.result?.providerPath;
     if (providerPath) return { path: providerPath, sessionId: null };
     throw new Error("Image upload completed without a storage path.");
+  } finally {
+    clearStorageTransientState(resultKey);
+  }
+}
+
+export async function uploadEventCoverWithMediaSdk(
+  params: WebEventCoverSdkUploadParams,
+): Promise<UploadEventCoverResult> {
+  const eventId = params.eventId?.trim() || undefined;
+  const clientRequestId = params.clientRequestId ?? createMediaClientRequestId();
+  const uploadUserId = await getCachedUploadUserId();
+  let evaluation: ClientFeatureFlagEvaluation;
+  try {
+    evaluation = await evaluateClientFeatureFlagForUpload("media_v2_photo", { userId: uploadUserId });
+  } catch {
+    evaluation = failClosedUploadEvaluation("media_v2_photo");
+  }
+  const canUseMediaSdk = evaluation.enabled && !!uploadUserId;
+  const path = canUseMediaSdk ? "media_sdk" : "legacy";
+  trackMediaUploadStarted({
+    flag: "media_v2_photo",
+    evaluation,
+    path,
+    family: "event_cover",
+    clientRequestId,
+  });
+
+  if (!canUseMediaSdk) {
+    return uploadEventCoverToBunny(fileFromWebPhotoSource(params.file), params.accessToken, eventId, {
+      clientRequestId,
+      expectedCurrentCoverAssetId: params.expectedCurrentCoverAssetId,
+    });
+  }
+
+  const task = getWebStorageMediaSdk().photo.upload({
+    family: "event_cover",
+    source: params.file,
+    context: {
+      uploadContext: "event_cover",
+      scopeKey: eventId ? `event:${eventId}` : `admin:${uploadUserId}:event-cover`,
+      accessToken: params.accessToken,
+      ...(eventId ? {
+        eventId,
+        expectedCurrentCoverAssetId: params.expectedCurrentCoverAssetId ?? null,
+      } : {}),
+    },
+    options: {
+      clientRequestId,
+    },
+  });
+  const resultKey = storageResultKey("event_cover", clientRequestId);
+  scheduleStorageTransientStateCleanup(resultKey);
+
+  try {
+    const terminal = await waitForMediaUploadTaskTerminal(task);
+    const originalError = storageErrorsByClientRequestId.get(resultKey);
+    if (originalError) throw originalError;
+
+    const uploaded = eventCoverResultsByClientRequestId.get(resultKey);
+    if (uploaded) return uploaded;
+
+    if (terminal.state === "failed") {
+      throw new Error(terminal.error?.message ?? "Event cover upload failed");
+    }
+    const mediaRef = terminal.result?.mediaRef ?? terminal.result?.providerPath;
+    if (mediaRef) {
+      return {
+        url: mediaRef,
+        path: terminal.result?.providerPath ?? null,
+        assetId: terminal.result?.assetId ?? null,
+        contentSha256: terminal.result?.contentSha256 ?? null,
+        referenceId: null,
+        receiptId: null,
+        sessionId: null,
+      };
+    }
+    throw new Error("Event cover upload completed without a media reference.");
   } finally {
     clearStorageTransientState(resultKey);
   }

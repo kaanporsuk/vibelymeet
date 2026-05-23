@@ -39,6 +39,7 @@ test("inline VibePlayer uses the unified media asset playback hook", () => {
 
   assert.match(player, /useMediaAssetPlayback/);
   assert.match(hook, /attachHlsPlayback/);
+  assert.match(hook, /onAuthErrorRefresh/);
   assert.doesNotMatch(player, /src=\{shouldLoad \? videoUrl : undefined\}/);
   assert.match(attach, /import\("hls\.js"\)/);
   assert.match(attach, /Hls\.isSupported\(\)/);
@@ -100,6 +101,7 @@ class FakeHls {
   static instances: FakeHls[] = [];
   static Events = {
     MANIFEST_PARSED: "manifestParsed",
+    LEVEL_SWITCHED: "levelSwitched",
     ERROR: "error",
   };
 
@@ -107,7 +109,12 @@ class FakeHls {
   media: unknown = null;
   config: Record<string, unknown> | undefined;
   destroyed = false;
-  handlers = new Map<string, (event: unknown, data?: { fatal?: boolean; type?: string }) => void>();
+  handlers = new Map<string, (event: unknown, data?: {
+    fatal?: boolean;
+    type?: string;
+    details?: string;
+    response?: { code?: number; status?: number };
+  }) => void>();
 
   static isSupported(): boolean {
     return FakeHls.supported;
@@ -126,11 +133,21 @@ class FakeHls {
     this.media = media;
   }
 
-  on(event: string, handler: (event: unknown, data?: { fatal?: boolean; type?: string }) => void): void {
+  on(event: string, handler: (event: unknown, data?: {
+    fatal?: boolean;
+    type?: string;
+    details?: string;
+    response?: { code?: number; status?: number };
+  }) => void): void {
     this.handlers.set(event, handler);
   }
 
-  emit(event: string, data?: { fatal?: boolean; type?: string }): void {
+  emit(event: string, data?: {
+    fatal?: boolean;
+    type?: string;
+    details?: string;
+    response?: { code?: number; status?: number };
+  }): void {
     this.handlers.get(event)?.(event, data);
   }
 
@@ -227,6 +244,22 @@ test("attachHlsPlayback reports unsupported and only the first playback error", 
   __setHlsLoaderForTest(null);
 });
 
+test("attachHlsPlayback reports hls.js loader failures instead of hanging", async () => {
+  const video = new FakeVideoElement();
+  const errors: string[] = [];
+  __setHlsLoaderForTest(async () => {
+    throw new Error("chunk_load_failed");
+  });
+
+  attachHlsPlayback(video as unknown as HTMLVideoElement, "https://cdn.example/video/playlist.m3u8", {
+    onError: (kind) => errors.push(kind),
+  });
+  await flushPromises();
+
+  assert.deepEqual(errors, ["unsupported"]);
+  __setHlsLoaderForTest(null);
+});
+
 test("attachHlsPlayback reports autoplay blocking separately from fatal media errors", async () => {
   resetFakeHls();
   const video = new FakeVideoElement();
@@ -248,6 +281,64 @@ test("attachHlsPlayback reports autoplay blocking separately from fatal media er
 
   FakeHls.instances[0].emit(FakeHls.Events.ERROR, { fatal: true, type: "networkError" });
   assert.deepEqual(errors, ["fatal"]);
+  __setHlsLoaderForTest(null);
+});
+
+test("attachHlsPlayback refreshes hls.js sources on auth network errors before reporting fatal", async () => {
+  resetFakeHls();
+  const video = new FakeVideoElement();
+  const errors: string[] = [];
+  const refreshDetails: unknown[] = [];
+
+  attachHlsPlayback(video as unknown as HTMLVideoElement, "https://cdn.example/video/expired.m3u8", {
+    onAuthErrorRefresh: (detail) => {
+      refreshDetails.push(detail);
+      return "https://cdn.example/video/fresh.m3u8";
+    },
+    onError: (kind) => errors.push(kind),
+  });
+  await flushPromises();
+
+  FakeHls.instances[0].emit(FakeHls.Events.ERROR, {
+    fatal: true,
+    type: "networkError",
+    details: "manifestLoadError",
+    response: { code: 403 },
+  });
+  await flushPromises();
+
+  assert.equal(FakeHls.instances[0].source, "https://cdn.example/video/fresh.m3u8");
+  assert.equal(refreshDetails.length, 1);
+  assert.match(JSON.stringify(refreshDetails[0]), /"statusCode":403/);
+  assert.deepEqual(errors, []);
+
+  FakeHls.instances[0].emit(FakeHls.Events.ERROR, {
+    fatal: true,
+    type: "networkError",
+    details: "manifestLoadError",
+    response: { code: 500 },
+  });
+  assert.deepEqual(errors, ["fatal"]);
+  __setHlsLoaderForTest(null);
+});
+
+test("attachHlsPlayback refreshes Safari native-HLS sources after element errors", async () => {
+  __setHlsLoaderForTest(null);
+  const video = new FakeVideoElement();
+  video.canPlayTypeValue = "probably";
+  const errors: string[] = [];
+
+  attachHlsPlayback(video as unknown as HTMLVideoElement, "https://cdn.example/video/expired.m3u8", {
+    onAuthErrorRefresh: () => "https://cdn.example/video/fresh.m3u8",
+    onError: (kind) => errors.push(kind),
+  });
+
+  video.dispatch("error");
+  await flushPromises();
+
+  assert.equal(video.src, "https://cdn.example/video/fresh.m3u8");
+  assert.equal(video.loadCount, 2);
+  assert.deepEqual(errors, []);
   __setHlsLoaderForTest(null);
 });
 
@@ -710,6 +801,7 @@ test("Vibe Video telemetry events are wired on web and native", () => {
     "vibe_video_playback_attempted",
     "vibe_video_playback_succeeded",
     "vibe_video_playback_failed",
+    "media_token_refresh_on_hls_error",
     "vibe_video_cdn_hostname_fallback_used",
     "vibe_video_delete_requested",
     "vibe_video_delete_succeeded_locally",
