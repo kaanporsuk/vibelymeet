@@ -147,6 +147,10 @@ export function VibeVideoPlayer({
 
   useEffect(() => {
     warnedRef.current = false;
+  }, [playbackSourceUri]);
+
+  useEffect(() => {
+    warnedRef.current = false;
     playbackAttemptedRef.current = false;
     playbackSucceededRef.current = false;
     signedResolveFailureReportedRef.current = false;

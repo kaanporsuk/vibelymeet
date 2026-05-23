@@ -139,7 +139,7 @@ serve(async (req) => {
     .from("media_assets")
     .select("id,provider,provider_path,provider_object_id,media_family,storage_zone")
     .in("provider", ["bunny_storage", "bunny_stream"])
-    .in("media_family", ["profile_photo", "chat_image", "event_cover", "chat_video", "vibe_video"])
+    .in("media_family", ["profile_photo", "chat_image", "event_cover", "chat_video", "chat_video_thumbnail", "vibe_video"])
     .in("status", ["active", "uploaded"])
     .or("placeholder_kind.is.null,placeholder_kind.neq.blurhash,placeholder_hash.is.null")
     .order("updated_at", { ascending: true, nullsFirst: true })

@@ -39,7 +39,7 @@ import { formatBirthdayUsWithZodiac } from '@/lib/profileApi';
 import { resolveVibeVideoState } from '@/lib/vibeVideoState';
 import { prewarmMediaAssets } from '@/lib/mediaAssetResolver';
 import { useMediaAsset } from '@/hooks/useMediaAsset';
-import { useReduceMotion } from '@/hooks/useReduceMotion';
+import { useReduceMotion, useReduceMotionState } from '@/hooks/useReduceMotion';
 import { PROMPT_EMOJIS } from '@/components/profile/PROMPT_CONSTANTS';
 import { getLookingForDisplay } from '@/components/profile/RelationshipIntentSelector';
 import FullscreenVibeVideoModal from '@/components/video/FullscreenVibeVideoModal';
@@ -352,7 +352,7 @@ export function UserProfileFullView({
   const { width: winWidth, height: winHeight } = useWindowDimensions();
   const colorScheme = useColorScheme();
   const theme = Colors[colorScheme];
-  const reduceMotion = useReduceMotion();
+  const { reduceMotion, resolved: reduceMotionResolved } = useReduceMotionState();
   const [showFullscreenVibe, setShowFullscreenVibe] = useState(false);
   const [hideVibingOnLabelAfterComplete, setHideVibingOnLabelAfterComplete] = useState(false);
   const [photoViewerIndex, setPhotoViewerIndex] = useState<number | null>(null);
@@ -418,7 +418,7 @@ export function UserProfileFullView({
   );
 
   useEffect(() => {
-    if (reduceMotion || effectiveVibeVideoState !== 'ready') return;
+    if (!reduceMotionResolved || reduceMotion || effectiveVibeVideoState !== 'ready') return;
     const sourceRef = signedVibeVideoRef ?? vibeInfo.playbackUrl ?? null;
     if (!sourceRef) return;
     void prewarmMediaAssets(
@@ -428,7 +428,7 @@ export function UserProfileFullView({
       }],
       { concurrency: 1 },
     ).catch(() => {});
-  }, [effectiveVibeVideoState, reduceMotion, signedVibeVideoRef, vibeInfo.playbackUrl]);
+  }, [effectiveVibeVideoState, reduceMotion, reduceMotionResolved, signedVibeVideoRef, vibeInfo.playbackUrl]);
 
   const vibeReadyAwaitingPlayback = effectiveVibeVideoState === 'ready' && !hasPlayableVibeVideo;
   const vibeProcessing = effectiveVibeVideoState === 'processing' || effectiveVibeVideoState === 'stale_processing';

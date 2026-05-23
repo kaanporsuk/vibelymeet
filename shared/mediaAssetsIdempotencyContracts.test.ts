@@ -228,6 +228,7 @@ test("media placeholders and derivative refs are durable without Bunny Image Opt
   assert.match(backfillMediaPlaceholders, /MEDIA_PLACEHOLDER_BACKFILL_TOKEN/);
   assert.match(backfillMediaPlaceholders, /placeholderForStorageAsset/);
   assert.match(backfillMediaPlaceholders, /placeholderForStreamAsset/);
+  assert.match(backfillMediaPlaceholders, /chat_video_thumbnail/);
   assert.match(backfillMediaPlaceholders, /placeholder_kind\.is\.null,placeholder_kind\.neq\.blurhash,placeholder_hash\.is\.null/);
   assert.match(supabaseConfig, /\[functions\.backfill-media-placeholders\][\s\S]{0,80}verify_jwt = false/);
 
@@ -315,8 +316,10 @@ test("profile and fullscreen vibe video TTFF is prewarmed without hiding posters
   assert.match(webOtherUserFullProfile, /if \(prefersReducedMotion\) return/);
   assert.match(webOtherUserFullProfile, /signedVibeVideoRef \|\| isHlsMediaAssetUrl\(sourceRef\)/);
   assert.match(webOtherUserFullProfile, /kind: signedVibeVideoRef \? "profile_vibe_video" : "video"/);
-  assert.match(nativeUserProfileFullView, /if \(reduceMotion \|\| effectiveVibeVideoState !== 'ready'\) return/);
+  assert.match(nativeUserProfileFullView, /useReduceMotionState/);
+  assert.match(nativeUserProfileFullView, /if \(!reduceMotionResolved \|\| reduceMotion \|\| effectiveVibeVideoState !== 'ready'\) return/);
   assert.match(nativeUserProfileFullView, /kind: signedVibeVideoRef \? 'profile_vibe_video' : 'video'/);
+  assert.match(nativeVibeVideoPlayer, /warnedRef\.current = false;[\s\S]{0,80}\}, \[playbackSourceUri\]\);/);
 
   assert.match(webAttachHlsPlayback, /export function preloadHlsPlaybackLibrary/);
   assert.match(webAttachHlsPlayback, /canPrewarmMedia\(HLS_LIBRARY_PRELOAD_ESTIMATE_BYTES\)/);
