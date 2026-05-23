@@ -35,6 +35,7 @@ const chatClipErrorsByClientRequestId = new Map<string, unknown>();
 const chatClipProgressByClientRequestId = new Map<string, ((fraction: number) => void) | undefined>();
 const chatClipCleanupTimersByClientRequestId = new Map<string, ReturnType<typeof setTimeout>>();
 const CHAT_CLIP_TRANSIENT_STATE_TTL_MS = 60 * 60 * 1000;
+const VIBE_VIDEO_CONTROLLER_HANDOFF_TIMEOUT_MS = 15_000;
 
 let mediaSdk: WebMediaSdk | null = null;
 
@@ -97,10 +98,13 @@ function waitForVibeVideoControllerHandoff(task: MediaUploadTask, clientRequestI
     let settled = false;
     let unsubscribeController: (() => void) | null = null;
     let unsubscribeTask: (() => void) | null = null;
+    let timeoutId: ReturnType<typeof setTimeout> | null = null;
 
     const cleanup = () => {
+      if (timeoutId) clearTimeout(timeoutId);
       unsubscribeController?.();
       unsubscribeTask?.();
+      timeoutId = null;
       unsubscribeController = null;
       unsubscribeTask = null;
     };
@@ -126,6 +130,10 @@ function waitForVibeVideoControllerHandoff(task: MediaUploadTask, clientRequestI
 
     unsubscribeController = heroVideoSubscribe(check);
     unsubscribeTask = task.on("state", check);
+    timeoutId = setTimeout(() => {
+      void task.cancel("vibe_video_controller_handoff_timeout").catch(() => {});
+      settle("reject", new Error("Upload is taking longer than expected. Please try again."));
+    }, VIBE_VIDEO_CONTROLLER_HANDOFF_TIMEOUT_MS);
     check();
   });
 }

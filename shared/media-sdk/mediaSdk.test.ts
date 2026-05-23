@@ -2188,6 +2188,18 @@ test("production media SDK factories wire telemetry sinks and reconciliation", (
   assert.match(webStorage, /scopeKey:\s*eventId \? `event:\$\{eventId\}` : `admin:\$\{uploadUserId\}:event-cover`/);
 });
 
+test("vibe video controller handoff waits are bounded on web and native", () => {
+  const webVideoUploads = readRepoFile("src/lib/mediaSdk/webVideoUploads.ts");
+  const nativeVideoUploads = readRepoFile("apps/mobile/lib/mediaSdk/nativeVideoUploads.ts");
+
+  for (const source of [webVideoUploads, nativeVideoUploads]) {
+    assert.match(source, /VIBE_VIDEO_CONTROLLER_HANDOFF_TIMEOUT_MS = 15_000/);
+    assert.match(source, /vibe_video_controller_handoff_timeout/);
+    assert.match(source, /task\.cancel\([\s\S]{0,80}\)\.catch\(\(\) => \{\}\)/);
+    assert.match(source, /Upload is taking longer than expected\. Please try again\./);
+  }
+});
+
 test("production reconcilers cover storage receipt families and foreground resumes are throttled", () => {
   const webReconciler = readRepoFile("src/lib/mediaSdk/reconciliation.ts");
   const nativeReconciler = readRepoFile("apps/mobile/lib/mediaSdk/reconciliation.ts");
