@@ -38,6 +38,10 @@ import {
   buildRecoveryAttentionTargets,
   type UploadAttentionTarget,
 } from "../../shared/chat/uploadAttentionTargets";
+import {
+  shouldPruneOutboxItemAfterServerReconcile,
+  type OutboxServerMessageReconcileInput,
+} from "../../shared/chat/outboxReconciliation";
 
 const HYDRATION_CHECK_INTERVAL_MS = 10_000;
 const HYDRATION_TIMEOUT_MS = 90_000;
@@ -223,7 +227,7 @@ type WebChatOutboxContextValue = {
   itemsForMatch: (matchId: string) => WebChatOutboxItem[];
   runVibeClipRecoverySweep: (trigger: VibeClipRecoverySweepTrigger, matchId?: string | null) => Promise<void>;
   staleVibeClipUploadsForMatch: (matchId: string) => VibeClipServerUpload[];
-  reconcileWithServerIds: (serverMessageIds: Set<string>) => void;
+  reconcileWithServerMessages: (input: OutboxServerMessageReconcileInput) => void;
   processTick: () => Promise<void>;
 };
 
@@ -441,13 +445,12 @@ export function WebChatOutboxProvider({ children }: { children: ReactNode }) {
     }
   }, [updateItems]);
 
-  const reconcileWithServerIds = useCallback((serverMessageIds: Set<string>) => {
+  const reconcileWithServerMessages = useCallback((input: OutboxServerMessageReconcileInput) => {
     const toCleanup: string[] = [];
     updateItems((prev) => {
       let changed = false;
       const next = prev.filter((it) => {
-        if (!it.serverMessageId) return true;
-        if (!serverMessageIds.has(it.serverMessageId)) return true;
+        if (!shouldPruneOutboxItemAfterServerReconcile(it, input)) return true;
         const key = itemPayloadBlobKey(it);
         if (key) toCleanup.push(key);
         changed = true;
@@ -948,7 +951,7 @@ export function WebChatOutboxProvider({ children }: { children: ReactNode }) {
       itemsForMatch,
       runVibeClipRecoverySweep,
       staleVibeClipUploadsForMatch,
-      reconcileWithServerIds,
+      reconcileWithServerMessages,
       processTick,
     }),
     [
@@ -966,7 +969,7 @@ export function WebChatOutboxProvider({ children }: { children: ReactNode }) {
       itemsForMatch,
       runVibeClipRecoverySweep,
       staleVibeClipUploadsForMatch,
-      reconcileWithServerIds,
+      reconcileWithServerMessages,
       processTick,
     ],
   );

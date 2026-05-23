@@ -114,20 +114,14 @@ export function buildRecoveryAttentionTargets(
   });
 }
 
-export function recoveryAttentionKey(targets: UploadAttentionTarget[]): string {
-  if (targets.length === 0) return "";
-  return targets
-    .map((target) =>
-      [
-        target.attentionId,
-        target.matchId,
-        target.otherUserId ?? "",
-        target.status,
-        String(target.updatedAtMs),
-      ].join(":"),
-    )
-    .sort()
-    .join("|");
+export function uploadAttentionTargetIdentity(target: UploadAttentionTarget): string {
+  return [
+    target.kind,
+    target.attentionId,
+    target.matchId,
+    target.otherUserId ?? "",
+    target.clientRequestId,
+  ].join(":");
 }
 
 export function selectPrimaryRecoveryAttentionTarget(

@@ -55,8 +55,8 @@ import {
   profileLiveCountsQueryKey,
 } from "@/services/profileService";
 import {
-  recoveryAttentionKey,
   selectPrimaryRecoveryAttentionTarget,
+  uploadAttentionTargetIdentity,
 } from "../shared/chat/uploadAttentionTargets";
 
 const Index = lazyWithPreload(routeLoaders.index);
@@ -253,26 +253,44 @@ function currentChatOtherUserId(pathname: string): string | null {
 }
 
 const WebUploadRecoveryNotifier = () => {
-  const { items, recoveryAttentionTargets, recoveryAttentionCount } = useWebChatOutbox();
+  const { items, recoveryAttentionTargets } = useWebChatOutbox();
   const navigate = useNavigate();
   const location = useLocation();
   const hiddenWithActiveUploadRef = useRef(false);
-  const [hiddenAttentionKey, setHiddenAttentionKey] = useState("");
-  const attentionKey = useMemo(
-    () => recoveryAttentionKey(recoveryAttentionTargets),
-    [recoveryAttentionTargets],
-  );
+  const [hiddenAttentionTarget, setHiddenAttentionTarget] = useState<{
+    identity: string;
+    otherUserId: string | null;
+  } | null>(null);
   const currentOtherUserId = useMemo(
     () => currentChatOtherUserId(location.pathname),
     [location.pathname],
   );
+  const shouldSuppressHiddenTarget = Boolean(
+    hiddenAttentionTarget &&
+      (hiddenAttentionTarget.otherUserId
+        ? hiddenAttentionTarget.otherUserId === currentOtherUserId
+        : currentOtherUserId === null),
+  );
+  const suppressedAttentionIdentity = shouldSuppressHiddenTarget
+    ? hiddenAttentionTarget?.identity ?? ""
+    : "";
+  const visibleRecoveryAttentionTargets = useMemo(
+    () =>
+      recoveryAttentionTargets.filter(
+        (target) => uploadAttentionTargetIdentity(target) !== suppressedAttentionIdentity,
+      ),
+    [recoveryAttentionTargets, suppressedAttentionIdentity],
+  );
   const primaryTarget = useMemo(
-    () => selectPrimaryRecoveryAttentionTarget(recoveryAttentionTargets, currentOtherUserId),
-    [currentOtherUserId, recoveryAttentionTargets],
+    () => selectPrimaryRecoveryAttentionTarget(visibleRecoveryAttentionTargets, currentOtherUserId),
+    [currentOtherUserId, visibleRecoveryAttentionTargets],
   );
   const handleReview = useCallback(() => {
     if (!primaryTarget) return;
-    if (attentionKey) setHiddenAttentionKey(attentionKey);
+    setHiddenAttentionTarget({
+      identity: uploadAttentionTargetIdentity(primaryTarget),
+      otherUserId: primaryTarget.otherUserId,
+    });
     if (!primaryTarget.otherUserId) {
       navigate("/matches");
       return;
@@ -282,7 +300,7 @@ const WebUploadRecoveryNotifier = () => {
       uploadAttentionNonce: String(Date.now()),
     });
     navigate(`/chat/${encodeURIComponent(primaryTarget.otherUserId)}?${params.toString()}`);
-  }, [attentionKey, navigate, primaryTarget]);
+  }, [navigate, primaryTarget]);
   const activeUploadCount = items.filter(
     (item) =>
       item.payload.kind !== "text" &&
@@ -293,9 +311,12 @@ const WebUploadRecoveryNotifier = () => {
   ).length;
 
   useEffect(() => {
-    if (!hiddenAttentionKey || hiddenAttentionKey === attentionKey) return;
-    setHiddenAttentionKey("");
-  }, [attentionKey, hiddenAttentionKey]);
+    if (!hiddenAttentionTarget) return;
+    const hiddenTargetStillExists = recoveryAttentionTargets.some(
+      (target) => uploadAttentionTargetIdentity(target) === hiddenAttentionTarget.identity,
+    );
+    if (!hiddenTargetStillExists) setHiddenAttentionTarget(null);
+  }, [hiddenAttentionTarget, recoveryAttentionTargets]);
 
   useEffect(() => {
     const onVisibility = () => {
@@ -314,11 +335,13 @@ const WebUploadRecoveryNotifier = () => {
     return () => document.removeEventListener("visibilitychange", onVisibility);
   }, [activeUploadCount]);
 
-  if (recoveryAttentionCount <= 0 || !primaryTarget || hiddenAttentionKey === attentionKey) return null;
+  const visibleRecoveryAttentionCount = visibleRecoveryAttentionTargets.length;
 
-  const attentionLabel = recoveryAttentionCount === 1
+  if (visibleRecoveryAttentionCount <= 0 || !primaryTarget) return null;
+
+  const attentionLabel = visibleRecoveryAttentionCount === 1
     ? primaryTarget.label
-    : `${recoveryAttentionCount} uploads need attention`;
+    : `${visibleRecoveryAttentionCount} uploads need attention`;
 
   return (
     <div

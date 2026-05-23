@@ -64,7 +64,7 @@ test("web chat avoids jumpy rich-content reflow and older-message prepend snaps"
     /olderPageScrollSnapshotRef\.current = null;[\s\S]*userScrollIntentUntilRef\.current = Date\.now\(\) \+ 900;[\s\S]*el\.scrollTop = el\.scrollHeight - snapshot\.scrollHeight \+ snapshot\.scrollTop;/,
   );
   assert.match(webChat, /setNewBelowCue\(true\)/);
-  assert.match(webChat, /<span[\s\S]{0,80}className="block aspect-\[4\/5\] w-60 max-w-full overflow-hidden/);
+  assert.match(webChat, /className="relative block aspect-\[4\/5\] w-60 max-w-full overflow-hidden/);
 });
 
 test("web chat gates mobile keyboard viewport styling to focused mobile composer", () => {
@@ -296,7 +296,8 @@ test("photo outbox handoff waits for renderable server images", () => {
   assert.match(webChat, /extractRenderableChatImageUrl/);
   assert.match(webChat, /outboxPreviewSourceKeysRef/);
   assert.match(webChat, /threadLayoutAnchorKey/);
-  assert.match(webChat, /reconcileWebOutboxWithServerIds/);
+  assert.match(webChat, /reconcileWebOutboxWithServerMessages/);
+  assert.match(webChat, /completedClientRequestIds\.add\(clientRequestId\)/);
   assert.match(webChat, /photoUrlOverridesById\[message\.id\] \?\?[\s\S]{0,120}extractRenderableChatImageUrl/);
   assert.doesNotMatch(webChat, /photoUrlOverridesById\[message\.id\] \?\?[\s\S]{0,160}allowPrivateMediaRefs: true/);
 
