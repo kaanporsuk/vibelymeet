@@ -62,6 +62,14 @@ const webMediaAssetResolver = read("src/lib/mediaAssetResolver.ts");
 const nativeMediaAssetResolver = read("apps/mobile/lib/mediaAssetResolver.ts");
 const webMediaAssetHook = read("src/hooks/useMediaAsset.ts");
 const nativeMediaAssetHook = read("apps/mobile/hooks/useMediaAsset.ts");
+const webAttachHlsPlayback = read("src/lib/vibeVideo/attachHlsPlayback.ts");
+const webLobbyProfileCard = read("src/components/lobby/LobbyProfileCard.tsx");
+const nativeEventLobby = read("apps/mobile/app/event/[eventId]/lobby.tsx");
+const webOtherUserFullProfile = read("src/components/profile/OtherUserFullProfileView.tsx");
+const nativeUserProfileFullView = read("apps/mobile/components/profile/UserProfileFullView.tsx");
+const webVibePlayer = read("src/components/vibe-video/VibePlayer.tsx");
+const webFullscreenVibePlayer = read("src/components/vibe-video/VibeVideoFullscreenPlayer.tsx");
+const nativeVibeVideoPlayer = read("apps/mobile/components/video/VibeVideoPlayer.tsx");
 const webChatPhotoLightbox = read("src/components/chat/ChatPhotoLightbox.tsx");
 const nativeChatThreadMediaViewer = read("apps/mobile/components/chat/ChatThreadMediaViewer.tsx");
 const nativeStorageSdkUploads = read("apps/mobile/lib/mediaSdk/nativeStorageUploads.ts");
@@ -270,6 +278,47 @@ test("image derivative selection only uses server-confirmed derivative paths", (
   assert.match(nativeImageUrl, /rememberImageDerivatives/);
   assert.doesNotMatch(webImageUrl, /@orig\\\.|@thumb\.\$1|@hero\.\$1/);
   assert.doesNotMatch(nativeImageUrl, /@orig\\\.|@thumb\.\$1|@hero\.\$1/);
+});
+
+test("profile and fullscreen vibe video TTFF is prewarmed without hiding posters early", () => {
+  assert.match(webLobbyProfileCard, /onPointerEnter=\{prewarmFullProfile\}/);
+  assert.match(webLobbyProfileCard, /queryKey: \["user-profile", profile\.id\]/);
+  assert.match(webLobbyProfileCard, /kind: "profile_vibe_video"/);
+  assert.match(nativeEventLobby, /onPressIn=\{prewarmFullProfile\}/);
+  assert.match(nativeEventLobby, /queryKey: \['user-profile', profile\.id\]/);
+  assert.match(nativeEventLobby, /kind: 'profile_vibe_video'/);
+
+  assert.match(webOtherUserFullProfile, /preloadHlsPlaybackLibrary\(\)/);
+  assert.match(webOtherUserFullProfile, /if \(prefersReducedMotion\) return/);
+  assert.match(webOtherUserFullProfile, /signedVibeVideoRef \|\| isHlsMediaAssetUrl\(sourceRef\)/);
+  assert.match(webOtherUserFullProfile, /kind: signedVibeVideoRef \? "profile_vibe_video" : "video"/);
+  assert.match(nativeUserProfileFullView, /if \(reduceMotion \|\| effectiveVibeVideoState !== 'ready'\) return/);
+  assert.match(nativeUserProfileFullView, /kind: signedVibeVideoRef \? 'profile_vibe_video' : 'video'/);
+
+  assert.match(webAttachHlsPlayback, /export function preloadHlsPlaybackLibrary/);
+  assert.match(webAttachHlsPlayback, /canPrewarmMedia\(HLS_LIBRARY_PRELOAD_ESTIMATE_BYTES\)/);
+  assert.match(webAttachHlsPlayback, /function loadHlsModule\(\)/);
+  assert.match(webMediaAssetResolver, /HLS_SEGMENT_PREWARM_RANGE = "bytes=0-262143"/);
+  assert.match(webMediaAssetResolver, /reserveMediaPrewarmBudgetForSource/);
+  assert.match(webMediaAssetResolver, /shouldSkipHlsPlaybackPrewarm/);
+  assert.match(webMediaAssetResolver, /prewarmHlsPlaylistAndFirstSegment/);
+  assert.match(webMediaAssetResolver, /suppressFailureCache: true/);
+  assert.match(nativeMediaAssetResolver, /HLS_SEGMENT_PREWARM_RANGE = 'bytes=0-262143'/);
+  assert.match(nativeMediaAssetResolver, /reserveMediaPrewarmBudgetForSource/);
+  assert.match(nativeMediaAssetResolver, /AccessibilityInfo/);
+  assert.match(nativeMediaAssetResolver, /shouldSkipHlsPlaybackPrewarm/);
+  assert.match(nativeMediaAssetResolver, /prewarmHlsPlaylistAndFirstSegment/);
+  assert.match(nativeMediaAssetResolver, /suppressFailureCache: true/);
+
+  assert.match(webVibePlayer, /fetchPriority="high"/);
+  assert.match(webVibePlayer, /setIsLoaded\(false\);[\s\S]{0,80}setIsLoading\(true\);[\s\S]{0,80}\[playbackUrl, shouldLoad\]/);
+  assert.match(webVibePlayer, /posterUrl && !isLoaded && !hasError \? "opacity-0"/);
+  assert.match(webFullscreenVibePlayer, /MediaPlaceholder/);
+  assert.match(webFullscreenVibePlayer, /setHasFirstFrame\(false\);[\s\S]{0,40}\}, \[playbackUrl\]\)/);
+  assert.match(webFullscreenVibePlayer, /poster && !hasFirstFrame/);
+  assert.match(nativeVibeVideoPlayer, /from 'expo-image'/);
+  assert.match(nativeVibeVideoPlayer, /priority="high"/);
+  assert.match(nativeVibeVideoPlayer, /videoWaitingForFirstFrame/);
 });
 
 test("upload-voice is receipt-backed, hash-bound, and wired to durable outbox ids", () => {

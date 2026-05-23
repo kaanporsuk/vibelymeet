@@ -32,6 +32,9 @@ import { ProfilePrompt } from "@/components/ProfilePrompt";
 import { VibeTag } from "@/components/VibeTag";
 import { VibePlayer } from "@/components/vibe-video/VibePlayer";
 import { useMediaAsset } from "@/hooks/useMediaAsset";
+import { usePrefersReducedMotion } from "@/hooks/usePrefersReducedMotion";
+import { isHlsMediaAssetUrl, prewarmMediaAssets } from "@/lib/mediaAssetResolver";
+import { preloadHlsPlaybackLibrary } from "@/lib/vibeVideo/attachHlsPlayback";
 import { resolveWebVibeVideoState } from "@/lib/vibeVideo/webVibeVideoState";
 import { cn } from "@/lib/utils";
 import { AdaptiveProfileMedia } from "./AdaptiveProfileMedia";
@@ -128,6 +131,7 @@ export function OtherUserFullProfileView({
   const [currentPhotoIndex, setCurrentPhotoIndex] = useState(0);
   const [photoPreviewIndex, setPhotoPreviewIndex] = useState<number | null>(null);
   const [showVideoPlayer, setShowVideoPlayer] = useState(false);
+  const prefersReducedMotion = usePrefersReducedMotion();
 
   useEffect(() => {
     setCurrentPhotoIndex(0);
@@ -178,6 +182,22 @@ export function OtherUserFullProfileView({
       ? signedVibeVideoReady || (allowUnsignedFallback && !!vibeVideoPlaybackUrl)
       : !!vibeVideoPlaybackUrl
   );
+
+  useEffect(() => {
+    if (prefersReducedMotion) return;
+    if (effectiveVibeVideoState !== "ready") return;
+    const sourceRef = signedVibeVideoRef ?? vibeVideo.playbackUrl ?? null;
+    if (!sourceRef) return;
+    if (signedVibeVideoRef || isHlsMediaAssetUrl(sourceRef)) preloadHlsPlaybackLibrary();
+    void prewarmMediaAssets(
+      [{
+        kind: signedVibeVideoRef ? "profile_vibe_video" : "video",
+        sourceRef,
+      }],
+      { concurrency: 1 },
+    ).catch(() => {});
+  }, [effectiveVibeVideoState, prefersReducedMotion, signedVibeVideoRef, vibeVideo.playbackUrl]);
+
   const verificationBadges = [
     profile.verification.email ? { label: "Email verified", icon: Mail } : null,
     profile.verification.phone ? { label: "Phone verified", icon: Phone } : null,

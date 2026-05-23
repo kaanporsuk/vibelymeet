@@ -1,5 +1,5 @@
 import type HlsInstance from "hls.js";
-import { isMediaPlaybackQoeDegraded } from "@/lib/mediaPlaybackSessionPolicy";
+import { canPrewarmMedia, isMediaPlaybackQoeDegraded } from "@/lib/mediaPlaybackSessionPolicy";
 
 export type HlsPlaybackErrorKind = "native" | "unsupported" | "fatal";
 
@@ -34,9 +34,30 @@ type HlsErrorData = {
 };
 
 let hlsLoader: HlsLoader = () => import("hls.js");
+let hlsPreloadPromise: Promise<HlsModule> | null = null;
+const HLS_LIBRARY_PRELOAD_ESTIMATE_BYTES = 320 * 1024;
 
 export function __setHlsLoaderForTest(loader: HlsLoader | null): void {
   hlsLoader = loader ?? (() => import("hls.js"));
+  hlsPreloadPromise = null;
+}
+
+function loadHlsModule(): Promise<HlsModule> {
+  if (!hlsPreloadPromise) {
+    hlsPreloadPromise = hlsLoader().catch((error: unknown) => {
+      hlsPreloadPromise = null;
+      throw error;
+    });
+  }
+  return hlsPreloadPromise;
+}
+
+export function preloadHlsPlaybackLibrary(): void {
+  if (typeof document === "undefined") return;
+  if (!canPrewarmMedia(HLS_LIBRARY_PRELOAD_ESTIMATE_BYTES)) return;
+  const videoEl = document.createElement("video");
+  if (videoEl.canPlayType("application/vnd.apple.mpegurl")) return;
+  void loadHlsModule().catch(() => {});
 }
 
 function constrainHlsAbrForDegradedQoe(hls: HlsInstance): void {
@@ -166,7 +187,7 @@ export function attachHlsPlayback(
     videoEl.load();
     playIfNeeded();
   } else {
-    void hlsLoader()
+    void loadHlsModule()
       .then(({ default: Hls }) => {
         if (cancelled) return;
         if (!Hls.isSupported()) {

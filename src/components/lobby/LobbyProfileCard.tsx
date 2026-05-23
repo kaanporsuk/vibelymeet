@@ -1,4 +1,6 @@
+import { useCallback } from "react";
 import { useNavigate } from "react-router-dom";
+import { useQueryClient } from "@tanstack/react-query";
 import {
   Sparkles,
   Briefcase,
@@ -13,6 +15,8 @@ import { ProfilePhoto } from "@/components/ui/ProfilePhoto";
 import { PremiumBadge } from "@/components/premium/PremiumBadge";
 import { cn } from "@/lib/utils";
 import { getRelationshipIntentDisplaySafe } from "@shared/profileContracts";
+import { fetchUserProfile } from "@/services/fetchUserProfile";
+import { prewarmMediaAssets } from "@/lib/mediaAssetResolver";
 
 interface LobbyProfileCardProps {
   profile: DeckProfile;
@@ -28,6 +32,7 @@ function formatHeightCm(cm: number | null | undefined): string | null {
 const LobbyProfileCard = ({ profile, userVibes, isBehind = false }: LobbyProfileCardProps) => {
   void userVibes; // Partner vibe tags come from `get_event_deck.shared_vibe_count` only (avoid per-card profile_vibes fetches).
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const profileBadge = profile.premium_badge;
   const photoVerified = profile.photo_verified === true;
 
@@ -40,6 +45,24 @@ const LobbyProfileCard = ({ profile, userVibes, isBehind = false }: LobbyProfile
 
   const intentRaw = profile.looking_for?.trim();
   const intentDisplay = intentRaw ? getRelationshipIntentDisplaySafe(intentRaw) : null;
+  const prewarmFullProfile = useCallback(() => {
+    void queryClient.fetchQuery({
+      queryKey: ["user-profile", profile.id],
+      queryFn: () => fetchUserProfile(profile.id),
+      staleTime: 60_000,
+    }).then((fullProfile) => {
+      const playbackRef = fullProfile?.vibe_video_playback_ref?.trim();
+      if (!playbackRef) return;
+      void prewarmMediaAssets(
+        [{ kind: "profile_vibe_video", sourceRef: playbackRef }],
+        { concurrency: 1 },
+      ).catch(() => {});
+    }).catch(() => {});
+  }, [profile.id, queryClient]);
+  const openFullProfile = useCallback(() => {
+    prewarmFullProfile();
+    navigate(`/user/${profile.id}`);
+  }, [navigate, prewarmFullProfile, profile.id]);
 
   return (
     <div
@@ -99,7 +122,10 @@ const LobbyProfileCard = ({ profile, userVibes, isBehind = false }: LobbyProfile
       {!isBehind && (
         <button
           type="button"
-          onClick={() => navigate(`/user/${profile.id}`)}
+          onPointerEnter={prewarmFullProfile}
+          onPointerDown={prewarmFullProfile}
+          onFocus={prewarmFullProfile}
+          onClick={openFullProfile}
           className="absolute bottom-[min(42%,200px)] right-3 sm:right-4 z-30 w-11 h-11 rounded-full bg-black/50 hover:bg-black/65 border border-white/20 backdrop-blur-md flex items-center justify-center transition-colors shadow-lg"
           aria-label="Open full profile"
         >

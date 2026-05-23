@@ -3,7 +3,8 @@
  * Use for record preview, fullscreen HLS, and any other vibe-video playback surface.
  */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Image, Pressable, StyleSheet, Text, View, type StyleProp, type ViewStyle } from 'react-native';
+import { Pressable, StyleSheet, Text, View, type StyleProp, type ViewStyle } from 'react-native';
+import { Image as ExpoImage } from 'expo-image';
 import { VideoView, useVideoPlayer, type VideoSource } from 'expo-video';
 import { resolveVibeVideoStreamHostnameSync } from '@/lib/vibeVideoPlaybackUrl';
 import { vibeVideoDiagVerbose } from '@/lib/vibeVideoDiagnostics';
@@ -16,7 +17,7 @@ import {
 import { useMediaAsset } from '@/hooks/useMediaAsset';
 import { useNativeMediaPlaybackQoE } from '@/hooks/useNativeMediaPlaybackQoE';
 import { useReduceMotionState } from '@/hooks/useReduceMotion';
-import { isProfileVibeVideoRef } from '@/lib/mediaAssetResolver';
+import { isHlsMediaAssetUrl, isProfileVibeVideoRef, prewarmMediaAssets } from '@/lib/mediaAssetResolver';
 import { trackEvent } from '@/lib/analytics';
 import { MediaPlaceholder } from '@/components/media/MediaPlaceholder';
 import { captionTextFromMediaCaptions, type MediaCaptions } from '../../../../shared/media/captions';
@@ -105,6 +106,18 @@ export function VibeVideoPlayer({
     autoplay: effectivePlaying,
     muted,
   });
+
+  useEffect(() => {
+    if (!reduceMotionResolved || reduceMotion || !sourceUri) return;
+    if (!usesSignedProfileRef && !isHlsMediaAssetUrl(sourceUri)) return;
+    void prewarmMediaAssets(
+      [{
+        kind: usesSignedProfileRef ? 'profile_vibe_video' : 'video',
+        sourceRef: sourceUri,
+      }],
+      { concurrency: 1 },
+    ).catch(() => {});
+  }, [reduceMotion, reduceMotionResolved, sourceUri, usesSignedProfileRef]);
 
   const player = useVideoPlayer(playerSource, (p) => {
     p.loop = loop;
@@ -369,14 +382,22 @@ export function VibeVideoPlayer({
         style={styles.placeholderZ}
       />
       {showPoster && effectivePosterUri ? (
-        <Image
+        <ExpoImage
           source={{ uri: effectivePosterUri }}
           style={[StyleSheet.absoluteFill, styles.posterZ]}
-          resizeMode="cover"
+          contentFit={contentFit}
+          cachePolicy="memory-disk"
+          priority="high"
+          transition={0}
         />
       ) : null}
       <VideoView
-        style={[StyleSheet.absoluteFill, styles.videoZ, style]}
+        style={[
+          StyleSheet.absoluteFill,
+          styles.videoZ,
+          style,
+          showPoster && effectivePosterUri ? styles.videoWaitingForFirstFrame : null,
+        ]}
         player={player}
         nativeControls={nativeControls}
         contentFit={contentFit}
@@ -424,8 +445,9 @@ export function VibeVideoPlayer({
 
 const styles = StyleSheet.create({
   placeholderZ: { zIndex: 0 },
-  posterZ: { zIndex: 0 },
-  videoZ: { zIndex: 1 },
+  posterZ: { zIndex: 1 },
+  videoZ: { zIndex: 2 },
+  videoWaitingForFirstFrame: { opacity: 0 },
   captionOverlay: {
     position: 'absolute',
     left: 16,

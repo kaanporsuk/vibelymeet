@@ -1,6 +1,6 @@
 import { supabase } from '@/lib/supabase';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { Image } from 'react-native';
+import { AccessibilityInfo, Image } from 'react-native';
 import { getFreshCachedAccessToken } from '@/lib/nativeAuthSession';
 import { isNetworkInvokeError, type FunctionInvokeErrorShape } from '@clientShared/supabaseFunctionInvokeErrors';
 import {
@@ -13,6 +13,7 @@ import {
   normalizeMediaPlaceholderKind,
   type MediaPlaceholderKind,
 } from '@clientShared/media/placeholders';
+import { reserveMediaPrewarmBudgetForSource } from '@/lib/mediaPlaybackSessionPolicy';
 
 export type MediaAssetKind = 'image' | 'voice' | 'video' | 'vibe_clip' | 'thumbnail' | 'profile_vibe_video';
 export type MediaAssetResolveResult = {
@@ -71,6 +72,7 @@ type MediaUrlIssueResult =
 
 export type MediaAssetRefreshOptions = {
   bypassFailureCooldown?: boolean;
+  suppressFailureCache?: boolean;
   variant?: 'display' | 'original';
 };
 
@@ -91,11 +93,19 @@ const SIGNED_MEDIA_FAILURE_COOLDOWN_MS = 8_000;
 const SIGNED_MEDIA_FAILURE_COOLDOWN_MAX_MS = 5 * 60 * 1000;
 const MEDIA_URL_CACHE_MAX_ENTRIES = 200;
 const MEDIA_URL_CACHE_STORAGE_KEY = 'vibely.media-url-cache.v1';
+const HLS_PLAYLIST_PREWARM_TIMEOUT_MS = 2_500;
+const HLS_SEGMENT_PREWARM_TIMEOUT_MS = 3_000;
+const HLS_SEGMENT_PREWARM_RANGE = 'bytes=0-262143';
+const HLS_PLAYBACK_PREWARM_ESTIMATE_BYTES = 320 * 1024;
+const HLS_PREWARM_CACHE_MAX_ENTRIES = 96;
 const mediaUrlCache = new Map<string, CachedMediaUrl>();
 const mediaUrlFailureCache = new Map<string, CachedMediaFailure>();
 const mediaUrlInFlightRequests = new Map<string, Promise<MediaAssetResolveResult | null>>();
+const hlsPlaybackPrewarmCache = new Set<string>();
 let persistentMediaUrlCacheHydratePromise: Promise<void> | null = null;
 let activePersistentMediaUrlCacheKey: string | null = null;
+let nativeReduceMotionSnapshot: boolean | null = null;
+let nativeReduceMotionSubscribed = false;
 
 export function isLocalMediaAssetRef(value: string): boolean {
   return value.startsWith('blob:') || value.startsWith('file:') || value.startsWith('data:');
@@ -229,13 +239,14 @@ export async function getCachedMediaAsset(
   messageId: string,
   mediaKind: MediaAssetKind,
   rawRef: string | null | undefined,
+  options: Pick<MediaAssetRefreshOptions, 'suppressFailureCache'> = {},
 ): Promise<MediaAssetResolveResult | null> {
   if (!rawRef) return null;
   const profileRef = mediaKind === 'profile_vibe_video' ? parseProfileVibeVideoRef(rawRef) : null;
-  if (profileRef) return issueAndCacheMediaAsset(profileRef.profileId, mediaKind, rawRef, false);
+  if (profileRef) return issueAndCacheMediaAsset(profileRef.profileId, mediaKind, rawRef, false, options);
   if (isLocalMediaAssetRef(rawRef) || isResolvedMediaAssetUrl(rawRef) || !isUuid(messageId)) return passthroughMediaAsset(rawRef);
 
-  return issueAndCacheMediaAsset(messageId, mediaKind, rawRef, false);
+  return issueAndCacheMediaAsset(messageId, mediaKind, rawRef, false, options);
 }
 
 export async function getCachedMediaAssetUrl(
@@ -552,12 +563,12 @@ async function issueAndCacheMediaAsset(
 
   const resolved = request.then((result) => {
     if (result.kind === 'transient_failure') {
-      recordMediaUrlFailure(cacheKey, result.errorCode);
+      if (!options.suppressFailureCache) recordMediaUrlFailure(cacheKey, result.errorCode);
       return null;
     }
     const { payload } = result;
     if (!payload?.success || typeof payload.url !== 'string' || !payload.url) {
-      recordMediaUrlFailure(cacheKey, classifyResolverFailure(payload));
+      if (!options.suppressFailureCache) recordMediaUrlFailure(cacheKey, classifyResolverFailure(payload));
       return null;
     }
 
@@ -618,7 +629,111 @@ function prewarmKeyForInput(input: MediaAssetPrewarmInput): string | null {
   return cacheKeyForMediaAsset(messageId, input.kind, sourceRef);
 }
 
+function rememberHlsPlaybackPrewarm(url: string): boolean {
+  if (hlsPlaybackPrewarmCache.has(url)) return false;
+  if (hlsPlaybackPrewarmCache.size >= HLS_PREWARM_CACHE_MAX_ENTRIES) {
+    const oldest = hlsPlaybackPrewarmCache.values().next().value;
+    if (oldest) hlsPlaybackPrewarmCache.delete(oldest);
+  }
+  hlsPlaybackPrewarmCache.add(url);
+  return true;
+}
+
+function firstHlsMediaUri(playlistText: string, playlistUrl: string): string | null {
+  for (const rawLine of playlistText.split(/\r?\n/)) {
+    const line = rawLine.trim();
+    if (!line || line.startsWith('#')) continue;
+    try {
+      return new URL(line, playlistUrl).toString();
+    } catch {
+      return null;
+    }
+  }
+  return null;
+}
+
+function isHlsPlaylistUrl(url: string): boolean {
+  try {
+    return /\.m3u8$/i.test(new URL(url).pathname);
+  } catch {
+    return /\.m3u8(?:[?#]|$)/i.test(url);
+  }
+}
+
+function primeNativeReduceMotionSnapshot(): void {
+  if (nativeReduceMotionSubscribed) return;
+  nativeReduceMotionSubscribed = true;
+  void AccessibilityInfo.isReduceMotionEnabled()
+    .then((enabled) => {
+      nativeReduceMotionSnapshot = enabled;
+    })
+    .catch(() => {
+      nativeReduceMotionSnapshot = false;
+    });
+  AccessibilityInfo.addEventListener('reduceMotionChanged', (enabled) => {
+    nativeReduceMotionSnapshot = enabled;
+  });
+}
+
+async function shouldSkipHlsPlaybackPrewarm(): Promise<boolean> {
+  primeNativeReduceMotionSnapshot();
+  if (nativeReduceMotionSnapshot !== null) return nativeReduceMotionSnapshot;
+  try {
+    const enabled = await AccessibilityInfo.isReduceMotionEnabled();
+    nativeReduceMotionSnapshot = enabled;
+    return enabled;
+  } catch {
+    nativeReduceMotionSnapshot = false;
+    return false;
+  }
+}
+
+async function fetchWithTimeout(url: string, timeoutMs: number, init: RequestInit = {}): Promise<Response | null> {
+  const controller = typeof AbortController === 'function' ? new AbortController() : null;
+  const timeoutId: ReturnType<typeof setTimeout> | null = controller
+    ? setTimeout(() => controller.abort(), timeoutMs)
+    : null;
+  try {
+    const response = await fetch(url, {
+      ...init,
+      ...(controller ? { signal: controller.signal } : {}),
+    });
+    return response.ok ? response : null;
+  } catch {
+    return null;
+  } finally {
+    if (timeoutId != null) clearTimeout(timeoutId);
+  }
+}
+
+async function prewarmHlsPlaylistAndFirstSegment(playlistUrl: string): Promise<void> {
+  if (!/^https?:\/\//i.test(playlistUrl)) return;
+  if (await shouldSkipHlsPlaybackPrewarm()) return;
+  if (!reserveMediaPrewarmBudgetForSource(playlistUrl, HLS_PLAYBACK_PREWARM_ESTIMATE_BYTES)) return;
+  if (!rememberHlsPlaybackPrewarm(playlistUrl)) return;
+
+  const playlistResponse = await fetchWithTimeout(playlistUrl, HLS_PLAYLIST_PREWARM_TIMEOUT_MS);
+  const playlistText = await playlistResponse?.text().catch(() => null);
+  if (!playlistText) return;
+
+  let mediaUri = firstHlsMediaUri(playlistText, playlistUrl);
+  if (mediaUri && isHlsPlaylistUrl(mediaUri)) {
+    const variantResponse = await fetchWithTimeout(mediaUri, HLS_PLAYLIST_PREWARM_TIMEOUT_MS);
+    const variantText = await variantResponse?.text().catch(() => null);
+    mediaUri = variantText ? firstHlsMediaUri(variantText, mediaUri) : null;
+  }
+  if (!mediaUri || isHlsPlaylistUrl(mediaUri)) return;
+
+  const segmentResponse = await fetchWithTimeout(mediaUri, HLS_SEGMENT_PREWARM_TIMEOUT_MS, {
+    headers: { Range: HLS_SEGMENT_PREWARM_RANGE },
+  });
+  await segmentResponse?.arrayBuffer().catch(() => undefined);
+}
+
 function prefetchRenderableAsset(input: MediaAssetPrewarmInput, result: MediaAssetResolveResult): void {
+  if (result.playbackKind === 'hls' && /^https?:\/\//i.test(result.url)) {
+    void prewarmHlsPlaylistAndFirstSegment(result.url).catch(() => {});
+  }
   const url =
     input.kind === 'image' || input.kind === 'thumbnail'
       ? result.url
@@ -651,8 +766,11 @@ export async function prewarmMediaAssets(
       if (!sourceRef) continue;
       const messageId = input.messageId?.trim() ?? '';
       const result = options.forceRefresh
-        ? await refreshMediaAsset(messageId, input.kind, sourceRef, { bypassFailureCooldown: true })
-        : await getCachedMediaAsset(messageId, input.kind, sourceRef);
+        ? await refreshMediaAsset(messageId, input.kind, sourceRef, {
+            bypassFailureCooldown: true,
+            suppressFailureCache: true,
+          })
+        : await getCachedMediaAsset(messageId, input.kind, sourceRef, { suppressFailureCache: true });
       if (result?.url) {
         results.push(result);
         prefetchRenderableAsset(input, result);

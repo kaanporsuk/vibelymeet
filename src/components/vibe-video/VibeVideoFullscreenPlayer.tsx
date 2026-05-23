@@ -6,7 +6,9 @@ import { resolveWebVibeVideoState } from "@/lib/vibeVideo/webVibeVideoState";
 import { useMediaAsset, useMediaAssetPlayback } from "@/hooks/useMediaAsset";
 import { useMediaPlaybackQoE } from "@/hooks/useMediaPlaybackQoE";
 import { usePrefersReducedMotion } from "@/hooks/usePrefersReducedMotion";
-import { isProfileVibeVideoRef } from "@/lib/mediaAssetResolver";
+import { isHlsMediaAssetUrl, isProfileVibeVideoRef, prewarmMediaAssets } from "@/lib/mediaAssetResolver";
+import { MediaPlaceholder } from "@/components/media/MediaPlaceholder";
+import { preloadHlsPlaybackLibrary } from "@/lib/vibeVideo/attachHlsPlayback";
 import { trackVibeVideoEvent, VIBE_VIDEO_EVENTS } from "@/lib/vibeVideo/vibeVideoTelemetry";
 import {
   captionTextFromMediaCaptions,
@@ -46,6 +48,7 @@ export function VibeVideoFullscreenPlayer({
   const playbackSucceededRef = useRef(false);
   const hlsAuthRefreshAttemptCountRef = useRef(0);
   const [playbackFailed, setPlaybackFailed] = useState(false);
+  const [hasFirstFrame, setHasFirstFrame] = useState(false);
   const [manualPlaybackRequested, setManualPlaybackRequested] = useState(false);
   const [showCaptions, setShowCaptions] = useState(true);
   const [captionTrackUrl, setCaptionTrackUrl] = useState<string | null>(null);
@@ -63,6 +66,9 @@ export function VibeVideoFullscreenPlayer({
   const {
     url: mediaAssetUrl,
     posterUrl: mediaAssetPosterUrl,
+    placeholderKind,
+    placeholderHash,
+    dominantColor,
     status: mediaAssetStatus,
     refresh: refreshMediaAsset,
   } = useMediaAsset({
@@ -123,10 +129,30 @@ export function VibeVideoFullscreenPlayer({
 
   useEffect(() => {
     setPlaybackFailed(false);
+    setHasFirstFrame(false);
     playbackSucceededRef.current = false;
     hlsAuthRefreshAttemptCountRef.current = 0;
     setManualPlaybackRequested(false);
   }, [show, vibeVideoInfo.playbackUrl]);
+
+  useEffect(() => {
+    setHasFirstFrame(false);
+  }, [playbackUrl]);
+
+  useEffect(() => {
+    if (!show || !isReady || prefersReducedMotion) return;
+    const sourceRef = vibeVideoInfo.playbackUrl;
+    if (!sourceRef) return;
+    if (!usesSignedProfileRef && !isHlsMediaAssetUrl(sourceRef)) return;
+    preloadHlsPlaybackLibrary();
+    void prewarmMediaAssets(
+      [{
+        kind: usesSignedProfileRef ? "profile_vibe_video" : "video",
+        sourceRef,
+      }],
+      { concurrency: 1 },
+    ).catch(() => {});
+  }, [isReady, prefersReducedMotion, show, usesSignedProfileRef, vibeVideoInfo.playbackUrl]);
 
   useEffect(() => {
     if (!show || !isReady || !vibeVideoInfo.uid) return;
@@ -239,14 +265,37 @@ export function VibeVideoFullscreenPlayer({
             <X className="w-5 h-5 text-white" />
           </button>
 
+          <MediaPlaceholder
+            kind={placeholderKind}
+            hash={placeholderHash}
+            dominantColor={dominantColor}
+            className="z-0"
+          />
+
+          {poster ? (
+            <img
+              src={poster}
+              alt=""
+              className="pointer-events-none absolute inset-0 z-[1] h-full w-full object-contain"
+              decoding="sync"
+              loading="eager"
+              fetchPriority="high"
+              draggable={false}
+            />
+          ) : null}
+
           <video
             ref={videoRef}
-            className={`w-full h-full object-contain ${playbackFailed ? "opacity-0" : "opacity-100"}`}
+            className={`relative z-[2] w-full h-full object-contain transition-opacity duration-150 ${
+              playbackFailed || (poster && !hasFirstFrame) ? "opacity-0" : "opacity-100"
+            }`}
             poster={poster ?? undefined}
             playsInline
             loop
             controls={prefersReducedMotion}
             preload={prefersReducedMotion ? "none" : "metadata"}
+            onLoadedData={() => setHasFirstFrame(true)}
+            onCanPlay={() => setHasFirstFrame(true)}
             onClick={(e) => e.stopPropagation()}
           >
             {captionTrackUrl ? (
