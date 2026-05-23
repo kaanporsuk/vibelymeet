@@ -24,7 +24,7 @@ export type PreparedProfilePhotoAsset = NormalizedImageAsset & {
 };
 
 export type PreparedImageDerivativeAsset = {
-  kind: 'thumb' | 'hero';
+  kind: 'thumb' | 'display' | 'hero';
   uri: string;
   mimeType: 'image/jpeg';
   fileName: string;
@@ -34,6 +34,7 @@ export type PreparedImageDerivativeAsset = {
 const PROFILE_JPEG_QUALITY = 0.88;
 const PROFILE_PHOTO_MAX_EDGE = 2048;
 const IMAGE_DERIVATIVE_QUALITY = 0.84;
+const IMAGE_DISPLAY_DERIVATIVE_QUALITY = 0.82;
 
 const MIME_BY_EXT: Record<string, string> = {
   jpg: 'image/jpeg',
@@ -204,6 +205,7 @@ export async function prepareImageDerivativeAssetsForUpload(asset: {
   const normalized = normalizeImageAssetForUpload(asset);
   const specs: Array<{ kind: PreparedImageDerivativeAsset['kind']; maxEdge: number; compress: number }> = [
     { kind: 'thumb', maxEdge: 420, compress: 0.78 },
+    { kind: 'display', maxEdge: 720, compress: IMAGE_DISPLAY_DERIVATIVE_QUALITY },
     { kind: 'hero', maxEdge: 1400, compress: IMAGE_DERIVATIVE_QUALITY },
   ];
   const derivatives: PreparedImageDerivativeAsset[] = [];
@@ -228,9 +230,7 @@ export async function prepareImageDerivativeAssetsForUpload(asset: {
       // Derivatives are acceleration-only; the caller must still upload the canonical image.
     }
   }
-  if (derivatives.length === specs.length) return derivatives;
-  for (const derivative of derivatives) derivative.cleanup();
-  return [];
+  return derivatives;
 }
 
 /**

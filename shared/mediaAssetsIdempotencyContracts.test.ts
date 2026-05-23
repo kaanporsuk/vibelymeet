@@ -21,6 +21,7 @@ const phase5ClosureMigration = read("supabase/migrations/20260519190000_media_ph
 const phase5BulletproofMigration = read("supabase/migrations/20260520170000_media_phase5_bulletproof_closure.sql");
 const mediaUxAccelerationMigration = read("supabase/migrations/20260522161000_media_derivatives_placeholders_realtime.sql");
 const mediaBlurhashMigration = read("supabase/migrations/20260523100000_media_blurhash_placeholders.sql");
+const mediaDisplayDerivativeMigration = read("supabase/migrations/20260523110000_profile_photo_display_derivative.sql");
 const sharedMediaPlaceholders = read("shared/media/placeholders.ts");
 const mediaLifecycle = read("supabase/functions/_shared/media-lifecycle.ts");
 const mediaUploadTelemetry = read("supabase/functions/_shared/media-upload-telemetry.ts");
@@ -162,16 +163,23 @@ test("upload-image reserves before PUT, sends Bunny Checksum, and registers uplo
 
 test("image derivatives are best-effort acceleration and never canonical upload requirements", () => {
   assert.match(uploadImage, /readDerivativeFile\(formData, "derivative_thumb", "thumb"\)/);
+  assert.match(uploadImage, /readDerivativeFile\(formData, "derivative_display", "display"\)/);
   assert.match(uploadImage, /readDerivativeFile\(formData, "derivative_hero", "hero"\)/);
   assert.match(uploadImage, /value\.size > 2 \* 1024 \* 1024/);
-  assert.match(uploadImage, /return thumb && hero \? \{ thumb, hero \} : null/);
+  assert.match(uploadImage, /derivatives\.filter\(\(derivative\): derivative is ImageDerivativeFile => derivative !== null\)/);
   assert.match(uploadImage, /const uploadRes = await fetch\([\s\S]+body: fileBuffer/);
   assert.match(uploadImage, /for \(const derivative of derivativeUploads\)[\s\S]+continue;[\s\S]+catch \(error\)/);
   assert.match(uploadImage, /\.\.\.\(derivativeUploads\.length \? \{ derivative_targets: derivativeUploads\.map/);
   assert.match(uploadImage, /\.\.\.\(Object\.keys\(derivatives\)\.length \? \{ derivatives \} : \{\}\)/);
   assert.match(webImageUploadService, /catch \{[\s\S]+Derivatives are an acceleration layer; never block the canonical upload/);
-  assert.match(nativeImageAssetNormalize, /if \(derivatives\.length === specs\.length\) return derivatives/);
-  assert.match(nativeImageAssetNormalize, /for \(const derivative of derivatives\) derivative\.cleanup\(\)/);
+  assert.match(webImageUploadService, /imageBitmapForFile\(file\)/);
+  assert.match(webImageUploadService, /derivativeFileFromBitmap\(file, bitmap, 720, "display"\)/);
+  assert.match(webImageUploadService, /formData\.append\("derivative_display", display\)/);
+  assert.match(nativeImageAssetNormalize, /return derivatives/);
+  assert.doesNotMatch(nativeImageAssetNormalize, /derivatives\.length === specs\.length/);
+  assert.match(nativeImageAssetNormalize, /\{ kind: 'display', maxEdge: 720, compress: IMAGE_DISPLAY_DERIVATIVE_QUALITY \}/);
+  assert.match(nativeUploadImage, /derivativeFormField\(derivative\.kind\)/);
+  assert.match(nativeChatMediaUpload, /derivativeFormField\(derivative\.kind\)/);
   assert.match(nativeUploadImage, /rememberImageDerivatives\(data\.path, data\.derivatives\)/);
   assert.match(nativeChatMediaUpload, /rememberImageDerivatives\(data\.path, data\.derivatives\)/);
   const voiceUploadBody = nativeChatMediaUpload.slice(
@@ -184,6 +192,11 @@ test("image derivatives are best-effort acceleration and never canonical upload 
 test("media placeholders and derivative refs are durable without Bunny Image Optimizer", () => {
   assert.match(mediaUxAccelerationMigration, /derivative_thumb_path/);
   assert.match(mediaUxAccelerationMigration, /derivative_hero_path/);
+  assert.match(mediaDisplayDerivativeMigration, /ADD COLUMN IF NOT EXISTS derivative_display_path/);
+  assert.match(mediaDisplayDerivativeMigration, /media_assets_derivative_path_check/);
+  assert.match(mediaDisplayDerivativeMigration, /'display', derivative_display_path/);
+  assert.match(mediaDisplayDerivativeMigration, /'display', NEW\.derivative_display_path/);
+  assert.match(mediaDisplayDerivativeMigration, /NOTIFY pgrst, 'reload schema'/);
   assert.match(mediaUxAccelerationMigration, /placeholder_kind/);
   assert.match(mediaUxAccelerationMigration, /dominant_color/);
   assert.match(mediaUxAccelerationMigration, /broadcast_media_asset_event_v1/);
@@ -201,7 +214,10 @@ test("media placeholders and derivative refs are durable without Bunny Image Opt
   assert.match(uploadImage, /const serverPlaceholderMetadata = await createImagePlaceholderMetadata\(fileBuffer\);/);
   assert.doesNotMatch(uploadImage, /clientPlaceholderMetadata\?\.placeholder_kind === "blurhash"[\s\S]{0,120}\? null/);
   assert.match(uploadImage, /updateMediaAssetPresentation\(adminSupabase, assetId/);
+  assert.match(uploadImage, /isMissingDisplayDerivativeColumn/);
+  assert.match(uploadImage, /delete update\.derivative_display_path/);
   assert.match(uploadImage, /derivative_thumb_path/);
+  assert.match(uploadImage, /derivative_display_path/);
   assert.match(uploadImage, /derivative_hero_path/);
   assert.match(uploadImage, /dominant_color/);
   assert.match(uploadEventCover, /createImagePlaceholderMetadata\(fileBuffer\)/);
@@ -215,13 +231,17 @@ test("media placeholders and derivative refs are durable without Bunny Image Opt
   assert.match(backfillMediaPlaceholders, /placeholder_kind\.is\.null,placeholder_kind\.neq\.blurhash,placeholder_hash\.is\.null/);
   assert.match(supabaseConfig, /\[functions\.backfill-media-placeholders\][\s\S]{0,80}verify_jwt = false/);
 
-  assert.match(webImageUploadService, /dominantColorForImage/);
+  assert.match(webImageUploadService, /dominantColorForBitmap/);
   assert.match(webImageUploadService, /encodeBlurhash/);
   assert.match(webImageUploadService, /formData\.append\("placeholder_kind", placeholder\.kind\)/);
-  assert.match(webImageUploadService, /if \(thumb && hero\)/);
+  assert.match(webImageUploadService, /if \(display\) formData\.append\("derivative_display", display\)/);
   assert.match(nativeChatMediaUpload, /prepareProfilePhotoAssetForUpload/);
 
   assert.match(getChatMediaUrl, /MEDIA_ASSET_RESOLVE_SELECT/);
+  assert.match(getChatMediaUrl, /MEDIA_ASSET_LEGACY_RESOLVE_SELECT/);
+  assert.match(getChatMediaUrl, /isMissingDisplayDerivativeColumn/);
+  assert.match(getChatMediaUrl, /derivative_display_path/);
+  assert.match(getChatMediaUrl, /normalizedAssetPath\(asset\.derivative_display_path\)[\s\S]+normalizedAssetPath\(asset\.derivative_hero_path\)[\s\S]+normalizedAssetPath\(asset\.derivative_thumb_path\)/);
   assert.match(getChatMediaUrl, /derivative_hero_path/);
   assert.match(getChatMediaUrl, /storageObjectForAssetKind/);
   assert.match(getChatMediaUrl, /mimeTypeForStoragePath/);
@@ -265,6 +285,7 @@ test("media placeholders and derivative refs are durable without Bunny Image Opt
   );
 
   assert.match(sharedProfilePhotoDerivatives, /normalizeProfilePhotoDerivatives/);
+  assert.match(sharedProfilePhotoDerivatives, /display\?: string/);
   assert.match(webFetchUserProfile, /rememberProfilePhotoDerivativeMap\(row\.photo_derivatives\)/);
   assert.match(nativeFetchUserProfile, /rememberProfilePhotoDerivativeMap\(row\.photo_derivatives\)/);
   assert.match(webMyProfileSettings, /rememberProfilePhotoDerivativeMap\(row\.photo_derivatives\)/);
@@ -276,8 +297,10 @@ test("media placeholders and derivative refs are durable without Bunny Image Opt
 test("image derivative selection only uses server-confirmed derivative paths", () => {
   assert.match(webImageUrl, /rememberImageDerivatives/);
   assert.match(nativeImageUrl, /rememberImageDerivatives/);
-  assert.doesNotMatch(webImageUrl, /@orig\\\.|@thumb\.\$1|@hero\.\$1/);
-  assert.doesNotMatch(nativeImageUrl, /@orig\\\.|@thumb\.\$1|@hero\.\$1/);
+  assert.match(webImageUrl, /requestedEdge <= 720/);
+  assert.match(nativeImageUrl, /requestedEdge <= 720/);
+  assert.doesNotMatch(webImageUrl, /@orig\\\.|@thumb\.\$1|@display\.\$1|@hero\.\$1/);
+  assert.doesNotMatch(nativeImageUrl, /@orig\\\.|@thumb\.\$1|@display\.\$1|@hero\.\$1/);
 });
 
 test("profile and fullscreen vibe video TTFF is prewarmed without hiding posters early", () => {

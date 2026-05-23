@@ -8,6 +8,7 @@ test("normalizes only safe profile photo derivative refs", () => {
     normalizeProfilePhotoDerivatives({
       "photos/user/photo.jpg": {
         thumb: "photos/user/photo@thumb.jpg",
+        display: "photos/user/photo@display.jpg",
         hero: "photos/user/photo@hero.jpg",
         placeholderKind: "dominant_color",
         placeholderHash: "#ABCDEF",
@@ -20,6 +21,7 @@ test("normalizes only safe profile photo derivative refs", () => {
       },
       "/photos/user/bad.jpg": { thumb: "photos/user/bad-thumb.jpg" },
       "photos/user/escape.jpg": { hero: "../private.jpg" },
+      "photos/user/bad-display.jpg": { display: "https://cdn.example.com/bad.jpg" },
       "photos/user/url.jpg": { hero: "https://cdn.example.com/url.jpg" },
       "photos/user/bad-blurhash.jpg": {
         placeholderKind: "blurhash",
@@ -34,6 +36,7 @@ test("normalizes only safe profile photo derivative refs", () => {
     {
       "photos/user/photo.jpg": {
         thumb: "photos/user/photo@thumb.jpg",
+        display: "photos/user/photo@display.jpg",
         hero: "photos/user/photo@hero.jpg",
         placeholderKind: "dominant_color",
         placeholderHash: "#abcdef",

@@ -20,7 +20,7 @@ export type UploadImageResult = {
   assetId?: string | null;
   contentSha256?: string | null;
   receiptId?: string | null;
-  derivatives?: { thumb?: string; hero?: string } | null;
+  derivatives?: { thumb?: string; display?: string; hero?: string } | null;
 };
 
 export interface ImagePickerAsset {
@@ -29,6 +29,12 @@ export interface ImagePickerAsset {
   fileName?: string;
   width?: number | null;
   height?: number | null;
+}
+
+function derivativeFormField(kind: 'thumb' | 'display' | 'hero'): 'derivative_thumb' | 'derivative_display' | 'derivative_hero' {
+  if (kind === 'thumb') return 'derivative_thumb';
+  if (kind === 'display') return 'derivative_display';
+  return 'derivative_hero';
 }
 
 /**
@@ -62,7 +68,7 @@ export async function uploadProfilePhoto(
     );
     for (const derivative of derivatives) {
       formData.append(
-        derivative.kind === 'thumb' ? 'derivative_thumb' : 'derivative_hero',
+        derivativeFormField(derivative.kind),
         {
           uri: derivative.uri,
           type: derivative.mimeType,
@@ -97,7 +103,7 @@ export async function uploadProfilePhoto(
       contentSha256?: string | null;
       receiptId?: string | null;
       sessionId?: string | null;
-      derivatives?: { thumb?: string; hero?: string } | null;
+      derivatives?: { thumb?: string; display?: string; hero?: string } | null;
       error?: string;
     };
     try {

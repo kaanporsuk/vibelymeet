@@ -43,6 +43,7 @@ type MediaAssetRow = {
   provider_object_id: string | null;
   provider_path: string | null;
   derivative_thumb_path?: string | null;
+  derivative_display_path?: string | null;
   derivative_hero_path?: string | null;
   placeholder_kind?: string | null;
   placeholder_hash?: string | null;
@@ -68,6 +69,8 @@ type ChatMediaUrlLogLevel = "info" | "warn" | "error";
 type SafeLogValue = string | number | boolean | null | undefined;
 type SafeLogFields = Record<string, SafeLogValue>;
 const MEDIA_ASSET_RESOLVE_SELECT =
+  "id, provider, provider_object_id, provider_path, derivative_thumb_path, derivative_display_path, derivative_hero_path, placeholder_kind, placeholder_hash, dominant_color, mime_type, status, media_family, storage_zone";
+const MEDIA_ASSET_LEGACY_RESOLVE_SELECT =
   "id, provider, provider_object_id, provider_path, derivative_thumb_path, derivative_hero_path, placeholder_kind, placeholder_hash, dominant_color, mime_type, status, media_family, storage_zone";
 
 const SENSITIVE_LOG_KEY_PATTERN =
@@ -100,6 +103,13 @@ function logChatMediaUrl(level: ChatMediaUrlLogLevel, event: string, fields: Saf
   } else {
     console.info(payload);
   }
+}
+
+function isMissingDisplayDerivativeColumn(error: unknown): boolean {
+  const message = typeof (error as { message?: unknown } | null)?.message === "string"
+    ? (error as { message: string }).message
+    : "";
+  return /derivative_display_path/i.test(message);
 }
 
 function normalizeStoragePathForProxy(value: string): string {
@@ -276,7 +286,9 @@ function storageObjectForAssetKind(
   variant: MediaResolveVariant,
 ): { path: string; mimeType: string } | null {
   if (kind === "image" && variant !== "original") {
-    const derivativePath = normalizedAssetPath(asset.derivative_hero_path);
+    const derivativePath = normalizedAssetPath(asset.derivative_display_path)
+      ?? normalizedAssetPath(asset.derivative_hero_path)
+      ?? normalizedAssetPath(asset.derivative_thumb_path);
     if (derivativePath) return { path: derivativePath, mimeType: mimeTypeForStoragePath(derivativePath, "image/jpeg") };
   }
   const providerPath = normalizedAssetPath(asset.provider_path);
@@ -331,19 +343,25 @@ async function resolveMessageAsset(
   messageId: string,
   kind: MediaKind,
 ): Promise<MediaAssetRow | null> {
-  const { data, error } = await serviceClient
-    .from("media_assets")
-    .select(MEDIA_ASSET_RESOLVE_SELECT)
-    .eq("legacy_table", "messages")
-    .eq("legacy_id", messageId)
-    .in("media_family", kind === "thumbnail" ? ["chat_video", "chat_video_thumbnail"] : [mediaFamilyForKind(kind)])
-    .eq("status", "active")
-    .order("created_at", { ascending: false })
-    .limit(5);
+  const queryAssets = (selectColumns: string) =>
+    serviceClient
+      .from("media_assets")
+      .select(selectColumns)
+      .eq("legacy_table", "messages")
+      .eq("legacy_id", messageId)
+      .in("media_family", kind === "thumbnail" ? ["chat_video", "chat_video_thumbnail"] : [mediaFamilyForKind(kind)])
+      .eq("status", "active")
+      .order("created_at", { ascending: false })
+      .limit(5);
+
+  let { data, error } = await queryAssets(MEDIA_ASSET_RESOLVE_SELECT);
+  if (error && isMissingDisplayDerivativeColumn(error)) {
+    ({ data, error } = await queryAssets(MEDIA_ASSET_LEGACY_RESOLVE_SELECT));
+  }
 
   if (error || !Array.isArray(data)) return null;
 
-  const assets = data as MediaAssetRow[];
+  const assets = data as unknown as MediaAssetRow[];
   return assets
     .find((asset) => {
       const objectId = typeof asset?.provider_object_id === "string" ? asset.provider_object_id : "";
@@ -486,16 +504,22 @@ async function handleProfileVibeVideoIssue(params: {
     );
   }
 
-  const { data: assetRow } = await params.serviceClient
-    .from("media_assets")
-    .select(MEDIA_ASSET_RESOLVE_SELECT)
-    .eq("provider", "bunny_stream")
-    .eq("provider_object_id", streamVideoId)
-    .eq("media_family", "vibe_video")
-    .neq("status", "purged")
-    .order("created_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
+  const queryProfileAsset = (selectColumns: string) =>
+    params.serviceClient
+      .from("media_assets")
+      .select(selectColumns)
+      .eq("provider", "bunny_stream")
+      .eq("provider_object_id", streamVideoId)
+      .eq("media_family", "vibe_video")
+      .neq("status", "purged")
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+  const profileAssetResult = await queryProfileAsset(MEDIA_ASSET_RESOLVE_SELECT);
+  let assetRow = profileAssetResult.data;
+  if (profileAssetResult.error && isMissingDisplayDerivativeColumn(profileAssetResult.error)) {
+    assetRow = (await queryProfileAsset(MEDIA_ASSET_LEGACY_RESOLVE_SELECT)).data;
+  }
   const profileAsset = assetRow as MediaAssetRow | null;
 
   const hostname = Deno.env.get("BUNNY_STREAM_CDN_HOSTNAME")?.trim();
