@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient, SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.88.0";
+import { isBlurhashValid } from "https://esm.sh/blurhash@2.0.5";
 import * as Sentry from "https://deno.land/x/sentry@8.55.0/index.mjs";
 import { bunnyStorageConfigForTier, type BunnyStorageZoneTier } from "../_shared/bunny-media.ts";
 import { signBunnyStreamDirectoryUrl } from "../_shared/bunny-stream-tokens.ts";
@@ -276,7 +277,11 @@ function normalizedPlaceholderHash(kind: "dominant_color" | "blurhash" | null, v
   if (typeof value !== "string" || !value.trim()) return null;
   const hash = value.trim();
   if (kind === "dominant_color") return /^#[0-9a-f]{6}$/i.test(hash) ? hash.toLowerCase() : null;
-  if (kind === "blurhash") return /^[0-9A-Za-z#$%*+,\-.:;=?@[\]^_{|}~]{6,120}$/.test(hash) ? hash : null;
+  if (kind === "blurhash") {
+    if (!/^[0-9A-Za-z#$%*+,\-.:;=?@[\]^_{|}~]{6,120}$/.test(hash)) return null;
+    const validation = isBlurhashValid(hash);
+    return validation.result ? hash : null;
+  }
   return null;
 }
 

@@ -433,3 +433,51 @@ test("Phase 9 telemetry-safe source ref classification is PII-safe", () => {
   assert.equal(telemetrySafeSourceRef("encrypted_chat_media:abc"), "encrypted_chat_media_ref");
   assert.equal(telemetrySafeSourceRef("some-user-generated-opaque-id"), "opaque_ref");
 });
+
+test("Sprint 1 native HLS auth refresh stays bounded, signed-only, and fatal-safe", () => {
+  const nativeVibePlayer = read("apps/mobile/components/video/VibeVideoPlayer.tsx");
+
+  assert.match(nativeVibePlayer, /const MAX_HLS_AUTH_REFRESH_ATTEMPTS = 2/);
+  assert.match(nativeVibePlayer, /const usesSignedProfileRef = isProfileVibeVideoRef\(sourceUri\)/);
+  assert.match(nativeVibePlayer, /if \(!usesSignedProfileRef\) return false;/);
+  assert.match(nativeVibePlayer, /authRefreshAttemptsRef\.current >= MAX_HLS_AUTH_REFRESH_ATTEMPTS/);
+  assert.match(nativeVibePlayer, /refreshMediaAsset\('playback', \{ bypassFailureCooldown: true \}\)/);
+  assert.match(nativeVibePlayer, /VIBE_VIDEO_EVENTS\.tokenRefreshOnAuthError/);
+  assert.match(
+    nativeVibePlayer,
+    /usesSignedProfileRef[\s\S]*authRefreshAttemptsRef\.current < MAX_HLS_AUTH_REFRESH_ATTEMPTS[\s\S]*refreshPlaybackAfterAuthError\(\)[\s\S]*if \(!didRefresh\) reportFatalPlaybackError\(\)/,
+  );
+});
+
+test("Sprint 1 local preview ownership is cleaned on pagehide and preserved after upload handoff", () => {
+  const controller = read("src/lib/heroVideo/heroVideoUploadController.ts");
+  const studioModal = read("src/components/vibe-video/VibeStudioModal.tsx");
+  const onboardingStep = read("src/pages/onboarding/steps/VibeVideoStep.tsx");
+
+  assert.match(controller, /function _handlePageHide\(\): void \{\s*_clearLocalPreview\(\);\s*\}/);
+  assert.match(controller, /window\.addEventListener\("pagehide", _pageHideHandler\)/);
+  assert.match(controller, /window\.removeEventListener\("pagehide", _pageHideHandler\)/);
+
+  assert.match(studioModal, /const pendingLocalPreviewUrl = recordedVideoUrl \?\? URL\.createObjectURL\(file\)/);
+  assert.match(
+    studioModal,
+    /catch \(error\) \{\s*if \(pendingLocalPreviewUrl !== recordedVideoUrl\) URL\.revokeObjectURL\(pendingLocalPreviewUrl\);/,
+  );
+  assert.match(studioModal, /setRecordedVideoUrl\(null\)/);
+  assert.match(onboardingStep, /const pendingLocalPreviewUrl = URL\.createObjectURL\(file\)/);
+  assert.match(onboardingStep, /catch \(error\) \{\s*URL\.revokeObjectURL\(pendingLocalPreviewUrl\);/);
+});
+
+test("Sprint 1 native CDN hostname mismatch emits sanitized PostHog and Sentry warnings", () => {
+  const nativePlaybackUrl = read("apps/mobile/lib/vibeVideoPlaybackUrl.ts");
+  const nativeTelemetry = read("apps/mobile/lib/vibeVideoTelemetry.ts");
+
+  assert.match(nativeTelemetry, /export function captureVibeVideoMessage/);
+  assert.match(nativeTelemetry, /Sentry\.captureMessage\(message/);
+  assert.match(nativeTelemetry, /extra: sanitizeProperties\(properties\)/);
+  assert.match(nativePlaybackUrl, /captureVibeVideoMessage/);
+  assert.match(nativePlaybackUrl, /VIBE_VIDEO_EVENTS\.cdnHostnamePersistenceMismatch/);
+  assert.match(nativePlaybackUrl, /captureVibeVideoMessage\('vibe_video_cdn_hostname_persistence_mismatch', properties, 'warning'\)/);
+  assert.match(nativePlaybackUrl, /env_hostname_present: true/);
+  assert.match(nativePlaybackUrl, /persisted_hostname_present: true/);
+});
