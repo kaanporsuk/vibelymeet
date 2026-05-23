@@ -7,7 +7,7 @@
  * Survives screen unmounts so upload continues after the recorder closes.
  * React components subscribe via nativeHeroVideoSubscribe() / useNativeHeroVideoUpload().
  *
- * Phase model (post-confirm only; local_preview stays inside the recorder):
+ * Phase model (post-confirm only; local preview URI is transferred to this controller):
  *   idle       — no active session; profile is source of truth for display
  *   uploading  — tus in flight (progress 0–100)
  *   processing — tus complete; polling backend for transcoding result
@@ -51,6 +51,8 @@ export interface NativeHeroVideoControllerState {
   clientRequestId: string | null;
   /** Set once credentials are returned */
   videoId: string | null;
+  /** Local file/ph URI to preview until the remote upload becomes playable. */
+  pendingLocalPreviewUri: string | null;
   errorMessage: string | null;
 }
 
@@ -74,6 +76,7 @@ let _state: NativeHeroVideoControllerState = {
   uploadProgress: 0,
   clientRequestId: null,
   videoId: null,
+  pendingLocalPreviewUri: null,
   errorMessage: null,
 };
 
@@ -227,6 +230,7 @@ function _beginStatusPoll(options: {
     uploadProgress: phase === 'processing' ? 100 : _state.uploadProgress,
     clientRequestId: source === 'upload_complete' ? _state.clientRequestId : null,
     videoId,
+    pendingLocalPreviewUri: source === 'upload_complete' ? _state.pendingLocalPreviewUri : null,
     errorMessage: null,
   });
   _invalidateProfile();
@@ -266,7 +270,7 @@ function _beginStatusPoll(options: {
 
     if (result === 'ready') {
       const completedClientRequestId = _state.clientRequestId;
-      _setState({ phase: 'ready', uploadProgress: 100, videoId, errorMessage: null });
+      _setState({ phase: 'ready', uploadProgress: 100, videoId, pendingLocalPreviewUri: null, errorMessage: null });
       void deleteStagedVibeVideoUpload(completedClientRequestId);
       trackVibeVideoEvent(VIBE_VIDEO_EVENTS.readyObserved, {
         source: source === 'upload_complete' ? 'native_hero_video_controller' : 'native_hero_video_resume',
@@ -281,6 +285,7 @@ function _beginStatusPoll(options: {
         phase: 'failed',
         uploadProgress: 100,
         videoId,
+        pendingLocalPreviewUri: null,
         errorMessage: 'Processing did not complete. Try uploading again.',
       });
       trackVibeVideoEvent(VIBE_VIDEO_EVENTS.failedObserved, {
@@ -291,7 +296,14 @@ function _beginStatusPoll(options: {
         resume_source: source,
       });
     } else if (result === 'superseded') {
-      _setState({ phase: 'idle', uploadProgress: 0, clientRequestId: null, videoId: null, errorMessage: null });
+      _setState({
+        phase: 'idle',
+        uploadProgress: 0,
+        clientRequestId: null,
+        videoId: null,
+        pendingLocalPreviewUri: null,
+        errorMessage: null,
+      });
     } else if (result !== 'aborted') {
       _setState({
         phase: 'stalled',
@@ -331,6 +343,7 @@ function _beginStatusPoll(options: {
       _setState({
         phase: 'failed',
         videoId,
+        pendingLocalPreviewUri: null,
         errorMessage: err instanceof Error ? err.message : 'Processing poll failed. Try again.',
       });
       captureVibeVideoException(err, {
@@ -386,7 +399,14 @@ export function nativeHeroVideoResumePollingForProfile(
   if (profilePhase.kind === 'none') {
     if (_state.phase === 'stalled' || _state.phase === 'processing' || _state.phase === 'uploading') {
       _abortPoll();
-      _setState({ phase: 'idle', uploadProgress: 0, clientRequestId: null, videoId: null, errorMessage: null });
+      _setState({
+        phase: 'idle',
+        uploadProgress: 0,
+        clientRequestId: null,
+        videoId: null,
+        pendingLocalPreviewUri: null,
+        errorMessage: null,
+      });
     }
     return false;
   }
@@ -398,6 +418,7 @@ export function nativeHeroVideoResumePollingForProfile(
       uploadProgress: 100,
       clientRequestId: null,
       videoId: profilePhase.videoId,
+      pendingLocalPreviewUri: null,
       errorMessage: null,
     });
     _invalidateProfile();
@@ -411,6 +432,7 @@ export function nativeHeroVideoResumePollingForProfile(
       uploadProgress: 100,
       clientRequestId: null,
       videoId: profilePhase.videoId,
+      pendingLocalPreviewUri: null,
       errorMessage: 'Processing did not complete. Try uploading again.',
     });
     _invalidateProfile();
@@ -489,6 +511,7 @@ export function nativeHeroVideoStartWithClientRequestId(
     uploadProgress: 0,
     clientRequestId: uploadClientRequestId,
     videoId: null,
+    pendingLocalPreviewUri: videoUri,
     errorMessage: null,
   });
 
@@ -610,7 +633,7 @@ async function _run(
     if (!_isCurrent(runId)) return;
 
     const msg = err instanceof Error ? err.message : 'Upload failed. Please try again.';
-    _setStateIfCurrent(runId, { phase: 'failed', errorMessage: msg });
+    _setStateIfCurrent(runId, { phase: 'failed', pendingLocalPreviewUri: null, errorMessage: msg });
     if (failurePhase === 'credentials') {
       trackVibeVideoEvent(VIBE_VIDEO_EVENTS.credentialsRequestFailed, {
         source: 'native_hero_video_controller',
@@ -658,5 +681,12 @@ export function nativeHeroVideoReset(): void {
   _uploadAbort = null;
   _generation++;
   void deleteStagedVibeVideoUpload(resetClientRequestId);
-  _setState({ phase: 'idle', uploadProgress: 0, clientRequestId: null, videoId: null, errorMessage: null });
+  _setState({
+    phase: 'idle',
+    uploadProgress: 0,
+    clientRequestId: null,
+    videoId: null,
+    pendingLocalPreviewUri: null,
+    errorMessage: null,
+  });
 }

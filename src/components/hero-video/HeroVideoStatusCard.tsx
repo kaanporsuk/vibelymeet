@@ -17,6 +17,12 @@ import { useHeroVideoUpload } from "@/hooks/useHeroVideoUpload";
 import { resolveWebVibeVideoState } from "@/lib/vibeVideo/webVibeVideoState";
 import { useMediaAsset } from "@/hooks/useMediaAsset";
 import { isProfileVibeVideoRef } from "@/lib/mediaAssetResolver";
+import {
+  vibeVideoFailedCopy,
+  vibeVideoProcessingCopy,
+  vibeVideoStalledCopy,
+  vibeVideoUploadingCopy,
+} from "@clientShared/media/processingCopy";
 
 interface ProfileSnap {
   id?: string | null;
@@ -38,6 +44,27 @@ interface HeroVideoStatusCardProps {
   onOpenPlayer?: () => void;
   onRefresh?: () => void;
   className?: string;
+}
+
+function LocalPreviewPanel({ src, label }: { src: string | null; label: string }) {
+  if (!src) return null;
+  return (
+    <div className="relative mb-4 overflow-hidden rounded-xl border border-white/10 bg-black" style={{ aspectRatio: "16/9" }}>
+      <video
+        src={src}
+        className="h-full w-full object-cover"
+        muted
+        playsInline
+        autoPlay
+        loop
+        preload="metadata"
+        aria-label={label}
+      />
+      <div className="absolute left-2.5 top-2.5 rounded-full bg-black/55 px-2.5 py-1 text-[10px] font-semibold tracking-widest text-cyan-100 backdrop-blur-sm">
+        LOCAL PREVIEW
+      </div>
+    </div>
+  );
 }
 
 export function HeroVideoStatusCard({
@@ -203,16 +230,18 @@ export function HeroVideoStatusCard({
 
   // ── Uploading ──────────────────────────────────────────────────────────────
   if (effectivePhase === "uploading") {
+    const copy = vibeVideoUploadingCopy(ctrl.uploadProgress);
     return (
       <div className={cn("rounded-2xl bg-white/5 border border-cyan-500/25 p-5", className)}>
+        <LocalPreviewPanel src={ctrl.pendingLocalPreviewUrl} label="Local Vibe Video upload preview" />
         <div className="flex items-start gap-3 mb-3">
           <Loader2 className="w-5 h-5 text-cyan-300 animate-spin flex-shrink-0 mt-0.5" />
           <div className="min-w-0">
-            <p className="text-sm font-semibold text-white">Uploading your Vibe Video</p>
+            <p className="text-sm font-semibold text-white">{copy.title}</p>
             <p className="text-xs text-gray-400 mt-0.5">
               {ctrl.uploadProgress > 0
                 ? `${ctrl.uploadProgress}% uploaded`
-                : "Starting upload…"}
+                : copy.detail ?? "Starting upload"}
             </p>
           </div>
         </div>
@@ -227,7 +256,7 @@ export function HeroVideoStatusCard({
         )}
 
         <p className="text-xs text-gray-500 mt-3 leading-relaxed">
-          You can navigate freely — the upload continues in the background.
+          {copy.description}
         </p>
       </div>
     );
@@ -235,19 +264,21 @@ export function HeroVideoStatusCard({
 
   // ── Processing ─────────────────────────────────────────────────────────────
   if (effectivePhase === "processing") {
+    const copy = vibeVideoProcessingCopy(false);
     return (
       <div className={cn("rounded-2xl bg-white/5 border border-violet-500/25 p-5", className)}>
+        <LocalPreviewPanel src={ctrl.pendingLocalPreviewUrl} label="Local Vibe Video processing preview" />
         <div className="flex items-start gap-3 mb-2">
           <Loader2 className="w-5 h-5 text-violet-300 animate-spin flex-shrink-0 mt-0.5" />
           <div>
-            <p className="text-sm font-semibold text-white">Processing your Vibe Video</p>
+            <p className="text-sm font-semibold text-white">{copy.title}</p>
             <p className="text-xs text-gray-400 mt-0.5">
-              Your video uploaded and is still processing. This can take a few minutes. We'll keep checking.
+              {copy.description}
             </p>
           </div>
         </div>
         <p className="text-xs text-gray-500 mt-2 leading-relaxed">
-          You can leave this page — processing continues on our servers.
+          You can leave this page. Processing continues on our servers.
         </p>
         {onRefresh ? (
           <button
@@ -265,16 +296,15 @@ export function HeroVideoStatusCard({
 
   // ── Failed ─────────────────────────────────────────────────────────────────
   if (effectivePhase === "failed") {
+    const copy = vibeVideoFailedCopy(ctrl.phase === "failed" ? ctrl.errorMessage : null);
     return (
       <div className={cn("rounded-2xl bg-white/5 border border-red-500/20 p-5", className)}>
         <div className="flex items-start gap-3 mb-3">
           <AlertCircle className="w-5 h-5 text-red-400 flex-shrink-0 mt-0.5" />
           <div className="min-w-0">
-            <p className="text-sm font-semibold text-white">Upload or processing failed</p>
+            <p className="text-sm font-semibold text-white">{copy.title}</p>
             <p className="text-xs text-gray-400 mt-0.5 break-words">
-              {ctrl.phase === "failed" && ctrl.errorMessage
-                ? ctrl.errorMessage
-                : "The video did not reach a playable state."}
+              {copy.description}
             </p>
           </div>
         </div>
@@ -292,14 +322,16 @@ export function HeroVideoStatusCard({
 
   // ── Stalled ────────────────────────────────────────────────────────────────
   if (effectivePhase === "stalled") {
+    const copy = vibeVideoStalledCopy(ctrl.errorMessage);
     return (
       <div className={cn("rounded-2xl bg-white/5 border border-amber-500/25 p-5", className)}>
+        <LocalPreviewPanel src={ctrl.pendingLocalPreviewUrl} label="Local Vibe Video delayed processing preview" />
         <div className="flex items-start gap-3 mb-3">
           <AlertCircle className="w-5 h-5 text-amber-300 flex-shrink-0 mt-0.5" />
           <div className="min-w-0">
-            <p className="text-sm font-semibold text-white">Still preparing your Vibe Video</p>
+            <p className="text-sm font-semibold text-white">{copy.title}</p>
             <p className="text-xs text-gray-400 mt-0.5 break-words">
-              {ctrl.errorMessage ?? "This is taking longer than usual. Your video is still on file."}
+              {copy.description}
             </p>
           </div>
         </div>
@@ -318,6 +350,7 @@ export function HeroVideoStatusCard({
   // ── Profile-sourced in-pipeline state when controller is idle.
   if (backendInfo.state === "processing" || backendInfo.state === "stale_processing") {
     const isStale = backendInfo.state === "stale_processing";
+    const copy = vibeVideoProcessingCopy(isStale);
     return (
       <div className={cn("rounded-2xl bg-white/5 border border-violet-500/20 p-5", isStale && "border-amber-500/25", className)}>
         <div className="flex items-start gap-3">
@@ -328,12 +361,10 @@ export function HeroVideoStatusCard({
           )}
           <div>
             <p className="text-sm font-semibold text-white">
-              {isStale ? "Still processing your Vibe Video" : "Processing your Vibe Video"}
+              {copy.title}
             </p>
             <p className="text-xs text-gray-400 mt-0.5">
-              {isStale
-                ? "Still processing. You can refresh, try again later, or re-upload if it does not finish."
-                : "Your video uploaded and is still processing. This can take a few minutes. We'll keep checking."}
+              {copy.description}
             </p>
           </div>
         </div>
