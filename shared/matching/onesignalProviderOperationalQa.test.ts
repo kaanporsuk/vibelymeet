@@ -151,6 +151,8 @@ test("OneSignal subscription ownership migration supports multi-device native de
   assert.match(pushSubscriptionOwnershipMigration, /register_onesignal_push_subscription/);
   assert.match(pushSubscriptionOwnershipMigration, /unregister_onesignal_push_subscription/);
   assert.match(pushSubscriptionOwnershipMigration, /ON CONFLICT \(provider, subscription_id\) DO UPDATE/);
+  assert.match(pushSubscriptionOwnershipMigration, /SELECT DISTINCT ON \(btrim\(onesignal_player_id\)\)/);
+  assert.match(pushSubscriptionOwnershipMigration, /SELECT DISTINCT ON \(btrim\(mobile_onesignal_player_id\)\)/);
   assert.match(pushSubscriptionOwnershipMigration, /notification_preferences_onesignal_subscription_dedupe/);
   assert.match(pushSubscriptionOwnershipMigration, /platform IN \('web', 'ios', 'android', 'native', 'unknown'\)/);
   assert.match(pushSubscriptionOwnershipMigration, /GRANT EXECUTE ON FUNCTION public\.register_onesignal_push_subscription/);
