@@ -1333,6 +1333,7 @@ const ReadyGateOverlay = ({
     snooze,
     syncSession,
     refetchSession,
+    retryBroadcastGapRecovery,
   } = useReadyGate({
     sessionId,
     eventId,
@@ -1595,6 +1596,30 @@ const ReadyGateOverlay = ({
   useEffect(() => {
     void reconcileSession("initial");
   }, [reconcileSession]);
+
+  useEffect(() => {
+    if (!sessionId || !eventId || !user?.id) return;
+    if (typeof document === "undefined" || typeof window === "undefined") return;
+
+    const retryOnForeground = (source: string) => {
+      if (dateNavigationStartedRef.current || closedRef.current) return;
+      void retryBroadcastGapRecovery(source);
+    };
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") retryOnForeground("visibility_resume");
+    };
+    const handleFocus = () => retryOnForeground("window_focus");
+    const handleOnline = () => retryOnForeground("network_online");
+
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    window.addEventListener("focus", handleFocus);
+    window.addEventListener("online", handleOnline);
+    return () => {
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+      window.removeEventListener("focus", handleFocus);
+      window.removeEventListener("online", handleOnline);
+    };
+  }, [eventId, retryBroadcastGapRecovery, sessionId, user?.id]);
 
   useEffect(() => {
     if (!sessionId || !eventId || !user?.id) return;

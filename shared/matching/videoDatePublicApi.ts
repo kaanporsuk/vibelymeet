@@ -1,5 +1,6 @@
 export const VIDEO_DATE_TOKEN_REFRESH_FUNCTION_NAME = "video-date-token-refresh";
 export const VIDEO_DATE_TOKEN_JOIN_REFRESH_WINDOW_MS = 2 * 60 * 1000;
+export const VIDEO_DATE_TOKEN_ACTIVE_REFRESH_WINDOW_MS = 5 * 60 * 1000;
 
 export type VideoDateTokenRefreshOk = {
   ok: true;
@@ -125,20 +126,43 @@ export function shouldRefreshVideoDateTokenBeforeJoin(
   return expiresAtMs <= nowMs + refreshWindowMs;
 }
 
-export function isVideoDateDailyTokenJoinError(error: unknown): boolean {
+export function videoDateTokenRefreshDelayMs(
+  tokenExpiresAtIso: string | null | undefined,
+  nowMs = Date.now(),
+  refreshWindowMs = VIDEO_DATE_TOKEN_ACTIVE_REFRESH_WINDOW_MS,
+): number | null {
+  if (!tokenExpiresAtIso) return null;
+  const expiresAtMs = Date.parse(tokenExpiresAtIso);
+  if (!Number.isFinite(expiresAtMs)) return 0;
+  return Math.max(0, expiresAtMs - nowMs - refreshWindowMs);
+}
+
+export function isVideoDateDailyTokenFault(error: unknown): boolean {
   const text = errorText(error);
   if (!text) return false;
   const lower = text.toLowerCase();
-  const mentionsToken = lower.includes("token") || lower.includes("auth") || lower.includes("authorization");
+  if (/(^|\s)(exp-token|nbf-token|ejected|not-allowed)(\s|$)/.test(lower)) return true;
+
+  const mentionsToken =
+    lower.includes("token") ||
+    lower.includes("auth") ||
+    lower.includes("authorization") ||
+    lower.includes("meeting access") ||
+    lower.includes("eject");
   if (!mentionsToken) return false;
   return (
     lower.includes("expired") ||
     lower.includes("invalid") ||
     lower.includes("unauthorized") ||
     lower.includes("not authorized") ||
+    lower.includes("not allowed") ||
     lower.includes("permission") ||
     lower.includes("eject")
   );
+}
+
+export function isVideoDateDailyTokenJoinError(error: unknown): boolean {
+  return isVideoDateDailyTokenFault(error);
 }
 
 export function normalizeVideoDateTokenRefresh(payload: unknown): VideoDateTokenRefreshResult {
@@ -489,6 +513,7 @@ function errorText(error: unknown): string {
   const record = error as Record<string, unknown>;
   return [
     record.name,
+    record.type,
     record.code,
     record.message,
     record.error,

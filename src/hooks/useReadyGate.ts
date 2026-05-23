@@ -27,6 +27,15 @@ import {
   resolveVideoDateSessionSeqDecision,
   type VideoDateSessionBroadcastEvent,
 } from "@clientShared/matching/videoDateSessionChannel";
+import {
+  mergeVideoDateBroadcastGapRecovery,
+  recordVideoDateBroadcastGapRecoveryFailure,
+  recordVideoDateBroadcastGapRecoverySuccess,
+  shouldAttemptVideoDateBroadcastGapRecovery,
+  shouldRetainVideoDateBroadcastGapRecoveryForEvent,
+  videoDateBroadcastGapRetryDelayMs,
+  type VideoDateBroadcastGapRecoveryState,
+} from "@clientShared/matching/videoDateBroadcastGapRecovery";
 
 interface ReadyGateState {
   status: ReadyGateStatus;
@@ -232,6 +241,8 @@ export const useReadyGate = ({ sessionId, eventId, onBothReady, onForfeited }: U
   const syncSessionInFlightRef = useRef<Promise<ReadyGateSyncResult> | null>(null);
   const sessionSeqRef = useRef<number | null>(null);
   const broadcastRefetchInFlightRef = useRef(false);
+  const broadcastGapRecoveryRef = useRef<VideoDateBroadcastGapRecoveryState | null>(null);
+  const broadcastGapRetryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     onBothReadyRef.current = onBothReady;
@@ -437,39 +448,104 @@ export const useReadyGate = ({ sessionId, eventId, onBothReady, onForfeited }: U
     };
   }, [sessionId, user?.id, applyReadyGateTruth]);
 
+  const clearBroadcastGapRetryTimer = useCallback(() => {
+    if (!broadcastGapRetryTimerRef.current) return;
+    clearTimeout(broadcastGapRetryTimerRef.current);
+    broadcastGapRetryTimerRef.current = null;
+  }, []);
+
+  const attemptBroadcastGapSnapshotRecovery = useCallback(
+    async (source: string) => {
+      if (!sessionId || !user?.id) return;
+      const state = broadcastGapRecoveryRef.current;
+      if (!shouldAttemptVideoDateBroadcastGapRecovery(state)) return;
+      if (broadcastRefetchInFlightRef.current) return;
+
+      broadcastRefetchInFlightRef.current = true;
+      try {
+        const snapshot = await fetchVideoDateSnapshot(sessionId, { includeToken: false });
+        const latestState =
+          broadcastGapRecoveryRef.current?.sessionId === state.sessionId
+            ? broadcastGapRecoveryRef.current
+            : state;
+        if (snapshot.ok === true) {
+          sessionSeqRef.current = Math.max(sessionSeqRef.current ?? 0, snapshot.seq);
+          broadcastGapRecoveryRef.current = recordVideoDateBroadcastGapRecoverySuccess(latestState, snapshot.seq);
+        } else {
+          broadcastGapRecoveryRef.current = recordVideoDateBroadcastGapRecoveryFailure(latestState, snapshot.error);
+        }
+        Sentry.addBreadcrumb({
+          category: "ready_gate",
+          level: snapshot.ok ? "info" : "warning",
+          message: "broadcast_seq_gap_snapshot_retry",
+          data: {
+            session_id: sessionId,
+            event_id: eventId ?? null,
+            source,
+            target_seq: state.targetSeq,
+            expected_seq: state.expectedSeq,
+            attempt: state.attempts + 1,
+            snapshot_ok: snapshot.ok,
+          },
+        });
+        await fetchSession();
+      } catch (error) {
+        broadcastGapRecoveryRef.current = recordVideoDateBroadcastGapRecoveryFailure(state, error);
+      } finally {
+        broadcastRefetchInFlightRef.current = false;
+      }
+
+      clearBroadcastGapRetryTimer();
+      const delayMs = videoDateBroadcastGapRetryDelayMs(broadcastGapRecoveryRef.current);
+      if (delayMs != null) {
+        broadcastGapRetryTimerRef.current = setTimeout(() => {
+          broadcastGapRetryTimerRef.current = null;
+          void attemptBroadcastGapSnapshotRecovery("bounded_timer");
+        }, delayMs);
+      }
+    },
+    [clearBroadcastGapRetryTimer, eventId, fetchSession, sessionId, user?.id],
+  );
+
   const reconcileBroadcastEvent = useCallback(
     async (event: VideoDateSessionBroadcastEvent) => {
       if (!sessionId || !user?.id) return;
       const decision = resolveVideoDateSessionSeqDecision(sessionSeqRef.current, event.sessionSeq);
       if (decision.action === "invalid" || decision.action === "duplicate") return;
 
+      if (decision.action === "gap") {
+        broadcastGapRecoveryRef.current = mergeVideoDateBroadcastGapRecovery(broadcastGapRecoveryRef.current, {
+          sessionId,
+          targetSeq: event.sessionSeq,
+          expectedSeq: decision.expectedSeq,
+        });
+        void attemptBroadcastGapSnapshotRecovery("broadcast_event_gap");
+        return;
+      }
+
+      const shouldRetainGapRecovery = shouldRetainVideoDateBroadcastGapRecoveryForEvent(
+        broadcastGapRecoveryRef.current,
+        event.sessionSeq,
+      );
+      if (!shouldRetainGapRecovery) {
+        clearBroadcastGapRetryTimer();
+        broadcastGapRecoveryRef.current = null;
+      }
       sessionSeqRef.current = event.sessionSeq;
       if (broadcastRefetchInFlightRef.current) return;
       broadcastRefetchInFlightRef.current = true;
       try {
-        if (decision.action === "gap") {
-          const snapshot = await fetchVideoDateSnapshot(sessionId, { includeToken: false });
-          if (snapshot.ok) sessionSeqRef.current = snapshot.seq;
-          Sentry.addBreadcrumb({
-            category: "ready_gate",
-            level: snapshot.ok ? "info" : "warning",
-            message: "broadcast_seq_gap_snapshot_refetch",
-            data: {
-              session_id: sessionId,
-              event_id: eventId ?? null,
-              event_kind: event.kind,
-              incoming_seq: event.sessionSeq,
-              expected_seq: decision.expectedSeq,
-              snapshot_ok: snapshot.ok,
-            },
-          });
-        }
         await fetchSession();
       } finally {
         broadcastRefetchInFlightRef.current = false;
       }
+      if (shouldRetainGapRecovery) {
+        void attemptBroadcastGapSnapshotRecovery("broadcast_event_progress");
+      } else if (broadcastGapRecoveryRef.current) {
+        void attemptBroadcastGapSnapshotRecovery("broadcast_refetch_complete");
+      }
     },
-    [eventId, fetchSession, sessionId, user?.id],
+    [attemptBroadcastGapSnapshotRecovery, clearBroadcastGapRetryTimer, fetchSession, sessionId, user?.id],
   );
 
   useEffect(() => {
@@ -498,8 +574,10 @@ export const useReadyGate = ({ sessionId, eventId, onBothReady, onForfeited }: U
     });
     return () => {
       subscription.unsubscribe();
+      clearBroadcastGapRetryTimer();
+      broadcastGapRecoveryRef.current = null;
     };
-  }, [broadcastV2.enabled, eventId, reconcileBroadcastEvent, sessionId, user?.id]);
+  }, [broadcastV2.enabled, clearBroadcastGapRetryTimer, eventId, reconcileBroadcastEvent, sessionId, user?.id]);
 
   // Periodic refresh is owned by ReadyGateOverlay.reconcileSession("poll") + refetchSession(),
   // so we avoid duplicate 2s timers alongside the overlay reconcile loop.
@@ -937,5 +1015,6 @@ export const useReadyGate = ({ sessionId, eventId, onBothReady, onForfeited }: U
     syncSession,
     /** Refresh gate UI from `video_sessions` (called by ReadyGateOverlay after reconcile poll). */
     refetchSession: fetchSession,
+    retryBroadcastGapRecovery: attemptBroadcastGapSnapshotRecovery,
   };
 };
