@@ -670,6 +670,39 @@ Deno.serve(async (req) => {
         continue;
       }
 
+      const finalPresence = await getDailyRoomPresence(room.name);
+      if (!finalPresence.ok) {
+        skippedUnknown += 1;
+        await recordAudit(supabase, {
+          room,
+          session,
+          action: "skipped_unknown",
+          reason: "provider_presence_second_check_failed",
+          activeCount: 0,
+          metadata: {
+            source: body.source ?? "manual",
+            dryRun: false,
+            providerStatus: finalPresence.status,
+            providerCode: finalPresence.providerCode,
+            providerReason: finalPresence.reason,
+          },
+        });
+        continue;
+      }
+
+      if (finalPresence.exists && finalPresence.activeCount > 0) {
+        skippedActive += 1;
+        await recordAudit(supabase, {
+          room,
+          session,
+          action: "skipped_active",
+          reason: "provider_presence_active_second_check",
+          activeCount: finalPresence.activeCount,
+          metadata: { source: body.source ?? "manual", dryRun: false },
+        });
+        continue;
+      }
+
       const removed = await deleteDailyRoom(room.name);
       deleteAttempts += 1;
       if (!removed) {

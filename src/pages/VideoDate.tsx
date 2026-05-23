@@ -103,6 +103,15 @@ import {
   type VideoDateSessionBroadcastEvent,
 } from "@clientShared/matching/videoDateSessionChannel";
 import {
+  mergeVideoDateBroadcastGapRecovery,
+  recordVideoDateBroadcastGapRecoveryFailure,
+  recordVideoDateBroadcastGapRecoverySuccess,
+  shouldAttemptVideoDateBroadcastGapRecovery,
+  shouldRetainVideoDateBroadcastGapRecoveryForEvent,
+  videoDateBroadcastGapRetryDelayMs,
+  type VideoDateBroadcastGapRecoveryState,
+} from "@clientShared/matching/videoDateBroadcastGapRecovery";
+import {
   applyVideoDateTimelineSnapshot,
   resolveVideoDateTimelineCountdown,
   type VideoDateTimelineState,
@@ -492,6 +501,9 @@ const VideoDate = () => {
   const sessionSeqRef = useRef<number | null>(null);
   const broadcastRefetchInFlightRef = useRef(false);
   const broadcastPendingRefetchSeqRef = useRef<number | null>(null);
+  const broadcastGapRecoveryRef = useRef<VideoDateBroadcastGapRecoveryState | null>(null);
+  const broadcastGapRetryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const attemptBroadcastGapSnapshotRecoveryRef = useRef<(source: string) => void>(() => {});
   const serverTimelineRef = useRef<VideoDateTimelineState | null>(null);
   /** Set after `handleCallEnd` is defined — avoids TDZ when `handleHandshakeDecision` closes over end UX. */
   const handleCallEndRef = useRef<((reason?: VideoDateEndReason) => Promise<void>) | null>(null);
@@ -2085,6 +2097,7 @@ const VideoDate = () => {
             if (handled) return;
           }
           setTimingRefreshNonce((n) => n + 1);
+          attemptBroadcastGapSnapshotRecoveryRef.current(`${source}_resume`);
         } catch (error) {
           trackEvent(LobbyPostDateEvents.VIDEO_DATE_FOREGROUND_RECONCILE_FAILED, {
             platform: "web",
@@ -2368,6 +2381,81 @@ const VideoDate = () => {
     [eventId, id, refetchCredits, user?.id],
   );
 
+  const clearBroadcastGapRetryTimer = useCallback(() => {
+    if (!broadcastGapRetryTimerRef.current) return;
+    clearTimeout(broadcastGapRetryTimerRef.current);
+    broadcastGapRetryTimerRef.current = null;
+  }, []);
+
+  const attemptBroadcastGapSnapshotRecovery = useCallback(
+    async (source: string) => {
+      if (!id || !user?.id || videoDateAccess !== "allowed") return;
+      const state = broadcastGapRecoveryRef.current;
+      if (!shouldAttemptVideoDateBroadcastGapRecovery(state)) return;
+      if (broadcastRefetchInFlightRef.current) return;
+
+      broadcastRefetchInFlightRef.current = true;
+      try {
+        const snapshot = await fetchVideoDateSnapshot(id, { includeToken: false });
+        const latestState =
+          broadcastGapRecoveryRef.current?.sessionId === state.sessionId
+            ? broadcastGapRecoveryRef.current
+            : state;
+        if (snapshot.ok === true) {
+          applyTimelineSnapshot(snapshot, source);
+          sessionSeqRef.current = Math.max(sessionSeqRef.current ?? 0, snapshot.seq);
+          broadcastGapRecoveryRef.current = recordVideoDateBroadcastGapRecoverySuccess(latestState, snapshot.seq);
+          if (snapshot.phase === "ended") {
+            const handled = await recoverTerminalPostDateSurvey(`${source}_terminal`);
+            if (handled) return;
+          }
+        } else {
+          broadcastGapRecoveryRef.current = recordVideoDateBroadcastGapRecoveryFailure(latestState, snapshot.error);
+        }
+        Sentry.addBreadcrumb({
+          category: "video-date-broadcast",
+          message: "snapshot_refetch_on_seq_gap_retry",
+          level: snapshot.ok ? "info" : "warning",
+          data: {
+            session_id: id,
+            event_id: eventId ?? null,
+            source,
+            target_seq: state.targetSeq,
+            expected_seq: state.expectedSeq,
+            attempt: state.attempts + 1,
+            snapshot_ok: snapshot.ok,
+          },
+        });
+        setTimingRefreshNonce((n) => n + 1);
+      } catch (error) {
+        broadcastGapRecoveryRef.current = recordVideoDateBroadcastGapRecoveryFailure(state, error);
+      } finally {
+        broadcastRefetchInFlightRef.current = false;
+      }
+
+      clearBroadcastGapRetryTimer();
+      const delayMs = videoDateBroadcastGapRetryDelayMs(broadcastGapRecoveryRef.current);
+      if (delayMs != null) {
+        broadcastGapRetryTimerRef.current = setTimeout(() => {
+          broadcastGapRetryTimerRef.current = null;
+          void attemptBroadcastGapSnapshotRecovery("bounded_timer");
+        }, delayMs);
+      }
+    },
+    [
+      applyTimelineSnapshot,
+      clearBroadcastGapRetryTimer,
+      eventId,
+      id,
+      recoverTerminalPostDateSurvey,
+      user?.id,
+      videoDateAccess,
+    ],
+  );
+  attemptBroadcastGapSnapshotRecoveryRef.current = (source: string) => {
+    void attemptBroadcastGapSnapshotRecovery(source);
+  };
+
   const reconcileBroadcastEvent = useCallback(
     async (event: VideoDateSessionBroadcastEvent) => {
       if (!id || !user?.id || videoDateAccess !== "allowed") return;
@@ -2375,6 +2463,31 @@ const VideoDate = () => {
       if (decision.action === "invalid" || decision.action === "duplicate") return;
 
       handleExtensionBroadcastEvent(event);
+      if (decision.action === "gap") {
+        broadcastGapRecoveryRef.current = mergeVideoDateBroadcastGapRecovery(broadcastGapRecoveryRef.current, {
+          sessionId: id,
+          targetSeq: event.sessionSeq,
+          expectedSeq: decision.expectedSeq,
+        });
+        if (broadcastRefetchInFlightRef.current) {
+          broadcastPendingRefetchSeqRef.current = Math.max(
+            broadcastPendingRefetchSeqRef.current ?? 0,
+            event.sessionSeq,
+          );
+          return;
+        }
+        void attemptBroadcastGapSnapshotRecovery("broadcast_seq_gap");
+        return;
+      }
+
+      const shouldRetainGapRecovery = shouldRetainVideoDateBroadcastGapRecoveryForEvent(
+        broadcastGapRecoveryRef.current,
+        event.sessionSeq,
+      );
+      if (!shouldRetainGapRecovery) {
+        clearBroadcastGapRetryTimer();
+        broadcastGapRecoveryRef.current = null;
+      }
       sessionSeqRef.current = event.sessionSeq;
       if (broadcastRefetchInFlightRef.current) {
         broadcastPendingRefetchSeqRef.current = Math.max(
@@ -2385,13 +2498,12 @@ const VideoDate = () => {
       }
       broadcastRefetchInFlightRef.current = true;
       try {
-        const initialExpectedSeq = decision.action === "gap" ? decision.expectedSeq : null;
-        let pendingRefetchSeq: number | null = decision.action === "gap" ? event.sessionSeq : null;
+        let pendingRefetchSeq: number | null = null;
         while (pendingRefetchSeq !== null) {
           const refetchSeq = pendingRefetchSeq;
           broadcastPendingRefetchSeqRef.current = null;
           const snapshot = await fetchVideoDateSnapshot(id, { includeToken: false });
-          if (snapshot.ok) {
+          if (snapshot.ok === true) {
             applyTimelineSnapshot(
               snapshot,
               refetchSeq === event.sessionSeq ? "broadcast_seq_gap" : "broadcast_queued_seq",
@@ -2411,7 +2523,7 @@ const VideoDate = () => {
               event_id: eventId ?? null,
               event_kind: event.kind,
               incoming_seq: refetchSeq,
-              expected_seq: refetchSeq === event.sessionSeq ? initialExpectedSeq : null,
+              expected_seq: null,
               snapshot_ok: snapshot.ok,
             },
           });
@@ -2421,8 +2533,23 @@ const VideoDate = () => {
       } finally {
         broadcastRefetchInFlightRef.current = false;
       }
+      if (shouldRetainGapRecovery) {
+        void attemptBroadcastGapSnapshotRecovery("broadcast_event_progress");
+      } else if (broadcastGapRecoveryRef.current) {
+        void attemptBroadcastGapSnapshotRecovery("broadcast_refetch_complete");
+      }
     },
-    [applyTimelineSnapshot, eventId, handleExtensionBroadcastEvent, id, recoverTerminalPostDateSurvey, user?.id, videoDateAccess],
+    [
+      applyTimelineSnapshot,
+      attemptBroadcastGapSnapshotRecovery,
+      clearBroadcastGapRetryTimer,
+      eventId,
+      handleExtensionBroadcastEvent,
+      id,
+      recoverTerminalPostDateSurvey,
+      user?.id,
+      videoDateAccess,
+    ],
   );
 
   useEffect(() => {
@@ -2451,9 +2578,12 @@ const VideoDate = () => {
     });
     return () => {
       subscription.unsubscribe();
+      clearBroadcastGapRetryTimer();
+      broadcastGapRecoveryRef.current = null;
     };
   }, [
     broadcastV2.enabled,
+    clearBroadcastGapRetryTimer,
     eventId,
     id,
     reconcileBroadcastEvent,

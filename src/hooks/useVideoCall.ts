@@ -40,8 +40,10 @@ import {
 } from "@clientShared/matching/dailyRoomFailure";
 import type { PreparedVideoDateEntryCacheEntry } from "@clientShared/matching/videoDatePrepareEntry";
 import {
+  isVideoDateDailyTokenFault,
   isVideoDateDailyTokenJoinError,
   shouldRefreshVideoDateTokenBeforeJoin,
+  videoDateTokenRefreshDelayMs,
 } from "@clientShared/matching/videoDatePublicApi";
 import {
   VIDEO_DATE_WEB_CAPTURE_PROFILE_ORDER,
@@ -820,6 +822,8 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
   const resilienceReceiveSettingsKeyRef = useRef<string | null>(null);
   const dailyListenerGenerationRef = useRef(0);
   const dailyEventListenerCleanupsRef = useRef<Array<() => void>>([]);
+  const dailyTokenRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const dailyTokenRecoveryInFlightRef = useRef(false);
 
   useEffect(() => {
     optionsRef.current = options;
@@ -843,6 +847,12 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
       reason,
       count: cleanups.length,
     });
+  }, []);
+
+  const clearDailyTokenRefreshTimer = useCallback(() => {
+    if (!dailyTokenRefreshTimerRef.current) return;
+    clearTimeout(dailyTokenRefreshTimerRef.current);
+    dailyTokenRefreshTimerRef.current = null;
   }, []);
 
   useEffect(() => {
@@ -2379,6 +2389,8 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
 
       if (callObject) {
         dailyListenerGenerationRef.current += 1;
+        clearDailyTokenRefreshTimer();
+        dailyTokenRecoveryInFlightRef.current = false;
         clearDailyEventListeners("daily_call_cleanup");
         try {
           vdbg("daily_call_leave_before", { caller, reason, sessionId, eventId, roomName });
@@ -2445,6 +2457,8 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
         callObjectRef.current = null;
       }
       activeCallSessionIdRef.current = null;
+      clearDailyTokenRefreshTimer();
+      dailyTokenRecoveryInFlightRef.current = false;
 
       if (localVideoRef.current) localVideoRef.current.srcObject = null;
       if (remoteVideoRef.current) remoteVideoRef.current.srcObject = null;
@@ -2496,6 +2510,7 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
     },
     [
       clearDailyEventListeners,
+      clearDailyTokenRefreshTimer,
       clearFirstRemoteWatchdog,
       clearReconnectGraceTimers,
       clearRemoteRenderValidation,
@@ -2827,6 +2842,8 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
       lastPrewarmedJoinInFlightRef.current = false;
       lastPrewarmedAlreadyJoinedRef.current = false;
       lastProviderVerifySkippedRef.current = null;
+      clearDailyTokenRefreshTimer();
+      dailyTokenRecoveryInFlightRef.current = false;
       clearFirstRemoteWatchdog();
       startAttemptNonceRef.current += 1;
       const startNonce = startAttemptNonceRef.current;
@@ -2938,8 +2955,14 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
         lastProviderVerifySkippedRef.current = roomData.provider_verify_skipped ?? null;
         const entryAttemptId = roomData.entry_attempt_id ?? roomResult.cacheEntry.entryAttemptId ?? null;
         const videoDateTraceId = roomData.video_date_trace_id ?? entryAttemptId;
+        type DailyTokenRefreshSourceAction =
+          | "daily_token_refresh_before_join"
+          | "daily_token_refresh_join_retry"
+          | "daily_token_refresh_before_expiry"
+          | "daily_token_refresh_after_ejection"
+          | "daily_token_refresh_after_auth_error";
         const refreshDailyTokenForJoin = async (
-          sourceAction: "daily_token_refresh_before_join" | "daily_token_refresh_join_retry",
+          sourceAction: DailyTokenRefreshSourceAction,
           cause?: unknown,
         ): Promise<boolean> => {
           const refreshStartedAtMs = Date.now();
@@ -3471,6 +3494,126 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
           void syncReconnectOnce(`${reason}_recovered`);
         };
 
+        const scheduleDailyTokenRefresh = (source: string) => {
+          clearDailyTokenRefreshTimer();
+          const delayMs = videoDateTokenRefreshDelayMs(roomData.token_expires_at);
+          if (delayMs == null) {
+            vdbg("daily_token_refresh_schedule_skipped", {
+              sessionId,
+              eventId: truthRow.event_id ?? eventId,
+              userId,
+              roomName: roomData.room_name,
+              source,
+              reason: "missing_token_expiry",
+            });
+            return;
+          }
+          vdbg("daily_token_refresh_scheduled", {
+            sessionId,
+            eventId: truthRow.event_id ?? eventId,
+            userId,
+            roomName: roomData.room_name,
+            tokenExpiresAt: roomData.token_expires_at ?? null,
+            delayMs,
+            source,
+          });
+          dailyTokenRefreshTimerRef.current = setTimeout(() => {
+            dailyTokenRefreshTimerRef.current = null;
+            void recoverDailyTokenAndRejoin("daily_token_refresh_before_expiry");
+          }, delayMs);
+        };
+
+        const recoverDailyTokenAndRejoin = async (
+          sourceAction: DailyTokenRefreshSourceAction,
+          cause?: unknown,
+        ): Promise<boolean> => {
+          if (!isCurrentDailyListener()) return false;
+          if (dailyTokenRecoveryInFlightRef.current) return false;
+          const activeCall = callObjectRef.current;
+          if (!activeCall || activeCall !== callObject || activeCallSessionIdRef.current !== sessionId) {
+            return false;
+          }
+
+          dailyTokenRecoveryInFlightRef.current = true;
+          clearDailyTokenRefreshTimer();
+          setIsConnecting(true);
+          vdbg("daily_token_rejoin_start", {
+            sessionId,
+            eventId: truthRow.event_id ?? eventId,
+            userId,
+            roomName: roomData.room_name,
+            sourceAction,
+          });
+          try {
+            const refreshed = await refreshDailyTokenForJoin(sourceAction, cause);
+            if (!refreshed) {
+              if (isCurrentDailyListener() && callObjectRef.current === activeCall) {
+                setIsConnecting(false);
+                startReconnectGrace("daily_token_refresh_failed");
+              }
+              return false;
+            }
+            if (!isCurrentDailyListener() || callObjectRef.current !== activeCall) {
+              return false;
+            }
+            try {
+              await activeCall.leave();
+            } catch (leaveError) {
+              vdbg("daily_token_rejoin_leave_failed", {
+                sessionId,
+                eventId: truthRow.event_id ?? eventId,
+                userId,
+                roomName: roomData.room_name,
+                sourceAction,
+                error: leaveError instanceof Error ? { name: leaveError.name, message: leaveError.message } : String(leaveError),
+              });
+            }
+            await activeCall.join({ url: roomData.room_url, token: roomData.token });
+            activeCallSessionIdRef.current = sessionId;
+            setIsConnected(true);
+            setIsConnecting(false);
+            recoverTransport("daily_token_rejoin");
+            scheduleDailyTokenRefresh("daily_token_rejoin_success");
+            vdbg("daily_token_rejoin_success", {
+              sessionId,
+              eventId: truthRow.event_id ?? eventId,
+              userId,
+              roomName: roomData.room_name,
+              sourceAction,
+              tokenExpiresAt: roomData.token_expires_at ?? null,
+            });
+            return true;
+          } catch (error) {
+            vdbg("daily_token_rejoin_failed", {
+              sessionId,
+              eventId: truthRow.event_id ?? eventId,
+              userId,
+              roomName: roomData.room_name,
+              sourceAction,
+              error: error instanceof Error ? { name: error.name, message: error.message } : String(error),
+            });
+            trackEvent(LobbyPostDateEvents.VIDEO_DATE_DAILY_TOKEN_FAILURE, {
+              platform: "web",
+              session_id: sessionId,
+              event_id: truthRow.event_id ?? eventId,
+              source_surface: "video_date_daily",
+              source_action: sourceAction,
+              code: "daily_token_rejoin_failed",
+              reason_code: "daily_token_rejoin_failed",
+              failure_class: classifyDailyRoomTokenFailureClass("network"),
+              retryable: true,
+              attempt_count: 1,
+            });
+            if (isCurrentDailyListener()) {
+              setIsConnecting(false);
+              startReconnectGrace("daily_token_rejoin_failed");
+            }
+            return false;
+          } finally {
+            dailyTokenRecoveryInFlightRef.current = false;
+          }
+        };
+
         bindDailyEvent("participant-joined", (event) => {
           if (!isCurrentDailyListener()) return;
           if (event && !event.participant?.local) {
@@ -3719,6 +3862,13 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
             roomName: roomData.room_name,
             errorMsg: errorMsg ?? null,
           });
+          if (isVideoDateDailyTokenFault(event)) {
+            const sourceAction = (errorMsg ?? "").toLowerCase().includes("eject")
+              ? "daily_token_refresh_after_ejection"
+              : "daily_token_refresh_after_auth_error";
+            void recoverDailyTokenAndRejoin(sourceAction, event);
+            return;
+          }
           const lowered = (errorMsg ?? "").toLowerCase();
           if (lowered.includes("stale")) {
             logTransportState("daily_ws_stale", { errorMsg: errorMsg ?? null });
@@ -3785,6 +3935,9 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
                 ? JSON.parse(JSON.stringify(event))
                 : String(event),
           });
+          if (isVideoDateDailyTokenFault(event)) {
+            void recoverDailyTokenAndRejoin("daily_token_refresh_after_auth_error", event);
+          }
         });
 
         bindDailyEvent("app-message", (event) => {
@@ -4025,6 +4178,7 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
         const joinDurationMs = Date.now() - dailyJoinStartedAtMs;
         setHasPermission(true);
         activeCallSessionIdRef.current = sessionId;
+        scheduleDailyTokenRefresh("daily_join_success");
         vdbg("daily_join_success", {
           sessionId,
           eventId: truthRow.event_id ?? eventId,
@@ -4441,6 +4595,7 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
       attachTracks,
       cleanupCallObject,
       clearDailyEventListeners,
+      clearDailyTokenRefreshTimer,
       clearFirstRemoteWatchdog,
       clearReconnectGraceTimers,
       fetchVideoDateTruth,

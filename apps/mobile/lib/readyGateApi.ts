@@ -25,6 +25,15 @@ import {
   resolveVideoDateSessionSeqDecision,
   type VideoDateSessionBroadcastEvent,
 } from '@clientShared/matching/videoDateSessionChannel';
+import {
+  mergeVideoDateBroadcastGapRecovery,
+  recordVideoDateBroadcastGapRecoveryFailure,
+  recordVideoDateBroadcastGapRecoverySuccess,
+  shouldAttemptVideoDateBroadcastGapRecovery,
+  shouldRetainVideoDateBroadcastGapRecoveryForEvent,
+  videoDateBroadcastGapRetryDelayMs,
+  type VideoDateBroadcastGapRecoveryState,
+} from '@clientShared/matching/videoDateBroadcastGapRecovery';
 
 const BOTH_READY = 'both_ready';
 const FORFEITED = 'forfeited';
@@ -148,6 +157,8 @@ export function useReadyGate(
   const syncSessionInFlightRef = useRef<Promise<ReadyGateSyncResult> | null>(null);
   const sessionSeqRef = useRef<number | null>(null);
   const broadcastRefetchInFlightRef = useRef(false);
+  const broadcastGapRecoveryRef = useRef<VideoDateBroadcastGapRecoveryState | null>(null);
+  const broadcastGapRetryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
     onBothReadyRef.current = options?.onBothReady;
     onForfeitedRef.current = options?.onForfeited;
@@ -159,6 +170,11 @@ export function useReadyGate(
     syncSessionInFlightRef.current = null;
     sessionSeqRef.current = null;
     broadcastRefetchInFlightRef.current = false;
+    broadcastGapRecoveryRef.current = null;
+    if (broadcastGapRetryTimerRef.current) {
+      clearTimeout(broadcastGapRetryTimerRef.current);
+      broadcastGapRetryTimerRef.current = null;
+    }
   }, [sessionId]);
 
   const notifyTerminal = useCallback((
@@ -329,34 +345,99 @@ export function useReadyGate(
     };
   }, [sessionId, userId, applyReadyGateTruth]);
 
+  const clearBroadcastGapRetryTimer = useCallback(() => {
+    if (!broadcastGapRetryTimerRef.current) return;
+    clearTimeout(broadcastGapRetryTimerRef.current);
+    broadcastGapRetryTimerRef.current = null;
+  }, []);
+
+  const attemptBroadcastGapSnapshotRecovery = useCallback(
+    async (source: string) => {
+      if (!sessionId || !userId) return;
+      const state = broadcastGapRecoveryRef.current;
+      if (!shouldAttemptVideoDateBroadcastGapRecovery(state)) return;
+      if (broadcastRefetchInFlightRef.current) return;
+
+      broadcastRefetchInFlightRef.current = true;
+      try {
+        const snapshot = await fetchVideoDateSnapshot(sessionId, { includeToken: false });
+        const latestState =
+          broadcastGapRecoveryRef.current?.sessionId === state.sessionId
+            ? broadcastGapRecoveryRef.current
+            : state;
+        if (snapshot.ok === true) {
+          sessionSeqRef.current = Math.max(sessionSeqRef.current ?? 0, snapshot.seq);
+          broadcastGapRecoveryRef.current = recordVideoDateBroadcastGapRecoverySuccess(latestState, snapshot.seq);
+        } else {
+          broadcastGapRecoveryRef.current = recordVideoDateBroadcastGapRecoveryFailure(latestState, snapshot.error);
+        }
+        rcBreadcrumb(RC_CATEGORY.readyGate, 'broadcast_seq_gap_snapshot_retry', {
+          sessionId,
+          eventId: options?.eventId ?? null,
+          source,
+          targetSeq: state.targetSeq,
+          expectedSeq: state.expectedSeq,
+          attempt: state.attempts + 1,
+          snapshotOk: snapshot.ok,
+        });
+        await fetchSession();
+      } catch (error) {
+        broadcastGapRecoveryRef.current = recordVideoDateBroadcastGapRecoveryFailure(state, error);
+      } finally {
+        broadcastRefetchInFlightRef.current = false;
+      }
+
+      clearBroadcastGapRetryTimer();
+      const delayMs = videoDateBroadcastGapRetryDelayMs(broadcastGapRecoveryRef.current);
+      if (delayMs != null) {
+        broadcastGapRetryTimerRef.current = setTimeout(() => {
+          broadcastGapRetryTimerRef.current = null;
+          void attemptBroadcastGapSnapshotRecovery('bounded_timer');
+        }, delayMs);
+      }
+    },
+    [clearBroadcastGapRetryTimer, fetchSession, options?.eventId, sessionId, userId],
+  );
+
   const reconcileBroadcastEvent = useCallback(
     async (event: VideoDateSessionBroadcastEvent) => {
       if (!sessionId || !userId) return;
       const decision = resolveVideoDateSessionSeqDecision(sessionSeqRef.current, event.sessionSeq);
       if (decision.action === 'invalid' || decision.action === 'duplicate') return;
 
+      if (decision.action === 'gap') {
+        broadcastGapRecoveryRef.current = mergeVideoDateBroadcastGapRecovery(broadcastGapRecoveryRef.current, {
+          sessionId,
+          targetSeq: event.sessionSeq,
+          expectedSeq: decision.expectedSeq,
+        });
+        void attemptBroadcastGapSnapshotRecovery('broadcast_seq_gap');
+        return;
+      }
+
+      const shouldRetainGapRecovery = shouldRetainVideoDateBroadcastGapRecoveryForEvent(
+        broadcastGapRecoveryRef.current,
+        event.sessionSeq,
+      );
+      if (!shouldRetainGapRecovery) {
+        clearBroadcastGapRetryTimer();
+        broadcastGapRecoveryRef.current = null;
+      }
       sessionSeqRef.current = event.sessionSeq;
       if (broadcastRefetchInFlightRef.current) return;
       broadcastRefetchInFlightRef.current = true;
       try {
-        if (decision.action === 'gap') {
-          const snapshot = await fetchVideoDateSnapshot(sessionId, { includeToken: false });
-          if (snapshot.ok) sessionSeqRef.current = snapshot.seq;
-          rcBreadcrumb(RC_CATEGORY.readyGate, 'broadcast_seq_gap_snapshot_refetch', {
-            sessionId,
-            eventId: options?.eventId ?? null,
-            eventKind: event.kind,
-            incomingSeq: event.sessionSeq,
-            expectedSeq: decision.expectedSeq,
-            snapshotOk: snapshot.ok,
-          });
-        }
         await fetchSession();
       } finally {
         broadcastRefetchInFlightRef.current = false;
       }
+      if (shouldRetainGapRecovery) {
+        void attemptBroadcastGapSnapshotRecovery('broadcast_event_progress');
+      } else if (broadcastGapRecoveryRef.current) {
+        void attemptBroadcastGapSnapshotRecovery('broadcast_refetch_complete');
+      }
     },
-    [fetchSession, options?.eventId, sessionId, userId],
+    [attemptBroadcastGapSnapshotRecovery, clearBroadcastGapRetryTimer, fetchSession, sessionId, userId],
   );
 
   useEffect(() => {
@@ -385,8 +466,10 @@ export function useReadyGate(
     });
     return () => {
       subscription.unsubscribe();
+      clearBroadcastGapRetryTimer();
+      broadcastGapRecoveryRef.current = null;
     };
-  }, [broadcastV2.enabled, options?.eventId, reconcileBroadcastEvent, sessionId, userId]);
+  }, [broadcastV2.enabled, clearBroadcastGapRetryTimer, options?.eventId, reconcileBroadcastEvent, sessionId, userId]);
 
   // Fallback sync while ready gate is active in case realtime misses transitions.
   useEffect(() => {
@@ -760,5 +843,6 @@ export function useReadyGate(
     isForfeited,
     isSnoozed,
     refetch: fetchSession,
+    retryBroadcastGapRecovery: attemptBroadcastGapSnapshotRecovery,
   };
 }

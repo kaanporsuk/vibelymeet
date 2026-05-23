@@ -5,6 +5,7 @@
  */
 
 import { useCallback, useEffect, useRef } from 'react';
+import { AppState, type AppStateStatus } from 'react-native';
 import { markEventParticipantHeartbeat, updateParticipantStatus } from '@/lib/videoDateApi';
 import { useFeatureFlag } from '@/hooks/useFeatureFlag';
 import { recordVideoDateHeartbeatV2 } from '@/lib/videoDateReadiness';
@@ -51,14 +52,35 @@ export function useEventStatus(eventId: string | undefined, userId: string | und
       if (!ok && __DEV__) console.warn('[eventStatus] initial status update failed');
     })();
     const heartbeat = setInterval(async () => {
+      const foreground = AppState.currentState === 'active';
       const ok = readinessV2.enabled
-        ? await recordVideoDateHeartbeatV2(eventId)
+        ? await recordVideoDateHeartbeatV2(eventId, { foreground })
         : await markEventParticipantHeartbeat(eventId);
       if (!ok && __DEV__) console.warn('[eventStatus] heartbeat update failed');
     }, HEARTBEAT_MS);
     return () => {
       clearInterval(heartbeat);
       updateParticipantStatus(eventId, 'offline').catch(() => {});
+    };
+  }, [enabled, eventId, readinessV2.enabled, userId]);
+
+  useEffect(() => {
+    if (!enabled || !eventId || !userId || !readinessV2.enabled) return;
+
+    const sendForegroundHeartbeat = async (state: AppStateStatus, source: string) => {
+      const ok = await recordVideoDateHeartbeatV2(eventId, {
+        foreground: state === 'active',
+      });
+      if (!ok && __DEV__) console.warn('[eventStatus] AppState heartbeat failed', source);
+    };
+
+    void sendForegroundHeartbeat(AppState.currentState, 'mount');
+    const subscription = AppState.addEventListener('change', (nextState) => {
+      void sendForegroundHeartbeat(nextState, 'app_state_change');
+    });
+    return () => {
+      subscription.remove();
+      void recordVideoDateHeartbeatV2(eventId, { foreground: false }).catch(() => {});
     };
   }, [enabled, eventId, readinessV2.enabled, userId]);
 

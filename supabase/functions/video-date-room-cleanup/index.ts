@@ -27,6 +27,21 @@ type DailyPresenceCheck =
   | { ok: true; exists: false; activeCount: 0 }
   | { ok: false; status: number | null; providerCode: string | null; reason: string };
 
+type CleanupSingleSelectBuilder = {
+  maybeSingle(): PromiseLike<{ data: { id?: string } | null; error: unknown }>;
+};
+
+type CleanupUpdateBuilder = {
+  eq(column: string, value: string | null): CleanupUpdateBuilder;
+  select(columns: string): CleanupSingleSelectBuilder;
+};
+
+type CleanupSupabaseClient = {
+  from(table: "video_sessions"): {
+    update(values: { daily_room_name: null; daily_room_url: null }): CleanupUpdateBuilder;
+  };
+};
+
 function toSafeProviderCode(value: unknown): string | null {
   if (typeof value !== "string") return null;
   const trimmed = value.trim();
@@ -130,7 +145,7 @@ async function deleteDailyRoom(roomName: string): Promise<boolean> {
 }
 
 async function markRoomCleaned(
-  supabase: ReturnType<typeof createClient>,
+  supabase: CleanupSupabaseClient,
   sessionId: string,
   roomName: string,
   endedAt: string | null,
@@ -276,6 +291,57 @@ serve(async (req) => {
           provider_status: presence.status,
           providerCode: presence.providerCode,
           reason: presence.reason,
+          ended_at: endedAt,
+          ended_reason: row.ended_reason,
+          ended_age_ms: ageMs,
+        }),
+      );
+      continue;
+    }
+
+    const finalPresence = await getDailyRoomPresence(name);
+    if (finalPresence.ok && !finalPresence.exists) {
+      const marked = await markRoomCleaned(supabase, row.id, name, endedAt);
+      if (marked) alreadyCleaned++;
+      console.log(
+        JSON.stringify({
+          event: "cleanup_room_not_found_second_check",
+          session_id: row.id,
+          room_name: name,
+          ended_at: endedAt,
+          ended_reason: row.ended_reason,
+          ended_age_ms: ageMs,
+        }),
+      );
+      continue;
+    }
+
+    if (finalPresence.ok && finalPresence.activeCount > 0) {
+      deferredActiveParticipants++;
+      console.log(
+        JSON.stringify({
+          event: "cleanup_delete_aborted_active_participants_second_check",
+          session_id: row.id,
+          room_name: name,
+          active_count: finalPresence.activeCount,
+          ended_at: endedAt,
+          ended_reason: row.ended_reason,
+          ended_age_ms: ageMs,
+        }),
+      );
+      continue;
+    }
+
+    if (!finalPresence.ok) {
+      deferredProviderCheckFailed++;
+      console.log(
+        JSON.stringify({
+          event: "cleanup_deferred_provider_second_check_failed",
+          session_id: row.id,
+          room_name: name,
+          provider_status: finalPresence.status,
+          providerCode: finalPresence.providerCode,
+          reason: finalPresence.reason,
           ended_at: endedAt,
           ended_reason: row.ended_reason,
           ended_age_ms: ageMs,

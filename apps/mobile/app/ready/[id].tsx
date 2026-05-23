@@ -80,6 +80,7 @@ export default function ReadyGateScreen() {
     inactiveReason,
     errorCode,
     terminal,
+    retryBroadcastGapRecovery,
   } = useReadyGate(sessionId ?? null, user?.id ?? null);
 
   const [partnerAvatar, setPartnerAvatar] = useState<string | null>(null);
@@ -337,11 +338,12 @@ export default function ReadyGateScreen() {
       if (state !== 'active') return;
       void syncSession();
       void reconcileFromCanonicalTruth('app_foreground');
+      void retryBroadcastGapRecovery('app_foreground');
     };
     handleAppState(AppState.currentState);
     const sub = AppState.addEventListener('change', handleAppState);
     return () => sub.remove();
-  }, [reconcileFromCanonicalTruth, sessionId, sessionLookupDone, syncSession, user?.id]);
+  }, [reconcileFromCanonicalTruth, retryBroadcastGapRecovery, sessionId, sessionLookupDone, syncSession, user?.id]);
 
   useEffect(() => {
     if (!sessionId || !user?.id) return;

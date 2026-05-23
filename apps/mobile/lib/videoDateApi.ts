@@ -31,6 +31,15 @@ import {
   type VideoDateSessionBroadcastEvent,
 } from '@clientShared/matching/videoDateSessionChannel';
 import {
+  mergeVideoDateBroadcastGapRecovery,
+  recordVideoDateBroadcastGapRecoveryFailure,
+  recordVideoDateBroadcastGapRecoverySuccess,
+  shouldAttemptVideoDateBroadcastGapRecovery,
+  shouldRetainVideoDateBroadcastGapRecoveryForEvent,
+  videoDateBroadcastGapRetryDelayMs,
+  type VideoDateBroadcastGapRecoveryState,
+} from '@clientShared/matching/videoDateBroadcastGapRecovery';
+import {
   applyVideoDateTimelineSnapshot,
   resolveVideoDateTimelineCountdown,
   type VideoDateTimelineState,
@@ -216,6 +225,8 @@ export function useVideoDateSession(
   const currentSessionKeyRef = useRef<string | null>(null);
   const sessionSeqRef = useRef<number | null>(null);
   const broadcastRefetchInFlightRef = useRef(false);
+  const broadcastGapRecoveryRef = useRef<VideoDateBroadcastGapRecoveryState | null>(null);
+  const broadcastGapRetryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const timelineRef = useRef<VideoDateTimelineState | null>(null);
   const onBroadcastEvent = options?.onBroadcastEvent;
 
@@ -223,6 +234,11 @@ export function useVideoDateSession(
     currentSessionKeyRef.current = sessionId && userId ? `${sessionId}:${userId}` : null;
     sessionSeqRef.current = null;
     broadcastRefetchInFlightRef.current = false;
+    broadcastGapRecoveryRef.current = null;
+    if (broadcastGapRetryTimerRef.current) {
+      clearTimeout(broadcastGapRetryTimerRef.current);
+      broadcastGapRetryTimerRef.current = null;
+    }
     timelineRef.current = null;
     setTimeline(null);
     return () => {
@@ -491,6 +507,77 @@ export function useVideoDateSession(
     };
   }, [sessionId, resolvePhaseAndTime]);
 
+  const clearBroadcastGapRetryTimer = useCallback(() => {
+    if (!broadcastGapRetryTimerRef.current) return;
+    clearTimeout(broadcastGapRetryTimerRef.current);
+    broadcastGapRetryTimerRef.current = null;
+  }, []);
+
+  const attemptBroadcastGapSnapshotRecovery = useCallback(
+    async (source: string) => {
+      if (!sessionId || !userId) return;
+      const state = broadcastGapRecoveryRef.current;
+      if (!shouldAttemptVideoDateBroadcastGapRecovery(state)) return;
+      if (broadcastRefetchInFlightRef.current) return;
+
+      broadcastRefetchInFlightRef.current = true;
+      try {
+        const snapshot = await fetchVideoDateSnapshot(sessionId, { includeToken: false });
+        const latestState =
+          broadcastGapRecoveryRef.current?.sessionId === state.sessionId
+            ? broadcastGapRecoveryRef.current
+            : state;
+        if (snapshot.ok === true) {
+          if (timelineV2.enabled) {
+            const timelineDecision = applyVideoDateTimelineSnapshot(snapshot, timelineRef.current, {
+              clientNowMs: Date.now(),
+              expectedSessionId: sessionId,
+            });
+            if (
+              timelineDecision.action === 'accepted' &&
+              (sessionSeqRef.current === null || timelineDecision.timeline.seq >= sessionSeqRef.current)
+            ) {
+              timelineRef.current = timelineDecision.timeline;
+              setTimeline(timelineDecision.timeline);
+            }
+          }
+          sessionSeqRef.current = Math.max(sessionSeqRef.current ?? 0, snapshot.seq);
+          broadcastGapRecoveryRef.current = recordVideoDateBroadcastGapRecoverySuccess(latestState, snapshot.seq);
+        } else {
+          broadcastGapRecoveryRef.current = recordVideoDateBroadcastGapRecoveryFailure(latestState, snapshot.error);
+        }
+        Sentry.addBreadcrumb({
+          category: 'video-date-broadcast',
+          message: 'snapshot_refetch_on_seq_gap_retry',
+          level: snapshot.ok ? 'info' : 'warning',
+          data: {
+            session_id: sessionId,
+            source,
+            target_seq: state.targetSeq,
+            expected_seq: state.expectedSeq,
+            attempt: state.attempts + 1,
+            snapshot_ok: snapshot.ok,
+          },
+        });
+        await fetchSession();
+      } catch (error) {
+        broadcastGapRecoveryRef.current = recordVideoDateBroadcastGapRecoveryFailure(state, error);
+      } finally {
+        broadcastRefetchInFlightRef.current = false;
+      }
+
+      clearBroadcastGapRetryTimer();
+      const delayMs = videoDateBroadcastGapRetryDelayMs(broadcastGapRecoveryRef.current);
+      if (delayMs != null) {
+        broadcastGapRetryTimerRef.current = setTimeout(() => {
+          broadcastGapRetryTimerRef.current = null;
+          void attemptBroadcastGapSnapshotRecovery('bounded_timer');
+        }, delayMs);
+      }
+    },
+    [clearBroadcastGapRetryTimer, fetchSession, sessionId, timelineV2.enabled, userId],
+  );
+
   const reconcileBroadcastEvent = useCallback(
     async (event: VideoDateSessionBroadcastEvent) => {
       if (!sessionId || !userId) return;
@@ -498,47 +585,39 @@ export function useVideoDateSession(
       if (decision.action === 'invalid' || decision.action === 'duplicate') return;
 
       onBroadcastEvent?.(event);
+      if (decision.action === 'gap') {
+        broadcastGapRecoveryRef.current = mergeVideoDateBroadcastGapRecovery(broadcastGapRecoveryRef.current, {
+          sessionId,
+          targetSeq: event.sessionSeq,
+          expectedSeq: decision.expectedSeq,
+        });
+        void attemptBroadcastGapSnapshotRecovery('broadcast_seq_gap');
+        return;
+      }
+
+      const shouldRetainGapRecovery = shouldRetainVideoDateBroadcastGapRecoveryForEvent(
+        broadcastGapRecoveryRef.current,
+        event.sessionSeq,
+      );
+      if (!shouldRetainGapRecovery) {
+        clearBroadcastGapRetryTimer();
+        broadcastGapRecoveryRef.current = null;
+      }
       sessionSeqRef.current = event.sessionSeq;
       if (broadcastRefetchInFlightRef.current) return;
       broadcastRefetchInFlightRef.current = true;
       try {
-        if (decision.action === 'gap') {
-          const snapshot = await fetchVideoDateSnapshot(sessionId, { includeToken: false });
-          if (snapshot.ok) {
-            if (timelineV2.enabled) {
-              const timelineDecision = applyVideoDateTimelineSnapshot(snapshot, timelineRef.current, {
-                clientNowMs: Date.now(),
-                expectedSessionId: sessionId,
-              });
-              if (
-                timelineDecision.action === 'accepted' &&
-                (sessionSeqRef.current === null || timelineDecision.timeline.seq >= sessionSeqRef.current)
-              ) {
-                timelineRef.current = timelineDecision.timeline;
-                setTimeline(timelineDecision.timeline);
-              }
-            }
-            sessionSeqRef.current = Math.max(sessionSeqRef.current ?? 0, snapshot.seq);
-          }
-          Sentry.addBreadcrumb({
-            category: 'video-date-broadcast',
-            message: 'snapshot_refetch_on_seq_gap',
-            level: snapshot.ok ? 'info' : 'warning',
-            data: {
-              session_id: sessionId,
-              event_kind: event.kind,
-              incoming_seq: event.sessionSeq,
-              expected_seq: decision.expectedSeq,
-              snapshot_ok: snapshot.ok,
-            },
-          });
-        }
         await fetchSession();
       } finally {
         broadcastRefetchInFlightRef.current = false;
       }
+      if (shouldRetainGapRecovery) {
+        void attemptBroadcastGapSnapshotRecovery('broadcast_event_progress');
+      } else if (broadcastGapRecoveryRef.current) {
+        void attemptBroadcastGapSnapshotRecovery('broadcast_refetch_complete');
+      }
     },
-    [fetchSession, onBroadcastEvent, sessionId, timelineV2.enabled, userId],
+    [attemptBroadcastGapSnapshotRecovery, clearBroadcastGapRetryTimer, fetchSession, onBroadcastEvent, sessionId, userId],
   );
 
   useEffect(() => {
@@ -573,10 +652,12 @@ export function useVideoDateSession(
     });
     return () => {
       subscription.unsubscribe();
+      clearBroadcastGapRetryTimer();
+      broadcastGapRecoveryRef.current = null;
     };
-  }, [broadcastV2.enabled, reconcileBroadcastEvent, sessionId, userId]);
+  }, [broadcastV2.enabled, clearBroadcastGapRetryTimer, reconcileBroadcastEvent, sessionId, userId]);
 
-  return { session, partner, phase, timeLeft, timeline, loading, isRefreshing, error, refetch: fetchSession };
+  return { session, partner, phase, timeLeft, timeline, loading, isRefreshing, error, refetch: fetchSession, retryBroadcastGapRecovery: attemptBroadcastGapSnapshotRecovery };
 }
 
 /** Get Daily room token via daily-room Edge Function (prepare_date_entry). Same contract as web; returns classified errors. */
