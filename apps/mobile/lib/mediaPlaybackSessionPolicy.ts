@@ -1,5 +1,6 @@
 import {
   createMediaPlaybackSessionPolicy,
+  mediaPlaybackAbrPolicy,
   type MediaConnectionSnapshot,
   PREWARM_SESSION_BYTE_LIMIT,
   REBUFFER_DEGRADE_THRESHOLD,
@@ -45,6 +46,7 @@ export {
   PREWARM_SESSION_BYTE_LIMIT,
   REBUFFER_DEGRADE_THRESHOLD,
   REBUFFER_DEGRADE_WINDOW_MS,
+  mediaPlaybackAbrPolicy,
 };
 
 export const {

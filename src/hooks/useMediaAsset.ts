@@ -12,7 +12,7 @@ import {
   type MediaAssetResolveResult,
 } from "@/lib/mediaAssetResolver";
 import { attachHlsPlayback } from "@/lib/vibeVideo/attachHlsPlayback";
-import type { HlsAuthErrorRefreshDetail } from "@/lib/vibeVideo/attachHlsPlayback";
+import type { HlsAuthErrorRefreshDetail, HlsPlaybackRefreshResult } from "@/lib/vibeVideo/attachHlsPlayback";
 import type { MediaPlaceholderKind } from "@clientShared/media/placeholders";
 
 export type { MediaAssetKind } from "@/lib/mediaAssetResolver";
@@ -47,12 +47,14 @@ type UseMediaAssetResult = {
 type UseMediaAssetPlaybackOptions = {
   enabled?: boolean;
   autoPlay?: boolean;
+  expiresAtMs?: number | null;
   onAutoplayBlocked?: (detail?: unknown) => void;
   onManifestParsed?: () => void;
   onError?: (kind: "native" | "unsupported" | "fatal", detail?: unknown) => void;
   onAuthErrorRefresh?: (
     detail: HlsAuthErrorRefreshDetail,
-  ) => Promise<string | null | undefined> | string | null | undefined;
+  ) => Promise<HlsPlaybackRefreshResult> | HlsPlaybackRefreshResult;
+  onProactiveRefresh?: () => Promise<HlsPlaybackRefreshResult> | HlsPlaybackRefreshResult;
 };
 
 const PROACTIVE_REFRESH_LEAD_MS = 5 * 60 * 1000;
@@ -238,13 +240,14 @@ export function useMediaAsset({
   useEffect(() => {
     const canRefreshScopedAsset = !!messageId || kind === "profile_vibe_video";
     if (!enabled || !canRefreshScopedAsset || !sourceRef || !expiresAtMs || !Number.isFinite(expiresAtMs)) return;
+    if (url && isHlsMediaAssetUrl(url)) return;
     const delayMs = proactiveRefreshDelayMs(expiresAtMs);
     if (delayMs === null) return;
     const timeout = window.setTimeout(() => {
       void refresh("proactive");
     }, delayMs);
     return () => window.clearTimeout(timeout);
-  }, [enabled, expiresAtMs, kind, messageId, refresh, sourceRef]);
+  }, [enabled, expiresAtMs, kind, messageId, refresh, sourceRef, url]);
 
   useEffect(() => {
     if (
@@ -339,16 +342,21 @@ export function useMediaAssetPlayback(
   {
     enabled = true,
     autoPlay = true,
+    expiresAtMs = null,
     onAutoplayBlocked,
     onManifestParsed,
     onError,
     onAuthErrorRefresh,
+    onProactiveRefresh,
   }: UseMediaAssetPlaybackOptions = {},
 ): void {
   const onAutoplayBlockedRef = useRef(onAutoplayBlocked);
   const onManifestParsedRef = useRef(onManifestParsed);
   const onErrorRef = useRef(onError);
   const onAuthErrorRefreshRef = useRef(onAuthErrorRefresh);
+  const onProactiveRefreshRef = useRef(onProactiveRefresh);
+  const hasAuthErrorRefresh = typeof onAuthErrorRefresh === "function";
+  const hasProactiveRefresh = typeof onProactiveRefresh === "function";
 
   useEffect(() => {
     onAutoplayBlockedRef.current = onAutoplayBlocked;
@@ -367,16 +375,22 @@ export function useMediaAssetPlayback(
   }, [onAuthErrorRefresh]);
 
   useEffect(() => {
+    onProactiveRefreshRef.current = onProactiveRefresh;
+  }, [onProactiveRefresh]);
+
+  useEffect(() => {
     const video = videoRef.current;
     if (!enabled || !video || !sourceUrl) return;
 
     if (isHlsMediaAssetUrl(sourceUrl)) {
       return attachHlsPlayback(video, sourceUrl, {
         autoPlay,
+        expiresAtMs,
         onAutoplayBlocked: (detail) => onAutoplayBlockedRef.current?.(detail),
         onManifestParsed: () => onManifestParsedRef.current?.(),
         onError: (kind, detail) => onErrorRef.current?.(kind, detail),
-        onAuthErrorRefresh: (detail) => onAuthErrorRefreshRef.current?.(detail),
+        onAuthErrorRefresh: hasAuthErrorRefresh ? (detail) => onAuthErrorRefreshRef.current?.(detail) : undefined,
+        onProactiveRefresh: hasProactiveRefresh ? () => onProactiveRefreshRef.current?.() : undefined,
       });
     }
 
@@ -390,5 +404,5 @@ export function useMediaAssetPlayback(
       video.removeAttribute("src");
       video.load();
     };
-  }, [autoPlay, enabled, sourceUrl, videoRef]);
+  }, [autoPlay, enabled, expiresAtMs, hasAuthErrorRefresh, hasProactiveRefresh, sourceUrl, videoRef]);
 }

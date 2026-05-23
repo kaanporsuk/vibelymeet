@@ -7,6 +7,12 @@ import { supabase } from '@/lib/supabase';
 import { disablePush } from '@/lib/onesignal';
 import { PAUSED_UNTIL_KEY } from '@/lib/notificationPause';
 
+function syncPushAfterRestoringDelivery(userId: string): void {
+  void import('@/lib/onesignal')
+    .then(({ syncPushWithBackendIfPermissionGranted }) => syncPushWithBackendIfPermissionGranted(userId))
+    .catch(() => undefined);
+}
+
 export async function applyMasterPushEnabled(userId: string, enabled: boolean): Promise<void> {
   const { error } = await supabase.from('notification_preferences').upsert(
     { user_id: userId, push_enabled: enabled },
@@ -23,5 +29,6 @@ export async function applyMasterPushEnabled(userId: string, enabled: boolean): 
   const isPaused = !!(stored && new Date(stored) > new Date());
   if (!isPaused) {
     disablePush(false);
+    syncPushAfterRestoringDelivery(userId);
   }
 }

@@ -202,7 +202,9 @@ Vibely expects OneSignal’s external user model to be bound directly to the Sup
 
 ## 7. Frontend sync into Supabase
 
-The frontend persists OneSignal subscription identity into `notification_preferences`.
+The frontend registers OneSignal subscription identity into `push_subscriptions` and mirrors
+the current web/native subscription into `notification_preferences` for compatibility,
+health UI, and preference diagnostics.
 
 ## A. Auth-context sync on login/session
 `src/contexts/AuthContext.tsx` runs `syncOneSignal(userId)`.
@@ -211,20 +213,25 @@ Observed behavior:
 1. calls `setExternalUserId(userId)`  
 2. reads `playerId` via `getPlayerId()`  
 3. reads subscription state via `isSubscribed()`  
-4. upserts into `notification_preferences`:
-   - `user_id`
-   - `onesignal_player_id`
-   - `onesignal_subscribed`
+4. calls `register_onesignal_push_subscription`:
+   - `p_subscription_id`
+   - `p_platform`
+   - `p_subscribed`
+5. mirrors the current device/browser into legacy `notification_preferences` columns:
+   - `onesignal_player_id` / `onesignal_subscribed`
+   - `mobile_onesignal_player_id` / `mobile_onesignal_subscribed`
 
 ## B. Prompt-driven sync
-`PushPermissionPrompt` and `NotificationsDrawer` also upsert:
+`PushPermissionPrompt` and `NotificationsDrawer` also register the active browser
+subscription and mirror:
 - `onesignal_player_id`
 - `onesignal_subscribed = true`
 
 after permission is granted.
 
 ### Important implication
-Successful OneSignal delivery depends on `notification_preferences` being in sync with browser subscription state.
+Successful OneSignal delivery depends on `push_subscriptions` or the legacy
+`notification_preferences` mirrors being in sync with browser/native subscription state.
 
 If the browser grants permission but the upsert fails, the backend will later suppress sends with:
 - `no_player_id`
@@ -233,7 +240,8 @@ If the browser grants permission but the upsert fails, the backend will later su
 
 ## 8. Notification preferences model
 
-`notification_preferences` is the main local control surface for push behavior.
+`notification_preferences` remains the local preference/control surface for push behavior.
+`push_subscriptions` is the durable multi-device subscription ownership surface.
 
 Observed push-related columns include:
 - `push_enabled`
@@ -284,8 +292,8 @@ The function checks, in order:
 - per-match mute / legacy match notification mute
 - quiet hours
 - message throttling
-- presence of `onesignal_player_id`
-- `onesignal_subscribed`
+- presence of at least one subscribed OneSignal ID from `push_subscriptions`
+  or the legacy `notification_preferences` web/mobile mirrors
 
 ## C. OneSignal send payload
 If allowed, the function POSTs to:
@@ -293,7 +301,8 @@ If allowed, the function POSTs to:
 
 Payload includes:
 - `app_id`
-- `include_player_ids: [prefs.onesignal_player_id]`
+- `include_subscription_ids: [subscribed OneSignal subscription IDs]`
+- `target_channel: "push"`
 - `headings.en = title`
 - `contents.en = body`
 - `data`
@@ -301,8 +310,8 @@ Payload includes:
 - optional `chrome_web_image`
 
 ### Important implication
-The backend send model targets **OneSignal player IDs**, not external user IDs directly.
-So the `onesignal_player_id` sync path is operationally critical.
+The backend send model targets **OneSignal subscription IDs**, not external user IDs directly.
+So the `push_subscriptions` sync path and legacy mirror columns are operationally critical.
 
 ## D. Logging behavior
 The function writes to:
@@ -366,7 +375,7 @@ So it is possible for OneSignal delivery to work while `push_notification_events
 - OneSignal app ID is read from `VITE_ONESIGNAL_APP_ID`
 - backend sends to OneSignal REST API
 - frontend binds Vibely user ID via `OneSignal.login(userId)`
-- player ID and subscription state are persisted in `notification_preferences`
+- subscription identity is persisted in `push_subscriptions` and mirrored in `notification_preferences`
 - push click behavior deep-links using notification `data.url`
 
 ## Ambiguous / not proven strongly by repo
@@ -433,7 +442,7 @@ The repo proves the code contract, but not the provider-side setup.
 - env-backed frontend app ID usage through `VITE_ONESIGNAL_APP_ID`
 - SDK load path and init settings
 - external user binding to Supabase user ID
-- `onesignal_player_id` persistence into `notification_preferences`
+- OneSignal subscription persistence into `push_subscriptions` plus legacy preference mirrors
 - backend REST send payload shape
 - local preference/mute/quiet-hours gating before provider send
 - existence of a generic webhook ingestion path and admin monitoring views
@@ -457,7 +466,8 @@ Backend app ID comes from env.
 If they drift, Vibely can subscribe in one app and send in another.
 
 ## Risk 2 — Subscription sync failure looks like silent suppression
-If `onesignal_player_id` or `onesignal_subscribed` is missing in `notification_preferences`, backend sends are suppressed with:
+If no subscribed OneSignal ID exists in `push_subscriptions` or the legacy preference mirrors,
+backend sends are suppressed with:
 - `no_player_id`
 
 The app may still appear permission-enabled to the user.
@@ -497,7 +507,8 @@ Verify:
 - permission prompt works
 - `OneSignal.login(userId)` succeeds
 - `getPlayerId()` returns a value
-- `notification_preferences.onesignal_player_id` is written
+- a `push_subscriptions` row is written for the browser subscription
+- `notification_preferences.onesignal_player_id` is mirrored
 - `notification_preferences.onesignal_subscribed = true`
 
 ### Step 4 — Remote send test

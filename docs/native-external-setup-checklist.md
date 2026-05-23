@@ -112,7 +112,7 @@ Checklist for closing IAP on real devices before TestFlight/Play or production. 
 
 ## 3. OneSignal (Kaan: dashboard and device setup)
 
-App code is ready: init, request permission, login(userId), get subscription ID, upsert `notification_preferences` with `mobile_onesignal_player_id` and `mobile_onesignal_subscribed`. Backend `send-notification` targets this device when delivering to `user_id`. No further code changes required.
+App code is ready: init, request permission, login(userId), get subscription ID, register it in `push_subscriptions`, and mirror `notification_preferences.mobile_onesignal_player_id` / `mobile_onesignal_subscribed` for compatibility. Backend `send-notification` targets all subscribed OneSignal IDs when delivering to `user_id`.
 
 ### 3.1 Env and config
 
@@ -137,9 +137,9 @@ App code is ready: init, request permission, login(userId), get subscription ID,
 1. **Build:** Use EAS `preview` or `production` for iOS so OneSignal plugin uses production APNs (or use dev build and expect dev APNs).
 2. **Install** on a physical device; sign in with a test user.
 3. **Grant notification permission** when the app prompts (or in Settings).
-4. **Verify backend:** In Supabase `notification_preferences`, confirm a row for the user with `mobile_onesignal_player_id` non-null and `mobile_onesignal_subscribed = true`.
+4. **Verify backend:** In Supabase, confirm a `push_subscriptions` row for the user and the legacy `notification_preferences.mobile_onesignal_player_id` mirror with `mobile_onesignal_subscribed = true`.
 5. **Send test:** In OneSignal dashboard → Messages, send a test notification to that user (or by player ID). Device should receive it.
-6. **Sign out:** Sign out in app; optionally verify in OneSignal that the subscription is no longer tied to that user (app calls `OneSignal.logout()`).
+6. **Sign out:** Sign out in app; optionally verify in OneSignal/Supabase that the subscription is no longer tied to that user (app unregisters it, opts out locally, then calls `OneSignal.logout()`).
 
 ### 3.5 OneSignal web (production — release-readiness caveat)
 

@@ -7,7 +7,12 @@ import { useMediaAsset, useMediaAssetPlayback } from "@/hooks/useMediaAsset";
 import { useMediaPlaybackQoE } from "@/hooks/useMediaPlaybackQoE";
 import { usePrefersReducedMotion } from "@/hooks/usePrefersReducedMotion";
 import { useMediaVideoPreloadForVisibility } from "@/hooks/useMediaVideoPreloadPolicy";
-import { isHlsMediaAssetUrl, isProfileVibeVideoRef, prewarmMediaAssets } from "@/lib/mediaAssetResolver";
+import {
+  isHlsMediaAssetUrl,
+  isProfileVibeVideoRef,
+  prewarmMediaAssets,
+  refreshMediaAsset as refreshResolvedMediaAsset,
+} from "@/lib/mediaAssetResolver";
 import { MediaPlaceholder } from "@/components/media/MediaPlaceholder";
 import { trackVibeVideoEvent, VIBE_VIDEO_EVENTS } from "@/lib/vibeVideo/vibeVideoTelemetry";
 import {
@@ -77,7 +82,7 @@ export const VibePlayer = ({
     placeholderHash,
     dominantColor,
     status: mediaAssetStatus,
-    refresh: refreshMediaAsset,
+    expiresAtMs: mediaAssetExpiresAtMs,
   } = useMediaAsset({
     kind: usesSignedProfileRef ? "profile_vibe_video" : "vibe_video",
     sourceRef: videoUrl,
@@ -226,13 +231,15 @@ export const VibePlayer = ({
     hlsAuthRefreshAttemptCountRef.current += 1;
     const attempt = hlsAuthRefreshAttemptCountRef.current;
     try {
-      const freshUrl = await refreshMediaAsset("playback", { bypassFailureCooldown: true });
+      const freshAsset = await refreshResolvedMediaAsset("", "profile_vibe_video", videoUrl, {
+        bypassFailureCooldown: true,
+      });
       trackVibeVideoEvent(VIBE_VIDEO_EVENTS.tokenRefreshOnAuthError, {
         source: "vibe_player_inline",
         attempt,
-        outcome: freshUrl ? "refreshed" : "unavailable",
+        outcome: freshAsset?.url ? "refreshed" : "unavailable",
       });
-      return freshUrl;
+      return freshAsset;
     } catch {
       trackVibeVideoEvent(VIBE_VIDEO_EVENTS.tokenRefreshOnAuthError, {
         source: "vibe_player_inline",
@@ -241,7 +248,11 @@ export const VibePlayer = ({
       });
       return null;
     }
-  }, [refreshMediaAsset, usesSignedProfileRef]);
+  }, [usesSignedProfileRef, videoUrl]);
+  const refreshPlaybackProactively = useCallback(async () => {
+    if (!usesSignedProfileRef) return null;
+    return refreshResolvedMediaAsset("", "profile_vibe_video", videoUrl, { suppressFailureCache: true });
+  }, [usesSignedProfileRef, videoUrl]);
 
   const reportFirstFrame = useCallback(() => {
     if (firstFrameReportedRef.current) return;
@@ -275,8 +286,10 @@ export const VibePlayer = ({
   useMediaAssetPlayback(videoRef, playbackUrl, {
     enabled: shouldAttachPlayback,
     autoPlay: false,
+    expiresAtMs: mediaAssetExpiresAtMs,
     onError: handlePlaybackAttachError,
     onAuthErrorRefresh: refreshPlaybackOnAuthError,
+    onProactiveRefresh: refreshPlaybackProactively,
   });
 
   useEffect(() => {

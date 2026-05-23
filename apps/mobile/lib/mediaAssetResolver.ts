@@ -13,7 +13,12 @@ import {
   normalizeMediaPlaceholderKind,
   type MediaPlaceholderKind,
 } from '@clientShared/media/placeholders';
-import { reserveMediaPrewarmBudgetForSource } from '@/lib/mediaPlaybackSessionPolicy';
+import {
+  isMediaPlaybackQoeDegraded,
+  mediaConnectionSnapshot,
+  mediaPlaybackAbrPolicy,
+  reserveMediaPrewarmBudgetForSource,
+} from '@/lib/mediaPlaybackSessionPolicy';
 
 export type MediaAssetKind = 'image' | 'voice' | 'video' | 'vibe_clip' | 'thumbnail' | 'profile_vibe_video';
 export type MediaAssetResolveResult = {
@@ -676,6 +681,7 @@ function primeNativeReduceMotionSnapshot(): void {
 }
 
 async function shouldSkipHlsPlaybackPrewarm(): Promise<boolean> {
+  if (mediaPlaybackAbrPolicy(mediaConnectionSnapshot(), isMediaPlaybackQoeDegraded()).skipPrewarm) return true;
   primeNativeReduceMotionSnapshot();
   if (nativeReduceMotionSnapshot !== null) return nativeReduceMotionSnapshot;
   try {

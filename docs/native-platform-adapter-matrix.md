@@ -5,7 +5,7 @@ Platform-specific integrations used by the native app. No provider swaps; these 
 | Platform concern | Provider | Web | Native | Notes |
 |------------------|----------|-----|--------|------|
 | **Payments / entitlements** | RevenueCat | — | iOS/Android in-app purchases; offerings, purchase, restore | Web uses Stripe. Backend reconciles via RevenueCat webhook + entitlement resolver. Bundle ID: `com.vibelymeet.vibely`. |
-| **Push notifications** | OneSignal | Web SDK; player ID in `notification_preferences` | OneSignal native SDK; register player ID with same backend; `send-notification` targets all | Same app/config where possible; deep links to native routes (e.g. `/chat/:id`, `/ready/:id`). |
+| **Push notifications** | OneSignal | Web SDK; register subscription in `push_subscriptions` and mirror legacy web prefs | OneSignal native SDK; register subscription in `push_subscriptions` and mirror legacy mobile prefs; `send-notification` targets all subscribed IDs | Same app/config where possible; deep links to native routes (e.g. `/chat/:id`, `/ready/:id`). |
 | **Video (live)** | Daily | daily-room EF; Web SDK | Daily React Native SDK; same `daily-room` EF for token | Same Supabase project and room naming; mobile-specific permissions/reconnect handled in client. |
 | **Backend** | Supabase | Same project, anon key, RLS | Same project; publishable or anon key; SecureStore for session | No separate “mobile” project. |
 | **Media (images/video)** | Bunny | Upload via Edge Functions (upload-image, upload-chat-video, etc.); CDN URLs in profiles/messages | Same upload endpoints and CDN host; optional `EXPO_PUBLIC_BUNNY_CDN_HOSTNAME` | Same buckets and URLs for parity. |

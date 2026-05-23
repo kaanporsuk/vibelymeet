@@ -225,13 +225,14 @@ export function useMediaAsset({
   useEffect(() => {
     const canRefreshScopedAsset = !!messageId || kind === 'profile_vibe_video';
     if (!enabled || !canRefreshScopedAsset || !sourceRef || !expiresAtMs || !Number.isFinite(expiresAtMs)) return;
+    if (kind === 'profile_vibe_video' && url && isHlsMediaAssetUrl(url)) return;
     const delayMs = proactiveRefreshDelayMs(expiresAtMs);
     if (delayMs === null) return;
     const timeout = setTimeout(() => {
       void refresh('proactive');
     }, delayMs);
     return () => clearTimeout(timeout);
-  }, [enabled, expiresAtMs, kind, messageId, refresh, sourceRef]);
+  }, [enabled, expiresAtMs, kind, messageId, refresh, sourceRef, url]);
 
   useEffect(() => {
     if (

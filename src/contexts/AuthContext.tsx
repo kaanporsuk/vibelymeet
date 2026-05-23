@@ -376,26 +376,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     clearPreparedVideoDateEntryCache();
     clearMyLocationDataCache();
     removeAllRealtimeChannels(supabase, "logout");
-    void import("@/lib/onesignal").then(({ removeExternalUserId }) => {
-      removeExternalUserId();
-    });
     if (userId) {
       try {
         await withBootTimeout(
-          supabase
-            .from("notification_preferences")
-            .update({
-              onesignal_player_id: null,
-              onesignal_subscribed: false,
-            })
-            .eq("user_id", userId),
-          "notification_preferences.logout_clear",
+          import("@/lib/requestWebPushPermission").then(({ disconnectWebPushForLogout }) =>
+            disconnectWebPushForLogout(userId),
+          ),
+          "web_push.logout_clear",
           4_000,
         );
       } catch {
         /* don't block logout */
       }
     }
+    void import("@/lib/onesignal").then(({ removeExternalUserId }) => {
+      removeExternalUserId();
+    });
     await withBootTimeout(supabase.auth.signOut(), "auth.signOut", AUTH_SESSION_TIMEOUT_MS).catch(() => undefined);
     await clearFeatureFlagState();
     sessionUserRef.current = null;

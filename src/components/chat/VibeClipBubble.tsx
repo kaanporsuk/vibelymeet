@@ -30,6 +30,7 @@ import { usePrefersReducedMotion } from "@/hooks/usePrefersReducedMotion";
 import { useMediaVideoPreloadForVisibility } from "@/hooks/useMediaVideoPreloadPolicy";
 import { MediaPlaceholder } from "@/components/media/MediaPlaceholder";
 import {
+  refreshMediaAsset as refreshResolvedMediaAsset,
   syncChatVibeClipUploadStatus,
   type ChatVibeClipProcessingStatus,
 } from "@/lib/mediaAssetResolver";
@@ -152,7 +153,11 @@ export const VibeClipBubble = ({
   const handleRealtimeProcessingStatus = useCallback((status: ChatVibeClipProcessingStatus) => {
     setSyncedProcessingStatus(status);
   }, []);
-  const { url: videoAssetUrl, refresh: refreshVideoAsset } = useMediaAsset({
+  const {
+    url: videoAssetUrl,
+    expiresAtMs: videoAssetExpiresAtMs,
+    refresh: refreshVideoAsset,
+  } = useMediaAsset({
     kind: "vibe_clip",
     messageId: sparkMessageId,
     sourceRef: videoSourceRef,
@@ -479,9 +484,15 @@ export const VibeClipBubble = ({
     });
   }, [refreshClipMedia]);
   const refreshPlaybackOnAuthError = useCallback(async () => {
-    const didRefresh = await refreshClipMedia("playback");
-    return didRefresh ? playableVideoUrlRef.current : null;
-  }, [refreshClipMedia]);
+    if (!sparkMessageId || !videoSourceRef) return null;
+    if (playbackRefreshAttemptCountRef.current >= MAX_CLIP_PLAYBACK_REFRESH_ATTEMPTS) return null;
+    playbackRefreshAttemptCountRef.current += 1;
+    return refreshResolvedMediaAsset(sparkMessageId, "vibe_clip", videoSourceRef, { bypassFailureCooldown: true });
+  }, [sparkMessageId, videoSourceRef]);
+  const refreshPlaybackProactively = useCallback(async () => {
+    if (!sparkMessageId || !videoSourceRef) return null;
+    return refreshResolvedMediaAsset(sparkMessageId, "vibe_clip", videoSourceRef, { suppressFailureCache: true });
+  }, [sparkMessageId, videoSourceRef]);
 
   const handleVideoLoadError = useCallback(() => {
     if (isHlsUrl) return;
@@ -515,9 +526,11 @@ export const VibeClipBubble = ({
   useMediaAssetPlayback(videoRef, displayMeta.videoUrl, {
     enabled: canMountPlayer && isHlsUrl,
     autoPlay: false,
+    expiresAtMs: videoAssetExpiresAtMs,
     onManifestParsed: markReadyIfPossible,
     onError: handlePlaybackAttachError,
     onAuthErrorRefresh: refreshPlaybackOnAuthError,
+    onProactiveRefresh: refreshPlaybackProactively,
   });
 
   useEffect(() => {

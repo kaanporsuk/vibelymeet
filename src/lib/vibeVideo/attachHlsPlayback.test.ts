@@ -18,6 +18,9 @@ class FakeVideo {
   playCalls = 0;
   pauseCalls = 0;
   removedSrc = false;
+  paused = true;
+  ended = false;
+  readyState = 4;
   private listeners = new Map<string, Set<() => void>>();
 
   constructor(private readonly nativeHls: boolean) {}
@@ -47,11 +50,13 @@ class FakeVideo {
 
   play(): Promise<void> {
     this.playCalls += 1;
+    this.paused = false;
     return Promise.resolve();
   }
 
   pause(): void {
     this.pauseCalls += 1;
+    this.paused = true;
   }
 
   removeAttribute(name: string): void {
@@ -162,6 +167,54 @@ test("hls.js auth errors refresh the signed source and restart loading once", as
   assert.deepEqual(hls.sourceHistory, ["old.m3u8", "fresh.m3u8"]);
   assert.equal(hls.startLoadCalls, 1);
   assert.equal(errors.length, 0);
+  cleanup();
+});
+
+test("hls.js proactive token refresh swaps the source without reporting playback errors", async () => {
+  const video = new FakeVideo(false);
+  let refreshCalls = 0;
+  const errors: HlsPlaybackErrorKind[] = [];
+  const { cleanup, hls } = await attachWithFakeHls(video, {
+    expiresAtMs: Date.now() + 10,
+    onProactiveRefresh: () => {
+      refreshCalls += 1;
+      return { url: "proactive-fresh.m3u8", expiresAtMs: Date.now() + 120_000 };
+    },
+    onError: (kind) => errors.push(kind),
+  });
+
+  hls.emit(FakeHls.Events.MANIFEST_PARSED);
+  await new Promise((resolve) => setTimeout(resolve, 20));
+
+  assert.equal(refreshCalls, 1);
+  assert.deepEqual(hls.sourceHistory, ["old.m3u8", "proactive-fresh.m3u8"]);
+  assert.equal(hls.startLoadCalls, 1);
+  assert.deepEqual(errors, []);
+  cleanup();
+});
+
+test("hls.js legacy string auth refresh clears stale expiry instead of entering proactive refresh", async () => {
+  const video = new FakeVideo(false);
+  let proactiveRefreshCalls = 0;
+  const { cleanup, hls } = await attachWithFakeHls(video, {
+    expiresAtMs: Date.now() + 10,
+    onAuthErrorRefresh: () => "auth-fresh.m3u8",
+    onProactiveRefresh: () => {
+      proactiveRefreshCalls += 1;
+      return { url: "unexpected-proactive.m3u8", expiresAtMs: Date.now() + 120_000 };
+    },
+  });
+
+  hls.emit(FakeHls.Events.ERROR, {
+    fatal: true,
+    type: "networkError",
+    details: "manifestLoadError",
+    response: { code: 401 },
+  });
+  await new Promise((resolve) => setTimeout(resolve, 20));
+
+  assert.equal(proactiveRefreshCalls, 0);
+  assert.deepEqual(hls.sourceHistory, ["old.m3u8", "auth-fresh.m3u8"]);
   cleanup();
 });
 

@@ -22,7 +22,7 @@ Status after completion of Sprints 1–6 for the Vibely native build stream. Thi
 ## What is implemented in repo
 
 - **apps/mobile:** Full Expo/React Native app with auth, onboarding, tabs (events, matches, profile), event lobby with deck and swipe actions, chat and matches, Daily Drop, Ready Gate, video date (Daily.co), premium (RevenueCat), settings. All using shared Supabase backend and documented Edge Functions/RPCs.
-- **Shared backend (additive):** Migration for `notification_preferences.mobile_onesignal_player_id`; migration for `subscriptions.provider` + trigger for `profiles.is_premium`; `send-notification` targets web + mobile player IDs; `revenuecat-webhook` Edge Function; Stripe webhook and checkout/portal/credits use `provider = 'stripe'`.
+- **Shared backend (additive):** Migration for `notification_preferences.mobile_onesignal_player_id`; migration for `push_subscriptions` OneSignal ownership; migration for `subscriptions.provider` + trigger for `profiles.is_premium`; `send-notification` targets subscribed web + mobile OneSignal IDs; `revenuecat-webhook` Edge Function; Stripe webhook and checkout/portal/credits use `provider = 'stripe'`.
 - **Web:** `useSubscription` supports multi-provider; no breaking changes. Golden path runbook and smoke script in repo.
 - **Docs:** Architecture plan, sprint docs (mobile-sprint1–6), this launch-readiness doc, external-setup checklist, manual test matrix.
 

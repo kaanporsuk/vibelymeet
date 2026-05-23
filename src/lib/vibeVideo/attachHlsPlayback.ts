@@ -1,5 +1,10 @@
 import type HlsInstance from "hls.js";
-import { canPrewarmMedia, isMediaPlaybackQoeDegraded } from "@/lib/mediaPlaybackSessionPolicy";
+import {
+  canPrewarmMedia,
+  isMediaPlaybackQoeDegraded,
+  mediaConnectionSnapshot,
+  mediaPlaybackAbrPolicy,
+} from "@/lib/mediaPlaybackSessionPolicy";
 
 export type HlsPlaybackErrorKind = "native" | "unsupported" | "fatal";
 
@@ -12,13 +17,21 @@ export type HlsAuthErrorRefreshDetail = {
   errorDetails: string | null;
 };
 
+export type HlsPlaybackRefreshResult =
+  | string
+  | { url?: string | null; expiresAtMs?: number | null }
+  | null
+  | undefined;
+
 type AttachHlsPlaybackOptions = {
   autoPlay?: boolean;
+  expiresAtMs?: number | null;
   onAutoplayBlocked?: (detail?: unknown) => void;
   onError?: (kind: HlsPlaybackErrorKind, detail?: unknown) => void;
   onAuthErrorRefresh?: (
     detail: HlsAuthErrorRefreshDetail,
-  ) => Promise<string | null | undefined> | string | null | undefined;
+  ) => Promise<HlsPlaybackRefreshResult> | HlsPlaybackRefreshResult;
+  onProactiveRefresh?: () => Promise<HlsPlaybackRefreshResult> | HlsPlaybackRefreshResult;
   authErrorRefreshMaxAttempts?: number;
   onManifestParsed?: () => void;
 };
@@ -36,6 +49,8 @@ type HlsErrorData = {
 let hlsLoader: HlsLoader = () => import("hls.js");
 let hlsPreloadPromise: Promise<HlsModule> | null = null;
 const HLS_LIBRARY_PRELOAD_ESTIMATE_BYTES = 320 * 1024;
+const PLAYBACK_PROACTIVE_REFRESH_LEAD_MS = 60 * 1000;
+const PLAYBACK_PROACTIVE_REFRESH_RETRY_MS = 5 * 1000;
 
 export function __setHlsLoaderForTest(loader: HlsLoader | null): void {
   hlsLoader = loader ?? (() => import("hls.js"));
@@ -60,11 +75,26 @@ export function preloadHlsPlaybackLibrary(): void {
   void loadHlsModule().catch(() => {});
 }
 
-function constrainHlsAbrForDegradedQoe(hls: HlsInstance): void {
+function levelHeight(level: unknown): number | null {
+  const height = (level as { height?: unknown } | null)?.height;
+  return typeof height === "number" && Number.isFinite(height) && height > 0 ? height : null;
+}
+
+function applyHlsAbrPolicy(hls: HlsInstance): void {
   const levels = Array.isArray(hls.levels) ? hls.levels : [];
   if (!levels.length) return;
-  hls.autoLevelCapping = Math.min(1, levels.length - 1);
-  hls.startLevel = 0;
+  const policy = mediaPlaybackAbrPolicy(mediaConnectionSnapshot(), isMediaPlaybackQoeDegraded());
+  const maxHeight = policy.maxHeight;
+  if (!maxHeight) return;
+  const cappedIndex = levels.reduce((bestIndex, level, index) => {
+    const height = levelHeight(level);
+    if (height === null || height > maxHeight) return bestIndex;
+    if (bestIndex < 0) return index;
+    const bestHeight = levelHeight(levels[bestIndex]) ?? 0;
+    return height >= bestHeight ? index : bestIndex;
+  }, -1);
+  hls.autoLevelCapping = cappedIndex >= 0 ? cappedIndex : 0;
+  hls.startLevel = Math.min(Math.max(0, hls.autoLevelCapping), levels.length - 1);
 }
 
 function numberOrNull(value: unknown): number | null {
@@ -85,6 +115,21 @@ function isAuthStatusCode(statusCode: number | null): boolean {
   return statusCode === 401 || statusCode === 403;
 }
 
+function isNetworkHlsError(data: HlsErrorData | undefined): boolean {
+  if (typeof data?.type !== "string") return true;
+  return /network/i.test(data.type);
+}
+
+function normalizeRefreshResult(result: HlsPlaybackRefreshResult): { url: string | null; expiresAtMs: number | null } {
+  if (typeof result === "string") return { url: result, expiresAtMs: null };
+  const url = typeof result?.url === "string" && result.url ? result.url : null;
+  const expiresAtMs =
+    typeof result?.expiresAtMs === "number" && Number.isFinite(result.expiresAtMs)
+      ? result.expiresAtMs
+      : null;
+  return { url, expiresAtMs };
+}
+
 export function attachHlsPlayback(
   videoEl: HTMLVideoElement,
   src: string,
@@ -92,13 +137,14 @@ export function attachHlsPlayback(
 ): () => void {
   const {
     autoPlay = true,
+    expiresAtMs = null,
     onAutoplayBlocked,
     onError,
     onAuthErrorRefresh,
+    onProactiveRefresh,
     authErrorRefreshMaxAttempts = 2,
     onManifestParsed,
   } = options;
-  const constrainAbr = isMediaPlaybackQoeDegraded();
   const maxAuthRefreshAttempts = Math.max(0, authErrorRefreshMaxAttempts);
   const useNativeHls = !!videoEl.canPlayType("application/vnd.apple.mpegurl");
   let cancelled = false;
@@ -106,7 +152,12 @@ export function attachHlsPlayback(
   let authRefreshAttempts = 0;
   let authRefreshInFlight = false;
   let currentSrc = src;
+  let currentExpiresAtMs =
+    typeof expiresAtMs === "number" && Number.isFinite(expiresAtMs) ? expiresAtMs : null;
   let hls: HlsInstance | null = null;
+  let proactiveRefreshInFlight = false;
+  let proactiveRefreshTimeout: ReturnType<typeof setTimeout> | null = null;
+  let proactivePlayListener: (() => void) | null = null;
 
   const playIfNeeded = () => {
     if (!autoPlay || cancelled) return;
@@ -121,6 +172,80 @@ export function attachHlsPlayback(
     onError?.(kind, detail);
   };
 
+  const clearProactiveRefreshTimer = () => {
+    if (proactiveRefreshTimeout !== null) clearTimeout(proactiveRefreshTimeout);
+    proactiveRefreshTimeout = null;
+  };
+
+  const isActivelyPlaying = () => !videoEl.paused && !videoEl.ended && videoEl.readyState >= 2;
+
+  const updateSourceState = (freshSrc: string, freshExpiresAtMs: number | null) => {
+    currentSrc = freshSrc;
+    errorReported = false;
+    currentExpiresAtMs = freshExpiresAtMs;
+  };
+
+  const armProactiveRefresh = (applySource: (freshSrc: string) => void) => {
+    clearProactiveRefreshTimer();
+    if (!onProactiveRefresh || !currentExpiresAtMs || !Number.isFinite(currentExpiresAtMs)) return;
+    const delayMs = currentExpiresAtMs - Date.now() - PLAYBACK_PROACTIVE_REFRESH_LEAD_MS;
+    proactiveRefreshTimeout = setTimeout(() => {
+      runProactiveRefresh(applySource);
+    }, Math.max(0, delayMs));
+  };
+
+  const scheduleProactiveRefreshRetry = (applySource: (freshSrc: string) => void) => {
+    clearProactiveRefreshTimer();
+    if (!currentExpiresAtMs || !Number.isFinite(currentExpiresAtMs)) return;
+    const remainingMs = currentExpiresAtMs - Date.now();
+    if (remainingMs <= 0) return;
+    proactiveRefreshTimeout = setTimeout(() => {
+      runProactiveRefresh(applySource);
+    }, Math.min(PLAYBACK_PROACTIVE_REFRESH_RETRY_MS, remainingMs));
+  };
+
+  const runProactiveRefresh = (applySource: (freshSrc: string) => void) => {
+    if (cancelled || proactiveRefreshInFlight || authRefreshInFlight || !onProactiveRefresh) return;
+    if (!currentExpiresAtMs || !Number.isFinite(currentExpiresAtMs)) return;
+    const remainingMs = currentExpiresAtMs - Date.now();
+    if (remainingMs <= 0) return;
+    if (!isActivelyPlaying()) {
+      scheduleProactiveRefreshRetry(applySource);
+      return;
+    }
+
+    let retry = false;
+    proactiveRefreshInFlight = true;
+    void Promise.resolve(onProactiveRefresh())
+      .then((result) => {
+        if (cancelled) return;
+        const fresh = normalizeRefreshResult(result);
+        if (!fresh.url) {
+          retry = true;
+          return;
+        }
+        updateSourceState(fresh.url, fresh.expiresAtMs);
+        applySource(fresh.url);
+      })
+      .catch(() => {
+        retry = true;
+      })
+      .finally(() => {
+        proactiveRefreshInFlight = false;
+        if (cancelled) return;
+        if (retry) {
+          scheduleProactiveRefreshRetry(applySource);
+        } else {
+          armProactiveRefresh(applySource);
+        }
+      });
+  };
+
+  const proactiveRefreshOnPlay = (applySource: (freshSrc: string) => void) => {
+    if (!currentExpiresAtMs || currentExpiresAtMs - Date.now() > PLAYBACK_PROACTIVE_REFRESH_LEAD_MS) return;
+    runProactiveRefresh(applySource);
+  };
+
   const refreshAfterAuthError = (
     playbackMode: HlsAuthErrorRefreshDetail["playbackMode"],
     data: HlsErrorData | undefined,
@@ -129,7 +254,7 @@ export function attachHlsPlayback(
   ): boolean => {
     if (!onAuthErrorRefresh || authRefreshInFlight || authRefreshAttempts >= maxAuthRefreshAttempts) return false;
     const statusCode = hlsErrorStatusCode(data);
-    if (playbackMode === "hls_js" && !isAuthStatusCode(statusCode)) return false;
+    if (playbackMode === "hls_js" && (!isAuthStatusCode(statusCode) || !isNetworkHlsError(data))) return false;
 
     authRefreshAttempts += 1;
     authRefreshInFlight = true;
@@ -145,13 +270,14 @@ export function attachHlsPlayback(
     void Promise.resolve(onAuthErrorRefresh(detail))
       .then((freshSrc) => {
         if (cancelled) return;
-        if (!freshSrc) {
+        const fresh = normalizeRefreshResult(freshSrc);
+        if (!fresh.url) {
           onUnavailable();
           return;
         }
-        currentSrc = freshSrc;
-        errorReported = false;
-        applySource(freshSrc);
+        updateSourceState(fresh.url, fresh.expiresAtMs);
+        applySource(fresh.url);
+        armProactiveRefresh(applySource);
       })
       .catch(onUnavailable)
       .finally(() => {
@@ -183,9 +309,18 @@ export function attachHlsPlayback(
   videoEl.addEventListener("error", onVideoError);
 
   if (useNativeHls) {
+    const applyNativeSource = (freshSrc: string) => {
+      videoEl.src = freshSrc;
+      videoEl.load();
+      playIfNeeded();
+    };
     videoEl.src = currentSrc;
     videoEl.load();
     playIfNeeded();
+    armProactiveRefresh(applyNativeSource);
+    proactivePlayListener = () => proactiveRefreshOnPlay(applyNativeSource);
+    videoEl.addEventListener("play", proactivePlayListener);
+    videoEl.addEventListener("playing", proactivePlayListener);
   } else {
     void loadHlsModule()
       .then(({ default: Hls }) => {
@@ -200,14 +335,24 @@ export function attachHlsPlayback(
           levelLoadingMaxRetry: 1,
           manifestLoadingMaxRetry: 1,
         });
+        const applyHlsSource = (freshSrc: string) => {
+          if (!hls) return;
+          hls.loadSource(freshSrc);
+          if (typeof hls.startLoad === "function") hls.startLoad();
+          playIfNeeded();
+        };
         hls.loadSource(currentSrc);
         hls.attachMedia(videoEl);
         hls.on(Hls.Events.MANIFEST_PARSED, () => {
           if (cancelled) return;
-          if (constrainAbr && hls) constrainHlsAbrForDegradedQoe(hls);
+          if (hls) applyHlsAbrPolicy(hls);
           onManifestParsed?.();
           playIfNeeded();
+          armProactiveRefresh(applyHlsSource);
         });
+        proactivePlayListener = () => proactiveRefreshOnPlay(applyHlsSource);
+        videoEl.addEventListener("play", proactivePlayListener);
+        videoEl.addEventListener("playing", proactivePlayListener);
         hls.on(Hls.Events.LEVEL_SWITCHED, () => {
           if (cancelled) return;
           const event = typeof CustomEvent === "function"
@@ -222,12 +367,7 @@ export function attachHlsPlayback(
             refreshAfterAuthError(
               "hls_js",
               data,
-              (freshSrc) => {
-                if (!hls) return;
-                hls.loadSource(freshSrc);
-                if (typeof hls.startLoad === "function") hls.startLoad();
-                playIfNeeded();
-              },
+              applyHlsSource,
               () => {
                 if (data.fatal) reportError("fatal", data);
               },
@@ -247,7 +387,13 @@ export function attachHlsPlayback(
 
   return () => {
     cancelled = true;
+    clearProactiveRefreshTimer();
     videoEl.removeEventListener("error", onVideoError);
+    if (proactivePlayListener) {
+      videoEl.removeEventListener("play", proactivePlayListener);
+      videoEl.removeEventListener("playing", proactivePlayListener);
+      proactivePlayListener = null;
+    }
     if (hls) {
       hls.destroy();
       hls = null;

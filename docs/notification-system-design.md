@@ -39,7 +39,7 @@ This document is the result of a full audit of web and native notification code,
 
 ### 1.3 Web behavior summary
 
-- **send-notification** Edge Function: single entry point for push. Checks account pause (profiles.is_paused), prefs pause (paused_until), push_enabled, category toggle, match mute, quiet hours, message throttle (1/min when message_bundle_enabled). Sends to both onesignal_player_id and mobile_onesignal_player_id. Categories: new_match, messages, someone_vibed_you, ready_gate, event_live, event_reminder, date_reminder, daily_drop, recommendations, product_updates, credits_subscription; safety_alerts bypasses pause/quiet hours.
+- **send-notification** Edge Function: single entry point for push. Checks account pause (profiles.is_paused), prefs pause (paused_until), push_enabled, category toggle, match mute, quiet hours, message throttle (1/min when message_bundle_enabled). Sends to subscribed OneSignal IDs from `push_subscriptions` plus the legacy `onesignal_player_id` and `mobile_onesignal_player_id` columns. Categories: new_match, messages, someone_vibed_you, ready_gate, event_live, event_reminder, date_reminder, daily_drop, recommendations, product_updates, credits_subscription; safety_alerts bypasses pause/quiet hours.
 - **event-notifications:** email only (Resend); event_created + capacity_alert; admin-only, rate-limited.
 - **Event lobby vibes (web):** `useEventVibes` invokes **`send-notification`** with categories **`mutual_vibe`** / **`someone_vibed_you`** and lobby URL (pre-event table only). **Swipe-actions** sends **`ready_gate`** pushes for deck outcomes **`match`** / **`match_queued`** with lobby + `video_session_id` (see §1.1 rows 1–2).
 - **daily-drop-actions:** send_opener → daily_drop to partner; send_reply → new_match to opener.
@@ -54,9 +54,9 @@ This document is the result of a full audit of web and native notification code,
 
 - **Init:** `apps/mobile/lib/onesignal.ts` — `initOneSignal()` initializes the SDK only when `EXPO_PUBLIC_ONESIGNAL_APP_ID` is configured. `PushRegistration` mounts in the root layout and calls init once.
 - **Identity binding:** On auth, `PushRegistration` calls `bindOneSignalExternalUser(user.id)` so the SDK identity follows the Supabase user without prompting for OS notification permission on every app open.
-- **Backend registration:** `registerPushWithBackend(user.id)` is now sync-only: it first confirms OS push permission is already granted, then logs in/binds identity, retries OneSignal subscription ID lookup with the shared retry budget, and upserts `notification_preferences.mobile_onesignal_player_id` / `mobile_onesignal_subscribed`.
+- **Backend registration:** `registerPushWithBackend(user.id)` is now sync-only: it first confirms OS push permission is already granted, then logs in/binds identity, retries OneSignal subscription ID lookup with the shared retry budget, registers the ID through `register_onesignal_push_subscription`, and mirrors `notification_preferences.mobile_onesignal_player_id` / `mobile_onesignal_subscribed`.
 - **Foreground sync:** `PushRegistration` calls `syncNativePushDeliveryOnForeground` on auth readiness and `AppState` foreground return so already-granted users refresh backend player state without a prompt.
-- **Sign out:** native `signOut` clears `mobile_onesignal_player_id` / `mobile_onesignal_subscribed`; `logoutOneSignal()` clears SDK identity and local tag/write guards.
+- **Sign out:** native `signOut` unregisters the current OneSignal subscription while still authenticated, opts the SDK subscription out locally, clears legacy mobile columns through the RPC/fallback path, then logs out OneSignal and clears local tag/write guards.
 - **Deep links:** `NotificationDeepLinkHandler` is mounted in the root layout. It accepts `additionalData.url`, `deep_link`, `deepLink`, and `launchURL`, queues protected links until entry state is ready, and reconciles `/date/:id` against backend video-session truth before routing.
 - **App config:** `app.config.js` — OneSignal plugin; production APNs for EAS preview/production.
 

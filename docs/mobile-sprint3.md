@@ -11,14 +11,14 @@ Sprint 3 implements chat (matches list, message thread, send message) and push n
 - **Realtime:** Web `useRealtimeMessages` subscribes to `postgres_changes` on `messages` for the match; invalidates queries. Mobile `useRealtimeMessages` in `lib/chatApi.ts` does the same.
 
 ### Notifications
-- **Web:** OneSignal SDK in browser; `getPlayerId()` → subscription id stored in `notification_preferences.onesignal_player_id`, `onesignal_subscribed = true`. `send-notification` uses `include_player_ids: [prefs.onesignal_player_id]`.
-- **Mobile:** OneSignal React Native (`react-native-onesignal` + `onesignal-expo-plugin`). After login, we request permission, get subscription id via `OneSignal.User.pushSubscription.getIdAsync()`, and upsert `notification_preferences` with `mobile_onesignal_player_id` and `mobile_onesignal_subscribed = true`. Same `send-notification` Edge Function now targets **all** non-null player IDs (web + mobile) so one user can receive push on both.
+- **Web:** OneSignal SDK in browser; `getPlayerId()` -> subscription id registered through `register_onesignal_push_subscription` and mirrored into `notification_preferences.onesignal_player_id`, `onesignal_subscribed = true`. `send-notification` targets subscribed IDs through `include_subscription_ids`.
+- **Mobile:** OneSignal React Native (`react-native-onesignal` + `onesignal-expo-plugin`). After login, we request permission, get subscription id via `OneSignal.User.pushSubscription.getIdAsync()`, register it through `register_onesignal_push_subscription`, and keep `notification_preferences.mobile_onesignal_player_id` / `mobile_onesignal_subscribed` updated for compatibility and health UI. `send-notification` targets all subscribed IDs from `push_subscriptions` plus the legacy columns.
 
 ## Implemented in Sprint 3
 
 1. **Matches screen** (`(tabs)/matches/index.tsx`): Loads matches via `useMatches`, shows avatar, name, last message preview, time, unread indicator. Tap opens `/chat/[otherProfileId]`. Loading, empty, error, pull-to-refresh.
 2. **Chat thread** (`chat/[id].tsx`): Loads thread via `useMessages(id, currentUserId)`. Renders message list, input, Send. Sends via `send-message` Edge Function; realtime subscription for new messages. Loading, empty, send-in-flight, error.
-3. **Push registration:** OneSignal initialized in app lifecycle. When user is logged in, `PushRegistration` requests permission, gets subscription id, calls `OneSignal.login(userId)`, and upserts `notification_preferences.mobile_onesignal_player_id` and `mobile_onesignal_subscribed`. On sign out, `OneSignal.logout()`.
+3. **Push registration:** OneSignal initialized in app lifecycle. When user is logged in, `PushRegistration` binds `OneSignal.login(userId)`, syncs permission-granted devices to `push_subscriptions`, and mirrors the current device into `notification_preferences.mobile_onesignal_player_id` / `mobile_onesignal_subscribed`. On sign out, the current subscription is unregistered, opted out locally, and logged out of OneSignal.
 
 ## Backend / shared changes
 
@@ -26,14 +26,19 @@ Sprint 3 implements chat (matches list, message thread, send message) and push n
    - Adds `mobile_onesignal_player_id` (TEXT) and `mobile_onesignal_subscribed` (BOOLEAN, default false) to `notification_preferences`.  
    - Additive; no change to web behavior.
 
-2. **`supabase/functions/send-notification/index.ts`**  
-   - Builds `playerIds` from both `onesignal_player_id` (web) and `mobile_onesignal_player_id` (mobile) when present and subscribed.  
-   - Sends to `include_player_ids: playerIds` so delivery goes to all registered devices.  
-   - Web impact: none; web still writes only `onesignal_player_id`; existing single-device behavior unchanged. Multi-device: if a user also has the mobile app and registers, they receive on both.
+2. **Migration `20260523120000_onesignal_push_subscription_ownership.sql`**
+   - Adds `push_subscriptions` for multiple OneSignal subscriptions per user.
+   - Adds `register_onesignal_push_subscription` / `unregister_onesignal_push_subscription` so a physical device subscription transfers to the currently authenticated user.
+   - Keeps the legacy `notification_preferences` columns deduped for compatibility.
+
+3. **`supabase/functions/send-notification/index.ts`**
+   - Builds `playerIds` from `push_subscriptions` plus both `onesignal_player_id` (web) and `mobile_onesignal_player_id` (mobile) when present and subscribed.
+   - Sends to `include_subscription_ids: playerIds` with `target_channel: "push"` so delivery goes to all registered devices.
+   - Web impact: additive; web registers into `push_subscriptions` and still mirrors `onesignal_player_id`. Multi-device: a user can receive on every registered web/native subscription present in `push_subscriptions`.
 
 ## Web impact
 
-- **None** for existing web flows. Web continues to set only `onesignal_player_id`; `send-notification` still includes that ID. New columns are optional and only written by the mobile app.
+- **No behavior break** for existing web flows. Web now registers through `push_subscriptions` and still mirrors `onesignal_player_id`; `send-notification` includes both sources with de-duping.
 
 ## Gaps / limits after Sprint 3
 
