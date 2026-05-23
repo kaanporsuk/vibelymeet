@@ -8,8 +8,9 @@ import { normalizeContractError, toError } from '@/lib/contractErrors';
 import { fetchMyLocationData } from '@/lib/myLocationData';
 import {
   parseEventAttendeePreviewRows,
-  parseEventDeckProfiles,
+  parseEventDeckResponse,
   type EventAttendeePreview as PreviewRevealedAttendee,
+  type EventDeckFetchResult,
   type EventDeckProfile as DeckProfile,
 } from '@shared/eventProfileAdapters';
 import {
@@ -24,6 +25,7 @@ import {
 import { VIDEO_DATE_DECK_BUFFER_LIMIT } from '@clientShared/matching/videoDateInstantExperience';
 import { resolveEventLifecycle } from '@clientShared/eventLifecycle';
 import type { EventCategory } from '@clientShared/eventCategories';
+import { fetchVideoDateQueueHint } from '@/lib/videoDateQueueHint';
 
 function getEventEndTime(event_date: string, duration_minutes?: number | null): Date {
   const start = new Date(event_date);
@@ -601,35 +603,42 @@ export function useRegisterForEvent() {
   };
 }
 
-export type { DeckProfile };
+export type { DeckProfile, EventDeckFetchResult };
 
-export async function fetchEventDeckProfiles(eventId: string, viewerProfileId: string): Promise<DeckProfile[]> {
-  if (!viewerProfileId || !eventId) return [];
-  const { data, error } = await supabase.rpc('get_event_deck_v2', {
+export async function fetchEventDeck(eventId: string, viewerProfileId: string): Promise<EventDeckFetchResult> {
+  if (!viewerProfileId || !eventId) {
+    return parseEventDeckResponse({ ok: false, profiles: [], deck_state: { reason: 'unknown', retryable: false } });
+  }
+  const { data, error } = await supabase.rpc('get_event_deck_v3' as never, {
     p_event_id: eventId,
     p_user_id: viewerProfileId,
     p_limit: VIDEO_DATE_DECK_BUFFER_LIMIT,
-  });
+  } as never);
   if (error) throw error;
-  return parseEventDeckProfiles(data);
+  return parseEventDeckResponse(data);
 }
 
 export function useEventDeck(eventId: string, viewerProfileId: string | null, enabled: boolean) {
   const query = useQuery({
-    queryKey: ['event-deck', eventId, viewerProfileId, 'deck_v2'],
-    queryFn: async (): Promise<DeckProfile[]> => {
-      if (!viewerProfileId || !eventId) return [];
-      return fetchEventDeckProfiles(eventId, viewerProfileId);
+    queryKey: ['event-deck', eventId, viewerProfileId, 'deck_v3'],
+    queryFn: async (): Promise<EventDeckFetchResult> => {
+      if (!viewerProfileId || !eventId) {
+        return parseEventDeckResponse({ ok: false, profiles: [], deck_state: { reason: 'unknown', retryable: false } });
+      }
+      return fetchEventDeck(eventId, viewerProfileId);
     },
     enabled: enabled && !!viewerProfileId && !!eventId,
     refetchInterval: 15_000,
     refetchIntervalInBackground: false,
     staleTime: 10000,
   });
-  const profiles = query.data ?? [];
+  const deckResult = query.data ?? null;
+  const profiles = deckResult?.profiles ?? [];
   return {
     ...query,
     data: profiles,
+    deckState: deckResult?.deckState ?? null,
+    deckOk: deckResult?.ok ?? false,
     isLoading: query.isLoading || (query.isFetching && profiles.length === 0),
   };
 }
@@ -749,15 +758,8 @@ export async function drainMatchQueue(
 
 /** Count of queued matches (ready_gate_status = 'queued') for this user in this event. */
 export async function getQueuedMatchCount(eventId: string, userId: string): Promise<number> {
-  const { count, error } = await supabase
-    .from('video_sessions')
-    .select('id', { count: 'exact', head: true })
-    .eq('event_id', eventId)
-    .eq('ready_gate_status', 'queued')
-    .is('ended_at', null)
-    .or(`participant_1_id.eq.${userId},participant_2_id.eq.${userId}`);
-  if (error) return 0;
-  return count ?? 0;
+  const hint = await fetchVideoDateQueueHint(eventId, userId);
+  return hint.ok ? hint.userQueuedCount : 0;
 }
 
 /** Remaining Super Vibes for this event (max 3 per event). */

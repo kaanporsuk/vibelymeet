@@ -15,7 +15,7 @@ import { cn } from "@/lib/utils";
 import { useUserProfile } from "@/contexts/AuthContext";
 import { useEventStatus } from "@/hooks/useEventStatus";
 import { useFeatureFlag } from "@/hooks/useFeatureFlag";
-import { fetchEventDeckProfiles } from "@/hooks/useEventDeck";
+import { fetchEventDeck, type EventDeckFetchResult } from "@/hooks/useEventDeck";
 import { useEventLifecycle } from "@/hooks/useEventLifecycle";
 import { useMatchQueue } from "@/hooks/useMatchQueue";
 import { supabase } from "@/integrations/supabase/client";
@@ -208,17 +208,17 @@ export const PostDateSurvey = ({
     });
     void queryClient
       .prefetchQuery({
-        queryKey: ["event-deck", eventId, user.id, "deck_v2"],
-        queryFn: () => fetchEventDeckProfiles(eventId, user.id),
+        queryKey: ["event-deck", eventId, user.id, "deck_v3"],
+        queryFn: () => fetchEventDeck(eventId, user.id),
         staleTime: 10_000,
       })
       .then(() => {
-        const profiles = queryClient.getQueryData<Awaited<ReturnType<typeof fetchEventDeckProfiles>>>([
+        const profiles = queryClient.getQueryData<EventDeckFetchResult>([
           "event-deck",
           eventId,
           user.id,
-          "deck_v2",
-        ]) ?? [];
+          "deck_v3",
+        ])?.profiles ?? [];
         for (const item of getVideoDateDeckPrefetchItems(profiles)) {
           const src = deckCardUrl(item.source);
           if (!src) continue;

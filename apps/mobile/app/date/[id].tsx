@@ -111,7 +111,7 @@ import { fonts, spacing } from '@/constants/theme';
 import Colors from '@/constants/Colors';
 import { useColorScheme } from '@/components/useColorScheme';
 import { trackEvent } from '@/lib/analytics';
-import { fetchEventDeckProfiles } from '@/lib/eventsApi';
+import { fetchEventDeck, type EventDeckFetchResult } from '@/lib/eventsApi';
 import { emitNativeVideoDateClientStuckState } from '@/lib/videoDateClientStuckObservability';
 import { setSafeAudioMode } from '@/lib/safeAudioMode';
 import {
@@ -178,6 +178,10 @@ import {
   videoDateAspectRatio,
 } from '@clientShared/matching/videoDateMediaContract';
 import {
+  isVideoDateDailyTokenJoinError,
+  shouldRefreshVideoDateTokenBeforeJoin,
+} from '@clientShared/matching/videoDatePublicApi';
+import {
   VIDEO_DATE_ICE_BREAKER_MANUAL_PAUSE_MS,
   normalizeVideoDateIceBreakerIndex,
   normalizeVideoDateIceBreakerQuestions,
@@ -188,6 +192,7 @@ import {
   type VideoDateWarmupChoiceNotice,
 } from '@clientShared/matching/videoDateWarmupChoiceNotice';
 import { getVideoDateDeckPrefetchItems } from '@clientShared/matching/videoDateDeckPrefetch';
+import { refreshVideoDateToken } from '@/lib/videoDateTokenRefresh';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 const FIRST_CONNECT_TIMEOUT_MS = 25000;
@@ -5958,7 +5963,7 @@ export default function VideoDateScreen() {
         return;
       }
 
-      const tokenResult = tokenRes.data;
+      let tokenResult = tokenRes.data;
       activePreparedEntryCacheRef.current =
         activePreparedEntryCacheRef.current ?? getPreparedVideoDateEntry(sessionId, user.id);
       activePreparedEntryCacheHitRef.current = tokenResult.cached_prepare_entry === true;
@@ -5994,6 +5999,112 @@ export default function VideoDateScreen() {
         entry_attempt_id: entryAttemptId,
         video_date_trace_id: videoDateTraceId,
       });
+      const refreshDailyTokenForJoin = async (
+        sourceAction: 'daily_token_refresh_before_join' | 'daily_token_refresh_join_retry',
+        cause?: unknown,
+      ): Promise<boolean> => {
+        const refreshStartedAtMs = Date.now();
+        vdbg(sourceAction, {
+          sessionId,
+          userId: user.id,
+          eventId: eventId || null,
+          roomName: tokenResult.room_name,
+          tokenExpiresAt: tokenResult.token_expires_at ?? null,
+          cause: cause instanceof Error ? cause.message : cause ? String(cause) : null,
+        });
+        rcBreadcrumb(RC_CATEGORY.videoDateEntry, sourceAction, {
+          session_id: sessionId,
+          user_id: user.id,
+          room_name: tokenResult.room_name,
+        });
+        const refreshed = await refreshVideoDateToken(sessionId);
+        const durationMs = Date.now() - refreshStartedAtMs;
+        if (refreshed.ok === false) {
+          vdbg('daily_token_refresh_failed', {
+            sessionId,
+            userId: user.id,
+            eventId: eventId || null,
+            sourceAction,
+            reason: refreshed.error,
+            retryable: refreshed.retryable ?? null,
+            durationMs,
+          });
+          trackEvent(LobbyPostDateEvents.VIDEO_DATE_DAILY_TOKEN_FAILURE, {
+            platform: 'native',
+            session_id: sessionId,
+            event_id: eventId || null,
+            source_surface: 'video_date_daily',
+            source_action: sourceAction,
+            code: refreshed.error,
+            reason_code: refreshed.error,
+            failure_class: classifyDailyRoomTokenFailureClass('network'),
+            retryable: refreshed.retryable ?? true,
+            duration_ms: durationMs,
+            latency_bucket: bucketVideoDateLatencyMs(durationMs),
+            attempt_count: 1,
+          });
+          return false;
+        }
+        if (refreshed.roomName !== tokenResult.room_name || refreshed.roomUrl !== tokenResult.room_url) {
+          vdbg('daily_token_refresh_room_mismatch', {
+            sessionId,
+            userId: user.id,
+            eventId: eventId || null,
+            previousRoomName: tokenResult.room_name,
+            refreshedRoomName: refreshed.roomName,
+            previousRoomUrl: tokenResult.room_url,
+            refreshedRoomUrl: refreshed.roomUrl,
+          });
+          trackEvent(LobbyPostDateEvents.VIDEO_DATE_DAILY_TOKEN_FAILURE, {
+            platform: 'native',
+            session_id: sessionId,
+            event_id: eventId || null,
+            source_surface: 'video_date_daily',
+            source_action: sourceAction,
+            code: 'token_refresh_room_mismatch',
+            reason_code: 'token_refresh_room_mismatch',
+            failure_class: classifyDailyRoomTokenFailureClass('network'),
+            retryable: true,
+            duration_ms: durationMs,
+            latency_bucket: bucketVideoDateLatencyMs(durationMs),
+            attempt_count: 1,
+          });
+          return false;
+        }
+        tokenResult = {
+          ...tokenResult,
+          token: refreshed.token,
+          token_expires_at: refreshed.tokenExpiresAtIso,
+        };
+        vdbg('daily_token_refresh_success', {
+          sessionId,
+          userId: user.id,
+          eventId: eventId || null,
+          sourceAction,
+          roomName: tokenResult.room_name,
+          tokenExpiresAt: tokenResult.token_expires_at ?? null,
+          durationMs,
+        });
+        trackEvent(LobbyPostDateEvents.VIDEO_DATE_DAILY_TOKEN_SUCCESS, {
+          platform: 'native',
+          session_id: sessionId,
+          event_id: eventId || null,
+          source_surface: 'video_date_daily',
+          source_action: sourceAction,
+          cached: false,
+          handoff_used: false,
+          attempt: 1,
+          attempt_count: 1,
+          entry_attempt_id: entryAttemptId,
+          video_date_trace_id: videoDateTraceId,
+          duration_ms: durationMs,
+          latency_bucket: bucketVideoDateLatencyMs(durationMs),
+        });
+        return true;
+      };
+      if (shouldRefreshVideoDateTokenBeforeJoin(tokenResult.token_expires_at)) {
+        await refreshDailyTokenForJoin('daily_token_refresh_before_join');
+      }
 
       let idleSingletonEntry =
         dailyCallSingletonV2.enabled &&
@@ -6258,6 +6369,20 @@ export default function VideoDateScreen() {
           videoDateTraceId,
         });
         const joinDailyCall = async () => {
+          const joinCurrentCallWithToken = async () => {
+            try {
+              await call.join({ url: tokenResult.room_url, token: tokenResult.token });
+            } catch (joinError) {
+              if (isVideoDateDailyTokenJoinError(joinError)) {
+                const refreshed = await refreshDailyTokenForJoin('daily_token_refresh_join_retry', joinError);
+                if (refreshed) {
+                  await call.join({ url: tokenResult.room_url, token: tokenResult.token });
+                  return;
+                }
+              }
+              throw joinError;
+            }
+          };
           try {
             if (dailyPrewarmConsumedForJoin && prewarmedAlreadyJoined) {
               vdbg('daily_join_skipped_prewarmed_already_joined', {
@@ -6278,7 +6403,7 @@ export default function VideoDateScreen() {
               });
               return;
             }
-            await call.join({ url: tokenResult.room_url, token: tokenResult.token });
+            await joinCurrentCallWithToken();
             return;
           } catch (joinError) {
             if (
@@ -6320,7 +6445,7 @@ export default function VideoDateScreen() {
             callCaptureProfile = 'fallback';
             call = installDailyCall(callCaptureProfile);
             markSharedJoinInFlight();
-            await call.join({ url: tokenResult.room_url, token: tokenResult.token });
+            await joinCurrentCallWithToken();
           }
         };
         joinPromise = joinDailyCall();
@@ -7552,17 +7677,17 @@ export default function VideoDateScreen() {
     if (surveyEventId) {
       void queryClient
         .prefetchQuery({
-          queryKey: ['event-deck', surveyEventId, user.id, 'deck_v2'],
-          queryFn: () => fetchEventDeckProfiles(surveyEventId, user.id),
+          queryKey: ['event-deck', surveyEventId, user.id, 'deck_v3'],
+          queryFn: () => fetchEventDeck(surveyEventId, user.id),
           staleTime: 10_000,
         })
         .then(() => {
-          const profiles = queryClient.getQueryData<Awaited<ReturnType<typeof fetchEventDeckProfiles>>>([
+          const profiles = queryClient.getQueryData<EventDeckFetchResult>([
             'event-deck',
             surveyEventId,
             user.id,
-            'deck_v2',
-          ]) ?? [];
+            'deck_v3',
+          ])?.profiles ?? [];
           for (const item of getVideoDateDeckPrefetchItems(profiles)) {
             const src = deckCardUrl(item.source);
             if (src) void Image.prefetch(src);
@@ -7878,6 +8003,18 @@ export default function VideoDateScreen() {
     }
     return null;
   }, [session, user?.id]);
+  const localHandshakeHasDecided = useMemo(() => {
+    if (!session || !user?.id) return false;
+    if (session.participant_1_id === user.id) return Boolean(session.participant_1_decided_at);
+    if (session.participant_2_id === user.id) return Boolean(session.participant_2_decided_at);
+    return false;
+  }, [session, user?.id]);
+  const partnerHandshakeHasDecided = useMemo(() => {
+    if (!session || !user?.id) return false;
+    if (session.participant_1_id === user.id) return Boolean(session.participant_2_decided_at);
+    if (session.participant_2_id === user.id) return Boolean(session.participant_1_decided_at);
+    return false;
+  }, [session, user?.id]);
 
   useEffect(() => {
     const key = `${sessionId ?? 'none'}:${session?.handshake_started_at ?? 'no-start'}`;
@@ -8089,6 +8226,7 @@ export default function VideoDateScreen() {
     nativeBackgroundStatus === 'none' &&
     !showJoiningOverlay &&
     !showPeerWaitOverlay &&
+    !(phase === 'handshake' && localHandshakeHasDecided) &&
     (phase === 'handshake' || phase === 'date');
   const showCollapsedIceBreaker =
     !showIceBreaker &&
@@ -8101,6 +8239,7 @@ export default function VideoDateScreen() {
     nativeBackgroundStatus === 'none' &&
     !showJoiningOverlay &&
     !showPeerWaitOverlay &&
+    !(phase === 'handshake' && localHandshakeHasDecided) &&
     (phase === 'handshake' || phase === 'date');
   const iceBreakerBottomOffset = showHandshakeChrome
     ? handshakeBottomOffset + HANDSHAKE_CTA_STACK_HEIGHT + FLOATING_CHROME_GAP
@@ -8756,6 +8895,8 @@ export default function VideoDateScreen() {
           <VibeCheckButton
             timeLeft={displayTimeLeft}
             decision={localHandshakeDecision}
+            localHasDecided={localHandshakeHasDecided}
+            partnerHasDecided={partnerHandshakeHasDecided}
             onVibe={handleUserVibe}
             onPass={handleUserPass}
           />

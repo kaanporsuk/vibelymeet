@@ -8,6 +8,8 @@ interface VibeCheckButtonProps {
   onVibe: () => void | Promise<boolean | void>;
   onPass: () => void | Promise<boolean | void>;
   disabled?: boolean;
+  localHasDecided?: boolean;
+  partnerHasDecided?: boolean;
 }
 
 export const VibeCheckButton = ({
@@ -16,12 +18,14 @@ export const VibeCheckButton = ({
   onVibe,
   onPass,
   disabled,
+  localHasDecided,
+  partnerHasDecided = false,
 }: VibeCheckButtonProps) => {
   const [submitting, setSubmitting] = useState<"vibe" | "pass" | null>(null);
   const [error, setError] = useState<string | null>(null);
   const submittingRef = useRef(false);
   const isFinalTenSeconds = timeLeft <= 10;
-  const hasDecided = decision === true || decision === false;
+  const hasDecided = localHasDecided ?? (decision === true || decision === false);
 
   const handleTap = async (action: "vibe" | "pass") => {
     if (hasDecided || disabled || submittingRef.current) return;
@@ -46,9 +50,12 @@ export const VibeCheckButton = ({
         <div className="relative flex min-h-12 items-center gap-2 rounded-full border border-primary/50 bg-black/55 px-6 py-3 shadow-[0_18px_45px_rgba(0,0,0,0.34)] backdrop-blur-2xl cursor-default">
           <Check className="w-5 h-5 text-primary" />
           <span className="text-sm font-display font-semibold text-primary">
-            {decision ? "Ready to continue" : "Pass saved"}
+            {decision === false ? "Pass saved" : "Ready to continue"}
           </span>
         </div>
+        <p className="text-center text-[11px] font-medium leading-none text-white/[0.62]">
+          {partnerHasDecided ? "They've chosen too" : "Waiting for them"}
+        </p>
       </div>
     );
   }
@@ -56,7 +63,7 @@ export const VibeCheckButton = ({
   return (
     <div className="flex w-full flex-col items-center gap-2 px-4">
       <p className="text-center text-[12.5px] font-medium leading-none text-white/[0.74]">
-        Continue when ready
+        {partnerHasDecided ? "They've chosen" : "Continue when ready"}
       </p>
       <div className="flex h-[68px] w-[min(calc(100vw-48px),340px)] items-center justify-center gap-2.5 rounded-full border border-white/[0.10] bg-[rgba(10,10,16,0.62)] p-2 shadow-[0_14px_44px_rgba(0,0,0,0.35),0_0_28px_rgba(139,92,246,0.10),inset_0_1px_0_rgba(255,255,255,0.08)] backdrop-blur-2xl">
         <motion.button

@@ -11,7 +11,7 @@ const corsHeaders = {
 const DAILY_API_KEY = Deno.env.get("DAILY_API_KEY")?.trim() ?? "";
 const DAILY_API_URL = "https://api.daily.co/v1";
 const DAILY_VIDEO_DATE_ROOM_TTL_SECONDS = 14_400;
-const DAILY_VIDEO_DATE_SNAPSHOT_TOKEN_TTL_SECONDS = DAILY_VIDEO_DATE_ROOM_TTL_SECONDS;
+const DAILY_VIDEO_DATE_TOKEN_TTL_SECONDS = DAILY_VIDEO_DATE_ROOM_TTL_SECONDS;
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -24,8 +24,6 @@ type SnapshotPayload = {
     name?: string | null;
     url?: string | null;
     tokenRequired?: boolean | null;
-    token?: string;
-    tokenExpiresAt?: number;
   } | null;
 };
 
@@ -36,37 +34,15 @@ function jsonResponse(payload: unknown, status = 200): Response {
   });
 }
 
-function errorStatus(error: string | undefined): number {
-  switch (error) {
-    case "not_authenticated":
-      return 401;
-    case "not_participant":
-      return 403;
-    case "session_not_found":
-      return 404;
-    default:
-      return 409;
-  }
-}
-
-function withoutToken(snapshot: SnapshotPayload): SnapshotPayload {
-  if (!snapshot.room) return snapshot;
-  const { token: _token, tokenExpiresAt: _tokenExpiresAt, ...room } = snapshot.room;
-  return {
-    ...snapshot,
-    room,
-  };
-}
-
 async function createMeetingToken(roomName: string, userId: string): Promise<{
   token: string;
-  tokenExpiresAt: number;
+  tokenExpiresAtMs: number;
+  tokenExpiresAtIso: string;
 }> {
-  if (!DAILY_API_KEY) {
-    throw new Error("daily_api_key_missing");
-  }
+  if (!DAILY_API_KEY) throw new Error("daily_api_key_missing");
+
   const issuedAtMs = Date.now();
-  const tokenExpiresAt = issuedAtMs + DAILY_VIDEO_DATE_SNAPSHOT_TOKEN_TTL_SECONDS * 1000;
+  const tokenExpiresAtMs = issuedAtMs + DAILY_VIDEO_DATE_TOKEN_TTL_SECONDS * 1000;
   const response = await fetch(`${DAILY_API_URL}/meeting-tokens`, {
     method: "POST",
     headers: {
@@ -77,7 +53,7 @@ async function createMeetingToken(roomName: string, userId: string): Promise<{
       properties: buildMeetingTokenProperties({
         roomName,
         userId,
-        ttlSeconds: DAILY_VIDEO_DATE_SNAPSHOT_TOKEN_TTL_SECONDS,
+        ttlSeconds: DAILY_VIDEO_DATE_TOKEN_TTL_SECONDS,
         nowSeconds: Math.floor(issuedAtMs / 1000),
         ejectAtTokenExp: true,
       }),
@@ -85,10 +61,9 @@ async function createMeetingToken(roomName: string, userId: string): Promise<{
   });
 
   if (!response.ok) {
-    const providerStatus = response.status;
     console.error(JSON.stringify({
-      event: "video_date_snapshot_daily_token_failed",
-      provider_status: providerStatus,
+      event: "video_date_token_refresh_daily_failed",
+      provider_status: response.status,
       room_name: roomName,
     }));
     throw new Error("daily_token_failed");
@@ -98,7 +73,12 @@ async function createMeetingToken(roomName: string, userId: string): Promise<{
   if (typeof payload?.token !== "string" || !payload.token) {
     throw new Error("daily_token_invalid_response");
   }
-  return { token: payload.token, tokenExpiresAt };
+
+  return {
+    token: payload.token,
+    tokenExpiresAtMs,
+    tokenExpiresAtIso: new Date(tokenExpiresAtMs).toISOString(),
+  };
 }
 
 serve(async (req) => {
@@ -134,20 +114,16 @@ serve(async (req) => {
     : typeof body?.sessionId === "string"
       ? body.sessionId
       : null;
-  const includeToken = body?.include_token !== false && body?.includeToken !== false;
-  if (!sessionId) {
-    return jsonResponse({ ok: false, error: "missing_session_id" }, 400);
-  }
-  if (!UUID_PATTERN.test(sessionId)) {
-    return jsonResponse({ ok: false, error: "invalid_session_id" }, 400);
-  }
+
+  if (!sessionId) return jsonResponse({ ok: false, error: "missing_session_id" }, 400);
+  if (!UUID_PATTERN.test(sessionId)) return jsonResponse({ ok: false, error: "invalid_session_id" }, 400);
 
   const { data, error } = await supabase.rpc("get_video_date_snapshot_core", {
     p_session_id: sessionId,
   });
   if (error) {
     console.error(JSON.stringify({
-      event: "video_date_snapshot_core_failed",
+      event: "video_date_token_refresh_snapshot_failed",
       session_id: sessionId,
       user_id: user.id,
       code: error.code,
@@ -157,34 +133,37 @@ serve(async (req) => {
 
   const snapshot = data as SnapshotPayload | null;
   if (!snapshot?.ok) {
-    return jsonResponse(snapshot ?? { ok: false, error: "snapshot_not_found" }, errorStatus(snapshot?.error));
+    const status = snapshot?.error === "not_participant" ? 403 : snapshot?.error === "session_not_found" ? 404 : 409;
+    return jsonResponse(snapshot ?? { ok: false, error: "snapshot_not_found" }, status);
   }
 
   const phase = typeof snapshot.phase === "string" ? snapshot.phase : null;
-  const roomName = snapshot.room?.name ?? null;
   if (phase !== "handshake" && phase !== "date") {
-    return jsonResponse(withoutToken(snapshot));
+    return jsonResponse({ ok: false, error: "session_not_active", phase, retryable: false }, 409);
   }
-  if (!includeToken) {
-    return jsonResponse(withoutToken(snapshot));
-  }
-  if (!roomName) {
-    return jsonResponse(withoutToken(snapshot));
+
+  const roomName = snapshot.room?.name ?? null;
+  const roomUrl = snapshot.room?.url ?? null;
+  if (!roomName || !roomUrl) {
+    return jsonResponse({ ok: false, error: "room_not_ready", phase, retryable: true }, 409);
   }
 
   try {
     const tokenResult = await createMeetingToken(roomName, user.id);
     return jsonResponse({
-      ...snapshot,
-      room: {
-        ...snapshot.room,
-        token: tokenResult.token,
-        tokenExpiresAt: tokenResult.tokenExpiresAt,
-      },
+      ok: true,
+      session_id: sessionId,
+      event_id: snapshot.eventId ?? null,
+      phase,
+      room_name: roomName,
+      room_url: roomUrl,
+      token: tokenResult.token,
+      token_expires_at: tokenResult.tokenExpiresAtIso,
+      tokenExpiresAt: tokenResult.tokenExpiresAtMs,
     });
   } catch (tokenError) {
     console.error(JSON.stringify({
-      event: "video_date_snapshot_token_issue_failed",
+      event: "video_date_token_refresh_failed",
       session_id: sessionId,
       user_id: user.id,
       room_name: roomName,

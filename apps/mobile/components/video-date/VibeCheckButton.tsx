@@ -17,6 +17,8 @@ type Props = {
   onVibe: () => void | Promise<boolean | void>;
   onPass: () => void | Promise<boolean | void>;
   disabled?: boolean;
+  localHasDecided?: boolean;
+  partnerHasDecided?: boolean;
 };
 
 const RAIL_MAX_WIDTH = 320;
@@ -27,7 +29,15 @@ const RAIL_BUTTON_GAP = 8;
 const PASS_BUTTON_RATIO = 0.47;
 const BUTTON_HEIGHT = 52;
 
-export function VibeCheckButton({ timeLeft, decision, onVibe, onPass, disabled }: Props) {
+export function VibeCheckButton({
+  timeLeft,
+  decision,
+  onVibe,
+  onPass,
+  disabled,
+  localHasDecided,
+  partnerHasDecided = false,
+}: Props) {
   const colorScheme = useColorScheme();
   const theme = Colors[colorScheme];
   const { width: viewportWidth } = useWindowDimensions();
@@ -35,7 +45,7 @@ export function VibeCheckButton({ timeLeft, decision, onVibe, onPass, disabled }
   const [error, setError] = React.useState<string | null>(null);
   const submittingRef = useRef(false);
   const isFinalTenSeconds = timeLeft <= 10;
-  const hasDecided = decision === true || decision === false;
+  const hasDecided = localHasDecided ?? (decision === true || decision === false);
   const pulseAnim = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
@@ -90,9 +100,18 @@ export function VibeCheckButton({ timeLeft, decision, onVibe, onPass, disabled }
             adjustsFontSizeToFit
             minimumFontScale={0.86}
           >
-            {decision ? 'Ready to continue' : 'Pass saved'}
+            {decision === false ? 'Pass saved' : 'Ready to continue'}
           </Text>
         </View>
+        <Text
+          style={[styles.partnerHint, { color: 'rgba(255,255,255,0.58)' }]}
+          numberOfLines={1}
+          ellipsizeMode="tail"
+          adjustsFontSizeToFit
+          minimumFontScale={0.88}
+        >
+          {partnerHasDecided ? "They've chosen too" : 'Waiting for them'}
+        </Text>
       </View>
     );
   }
@@ -190,7 +209,7 @@ export function VibeCheckButton({ timeLeft, decision, onVibe, onPass, disabled }
         adjustsFontSizeToFit
         minimumFontScale={0.88}
       >
-        Continue when ready
+        {partnerHasDecided ? "They've chosen" : 'Continue when ready'}
       </Text>
 
       {error ? (
@@ -278,6 +297,13 @@ const styles = StyleSheet.create({
     fontFamily: fonts.bodySemiBold,
   },
   helper: {
+    fontSize: 11,
+    lineHeight: 14,
+    fontFamily: fonts.bodyMedium,
+    textAlign: 'center',
+    marginTop: 6,
+  },
+  partnerHint: {
     fontSize: 11,
     lineHeight: 14,
     fontFamily: fonts.bodyMedium,

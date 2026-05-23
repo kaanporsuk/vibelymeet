@@ -2289,8 +2289,8 @@ test("duplicate active-session conflicts use the canonical audit event on web an
 });
 
 test("video-date Daily room and token TTL use explicit finite constants separate from match calls", () => {
-  assert.match(dailyRoomFunction, /DAILY_VIDEO_DATE_TOKEN_TTL_SECONDS = 15 \* 60/);
   assert.match(dailyRoomFunction, /DAILY_VIDEO_DATE_ROOM_TTL_SECONDS = 14_400/);
+  assert.match(dailyRoomFunction, /DAILY_VIDEO_DATE_TOKEN_TTL_SECONDS = DAILY_VIDEO_DATE_ROOM_TTL_SECONDS/);
   assert.match(dailyRoomFunction, /DAILY_MATCH_CALL_TOKEN_TTL_SECONDS = 30 \* 60/);
   assert.match(dailyRoomFunction, /DAILY_MATCH_CALL_ROOM_TTL_SECONDS = 60 \* 60/);
   assert.match(dailyRoomFunction, /enable_recording: false/);

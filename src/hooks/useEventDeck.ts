@@ -2,44 +2,50 @@ import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useUserProfile } from "@/contexts/AuthContext";
 import {
-  parseEventDeckProfiles,
+  parseEventDeckResponse,
+  type EventDeckFetchResult,
   type EventDeckProfile as DeckProfile,
 } from "@shared/eventProfileAdapters";
 import { VIDEO_DATE_DECK_BUFFER_LIMIT } from "@clientShared/matching/videoDateInstantExperience";
 
 export type { DeckProfile };
+export type { EventDeckFetchResult };
 
 interface UseEventDeckOptions {
   eventId: string;
   enabled?: boolean;
 }
 
-export async function fetchEventDeckProfiles(eventId: string, viewerProfileId: string): Promise<DeckProfile[]> {
-  if (!viewerProfileId || !eventId) return [];
+export async function fetchEventDeck(eventId: string, viewerProfileId: string): Promise<EventDeckFetchResult> {
+  if (!viewerProfileId || !eventId) {
+    return parseEventDeckResponse({ ok: false, profiles: [], deck_state: { reason: "unknown", retryable: false } });
+  }
 
-  const { data, error } = await supabase.rpc("get_event_deck_v2", {
+  const { data, error } = await supabase.rpc("get_event_deck_v3" as never, {
     p_event_id: eventId,
     p_user_id: viewerProfileId,
     p_limit: VIDEO_DATE_DECK_BUFFER_LIMIT,
-  });
+  } as never);
 
   if (error) {
     console.error("Error fetching deck:", error);
     throw error;
   }
 
-  return parseEventDeckProfiles(data);
+  return parseEventDeckResponse(data);
 }
 
 export const useEventDeck = ({ eventId, enabled = true }: UseEventDeckOptions) => {
   const { user } = useUserProfile();
 
   const query = useQuery({
-    queryKey: ["event-deck", eventId, user?.id, "deck_v2"],
-    queryFn: async () => {
+    queryKey: ["event-deck", eventId, user?.id, "deck_v3"],
+    queryFn: async (): Promise<EventDeckFetchResult> => {
       const viewerProfileId = user?.id;
-      if (!viewerProfileId || !eventId) return [];
-      return fetchEventDeckProfiles(eventId, viewerProfileId);
+      if (!viewerProfileId || !eventId) {
+        return parseEventDeckResponse({ ok: false, profiles: [], deck_state: { reason: "unknown", retryable: false } });
+      }
+      return fetchEventDeck(eventId, viewerProfileId);
     },
     enabled: enabled && !!user?.id && !!eventId,
     refetchInterval: () =>
@@ -48,10 +54,13 @@ export const useEventDeck = ({ eventId, enabled = true }: UseEventDeckOptions) =
     staleTime: 10000,
   });
 
-  const profiles = query.data || [];
+  const deckResult = query.data ?? null;
+  const profiles = deckResult?.profiles || [];
 
   return {
     profiles,
+    deckState: deckResult?.deckState ?? null,
+    deckOk: deckResult?.ok ?? false,
     isLoading: query.isLoading || (query.isFetching && profiles.length === 0),
     isError: query.isError,
     error: query.error,

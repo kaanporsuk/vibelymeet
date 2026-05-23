@@ -34,7 +34,7 @@ import { useVideoDateDupTabGuard } from "@/hooks/useVideoDateDupTabGuard";
 import { useFeatureFlag } from "@/hooks/useFeatureFlag";
 import { useUserProfile } from "@/contexts/AuthContext";
 import { useEventStatus } from "@/hooks/useEventStatus";
-import { fetchEventDeckProfiles } from "@/hooks/useEventDeck";
+import { fetchEventDeck, type EventDeckFetchResult } from "@/hooks/useEventDeck";
 import { SUPABASE_PUBLISHABLE_KEY, SUPABASE_URL, supabase } from "@/integrations/supabase/client";
 import { fetchVideoDateSnapshot } from "@/lib/videoDateSnapshot";
 import { resolvePhotoUrl } from "@/lib/photoUtils";
@@ -1234,16 +1234,16 @@ const VideoDate = () => {
     postDatePrestageKeyRef.current = id;
     preloadRouteOnIdle("eventLobby");
     if (eventId && user?.id) {
-      const queryKey = ["event-deck", eventId, user.id, "deck_v2"] as const;
+      const queryKey = ["event-deck", eventId, user.id, "deck_v3"] as const;
       void queryClient
         .prefetchQuery({
           queryKey,
-          queryFn: () => fetchEventDeckProfiles(eventId, user.id),
+          queryFn: () => fetchEventDeck(eventId, user.id),
           staleTime: 10_000,
         })
         .then(() => {
           if (typeof window === "undefined") return;
-          const profiles = queryClient.getQueryData<Awaited<ReturnType<typeof fetchEventDeckProfiles>>>(queryKey) ?? [];
+          const profiles = queryClient.getQueryData<EventDeckFetchResult>(queryKey)?.profiles ?? [];
           for (const item of getVideoDateDeckPrefetchItems(profiles)) {
             const src = deckCardUrl(item.source);
             if (!src) continue;
@@ -3006,6 +3006,18 @@ const VideoDate = () => {
     }
     return null;
   }, [handshakeTruth, user?.id]);
+  const localHandshakeHasDecided = useMemo(() => {
+    if (!handshakeTruth || !user?.id) return false;
+    if (handshakeTruth.participant_1_id === user.id) return Boolean(handshakeTruth.participant_1_decided_at);
+    if (handshakeTruth.participant_2_id === user.id) return Boolean(handshakeTruth.participant_2_decided_at);
+    return false;
+  }, [handshakeTruth, user?.id]);
+  const partnerHandshakeHasDecided = useMemo(() => {
+    if (!handshakeTruth || !user?.id) return false;
+    if (handshakeTruth.participant_1_id === user.id) return Boolean(handshakeTruth.participant_2_decided_at);
+    if (handshakeTruth.participant_2_id === user.id) return Boolean(handshakeTruth.participant_1_decided_at);
+    return false;
+  }, [handshakeTruth, user?.id]);
 
   // Check mutual vibe at the backend-owned handshake deadline.
   const checkMutualVibe = useCallback(async (source = "handshake_server_deadline", allowRetry = true) => {
@@ -4029,6 +4041,7 @@ const VideoDate = () => {
     !remotePlayback.playRejected &&
     !peerMissing.terminal &&
     !anyReconnectVisible &&
+    !(phase === "handshake" && localHandshakeHasDecided) &&
     (phase === "handshake" || phase === "date");
   const showCollapsedIceBreaker =
     isConnected &&
@@ -4039,6 +4052,7 @@ const VideoDate = () => {
     !remotePlayback.playRejected &&
     !peerMissing.terminal &&
     !anyReconnectVisible &&
+    !(phase === "handshake" && localHandshakeHasDecided) &&
     (phase === "handshake" || phase === "date");
   const iceBreakerPositionClass =
     phase === "handshake" && handshakeTimerStarted
@@ -4567,6 +4581,8 @@ const VideoDate = () => {
             <VibeCheckButton
               timeLeft={timeLeft ?? 0}
               decision={localHandshakeDecision}
+              localHasDecided={localHandshakeHasDecided}
+              partnerHasDecided={partnerHandshakeHasDecided}
               onVibe={handleUserVibe}
               onPass={handleUserPass}
             />

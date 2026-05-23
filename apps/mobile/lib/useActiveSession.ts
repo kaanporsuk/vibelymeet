@@ -28,6 +28,7 @@ import {
 import { LobbyPostDateEvents } from '@clientShared/analytics/lobbyToPostDateJourney';
 import type { VideoSessionDateEntryTruth } from '@/lib/videoDateApi';
 import { RC_CATEGORY, rcBreadcrumb } from '@/lib/nativeRcDiagnostics';
+import { fetchVideoDateQueueHint } from '@/lib/videoDateQueueHint';
 
 export type ActiveSession =
   | { kind: 'video'; sessionId: string; eventId: string; partnerName?: string | null; queueStatus: 'in_handshake' | 'in_date' | 'in_survey' }
@@ -675,27 +676,15 @@ export function useActiveSession(
 
     // Secondary: queued mutual match while still browsing — registration row may not qualify for primary filter.
     if (eventFilter) {
-      const { data: queued, error: qErr } = await supabase
-        .from('video_sessions')
-        .select('id, event_id')
-        .eq('event_id', eventFilter)
-        .or(`participant_1_id.eq.${userId},participant_2_id.eq.${userId}`)
-        .is('ended_at', null)
-        .eq('ready_gate_status', 'queued')
-        // Newest-first + id tie-break: deterministic if multiple queued rows exist; server promote remains FIFO on oldest.
-        .order('started_at', { ascending: false, nullsFirst: false })
-        .order('id', { ascending: false })
-        .limit(1)
-        .maybeSingle();
-
-      if (qErr) {
-        if (__DEV__) console.warn('[useActiveSession] queued session lookup failed:', qErr.message);
-      } else if (queued?.id && queued.event_id) {
+      const queueHint = await fetchVideoDateQueueHint(eventFilter, userId);
+      if (!queueHint.ok) {
+        if (__DEV__) console.warn('[useActiveSession] queued session lookup failed:', queueHint.reason ?? 'unknown');
+      } else if (queueHint.queued && queueHint.sessionId) {
         if (mounted.current) {
           setActiveSession({
             kind: 'syncing',
-            sessionId: queued.id as string,
-            eventId: queued.event_id as string,
+            sessionId: queueHint.sessionId,
+            eventId: eventFilter,
           });
           setHydrated(true);
         }
