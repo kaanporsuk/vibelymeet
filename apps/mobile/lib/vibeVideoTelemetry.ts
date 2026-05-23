@@ -103,3 +103,19 @@ export function captureVibeVideoException(
     extra: sanitizeProperties(properties),
   });
 }
+
+export function captureVibeVideoMessage(
+  message: string,
+  properties: VibeVideoTelemetryProperties = {},
+  level: Sentry.SeverityLevel = 'warning',
+): void {
+  try {
+    Sentry.captureMessage(message, {
+      level,
+      tags: { feature: 'vibe_video' },
+      extra: sanitizeProperties(properties),
+    });
+  } catch {
+    // Sentry capture is diagnostic only; never let it break media URL resolution.
+  }
+}

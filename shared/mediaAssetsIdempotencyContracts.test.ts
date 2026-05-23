@@ -23,6 +23,7 @@ const mediaUxAccelerationMigration = read("supabase/migrations/20260522161000_me
 const mediaBlurhashMigration = read("supabase/migrations/20260523100000_media_blurhash_placeholders.sql");
 const mediaDisplayDerivativeMigration = read("supabase/migrations/20260523110000_profile_photo_display_derivative.sql");
 const sharedMediaPlaceholders = read("shared/media/placeholders.ts");
+const supabaseMediaPlaceholders = read("supabase/functions/_shared/media-placeholders.ts");
 const mediaLifecycle = read("supabase/functions/_shared/media-lifecycle.ts");
 const mediaUploadTelemetry = read("supabase/functions/_shared/media-upload-telemetry.ts");
 const uploadImage = read("supabase/functions/upload-image/index.ts");
@@ -50,6 +51,7 @@ const nativeImageAssetNormalize = read("apps/mobile/lib/imageAssetNormalize.ts")
 const nativeOutboxExecute = read("apps/mobile/lib/chatOutbox/execute.ts");
 const nativeOutboxContext = read("apps/mobile/lib/chatOutbox/ChatOutboxContext.tsx");
 const nativeUploadImage = read("apps/mobile/lib/uploadImage.ts");
+const nativeMobilePackageJson = read("apps/mobile/package.json");
 const webImageUrl = read("src/utils/imageUrl.ts");
 const nativeImageUrl = read("apps/mobile/lib/imageUrl.ts");
 const webFetchUserProfile = read("src/services/fetchUserProfile.ts");
@@ -70,6 +72,7 @@ const webOtherUserFullProfile = read("src/components/profile/OtherUserFullProfil
 const nativeUserProfileFullView = read("apps/mobile/components/profile/UserProfileFullView.tsx");
 const webVibePlayer = read("src/components/vibe-video/VibePlayer.tsx");
 const webFullscreenVibePlayer = read("src/components/vibe-video/VibeVideoFullscreenPlayer.tsx");
+const webMediaPlaceholder = read("src/components/media/MediaPlaceholder.tsx");
 const nativeVibeVideoPlayer = read("apps/mobile/components/video/VibeVideoPlayer.tsx");
 const webChatPhotoLightbox = read("src/components/chat/ChatPhotoLightbox.tsx");
 const nativeChatThreadMediaViewer = read("apps/mobile/components/chat/ChatThreadMediaViewer.tsx");
@@ -209,6 +212,17 @@ test("media placeholders and derivative refs are durable without Bunny Image Opt
   assert.match(mediaBlurhashMigration, /WHEN placeholder_kind IN \('dominant_color', 'blurhash'\)/);
   assert.match(mediaBlurhashMigration, /broadcast_media_asset_event_v1/);
   assert.match(sharedMediaPlaceholders, /export type MediaPlaceholderKind = "dominant_color" \| "blurhash"/);
+  assert.match(sharedMediaPlaceholders, /isBlurhashValid/);
+  assert.match(sharedMediaPlaceholders, /validation\.result \? hash : null/);
+  assert.match(sharedMediaPlaceholders, /kind: "dominant_color", hash: dominantColor, dominantColor/);
+  assert.match(supabaseMediaPlaceholders, /import \{ encode, isBlurhashValid \}/);
+  assert.match(supabaseMediaPlaceholders, /validation\.result \? hash : null/);
+  assert.match(supabaseMediaPlaceholders, /placeholder_kind: "dominant_color", placeholder_hash: dominantColor/);
+  assert.match(getChatMediaUrl, /import \{ isBlurhashValid \} from "https:\/\/esm\.sh\/blurhash@2\.0\.5"/);
+  assert.match(getChatMediaUrl, /validation\.result \? hash : null/);
+  assert.match(nativeMobilePackageJson, /"blurhash": "\^2\.0\.5"/);
+  assert.match(webMediaPlaceholder, /catch \{\s*return null;\s*\}/);
+  assert.match(webMediaPlaceholder, /backgroundColor: normalizedColor/);
 
   assert.match(uploadImage, /readImagePlaceholderMetadata\(formData\)/);
   assert.match(uploadImage, /const serverPlaceholderMetadata = await createImagePlaceholderMetadata\(fileBuffer\);/);

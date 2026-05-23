@@ -1,3 +1,5 @@
+import { isBlurhashValid } from "blurhash";
+
 export type MediaPlaceholderKind = "dominant_color" | "blurhash";
 
 export type MediaPlaceholderPayload = {
@@ -18,7 +20,9 @@ export function normalizeDominantColor(value: unknown): string | null {
 export function normalizeBlurhash(value: unknown): string | null {
   if (typeof value !== "string") return null;
   const hash = value.trim();
-  return BLURHASH_RE.test(hash) ? hash : null;
+  if (!BLURHASH_RE.test(hash)) return null;
+  const validation = isBlurhashValid(hash);
+  return validation.result ? hash : null;
 }
 
 export function normalizeMediaPlaceholderKind(value: unknown): MediaPlaceholderKind | null {
@@ -48,13 +52,18 @@ export function normalizeMediaPlaceholderPayload(raw: unknown): MediaPlaceholder
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
   const record = raw as Record<string, unknown>;
   const kind = normalizeMediaPlaceholderKind(record.kind);
+  if (!kind) return null;
   const hash = normalizeMediaPlaceholderHash(kind, record.hash);
-  if (!kind || !hash) return null;
   const dominantColor = normalizeMediaPlaceholderDominantColor(
     kind,
     hash,
     record.dominantColor ?? record.dominant_color,
   );
+  if (!hash) {
+    return dominantColor
+      ? { kind: "dominant_color", hash: dominantColor, dominantColor }
+      : null;
+  }
   return {
     kind,
     hash,

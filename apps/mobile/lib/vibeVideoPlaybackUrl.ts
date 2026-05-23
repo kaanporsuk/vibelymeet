@@ -12,7 +12,7 @@
  */
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { vibeVideoDiagProdHint, vibeVideoDiagVerbose } from '@/lib/vibeVideoDiagnostics';
-import { trackVibeVideoEvent, VIBE_VIDEO_EVENTS } from '@/lib/vibeVideoTelemetry';
+import { captureVibeVideoMessage, trackVibeVideoEvent, VIBE_VIDEO_EVENTS } from '@/lib/vibeVideoTelemetry';
 
 export const BUNNY_STREAM_CDN_STORAGE_KEY = 'bunny_stream_cdn_hostname';
 export const BUNNY_STREAM_CDN_STORAGE_KEY_PREFIX = 'bunny_stream_cdn_hostname:';
@@ -74,14 +74,16 @@ export type StreamHostnameResolution = {
 function trackCdnHostnamePersistenceMismatch(source: string): void {
   if (reportedEnvPersistedMismatch) return;
   reportedEnvPersistedMismatch = true;
-  trackVibeVideoEvent(VIBE_VIDEO_EVENTS.cdnHostnamePersistenceMismatch, {
+  const properties = {
     source,
     kind: 'env_persisted_hostname_mismatch',
     stream_hostname_source: 'env',
     project_ref: SUPABASE_PROJECT_REF,
     env_hostname_present: true,
     persisted_hostname_present: true,
-  });
+  };
+  trackVibeVideoEvent(VIBE_VIDEO_EVENTS.cdnHostnamePersistenceMismatch, properties);
+  captureVibeVideoMessage('vibe_video_cdn_hostname_persistence_mismatch', properties, 'warning');
 }
 
 /**

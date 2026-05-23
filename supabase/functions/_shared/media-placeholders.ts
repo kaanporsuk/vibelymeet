@@ -1,5 +1,5 @@
 import { Image } from "https://deno.land/x/imagescript@1.3.0/mod.ts";
-import { encode } from "https://esm.sh/blurhash@2.0.5";
+import { encode, isBlurhashValid } from "https://esm.sh/blurhash@2.0.5";
 
 export type MediaPlaceholderKind = "dominant_color" | "blurhash";
 
@@ -22,7 +22,9 @@ function normalizeDominantColor(value: string | null | undefined): string | null
 function normalizeBlurhash(value: string | null | undefined): string | null {
   if (!value) return null;
   const hash = value.trim();
-  return BLURHASH_RE.test(hash) ? hash : null;
+  if (!BLURHASH_RE.test(hash)) return null;
+  const validation = isBlurhashValid(hash);
+  return validation.result ? hash : null;
 }
 
 function optionalFormString(formData: FormData, key: string): string | null {
@@ -43,7 +45,10 @@ export function readImagePlaceholderMetadata(formData: FormData): MediaPlacehold
 
   if (placeholderKind === "blurhash") {
     const hash = normalizeBlurhash(optionalFormString(formData, "placeholder_hash"));
-    return hash ? { placeholder_kind: "blurhash", placeholder_hash: hash, dominant_color: dominantColor } : null;
+    if (hash) return { placeholder_kind: "blurhash", placeholder_hash: hash, dominant_color: dominantColor };
+    return dominantColor
+      ? { placeholder_kind: "dominant_color", placeholder_hash: dominantColor, dominant_color: dominantColor }
+      : null;
   }
 
   if (!dominantColor) return null;

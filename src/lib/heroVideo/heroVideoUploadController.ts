@@ -74,6 +74,8 @@ let _lastPollStatus: string | null = null;
 let _activeRunStartedAt = 0;
 let _visibilityListenerAttached = false;
 let _visibilityChangeHandler: (() => void) | null = null;
+let _pageHideListenerAttached = false;
+let _pageHideHandler: (() => void) | null = null;
 let _visibilityResumeInFlight = false;
 let _activePollVideoId: string | null = null;
 let _activeClientRequestId: string | null = null;
@@ -427,8 +429,6 @@ function _ensureVisibilityListener(): void {
   document.addEventListener("visibilitychange", _visibilityChangeHandler);
 }
 
-_ensureVisibilityListener();
-
 function _removeVisibilityListener(): void {
   if (typeof document !== "undefined" && _visibilityChangeHandler) {
     document.removeEventListener("visibilitychange", _visibilityChangeHandler);
@@ -438,10 +438,33 @@ function _removeVisibilityListener(): void {
   _visibilityResumeInFlight = false;
 }
 
+function _handlePageHide(): void {
+  _clearLocalPreview();
+}
+
+function _ensurePageHideListener(): void {
+  if (_pageHideListenerAttached || _pageHideHandler || typeof window === "undefined") return;
+  _pageHideHandler = _handlePageHide;
+  _pageHideListenerAttached = true;
+  window.addEventListener("pagehide", _pageHideHandler);
+}
+
+function _removePageHideListener(): void {
+  if (typeof window !== "undefined" && _pageHideHandler) {
+    window.removeEventListener("pagehide", _pageHideHandler);
+  }
+  _pageHideHandler = null;
+  _pageHideListenerAttached = false;
+}
+
+_ensureVisibilityListener();
+_ensurePageHideListener();
+
 const hot = (import.meta as HotImportMeta).hot;
 if (hot) {
   hot.dispose(() => {
     _removeVisibilityListener();
+    _removePageHideListener();
     _clearLocalPreview(false);
   });
 }
