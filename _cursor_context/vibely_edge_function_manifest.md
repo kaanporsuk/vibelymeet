@@ -205,13 +205,13 @@ The function exists in source but is not represented in `supabase/config.toml`.
 - **Rebuild notes:** sets `is_paused = false`, `paused_at`/`paused_until`/`pause_reason` = null
 
 ### `delete-account`
-- **Purpose:** authenticated deletion-request wrapper; schedules the same pending deletion hold, signs the user out, and performs Stripe-linked cleanup
+- **Purpose:** authenticated deletion-request wrapper; first issues/verifies a short-lived email/phone reauth code, then schedules the same pending deletion hold while keeping the current session active during the grace window, and performs Stripe-linked cleanup
 - **Auth posture:** Class C — `verify_jwt = true`
-- **Frontend call sites:** `src/hooks/useDeleteAccount.ts`
-- **Primary tables touched:** `account_deletion_requests`, `profiles`, `subscriptions`, `chat_media_retention_states`, `media_references`, `media_assets`
-- **External services:** Stripe
-- **Env vars:** `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `STRIPE_SECRET_KEY`
-- **Rebuild notes:** uses shared rate-limiter helper; applies only the reversible grace-window hold before sign-out; must stay aligned with `request-account-deletion` semantics and should not mark deletion-hold users as moderation-suspended. Final `account_deleted` lifecycle release is now owned by the database trigger on `account_deletion_requests.status = 'completed'`.
+- **Frontend call sites:** `src/hooks/useDeleteAccount.ts`, `apps/mobile/app/delete-account.tsx`
+- **Primary tables touched:** `account_deletion_reauth_challenges`, `account_deletion_requests`, `profiles`, `subscriptions`, `chat_media_retention_states`, `media_references`, `media_assets`
+- **External services:** Resend for email reauth, Twilio Verify for phone reauth, Stripe
+- **Env vars:** `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `ACCOUNT_DELETION_RATE_LIMIT_PEPPER`, `EMAIL_VERIFICATION_OTP_SECRET` (fallback), `RESEND_API_KEY`, `EMAIL_VERIFICATION_FROM_EMAIL`, `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_VERIFY_SERVICE_SID`, `STRIPE_SECRET_KEY`
+- **Rebuild notes:** authenticated Settings/native deletion does not use Turnstile; it requires `request_reauth` followed by `schedule_deletion` with `reauthCode`/`reauthChannel`. Uses shared rate-limiter helper; applies only the reversible grace-window hold and keeps the session active so the user can cancel; must stay aligned with `request-account-deletion` semantics and should not mark deletion-hold users as moderation-suspended. Final `account_deleted` lifecycle release is now owned by the database trigger on `account_deletion_requests.status = 'completed'`.
 
 ---
 
@@ -443,10 +443,10 @@ The function exists in source but is not represented in `supabase/config.toml`.
 - **Purpose:** sends application push notifications, respects user preferences/mutes, and logs notification state
 - **Auth posture:** Class C — `verify_jwt = true`
 - **Frontend call sites:** `src/lib/notifications.ts`
-- **Primary tables touched:** `notification_preferences`, `notification_log`, `match_mutes`, `match_notification_mutes`
+- **Primary tables touched:** `notification_preferences`, `push_subscriptions`, `notification_log`, `match_mutes`, `match_notification_mutes`
 - **External services:** OneSignal
 - **Env vars:** `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `ONESIGNAL_APP_ID`, `ONESIGNAL_REST_API_KEY`, `APP_URL`
-- **Rebuild notes:** depends on the OneSignal app existing and the app/user identity model matching what the frontend sets up
+- **Rebuild notes:** depends on the OneSignal app existing and the app/user identity model matching what web/native set up; targets `include_subscription_ids` from `push_subscriptions` plus legacy web/mobile preference mirrors.
 
 ### `process-waitlist-promotion-notify-queue` (2026-04)
 - **Purpose:** drains `waitlist_promotion_notify_queue` in batches and invokes `send-notification` with category `event_waitlist_promoted` for users promoted from paid waitlist to confirmed

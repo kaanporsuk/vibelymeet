@@ -6,11 +6,11 @@ Repo-truth decisions for delete-account, phone verification, and email verificat
 
 ## 1. Delete account
 
-**Web behavior:** Settings → Delete Account → modal → `useDeleteAccount` → `delete-account` Edge Function (reason optional) → success → signOut, clear cache, navigate to `/`. Backend: pending deletion record; grace period; Stripe/subscription cleanup.
+**Web behavior:** Settings → Delete Account → modal → `useDeleteAccount` → `delete-account` Edge Function `request_reauth` → 6-digit email/phone code → `schedule_deletion` with `reauthCode`/`reauthChannel` → success → deletion-state refresh. Backend: pending deletion record; grace period; Stripe/subscription cleanup; current session remains active so the user can cancel during the grace window.
 
-**Native (Sprint 3):** Implemented. Settings → "Delete My Account" → destructive confirmation Alert → call `delete-account` EF (body `{ reason: null }`) → on success signOut + `router.replace('/(auth)/sign-in')`; on failure show error Alert. Same backend contract as web.
+**Native (Sprint 3 + reauth hardening):** Implemented. Settings → "Delete My Account" → typed `DELETE` → destructive confirmation Alert → `delete-account` EF `request_reauth` → 6-digit email/phone code → `schedule_deletion` with `reauthCode`/`reauthChannel`; on success the backend schedules deletion and keeps the session active during the grace window so the user can cancel. Same backend contract as web.
 
-**Decision: Native flow implemented for launch.** No web handoff required.
+**Decision: Native flow implemented for launch.** No web handoff or Turnstile WebView is required for authenticated Settings deletion; fresh email/phone ownership proof is enforced server-side.
 
 ---
 
@@ -44,8 +44,8 @@ Repo-truth decisions for delete-account, phone verification, and email verificat
 
 | Flow              | Native v1 launch        | Backend contract       | Note |
 |-------------------|-------------------------|------------------------|------|
-| Delete account    | **Implemented (Sprint 3)** | `delete-account` EF    | Confirmation → EF → signOut → auth. |
+| Delete account    | **Implemented + reauth hardened** | `delete-account` EF    | Typed DELETE → email/phone OTP → EF → pending deletion with active grace-window session. |
 | Phone verification| **Web handoff** (non-blocker) | `phone-verify` EF   | Keep for launch; implement natively when prioritized. |
 | Email verification| **Web handoff** (non-blocker) | `email-verification` EF | Keep for launch; Supabase Auth link sufficient. |
 
-**Final launch recommendation:** Phone and email verification are **non-blockers**; neither is a hard blocker for simultaneous iOS/Android launch. Keep web handoff for both. Delete account is implemented natively. No backend or EF changes required.
+**Final launch recommendation:** Phone and email profile verification are **non-blockers**; neither is a hard blocker for simultaneous iOS/Android launch. Keep web handoff for those trust badges. Delete account is implemented natively and now has a backend-enforced reauth step.
