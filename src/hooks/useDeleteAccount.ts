@@ -8,13 +8,16 @@ export type DeleteAccountReauthChannel = "email" | "phone";
 export interface DeleteAccountReauthChallenge {
   channel: DeleteAccountReauthChannel;
   maskedDestination: string;
+  availableChannels?: DeleteAccountReauthChannel[];
 }
 
 export const useDeleteAccount = () => {
   const [isDeleting, setIsDeleting] = useState(false);
   const [isRequestingVerification, setIsRequestingVerification] = useState(false);
 
-  const requestDeleteAccountVerification = async (): Promise<DeleteAccountReauthChallenge | null> => {
+  const requestDeleteAccountVerification = async (
+    channel?: DeleteAccountReauthChannel,
+  ): Promise<DeleteAccountReauthChallenge | null> => {
     setIsRequestingVerification(true);
 
     try {
@@ -28,6 +31,7 @@ export const useDeleteAccount = () => {
       const { data, error } = await supabase.functions.invoke("delete-account", {
         body: {
           action: "request_reauth",
+          ...(channel ? { reauthChannel: channel } : {}),
         },
       });
 

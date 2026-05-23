@@ -453,10 +453,17 @@ export function UserProfileFullView({
       sourceRef,
     });
   }, [allowUnsignedFallback, profile.id, reduceMotion, signedVibeVideoRef, vibePlaybackUrl]);
-  const completeNativeProfileVibeVideoTtff = useCallback(() => {
-    completeProfileVibeVideoTtffPlayback(profileVibeVideoTtffTokenRef.current);
+  const resetNativeProfileVibeVideoTtff = useCallback(() => {
     profileVibeVideoTtffTokenRef.current = null;
   }, []);
+  const completeNativeProfileVibeVideoTtff = useCallback(() => {
+    completeProfileVibeVideoTtffPlayback(profileVibeVideoTtffTokenRef.current);
+    resetNativeProfileVibeVideoTtff();
+  }, [resetNativeProfileVibeVideoTtff]);
+  const closeFullscreenVibe = useCallback(() => {
+    resetNativeProfileVibeVideoTtff();
+    setShowFullscreenVibe(false);
+  }, [resetNativeProfileVibeVideoTtff]);
 
   const aboutMeRaw = profile.about_me?.trim() ?? '';
   const showAboutMe = aboutMeRaw.length > 0;
@@ -468,8 +475,13 @@ export function UserProfileFullView({
 
   useEffect(() => {
     setHideVibingOnLabelAfterComplete(false);
-    profileVibeVideoTtffTokenRef.current = null;
-  }, [vibePlaybackUrl, vibeInfo.uid, profile.id]);
+    resetNativeProfileVibeVideoTtff();
+  }, [vibePlaybackUrl, vibeInfo.uid, profile.id, resetNativeProfileVibeVideoTtff]);
+
+  useEffect(() => {
+    if (!showFullscreenVibe || hasPlayableVibeVideo) return;
+    resetNativeProfileVibeVideoTtff();
+  }, [hasPlayableVibeVideo, resetNativeProfileVibeVideoTtff, showFullscreenVibe]);
 
   const vibeItems = useMemo(() => {
     const metadata = normalizeOtherUserVibes(profile.vibe_tags);
@@ -916,7 +928,7 @@ export function UserProfileFullView({
 
       <FullscreenVibeVideoModal
         visible={showFullscreenVibe && hasPlayableVibeVideo}
-        onClose={() => setShowFullscreenVibe(false)}
+        onClose={closeFullscreenVibe}
         playbackUrl={vibePlaybackUrl}
         bunnyVideoUid={vibeInfo.uid}
         vibeVideoState={effectiveVibeVideoState}
@@ -925,6 +937,7 @@ export function UserProfileFullView({
         posterUrl={thumbnailUrl}
         onPlaybackRequest={beginNativeProfileVibeVideoTtff}
         onFirstFrame={completeNativeProfileVibeVideoTtff}
+        onPlaybackAbort={resetNativeProfileVibeVideoTtff}
         onPlayToEnd={() => setHideVibingOnLabelAfterComplete(true)}
       />
 

@@ -16,7 +16,9 @@ import {
 interface DeleteAccountModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onRequestVerification: () => Promise<DeleteAccountReauthChallenge | null>;
+  onRequestVerification: (
+    channel?: DeleteAccountReauthChannel,
+  ) => Promise<DeleteAccountReauthChallenge | null>;
   onConfirm: (
     reason: string | null,
     reauth: { code: string; channel: DeleteAccountReauthChannel },
@@ -50,6 +52,8 @@ export const DeleteAccountModal = ({
 
   const isConfirmEnabled = confirmText === "DELETE";
   const isVerificationEnabled = !!reauthChallenge && verificationCode.length === 6;
+  const alternateReauthChannel =
+    reauthChallenge?.availableChannels?.find((channel) => channel !== reauthChallenge.channel) ?? null;
 
   const handleClose = () => {
     if (!isDeleting && !isRequestingVerification) {
@@ -62,9 +66,9 @@ export const DeleteAccountModal = ({
     }
   };
 
-  const requestVerification = async () => {
+  const requestVerification = async (channel?: DeleteAccountReauthChannel) => {
     if (!isConfirmEnabled || isDeleting || isRequestingVerification) return;
-    const challenge = await onRequestVerification();
+    const challenge = await onRequestVerification(channel);
     if (!challenge) return;
     setVerificationCode("");
     setReauthChallenge(challenge);
@@ -211,7 +215,7 @@ export const DeleteAccountModal = ({
               <Button
                 variant="outline"
                 className="w-full"
-                onClick={requestVerification}
+                onClick={() => void requestVerification(reauthChallenge?.channel)}
                 disabled={isRequestingVerification || isDeleting}
               >
                 {isRequestingVerification ? (
@@ -223,6 +227,16 @@ export const DeleteAccountModal = ({
                   "Resend Code"
                 )}
               </Button>
+              {alternateReauthChannel ? (
+                <Button
+                  variant="ghost"
+                  className="w-full"
+                  onClick={() => void requestVerification(alternateReauthChannel)}
+                  disabled={isRequestingVerification || isDeleting}
+                >
+                  Use {alternateReauthChannel === "phone" ? "phone" : "email"} instead
+                </Button>
+              ) : null}
             </div>
 
             <div className="flex gap-3">
@@ -280,7 +294,7 @@ export const DeleteAccountModal = ({
               <Button
                 variant="destructive"
                 className="flex-1 gap-2"
-                onClick={requestVerification}
+                onClick={() => void requestVerification()}
                 disabled={!isConfirmEnabled || isDeleting || isRequestingVerification}
               >
                 {isRequestingVerification ? (

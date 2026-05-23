@@ -285,12 +285,19 @@ async function requestReauthChallenge(
     return createRateLimitResponse(rateLimitResult, corsHeadersForRequest(req));
   }
 
-  const targets = await resolveAvailableReauthTargets(supabaseAdmin, userId, requestedChannel);
+  const allTargets = await resolveAvailableReauthTargets(supabaseAdmin, userId, null);
+  const availableChannels = allTargets.map((target) => target.channel);
+  const targets = requestedChannel
+    ? allTargets.filter((target) => target.channel === requestedChannel)
+    : allTargets;
   if (targets.length === 0) {
     return response(req, {
       success: false,
-      code: "reauth_unavailable",
-      error: "Add an email or phone number to your account before scheduling deletion.",
+      code: requestedChannel ? "reauth_channel_unavailable" : "reauth_unavailable",
+      error: requestedChannel
+        ? "That verification method is not available for this account."
+        : "Add an email or phone number to your account before scheduling deletion.",
+      availableChannels,
     });
   }
 
@@ -340,6 +347,7 @@ async function requestReauthChallenge(
       reauth: {
         channel: target.channel,
         maskedDestination: target.maskedDestination,
+        availableChannels,
       },
     });
   }

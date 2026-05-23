@@ -50,6 +50,8 @@ test("media telemetry strips raw identifiers, hashes, urls, paths, hosts, and au
     content_sha256: "abcdef",
     viewer_id_hash: "not-approved",
     hostname: "cdn.example.com",
+    stream_hostname: "cdn.example.com",
+    stream_hostname_source: "env",
     signed_url: "https://cdn.example.com/signed",
     authorization: "Bearer secret",
     headers: "secret",
@@ -65,10 +67,14 @@ test("media telemetry strips raw identifiers, hashes, urls, paths, hosts, and au
     media_family: "profile_vibe_video",
     client_request_id: "client-request-1",
     source_ref: "remote_url",
+    stream_hostname_source: "env",
     asset_present: true,
     provider_path_present: true,
     content_sha256_present: true,
   });
+  assert.deepEqual(sanitizeMediaEventProperties({
+    stream_hostname_source: "https://cdn.example.com/private",
+  }), {});
 });
 
 test("SDK path enum telemetry is the only path exception", () => {

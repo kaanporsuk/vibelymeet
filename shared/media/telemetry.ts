@@ -65,6 +65,16 @@ const MEDIA_TELEMETRY_SAFE_SOURCE_REF_VALUES = new Set([
   "none",
 ]);
 
+const MEDIA_TELEMETRY_SAFE_HOSTNAME_SOURCE_KEYS = new Set([
+  "stream_hostname_source",
+]);
+
+const MEDIA_TELEMETRY_SAFE_HOSTNAME_SOURCE_VALUES = new Set([
+  "env",
+  "persisted",
+  "missing",
+]);
+
 export type MediaTelemetrySanitizeOptions = {
   defaults?: MediaTelemetryProperties;
   allowSensitiveKeys?: readonly string[];
@@ -73,6 +83,14 @@ export type MediaTelemetrySanitizeOptions = {
 function isPresenceOrConfigKey(key: string, value: MediaTelemetryValue): boolean {
   if (typeof value !== "boolean") return false;
   return key.endsWith("_present") || key.endsWith("_configured") || key.startsWith("has_");
+}
+
+function isSafeHostnameSourceKey(key: string, value: MediaTelemetryValue): boolean {
+  return (
+    MEDIA_TELEMETRY_SAFE_HOSTNAME_SOURCE_KEYS.has(key) &&
+    typeof value === "string" &&
+    MEDIA_TELEMETRY_SAFE_HOSTNAME_SOURCE_VALUES.has(value)
+  );
 }
 
 function isSensitiveTelemetryKey(key: string): boolean {
@@ -105,7 +123,8 @@ export function sanitizeMediaTelemetryProperties(
       if (
         isSensitiveTelemetryKey(key) &&
         !allowedSensitiveKeys.has(key) &&
-        !isPresenceOrConfigKey(key, normalizedValue)
+        !isPresenceOrConfigKey(key, normalizedValue) &&
+        !isSafeHostnameSourceKey(key, normalizedValue)
       ) {
         continue;
       }

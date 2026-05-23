@@ -31,6 +31,7 @@ type ReauthChannel = 'email' | 'phone';
 type ReauthChallenge = {
   channel: ReauthChannel;
   maskedDestination: string;
+  availableChannels?: ReauthChannel[];
 };
 
 const DELETION_REASONS: { value: string; label: string }[] = [
@@ -73,12 +74,15 @@ export default function DeleteAccountScreen() {
     }, [refetchDeletionState])
   );
 
-  const requestDeletionVerification = async () => {
+  const requestDeletionVerification = async (channel?: ReauthChannel) => {
     setIsRequestingVerification(true);
     setReauthError(null);
     try {
       const { data, error } = await supabase.functions.invoke('delete-account', {
-        body: { action: 'request_reauth' },
+        body: {
+          action: 'request_reauth',
+          ...(channel ? { reauthChannel: channel } : {}),
+        },
       });
       const payload = data as {
         success?: boolean;
@@ -190,6 +194,9 @@ export default function DeleteAccountScreen() {
   const handleCancelPress = () => {
     void cancelDeletion();
   };
+
+  const alternateReauthChannel =
+    reauthChallenge?.availableChannels?.find((channel) => channel !== reauthChallenge.channel) ?? null;
 
   return (
     <View style={[styles.root, { backgroundColor: theme.background }]}>
@@ -369,6 +376,26 @@ export default function DeleteAccountScreen() {
                   accessibilityLabel="Enter 6-digit verification code"
                 />
                 {reauthError ? <Text style={[styles.errorText, { color: theme.danger }]}>{reauthError}</Text> : null}
+                {alternateReauthChannel ? (
+                  <Pressable
+                    onPress={() => void requestDeletionVerification(alternateReauthChannel)}
+                    disabled={isRequestingVerification || isDeleting}
+                    style={({ pressed }) => [
+                      styles.secondaryBtn,
+                      {
+                        borderColor: theme.border,
+                        opacity: isRequestingVerification || isDeleting ? 0.65 : 1,
+                      },
+                      pressed && !isRequestingVerification && !isDeleting && { opacity: 0.85 },
+                    ]}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Use ${alternateReauthChannel} verification instead`}
+                  >
+                    <Text style={[styles.secondaryBtnText, { color: theme.textSecondary }]}>
+                      Use {alternateReauthChannel === 'phone' ? 'phone' : 'email'} instead
+                    </Text>
+                  </Pressable>
+                ) : null}
                 <Pressable
                   onPress={() => void requestAccountDeletion(selectedReason, reauthChallenge, reauthCode)}
                   disabled={isDeleting || reauthCode.length !== 6}
@@ -404,7 +431,7 @@ export default function DeleteAccountScreen() {
                     <Text style={[styles.secondaryBtnText, { color: theme.textSecondary }]}>Back</Text>
                   </Pressable>
                   <Pressable
-                    onPress={() => void requestDeletionVerification()}
+                    onPress={() => void requestDeletionVerification(reauthChallenge?.channel)}
                     disabled={isRequestingVerification}
                     style={({ pressed }) => [
                       styles.primaryBtn,

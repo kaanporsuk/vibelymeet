@@ -44,6 +44,7 @@ export interface FullscreenVibeVideoModalProps {
   onPlayToEnd?: () => void;
   onPlaybackRequest?: () => void;
   onFirstFrame?: () => void;
+  onPlaybackAbort?: () => void;
 }
 
 export function FullscreenVibeVideoModal({
@@ -58,6 +59,7 @@ export function FullscreenVibeVideoModal({
   onPlayToEnd,
   onPlaybackRequest,
   onFirstFrame,
+  onPlaybackAbort,
 }: FullscreenVibeVideoModalProps) {
   const insets = useSafeAreaInsets();
   const reduceMotion = useReduceMotion();
@@ -97,6 +99,11 @@ export function FullscreenVibeVideoModal({
     onPlayToEnd?.();
   }, [onPlayToEnd]);
 
+  const handleClose = useCallback(() => {
+    onPlaybackAbort?.();
+    onClose();
+  }, [onClose, onPlaybackAbort]);
+
   useEffect(() => {
     if (!visible) return;
 
@@ -125,13 +132,15 @@ export function FullscreenVibeVideoModal({
       usesSignedProfileRef,
       errorKind: 'playback',
     });
+    onPlaybackAbort?.();
     setPlaybackSurfaceError(true);
-  }, [uid, playbackUrl, streamHostname, usesSignedProfileRef]);
+  }, [uid, playbackUrl, streamHostname, usesSignedProfileRef, onPlaybackAbort]);
 
   const handleRetryPlayback = useCallback(() => {
     setPlaybackSurfaceError(false);
+    onPlaybackRequest?.();
     setRetryKey((k) => k + 1);
-  }, []);
+  }, [onPlaybackRequest]);
 
   useEffect(() => {
     if (!visible) return;
@@ -165,7 +174,7 @@ export function FullscreenVibeVideoModal({
           <Text style={styles.errorSecondaryText}>Try again</Text>
         </Pressable>
       ) : null}
-      <Pressable onPress={onClose} style={styles.errorClose}>
+      <Pressable onPress={handleClose} style={styles.errorClose}>
         <Text style={styles.errorCloseText}>Close</Text>
       </Pressable>
     </View>
@@ -207,7 +216,7 @@ export function FullscreenVibeVideoModal({
       animationType={reduceMotion ? 'none' : 'fade'}
       presentationStyle="fullScreen"
       statusBarTranslucent
-      onRequestClose={onClose}
+      onRequestClose={handleClose}
     >
       <StatusBar hidden={visible} />
       <View style={styles.root}>
@@ -236,7 +245,7 @@ export function FullscreenVibeVideoModal({
                       />
 
                       <Pressable
-                        onPress={onClose}
+                        onPress={handleClose}
                         style={[styles.closeBtn, { top: insets.top + 10 }]}
                         hitSlop={12}
                         accessibilityLabel="Close video"

@@ -538,8 +538,11 @@ test("Sprint 2 profile Vibe Video TTFF and placeholder backfill ops are pinned",
   assert.match(webFullscreen, /beginFullscreenProfileVibeVideoTtff\("fullscreen_open"\)/);
   assert.match(nativeProfileView, /beginNativeProfileVibeVideoTtff\(\);[\s\S]{0,80}setShowFullscreenVibe\(true\)/);
   assert.match(nativeProfileView, /if \(!reduceMotion\) beginNativeProfileVibeVideoTtff\(\)/);
+  assert.match(nativeProfileView, /onPlaybackAbort=\{resetNativeProfileVibeVideoTtff\}/);
   assert.match(nativeFullscreen, /onPlaybackRequest=\{onPlaybackRequest\}/);
   assert.match(nativeFullscreen, /onFirstFrame=\{onFirstFrame\}/);
+  assert.match(nativeFullscreen, /onPlaybackAbort\?: \(\) => void/);
+  assert.match(nativeFullscreen, /onPlaybackAbort\?\.\(\);[\s\S]{0,80}onClose\(\)/);
   assert.match(nativeVibePlayer, /onPlaybackRequest\?\.\(\);[\s\S]*setManualPlaybackRequested\(true\)/);
   assert.match(nativeVibePlayer, /onFirstFrameRender=\{\(\) => \{[\s\S]*reportFirstFrame\(\);[\s\S]*\}\}/);
   assert.doesNotMatch(nativeVibePlayer, /label: 'vibeVideo\.player\.statusListener',\s*label:/);
