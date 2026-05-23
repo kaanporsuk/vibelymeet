@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { motion } from "framer-motion";
-import { Ticket, ArrowRight, CalendarCheck } from "lucide-react";
+import { Ticket, ArrowRight, CalendarCheck, LifeBuoy } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { supabase } from "@/integrations/supabase/client";
 import { useQueryClient } from "@tanstack/react-query";
@@ -9,96 +9,20 @@ import confetti from "canvas-confetti";
 import { useUserProfile } from "@/contexts/AuthContext";
 import { trackEvent } from "@/lib/analytics";
 import {
+  eventTicketPaymentSuccessCopy,
   fetchEventTicketPaymentStatus,
+  resolveEventTicketPaymentViewState,
   type EventTicketPaymentStatus,
 } from "@/lib/eventTicketPaymentStatus";
-
-type AdmissionStatus = "confirmed" | "waitlisted" | "unknown";
-
-function normalizeAdmissionStatus(value: string | null | undefined): AdmissionStatus {
-  return value === "confirmed" || value === "waitlisted" ? value : "unknown";
-}
-
-function paymentSuccessCopy(
-  isEventCancelled: boolean,
-  admissionStatus: AdmissionStatus,
-  paymentStatus: EventTicketPaymentStatus | null,
-): { headline: string; subline: string } {
-  if (isEventCancelled) {
-    return {
-      headline: "This event was cancelled",
-      subline:
-        "Your payment may still show here while things sync. Open the event page for the latest status.",
-    };
-  }
-
-  const outcome = paymentStatus?.settlement?.outcome ?? null;
-  const code = paymentStatus?.settlement?.code ?? null;
-  const success = paymentStatus?.settlement?.success;
-
-  if (outcome === "rejected_tier" || code === "TIER_MISMATCH") {
-    return {
-      headline: "Payment needs review",
-      subline: "Your payment was received, but this event requires a different access level.",
-    };
-  }
-  if (outcome === "rejected_event" || code === "EVENT_CLOSED") {
-    return {
-      headline: "This event is no longer available",
-      subline: "Your payment was received after registration closed. Support will help with next steps.",
-    };
-  }
-  if (
-    outcome === "rejected_monthly_limit" ||
-    code === "MONTHLY_EVENT_JOIN_LIMIT_REACHED" ||
-    code === "MONTHLY_LIMIT_REACHED"
-  ) {
-    return {
-      headline: "Event limit reached",
-      subline: "Your payment was received, but your current plan has reached its monthly event limit.",
-    };
-  }
-  if (outcome === "rejected_conflict" || outcome === "rejected_unique" || code === "CONFLICT" || code === "UNIQUE") {
-    return {
-      headline: "Registration needs review",
-      subline: "Your payment was received, but we need to reconcile your registration before confirming the event.",
-    };
-  }
-  if (success === false) {
-    return {
-      headline: "Payment needs review",
-      subline: "Your payment was received, but registration did not complete cleanly. Support will help with next steps.",
-    };
-  }
-
-  if (admissionStatus === "waitlisted") {
-    return {
-      headline: "You're on the waitlist",
-      subline: "The event was full when your payment settled. We'll confirm you if a spot opens.",
-    };
-  }
-  if (admissionStatus === "confirmed") {
-    return {
-      headline: "You're on the list! 🎉",
-      subline: "Check your email for confirmation",
-    };
-  }
-
-  return {
-    headline: "Payment received",
-    subline: "Hang tight while we confirm your spot.",
-  };
-}
 
 const EventPaymentSuccess = () => {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { user } = useUserProfile();
   const [searchParams] = useSearchParams();
-  const eventId = searchParams.get("event_id");
+  const eventId = searchParams.get("event_id") ?? searchParams.get("eventId");
   const [eventTitle, setEventTitle] = useState<string | null>(null);
   const [eventRowStatus, setEventRowStatus] = useState<string | null>(null);
-  const [admissionStatus, setAdmissionStatus] = useState<AdmissionStatus>("unknown");
   const [paymentStatus, setPaymentStatus] = useState<EventTicketPaymentStatus | null>(null);
   const analyticsTrackedRef = useRef(false);
 
@@ -131,7 +55,6 @@ const EventPaymentSuccess = () => {
       const status = await fetchEventTicketPaymentStatus(eventId);
       if (cancelled) return;
       setPaymentStatus(status);
-      setAdmissionStatus(normalizeAdmissionStatus(status.admissionStatus ?? status.settlement?.admissionStatus));
     };
 
     void refreshAdmission();
@@ -156,31 +79,33 @@ const EventPaymentSuccess = () => {
     };
   }, [eventId, user?.id]);
 
+  const isEventCancelled = eventRowStatus === "cancelled";
+  const viewState = resolveEventTicketPaymentViewState(paymentStatus, isEventCancelled);
+  const copy = eventTicketPaymentSuccessCopy(viewState);
+  const { headline, subline } = copy;
+
   useEffect(() => {
-    if (!eventId || admissionStatus === "unknown") return;
+    if (!eventId || viewState === "pending") return;
     if (analyticsTrackedRef.current) return;
     analyticsTrackedRef.current = true;
-    if (admissionStatus === "confirmed") {
+    if (viewState === "confirmed") {
       trackEvent("event_registered", { event_id: eventId, source: "stripe" });
-    } else if (admissionStatus === "waitlisted") {
+    } else if (viewState === "waitlisted") {
       trackEvent("event_waitlisted", { event_id: eventId, source: "stripe" });
     }
-  }, [eventId, admissionStatus]);
+  }, [eventId, viewState]);
 
   useEffect(() => {
     if (!eventId || eventRowStatus === null) return;
     if (eventRowStatus === "cancelled") return;
-    if (admissionStatus !== "confirmed") return;
+    if (!copy.celebrate) return;
     confetti({
       particleCount: 120,
       spread: 80,
       origin: { y: 0.5 },
       colors: ["#a855f7", "#ec4899", "#06b6d4"],
     });
-  }, [eventId, eventRowStatus, admissionStatus]);
-
-  const isEventCancelled = eventRowStatus === "cancelled";
-  const { headline, subline } = paymentSuccessCopy(isEventCancelled, admissionStatus, paymentStatus);
+  }, [eventId, eventRowStatus, copy.celebrate]);
 
   return (
     <div className="min-h-screen bg-background flex flex-col items-center justify-center px-6 text-center">
@@ -228,7 +153,7 @@ const EventPaymentSuccess = () => {
         transition={{ delay: 0.6 }}
         className="flex flex-col gap-3 w-full max-w-xs"
       >
-        {eventId && (
+        {eventId && copy.showViewEventAction && (
           <Button
             variant="gradient"
             size="lg"
@@ -237,6 +162,17 @@ const EventPaymentSuccess = () => {
           >
             <CalendarCheck className="w-4 h-4" />
             View Event
+          </Button>
+        )}
+        {copy.showSupportAction && (
+          <Button
+            variant="secondary"
+            size="lg"
+            className="w-full gap-2"
+            onClick={() => navigate("/settings?drawer=support&primaryType=support&subcategory=Payment%20failed%20or%20refund")}
+          >
+            <LifeBuoy className="w-4 h-4" />
+            Contact Support
           </Button>
         )}
         <Button

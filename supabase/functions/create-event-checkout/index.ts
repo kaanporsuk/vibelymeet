@@ -3,6 +3,7 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import { recordPaymentObservability } from '../_shared/paymentObservability.ts'
 import {
   corsHeadersForRequest,
+  isAllowedOrigin,
   isBrowserOriginRejected,
   jsonResponse,
   preflightResponse,
@@ -44,6 +45,22 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
 }
 
+function safeCheckoutRedirectUrl(candidate: unknown, fallback: string): string {
+  if (typeof candidate !== 'string') return fallback
+  const value = candidate.trim()
+  if (!value || value.length > 2048) return fallback
+
+  try {
+    const parsed = new URL(value)
+    if ((parsed.protocol === 'https:' || parsed.protocol === 'http:') && isAllowedOrigin(parsed.origin)) {
+      return parsed.toString()
+    }
+  } catch {
+    return fallback
+  }
+  return fallback
+}
+
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return preflightResponse(req)
@@ -72,7 +89,11 @@ Deno.serve(async (req) => {
     }
     observedUserId = user.id
 
-    const body = await req.json().catch(() => ({})) as { eventId?: unknown }
+    const body = await req.json().catch(() => ({})) as {
+      eventId?: unknown
+      successUrl?: unknown
+      cancelUrl?: unknown
+    }
     const eventId = typeof body.eventId === 'string' ? body.eventId.trim() : ''
     observedEventId = eventId || null
 
@@ -134,6 +155,30 @@ Deno.serve(async (req) => {
     const eventVisibility = typeof eventData.visibility === 'string' && eventData.visibility.trim()
       ? eventData.visibility
       : 'all'
+    const tierAtCheckout = typeof capabilities.tierId === 'string' && capabilities.tierId.trim()
+      ? capabilities.tierId.trim()
+      : 'free'
+    const snapshotCapturedAt = new Date().toISOString()
+    const entitlementSnapshot = {
+      tierId: tierAtCheckout,
+      tierLabel: typeof capabilities.tierLabel === 'string' ? capabilities.tierLabel : 'Free',
+      accessibleEventTiers: accessibleTiers,
+      monthlyEventJoins: typeof capabilities.monthlyEventJoins === 'number' && Number.isFinite(capabilities.monthlyEventJoins)
+        ? capabilities.monthlyEventJoins
+        : null,
+      capturedAt: snapshotCapturedAt,
+    }
+    const eventSnapshot = {
+      visibility: eventVisibility,
+      status,
+      expectedAmount: amountCents,
+      expectedCurrency: currency,
+      priceAmount: eventData.price_amount,
+      priceCurrency: currency,
+      eventDate: eventData.event_date,
+      durationMinutes: eventData.duration_minutes,
+      capturedAt: snapshotCapturedAt,
+    }
 
     if (eventVisibility !== 'all' && !accessibleTiers.includes(eventVisibility)) {
       const requiredLabel = eventVisibility === 'vip' ? 'VIP' : 'Premium'
@@ -187,6 +232,14 @@ Deno.serve(async (req) => {
     }
 
     const origin = requestOriginOrDefault(req)
+    const successUrl = safeCheckoutRedirectUrl(
+      body.successUrl,
+      `${origin}/event-payment/success?event_id=${encodeURIComponent(eventId)}`,
+    )
+    const cancelUrl = safeCheckoutRedirectUrl(
+      body.cancelUrl,
+      `${origin}/events/${encodeURIComponent(eventId)}`,
+    )
     const session = await stripe.checkout.sessions.create({
       customer: customerId,
       line_items: [{
@@ -201,14 +254,16 @@ Deno.serve(async (req) => {
         quantity: 1,
       }],
       mode: 'payment',
-      success_url: `${origin}/event-payment/success?event_id=${encodeURIComponent(eventId)}`,
-      cancel_url: `${origin}/events/${encodeURIComponent(eventId)}`,
+      success_url: successUrl,
+      cancel_url: cancelUrl,
       metadata: {
         type: 'event_ticket',
         supabase_user_id: user.id,
         event_id: eventId,
         expected_amount: String(amountCents),
         expected_currency: currency,
+        tier_at_checkout: tierAtCheckout,
+        event_visibility: eventVisibility,
       },
     })
 
@@ -221,9 +276,16 @@ Deno.serve(async (req) => {
         expected_amount: amountCents,
         expected_currency: currency,
         status: 'created',
+        tier_at_checkout: tierAtCheckout,
+        entitlement_snapshot: entitlementSnapshot,
+        event_snapshot: eventSnapshot,
         metadata: {
           source: 'create-event-checkout',
           event_title_present: Boolean(eventData.title),
+          tier_at_checkout: tierAtCheckout,
+          event_visibility: eventVisibility,
+          snapshot_captured_at: snapshotCapturedAt,
+          success_redirect_kind: successUrl.startsWith(origin) ? 'web' : 'allowed_web_origin_override',
         },
       })
 

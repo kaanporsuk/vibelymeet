@@ -46,6 +46,56 @@ function sessionStageNotificationData(eventId: string, videoSessionId: string): 
   };
 }
 
+async function enqueueNotificationOutbox(
+  serviceClient: any,
+  args: {
+    userId: string;
+    category: string;
+    title: string;
+    body: string;
+    data: Record<string, unknown>;
+    dedupeKey: string;
+    sessionId?: string | null;
+    eventId: string;
+    actorId: string;
+    targetId: string;
+    swipeType: string;
+    outcome: string;
+  },
+) {
+  const { data, error } = await serviceClient.rpc("video_date_outbox_enqueue_v2", {
+    p_session_id: args.sessionId ?? null,
+    p_kind: "notification.send",
+    p_payload: {
+      user_id: args.userId,
+      category: args.category,
+      title: args.title,
+      body: args.body,
+      data: args.data,
+      dedupe_key: args.dedupeKey,
+      source: "swipe-actions",
+      event_id: args.eventId,
+      session_id: args.sessionId ?? null,
+      actor_id: args.actorId,
+      target_id: args.targetId,
+      swipe_type: args.swipeType,
+      outcome: args.outcome,
+    },
+    p_dedupe_key: args.dedupeKey,
+    p_next_attempt_at: null,
+  });
+
+  if (error) {
+    throw new Error(error.message ?? "notification_outbox_enqueue_failed");
+  }
+  const payload = data && typeof data === "object" ? data as Record<string, unknown> : null;
+  if (payload?.ok !== true) {
+    throw new Error(
+      typeof payload?.error === "string" ? payload.error : "notification_outbox_enqueue_failed",
+    );
+  }
+}
+
 function logLifecycle(payload: {
   event_id: string | null;
   session_id: string | null;
@@ -388,18 +438,26 @@ serve(async (req) => {
           data: dataPayload,
         };
         try {
-          await serviceClient.functions.invoke("send-notification", {
-            body: { user_id: target_id, ...immediateBody },
+          await enqueueNotificationOutbox(serviceClient, {
+            userId: String(target_id),
+            ...immediateBody,
+            dedupeKey: `swipe:${eventIdStr}:${sessionId}:ready_gate:${target_id}`,
+            sessionId,
+            eventId: eventIdStr,
+            actorId,
+            targetId: String(target_id),
+            swipeType: String(swipe_type),
+            outcome: "match",
           });
           logLifecycle({
             event_id: eventIdStr,
             session_id: sessionId,
             user_id: String(target_id),
             target_id: String(target_id),
-            event_name: "notification_sent",
+            event_name: "notification_enqueued",
             category: "ready_gate",
-            result: "notify_sent",
-            outcome: "notification_sent",
+            result: "notify_enqueued",
+            outcome: "notification_enqueued",
             reason: "match",
             swipe_type: String(swipe_type),
             session_id_present: true,
@@ -409,7 +467,7 @@ serve(async (req) => {
             error_reason: null,
           });
         } catch (e) {
-          console.error("swipe-actions ready_gate notify target:", e);
+          console.error("swipe-actions ready_gate enqueue target:", e);
           logLifecycle({
             event_id: eventIdStr,
             session_id: sessionId,
@@ -429,18 +487,26 @@ serve(async (req) => {
           });
         }
         try {
-          await serviceClient.functions.invoke("send-notification", {
-            body: { user_id: actorId, ...immediateBody },
+          await enqueueNotificationOutbox(serviceClient, {
+            userId: actorId,
+            ...immediateBody,
+            dedupeKey: `swipe:${eventIdStr}:${sessionId}:ready_gate:${actorId}`,
+            sessionId,
+            eventId: eventIdStr,
+            actorId,
+            targetId: String(target_id),
+            swipeType: String(swipe_type),
+            outcome: "match",
           });
           logLifecycle({
             event_id: eventIdStr,
             session_id: sessionId,
             user_id: actorId,
             target_id: String(target_id),
-            event_name: "notification_sent",
+            event_name: "notification_enqueued",
             category: "ready_gate",
-            result: "notify_sent",
-            outcome: "notification_sent",
+            result: "notify_enqueued",
+            outcome: "notification_enqueued",
             reason: "match",
             swipe_type: String(swipe_type),
             session_id_present: true,
@@ -450,7 +516,7 @@ serve(async (req) => {
             error_reason: null,
           });
         } catch (e) {
-          console.error("swipe-actions ready_gate notify actor:", e);
+          console.error("swipe-actions ready_gate enqueue actor:", e);
           logLifecycle({
             event_id: eventIdStr,
             session_id: sessionId,
@@ -477,23 +543,28 @@ serve(async (req) => {
           data: queuedPayload,
         };
         try {
-          await serviceClient.functions.invoke("send-notification", {
-            body: {
-              user_id: target_id,
-              ...queuedBody,
-              title: "Your video date is ready 📹",
-              body: "Someone mutual-vibed with you — open your Ready Gate to join.",
-            },
+          await enqueueNotificationOutbox(serviceClient, {
+            userId: String(target_id),
+            ...queuedBody,
+            title: "Your video date is ready 📹",
+            body: "Someone mutual-vibed with you — open your Ready Gate to join.",
+            dedupeKey: `swipe:${eventIdStr}:${sessionId}:match_queued:${target_id}`,
+            sessionId,
+            eventId: eventIdStr,
+            actorId,
+            targetId: String(target_id),
+            swipeType: String(swipe_type),
+            outcome: "match_queued",
           });
           logLifecycle({
             event_id: eventIdStr,
             session_id: sessionId,
             user_id: String(target_id),
             target_id: String(target_id),
-            event_name: "notification_sent",
+            event_name: "notification_enqueued",
             category: "ready_gate",
-            result: "notify_sent",
-            outcome: "notification_sent",
+            result: "notify_enqueued",
+            outcome: "notification_enqueued",
             reason: "match_queued",
             swipe_type: String(swipe_type),
             session_id_present: true,
@@ -503,7 +574,7 @@ serve(async (req) => {
             error_reason: null,
           });
         } catch (e) {
-          console.error("swipe-actions match_queued notify target:", e);
+          console.error("swipe-actions match_queued enqueue target:", e);
           logLifecycle({
             event_id: eventIdStr,
             session_id: sessionId,
@@ -523,23 +594,28 @@ serve(async (req) => {
           });
         }
         try {
-          await serviceClient.functions.invoke("send-notification", {
-            body: {
-              user_id: actorId,
-              ...queuedBody,
-              title: "Stay in the lobby 💚",
-              body: "You’re matched — we’ll open Ready Gate when you’re both free in this event.",
-            },
+          await enqueueNotificationOutbox(serviceClient, {
+            userId: actorId,
+            ...queuedBody,
+            title: "Stay in the lobby 💚",
+            body: "You’re matched — we’ll open Ready Gate when you’re both free in this event.",
+            dedupeKey: `swipe:${eventIdStr}:${sessionId}:match_queued:${actorId}`,
+            sessionId,
+            eventId: eventIdStr,
+            actorId,
+            targetId: String(target_id),
+            swipeType: String(swipe_type),
+            outcome: "match_queued",
           });
           logLifecycle({
             event_id: eventIdStr,
             session_id: sessionId,
             user_id: actorId,
             target_id: String(target_id),
-            event_name: "notification_sent",
+            event_name: "notification_enqueued",
             category: "ready_gate",
-            result: "notify_sent",
-            outcome: "notification_sent",
+            result: "notify_enqueued",
+            outcome: "notification_enqueued",
             reason: "match_queued",
             swipe_type: String(swipe_type),
             session_id_present: true,
@@ -549,7 +625,7 @@ serve(async (req) => {
             error_reason: null,
           });
         } catch (e) {
-          console.error("swipe-actions match_queued notify actor:", e);
+          console.error("swipe-actions match_queued enqueue actor:", e);
           logLifecycle({
             event_id: eventIdStr,
             session_id: sessionId,
@@ -572,24 +648,29 @@ serve(async (req) => {
         result.result === "super_vibe_sent" ||
         result.result === "vibe_recorded"
       ) {
-        await serviceClient.functions.invoke("send-notification", {
-          body: {
-            user_id: target_id,
-            category: "someone_vibed_you",
-            title: "Someone vibed you! 💜",
-            body: "Join the event to find out who",
-            data: { url: "/events", event_id: eventIdStr, actor_id: actorId },
-          },
+        await enqueueNotificationOutbox(serviceClient, {
+          userId: String(target_id),
+          category: "someone_vibed_you",
+          title: "Someone vibed you! 💜",
+          body: "Join the event to find out who",
+          data: { url: "/events", event_id: eventIdStr, actor_id: actorId },
+          dedupeKey: `swipe:${eventIdStr}:${actorId}:${target_id}:${result.result}`,
+          sessionId: null,
+          eventId: eventIdStr,
+          actorId,
+          targetId: String(target_id),
+          swipeType: String(swipe_type),
+          outcome: result.result,
         });
         logLifecycle({
           event_id: eventIdStr,
           session_id: null,
           user_id: String(target_id),
           target_id: String(target_id),
-          event_name: "notification_sent",
+          event_name: "notification_enqueued",
           category: "someone_vibed_you",
-          result: "notify_sent",
-          outcome: "notification_sent",
+          result: "notify_enqueued",
+          outcome: "notification_enqueued",
           reason: result.result ?? result.outcome ?? "vibe_recorded",
           swipe_type: String(swipe_type),
           session_id_present: false,

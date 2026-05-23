@@ -29,6 +29,8 @@ interface FeedbackDrawerProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   initialTicketId?: string;
+  initialPrimaryType?: PrimaryType;
+  initialSubcategory?: string | null;
 }
 
 type TicketListRow = {
@@ -44,7 +46,18 @@ type TicketListRow = {
 const WEB_VERSION =
   (typeof import.meta !== "undefined" && import.meta.env?.VITE_APP_VERSION) || "1.0.0";
 
-export const FeedbackDrawer = ({ open, onOpenChange, initialTicketId }: FeedbackDrawerProps) => {
+function validSubcategory(primaryType: PrimaryType, value: string | null | undefined): string | null {
+  if (!value) return null;
+  return SUPPORT_CATEGORIES[primaryType].subcategories.includes(value) ? value : null;
+}
+
+export const FeedbackDrawer = ({
+  open,
+  onOpenChange,
+  initialTicketId,
+  initialPrimaryType,
+  initialSubcategory,
+}: FeedbackDrawerProps) => {
   const { user } = useUserProfile();
   const [view, setView] = useState<"home" | "compose" | "success">("home");
   const [primaryType, setPrimaryType] = useState<PrimaryType>("support");
@@ -90,6 +103,14 @@ export const FeedbackDrawer = ({ open, onOpenChange, initialTicketId }: Feedback
       setThreadOpen(true);
     }
   }, [open, initialTicketId, ticketRows]);
+
+  useEffect(() => {
+    if (!open || !initialPrimaryType || initialTicketId) return;
+    setPrimaryType(initialPrimaryType);
+    setSubcategory(validSubcategory(initialPrimaryType, initialSubcategory));
+    setUserEmail(user?.email ?? "");
+    setView("compose");
+  }, [open, initialPrimaryType, initialSubcategory, initialTicketId, user?.email]);
 
   const isValid =
     subcategory !== null &&

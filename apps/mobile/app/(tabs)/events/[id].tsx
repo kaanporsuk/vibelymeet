@@ -62,6 +62,11 @@ import { resolveEventBookingEditability } from '@clientShared/eventBookingEditab
 
 /** Same key as web `EventDetails` (`vibely_phone_nudge_event_dismissed`) for product-consistent dismiss semantics. */
 const EVENT_PHONE_NUDGE_DISMISSED_KEY = 'vibely_phone_nudge_event_dismissed';
+const CHECKOUT_RETURN_ORIGIN = (
+  process.env.EXPO_PUBLIC_WEB_APP_URL ??
+  process.env.EXPO_PUBLIC_APP_ORIGIN ??
+  'https://www.vibelymeet.com'
+).replace(/\/+$/, '');
 
 export default function EventDetailScreen() {
   // === ALL HOOKS — must run before any conditional return (Rules of Hooks) ===
@@ -397,7 +402,11 @@ export default function EventDetailScreen() {
         return;
       }
       const { data: checkout, error: checkoutError } = await supabase.functions.invoke('create-event-checkout', {
-        body: { eventId: event.id },
+        body: {
+          eventId: event.id,
+          successUrl: `${CHECKOUT_RETURN_ORIGIN}/event-payment-success?eventId=${encodeURIComponent(event.id)}&event_id=${encodeURIComponent(event.id)}`,
+          cancelUrl: `${CHECKOUT_RETURN_ORIGIN}/events/${encodeURIComponent(event.id)}`,
+        },
         headers: { Authorization: `Bearer ${accessToken}` },
       });
       const result = checkout as { success?: boolean; url?: string; error?: string } | null;

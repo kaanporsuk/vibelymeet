@@ -42,7 +42,47 @@ export type EventTicketPaymentSettlementStatus = {
   error: string | null;
   admissionStatus: string | null;
   success: boolean | null;
+  refundStatus: EventTicketRefundStatus;
+  supportNeeded: boolean;
+  updatedAt: string | null;
   createdAt: string | null;
+};
+
+export type EventTicketPaymentCheckoutStatus = {
+  checkoutSessionId: string | null;
+  status: string | null;
+  expectedAmount: number | null;
+  expectedCurrency: string | null;
+  tierAtCheckout: string | null;
+  tierSnapshot: Record<string, unknown> | null;
+  eventSnapshot: Record<string, unknown> | null;
+  createdAt: string | null;
+  updatedAt: string | null;
+};
+
+export type EventTicketRefundStatus =
+  | "none"
+  | "pending"
+  | "processing"
+  | "refunded"
+  | "failed_retryable"
+  | "failed_permanent"
+  | "support_needed";
+
+export type EventTicketPaymentRefundStatus = {
+  id: string | null;
+  checkoutSessionId: string | null;
+  status: EventTicketRefundStatus;
+  reasonCode: string | null;
+  amount: number | null;
+  currency: string | null;
+  providerRefundId: string | null;
+  providerStatus: string | null;
+  supportNeeded: boolean;
+  lastError: string | null;
+  createdAt: string | null;
+  updatedAt: string | null;
+  refundedAt: string | null;
 };
 
 export type EventTicketPaymentStatus = {
@@ -50,8 +90,28 @@ export type EventTicketPaymentStatus = {
   eventId: string | null;
   admissionStatus: string | null;
   paymentStatus: string | null;
+  checkout: EventTicketPaymentCheckoutStatus | null;
   settlement: EventTicketPaymentSettlementStatus | null;
+  refund: EventTicketPaymentRefundStatus;
   error?: string;
+};
+
+export type EventTicketPaymentViewState =
+  | "confirmed"
+  | "waitlisted"
+  | "pending"
+  | "rejected_refund_pending"
+  | "refunded"
+  | "refund_failed_support"
+  | "support_needed";
+
+export type EventTicketPaymentSuccessCopy = {
+  state: EventTicketPaymentViewState;
+  headline: string;
+  subline: string;
+  showSupportAction: boolean;
+  showViewEventAction: boolean;
+  celebrate: boolean;
 };
 
 export function shouldRefreshVideoDateTokenBeforeJoin(
@@ -147,8 +207,14 @@ export function normalizeVideoDateQueueHint(payload: unknown): VideoDateQueueHin
 
 export function normalizeEventTicketPaymentStatus(payload: unknown): EventTicketPaymentStatus {
   const record = payload && typeof payload === "object" ? payload as Record<string, unknown> : {};
+  const checkoutRecord = record.checkout && typeof record.checkout === "object"
+    ? record.checkout as Record<string, unknown>
+    : null;
   const settlementRecord = record.settlement && typeof record.settlement === "object"
     ? record.settlement as Record<string, unknown>
+    : null;
+  const refundRecord = record.refund && typeof record.refund === "object"
+    ? record.refund as Record<string, unknown>
     : null;
 
   return {
@@ -156,6 +222,24 @@ export function normalizeEventTicketPaymentStatus(payload: unknown): EventTicket
     eventId: nullableString(record.event_id) ?? nullableString(record.eventId),
     admissionStatus: nullableString(record.admission_status) ?? nullableString(record.admissionStatus),
     paymentStatus: nullableString(record.payment_status) ?? nullableString(record.paymentStatus),
+    checkout: checkoutRecord
+      ? {
+          checkoutSessionId:
+            nullableString(checkoutRecord.checkout_session_id) ?? nullableString(checkoutRecord.checkoutSessionId),
+          status: nullableString(checkoutRecord.status),
+          expectedAmount: nullableNumber(checkoutRecord.expected_amount) ?? nullableNumber(checkoutRecord.expectedAmount),
+          expectedCurrency:
+            nullableString(checkoutRecord.expected_currency) ?? nullableString(checkoutRecord.expectedCurrency),
+          tierAtCheckout:
+            nullableString(checkoutRecord.tier_at_checkout) ?? nullableString(checkoutRecord.tierAtCheckout),
+          tierSnapshot:
+            objectOrNull(checkoutRecord.tier_snapshot) ?? objectOrNull(checkoutRecord.tierSnapshot),
+          eventSnapshot:
+            objectOrNull(checkoutRecord.event_snapshot) ?? objectOrNull(checkoutRecord.eventSnapshot),
+          createdAt: nullableString(checkoutRecord.created_at) ?? nullableString(checkoutRecord.createdAt),
+          updatedAt: nullableString(checkoutRecord.updated_at) ?? nullableString(checkoutRecord.updatedAt),
+        }
+      : null,
     settlement: settlementRecord
       ? {
           checkoutSessionId:
@@ -166,11 +250,172 @@ export function normalizeEventTicketPaymentStatus(payload: unknown): EventTicket
           admissionStatus:
             nullableString(settlementRecord.admission_status) ?? nullableString(settlementRecord.admissionStatus),
           success: typeof settlementRecord.success === "boolean" ? settlementRecord.success : null,
+          refundStatus: normalizeEventTicketRefundStatus(
+            settlementRecord.refund_status ?? settlementRecord.refundStatus,
+          ),
+          supportNeeded: booleanOrDefault(
+            settlementRecord.support_needed ?? settlementRecord.supportNeeded,
+            false,
+          ),
+          updatedAt: nullableString(settlementRecord.updated_at) ?? nullableString(settlementRecord.updatedAt),
           createdAt: nullableString(settlementRecord.created_at) ?? nullableString(settlementRecord.createdAt),
         }
       : null,
+    refund: {
+      id: nullableString(refundRecord?.id),
+      checkoutSessionId:
+        nullableString(refundRecord?.checkout_session_id) ?? nullableString(refundRecord?.checkoutSessionId),
+      status: normalizeEventTicketRefundStatus(refundRecord?.status),
+      reasonCode: nullableString(refundRecord?.reason_code) ?? nullableString(refundRecord?.reasonCode),
+      amount: nullableNumber(refundRecord?.amount),
+      currency: nullableString(refundRecord?.currency),
+      providerRefundId:
+        nullableString(refundRecord?.provider_refund_id) ?? nullableString(refundRecord?.providerRefundId),
+      providerStatus:
+        nullableString(refundRecord?.provider_status) ?? nullableString(refundRecord?.providerStatus),
+      supportNeeded: booleanOrDefault(refundRecord?.support_needed ?? refundRecord?.supportNeeded, false),
+      lastError: nullableString(refundRecord?.last_error) ?? nullableString(refundRecord?.lastError),
+      createdAt: nullableString(refundRecord?.created_at) ?? nullableString(refundRecord?.createdAt),
+      updatedAt: nullableString(refundRecord?.updated_at) ?? nullableString(refundRecord?.updatedAt),
+      refundedAt: nullableString(refundRecord?.refunded_at) ?? nullableString(refundRecord?.refundedAt),
+    },
     error: nullableString(record.error) ?? undefined,
   };
+}
+
+export function normalizeEventTicketRefundStatus(value: unknown): EventTicketRefundStatus {
+  switch (value) {
+    case "pending":
+    case "processing":
+    case "refunded":
+    case "failed_retryable":
+    case "failed_permanent":
+    case "support_needed":
+      return value;
+    case "noop_already_refunded":
+      return "refunded";
+    default:
+      return "none";
+  }
+}
+
+export function resolveEventTicketPaymentViewState(
+  status: EventTicketPaymentStatus | null,
+  isEventCancelled = false,
+): EventTicketPaymentViewState {
+  const admissionStatus = status?.admissionStatus ?? status?.settlement?.admissionStatus ?? null;
+  const settlement = status?.settlement ?? null;
+  const currentCheckoutSessionId = status?.checkout?.checkoutSessionId ?? settlement?.checkoutSessionId ?? null;
+  const refundCheckoutSessionId = status?.refund.checkoutSessionId ?? null;
+  const refundBelongsToCurrentCheckout =
+    !currentCheckoutSessionId || !refundCheckoutSessionId || refundCheckoutSessionId === currentCheckoutSessionId;
+  const refundStatus = refundBelongsToCurrentCheckout
+    ? status?.refund.status ?? settlement?.refundStatus ?? "none"
+    : settlement?.refundStatus ?? "none";
+  const supportNeeded =
+    (refundBelongsToCurrentCheckout && status?.refund.supportNeeded === true) || settlement?.supportNeeded === true;
+  const outcome = settlement?.outcome ?? null;
+  const code = settlement?.code ?? null;
+  const rejected =
+    settlement?.success === false ||
+    Boolean(outcome?.startsWith("rejected_")) ||
+    [
+      "TIER_MISMATCH",
+      "EVENT_CLOSED",
+      "MONTHLY_EVENT_JOIN_LIMIT_REACHED",
+      "MONTHLY_LIMIT_REACHED",
+      "CONFLICT",
+      "DUPLICATE_PAID_CHECKOUT",
+      "UNIQUE",
+      "AMOUNT_MISMATCH",
+      "INTENT_METADATA_MISMATCH",
+      "INTENT_NOT_FOUND",
+    ].includes(code ?? "");
+
+  if (refundStatus === "refunded") return "refunded";
+  if (refundStatus === "failed_permanent") return "refund_failed_support";
+  if (refundStatus === "support_needed" || supportNeeded) return "support_needed";
+  if (refundStatus === "pending" || refundStatus === "processing" || refundStatus === "failed_retryable") {
+    return "rejected_refund_pending";
+  }
+  if (rejected) return "support_needed";
+  if (isEventCancelled && admissionStatus !== "confirmed" && admissionStatus !== "waitlisted") {
+    return "support_needed";
+  }
+  if (admissionStatus === "confirmed") return "confirmed";
+  if (admissionStatus === "waitlisted") return "waitlisted";
+  return "pending";
+}
+
+export function eventTicketPaymentSuccessCopy(
+  state: EventTicketPaymentViewState,
+): EventTicketPaymentSuccessCopy {
+  switch (state) {
+    case "confirmed":
+      return {
+        state,
+        headline: "You're on the list!",
+        subline: "Check your email for confirmation.",
+        showSupportAction: false,
+        showViewEventAction: true,
+        celebrate: true,
+      };
+    case "waitlisted":
+      return {
+        state,
+        headline: "You're on the waitlist",
+        subline: "The event was full when your payment settled. We'll confirm you if a spot opens.",
+        showSupportAction: false,
+        showViewEventAction: true,
+        celebrate: false,
+      };
+    case "rejected_refund_pending":
+      return {
+        state,
+        headline: "Refund pending",
+        subline: "Your payment was received, but we could not confirm this event ticket. Your refund is being processed automatically.",
+        showSupportAction: false,
+        showViewEventAction: true,
+        celebrate: false,
+      };
+    case "refunded":
+      return {
+        state,
+        headline: "Refund processed",
+        subline: "Your payment was received, but we could not confirm this event ticket. The refund has been sent back through Stripe.",
+        showSupportAction: false,
+        showViewEventAction: true,
+        celebrate: false,
+      };
+    case "refund_failed_support":
+      return {
+        state,
+        headline: "Refund needs support",
+        subline: "Your payment was received, but the automatic refund could not complete. Send us a support request and we'll reconcile it.",
+        showSupportAction: true,
+        showViewEventAction: true,
+        celebrate: false,
+      };
+    case "support_needed":
+      return {
+        state,
+        headline: "Payment needs support",
+        subline: "Your payment was received, but we need to reconcile the ticket or refund before confirming next steps.",
+        showSupportAction: true,
+        showViewEventAction: true,
+        celebrate: false,
+      };
+    case "pending":
+    default:
+      return {
+        state: "pending",
+        headline: "Payment received",
+        subline: "Hang tight while we confirm your spot.",
+        showSupportAction: false,
+        showViewEventAction: true,
+        celebrate: false,
+      };
+  }
 }
 
 type InvokeErrorResponseLike = {
@@ -209,6 +454,16 @@ async function readInvokeErrorPayload(error: unknown): Promise<unknown> {
 
 function nullableString(value: unknown): string | null {
   return typeof value === "string" && value.length > 0 ? value : null;
+}
+
+function objectOrNull(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : null;
+}
+
+function booleanOrDefault(value: unknown, fallback: boolean): boolean {
+  return typeof value === "boolean" ? value : fallback;
 }
 
 function stringOrDefault(value: unknown, fallback: string): string {

@@ -238,8 +238,8 @@ test("public API interface changes are exposed for deck state, queue hints, paym
   assert.match(nativePaymentStatusLib, /get_event_ticket_payment_status_v1/);
   assert.match(webPaymentSuccess, /fetchEventTicketPaymentStatus/);
   assert.match(nativePaymentSuccess, /fetchEventTicketPaymentStatus/);
-  assert.match(webPaymentSuccess, /MONTHLY_EVENT_JOIN_LIMIT_REACHED/);
-  assert.match(nativePaymentSuccess, /MONTHLY_EVENT_JOIN_LIMIT_REACHED/);
+  assert.match(publicApiLib, /MONTHLY_EVENT_JOIN_LIMIT_REACHED/);
+  assert.match(publicApiLib, /eventTicketPaymentSuccessCopy/);
   assert.match(publicApiLib, /estimatedWaitSeconds/);
   assert.match(publicApiLib, /estimated_wait_seconds/);
   assert.match(publicApiLib, /shouldRefreshVideoDateTokenBeforeJoin/);

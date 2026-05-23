@@ -91,7 +91,8 @@ test("web and mobile dashboard surfaces mount the bell, center, and deep-link ha
   assert.match(webCenter, /notification_opened/);
   assert.match(webCenter, /\/settings\?drawer=notifications/);
   assert.match(webCenter, /onClose\(\);\s+onRequestPushSetup\(\);/);
-  assert.match(webSettings, /drawer"\) === "notifications"/);
+  assert.match(webSettings, /searchParams\.get\("drawer"\)/);
+  assert.match(webSettings, /drawer === "notifications"/);
   assert.match(mobileCenter, /notification_seen/);
   assert.match(mobileCenter, /notification_opened/);
   assert.match(mobileCenter, /onClose\(\);\s+onRequestPushSetup\(\);/);
