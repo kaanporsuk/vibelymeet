@@ -66,7 +66,7 @@ test("web profile and studio keep Vibe Video management available through delete
   assert.match(vibeStudio, /setCaptionDraft\(""\)/);
 
   assert.match(heroController, /if \(!rowUid\) \{/);
-  assert.match(heroController, /phase:\s*"idle", uploadProgress:\s*0, videoId:\s*null/);
+  assert.match(heroController, /phase:\s*"idle"[\s\S]{0,120}uploadProgress:\s*0[\s\S]{0,120}videoId:\s*null/);
 });
 
 test("native profile labels non-empty Vibe Video states as manageable", () => {

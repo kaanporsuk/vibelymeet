@@ -26,6 +26,7 @@ export type VibeVideoPlayerProps = {
   loop?: boolean;
   /** When false, playback is paused (e.g. modal hidden). */
   playing?: boolean;
+  muted?: boolean;
   nativeControls?: boolean;
   contentFit?: 'contain' | 'cover';
   /**
@@ -47,6 +48,7 @@ export function VibeVideoPlayer({
   posterUri,
   loop = true,
   playing = true,
+  muted = false,
   nativeControls = true,
   contentFit = 'contain',
   diagContext,
@@ -97,12 +99,23 @@ export function VibeVideoPlayer({
     provider: usesSignedProfileRef ? 'bunny_stream' : 'remote',
     sourceRef: playbackSourceUri || sourceUri,
     autoplay: effectivePlaying,
-    muted: false,
+    muted,
   });
 
   const player = useVideoPlayer(playerSource, (p) => {
     p.loop = loop;
+    p.muted = muted;
   });
+
+  useEffect(() => {
+    const result = safeExpoSharedObjectCall(() => {
+      player.muted = muted;
+    }, {
+      label: 'vibeVideo.player.muted',
+      swallowAll: true,
+    });
+    attachSafeExpoSharedObjectPromise(result, undefined, 'vibeVideo.player.muted');
+  }, [muted, player]);
 
   useEffect(() => {
     const { hostname, source } = resolveVibeVideoStreamHostnameSync();

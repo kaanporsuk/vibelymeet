@@ -917,6 +917,7 @@ test("web Vibe Video surfaces use resolver-owned readiness and processing states
   const drawer = read("src/components/ProfileDetailDrawer.tsx");
   const otherUserFullProfile = read("src/components/profile/OtherUserFullProfileView.tsx");
   const otherUserViewModel = read("shared/profile/otherUserProfileViewModel.ts");
+  const processingCopy = read("shared/media/processingCopy.ts");
 
   assert.match(drops, /resolveWebVibeVideoState/);
   assert.match(drops, /vibeVideoBadgeLabel/);
@@ -928,7 +929,8 @@ test("web Vibe Video surfaces use resolver-owned readiness and processing states
   assert.match(card, /Video saved, playback needs attention/);
   assert.match(card, /NEEDS CHECK/);
   assert.match(card, /backendInfo\.state === "processing" \|\| backendInfo\.state === "stale_processing"/);
-  assert.match(card, /Still processing your Vibe Video/);
+  assert.match(card, /vibeVideoProcessingCopy/);
+  assert.match(processingCopy, /Still preparing your Vibe Video/);
   assert.doesNotMatch(card, /None \/ error/);
 
   assert.match(userProfile, /OtherUserFullProfileView/);
@@ -1096,7 +1098,9 @@ test("media v2 Vibe Video caller cutover is upload-start gated and still control
 
   assert.doesNotMatch(webStep, /import \{ heroVideoStart \}/);
   assert.doesNotMatch(webStep, /useFeatureFlag\("media_v2_video"\)/);
-  assert.match(webStep, /startWebVibeVideoUpload\(\{[\s\S]{0,180}source: file[\s\S]{0,160}context: "onboarding"/);
+  assert.match(webStep, /await startWebVibeVideoUpload\(\{[\s\S]{0,180}source: file[\s\S]{0,160}context: "onboarding"/);
+  assert.match(webStep, /const pendingLocalPreviewUrl = URL\.createObjectURL\(file\)/);
+  assert.match(webStep, /pendingLocalPreviewUrl,\s*\n/);
   assert.doesNotMatch(webStep, /mediaV2VideoEnabled: mediaV2Video\.enabled/);
 
   assert.doesNotMatch(webModal, /import \{ heroVideoStart \}/);
@@ -1106,7 +1110,8 @@ test("media v2 Vibe Video caller cutover is upload-start gated and still control
 
   assert.doesNotMatch(nativeRecord, /import \{ nativeHeroVideoStart \}/);
   assert.doesNotMatch(nativeRecord, /useFeatureFlag\('media_v2_video'\)/);
-  assert.match(nativeRecord, /startNativeVibeVideoUpload\(\{[\s\S]{0,220}uri: recordedUri[\s\S]{0,220}context,[\s\S]{0,160}uploadSource: uploadSourceRef\.current/);
+  assert.match(nativeRecord, /await startNativeVibeVideoUpload\(\{[\s\S]{0,220}uri: recordedUri[\s\S]{0,220}context,[\s\S]{0,160}uploadSource: uploadSourceRef\.current/);
+  assert.match(nativeRecord, /disabled=\{isConfirming\}/);
   assert.doesNotMatch(nativeRecord, /mediaV2VideoEnabled: mediaV2Video\.enabled/);
 
   assert.match(webSdk, /createWebMediaSdk/);
@@ -1116,7 +1121,7 @@ test("media v2 Vibe Video caller cutover is upload-start gated and still control
   assert.match(webSdk, /createMediaUploadPathTelemetryFields/);
   assert.match(webSdk, /uploadVibeVideo: uploadWebVibeVideoViaController/);
   assert.match(webSdk, /heroVideoStartWithClientRequestId/);
-  assert.match(webVibeUploadSection, /heroVideoStartWithClientRequestId\(\s*params\.source,\s*params\.caption,\s*context,\s*clientRequestId,?\s*\)/);
+  assert.match(webVibeUploadSection, /heroVideoStartWithClientRequestId\(\s*params\.source,\s*params\.caption,\s*context,\s*clientRequestId,\s*\{[\s\S]{0,120}pendingLocalPreviewUrl/);
   assert.doesNotMatch(webVibeUploadSection, /params\.captions|captions: params\.captions|captions: params\.captions \?\? null/);
   assert.match(webSdk, /mirrorHeroVideoControllerToSdk/);
   assert.match(webSdk, /state\.clientRequestId !== clientRequestId/);
@@ -1131,6 +1136,7 @@ test("media v2 Vibe Video caller cutover is upload-start gated and still control
   assert.match(nativeSdk, /createNativeMediaSdk/);
   assert.doesNotMatch(nativeSdk, /createStaticMediaFeatureFlagGate/);
   assert.match(nativeSdk, /evaluateClientFeatureFlagForUpload\('media_v2_video'\)/);
+  assert.match(nativeSdk, /export function startNativeVibeVideoUpload\([\s\S]{0,220}\): Promise<void>/);
   assert.match(nativeSdk, /MEDIA_UPLOAD_PATH_EVENT_NAMES/);
   assert.match(nativeSdk, /createMediaUploadPathTelemetryFields/);
   assert.match(nativeSdk, /AsyncStorage/);
@@ -1148,4 +1154,72 @@ test("media v2 Vibe Video caller cutover is upload-start gated and still control
   assert.match(nativeSdk, /vibe_video_invalid_upload_context/);
   assert.match(nativeSdk, /mimeFromExtension\(extensionFromFileUri\(params\.uri\)\)/);
   assert.match(nativeSdk, /waitForMediaUploadTaskTerminal/);
+});
+
+test("Vibe Video upload UX keeps local preview and shared processing copy across web and native", () => {
+  const copy = read("shared/media/processingCopy.ts");
+  const webController = read("src/lib/heroVideo/heroVideoUploadController.ts");
+  const webStep = read("src/pages/onboarding/steps/VibeVideoStep.tsx");
+  const webModal = read("src/components/vibe-video/VibeStudioModal.tsx");
+  const webStatusCard = read("src/components/hero-video/HeroVideoStatusCard.tsx");
+  const webSdk = read("src/lib/mediaSdk/webVideoUploads.ts");
+  const nativeController = read("apps/mobile/lib/nativeHeroVideoUploadController.ts");
+  const nativeSdk = read("apps/mobile/lib/mediaSdk/nativeVideoUploads.ts");
+  const nativeStudio = read("apps/mobile/app/vibe-studio.tsx");
+  const nativePlayer = read("apps/mobile/components/video/VibeVideoPlayer.tsx");
+
+  assert.match(copy, /export const VIBE_VIDEO_PROCESSING_COPY/);
+  assert.match(copy, /export function vibeVideoUploadingCopy/);
+  assert.match(copy, /export function vibeVideoProcessingCopy/);
+  assert.match(copy, /export function vibeVideoFailedCopy/);
+  assert.match(copy, /export function vibeVideoStalledCopy/);
+
+  assert.match(webController, /pendingLocalPreviewUrl: string \| null/);
+  assert.match(webController, /const LOCAL_PREVIEW_TTL_MS = 10 \* 60 \* 1000/);
+  assert.match(webController, /URL\.revokeObjectURL\(url\)/);
+  assert.match(webController, /options: \{ pendingLocalPreviewUrl\?: string \| null \} = \{\}/);
+  assert.match(webController, /pendingLocalPreviewUrl,\s*\n\s*errorMessage: null/);
+  assert.match(webController, /_clearLocalPreview\(false\)[\s\S]{0,120}phase: "ready"[\s\S]{0,80}pendingLocalPreviewUrl: null/);
+  assert.match(webController, /function _shouldPreserveActiveUpload\(profileVideoId: string \| null\)/);
+  assert.match(webController, /_state\.phase === "processing" && _activeClientRequestId !== null/);
+
+  const confirmBlock = webModal.slice(webModal.indexOf("const handleConfirm"), webModal.indexOf("const handleClose"));
+  assert.match(confirmBlock, /const pendingLocalPreviewUrl = recordedVideoUrl \?\? URL\.createObjectURL\(file\)/);
+  assert.match(confirmBlock, /await startWebVibeVideoUpload/);
+  assert.match(confirmBlock, /pendingLocalPreviewUrl,\s*\n/);
+  assert.doesNotMatch(confirmBlock, /revokeObjectURL\(recordedVideoUrl\)/);
+  assert.match(webModal, /disabled=\{isConfirming\}/);
+  assert.match(webStep, /const pendingLocalPreviewUrl = URL\.createObjectURL\(file\)/);
+  assert.match(webStep, /URL\.revokeObjectURL\(pendingLocalPreviewUrl\)/);
+  assert.match(webStatusCard, /LocalPreviewPanel/);
+  assert.match(webStatusCard, /ctrl\.pendingLocalPreviewUrl/);
+  assert.match(webStatusCard, /vibeVideoUploadingCopy/);
+  assert.match(webStatusCard, /vibeVideoProcessingCopy/);
+
+  assert.match(webSdk, /pendingLocalPreviewUrlFromInput/);
+  assert.match(webSdk, /export function startWebVibeVideoUpload\([\s\S]{0,220}\): Promise<void>/);
+  assert.match(webSdk, /pendingLocalPreviewUrl\?: string \| null/);
+  assert.match(webSdk, /pendingLocalPreviewUrl: params\.pendingLocalPreviewUrl \?\? null/);
+  assert.match(webSdk, /waitForVibeVideoControllerHandoff/);
+  assert.match(webSdk, /const task = getWebVideoMediaSdk\(\)\.video\.upload/);
+  assert.match(webSdk, /await waitForVibeVideoControllerHandoff\(task, clientRequestId\)/);
+
+  assert.match(nativeController, /pendingLocalPreviewUri: string \| null/);
+  assert.match(nativeController, /pendingLocalPreviewUri: videoUri/);
+  assert.match(nativeController, /pendingLocalPreviewUri: source === 'upload_complete' \? _state\.pendingLocalPreviewUri : null/);
+  assert.match(nativeController, /phase: 'ready'[\s\S]{0,120}pendingLocalPreviewUri: null/);
+
+  assert.match(nativeStudio, /import VibeVideoPlayer/);
+  assert.match(nativeStudio, /pendingLocalPreviewUri = ctrl\.pendingLocalPreviewUri/);
+  assert.match(nativeStudio, /diagContext="native-upload-local-preview"/);
+  assert.match(nativeStudio, /\bmuted\b/);
+  assert.match(nativeStudio, /vibeVideoUploadingCopy/);
+  assert.match(nativeStudio, /vibeVideoProcessingCopy/);
+
+  assert.match(nativePlayer, /muted\?: boolean/);
+  assert.match(nativePlayer, /p\.muted = muted/);
+  assert.match(nativePlayer, /player\.muted = muted/);
+  assert.match(nativeSdk, /waitForNativeVibeVideoControllerHandoff/);
+  assert.match(nativeSdk, /const task = getNativeVideoMediaSdk\(\)\.video\.upload/);
+  assert.match(nativeSdk, /await waitForNativeVibeVideoControllerHandoff\(task, clientRequestId\)/);
 });

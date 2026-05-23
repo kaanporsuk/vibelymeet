@@ -7,7 +7,7 @@
  * Survives component unmounts, so upload continues after the recorder modal closes.
  * React components subscribe via heroVideoSubscribe() / useHeroVideoUpload().
  *
- * Phase model (post-confirm only; local_preview stays inside the recorder):
+ * Phase model (post-confirm only; local preview is transferred to this controller):
  *   idle       — no active session; profile is source of truth for display
  *   uploading  — tus in flight (progress 0–100)
  *   processing — tus complete; polling backend for transcoding result
@@ -41,6 +41,8 @@ export interface HeroVideoControllerState {
   clientRequestId: string | null;
   /** Set once create-video-upload returns credentials */
   videoId: string | null;
+  /** Blob URL owned by this controller while the remote upload is not playable yet. */
+  pendingLocalPreviewUrl: string | null;
   errorMessage: string | null;
 }
 
@@ -60,6 +62,7 @@ let _state: HeroVideoControllerState = {
   uploadProgress: 0,
   clientRequestId: null,
   videoId: null,
+  pendingLocalPreviewUrl: null,
   errorMessage: null,
 };
 
@@ -74,16 +77,58 @@ let _visibilityChangeHandler: (() => void) | null = null;
 let _visibilityResumeInFlight = false;
 let _activePollVideoId: string | null = null;
 let _activeClientRequestId: string | null = null;
+let _localPreviewTimerId: ReturnType<typeof setTimeout> | null = null;
 
 /** 36 × 5 s = 3 min max poll window before silently going idle */
 const POLL_MAX_ATTEMPTS = 36;
 const POLL_INTERVAL_MS = 5_000;
+const LOCAL_PREVIEW_TTL_MS = 10 * 60 * 1000;
 
 // ─── Internal helpers ─────────────────────────────────────────────────────────
 
 function _setState(patch: Partial<HeroVideoControllerState>): void {
   _state = { ..._state, ...patch };
   _subscribers.forEach((cb) => cb(_state));
+}
+
+function _revokeLocalPreviewUrl(url: string | null): void {
+  if (!url || !url.startsWith("blob:") || typeof URL === "undefined" || typeof URL.revokeObjectURL !== "function") {
+    return;
+  }
+  URL.revokeObjectURL(url);
+}
+
+function _clearLocalPreview(updateState = true): void {
+  if (_localPreviewTimerId !== null) {
+    clearTimeout(_localPreviewTimerId);
+    _localPreviewTimerId = null;
+  }
+
+  const url = _state.pendingLocalPreviewUrl;
+  if (url) _revokeLocalPreviewUrl(url);
+  if (updateState && url) _setState({ pendingLocalPreviewUrl: null });
+}
+
+function _scheduleLocalPreviewExpiry(url: string | null): void {
+  if (_localPreviewTimerId !== null) {
+    clearTimeout(_localPreviewTimerId);
+    _localPreviewTimerId = null;
+  }
+  if (!url || typeof setTimeout === "undefined") return;
+
+  _localPreviewTimerId = setTimeout(() => {
+    _localPreviewTimerId = null;
+    _clearLocalPreview();
+  }, LOCAL_PREVIEW_TTL_MS);
+}
+
+function _retainLocalPreviewUntilTtl(): void {
+  _scheduleLocalPreviewExpiry(_state.pendingLocalPreviewUrl);
+}
+
+function _replaceLocalPreview(url: string | null): void {
+  _clearLocalPreview(false);
+  _scheduleLocalPreviewExpiry(url);
 }
 
 function _stopPoll(): void {
@@ -98,6 +143,16 @@ function _stopPoll(): void {
 
 function _isCurrentPoll(expectedVideoId: string): boolean {
   return _activePollVideoId === expectedVideoId;
+}
+
+function _shouldPreserveActiveUpload(profileVideoId: string | null): boolean {
+  const hasActiveUploadRun =
+    _state.phase === "uploading" ||
+    (_state.phase === "processing" && _activeClientRequestId !== null);
+  if (!hasActiveUploadRun) return false;
+
+  const currentVideoId = _state.videoId?.trim() || null;
+  return !profileVideoId || currentVideoId !== profileVideoId;
 }
 
 function newHeroVideoClientRequestId(): string {
@@ -148,7 +203,15 @@ async function _pollTick(expectedVideoId: string): Promise<void> {
     if (!rowUid) {
       _stopPoll();
       _activeClientRequestId = null;
-      _setState({ phase: "idle", uploadProgress: 0, videoId: null, clientRequestId: null, errorMessage: null });
+      _clearLocalPreview(false);
+      _setState({
+        phase: "idle",
+        uploadProgress: 0,
+        videoId: null,
+        clientRequestId: null,
+        pendingLocalPreviewUrl: null,
+        errorMessage: null,
+      });
       void queryClient.invalidateQueries({ queryKey: ["my-profile"] });
       return;
     }
@@ -157,7 +220,15 @@ async function _pollTick(expectedVideoId: string): Promise<void> {
     if (rowUid && rowUid !== expectedVideoId) {
       _stopPoll();
       _activeClientRequestId = null;
-      _setState({ phase: "idle", uploadProgress: 0, videoId: null, clientRequestId: null, errorMessage: null });
+      _clearLocalPreview(false);
+      _setState({
+        phase: "idle",
+        uploadProgress: 0,
+        videoId: null,
+        clientRequestId: null,
+        pendingLocalPreviewUrl: null,
+        errorMessage: null,
+      });
       void queryClient.invalidateQueries({ queryKey: ["my-profile"] });
       return;
     }
@@ -192,7 +263,8 @@ async function _pollTick(expectedVideoId: string): Promise<void> {
     if (st === "ready") {
       if (!_isCurrentPoll(expectedVideoId)) return;
       _stopPoll();
-      _setState({ phase: "ready", errorMessage: null });
+      _clearLocalPreview(false);
+      _setState({ phase: "ready", pendingLocalPreviewUrl: null, errorMessage: null });
       trackVibeVideoEvent(VIBE_VIDEO_EVENTS.readyObserved, {
         source: "hero_video_controller",
         video_guid: expectedVideoId,
@@ -205,7 +277,12 @@ async function _pollTick(expectedVideoId: string): Promise<void> {
     if (st === "failed") {
       if (!_isCurrentPoll(expectedVideoId)) return;
       _stopPoll();
-      _setState({ phase: "failed", errorMessage: "Processing did not complete. Try uploading again." });
+      _clearLocalPreview(false);
+      _setState({
+        phase: "failed",
+        pendingLocalPreviewUrl: null,
+        errorMessage: "Processing did not complete. Try uploading again.",
+      });
       trackVibeVideoEvent(VIBE_VIDEO_EVENTS.failedObserved, {
         source: "hero_video_controller",
         video_guid: expectedVideoId,
@@ -227,6 +304,7 @@ async function _pollTick(expectedVideoId: string): Promise<void> {
   if (_pollAttempts >= POLL_MAX_ATTEMPTS) {
     if (!_isCurrentPoll(expectedVideoId)) return;
     _stopPoll();
+    _retainLocalPreviewUntilTtl();
     _setState({
       phase: "stalled",
       errorMessage: "Your video is taking longer than expected. It is still saved; refresh later or replace it.",
@@ -285,6 +363,7 @@ export function heroVideoResumePollingForProfile(
   if (_state.phase === "uploading") return false;
   if (_pollTimerId !== null && _activePollVideoId === info.uid) return false;
   if (_state.phase === "stalled" && _state.videoId === info.uid && source === "profile_load") return false;
+  if (_shouldPreserveActiveUpload(info.uid)) return false;
 
   if (info.state === "stale_processing") {
     trackStaleVibeVideoProcessing({
@@ -299,11 +378,13 @@ export function heroVideoResumePollingForProfile(
   }
 
   _activeClientRequestId = null;
+  _clearLocalPreview(false);
   _setState({
     phase: "processing",
     uploadProgress: 100,
     clientRequestId: null,
     videoId: info.uid,
+    pendingLocalPreviewUrl: null,
     errorMessage: null,
   });
   _startPoll(info.uid);
@@ -361,6 +442,7 @@ const hot = (import.meta as HotImportMeta).hot;
 if (hot) {
   hot.dispose(() => {
     _removeVisibilityListener();
+    _clearLocalPreview(false);
   });
 }
 
@@ -389,8 +471,9 @@ export function heroVideoStart(
   file: File | Blob,
   caption?: string,
   context: HeroVideoUploadContext = "profile_studio",
+  options: { pendingLocalPreviewUrl?: string | null } = {},
 ): void {
-  heroVideoStartWithClientRequestId(file, caption, context);
+  heroVideoStartWithClientRequestId(file, caption, context, newHeroVideoClientRequestId(), options);
 }
 
 export function heroVideoStartWithClientRequestId(
@@ -398,8 +481,10 @@ export function heroVideoStartWithClientRequestId(
   caption?: string,
   context: HeroVideoUploadContext = "profile_studio",
   clientRequestId: string = newHeroVideoClientRequestId(),
+  options: { pendingLocalPreviewUrl?: string | null } = {},
 ): void {
   const uploadClientRequestId = clientRequestId.trim() || newHeroVideoClientRequestId();
+  const pendingLocalPreviewUrl = options.pendingLocalPreviewUrl ?? null;
   // Cancel existing upload if any
   if (_activeTus) {
     trackVibeVideoEvent(VIBE_VIDEO_EVENTS.replaceStarted, {
@@ -416,12 +501,14 @@ export function heroVideoStartWithClientRequestId(
   }
   _stopPoll();
   _activeClientRequestId = uploadClientRequestId;
+  _replaceLocalPreview(pendingLocalPreviewUrl);
 
   _setState({
     phase: "uploading",
     uploadProgress: 0,
     clientRequestId: uploadClientRequestId,
     videoId: null,
+    pendingLocalPreviewUrl,
     errorMessage: null,
   });
   _activeRunStartedAt = Date.now();
@@ -452,7 +539,12 @@ async function _run(
     if (!isCurrentRun()) return;
 
     if (!session?.access_token) {
-      setStateIfCurrent({ phase: "failed", errorMessage: "Not authenticated. Please sign in." });
+      _clearLocalPreview(false);
+      setStateIfCurrent({
+        phase: "failed",
+        pendingLocalPreviewUrl: null,
+        errorMessage: "Not authenticated. Please sign in.",
+      });
       trackVibeVideoEvent(VIBE_VIDEO_EVENTS.credentialsRequestFailed, {
         source: "hero_video_controller",
         upload_context: context,
@@ -486,7 +578,12 @@ async function _run(
         },
       );
     } catch (error) {
-      setStateIfCurrent({ phase: "failed", errorMessage: "Network error. Check your connection and try again." });
+      _clearLocalPreview(false);
+      setStateIfCurrent({
+        phase: "failed",
+        pendingLocalPreviewUrl: null,
+        errorMessage: "Network error. Check your connection and try again.",
+      });
       trackVibeVideoEvent(VIBE_VIDEO_EVENTS.credentialsRequestFailed, {
         source: "hero_video_controller",
         upload_context: context,
@@ -511,7 +608,8 @@ async function _run(
 
     if (!credRes.ok || creds.success !== true) {
       const msg = String(creds.error ?? creds.message ?? `Upload service error (${credRes.status})`);
-      setStateIfCurrent({ phase: "failed", errorMessage: msg });
+      _clearLocalPreview(false);
+      setStateIfCurrent({ phase: "failed", pendingLocalPreviewUrl: null, errorMessage: msg });
       trackVibeVideoEvent(VIBE_VIDEO_EVENTS.credentialsRequestFailed, {
         source: "hero_video_controller",
         upload_context: context,
@@ -528,7 +626,12 @@ async function _run(
     const signature = String(creds.signature ?? "");
 
     if (!videoId || !signature || libraryId == null || expirationTime == null) {
-      setStateIfCurrent({ phase: "failed", errorMessage: "Incomplete upload credentials. Please try again." });
+      _clearLocalPreview(false);
+      setStateIfCurrent({
+        phase: "failed",
+        pendingLocalPreviewUrl: null,
+        errorMessage: "Incomplete upload credentials. Please try again.",
+      });
       trackVibeVideoEvent(VIBE_VIDEO_EVENTS.credentialsRequestFailed, {
         source: "hero_video_controller",
         upload_context: context,
@@ -630,7 +733,8 @@ async function _run(
     _activeTus = null;
     _stopPoll();
     const msg = err instanceof Error ? err.message : "Upload failed. Please try again.";
-    _setState({ phase: "failed", errorMessage: msg });
+    _clearLocalPreview(false);
+    _setState({ phase: "failed", pendingLocalPreviewUrl: null, errorMessage: msg });
     if (failurePhase === "credentials") {
       trackVibeVideoEvent(VIBE_VIDEO_EVENTS.credentialsRequestFailed, {
         source: "hero_video_controller",
@@ -686,5 +790,13 @@ export function heroVideoReset(): void {
   }
   _stopPoll();
   _activeClientRequestId = null;
-  _setState({ phase: "idle", uploadProgress: 0, clientRequestId: null, videoId: null, errorMessage: null });
+  _clearLocalPreview(false);
+  _setState({
+    phase: "idle",
+    uploadProgress: 0,
+    clientRequestId: null,
+    videoId: null,
+    pendingLocalPreviewUrl: null,
+    errorMessage: null,
+  });
 }

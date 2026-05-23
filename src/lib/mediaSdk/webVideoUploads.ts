@@ -4,6 +4,8 @@ import {
   createWebMediaSdk,
   MEDIA_UPLOAD_PATH_EVENT_NAMES,
   waitForMediaUploadTaskTerminal,
+  type MediaUploadSnapshot,
+  type MediaUploadTask,
   type MediaTaskRunContext,
   type WebMediaSdk,
   type WebVideoUploadInput,
@@ -69,6 +71,63 @@ function uploadContextFromInput(input: WebVideoUploadInput): HeroVideoUploadCont
 
 function captionFromInput(input: WebVideoUploadInput): string | undefined {
   return optionalString(input.context?.caption);
+}
+
+function pendingLocalPreviewUrlFromInput(input: WebVideoUploadInput): string | null {
+  return optionalString(input.context?.pendingLocalPreviewUrl) ?? null;
+}
+
+function uploadStartErrorFromSnapshot(snapshot: MediaUploadSnapshot): Error {
+  return new Error(snapshot.error?.message ?? "Could not start upload. Please try again.");
+}
+
+function hasHeroVideoControllerHandoff(clientRequestId: string): boolean {
+  return heroVideoGetState().clientRequestId === clientRequestId;
+}
+
+function waitForVibeVideoControllerHandoff(task: MediaUploadTask, clientRequestId: string): Promise<void> {
+  if (hasHeroVideoControllerHandoff(clientRequestId)) return Promise.resolve();
+
+  const snapshot = task.snapshot();
+  if (snapshot.state === "failed" || snapshot.state === "cancelled") {
+    return Promise.reject(uploadStartErrorFromSnapshot(snapshot));
+  }
+
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    let unsubscribeController: (() => void) | null = null;
+    let unsubscribeTask: (() => void) | null = null;
+
+    const cleanup = () => {
+      unsubscribeController?.();
+      unsubscribeTask?.();
+      unsubscribeController = null;
+      unsubscribeTask = null;
+    };
+
+    const settle = (result: "resolve" | "reject", error?: Error) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      if (result === "reject") reject(error ?? new Error("Could not start upload. Please try again."));
+      else resolve();
+    };
+
+    const check = () => {
+      if (hasHeroVideoControllerHandoff(clientRequestId)) {
+        settle("resolve");
+        return;
+      }
+      const current = task.snapshot();
+      if (current.state === "failed" || current.state === "cancelled") {
+        settle("reject", uploadStartErrorFromSnapshot(current));
+      }
+    };
+
+    unsubscribeController = heroVideoSubscribe(check);
+    unsubscribeTask = task.on("state", check);
+    check();
+  });
 }
 
 function failSnapshotForHeroState(state: HeroVideoControllerState): {
@@ -162,6 +221,7 @@ async function uploadWebVibeVideoViaController(
     captionFromInput(input),
     uploadContextFromInput(input),
     clientRequestId,
+    { pendingLocalPreviewUrl: pendingLocalPreviewUrlFromInput(input) },
   );
   await mirrorHeroVideoControllerToSdk(controls);
 }
@@ -270,10 +330,11 @@ export function startWebVibeVideoUpload(params: {
   source: File | Blob;
   caption?: string;
   context?: HeroVideoUploadContext;
-}): void {
+  pendingLocalPreviewUrl?: string | null;
+}): Promise<void> {
   const context = params.context ?? "profile_studio";
   const clientRequestId = createMediaClientRequestId();
-  void startWebVibeVideoUploadAfterGate(params, context, clientRequestId);
+  return startWebVibeVideoUploadAfterGate(params, context, clientRequestId);
 }
 
 async function startWebVibeVideoUploadAfterGate(
@@ -281,6 +342,7 @@ async function startWebVibeVideoUploadAfterGate(
     source: File | Blob;
     caption?: string;
     context?: HeroVideoUploadContext;
+    pendingLocalPreviewUrl?: string | null;
   },
   context: HeroVideoUploadContext,
   clientRequestId: string,
@@ -300,20 +362,24 @@ async function startWebVibeVideoUploadAfterGate(
   });
 
   if (!evaluation.enabled) {
-    heroVideoStartWithClientRequestId(params.source, params.caption, context, clientRequestId);
+    heroVideoStartWithClientRequestId(params.source, params.caption, context, clientRequestId, {
+      pendingLocalPreviewUrl: params.pendingLocalPreviewUrl ?? null,
+    });
     return;
   }
-  getWebVideoMediaSdk().video.upload({
+  const task = getWebVideoMediaSdk().video.upload({
     family: "vibe_video",
     source: params.source,
     context: {
       uploadContext: context,
       caption: params.caption,
+      pendingLocalPreviewUrl: params.pendingLocalPreviewUrl ?? null,
     },
     options: {
       clientRequestId,
     },
   });
+  await waitForVibeVideoControllerHandoff(task, clientRequestId);
 }
 
 export async function uploadAndPublishChatVibeClipWithMediaSdk(

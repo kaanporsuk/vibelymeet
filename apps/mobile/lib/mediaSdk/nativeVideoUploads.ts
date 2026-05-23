@@ -7,6 +7,8 @@ import {
   createNativeMediaSdk,
   MEDIA_UPLOAD_PATH_EVENT_NAMES,
   waitForMediaUploadTaskTerminal,
+  type MediaUploadSnapshot,
+  type MediaUploadTask,
   type MediaTaskRunContext,
   type NativeMediaSdk,
   type NativeVideoUploadInput,
@@ -74,6 +76,59 @@ function uploadContextFromInput(input: NativeVideoUploadInput): NativeHeroVideoU
 function uploadSourceFromInput(input: NativeVideoUploadInput): VibeVideoUploadSource {
   const value = input.context?.uploadSource;
   return value === 'camera' || value === 'library' || value === 'drawer' ? value : 'unknown';
+}
+
+function uploadStartErrorFromSnapshot(snapshot: MediaUploadSnapshot): Error {
+  return new Error(snapshot.error?.message ?? 'Could not start upload. Please try again.');
+}
+
+function hasNativeVibeVideoControllerHandoff(clientRequestId: string): boolean {
+  return nativeHeroVideoGetState().clientRequestId === clientRequestId;
+}
+
+function waitForNativeVibeVideoControllerHandoff(task: MediaUploadTask, clientRequestId: string): Promise<void> {
+  if (hasNativeVibeVideoControllerHandoff(clientRequestId)) return Promise.resolve();
+
+  const snapshot = task.snapshot();
+  if (snapshot.state === 'failed' || snapshot.state === 'cancelled') {
+    return Promise.reject(uploadStartErrorFromSnapshot(snapshot));
+  }
+
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    let unsubscribeController: (() => void) | null = null;
+    let unsubscribeTask: (() => void) | null = null;
+
+    const cleanup = () => {
+      unsubscribeController?.();
+      unsubscribeTask?.();
+      unsubscribeController = null;
+      unsubscribeTask = null;
+    };
+
+    const settle = (result: 'resolve' | 'reject', error?: Error) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      if (result === 'reject') reject(error ?? new Error('Could not start upload. Please try again.'));
+      else resolve();
+    };
+
+    const check = () => {
+      if (hasNativeVibeVideoControllerHandoff(clientRequestId)) {
+        settle('resolve');
+        return;
+      }
+      const current = task.snapshot();
+      if (current.state === 'failed' || current.state === 'cancelled') {
+        settle('reject', uploadStartErrorFromSnapshot(current));
+      }
+    };
+
+    unsubscribeController = nativeHeroVideoSubscribe(check);
+    unsubscribeTask = task.on('state', check);
+    check();
+  });
 }
 
 function failSnapshotForHeroState(state: NativeHeroVideoControllerState): {
@@ -275,10 +330,10 @@ export function startNativeVibeVideoUpload(params: {
   caption?: string;
   context?: NativeHeroVideoUploadContext;
   uploadSource?: VibeVideoUploadSource;
-}): void {
+}): Promise<void> {
   const context = params.context ?? 'profile_studio';
   const clientRequestId = createMediaClientRequestId();
-  void startNativeVibeVideoUploadAfterGate(params, context, clientRequestId);
+  return startNativeVibeVideoUploadAfterGate(params, context, clientRequestId);
 }
 
 async function startNativeVibeVideoUploadAfterGate(
@@ -315,7 +370,7 @@ async function startNativeVibeVideoUploadAfterGate(
     );
     return;
   }
-  getNativeVideoMediaSdk().video.upload({
+  const task = getNativeVideoMediaSdk().video.upload({
     family: 'vibe_video',
     source: {
       uri: params.uri,
@@ -330,6 +385,7 @@ async function startNativeVibeVideoUploadAfterGate(
       clientRequestId,
     },
   });
+  await waitForNativeVibeVideoControllerHandoff(task, clientRequestId);
 }
 
 export async function uploadAndPublishChatVibeClipWithMediaSdk(

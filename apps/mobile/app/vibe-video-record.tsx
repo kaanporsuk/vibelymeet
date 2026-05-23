@@ -107,6 +107,7 @@ export default function VibeVideoRecordScreen() {
   const [captionEdited, setCaptionEdited] = useState(false);
   const [captionModal, setCaptionModal] = useState(false);
   const [captionDraft, setCaptionDraft] = useState('');
+  const [isConfirming, setIsConfirming] = useState(false);
 
   // Seed caption from existing profile
   useEffect(() => {
@@ -203,6 +204,7 @@ export default function VibeVideoRecordScreen() {
   };
 
   const retake = () => {
+    setIsConfirming(false);
     uploadSourceRef.current = 'unknown';
     setRecordedUri(null);
     setStage('idle');
@@ -245,8 +247,8 @@ export default function VibeVideoRecordScreen() {
    * The controller owns upload → processing → ready/failed in the background.
    * Vibe Studio (or onboarding) shows live status via useNativeHeroVideoUpload().
    */
-  const doConfirm = () => {
-    if (!recordedUri) return;
+  const doConfirm = async () => {
+    if (!recordedUri || isConfirming) return;
 
     const existingCaption = myProfile?.vibe_caption?.trim() ?? '';
     const caption =
@@ -285,13 +287,26 @@ export default function VibeVideoRecordScreen() {
         had_existing_caption: existingCaption.length > 0,
       });
     }
-    startNativeVibeVideoUpload({
-      uri: recordedUri,
-      caption,
-      context,
-      uploadSource: uploadSourceRef.current,
-    });
+    setIsConfirming(true);
+    try {
+      await startNativeVibeVideoUpload({
+        uri: recordedUri,
+        caption,
+        context,
+        uploadSource: uploadSourceRef.current,
+      });
+    } catch (error) {
+      setIsConfirming(false);
+      show({
+        title: "Couldn't start upload",
+        message: error instanceof Error ? error.message : 'Please try again.',
+        variant: 'warning',
+        primaryAction: { label: 'OK', onPress: () => {} },
+      });
+      return;
+    }
 
+    setIsConfirming(false);
     if (onboardingFlow) {
       returnToOnboarding();
     } else {
@@ -402,15 +417,17 @@ export default function VibeVideoRecordScreen() {
               />
 
               <Pressable
-                style={[styles.closeBtn, { top: Math.max(insets.top, 12) + 8 }]}
+                style={[styles.closeBtn, { top: Math.max(insets.top, 12) + 8 }, isConfirming && styles.previewActionDisabled]}
                 onPress={() => router.back()}
+                disabled={isConfirming}
               >
                 <Ionicons name="close" size={28} color="#fff" />
               </Pressable>
 
               <Pressable
-                style={[styles.captionPill, { top: Math.max(insets.top, 12) + 56 }]}
+                style={[styles.captionPill, { top: Math.max(insets.top, 12) + 56 }, isConfirming && styles.previewActionDisabled]}
                 onPress={openCaptionEditor}
+                disabled={isConfirming}
               >
                 {vibeCaption.trim() ? (
                   <Text style={styles.captionPillText} numberOfLines={1}>
@@ -434,12 +451,22 @@ export default function VibeVideoRecordScreen() {
                 end={{ x: 1, y: 0 }}
                 style={styles.previewUploadGradient}
               >
-                <Pressable onPress={doConfirm} style={styles.previewUploadPressable}>
-                  <Text style={styles.previewUploadLabel}>Post Vibe Video</Text>
+                <Pressable
+                  onPress={() => void doConfirm()}
+                  disabled={isConfirming}
+                  style={[styles.previewUploadPressable, isConfirming && styles.previewActionDisabled]}
+                >
+                  <Text style={styles.previewUploadLabel}>
+                    {isConfirming ? 'Starting upload...' : 'Post Vibe Video'}
+                  </Text>
                 </Pressable>
               </LinearGradient>
 
-              <Pressable onPress={retake} style={styles.previewSecondaryPressable}>
+              <Pressable
+                onPress={retake}
+                disabled={isConfirming}
+                style={[styles.previewSecondaryPressable, isConfirming && styles.previewActionDisabled]}
+              >
                 <Text style={styles.previewSecondaryLabel}>Choose different video</Text>
               </Pressable>
             </View>
@@ -533,6 +560,7 @@ const styles = StyleSheet.create({
   },
   previewUploadGradient: { borderRadius: 16, overflow: 'hidden' },
   previewUploadPressable: { paddingVertical: 16, alignItems: 'center', justifyContent: 'center' },
+  previewActionDisabled: { opacity: 0.72 },
   previewUploadLabel: { color: '#fff', fontSize: 17, fontWeight: '700', letterSpacing: 0.3 },
   previewSecondaryPressable: { alignItems: 'center', paddingVertical: 8 },
   previewSecondaryLabel: { color: 'rgba(255,255,255,0.7)', fontSize: 15, fontWeight: '500' },

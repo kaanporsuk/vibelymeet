@@ -45,10 +45,19 @@ export const VibeVideoStep = ({ onNext, onSkip, onVideoStarted }: VibeVideoStepP
     }
 
     // Hand off to SDK/controller — upload runs in the background.
-    startWebVibeVideoUpload({
-      source: file,
-      context: "onboarding",
-    });
+    const pendingLocalPreviewUrl = URL.createObjectURL(file);
+    try {
+      await startWebVibeVideoUpload({
+        source: file,
+        context: "onboarding",
+        pendingLocalPreviewUrl,
+      });
+    } catch (error) {
+      URL.revokeObjectURL(pendingLocalPreviewUrl);
+      console.error("Failed to start onboarding Vibe Video upload:", error);
+      toast.error("Could not start upload. Please try again.");
+      return;
+    }
     onVideoStarted?.();
     onNext();
   };

@@ -71,6 +71,7 @@ export const VibeStudioModal = ({
   const [vibeCaption, setVibeCaption] = useState(existingCaption);
   const [captionEdited, setCaptionEdited] = useState(false);
   const [isEditingCaption, setIsEditingCaption] = useState(false);
+  const [isConfirming, setIsConfirming] = useState(false);
   const [facingMode, setFacingMode] = useState<'user' | 'environment'>('user');
   const [hasMultipleCameras, setHasMultipleCameras] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -324,6 +325,7 @@ export const VibeStudioModal = ({
   }, []);
 
   const handleRetake = useCallback(() => {
+    if (isConfirming) return;
     if (recordedVideoUrl) {
       URL.revokeObjectURL(recordedVideoUrl);
     }
@@ -332,14 +334,15 @@ export const VibeStudioModal = ({
     setUploadedFile(null);
     setStage("idle");
     setCountdown(RECORDING_DURATION);
-  }, [recordedVideoUrl]);
+  }, [isConfirming, recordedVideoUrl]);
 
   /**
    * Confirm: hand the local blob/file to the controller and close immediately.
    * The controller runs the upload and processing in the background; the You page
    * displays live progress via HeroVideoStatusCard.
    */
-  const handleConfirm = useCallback(() => {
+  const handleConfirm = useCallback(async () => {
+    if (isConfirming) return;
     const file = recordedBlob ?? uploadedFile;
     if (!file) {
       toast.error("No clip to confirm");
@@ -347,6 +350,7 @@ export const VibeStudioModal = ({
     }
 
     stopCameraTracks();
+    setIsConfirming(true);
     const existingTrimmed = existingCaption.trim();
     const captionForUpload = captionEdited || existingTrimmed.length > 0 ? vibeCaption.trim() : undefined;
     const nextTrimmed = vibeCaption.trim();
@@ -373,18 +377,28 @@ export const VibeStudioModal = ({
         had_existing_caption: existingTrimmed.length > 0,
       });
     }
-    startWebVibeVideoUpload({
-      source: file,
-      caption: captionForUpload,
-      context: uploadContext,
-    });
+    const pendingLocalPreviewUrl = recordedVideoUrl ?? URL.createObjectURL(file);
+    try {
+      await startWebVibeVideoUpload({
+        source: file,
+        caption: captionForUpload,
+        context: uploadContext,
+        pendingLocalPreviewUrl,
+      });
+    } catch (error) {
+      if (pendingLocalPreviewUrl !== recordedVideoUrl) URL.revokeObjectURL(pendingLocalPreviewUrl);
+      console.error("Failed to start Vibe Video upload:", error);
+      toast.error("Could not start upload. Please try again.");
+      setIsConfirming(false);
+      return;
+    }
+    setIsConfirming(false);
     onConfirmed?.();
 
     // Close modal immediately — user returns to You page while upload runs in background
     onOpenChange(false);
     setStage("idle");
     setCountdown(RECORDING_DURATION);
-    if (recordedVideoUrl) URL.revokeObjectURL(recordedVideoUrl);
     setRecordedVideoUrl(null);
     setRecordedBlob(null);
     setUploadedFile(null);
@@ -392,10 +406,12 @@ export const VibeStudioModal = ({
     setCaptionEdited(false);
 
     trackEvent('vibe_video_confirmed');
-  }, [recordedBlob, uploadedFile, recordedVideoUrl, vibeCaption, captionEdited, uploadContext, onConfirmed, onOpenChange, stopCameraTracks, existingCaption, hasExistingVideo, existingVideoUrl]);
+  }, [isConfirming, recordedBlob, uploadedFile, recordedVideoUrl, vibeCaption, captionEdited, uploadContext, onConfirmed, onOpenChange, stopCameraTracks, existingCaption, hasExistingVideo, existingVideoUrl]);
 
   const handleClose = useCallback(() => {
+    if (isConfirming) return;
     onOpenChange(false);
+    setIsConfirming(false);
     stopCameraTracks();
     setStage("idle");
     setCountdown(RECORDING_DURATION);
@@ -411,7 +427,7 @@ export const VibeStudioModal = ({
     setUploadedFile(null);
     setVibeCaption(existingCaption);
     setCaptionEdited(false);
-  }, [onOpenChange, recordedVideoUrl, stopCameraTracks, existingCaption]);
+  }, [isConfirming, onOpenChange, recordedVideoUrl, stopCameraTracks, existingCaption]);
 
   const toggleMic = useCallback(() => {
     if (streamRef.current) {
@@ -552,6 +568,7 @@ export const VibeStudioModal = ({
             variant="ghost"
             size="icon"
             onClick={handleClose}
+            disabled={isConfirming}
             className="absolute top-4 right-4 z-50 rounded-full bg-background/50 backdrop-blur-md hover:bg-background/70"
           >
             <X className="w-5 h-5" />
@@ -896,7 +913,8 @@ export const VibeStudioModal = ({
                     whileHover={prefersReducedMotion ? undefined : { scale: 1.1 }}
                     whileTap={prefersReducedMotion ? undefined : { scale: 0.9 }}
                     onClick={handleRetake}
-                    className="flex flex-col items-center gap-2"
+                    disabled={isConfirming}
+                    className={cn("flex flex-col items-center gap-2", isConfirming && "pointer-events-none opacity-70")}
                   >
                     <div className="w-14 h-14 rounded-full bg-secondary border border-border flex items-center justify-center">
                       <RefreshCw className="w-6 h-6 text-muted-foreground" />
@@ -926,7 +944,8 @@ export const VibeStudioModal = ({
                     whileHover={prefersReducedMotion ? undefined : { scale: 1.1 }}
                     whileTap={prefersReducedMotion ? undefined : { scale: 0.9 }}
                     onClick={handleConfirm}
-                    className="flex flex-col items-center gap-2"
+                    disabled={isConfirming}
+                    className={cn("flex flex-col items-center gap-2", isConfirming && "pointer-events-none opacity-70")}
                   >
                     <motion.div
                       animate={prefersReducedMotion ? undefined : {

@@ -24,6 +24,7 @@ import { useColorScheme } from '@/components/useColorScheme';
 import { useVibelyDialog } from '@/components/VibelyDialog';
 import { useAuth } from '@/context/AuthContext';
 import FullscreenVibeVideoModal from '@/components/video/FullscreenVibeVideoModal';
+import VibeVideoPlayer from '@/components/video/VibeVideoPlayer';
 import { deleteVibeVideo, DeleteVibeVideoError } from '@/lib/vibeVideoApi';
 import {
   nativeHeroVideoReset,
@@ -46,6 +47,12 @@ import {
 } from '@/lib/vibeVideoTelemetry';
 import { useNativeHeroVideoUpload } from '@/hooks/useNativeHeroVideoUpload';
 import { useMediaAsset } from '@/hooks/useMediaAsset';
+import {
+  vibeVideoFailedCopy,
+  vibeVideoProcessingCopy,
+  vibeVideoStalledCopy,
+  vibeVideoUploadingCopy,
+} from '@clientShared/media/processingCopy';
 
 const CAPTION_MAX = 50;
 
@@ -261,62 +268,63 @@ export default function VibeStudioScreen() {
           badgeText: theme.success,
           icon: 'checkmark-circle',
         };
-      case 'uploading':
+      case 'uploading': {
+        const uploadingCopy = vibeVideoUploadingCopy(ctrl.uploadProgress);
         return {
           label: 'Uploading',
           title: ctrl.phase === 'uploading' && ctrl.uploadProgress > 0
-            ? `Uploading… ${ctrl.uploadProgress}%`
-            : 'Your upload is still in flight',
-          description:
-            'You can leave this screen — the upload continues in the background.',
+            ? `${uploadingCopy.title} ${ctrl.uploadProgress}%`
+            : uploadingCopy.title,
+          description: uploadingCopy.description,
           badgeBg: 'rgba(34, 211, 238, 0.14)',
           badgeText: theme.neonCyan,
           icon: 'cloud-upload-outline',
         };
-      case 'processing':
+      }
+      case 'processing': {
+        const processingCopy = vibeVideoProcessingCopy(false);
         return {
           label: 'Processing',
-          title: "We're preparing your Vibe Video",
-          description:
-            "Your video uploaded and is still processing. This can take a few minutes. We'll keep checking.",
+          title: processingCopy.title,
+          description: processingCopy.description,
           badgeBg: theme.tintSoft,
           badgeText: theme.tint,
           icon: 'refresh-circle',
         };
-      case 'stale_processing':
+      }
+      case 'stale_processing': {
+        const staleCopy = vibeVideoProcessingCopy(true);
         return {
           label: 'Still processing',
-          title: 'Still processing',
-          description:
-            'You can refresh, try again later, or re-upload if it does not finish.',
+          title: staleCopy.title,
+          description: staleCopy.description,
           badgeBg: 'rgba(245, 158, 11, 0.16)',
           badgeText: '#FBBF24',
           icon: 'warning-outline',
         };
-      case 'failed':
+      }
+      case 'failed': {
+        const failedCopy = vibeVideoFailedCopy(ctrl.phase === 'failed' ? ctrl.errorMessage : null);
         return {
           label: 'Needs attention',
-          title: ctrl.phase === 'failed' && ctrl.errorMessage
-            ? 'Upload or processing failed'
-            : "Processing didn't finish",
-          description:
-            ctrl.phase === 'failed' && ctrl.errorMessage
-              ? ctrl.errorMessage
-              : 'The last upload never reached a playable state. Replace it with a new take.',
+          title: failedCopy.title,
+          description: failedCopy.description,
           badgeBg: theme.dangerSoft,
           badgeText: theme.danger,
           icon: 'alert-circle',
         };
-      case 'stalled':
+      }
+      case 'stalled': {
+        const stalledCopy = vibeVideoStalledCopy(ctrl.errorMessage);
         return {
           label: 'Taking longer',
-          title: 'Taking longer than expected',
-          description:
-            ctrl.errorMessage ?? 'Your video is still saved. Retry to check the latest status, or replace it with a new take.',
+          title: stalledCopy.title,
+          description: stalledCopy.description,
           badgeBg: 'rgba(245, 158, 11, 0.16)',
           badgeText: '#FBBF24',
           icon: 'warning-outline',
         };
+      }
       case 'error':
         return {
           label: 'Status mismatch',
@@ -501,6 +509,10 @@ export default function VibeStudioScreen() {
   }
 
   const showPreviewCard = effectivePhase === 'ready' && videoInfo.canPlay;
+  const pendingLocalPreviewUri = ctrl.pendingLocalPreviewUri;
+  const showLocalUploadPreview =
+    !!pendingLocalPreviewUri &&
+    (effectivePhase === 'uploading' || effectivePhase === 'processing' || effectivePhase === 'stalled');
   const statusIconColor = tone.badgeText;
   const refreshActionLabel = effectivePhase === 'stalled' || effectivePhase === 'stale_processing' ? 'Retry' : 'Refresh';
 
@@ -602,6 +614,41 @@ export default function VibeStudioScreen() {
                     </Text>
                   </View>
                 </Pressable>
+              ) : showLocalUploadPreview && pendingLocalPreviewUri ? (
+                <View style={[styles.localPreviewCard, { borderColor: theme.glassBorder }]}>
+                  <VibeVideoPlayer
+                    sourceUri={pendingLocalPreviewUri}
+                    playing
+                    muted
+                    nativeControls={false}
+                    contentFit="cover"
+                    diagContext="native-upload-local-preview"
+                    style={styles.localPreviewPlayer}
+                  />
+                  <LinearGradient
+                    colors={['transparent', 'rgba(0,0,0,0.74)']}
+                    locations={[0.28, 1]}
+                    style={StyleSheet.absoluteFill}
+                    pointerEvents="none"
+                  />
+                  <View style={styles.localPreviewBadge}>
+                    <ActivityIndicator size="small" color={tone.badgeText} />
+                    <Text style={[styles.localPreviewBadgeText, { color: tone.badgeText }]}>
+                      LOCAL PREVIEW
+                    </Text>
+                  </View>
+                  <View style={styles.localPreviewCopy}>
+                    <Text style={styles.localPreviewTitle}>{tone.title}</Text>
+                    <Text style={styles.localPreviewBody} numberOfLines={3}>
+                      {tone.description}
+                    </Text>
+                    {effectivePhase === 'uploading' && ctrl.uploadProgress > 0 ? (
+                      <View style={styles.localPreviewProgressTrack}>
+                        <View style={[styles.localPreviewProgressFill, { width: `${ctrl.uploadProgress}%` as `${number}%` }]} />
+                      </View>
+                    ) : null}
+                  </View>
+                </View>
               ) : (
                 <View style={[styles.emptyState, { backgroundColor: theme.surfaceSubtle, borderColor: theme.glassBorder }]}>
                   {effectivePhase === 'none' ? (
@@ -627,22 +674,22 @@ export default function VibeStudioScreen() {
                   ) : effectivePhase === 'uploading' ? (
                     <>
                       <ActivityIndicator size="large" color={theme.neonCyan} />
-                      <Text style={[styles.emptyTitle, { color: theme.text }]}>Uploading your Vibe Video…</Text>
+                      <Text style={[styles.emptyTitle, { color: theme.text }]}>{tone.title}</Text>
                       {ctrl.phase === 'uploading' && ctrl.uploadProgress > 0 && (
                         <View style={styles.progressBarTrack}>
                           <View style={[styles.progressBarFill, { width: `${ctrl.uploadProgress}%` as `${number}%` }]} />
                         </View>
                       )}
                       <Text style={[styles.emptyBody, { color: theme.textSecondary }]}>
-                        You can leave this screen — the upload continues in the background.
+                        {tone.description}
                       </Text>
                     </>
                   ) : (
                     <>
                       <ActivityIndicator size="large" color={theme.tint} />
-                      <Text style={[styles.emptyTitle, { color: theme.text }]}>Processing your Vibe Video…</Text>
+                      <Text style={[styles.emptyTitle, { color: theme.text }]}>{tone.title}</Text>
                       <Text style={[styles.emptyBody, { color: theme.textSecondary }]}>
-                        The clip is on file and moving through the pipeline. You can leave this screen.
+                        {tone.description}
                       </Text>
                     </>
                   )}
@@ -909,6 +956,66 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     borderWidth: 1,
     position: 'relative',
+  },
+  localPreviewCard: {
+    marginTop: 18,
+    aspectRatio: 16 / 9,
+    borderRadius: 24,
+    overflow: 'hidden',
+    borderWidth: 1,
+    position: 'relative',
+    backgroundColor: '#05030A',
+  },
+  localPreviewPlayer: {
+    ...StyleSheet.absoluteFillObject,
+  },
+  localPreviewBadge: {
+    position: 'absolute',
+    top: 14,
+    left: 14,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 7,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 999,
+    backgroundColor: 'rgba(0,0,0,0.38)',
+  },
+  localPreviewBadgeText: {
+    fontSize: 10,
+    fontFamily: fonts.bodySemiBold,
+    letterSpacing: 1.8,
+  },
+  localPreviewCopy: {
+    position: 'absolute',
+    left: 16,
+    right: 16,
+    bottom: 16,
+  },
+  localPreviewTitle: {
+    color: '#fff',
+    fontSize: 16,
+    lineHeight: 22,
+    fontFamily: fonts.displayBold,
+  },
+  localPreviewBody: {
+    marginTop: 5,
+    color: 'rgba(255,255,255,0.78)',
+    fontSize: 13,
+    lineHeight: 18,
+    fontFamily: fonts.body,
+  },
+  localPreviewProgressTrack: {
+    marginTop: 12,
+    height: 5,
+    borderRadius: 999,
+    overflow: 'hidden',
+    backgroundColor: 'rgba(255,255,255,0.18)',
+  },
+  localPreviewProgressFill: {
+    height: '100%',
+    borderRadius: 999,
+    backgroundColor: '#22D3EE',
   },
   previewReadyBadge: {
     position: 'absolute',
