@@ -29,7 +29,7 @@ Built-in Vite flags (not set in the Vercel UI): `import.meta.env.DEV`, `import.m
 
 ### Safe for client (VITE\_ prefix)
 
-All variables above are intended for the browser bundle. `VITE_TURNSTILE_SITE_KEY` is a public Turnstile site key, not the Turnstile secret. Do **not** put secrets (service role keys, Twilio tokens, `TURNSTILE_SECRET_KEY`, `ACCOUNT_DELETION_RATE_LIMIT_PEPPER`, etc.) in `VITE_*` — see `.env.example` in the repo root.
+All variables above are intended for the browser bundle. `VITE_TURNSTILE_SITE_KEY` is a public Turnstile site key, not the Turnstile secret. Production `/delete-account` rendering requires this Vercel env var to be present before the production deployment is built; changing it requires a redeploy. Do **not** put secrets (service role keys, Twilio tokens, `TURNSTILE_SECRET_KEY`, `ACCOUNT_DELETION_RATE_LIMIT_PEPPER`, etc.) in `VITE_*` — see `.env.example` in the repo root.
 
 ### Server-only
 

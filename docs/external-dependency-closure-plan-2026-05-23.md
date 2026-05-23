@@ -141,7 +141,7 @@ This is the closure plan for the 2026-05-22 external-dependency audit. It record
 2. Add allowed hostnames `vibelymeet.com` and `www.vibelymeet.com`; add preview/staging/local hostnames only when those environments intentionally exercise `/delete-account` with this widget.
 3. Keep pre-clearance / skip future challenges off; the current flow needs a one-time Turnstile token, not a Cloudflare clearance cookie.
 4. Confirm `VITE_TURNSTILE_SITE_KEY` is set in the frontend environment and `TURNSTILE_SECRET_KEY` plus `ACCOUNT_DELETION_RATE_LIMIT_PEPPER` are set as Supabase Edge Function secrets. Check names only; do not print values.
-5. Validate `/delete-account` renders the Turnstile widget and submits the callback token as `captchaToken` to `request-account-deletion`.
+5. Validate `/delete-account` renders the Turnstile widget after the Vercel production environment has `VITE_TURNSTILE_SITE_KEY` and the production site has been redeployed from that environment; the frontend submits the callback token as `captchaToken` to `request-account-deletion`.
 6. Validate missing or invalid `captchaToken` returns generic success and performs no account-deletion side effect.
 7. Validate a valid token allows the request path only for an approved test email; do not use a real user without explicit approval.
 8. Validate responses remain enumeration-safe: nonexistent emails, invalid emails, invalid captcha, rate-limit denial, duplicate request, and success all return generic success.
