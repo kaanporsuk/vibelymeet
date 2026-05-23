@@ -258,6 +258,18 @@ function mimeTypeForStoragePath(path: string, fallback: string | null | undefine
   return fallback ?? "application/octet-stream";
 }
 
+function normalizedPlaceholderKind(value: unknown): "dominant_color" | "blurhash" | null {
+  return value === "dominant_color" || value === "blurhash" ? value : null;
+}
+
+function normalizedPlaceholderHash(kind: "dominant_color" | "blurhash" | null, value: unknown): string | null {
+  if (typeof value !== "string" || !value.trim()) return null;
+  const hash = value.trim();
+  if (kind === "dominant_color") return /^#[0-9a-f]{6}$/i.test(hash) ? hash.toLowerCase() : null;
+  if (kind === "blurhash") return /^[0-9A-Za-z#$%*+,\-.:;=?@[\]^_{|}~]{6,120}$/.test(hash) ? hash : null;
+  return null;
+}
+
 function storageObjectForAssetKind(
   asset: MediaAssetRow,
   kind: MediaKind,
@@ -272,15 +284,14 @@ function storageObjectForAssetKind(
 }
 
 function assetPresentationPayload(asset: MediaAssetRow | null | undefined): Record<string, string | null> {
-  const placeholderKind = asset?.placeholder_kind === "dominant_color" ? "dominant_color" : null;
-  const placeholderHash = placeholderKind && typeof asset?.placeholder_hash === "string" && asset.placeholder_hash.trim()
-    ? asset.placeholder_hash.trim()
-    : null;
+  const placeholderKind = normalizedPlaceholderKind(asset?.placeholder_kind);
+  const placeholderHash = normalizedPlaceholderHash(placeholderKind, asset?.placeholder_hash);
+  const effectivePlaceholderKind = placeholderHash ? placeholderKind : null;
   const dominantColor = typeof asset?.dominant_color === "string" && /^#[0-9a-f]{6}$/i.test(asset.dominant_color)
     ? asset.dominant_color.toLowerCase()
     : null;
   return {
-    placeholderKind,
+    placeholderKind: effectivePlaceholderKind,
     placeholderHash,
     dominantColor,
   };

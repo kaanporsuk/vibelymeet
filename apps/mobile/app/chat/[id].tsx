@@ -75,6 +75,7 @@ import { useArchiveMatch } from '@/lib/useArchiveMatch';
 import { useMuteMatch, type MuteDuration } from '@/lib/useMuteMatch';
 import { MatchActionsSheet } from '@/components/match/MatchActionsSheet';
 import { MediaHealthPanel } from '@/components/media/MediaHealthPanel';
+import { MediaPlaceholder } from '@/components/media/MediaPlaceholder';
 import { ReportFlowModal } from '@/components/match/ReportFlowModal';
 import { UnmatchSnackbar } from '@/components/match/UnmatchSnackbar';
 import { TypingIndicator } from '@/components/chat/TypingIndicator';
@@ -127,6 +128,10 @@ import {
   type ThreadPresentationRow,
 } from '../../../../shared/chat/threadPresentation';
 import { threadMessagesQueryKey } from '../../../../shared/chat/queryKeys';
+import {
+  normalizeMediaPlaceholderPayload,
+  type MediaPlaceholderPayload,
+} from '../../../../shared/media/placeholders';
 import {
   buildVibeClipRecovery,
   mediaUploadSuspendedRecoveryTelemetry,
@@ -406,14 +411,12 @@ function threadMessageMediaKind(message: ThreadMessage) {
   return kind === 'text' && message.image_source_ref ? 'image' : kind;
 }
 
-function chatMediaPlaceholderColor(message: ThreadMessage): string | null {
+function chatMediaPlaceholder(message: ThreadMessage): MediaPlaceholderPayload | null {
   if (isLocalMediaMessage(message) || isLocalTextMessage(message)) return null;
   const payload = message.structuredPayload;
   if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return null;
   const placeholder = (payload as { media_placeholder?: unknown }).media_placeholder;
-  if (!placeholder || typeof placeholder !== 'object' || Array.isArray(placeholder)) return null;
-  const color = (placeholder as { dominant_color?: unknown }).dominant_color;
-  return typeof color === 'string' && /^#[0-9a-f]{6}$/i.test(color) ? color : null;
+  return normalizeMediaPlaceholderPayload(placeholder);
 }
 
 function mapOutboxToLocalSendState(state: ChatOutboxQueueState): LocalTextSendState | LocalMediaSendState {
@@ -653,21 +656,26 @@ function threadSortKey(m: ThreadMessage): number {
 function ChatImageCard({
   uri,
   isMine,
-  placeholderColor,
+  placeholder,
   theme: _theme,
   onPress,
   onLoadError,
 }: {
   uri: string;
   isMine: boolean;
-  placeholderColor?: string | null;
+  placeholder?: MediaPlaceholderPayload | null;
   theme: (typeof Colors)['light'];
   onPress?: () => void;
   onLoadError?: () => void;
 }) {
   const frameBorder = isMine ? 'rgba(236,72,153,0.45)' : 'rgba(255,255,255,0.16)';
   const inner = (
-    <View style={[styles.chatImageOuter, { borderColor: frameBorder, backgroundColor: placeholderColor ?? 'rgba(0,0,0,0.2)' }]}>
+    <View style={[styles.chatImageOuter, { borderColor: frameBorder, backgroundColor: placeholder?.dominantColor ?? 'rgba(0,0,0,0.2)' }]}>
+      <MediaPlaceholder
+        kind={placeholder?.kind}
+        hash={placeholder?.hash}
+        dominantColor={placeholder?.dominantColor}
+      />
       <Image
         source={{ uri }}
         style={styles.chatImage}
@@ -3433,13 +3441,14 @@ export default function ChatThreadScreen() {
       );
     }
     const imageUrl = mediaKind === 'image' ? photoUriForMessage(item) : null;
+    const imagePlaceholder = chatMediaPlaceholder(item);
     if (imageUrl) {
       return (
         <View style={[styles.mediaContentWrap, { width: mediaCardWidth }]}>
           <ChatImageCard
             uri={imageUrl}
             isMine={isMe}
-            placeholderColor={chatMediaPlaceholderColor(item)}
+            placeholder={imagePlaceholder}
             theme={theme}
             onPress={() => setPhotoViewer({ initialId: item.id })}
             onLoadError={() => {
@@ -3461,10 +3470,15 @@ export default function ChatThreadScreen() {
               styles.chatImageOuter,
               {
                 borderColor: isMe ? 'rgba(236,72,153,0.45)' : 'rgba(255,255,255,0.16)',
-                backgroundColor: chatMediaPlaceholderColor(item) ?? 'rgba(255,255,255,0.06)',
+                backgroundColor: imagePlaceholder?.dominantColor ?? 'rgba(255,255,255,0.06)',
               },
             ]}
           >
+            <MediaPlaceholder
+              kind={imagePlaceholder?.kind}
+              hash={imagePlaceholder?.hash}
+              dominantColor={imagePlaceholder?.dominantColor}
+            />
             <View style={[styles.chatImage, { alignItems: 'center', justifyContent: 'center', padding: 12 }]}>
               <ActivityIndicator color={theme.tint} size="small" />
               <Text style={{ color: theme.textSecondary, fontSize: 12, marginTop: 8, textAlign: 'center' }}>

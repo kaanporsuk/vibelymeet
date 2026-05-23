@@ -4,6 +4,12 @@ import { bunnyCdnUrl } from "../_shared/bunny-media.ts";
 import { MEDIA_FAMILIES, PROVIDERS } from "../_shared/media-lifecycle.ts";
 import { captureReceiptTransition } from "../_shared/media-upload-telemetry.ts";
 import { validateImageUploadBytes } from "../_shared/media-upload-sniffing.ts";
+import {
+  createImagePlaceholderMetadata,
+  mediaPlaceholderResponse,
+  readImagePlaceholderMetadata,
+  type MediaPlaceholderMetadata,
+} from "../_shared/media-placeholders.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -67,11 +73,6 @@ type ImageDerivativeUpload = {
   extension: string;
   path: string;
 };
-type ImagePlaceholderMetadata = {
-  placeholder_kind: "dominant_color";
-  placeholder_hash: string;
-  dominant_color: string;
-};
 type MediaAssetPresentationClient = {
   from(table: "media_assets"): {
     update(values: Record<string, unknown>): {
@@ -109,31 +110,12 @@ function derivativePathForOriginal(originalPath: string, kind: ImageDerivativeKi
   return originalPath.replace(/\.([a-z0-9]+)$/i, `@${kind}.${extension}`);
 }
 
-function normalizeDominantColor(value: string | null): string | null {
-  if (!value) return null;
-  const color = value.trim();
-  return /^#[0-9a-f]{6}$/i.test(color) ? color.toLowerCase() : null;
-}
-
-function readImagePlaceholderMetadata(formData: FormData): ImagePlaceholderMetadata | null {
-  const dominantColor = normalizeDominantColor(optionalFormString(formData, "dominant_color"));
-  if (!dominantColor) return null;
-  const placeholderKind = optionalFormString(formData, "placeholder_kind") ?? "dominant_color";
-  if (placeholderKind !== "dominant_color") return null;
-  const placeholderHash = normalizeDominantColor(optionalFormString(formData, "placeholder_hash")) ?? dominantColor;
-  return {
-    placeholder_kind: "dominant_color",
-    placeholder_hash: placeholderHash,
-    dominant_color: dominantColor,
-  };
-}
-
 async function updateMediaAssetPresentation(
   adminSupabase: MediaAssetPresentationClient,
   assetId: string | null,
   params: {
     derivatives?: Record<string, string>;
-    placeholder?: ImagePlaceholderMetadata | null;
+    placeholder?: MediaPlaceholderMetadata | null;
   },
 ): Promise<void> {
   if (!assetId) return;
@@ -264,7 +246,9 @@ serve(async (req) => {
     const ext = sniffedMedia.extension;
     const contentSha256 = await sha256Hex(fileBuffer);
     const derivativeSet = await readDerivativeSet(formData);
-    const placeholderMetadata = readImagePlaceholderMetadata(formData);
+    const clientPlaceholderMetadata = readImagePlaceholderMetadata(formData);
+    const serverPlaceholderMetadata = await createImagePlaceholderMetadata(fileBuffer);
+    const placeholderMetadata = serverPlaceholderMetadata ?? clientPlaceholderMetadata;
     const clientRequest = clientRequestIdForUpload(req, formData);
     if (!clientRequest.ok) {
       return json({ success: false, error: clientRequest.error }, 400);
@@ -408,13 +392,7 @@ serve(async (req) => {
         contentSha256,
         receiptId,
         sessionId: reservedSessionId,
-        placeholder: placeholderMetadata
-          ? {
-            kind: placeholderMetadata.placeholder_kind,
-            hash: placeholderMetadata.placeholder_hash,
-            dominantColor: placeholderMetadata.dominant_color,
-          }
-          : undefined,
+        placeholder: mediaPlaceholderResponse(placeholderMetadata),
         derivatives: isRecord(reserveMetadata.derivatives) ? reserveMetadata.derivatives : undefined,
       });
     }
@@ -577,13 +555,7 @@ serve(async (req) => {
       contentSha256,
       receiptId,
       sessionId,
-      placeholder: placeholderMetadata
-        ? {
-          kind: placeholderMetadata.placeholder_kind,
-          hash: placeholderMetadata.placeholder_hash,
-          dominantColor: placeholderMetadata.dominant_color,
-        }
-        : undefined,
+      placeholder: mediaPlaceholderResponse(placeholderMetadata),
       derivatives: Object.keys(derivatives).length ? derivatives : undefined,
     });
 

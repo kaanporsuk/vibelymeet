@@ -1,6 +1,5 @@
 import React, { useState, useCallback, useMemo, useRef, useEffect, useLayoutEffect } from 'react';
 import {
-  ActivityIndicator,
   Alert,
   Modal,
   View as RNView,
@@ -1083,7 +1082,11 @@ export default function PhotoManageDrawer({
 
               {isUploadingTile ? (
                 <RNView style={st.statusOverlay}>
-                  <ActivityIndicator color="#fff" />
+                  <RNView pointerEvents="none" style={st.uploadSkeleton}>
+                    <RNView style={st.uploadSkeletonTopLine} />
+                    <RNView style={st.uploadSkeletonBottomLine} />
+                    <RNView style={st.uploadSkeletonSheen} />
+                  </RNView>
                   <Text style={st.statusOverlayText}>Uploading…</Text>
                   <RNView style={st.statusOverlayActions}>
                     <Pressable
@@ -1617,7 +1620,7 @@ export default function PhotoManageDrawer({
                       )}
                       {item.status === 'uploading' ? (
                         <RNView style={st.filmstripStatusDot}>
-                          <ActivityIndicator size="small" color="#fff" />
+                          <RNView style={st.filmstripUploadPulse} />
                         </RNView>
                       ) : null}
                       {item.status === 'failed' ? (
@@ -1861,6 +1864,12 @@ const st = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  filmstripUploadPulse: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: 'rgba(216,180,254,0.95)',
+  },
   filmstripEmpty: {
     width: 56,
     height: 56,
@@ -1910,6 +1919,37 @@ const st = StyleSheet.create({
     justifyContent: 'center',
     paddingHorizontal: 10,
     gap: 8,
+  },
+  uploadSkeleton: {
+    width: 64,
+    height: 82,
+    borderRadius: 14,
+    overflow: 'hidden',
+    backgroundColor: 'rgba(255,255,255,0.10)',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(255,255,255,0.18)',
+  },
+  uploadSkeletonTopLine: {
+    position: 'absolute',
+    left: 10,
+    right: 10,
+    top: 12,
+    height: 8,
+    borderRadius: 999,
+    backgroundColor: 'rgba(255,255,255,0.16)',
+  },
+  uploadSkeletonBottomLine: {
+    position: 'absolute',
+    left: 10,
+    right: 18,
+    bottom: 12,
+    height: 6,
+    borderRadius: 999,
+    backgroundColor: 'rgba(255,255,255,0.12)',
+  },
+  uploadSkeletonSheen: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(139,92,246,0.16)',
   },
   statusOverlayText: {
     fontSize: 12,

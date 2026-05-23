@@ -7,6 +7,12 @@ import {
   formatChatImageMessageContent,
   extractChatImageMediaRef,
 } from '@/lib/chatMessageContent';
+import {
+  normalizeMediaPlaceholderDominantColor,
+  normalizeMediaPlaceholderHash,
+  normalizeMediaPlaceholderKind,
+  type MediaPlaceholderKind,
+} from '@clientShared/media/placeholders';
 
 export type MediaAssetKind = 'image' | 'voice' | 'video' | 'vibe_clip' | 'thumbnail' | 'profile_vibe_video';
 export type MediaAssetResolveResult = {
@@ -15,7 +21,7 @@ export type MediaAssetResolveResult = {
   playbackKind: 'hls' | 'progressive';
   provider: 'bunny_stream' | 'bunny_storage' | 'local' | 'remote';
   expiresAtMs: number;
-  placeholderKind: 'dominant_color' | null;
+  placeholderKind: MediaPlaceholderKind | null;
   placeholderHash: string | null;
   dominantColor: string | null;
 };
@@ -46,7 +52,7 @@ type ResolverResponse = {
   playbackKind?: 'hls' | 'progressive';
   provider?: 'bunny_stream' | 'bunny_storage';
   expiresInSeconds?: number;
-  placeholderKind?: 'dominant_color' | null;
+  placeholderKind?: MediaPlaceholderKind | null;
   placeholderHash?: string | null;
   dominantColor?: string | null;
   error?: string;
@@ -342,17 +348,17 @@ function readCachedMediaUrl(value: unknown): CachedMediaUrl | null {
     typeof record.lastAccessedMs === 'number' && Number.isFinite(record.lastAccessedMs)
       ? record.lastAccessedMs
       : 0;
+  const placeholderKind = normalizeMediaPlaceholderKind(record.placeholderKind);
+  const placeholderHash = normalizeMediaPlaceholderHash(placeholderKind, record.placeholderHash);
   return {
     url: record.url,
     posterUrl: typeof record.posterUrl === 'string' && record.posterUrl ? record.posterUrl : null,
     playbackKind,
     provider,
     expiresAtMs,
-    placeholderKind: record.placeholderKind === 'dominant_color' ? 'dominant_color' : null,
-    placeholderHash: typeof record.placeholderHash === 'string' && record.placeholderHash ? record.placeholderHash : null,
-    dominantColor: typeof record.dominantColor === 'string' && /^#[0-9a-f]{6}$/i.test(record.dominantColor)
-      ? record.dominantColor.toLowerCase()
-      : null,
+    placeholderKind,
+    placeholderHash,
+    dominantColor: normalizeMediaPlaceholderDominantColor(placeholderKind, placeholderHash, record.dominantColor),
     lastAccessedMs,
   };
 }
@@ -563,17 +569,17 @@ async function issueAndCacheMediaAsset(
         ? Math.max(1_000, payload.expiresInSeconds * 1000 - SIGNED_MEDIA_TTL_SAFETY_MS)
         : DEFAULT_SIGNED_MEDIA_TTL_MS;
     const expiresAtMs = Date.now() + expiresInMs;
+    const placeholderKind = normalizeMediaPlaceholderKind(payload.placeholderKind);
+    const placeholderHash = normalizeMediaPlaceholderHash(placeholderKind, payload.placeholderHash);
     const resolvedAsset: MediaAssetResolveResult = {
       url: payload.url,
       posterUrl: typeof payload.posterUrl === 'string' && payload.posterUrl ? payload.posterUrl : null,
       playbackKind: payload.playbackKind === 'hls' ? 'hls' : 'progressive',
       provider: payload.provider === 'bunny_stream' || payload.provider === 'bunny_storage' ? payload.provider : 'remote',
       expiresAtMs,
-      placeholderKind: payload.placeholderKind === 'dominant_color' ? 'dominant_color' : null,
-      placeholderHash: typeof payload.placeholderHash === 'string' && payload.placeholderHash ? payload.placeholderHash : null,
-      dominantColor: typeof payload.dominantColor === 'string' && /^#[0-9a-f]{6}$/i.test(payload.dominantColor)
-        ? payload.dominantColor.toLowerCase()
-        : null,
+      placeholderKind,
+      placeholderHash,
+      dominantColor: normalizeMediaPlaceholderDominantColor(placeholderKind, placeholderHash, payload.dominantColor),
     };
     cacheMediaUrl(cacheKey, resolvedAsset);
     const thumbnailRef =
@@ -658,11 +664,27 @@ export async function prewarmMediaAssets(
 }
 
 function mediaPlaceholderPayload(result: MediaAssetResolveResult | null): Record<string, string> | null {
-  if (result?.placeholderKind === 'dominant_color' && result.dominantColor) {
+  if (result?.placeholderKind === 'blurhash' && result.placeholderHash) {
+    return {
+      kind: 'blurhash',
+      hash: result.placeholderHash,
+      ...(result.dominantColor ? { dominant_color: result.dominantColor } : {}),
+    };
+  }
+  const placeholderKind = result?.placeholderKind ?? null;
+  const placeholderHash = result?.placeholderHash ?? null;
+  const dominantColor = normalizeMediaPlaceholderDominantColor(
+    placeholderKind,
+    placeholderHash,
+    result?.dominantColor,
+  );
+  if (dominantColor) {
     return {
       kind: 'dominant_color',
-      hash: result.placeholderHash ?? result.dominantColor,
-      dominant_color: result.dominantColor,
+      hash: placeholderKind === 'dominant_color' && placeholderHash
+        ? placeholderHash
+        : dominantColor,
+      dominant_color: dominantColor,
     };
   }
   return null;

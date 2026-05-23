@@ -1,5 +1,5 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2.88.0";
+import { createClient, type SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.88.0";
 import { bunnyCdnUrl } from "../_shared/bunny-media.ts";
 import {
   MEDIA_FAMILIES,
@@ -8,6 +8,12 @@ import {
 } from "../_shared/media-lifecycle.ts";
 import { captureReceiptTransition } from "../_shared/media-upload-telemetry.ts";
 import { validateImageUploadBytes } from "../_shared/media-upload-sniffing.ts";
+import {
+  createImagePlaceholderMetadata,
+  mediaPlaceholderResponse,
+  readImagePlaceholderMetadata,
+  type MediaPlaceholderMetadata,
+} from "../_shared/media-placeholders.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -91,6 +97,27 @@ type CurrentEventCover = {
   assetId: string | null;
   referenceId: string | null;
 };
+type AdminSupabaseClient = SupabaseClient<any, "public", any>;
+
+async function updateMediaAssetPlaceholder(
+  adminSupabase: AdminSupabaseClient,
+  assetId: string | null,
+  placeholder: MediaPlaceholderMetadata | null,
+): Promise<void> {
+  if (!assetId || !placeholder) return;
+  const { error } = await adminSupabase
+    .from("media_assets")
+    .update({
+      placeholder_kind: placeholder.placeholder_kind,
+      placeholder_hash: placeholder.placeholder_hash,
+      dominant_color: placeholder.dominant_color,
+      placeholder_updated_at: new Date().toISOString(),
+    })
+    .eq("id", assetId);
+  if (error) {
+    console.error(`[upload-event-cover] media asset placeholder update failed assetId=${assetId} err=${error.message}`);
+  }
+}
 
 type ReplaceEventCoverResult =
   | { success: true; referenceId: string | null; releasedRefs: number }
@@ -114,7 +141,7 @@ function parseReplaceEventCoverResult(data: unknown): ReplaceEventCoverResult {
 }
 
 async function fetchCurrentEventCover(
-  adminSupabase: ReturnType<typeof createClient>,
+  adminSupabase: AdminSupabaseClient,
   eventId: string,
 ): Promise<CurrentEventCover> {
   const { data, error } = await adminSupabase
@@ -243,6 +270,9 @@ serve(async (req) => {
 
     const sniffedMedia = mediaValidation.media;
     const contentSha256 = await sha256Hex(fileBuffer);
+    const clientPlaceholderMetadata = readImagePlaceholderMetadata(formData);
+    const serverPlaceholderMetadata = await createImagePlaceholderMetadata(fileBuffer);
+    const placeholderMetadata = serverPlaceholderMetadata ?? clientPlaceholderMetadata;
     const clientRequestId = clientRequest.clientRequestId;
     const mediaFamily = MEDIA_FAMILIES.EVENT_COVER;
     const scopeKey = eventId ? `event:${eventId}` : `admin:${user.id}:event-cover`;
@@ -262,6 +292,7 @@ serve(async (req) => {
       storage_zone: storageZone,
       mime_type: sniffedMedia.mimeType,
       bytes: file.size,
+      ...(placeholderMetadata ? { placeholder: placeholderMetadata } : {}),
       ...(eventId ? { event_id: eventId } : {}),
     };
 
@@ -319,6 +350,7 @@ serve(async (req) => {
 
     if ((reservedStatus === "uploaded" || reservedStatus === "attached") && reservedPath) {
       if (!eventId) {
+        await updateMediaAssetPlaceholder(adminSupabase, reservedAssetId, placeholderMetadata);
         return json({
           success: true,
           path: reservedPath,
@@ -327,6 +359,7 @@ serve(async (req) => {
           contentSha256,
           receiptId,
           sessionId: null,
+          placeholder: mediaPlaceholderResponse(placeholderMetadata),
           referenceId: typeof reserveMetadata.reference_id === "string" ? reserveMetadata.reference_id : null,
         });
       }
@@ -343,6 +376,7 @@ serve(async (req) => {
 
       if (reservedStatus === "attached") {
         if (reservedAssetIsCurrent) {
+          await updateMediaAssetPlaceholder(adminSupabase, reservedAssetId, placeholderMetadata);
           return json({
             success: true,
             path: reservedPath,
@@ -351,6 +385,7 @@ serve(async (req) => {
             contentSha256,
             receiptId,
             sessionId: null,
+            placeholder: mediaPlaceholderResponse(placeholderMetadata),
             referenceId: typeof reserveMetadata.reference_id === "string" ? reserveMetadata.reference_id : current.referenceId,
           });
         }
@@ -407,6 +442,7 @@ serve(async (req) => {
           }
         }
 
+        await updateMediaAssetPlaceholder(adminSupabase, reservedAssetId, placeholderMetadata);
         return json({
           success: true,
           path: reservedPath,
@@ -415,6 +451,7 @@ serve(async (req) => {
           contentSha256,
           receiptId,
           sessionId: null,
+          placeholder: mediaPlaceholderResponse(placeholderMetadata),
           referenceId: current.referenceId,
         });
       }
@@ -521,6 +558,7 @@ serve(async (req) => {
         }
 
         assetId = typeof completion.asset_id === "string" ? completion.asset_id : null;
+        await updateMediaAssetPlaceholder(adminSupabase, assetId, placeholderMetadata);
         void captureReceiptTransition({
           ownerUserId: user.id,
           mediaFamily,
@@ -668,6 +706,8 @@ serve(async (req) => {
       });
     }
 
+    await updateMediaAssetPlaceholder(adminSupabase, assetId, placeholderMetadata);
+
     return json({
       success: true,
       path: uploadPath,
@@ -677,6 +717,7 @@ serve(async (req) => {
       referenceId,
       receiptId,
       sessionId: null,
+      placeholder: mediaPlaceholderResponse(placeholderMetadata),
     });
   } catch (err) {
     console.error("[upload-event-cover] Unexpected error:", safeUnexpectedError(err));

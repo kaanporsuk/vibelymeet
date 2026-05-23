@@ -28,6 +28,7 @@ import { useMediaAsset, useMediaAssetPlayback } from "@/hooks/useMediaAsset";
 import { useMediaPlaybackQoE } from "@/hooks/useMediaPlaybackQoE";
 import { usePrefersReducedMotion } from "@/hooks/usePrefersReducedMotion";
 import { useMediaVideoPreloadForVisibility } from "@/hooks/useMediaVideoPreloadPolicy";
+import { MediaPlaceholder } from "@/components/media/MediaPlaceholder";
 import {
   syncChatVibeClipUploadStatus,
   type ChatVibeClipProcessingStatus,
@@ -161,7 +162,13 @@ export const VibeClipBubble = ({
     onResolvedUrl: onResolvedVideoUrl,
     onProcessingStatusChange: handleRealtimeProcessingStatus,
   });
-  const { url: thumbnailAssetUrl, refresh: refreshThumbnailAsset } = useMediaAsset({
+  const {
+    url: thumbnailAssetUrl,
+    placeholderKind: thumbnailPlaceholderKind,
+    placeholderHash: thumbnailPlaceholderHash,
+    dominantColor: thumbnailDominantColor,
+    refresh: refreshThumbnailAsset,
+  } = useMediaAsset({
     kind: "thumbnail",
     messageId: sparkMessageId,
     sourceRef: thumbnailSourceRef,
@@ -773,6 +780,11 @@ export const VibeClipBubble = ({
         <AspectRatio ratio={clipAspectRatio}>
           {isAwaitingPlaybackIntent ? (
             <div className="absolute inset-0 bg-black">
+              <MediaPlaceholder
+                kind={thumbnailPlaceholderKind}
+                hash={thumbnailPlaceholderHash}
+                dominantColor={thumbnailDominantColor}
+              />
               {canShowPosterImage ? (
                 <img
                   src={displayMeta.thumbnailUrl ?? undefined}
@@ -791,6 +803,11 @@ export const VibeClipBubble = ({
 
           {showPreparingOverlay && (
             <div className="absolute inset-0 bg-black">
+              <MediaPlaceholder
+                kind={thumbnailPlaceholderKind}
+                hash={thumbnailPlaceholderHash}
+                dominantColor={thumbnailDominantColor}
+              />
               <div className="absolute inset-0 bg-gradient-to-br from-white/5 via-white/0 to-white/10" />
               <motion.div
                 aria-hidden
