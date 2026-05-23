@@ -77,10 +77,11 @@ test("create-video-upload creates Bunny Stream object before returning TUS crede
   assertOrder(createVideoUpload, [
     ["Bunny Stream create", "https://video.bunnycdn.com/library/${libraryId}/videos"],
     ["TUS signature creation", "const signature = await createTusSignature(libraryId, apiKey, expirationTime, videoId)"],
-    ["media session create", "\"create_media_session\""],
+    ["upload attempt create", ".from(\"vibe_video_uploads\")"],
     ["profile activation", "\"activate_profile_vibe_video\""],
     ["successful credentials response", "repairableLifecycleState: sessionStatus !== \"uploading\""],
   ]);
+  assert.doesNotMatch(createVideoUpload, /"create_media_session"/);
 });
 
 test("TUS upload endpoint remains Bunny Stream tusupload on web and native", () => {
@@ -92,7 +93,7 @@ test("create-video-upload writes bunny video uid and uploading status through th
   assert.match(createVideoUpload, /"activate_profile_vibe_video"/);
   assert.match(createVideoUpload, /p_video_id:\s*videoId/);
   assert.match(createVideoUpload, /p_video_status:\s*"uploading"/);
-  assert.match(createVideoUpload, /update_media_session_status/);
+  assert.doesNotMatch(createVideoUpload, /update_media_session_status/);
 });
 
 test("video-webhook maps Bunny status to ready, failed, or processing", () => {
@@ -103,9 +104,16 @@ test("video-webhook maps Bunny status to ready, failed, or processing", () => {
   assert.match(videoWebhook, /if \(Status === 8\) mappedStatus = "failed"/);
 });
 
-test("video-webhook updates active media session or legacy profile by Bunny video UID", () => {
+test("video-webhook updates modern upload status before legacy fallback by Bunny video UID", () => {
+  assert.match(videoWebhook, /"update_vibe_video_upload_status"/);
+  assert.match(videoWebhook, /p_provider_object_id:\s*VideoGuid/);
   assert.match(videoWebhook, /"update_media_session_status"/);
   assert.match(videoWebhook, /p_provider_id:\s*VideoGuid/);
+  assert.ok(
+    videoWebhook.indexOf("\"update_vibe_video_upload_status\"") <
+      videoWebhook.indexOf("\"update_media_session_status\""),
+    "modern vibe_video_uploads status update must run before legacy DMS fallback",
+  );
   assert.match(videoWebhook, /\.from\("profiles"\)[\s\S]{0,160}\.update\(\{ bunny_video_status: mappedStatus \}\)[\s\S]{0,120}\.eq\("bunny_video_uid", VideoGuid\)/);
   assert.match(videoWebhook, /BUNNY_VIDEO_WEBHOOK_TOKEN/);
   assert.match(videoWebhook, /verifyBunnyStreamWebhookSignature/);
@@ -169,10 +177,10 @@ test("Bunny Storage image URLs stay plain CDN URLs while Optimizer is off", () =
   for (const source of [webImageUrl, nativeImageUrl]) {
     assert.match(source, /function stripBunnyStorageDecorations\(value: string\): string \{[\s\S]+value\.split\(\/\[\?#\]\/, 1\)\[0\] \|\| value/);
     assert.match(source, /if \(BUNNY_CDN && p\.startsWith\(`\$\{BUNNY_CDN\}\/`\)\) \{\s*return stripBunnyStorageDecorations\(p\);\s*\}/);
-    assert.match(source, /const storagePath = stripBunnyStorageDecorations\(p\)/);
+    assert.match(source, /const storagePath = derivativeStoragePathForDisplay\(p, opts\)/);
     assert.match(source, /BUNNY_CDN_PATH_PREFIX \? `\$\{BUNNY_CDN_PATH_PREFIX\}\/\$\{storagePath\}` : storagePath/);
     assert.doesNotMatch(source, /BUNNY_CDN_PATH_PREFIX \? `\$\{BUNNY_CDN_PATH_PREFIX\}\/\$\{p\}` : p/);
-    assert.match(source, /void opts/);
+    assert.doesNotMatch(source, /void opts/);
     assert.doesNotMatch(source, /new URLSearchParams\(/);
     assert.doesNotMatch(source, /params\.set\(["'](?:width|height|quality|crop_gravity|format)["']/);
     assert.doesNotMatch(source, /\?\$\{params\.toString\(\)\}/);

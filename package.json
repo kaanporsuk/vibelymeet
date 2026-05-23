@@ -40,7 +40,7 @@
     "test:targeted": "node scripts/run-targeted-test.mjs",
     "test:media-sdk": "tsx shared/media-sdk/mediaSdk.test.ts && tsx shared/media-sdk/backgroundUploadPolicy.test.ts",
     "test:media-background-upload": "tsx shared/media-sdk/backgroundUploadPolicy.test.ts",
-    "test:media-idempotency": "tsx shared/mediaAssetsIdempotencyContracts.test.ts && tsx shared/profile/photoDerivatives.test.ts",
+    "test:media-idempotency": "tsx shared/mediaAssetsIdempotencyContracts.test.ts && tsx shared/mediaDraftSessionsDeprecationContracts.test.ts && tsx shared/profile/photoDerivatives.test.ts",
     "test:media-storage-smoke": "tsx scripts/media-storage-idempotency-smoke.ts",
     "test:media-phase8": "tsx shared/mediaPhase8Contracts.test.ts",
     "test:media-phase9": "tsx shared/mediaPhase9Contracts.test.ts",

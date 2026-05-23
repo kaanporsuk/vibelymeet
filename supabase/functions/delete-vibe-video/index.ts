@@ -111,23 +111,8 @@ serve(async (req) => {
       );
     }
 
-    // ── Mark all active/published sessions for this video as deleted ─────────
-    const { error: sessionError } = await adminSupabase
-      .from("draft_media_sessions")
-      .update({ status: "deleted" })
-      .eq("user_id", user.id)
-      .eq("media_type", "vibe_video")
-      .eq("provider_id", videoId)
-      .in("status", ["created", "uploading", "processing", "ready", "published"]);
-
-    if (sessionError) {
-      logVibeVideo("error", "delete_vibe_video_deferred_remote_delete_job_update_failed", {
-        user_id: user.id,
-        video_guid: videoId,
-        error_code: sessionError.code ?? "session_cleanup_error",
-      });
-    }
-
+    // Modern upload attempts are authoritative; legacy DMS cleanup below is
+    // best-effort compatibility for old in-flight rows.
     const { data: attemptRow, error: attemptError } = await adminSupabase
       .from("vibe_video_uploads")
       .update({ status: "superseded", error_detail: "user_deleted" })
@@ -147,6 +132,22 @@ serve(async (req) => {
         { success: false, error: "Failed to update vibe video upload attempt", code: "attempt_supersede_failed" },
         500,
       );
+    }
+
+    const { error: sessionError } = await adminSupabase
+      .from("draft_media_sessions")
+      .update({ status: "deleted" })
+      .eq("user_id", user.id)
+      .eq("media_type", "vibe_video")
+      .eq("provider_id", videoId)
+      .in("status", ["created", "uploading", "processing", "ready", "published"]);
+
+    if (sessionError) {
+      logVibeVideo("error", "delete_vibe_video_deferred_remote_delete_job_update_failed", {
+        user_id: user.id,
+        video_guid: videoId,
+        error_code: sessionError.code ?? "session_cleanup_error",
+      });
     }
 
     logVibeVideo("info", "delete_vibe_video_profile_clear_succeeded", {

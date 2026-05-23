@@ -49,7 +49,7 @@ export type PhotoUploadAsset = {
 export type PhotoDraftItem = {
   id: string;
   storagePath: string | null;
-  /** Draft media session id from upload-image (ready to reconcile with publish / discard) */
+  /** Legacy-compatible upload session id; modern uploads reconcile through media assets/receipts. */
   sessionId: string | null;
   previewUri: string | null;
   status: PhotoDraftStatus;

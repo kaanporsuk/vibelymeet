@@ -125,10 +125,9 @@ function isDurablyLinkedUploadAttempt(
   attempt: ReusableVibeVideoUploadAttempt | null | undefined,
   currentProfileVideoId: string | null,
 ): boolean {
-  const sessionId = durableAttemptSessionId(attempt);
   const mediaAssetId = durableAttemptMediaAssetId(attempt);
   const providerObjectId = durableAttemptProviderObjectId(attempt);
-  return Boolean(sessionId && (mediaAssetId || (providerObjectId && providerObjectId === currentProfileVideoId)));
+  return Boolean(providerObjectId && (mediaAssetId || providerObjectId === currentProfileVideoId));
 }
 
 async function readReusableUploadAttemptState(
@@ -667,7 +666,7 @@ serve(async (req) => {
         }
 
         const existingSessionId = durableAttemptSessionId(reusableAttempt);
-        if (!reusableState.durable || !existingSessionId) {
+        if (!reusableState.durable) {
           logVibeVideo("warn", "create_video_upload_attempt_reuse_waiting_for_durable_link", {
             user_id: user.id,
             client_request_id: clientRequestId,
@@ -796,7 +795,6 @@ serve(async (req) => {
         user_id: user.id,
         client_request_id: clientRequestId,
         media_asset_id: null,
-        draft_media_session_id: null,
         provider_object_id: videoId,
         upload_context: uploadContext,
         status: "uploading",
@@ -900,7 +898,7 @@ serve(async (req) => {
           }
 
           const duplicateSessionId = durableAttemptSessionId(reusableAttempt);
-          if (!reusableState.durable || !duplicateSessionId) {
+          if (!reusableState.durable) {
             logVibeVideo("warn", "create_video_upload_attempt_reuse_waiting_for_durable_link", {
               user_id: user.id,
               client_request_id: clientRequestId,
@@ -992,192 +990,10 @@ serve(async (req) => {
     }
     cleanupUploadAttemptId = typeof attemptRow.id === "string" ? attemptRow.id : null;
 
-    // ── Create draft media session (server-owned upload tracking) ────────────
-    // Uses adminSupabase (service_role) — the RPC is granted to service_role
-    // only.  Edge Function authenticates the user; the RPC trusts the caller.
-    cleanupFailurePath = "create_media_session";
-    const { data: sessionResult, error: sessionError } = await adminSupabase.rpc(
-      "create_media_session",
-      {
-        p_user_id: user.id,
-        p_media_type: "vibe_video",
-        p_provider_id: videoId,
-        p_provider_meta: { libraryId, expirationTime, signature, cdnHostname },
-        p_context: uploadContext,
-      },
-    );
-
-    if (sessionError) {
-      logVibeVideo("error", "create_video_upload_media_session_create_failed", {
-        user_id: user.id,
-        video_guid: videoId,
-        error_code: sessionError.code ?? "session_creation_failed",
-      });
-      await markVibeVideoUploadAttemptFailed(
-        adminSupabase,
-        cleanupUploadAttemptId,
-        videoId,
-        user.id,
-        projectRef,
-        "session_creation_failed",
-      );
-      await cleanupCreatedVideo({
-        adminSupabase,
-        libraryId,
-        apiKey,
-        videoId,
-        userId: user.id,
-        projectRef,
-        reason: "session_creation_failed",
-        context: {
-          failure_path: "create_media_session_error",
-          upload_context: uploadContext,
-        },
-      });
-      return json(
-        { success: false, error: "Failed to create durable upload session", code: "media_session_create_failed" },
-        500,
-      );
-    }
-
-    const sr = sessionResult as Record<string, unknown> | null;
-    const sessionId = typeof sr?.session_id === "string" ? sr.session_id : null;
-    const replacedSessionId = typeof sr?.replaced_session_id === "string" ? sr.replaced_session_id : null;
-    const replacedProviderId = typeof sr?.replaced_provider_id === "string" ? sr.replaced_provider_id : null;
-
-    if (sr?.success !== true) {
-      logVibeVideo("error", "create_video_upload_media_session_create_rejected", {
-        user_id: user.id,
-        video_guid: videoId,
-        error_code: typeof sr?.error === "string" ? sr.error : "session_rpc_failed",
-      });
-      await markVibeVideoUploadAttemptFailed(
-        adminSupabase,
-        cleanupUploadAttemptId,
-        videoId,
-        user.id,
-        projectRef,
-        typeof sr?.error === "string" ? sr.error : "session_rpc_failed",
-      );
-      await cleanupCreatedVideo({
-        adminSupabase,
-        libraryId,
-        apiKey,
-        videoId,
-        userId: user.id,
-        projectRef,
-        reason: "session_rpc_failed",
-        context: {
-          failure_path: "create_media_session_rejected",
-          upload_context: uploadContext,
-        },
-      });
-      return json(
-        { success: false, error: "Failed to create durable upload session", code: "media_session_create_failed" },
-        500,
-      );
-    }
-
-    if (replacedProviderId && replacedProviderId !== existingVideoId) {
-      logVibeVideo("warn", "create_video_upload_old_video_cleanup_deferred", {
-        user_id: user.id,
-        video_guid: String(replacedProviderId),
-        reason: "replaced_provider_not_profile_uid",
-      });
-    }
-
-    logVibeVideo("info", "create_video_upload_media_session_created", {
-      user_id: user.id,
-      video_guid: videoId,
-      media_session_id: sessionId,
-      replaced_media_session_id: replacedSessionId,
-      upload_context: uploadContext,
-    });
-
-    if (!sessionId) {
-      logVibeVideo("error", "create_video_upload_media_session_missing_id", {
-        user_id: user.id,
-        video_guid: videoId,
-        upload_attempt_id: typeof attemptRow.id === "string" ? attemptRow.id : null,
-      });
-      await markVibeVideoUploadAttemptFailed(
-        adminSupabase,
-        cleanupUploadAttemptId,
-        videoId,
-        user.id,
-        projectRef,
-        "media_session_missing_id",
-      );
-      await cleanupCreatedVideo({
-        adminSupabase,
-        libraryId,
-        apiKey,
-        videoId,
-        userId: user.id,
-        projectRef,
-        reason: "media_session_missing_id",
-        context: {
-          failure_path: "create_media_session_missing_id",
-          upload_context: uploadContext,
-        },
-      });
-      return json(
-        { success: false, error: "Failed to create durable upload session", code: "media_session_create_failed" },
-        500,
-      );
-    }
-
-    cleanupFailurePath = "link_vibe_video_upload_attempt_session";
-    const { data: sessionLinkedAttemptRow, error: attemptSessionLinkError } = await adminSupabase
-      .from("vibe_video_uploads")
-      .update({ draft_media_session_id: sessionId })
-      .eq("id", attemptRow.id)
-      .eq("provider_object_id", videoId)
-      .select("id,status")
-      .single();
-
-    if (attemptSessionLinkError || !sessionLinkedAttemptRow) {
-      logVibeVideo("error", "create_video_upload_attempt_session_link_failed", {
-        user_id: user.id,
-        client_request_id: clientRequestId,
-        video_guid: videoId,
-        media_session_id: sessionId,
-        upload_attempt_id: typeof attemptRow.id === "string" ? attemptRow.id : null,
-        error_code: attemptSessionLinkError?.code ?? "attempt_session_link_failed",
-      });
-      await adminSupabase.rpc("update_media_session_status", {
-        p_provider_id: videoId,
-        p_new_status: "failed",
-        p_error_detail: "vibe_video_upload_attempt_session_link_failed",
-      });
-      await markVibeVideoUploadAttemptFailed(
-        adminSupabase,
-        cleanupUploadAttemptId,
-        videoId,
-        user.id,
-        projectRef,
-        "vibe_video_upload_attempt_session_link_failed",
-      );
-      await cleanupCreatedVideo({
-        adminSupabase,
-        libraryId,
-        apiKey,
-        videoId,
-        userId: user.id,
-        projectRef,
-        reason: "vibe_video_upload_attempt_session_link_failed",
-        context: {
-          failure_path: "link_vibe_video_upload_attempt_session",
-          session_id: sessionId,
-          upload_context: uploadContext,
-        },
-        requireDurableBeforeImmediate: true,
-      });
-      return json(
-        { success: false, error: "Failed to link upload attempt", code: "vibe_video_upload_attempt_link_failed" },
-        500,
-      );
-    }
+    // New uploads are durable through vibe_video_uploads + media_assets.
+    // Keep the response field for older clients, but do not create a
+    // draft_media_sessions row for modern uploads.
+    const sessionId: string | null = null;
 
     cleanupFailurePath = "activate_profile_vibe_video";
     const { data: lifecycleResult, error: lifecycleError } = await adminSupabase.rpc(
@@ -1193,13 +1009,8 @@ serve(async (req) => {
       logVibeVideo("error", "create_video_upload_profile_uid_write_failed", {
         user_id: user.id,
         video_guid: videoId,
-        media_session_id: sessionId,
+        upload_attempt_id: typeof attemptRow.id === "string" ? attemptRow.id : null,
         error_code: lifecycleError.code ?? "rpc_error",
-      });
-      await adminSupabase.rpc("update_media_session_status", {
-        p_provider_id: videoId,
-        p_new_status: "failed",
-        p_error_detail: "profile_update_failed",
       });
       await markVibeVideoUploadAttemptFailed(
         adminSupabase,
@@ -1219,7 +1030,6 @@ serve(async (req) => {
         reason: "rpc_error",
         context: {
           failure_path: "activate_profile_vibe_video_error",
-          session_id: sessionId,
           upload_context: uploadContext,
         },
       });
@@ -1234,13 +1044,8 @@ serve(async (req) => {
       logVibeVideo("error", "create_video_upload_profile_uid_write_rejected", {
         user_id: user.id,
         video_guid: videoId,
-        media_session_id: sessionId,
+        upload_attempt_id: typeof attemptRow.id === "string" ? attemptRow.id : null,
         error_code: typeof lr?.error === "string" ? lr.error : "rpc_rejected",
-      });
-      await adminSupabase.rpc("update_media_session_status", {
-        p_provider_id: videoId,
-        p_new_status: "failed",
-        p_error_detail: "profile_update_rejected",
       });
       await markVibeVideoUploadAttemptFailed(
         adminSupabase,
@@ -1260,7 +1065,6 @@ serve(async (req) => {
         reason: "rpc_rejected",
         context: {
           failure_path: "activate_profile_vibe_video_rejected",
-          session_id: sessionId,
           upload_context: uploadContext,
         },
       });
@@ -1293,28 +1097,8 @@ serve(async (req) => {
       });
     }
 
-    let sessionStatus = "created";
-    cleanupFailurePath = "mark_media_session_uploading";
-    const { data: sessionUploadResult, error: sessionUploadError } = await adminSupabase.rpc(
-      "update_media_session_status",
-      {
-        p_provider_id: videoId,
-        p_new_status: "uploading",
-        p_error_detail: null,
-      },
-    );
-    const sur = sessionUploadResult as Record<string, unknown> | null;
-    if (sessionUploadError || sur?.success !== true) {
-      logVibeVideo("warn", "create_video_upload_media_session_uploading_mark_failed_but_repairable", {
-        user_id: user.id,
-        video_guid: videoId,
-        media_session_id: sessionId,
-        error_code: sessionUploadError?.code ?? (typeof sur?.error === "string" ? sur.error : "session_status_update_failed"),
-        repairable_lifecycle_state: true,
-      });
-    } else {
-      sessionStatus = "uploading";
-    }
+    const sessionStatus = "uploading";
+    cleanupFailurePath = "link_vibe_video_upload_attempt_asset";
 
     let attemptAssetLinkRepairable = false;
     if (mediaAssetId) {
@@ -1332,7 +1116,6 @@ serve(async (req) => {
           user_id: user.id,
           client_request_id: clientRequestId,
           video_guid: videoId,
-          media_session_id: sessionId,
           upload_attempt_id: typeof attemptRow.id === "string" ? attemptRow.id : null,
           media_asset_id: mediaAssetId,
           error_code: attemptAssetLinkError?.code ?? "attempt_asset_link_failed",
@@ -1345,7 +1128,6 @@ serve(async (req) => {
         user_id: user.id,
         client_request_id: clientRequestId,
         video_guid: videoId,
-        media_session_id: sessionId,
         upload_attempt_id: typeof attemptRow.id === "string" ? attemptRow.id : null,
         repairable_lifecycle_state: true,
       });
@@ -1372,10 +1154,9 @@ serve(async (req) => {
       user_id: user.id,
       client_request_id: clientRequestId,
       video_guid: videoId,
-      media_session_id: sessionId,
       upload_attempt_id: typeof attemptRow.id === "string" ? attemptRow.id : null,
       media_asset_id: mediaAssetId,
-      media_session_status: sessionStatus,
+      upload_attempt_status: sessionStatus,
       replaced_existing_video: !!existingVideoId,
       project_ref: projectRef,
     });
