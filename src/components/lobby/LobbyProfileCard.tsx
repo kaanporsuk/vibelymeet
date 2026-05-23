@@ -17,6 +17,7 @@ import { cn } from "@/lib/utils";
 import { getRelationshipIntentDisplaySafe } from "@shared/profileContracts";
 import { fetchUserProfile } from "@/services/fetchUserProfile";
 import { prewarmMediaAssets } from "@/lib/mediaAssetResolver";
+import { markProfileVibeVideoTtffPrewarm } from "@/lib/vibeVideo/profileVibeVideoTtff";
 
 interface LobbyProfileCardProps {
   profile: DeckProfile;
@@ -45,7 +46,13 @@ const LobbyProfileCard = ({ profile, userVibes, isBehind = false }: LobbyProfile
 
   const intentRaw = profile.looking_for?.trim();
   const intentDisplay = intentRaw ? getRelationshipIntentDisplaySafe(intentRaw) : null;
-  const prewarmFullProfile = useCallback(() => {
+  const prewarmFullProfile = useCallback((trigger: "hover" | "pointer_down" | "touch_start" | "focus" | "click" = "hover") => {
+    if (trigger !== "hover") {
+      markProfileVibeVideoTtffPrewarm(profile.id, {
+        surface: "lobby_card",
+        trigger,
+      });
+    }
     void queryClient.fetchQuery({
       queryKey: ["user-profile", profile.id],
       queryFn: () => fetchUserProfile(profile.id),
@@ -53,6 +60,14 @@ const LobbyProfileCard = ({ profile, userVibes, isBehind = false }: LobbyProfile
     }).then((fullProfile) => {
       const playbackRef = fullProfile?.vibe_video_playback_ref?.trim();
       if (!playbackRef) return;
+      if (trigger !== "hover") {
+        markProfileVibeVideoTtffPrewarm(profile.id, {
+          surface: "lobby_card",
+          trigger,
+          sourceRef: playbackRef,
+          usesSignedProfileRef: true,
+        });
+      }
       void prewarmMediaAssets(
         [{ kind: "profile_vibe_video", sourceRef: playbackRef }],
         { concurrency: 1 },
@@ -60,7 +75,7 @@ const LobbyProfileCard = ({ profile, userVibes, isBehind = false }: LobbyProfile
     }).catch(() => {});
   }, [profile.id, queryClient]);
   const openFullProfile = useCallback(() => {
-    prewarmFullProfile();
+    prewarmFullProfile("click");
     navigate(`/user/${profile.id}`);
   }, [navigate, prewarmFullProfile, profile.id]);
 
@@ -122,9 +137,12 @@ const LobbyProfileCard = ({ profile, userVibes, isBehind = false }: LobbyProfile
       {!isBehind && (
         <button
           type="button"
-          onPointerEnter={prewarmFullProfile}
-          onPointerDown={prewarmFullProfile}
-          onFocus={prewarmFullProfile}
+          onPointerEnter={() => prewarmFullProfile("hover")}
+          onPointerDown={(event) => {
+            if (event.pointerType !== "touch") prewarmFullProfile("pointer_down");
+          }}
+          onTouchStart={() => prewarmFullProfile("touch_start")}
+          onFocus={() => prewarmFullProfile("focus")}
           onClick={openFullProfile}
           className="absolute bottom-[min(42%,200px)] right-3 sm:right-4 z-30 w-11 h-11 rounded-full bg-black/50 hover:bg-black/65 border border-white/20 backdrop-blur-md flex items-center justify-center transition-colors shadow-lg"
           aria-label="Open full profile"

@@ -9,6 +9,10 @@ import { usePrefersReducedMotion } from "@/hooks/usePrefersReducedMotion";
 import { isHlsMediaAssetUrl, isProfileVibeVideoRef, prewarmMediaAssets } from "@/lib/mediaAssetResolver";
 import { MediaPlaceholder } from "@/components/media/MediaPlaceholder";
 import { preloadHlsPlaybackLibrary } from "@/lib/vibeVideo/attachHlsPlayback";
+import {
+  beginProfileVibeVideoTtffPlayback,
+  completeProfileVibeVideoTtffPlayback,
+} from "@/lib/vibeVideo/profileVibeVideoTtff";
 import { trackVibeVideoEvent, VIBE_VIDEO_EVENTS } from "@/lib/vibeVideo/vibeVideoTelemetry";
 import {
   captionTextFromMediaCaptions,
@@ -46,6 +50,7 @@ export function VibeVideoFullscreenPlayer({
 }: Props) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const playbackSucceededRef = useRef(false);
+  const profileVibeVideoTtffTokenRef = useRef<string | null>(null);
   const hlsAuthRefreshAttemptCountRef = useRef(0);
   const [playbackFailed, setPlaybackFailed] = useState(false);
   const [hasFirstFrame, setHasFirstFrame] = useState(false);
@@ -112,6 +117,24 @@ export function VibeVideoFullscreenPlayer({
     });
   }, [vibeVideoInfo.uid]);
 
+  const beginFullscreenProfileVibeVideoTtff = useCallback((trigger: "fullscreen_open" | "manual_play") => {
+    if (!show || !isReady) return;
+    if (profileVibeVideoTtffTokenRef.current) return;
+    profileVibeVideoTtffTokenRef.current = beginProfileVibeVideoTtffPlayback(profileId, {
+      surface: "profile_fullscreen",
+      trigger,
+      reduceMotion: prefersReducedMotion,
+      usesSignedProfileRef,
+      sourceRef: vibeVideoInfo.playbackUrl,
+    });
+  }, [isReady, prefersReducedMotion, profileId, show, usesSignedProfileRef, vibeVideoInfo.playbackUrl]);
+
+  const reportFirstFrame = useCallback(() => {
+    setHasFirstFrame(true);
+    completeProfileVibeVideoTtffPlayback(profileVibeVideoTtffTokenRef.current);
+    profileVibeVideoTtffTokenRef.current = null;
+  }, []);
+
   const reportPlaybackError = useCallback((kind: "native" | "unsupported" | "fatal", detail?: unknown) => {
     setPlaybackFailed(true);
     trackVibeVideoEvent(VIBE_VIDEO_EVENTS.playbackFailed, {
@@ -131,6 +154,7 @@ export function VibeVideoFullscreenPlayer({
     setPlaybackFailed(false);
     setHasFirstFrame(false);
     playbackSucceededRef.current = false;
+    profileVibeVideoTtffTokenRef.current = null;
     hlsAuthRefreshAttemptCountRef.current = 0;
     setManualPlaybackRequested(false);
   }, [show, vibeVideoInfo.playbackUrl]);
@@ -138,6 +162,11 @@ export function VibeVideoFullscreenPlayer({
   useEffect(() => {
     setHasFirstFrame(false);
   }, [playbackUrl]);
+
+  useEffect(() => {
+    if (!show || !isReady || prefersReducedMotion) return;
+    beginFullscreenProfileVibeVideoTtff("fullscreen_open");
+  }, [beginFullscreenProfileVibeVideoTtff, isReady, prefersReducedMotion, show]);
 
   useEffect(() => {
     if (!show || !isReady || prefersReducedMotion) return;
@@ -294,8 +323,9 @@ export function VibeVideoFullscreenPlayer({
             loop
             controls={prefersReducedMotion}
             preload={prefersReducedMotion ? "none" : "metadata"}
-            onLoadedData={() => setHasFirstFrame(true)}
-            onCanPlay={() => setHasFirstFrame(true)}
+            onLoadedData={reportFirstFrame}
+            onCanPlay={reportFirstFrame}
+            onPlaying={reportFirstFrame}
             onClick={(e) => e.stopPropagation()}
           >
             {captionTrackUrl ? (
@@ -338,6 +368,7 @@ export function VibeVideoFullscreenPlayer({
               className="absolute inset-0 z-20 flex items-center justify-center bg-black/20 text-white"
               onClick={(event) => {
                 event.stopPropagation();
+                beginFullscreenProfileVibeVideoTtff("manual_play");
                 setManualPlaybackRequested(true);
               }}
               aria-label="Play video"
