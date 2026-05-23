@@ -258,30 +258,160 @@ serve(async (req) => {
       attempted_stream_api_key: bunnyLookup.attemptedStreamApiKey,
     });
 
+    const statusErrorDetail = mappedStatus === "failed" ? `bunny_status_${bunnyStatus ?? "unknown"}` : null;
+
+    const { data: uploadResult, error: uploadError } = await adminSupabase.rpc(
+      "update_vibe_video_upload_status",
+      {
+        p_provider_object_id: requestedVideoId,
+        p_new_status: mappedStatus,
+        p_error_detail: statusErrorDetail,
+      },
+    );
+
+    const ur = uploadResult as Record<string, unknown> | null;
+    const uploadRpcError = typeof ur?.error === "string" ? ur.error : null;
+    if (uploadError) {
+      logVibeVideo("error", "sync_vibe_video_upload_status_update_failed", {
+        project_ref: projectRef,
+        user_id: user.id,
+        video_guid: requestedVideoId,
+        mapped_status: mappedStatus,
+        error_code: uploadError.code ?? "upload_status_update_failed",
+      });
+      return json({ success: false, error: "Failed to update video status", code: "upload_status_update_failed" }, 500);
+    }
+
+    const uploadStatusSucceeded = ur?.success === true;
+    if (uploadStatusSucceeded || uploadRpcError === "invalid_transition") {
+      if (uploadRpcError === "invalid_transition") {
+        logVibeVideo("warn", "sync_vibe_video_status_stale_or_out_of_order_ignored", {
+          project_ref: projectRef,
+          user_id: user.id,
+          video_guid: requestedVideoId,
+          mapped_status: mappedStatus,
+          reason: uploadRpcError,
+        });
+      } else {
+        logVibeVideo("info", "sync_vibe_video_status_succeeded", {
+          project_ref: projectRef,
+          user_id: user.id,
+          video_guid: requestedVideoId,
+          mapped_status: mappedStatus,
+          previous_status: typeof ur?.previous_status === "string" ? ur.previous_status : null,
+          upload_attempt_id: typeof ur?.upload_attempt_id === "string" ? ur.upload_attempt_id : null,
+        });
+      }
+
+      return json({
+        success: true,
+        synced: true,
+        videoId: requestedVideoId,
+        uploadAttemptId: typeof ur?.upload_attempt_id === "string" ? ur.upload_attempt_id : null,
+        bunnyStatus,
+        mappedStatus,
+        previousStatus: typeof ur?.previous_status === "string" ? ur.previous_status : null,
+        newStatus: typeof ur?.new_status === "string" ? ur.new_status : mappedStatus,
+      });
+    }
+
+    if (uploadRpcError !== "upload_not_found") {
+      logVibeVideo("error", "sync_vibe_video_upload_status_update_rejected", {
+        project_ref: projectRef,
+        user_id: user.id,
+        video_guid: requestedVideoId,
+        mapped_status: mappedStatus,
+        error_code: uploadRpcError ?? "unknown",
+      });
+      return json({ success: false, error: "Failed to update video status", code: "upload_status_update_rejected" }, 500);
+    }
+
     const { data: sessionResult, error: sessionError } = await adminSupabase.rpc(
       "update_media_session_status",
       {
         p_provider_id: requestedVideoId,
         p_new_status: mappedStatus,
-        p_error_detail: mappedStatus === "failed" ? `bunny_status_${bunnyStatus ?? "unknown"}` : null,
+        p_error_detail: statusErrorDetail,
       },
     );
 
     const sr = sessionResult as Record<string, unknown> | null;
+    const sessionRpcError = typeof sr?.error === "string" ? sr.error : null;
+    if (!sessionError && sessionRpcError === "invalid_transition") {
+      logVibeVideo("warn", "sync_vibe_video_status_stale_or_out_of_order_ignored", {
+        project_ref: projectRef,
+        user_id: user.id,
+        video_guid: requestedVideoId,
+        mapped_status: mappedStatus,
+        reason: sessionRpcError,
+        legacy_fallback: true,
+      });
+      return json({
+        success: true,
+        synced: true,
+        videoId: requestedVideoId,
+        uploadAttemptId: null,
+        bunnyStatus,
+        mappedStatus,
+        previousStatus: typeof sr?.previous_status === "string" ? sr.previous_status : null,
+        newStatus: mappedStatus,
+      });
+    }
+
+    if (!sessionError && sessionRpcError === "session_not_found") {
+      const { data: updatedProfiles, error: profileUpdateError } = await adminSupabase
+        .from("profiles")
+        .update({ bunny_video_status: mappedStatus })
+        .eq("id", user.id)
+        .eq("bunny_video_uid", requestedVideoId)
+        .select("id");
+
+      if (profileUpdateError) {
+        logVibeVideo("error", "sync_vibe_video_status_legacy_profile_update_failed", {
+          project_ref: projectRef,
+          user_id: user.id,
+          video_guid: requestedVideoId,
+          mapped_status: mappedStatus,
+          error_code: profileUpdateError.code ?? "legacy_profile_update_error",
+        });
+        return json({ success: false, error: "Failed to update video status", code: "legacy_profile_update_failed" }, 500);
+      }
+
+      const profileRows = updatedProfiles?.length ?? 0;
+      logVibeVideo(profileRows > 0 ? "info" : "warn", "sync_vibe_video_status_legacy_profile_update_succeeded", {
+        project_ref: projectRef,
+        user_id: user.id,
+        video_guid: requestedVideoId,
+        mapped_status: mappedStatus,
+        rows: profileRows,
+      });
+
+      return json({
+        success: true,
+        synced: profileRows > 0,
+        videoId: requestedVideoId,
+        uploadAttemptId: null,
+        bunnyStatus,
+        mappedStatus,
+        previousStatus: typeof profile?.bunny_video_status === "string" ? profile.bunny_video_status : null,
+        newStatus: mappedStatus,
+      });
+    }
+
     if (sessionError || sr?.success !== true) {
       logVibeVideo("error", "sync_vibe_video_status_session_update_failed", {
         project_ref: projectRef,
         user_id: user.id,
         video_guid: requestedVideoId,
         mapped_status: mappedStatus,
-        error_code: sessionError?.code ?? (typeof sr?.error === "string" ? sr.error : "session_update_failed"),
+        error_code: sessionError?.code ?? (sessionRpcError ?? "session_update_failed"),
       });
       return json({ success: false, error: "Failed to update video status", code: "session_update_failed" }, 500);
     }
 
     const attemptPatch: Record<string, string | null> = {
       status: mappedStatus,
-      error_detail: mappedStatus === "failed" ? `bunny_status_${bunnyStatus ?? "unknown"}` : null,
+      error_detail: statusErrorDetail,
     };
     if (typeof sr.session_id === "string") {
       attemptPatch.draft_media_session_id = sr.session_id;

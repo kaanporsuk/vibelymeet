@@ -279,10 +279,12 @@ export async function cancelAccountDeletionMediaHold(
   };
 }
 
-// ─── Legacy mapping documentation ───────────────────────────────────────────
+// ─── Media model mapping documentation ──────────────────────────────────────
 //
-// This section documents how existing Vibely tables map to the new media model.
-// Sprint 2+ backfill scripts will use these mappings.
+// This section documents how existing Vibely tables map to the canonical media
+// model. draft_media_sessions remains listed for historical traceability only;
+// new Sprint 4+ uploads use media_upload_receipts, media_assets,
+// media_references, vibe_video_uploads, and profile_vibe_videos.
 //
 // ┌─────────────────────────────┬──────────────────┬──────────────────────────┬─────────────────────────┐
 // │ Legacy surface              │ Provider         │ Media family             │ Reference type          │
@@ -293,7 +295,7 @@ export async function cancelAccountDeletionMediaHold(
 // │ chat media by participant   │ bunny_storage    │ chat_*                   │ chat_participant_retention │
 // │ events.cover_image          │ bunny_storage    │ event_cover              │ event_cover             │
 // │ photo_verifications.selfie  │ bunny_storage    │ verification_selfie      │ verification_selfie     │
-// │ draft_media_sessions        │ bunny_*          │ (maps to media_family)   │ (created at publish)    │
+// │ draft_media_sessions        │ bunny_*          │ (legacy compatibility)   │ (no new source writes)   │
 // └─────────────────────────────┴──────────────────┴──────────────────────────┴─────────────────────────┘
 //
 // Backfill strategy (Sprint 2):
@@ -304,7 +306,7 @@ export async function cancelAccountDeletionMediaHold(
 //   5. Mark all backfilled assets with legacy_table + legacy_id for traceability
 //
 // Compatibility:
-//   - Existing surfaces continue reading from legacy columns (profiles.photos, etc.)
-//   - New uploads will write to BOTH legacy columns AND media_assets (dual-write)
-//   - Once backfill is verified, reads can migrate to media_assets
-//   - Legacy columns become the "published snapshot" only; source of truth = media_assets
+//   - Existing surfaces may still read published snapshot columns (profiles.photos, etc.)
+//   - New uploads write canonical media state first, then update published snapshots
+//   - draft_media_sessions/RPCs are compatibility-only for old in-flight uploads
+//   - Source of truth for media lifecycle = media_assets/media_references/family tables

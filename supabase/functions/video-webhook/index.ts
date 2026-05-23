@@ -582,15 +582,77 @@ serve(async (req) => {
       return new Response(chatClipResult.error ? "error" : "ok", { status: chatClipResult.error ? 500 : 200 });
     }
 
-    // ── Update draft_media_sessions (new session model) ──────────────────────
-    // The RPC also updates profiles.bunny_video_status for processing/ready/failed
-    // when profiles.bunny_video_uid still matches this provider.
+    const statusErrorDetail = mappedStatus === "failed" ? `bunny_status_${Status}` : null;
+
+    // Modern uploads are authoritative through vibe_video_uploads/profile_vibe_videos.
+    const { data: uploadResult, error: uploadError } = await supabase.rpc(
+      "update_vibe_video_upload_status",
+      {
+        p_provider_object_id: VideoGuid,
+        p_new_status: mappedStatus,
+        p_error_detail: statusErrorDetail,
+      },
+    );
+
+    const ur = uploadResult as Record<string, unknown> | null;
+    const uploadRpcError = typeof ur?.error === "string" ? ur.error : null;
+
+    if (uploadError) {
+      logVibeVideo("error", "video_webhook_vibe_video_upload_status_failed", {
+        project_ref: projectRef,
+        video_guid: VideoGuid,
+        mapped_status: mappedStatus,
+        error_code: uploadError.code ?? "upload_status_update_error",
+      });
+      return new Response("error", { status: 500 });
+    }
+
+    if (ur?.success) {
+      logVibeVideo("info", "video_webhook_vibe_video_upload_status_succeeded", {
+        project_ref: projectRef,
+        video_guid: VideoGuid,
+        previous_status: typeof ur.previous_status === "string" ? ur.previous_status : null,
+        mapped_status: mappedStatus,
+        upload_attempt_id: typeof ur.upload_attempt_id === "string" ? ur.upload_attempt_id : null,
+        media_asset_id: typeof ur.media_asset_id === "string" ? ur.media_asset_id : null,
+      });
+      if (mappedStatus === "ready") {
+        await updateStreamVideoPlaceholder(supabase, {
+          providerObjectId: VideoGuid,
+          kind: "profile",
+          log: logWebhook,
+        });
+      }
+      return new Response("ok", { status: 200 });
+    }
+
+    if (uploadRpcError === "invalid_transition") {
+      logVibeVideo("warn", "video_webhook_stale_or_out_of_order_ignored", {
+        project_ref: projectRef,
+        video_guid: VideoGuid,
+        mapped_status: mappedStatus,
+        reason: uploadRpcError,
+      });
+      return new Response("ok", { status: 200 });
+    }
+
+    if (uploadRpcError !== "upload_not_found") {
+      logVibeVideo("error", "video_webhook_vibe_video_upload_status_rejected", {
+        project_ref: projectRef,
+        video_guid: VideoGuid,
+        mapped_status: mappedStatus,
+        error_code: uploadRpcError ?? "unknown",
+      });
+      return new Response("error", { status: 500 });
+    }
+
+    // Legacy compatibility: DMS-only uploads from older clients can still finish.
     const { data: sessionResult, error: sessionError } = await supabase.rpc(
       "update_media_session_status",
       {
         p_provider_id: VideoGuid,
         p_new_status: mappedStatus,
-        p_error_detail: mappedStatus === "failed" ? `bunny_status_${Status}` : null,
+        p_error_detail: statusErrorDetail,
       },
     );
 
@@ -598,7 +660,7 @@ serve(async (req) => {
     const sessionRpcError = typeof sr?.error === "string" ? sr.error : null;
 
     if (sessionError) {
-      logVibeVideo("error", "video_webhook_media_session_update_failed", {
+      logVibeVideo("error", "video_webhook_legacy_media_session_update_failed", {
         project_ref: projectRef,
         video_guid: VideoGuid,
         mapped_status: mappedStatus,
@@ -611,7 +673,7 @@ serve(async (req) => {
       const attemptSync = await syncVibeVideoUploadAttemptFromWebhook(supabase, {
         providerObjectId: VideoGuid,
         status: mappedStatus,
-        errorDetail: mappedStatus === "failed" ? `bunny_status_${Status}` : null,
+        errorDetail: statusErrorDetail,
         draftMediaSessionId: typeof sr.session_id === "string" ? sr.session_id : null,
       });
       if (!attemptSync.ok) {
@@ -624,7 +686,7 @@ serve(async (req) => {
         });
         return new Response("error", { status: 500 });
       }
-      logVibeVideo("info", "video_webhook_media_session_update_succeeded", {
+      logVibeVideo("info", "video_webhook_legacy_media_session_update_succeeded", {
         project_ref: projectRef,
         video_guid: VideoGuid,
         media_session_id: typeof sr.session_id === "string" ? sr.session_id : null,
@@ -639,8 +701,6 @@ serve(async (req) => {
           log: logWebhook,
         });
       }
-      // The RPC is authoritative for active sessions and now keeps the profile
-      // snapshot in sync for processing/ready/failed with a UID guard.
       return new Response("ok", { status: 200 });
     }
 
@@ -655,7 +715,7 @@ serve(async (req) => {
     }
 
     if (sessionRpcError !== "session_not_found") {
-      logVibeVideo("error", "video_webhook_media_session_update_rejected", {
+      logVibeVideo("error", "video_webhook_legacy_media_session_update_rejected", {
         project_ref: projectRef,
         video_guid: VideoGuid,
         mapped_status: mappedStatus,
@@ -723,7 +783,7 @@ serve(async (req) => {
     const legacyAttemptSync = await syncVibeVideoUploadAttemptFromWebhook(supabase, {
       providerObjectId: VideoGuid,
       status: mappedStatus,
-      errorDetail: mappedStatus === "failed" ? `bunny_status_${Status}` : null,
+      errorDetail: statusErrorDetail,
     });
     if (!legacyAttemptSync.ok) {
       logVibeVideo("error", "video_webhook_vibe_video_upload_attempt_update_failed", {

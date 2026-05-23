@@ -23,6 +23,7 @@ const mediaUxAccelerationMigration = read("supabase/migrations/20260522161000_me
 const mediaBlurhashMigration = read("supabase/migrations/20260523100000_media_blurhash_placeholders.sql");
 const mediaDisplayDerivativeMigration = read("supabase/migrations/20260523110000_profile_photo_display_derivative.sql");
 const mediaPlaceholderBackfillOpsMigration = read("supabase/migrations/20260523120000_media_placeholder_backfill_ops.sql");
+const mediaDraftSessionsDeprecationMigration = read("supabase/migrations/20260523130000_draft_media_sessions_deprecation.sql");
 const sharedProfileVibeVideoTtff = read("shared/media/profileVibeVideoTtff.ts");
 const sharedMediaPlaceholders = read("shared/media/placeholders.ts");
 const supabaseMediaPlaceholders = read("supabase/functions/_shared/media-placeholders.ts");
@@ -650,14 +651,10 @@ test("phase 5 bulletproof closure exposes owner-scoped receipt reconciliation an
   assert.match(phase5BulletproofMigration, /provider_mismatch/);
   assert.match(phase5BulletproofMigration, /provider_path_mismatch/);
   assert.match(phase5BulletproofMigration, /public\.upsert_media_asset/);
-  assert.match(phase5BulletproofMigration, /public\.draft_media_sessions/);
-  assert.ok(
-    phase5BulletproofMigration.indexOf("v_asset_result := public.upsert_media_asset") <
-      phase5BulletproofMigration.indexOf("FROM public.draft_media_sessions"),
-    "profile completion must validate/upsert the asset before writing draft_media_sessions",
-  );
-  assert.match(phase5BulletproofMigration, /UPDATE public\.media_assets[\s\S]+legacy_table = 'draft_media_sessions'[\s\S]+legacy_id = v_session_id::text/);
-  assert.match(phase5BulletproofMigration, /jsonb_build_object\('session_id', v_session_id\)/);
+  assert.match(mediaDraftSessionsDeprecationMigration, /CREATE OR REPLACE FUNCTION public\.complete_profile_photo_media_upload/);
+  assert.match(mediaDraftSessionsDeprecationMigration, /public\.upsert_media_asset/);
+  assert.match(mediaDraftSessionsDeprecationMigration, /'media_upload_receipts'/);
+  assert.match(mediaDraftSessionsDeprecationMigration, /'session_id', NULL/);
   assert.match(phase5BulletproofMigration, /CREATE OR REPLACE FUNCTION public\.mark_media_upload_receipt_failed/);
   assert.match(phase5BulletproofMigration, /power\(5, LEAST\(v_receipt\.attempt_count, 4\)\)/);
   assert.match(phase5BulletproofMigration, /REVOKE ALL ON FUNCTION public\.complete_storage_media_upload[\s\S]+FROM PUBLIC, anon, authenticated/);

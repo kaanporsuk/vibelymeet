@@ -1,8 +1,8 @@
 import { supabase } from "@/integrations/supabase/client";
 
 /**
- * Marks draft_media_sessions rows for the given storage paths as deleted (unpublished
- * photo uploads discarded before Save). Same RPC as native `photoBatchController`.
+ * Marks unpublished profile-photo paths as discarded before Save.
+ * The RPC is asset-backed; the historical name is kept for client compatibility.
  */
 export async function markEphemeralPhotoPathsDeleted(paths: string[]): Promise<void> {
   const unique = [...new Set(paths)].filter((p) => typeof p === "string" && p.startsWith("photos/"));

@@ -8259,6 +8259,14 @@ export type Database = {
         }
         Returns: Json
       }
+      update_vibe_video_upload_status: {
+        Args: {
+          p_error_detail?: string
+          p_new_status: string
+          p_provider_object_id: string
+        }
+        Returns: Json
+      }
       update_my_privacy_settings: {
         Args: { p_patch: Json }
         Returns: {
