@@ -18,6 +18,7 @@ Built-in Vite flags (not set in the Vercel UI): `import.meta.env.DEV`, `import.m
 | `VITE_POSTHOG_HOST` | `main.tsx` (defaults to `https://eu.i.posthog.com` if unset) | No | Client | Prod, Preview, Development |
 | `VITE_SENTRY_DSN` | `main.tsx` (DSN fallback exists in code if unset) | No | Client | Prod, Preview, Development |
 | `VITE_ONESIGNAL_APP_ID` | `lib/onesignal.ts` (fallback in code if unset) | No | Client | Prod, Preview, Development |
+| `VITE_TURNSTILE_SITE_KEY` | `pages/legal/DeleteAccountWeb.tsx`; renders the Cloudflare Turnstile widget on `/delete-account` | Required for public account deletion | Client/public site key | Prod, Preview, Development where `/delete-account` must work |
 | `VITE_APP_VERSION` | Injected by `vite.config.ts` `define` from `package.json`; `FeedbackDrawer.tsx` | No (build-time) | Client | All builds |
 
 \* At least one of `VITE_SUPABASE_PUBLISHABLE_KEY` or `VITE_SUPABASE_ANON_KEY` must be non-empty for Supabase auth/data to work.
@@ -28,7 +29,7 @@ Built-in Vite flags (not set in the Vercel UI): `import.meta.env.DEV`, `import.m
 
 ### Safe for client (VITE\_ prefix)
 
-All variables above are intended for the browser bundle. Do **not** put secrets (service role keys, Twilio tokens, etc.) in `VITE_*` — see `.env.example` in the repo root.
+All variables above are intended for the browser bundle. `VITE_TURNSTILE_SITE_KEY` is a public Turnstile site key, not the Turnstile secret. Do **not** put secrets (service role keys, Twilio tokens, `TURNSTILE_SECRET_KEY`, `ACCOUNT_DELETION_RATE_LIMIT_PEPPER`, etc.) in `VITE_*` — see `.env.example` in the repo root.
 
 ### Server-only
 

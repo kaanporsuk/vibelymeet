@@ -1,10 +1,10 @@
 // Lightweight server-side PostHog capture for Edge Functions.
 //
 // Reads POSTHOG_API_KEY (server token) and optional POSTHOG_HOST (defaults to
-// us.i.posthog.com). Fire-and-forget: failures are logged but never thrown so
+// eu.i.posthog.com). Fire-and-forget: failures are logged but never thrown so
 // they cannot break the calling pipeline.
 
-const DEFAULT_HOST = "https://us.i.posthog.com";
+const DEFAULT_HOST = "https://eu.i.posthog.com";
 
 function getEnv(name: string): string | undefined {
   const denoEnv = (globalThis as { Deno?: { env: { get(k: string): string | undefined } } }).Deno?.env;
