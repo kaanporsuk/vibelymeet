@@ -21,7 +21,7 @@ export type UploadChatStorageResult = {
   contentSha256: string | null;
   receiptId: string | null;
   sessionId: string | null;
-  derivatives?: { thumb?: string; hero?: string } | null;
+  derivatives?: { thumb?: string; display?: string; hero?: string } | null;
 };
 
 function extensionFromUri(uri: string): string | null {
@@ -46,6 +46,12 @@ function normalizedImageMimeType(mimeType: string | null | undefined, imageUri: 
   if (ext === 'heic') return 'image/heic';
   if (ext === 'heif') return 'image/heif';
   return GENERIC_UPLOAD_MIME_TYPE;
+}
+
+function derivativeFormField(kind: PreparedImageDerivativeAsset['kind']): 'derivative_thumb' | 'derivative_display' | 'derivative_hero' {
+  if (kind === 'thumb') return 'derivative_thumb';
+  if (kind === 'display') return 'derivative_display';
+  return 'derivative_hero';
 }
 
 /**
@@ -169,7 +175,7 @@ export async function uploadChatImageMessage(
     );
     for (const derivative of derivatives) {
       formData.append(
-        derivative.kind === 'thumb' ? 'derivative_thumb' : 'derivative_hero',
+        derivativeFormField(derivative.kind),
         {
           uri: derivative.uri,
           type: derivative.mimeType,
@@ -200,7 +206,7 @@ export async function uploadChatImageMessage(
     contentSha256?: string | null;
     receiptId?: string | null;
     sessionId?: string | null;
-    derivatives?: { thumb?: string; hero?: string } | null;
+    derivatives?: { thumb?: string; display?: string; hero?: string } | null;
     error?: string;
   };
   try {

@@ -7,6 +7,7 @@ import {
 
 export type ProfilePhotoDerivativeEntry = {
   thumb?: string;
+  display?: string;
   hero?: string;
   placeholderKind?: MediaPlaceholderKind;
   placeholderHash?: string;
@@ -32,6 +33,7 @@ export function normalizeProfilePhotoDerivatives(raw: unknown): ProfilePhotoDeri
 
     const value = rawValue as Record<string, unknown>;
     const thumb = cleanPath(value.thumb);
+    const display = cleanPath(value.display);
     const hero = cleanPath(value.hero);
     const placeholderKind = normalizeMediaPlaceholderKind(value.placeholderKind) ?? undefined;
     const placeholderHash = normalizeMediaPlaceholderHash(placeholderKind ?? null, value.placeholderHash) ?? undefined;
@@ -42,9 +44,10 @@ export function normalizeProfilePhotoDerivatives(raw: unknown): ProfilePhotoDeri
       value.dominantColor,
     ) ?? undefined;
 
-    if (!thumb && !hero && !dominantColor && !placeholderHash) continue;
+    if (!thumb && !display && !hero && !dominantColor && !placeholderHash) continue;
     out[originalPath] = {
       ...(thumb ? { thumb } : {}),
+      ...(display ? { display } : {}),
       ...(hero ? { hero } : {}),
       ...(effectivePlaceholderKind ? { placeholderKind: effectivePlaceholderKind } : {}),
       ...(placeholderHash ? { placeholderHash } : {}),

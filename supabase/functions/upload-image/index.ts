@@ -43,6 +43,13 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object" && !Array.isArray(value);
 }
 
+function isMissingDisplayDerivativeColumn(error: unknown): boolean {
+  const message = typeof (error as { message?: unknown } | null)?.message === "string"
+    ? (error as { message: string }).message
+    : "";
+  return /derivative_display_path/i.test(message);
+}
+
 function hexFromBytes(bytes: Uint8Array): string {
   return [...bytes].map((byte) => byte.toString(16).padStart(2, "0")).join("");
 }
@@ -65,12 +72,14 @@ function optionalFormString(formData: FormData, key: string): string | null {
   return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
-type ImageDerivativeKind = "thumb" | "hero";
-type ImageDerivativeUpload = {
+type ImageDerivativeKind = "thumb" | "display" | "hero";
+type ImageDerivativeFile = {
   kind: ImageDerivativeKind;
   buffer: ArrayBuffer;
   mimeType: string;
   extension: string;
+};
+type ImageDerivativeUpload = ImageDerivativeFile & {
   path: string;
 };
 type MediaAssetPresentationClient = {
@@ -96,11 +105,12 @@ async function readDerivativeFile(formData: FormData, key: string, kind: ImageDe
 }
 
 async function readDerivativeSet(formData: FormData) {
-  const [thumb, hero] = await Promise.all([
+  const derivatives = await Promise.all([
     readDerivativeFile(formData, "derivative_thumb", "thumb"),
+    readDerivativeFile(formData, "derivative_display", "display"),
     readDerivativeFile(formData, "derivative_hero", "hero"),
   ]);
-  return thumb && hero ? { thumb, hero } : null;
+  return derivatives.filter((derivative): derivative is ImageDerivativeFile => derivative !== null);
 }
 
 function derivativePathForOriginal(originalPath: string, kind: ImageDerivativeKind, extension: string): string {
@@ -123,10 +133,14 @@ async function updateMediaAssetPresentation(
   const thumb = typeof params.derivatives?.thumb === "string" && params.derivatives.thumb.trim()
     ? params.derivatives.thumb.trim()
     : null;
+  const display = typeof params.derivatives?.display === "string" && params.derivatives.display.trim()
+    ? params.derivatives.display.trim()
+    : null;
   const hero = typeof params.derivatives?.hero === "string" && params.derivatives.hero.trim()
     ? params.derivatives.hero.trim()
     : null;
   if (thumb) update.derivative_thumb_path = thumb;
+  if (display) update.derivative_display_path = display;
   if (hero) update.derivative_hero_path = hero;
   if (params.placeholder) {
     update.placeholder_kind = params.placeholder.placeholder_kind;
@@ -141,6 +155,17 @@ async function updateMediaAssetPresentation(
     .update(update)
     .eq("id", assetId);
   if (error) {
+    if (isMissingDisplayDerivativeColumn(error) && "derivative_display_path" in update) {
+      delete update.derivative_display_path;
+      if (Object.keys(update).length === 0) return;
+      const { error: retryError } = await adminSupabase
+        .from("media_assets")
+        .update(update)
+        .eq("id", assetId);
+      if (!retryError) return;
+      console.error(`[upload-image] media asset presentation update failed assetId=${assetId} err=${retryError.message}`);
+      return;
+    }
     console.error(`[upload-image] media asset presentation update failed assetId=${assetId} err=${error.message}`);
   }
 }
@@ -269,18 +294,10 @@ serve(async (req) => {
       ? `photos/match-${matchId}/${user.id}/req-${requestPathToken}.${ext}`
       : `photos/${user.id}/req-${requestPathToken}.${ext}`;
     const derivatives: Record<string, string> = {};
-    const derivativeUploads: ImageDerivativeUpload[] = derivativeSet
-      ? [
-        {
-          ...derivativeSet.thumb,
-          path: derivativePathForOriginal(storagePath, "thumb", derivativeSet.thumb.extension),
-        },
-        {
-          ...derivativeSet.hero,
-          path: derivativePathForOriginal(storagePath, "hero", derivativeSet.hero.extension),
-        },
-      ]
-      : [];
+    const derivativeUploads: ImageDerivativeUpload[] = derivativeSet.map((derivative) => ({
+      ...derivative,
+      path: derivativePathForOriginal(storagePath, derivative.kind, derivative.extension),
+    }));
     const baseReceiptMetadata: Record<string, unknown> = {
       context: context ?? "legacy",
       storage_zone: storageZone,

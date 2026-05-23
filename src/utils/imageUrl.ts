@@ -14,7 +14,8 @@ const BUNNY_CDN_PATH_PREFIX = (() => {
 })();
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 const CONFIRMED_BUNNY_STORAGE_PREFIXES = ["photos/", "events/", "voice/", "media/"];
-const imageDerivativePathsByOriginalPath = new Map<string, { thumb?: string; hero?: string }>();
+type ImageDerivativePathSet = { thumb?: string; display?: string; hero?: string };
+const imageDerivativePathsByOriginalPath = new Map<string, ImageDerivativePathSet>();
 
 const PLACEHOLDER =
   "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200' viewBox='0 0 200 200'%3E%3Crect width='200' height='200' fill='%231F1F2E'/%3E%3Ccircle cx='100' cy='80' r='35' fill='%234B4B6B'/%3E%3Cellipse cx='100' cy='160' rx='55' ry='40' fill='%234B4B6B'/%3E%3C/svg%3E";
@@ -59,16 +60,18 @@ function stripBunnyStorageDecorations(value: string): string {
 
 export function rememberImageDerivatives(
   originalPath: string | null | undefined,
-  derivatives: { thumb?: string | null; hero?: string | null } | null | undefined,
+  derivatives: { thumb?: string | null; display?: string | null; hero?: string | null } | null | undefined,
 ): void {
   const normalized = normalizeImagePath(originalPath);
   if (!normalized || !derivatives) return;
   const clean = stripBunnyStorageDecorations(normalized);
   const thumb = normalizeImagePath(derivatives.thumb)?.trim();
+  const display = normalizeImagePath(derivatives.display)?.trim();
   const hero = normalizeImagePath(derivatives.hero)?.trim();
-  if (!thumb && !hero) return;
+  if (!thumb && !display && !hero) return;
   imageDerivativePathsByOriginalPath.set(clean, {
     ...(thumb ? { thumb: stripBunnyStorageDecorations(thumb) } : {}),
+    ...(display ? { display: stripBunnyStorageDecorations(display) } : {}),
     ...(hero ? { hero: stripBunnyStorageDecorations(hero) } : {}),
   });
 }
@@ -88,11 +91,15 @@ function derivativeStoragePathForDisplay(storagePath: string, opts?: ImageUrlOpt
     typeof opts?.height === "number" && Number.isFinite(opts.height) ? opts.height : 0,
   );
   const knownDerivatives = imageDerivativePathsByOriginalPath.get(clean);
-  if (knownDerivatives && requestedEdge > 0 && requestedEdge <= 420 && knownDerivatives.thumb) {
-    return knownDerivatives.thumb;
+  if (!knownDerivatives || requestedEdge <= 0) return clean;
+  if (requestedEdge <= 420) {
+    return knownDerivatives.thumb ?? knownDerivatives.display ?? knownDerivatives.hero ?? clean;
   }
-  if (knownDerivatives && requestedEdge > 0 && requestedEdge <= 1400 && knownDerivatives.hero) {
-    return knownDerivatives.hero;
+  if (requestedEdge <= 720) {
+    return knownDerivatives.display ?? knownDerivatives.hero ?? knownDerivatives.thumb ?? clean;
+  }
+  if (requestedEdge <= 1400) {
+    return knownDerivatives.hero ?? knownDerivatives.display ?? knownDerivatives.thumb ?? clean;
   }
   return clean;
 }

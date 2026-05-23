@@ -20,6 +20,7 @@ export type UploadImageToBunnyResult = {
   } | null;
   derivatives?: {
     thumb?: string;
+    display?: string;
     hero?: string;
   } | null;
 };
@@ -32,66 +33,82 @@ function canvasToBlob(canvas: HTMLCanvasElement, mimeType: string, quality: numb
   });
 }
 
-async function derivativeFileForImage(file: File, maxEdge: number, label: "thumb" | "hero"): Promise<File | null> {
-  if (!file.type.startsWith("image/") || file.type === "image/heic" || file.type === "image/heif") return null;
-  if (typeof document === "undefined" || typeof createImageBitmap !== "function") return null;
-  const bitmap = await createImageBitmap(file).catch(() => null);
-  if (!bitmap || bitmap.width <= 0 || bitmap.height <= 0) return null;
-  try {
-    const scale = Math.min(1, maxEdge / Math.max(bitmap.width, bitmap.height));
-    const width = Math.max(1, Math.round(bitmap.width * scale));
-    const height = Math.max(1, Math.round(bitmap.height * scale));
-    const canvas = document.createElement("canvas");
-    canvas.width = width;
-    canvas.height = height;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return null;
-    ctx.fillStyle = "#fff";
-    ctx.fillRect(0, 0, width, height);
-    ctx.drawImage(bitmap, 0, 0, width, height);
-    const blob = await canvasToBlob(canvas, "image/jpeg", label === "thumb" ? 0.78 : 0.84);
-    if (!blob || blob.size <= 0) return null;
-    const baseName = file.name.replace(/\.[^.]+$/i, "") || "photo";
-    return new File([blob], `${baseName}-${label}.jpg`, { type: "image/jpeg", lastModified: file.lastModified });
-  } finally {
-    bitmap.close();
-  }
+type ImageDerivativeLabel = "thumb" | "display" | "hero";
+
+function derivativeQualityForLabel(label: ImageDerivativeLabel): number {
+  if (label === "thumb") return 0.78;
+  if (label === "display") return 0.82;
+  return 0.84;
 }
 
-async function dominantColorForImage(file: File): Promise<string | null> {
-  if (!file.type.startsWith("image/") || file.type === "image/heic" || file.type === "image/heif") return null;
-  if (typeof document === "undefined" || typeof createImageBitmap !== "function") return null;
+function canProcessImageInBrowser(file: File): boolean {
+  if (!file.type.startsWith("image/") || file.type === "image/heic" || file.type === "image/heif") return false;
+  return typeof document !== "undefined" && typeof createImageBitmap === "function";
+}
+
+async function imageBitmapForFile(file: File): Promise<ImageBitmap | null> {
+  if (!canProcessImageInBrowser(file)) return null;
   const bitmap = await createImageBitmap(file).catch(() => null);
-  if (!bitmap || bitmap.width <= 0 || bitmap.height <= 0) return null;
-  try {
-    const edge = 24;
-    const canvas = document.createElement("canvas");
-    canvas.width = edge;
-    canvas.height = edge;
-    const ctx = canvas.getContext("2d", { willReadFrequently: true });
-    if (!ctx) return null;
-    ctx.drawImage(bitmap, 0, 0, edge, edge);
-    const { data } = ctx.getImageData(0, 0, edge, edge);
-    let red = 0;
-    let green = 0;
-    let blue = 0;
-    let alphaTotal = 0;
-    for (let i = 0; i < data.length; i += 4) {
-      const alpha = data[i + 3] / 255;
-      if (alpha <= 0.05) continue;
-      red += data[i] * alpha;
-      green += data[i + 1] * alpha;
-      blue += data[i + 2] * alpha;
-      alphaTotal += alpha;
-    }
-    if (alphaTotal <= 0) return null;
-    const toHex = (value: number) => Math.max(0, Math.min(255, Math.round(value / alphaTotal)))
-      .toString(16)
-      .padStart(2, "0");
-    return `#${toHex(red)}${toHex(green)}${toHex(blue)}`;
-  } finally {
+  if (!bitmap) return null;
+  if (bitmap.width <= 0 || bitmap.height <= 0) {
     bitmap.close();
+    return null;
   }
+  return bitmap;
+}
+
+async function derivativeFileFromBitmap(
+  file: File,
+  bitmap: ImageBitmap,
+  maxEdge: number,
+  label: ImageDerivativeLabel,
+): Promise<File | null> {
+  const scale = Math.min(1, maxEdge / Math.max(bitmap.width, bitmap.height));
+  const width = Math.max(1, Math.round(bitmap.width * scale));
+  const height = Math.max(1, Math.round(bitmap.height * scale));
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return null;
+  ctx.fillStyle = "#fff";
+  ctx.fillRect(0, 0, width, height);
+  ctx.drawImage(bitmap, 0, 0, width, height);
+  const blob = await canvasToBlob(canvas, "image/jpeg", derivativeQualityForLabel(label));
+  if (!blob || blob.size <= 0) return null;
+  const baseName = file.name.replace(/\.[^.]+$/i, "") || "photo";
+  return new File([blob], `${baseName}-${label}.jpg`, { type: "image/jpeg", lastModified: file.lastModified });
+}
+
+function dominantColorFromImageData(data: Uint8ClampedArray): string | null {
+  let red = 0;
+  let green = 0;
+  let blue = 0;
+  let alphaTotal = 0;
+  for (let i = 0; i < data.length; i += 4) {
+    const alpha = data[i + 3] / 255;
+    if (alpha <= 0.05) continue;
+    red += data[i] * alpha;
+    green += data[i + 1] * alpha;
+    blue += data[i + 2] * alpha;
+    alphaTotal += alpha;
+  }
+  if (alphaTotal <= 0) return null;
+  const toHex = (value: number) => Math.max(0, Math.min(255, Math.round(value / alphaTotal)))
+    .toString(16)
+    .padStart(2, "0");
+  return `#${toHex(red)}${toHex(green)}${toHex(blue)}`;
+}
+
+async function dominantColorForBitmap(bitmap: ImageBitmap): Promise<string | null> {
+  const edge = 24;
+  const canvas = document.createElement("canvas");
+  canvas.width = edge;
+  canvas.height = edge;
+  const ctx = canvas.getContext("2d", { willReadFrequently: true });
+  if (!ctx) return null;
+  ctx.drawImage(bitmap, 0, 0, edge, edge);
+  return dominantColorFromImageData(ctx.getImageData(0, 0, edge, edge).data);
 }
 
 export async function imagePlaceholderForImage(file: File): Promise<{
@@ -99,10 +116,20 @@ export async function imagePlaceholderForImage(file: File): Promise<{
   hash: string;
   dominantColor: string;
 } | null> {
-  if (!file.type.startsWith("image/") || file.type === "image/heic" || file.type === "image/heif") return null;
-  if (typeof document === "undefined" || typeof createImageBitmap !== "function") return null;
-  const bitmap = await createImageBitmap(file).catch(() => null);
-  if (!bitmap || bitmap.width <= 0 || bitmap.height <= 0) return null;
+  const bitmap = await imageBitmapForFile(file);
+  if (!bitmap) return null;
+  try {
+    return await imagePlaceholderForBitmap(bitmap);
+  } finally {
+    bitmap.close();
+  }
+}
+
+async function imagePlaceholderForBitmap(bitmap: ImageBitmap): Promise<{
+  kind: "blurhash" | "dominant_color";
+  hash: string;
+  dominantColor: string;
+} | null> {
   try {
     const maxEdge = 32;
     const scale = Math.min(1, maxEdge / Math.max(bitmap.width, bitmap.height));
@@ -117,50 +144,39 @@ export async function imagePlaceholderForImage(file: File): Promise<{
     ctx.fillRect(0, 0, width, height);
     ctx.drawImage(bitmap, 0, 0, width, height);
     const { data } = ctx.getImageData(0, 0, width, height);
-    let red = 0;
-    let green = 0;
-    let blue = 0;
-    let alphaTotal = 0;
-    for (let i = 0; i < data.length; i += 4) {
-      const alpha = data[i + 3] / 255;
-      if (alpha <= 0.05) continue;
-      red += data[i] * alpha;
-      green += data[i + 1] * alpha;
-      blue += data[i + 2] * alpha;
-      alphaTotal += alpha;
-    }
-    if (alphaTotal <= 0) return null;
-    const toHex = (value: number) => Math.max(0, Math.min(255, Math.round(value / alphaTotal)))
-      .toString(16)
-      .padStart(2, "0");
-    const dominantColor = `#${toHex(red)}${toHex(green)}${toHex(blue)}`;
+    const dominantColor = dominantColorFromImageData(data);
+    if (!dominantColor) return null;
     const componentX = Math.max(1, Math.min(4, width));
     const componentY = Math.max(1, Math.min(4, height, Math.round(componentX * (height / width))));
     const blurhash = encodeBlurhash(data, width, height, componentX, componentY);
     return { kind: "blurhash", hash: blurhash, dominantColor };
   } catch {
-    const dominantColor = await dominantColorForImage(file);
+    const dominantColor = await dominantColorForBitmap(bitmap).catch(() => null);
     return dominantColor ? { kind: "dominant_color", hash: dominantColor, dominantColor } : null;
-  } finally {
-    bitmap.close();
   }
 }
 
 async function appendImageDerivatives(formData: FormData, file: File): Promise<void> {
   try {
-    const [thumb, hero, placeholder] = await Promise.all([
-      derivativeFileForImage(file, 420, "thumb"),
-      derivativeFileForImage(file, 1400, "hero"),
-      imagePlaceholderForImage(file),
-    ]);
-    if (thumb && hero) {
-      formData.append("derivative_thumb", thumb);
-      formData.append("derivative_hero", hero);
-    }
-    if (placeholder) {
-      formData.append("placeholder_kind", placeholder.kind);
-      formData.append("placeholder_hash", placeholder.hash);
-      formData.append("dominant_color", placeholder.dominantColor);
+    const bitmap = await imageBitmapForFile(file);
+    if (!bitmap) return;
+    try {
+      const [thumb, display, hero, placeholder] = await Promise.all([
+        derivativeFileFromBitmap(file, bitmap, 420, "thumb").catch(() => null),
+        derivativeFileFromBitmap(file, bitmap, 720, "display").catch(() => null),
+        derivativeFileFromBitmap(file, bitmap, 1400, "hero").catch(() => null),
+        imagePlaceholderForBitmap(bitmap),
+      ]);
+      if (thumb) formData.append("derivative_thumb", thumb);
+      if (display) formData.append("derivative_display", display);
+      if (hero) formData.append("derivative_hero", hero);
+      if (placeholder) {
+        formData.append("placeholder_kind", placeholder.kind);
+        formData.append("placeholder_hash", placeholder.hash);
+        formData.append("dominant_color", placeholder.dominantColor);
+      }
+    } finally {
+      bitmap.close();
     }
   } catch {
     // Derivatives are an acceleration layer; never block the canonical upload.
