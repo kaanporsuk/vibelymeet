@@ -3,8 +3,8 @@ import test from "node:test";
 
 import {
   buildRecoveryAttentionTargets,
-  recoveryAttentionKey,
   selectPrimaryRecoveryAttentionTarget,
+  uploadAttentionTargetIdentity,
   type UploadAttentionLocalItem,
   type UploadAttentionServerUpload,
 } from "./uploadAttentionTargets";
@@ -83,14 +83,15 @@ test("selects the current chat target before the oldest fallback", () => {
   assert.equal(selectPrimaryRecoveryAttentionTarget(targets, "missing")?.attentionId, "local:old");
 });
 
-test("attention key changes when target routing identity, status, or timestamp changes", () => {
-  const targets = buildRecoveryAttentionTargets(
-    [local({ id: "photo-1", updatedAtMs: 1000 })],
-    [server({ id: "server-1", clientRequestId: "client-1", status: "uploading" })],
-  );
+test("target identity stays stable across status timestamp churn", () => {
+  const first = buildRecoveryAttentionTargets(
+    [local({ id: "voice-1", payload: { kind: "voice" }, updatedAtMs: 1000 })],
+    [],
+  )[0];
+  const second = buildRecoveryAttentionTargets(
+    [local({ id: "voice-1", payload: { kind: "voice" }, updatedAtMs: 4000 })],
+    [],
+  )[0];
 
-  assert.equal(
-    recoveryAttentionKey(targets),
-    `local:photo-1:match-1:user-1:failed:1000|server:server-1:match-2:user-2:uploading:${Date.parse("2026-05-20T12:00:00.000Z")}`,
-  );
+  assert.equal(uploadAttentionTargetIdentity(first), uploadAttentionTargetIdentity(second));
 });

@@ -60,8 +60,8 @@ import { PostDateOutboxRunner } from '@/lib/postDateOutbox/PostDateOutboxRunner'
 import { MatchCallProvider } from '@/lib/useMatchCall';
 import { supabase } from '@/lib/supabase';
 import {
-  recoveryAttentionKey,
   selectPrimaryRecoveryAttentionTarget,
+  uploadAttentionTargetIdentity,
 } from '@clientShared/chat/uploadAttentionTargets';
 import { completeSessionFromAuthReturnUrl } from '@/lib/nativeAuthRedirect';
 import { applyNativeReferralAttribution, captureNativeReferral } from '@/lib/referrals';
@@ -220,13 +220,12 @@ function RevenueCatUserSync() {
 }
 
 function NativeUploadRecoveryGlobalBanner({ theme }: { theme: typeof Colors.dark }) {
-  const { recoveryAttentionTargets, recoveryAttentionCount } = useChatOutbox();
+  const { recoveryAttentionTargets } = useChatOutbox();
   const pathname = usePathname();
-  const [hiddenAttentionKey, setHiddenAttentionKey] = useState('');
-  const attentionKey = useMemo(
-    () => recoveryAttentionKey(recoveryAttentionTargets),
-    [recoveryAttentionTargets],
-  );
+  const [hiddenAttentionTarget, setHiddenAttentionTarget] = useState<{
+    identity: string;
+    otherUserId: string | null;
+  } | null>(null);
   const currentOtherUserId = useMemo(() => {
     const match = pathname.match(/^\/chat\/([^/?#]+)/);
     if (!match?.[1]) return null;
@@ -236,20 +235,44 @@ function NativeUploadRecoveryGlobalBanner({ theme }: { theme: typeof Colors.dark
       return match[1];
     }
   }, [pathname]);
+  const shouldSuppressHiddenTarget = Boolean(
+    hiddenAttentionTarget &&
+      (hiddenAttentionTarget.otherUserId
+        ? hiddenAttentionTarget.otherUserId === currentOtherUserId
+        : currentOtherUserId === null),
+  );
+  const suppressedAttentionIdentity = shouldSuppressHiddenTarget
+    ? hiddenAttentionTarget?.identity ?? ''
+    : '';
+  const visibleRecoveryAttentionTargets = useMemo(
+    () =>
+      recoveryAttentionTargets.filter(
+        (target) => uploadAttentionTargetIdentity(target) !== suppressedAttentionIdentity,
+      ),
+    [recoveryAttentionTargets, suppressedAttentionIdentity],
+  );
   const primaryTarget = useMemo(
-    () => selectPrimaryRecoveryAttentionTarget(recoveryAttentionTargets, currentOtherUserId),
-    [currentOtherUserId, recoveryAttentionTargets],
+    () => selectPrimaryRecoveryAttentionTarget(visibleRecoveryAttentionTargets, currentOtherUserId),
+    [currentOtherUserId, visibleRecoveryAttentionTargets],
   );
 
   useEffect(() => {
-    if (!hiddenAttentionKey || hiddenAttentionKey === attentionKey) return;
-    setHiddenAttentionKey('');
-  }, [attentionKey, hiddenAttentionKey]);
+    if (!hiddenAttentionTarget) return;
+    const hiddenTargetStillExists = recoveryAttentionTargets.some(
+      (target) => uploadAttentionTargetIdentity(target) === hiddenAttentionTarget.identity,
+    );
+    if (!hiddenTargetStillExists) setHiddenAttentionTarget(null);
+  }, [hiddenAttentionTarget, recoveryAttentionTargets]);
 
-  if (recoveryAttentionCount <= 0 || !primaryTarget || hiddenAttentionKey === attentionKey) return null;
+  const visibleRecoveryAttentionCount = visibleRecoveryAttentionTargets.length;
+
+  if (visibleRecoveryAttentionCount <= 0 || !primaryTarget) return null;
 
   const handlePress = () => {
-    if (attentionKey) setHiddenAttentionKey(attentionKey);
+    setHiddenAttentionTarget({
+      identity: uploadAttentionTargetIdentity(primaryTarget),
+      otherUserId: primaryTarget.otherUserId,
+    });
     if (primaryTarget.otherUserId) {
       router.push({
         pathname: '/chat/[id]',
@@ -263,9 +286,9 @@ function NativeUploadRecoveryGlobalBanner({ theme }: { theme: typeof Colors.dark
     }
     router.push('/(tabs)/matches');
   };
-  const attentionLabel = recoveryAttentionCount === 1
+  const attentionLabel = visibleRecoveryAttentionCount === 1
     ? primaryTarget.label
-    : `${recoveryAttentionCount} uploads need attention`;
+    : `${visibleRecoveryAttentionCount} uploads need attention`;
 
   return (
     <Pressable

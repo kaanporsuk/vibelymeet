@@ -54,8 +54,11 @@ import { spacing, layout } from '@/constants/theme';
 import { useColorScheme } from '@/components/useColorScheme';
 import { useAuth } from '@/context/AuthContext';
 import {
+  CHAT_MESSAGE_SELECT,
   useMessages,
   useRealtimeMessages,
+  isMessageDisplayReadyForOutboxCompletion,
+  patchThreadCacheFromRawMessage,
   markMatchMessagesRead,
   useTypingBroadcast,
   type ChatMessage,
@@ -122,6 +125,7 @@ import {
 } from '@/components/chat/ChatThreadMediaViewer';
 import { dedupeLatestByRefId } from '../../../../shared/chat/refDedupe';
 import { clientRequestIdFromStructured } from '../../../../shared/chat/clientRequestId';
+import { postgrestQuotedInList } from '../../../../shared/chat/postgrestFilters';
 import { format } from 'date-fns';
 import {
   buildThreadPresentationRows,
@@ -607,6 +611,17 @@ function outboxRowClientRequestId(m: ThreadMessage): string | null {
   if (isLocalTextMessage(m)) return m.localText.outboxItemId ?? null;
   if (isLocalMediaMessage(m)) return m.localMedia.outboxItemId ?? null;
   return null;
+}
+
+function threadMessageClientRequestId(m: ThreadMessage): string | null {
+  return outboxRowClientRequestId(m) ??
+    clientRequestIdFromStructured(m.structuredPayload ?? null) ??
+    m.clientRequestId ??
+    null;
+}
+
+function localClientRequestIdFromUploadAttention(attentionId: string): string | null {
+  return attentionId.startsWith('local:') ? attentionId.slice('local:'.length) || null : null;
 }
 
 function uploadAttentionIdForThreadMessage(message: ThreadMessage): string | null {
@@ -1206,6 +1221,13 @@ export default function ChatThreadScreen() {
   const nativeSmokeScenarioId = normalizeRouteParam(smokeScenario);
   const uploadAttentionTargetId = normalizeRouteParam(uploadAttention) ?? '';
   const uploadAttentionTargetNonce = normalizeRouteParam(uploadAttentionNonce) ?? '';
+  const clearUploadAttentionRouteParams = useCallback(() => {
+    if (!uploadAttentionTargetId && !uploadAttentionTargetNonce) return;
+    router.setParams({
+      uploadAttention: undefined,
+      uploadAttentionNonce: undefined,
+    });
+  }, [uploadAttentionTargetId, uploadAttentionTargetNonce]);
   const { width: windowWidth } = useWindowDimensions();
   const insets = useSafeAreaInsets();
   const colorScheme = useColorScheme();
@@ -1234,7 +1256,7 @@ export default function ChatThreadScreen() {
     runVibeClipRecoverySweep,
     staleVibeClipUploadsForMatch,
     dismissStaleVibeClipUpload,
-    reconcileWithServerIds,
+    reconcileWithServerMessages,
     sessionUploadSummary,
     retryAllFailed,
   } = useChatOutbox();
@@ -1592,9 +1614,16 @@ export default function ChatThreadScreen() {
   }, [outboxForMatch]);
 
   useEffect(() => {
-    const ids = new Set((data?.messages ?? []).map((m) => m.id));
-    reconcileWithServerIds(ids);
-  }, [data?.messages, reconcileWithServerIds]);
+    const serverMessageIds = new Set((data?.messages ?? []).map((m) => m.id));
+    const completedClientRequestIds = new Set<string>();
+    for (const message of data?.messages ?? []) {
+      const clientRequestId = clientRequestIdFromStructured(message.structuredPayload ?? null);
+      if (clientRequestId && isMessageDisplayReadyForOutboxCompletion(message)) {
+        completedClientRequestIds.add(clientRequestId);
+      }
+    }
+    reconcileWithServerMessages({ serverMessageIds, completedClientRequestIds });
+  }, [data?.messages, reconcileWithServerMessages]);
 
   const outboxThreadMessages = useMemo<ThreadMessage[]>(
     () => outboxForMatch.map(outboxItemToThreadMessage),
@@ -1749,6 +1778,104 @@ export default function ChatThreadScreen() {
       matchId: data?.matchId ?? null,
     };
   }, [otherUserId, user?.id, data?.matchId]);
+
+  const recoverSentServerMessageForClientRequestId = useCallback(
+    async (clientRequestId: string): Promise<boolean> => {
+      if (!clientRequestId || !data?.matchId || !threadInvalidateScope) return false;
+      const { data: rows, error } = await supabase
+        .from('messages')
+        .select(CHAT_MESSAGE_SELECT)
+        .eq('match_id', data.matchId)
+        .eq('sender_id', threadInvalidateScope.currentUserId)
+        .filter('structured_payload->>client_request_id', 'eq', clientRequestId)
+        .limit(1);
+      if (error || !Array.isArray(rows) || rows.length === 0) return false;
+
+      const raw = rows[0];
+      const serverMessageIds = new Set<string>();
+      const completedClientRequestIds = new Set<string>();
+      let patchedServerMessage = false;
+      if (typeof raw?.id === 'string') serverMessageIds.add(raw.id);
+      const matchedClientRequestId = clientRequestIdFromStructured(raw?.structured_payload ?? null);
+      if (matchedClientRequestId) {
+        const patchResult = await patchThreadCacheFromRawMessage({
+          queryClient,
+          otherUserId: threadInvalidateScope.otherUserId,
+          currentUserId: threadInvalidateScope.currentUserId,
+          matchId: threadInvalidateScope.matchId,
+          raw,
+        });
+        patchedServerMessage = patchResult.patched;
+        if (patchResult.displayReady) completedClientRequestIds.add(matchedClientRequestId);
+      }
+      reconcileWithServerMessages({ serverMessageIds, completedClientRequestIds });
+      if (serverMessageIds.size > 0 && !patchedServerMessage) {
+        await queryClient.invalidateQueries({
+          queryKey: threadMessagesQueryKey(threadInvalidateScope.otherUserId, threadInvalidateScope.currentUserId),
+          exact: true,
+        });
+        await refetch();
+      }
+      return serverMessageIds.size > 0 || completedClientRequestIds.size > 0;
+    },
+    [data?.matchId, queryClient, reconcileWithServerMessages, refetch, threadInvalidateScope],
+  );
+
+  useEffect(() => {
+    if (!data?.matchId || !threadInvalidateScope || outboxForMatch.length === 0) return;
+    const loadedClientRequestIds = new Set<string>();
+    for (const message of data.messages ?? []) {
+      const clientRequestId = clientRequestIdFromStructured(message.structuredPayload ?? null);
+      if (clientRequestId) loadedClientRequestIds.add(clientRequestId);
+    }
+    const missingLocalClientRequestIds = outboxForMatch
+      .filter((item) => item.state === 'failed' || item.state === 'awaiting_hydration')
+      .map((item) => item.id)
+      .filter((clientRequestId) => !loadedClientRequestIds.has(clientRequestId));
+    if (missingLocalClientRequestIds.length === 0) return;
+
+    let cancelled = false;
+    void (async () => {
+      const { data: rows, error } = await supabase
+        .from('messages')
+        .select(CHAT_MESSAGE_SELECT)
+        .eq('match_id', data.matchId)
+        .eq('sender_id', threadInvalidateScope.currentUserId)
+        .filter('structured_payload->>client_request_id', 'in', postgrestQuotedInList(missingLocalClientRequestIds))
+        .limit(missingLocalClientRequestIds.length);
+      if (cancelled || error || !Array.isArray(rows) || rows.length === 0) return;
+
+      const serverMessageIds = new Set<string>();
+      const completedClientRequestIds = new Set<string>();
+      for (const raw of rows) {
+        if (typeof raw?.id === 'string') serverMessageIds.add(raw.id);
+        const clientRequestId = clientRequestIdFromStructured(raw.structured_payload ?? null);
+        if (!clientRequestId) continue;
+        const patchResult = await patchThreadCacheFromRawMessage({
+          queryClient,
+          otherUserId: threadInvalidateScope.otherUserId,
+          currentUserId: threadInvalidateScope.currentUserId,
+          matchId: threadInvalidateScope.matchId,
+          raw,
+        });
+        if (patchResult.displayReady) completedClientRequestIds.add(clientRequestId);
+      }
+      if (completedClientRequestIds.size > 0 || serverMessageIds.size > 0) {
+        reconcileWithServerMessages({ serverMessageIds, completedClientRequestIds });
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    data?.matchId,
+    data?.messages,
+    outboxForMatch,
+    queryClient,
+    reconcileWithServerMessages,
+    threadInvalidateScope,
+  ]);
 
   const lastThreadMsgIdRef = useRef<string | undefined>(undefined);
   const lastThreadLenRef = useRef(0);
@@ -2233,12 +2360,14 @@ export default function ChatThreadScreen() {
 
     let cancelled = false;
     let interaction: { cancel?: () => void } | null = null;
+    const localClientRequestId = localClientRequestIdFromUploadAttention(uploadAttentionTargetId);
 
     const scrollToTarget = () => {
       const index = flatListRows.findIndex(
         (row) =>
           row.type === 'message' &&
-          uploadAttentionIdForThreadMessage(row.message) === uploadAttentionTargetId,
+          (uploadAttentionIdForThreadMessage(row.message) === uploadAttentionTargetId ||
+            (localClientRequestId && threadMessageClientRequestId(row.message) === localClientRequestId)),
       );
       if (index < 0) return false;
       uploadAttentionHandledKeyRef.current = requestKey;
@@ -2251,6 +2380,7 @@ export default function ChatThreadScreen() {
           current === uploadAttentionTargetId ? '' : current,
         );
       }, 2200);
+      clearUploadAttentionRouteParams();
       return true;
     };
 
@@ -2260,7 +2390,12 @@ export default function ChatThreadScreen() {
         if (uploadAttentionRecoveryAttemptedKeyRef.current !== requestKey) {
           uploadAttentionRecoveryAttemptedKeyRef.current = requestKey;
           uploadAttentionRecoveryPendingKeyRef.current = requestKey;
-          void runVibeClipRecoverySweepForThread('foreground').finally(() => {
+          void (async () => {
+            const recoveredSentMessage = localClientRequestId
+              ? await recoverSentServerMessageForClientRequestId(localClientRequestId)
+              : false;
+            if (!recoveredSentMessage) await runVibeClipRecoverySweepForThread('foreground');
+          })().finally(() => {
             if (uploadAttentionRecoveryPendingKeyRef.current === requestKey) {
               uploadAttentionRecoveryPendingKeyRef.current = '';
             }
@@ -2272,6 +2407,7 @@ export default function ChatThreadScreen() {
         }
         if (uploadAttentionRecoveryPendingKeyRef.current === requestKey) return;
         uploadAttentionHandledKeyRef.current = requestKey;
+        clearUploadAttentionRouteParams();
         showAppDialog({
           title: 'Upload already cleared',
           message: 'That upload was already cleared or sent.',
@@ -2287,9 +2423,11 @@ export default function ChatThreadScreen() {
     };
   }, [
     clearUploadAttentionHighlightTimeout,
+    clearUploadAttentionRouteParams,
     data?.matchId,
     flatListRows,
     otherUserId,
+    recoverSentServerMessageForClientRequestId,
     runVibeClipRecoverySweepForThread,
     shellLoading,
     showAppDialog,
@@ -3546,7 +3684,13 @@ export default function ChatThreadScreen() {
 
     const msg = item.message;
     const uploadAttentionId = uploadAttentionIdForThreadMessage(msg);
-    const isUploadAttentionHighlighted = uploadAttentionId === highlightedUploadAttentionId;
+    const uploadAttentionClientRequestId = threadMessageClientRequestId(msg);
+    const isUploadAttentionHighlighted =
+      uploadAttentionId === highlightedUploadAttentionId ||
+      Boolean(
+        uploadAttentionClientRequestId &&
+          highlightedUploadAttentionId === `local:${uploadAttentionClientRequestId}`,
+      );
 
     const isDateTimeline =
       msg.messageKind === 'date_suggestion' || msg.messageKind === 'date_suggestion_event';

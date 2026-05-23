@@ -33,7 +33,7 @@
     "test:chat-native-lifecycle": "tsx scripts/chat-native-shared-object-lifecycle-contract.test.ts",
     "test:chat-overflow-actions": "tsx shared/chat/chatOverflowActionsContracts.test.ts",
     "test:chat-media-cache": "tsx scripts/media-asset-resolver-cache.test.ts",
-    "test:vibe-clip-upload-contract": "tsx src/lib/webUploadMime.test.ts && tsx shared/chat/vibeClipRecovery.test.ts && tsx shared/chat/uploadAttentionTargets.test.ts && tsx shared/chat/vibeClipUploadContracts.test.ts",
+    "test:vibe-clip-upload-contract": "tsx src/lib/webUploadMime.test.ts && tsx shared/chat/vibeClipRecovery.test.ts && tsx shared/chat/uploadAttentionTargets.test.ts && tsx shared/chat/outboxReconciliation.test.ts && tsx shared/chat/postgrestFilters.test.ts && tsx shared/chat/vibeClipUploadContracts.test.ts",
     "test:chat-vibe-clip-smoke-matrix": "bash scripts/run_chat_vibe_clip_smoke_matrix.sh --dry-run",
     "test:media-upload-sniffing": "tsx supabase/functions/_shared/media-upload-sniffing.test.ts",
     "test": "npm run test:media-sdk --silent",

@@ -623,7 +623,7 @@ export async function hydrateChatRowsForDisplay(params: {
   return collapseVibeGameMessageRows(resolvedRowsForGames, currentUserId, otherUserId, mapDbRowToChatMessage);
 }
 
-function isMessageDisplayReadyForOutboxCompletion(message: ChatMessage): boolean {
+export function isMessageDisplayReadyForOutboxCompletion(message: ChatMessage): boolean {
   const mediaRow = {
     content: message.text,
     structured_payload: message.structuredPayload,

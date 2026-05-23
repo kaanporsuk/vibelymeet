@@ -41,6 +41,7 @@ import {
 import { refreshMediaAssetUrl } from "@/lib/mediaAssetResolver";
 import { extractVibeClipMeta, type VibeClipDisplayMeta } from "../../shared/chat/messageRouting";
 import { clientRequestIdFromStructured } from "../../shared/chat/clientRequestId";
+import { postgrestQuotedInList } from "../../shared/chat/postgrestFilters";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { DateSuggestionCard } from "@/components/chat/DateSuggestionCard";
@@ -54,7 +55,12 @@ import { useRealtimeMessages } from "@/hooks/useRealtimeMessages";
 import { useRealtimeDateScheduleState } from "@/hooks/useRealtimeDateScheduleState";
 import { useTypingBroadcast } from "@/hooks/useTypingBroadcast";
 import { useMessageReactions } from "@/hooks/useMessageReactions";
-import { useMessages } from "@/hooks/useMessages";
+import {
+  CHAT_MESSAGE_SELECT,
+  isMessageDisplayReadyForOutboxCompletion,
+  patchThreadCacheFromRawMessage,
+  useMessages,
+} from "@/hooks/useMessages";
 import { useWebChatOutbox } from "@/contexts/WebChatOutboxContext";
 import { putOutboxBlob, getOutboxBlob } from "@/lib/webChatOutbox/blobIdb";
 import { webOutboxItemsToRows, type OutboxPreviewMap } from "@/lib/webChatOutbox/toChatMessages";
@@ -220,6 +226,18 @@ function cssAttributeValue(value: string): string {
 
 function uploadAttentionSelector(attentionId: string): string {
   return `[data-upload-attention-id="${cssAttributeValue(attentionId)}"]`;
+}
+
+function uploadAttentionClientRequestSelector(clientRequestId: string): string {
+  return `[data-upload-attention-client-request-id="${cssAttributeValue(clientRequestId)}"]`;
+}
+
+function localClientRequestIdFromUploadAttention(attentionId: string): string | null {
+  return attentionId.startsWith("local:") ? attentionId.slice("local:".length) || null : null;
+}
+
+function clientRequestIdForMessage(message: ChatMessage): string | null {
+  return message.clientRequestId ?? clientRequestIdFromStructured(message.structuredPayload) ?? null;
 }
 
 function uploadAttentionIdForMessage(
@@ -433,6 +451,7 @@ function VibeClipMessageRow({
   onResumeRecovery,
   onDiscardRecoveryAndSendAgain,
   uploadAttentionId,
+  uploadAttentionClientRequestId,
   isUploadAttentionHighlighted = false,
 }: {
   message: ChatMessage & { isFirstInGroup?: boolean; isLastInGroup?: boolean; showAvatar?: boolean };
@@ -455,6 +474,7 @@ function VibeClipMessageRow({
   onResumeRecovery?: (strategy: VibeClipRecoveryResumeStrategy | null) => void;
   onDiscardRecoveryAndSendAgain?: () => void;
   uploadAttentionId?: string | null;
+  uploadAttentionClientRequestId?: string | null;
   isUploadAttentionHighlighted?: boolean;
 }) {
   const baseClipMeta = useMemo(
@@ -561,6 +581,7 @@ function VibeClipMessageRow({
   return (
     <div
       data-upload-attention-id={uploadAttentionId ?? undefined}
+      data-upload-attention-client-request-id={uploadAttentionClientRequestId ?? undefined}
       className={cn(
         "flex items-end gap-2 transition-[background-color,box-shadow] duration-300",
         isMine ? "justify-end" : "justify-start",
@@ -636,23 +657,33 @@ function VibeClipMessageRow({
 const Chat = () => {
   const navigate = useNavigate();
   const { id } = useParams();
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { user } = useUserProfile();
   const currentUserId = user?.id || "";
   const queryClient = useQueryClient();
   const uploadAttentionTargetId = searchParams.get("uploadAttention") ?? "";
   const uploadAttentionNonce = searchParams.get("uploadAttentionNonce") ?? "";
-  
+  const clearUploadAttentionRouteParams = useCallback(() => {
+    if (!uploadAttentionTargetId && !uploadAttentionNonce) return;
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev);
+      next.delete("uploadAttention");
+      next.delete("uploadAttentionNonce");
+      return next;
+    }, { replace: true });
+  }, [setSearchParams, uploadAttentionNonce, uploadAttentionTargetId]);
+
   const {
     data: chatData,
     isLoading: isLoadingChat,
     fetchNextPage,
     hasNextPage,
     isFetchingNextPage,
+    refetch: refetchChat,
   } = useMessages(id || "", currentUserId);
   const webOutbox = useWebChatOutbox();
   const runWebVibeClipRecoverySweep = webOutbox.runVibeClipRecoverySweep;
-  const reconcileWebOutboxWithServerIds = webOutbox.reconcileWithServerIds;
+  const reconcileWebOutboxWithServerMessages = webOutbox.reconcileWithServerMessages;
   const { data: dateSuggestions = [], refetch: refetchDateSuggestions } = useMatchDateSuggestions(
     chatData?.matchId,
   );
@@ -1155,9 +1186,16 @@ const Chat = () => {
   }, []);
 
   useEffect(() => {
-    const ids = new Set((chatData?.messages ?? []).map((m) => m.id));
-    reconcileWebOutboxWithServerIds(ids);
-  }, [chatData?.messages, reconcileWebOutboxWithServerIds]);
+    const serverMessageIds = new Set((chatData?.messages ?? []).map((m) => m.id));
+    const completedClientRequestIds = new Set<string>();
+    for (const message of chatData?.messages ?? []) {
+      const clientRequestId = clientRequestIdFromStructured(message.structuredPayload);
+      if (clientRequestId && isMessageDisplayReadyForOutboxCompletion(message)) {
+        completedClientRequestIds.add(clientRequestId);
+      }
+    }
+    reconcileWebOutboxWithServerMessages({ serverMessageIds, completedClientRequestIds });
+  }, [chatData?.messages, reconcileWebOutboxWithServerMessages]);
 
   const messages: ChatMessage[] = useMemo(() => {
     const statusFromServer = (sender: "me" | "them", readAt?: string | null): MessageStatusType =>
@@ -1166,6 +1204,7 @@ const Chat = () => {
     const realMsgs: ChatMessage[] = (chatData?.messages || []).map((m) => {
       const pair = reactionByMessageId.get(m.id) ?? { mine: null, partner: null };
       const sortAtMs = new Date(m.createdAt).getTime();
+      const clientRequestId = clientRequestIdFromStructured(m.structuredPayload) ?? undefined;
       if (m.messageKind === "date_suggestion" || m.messageKind === "date_suggestion_event") {
         return {
           id: m.id,
@@ -1177,6 +1216,7 @@ const Chat = () => {
           structuredPayload: m.structuredPayload ?? undefined,
           status: statusFromServer(m.sender, m.readAt),
           reactionPair: pair,
+          clientRequestId,
           sortAtMs,
         };
       }
@@ -1190,6 +1230,7 @@ const Chat = () => {
           status: statusFromServer(m.sender, m.readAt),
           gameSessionView: m.gameSessionView,
           reactionPair: pair,
+          clientRequestId,
           sortAtMs,
         };
       }
@@ -1215,6 +1256,7 @@ const Chat = () => {
         videoDuration: m.videoDuration,
         thumbnailSourceRef: m.thumbnailSourceRef,
         structuredPayload: m.structuredPayload ?? undefined,
+        clientRequestId,
         status: statusFromServer(m.sender, m.readAt),
         reactionPair: pair,
         sortAtMs,
@@ -1854,7 +1896,7 @@ const Chat = () => {
           const localOutboxItem = message.outboxItemId
             ? outboxItemsById.get(message.outboxItemId)
             : undefined;
-          return `${message.id}:${uploadAttentionIdForMessage(message, localOutboxItem) ?? ""}`;
+          return `${message.id}:${uploadAttentionIdForMessage(message, localOutboxItem) ?? ""}:${clientRequestIdForMessage(message) ?? ""}`;
         })
         .join("|"),
     [outboxItemsById, rowsWithLayout],
@@ -1942,6 +1984,92 @@ const Chat = () => {
     [id, currentUserId, chatData?.matchId],
   );
 
+  const recoverSentServerMessageForClientRequestId = useCallback(
+    async (clientRequestId: string): Promise<boolean> => {
+      if (!clientRequestId || !chatData?.matchId || !threadInvalidateScope) return false;
+      const { data, error } = await supabase
+        .from("messages")
+        .select(CHAT_MESSAGE_SELECT)
+        .eq("match_id", chatData.matchId)
+        .eq("sender_id", threadInvalidateScope.currentUserId)
+        .filter("structured_payload->>client_request_id", "eq", clientRequestId)
+        .limit(1);
+      if (error || !Array.isArray(data) || data.length === 0) return false;
+
+      const raw = data[0];
+      const serverMessageIds = new Set<string>();
+      const completedClientRequestIds = new Set<string>();
+      let patchedServerMessage = false;
+      if (typeof raw?.id === "string") serverMessageIds.add(raw.id);
+      const matchedClientRequestId = clientRequestIdFromStructured(raw?.structured_payload ?? null);
+      if (matchedClientRequestId) {
+        const patchResult = await patchThreadCacheFromRawMessage(queryClient, threadInvalidateScope, raw);
+        patchedServerMessage = patchResult.patched;
+        if (patchResult.displayReady) completedClientRequestIds.add(matchedClientRequestId);
+      }
+      reconcileWebOutboxWithServerMessages({ serverMessageIds, completedClientRequestIds });
+      if (serverMessageIds.size > 0 && !patchedServerMessage) {
+        await queryClient.invalidateQueries({
+          queryKey: threadMessagesQueryKey(threadInvalidateScope.otherUserId, threadInvalidateScope.currentUserId),
+          exact: true,
+        });
+        await refetchChat();
+      }
+      return serverMessageIds.size > 0 || completedClientRequestIds.size > 0;
+    },
+    [chatData?.matchId, queryClient, reconcileWebOutboxWithServerMessages, refetchChat, threadInvalidateScope],
+  );
+
+  useEffect(() => {
+    if (!chatData?.matchId || !threadInvalidateScope || outboxMatchItems.length === 0) return;
+    const loadedClientRequestIds = new Set<string>();
+    for (const message of chatData.messages ?? []) {
+      const clientRequestId = clientRequestIdFromStructured(message.structuredPayload);
+      if (clientRequestId) loadedClientRequestIds.add(clientRequestId);
+    }
+    const missingLocalClientRequestIds = outboxMatchItems
+      .filter((item) => item.state === "failed" || item.state === "awaiting_hydration")
+      .map((item) => item.id)
+      .filter((clientRequestId) => !loadedClientRequestIds.has(clientRequestId));
+    if (missingLocalClientRequestIds.length === 0) return;
+
+    let cancelled = false;
+    void (async () => {
+      const { data, error } = await supabase
+        .from("messages")
+        .select(CHAT_MESSAGE_SELECT)
+        .eq("match_id", chatData.matchId)
+        .eq("sender_id", threadInvalidateScope.currentUserId)
+        .filter("structured_payload->>client_request_id", "in", postgrestQuotedInList(missingLocalClientRequestIds))
+        .limit(missingLocalClientRequestIds.length);
+      if (cancelled || error || !Array.isArray(data) || data.length === 0) return;
+
+      const serverMessageIds = new Set<string>();
+      const completedClientRequestIds = new Set<string>();
+      for (const raw of data) {
+        if (typeof raw?.id === "string") serverMessageIds.add(raw.id);
+        const clientRequestId = clientRequestIdFromStructured(raw.structured_payload ?? null);
+        if (!clientRequestId) continue;
+        const patchResult = await patchThreadCacheFromRawMessage(queryClient, threadInvalidateScope, raw);
+        if (patchResult.displayReady) completedClientRequestIds.add(clientRequestId);
+      }
+      if (completedClientRequestIds.size > 0 || serverMessageIds.size > 0) {
+        reconcileWebOutboxWithServerMessages({ serverMessageIds, completedClientRequestIds });
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    chatData?.matchId,
+    chatData?.messages,
+    outboxMatchItems,
+    queryClient,
+    reconcileWebOutboxWithServerMessages,
+    threadInvalidateScope,
+  ]);
+
   const refreshThreadAfterVibeClipRecoverySweep = useCallback(async () => {
     if (!id || !currentUserId) return;
     await queryClient.invalidateQueries({
@@ -1984,9 +2112,14 @@ const Chat = () => {
 
     let cancelled = false;
     let rafId: number | null = null;
+    const localClientRequestId = localClientRequestIdFromUploadAttention(uploadAttentionTargetId);
 
     const scrollToTarget = () => {
-      const el = document.querySelector<HTMLElement>(uploadAttentionSelector(uploadAttentionTargetId));
+      const directTarget = document.querySelector<HTMLElement>(uploadAttentionSelector(uploadAttentionTargetId));
+      const sentTarget = localClientRequestId
+        ? document.querySelector<HTMLElement>(uploadAttentionClientRequestSelector(localClientRequestId))
+        : null;
+      const el = directTarget ?? sentTarget;
       if (!el) return false;
       uploadAttentionHandledKeyRef.current = requestKey;
       el.scrollIntoView({ behavior: "smooth", block: "center" });
@@ -1998,6 +2131,7 @@ const Chat = () => {
           current === uploadAttentionTargetId ? "" : current,
         );
       }, UPLOAD_ATTENTION_HIGHLIGHT_MS);
+      clearUploadAttentionRouteParams();
       return true;
     };
 
@@ -2006,7 +2140,12 @@ const Chat = () => {
       if (uploadAttentionRecoveryAttemptedKeyRef.current !== requestKey) {
         uploadAttentionRecoveryAttemptedKeyRef.current = requestKey;
         uploadAttentionRecoveryPendingKeyRef.current = requestKey;
-        void runVibeClipRecoverySweepForThread("foreground").finally(() => {
+        void (async () => {
+          const recoveredSentMessage = localClientRequestId
+            ? await recoverSentServerMessageForClientRequestId(localClientRequestId)
+            : false;
+          if (!recoveredSentMessage) await runVibeClipRecoverySweepForThread("foreground");
+        })().finally(() => {
           if (uploadAttentionRecoveryPendingKeyRef.current === requestKey) {
             uploadAttentionRecoveryPendingKeyRef.current = "";
           }
@@ -2018,6 +2157,7 @@ const Chat = () => {
       }
       if (uploadAttentionRecoveryPendingKeyRef.current === requestKey) return;
       uploadAttentionHandledKeyRef.current = requestKey;
+      clearUploadAttentionRouteParams();
       toast.info("That upload was already cleared or sent.", {
         id: `upload-attention-cleared:${requestKey}`,
         duration: 4000,
@@ -2031,8 +2171,10 @@ const Chat = () => {
   }, [
     chatData?.matchId,
     clearUploadAttentionHighlightTimeout,
+    clearUploadAttentionRouteParams,
     id,
     isLoadingChat,
+    recoverSentServerMessageForClientRequestId,
     runVibeClipRecoverySweepForThread,
     uploadAttentionRecoveryTick,
     uploadAttentionRowsKey,
@@ -2713,7 +2855,13 @@ const Chat = () => {
                 ? outboxItemsById.get(groupedMessage.outboxItemId)
                 : undefined;
               const uploadAttentionId = uploadAttentionIdForMessage(groupedMessage, groupedLocalOutboxItem);
-              const isUploadAttentionHighlighted = uploadAttentionId === highlightedUploadAttentionId;
+              const uploadAttentionClientRequestId = clientRequestIdForMessage(groupedMessage);
+              const isUploadAttentionHighlighted =
+                uploadAttentionId === highlightedUploadAttentionId ||
+                Boolean(
+                  uploadAttentionClientRequestId &&
+                    highlightedUploadAttentionId === `local:${uploadAttentionClientRequestId}`,
+                );
               const threadIdx = displayMessages.findIndex((m) => m.id === message.id);
               const mediaRecede =
                 threadIdx >= 0 && lastClipOrVideoIndex >= 0 && threadIdx < lastClipOrVideoIndex;
@@ -2823,6 +2971,7 @@ const Chat = () => {
                     groupedMessage.outboxItemId ? vibeClipLocalSourceById[groupedMessage.outboxItemId] === true : false
                   }
                   uploadAttentionId={uploadAttentionId}
+                  uploadAttentionClientRequestId={uploadAttentionClientRequestId}
                   isUploadAttentionHighlighted={isUploadAttentionHighlighted}
                   onResumeRecovery={
                     groupedMessage.outboxItemId
@@ -2862,6 +3011,7 @@ const Chat = () => {
                 <div
                   key={groupedMessage.id}
                   data-upload-attention-id={uploadAttentionId ?? undefined}
+                  data-upload-attention-client-request-id={uploadAttentionClientRequestId ?? undefined}
                   className={cn(
                     "flex items-end gap-2 transition-[background-color,box-shadow] duration-300",
                     groupedMessage.sender === "me" ? "justify-end" : "justify-start",
@@ -2929,6 +3079,7 @@ const Chat = () => {
                   <div
                     key={groupedMessage.id}
                     data-upload-attention-id={uploadAttentionId ?? undefined}
+                    data-upload-attention-client-request-id={uploadAttentionClientRequestId ?? undefined}
                     className={cn(
                       "flex items-end gap-2 transition-[background-color,box-shadow] duration-300",
                       groupedMessage.sender === "me" ? "justify-end" : "justify-start",
@@ -3036,6 +3187,7 @@ const Chat = () => {
                 <div
                   key={groupedMessage.id}
                   data-upload-attention-id={uploadAttentionId ?? undefined}
+                  data-upload-attention-client-request-id={uploadAttentionClientRequestId ?? undefined}
                   className={cn(
                     "flex items-end gap-2 transition-[background-color,box-shadow] duration-300",
                     groupedMessage.sender === "me" ? "justify-end" : "justify-start",

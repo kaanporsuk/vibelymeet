@@ -18,6 +18,7 @@ import {
 } from "@/lib/chatMessageContent";
 import { toRenderableMessageKind } from "../../shared/chat/messageRouting";
 import { threadMessagesQueryKey, type ThreadInvalidateScope } from "../../shared/chat/queryKeys";
+import { postgrestQuotedInList } from "../../shared/chat/postgrestFilters";
 import { resolvePrimaryProfilePhotoPath } from "../../shared/profilePhoto/resolvePrimaryProfilePhotoPath";
 import * as vibeGameParse from "../../shared/vibely-games/parse";
 import type { DateSuggestionWithRelations } from "@/hooks/useDateSuggestionData";
@@ -274,10 +275,6 @@ function collectVibeGameSessionIds(rows: ChatRawMessageRow[]): string[] {
   return [...sessionIds];
 }
 
-function postgrestInList(values: string[]): string {
-  return `(${values.map((value) => `"${value}"`).join(",")})`;
-}
-
 async function expandVibeGameRowsForDisplay(
   matchId: string | null | undefined,
   rows: ChatRawMessageRow[],
@@ -291,7 +288,7 @@ async function expandVibeGameRowsForDisplay(
     .select(CHAT_MESSAGE_SELECT)
     .eq("match_id", matchId)
     .eq("message_kind", "vibe_game")
-    .filter("structured_payload->>game_session_id", "in", postgrestInList(sessionIds))
+    .filter("structured_payload->>game_session_id", "in", postgrestQuotedInList(sessionIds))
     .order("created_at", { ascending: true });
 
   if (error) {
@@ -361,7 +358,7 @@ export async function hydrateChatRowsForDisplay(
   });
 }
 
-function isMessageDisplayReadyForOutboxCompletion(message: Message): boolean {
+export function isMessageDisplayReadyForOutboxCompletion(message: Message): boolean {
   const mediaRow = {
     content: message.text,
     structured_payload: message.structuredPayload,
