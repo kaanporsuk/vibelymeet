@@ -148,7 +148,8 @@ test("new swipe notification paths remain present only for fresh side-effect-wor
   assert.match(swipeActions, /result\.result === "match_queued" && sessionId/);
   assert.match(swipeActions, /result\.result === "super_vibe_sent"/);
   assert.match(swipeActions, /result\.result === "vibe_recorded"/);
-  assert.match(swipeActions, /send-notification/);
+  assert.match(swipeActions, /video_date_outbox_enqueue_v2/);
+  assert.match(swipeActions, /notification\.send/);
   assert.match(swipeActions, /someone_vibed_you/);
   assert.match(swipeActions, /ready_gate/);
   assert.match(swipeActions, /const path = `\/ready\/\$\{encodeURIComponent\(videoSessionId\)\}`/);

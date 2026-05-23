@@ -111,6 +111,55 @@ function isObjectPayload(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === "object" && !Array.isArray(value));
 }
 
+const PERMANENT_NOTIFICATION_SUPPRESSIONS = new Set([
+  "account_paused",
+  "blocked_pair",
+  "forbidden",
+  "invalid_notification_payload",
+  "invalid_request",
+  "match_muted",
+  "no_player_id",
+  "no_preferences",
+  "paused",
+  "quiet_hours",
+  "suppressed_blocked_pair",
+  "unknown_category",
+  "user_disabled",
+]);
+
+function providerStatusFromReason(reason: string | null): number | null {
+  if (!reason) return null;
+  const match = reason.match(/(?:http_|status_)(\d{3})/i);
+  if (!match) return null;
+  const status = Number(match[1]);
+  return Number.isFinite(status) ? status : null;
+}
+
+function notificationPayloadFailureResult(payload: Record<string, unknown> | null): ProcessResult {
+  const reason =
+    payload ? stringField(payload, "reason", "error", "code", "onesignal_reason") : null;
+  const onesignalReason = payload ? stringField(payload, "onesignal_reason") : null;
+  const status =
+    typeof payload?.status === "number"
+      ? payload.status
+      : providerStatusFromReason(reason) ?? providerStatusFromReason(onesignalReason);
+  const normalizedReason = reason?.toLowerCase() ?? "notification_payload_not_success";
+  const detail = `notification_${normalizedReason}`.slice(0, 160);
+
+  if (PERMANENT_NOTIFICATION_SUPPRESSIONS.has(normalizedReason)) {
+    return { success: false, reason: detail, permanent: true };
+  }
+
+  if (normalizedReason === "onesignal_error" || normalizedReason.startsWith("onesignal_")) {
+    if (status === 429) return { success: false, reason: detail, retryAfterSeconds: 60 };
+    if (status != null && status >= 500) return { success: false, reason: detail, retryAfterSeconds: 30 };
+    if (status != null && status >= 400) return { success: false, reason: detail, permanent: true };
+    return { success: false, reason: detail, retryAfterSeconds: 60 };
+  }
+
+  return { success: false, reason: detail, retryAfterSeconds: 60 };
+}
+
 function safeProviderCode(value: unknown): string | null {
   if (typeof value !== "string") return null;
   const trimmed = value.trim();
@@ -413,8 +462,28 @@ async function sendNotification(
 ): Promise<ProcessResult> {
   const userId = stringField(row.payload, "user_id", "userId");
   const category = stringField(row.payload, "category", "type");
+  const title = stringField(row.payload, "title");
+  const body = stringField(row.payload, "body");
   const data = isObjectPayload(row.payload.data) ? row.payload.data : {};
   if (!userId || !category) return { success: false, reason: "invalid_notification_payload", permanent: true };
+  const requestBody: Record<string, unknown> = {
+    user_id: userId,
+    category,
+    data,
+    dedupe_key: stringField(row.payload, "dedupe_key", "dedupeKey") ?? row.dedupe_key ?? undefined,
+  };
+  if (title) requestBody.title = title;
+  if (body) requestBody.body = body;
+  if (Array.isArray(row.payload.channels)) requestBody.channels = row.payload.channels;
+  if (typeof row.payload.priority === "string") requestBody.priority = row.payload.priority;
+  if (typeof row.payload.group_key === "string") requestBody.group_key = row.payload.group_key;
+  if (typeof row.payload.groupKey === "string") requestBody.group_key = row.payload.groupKey;
+  if (typeof row.payload.expires_at === "string") requestBody.expires_at = row.payload.expires_at;
+  if (typeof row.payload.expiresAt === "string") requestBody.expires_at = row.payload.expiresAt;
+  if (isObjectPayload(row.payload.action)) requestBody.action = row.payload.action;
+  if (typeof row.payload.actor_id === "string") requestBody.actor_id = row.payload.actor_id;
+  if (typeof row.payload.actorId === "string") requestBody.actor_id = row.payload.actorId;
+  if (typeof row.payload.bypass_preferences === "boolean") requestBody.bypass_preferences = row.payload.bypass_preferences;
 
   const res = await fetch(`${supabaseUrl}/functions/v1/send-notification`, {
     method: "POST",
@@ -422,7 +491,7 @@ async function sendNotification(
       "Content-Type": "application/json",
       Authorization: `Bearer ${serviceKey}`,
     },
-    body: JSON.stringify({ user_id: userId, category, data }),
+    body: JSON.stringify(requestBody),
   });
 
   if (!res.ok) {
@@ -434,9 +503,9 @@ async function sendNotification(
     };
   }
 
-  const body = (await res.json().catch(() => null)) as { success?: unknown; ok?: unknown } | null;
-  if (body?.success === false || body?.ok === false) {
-    return { success: false, reason: "notification_payload_not_success", retryAfterSeconds: 60 };
+  const responseBody = (await res.json().catch(() => null)) as Record<string, unknown> | null;
+  if (responseBody?.success === false || responseBody?.ok === false) {
+    return notificationPayloadFailureResult(responseBody);
   }
   return { success: true, reason: "notification_sent" };
 }

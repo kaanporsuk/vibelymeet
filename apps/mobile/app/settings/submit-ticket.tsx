@@ -30,17 +30,25 @@ function isPrimaryType(s: string | undefined): s is PrimaryType {
   return s === 'support' || s === 'feedback' || s === 'safety';
 }
 
+function firstParam(value: string | string[] | undefined): string | undefined {
+  return Array.isArray(value) ? value[0] : value;
+}
+
 export default function SubmitTicketScreen() {
   const insets = useSafeAreaInsets();
   const colorScheme = useColorScheme();
   const theme = Colors[colorScheme];
   const { user } = useAuth();
-  const params = useLocalSearchParams<{ primaryType?: string }>();
+  const params = useLocalSearchParams<{ primaryType?: string; subcategory?: string }>();
 
-  const primaryType: PrimaryType = isPrimaryType(params.primaryType) ? params.primaryType : 'support';
+  const primaryParam = firstParam(params.primaryType);
+  const subcategoryParam = firstParam(params.subcategory);
+  const primaryType: PrimaryType = isPrimaryType(primaryParam) ? primaryParam : 'support';
   const cfg = SUPPORT_CATEGORIES[primaryType];
 
-  const [selectedSub, setSelectedSub] = useState<string | null>(null);
+  const [selectedSub, setSelectedSub] = useState<string | null>(
+    subcategoryParam && cfg.subcategories.includes(subcategoryParam) ? subcategoryParam : null,
+  );
   const [message, setMessage] = useState('');
   const [userEmail, setUserEmail] = useState(user?.email ?? '');
   const [smartValues, setSmartValues] = useState<Record<string, string>>({});

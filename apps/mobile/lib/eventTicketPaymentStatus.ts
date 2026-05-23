@@ -1,10 +1,18 @@
 import { supabase } from '@/lib/supabase';
 import {
+  eventTicketPaymentSuccessCopy,
   normalizeEventTicketPaymentStatus,
+  resolveEventTicketPaymentViewState,
   type EventTicketPaymentStatus,
+  type EventTicketPaymentSuccessCopy,
+  type EventTicketPaymentViewState,
 } from '@clientShared/matching/videoDatePublicApi';
 
-export type { EventTicketPaymentStatus };
+export {
+  eventTicketPaymentSuccessCopy,
+  resolveEventTicketPaymentViewState,
+};
+export type { EventTicketPaymentStatus, EventTicketPaymentSuccessCopy, EventTicketPaymentViewState };
 
 export async function fetchEventTicketPaymentStatus(eventId: string): Promise<EventTicketPaymentStatus> {
   if (!eventId) {

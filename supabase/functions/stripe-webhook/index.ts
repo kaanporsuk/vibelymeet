@@ -12,6 +12,8 @@ const supabase = createClient(
   Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
 )
 
+const WEBHOOK_PROCESSING_STALE_MS = 5 * 60 * 1000
+
 function asRecord(value: unknown): Record<string, unknown> | null {
   return value && typeof value === 'object' ? (value as Record<string, unknown>) : null
 }
@@ -30,8 +32,10 @@ function pickResultCode(result: unknown): string {
   if (!root) return 'ok'
   if (typeof root.outcome === 'string') return root.outcome
   if (typeof root.action === 'string') return root.action
+  if (typeof root.code === 'string') return root.code
   const nested = asRecord(root.result)
   if (nested && typeof nested.action === 'string') return nested.action
+  if (nested && typeof nested.code === 'string') return nested.code
   return 'ok'
 }
 
@@ -65,6 +69,26 @@ type WebhookContext = {
 
 function stripeId(value: unknown): string | null {
   return typeof value === 'string' ? value : null
+}
+
+function stripeObjectId(value: unknown): string | null {
+  if (typeof value === 'string') return value
+  const record = asRecord(value)
+  return typeof record?.id === 'string' ? record.id : null
+}
+
+function timestampMs(value: unknown): number | null {
+  if (typeof value !== 'string') return null
+  const parsed = Date.parse(value)
+  return Number.isFinite(parsed) ? parsed : null
+}
+
+function isWebhookProcessingStale(existing: Record<string, unknown> | null, nowMs = Date.now()): boolean {
+  if (existing?.status !== 'processing') return false
+  const processingStartedAtMs = timestampMs(existing.processing_started_at)
+  const updatedAtMs = timestampMs(existing.updated_at)
+  const lastProgressMs = processingStartedAtMs ?? updatedAtMs
+  return lastProgressMs == null || lastProgressMs <= nowMs - WEBHOOK_PROCESSING_STALE_MS
 }
 
 function contextFromStripeEvent(event: Stripe.Event): WebhookContext {
@@ -127,7 +151,7 @@ async function recordWebhookEvent(
 
 async function markEventTicketIntent(
   checkoutSessionId: string,
-  status: 'settled' | 'settlement_failed' | 'ignored',
+  status: 'settled' | 'settlement_failed' | 'ignored' | 'refund_pending' | 'refunded' | 'refund_failed' | 'support_needed',
   stripeEventId: string,
 ) {
   const update: Record<string, unknown> = {
@@ -144,6 +168,48 @@ async function markEventTicketIntent(
 
   if (error) {
     console.error('stripe_event_ticket_checkout_intents status update failed:', error)
+  }
+}
+
+async function enqueueEventTicketRefund(args: {
+  checkoutSessionId: string
+  userId: string
+  eventId: string
+  paymentIntentId: string | null
+  amount: number | null
+  currency: string | null
+  reasonCode: string
+  settlementOutcome?: string | null
+  stripeEventId: string
+  metadata?: Record<string, unknown>
+}): Promise<{ ok: boolean; status: string | null; supportNeeded: boolean; error: string | null }> {
+  const { data, error } = await supabase.rpc('enqueue_event_ticket_refund_v1', {
+    p_checkout_session_id: args.checkoutSessionId,
+    p_profile_id: args.userId,
+    p_event_id: args.eventId,
+    p_payment_intent_id: args.paymentIntentId,
+    p_amount: args.amount,
+    p_currency: args.currency,
+    p_reason_code: args.reasonCode,
+    p_settlement_outcome: args.settlementOutcome ?? null,
+    p_stripe_event_id: args.stripeEventId,
+    p_metadata: {
+      source: 'stripe-webhook',
+      ...args.metadata,
+    },
+  })
+
+  if (error) {
+    console.error('enqueue_event_ticket_refund_v1 error:', error)
+    return { ok: false, status: null, supportNeeded: false, error: error.message ?? 'refund_enqueue_rpc_error' }
+  }
+
+  const payload = asRecord(data) ?? {}
+  return {
+    ok: payload.ok === true,
+    status: typeof payload.status === 'string' ? payload.status : null,
+    supportNeeded: payload.support_needed === true || payload.supportNeeded === true,
+    error: typeof payload.error === 'string' ? payload.error : null,
   }
 }
 
@@ -188,7 +254,7 @@ async function beginWebhookProcessing(context: WebhookContext) {
 
   const { data: existing, error: readError } = await supabase
     .from('stripe_webhook_events')
-    .select('status, result, error_code')
+    .select('status, result, error_code, processing_started_at, updated_at')
     .eq('stripe_event_id', context.stripe_event_id)
     .maybeSingle()
 
@@ -197,26 +263,49 @@ async function beginWebhookProcessing(context: WebhookContext) {
   }
 
   const existingStatus = existing?.status as string | undefined
-  if (existingStatus === 'failed' || existingStatus === 'received') {
-    const { data: claimed, error: claimError } = await supabase
+  const staleProcessing = isWebhookProcessingStale(asRecord(existing))
+  if (existingStatus === 'failed' || existingStatus === 'received' || staleProcessing) {
+    let claimQuery = supabase
       .from('stripe_webhook_events')
       .update({
         status: 'processing',
-        result: 'retrying',
+        result: staleProcessing ? 'retrying_stale_processing' : 'retrying',
         error_code: null,
         processing_started_at: now,
         updated_at: now,
       })
       .eq('stripe_event_id', context.stripe_event_id)
-      .in('status', ['failed', 'received'])
-      .select('stripe_event_id')
-      .maybeSingle()
+    if (staleProcessing) {
+      claimQuery = claimQuery.eq('status', 'processing')
+      claimQuery = typeof existing?.processing_started_at === 'string'
+        ? claimQuery.eq('processing_started_at', existing.processing_started_at)
+        : claimQuery.is('processing_started_at', null)
+      claimQuery = typeof existing?.updated_at === 'string'
+        ? claimQuery.eq('updated_at', existing.updated_at)
+        : claimQuery.is('updated_at', null)
+    } else {
+      claimQuery = claimQuery.in('status', ['failed', 'received'])
+    }
+
+    const { data: claimed, error: claimError } = await claimQuery.select('stripe_event_id').maybeSingle()
 
     if (claimError) {
       return { shouldProcess: false, duplicate: true, retrying: false, error: claimError.message ?? 'webhook_ledger_claim_failed' }
     }
     if (claimed?.stripe_event_id) {
-      await recordWebhookEvent('webhook_received', 'processing', 'webhook_retry_started', context)
+      await recordWebhookEvent(
+        'webhook_received',
+        'processing',
+        staleProcessing ? 'webhook_stale_processing_reclaimed' : 'webhook_retry_started',
+        context,
+        null,
+        {
+          ...context.metadata_summary,
+          previous_status: existingStatus ?? null,
+          previous_processing_started_at: existing?.processing_started_at ?? null,
+          previous_updated_at: existing?.updated_at ?? null,
+        },
+      )
       return { shouldProcess: true, duplicate: true, retrying: true, error: null as string | null }
     }
   }
@@ -226,6 +315,7 @@ async function beginWebhookProcessing(context: WebhookContext) {
     existing_status: existingStatus ?? 'unknown',
     existing_result: existing?.result ?? null,
     existing_error_code: existing?.error_code ?? null,
+    existing_processing_started_at: existing?.processing_started_at ?? null,
   })
   return { shouldProcess: false, duplicate: true, retrying: false, error: null as string | null }
 }
@@ -366,13 +456,31 @@ Deno.serve(async (req) => {
           const eventId = session.metadata?.event_id
           const amountTotal = typeof session.amount_total === 'number' ? session.amount_total : null
           const currency = typeof session.currency === 'string' ? session.currency : null
+          const paymentIntentId = stripeObjectId(session.payment_intent)
 
           if (userId && eventId) {
             if (amountTotal == null || !currency) {
-              finalStatus = 'ignored'
-              finalResult = 'event_ticket_missing_amount'
               finalErrorCode = 'missing_amount_or_currency'
-              await markEventTicketIntent(session.id, 'ignored', event.id)
+              const refund = await enqueueEventTicketRefund({
+                checkoutSessionId: session.id,
+                userId,
+                eventId,
+                paymentIntentId,
+                amount: amountTotal,
+                currency,
+                reasonCode: finalErrorCode,
+                settlementOutcome: 'missing_amount_or_currency',
+                stripeEventId: event.id,
+                metadata: { stage: 'pre_verify' },
+              })
+              if (!refund.ok) {
+                requestStripeRetry = true
+                finalResult = 'event_ticket_refund_enqueue_failed'
+                finalErrorCode = refund.error ?? 'refund_enqueue_failed'
+                break
+              }
+              finalResult = `event_ticket_missing_amount_refund_${refund.status ?? 'support_needed'}`
+              await markEventTicketIntent(session.id, refund.supportNeeded ? 'support_needed' : 'refund_pending', event.id)
               logLifecycle({
                 event_id: eventId,
                 user_id: userId,
@@ -406,9 +514,26 @@ Deno.serve(async (req) => {
 
             const verified = verifyResult as { success?: boolean; code?: string } | null
             if (verified?.success !== true) {
-              finalStatus = 'ignored'
-              finalResult = `event_ticket_${verified?.code ?? 'intent_verification_rejected'}`
               finalErrorCode = verified?.code ?? 'intent_verification_rejected'
+              const refund = await enqueueEventTicketRefund({
+                checkoutSessionId: session.id,
+                userId,
+                eventId,
+                paymentIntentId,
+                amount: amountTotal,
+                currency,
+                reasonCode: finalErrorCode,
+                settlementOutcome: 'intent_verification_rejected',
+                stripeEventId: event.id,
+                metadata: { stage: 'verify_intent', verify_result: verifyResult },
+              })
+              if (!refund.ok) {
+                requestStripeRetry = true
+                finalResult = 'event_ticket_refund_enqueue_failed'
+                finalErrorCode = refund.error ?? 'refund_enqueue_failed'
+                break
+              }
+              finalResult = `event_ticket_${finalErrorCode}_refund_${refund.status ?? 'pending'}`
               logLifecycle({
                 event_id: eventId,
                 user_id: userId,
@@ -446,13 +571,32 @@ Deno.serve(async (req) => {
             }
             console.log('settle_event_ticket_checkout:', JSON.stringify(settleResult))
             const settled = settleResult as { success?: boolean; idempotent?: boolean } | null
-            await markEventTicketIntent(
-              session.id,
-              settled?.success === false ? 'settlement_failed' : 'settled',
-              event.id,
-            )
             finalResult = `event_ticket_${pickResultCode(settleResult)}`
             finalErrorCode = settled?.success === false ? (settled as { code?: string }).code ?? 'business_reject' : null
+            if (settled?.success === false) {
+              const refund = await enqueueEventTicketRefund({
+                checkoutSessionId: session.id,
+                userId,
+                eventId,
+                paymentIntentId,
+                amount: amountTotal,
+                currency,
+                reasonCode: finalErrorCode ?? 'business_reject',
+                settlementOutcome: pickResultCode(settleResult),
+                stripeEventId: event.id,
+                metadata: { stage: 'settle_event_ticket_checkout', settle_result: settleResult },
+              })
+              if (!refund.ok) {
+                requestStripeRetry = true
+                finalResult = 'event_ticket_refund_enqueue_failed'
+                finalErrorCode = refund.error ?? 'refund_enqueue_failed'
+                break
+              }
+              finalResult = `event_ticket_${pickResultCode(settleResult)}_refund_${refund.status ?? 'pending'}`
+              await markEventTicketIntent(session.id, refund.supportNeeded ? 'support_needed' : 'refund_pending', event.id)
+            } else {
+              await markEventTicketIntent(session.id, 'settled', event.id)
+            }
             logLifecycle({
               event_id: eventId,
               user_id: userId,

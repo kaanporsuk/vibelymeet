@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useState } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { motion } from "framer-motion";
 import {
@@ -46,6 +46,7 @@ import {
 } from "@shared/settingsMembershipDisplay";
 import { useUserProfile } from "@/contexts/AuthContext";
 import { trackEvent } from "@/lib/analytics";
+import type { PrimaryType } from "@/lib/supportCategories";
 
 const NotificationsDrawer = lazy(() =>
   import("@/components/settings/NotificationsDrawer").then((mod) => ({ default: mod.NotificationsDrawer }))
@@ -91,6 +92,13 @@ const Settings = () => {
   const [showFeedback, setShowFeedback] = useState(false);
 
   const { id: deepLinkTicketId } = useParams<{ id?: string }>();
+  const feedbackPrimaryType = searchParams.get("primaryType");
+  const feedbackSubcategory = searchParams.get("subcategory");
+  const isSupportDeepLink = searchParams.get("drawer") === "support";
+  const initialFeedbackPrimaryType: PrimaryType =
+    feedbackPrimaryType === "feedback" || feedbackPrimaryType === "safety" || feedbackPrimaryType === "support"
+      ? feedbackPrimaryType
+      : "support";
 
   useEffect(() => {
     if (deepLinkTicketId) {
@@ -99,11 +107,27 @@ const Settings = () => {
   }, [deepLinkTicketId]);
 
   useEffect(() => {
-    if (searchParams.get("drawer") === "notifications") {
+    const drawer = searchParams.get("drawer");
+    if (drawer === "notifications") {
       setActiveDrawer("notifications");
       setSearchParams((prev) => {
         const next = new URLSearchParams(prev);
         next.delete("drawer");
+        return next;
+      }, { replace: true });
+    } else if (drawer === "support") {
+      setShowFeedback(true);
+    }
+  }, [searchParams, setSearchParams]);
+
+  const handleFeedbackOpenChange = useCallback((open: boolean) => {
+    setShowFeedback(open);
+    if (!open && searchParams.get("drawer") === "support") {
+      setSearchParams((prev) => {
+        const next = new URLSearchParams(prev);
+        next.delete("drawer");
+        next.delete("primaryType");
+        next.delete("subcategory");
         return next;
       }, { replace: true });
     }
@@ -421,7 +445,13 @@ const Settings = () => {
         ) : null}
 
         {showFeedback ? (
-          <FeedbackDrawer open={showFeedback} onOpenChange={setShowFeedback} initialTicketId={deepLinkTicketId} />
+          <FeedbackDrawer
+            open={showFeedback}
+            onOpenChange={handleFeedbackOpenChange}
+            initialTicketId={deepLinkTicketId}
+            initialPrimaryType={isSupportDeepLink ? initialFeedbackPrimaryType : undefined}
+            initialSubcategory={isSupportDeepLink ? feedbackSubcategory : null}
+          />
         ) : null}
       </Suspense>
 

@@ -87,6 +87,11 @@ verify_jwt = false
 [functions.create-event-checkout]
 verify_jwt = true
 
+# Drains automatic event-ticket refund jobs. Gateway JWT stays off because
+# pg_cron calls it with Bearer CRON_SECRET; the function performs cron auth.
+[functions.process-event-ticket-refunds]
+verify_jwt = false
+
 [functions.create-credits-checkout]
 verify_jwt = false
 

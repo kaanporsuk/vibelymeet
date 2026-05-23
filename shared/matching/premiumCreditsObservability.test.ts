@@ -86,6 +86,13 @@ test("stripe-webhook uses Stripe event id for duplicate-safe webhook processing"
   assert.match(webhook, /idempotent:\s*true/);
   assert.match(webhook, /status:\s*'processing'/);
   assert.match(webhook, /\.in\('status', \['failed', 'received'\]\)/);
+  assert.match(webhook, /WEBHOOK_PROCESSING_STALE_MS/);
+  assert.match(webhook, /isWebhookProcessingStale/);
+  assert.match(webhook, /retrying_stale_processing/);
+  assert.match(webhook, /webhook_stale_processing_reclaimed/);
+  assert.match(webhook, /\.eq\('status', 'processing'\)/);
+  assert.match(webhook, /\.eq\('processing_started_at', existing\.processing_started_at\)/);
+  assert.match(webhook, /\.eq\('updated_at', existing\.updated_at\)/);
 });
 
 test("duplicate processed webhook path skips settlement and returns success", () => {
