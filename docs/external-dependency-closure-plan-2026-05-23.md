@@ -22,6 +22,7 @@ This is the closure plan for the 2026-05-22 external-dependency audit. It record
 | PostHog | unproven | Web/native/server env paths exist; no PostHog management API credentials available. | Manual PostHog checklist below. |
 | Sentry | unproven | Web/native/server DSN paths exist; no `SENTRY_AUTH_TOKEN` available. | Manual Sentry checklist below. |
 | Vercel deploy/env freshness | unproven | Public domain probes passed; local CLI missing; Vercel connector returned 403 for project. | Manual Vercel checklist below. |
+| Cloudflare Turnstile account deletion | source-confirmed | `/delete-account` renders an explicit Turnstile widget from `VITE_TURNSTILE_SITE_KEY`; `request-account-deletion` verifies `captchaToken` with `TURNSTILE_SECRET_KEY` and uses `ACCOUNT_DELETION_RATE_LIMIT_PEPPER` for hashed rate limits. | Use Managed mode, hostnames `vibelymeet.com` and `www.vibelymeet.com`, and keep pre-clearance off. |
 | Cloudflare zone/proxy/SSL mode | unproven | Public DNS/TLS probes passed; Cloudflare dashboard/API unavailable. | Manual Cloudflare checklist below. |
 | Retired `email-drip` and `unsubscribe` docs | stale docs | Functions are absent from current source/config/cloud; historical docs still mention them. | Keep marked retired unless product explicitly restores them. |
 | Retired `account-pause` / `account-resume` function docs | stale docs | Function directories/config entries are absent; pause behavior is now table/RPC/client-owned in current code. | Mark as retired wherever operator-facing. |
@@ -41,8 +42,9 @@ This is the closure plan for the 2026-05-22 external-dependency audit. It record
 | `REVENUECAT_WEBHOOK_AUTHORIZATION`, `REVENUECAT_SECRET_API_KEY` | active | Native entitlement webhook and subscriber sync. |
 | `POSTHOG_API_KEY`, `POSTHOG_HOST` | optional | Server-side analytics/ops events. Product can run without it but observability degrades. |
 | `SENTRY_DSN`, `SENTRY_ENVIRONMENT`, `SENTRY_FLUSH_TIMEOUT_MS`, `SENTRY_TRACES_SAMPLE_RATE` | optional | Error reporting/tracing; release can run without full proof, but incidents are harder to diagnose. |
-| `TURNSTILE_SECRET_KEY` | active operator decision | `request-account-deletion` checks it. Decide whether account deletion must require Turnstile in production. |
-| `ACCOUNT_DELETION_RATE_LIMIT_PEPPER` | active operator decision | Referenced by account-deletion rate-limit posture; set only if the current function path requires it. |
+| `VITE_TURNSTILE_SITE_KEY` | active frontend public env | Public Cloudflare Turnstile site key used by `src/pages/legal/DeleteAccountWeb.tsx` for `/delete-account`. Safe for the browser; value still must not be pasted into docs. |
+| `TURNSTILE_SECRET_KEY` | active server secret | Supabase Edge Function secret used only by `request-account-deletion` for Cloudflare Siteverify. Do not prefix with `VITE_`. |
+| `ACCOUNT_DELETION_RATE_LIMIT_PEPPER` | active server secret | Supabase Edge Function secret used by `request-account-deletion` to hash IP/email rate-limit keys. Do not prefix with `VITE_`. |
 | `BUNNY_ARCHIVE_STORAGE_ZONE`, `BUNNY_ARCHIVE_STORAGE_API_KEY`, `BUNNY_STORAGE_ARCHIVE_ZONE`, `BUNNY_STORAGE_ARCHIVE_API_KEY` | active/optional operator decision | Archive delete/recovery helpers use aliases. Confirm whether archive storage is enabled. |
 | `BUNNY_CHAT_STREAM_COLLECTION_ID` | optional/future-only | Current source references chat stream integration; dashboard collection usage needs operator confirmation. |
 | `DAILY_DROP_ALERT_EMAILS` | optional | Health/alert recipients only. |
@@ -132,6 +134,17 @@ This is the closure plan for the 2026-05-22 external-dependency audit. It record
 3. Confirm proxy mode for each record is intentional.
 4. Confirm SSL/TLS mode is strict enough for the Vercel/Bunny/Supabase origin paths.
 5. Do not edit DNS during verification.
+
+### Cloudflare Turnstile
+
+1. Widget mode for the public account-deletion flow: Managed.
+2. Add allowed hostnames `vibelymeet.com` and `www.vibelymeet.com`; add preview/staging/local hostnames only when those environments intentionally exercise `/delete-account` with this widget.
+3. Keep pre-clearance / skip future challenges off; the current flow needs a one-time Turnstile token, not a Cloudflare clearance cookie.
+4. Confirm `VITE_TURNSTILE_SITE_KEY` is set in the frontend environment and `TURNSTILE_SECRET_KEY` plus `ACCOUNT_DELETION_RATE_LIMIT_PEPPER` are set as Supabase Edge Function secrets. Check names only; do not print values.
+5. Validate `/delete-account` renders the Turnstile widget and submits the callback token as `captchaToken` to `request-account-deletion`.
+6. Validate missing or invalid `captchaToken` returns generic success and performs no account-deletion side effect.
+7. Validate a valid token allows the request path only for an approved test email; do not use a real user without explicit approval.
+8. Validate responses remain enumeration-safe: nonexistent emails, invalid emails, invalid captcha, rate-limit denial, duplicate request, and success all return generic success.
 
 ## Daily Real-Event Smoke Only
 

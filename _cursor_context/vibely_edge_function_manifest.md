@@ -175,10 +175,10 @@ The function exists in source but is not represented in `supabase/config.toml`.
 ### `request-account-deletion`
 - **Purpose:** receives deletion requests from the public delete-account flow and creates a pending request if the email maps to a real user
 - **Auth posture:** Class B — intentionally callable without logged-in user auth
-- **Frontend call sites:** `src/pages/legal/DeleteAccountWeb.tsx`
+- **Frontend call sites:** `src/pages/legal/DeleteAccountWeb.tsx`; public `/delete-account` sends the Turnstile callback token as `captchaToken`
 - **Primary tables touched:** `account_deletion_requests`, `chat_media_retention_states`, `media_references`, `media_assets`
-- **Env vars:** `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`
-- **Rebuild notes:** returns generic success even for invalid/nonexistent emails to avoid account enumeration; does not immediately suspend the account. Authenticated same-user requests now apply only a reversible grace-window hold via `apply_account_deletion_media_hold`; they must not treat the user as finally deleted until the deletion request is marked `completed`.
+- **Env vars:** `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `TURNSTILE_SECRET_KEY`, `ACCOUNT_DELETION_RATE_LIMIT_PEPPER`
+- **Rebuild notes:** public web uses Cloudflare Turnstile Managed mode with frontend `VITE_TURNSTILE_SITE_KEY`; the server verifies `captchaToken` with `TURNSTILE_SECRET_KEY` and hashes rate-limit keys with `ACCOUNT_DELETION_RATE_LIMIT_PEPPER`. Returns generic success even for invalid/nonexistent emails to avoid account enumeration; does not immediately suspend the account. Authenticated same-user requests now apply only a reversible grace-window hold via `apply_account_deletion_media_hold`; they must not treat the user as finally deleted until the deletion request is marked `completed`.
 
 ### `cancel-deletion`
 - **Purpose:** cancels a pending account-deletion request for the authenticated user

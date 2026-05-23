@@ -242,7 +242,7 @@ Do not assume the checked-in root `.env` covers this set. It does not.
 - `push-webhook`: `verify_jwt = false`; external providers cannot present a Supabase user JWT, so the function fail-closes unless `x-webhook-secret` matches `PUSH_WEBHOOK_SECRET`. Repo evidence treats it as generic FCM/APNs/web receipt telemetry, not proven OneSignal receipt wiring.
 
 ### Required secrets for hardened behavior
-- `PUSH_WEBHOOK_SECRET`, `UNSUB_HMAC_SECRET`, `CRON_SECRET`, `BUNNY_VIDEO_WEBHOOK_TOKEN`, `DAILY_WEBHOOK_SECRET` (plus existing Stripe/Bunny/Daily/Resend/Twilio/OneSignal).
+- `PUSH_WEBHOOK_SECRET`, `UNSUB_HMAC_SECRET`, `CRON_SECRET`, `BUNNY_VIDEO_WEBHOOK_TOKEN`, `DAILY_WEBHOOK_SECRET`, `TURNSTILE_SECRET_KEY`, `ACCOUNT_DELETION_RATE_LIMIT_PEPPER` (plus existing Stripe/Bunny/Daily/Resend/Twilio/OneSignal).
 
 ### Functions to review with extra care
 - `stripe-webhook`, `video-webhook`, `video-date-daily-webhook`, `push-webhook`, `generate-daily-drops`, `request-account-deletion`

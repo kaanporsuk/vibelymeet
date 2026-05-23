@@ -827,7 +827,8 @@
       "VITE_SUPABASE_PUBLISHABLE_KEY",
       "VITE_SUPABASE_URL",
       "VITE_SENTRY_DSN",
-      "VITE_ONESIGNAL_APP_ID"
+      "VITE_ONESIGNAL_APP_ID",
+      "VITE_TURNSTILE_SITE_KEY"
     ],
     "backend_function_vars": [
       "APP_URL",
@@ -856,7 +857,9 @@
       "TWILIO_AUTH_TOKEN",
       "TWILIO_VERIFY_SERVICE_SID",
       "UNSUB_HMAC_SECRET",
-      "BUNNY_VIDEO_WEBHOOK_TOKEN"
+      "BUNNY_VIDEO_WEBHOOK_TOKEN",
+      "TURNSTILE_SECRET_KEY",
+      "ACCOUNT_DELETION_RATE_LIMIT_PEPPER"
     ],
     "notes": [
       "The checked-in root .env is partial and includes malformed/non-standard lines.",
@@ -895,11 +898,11 @@
         "EMAIL_VERIFICATION_FROM_EMAIL",
         "REVENUECAT_WEBHOOK_AUTHORIZATION",
         "REVENUECAT_SECRET_API_KEY",
-        "CRON_SECRET"
+        "CRON_SECRET",
+        "TURNSTILE_SECRET_KEY",
+        "ACCOUNT_DELETION_RATE_LIMIT_PEPPER"
       ],
       "active_operator_decision": [
-        "TURNSTILE_SECRET_KEY",
-        "ACCOUNT_DELETION_RATE_LIMIT_PEPPER",
         "BUNNY_ARCHIVE_STORAGE_ZONE",
         "BUNNY_ARCHIVE_STORAGE_API_KEY",
         "BUNNY_STORAGE_ARCHIVE_ZONE",
