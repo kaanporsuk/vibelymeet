@@ -37,12 +37,24 @@ import {
   deleteMediaAsset,
   type BunnyStorageZoneTier,
 } from "../_shared/bunny-media.ts";
-import { capture } from "../_shared/posthog.ts";
+import { captureMediaTelemetry } from "../_shared/media-telemetry.ts";
 
 const corsHeaders: Record<string, string> = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
+
+function mediaTelemetryErrorCode(detail: string | null | undefined): string {
+  const value = detail?.toLowerCase() ?? "";
+  if (value.includes("invalid_storage_path")) return "invalid_storage_path";
+  if (value.includes("config")) return "provider_config_error";
+  if (value.includes("network")) return "provider_network_error";
+  if (value.includes("timeout")) return "provider_timeout";
+  if (value.includes("archive_upload_failed")) return "archive_upload_failed";
+  if (value.includes("hot_fetch_failed")) return "hot_fetch_failed";
+  if (value.includes("failed")) return "provider_operation_failed";
+  return "media_operation_failed";
+}
 
 interface JobRow {
   id: string;
@@ -254,16 +266,15 @@ Deno.serve(async (req) => {
               .update({ archive_error: detail.slice(0, 500) })
               .eq("id", row.id)
               .eq("storage_zone", "hot");
-            void capture({
+            void captureMediaTelemetry({
               event: "media_archive_failed",
               distinct_id: row.id,
               properties: {
-                feature: "media-sdk",
                 worker_id: workerId,
-                asset_id: row.id,
+                asset_present: true,
                 media_family: row.media_family,
                 provider: row.provider,
-                error: detail.slice(0, 500),
+                error_code: mediaTelemetryErrorCode(detail),
               },
             });
             continue;
@@ -292,26 +303,24 @@ Deno.serve(async (req) => {
           if (!hotDeleteResult.success) {
             const detail = hotDeleteResult.error ?? hotDeleteResult.detail;
             stats.errors.push(`cold-tier hot cleanup ${row.id}: ${detail}`);
-            void capture({
+            void captureMediaTelemetry({
               event: "media_archive_hot_delete_failed",
               distinct_id: row.id,
               properties: {
-                feature: "media-sdk",
                 worker_id: workerId,
-                asset_id: row.id,
+                asset_present: true,
                 media_family: row.media_family,
                 provider: row.provider,
-                error: detail.slice(0, 500),
+                error_code: mediaTelemetryErrorCode(detail),
               },
             });
           }
-          void capture({
+          void captureMediaTelemetry({
             event: "media_archived_to_cold_storage",
             distinct_id: row.id,
             properties: {
-              feature: "media-sdk",
               worker_id: workerId,
-              asset_id: row.id,
+              asset_present: true,
               media_family: row.media_family,
               provider: row.provider,
               last_accessed_at: row.last_accessed_at,
@@ -342,18 +351,17 @@ Deno.serve(async (req) => {
       const orphanRows = (orphanRowsResult ?? []) as UploadedOrphanRow[];
       stats.uploadedOrphans = orphanRows.length;
       for (const row of orphanRows) {
-        void capture({
+        void captureMediaTelemetry({
           event: "media_uploaded_orphan_delete_enqueued",
           distinct_id: row.asset_id,
           properties: {
-            feature: "media-sdk",
             worker_id: workerId,
-            asset_id: row.asset_id,
+            asset_present: true,
             media_family: row.media_family,
             provider: row.provider,
-            provider_path: row.provider_path,
-            provider_object_id: row.provider_object_id,
-            job_id: row.job_id,
+            provider_path_present: Boolean(row.provider_path),
+            provider_object_present: Boolean(row.provider_object_id),
+            job_present: Boolean(row.job_id),
           },
         });
       }

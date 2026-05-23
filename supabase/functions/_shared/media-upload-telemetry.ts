@@ -1,4 +1,4 @@
-import { capture } from "./posthog.ts";
+import { captureMediaTelemetry } from "./media-telemetry.ts";
 
 type ReceiptTransitionParams = {
   ownerUserId: string;
@@ -15,21 +15,20 @@ type ReceiptTransitionParams = {
 };
 
 export async function captureReceiptTransition(params: ReceiptTransitionParams): Promise<void> {
-  await capture({
+  await captureMediaTelemetry({
     event: "media_upload_receipt_transition",
     distinct_id: params.ownerUserId,
     properties: {
-      feature: "media-sdk",
       source: params.source,
       media_family: params.mediaFamily,
       client_request_id: params.clientRequestId,
-      receipt_id: params.receiptId ?? null,
-      asset_id: params.assetId ?? null,
+      receipt_present: Boolean(params.receiptId),
+      asset_present: Boolean(params.assetId),
       provider: params.provider ?? null,
-      provider_path: params.providerPath ?? null,
+      provider_path_present: Boolean(params.providerPath),
       status_from: params.statusFrom ?? null,
       status_to: params.statusTo,
-      content_sha256: params.contentSha256 ?? null,
+      content_sha256_present: Boolean(params.contentSha256),
     },
   });
 }

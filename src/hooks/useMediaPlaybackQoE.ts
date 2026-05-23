@@ -1,11 +1,12 @@
 import { useEffect, type RefObject } from "react";
-import { trackEvent } from "@/lib/analytics";
 import {
   recordMediaPlaybackStartup,
   isMediaPlaybackQoeDegraded,
   mediaConnectionSnapshot,
   recordMediaPlaybackRebuffer,
 } from "@/lib/mediaPlaybackSessionPolicy";
+import { trackMediaTelemetryEvent } from "@/lib/mediaTelemetry";
+import { MEDIA_PLAYBACK_QOE_EVENTS } from "@clientShared/media/mediaTelemetry";
 import { telemetrySafeSourceRef } from "../../shared/media/telemetry-safe-ref";
 
 type UseMediaPlaybackQoEOptions = {
@@ -67,12 +68,12 @@ export function useMediaPlaybackQoE(
       emitted = true;
       const quality = video.getVideoPlaybackQuality?.();
       const connection = mediaConnectionSnapshot();
-      trackEvent("media_playback_qoe", {
+      trackMediaTelemetryEvent(MEDIA_PLAYBACK_QOE_EVENTS.summary, {
         family,
         surface,
         provider: provider ?? "unknown",
         source_ref: telemetrySafeSourceRef(sourceRef),
-        message_id: messageId ?? "none",
+        message_present: Boolean(messageId),
         client_request_id: clientRequestId ?? "none",
         reason,
         startup_ms: startupMs ?? (startupStartedAtMs ? Math.max(0, Math.round(performance.now() - startupStartedAtMs)) : -1),
@@ -112,11 +113,11 @@ export function useMediaPlaybackQoE(
       buffering = true;
       rebufferCount += 1;
       const degraded = recordMediaPlaybackRebuffer();
-      trackEvent("media_playback_qoe_rebuffer", {
+      trackMediaTelemetryEvent(MEDIA_PLAYBACK_QOE_EVENTS.rebuffer, {
         family,
         surface,
         provider: provider ?? "unknown",
-        message_id: messageId ?? "none",
+        message_present: Boolean(messageId),
         client_request_id: clientRequestId ?? "none",
         rebuffer_count: rebufferCount,
         qoe_degraded: degraded,

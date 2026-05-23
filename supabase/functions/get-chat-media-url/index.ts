@@ -6,7 +6,7 @@ import { bunnyStorageConfigForTier, type BunnyStorageZoneTier } from "../_shared
 import { signBunnyStreamDirectoryUrl } from "../_shared/bunny-stream-tokens.ts";
 import { corsHeadersForRequest, jsonResponse, preflightResponse } from "../_shared/cors.ts";
 import { syncChatMessageMedia } from "../_shared/media-lifecycle.ts";
-import { capture as capturePosthog } from "../_shared/posthog.ts";
+import { captureMediaTelemetry, sanitizeMediaTelemetryProperties } from "../_shared/media-telemetry.ts";
 
 type MediaKind = "image" | "voice" | "video" | "vibe_clip" | "thumbnail" | "profile_vibe_video";
 type MediaResolveVariant = "display" | "original";
@@ -136,7 +136,7 @@ function captureProfileVibeVideoConfigMissingWithSentry(fields: Record<string, u
         media_kind: "profile_vibe_video",
         provider: "bunny_stream",
       },
-      extra: fields,
+      extra: sanitizeMediaTelemetryProperties(fields),
     });
     void Sentry.flush(SENTRY_FLUSH_TIMEOUT_MS).catch(() => {});
   } catch {
@@ -545,7 +545,7 @@ async function handleProfileVibeVideoIssue(params: {
       ...configFields,
     });
     captureProfileVibeVideoConfigMissingWithSentry(configFields);
-    void capturePosthog({
+    void captureMediaTelemetry({
       event: "profile_vibe_video_token_config_missing",
       distinct_id: viewerIdHash,
       properties: {
@@ -593,7 +593,7 @@ async function handleProfileVibeVideoIssue(params: {
   logChatMediaUrl("info", "profile_stream_url_issued", {
     ...issuedTelemetry,
   });
-  void capturePosthog({
+  void captureMediaTelemetry({
     event: "profile_vibe_video_signed_url_issued",
     distinct_id: viewerIdHash,
     properties: {

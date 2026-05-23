@@ -2,7 +2,7 @@ import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient, SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.88.0";
 import * as Sentry from "https://deno.land/x/sentry@8.55.0/index.mjs";
 import { jsonResponse, preflightResponse } from "../_shared/cors.ts";
-import { capture as capturePosthog } from "../_shared/posthog.ts";
+import { captureMediaTelemetry, sanitizeMediaTelemetryProperties } from "../_shared/media-telemetry.ts";
 import {
   ChatVibeClipUploadRow,
   getAdminClient,
@@ -57,8 +57,8 @@ function captureProviderUnavailableWithSentry(fields: Record<string, unknown>) {
 
 function recordProviderUnavailable(fields: Record<string, unknown> & { distinct_id?: string }) {
   logSyncTransition("media_provider_unreachable", fields);
-  captureProviderUnavailableWithSentry(fields);
-  void capturePosthog({
+  captureProviderUnavailableWithSentry(sanitizeMediaTelemetryProperties(fields));
+  void captureMediaTelemetry({
     event: "media_provider_unreachable",
     distinct_id: fields.distinct_id ?? "server",
     properties: {

@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef } from 'react';
 import { Platform } from 'react-native';
-import { trackEvent } from '@/lib/analytics';
 import {
   isMediaPlaybackQoeDegraded,
   mediaConnectionSnapshot,
   recordMediaPlaybackRebuffer,
   recordMediaPlaybackStartup,
 } from '@/lib/mediaPlaybackSessionPolicy';
+import { trackMediaTelemetryEvent } from '@/lib/mediaTelemetry';
+import { MEDIA_PLAYBACK_QOE_EVENTS } from '@clientShared/media/mediaTelemetry';
 import { telemetrySafeSourceRef } from '../../../shared/media/telemetry-safe-ref';
 
 type NativeMediaPlaybackQoEOptions = {
@@ -44,12 +45,12 @@ export function useNativeMediaPlaybackQoE({
     if (emittedRef.current && reason !== 'error') return;
     emittedRef.current = true;
     const connection = mediaConnectionSnapshot();
-    trackEvent('media_playback_qoe', {
+    trackMediaTelemetryEvent(MEDIA_PLAYBACK_QOE_EVENTS.summary, {
       family,
       surface,
       provider: provider ?? 'unknown',
       source_ref: telemetrySafeSourceRef(sourceRef),
-      message_id: messageId ?? 'none',
+      message_present: Boolean(messageId),
       client_request_id: clientRequestId ?? 'none',
       reason,
       startup_ms: startupMsRef.current ?? -1,
@@ -96,11 +97,11 @@ export function useNativeMediaPlaybackQoE({
       rebufferCountRef.current += 1;
       const degraded = recordMediaPlaybackRebuffer();
       const connection = mediaConnectionSnapshot();
-      trackEvent('media_playback_qoe_rebuffer', {
+      trackMediaTelemetryEvent(MEDIA_PLAYBACK_QOE_EVENTS.rebuffer, {
         family,
         surface,
         provider: provider ?? 'unknown',
-        message_id: messageId ?? 'none',
+        message_present: Boolean(messageId),
         client_request_id: clientRequestId ?? 'none',
         rebuffer_count: rebufferCountRef.current,
         connection_type: connection.connectionType,

@@ -1865,6 +1865,13 @@ test("telemetry redaction strips non-allowlisted and sensitive fields at the SDK
     path: "v2",
     path_selected: "media_sdk",
   });
+  assert.deepEqual(safeTelemetryFields({
+    client_request_id: uuid,
+    path: "events/private/raw.jpg",
+    path_selected: "https://example.test/private",
+  }), {
+    client_request_id: uuid,
+  });
 });
 
 test("upload facade telemetry fields stay consistent across platform wrappers", () => {

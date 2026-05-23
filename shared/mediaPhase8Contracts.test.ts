@@ -9,6 +9,7 @@ import {
   parseChatImageStructuredPayload,
 } from "./chat/messageRouting.ts";
 import { captionTextFromMediaCaptions, mediaCaptionsToWebVtt } from "./media/captions.ts";
+import { MEDIA_PLAYBACK_QOE_EVENTS } from "./media/mediaTelemetry.ts";
 import {
   getMediaStoragePresignPolicy,
   mediaStoragePresignPolicyReviewWarning,
@@ -311,16 +312,20 @@ test("Phase 6 display path uses realtime, QoE, reduce-motion, and bounded media 
   assert.match(webVibeClip, /readyRefreshKeyRef/);
   assert.match(nativeVibeClip, /readyRefreshKeyRef/);
 
-  assert.match(webQoe, /media_playback_qoe/);
-  assert.match(webQoe, /media_playback_qoe_rebuffer/);
+  assert.equal(MEDIA_PLAYBACK_QOE_EVENTS.summary, "media_playback_qoe");
+  assert.equal(MEDIA_PLAYBACK_QOE_EVENTS.rebuffer, "media_playback_qoe_rebuffer");
+  assert.match(webQoe, /MEDIA_PLAYBACK_QOE_EVENTS\.summary/);
+  assert.match(webQoe, /MEDIA_PLAYBACK_QOE_EVENTS\.rebuffer/);
   assert.match(webQoe, /source_ref: telemetrySafeSourceRef\(sourceRef\)/);
+  assert.match(webQoe, /message_present: Boolean\(messageId\)/);
   assert.match(webQoe, /client_request_id: clientRequestId \?\? "none"/);
   assert.match(webQoe, /device_class: deviceClass\(\)/);
   assert.match(webQoe, /bitrate_switch_count: bitrateSwitchCount/);
   assert.match(webQoe, /vibely-hls-level-switched/);
-  assert.match(nativeQoe, /media_playback_qoe/);
-  assert.match(nativeQoe, /media_playback_qoe_rebuffer/);
+  assert.match(nativeQoe, /MEDIA_PLAYBACK_QOE_EVENTS\.summary/);
+  assert.match(nativeQoe, /MEDIA_PLAYBACK_QOE_EVENTS\.rebuffer/);
   assert.match(nativeQoe, /source_ref: telemetrySafeSourceRef\(sourceRef\)/);
+  assert.match(nativeQoe, /message_present: Boolean\(messageId\)/);
   assert.match(nativeQoe, /client_request_id: clientRequestId \?\? 'none'/);
   assert.match(nativeQoe, /device_class: `native_\$\{Platform\.OS\}`/);
   assert.match(nativeQoe, /bitrate_switch_count: -1/);

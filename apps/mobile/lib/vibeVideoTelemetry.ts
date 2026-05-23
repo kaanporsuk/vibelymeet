@@ -1,40 +1,14 @@
 import * as Sentry from '@sentry/react-native';
+import { MEDIA_VIBE_VIDEO_EVENTS } from '@clientShared/media/mediaTelemetry';
+import type { MediaTelemetryProperties } from '@clientShared/media/telemetry';
 import {
-  sanitizeMediaTelemetryProperties,
-  type MediaTelemetryProperties,
-} from '@clientShared/media/telemetry';
-import { trackEvent } from '@/lib/analytics';
+  addMediaTelemetryBreadcrumb,
+  captureMediaTelemetryException,
+  captureMediaTelemetryMessage,
+  trackMediaTelemetryEvent,
+} from '@/lib/mediaTelemetry';
 
-export const VIBE_VIDEO_EVENTS = {
-  credentialsRequestStarted: 'vibe_video_credentials_request_started',
-  credentialsRequestSucceeded: 'vibe_video_credentials_request_succeeded',
-  credentialsRequestFailed: 'vibe_video_credentials_request_failed',
-  tusUploadStarted: 'vibe_video_tus_upload_started',
-  tusUploadSucceeded: 'vibe_video_tus_upload_succeeded',
-  tusUploadFailed: 'vibe_video_tus_upload_failed',
-  uploadStalled: 'vibe_video_upload_stalled',
-  appStateResumePoll: 'vibe_video_app_state_resume_poll',
-  processingPollStarted: 'vibe_video_processing_poll_started',
-  processingStatusChanged: 'vibe_video_processing_status_changed',
-  staleProcessingObserved: 'vibe_video_stale_processing_observed',
-  processingStalled: 'vibe_video_processing_stalled',
-  readyObserved: 'vibe_video_ready_observed',
-  failedObserved: 'vibe_video_failed_observed',
-  playbackAttempted: 'vibe_video_playback_attempted',
-  playbackSucceeded: 'vibe_video_playback_succeeded',
-  playbackFailed: 'vibe_video_playback_failed',
-  profileTtffMeasured: 'vibe_video_profile_ttff_ms',
-  tokenRefreshOnAuthError: 'media_token_refresh_on_hls_error',
-  cdnHostnameFallbackUsed: 'vibe_video_cdn_hostname_fallback_used',
-  cdnHostnamePersistenceMismatch: 'vibe_video_cdn_hostname_persistence_mismatch',
-  deleteRequested: 'vibe_video_delete_requested',
-  deleteSucceededLocally: 'vibe_video_delete_succeeded_locally',
-  replaceStarted: 'vibe_video_replace_started',
-  captionPreserved: 'vibe_video_caption_preserved',
-  captionEdited: 'vibe_video_caption_edited',
-  captionCleared: 'vibe_video_caption_cleared',
-  profileReportSubmitted: 'vibe_video_profile_report_submitted',
-} as const;
+export const VIBE_VIDEO_EVENTS = MEDIA_VIBE_VIDEO_EVENTS;
 
 export type VibeVideoEventName = (typeof VIBE_VIDEO_EVENTS)[keyof typeof VIBE_VIDEO_EVENTS];
 
@@ -42,32 +16,11 @@ export type VibeVideoTelemetryProperties = MediaTelemetryProperties;
 
 const staleProcessingSeen = new Set<string>();
 
-function sanitizeProperties(
-  properties: VibeVideoTelemetryProperties = {},
-): Record<string, string | number | boolean | null> {
-  return sanitizeMediaTelemetryProperties(properties, { defaults: { platform: 'native' } });
-}
-
 export function trackVibeVideoEvent(
   eventName: VibeVideoEventName,
   properties: VibeVideoTelemetryProperties = {},
 ): void {
-  const sanitized = sanitizeProperties(properties);
-  try {
-    trackEvent(eventName, sanitized);
-  } catch {
-    // Telemetry is diagnostic only; never let analytics availability break Vibe Video state.
-  }
-  try {
-    Sentry.addBreadcrumb({
-      category: 'vibe-video',
-      message: eventName,
-      level: 'info',
-      data: sanitized,
-    });
-  } catch {
-    // Breadcrumb capture is also best-effort.
-  }
+  trackMediaTelemetryEvent(eventName, properties, { breadcrumbCategory: 'vibe-video' });
 }
 
 export function trackStaleVibeVideoProcessing(
@@ -87,22 +40,14 @@ export function addVibeVideoBreadcrumb(
   properties: VibeVideoTelemetryProperties = {},
   level: Sentry.SeverityLevel = 'info',
 ): void {
-  Sentry.addBreadcrumb({
-    category: 'vibe-video',
-    message,
-    level,
-    data: sanitizeProperties(properties),
-  });
+  addMediaTelemetryBreadcrumb('vibe-video', message, properties, level);
 }
 
 export function captureVibeVideoException(
   error: unknown,
   properties: VibeVideoTelemetryProperties = {},
 ): void {
-  Sentry.captureException(error, {
-    tags: { feature: 'vibe_video' },
-    extra: sanitizeProperties(properties),
-  });
+  captureMediaTelemetryException(error, properties, { feature: 'vibe_video' });
 }
 
 export function captureVibeVideoMessage(
@@ -110,13 +55,5 @@ export function captureVibeVideoMessage(
   properties: VibeVideoTelemetryProperties = {},
   level: Sentry.SeverityLevel = 'warning',
 ): void {
-  try {
-    Sentry.captureMessage(message, {
-      level,
-      tags: { feature: 'vibe_video' },
-      extra: sanitizeProperties(properties),
-    });
-  } catch {
-    // Sentry capture is diagnostic only; never let it break media URL resolution.
-  }
+  captureMediaTelemetryMessage(message, properties, { feature: 'vibe_video', level });
 }

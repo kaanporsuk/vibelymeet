@@ -7,7 +7,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.88.0";
 import * as Sentry from "https://deno.land/x/sentry@8.55.0/index.mjs";
 import { signBunnyStreamDirectoryUrl } from "../_shared/bunny-stream-tokens.ts";
-import { capture } from "../_shared/posthog.ts";
+import { captureMediaTelemetry } from "../_shared/media-telemetry.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -42,15 +42,6 @@ function jsonResponse(body: Record<string, unknown>, status = 200): Response {
     status,
     headers: { ...corsHeaders, "Content-Type": "application/json" },
   });
-}
-
-function redactedProbeUrl(value: string): string {
-  try {
-    const url = new URL(value);
-    return `${url.protocol}//${url.hostname}${url.pathname}`;
-  } catch {
-    return "invalid_url";
-  }
 }
 
 function healthStatusFor(results: ProbeResult[]): HealthStatus {
@@ -216,25 +207,20 @@ Deno.serve(async (req) => {
         alerted_at: result.ok ? null : alertedAt,
       }, { onConflict: "probe" });
 
-    void capture({
+    void captureMediaTelemetry({
       event: "bunny_cdn_health",
       distinct_id: result.probe,
       properties: {
-        feature: "media-sdk",
         function: "check-bunny-cdn-health",
         probe: result.probe,
         ok: result.ok,
         configured: result.configured,
+        probe_url_present: result.urlConfigured,
         http_status: result.httpStatus,
         latency_ms: result.latencyMs,
         content_type: result.contentType,
         consecutive_failures: consecutiveFailures,
         error: result.error,
-        probe_url: result.configured
-          ? redactedProbeUrl(result.probe === "stream_hls"
-            ? Deno.env.get("BUNNY_CDN_HEALTH_STREAM_URL") ?? ""
-            : Deno.env.get("BUNNY_CDN_HEALTH_STORAGE_URL") ?? "")
-          : null,
       },
     });
 
