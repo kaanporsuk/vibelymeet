@@ -7,6 +7,7 @@ import { useMediaAsset, useMediaAssetPlayback, type MediaAssetKind } from "@/hoo
 import { useMediaPlaybackQoE } from "@/hooks/useMediaPlaybackQoE";
 import { usePrefersReducedMotion } from "@/hooks/usePrefersReducedMotion";
 import { useMediaVideoPreloadForVisibility } from "@/hooks/useMediaVideoPreloadPolicy";
+import { refreshMediaAsset as refreshResolvedMediaAsset } from "@/lib/mediaAssetResolver";
 
 interface VideoMessageBubbleProps {
   videoUrl: string;
@@ -60,7 +61,11 @@ export const VideoMessageBubble = ({
   const [isViewportVisible, setIsViewportVisible] = useState(true);
   const prefersReducedMotion = usePrefersReducedMotion();
   const playbackRefreshAttemptCountRef = useRef(0);
-  const { url: mediaAssetUrl, refresh: refreshMediaAsset } = useMediaAsset({
+  const {
+    url: mediaAssetUrl,
+    expiresAtMs: mediaAssetExpiresAtMs,
+    refresh: refreshMediaAsset,
+  } = useMediaAsset({
     kind: mediaKind,
     messageId,
     sourceRef: videoSourceRef,
@@ -242,12 +247,19 @@ export const VideoMessageBubble = ({
     autoplay: false,
   });
   const refreshPlaybackOnAuthError = useCallback(async () => {
-    const didRefresh = await tryRefreshAfterFailure();
-    return didRefresh ? playableVideoUrlRef.current : null;
-  }, [tryRefreshAfterFailure]);
+    if (!messageId || !videoSourceRef) return null;
+    if (playbackRefreshAttemptCountRef.current >= MAX_VIDEO_PLAYBACK_REFRESH_ATTEMPTS) return null;
+    playbackRefreshAttemptCountRef.current += 1;
+    return refreshResolvedMediaAsset(messageId, mediaKind, videoSourceRef, { bypassFailureCooldown: true });
+  }, [mediaKind, messageId, videoSourceRef]);
+  const refreshPlaybackProactively = useCallback(async () => {
+    if (!messageId || !videoSourceRef) return null;
+    return refreshResolvedMediaAsset(messageId, mediaKind, videoSourceRef, { suppressFailureCache: true });
+  }, [mediaKind, messageId, videoSourceRef]);
   useMediaAssetPlayback(videoRef, playableVideoUrl, {
     enabled: isHlsUrl && !loadError,
     autoPlay: false,
+    expiresAtMs: mediaAssetExpiresAtMs,
     onManifestParsed: markReadyIfPossible,
     onError: () => {
       setIsLoading(false);
@@ -256,6 +268,7 @@ export const VideoMessageBubble = ({
       });
     },
     onAuthErrorRefresh: refreshPlaybackOnAuthError,
+    onProactiveRefresh: refreshPlaybackProactively,
   });
 
   const progress = duration > 0 ? (currentTime / duration) * 100 : 0;

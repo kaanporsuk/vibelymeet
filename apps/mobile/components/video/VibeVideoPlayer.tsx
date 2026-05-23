@@ -8,7 +8,7 @@ import { Image as ExpoImage } from 'expo-image';
 import { VideoView, useVideoPlayer, type VideoSource } from 'expo-video';
 import { resolveVibeVideoStreamHostnameSync } from '@/lib/vibeVideoPlaybackUrl';
 import { vibeVideoDiagVerbose } from '@/lib/vibeVideoDiagnostics';
-import { trackVibeVideoEvent, VIBE_VIDEO_EVENTS } from '@/lib/vibeVideoTelemetry';
+import { addVibeVideoBreadcrumb, trackVibeVideoEvent, VIBE_VIDEO_EVENTS } from '@/lib/vibeVideoTelemetry';
 import {
   attachSafeExpoSharedObjectPromise,
   safeExpoSharedObjectCall,
@@ -46,6 +46,8 @@ export type VibeVideoPlayerProps = {
 };
 
 const MAX_HLS_AUTH_REFRESH_ATTEMPTS = 2;
+const PROACTIVE_HLS_TOKEN_REFRESH_LEAD_MS = 60 * 1000;
+const PROACTIVE_HLS_TOKEN_REFRESH_RETRY_MS = 5 * 1000;
 
 export function VibeVideoPlayer({
   sourceUri,
@@ -80,6 +82,7 @@ export function VibeVideoPlayer({
     placeholderHash,
     dominantColor,
     status: mediaAssetStatus,
+    expiresAtMs: mediaAssetExpiresAtMs,
     refresh: refreshMediaAsset,
   } = useMediaAsset({
     kind: usesSignedProfileRef ? 'profile_vibe_video' : 'vibe_video',
@@ -264,6 +267,91 @@ export function VibeVideoPlayer({
       authRefreshInFlightRef.current = false;
     }
   }, [diagContext, effectivePlaying, player, refreshMediaAsset, usesSignedProfileRef]);
+
+  useEffect(() => {
+    if (
+      !usesSignedProfileRef ||
+      !shouldAttachPlayback ||
+      !isHlsMediaAssetUrl(playbackSourceUri) ||
+      !mediaAssetExpiresAtMs ||
+      !Number.isFinite(mediaAssetExpiresAtMs)
+    ) {
+      return;
+    }
+
+    let cancelled = false;
+    let inFlight = false;
+    let timeout: ReturnType<typeof setTimeout> | null = null;
+    const clearTimer = () => {
+      if (timeout !== null) clearTimeout(timeout);
+      timeout = null;
+    };
+    const schedule = (delayMs: number) => {
+      clearTimer();
+      timeout = setTimeout(run, Math.max(0, delayMs));
+    };
+    const scheduleRetry = () => {
+      const remainingMs = mediaAssetExpiresAtMs - Date.now();
+      if (remainingMs <= 0) return;
+      schedule(Math.min(PROACTIVE_HLS_TOKEN_REFRESH_RETRY_MS, remainingMs));
+    };
+    const run = () => {
+      if (cancelled || inFlight) return;
+      if (authRefreshInFlightRef.current) {
+        scheduleRetry();
+        return;
+      }
+      const remainingMs = mediaAssetExpiresAtMs - Date.now();
+      if (remainingMs <= 0) return;
+      const isPlayingNow = safeExpoSharedObjectCall(() => player.playing, {
+        label: 'vibeVideo.player.playing.proactiveRefresh',
+        fallback: false,
+        swallowAll: true,
+      }) === true;
+      if (!isPlayingNow) {
+        scheduleRetry();
+        return;
+      }
+      let shouldRetry = false;
+      inFlight = true;
+      void refreshMediaAsset('proactive', { suppressFailureCache: true })
+        .then((freshUri) => {
+          if (!freshUri) {
+            shouldRetry = true;
+            return;
+          }
+          addVibeVideoBreadcrumb('media-token-refresh-proactive', {
+            source: diagContext,
+            outcome: 'proactive_refreshed',
+          });
+        })
+        .catch(() => {
+          shouldRetry = true;
+          addVibeVideoBreadcrumb('media-token-refresh-proactive', {
+            source: diagContext,
+            outcome: 'proactive_failed',
+          }, 'warning');
+        })
+        .finally(() => {
+          inFlight = false;
+          if (!cancelled && shouldRetry) scheduleRetry();
+        });
+    };
+
+    schedule(mediaAssetExpiresAtMs - Date.now() - PROACTIVE_HLS_TOKEN_REFRESH_LEAD_MS);
+    return () => {
+      cancelled = true;
+      clearTimer();
+    };
+  }, [
+    diagContext,
+    mediaAssetExpiresAtMs,
+    playbackSourceUri,
+    player,
+    refreshMediaAsset,
+    shouldAttachPlayback,
+    usesSignedProfileRef,
+  ]);
 
   useEffect(() => {
     if (shouldAttachPlayback) return;

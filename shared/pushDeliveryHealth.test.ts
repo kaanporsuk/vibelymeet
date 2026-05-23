@@ -112,6 +112,7 @@ assert.match(sendNotificationSource, /web_player_id_present/);
 assert.match(sendNotificationSource, /mobile_player_id_present/);
 assert.match(sendNotificationSource, /notification_category/);
 assert.match(sendNotificationSource, /platform_targeted/);
+assert.match(sendNotificationSource, /subscription_table_target_count/);
 assert.match(sendNotificationSource, /provider_request_attempted/);
 assert.match(sendNotificationSource, /provider_status/);
 assert.match(sendNotificationSource, /provider_notification_id/);

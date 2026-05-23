@@ -20,18 +20,18 @@ The smallest safe follow-up is a code-only observability PR that enriches existi
 - `src/main.tsx` initializes Sentry, PostHog, and OneSignal on allowed hosts through `initOneSignal()`.
 - `src/lib/oneSignalWebOrigin.ts` allows localhost plus the apex and `www` Vibely hosts; canonical runtime URL generation is guarded separately by `npm run check:canonical-origin`.
 - `src/lib/onesignal.ts` handles OneSignal init, legacy service worker cleanup, click navigation, subscription-change events, external user login/logout, and player ID polling.
-- `src/lib/requestWebPushPermission.ts` prompts OneSignal, waits for init, calls `setExternalUserId(userId)`, polls `OneSignal.User.PushSubscription.id`, checks `optedIn`, and upserts `notification_preferences.onesignal_player_id`, `onesignal_subscribed`, and `push_enabled`.
+- `src/lib/requestWebPushPermission.ts` prompts OneSignal, waits for init, calls `setExternalUserId(userId)`, polls `OneSignal.User.PushSubscription.id`, checks `optedIn`, registers `push_subscriptions`, and mirrors `notification_preferences.onesignal_player_id`, `onesignal_subscribed`, and `push_enabled`.
 - `src/hooks/usePushDeliveryHealth.ts` computes web health from browser permission, SDK status, local OneSignal player ID, backend player ID, backend subscribed boolean, sync status, and last sync result.
-- `src/hooks/useAppBootstrap.ts` identifies PostHog/Sentry users, logs OneSignal in, and opportunistically syncs web push registration after auth. `src/contexts/AuthContext.tsx` logs OneSignal out and clears the web player ID on logout.
+- `src/hooks/useAppBootstrap.ts` identifies PostHog/Sentry users, logs OneSignal in, and opportunistically syncs web push registration after auth. `src/contexts/AuthContext.tsx` unregisters the current web subscription when available, logs OneSignal out, and clears the legacy web player ID mirror on logout.
 
 ### 2. Native Client Permission And Sync
 
 - `apps/mobile/components/PushRegistration.tsx` initializes OneSignal, binds the external user, applies tags, and runs foreground sync.
 - `apps/mobile/lib/osPushPermission.ts` treats OneSignal native permission APIs as canonical OS permission state and request path.
 - `apps/mobile/lib/requestPushPermissions.ts` owns preprompt gating, OS permission request, `push_enabled` upsert, and post-grant backend sync.
-- `apps/mobile/lib/onesignal.ts` logs in/out of OneSignal, polls the native subscription ID, reads opt-in state, and upserts `notification_preferences.mobile_onesignal_player_id` and `mobile_onesignal_subscribed`.
+- `apps/mobile/lib/onesignal.ts` logs in/out of OneSignal, polls the native subscription ID, reads opt-in state, registers `push_subscriptions`, and mirrors `notification_preferences.mobile_onesignal_player_id` and `mobile_onesignal_subscribed`.
 - `apps/mobile/lib/usePushDeliveryHealth.ts` computes native health from OS permission, SDK state, local player ID, SDK subscribed state, backend mobile player ID, backend subscribed state, and last sync result.
-- `apps/mobile/context/AuthContext.tsx` logs OneSignal out and clears the mobile player ID on logout.
+- `apps/mobile/context/AuthContext.tsx` unregisters the current native subscription when available, opts out locally, logs OneSignal out, and clears the legacy mobile player ID mirror on logout.
 
 ### 3. Backend Send Request
 
@@ -62,14 +62,14 @@ Important nuance: `user_disabled` is used for both the master `push_enabled` tog
 ### 5. OneSignal Send
 
 - The backend uses `https://api.onesignal.com/notifications`.
-- It sends `include_player_ids` containing all registered web and mobile player IDs that are marked subscribed in `notification_preferences`.
+- It sends `include_subscription_ids` containing subscribed OneSignal IDs from `push_subscriptions` plus the legacy web/mobile IDs marked subscribed in `notification_preferences`.
 - It sets `data` and `url`, with `url` built from `APP_URL` or the default `https://www.vibelymeet.com`.
 - It returns `onesignal_id` to the caller on success, but does not persist that ID in `notification_log`.
 - It logs `console.log('OneSignal:', status, notificationId || 'no-id')`, but this is not support-queryable from the database.
 
 ### 6. App Log Tables And Admin Surfaces
 
-- `notification_preferences` is the source of backend deliverability: web player ID/subscribed, mobile player ID/subscribed, `push_enabled`, pause, quiet hours, category toggles, and message bundling.
+- `push_subscriptions` is the durable multi-device source for backend delivery targets. `notification_preferences` remains the preference source and legacy mirror for web/mobile player ID booleans, `push_enabled`, pause, quiet hours, category toggles, and message bundling.
 - `notification_log` records transactional sends and suppressions with `user_id`, `category`, `title`, `body`, `data`, `delivered`, `suppressed_reason`, and `created_at`. It has indexes on `(user_id, category, created_at desc)` and `created_at`.
 - `push_campaigns` and `push_notification_events` are campaign/admin telemetry tables, not the transactional `send-notification` ledger.
 - `admin_list_push_notification_events` redacts FCM/APNs/device token fields for admin reads; direct browser reads of `push_notification_events` are not the redaction boundary.

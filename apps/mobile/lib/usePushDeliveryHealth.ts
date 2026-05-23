@@ -8,6 +8,7 @@ import {
   getNativeOneSignalClientSnapshot,
   syncPushWithBackendIfPermissionGranted,
 } from '@/lib/onesignal';
+import { syncNativePushSuppressionWithBackend } from '@/lib/notificationPause';
 import { recordPushDeliveryTelemetry } from '@/lib/pushDeliveryTelemetry';
 import {
   resolvePushDeliveryHealth,
@@ -101,6 +102,7 @@ export function usePushDeliveryHealth(userId: string | null | undefined) {
     if (!userId) return null;
     setSyncInFlight(true);
     try {
+      await syncNativePushSuppressionWithBackend(userId);
       const result = await syncPushWithBackendIfPermissionGranted(userId);
       if (mountedRef.current) setLastSyncResultCode(result.code);
       await refresh();

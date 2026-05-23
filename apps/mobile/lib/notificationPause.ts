@@ -26,6 +26,12 @@ async function migrateLegacyPausedUntilKey(): Promise<void> {
   }
 }
 
+function syncPushAfterRestoringDelivery(userId: string): void {
+  void import('@/lib/onesignal')
+    .then(({ syncPushWithBackendIfPermissionGranted }) => syncPushWithBackendIfPermissionGranted(userId))
+    .catch(() => undefined);
+}
+
 export function computePausedUntil(kind: PauseKind): Date {
   const now = Date.now();
   switch (kind) {
@@ -89,6 +95,9 @@ export async function resumeNotifications(userId: string): Promise<void> {
     .maybeSingle();
   const pushEnabled = row?.push_enabled !== false;
   disablePush(!pushEnabled);
+  if (pushEnabled) {
+    syncPushAfterRestoringDelivery(userId);
+  }
 }
 
 /** Align SDK opt-in/out with server + AsyncStorage (call after login). */

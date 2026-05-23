@@ -3,6 +3,7 @@ import { motion } from "framer-motion";
 import { Loader2, X, AlertCircle } from "lucide-react";
 import { useMediaAsset, useMediaAssetPlayback, type MediaAssetKind } from "@/hooks/useMediaAsset";
 import { usePrefersReducedMotion } from "@/hooks/usePrefersReducedMotion";
+import { refreshMediaAsset as refreshResolvedMediaAsset } from "@/lib/mediaAssetResolver";
 
 type ChatVideoLightboxProps = {
   videoUrl: string;
@@ -53,7 +54,11 @@ export function ChatVideoLightbox({
   const onResolvedVideoUrlRef = useRef(onResolvedVideoUrl);
   const onResolvedThumbnailUrlRef = useRef(onResolvedThumbnailUrl);
   const refreshMediaRef = useRef<((reason?: LightboxMediaRefreshReason) => Promise<boolean>) | null>(null);
-  const { url: videoAssetUrl, refresh: refreshVideoAsset } = useMediaAsset({
+  const {
+    url: videoAssetUrl,
+    expiresAtMs: videoAssetExpiresAtMs,
+    refresh: refreshVideoAsset,
+  } = useMediaAsset({
     kind: mediaKind,
     messageId,
     sourceRef: videoSourceRef,
@@ -134,7 +139,7 @@ export function ChatVideoLightbox({
       playbackRefreshAttemptCountRef.current += 1;
     }
     const freshVideoUrl = await refreshVideoAsset(reason, refreshOptions);
-    const freshPosterUrl = thumbnailSourceRef && reason !== "playback"
+    const freshPosterUrl = thumbnailSourceRef && (reason === "initial" || reason === "manual")
       ? reason === "manual"
         ? await refreshPosterAsset("manual", refreshOptions)
         : await refreshPosterAsset("cache")
@@ -200,17 +205,25 @@ export function ChatVideoLightbox({
     });
   }, [refreshMedia]);
   const refreshPlaybackOnAuthError = useCallback(async () => {
-    const didRefresh = await refreshMedia("playback");
-    return didRefresh ? playableVideoUrlRef.current : null;
-  }, [refreshMedia]);
+    if (!messageId || !videoSourceRef) return null;
+    if (playbackRefreshAttemptCountRef.current >= MAX_LIGHTBOX_PLAYBACK_REFRESH_ATTEMPTS) return null;
+    playbackRefreshAttemptCountRef.current += 1;
+    return refreshResolvedMediaAsset(messageId, mediaKind, videoSourceRef, { bypassFailureCooldown: true });
+  }, [mediaKind, messageId, videoSourceRef]);
+  const refreshPlaybackProactively = useCallback(async () => {
+    if (!messageId || !videoSourceRef) return null;
+    return refreshResolvedMediaAsset(messageId, mediaKind, videoSourceRef, { suppressFailureCache: true });
+  }, [mediaKind, messageId, videoSourceRef]);
 
   useMediaAssetPlayback(videoRef, playableVideoUrl, {
     enabled: isRemoteUrl && isHlsUrl,
     autoPlay: !prefersReducedMotion,
+    expiresAtMs: videoAssetExpiresAtMs,
     onAutoplayBlocked: revealPlayer,
     onManifestParsed: revealPlayer,
     onError: handlePlaybackAttachError,
     onAuthErrorRefresh: refreshPlaybackOnAuthError,
+    onProactiveRefresh: refreshPlaybackProactively,
   });
 
   useEffect(() => {

@@ -157,8 +157,8 @@ Repo-verified:
 
 - `react-native-onesignal` and `onesignal-expo-plugin` are installed.
 - `app.config.js` selects production OneSignal mode for EAS `preview`/`production`.
-- App code registers native player IDs into `notification_preferences.mobile_onesignal_player_id`.
-- Sign-out path clears OneSignal identity.
+- App code registers native subscription IDs into `push_subscriptions` and mirrors `notification_preferences.mobile_onesignal_player_id`.
+- Sign-out path unregisters the current subscription when available, opts out locally, and clears OneSignal identity.
 - OneSignal service extension bundle is declared for iOS.
 
 Manual closure:

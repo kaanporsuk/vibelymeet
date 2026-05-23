@@ -40,7 +40,7 @@ Operator runbook for executing launch closure with dashboards and real devices. 
 
 | Role | Actions |
 |------|--------|
-| **Implementation agent** | Confirm repo: `EXPO_PUBLIC_ONESIGNAL_APP_ID` used in `lib/onesignal.ts`; app registers `mobile_onesignal_player_id` in `notification_preferences`. `app.config.js` sets production APNs for EAS preview/production. No code deploy. |
+| **Implementation agent** | Confirm repo: `EXPO_PUBLIC_ONESIGNAL_APP_ID` used in `lib/onesignal.ts`; app registers native subscriptions in `push_subscriptions` and mirrors `mobile_onesignal_player_id` in `notification_preferences`. `app.config.js` sets production APNs for EAS preview/production. No code deploy. |
 | **Kaan** | 1) OneSignal dashboard: use same project as web or create; note **App ID**. 2) Add iOS app: bundle ID `com.vibelymeet.vibely`. 3) APNs: in Apple Developer create APNs key (.p8) or certificate; upload in OneSignal iOS app settings (production for TestFlight/Store). 4) Add Android app: package name `com.vibelymeet.vibely`. 5) FCM: in Firebase/Google Cloud get FCM server key or Google Services JSON; add in OneSignal Android app settings. 6) Set `EXPO_PUBLIC_ONESIGNAL_APP_ID` in `.env` and in EAS secrets for the build profile. |
 
 **Expected result:** OneSignal project has iOS app (APNs configured) and Android app (FCM configured); App ID set locally and in EAS.
@@ -54,9 +54,9 @@ Operator runbook for executing launch closure with dashboards and real devices. 
 | Role | Actions |
 |------|--------|
 | **Implementation agent** | No actions in this phase. |
-| **Kaan** | 1) Build with EAS preview (or production) so OneSignal plugin uses production APNs: `eas build --profile preview` for iOS (or use existing build from Phase 2). 2) Install on physical device; sign in. 3) Grant notification permission when app prompts. 4) Supabase: in `notification_preferences` for your user, confirm `mobile_onesignal_player_id` is set and `mobile_onesignal_subscribed = true`. 5) OneSignal dashboard → Messages: send a test notification to that user (or by player ID). 6) Device should receive the notification. 7) Optional: sign out; confirm app called logout (subscription no longer tied to user). |
+| **Kaan** | 1) Build with EAS preview (or production) so OneSignal plugin uses production APNs: `eas build --profile preview` for iOS (or use existing build from Phase 2). 2) Install on physical device; sign in. 3) Grant notification permission when app prompts. 4) Supabase: confirm a `push_subscriptions` row for your user and the `notification_preferences.mobile_onesignal_player_id` mirror with `mobile_onesignal_subscribed = true`. 5) OneSignal dashboard → Messages: send a test notification to that user (or by player ID). 6) Device should receive the notification. 7) Optional: sign out; confirm the app unregistered the current subscription and logged out locally. |
 
-**Expected result:** Row in `notification_preferences` with player ID; test message received on device.
+**Expected result:** Row in `push_subscriptions`, legacy mirror in `notification_preferences`, and test message received on device.
 
 **Pass/fail:** Test notification received. **Fail:** No player ID in DB → check app init and `registerPushWithBackend`. No delivery → check OneSignal APNs/FCM and app credentials.
 

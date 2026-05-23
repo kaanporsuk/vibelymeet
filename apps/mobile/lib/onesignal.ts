@@ -1,7 +1,7 @@
 /**
- * OneSignal push integration for mobile. Same backend contract as web: send-notification
- * targets user_id; we store mobile_onesignal_player_id in notification_preferences so
- * backend can deliver to this device (web uses onesignal_player_id).
+ * OneSignal push integration for mobile. Same backend contract as web:
+ * send-notification targets user_id; devices register durable subscription rows
+ * in push_subscriptions while mirroring legacy notification_preferences fields.
  *
  * Provider boundary: OneSignal owns remote push delivery, foreground display decisions,
  * click lifecycle, and native OS permission/status checks.
@@ -26,6 +26,13 @@ let lastLoggedInUserId: string | null = null;
 let identityGeneration = 0;
 const permissionGrantedSyncInFlightByUser = new Map<string, Promise<PushSyncResult>>();
 
+type PushSubscriptionRpcError = {
+  code?: string;
+  message?: string;
+  details?: string;
+  hint?: string;
+};
+
 function syncResult(
   code: PushSyncResult['code'],
   playerId: string | null = null,
@@ -36,6 +43,24 @@ function syncResult(
 
 function playerIdRetryDelay(attempt: number): number {
   return Math.min(PLAYER_ID_MAX_RETRY_MS, Math.round(PLAYER_ID_INITIAL_RETRY_MS * Math.pow(1.65, attempt)));
+}
+
+function nativePushPlatform(): 'ios' | 'android' | 'native' {
+  if (Platform.OS === 'ios') return 'ios';
+  if (Platform.OS === 'android') return 'android';
+  return 'native';
+}
+
+function isMissingPushSubscriptionRpc(error: PushSubscriptionRpcError | null | undefined): boolean {
+  if (!error) return false;
+  const haystack = `${error.code ?? ''} ${error.message ?? ''} ${error.details ?? ''} ${error.hint ?? ''}`;
+  return /42883|PGRST202|Could not find the function|register_onesignal_push_subscription|unregister_onesignal_push_subscription/i.test(haystack);
+}
+
+function ensureOneSignalInitialized(): boolean {
+  if (!APP_ID) return false;
+  if (!initialized) initOneSignal();
+  return initialized;
 }
 
 export function getNativeOneSignalClientSnapshot(): {
@@ -61,6 +86,7 @@ export function isCurrentOneSignalIdentity(userId: string, generation: number): 
 
 export async function getCurrentNativePlayerId(): Promise<string | null> {
   if (!APP_ID) return null;
+  ensureOneSignalInitialized();
   try {
     return await OneSignal.User.pushSubscription.getIdAsync();
   } catch {
@@ -70,6 +96,7 @@ export async function getCurrentNativePlayerId(): Promise<string | null> {
 
 export async function getCurrentNativePushSubscribed(): Promise<boolean | null> {
   if (!APP_ID) return null;
+  ensureOneSignalInitialized();
   try {
     return await OneSignal.User.pushSubscription.getOptedInAsync();
   } catch {
@@ -124,6 +151,7 @@ export function bindOneSignalExternalUser(userId: string): number {
   }
   const generation = identityGeneration;
   if (!APP_ID || !userId) return generation;
+  ensureOneSignalInitialized();
   if (lastLoggedInUserId === userId) return generation;
   try {
     OneSignal.login(userId);
@@ -137,12 +165,71 @@ export function bindOneSignalExternalUser(userId: string): number {
   return generation;
 }
 
+async function registerStoredPushSubscription(
+  userId: string,
+  subscriptionId: string,
+  subscribed: boolean,
+): Promise<string | null> {
+  const { error } = await supabase.rpc('register_onesignal_push_subscription', {
+    p_subscription_id: subscriptionId,
+    p_platform: nativePushPlatform(),
+    p_subscribed: subscribed,
+  });
+
+  if (!error) return null;
+
+  if (!isMissingPushSubscriptionRpc(error as PushSubscriptionRpcError)) {
+    return error.message;
+  }
+
+  const fallback = await supabase.from('notification_preferences').upsert(
+    {
+      user_id: userId,
+      mobile_onesignal_player_id: subscriptionId,
+      mobile_onesignal_subscribed: subscribed,
+    },
+    { onConflict: 'user_id' }
+  );
+  return fallback.error?.message ?? null;
+}
+
+async function unregisterStoredPushSubscription(
+  userId: string,
+  subscriptionId: string | null,
+): Promise<string | null> {
+  const { error } = await supabase.rpc('unregister_onesignal_push_subscription', {
+    p_subscription_id: subscriptionId,
+    p_platform: nativePushPlatform(),
+  });
+
+  if (!error) return null;
+
+  if (!isMissingPushSubscriptionRpc(error as PushSubscriptionRpcError)) {
+    return error.message;
+  }
+
+  let query = supabase
+    .from('notification_preferences')
+    .update({
+      mobile_onesignal_player_id: null,
+      mobile_onesignal_subscribed: false,
+    })
+    .eq('user_id', userId);
+
+  if (subscriptionId) {
+    query = query.eq('mobile_onesignal_player_id', subscriptionId);
+  }
+
+  const fallback = await query;
+  return fallback.error?.message ?? null;
+}
+
 /** Login + subscription id + Supabase upsert (no OS permission prompt). */
 async function pushSubscriptionToBackend(userId: string): Promise<PushSyncResult> {
   pushSyncDevLog('pushSubscriptionToBackend:start', { userId });
   if (!APP_ID) return syncResult('app_id_missing');
-  const generation = bindOneSignalExternalUser(userId);
   if (!initialized) initOneSignal();
+  const generation = bindOneSignalExternalUser(userId);
 
   let subscriptionId: string | null = null;
   for (let i = 0; i < PLAYER_ID_SYNC_ATTEMPTS; i += 1) {
@@ -160,17 +247,10 @@ async function pushSubscriptionToBackend(userId: string): Promise<PushSyncResult
     return syncResult('stale_identity', subscriptionId);
   }
 
-  const { error } = await supabase.from('notification_preferences').upsert(
-    {
-      user_id: userId,
-      mobile_onesignal_player_id: subscriptionId,
-      mobile_onesignal_subscribed: subscribed === true,
-    },
-    { onConflict: 'user_id' }
-  );
-  if (error) {
-    console.warn('[Vibely] Failed to save mobile push id:', error);
-    return syncResult('upsert_failed', subscriptionId, error.message);
+  const saveError = await registerStoredPushSubscription(userId, subscriptionId, subscribed === true);
+  if (saveError) {
+    console.warn('[Vibely] Failed to save mobile push id:', saveError);
+    return syncResult('upsert_failed', subscriptionId, saveError);
   }
   if (!isCurrentOneSignalIdentity(userId, generation)) {
     return syncResult('stale_identity', subscriptionId);
@@ -183,7 +263,7 @@ async function pushSubscriptionToBackend(userId: string): Promise<PushSyncResult
 }
 
 /**
- * Sync OneSignal subscription ID to notification_preferences after permission is already granted.
+ * Sync OneSignal subscription ID to the backend after permission is already granted.
  * Does not call requestPermission — use after OS permission is granted (e.g. syncBackendAfterPushGrant).
  */
 export async function syncPushSubscriptionToBackend(userId: string): Promise<PushSyncResult> {
@@ -251,6 +331,29 @@ export function logoutOneSignal(): void {
   lastAppliedTagDigest = null;
 }
 
+function optOutNativePushSubscriptionForLogout(): void {
+  if (!APP_ID) return;
+  try {
+    ensureOneSignalInitialized();
+    OneSignal.User.pushSubscription.optOut();
+  } catch {}
+}
+
+export async function disconnectOneSignalForLogout(userId?: string | null): Promise<void> {
+  identityGeneration += 1;
+  activeIdentityUserId = null;
+  lastLoggedInUserId = null;
+  const subscriptionId = await getCurrentNativePlayerId();
+  if (userId) {
+    const unregisterError = await unregisterStoredPushSubscription(userId, subscriptionId);
+    if (unregisterError && __DEV__) {
+      console.warn('[Vibely] Failed to unregister mobile push id:', unregisterError);
+    }
+  }
+  optOutNativePushSubscriptionForLogout();
+  logoutOneSignal();
+}
+
 /**
  * Suppress OneSignal push at the SDK level (optOut) or restore delivery (optIn).
  * Maps to OneSignal v5 User.pushSubscription — the public name matches common docs (disablePush).
@@ -263,6 +366,7 @@ export function setNativePushSuppressed(suppress: boolean): void {
 export function disablePush(disable: boolean): void {
   if (!APP_ID) return;
   try {
+    ensureOneSignalInitialized();
     if (disable) {
       OneSignal.User.pushSubscription.optOut();
     } else {

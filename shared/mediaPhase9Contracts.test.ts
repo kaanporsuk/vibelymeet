@@ -52,14 +52,18 @@ test("Phase 9 QoE contracts and prewarm policy constants are pinned", () => {
   assert.match(sharedPolicy, /PREWARM_SESSION_BYTE_LIMIT = 10 \* 1024 \* 1024/);
   assert.match(sharedPolicy, /createMediaPlaybackSessionPolicy/);
   assert.match(sharedPolicy, /getMediaPlaybackQoeSnapshot/);
+  assert.match(sharedPolicy, /mediaPlaybackAbrPolicy/);
   assert.match(hlsPlayback, /isMediaPlaybackQoeDegraded/);
+  assert.match(hlsPlayback, /mediaConnectionSnapshot/);
+  assert.match(hlsPlayback, /applyHlsAbrPolicy/);
   assert.match(hlsPlayback, /autoLevelCapping/);
-  assert.match(hlsPlayback, /startLevel = 0/);
+  assert.match(hlsPlayback, /startLevel = Math\.min/);
 
   for (const policy of [webPolicy, nativePolicy]) {
     assert.match(policy, /createMediaPlaybackSessionPolicy/);
     assert.match(policy, /getMediaPlaybackQoeSnapshot/);
     assert.match(policy, /mediaConnectionSnapshot/);
+    assert.match(policy, /mediaPlaybackAbrPolicy/);
   }
   assert.match(nativePolicy, /@react-native-community\/netinfo/);
   assert.match(nativePolicy, /nativeConnectionSnapshot/);
@@ -170,7 +174,11 @@ test("chat shared video playback keeps HLS attached when only callback props cha
   assert.match(mediaAssetHook, /onAutoplayBlocked: \(detail\) => onAutoplayBlockedRef\.current\?\.\(detail\)/);
   assert.match(mediaAssetHook, /onManifestParsed: \(\) => onManifestParsedRef\.current\?\.\(\)/);
   assert.match(mediaAssetHook, /onError: \(kind, detail\) => onErrorRef\.current\?\.\(kind, detail\)/);
-  assert.ok(mediaAssetHook.includes("}, [autoPlay, enabled, sourceUrl, videoRef]);"));
+  assert.ok(
+    mediaAssetHook.includes(
+      "}, [autoPlay, enabled, expiresAtMs, hasAuthErrorRefresh, hasProactiveRefresh, sourceUrl, videoRef]);",
+    ),
+  );
   assert.doesNotMatch(
     mediaAssetHook,
     /\[autoPlay, enabled, onAutoplayBlocked, onError, onManifestParsed, sourceUrl, videoRef\]/,
@@ -185,9 +193,18 @@ test("web HLS element errors are owned by the attach-layer token refresh path", 
   const videoBubble = read("src/components/chat/VideoMessageBubble.tsx");
   const chatVideoLightbox = read("src/components/chat/ChatVideoLightbox.tsx");
 
-  assert.match(mediaAssetHook, /onAuthErrorRefresh: \(detail\) => onAuthErrorRefreshRef\.current\?\.\(detail\)/);
+  assert.match(mediaAssetHook, /const hasAuthErrorRefresh = typeof onAuthErrorRefresh === "function"/);
+  assert.match(mediaAssetHook, /const hasProactiveRefresh = typeof onProactiveRefresh === "function"/);
+  assert.match(
+    mediaAssetHook,
+    /onAuthErrorRefresh: hasAuthErrorRefresh \? \(detail\) => onAuthErrorRefreshRef\.current\?\.\(detail\) : undefined/,
+  );
+  assert.match(
+    mediaAssetHook,
+    /onProactiveRefresh: hasProactiveRefresh \? \(\) => onProactiveRefreshRef\.current\?\.\(\) : undefined/,
+  );
   assert.match(hlsPlayback, /refreshAfterAuthError/);
-  assert.match(hlsPlayback, /playbackMode === "hls_js" && !isAuthStatusCode\(statusCode\)/);
+  assert.match(hlsPlayback, /playbackMode === "hls_js" && \(!isAuthStatusCode\(statusCode\) \|\| !isNetworkHlsError\(data\)\)/);
 
   assert.match(vibePlayer, /const isHlsPlaybackUrl = playbackUrl \? isHlsMediaAssetUrl\(playbackUrl\) : false/);
   assert.match(vibePlayer, /const handleError = \(\) => \{\s*if \(isHlsPlaybackUrl\) return;\s*reportPlaybackError\(\);\s*\};/);
@@ -440,13 +457,19 @@ test("Phase 9 telemetry-safe source ref classification is PII-safe", () => {
 
 test("Sprint 1 native HLS auth refresh stays bounded, signed-only, and fatal-safe", () => {
   const nativeVibePlayer = read("apps/mobile/components/video/VibeVideoPlayer.tsx");
+  const nativeMediaAssetHook = read("apps/mobile/hooks/useMediaAsset.ts");
 
   assert.match(nativeVibePlayer, /const MAX_HLS_AUTH_REFRESH_ATTEMPTS = 2/);
+  assert.match(nativeVibePlayer, /const PROACTIVE_HLS_TOKEN_REFRESH_RETRY_MS = 5 \* 1000/);
   assert.match(nativeVibePlayer, /const usesSignedProfileRef = isProfileVibeVideoRef\(sourceUri\)/);
   assert.match(nativeVibePlayer, /if \(!usesSignedProfileRef\) return false;/);
   assert.match(nativeVibePlayer, /authRefreshAttemptsRef\.current >= MAX_HLS_AUTH_REFRESH_ATTEMPTS/);
   assert.match(nativeVibePlayer, /refreshMediaAsset\('playback', \{ bypassFailureCooldown: true \}\)/);
+  assert.match(nativeVibePlayer, /refreshMediaAsset\('proactive', \{ suppressFailureCache: true \}\)/);
+  assert.match(nativeVibePlayer, /if \(authRefreshInFlightRef\.current\) \{\s*scheduleRetry\(\);\s*return;\s*\}/);
   assert.match(nativeVibePlayer, /VIBE_VIDEO_EVENTS\.tokenRefreshOnAuthError/);
+  assert.match(nativeMediaAssetHook, /kind === 'profile_vibe_video' && url && isHlsMediaAssetUrl\(url\)/);
+  assert.doesNotMatch(nativeMediaAssetHook, /if \(url && isHlsMediaAssetUrl\(url\)\) return/);
   assert.match(
     nativeVibePlayer,
     /usesSignedProfileRef[\s\S]*authRefreshAttemptsRef\.current < MAX_HLS_AUTH_REFRESH_ATTEMPTS[\s\S]*refreshPlaybackAfterAuthError\(\)[\s\S]*if \(!didRefresh\) reportFatalPlaybackError\(\)/,

@@ -1,5 +1,5 @@
 /**
- * OneSignal web push: request permission and sync player id to Supabase.
+ * OneSignal web push: request permission and sync the browser subscription ID to Supabase.
  * Use for Dashboard/Schedule flows (not raw Notification.requestPermission).
  */
 import { supabase } from "@/integrations/supabase/client";
@@ -22,6 +22,11 @@ const WEB_PLAYER_ID_SYNC_RETRY = {
   initialDelayMs: 500,
   maxDelayMs: 5000,
 };
+const WEB_PLAYER_ID_LOGOUT_LOOKUP = {
+  attempts: 2,
+  initialDelayMs: 100,
+  maxDelayMs: 250,
+};
 const WEB_PUSH_BACKEND_SYNC_TTL_MS = 10 * 60_000;
 const WEB_PUSH_BACKEND_SYNC_CACHE_KEY = "vibely.web_push_backend_sync.v1";
 
@@ -32,6 +37,18 @@ const lastBackendSyncBySignature = new Map<
 >();
 
 type StoredBackendSyncCache = Record<string, { syncedAtMs: number; result: PushSyncResult }>;
+type PushSubscriptionRpcError = {
+  code?: string;
+  message?: string;
+  details?: string;
+  hint?: string;
+};
+type PushSubscriptionRpcClient = {
+  rpc: (
+    fn: "register_onesignal_push_subscription" | "unregister_onesignal_push_subscription",
+    args: Record<string, unknown>,
+  ) => Promise<{ error: PushSubscriptionRpcError | null }>;
+};
 
 function syncResult(
   code: PushSyncResult["code"],
@@ -91,6 +108,75 @@ function getFreshCachedBackendSync(signature: string): PushSyncResult | null {
   return stored.result;
 }
 
+function isMissingPushSubscriptionRpc(error: PushSubscriptionRpcError | null | undefined): boolean {
+  if (!error) return false;
+  const haystack = `${error.code ?? ""} ${error.message ?? ""} ${error.details ?? ""} ${error.hint ?? ""}`;
+  return /42883|PGRST202|Could not find the function|register_onesignal_push_subscription|unregister_onesignal_push_subscription/i.test(haystack);
+}
+
+function pushSubscriptionRpc(): PushSubscriptionRpcClient {
+  return supabase as unknown as PushSubscriptionRpcClient;
+}
+
+async function upsertLegacyWebPushPreference(
+  userId: string,
+  playerId: string | null,
+  subscribed: boolean,
+): Promise<string | null> {
+  const { error } = await supabase.from("notification_preferences").upsert(
+    {
+      user_id: userId,
+      onesignal_player_id: playerId,
+      onesignal_subscribed: subscribed,
+      push_enabled: true,
+    },
+    { onConflict: "user_id" }
+  );
+  return error?.message ?? null;
+}
+
+async function registerStoredWebPushSubscription(
+  userId: string,
+  playerId: string,
+  subscribed: boolean,
+): Promise<string | null> {
+  const { error } = await pushSubscriptionRpc().rpc("register_onesignal_push_subscription", {
+    p_subscription_id: playerId,
+    p_platform: "web",
+    p_subscribed: subscribed,
+  });
+
+  if (error && !isMissingPushSubscriptionRpc(error)) {
+    return error.message ?? "push_subscription_register_failed";
+  }
+
+  const legacyError = await upsertLegacyWebPushPreference(userId, playerId, subscribed);
+  if (legacyError) return legacyError;
+  return null;
+}
+
+export async function disconnectWebPushForLogout(userId: string): Promise<void> {
+  const playerId = await getPlayerId(WEB_PLAYER_ID_LOGOUT_LOOKUP);
+  const { error } = playerId
+    ? await pushSubscriptionRpc().rpc("unregister_onesignal_push_subscription", {
+        p_subscription_id: playerId,
+        p_platform: "web",
+      })
+    : { error: null };
+
+  const { error: legacyError } = await supabase
+    .from("notification_preferences")
+    .update({
+      onesignal_player_id: null,
+      onesignal_subscribed: false,
+    })
+    .eq("user_id", userId);
+  if (legacyError) throw legacyError;
+  if (error && !isMissingPushSubscriptionRpc(error)) {
+    throw new Error(error.message ?? "push_subscription_unregister_failed");
+  }
+}
+
 async function syncWebPushRegistrationToBackendInternal(userId: string): Promise<PushSyncResult> {
   if (typeof Notification === "undefined" || Notification.permission !== "granted") {
     return syncResult("permission_denied");
@@ -126,20 +212,11 @@ async function syncWebPushRegistrationToBackendInternal(userId: string): Promise
     return cachedResult;
   }
 
-  const { error } = await supabase.from("notification_preferences").upsert(
-    {
-      user_id: userId,
-      onesignal_player_id: playerId,
-      onesignal_subscribed: subscribed,
-      push_enabled: true,
-    },
-    { onConflict: "user_id" }
-  );
-
-  if (error) {
-    vibelyOsLog("syncWebPushRegistrationToBackend:upsert failed", { message: error.message });
-    console.error("[requestWebPushPermission] upsert failed:", error);
-    return syncResult("upsert_failed", playerId, error.message);
+  const registerError = await registerStoredWebPushSubscription(userId, playerId, subscribed);
+  if (registerError) {
+    vibelyOsLog("syncWebPushRegistrationToBackend:upsert failed", { message: registerError });
+    console.error("[requestWebPushPermission] upsert failed:", registerError);
+    return syncResult("upsert_failed", playerId, registerError);
   }
 
   if (!subscribed) {

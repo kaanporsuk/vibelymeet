@@ -56,7 +56,7 @@ Use this order so dependencies are available when needed.
 
 2. **OneSignal**  
    - Ensure web app already configured; add iOS app (APNs) and Android app (FCM) in same or linked OneSignal project.  
-   - No repo code changes; mobile registers `mobile_onesignal_player_id` and `send-notification` targets it.
+   - Mobile registers the current subscription through `push_subscriptions` and mirrors `mobile_onesignal_player_id`; `send-notification` targets all subscribed OneSignal IDs.
 
 3. **Daily**  
    - Web already uses Daily; same domain/API key work for mobile.  
@@ -96,7 +96,7 @@ High-level order for validating the native app (dev build on simulator or real d
    Open matches list; open a conversation; load message history; send a message via `send-message`; confirm realtime (or poll) update and backend-owned notification side effects.
 
 5. **Push registration and delivery**  
-   Confirm OneSignal initializes and mobile player ID is stored in backend (`notification_preferences.mobile_onesignal_player_id`). Trigger a notification (e.g. match or message) from backend; confirm delivery on real device (background/foreground).
+   Confirm OneSignal initializes and the mobile subscription is stored in backend (`push_subscriptions`) with the legacy `notification_preferences.mobile_onesignal_player_id` mirror. Trigger a notification (e.g. match or message) from backend; confirm delivery on real device (background/foreground).
 
 6. **Daily Drop**  
    Open Daily Drop; load current candidate; perform opener/reply or pass; confirm backend transition and any notifications.

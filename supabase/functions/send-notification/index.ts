@@ -500,6 +500,7 @@ type PushDeliveryDiagnostic = {
   mobile_player_present: boolean
   mobile_player_subscribed: boolean
   player_target_count: number
+  subscription_table_target_count: number
   suppression_reason: string | null
   suppression_gate: string | null
   preference_column: string | null
@@ -619,6 +620,8 @@ function buildPushDeliveryDiagnostic(args: {
   providerErrorCode?: string | null
   providerNotificationId?: string | null
   deepLink?: unknown
+  subscriptionTargetCount?: number | null
+  subscriptionTableTargetCount?: number | null
 }): PushDeliveryDiagnostic {
   const prefs = args.prefs ?? null
   const webPlayerPresent = Boolean(prefs?.onesignal_player_id)
@@ -628,6 +631,9 @@ function buildPushDeliveryDiagnostic(args: {
   const platformTargeted: PushPlatform[] = []
   if (webPlayerPresent && webPlayerSubscribed) platformTargeted.push('web')
   if (mobilePlayerPresent && mobilePlayerSubscribed) platformTargeted.push('mobile')
+  const playerTargetCount = typeof args.subscriptionTargetCount === 'number'
+    ? args.subscriptionTargetCount
+    : platformTargeted.length
   const deepLink = classifyDeepLink(args.deepLink ?? diagnosticDeepLinkCandidate(args.category, args.data))
 
   return {
@@ -637,7 +643,8 @@ function buildPushDeliveryDiagnostic(args: {
     web_player_subscribed: webPlayerSubscribed,
     mobile_player_present: mobilePlayerPresent,
     mobile_player_subscribed: mobilePlayerSubscribed,
-    player_target_count: platformTargeted.length,
+    player_target_count: playerTargetCount,
+    subscription_table_target_count: args.subscriptionTableTargetCount ?? 0,
     suppression_reason: args.suppressionReason ?? null,
     suppression_gate: args.suppressionGate ?? null,
     preference_column: args.preferenceColumn ?? null,
@@ -663,6 +670,61 @@ function dataWithPushDiagnostic(data: any, diagnostic: PushDeliveryDiagnostic): 
     ...base,
     push_delivery_diagnostic: diagnostic,
   }
+}
+
+function addOneSignalSubscriptionId(ids: Set<string>, value: unknown): void {
+  if (typeof value !== 'string') return
+  const id = value.trim()
+  if (id) ids.add(id)
+}
+
+function isMissingPushSubscriptionsRelation(error: any): boolean {
+  const haystack = `${error?.code ?? ''} ${error?.message ?? ''} ${error?.details ?? ''} ${error?.hint ?? ''}`
+  return /42P01|PGRST205|push_subscriptions|relation .* does not exist|Could not find the table/i.test(haystack)
+}
+
+async function collectOneSignalSubscriptionIds(userId: string, prefs: any): Promise<{
+  ids: string[]
+  subscriptionTableTargetCount: number
+}> {
+  const ids = new Set<string>()
+
+  // Compatibility: legacy column names still contain OneSignal subscription IDs.
+  if (prefs.onesignal_subscribed) {
+    addOneSignalSubscriptionId(ids, prefs.onesignal_player_id)
+  }
+  if (prefs.mobile_onesignal_subscribed) {
+    addOneSignalSubscriptionId(ids, prefs.mobile_onesignal_player_id)
+  }
+
+  let subscriptionTableTargetCount = 0
+  try {
+    const { data, error } = await supabase
+      .from('push_subscriptions')
+      .select('subscription_id')
+      .eq('user_id', userId)
+      .eq('provider', 'onesignal')
+      .eq('subscribed', true)
+
+    if (error) {
+      if (!isMissingPushSubscriptionsRelation(error)) {
+        console.warn('push_subscriptions lookup failed:', error.message)
+      }
+      return { ids: Array.from(ids), subscriptionTableTargetCount }
+    }
+
+    for (const row of data ?? []) {
+      const before = ids.size
+      addOneSignalSubscriptionId(ids, (row as { subscription_id?: unknown }).subscription_id)
+      if (ids.size > before) subscriptionTableTargetCount += 1
+    }
+  } catch (error) {
+    if (!isMissingPushSubscriptionsRelation(error)) {
+      console.warn('push_subscriptions lookup exception:', error)
+    }
+  }
+
+  return { ids: Array.from(ids), subscriptionTableTargetCount }
 }
 
 function eventDeepLink(category: string, data: any): string | null {
@@ -1038,6 +1100,8 @@ Deno.serve(async (req) => {
       providerErrorCode?: string | null
       providerNotificationId?: string | null
       deepLink?: unknown
+      subscriptionTargetCount?: number | null
+      subscriptionTableTargetCount?: number | null
     }) => buildPushDeliveryDiagnostic({
       category,
       data,
@@ -1308,18 +1372,17 @@ Deno.serve(async (req) => {
       })
     }
 
-    // 10. Collect all player IDs (web + mobile) for multi-device delivery
-    const playerIds: string[] = []
-    if (prefs.onesignal_player_id && prefs.onesignal_subscribed) {
-      playerIds.push(prefs.onesignal_player_id)
-    }
-    if (prefs.mobile_onesignal_player_id && prefs.mobile_onesignal_subscribed) {
-      playerIds.push(prefs.mobile_onesignal_player_id)
-    }
+    // 10. Collect all stored OneSignal subscription IDs (legacy column names use "player_id").
+    const {
+      ids: playerIds,
+      subscriptionTableTargetCount,
+    } = await collectOneSignalSubscriptionIds(user_id, prefs)
     if (playerIds.length === 0) {
       await logNotification(user_id, category, title, body, data, false, 'no_player_id', diagnostic({
         suppressionReason: 'no_player_id',
         suppressionGate: 'no_player_id',
+        subscriptionTargetCount: 0,
+        subscriptionTableTargetCount,
       }))
       await ensureInAppNotification(finalTitle, finalBody)
       emitLifecycle('suppressed', 'no_player_id')
@@ -1385,7 +1448,8 @@ Deno.serve(async (req) => {
 
     const osPayload: any = {
       app_id: ONESIGNAL_APP_ID,
-      include_player_ids: playerIds,
+      include_subscription_ids: playerIds,
+      target_channel: 'push',
       headings: { en: finalTitle },
       contents: { en: finalBody },
       data: osData,
@@ -1410,7 +1474,7 @@ Deno.serve(async (req) => {
       osResponse = await fetch('https://api.onesignal.com/notifications', {
         method: 'POST',
         headers: {
-          'Authorization': `Basic ${ONESIGNAL_REST_API_KEY}`,
+          'Authorization': `Key ${ONESIGNAL_REST_API_KEY}`,
           'Content-Type': 'application/json',
         },
         body: JSON.stringify(osPayload),
@@ -1426,6 +1490,8 @@ Deno.serve(async (req) => {
         providerStatus: 'failed',
         providerErrorCode: suppressed,
         deepLink: webPath,
+        subscriptionTargetCount: playerIds.length,
+        subscriptionTableTargetCount,
       }))
       return new Response(
         JSON.stringify({
@@ -1460,6 +1526,8 @@ Deno.serve(async (req) => {
         providerHttpStatus: osResponse.status,
         providerErrorCode: suppressed,
         deepLink: webPath,
+        subscriptionTargetCount: playerIds.length,
+        subscriptionTableTargetCount,
       }))
       return new Response(
         JSON.stringify({
@@ -1485,6 +1553,8 @@ Deno.serve(async (req) => {
         providerHttpStatus: osResponse.status,
         providerErrorCode: osLogicalFailure,
         deepLink: webPath,
+        subscriptionTargetCount: playerIds.length,
+        subscriptionTableTargetCount,
       }))
       return new Response(
         JSON.stringify({
@@ -1504,6 +1574,8 @@ Deno.serve(async (req) => {
       providerHttpStatus: osResponse.status,
       providerNotificationId: notificationId ?? null,
       deepLink: webPath,
+      subscriptionTargetCount: playerIds.length,
+      subscriptionTableTargetCount,
     }))
 
     return new Response(

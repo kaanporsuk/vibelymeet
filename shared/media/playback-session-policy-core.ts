@@ -29,6 +29,12 @@ export type MediaPlaybackQoeSnapshot = {
   batteryCharging: boolean | null;
 };
 
+export type MediaPlaybackAbrPolicy = {
+  maxHeight: number | null;
+  skipPrewarm: boolean;
+  reason: "offline" | "save_data" | "slow_connection" | "cellular" | "qoe_degraded" | "unrestricted";
+};
+
 type PlaybackSessionPolicyAdapter = {
   getConnectionSnapshot?: () => MediaConnectionSnapshot;
   getBatterySnapshot?: () => MediaBatterySnapshot | null;
@@ -40,6 +46,30 @@ const UNKNOWN_CONNECTION: MediaConnectionSnapshot = {
   effectiveType: "unknown",
   saveData: false,
 };
+
+export function mediaPlaybackAbrPolicy(
+  connection: MediaConnectionSnapshot,
+  qoeDegraded = false,
+): MediaPlaybackAbrPolicy {
+  const connectionType = connection.connectionType.toLowerCase();
+  const effectiveType = connection.effectiveType.toLowerCase();
+  if (connectionType === "none" || connectionType === "offline") {
+    return { maxHeight: 480, skipPrewarm: true, reason: "offline" };
+  }
+  if (connection.saveData) {
+    return { maxHeight: 480, skipPrewarm: true, reason: "save_data" };
+  }
+  if (effectiveType === "slow-2g" || effectiveType === "2g" || effectiveType === "3g") {
+    return { maxHeight: 480, skipPrewarm: true, reason: "slow_connection" };
+  }
+  if (qoeDegraded) {
+    return { maxHeight: 480, skipPrewarm: true, reason: "qoe_degraded" };
+  }
+  if (connectionType === "cellular" || effectiveType === "4g" || effectiveType === "5g" || effectiveType === "cellular") {
+    return { maxHeight: 720, skipPrewarm: false, reason: "cellular" };
+  }
+  return { maxHeight: null, skipPrewarm: false, reason: "unrestricted" };
+}
 
 export function createMediaPlaybackSessionPolicy(adapter: PlaybackSessionPolicyAdapter = {}) {
   let qoeDegraded = false;
@@ -79,9 +109,7 @@ export function createMediaPlaybackSessionPolicy(adapter: PlaybackSessionPolicyA
     adapter.primeBatterySnapshot?.();
     const connection = connectionSnapshot();
     const battery = batterySnapshot();
-    if (qoeDegraded) return false;
-    if (connection.saveData) return false;
-    if (connection.effectiveType === "slow-2g" || connection.effectiveType === "2g") return false;
+    if (mediaPlaybackAbrPolicy(connection, qoeDegraded).skipPrewarm) return false;
     if (battery && battery.level < 0.2 && !battery.charging) return false;
     return prewarmBytesUsed + Math.max(0, bytesEstimate) <= PREWARM_SESSION_BYTE_LIMIT;
   }

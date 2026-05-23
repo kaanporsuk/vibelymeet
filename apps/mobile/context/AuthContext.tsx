@@ -11,7 +11,7 @@ import {
   recoverNativeAuthSession,
 } from '@/lib/nativeAuthRecovery';
 import { resetAnalytics, trackEvent } from '@/lib/analytics';
-import { logoutOneSignal } from '@/lib/onesignal';
+import { disconnectOneSignalForLogout } from '@/lib/onesignal';
 import { clearLocalPauseKeys } from '@/lib/notificationPause';
 import { clearRevenueCatUser } from '@/lib/revenuecat';
 import { resolveEntryState as resolveCurrentEntryState, signInWithEmail, type OnboardingStatus } from '@/lib/authApi';
@@ -322,18 +322,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const uid = currentUserId;
     invalidateCachedSession();
     void clearLocalPauseKeys();
-    logoutOneSignal();
     if (uid) {
-      void supabase
-        .from('notification_preferences')
-        .update({
-          mobile_onesignal_player_id: null,
-          mobile_onesignal_subscribed: false,
-        })
-        .eq('user_id', uid)
-        .then(({ error }) => {
-          if (error && __DEV__) console.warn('[signOut] notification_preferences:', error.message);
-        });
+      await withNativeAuthTimeout(
+        disconnectOneSignalForLogout(uid),
+        'onesignal.logout_clear',
+        3_000,
+      ).catch((error) => {
+        if (__DEV__) console.warn('[signOut] onesignal.logout_clear:', error);
+      });
+    } else {
+      await disconnectOneSignalForLogout(null).catch(() => undefined);
     }
     void clearRevenueCatUser();
 

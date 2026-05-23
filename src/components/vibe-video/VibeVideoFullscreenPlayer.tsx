@@ -6,7 +6,12 @@ import { resolveWebVibeVideoState } from "@/lib/vibeVideo/webVibeVideoState";
 import { useMediaAsset, useMediaAssetPlayback } from "@/hooks/useMediaAsset";
 import { useMediaPlaybackQoE } from "@/hooks/useMediaPlaybackQoE";
 import { usePrefersReducedMotion } from "@/hooks/usePrefersReducedMotion";
-import { isHlsMediaAssetUrl, isProfileVibeVideoRef, prewarmMediaAssets } from "@/lib/mediaAssetResolver";
+import {
+  isHlsMediaAssetUrl,
+  isProfileVibeVideoRef,
+  prewarmMediaAssets,
+  refreshMediaAsset as refreshResolvedMediaAsset,
+} from "@/lib/mediaAssetResolver";
 import { MediaPlaceholder } from "@/components/media/MediaPlaceholder";
 import { preloadHlsPlaybackLibrary } from "@/lib/vibeVideo/attachHlsPlayback";
 import {
@@ -75,7 +80,7 @@ export function VibeVideoFullscreenPlayer({
     placeholderHash,
     dominantColor,
     status: mediaAssetStatus,
-    refresh: refreshMediaAsset,
+    expiresAtMs: mediaAssetExpiresAtMs,
   } = useMediaAsset({
     kind: usesSignedProfileRef ? "profile_vibe_video" : "vibe_video",
     sourceRef: vibeVideoInfo.playbackUrl,
@@ -230,33 +235,44 @@ export function VibeVideoFullscreenPlayer({
     shouldAttachPlayback,
   ]);
 
+  const refreshPlaybackOnAuthError = useCallback(async () => {
+    if (!usesSignedProfileRef) return null;
+    if (hlsAuthRefreshAttemptCountRef.current >= MAX_HLS_AUTH_REFRESH_ATTEMPTS) return null;
+    hlsAuthRefreshAttemptCountRef.current += 1;
+    const attempt = hlsAuthRefreshAttemptCountRef.current;
+    try {
+      const freshAsset = await refreshResolvedMediaAsset("", "profile_vibe_video", vibeVideoInfo.playbackUrl, {
+        bypassFailureCooldown: true,
+      });
+      trackVibeVideoEvent(VIBE_VIDEO_EVENTS.tokenRefreshOnAuthError, {
+        source: "vibe_player_fullscreen",
+        attempt,
+        outcome: freshAsset?.url ? "refreshed" : "unavailable",
+      });
+      return freshAsset;
+    } catch {
+      trackVibeVideoEvent(VIBE_VIDEO_EVENTS.tokenRefreshOnAuthError, {
+        source: "vibe_player_fullscreen",
+        attempt,
+        outcome: "failed",
+      });
+      return null;
+    }
+  }, [usesSignedProfileRef, vibeVideoInfo.playbackUrl]);
+
+  const refreshPlaybackProactively = useCallback(async () => {
+    if (!usesSignedProfileRef) return null;
+    return refreshResolvedMediaAsset("", "profile_vibe_video", vibeVideoInfo.playbackUrl, { suppressFailureCache: true });
+  }, [usesSignedProfileRef, vibeVideoInfo.playbackUrl]);
+
   useMediaAssetPlayback(videoRef, playbackUrl, {
     enabled: show && isReady && !!playbackUrl && shouldAttachPlayback,
     autoPlay: shouldPlayOnAttach,
+    expiresAtMs: mediaAssetExpiresAtMs,
     onManifestParsed: reportSucceeded,
     onError: reportPlaybackError,
-    onAuthErrorRefresh: async () => {
-      if (!usesSignedProfileRef) return null;
-      if (hlsAuthRefreshAttemptCountRef.current >= MAX_HLS_AUTH_REFRESH_ATTEMPTS) return null;
-      hlsAuthRefreshAttemptCountRef.current += 1;
-      const attempt = hlsAuthRefreshAttemptCountRef.current;
-      try {
-        const freshUrl = await refreshMediaAsset("playback", { bypassFailureCooldown: true });
-        trackVibeVideoEvent(VIBE_VIDEO_EVENTS.tokenRefreshOnAuthError, {
-          source: "vibe_player_fullscreen",
-          attempt,
-          outcome: freshUrl ? "refreshed" : "unavailable",
-        });
-        return freshUrl;
-      } catch {
-        trackVibeVideoEvent(VIBE_VIDEO_EVENTS.tokenRefreshOnAuthError, {
-          source: "vibe_player_fullscreen",
-          attempt,
-          outcome: "failed",
-        });
-        return null;
-      }
-    },
+    onAuthErrorRefresh: refreshPlaybackOnAuthError,
+    onProactiveRefresh: refreshPlaybackProactively,
   });
   useMediaPlaybackQoE(videoRef, {
     enabled: show && isReady && !!playbackUrl && shouldAttachPlayback,
