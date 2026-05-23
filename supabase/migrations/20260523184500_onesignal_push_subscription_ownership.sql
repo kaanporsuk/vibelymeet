@@ -239,9 +239,17 @@ REVOKE ALL ON FUNCTION public.unregister_onesignal_push_subscription(text, text)
 GRANT EXECUTE ON FUNCTION public.unregister_onesignal_push_subscription(text, text) TO authenticated;
 
 INSERT INTO public.push_subscriptions (user_id, provider, subscription_id, platform, subscribed, last_seen_at, updated_at)
-SELECT user_id, 'onesignal', btrim(onesignal_player_id), 'web', COALESCE(onesignal_subscribed, false), now(), now()
-FROM public.notification_preferences
-WHERE NULLIF(btrim(COALESCE(onesignal_player_id, '')), '') IS NOT NULL
+SELECT user_id, 'onesignal', subscription_id, 'web', subscribed, now(), now()
+FROM (
+  SELECT DISTINCT ON (btrim(onesignal_player_id))
+    user_id,
+    btrim(onesignal_player_id) AS subscription_id,
+    COALESCE(onesignal_subscribed, false) AS subscribed,
+    updated_at
+  FROM public.notification_preferences
+  WHERE NULLIF(btrim(COALESCE(onesignal_player_id, '')), '') IS NOT NULL
+  ORDER BY btrim(onesignal_player_id), COALESCE(onesignal_subscribed, false) DESC, updated_at DESC NULLS LAST, user_id
+) deduped_web
 ON CONFLICT (provider, subscription_id) DO UPDATE
 SET
   user_id = EXCLUDED.user_id,
@@ -251,9 +259,17 @@ SET
   updated_at = now();
 
 INSERT INTO public.push_subscriptions (user_id, provider, subscription_id, platform, subscribed, last_seen_at, updated_at)
-SELECT user_id, 'onesignal', btrim(mobile_onesignal_player_id), 'native', COALESCE(mobile_onesignal_subscribed, false), now(), now()
-FROM public.notification_preferences
-WHERE NULLIF(btrim(COALESCE(mobile_onesignal_player_id, '')), '') IS NOT NULL
+SELECT user_id, 'onesignal', subscription_id, 'native', subscribed, now(), now()
+FROM (
+  SELECT DISTINCT ON (btrim(mobile_onesignal_player_id))
+    user_id,
+    btrim(mobile_onesignal_player_id) AS subscription_id,
+    COALESCE(mobile_onesignal_subscribed, false) AS subscribed,
+    updated_at
+  FROM public.notification_preferences
+  WHERE NULLIF(btrim(COALESCE(mobile_onesignal_player_id, '')), '') IS NOT NULL
+  ORDER BY btrim(mobile_onesignal_player_id), COALESCE(mobile_onesignal_subscribed, false) DESC, updated_at DESC NULLS LAST, user_id
+) deduped_native
 ON CONFLICT (provider, subscription_id) DO UPDATE
 SET
   user_id = EXCLUDED.user_id,
