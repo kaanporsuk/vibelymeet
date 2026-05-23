@@ -1,8 +1,5 @@
-import { trackEvent } from '@/lib/analytics';
-import {
-  sanitizeMediaTelemetryProperties,
-  type MediaTelemetryProperties,
-} from '@clientShared/media/telemetry';
+import type { MediaTelemetryProperties } from '@clientShared/media/telemetry';
+import { trackMediaTelemetryEvent } from '@/lib/mediaTelemetry';
 import type { VibeClipEventName } from '../../shared/chat/vibeClipAnalytics';
 
 type Props = MediaTelemetryProperties;
@@ -16,5 +13,5 @@ const base = () => ({
  * Single entry for Vibe Clip funnel events on web.
  */
 export function trackVibeClipEvent(name: VibeClipEventName, properties?: Props): void {
-  trackEvent(name, sanitizeMediaTelemetryProperties(properties, { defaults: base() }));
+  trackMediaTelemetryEvent(name, properties, { defaults: base() });
 }

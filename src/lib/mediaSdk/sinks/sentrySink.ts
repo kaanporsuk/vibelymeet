@@ -1,15 +1,15 @@
 import * as Sentry from "@sentry/react";
 import type { MediaTelemetryEvent, MediaTelemetryFields, MediaTelemetrySink } from "@clientShared/media-sdk";
-import { sanitizeMediaTelemetryProperties } from "@clientShared/media/telemetry";
+import { sanitizeMediaSdkTelemetryProperties } from "@clientShared/media/mediaTelemetry";
 
 function fieldsForEvent(event: MediaTelemetryEvent): MediaTelemetryFields {
-  return sanitizeMediaTelemetryProperties({
+  return sanitizeMediaSdkTelemetryProperties({
     family: event.family ?? null,
     platform: event.platform ?? "web",
     state: event.state ?? null,
     client_request_id: event.clientRequestId ?? null,
     ...(event.fields ?? {}),
-  }, { allowSensitiveKeys: ["path", "path_selected"] });
+  });
 }
 
 export const webMediaSentrySink: MediaTelemetrySink = {
@@ -22,13 +22,14 @@ export const webMediaSentrySink: MediaTelemetrySink = {
     });
   },
   captureException(error, fields) {
+    const extra = sanitizeMediaSdkTelemetryProperties(fields ?? {});
     Sentry.captureException(error, {
       tags: {
         feature: "media-sdk",
-        family: typeof fields?.family === "string" ? fields.family : undefined,
-        platform: typeof fields?.platform === "string" ? fields.platform : "web",
+        family: typeof extra.family === "string" ? extra.family : undefined,
+        platform: typeof extra.platform === "string" ? extra.platform : "web",
       },
-      extra: fields,
+      extra,
     });
   },
 };

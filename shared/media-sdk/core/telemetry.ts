@@ -63,19 +63,33 @@ const SAFE_FIELD_KEYS = new Set([
   "webhook_latency_ms",
 ]);
 
+const SAFE_RUNTIME_PATH_VALUES = new Set(["v2", "legacy"]);
+const SAFE_PATH_SELECTED_VALUES = new Set(["media_sdk", "legacy"]);
+
+function safeTelemetryFieldValue(key: string, value: MediaTelemetryFields[string]): MediaTelemetryFields[string] {
+  if (key === "path") {
+    return typeof value === "string" && SAFE_RUNTIME_PATH_VALUES.has(value) ? value : undefined;
+  }
+  if (key === "path_selected") {
+    return typeof value === "string" && SAFE_PATH_SELECTED_VALUES.has(value) ? value : undefined;
+  }
+  return value;
+}
+
 export function safeTelemetryFields(fields?: MediaTelemetryFields): MediaTelemetryFields | undefined {
   if (!fields) return undefined;
   const safe: MediaTelemetryFields = {};
   for (const [key, value] of Object.entries(fields)) {
     if (!SAFE_FIELD_KEYS.has(key)) continue;
+    const safeValue = safeTelemetryFieldValue(key, value);
+    if (safeValue === undefined) continue;
     if (
-      value === null ||
-      value === undefined ||
-      typeof value === "string" ||
-      typeof value === "number" ||
-      typeof value === "boolean"
+      safeValue === null ||
+      typeof safeValue === "string" ||
+      typeof safeValue === "number" ||
+      typeof safeValue === "boolean"
     ) {
-      safe[key] = value;
+      safe[key] = safeValue;
     }
   }
   return Object.keys(safe).length ? safe : undefined;

@@ -54,6 +54,7 @@ const syncChatVibeClipStatus = read("supabase/functions/sync-chat-vibe-clip-stat
 const dismissChatVibeClipUpload = read("supabase/functions/dismiss-chat-vibe-clip-upload/index.ts");
 const chatVibeClipShared = read("supabase/functions/_shared/chat-vibe-clips.ts");
 const vibeClipAnalytics = read("shared/chat/vibeClipAnalytics.ts");
+const mediaTelemetry = read("shared/media/mediaTelemetry.ts");
 const mediaLifecycleShared = read("supabase/functions/_shared/media-lifecycle.ts");
 const getChatMediaUrl = read("supabase/functions/get-chat-media-url/index.ts");
 const bunnyStreamTokens = read("supabase/functions/_shared/bunny-stream-tokens.ts");
@@ -881,8 +882,9 @@ test("server upload and publish paths enforce Bunny Stream Vibe Clip limits", ()
 });
 
 test("Chat Vibe Clip P1.1 observability keeps stable trace fields", () => {
-  assert.match(vibeClipAnalytics, /clip_recovery_status: 'clip_recovery_status'/);
-  assert.match(vibeClipAnalytics, /media_upload_suspended_recovery: 'media_upload_suspended_recovery'/);
+  assert.match(vibeClipAnalytics, /VIBE_CLIP_EVENTS = MEDIA_VIBE_CLIP_EVENTS/);
+  assert.match(mediaTelemetry, /clip_recovery_status: "clip_recovery_status"/);
+  assert.match(mediaTelemetry, /media_upload_suspended_recovery: "media_upload_suspended_recovery"/);
   assert.match(vibeClipRecovery, /would_benefit_from_background: true/);
   assert.match(webChat, /trackVibeClipEvent\("media_upload_suspended_recovery"/);
   assert.match(webOutboxContext, /trackVibeClipEvent\("media_upload_suspended_recovery"/);

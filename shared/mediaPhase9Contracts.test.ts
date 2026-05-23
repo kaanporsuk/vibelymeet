@@ -10,6 +10,7 @@ import {
 } from "./media/captions.ts";
 import { sanitizeMediaTelemetryProperties } from "./media/telemetry.ts";
 import { telemetrySafeSourceRef } from "./media/telemetry-safe-ref.ts";
+import { MEDIA_PLAYBACK_QOE_EVENTS, MEDIA_VIBE_VIDEO_EVENTS } from "./media/mediaTelemetry.ts";
 
 const root = process.cwd();
 const read = (path: string) => readFileSync(join(root, path), "utf8");
@@ -23,9 +24,12 @@ test("Phase 9 QoE contracts and prewarm policy constants are pinned", () => {
   const fullscreen = read("src/components/vibe-video/VibeVideoFullscreenPlayer.tsx");
   const hlsPlayback = read("src/lib/vibeVideo/attachHlsPlayback.ts");
 
+  assert.equal(MEDIA_PLAYBACK_QOE_EVENTS.summary, "media_playback_qoe");
+  assert.equal(MEDIA_PLAYBACK_QOE_EVENTS.rebuffer, "media_playback_qoe_rebuffer");
+
   for (const qoe of [webQoe, nativeQoe]) {
-    assert.match(qoe, /media_playback_qoe/);
-    assert.match(qoe, /media_playback_qoe_rebuffer/);
+    assert.match(qoe, /MEDIA_PLAYBACK_QOE_EVENTS\.summary/);
+    assert.match(qoe, /MEDIA_PLAYBACK_QOE_EVENTS\.rebuffer/);
     assert.match(qoe, /telemetrySafeSourceRef/);
     assert.match(qoe, /startup_ms/);
     assert.match(qoe, /rebuffer_count/);
@@ -473,8 +477,8 @@ test("Sprint 1 native CDN hostname mismatch emits sanitized PostHog and Sentry w
   const nativeTelemetry = read("apps/mobile/lib/vibeVideoTelemetry.ts");
 
   assert.match(nativeTelemetry, /export function captureVibeVideoMessage/);
-  assert.match(nativeTelemetry, /Sentry\.captureMessage\(message/);
-  assert.match(nativeTelemetry, /extra: sanitizeProperties\(properties\)/);
+  assert.match(nativeTelemetry, /captureMediaTelemetryMessage\(message, properties/);
+  assert.match(nativeTelemetry, /feature: 'vibe_video'/);
   assert.match(nativePlaybackUrl, /captureVibeVideoMessage/);
   assert.match(nativePlaybackUrl, /VIBE_VIDEO_EVENTS\.cdnHostnamePersistenceMismatch/);
   assert.match(nativePlaybackUrl, /captureVibeVideoMessage\('vibe_video_cdn_hostname_persistence_mismatch', properties, 'warning'\)/);
@@ -496,8 +500,9 @@ test("Sprint 2 profile Vibe Video TTFF and placeholder backfill ops are pinned",
   const backfillFn = read("supabase/functions/backfill-media-placeholders/index.ts");
   const backfillOpsMigration = read("supabase/migrations/20260523120000_media_placeholder_backfill_ops.sql");
 
-  assert.match(webTelemetry, /profileTtffMeasured: "vibe_video_profile_ttff_ms"/);
-  assert.match(nativeTelemetry, /profileTtffMeasured: 'vibe_video_profile_ttff_ms'/);
+  assert.equal(MEDIA_VIBE_VIDEO_EVENTS.profileTtffMeasured, "vibe_video_profile_ttff_ms");
+  assert.match(webTelemetry, /MEDIA_VIBE_VIDEO_EVENTS/);
+  assert.match(nativeTelemetry, /MEDIA_VIBE_VIDEO_EVENTS/);
   assert.match(sharedTtff, /prewarm_age_ms/);
   assert.match(sharedTtff, /signed_profile_ref/);
   assert.match(sharedTtff, /source_kind/);

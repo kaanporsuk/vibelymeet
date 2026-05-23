@@ -4,33 +4,10 @@
  */
 
 import { VIBE_CLIP_THREAD_WARM_THRESHOLD } from './vibeClipPrompts';
+import { MEDIA_VIBE_CLIP_EVENTS } from '../media/mediaTelemetry';
 
 /** Stable snake_case event names (PostHog). */
-export const VIBE_CLIP_EVENTS = {
-  clip_entry_opened: 'clip_entry_opened',
-  clip_record_started: 'clip_record_started',
-  clip_record_completed: 'clip_record_completed',
-  clip_retake: 'clip_retake',
-  clip_send_attempted: 'clip_send_attempted',
-  clip_send_succeeded: 'clip_send_succeeded',
-  clip_send_failed: 'clip_send_failed',
-  clip_play_started: 'clip_play_started',
-  clip_play_completed: 'clip_play_completed',
-  clip_reply_with_clip_clicked: 'clip_reply_with_clip_clicked',
-  clip_voice_reply_clicked: 'clip_voice_reply_clicked',
-  clip_react_clicked: 'clip_react_clicked',
-  clip_date_cta_clicked: 'clip_date_cta_clicked',
-  clip_date_flow_opened: 'clip_date_flow_opened',
-  clip_date_submitted_from_clip: 'clip_date_submitted_from_clip',
-  clip_recovery_status: 'clip_recovery_status',
-  media_upload_suspended_recovery: 'media_upload_suspended_recovery',
-  caption_capture_unavailable: 'caption_capture_unavailable',
-  caption_capture_started: 'caption_capture_started',
-  caption_capture_succeeded: 'caption_capture_succeeded',
-  caption_capture_aborted: 'caption_capture_aborted',
-  caption_capture_failed: 'caption_capture_failed',
-  caption_toggle_changed: 'caption_toggle_changed',
-} as const;
+export const VIBE_CLIP_EVENTS = MEDIA_VIBE_CLIP_EVENTS;
 
 export type VibeClipEventName = (typeof VIBE_CLIP_EVENTS)[keyof typeof VIBE_CLIP_EVENTS];
 
