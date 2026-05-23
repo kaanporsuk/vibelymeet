@@ -31,7 +31,11 @@ Sprint 3 implements chat (matches list, message thread, send message) and push n
    - Adds `register_onesignal_push_subscription` / `unregister_onesignal_push_subscription` so a physical device subscription transfers to the currently authenticated user.
    - Keeps the legacy `notification_preferences` columns deduped for compatibility.
 
-3. **`supabase/functions/send-notification/index.ts`**
+3. **Migration `20260523193000_restrict_onesignal_push_subscription_rpc_grants.sql`**
+   - Revokes explicit `anon` execute grants from the OneSignal subscription ownership RPCs.
+   - Keeps execute access for `authenticated` users and `service_role`.
+
+4. **`supabase/functions/send-notification/index.ts`**
    - Builds `playerIds` from `push_subscriptions` plus both `onesignal_player_id` (web) and `mobile_onesignal_player_id` (mobile) when present and subscribed.
    - Sends to `include_subscription_ids: playerIds` with `target_channel: "push"` so delivery goes to all registered devices.
    - Web impact: additive; web registers into `push_subscriptions` and still mirrors `onesignal_player_id`. Multi-device: a user can receive on every registered web/native subscription present in `push_subscriptions`.
@@ -42,9 +46,9 @@ Sprint 3 implements chat (matches list, message thread, send message) and push n
 
 ## Gaps / limits after Sprint 3
 
-- **Device-level push delivery:** Not validated on physical device or with production OneSignal/APNs/FCM credentials. Implemented path: init → request permission → get subscription id → upsert to backend; actual receipt of push on device depends on OneSignal app config, credentials, and device testing.
+- **Device-level push delivery:** Code, Supabase wiring, and OneSignal targeting are validated; final acceptance still requires a physical-device push receive test with production OneSignal/APNs credentials.
 - **Read receipts:** Web has `read_at` on messages; mobile does not update read state in this sprint (can be added later using same schema).
-- **Notification tap / deep link:** Mobile does not yet handle notification click to open a specific chat or screen; can be added via OneSignal notification click handler and app routing.
+- **Notification tap / deep link:** Native click handling is now wired through `NotificationDeepLinkHandler`; keep route-specific tap behavior in the physical-device QA pass.
 
 ## Checks
 

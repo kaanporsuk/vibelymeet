@@ -21,9 +21,12 @@ const nativeOneSignal = read("apps/mobile/lib/onesignal.ts");
 const nativePushRegistration = read("apps/mobile/components/PushRegistration.tsx");
 const nativePushForegroundSync = read("apps/mobile/lib/nativePushForegroundSync.ts");
 const nativePushHealth = read("apps/mobile/lib/usePushDeliveryHealth.ts");
+const nativeNotificationPause = read("apps/mobile/lib/notificationPause.ts");
+const nativePushMasterSwitch = read("apps/mobile/lib/pushMasterSwitch.ts");
 const nativeDeepLink = read("apps/mobile/components/NotificationDeepLinkHandler.tsx");
 const nativeAppConfig = read("apps/mobile/app.config.js");
 const pushSubscriptionOwnershipMigration = read("supabase/migrations/20260523184500_onesignal_push_subscription_ownership.sql");
+const pushSubscriptionRpcGrantMigration = read("supabase/migrations/20260523193000_restrict_onesignal_push_subscription_rpc_grants.sql");
 const branchDelta = read("docs/branch-deltas/fix-onesignal-provider-operational-qa.md");
 
 test("web OneSignal initialization is env-backed and root-worker aware", () => {
@@ -61,6 +64,8 @@ test("web identity binding and backend sync avoid token-refresh login spam", () 
 test("web player-id and subscription sync writes notification_preferences safely", () => {
   assert.match(webPushSync, /getPlayerId\(/);
   assert.match(webPushSync, /WEB_PLAYER_ID_LOGOUT_LOOKUP/);
+  assert.match(webPushSync, /const playerId = await getPlayerId\(WEB_PLAYER_ID_LOGOUT_LOOKUP\)/);
+  assert.match(webPushSync, /p_subscription_id:\s*playerId/);
   assert.match(webPushSync, /isSubscribed\(\)/);
   assert.match(webPushSync, /register_onesignal_push_subscription/);
   assert.match(webPushSync, /unregister_onesignal_push_subscription/);
@@ -95,6 +100,8 @@ test("native OneSignal identity and subscription sync mirror the backend contrac
     nativePushHealth,
     /await syncNativePushSuppressionWithBackend\(userId\);\s*const result = await syncPushWithBackendIfPermissionGranted\(userId\);/,
   );
+  assert.match(nativeNotificationPause, /syncPushAfterRestoringDelivery\(userId\)/);
+  assert.match(nativePushMasterSwitch, /syncPushAfterRestoringDelivery\(userId\)/);
   assert.match(nativePushRegistration, /bindOneSignalExternalUser\(user\.id\)/);
   assert.match(nativePushRegistration, /syncNativePushDeliveryOnForeground\(user\.id/);
   assert.match(nativeAppConfig, /onesignal-expo-plugin/);
@@ -155,8 +162,16 @@ test("OneSignal subscription ownership migration supports multi-device native de
   assert.match(pushSubscriptionOwnershipMigration, /SELECT DISTINCT ON \(btrim\(mobile_onesignal_player_id\)\)/);
   assert.match(pushSubscriptionOwnershipMigration, /notification_preferences_onesignal_subscription_dedupe/);
   assert.match(pushSubscriptionOwnershipMigration, /platform IN \('web', 'ios', 'android', 'native', 'unknown'\)/);
+  assert.match(pushSubscriptionOwnershipMigration, /IF v_subscription_id IS NOT NULL THEN[\s\S]*DELETE FROM public\.push_subscriptions/);
   assert.match(pushSubscriptionOwnershipMigration, /GRANT EXECUTE ON FUNCTION public\.register_onesignal_push_subscription/);
   assert.match(pushSubscriptionOwnershipMigration, /NOTIFY pgrst, 'reload schema'/);
+  assert.doesNotMatch(pushSubscriptionOwnershipMigration, /CREATE POLICY "Users can insert own push subscriptions"/);
+  assert.doesNotMatch(pushSubscriptionOwnershipMigration, /CREATE POLICY "Users can update own push subscriptions"/);
+  assert.doesNotMatch(pushSubscriptionOwnershipMigration, /CREATE POLICY "Users can delete own push subscriptions"/);
+  assert.match(pushSubscriptionRpcGrantMigration, /REVOKE EXECUTE ON FUNCTION public\.register_onesignal_push_subscription\(text, text, boolean\) FROM anon/);
+  assert.match(pushSubscriptionRpcGrantMigration, /REVOKE EXECUTE ON FUNCTION public\.unregister_onesignal_push_subscription\(text, text\) FROM anon/);
+  assert.match(pushSubscriptionRpcGrantMigration, /GRANT EXECUTE ON FUNCTION public\.register_onesignal_push_subscription\(text, text, boolean\) TO authenticated/);
+  assert.match(pushSubscriptionRpcGrantMigration, /GRANT EXECUTE ON FUNCTION public\.unregister_onesignal_push_subscription\(text, text\) TO authenticated/);
 });
 
 test("notification deep-link payloads remain URL-based and native-compatible", () => {
