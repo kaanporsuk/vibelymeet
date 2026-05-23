@@ -7,7 +7,7 @@ import { useMediaAsset, useMediaAssetPlayback } from "@/hooks/useMediaAsset";
 import { useMediaPlaybackQoE } from "@/hooks/useMediaPlaybackQoE";
 import { usePrefersReducedMotion } from "@/hooks/usePrefersReducedMotion";
 import { useMediaVideoPreloadForVisibility } from "@/hooks/useMediaVideoPreloadPolicy";
-import { isHlsMediaAssetUrl, isProfileVibeVideoRef } from "@/lib/mediaAssetResolver";
+import { isHlsMediaAssetUrl, isProfileVibeVideoRef, prewarmMediaAssets } from "@/lib/mediaAssetResolver";
 import { MediaPlaceholder } from "@/components/media/MediaPlaceholder";
 import { trackVibeVideoEvent, VIBE_VIDEO_EVENTS } from "@/lib/vibeVideo/vibeVideoTelemetry";
 import {
@@ -87,6 +87,18 @@ export const VibePlayer = ({
   const videoPreload = useMediaVideoPreloadForVisibility(shouldLoad, playbackUrl, undefined, prefersReducedMotion);
   const captionText = useMemo(() => captionTextFromMediaCaptions(captions), [captions]);
   const captionLanguage = useMemo(() => mediaCaptionLanguage(captions) ?? "und", [captions]);
+
+  useEffect(() => {
+    if (!shouldLoad || prefersReducedMotion || !videoUrl) return;
+    if (!usesSignedProfileRef && !isHlsMediaAssetUrl(videoUrl)) return;
+    void prewarmMediaAssets(
+      [{
+        kind: usesSignedProfileRef ? "profile_vibe_video" : "video",
+        sourceRef: videoUrl,
+      }],
+      { concurrency: 1 },
+    ).catch(() => {});
+  }, [prefersReducedMotion, shouldLoad, usesSignedProfileRef, videoUrl]);
 
   useEffect(() => {
     const vtt = mediaCaptionsToWebVtt(captions, 15_000);
@@ -235,6 +247,7 @@ export const VibePlayer = ({
     const videoEl = videoRef.current;
     if (!videoEl || !shouldLoad || !playbackUrl) return;
 
+    setIsLoaded(false);
     setIsLoading(true);
   }, [playbackUrl, shouldLoad]);
 
@@ -333,6 +346,18 @@ export const VibePlayer = ({
         dominantColor={dominantColor}
       />
 
+      {posterUrl ? (
+        <img
+          src={posterUrl}
+          alt=""
+          className="pointer-events-none absolute inset-0 z-[1] h-full w-full object-cover"
+          decoding="sync"
+          loading="eager"
+          fetchPriority="high"
+          draggable={false}
+        />
+      ) : null}
+
       {/* Loading state */}
       {isLoading && !hasError && (!prefersReducedMotion || manualPlaybackRequested) && (
         <div className="absolute inset-0 z-10 flex items-center justify-center bg-background/10">
@@ -379,7 +404,10 @@ export const VibePlayer = ({
       {/* Video */}
       <video
         ref={videoRef}
-        className="relative z-[1] w-full h-full object-cover"
+        className={cn(
+          "relative z-[2] w-full h-full object-cover transition-opacity duration-150",
+          posterUrl && !isLoaded && !hasError ? "opacity-0" : "opacity-100",
+        )}
         loop
         muted={isMuted}
         playsInline

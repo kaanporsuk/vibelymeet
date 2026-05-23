@@ -37,6 +37,7 @@ import type { UserProfileView } from '@/lib/fetchUserProfile';
 import { getImageUrl } from '@/lib/imageUrl';
 import { formatBirthdayUsWithZodiac } from '@/lib/profileApi';
 import { resolveVibeVideoState } from '@/lib/vibeVideoState';
+import { prewarmMediaAssets } from '@/lib/mediaAssetResolver';
 import { useMediaAsset } from '@/hooks/useMediaAsset';
 import { useReduceMotion } from '@/hooks/useReduceMotion';
 import { PROMPT_EMOJIS } from '@/components/profile/PROMPT_CONSTANTS';
@@ -415,6 +416,20 @@ export function UserProfileFullView({
       ? signedVibeVideoReady || (allowUnsignedFallback && !!vibePlaybackUrl)
       : !!vibePlaybackUrl
   );
+
+  useEffect(() => {
+    if (reduceMotion || effectiveVibeVideoState !== 'ready') return;
+    const sourceRef = signedVibeVideoRef ?? vibeInfo.playbackUrl ?? null;
+    if (!sourceRef) return;
+    void prewarmMediaAssets(
+      [{
+        kind: signedVibeVideoRef ? 'profile_vibe_video' : 'video',
+        sourceRef,
+      }],
+      { concurrency: 1 },
+    ).catch(() => {});
+  }, [effectiveVibeVideoState, reduceMotion, signedVibeVideoRef, vibeInfo.playbackUrl]);
+
   const vibeReadyAwaitingPlayback = effectiveVibeVideoState === 'ready' && !hasPlayableVibeVideo;
   const vibeProcessing = effectiveVibeVideoState === 'processing' || effectiveVibeVideoState === 'stale_processing';
   const vibeStaleProcessing = effectiveVibeVideoState === 'stale_processing';

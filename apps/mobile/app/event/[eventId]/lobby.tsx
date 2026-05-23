@@ -33,6 +33,8 @@ import {
   type SwipeResult,
 } from '@/lib/eventsApi';
 import { avatarUrl, deckCardUrl } from '@/lib/imageUrl';
+import { fetchUserProfile } from '@/lib/fetchUserProfile';
+import { prewarmMediaAssets } from '@/lib/mediaAssetResolver';
 import { ReadyGateOverlay } from '@/components/lobby/ReadyGateOverlay';
 import { EventEndedModal } from '@/components/events/EventEndedModal';
 import { useEventStatus } from '@/lib/eventStatus';
@@ -3026,6 +3028,7 @@ function LobbyProfileCard({
   isBehind?: boolean;
 }) {
   void userVibes;
+  const queryClient = useQueryClient();
   const photoVerified = profile.photo_verified === true;
   const premiumBadge = profile.premium_badge;
 
@@ -3048,6 +3051,24 @@ function LobbyProfileCard({
 
   const intentRaw = profile.looking_for?.trim();
   const intentDisplay = intentRaw ? getRelationshipIntentDisplaySafe(intentRaw) : null;
+  const prewarmFullProfile = useCallback(() => {
+    void queryClient.fetchQuery({
+      queryKey: ['user-profile', profile.id],
+      queryFn: () => fetchUserProfile(profile.id),
+      staleTime: 60_000,
+    }).then((fullProfile) => {
+      const playbackRef = fullProfile?.vibe_video_playback_ref?.trim();
+      if (!playbackRef) return;
+      void prewarmMediaAssets(
+        [{ kind: 'profile_vibe_video', sourceRef: playbackRef }],
+        { concurrency: 1 },
+      ).catch(() => {});
+    }).catch(() => {});
+  }, [profile.id, queryClient]);
+  const openFullProfile = useCallback(() => {
+    prewarmFullProfile();
+    router.push(`/user/${profile.id}`);
+  }, [prewarmFullProfile, profile.id]);
 
   return (
     <View
@@ -3121,7 +3142,8 @@ function LobbyProfileCard({
       </View>
       {!isBehind && (
         <Pressable
-          onPress={() => router.push(`/user/${profile.id}`)}
+          onPressIn={prewarmFullProfile}
+          onPress={openFullProfile}
           style={styles.profileInfoBtn}
           accessibilityLabel="View full profile"
         >
