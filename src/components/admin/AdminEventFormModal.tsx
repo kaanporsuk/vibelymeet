@@ -361,9 +361,12 @@ const AdminEventFormModal = ({ event, onClose }: AdminEventFormModalProps) => {
     try {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) throw new Error("Not authenticated");
-      const { uploadEventCoverToBunny } = await import("@/services/eventCoverUploadService");
+      const { uploadEventCoverWithMediaSdk } = await import("@/lib/mediaSdk/webStorageUploads");
       const clientRequestId = clientRequestIdForUploadFile(file, `event-cover:${event?.id ?? "new"}`);
-      const uploaded = await uploadEventCoverToBunny(file, session.access_token, event?.id ?? undefined, {
+      const uploaded = await uploadEventCoverWithMediaSdk({
+        file,
+        accessToken: session.access_token,
+        eventId: event?.id ?? undefined,
         clientRequestId,
         expectedCurrentCoverAssetId: event?.id ? currentCoverAssetId : undefined,
       });

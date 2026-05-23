@@ -31,12 +31,7 @@ export class EventCoverUploadError extends Error {
   }
 }
 
-export async function uploadEventCoverToBunny(
-  file: File,
-  accessToken: string,
-  eventId?: string,
-  options: UploadEventCoverOptions = {},
-): Promise<{
+export type UploadEventCoverResult = {
   url: string;
   path: string | null;
   assetId: string | null;
@@ -44,7 +39,14 @@ export async function uploadEventCoverToBunny(
   referenceId: string | null;
   receiptId: string | null;
   sessionId: string | null;
-}> {
+};
+
+export async function uploadEventCoverToBunny(
+  file: File,
+  accessToken: string,
+  eventId?: string,
+  options: UploadEventCoverOptions = {},
+): Promise<UploadEventCoverResult> {
   const formData = new FormData();
   formData.append("file", file);
   if (eventId) {

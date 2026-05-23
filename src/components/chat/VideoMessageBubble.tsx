@@ -3,7 +3,7 @@ import { motion } from "framer-motion";
 import { Play, Volume2, VolumeX, Maximize, AlertCircle, Loader2 } from "lucide-react";
 import { AspectRatio } from "@/components/ui/aspect-ratio";
 import { cn } from "@/lib/utils";
-import { useMediaAsset, type MediaAssetKind } from "@/hooks/useMediaAsset";
+import { useMediaAsset, useMediaAssetPlayback, type MediaAssetKind } from "@/hooks/useMediaAsset";
 import { useMediaPlaybackQoE } from "@/hooks/useMediaPlaybackQoE";
 import { usePrefersReducedMotion } from "@/hooks/usePrefersReducedMotion";
 import { useMediaVideoPreloadForVisibility } from "@/hooks/useMediaVideoPreloadPolicy";
@@ -69,6 +69,8 @@ export const VideoMessageBubble = ({
     onResolvedUrl: onResolvedVideoUrl,
   });
   const [playableVideoUrl, setPlayableVideoUrl] = useState(mediaAssetUrl ?? videoUrl);
+  const playableVideoUrlRef = useRef(mediaAssetUrl ?? videoUrl);
+  const isHlsUrl = /\.m3u8(?:[?#]|$)/i.test(playableVideoUrl);
 
   const isIosSafari = useMemo(() => {
     if (typeof navigator === "undefined") return false;
@@ -81,7 +83,9 @@ export const VideoMessageBubble = ({
   }, []);
 
   useEffect(() => {
-    setPlayableVideoUrl(mediaAssetUrl ?? videoUrl);
+    const nextUrl = mediaAssetUrl ?? videoUrl;
+    playableVideoUrlRef.current = nextUrl;
+    setPlayableVideoUrl(nextUrl);
     setIsPlaying(false);
     setCurrentTime(0);
     setIsLoading(true);
@@ -96,6 +100,7 @@ export const VideoMessageBubble = ({
       if (!messageId || !videoSourceRef) return null;
       const freshUrl = await refreshMediaAsset(options?.bypassFailureCooldown ? "manual" : "playback", options);
       if (!freshUrl) return null;
+      playableVideoUrlRef.current = freshUrl;
       setPlayableVideoUrl(freshUrl);
       onResolvedVideoUrl?.(freshUrl);
       return freshUrl;
@@ -236,6 +241,22 @@ export const VideoMessageBubble = ({
     muted: isMuted,
     autoplay: false,
   });
+  const refreshPlaybackOnAuthError = useCallback(async () => {
+    const didRefresh = await tryRefreshAfterFailure();
+    return didRefresh ? playableVideoUrlRef.current : null;
+  }, [tryRefreshAfterFailure]);
+  useMediaAssetPlayback(videoRef, playableVideoUrl, {
+    enabled: isHlsUrl && !loadError,
+    autoPlay: false,
+    onManifestParsed: markReadyIfPossible,
+    onError: () => {
+      setIsLoading(false);
+      void tryRefreshAfterFailure().then((didRefresh) => {
+        if (!didRefresh) setLoadError(true);
+      });
+    },
+    onAuthErrorRefresh: refreshPlaybackOnAuthError,
+  });
 
   const progress = duration > 0 ? (currentTime / duration) * 100 : 0;
   const isBuffering = isReady && isLoading && isPlaying;
@@ -334,7 +355,7 @@ export const VideoMessageBubble = ({
 
         <video
           ref={videoRef}
-          src={playableVideoUrl}
+          src={isHlsUrl ? undefined : playableVideoUrl}
           playsInline
           muted={isMuted}
           preload={videoPreload}
@@ -348,6 +369,7 @@ export const VideoMessageBubble = ({
           onPlaying={() => setIsLoading(false)}
           onWaiting={() => setIsLoading(true)}
           onError={() => {
+            if (isHlsUrl) return;
             setIsLoading(false);
             void tryRefreshAfterFailure().then((didRefresh) => {
               if (!didRefresh) setLoadError(true);

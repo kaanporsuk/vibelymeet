@@ -328,10 +328,14 @@ test("upload-event-cover uses strong sniffing, stale cover guards, and attached 
   assert.match(webAdminEventFormModal, /cover_media_asset_id\?: string \| null/);
   assert.match(webAdminEventFormModal, /function isSupportedCoverImageFile/);
   assert.match(webAdminEventFormModal, /clientRequestIdForUploadFile\(file, `event-cover:\$\{event\?\.id \?\? "new"\}`\)/);
+  assert.match(webAdminEventFormModal, /uploadEventCoverWithMediaSdk/);
+  assert.doesNotMatch(webAdminEventFormModal, /uploadEventCoverToBunny/);
   assert.match(webAdminEventFormModal, /expectedCurrentCoverAssetId: event\?\.id \? currentCoverAssetId : undefined/);
   assert.match(webAdminEventFormModal, /error\.code === "stale_cover_update"/);
   assert.match(webAdminEventFormModal, /setCurrentCoverAssetId\(nextCoverAssetId\)/);
   assert.match(webAdminEventFormModal, /setCurrentCoverAssetId\(uploaded\.assetId\)/);
+  assert.match(webStorageSdkUploads, /export async function uploadEventCoverWithMediaSdk/);
+  assert.match(webStorageSdkUploads, /uploadEventCover:\s*uploadWebPhotoViaLegacyService/);
   assert.match(webAdminEventsPanel, /cover_media_asset_id\?: string \| null/);
 });
 

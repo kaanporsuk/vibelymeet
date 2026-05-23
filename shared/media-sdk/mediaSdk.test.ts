@@ -1509,6 +1509,57 @@ test("web storage rehydration restores non-secret delegate context from queue me
   assert.equal((await queue.list()).length, 0);
 });
 
+test("web event cover rehydration preserves null expected cover asset", async () => {
+  const queue = new MemoryMediaUploadQueue();
+  const snapshot = transitionMediaUploadState(createInitialMediaUploadSnapshot({
+    id: "recoverable-event-cover",
+    clientRequestId: "11111111-1111-4111-8111-111111111123",
+    family: "event_cover",
+    platform: "web",
+    nowMs: 1,
+  }), { type: "begin_upload", atMs: 2 });
+  await queue.put({
+    id: snapshot.id,
+    clientRequestId: snapshot.clientRequestId,
+    family: snapshot.family,
+    state: snapshot.state,
+    sourceRef: "event-cover.jpg:image/jpeg:5",
+    scopeKey: "event:event-without-cover",
+    createdAtMs: snapshot.createdAtMs,
+    updatedAtMs: snapshot.updatedAtMs,
+    snapshot,
+    metadata: {
+      source_blob: new Blob(["photo"], { type: "image/jpeg" }),
+      mime_type: "image/jpeg",
+      upload_context: "event_cover",
+      event_id: "event-without-cover",
+      expected_current_cover_asset_id: null,
+    },
+  });
+
+  let delegateCalls = 0;
+  const sdk = createWebMediaSdk({
+    queue,
+    delegates: {
+      photo: {
+        uploadEventCover: (input, controls) => {
+          delegateCalls += 1;
+          assert.equal(input.context?.uploadContext, "event_cover");
+          assert.equal(input.context?.eventId, "event-without-cover");
+          assert.equal(input.context?.expectedCurrentCoverAssetId, null);
+          controls.dispatch({ type: "ready", result: { providerPath: "events/event-without-cover/cover.jpg" } });
+        },
+      },
+    },
+  });
+
+  await sdk.reconcile({ reason: "test_event_cover_null_resume" });
+  await flushMediaTask();
+
+  assert.equal(delegateCalls, 1);
+  assert.equal((await queue.list()).length, 0);
+});
+
 test("native storage rehydration derives match context from scoped queue rows", async () => {
   const queue = new MemoryMediaUploadQueue();
   const snapshot = transitionMediaUploadState(createInitialMediaUploadSnapshot({
@@ -1556,6 +1607,63 @@ test("native storage rehydration derives match context from scoped queue rows", 
   });
 
   await sdk.reconcile({ reason: "test_storage_resume" });
+  await flushMediaTask();
+
+  assert.equal(delegateCalls, 1);
+  assert.equal((await queue.list()).length, 0);
+});
+
+test("native event cover rehydration preserves null expected cover asset", async () => {
+  const queue = new MemoryMediaUploadQueue();
+  const snapshot = transitionMediaUploadState(createInitialMediaUploadSnapshot({
+    id: "recoverable-native-event-cover",
+    clientRequestId: "11111111-1111-4111-8111-111111111124",
+    family: "event_cover",
+    platform: "ios",
+    nowMs: 1,
+  }), { type: "begin_upload", atMs: 2 });
+  await queue.put({
+    id: snapshot.id,
+    clientRequestId: snapshot.clientRequestId,
+    family: snapshot.family,
+    state: snapshot.state,
+    sourceRef: "file:///tmp/event-cover.jpg",
+    scopeKey: "event:native-event-without-cover",
+    createdAtMs: snapshot.createdAtMs,
+    updatedAtMs: snapshot.updatedAtMs,
+    snapshot,
+    metadata: {
+      source_uri: "file:///tmp/event-cover.jpg",
+      mime_type: "image/jpeg",
+      upload_context: "event_cover",
+      event_id: "native-event-without-cover",
+      expected_current_cover_asset_id: null,
+    },
+  });
+
+  let delegateCalls = 0;
+  const sdk = createNativeMediaSdk({
+    queue,
+    fileSystem: {
+      async getInfoAsync() {
+        return { exists: true, size: 1024 };
+      },
+    },
+    delegates: {
+      photo: {
+        uploadEventCover: (input, controls) => {
+          delegateCalls += 1;
+          assert.equal(input.context?.uploadContext, "event_cover");
+          assert.equal(input.context?.eventId, "native-event-without-cover");
+          assert.equal(input.context?.expectedCurrentCoverAssetId, null);
+          controls.dispatch({ type: "ready", result: { providerPath: "events/native-event-without-cover/cover.jpg" } });
+        },
+      },
+    },
+    platform: "ios",
+  });
+
+  await sdk.reconcile({ reason: "test_native_event_cover_null_resume" });
   await flushMediaTask();
 
   assert.equal(delegateCalls, 1);
@@ -2073,6 +2181,11 @@ test("production media SDK factories wire telemetry sinks and reconciliation", (
     assert.match(source, /createMediaUploadPathTelemetryFields/, path);
     assert.match(source, /catch\s*\{[\s\S]{0,120}failClosed/, `${path} must fail closed to legacy on flag evaluation errors`);
   }
+  const webStorage = readRepoFile("src/lib/mediaSdk/webStorageUploads.ts");
+  assert.match(webStorage, /uploadEventCover:\s*uploadWebPhotoViaLegacyService/);
+  assert.match(webStorage, /export async function uploadEventCoverWithMediaSdk/);
+  assert.match(webStorage, /family:\s*["']event_cover["']/);
+  assert.match(webStorage, /scopeKey:\s*eventId \? `event:\$\{eventId\}` : `admin:\$\{uploadUserId\}:event-cover`/);
 });
 
 test("production reconcilers cover storage receipt families and foreground resumes are throttled", () => {
@@ -2123,6 +2236,23 @@ test("production reconcilers cover storage receipt families and foreground resum
   assert.match(nativeAuth, /markMediaSdkForegroundReconcile\(`native:\$\{currentUserId\}`\)/);
   assert.match(nativeLayout, /const sessionUserId = session\?\.user\?\.id \?\? null/);
   assert.match(nativeLayout, /shouldRunMediaSdkForegroundReconcile\(`native:\$\{sessionUserId \?\? 'unknown'\}`\)/);
+});
+
+test("storage queues preserve event cover context for rehydrated recovery", () => {
+  const adapters = [
+    readRepoFile("shared/media-sdk/adapters/web.ts"),
+    readRepoFile("shared/media-sdk/adapters/native.ts"),
+  ];
+
+  for (const adapter of adapters) {
+    assert.match(adapter, /function eventIdFromScopeKey/);
+    assert.match(adapter, /function optionalNullableStringRecordValue/);
+    assert.match(adapter, /if \(value === null\) return null/);
+    assert.match(adapter, /event_id:\s*eventId/);
+    assert.match(adapter, /expected_current_cover_asset_id:\s*expectedCurrentCoverAssetId/);
+    assert.match(adapter, /\.\.\.\(eventId \? \{ eventId \} : \{\}\)/);
+    assert.match(adapter, /\.\.\.\(expectedCurrentCoverAssetId !== undefined \? \{ expectedCurrentCoverAssetId \} : \{\}\)/);
+  }
 });
 
 test("phase 3 schema and delete contracts preserve recovery observability", () => {

@@ -471,8 +471,13 @@ export const VibeClipBubble = ({
       if (!didRefresh) setLoadError(true);
     });
   }, [refreshClipMedia]);
+  const refreshPlaybackOnAuthError = useCallback(async () => {
+    const didRefresh = await refreshClipMedia("playback");
+    return didRefresh ? playableVideoUrlRef.current : null;
+  }, [refreshClipMedia]);
 
   const handleVideoLoadError = useCallback(() => {
+    if (isHlsUrl) return;
     setIsLoading(false);
     if (isLocalPreview && isUploadPendingStatus) {
       playableVideoUrlRef.current = "";
@@ -487,7 +492,7 @@ export const VibeClipBubble = ({
     void refreshClipMedia().then((didRefresh) => {
       if (!didRefresh) setLoadError(true);
     });
-  }, [isLocalPreview, isUploadPendingStatus, refreshClipMedia]);
+  }, [isHlsUrl, isLocalPreview, isUploadPendingStatus, refreshClipMedia]);
 
   useMediaPlaybackQoE(videoRef, {
     enabled: canMountPlayer && !isServerProcessing,
@@ -505,6 +510,7 @@ export const VibeClipBubble = ({
     autoPlay: false,
     onManifestParsed: markReadyIfPossible,
     onError: handlePlaybackAttachError,
+    onAuthErrorRefresh: refreshPlaybackOnAuthError,
   });
 
   useEffect(() => {

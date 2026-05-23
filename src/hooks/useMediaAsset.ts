@@ -12,6 +12,7 @@ import {
   type MediaAssetResolveResult,
 } from "@/lib/mediaAssetResolver";
 import { attachHlsPlayback } from "@/lib/vibeVideo/attachHlsPlayback";
+import type { HlsAuthErrorRefreshDetail } from "@/lib/vibeVideo/attachHlsPlayback";
 
 export type { MediaAssetKind } from "@/lib/mediaAssetResolver";
 export type MediaAssetRefreshReason = "cache" | "initial" | "preview" | "playback" | "manual" | "proactive";
@@ -48,6 +49,9 @@ type UseMediaAssetPlaybackOptions = {
   onAutoplayBlocked?: (detail?: unknown) => void;
   onManifestParsed?: () => void;
   onError?: (kind: "native" | "unsupported" | "fatal", detail?: unknown) => void;
+  onAuthErrorRefresh?: (
+    detail: HlsAuthErrorRefreshDetail,
+  ) => Promise<string | null | undefined> | string | null | undefined;
 };
 
 const PROACTIVE_REFRESH_LEAD_MS = 5 * 60 * 1000;
@@ -337,11 +341,13 @@ export function useMediaAssetPlayback(
     onAutoplayBlocked,
     onManifestParsed,
     onError,
+    onAuthErrorRefresh,
   }: UseMediaAssetPlaybackOptions = {},
 ): void {
   const onAutoplayBlockedRef = useRef(onAutoplayBlocked);
   const onManifestParsedRef = useRef(onManifestParsed);
   const onErrorRef = useRef(onError);
+  const onAuthErrorRefreshRef = useRef(onAuthErrorRefresh);
 
   useEffect(() => {
     onAutoplayBlockedRef.current = onAutoplayBlocked;
@@ -356,6 +362,10 @@ export function useMediaAssetPlayback(
   }, [onError]);
 
   useEffect(() => {
+    onAuthErrorRefreshRef.current = onAuthErrorRefresh;
+  }, [onAuthErrorRefresh]);
+
+  useEffect(() => {
     const video = videoRef.current;
     if (!enabled || !video || !sourceUrl) return;
 
@@ -365,6 +375,7 @@ export function useMediaAssetPlayback(
         onAutoplayBlocked: (detail) => onAutoplayBlockedRef.current?.(detail),
         onManifestParsed: () => onManifestParsedRef.current?.(),
         onError: (kind, detail) => onErrorRef.current?.(kind, detail),
+        onAuthErrorRefresh: (detail) => onAuthErrorRefreshRef.current?.(detail),
       });
     }
 

@@ -8,6 +8,7 @@ import {
   mediaCaptionsToWebVtt,
   parseMediaCaptions,
 } from "./media/captions.ts";
+import { sanitizeMediaTelemetryProperties } from "./media/telemetry.ts";
 import { telemetrySafeSourceRef } from "./media/telemetry-safe-ref.ts";
 
 const root = process.cwd();
@@ -59,6 +60,28 @@ test("Phase 9 QoE contracts and prewarm policy constants are pinned", () => {
   assert.match(nativePolicy, /@react-native-community\/netinfo/);
   assert.match(nativePolicy, /nativeConnectionSnapshot/);
   assert.match(nativePolicy, /isConnectionExpensive/);
+});
+
+test("shared media telemetry sanitizer strips auth/url/path fields across product wrappers", () => {
+  assert.deepEqual(
+    sanitizeMediaTelemetryProperties(
+      {
+        source: "vibe_player_fullscreen",
+        signedUrl: "https://example.test/private.m3u8?token=secret",
+        Authorization: "Bearer secret",
+        provider_path: "events/private.jpg",
+        attempt: 1,
+        outcome: "refreshed",
+      },
+      { defaults: { platform: "web" } },
+    ),
+    {
+      platform: "web",
+      source: "vibe_player_fullscreen",
+      attempt: 1,
+      outcome: "refreshed",
+    },
+  );
 });
 
 test("Phase 9 reduce-motion defaults, animation gates, and preload policy are pinned", () => {
@@ -148,6 +171,25 @@ test("chat shared video playback keeps HLS attached when only callback props cha
     mediaAssetHook,
     /\[autoPlay, enabled, onAutoplayBlocked, onError, onManifestParsed, sourceUrl, videoRef\]/,
   );
+});
+
+test("web HLS element errors are owned by the attach-layer token refresh path", () => {
+  const mediaAssetHook = read("src/hooks/useMediaAsset.ts");
+  const hlsPlayback = read("src/lib/vibeVideo/attachHlsPlayback.ts");
+  const vibePlayer = read("src/components/vibe-video/VibePlayer.tsx");
+  const vibeClip = read("src/components/chat/VibeClipBubble.tsx");
+  const videoBubble = read("src/components/chat/VideoMessageBubble.tsx");
+  const chatVideoLightbox = read("src/components/chat/ChatVideoLightbox.tsx");
+
+  assert.match(mediaAssetHook, /onAuthErrorRefresh: \(detail\) => onAuthErrorRefreshRef\.current\?\.\(detail\)/);
+  assert.match(hlsPlayback, /refreshAfterAuthError/);
+  assert.match(hlsPlayback, /playbackMode === "hls_js" && !isAuthStatusCode\(statusCode\)/);
+
+  assert.match(vibePlayer, /const isHlsPlaybackUrl = playbackUrl \? isHlsMediaAssetUrl\(playbackUrl\) : false/);
+  assert.match(vibePlayer, /const handleError = \(\) => \{\s*if \(isHlsPlaybackUrl\) return;\s*reportPlaybackError\(\);\s*\};/);
+  assert.match(vibeClip, /const handleVideoLoadError = useCallback\(\(\) => \{\s*if \(isHlsUrl\) return;/);
+  assert.match(videoBubble, /onError=\{\(\) => \{\s*if \(isHlsUrl\) return;\s*setIsLoading\(false\);/);
+  assert.match(chatVideoLightbox, /onError=\{\(\) => \{\s*if \(isHlsUrl\) return;\s*void refreshMedia\(\)/);
 });
 
 test("chat shared video lightbox does not reset loading phase for unchanged media URLs", () => {
