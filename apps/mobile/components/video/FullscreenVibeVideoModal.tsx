@@ -42,6 +42,8 @@ export interface FullscreenVibeVideoModalProps {
    * Parent may persist “hide inline metadata” until the stream identity changes.
    */
   onPlayToEnd?: () => void;
+  onPlaybackRequest?: () => void;
+  onFirstFrame?: () => void;
 }
 
 export function FullscreenVibeVideoModal({
@@ -54,6 +56,8 @@ export function FullscreenVibeVideoModal({
   captions,
   posterUrl,
   onPlayToEnd,
+  onPlaybackRequest,
+  onFirstFrame,
 }: FullscreenVibeVideoModalProps) {
   const insets = useSafeAreaInsets();
   const reduceMotion = useReduceMotion();
@@ -226,6 +230,8 @@ export function FullscreenVibeVideoModal({
                         contentFit="contain"
                         captions={captions}
                         onPlayerFatalError={handlePlaybackIssue}
+                        onPlaybackRequest={onPlaybackRequest}
+                        onFirstFrame={onFirstFrame}
                         onPlayToEnd={handlePlayToEnd}
                       />
 

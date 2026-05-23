@@ -37,6 +37,8 @@ export type VibeVideoPlayerProps = {
    */
   diagContext: string;
   onPlayerFatalError?: () => void;
+  onPlaybackRequest?: () => void;
+  onFirstFrame?: () => void;
   /** Fires when the current source plays through to its end (expo-video `playToEnd`). Not pause/seek/buffer. */
   onPlayToEnd?: () => void;
   captions?: MediaCaptions | null;
@@ -55,6 +57,8 @@ export function VibeVideoPlayer({
   contentFit = 'contain',
   diagContext,
   onPlayerFatalError,
+  onPlaybackRequest,
+  onFirstFrame,
   onPlayToEnd,
   captions,
   style,
@@ -62,6 +66,7 @@ export function VibeVideoPlayer({
   const warnedRef = useRef(false);
   const playbackAttemptedRef = useRef(false);
   const playbackSucceededRef = useRef(false);
+  const firstFrameReportedRef = useRef(false);
   const signedResolveFailureReportedRef = useRef(false);
   const authRefreshAttemptsRef = useRef(0);
   const authRefreshInFlightRef = useRef(false);
@@ -153,11 +158,22 @@ export function VibeVideoPlayer({
     warnedRef.current = false;
     playbackAttemptedRef.current = false;
     playbackSucceededRef.current = false;
+    firstFrameReportedRef.current = false;
     signedResolveFailureReportedRef.current = false;
     authRefreshAttemptsRef.current = 0;
     authRefreshInFlightRef.current = false;
     setManualPlaybackRequested(false);
   }, [sourceUri]);
+
+  useEffect(() => {
+    if (!playing) firstFrameReportedRef.current = false;
+  }, [playing]);
+
+  const reportFirstFrame = useCallback(() => {
+    if (firstFrameReportedRef.current) return;
+    firstFrameReportedRef.current = true;
+    onFirstFrame?.();
+  }, [onFirstFrame]);
 
   useEffect(() => {
     if (usesSignedProfileRef && mediaAssetStatus === 'error' && !signedResolveFailureReportedRef.current) {
@@ -405,12 +421,18 @@ export function VibeVideoPlayer({
         player={player}
         nativeControls={nativeControls}
         contentFit={contentFit}
-        onFirstFrameRender={() => setShowPoster(false)}
+        onFirstFrameRender={() => {
+          setShowPoster(false);
+          reportFirstFrame();
+        }}
       />
       {playing && reduceMotionResolved && reduceMotion && !manualPlaybackRequested && playbackSourceUri ? (
         <Pressable
           style={styles.reduceMotionPlayOverlay}
-          onPress={() => setManualPlaybackRequested(true)}
+          onPress={() => {
+            onPlaybackRequest?.();
+            setManualPlaybackRequested(true);
+          }}
           accessibilityRole="button"
           accessibilityLabel="Play video"
         >

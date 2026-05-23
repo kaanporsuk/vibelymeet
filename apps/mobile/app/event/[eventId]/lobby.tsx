@@ -35,6 +35,7 @@ import {
 import { avatarUrl, deckCardUrl } from '@/lib/imageUrl';
 import { fetchUserProfile } from '@/lib/fetchUserProfile';
 import { prewarmMediaAssets } from '@/lib/mediaAssetResolver';
+import { markProfileVibeVideoTtffPrewarm } from '@/lib/profileVibeVideoTtff';
 import { ReadyGateOverlay } from '@/components/lobby/ReadyGateOverlay';
 import { EventEndedModal } from '@/components/events/EventEndedModal';
 import { useEventStatus } from '@/lib/eventStatus';
@@ -3051,7 +3052,11 @@ function LobbyProfileCard({
 
   const intentRaw = profile.looking_for?.trim();
   const intentDisplay = intentRaw ? getRelationshipIntentDisplaySafe(intentRaw) : null;
-  const prewarmFullProfile = useCallback(() => {
+  const prewarmFullProfile = useCallback((trigger: 'press_in' | 'press' = 'press_in') => {
+    markProfileVibeVideoTtffPrewarm(profile.id, {
+      surface: 'native_lobby_card',
+      trigger,
+    });
     void queryClient.fetchQuery({
       queryKey: ['user-profile', profile.id],
       queryFn: () => fetchUserProfile(profile.id),
@@ -3059,6 +3064,12 @@ function LobbyProfileCard({
     }).then((fullProfile) => {
       const playbackRef = fullProfile?.vibe_video_playback_ref?.trim();
       if (!playbackRef) return;
+      markProfileVibeVideoTtffPrewarm(profile.id, {
+        surface: 'native_lobby_card',
+        trigger,
+        sourceRef: playbackRef,
+        usesSignedProfileRef: true,
+      });
       void prewarmMediaAssets(
         [{ kind: 'profile_vibe_video', sourceRef: playbackRef }],
         { concurrency: 1 },
@@ -3066,7 +3077,7 @@ function LobbyProfileCard({
     }).catch(() => {});
   }, [profile.id, queryClient]);
   const openFullProfile = useCallback(() => {
-    prewarmFullProfile();
+    prewarmFullProfile('press');
     router.push(`/user/${profile.id}`);
   }, [prewarmFullProfile, profile.id]);
 
@@ -3142,7 +3153,7 @@ function LobbyProfileCard({
       </View>
       {!isBehind && (
         <Pressable
-          onPressIn={prewarmFullProfile}
+          onPressIn={() => prewarmFullProfile('press_in')}
           onPress={openFullProfile}
           style={styles.profileInfoBtn}
           accessibilityLabel="View full profile"

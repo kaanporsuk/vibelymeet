@@ -38,6 +38,10 @@ import { getImageUrl } from '@/lib/imageUrl';
 import { formatBirthdayUsWithZodiac } from '@/lib/profileApi';
 import { resolveVibeVideoState } from '@/lib/vibeVideoState';
 import { prewarmMediaAssets } from '@/lib/mediaAssetResolver';
+import {
+  beginProfileVibeVideoTtffPlayback,
+  completeProfileVibeVideoTtffPlayback,
+} from '@/lib/profileVibeVideoTtff';
 import { useMediaAsset } from '@/hooks/useMediaAsset';
 import { useReduceMotion, useReduceMotionState } from '@/hooks/useReduceMotion';
 import { PROMPT_EMOJIS } from '@/components/profile/PROMPT_CONSTANTS';
@@ -358,6 +362,7 @@ export function UserProfileFullView({
   const [photoViewerIndex, setPhotoViewerIndex] = useState<number | null>(null);
   const [photoViewerZoomed, setPhotoViewerZoomed] = useState(false);
   const photoPagerRef = useRef<ScrollView>(null);
+  const profileVibeVideoTtffTokenRef = useRef<string | null>(null);
 
   const closePhotoViewer = useCallback(() => {
     setPhotoViewerZoomed(false);
@@ -437,6 +442,21 @@ export function UserProfileFullView({
   const thumbnailUrl =
     signedVibeVideoRef && !allowUnsignedFallback ? signedVibeVideoPosterUrl : vibeInfo.thumbnailUrl;
   const caption = vibeInfo.caption ?? '';
+  const beginNativeProfileVibeVideoTtff = useCallback(() => {
+    if (profileVibeVideoTtffTokenRef.current) return;
+    const sourceRef = signedVibeVideoRef && !allowUnsignedFallback ? signedVibeVideoRef : vibePlaybackUrl;
+    profileVibeVideoTtffTokenRef.current = beginProfileVibeVideoTtffPlayback(profile.id, {
+      surface: 'native_profile_fullscreen',
+      trigger: reduceMotion ? 'manual_play' : 'press',
+      reduceMotion,
+      usesSignedProfileRef: !!signedVibeVideoRef && !allowUnsignedFallback,
+      sourceRef,
+    });
+  }, [allowUnsignedFallback, profile.id, reduceMotion, signedVibeVideoRef, vibePlaybackUrl]);
+  const completeNativeProfileVibeVideoTtff = useCallback(() => {
+    completeProfileVibeVideoTtffPlayback(profileVibeVideoTtffTokenRef.current);
+    profileVibeVideoTtffTokenRef.current = null;
+  }, []);
 
   const aboutMeRaw = profile.about_me?.trim() ?? '';
   const showAboutMe = aboutMeRaw.length > 0;
@@ -448,6 +468,7 @@ export function UserProfileFullView({
 
   useEffect(() => {
     setHideVibingOnLabelAfterComplete(false);
+    profileVibeVideoTtffTokenRef.current = null;
   }, [vibePlaybackUrl, vibeInfo.uid, profile.id]);
 
   const vibeItems = useMemo(() => {
@@ -716,7 +737,10 @@ export function UserProfileFullView({
                     accessibilityLabel="Play vibe video"
                     disabled={!hasPlayableVibeVideo}
                     onPress={() => {
-                      if (hasPlayableVibeVideo) setShowFullscreenVibe(true);
+                      if (hasPlayableVibeVideo) {
+                        if (!reduceMotion) beginNativeProfileVibeVideoTtff();
+                        setShowFullscreenVibe(true);
+                      }
                     }}
                   >
                     <Ionicons name="play" size={28} color="#fff" />
@@ -899,6 +923,8 @@ export function UserProfileFullView({
         vibeCaption={caption}
         captions={null}
         posterUrl={thumbnailUrl}
+        onPlaybackRequest={beginNativeProfileVibeVideoTtff}
+        onFirstFrame={completeNativeProfileVibeVideoTtff}
         onPlayToEnd={() => setHideVibingOnLabelAfterComplete(true)}
       />
 

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import {
   AlertCircle,
@@ -35,6 +35,10 @@ import { useMediaAsset } from "@/hooks/useMediaAsset";
 import { usePrefersReducedMotion } from "@/hooks/usePrefersReducedMotion";
 import { isHlsMediaAssetUrl, prewarmMediaAssets } from "@/lib/mediaAssetResolver";
 import { preloadHlsPlaybackLibrary } from "@/lib/vibeVideo/attachHlsPlayback";
+import {
+  beginProfileVibeVideoTtffPlayback,
+  completeProfileVibeVideoTtffPlayback,
+} from "@/lib/vibeVideo/profileVibeVideoTtff";
 import { resolveWebVibeVideoState } from "@/lib/vibeVideo/webVibeVideoState";
 import { cn } from "@/lib/utils";
 import { AdaptiveProfileMedia } from "./AdaptiveProfileMedia";
@@ -132,6 +136,7 @@ export function OtherUserFullProfileView({
   const [photoPreviewIndex, setPhotoPreviewIndex] = useState<number | null>(null);
   const [showVideoPlayer, setShowVideoPlayer] = useState(false);
   const prefersReducedMotion = usePrefersReducedMotion();
+  const profileVibeVideoTtffTokenRef = useRef<string | null>(null);
 
   useEffect(() => {
     setCurrentPhotoIndex(0);
@@ -182,6 +187,21 @@ export function OtherUserFullProfileView({
       ? signedVibeVideoReady || (allowUnsignedFallback && !!vibeVideoPlaybackUrl)
       : !!vibeVideoPlaybackUrl
   );
+  const beginInlineProfileVibeVideoTtff = useCallback(() => {
+    if (profileVibeVideoTtffTokenRef.current) return;
+    const sourceRef = signedVibeVideoRef && !allowUnsignedFallback ? signedVibeVideoRef : vibeVideoPlaybackUrl;
+    profileVibeVideoTtffTokenRef.current = beginProfileVibeVideoTtffPlayback(profile.id, {
+      surface: "profile_inline",
+      trigger: prefersReducedMotion ? "manual_play" : "watch_intro",
+      reduceMotion: prefersReducedMotion,
+      usesSignedProfileRef: !!signedVibeVideoRef && !allowUnsignedFallback,
+      sourceRef,
+    });
+  }, [allowUnsignedFallback, prefersReducedMotion, profile.id, signedVibeVideoRef, vibeVideoPlaybackUrl]);
+  const completeInlineProfileVibeVideoTtff = useCallback(() => {
+    completeProfileVibeVideoTtffPlayback(profileVibeVideoTtffTokenRef.current);
+    profileVibeVideoTtffTokenRef.current = null;
+  }, []);
 
   useEffect(() => {
     if (prefersReducedMotion) return;
@@ -197,6 +217,10 @@ export function OtherUserFullProfileView({
       { concurrency: 1 },
     ).catch(() => {});
   }, [effectiveVibeVideoState, prefersReducedMotion, signedVibeVideoRef, vibeVideo.playbackUrl]);
+
+  useEffect(() => {
+    profileVibeVideoTtffTokenRef.current = null;
+  }, [profile.id]);
 
   const verificationBadges = [
     profile.verification.email ? { label: "Email verified", icon: Mail } : null,
@@ -374,12 +398,17 @@ export function OtherUserFullProfileView({
                       captions={null}
                       className="aspect-video"
                       backendReportsReady
+                      onPlaybackRequest={beginInlineProfileVibeVideoTtff}
+                      onFirstFrame={completeInlineProfileVibeVideoTtff}
                     />
                   ) : (
                     <button
                       type="button"
                       className="relative block aspect-video w-full overflow-hidden text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-                      onClick={() => setShowVideoPlayer(true)}
+                      onClick={() => {
+                        if (!prefersReducedMotion) beginInlineProfileVibeVideoTtff();
+                        setShowVideoPlayer(true);
+                      }}
                       aria-label="Watch Intro"
                     >
                       {vibeVideoThumbnailUrl ? (

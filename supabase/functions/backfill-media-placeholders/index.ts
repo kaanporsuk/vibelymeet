@@ -37,9 +37,13 @@ function bearerToken(req: Request): string | null {
 }
 
 function isAuthorized(req: Request): boolean {
-  const token = Deno.env.get("MEDIA_PLACEHOLDER_BACKFILL_TOKEN")?.trim() ?? "";
-  if (!token) return false;
-  return req.headers.get("x-backfill-token")?.trim() === token || bearerToken(req) === token;
+  const backfillToken = Deno.env.get("MEDIA_PLACEHOLDER_BACKFILL_TOKEN")?.trim() ?? "";
+  const cronSecret = Deno.env.get("CRON_SECRET")?.trim() ?? "";
+  const headerToken = req.headers.get("x-backfill-token")?.trim() ?? "";
+  if (backfillToken && headerToken === backfillToken) return true;
+  const bearer = bearerToken(req);
+  if (!bearer) return false;
+  return Boolean(backfillToken && bearer === backfillToken) || Boolean(cronSecret && bearer === cronSecret);
 }
 
 function boundedLimit(value: unknown): number {
@@ -122,8 +126,11 @@ serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   if (req.method !== "POST") return json({ success: false, error: "method_not_allowed" }, 405);
 
-  if (!Deno.env.get("MEDIA_PLACEHOLDER_BACKFILL_TOKEN")?.trim()) {
-    return json({ success: false, error: "backfill_token_not_configured" }, 503);
+  if (
+    !Deno.env.get("MEDIA_PLACEHOLDER_BACKFILL_TOKEN")?.trim() &&
+    !Deno.env.get("CRON_SECRET")?.trim()
+  ) {
+    return json({ success: false, error: "backfill_auth_not_configured" }, 503);
   }
   if (!isAuthorized(req)) return json({ success: false, error: "Unauthorized" }, 401);
 

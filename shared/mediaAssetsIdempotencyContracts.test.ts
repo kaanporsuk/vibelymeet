@@ -22,6 +22,8 @@ const phase5BulletproofMigration = read("supabase/migrations/20260520170000_medi
 const mediaUxAccelerationMigration = read("supabase/migrations/20260522161000_media_derivatives_placeholders_realtime.sql");
 const mediaBlurhashMigration = read("supabase/migrations/20260523100000_media_blurhash_placeholders.sql");
 const mediaDisplayDerivativeMigration = read("supabase/migrations/20260523110000_profile_photo_display_derivative.sql");
+const mediaPlaceholderBackfillOpsMigration = read("supabase/migrations/20260523120000_media_placeholder_backfill_ops.sql");
+const sharedProfileVibeVideoTtff = read("shared/media/profileVibeVideoTtff.ts");
 const sharedMediaPlaceholders = read("shared/media/placeholders.ts");
 const supabaseMediaPlaceholders = read("supabase/functions/_shared/media-placeholders.ts");
 const mediaLifecycle = read("supabase/functions/_shared/media-lifecycle.ts");
@@ -66,6 +68,8 @@ const nativeMediaAssetResolver = read("apps/mobile/lib/mediaAssetResolver.ts");
 const webMediaAssetHook = read("src/hooks/useMediaAsset.ts");
 const nativeMediaAssetHook = read("apps/mobile/hooks/useMediaAsset.ts");
 const webAttachHlsPlayback = read("src/lib/vibeVideo/attachHlsPlayback.ts");
+const webProfileVibeVideoTtff = read("src/lib/vibeVideo/profileVibeVideoTtff.ts");
+const nativeProfileVibeVideoTtff = read("apps/mobile/lib/profileVibeVideoTtff.ts");
 const webLobbyProfileCard = read("src/components/lobby/LobbyProfileCard.tsx");
 const nativeEventLobby = read("apps/mobile/app/event/[eventId]/lobby.tsx");
 const webOtherUserFullProfile = read("src/components/profile/OtherUserFullProfileView.tsx");
@@ -240,11 +244,17 @@ test("media placeholders and derivative refs are durable without Bunny Image Opt
   assert.match(webEventCoverUploadService, /imagePlaceholderForImage/);
   assert.match(webEventCoverUploadService, /formData\.append\("placeholder_kind", placeholder\.kind\)/);
   assert.match(backfillMediaPlaceholders, /MEDIA_PLACEHOLDER_BACKFILL_TOKEN/);
+  assert.match(backfillMediaPlaceholders, /CRON_SECRET/);
+  assert.match(backfillMediaPlaceholders, /backfill_auth_not_configured/);
   assert.match(backfillMediaPlaceholders, /placeholderForStorageAsset/);
   assert.match(backfillMediaPlaceholders, /placeholderForStreamAsset/);
   assert.match(backfillMediaPlaceholders, /chat_video_thumbnail/);
   assert.match(backfillMediaPlaceholders, /placeholder_kind\.is\.null,placeholder_kind\.neq\.blurhash,placeholder_hash\.is\.null/);
   assert.match(supabaseConfig, /\[functions\.backfill-media-placeholders\][\s\S]{0,80}verify_jwt = false/);
+  assert.match(mediaPlaceholderBackfillOpsMigration, /trigger_media_placeholder_backfill_now/);
+  assert.match(mediaPlaceholderBackfillOpsMigration, /media-placeholder-backfill-hourly/);
+  assert.match(mediaPlaceholderBackfillOpsMigration, /body := jsonb_build_object\('source', 'pg_cron', 'limit', 25, 'dryRun', false\)/);
+  assert.match(mediaPlaceholderBackfillOpsMigration, /GRANT EXECUTE ON FUNCTION public\.trigger_media_placeholder_backfill_now\(boolean, integer\)[\s\S]+TO service_role/);
 
   assert.match(webImageUploadService, /dominantColorForBitmap/);
   assert.match(webImageUploadService, /encodeBlurhash/);
@@ -319,13 +329,25 @@ test("image derivative selection only uses server-confirmed derivative paths", (
 });
 
 test("profile and fullscreen vibe video TTFF is prewarmed without hiding posters early", () => {
-  assert.match(webLobbyProfileCard, /onPointerEnter=\{prewarmFullProfile\}/);
+  assert.match(webLobbyProfileCard, /markProfileVibeVideoTtffPrewarm/);
+  assert.match(webLobbyProfileCard, /onPointerEnter=\{\(\) => prewarmFullProfile\("hover"\)\}/);
+  assert.match(webLobbyProfileCard, /event\.pointerType !== "touch"[\s\S]{0,80}prewarmFullProfile\("pointer_down"\)/);
+  assert.match(webLobbyProfileCard, /onTouchStart=\{\(\) => prewarmFullProfile\("touch_start"\)\}/);
   assert.match(webLobbyProfileCard, /queryKey: \["user-profile", profile\.id\]/);
   assert.match(webLobbyProfileCard, /kind: "profile_vibe_video"/);
-  assert.match(nativeEventLobby, /onPressIn=\{prewarmFullProfile\}/);
+  assert.match(nativeEventLobby, /markProfileVibeVideoTtffPrewarm/);
+  assert.match(nativeEventLobby, /onPressIn=\{\(\) => prewarmFullProfile\('press_in'\)\}/);
   assert.match(nativeEventLobby, /queryKey: \['user-profile', profile\.id\]/);
   assert.match(nativeEventLobby, /kind: 'profile_vibe_video'/);
 
+  assert.match(sharedProfileVibeVideoTtff, /PROFILE_VIBE_VIDEO_TTFF_EVENT = "vibe_video_profile_ttff_ms"/);
+  assert.match(sharedProfileVibeVideoTtff, /TTFF_ENTRY_TTL_MS = 2 \* 60 \* 1000/);
+  assert.match(sharedProfileVibeVideoTtff, /MAX_PROFILE_TTFF_ENTRIES = 200/);
+  assert.doesNotMatch(sharedProfileVibeVideoTtff, /profile_id/);
+  assert.match(webProfileVibeVideoTtff, /VIBE_VIDEO_EVENTS\.profileTtffMeasured/);
+  assert.match(nativeProfileVibeVideoTtff, /VIBE_VIDEO_EVENTS\.profileTtffMeasured/);
+  assert.match(webOtherUserFullProfile, /beginProfileVibeVideoTtffPlayback/);
+  assert.match(webOtherUserFullProfile, /onFirstFrame=\{completeInlineProfileVibeVideoTtff\}/);
   assert.match(webOtherUserFullProfile, /preloadHlsPlaybackLibrary\(\)/);
   assert.match(webOtherUserFullProfile, /if \(prefersReducedMotion\) return/);
   assert.match(webOtherUserFullProfile, /signedVibeVideoRef \|\| isHlsMediaAssetUrl\(sourceRef\)/);
@@ -333,6 +355,21 @@ test("profile and fullscreen vibe video TTFF is prewarmed without hiding posters
   assert.match(nativeUserProfileFullView, /useReduceMotionState/);
   assert.match(nativeUserProfileFullView, /if \(!reduceMotionResolved \|\| reduceMotion \|\| effectiveVibeVideoState !== 'ready'\) return/);
   assert.match(nativeUserProfileFullView, /kind: signedVibeVideoRef \? 'profile_vibe_video' : 'video'/);
+  assert.match(nativeUserProfileFullView, /beginProfileVibeVideoTtffPlayback/);
+  assert.match(nativeUserProfileFullView, /if \(!reduceMotion\) beginNativeProfileVibeVideoTtff\(\)/);
+  assert.match(nativeUserProfileFullView, /onPlaybackRequest=\{beginNativeProfileVibeVideoTtff\}/);
+  assert.match(nativeUserProfileFullView, /onFirstFrame=\{completeNativeProfileVibeVideoTtff\}/);
+  assert.match(webVibePlayer, /onPlaybackRequest\?: \(\) => void/);
+  assert.match(webOtherUserFullProfile, /if \(!prefersReducedMotion\) beginInlineProfileVibeVideoTtff\(\)/);
+  assert.match(webOtherUserFullProfile, /onPlaybackRequest=\{beginInlineProfileVibeVideoTtff\}/);
+  assert.match(webVibePlayer, /onFirstFrame\?: \(\) => void/);
+  assert.match(webVibePlayer, /videoEl\.addEventListener\("playing", onPlaying\)/);
+  assert.match(webFullscreenVibePlayer, /beginProfileVibeVideoTtffPlayback/);
+  assert.match(webFullscreenVibePlayer, /onPlaying=\{reportFirstFrame\}/);
+  assert.match(nativeVibeVideoPlayer, /onFirstFrame\?: \(\) => void/);
+  assert.match(nativeVibeVideoPlayer, /onPlaybackRequest\?: \(\) => void/);
+  assert.match(nativeVibeVideoPlayer, /onPlaybackRequest\?\.\(\);[\s\S]{0,80}setManualPlaybackRequested\(true\)/);
+  assert.match(nativeVibeVideoPlayer, /onFirstFrameRender=\{\(\) => \{[\s\S]*reportFirstFrame\(\);[\s\S]*\}\}/);
   assert.match(nativeVibeVideoPlayer, /warnedRef\.current = false;[\s\S]{0,80}\}, \[playbackSourceUri\]\);/);
 
   assert.match(webAttachHlsPlayback, /export function preloadHlsPlaybackLibrary/);

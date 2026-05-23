@@ -481,3 +481,47 @@ test("Sprint 1 native CDN hostname mismatch emits sanitized PostHog and Sentry w
   assert.match(nativePlaybackUrl, /env_hostname_present: true/);
   assert.match(nativePlaybackUrl, /persisted_hostname_present: true/);
 });
+
+test("Sprint 2 profile Vibe Video TTFF and placeholder backfill ops are pinned", () => {
+  const sharedTtff = read("shared/media/profileVibeVideoTtff.ts");
+  const webTelemetry = read("src/lib/vibeVideo/vibeVideoTelemetry.ts");
+  const nativeTelemetry = read("apps/mobile/lib/vibeVideoTelemetry.ts");
+  const webProfileTtff = read("src/lib/vibeVideo/profileVibeVideoTtff.ts");
+  const nativeProfileTtff = read("apps/mobile/lib/profileVibeVideoTtff.ts");
+  const webProfileView = read("src/components/profile/OtherUserFullProfileView.tsx");
+  const webFullscreen = read("src/components/vibe-video/VibeVideoFullscreenPlayer.tsx");
+  const nativeProfileView = read("apps/mobile/components/profile/UserProfileFullView.tsx");
+  const nativeFullscreen = read("apps/mobile/components/video/FullscreenVibeVideoModal.tsx");
+  const nativeVibePlayer = read("apps/mobile/components/video/VibeVideoPlayer.tsx");
+  const backfillFn = read("supabase/functions/backfill-media-placeholders/index.ts");
+  const backfillOpsMigration = read("supabase/migrations/20260523120000_media_placeholder_backfill_ops.sql");
+
+  assert.match(webTelemetry, /profileTtffMeasured: "vibe_video_profile_ttff_ms"/);
+  assert.match(nativeTelemetry, /profileTtffMeasured: 'vibe_video_profile_ttff_ms'/);
+  assert.match(sharedTtff, /prewarm_age_ms/);
+  assert.match(sharedTtff, /signed_profile_ref/);
+  assert.match(sharedTtff, /source_kind/);
+  assert.doesNotMatch(sharedTtff, /profile_id/);
+  assert.match(webProfileTtff, /trackVibeVideoEvent\(VIBE_VIDEO_EVENTS\.profileTtffMeasured, payload\)/);
+  assert.match(nativeProfileTtff, /trackVibeVideoEvent\(VIBE_VIDEO_EVENTS\.profileTtffMeasured, payload\)/);
+  assert.match(webProfileView, /beginInlineProfileVibeVideoTtff\(\);[\s\S]{0,80}setShowVideoPlayer\(true\)/);
+  assert.match(webProfileView, /if \(!prefersReducedMotion\) beginInlineProfileVibeVideoTtff\(\)/);
+  assert.match(webProfileView, /onPlaybackRequest=\{beginInlineProfileVibeVideoTtff\}/);
+  assert.match(webFullscreen, /beginFullscreenProfileVibeVideoTtff\("fullscreen_open"\)/);
+  assert.match(nativeProfileView, /beginNativeProfileVibeVideoTtff\(\);[\s\S]{0,80}setShowFullscreenVibe\(true\)/);
+  assert.match(nativeProfileView, /if \(!reduceMotion\) beginNativeProfileVibeVideoTtff\(\)/);
+  assert.match(nativeFullscreen, /onPlaybackRequest=\{onPlaybackRequest\}/);
+  assert.match(nativeFullscreen, /onFirstFrame=\{onFirstFrame\}/);
+  assert.match(nativeVibePlayer, /onPlaybackRequest\?\.\(\);[\s\S]*setManualPlaybackRequested\(true\)/);
+  assert.match(nativeVibePlayer, /onFirstFrameRender=\{\(\) => \{[\s\S]*reportFirstFrame\(\);[\s\S]*\}\}/);
+  assert.doesNotMatch(nativeVibePlayer, /label: 'vibeVideo\.player\.statusListener',\s*label:/);
+
+  assert.match(backfillFn, /const cronSecret = Deno\.env\.get\("CRON_SECRET"\)/);
+  assert.match(backfillFn, /\(cronSecret && bearer === cronSecret\)/);
+  assert.match(backfillOpsMigration, /trigger_media_placeholder_backfill_now/);
+  assert.match(backfillOpsMigration, /pg_extension WHERE extname = 'pg_cron'/);
+  assert.match(backfillOpsMigration, /pg_extension WHERE extname = 'pg_net'/);
+  assert.match(backfillOpsMigration, /vault\.decrypted_secrets/);
+  assert.match(backfillOpsMigration, /media-placeholder-backfill-hourly/);
+  assert.match(backfillOpsMigration, /'Authorization', 'Bearer ' \|\| btrim/);
+});

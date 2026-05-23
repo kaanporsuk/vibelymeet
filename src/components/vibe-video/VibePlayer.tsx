@@ -33,6 +33,8 @@ interface VibePlayerProps {
   overlayClassName?: string;
   /** When true, playback errors show copy that backend marked the asset ready (CDN/player issue). */
   backendReportsReady?: boolean;
+  onPlaybackRequest?: () => void;
+  onFirstFrame?: () => void;
 }
 
 export const VibePlayer = ({
@@ -47,6 +49,8 @@ export const VibePlayer = ({
   className,
   overlayClassName,
   backendReportsReady = false,
+  onPlaybackRequest,
+  onFirstFrame,
 }: VibePlayerProps) => {
   const [isMuted, setIsMuted] = useState(true);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -62,6 +66,7 @@ export const VibePlayer = ({
   const containerRef = useRef<HTMLDivElement>(null);
   const playbackAttemptedRef = useRef(false);
   const playbackSucceededRef = useRef(false);
+  const firstFrameReportedRef = useRef(false);
   const hlsAuthRefreshAttemptCountRef = useRef(0);
   const prefersReducedMotion = usePrefersReducedMotion();
   const usesSignedProfileRef = isProfileVibeVideoRef(videoUrl);
@@ -129,6 +134,7 @@ export const VibePlayer = ({
     manualPlayPendingRef.current = false;
     playbackAttemptedRef.current = false;
     playbackSucceededRef.current = false;
+    firstFrameReportedRef.current = false;
     hlsAuthRefreshAttemptCountRef.current = 0;
   }, [videoUrl]);
 
@@ -237,6 +243,12 @@ export const VibePlayer = ({
     }
   }, [refreshMediaAsset, usesSignedProfileRef]);
 
+  const reportFirstFrame = useCallback(() => {
+    if (firstFrameReportedRef.current) return;
+    firstFrameReportedRef.current = true;
+    onFirstFrame?.();
+  }, [onFirstFrame]);
+
   useEffect(() => {
     if (usesSignedProfileRef && mediaAssetStatus === "error") {
       reportPlaybackError("signed_url_resolve_failed");
@@ -280,14 +292,17 @@ export const VibePlayer = ({
         });
       }
     };
+    const onPlaying = () => reportFirstFrame();
     const onPause = () => setIsPlaying(false);
     videoEl.addEventListener("play", onPlay);
+    videoEl.addEventListener("playing", onPlaying);
     videoEl.addEventListener("pause", onPause);
     return () => {
       videoEl.removeEventListener("play", onPlay);
+      videoEl.removeEventListener("playing", onPlaying);
       videoEl.removeEventListener("pause", onPause);
     };
-  }, [backendReportsReady]);
+  }, [backendReportsReady, reportFirstFrame]);
 
   const handleToggleMute = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -302,12 +317,14 @@ export const VibePlayer = ({
       setIsPlaying(false);
     } else {
       if (prefersReducedMotion && !manualPlaybackRequested) {
+        onPlaybackRequest?.();
         manualPlayPendingRef.current = true;
         setManualPlaybackRequested(true);
         setIsLoading(true);
         return;
       }
       if (!playbackAttemptedRef.current) {
+        onPlaybackRequest?.();
         playbackAttemptedRef.current = true;
         trackVibeVideoEvent(VIBE_VIDEO_EVENTS.playbackAttempted, {
           source: "vibe_player_inline",
@@ -327,6 +344,7 @@ export const VibePlayer = ({
   const handleLoadedData = () => {
     setIsLoaded(true);
     setIsLoading(false);
+    reportFirstFrame();
   };
 
   const handleError = () => {

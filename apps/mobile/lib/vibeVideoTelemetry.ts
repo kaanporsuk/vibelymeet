@@ -23,6 +23,7 @@ export const VIBE_VIDEO_EVENTS = {
   playbackAttempted: 'vibe_video_playback_attempted',
   playbackSucceeded: 'vibe_video_playback_succeeded',
   playbackFailed: 'vibe_video_playback_failed',
+  profileTtffMeasured: 'vibe_video_profile_ttff_ms',
   tokenRefreshOnAuthError: 'media_token_refresh_on_hls_error',
   cdnHostnameFallbackUsed: 'vibe_video_cdn_hostname_fallback_used',
   cdnHostnamePersistenceMismatch: 'vibe_video_cdn_hostname_persistence_mismatch',
