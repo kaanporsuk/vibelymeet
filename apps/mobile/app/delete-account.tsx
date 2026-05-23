@@ -26,7 +26,12 @@ import { useDeletionRecovery } from '@/lib/useDeletionRecovery';
 import { DeletionRecoveryBanner } from '@/components/settings/DeletionRecoveryBanner';
 import { useVibelyDialog } from '@/components/VibelyDialog';
 
-type FlowStep = 'warning' | 'reason' | 'confirm';
+type FlowStep = 'warning' | 'reason' | 'confirm' | 'verify';
+type ReauthChannel = 'email' | 'phone';
+type ReauthChallenge = {
+  channel: ReauthChannel;
+  maskedDestination: string;
+};
 
 const DELETION_REASONS: { value: string; label: string }[] = [
   { value: 'found_someone', label: 'I found someone' },
@@ -45,6 +50,10 @@ export default function DeleteAccountScreen() {
   const [step, setStep] = useState<FlowStep>('warning');
   const [selectedReason, setSelectedReason] = useState<string | null>(null);
   const [confirmText, setConfirmText] = useState('');
+  const [reauthChallenge, setReauthChallenge] = useState<ReauthChallenge | null>(null);
+  const [reauthCode, setReauthCode] = useState('');
+  const [reauthError, setReauthError] = useState<string | null>(null);
+  const [isRequestingVerification, setIsRequestingVerification] = useState(false);
 
   const {
     pendingDeletion,
@@ -64,13 +73,68 @@ export default function DeleteAccountScreen() {
     }, [refetchDeletionState])
   );
 
-  const requestAccountDeletion = async (reason: string | null) => {
-    setIsDeleting(true);
+  const requestDeletionVerification = async () => {
+    setIsRequestingVerification(true);
+    setReauthError(null);
     try {
       const { data, error } = await supabase.functions.invoke('delete-account', {
-        body: { reason },
+        body: { action: 'request_reauth' },
       });
-      if (error || (data as { success?: boolean })?.success !== true) {
+      const payload = data as {
+        success?: boolean;
+        error?: string;
+        reauth?: ReauthChallenge;
+      } | null;
+      if (error || payload?.success !== true || !payload.reauth?.channel || !payload.reauth?.maskedDestination) {
+        const message = payload?.error ?? 'We could not send a verification code. Try again in a moment.';
+        setReauthError(message);
+        showDialog({
+          title: 'Couldn’t send code',
+          message,
+          variant: 'warning',
+          primaryAction: { label: 'OK', onPress: () => {} },
+        });
+        return;
+      }
+      setReauthChallenge(payload.reauth);
+      setReauthCode('');
+      setStep('verify');
+    } catch {
+      const message = 'We couldn’t reach the server. Check your connection and try again.';
+      setReauthError(message);
+      showDialog({
+        title: 'Connection issue',
+        message,
+        variant: 'warning',
+        primaryAction: { label: 'OK', onPress: () => {} },
+      });
+    } finally {
+      setIsRequestingVerification(false);
+    }
+  };
+
+  const requestAccountDeletion = async (reason: string | null, challenge: ReauthChallenge | null, code: string) => {
+    if (!challenge || code.length !== 6) {
+      setReauthError('Enter the 6-digit verification code.');
+      return;
+    }
+    setIsDeleting(true);
+    setReauthError(null);
+    try {
+      const { data, error } = await supabase.functions.invoke('delete-account', {
+        body: {
+          action: 'schedule_deletion',
+          reason,
+          reauthChannel: challenge.channel,
+          reauthCode: code,
+        },
+      });
+      const payload = data as { success?: boolean; error?: string; code?: string } | null;
+      if (error || payload?.success !== true) {
+        if (payload?.code === 'reauth_invalid' || payload?.code === 'reauth_required') {
+          setReauthError(payload.error ?? 'Verification failed. Request a new code and try again.');
+          return;
+        }
         showDialog({
           title: 'Couldn’t schedule deletion',
           message: 'Something went wrong on our end. Try again in a moment.',
@@ -83,10 +147,12 @@ export default function DeleteAccountScreen() {
       setStep('warning');
       setSelectedReason(null);
       setConfirmText('');
+      setReauthChallenge(null);
+      setReauthCode('');
       showDialog({
         title: 'Deletion scheduled',
         message:
-          'Your account is set to be removed after the date shown on this screen. Until then you can keep using Vibely. Tap “Cancel Deletion” anytime if you change your mind.',
+          'Your account is set to be removed after the date shown on this screen. You can keep using Vibely during the grace window, and you can return here before that date to tap “Cancel Deletion”.',
         variant: 'success',
         primaryAction: { label: 'OK', onPress: () => {} },
       });
@@ -109,11 +175,16 @@ export default function DeleteAccountScreen() {
         'We’ll submit your request now. You’ll have until the date shown in the banner to cancel — after that, your data is permanently removed.',
       variant: 'destructive',
       primaryAction: {
-        label: 'Yes, schedule deletion',
-        onPress: () => void requestAccountDeletion(selectedReason),
+        label: 'Send verification code',
+        onPress: () => void requestDeletionVerification(),
       },
       secondaryAction: { label: 'Not yet', onPress: () => {} },
     });
+  };
+
+  const updateReauthCode = (value: string) => {
+    setReauthCode(value.replace(/\D/g, '').slice(0, 6));
+    setReauthError(null);
   };
 
   const handleCancelPress = () => {
@@ -252,31 +323,98 @@ export default function DeleteAccountScreen() {
                 />
                 <Pressable
                   onPress={() => void openFinalConfirm()}
-                  disabled={isDeleting || confirmText !== 'DELETE'}
+                  disabled={isDeleting || isRequestingVerification || confirmText !== 'DELETE'}
                   style={({ pressed }) => [
                     styles.deleteBtn,
                     {
                       backgroundColor: withAlpha(theme.danger, 0.09),
                       borderColor: withAlpha(theme.danger, 0.31),
-                      opacity: confirmText !== 'DELETE' || isDeleting ? 0.45 : 1,
+                      opacity: confirmText !== 'DELETE' || isDeleting || isRequestingVerification ? 0.45 : 1,
                     },
-                    pressed && confirmText === 'DELETE' && !isDeleting && { opacity: 0.9 },
+                    pressed && confirmText === 'DELETE' && !isDeleting && !isRequestingVerification && { opacity: 0.9 },
                   ]}
                   accessibilityRole="button"
-                  accessibilityLabel="Open final confirmation to schedule account deletion"
+                  accessibilityLabel="Open final confirmation to verify and schedule account deletion"
                 >
-                  {isDeleting ? (
+                  {isRequestingVerification ? (
                     <ActivityIndicator size="small" color={theme.danger} />
                   ) : (
                     <>
-                      <Ionicons name="trash-outline" size={20} color={theme.danger} />
-                      <Text style={[styles.deleteBtnLabel, { color: theme.danger }]}>Review & schedule deletion</Text>
+                      <Ionicons name="shield-checkmark-outline" size={20} color={theme.danger} />
+                      <Text style={[styles.deleteBtnLabel, { color: theme.danger }]}>Verify & schedule deletion</Text>
                     </>
                   )}
                 </Pressable>
                 <Pressable onPress={() => setStep('reason')} style={styles.backLink}>
                   <Text style={[styles.backLinkText, { color: theme.tint }]}>Back</Text>
                 </Pressable>
+              </View>
+            ) : null}
+
+            {step === 'verify' ? (
+              <View style={[styles.card, { borderColor: theme.border, backgroundColor: theme.surface }]}>
+                <Text style={[styles.cardTitle, { color: theme.text }]}>Verify it’s you</Text>
+                <Text style={[styles.body, { color: theme.textSecondary, marginBottom: spacing.md }]}>
+                  Enter the 6-digit code sent to {reauthChallenge?.maskedDestination ?? 'your account'} before we schedule deletion.
+                </Text>
+                <TextInput
+                  value={reauthCode}
+                  onChangeText={updateReauthCode}
+                  placeholder="000000"
+                  placeholderTextColor={theme.mutedForeground}
+                  keyboardType="number-pad"
+                  textContentType="oneTimeCode"
+                  maxLength={6}
+                  style={[styles.input, styles.otpInput, { color: theme.text, borderColor: reauthError ? theme.danger : theme.border }]}
+                  accessibilityLabel="Enter 6-digit verification code"
+                />
+                {reauthError ? <Text style={[styles.errorText, { color: theme.danger }]}>{reauthError}</Text> : null}
+                <Pressable
+                  onPress={() => void requestAccountDeletion(selectedReason, reauthChallenge, reauthCode)}
+                  disabled={isDeleting || reauthCode.length !== 6}
+                  style={({ pressed }) => [
+                    styles.deleteBtn,
+                    {
+                      backgroundColor: withAlpha(theme.danger, 0.09),
+                      borderColor: withAlpha(theme.danger, 0.31),
+                      opacity: reauthCode.length !== 6 || isDeleting ? 0.45 : 1,
+                    },
+                    pressed && reauthCode.length === 6 && !isDeleting && { opacity: 0.9 },
+                  ]}
+                  accessibilityRole="button"
+                  accessibilityLabel="Verify code and schedule account deletion"
+                >
+                  {isDeleting ? (
+                    <ActivityIndicator size="small" color={theme.danger} />
+                  ) : (
+                    <>
+                      <Ionicons name="trash-outline" size={20} color={theme.danger} />
+                      <Text style={[styles.deleteBtnLabel, { color: theme.danger }]}>Schedule deletion</Text>
+                    </>
+                  )}
+                </Pressable>
+                <View style={styles.rowActions}>
+                  <Pressable
+                    onPress={() => {
+                      setReauthCode('');
+                      setStep('confirm');
+                    }}
+                    style={({ pressed }) => [styles.secondaryBtn, { borderColor: theme.border }, pressed && { opacity: 0.85 }]}
+                  >
+                    <Text style={[styles.secondaryBtnText, { color: theme.textSecondary }]}>Back</Text>
+                  </Pressable>
+                  <Pressable
+                    onPress={() => void requestDeletionVerification()}
+                    disabled={isRequestingVerification}
+                    style={({ pressed }) => [
+                      styles.primaryBtn,
+                      { backgroundColor: theme.tint, flex: 1, opacity: isRequestingVerification ? 0.7 : 1 },
+                      pressed && !isRequestingVerification && { opacity: 0.9 },
+                    ]}
+                  >
+                    <Text style={styles.primaryBtnText}>{isRequestingVerification ? 'Sending...' : 'Resend code'}</Text>
+                  </Pressable>
+                </View>
               </View>
             ) : null}
           </>
@@ -347,6 +485,8 @@ const styles = StyleSheet.create({
     fontSize: 16,
     marginBottom: spacing.md,
   },
+  otpInput: { textAlign: 'center', fontSize: 20, fontWeight: '700' },
+  errorText: { fontSize: 13, lineHeight: 18, marginBottom: spacing.sm },
   deleteBtn: {
     flexDirection: 'row',
     alignItems: 'center',

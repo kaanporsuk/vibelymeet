@@ -68,7 +68,7 @@ const Settings = () => {
   const [searchParams, setSearchParams] = useSearchParams();
   const { user } = useUserProfile();
   const { handleLogout } = useLogout();
-  const { deleteAccount, isDeleting } = useDeleteAccount();
+  const { deleteAccount, requestDeleteAccountVerification, isDeleting, isRequestingVerification } = useDeleteAccount();
   const { credits } = useCredits();
   const { tierId, tierLabel } = useEntitlements();
   const { premiumUntil } = usePremium();
@@ -114,8 +114,11 @@ const Settings = () => {
     await handleLogout();
   };
 
-  const handleDeleteAccount = async (reason: string | null) => {
-    const scheduled = await deleteAccount(reason);
+  const handleDeleteAccount = async (
+    reason: string | null,
+    reauth: Parameters<typeof deleteAccount>[1],
+  ) => {
+    const scheduled = await deleteAccount(reason, reauth);
     if (scheduled) {
       setShowDeleteDialog(false);
     }
@@ -442,8 +445,10 @@ const Settings = () => {
       <DeleteAccountModal
         open={showDeleteDialog}
         onOpenChange={setShowDeleteDialog}
+        onRequestVerification={requestDeleteAccountVerification}
         onConfirm={handleDeleteAccount}
         isDeleting={isDeleting}
+        isRequestingVerification={isRequestingVerification}
       />
 
       <BottomNav />

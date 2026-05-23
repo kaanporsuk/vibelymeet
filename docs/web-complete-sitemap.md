@@ -328,7 +328,7 @@
 - **Route:** `/settings`
 - **File:** `src/pages/Settings.tsx`
 
-**Sections:** `PremiumSettingsCard`, Credits → `/credits`, Notifications drawer, Privacy drawer (switches — **client-only state**, toast on toggle), Account drawer (`AccountSettingsDrawer`: email/password/phone), How it works, Feedback drawer, Privacy/Terms links, Log out confirm, Delete account → `DeleteAccountModal` (multi-step: warning → reason → type DELETE).
+**Sections:** `PremiumSettingsCard`, Credits → `/credits`, Notifications drawer, Privacy drawer (switches — **client-only state**, toast on toggle), Account drawer (`AccountSettingsDrawer`: email/password/phone), How it works, Feedback drawer, Privacy/Terms links, Log out confirm, Delete account → `DeleteAccountModal` (multi-step: warning → reason → type DELETE → email/phone code).
 
 ---
 
@@ -510,7 +510,7 @@ Matches tab → Daily Drop → states per SECTION 2 → opener/reply → Start C
 `/credits` or Settings → packs → Stripe → `/credits/success?pack=…`.
 
 ### 4.11 Account deletion
-Settings → Delete My Account → `DeleteAccountModal` steps → `useDeleteAccount` (scheduled deletion with grace-window copy aligned to server behavior; final cleanup begins only after the scheduled date if the user does not cancel).
+Settings → Delete My Account → `DeleteAccountModal` steps → `useDeleteAccount` (`request_reauth` sends an email/phone code, then `schedule_deletion` submits that code; final cleanup begins only after the scheduled date if the user does not cancel).
 
 ### 4.12 Pause/resume
 **Profile** → open **Safety Hub** → Pause account flow (`PauseAccountFlow`): choose **24 Hours**, **1 Week**, or **Indefinite** → confirm → success “Taking a Vibe Break” (profile hidden from guest list; matches kept) → Got it. Resume is via `useAccountStatus` / auth context (not re-documented here — see `PauseAccountFlow` + `AuthContext`).

@@ -1,9 +1,10 @@
 import { useState } from "react";
-import { AlertTriangle, Loader2, ArrowLeft, Trash2 } from "lucide-react";
+import { AlertTriangle, Loader2, ArrowLeft, Trash2, ShieldCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Label } from "@/components/ui/label";
+import type { DeleteAccountReauthChallenge, DeleteAccountReauthChannel } from "@/hooks/useDeleteAccount";
 import {
   Drawer,
   DrawerContent,
@@ -15,8 +16,13 @@ import {
 interface DeleteAccountModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onConfirm: (reason: string | null) => Promise<void>;
+  onRequestVerification: () => Promise<DeleteAccountReauthChallenge | null>;
+  onConfirm: (
+    reason: string | null,
+    reauth: { code: string; channel: DeleteAccountReauthChannel },
+  ) => Promise<void>;
   isDeleting: boolean;
+  isRequestingVerification: boolean;
 }
 
 const DELETION_REASONS = [
@@ -31,33 +37,56 @@ const DELETION_REASONS = [
 export const DeleteAccountModal = ({
   open,
   onOpenChange,
+  onRequestVerification,
   onConfirm,
   isDeleting,
+  isRequestingVerification,
 }: DeleteAccountModalProps) => {
-  const [step, setStep] = useState<1 | 2 | 3>(1);
+  const [step, setStep] = useState<1 | 2 | 3 | 4>(1);
   const [reason, setReason] = useState<string | null>(null);
   const [confirmText, setConfirmText] = useState("");
+  const [verificationCode, setVerificationCode] = useState("");
+  const [reauthChallenge, setReauthChallenge] = useState<DeleteAccountReauthChallenge | null>(null);
 
   const isConfirmEnabled = confirmText === "DELETE";
+  const isVerificationEnabled = !!reauthChallenge && verificationCode.length === 6;
 
   const handleClose = () => {
-    if (!isDeleting) {
+    if (!isDeleting && !isRequestingVerification) {
       setStep(1);
       setReason(null);
       setConfirmText("");
+      setVerificationCode("");
+      setReauthChallenge(null);
       onOpenChange(false);
     }
   };
 
+  const requestVerification = async () => {
+    if (!isConfirmEnabled || isDeleting || isRequestingVerification) return;
+    const challenge = await onRequestVerification();
+    if (!challenge) return;
+    setVerificationCode("");
+    setReauthChallenge(challenge);
+    setStep(4);
+  };
+
   const handleConfirm = async () => {
-    if (isConfirmEnabled && !isDeleting) {
-      await onConfirm(reason);
+    if (isVerificationEnabled && reauthChallenge && !isDeleting) {
+      await onConfirm(reason, {
+        code: verificationCode,
+        channel: reauthChallenge.channel,
+      });
     }
+  };
+
+  const updateVerificationCode = (value: string) => {
+    setVerificationCode(value.replace(/\D/g, "").slice(0, 6));
   };
 
   return (
     <Drawer open={open} onOpenChange={handleClose}>
-      <DrawerContent className="max-h-[90vh]">
+      <DrawerContent className="max-h-[90vh] overflow-y-auto">
         {/* Step 1: Warning */}
         {step === 1 && (
           <div className="px-6 pb-8">
@@ -154,6 +183,75 @@ export const DeleteAccountModal = ({
           </div>
         )}
 
+        {step === 4 && (
+          <div className="px-6 pb-8">
+            <DrawerHeader className="px-0">
+              <div className="flex items-center gap-3 mb-2">
+                <div className="w-12 h-12 rounded-full bg-destructive/20 flex items-center justify-center">
+                  <ShieldCheck className="w-6 h-6 text-destructive" />
+                </div>
+                <DrawerTitle className="text-xl">Verify it’s you</DrawerTitle>
+              </div>
+              <DrawerDescription className="text-left">
+                Enter the 6-digit code sent to {reauthChallenge?.maskedDestination ?? "your account"} before we schedule deletion.
+              </DrawerDescription>
+            </DrawerHeader>
+
+            <div className="space-y-4 mb-6">
+              <Input
+                value={verificationCode}
+                onChange={(e) => updateVerificationCode(e.target.value)}
+                placeholder="000000"
+                className="font-mono text-center text-lg"
+                disabled={isDeleting}
+                autoComplete="one-time-code"
+                inputMode="numeric"
+                maxLength={6}
+              />
+              <Button
+                variant="outline"
+                className="w-full"
+                onClick={requestVerification}
+                disabled={isRequestingVerification || isDeleting}
+              >
+                {isRequestingVerification ? (
+                  <>
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                    Sending...
+                  </>
+                ) : (
+                  "Resend Code"
+                )}
+              </Button>
+            </div>
+
+            <div className="flex gap-3">
+              <Button variant="outline" className="flex-1" onClick={() => setStep(3)} disabled={isDeleting}>
+                <ArrowLeft className="w-4 h-4 mr-2" />
+                Back
+              </Button>
+              <Button
+                variant="destructive"
+                className="flex-1 gap-2"
+                onClick={handleConfirm}
+                disabled={!isVerificationEnabled || isDeleting}
+              >
+                {isDeleting ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    Scheduling...
+                  </>
+                ) : (
+                  <>
+                    <Trash2 className="w-4 h-4" />
+                    Schedule
+                  </>
+                )}
+              </Button>
+            </div>
+          </div>
+        )}
+
         {/* Step 3: Final Confirmation */}
         {step === 3 && (
           <div className="px-6 pb-8">
@@ -182,18 +280,18 @@ export const DeleteAccountModal = ({
               <Button
                 variant="destructive"
                 className="flex-1 gap-2"
-                onClick={handleConfirm}
-                disabled={!isConfirmEnabled || isDeleting}
+                onClick={requestVerification}
+                disabled={!isConfirmEnabled || isDeleting || isRequestingVerification}
               >
-                {isDeleting ? (
+                {isRequestingVerification ? (
                   <>
                     <Loader2 className="w-4 h-4 animate-spin" />
-                    Scheduling...
+                    Sending...
                   </>
                 ) : (
                   <>
-                    <Trash2 className="w-4 h-4" />
-                    Schedule Deletion
+                    <ShieldCheck className="w-4 h-4" />
+                    Verify & Continue
                   </>
                 )}
               </Button>

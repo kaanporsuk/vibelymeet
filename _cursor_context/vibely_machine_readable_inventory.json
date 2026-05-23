@@ -1194,15 +1194,25 @@
       "config_listed": true,
       "verify_jwt": true,
       "env_vars": [
+        "ACCOUNT_DELETION_RATE_LIMIT_PEPPER",
+        "EMAIL_VERIFICATION_FROM_EMAIL",
+        "EMAIL_VERIFICATION_OTP_SECRET",
+        "RESEND_API_KEY",
         "STRIPE_SECRET_KEY",
         "SUPABASE_ANON_KEY",
         "SUPABASE_SERVICE_ROLE_KEY",
-        "SUPABASE_URL"
+        "SUPABASE_URL",
+        "TWILIO_ACCOUNT_SID",
+        "TWILIO_AUTH_TOKEN",
+        "TWILIO_VERIFY_SERVICE_SID"
       ],
       "frontend_references": [
         "src/App.tsx",
+        "src/hooks/useDeleteAccount.ts",
+        "src/components/settings/DeleteAccountModal.tsx",
         "src/pages/legal/CommunityGuidelines.tsx",
         "apps/mobile/app/_layout.tsx",
+        "apps/mobile/app/delete-account.tsx",
         "src/pages/legal/TermsOfService.tsx",
         "src/pages/legal/PrivacyPolicy.tsx",
         "apps/mobile/app/settings/account.tsx",

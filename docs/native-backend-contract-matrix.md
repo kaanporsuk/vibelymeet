@@ -124,7 +124,7 @@ Backend contracts used by native-v1 screens. All clients (web and native) use th
 | `account-resume` | Edge Function | Resume account | Same |
 | `request-account-deletion` | Edge Function | Start scheduled deletion grace window; authenticated same-user calls now apply only a reversible pending media hold, not final deletion | Same |
 | `cancel-deletion` | Edge Function | Recover account during deletion grace window and clear the reversible pending media hold | Same |
-| `delete-account` | Edge Function | Authenticated scheduled-deletion wrapper; applies the same reversible pending hold before sign-out/cleanup | Not required in normal app flow |
+| `delete-account` | Edge Function | Authenticated scheduled-deletion wrapper; verifies email/phone reauth, applies the same reversible pending hold, and keeps the grace-window session active for cancellation | Same |
 | `verify-admin` | Edge Function | Admin gating | Web only (admin routes) |
 | `admin-media-lifecycle-controls` | Edge Function | Web-admin retention controls plus read-only worker readiness preview | Web admin only |
 

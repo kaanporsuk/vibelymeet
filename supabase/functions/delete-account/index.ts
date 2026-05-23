@@ -1,7 +1,8 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2.88.0";
+import { createClient, type SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.88.0";
 import { checkRateLimit, createRateLimitResponse } from "../_shared/rate-limiter.ts";
 import { applyAccountDeletionMediaHold } from "../_shared/media-lifecycle.ts";
+import { normalizeEmailAddress, resolveCanonicalAuthEmail } from "../_shared/verificationSemantics.ts";
 import {
   corsHeadersForRequest,
   isBrowserOriginRejected,
@@ -11,6 +12,524 @@ import {
 
 const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
 const supabaseServiceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+const supabaseAnonKey = Deno.env.get("SUPABASE_ANON_KEY")!;
+const RESEND_API_KEY = Deno.env.get("RESEND_API_KEY");
+const EMAIL_FROM = Deno.env.get("EMAIL_VERIFICATION_FROM_EMAIL") || "Vibely <hello@vibelymeet.com>";
+const TWILIO_SID = Deno.env.get("TWILIO_ACCOUNT_SID");
+const TWILIO_TOKEN = Deno.env.get("TWILIO_AUTH_TOKEN");
+const TWILIO_VERIFY_SID = Deno.env.get("TWILIO_VERIFY_SERVICE_SID");
+const REAUTH_TTL_MS = 10 * 60 * 1000;
+const MAX_REAUTH_VERIFY_ATTEMPTS = 7;
+const OTP_HASH_PREFIX = "h1:";
+
+type ReauthChannel = "email" | "phone";
+type DeleteAccountAction = "request_reauth" | "schedule_deletion";
+type AdminSupabaseClient = SupabaseClient<any, "public", any>;
+
+type AdminUserLike = {
+  email?: string | null;
+  phone?: string | null;
+  identities?: Array<{
+    provider?: string | null;
+    identity_data?: Record<string, unknown> | null;
+  }> | null;
+};
+
+type ReauthTarget = {
+  channel: ReauthChannel;
+  destination: string;
+  maskedDestination: string;
+};
+
+function response(req: Request, body: Record<string, unknown>, status = 200): Response {
+  return jsonResponse(req, body, { status });
+}
+
+function parseAction(input: unknown): DeleteAccountAction {
+  return input === "request_reauth" ? "request_reauth" : "schedule_deletion";
+}
+
+function parseChannel(input: unknown): ReauthChannel | null {
+  return input === "email" || input === "phone" ? input : null;
+}
+
+function parseCode(input: unknown): string | null {
+  if (typeof input !== "string") return null;
+  const code = input.replace(/\D/g, "").slice(0, 6);
+  return code.length === 6 ? code : null;
+}
+
+function normalizeReason(input: unknown): string | null {
+  if (typeof input !== "string") return null;
+  const reason = input.trim();
+  return reason.length > 0 ? reason.slice(0, 200) : null;
+}
+
+function phoneFromIdentity(user: AdminUserLike): string | null {
+  const direct = typeof user.phone === "string" && user.phone.trim() ? user.phone.trim() : null;
+  if (direct) return direct;
+  for (const identity of user.identities ?? []) {
+    const raw = identity.identity_data?.phone;
+    if (typeof raw === "string" && raw.trim()) return raw.trim();
+  }
+  return null;
+}
+
+function maskEmail(email: string): string {
+  const [local = "", domain = ""] = email.split("@");
+  const first = local.slice(0, 1) || "*";
+  return `${first}${"*".repeat(Math.max(3, Math.min(local.length - 1, 6)))}@${domain || "email"}`;
+}
+
+function maskPhone(phone: string): string {
+  const digits = phone.replace(/\D/g, "");
+  if (digits.length <= 4) return "****";
+  return `•••• ${digits.slice(-4)}`;
+}
+
+function generateOtp(): string {
+  const array = new Uint32Array(1);
+  crypto.getRandomValues(array);
+  return String((array[0] % 900000) + 100000);
+}
+
+function getDeletionProofSecret(): string {
+  return (
+    Deno.env.get("ACCOUNT_DELETION_RATE_LIMIT_PEPPER") ??
+    Deno.env.get("EMAIL_VERIFICATION_OTP_SECRET") ??
+    supabaseServiceRoleKey
+  );
+}
+
+function bytesToHex(bytes: Uint8Array): string {
+  let s = "";
+  for (let i = 0; i < bytes.length; i++) {
+    s += bytes[i]!.toString(16).padStart(2, "0");
+  }
+  return s;
+}
+
+function timingSafeEqualUtf8(a: string, b: string): boolean {
+  const ea = new TextEncoder().encode(a);
+  const eb = new TextEncoder().encode(b);
+  if (ea.length !== eb.length) return false;
+  let diff = 0;
+  for (let i = 0; i < ea.length; i++) {
+    diff |= ea[i]! ^ eb[i]!;
+  }
+  return diff === 0;
+}
+
+async function hmacStoredForm(value: string, purpose: string): Promise<string> {
+  const key = await crypto.subtle.importKey(
+    "raw",
+    new TextEncoder().encode(getDeletionProofSecret()),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"],
+  );
+  const sig = new Uint8Array(
+    await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(`${purpose}:${value}`)),
+  );
+  return `${OTP_HASH_PREFIX}${bytesToHex(sig)}`;
+}
+
+async function resolveAvailableReauthTargets(
+  supabaseAdmin: AdminSupabaseClient,
+  userId: string,
+  requestedChannel: ReauthChannel | null,
+): Promise<ReauthTarget[]> {
+  const { data, error } = await supabaseAdmin.auth.admin.getUserById(userId);
+  if (error || !data?.user) return [];
+
+  const user = data.user as AdminUserLike;
+  const email = resolveCanonicalAuthEmail(user);
+  const phone = phoneFromIdentity(user);
+  const emailTarget = email
+    ? { channel: "email" as const, destination: email, maskedDestination: maskEmail(email) }
+    : null;
+  const phoneTarget = phone
+    ? { channel: "phone" as const, destination: phone, maskedDestination: maskPhone(phone) }
+    : null;
+
+  if (requestedChannel === "phone") {
+    return phoneTarget ? [phoneTarget] : [];
+  }
+  if (requestedChannel === "email") {
+    return emailTarget ? [emailTarget] : [];
+  }
+
+  return [emailTarget, phoneTarget].filter((target): target is ReauthTarget => target !== null);
+}
+
+async function resolveReauthTarget(
+  supabaseAdmin: AdminSupabaseClient,
+  userId: string,
+  requestedChannel: ReauthChannel | null,
+): Promise<ReauthTarget | null> {
+  const [target] = await resolveAvailableReauthTargets(supabaseAdmin, userId, requestedChannel);
+  return target ?? null;
+}
+
+async function consumeReauthChallenge(
+  supabaseAdmin: AdminSupabaseClient,
+  challengeId: string,
+): Promise<void> {
+  await supabaseAdmin
+    .from("account_deletion_reauth_challenges")
+    .update({ consumed_at: new Date().toISOString() })
+    .eq("id", challengeId)
+    .is("consumed_at", null);
+}
+
+async function consumeOtherReauthChallenges(
+  supabaseAdmin: AdminSupabaseClient,
+  userId: string,
+  activeChallengeId: string,
+): Promise<void> {
+  const { error } = await supabaseAdmin
+    .from("account_deletion_reauth_challenges")
+    .update({ consumed_at: new Date().toISOString() })
+    .eq("user_id", userId)
+    .is("consumed_at", null)
+    .neq("id", activeChallengeId);
+  if (error) {
+    console.error("delete-account reauth old challenge consume failed:", error.message);
+  }
+}
+
+async function sendDeletionReauthEmail(destination: string, otp: string): Promise<boolean> {
+  if (!RESEND_API_KEY) return false;
+
+  let res: Response;
+  try {
+    res = await fetch("https://api.resend.com/emails", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${RESEND_API_KEY}`,
+      },
+      body: JSON.stringify({
+        from: EMAIL_FROM,
+        to: [destination],
+        subject: "Confirm your Vibely account deletion request",
+        html: `
+          <!DOCTYPE html>
+          <html>
+          <body style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:#0a0a0a;color:#ffffff;padding:40px 20px;margin:0;">
+            <div style="max-width:420px;margin:0 auto;background:#151520;border:1px solid rgba(239,68,68,0.35);border-radius:20px;padding:32px;">
+              <h2 style="font-size:20px;margin:0 0 12px;">Confirm account deletion</h2>
+              <p style="color:#a1a1aa;font-size:14px;line-height:1.5;margin:0 0 24px;">
+                Enter this code in Vibely to schedule your account deletion request.
+              </p>
+              <div style="background:rgba(239,68,68,0.12);border:1px solid rgba(239,68,68,0.35);border-radius:14px;padding:20px;text-align:center;margin-bottom:24px;">
+                <p style="font-size:34px;font-weight:700;letter-spacing:8px;color:#f87171;margin:0;font-family:monospace;">${otp}</p>
+              </div>
+              <p style="color:#71717a;font-size:12px;line-height:1.5;margin:0;">
+                This code expires in 10 minutes. Ignore this email if you did not request account deletion.
+              </p>
+            </div>
+          </body>
+          </html>
+        `,
+      }),
+    });
+  } catch {
+    console.error("delete-account reauth email send failed: request_error");
+    return false;
+  }
+
+  if (!res.ok) {
+    console.error("delete-account reauth email send failed:", res.status);
+    return false;
+  }
+  return true;
+}
+
+async function sendDeletionReauthSms(destination: string): Promise<boolean> {
+  if (!TWILIO_SID || !TWILIO_TOKEN || !TWILIO_VERIFY_SID) return false;
+  const twilioAuth = btoa(`${TWILIO_SID}:${TWILIO_TOKEN}`);
+  let res: Response;
+  try {
+    res = await fetch(`https://verify.twilio.com/v2/Services/${TWILIO_VERIFY_SID}/Verifications`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+        Authorization: `Basic ${twilioAuth}`,
+      },
+      body: new URLSearchParams({ To: destination, Channel: "sms" }).toString(),
+    });
+  } catch {
+    console.error("delete-account reauth sms send failed: request_error");
+    return false;
+  }
+  if (!res.ok) {
+    console.error("delete-account reauth sms send failed:", res.status);
+    return false;
+  }
+  return true;
+}
+
+async function requestReauthChallenge(
+  req: Request,
+  supabaseAdmin: AdminSupabaseClient,
+  userId: string,
+  requestedChannel: ReauthChannel | null,
+): Promise<Response> {
+  const rateLimitResult = await checkRateLimit(userId, {
+    functionName: "delete-account-reauth-request",
+    maxRequests: 3,
+    windowMs: 15 * 60 * 1000,
+  });
+  if (!rateLimitResult.allowed) {
+    return createRateLimitResponse(rateLimitResult, corsHeadersForRequest(req));
+  }
+
+  const targets = await resolveAvailableReauthTargets(supabaseAdmin, userId, requestedChannel);
+  if (targets.length === 0) {
+    return response(req, {
+      success: false,
+      code: "reauth_unavailable",
+      error: "Add an email or phone number to your account before scheduling deletion.",
+    });
+  }
+
+  for (const target of targets) {
+    const destinationHash = await hmacStoredForm(
+      normalizeEmailAddress(target.destination) ?? target.destination,
+      "destination",
+    );
+    const expiresAt = new Date(Date.now() + REAUTH_TTL_MS).toISOString();
+    const otp = target.channel === "email" ? generateOtp() : null;
+    const codeHash = otp ? await hmacStoredForm(otp, "account-deletion-code") : null;
+
+    const { data: insertedChallenge, error: insertError } = await supabaseAdmin
+      .from("account_deletion_reauth_challenges")
+      .insert({
+        user_id: userId,
+        channel: target.channel,
+        destination_hash: destinationHash,
+        code_hash: codeHash,
+        expires_at: expiresAt,
+      })
+      .select("id")
+      .maybeSingle();
+    if (insertError || !insertedChallenge?.id) {
+      if (insertError) console.error("delete-account reauth challenge insert failed:", insertError.message);
+      return response(req, {
+        success: false,
+        code: "reauth_prepare_failed",
+        error: "Verification could not be prepared. Please try again later.",
+      });
+    }
+
+    const providerAccepted = target.channel === "email"
+      ? await sendDeletionReauthEmail(target.destination, otp!)
+      : await sendDeletionReauthSms(target.destination);
+
+    if (!providerAccepted) {
+      await consumeReauthChallenge(supabaseAdmin, insertedChallenge.id);
+      continue;
+    }
+
+    await consumeOtherReauthChallenges(supabaseAdmin, userId, insertedChallenge.id);
+
+    return response(req, {
+      success: true,
+      action: "request_reauth",
+      reauth: {
+        channel: target.channel,
+        maskedDestination: target.maskedDestination,
+      },
+    });
+  }
+
+  return response(req, {
+    success: false,
+    code: "reauth_provider_unavailable",
+    error: "We could not send a verification code. Please try again later.",
+  });
+}
+
+async function verifyDeletionReauthEmail(
+  supabaseAdmin: AdminSupabaseClient,
+  userId: string,
+  target: ReauthTarget,
+  code: string,
+): Promise<boolean> {
+  const destinationHash = await hmacStoredForm(normalizeEmailAddress(target.destination) ?? target.destination, "destination");
+  const { data: challenge, error } = await supabaseAdmin
+    .from("account_deletion_reauth_challenges")
+    .select("id, code_hash, failed_attempts")
+    .eq("user_id", userId)
+    .eq("channel", "email")
+    .eq("destination_hash", destinationHash)
+    .is("verified_at", null)
+    .is("consumed_at", null)
+    .gt("expires_at", new Date().toISOString())
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (error || !challenge?.code_hash) {
+    if (error) console.error("delete-account reauth email lookup failed:", error.message);
+    return false;
+  }
+  if ((challenge.failed_attempts ?? 0) >= MAX_REAUTH_VERIFY_ATTEMPTS) return false;
+
+  const expected = await hmacStoredForm(code, "account-deletion-code");
+  if (!timingSafeEqualUtf8(expected, challenge.code_hash)) {
+    await supabaseAdmin
+      .from("account_deletion_reauth_challenges")
+      .update({ failed_attempts: (challenge.failed_attempts ?? 0) + 1 })
+      .eq("id", challenge.id);
+    return false;
+  }
+
+  const now = new Date().toISOString();
+  const { data: consumedChallenge, error: updateError } = await supabaseAdmin
+    .from("account_deletion_reauth_challenges")
+    .update({ verified_at: now, consumed_at: now })
+    .eq("id", challenge.id)
+    .is("consumed_at", null)
+    .select("id")
+    .maybeSingle();
+  if (updateError || !consumedChallenge?.id) {
+    if (updateError) console.error("delete-account reauth email consume failed:", updateError.message);
+    return false;
+  }
+  return true;
+}
+
+async function verifyDeletionReauthSms(
+  supabaseAdmin: AdminSupabaseClient,
+  userId: string,
+  target: ReauthTarget,
+  code: string,
+): Promise<boolean> {
+  if (!TWILIO_SID || !TWILIO_TOKEN || !TWILIO_VERIFY_SID) return false;
+  const destinationHash = await hmacStoredForm(normalizeEmailAddress(target.destination) ?? target.destination, "destination");
+  const { data: challenge, error } = await supabaseAdmin
+    .from("account_deletion_reauth_challenges")
+    .select("id, failed_attempts")
+    .eq("user_id", userId)
+    .eq("channel", "phone")
+    .eq("destination_hash", destinationHash)
+    .is("verified_at", null)
+    .is("consumed_at", null)
+    .gt("expires_at", new Date().toISOString())
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (error || !challenge) {
+    if (error) console.error("delete-account reauth sms lookup failed:", error.message);
+    return false;
+  }
+  if ((challenge.failed_attempts ?? 0) >= MAX_REAUTH_VERIFY_ATTEMPTS) return false;
+
+  const recordSmsFailure = async () => {
+    await supabaseAdmin
+      .from("account_deletion_reauth_challenges")
+      .update({ failed_attempts: (challenge.failed_attempts ?? 0) + 1 })
+      .eq("id", challenge.id);
+  };
+
+  const twilioAuth = btoa(`${TWILIO_SID}:${TWILIO_TOKEN}`);
+  let res: Response;
+  try {
+    res = await fetch(`https://verify.twilio.com/v2/Services/${TWILIO_VERIFY_SID}/VerificationCheck`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+        Authorization: `Basic ${twilioAuth}`,
+      },
+      body: new URLSearchParams({ To: target.destination, Code: code }).toString(),
+    });
+  } catch {
+    console.error("delete-account reauth sms verify failed: request_error");
+    return false;
+  }
+  if (!res.ok) {
+    await recordSmsFailure();
+    return false;
+  }
+  const body = await res.json().catch(() => null);
+  if (body?.status !== "approved") {
+    await recordSmsFailure();
+    return false;
+  }
+
+  const now = new Date().toISOString();
+  const { data: consumedChallenge, error: updateError } = await supabaseAdmin
+    .from("account_deletion_reauth_challenges")
+    .update({ verified_at: now, consumed_at: now })
+    .eq("id", challenge.id)
+    .is("consumed_at", null)
+    .select("id")
+    .maybeSingle();
+  if (updateError || !consumedChallenge?.id) {
+    if (updateError) console.error("delete-account reauth sms consume failed:", updateError.message);
+    return false;
+  }
+  return true;
+}
+
+async function verifyDeletionReauth(
+  req: Request,
+  supabaseAdmin: AdminSupabaseClient,
+  userId: string,
+  channel: ReauthChannel | null,
+  code: string | null,
+): Promise<{ ok: true } | { ok: false; response: Response }> {
+  if (!channel || !code) {
+    return {
+      ok: false,
+      response: response(req, {
+        success: false,
+        code: "reauth_required",
+        error: "Verify your account before scheduling deletion.",
+      }),
+    };
+  }
+
+  const verifyRateLimit = await checkRateLimit(userId, {
+    functionName: "delete-account-reauth-verify",
+    maxRequests: 10,
+    windowMs: 60 * 60 * 1000,
+  });
+  if (!verifyRateLimit.allowed) {
+    return { ok: false, response: createRateLimitResponse(verifyRateLimit, corsHeadersForRequest(req)) };
+  }
+
+  const target = await resolveReauthTarget(supabaseAdmin, userId, channel);
+  if (!target || target.channel !== channel) {
+    return {
+      ok: false,
+      response: response(req, {
+        success: false,
+        code: "reauth_unavailable",
+        error: "Verification is unavailable for this account. Add an email or phone number and try again.",
+      }),
+    };
+  }
+
+  const verified = channel === "email"
+    ? await verifyDeletionReauthEmail(supabaseAdmin, userId, target, code)
+    : await verifyDeletionReauthSms(supabaseAdmin, userId, target, code);
+
+  if (!verified) {
+    return {
+      ok: false,
+      response: response(req, {
+        success: false,
+        code: "reauth_invalid",
+        error: "Verification failed. Enter the latest 6-digit code or request a new one.",
+      }),
+    };
+  }
+  return { ok: true };
+}
 
 serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -24,28 +543,47 @@ serve(async (req) => {
   try {
     const authHeader = req.headers.get("Authorization");
     if (!authHeader?.startsWith("Bearer ")) {
-      return new Response(
-        JSON.stringify({ success: false, error: "Unauthorized" }),
-        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
+      return response(req, { success: false, error: "Unauthorized" });
     }
 
-    const supabaseUser = createClient(supabaseUrl, Deno.env.get("SUPABASE_ANON_KEY")!, {
+    const supabaseUser = createClient(supabaseUrl, supabaseAnonKey, {
       global: { headers: { Authorization: authHeader } },
     });
 
     const token = authHeader.replace("Bearer ", "");
     const { data: claimsData, error: claimsError } = await supabaseUser.auth.getClaims(token);
     if (claimsError || !claimsData?.claims) {
-      return new Response(
-        JSON.stringify({ success: false, error: "Unauthorized" }),
-        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
+      return response(req, { success: false, error: "Unauthorized" });
     }
 
     const userId = claimsData.claims.sub as string;
 
-    // Rate limiting: 1 delete request per hour
+    let reason: string | null = null;
+    let action: DeleteAccountAction = "schedule_deletion";
+    let reauthChannel: ReauthChannel | null = null;
+    let reauthCode: string | null = null;
+    try {
+      const body = await req.json();
+      action = parseAction(body?.action);
+      reason = normalizeReason(body?.reason);
+      reauthChannel = parseChannel(body?.reauthChannel);
+      reauthCode = parseCode(body?.reauthCode);
+    } catch {
+      // Missing/invalid body falls through to the default schedule path, which requires reauth.
+    }
+
+    const supabaseAdmin = createClient<any>(supabaseUrl, supabaseServiceRoleKey, {
+      auth: { autoRefreshToken: false, persistSession: false },
+    }) as AdminSupabaseClient;
+
+    if (action === "request_reauth") {
+      return await requestReauthChallenge(req, supabaseAdmin, userId, reauthChannel);
+    }
+
+    const reauthResult = await verifyDeletionReauth(req, supabaseAdmin, userId, reauthChannel, reauthCode);
+    if (!reauthResult.ok) return reauthResult.response;
+
+    // Rate limiting: 1 scheduled delete request per hour, after account-owner proof succeeds.
     const rateLimitResult = await checkRateLimit(userId, {
       functionName: "delete-account",
       maxRequests: 1,
@@ -55,19 +593,6 @@ serve(async (req) => {
     if (!rateLimitResult.allowed) {
       return createRateLimitResponse(rateLimitResult, corsHeaders);
     }
-
-    // Parse optional reason from body
-    let reason: string | null = null;
-    try {
-      const body = await req.json();
-      reason = body?.reason || null;
-    } catch {
-      // No body or invalid JSON — that's fine
-    }
-
-    const supabaseAdmin = createClient(supabaseUrl, supabaseServiceRoleKey, {
-      auth: { autoRefreshToken: false, persistSession: false },
-    });
 
     // 1. Insert deletion request if none is already pending.
     const { data: existingPending, error: existingPendingError } = await supabaseAdmin
@@ -80,10 +605,7 @@ serve(async (req) => {
 
     if (existingPendingError) {
       console.error("Error checking existing deletion request:", existingPendingError.message);
-      return new Response(
-        JSON.stringify({ success: false, error: "Failed to check deletion status" }),
-        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
+      return response(req, { success: false, error: "Failed to check deletion status" });
     }
 
     if (!existingPending) {
@@ -97,20 +619,14 @@ serve(async (req) => {
 
       if (insertError && insertError.code !== "23505") {
         console.error("Error inserting deletion request:", insertError.message);
-        return new Response(
-          JSON.stringify({ success: false, error: "Failed to create deletion request" }),
-          { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-        );
+        return response(req, { success: false, error: "Failed to create deletion request" });
       }
     }
 
     const mediaHoldResult = await applyAccountDeletionMediaHold(supabaseAdmin, userId);
     if (!mediaHoldResult.success) {
       console.error("Error applying deletion media hold:", mediaHoldResult.error);
-      return new Response(
-        JSON.stringify({ success: false, error: "Failed to prepare media cleanup" }),
-        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
+      return response(req, { success: false, error: "Failed to prepare media cleanup" });
     }
 
     // 2. Cancel any active Stripe subscription
@@ -160,26 +676,17 @@ serve(async (req) => {
       // Don't fail the deletion request if Stripe fails
     }
 
-    // 3. Sign the user out
-    const { error: signOutError } = await supabaseAdmin.auth.admin.signOut(userId);
-    if (signOutError) {
-      console.error("Error signing out user:", signOutError.message);
-    }
-
-    return new Response(
-      JSON.stringify({
+    return response(
+      req,
+      {
         success: true,
         message: "Account scheduled for deletion",
         media_hold_applied: true,
         media_hold_matches_touched: mediaHoldResult.matchesTouched ?? 0,
-      }),
-      { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      },
     );
   } catch (error) {
     console.error("Unexpected error in delete-account:", error);
-    return new Response(
-      JSON.stringify({ success: false, error: "Internal server error" }),
-      { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-    );
+    return response(req, { success: false, error: "Internal server error" });
   }
 });
