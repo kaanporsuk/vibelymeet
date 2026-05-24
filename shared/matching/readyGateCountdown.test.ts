@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   getReadyGateCountdownProgress,
+  getReadyGateCountdownFromServerClock,
   getReadyGateRemainingSeconds,
   parseReadyGateExpiryMs,
   READY_GATE_DEFAULT_TIMEOUT_SECONDS,
@@ -40,6 +41,22 @@ test("missing expiry falls back to local deadline", () => {
     }),
     24,
   );
+});
+
+test("server-clock countdown uses a moving fallback deadline when expiry is missing", () => {
+  const countdown = getReadyGateCountdownFromServerClock({
+    expiresAt: null,
+    fallbackDeadlineMs: NOW_MS + 23_500,
+    fallbackSeconds: 30,
+    nowMs: NOW_MS,
+    serverNowMs: NOW_MS - 90_000,
+    clientSyncedAtMs: NOW_MS,
+  });
+
+  assert.equal(countdown.remainingSeconds, 24);
+  assert.equal(countdown.remainingMs, 23_500);
+  assert.equal(countdown.deadlineMs, NOW_MS + 23_500);
+  assert.equal(countdown.hasServerClock, false);
 });
 
 test("invalid expiry falls back safely", () => {

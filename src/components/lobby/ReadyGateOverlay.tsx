@@ -280,6 +280,8 @@ const ReadyGateOverlay = ({
   const prepareEntryRunIdRef = useRef(0);
   const realtimeFallbackLoggedRef = useRef(false);
   const readyGateRealtimeDegradedLoggedRef = useRef(false);
+  const overlayRealtimeDegradedRef = useRef(false);
+  const orchestratorRealtimeDegradedRef = useRef(false);
   const realtimeFallbackCopyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const terminalActionInFlightRef = useRef(false);
   const manualExitRequestedRef = useRef(false);
@@ -312,6 +314,20 @@ const ReadyGateOverlay = ({
     clearTimeout(permissionPrewarmMediaReleaseTimerRef.current);
     permissionPrewarmMediaReleaseTimerRef.current = null;
   }, []);
+
+  const clearRealtimeFallbackCopy = useCallback(() => {
+    setShowRealtimeFallbackCopy(false);
+    if (realtimeFallbackCopyTimerRef.current) {
+      clearTimeout(realtimeFallbackCopyTimerRef.current);
+      realtimeFallbackCopyTimerRef.current = null;
+    }
+  }, []);
+
+  const clearRealtimeDegradedWhenHealthy = useCallback(() => {
+    if (overlayRealtimeDegradedRef.current || orchestratorRealtimeDegradedRef.current) return;
+    setRealtimeDegraded(false);
+    clearRealtimeFallbackCopy();
+  }, [clearRealtimeFallbackCopy]);
 
   const releasePermissionPrewarmMedia = useCallback((reason: string) => {
     const media = permissionPrewarmMediaRef.current;
@@ -507,6 +523,7 @@ const ReadyGateOverlay = ({
 
   const markRealtimeDegraded = useCallback(
     (reason: "channel_error" | "channel_closed" | "channel_timed_out" | "missed_progress_detection") => {
+      overlayRealtimeDegradedRef.current = true;
       setRealtimeDegraded(true);
       if (readyGateRealtimeDegradedLoggedRef.current) return;
       readyGateRealtimeDegradedLoggedRef.current = true;
@@ -1353,18 +1370,13 @@ const ReadyGateOverlay = ({
   });
 
   useEffect(() => {
+    orchestratorRealtimeDegradedRef.current = orchestratorRealtimeDegraded;
     if (orchestratorRealtimeDegraded) {
       setRealtimeDegraded(true);
       return;
     }
-    if (!realtimeDegraded) return;
-    setRealtimeDegraded(false);
-    setShowRealtimeFallbackCopy(false);
-    if (realtimeFallbackCopyTimerRef.current) {
-      clearTimeout(realtimeFallbackCopyTimerRef.current);
-      realtimeFallbackCopyTimerRef.current = null;
-    }
-  }, [orchestratorRealtimeDegraded, realtimeDegraded]);
+    clearRealtimeDegradedWhenHealthy();
+  }, [clearRealtimeDegradedWhenHealthy, orchestratorRealtimeDegraded]);
 
   const runTerminalAction = useCallback(
     async (dismissVariant: ReadyGateTerminalAction) => {
@@ -1714,12 +1726,8 @@ const ReadyGateOverlay = ({
       )
       .subscribe((status) => {
         if (status === "SUBSCRIBED") {
-          setRealtimeDegraded(false);
-          setShowRealtimeFallbackCopy(false);
-          if (realtimeFallbackCopyTimerRef.current) {
-            clearTimeout(realtimeFallbackCopyTimerRef.current);
-            realtimeFallbackCopyTimerRef.current = null;
-          }
+          overlayRealtimeDegradedRef.current = false;
+          clearRealtimeDegradedWhenHealthy();
         } else if (status === "CHANNEL_ERROR") {
           markRealtimeDegraded("channel_error");
         } else if (status === "TIMED_OUT") {
@@ -1732,7 +1740,15 @@ const ReadyGateOverlay = ({
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [sessionId, eventId, user?.id, handleBothReady, reconcileSession, markRealtimeDegraded]);
+  }, [
+    sessionId,
+    eventId,
+    user?.id,
+    handleBothReady,
+    reconcileSession,
+    markRealtimeDegraded,
+    clearRealtimeDegradedWhenHealthy,
+  ]);
 
   useEffect(() => {
     if (!sessionId || !eventId || !user?.id || dateNavigationStartedRef.current) return;
@@ -1784,6 +1800,8 @@ const ReadyGateOverlay = ({
     expirySyncRetryAtMsRef.current = 0;
     realtimeFallbackLoggedRef.current = false;
     readyGateRealtimeDegradedLoggedRef.current = false;
+    overlayRealtimeDegradedRef.current = false;
+    orchestratorRealtimeDegradedRef.current = false;
     terminalActionInFlightRef.current = false;
     manualExitRequestedRef.current = false;
     duplicateNavSuppressionKeysRef.current = new Set();
@@ -1803,7 +1821,7 @@ const ReadyGateOverlay = ({
     setRequestingSnooze(false);
     setPrepareEntryStatus("idle");
     setPrepareEntryFailure(null);
-    setShowRealtimeFallbackCopy(false);
+    clearRealtimeFallbackCopy();
     setRealtimeDegraded(false);
     setTerminalActionPending(false);
     setTerminalActionError(null);
@@ -1841,7 +1859,7 @@ const ReadyGateOverlay = ({
       });
     }
     preloadVideoDateRoute("ready_gate_open");
-  }, [sessionId, eventId, preloadVideoDateRoute, releasePermissionPrewarmMedia]);
+  }, [sessionId, eventId, preloadVideoDateRoute, releasePermissionPrewarmMedia, clearRealtimeFallbackCopy]);
 
   useEffect(() => {
     if (!sessionId || !eventId || !user?.id) return;
@@ -1966,6 +1984,7 @@ const ReadyGateOverlay = ({
         expiresAt,
         serverNowMs,
         clientSyncedAtMs,
+        fallbackDeadlineMs: readyGateOpenedAtMsRef.current + GATE_TIMEOUT * 1000,
         fallbackSeconds: GATE_TIMEOUT,
       });
       const next = countdown.remainingSeconds;
