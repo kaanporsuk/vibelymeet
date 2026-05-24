@@ -51,6 +51,18 @@ import {
   getVideoDateMicroVerdictRemainingSeconds,
 } from '../../../../shared/matching/videoDateMicroVerdict';
 import { getVideoDateDeckPrefetchItems } from '../../../../shared/matching/videoDateDeckPrefetch';
+import {
+  createVideoDateSessionChannel,
+  type VideoDateSessionBroadcastEvent,
+} from '../../../../shared/matching/videoDateSessionChannel';
+import {
+  POST_DATE_VERDICT_CONFIRM_TIMEOUT_MS,
+  confirmationResultFromVerdictBroadcast,
+  derivePostDateSurveyStepFromVerdict,
+  isVideoDateVerdictConfirmEnabled,
+  normalizePostDateVerdictConfirmationResult,
+  type PostDateVerdictUiState,
+} from '../../../../shared/matching/postDateVerdictConfirmation';
 
 type Props = {
   sessionId: string;
@@ -221,9 +233,13 @@ export function PostDateSurvey({
   const queryClient = useQueryClient();
   const microVerdictV2 = useFeatureFlag('video_date.micro_verdict_v2');
   const drainQueueV2 = useFeatureFlag('video_date.outbox_v2.drain_match_queue');
+  const submitVerdictV3 = useFeatureFlag('video_date.outbox_v2.submit_verdict');
   const postDateInstantNextV2 = useFeatureFlag('video_date.post_date_instant_next_v2');
+  const verdictConfirmV2 = useFeatureFlag('video_date.verdict_confirm_v2');
+  const verdictConfirmV1 = useFeatureFlag('video_date.verdict_confirm_v1');
   const [step, setStep] = useState<SurveyStep>('verdict');
   const [submitting, setSubmitting] = useState(false);
+  const [verdictUiState, setVerdictUiState] = useState<PostDateVerdictUiState>('idle');
   const [finishing, setFinishing] = useState(false);
   const [isDrainingQueue, setIsDrainingQueue] = useState(false);
   const [queuedCount, setQueuedCount] = useState(0);
@@ -250,6 +266,7 @@ export function PostDateSurvey({
   const [reportDetails, setReportDetails] = useState('');
   const [wantsBlock, setWantsBlock] = useState(false);
   const [safetySubmitted, setSafetySubmitted] = useState(false);
+  const [reportSubmitting, setReportSubmitting] = useState(false);
 
   const finishSurveyRef = useRef<() => Promise<void>>(async () => {});
   const finishSurveyInFlightRef = useRef(false);
@@ -262,7 +279,79 @@ export function PostDateSurvey({
   const reportPassVerdictSavedRef = useRef(false);
   const verdictOpenedAtMsRef = useRef(Date.now());
   const instantNextPrefetchKeyRef = useRef<string | null>(null);
+  const pendingVerdictConfirmRef = useRef<{
+    minSessionSeq: number | null;
+    resolve: (confirmedResult: unknown | null) => void;
+  } | null>(null);
+  const verdictConfirmTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const highlightsSaveInFlightRef = useRef(false);
+  const safetySaveInFlightRef = useRef(false);
+  const safetyReportInFlightRef = useRef(false);
   const [microVerdictNowMs, setMicroVerdictNowMs] = useState(Date.now());
+  const verdictConfirmEnabled = useMemo(
+    () => isVideoDateVerdictConfirmEnabled(verdictConfirmV2, verdictConfirmV1),
+    [verdictConfirmV1, verdictConfirmV2],
+  );
+
+  const clearVerdictConfirmTimeout = useCallback(() => {
+    if (verdictConfirmTimeoutRef.current) {
+      clearTimeout(verdictConfirmTimeoutRef.current);
+      verdictConfirmTimeoutRef.current = null;
+    }
+  }, []);
+
+  const resolvePendingVerdictConfirm = useCallback((confirmedResult: unknown | null) => {
+    const pending = pendingVerdictConfirmRef.current;
+    if (!pending) return;
+    pendingVerdictConfirmRef.current = null;
+    clearVerdictConfirmTimeout();
+    pending.resolve(confirmedResult);
+  }, [clearVerdictConfirmTimeout]);
+
+  const confirmVerdictWithServerNextSurface = useCallback(async (result: unknown) => {
+    const { data, error } = await supabase.rpc('resolve_post_date_next_surface', {
+      p_session_id: sessionId,
+    });
+    const nextSurface = !error ? normalizeServerPostDateNextSurface(data) : null;
+    if (!nextSurface || nextSurface.action === 'survey') return null;
+    const base = result && typeof result === 'object' && !Array.isArray(result)
+      ? result as Record<string, unknown>
+      : {};
+    return {
+      ...base,
+      success: true,
+      committed: true,
+      next_surface: nextSurface,
+    };
+  }, [sessionId]);
+
+  const waitForVerdictConfirmation = useCallback(
+    async (result: unknown): Promise<unknown | null> => {
+      const normalized = normalizePostDateVerdictConfirmationResult(result);
+      if (normalized.committed) return result;
+
+      return new Promise<unknown | null>((resolve) => {
+        pendingVerdictConfirmRef.current = {
+          minSessionSeq: normalized.sessionSeq,
+          resolve,
+        };
+        verdictConfirmTimeoutRef.current = setTimeout(() => {
+          verdictConfirmTimeoutRef.current = null;
+          pendingVerdictConfirmRef.current = null;
+          void confirmVerdictWithServerNextSurface(result)
+            .then(resolve)
+            .catch(() => resolve(null));
+        }, POST_DATE_VERDICT_CONFIRM_TIMEOUT_MS);
+      });
+    },
+    [confirmVerdictWithServerNextSurface],
+  );
+
+  const applyConfirmedVerdictStep = useCallback((result: unknown) => {
+    const nextStep = derivePostDateSurveyStepFromVerdict(result);
+    setVerdictUiState(nextStep === 'awaiting_partner' ? 'awaiting_partner' : 'confirmed');
+    setStep(nextStep);
+  }, []);
 
   useEffect(() => {
     shellImpressionRef.current = false;
@@ -272,10 +361,43 @@ export function PostDateSurvey({
     queuedDrainAttemptKeyRef.current = null;
     reportBeforeVerdictRef.current = false;
     reportPassVerdictSavedRef.current = false;
+    highlightsSaveInFlightRef.current = false;
+    safetySaveInFlightRef.current = false;
+    safetyReportInFlightRef.current = false;
     verdictOpenedAtMsRef.current = Date.now();
     setMicroVerdictNowMs(Date.now());
     setCelebrationData(null);
-  }, [sessionId]);
+    setVerdictUiState('idle');
+    setVerdictError(null);
+    setVerdictRetryable(false);
+    setReportSubmitting(false);
+    resolvePendingVerdictConfirm(null);
+  }, [resolvePendingVerdictConfirm, sessionId]);
+
+  useEffect(() => {
+    if (!sessionId || !userId || !verdictConfirmEnabled) return undefined;
+    const subscription = createVideoDateSessionChannel(supabase, {
+      sessionId,
+      onEvent: (event: VideoDateSessionBroadcastEvent) => {
+        const pending = pendingVerdictConfirmRef.current;
+        if (!pending) return;
+        const confirmation = confirmationResultFromVerdictBroadcast(event, pending.minSessionSeq);
+        if (confirmation) {
+          resolvePendingVerdictConfirm(confirmation);
+        }
+      },
+    });
+    return () => {
+      subscription.unsubscribe();
+    };
+  }, [resolvePendingVerdictConfirm, sessionId, userId, verdictConfirmEnabled]);
+
+  useEffect(() => {
+    return () => {
+      resolvePendingVerdictConfirm(null);
+      clearVerdictConfirmTimeout();
+    };
+  }, [clearVerdictConfirmTimeout, resolvePendingVerdictConfirm]);
 
   useEffect(() => {
     if (!microVerdictV2.enabled || step !== 'verdict') return undefined;
@@ -780,11 +902,12 @@ export function PostDateSurvey({
   }, [finishSurvey]);
 
   const handleVerdict = async (liked: boolean) => {
-    if (submitting) return;
+    if (submitting || verdictUiState === 'submitting' || verdictUiState === 'confirmed') return;
     const previousStep = step;
     const optimisticStep: SurveyStep = liked ? 'awaiting_partner' : 'highlights';
     let optimisticallyAdvanced = false;
     setSubmitting(true);
+    setVerdictUiState('submitting');
     setVerdictError(null);
     setVerdictRetryable(false);
     setLastVerdictAttempt(liked);
@@ -831,6 +954,7 @@ export function PostDateSurvey({
       if (!result) {
         setVerdictRetryable(true);
         setVerdictError("Couldn't save your answer. Tap to retry.");
+        setVerdictUiState('retryable_failed');
         if (postDateInstantNextV2.enabled) {
           if (optimisticallyAdvanced) setStep(previousStep);
           trackEvent('post_date_verdict_optimistic_rollback', {
@@ -866,9 +990,26 @@ export function PostDateSurvey({
             rollback_step: previousStep,
           });
         }
+        setVerdictUiState('retryable_failed');
         return;
       }
       setVerdictRetryable(false);
+      const confirmedResult = verdictConfirmEnabled ? await waitForVerdictConfirmation(result) : result;
+      if (!confirmedResult) {
+        setVerdictRetryable(true);
+        setVerdictError("Couldn't confirm your answer. Tap to retry.");
+        setVerdictUiState('retryable_failed');
+        if (optimisticallyAdvanced) setStep(previousStep);
+        trackEvent('post_date_verdict_optimistic_rollback', {
+          platform: 'native',
+          session_id: sessionId,
+          event_id: eventId,
+          reason: 'confirmation_timeout',
+          rollback_step: previousStep,
+        });
+        return;
+      }
+      const confirmedVerdict = normalizePostDateVerdictConfirmationResult(confirmedResult);
       if (postDateInstantNextV2.enabled) {
         trackEvent('post_date_verdict_optimistic_confirmed', {
           platform: 'native',
@@ -894,19 +1035,17 @@ export function PostDateSurvey({
         platform: 'native',
         session_id: sessionId,
         event_id: eventId,
-        outcome: result.mutual ? 'mutual' : 'not_mutual',
+        outcome: confirmedVerdict.mutual ? 'mutual' : 'not_mutual',
       });
-      if (result.partner_verdict_recorded && !result.awaiting_partner_verdict) {
+      if (confirmedVerdict.partnerVerdictRecorded && !confirmedVerdict.awaitingPartnerVerdict) {
         trackEvent(LobbyPostDateEvents.POST_DATE_PENDING_VERDICT_COMPLETED, {
           platform: 'native',
           session_id: sessionId,
           event_id: eventId,
-          outcome: result.mutual ? 'mutual' : 'not_mutual',
+          outcome: confirmedVerdict.mutual ? 'mutual' : 'not_mutual',
         });
       }
-      if (result.mutual) {
-        setStep('celebration');
-      } else if (result.awaiting_partner_verdict) {
+      if (!confirmedVerdict.mutual && confirmedVerdict.awaitingPartnerVerdict) {
         trackEvent(LobbyPostDateEvents.POST_DATE_VERDICT_PENDING_PARTNER, {
           platform: 'native',
           session_id: sessionId,
@@ -922,10 +1061,8 @@ export function PostDateSurvey({
           session_id: sessionId,
           event_id: eventId,
         });
-        setStep('awaiting_partner');
-      } else {
-        setStep('highlights');
       }
+      applyConfirmedVerdictStep(confirmedResult);
     } catch {
       trackEvent(LobbyPostDateEvents.POST_DATE_VERDICT_SUBMIT_FAILED, {
         platform: 'native',
@@ -935,6 +1072,7 @@ export function PostDateSurvey({
       });
       setVerdictRetryable(true);
       setVerdictError("Couldn't save your answer. Tap to retry.");
+      setVerdictUiState('retryable_failed');
       if (postDateInstantNextV2.enabled) {
         if (optimisticallyAdvanced) setStep(previousStep);
         trackEvent('post_date_verdict_optimistic_rollback', {
@@ -977,47 +1115,70 @@ export function PostDateSurvey({
   };
 
   const handleHighlightsSubmit = async () => {
+    if (highlightsSaveInFlightRef.current) return;
+    highlightsSaveInFlightRef.current = true;
     try {
       await persistHighlights();
     } catch {
       /* best-effort */
+    } finally {
+      highlightsSaveInFlightRef.current = false;
     }
     setStep('safety');
   };
 
+  const handleHighlightsSkip = () => {
+    if (highlightsSaveInFlightRef.current) return;
+    trackEvent(LobbyPostDateEvents.POST_DATE_SURVEY_SKIP, {
+      platform: 'native',
+      session_id: sessionId,
+      event_id: eventId,
+      step: 'highlights',
+    });
+    setStep('safety');
+  };
+
   const handleSafetyComplete = async () => {
-    if (finishing) return;
-    if (reportBeforeVerdictRef.current && !reportPassVerdictSavedRef.current) {
-      const ok = await recordReportPassVerdict(null);
-      if (!ok) {
-        Alert.alert('Feedback', "Couldn't save your answer. Check your connection and try again.");
-        return;
-      }
-    }
+    if (finishing || safetySaveInFlightRef.current || safetyReportInFlightRef.current) return;
+    safetySaveInFlightRef.current = true;
     try {
+      if (reportBeforeVerdictRef.current && !reportPassVerdictSavedRef.current) {
+        const ok = await recordReportPassVerdict(null);
+        if (!ok) {
+          Alert.alert('Feedback', "Couldn't save your answer. Check your connection and try again.");
+          return;
+        }
+      }
       await persistSafety();
+      await finishSurveyRef.current();
     } catch {
       /* best-effort */
+    } finally {
+      safetySaveInFlightRef.current = false;
     }
-    await finishSurveyRef.current();
   };
 
   const handleSafetySkip = async () => {
-    if (finishing) return;
+    if (finishing || safetySaveInFlightRef.current || safetyReportInFlightRef.current) return;
+    safetySaveInFlightRef.current = true;
     trackEvent(LobbyPostDateEvents.POST_DATE_SURVEY_SKIP, {
       platform: 'native',
       session_id: sessionId,
       event_id: eventId,
       step: 'safety',
     });
-    if (reportBeforeVerdictRef.current && !reportPassVerdictSavedRef.current) {
-      const ok = await recordReportPassVerdict(null);
-      if (!ok) {
-        Alert.alert('Feedback', "Couldn't save your answer. Check your connection and try again.");
-        return;
+    try {
+      if (reportBeforeVerdictRef.current && !reportPassVerdictSavedRef.current) {
+        const ok = await recordReportPassVerdict(null);
+        if (!ok) {
+          Alert.alert('Feedback', "Couldn't save your answer. Check your connection and try again.");
+          return;
+        }
       }
+      await finishSurveyRef.current();
+    } finally {
+      safetySaveInFlightRef.current = false;
     }
-    await finishSurveyRef.current();
   };
 
   const recordReportPassVerdict = async (report?: PostDateSafetyReportPayload | null): Promise<boolean> => {
@@ -1027,7 +1188,12 @@ export function PostDateSurvey({
           userId,
           sessionId,
           eventId,
-          payload: { kind: 'verdict', liked: false, report },
+          payload: {
+            kind: 'verdict',
+            liked: false,
+            report,
+            backendVersion: submitVerdictV3.enabled ? 'v3' : 'v2',
+          },
         })
       : await onSubmitVerdict(false);
     if ('ok' in result && !result.ok) {
@@ -1052,6 +1218,19 @@ export function PostDateSurvey({
       });
       return false;
     }
+    if (verdictConfirmEnabled) {
+      const confirmed = await waitForVerdictConfirmation(result);
+      if (!confirmed) {
+        trackEvent(LobbyPostDateEvents.POST_DATE_VERDICT_SUBMIT_FAILED, {
+          platform: 'native',
+          session_id: sessionId,
+          event_id: eventId,
+          reason: 'report_pass_confirmation_failed',
+          source: 'report_before_verdict',
+        });
+        return false;
+      }
+    }
     reportPassVerdictSavedRef.current = true;
     trackEvent(LobbyPostDateEvents.POST_DATE_SURVEY_SUBMIT, {
       platform: 'native',
@@ -1064,25 +1243,34 @@ export function PostDateSurvey({
   };
 
   const handleReportSubmit = async () => {
-    if (!reportCategory) return;
+    if (!reportCategory || safetyReportInFlightRef.current || safetySaveInFlightRef.current || finishing) return;
+    safetyReportInFlightRef.current = true;
+    setReportSubmitting(true);
     const mapped = mapPostDateSafetyCategoryToReasonId(reportCategory);
     const reportPayload: PostDateSafetyReportPayload = {
       reason: mapped,
       details: reportDetails || null,
       alsoBlock: wantsBlock,
     };
-    const result = reportBeforeVerdictRef.current && !reportPassVerdictSavedRef.current
-      ? { ok: await recordReportPassVerdict(reportPayload) }
-      : await submitPostDateReportWithOutbox(sessionId, userId, reportPayload);
-    if (!result.ok) {
-      const msg =
-        'error' in result && result.error === 'rate_limited'
-          ? 'Too many reports. Try again later.'
-          : 'Could not submit.';
-      Alert.alert('Report', msg);
-      return;
+    try {
+      const result = reportBeforeVerdictRef.current && !reportPassVerdictSavedRef.current
+        ? { ok: await recordReportPassVerdict(reportPayload) }
+        : await submitPostDateReportWithOutbox(sessionId, userId, reportPayload);
+      if (!result.ok) {
+        const msg =
+          'error' in result && result.error === 'rate_limited'
+            ? 'Too many reports. Try again later.'
+            : 'Could not submit.';
+        Alert.alert('Report', msg);
+        return;
+      }
+      setSafetySubmitted(true);
+    } catch {
+      Alert.alert('Report', 'Could not submit.');
+    } finally {
+      safetyReportInFlightRef.current = false;
+      setReportSubmitting(false);
     }
-    setSafetySubmitted(true);
   };
 
   const needsExpanded =
@@ -1184,17 +1372,7 @@ export function PostDateSurvey({
         <Pressable style={[styles.primaryBtn, { backgroundColor: theme.tint }]} onPress={() => void handleHighlightsSubmit()}>
           <Text style={styles.primaryBtnText}>Continue</Text>
         </Pressable>
-        <Pressable
-          onPress={() => {
-            trackEvent(LobbyPostDateEvents.POST_DATE_SURVEY_SKIP, {
-              platform: 'native',
-              session_id: sessionId,
-              event_id: eventId,
-              step: 'highlights',
-            });
-            setStep('safety');
-          }}
-        >
+        <Pressable onPress={handleHighlightsSkip}>
           <Text style={[styles.skip, { color: theme.mutedForeground }]}>Skip</Text>
         </Pressable>
       </ScrollView>
@@ -1210,10 +1388,14 @@ export function PostDateSurvey({
           <ContinuityStrip decision={continuityDecision} theme={theme} />
           <Pressable
             style={[styles.primaryBtn, { backgroundColor: theme.tint, marginTop: spacing.lg }]}
-            disabled={finishing}
+            disabled={finishing || reportSubmitting}
             onPress={() => void handleSafetyComplete()}
           >
-            {finishing ? <ActivityIndicator color="#fff" /> : <Text style={styles.primaryBtnText}>Back to the event 💚</Text>}
+            {finishing || reportSubmitting ? (
+              <ActivityIndicator color="#fff" />
+            ) : (
+              <Text style={styles.primaryBtnText}>Back to the event 💚</Text>
+            )}
           </Pressable>
         </View>
       );
@@ -1312,10 +1494,15 @@ export function PostDateSurvey({
             </Pressable>
             {reportCategory ? (
               <Pressable
-                style={[styles.primaryBtn, { backgroundColor: theme.danger, marginTop: spacing.sm }]}
+                style={[
+                  styles.primaryBtn,
+                  { backgroundColor: theme.danger, marginTop: spacing.sm },
+                  reportSubmitting && styles.disabledAction,
+                ]}
+                disabled={reportSubmitting || finishing}
                 onPress={() => void handleReportSubmit()}
               >
-                <Text style={styles.primaryBtnText}>Submit Report</Text>
+                {reportSubmitting ? <ActivityIndicator color="#fff" /> : <Text style={styles.primaryBtnText}>Submit Report</Text>}
               </Pressable>
             ) : null}
           </View>
@@ -1323,17 +1510,21 @@ export function PostDateSurvey({
 
         <Pressable
           style={[styles.primaryBtn, { backgroundColor: theme.tint }, finishing && { opacity: 0.7 }]}
-          disabled={finishing}
+          disabled={finishing || reportSubmitting}
           onPress={() => void handleSafetyComplete()}
         >
-          {finishing ? <ActivityIndicator color="#fff" /> : <Text style={styles.primaryBtnText}>Done — back to the event 💚</Text>}
+          {finishing || reportSubmitting ? (
+            <ActivityIndicator color="#fff" />
+          ) : (
+            <Text style={styles.primaryBtnText}>Done — back to the event 💚</Text>
+          )}
         </Pressable>
         <Pressable
-          disabled={finishing}
+          disabled={finishing || reportSubmitting}
           onPress={() => void handleSafetySkip()}
         >
           <Text style={[styles.skip, { color: theme.mutedForeground }]}>
-            {finishing ? 'Returning...' : 'Skip'}
+            {finishing || reportSubmitting ? 'Returning...' : 'Skip'}
           </Text>
         </Pressable>
         {finishing || isDrainingQueue ? (
@@ -1401,7 +1592,7 @@ export function PostDateSurvey({
               </Text>
               {verdictRetryable && lastVerdictAttempt !== null ? (
                 <Pressable
-                  disabled={submitting}
+                  disabled={submitting || verdictUiState === 'submitting'}
                   onPress={() => void handleVerdict(lastVerdictAttempt)}
                   style={[
                     styles.retryBtn,
@@ -1417,14 +1608,14 @@ export function PostDateSurvey({
 
           <View style={styles.buttons}>
             <Pressable
-              disabled={submitting}
+              disabled={submitting || verdictUiState === 'submitting'}
               onPress={() => void handleVerdict(true)}
               accessibilityRole="button"
               accessibilityLabel={`Vibe with ${partnerName}`}
               style={({ pressed }) => [
                 styles.vibeBtn,
-                submitting && styles.disabledAction,
-                pressed && !submitting && styles.pressed,
+                (submitting || verdictUiState === 'submitting') && styles.disabledAction,
+                pressed && !submitting && verdictUiState !== 'submitting' && styles.pressed,
               ]}
             >
               <LinearGradient
@@ -1443,7 +1634,7 @@ export function PostDateSurvey({
               )}
             </Pressable>
             <Pressable
-              disabled={submitting}
+              disabled={submitting || verdictUiState === 'submitting'}
               onPress={() => void handleVerdict(false)}
               accessibilityRole="button"
               accessibilityLabel={`Pass on ${partnerName}`}
@@ -1453,8 +1644,8 @@ export function PostDateSurvey({
                   borderColor: withNativeAlpha('#ffffff', 0.08),
                   backgroundColor: withNativeAlpha('#ffffff', 0.055),
                 },
-                submitting && styles.disabledAction,
-                pressed && !submitting && styles.pressed,
+                (submitting || verdictUiState === 'submitting') && styles.disabledAction,
+                pressed && !submitting && verdictUiState !== 'submitting' && styles.pressed,
               ]}
             >
               <Text style={[styles.passBtnIcon, { color: theme.mutedForeground }]}>×</Text>
@@ -1463,13 +1654,13 @@ export function PostDateSurvey({
           </View>
 
           <Pressable
-            disabled={submitting}
+            disabled={submitting || verdictUiState === 'submitting'}
             onPress={() => {
               reportBeforeVerdictRef.current = true;
               setShowReportFlow(true);
               setStep('safety');
             }}
-            style={[styles.reportLink, submitting && styles.disabledAction]}
+            style={[styles.reportLink, (submitting || verdictUiState === 'submitting') && styles.disabledAction]}
           >
             <Text style={{ color: theme.mutedForeground, fontSize: 12 }}>Report an issue</Text>
           </Pressable>

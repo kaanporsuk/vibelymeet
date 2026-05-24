@@ -62,6 +62,11 @@ import {
   shuffleVideoDateIceBreakerQuestions,
   type VideoDateIceBreakerState,
 } from '@clientShared/matching/videoDateIceBreakers';
+import {
+  normalizeServerPostDateNextSurface,
+  type ServerPostDateNextSurface,
+} from '@clientShared/matching/postDateContinuity';
+import type { PostDateVerdictState } from '@clientShared/matching/postDateVerdictConfirmation';
 import type { PostDateSafetyReportPayload } from '@clientShared/postDateOutbox/types';
 
 export type VideoDateSession = {
@@ -1426,6 +1431,10 @@ export type SubmitVerdictAndCheckMutualResult =
       already_matched?: boolean;
       awaiting_partner_verdict?: boolean;
       partner_verdict_recorded?: boolean;
+      committed?: boolean;
+      session_seq?: number;
+      verdict_state?: PostDateVerdictState;
+      next_surface?: ServerPostDateNextSurface | null;
     }
   | { ok: false; reason: 'backend'; code: string; message?: string }
   | { ok: false; reason: 'network' }
@@ -1443,6 +1452,10 @@ type PostDateVerdictResponseBody = {
   verdict_recorded?: boolean;
   awaiting_partner_verdict?: boolean;
   partner_verdict_recorded?: boolean;
+  committed?: boolean;
+  session_seq?: number;
+  verdict_state?: PostDateVerdictState;
+  next_surface?: unknown;
 };
 
 function verdictBreadcrumb(
@@ -1507,6 +1520,10 @@ export async function submitVerdictAndCheckMutual(
     already_matched: typeof row.already_matched === 'boolean' ? row.already_matched : undefined,
     awaiting_partner_verdict: row.awaiting_partner_verdict === true,
     partner_verdict_recorded: row.partner_verdict_recorded === true,
+    committed: row.committed === true,
+    session_seq: typeof row.session_seq === 'number' && Number.isFinite(row.session_seq) ? row.session_seq : undefined,
+    verdict_state: row.verdict_state,
+    next_surface: normalizeServerPostDateNextSurface(row.next_surface),
   };
 }
 
