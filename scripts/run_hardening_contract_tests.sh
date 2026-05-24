@@ -27,6 +27,7 @@ run_step npx tsx shared/matching/staleReadyGateRoomBlockerRepair.test.ts
 run_step npx tsx shared/matching/dbLintErrorCleanup.test.ts
 run_step npx tsx shared/matching/eventLobbyDeckPayloadMedia.test.ts
 run_step npx tsx shared/observability/eventLobbyObservability.test.ts
+run_step npx tsx shared/matching/videoDatePhase5RlsContracts.test.ts
 run_step npx tsx shared/matching/realtimeSubscriptionTightening.test.ts
 run_step npx tsx shared/matching/premiumCreditsObservability.test.ts
 run_step npx tsx shared/matching/nativeVideoDateContractRecovery.test.ts

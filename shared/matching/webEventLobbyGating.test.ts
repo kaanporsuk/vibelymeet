@@ -150,7 +150,10 @@ test("native EventLobby blocks stale deck, status, foreground, and queue side ef
   assert.match(nativeEventsApi, /archived_at\?: string \| null/);
   assert.match(nativeEventsApi, /ended_at\?: string \| null/);
   assert.match(nativeLobby, /const lobbySideEffectsEnabled = Boolean\(/);
-  assert.match(nativeLobby, /const deckQueryEnabled = lobbySideEffectsEnabled/);
+  assert.match(nativeLobby, /const deckQueryEnabled = Boolean\(/);
+  assert.match(nativeLobby, /const deckQueryEnabled = Boolean\([\s\S]+isConfirmedSeat[\s\S]+!pauseStatus\.isPaused[\s\S]+!isEventCancelled[\s\S]+!isEventArchived[\s\S]+!isEventDraft[\s\S]+!isEventEndedByTruth[\s\S]+resolvedEventLifecycle\?\.isLive/);
+  assert.match(nativeLobby, /useEventDeck\(\s*id,\s*user\?\.id \?\? null,\s*deckQueryEnabled\s*\)/);
+  assert.match(nativeLobby, /const queueHintEnabled =\s*deckQueryEnabled/);
   assert.match(nativeLobby, /useEventStatus\(id, user\?\.id \?\? undefined, lobbySideEffectsEnabled\)/);
   assert.match(nativeLobby, /if \(!id \|\| !user\?\.id \|\| !lobbySideEffectsEnabled\) return/);
   assert.match(nativeLobby, /resolveEventLifecycle/);
