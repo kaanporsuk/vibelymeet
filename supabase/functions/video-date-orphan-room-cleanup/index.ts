@@ -71,6 +71,16 @@ type DailyPresenceCheck =
     reason: string;
   };
 
+type SafetyInterlockCheck = {
+  ok: boolean;
+  blocked: boolean;
+  reason: string;
+  delayUntil: string | null;
+  pendingReportCount: number;
+  safetyReviewEventCount: number;
+  latestSafetyEvidenceAt: string | null;
+};
+
 type SessionRoomRow = {
   id: string;
   daily_room_name: string | null;
@@ -146,6 +156,19 @@ function asObject(value: unknown): Record<string, unknown> | null {
   return value && typeof value === "object" && !Array.isArray(value)
     ? value as Record<string, unknown>
     : null;
+}
+
+function asBoolean(value: unknown): boolean | null {
+  return typeof value === "boolean" ? value : null;
+}
+
+function asNumber(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function asPositiveInteger(value: unknown): number {
+  const numberValue = asNumber(value);
+  return numberValue == null ? 0 : Math.max(0, Math.trunc(numberValue));
 }
 
 function parseProviderTime(value: unknown): {
@@ -473,6 +496,69 @@ async function recordAudit(
   return true;
 }
 
+function parseSafetyInterlock(value: unknown): SafetyInterlockCheck {
+  const object = asObject(value);
+  return {
+    ok: asBoolean(object?.ok) !== false,
+    blocked: asBoolean(object?.blocked) === true,
+    reason: asString(object?.reason) ?? "safety_interlock_unknown",
+    delayUntil: asString(object?.delayUntil),
+    pendingReportCount: asPositiveInteger(object?.pendingReportCount),
+    safetyReviewEventCount: asPositiveInteger(object?.safetyReviewEventCount),
+    latestSafetyEvidenceAt: asString(object?.latestSafetyEvidenceAt),
+  };
+}
+
+async function checkSafetyInterlock(
+  supabase: SupabaseServiceClient,
+  session: SessionRoomRow | null,
+  roomName: string,
+): Promise<SafetyInterlockCheck> {
+  if (!session?.id) {
+    return {
+      ok: true,
+      blocked: false,
+      reason: "session_id_missing",
+      delayUntil: null,
+      pendingReportCount: 0,
+      safetyReviewEventCount: 0,
+      latestSafetyEvidenceAt: null,
+    };
+  }
+
+  const { data, error } = await supabase.rpc(
+    "video_date_orphan_safety_interlock_v1",
+    {
+      p_session_id: session.id,
+      p_room_name: roomName,
+    },
+  );
+
+  if (error) {
+    console.error(
+      "video-date-orphan-room-cleanup safety_interlock_error",
+      JSON.stringify({
+        sessionId: session.id,
+        roomName,
+        code: error.code,
+        message: error.message,
+      }),
+    );
+    return {
+      ok: false,
+      blocked: true,
+      reason: "safety_interlock_unavailable",
+      delayUntil: null,
+      pendingReportCount: 0,
+      safetyReviewEventCount: 0,
+      latestSafetyEvidenceAt: null,
+    };
+  }
+
+  const parsed = parseSafetyInterlock(data);
+  return parsed.ok ? parsed : { ...parsed, blocked: true };
+}
+
 async function clearTerminalRoomMetadata(
   supabase: SupabaseServiceClient,
   session: SessionRoomRow | null,
@@ -543,6 +629,7 @@ Deno.serve(async (req) => {
     let skippedActive = 0;
     let skippedRecent = 0;
     let skippedUnknown = 0;
+    let skippedSafetyReview = 0;
     let deleteFailed = 0;
     let deleteAttempts = 0;
 
@@ -604,6 +691,32 @@ Deno.serve(async (req) => {
           reason: "provider_room_age_unknown",
           activeCount: 0,
           metadata: { source: body.source ?? "manual", dryRun },
+        });
+        continue;
+      }
+
+      const safetyInterlock = await checkSafetyInterlock(
+        supabase,
+        session,
+        room.name,
+      );
+      if (safetyInterlock.blocked) {
+        skippedSafetyReview += 1;
+        await recordAudit(supabase, {
+          room,
+          session,
+          action: "skipped_safety_review",
+          reason: safetyInterlock.reason,
+          activeCount: 0,
+          metadata: {
+            source: body.source ?? "manual",
+            dryRun,
+            interlockOk: safetyInterlock.ok,
+            delayUntil: safetyInterlock.delayUntil,
+            pendingReportCount: safetyInterlock.pendingReportCount,
+            safetyReviewEventCount: safetyInterlock.safetyReviewEventCount,
+            latestSafetyEvidenceAt: safetyInterlock.latestSafetyEvidenceAt,
+          },
         });
         continue;
       }
@@ -739,6 +852,7 @@ Deno.serve(async (req) => {
       skippedActive,
       skippedRecent,
       skippedUnknown,
+      skippedSafetyReview,
       deleteFailed,
       dryRun,
       batchSize,

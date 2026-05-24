@@ -57,6 +57,12 @@ function base64(bytes: ArrayBuffer): string {
   return btoa(binary);
 }
 
+function hex(bytes: ArrayBuffer): string {
+  return Array.from(new Uint8Array(bytes))
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("");
+}
+
 function toArrayBuffer(bytes: Uint8Array): ArrayBuffer {
   const buffer = new ArrayBuffer(bytes.byteLength);
   new Uint8Array(buffer).set(bytes);
@@ -78,6 +84,14 @@ async function hmacSha256Base64(secretBytes: Uint8Array, message: string): Promi
     encoder.encode(message),
   );
   return base64(signature);
+}
+
+async function sha256Hex(value: string): Promise<string> {
+  const digest = await crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(value),
+  );
+  return hex(digest);
 }
 
 function timestampMillis(value: string | null): number | null {
@@ -149,11 +163,31 @@ function isDailyVerificationProbe(payload: JsonObject): boolean {
   return payload.test === "test" && Object.keys(payload).length === 1;
 }
 
+const SECRETISH_EXACT_KEYS = new Set([
+  "password",
+  "authorization",
+  "authheader",
+  "jwt",
+  "servicerole",
+  "safetydetails",
+  "safetyreason",
+  "reportreason",
+  "reportdetails",
+  "idempotencykey",
+  "dailytoken",
+  "meetingtoken",
+  "accesstoken",
+  "refreshtoken",
+]);
+
 function hasSecretishKey(key: string): boolean {
-  const normalized = key.toLowerCase().replace(/[_-]/g, "");
-  return key.toLowerCase().includes("token") ||
-    key.toLowerCase().includes("secret") ||
-    normalized.includes("apikey");
+  const lower = key.toLowerCase();
+  const normalized = lower.replace(/[^a-z0-9]+/g, "");
+  return lower.includes("token") ||
+    lower.includes("secret") ||
+    lower.includes("bearer") ||
+    normalized.includes("apikey") ||
+    SECRETISH_EXACT_KEYS.has(normalized);
 }
 
 function sanitizeWebhookPayload(value: unknown): unknown {
@@ -175,6 +209,22 @@ function sanitizeWebhookPayload(value: unknown): unknown {
     sanitized.redacted_fields = redactedFields;
   }
   return sanitized;
+}
+
+function sanitizedPayloadObject(value: unknown, payloadHash: string): JsonObject {
+  const sanitized = sanitizeWebhookPayload(value);
+  if (isObject(sanitized)) return sanitized;
+  return {
+    raw_body_sha256: payloadHash,
+    payload_type: Array.isArray(value) ? "array" : typeof value,
+  };
+}
+
+function rawBodyDlqPayload(rawBody: string, payloadHash: string): JsonObject {
+  return {
+    raw_body_sha256: payloadHash,
+    raw_body_bytes: new TextEncoder().encode(rawBody).byteLength,
+  };
 }
 
 function nestedObject(root: JsonObject, ...path: string[]): JsonObject | null {
@@ -360,6 +410,68 @@ async function recordWebhookSecurityMetric(params: {
   }
 }
 
+async function recordWebhookDlq(
+  supabase: SupabaseServiceClient | null,
+  params: {
+    payloadHash: string;
+    sanitizedPayload: JsonObject;
+    errorClass: string;
+    errorMessage?: string | null;
+    retryable?: boolean;
+    providerEventId?: string | null;
+    eventType?: string | null;
+    roomName?: string | null;
+    signatureTimestamp?: Date | null;
+  },
+): Promise<void> {
+  try {
+    const client = supabase ?? createServiceClient();
+    const { data, error } = await client.rpc("record_video_date_webhook_dlq_v1", {
+      p_provider: "daily",
+      p_provider_event_id: params.providerEventId ?? null,
+      p_event_type: params.eventType ?? null,
+      p_room_name: params.roomName ?? null,
+      p_payload_hash: params.payloadHash,
+      p_sanitized_payload: params.sanitizedPayload,
+      p_error_class: params.errorClass,
+      p_error_message: params.errorMessage ?? null,
+      p_retryable: params.retryable === true,
+      p_signature_timestamp: params.signatureTimestamp?.toISOString() ?? null,
+    });
+    if (error) {
+      console.error(
+        "video-date-daily-webhook dlq_error",
+        JSON.stringify({
+          errorClass: params.errorClass,
+          providerEventId: params.providerEventId ?? null,
+          code: error.code,
+          message: error.message,
+        }),
+      );
+      return;
+    }
+    if (data?.ok === false) {
+      console.error(
+        "video-date-daily-webhook dlq_rejected",
+        JSON.stringify({
+          errorClass: params.errorClass,
+          providerEventId: params.providerEventId ?? null,
+          rejection: typeof data.error === "string" ? data.error : "unknown_error",
+        }),
+      );
+    }
+  } catch (error) {
+    console.error(
+      "video-date-daily-webhook dlq_unavailable",
+      JSON.stringify({
+        errorClass: params.errorClass,
+        providerEventId: params.providerEventId ?? null,
+        message: error instanceof Error ? error.message : "unknown_error",
+      }),
+    );
+  }
+}
+
 Deno.serve(async (req) => {
   const startedAt = Date.now();
   if (req.method === "OPTIONS") {
@@ -383,14 +495,29 @@ Deno.serve(async (req) => {
     return json({ ok: false, error: signature.error }, signature.status);
   }
 
+  const payloadHash = await sha256Hex(rawBody);
   let payload: JsonObject;
   try {
     const parsed = JSON.parse(rawBody) as unknown;
     if (!isObject(parsed)) {
+      await recordWebhookDlq(null, {
+        payloadHash,
+        sanitizedPayload: rawBodyDlqPayload(rawBody, payloadHash),
+        errorClass: "payload_must_be_object",
+        errorMessage: "Daily webhook payload root was not a JSON object",
+        signatureTimestamp: signature.timestamp,
+      });
       return json({ ok: false, error: "payload_must_be_object" }, 400);
     }
     payload = parsed;
   } catch {
+    await recordWebhookDlq(null, {
+      payloadHash,
+      sanitizedPayload: rawBodyDlqPayload(rawBody, payloadHash),
+      errorClass: "invalid_json",
+      errorMessage: "Daily webhook payload could not be parsed as JSON",
+      signatureTimestamp: signature.timestamp,
+    });
     return json({ ok: false, error: "invalid_json" }, 400);
   }
 
@@ -401,13 +528,25 @@ Deno.serve(async (req) => {
   const providerEventId = providerEventIdFromPayload(payload);
   const eventType = eventTypeFromPayload(payload);
   if (!providerEventId || !eventType) {
+    await recordWebhookDlq(null, {
+      payloadHash,
+      sanitizedPayload: sanitizedPayloadObject(payload, payloadHash),
+      errorClass: "provider_event_id_or_type_missing",
+      errorMessage: "Daily webhook payload was missing provider event id or event type",
+      providerEventId,
+      eventType,
+      roomName: roomNameFromPayload(payload),
+      signatureTimestamp: signature.timestamp,
+    });
     return json({ ok: false, error: "provider_event_id_or_type_missing" }, 400);
   }
 
   const roomName = roomNameFromPayload(payload);
+  const sanitizedPayload = sanitizedPayloadObject(payload, payloadHash);
   let data: Record<string, unknown> | null = null;
+  let supabase: SupabaseServiceClient | null = null;
   try {
-    const supabase = createServiceClient();
+    supabase = createServiceClient();
     const result = await supabase.rpc(
       "record_video_date_daily_webhook_event_v2",
       {
@@ -432,6 +571,17 @@ Deno.serve(async (req) => {
           message: result.error.message,
         }),
       );
+      await recordWebhookDlq(supabase, {
+        payloadHash,
+        sanitizedPayload,
+        errorClass: "webhook_record_failed",
+        errorMessage: result.error.message,
+        retryable: true,
+        providerEventId,
+        eventType,
+        roomName,
+        signatureTimestamp: signature.timestamp,
+      });
       return json({ ok: false, error: "webhook_record_failed" }, 500);
     }
 
@@ -445,11 +595,35 @@ Deno.serve(async (req) => {
         message: error instanceof Error ? error.message : "unknown_error",
       }),
     );
+    await recordWebhookDlq(supabase, {
+      payloadHash,
+      sanitizedPayload,
+      errorClass: "webhook_record_failed",
+      errorMessage: error instanceof Error ? error.message : "unknown_error",
+      retryable: true,
+      providerEventId,
+      eventType,
+      roomName,
+      signatureTimestamp: signature.timestamp,
+    });
     return json({ ok: false, error: "webhook_record_failed" }, 500);
   }
 
   if (data?.ok === false) {
-    return json({ ok: false, error: data.error ?? "webhook_rejected" }, 400);
+    const error = typeof data.error === "string"
+      ? data.error
+      : "webhook_rejected";
+    await recordWebhookDlq(supabase, {
+      payloadHash,
+      sanitizedPayload,
+      errorClass: error,
+      errorMessage: error,
+      providerEventId,
+      eventType,
+      roomName,
+      signatureTimestamp: signature.timestamp,
+    });
+    return json({ ok: false, error }, 400);
   }
 
   return json({
