@@ -97,14 +97,15 @@ test("daily-room handles DAILY_DOMAIN and documents the fallback domain risk", (
 });
 
 test("room creation calls the Daily REST API with bearer auth", () => {
-  assert.match(dailyRoom, /fetch\(`\$\{DAILY_API_URL\}\/rooms`, \{/);
+  assert.match(dailyRoom, /dailyProviderFetch\("create_room", "room_create", `\$\{DAILY_API_URL\}\/rooms`, \{/);
+  assert.match(dailyRoom, /fetchWithTimeout\(input, init/);
   assert.match(dailyRoom, /method:\s*"POST"/);
   assert.match(dailyRoom, /Authorization:\s*`Bearer \$\{DAILY_API_KEY\}`/);
   assert.match(dailyRoom, /body:\s*JSON\.stringify\(\{ name: roomName, privacy: "private", properties: props \}\)/);
 });
 
 test("meeting token creation remains present and token values stay response-only", () => {
-  assert.match(dailyRoom, /fetch\(`\$\{DAILY_API_URL\}\/meeting-tokens`, \{/);
+  assert.match(dailyRoom, /dailyProviderFetch\("create_token", "meeting_token", `\$\{DAILY_API_URL\}\/meeting-tokens`, \{/);
   assert.match(dailyRoom, /buildMeetingTokenProperties/);
   assert.match(dailyRoom, /return data\.token/);
   assert.match(dailyRoom, /token,\s*[\r\n]+\s*token_expires_at/);
@@ -227,7 +228,8 @@ test("Video Date media contract preserves full remote frame on web and native", 
   assert.match(webDailyPrewarm, /dailyVideoDateCallObjectOptionsWithAppAcquiredMedia/);
   assert.match(webDailyPrewarm, /appAcquiredMedia: WebDailyPrewarmAppAcquiredMedia \| null/);
   assert.match(webReadyGateOverlay, /permissionPrewarmMediaRef/);
-  assert.match(webReadyGateOverlay, /WEB_READY_GATE_PERMISSION_PREWARM_MEDIA_TTL_MS = 12_000/);
+  assert.match(webReadyGateOverlay, /getReadyGatePermissionPrewarmReleaseDelayMs/);
+  assert.match(webReadyGateOverlay, /settings_deep_link/);
   assert.match(webReadyGateOverlay, /permission_prewarm_media_ttl_expired/);
   assert.match(webReadyGateOverlay, /ready_gate_session_changed/);
   assert.match(webReadyGateOverlay, /appAcquiredMedia: prewarmMedia/);

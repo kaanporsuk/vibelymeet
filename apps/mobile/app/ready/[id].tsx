@@ -34,7 +34,7 @@ import {
   READY_GATE_DEEP_LINK_INVALID_USER_MESSAGE,
 } from '@shared/matching/videoSessionFlow';
 import {
-  getReadyGateRemainingSeconds,
+  getReadyGateCountdownFromServerClock,
   READY_GATE_DEFAULT_TIMEOUT_SECONDS,
 } from '@clientShared/matching/readyGateCountdown';
 import {
@@ -79,6 +79,8 @@ export default function ReadyGateScreen() {
     inactiveReason,
     errorCode,
     terminal,
+    serverNowMs,
+    clientSyncedAtMs,
     retryBroadcastGapRecovery,
   } = useReadyGate(sessionId ?? null, user?.id ?? null);
 
@@ -103,7 +105,6 @@ export default function ReadyGateScreen() {
   const nonRetryablePrepareBlockerRef = useRef<string | null>(null);
   const expirySyncInFlightRef = useRef(false);
   const expirySyncRetryAtMsRef = useRef(0);
-  const fallbackGateDeadlineMsRef = useRef(Date.now() + GATE_TIMEOUT_SEC * 1000);
   const { show: showDialog, dialog: dialogEl } = useVibelyDialog();
 
   const requestMediaPermissions = async (): Promise<boolean> => {
@@ -310,7 +311,6 @@ export default function ReadyGateScreen() {
     nonRetryablePrepareBlockerRef.current = null;
     expirySyncInFlightRef.current = false;
     expirySyncRetryAtMsRef.current = 0;
-    fallbackGateDeadlineMsRef.current = Date.now() + GATE_TIMEOUT_SEC * 1000;
     setTimeLeft(GATE_TIMEOUT_SEC);
     setPermissionsResolved(false);
     setHasMediaPermission(null);
@@ -628,10 +628,12 @@ export default function ReadyGateScreen() {
         const result = await syncSession();
         if (result.ok === true && result.expiresAt) {
           setTimeLeft(
-            getReadyGateRemainingSeconds({
+            getReadyGateCountdownFromServerClock({
               expiresAt: result.expiresAt,
-              fallbackDeadlineMs: fallbackGateDeadlineMsRef.current,
-            }),
+              serverNowMs,
+              clientSyncedAtMs,
+              fallbackSeconds: GATE_TIMEOUT_SEC,
+            }).remainingSeconds,
           );
           return;
         }
@@ -646,7 +648,7 @@ export default function ReadyGateScreen() {
         expirySyncInFlightRef.current = false;
       }
     },
-    [sessionId, syncSession, user?.id],
+    [clientSyncedAtMs, serverNowMs, sessionId, syncSession, user?.id],
   );
 
   useEffect(() => {
@@ -657,13 +659,13 @@ export default function ReadyGateScreen() {
       return;
     }
     const t = setInterval(() => {
-      setTimeLeft((prev) => {
-        const next = expiresAt
-          ? getReadyGateRemainingSeconds({
-              expiresAt,
-              fallbackDeadlineMs: fallbackGateDeadlineMsRef.current,
-            })
-          : Math.max(0, prev - 1);
+      setTimeLeft(() => {
+        const next = getReadyGateCountdownFromServerClock({
+          expiresAt,
+          serverNowMs,
+          clientSyncedAtMs,
+          fallbackSeconds: GATE_TIMEOUT_SEC,
+        }).remainingSeconds;
         if (next <= 0) {
           void syncExpiredReadyGate('countdown_expired');
           return 0;
@@ -681,6 +683,8 @@ export default function ReadyGateScreen() {
     isSnoozed,
     snoozeExpiresAt,
     expiresAt,
+    serverNowMs,
+    clientSyncedAtMs,
     syncExpiredReadyGate,
   ]);
 

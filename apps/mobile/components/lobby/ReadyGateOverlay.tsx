@@ -50,7 +50,7 @@ import {
 } from '@/lib/videoDateRoomWarmup';
 import {
   getReadyGateCountdownProgress,
-  getReadyGateRemainingSeconds,
+  getReadyGateCountdownFromServerClock,
   READY_GATE_DEFAULT_TIMEOUT_SECONDS,
 } from '@clientShared/matching/readyGateCountdown';
 import {
@@ -176,7 +176,6 @@ export function ReadyGateOverlay({
   const terminalActionInFlightRef = useRef(false);
   const manualExitRequestedRef = useRef(false);
   const pendingForfeitReasonRef = useRef<'timeout' | 'skip' | null>(null);
-  const fallbackGateDeadlineMsRef = useRef(Date.now() + GATE_TIMEOUT_SEC * 1000);
   const activeReadyGateKey = `${sessionId}:${eventId}`;
   const activeReadyGateKeyRef = useRef(activeReadyGateKey);
   const bothReadyObservedAtMsRef = useRef<number | null>(null);
@@ -971,6 +970,8 @@ export function ReadyGateOverlay({
     partnerName,
     snoozedByPartner,
     expiresAt,
+    serverNowMs,
+    clientSyncedAtMs,
     markReady,
     snooze,
     forfeit,
@@ -1002,7 +1003,6 @@ export function ReadyGateOverlay({
     duplicateNavSuppressionKeysRef.current.clear();
     duplicateTerminalSuppressionKeysRef.current.clear();
     nonRetryablePrepareFailureRef.current = null;
-    fallbackGateDeadlineMsRef.current = Date.now() + GATE_TIMEOUT_SEC * 1000;
     setTimeLeft(GATE_TIMEOUT_SEC);
     setIsTransitioning(false);
     setMarkingReady(false);
@@ -1294,10 +1294,13 @@ export function ReadyGateOverlay({
   useEffect(() => {
     if (isTransitioning || iAmReady || markingReady || snoozedByPartner || terminalActionPending) return;
     const tick = () => {
-      const next = getReadyGateRemainingSeconds({
+      const countdown = getReadyGateCountdownFromServerClock({
         expiresAt,
-        fallbackDeadlineMs: fallbackGateDeadlineMsRef.current,
+        serverNowMs,
+        clientSyncedAtMs,
+        fallbackSeconds: GATE_TIMEOUT_SEC,
       });
+      const next = countdown.remainingSeconds;
       setTimeLeft(next);
       if (next <= 0) {
         const now = Date.now();
@@ -1324,7 +1327,19 @@ export function ReadyGateOverlay({
     tick();
     const id = setInterval(tick, 1000);
     return () => clearInterval(id);
-  }, [isTransitioning, iAmReady, markingReady, snoozedByPartner, terminalActionPending, expiresAt, syncSession, sessionId, eventId]);
+  }, [
+    isTransitioning,
+    iAmReady,
+    markingReady,
+    snoozedByPartner,
+    terminalActionPending,
+    expiresAt,
+    serverNowMs,
+    clientSyncedAtMs,
+    syncSession,
+    sessionId,
+    eventId,
+  ]);
 
   const progress = getReadyGateCountdownProgress(timeLeft, GATE_TIMEOUT_SEC);
   const dashOffset = CIRC * (1 - progress);

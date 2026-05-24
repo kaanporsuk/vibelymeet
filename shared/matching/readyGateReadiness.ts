@@ -32,6 +32,31 @@ export type ReadyGateReadinessCopy = {
   text: string;
 };
 
+export type ReadyGateTruthClockFields = {
+  server_now_ms?: string | number | null;
+  serverNowMs?: string | number | null;
+  server_now?: string | number | null;
+  serverNow?: string | number | null;
+};
+
+export type ReadyGateTruthPrecedenceInput = {
+  currentStatus?: string | null;
+  incomingStatus?: string | null;
+  currentSeq?: number | null;
+  incomingSeq?: number | null;
+};
+
+export type ReadyGateResubscribeDelayInput = {
+  attempt: number;
+  jitterSeed?: number;
+  jitterRatio?: number;
+};
+
+export const READY_GATE_RECONCILE_AFTER_REALTIME_MS = 1_500;
+export const READY_GATE_ORCHESTRATOR_MAX_RESUBSCRIBE_ATTEMPTS = 8;
+export const READY_GATE_ORCHESTRATOR_BACKOFF_MS = [1_000, 2_000, 4_000, 8_000] as const;
+export const READY_GATE_PERMISSION_PREWARM_RELEASE_GRACE_MS = 8_000;
+
 export const initialReadyGateReadinessState: ReadyGateReadinessState = {
   iAmReady: false,
   partnerReady: false,
@@ -57,6 +82,145 @@ function readyGateStatus(truth: ReadyGateReadinessTruth): string | null {
     truth.result_status ??
     null
   );
+}
+
+function finiteNumber(value: unknown): number | null {
+  if (typeof value !== "number" || !Number.isFinite(value)) return null;
+  return value;
+}
+
+function finiteSeq(value: unknown): number | null {
+  const seq = finiteNumber(value);
+  if (seq == null) return null;
+  return Math.max(0, Math.floor(seq));
+}
+
+function normalizeStatusKey(status: string | null | undefined): string {
+  return typeof status === "string" ? status.trim().toLowerCase() : "";
+}
+
+function parseServerNowMs(value: unknown): number | null {
+  if (value == null || value === "") return null;
+  if (typeof value === "number") {
+    if (!Number.isFinite(value)) return null;
+    return value < 1_000_000_000_000 ? Math.round(value * 1000) : Math.round(value);
+  }
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  const numeric = Number(trimmed);
+  if (Number.isFinite(numeric)) {
+    return numeric < 1_000_000_000_000 ? Math.round(numeric * 1000) : Math.round(numeric);
+  }
+  const parsedDate = Date.parse(trimmed);
+  return Number.isFinite(parsedDate) ? parsedDate : null;
+}
+
+export function normalizeReadyGateServerNowMs(
+  truth: ReadyGateTruthClockFields | null | undefined,
+  clientSyncedAtMs = Date.now(),
+): { serverNowMs: number | null; clientSyncedAtMs: number | null } {
+  if (!truth) return { serverNowMs: null, clientSyncedAtMs: null };
+  const serverNowMs = parseServerNowMs(
+    truth.server_now_ms ?? truth.serverNowMs ?? truth.server_now ?? truth.serverNow,
+  );
+  if (serverNowMs == null) return { serverNowMs: null, clientSyncedAtMs: null };
+  const syncedAt = finiteNumber(clientSyncedAtMs) ?? Date.now();
+  return { serverNowMs, clientSyncedAtMs: syncedAt };
+}
+
+export function getReadyGateStatusOrdinal(status: string | null | undefined): number {
+  switch (normalizeStatusKey(status)) {
+    case "queued":
+    case "waiting":
+    case "open":
+      return 0;
+    case "snoozed":
+      return 1;
+    case "ready":
+    case "ready_a":
+    case "ready_b":
+    case "one_ready":
+      return 2;
+    case "expired":
+    case "forfeited":
+    case "cancelled":
+    case "ended":
+      return 4;
+    case "both_ready":
+      return 5;
+    default:
+      return 0;
+  }
+}
+
+export function isReadyGateTerminalStatus(status: string | null | undefined): boolean {
+  return getReadyGateStatusOrdinal(status) >= 4;
+}
+
+export function shouldCommitReadyGateTruth({
+  currentStatus,
+  incomingStatus,
+  currentSeq,
+  incomingSeq,
+}: ReadyGateTruthPrecedenceInput): boolean {
+  if (isReadyGateTerminalStatus(currentStatus) && !isReadyGateTerminalStatus(incomingStatus)) {
+    return false;
+  }
+
+  const currentOrdinal = getReadyGateStatusOrdinal(currentStatus);
+  const incomingOrdinal = getReadyGateStatusOrdinal(incomingStatus);
+
+  if (
+    isReadyGateTerminalStatus(currentStatus) &&
+    isReadyGateTerminalStatus(incomingStatus) &&
+    incomingOrdinal < currentOrdinal
+  ) {
+    return false;
+  }
+
+  const currentSeqValue = finiteSeq(currentSeq);
+  const incomingSeqValue = finiteSeq(incomingSeq);
+
+  if (incomingSeqValue != null && currentSeqValue != null) {
+    if (incomingSeqValue > currentSeqValue) return true;
+    if (incomingSeqValue < currentSeqValue) return false;
+  }
+
+  if (currentOrdinal === incomingOrdinal) return true;
+  return incomingOrdinal > currentOrdinal;
+}
+
+export function getReadyGateResubscribeDelayMs({
+  attempt,
+  jitterSeed,
+  jitterRatio = 0.2,
+}: ReadyGateResubscribeDelayInput): number | null {
+  const normalizedAttempt = Math.max(1, Math.floor(finiteNumber(attempt) ?? 1));
+  if (normalizedAttempt > READY_GATE_ORCHESTRATOR_MAX_RESUBSCRIBE_ATTEMPTS) return null;
+  const baseDelay = READY_GATE_ORCHESTRATOR_BACKOFF_MS[
+    Math.min(normalizedAttempt - 1, READY_GATE_ORCHESTRATOR_BACKOFF_MS.length - 1)
+  ];
+  const normalizedJitter = Math.max(0, Math.min(0.5, finiteNumber(jitterRatio) ?? 0));
+  if (normalizedJitter === 0) return baseDelay;
+  const seed = finiteNumber(jitterSeed);
+  const unit = seed == null
+    ? Math.random()
+    : Math.abs(Math.sin(seed * 12.9898 + normalizedAttempt * 78.233) * 43758.5453) % 1;
+  const multiplier = 1 - normalizedJitter + unit * normalizedJitter * 2;
+  return Math.max(0, Math.round(baseDelay * multiplier));
+}
+
+export function getReadyGatePermissionPrewarmReleaseDelayMs(input: {
+  prewarmCompletedAtMs: number;
+  nowMs?: number;
+  graceMs?: number;
+}): number {
+  const completedAtMs = finiteNumber(input.prewarmCompletedAtMs);
+  const nowMs = finiteNumber(input.nowMs) ?? Date.now();
+  const graceMs = Math.max(0, finiteNumber(input.graceMs) ?? READY_GATE_PERMISSION_PREWARM_RELEASE_GRACE_MS);
+  if (completedAtMs == null) return graceMs;
+  return Math.max(0, Math.round(completedAtMs + graceMs - nowMs));
 }
 
 export function getReadyGateParticipantPosition(
