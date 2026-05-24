@@ -8,8 +8,11 @@ import { isOneSignalWebOriginAllowed } from "@/lib/oneSignalWebOrigin";
 import { vibelyOsLog } from "@/lib/onesignalWebDiagnostics";
 import { classifyPushDeepLink, recordPushDeliveryTelemetry } from "@/lib/pushDeliveryTelemetry";
 import { recordServiceWorkerState } from "@/lib/browserDiagnostics";
-import { ackNotificationDispatchFromPayload } from "@/lib/notificationDispatchAck";
-import { rememberVideoDatePushPreloadFromPayload } from "@/lib/videoDatePushPreload";
+import { ackNotificationDispatchFromPayload, markNotificationOpenedV2FromPayload } from "@/lib/notificationDispatchAck";
+import {
+  preloadVideoDatePushTargetsFromPayload,
+  resolveVideoDatePushHrefFromCanonicalTruth,
+} from "@/lib/videoDatePushPreload";
 import type { PushSdkHealth } from "@clientShared/pushDeliveryHealth";
 
 const PLAYER_ID_POLL_ATTEMPTS = 10;
@@ -254,8 +257,9 @@ export const initOneSignal = () => {
         const data = event.notification?.data;
         const providerNotificationId = event.notification?.notificationId ?? event.notification?.id ?? null;
         if (data) {
-          rememberVideoDatePushPreloadFromPayload(data);
+          preloadVideoDatePushTargetsFromPayload(data);
           void ackNotificationDispatchFromPayload(data, "web_click", providerNotificationId);
+          void markNotificationOpenedV2FromPayload(data);
         }
         const url = data?.url ?? data?.deep_link;
         const deepLink = classifyPushDeepLink(url);
@@ -270,7 +274,11 @@ export const initOneSignal = () => {
           ...deepLink,
         });
         if (url && typeof url === "string") {
-          window.location.href = url;
+          void resolveVideoDatePushHrefFromCanonicalTruth(url).then((href) => {
+            window.location.href = href ?? url;
+          }).catch(() => {
+            window.location.href = url;
+          });
         }
       });
 

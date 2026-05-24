@@ -6,6 +6,13 @@ export type NotificationDispatchAckResult = {
   dispatchGroupId: string | null;
 };
 
+export type NotificationOpenedV2Result = {
+  ok: boolean;
+  firstOpen: boolean;
+  openedAt: string | null;
+  notificationId: string | null;
+};
+
 export async function ackNotificationDispatchFromPayload(
   payload: unknown,
   ackSource: string,
@@ -32,6 +39,29 @@ export async function ackNotificationDispatchFromPayload(
   }
 }
 
+export async function markNotificationOpenedV2FromPayload(
+  payload: unknown,
+): Promise<NotificationOpenedV2Result> {
+  const notificationId = notificationIdFromPayload(payload);
+  if (!notificationId) return { ok: true, firstOpen: true, openedAt: null, notificationId: null };
+  try {
+    const { data, error } = await supabase.rpc('mark_notification_opened_v2' as never, {
+      notification_id: notificationId,
+    } as never);
+    if (error) return { ok: false, firstOpen: false, openedAt: null, notificationId };
+    const record = data && typeof data === 'object' ? data as Record<string, unknown> : {};
+    const ok = record.ok !== false;
+    return {
+      ok,
+      firstOpen: ok && record.first_open === true,
+      openedAt: typeof record.opened_at === 'string' ? record.opened_at : null,
+      notificationId,
+    };
+  } catch {
+    return { ok: false, firstOpen: false, openedAt: null, notificationId };
+  }
+}
+
 function dispatchGroupIdFromPayload(payload: unknown): string | null {
   if (!payload || typeof payload !== 'object') return null;
   const record = payload as Record<string, unknown>;
@@ -40,6 +70,20 @@ function dispatchGroupIdFromPayload(payload: unknown): string | null {
   const preload = record.video_date_preload && typeof record.video_date_preload === 'object'
     ? record.video_date_preload as Record<string, unknown>
     : null;
-  const nested = typeof preload?.dispatchGroupId === 'string' ? preload.dispatchGroupId.trim() : '';
+  const nested =
+    typeof preload?.dispatchGroupId === 'string'
+      ? preload.dispatchGroupId.trim()
+      : typeof preload?.dispatch_group_id === 'string'
+        ? preload.dispatch_group_id.trim()
+        : '';
   return nested || null;
+}
+
+function notificationIdFromPayload(payload: unknown): string | null {
+  if (!payload || typeof payload !== 'object') return null;
+  const record = payload as Record<string, unknown>;
+  const direct = typeof record.notification_id === 'string' ? record.notification_id.trim() : '';
+  if (direct) return direct;
+  const alias = typeof record.in_app_notification_id === 'string' ? record.in_app_notification_id.trim() : '';
+  return alias || null;
 }

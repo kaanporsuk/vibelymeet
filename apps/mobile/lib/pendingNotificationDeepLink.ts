@@ -4,19 +4,30 @@
  * `NotificationDeepLinkHandler`); clear on sign-out.
  */
 
-let pendingPath: string | null = null;
+export type PendingNotificationDeepLink = {
+  path: string;
+  allowOneShotSideEffects: boolean;
+};
 
-export function queueNotificationDeepLinkPath(path: string): void {
+let pending: PendingNotificationDeepLink | null = null;
+
+export function queueNotificationDeepLinkPath(
+  path: string,
+  options?: { allowOneShotSideEffects?: boolean },
+): void {
   if (!path.startsWith('/')) return;
-  pendingPath = path;
+  pending = {
+    path,
+    allowOneShotSideEffects: options?.allowOneShotSideEffects !== false,
+  };
 }
 
-export function takePendingNotificationDeepLinkPath(): string | null {
-  const p = pendingPath;
-  pendingPath = null;
-  return p;
+export function takePendingNotificationDeepLinkPath(): PendingNotificationDeepLink | null {
+  const value = pending;
+  pending = null;
+  return value;
 }
 
 export function clearPendingNotificationDeepLink(): void {
-  pendingPath = null;
+  pending = null;
 }

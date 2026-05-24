@@ -38,8 +38,8 @@ import {
 } from '@/lib/pendingNotificationDeepLink';
 import { classifyPushDeepLink, recordPushDeliveryTelemetry } from '@/lib/pushDeliveryTelemetry';
 import { resolveNotificationActionRoute } from '@/lib/notificationActions';
-import { ackNotificationDispatchFromPayload } from '@/lib/notificationDispatchAck';
-import { rememberVideoDatePushPreloadFromPayload } from '@/lib/videoDatePushPreload';
+import { ackNotificationDispatchFromPayload, markNotificationOpenedV2FromPayload } from '@/lib/notificationDispatchAck';
+import { preloadVideoDatePushTargetsFromPayload } from '@/lib/videoDatePushPreload';
 
 /**
  * Matches `EntryStateRouteGate`: only then is expo-router allowed to show protected stacks
@@ -92,7 +92,18 @@ function hasDispatchGroupPayload(data: Record<string, unknown> | undefined): boo
   const preload = data.video_date_preload && typeof data.video_date_preload === 'object'
     ? data.video_date_preload as Record<string, unknown>
     : null;
-  return typeof preload?.dispatchGroupId === 'string' && preload.dispatchGroupId.trim().length > 0;
+  return (
+    (typeof preload?.dispatchGroupId === 'string' && preload.dispatchGroupId.trim().length > 0) ||
+    (typeof preload?.dispatch_group_id === 'string' && preload.dispatch_group_id.trim().length > 0)
+  );
+}
+
+function hasNotificationIdPayload(data: Record<string, unknown> | undefined): boolean {
+  if (!data) return false;
+  return (
+    (typeof data.notification_id === 'string' && data.notification_id.trim().length > 0) ||
+    (typeof data.in_app_notification_id === 'string' && data.in_app_notification_id.trim().length > 0)
+  );
 }
 
 function providerNotificationIdFromUnknown(value: unknown): string | null {
@@ -101,6 +112,38 @@ function providerNotificationIdFromUnknown(value: unknown): string | null {
   if (typeof record.notificationId === 'string' && record.notificationId.trim()) return record.notificationId.trim();
   if (typeof record.notificationID === 'string' && record.notificationID.trim()) return record.notificationID.trim();
   return null;
+}
+
+const NOTIFICATION_OPEN_ACK_TIMEOUT_MS = 1200;
+
+async function resolveNotificationOpenSideEffectGate(
+  data: Record<string, unknown>,
+  providerNotificationId: string | null,
+): Promise<boolean> {
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  const hasDispatchGroup = hasDispatchGroupPayload(data);
+  const hasNotificationId = hasNotificationIdPayload(data);
+  const defaultWhenUnconfirmed = !(hasDispatchGroup || hasNotificationId);
+  try {
+    const result = await Promise.race([
+      Promise.all([
+        ackNotificationDispatchFromPayload(data, 'native_click', providerNotificationId),
+        markNotificationOpenedV2FromPayload(data),
+      ]),
+      new Promise<null>((resolve) => {
+        timer = setTimeout(() => resolve(null), NOTIFICATION_OPEN_ACK_TIMEOUT_MS);
+      }),
+    ]);
+    if (!result) return defaultWhenUnconfirmed;
+    const [ack, opened] = result;
+    if (ack.dispatchGroupId) return ack.ok === true && ack.firstAck === true;
+    if (opened.notificationId) return opened.ok === true && opened.firstOpen === true;
+    return true;
+  } catch {
+    return defaultWhenUnconfirmed;
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
 }
 
 /** Chat routes must use the other user profile id; prefer `other_user_id` when present (Daily Drop / match payloads). */
@@ -133,7 +176,7 @@ const LOBBY_IDLE_STATUSES = new Set(['browsing', 'idle', 'offline']);
 async function reconcileHrefWithRegistration(
   href: string,
   userId: string,
-  options?: { drainMatchQueueV2?: boolean; snapshotRecoveryV2?: boolean },
+  options?: { drainMatchQueueV2?: boolean; snapshotRecoveryV2?: boolean; allowOneShotSideEffects?: boolean },
 ): Promise<Href> {
   const m = href.match(/^\/date\/([^/?#]+)/);
   if (!m) return href as Href;
@@ -287,7 +330,7 @@ async function reconcileHrefWithRegistration(
     reg != null &&
     LOBBY_IDLE_STATUSES.has(String(reg.queue_status));
 
-  if (needsQueuedRescue && truthDecision === 'stay_lobby') {
+  if (needsQueuedRescue && truthDecision === 'stay_lobby' && options?.allowOneShotSideEffects !== false) {
     rcBreadcrumb(RC_CATEGORY.notifDeepLink, 'queued_session_rescue_start', {
       session_id: sid,
       event_id: String(vs.event_id),
@@ -361,7 +404,6 @@ export function NotificationDeepLinkHandler() {
   const { user, session, loading, entryState, entryStateLoading } = useAuth();
   const drainQueueV2 = useFeatureFlag('video_date.outbox_v2.drain_match_queue');
   const snapshotV2 = useFeatureFlag('video_date.snapshot_v2');
-  const pushPayloadV2 = useFeatureFlag('video_date.push_payload_v2');
   const multiDeviceDedupV2 = useFeatureFlag('video_date.multi_device_dedup_v2');
   const prevUserIdRef = useRef<string | undefined>(undefined);
 
@@ -385,9 +427,10 @@ export function NotificationDeepLinkHandler() {
     const pending = takePendingNotificationDeepLinkPath();
     if (!pending) return;
     void (async () => {
-      const href = await reconcileHrefWithRegistration(pending, user.id, {
+      const href = await reconcileHrefWithRegistration(pending.path, user.id, {
         drainMatchQueueV2: drainQueueV2.enabled,
         snapshotRecoveryV2: snapshotV2.enabled,
+        allowOneShotSideEffects: pending.allowOneShotSideEffects,
       });
       rcBreadcrumb(RC_CATEGORY.notifDeepLink, 'notification_pending_navigate', {
         href: String(href),
@@ -408,12 +451,11 @@ export function NotificationDeepLinkHandler() {
         const additionalData = n?.additionalData ?? e?.additionalData;
         const launchURL = n?.launchURL ?? e?.launchURL;
         const data = additionalData as Record<string, unknown> | undefined;
+        let allowOneShotSideEffects = true;
         if (data) {
-          if (pushPayloadV2.enabled) rememberVideoDatePushPreloadFromPayload(data);
+          preloadVideoDatePushTargetsFromPayload(data, user?.id ?? null);
           const providerNotificationId = providerNotificationIdFromUnknown(n);
-          if (multiDeviceDedupV2.enabled) {
-            void ackNotificationDispatchFromPayload(data, 'native_click', providerNotificationId);
-          }
+          allowOneShotSideEffects = await resolveNotificationOpenSideEffectGate(data, providerNotificationId);
         }
         const rawHref = rawHrefFromPayload(additionalData, launchURL);
         const tapDeepLink = classifyPushDeepLink(rawHref);
@@ -430,7 +472,7 @@ export function NotificationDeepLinkHandler() {
             ...classifyPushDeepLink(ticketPath),
           });
           if (!user?.id || !entryReady) {
-            queueNotificationDeepLinkPath(ticketPath);
+            queueNotificationDeepLinkPath(ticketPath, { allowOneShotSideEffects });
             rcBreadcrumb(RC_CATEGORY.notifDeepLink, 'notification_tap_queued', {
               href: ticketPath,
             });
@@ -460,13 +502,14 @@ export function NotificationDeepLinkHandler() {
           ...classifyPushDeepLink(pathStr),
         });
         if (!user?.id || !entryReady) {
-          queueNotificationDeepLinkPath(pathStr);
+          queueNotificationDeepLinkPath(pathStr, { allowOneShotSideEffects });
           rcBreadcrumb(RC_CATEGORY.notifDeepLink, 'notification_tap_queued', { href: pathStr });
           return;
         }
         const nextHref = await reconcileHrefWithRegistration(pathStr, user.id, {
           drainMatchQueueV2: drainQueueV2.enabled,
           snapshotRecoveryV2: snapshotV2.enabled,
+          allowOneShotSideEffects,
         });
         rcBreadcrumb(RC_CATEGORY.notifDeepLink, 'notification_tap_navigate', {
           href: String(nextHref),
@@ -512,7 +555,7 @@ export function NotificationDeepLinkHandler() {
         try {
           if (!notification) return;
           if (raw) {
-            if (pushPayloadV2.enabled) rememberVideoDatePushPreloadFromPayload(raw);
+            preloadVideoDatePushTargetsFromPayload(raw, user?.id ?? null);
             const providerNotificationId =
               typeof (notification as unknown as { notificationId?: unknown }).notificationId === 'string'
                 ? String((notification as unknown as { notificationId?: unknown }).notificationId)
@@ -550,7 +593,7 @@ export function NotificationDeepLinkHandler() {
       OneSignal.Notifications.removeEventListener('click', onClick);
       OneSignal.Notifications.removeEventListener('foregroundWillDisplay', onForeground);
     };
-  }, [drainQueueV2.enabled, multiDeviceDedupV2.enabled, pushPayloadV2.enabled, snapshotV2.enabled, user?.id, entryReady]);
+  }, [drainQueueV2.enabled, multiDeviceDedupV2.enabled, snapshotV2.enabled, user?.id, entryReady]);
 
   return null;
 }

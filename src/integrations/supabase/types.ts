@@ -7791,6 +7791,10 @@ export type Database = {
         Args: { notification_id: string }
         Returns: boolean
       }
+      mark_notification_opened_v2: {
+        Args: { notification_id: string }
+        Returns: Json
+      }
       mark_notification_read: {
         Args: { notification_id: string }
         Returns: boolean

@@ -311,7 +311,8 @@ function isVideoDatePushPayloadCategory(category: string): boolean {
     category === 'partner_ready' ||
     category === 'date_starting' ||
     category === 'reconnection' ||
-    category === 'date_reminder'
+    category === 'date_reminder' ||
+    category === 'post_date_feedback_reminder'
 }
 
 async function isClientFeatureFlagEnabled(flag: string, userId: string): Promise<boolean> {
@@ -371,6 +372,61 @@ function createNotificationDispatchGroupId(args: {
     sanitizeDispatchPart(args.category),
     sanitizeDispatchPart(target),
   ].join(':').slice(0, 160)
+}
+
+function nestedDispatchGroupId(data: Record<string, unknown>): string | null {
+  const preload = data.video_date_preload && typeof data.video_date_preload === 'object'
+    ? data.video_date_preload as Record<string, unknown>
+    : null
+  return safePayloadString(data.dispatch_group_id) ?? safePayloadString(preload?.dispatchGroupId) ?? safePayloadString(preload?.dispatch_group_id)
+}
+
+function attachVideoDateOneSignalContract(args: {
+  category: string
+  recipientId: string
+  data: any
+  osData: Record<string, unknown>
+  notificationId?: string | null
+  dedupeKey?: string | null
+  deepLink?: string | null
+}): Record<string, unknown> {
+  if (!isVideoDatePushPayloadCategory(args.category)) return args.osData
+  const next: Record<string, unknown> = { ...args.osData, category: args.category }
+  const notificationId = safePayloadString(args.notificationId)
+  const dedupeKey = safePayloadString(args.dedupeKey) ?? safePayloadString(args.data?.dedupe_key) ?? safePayloadString(args.data?.dedupeKey)
+  const sessionId =
+    getSessionId(next) ??
+    getSessionId(args.data) ??
+    safePayloadString(next.video_session_id)
+  const eventId =
+    getEventId(next) ??
+    getEventId(args.data) ??
+    safePayloadString(next.eventId) ??
+    safePayloadString(args.data?.eventId)
+  const deepLink = safePayloadString(next.deep_link) ?? safePayloadString(next.url) ?? safePayloadString(args.deepLink)
+  const dispatchGroupId = nestedDispatchGroupId(next) ?? (
+    dedupeKey
+      ? createNotificationDispatchGroupId({
+          recipientId: args.recipientId,
+          category: args.category,
+          sessionId,
+          eventId,
+          dedupeKey,
+        })
+      : null
+  )
+
+  if (notificationId) next.notification_id = notificationId
+  if (dedupeKey) next.dedupe_key = dedupeKey
+  if (dispatchGroupId) next.dispatch_group_id = dispatchGroupId
+  if (deepLink) {
+    next.deep_link = deepLink
+    if (!safePayloadString(next.url)) next.url = deepLink
+  }
+  if (sessionId) next.video_session_id = sessionId
+  if (eventId) next.event_id = eventId
+
+  return next
 }
 
 async function videoDatePartnerThumbUrl(session: any, recipientId: string): Promise<string | null> {
@@ -1280,6 +1336,7 @@ Deno.serve(async (req) => {
     const wantsInApp = channels.includes('in_app')
     const wantsPush = channels.includes('push')
     const requestedAction = normalizeActionFromRequest(action)
+    const requestDedupeKey = typeof dedupe_key === 'string' && dedupe_key.trim() ? dedupe_key.trim() : null
     let inAppNotificationId: string | null = null
     let resolvedActorId: string | null = typeof actor_id === 'string' && actor_id.trim() ? actor_id.trim() : null
 
@@ -1364,7 +1421,7 @@ Deno.serve(async (req) => {
           priority: priorityForInbox(category, priority),
           imageUrl: typeof image_url === 'string' ? image_url : null,
           actorId: resolvedActorId,
-          dedupeKey: typeof dedupe_key === 'string' && dedupe_key.trim() ? dedupe_key.trim() : null,
+          dedupeKey: requestDedupeKey,
           groupKey: typeof group_key === 'string' && group_key.trim() ? group_key.trim() : null,
           expiresAt: typeof expires_at === 'string' && expires_at.trim() ? expires_at.trim() : null,
         })
@@ -1641,7 +1698,7 @@ Deno.serve(async (req) => {
       category,
       recipientId: user_id,
       data,
-      dedupeKey: typeof dedupe_key === 'string' && dedupe_key.trim() ? dedupe_key.trim() : null,
+      dedupeKey: requestDedupeKey,
       pushPayloadV2Enabled,
       multiDeviceDedupV2Enabled,
     })
@@ -1696,6 +1753,15 @@ Deno.serve(async (req) => {
     if (multiDeviceDedupV2Enabled && !collapseId && typeof osData.dispatch_group_id === 'string' && osData.dispatch_group_id.trim()) {
       collapseId = osData.dispatch_group_id.trim().slice(0, 64)
     }
+    osData = attachVideoDateOneSignalContract({
+      category,
+      data,
+      osData,
+      recipientId: user_id,
+      notificationId: inAppNotificationId,
+      dedupeKey: requestDedupeKey,
+      deepLink: webPath,
+    })
     osData = compactVideoDateOsDataForPush(osData)
 
     const osPayload: any = {
