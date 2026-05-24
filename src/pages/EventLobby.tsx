@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import * as Sentry from "@sentry/react";
 import { useParams, useNavigate, useSearchParams, useLocation } from "react-router-dom";
-import { motion, AnimatePresence, useMotionValue, useTransform, PanInfo } from "framer-motion";
+import { motion, AnimatePresence, useMotionValue, useTransform, PanInfo, useReducedMotion } from "framer-motion";
 import { ArrowLeft, X, Heart, Star, Clock, Sparkles, Moon, Radio, AlertCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { isVdbgEnabled, vdbg } from "@/lib/vdbg";
@@ -54,8 +54,15 @@ import {
 } from "@shared/matching/videoSessionFlow";
 import {
   buildVideoDateDeckPrefetchTelemetryPayload,
+  getVideoDateDeckAdaptiveRefetchIntervalMs,
   getVideoDateDeckPrefetchItems,
   getVideoDateDeckPrefetchSource,
+  getVideoDateSwipeRateLimitRetryUntilMs,
+  isVideoDateSwipeRateLimited,
+  recordVideoDateDeckRecentSwipe,
+  removeVideoDateDeckRecentSwipe,
+  shouldSuppressVideoDateDeckProfile,
+  type VideoDateDeckRecentSwipeEntry,
 } from "@clientShared/matching/videoDateDeckPrefetch";
 import { shouldTopUpVideoDateDeck } from "@clientShared/matching/videoDateInstantExperience";
 import {
@@ -267,6 +274,18 @@ const EventLobby = () => {
   const deckEnabled = lobbyGate.canFetchDeck;
   const lobbySideEffectsEnabled = lobbyGate.canUseLobbySideEffects;
   const lobbyActionsEnabled = lobbyGate.canUseLobbyActions && !showEventEndedModal;
+  const [deckAdaptiveInputs, setDeckAdaptiveInputs] = useState({ queuedCount: 0, visibleCount: 0 });
+  const deckAdaptiveRefetchIntervalMs = useMemo(
+    () =>
+      getVideoDateDeckAdaptiveRefetchIntervalMs({
+        enabled: deckEnabled,
+        eventEndAtMs: eventEndTimeMs,
+        nowMs: lobbyClockMs,
+        queuedCount: deckAdaptiveInputs.queuedCount,
+        visibleCount: deckAdaptiveInputs.visibleCount,
+      }),
+    [deckAdaptiveInputs.queuedCount, deckAdaptiveInputs.visibleCount, deckEnabled, eventEndTimeMs, lobbyClockMs],
+  );
   const {
     profiles,
     isLoading: deckLoading,
@@ -277,6 +296,7 @@ const EventLobby = () => {
   } = useEventDeck({
     eventId: eventId || "",
     enabled: deckEnabled,
+    refetchIntervalMs: deckAdaptiveRefetchIntervalMs,
   });
   const serverInactiveDeckGate = useMemo(
     () =>
@@ -353,6 +373,7 @@ const EventLobby = () => {
   const deckPrefetchInFlightRef = useRef<Set<string>>(new Set());
   const deckPrefetchLoadedRef = useRef<Set<string>>(new Set());
   const deckPrefetchCacheHitTrackedRef = useRef<Set<string>>(new Set());
+  const recentSwipeTargetsRef = useRef<VideoDateDeckRecentSwipeEntry[]>([]);
   const lobbyBroadcastSessionSeqRef = useRef<number | null>(null);
   const lobbyBroadcastSessionSeqSessionRef = useRef<string | null>(null);
   const lifecycleDebugKeyRef = useRef<string | null>(null);
@@ -791,12 +812,15 @@ const EventLobby = () => {
     deckPrefetchInFlightRef.current.clear();
     deckPrefetchLoadedRef.current.clear();
     deckPrefetchCacheHitTrackedRef.current.clear();
+    recentSwipeTargetsRef.current = [];
     lobbyBroadcastSessionSeqRef.current = null;
   }, [eventId]);
 
   /** Remaining super vibes this event (server caps at 3 per event on event_swipes). */
   const [superVibeRemaining, setSuperVibeRemaining] = useState(3);
   const [userVibes, setUserVibes] = useState<string[]>([]);
+  const [pendingSwipeTargetId, setPendingSwipeTargetId] = useState<string | null>(null);
+  const [swipeRateLimitUntilMs, setSwipeRateLimitUntilMs] = useState<number | null>(null);
 
   // Swipe action — show Ready Gate on immediate match
   const { swipe, isProcessing } = useSwipeAction({
@@ -1326,19 +1350,33 @@ const EventLobby = () => {
 
   // Server-dealt deck v3 is the only active source of deck exclusion truth.
   const sortedProfiles = useMemo(() => {
-    const filtered = [...profiles];
+    const filtered = profiles.filter(
+      (profile) => !shouldSuppressVideoDateDeckProfile(profile, recentSwipeTargetsRef.current, lobbyClockMs),
+    );
     filtered.sort((a, b) => {
       if (a.has_super_vibed && !b.has_super_vibed) return -1;
       if (!a.has_super_vibed && b.has_super_vibed) return 1;
       return 0;
     });
     return filtered;
-  }, [profiles]);
+  }, [lobbyClockMs, profiles]);
+
+  useEffect(() => {
+    setDeckAdaptiveInputs((current) => {
+      const next = { queuedCount, visibleCount: sortedProfiles.length };
+      return current.queuedCount === next.queuedCount && current.visibleCount === next.visibleCount
+        ? current
+        : next;
+    });
+  }, [queuedCount, sortedProfiles.length]);
 
   useEffect(() => {
     if (typeof window === "undefined" || deckPrefetchPolishV2.enabled) return;
     for (const profile of sortedProfiles.slice(0, 3)) {
-      const src = deckCardUrl(profile.primary_photo_path ?? profile.photos?.[0] ?? profile.avatar_url);
+      const src = deckCardUrl(
+        profile.primary_photo_path ?? profile.photos?.[0] ?? profile.avatar_url,
+        profile.media_version,
+      );
       if (!src) continue;
       const image = new Image();
       image.decoding = "async";
@@ -1350,7 +1388,7 @@ const EventLobby = () => {
     () =>
       getVideoDateDeckPrefetchItems(sortedProfiles).map((item) => ({
         ...item,
-        url: deckCardUrl(item.source),
+        url: deckCardUrl(item.source, item.mediaVersion),
       })).filter((item) => Boolean(item.url)),
     [sortedProfiles],
   );
@@ -1393,8 +1431,16 @@ const EventLobby = () => {
         (image as HTMLImageElement & { fetchPriority?: "high" | "low" | "auto" }).fetchPriority =
           item.rank === 0 ? "high" : "low";
       }
-      image.onload = () => {
-        deckPrefetchLoadedRef.current.add(src);
+      let settled = false;
+      const trackPrefetchResult = (outcome: "success" | "failure") => {
+        if (settled) return;
+        settled = true;
+        if (outcome === "success") {
+          deckPrefetchLoadedRef.current.add(src);
+          deckPrefetchInFlightRef.current.delete(src);
+        } else {
+          deckPrefetchInFlightRef.current.delete(src);
+        }
         trackEvent("video_date_deck_prefetch_result", {
           ...buildVideoDateDeckPrefetchTelemetryPayload({
             platform: "web",
@@ -1403,21 +1449,18 @@ const EventLobby = () => {
             rank: item.rank,
             sourceKind: item.sourceKind,
           }),
-          outcome: "success",
+          outcome,
         });
       };
+      image.onload = () => {
+        if (typeof image.decode === "function") {
+          void image.decode().then(() => trackPrefetchResult("success")).catch(() => trackPrefetchResult("failure"));
+          return;
+        }
+        trackPrefetchResult("success");
+      };
       image.onerror = () => {
-        deckPrefetchInFlightRef.current.delete(src);
-        trackEvent("video_date_deck_prefetch_result", {
-          ...buildVideoDateDeckPrefetchTelemetryPayload({
-            platform: "web",
-            eventId,
-            profileId: item.profileId,
-            rank: item.rank,
-            sourceKind: item.sourceKind,
-          }),
-          outcome: "failure",
-        });
+        trackPrefetchResult("failure");
       };
       image.src = src;
     }
@@ -1426,11 +1469,27 @@ const EventLobby = () => {
   const currentProfile = sortedProfiles[0] || null;
   const nextProfile = sortedProfiles[1] || null;
   const thirdProfile = sortedProfiles[2] || null;
+  const swipeRateLimitRemainingSeconds =
+    swipeRateLimitUntilMs != null ? Math.max(0, Math.ceil((swipeRateLimitUntilMs - lobbyClockMs) / 1000)) : 0;
+  const swipeRateLimited = swipeRateLimitRemainingSeconds > 0;
+  const swipeControlsDisabled =
+    isProcessing || Boolean(pendingSwipeTargetId) || !lobbyActionsEnabled || swipeRateLimited;
   const eventEndsAtForContinuity = eventEndTime;
   const secondsUntilEventEnd = useMemo(
     () => secondsUntilPostDateEventEnd(eventEndsAtForContinuity),
     [eventEndsAtForContinuity]
   );
+
+  useEffect(() => {
+    setPendingSwipeTargetId(null);
+    setSwipeRateLimitUntilMs(null);
+  }, [eventId]);
+
+  useEffect(() => {
+    if (swipeRateLimitUntilMs != null && swipeRateLimitUntilMs <= lobbyClockMs) {
+      setSwipeRateLimitUntilMs(null);
+    }
+  }, [lobbyClockMs, swipeRateLimitUntilMs]);
 
   const deckEmptyReason = useMemo(
     () =>
@@ -1594,7 +1653,7 @@ const EventLobby = () => {
               : (callback: FrameRequestCallback) => window.setTimeout(() => callback(performance.now()), 0);
           schedulePaint(() => {
             const source = getVideoDateDeckPrefetchSource(nextProfileAfterSwipe);
-            const src = source ? deckCardUrl(source.source) : null;
+            const src = source ? deckCardUrl(source.source, nextProfileAfterSwipe?.media_version) : null;
             trackEvent("video_date_deck_swipe_next_card_paint", {
               platform: "web",
               event_id: eventId,
@@ -1613,28 +1672,93 @@ const EventLobby = () => {
     [deckPrefetchPolishV2.enabled, eventId, profiles, queryClient, user?.id]
   );
 
+  const restoreDeckProfileAfterOptimisticSwipe = useCallback(
+    (profile: DeckProfile) => {
+      queryClient.setQueryData<EventDeckFetchResult>(
+        ["event-deck", eventId, user?.id, "deck_v3"],
+        (current) => {
+          if (!current || current.profiles.some((candidate) => candidate.id === profile.id)) return current;
+          const nextProfiles = [profile, ...current.profiles];
+          return {
+            ...current,
+            profiles: nextProfiles,
+            deckState: {
+              ...current.deckState,
+              profile_count: nextProfiles.length,
+            },
+          };
+        },
+      );
+      recentSwipeTargetsRef.current = removeVideoDateDeckRecentSwipe(recentSwipeTargetsRef.current, profile.id);
+    },
+    [eventId, queryClient, user?.id],
+  );
+
+  const applySwipeRateLimit = useCallback(
+    (result: unknown) => {
+      const payload = result as Parameters<typeof isVideoDateSwipeRateLimited>[0];
+      if (!isVideoDateSwipeRateLimited(payload)) return false;
+      const retryUntilMs = getVideoDateSwipeRateLimitRetryUntilMs(payload, Date.now());
+      if (retryUntilMs != null) {
+        setSwipeRateLimitUntilMs(retryUntilMs);
+        trackEvent("video_date_deck_swipe_rate_limited", {
+          platform: "web",
+          event_id: eventId,
+          retry_after_seconds: Math.max(1, Math.ceil((retryUntilMs - Date.now()) / 1000)),
+        });
+      }
+      return true;
+    },
+    [eventId],
+  );
+
+  const startOptimisticSwipe = useCallback(
+    (profile: DeckProfile, swipeType: "vibe" | "pass" | "super_vibe") => {
+      setPendingSwipeTargetId(profile.id);
+      recentSwipeTargetsRef.current = recordVideoDateDeckRecentSwipe(recentSwipeTargetsRef.current, profile.id);
+      advanceDeckAfterSwipe(profile.id);
+      trackEvent("video_date_deck_optimistic_swipe", {
+        platform: "web",
+        event_id: eventId,
+        swipe_type: swipeType,
+        pending_swipe: true,
+      });
+    },
+    [advanceDeckAfterSwipe, eventId],
+  );
+
   const handleVibe = useCallback(async () => {
-    if (!currentProfile || isProcessing || !lobbyActionsEnabled) return;
+    if (!currentProfile || swipeControlsDisabled) return;
     void preloadRoute("videoDate");
     const targetId = currentProfile.id;
+    const targetProfile = currentProfile;
     recordUserAction("event_lobby_swipe_clicked", {
       surface: "event_lobby",
       event_id: eventId,
       swipe_type: "vibe",
     });
     haptics.light();
+    startOptimisticSwipe(targetProfile, "vibe");
     const result = await swipe(targetId, "vibe");
-    if (!result) return;
+    setPendingSwipeTargetId((current) => (current === targetId ? null : current));
+    if (!result) {
+      restoreDeckProfileAfterOptimisticSwipe(targetProfile);
+      return;
+    }
 
     const rawCode = result.result ?? result.outcome ?? result.error;
     const code = rawCode === "swipe_recorded" ? "vibe_recorded" : rawCode;
     if (result.success === false) {
-      if (shouldAdvanceLobbyDeckAfterSwipe(code)) {
-        advanceDeckAfterSwipe(targetId);
+      applySwipeRateLimit(result);
+      if (!shouldAdvanceLobbyDeckAfterSwipe(code)) {
+        restoreDeckProfileAfterOptimisticSwipe(targetProfile);
       }
       return;
     }
-    if (!shouldAdvanceLobbyDeckAfterSwipe(code)) return;
+    if (!shouldAdvanceLobbyDeckAfterSwipe(code)) {
+      restoreDeckProfileAfterOptimisticSwipe(targetProfile);
+      return;
+    }
 
     trackEvent("lobby_profile_swiped", { event_id: eventId, swipe_type: "vibe", target_present: true });
     recordUserAction("event_lobby_swipe_succeeded", {
@@ -1648,30 +1772,47 @@ const EventLobby = () => {
       haptics.medium();
       void queryClient.invalidateQueries({ queryKey: ["profile-live-counts"] });
     }
-
-    advanceDeckAfterSwipe(targetId);
-  }, [currentProfile, isProcessing, lobbyActionsEnabled, swipe, advanceDeckAfterSwipe, eventId, queryClient]);
+  }, [
+    applySwipeRateLimit,
+    currentProfile,
+    eventId,
+    queryClient,
+    restoreDeckProfileAfterOptimisticSwipe,
+    startOptimisticSwipe,
+    swipe,
+    swipeControlsDisabled,
+  ]);
 
   const handlePass = useCallback(async () => {
-    if (!currentProfile || isProcessing || !lobbyActionsEnabled) return;
+    if (!currentProfile || swipeControlsDisabled) return;
     void preloadRoute("videoDate");
     const targetId = currentProfile.id;
+    const targetProfile = currentProfile;
     recordUserAction("event_lobby_swipe_clicked", {
       surface: "event_lobby",
       event_id: eventId,
       swipe_type: "pass",
     });
+    startOptimisticSwipe(targetProfile, "pass");
     const result = await swipe(targetId, "pass");
-    if (!result) return;
+    setPendingSwipeTargetId((current) => (current === targetId ? null : current));
+    if (!result) {
+      restoreDeckProfileAfterOptimisticSwipe(targetProfile);
+      return;
+    }
 
     const code = result.result ?? result.outcome ?? result.error;
     if (result.success === false) {
-      if (shouldAdvanceLobbyDeckAfterSwipe(code)) {
-        advanceDeckAfterSwipe(targetId);
+      applySwipeRateLimit(result);
+      if (!shouldAdvanceLobbyDeckAfterSwipe(code)) {
+        restoreDeckProfileAfterOptimisticSwipe(targetProfile);
       }
       return;
     }
-    if (!shouldAdvanceLobbyDeckAfterSwipe(code)) return;
+    if (!shouldAdvanceLobbyDeckAfterSwipe(code)) {
+      restoreDeckProfileAfterOptimisticSwipe(targetProfile);
+      return;
+    }
 
     trackEvent("lobby_profile_swiped", { event_id: eventId, swipe_type: "pass", target_present: true });
     recordUserAction("event_lobby_swipe_succeeded", {
@@ -1680,31 +1821,47 @@ const EventLobby = () => {
       swipe_type: "pass",
       result_code: code,
     });
-
-    advanceDeckAfterSwipe(targetId);
-  }, [currentProfile, isProcessing, lobbyActionsEnabled, swipe, advanceDeckAfterSwipe, eventId]);
+  }, [
+    applySwipeRateLimit,
+    currentProfile,
+    eventId,
+    restoreDeckProfileAfterOptimisticSwipe,
+    startOptimisticSwipe,
+    swipe,
+    swipeControlsDisabled,
+  ]);
 
   const handleSuperVibe = useCallback(async () => {
-    if (!currentProfile || isProcessing || !lobbyActionsEnabled) return;
+    if (!currentProfile || swipeControlsDisabled) return;
     void preloadRoute("videoDate");
     haptics.light();
     const targetId = currentProfile.id;
+    const targetProfile = currentProfile;
     recordUserAction("event_lobby_swipe_clicked", {
       surface: "event_lobby",
       event_id: eventId,
       swipe_type: "super_vibe",
     });
+    startOptimisticSwipe(targetProfile, "super_vibe");
     const result = await swipe(targetId, "super_vibe");
-    if (!result) return;
+    setPendingSwipeTargetId((current) => (current === targetId ? null : current));
+    if (!result) {
+      restoreDeckProfileAfterOptimisticSwipe(targetProfile);
+      return;
+    }
 
     const code = result.result ?? result.outcome ?? result.error;
     if (result.success === false) {
-      if (shouldAdvanceLobbyDeckAfterSwipe(code)) {
-        advanceDeckAfterSwipe(targetId);
+      applySwipeRateLimit(result);
+      if (!shouldAdvanceLobbyDeckAfterSwipe(code)) {
+        restoreDeckProfileAfterOptimisticSwipe(targetProfile);
       }
       return;
     }
-    if (!shouldAdvanceLobbyDeckAfterSwipe(code)) return;
+    if (!shouldAdvanceLobbyDeckAfterSwipe(code)) {
+      restoreDeckProfileAfterOptimisticSwipe(targetProfile);
+      return;
+    }
 
     if (code === "super_vibe_sent") {
       setSuperVibeRemaining((prev) => Math.max(0, prev - 1));
@@ -1718,9 +1875,34 @@ const EventLobby = () => {
       swipe_type: "super_vibe",
       result_code: code,
     });
+  }, [
+    applySwipeRateLimit,
+    currentProfile,
+    eventId,
+    restoreDeckProfileAfterOptimisticSwipe,
+    startOptimisticSwipe,
+    swipe,
+    swipeControlsDisabled,
+  ]);
 
-    advanceDeckAfterSwipe(targetId);
-  }, [currentProfile, isProcessing, lobbyActionsEnabled, swipe, advanceDeckAfterSwipe, eventId]);
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.defaultPrevented || event.repeat || swipeControlsDisabled || !currentProfile) return;
+      const target = event.target as HTMLElement | null;
+      const tagName = target?.tagName?.toLowerCase();
+      if (tagName === "input" || tagName === "textarea" || tagName === "select" || target?.isContentEditable) return;
+      if (event.key === "ArrowLeft") {
+        event.preventDefault();
+        void handlePass();
+      } else if (event.key === "ArrowRight") {
+        event.preventDefault();
+        void handleVibe();
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [currentProfile, handlePass, handleVibe, swipeControlsDisabled]);
 
   const yieldingToVideoDateUi = Boolean(dateNavigationSessionId || sameEventScopedSession?.kind === "video");
   const yieldingToReadyGateUi = Boolean(
@@ -1935,6 +2117,7 @@ const EventLobby = () => {
                       ? "bg-amber-500/10 border-amber-400/25 text-amber-100"
                       : "bg-white/[0.06] border-white/10 text-white/75"
                 }`}
+                aria-live="polite"
               >
                 <Clock className="w-3 h-3 shrink-0 opacity-80" />
                 <span className="text-[11px] font-semibold font-display">{timeRemaining || "—"}</span>
@@ -2091,11 +2274,22 @@ const EventLobby = () => {
                   userVibes={userVibes}
                   onSwipeLeft={handlePass}
                   onSwipeRight={handleVibe}
-                  disabled={isProcessing || !lobbyActionsEnabled}
+                  disabled={swipeControlsDisabled}
                 />
               )}
             </AnimatePresence>
           </div>
+          </div>
+        )}
+
+        {swipeRateLimited && (
+          <div
+            className="mt-4 inline-flex items-center gap-2 rounded-full border border-amber-300/35 bg-amber-400/12 px-3 py-1.5 text-xs font-semibold text-amber-100"
+            aria-live="polite"
+            role="status"
+          >
+            <Clock className="h-3.5 w-3.5" />
+            <span>Catch your breath · {swipeRateLimitRemainingSeconds}s</span>
           </div>
         )}
 
@@ -2111,7 +2305,7 @@ const EventLobby = () => {
             <button
               type="button"
               onClick={handlePass}
-              disabled={isProcessing || !lobbyActionsEnabled}
+              disabled={swipeControlsDisabled}
               className="w-[58px] h-[58px] rounded-full bg-white/[0.04] border-2 border-white/12 flex items-center justify-center hover:bg-rose-500/10 hover:border-rose-400/35 transition-all active:scale-[0.92] disabled:opacity-40 shadow-[0_8px_32px_rgba(0,0,0,0.4)]"
               aria-label="Pass"
             >
@@ -2122,7 +2316,7 @@ const EventLobby = () => {
             <button
               type="button"
               onClick={handleSuperVibe}
-              disabled={isProcessing || !lobbyActionsEnabled || superVibeRemaining <= 0}
+              disabled={swipeControlsDisabled || superVibeRemaining <= 0}
               className="relative w-[52px] h-[52px] rounded-full bg-neon-yellow/12 border-2 border-neon-yellow/50 flex items-center justify-center hover:bg-neon-yellow/22 transition-all active:scale-[0.92] disabled:opacity-30 shadow-[0_0_28px_hsl(var(--neon-yellow)/0.2)]"
               aria-label="Super vibe"
             >
@@ -2138,7 +2332,7 @@ const EventLobby = () => {
             <button
               type="button"
               onClick={handleVibe}
-              disabled={isProcessing || !lobbyActionsEnabled}
+              disabled={swipeControlsDisabled}
               className="w-[58px] h-[58px] rounded-full bg-gradient-to-br from-primary via-fuchsia-500 to-accent flex items-center justify-center hover:shadow-[0_0_36px_hsl(var(--primary)/0.45)] transition-all active:scale-[0.92] disabled:opacity-40 border border-white/20 neon-glow-pink"
               aria-label="Vibe"
             >
@@ -2243,6 +2437,7 @@ interface SwipeableCardProps {
 }
 
 const SwipeableCard = ({ profile, userVibes, onSwipeLeft, onSwipeRight, disabled }: SwipeableCardProps) => {
+  const prefersReducedMotion = useReducedMotion();
   const x = useMotionValue(0);
   const rotate = useTransform(x, [-200, 0, 200], [-5, 0, 5]);
   const vibeOpacity = useTransform(x, [0, 100], [0, 1]);
@@ -2263,14 +2458,14 @@ const SwipeableCard = ({ profile, userVibes, onSwipeLeft, onSwipeRight, disabled
   return (
     <motion.div
       className="absolute inset-0 cursor-grab active:cursor-grabbing touch-none"
-      style={{ x, rotate, opacity: cardOpacity }}
+      style={{ x, rotate: prefersReducedMotion ? 0 : rotate, opacity: prefersReducedMotion ? 1 : cardOpacity }}
       drag={disabled ? false : "x"}
       dragConstraints={{ left: 0, right: 0 }}
-      dragElastic={0.7}
+      dragElastic={prefersReducedMotion ? 0.2 : 0.7}
       onDragEnd={handleDragEnd}
-      initial={{ scale: 0.95, opacity: 0 }}
-      animate={{ scale: 1, opacity: 1 }}
-      transition={{ type: "spring", stiffness: 300, damping: 25 }}
+      initial={prefersReducedMotion ? false : { scale: 0.95, opacity: 0 }}
+      animate={prefersReducedMotion ? { opacity: 1 } : { scale: 1, opacity: 1 }}
+      transition={prefersReducedMotion ? { duration: 0.12 } : { type: "spring", stiffness: 300, damping: 25 }}
     >
       {/* Swipe indicators */}
       <motion.div

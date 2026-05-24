@@ -7,6 +7,7 @@ import { parseEventDeckProfiles } from "../../supabase/functions/_shared/eventPr
 const root = process.cwd();
 const migrationPath = "supabase/migrations/20260501230000_event_lobby_deck_payload_media.sql";
 const migration = read(migrationPath);
+const prefetchMediaVersionMigration = read("supabase/migrations/20260524170000_video_date_deck_prefetch_media_version.sql");
 const validation = read("supabase/validation/event_lobby_deck_payload_media.sql");
 const readyQueueValidation = read("supabase/validation/event_lobby_ready_queue_contract.sql");
 const adapter = read("supabase/functions/_shared/eventProfileAdapters.ts");
@@ -83,17 +84,30 @@ test("get_event_deck exposes only the safe card rendering payload additions", ()
   }
 });
 
-test("get_event_deck preserves active-event, busy-user, auth, security, and grants", () => {
-  assert.match(migration, /DROP FUNCTION IF EXISTS public\.get_event_deck\(uuid, uuid, integer\)/);
-  assert.match(migration, /SECURITY DEFINER[\s\S]*SET search_path TO 'public'/);
-  assert.match(migration, /v_viewer IS NULL OR v_viewer <> p_user_id/);
-  assert.match(migration, /public\.get_event_lobby_active_state\(p_event_id, now\(\)\)/);
-  assert.match(migration, /RAISE EXCEPTION 'event_not_active'/);
-  assert.match(migration, /public\.get_event_deck_20260501180000_active_base/);
-  assert.match(migration, /COALESCE\(base\.queue_status, 'idle'\) IN \('browsing', 'idle'\)/);
-  assert.match(migration, /vs\.ready_gate_status IN \('ready', 'ready_a', 'ready_b', 'both_ready', 'snoozed'\)/);
-  assert.match(migration, /GRANT EXECUTE ON FUNCTION public\.get_event_deck\(uuid, uuid, integer\)[\s\S]*TO authenticated, service_role/);
-  assert.doesNotMatch(migration, /GRANT EXECUTE ON FUNCTION public\.get_event_deck\(uuid, uuid, integer\)[\s\S]*TO anon/);
+test("get_event_deck exposes media_version for predictive deck cache invalidation", () => {
+  const result = functionResultSection(prefetchMediaVersionMigration);
+  assert.match(result, /media_version text/);
+  assert.match(prefetchMediaVersionMigration, /p\.updated_at::text AS media_version/);
+  assert.match(prefetchMediaVersionMigration, /profile_id uuid[\s\S]+availability_state text,[\s\S]+media_version text/);
+  assert.doesNotMatch(prefetchMediaVersionMigration, /proof_selfie|phone|email|subscription_tier/i);
+});
+
+test("get_event_deck migrations preserve active-event, busy-user, auth, security, and grants", () => {
+  for (const sql of [migration, prefetchMediaVersionMigration]) {
+    assert.match(sql, /DROP FUNCTION IF EXISTS public\.get_event_deck\(uuid, uuid, integer\)/);
+    assert.match(sql, /SECURITY DEFINER[\s\S]*SET search_path TO 'public'/);
+    assert.match(sql, /v_viewer IS NULL OR v_viewer <> p_user_id/);
+    assert.match(sql, /public\.get_event_lobby_active_state\(p_event_id, now\(\)\)/);
+    assert.match(sql, /RAISE EXCEPTION 'event_not_active'/);
+    assert.match(sql, /public\.get_event_deck_20260501180000_active_base/);
+    assert.match(sql, /COALESCE\(base\.queue_status, 'idle'\) IN \('browsing', 'idle'\)/);
+    assert.match(
+      sql,
+      /public\.event_lobby_video_session_blocks_new_match|vs\.ready_gate_status IN \('ready', 'ready_a', 'ready_b', 'both_ready', 'snoozed'\)/,
+    );
+    assert.match(sql, /GRANT EXECUTE ON FUNCTION public\.get_event_deck\(uuid, uuid, integer\)[\s\S]*TO authenticated, service_role/);
+    assert.doesNotMatch(sql, /GRANT EXECUTE ON FUNCTION public\.get_event_deck\(uuid, uuid, integer\)[\s\S]*TO anon/);
+  }
 });
 
 test("adapter parses safe payload fields and normalizes media fallback", () => {
@@ -119,6 +133,7 @@ test("adapter parses safe payload fields and normalizes media fallback", () => {
       photo_verified: true,
       premium_badge: "vip",
       availability_state: "available",
+      media_version: "2026-05-24T12:00:00.000Z",
     },
   ]);
 
@@ -127,6 +142,7 @@ test("adapter parses safe payload fields and normalizes media fallback", () => {
   assert.equal(parsed[0].photo_verified, true);
   assert.equal(parsed[0].premium_badge, "vip");
   assert.equal(parsed[0].availability_state, "available");
+  assert.equal(parsed[0].media_version, "2026-05-24T12:00:00.000Z");
   assert.deepEqual(parsed[0].photos, ["photos/second.jpg"]);
 });
 
@@ -154,12 +170,14 @@ test("adapter ignores unsafe or unknown premium payload values", () => {
       photo_verified: false,
       premium_badge: "internal_admin",
       availability_state: null,
+      updated_at: "2026-05-24T12:05:00.000Z",
     },
   ]);
 
   assert.equal(parsed[0].primary_photo_path, "photos/avatar.jpg");
   assert.equal(parsed[0].premium_badge, null);
   assert.equal(parsed[0].availability_state, "available");
+  assert.equal(parsed[0].media_version, "2026-05-24T12:05:00.000Z");
 });
 
 test("web card renders premium and photo verification from deck payload without per-card profile fetch", () => {
@@ -174,10 +192,11 @@ test("web card renders premium and photo verification from deck payload without 
 test("web media fallback uses first valid photo, then avatar, and full cards use deck-card preset", () => {
   assert.match(profilePhoto, /resolvePrimaryProfilePhotoPath/);
   assert.match(profilePhoto, /primaryPhotoPath \?\?/);
-  assert.match(profilePhoto, /avatarUrl \? sizePreset\(avatarUrl\) : null/);
+  assert.match(profilePhoto, /avatarUrl \? sizePreset\(avatarUrl, mediaVersion\) : null/);
   assert.match(profilePhoto, /size === "full" \? deckCardPreset/);
   assert.match(webImageUrl, /export const deckCardUrl/);
   assert.match(webImageUrl, /width: 1080,\s*height: 1440,\s*crop: "center",\s*quality: 88/s);
+  assert.match(webImageUrl, /if \(!url \|\| !version \|\| url === PLACEHOLDER/);
 });
 
 test("native lobby card consumes the same payload and avoids per-card profile RPC", () => {
@@ -187,7 +206,8 @@ test("native lobby card consumes the same payload and avoids per-card profile RP
   assert.match(nativeCard, /const photoVerified = profile\.photo_verified === true/);
   assert.match(nativeCard, /const premiumBadge = profile\.premium_badge/);
   assert.match(nativeCard, /profile\.primary_photo_path \?\?/);
-  assert.match(nativeCard, /deckCardUrl\(photo\)/);
+  assert.match(nativeCard, /deckCardUrl\(photo, profile\.media_version\)/);
+  assert.match(read("apps/mobile/lib/imageUrl.ts"), /if \(!url \|\| !version \|\| url === PLACEHOLDER/);
 });
 
 test("generated Supabase types include the RPC return-shape additions", () => {
@@ -197,7 +217,7 @@ test("generated Supabase types include the RPC return-shape additions", () => {
   assert.notEqual(getDeckEnd, -1, "generated types should include the next function marker");
   const getDeck = generatedTypes.slice(getDeckStart, getDeckEnd);
 
-  for (const field of ["primary_photo_path", "photo_verified", "premium_badge", "availability_state"]) {
+  for (const field of ["primary_photo_path", "photo_verified", "premium_badge", "availability_state", "media_version"]) {
     assert.match(getDeck, new RegExp(`${field}:`));
   }
 });

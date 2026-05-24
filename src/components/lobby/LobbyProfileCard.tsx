@@ -96,6 +96,7 @@ const LobbyProfileCard = ({ profile, userVibes, isBehind = false }: LobbyProfile
           size="full"
           rounded="2xl"
           loading="eager"
+          mediaVersion={profile.media_version}
         />
       </div>
 

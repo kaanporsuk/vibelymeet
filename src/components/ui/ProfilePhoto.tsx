@@ -12,6 +12,7 @@ interface ProfilePhotoProps {
   className?: string;
   rounded?: "full" | "xl" | "2xl";
   loading?: "eager" | "lazy";
+  mediaVersion?: string | number | null;
 }
 
 const sizeClasses: Record<string, string> = {
@@ -61,6 +62,7 @@ export const ProfilePhoto = ({
   className,
   rounded = "full",
   loading = "lazy",
+  mediaVersion,
 }: ProfilePhotoProps) => {
   const [stage, setStage] = useState<"primary" | "avatar" | "fallback">("primary");
   const [isLoaded, setIsLoaded] = useState(false);
@@ -72,8 +74,8 @@ export const ProfilePhoto = ({
       photos,
       avatar_url: null,
     });
-  const primaryUrl = primaryPath ? sizePreset(primaryPath) : null;
-  const fallbackUrl = avatarUrl ? sizePreset(avatarUrl) : null;
+  const primaryUrl = primaryPath ? sizePreset(primaryPath, mediaVersion) : null;
+  const fallbackUrl = avatarUrl ? sizePreset(avatarUrl, mediaVersion) : null;
 
   const currentSrc =
     stage === "primary" && primaryUrl

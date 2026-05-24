@@ -18,7 +18,11 @@ export type SwipeSessionStageResult = {
   ready_gate_status?: string;
   success?: boolean;
   error?: string;
+  reason?: string;
   message?: string;
+  retry_after_seconds?: number;
+  retry_after_ms?: number;
+  retry_at?: string;
   duplicate?: boolean;
   idempotent?: boolean;
   replay?: boolean;
@@ -60,7 +64,7 @@ export function normalizedSwipeSessionStageResult(
 export function shouldOpenReadyGateFromSwipePayload(
   payload: SwipeSessionStageResult | null | undefined,
 ): boolean {
-  const result = normalizedSwipeSessionStageResult(payload?.result);
+  const result = normalizedSwipeSessionStageResult(payload?.result ?? payload?.outcome);
   return (
     (result === "match" || result === "already_matched") &&
     Boolean(videoSessionIdFromSwipePayload(payload)) &&
@@ -72,7 +76,7 @@ export function shouldTrackQueuedSwipeSession(
   payload: SwipeSessionStageResult | null | undefined,
 ): boolean {
   return (
-    normalizedSwipeSessionStageResult(payload?.result) === "match_queued" &&
+    normalizedSwipeSessionStageResult(payload?.result ?? payload?.outcome) === "match_queued" &&
     Boolean(videoSessionIdFromSwipePayload(payload))
   );
 }
@@ -107,6 +111,9 @@ export const SWIPE_ALREADY_RECORDED_USER_MESSAGE =
 
 export const SWIPE_GENERIC_FAILURE_USER_MESSAGE =
   "Unable to complete swipe. Try again in a moment.";
+
+export const SWIPE_RATE_LIMITED_USER_MESSAGE =
+  "Catch your breath before swiping again.";
 
 /** Shown when a queued mutual session hits server TTL (`expire_stale_video_sessions` → `queued_ttl_expired`). */
 export const QUEUED_MATCH_TIMED_OUT_USER_MESSAGE =
@@ -168,6 +175,10 @@ export function getSwipeFailureUserMessage(
       return "You've used all 3 Super Vibes for this event.";
     case "unauthorized":
       return "Sign in again to keep swiping.";
+    case "rate_limited":
+    case "too_many_requests":
+    case "swipe_rate_limited":
+      return SWIPE_RATE_LIMITED_USER_MESSAGE;
     default: {
       const message = payload?.message?.trim();
       return message || SWIPE_GENERIC_FAILURE_USER_MESSAGE;
@@ -187,6 +198,9 @@ export const LOBBY_SWIPE_NO_ADVANCE_RESULTS: ReadonlySet<string> = new Set([
   "unknown",
   "not_registered",
   "target_not_found",
+  "rate_limited",
+  "too_many_requests",
+  "swipe_rate_limited",
   "limit_reached",
   "already_super_vibed_recently",
   "already_matched",

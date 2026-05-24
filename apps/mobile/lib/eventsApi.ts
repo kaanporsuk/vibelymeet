@@ -23,6 +23,7 @@ import {
   createVideoDateClientRequestId,
 } from '@clientShared/matching/videoDateTransitionCommands';
 import { VIDEO_DATE_DECK_BUFFER_LIMIT } from '@clientShared/matching/videoDateInstantExperience';
+import { getVideoDateSwipeRateLimitRetryUntilMs } from '@clientShared/matching/videoDateDeckPrefetch';
 import { resolveEventLifecycle } from '@clientShared/eventLifecycle';
 import type { EventCategory } from '@clientShared/eventCategories';
 import { fetchVideoDateQueueHint } from '@/lib/videoDateQueueHint';
@@ -618,7 +619,12 @@ export async function fetchEventDeck(eventId: string, viewerProfileId: string): 
   return parseEventDeckResponse(data);
 }
 
-export function useEventDeck(eventId: string, viewerProfileId: string | null, enabled: boolean) {
+export function useEventDeck(
+  eventId: string,
+  viewerProfileId: string | null,
+  enabled: boolean,
+  options?: { refetchIntervalMs?: number | false },
+) {
   const query = useQuery({
     queryKey: ['event-deck', eventId, viewerProfileId, 'deck_v3'],
     queryFn: async (): Promise<EventDeckFetchResult> => {
@@ -628,7 +634,9 @@ export function useEventDeck(eventId: string, viewerProfileId: string | null, en
       return fetchEventDeck(eventId, viewerProfileId);
     },
     enabled: enabled && !!viewerProfileId && !!eventId,
-    refetchInterval: 15_000,
+    refetchInterval: options?.refetchIntervalMs === false
+      ? false
+      : options?.refetchIntervalMs ?? 15_000,
     refetchIntervalInBackground: false,
     staleTime: 10000,
   });
@@ -682,6 +690,25 @@ export async function swipe(eventId: string, targetId: string, swipeType: 'vibe'
   const payload = await response.json().catch(() => null);
   if (!response.ok) {
     if (response.status === 401) return unauthorizedSwipeResult();
+    if (response.status === 429) {
+      const nowMs = Date.now();
+      const retryUntilMs = getVideoDateSwipeRateLimitRetryUntilMs(
+        payload && typeof payload === 'object' ? payload as SwipeResult : { result: 'rate_limited' },
+        nowMs,
+        response.headers.get('Retry-After'),
+      );
+      const retryAfterSeconds =
+        retryUntilMs == null ? undefined : Math.max(1, Math.ceil((retryUntilMs - nowMs) / 1000));
+      return {
+        success: false,
+        result: 'rate_limited',
+        outcome: 'rate_limited',
+        error: 'rate_limited',
+        message: 'Catch your breath before swiping again.',
+        retry_after_seconds: retryAfterSeconds,
+        notification_suppressed: true,
+      };
+    }
     return null;
   }
   if (!payload || typeof payload !== 'object') return null;

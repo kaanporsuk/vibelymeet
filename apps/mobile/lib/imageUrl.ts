@@ -153,12 +153,27 @@ export function getImageUrl(
   return url;
 }
 
-export function avatarUrl(path: string | null | undefined, traceLabel?: 'avatar' | 'profile_photo'): string {
-  return getImageUrl(path, { width: 200, height: 200, crop: 'center' }, traceLabel);
+function appendImageVersion(url: string, mediaVersion?: string | number | null): string {
+  const version =
+    typeof mediaVersion === 'number' && Number.isFinite(mediaVersion)
+      ? String(mediaVersion)
+      : typeof mediaVersion === 'string'
+        ? mediaVersion.trim()
+        : '';
+  if (!url || !version || url === PLACEHOLDER || url.startsWith('data:') || url.startsWith('blob:')) return url;
+  return `${url}${url.includes('?') ? '&' : '?'}v=${encodeURIComponent(version)}`;
 }
 
-export function deckCardUrl(path: string | null | undefined): string {
-  return getImageUrl(path, { width: 1080, height: 1440, crop: 'center', quality: 88 });
+export function avatarUrl(
+  path: string | null | undefined,
+  traceLabel?: 'avatar' | 'profile_photo',
+  mediaVersion?: string | number | null,
+): string {
+  return appendImageVersion(getImageUrl(path, { width: 200, height: 200, crop: 'center' }, traceLabel), mediaVersion);
+}
+
+export function deckCardUrl(path: string | null | undefined, mediaVersion?: string | number | null): string {
+  return appendImageVersion(getImageUrl(path, { width: 1080, height: 1440, crop: 'center', quality: 88 }), mediaVersion);
 }
 
 export function eventCoverUrl(path: string | null | undefined, traceLabel?: 'event_image'): string {

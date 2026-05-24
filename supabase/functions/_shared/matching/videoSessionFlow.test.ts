@@ -66,9 +66,26 @@ test("match_immediate and match_queued semantics remain distinct", () => {
     true,
   );
   assert.equal(
+    shouldOpenReadyGateFromSwipePayload({
+      outcome: "match",
+      video_session_id: "session-1b",
+      event_id: "event-1",
+      immediate: true,
+    }),
+    true,
+  );
+  assert.equal(
     shouldTrackQueuedSwipeSession({
       result: "match_queued",
       video_session_id: "session-2",
+      event_id: "event-1",
+    }),
+    true,
+  );
+  assert.equal(
+    shouldTrackQueuedSwipeSession({
+      outcome: "match_queued",
+      video_session_id: "session-2b",
       event_id: "event-1",
     }),
     true,

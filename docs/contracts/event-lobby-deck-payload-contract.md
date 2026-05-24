@@ -30,6 +30,7 @@ The deck may return only viewer-safe rendering fields:
 - `availability_state`
 - `photo_verified`
 - `premium_badge`
+- `media_version`
 - `has_met_before`
 - `is_already_connected`
 - `has_super_vibed`
@@ -38,6 +39,8 @@ The deck may return only viewer-safe rendering fields:
 `premium_badge` is display-only and limited to `premium`, `vip`, or `null`; clients should not receive billing dates or admin grant metadata in the deck.
 
 `availability_state` is currently `available` for returned cards because Prompt 4 hides busy/non-swipeable candidates backend-side.
+
+`media_version` is a viewer-safe freshness token derived from profile update time. Clients use it only to cache-bust deck-card image URLs and prefetch keys; it must not expose private media metadata.
 
 ## Media Fallback
 
@@ -48,6 +51,8 @@ Both platforms should resolve card media in this order:
 3. placeholder/initials fallback
 
 Web full-card lobby imagery uses a deck-card image preset, not a thumbnail-sized transform. Native already uses `deckCardUrl` for the same purpose.
+
+Predictive deck prefetch and rendered card URLs should include `media_version` so cached images refresh after profile media changes.
 
 ## Forbidden Fields
 

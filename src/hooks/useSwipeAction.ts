@@ -21,6 +21,7 @@ import {
   shouldTrackQueuedSwipeSession,
   videoSessionIdFromSwipePayload,
 } from "@shared/matching/videoSessionFlow";
+import { getVideoDateSwipeRateLimitRetryUntilMs } from "@clientShared/matching/videoDateDeckPrefetch";
 
 type SwipeType = "vibe" | "pass" | "super_vibe";
 
@@ -108,6 +109,28 @@ async function postSwipeAction(
   if (!response.ok) {
     if (response.status === 401) {
       return { data: unauthorizedSwipeResult(), error: null };
+    }
+    if (response.status === 429) {
+      const nowMs = Date.now();
+      const retryUntilMs = getVideoDateSwipeRateLimitRetryUntilMs(
+        payload && typeof payload === "object" ? payload as SwipeSessionStageResult : { result: "rate_limited" },
+        nowMs,
+        response.headers.get("Retry-After"),
+      );
+      const retryAfterSeconds =
+        retryUntilMs == null ? undefined : Math.max(1, Math.ceil((retryUntilMs - nowMs) / 1000));
+      return {
+        data: {
+          success: false,
+          result: "rate_limited",
+          outcome: "rate_limited",
+          error: "rate_limited",
+          message: "Catch your breath before swiping again.",
+          retry_after_seconds: retryAfterSeconds,
+          notification_suppressed: true,
+        },
+        error: null,
+      };
     }
     return {
       data: null,
@@ -224,7 +247,9 @@ export const useSwipeAction = ({
               result: raw,
             }),
           });
-          if (
+          if (failureCode === "rate_limited" || failureCode === "too_many_requests" || failureCode === "swipe_rate_limited") {
+            toast.info(failureMessage, { duration: 2500 });
+          } else if (
             failureCode === "participant_has_active_session_conflict" ||
             failureCode === "pair_already_met_this_event" ||
             failureCode === "target_unavailable" ||
