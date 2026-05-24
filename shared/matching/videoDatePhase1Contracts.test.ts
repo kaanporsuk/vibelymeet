@@ -213,8 +213,11 @@ test("public API interface changes are exposed for deck state, queue hints, paym
   assert.match(publicApiMigration, /CREATE OR REPLACE FUNCTION public\.get_event_deck_v3/);
   assert.match(publicApiMigration, /'deck_state'/);
   assert.match(publicApiMigration, /'get_event_deck_v3_buffer'/);
+  assert.match(publicApiMigration, /has_profiles/);
+  assert.match(publicApiMigration, /viewer_paused/);
   assert.match(publicApiMigration, /no_remaining_profiles/);
-  assert.match(publicApiMigration, /scan_window_exhausted/);
+  assert.doesNotMatch(publicApiMigration, /'scan_window_exhausted'/);
+  assert.doesNotMatch(publicApiMigration, /'no_confirmed_candidates'/);
   assert.match(publicApiMigration, /v_scan_limit integer := 5000/);
   assert.match(eventProfileAdapters, /scan_limit: number \| null/);
   assert.match(publicApiMigration, /CREATE OR REPLACE FUNCTION public\.get_video_date_queue_hint_v1/);

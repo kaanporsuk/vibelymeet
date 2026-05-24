@@ -12,6 +12,10 @@ const replayAndSafetyErrorsMigration = readFileSync(
   join(root, "supabase/migrations/20260522011500_video_date_phase3_replay_and_safety_errors.sql"),
   "utf8",
 );
+const phase6QueueFairnessMigration = readFileSync(
+  join(root, "supabase/migrations/20260522011000_video_date_phase6_queue_fairness.sql"),
+  "utf8",
+);
 const transitionCommands = readFileSync(
   join(root, "shared/matching/videoDateTransitionCommands.ts"),
   "utf8",
@@ -43,6 +47,16 @@ const packageJson = readFileSync(join(root, "package.json"), "utf8");
 
 function functionBody(name: string): string {
   const match = migration.match(
+    new RegExp(
+      `CREATE OR REPLACE FUNCTION public\\.${name}[\\s\\S]+?COMMENT ON FUNCTION public\\.${name}`,
+    ),
+  );
+  assert.ok(match, `missing ${name} function block`);
+  return match[0];
+}
+
+function functionBodyFrom(source: string, name: string): string {
+  const match = source.match(
     new RegExp(
       `CREATE OR REPLACE FUNCTION public\\.${name}[\\s\\S]+?COMMENT ON FUNCTION public\\.${name}`,
     ),
@@ -86,9 +100,12 @@ test("PR 3.8 safety v2 stores report details only in user_reports and keeps even
 });
 
 test("PR 3.9 queue drain v2 revalidates hot eligibility before promotion", () => {
-  const drain = functionBody("drain_match_queue_v2");
+  const drain = functionBodyFrom(phase6QueueFairnessMigration, "drain_match_queue_v2");
 
-  assert.match(drain, /pg_advisory_xact_lock\(\s+hashtextextended\('video_session_command:' \|\| v_actor::text \|\| ':' \|\| v_key/);
+  assert.match(drain, /pg_try_advisory_xact_lock\(\s+hashtextextended\('video_session_command:' \|\| v_actor::text \|\| ':' \|\| v_key/);
+  assert.match(drain, /pg_try_advisory_xact_lock\(\s+hashtextextended\(\s+'event_lobby_participant_session:' \|\| p_event_id::text/);
+  assert.match(drain, /'lock_busy'/);
+  assert.doesNotMatch(drain, /pg_advisory_xact_lock\(\s+hashtextextended\('video_session_command:' \|\| v_actor::text \|\| ':' \|\| v_key/);
   assert.match(drain, /v_existing_command public\.video_session_commands%ROWTYPE/);
   assert.ok(
     drain.indexOf("FROM public.video_session_commands") <
