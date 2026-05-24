@@ -76,13 +76,15 @@ import {
 import { resolveVideoDateTimelineCountdown } from '@clientShared/matching/videoDateTimeline';
 import { nextConvergenceDelayMs } from '@clientShared/matching/convergenceScheduling';
 import {
-  canAttemptDailyRoomFromVideoSessionTruth,
-  decideVideoSessionRouteFromTruth,
   getVideoSessionPartnerIdForUser,
   videoSessionHasEncounterExposureTruth,
   videoSessionHasPostDateSurveyTruth,
   videoSessionRowIndicatesHandshakeOrDate,
 } from '@clientShared/matching/activeSession';
+import {
+  adviseVideoDateTokenRecovery,
+  adviseVideoSessionTruthRecovery,
+} from '@clientShared/matching/videoDateRecoveryAdvisor';
 import {
   buildVideoDateExtensionIdempotencyKey,
   buildVideoDateMutualExtensionIdempotencyKey,
@@ -177,12 +179,6 @@ import {
   VIDEO_DATE_REMOTE_OBJECT_POSITION,
   videoDateAspectRatio,
 } from '@clientShared/matching/videoDateMediaContract';
-import {
-  isVideoDateDailyTokenFault,
-  isVideoDateDailyTokenJoinError,
-  shouldRefreshVideoDateTokenBeforeJoin,
-  videoDateTokenRefreshDelayMs,
-} from '@clientShared/matching/videoDatePublicApi';
 import {
   VIDEO_DATE_ICE_BREAKER_MANUAL_PAUSE_MS,
   normalizeVideoDateIceBreakerIndex,
@@ -505,10 +501,14 @@ async function refetchTruthAndCheckStartable(
   sessionId: string
 ): Promise<{ startable: boolean; truth: Awaited<ReturnType<typeof fetchVideoSessionDateEntryTruth>> }> {
   const truth = await fetchVideoSessionDateEntryTruth(sessionId);
-  const decision = decideVideoSessionRouteFromTruth(truth);
-  const canAttemptDaily = canAttemptDailyRoomFromVideoSessionTruth(truth);
+  const recovery = adviseVideoSessionTruthRecovery({
+    sessionId,
+    truth,
+    platform: 'native',
+    surface: 'video_date',
+  });
   return {
-    startable: canAttemptDaily || decision === 'navigate_date',
+    startable: recovery.action === 'go_date',
     truth,
   };
 }
@@ -2118,10 +2118,17 @@ export default function VideoDateScreen() {
             ? String((event as { errorMsg?: unknown }).errorMsg)
             : undefined;
         addVideoDateBreadcrumb('Daily call error', 'error', { sessionId, errorMsg: msg });
-        if (isVideoDateDailyTokenFault(event)) {
-          const sourceAction = (msg ?? '').toLowerCase().includes('eject')
-            ? 'daily_token_refresh_after_ejection'
-            : 'daily_token_refresh_after_auth_error';
+        const sourceAction = (msg ?? '').toLowerCase().includes('eject')
+          ? 'daily_token_refresh_after_ejection'
+          : 'daily_token_refresh_after_auth_error';
+        if (
+          adviseVideoDateTokenRecovery({
+            trigger: sourceAction === 'daily_token_refresh_after_ejection' ? 'ejection' : 'auth_error',
+            error: event,
+            platform: 'native',
+            surface: 'video_date',
+          }).action === 'refresh_token'
+        ) {
           void recoverNativeDailyTokenRef.current(sourceAction, event);
           return;
         }
@@ -2425,14 +2432,21 @@ export default function VideoDateScreen() {
       }
       const { data: reg } = await regQuery.maybeSingle();
       if (cancelled) return;
-      const truthDecision = decideVideoSessionRouteFromTruth(vs);
-      const canAttemptDaily = canAttemptDailyRoomFromVideoSessionTruth(vs);
+      const recovery = adviseVideoSessionTruthRecovery({
+        sessionId,
+        eventId: vs.event_id,
+        truth: vs,
+        platform: 'native',
+        surface: 'video_date',
+      });
+      const truthDecision = recovery.routeDecision ?? 'stay_lobby';
+      const canAttemptDaily = recovery.canAttemptDaily === true;
       const routedTo =
-        canAttemptDaily || truthDecision === 'navigate_date'
+        recovery.action === 'go_date'
           ? 'date'
-          : truthDecision === 'navigate_ready'
+          : recovery.action === 'go_ready_gate'
             ? 'ready'
-            : truthDecision === 'ended'
+            : recovery.action === 'show_terminal'
               ? 'ended'
               : 'lobby';
       rcBreadcrumb(RC_CATEGORY.videoDateEntry, 'date_route_decision', {
@@ -2602,22 +2616,29 @@ export default function VideoDateScreen() {
           .maybeSingle(),
       ]);
       const reg = regRes.data;
-      const decision = decideVideoSessionRouteFromTruth(vs);
-      const canAttemptDaily = canAttemptDailyRoomFromVideoSessionTruth(vs);
+      const recovery = adviseVideoSessionTruthRecovery({
+        sessionId,
+        eventId,
+        truth: vs,
+        platform: 'native',
+        surface: 'video_date',
+      });
+      const decision = recovery.routeDecision ?? 'stay_lobby';
+      const canAttemptDaily = recovery.canAttemptDaily === true;
       const reason =
-        decision === 'navigate_date'
+        recovery.action === 'go_date'
           ? null
-          : decision === 'ended'
+          : recovery.action === 'show_terminal'
             ? 'session_ended'
             : canAttemptDaily
               ? 'video_truth_startable_after_refetch'
               : 'video_truth_not_startable';
       const routedTo =
-        canAttemptDaily || decision === 'navigate_date'
+        recovery.action === 'go_date'
           ? 'date'
-          : decision === 'navigate_ready'
+          : recovery.action === 'go_ready_gate'
             ? 'ready'
-            : decision === 'ended'
+            : recovery.action === 'show_terminal'
               ? 'ended'
               : 'lobby';
       rcBreadcrumb(RC_CATEGORY.videoDateEntry, 'date_route_decision', {
@@ -2652,7 +2673,7 @@ export default function VideoDateScreen() {
         readyGateStatus: vs?.ready_gate_status ?? null,
         readyGateExpiresAt: vs?.ready_gate_expires_at ?? null,
       });
-      if (!canAttemptDaily && decision === 'navigate_ready') {
+      if (!canAttemptDaily && recovery.action === 'go_ready_gate') {
         const target = readyGateHref(sessionId);
         rcBreadcrumb(RC_CATEGORY.videoDateEntry, 'latch_cleared_before_recovery_redirect', {
           session_id: sessionId,
@@ -2664,7 +2685,7 @@ export default function VideoDateScreen() {
         router.replace(target);
         return true;
       }
-      if (decision === 'ended') {
+      if (recovery.action === 'show_terminal') {
         const openedSurvey = await openNativePostDateSurveyFromTerminalTruth(`${source}_ended_truth`, vs);
         if (openedSurvey) return true;
         const fallbackEventId = vs?.event_id ?? eventId;
@@ -2700,7 +2721,7 @@ export default function VideoDateScreen() {
         }
         return true;
       }
-      if (!canAttemptDaily && decision === 'stay_lobby') {
+      if (!canAttemptDaily && (recovery.action === 'go_lobby' || recovery.action === 'go_home')) {
         const fallbackEventId = vs?.event_id ?? eventId;
         if (fallbackEventId) {
           const target = eventLobbyHref(fallbackEventId as string);
@@ -5242,8 +5263,15 @@ export default function VideoDateScreen() {
         prejoinCompleted = true;
         return;
       }
-      const truthDecision0 = decideVideoSessionRouteFromTruth(truth0);
-      if (truthDecision0 === 'ended') {
+      const truthRecovery0 = adviseVideoSessionTruthRecovery({
+        sessionId,
+        eventId,
+        truth: truth0,
+        platform: 'native',
+        surface: 'video_date',
+      });
+      const truthDecision0 = truthRecovery0.routeDecision ?? 'stay_lobby';
+      if (truthRecovery0.action === 'show_terminal') {
         vdbg('prejoin_step_prejoin_error', {
           sessionId,
           userId: user.id,
@@ -5601,7 +5629,14 @@ export default function VideoDateScreen() {
       let truth1 = await fetchVideoSessionDateEntryTruth(sessionId);
       prejoinMark('truth1_post_handshake');
       vdbg('date_prejoin_truth_daily_room_guard', { sessionId, userId: user.id, row: truth1 ?? null });
-      if (!canAttemptDailyRoomFromVideoSessionTruth(truth1)) {
+      const truthRecovery1 = adviseVideoSessionTruthRecovery({
+        sessionId,
+        eventId,
+        truth: truth1,
+        platform: 'native',
+        surface: 'video_date',
+      });
+      if (truthRecovery1.action !== 'go_date') {
         const redirected = await recoverFromNotStartableDateTruth('create_date_room');
         if (redirected) {
           hasStartedJoinRef.current = false;
@@ -6141,7 +6176,14 @@ export default function VideoDateScreen() {
         });
         return true;
       };
-      if (shouldRefreshVideoDateTokenBeforeJoin(tokenResult.token_expires_at)) {
+      if (
+        adviseVideoDateTokenRecovery({
+          trigger: 'before_join',
+          tokenExpiresAtIso: tokenResult.token_expires_at,
+          platform: 'native',
+          surface: 'video_date',
+        }).action === 'refresh_token'
+      ) {
         await refreshDailyTokenForJoin('daily_token_refresh_before_join');
       }
 
@@ -6308,7 +6350,15 @@ export default function VideoDateScreen() {
       );
       const scheduleDailyTokenRefresh = (source: string) => {
         clearDailyTokenRefreshTimer();
-        const delayMs = videoDateTokenRefreshDelayMs(tokenResult.token_expires_at);
+        const tokenRecovery = adviseVideoDateTokenRecovery({
+          trigger: 'active_refresh_timer',
+          tokenExpiresAtIso: tokenResult.token_expires_at,
+          platform: 'native',
+          surface: 'video_date',
+        });
+        const delayMs = tokenRecovery.action === 'refresh_token'
+          ? tokenRecovery.retryAfterMs ?? 0
+          : null;
         if (delayMs == null) {
           vdbg('daily_token_refresh_schedule_skipped', {
             sessionId,
@@ -6316,7 +6366,7 @@ export default function VideoDateScreen() {
             eventId: eventId || null,
             roomName: tokenResult.room_name,
             source,
-            reason: 'missing_token_expiry',
+            reason: tokenRecovery.reason,
           });
           return;
         }
@@ -6529,7 +6579,14 @@ export default function VideoDateScreen() {
             try {
               await call.join({ url: tokenResult.room_url, token: tokenResult.token });
             } catch (joinError) {
-              if (isVideoDateDailyTokenJoinError(joinError)) {
+              if (
+                adviseVideoDateTokenRecovery({
+                  trigger: 'auth_error',
+                  error: joinError,
+                  platform: 'native',
+                  surface: 'video_date',
+                }).action === 'refresh_token'
+              ) {
                 const refreshed = await refreshDailyTokenForJoin('daily_token_refresh_join_retry', joinError);
                 if (refreshed) {
                   await call.join({ url: tokenResult.room_url, token: tokenResult.token });

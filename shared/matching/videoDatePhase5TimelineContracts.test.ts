@@ -152,11 +152,11 @@ test("PR 5.3 push and deep-link recovery share one snapshot decision helper", ()
   }
   assert.equal(mismatchRecovery.reason, "session_mismatch");
 
-  assert.match(webReadyRedirect, /resolveVideoDateSnapshotRecovery/);
+  assert.match(webReadyRedirect, /adviseVideoDateSnapshotRecovery/);
   assert.match(webReadyRedirect, /expectedSessionId: candidate/);
-  assert.match(nativeReadyRedirect, /resolveVideoDateSnapshotRecovery/);
+  assert.match(nativeReadyRedirect, /adviseVideoDateSnapshotRecovery/);
   assert.match(nativeReadyRedirect, /expectedSessionId: String\(sessionId\)/);
-  assert.match(nativeNotificationDeepLink, /resolveVideoDateSnapshotRecovery/);
+  assert.match(nativeNotificationDeepLink, /adviseVideoDateSnapshotRecovery/);
   assert.match(nativeNotificationDeepLink, /fetchVideoDateSnapshot\(sid, \{ includeToken: false \}\)/);
   assert.match(nativeNotificationDeepLink, /expectedSessionId: sid/);
   assert.match(nativeNotificationDeepLink, /snapshotRecoveryV2: snapshotV2\.enabled/);
@@ -241,9 +241,9 @@ test("PR 5.4 terminal survey snapshots route to date recovery without losing sta
   assert.equal(ineligibleReasonOutranksMediaEvidence.action, "lobby");
   assert.equal(ineligibleReasonOutranksMediaEvidence.reason, "ended");
 
-  assert.match(webReadyRedirect, /recovery\.action === ["']date["'] \|\| recovery\.action === ["']survey["']/);
-  assert.match(nativeReadyRedirect, /recovery\.action === ["']survey["'][\s\S]+navigateToDateSessionGuarded/);
-  assert.match(nativeNotificationDeepLink, /recovery\.action === ["']date["'] \|\| recovery\.action === ["']survey["']/);
+  assert.match(webReadyRedirect, /recovery\.action === ["']go_date["'] \|\| recovery\.action === ["']go_survey["']/);
+  assert.match(nativeReadyRedirect, /recovery\.action === ["']go_survey["'][\s\S]+navigateToDateSessionGuarded/);
+  assert.match(nativeNotificationDeepLink, /recovery\.action === ["']go_date["'] \|\| recovery\.action === ["']go_survey["']/);
 });
 
 test("PR 5.5 active multi-device snapshots are explicit rejoin decisions", () => {
@@ -262,7 +262,7 @@ test("PR 5.5 active multi-device snapshots are explicit rejoin decisions", () =>
     reason: "already_joined",
   });
 
-  assert.match(nativeNotificationDeepLink, /decision: recovery\.action === ["']survey["'] \? ["']navigate_survey["'] : ["']navigate_date["']/);
+  assert.match(nativeNotificationDeepLink, /decision: recovery\.action === ["']go_survey["'] \? ["']navigate_survey["'] : ["']navigate_date["']/);
   assert.match(webDupTabGuard, /claim_video_date_surface/);
   assert.match(webDupTabGuard, /p_takeover: true/);
   assert.match(webDate, /already open on another device/);
@@ -323,7 +323,7 @@ test("native ready keeps ambiguous active snapshots on canonical truth fallback"
     reason: "not_date_ready",
   });
 
-  assert.match(nativeReadyRedirect, /recovery\.action === ['"]lobby['"] && recovery\.reason !== ['"]not_date_ready['"]/);
+  assert.match(nativeReadyRedirect, /recovery\.action === ['"]go_lobby['"] && recovery\.reason !== ['"]not_date_ready['"]/);
   assert.match(nativeReadyRedirect, /standalone_snapshot_lobby_deferred_to_truth/);
   assert.match(nativeReadyRedirect, /initial_snapshot_\$\{recovery\.reason\}_nav_suppressed/);
   assert.match(nativeReadyRedirect, /if \(navigated\) return/);

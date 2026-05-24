@@ -29,10 +29,6 @@ import {
   startNativeVideoDateDailyPrewarm,
 } from '@/lib/videoDateDailyPrewarm';
 import { markNativeVideoDateLaunchIntent, videoDateLaunchBreadcrumb } from '@/lib/videoDateLaunchTrace';
-import {
-  canAttemptDailyRoomFromVideoSessionTruth,
-  decideVideoSessionRouteFromTruth,
-} from '@clientShared/matching/activeSession';
 import { resolvePrimaryProfilePhotoPath } from '../../../../shared/profilePhoto/resolvePrimaryProfilePhotoPath';
 import {
   READY_GATE_DEEP_LINK_INVALID_USER_MESSAGE,
@@ -41,11 +37,14 @@ import {
   getReadyGateRemainingSeconds,
   READY_GATE_DEFAULT_TIMEOUT_SECONDS,
 } from '@clientShared/matching/readyGateCountdown';
-import { resolveVideoDateSnapshotRecovery } from '@clientShared/matching/videoDateTimeline';
 import {
   isReadyGatePrepareEntryNonRetryable,
-  resolveReadyGateTerminalRecovery,
 } from '@clientShared/matching/readyGateTerminalRecovery';
+import {
+  adviseVideoDateSnapshotRecovery,
+  adviseVideoSessionTruthRecovery,
+  resolveReadyGateTerminalRecoveryViaAdvisor as resolveReadyGateTerminalRecovery,
+} from '@clientShared/matching/videoDateRecoveryAdvisor';
 import { getReadyGateReadinessStatusCopy } from '@clientShared/matching/readyGateReadiness';
 
 const GATE_TIMEOUT_SEC = READY_GATE_DEFAULT_TIMEOUT_SECONDS;
@@ -363,7 +362,11 @@ export default function ReadyGateScreen() {
       try {
         if (snapshotV2.enabled) {
           const snapshot = await fetchVideoDateSnapshot(String(sessionId), { includeToken: false });
-          const recovery = resolveVideoDateSnapshotRecovery(snapshot, { expectedSessionId: String(sessionId) });
+          const recovery = adviseVideoDateSnapshotRecovery(snapshot, {
+            expectedSessionId: String(sessionId),
+            platform: 'native',
+            surface: 'ready_redirect',
+          });
           if (snapshot.ok === true) {
             rcBreadcrumb(RC_CATEGORY.readyGate, 'standalone_snapshot_v2_loaded', {
               session_id: sessionId,
@@ -371,11 +374,11 @@ export default function ReadyGateScreen() {
               phase: snapshot.phase,
               room_present: Boolean(snapshot.room?.url),
             });
-            if (recovery.action === 'date') {
+            if (recovery.action === 'go_date') {
               await reconcileFromCanonicalTruth(`initial_snapshot_${recovery.reason}`);
               return;
             }
-            if (recovery.action === 'survey') {
+            if (recovery.action === 'go_survey') {
               setTransitioning(true);
               const navigated = navigateToDateSessionGuarded({
                 sessionId: recovery.sessionId,
@@ -397,15 +400,15 @@ export default function ReadyGateScreen() {
               }
               if (navigated) return;
             }
-            if (recovery.action === 'home' && recovery.reason === 'missing_event') {
+            if (recovery.action === 'go_home' && recovery.reason === 'missing_event') {
               explainInvalidToTabs();
               return;
             }
-            if (recovery.action === 'lobby' && recovery.reason !== 'not_date_ready') {
+            if (recovery.action === 'go_lobby' && recovery.reason !== 'not_date_ready') {
               router.replace(eventLobbyHref(recovery.eventId));
               return;
             }
-            if (recovery.action === 'lobby' && recovery.reason === 'not_date_ready') {
+            if (recovery.action === 'go_lobby' && recovery.reason === 'not_date_ready') {
               rcBreadcrumb(RC_CATEGORY.readyGate, 'standalone_snapshot_lobby_deferred_to_truth', {
                 session_id: sessionId,
                 event_id: recovery.eventId,
@@ -454,10 +457,16 @@ export default function ReadyGateScreen() {
         }
 
         const initialTruth = await fetchVideoSessionDateEntryTruthCoalesced(String(sessionId));
-        const initialDecision = decideVideoSessionRouteFromTruth(initialTruth);
-        const initialCanAttemptDaily = canAttemptDailyRoomFromVideoSessionTruth(initialTruth);
-        if (initialCanAttemptDaily || initialDecision !== 'navigate_ready') {
-          if (initialCanAttemptDaily || initialDecision === 'navigate_date') {
+        const initialRecovery = adviseVideoSessionTruthRecovery({
+          sessionId: String(sessionId),
+          eventId: session.event_id,
+          truth: initialTruth,
+          platform: 'native',
+          surface: 'ready_redirect',
+        });
+        const initialDecision = initialRecovery.routeDecision;
+        if (initialRecovery.action !== 'go_ready_gate') {
+          if (initialRecovery.action === 'go_date') {
             revealReadyUi = true;
           }
           await reconcileFromCanonicalTruth(`initial_truth_${initialDecision}`);

@@ -84,12 +84,11 @@ import {
   buildVideoDateTransitionIdempotencyKey,
 } from "@clientShared/matching/videoDateTransitionCommands";
 import {
-  canAttemptDailyRoomFromVideoSessionTruth,
-  decideVideoSessionRouteFromTruth,
   videoSessionHasEncounterExposureTruth,
   videoSessionHasPostDateSurveyTruth,
   videoSessionRowIndicatesHandshakeOrDate,
 } from "@clientShared/matching/activeSession";
+import { adviseVideoSessionTruthRecovery } from "@clientShared/matching/videoDateRecoveryAdvisor";
 import {
   VIDEO_DATE_HANDSHAKE_TRUTH_SELECT,
   handshakeDecisionFailureIndicatesSessionEnded,
@@ -709,12 +708,19 @@ const VideoDate = () => {
       ]);
       const vs = vsRes.data;
       const reg = regRes.data;
-      const decision = decideVideoSessionRouteFromTruth(vs);
-      const canAttemptDaily = canAttemptDailyRoomFromVideoSessionTruth(vs);
+      const recovery = adviseVideoSessionTruthRecovery({
+        sessionId: id,
+        eventId,
+        truth: vs,
+        platform: "web",
+        surface: "video_date",
+      });
+      const decision = recovery.routeDecision ?? "stay_lobby";
+      const canAttemptDaily = recovery.canAttemptDaily === true;
       const reason =
-        decision === "navigate_date"
+        recovery.action === "go_date"
           ? null
-          : decision === "ended"
+          : recovery.action === "show_terminal"
             ? "session_ended"
             : canAttemptDaily
               ? "video_truth_startable_after_refetch"
@@ -735,7 +741,7 @@ const VideoDate = () => {
         readyGateExpiresAt: vs?.ready_gate_expires_at ?? null,
       });
 
-      if (!canAttemptDaily && decision === "navigate_ready") {
+      if (!canAttemptDaily && recovery.action === "go_ready_gate") {
         const target = `/ready/${encodeURIComponent(id)}`;
         clearDateEntryTransition(id);
         logJourney("date_route_bounced", { reason: source, target }, `date_route_bounced_${source}`);
@@ -745,7 +751,7 @@ const VideoDate = () => {
       }
 
       const fallbackEventId = vs?.event_id ?? eventId;
-      if (!canAttemptDaily && decision === "stay_lobby" && fallbackEventId) {
+      if (!canAttemptDaily && recovery.action === "go_lobby" && fallbackEventId) {
         const target = `/event/${encodeURIComponent(fallbackEventId)}/lobby`;
         clearDateEntryTransition(id);
         logJourney("date_route_bounced", { reason: source, target }, `date_route_bounced_${source}`);
@@ -754,7 +760,7 @@ const VideoDate = () => {
         return true;
       }
 
-      if (decision === "ended") {
+      if (recovery.action === "show_terminal") {
         return recoverTerminalPostDateSurvey(`${source}_ended_truth`);
       }
 
@@ -1647,7 +1653,14 @@ const VideoDate = () => {
         const isP1 = sessionRow.participant_1_id === user.id;
         const isParticipant = isP1 || sessionRow.participant_2_id === user.id;
         const sessionIsDateCapable = videoSessionRowIndicatesHandshakeOrDate(sessionRow);
-        const canAttemptDaily = canAttemptDailyRoomFromVideoSessionTruth(sessionRow);
+        const routeRecovery = adviseVideoSessionTruthRecovery({
+          sessionId: id,
+          eventId: sessionRow.event_id,
+          truth: sessionRow,
+          platform: "web",
+          surface: "video_date",
+        });
+        const canAttemptDaily = routeRecovery.action === "go_date";
         if (!isParticipant) {
           vdbg("date_guard_blocked", {
             sessionId: id,

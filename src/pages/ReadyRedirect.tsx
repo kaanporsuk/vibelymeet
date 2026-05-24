@@ -8,14 +8,15 @@ import { useFeatureFlag } from "@/hooks/useFeatureFlag";
 import { fetchVideoDateSnapshot } from "@/lib/videoDateSnapshot";
 import { persistReadyGateSuppressionV2 } from "@/lib/videoDateReadiness";
 import ReadyGateOverlay from "@/components/lobby/ReadyGateOverlay";
-import { canAttemptDailyRoomFromVideoSessionTruth } from "@clientShared/matching/activeSession";
-import { resolveVideoDateSnapshotRecovery } from "@clientShared/matching/videoDateTimeline";
+import {
+  adviseVideoDateSnapshotRecovery,
+  adviseVideoSessionTruthRecovery,
+} from "@clientShared/matching/videoDateRecoveryAdvisor";
 import {
   READY_GATE_DEEP_LINK_INVALID_USER_MESSAGE,
   READY_GATE_STALE_OR_ENDED_USER_MESSAGE,
 } from "@shared/matching/videoSessionFlow";
 
-const READY_GATE_HOSTABLE_STATUSES = new Set(["ready", "ready_a", "ready_b", "both_ready", "snoozed"]);
 const READY_GATE_MANUAL_EXIT_SUPPRESS_MS = 45_000;
 
 type ReadyRouteState =
@@ -91,21 +92,25 @@ const ReadyRedirect = () => {
       if (snapshotV2.enabled) {
         const snapshot = await fetchVideoDateSnapshot(candidate, { includeToken: false });
         if (cancelled) return;
-        const recovery = resolveVideoDateSnapshotRecovery(snapshot, { expectedSessionId: candidate });
+        const recovery = adviseVideoDateSnapshotRecovery(snapshot, {
+          expectedSessionId: candidate,
+          platform: "web",
+          surface: "ready_redirect",
+        });
         const snapshotEventId = snapshot.ok ? snapshot.eventId : null;
 
-        if (recovery.action === "date" || recovery.action === "survey") {
+        if (recovery.action === "go_date" || recovery.action === "go_survey") {
           setRouteState({ kind: "redirecting" });
           navigateToDate(recovery.sessionId);
           return;
         }
 
-        if (recovery.action === "ready_gate") {
+        if (recovery.action === "go_ready_gate") {
           setRouteState({ kind: "hosting", eventId: recovery.eventId });
           return;
         }
 
-        if (recovery.action === "lobby") {
+        if (recovery.action === "go_lobby") {
           if (recovery.reason === "ended") {
             notifyOnce(READY_GATE_STALE_OR_ENDED_USER_MESSAGE);
           }
@@ -114,7 +119,7 @@ const ReadyRedirect = () => {
           return;
         }
 
-        if (recovery.action === "home" && recovery.reason === "missing_event") {
+        if (recovery.action === "go_home" && recovery.reason === "missing_event") {
           notifyOnce(READY_GATE_DEEP_LINK_INVALID_USER_MESSAGE);
           setRouteState({ kind: "redirecting" });
           navigate("/events", { replace: true });
@@ -171,22 +176,20 @@ const ReadyRedirect = () => {
         return;
       }
 
-      if (canAttemptDailyRoomFromVideoSessionTruth(session)) {
+      const recovery = adviseVideoSessionTruthRecovery({
+        sessionId: candidate,
+        eventId: session.event_id,
+        truth: session,
+        platform: "web",
+        surface: "ready_redirect",
+      });
+      if (recovery.action === "go_date") {
         setRouteState({ kind: "redirecting" });
         navigateToDate(candidate);
         return;
       }
 
-      const { data: reg } = await supabase
-        .from("event_registrations")
-        .select("queue_status")
-        .eq("event_id", session.event_id)
-        .eq("profile_id", user.id)
-        .maybeSingle();
-
-      if (cancelled) return;
-
-      if (reg?.queue_status === "in_ready_gate" || READY_GATE_HOSTABLE_STATUSES.has(String(session.ready_gate_status))) {
+      if (recovery.action === "go_ready_gate") {
         setRouteState({ kind: "hosting", eventId: session.event_id });
         return;
       }

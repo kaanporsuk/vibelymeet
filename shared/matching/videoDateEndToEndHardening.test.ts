@@ -2245,21 +2245,25 @@ test("backend post-date router returns the standalone Ready Gate route label", (
 
 test("web standalone Ready Gate hosts the overlay instead of bouncing through lobby", () => {
   assert.match(webReadyRedirect, /import ReadyGateOverlay/);
-  assert.match(webReadyRedirect, /recovery\.action === "ready_gate"[\s\S]+setRouteState\(\{ kind: "hosting", eventId: recovery\.eventId \}\)/);
-  assert.match(webReadyRedirect, /READY_GATE_HOSTABLE_STATUSES/);
+  assert.match(webReadyRedirect, /recovery\.action === "go_ready_gate"[\s\S]+setRouteState\(\{ kind: "hosting", eventId: recovery\.eventId \}\)/);
+  assert.match(webReadyRedirect, /adviseVideoSessionTruthRecovery/);
+  assert.match(webReadyRedirect, /if \(recovery\.action === "go_ready_gate"\) \{[\s\S]*setRouteState\(\{ kind: "hosting", eventId: session\.event_id \}\)/);
+  assert.doesNotMatch(webReadyRedirect, /READY_GATE_HOSTABLE_STATUSES/);
+  assert.doesNotMatch(webReadyRedirect, /reg\?\.queue_status === "in_ready_gate"/);
   assert.match(webReadyRedirect, /persistReadyGateSuppressionV2/);
   assert.match(webReadyRedirect, /<ReadyGateOverlay/);
   assert.match(webReadyRedirect, /onNavigateToDate=\{\(nextSessionId\) => navigateToDate\(nextSessionId\)\}/);
   assert.match(webReadyRedirect, /onManualExitConfirmed=\{suppressReadyGateSessionAfterManualExit\}/);
-  assert.doesNotMatch(webReadyRedirect, /recovery\.action === "ready_gate" \|\| recovery\.action === "lobby"/);
+  assert.doesNotMatch(webReadyRedirect, /recovery\.action === "go_ready_gate" \|\| recovery\.action === "go_lobby"/);
 });
 
 test("notification date deep links require provider-prepared truth before routing to date", () => {
   assert.match(notificationDeepLinkHandler, /markVideoDateEntryPipelineStarted/);
   assert.match(
     notificationDeepLinkHandler,
-    /if \(canAttemptDaily \|\| truthDecision === 'navigate_date'\) \{[\s\S]*markVideoDateEntryPipelineStarted\(sid\)[\s\S]*return videoDateHref\(sid\);/s,
+    /if \(recovery\.action === 'go_date'\) \{[\s\S]*markVideoDateEntryPipelineStarted\(sid\)[\s\S]*return videoDateHref\(sid\);/s,
   );
+  assert.match(notificationDeepLinkHandler, /adviseVideoSessionTruthRecovery/);
   assert.match(notificationDeepLinkHandler, /if \(!vs\) return tabsRootHref\(\);/);
   assert.match(notificationDeepLinkHandler, /if \(!isParticipant\) return tabsRootHref\(\);/);
   assert.match(notificationDeepLinkHandler, /ended_reason, state, phase, handshake_started_at, date_started_at, participant_1_joined_at, participant_2_joined_at/);

@@ -39,12 +39,7 @@ import {
   type DailyRoomFailureKind,
 } from "@clientShared/matching/dailyRoomFailure";
 import type { PreparedVideoDateEntryCacheEntry } from "@clientShared/matching/videoDatePrepareEntry";
-import {
-  isVideoDateDailyTokenFault,
-  isVideoDateDailyTokenJoinError,
-  shouldRefreshVideoDateTokenBeforeJoin,
-  videoDateTokenRefreshDelayMs,
-} from "@clientShared/matching/videoDatePublicApi";
+import { adviseVideoDateTokenRecovery } from "@clientShared/matching/videoDateRecoveryAdvisor";
 import {
   VIDEO_DATE_WEB_CAPTURE_PROFILE_ORDER,
   isVideoDateCameraConstraintError,
@@ -3062,7 +3057,14 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
           return true;
         };
 
-        if (shouldRefreshVideoDateTokenBeforeJoin(roomData.token_expires_at)) {
+        if (
+          adviseVideoDateTokenRecovery({
+            trigger: "before_join",
+            tokenExpiresAtIso: roomData.token_expires_at,
+            platform: "web",
+            surface: "video_date",
+          }).action === "refresh_token"
+        ) {
           await refreshDailyTokenForJoin("daily_token_refresh_before_join");
         }
 
@@ -3496,7 +3498,15 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
 
         const scheduleDailyTokenRefresh = (source: string) => {
           clearDailyTokenRefreshTimer();
-          const delayMs = videoDateTokenRefreshDelayMs(roomData.token_expires_at);
+          const tokenRecovery = adviseVideoDateTokenRecovery({
+            trigger: "active_refresh_timer",
+            tokenExpiresAtIso: roomData.token_expires_at,
+            platform: "web",
+            surface: "video_date",
+          });
+          const delayMs = tokenRecovery.action === "refresh_token"
+            ? tokenRecovery.retryAfterMs ?? 0
+            : null;
           if (delayMs == null) {
             vdbg("daily_token_refresh_schedule_skipped", {
               sessionId,
@@ -3504,7 +3514,7 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
               userId,
               roomName: roomData.room_name,
               source,
-              reason: "missing_token_expiry",
+              reason: tokenRecovery.reason,
             });
             return;
           }
@@ -3862,10 +3872,17 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
             roomName: roomData.room_name,
             errorMsg: errorMsg ?? null,
           });
-          if (isVideoDateDailyTokenFault(event)) {
-            const sourceAction = (errorMsg ?? "").toLowerCase().includes("eject")
-              ? "daily_token_refresh_after_ejection"
-              : "daily_token_refresh_after_auth_error";
+          const sourceAction = (errorMsg ?? "").toLowerCase().includes("eject")
+            ? "daily_token_refresh_after_ejection"
+            : "daily_token_refresh_after_auth_error";
+          if (
+            adviseVideoDateTokenRecovery({
+              trigger: sourceAction === "daily_token_refresh_after_ejection" ? "ejection" : "auth_error",
+              error: event,
+              platform: "web",
+              surface: "video_date",
+            }).action === "refresh_token"
+          ) {
             void recoverDailyTokenAndRejoin(sourceAction, event);
             return;
           }
@@ -3935,7 +3952,14 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
                 ? JSON.parse(JSON.stringify(event))
                 : String(event),
           });
-          if (isVideoDateDailyTokenFault(event)) {
+          if (
+            adviseVideoDateTokenRecovery({
+              trigger: "auth_error",
+              error: event,
+              platform: "web",
+              surface: "video_date",
+            }).action === "refresh_token"
+          ) {
             void recoverDailyTokenAndRejoin("daily_token_refresh_after_auth_error", event);
           }
         });
@@ -4163,7 +4187,14 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
           try {
             await callObject.join({ url: roomData.room_url, token: roomData.token });
           } catch (joinError) {
-            if (isVideoDateDailyTokenJoinError(joinError)) {
+            if (
+              adviseVideoDateTokenRecovery({
+                trigger: "auth_error",
+                error: joinError,
+                platform: "web",
+                surface: "video_date",
+              }).action === "refresh_token"
+            ) {
               const refreshed = await refreshDailyTokenForJoin("daily_token_refresh_join_retry", joinError);
               if (refreshed) {
                 await callObject.join({ url: roomData.room_url, token: roomData.token });

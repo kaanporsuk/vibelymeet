@@ -121,8 +121,9 @@ test("native latches and prepare-entry gates remain present", () => {
 
 test("push and media device QA targets remain backend/provider gated", () => {
   assert.match(nativeNotificationDeepLink, /fetchVideoSessionDateEntryTruth/);
-  assert.match(nativeNotificationDeepLink, /decideVideoSessionRouteFromTruth/);
-  assert.match(nativeNotificationDeepLink, /canAttemptDailyRoomFromVideoSessionTruth/);
+  assert.match(nativeNotificationDeepLink, /adviseVideoSessionTruthRecovery/);
+  assert.doesNotMatch(nativeNotificationDeepLink, /decideVideoSessionRouteFromTruth/);
+  assert.doesNotMatch(nativeNotificationDeepLink, /canAttemptDailyRoomFromVideoSessionTruth/);
   assert.match(nativeNotificationDeepLink, /readyGateHref\(sid\)/);
   assert.match(nativeNotificationDeepLink, /videoDateHref\(sid\)/);
   assert.match(nativeVibeVideoApi, /tus-js-client/);

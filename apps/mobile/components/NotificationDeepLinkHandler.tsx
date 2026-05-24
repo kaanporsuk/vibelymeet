@@ -23,11 +23,12 @@ import { supabase } from '@/lib/supabase';
 import { fetchVideoDateSnapshot } from '@/lib/videoDateSnapshot';
 import { fetchVideoSessionDateEntryTruth } from '@/lib/videoDateApi';
 import {
-  canAttemptDailyRoomFromVideoSessionTruth,
-  decideVideoSessionRouteFromTruth,
   videoSessionHasPostDateSurveyTruth,
 } from '@clientShared/matching/activeSession';
-import { resolveVideoDateSnapshotRecovery } from '@clientShared/matching/videoDateTimeline';
+import {
+  adviseVideoDateSnapshotRecovery,
+  adviseVideoSessionTruthRecovery,
+} from '@clientShared/matching/videoDateRecoveryAdvisor';
 import { clearDateEntryTransition, markVideoDateEntryPipelineStarted } from '@/lib/dateEntryTransitionLatch';
 import { useFeatureFlag } from '@/hooks/useFeatureFlag';
 import {
@@ -121,19 +122,23 @@ async function reconcileHrefWithRegistration(
 
   if (options?.snapshotRecoveryV2 === true) {
     const snapshot = await fetchVideoDateSnapshot(sid, { includeToken: false });
-    const recovery = resolveVideoDateSnapshotRecovery(snapshot, { expectedSessionId: sid });
-    if (recovery.action === 'date' || recovery.action === 'survey') {
+    const recovery = adviseVideoDateSnapshotRecovery(snapshot, {
+      expectedSessionId: sid,
+      platform: 'native',
+      surface: 'notification_deep_link',
+    });
+    if (recovery.action === 'go_date' || recovery.action === 'go_survey') {
       markVideoDateEntryPipelineStarted(recovery.sessionId);
       rcBreadcrumb(RC_CATEGORY.notifDeepLink, 'date_route_snapshot_recovery', {
         session_id: recovery.sessionId,
         event_id: recovery.eventId,
-        decision: recovery.action === 'survey' ? 'navigate_survey' : 'navigate_date',
+        decision: recovery.action === 'go_survey' ? 'navigate_survey' : 'navigate_date',
         reason: recovery.reason,
         routed_to: 'date',
       });
       return videoDateHref(recovery.sessionId);
     }
-    if (recovery.action === 'ready_gate' && recovery.reason === 'ready_gate') {
+    if (recovery.action === 'go_ready_gate' && recovery.reason === 'ready_gate') {
       clearDateEntryTransition(recovery.sessionId);
       rcBreadcrumb(RC_CATEGORY.notifDeepLink, 'date_route_snapshot_recovery', {
         session_id: recovery.sessionId,
@@ -144,10 +149,10 @@ async function reconcileHrefWithRegistration(
       });
       return readyGateHref(recovery.sessionId);
     }
-    if (recovery.action === 'lobby' && recovery.reason === 'not_date_ready') {
-      clearDateEntryTransition(recovery.sessionId);
+    if (recovery.action === 'go_lobby' && recovery.reason === 'not_date_ready') {
+      clearDateEntryTransition(recovery.sessionId ?? sid);
       rcBreadcrumb(RC_CATEGORY.notifDeepLink, 'date_route_snapshot_recovery', {
-        session_id: recovery.sessionId,
+        session_id: recovery.sessionId ?? sid,
         event_id: recovery.eventId,
         decision: 'stay_lobby',
         reason: recovery.reason,
@@ -155,7 +160,7 @@ async function reconcileHrefWithRegistration(
       });
       return eventLobbyHref(recovery.eventId);
     }
-    if (recovery.action === 'home' && recovery.reason === 'missing_event') {
+    if (recovery.action === 'go_home' && recovery.reason === 'missing_event') {
       clearDateEntryTransition(sid);
       return tabsRootHref();
     }
@@ -226,8 +231,15 @@ async function reconcileHrefWithRegistration(
 
   let reg = await fetchReg();
   let truth = await fetchVideoSessionDateEntryTruth(sid);
-  let truthDecision = decideVideoSessionRouteFromTruth(truth);
-  let canAttemptDaily = canAttemptDailyRoomFromVideoSessionTruth(truth);
+  let recovery = adviseVideoSessionTruthRecovery({
+    sessionId: sid,
+    eventId: String(vs.event_id),
+    truth,
+    platform: 'native',
+    surface: 'notification_deep_link',
+  });
+  let truthDecision = recovery.routeDecision;
+  let canAttemptDaily = recovery.canAttemptDaily === true;
 
   const emitDecision = (
     decision: 'navigate_date' | 'navigate_ready' | 'stay_lobby' | 'ended',
@@ -273,28 +285,35 @@ async function reconcileHrefWithRegistration(
     });
     reg = await fetchReg();
     truth = await fetchVideoSessionDateEntryTruth(sid);
-    truthDecision = decideVideoSessionRouteFromTruth(truth);
-    canAttemptDaily = canAttemptDailyRoomFromVideoSessionTruth(truth);
+    recovery = adviseVideoSessionTruthRecovery({
+      sessionId: sid,
+      eventId: String(vs.event_id),
+      truth,
+      platform: 'native',
+      surface: 'notification_deep_link',
+    });
+    truthDecision = recovery.routeDecision;
+    canAttemptDaily = recovery.canAttemptDaily === true;
   }
 
-  if (truthDecision === 'ended') {
+  if (recovery.action === 'show_terminal') {
     // Stale latch from a previous attempt would otherwise block `/date` route guards on
     // re-entry; clear here so the lobby/tabs landing is clean.
     clearDateEntryTransition(sid);
     emitDecision('ended', 'session_ended', 'lobby');
     return eventLobbyHref(vs.event_id as string);
   }
-  if (canAttemptDaily || truthDecision === 'navigate_date') {
+  if (recovery.action === 'go_date') {
     markVideoDateEntryPipelineStarted(sid);
     emitDecision('navigate_date', null, 'date');
     return videoDateHref(sid);
   }
-  if (truthDecision === 'navigate_ready') {
+  if (recovery.action === 'go_ready_gate') {
     clearDateEntryTransition(sid);
     emitDecision('navigate_ready', 'video_truth_not_startable', 'ready');
     return readyGateHref(sid);
   }
-  if (truthDecision === 'stay_lobby') {
+  if (recovery.action === 'go_lobby') {
     clearDateEntryTransition(sid);
     emitDecision('stay_lobby', 'video_truth_not_startable', 'lobby');
     rcBreadcrumb(RC_CATEGORY.notifDeepLink, needsQueuedRescue ? 'queued_session_rescue_fallback_lobby' : 'date_link_fallback_lobby', {
