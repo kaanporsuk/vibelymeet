@@ -19,6 +19,7 @@ export type VideoDateTokenRefreshError = {
   error: string;
   retryable?: boolean;
   phase?: string | null;
+  retryAfterSeconds?: number | null;
 };
 
 export type VideoDateTokenRefreshResult = VideoDateTokenRefreshOk | VideoDateTokenRefreshError;
@@ -177,6 +178,7 @@ export function normalizeVideoDateTokenRefresh(payload: unknown): VideoDateToken
       error: stringOrDefault(record.error, "token_refresh_failed"),
       retryable: typeof record.retryable === "boolean" ? record.retryable : undefined,
       phase: nullableString(record.phase),
+      retryAfterSeconds: nullableNumber(record.retryAfterSeconds ?? record.retry_after_seconds),
     };
   }
 

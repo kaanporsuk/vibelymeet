@@ -7,6 +7,7 @@ import {
   canReuseOpenMatchCallSameParticipants,
   classifyDeleteRoomSafety,
   isDailyRoomAlreadyExistsErrorText,
+  isDailyRoomUrlForName,
   isIncomingMatchCallForRequester,
   planDailyProviderRoomRecovery,
   resolveCanonicalVideoDateRoom,
@@ -16,6 +17,15 @@ import {
   type DateRoomAction,
   type OpenMatchCallForRetry,
 } from "./dailyRoomContracts.ts";
+import {
+  captureVideoDateProviderException,
+  enforceProviderRateLimit,
+  fetchWithTimeout,
+  parseRetryAfterSeconds,
+  providerFailureCode,
+  providerFetchTimeoutMs,
+  providerRateLimitConfig,
+} from "../_shared/video-date-provider-reliability.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -42,12 +52,23 @@ const DAILY_VIDEO_DATE_ROOM_TTL_SECONDS = 14_400;
 // refresh method after join. Keep video-date tokens finite but aligned with the
 // private provider room lifetime so users are not ejected mid-date by token exp.
 const DAILY_VIDEO_DATE_TOKEN_TTL_SECONDS = DAILY_VIDEO_DATE_ROOM_TTL_SECONDS;
-const DAILY_VIDEO_DATE_SOLO_PREJOIN_TOKEN_TTL_SECONDS = 60;
+const DAILY_VIDEO_DATE_SOLO_PREJOIN_TOKEN_TTL_SECONDS = 180;
 const DAILY_VIDEO_DATE_DIAGNOSTIC_TOKEN_TTL_SECONDS = 60;
 const DAILY_VIDEO_DATE_DIAGNOSTIC_ROOM_TTL_SECONDS = 10 * 60;
 const DAILY_VIDEO_DATE_PROVIDER_PROOF_FRESH_MS = 90_000;
 const DAILY_VIDEO_DATE_PROVIDER_PROOF_CLOCK_SKEW_MS = 5_000;
 const EDGE_PROCESS_STARTED_AT_MS = Date.now();
+
+let providerReliabilityClient: any = null;
+
+function getProviderReliabilityClient(): any {
+  if (providerReliabilityClient) return providerReliabilityClient;
+  const supabaseUrl = Deno.env.get("SUPABASE_URL")?.trim();
+  const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")?.trim();
+  if (!supabaseUrl || !serviceRoleKey) return null;
+  providerReliabilityClient = createClient(supabaseUrl, serviceRoleKey);
+  return providerReliabilityClient;
+}
 
 type VideoDateRoomGateSession = {
   id: string;
@@ -142,6 +163,55 @@ class DailyProviderError extends Error {
 
 function isDailyProviderError(error: unknown): error is DailyProviderError {
   return error instanceof DailyProviderError;
+}
+
+async function dailyProviderFetch(
+  operation: DailyProviderOperation,
+  bucket: string,
+  input: string,
+  init: RequestInit,
+  roomName?: string | null,
+): Promise<Response> {
+  const reliabilityClient = getProviderReliabilityClient();
+  if (!reliabilityClient) {
+    throw new DailyProviderError({
+      operation,
+      status: null,
+      providerCode: "provider_reliability_client_missing",
+      roomName,
+      vibelyCode: "DAILY_PROVIDER_UNAVAILABLE",
+      httpStatus: 503,
+      clientMessage: "Video service temporarily unavailable.",
+    });
+  }
+
+  try {
+    await enforceProviderRateLimit(reliabilityClient, providerRateLimitConfig("daily", bucket));
+    return await fetchWithTimeout(input, init, {
+      provider: "daily",
+      operation,
+      timeoutMs: providerFetchTimeoutMs("daily", operation),
+      retryAfterSeconds: 30,
+    });
+  } catch (error) {
+    await captureVideoDateProviderException(error, {
+      provider: "daily",
+      operation,
+      room_name: roomName ?? null,
+      provider_code: providerFailureCode(error),
+    });
+    throw new DailyProviderError({
+      operation,
+      status: null,
+      providerCode: providerFailureCode(error),
+      roomName,
+      vibelyCode: providerFailureCode(error) === "provider_rate_limited"
+        ? "DAILY_RATE_LIMIT"
+        : "DAILY_PROVIDER_UNAVAILABLE",
+      httpStatus: 503,
+      clientMessage: "Video service temporarily unavailable.",
+    });
+  }
 }
 
 function sanitizeEntryAttemptId(value: unknown): string | null {
@@ -979,7 +1049,7 @@ async function createMeetingToken(
   retries = 2,
   options: { ejectAtTokenExp?: boolean } = {},
 ): Promise<string> {
-  const res = await fetch(`${DAILY_API_URL}/meeting-tokens`, {
+  const res = await dailyProviderFetch("create_token", "meeting_token", `${DAILY_API_URL}/meeting-tokens`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -993,10 +1063,10 @@ async function createMeetingToken(
         ejectAtTokenExp: options.ejectAtTokenExp,
       }),
     }),
-  });
+  }, roomName);
 
   if (res.status === 429 && retries > 0) {
-    await new Promise((r) => setTimeout(r, 1000 * (3 - retries)));
+    await new Promise((r) => setTimeout(r, parseRetryAfterSeconds(res.headers, 3 - retries) * 1000));
     return createMeetingToken(roomName, userId, expSeconds, retries - 1, options);
   }
 
@@ -1026,25 +1096,25 @@ async function createDailyRoom(
   roomName: string,
   props: Record<string, unknown>,
   retries = 2
-): Promise<{ url: string; name: string; alreadyExisted?: boolean }> {
-  const res = await fetch(`${DAILY_API_URL}/rooms`, {
+): Promise<{ url: string; name: string; expiresAt: string | null; alreadyExisted?: boolean }> {
+  const res = await dailyProviderFetch("create_room", "room_create", `${DAILY_API_URL}/rooms`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
       Authorization: `Bearer ${DAILY_API_KEY}`,
     },
     body: JSON.stringify({ name: roomName, privacy: "private", properties: props }),
-  });
+  }, roomName);
 
   if (res.status === 429 && retries > 0) {
-    await new Promise((r) => setTimeout(r, 1000 * (3 - retries)));
+    await new Promise((r) => setTimeout(r, parseRetryAfterSeconds(res.headers, 3 - retries) * 1000));
     return createDailyRoom(roomName, props, retries - 1);
   }
 
   if (res.status === 400) {
     const errBody = await readDailyProviderErrorBody(res);
     if (isDailyRoomAlreadyExistsErrorText(errBody.text)) {
-      return { url: `https://${DAILY_DOMAIN}/${roomName}`, name: roomName, alreadyExisted: true };
+      return { url: `https://${DAILY_DOMAIN}/${roomName}`, name: roomName, expiresAt: null, alreadyExisted: true };
     }
     throw await dailyProviderErrorFromResponse(res, "create_room", roomName);
   }
@@ -1053,8 +1123,37 @@ async function createDailyRoom(
     throw await dailyProviderErrorFromResponse(res, "create_room", roomName);
   }
 
-  const room = await res.json();
-  return { url: room.url, name: room.name, alreadyExisted: false };
+  const room = (await res.json().catch(() => null)) as {
+    url?: unknown;
+    name?: unknown;
+    config?: { exp?: unknown; max_participants?: unknown };
+  } | null;
+  const exp = room?.config?.exp;
+  const expectedMaxParticipants =
+    typeof props.max_participants === "number" ? props.max_participants : null;
+  if (
+    typeof room?.url !== "string" ||
+    !isDailyRoomUrlForName(room.url, roomName, DAILY_DOMAIN) ||
+    typeof room?.name !== "string" ||
+    room.name !== roomName ||
+    typeof exp !== "number" ||
+    !Number.isFinite(exp) ||
+    exp <= Math.floor(Date.now() / 1000) ||
+    (
+      expectedMaxParticipants !== null &&
+      room.config?.max_participants !== expectedMaxParticipants
+    )
+  ) {
+    throw new DailyProviderError({
+      operation: "create_room",
+      status: res.status,
+      roomName,
+      vibelyCode: "DAILY_PROVIDER_ERROR",
+      httpStatus: 503,
+      clientMessage: "Video service temporarily unavailable.",
+    });
+  }
+  return { url: room.url, name: room.name, expiresAt: new Date(exp * 1000).toISOString(), alreadyExisted: false };
 }
 
 async function getDailyRoomProviderState(roomName: string, retries = 2): Promise<{
@@ -1062,13 +1161,13 @@ async function getDailyRoomProviderState(roomName: string, retries = 2): Promise
   expired: boolean;
   expiresAt: string | null;
 }> {
-  const res = await fetch(`${DAILY_API_URL}/rooms/${encodeURIComponent(roomName)}`, {
+  const res = await dailyProviderFetch("lookup_room", "room_lookup", `${DAILY_API_URL}/rooms/${encodeURIComponent(roomName)}`, {
     method: "GET",
     headers: { Authorization: `Bearer ${DAILY_API_KEY}` },
-  });
+  }, roomName);
 
   if (res.status === 429 && retries > 0) {
-    await new Promise((r) => setTimeout(r, 1000 * (3 - retries)));
+    await new Promise((r) => setTimeout(r, parseRetryAfterSeconds(res.headers, 3 - retries) * 1000));
     return getDailyRoomProviderState(roomName, retries - 1);
   }
 
@@ -1095,12 +1194,12 @@ async function deleteDailyRoom(
   retries = 2,
 ): Promise<DeleteDailyRoomOutcome> {
   try {
-    const res = await fetch(`${DAILY_API_URL}/rooms/${encodeURIComponent(roomName)}`, {
+    const res = await dailyProviderFetch("delete_room", "room_delete", `${DAILY_API_URL}/rooms/${encodeURIComponent(roomName)}`, {
       method: "DELETE",
       headers: { Authorization: `Bearer ${DAILY_API_KEY}` },
-    });
+    }, roomName);
     if (res.status === 429 && retries > 0) {
-      await new Promise((r) => setTimeout(r, 1000 * (3 - retries)));
+      await new Promise((r) => setTimeout(r, parseRetryAfterSeconds(res.headers, 3 - retries) * 1000));
       return deleteDailyRoom(roomName, options, retries - 1);
     }
     if (res.ok) return "deleted";
@@ -1356,7 +1455,7 @@ async function ensureVideoDateProviderRoomForToken(params: {
       dailyRoomExpiresAt = verifiedExisting.expiresAt ?? null;
       providerVerifyReason = verifiedExisting.expired ? "provider_expired" : "provider_already_exists_after_create";
     } else {
-      dailyRoomExpiresAt = new Date(Date.now() + DAILY_VIDEO_DATE_ROOM_TTL_SECONDS * 1000).toISOString();
+      dailyRoomExpiresAt = providerRoom.expiresAt;
     }
     await recordVideoDateProviderObservability({
       serviceClient: params.serviceClient,

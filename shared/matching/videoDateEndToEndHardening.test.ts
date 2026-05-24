@@ -882,7 +882,7 @@ test("daily-room supports room-only warmup without token issuance or entry trans
 
 test("daily-room solo prejoin is token-only and never route-confirms the session", () => {
   assert.match(dailyRoomContracts, /"prepare_solo_entry"/);
-  assert.match(dailyRoomFunction, /DAILY_VIDEO_DATE_SOLO_PREJOIN_TOKEN_TTL_SECONDS = 60/);
+  assert.match(dailyRoomFunction, /DAILY_VIDEO_DATE_SOLO_PREJOIN_TOKEN_TTL_SECONDS = 180/);
   assert.match(dailyRoomFunction, /function canIssueSoloPrejoinVideoDateToken/);
   assert.match(dailyRoomFunction, /session\.ready_gate_expires_at \? Date\.parse\(session\.ready_gate_expires_at\) : NaN/);
   assert.match(dailyRoomFunction, /expiresAtMs <= Date\.now\(\)/);

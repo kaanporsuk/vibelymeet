@@ -1,6 +1,12 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { buildMeetingTokenProperties } from "../daily-room/dailyRoomContracts.ts";
+import {
+  fetchWithTimeout,
+  parseRetryAfterSeconds,
+  ProviderRateLimitError,
+  providerFetchTimeoutMs,
+} from "../_shared/video-date-provider-reliability.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -34,7 +40,31 @@ function jsonResponse(payload: unknown, status = 200): Response {
   });
 }
 
-async function createMeetingToken(roomName: string, userId: string): Promise<{
+async function enforceTokenRefreshRateLimit(supabase: any): Promise<void> {
+  const { data, error } = await supabase.rpc("take_video_date_token_refresh_rate_limit_v1");
+  if (error) throw new Error("daily_token_rate_limit_check_failed");
+  const payload = (data ?? {}) as { ok?: boolean; error?: string; retryAfterSeconds?: number; scope?: string };
+  if (payload.ok !== true) {
+    const clientError =
+      typeof payload.error === "string" && /^[A-Za-z0-9_.:-]{1,80}$/.test(payload.error)
+        ? payload.error
+        : "provider_rate_limited";
+    const bucket = payload.scope === "user" ? "meeting_token_refresh_user" : "meeting_token_refresh";
+    throw new ProviderRateLimitError(
+      "daily",
+      bucket,
+      typeof payload.retryAfterSeconds === "number" ? payload.retryAfterSeconds : 30,
+      clientError,
+    );
+  }
+}
+
+async function createMeetingToken(
+  supabase: any,
+  roomName: string,
+  userId: string,
+  retries = 1,
+): Promise<{
   token: string;
   tokenExpiresAtMs: number;
   tokenExpiresAtIso: string;
@@ -43,7 +73,8 @@ async function createMeetingToken(roomName: string, userId: string): Promise<{
 
   const issuedAtMs = Date.now();
   const tokenExpiresAtMs = issuedAtMs + DAILY_VIDEO_DATE_TOKEN_TTL_SECONDS * 1000;
-  const response = await fetch(`${DAILY_API_URL}/meeting-tokens`, {
+  await enforceTokenRefreshRateLimit(supabase);
+  const response = await fetchWithTimeout(`${DAILY_API_URL}/meeting-tokens`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -58,7 +89,16 @@ async function createMeetingToken(roomName: string, userId: string): Promise<{
         ejectAtTokenExp: true,
       }),
     }),
+  }, {
+    provider: "daily",
+    operation: "token_refresh",
+    timeoutMs: providerFetchTimeoutMs("daily", "token_refresh"),
   });
+
+  if (response.status === 429 && retries > 0) {
+    await new Promise((resolve) => setTimeout(resolve, parseRetryAfterSeconds(response.headers, 2) * 1000));
+    return createMeetingToken(supabase, roomName, userId, retries - 1);
+  }
 
   if (!response.ok) {
     console.error(JSON.stringify({
@@ -149,7 +189,7 @@ serve(async (req) => {
   }
 
   try {
-    const tokenResult = await createMeetingToken(roomName, user.id);
+    const tokenResult = await createMeetingToken(supabase, roomName, user.id);
     return jsonResponse({
       ok: true,
       session_id: sessionId,
@@ -162,6 +202,15 @@ serve(async (req) => {
       tokenExpiresAt: tokenResult.tokenExpiresAtMs,
     });
   } catch (tokenError) {
+    if (tokenError instanceof ProviderRateLimitError) {
+      return jsonResponse({
+        ok: false,
+        error: tokenError.clientError,
+        retryable: true,
+        retry_after_seconds: tokenError.retryAfterSeconds,
+        retryAfterSeconds: tokenError.retryAfterSeconds,
+      }, 429);
+    }
     console.error(JSON.stringify({
       event: "video_date_token_refresh_failed",
       session_id: sessionId,

@@ -1,9 +1,27 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import {
   isDailyRoomAlreadyExistsErrorText,
+  isDailyRoomUrlForName,
   videoDateRoomNameForSession,
   videoDateRoomUrlForName,
 } from "../daily-room/dailyRoomContracts.ts";
+import {
+  beginWorkerRun,
+  captureVideoDateProviderException,
+  createClaimLeaseRefresher,
+  createWorkerRunRefresher,
+  deadLetterVideoDateProviderFailure,
+  enforceProviderRateLimit,
+  fetchWithTimeout,
+  finishWorkerRun,
+  logVideoDateProviderFailure,
+  parseRetryAfterSeconds,
+  providerFailureCode,
+  providerFailureMessage,
+  providerFailureRetryAfter,
+  providerFetchTimeoutMs,
+  providerRateLimitConfig,
+} from "../_shared/video-date-provider-reliability.ts";
 
 const corsHeaders: Record<string, string> = {
   "Access-Control-Allow-Origin": "*",
@@ -13,6 +31,7 @@ const corsHeaders: Record<string, string> = {
 const DAILY_API_URL = "https://api.daily.co/v1";
 const DAILY_DOMAIN = Deno.env.get("DAILY_DOMAIN")?.trim() || "vibelyapp.daily.co";
 const DAILY_VIDEO_DATE_ROOM_TTL_SECONDS = 14_400;
+const WORKER_KIND = "video-date-outbox-drainer";
 
 type WorkerRequest = {
   batch_size?: number;
@@ -45,6 +64,14 @@ type VideoSessionRoomRow = {
 type ProcessResult =
   | { success: true; reason: string; permanent?: false }
   | { success: false; reason: string; retryAfterSeconds?: number; permanent?: boolean };
+
+type CompletionResult = {
+  ok: boolean;
+  state: "done" | "pending" | "failed" | string | null;
+  permanent: boolean;
+  retryAfterSeconds: number | null;
+  error?: string | null;
+};
 
 // Edge workers call migration-defined RPCs before generated Supabase DB types
 // know about them. Keep this service client dynamic and constrain payloads at
@@ -219,7 +246,12 @@ function providerRetryAfter(status: number | null): number {
   return 120;
 }
 
-async function getDailyRoomState(roomName: string, retries = 2): Promise<{
+async function getDailyRoomState(
+  supabase: SupabaseServiceClient,
+  roomName: string,
+  retries = 2,
+  signal?: AbortSignal,
+): Promise<{
   exists: boolean;
   expired: boolean;
   expiresAt: string | null;
@@ -227,13 +259,19 @@ async function getDailyRoomState(roomName: string, retries = 2): Promise<{
   const headers = dailyHeaders();
   if (!headers) throw new Error("daily_api_key_missing");
 
-  const res = await fetch(`${DAILY_API_URL}/rooms/${encodeURIComponent(roomName)}`, {
+  await enforceProviderRateLimit(supabase, providerRateLimitConfig("daily", "room_lookup"));
+  const res = await fetchWithTimeout(`${DAILY_API_URL}/rooms/${encodeURIComponent(roomName)}`, {
     method: "GET",
     headers,
+  }, {
+    provider: "daily",
+    operation: "room_lookup",
+    timeoutMs: providerFetchTimeoutMs("daily", "room_lookup"),
+    signal,
   });
   if (res.status === 429 && retries > 0) {
-    await new Promise((resolve) => setTimeout(resolve, 1000 * (3 - retries)));
-    return getDailyRoomState(roomName, retries - 1);
+    await new Promise((resolve) => setTimeout(resolve, parseRetryAfterSeconds(res.headers, 3 - retries) * 1000));
+    return getDailyRoomState(supabase, roomName, retries - 1, signal);
   }
   if (res.status === 404) return { exists: false, expired: false, expiresAt: null };
   if (!res.ok) {
@@ -250,7 +288,12 @@ async function getDailyRoomState(roomName: string, retries = 2): Promise<{
   };
 }
 
-async function createDailyRoom(roomName: string, retries = 2): Promise<{
+async function createDailyRoom(
+  supabase: SupabaseServiceClient,
+  roomName: string,
+  retries = 2,
+  signal?: AbortSignal,
+): Promise<{
   roomName: string;
   roomUrl: string;
   expiresAt: string | null;
@@ -259,15 +302,21 @@ async function createDailyRoom(roomName: string, retries = 2): Promise<{
   const headers = dailyHeaders();
   if (!headers) throw new Error("daily_api_key_missing");
   const properties = dailyRoomProperties();
-  const res = await fetch(`${DAILY_API_URL}/rooms`, {
+  await enforceProviderRateLimit(supabase, providerRateLimitConfig("daily", "room_create"));
+  const res = await fetchWithTimeout(`${DAILY_API_URL}/rooms`, {
     method: "POST",
     headers,
     body: JSON.stringify({ name: roomName, privacy: "private", properties }),
+  }, {
+    provider: "daily",
+    operation: "room_create",
+    timeoutMs: providerFetchTimeoutMs("daily", "room_create"),
+    signal,
   });
 
   if (res.status === 429 && retries > 0) {
-    await new Promise((resolve) => setTimeout(resolve, 1000 * (3 - retries)));
-    return createDailyRoom(roomName, retries - 1);
+    await new Promise((resolve) => setTimeout(resolve, parseRetryAfterSeconds(res.headers, 3 - retries) * 1000));
+    return createDailyRoom(supabase, roomName, retries - 1, signal);
   }
 
   if (res.status === 400) {
@@ -288,26 +337,53 @@ async function createDailyRoom(roomName: string, retries = 2): Promise<{
     throw new Error(`daily_create_failed:${res.status}:${providerCode ?? "unknown"}`);
   }
 
-  const body = (await res.json().catch(() => null)) as { name?: unknown; url?: unknown; config?: { exp?: unknown } } | null;
-  const exp = typeof body?.config?.exp === "number" ? body.config.exp : Number(properties.exp);
+  const body = (await res.json().catch(() => null)) as {
+    name?: unknown;
+    url?: unknown;
+    config?: { exp?: unknown; max_participants?: unknown };
+  } | null;
+  const exp = body?.config?.exp;
+  if (
+    typeof body?.name !== "string" ||
+    body.name !== roomName ||
+    typeof body?.url !== "string" ||
+    !isDailyRoomUrlForName(body.url, roomName, DAILY_DOMAIN) ||
+    typeof exp !== "number" ||
+    !Number.isFinite(exp) ||
+    exp <= Math.floor(Date.now() / 1000) ||
+    body.config?.max_participants !== 2
+  ) {
+    throw new Error("daily_create_failed:invalid_room_response");
+  }
   return {
-    roomName: typeof body?.name === "string" ? body.name : roomName,
-    roomUrl: typeof body?.url === "string" ? body.url : videoDateRoomUrlForName(roomName, DAILY_DOMAIN),
-    expiresAt: Number.isFinite(exp) ? new Date(exp * 1000).toISOString() : null,
+    roomName: body.name,
+    roomUrl: body.url,
+    expiresAt: new Date(exp * 1000).toISOString(),
     alreadyExisted: false,
   };
 }
 
-async function deleteDailyRoom(roomName: string, retries = 2): Promise<"deleted" | "not_found_idempotent"> {
+async function deleteDailyRoom(
+  supabase: SupabaseServiceClient,
+  roomName: string,
+  retries = 2,
+  signal?: AbortSignal,
+): Promise<"deleted" | "not_found_idempotent"> {
   const headers = dailyHeaders();
   if (!headers) throw new Error("daily_api_key_missing");
-  const res = await fetch(`${DAILY_API_URL}/rooms/${encodeURIComponent(roomName)}`, {
+  await enforceProviderRateLimit(supabase, providerRateLimitConfig("daily", "room_delete"));
+  const res = await fetchWithTimeout(`${DAILY_API_URL}/rooms/${encodeURIComponent(roomName)}`, {
     method: "DELETE",
     headers,
+  }, {
+    provider: "daily",
+    operation: "room_delete",
+    timeoutMs: providerFetchTimeoutMs("daily", "room_delete"),
+    signal,
   });
   if (res.status === 429 && retries > 0) {
-    await new Promise((resolve) => setTimeout(resolve, 1000 * (3 - retries)));
-    return deleteDailyRoom(roomName, retries - 1);
+    await new Promise((resolve) => setTimeout(resolve, parseRetryAfterSeconds(res.headers, 3 - retries) * 1000));
+    return deleteDailyRoom(supabase, roomName, retries - 1, signal);
   }
   if (res.ok) return "deleted";
   if (res.status === 404) return "not_found_idempotent";
@@ -318,6 +394,7 @@ async function deleteDailyRoom(roomName: string, retries = 2): Promise<"deleted"
 async function ensureVideoDateRoom(
   supabase: SupabaseServiceClient,
   row: OutboxRow,
+  signal?: AbortSignal,
 ): Promise<ProcessResult> {
   const sessionId = row.session_id ?? stringField(row.payload, "sessionId", "session_id");
   if (!sessionId) return { success: false, reason: "missing_session_id", permanent: true };
@@ -336,7 +413,7 @@ async function ensureVideoDateRoom(
     const terminalRoomName = requestedRoomName ?? session.daily_room_name;
     if (terminalRoomName) {
       try {
-        await deleteDailyRoom(terminalRoomName);
+        await deleteDailyRoom(supabase, terminalRoomName, 2, signal);
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         const statusMatch = message.match(/:(\d{3}):/);
@@ -359,20 +436,20 @@ async function ensureVideoDateRoom(
   const canonicalUrl = videoDateRoomUrlForName(roomName, DAILY_DOMAIN);
 
   try {
-    const providerState = await getDailyRoomState(roomName);
+    const providerState = await getDailyRoomState(supabase, roomName, 2, signal);
     let roomUrl =
-      session.daily_room_url && session.daily_room_url.endsWith(`/${roomName}`)
+      session.daily_room_url && isDailyRoomUrlForName(session.daily_room_url, roomName, DAILY_DOMAIN)
         ? session.daily_room_url
         : canonicalUrl;
     let expiresAt = providerState.expiresAt;
     let reason = providerState.exists ? "provider_room_exists" : "provider_room_created";
 
     if (providerState.expired) {
-      await deleteDailyRoom(roomName);
+      await deleteDailyRoom(supabase, roomName, 2, signal);
     }
 
     if (!providerState.exists || providerState.expired) {
-      const created = await createDailyRoom(roomName);
+      const created = await createDailyRoom(supabase, roomName, 2, signal);
       roomUrl = created.roomUrl;
       expiresAt = created.expiresAt;
       reason = created.alreadyExisted ? "provider_room_already_existed" : "provider_room_created";
@@ -394,7 +471,7 @@ async function ensureVideoDateRoom(
 
     if (updateError) return { success: false, reason: "session_room_update_failed", retryAfterSeconds: 30 };
     if (!updatedSession) {
-      await deleteDailyRoom(roomName);
+      await deleteDailyRoom(supabase, roomName, 2, signal);
       return { success: true, reason: "skipped_terminal_after_provider_verify" };
     }
     return { success: true, reason };
@@ -414,6 +491,7 @@ async function ensureVideoDateRoom(
 async function deleteVideoDateRoom(
   supabase: SupabaseServiceClient,
   row: OutboxRow,
+  signal?: AbortSignal,
 ): Promise<ProcessResult> {
   const sessionId = row.session_id ?? stringField(row.payload, "sessionId", "session_id");
   let roomName = stringField(row.payload, "roomName", "room_name");
@@ -436,7 +514,7 @@ async function deleteVideoDateRoom(
   if (!roomName) return { success: true, reason: "missing_room_name_noop" };
 
   try {
-    const outcome = await deleteDailyRoom(roomName);
+    const outcome = await deleteDailyRoom(supabase, roomName, 2, signal);
     if (sessionId && session && (session.ended_at || session.state === "ended" || session.phase === "ended")) {
       await supabase
         .from("video_sessions")
@@ -462,6 +540,7 @@ async function sendNotification(
   supabaseUrl: string,
   serviceKey: string,
   row: OutboxRow,
+  signal?: AbortSignal,
 ): Promise<ProcessResult> {
   const userId = stringField(row.payload, "user_id", "userId");
   const category = stringField(row.payload, "category", "type");
@@ -488,13 +567,18 @@ async function sendNotification(
   if (typeof row.payload.actorId === "string") requestBody.actor_id = row.payload.actorId;
   if (typeof row.payload.bypass_preferences === "boolean") requestBody.bypass_preferences = row.payload.bypass_preferences;
 
-  const res = await fetch(`${supabaseUrl}/functions/v1/send-notification`, {
+  const res = await fetchWithTimeout(`${supabaseUrl}/functions/v1/send-notification`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
       Authorization: `Bearer ${serviceKey}`,
     },
     body: JSON.stringify(requestBody),
+  }, {
+    provider: "supabase",
+    operation: "send_notification_function",
+    timeoutMs: providerFetchTimeoutMs("supabase", "send_notification_function"),
+    signal,
   });
 
   if (!res.ok) {
@@ -518,17 +602,18 @@ async function processOutboxRow(
   supabaseUrl: string,
   serviceKey: string,
   row: OutboxRow,
+  signal?: AbortSignal,
 ): Promise<ProcessResult> {
   const kind = row.kind.toLowerCase();
   if (kind === "noop" || kind === "telemetry.noop") return { success: true, reason: "noop" };
   if (kind === "daily.ensure_video_date_room" || kind === "daily.ensure_room" || kind === "ensure_video_date_room") {
-    return ensureVideoDateRoom(supabase, row);
+    return ensureVideoDateRoom(supabase, row, signal);
   }
   if (kind === "daily.delete_video_date_room" || kind === "daily.delete_room" || kind === "delete_video_date_room") {
-    return deleteVideoDateRoom(supabase, row);
+    return deleteVideoDateRoom(supabase, row, signal);
   }
   if (kind === "notification.send" || kind === "push.send") {
-    return sendNotification(supabaseUrl, serviceKey, row);
+    return sendNotification(supabaseUrl, serviceKey, row, signal);
   }
   return { success: false, reason: `unsupported_outbox_kind:${kind}`, permanent: true };
 }
@@ -538,7 +623,7 @@ async function completeOutboxRow(
   workerId: string,
   row: OutboxRow,
   result: ProcessResult,
-): Promise<boolean> {
+): Promise<CompletionResult> {
   const { data, error } = await supabase.rpc("complete_video_date_provider_outbox_v2", {
     p_outbox_id: row.id,
     p_worker_id: workerId,
@@ -553,10 +638,69 @@ async function completeOutboxRow(
       kind: row.kind,
       message: error.message,
     }));
-    return false;
+    return { ok: false, state: null, permanent: false, retryAfterSeconds: null, error: error.message };
   }
-  const payload = data as { ok?: boolean } | null;
-  return payload?.ok === true;
+  const payload = data as {
+    ok?: boolean;
+    state?: string;
+    permanent?: boolean;
+    retryAfterSeconds?: number;
+    error?: string;
+  } | null;
+  return {
+    ok: payload?.ok === true,
+    state: typeof payload?.state === "string" ? payload.state : null,
+    permanent: payload?.permanent === true,
+    retryAfterSeconds: typeof payload?.retryAfterSeconds === "number" ? payload.retryAfterSeconds : null,
+    error: payload?.error ?? null,
+  };
+}
+
+function providerForOutboxKind(kind: string): string {
+  const normalized = kind.toLowerCase();
+  if (normalized.startsWith("daily.")) return "daily";
+  if (normalized.startsWith("notification.") || normalized.startsWith("push.")) return "onesignal";
+  return "provider";
+}
+
+async function logOutboxFailure(
+  supabase: SupabaseServiceClient,
+  row: OutboxRow,
+  result: ProcessResult,
+  leaseLost = false,
+): Promise<void> {
+  if (result.success && !leaseLost) return;
+  await logVideoDateProviderFailure(supabase, {
+    targetKind: "outbox",
+    outboxId: row.id,
+    sessionId: row.session_id,
+    provider: providerForOutboxKind(row.kind),
+    operation: row.kind,
+    errorCode: leaseLost ? "lease_lost" : result.reason.split(":")[0]?.slice(0, 120) ?? "outbox_failed",
+    errorMessage: leaseLost ? "outbox row lease was lost before completion" : result.reason,
+    retryAfterSeconds: result.success || result.permanent === true ? null : result.retryAfterSeconds ?? null,
+    permanent: result.success ? false : result.permanent === true,
+    leaseLost,
+    metadata: {
+      attempts: row.attempts,
+      dedupe_key_present: Boolean(row.dedupe_key),
+    },
+  });
+  if (!result.success && result.permanent === true) {
+    await deadLetterVideoDateProviderFailure(supabase, {
+      targetKind: "outbox",
+      outboxId: row.id,
+      sessionId: row.session_id,
+      provider: providerForOutboxKind(row.kind),
+      operation: row.kind,
+      reason: result.reason,
+      payload: {
+        kind: row.kind,
+        attempts: row.attempts,
+        dedupe_key_present: Boolean(row.dedupe_key),
+      },
+    });
+  }
 }
 
 Deno.serve(async (req) => {
@@ -592,59 +736,154 @@ Deno.serve(async (req) => {
     });
   }
 
-  const { data: claimed, error: claimError } = await supabase.rpc("claim_video_date_provider_outbox_v2", {
-    p_worker_id: workerId,
-    p_limit: batchSize,
-    p_lease_seconds: leaseSeconds,
+  const workerLeaseSeconds = Math.max(120, Math.min(600, leaseSeconds * 3));
+  const workerRun = await beginWorkerRun(supabase, {
+    workerKind: WORKER_KIND,
+    workerId,
+    leaseSeconds: workerLeaseSeconds,
+    metadata: { source: body.source ?? null, batch_size: batchSize },
   });
-  if (claimError) return json({ ok: false, error: claimError.message }, 500);
-
-  const rows = ((claimed ?? []) as OutboxRow[]).map((row) => ({
-    ...row,
-    payload: isObjectPayload(row.payload) ? row.payload : {},
-  }));
-
-  let completed = 0;
-  let retried = 0;
-  let permanentlyFailed = 0;
-  const failures: Array<{ id: number; kind: string; reason: string }> = [];
-
-  for (const row of rows) {
-    const result = await processOutboxRow(supabase, supabaseUrl, serviceKey, row);
-    const completedLease = await completeOutboxRow(supabase, workerId, row, result);
-    if (!completedLease) {
-      failures.push({ id: row.id, kind: row.kind, reason: "completion_rpc_failed" });
-      continue;
-    }
-    if (result.success) completed += 1;
-    else if (result.permanent) {
-      permanentlyFailed += 1;
-      failures.push({ id: row.id, kind: row.kind, reason: result.reason });
-    } else {
-      retried += 1;
-      failures.push({ id: row.id, kind: row.kind, reason: result.reason });
-    }
+  if (!workerRun.ok) {
+    await logVideoDateProviderFailure(supabase, {
+      targetKind: "worker",
+      provider: "worker",
+      operation: WORKER_KIND,
+      errorCode: workerRun.error ?? "worker_already_running",
+      errorMessage: workerRun.error ?? "worker_already_running",
+      retryAfterSeconds: 30,
+      metadata: { source: body.source ?? null },
+    });
+    return json({
+      ok: true,
+      skipped: workerRun.error ?? "worker_already_running",
+      worker_id: workerId,
+      latency_ms: Date.now() - startedAt,
+    });
   }
 
-  console.log(JSON.stringify({
-    event: "video_date_outbox_drainer_run",
-    worker_id: workerId,
-    source: body.source ?? null,
-    claimed: rows.length,
-    completed,
-    retried,
-    permanently_failed: permanentlyFailed,
-    latency_ms: Date.now() - startedAt,
-  }));
-
-  return json({
-    ok: true,
-    worker_id: workerId,
-    claimed: rows.length,
-    completed,
-    retried,
-    permanently_failed: permanentlyFailed,
-    failures,
-    latency_ms: Date.now() - startedAt,
+  const workerLease = createWorkerRunRefresher(supabase, {
+    workerKind: WORKER_KIND,
+    workerId,
+    leaseSeconds: workerLeaseSeconds,
+    metadata: () => ({ source: body.source ?? null, latency_ms: Date.now() - startedAt }),
   });
+
+  try {
+    const { data: claimed, error: claimError } = await supabase.rpc("claim_video_date_provider_outbox_v2", {
+      p_worker_id: workerId,
+      p_limit: batchSize,
+      p_lease_seconds: leaseSeconds,
+    });
+    if (claimError) return json({ ok: false, error: claimError.message }, 500);
+
+    const rows = ((claimed ?? []) as OutboxRow[]).map((row) => ({
+      ...row,
+      payload: isObjectPayload(row.payload) ? row.payload : {},
+    }));
+
+    let completed = 0;
+    let retried = 0;
+    let permanentlyFailed = 0;
+    const failures: Array<{ id: number; kind: string; reason: string }> = [];
+
+    for (const row of rows) {
+      const rowLease = createClaimLeaseRefresher(supabase, {
+        rowKind: "outbox",
+        rowId: row.id,
+        workerId,
+        leaseSeconds,
+        onLeaseLost: (reason) => {
+          console.warn(JSON.stringify({
+            event: "video_date_outbox_row_lease_lost",
+            worker_id: workerId,
+            outbox_id: row.id,
+            kind: row.kind,
+            reason,
+          }));
+        },
+      });
+      let result: ProcessResult;
+      try {
+        result = await processOutboxRow(supabase, supabaseUrl, serviceKey, row, rowLease.signal);
+      } catch (error) {
+        await captureVideoDateProviderException(error, {
+          provider: providerForOutboxKind(row.kind),
+          operation: row.kind,
+          outbox_id: row.id,
+          session_id: row.session_id,
+        });
+        result = {
+          success: false,
+          reason: providerFailureMessage(error),
+          retryAfterSeconds: providerFailureRetryAfter(error, 30),
+          permanent: providerFailureCode(error) === "daily_api_key_missing",
+        };
+      } finally {
+        rowLease.stop();
+      }
+
+      if (rowLease.isLost()) {
+        await logOutboxFailure(supabase, row, result, true);
+        failures.push({ id: row.id, kind: row.kind, reason: "lease_lost_before_completion" });
+        continue;
+      }
+
+      const completion = await completeOutboxRow(supabase, workerId, row, result);
+      if (!completion.ok) {
+        await logOutboxFailure(supabase, row, result, true);
+        failures.push({ id: row.id, kind: row.kind, reason: "completion_rpc_failed" });
+        continue;
+      }
+
+      const settledResult: ProcessResult = result.success
+        ? result
+        : {
+          ...result,
+          permanent: result.permanent === true || (completion.state === "failed" && completion.permanent),
+          retryAfterSeconds: completion.state === "pending"
+            ? completion.retryAfterSeconds ?? result.retryAfterSeconds
+            : result.retryAfterSeconds,
+        };
+      await logOutboxFailure(supabase, row, settledResult, false);
+      if (settledResult.success) completed += 1;
+      else if (settledResult.permanent) {
+        permanentlyFailed += 1;
+        failures.push({ id: row.id, kind: row.kind, reason: settledResult.reason });
+      } else {
+        retried += 1;
+        failures.push({ id: row.id, kind: row.kind, reason: settledResult.reason });
+      }
+    }
+
+    console.log(JSON.stringify({
+      event: "video_date_outbox_drainer_run",
+      worker_id: workerId,
+      source: body.source ?? null,
+      worker_lease_lost: workerLease.isLost(),
+      claimed: rows.length,
+      completed,
+      retried,
+      permanently_failed: permanentlyFailed,
+      latency_ms: Date.now() - startedAt,
+    }));
+
+    return json({
+      ok: true,
+      worker_id: workerId,
+      worker_lease_lost: workerLease.isLost(),
+      claimed: rows.length,
+      completed,
+      retried,
+      permanently_failed: permanentlyFailed,
+      failures,
+      latency_ms: Date.now() - startedAt,
+    });
+  } finally {
+    workerLease.stop();
+    await finishWorkerRun(supabase, {
+      workerKind: WORKER_KIND,
+      workerId,
+      metadata: { latency_ms: Date.now() - startedAt },
+    });
+  }
 });
