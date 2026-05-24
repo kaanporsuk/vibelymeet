@@ -1,4 +1,10 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
+import {
+  enforceProviderRateLimit,
+  fetchWithTimeout,
+  providerFetchTimeoutMs,
+  providerRateLimitConfig,
+} from '../_shared/video-date-provider-reliability.ts'
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -1471,13 +1477,18 @@ Deno.serve(async (req) => {
     let osResponse: Response
     let osResultText = ''
     try {
-      osResponse = await fetch('https://api.onesignal.com/notifications', {
+      await enforceProviderRateLimit(supabase, providerRateLimitConfig('onesignal', 'notification_create'))
+      osResponse = await fetchWithTimeout('https://api.onesignal.com/notifications', {
         method: 'POST',
         headers: {
           'Authorization': `Key ${ONESIGNAL_REST_API_KEY}`,
           'Content-Type': 'application/json',
         },
         body: JSON.stringify(osPayload),
+      }, {
+        provider: 'onesignal',
+        operation: 'notification_create',
+        timeoutMs: providerFetchTimeoutMs('onesignal', 'notification_create'),
       })
       osResultText = await osResponse.text()
     } catch (error) {
@@ -1499,6 +1510,7 @@ Deno.serve(async (req) => {
           reason: 'onesignal_error',
           onesignal_reason: suppressed,
           detail: error instanceof Error ? error.message : String(error),
+          status: error instanceof Error && error.name === 'ProviderRateLimitError' ? 429 : undefined,
         }),
         { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
       )
@@ -1561,6 +1573,7 @@ Deno.serve(async (req) => {
           success: false,
           reason: 'onesignal_error',
           onesignal_reason: osLogicalFailure,
+          status: osResponse.status,
           detail: errSnippet || undefined,
         }),
         { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },

@@ -95,9 +95,10 @@ test("Phase 2 workers are cron-protected and configured in Supabase", () => {
   assert.match(outboxDrainer, /complete_video_date_provider_outbox_v2/);
   assert.match(outboxDrainer, /daily\.ensure_video_date_room/);
   assert.match(outboxDrainer, /daily\.delete_video_date_room/);
-  assert.match(outboxDrainer, /providerState\.expired[\s\S]+await deleteDailyRoom\(roomName\)/);
-  assert.match(outboxDrainer, /session\.daily_room_url && session\.daily_room_url\.endsWith\(`\/\$\{roomName\}`\)[\s\S]+: canonicalUrl/);
-  assert.match(outboxDrainer, /terminalRoomName[\s\S]+await deleteDailyRoom\(terminalRoomName\)/);
+  assert.match(outboxDrainer, /providerState\.expired[\s\S]+await deleteDailyRoom\(supabase, roomName/);
+  assert.match(outboxDrainer, /isDailyRoomUrlForName\(session\.daily_room_url, roomName, DAILY_DOMAIN\)/);
+  assert.match(outboxDrainer, /typeof body\?\.url !== "string"[\s\S]+isDailyRoomUrlForName\(body\.url, roomName, DAILY_DOMAIN\)/);
+  assert.match(outboxDrainer, /terminalRoomName[\s\S]+await deleteDailyRoom\(supabase, terminalRoomName/);
   assert.match(outboxDrainer, /\.select\("id"\)\s+\.maybeSingle\(\)/);
   assert.match(outboxDrainer, /skipped_terminal_after_provider_verify/);
   assert.match(outboxDrainer, /notification\.send/);

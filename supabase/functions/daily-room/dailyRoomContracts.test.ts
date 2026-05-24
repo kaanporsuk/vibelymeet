@@ -7,6 +7,7 @@ import {
   canReuseOpenMatchCallSameParticipants,
   classifyDeleteRoomSafety,
   isDailyRoomAlreadyExistsErrorText,
+  isDailyRoomUrlForName,
   isIncomingMatchCallForRequester,
   planDailyProviderRoomRecovery,
   resolveCanonicalVideoDateRoom,
@@ -48,6 +49,15 @@ test("video date session always resolves to one canonical Daily room", () => {
   assert.equal(staleMetadata.roomName, ROOM_NAME);
   assert.equal(staleMetadata.roomUrl, ROOM_URL);
   assert.equal(staleMetadata.metadataMatchesCanonical, false);
+});
+
+test("Daily room URL validation is bound to the expected domain and room", () => {
+  assert.equal(isDailyRoomUrlForName(ROOM_URL, ROOM_NAME, DAILY_DOMAIN), true);
+  assert.equal(isDailyRoomUrlForName(`${ROOM_URL}/`, ROOM_NAME, DAILY_DOMAIN), true);
+  assert.equal(isDailyRoomUrlForName(`http://${DAILY_DOMAIN}/${ROOM_NAME}`, ROOM_NAME, DAILY_DOMAIN), false);
+  assert.equal(isDailyRoomUrlForName(`https://evil.example/${ROOM_NAME}`, ROOM_NAME, DAILY_DOMAIN), false);
+  assert.equal(isDailyRoomUrlForName(`https://${DAILY_DOMAIN}/other-room`, ROOM_NAME, DAILY_DOMAIN), false);
+  assert.equal(isDailyRoomUrlForName("not a url", ROOM_NAME, DAILY_DOMAIN), false);
 });
 
 test("participant tokens are scoped to the same canonical room but distinct users", () => {

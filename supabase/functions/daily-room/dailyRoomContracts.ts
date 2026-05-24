@@ -35,6 +35,17 @@ export function videoDateRoomUrlForName(roomName: string, dailyDomain: string): 
   return `https://${dailyDomain}/${roomName}`;
 }
 
+export function isDailyRoomUrlForName(value: string, roomName: string, dailyDomain: string): boolean {
+  try {
+    const url = new URL(value);
+    return url.protocol === "https:" &&
+      url.hostname === dailyDomain &&
+      url.pathname.replace(/\/+$/, "") === `/${roomName}`;
+  } catch {
+    return false;
+  }
+}
+
 export function videoDateDiagnosticRoomNameForUser(userId: string): string {
   return `date-diag-${userId.replace(/-/g, "").slice(0, 40)}`;
 }
