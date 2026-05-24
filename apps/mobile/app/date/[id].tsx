@@ -190,6 +190,10 @@ import {
   resolveVideoDateIceBreakerIndex,
 } from '@clientShared/matching/videoDateIceBreakers';
 import {
+  resolveVideoDateHandshakeUiState,
+  shouldShowVideoDateIceBreaker,
+} from '@clientShared/matching/videoDatePhase4Ux';
+import {
   getVideoDateWarmupChoiceNotice,
   type VideoDateWarmupChoiceNotice,
 } from '@clientShared/matching/videoDateWarmupChoiceNotice';
@@ -8147,28 +8151,13 @@ export default function VideoDateScreen() {
     hasHandshakePeerEvidence &&
     !peerMissingTerminal;
   const showDatePhaseChrome = !showFeedback && phase === 'date' && hasRemotePartner;
-  const localHandshakeDecision = useMemo<boolean | null>(() => {
-    if (!session || !user?.id) return null;
-    if (session.participant_1_id === user.id) {
-      return session.participant_1_decided_at ? session.participant_1_liked ?? null : null;
-    }
-    if (session.participant_2_id === user.id) {
-      return session.participant_2_decided_at ? session.participant_2_liked ?? null : null;
-    }
-    return null;
-  }, [session, user?.id]);
-  const localHandshakeHasDecided = useMemo(() => {
-    if (!session || !user?.id) return false;
-    if (session.participant_1_id === user.id) return Boolean(session.participant_1_decided_at);
-    if (session.participant_2_id === user.id) return Boolean(session.participant_2_decided_at);
-    return false;
-  }, [session, user?.id]);
-  const partnerHandshakeHasDecided = useMemo(() => {
-    if (!session || !user?.id) return false;
-    if (session.participant_1_id === user.id) return Boolean(session.participant_2_decided_at);
-    if (session.participant_2_id === user.id) return Boolean(session.participant_1_decided_at);
-    return false;
-  }, [session, user?.id]);
+  const handshakeUiState = useMemo(
+    () => resolveVideoDateHandshakeUiState(session, user?.id),
+    [session, user?.id],
+  );
+  const localHandshakeDecision = handshakeUiState.localDecision;
+  const localHandshakeHasDecided = handshakeUiState.localHasDecided;
+  const partnerHandshakeHasDecided = handshakeUiState.partnerHasDecided;
 
   useEffect(() => {
     const key = `${sessionId ?? 'none'}:${session?.handshake_started_at ?? 'no-start'}`;
@@ -8369,32 +8358,38 @@ export default function VideoDateScreen() {
   const dismissIceBreakerTemporarily = useCallback(() => {
     setShowIceBreaker(false);
   }, []);
-  const showFloatingIceBreaker =
-    showIceBreaker &&
-    Boolean(currentQuestion) &&
-    !showFeedback &&
-    !showMutualToast &&
-    hasRemotePartner &&
-    !isPartnerDisconnected &&
-    !peerMissingTerminal &&
-    nativeBackgroundStatus === 'none' &&
-    !showJoiningOverlay &&
-    !showPeerWaitOverlay &&
-    !(phase === 'handshake' && localHandshakeHasDecided) &&
-    (phase === 'handshake' || phase === 'date');
-  const showCollapsedIceBreaker =
-    !showIceBreaker &&
-    Boolean(currentQuestion) &&
-    !showFeedback &&
-    !showMutualToast &&
-    hasRemotePartner &&
-    !isPartnerDisconnected &&
-    !peerMissingTerminal &&
-    nativeBackgroundStatus === 'none' &&
-    !showJoiningOverlay &&
-    !showPeerWaitOverlay &&
-    !(phase === 'handshake' && localHandshakeHasDecided) &&
-    (phase === 'handshake' || phase === 'date');
+  const showFloatingIceBreaker = shouldShowVideoDateIceBreaker({
+    baseVisible:
+      showIceBreaker &&
+      Boolean(currentQuestion) &&
+      !showFeedback &&
+      !showMutualToast &&
+      hasRemotePartner &&
+      !isPartnerDisconnected &&
+      !peerMissingTerminal &&
+      nativeBackgroundStatus === 'none' &&
+      !showJoiningOverlay &&
+      !showPeerWaitOverlay &&
+      (phase === 'handshake' || phase === 'date'),
+    phase,
+    localHasDecided: localHandshakeHasDecided,
+  });
+  const showCollapsedIceBreaker = shouldShowVideoDateIceBreaker({
+    baseVisible:
+      !showIceBreaker &&
+      Boolean(currentQuestion) &&
+      !showFeedback &&
+      !showMutualToast &&
+      hasRemotePartner &&
+      !isPartnerDisconnected &&
+      !peerMissingTerminal &&
+      nativeBackgroundStatus === 'none' &&
+      !showJoiningOverlay &&
+      !showPeerWaitOverlay &&
+      (phase === 'handshake' || phase === 'date'),
+    phase,
+    localHasDecided: localHandshakeHasDecided,
+  });
   const iceBreakerBottomOffset = showHandshakeChrome
     ? handshakeBottomOffset + HANDSHAKE_CTA_STACK_HEIGHT + FLOATING_CHROME_GAP
     : Math.max(

@@ -98,6 +98,10 @@ import {
   type VideoDateHandshakeTruth,
 } from "@clientShared/matching/videoDateHandshakePersistence";
 import {
+  resolveVideoDateHandshakeUiState,
+  shouldShowVideoDateIceBreaker,
+} from "@clientShared/matching/videoDatePhase4Ux";
+import {
   createVideoDateSessionChannel,
   resolveVideoDateSessionSeqDecision,
   type VideoDateSessionBroadcastEvent,
@@ -3126,28 +3130,13 @@ const VideoDate = () => {
     return handleHandshakeDecision("pass");
   }, [handleHandshakeDecision, id, phase]);
 
-  const localHandshakeDecision = useMemo<boolean | null>(() => {
-    if (!handshakeTruth || !user?.id) return null;
-    if (handshakeTruth.participant_1_id === user.id) {
-      return handshakeTruth.participant_1_decided_at ? handshakeTruth.participant_1_liked ?? null : null;
-    }
-    if (handshakeTruth.participant_2_id === user.id) {
-      return handshakeTruth.participant_2_decided_at ? handshakeTruth.participant_2_liked ?? null : null;
-    }
-    return null;
-  }, [handshakeTruth, user?.id]);
-  const localHandshakeHasDecided = useMemo(() => {
-    if (!handshakeTruth || !user?.id) return false;
-    if (handshakeTruth.participant_1_id === user.id) return Boolean(handshakeTruth.participant_1_decided_at);
-    if (handshakeTruth.participant_2_id === user.id) return Boolean(handshakeTruth.participant_2_decided_at);
-    return false;
-  }, [handshakeTruth, user?.id]);
-  const partnerHandshakeHasDecided = useMemo(() => {
-    if (!handshakeTruth || !user?.id) return false;
-    if (handshakeTruth.participant_1_id === user.id) return Boolean(handshakeTruth.participant_2_decided_at);
-    if (handshakeTruth.participant_2_id === user.id) return Boolean(handshakeTruth.participant_1_decided_at);
-    return false;
-  }, [handshakeTruth, user?.id]);
+  const handshakeUiState = useMemo(
+    () => resolveVideoDateHandshakeUiState(handshakeTruth, user?.id),
+    [handshakeTruth, user?.id],
+  );
+  const localHandshakeDecision = handshakeUiState.localDecision;
+  const localHandshakeHasDecided = handshakeUiState.localHasDecided;
+  const partnerHandshakeHasDecided = handshakeUiState.partnerHasDecided;
 
   // Check mutual vibe at the backend-owned handshake deadline.
   const checkMutualVibe = useCallback(async (source = "handshake_server_deadline", allowRetry = true) => {
@@ -4162,28 +4151,34 @@ const VideoDate = () => {
     }
   }, [anyReconnectVisible, captureRemoteFrameSnapshot, isConnected, resilienceV2.enabled]);
 
-  const showFloatingIceBreaker =
-    isConnected &&
-    remotePlayback.participantPresent &&
-    showIceBreaker &&
-    !showFeedback &&
-    !showMutualToast &&
-    !remotePlayback.playRejected &&
-    !peerMissing.terminal &&
-    !anyReconnectVisible &&
-    !(phase === "handshake" && localHandshakeHasDecided) &&
-    (phase === "handshake" || phase === "date");
-  const showCollapsedIceBreaker =
-    isConnected &&
-    remotePlayback.participantPresent &&
-    !showIceBreaker &&
-    !showFeedback &&
-    !showMutualToast &&
-    !remotePlayback.playRejected &&
-    !peerMissing.terminal &&
-    !anyReconnectVisible &&
-    !(phase === "handshake" && localHandshakeHasDecided) &&
-    (phase === "handshake" || phase === "date");
+  const showFloatingIceBreaker = shouldShowVideoDateIceBreaker({
+    baseVisible:
+      isConnected &&
+      remotePlayback.participantPresent &&
+      showIceBreaker &&
+      !showFeedback &&
+      !showMutualToast &&
+      !remotePlayback.playRejected &&
+      !peerMissing.terminal &&
+      !anyReconnectVisible &&
+      (phase === "handshake" || phase === "date"),
+    phase,
+    localHasDecided: localHandshakeHasDecided,
+  });
+  const showCollapsedIceBreaker = shouldShowVideoDateIceBreaker({
+    baseVisible:
+      isConnected &&
+      remotePlayback.participantPresent &&
+      !showIceBreaker &&
+      !showFeedback &&
+      !showMutualToast &&
+      !remotePlayback.playRejected &&
+      !peerMissing.terminal &&
+      !anyReconnectVisible &&
+      (phase === "handshake" || phase === "date"),
+    phase,
+    localHasDecided: localHandshakeHasDecided,
+  });
   const iceBreakerPositionClass =
     phase === "handshake" && handshakeTimerStarted
       ? "bottom-[14rem]"

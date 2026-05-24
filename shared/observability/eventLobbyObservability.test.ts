@@ -143,7 +143,7 @@ test("web, native, and edge surfaces emit the new taxonomy", () => {
     "lobby_swipe_result",
     "lobby_swipe_duplicate_suppressed",
     "notification_suppressed",
-    "notification_sent",
+    "notification_enqueued",
   ]) {
     assert.match(edgeSwipeActions, new RegExp(eventName));
   }
