@@ -1507,7 +1507,7 @@ test("native video date capture uses supported Daily defaults while web keeps ex
   assert.match(readyGateOverlay, /permission_prewarm_media_ttl_expired/);
   assert.match(readyGateOverlay, /ready_gate_session_changed/);
   assert.match(readyGateOverlay, /appAcquiredMedia: prewarmMedia/);
-  assert.match(readyGateOverlay, /captureProfile: permissionPrewarmMediaRef\.current\?\.captureProfile/);
+  assert.match(readyGateOverlay, /captureProfile: prewarmMedia\?\.captureProfile/);
   assert.match(webVideoCallHook, /permissionHandoff\.captureProfile \?\? "ideal"/);
   assert.match(nativeVideoDateRoute, /diagnostic_scope: 'sender_capture'/);
   assert.match(nativeVideoDateRoute, /diagnostic_scope: 'receiver_layout'/);
