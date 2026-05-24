@@ -126,12 +126,18 @@ test("Ready Gate Phase 2 is wired across web, native, and database surfaces", ()
 
   for (const source of [webOverlay, nativeOverlay, nativeReadyRoute]) {
     assert.match(source, /getReadyGateCountdownFromServerClock/);
+    assert.match(source, /fallbackDeadlineMs/);
+    assert.match(source, /readyGateOpenedAtMsRef\.current \+ GATE_TIMEOUT(?:_SEC)? \* 1000/);
     assert.doesNotMatch(source, /fallbackGateDeadlineMsRef/);
   }
 
   assert.match(webOverlay, /getReadyGatePermissionPrewarmReleaseDelayMs/);
   assert.match(webOverlay, /settings_deep_link/);
   assert.match(webOverlay, /orchestratorRealtimeDegraded/);
+  assert.match(webOverlay, /overlayRealtimeDegradedRef/);
+  assert.match(webOverlay, /orchestratorRealtimeDegradedRef/);
+  assert.match(webOverlay, /clearRealtimeDegradedWhenHealthy/);
+  assert.doesNotMatch(webOverlay, /if \(!realtimeDegraded\) return;\s*setRealtimeDegraded\(false\)/);
   assert.match(webOverlay, /status === "SUBSCRIBED"/);
   assert.match(migration, /server_now_ms/);
   assert.match(migration, /serverNowMs/);

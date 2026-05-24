@@ -105,6 +105,7 @@ export default function ReadyGateScreen() {
   const nonRetryablePrepareBlockerRef = useRef<string | null>(null);
   const expirySyncInFlightRef = useRef(false);
   const expirySyncRetryAtMsRef = useRef(0);
+  const readyGateOpenedAtMsRef = useRef(Date.now());
   const { show: showDialog, dialog: dialogEl } = useVibelyDialog();
 
   const requestMediaPermissions = async (): Promise<boolean> => {
@@ -311,6 +312,7 @@ export default function ReadyGateScreen() {
     nonRetryablePrepareBlockerRef.current = null;
     expirySyncInFlightRef.current = false;
     expirySyncRetryAtMsRef.current = 0;
+    readyGateOpenedAtMsRef.current = Date.now();
     setTimeLeft(GATE_TIMEOUT_SEC);
     setPermissionsResolved(false);
     setHasMediaPermission(null);
@@ -632,6 +634,7 @@ export default function ReadyGateScreen() {
               expiresAt: result.expiresAt,
               serverNowMs,
               clientSyncedAtMs,
+              fallbackDeadlineMs: readyGateOpenedAtMsRef.current + GATE_TIMEOUT_SEC * 1000,
               fallbackSeconds: GATE_TIMEOUT_SEC,
             }).remainingSeconds,
           );
@@ -664,6 +667,7 @@ export default function ReadyGateScreen() {
           expiresAt,
           serverNowMs,
           clientSyncedAtMs,
+          fallbackDeadlineMs: readyGateOpenedAtMsRef.current + GATE_TIMEOUT_SEC * 1000,
           fallbackSeconds: GATE_TIMEOUT_SEC,
         }).remainingSeconds;
         if (next <= 0) {

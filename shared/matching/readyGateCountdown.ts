@@ -76,19 +76,48 @@ export function buildReadyGateCountdownTimeline({
 
 export function getReadyGateCountdownFromServerClock({
   expiresAt,
+  fallbackDeadlineMs,
   fallbackSeconds = READY_GATE_DEFAULT_TIMEOUT_SECONDS,
   nowMs = Date.now(),
   serverNowMs,
   clientSyncedAtMs,
 }: ReadyGateRemainingSecondsInput): ReadyGateServerClockCountdown {
+  const expiresMs = parseReadyGateExpiryMs(expiresAt);
+  if (expiresMs == null) {
+    const fallbackMs = finiteNumber(fallbackDeadlineMs);
+    if (fallbackMs != null) {
+      const remainingMs = Math.max(0, fallbackMs - nowMs);
+      const durationMs = Math.max(
+        0,
+        (finiteNumber(fallbackSeconds) ?? READY_GATE_DEFAULT_TIMEOUT_SECONDS) * 1000,
+      );
+      return {
+        remainingSeconds: Math.max(0, Math.ceil(remainingMs / 1000)),
+        remainingMs,
+        deadlineMs: fallbackMs,
+        progress: durationMs > 0 ? Math.max(0, Math.min(1, remainingMs / durationMs)) : 0,
+        clockSkewMs: 0,
+        hasServerClock: false,
+      };
+    }
+
+    return {
+      remainingSeconds: Math.max(0, Math.ceil(fallbackSeconds)),
+      remainingMs: null,
+      deadlineMs: null,
+      progress: getReadyGateCountdownProgress(fallbackSeconds, fallbackSeconds),
+      clockSkewMs: 0,
+      hasServerClock: false,
+    };
+  }
+
   const timeline = buildReadyGateCountdownTimeline({
-    expiresAt,
+    expiresAt: expiresMs,
     serverNowMs,
     clientSyncedAtMs,
     nowMs,
     timeoutSeconds: fallbackSeconds,
   });
-
   if (!timeline) {
     return {
       remainingSeconds: Math.max(0, Math.ceil(fallbackSeconds)),

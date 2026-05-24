@@ -173,6 +173,7 @@ export function ReadyGateOverlay({
   const terminalTimeoutRef = useRef(false);
   const expirySyncInFlightRef = useRef(false);
   const expirySyncRetryAtMsRef = useRef(0);
+  const readyGateOpenedAtMsRef = useRef(Date.now());
   const terminalActionInFlightRef = useRef(false);
   const manualExitRequestedRef = useRef(false);
   const pendingForfeitReasonRef = useRef<'timeout' | 'skip' | null>(null);
@@ -994,6 +995,7 @@ export function ReadyGateOverlay({
     terminalTimeoutRef.current = false;
     expirySyncInFlightRef.current = false;
     expirySyncRetryAtMsRef.current = 0;
+    readyGateOpenedAtMsRef.current = Date.now();
     terminalActionInFlightRef.current = false;
     manualExitRequestedRef.current = false;
     pendingForfeitReasonRef.current = null;
@@ -1298,6 +1300,7 @@ export function ReadyGateOverlay({
         expiresAt,
         serverNowMs,
         clientSyncedAtMs,
+        fallbackDeadlineMs: readyGateOpenedAtMsRef.current + GATE_TIMEOUT_SEC * 1000,
         fallbackSeconds: GATE_TIMEOUT_SEC,
       });
       const next = countdown.remainingSeconds;
