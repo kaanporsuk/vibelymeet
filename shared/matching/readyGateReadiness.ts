@@ -46,15 +46,6 @@ export type ReadyGateTruthPrecedenceInput = {
   incomingSeq?: number | null;
 };
 
-export type ReadyGateResubscribeDelayInput = {
-  attempt: number;
-  jitterSeed?: number;
-  jitterRatio?: number;
-};
-
-export const READY_GATE_RECONCILE_AFTER_REALTIME_MS = 1_500;
-export const READY_GATE_ORCHESTRATOR_MAX_RESUBSCRIBE_ATTEMPTS = 8;
-export const READY_GATE_ORCHESTRATOR_BACKOFF_MS = [1_000, 2_000, 4_000, 8_000] as const;
 export const READY_GATE_PERMISSION_PREWARM_RELEASE_GRACE_MS = 8_000;
 
 export const initialReadyGateReadinessState: ReadyGateReadinessState = {
@@ -189,26 +180,6 @@ export function shouldCommitReadyGateTruth({
 
   if (currentOrdinal === incomingOrdinal) return true;
   return incomingOrdinal > currentOrdinal;
-}
-
-export function getReadyGateResubscribeDelayMs({
-  attempt,
-  jitterSeed,
-  jitterRatio = 0.2,
-}: ReadyGateResubscribeDelayInput): number | null {
-  const normalizedAttempt = Math.max(1, Math.floor(finiteNumber(attempt) ?? 1));
-  if (normalizedAttempt > READY_GATE_ORCHESTRATOR_MAX_RESUBSCRIBE_ATTEMPTS) return null;
-  const baseDelay = READY_GATE_ORCHESTRATOR_BACKOFF_MS[
-    Math.min(normalizedAttempt - 1, READY_GATE_ORCHESTRATOR_BACKOFF_MS.length - 1)
-  ];
-  const normalizedJitter = Math.max(0, Math.min(0.5, finiteNumber(jitterRatio) ?? 0));
-  if (normalizedJitter === 0) return baseDelay;
-  const seed = finiteNumber(jitterSeed);
-  const unit = seed == null
-    ? Math.random()
-    : Math.abs(Math.sin(seed * 12.9898 + normalizedAttempt * 78.233) * 43758.5453) % 1;
-  const multiplier = 1 - normalizedJitter + unit * normalizedJitter * 2;
-  return Math.max(0, Math.round(baseDelay * multiplier));
 }
 
 export function getReadyGatePermissionPrewarmReleaseDelayMs(input: {

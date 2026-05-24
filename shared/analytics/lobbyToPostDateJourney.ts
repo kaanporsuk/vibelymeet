@@ -36,6 +36,8 @@ export const LobbyPostDateEvents = {
   READY_GATE_TERMINAL_ACTION_SUCCESS: 'ready_gate_terminal_action_success',
   READY_GATE_TERMINAL_ACTION_FAILURE: 'ready_gate_terminal_action_failure',
   READY_GATE_REALTIME_DEGRADED: 'ready_gate_realtime_degraded',
+  READY_GATE_REALTIME_RECOVERED: 'ready_gate_realtime_recovered',
+  READY_GATE_SNAPSHOT_GAP_RECOVERED: 'ready_gate_snapshot_gap_recovered',
   READY_GATE_CLIENT_TRANSITION_FAILURE: 'ready_gate_client_transition_failure',
   READY_GATE_CLIENT_TERMINAL: 'ready_gate_client_terminal',
   READY_GATE_CLIENT_PREPARE_ENTRY_FAILURE: 'ready_gate_client_prepare_entry_failure',

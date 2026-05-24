@@ -22,8 +22,12 @@ const videoDateDailySingletonMigration = readFileSync(
   "supabase/migrations/20260522203000_video_date_daily_singleton_match_eta_hint.sql",
   "utf8",
 );
-const migration = `${baseMigration}\n${hardeningMigration}\n${videoDatePhase0Migration}\n${videoDatePhase5AuditMigration}\n${videoDateInstantPremiumMigration}\n${videoDateDailySingletonMigration}`;
-const videoDateFlagSeedMigration = `${videoDatePhase0Migration}\n${videoDatePhase5AuditMigration}\n${videoDateInstantPremiumMigration}\n${videoDateDailySingletonMigration}`;
+const readyGateResilientClockAliasMigration = readFileSync(
+  "supabase/migrations/20260525113000_ready_gate_resilient_clock_alias_flag.sql",
+  "utf8",
+);
+const migration = `${baseMigration}\n${hardeningMigration}\n${videoDatePhase0Migration}\n${videoDatePhase5AuditMigration}\n${videoDateInstantPremiumMigration}\n${videoDateDailySingletonMigration}\n${readyGateResilientClockAliasMigration}`;
+const videoDateFlagSeedMigration = `${videoDatePhase0Migration}\n${videoDatePhase5AuditMigration}\n${videoDateInstantPremiumMigration}\n${videoDateDailySingletonMigration}\n${readyGateResilientClockAliasMigration}`;
 const core = readFileSync("shared/featureFlags/clientFeatureFlagCore.ts", "utf8");
 const videoDateFlags = readFileSync("shared/featureFlags/videoDateV4Flags.ts", "utf8");
 const webHook = readFileSync("src/hooks/useFeatureFlag.ts", "utf8");
@@ -186,6 +190,7 @@ test("video date v4 flags are typed, prefetched, and use namespaced stable rollo
     "video_date.safety_always_on_v2",
     "video_date.daily_pool_v2",
     "video_date.multi_device_v2",
+    "video_date.ready_gate_resilient_clock_v1",
     "video_date.outbox_v2.mark_ready",
     "video_date.outbox_v2.forfeit",
     "video_date.outbox_v2.continue_handshake",

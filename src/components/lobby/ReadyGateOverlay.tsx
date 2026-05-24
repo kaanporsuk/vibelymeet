@@ -1355,13 +1355,16 @@ const ReadyGateOverlay = ({
     expiresAt,
     serverNowMs,
     clientSyncedAtMs,
+    phaseDeadlineAtMs,
     realtimeDegraded: orchestratorRealtimeDegraded,
+    sequenceGapUnresolved,
     markReady,
     skip,
     snooze,
     syncSession,
     refetchSession,
     retryBroadcastGapRecovery,
+    readyGateClockEnabled,
   } = useReadyGate({
     sessionId,
     eventId,
@@ -1752,7 +1755,9 @@ const ReadyGateOverlay = ({
 
   useEffect(() => {
     if (!sessionId || !eventId || !user?.id || dateNavigationStartedRef.current) return;
-    const intervalMs = realtimeDegraded ? 1_000 : 2_000;
+    const pollFallbackActive = realtimeDegraded || sequenceGapUnresolved;
+    if (!pollFallbackActive) return;
+    const intervalMs = 1_000;
     const intervalId = setInterval(() => {
       if (realtimeDegraded && !realtimeFallbackLoggedRef.current) {
         realtimeFallbackLoggedRef.current = true;
@@ -1782,7 +1787,7 @@ const ReadyGateOverlay = ({
         realtimeFallbackCopyTimerRef.current = null;
       }
     };
-  }, [sessionId, eventId, user?.id, realtimeDegraded, reconcileSession]);
+  }, [sessionId, eventId, user?.id, realtimeDegraded, sequenceGapUnresolved, reconcileSession]);
 
   useEffect(() => {
     if (iAmReady) setMarkingReady(false);
@@ -1981,9 +1986,9 @@ const ReadyGateOverlay = ({
 
     const tick = () => {
       const countdown = getReadyGateCountdownFromServerClock({
-        expiresAt,
-        serverNowMs,
-        clientSyncedAtMs,
+        expiresAt: readyGateClockEnabled ? phaseDeadlineAtMs ?? expiresAt : expiresAt,
+        serverNowMs: readyGateClockEnabled ? serverNowMs : null,
+        clientSyncedAtMs: readyGateClockEnabled ? clientSyncedAtMs : null,
         fallbackDeadlineMs: readyGateOpenedAtMsRef.current + GATE_TIMEOUT * 1000,
         fallbackSeconds: GATE_TIMEOUT,
       });
@@ -2023,6 +2028,8 @@ const ReadyGateOverlay = ({
     expiresAt,
     serverNowMs,
     clientSyncedAtMs,
+    phaseDeadlineAtMs,
+    readyGateClockEnabled,
     syncSession,
     sessionId,
   ]);
