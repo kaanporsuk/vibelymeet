@@ -48,6 +48,8 @@ const webDailyPrewarmPath = "src/lib/videoDateDailyPrewarm.ts";
 const webDailyPrewarm = read(webDailyPrewarmPath);
 const readyGateOverlayPath = "src/components/lobby/ReadyGateOverlay.tsx";
 const readyGateOverlay = read(readyGateOverlayPath);
+const readyGateReadinessPath = "shared/matching/readyGateReadiness.ts";
+const readyGateReadiness = read(readyGateReadinessPath);
 const mediaContractPath = "shared/matching/videoDateMediaContract.ts";
 const mediaContract = read(mediaContractPath);
 const cameraSwitchHintPath = "shared/matching/videoDateCameraSwitchRenderHint.ts";
@@ -176,11 +178,12 @@ assert(
   webDailyPrewarm.includes("dailyVideoDateCallObjectOptionsWithAppAcquiredMedia") &&
     webDailyPrewarm.includes("appAcquiredMedia: WebDailyPrewarmAppAcquiredMedia | null") &&
     readyGateOverlay.includes("permissionPrewarmMediaRef") &&
-    readyGateOverlay.includes("WEB_READY_GATE_PERMISSION_PREWARM_MEDIA_TTL_MS = 12_000") &&
+    readyGateOverlay.includes("getReadyGatePermissionPrewarmReleaseDelayMs") &&
+    readyGateReadiness.includes("READY_GATE_PERMISSION_PREWARM_RELEASE_GRACE_MS = 8_000") &&
     readyGateOverlay.includes("permission_prewarm_media_ttl_expired") &&
     readyGateOverlay.includes("ready_gate_session_changed") &&
     readyGateOverlay.includes("appAcquiredMedia: prewarmMedia") &&
-    readyGateOverlay.includes("captureProfile: permissionPrewarmMediaRef.current?.captureProfile") &&
+    readyGateOverlay.includes("captureProfile: prewarmMedia?.captureProfile") &&
     webVideoCall.includes('permissionHandoff.captureProfile ?? "ideal"'),
   `${webDailyPrewarmPath}/${readyGateOverlayPath}: Ready Gate Daily prewarm must transfer app-acquired media instead of reopening capture through Daily`
 );
