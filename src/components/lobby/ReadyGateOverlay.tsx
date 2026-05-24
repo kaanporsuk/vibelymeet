@@ -51,10 +51,6 @@ import {
   type VideoDateWebMediaCaptureProfile,
 } from "@clientShared/matching/videoDateMediaContract";
 import {
-  canAttemptDailyRoomFromVideoSessionTruth,
-  decideVideoSessionRouteFromTruth,
-} from "@clientShared/matching/activeSession";
-import {
   getReadyGateCountdownProgress,
   getReadyGateRemainingSeconds,
   READY_GATE_DEFAULT_TIMEOUT_SECONDS,
@@ -68,9 +64,12 @@ import {
 } from "@clientShared/matching/videoDateEntryRetryPolicy";
 import {
   isReadyGatePrepareEntryNonRetryable,
-  resolveReadyGateTerminalRecovery,
   type ReadyGateTerminalRecoveryInput,
 } from "@clientShared/matching/readyGateTerminalRecovery";
+import {
+  adviseVideoSessionTruthRecovery,
+  resolveReadyGateTerminalRecoveryViaAdvisor as resolveReadyGateTerminalRecovery,
+} from "@clientShared/matching/videoDateRecoveryAdvisor";
 import { getReadyGateReadinessStatusCopy } from "@clientShared/matching/readyGateReadiness";
 
 interface ReadyGateOverlayProps {
@@ -1510,12 +1509,19 @@ const ReadyGateOverlay = ({
       ) {
         startRoomWarmupAfterReady("mutual_swipe_pre_create", readyGateStatus);
       }
-      const decision = decideVideoSessionRouteFromTruth(vs);
-      const canAttemptDaily = canAttemptDailyRoomFromVideoSessionTruth(vs);
+      const recovery = adviseVideoSessionTruthRecovery({
+        sessionId,
+        eventId,
+        truth: vs,
+        platform: "web",
+        surface: "ready_gate",
+      });
+      const decision = recovery.routeDecision;
+      const canAttemptDaily = recovery.canAttemptDaily === true;
       const routedTo =
-        canAttemptDaily || decision === "navigate_date"
+        recovery.action === "go_date"
           ? "date"
-          : decision === "navigate_ready"
+          : recovery.action === "go_ready_gate"
             ? "ready"
             : "lobby";
 
@@ -1659,10 +1665,14 @@ const ReadyGateOverlay = ({
         },
         (payload) => {
           const row = payload.new as Record<string, unknown>;
-          if (
-            canAttemptDailyRoomFromVideoSessionTruth(row) ||
-            decideVideoSessionRouteFromTruth(row) === "navigate_date"
-          ) {
+          const recovery = adviseVideoSessionTruthRecovery({
+            sessionId,
+            eventId,
+            truth: row,
+            platform: "web",
+            surface: "ready_gate",
+          });
+          if (recovery.action === "go_date") {
             readyGateDebug("same-session active date detected from video session realtime", {
               sessionId,
               state: row.state,

@@ -130,7 +130,8 @@ test("EVENT_NOT_ACTIVE prepare-entry blocker is non-retryable stale handoff trut
 test("web Ready Gate still gates date navigation through prepareVideoDateEntry", () => {
   assert.match(webReadyGate, /prepareVideoDateEntry\(sessionId/);
   assert.match(webReadyGate, /navigateToDate\("both_ready_prepare_success"\)/);
-  assert.match(webReadyGate, /canAttemptDailyRoomFromVideoSessionTruth/);
+  assert.match(webReadyGate, /adviseVideoSessionTruthRecovery/);
+  assert.match(webReadyGate, /recovery\.action === "go_date"/);
 });
 
 test("web Ready Gate consumers do not directly write backend-owned lifecycle fields", () => {

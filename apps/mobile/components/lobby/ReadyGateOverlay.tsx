@@ -49,10 +49,6 @@ import {
   videoDateRoomWarmupAfterReadyEnabled,
 } from '@/lib/videoDateRoomWarmup';
 import {
-  canAttemptDailyRoomFromVideoSessionTruth,
-  decideVideoSessionRouteFromTruth,
-} from '@clientShared/matching/activeSession';
-import {
   getReadyGateCountdownProgress,
   getReadyGateRemainingSeconds,
   READY_GATE_DEFAULT_TIMEOUT_SECONDS,
@@ -66,9 +62,12 @@ import {
 } from '@clientShared/matching/videoDateEntryRetryPolicy';
 import {
   isReadyGatePrepareEntryNonRetryable,
-  resolveReadyGateTerminalRecovery,
   type ReadyGateTerminalRecoveryInput,
 } from '@clientShared/matching/readyGateTerminalRecovery';
+import {
+  adviseVideoSessionTruthRecovery,
+  resolveReadyGateTerminalRecoveryViaAdvisor as resolveReadyGateTerminalRecovery,
+} from '@clientShared/matching/videoDateRecoveryAdvisor';
 import { LobbyPostDateEvents } from '@clientShared/analytics/lobbyToPostDateJourney';
 import { EventLobbyObservabilityEvents } from '@clientShared/observability/eventLobbyObservability';
 import {
@@ -787,12 +786,19 @@ export function ReadyGateOverlay({
           .maybeSingle(),
       ]);
       const reg = regRes.data;
-      const decision = decideVideoSessionRouteFromTruth(vs);
-      const canAttemptDaily = canAttemptDailyRoomFromVideoSessionTruth(vs);
+      const recovery = adviseVideoSessionTruthRecovery({
+        sessionId,
+        eventId,
+        truth: vs,
+        platform: 'native',
+        surface: 'ready_gate',
+      });
+      const decision = recovery.routeDecision;
+      const canAttemptDaily = recovery.canAttemptDaily === true;
       const routedTo =
-        canAttemptDaily || decision === 'navigate_date'
+        recovery.action === 'go_date'
           ? 'date'
-          : decision === 'navigate_ready'
+          : recovery.action === 'go_ready_gate'
             ? 'ready'
             : 'none';
       rcBreadcrumb(RC_CATEGORY.readyGate, 'date_route_decision', {
@@ -1153,13 +1159,20 @@ export function ReadyGateOverlay({
       ) {
         startRoomWarmupAfterReady('mutual_swipe_pre_create', readyGateStatus);
       }
-      const decision = decideVideoSessionRouteFromTruth(vs);
-      const canAttemptDaily = canAttemptDailyRoomFromVideoSessionTruth(vs);
-      if (canAttemptDaily) {
+      const recovery = adviseVideoSessionTruthRecovery({
+        sessionId,
+        eventId,
+        truth: vs,
+        platform: 'native',
+        surface: 'ready_gate',
+      });
+      const decision = recovery.routeDecision;
+      const canAttemptDaily = recovery.canAttemptDaily === true;
+      if (recovery.action === 'go_date') {
         await reconcileFromCanonicalTruth('overlay_initial_daily_startable_check');
         return;
       }
-      if (!vs || decision !== 'navigate_ready') {
+      if (!vs || recovery.action !== 'go_ready_gate') {
         trackEvent(LobbyPostDateEvents.READY_GATE_STALE_CLOSE, {
           platform: 'native',
           session_id: sessionId,

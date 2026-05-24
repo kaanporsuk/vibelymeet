@@ -67,8 +67,8 @@ function assertNoForbiddenSupabaseWrites(paths: string[], table: string, fields:
 test("native date route exists and gates bootstrap on backend video-date truth", () => {
   assert.match(nativeDateRoute, /fetchVideoSessionDateEntryTruthCoalesced\(sessionId\)/);
   assert.match(nativeDateRoute, /getVideoSessionPartnerIdForUser\(vs, user\.id\)/);
-  assert.match(nativeDateRoute, /decideVideoSessionRouteFromTruth\(vs\)/);
-  assert.match(nativeDateRoute, /canAttemptDailyRoomFromVideoSessionTruth\(vs\)/);
+  assert.match(nativeDateRoute, /adviseVideoSessionTruthRecovery/);
+  assert.match(nativeDateRoute, /recovery\.action === 'go_date'/);
   assert.match(nativeDateRoute, /setDateEntryPermissionEligible\(true\)/);
   assert.match(nativeDateRoute, /setDateEntryPermissionEligible\(false\)/);
 });

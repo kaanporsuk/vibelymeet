@@ -48,11 +48,13 @@ test("Phase 3 token refresh detects Daily auth/ejection faults and schedules act
   );
 
   for (const source of [webVideoCall, nativeVideoDate]) {
-    assert.match(source, /videoDateTokenRefreshDelayMs/);
+    assert.match(source, /adviseVideoDateTokenRecovery/);
+    assert.match(source, /trigger: ["']before_join["']/);
+    assert.match(source, /trigger: ["']active_refresh_timer["']/);
+    assert.match(source, /trigger: ["']auth_error["']/);
     assert.match(source, /daily_token_refresh_before_expiry/);
     assert.match(source, /daily_token_refresh_after_auth_error/);
     assert.match(source, /daily_token_refresh_after_ejection/);
-    assert.match(source, /isVideoDateDailyTokenFault/);
     assert.match(source, /refreshVideoDateToken/);
     assert.match(source, /\.join\(\{ url: .*?token:/s);
   }

@@ -51,7 +51,9 @@ import {
   readyGateTransitionResultHasDateCapableTruth,
   readyGateTransitionResultReadyGateEligible,
 } from "@clientShared/matching/activeSession";
-import { resolveReadyGateTerminalRecovery } from "@clientShared/matching/readyGateTerminalRecovery";
+import {
+  resolveReadyGateTerminalRecoveryViaAdvisor as resolveReadyGateTerminalRecovery,
+} from "@clientShared/matching/videoDateRecoveryAdvisor";
 import { buildVideoDateTransitionIdempotencyKey } from "@clientShared/matching/videoDateTransitionCommands";
 import { motion, AnimatePresence } from "framer-motion";
 import { PhoneVerificationNudge } from "@/components/PhoneVerificationNudge";

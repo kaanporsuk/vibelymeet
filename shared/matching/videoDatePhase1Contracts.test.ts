@@ -249,10 +249,12 @@ test("public API interface changes are exposed for deck state, queue hints, paym
   assert.doesNotMatch(nativeEventsApi, /fetchEventDeckProfiles/);
   assert.match(webVideoCall, /refreshVideoDateToken/);
   assert.match(webVideoCall, /daily_token_refresh_join_retry/);
-  assert.match(webVideoCall, /shouldRefreshVideoDateTokenBeforeJoin/);
+  assert.match(webVideoCall, /adviseVideoDateTokenRecovery/);
+  assert.match(webVideoCall, /trigger: "before_join"/);
   assert.match(nativeVideoDate, /refreshVideoDateToken/);
   assert.match(nativeVideoDate, /daily_token_refresh_join_retry/);
-  assert.match(nativeVideoDate, /shouldRefreshVideoDateTokenBeforeJoin/);
+  assert.match(nativeVideoDate, /adviseVideoDateTokenRecovery/);
+  assert.match(nativeVideoDate, /trigger: 'before_join'/);
   assert.match(webLobby, /fetchVideoDateQueueHint/);
   assert.match(webLobby, /resolveEventDeckPhase4UiState/);
   assert.match(webLobby, /deckState\?\.reason === "event_not_active"/);

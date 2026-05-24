@@ -7,7 +7,7 @@ import type {
   VideoDateSnapshotOk,
   VideoDateSnapshotPhase,
 } from "./videoDateSnapshot";
-import { POST_DATE_SURVEY_INELIGIBLE_ENDED_REASONS } from "./activeSession";
+import { adviseVideoDateSnapshotRecovery } from "./videoDateRecoveryAdvisor";
 
 export type VideoDateTimelineState = {
   sessionId: string;
@@ -121,89 +121,67 @@ export function resolveVideoDateSnapshotRecovery(
   snapshot: VideoDateSnapshot,
   options: { expectedSessionId?: string | null } = {},
 ): VideoDateDeepLinkRecovery {
-  if (snapshot.ok === false) {
-    if (snapshot.retryable) {
-      return { action: "home", sessionId: null, reason: "snapshot_retryable" };
-    }
-    return { action: "invalid", sessionId: null, reason: snapshot.error };
-  }
+  const decision = adviseVideoDateSnapshotRecovery(snapshot, {
+    expectedSessionId: options.expectedSessionId,
+    surface: "notification_deep_link",
+    platform: "shared",
+  });
 
-  if (options.expectedSessionId && snapshot.sessionId !== options.expectedSessionId) {
-    return { action: "invalid", sessionId: snapshot.sessionId, reason: "session_mismatch" };
-  }
-
-  if ((snapshot.phase === "handshake" || snapshot.phase === "date") && snapshot.room?.url) {
+  if (decision.action === "go_date") {
     return {
       action: "date",
-      sessionId: snapshot.sessionId,
-      eventId: snapshot.eventId,
-      reason: snapshotSelfHasJoined(snapshot) ? "already_joined" : snapshot.phase,
+      sessionId: decision.sessionId,
+      eventId: decision.eventId,
+      reason: decision.reason === "truth_date" ? "date" : decision.reason,
     };
   }
 
-  if (snapshot.phase === "ready_gate") {
-    if (snapshot.eventId) {
-      return {
-        action: "ready_gate",
-        sessionId: snapshot.sessionId,
-        eventId: snapshot.eventId,
-        reason: "ready_gate",
-      };
-    }
-    return { action: "home", sessionId: snapshot.sessionId, reason: "missing_event" };
-  }
-
-  if (snapshot.phase === "queued") {
-    if (snapshot.eventId) {
-      return {
-        action: "lobby",
-        sessionId: snapshot.sessionId,
-        eventId: snapshot.eventId,
-        reason: "queued",
-      };
-    }
-    return { action: "home", sessionId: snapshot.sessionId, reason: "missing_event" };
-  }
-
-  if (snapshot.phase === "verdict") {
+  if (decision.action === "go_survey") {
     return {
       action: "survey",
-      sessionId: snapshot.sessionId,
-      eventId: snapshot.eventId,
-      reason: "verdict",
+      sessionId: decision.sessionId,
+      eventId: decision.eventId,
+      reason: decision.reason,
     };
   }
 
-  if (snapshot.phase === "ended") {
-    if (snapshotHasTerminalSurveyEvidence(snapshot)) {
-      return {
-        action: "survey",
-        sessionId: snapshot.sessionId,
-        eventId: snapshot.eventId,
-        reason: "terminal_encounter",
-      };
-    }
-    if (snapshot.eventId) {
-      return {
-        action: "lobby",
-        sessionId: snapshot.sessionId,
-        eventId: snapshot.eventId,
-        reason: "ended",
-      };
-    }
-    return { action: "home", sessionId: snapshot.sessionId, reason: "missing_event" };
+  if (decision.action === "go_ready_gate") {
+    return {
+      action: "ready_gate",
+      sessionId: decision.sessionId,
+      eventId: decision.eventId,
+      reason: "ready_gate",
+    };
   }
 
-  if (snapshot.eventId) {
+  if (decision.action === "go_lobby") {
+    const sessionId = decision.sessionId ?? options.expectedSessionId ?? null;
+    if (!sessionId) return { action: "home", sessionId: null, reason: "missing_event" };
     return {
       action: "lobby",
-      sessionId: snapshot.sessionId,
-      eventId: snapshot.eventId,
-      reason: "not_date_ready",
+      sessionId,
+      eventId: decision.eventId,
+      reason: decision.reason === "truth_lobby" ? "not_date_ready" : decision.reason,
     };
   }
 
-  return { action: "home", sessionId: snapshot.sessionId, reason: "missing_event" };
+  if (decision.action === "go_home") {
+    return {
+      action: "home",
+      sessionId: decision.sessionId,
+      reason: "missing_event",
+    };
+  }
+
+  if (decision.action === "retry_snapshot") {
+    return { action: "home", sessionId: null, reason: "snapshot_retryable" };
+  }
+
+  return {
+    action: "invalid",
+    sessionId: ("sessionId" in decision ? decision.sessionId : null) ?? options.expectedSessionId ?? null,
+    reason: decision.reason,
+  };
 }
 
 function timelineDurationMs(timeline: VideoDateTimelineState): number {
@@ -211,35 +189,6 @@ function timelineDurationMs(timeline: VideoDateTimelineState): number {
   const deadlineMs = nullableFiniteNumber(timeline.phaseDeadlineAtMs);
   if (startedAtMs === null || deadlineMs === null || deadlineMs <= startedAtMs) return 0;
   return deadlineMs - startedAtMs;
-}
-
-const postDateSurveyIneligibleEndedReasons = new Set<string>(
-  POST_DATE_SURVEY_INELIGIBLE_ENDED_REASONS,
-);
-
-const terminalSurveyRecoveryEndedReasons = new Set<string>([
-  "date_timeout",
-  "ended_from_client",
-  "reconnect_grace_expired",
-]);
-
-function snapshotSelfHasJoined(snapshot: VideoDateSnapshotOk): boolean {
-  return snapshot.participants.some(
-    (participant) => participant.isSelf && nullableFiniteNumber(participant.mediaJoinedAt) !== null,
-  );
-}
-
-function snapshotPartnerHasJoined(snapshot: VideoDateSnapshotOk): boolean {
-  return snapshot.participants.some(
-    (participant) => participant.isPartner && nullableFiniteNumber(participant.mediaJoinedAt) !== null,
-  );
-}
-
-function snapshotHasTerminalSurveyEvidence(snapshot: VideoDateSnapshotOk): boolean {
-  if (snapshot.phase !== "ended" || nullableFiniteNumber(snapshot.endedAt) === null) return false;
-  if (snapshot.endedReason && postDateSurveyIneligibleEndedReasons.has(snapshot.endedReason)) return false;
-  if (snapshot.endedReason && terminalSurveyRecoveryEndedReasons.has(snapshot.endedReason)) return true;
-  return snapshotSelfHasJoined(snapshot) && snapshotPartnerHasJoined(snapshot);
 }
 
 function emptyTimelineCountdown(remainingSeconds: number | null, durationMs: number): VideoDatePhaseCountdown {
