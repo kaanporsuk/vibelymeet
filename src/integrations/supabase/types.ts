@@ -8206,6 +8206,16 @@ export type Database = {
         }
         Returns: Json
       }
+      submit_post_date_verdict_v3: {
+        Args: {
+          p_idempotency_key: string
+          p_liked: boolean
+          p_request_hash?: string
+          p_safety_report?: Json
+          p_session_id: string
+        }
+        Returns: Json
+      }
       submit_user_report: {
         Args: {
           p_also_block?: boolean

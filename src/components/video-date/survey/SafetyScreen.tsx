@@ -13,7 +13,7 @@ interface SafetyScreenProps {
   onComplete: (data: SafetyData) => void | Promise<void>;
   onSkip: () => void | Promise<void>;
   /** Server-owned report path; `alsoBlock` is applied atomically when supported. */
-  onReport: (reason: string, details: string, alsoBlock: boolean) => void | Promise<void>;
+  onReport: (reason: string, details: string, alsoBlock: boolean) => boolean | Promise<boolean>;
   isBusy?: boolean;
   pendingMessage?: string;
 }
@@ -47,6 +47,7 @@ export const SafetyScreen = ({
   const [reportDetails, setReportDetails] = useState("");
   const [wantsBlock, setWantsBlock] = useState(false);
   const [submitted, setSubmitted] = useState(false);
+  const [isReportSubmitting, setIsReportSubmitting] = useState(false);
 
   const needsExpanded =
     photoAccurate === "no" || honest === "no" || comfortable === "off";
@@ -59,9 +60,13 @@ export const SafetyScreen = ({
   };
 
   const handleReport = async () => {
-    if (reportCategory) {
-      await onReport(reportCategory, reportDetails, wantsBlock);
-      setSubmitted(true);
+    if (!reportCategory || isBusy || isReportSubmitting) return;
+    setIsReportSubmitting(true);
+    try {
+      const ok = await onReport(reportCategory, reportDetails, wantsBlock);
+      if (ok) setSubmitted(true);
+    } finally {
+      setIsReportSubmitting(false);
     }
   };
 
@@ -217,9 +222,14 @@ export const SafetyScreen = ({
                   variant="destructive"
                   size="sm"
                   className="w-full mt-3"
+                  disabled={isBusy || isReportSubmitting}
                 >
-                  <AlertTriangle className="w-3.5 h-3.5 mr-1.5" />
-                  Submit Report
+                  {isReportSubmitting ? (
+                    <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />
+                  ) : (
+                    <AlertTriangle className="w-3.5 h-3.5 mr-1.5" />
+                  )}
+                  {isReportSubmitting ? "Submitting..." : "Submit Report"}
                 </Button>
               )}
             </div>

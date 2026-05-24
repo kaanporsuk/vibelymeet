@@ -1,0 +1,142 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import {
+  POST_DATE_VERDICT_CONFIRM_TIMEOUT_MS,
+  confirmationResultFromVerdictBroadcast,
+  derivePostDateSurveyStepFromVerdict,
+  isConfirmingVerdictBroadcast,
+  isVideoDateVerdictConfirmEnabled,
+  normalizePostDateVerdictConfirmationResult,
+} from "./postDateVerdictConfirmation";
+
+const root = process.cwd();
+const migration = readFileSync(
+  join(root, "supabase/migrations/20260525090000_video_date_verdict_confirmation_v2.sql"),
+  "utf8",
+);
+const flags = readFileSync(join(root, "shared/featureFlags/videoDateV4Flags.ts"), "utf8");
+const outboxTypes = readFileSync(join(root, "shared/postDateOutbox/types.ts"), "utf8");
+const edgeFunction = readFileSync(join(root, "supabase/functions/post-date-verdict/index.ts"), "utf8");
+const webSurvey = readFileSync(join(root, "src/components/video-date/PostDateSurvey.tsx"), "utf8");
+const webSafetyScreen = readFileSync(join(root, "src/components/video-date/survey/SafetyScreen.tsx"), "utf8");
+const nativeSurvey = readFileSync(join(root, "apps/mobile/components/video-date/PostDateSurvey.tsx"), "utf8");
+const nativeApi = readFileSync(join(root, "apps/mobile/lib/videoDateApi.ts"), "utf8");
+const packageJson = readFileSync(join(root, "package.json"), "utf8");
+
+test("verdict confirmation flags and v3 RPC contract are additive and default-off", () => {
+  for (const flag of ["video_date.verdict_confirm_v2", "video_date.verdict_confirm_v1"]) {
+    assert.match(flags, new RegExp(`"${flag}"`));
+    assert.match(migration, new RegExp(`'${flag}',\\s*false,\\s*0`));
+  }
+
+  assert.match(migration, /CREATE OR REPLACE FUNCTION public\.submit_post_date_verdict_v3/);
+  assert.match(migration, /'committed', true/);
+  assert.match(migration, /'session_seq', v_session_seq/);
+  assert.match(migration, /'verdict_state', v_verdict_state/);
+  assert.match(migration, /'next_surface', v_next_surface/);
+  assert.match(migration, /public\.resolve_post_date_next_surface\(p_session_id\)/);
+  assert.match(migration, /EXCEPTION WHEN OTHERS THEN\s+v_next_surface := NULL/);
+  assert.match(migration, /FROM public\.date_feedback df/);
+  assert.match(migration, /v_actor_liked AND v_partner_liked THEN 'resolved_mutual'/);
+  assert.match(migration, /'partner_verdict_recorded', v_partner_has_feedback/);
+  assert.match(migration, /'awaiting_partner_verdict', NOT v_partner_has_feedback/);
+  assert.match(migration, /'mutual', v_actor_liked AND v_partner_liked/);
+  assert.match(migration, /v_begin->>'status' = 'replay_rejected'[\s\S]+RETURN v_replay_result \|\| jsonb_build_object/);
+  assert.doesNotMatch(
+    migration.match(/v_begin->>'status' = 'replay_rejected'[\s\S]+?END IF;/)?.[0] ?? "",
+    /'committed', true/,
+  );
+  const replayBlock = migration.match(/IF v_begin->>'status' IN \('replay', 'replay_rejected'\)[\s\S]+?IF v_begin->>'status' IS DISTINCT FROM 'started'/)?.[0] ?? "";
+  assert.match(replayBlock, /FROM public\.date_feedback df/);
+  assert.match(replayBlock, /v_actor_liked AND v_partner_liked THEN 'resolved_mutual'/);
+});
+
+test("verdict confirmation shared helper normalizes flags, results, broadcasts, and steps", () => {
+  assert.equal(POST_DATE_VERDICT_CONFIRM_TIMEOUT_MS, 2_500);
+  assert.equal(isVideoDateVerdictConfirmEnabled({ enabled: true }, { enabled: false }), true);
+  assert.equal(isVideoDateVerdictConfirmEnabled({ enabled: false }, { enabled: true }), true);
+  assert.equal(isVideoDateVerdictConfirmEnabled({ enabled: true, source: "kill_switched" }, { enabled: true }), false);
+
+  const result = normalizePostDateVerdictConfirmationResult({
+    success: true,
+    committed: true,
+    session_seq: 12,
+    verdict_state: "awaiting_partner",
+    awaiting_partner_verdict: true,
+    next_surface: { success: true, action: "lobby", session_id: "s1" },
+  });
+  assert.equal(result.committed, true);
+  assert.equal(result.sessionSeq, 12);
+  assert.equal(result.verdictState, "awaiting_partner");
+  assert.equal(result.nextSurface?.action, "lobby");
+  const camelNextSurface = normalizePostDateVerdictConfirmationResult({
+    nextSurface: { success: true, action: "ready_gate", nextSessionId: "next-1", secondsUntilEventEnd: 42 },
+  });
+  assert.equal(camelNextSurface.nextSurface?.nextSessionId, "next-1");
+  assert.equal(camelNextSurface.nextSurface?.secondsUntilEventEnd, 42);
+  assert.equal(derivePostDateSurveyStepFromVerdict({ mutual: true }), "celebration");
+  assert.equal(derivePostDateSurveyStepFromVerdict({ next_surface: { success: true, action: "chat", match_id: "m1" } }), "highlights");
+  assert.equal(derivePostDateSurveyStepFromVerdict(result), "awaiting_partner");
+  assert.equal(derivePostDateSurveyStepFromVerdict({ verdict_state: "resolved_not_mutual" }), "highlights");
+
+  assert.equal(isConfirmingVerdictBroadcast({ kind: "post_date_verdict_recorded", sessionSeq: 7 }, 7), true);
+  assert.equal(isConfirmingVerdictBroadcast({ kind: "post_date_verdict_resolved", sessionSeq: 8 }, 7), true);
+  assert.equal(isConfirmingVerdictBroadcast({ kind: "post_date_verdict_recorded", sessionSeq: 6 }, 7), false);
+  assert.equal(isConfirmingVerdictBroadcast({ kind: "ready_gate_marked", sessionSeq: 8 }, 7), false);
+  const broadcastConfirmation = confirmationResultFromVerdictBroadcast({
+    kind: "post_date_verdict_resolved",
+    sessionSeq: 9,
+    payload: { mutual: true, match_id: "match-1" },
+  }, 8);
+  assert.equal(broadcastConfirmation?.committed, true);
+  assert.equal(broadcastConfirmation?.verdict_state, "resolved_mutual");
+});
+
+test("types and Edge wrapper carry verdict confirmation fields without changing auth/push flow", () => {
+  for (const source of [outboxTypes, edgeFunction, nativeApi]) {
+    assert.match(source, /committed\??:/);
+    assert.match(source, /session_seq\??:/);
+    assert.match(source, /verdict_state\??:/);
+    assert.match(source, /next_surface\??:/);
+  }
+  assert.match(edgeFunction, /type VerdictRpcResult/);
+  assert.match(edgeFunction, /submit_post_date_verdict_v3/);
+  assert.match(edgeFunction, /serviceClient\.functions\.invoke\("send-notification"/);
+});
+
+test("web and native surveys gate optimistic advancement behind shared confirmation", () => {
+  for (const source of [webSurvey, nativeSurvey]) {
+    assert.match(source, /useFeatureFlag\(["']video_date\.verdict_confirm_v2["']\)/);
+    assert.match(source, /useFeatureFlag\(["']video_date\.verdict_confirm_v1["']\)/);
+    assert.match(source, /isVideoDateVerdictConfirmEnabled/);
+    assert.match(source, /type PostDateVerdictUiState/);
+    for (const state of ["idle", "submitting", "confirmed", "awaiting_partner", "retryable_failed"]) {
+      assert.match(source, new RegExp(`["']${state}["']`));
+    }
+    assert.match(source, /pendingVerdictConfirmRef/);
+    assert.match(source, /verdictConfirmTimeoutRef/);
+    assert.match(source, /POST_DATE_VERDICT_CONFIRM_TIMEOUT_MS/);
+    assert.match(source, /createVideoDateSessionChannel/);
+    assert.match(source, /confirmationResultFromVerdictBroadcast/);
+    assert.match(source, /waitForVerdictConfirmation/);
+    assert.match(source, /normalizePostDateVerdictConfirmationResult/);
+    assert.match(source, /derivePostDateSurveyStepFromVerdict/);
+    assert.match(source, /nextSurface\.action === ["']survey["']/);
+    assert.match(source, /confirmation_timeout/);
+    assert.match(source, /recordReportPassVerdict[\s\S]+waitForVerdictConfirmation/);
+    assert.match(source, /report_pass_confirmation_failed/);
+    assert.match(source, /highlightsSaveInFlightRef/);
+    assert.match(source, /safetySaveInFlightRef/);
+    assert.match(source, /safetyReportInFlightRef/);
+  }
+  assert.match(nativeSurvey, /useFeatureFlag\('video_date\.outbox_v2\.submit_verdict'\)/);
+  assert.match(nativeSurvey, /backendVersion: submitVerdictV3\.enabled \? 'v3' : 'v2'/);
+  assert.match(webSafetyScreen, /onReport: \(reason: string, details: string, alsoBlock: boolean\) => boolean \| Promise<boolean>/);
+  assert.match(webSafetyScreen, /isReportSubmitting/);
+});
+
+test("verdict confirmation contracts are included in the video-date no-build suite", () => {
+  assert.match(packageJson, /videoDateVerdictConfirmationContracts\.test\.ts/);
+});

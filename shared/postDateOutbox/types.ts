@@ -1,4 +1,6 @@
 import type { ReportReasonId } from "../safety/reportReasons";
+import type { ServerPostDateNextSurface } from "../matching/postDateContinuity";
+import type { PostDateVerdictState } from "../matching/postDateVerdictConfirmation";
 
 export type PostDateOutboxQueueState =
   | "queued"
@@ -56,4 +58,8 @@ export type PostDateOutboxResultPayload = {
   safety_report_recorded?: boolean;
   report_id?: string;
   idempotent?: boolean;
+  committed?: boolean;
+  session_seq?: number;
+  verdict_state?: PostDateVerdictState;
+  next_surface?: ServerPostDateNextSurface | null;
 };

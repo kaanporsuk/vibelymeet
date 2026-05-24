@@ -14,6 +14,8 @@ export const VIDEO_DATE_V4_CLIENT_FEATURE_FLAGS = [
   "video_date.daily_token_refresh_v2",
   "video_date.push_payload_v2",
   "video_date.multi_device_dedup_v2",
+  "video_date.verdict_confirm_v2",
+  "video_date.verdict_confirm_v1",
   "video_date.outbox_lease_refresh_v2",
   "video_date.deadline_partial_unique_v2",
   "video_date.orphan_safety_interlock_v2",

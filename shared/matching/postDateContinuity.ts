@@ -62,13 +62,13 @@ export function normalizeServerPostDateNextSurface(value: unknown): ServerPostDa
     success: true,
     action,
     route: stringOrNull(raw.route),
-    sessionId: stringOrNull(raw.session_id),
-    nextSessionId: stringOrNull(raw.next_session_id),
-    eventId: stringOrNull(raw.event_id),
-    targetId: stringOrNull(raw.target_id),
-    matchId: stringOrNull(raw.match_id),
+    sessionId: stringOrNull(raw.session_id ?? raw.sessionId),
+    nextSessionId: stringOrNull(raw.next_session_id ?? raw.nextSessionId),
+    eventId: stringOrNull(raw.event_id ?? raw.eventId),
+    targetId: stringOrNull(raw.target_id ?? raw.targetId),
+    matchId: stringOrNull(raw.match_id ?? raw.matchId),
     reason: stringOrNull(raw.reason),
-    secondsUntilEventEnd: numberOrNull(raw.seconds_until_event_end),
+    secondsUntilEventEnd: numberOrNull(raw.seconds_until_event_end ?? raw.secondsUntilEventEnd),
   };
 }
 

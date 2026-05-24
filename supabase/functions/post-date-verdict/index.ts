@@ -8,7 +8,10 @@ const corsHeaders = {
 
 type VerdictRpcResult = {
   success?: boolean;
+  ok?: boolean;
   error?: string;
+  code?: string;
+  message?: string;
   mutual?: boolean;
   match_id?: string;
   already_matched?: boolean;
@@ -18,6 +21,10 @@ type VerdictRpcResult = {
   partner_verdict_recorded?: boolean;
   safety_report_recorded?: boolean;
   report_id?: string;
+  committed?: boolean;
+  session_seq?: number;
+  verdict_state?: "awaiting_partner" | "resolved_mutual" | "resolved_not_mutual" | "safety_reported";
+  next_surface?: Record<string, unknown> | null;
 };
 
 function logLifecycle(payload: {
