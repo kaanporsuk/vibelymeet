@@ -7,13 +7,18 @@ import {
 } from "./readyGateCountdown";
 import {
   getReadyGatePermissionPrewarmReleaseDelayMs,
-  getReadyGateResubscribeDelayMs,
   normalizeReadyGateServerNowMs,
-  READY_GATE_ORCHESTRATOR_BACKOFF_MS,
-  READY_GATE_ORCHESTRATOR_MAX_RESUBSCRIBE_ATTEMPTS,
-  READY_GATE_RECONCILE_AFTER_REALTIME_MS,
   shouldCommitReadyGateTruth,
 } from "./readyGateReadiness";
+import {
+  createReadyGateRealtimeSupervisor,
+  getReadyGateRealtimeReconnectDelayMs,
+  isReadyGateResilientBroadcastEnabled,
+  isReadyGateResilientClockEnabled,
+  READY_GATE_REALTIME_RECONNECT_DELAYS_MS,
+  READY_GATE_REALTIME_RECONNECT_MAX_DELAY_MS,
+  READY_GATE_REALTIME_TELEMETRY,
+} from "./readyGateRealtimeSupervisor";
 
 const root = process.cwd();
 
@@ -23,19 +28,107 @@ function read(path: string): string {
 
 test("Ready Gate realtime orchestrator uses bounded exponential resubscribe backoff", () => {
   assert.deepEqual(
-    READY_GATE_ORCHESTRATOR_BACKOFF_MS.map((_, index) => getReadyGateResubscribeDelayMs({
-      attempt: index + 1,
-      jitterRatio: 0,
-    })),
-    [1_000, 2_000, 4_000, 8_000],
+    READY_GATE_REALTIME_RECONNECT_DELAYS_MS.map((_, index) => getReadyGateRealtimeReconnectDelayMs(index + 1)),
+    [250, 500, 1_000, 2_000, 4_000],
   );
+  assert.equal(getReadyGateRealtimeReconnectDelayMs(6), READY_GATE_REALTIME_RECONNECT_MAX_DELAY_MS);
   assert.equal(
-    getReadyGateResubscribeDelayMs({
-      attempt: READY_GATE_ORCHESTRATOR_MAX_RESUBSCRIBE_ATTEMPTS + 1,
-      jitterRatio: 0,
-    }),
-    null,
+    getReadyGateRealtimeReconnectDelayMs(99),
+    READY_GATE_REALTIME_RECONNECT_MAX_DELAY_MS,
   );
+});
+
+test("Ready Gate resilience uses v2 canonical flags with v1 as compatibility alias", () => {
+  assert.equal(isReadyGateResilientClockEnabled({ timelineV2Enabled: true, aliasEnabled: false }), true);
+  assert.equal(isReadyGateResilientClockEnabled({ timelineV2Enabled: false, aliasEnabled: true }), true);
+  assert.equal(isReadyGateResilientClockEnabled({ timelineV2Enabled: false, aliasEnabled: false }), false);
+  assert.equal(isReadyGateResilientBroadcastEnabled({ broadcastV2Enabled: true, aliasEnabled: false }), true);
+  assert.equal(isReadyGateResilientBroadcastEnabled({ broadcastV2Enabled: false, aliasEnabled: true }), true);
+});
+
+test("Ready Gate realtime telemetry names stay exact", () => {
+  assert.deepEqual(READY_GATE_REALTIME_TELEMETRY, {
+    DEGRADED: "ready_gate_realtime_degraded",
+    RECOVERED: "ready_gate_realtime_recovered",
+    SNAPSHOT_GAP_RECOVERED: "ready_gate_snapshot_gap_recovered",
+  });
+});
+
+test("Ready Gate realtime supervisor recovers only after all degraded sources resubscribe", () => {
+  const emitted: string[] = [];
+  const degradedStates: boolean[] = [];
+  let snapshotFetches = 0;
+  let resubscribeCount = 0;
+  const supervisor = createReadyGateRealtimeSupervisor({
+    sessionId: "session-1",
+    eventId: "event-1",
+    platform: "web",
+    sourceSurface: "contract_test",
+    nowMs: () => 1_000,
+    emitTelemetry: (eventName) => {
+      emitted.push(eventName);
+    },
+    fetchCanonicalSnapshot: async () => {
+      snapshotFetches += 1;
+      return { ok: true, seq: 7 };
+    },
+    onDegradedChange: (degraded) => {
+      degradedStates.push(degraded);
+    },
+    onResubscribe: () => {
+      resubscribeCount += 1;
+    },
+  });
+
+  supervisor.handleStatus("private_broadcast", "CHANNEL_ERROR", new Error("socket lost"));
+  supervisor.handleStatus("postgres_video_sessions", "CLOSED");
+  assert.equal(supervisor.isDegraded(), true);
+  assert.deepEqual(emitted, [READY_GATE_REALTIME_TELEMETRY.DEGRADED]);
+
+  supervisor.handleStatus("private_broadcast", "SUBSCRIBED");
+  assert.equal(supervisor.isDegraded(), true);
+  assert.deepEqual(emitted, [READY_GATE_REALTIME_TELEMETRY.DEGRADED]);
+
+  supervisor.handleStatus("postgres_video_sessions", "SUBSCRIBED");
+  assert.equal(supervisor.isDegraded(), false);
+  assert.deepEqual(emitted, [
+    READY_GATE_REALTIME_TELEMETRY.DEGRADED,
+    READY_GATE_REALTIME_TELEMETRY.RECOVERED,
+  ]);
+  assert.equal(snapshotFetches, 2);
+  assert.equal(resubscribeCount, 0);
+  assert.deepEqual(degradedStates, [true, false]);
+
+  supervisor.dispose();
+});
+
+test("Ready Gate realtime supervisor clears intentionally inactive degraded sources", async () => {
+  const emitted: string[] = [];
+  let resubscribeCount = 0;
+  const supervisor = createReadyGateRealtimeSupervisor({
+    sessionId: "session-1",
+    eventId: "event-1",
+    platform: "native",
+    sourceSurface: "contract_test",
+    nowMs: () => 1_000,
+    emitTelemetry: (eventName) => {
+      emitted.push(eventName);
+    },
+    fetchCanonicalSnapshot: async () => ({ ok: true, seq: 7 }),
+    onResubscribe: () => {
+      resubscribeCount += 1;
+    },
+  });
+
+  supervisor.handleStatus("private_broadcast", "CHANNEL_ERROR", new Error("socket lost"));
+  assert.equal(supervisor.isDegraded(), true);
+  supervisor.clearSource("private_broadcast", "subscription_inactive");
+  assert.equal(supervisor.isDegraded(), false);
+  assert.deepEqual(emitted, [READY_GATE_REALTIME_TELEMETRY.DEGRADED]);
+
+  await new Promise((resolve) => setTimeout(resolve, 300));
+  assert.equal(resubscribeCount, 0);
+  supervisor.dispose();
 });
 
 test("Ready Gate truth precedence rejects lower polling truth after terminal readiness", () => {
@@ -110,22 +203,30 @@ test("Ready Gate Phase 2 is wired across web, native, and database surfaces", ()
   const migration = read("supabase/migrations/20260524120000_ready_gate_orchestrator_server_clock.sql");
 
   for (const source of [webHook, nativeApi]) {
-    assert.match(source, /getReadyGateResubscribeDelayMs/);
+    assert.match(source, /createReadyGateRealtimeSupervisor/);
     assert.match(source, /shouldCommitReadyGateTruth/);
     assert.match(source, /normalizeReadyGateServerNowMs/);
-    assert.match(source, /READY_GATE_RECONCILE_AFTER_REALTIME_MS/);
     assert.match(source, /createInitialReadyGateState/);
     assert.match(source, /activeReadyGateSessionIdRef/);
-    assert.match(source, /realtimeReconcileTimerRef/);
+    assert.match(source, /readyGateRealtimeSupervisorRef/);
+    assert.match(source, /sequenceGapUnresolved/);
+    assert.match(source, /phaseDeadlineAtMs/);
+    assert.match(source, /clockSkewMs/);
+    assert.match(source, /countdownDegraded/);
+    assert.match(source, /ready_gate_resilient_clock_v1/);
     assert.match(source, /CLOSED/);
+    assert.match(source, /const snapshot = await fetchVideoDateSnapshot\(sessionId, \{ includeToken: false \}\);\s+if \(activeReadyGateSessionIdRef\.current !== sessionId\) return/);
     assert.match(source, /const syncResult = await syncSession\(\)/);
   }
 
   assert.match(nativeApi, /void syncSession\(\)/);
+  assert.match(nativeApi, /!state\.realtimeDegraded && !state\.sequenceGapUnresolved/);
   assert.doesNotMatch(nativeApi, /const intervalId = setInterval\(\(\) => \{\s*void fetchSession\(\)/);
 
   for (const source of [webOverlay, nativeOverlay, nativeReadyRoute]) {
     assert.match(source, /getReadyGateCountdownFromServerClock/);
+    assert.match(source, /phaseDeadlineAtMs/);
+    assert.match(source, /readyGateClockEnabled/);
     assert.match(source, /fallbackDeadlineMs/);
     assert.match(source, /readyGateOpenedAtMsRef\.current \+ GATE_TIMEOUT(?:_SEC)? \* 1000/);
     assert.doesNotMatch(source, /fallbackGateDeadlineMsRef/);
@@ -139,6 +240,8 @@ test("Ready Gate Phase 2 is wired across web, native, and database surfaces", ()
   assert.match(webOverlay, /clearRealtimeDegradedWhenHealthy/);
   assert.doesNotMatch(webOverlay, /if \(!realtimeDegraded\) return;\s*setRealtimeDegraded\(false\)/);
   assert.match(webOverlay, /status === "SUBSCRIBED"/);
+  assert.match(webHook, /clearSource\("private_broadcast", "broadcast_disabled"\)/);
+  assert.match(nativeApi, /clearSource\('private_broadcast', 'broadcast_disabled'\)/);
   assert.match(migration, /server_now_ms/);
   assert.match(migration, /serverNowMs/);
   assert.match(migration, /ready_gate_transition_20260524120000_clock_base/);

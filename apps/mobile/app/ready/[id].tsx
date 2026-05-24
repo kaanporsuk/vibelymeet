@@ -81,7 +81,9 @@ export default function ReadyGateScreen() {
     terminal,
     serverNowMs,
     clientSyncedAtMs,
+    phaseDeadlineAtMs,
     retryBroadcastGapRecovery,
+    readyGateClockEnabled,
   } = useReadyGate(sessionId ?? null, user?.id ?? null);
 
   const [partnerAvatar, setPartnerAvatar] = useState<string | null>(null);
@@ -631,9 +633,9 @@ export default function ReadyGateScreen() {
         if (result.ok === true && result.expiresAt) {
           setTimeLeft(
             getReadyGateCountdownFromServerClock({
-              expiresAt: result.expiresAt,
-              serverNowMs,
-              clientSyncedAtMs,
+              expiresAt: readyGateClockEnabled ? phaseDeadlineAtMs ?? result.expiresAt : result.expiresAt,
+              serverNowMs: readyGateClockEnabled ? serverNowMs : null,
+              clientSyncedAtMs: readyGateClockEnabled ? clientSyncedAtMs : null,
               fallbackDeadlineMs: readyGateOpenedAtMsRef.current + GATE_TIMEOUT_SEC * 1000,
               fallbackSeconds: GATE_TIMEOUT_SEC,
             }).remainingSeconds,
@@ -651,7 +653,7 @@ export default function ReadyGateScreen() {
         expirySyncInFlightRef.current = false;
       }
     },
-    [clientSyncedAtMs, serverNowMs, sessionId, syncSession, user?.id],
+    [clientSyncedAtMs, phaseDeadlineAtMs, readyGateClockEnabled, serverNowMs, sessionId, syncSession, user?.id],
   );
 
   useEffect(() => {
@@ -664,9 +666,9 @@ export default function ReadyGateScreen() {
     const t = setInterval(() => {
       setTimeLeft(() => {
         const next = getReadyGateCountdownFromServerClock({
-          expiresAt,
-          serverNowMs,
-          clientSyncedAtMs,
+          expiresAt: readyGateClockEnabled ? phaseDeadlineAtMs ?? expiresAt : expiresAt,
+          serverNowMs: readyGateClockEnabled ? serverNowMs : null,
+          clientSyncedAtMs: readyGateClockEnabled ? clientSyncedAtMs : null,
           fallbackDeadlineMs: readyGateOpenedAtMsRef.current + GATE_TIMEOUT_SEC * 1000,
           fallbackSeconds: GATE_TIMEOUT_SEC,
         }).remainingSeconds;
@@ -689,6 +691,8 @@ export default function ReadyGateScreen() {
     expiresAt,
     serverNowMs,
     clientSyncedAtMs,
+    phaseDeadlineAtMs,
+    readyGateClockEnabled,
     syncExpiredReadyGate,
   ]);
 

@@ -973,11 +973,13 @@ export function ReadyGateOverlay({
     expiresAt,
     serverNowMs,
     clientSyncedAtMs,
+    phaseDeadlineAtMs,
     markReady,
     snooze,
     forfeit,
     syncSession,
     isBothReady,
+    readyGateClockEnabled,
   } = useReadyGate(sessionId, userId, {
     eventId,
     onBothReady: handleBothReady,
@@ -1297,9 +1299,9 @@ export function ReadyGateOverlay({
     if (isTransitioning || iAmReady || markingReady || snoozedByPartner || terminalActionPending) return;
     const tick = () => {
       const countdown = getReadyGateCountdownFromServerClock({
-        expiresAt,
-        serverNowMs,
-        clientSyncedAtMs,
+        expiresAt: readyGateClockEnabled ? phaseDeadlineAtMs ?? expiresAt : expiresAt,
+        serverNowMs: readyGateClockEnabled ? serverNowMs : null,
+        clientSyncedAtMs: readyGateClockEnabled ? clientSyncedAtMs : null,
         fallbackDeadlineMs: readyGateOpenedAtMsRef.current + GATE_TIMEOUT_SEC * 1000,
         fallbackSeconds: GATE_TIMEOUT_SEC,
       });
@@ -1339,6 +1341,8 @@ export function ReadyGateOverlay({
     expiresAt,
     serverNowMs,
     clientSyncedAtMs,
+    phaseDeadlineAtMs,
+    readyGateClockEnabled,
     syncSession,
     sessionId,
     eventId,
