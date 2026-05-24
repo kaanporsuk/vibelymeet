@@ -100,6 +100,7 @@ serve(async (req) => {
 
     for (const row of rows) {
       const deepLink = `/date/${row.session_id}`;
+      const dedupeKey = `post_date_feedback:${row.session_id}:${row.missing_user_id}`;
       try {
         const { data: notifyResult, error: notifyError } = await supabase.functions.invoke(
           "send-notification",
@@ -109,10 +110,12 @@ serve(async (req) => {
               category: "post_date_feedback_reminder",
               title: "Your video date is waiting for your feedback.",
               body: "Share your post-date vibe to finish the flow.",
+              dedupe_key: dedupeKey,
               data: {
                 session_id: row.session_id,
                 video_session_id: row.session_id,
                 event_id: row.event_id,
+                dedupe_key: dedupeKey,
                 url: deepLink,
                 deep_link: deepLink,
               },

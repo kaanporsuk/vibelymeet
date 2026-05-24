@@ -187,6 +187,15 @@ function notificationPayloadFailureResult(payload: Record<string, unknown> | nul
   return { success: false, reason: detail, retryAfterSeconds: 60 };
 }
 
+function isVideoDateNotificationCategory(category: string): boolean {
+  return category === "ready_gate" ||
+    category === "partner_ready" ||
+    category === "date_starting" ||
+    category === "reconnection" ||
+    category === "date_reminder" ||
+    category === "post_date_feedback_reminder";
+}
+
 function safeProviderCode(value: unknown): string | null {
   if (typeof value !== "string") return null;
   const trimmed = value.trim();
@@ -548,11 +557,15 @@ async function sendNotification(
   const body = stringField(row.payload, "body");
   const data = isObjectPayload(row.payload.data) ? row.payload.data : {};
   if (!userId || !category) return { success: false, reason: "invalid_notification_payload", permanent: true };
+  const dedupeKey = stringField(row.payload, "dedupe_key", "dedupeKey") ?? row.dedupe_key ?? null;
+  if (isVideoDateNotificationCategory(category) && !dedupeKey) {
+    return { success: false, reason: "missing_stable_notification_dedupe_key", permanent: true };
+  }
   const requestBody: Record<string, unknown> = {
     user_id: userId,
     category,
     data,
-    dedupe_key: stringField(row.payload, "dedupe_key", "dedupeKey") ?? row.dedupe_key ?? undefined,
+    dedupe_key: dedupeKey ?? undefined,
   };
   if (title) requestBody.title = title;
   if (body) requestBody.body = body;

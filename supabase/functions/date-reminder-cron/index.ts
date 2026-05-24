@@ -98,12 +98,14 @@ Deno.serve(async (req) => {
       if (users.length === 0) continue
       try {
         for (const uid of users) {
+          const dedupeKey = `date_reminder:${plan.id}:${uid}:30m`
           await sendNotification({
             user_id: uid,
             category: 'date_reminder',
             title: 'Video date in 30 minutes! 📹',
             body: 'Your video date starts soon — get ready!',
-            data: { url: '/matches', match_id: plan.match_id },
+            dedupe_key: dedupeKey,
+            data: { url: '/matches', match_id: plan.match_id, dedupe_key: dedupeKey },
           })
           sent++
         }
@@ -121,12 +123,14 @@ Deno.serve(async (req) => {
       if (users.length === 0) continue
       try {
         for (const uid of users) {
+          const dedupeKey = `date_reminder:${plan.id}:${uid}:5m`
           await sendNotification({
             user_id: uid,
             category: 'date_reminder',
             title: 'Video date starting now! 🔴',
             body: 'Tap to join your video date!',
-            data: { url: '/matches', match_id: plan.match_id },
+            dedupe_key: dedupeKey,
+            data: { url: '/matches', match_id: plan.match_id, dedupe_key: dedupeKey },
           })
           sent++
         }
