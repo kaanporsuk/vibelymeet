@@ -40,10 +40,14 @@ test("Phase 3 token refresh detects Daily auth/ejection faults and schedules act
   assert.equal(isVideoDateDailyTokenJoinError({ message: "Camera permission denied" }), false);
   assert.equal(
     videoDateTokenRefreshDelayMs("2026-05-23T10:10:00.000Z", Date.parse("2026-05-23T10:00:00.000Z")),
-    5 * 60 * 1000,
+    8.5 * 60 * 1000,
   );
   assert.equal(
     videoDateTokenRefreshDelayMs("2026-05-23T10:03:00.000Z", Date.parse("2026-05-23T10:00:00.000Z")),
+    90 * 1000,
+  );
+  assert.equal(
+    videoDateTokenRefreshDelayMs("2026-05-23T10:01:00.000Z", Date.parse("2026-05-23T10:00:00.000Z")),
     0,
   );
 

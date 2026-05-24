@@ -189,6 +189,7 @@ import {
   resolveVideoDateHandshakeUiState,
   shouldShowVideoDateIceBreaker,
 } from '@clientShared/matching/videoDatePhase4Ux';
+import { shouldRefreshDailyTokenBeforeReconnect } from '@clientShared/matching/videoDatePhase4';
 import {
   getVideoDateWarmupChoiceNotice,
   type VideoDateWarmupChoiceNotice,
@@ -862,6 +863,7 @@ export default function VideoDateScreen() {
   const postDateInstantNextV2 = useFeatureFlag('video_date.post_date_instant_next_v2');
   const dailyCallSingletonV2 = useFeatureFlag('video_date.daily_call_singleton_v2');
   const resilienceV2 = useFeatureFlag('video_date.resilience_v2');
+  const dailyTokenRefreshV2 = useFeatureFlag('video_date.daily_token_refresh_v2');
   const colorScheme = useColorScheme();
   const theme = Colors[colorScheme];
   const insets = useSafeAreaInsets();
@@ -1095,6 +1097,7 @@ export default function VideoDateScreen() {
   const warmupChoiceNoticeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const dailyTokenRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const dailyTokenRecoveryInFlightRef = useRef(false);
+  const dailyTokenExpiresAtRef = useRef<string | null>(null);
   const recoverNativeDailyTokenRef = useRef<
     (sourceAction: DailyTokenRefreshSourceAction, cause?: unknown) => Promise<boolean>
   >(() => Promise.resolve(false));
@@ -2037,6 +2040,16 @@ export default function VideoDateScreen() {
           setIsPartnerDisconnected(true);
           void markReconnectPartnerAway(sessionId);
           requestReconnectSyncRef.current('daily_participant_left');
+          if (
+            dailyTokenRefreshV2.enabled &&
+            shouldRefreshDailyTokenBeforeReconnect(dailyTokenExpiresAtRef.current) &&
+            !dailyTokenRecoveryInFlightRef.current
+          ) {
+            void recoverNativeDailyTokenRef.current(
+              'daily_token_refresh_before_expiry',
+              new Error('near_expiry_reconnect:daily_participant_left'),
+            );
+          }
         }
       };
       const onLeftMeeting = () => {
@@ -2186,6 +2199,7 @@ export default function VideoDateScreen() {
     [
       clearFirstConnectWatchdog,
       clearNativeRemoteRenderRemount,
+      dailyTokenRefreshV2.enabled,
       detachCallListeners,
       releaseSharedCallIfOwned,
       endBootstrapTiming,
@@ -3313,6 +3327,7 @@ export default function VideoDateScreen() {
     clearFirstConnectWatchdog();
     clearDailyTokenRefreshTimer();
     dailyTokenRecoveryInFlightRef.current = false;
+    dailyTokenExpiresAtRef.current = null;
     recoverNativeDailyTokenRef.current = () => Promise.resolve(false);
     const call = callRef.current;
     if (call) {
@@ -6038,6 +6053,7 @@ export default function VideoDateScreen() {
       }
 
       let tokenResult = tokenRes.data;
+      dailyTokenExpiresAtRef.current = tokenResult.token_expires_at ?? null;
       activePreparedEntryCacheRef.current =
         activePreparedEntryCacheRef.current ?? getPreparedVideoDateEntry(sessionId, user.id);
       activePreparedEntryCacheHitRef.current = tokenResult.cached_prepare_entry === true;
@@ -6150,6 +6166,7 @@ export default function VideoDateScreen() {
           token: refreshed.token,
           token_expires_at: refreshed.tokenExpiresAtIso,
         };
+        dailyTokenExpiresAtRef.current = tokenResult.token_expires_at ?? null;
         vdbg('daily_token_refresh_success', {
           sessionId,
           userId: user.id,

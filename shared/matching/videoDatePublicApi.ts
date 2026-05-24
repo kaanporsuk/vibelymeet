@@ -1,6 +1,6 @@
 export const VIDEO_DATE_TOKEN_REFRESH_FUNCTION_NAME = "video-date-token-refresh";
 export const VIDEO_DATE_TOKEN_JOIN_REFRESH_WINDOW_MS = 2 * 60 * 1000;
-export const VIDEO_DATE_TOKEN_ACTIVE_REFRESH_WINDOW_MS = 5 * 60 * 1000;
+export const VIDEO_DATE_TOKEN_ACTIVE_REFRESH_WINDOW_MS = 90 * 1000;
 
 export type VideoDateTokenRefreshOk = {
   ok: true;

@@ -306,6 +306,234 @@ function getQueueId(data: any): string | null {
   return null
 }
 
+function isVideoDatePushPayloadCategory(category: string): boolean {
+  return category === 'ready_gate' ||
+    category === 'partner_ready' ||
+    category === 'date_starting' ||
+    category === 'reconnection' ||
+    category === 'date_reminder'
+}
+
+async function isClientFeatureFlagEnabled(flag: string, userId: string): Promise<boolean> {
+  try {
+    const { data, error } = await supabase.rpc('evaluate_client_feature_flag', {
+      p_flag: flag,
+      p_user: userId,
+    })
+    if (error) return false
+    return data === true
+  } catch {
+    return false
+  }
+}
+
+function safePayloadString(value: unknown, maxLength = 512): string | null {
+  if (typeof value !== 'string') return null
+  const trimmed = value.trim()
+  if (!trimmed) return null
+  return trimmed.length > maxLength ? trimmed.slice(0, maxLength) : trimmed
+}
+
+function parseIsoMs(value: unknown): number | null {
+  if (typeof value !== 'string' || !value.trim()) return null
+  const parsed = Date.parse(value)
+  return Number.isFinite(parsed) ? parsed : null
+}
+
+function jsonByteLength(value: unknown): number {
+  const text = JSON.stringify(value)
+  return new TextEncoder().encode(text).length
+}
+
+function createCorrelationId(): string {
+  try {
+    return crypto.randomUUID()
+  } catch {
+    return `corr_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`
+  }
+}
+
+function sanitizeDispatchPart(value: string): string {
+  return value.trim().replace(/[^A-Za-z0-9_.:-]/g, '_') || 'unknown'
+}
+
+function createNotificationDispatchGroupId(args: {
+  recipientId: string
+  category: string
+  sessionId?: string | null
+  eventId?: string | null
+  dedupeKey?: string | null
+}): string {
+  const target = args.dedupeKey || args.sessionId || args.eventId || 'global'
+  return [
+    'vd4',
+    sanitizeDispatchPart(args.recipientId),
+    sanitizeDispatchPart(args.category),
+    sanitizeDispatchPart(target),
+  ].join(':').slice(0, 160)
+}
+
+async function videoDatePartnerThumbUrl(session: any, recipientId: string): Promise<string | null> {
+  const partnerId =
+    session?.participant_1_id === recipientId
+      ? session?.participant_2_id
+      : session?.participant_2_id === recipientId
+        ? session?.participant_1_id
+        : null
+  if (!partnerId) return null
+  const { data } = await supabase
+    .from('profiles')
+    .select('avatar_url')
+    .eq('id', partnerId)
+    .maybeSingle()
+  return safePayloadString((data as { avatar_url?: unknown } | null)?.avatar_url, 700)
+}
+
+function videoDatePushPhaseTimes(session: any): {
+  state: string
+  phaseStartedAtMs: number | null
+  phaseDeadlineAtMs: number | null
+} {
+  const state =
+    session?.ended_at || session?.state === 'ended' || session?.phase === 'ended'
+      ? 'ended'
+      : session?.date_started_at || session?.state === 'date' || session?.phase === 'date'
+        ? 'date'
+        : session?.handshake_started_at || session?.state === 'handshake' || session?.phase === 'handshake'
+          ? 'handshake'
+          : 'ready_gate'
+  if (state === 'date') {
+    const startedAtMs = parseIsoMs(session?.date_started_at)
+    const extraSeconds =
+      typeof session?.date_extra_seconds === 'number' && Number.isFinite(session.date_extra_seconds)
+        ? Math.max(0, Math.floor(session.date_extra_seconds))
+        : 0
+    return {
+      state,
+      phaseStartedAtMs: startedAtMs,
+      phaseDeadlineAtMs: startedAtMs == null ? null : startedAtMs + (300 + extraSeconds) * 1000,
+    }
+  }
+  if (state === 'handshake') {
+    const startedAtMs = parseIsoMs(session?.handshake_started_at)
+    return {
+      state,
+      phaseStartedAtMs: startedAtMs,
+      phaseDeadlineAtMs: startedAtMs == null ? null : startedAtMs + 60_000,
+    }
+  }
+  return {
+    state,
+    phaseStartedAtMs: null,
+    phaseDeadlineAtMs: parseIsoMs(session?.ready_gate_expires_at),
+  }
+}
+
+async function buildVideoDatePushPayloadV2(args: {
+  category: string
+  recipientId: string
+  data: any
+  dedupeKey?: string | null
+  pushPayloadV2Enabled: boolean
+  multiDeviceDedupV2Enabled: boolean
+}): Promise<Record<string, unknown>> {
+  if (!args.pushPayloadV2Enabled && !args.multiDeviceDedupV2Enabled) return {}
+  if (!isVideoDatePushPayloadCategory(args.category)) return {}
+  const sessionId = getSessionId(args.data)
+  if (!sessionId) return {}
+  const correlationId = createCorrelationId()
+  const dispatchGroupId = args.multiDeviceDedupV2Enabled
+    ? createNotificationDispatchGroupId({
+        recipientId: args.recipientId,
+        category: args.category,
+        sessionId,
+        eventId: getEventId(args.data),
+        dedupeKey: args.dedupeKey ?? correlationId,
+      })
+    : null
+
+  const { data: session } = await supabase
+    .from('video_sessions')
+    .select('id, event_id, participant_1_id, participant_2_id, state, phase, ended_at, handshake_started_at, date_started_at, date_extra_seconds, ready_gate_expires_at')
+    .eq('id', sessionId)
+    .maybeSingle()
+
+  if (!session) {
+    return {
+      correlation_id: correlationId,
+      dispatch_group_id: dispatchGroupId,
+    }
+  }
+  if (session.participant_1_id !== args.recipientId && session.participant_2_id !== args.recipientId) {
+    return {
+      correlation_id: correlationId,
+      dispatch_group_id: dispatchGroupId,
+    }
+  }
+
+  if (!args.pushPayloadV2Enabled) {
+    return dispatchGroupId
+      ? { correlation_id: correlationId, dispatch_group_id: dispatchGroupId }
+      : { correlation_id: correlationId }
+  }
+
+  const times = videoDatePushPhaseTimes(session)
+  const eventId = safePayloadString(session.event_id) ?? getEventId(args.data)
+  const partnerThumbUrl = await videoDatePartnerThumbUrl(session, args.recipientId)
+  const serverNowMs = Date.now()
+  const preload = {
+    schema: 'video_date_push_preload_v2',
+    sessionId,
+    eventId,
+    state: times.state,
+    phaseDeadlineAtMs: times.phaseDeadlineAtMs,
+    phaseStartedAtMs: times.phaseStartedAtMs,
+    clockSkewHintMs: 0,
+    partnerThumbUrl,
+    correlationId,
+    dispatchGroupId,
+    serverNowMs,
+  }
+  const payload: Record<string, unknown> = {
+    video_date_preload: preload,
+    phaseDeadlineAt: times.phaseDeadlineAtMs,
+    state: times.state,
+    clockSkewHintMs: 0,
+    partnerThumbUrl,
+    eventId,
+    correlation_id: correlationId,
+  }
+  if (dispatchGroupId) payload.dispatch_group_id = dispatchGroupId
+  if (jsonByteLength(payload) <= 3 * 1024) return payload
+  preload.partnerThumbUrl = null
+  payload.partnerThumbUrl = null
+  if (jsonByteLength(payload) <= 3 * 1024) return payload
+  preload.phaseStartedAtMs = null
+  return payload
+}
+
+function compactVideoDateOsDataForPush(osData: Record<string, unknown>): Record<string, unknown> {
+  if (!osData.video_date_preload || jsonByteLength(osData) <= 3 * 1024) return osData
+  const preload = osData.video_date_preload && typeof osData.video_date_preload === 'object'
+    ? osData.video_date_preload as Record<string, unknown>
+    : null
+  const withoutThumb: Record<string, unknown> = {
+    ...osData,
+    partnerThumbUrl: null,
+    video_date_preload: preload ? { ...preload, partnerThumbUrl: null } : osData.video_date_preload,
+  }
+  if (jsonByteLength(withoutThumb) <= 3 * 1024) return withoutThumb
+  const withoutStartedAt: Record<string, unknown> = {
+    ...withoutThumb,
+    video_date_preload: preload ? {
+      ...preload,
+      partnerThumbUrl: null,
+      phaseStartedAtMs: null,
+    } : withoutThumb.video_date_preload,
+  }
+  return withoutStartedAt
+}
+
 function isUuid(value: unknown): value is string {
   return typeof value === 'string' &&
     /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value.trim())
@@ -1405,7 +1633,19 @@ Deno.serve(async (req) => {
     //   payloads is the same session id during the compatibility window — not matches.id until post-date mutual / Daily Drop.
     let webPath = '/'
     const admissionStatus = getAdmissionStatus(data)
-    const osData: Record<string, unknown> = { ...(data || {}), category }
+    const [pushPayloadV2Enabled, multiDeviceDedupV2Enabled] = await Promise.all([
+      isClientFeatureFlagEnabled('video_date.push_payload_v2', user_id),
+      isClientFeatureFlagEnabled('video_date.multi_device_dedup_v2', user_id),
+    ])
+    const phase4PushData = await buildVideoDatePushPayloadV2({
+      category,
+      recipientId: user_id,
+      data,
+      dedupeKey: typeof dedupe_key === 'string' && dedupe_key.trim() ? dedupe_key.trim() : null,
+      pushPayloadV2Enabled,
+      multiDeviceDedupV2Enabled,
+    })
+    let osData: Record<string, unknown> = { ...(data || {}), ...phase4PushData, category }
     const baseAction = requestedAction ?? deriveNotificationAction(category, data)
     osData.action = baseAction
     if (
@@ -1446,11 +1686,17 @@ Deno.serve(async (req) => {
             ? data.deep_link
             : '/')
       osData.deep_link = deepLink
+      osData.url = deepLink
       if (typeof admissionStatus === 'string') {
         osData.admission_status = admissionStatus
       }
       webPath = deepLink
     }
+
+    if (multiDeviceDedupV2Enabled && !collapseId && typeof osData.dispatch_group_id === 'string' && osData.dispatch_group_id.trim()) {
+      collapseId = osData.dispatch_group_id.trim().slice(0, 64)
+    }
+    osData = compactVideoDateOsDataForPush(osData)
 
     const osPayload: any = {
       app_id: ONESIGNAL_APP_ID,

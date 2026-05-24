@@ -120,6 +120,10 @@ import {
   type VideoDateTimelineState,
 } from "@clientShared/matching/videoDateTimeline";
 import {
+  clearVideoDatePushPreload,
+  readVideoDatePushPreloadTimeline,
+} from "@/lib/videoDatePushPreload";
+import {
   getVideoDateWarmupChoiceNotice,
   type VideoDateWarmupChoiceNotice,
 } from "@clientShared/matching/videoDateWarmupChoiceNotice";
@@ -417,12 +421,22 @@ const VideoDate = () => {
   const postDateInstantNextV2 = useFeatureFlag("video_date.post_date_instant_next_v2");
   const dailyCallSingletonV2 = useFeatureFlag("video_date.daily_call_singleton_v2");
   const resilienceV2 = useFeatureFlag("video_date.resilience_v2");
+  const dailyTokenRefreshV2 = useFeatureFlag("video_date.daily_token_refresh_v2");
+  const pushPayloadV2 = useFeatureFlag("video_date.push_payload_v2");
+  const initialPushTimeline = useMemo(
+    () => pushPayloadV2.enabled ? readVideoDatePushPreloadTimeline(id) : null,
+    [id, pushPayloadV2.enabled],
+  );
+  const initialPushCountdown = useMemo(
+    () => initialPushTimeline ? resolveVideoDateTimelineCountdown(initialPushTimeline) : null,
+    [initialPushTimeline],
+  );
 
-  const [phase, setPhase] = useState<CallPhase>("handshake");
+  const [phase, setPhase] = useState<CallPhase>(initialPushTimeline?.phase === "date" ? "date" : "handshake");
   /** Server-owned extension seconds (`video_sessions.date_extra_seconds`) for reconciliation after refetch/rejoin. */
   const [dateExtraSeconds, setDateExtraSeconds] = useState(0);
   const [dateStartedAt, setDateStartedAt] = useState<string | null>(null);
-  const [timeLeft, setTimeLeft] = useState<number | null>(null);
+  const [timeLeft, setTimeLeft] = useState<number | null>(initialPushCountdown?.remainingSeconds ?? null);
   const [videoDateAccess, setVideoDateAccess] = useState<VideoDateAccess>("loading");
   const [deniedEventId, setDeniedEventId] = useState<string | undefined>(undefined);
   const [timingReady, setTimingReady] = useState(false);
@@ -446,7 +460,7 @@ const VideoDate = () => {
   const [isLeavingVideoDate, setIsLeavingVideoDate] = useState(false);
   const [handshakeStartedAt, setHandshakeStartedAt] = useState<string | null>(null);
   const [handshakeTruth, setHandshakeTruth] = useState<VideoDateHandshakeTruth | null>(null);
-  const [serverTimeline, setServerTimeline] = useState<VideoDateTimelineState | null>(null);
+  const [serverTimeline, setServerTimeline] = useState<VideoDateTimelineState | null>(initialPushTimeline);
   const [timingRefreshNonce, setTimingRefreshNonce] = useState(0);
   const [isParticipant1, setIsParticipant1] = useState(false);
   const [partnerId, setPartnerId] = useState<string>("");
@@ -803,6 +817,7 @@ const VideoDate = () => {
     eventId,
     resilienceV2: resilienceV2.enabled,
     dailyCallSingletonV2: dailyCallSingletonV2.enabled,
+    dailyTokenRefreshV2: dailyTokenRefreshV2.enabled,
     dailyCallSingletonEligible:
       showFeedback ||
       phase === "date" ||
@@ -1048,13 +1063,19 @@ const VideoDate = () => {
     sessionSeqRef.current = null;
     broadcastRefetchInFlightRef.current = false;
     broadcastPendingRefetchSeqRef.current = null;
-    serverTimelineRef.current = null;
+    serverTimelineRef.current = initialPushTimeline;
     dailyReconnectPerformanceStartedAtRef.current = null;
     dailyReconnectPerformanceSourceRef.current = null;
     extensionBroadcastSeenRef.current.clear();
     setPendingPartnerExtension(null);
-    setServerTimeline(null);
-  }, [id]);
+    setServerTimeline(initialPushTimeline);
+    setPhase(initialPushTimeline?.phase === "date" ? "date" : "handshake");
+    setTimeLeft(initialPushCountdown?.remainingSeconds ?? null);
+  }, [id, initialPushCountdown, initialPushTimeline]);
+
+  useEffect(() => {
+    if (initialPushTimeline) clearVideoDatePushPreload(id);
+  }, [id, initialPushTimeline]);
 
   useEffect(() => {
     if (!pendingPartnerExtension?.expiresAt) return;

@@ -38,6 +38,7 @@ import {
   classifyDailyRoomTokenFailureClass,
   type DailyRoomFailureKind,
 } from "@clientShared/matching/dailyRoomFailure";
+import { shouldRefreshDailyTokenBeforeReconnect } from "@clientShared/matching/videoDatePhase4";
 import type { PreparedVideoDateEntryCacheEntry } from "@clientShared/matching/videoDatePrepareEntry";
 import { adviseVideoDateTokenRecovery } from "@clientShared/matching/videoDateRecoveryAdvisor";
 import {
@@ -66,6 +67,7 @@ interface UseVideoCallOptions {
   resilienceV2?: boolean;
   dailyCallSingletonV2?: boolean;
   dailyCallSingletonEligible?: boolean;
+  dailyTokenRefreshV2?: boolean;
 }
 
 /** Daily `network-quality-change` — surfaced as lightweight HUD, not toasts. */
@@ -3459,6 +3461,14 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
           });
           optionsRef.current?.onPartnerTransientDisconnect?.();
           void syncReconnectOnce(reason);
+          if (
+            optionsRef.current?.dailyTokenRefreshV2 === true &&
+            !reason.startsWith("daily_token") &&
+            shouldRefreshDailyTokenBeforeReconnect(roomData.token_expires_at) &&
+            !dailyTokenRecoveryInFlightRef.current
+          ) {
+            void recoverDailyTokenAndRejoin("daily_token_refresh_before_expiry", new Error(`near_expiry_reconnect:${reason}`));
+          }
 
           reconnectGraceTickerRef.current = setInterval(() => {
             const next = remainingSeconds();

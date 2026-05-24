@@ -12,6 +12,8 @@ const DAILY_API_KEY = Deno.env.get("DAILY_API_KEY")?.trim() ?? "";
 const DAILY_API_URL = "https://api.daily.co/v1";
 const DAILY_VIDEO_DATE_ROOM_TTL_SECONDS = 14_400;
 const DAILY_VIDEO_DATE_SNAPSHOT_TOKEN_TTL_SECONDS = DAILY_VIDEO_DATE_ROOM_TTL_SECONDS;
+const DAILY_VIDEO_DATE_SNAPSHOT_TOKEN_PHASE_EXTENSION_BUFFER_MS = 2 * 60 * 1000;
+const DAILY_VIDEO_DATE_SNAPSHOT_TOKEN_MIN_TTL_SECONDS = 180;
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -20,12 +22,16 @@ type SnapshotPayload = {
   error?: string;
   eventId?: string | null;
   phase?: string | null;
+  phaseDeadlineAt?: number | null;
+  serverNow?: number | null;
   room?: {
     name?: string | null;
     url?: string | null;
     tokenRequired?: boolean | null;
     token?: string;
     tokenExpiresAt?: number;
+    tokenTtlSeconds?: number;
+    tokenExpiryReason?: string;
   } | null;
 };
 
@@ -51,14 +57,71 @@ function errorStatus(error: string | undefined): number {
 
 function withoutToken(snapshot: SnapshotPayload): SnapshotPayload {
   if (!snapshot.room) return snapshot;
-  const { token: _token, tokenExpiresAt: _tokenExpiresAt, ...room } = snapshot.room;
+  const {
+    token: _token,
+    tokenExpiresAt: _tokenExpiresAt,
+    tokenTtlSeconds: _tokenTtlSeconds,
+    tokenExpiryReason: _tokenExpiryReason,
+    ...room
+  } = snapshot.room;
   return {
     ...snapshot,
     room,
   };
 }
 
-async function createMeetingToken(roomName: string, userId: string): Promise<{
+async function isClientFeatureFlagEnabled(supabase: any, flag: string, userId: string): Promise<boolean> {
+  try {
+    const { data, error } = await supabase.rpc("evaluate_client_feature_flag", {
+      p_flag: flag,
+      p_user: userId,
+    });
+    if (error) return false;
+    return data === true;
+  } catch {
+    return false;
+  }
+}
+
+function resolveSnapshotTokenWindow(snapshot: SnapshotPayload, issuedAtMs: number, phaseBoundedTokens: boolean): {
+  ttlSeconds: number;
+  tokenExpiresAt: number;
+  reason: "phase_deadline" | "max_ttl";
+} {
+  const maxTtlMs = DAILY_VIDEO_DATE_SNAPSHOT_TOKEN_TTL_SECONDS * 1000;
+  const minTtlMs = DAILY_VIDEO_DATE_SNAPSHOT_TOKEN_MIN_TTL_SECONDS * 1000;
+  const serverNowMs = typeof snapshot.serverNow === "number" && Number.isFinite(snapshot.serverNow)
+    ? snapshot.serverNow
+    : issuedAtMs;
+  const clockSkewMs = serverNowMs - issuedAtMs;
+  const phaseDeadlineAtMs = phaseBoundedTokens && typeof snapshot.phaseDeadlineAt === "number" && Number.isFinite(snapshot.phaseDeadlineAt)
+    ? snapshot.phaseDeadlineAt
+    : null;
+  let targetExpiresAtMs = issuedAtMs + maxTtlMs;
+  let reason: "phase_deadline" | "max_ttl" = "max_ttl";
+
+  if (phaseDeadlineAtMs !== null && phaseDeadlineAtMs > serverNowMs) {
+    targetExpiresAtMs = phaseDeadlineAtMs - clockSkewMs + DAILY_VIDEO_DATE_SNAPSHOT_TOKEN_PHASE_EXTENSION_BUFFER_MS;
+    reason = "phase_deadline";
+  } else if (phaseDeadlineAtMs !== null) {
+    targetExpiresAtMs = issuedAtMs + minTtlMs;
+    reason = "phase_deadline";
+  }
+
+  targetExpiresAtMs = Math.min(targetExpiresAtMs, issuedAtMs + maxTtlMs);
+  if (targetExpiresAtMs <= issuedAtMs + minTtlMs) {
+    targetExpiresAtMs = Math.min(issuedAtMs + minTtlMs, issuedAtMs + maxTtlMs);
+  }
+
+  const ttlSeconds = Math.max(1, Math.ceil((targetExpiresAtMs - issuedAtMs) / 1000));
+  return {
+    ttlSeconds,
+    tokenExpiresAt: issuedAtMs + ttlSeconds * 1000,
+    reason,
+  };
+}
+
+async function createMeetingToken(roomName: string, userId: string, ttlSeconds: number): Promise<{
   token: string;
   tokenExpiresAt: number;
 }> {
@@ -66,7 +129,7 @@ async function createMeetingToken(roomName: string, userId: string): Promise<{
     throw new Error("daily_api_key_missing");
   }
   const issuedAtMs = Date.now();
-  const tokenExpiresAt = issuedAtMs + DAILY_VIDEO_DATE_SNAPSHOT_TOKEN_TTL_SECONDS * 1000;
+  const tokenExpiresAt = issuedAtMs + ttlSeconds * 1000;
   const response = await fetch(`${DAILY_API_URL}/meeting-tokens`, {
     method: "POST",
     headers: {
@@ -77,7 +140,7 @@ async function createMeetingToken(roomName: string, userId: string): Promise<{
       properties: buildMeetingTokenProperties({
         roomName,
         userId,
-        ttlSeconds: DAILY_VIDEO_DATE_SNAPSHOT_TOKEN_TTL_SECONDS,
+        ttlSeconds,
         nowSeconds: Math.floor(issuedAtMs / 1000),
         ejectAtTokenExp: true,
       }),
@@ -173,13 +236,21 @@ serve(async (req) => {
   }
 
   try {
-    const tokenResult = await createMeetingToken(roomName, user.id);
+    const phaseBoundedTokens = await isClientFeatureFlagEnabled(
+      supabase,
+      "video_date.daily_token_refresh_v2",
+      user.id,
+    );
+    const tokenWindow = resolveSnapshotTokenWindow(snapshot, Date.now(), phaseBoundedTokens);
+    const tokenResult = await createMeetingToken(roomName, user.id, tokenWindow.ttlSeconds);
     return jsonResponse({
       ...snapshot,
       room: {
         ...snapshot.room,
         token: tokenResult.token,
         tokenExpiresAt: tokenResult.tokenExpiresAt,
+        tokenTtlSeconds: tokenWindow.ttlSeconds,
+        tokenExpiryReason: tokenWindow.reason,
       },
     });
   } catch (tokenError) {

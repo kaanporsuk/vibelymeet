@@ -21,6 +21,8 @@ export type VideoDateSnapshotRoom = {
   tokenRequired: boolean;
   token?: string | null;
   tokenExpiresAt?: number | null;
+  tokenTtlSeconds?: number | null;
+  tokenExpiryReason?: string | null;
 };
 
 export type VideoDateSnapshotOk = {
@@ -92,6 +94,8 @@ export function normalizeVideoDateSnapshot(payload: unknown): VideoDateSnapshot 
           tokenRequired: roomRecord.tokenRequired !== false,
           token: nullableString(roomRecord.token),
           tokenExpiresAt: nullableNumber(roomRecord.tokenExpiresAt),
+          tokenTtlSeconds: nullableNumber(roomRecord.tokenTtlSeconds),
+          tokenExpiryReason: nullableString(roomRecord.tokenExpiryReason),
         }
       : null,
     endedReason: nullableString(record.endedReason),
