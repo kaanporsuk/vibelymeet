@@ -73,112 +73,35 @@ import {
   resolveDeckEmptyReason,
 } from "@clientShared/observability/eventLobbyObservability";
 import { isActiveSessionSingleOwnerEnabled } from "@/lib/runtimeFlags";
-import { fetchVideoDateQueueHint, type VideoDateQueueHint } from "@/lib/videoDateQueueHint";
+import { fetchVideoDateQueueHint } from "@/lib/videoDateQueueHint";
+import {
+  formatVideoDateQueueHintLabel,
+  resolveEventDeckPhase4UiState,
+  type EventDeckPhase4UiState,
+} from "@clientShared/matching/videoDatePhase4Ux";
 
 const READY_GATE_ACTIVE_STATUSES = new Set(["ready", "ready_a", "ready_b", "both_ready", "snoozed"]);
 const READY_GATE_MANUAL_EXIT_SUPPRESS_MS = 45_000;
 
-function formatQueueHintLabel(hint: VideoDateQueueHint | null, fallbackCount: number): string {
-  if (hint?.queued && hint.position != null && hint.position > 0) {
-    const eta = formatQueueEtaLabel(hint.estimatedWaitSeconds);
-    const parts = [`Position ${hint.position}`];
-    if (eta) parts.push(eta);
-    if (hint.reliefActive) parts.push("priority boost");
-    return parts.join(" · ");
-  }
-  const count = Math.max(fallbackCount, hint?.eventQueuedCount ?? 0);
-  return count === 1 ? "1 waiting in queue" : `${count} waiting in queue`;
-}
-
-function formatQueueEtaLabel(seconds: number | null | undefined): string | null {
-  if (seconds == null || seconds < 0) return null;
-  if (seconds <= 5) return "now";
-  if (seconds < 60) return `~${Math.ceil(seconds / 5) * 5}s`;
-  return `~${Math.ceil(seconds / 60)}m`;
-}
-
-function gateFromServerInactiveDeck(inactiveReason: string | null | undefined): EventLobbyGateState {
-  const reason = inactiveReason ?? "event_not_active";
-  if (reason === "event_not_started") {
-    return {
-      kind: "not_started",
-      canFetchDeck: false,
-      canUseLobbyActions: false,
-      canUseLobbySideEffects: false,
-      title: "This event isn't live yet",
-      message: "The server has not opened this lobby yet. Check the event page countdown.",
-      actionLabel: "Back to event",
-      redirectTo: "event",
-    };
-  }
-  if (reason === "event_ended" || reason === "event_outside_live_window") {
-    return {
-      kind: "ended",
-      canFetchDeck: false,
-      canUseLobbyActions: false,
-      canUseLobbySideEffects: false,
-      title: "This event has ended",
-      message: "The live lobby is closed. Check your matches to keep the conversation going.",
-      actionLabel: "View matches",
-      redirectTo: "matches",
-    };
-  }
+function gateFromDeckUiState(ui: EventDeckPhase4UiState): EventLobbyGateState {
   return {
-    kind: "not_live",
+    kind:
+      ui.kind === "event_ended"
+        ? "ended"
+        : ui.kind === "event_not_started"
+          ? "not_started"
+          : ui.kind === "not_registered"
+            ? "not_registered"
+            : ui.kind === "viewer_paused"
+              ? "paused"
+              : "not_live",
     canFetchDeck: false,
     canUseLobbyActions: false,
     canUseLobbySideEffects: false,
-    title: "This lobby is closed",
-    message: "The server says this event is no longer accepting lobby swipes.",
-    actionLabel: "Back to event",
-    redirectTo: "event",
-  };
-}
-
-function deckEmptyCopyFromServerReason(reason: string | null | undefined): {
-  badge: string;
-  title: string;
-  message: string;
-} {
-  if (reason === "no_confirmed_candidates") {
-    return {
-      badge: "Room warming up",
-      title: "No confirmed guests are available yet",
-      message: "Confirmed guests may still join the live room. Your deck refreshes automatically, and you can refresh any time.",
-    };
-  }
-  if (reason === "no_remaining_profiles") {
-    return {
-      badge: "Deck clear",
-      title: "You've seen everyone for now",
-      message: "More people may join the room. Your deck refreshes every few seconds, and you can refresh any time.",
-    };
-  }
-  if (reason === "scan_window_exhausted") {
-    return {
-      badge: "Still checking",
-      title: "We're checking a bigger room",
-      message: "This event has a lot of candidates. Refresh again in a moment while we keep the deck moving.",
-    };
-  }
-  if (reason === "not_registered") {
-    return {
-      badge: "Registration needed",
-      title: "Only confirmed guests can swipe here",
-      message: "Head back to the event page to check your registration status.",
-    };
-  }
-  if (reason === "viewer_paused") {
-    return {
-      badge: "Paused",
-      title: "You're on a break",
-      message: "End your break to become visible in the event deck again.",
-    };
-  }
-  return {
-    badge: "Deck clear",
-    title: "You've seen everyone for now",
-    message: "More people may join the room. Your deck refreshes every few seconds, and you can refresh any time.",
+    title: ui.title,
+    message: ui.message,
+    actionLabel: ui.actionLabel ?? "Back to event",
+    redirectTo: ui.actionTarget === "matches" ? "matches" : "event",
   };
 }
 
@@ -297,6 +220,27 @@ const EventLobby = () => {
   );
   const eventEndTime = resolvedEventLifecycle?.endsAt ?? null;
   const eventEndTimeMs = eventEndTime?.getTime() ?? null;
+  const handleEndBreak = useCallback(() => {
+    if (!user?.id || endingBreak) return;
+    setEndingBreak(true);
+    void (async () => {
+      try {
+        const { error } = await supabase
+          .from("profiles")
+          .update(END_ACCOUNT_BREAK_PROFILE_UPDATE)
+          .eq("id", user.id);
+        if (error) {
+          toast.error(error.message);
+          return;
+        }
+        await refreshProfile();
+        await queryClient.invalidateQueries({ queryKey: ["event-deck", eventId, user.id] });
+        toast.success("You're visible again.");
+      } finally {
+        setEndingBreak(false);
+      }
+    })();
+  }, [endingBreak, eventId, queryClient, refreshProfile, user?.id]);
   const lobbyGate = useMemo(
     () =>
       getWebEventLobbyGateState({
@@ -337,13 +281,24 @@ const EventLobby = () => {
   const serverInactiveDeckGate = useMemo(
     () =>
       deckState?.reason === "event_not_active"
-        ? gateFromServerInactiveDeck(deckState.inactive_reason)
+        ? gateFromDeckUiState(
+            resolveEventDeckPhase4UiState({
+              platform: "web",
+              deckStateReason: deckState.reason,
+              inactiveReason: deckState.inactive_reason,
+            }),
+          )
         : null,
     [deckState?.inactive_reason, deckState?.reason],
   );
-  const emptyDeckCopy = useMemo(
-    () => deckEmptyCopyFromServerReason(deckState?.reason),
-    [deckState?.reason],
+  const emptyDeckUiState = useMemo(
+    () =>
+      resolveEventDeckPhase4UiState({
+        platform: "web",
+        deckStateReason: deckState?.reason,
+        inactiveReason: deckState?.inactive_reason,
+      }),
+    [deckState?.inactive_reason, deckState?.reason],
   );
   const { setStatus, currentStatus } = useEventStatus({ eventId, enabled: lobbySideEffectsEnabled });
   const readinessV2 = useFeatureFlag("video_date.readiness_v2");
@@ -881,7 +836,7 @@ const EventLobby = () => {
     refetchIntervalInBackground: false,
     staleTime: 3_000,
   });
-  const queueHintLabel = formatQueueHintLabel(queueHint, queuedCount);
+  const queueHintLabel = formatVideoDateQueueHintLabel(queueHint, queuedCount);
 
   useEffect(() => {
     if (!eventId || !lobbySideEffectsEnabled) return;
@@ -1503,6 +1458,15 @@ const EventLobby = () => {
       user?.isPaused,
     ],
   );
+  const deckErrorUiState = useMemo(
+    () =>
+      resolveEventDeckPhase4UiState({
+        platform: "web",
+        deckErrorReason: deckError ? deckEmptyReason : null,
+        observedReason: deckEmptyReason,
+      }),
+    [deckEmptyReason, deckError],
+  );
 
   // Track deck loaded / exhausted
   useEffect(() => {
@@ -2049,45 +2013,36 @@ const EventLobby = () => {
               variant="outline"
               className="border-amber-400/40 text-amber-200 hover:bg-amber-500/10"
               disabled={endingBreak}
-              onClick={() => {
-                if (!user?.id) return;
-                setEndingBreak(true);
-                void (async () => {
-                  try {
-                    const { error } = await supabase
-                      .from("profiles")
-                      .update(END_ACCOUNT_BREAK_PROFILE_UPDATE)
-                      .eq("id", user.id);
-                    if (error) {
-                      toast.error(error.message);
-                      return;
-                    }
-                    await refreshProfile();
-                    await queryClient.invalidateQueries({ queryKey: ["event-deck", eventId, user.id] });
-                    toast.success("You're visible again.");
-                  } finally {
-                    setEndingBreak(false);
-                  }
-                })();
-              }}
+              onClick={handleEndBreak}
             >
               {endingBreak ? "Ending break..." : "End break & start discovering"}
             </Button>
           </div>
         ) : deckError && deckEnabled && profiles.length === 0 && !deckLoading ? (
           <div className="flex flex-col items-center justify-center flex-1 px-4 py-8 text-center max-w-sm mx-auto w-full gap-4">
-            <p className="text-lg font-display font-semibold text-white">Couldn&apos;t load deck</p>
+            <p className="text-lg font-display font-semibold text-white">{deckErrorUiState.title}</p>
             <p className="text-sm text-white/55">
-              We couldn&apos;t load people in this room. Check your connection and tap Retry.
+              {deckErrorUiState.message}
             </p>
-            <Button
-              type="button"
-              variant="outline"
-              className="border-white/20 bg-white/[0.06] text-white hover:bg-white/10"
-              onClick={() => void refetchDeck()}
-            >
-              Retry
-            </Button>
+            {(deckErrorUiState.showRefresh || deckErrorUiState.actionTarget === "end_break") && (
+              <Button
+                type="button"
+                variant="outline"
+                className="border-white/20 bg-white/[0.06] text-white hover:bg-white/10"
+                disabled={deckErrorUiState.actionTarget === "end_break" && endingBreak}
+                onClick={() => {
+                  if (deckErrorUiState.actionTarget === "end_break") {
+                    handleEndBreak();
+                    return;
+                  }
+                  void refetchDeck();
+                }}
+              >
+                {deckErrorUiState.actionTarget === "end_break" && endingBreak
+                  ? "Ending break..."
+                  : deckErrorUiState.actionLabel ?? "Retry"}
+              </Button>
+            )}
           </div>
         ) : deckLoading && sortedProfiles.length === 0 && !deckError ? (
           <CardSkeleton decision={postSurveyReturnContext ? postSurveyContinuityDecision : undefined} />
@@ -2095,9 +2050,17 @@ const EventLobby = () => {
           <LobbyEmptyState
             eventId={eventId}
             onRefresh={refetchDeck}
-            badge={postSurveyReturnContext ? postSurveyContinuityDecision.title : emptyDeckCopy.badge}
-            title={postSurveyReturnContext ? postSurveyContinuityDecision.title : emptyDeckCopy.title}
-            message={postSurveyReturnContext ? postSurveyContinuityDecision.message : emptyDeckCopy.message}
+            badge={postSurveyReturnContext ? postSurveyContinuityDecision.title : emptyDeckUiState.badge}
+            title={postSurveyReturnContext ? postSurveyContinuityDecision.title : emptyDeckUiState.title}
+            message={postSurveyReturnContext ? postSurveyContinuityDecision.message : emptyDeckUiState.message}
+            showAction={
+              postSurveyReturnContext ||
+              emptyDeckUiState.showRefresh ||
+              emptyDeckUiState.actionTarget === "end_break"
+            }
+            actionLabel={emptyDeckUiState.actionLabel ?? "Refresh now"}
+            showRefreshIcon={emptyDeckUiState.actionTarget !== "end_break"}
+            onAction={emptyDeckUiState.actionTarget === "end_break" ? handleEndBreak : undefined}
           />
         ) : (
           <div className="w-full space-y-3">

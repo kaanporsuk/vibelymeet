@@ -32,7 +32,8 @@ test("native lobby treats backend event_not_active as a terminal gate", () => {
   assert.match(nativeLobby, /setServerInactiveEventReason\(failureReason\)/);
   assert.match(nativeLobby, /deckEmptyReason === 'event_not_active'/);
   assert.match(nativeLobby, /if \(isEventInactiveByServer\) return 'event_not_active'/);
-  assert.match(nativeLobby, /title="This lobby is closed"/);
+  assert.match(nativeLobby, /resolveEventDeckPhase4UiState/);
+  assert.match(nativeLobby, /router\.replace\('\/\(tabs\)\/matches'\)/);
 });
 
 test("native lobby covers backend swipe outcome taxonomy without client side effects", () => {

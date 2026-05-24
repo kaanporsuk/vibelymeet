@@ -11,9 +11,23 @@ interface LobbyEmptyStateProps {
   badge?: string;
   title?: string;
   message?: string;
+  showAction?: boolean;
+  actionLabel?: string;
+  showRefreshIcon?: boolean;
+  onAction?: () => void;
 }
 
-const LobbyEmptyState = ({ eventId, onRefresh, badge, title, message }: LobbyEmptyStateProps) => {
+const LobbyEmptyState = ({
+  eventId,
+  onRefresh,
+  badge,
+  title,
+  message,
+  showAction = true,
+  actionLabel = "Refresh now",
+  showRefreshIcon = true,
+  onAction,
+}: LobbyEmptyStateProps) => {
   const impressionRef = useRef(false);
 
   useEffect(() => {
@@ -78,15 +92,17 @@ const LobbyEmptyState = ({ eventId, onRefresh, badge, title, message }: LobbyEmp
             </p>
           </div>
 
-          <Button
-            variant="outline"
-            size="default"
-            onClick={handleRefresh}
-            className="gap-2 border-white/20 bg-white/[0.04] text-white hover:bg-white/[0.08] hover:text-white"
-          >
-            <RefreshCw className="w-4 h-4" />
-            Refresh now
-          </Button>
+          {showAction ? (
+            <Button
+              variant="outline"
+              size="default"
+              onClick={onAction ?? handleRefresh}
+              className="gap-2 border-white/20 bg-white/[0.04] text-white hover:bg-white/[0.08] hover:text-white"
+            >
+              {showRefreshIcon ? <RefreshCw className="w-4 h-4" /> : null}
+              {actionLabel}
+            </Button>
+          ) : null}
         </div>
       </div>
     </motion.div>

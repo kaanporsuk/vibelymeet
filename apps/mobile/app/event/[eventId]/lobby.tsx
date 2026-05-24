@@ -60,7 +60,7 @@ import { useVibelyDialog } from '@/components/VibelyDialog';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useAccountPauseStatus } from '@/hooks/useAccountPauseStatus';
 import { useFeatureFlag } from '@/hooks/useFeatureFlag';
-import { fetchVideoDateQueueHint, type VideoDateQueueHint } from '@/lib/videoDateQueueHint';
+import { fetchVideoDateQueueHint } from '@/lib/videoDateQueueHint';
 import { useActiveSession } from '@/lib/useActiveSession';
 import { RC_CATEGORY, rcBreadcrumb } from '@/lib/nativeRcDiagnostics';
 import { endAccountBreakForUser } from '@/lib/endAccountBreak';
@@ -103,6 +103,10 @@ import {
 } from '@shared/matching/videoSessionFlow';
 import { shouldTopUpVideoDateDeck } from '@clientShared/matching/videoDateInstantExperience';
 import {
+  formatVideoDateQueueHintLabel,
+  resolveEventDeckPhase4UiState,
+} from '@clientShared/matching/videoDatePhase4Ux';
+import {
   createVideoDateSessionChannel,
   resolveVideoDateSessionSeqDecision,
   type VideoDateSessionBroadcastEvent,
@@ -124,87 +128,6 @@ const GENERIC_SWIPE_FAILURE_OUTCOMES = new Set([
   'invalid_request',
   'unauthorized',
 ]);
-
-function formatQueueHintLabel(hint: VideoDateQueueHint | null, fallbackCount: number): string {
-  if (hint?.queued && hint.position != null && hint.position > 0) {
-    const eta = formatQueueEtaLabel(hint.estimatedWaitSeconds);
-    const parts = [`Position ${hint.position}`];
-    if (eta) parts.push(eta);
-    if (hint.reliefActive) parts.push('priority boost');
-    return parts.join(' · ');
-  }
-  const count = Math.max(fallbackCount, hint?.eventQueuedCount ?? 0);
-  return count === 1 ? '1 waiting in queue' : `${count} waiting in queue`;
-}
-
-function formatQueueEtaLabel(seconds: number | null | undefined): string | null {
-  if (seconds == null || seconds < 0) return null;
-  if (seconds <= 5) return 'now';
-  if (seconds < 60) return `~${Math.ceil(seconds / 5) * 5}s`;
-  return `~${Math.ceil(seconds / 60)}m`;
-}
-
-function serverInactiveEventCopy(reason: string | null): { title: string; message: string; actionLabel: string } {
-  if (reason === 'event_not_started') {
-    return {
-      title: "This event isn't live yet",
-      message: 'The server has not opened this lobby yet. Check the event page countdown.',
-      actionLabel: 'Back to event',
-    };
-  }
-  if (reason === 'event_ended' || reason === 'event_outside_live_window') {
-    return {
-      title: 'This event has ended',
-      message: 'The live lobby is closed. Head back to the event for details.',
-      actionLabel: 'Back to event',
-    };
-  }
-  return {
-    title: 'This lobby is closed',
-    message: 'The server says this event is no longer accepting lobby swipes. Head back to the event page for the latest status.',
-    actionLabel: 'Back to event',
-  };
-}
-
-function deckEmptyCopyFromServerReason(reason: string | null | undefined): {
-  title: string;
-  message: string;
-} {
-  if (reason === 'no_confirmed_candidates') {
-    return {
-      title: 'No confirmed guests are available yet',
-      message: 'Confirmed guests may still join the live room. Your deck refreshes automatically, and you can refresh any time.',
-    };
-  }
-  if (reason === 'no_remaining_profiles') {
-    return {
-      title: "You've seen everyone for now",
-      message: 'More people may join the room. Your deck refreshes every few seconds, and you can refresh any time. Mystery Match is an optional in-app shortcut for a random pairing while you wait (not available on web yet).',
-    };
-  }
-  if (reason === 'scan_window_exhausted') {
-    return {
-      title: "We're checking a bigger room",
-      message: 'This event has a lot of candidates. Refresh again in a moment while we keep the deck moving.',
-    };
-  }
-  if (reason === 'not_registered') {
-    return {
-      title: 'Only confirmed guests can swipe here',
-      message: 'Head back to the event page to check your registration status.',
-    };
-  }
-  if (reason === 'viewer_paused') {
-    return {
-      title: "You're on a break",
-      message: 'End your break to become visible in the event deck again.',
-    };
-  }
-  return {
-    title: "You've seen everyone for now",
-    message: 'More people may join the room. Your deck refreshes every few seconds, and you can refresh any time. Mystery Match is an optional in-app shortcut for a random pairing while you wait (not available on web yet).',
-  };
-}
 
 /**
  * If the in-lobby Ready Gate overlay stops making progress (realtime gaps, missed transitions),
@@ -624,6 +547,35 @@ export default function EventLobbyScreen() {
   const [showEventEndedModal, setShowEventEndedModal] = useState(false);
   const [endingBreak, setEndingBreak] = useState(false);
   const [userVibes, setUserVibes] = useState<string[]>([]);
+  const handleEndBreak = useCallback(() => {
+    if (!user?.id || endingBreak) return;
+    setEndingBreak(true);
+    void (async () => {
+      try {
+        const { error } = await endAccountBreakForUser(user.id);
+        if (error) {
+          show({
+            title: 'Couldn’t update',
+            message: error.message,
+            variant: 'warning',
+            primaryAction: { label: 'OK', onPress: () => {} },
+          });
+          return;
+        }
+        await queryClient.invalidateQueries({ queryKey: ['account-pause-status'] });
+        await queryClient.invalidateQueries({ queryKey: ['my-profile'] });
+        await queryClient.invalidateQueries({ queryKey: ['event-deck', id, user.id] });
+        show({
+          title: 'Welcome back!',
+          message: "You're visible again.",
+          variant: 'success',
+          primaryAction: { label: 'OK', onPress: () => {} },
+        });
+      } finally {
+        setEndingBreak(false);
+      }
+    })();
+  }, [endingBreak, id, queryClient, show, user?.id]);
   const lastOpenedSessionRef = useRef<string | null>(null);
   const readyGateManualExitSuppressUntilRef = useRef<Map<string, number>>(new Map());
   const postSurveyRouteTrackedRef = useRef<string | null>(null);
@@ -907,7 +859,7 @@ export default function EventLobbyScreen() {
     refetchIntervalInBackground: false,
     staleTime: 3_000,
   });
-  const queueHintLabel = formatQueueHintLabel(queueHint, queuedMatchCount);
+  const queueHintLabel = formatVideoDateQueueHintLabel(queueHint, queuedMatchCount);
 
   /** Full-screen yield: server truth says handshake/date — do not show deck-empty underneath. */
   const yieldingToVideoDateUi = useMemo(
@@ -2021,9 +1973,23 @@ export default function EventLobbyScreen() {
       yieldingToVideoDateUi,
     ]
   );
-  const emptyDeckCopy = useMemo(
-    () => deckEmptyCopyFromServerReason(deckState?.reason),
-    [deckState?.reason],
+  const emptyDeckUiState = useMemo(
+    () =>
+      resolveEventDeckPhase4UiState({
+        platform: 'native',
+        deckStateReason: deckState?.reason,
+        inactiveReason: deckState?.inactive_reason,
+      }),
+    [deckState?.inactive_reason, deckState?.reason],
+  );
+  const deckErrorUiState = useMemo(
+    () =>
+      resolveEventDeckPhase4UiState({
+        platform: 'native',
+        deckErrorReason: deckError ? deckEmptyReason : null,
+        observedReason: deckEmptyReason,
+      }),
+    [deckEmptyReason, deckError],
   );
 
   useEffect(() => {
@@ -2291,9 +2257,9 @@ export default function EventLobbyScreen() {
         <View style={[styles.centered, { backgroundColor: theme.background }]}>
           <ErrorState
             title="This event has ended"
-            message="The live lobby is closed. Head back to the event for details."
-            actionLabel="Back to event"
-            onActionPress={() => router.replace(`/(tabs)/events/${id}` as const)}
+            message="The live lobby is closed. Check your matches to keep the conversation going."
+            actionLabel="View matches"
+            onActionPress={() => router.replace('/(tabs)/matches')}
           />
         </View>
         {dialog}
@@ -2302,15 +2268,25 @@ export default function EventLobbyScreen() {
   }
 
   if (isEventInactiveByServer) {
-    const inactiveCopy = serverInactiveEventCopy(serverInactiveEventReason);
+    const inactiveCopy = resolveEventDeckPhase4UiState({
+      platform: 'native',
+      deckStateReason: 'event_not_active',
+      inactiveReason: serverInactiveEventReason,
+    });
     return (
       <>
         <View style={[styles.centered, { backgroundColor: theme.background }]}>
           <ErrorState
             title={inactiveCopy.title}
             message={inactiveCopy.message}
-            actionLabel={inactiveCopy.actionLabel}
-            onActionPress={() => router.replace(`/(tabs)/events/${id}` as const)}
+            actionLabel={inactiveCopy.actionLabel ?? 'Back to event'}
+            onActionPress={() => {
+              if (inactiveCopy.actionTarget === 'matches') {
+                router.replace('/(tabs)/matches');
+                return;
+              }
+              router.replace(`/(tabs)/events/${id}` as const);
+            }}
           />
         </View>
         {dialog}
@@ -2771,34 +2747,7 @@ export default function EventLobbyScreen() {
             <VibelyButton
               label="End break & start discovering"
               loading={endingBreak}
-              onPress={() => {
-                if (!user?.id || endingBreak) return;
-                setEndingBreak(true);
-                void (async () => {
-                  try {
-                    const { error } = await endAccountBreakForUser(user.id);
-                    if (error) {
-                      show({
-                        title: 'Couldn’t update',
-                        message: error.message,
-                        variant: 'warning',
-                        primaryAction: { label: 'OK', onPress: () => {} },
-                      });
-                      return;
-                    }
-                    await queryClient.invalidateQueries({ queryKey: ['account-pause-status'] });
-                    await queryClient.invalidateQueries({ queryKey: ['my-profile'] });
-                    show({
-                      title: 'Welcome back!',
-                      message: "You're visible again.",
-                      variant: 'success',
-                      primaryAction: { label: 'OK', onPress: () => {} },
-                    });
-                  } finally {
-                    setEndingBreak(false);
-                  }
-                })();
-              }}
+              onPress={handleEndBreak}
               variant="secondary"
               disabled={endingBreak}
               style={{
@@ -2836,10 +2785,24 @@ export default function EventLobbyScreen() {
             {discoverSectionIntro}
             <View style={styles.centeredInner}>
             <ErrorState
-              title="Couldn't load deck"
-              message="We couldn't load people in this room. Check your connection and tap Retry."
-              actionLabel="Retry"
-              onActionPress={() => refetchDeck()}
+              title={deckErrorUiState.title}
+              message={deckErrorUiState.message}
+              actionLabel={deckErrorUiState.actionLabel ?? 'Retry'}
+              onActionPress={() => {
+                if (deckErrorUiState.actionTarget === 'matches') {
+                  router.replace('/(tabs)/matches');
+                  return;
+                }
+                if (deckErrorUiState.actionTarget === 'event') {
+                  router.replace(`/(tabs)/events/${id}` as const);
+                  return;
+                }
+                if (deckErrorUiState.actionTarget === 'end_break') {
+                  handleEndBreak();
+                  return;
+                }
+                refetchDeck();
+              }}
             />
           </View>
           </>
@@ -2918,52 +2881,65 @@ export default function EventLobbyScreen() {
                     <Ionicons name="people-outline" size={40} color={theme.tint} />
                   </View>
                   <Text style={[styles.emptyTitle, { color: theme.text }]}>
-                    {postSurveyReturnContext ? postSurveyContinuityDecision.title : emptyDeckCopy.title}
+                    {postSurveyReturnContext ? postSurveyContinuityDecision.title : emptyDeckUiState.title}
                   </Text>
                   <Text style={[styles.emptyMessage, { color: theme.textSecondary }]}>
                     {postSurveyReturnContext
                       ? postSurveyContinuityDecision.message
-                      : emptyDeckCopy.message}
+                      : emptyDeckUiState.message}
                   </Text>
-                  <Pressable
-                    style={({ pressed }) => [styles.emptyPrimaryBtn, { backgroundColor: theme.tint }, pressed && { opacity: 0.9 }]}
-                    onPress={() => {
-                      if (id) {
-                        trackEvent(LobbyPostDateEvents.LOBBY_EMPTY_STATE_REFRESH_TAP, {
-                          platform: 'native',
-                          event_id: id,
-                        });
-                      }
-                      cancelSearch();
-                      refetchDeck();
-                    }}
-                  >
-                    <Text style={styles.emptyPrimaryLabel}>Refresh now</Text>
-                  </Pressable>
-                  <Pressable
-                    style={({ pressed }) => [
-                      styles.emptyMysteryBtn,
-                      { borderColor: theme.border, backgroundColor: withAlpha(theme.text, 0.04) },
-                      pressed && { opacity: 0.85 },
-                      isSearching && { opacity: 0.6 },
-                    ]}
-                    onPress={() => {
-                      if (id) {
-                        trackEvent(LobbyPostDateEvents.MYSTERY_MATCH_CTA_TAP, {
-                          platform: 'native',
-                          event_id: id,
-                        });
-                      }
-                      void findMysteryMatch();
-                    }}
-                    disabled={isSearching}
-                  >
-                    {isSearching ? (
-                      <Text style={[styles.emptySecondaryLabel, { color: theme.text }]}>Finding match...</Text>
-                    ) : (
-                      <Text style={[styles.emptySecondaryLabel, { color: theme.text }]}>Mystery Match (optional)</Text>
-                    )}
-                  </Pressable>
+                  {emptyDeckUiState.showRefresh || emptyDeckUiState.actionTarget === 'end_break' ? (
+                    <Pressable
+                      style={({ pressed }) => [styles.emptyPrimaryBtn, { backgroundColor: theme.tint }, pressed && { opacity: 0.9 }]}
+                      onPress={() => {
+                        if (emptyDeckUiState.actionTarget === 'end_break') {
+                          handleEndBreak();
+                          return;
+                        }
+                        if (id) {
+                          trackEvent(LobbyPostDateEvents.LOBBY_EMPTY_STATE_REFRESH_TAP, {
+                            platform: 'native',
+                            event_id: id,
+                          });
+                        }
+                        cancelSearch();
+                        refetchDeck();
+                      }}
+                      disabled={emptyDeckUiState.actionTarget === 'end_break' && endingBreak}
+                    >
+                      <Text style={styles.emptyPrimaryLabel}>
+                        {emptyDeckUiState.actionTarget === 'end_break' && endingBreak
+                          ? 'Ending break...'
+                          : emptyDeckUiState.actionLabel ?? 'Refresh now'}
+                      </Text>
+                    </Pressable>
+                  ) : null}
+                  {emptyDeckUiState.showMysteryMatch ? (
+                    <Pressable
+                      style={({ pressed }) => [
+                        styles.emptyMysteryBtn,
+                        { borderColor: theme.border, backgroundColor: withAlpha(theme.text, 0.04) },
+                        pressed && { opacity: 0.85 },
+                        isSearching && { opacity: 0.6 },
+                      ]}
+                      onPress={() => {
+                        if (id) {
+                          trackEvent(LobbyPostDateEvents.MYSTERY_MATCH_CTA_TAP, {
+                            platform: 'native',
+                            event_id: id,
+                          });
+                        }
+                        void findMysteryMatch();
+                      }}
+                      disabled={isSearching}
+                    >
+                      {isSearching ? (
+                        <Text style={[styles.emptySecondaryLabel, { color: theme.text }]}>Finding match...</Text>
+                      ) : (
+                        <Text style={[styles.emptySecondaryLabel, { color: theme.text }]}>Mystery Match (optional)</Text>
+                      )}
+                    </Pressable>
+                  ) : null}
                 </>
               )}
             </Card>
