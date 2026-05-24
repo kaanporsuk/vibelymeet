@@ -52,7 +52,7 @@ import {
 } from "@clientShared/matching/videoDateMediaContract";
 import {
   getReadyGateCountdownProgress,
-  getReadyGateRemainingSeconds,
+  getReadyGateCountdownFromServerClock,
   READY_GATE_DEFAULT_TIMEOUT_SECONDS,
 } from "@clientShared/matching/readyGateCountdown";
 import {
@@ -70,7 +70,10 @@ import {
   adviseVideoSessionTruthRecovery,
   resolveReadyGateTerminalRecoveryViaAdvisor as resolveReadyGateTerminalRecovery,
 } from "@clientShared/matching/videoDateRecoveryAdvisor";
-import { getReadyGateReadinessStatusCopy } from "@clientShared/matching/readyGateReadiness";
+import {
+  getReadyGatePermissionPrewarmReleaseDelayMs,
+  getReadyGateReadinessStatusCopy,
+} from "@clientShared/matching/readyGateReadiness";
 
 interface ReadyGateOverlayProps {
   sessionId: string;
@@ -82,7 +85,6 @@ interface ReadyGateOverlayProps {
 
 const GATE_TIMEOUT = READY_GATE_DEFAULT_TIMEOUT_SECONDS;
 const WEB_READY_GATE_SILENT_PERMISSION_FALLBACK_WAIT_MS = 100;
-const WEB_READY_GATE_PERMISSION_PREWARM_MEDIA_TTL_MS = 12_000;
 const ACTIVE_DATE_QUEUE_STATUSES = new Set(["in_handshake", "in_date"]);
 const EXPIRY_SYNC_RETRY_DELAY_MS = 3_000;
 
@@ -264,7 +266,6 @@ const ReadyGateOverlay = ({
   const terminalOutcomeRef = useRef(false);
   const expirySyncInFlightRef = useRef(false);
   const expirySyncRetryAtMsRef = useRef(0);
-  const fallbackGateDeadlineMsRef = useRef(Date.now() + GATE_TIMEOUT * 1000);
   const activeReadyGateKey = `${sessionId}:${eventId}`;
   const activeReadyGateKeyRef = useRef(activeReadyGateKey);
   const bothReadyObservedAtMsRef = useRef<number | null>(null);
@@ -664,9 +665,13 @@ const ReadyGateOverlay = ({
         permissionPrewarmMediaRef.current = media;
         media = null;
         clearPermissionPrewarmMediaReleaseTimer();
+        const permissionPrewarmReleaseDelayMs = getReadyGatePermissionPrewarmReleaseDelayMs({
+          prewarmCompletedAtMs: permissionPrewarmMediaRef.current.acquiredAtMs,
+          nowMs: Date.now(),
+        });
         permissionPrewarmMediaReleaseTimerRef.current = setTimeout(() => {
           releasePermissionPrewarmMedia("permission_prewarm_media_ttl_expired");
-        }, WEB_READY_GATE_PERMISSION_PREWARM_MEDIA_TTL_MS);
+        }, permissionPrewarmReleaseDelayMs);
 
         setVideoDatePermissionHandoff({
           sessionId,
@@ -682,7 +687,7 @@ const ReadyGateOverlay = ({
           captureProfile: permissionPrewarmMediaRef.current.captureProfile,
           source: "web_ready_gate_permission_prewarm",
           acquiredAtMs: permissionPrewarmMediaRef.current.acquiredAtMs,
-          ttlMs: WEB_READY_GATE_PERMISSION_PREWARM_MEDIA_TTL_MS,
+          ttlMs: permissionPrewarmReleaseDelayMs,
         });
         if (mediaHandoff.ok === false) {
           permissionPrewarmMediaHandoffStoredRef.current = false;
@@ -757,6 +762,8 @@ const ReadyGateOverlay = ({
           session_id: sessionId,
           event_id: eventId,
           reason: error instanceof Error ? error.name : "permission_prewarm_failed",
+          error_cause: error instanceof Error ? error.message : String(error),
+          settings_deep_link: "browser_site_settings",
           source_surface: "ready_gate_overlay",
           source_action: sourceAction,
         });
@@ -765,6 +772,8 @@ const ReadyGateOverlay = ({
           eventId,
           userId,
           source,
+          error_cause: error instanceof Error ? error.name : "permission_prewarm_failed",
+          settings_deep_link: "browser_site_settings",
           error:
             error instanceof Error
               ? { name: error.name, message: error.message }
@@ -1327,6 +1336,9 @@ const ReadyGateOverlay = ({
     partnerName,
     snoozedByPartner,
     expiresAt,
+    serverNowMs,
+    clientSyncedAtMs,
+    realtimeDegraded: orchestratorRealtimeDegraded,
     markReady,
     skip,
     snooze,
@@ -1339,6 +1351,20 @@ const ReadyGateOverlay = ({
     onBothReady: handleBothReady,
     onForfeited: handleForfeited,
   });
+
+  useEffect(() => {
+    if (orchestratorRealtimeDegraded) {
+      setRealtimeDegraded(true);
+      return;
+    }
+    if (!realtimeDegraded) return;
+    setRealtimeDegraded(false);
+    setShowRealtimeFallbackCopy(false);
+    if (realtimeFallbackCopyTimerRef.current) {
+      clearTimeout(realtimeFallbackCopyTimerRef.current);
+      realtimeFallbackCopyTimerRef.current = null;
+    }
+  }, [orchestratorRealtimeDegraded, realtimeDegraded]);
 
   const runTerminalAction = useCallback(
     async (dismissVariant: ReadyGateTerminalAction) => {
@@ -1687,7 +1713,14 @@ const ReadyGateOverlay = ({
         }
       )
       .subscribe((status) => {
-        if (status === "CHANNEL_ERROR") {
+        if (status === "SUBSCRIBED") {
+          setRealtimeDegraded(false);
+          setShowRealtimeFallbackCopy(false);
+          if (realtimeFallbackCopyTimerRef.current) {
+            clearTimeout(realtimeFallbackCopyTimerRef.current);
+            realtimeFallbackCopyTimerRef.current = null;
+          }
+        } else if (status === "CHANNEL_ERROR") {
           markRealtimeDegraded("channel_error");
         } else if (status === "TIMED_OUT") {
           markRealtimeDegraded("channel_timed_out");
@@ -1765,7 +1798,6 @@ const ReadyGateOverlay = ({
     permissionPrewarmSkipLoggedRef.current = false;
     roomWarmupStartedRef.current = false;
     prepareEntryRunIdRef.current += 1;
-    fallbackGateDeadlineMsRef.current = Date.now() + GATE_TIMEOUT * 1000;
     setIsTransitioning(false);
     setMarkingReady(false);
     setRequestingSnooze(false);
@@ -1930,10 +1962,13 @@ const ReadyGateOverlay = ({
     if (isTransitioning || iAmReady || snoozedByPartner || terminalActionPending) return;
 
     const tick = () => {
-      const next = getReadyGateRemainingSeconds({
+      const countdown = getReadyGateCountdownFromServerClock({
         expiresAt,
-        fallbackDeadlineMs: fallbackGateDeadlineMsRef.current,
+        serverNowMs,
+        clientSyncedAtMs,
+        fallbackSeconds: GATE_TIMEOUT,
       });
+      const next = countdown.remainingSeconds;
       setTimeLeft(next);
       if (next <= 0) {
         const now = Date.now();
@@ -1961,7 +1996,17 @@ const ReadyGateOverlay = ({
     const interval = setInterval(tick, 1000);
 
     return () => clearInterval(interval);
-  }, [isTransitioning, iAmReady, snoozedByPartner, terminalActionPending, expiresAt, syncSession, sessionId]);
+  }, [
+    isTransitioning,
+    iAmReady,
+    snoozedByPartner,
+    terminalActionPending,
+    expiresAt,
+    serverNowMs,
+    clientSyncedAtMs,
+    syncSession,
+    sessionId,
+  ]);
 
   const progress = getReadyGateCountdownProgress(timeLeft, GATE_TIMEOUT);
   const ringSize = 96;

@@ -17,8 +17,12 @@ import {
 } from "@clientShared/observability/videoDateOperatorMetrics";
 import {
   deriveReadyGateReadinessState,
+  getReadyGateResubscribeDelayMs,
   getReadyGateParticipantPosition,
   initialReadyGateReadinessState,
+  normalizeReadyGateServerNowMs,
+  shouldCommitReadyGateTruth,
+  READY_GATE_RECONCILE_AFTER_REALTIME_MS,
   type ReadyGateParticipantPosition,
 } from "@clientShared/matching/readyGateReadiness";
 import { buildVideoDateTransitionIdempotencyKey } from "@clientShared/matching/videoDateTransitionCommands";
@@ -48,7 +52,26 @@ interface ReadyGateState {
   snoozedByPartner: boolean;
   snoozeExpiresAt: string | null;
   expiresAt: string | null;
+  serverNowMs: number | null;
+  clientSyncedAtMs: number | null;
+  realtimeDegraded: boolean;
 }
+
+const createInitialReadyGateState = (): ReadyGateState => ({
+  status: ReadyGateStatus.Queued,
+  iAmReady: initialReadyGateReadinessState.iAmReady,
+  partnerReady: initialReadyGateReadinessState.partnerReady,
+  iAmReadyKnown: initialReadyGateReadinessState.iAmReadyKnown,
+  partnerReadyKnown: initialReadyGateReadinessState.partnerReadyKnown,
+  isBothReady: initialReadyGateReadinessState.isBothReady,
+  partnerName: null,
+  snoozedByPartner: false,
+  snoozeExpiresAt: null,
+  expiresAt: null,
+  serverNowMs: null,
+  clientSyncedAtMs: null,
+  realtimeDegraded: false,
+});
 
 type ReadyGateBothReadySourceAction =
   | "both_ready_observed"
@@ -111,6 +134,10 @@ type ReadyGateSessionTruth = {
   details?: string | null;
   hint?: string | null;
   terminal?: boolean | null;
+  server_now_ms?: string | number | null;
+  serverNowMs?: string | number | null;
+  server_now?: string | number | null;
+  serverNow?: string | number | null;
 };
 
 type ReadyGateSyncResult =
@@ -222,20 +249,10 @@ export const useReadyGate = ({ sessionId, eventId, onBothReady, onForfeited }: U
   const broadcastV2 = useFeatureFlag("video_date.broadcast_v2");
   const markReadyV2 = useFeatureFlag("video_date.outbox_v2.mark_ready");
   const forfeitV2 = useFeatureFlag("video_date.outbox_v2.forfeit");
-  const [state, setState] = useState<ReadyGateState>({
-    status: ReadyGateStatus.Queued,
-    iAmReady: initialReadyGateReadinessState.iAmReady,
-    partnerReady: initialReadyGateReadinessState.partnerReady,
-    iAmReadyKnown: initialReadyGateReadinessState.iAmReadyKnown,
-    partnerReadyKnown: initialReadyGateReadinessState.partnerReadyKnown,
-    isBothReady: initialReadyGateReadinessState.isBothReady,
-    partnerName: null,
-    snoozedByPartner: false,
-    snoozeExpiresAt: null,
-    expiresAt: null,
-  });
+  const [state, setState] = useState<ReadyGateState>(createInitialReadyGateState);
   const onBothReadyRef = useRef(onBothReady);
   const onForfeitedRef = useRef(onForfeited);
+  const activeReadyGateSessionIdRef = useRef<string | null>(sessionId);
   const terminalHandledRef = useRef<ReadyGateStatus | null>(null);
   const participantPositionRef = useRef<ReadyGateParticipantPosition | null>(null);
   const syncSessionInFlightRef = useRef<Promise<ReadyGateSyncResult> | null>(null);
@@ -243,6 +260,24 @@ export const useReadyGate = ({ sessionId, eventId, onBothReady, onForfeited }: U
   const broadcastRefetchInFlightRef = useRef(false);
   const broadcastGapRecoveryRef = useRef<VideoDateBroadcastGapRecoveryState | null>(null);
   const broadcastGapRetryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const readyGateTruthRef = useRef<{
+    status: ReadyGateStatus;
+    sessionSeq: number | null;
+    expiresAt: string | null;
+    serverNowMs: number | null;
+    clientSyncedAtMs: number | null;
+  }>({
+    status: ReadyGateStatus.Queued,
+    sessionSeq: null,
+    expiresAt: null,
+    serverNowMs: null,
+    clientSyncedAtMs: null,
+  });
+  const [realtimeSubscriptionEpoch, setRealtimeSubscriptionEpoch] = useState(0);
+  const realtimeResubscribeAttemptRef = useRef(0);
+  const realtimeResubscribeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const realtimeReconcileTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const broadcastSubscriptionEpoch = realtimeSubscriptionEpoch;
 
   useEffect(() => {
     onBothReadyRef.current = onBothReady;
@@ -250,18 +285,54 @@ export const useReadyGate = ({ sessionId, eventId, onBothReady, onForfeited }: U
   }, [onBothReady, onForfeited]);
 
   useEffect(() => {
+    activeReadyGateSessionIdRef.current = sessionId;
     terminalHandledRef.current = null;
     participantPositionRef.current = null;
     syncSessionInFlightRef.current = null;
     sessionSeqRef.current = null;
     broadcastRefetchInFlightRef.current = false;
+    broadcastGapRecoveryRef.current = null;
+    readyGateTruthRef.current = {
+      status: ReadyGateStatus.Queued,
+      sessionSeq: null,
+      expiresAt: null,
+      serverNowMs: null,
+      clientSyncedAtMs: null,
+    };
+    realtimeResubscribeAttemptRef.current = 0;
+    if (realtimeResubscribeTimerRef.current) {
+      clearTimeout(realtimeResubscribeTimerRef.current);
+      realtimeResubscribeTimerRef.current = null;
+    }
+    if (realtimeReconcileTimerRef.current) {
+      clearTimeout(realtimeReconcileTimerRef.current);
+      realtimeReconcileTimerRef.current = null;
+    }
+    setState(createInitialReadyGateState());
   }, [sessionId]);
+
+  useEffect(() => () => {
+    activeReadyGateSessionIdRef.current = null;
+    if (realtimeResubscribeTimerRef.current) {
+      clearTimeout(realtimeResubscribeTimerRef.current);
+      realtimeResubscribeTimerRef.current = null;
+    }
+    if (realtimeReconcileTimerRef.current) {
+      clearTimeout(realtimeReconcileTimerRef.current);
+      realtimeReconcileTimerRef.current = null;
+    }
+    if (broadcastGapRetryTimerRef.current) {
+      clearTimeout(broadcastGapRetryTimerRef.current);
+      broadcastGapRetryTimerRef.current = null;
+    }
+  }, []);
 
   const notifyTerminal = useCallback((
     status: TerminalReadyGateStatus,
     detail?: ReadyGateTerminalDetail,
     bothReadySourceAction: ReadyGateBothReadySourceAction = "both_ready_observed",
   ) => {
+    if (activeReadyGateSessionIdRef.current !== sessionId) return;
     if (terminalHandledRef.current === status) return;
     terminalHandledRef.current = status;
     readyGateDebug("terminal status notification", { sessionId, status });
@@ -284,6 +355,21 @@ export const useReadyGate = ({ sessionId, eventId, onBothReady, onForfeited }: U
       bothReadySourceAction?: ReadyGateBothReadySourceAction;
     },
   ): ReadyGateSyncResult => {
+    if (activeReadyGateSessionIdRef.current !== sessionId) {
+      const currentTruth = readyGateTruthRef.current;
+      return {
+        ok: true,
+        status: currentTruth.status,
+        isTerminal: isTerminalReadyGateStatus(currentTruth.status),
+        expiresAt: currentTruth.expiresAt,
+        reason: truth.reason ?? null,
+        inactiveReason: truth.inactive_reason ?? null,
+        errorCode: truth.error_code ?? truth.code ?? null,
+        code: truth.code ?? null,
+        terminal: truth.terminal ?? null,
+      };
+    }
+
     const nextStatus = normalizeReadyGateStatus(
       truth.ready_gate_status ??
       truth.status ??
@@ -301,9 +387,49 @@ export const useReadyGate = ({ sessionId, eventId, onBothReady, onForfeited }: U
     const hasSnoozeExpiresAt = Object.prototype.hasOwnProperty.call(truth, "snooze_expires_at");
     const hasReadyGateExpiresAt = Object.prototype.hasOwnProperty.call(truth, "ready_gate_expires_at");
     const expiresAt = normalizeReadyGateTimestamp(truth.ready_gate_expires_at);
-    if (typeof truth.session_seq === "number" && Number.isFinite(truth.session_seq)) {
-      sessionSeqRef.current = truth.session_seq;
+    const incomingSeq = typeof truth.session_seq === "number" && Number.isFinite(truth.session_seq)
+      ? Math.max(0, Math.floor(truth.session_seq))
+      : null;
+    const currentTruth = readyGateTruthRef.current;
+    if (!shouldCommitReadyGateTruth({
+      currentStatus: currentTruth.status,
+      incomingStatus: nextStatus,
+      currentSeq: currentTruth.sessionSeq,
+      incomingSeq,
+    })) {
+      readyGateDebug("stale ready gate truth ignored", {
+        sessionId,
+        eventId: eventId ?? null,
+        currentStatus: currentTruth.status,
+        incomingStatus: nextStatus,
+        currentSeq: currentTruth.sessionSeq,
+        incomingSeq,
+      });
+      return {
+        ok: true,
+        status: currentTruth.status,
+        isTerminal: isTerminalReadyGateStatus(currentTruth.status),
+        expiresAt: currentTruth.expiresAt,
+        reason: truth.reason ?? null,
+        inactiveReason: truth.inactive_reason ?? null,
+        errorCode: truth.error_code ?? truth.code ?? null,
+        code: truth.code ?? null,
+        terminal: truth.terminal ?? null,
+      };
     }
+    if (incomingSeq != null) sessionSeqRef.current = incomingSeq;
+
+    const serverClock = normalizeReadyGateServerNowMs(truth);
+    const committedServerNowMs = serverClock.serverNowMs ?? currentTruth.serverNowMs;
+    const committedClientSyncedAtMs = serverClock.clientSyncedAtMs ?? currentTruth.clientSyncedAtMs;
+    const committedExpiresAt = hasReadyGateExpiresAt ? expiresAt : currentTruth.expiresAt;
+    readyGateTruthRef.current = {
+      status: nextStatus,
+      sessionSeq: incomingSeq ?? currentTruth.sessionSeq,
+      expiresAt: committedExpiresAt,
+      serverNowMs: committedServerNowMs,
+      clientSyncedAtMs: committedClientSyncedAtMs,
+    };
 
     setState((prev) => {
       const readiness = deriveReadyGateReadinessState({
@@ -332,7 +458,10 @@ export const useReadyGate = ({ sessionId, eventId, onBothReady, onForfeited }: U
         snoozeExpiresAt: hasSnoozeExpiresAt
           ? normalizeReadyGateTimestamp(truth.snooze_expires_at)
           : prev.snoozeExpiresAt,
-        expiresAt: hasReadyGateExpiresAt ? expiresAt : prev.expiresAt,
+        expiresAt: committedExpiresAt,
+        serverNowMs: committedServerNowMs,
+        clientSyncedAtMs: committedClientSyncedAtMs,
+        realtimeDegraded: prev.realtimeDegraded,
       };
     });
 
@@ -353,14 +482,14 @@ export const useReadyGate = ({ sessionId, eventId, onBothReady, onForfeited }: U
       ok: true,
       status: nextStatus,
       isTerminal: isTerminalReadyGateStatus(nextStatus),
-      expiresAt,
+      expiresAt: committedExpiresAt,
       reason: truth.reason ?? null,
       inactiveReason: truth.inactive_reason ?? null,
       errorCode: truth.error_code ?? truth.code ?? null,
       code: truth.code ?? null,
       terminal: truth.terminal ?? null,
     };
-  }, [notifyTerminal, user?.id]);
+  }, [eventId, notifyTerminal, sessionId, user?.id]);
 
   const fetchSession = useCallback(async (): Promise<ReadyGateSyncResult | null> => {
     if (!sessionId || !user?.id) return null;
@@ -412,12 +541,63 @@ export const useReadyGate = ({ sessionId, eventId, onBothReady, onForfeited }: U
     });
   }, [sessionId, eventId, user?.id, applyReadyGateTruth]);
 
-  // Fetch initial state and determine participant position
-  useEffect(() => {
-    if (!sessionId || !user?.id) return;
+  const clearRealtimeResubscribeTimer = useCallback(() => {
+    if (!realtimeResubscribeTimerRef.current) return;
+    clearTimeout(realtimeResubscribeTimerRef.current);
+    realtimeResubscribeTimerRef.current = null;
+  }, []);
 
-    void fetchSession();
-  }, [sessionId, user?.id, fetchSession]);
+  const resetRealtimeHealth = useCallback((source: string) => {
+    realtimeResubscribeAttemptRef.current = 0;
+    clearRealtimeResubscribeTimer();
+    setState((prev) => (prev.realtimeDegraded ? { ...prev, realtimeDegraded: false } : prev));
+    readyGateDebug("ready gate realtime subscribed", {
+      sessionId,
+      eventId: eventId ?? null,
+      source,
+    });
+  }, [clearRealtimeResubscribeTimer, eventId, sessionId]);
+
+  const scheduleRealtimeResubscribe = useCallback((
+    source: string,
+    status: string,
+    error?: Error | null,
+  ) => {
+    if (!sessionId || !user?.id) return;
+    if (realtimeResubscribeTimerRef.current) return;
+
+    const attempt = realtimeResubscribeAttemptRef.current + 1;
+    const delayMs = getReadyGateResubscribeDelayMs({
+      attempt,
+      jitterSeed: Date.now() + attempt,
+    });
+    realtimeResubscribeAttemptRef.current = attempt;
+    setState((prev) => (prev.realtimeDegraded ? prev : { ...prev, realtimeDegraded: true }));
+
+    readyGateDebug("ready gate realtime degraded; scheduling resubscribe", {
+      sessionId,
+      eventId: eventId ?? null,
+      source,
+      status,
+      attempt,
+      delayMs,
+      error: error instanceof Error ? error.message : String(error ?? ""),
+    });
+
+    if (realtimeReconcileTimerRef.current) {
+      clearTimeout(realtimeReconcileTimerRef.current);
+    }
+    realtimeReconcileTimerRef.current = setTimeout(() => {
+      realtimeReconcileTimerRef.current = null;
+      void fetchSession();
+    }, READY_GATE_RECONCILE_AFTER_REALTIME_MS);
+
+    if (delayMs == null) return;
+    realtimeResubscribeTimerRef.current = setTimeout(() => {
+      realtimeResubscribeTimerRef.current = null;
+      setRealtimeSubscriptionEpoch((epoch) => epoch + 1);
+    }, delayMs);
+  }, [eventId, fetchSession, sessionId, user?.id]);
 
   // Subscribe to realtime updates
   useEffect(() => {
@@ -441,12 +621,25 @@ export const useReadyGate = ({ sessionId, eventId, onBothReady, onForfeited }: U
           applyReadyGateTruth(s);
         }
       )
-      .subscribe();
+      .subscribe((status, error) => {
+        if (status === "SUBSCRIBED") {
+          resetRealtimeHealth("postgres_video_sessions");
+        } else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT" || status === "CLOSED") {
+          scheduleRealtimeResubscribe("postgres_video_sessions", status, error ?? null);
+        }
+      });
 
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [sessionId, user?.id, applyReadyGateTruth]);
+  }, [
+    sessionId,
+    user?.id,
+    applyReadyGateTruth,
+    realtimeSubscriptionEpoch,
+    resetRealtimeHealth,
+    scheduleRealtimeResubscribe,
+  ]);
 
   const clearBroadcastGapRetryTimer = useCallback(() => {
     if (!broadcastGapRetryTimerRef.current) return;
@@ -562,13 +755,20 @@ export const useReadyGate = ({ sessionId, eventId, onBothReady, onForfeited }: U
         });
       },
       onStatusChange: (status, error) => {
-        if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
+        if (status === "SUBSCRIBED") {
+          resetRealtimeHealth("private_broadcast");
+        } else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT" || status === "CLOSED") {
           readyGateDebug("broadcast channel degraded", {
             sessionId,
             eventId: eventId ?? null,
             status,
             error: error instanceof Error ? error.message : String(error ?? ""),
           });
+          scheduleRealtimeResubscribe(
+            "private_broadcast",
+            status,
+            error instanceof Error ? error : null,
+          );
         }
       },
     });
@@ -577,7 +777,17 @@ export const useReadyGate = ({ sessionId, eventId, onBothReady, onForfeited }: U
       clearBroadcastGapRetryTimer();
       broadcastGapRecoveryRef.current = null;
     };
-  }, [broadcastV2.enabled, clearBroadcastGapRetryTimer, eventId, reconcileBroadcastEvent, sessionId, user?.id]);
+  }, [
+    broadcastV2.enabled,
+    broadcastSubscriptionEpoch,
+    clearBroadcastGapRetryTimer,
+    eventId,
+    reconcileBroadcastEvent,
+    resetRealtimeHealth,
+    scheduleRealtimeResubscribe,
+    sessionId,
+    user?.id,
+  ]);
 
   // Periodic refresh is owned by ReadyGateOverlay.reconcileSession("poll") + refetchSession(),
   // so we avoid duplicate 2s timers alongside the overlay reconcile loop.
@@ -730,7 +940,10 @@ export const useReadyGate = ({ sessionId, eventId, onBothReady, onForfeited }: U
           readyGateStatus: transitionStatus,
           terminal,
         });
-        if (errorCode === "EVENT_NOT_ACTIVE" || payload.reason === "event_not_active") {
+        if (
+          result.status !== ReadyGateStatus.BothReady &&
+          (errorCode === "EVENT_NOT_ACTIVE" || payload.reason === "event_not_active")
+        ) {
           notifyTerminal(ReadyGateStatus.Expired, {
             status:
               payload.ready_gate_status ??
@@ -1005,6 +1218,28 @@ export const useReadyGate = ({ sessionId, eventId, onBothReady, onForfeited }: U
   const snooze = useCallback(async (): Promise<ReadyGateTransitionResult> => (
     runReadyGateTransition("snooze")
   ), [runReadyGateTransition]);
+
+  useEffect(() => {
+    if (!sessionId || !user?.id) return;
+    let cancelled = false;
+
+    void (async () => {
+      const syncResult = await syncSession();
+      if (cancelled) return;
+      const hydrated = await fetchSession();
+      if (cancelled || hydrated?.ok === true || syncResult.ok === true) return;
+      readyGateDebug("initial server-clock hydration deferred after sync and fetch failure", {
+        sessionId,
+        eventId: eventId ?? null,
+        syncError: syncResult.error,
+        fetchError: hydrated?.ok === false ? hydrated.error : null,
+      });
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [eventId, fetchSession, sessionId, syncSession, user?.id]);
 
   return {
     ...state,
