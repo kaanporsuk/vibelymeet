@@ -66,13 +66,13 @@ BEGIN
     WHERE c.conrelid = 'public.video_session_deadlines'::regclass
       AND c.contype = 'u'
       AND ARRAY(
-        SELECT a.attname
+        SELECT a.attname::text
         FROM unnest(c.conkey) WITH ORDINALITY AS key_cols(attnum, ordinality)
         JOIN pg_attribute a
           ON a.attrelid = c.conrelid
          AND a.attnum = key_cols.attnum
         ORDER BY key_cols.ordinality
-      ) = ARRAY['session_id', 'kind']
+      ) = ARRAY['session_id', 'kind']::text[]
   LOOP
     EXECUTE format(
       'ALTER TABLE public.video_session_deadlines DROP CONSTRAINT %I',
