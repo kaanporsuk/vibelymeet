@@ -84,6 +84,13 @@ test("queue fairness candidate picker is explicit about hot-path privileges", ()
 test("PR 6.2 drain_match_queue_v2 uses anti-starvation scoring before transactional rechecks", () => {
   const drain = functionBody("drain_match_queue_v2");
 
+  assert.match(drain, /pg_try_advisory_xact_lock\(\s+hashtextextended\('video_session_command:' \|\| v_actor::text \|\| ':' \|\| v_key/);
+  assert.match(drain, /pg_try_advisory_xact_lock\(\s+hashtextextended\(\s+'event_lobby_participant_session:' \|\| p_event_id::text/);
+  assert.match(drain, /'lock_busy'/);
+  assert.match(drain, /'lock_scope', 'command'/);
+  assert.match(drain, /'lock_scope', 'participant_session_low'/);
+  assert.match(drain, /'lock_scope', 'participant_session_high'/);
+  assert.doesNotMatch(drain, /pg_advisory_xact_lock\(\s+hashtextextended\('video_session_command:' \|\| v_actor::text \|\| ':' \|\| v_key/);
   assert.match(drain, /JOIN public\.v_video_date_queue_fairness_candidates fair/);
   assert.match(drain, /'queue_scoring_version', 'phase6_v1'/);
   assert.match(drain, /ORDER BY[\s\S]*fair\.candidate_score DESC[\s\S]*fair\.both_hot_ready DESC[\s\S]*fair\.queued_age_seconds DESC[\s\S]*fair\.ttl_remaining_seconds ASC/s);

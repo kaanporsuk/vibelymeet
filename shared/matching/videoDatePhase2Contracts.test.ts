@@ -96,6 +96,7 @@ test("Phase 2 workers are cron-protected and configured in Supabase", () => {
   assert.match(outboxDrainer, /daily\.ensure_video_date_room/);
   assert.match(outboxDrainer, /daily\.delete_video_date_room/);
   assert.match(outboxDrainer, /providerState\.expired[\s\S]+await deleteDailyRoom\(roomName\)/);
+  assert.match(outboxDrainer, /session\.daily_room_url && session\.daily_room_url\.endsWith\(`\/\$\{roomName\}`\)[\s\S]+: canonicalUrl/);
   assert.match(outboxDrainer, /terminalRoomName[\s\S]+await deleteDailyRoom\(terminalRoomName\)/);
   assert.match(outboxDrainer, /\.select\("id"\)\s+\.maybeSingle\(\)/);
   assert.match(outboxDrainer, /skipped_terminal_after_provider_verify/);

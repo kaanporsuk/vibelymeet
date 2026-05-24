@@ -360,7 +360,10 @@ async function ensureVideoDateRoom(
 
   try {
     const providerState = await getDailyRoomState(roomName);
-    let roomUrl = session.daily_room_url ?? canonicalUrl;
+    let roomUrl =
+      session.daily_room_url && session.daily_room_url.endsWith(`/${roomName}`)
+        ? session.daily_room_url
+        : canonicalUrl;
     let expiresAt = providerState.expiresAt;
     let reason = providerState.exists ? "provider_room_exists" : "provider_room_created";
 

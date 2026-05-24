@@ -1,353 +1,625 @@
--- Phase 6.1 / 6.2: queue fairness metrics and anti-starvation scoring.
---
--- Product truth remains in Postgres. Daily tokens are not touched here.
--- The candidate read models are service-role-only operator views. The
--- candidate view is intentionally definer-owned because drain_match_queue_v2 is
--- a SECURITY DEFINER hot path and must not depend on participant grants for
--- internal queue/readiness tables or scoring helpers. Participant entry still
--- flows through drain_match_queue_v2 and its transaction rechecks.
+-- Reliability gap closure for queue/deck contracts and Ready Gate missing-room recovery.
 
-CREATE OR REPLACE FUNCTION public.video_date_queue_participant_reliability_penalty(
-  p_event_id uuid,
-  p_participant_id uuid,
-  p_now timestamptz DEFAULT now()
+CREATE OR REPLACE FUNCTION public.recover_ready_gate_missing_rooms_v1(
+  p_limit integer DEFAULT 100,
+  p_grace_seconds integer DEFAULT 20,
+  p_terminal_after_seconds integer DEFAULT 120
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public', 'pg_catalog'
+AS $function$
+DECLARE
+  v_now timestamptz := now();
+  v_t0 timestamptz := clock_timestamp();
+  v_limit integer := GREATEST(1, LEAST(COALESCE(p_limit, 100), 500));
+  v_grace interval := make_interval(secs => GREATEST(5, LEAST(COALESCE(p_grace_seconds, 20), 300)));
+  v_terminal_after interval := make_interval(secs => GREATEST(30, LEAST(COALESCE(p_terminal_after_seconds, 120), 1800)));
+  v_enqueued integer := 0;
+  v_waiting integer := 0;
+  v_recovered integer := 0;
+  v_terminalized integer := 0;
+  v_skipped integer := 0;
+  v_registration_rows integer := 0;
+  v_rows integer := 0;
+  v_ms integer;
+  v_outbox jsonb;
+  v_latest_outbox record;
+  v_outbox_lock_key bigint;
+  v_base_dedupe_key text;
+  v_recovery_dedupe_key text;
+  v_has_outbox boolean;
+  v_latest_is_recovery boolean;
+  r record;
+BEGIN
+  FOR r IN
+    SELECT
+      vs.id,
+      vs.event_id,
+      vs.participant_1_id,
+      vs.participant_2_id,
+      vs.started_at,
+      vs.state_updated_at,
+      vs.ready_participant_1_at,
+      vs.ready_participant_2_at,
+      vs.ready_gate_expires_at,
+      vs.prepare_entry_expires_at,
+      GREATEST(
+        COALESCE(vs.ready_participant_1_at, vs.started_at, vs.state_updated_at, v_now),
+        COALESCE(vs.ready_participant_2_at, vs.started_at, vs.state_updated_at, v_now),
+        COALESCE(vs.state_updated_at, vs.started_at, v_now)
+      ) AS both_ready_at
+    FROM public.video_sessions vs
+    WHERE vs.ended_at IS NULL
+      AND vs.ready_gate_status = 'both_ready'
+      AND vs.state = 'ready_gate'::public.video_date_state
+      AND vs.date_started_at IS NULL
+      AND vs.handshake_started_at IS NULL
+      AND vs.participant_1_joined_at IS NULL
+      AND vs.participant_2_joined_at IS NULL
+      AND (
+        NULLIF(vs.daily_room_name, '') IS NULL
+        OR NULLIF(vs.daily_room_url, '') IS NULL
+        OR (
+          NULLIF(vs.daily_room_name, '') IS NOT NULL
+          AND NULLIF(vs.daily_room_url, '') IS NOT NULL
+          AND vs.daily_room_url NOT LIKE ('%/' || vs.daily_room_name)
+        )
+      )
+    ORDER BY
+      COALESCE(vs.ready_gate_expires_at, vs.prepare_entry_expires_at, vs.started_at, v_now),
+      vs.id
+    LIMIT v_limit
+    FOR UPDATE SKIP LOCKED
+  LOOP
+    v_base_dedupe_key := 'phase3:ensure_room:' || r.id::text;
+    v_recovery_dedupe_key := 'phase3:ensure_room_recovery:' || r.id::text;
+
+    SELECT o.*
+    INTO v_latest_outbox
+    FROM public.video_date_provider_outbox o
+    WHERE o.session_id = r.id
+      AND o.kind = 'daily.ensure_video_date_room'
+      AND o.dedupe_key IN (v_base_dedupe_key, v_recovery_dedupe_key)
+    ORDER BY o.created_at DESC, o.id DESC
+    LIMIT 1;
+
+    v_has_outbox := FOUND;
+    IF v_has_outbox THEN
+      v_latest_is_recovery := v_latest_outbox.dedupe_key = v_recovery_dedupe_key;
+    ELSE
+      v_latest_is_recovery := false;
+    END IF;
+
+    IF r.both_ready_at + v_grace > v_now THEN
+      UPDATE public.video_sessions
+      SET
+        ready_gate_expires_at = GREATEST(COALESCE(ready_gate_expires_at, v_now), r.both_ready_at + v_grace),
+        prepare_entry_expires_at = GREATEST(COALESCE(prepare_entry_expires_at, v_now), r.both_ready_at + v_grace),
+        state_updated_at = v_now
+      WHERE id = r.id
+        AND ended_at IS NULL
+        AND ready_gate_status = 'both_ready'
+        AND state = 'ready_gate'::public.video_date_state
+        AND date_started_at IS NULL
+        AND handshake_started_at IS NULL
+        AND participant_1_joined_at IS NULL
+        AND participant_2_joined_at IS NULL
+        AND (
+          NULLIF(daily_room_name, '') IS NULL
+          OR NULLIF(daily_room_url, '') IS NULL
+          OR (
+            NULLIF(daily_room_name, '') IS NOT NULL
+            AND NULLIF(daily_room_url, '') IS NOT NULL
+            AND daily_room_url NOT LIKE ('%/' || daily_room_name)
+          )
+        );
+      v_skipped := v_skipped + 1;
+      CONTINUE;
+    END IF;
+
+    IF v_has_outbox AND v_latest_outbox.state = 'done' THEN
+      SELECT count(*)::integer
+      INTO v_rows
+      FROM public.video_sessions vs
+      WHERE vs.id = r.id
+        AND vs.ended_at IS NULL
+        AND NULLIF(vs.daily_room_name, '') IS NOT NULL
+        AND NULLIF(vs.daily_room_url, '') IS NOT NULL
+        AND vs.daily_room_url LIKE ('%/' || vs.daily_room_name);
+
+      IF v_rows > 0 THEN
+        v_recovered := v_recovered + 1;
+        PERFORM public.record_event_loop_observability(
+          'ready_gate_missing_room_recovery',
+          'success',
+          'provider_room_recovered',
+          NULL,
+          r.event_id,
+          NULL,
+          r.id,
+          jsonb_build_object('outbox_id', v_latest_outbox.id)
+        );
+        CONTINUE;
+      END IF;
+    END IF;
+
+    IF v_has_outbox
+       AND v_latest_is_recovery
+       AND v_latest_outbox.state IN ('failed', 'done')
+       AND COALESCE(v_latest_outbox.attempts, 0) > 0
+       AND COALESCE(v_latest_outbox.updated_at, v_latest_outbox.created_at) + v_terminal_after <= v_now THEN
+      UPDATE public.video_sessions
+      SET
+        ready_gate_status = 'expired',
+        state = 'ended'::public.video_date_state,
+        phase = 'ended',
+        ended_at = v_now,
+        ended_reason = 'ready_gate_room_recovery_failed',
+        prepare_entry_started_at = NULL,
+        prepare_entry_expires_at = NULL,
+        prepare_entry_attempt_id = NULL,
+        prepare_entry_actor_id = NULL,
+        snoozed_by = NULL,
+        snooze_expires_at = NULL,
+        duration_seconds = COALESCE(
+          duration_seconds,
+          GREATEST(0, floor(EXTRACT(EPOCH FROM (v_now - COALESCE(started_at, v_now))))::int)
+        ),
+        state_updated_at = v_now
+      WHERE id = r.id
+        AND ended_at IS NULL
+        AND ready_gate_status = 'both_ready'
+        AND state = 'ready_gate'::public.video_date_state
+        AND date_started_at IS NULL
+        AND handshake_started_at IS NULL
+        AND participant_1_joined_at IS NULL
+        AND participant_2_joined_at IS NULL
+        AND (
+          NULLIF(daily_room_name, '') IS NULL
+          OR NULLIF(daily_room_url, '') IS NULL
+          OR (
+            NULLIF(daily_room_name, '') IS NOT NULL
+            AND NULLIF(daily_room_url, '') IS NOT NULL
+            AND daily_room_url NOT LIKE ('%/' || daily_room_name)
+          )
+        );
+
+      GET DIAGNOSTICS v_rows = ROW_COUNT;
+      IF v_rows > 0 THEN
+        UPDATE public.event_registrations
+        SET
+          queue_status = 'idle',
+          current_room_id = NULL,
+          current_partner_id = NULL,
+          last_active_at = v_now
+        WHERE event_id = r.event_id
+          AND profile_id IN (r.participant_1_id, r.participant_2_id)
+          AND current_room_id = r.id;
+
+        GET DIAGNOSTICS v_registration_rows = ROW_COUNT;
+        v_terminalized := v_terminalized + 1;
+
+        PERFORM public.record_event_loop_observability(
+          'ready_gate_missing_room_recovery',
+          'terminalized',
+          'ready_gate_room_recovery_failed',
+          NULL,
+          r.event_id,
+          NULL,
+          r.id,
+          jsonb_build_object(
+            'outbox_id', v_latest_outbox.id,
+            'outbox_state', v_latest_outbox.state,
+            'outbox_attempts', v_latest_outbox.attempts,
+            'outbox_created_at', v_latest_outbox.created_at,
+            'registration_rows', v_registration_rows
+          )
+        );
+      END IF;
+
+      CONTINUE;
+    END IF;
+
+    IF v_has_outbox AND v_latest_is_recovery AND v_latest_outbox.state = 'failed' THEN
+      UPDATE public.video_sessions
+      SET
+        ready_gate_expires_at = GREATEST(COALESCE(ready_gate_expires_at, v_now), v_now + v_grace),
+        prepare_entry_expires_at = GREATEST(COALESCE(prepare_entry_expires_at, v_now), v_now + v_grace),
+        state_updated_at = v_now
+      WHERE id = r.id
+        AND ended_at IS NULL;
+
+      v_waiting := v_waiting + 1;
+
+      PERFORM public.record_event_loop_observability(
+        'ready_gate_missing_room_recovery',
+        'no_op',
+        'provider_room_recovery_failed_waiting_terminal_deadline',
+        NULL,
+        r.event_id,
+        NULL,
+        r.id,
+        jsonb_build_object(
+          'outbox_id', v_latest_outbox.id,
+          'outbox_state', v_latest_outbox.state,
+          'outbox_attempts', v_latest_outbox.attempts,
+          'outbox_updated_at', v_latest_outbox.updated_at
+        )
+      );
+
+      CONTINUE;
+    END IF;
+
+    IF v_has_outbox AND v_latest_is_recovery AND v_latest_outbox.state = 'done' THEN
+      UPDATE public.video_sessions
+      SET
+        ready_gate_expires_at = GREATEST(COALESCE(ready_gate_expires_at, v_now), v_now + v_grace),
+        prepare_entry_expires_at = GREATEST(COALESCE(prepare_entry_expires_at, v_now), v_now + v_grace),
+        state_updated_at = v_now
+      WHERE id = r.id
+        AND ended_at IS NULL;
+
+      v_waiting := v_waiting + 1;
+
+      PERFORM public.record_event_loop_observability(
+        'ready_gate_missing_room_recovery',
+        'no_op',
+        'provider_room_recovery_done_waiting_room_metadata',
+        NULL,
+        r.event_id,
+        NULL,
+        r.id,
+        jsonb_build_object(
+          'outbox_id', v_latest_outbox.id,
+          'outbox_state', v_latest_outbox.state,
+          'outbox_attempts', v_latest_outbox.attempts,
+          'outbox_updated_at', v_latest_outbox.updated_at
+        )
+      );
+
+      CONTINUE;
+    END IF;
+
+    IF v_has_outbox AND v_latest_outbox.state IN ('pending', 'claimed') THEN
+      UPDATE public.video_sessions
+      SET
+        ready_gate_expires_at = GREATEST(COALESCE(ready_gate_expires_at, v_now), v_now + v_grace),
+        prepare_entry_expires_at = GREATEST(COALESCE(prepare_entry_expires_at, v_now), v_now + v_grace),
+        state_updated_at = v_now
+      WHERE id = r.id
+        AND ended_at IS NULL;
+
+      v_waiting := v_waiting + 1;
+
+      PERFORM public.record_event_loop_observability(
+        'ready_gate_missing_room_recovery',
+        'no_op',
+        'provider_room_recovery_in_progress',
+        NULL,
+        r.event_id,
+        NULL,
+        r.id,
+        jsonb_build_object(
+          'outbox_id', v_latest_outbox.id,
+          'outbox_state', v_latest_outbox.state,
+          'outbox_attempts', v_latest_outbox.attempts
+        )
+      );
+
+      CONTINUE;
+    END IF;
+
+    v_outbox_lock_key := hashtextextended(
+      'video_date_outbox_v2:' ||
+      r.id::text || ':daily.ensure_video_date_room:' || v_recovery_dedupe_key,
+      0
+    );
+
+    IF NOT pg_try_advisory_xact_lock(v_outbox_lock_key) THEN
+      v_waiting := v_waiting + 1;
+
+      PERFORM public.record_event_loop_observability(
+        'ready_gate_missing_room_recovery',
+        'no_op',
+        'provider_room_recovery_lock_busy',
+        NULL,
+        r.event_id,
+        NULL,
+        r.id,
+        jsonb_build_object('lock_scope', 'ensure_room_outbox_dedupe')
+      );
+
+      CONTINUE;
+    END IF;
+
+    v_outbox := public.video_date_outbox_enqueue_v2(
+      r.id,
+      'daily.ensure_video_date_room',
+      jsonb_build_object(
+        'source', 'ready_gate_missing_room_recovery',
+        'previous_outbox_id', CASE WHEN v_has_outbox THEN v_latest_outbox.id ELSE NULL END,
+        'previous_outbox_state', CASE WHEN v_has_outbox THEN v_latest_outbox.state ELSE NULL END
+      ),
+      v_recovery_dedupe_key,
+      v_now
+    );
+
+    IF COALESCE((v_outbox->>'ok')::boolean, false) THEN
+      UPDATE public.video_sessions
+      SET
+        ready_gate_expires_at = GREATEST(COALESCE(ready_gate_expires_at, v_now), v_now + v_grace),
+        prepare_entry_expires_at = GREATEST(COALESCE(prepare_entry_expires_at, v_now), v_now + v_grace),
+        state_updated_at = v_now
+      WHERE id = r.id
+        AND ended_at IS NULL;
+
+      v_enqueued := v_enqueued + 1;
+
+      PERFORM public.record_event_loop_observability(
+        'ready_gate_missing_room_recovery',
+        'success',
+        'provider_room_recovery_enqueued',
+        NULL,
+        r.event_id,
+        NULL,
+        r.id,
+        jsonb_build_object(
+          'outbox_id', v_outbox->>'outboxId',
+          'deduped', COALESCE((v_outbox->>'deduped')::boolean, false)
+        )
+      );
+    ELSE
+      v_waiting := v_waiting + 1;
+      PERFORM public.record_event_loop_observability(
+        'ready_gate_missing_room_recovery',
+        'error',
+        'provider_room_recovery_enqueue_failed',
+        NULL,
+        r.event_id,
+        NULL,
+        r.id,
+        jsonb_build_object('error', COALESCE(v_outbox->>'error', 'unknown'))
+      );
+    END IF;
+  END LOOP;
+
+  v_ms := (EXTRACT(EPOCH FROM (clock_timestamp() - v_t0)) * 1000)::int;
+  PERFORM public.record_event_loop_observability(
+    'ready_gate_missing_room_recovery',
+    CASE WHEN v_enqueued + v_recovered + v_terminalized > 0 THEN 'success' ELSE 'no_op' END,
+    NULL,
+    v_ms,
+    NULL,
+    NULL,
+    NULL,
+    jsonb_build_object(
+      'limit', v_limit,
+      'grace_seconds', EXTRACT(EPOCH FROM v_grace)::integer,
+      'terminal_after_seconds', EXTRACT(EPOCH FROM v_terminal_after)::integer,
+      'enqueued', v_enqueued,
+      'waiting', v_waiting,
+      'recovered', v_recovered,
+      'terminalized', v_terminalized,
+      'skipped', v_skipped
+    )
+  );
+
+  RETURN jsonb_build_object(
+    'ok', true,
+    'enqueued', v_enqueued,
+    'waiting', v_waiting,
+    'recovered', v_recovered,
+    'terminalized', v_terminalized,
+    'skipped', v_skipped
+  );
+END;
+$function$;
+
+REVOKE ALL ON FUNCTION public.recover_ready_gate_missing_rooms_v1(integer, integer, integer)
+  FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.recover_ready_gate_missing_rooms_v1(integer, integer, integer)
+  TO service_role;
+
+COMMENT ON FUNCTION public.recover_ready_gate_missing_rooms_v1(integer, integer, integer) IS
+  'Grant-restricted bounded recovery for both-ready Ready Gate sessions missing or carrying invalid Daily room metadata. Enqueues ensure-room before terminalizing exhausted recovery attempts.';
+
+DROP FUNCTION IF EXISTS public.expire_stale_vsessions_bounded_202605232020_base(integer);
+
+ALTER FUNCTION public.expire_stale_video_sessions_bounded(integer)
+  RENAME TO expire_stale_vsessions_bounded_202605232020_base;
+
+REVOKE ALL ON FUNCTION public.expire_stale_vsessions_bounded_202605232020_base(integer)
+  FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.expire_stale_vsessions_bounded_202605232020_base(integer)
+  TO service_role;
+
+CREATE OR REPLACE FUNCTION public.expire_stale_video_sessions_bounded(
+  p_limit integer DEFAULT 100
 )
 RETURNS integer
-LANGUAGE sql
-STABLE
+LANGUAGE plpgsql
 SECURITY DEFINER
 SET search_path TO 'public', 'pg_catalog'
 AS $function$
-  SELECT LEAST(
-    120,
-    COALESCE((
-      SELECT
-        count(*) FILTER (
-          WHERE COALESCE(vs.ended_reason, '') IN (
-            'ready_gate_forfeit',
-            'ready_gate_expired',
-            'partial_join_peer_timeout',
-            'reconnect_grace_expired'
-          )
-        )::integer * 24
-        + count(*) FILTER (
-          WHERE COALESCE(vs.ended_reason, '') IN (
-            'queued_ttl_expired',
-            'handshake_grace_expired',
-            'prepare_entry_expired',
-            'provider_join_timeout'
-          )
-        )::integer * 12
-      FROM public.video_sessions vs
-      WHERE vs.event_id = p_event_id
-        AND vs.ended_at >= COALESCE(p_now, now()) - interval '30 minutes'
-        AND (vs.participant_1_id = p_participant_id OR vs.participant_2_id = p_participant_id)
-    ), 0)
+DECLARE
+  v_limit integer := GREATEST(1, LEAST(COALESCE(p_limit, 100), 500));
+  v_recovery jsonb;
+  v_base integer := 0;
+BEGIN
+  v_recovery := public.recover_ready_gate_missing_rooms_v1(v_limit, 20, 120);
+  v_base := public.expire_stale_vsessions_bounded_202605232020_base(v_limit);
+
+  RETURN COALESCE(v_base, 0)
+    + COALESCE((v_recovery->>'terminalized')::integer, 0);
+END;
+$function$;
+
+REVOKE ALL ON FUNCTION public.expire_stale_video_sessions_bounded(integer)
+  FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.expire_stale_video_sessions_bounded(integer)
+  TO service_role;
+
+COMMENT ON FUNCTION public.expire_stale_video_sessions_bounded(integer) IS
+  'Bounded stale-session cleanup. Recovers both-ready Ready Gates missing provider room metadata before delegating to terminal stale cleanup.';
+
+-- Additive authoritative overlays for earlier queue/deck migrations.
+-- These CREATE OR REPLACE definitions make the gap-closure fixes land even when
+-- earlier authoritative migrations have already been applied in an environment.
+
+CREATE OR REPLACE FUNCTION public.get_event_deck_v3(
+  p_event_id uuid,
+  p_user_id uuid,
+  p_limit integer DEFAULT 50
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+VOLATILE
+SECURITY DEFINER
+SET search_path TO 'public', 'pg_catalog'
+AS $function$
+DECLARE
+  v_viewer uuid := auth.uid();
+  v_limit integer := GREATEST(1, LEAST(COALESCE(p_limit, 50), 50));
+  v_scan_limit integer := 5000;
+  v_active record;
+  v_profiles jsonb := '[]'::jsonb;
+  v_raw_count integer := 0;
+  v_profile_count integer := 0;
+  v_marked_count integer := 0;
+  v_reason text := 'unknown';
+BEGIN
+  IF v_viewer IS NULL OR v_viewer <> p_user_id THEN
+    RAISE EXCEPTION 'Access denied' USING ERRCODE = '42501';
+  END IF;
+
+  SELECT *
+  INTO v_active
+  FROM public.get_event_lobby_active_state(p_event_id, now());
+
+  IF NOT COALESCE(v_active.is_active, false) THEN
+    RETURN jsonb_build_object(
+      'ok', false,
+      'profiles', '[]'::jsonb,
+      'deck_state', jsonb_build_object(
+        'reason', 'event_not_active',
+        'inactive_reason', COALESCE(v_active.reason, 'event_not_active'),
+        'retryable', false,
+        'limit', v_limit
+      )
+    );
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1
+    FROM public.event_registrations er
+    WHERE er.event_id = p_event_id
+      AND er.profile_id = p_user_id
+      AND COALESCE(er.admission_status, 'confirmed') = 'confirmed'
+  ) THEN
+    RETURN jsonb_build_object(
+      'ok', false,
+      'profiles', '[]'::jsonb,
+      'deck_state', jsonb_build_object(
+        'reason', 'not_registered',
+        'retryable', false,
+        'limit', v_limit
+      )
+    );
+  END IF;
+
+  IF public.is_profile_hidden(p_user_id) THEN
+    RETURN jsonb_build_object(
+      'ok', false,
+      'profiles', '[]'::jsonb,
+      'deck_state', jsonb_build_object(
+        'reason', 'viewer_paused',
+        'retryable', false,
+        'limit', v_limit
+      )
+    );
+  END IF;
+
+  PERFORM pg_advisory_xact_lock(
+    hashtextextended('video_date_deck_v3:' || p_event_id::text || ':' || p_user_id::text, 0)
   );
+
+  WITH raw_deck AS (
+    SELECT *
+    FROM public.get_event_deck(p_event_id, p_user_id, v_scan_limit)
+  ),
+  raw_count AS (
+    SELECT count(*)::integer AS n FROM raw_deck
+  ),
+  filtered AS (
+    SELECT rd.*
+    FROM raw_deck rd
+    WHERE NOT EXISTS (
+      SELECT 1
+      FROM public.event_profile_impressions epi
+      WHERE epi.event_id = p_event_id
+        AND epi.viewer_id = p_user_id
+        AND epi.target_id = rd.profile_id
+        AND public.video_date_impression_rank(epi.strongest_exclusion_reason) >= public.video_date_impression_rank('dealt')
+    )
+  ),
+  ranked AS (
+    SELECT filtered.*, row_number() OVER () AS rn
+    FROM filtered
+    LIMIT v_limit
+  ),
+  mark_buffer AS (
+    SELECT public.record_event_profile_impression_v2(
+      p_event_id,
+      p_user_id,
+      ranked.profile_id,
+      'dealt',
+      'get_event_deck_v3_buffer',
+      NULL,
+      jsonb_build_object(
+        'server_dealt', true,
+        'deck_rank', ranked.rn,
+        'deck_version', 'v3'
+      )
+    ) AS result
+    FROM ranked
+  )
+  SELECT
+    COALESCE(jsonb_agg(to_jsonb(ranked) - 'rn' ORDER BY ranked.rn), '[]'::jsonb),
+    COALESCE((SELECT n FROM raw_count), 0),
+    count(ranked.profile_id)::integer,
+    COALESCE((SELECT count(*)::integer FROM mark_buffer), 0)
+  INTO v_profiles, v_raw_count, v_profile_count, v_marked_count
+  FROM ranked;
+
+  v_reason := CASE
+    WHEN v_profile_count > 0 THEN 'has_profiles'
+    ELSE 'no_remaining_profiles'
+  END;
+
+  RETURN jsonb_build_object(
+    'ok', true,
+    'profiles', v_profiles,
+    'deck_state', jsonb_build_object(
+      'reason', v_reason,
+      'retryable', false,
+      'limit', v_limit,
+      'scan_limit', v_scan_limit,
+      'raw_count', v_raw_count,
+      'profile_count', v_profile_count,
+      'marked_count', v_marked_count
+    )
+  );
+END;
 $function$;
 
-REVOKE ALL ON FUNCTION public.video_date_queue_participant_reliability_penalty(uuid, uuid, timestamptz)
-  FROM PUBLIC, anon, authenticated, service_role;
-GRANT EXECUTE ON FUNCTION public.video_date_queue_participant_reliability_penalty(uuid, uuid, timestamptz)
-  TO service_role;
+REVOKE ALL ON FUNCTION public.get_event_deck_v3(uuid, uuid, integer) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.get_event_deck_v3(uuid, uuid, integer)
+  TO authenticated, service_role;
 
-COMMENT ON FUNCTION public.video_date_queue_participant_reliability_penalty(uuid, uuid, timestamptz) IS
-  'Service/operator helper for Phase 6 queue fairness. Penalizes very recent no-show/disconnect-like terminal reasons, capped so age-based anti-starvation can still win.';
-
--- Keep the fairness picker and operator health views predictable under load.
--- These are additive partial indexes only; they do not change state ownership,
--- grants, RLS, matching semantics, or Daily provider behavior.
-CREATE INDEX IF NOT EXISTS idx_video_sessions_phase6_queue_event
-  ON public.video_sessions(event_id, started_at, queued_expires_at, id)
-  WHERE ended_at IS NULL
-    AND ready_gate_status = 'queued';
-
-CREATE INDEX IF NOT EXISTS idx_video_sessions_phase6_queue_p1
-  ON public.video_sessions(event_id, participant_1_id, started_at, queued_expires_at, id)
-  WHERE ended_at IS NULL
-    AND ready_gate_status = 'queued';
-
-CREATE INDEX IF NOT EXISTS idx_video_sessions_phase6_queue_p2
-  ON public.video_sessions(event_id, participant_2_id, started_at, queued_expires_at, id)
-  WHERE ended_at IS NULL
-    AND ready_gate_status = 'queued';
-
-CREATE INDEX IF NOT EXISTS idx_video_sessions_phase6_recent_terminal_p1
-  ON public.video_sessions(event_id, participant_1_id, ended_at DESC)
-  WHERE ended_at IS NOT NULL;
-
-CREATE INDEX IF NOT EXISTS idx_video_sessions_phase6_recent_terminal_p2
-  ON public.video_sessions(event_id, participant_2_id, ended_at DESC)
-  WHERE ended_at IS NOT NULL;
-
-CREATE INDEX IF NOT EXISTS idx_event_loop_obs_phase6_queue_drain_event_recent
-  ON public.event_loop_observability_events(event_id, created_at DESC, outcome, reason_code)
-  WHERE operation IN ('drain_match_queue', 'drain_match_queue_v2');
-
-CREATE INDEX IF NOT EXISTS idx_event_loop_obs_phase6_queue_drain_actor_recent
-  ON public.event_loop_observability_events(event_id, actor_id, created_at DESC, outcome, reason_code)
-  WHERE operation IN ('drain_match_queue', 'drain_match_queue_v2');
-
-CREATE OR REPLACE VIEW public.v_video_date_queue_fairness_candidates AS
-WITH candidates AS (
-  SELECT
-    vs.id AS session_id,
-    vs.event_id,
-    pair.actor_id,
-    pair.partner_id,
-    vs.started_at AS queued_at,
-    vs.queued_expires_at,
-    GREATEST(0, EXTRACT(EPOCH FROM (now() - vs.started_at))::integer) AS queued_age_seconds,
-    GREATEST(
-      0,
-      EXTRACT(EPOCH FROM (
-        COALESCE(vs.queued_expires_at, COALESCE(vs.started_at, now()) + interval '10 minutes') - now()
-      ))::integer
-    ) AS ttl_remaining_seconds,
-    actor_runtime.foreground AS actor_foreground,
-    actor_runtime.readiness_status AS actor_readiness_status,
-    actor_runtime.last_heartbeat_at AS actor_last_heartbeat_at,
-    partner_runtime.foreground AS partner_foreground,
-    partner_runtime.readiness_status AS partner_readiness_status,
-    partner_runtime.last_heartbeat_at AS partner_last_heartbeat_at,
-    actor_runtime.client_platform AS actor_client_platform,
-    partner_runtime.client_platform AS partner_client_platform,
-    actor_profile.gender AS actor_gender,
-    partner_profile.gender AS partner_gender,
-    (
-      actor_runtime.foreground IS TRUE
-      AND actor_runtime.last_heartbeat_at >= now() - interval '45 seconds'
-      AND actor_runtime.readiness_status IN ('ready', 'warning')
-    ) AS actor_hot_ready,
-    (
-      partner_runtime.foreground IS TRUE
-      AND partner_runtime.last_heartbeat_at >= now() - interval '45 seconds'
-      AND partner_runtime.readiness_status IN ('ready', 'warning')
-    ) AS partner_hot_ready,
-    public.video_date_queue_participant_reliability_penalty(vs.event_id, pair.actor_id, now()) AS actor_recent_reliability_penalty,
-    public.video_date_queue_participant_reliability_penalty(vs.event_id, pair.partner_id, now()) AS partner_recent_reliability_penalty,
-    COALESCE((
-      SELECT count(*)::integer
-      FROM public.event_loop_observability_events eo
-      WHERE eo.event_id = vs.event_id
-        AND eo.actor_id = pair.actor_id
-        AND eo.operation IN ('drain_match_queue', 'drain_match_queue_v2')
-        AND eo.outcome = 'no_op'
-        AND eo.reason_code = 'no_queued_session'
-        AND eo.created_at >= now() - interval '15 minutes'
-    ), 0) AS actor_recent_no_match_attempts,
-    COALESCE((
-      SELECT count(*)::integer
-      FROM public.video_sessions prior
-      WHERE prior.event_id = vs.event_id
-        AND prior.id <> vs.id
-        AND prior.ended_at IS NOT NULL
-        AND prior.ended_at >= now() - interval '30 minutes'
-        AND (
-          prior.participant_1_id = pair.actor_id
-          OR prior.participant_2_id = pair.actor_id
-          OR prior.participant_1_id = pair.partner_id
-          OR prior.participant_2_id = pair.partner_id
-        )
-    ), 0) AS recent_terminal_session_count
-  FROM public.video_sessions vs
-  CROSS JOIN LATERAL (
-    VALUES
-      (vs.participant_1_id, vs.participant_2_id),
-      (vs.participant_2_id, vs.participant_1_id)
-  ) AS pair(actor_id, partner_id)
-  LEFT JOIN public.event_participant_runtime_state actor_runtime
-    ON actor_runtime.event_id = vs.event_id
-   AND actor_runtime.participant_id = pair.actor_id
-  LEFT JOIN public.event_participant_runtime_state partner_runtime
-    ON partner_runtime.event_id = vs.event_id
-   AND partner_runtime.participant_id = pair.partner_id
-  LEFT JOIN public.profiles actor_profile
-    ON actor_profile.id = pair.actor_id
-  LEFT JOIN public.profiles partner_profile
-    ON partner_profile.id = pair.partner_id
-  WHERE vs.ready_gate_status = 'queued'
-    AND vs.ended_at IS NULL
-    AND COALESCE(vs.queued_expires_at, COALESCE(vs.started_at, now()) + interval '10 minutes') > now()
-)
-SELECT
-  c.*,
-  (c.actor_hot_ready AND c.partner_hot_ready) AS both_hot_ready,
-  (
-    LEAST(c.queued_age_seconds, 3600)
-    + LEAST(c.actor_recent_no_match_attempts * 18, 180)
-    + CASE WHEN c.actor_hot_ready AND c.partner_hot_ready THEN 600 ELSE 0 END
-    + CASE WHEN c.actor_hot_ready THEN 90 ELSE 0 END
-    + CASE WHEN c.partner_hot_ready THEN 90 ELSE 0 END
-    + CASE WHEN c.ttl_remaining_seconds <= 90 THEN 90 ELSE 0 END
-    - c.actor_recent_reliability_penalty
-    - c.partner_recent_reliability_penalty
-  )::integer AS candidate_score
-FROM candidates c;
-
-COMMENT ON VIEW public.v_video_date_queue_fairness_candidates IS
-  'Service-role, definer-owned candidate-level queue fairness view. Scores queued video_sessions per actor perspective using wait age, recent no-match attempts, hot readiness, TTL pressure, and capped recent no-show/disconnect penalties. Definer ownership keeps drain_match_queue_v2 independent of participant grants; direct SELECT remains service-role only. Contains no Daily tokens.';
-
-CREATE OR REPLACE VIEW public.v_video_date_queue_fairness_event_health
-WITH (security_invoker = true) AS
-WITH candidate_rollup AS (
-  SELECT
-    event_id,
-    count(DISTINCT session_id)::integer AS queued_session_count,
-    count(*)::integer AS queued_participant_slots,
-    max(queued_age_seconds)::integer AS oldest_wait_seconds,
-    percentile_disc(0.95) WITHIN GROUP (ORDER BY queued_age_seconds) AS p95_wait_seconds,
-    count(*) FILTER (WHERE queued_age_seconds >= 120)::integer AS starved_slots_120s,
-    count(*) FILTER (WHERE queued_age_seconds >= 300)::integer AS starved_slots_300s,
-    count(*) FILTER (WHERE both_hot_ready)::integer AS both_hot_ready_slots,
-    count(*) FILTER (WHERE NOT both_hot_ready)::integer AS not_both_hot_ready_slots,
-    count(*) FILTER (WHERE actor_recent_reliability_penalty + partner_recent_reliability_penalty > 0)::integer AS reliability_penalized_slots,
-    max(candidate_score)::integer AS max_candidate_score,
-    avg(candidate_score)::numeric(14, 2) AS avg_candidate_score,
-    jsonb_object_agg(
-      COALESCE(actor_client_platform, 'unknown'),
-      platform_count
-    ) FILTER (WHERE actor_client_platform IS NOT NULL OR platform_count IS NOT NULL) AS actor_platform_slots,
-    jsonb_object_agg(
-      COALESCE(actor_gender, 'unknown'),
-      gender_count
-    ) FILTER (WHERE actor_gender IS NOT NULL OR gender_count IS NOT NULL) AS actor_gender_slots
-  FROM (
-    SELECT
-      c.*,
-      count(*) OVER (PARTITION BY c.event_id, COALESCE(c.actor_client_platform, 'unknown'))::integer AS platform_count,
-      count(*) OVER (PARTITION BY c.event_id, COALESCE(c.actor_gender, 'unknown'))::integer AS gender_count
-    FROM public.v_video_date_queue_fairness_candidates c
-  ) counted
-  GROUP BY event_id
-),
-drain_rollup AS (
-  SELECT
-    eo.event_id,
-    count(*) FILTER (
-      WHERE eo.operation IN ('drain_match_queue', 'drain_match_queue_v2')
-        AND eo.created_at >= now() - interval '15 minutes'
-    )::integer AS drain_attempts_15m,
-    count(*) FILTER (
-      WHERE eo.operation IN ('drain_match_queue', 'drain_match_queue_v2')
-        AND eo.outcome = 'success'
-        AND eo.created_at >= now() - interval '15 minutes'
-    )::integer AS drain_successes_15m,
-    count(*) FILTER (
-      WHERE eo.operation IN ('drain_match_queue', 'drain_match_queue_v2')
-        AND eo.outcome = 'no_op'
-        AND eo.reason_code = 'no_queued_session'
-        AND eo.created_at >= now() - interval '15 minutes'
-    )::integer AS no_match_attempts_15m,
-    count(*) FILTER (
-      WHERE eo.operation IN ('drain_match_queue', 'drain_match_queue_v2')
-        AND eo.outcome = 'blocked'
-        AND eo.reason_code IN ('self_runtime_not_ready', 'partner_runtime_not_ready', 'self_not_present', 'partner_not_present')
-        AND eo.created_at >= now() - interval '15 minutes'
-    )::integer AS runtime_blocked_attempts_15m
-  FROM public.event_loop_observability_events eo
-  WHERE eo.event_id IS NOT NULL
-    AND eo.created_at >= now() - interval '15 minutes'
-    AND eo.operation IN ('drain_match_queue', 'drain_match_queue_v2')
-  GROUP BY eo.event_id
-)
-SELECT
-  COALESCE(c.event_id, d.event_id) AS event_id,
-  COALESCE(c.queued_session_count, 0) AS queued_session_count,
-  COALESCE(c.queued_participant_slots, 0) AS queued_participant_slots,
-  c.oldest_wait_seconds,
-  c.p95_wait_seconds,
-  COALESCE(c.starved_slots_120s, 0) AS starved_slots_120s,
-  COALESCE(c.starved_slots_300s, 0) AS starved_slots_300s,
-  COALESCE(c.both_hot_ready_slots, 0) AS both_hot_ready_slots,
-  COALESCE(c.not_both_hot_ready_slots, 0) AS not_both_hot_ready_slots,
-  COALESCE(c.reliability_penalized_slots, 0) AS reliability_penalized_slots,
-  c.max_candidate_score,
-  c.avg_candidate_score,
-  COALESCE(c.actor_platform_slots, '{}'::jsonb) AS actor_platform_slots,
-  COALESCE(c.actor_gender_slots, '{}'::jsonb) AS actor_gender_slots,
-  COALESCE(d.drain_attempts_15m, 0) AS drain_attempts_15m,
-  COALESCE(d.drain_successes_15m, 0) AS drain_successes_15m,
-  COALESCE(d.no_match_attempts_15m, 0) AS no_match_attempts_15m,
-  COALESCE(d.runtime_blocked_attempts_15m, 0) AS runtime_blocked_attempts_15m,
-  CASE
-    WHEN COALESCE(c.starved_slots_300s, 0) > 0 THEN 'critical'
-    WHEN COALESCE(c.starved_slots_120s, 0) > 0 OR COALESCE(d.no_match_attempts_15m, 0) >= 3 THEN 'warning'
-    ELSE 'healthy'
-  END AS fairness_status
-FROM candidate_rollup c
-FULL OUTER JOIN drain_rollup d
-  ON d.event_id = c.event_id;
-
-COMMENT ON VIEW public.v_video_date_queue_fairness_event_health IS
-  'Service-role event-level queue fairness health. Tracks wait-time, starvation, no-match, runtime-block, readiness, platform balance, and capped reliability-penalty signals without exposing Daily tokens.';
-
-CREATE OR REPLACE FUNCTION public.get_video_date_queue_fairness_health(p_event_id uuid DEFAULT NULL)
-RETURNS TABLE (
-  event_id uuid,
-  queued_session_count integer,
-  queued_participant_slots integer,
-  oldest_wait_seconds integer,
-  p95_wait_seconds integer,
-  starved_slots_120s integer,
-  starved_slots_300s integer,
-  both_hot_ready_slots integer,
-  not_both_hot_ready_slots integer,
-  reliability_penalized_slots integer,
-  max_candidate_score integer,
-  avg_candidate_score numeric,
-  actor_platform_slots jsonb,
-  actor_gender_slots jsonb,
-  drain_attempts_15m integer,
-  drain_successes_15m integer,
-  no_match_attempts_15m integer,
-  runtime_blocked_attempts_15m integer,
-  fairness_status text
-)
-LANGUAGE sql
-SECURITY DEFINER
-SET search_path TO 'public', 'pg_catalog'
-AS $function$
-  SELECT
-    h.event_id,
-    h.queued_session_count,
-    h.queued_participant_slots,
-    h.oldest_wait_seconds,
-    h.p95_wait_seconds,
-    h.starved_slots_120s,
-    h.starved_slots_300s,
-    h.both_hot_ready_slots,
-    h.not_both_hot_ready_slots,
-    h.reliability_penalized_slots,
-    h.max_candidate_score,
-    h.avg_candidate_score,
-    h.actor_platform_slots,
-    h.actor_gender_slots,
-    h.drain_attempts_15m,
-    h.drain_successes_15m,
-    h.no_match_attempts_15m,
-    h.runtime_blocked_attempts_15m,
-    h.fairness_status
-  FROM public.v_video_date_queue_fairness_event_health h
-  WHERE p_event_id IS NULL OR h.event_id = p_event_id
-  ORDER BY
-    CASE h.fairness_status WHEN 'critical' THEN 0 WHEN 'warning' THEN 1 ELSE 2 END,
-    h.oldest_wait_seconds DESC NULLS LAST,
-    h.event_id;
-$function$;
-
-REVOKE ALL ON TABLE public.v_video_date_queue_fairness_candidates FROM PUBLIC, anon, authenticated;
-REVOKE ALL ON TABLE public.v_video_date_queue_fairness_event_health FROM PUBLIC, anon, authenticated;
-GRANT SELECT ON TABLE public.v_video_date_queue_fairness_candidates TO service_role;
-GRANT SELECT ON TABLE public.v_video_date_queue_fairness_event_health TO service_role;
-
-REVOKE ALL ON FUNCTION public.get_video_date_queue_fairness_health(uuid)
-  FROM PUBLIC, anon, authenticated, service_role;
-GRANT EXECUTE ON FUNCTION public.get_video_date_queue_fairness_health(uuid)
-  TO service_role;
-
-COMMENT ON FUNCTION public.get_video_date_queue_fairness_health(uuid) IS
-  'Service-role queue fairness health read model for video-date operators. Optional event_id filter; no participant payloads, Daily room URLs, or tokens are returned.';
+COMMENT ON FUNCTION public.get_event_deck_v3(uuid, uuid, integer) IS
+  'Event deck v3 RPC. Returns structured deck_state and marks every server-buffered returned profile as dealt for web and native deck consumers.';
 
 CREATE OR REPLACE FUNCTION public.drain_match_queue_v2(
   p_event_id uuid,

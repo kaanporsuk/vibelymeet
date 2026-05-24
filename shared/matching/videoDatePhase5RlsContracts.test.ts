@@ -51,11 +51,16 @@ test("Phase 5 deck v3 and queue hint contracts stay caller-scoped and typed", ()
   assert.match(deckV3Section, /'inactive_reason'/);
   assert.match(deckV3Section, /COALESCE\(er\.admission_status, 'confirmed'\) = 'confirmed'/);
   assert.match(deckV3Section, /'reason', 'not_registered'/);
+  assert.match(deckV3Section, /public\.is_profile_hidden\(p_user_id\)/);
+  assert.match(deckV3Section, /'reason', 'viewer_paused'/);
   assert.match(deckV3Section, /public\.record_event_profile_impression_v2/);
   assert.match(deckV3Section, /'server_dealt', true/);
   assert.match(deckV3Section, /'deck_version', 'v3'/);
-  for (const reason of ["ready", "no_confirmed_candidates", "scan_window_exhausted", "no_remaining_profiles"]) {
+  for (const reason of ["has_profiles", "event_not_active", "not_registered", "viewer_paused", "no_remaining_profiles"]) {
     assert.match(deckV3Section, new RegExp(reason));
+  }
+  for (const legacyReason of ["'ready'", "'no_confirmed_candidates'", "'scan_window_exhausted'"]) {
+    assert.doesNotMatch(deckV3Section, new RegExp(legacyReason));
   }
   assert.match(publicApiMigration, /REVOKE ALL ON FUNCTION public\.get_event_deck_v3\(uuid, uuid, integer\) FROM PUBLIC, anon/);
   assert.match(publicApiMigration, /GRANT EXECUTE ON FUNCTION public\.get_event_deck_v3\(uuid, uuid, integer\)[\s\S]+TO authenticated, service_role/);

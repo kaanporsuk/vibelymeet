@@ -61,6 +61,18 @@ BEGIN
     );
   END IF;
 
+  IF public.is_profile_hidden(p_user_id) THEN
+    RETURN jsonb_build_object(
+      'ok', false,
+      'profiles', '[]'::jsonb,
+      'deck_state', jsonb_build_object(
+        'reason', 'viewer_paused',
+        'retryable', false,
+        'limit', v_limit
+      )
+    );
+  END IF;
+
   PERFORM pg_advisory_xact_lock(
     hashtextextended('video_date_deck_v3:' || p_event_id::text || ':' || p_user_id::text, 0)
   );
@@ -114,9 +126,7 @@ BEGIN
   FROM ranked;
 
   v_reason := CASE
-    WHEN v_profile_count > 0 THEN 'ready'
-    WHEN v_raw_count = 0 THEN 'no_confirmed_candidates'
-    WHEN v_raw_count >= v_scan_limit THEN 'scan_window_exhausted'
+    WHEN v_profile_count > 0 THEN 'has_profiles'
     ELSE 'no_remaining_profiles'
   END;
 
@@ -125,7 +135,7 @@ BEGIN
     'profiles', v_profiles,
     'deck_state', jsonb_build_object(
       'reason', v_reason,
-      'retryable', v_reason = 'scan_window_exhausted',
+      'retryable', false,
       'limit', v_limit,
       'scan_limit', v_scan_limit,
       'raw_count', v_raw_count,

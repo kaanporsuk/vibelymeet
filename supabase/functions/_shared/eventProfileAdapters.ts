@@ -35,6 +35,7 @@ export type EventDeckProfile = Omit<
 };
 
 export const EVENT_DECK_STATE_REASONS = [
+  "has_profiles",
   "ready",
   "event_not_active",
   "not_registered",
@@ -171,6 +172,10 @@ export function parseEventDeckProfiles(data: unknown): EventDeckProfile[] {
 
 function normalizeDeckStateReason(value: unknown): EventDeckStateReason {
   if (typeof value !== "string") return "unknown";
+  if (value === "ready") return "has_profiles";
+  if (value === "no_confirmed_candidates" || value === "scan_window_exhausted") {
+    return "no_remaining_profiles";
+  }
   return (EVENT_DECK_STATE_REASONS as readonly string[]).includes(value)
     ? value as EventDeckStateReason
     : "unknown";
@@ -182,7 +187,7 @@ function finiteNumberOrNull(value: unknown): number | null {
 
 function normalizeEventDeckState(raw: unknown, fallbackProfileCount: number): EventDeckState {
   const source = raw && typeof raw === "object" ? raw as Record<string, unknown> : {};
-  const reason = normalizeDeckStateReason(source.reason ?? (fallbackProfileCount > 0 ? "ready" : "unknown"));
+  const reason = normalizeDeckStateReason(source.reason ?? (fallbackProfileCount > 0 ? "has_profiles" : "unknown"));
   return {
     reason,
     retryable: source.retryable === true,
@@ -202,7 +207,7 @@ export function parseEventDeckResponse(data: unknown): EventDeckFetchResult {
       ok: true,
       profiles,
       deckState: normalizeEventDeckState(
-        { reason: profiles.length > 0 ? "ready" : "unknown", profile_count: profiles.length },
+        { reason: profiles.length > 0 ? "has_profiles" : "unknown", profile_count: profiles.length },
         profiles.length,
       ),
     };
