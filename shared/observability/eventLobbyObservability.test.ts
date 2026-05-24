@@ -95,6 +95,20 @@ test("swipe result payload captures duplicate suppression without private identi
   assertNoForbiddenKeys(payload);
 });
 
+test("swipe result payload treats rate limits as notification-suppressed", () => {
+  const payload = buildLobbySwipeResultPayload({
+    eventId: "event-1",
+    platform: "web",
+    swipeType: "vibe",
+    result: { result: "rate_limited" },
+  });
+
+  assert.equal(payload.outcome, "rate_limited");
+  assert.equal(payload.notification_attempted, false);
+  assert.equal(payload.notification_suppressed_reason, "rate_limited");
+  assertNoForbiddenKeys(payload);
+});
+
 test("queue drain payload is low-cardinality and session-presence only", () => {
   const payload = buildQueueDrainResultPayload({
     eventId: "event-1",

@@ -7417,6 +7417,7 @@ export type Database = {
           job: string
           location: string
           looking_for: string
+          media_version: string
           name: string
           photo_verified: boolean
           photos: string[]

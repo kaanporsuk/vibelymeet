@@ -96,6 +96,9 @@ const SUPPRESSED_OUTCOMES = new Set([
   "not_registered",
   "pair_already_met_this_event",
   "participant_has_active_session_conflict",
+  "rate_limited",
+  "too_many_requests",
+  "swipe_rate_limited",
 ]);
 
 export type CountBucket = "zero" | "one" | "few" | "many";

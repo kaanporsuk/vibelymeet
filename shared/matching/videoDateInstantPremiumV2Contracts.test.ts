@@ -46,8 +46,22 @@ test("instant premium deck prefetch helper dedupes media and preserves top-2 sco
       { id: "d", avatar_url: "avatar.jpg" },
     ]),
     [
-      { profileId: "a", source: "same.jpg", sourceKind: "primary_photo_path", rank: 0 },
-      { profileId: "c", source: "unique.jpg", sourceKind: "photo", rank: 1 },
+      {
+        profileId: "a",
+        source: "same.jpg",
+        mediaVersion: null,
+        cacheKey: "a:unversioned:same.jpg",
+        sourceKind: "primary_photo_path",
+        rank: 0,
+      },
+      {
+        profileId: "c",
+        source: "unique.jpg",
+        mediaVersion: null,
+        cacheKey: "c:unversioned:unique.jpg",
+        sourceKind: "photo",
+        rank: 1,
+      },
     ],
   );
 });

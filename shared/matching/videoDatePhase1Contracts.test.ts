@@ -174,7 +174,8 @@ test("PR 1.3 deck v3 and persistent ready-gate suppression are adopted; Phase 8 
   assert.match(webLobby, /setQueryData<EventDeckFetchResult>\(\s*\["event-deck", eventId, user\?\.id, "deck_v3"\]/);
   assert.match(nativeLobby, /setQueryData<EventDeckFetchResult>\(\s*\['event-deck', id, user\?\.id, 'deck_v3'\]/);
   assert.match(webLobby, /sortedProfiles\.slice\(0, 3\)[\s\S]+new Image\(\)/);
-  assert.match(nativeLobby, /sortedProfiles\.slice\(0, 3\)[\s\S]+Image\.prefetch\(src\)/);
+  assert.match(nativeLobby, /sortedProfiles\.slice\(0, 3\)[\s\S]+prefetchNativeDeckImage\(src\)/);
+  assert.match(nativeLobby, /ExpoImage\.prefetch\(uri,[\s\S]+RNImage\.prefetch\(uri\)/);
   assert.match(webLobby, /shouldTopUpVideoDateDeck\(remainingVisible\)/);
   assert.match(nativeLobby, /shouldTopUpVideoDateDeck\(remainingVisible\)/);
   assert.match(webLobby, /invalidateQueries\(\{ queryKey: \["event-deck", eventId, user\?\.id\] \}\)/);

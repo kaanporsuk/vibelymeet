@@ -142,18 +142,29 @@ export function getImageUrl(
   return `${SUPABASE_URL}/storage/v1/object/public/${p}`;
 }
 
+function appendImageVersion(url: string, mediaVersion?: string | number | null): string {
+  const version =
+    typeof mediaVersion === "number" && Number.isFinite(mediaVersion)
+      ? String(mediaVersion)
+      : typeof mediaVersion === "string"
+        ? mediaVersion.trim()
+        : "";
+  if (!url || !version || url === PLACEHOLDER || url.startsWith("data:") || url.startsWith("blob:")) return url;
+  return `${url}${url.includes("?") ? "&" : "?"}v=${encodeURIComponent(version)}`;
+}
+
 // Convenience presets
-export const avatarUrl = (path: string | null | undefined) =>
-  getImageUrl(path, { width: 200, height: 200, crop: "center" });
+export const avatarUrl = (path: string | null | undefined, mediaVersion?: string | number | null) =>
+  appendImageVersion(getImageUrl(path, { width: 200, height: 200, crop: "center" }), mediaVersion);
 
-export const swipeCardUrl = (path: string | null | undefined) =>
-  getImageUrl(path, { width: 720, crop: "center" });
+export const swipeCardUrl = (path: string | null | undefined, mediaVersion?: string | number | null) =>
+  appendImageVersion(getImageUrl(path, { width: 720, crop: "center" }), mediaVersion);
 
-export const deckCardUrl = (path: string | null | undefined) =>
-  getImageUrl(path, { width: 1080, height: 1440, crop: "center", quality: 88 });
+export const deckCardUrl = (path: string | null | undefined, mediaVersion?: string | number | null) =>
+  appendImageVersion(getImageUrl(path, { width: 1080, height: 1440, crop: "center", quality: 88 }), mediaVersion);
 
-export const thumbnailUrl = (path: string | null | undefined) =>
-  getImageUrl(path, { width: 400, height: 400, crop: "center" });
+export const thumbnailUrl = (path: string | null | undefined, mediaVersion?: string | number | null) =>
+  appendImageVersion(getImageUrl(path, { width: 400, height: 400, crop: "center" }), mediaVersion);
 
 export const fullScreenUrl = (path: string | null | undefined) =>
   getImageUrl(path, { width: 1200 });

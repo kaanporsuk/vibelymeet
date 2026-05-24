@@ -133,7 +133,8 @@ test("web EventLobby wires the gate into deck, queue/status side effects, action
   assert.match(webLobby, /useMatchQueue\(\{[\s\S]*enabled: lobbySideEffectsEnabled/);
   assert.match(webLobby, /LobbyUnavailableState/);
   assert.match(webLobby, /EventEndedModal isOpen=\{showEventEndedModal\}/);
-  assert.match(webLobby, /disabled=\{isProcessing \|\| !lobbyActionsEnabled\}/);
+  assert.match(webLobby, /const swipeControlsDisabled =[\s\S]*isProcessing[\s\S]*pendingSwipeTargetId[\s\S]*!lobbyActionsEnabled[\s\S]*swipeRateLimited/);
+  assert.match(webLobby, /disabled=\{swipeControlsDisabled\}/);
   assert.match(webLobby, /readyGateOverlayAllowed/);
 });
 
@@ -152,7 +153,7 @@ test("native EventLobby blocks stale deck, status, foreground, and queue side ef
   assert.match(nativeLobby, /const lobbySideEffectsEnabled = Boolean\(/);
   assert.match(nativeLobby, /const deckQueryEnabled = Boolean\(/);
   assert.match(nativeLobby, /const deckQueryEnabled = Boolean\([\s\S]+isConfirmedSeat[\s\S]+!pauseStatus\.isPaused[\s\S]+!isEventCancelled[\s\S]+!isEventArchived[\s\S]+!isEventDraft[\s\S]+!isEventEndedByTruth[\s\S]+resolvedEventLifecycle\?\.isLive/);
-  assert.match(nativeLobby, /useEventDeck\(\s*id,\s*user\?\.id \?\? null,\s*deckQueryEnabled\s*\)/);
+  assert.match(nativeLobby, /useEventDeck\(\s*id,\s*user\?\.id \?\? null,\s*deckQueryEnabled,\s*\{ refetchIntervalMs: deckAdaptiveRefetchIntervalMs \},\s*\)/);
   assert.match(nativeLobby, /const queueHintEnabled =\s*deckQueryEnabled/);
   assert.match(nativeLobby, /useEventStatus\(id, user\?\.id \?\? undefined, lobbySideEffectsEnabled\)/);
   assert.match(nativeLobby, /if \(!id \|\| !user\?\.id \|\| !lobbySideEffectsEnabled\) return/);

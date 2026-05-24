@@ -55,6 +55,7 @@ test("native lobby covers backend swipe outcome taxonomy without client side eff
     "already_super_vibed_recently",
     "target_unavailable",
     "target_not_found",
+    "rate_limited",
     "account_paused",
     "not_registered",
     "unauthorized",
@@ -77,13 +78,13 @@ test("native lobby respects deck availability state and media contract", () => {
 
   assert.match(nativeLobby, /currentAvailabilityState = current\?\.availability_state \?\? 'available'/);
   assert.match(nativeLobby, /currentIsSwipeable = currentAvailabilityState === 'available'/);
-  assert.match(nativeLobby, /swipeActionsDisabled = processing \|\| !currentIsSwipeable/);
+  assert.match(nativeLobby, /swipeActionsDisabled = processing \|\| Boolean\(pendingSwipeTargetId\) \|\| !currentIsSwipeable \|\| swipeRateLimited/);
   assert.match(nativeLobby, /disabled=\{swipeActionsDisabled/);
   assert.match(nativeLobby, /availabilityState = profile\.availability_state \?\? 'available'/);
   assert.match(nativeLobby, /queueBadgeLabel = isUnavailable \? 'Unavailable' : 'In session'/);
   assert.match(nativeLobby, /profile\.primary_photo_path \?\?/);
   assert.match(nativeLobby, /resolvePrimaryProfilePhotoPath/);
-  assert.match(nativeLobby, /deckCardUrl\(photo\)/);
+  assert.match(nativeLobby, /deckCardUrl\(photo, profile\.media_version\)/);
   assert.match(imageUrl, /export function deckCardUrl/);
   assert.match(imageUrl, /width: 1080/);
   assert.match(imageUrl, /height: 1440/);

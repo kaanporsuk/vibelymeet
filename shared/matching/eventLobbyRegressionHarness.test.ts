@@ -37,6 +37,7 @@ const swipeRetryTest = read("shared/matching/swipeRetryIdempotencyNotificationDe
 const webGatingTest = read("shared/matching/webEventLobbyGating.test.ts");
 const readyQueueTest = read("shared/matching/eventLobbyReadyQueueContract.test.ts");
 const deckPayloadTest = read("shared/matching/eventLobbyDeckPayloadMedia.test.ts");
+const deckPrefetchTest = read("shared/matching/videoDateDeckPrefetch.test.ts");
 const observabilityTest = read("shared/observability/eventLobbyObservability.test.ts");
 const videoSessionFlowTest = read("supabase/functions/_shared/matching/videoSessionFlow.test.ts");
 const videoSessionFlowSource = read("supabase/functions/_shared/matching/videoSessionFlow.ts");
@@ -94,6 +95,7 @@ test("regression runner executes the focused Event Lobby contract pack", () => {
     "npx tsx shared/matching/webEventLobbyGating.test.ts",
     "npx tsx shared/matching/eventLobbyReadyQueueContract.test.ts",
     "npx tsx shared/matching/eventLobbyDeckPayloadMedia.test.ts",
+    "npx tsx shared/matching/videoDateDeckPrefetch.test.ts",
     "npx tsx shared/observability/eventLobbyObservability.test.ts",
     "npx tsx supabase/functions/_shared/matching/videoSessionFlow.test.ts",
     "git diff --check",
@@ -143,6 +145,9 @@ test("automated coverage maps to the fixed backend/client contracts", () => {
   assert.match(deckPayloadTest, /forbidden fields|forbidden_private_fields_not_returned/);
   assert.match(deckPayloadTest, /native lobby card consumes the same payload/);
   assert.match(deckPayloadTest, /first valid photo, then avatar/);
+  assert.match(deckPrefetchTest, /media-versioned cache keys/);
+  assert.match(deckPrefetchTest, /adaptive deck refetch/);
+  assert.match(deckPrefetchTest, /swipe 429 helpers/);
 
   assert.match(observabilityTest, /lobby_deck_empty/);
   assert.match(observabilityTest, /duplicate_suppressed/);

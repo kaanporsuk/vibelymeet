@@ -14,6 +14,7 @@ export type { EventDeckFetchResult };
 interface UseEventDeckOptions {
   eventId: string;
   enabled?: boolean;
+  refetchIntervalMs?: number | false;
 }
 
 export async function fetchEventDeck(eventId: string, viewerProfileId: string): Promise<EventDeckFetchResult> {
@@ -35,7 +36,7 @@ export async function fetchEventDeck(eventId: string, viewerProfileId: string): 
   return parseEventDeckResponse(data);
 }
 
-export const useEventDeck = ({ eventId, enabled = true }: UseEventDeckOptions) => {
+export const useEventDeck = ({ eventId, enabled = true, refetchIntervalMs }: UseEventDeckOptions) => {
   const { user } = useUserProfile();
 
   const query = useQuery({
@@ -48,8 +49,11 @@ export const useEventDeck = ({ eventId, enabled = true }: UseEventDeckOptions) =
       return fetchEventDeck(eventId, viewerProfileId);
     },
     enabled: enabled && !!user?.id && !!eventId,
-    refetchInterval: () =>
-      typeof document === "undefined" || document.visibilityState === "visible" ? 15_000 : false,
+    refetchInterval: () => {
+      if (refetchIntervalMs === false) return false;
+      if (typeof document !== "undefined" && document.visibilityState !== "visible") return false;
+      return refetchIntervalMs ?? 15_000;
+    },
     refetchIntervalInBackground: false,
     staleTime: 10000,
   });

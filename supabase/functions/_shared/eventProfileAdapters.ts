@@ -22,6 +22,7 @@ export type EventDeckProfileRow = {
   photo_verified: boolean | null;
   premium_badge: string | null;
   availability_state: "available" | string | null;
+  media_version: string | null;
 };
 
 export type EventDeckProfile = Omit<
@@ -108,6 +109,11 @@ function toPremiumBadge(value: unknown): "premium" | "vip" | null {
   return value === "premium" || value === "vip" ? value : null;
 }
 
+function normalizeMediaVersion(value: unknown): string | null {
+  if (typeof value === "number" && Number.isFinite(value)) return String(value);
+  return sanitizeDeckString(value);
+}
+
 export function toEventDeckProfile(row: EventDeckProfileRow): EventDeckProfile {
   return {
     id: asProfileId(row.profile_id),
@@ -131,6 +137,7 @@ export function toEventDeckProfile(row: EventDeckProfileRow): EventDeckProfile {
     photo_verified: row.photo_verified === true,
     premium_badge: toPremiumBadge(row.premium_badge),
     availability_state: sanitizeDeckString(row.availability_state) ?? "available",
+    media_version: normalizeMediaVersion(row.media_version),
   };
 }
 
@@ -165,6 +172,7 @@ export function parseEventDeckProfiles(data: unknown): EventDeckProfile[] {
         photo_verified: source.photo_verified === true,
         premium_badge: toPremiumBadge(source.premium_badge),
         availability_state: sanitizeDeckString(source.availability_state) ?? "available",
+        media_version: normalizeMediaVersion(source.media_version ?? source.updated_at),
       }),
     ];
   });

@@ -276,7 +276,8 @@ test("PR 8.5 retires client-only deck fallback on web and native", () => {
   assert.doesNotMatch(nativeLobby, /seenProfileIdsRef|deckDealV2|deckNonce|swipe_failure_advance_deck|swipe_advance_deck/);
   assert.doesNotMatch(nativeLobby, /1 \/ \$\{sortedProfiles\.length\} left|deckProgress = useMemo/);
   assert.match(nativeLobby, /Next card ready/);
-  assert.match(nativeLobby, /sortedProfiles\.slice\(0, 3\)[\s\S]+Image\.prefetch\(src\)/);
+  assert.match(nativeLobby, /sortedProfiles\.slice\(0, 3\)[\s\S]+prefetchNativeDeckImage\(src\)/);
+  assert.match(nativeLobby, /ExpoImage\.prefetch\(uri,[\s\S]+RNImage\.prefetch\(uri\)/);
   assert.match(nativeLobby, /shouldTopUpVideoDateDeck\(remainingVisible\)/);
   assert.match(nativeLobby, /Server-dealt deck v3 is the only active source of deck exclusion truth/);
 });
