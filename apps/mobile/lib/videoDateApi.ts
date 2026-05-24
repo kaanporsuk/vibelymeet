@@ -3,7 +3,7 @@
  * Uses same contracts as web: daily-room Edge Function, video_date_transition RPC.
  */
 
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import * as Sentry from '@sentry/react-native';
 import { supabase } from '@/lib/supabase';
 import { useFeatureFlag } from '@/hooks/useFeatureFlag';
@@ -13,6 +13,10 @@ import { trackEvent } from '@/lib/analytics';
 import { submitNativePostDateOutboxItem } from '@/lib/postDateOutbox/execute';
 import { prepareVideoDateEntry } from '@/lib/videoDatePrepareEntry';
 import { fetchVideoDateSnapshot } from '@/lib/videoDateSnapshot';
+import {
+  clearVideoDatePushPreload,
+  readVideoDatePushPreloadTimeline,
+} from '@/lib/videoDatePushPreload';
 import { LobbyPostDateEvents } from '@clientShared/analytics/lobbyToPostDateJourney';
 import { videoSessionRowIndicatesHandshakeOrDate } from '@clientShared/matching/activeSession';
 import type { DailyRoomFailureKind } from '@clientShared/matching/dailyRoomFailure';
@@ -211,11 +215,22 @@ export function useVideoDateSession(
 ) {
   const broadcastV2 = useFeatureFlag('video_date.broadcast_v2');
   const timelineV2 = useFeatureFlag('video_date.timeline_v2');
+  const pushPayloadV2 = useFeatureFlag('video_date.push_payload_v2');
+  const initialPushTimeline = useMemo(
+    () => pushPayloadV2.enabled ? readVideoDatePushPreloadTimeline(sessionId) : null,
+    [pushPayloadV2.enabled, sessionId],
+  );
+  const initialPushCountdown = useMemo(
+    () => initialPushTimeline ? resolveVideoDateTimelineCountdown(initialPushTimeline) : null,
+    [initialPushTimeline],
+  );
   const [session, setSession] = useState<VideoDateSession | null>(null);
   const [partner, setPartner] = useState<VideoDatePartner | null>(null);
-  const [phase, setPhase] = useState<'handshake' | 'date' | 'ended'>('handshake');
-  const [timeLeft, setTimeLeft] = useState<number | null>(null);
-  const [timeline, setTimeline] = useState<VideoDateTimelineState | null>(null);
+  const [phase, setPhase] = useState<'handshake' | 'date' | 'ended'>(
+    initialPushTimeline?.phase === 'date' ? 'date' : 'handshake',
+  );
+  const [timeLeft, setTimeLeft] = useState<number | null>(initialPushCountdown?.remainingSeconds ?? null);
+  const [timeline, setTimeline] = useState<VideoDateTimelineState | null>(initialPushTimeline);
   const [loading, setLoading] = useState(true);
   /** True during post-mount refetches; does not drive full-screen loading in date UI. */
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -239,12 +254,18 @@ export function useVideoDateSession(
       clearTimeout(broadcastGapRetryTimerRef.current);
       broadcastGapRetryTimerRef.current = null;
     }
-    timelineRef.current = null;
-    setTimeline(null);
+    timelineRef.current = initialPushTimeline;
+    setTimeline(initialPushTimeline);
+    setPhase(initialPushTimeline?.phase === 'date' ? 'date' : 'handshake');
+    setTimeLeft(initialPushCountdown?.remainingSeconds ?? null);
     return () => {
       currentSessionKeyRef.current = null;
     };
-  }, [sessionId, userId]);
+  }, [initialPushCountdown, initialPushTimeline, sessionId, userId]);
+
+  useEffect(() => {
+    if (initialPushTimeline) clearVideoDatePushPreload(sessionId);
+  }, [initialPushTimeline, sessionId]);
 
   useEffect(() => {
     timelineRef.current = timeline;

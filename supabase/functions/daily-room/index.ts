@@ -55,6 +55,10 @@ const DAILY_VIDEO_DATE_TOKEN_TTL_SECONDS = DAILY_VIDEO_DATE_ROOM_TTL_SECONDS;
 const DAILY_VIDEO_DATE_SOLO_PREJOIN_TOKEN_TTL_SECONDS = 180;
 const DAILY_VIDEO_DATE_DIAGNOSTIC_TOKEN_TTL_SECONDS = 60;
 const DAILY_VIDEO_DATE_DIAGNOSTIC_ROOM_TTL_SECONDS = 10 * 60;
+const DAILY_VIDEO_DATE_TOKEN_PHASE_EXTENSION_BUFFER_MS = 2 * 60 * 1000;
+const DAILY_VIDEO_DATE_TOKEN_MIN_TTL_SECONDS = 180;
+const DAILY_VIDEO_DATE_HANDSHAKE_SECONDS = 60;
+const DAILY_VIDEO_DATE_BASE_DATE_SECONDS = 300;
 const DAILY_VIDEO_DATE_PROVIDER_PROOF_FRESH_MS = 90_000;
 const DAILY_VIDEO_DATE_PROVIDER_PROOF_CLOCK_SKEW_MS = 5_000;
 const EDGE_PROCESS_STARTED_AT_MS = Date.now();
@@ -84,6 +88,7 @@ type VideoDateRoomGateSession = {
   ended_reason?: string | null;
   handshake_started_at: string | null;
   date_started_at?: string | null;
+  date_extra_seconds?: number | null;
   ready_gate_status: string | null;
   ready_gate_expires_at: string | null;
   ready_participant_1_at?: string | null;
@@ -1092,6 +1097,93 @@ function meetingTokenExpiresAtIso(ttlSeconds: number, nowMs = Date.now()): strin
   return new Date(nowMs + ttlSeconds * 1000).toISOString();
 }
 
+function videoDatePhaseDeadlineAtMs(session: VideoDateRoomGateSession): number | null {
+  const phase = String(session.phase ?? session.state ?? "");
+  if ((phase === "date" || session.date_started_at) && session.date_started_at) {
+    const startedAtMs = Date.parse(session.date_started_at);
+    if (Number.isFinite(startedAtMs)) {
+      const extraSeconds =
+        typeof session.date_extra_seconds === "number" && Number.isFinite(session.date_extra_seconds)
+          ? Math.max(0, Math.floor(session.date_extra_seconds))
+          : 0;
+      return startedAtMs + (DAILY_VIDEO_DATE_BASE_DATE_SECONDS + extraSeconds) * 1000;
+    }
+  }
+  if ((phase === "handshake" || session.handshake_started_at) && session.handshake_started_at) {
+    const startedAtMs = Date.parse(session.handshake_started_at);
+    if (Number.isFinite(startedAtMs)) return startedAtMs + DAILY_VIDEO_DATE_HANDSHAKE_SECONDS * 1000;
+  }
+  if ((phase === "ready_gate" || session.ready_gate_status) && session.ready_gate_expires_at) {
+    const expiresAtMs = Date.parse(session.ready_gate_expires_at);
+    if (Number.isFinite(expiresAtMs)) return expiresAtMs;
+  }
+  return null;
+}
+
+async function isClientFeatureFlagEnabled(
+  supabase: ReturnType<typeof createClient>,
+  flag: string,
+  userId: string,
+): Promise<boolean> {
+  try {
+    const { data, error } = await supabase.rpc("evaluate_client_feature_flag", {
+      p_flag: flag,
+      p_user: userId,
+    });
+    if (error) return false;
+    return data === true;
+  } catch {
+    return false;
+  }
+}
+
+function resolveVideoDateMeetingTokenWindow(params: {
+  session: VideoDateRoomGateSession;
+  nowMs: number;
+  dailyRoomExpiresAt?: string | null;
+  phaseBoundedTokens?: boolean;
+}): { ttlSeconds: number; expiresAtIso: string; reason: "phase_deadline" | "daily_room_expiry" | "max_ttl" } {
+  const maxTtlMs = DAILY_VIDEO_DATE_TOKEN_TTL_SECONDS * 1000;
+  const minTtlMs = DAILY_VIDEO_DATE_TOKEN_MIN_TTL_SECONDS * 1000;
+  const roomExpiresAtMs = params.dailyRoomExpiresAt ? Date.parse(params.dailyRoomExpiresAt) : NaN;
+  const phaseDeadlineAtMs = params.phaseBoundedTokens === true
+    ? videoDatePhaseDeadlineAtMs(params.session)
+    : null;
+  let targetExpiresAtMs = params.nowMs + maxTtlMs;
+  let reason: "phase_deadline" | "daily_room_expiry" | "max_ttl" = "max_ttl";
+
+  if (phaseDeadlineAtMs != null && phaseDeadlineAtMs > params.nowMs) {
+    targetExpiresAtMs = phaseDeadlineAtMs + DAILY_VIDEO_DATE_TOKEN_PHASE_EXTENSION_BUFFER_MS;
+    reason = "phase_deadline";
+  } else if (phaseDeadlineAtMs != null) {
+    targetExpiresAtMs = params.nowMs + minTtlMs;
+    reason = "phase_deadline";
+  } else if (Number.isFinite(roomExpiresAtMs) && roomExpiresAtMs > params.nowMs) {
+    targetExpiresAtMs = roomExpiresAtMs;
+    reason = "daily_room_expiry";
+  }
+
+  targetExpiresAtMs = Math.min(targetExpiresAtMs, params.nowMs + maxTtlMs);
+  if (Number.isFinite(roomExpiresAtMs) && roomExpiresAtMs > params.nowMs) {
+    targetExpiresAtMs = Math.min(targetExpiresAtMs, roomExpiresAtMs);
+  }
+  if (targetExpiresAtMs <= params.nowMs + minTtlMs) {
+    targetExpiresAtMs = Math.min(
+      params.nowMs + minTtlMs,
+      Number.isFinite(roomExpiresAtMs) && roomExpiresAtMs > params.nowMs
+        ? roomExpiresAtMs
+        : params.nowMs + maxTtlMs,
+    );
+  }
+
+  const ttlSeconds = Math.max(1, Math.ceil((targetExpiresAtMs - params.nowMs) / 1000));
+  return {
+    ttlSeconds,
+    expiresAtIso: meetingTokenExpiresAtIso(ttlSeconds, params.nowMs),
+    reason,
+  };
+}
+
 async function createDailyRoom(
   roomName: string,
   props: Record<string, unknown>,
@@ -1649,6 +1741,7 @@ type PrepareEntryTransitionPayload = {
   participant_2_id?: string | null;
   handshake_started_at?: string | null;
   date_started_at?: string | null;
+  date_extra_seconds?: number | null;
   ready_gate_status?: string | null;
   ready_gate_expires_at?: string | null;
   daily_room_name?: string | null;
@@ -2359,7 +2452,7 @@ serve(async (req) => {
         const { data, error } = await supabase
           .from("video_sessions")
           .select(
-            "id, event_id, participant_1_id, participant_2_id, daily_room_name, daily_room_url, daily_room_verified_at, daily_room_expires_at, daily_room_provider_verify_reason, ended_at, handshake_started_at, date_started_at, ready_gate_status, ready_gate_expires_at, state, phase",
+            "id, event_id, participant_1_id, participant_2_id, daily_room_name, daily_room_url, daily_room_verified_at, daily_room_expires_at, daily_room_provider_verify_reason, ended_at, handshake_started_at, date_started_at, date_extra_seconds, ready_gate_status, ready_gate_expires_at, state, phase",
           )
           .eq("id", sessionId)
           .maybeSingle();
@@ -2560,7 +2653,7 @@ serve(async (req) => {
         const { data, error } = await supabase
           .from("video_sessions")
           .select(
-            "id, event_id, participant_1_id, participant_2_id, daily_room_name, daily_room_url, daily_room_verified_at, daily_room_expires_at, daily_room_provider_verify_reason, ended_at, handshake_started_at, date_started_at, ready_gate_status, ready_gate_expires_at, ready_participant_1_at, ready_participant_2_at, state, phase",
+            "id, event_id, participant_1_id, participant_2_id, daily_room_name, daily_room_url, daily_room_verified_at, daily_room_expires_at, daily_room_provider_verify_reason, ended_at, handshake_started_at, date_started_at, date_extra_seconds, ready_gate_status, ready_gate_expires_at, ready_participant_1_at, ready_participant_2_at, state, phase",
           )
           .eq("id", sessionId)
           .maybeSingle();
@@ -2957,6 +3050,7 @@ serve(async (req) => {
           ended_reason: preparePayload.ended_reason ?? null,
           handshake_started_at: preparePayload.handshake_started_at ?? null,
           date_started_at: preparePayload.date_started_at ?? null,
+          date_extra_seconds: preparePayload.date_extra_seconds ?? null,
           ready_gate_status: preparePayload.ready_gate_status ?? null,
           ready_gate_expires_at: preparePayload.ready_gate_expires_at ?? null,
           state: preparePayload.state ?? null,
@@ -3032,11 +3126,22 @@ serve(async (req) => {
         timings.room_create_or_verify_ms = Date.now() - roomStartedAt;
 
         const tokenStartedAt = Date.now();
-        const tokenExpiresAt = meetingTokenExpiresAtIso(DAILY_VIDEO_DATE_TOKEN_TTL_SECONDS, tokenStartedAt);
+        const phaseBoundedTokens = await isClientFeatureFlagEnabled(
+          serviceClient,
+          "video_date.daily_token_refresh_v2",
+          user.id,
+        );
+        const tokenWindow = resolveVideoDateMeetingTokenWindow({
+          session: sessionForLog as VideoDateRoomGateSession,
+          nowMs: tokenStartedAt,
+          dailyRoomExpiresAt,
+          phaseBoundedTokens,
+        });
+        const tokenExpiresAt = tokenWindow.expiresAtIso;
         const token = await createMeetingToken(
           roomName,
           user.id,
-          DAILY_VIDEO_DATE_TOKEN_TTL_SECONDS,
+          tokenWindow.ttlSeconds,
           undefined,
           { ejectAtTokenExp: true },
         );
@@ -3062,6 +3167,8 @@ serve(async (req) => {
             provider_verify_reason: providerVerifyReason,
             daily_room_verified_at: dailyRoomVerifiedAt,
             daily_room_expires_at: dailyRoomExpiresAt,
+            token_ttl_seconds: tokenWindow.ttlSeconds,
+            token_expiry_reason: tokenWindow.reason,
           },
         });
         const confirmStartedAt = Date.now();
@@ -3096,6 +3203,8 @@ serve(async (req) => {
           state: confirmPayload.state ?? null,
           phase: confirmPayload.phase ?? null,
           handshake_started_at: confirmPayload.handshake_started_at ?? null,
+          date_started_at: confirmPayload.date_started_at ?? sessionRow.date_started_at ?? null,
+          date_extra_seconds: confirmPayload.date_extra_seconds ?? sessionRow.date_extra_seconds ?? null,
           ready_gate_status: confirmPayload.ready_gate_status ?? null,
           ready_gate_expires_at: confirmPayload.ready_gate_expires_at ?? null,
         };
@@ -3114,6 +3223,8 @@ serve(async (req) => {
           provider_verify_reason: providerVerifyReason,
           daily_room_verified_at: dailyRoomVerifiedAt,
           daily_room_expires_at: dailyRoomExpiresAt,
+          token_ttl_seconds: tokenWindow.ttlSeconds,
+          token_expiry_reason: tokenWindow.reason,
           state: confirmPayload.state ?? null,
           phase: confirmPayload.phase ?? null,
           timings,
@@ -3126,6 +3237,8 @@ serve(async (req) => {
             room_url: roomUrl,
             token,
             token_expires_at: tokenExpiresAt,
+            token_ttl_seconds: tokenWindow.ttlSeconds,
+            token_expiry_reason: tokenWindow.reason,
             session_state: confirmPayload.state ?? null,
             session_phase: confirmPayload.phase ?? null,
             handshake_started_at: confirmPayload.handshake_started_at ?? null,
@@ -3182,7 +3295,7 @@ serve(async (req) => {
         const { data } = await supabase
           .from("video_sessions")
           .select(
-            "id, event_id, participant_1_id, participant_2_id, daily_room_name, daily_room_url, daily_room_verified_at, daily_room_expires_at, daily_room_provider_verify_reason, ended_at, handshake_started_at, date_started_at, ready_gate_status, ready_gate_expires_at, state, phase",
+            "id, event_id, participant_1_id, participant_2_id, daily_room_name, daily_room_url, daily_room_verified_at, daily_room_expires_at, daily_room_provider_verify_reason, ended_at, handshake_started_at, date_started_at, date_extra_seconds, ready_gate_status, ready_gate_expires_at, state, phase",
           )
           .eq("id", sessionId)
           .maybeSingle();
@@ -3360,11 +3473,22 @@ serve(async (req) => {
         } = roomProof;
 
         const tokenStartedAt = Date.now();
-        const tokenExpiresAt = meetingTokenExpiresAtIso(DAILY_VIDEO_DATE_TOKEN_TTL_SECONDS, tokenStartedAt);
+        const phaseBoundedTokens = await isClientFeatureFlagEnabled(
+          serviceClient,
+          "video_date.daily_token_refresh_v2",
+          user.id,
+        );
+        const tokenWindow = resolveVideoDateMeetingTokenWindow({
+          session,
+          nowMs: tokenStartedAt,
+          dailyRoomExpiresAt,
+          phaseBoundedTokens,
+        });
+        const tokenExpiresAt = tokenWindow.expiresAtIso;
         const token = await createMeetingToken(
           roomName,
           user.id,
-          DAILY_VIDEO_DATE_TOKEN_TTL_SECONDS,
+          tokenWindow.ttlSeconds,
           undefined,
           { ejectAtTokenExp: true },
         );
@@ -3388,6 +3512,8 @@ serve(async (req) => {
             provider_verify_reason: providerVerifyReason,
             daily_room_verified_at: dailyRoomVerifiedAt,
             daily_room_expires_at: dailyRoomExpiresAt,
+            token_ttl_seconds: tokenWindow.ttlSeconds,
+            token_expiry_reason: tokenWindow.reason,
           },
         });
         const { data: confirmPayload, error: confirmError } = await confirmVideoDateEntryPrepared(serviceClient, {
@@ -3418,6 +3544,8 @@ serve(async (req) => {
             room_url: roomUrl,
             token,
             token_expires_at: tokenExpiresAt,
+            token_ttl_seconds: tokenWindow.ttlSeconds,
+            token_expiry_reason: tokenWindow.reason,
             reused_room: reusedRoom,
             provider_room_recreated: providerRoomRecreated,
             provider_room_recovered: providerRoomRecovered,
@@ -3466,7 +3594,7 @@ serve(async (req) => {
         const { data } = await supabase
           .from("video_sessions")
           .select(
-            "id, event_id, participant_1_id, participant_2_id, daily_room_name, daily_room_url, daily_room_verified_at, daily_room_expires_at, daily_room_provider_verify_reason, ended_at, handshake_started_at, ready_gate_status, ready_gate_expires_at, state, phase",
+            "id, event_id, participant_1_id, participant_2_id, daily_room_name, daily_room_url, daily_room_verified_at, daily_room_expires_at, daily_room_provider_verify_reason, ended_at, handshake_started_at, date_started_at, date_extra_seconds, ready_gate_status, ready_gate_expires_at, state, phase",
           )
           .eq("id", sessionId)
           .maybeSingle();
@@ -3634,11 +3762,22 @@ serve(async (req) => {
         }
 
         const tokenStartedAt = Date.now();
-        const tokenExpiresAt = meetingTokenExpiresAtIso(DAILY_VIDEO_DATE_TOKEN_TTL_SECONDS, tokenStartedAt);
+        const phaseBoundedTokens = await isClientFeatureFlagEnabled(
+          serviceClient,
+          "video_date.daily_token_refresh_v2",
+          user.id,
+        );
+        const tokenWindow = resolveVideoDateMeetingTokenWindow({
+          session,
+          nowMs: tokenStartedAt,
+          dailyRoomExpiresAt: roomProof.dailyRoomExpiresAt,
+          phaseBoundedTokens,
+        });
+        const tokenExpiresAt = tokenWindow.expiresAtIso;
         const token = await createMeetingToken(
           roomProof.roomName,
           user.id,
-          DAILY_VIDEO_DATE_TOKEN_TTL_SECONDS,
+          tokenWindow.ttlSeconds,
           undefined,
           { ejectAtTokenExp: true },
         );
@@ -3662,6 +3801,8 @@ serve(async (req) => {
             provider_verify_reason: roomProof.providerVerifyReason,
             daily_room_verified_at: roomProof.dailyRoomVerifiedAt,
             daily_room_expires_at: roomProof.dailyRoomExpiresAt,
+            token_ttl_seconds: tokenWindow.ttlSeconds,
+            token_expiry_reason: tokenWindow.reason,
           },
         });
 
@@ -3671,6 +3812,8 @@ serve(async (req) => {
             room_url: roomProof.roomUrl,
             token,
             token_expires_at: tokenExpiresAt,
+            token_ttl_seconds: tokenWindow.ttlSeconds,
+            token_expiry_reason: tokenWindow.reason,
             reused_room: roomProof.reusedRoom,
             provider_room_recreated: roomProof.providerRoomRecreated,
             provider_room_recovered: roomProof.providerRoomRecovered,

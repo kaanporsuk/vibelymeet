@@ -4,6 +4,7 @@ import { Loader2, ArrowLeft, Play, Wifi } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ProfilePhoto } from "@/components/ui/ProfilePhoto";
 import type { PeerMissingState, RemotePlaybackState } from "@/hooks/useVideoCall";
+import { resolveVideoDatePartnerWaitMaxState } from "@clientShared/matching/videoDatePhase4";
 
 interface ConnectionOverlayProps {
   isConnecting: boolean;
@@ -34,6 +35,9 @@ export const ConnectionOverlay = ({
   const peerMissingTerminal = Boolean(peerMissing?.terminal);
   const openingPartnerName = isConnecting && partnerName?.trim() ? partnerName.trim() : null;
   const [connectingElapsedMs, setConnectingElapsedMs] = useState(0);
+  const [waitingStartedAtMs, setWaitingStartedAtMs] = useState<number | null>(null);
+  const [waitingNowMs, setWaitingNowMs] = useState(() => Date.now());
+  const [waitingResetNonce, setWaitingResetNonce] = useState(0);
 
   useEffect(() => {
     if (!isConnecting) {
@@ -48,10 +52,28 @@ export const ConnectionOverlay = ({
     return () => window.clearInterval(interval);
   }, [isConnecting]);
 
+  useEffect(() => {
+    if (isConnecting || playbackRejected || peerMissingTerminal) {
+      setWaitingStartedAtMs(null);
+      return;
+    }
+    const startedAt = Date.now();
+    setWaitingStartedAtMs(startedAt);
+    setWaitingNowMs(startedAt);
+    const interval = window.setInterval(() => {
+      setWaitingNowMs(Date.now());
+    }, 1000);
+    return () => window.clearInterval(interval);
+  }, [isConnecting, playbackRejected, peerMissingTerminal, waitingResetNonce]);
+
   if (isConnecting && connectingElapsedMs < 700) return null;
 
   const connectingSlow = isConnecting && connectingElapsedMs >= 3_000;
   const connectingVerySlow = isConnecting && connectingElapsedMs >= 8_000;
+  const partnerWaitMax = resolveVideoDatePartnerWaitMaxState(
+    !isConnecting && !playbackRejected && !peerMissingTerminal ? waitingStartedAtMs : null,
+    waitingNowMs,
+  ).showEscalation;
 
   return (
     <motion.div
@@ -114,6 +136,8 @@ export const ConnectionOverlay = ({
           <h3 className="font-display font-semibold text-lg text-foreground mb-1">
             {peerMissingTerminal
               ? "They may need a little more time."
+              : partnerWaitMax
+                ? "Partner appears to have left."
               : playbackRejected
                 ? "Tap to gently resume"
                 : isConnecting
@@ -125,6 +149,8 @@ export const ConnectionOverlay = ({
           <p className="text-sm leading-6 text-muted-foreground">
             {peerMissingTerminal
               ? "You can try reconnecting, keep waiting a little longer, or return to the lobby."
+              : partnerWaitMax
+              ? "Return to the deck, or keep this room open a little longer."
               : playbackRejected
               ? "Your match is here, but your browser paused the video or audio."
               : isConnecting
@@ -177,6 +203,18 @@ export const ConnectionOverlay = ({
           </div>
         )}
 
+        {partnerWaitMax && !peerMissingTerminal && (
+          <Button
+            type="button"
+            variant="secondary"
+            onClick={() => setWaitingResetNonce((value) => value + 1)}
+            disabled={isLeaving}
+            className="rounded-full px-6"
+          >
+            Keep waiting
+          </Button>
+        )}
+
         <Button
           type="button"
           variant="outline"
@@ -185,7 +223,7 @@ export const ConnectionOverlay = ({
           className="rounded-full px-6"
         >
           <ArrowLeft className="w-4 h-4 mr-2" />
-          {isLeaving ? "Leaving..." : "Leave"}
+          {isLeaving ? "Leaving..." : partnerWaitMax ? "Return to deck" : "Leave"}
         </Button>
       </div>
     </motion.div>

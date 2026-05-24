@@ -173,7 +173,7 @@ test("advisor classifies token refresh without changing timing semantics", () =>
     nowMs,
   });
   assert.equal(scheduled.action, "refresh_token");
-  assert.equal(scheduled.retryAfterMs, 5 * 60_000);
+  assert.equal(scheduled.retryAfterMs, 8.5 * 60_000);
 
   assert.equal(
     adviseVideoDateTokenRecovery({

@@ -38,6 +38,8 @@ import {
 } from '@/lib/pendingNotificationDeepLink';
 import { classifyPushDeepLink, recordPushDeliveryTelemetry } from '@/lib/pushDeliveryTelemetry';
 import { resolveNotificationActionRoute } from '@/lib/notificationActions';
+import { ackNotificationDispatchFromPayload } from '@/lib/notificationDispatchAck';
+import { rememberVideoDatePushPreloadFromPayload } from '@/lib/videoDatePushPreload';
 
 /**
  * Matches `EntryStateRouteGate`: only then is expo-router allowed to show protected stacks
@@ -82,6 +84,23 @@ function rawHrefFromPayload(additionalData: Record<string, unknown> | undefined,
     (additionalData && typeof additionalData.deepLink === 'string' && additionalData.deepLink) ||
     (launchURL && launchURL.trim() ? launchURL.trim() : '');
   return raw || null;
+}
+
+function hasDispatchGroupPayload(data: Record<string, unknown> | undefined): boolean {
+  if (!data) return false;
+  if (typeof data.dispatch_group_id === 'string' && data.dispatch_group_id.trim()) return true;
+  const preload = data.video_date_preload && typeof data.video_date_preload === 'object'
+    ? data.video_date_preload as Record<string, unknown>
+    : null;
+  return typeof preload?.dispatchGroupId === 'string' && preload.dispatchGroupId.trim().length > 0;
+}
+
+function providerNotificationIdFromUnknown(value: unknown): string | null {
+  if (!value || typeof value !== 'object') return null;
+  const record = value as Record<string, unknown>;
+  if (typeof record.notificationId === 'string' && record.notificationId.trim()) return record.notificationId.trim();
+  if (typeof record.notificationID === 'string' && record.notificationID.trim()) return record.notificationID.trim();
+  return null;
 }
 
 /** Chat routes must use the other user profile id; prefer `other_user_id` when present (Daily Drop / match payloads). */
@@ -342,6 +361,8 @@ export function NotificationDeepLinkHandler() {
   const { user, session, loading, entryState, entryStateLoading } = useAuth();
   const drainQueueV2 = useFeatureFlag('video_date.outbox_v2.drain_match_queue');
   const snapshotV2 = useFeatureFlag('video_date.snapshot_v2');
+  const pushPayloadV2 = useFeatureFlag('video_date.push_payload_v2');
+  const multiDeviceDedupV2 = useFeatureFlag('video_date.multi_device_dedup_v2');
   const prevUserIdRef = useRef<string | undefined>(undefined);
 
   const entryReady = isEntryReadyForNotificationDeepLink(
@@ -379,7 +400,7 @@ export function NotificationDeepLinkHandler() {
     const onClick = (event: unknown) => {
       void (async () => {
         const e = event as {
-          notification?: { additionalData?: Record<string, unknown>; launchURL?: string };
+          notification?: { additionalData?: Record<string, unknown>; launchURL?: string; notificationId?: string; notificationID?: string };
           additionalData?: Record<string, unknown>;
           launchURL?: string;
         };
@@ -387,6 +408,13 @@ export function NotificationDeepLinkHandler() {
         const additionalData = n?.additionalData ?? e?.additionalData;
         const launchURL = n?.launchURL ?? e?.launchURL;
         const data = additionalData as Record<string, unknown> | undefined;
+        if (data) {
+          if (pushPayloadV2.enabled) rememberVideoDatePushPreloadFromPayload(data);
+          const providerNotificationId = providerNotificationIdFromUnknown(n);
+          if (multiDeviceDedupV2.enabled) {
+            void ackNotificationDispatchFromPayload(data, 'native_click', providerNotificationId);
+          }
+        }
         const rawHref = rawHrefFromPayload(additionalData, launchURL);
         const tapDeepLink = classifyPushDeepLink(rawHref);
         recordPushDeliveryTelemetry('push_notification_tap', {
@@ -448,10 +476,14 @@ export function NotificationDeepLinkHandler() {
     };
 
     const onForeground = (event: NotificationWillDisplayEvent) => {
+      let notification: ReturnType<NotificationWillDisplayEvent['getNotification']> | null = null;
+      let raw: Record<string, unknown> | undefined;
+      let shouldSuppressSameThread = false;
+      let hasDispatchGroup = false;
       try {
-        const n = event.getNotification();
-        const raw = n.additionalData as Record<string, unknown> | undefined;
-        // Chat routes use the other user's profile_id in the path (/chat/:profileId), not match_id
+        notification = event.getNotification();
+        raw = notification.additionalData as Record<string, unknown> | undefined;
+        hasDispatchGroup = multiDeviceDedupV2.enabled && hasDispatchGroupPayload(raw);
         const chatPeerProfileId =
           typeof raw?.sender_id === 'string'
             ? raw.sender_id
@@ -461,24 +493,54 @@ export function NotificationDeepLinkHandler() {
         const cat = typeof raw?.category === 'string' ? raw.category : undefined;
         const isDateSuggestionCat = cat?.startsWith('date_suggestion_') ?? false;
         const path = notificationRouteRef.current;
-        if (
+        shouldSuppressSameThread = Boolean(
           chatPeerProfileId &&
           path === `/chat/${chatPeerProfileId}` &&
           (cat === 'messages' ||
             cat === 'new_match' ||
             cat === 'match_call' ||
-            isDateSuggestionCat)
-        ) {
-          rcBreadcrumb(RC_CATEGORY.notifDeepLink, 'foreground_suppressed_same_thread', {
-            category: cat ?? null,
-          });
+            isDateSuggestionCat),
+        );
+        if (hasDispatchGroup || shouldSuppressSameThread) {
           event.preventDefault();
-          return;
         }
-        n.display();
       } catch {
-        /* default presentation if display fails */
+        return;
       }
+
+      void (async () => {
+        try {
+          if (!notification) return;
+          if (raw) {
+            if (pushPayloadV2.enabled) rememberVideoDatePushPreloadFromPayload(raw);
+            const providerNotificationId =
+              typeof (notification as unknown as { notificationId?: unknown }).notificationId === 'string'
+                ? String((notification as unknown as { notificationId?: unknown }).notificationId)
+                : typeof (notification as unknown as { notificationID?: unknown }).notificationID === 'string'
+                  ? String((notification as unknown as { notificationID?: unknown }).notificationID)
+                  : null;
+            if (multiDeviceDedupV2.enabled) {
+              const ack = await ackNotificationDispatchFromPayload(raw, 'native_foreground_display', providerNotificationId);
+              if (ack.dispatchGroupId && ack.firstAck === false) {
+                rcBreadcrumb(RC_CATEGORY.notifDeepLink, 'foreground_suppressed_dispatch_ack', {
+                  dispatch_group_id: ack.dispatchGroupId,
+                });
+                return;
+              }
+            }
+          }
+          if (shouldSuppressSameThread) {
+            const cat = typeof raw?.category === 'string' ? raw.category : undefined;
+            rcBreadcrumb(RC_CATEGORY.notifDeepLink, 'foreground_suppressed_same_thread', {
+              category: cat ?? null,
+            });
+            return;
+          }
+          notification.display();
+        } catch {
+          /* default presentation if display fails */
+        }
+      })();
     };
 
     OneSignal.Notifications.addEventListener('click', onClick);
@@ -488,7 +550,7 @@ export function NotificationDeepLinkHandler() {
       OneSignal.Notifications.removeEventListener('click', onClick);
       OneSignal.Notifications.removeEventListener('foregroundWillDisplay', onForeground);
     };
-  }, [drainQueueV2.enabled, snapshotV2.enabled, user?.id, entryReady]);
+  }, [drainQueueV2.enabled, multiDeviceDedupV2.enabled, pushPayloadV2.enabled, snapshotV2.enabled, user?.id, entryReady]);
 
   return null;
 }

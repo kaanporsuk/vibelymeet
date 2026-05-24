@@ -49,9 +49,9 @@ const dailyRoomFunction = readFileSync(
   "utf8",
 );
 const videoDateRoomNameTokenWithExpiryEject =
-  /const token = await createMeetingToken\(\s*roomName,\s*user\.id,\s*DAILY_VIDEO_DATE_TOKEN_TTL_SECONDS,\s*undefined,\s*\{\s*ejectAtTokenExp:\s*true\s*\},?\s*\)/s;
+  /const tokenWindow = resolveVideoDateMeetingTokenWindow\(\{[\s\S]*?const token = await createMeetingToken\(\s*roomName,\s*user\.id,\s*tokenWindow\.ttlSeconds,\s*undefined,\s*\{\s*ejectAtTokenExp:\s*true\s*\},?\s*\)/s;
 const videoDateRoomProofTokenWithExpiryEject =
-  /const token = await createMeetingToken\(\s*roomProof\.roomName,\s*user\.id,\s*DAILY_VIDEO_DATE_TOKEN_TTL_SECONDS,\s*undefined,\s*\{\s*ejectAtTokenExp:\s*true\s*\},?\s*\)/s;
+  /const tokenWindow = resolveVideoDateMeetingTokenWindow\(\{[\s\S]*?const token = await createMeetingToken\(\s*roomProof\.roomName,\s*user\.id,\s*tokenWindow\.ttlSeconds,\s*undefined,\s*\{\s*ejectAtTokenExp:\s*true\s*\},?\s*\)/s;
 
 function indexOfMatch(source: string, pattern: RegExp, start = 0): number {
   const match = source.slice(start).match(pattern);
@@ -1671,7 +1671,7 @@ test("queue_status reaches in_handshake only after provider confirm succeeds", (
     providerAtomicEntryMigration,
     /v_queue_status := CASE[\s\S]*ELSE 'in_handshake'[\s\S]*UPDATE public\.event_registrations[\s\S]*queue_status = v_queue_status/s,
   );
-  assert.match(dailyRoomFunction, /const token = await createMeetingToken\(\s*roomName,\s*user\.id,\s*DAILY_VIDEO_DATE_TOKEN_TTL_SECONDS,\s*undefined,\s*\{\s*ejectAtTokenExp:\s*true\s*\},?\s*\);[\s\S]*confirmVideoDateEntryPrepared\(serviceClient/s);
+  assert.match(dailyRoomFunction, /const tokenWindow = resolveVideoDateMeetingTokenWindow\(\{[\s\S]*?const token = await createMeetingToken\(\s*roomName,\s*user\.id,\s*tokenWindow\.ttlSeconds,\s*undefined,\s*\{\s*ejectAtTokenExp:\s*true\s*\},?\s*\);[\s\S]*confirmVideoDateEntryPrepared\(serviceClient/s);
   assert.match(dailyRoomFunction, /confirmPayload\?\.code \?\? \(confirmError \? "REGISTRATION_PERSIST_FAILED" : "UNKNOWN"\)/);
   const tokenCreate = indexOfMatch(dailyRoomFunction, videoDateRoomNameTokenWithExpiryEject);
   const confirmCall = dailyRoomFunction.indexOf("confirmVideoDateEntryPrepared(serviceClient", tokenCreate);
@@ -1749,7 +1749,7 @@ test("daily-room hard-fails room and registration persistence before returning t
   assert.match(dailyRoomFunction, /video_date_room_metadata_persist_failed/);
   assert.match(
     dailyRoomFunction,
-    /ensureVideoDateProviderRoomForToken[\s\S]*const token = await createMeetingToken\(\s*roomName,\s*user\.id,\s*DAILY_VIDEO_DATE_TOKEN_TTL_SECONDS,\s*undefined,\s*\{\s*ejectAtTokenExp:\s*true\s*\},?\s*\);[\s\S]*confirmVideoDateEntryPrepared\(serviceClient/s,
+    /ensureVideoDateProviderRoomForToken[\s\S]*const tokenWindow = resolveVideoDateMeetingTokenWindow\(\{[\s\S]*?const token = await createMeetingToken\(\s*roomName,\s*user\.id,\s*tokenWindow\.ttlSeconds,\s*undefined,\s*\{\s*ejectAtTokenExp:\s*true\s*\},?\s*\);[\s\S]*confirmVideoDateEntryPrepared\(serviceClient/s,
   );
   assert.match(dailyRoomFunction, /confirmPayload\?\.code \?\? \(confirmError \? "REGISTRATION_PERSIST_FAILED" : "UNKNOWN"\)/);
   assert.doesNotMatch(dailyRoomFunction, /markVideoDateEntryPrepared\(serviceClient/);
@@ -2047,7 +2047,7 @@ test("remaining prepare-entry hardening defers in_handshake registration until D
   assert.match(remainingHardeningMigration, /ALTER FUNCTION public\.video_date_transition\(uuid, text, text\)\s+RENAME TO video_date_transition_20260501103000_prepare_entry_queue_guard/s);
   assert.match(remainingHardeningMigration, /registration_status', 'deferred_until_daily_token'/);
   assert.doesNotMatch(remainingHardeningMigration, /queue_status = v_registration_status/);
-  assert.match(dailyRoomFunction, /const token = await createMeetingToken\(\s*roomName,\s*user\.id,\s*DAILY_VIDEO_DATE_TOKEN_TTL_SECONDS,\s*undefined,\s*\{\s*ejectAtTokenExp:\s*true\s*\},?\s*\);[\s\S]*confirmVideoDateEntryPrepared/s);
+  assert.match(dailyRoomFunction, /const tokenWindow = resolveVideoDateMeetingTokenWindow\(\{[\s\S]*?const token = await createMeetingToken\(\s*roomName,\s*user\.id,\s*tokenWindow\.ttlSeconds,\s*undefined,\s*\{\s*ejectAtTokenExp:\s*true\s*\},?\s*\);[\s\S]*confirmVideoDateEntryPrepared/s);
   assert.match(remainingHardeningMigration, /repair_stale_video_date_prepare_entries/);
   assert.match(remainingHardeningMigration, /prepare_entry_provider_failed_repair/);
   assert.match(remainingHardeningMigration, /AND current_room_id = r\.id/);
@@ -2293,16 +2293,23 @@ test("duplicate active-session conflicts use the canonical audit event on web an
   assert.match(nativeEventLobby, /outcome === 'participant_has_active_session_conflict'/);
 });
 
-test("video-date Daily room and token TTL use explicit finite constants separate from match calls", () => {
+test("video-date Daily room and token TTL use explicit finite phase-bounded constants separate from match calls", () => {
   assert.match(dailyRoomFunction, /DAILY_VIDEO_DATE_ROOM_TTL_SECONDS = 14_400/);
   assert.match(dailyRoomFunction, /DAILY_VIDEO_DATE_TOKEN_TTL_SECONDS = DAILY_VIDEO_DATE_ROOM_TTL_SECONDS/);
+  assert.match(dailyRoomFunction, /DAILY_VIDEO_DATE_TOKEN_PHASE_EXTENSION_BUFFER_MS = 2 \* 60 \* 1000/);
+  assert.match(dailyRoomFunction, /DAILY_VIDEO_DATE_TOKEN_MIN_TTL_SECONDS = 180/);
   assert.match(dailyRoomFunction, /DAILY_MATCH_CALL_TOKEN_TTL_SECONDS = 30 \* 60/);
   assert.match(dailyRoomFunction, /DAILY_MATCH_CALL_ROOM_TTL_SECONDS = 60 \* 60/);
   assert.match(dailyRoomFunction, /enable_recording: false/);
   assert.match(dailyRoomFunction, /eject_at_room_exp: true/);
+  assert.match(dailyRoomFunction, /function resolveVideoDateMeetingTokenWindow/);
+  assert.match(dailyRoomFunction, /phaseDeadlineAtMs \+ DAILY_VIDEO_DATE_TOKEN_PHASE_EXTENSION_BUFFER_MS/);
+  assert.match(dailyRoomFunction, /targetExpiresAtMs = Math\.min\(targetExpiresAtMs, params\.nowMs \+ maxTtlMs\)/);
   assert.match(dailyRoomFunction, videoDateRoomNameTokenWithExpiryEject);
   assert.match(dailyRoomFunction, videoDateRoomProofTokenWithExpiryEject);
   assert.match(dailyRoomFunction, /token_expires_at: tokenExpiresAt/);
+  assert.match(dailyRoomFunction, /token_ttl_seconds: tokenWindow\.ttlSeconds/);
+  assert.match(dailyRoomFunction, /token_expiry_reason: tokenWindow\.reason/);
   assert.match(dailyRoomFunction, /exp: Math\.floor\(Date\.now\(\) \/ 1000\) \+ DAILY_VIDEO_DATE_ROOM_TTL_SECONDS/);
 });
 

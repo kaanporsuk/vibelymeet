@@ -8,6 +8,7 @@ import { typography, spacing } from '@/constants/theme';
 import Colors from '@/constants/Colors';
 import { withAlpha } from '@/lib/colorUtils';
 import { useColorScheme } from '@/components/useColorScheme';
+import { resolveVideoDatePartnerWaitMaxState } from '@clientShared/matching/videoDatePhase4';
 
 /** `joining` = token/handshake/Daily connect; `waiting_peer` = local in room, peer not yet observed. */
 export type ConnectionOverlayMode = 'joining' | 'waiting_peer';
@@ -46,6 +47,9 @@ export function ConnectionOverlay({
   const showOpeningIdentity = resolvedMode === 'joining' && Boolean(openingPartnerName || partnerAvatarUri);
   const partnerInitial = openingPartnerName?.slice(0, 1).toUpperCase() || 'V';
   const [connectingElapsedMs, setConnectingElapsedMs] = useState(0);
+  const [waitingStartedAtMs, setWaitingStartedAtMs] = useState<number | null>(null);
+  const [waitingNowMs, setWaitingNowMs] = useState(() => Date.now());
+  const [waitingResetNonce, setWaitingResetNonce] = useState(0);
 
   useEffect(() => {
     const anim1 = Animated.loop(
@@ -82,10 +86,28 @@ export function ConnectionOverlay({
     return () => clearInterval(intervalId);
   }, [resolvedMode]);
 
+  useEffect(() => {
+    if (resolvedMode !== 'waiting_peer') {
+      setWaitingStartedAtMs(null);
+      return;
+    }
+    const startedAt = Date.now();
+    setWaitingStartedAtMs(startedAt);
+    setWaitingNowMs(startedAt);
+    const intervalId = setInterval(() => {
+      setWaitingNowMs(Date.now());
+    }, 1000);
+    return () => clearInterval(intervalId);
+  }, [resolvedMode, waitingResetNonce]);
+
   if (resolvedMode === 'joining' && connectingElapsedMs < 700) return null;
 
   const connectingSlow = resolvedMode === 'joining' && connectingElapsedMs >= 3_000;
   const connectingVerySlow = resolvedMode === 'joining' && connectingElapsedMs >= 8_000;
+  const partnerWaitMax = resolveVideoDatePartnerWaitMaxState(
+    resolvedMode === 'waiting_peer' ? waitingStartedAtMs : null,
+    waitingNowMs,
+  ).showEscalation;
 
   return (
     <View style={styles.overlay}>
@@ -130,7 +152,9 @@ export function ConnectionOverlay({
             ? connectingSlow
               ? 'Still connecting...'
               : 'Opening the room...'
-            : waitingPeerTitle ?? 'Holding the room softly'}
+            : partnerWaitMax
+              ? 'Partner appears to have left'
+              : waitingPeerTitle ?? 'Holding the room softly'}
         </Text>
         <Text style={[styles.subtitle, { color: theme.mutedForeground }]}>
           {resolvedMode === 'joining'
@@ -141,8 +165,24 @@ export function ConnectionOverlay({
                 : openingPartnerName
                   ? `Setting up a quiet start with ${openingPartnerName}.`
                   : 'Setting up a quiet start for your video date.'
-            : waitingPeerSubtitle ?? 'Your date will start once you are both here.'}
+            : partnerWaitMax
+              ? 'Return to the deck, or keep this room open a little longer.'
+              : waitingPeerSubtitle ?? 'Your date will start once you are both here.'}
         </Text>
+        {partnerWaitMax ? (
+          <Pressable
+            onPress={() => setWaitingResetNonce((value) => value + 1)}
+            disabled={isLeaving}
+            style={({ pressed }) => [
+              styles.keepWaitingBtn,
+              { borderColor: theme.border, backgroundColor: withAlpha(theme.tint, 0.14) },
+              pressed && styles.pressed,
+              isLeaving && styles.disabled,
+            ]}
+          >
+            <Text style={[styles.leaveBtnText, { color: theme.text }]}>Keep waiting</Text>
+          </Pressable>
+        ) : null}
         <Pressable
           onPress={onLeave}
           disabled={isLeaving}
@@ -154,7 +194,7 @@ export function ConnectionOverlay({
           ]}
         >
           <Text style={[styles.leaveBtnText, { color: theme.text }]}>
-            {isLeaving ? 'Leaving...' : 'Leave'}
+            {isLeaving ? 'Leaving...' : partnerWaitMax ? 'Return to deck' : 'Leave'}
           </Text>
         </Pressable>
       </View>
@@ -243,6 +283,13 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.xl,
     borderRadius: 24,
     borderWidth: 1,
+  },
+  keepWaitingBtn: {
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.xl,
+    borderRadius: 24,
+    borderWidth: 1,
+    marginBottom: spacing.sm,
   },
   leaveBtnText: {
     ...typography.body,

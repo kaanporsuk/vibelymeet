@@ -8,6 +8,8 @@ import { isOneSignalWebOriginAllowed } from "@/lib/oneSignalWebOrigin";
 import { vibelyOsLog } from "@/lib/onesignalWebDiagnostics";
 import { classifyPushDeepLink, recordPushDeliveryTelemetry } from "@/lib/pushDeliveryTelemetry";
 import { recordServiceWorkerState } from "@/lib/browserDiagnostics";
+import { ackNotificationDispatchFromPayload } from "@/lib/notificationDispatchAck";
+import { rememberVideoDatePushPreloadFromPayload } from "@/lib/videoDatePushPreload";
 import type { PushSdkHealth } from "@clientShared/pushDeliveryHealth";
 
 const PLAYER_ID_POLL_ATTEMPTS = 10;
@@ -18,8 +20,11 @@ const ONESIGNAL_SCRIPT_ID = "onesignal-sdk-page";
 
 type OneSignalClickEvent = {
   notification?: {
+    notificationId?: string;
+    id?: string;
     data?: {
       url?: unknown;
+      [key: string]: unknown;
     };
   };
 };
@@ -246,7 +251,13 @@ export const initOneSignal = () => {
       vibelyOsLog("onesignal:init success", { appIdTail: appId.slice(-6) });
 
       OneSignal.Notifications.addEventListener("click", (event: OneSignalClickEvent) => {
-        const url = event.notification?.data?.url;
+        const data = event.notification?.data;
+        const providerNotificationId = event.notification?.notificationId ?? event.notification?.id ?? null;
+        if (data) {
+          rememberVideoDatePushPreloadFromPayload(data);
+          void ackNotificationDispatchFromPayload(data, "web_click", providerNotificationId);
+        }
+        const url = data?.url ?? data?.deep_link;
         const deepLink = classifyPushDeepLink(url);
         recordPushDeliveryTelemetry("push_notification_tap", {
           platform: "web",
