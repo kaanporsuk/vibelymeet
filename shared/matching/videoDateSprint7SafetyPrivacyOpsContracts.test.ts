@@ -7,6 +7,7 @@ const root = process.cwd();
 const read = (path: string) => readFileSync(join(root, path), "utf8");
 
 const sprint7Migration = read("supabase/migrations/20260525235000_video_date_sprint7_safety_privacy_ops.sql");
+const sprint7FastPathMigration = read("supabase/migrations/20260525235500_video_date_sprint7_ops_health_fast_path.sql");
 const validationPack = read("supabase/validation/video_date_sprint7_safety_privacy_ops.sql");
 const adminOps = read("supabase/functions/admin-video-date-ops/index.ts");
 const adminShared = read("supabase/functions/_shared/admin-video-date-ops.ts");
@@ -95,6 +96,11 @@ test("Sprint 7 service-role operator health RPC is aggregate-only and wired into
   assert.match(sprint7Migration, /public\.event_registrations er_reported/);
   assert.match(sprint7Migration, /public\.event_registrations er_blocker/);
   assert.match(sprint7Migration, /public\.event_registrations er_blocked/);
+  assert.match(sprint7FastPathMigration, /CREATE OR REPLACE FUNCTION public\.get_video_date_sprint7_ops_health\(/);
+  assert.match(sprint7FastPathMigration, /LEFT JOIN LATERAL \([\s\S]+public\.event_loop_observability_events eo[\s\S]+eo\.operation IN/);
+  assert.match(sprint7FastPathMigration, /LEFT JOIN LATERAL \([\s\S]+FROM public\.user_reports ur/);
+  assert.match(sprint7FastPathMigration, /LEFT JOIN LATERAL \([\s\S]+FROM public\.blocked_users bu/);
+  assert.match(sprint7FastPathMigration, /REVOKE ALL ON FUNCTION public\.get_video_date_sprint7_ops_health\(uuid\)[\s\S]+FROM PUBLIC, anon, authenticated/);
   assert.match(validationPack, /video_date_sprint7_ops_health_service_role_only/);
   assert.match(validationPack, /video_date_sprint7_ops_health_dashboard_dimensions/);
   assert.match(packageJson, /videoDateSprint7SafetyPrivacyOpsContracts\.test\.ts/);
