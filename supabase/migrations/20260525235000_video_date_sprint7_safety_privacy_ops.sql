@@ -20,18 +20,6 @@ CREATE INDEX IF NOT EXISTS idx_user_reports_sprint7_pair_recent
 CREATE INDEX IF NOT EXISTS idx_blocked_users_sprint7_pair_recent
   ON public.blocked_users(blocker_id, blocked_id, created_at DESC);
 
-CREATE INDEX IF NOT EXISTS idx_event_loop_obs_sprint7_ops_recent
-  ON public.event_loop_observability_events(operation, reason_code, created_at DESC)
-  WHERE operation IN (
-    'video_date_launch_latency_checkpoint',
-    'video_date_client_stuck_state',
-    'ready_gate_transition',
-    'handle_swipe',
-    'promote_ready_gate_if_eligible',
-    'drain_match_queue_v2',
-    'drain_match_queue'
-  );
-
 CREATE INDEX IF NOT EXISTS idx_video_date_orphan_cleanup_sprint7_session_recent
   ON public.video_date_orphan_room_cleanup_audit(session_id, created_at DESC)
   WHERE session_id IS NOT NULL;
