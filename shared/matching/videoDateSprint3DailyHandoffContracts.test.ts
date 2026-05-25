@@ -11,6 +11,8 @@ function read(path: string): string {
 
 const dailyRoom = read("supabase/functions/daily-room/index.ts");
 const tokenRefresh = read("supabase/functions/video-date-token-refresh/index.ts");
+const outboxDrainer = read("supabase/functions/video-date-outbox-drainer/index.ts");
+const roomCleanup = read("supabase/functions/video-date-room-cleanup/index.ts");
 const webPrewarm = read("src/lib/videoDateDailyPrewarm.ts");
 const nativePrewarm = read("apps/mobile/lib/videoDateDailyPrewarm.ts");
 const webReadyGate = read("src/components/lobby/ReadyGateOverlay.tsx");
@@ -53,6 +55,22 @@ test("Sprint 3 token refresh rejects room drift instead of minting against stale
     tokenRefresh.indexOf("room_mismatch") < tokenRefresh.indexOf("const tokenResult = await createMeetingToken"),
     "refresh must reject mismatched room metadata before minting a replacement token",
   );
+});
+
+test("Sprint 3 Daily runtime config fails closed consistently across provider entrypoints", () => {
+  for (const source of [dailyRoom, tokenRefresh, outboxDrainer]) {
+    assert.match(source, /resolveDailyRuntimeConfig/);
+    assert.match(source, /const DAILY_RUNTIME_CONFIG = resolveDailyRuntimeConfig/);
+    assert.match(source, /code: "DAILY_CONFIG_BLOCKED"/);
+    assert.match(source, /blockers: DAILY_RUNTIME_CONFIG\.blockers/);
+    assert.doesNotMatch(source, /SENTRY_ENVIRONMENT/);
+  }
+
+  assert.match(dailyRoom, /dailyConfigRequiredForAction\(action\)/);
+  assert.match(tokenRefresh, /video_date_token_refresh_config_blocked_request/);
+  assert.match(outboxDrainer, /video_date_outbox_drainer_daily_config_blocked/);
+  assert.match(roomCleanup, /video_date_room_cleanup_daily_config_blocked/);
+  assert.match(roomCleanup, /blockers: \["daily_api_key_missing"\]/);
 });
 
 test("Sprint 3 token refresh verifies provider room state before minting a replacement token", () => {

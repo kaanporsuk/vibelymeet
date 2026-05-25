@@ -7,9 +7,11 @@ import {
 
 const snapshotFunction = readFileSync("supabase/functions/video-date-snapshot/index.ts", "utf8");
 const packageJson = readFileSync("package.json", "utf8");
+const requiredCertificationGate = readFileSync("scripts/certify-video-date-required.mjs", "utf8");
 const runtimeRlsEnvGuard = readFileSync("scripts/require-video-date-runtime-rls-env.mjs", "utf8");
 const phase8Runbook = readFileSync("docs/video-date-v4-phase8-certification-rollout.md", "utf8");
 const monitoringRunbook = readFileSync("docs/video-date-post-release-monitoring-runbook.md", "utf8");
+const requiredCertificationTemplate = readFileSync("docs/video-date-required-certification-template.json", "utf8");
 const videoDateFlags = readFileSync("shared/featureFlags/videoDateV4Flags.ts", "utf8");
 const aliasHelper = readFileSync("shared/featureFlags/featureFlagAliasResolution.ts", "utf8");
 
@@ -69,10 +71,26 @@ test("token-free snapshot path remains auth-preserving and does not require prov
 test("required runtime RLS command is explicit and fails fast when env is missing", () => {
   const packageConfig = JSON.parse(packageJson) as { scripts: Record<string, string> };
   const command = packageConfig.scripts["test:video-date-runtime-rls:required"];
+  const certificationCommand = packageConfig.scripts["certify:video-date:required"];
   assert.ok(command, "required runtime RLS command should exist");
+  assert.ok(certificationCommand, "required video-date certification command should exist");
   assert.match(command, /require-video-date-runtime-rls-env\.mjs/);
   assert.match(command, /videoDateRealtimeRlsRuntime\.test\.ts/);
   assert.match(command, /videoDatePublicApiRlsRuntime\.test\.ts/);
+  assert.match(certificationCommand, /certify-video-date-required\.mjs/);
+  assert.match(packageJson, /phase8:config-readiness/);
+  assert.match(packageJson, /test:video-date-runtime-rls:required/);
+  for (const requiredStep of [
+    "npm run typecheck",
+    "npm run test:video-date-v4",
+    "npm run test:event-lobby-regression",
+    "npm run test:daily-room-contract",
+    "npm run test:video-date-runtime-rls:required",
+    "npm run phase8:config-readiness",
+  ]) {
+    assert.match(requiredCertificationGate, new RegExp(requiredStep.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+  }
+  assert.match(requiredCertificationGate, /pending_user_owned/);
 
   for (const envName of [
     "VIDEO_DATE_RLS_SUPABASE_URL",
@@ -127,6 +145,37 @@ test("canonical video-date rollout flags and compatibility aliases are documente
   assert.match(aliasHelper, /canonical\?\.source === "kill_switched"/);
   assert.match(phase8Runbook, /v1 names are compatibility aliases/);
   assert.match(phase8Runbook, /canonical kill switch wins over an enabled alias/);
+});
+
+test("required certification template keeps original acceptance criteria explicit", () => {
+  const template = JSON.parse(requiredCertificationTemplate) as Record<string, unknown>;
+  const serialized = JSON.stringify(template);
+
+  for (const requiredToken of [
+    "feature_flags",
+    "daily_env_readiness",
+    "DAILY_API_KEY",
+    "DAILY_DOMAIN",
+    "DAILY_WEBHOOK_SECRET",
+    "CRON_SECRET",
+    "test:video-date-runtime-rls:required",
+    "web_two_user_staging_e2e",
+    "ios_two_user_manual",
+    "android_two_user_manual",
+    "daily_webhook_real_event",
+    "rollback_owner",
+    "incident_owner",
+    "all_baseline_and_targeted_tests_pass",
+    "two_user_staging_run_complete",
+    "no_known_stuck_ready_gate_handshake_date_queued_or_pending_survey_path",
+    "no_public_rpc_or_edge_contract_broken",
+    "launch_runbook_has_secrets_flags_slos_dashboards_and_rollback",
+  ]) {
+    assert.match(serialized, new RegExp(requiredToken));
+  }
+
+  assert.match(serialized, /pending_user_owned/);
+  assert.doesNotMatch(serialized, /"passed"/);
 });
 
 test("closure manual smoke and tooling notes are recorded without inventing new ledger work", () => {

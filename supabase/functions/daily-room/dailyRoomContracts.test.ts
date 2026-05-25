@@ -13,6 +13,7 @@ import {
   isIncomingMatchCallForRequester,
   planDailyProviderRoomRecovery,
   resolveCanonicalVideoDateRoom,
+  resolveDailyRuntimeConfig,
 } from "./dailyRoomContracts";
 
 const SESSION_ID = "11111111-1111-4111-8111-111111111111";
@@ -86,6 +87,43 @@ test("Daily production config readiness blocks missing fallback launch posture w
     cleanupCronSecret: "cron-secret-present",
   });
   assert.deepEqual(ready, { ready: true, blockers: [] });
+});
+
+test("Daily runtime config blocks production fallback and allows only explicit local fallback", () => {
+  const productionBlocked = resolveDailyRuntimeConfig({
+    dailyApiKey: "daily_live_key_present",
+    dailyDomainEnv: "",
+    environment: "production",
+    allowLocalFallback: true,
+    requireApiKey: true,
+  });
+
+  assert.equal(productionBlocked.ok, false);
+  assert.equal(productionBlocked.code, "DAILY_CONFIG_BLOCKED");
+  assert.equal(productionBlocked.dailyDomain, DAILY_DOMAIN);
+  assert.equal(productionBlocked.fallbackUsed, false);
+  assert.deepEqual(productionBlocked.blockers, [
+    "daily_domain_missing",
+    "daily_domain_fallback_blocked",
+  ]);
+
+  const localAllowed = resolveDailyRuntimeConfig({
+    dailyApiKey: "daily_local_key_present",
+    dailyDomainEnv: "",
+    environment: "local",
+    allowLocalFallback: true,
+    requireApiKey: true,
+  });
+
+  assert.deepEqual(localAllowed, {
+    ok: true,
+    code: "OK",
+    dailyApiKey: "daily_local_key_present",
+    dailyDomain: DAILY_DOMAIN,
+    dailyDomainEnv: null,
+    fallbackUsed: true,
+    blockers: [],
+  });
 });
 
 test("participant tokens are scoped to the same canonical room but distinct users", () => {

@@ -64,6 +64,7 @@ import {
   type PostDateVerdictUiState,
 } from '../../../../shared/matching/postDateVerdictConfirmation';
 import {
+  canonicalVideoDateRouteLogDetail,
   decideCanonicalVideoDateRoute,
   type VideoDateRouteSessionTruth,
 } from '../../../../shared/matching/videoDateRouteDecision';
@@ -717,6 +718,10 @@ export function PostDateSurvey({
             targetId: serverNext.targetId ?? partnerId,
           },
         });
+        const canonicalNextLog = canonicalVideoDateRouteLogDetail(canonicalNextRoute, {
+          sourceSurface: 'post_date_survey',
+          sourceAction: 'survey_finish_server_continuity',
+        });
         trackEvent(LobbyPostDateEvents.POST_DATE_CONTINUITY_NEXT_ACTION_DECIDED, {
           platform: 'native',
           session_id: sessionId,
@@ -724,6 +729,7 @@ export function PostDateSurvey({
           action: serverNext.action,
           source: 'survey_finish_server_continuity',
           reason_code: serverNext.reason,
+          ...canonicalNextLog,
           next_session_id: serverNext.nextSessionId,
           match_id: serverNext.matchId,
           seconds_until_event_end: serverNext.secondsUntilEventEnd,

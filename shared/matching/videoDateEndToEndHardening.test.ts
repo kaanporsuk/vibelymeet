@@ -934,12 +934,13 @@ test("daily-room prepare_date_entry preserves auth, participant, and delete-room
   assert.match(dailyRoomContracts, /VIDEO_DATE_CLEANUP_OWNED_BY_CRON/);
 });
 
-test("daily-room makes DAILY_DOMAIN fallback visible without logging secrets", () => {
-  assert.match(dailyRoomFunction, /const DAILY_DOMAIN_FALLBACK = "vibelyapp\.daily\.co"/);
-  assert.match(dailyRoomFunction, /DAILY_DOMAIN_ENV \|\| DAILY_DOMAIN_FALLBACK/);
-  assert.match(dailyRoomFunction, /event: "daily_domain_env_missing"/);
-  assert.match(dailyRoomFunction, /code: "DAILY_DOMAIN_FALLBACK_USED"/);
-  assert.doesNotMatch(dailyRoomFunction, /DAILY_API_KEY[\s\S]{0,200}daily_domain_env_missing/);
+test("daily-room fail-closes production Daily config gaps without logging secrets", () => {
+  assert.match(dailyRoomContracts, /resolveDailyRuntimeConfig/);
+  assert.match(dailyRoomFunction, /const DAILY_RUNTIME_CONFIG = resolveDailyRuntimeConfig/);
+  assert.match(dailyRoomFunction, /code: "DAILY_CONFIG_BLOCKED"/);
+  assert.match(dailyRoomFunction, /blockers: DAILY_RUNTIME_CONFIG\.blockers/);
+  assert.match(dailyRoomFunction, /event: "daily_domain_local_fallback_used"/);
+  assert.doesNotMatch(dailyRoomFunction, /DAILY_API_KEY[\s\S]{0,200}daily_config_blocked_request/);
 });
 
 test("daily-room prepare_date_entry verifies or recreates unsafe provider room state before token issuance", () => {
@@ -2263,13 +2264,15 @@ test("backend post-date router returns the standalone Ready Gate route label", (
 test("web standalone Ready Gate hosts the overlay instead of bouncing through lobby", () => {
   assert.match(webReadyRedirect, /import ReadyGateOverlay/);
   assert.match(webReadyRedirect, /recovery\.action === "go_ready_gate"[\s\S]+setRouteState\(\{ kind: "hosting", eventId: recovery\.eventId \}\)/);
-  assert.match(webReadyRedirect, /adviseVideoSessionTruthRecovery/);
-  assert.match(webReadyRedirect, /if \(recovery\.action === "go_ready_gate" \|\| registrationReadyGateFallback\) \{[\s\S]*setRouteState\(\{ kind: "hosting", eventId: session\.event_id \}\)/);
+  assert.match(webReadyRedirect, /decideCanonicalVideoDateRoute/);
+  assert.match(webReadyRedirect, /webPathForCanonicalVideoDateRoute/);
+  assert.match(webReadyRedirect, /if \(canonicalRoute\.target === "ready_gate"\) \{[\s\S]*setRouteState\(\{ kind: "hosting", eventId: session\.event_id \}\)/);
   assert.doesNotMatch(webReadyRedirect, /READY_GATE_HOSTABLE_STATUSES/);
   assert.match(webReadyRedirect, /\.from\("event_registrations"\)[\s\S]+\.eq\("event_id", session\.event_id\)[\s\S]+\.eq\("profile_id", user\.id\)/);
-  assert.match(webReadyRedirect, /readyGateRegistration\?\.queue_status === "in_ready_gate"/);
-  assert.match(webReadyRedirect, /!readyGateRegistration\.current_room_id \|\| readyGateRegistration\.current_room_id === candidate/);
-  assert.match(webReadyRedirect, /recovery\.action === "go_ready_gate" \|\| registrationReadyGateFallback/);
+  assert.match(webReadyRedirect, /queue_status: readyGateRegistration\?\.queue_status \?\? null/);
+  assert.match(webReadyRedirect, /current_room_id: readyGateRegistration\?\.current_room_id \?\? null/);
+  assert.doesNotMatch(webReadyRedirect, /registrationReadyGateFallback/);
+  assert.doesNotMatch(webReadyRedirect, /recovery\.action === "go_ready_gate" \|\|/);
   assert.match(webReadyRedirect, /persistReadyGateSuppressionV2/);
   assert.match(webReadyRedirect, /<ReadyGateOverlay/);
   assert.match(webReadyRedirect, /onNavigateToDate=\{\(nextSessionId\) => navigateToDate\(nextSessionId\)\}/);

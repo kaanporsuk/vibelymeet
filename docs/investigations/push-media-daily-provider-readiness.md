@@ -140,7 +140,7 @@ Verdict: PASS.
 
 Code proof:
 
-- `daily-room` reads `DAILY_API_KEY` and `DAILY_DOMAIN`; `DAILY_DOMAIN` fallback to `vibelyapp.daily.co` remains documented as resilience, not desired production posture.
+- `daily-room` reads `DAILY_API_KEY` and `DAILY_DOMAIN`; missing `DAILY_DOMAIN` is now blocked for staging/production certification, with `vibelyapp.daily.co` fallback limited to explicit `ENVIRONMENT=local|dev|development|test` mode.
 - `daily-room` calls Daily REST at `https://api.daily.co/v1`, creates rooms, looks up rooms, deletes rooms when safe, and creates meeting tokens.
 - Meeting token values are response-only; tests verify console logs do not print raw token values.
 - Video-date entry remains backend prepare-entry gated before Daily token issuance.

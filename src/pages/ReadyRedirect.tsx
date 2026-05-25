@@ -10,12 +10,16 @@ import { persistReadyGateSuppressionV2 } from "@/lib/videoDateReadiness";
 import ReadyGateOverlay from "@/components/lobby/ReadyGateOverlay";
 import {
   adviseVideoDateSnapshotRecovery,
-  adviseVideoSessionTruthRecovery,
 } from "@clientShared/matching/videoDateRecoveryAdvisor";
 import {
   READY_GATE_DEEP_LINK_INVALID_USER_MESSAGE,
   READY_GATE_STALE_OR_ENDED_USER_MESSAGE,
 } from "@shared/matching/videoSessionFlow";
+import {
+  canonicalVideoDateRouteLogDetail,
+  decideCanonicalVideoDateRoute,
+  webPathForCanonicalVideoDateRoute,
+} from "@clientShared/matching/videoDateRouteDecision";
 
 const READY_GATE_MANUAL_EXIT_SUPPRESS_MS = 45_000;
 
@@ -174,41 +178,36 @@ const ReadyRedirect = () => {
 
       if (cancelled) return;
 
-      const recovery = adviseVideoSessionTruthRecovery({
+      const canonicalRoute = decideCanonicalVideoDateRoute({
         sessionId: candidate,
         eventId: session.event_id,
         truth: session,
-        platform: "web",
-        surface: "ready_redirect",
+        registration: {
+          queue_status: readyGateRegistration?.queue_status ?? null,
+          current_room_id: readyGateRegistration?.current_room_id ?? null,
+          event_id: session.event_id,
+        },
       });
-      if (recovery.action === "go_date") {
+      if (import.meta.env.DEV) {
+        console.debug("[ReadyRedirect] canonical route decision", canonicalVideoDateRouteLogDetail(canonicalRoute, {
+          sourceSurface: "ready_redirect",
+          sourceAction: "standalone_ready_recovery",
+        }));
+      }
+      if (canonicalRoute.target === "date" || canonicalRoute.target === "survey") {
         setRouteState({ kind: "redirecting" });
         navigateToDate(candidate);
         return;
       }
 
-      if (recovery.action === "go_survey") {
-        setRouteState({ kind: "redirecting" });
-        navigateToDate(candidate);
-        return;
-      }
-
-      const registrationReadyGateFallback =
-        readyGateRegistration?.queue_status === "in_ready_gate" &&
-        (!readyGateRegistration.current_room_id || readyGateRegistration.current_room_id === candidate);
-
-      if (recovery.action === "go_ready_gate" || registrationReadyGateFallback) {
+      if (canonicalRoute.target === "ready_gate") {
         setRouteState({ kind: "hosting", eventId: session.event_id });
         return;
       }
 
       notifyOnce(READY_GATE_STALE_OR_ENDED_USER_MESSAGE);
       setRouteState({ kind: "redirecting" });
-      if (recovery.action === "go_home") {
-        navigate("/home", { replace: true });
-      } else {
-        navigateToEventLobby(session.event_id);
-      }
+      navigate(webPathForCanonicalVideoDateRoute(canonicalRoute), { replace: true });
     };
 
     void resolveRoute();

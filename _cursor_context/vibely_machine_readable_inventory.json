@@ -2000,9 +2000,9 @@
     },
     {
       "surface": "supabase/functions/daily-room/index.ts",
-      "type": "hardcoded_fallback",
+      "type": "env_required_with_local_fallback",
       "key": "DAILY_DOMAIN",
-      "value": "vibelyapp.daily.co"
+      "value": "required outside explicit local/dev/test ENVIRONMENT"
     },
     {
       "surface": "src/components/vibe-video/VibeStudioModal.tsx",

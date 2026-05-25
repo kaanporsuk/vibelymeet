@@ -52,6 +52,10 @@ import {
   adviseVideoSessionTruthRecovery,
   resolveReadyGateTerminalRecoveryViaAdvisor as resolveReadyGateTerminalRecovery,
 } from '@clientShared/matching/videoDateRecoveryAdvisor';
+import {
+  canonicalVideoDateRouteLogDetail,
+  decideCanonicalVideoDateRoute,
+} from '@clientShared/matching/videoDateRouteDecision';
 import { getReadyGateReadinessStatusCopy } from '@clientShared/matching/readyGateReadiness';
 import {
   resolveReadyGateDiagnosticChecklist,
@@ -530,6 +534,15 @@ export default function ReadyGateScreen() {
         }
 
         const initialTruth = await fetchVideoSessionDateEntryTruthCoalesced(String(sessionId));
+        const initialCanonicalRoute = decideCanonicalVideoDateRoute({
+          sessionId: String(sessionId),
+          eventId: session.event_id,
+          truth: initialTruth,
+        });
+        const initialCanonicalLog = canonicalVideoDateRouteLogDetail(initialCanonicalRoute, {
+          sourceSurface: 'ready_redirect',
+          sourceAction: 'standalone_initial_truth',
+        });
         const initialRecovery = adviseVideoSessionTruthRecovery({
           sessionId: String(sessionId),
           eventId: session.event_id,
@@ -539,6 +552,11 @@ export default function ReadyGateScreen() {
         });
         const initialDecision = initialRecovery.routeDecision;
         if (initialRecovery.action !== 'go_ready_gate') {
+          rcBreadcrumb(RC_CATEGORY.readyGate, 'standalone_initial_truth_canonical_recheck', {
+            session_id: sessionId,
+            event_id: session.event_id,
+            ...initialCanonicalLog,
+          });
           if (initialRecovery.action === 'go_date') {
             revealReadyUi = true;
           }
@@ -558,6 +576,7 @@ export default function ReadyGateScreen() {
             session_id: sessionId,
             queue_status: reg?.queue_status ?? null,
             canonical_decision: initialDecision,
+            ...initialCanonicalLog,
           });
         }
 

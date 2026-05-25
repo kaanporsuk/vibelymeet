@@ -4,6 +4,7 @@ import {
   DAILY_VIDEO_DATE_ROOM_TTL_SECONDS as DAILY_VIDEO_DATE_ROOM_TTL_SECONDS_CONTRACT,
   isDailyRoomAlreadyExistsErrorText,
   isDailyRoomUrlForName,
+  resolveDailyRuntimeConfig,
   videoDateRoomNameForSession,
   videoDateRoomUrlForName,
 } from "../daily-room/dailyRoomContracts.ts";
@@ -31,7 +32,29 @@ const corsHeaders: Record<string, string> = {
 };
 
 const DAILY_API_URL = "https://api.daily.co/v1";
-const DAILY_DOMAIN = Deno.env.get("DAILY_DOMAIN")?.trim() || "vibelyapp.daily.co";
+const DAILY_RUNTIME_CONFIG = resolveDailyRuntimeConfig({
+  dailyApiKey: Deno.env.get("DAILY_API_KEY")?.trim(),
+  dailyDomainEnv: Deno.env.get("DAILY_DOMAIN")?.trim(),
+  environment: Deno.env.get("ENVIRONMENT")?.trim(),
+  allowLocalFallback: true,
+  requireApiKey: true,
+});
+const DAILY_API_KEY = DAILY_RUNTIME_CONFIG.dailyApiKey ?? "";
+const DAILY_DOMAIN = DAILY_RUNTIME_CONFIG.dailyDomain;
+if (!DAILY_RUNTIME_CONFIG.ok) {
+  console.error(JSON.stringify({
+    event: "video_date_outbox_drainer_daily_config_blocked",
+    code: "DAILY_CONFIG_BLOCKED",
+    blockers: DAILY_RUNTIME_CONFIG.blockers,
+    fallback_used: DAILY_RUNTIME_CONFIG.fallbackUsed,
+  }));
+} else if (DAILY_RUNTIME_CONFIG.fallbackUsed) {
+  console.error(JSON.stringify({
+    event: "video_date_outbox_drainer_daily_domain_local_fallback_used",
+    code: "DAILY_DOMAIN_FALLBACK_USED",
+    daily_domain: DAILY_DOMAIN,
+  }));
+}
 const DAILY_VIDEO_DATE_ROOM_TTL_SECONDS = DAILY_VIDEO_DATE_ROOM_TTL_SECONDS_CONTRACT;
 const WORKER_KIND = "video-date-outbox-drainer";
 
@@ -232,11 +255,10 @@ async function readProviderCode(res: Response): Promise<{
 }
 
 function dailyHeaders(): HeadersInit | null {
-  const dailyApiKey = Deno.env.get("DAILY_API_KEY")?.trim();
-  if (!dailyApiKey) return null;
+  if (!DAILY_RUNTIME_CONFIG.ok || !DAILY_API_KEY) return null;
   return {
     "Content-Type": "application/json",
-    Authorization: `Bearer ${dailyApiKey}`,
+    Authorization: `Bearer ${DAILY_API_KEY}`,
   };
 }
 
@@ -745,6 +767,18 @@ Deno.serve(async (req) => {
       preview: data ?? [],
       latency_ms: Date.now() - startedAt,
     });
+  }
+
+  if (!DAILY_RUNTIME_CONFIG.ok) {
+    return json({
+      ok: false,
+      code: "DAILY_CONFIG_BLOCKED",
+      error: "daily_config_blocked",
+      retryable: true,
+      blockers: DAILY_RUNTIME_CONFIG.blockers,
+      worker_id: workerId,
+      latency_ms: Date.now() - startedAt,
+    }, 503);
   }
 
   const workerLeaseSeconds = Math.max(120, Math.min(600, leaseSeconds * 3));

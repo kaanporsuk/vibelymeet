@@ -29,6 +29,10 @@ const SURVEY_CONVERSION_WINDOW_MS = 10 * 60 * 1000;
 const SLOW_LAUNCH_SESSION_LIMIT = 20;
 const SLOW_LAUNCH_TIMELINE_SESSION_LIMIT = 5;
 const SLOW_LAUNCH_TIMELINE_ROW_LIMIT = 12;
+const SPRINT7_OPS_HEALTH_RPC_TIMEOUT_MS = Math.max(
+  1_000,
+  Math.min(15_000, Number(Deno.env.get("VIDEO_DATE_OPS_HEALTH_RPC_TIMEOUT_MS") ?? 4_500) || 4_500),
+);
 
 type SupabaseErrorLike = { message: string };
 type SupabaseRowsResult = { data: unknown[] | null; error: SupabaseErrorLike | null };
@@ -54,6 +58,10 @@ type SupabaseClientLike = {
   from(table: string): SupabaseFromBuilderLike;
   rpc(functionName: string, args?: Record<string, unknown>): PromiseLike<SupabaseRpcResult>;
 };
+
+type TimedRpcResult<T> =
+  | { timedOut: false; value: T }
+  | { timedOut: true; sourceError: string };
 
 type EventLoopRow = {
   created_at: string;
@@ -223,6 +231,24 @@ const jsonResponse = (body: unknown, status = 200) =>
 
 const typedErrorResponse = (code: string, message: string, status: number) =>
   jsonResponse({ ok: false, code, error: message }, status);
+
+async function withOpsTimeout<T>(
+  promise: PromiseLike<T>,
+  timeoutMs: number,
+  sourceError: string,
+): Promise<TimedRpcResult<T>> {
+  let timeoutId: ReturnType<typeof setTimeout> | null = null;
+  try {
+    return await Promise.race([
+      Promise.resolve(promise).then((value) => ({ timedOut: false as const, value })),
+      new Promise<TimedRpcResult<T>>((resolve) => {
+        timeoutId = setTimeout(() => resolve({ timedOut: true, sourceError }), timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timeoutId != null) clearTimeout(timeoutId);
+  }
+}
 
 function parseEventId(body: unknown): string | null {
   if (!body || typeof body !== "object") return null;
@@ -1138,9 +1164,26 @@ async function getSprint7SafetyPrivacyOpsHealthPayload(
   service: SupabaseClientLike,
   eventId: string | null,
 ): Promise<Sprint7SafetyPrivacyOpsHealthPayload> {
-  const { data, error } = await service.rpc("get_video_date_sprint7_ops_health", {
-    p_event_id: eventId,
-  });
+  const rpcResult = await withOpsTimeout(
+    service.rpc("get_video_date_sprint7_ops_health", {
+      p_event_id: eventId,
+    }),
+    SPRINT7_OPS_HEALTH_RPC_TIMEOUT_MS,
+    "sprint7_ops_health_timeout",
+  );
+
+  if (rpcResult.timedOut) {
+    return {
+      ok: false,
+      generated_at: null,
+      event_id: eventId,
+      privacy_contract: null,
+      windows: [],
+      source_error: rpcResult.sourceError,
+    };
+  }
+
+  const { data, error } = rpcResult.value;
 
   if (error) {
     return {

@@ -70,6 +70,7 @@ function usage(): never {
   npx tsx scripts/phase8-certification.ts native-smoke --commit-sha sha --operator email --ios --android --background-foreground --delayed-push-deeplink --switch-device --early-continue --safety --mutual-extension --survey-recovery
   npx tsx scripts/phase8-certification.ts rollout-step --bps 100|1000|5000|10000 --commit-sha sha [--event-id uuid] [--report-json '{}']
   npx tsx scripts/phase8-certification.ts legacy-cleanup --commit-sha sha [--report-json '{}']
+  npx tsx scripts/phase8-certification.ts config-readiness
 
 Environment:
   PHASE8_STAGING_SUPABASE_URL or SUPABASE_URL
@@ -312,6 +313,21 @@ async function main() {
   const commitSha = normalizedSha(option(options, "commit-sha") ?? process.env.GITHUB_SHA?.slice(0, 40) ?? null);
   const notes = option(options, "notes");
   const expiresAt = option(options, "expires-at");
+
+  if (command === "config-readiness") {
+    console.log(JSON.stringify({
+      ok: true,
+      ...assertDailyProductionLaunchConfigReady(),
+      manual_evidence: {
+        web_two_user: "pending_user_owned",
+        ios_two_user: "pending_user_owned",
+        android_two_user: "pending_user_owned",
+        daily_webhook_real_event: "pending_user_owned",
+        screenshots: "pending_user_owned",
+      },
+    }, null, 2));
+    return;
+  }
 
   if (command === "record") {
     const runKind = option(options, "run-kind") as CertificationRunKind | null;

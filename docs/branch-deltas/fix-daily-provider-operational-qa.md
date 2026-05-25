@@ -69,11 +69,9 @@ Provider error handling:
 
 ## Fallback Domain Posture
 
-`DAILY_DOMAIN` is supported and present in production secrets. If absent, the code falls back to:
+`DAILY_DOMAIN` is required for staging, production, and release certification. If absent outside explicit `ENVIRONMENT=local|dev|development|test` mode, Daily provider entrypoints fail closed with `DAILY_CONFIG_BLOCKED` before provider calls.
 
-- `vibelyapp.daily.co`
-
-The fallback remains a resilience mechanism, not a desired production operating mode. The Daily dashboard must still be checked to confirm the intended production domain and workspace.
+The `vibelyapp.daily.co` fallback remains code-supported only for local developer resilience behind the explicit `ENVIRONMENT` label. The Daily dashboard must still be checked to confirm the intended production domain and workspace.
 
 ## Video-Date Path
 
@@ -188,7 +186,7 @@ Coverage:
 1. Confirm the Daily account/workspace is the intended production workspace.
 2. Confirm `DAILY_API_KEY` can create rooms, look up rooms, delete rooms, and create meeting tokens.
 3. Confirm `DAILY_DOMAIN` is the intended production domain.
-4. Confirm `vibelyapp.daily.co` is still expected if the fallback is ever used.
+4. Confirm no staging/production release path relies on the local-only fallback domain.
 5. Confirm private room creation is allowed.
 6. Confirm meeting tokens are enabled and accepted for private rooms.
 7. Confirm no recording/transcription/dashboard automation setting unexpectedly changes room behavior.

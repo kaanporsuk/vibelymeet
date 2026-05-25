@@ -13,6 +13,7 @@ import {
   isIncomingMatchCallForRequester,
   planDailyProviderRoomRecovery,
   resolveCanonicalVideoDateRoom,
+  resolveDailyRuntimeConfig,
   videoDateDiagnosticRoomNameForUser,
   videoDateRoomNameForSession,
   videoDateRoomUrlForName as buildVideoDateRoomUrlForName,
@@ -38,13 +39,25 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
-const DAILY_API_KEY = Deno.env.get("DAILY_API_KEY")?.trim() ?? "";
-const DAILY_DOMAIN_FALLBACK = "vibelyapp.daily.co";
-const DAILY_DOMAIN_ENV = Deno.env.get("DAILY_DOMAIN")?.trim();
-const DAILY_DOMAIN = DAILY_DOMAIN_ENV || DAILY_DOMAIN_FALLBACK;
-if (!DAILY_DOMAIN_ENV) {
+const DAILY_RUNTIME_CONFIG = resolveDailyRuntimeConfig({
+  dailyApiKey: Deno.env.get("DAILY_API_KEY")?.trim(),
+  dailyDomainEnv: Deno.env.get("DAILY_DOMAIN")?.trim(),
+  environment: Deno.env.get("ENVIRONMENT")?.trim(),
+  allowLocalFallback: true,
+  requireApiKey: true,
+});
+const DAILY_API_KEY = DAILY_RUNTIME_CONFIG.dailyApiKey ?? "";
+const DAILY_DOMAIN = DAILY_RUNTIME_CONFIG.dailyDomain;
+if (!DAILY_RUNTIME_CONFIG.ok) {
   console.error(JSON.stringify({
-    event: "daily_domain_env_missing",
+    event: "daily_runtime_config_blocked",
+    code: "DAILY_CONFIG_BLOCKED",
+    blockers: DAILY_RUNTIME_CONFIG.blockers,
+    fallback_used: DAILY_RUNTIME_CONFIG.fallbackUsed,
+  }));
+} else if (DAILY_RUNTIME_CONFIG.fallbackUsed) {
+  console.error(JSON.stringify({
+    event: "daily_domain_local_fallback_used",
     code: "DAILY_DOMAIN_FALLBACK_USED",
     daily_domain: DAILY_DOMAIN,
   }));
@@ -68,6 +81,19 @@ const DAILY_VIDEO_DATE_PROVIDER_PROOF_FRESH_MS = 90_000;
 const DAILY_VIDEO_DATE_PROVIDER_PROOF_CLOCK_SKEW_MS = 5_000;
 const DAILY_PROVIDER_MAX_RETRY_SLEEP_SECONDS = numericEnv("DAILY_PROVIDER_MAX_RETRY_SLEEP_SECONDS", 5, 0, 30);
 const EDGE_PROCESS_STARTED_AT_MS = Date.now();
+
+const DAILY_CONFIG_REQUIRED_ACTIONS = new Set([
+  "prepare_diagnostic_entry",
+  "ensure_date_room",
+  "prepare_solo_entry",
+  "prepare_date_entry",
+  "create_date_room",
+  "join_date_room",
+  "delete_room",
+  "create_match_call",
+  "join_match_call",
+  "answer_match_call",
+]);
 
 let providerReliabilityClient: any = null;
 
@@ -298,6 +324,36 @@ function createDailyRoomHealthPingResponse(params: {
     }),
     { headers: { ...corsHeaders, "Content-Type": "application/json" } },
   );
+}
+
+function createDailyConfigBlockedResponse(action: unknown, userId: string | null) {
+  const actionName = typeof action === "string" ? action : "unknown";
+  console.error(JSON.stringify({
+    event: "daily_config_blocked_request",
+    code: "DAILY_CONFIG_BLOCKED",
+    action: actionName,
+    user_id: userId,
+    blockers: DAILY_RUNTIME_CONFIG.blockers,
+    fallback_used: DAILY_RUNTIME_CONFIG.fallbackUsed,
+  }));
+  return new Response(
+    JSON.stringify({
+      ok: false,
+      success: false,
+      code: "DAILY_CONFIG_BLOCKED",
+      error: "Video service temporarily unavailable.",
+      retryable: true,
+      blockers: DAILY_RUNTIME_CONFIG.blockers,
+    }),
+    {
+      status: 503,
+      headers: { ...corsHeaders, "Content-Type": "application/json", "Cache-Control": "no-store" },
+    },
+  );
+}
+
+function dailyConfigRequiredForAction(action: unknown): boolean {
+  return typeof action === "string" && DAILY_CONFIG_REQUIRED_ACTIONS.has(action);
 }
 
 function readVideoDateTraceContext(body: Record<string, unknown>, action: unknown): {
@@ -2217,6 +2273,10 @@ serve(async (req) => {
         authenticatedUserId: user.id,
         source: body.source,
       });
+    }
+
+    if (!DAILY_RUNTIME_CONFIG.ok && dailyConfigRequiredForAction(action)) {
+      return createDailyConfigBlockedResponse(action, user.id);
     }
 
     // ── ACTION: prepare_diagnostic_entry ──

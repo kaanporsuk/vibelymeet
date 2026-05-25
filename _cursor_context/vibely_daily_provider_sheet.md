@@ -32,7 +32,7 @@ Daily is the live-session backbone for:
 
 A rebuild can fail subtly:
 - `DAILY_API_KEY` can be wrong while the Edge Function still deploys
-- `DAILY_DOMAIN` can drift while the fallback hides the issue
+- `DAILY_DOMAIN` can drift if release certification does not prove the explicit secret
 - `DAILY_WEBHOOK_SECRET` can be missing or mismatched while room creation still works
 - room creation can work but meeting-token creation can fail
 - a video-date room can exist in DB while missing or expired at Daily
@@ -106,8 +106,9 @@ Daily fields in `match_calls`:
 The function calls Daily REST at:
 - `https://api.daily.co/v1`
 
-If `DAILY_DOMAIN` is absent, `daily-room` falls back to:
-- `vibelyapp.daily.co`
+If `DAILY_DOMAIN` is absent, staging/production Daily actions fail closed with
+`DAILY_CONFIG_BLOCKED`. The `vibelyapp.daily.co` fallback is available only
+when `ENVIRONMENT` is explicitly labeled local/dev/test.
 
 Operational posture:
 - `DAILY_DOMAIN` is present in production secrets as of the 2026-05-01 read-only check.
@@ -120,7 +121,7 @@ Operational posture:
   - `failedCount = 0`
   - signed `{"test":"test"}` probe returned HTTP 200
   - `lastMomentPushed` was still null before real participant events
-- The fallback is still code-supported for resilience, but production should not rely on it silently.
+- The fallback is still code-supported for local resilience, but production cannot rely on it silently.
 - Dashboard/domain ownership must be verified manually because the repo cannot prove the live Daily account or domain binding.
 
 ---
@@ -383,7 +384,7 @@ Not proven by repo:
 
 ## 13. Remaining Operational Risks
 
-- `DAILY_DOMAIN` fallback can still hide config drift in a misconfigured environment.
+- `DAILY_DOMAIN` fallback is now blocked unless `ENVIRONMENT` is explicitly local/dev/test; release risk moves to proving production secrets are present before launch.
 - Real provider permissions cannot be proven without creating/deleting a test room.
 - Client cleanup is best effort; cron cleanup is the safety net.
 - Web and native media permission behavior still requires physical-device/browser QA.

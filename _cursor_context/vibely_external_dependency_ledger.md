@@ -242,8 +242,8 @@ Daily powers live video rooms/tokens for event dates and match/video call flows.
 - `DAILY_DOMAIN`
 - `DAILY_WEBHOOK_SECRET`
 
-### Hardcoded runtime assumptions
-- function falls back to `vibelyapp.daily.co` if `DAILY_DOMAIN` is absent
+### Runtime assumptions
+- `DAILY_DOMAIN` is required for staging/production Daily actions. Missing `DAILY_DOMAIN` fails closed with `DAILY_CONFIG_BLOCKED`; the `vibelyapp.daily.co` fallback is local/dev/test only when `ENVIRONMENT` is explicitly local.
 
 ### Outside-repo state that must exist
 - Daily account
@@ -257,10 +257,10 @@ Daily powers live video rooms/tokens for event dates and match/video call flows.
 - real delivery smoke remains pending until Daily `lastMomentPushed` is non-null after real participant events
 
 ### Rebuild-critical notes
-- the fallback domain makes this dependency easy to miss because the app may appear configured even if env is incomplete
+- release certification must prove the explicit `DAILY_DOMAIN` secret because production no longer relies on the historical fallback
 - missing or mismatched `DAILY_WEBHOOK_SECRET` makes `video-date-daily-webhook` fail closed while `daily-room` can still appear healthy
 - missing provider registration means video-date join/leave recovery cannot be production-verified
-- if the account or domain ownership changed, the fallback becomes dangerous rather than helpful
+- if the account or domain ownership changed, the explicit `DAILY_DOMAIN` secret must be updated before certification
 
 ### Known unknowns to verify
 - whether `vibelyapp.daily.co` is still the intended production domain
@@ -487,7 +487,7 @@ The production web identity is embedded into multiple parts of the system.
 ### Observed production-domain assumptions
 - `vibelymeet.com`
 - `cdn.vibelymeet.com`
-- `vibelyapp.daily.co` (Daily subdomain fallback)
+- `vibelyapp.daily.co` (current expected Daily subdomain, not a staging/production fallback)
 
 ### Repo touchpoints
 - legal pages

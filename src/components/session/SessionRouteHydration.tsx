@@ -9,6 +9,7 @@ import {
   videoSessionHasPostDateSurveyTruth,
 } from "@clientShared/matching/activeSession";
 import {
+  canonicalVideoDateRouteLogDetail,
   decideCanonicalVideoDateRoute,
   webPathForCanonicalVideoDateRoute,
 } from "@clientShared/matching/videoDateRouteDecision";
@@ -90,6 +91,10 @@ export function SessionRouteHydration() {
         eventId: activeSession.eventId,
         truth: vs,
       });
+      const canonicalLog = canonicalVideoDateRouteLogDetail(canonicalRoute, {
+        sourceSurface: "session_route_hydration",
+        sourceAction: "date_route_guard",
+      });
       const canAttemptDaily = canonicalRoute.canAttemptDaily;
 
       if (canonicalRoute.target === "ended" || canonicalRoute.target === "survey") {
@@ -106,6 +111,7 @@ export function SessionRouteHydration() {
           reason: pendingSurveyTerminalEncounter
             ? "pending_survey_terminal_encounter"
             : "video_session_ended",
+          ...canonicalLog,
           canonicalTarget: canonicalRoute.target,
           canonicalReason: canonicalRoute.reason,
           endedAt: vs.ended_at,
@@ -127,6 +133,7 @@ export function SessionRouteHydration() {
           userId: user.id,
           eventId: activeSession.eventId,
           reason: canAttemptDaily ? "video_session_daily_startable" : "video_session_handshake_or_date",
+          ...canonicalLog,
           canonicalTarget: canonicalRoute.target,
           canonicalReason: canonicalRoute.reason,
           canAttemptDaily,
@@ -174,6 +181,7 @@ export function SessionRouteHydration() {
         userId: user.id,
         eventId: activeSession.eventId,
         reason: canonicalRoute.reason,
+        ...canonicalLog,
         canonicalTarget: canonicalRoute.target,
         latchActive: false,
         state: vs.state,
