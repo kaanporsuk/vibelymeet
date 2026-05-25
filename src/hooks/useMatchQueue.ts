@@ -282,12 +282,11 @@ export const useMatchQueue = ({
         queue_status: currentStatus,
       });
     } finally {
-      if (!isCurrentScope(requestEventId, requestUserId) || activeDrainSeqRef.current !== requestSeq) {
-        return;
+      if (isCurrentScope(requestEventId, requestUserId) && activeDrainSeqRef.current === requestSeq) {
+        drainInFlightRef.current = false;
+        setIsDraining(false);
+        void refreshQueueCount();
       }
-      drainInFlightRef.current = false;
-      setIsDraining(false);
-      void refreshQueueCount();
     }
   }, [
     enabled,
