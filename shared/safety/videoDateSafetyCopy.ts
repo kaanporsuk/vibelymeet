@@ -134,6 +134,12 @@ export function resolveVideoDateSafetySubmitCopy(input: {
   };
 }
 
+export function resolveVideoDateSafetyCopy(
+  input: Parameters<typeof resolveVideoDateSafetySubmitCopy>[0],
+): VideoDateSafetySubmitCopy {
+  return resolveVideoDateSafetySubmitCopy(input);
+}
+
 export function resolveVideoDateSafetySubmitOutcome(input: {
   mode: VideoDateSafetySubmitMode;
   alsoBlock?: boolean | null;

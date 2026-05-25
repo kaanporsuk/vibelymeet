@@ -2,7 +2,12 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { resolveMediaFallbackCopy, resolveMediaFallbackReason } from "./mediaFallbackCopy";
+import {
+  extractNativeMediaPlaybackHttpStatus,
+  resolveMediaFallbackCopy,
+  resolveMediaFallbackReason,
+  resolveNativeMediaPlaybackFallbackReason,
+} from "./mediaFallbackCopy";
 
 const root = process.cwd();
 const source = readFileSync(join(root, "shared/media/mediaFallbackCopy.ts"), "utf8");
@@ -27,6 +32,8 @@ test("media fallback reason classification is privacy-safe and deterministic", (
   assert.equal(resolveMediaFallbackReason({ errorCode: "network_error" }), "provider_unreachable");
   assert.equal(resolveMediaFallbackReason({ httpStatus: 403 }), "auth_expired");
   assert.equal(resolveMediaFallbackReason({ httpStatus: 404 }), "asset_deleted");
+  assert.equal(resolveMediaFallbackReason({ httpStatus: 429 }), "provider_unreachable");
+  assert.equal(resolveMediaFallbackReason({ httpStatus: 500 }), "provider_unreachable");
   assert.equal(resolveMediaFallbackReason({ httpStatus: 503 }), "provider_unreachable");
   assert.equal(resolveMediaFallbackReason({ stage: "poster" }), "poster_unavailable");
   assert.equal(resolveMediaFallbackReason({ stage: "hls_auth" }), "hls_auth_failed");
@@ -34,6 +41,55 @@ test("media fallback reason classification is privacy-safe and deterministic", (
   assert.equal(resolveMediaFallbackReason({ stage: "hls_auth", httpStatus: 404 }), "asset_deleted");
   assert.equal(resolveMediaFallbackReason({ stage: "hls_auth", httpStatus: 503 }), "provider_unreachable");
   assert.equal(resolveMediaFallbackReason({ errorCode: "resolver_error" }), "unknown");
+});
+
+test("native playback fallback classification preserves useful HTTP status without raw errors", () => {
+  assert.equal(extractNativeMediaPlaybackHttpStatus("Expo player failed with HTTP 403"), 403);
+  assert.equal(extractNativeMediaPlaybackHttpStatus({ error: { networkDetails: { statusCode: 503 } } }), 503);
+  assert.equal(extractNativeMediaPlaybackHttpStatus({ statusCode: "HTTP 410" }), 410);
+  assert.equal(extractNativeMediaPlaybackHttpStatus(new Error("request failed with status 404")), 404);
+  assert.equal(extractNativeMediaPlaybackHttpStatus("asset id 4040 is not a status"), null);
+  const cyclicPayload: Record<string, unknown> = {};
+  cyclicPayload.error = cyclicPayload;
+  assert.equal(extractNativeMediaPlaybackHttpStatus(cyclicPayload), null);
+
+  assert.equal(
+    resolveNativeMediaPlaybackFallbackReason({
+      uri: "https://stream.example/video/PLAYLIST.M3U8?token=fake",
+      error: "HTTP 403",
+    }),
+    "hls_auth_failed",
+  );
+  assert.equal(
+    resolveNativeMediaPlaybackFallbackReason({
+      uri: "https://stream.example/video/playlist.m3u8",
+      error: { statusCode: 404 },
+    }),
+    "asset_deleted",
+  );
+  assert.equal(
+    resolveNativeMediaPlaybackFallbackReason({
+      uri: "https://stream.example/video/playlist.m3u8",
+      error: { networkDetails: { status: 503 } },
+    }),
+    "provider_unreachable",
+  );
+  assert.equal(
+    resolveNativeMediaPlaybackFallbackReason({
+      uri: "https://stream.example/video/playlist.m3u8",
+      error: "HTTP 429 Too Many Requests",
+    }),
+    "provider_unreachable",
+  );
+  assert.equal(
+    resolveNativeMediaPlaybackFallbackReason({
+      uri: "https://stream.example/video/playlist.m3u8",
+      error: "HTTP 403",
+      httpStatus: Number.NaN,
+    }),
+    "hls_auth_failed",
+  );
+  assert.equal(resolveNativeMediaPlaybackFallbackReason({ uri: "file:///clip.mov", error: "decoder failed" }), "unknown");
 });
 
 test("media fallback copy contract has no signed URL or provider path fields", () => {
@@ -102,4 +158,27 @@ test("web HLS playback fallbacks preserve HTTP-status-specific reasons", () => {
     assert.match(contents, /hlsPlaybackErrorStatusCode/, relativePath);
     assert.match(contents, /httpStatus:/, relativePath);
   }
+});
+
+test("native playback fallbacks preserve HTTP-status-specific reasons when Expo exposes them", () => {
+  const surfaces = [
+    "apps/mobile/components/video/VibeVideoPlayer.tsx",
+    "apps/mobile/components/video/FullscreenVibeVideoModal.tsx",
+    "apps/mobile/components/chat/VibeClipCard.tsx",
+    "apps/mobile/components/chat/ChatThreadMediaViewer.tsx",
+    "apps/mobile/app/chat/[id].tsx",
+  ];
+
+  for (const relativePath of surfaces) {
+    const contents = readFileSync(join(root, relativePath), "utf8");
+    assert.match(contents, /resolveNativeMediaPlaybackFallbackReason/, relativePath);
+    assert.doesNotMatch(contents, /nativeError:/, relativePath);
+  }
+});
+
+test("native canonical player forwards resolver fallback reasons before playback starts", () => {
+  const player = readFileSync(join(root, "apps/mobile/components/video/VibeVideoPlayer.tsx"), "utf8");
+  assert.match(player, /fallbackReason: mediaAssetFallbackReason/);
+  assert.match(player, /mediaAssetStatus === 'error'/);
+  assert.match(player, /onPlayerFatalError\?\.\(\s*mediaAssetFallbackReason \?\?/);
 });

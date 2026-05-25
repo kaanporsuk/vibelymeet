@@ -189,6 +189,13 @@ export function resolveVideoDateQueueCopy(
   };
 }
 
+export function resolveQueueHintCopy(
+  hint: VideoDateQueueHint | null | undefined,
+  fallbackCount: number,
+): VideoDateQueueCopy {
+  return resolveVideoDateQueueCopy(hint, fallbackCount);
+}
+
 function normalizeReason(value: unknown): string {
   if (typeof value !== "string") return "";
   return value.trim().toLowerCase();

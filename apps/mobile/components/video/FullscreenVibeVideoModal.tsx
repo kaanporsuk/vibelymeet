@@ -23,7 +23,11 @@ import { useReduceMotion } from '@/hooks/useReduceMotion';
 import { isProfileVibeVideoRef } from '@/lib/mediaAssetResolver';
 import type { VibeVideoState } from '@/lib/vibeVideoState';
 import type { MediaCaptions } from '../../../../shared/media/captions';
-import { resolveMediaFallbackCopy } from '@clientShared/media/mediaFallbackCopy';
+import {
+  resolveMediaFallbackCopy,
+  resolveNativeMediaPlaybackFallbackReason,
+  type MediaFallbackReason,
+} from '@clientShared/media/mediaFallbackCopy';
 
 export interface FullscreenVibeVideoModalProps {
   visible: boolean;
@@ -67,6 +71,7 @@ export function FullscreenVibeVideoModal({
   const { width: windowWidth } = useWindowDimensions();
   const captionMaxWidth = Math.round(windowWidth * 0.75);
   const [playbackSurfaceError, setPlaybackSurfaceError] = useState(false);
+  const [playbackFallbackReason, setPlaybackFallbackReason] = useState<MediaFallbackReason | null>(null);
   const [retryKey, setRetryKey] = useState(0);
   /** Per fullscreen session: hide top metadata after first natural `playToEnd`; reset when modal/source/retry changes. */
   const [hasCompletedInitialPlayback, setHasCompletedInitialPlayback] = useState(false);
@@ -78,7 +83,12 @@ export function FullscreenVibeVideoModal({
   const expectedPatternUrl =
     !usesSignedProfileRef && uid && streamHostname ? `https://${streamHostname}/${uid}/playlist.m3u8` : null;
   const playbackFallbackCopy = resolveMediaFallbackCopy({
-    reason: usesSignedProfileRef ? 'hls_auth_failed' : 'unknown',
+    reason:
+      playbackFallbackReason ??
+      resolveNativeMediaPlaybackFallbackReason({
+        uri: playbackUrl,
+        isSignedSource: usesSignedProfileRef,
+      }),
   });
   const deletedFallbackCopy = resolveMediaFallbackCopy({ reason: 'asset_deleted' });
 
@@ -92,6 +102,7 @@ export function FullscreenVibeVideoModal({
 
   useEffect(() => {
     setPlaybackSurfaceError(false);
+    setPlaybackFallbackReason(null);
     setRetryKey(0);
   }, [visible, playbackUrl]);
 
@@ -129,20 +140,27 @@ export function FullscreenVibeVideoModal({
     };
   }, [visible]);
 
-  const handlePlaybackIssue = useCallback(() => {
+  const handlePlaybackIssue = useCallback((reason?: MediaFallbackReason) => {
+    const fallbackReason = reason ?? resolveNativeMediaPlaybackFallbackReason({
+      uri: playbackUrl,
+      isSignedSource: usesSignedProfileRef,
+    });
     vibeVideoDiagVerbose('fullscreen.playback_error', {
       bunnyVideoUid: uid || null,
       resolvedHostname: streamHostname,
       hasPlaybackUrl: !!playbackUrl,
       usesSignedProfileRef,
       errorKind: 'playback',
+      fallbackReason,
     });
     onPlaybackAbort?.();
+    setPlaybackFallbackReason(fallbackReason);
     setPlaybackSurfaceError(true);
   }, [uid, playbackUrl, streamHostname, usesSignedProfileRef, onPlaybackAbort]);
 
   const handleRetryPlayback = useCallback(() => {
     setPlaybackSurfaceError(false);
+    setPlaybackFallbackReason(null);
     onPlaybackRequest?.();
     setRetryKey((k) => k + 1);
   }, [onPlaybackRequest]);

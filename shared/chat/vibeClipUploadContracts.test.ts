@@ -736,7 +736,15 @@ test("native pending Vibe Clip local preview failures stay in preparing state", 
   assert.match(nativeVibeClipCard, /const isProcessing = isServerProcessingClip\(resolvedMeta\)/);
   assert.match(
     nativeVibeClipCard,
-    /if \(!didRefresh\) \{[\s\S]{0,140}setFallbackReason\(resolveMediaFallbackReason\(\{ stage: playbackFailureStage \}\)\);[\s\S]{0,80}setHasError\(true\);/,
+    /const reason = resolveNativeMediaPlaybackFallbackReason\(\{ uri: meta\.videoUrl, error: payload \}\);/,
+  );
+  assert.match(
+    nativeVibeClipCard,
+    /if \(!didRefresh\) \{[\s\S]{0,80}setFallbackReason\(reason\);[\s\S]{0,80}setHasError\(true\);/,
+  );
+  assert.match(
+    nativeVibeClipCard,
+    /if \(!didRefresh\) \{[\s\S]{0,120}setFallbackReason\(resolveNativeMediaPlaybackFallbackReason\(\{ uri: meta\.videoUrl \}\)\);[\s\S]{0,80}setHasError\(true\);/,
   );
 });
 

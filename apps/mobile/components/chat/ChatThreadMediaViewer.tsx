@@ -26,7 +26,11 @@ import {
   safeRemoveExpoSharedObjectSubscription,
 } from '@/lib/expoSharedObjectSafe';
 import { useReduceMotionState } from '@/hooks/useReduceMotion';
-import { resolveMediaFallbackCopy } from '@clientShared/media/mediaFallbackCopy';
+import {
+  resolveMediaFallbackCopy,
+  resolveNativeMediaPlaybackFallbackReason,
+  type MediaFallbackReason,
+} from '@clientShared/media/mediaFallbackCopy';
 
 export type ChatThreadPhotoItem = { id: string; uri: string; sourceRef?: string | null };
 
@@ -453,9 +457,12 @@ function VideoViewerStage({
 }) {
   const insets = useSafeAreaInsets();
   const [phase, setPhase] = useState<'loading' | 'ready' | 'error'>('loading');
+  const [fallbackReason, setFallbackReason] = useState<MediaFallbackReason | null>(null);
   const [manualPlaybackRequested, setManualPlaybackRequested] = useState(false);
   const { reduceMotion, resolved: reduceMotionResolved } = useReduceMotionState();
-  const playbackFallbackCopy = resolveMediaFallbackCopy({ reason: isHlsUri(uri) ? 'hls_auth_failed' : 'unknown' });
+  const playbackFallbackCopy = resolveMediaFallbackCopy({
+    reason: fallbackReason ?? resolveNativeMediaPlaybackFallbackReason({ uri }),
+  });
   const shouldAttachPlayback = reduceMotionResolved && (!reduceMotion || manualPlaybackRequested);
   const playerSource = useMemo<VideoSource>(() => (shouldAttachPlayback ? videoSourceForUri(uri) : null), [
     shouldAttachPlayback,
@@ -471,6 +478,7 @@ function VideoViewerStage({
 
   useEffect(() => {
     setManualPlaybackRequested(false);
+    setFallbackReason(null);
     setPhase('loading');
   }, [uri]);
 
@@ -488,11 +496,18 @@ function VideoViewerStage({
     const sub = safeExpoSharedObjectCall(
       () => player.addListener('statusChange', (payload) => {
         if (payload.status === 'error') {
+          const reason = resolveNativeMediaPlaybackFallbackReason({ uri, error: payload });
           void onRefreshMedia()
             .then((didRefresh) => {
-              if (!didRefresh) setPhase('error');
+              if (!didRefresh) {
+                setFallbackReason(reason);
+                setPhase('error');
+              }
             })
-            .catch(() => setPhase('error'));
+            .catch(() => {
+              setFallbackReason(reason);
+              setPhase('error');
+            });
           return;
         }
         if (payload.status === 'readyToPlay') {
@@ -509,7 +524,7 @@ function VideoViewerStage({
       },
     );
     return () => safeRemoveExpoSharedObjectSubscription(sub, 'chat.viewerVideo.statusListener.remove');
-  }, [onRefreshMedia, player, revealPlayer, shouldAttachPlayback]);
+  }, [onRefreshMedia, player, revealPlayer, shouldAttachPlayback, uri]);
 
   useEffect(() => {
     if (!shouldAttachPlayback) return;

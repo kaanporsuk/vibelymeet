@@ -116,7 +116,11 @@ import {
 } from '@/lib/chatMessageContent';
 import { refreshMediaAssetUrl } from '@/lib/mediaAssetResolver';
 import { useMediaAsset } from '@/hooks/useMediaAsset';
-import { resolveMediaFallbackCopy } from '@clientShared/media/mediaFallbackCopy';
+import {
+  resolveMediaFallbackCopy,
+  resolveNativeMediaPlaybackFallbackReason,
+  type MediaFallbackReason,
+} from '@clientShared/media/mediaFallbackCopy';
 import { extractVibeClipMeta } from '../../../../shared/chat/messageRouting';
 import { VibeClipCard, type VibeClipLocalRecovery, type VibeClipPosterPreviewState } from '@/components/chat/VibeClipCard';
 import {
@@ -782,23 +786,40 @@ function ChatVideoCardBody({
 }: ChatVideoCardProps & { onRefreshMediaUri: () => Promise<boolean>; onRemountPlayer: () => void }) {
   const [hasError, setHasError] = useState(false);
   const [isReady, setIsReady] = useState(false);
-  const fallbackCopy = resolveMediaFallbackCopy({ reason: uri.includes('.m3u8') ? 'hls_auth_failed' : 'unknown' });
+  const [fallbackReason, setFallbackReason] = useState<MediaFallbackReason | null>(null);
+  const fallbackCopy = resolveMediaFallbackCopy({
+    reason: fallbackReason ?? resolveNativeMediaPlaybackFallbackReason({ uri }),
+  });
   const player = useVideoPlayer(uri, (p) => {
     p.loop = false;
   });
 
   useEffect(() => {
+    setHasError(false);
+    setIsReady(false);
+    setFallbackReason(null);
+  }, [uri]);
+
+  useEffect(() => {
     const sub = safeExpoSharedObjectCall(
       () => player.addListener('statusChange', (payload) => {
         if (payload.status === 'error') {
+          const reason = resolveNativeMediaPlaybackFallbackReason({ uri, error: payload });
           void onRefreshMediaUri()
             .then((didRefresh) => {
-              if (!didRefresh) setHasError(true);
+              if (!didRefresh) {
+                setFallbackReason(reason);
+                setHasError(true);
+              }
             })
-            .catch(() => setHasError(true));
+            .catch(() => {
+              setFallbackReason(reason);
+              setHasError(true);
+            });
           return;
         }
         if (payload.status === 'readyToPlay') {
+          setFallbackReason(null);
           setHasError(false);
           setIsReady(true);
         }
@@ -810,7 +831,7 @@ function ChatVideoCardBody({
       },
     );
     return () => safeRemoveExpoSharedObjectSubscription(sub, 'chat.video.statusListener.remove');
-  }, [onRefreshMediaUri, player]);
+  }, [onRefreshMediaUri, player, uri]);
 
   useEffect(() => {
     if (!immersiveActive) return;

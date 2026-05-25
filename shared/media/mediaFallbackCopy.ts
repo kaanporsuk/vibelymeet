@@ -25,6 +25,60 @@ export type MediaFallbackCopy = {
   telemetryReason: MediaFallbackReason;
 };
 
+function finiteStatus(value: unknown): number | null {
+  if (typeof value !== "number" || !Number.isFinite(value)) return null;
+  return Math.trunc(value);
+}
+
+function statusFromValue(value: unknown, seen: WeakSet<object>): number | null {
+  return finiteStatus(value) ?? extractNativeMediaPlaybackHttpStatusValue(value, seen);
+}
+
+function recordValue(input: Record<string, unknown>, key: string): unknown {
+  return Object.prototype.hasOwnProperty.call(input, key) ? input[key] : undefined;
+}
+
+function extractHttpStatusFromObject(error: Record<string, unknown>, seen: WeakSet<object>): number | null {
+  const direct =
+    statusFromValue(recordValue(error, "httpStatus"), seen) ??
+    statusFromValue(recordValue(error, "statusCode"), seen) ??
+    statusFromValue(recordValue(error, "status"), seen);
+  if (direct != null) return direct;
+
+  const nestedCandidates = [
+    recordValue(error, "message"),
+    recordValue(error, "error"),
+    recordValue(error, "nativeError"),
+    recordValue(error, "description"),
+    recordValue(error, "cause"),
+    recordValue(error, "networkDetails"),
+  ];
+  for (const candidate of nestedCandidates) {
+    const status = extractNativeMediaPlaybackHttpStatusValue(candidate, seen);
+    if (status != null) return status;
+  }
+  return null;
+}
+
+function extractNativeMediaPlaybackHttpStatusValue(error: unknown, seen: WeakSet<object>): number | null {
+  const direct = finiteStatus(error);
+  if (direct != null) return direct;
+
+  if (typeof error === "string") {
+    const match = error.match(/(?:^|[^\d])(?:http\s*)?(401|403|404|410|429|500|502|503|504)(?:[^\d]|$)/i);
+    return match ? Number(match[1]) : null;
+  }
+
+  if (typeof error !== "object" || error === null) return null;
+  if (seen.has(error)) return null;
+  seen.add(error);
+  return extractHttpStatusFromObject(error as Record<string, unknown>, seen);
+}
+
+export function extractNativeMediaPlaybackHttpStatus(error: unknown): number | null {
+  return extractNativeMediaPlaybackHttpStatusValue(error, new WeakSet<object>());
+}
+
 export function resolveMediaFallbackReason(input: {
   reason?: MediaFallbackReason | null;
   errorCode?: MediaFallbackResolveErrorCode | string | null;
@@ -53,8 +107,27 @@ export function resolveMediaFallbackReason(input: {
 function resolveHttpStatusFallbackReason(httpStatus: number | null | undefined): MediaFallbackReason | null {
   if (httpStatus === 401 || httpStatus === 403) return "auth_expired";
   if (httpStatus === 404 || httpStatus === 410) return "asset_deleted";
-  if (httpStatus === 502 || httpStatus === 503 || httpStatus === 504) return "provider_unreachable";
+  if (httpStatus === 429 || httpStatus === 500 || httpStatus === 502 || httpStatus === 503 || httpStatus === 504) {
+    return "provider_unreachable";
+  }
   return null;
+}
+
+export function resolveNativeMediaPlaybackFallbackReason(input: {
+  uri?: string | null;
+  error?: unknown;
+  httpStatus?: number | null;
+  isSignedSource?: boolean | null;
+}): MediaFallbackReason {
+  const uri = typeof input.uri === "string" ? input.uri : "";
+  const isHls = /\.m3u8(?:[?#]|$)/i.test(uri);
+  const httpStatus = finiteStatus(input.httpStatus) ?? extractNativeMediaPlaybackHttpStatus(input.error);
+  const statusReason = resolveHttpStatusFallbackReason(httpStatus);
+
+  if (statusReason === "auth_expired" && (input.isSignedSource || isHls)) return "hls_auth_failed";
+  if (statusReason) return statusReason;
+  if (input.isSignedSource || isHls) return "hls_auth_failed";
+  return "unknown";
 }
 
 export function resolveMediaFallbackCopy(input: {

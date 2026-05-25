@@ -6,6 +6,7 @@ import {
   formatVideoDateQueueEtaLabel,
   formatVideoDateQueueHintLabel,
   resolveEventDeckPhase4UiState,
+  resolveQueueHintCopy,
   resolveVideoDateQueueCopy,
   resolveVideoDateHandshakeUiState,
   shouldShowVideoDateIceBreaker,
@@ -273,6 +274,22 @@ test("Phase 4 queue copy keeps compact labels stable and exposes richer queue fi
     isNext: false,
     detailParts: ["1 waiting in queue"],
   });
+});
+
+test("legacy queue hint helper name remains a stable alias", () => {
+  const hint = {
+    ok: true,
+    queued: true,
+    reason: null,
+    sessionId: "session-alias",
+    eventQueuedCount: 2,
+    userQueuedCount: 1,
+    position: 1,
+    waitAgeSeconds: 5,
+    estimatedWaitSeconds: 12,
+    reliefActive: true,
+  };
+  assert.deepEqual(resolveQueueHintCopy(hint, 0), resolveVideoDateQueueCopy(hint, 0));
 });
 
 test("Phase 4 web/native surfaces consume shared UX helpers", () => {
