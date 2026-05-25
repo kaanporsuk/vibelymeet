@@ -1,6 +1,14 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { buildMeetingTokenProperties } from "../daily-room/dailyRoomContracts.ts";
+import {
+  buildMeetingTokenProperties,
+  DAILY_ROOM_DOMAIN_FALLBACK,
+  DAILY_VIDEO_DATE_ROOM_MAX_PARTICIPANTS,
+  DAILY_VIDEO_DATE_ROOM_TTL_SECONDS as DAILY_VIDEO_DATE_ROOM_TTL_SECONDS_CONTRACT,
+  isDailyRoomUrlForName,
+  videoDateRoomNameForSession,
+  videoDateRoomUrlForName,
+} from "../daily-room/dailyRoomContracts.ts";
 import {
   fetchWithTimeout,
   numericEnv,
@@ -16,8 +24,17 @@ const corsHeaders = {
 };
 
 const DAILY_API_KEY = Deno.env.get("DAILY_API_KEY")?.trim() ?? "";
+const DAILY_DOMAIN_ENV = Deno.env.get("DAILY_DOMAIN")?.trim();
+const DAILY_DOMAIN = DAILY_DOMAIN_ENV || DAILY_ROOM_DOMAIN_FALLBACK;
+if (!DAILY_DOMAIN_ENV) {
+  console.error(JSON.stringify({
+    event: "video_date_token_refresh_daily_domain_env_missing",
+    code: "DAILY_DOMAIN_FALLBACK_USED",
+    daily_domain: DAILY_DOMAIN,
+  }));
+}
 const DAILY_API_URL = "https://api.daily.co/v1";
-const DAILY_VIDEO_DATE_ROOM_TTL_SECONDS = 14_400;
+const DAILY_VIDEO_DATE_ROOM_TTL_SECONDS = DAILY_VIDEO_DATE_ROOM_TTL_SECONDS_CONTRACT;
 const DAILY_VIDEO_DATE_TOKEN_TTL_SECONDS = DAILY_VIDEO_DATE_ROOM_TTL_SECONDS;
 const DAILY_TOKEN_REFRESH_PROVIDER_MAX_RETRY_SLEEP_SECONDS = numericEnv(
   "DAILY_TOKEN_REFRESH_PROVIDER_MAX_RETRY_SLEEP_SECONDS",
@@ -27,6 +44,7 @@ const DAILY_TOKEN_REFRESH_PROVIDER_MAX_RETRY_SLEEP_SECONDS = numericEnv(
 );
 const DAILY_VIDEO_DATE_TOKEN_PHASE_EXTENSION_BUFFER_MS = 2 * 60 * 1000;
 const DAILY_VIDEO_DATE_TOKEN_MIN_TTL_SECONDS = 180;
+const DAILY_VIDEO_DATE_PROVIDER_ROOM_MIN_REMAINING_SECONDS = DAILY_VIDEO_DATE_TOKEN_MIN_TTL_SECONDS;
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -46,6 +64,18 @@ type SnapshotPayload = {
 
 type SupabaseEdgeClient = ReturnType<typeof createClient<any>>;
 
+type DailyRoomProviderState = {
+  exists: boolean;
+  expired: boolean;
+  expiresAt: string | null;
+};
+
+type DailyRoomProviderProof = {
+  ok: boolean;
+  reason: "exists" | "missing" | "expired";
+  expiresAt: string | null;
+};
+
 function retryAfterHeaderValue(retryAfterSeconds: number | null | undefined): string | null {
   if (typeof retryAfterSeconds !== "number" || !Number.isFinite(retryAfterSeconds)) return null;
   return String(Math.min(300, Math.max(1, Math.ceil(retryAfterSeconds))));
@@ -56,6 +86,111 @@ async function waitForBoundedDailyTokenRetry(headers: Headers, fallbackSeconds: 
   if (retryAfterSeconds > DAILY_TOKEN_REFRESH_PROVIDER_MAX_RETRY_SLEEP_SECONDS) return false;
   await new Promise((resolve) => setTimeout(resolve, retryAfterSeconds * 1000));
   return true;
+}
+
+async function readProviderResponseText(response: Response): Promise<string> {
+  return response.clone().text().catch(() => "");
+}
+
+async function throwProviderResponseError(
+  operation: "room_lookup" | "token_refresh",
+  response: Response,
+  roomName: string,
+): Promise<never> {
+  if (response.status === 429) {
+    throw new ProviderRateLimitError(
+      "daily",
+      operation,
+      parseRetryAfterSeconds(response.headers, 30),
+      "provider_rate_limited",
+    );
+  }
+  const text = await readProviderResponseText(response);
+  console.error(JSON.stringify({
+    event: "video_date_token_refresh_daily_provider_failed",
+    operation,
+    provider_status: response.status,
+    room_name: roomName,
+    provider_error: text.slice(0, 300),
+  }));
+  throw new Error(`daily_${operation}_failed`);
+}
+
+function parseDailyRoomProviderStatePayload(roomName: string, payload: unknown): DailyRoomProviderState {
+  const room = payload && typeof payload === "object"
+    ? payload as { name?: unknown; url?: unknown; config?: { exp?: unknown; max_participants?: unknown } }
+    : null;
+  const exp = typeof room?.config?.exp === "number" && Number.isFinite(room.config.exp)
+    ? room.config.exp
+    : null;
+  const maxParticipants = typeof room?.config?.max_participants === "number"
+    ? room.config.max_participants
+    : null;
+  if (
+    typeof room?.name !== "string" ||
+    room.name !== roomName ||
+    typeof room?.url !== "string" ||
+    !isDailyRoomUrlForName(room.url, roomName, DAILY_DOMAIN)
+  ) {
+    throw new Error("daily_room_lookup_invalid_response");
+  }
+
+  const nowSeconds = Math.floor(Date.now() / 1000);
+  const expiresTooSoon = exp == null || exp <= nowSeconds + DAILY_VIDEO_DATE_PROVIDER_ROOM_MIN_REMAINING_SECONDS;
+  const roomConfigDrifted =
+    maxParticipants != null && maxParticipants !== DAILY_VIDEO_DATE_ROOM_MAX_PARTICIPANTS;
+  return {
+    exists: true,
+    expired: expiresTooSoon || roomConfigDrifted,
+    expiresAt: exp == null ? null : new Date(exp * 1000).toISOString(),
+  };
+}
+
+async function getDailyRoomProviderState(roomName: string, retries = 1): Promise<DailyRoomProviderState> {
+  const response = await fetchWithTimeout(`${DAILY_API_URL}/rooms/${encodeURIComponent(roomName)}`, {
+    method: "GET",
+    headers: { Authorization: `Bearer ${DAILY_API_KEY}` },
+  }, {
+    provider: "daily",
+    operation: "room_lookup",
+    timeoutMs: providerFetchTimeoutMs("daily", "room_lookup"),
+    retryAfterSeconds: 30,
+  });
+
+  if (response.status === 429 && retries > 0) {
+    if (await waitForBoundedDailyTokenRetry(response.headers, 2)) {
+      return getDailyRoomProviderState(roomName, retries - 1);
+    }
+  }
+
+  if (response.status === 404) return { exists: false, expired: false, expiresAt: null };
+  if (!response.ok) return throwProviderResponseError("room_lookup", response, roomName);
+  const payload = await response.json().catch(() => null);
+  return parseDailyRoomProviderStatePayload(roomName, payload);
+}
+
+async function ensureDailyRoomProviderReadyForTokenRefresh(params: {
+  sessionId: string;
+  userId: string;
+  roomName: string;
+}): Promise<DailyRoomProviderProof> {
+  const state = await getDailyRoomProviderState(params.roomName);
+  if (state.exists && !state.expired) {
+    return { ok: true, reason: "exists", expiresAt: state.expiresAt };
+  }
+
+  console.log(JSON.stringify({
+    event: "video_date_token_refresh_provider_room_not_ready",
+    session_id: params.sessionId,
+    user_id: params.userId,
+    room_name: params.roomName,
+    reason: state.exists ? "expired" : "missing",
+    provider_exists: state.exists,
+    provider_expired: state.expired,
+    provider_expires_at: state.expiresAt,
+  }));
+
+  return { ok: false, reason: state.exists ? "expired" : "missing", expiresAt: state.expiresAt };
 }
 
 function jsonResponse(payload: unknown, status = 200, retryAfterSeconds?: number | null): Response {
@@ -104,11 +239,16 @@ async function isClientFeatureFlagEnabled(supabase: SupabaseEdgeClient, flag: st
   }
 }
 
-function resolveTokenWindow(snapshot: SnapshotPayload, issuedAtMs: number, phaseBoundedTokens: boolean): {
+function resolveTokenWindow(
+  snapshot: SnapshotPayload,
+  issuedAtMs: number,
+  phaseBoundedTokens: boolean,
+  roomExpiresAtIso?: string | null,
+): {
   ttlSeconds: number;
   tokenExpiresAtMs: number;
   tokenExpiresAtIso: string;
-  reason: "phase_deadline" | "max_ttl";
+  reason: "phase_deadline" | "daily_room_expiry" | "max_ttl";
 } {
   const maxTtlMs = DAILY_VIDEO_DATE_TOKEN_TTL_SECONDS * 1000;
   const minTtlMs = DAILY_VIDEO_DATE_TOKEN_MIN_TTL_SECONDS * 1000;
@@ -119,8 +259,9 @@ function resolveTokenWindow(snapshot: SnapshotPayload, issuedAtMs: number, phase
   const phaseDeadlineAtMs = phaseBoundedTokens && typeof snapshot.phaseDeadlineAt === "number" && Number.isFinite(snapshot.phaseDeadlineAt)
     ? snapshot.phaseDeadlineAt
     : null;
+  const roomExpiresAtMs = roomExpiresAtIso ? Date.parse(roomExpiresAtIso) : NaN;
   let targetExpiresAtMs = issuedAtMs + maxTtlMs;
-  let reason: "phase_deadline" | "max_ttl" = "max_ttl";
+  let reason: "phase_deadline" | "daily_room_expiry" | "max_ttl" = "max_ttl";
 
   if (phaseDeadlineAtMs !== null && phaseDeadlineAtMs > serverNowMs) {
     targetExpiresAtMs = phaseDeadlineAtMs - clockSkewMs + DAILY_VIDEO_DATE_TOKEN_PHASE_EXTENSION_BUFFER_MS;
@@ -128,11 +269,22 @@ function resolveTokenWindow(snapshot: SnapshotPayload, issuedAtMs: number, phase
   } else if (phaseDeadlineAtMs !== null) {
     targetExpiresAtMs = issuedAtMs + minTtlMs;
     reason = "phase_deadline";
+  } else if (Number.isFinite(roomExpiresAtMs) && roomExpiresAtMs > serverNowMs) {
+    targetExpiresAtMs = roomExpiresAtMs - clockSkewMs;
+    reason = "daily_room_expiry";
   }
 
   targetExpiresAtMs = Math.min(targetExpiresAtMs, issuedAtMs + maxTtlMs);
+  if (Number.isFinite(roomExpiresAtMs) && roomExpiresAtMs > issuedAtMs) {
+    targetExpiresAtMs = Math.min(targetExpiresAtMs, roomExpiresAtMs);
+  }
   if (targetExpiresAtMs <= issuedAtMs + minTtlMs) {
-    targetExpiresAtMs = Math.min(issuedAtMs + minTtlMs, issuedAtMs + maxTtlMs);
+    targetExpiresAtMs = Math.min(
+      issuedAtMs + minTtlMs,
+      Number.isFinite(roomExpiresAtMs) && roomExpiresAtMs > issuedAtMs
+        ? roomExpiresAtMs
+        : issuedAtMs + maxTtlMs,
+    );
   }
   const ttlSeconds = Math.max(1, Math.ceil((targetExpiresAtMs - issuedAtMs) / 1000));
   const tokenExpiresAtMs = issuedAtMs + ttlSeconds * 1000;
@@ -146,7 +298,6 @@ function resolveTokenWindow(snapshot: SnapshotPayload, issuedAtMs: number, phase
 }
 
 async function createMeetingToken(
-  supabase: SupabaseEdgeClient,
   roomName: string,
   userId: string,
   ttlSeconds: number,
@@ -160,7 +311,6 @@ async function createMeetingToken(
 
   const issuedAtMs = Date.now();
   const tokenExpiresAtMs = issuedAtMs + ttlSeconds * 1000;
-  await enforceTokenRefreshRateLimit(supabase);
   const response = await fetchWithTimeout(`${DAILY_API_URL}/meeting-tokens`, {
     method: "POST",
     headers: {
@@ -184,7 +334,7 @@ async function createMeetingToken(
 
   if (response.status === 429 && retries > 0) {
     if (await waitForBoundedDailyTokenRetry(response.headers, 2)) {
-      return createMeetingToken(supabase, roomName, userId, ttlSeconds, retries - 1);
+      return createMeetingToken(roomName, userId, ttlSeconds, retries - 1);
     }
   }
 
@@ -284,15 +434,51 @@ serve(async (req) => {
   if (!roomName || !roomUrl) {
     return jsonResponse({ ok: false, error: "room_not_ready", phase, retryable: true }, 409);
   }
+  const expectedRoomName = videoDateRoomNameForSession(sessionId);
+  const expectedRoomUrl = videoDateRoomUrlForName(expectedRoomName, DAILY_DOMAIN);
+  if (
+    roomName !== expectedRoomName ||
+    roomUrl !== expectedRoomUrl ||
+    !isDailyRoomUrlForName(roomUrl, expectedRoomName, DAILY_DOMAIN)
+  ) {
+    console.error(JSON.stringify({
+      event: "video_date_token_refresh_room_mismatch",
+      session_id: sessionId,
+      user_id: user.id,
+      room_name: roomName,
+      expected_room_name: expectedRoomName,
+      room_url_matches_canonical: roomUrl === expectedRoomUrl,
+    }));
+    return jsonResponse({ ok: false, error: "room_mismatch", phase, retryable: true }, 409);
+  }
+  if (!DAILY_API_KEY) {
+    return jsonResponse({ ok: false, error: "daily_provider_unavailable", phase, retryable: true }, 503);
+  }
 
   try {
+    await enforceTokenRefreshRateLimit(supabase);
+    const providerProof = await ensureDailyRoomProviderReadyForTokenRefresh({
+      sessionId,
+      userId: user.id,
+      roomName,
+    });
+    if (!providerProof.ok) {
+      return jsonResponse({
+        ok: false,
+        error: "room_not_ready",
+        phase,
+        retryable: true,
+        provider_reason: providerProof.reason,
+        daily_room_expires_at: providerProof.expiresAt,
+      }, 409);
+    }
     const phaseBoundedTokens = await isClientFeatureFlagEnabled(
       supabase,
       "video_date.daily_token_refresh_v2",
       user.id,
     );
-    const tokenWindow = resolveTokenWindow(snapshot, Date.now(), phaseBoundedTokens);
-    const tokenResult = await createMeetingToken(supabase, roomName, user.id, tokenWindow.ttlSeconds);
+    const tokenWindow = resolveTokenWindow(snapshot, Date.now(), phaseBoundedTokens, providerProof.expiresAt);
+    const tokenResult = await createMeetingToken(roomName, user.id, tokenWindow.ttlSeconds);
     return jsonResponse({
       ok: true,
       session_id: sessionId,
@@ -305,6 +491,9 @@ serve(async (req) => {
       tokenExpiresAt: tokenResult.tokenExpiresAtMs,
       token_ttl_seconds: tokenWindow.ttlSeconds,
       token_expiry_reason: tokenWindow.reason,
+      provider_room_recovered: false,
+      provider_verify_reason: providerProof.reason,
+      daily_room_expires_at: providerProof.expiresAt,
     });
   } catch (tokenError) {
     if (tokenError instanceof ProviderRateLimitError) {

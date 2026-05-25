@@ -2,10 +2,12 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   buildMeetingTokenProperties,
+  buildVideoDateRoomProperties,
   canIssueAnswerTokenForMatchCallStatus,
   canReuseOpenMatchCallForCreateRetry,
   canReuseOpenMatchCallSameParticipants,
   classifyDeleteRoomSafety,
+  evaluateDailyProductionConfigReadiness,
   isDailyRoomAlreadyExistsErrorText,
   isDailyRoomUrlForName,
   isIncomingMatchCallForRequester,
@@ -60,6 +62,32 @@ test("Daily room URL validation is bound to the expected domain and room", () =>
   assert.equal(isDailyRoomUrlForName("not a url", ROOM_NAME, DAILY_DOMAIN), false);
 });
 
+test("Daily production config readiness blocks missing fallback launch posture without exposing secrets", () => {
+  const blocked = evaluateDailyProductionConfigReadiness({
+    dailyApiKey: "",
+    dailyDomainEnv: "",
+    dailyWebhookSecret: "placeholder",
+    cleanupCronSecret: null,
+  });
+
+  assert.equal(blocked.ready, false);
+  assert.deepEqual(blocked.blockers, [
+    "daily_api_key_missing",
+    "daily_domain_missing",
+    "daily_domain_fallback_used",
+    "daily_webhook_secret_missing",
+    "daily_cleanup_cron_secret_missing",
+  ]);
+
+  const ready = evaluateDailyProductionConfigReadiness({
+    dailyApiKey: "daily_live_key_present",
+    dailyDomainEnv: DAILY_DOMAIN,
+    dailyWebhookSecret: "base64-hmac-present",
+    cleanupCronSecret: "cron-secret-present",
+  });
+  assert.deepEqual(ready, { ready: true, blockers: [] });
+});
+
 test("participant tokens are scoped to the same canonical room but distinct users", () => {
   const userA = buildMeetingTokenProperties({
     roomName: ROOM_NAME,
@@ -92,6 +120,21 @@ test("meeting tokens can opt into provider eject at token expiry", () => {
   });
 
   assert.equal(token.eject_at_token_exp, true);
+});
+
+test("video-date provider room properties are private, finite, and two-person only", () => {
+  assert.deepEqual(buildVideoDateRoomProperties({ nowSeconds: 1_000, ttlSeconds: 120 }), {
+    max_participants: 2,
+    enable_chat: false,
+    enable_screenshare: false,
+    enable_recording: false,
+    enable_knocking: false,
+    enforce_unique_user_ids: true,
+    start_video_off: false,
+    start_audio_off: false,
+    exp: 1_120,
+    eject_at_room_exp: true,
+  });
 });
 
 test("Daily provider already-exists errors are treated as idempotent room creation success", () => {

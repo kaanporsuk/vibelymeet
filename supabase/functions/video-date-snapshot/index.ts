@@ -1,6 +1,9 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { buildMeetingTokenProperties } from "../daily-room/dailyRoomContracts.ts";
+import {
+  buildMeetingTokenProperties,
+  DAILY_VIDEO_DATE_ROOM_TTL_SECONDS as DAILY_VIDEO_DATE_ROOM_TTL_SECONDS_CONTRACT,
+} from "../daily-room/dailyRoomContracts.ts";
 import {
   enforceProviderRateLimit,
   fetchWithTimeout,
@@ -23,7 +26,7 @@ const corsHeaders = {
 
 const DAILY_API_KEY = Deno.env.get("DAILY_API_KEY")?.trim() ?? "";
 const DAILY_API_URL = "https://api.daily.co/v1";
-const DAILY_VIDEO_DATE_ROOM_TTL_SECONDS = 14_400;
+const DAILY_VIDEO_DATE_ROOM_TTL_SECONDS = DAILY_VIDEO_DATE_ROOM_TTL_SECONDS_CONTRACT;
 const DAILY_VIDEO_DATE_SNAPSHOT_TOKEN_TTL_SECONDS = DAILY_VIDEO_DATE_ROOM_TTL_SECONDS;
 const DAILY_VIDEO_DATE_SNAPSHOT_TOKEN_PHASE_EXTENSION_BUFFER_MS = 2 * 60 * 1000;
 const DAILY_VIDEO_DATE_SNAPSHOT_TOKEN_MIN_TTL_SECONDS = 180;

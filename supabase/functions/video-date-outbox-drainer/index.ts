@@ -1,5 +1,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import {
+  buildVideoDateRoomProperties,
+  DAILY_VIDEO_DATE_ROOM_TTL_SECONDS as DAILY_VIDEO_DATE_ROOM_TTL_SECONDS_CONTRACT,
   isDailyRoomAlreadyExistsErrorText,
   isDailyRoomUrlForName,
   videoDateRoomNameForSession,
@@ -30,7 +32,7 @@ const corsHeaders: Record<string, string> = {
 
 const DAILY_API_URL = "https://api.daily.co/v1";
 const DAILY_DOMAIN = Deno.env.get("DAILY_DOMAIN")?.trim() || "vibelyapp.daily.co";
-const DAILY_VIDEO_DATE_ROOM_TTL_SECONDS = 14_400;
+const DAILY_VIDEO_DATE_ROOM_TTL_SECONDS = DAILY_VIDEO_DATE_ROOM_TTL_SECONDS_CONTRACT;
 const WORKER_KIND = "video-date-outbox-drainer";
 
 type WorkerRequest = {
@@ -239,18 +241,10 @@ function dailyHeaders(): HeadersInit | null {
 }
 
 function dailyRoomProperties(): Record<string, unknown> {
-  return {
-    max_participants: 2,
-    enable_chat: false,
-    enable_screenshare: false,
-    enable_recording: false,
-    enable_knocking: false,
-    enforce_unique_user_ids: true,
-    start_video_off: false,
-    start_audio_off: false,
-    exp: Math.floor(Date.now() / 1000) + DAILY_VIDEO_DATE_ROOM_TTL_SECONDS,
-    eject_at_room_exp: true,
-  };
+  return buildVideoDateRoomProperties({
+    nowSeconds: Math.floor(Date.now() / 1000),
+    ttlSeconds: DAILY_VIDEO_DATE_ROOM_TTL_SECONDS,
+  });
 }
 
 function providerRetryAfter(status: number | null): number {

@@ -1,7 +1,9 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import {
+  buildVideoDateRoomProperties,
   buildMeetingTokenProperties,
+  DAILY_VIDEO_DATE_ROOM_TTL_SECONDS as DAILY_VIDEO_DATE_ROOM_TTL_SECONDS_CONTRACT,
   canIssueAnswerTokenForMatchCallStatus,
   canReuseOpenMatchCallForCreateRetry,
   canReuseOpenMatchCallSameParticipants,
@@ -36,7 +38,7 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
-const DAILY_API_KEY = Deno.env.get("DAILY_API_KEY")!;
+const DAILY_API_KEY = Deno.env.get("DAILY_API_KEY")?.trim() ?? "";
 const DAILY_DOMAIN_FALLBACK = "vibelyapp.daily.co";
 const DAILY_DOMAIN_ENV = Deno.env.get("DAILY_DOMAIN")?.trim();
 const DAILY_DOMAIN = DAILY_DOMAIN_ENV || DAILY_DOMAIN_FALLBACK;
@@ -50,7 +52,7 @@ if (!DAILY_DOMAIN_ENV) {
 const DAILY_API_URL = "https://api.daily.co/v1";
 const DAILY_MATCH_CALL_TOKEN_TTL_SECONDS = 30 * 60;
 const DAILY_MATCH_CALL_ROOM_TTL_SECONDS = 60 * 60;
-const DAILY_VIDEO_DATE_ROOM_TTL_SECONDS = 14_400;
+const DAILY_VIDEO_DATE_ROOM_TTL_SECONDS = DAILY_VIDEO_DATE_ROOM_TTL_SECONDS_CONTRACT;
 // The installed Daily web/native SDKs do not expose a typed meeting-token
 // refresh method after join. Keep video-date tokens finite but aligned with the
 // private provider room lifetime so users are not ejected mid-date by token exp.
@@ -188,6 +190,18 @@ async function dailyProviderFetch(
   init: RequestInit,
   roomName?: string | null,
 ): Promise<Response> {
+  if (!DAILY_API_KEY) {
+    throw new DailyProviderError({
+      operation,
+      status: null,
+      providerCode: "daily_api_key_missing",
+      roomName,
+      vibelyCode: "DAILY_PROVIDER_UNAVAILABLE",
+      httpStatus: 503,
+      clientMessage: "Video service temporarily unavailable.",
+    });
+  }
+
   const reliabilityClient = getProviderReliabilityClient();
   if (!reliabilityClient) {
     throw new DailyProviderError({
@@ -1392,18 +1406,10 @@ async function deleteDailyRoom(
 }
 
 function videoDateRoomProperties(): Record<string, unknown> {
-  return {
-    max_participants: 2,
-    enable_chat: false,
-    enable_screenshare: false,
-    enable_recording: false,
-    enable_knocking: false,
-    enforce_unique_user_ids: true,
-    start_video_off: false,
-    start_audio_off: false,
-    exp: Math.floor(Date.now() / 1000) + DAILY_VIDEO_DATE_ROOM_TTL_SECONDS,
-    eject_at_room_exp: true,
-  };
+  return buildVideoDateRoomProperties({
+    nowSeconds: Math.floor(Date.now() / 1000),
+    ttlSeconds: DAILY_VIDEO_DATE_ROOM_TTL_SECONDS,
+  });
 }
 
 function videoDateDiagnosticRoomProperties(): Record<string, unknown> {

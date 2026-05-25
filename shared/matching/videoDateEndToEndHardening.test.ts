@@ -2310,7 +2310,7 @@ test("duplicate active-session conflicts use the canonical audit event on web an
 });
 
 test("video-date Daily room and token TTL use explicit finite phase-bounded constants separate from match calls", () => {
-  assert.match(dailyRoomFunction, /DAILY_VIDEO_DATE_ROOM_TTL_SECONDS = 14_400/);
+  assert.match(dailyRoomFunction, /DAILY_VIDEO_DATE_ROOM_TTL_SECONDS = DAILY_VIDEO_DATE_ROOM_TTL_SECONDS_CONTRACT/);
   assert.match(dailyRoomFunction, /DAILY_VIDEO_DATE_TOKEN_TTL_SECONDS = DAILY_VIDEO_DATE_ROOM_TTL_SECONDS/);
   assert.match(dailyRoomFunction, /DAILY_VIDEO_DATE_TOKEN_PHASE_EXTENSION_BUFFER_MS = 2 \* 60 \* 1000/);
   assert.match(dailyRoomFunction, /DAILY_VIDEO_DATE_TOKEN_MIN_TTL_SECONDS = 180/);
@@ -2326,7 +2326,7 @@ test("video-date Daily room and token TTL use explicit finite phase-bounded cons
   assert.match(dailyRoomFunction, /token_expires_at: tokenExpiresAt/);
   assert.match(dailyRoomFunction, /token_ttl_seconds: tokenWindow\.ttlSeconds/);
   assert.match(dailyRoomFunction, /token_expiry_reason: tokenWindow\.reason/);
-  assert.match(dailyRoomFunction, /exp: Math\.floor\(Date\.now\(\) \/ 1000\) \+ DAILY_VIDEO_DATE_ROOM_TTL_SECONDS/);
+  assert.match(dailyRoomFunction, /buildVideoDateRoomProperties\(\{[\s\S]*ttlSeconds: DAILY_VIDEO_DATE_ROOM_TTL_SECONDS/);
 });
 
 test("prepare-entry documents its deterministic provider-idempotent concurrency contract", () => {
