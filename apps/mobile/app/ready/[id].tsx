@@ -46,6 +46,7 @@ import {
   resolveReadyGateTerminalRecoveryViaAdvisor as resolveReadyGateTerminalRecovery,
 } from '@clientShared/matching/videoDateRecoveryAdvisor';
 import { getReadyGateReadinessStatusCopy } from '@clientShared/matching/readyGateReadiness';
+import { resolveReadyGatePrepareEntryFailureCopy } from '@clientShared/matching/readyGateDiagnosticCopy';
 
 const GATE_TIMEOUT_SEC = READY_GATE_DEFAULT_TIMEOUT_SECONDS;
 const READY_GATE_TRUTH_RECONCILE_MS = 10_000;
@@ -192,6 +193,10 @@ export default function ReadyGateScreen() {
           dateNavigationStartedRef.current = false;
           setTransitioning(false);
           clearDateEntryTransition(sid);
+          setTerminalActionError(resolveReadyGatePrepareEntryFailureCopy({
+            code: prepared.code,
+            platform: 'native',
+          }).message);
           rcBreadcrumb(RC_CATEGORY.readyGate, 'standalone_prepare_entry_failed_before_date_nav', {
             session_id: sid,
             user_id: user.id,

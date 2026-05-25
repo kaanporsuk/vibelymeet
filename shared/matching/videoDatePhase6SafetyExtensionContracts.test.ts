@@ -24,6 +24,7 @@ const extensionSpend = readFileSync(
   join(root, "shared/matching/videoDateExtensionSpend.ts"),
   "utf8",
 );
+const extensionCopy = readFileSync(join(root, "shared/matching/videoDateExtensionCopy.ts"), "utf8");
 const webVideoDate = readFileSync(join(root, "src/pages/VideoDate.tsx"), "utf8");
 const webKeepTheVibe = readFileSync(join(root, "src/components/video-date/KeepTheVibe.tsx"), "utf8");
 const nativeVideoDate = readFileSync(join(root, "apps/mobile/app/date/[id].tsx"), "utf8");
@@ -154,9 +155,7 @@ test("web and native consume mutual extension behind the default-off flag", () =
   assert.match(webVideoDate, /pendingPartnerExtension/);
   assert.match(webVideoDate, /pendingPartnerRequestType=\{pendingPartnerExtension\?\.type \?\? null\}/);
   assert.match(webKeepTheVibe, /mutualMode/);
-  assert.match(webKeepTheVibe, /Ask \+2/);
-  assert.match(webKeepTheVibe, /Accept \+2/);
-  assert.match(webKeepTheVibe, /Request sent\. The date extends if your match accepts\./);
+  assert.match(webKeepTheVibe, /resolveVideoDateExtensionCopy/);
 
   assert.match(nativeApi, /extensionMutualV2\?: boolean/);
   assert.match(nativeApi, /video_session_request_extension_v2/);
@@ -168,8 +167,11 @@ test("web and native consume mutual extension behind the default-off flag", () =
   assert.match(nativeVideoDate, /pendingPartnerExtension/);
   assert.match(nativeVideoDate, /pendingPartnerRequestType=\{pendingPartnerExtension\?\.type \?\? null\}/);
   assert.match(nativeKeepTheVibe, /mutualMode/);
-  assert.match(nativeKeepTheVibe, /Ask \+2/);
-  assert.match(nativeKeepTheVibe, /Accept \+2/);
+  assert.match(nativeKeepTheVibe, /resolveVideoDateExtensionCopy/);
+
+  assert.match(extensionCopy, /Ask \+\$\{minutes\}/);
+  assert.match(extensionCopy, /Accept \+\$\{minutes\}/);
+  assert.match(extensionCopy, /Request sent\. The date extends if your match accepts\./);
 });
 
 test("Phase 6 safety/extension contracts are included in the v4 verification script", () => {

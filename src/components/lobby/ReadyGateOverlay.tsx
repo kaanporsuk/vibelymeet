@@ -74,6 +74,7 @@ import {
   getReadyGatePermissionPrewarmReleaseDelayMs,
   getReadyGateReadinessStatusCopy,
 } from "@clientShared/matching/readyGateReadiness";
+import { resolveReadyGatePrepareEntryFailureCopy } from "@clientShared/matching/readyGateDiagnosticCopy";
 
 interface ReadyGateOverlayProps {
   sessionId: string;
@@ -198,36 +199,7 @@ function sleep(ms: number) {
 }
 
 function prepareEntryFailureMessage(code?: string): string {
-  const recovery = resolveReadyGateTerminalRecovery({
-    code,
-    errorCode: code,
-    source: "prepare_entry",
-  });
-  if (!recovery.retryable) return recovery.body;
-
-  switch (code) {
-    case "UNAUTHORIZED":
-      return "Please sign in again, then try once more.";
-    case "ACCESS_DENIED":
-      return "You do not have access to this date.";
-    case "BLOCKED_PAIR":
-      return "This call is no longer available.";
-    case "SESSION_ENDED":
-      return "This date has already ended.";
-    case "EVENT_NOT_ACTIVE":
-      return "This Ready Gate is no longer available.";
-    case "DAILY_AUTH_FAILED":
-    case "DAILY_CREDENTIALS_INVALID":
-      return "Video provider authentication failed. Please try again later.";
-    case "DAILY_REQUEST_REJECTED":
-      return "The video room could not be prepared. Please try again later.";
-    case "DAILY_RATE_LIMIT":
-    case "DAILY_PROVIDER_UNAVAILABLE":
-    case "DAILY_PROVIDER_ERROR":
-      return "The video service is still setting up. Please try again in a moment.";
-    default:
-      return "We could not prepare the video room. Please try again.";
-  }
+  return resolveReadyGatePrepareEntryFailureCopy({ code, platform: "web" }).message;
 }
 
 function prepareEntryTransitionCopy(status: PrepareEntryStatus, failure: PrepareEntryFailureState) {

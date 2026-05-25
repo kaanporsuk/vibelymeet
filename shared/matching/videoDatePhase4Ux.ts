@@ -40,6 +40,17 @@ export type EventDeckPhase4UiState = {
   terminal: boolean;
 };
 
+export type VideoDateQueueCopy = {
+  compactLabel: string;
+  title: string;
+  message: string;
+  positionLabel: string | null;
+  etaLabel: string | null;
+  reliefLabel: string | null;
+  isNext: boolean;
+  detailParts: string[];
+};
+
 type ResolveEventDeckPhase4UiStateInput = {
   platform: EventDeckPhase4Platform;
   deckStateReason?: string | null;
@@ -96,10 +107,19 @@ export function shouldShowVideoDateIceBreaker(input: {
 }
 
 export function formatVideoDateQueueEtaLabel(seconds: number | null | undefined): string | null {
-  if (seconds == null || seconds < 0) return null;
+  if (seconds == null || !Number.isFinite(seconds) || seconds < 0) return null;
   if (seconds <= 5) return "now";
   if (seconds < 60) return `~${Math.ceil(seconds / 5) * 5}s`;
   return `~${Math.ceil(seconds / 60)}m`;
+}
+
+function safeQueueCount(value: number | null | undefined): number {
+  return typeof value === "number" && Number.isFinite(value) ? Math.max(0, Math.floor(value)) : 0;
+}
+
+function safeQueuePosition(value: number | null | undefined): number | null {
+  if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) return null;
+  return Math.floor(value);
 }
 
 export function formatVideoDateQueueHintLabel(
@@ -108,17 +128,61 @@ export function formatVideoDateQueueHintLabel(
 ): string {
   if (hint?.queued) {
     const eta = formatVideoDateQueueEtaLabel(hint.estimatedWaitSeconds);
-    const count = Math.max(fallbackCount, hint.eventQueuedCount ?? 0, hint.userQueuedCount ?? 0);
+    const position = safeQueuePosition(hint.position);
+    const count = Math.max(
+      safeQueueCount(fallbackCount),
+      safeQueueCount(hint.eventQueuedCount),
+      safeQueueCount(hint.userQueuedCount),
+    );
     const parts =
-      hint.position != null && hint.position > 0
-        ? [`Position ${hint.position}`]
+      position != null
+        ? [`Position ${position}`]
         : [count === 1 ? "1 waiting in queue" : `${count} waiting in queue`];
     if (eta) parts.push(eta);
     if (hint.reliefActive) parts.push("priority boost");
     return parts.join(" · ");
   }
-  const count = Math.max(fallbackCount, hint?.eventQueuedCount ?? 0);
+  const count = Math.max(safeQueueCount(fallbackCount), safeQueueCount(hint?.eventQueuedCount));
   return count === 1 ? "1 waiting in queue" : `${count} waiting in queue`;
+}
+
+export function resolveVideoDateQueueCopy(
+  hint: VideoDateQueueHint | null | undefined,
+  fallbackCount: number,
+): VideoDateQueueCopy {
+  const compactLabel = formatVideoDateQueueHintLabel(hint, fallbackCount);
+  const etaLabel = hint?.queued ? formatVideoDateQueueEtaLabel(hint.estimatedWaitSeconds) : null;
+  const position = hint?.queued ? safeQueuePosition(hint.position) : null;
+  const isNext = position === 1;
+  const positionLabel = position == null ? null : isNext ? "You're next" : `Position ${position}`;
+  const reliefLabel = hint?.queued && hint.reliefActive ? "priority boost" : null;
+  const detailParts = [positionLabel, etaLabel, reliefLabel].filter((part): part is string => Boolean(part));
+
+  if (hint?.queued) {
+    return {
+      compactLabel,
+      title: isNext ? "You're next" : "Waiting for a match",
+      message: isNext
+        ? "Keep this room open. Ready Gate will open as soon as your match is ready."
+        : "You are in the matching queue. Ready Gate opens when a match is available.",
+      positionLabel,
+      etaLabel,
+      reliefLabel,
+      isNext,
+      detailParts,
+    };
+  }
+
+  return {
+    compactLabel,
+    title: "Waiting for a match",
+    message: "Ready Gate opens when a match is available.",
+    positionLabel: null,
+    etaLabel: null,
+    reliefLabel: null,
+    isNext: false,
+    detailParts: [compactLabel],
+  };
 }
 
 function normalizeReason(value: unknown): string {

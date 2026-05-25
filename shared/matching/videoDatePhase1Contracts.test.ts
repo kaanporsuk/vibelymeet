@@ -272,8 +272,9 @@ test("public API interface changes are exposed for deck state, queue hints, paym
   assert.match(nativeLobby, /deckState\.reason !== 'event_not_active'[\s\S]+setServerInactiveEventReason\(null\)/);
   assert.match(nativeLobby, /resolveEventDeckPhase4UiState/);
   assert.match(nativeLobby, /deckState\?\.inactive_reason/);
-  assert.match(webLobby, /formatVideoDateQueueHintLabel/);
-  assert.match(nativeLobby, /formatVideoDateQueueHintLabel/);
+  assert.match(webLobby, /resolveVideoDateQueueCopy/);
+  assert.match(nativeLobby, /resolveVideoDateQueueCopy/);
+  assert.match(phase4UxLib, /formatVideoDateQueueHintLabel/);
   assert.match(phase4UxLib, /priority boost/);
   assert.match(nativeActiveSession, /fetchVideoDateQueueHint/);
   assert.doesNotMatch(nativeActiveSession, /\.eq\('ready_gate_status', 'queued'\)/);
