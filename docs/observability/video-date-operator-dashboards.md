@@ -6,6 +6,10 @@ This runbook defines operator-grade dashboards for the live event loop:
 
 Ready Gate -> video date -> post-date survey -> next Ready Gate.
 
+For Sprint 7 safety, privacy, RLS, DLQ, orphan-room, and incident runbooks, use
+`docs/observability/video-date-sprint7-safety-privacy-ops.md` alongside this
+latency/queue dashboard spec.
+
 It answers five questions:
 
 1. How long does Ready Gate open -> date join take?

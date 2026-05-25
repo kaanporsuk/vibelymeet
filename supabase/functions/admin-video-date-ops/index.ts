@@ -148,6 +148,15 @@ type DailyPerformanceEmissionHealthRow = {
   missing_for_rollout_gate: boolean | null;
 };
 
+type Sprint7SafetyPrivacyOpsHealthPayload = {
+  ok: boolean;
+  generated_at: string | null;
+  event_id: string | null;
+  privacy_contract: Record<string, unknown> | null;
+  windows: Record<string, unknown>[];
+  source_error?: string;
+};
+
 type LaunchLatencyCheckpointRow = {
   created_at?: string | null;
   latency_ms: number | null;
@@ -816,6 +825,16 @@ function worstMetricStatus(statuses: Array<MetricStatus | null | undefined>): Me
   return "healthy";
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === "object" && !Array.isArray(value);
+}
+
+function normalizeSprint7OpsStatus(value: unknown): MetricStatus {
+  return value === "healthy" || value === "warning" || value === "critical"
+    ? value
+    : "unknown";
+}
+
 async function getQueueFairnessHealth(
   service: SupabaseClientLike,
   eventId: string | null,
@@ -1060,10 +1079,140 @@ async function getDailyPerformanceEmissionHealth(
   };
 }
 
+const SPRINT7_PRIVACY_CONTRACT_FALLBACK = {
+  scope: "service_role_only",
+  payload_shape: "counts_enum_reasons_and_operational_ids_only",
+  excludes: [
+    "daily_tokens",
+    "provider_secrets",
+    "auth_headers",
+    "profile_text",
+    "profile_names",
+    "emails",
+    "phone_numbers",
+    "media_urls",
+    "freeform_report_details",
+  ],
+} as const;
+
+function emptySprint7SafetyPrivacyOpsHealth(
+  window: VideoDateOpsWindowDefinition,
+  eventId: string | null,
+  sourceError?: string,
+) {
+  return {
+    window_id: window.id,
+    window_label: window.label,
+    event_id: eventId,
+    status: "unknown" as MetricStatus,
+    source: "get_video_date_sprint7_ops_health",
+    generated_at: null,
+    privacy_contract: SPRINT7_PRIVACY_CONTRACT_FALLBACK,
+    stuck_ready_gate_count: 0,
+    stuck_handshake_count: 0,
+    overdue_date_count: 0,
+    silently_queued_count: 0,
+    pending_survey_recovery_count: 0,
+    prepare_entry_failure_count: 0,
+    daily_join_failure_count: 0,
+    client_stuck_observed_count: 0,
+    queue_drain_miss_count: 0,
+    queue_drain_failure_count: 0,
+    report_count: 0,
+    pending_report_count: 0,
+    report_with_block_count: 0,
+    block_count: 0,
+    webhook_dlq_count: 0,
+    unresolved_webhook_dlq_count: 0,
+    retryable_webhook_dlq_count: 0,
+    webhook_dlq_error_classes: {},
+    orphan_room_cleanup_rows: 0,
+    orphan_room_cleanup_failed_count: 0,
+    orphan_room_destructive_candidate_count: 0,
+    orphan_room_safety_interlock_skip_count: 0,
+    ...(sourceError ? { source_error: sourceError } : {}),
+  };
+}
+
+async function getSprint7SafetyPrivacyOpsHealthPayload(
+  service: SupabaseClientLike,
+  eventId: string | null,
+): Promise<Sprint7SafetyPrivacyOpsHealthPayload> {
+  const { data, error } = await service.rpc("get_video_date_sprint7_ops_health", {
+    p_event_id: eventId,
+  });
+
+  if (error) {
+    return {
+      ok: false,
+      generated_at: null,
+      event_id: eventId,
+      privacy_contract: null,
+      windows: [],
+      source_error: error.message,
+    };
+  }
+
+  if (!isRecord(data)) {
+    return {
+      ok: false,
+      generated_at: null,
+      event_id: eventId,
+      privacy_contract: null,
+      windows: [],
+      source_error: "invalid_sprint7_ops_health_payload",
+    };
+  }
+
+  const windows = Array.isArray(data.windows)
+    ? data.windows.filter(isRecord)
+    : [];
+
+  return {
+    ok: data.ok === true,
+    generated_at: typeof data.generated_at === "string" ? data.generated_at : null,
+    event_id: typeof data.event_id === "string" ? data.event_id : eventId,
+    privacy_contract: isRecord(data.privacy_contract) ? data.privacy_contract : null,
+    windows,
+    ...(data.ok === true ? {} : { source_error: "sprint7_ops_health_not_ok" }),
+  };
+}
+
+function selectSprint7SafetyPrivacyOpsHealth(
+  payload: Sprint7SafetyPrivacyOpsHealthPayload,
+  window: VideoDateOpsWindowDefinition,
+  eventId: string | null,
+) {
+  const base = emptySprint7SafetyPrivacyOpsHealth(window, eventId, payload.source_error);
+  if (payload.source_error) return base;
+
+  const row = payload.windows.find((candidate) => candidate.window_id === window.id);
+  if (!row) {
+    return emptySprint7SafetyPrivacyOpsHealth(
+      window,
+      eventId,
+      "sprint7_ops_health_window_missing",
+    );
+  }
+
+  return {
+    ...base,
+    ...row,
+    window_id: window.id,
+    window_label: typeof row.window_label === "string" ? row.window_label : window.label,
+    event_id: typeof row.event_id === "string" ? row.event_id : eventId,
+    status: normalizeSprint7OpsStatus(row.status),
+    source: "get_video_date_sprint7_ops_health",
+    generated_at: payload.generated_at,
+    privacy_contract: payload.privacy_contract ?? SPRINT7_PRIVACY_CONTRACT_FALLBACK,
+  };
+}
+
 async function buildWindowMetrics(
   service: SupabaseClientLike,
   window: VideoDateOpsWindowDefinition,
   eventId: string | null,
+  sprint7SafetyPrivacyOpsHealthPayload: Sprint7SafetyPrivacyOpsHealthPayload,
 ) {
   const sinceIso = new Date(Date.now() - window.hours * 60 * 60 * 1000).toISOString();
   const [
@@ -1099,6 +1248,11 @@ async function buildWindowMetrics(
     queue_fairness: queueFairness,
     daily_performance_decision: dailyPerformanceDecision,
     daily_performance_emission_health: dailyPerformanceEmissionHealth,
+    safety_privacy_ops_health: selectSprint7SafetyPrivacyOpsHealth(
+      sprint7SafetyPrivacyOpsHealthPayload,
+      window,
+      eventId,
+    ),
     timer_drift_recovered_by_server_truth: getTimerDriftExternalMetric(),
   };
 }
@@ -1209,9 +1363,12 @@ serve(async (req) => {
     }
 
     const eventId = parseEventId(body);
+    const sprint7SafetyPrivacyOpsHealth = await getSprint7SafetyPrivacyOpsHealthPayload(service, eventId);
 
     const windows = await Promise.all(
-      VIDEO_DATE_OPS_WINDOWS.map((window) => buildWindowMetrics(service, window, eventId)),
+      VIDEO_DATE_OPS_WINDOWS.map((window) =>
+        buildWindowMetrics(service, window, eventId, sprint7SafetyPrivacyOpsHealth),
+      ),
     );
 
     return jsonResponse({

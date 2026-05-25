@@ -8,7 +8,7 @@ This pack defines the operator-grade read model for the Vibely video-date loop. 
 - Current admin web surfaces use authenticated Supabase clients, so they cannot read `event_loop_observability_events` or `v_event_loop_*` directly.
 - The in-app operator dashboard uses the `admin-video-date-ops` Edge Function as a read bridge. The function requires bearer auth, verifies the caller is an admin with the bearer-scoped client, then creates a service-role client only after that verification.
 - The metrics action returns aggregate metrics only. The separate admin-only Date Timeline action returns redacted raw rows for one explicit `video_sessions.id` to support incident investigation; it does not expose profile fields, names, emails, or unrestricted user-level drilldowns.
-- No Supabase database migration is required for the dashboard bridge. Supabase Edge Function deployment is required when the function changes.
+- Sprint 7 adds `public.get_video_date_sprint7_ops_health(uuid)` as a service-role-only aggregate source for safety, privacy, DLQ, orphan-room, survey-recovery, and stuck-state health. Supabase Edge Function deployment is required when the admin bridge changes.
 
 Read this together with `docs/observability/event-loop-dashboard-normalization.md` before mixing drain, promotion, and mark-lobby aggregates.
 
@@ -39,6 +39,7 @@ Returned aggregates:
 - queue drain attempts, failures, failure rate, and top failure reasons
 - timer drift recovery source note for the PostHog-only metric
 - ready-tap to first blurred remote-frame latency from durable client checkpoints
+- `safety_privacy_ops_health` from `get_video_date_sprint7_ops_health`, including stuck Ready Gate, prepare-entry failures, Daily join failures, survey recovery, queue drain misses, webhook DLQ, orphan rooms, report counts, and block counts
 
 ## Metric Catalog
 
