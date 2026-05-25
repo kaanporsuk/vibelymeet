@@ -33,7 +33,6 @@ export function resolveMediaFallbackReason(input: {
 }): MediaFallbackReason {
   if (input.reason) return input.reason;
   if (input.stage === "poster") return "poster_unavailable";
-  if (input.stage === "hls_auth") return "hls_auth_failed";
 
   const code = typeof input.errorCode === "string" ? input.errorCode : "";
   if (code === "auth_expired") return "auth_expired";
@@ -41,10 +40,21 @@ export function resolveMediaFallbackReason(input: {
     return "asset_deleted";
   }
   if (code === "network_error" || code === "provider_unreachable") return "provider_unreachable";
-  if (input.httpStatus === 401 || input.httpStatus === 403) return "auth_expired";
-  if (input.httpStatus === 404 || input.httpStatus === 410) return "asset_deleted";
-  if (input.httpStatus === 502 || input.httpStatus === 503 || input.httpStatus === 504) return "provider_unreachable";
+
+  const httpStatusReason = resolveHttpStatusFallbackReason(input.httpStatus);
+  if (input.stage === "hls_auth") {
+    if (httpStatusReason === "auth_expired") return "hls_auth_failed";
+    return httpStatusReason ?? "hls_auth_failed";
+  }
+  if (httpStatusReason) return httpStatusReason;
   return "unknown";
+}
+
+function resolveHttpStatusFallbackReason(httpStatus: number | null | undefined): MediaFallbackReason | null {
+  if (httpStatus === 401 || httpStatus === 403) return "auth_expired";
+  if (httpStatus === 404 || httpStatus === 410) return "asset_deleted";
+  if (httpStatus === 502 || httpStatus === 503 || httpStatus === 504) return "provider_unreachable";
+  return null;
 }
 
 export function resolveMediaFallbackCopy(input: {

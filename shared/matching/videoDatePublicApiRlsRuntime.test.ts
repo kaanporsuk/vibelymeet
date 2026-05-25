@@ -32,6 +32,17 @@ type RuntimeResult = {
   data?: unknown;
   error?: { message?: string; code?: string; status?: number; name?: string } | null;
 };
+type RuntimeClient = {
+  rpc: (fn: string, args?: Record<string, unknown>) => PromiseLike<RuntimeResult>;
+  from: (table: string) => {
+    select: (columns: string) => {
+      limit: (count: number) => PromiseLike<RuntimeResult>;
+    };
+  };
+  functions: {
+    invoke: (fn: string, options?: { body?: Record<string, unknown> }) => PromiseLike<RuntimeResult>;
+  };
+};
 
 function hasDeniedError(result: RuntimeResult): boolean {
   const text = `${result.error?.code ?? ""} ${result.error?.status ?? ""} ${result.error?.name ?? ""} ${result.error?.message ?? ""}`;
@@ -63,15 +74,15 @@ test(
     const { createClient } = await import("@supabase/supabase-js");
     const anon = createClient(runtimeEnv.url, runtimeEnv.anonKey, {
       auth: { persistSession: false, autoRefreshToken: false },
-    }) as any;
+    }) as RuntimeClient;
     const participant = createClient(runtimeEnv.url, runtimeEnv.anonKey, {
       global: { headers: { Authorization: `Bearer ${runtimeEnv.participantJwt}` } },
       auth: { persistSession: false, autoRefreshToken: false },
-    }) as any;
+    }) as RuntimeClient;
     const nonParticipant = createClient(runtimeEnv.url, runtimeEnv.anonKey, {
       global: { headers: { Authorization: `Bearer ${runtimeEnv.nonParticipantJwt}` } },
       auth: { persistSession: false, autoRefreshToken: false },
-    }) as any;
+    }) as RuntimeClient;
 
     assertDenied(
       await anon.rpc("get_event_deck_v3", {

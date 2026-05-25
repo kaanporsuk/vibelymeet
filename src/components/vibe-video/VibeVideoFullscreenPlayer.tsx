@@ -13,7 +13,7 @@ import {
   refreshMediaAsset as refreshResolvedMediaAsset,
 } from "@/lib/mediaAssetResolver";
 import { MediaPlaceholder } from "@/components/media/MediaPlaceholder";
-import { preloadHlsPlaybackLibrary } from "@/lib/vibeVideo/attachHlsPlayback";
+import { hlsPlaybackErrorStatusCode, preloadHlsPlaybackLibrary } from "@/lib/vibeVideo/attachHlsPlayback";
 import {
   beginProfileVibeVideoTtffPlayback,
   completeProfileVibeVideoTtffPlayback,
@@ -160,14 +160,16 @@ export function VibeVideoFullscreenPlayer({
   }, []);
 
   const reportPlaybackError = useCallback((kind: "native" | "unsupported" | "fatal", detail?: unknown) => {
-    setPlaybackFailed(true);
-    setPlaybackFallbackReason(resolveMediaFallbackReason({
+    const fallbackReason = resolveMediaFallbackReason({
       stage: usesSignedProfileRef && isHlsPlaybackUrl ? "hls_auth" : "playback",
-    }));
+      httpStatus: isHlsPlaybackUrl ? hlsPlaybackErrorStatusCode(detail) : null,
+    });
+    setPlaybackFailed(true);
+    setPlaybackFallbackReason(fallbackReason);
     trackVibeVideoEvent(VIBE_VIDEO_EVENTS.playbackFailed, {
       source: "vibe_player_fullscreen",
       kind,
-      fallback_reason: usesSignedProfileRef && isHlsPlaybackUrl ? "hls_auth_failed" : "unknown",
+      fallback_reason: fallbackReason,
       video_guid: vibeVideoInfo.uid,
     });
     Sentry.addBreadcrumb({

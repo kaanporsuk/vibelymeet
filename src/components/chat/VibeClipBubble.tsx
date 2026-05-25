@@ -34,6 +34,7 @@ import {
   syncChatVibeClipUploadStatus,
   type ChatVibeClipProcessingStatus,
 } from "@/lib/mediaAssetResolver";
+import { hlsPlaybackErrorStatusCode } from "@/lib/vibeVideo/attachHlsPlayback";
 import {
   resolveMediaFallbackCopy,
   resolveMediaFallbackReason,
@@ -488,10 +489,13 @@ export const VibeClipBubble = ({
     return () => clearTimeout(t);
   }, [hasMetadata, isIosSafari, isReady, loadError]);
 
-  const handlePlaybackAttachError = useCallback(() => {
+  const handlePlaybackAttachError = useCallback((_kind: unknown, detail?: unknown) => {
     void refreshClipMedia().then((didRefresh) => {
       if (!didRefresh) {
-        setMediaFallbackReason(resolveMediaFallbackReason({ stage: isHlsUrl ? "hls_auth" : "playback" }));
+        setMediaFallbackReason(resolveMediaFallbackReason({
+          stage: isHlsUrl ? "hls_auth" : "playback",
+          httpStatus: isHlsUrl ? hlsPlaybackErrorStatusCode(detail) : null,
+        }));
         setLoadError(true);
       }
     });
