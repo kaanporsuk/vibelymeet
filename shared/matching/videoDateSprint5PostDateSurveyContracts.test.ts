@@ -14,6 +14,9 @@ const read = (path: string) => readFileSync(join(root, path), "utf8");
 const sprint5Migration = read(
   "supabase/migrations/20260525223000_video_date_sprint5_post_date_next_surface_authority.sql",
 );
+const reviewFollowupMigration = read(
+  "supabase/migrations/20260525235900_review_comments_1060_1070_followups.sql",
+);
 const postDateVerdictFunction = read("supabase/functions/post-date-verdict/index.ts");
 const webSurvey = read("src/components/video-date/PostDateSurvey.tsx");
 const nativeSurvey = read("apps/mobile/components/video-date/PostDateSurvey.tsx");
@@ -156,6 +159,10 @@ test("web and native surveys use backend next-surface authority before fallbacks
     assert.match(source, /canonicalNextRoute\.target === ['"]ended['"]/);
     assert.match(source, /canonicalNextRoute\.target === ['"]home['"]/);
   }
+  assert.doesNotMatch(
+    webSurvey,
+    /serverNext\.action === ["']ready_gate["'][\s\S]{0,80}canonicalNextRoute\.target === ["']ready_gate["']/,
+  );
   assert.ok(
     webSurvey.indexOf("resolve_post_date_next_surface") < webSurvey.indexOf("const active = await checkEventActive"),
     "web must ask backend next-surface authority before event-active fallback",
@@ -222,6 +229,30 @@ test("shared canonical routing consumes final post-date next surfaces consistent
     },
     serverNextSurface: { action: "video_date", next_session_id: "next-date", event_id: "event" },
   }).target, "lobby");
+
+  assert.equal(decideCanonicalVideoDateRoute({
+    sessionId: "current",
+    eventId: "event",
+    truth: {
+      id: "next-date",
+      event_id: "event",
+      state: "ready_gate",
+      phase: "ready_gate",
+      ready_gate_status: "both_ready",
+      ready_gate_expires_at: "2026-05-25T12:00:30.000Z",
+      daily_room_name: null,
+      daily_room_url: null,
+    },
+    serverNextSurface: { action: "video_date", next_session_id: "next-date", event_id: "event" },
+    nowMs: Date.parse("2026-05-25T12:00:00.000Z"),
+  }).target, "ready_gate");
+});
+
+test("Sprint 5 follow-up emits safety-report events for immutable verdict retries", () => {
+  assert.match(reviewFollowupMigration, /CREATE OR REPLACE FUNCTION public\.submit_post_date_verdict_v2/);
+  assert.match(reviewFollowupMigration, /IF COALESCE\(\(v_result->>'idempotent'\)::boolean, false\)[\s\S]+post_date_safety_report_recorded/);
+  assert.match(reviewFollowupMigration, /'report_id', v_result->>'report_id'/);
+  assert.match(reviewFollowupMigration, /'reported_participant_role'/);
 });
 
 test("Sprint 5 contracts are included in the video-date no-build suite", () => {

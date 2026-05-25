@@ -481,17 +481,14 @@ export function startReadyGateToDateLatencyContext({
   permissionHandoffUsed?: boolean | null;
   nowMs?: number;
 }): ReadyGateToDateLatencyContext {
-  const context =
-    readyGateToDateLatencyContexts.get(sessionId) ??
-    ({
-      platform,
-      sessionId,
-      eventId,
-      sourceSurface,
-    } satisfies ReadyGateToDateLatencyContext);
-  context.platform = platform;
-  context.eventId = eventId;
-  context.sourceSurface = sourceSurface;
+  const previous = readyGateToDateLatencyContexts.get(sessionId);
+  const context: ReadyGateToDateLatencyContext = {
+    platform,
+    sessionId,
+    eventId,
+    sourceSurface,
+    swipeResultObservedAtMs: previous?.swipeResultObservedAtMs,
+  };
   context.entryAttemptId = entryAttemptId;
   context.videoDateTraceId = videoDateTraceId;
   context.cachedPrepareEntry = cachedPrepareEntry;

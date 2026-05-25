@@ -230,6 +230,41 @@ test("Ready Gate context preserves the pre-handoff swipe result checkpoint", () 
   assert.equal(readyGateContext.eventId, "event-sprint-6");
 });
 
+test("Ready Gate context resets attempt timestamps when the gate reopens", () => {
+  const sessionId = "session-ready-gate-reopen";
+  recordReadyGateToDateLatencyCheckpoint({
+    platform: "web",
+    sessionId,
+    eventId: "event-sprint-6",
+    sourceSurface: "event_lobby",
+    checkpoint: "swipe_result",
+    nowMs: 100,
+  });
+  recordReadyGateToDateLatencyCheckpoint({
+    sessionId,
+    checkpoint: "ready_tap",
+    nowMs: 200,
+  });
+  recordReadyGateToDateLatencyCheckpoint({
+    sessionId,
+    checkpoint: "both_ready_observed",
+    nowMs: 300,
+  });
+
+  const reopened = startReadyGateToDateLatencyContext({
+    platform: "web",
+    sessionId,
+    eventId: "event-sprint-6",
+    sourceSurface: "ready_gate_overlay",
+    nowMs: 1_000,
+  });
+
+  assert.equal(reopened.swipeResultObservedAtMs, 100);
+  assert.equal(reopened.readyGateOpenedAtMs, 1_000);
+  assert.equal(reopened.readyTapAtMs, undefined);
+  assert.equal(reopened.bothReadyObservedAtMs, undefined);
+});
+
 test("Phase 7 Daily performance checkpoints compute token-free segment durations", async () => {
   const ctx = startReadyGateToDateLatencyContext({
     platform: "web",

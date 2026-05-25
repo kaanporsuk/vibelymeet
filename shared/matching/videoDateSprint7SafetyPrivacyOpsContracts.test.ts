@@ -8,6 +8,7 @@ const read = (path: string) => readFileSync(join(root, path), "utf8");
 
 const sprint7Migration = read("supabase/migrations/20260525235000_video_date_sprint7_safety_privacy_ops.sql");
 const sprint7FastPathMigration = read("supabase/migrations/20260525235500_video_date_sprint7_ops_health_fast_path.sql");
+const reviewFollowupMigration = read("supabase/migrations/20260525235900_review_comments_1060_1070_followups.sql");
 const validationPack = read("supabase/validation/video_date_sprint7_safety_privacy_ops.sql");
 const adminOps = read("supabase/functions/admin-video-date-ops/index.ts");
 const adminShared = read("supabase/functions/_shared/admin-video-date-ops.ts");
@@ -101,6 +102,10 @@ test("Sprint 7 service-role operator health RPC is aggregate-only and wired into
   assert.match(sprint7FastPathMigration, /LEFT JOIN LATERAL \([\s\S]+FROM public\.user_reports ur/);
   assert.match(sprint7FastPathMigration, /LEFT JOIN LATERAL \([\s\S]+FROM public\.blocked_users bu/);
   assert.match(sprint7FastPathMigration, /REVOKE ALL ON FUNCTION public\.get_video_date_sprint7_ops_health\(uuid\)[\s\S]+FROM PUBLIC, anon, authenticated/);
+  assert.match(sprint7Migration, /RESET statement_timeout/);
+  assert.match(sprint7FastPathMigration, /RESET statement_timeout/);
+  assert.match(reviewFollowupMigration, /eo\.outcome NOT IN \('success', 'no_op', 'blocked'\)/);
+  assert.match(reviewFollowupMigration, /CREATE OR REPLACE FUNCTION public\.get_video_date_sprint7_ops_health\(/);
   assert.match(validationPack, /video_date_sprint7_ops_health_service_role_only/);
   assert.match(validationPack, /video_date_sprint7_ops_health_dashboard_dimensions/);
   assert.match(packageJson, /videoDateSprint7SafetyPrivacyOpsContracts\.test\.ts/);

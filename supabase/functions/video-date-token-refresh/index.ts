@@ -436,10 +436,10 @@ serve(async (req) => {
   }
   const expectedRoomName = videoDateRoomNameForSession(sessionId);
   const expectedRoomUrl = videoDateRoomUrlForName(expectedRoomName, DAILY_DOMAIN);
+  const roomUrlMatchesExpectedRoom = isDailyRoomUrlForName(roomUrl, expectedRoomName, DAILY_DOMAIN);
   if (
     roomName !== expectedRoomName ||
-    roomUrl !== expectedRoomUrl ||
-    !isDailyRoomUrlForName(roomUrl, expectedRoomName, DAILY_DOMAIN)
+    !roomUrlMatchesExpectedRoom
   ) {
     console.error(JSON.stringify({
       event: "video_date_token_refresh_room_mismatch",
@@ -448,6 +448,7 @@ serve(async (req) => {
       room_name: roomName,
       expected_room_name: expectedRoomName,
       room_url_matches_canonical: roomUrl === expectedRoomUrl,
+      room_url_matches_expected_room: roomUrlMatchesExpectedRoom,
     }));
     return jsonResponse({ ok: false, error: "room_mismatch", phase, retryable: true }, 409);
   }
