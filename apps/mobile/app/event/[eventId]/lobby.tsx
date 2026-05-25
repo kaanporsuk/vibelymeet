@@ -77,9 +77,9 @@ import {
 } from '@/lib/videoDateReadiness';
 import { markNativeVideoDateLaunchIntent, videoDateLaunchBreadcrumb } from '@/lib/videoDateLaunchTrace';
 import {
-  canAttemptDailyRoomFromVideoSessionTruth,
-  decideVideoSessionRouteFromTruth,
-} from '@clientShared/matching/activeSession';
+  decideCanonicalVideoDateRoute,
+  isVideoDateReadyGateActiveStatus,
+} from '@clientShared/matching/videoDateRouteDecision';
 import { getMatchQueueDrainReasonCopy } from '@clientShared/matching/matchQueueDrainReasonCopy';
 import {
   getPostDateLobbyContinuityDecision,
@@ -130,7 +130,6 @@ import { nextConvergenceDelayMs } from '@clientShared/matching/convergenceSchedu
 import { resolveEventLifecycle } from '@clientShared/eventLifecycle';
 import { eventLobbyHref } from '@/lib/activeSessionRoutes';
 
-const READY_GATE_ACTIVE_STATUSES = new Set(['ready', 'ready_a', 'ready_b', 'both_ready', 'snoozed']);
 const READY_GATE_MANUAL_EXIT_SUPPRESS_MS = 45_000;
 const GENERIC_SWIPE_FAILURE_OUTCOMES = new Set([
   'unknown',
@@ -708,9 +707,11 @@ export default function EventLobbyScreen() {
           ? 'date'
           : startable.recommend === 'ready'
             ? 'ready'
-            : startable.recommend === 'ended'
-              ? 'ended'
-              : 'lobby';
+            : startable.recommend === 'survey'
+              ? 'survey'
+              : startable.recommend === 'ended'
+                ? 'ended'
+                : 'lobby';
         const reason = startable.ok ? null : startable.reason;
 
         rcBreadcrumb(RC_CATEGORY.lobbyDateEntry, 'date_route_decision', {
@@ -753,9 +754,9 @@ export default function EventLobbyScreen() {
             router.replace(startable.recommendHref);
             return;
           }
-          // 'ended' / 'lobby' / 'tabs' — refetch active session so the lobby can settle, but if the
-          // backend gave us a definitive terminal/lobby route, follow it.
-          if (startable.recommend === 'ended') {
+          // 'survey' / 'ended' / 'lobby' / 'tabs' — refetch active session so the lobby can settle,
+          // but if the backend gave us a definitive continuation route, follow it.
+          if (startable.recommend === 'survey' || startable.recommend === 'ended') {
             router.replace(startable.recommendHref);
             return;
           }
@@ -875,7 +876,11 @@ export default function EventLobbyScreen() {
                   reason: rescueStartable.reason,
                   recommend: rescueStartable.recommend,
                 });
-                if (rescueStartable.recommend === 'ready' || rescueStartable.recommend === 'ended') {
+                if (
+                  rescueStartable.recommend === 'ready' ||
+                  rescueStartable.recommend === 'survey' ||
+                  rescueStartable.recommend === 'ended'
+                ) {
                   router.replace(rescueStartable.recommendHref);
                 }
                 return;
@@ -1344,9 +1349,14 @@ export default function EventLobbyScreen() {
             row: session ?? null,
           });
           if (!session) return;
-          const decision = decideVideoSessionRouteFromTruth(session);
-          const canAttemptDaily = canAttemptDailyRoomFromVideoSessionTruth(session);
-          if (canAttemptDaily) {
+          const canonicalRoute = decideCanonicalVideoDateRoute({
+            sessionId,
+            eventId: id,
+            truth: session,
+          });
+          const decision = canonicalRoute.legacyDecision;
+          const canAttemptDaily = canonicalRoute.canAttemptDaily;
+          if (canonicalRoute.target === 'date') {
             if (lastOpenedSessionRef.current !== sessionId) {
               vdbg('lobby_date_route_decision_suppressed_stale_ready_gate_open', {
                 trigger: `ready_gate_open_${trigger}`,
@@ -1362,6 +1372,7 @@ export default function EventLobbyScreen() {
               decision,
               can_attempt_daily: canAttemptDaily,
               reason: null,
+              canonical_reason: canonicalRoute.reason,
               ready_gate_status: session.ready_gate_status ?? null,
               ready_gate_expires_at:
                 session.ready_gate_expires_at == null ? null : String(session.ready_gate_expires_at),
@@ -1376,6 +1387,7 @@ export default function EventLobbyScreen() {
               sessionId,
               decision,
               canAttemptDaily,
+              canonicalReason: canonicalRoute.reason,
               readyGateStatus: session.ready_gate_status ?? null,
               readyGateExpiresAt: session.ready_gate_expires_at ?? null,
               vsState: session.state ?? null,
@@ -1674,23 +1686,23 @@ export default function EventLobbyScreen() {
         });
       }
       scheduleLobbyRefreshBurst('video_session_update');
-      if (canAttemptDailyRoomFromVideoSessionTruth(session)) {
+      const routeDecision = decideCanonicalVideoDateRoute({
+        sessionId: sid,
+        eventId: id,
+        truth: session,
+      });
+      if (routeDecision.target === 'date') {
         navigateToDateSession(session.id as string, 'video_session_update_both_ready', 'replace');
         return;
       }
       const newStatus = session.ready_gate_status as string;
       const oldStatus = old?.ready_gate_status as string | undefined;
       const becameReadyGateActive =
-        READY_GATE_ACTIVE_STATUSES.has(newStatus) &&
-        (!oldStatus || !READY_GATE_ACTIVE_STATUSES.has(oldStatus));
+        isVideoDateReadyGateActiveStatus(newStatus) &&
+        (!oldStatus || !isVideoDateReadyGateActiveStatus(oldStatus));
       if (becameReadyGateActive) {
         openReadyGateWithSession(session.id as string, 'video_session_update');
         return;
-      }
-      // If this participant's session has already moved into provider-confirmed
-      // video truth, route out of lobby even if ready-gate transitions were missed.
-      if (decideVideoSessionRouteFromTruth(session) === 'navigate_date') {
-        navigateToDateSession(session.id as string, 'video_session_update', 'replace');
       }
     };
 
@@ -1705,7 +1717,12 @@ export default function EventLobbyScreen() {
       scheduleLobbyRefreshBurst('video_session_insert');
       const status = session.ready_gate_status as string;
       const sid = session.id as string;
-      if (canAttemptDailyRoomFromVideoSessionTruth(session)) {
+      const routeDecision = decideCanonicalVideoDateRoute({
+        sessionId: sid,
+        eventId: id,
+        truth: session,
+      });
+      if (routeDecision.target === 'date') {
         navigateToDateSession(sid, 'video_session_insert_both_ready', 'replace');
         return;
       }
@@ -1723,12 +1740,9 @@ export default function EventLobbyScreen() {
         scheduleLobbyRefreshBurst('video_session_insert_queue_drain');
         return;
       }
-      if (READY_GATE_ACTIVE_STATUSES.has(status)) {
+      if (routeDecision.target === 'ready_gate') {
         openReadyGateWithSession(sid, 'video_session_insert');
         return;
-      }
-      if (decideVideoSessionRouteFromTruth(session) === 'navigate_date') {
-        navigateToDateSession(sid, 'video_session_insert', 'replace');
       }
     };
 

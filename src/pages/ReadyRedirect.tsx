@@ -136,7 +136,7 @@ const ReadyRedirect = () => {
 
       const { data: session, error } = await supabase
         .from("video_sessions")
-        .select("participant_1_id, participant_2_id, event_id, ended_at, state, phase, handshake_started_at, ready_gate_status, ready_gate_expires_at, daily_room_name, daily_room_url")
+        .select("participant_1_id, participant_2_id, event_id, ended_at, ended_reason, state, phase, handshake_started_at, date_started_at, participant_1_joined_at, participant_2_joined_at, ready_gate_status, ready_gate_expires_at, daily_room_name, daily_room_url")
         .eq("id", candidate)
         .maybeSingle();
 
@@ -155,17 +155,6 @@ const ReadyRedirect = () => {
         notifyOnce(READY_GATE_DEEP_LINK_INVALID_USER_MESSAGE);
         setRouteState({ kind: "redirecting" });
         navigate("/events", { replace: true });
-        return;
-      }
-
-      if (session.ended_at) {
-        notifyOnce(READY_GATE_STALE_OR_ENDED_USER_MESSAGE);
-        setRouteState({ kind: "redirecting" });
-        if (session.event_id) {
-          navigateToEventLobby(session.event_id);
-        } else {
-          navigate("/home", { replace: true });
-        }
         return;
       }
 
@@ -198,6 +187,12 @@ const ReadyRedirect = () => {
         return;
       }
 
+      if (recovery.action === "go_survey") {
+        setRouteState({ kind: "redirecting" });
+        navigateToDate(candidate);
+        return;
+      }
+
       const registrationReadyGateFallback =
         readyGateRegistration?.queue_status === "in_ready_gate" &&
         (!readyGateRegistration.current_room_id || readyGateRegistration.current_room_id === candidate);
@@ -209,7 +204,11 @@ const ReadyRedirect = () => {
 
       notifyOnce(READY_GATE_STALE_OR_ENDED_USER_MESSAGE);
       setRouteState({ kind: "redirecting" });
-      navigateToEventLobby(session.event_id);
+      if (recovery.action === "go_home") {
+        navigate("/home", { replace: true });
+      } else {
+        navigateToEventLobby(session.event_id);
+      }
     };
 
     void resolveRoute();

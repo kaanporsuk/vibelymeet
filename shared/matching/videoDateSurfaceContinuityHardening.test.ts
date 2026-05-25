@@ -54,7 +54,8 @@ test("post-date continuity is backend-resolved before client event fallback", ()
   assert.match(webSurvey, /resolve_post_date_next_surface/);
   assert.match(nativeSurvey, /resolve_post_date_next_surface/);
   assert.match(nativeSurvey, /onVideoDateReady/);
-  assert.match(nativeSurvey, /serverNext\.action === 'video_date'/);
+  assert.match(webSurvey, /fetchPostDateNextSessionTruth/);
+  assert.match(nativeSurvey, /fetchPostDateNextSessionTruth/);
   assert.match(nativeSurvey, /route: 'date'/);
   assert.ok(
     webSurvey.indexOf("resolve_post_date_next_surface") < webSurvey.indexOf("const active = await checkEventActive"),

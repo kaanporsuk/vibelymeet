@@ -576,6 +576,27 @@ const ReadyGateOverlay = ({
     [sessionId, eventId, onNavigateToDate, suppressDuplicateNav, addReadyGateBreadcrumb]
   );
 
+  const navigateToDateForSurveyRecovery = useCallback(
+    (source: string) => {
+      if (dateNavigationStartedRef.current) {
+        suppressDuplicateNav(source);
+        return;
+      }
+      dateNavigationStartedRef.current = true;
+      closedRef.current = true;
+      setIsTransitioning(true);
+      addReadyGateBreadcrumb("pending_survey_navigation_started", { source });
+      vdbg("ready_gate_pending_survey_navigate_to_date", {
+        trigger: `ready_gate_overlay_${source}`,
+        sessionId,
+        eventId,
+        target: `/date/${sessionId}`,
+      });
+      onNavigateToDate(sessionId, `ready_gate_overlay_${source}`);
+    },
+    [addReadyGateBreadcrumb, eventId, onNavigateToDate, sessionId, suppressDuplicateNav],
+  );
+
   const preloadVideoDateRoute = useCallback(
     (sourceAction: string) => {
       const startedContext = recordReadyGateToDateLatencyCheckpoint({
@@ -1698,6 +1719,8 @@ const ReadyGateOverlay = ({
       const routedTo =
         recovery.action === "go_date"
           ? "date"
+          : recovery.action === "go_survey"
+            ? "survey"
           : recovery.action === "go_ready_gate"
             ? "ready"
             : "lobby";
@@ -1752,6 +1775,11 @@ const ReadyGateOverlay = ({
         return;
       }
 
+      if (recovery.action === "go_survey") {
+        navigateToDateForSurveyRecovery("pending_survey_recovery");
+        return;
+      }
+
       if (decision !== "navigate_ready") {
         closeAsStale(source, {
           reason: decision === "ended" ? "session_ended" : "session_not_ready_gate_eligible",
@@ -1773,6 +1801,7 @@ const ReadyGateOverlay = ({
       syncSession,
       markRealtimeDegraded,
       startRoomWarmupAfterReady,
+      navigateToDateForSurveyRecovery,
     ]
   );
 

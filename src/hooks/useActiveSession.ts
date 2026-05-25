@@ -298,9 +298,20 @@ async function syncReadyGateActiveSession(
   const syncTruth = normalizeReadyGateTransitionActiveSessionTruth(data);
   const nowMs = Date.now();
   const canAttemptDaily = canAttemptDailyRoomFromVideoSessionTruth(truth, nowMs);
+  const syncClaimsDateCapable = readyGateTransitionResultHasDateCapableTruth(syncTruth);
   const freshDateRoute =
-    (canAttemptDaily || readyGateTransitionResultHasDateCapableTruth(syncTruth)) &&
+    canAttemptDaily &&
     isActiveSessionDirectFallbackFresh(truth, nowMs);
+
+  if (syncClaimsDateCapable && !canAttemptDaily) {
+    emitStaleActiveSessionDetected?.({
+      reason: "ready_gate_sync_date_capable_without_provider_room",
+      eventId: base.eventId,
+      sessionId: base.sessionId,
+      queueStatus: "in_ready_gate",
+      currentPartnerPresent: Boolean(getVideoSessionPartnerIdForUser(truth, userId)),
+    });
+  }
 
   if (freshDateRoute) {
     return {

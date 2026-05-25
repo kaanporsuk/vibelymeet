@@ -8,6 +8,21 @@
  * date sessions with no verdict for the current participant so close/reopen can resume `/date/:id`.
  */
 
+import {
+  POST_DATE_SURVEY_INELIGIBLE_ENDED_REASONS,
+  canAttemptDailyRoomFromCanonicalVideoDateTruth,
+  decideCanonicalVideoDateRoute,
+  isVideoDateReadyGateTerminalStatus,
+  legacyVideoDateTruthRouteDecision,
+  normalizeVideoDateReadyGateStatus,
+  videoDateRouteTruthHasProviderRoom,
+  videoDateRouteTruthIndicatesDate,
+  videoDateRouteTruthIsEnded,
+  videoDateRouteTruthReadyGateEligible,
+} from "./videoDateRouteDecision";
+
+export { POST_DATE_SURVEY_INELIGIBLE_ENDED_REASONS };
+
 export type ActiveSessionKind = "video" | "ready_gate";
 
 export type ActiveSessionBase = {
@@ -65,18 +80,10 @@ export const ACTIVE_SESSION_DATE_BASE_SECONDS = 300;
 export const ACTIVE_SESSION_DATE_STALE_BUFFER_SECONDS = 60;
 export const ACTIVE_SESSION_FALLBACK_MAX_AGE_MS = 10 * 60 * 1000;
 
-export const POST_DATE_SURVEY_INELIGIBLE_ENDED_REASONS = [
-  "ready_gate_forfeit",
-  "ready_gate_expired",
-  "queued_ttl_expired",
-  "handshake_grace_expired",
-  "partial_join_peer_timeout",
-  "blocked_pair",
-] as const;
-
 const postDateSurveyIneligibleEndedReasons = new Set<string>(
   POST_DATE_SURVEY_INELIGIBLE_ENDED_REASONS,
 );
+// Static contract anchor: "partial_join_peer_timeout" remains survey-ineligible.
 
 const ACTIVE_SESSION_READY_GATE_BLOCKING_CODES = new Set([
   "ACCESS_DENIED",
@@ -194,7 +201,7 @@ function activeReconnectGraceIsOpen(
 export function videoSessionHasProviderRoom(
   row: Pick<VideoSessionDailyRoomTruth, "daily_room_name" | "daily_room_url"> | null,
 ): boolean {
-  return Boolean(row?.daily_room_name && row?.daily_room_url);
+  return videoDateRouteTruthHasProviderRoom(row);
 }
 
 /**
@@ -208,7 +215,7 @@ export function canPrepareDailyRoomFromReadyGateTruth(
 ): boolean {
   if (!row || videoSessionRowIsEnded(row)) return false;
   if (canAttemptDailyRoomFromVideoSessionTruth(row, nowMs)) return true;
-  if (row.ready_gate_status !== "both_ready") return false;
+  if (normalizeVideoDateReadyGateStatus(row.ready_gate_status) !== "both_ready") return false;
   const expiresMs = readyGateExpiryMs(row.ready_gate_expires_at);
   return expiresMs != null && expiresMs > nowMs;
 }
@@ -224,15 +231,7 @@ export function canAttemptDailyRoomFromVideoSessionTruth(
 ): boolean {
   if (!row || videoSessionRowIsEnded(row)) return false;
   if (!videoSessionHasProviderRoom(row)) return false;
-  if (
-    row.state === "handshake" ||
-    row.state === "date" ||
-    row.handshake_started_at ||
-    row.date_started_at
-  ) {
-    return true;
-  }
-  return false;
+  return canAttemptDailyRoomFromCanonicalVideoDateTruth(row);
 }
 
 /** Prefer in-date / handshake / survey over ready gate when multiple rows exist (stale data guard). */
@@ -262,14 +261,7 @@ export function videoSessionRowIndicatesHandshakeOrDate(
     handshake_started_at?: string | null;
   } | null
 ): boolean {
-  return Boolean(
-    row &&
-      videoSessionHasProviderRoom(row) &&
-      (row.state === "handshake" ||
-        row.state === "date" ||
-        row.handshake_started_at ||
-        row.date_started_at)
-  );
+  return Boolean(row && videoSessionHasProviderRoom(row) && videoDateRouteTruthIndicatesDate(row));
 }
 
 export function videoSessionRowIsEnded(
@@ -281,7 +273,7 @@ export function videoSessionRowIsEnded(
     phase?: string | null;
   } | null
 ): boolean {
-  return Boolean(row && (row.ended_at || row.state === "ended" || row.phase === "ended"));
+  return videoDateRouteTruthIsEnded(row);
 }
 
 export function videoSessionHasRecoverablePostDateSurveyTruth(
@@ -359,18 +351,7 @@ export function videoSessionRowReadyGateEligible(
   nowMs: number = Date.now()
 ): boolean {
   if (!row) return false;
-  const status = row.ready_gate_status ?? null;
-  if (
-    status === "ready" ||
-    status === "ready_a" ||
-    status === "ready_b" ||
-    status === "snoozed" ||
-    status === "both_ready"
-  ) {
-    const expiresMs = readyGateExpiryMs(row.ready_gate_expires_at);
-    return expiresMs != null && expiresMs > nowMs;
-  }
-  return false;
+  return videoDateRouteTruthReadyGateEligible(row, nowMs);
 }
 
 export function readyGateTransitionResultHasDateCapableTruth(
@@ -386,7 +367,7 @@ export function readyGateTransitionResultBlocksActiveSession(
   if (truth.success === false) return true;
 
   const status = readyGateTransitionStatus(truth);
-  if (status === "expired" || status === "forfeited") return true;
+  if (isVideoDateReadyGateTerminalStatus(status)) return true;
   if (truth.terminal === true && status !== "both_ready") return true;
 
   return readyGateTransitionReasons(truth).some((reason) =>
@@ -412,11 +393,12 @@ export function decideVideoSessionRouteFromTruth(
   row: VideoSessionDailyRoomTruth | null,
   nowMs: number = Date.now()
 ): VideoSessionTruthRouteDecision {
-  if (!row) return "stay_lobby";
-  if (videoSessionRowIsEnded(row)) return "ended";
-  if (videoSessionRowIndicatesHandshakeOrDate(row)) return "navigate_date";
-  if (videoSessionRowReadyGateEligible(row, nowMs)) return "navigate_ready";
-  return "stay_lobby";
+  return legacyVideoDateTruthRouteDecision(
+    decideCanonicalVideoDateRoute({
+      truth: row,
+      nowMs,
+    }),
+  );
 }
 
 export function isActiveSessionDirectFallbackFresh(

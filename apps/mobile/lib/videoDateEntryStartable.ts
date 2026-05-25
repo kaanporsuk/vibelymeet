@@ -35,11 +35,13 @@ import {
   videoSessionRowReadyGateEligible,
   type VideoSessionTruthRouteDecision,
 } from '@clientShared/matching/activeSession';
+import { decideCanonicalVideoDateRoute } from '@clientShared/matching/videoDateRouteDecision';
 import { isReadyGatePrepareEntryNonRetryable } from '@clientShared/matching/readyGateTerminalRecovery';
 import {
   eventLobbyHref,
   readyGateHref,
   tabsRootHref,
+  videoDateHref,
 } from '@/lib/activeSessionRoutes';
 
 const PREPARE_ENTRY_PRENAV_TIMEOUT_MS = 4_000;
@@ -64,6 +66,14 @@ export type EnsureStartableNotReady = {
   truth: VideoSessionDateEntryTruth | null;
 };
 
+export type EnsureStartablePendingSurvey = {
+  ok: false;
+  recommend: 'survey';
+  recommendHref: Href;
+  reason: string;
+  truth: VideoSessionDateEntryTruth | null;
+};
+
 export type EnsureStartableTerminal = {
   ok: false;
   recommend: 'ended' | 'lobby' | 'tabs';
@@ -75,6 +85,7 @@ export type EnsureStartableTerminal = {
 export type EnsureStartableResult =
   | EnsureStartableOk
   | EnsureStartableNotReady
+  | EnsureStartablePendingSurvey
   | EnsureStartableTerminal;
 
 export type EnsureVideoDateStartableParams = {
@@ -135,6 +146,38 @@ function withPrepareTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<
   });
 }
 
+function pendingSurveyRecommendation(
+  sessionId: string,
+  userId: string | null,
+  source: string,
+  truth: VideoSessionDateEntryTruth | null,
+): EnsureStartablePendingSurvey | null {
+  const canonical = decideCanonicalVideoDateRoute({
+    sessionId,
+    eventId: truth?.event_id ?? null,
+    truth,
+  });
+  if (canonical.target !== 'survey' || !canonical.sessionId) return null;
+
+  emit('ensure_video_date_startable_after', {
+    session_id: sessionId,
+    user_id: userId,
+    source,
+    ok: false,
+    reason: 'pending_survey',
+    canonical_reason: canonical.reason,
+    recommend: 'survey',
+    ...snapshotTruth(truth),
+  });
+  return {
+    ok: false,
+    recommend: 'survey',
+    recommendHref: videoDateHref(canonical.sessionId),
+    reason: 'pending_survey',
+    truth,
+  };
+}
+
 export async function ensureVideoDateStartableBeforeNavigation(
   params: EnsureVideoDateStartableParams,
 ): Promise<EnsureStartableResult> {
@@ -148,6 +191,9 @@ export async function ensureVideoDateStartableBeforeNavigation(
   });
 
   let truth = await fetchVideoSessionDateEntryTruth(sessionId);
+  const initialSurvey = pendingSurveyRecommendation(sessionId, userId, source, truth);
+  if (initialSurvey) return initialSurvey;
+
   let decision: VideoSessionTruthRouteDecision = decideVideoSessionRouteFromTruth(truth);
   let canAttemptDaily = canAttemptDailyRoomFromVideoSessionTruth(truth);
 
@@ -253,6 +299,9 @@ export async function ensureVideoDateStartableBeforeNavigation(
 
     if (prepareOk) {
       truth = await fetchVideoSessionDateEntryTruth(sessionId);
+      const preparedSurvey = pendingSurveyRecommendation(sessionId, userId, source, truth);
+      if (preparedSurvey) return preparedSurvey;
+
       decision = decideVideoSessionRouteFromTruth(truth);
       canAttemptDaily = canAttemptDailyRoomFromVideoSessionTruth(truth);
       if (canAttemptDaily || decision === 'navigate_date') {
@@ -315,6 +364,9 @@ export async function ensureVideoDateStartableBeforeNavigation(
         const delay = READY_GATE_RACE_RETRY_BACKOFFS_MS[i];
         await new Promise<void>((resolve) => setTimeout(resolve, delay));
         truth = await fetchVideoSessionDateEntryTruth(sessionId);
+        const retrySurvey = pendingSurveyRecommendation(sessionId, userId, source, truth);
+        if (retrySurvey) return retrySurvey;
+
         decision = decideVideoSessionRouteFromTruth(truth);
         canAttemptDaily = canAttemptDailyRoomFromVideoSessionTruth(truth);
         if (canAttemptDaily || decision === 'navigate_date') {
@@ -369,6 +421,9 @@ export async function ensureVideoDateStartableBeforeNavigation(
   }
 
   if (decision === 'ended') {
+    const finalSurvey = pendingSurveyRecommendation(sessionId, userId, source, truth);
+    if (finalSurvey) return finalSurvey;
+
     const fallback = lobbyOrTabsHref(truth?.event_id);
     emit('ensure_video_date_startable_after', {
       session_id: sessionId,

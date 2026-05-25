@@ -39,10 +39,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { END_ACCOUNT_BREAK_PROFILE_UPDATE } from "@/lib/endAccountBreak";
 import { deckCardUrl } from "@/utils/imageUrl";
 import { claimDateNavigation } from "@/lib/dateNavigationGuard";
-import {
-  canAttemptDailyRoomFromVideoSessionTruth,
-  videoSessionRowIndicatesHandshakeOrDate,
-} from "@clientShared/matching/activeSession";
+import { decideCanonicalVideoDateRoute } from "@clientShared/matching/videoDateRouteDecision";
 import {
   getPostDateLobbyContinuityDecision,
   secondsUntilPostDateEventEnd,
@@ -89,7 +86,6 @@ import {
   type EventDeckPhase4UiState,
 } from "@clientShared/matching/videoDatePhase4Ux";
 
-const READY_GATE_ACTIVE_STATUSES = new Set(["ready", "ready_a", "ready_b", "both_ready", "snoozed"]);
 const READY_GATE_MANUAL_EXIT_SUPPRESS_MS = 45_000;
 
 function gateFromDeckUiState(ui: EventDeckPhase4UiState): EventLobbyGateState {
@@ -139,16 +135,6 @@ function logVdbgSessionStage(message: string, sessionId: string, data?: Record<s
 
 function isActiveDateQueueStatus(status: unknown): status is "in_handshake" | "in_date" {
   return status === "in_handshake" || status === "in_date";
-}
-
-function isActiveVideoPhase(row: Record<string, unknown>): boolean {
-  return videoSessionRowIndicatesHandshakeOrDate({
-    state: typeof row.state === "string" ? row.state : null,
-    daily_room_name: typeof row.daily_room_name === "string" ? row.daily_room_name : null,
-    daily_room_url: typeof row.daily_room_url === "string" ? row.daily_room_url : null,
-    handshake_started_at:
-      typeof row.handshake_started_at === "string" ? row.handshake_started_at : null,
-  });
 }
 
 function buildEventLobbyTimeline(
@@ -1221,21 +1207,27 @@ const EventLobby = () => {
         void queryClient.invalidateQueries({ queryKey: ["event-deck", eventId, user.id] });
       }
 
-      if (canAttemptDailyRoomFromVideoSessionTruth(session) || isActiveVideoPhase(session)) {
+      const routeDecision = decideCanonicalVideoDateRoute({
+        sessionId,
+        eventId,
+        truth: session,
+      });
+
+      if (routeDecision.target === "date") {
         lobbyDebug("same-session active date detected from participant-scoped video session realtime", {
           sessionId,
           state: session.state,
           phase: session.phase,
           readyGateStatus: session.ready_gate_status,
           readyGateExpiresAt: session.ready_gate_expires_at,
+          canonicalReason: routeDecision.reason,
         });
         scheduleLobbyConvergenceRefresh(sessionId, `${source}_active_date`);
         prepareAndNavigateToDateSession(sessionId, source);
         return;
       }
 
-      const status = session.ready_gate_status;
-      if (typeof status === "string" && READY_GATE_ACTIVE_STATUSES.has(status)) {
+      if (routeDecision.target === "ready_gate") {
         openReadyGateSession(sessionId, source);
         scheduleLobbyConvergenceRefresh(sessionId, source);
       }

@@ -330,40 +330,6 @@ export const useReconnection = ({
     requestSyncReconnectRef.current("partner_marked_away");
   }, [sessionId, phase]);
 
-  const checkActiveSession = useCallback(async (): Promise<{
-    hasActiveSession: boolean;
-    sessionId?: string;
-    eventId?: string;
-  }> => {
-    if (!user?.id) return { hasActiveSession: false };
-
-    const { data: reg } = await supabase
-      .from("event_registrations")
-      .select("event_id, current_room_id, queue_status")
-      .eq("profile_id", user.id)
-      .in("queue_status", ["in_handshake", "in_date"])
-      .maybeSingle();
-
-    if (reg?.current_room_id) {
-      const { data: session } = await supabase
-        .from("video_sessions")
-        .select("id, ended_at")
-        .eq("id", reg.current_room_id)
-        .is("ended_at", null)
-        .maybeSingle();
-
-      if (session) {
-        return {
-          hasActiveSession: true,
-          sessionId: session.id,
-          eventId: reg.event_id,
-        };
-      }
-    }
-
-    return { hasActiveSession: false };
-  }, [user?.id]);
-
   const isPartnerDisconnected = inReconnectGraceUi;
   const isTimerPaused = inReconnectGraceUi;
 
@@ -372,6 +338,5 @@ export const useReconnection = ({
     graceTimeLeft,
     isTimerPaused,
     startGraceWindow,
-    checkActiveSession,
   };
 };

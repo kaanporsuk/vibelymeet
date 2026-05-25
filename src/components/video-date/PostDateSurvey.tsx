@@ -59,6 +59,11 @@ import {
   normalizePostDateVerdictConfirmationResult,
   type PostDateVerdictUiState,
 } from "@clientShared/matching/postDateVerdictConfirmation";
+import {
+  decideCanonicalVideoDateRoute,
+  webPathForCanonicalVideoDateRoute,
+  type VideoDateRouteSessionTruth,
+} from "@clientShared/matching/videoDateRouteDecision";
 
 interface PostDateSurveyProps {
   isOpen: boolean;
@@ -71,9 +76,25 @@ interface PostDateSurveyProps {
 
 type SurveyStep = "verdict" | "celebration" | "awaiting_partner" | "highlights" | "safety";
 const SURVEY_DRAIN_SOFT_WAIT_MS = 1800;
+const POST_DATE_NEXT_SESSION_TRUTH_SELECT =
+  "id, event_id, participant_1_id, participant_2_id, daily_room_name, daily_room_url, ended_at, ended_reason, state, phase, handshake_started_at, date_started_at, participant_1_joined_at, participant_2_joined_at, ready_gate_status, ready_gate_expires_at";
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function fetchPostDateNextSessionTruth(
+  sessionId: string | null | undefined,
+  action: string | null | undefined,
+): Promise<VideoDateRouteSessionTruth | null> {
+  if (!sessionId || (action !== "video_date" && action !== "ready_gate")) return null;
+  const { data, error } = await supabase
+    .from("video_sessions")
+    .select(POST_DATE_NEXT_SESSION_TRUTH_SELECT)
+    .eq("id", sessionId)
+    .maybeSingle();
+  if (error || !data) return null;
+  return data as VideoDateRouteSessionTruth;
 }
 
 const PostDateContinuityStrip = ({ decision }: { decision: PostDateContinuityDecision }) => {
@@ -552,6 +573,16 @@ export const PostDateSurvey = ({
       if (!nextError && serverNext) {
         const nextEventId = serverNext.eventId ?? eventId;
         const nextSessionId = serverNext.nextSessionId ?? serverNext.sessionId ?? sessionId;
+        const nextSessionTruth = await fetchPostDateNextSessionTruth(nextSessionId, serverNext.action);
+        const canonicalNextRoute = decideCanonicalVideoDateRoute({
+          sessionId: nextSessionId,
+          eventId: nextEventId,
+          truth: nextSessionTruth,
+          serverNextSurface: {
+            ...serverNext,
+            targetId: serverNext.targetId ?? partnerId,
+          },
+        });
         trackEvent(LobbyPostDateEvents.POST_DATE_CONTINUITY_NEXT_ACTION_DECIDED, {
           platform: "web",
           session_id: sessionId,
@@ -574,7 +605,7 @@ export const PostDateSurvey = ({
           next_session_id: serverNext.nextSessionId,
         });
 
-        if (serverNext.action === "ready_gate" && nextSessionId) {
+        if (serverNext.action === "ready_gate" && nextSessionId && canonicalNextRoute.target === "ready_gate") {
           queuedNavigationStartedRef.current = true;
           const target = `/ready/${encodeURIComponent(nextSessionId)}`;
           trackEvent(LobbyPostDateEvents.POST_DATE_CONTINUITY_ROUTE_TAKEN, {
@@ -590,13 +621,13 @@ export const PostDateSurvey = ({
           return;
         }
 
-        if (serverNext.action === "survey") {
+        if (canonicalNextRoute.target === "survey") {
           setStep("verdict");
           return;
         }
 
-        if (serverNext.action === "video_date" && nextSessionId) {
-          const target = `/date/${nextSessionId}`;
+        if (canonicalNextRoute.target === "date" && nextSessionId) {
+          const target = webPathForCanonicalVideoDateRoute(canonicalNextRoute);
           trackEvent(LobbyPostDateEvents.POST_DATE_CONTINUITY_ROUTE_TAKEN, {
             platform: "web",
             session_id: sessionId,
@@ -610,8 +641,8 @@ export const PostDateSurvey = ({
           return;
         }
 
-        if (serverNext.action === "chat") {
-          const target = `/chat/${serverNext.targetId ?? partnerId}`;
+        if (canonicalNextRoute.target === "chat") {
+          const target = webPathForCanonicalVideoDateRoute(canonicalNextRoute);
           trackEvent(LobbyPostDateEvents.POST_DATE_CONTINUITY_ROUTE_TAKEN, {
             platform: "web",
             session_id: sessionId,
@@ -625,12 +656,12 @@ export const PostDateSurvey = ({
           return;
         }
 
-        if (serverNext.action === "lobby" && nextEventId) {
+        if (canonicalNextRoute.target === "lobby" && nextEventId) {
           logJourney("survey_completed", { source: "finish_survey_server_lobby" }, "survey_completed");
           setStatus("browsing");
           setSurveyStatus("browsing");
           toast("You're back in the lobby — keep browsing 💚", { duration: 2000 });
-          const target = `/event/${nextEventId}/lobby?postSurveyComplete=1`;
+          const target = `${webPathForCanonicalVideoDateRoute(canonicalNextRoute)}?postSurveyComplete=1`;
           trackEvent(LobbyPostDateEvents.POST_DATE_CONTINUITY_ROUTE_TAKEN, {
             platform: "web",
             session_id: sessionId,
@@ -644,7 +675,7 @@ export const PostDateSurvey = ({
           return;
         }
 
-        if (serverNext.action === "wrap_up") {
+        if (canonicalNextRoute.target === "ended") {
           trackEvent(LobbyPostDateEvents.POST_DATE_CONTINUITY_ROUTE_TAKEN, {
             platform: "web",
             session_id: sessionId,
@@ -658,9 +689,10 @@ export const PostDateSurvey = ({
           return;
         }
 
-        if (serverNext.action === "home") {
-          vdbgRedirect("/home", "survey_finish_server_home", { sessionId });
-          navigate("/home");
+        if (canonicalNextRoute.target === "home") {
+          const target = webPathForCanonicalVideoDateRoute(canonicalNextRoute);
+          vdbgRedirect(target, "survey_finish_server_home", { sessionId });
+          navigate(target);
           return;
         }
       }

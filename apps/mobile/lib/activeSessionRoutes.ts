@@ -21,6 +21,10 @@
  */
 import type { Href } from 'expo-router';
 import type { ActiveSession } from './useActiveSession';
+import {
+  nativePathForCanonicalVideoDateRoute,
+  type VideoDateCanonicalRouteDecision,
+} from '@clientShared/matching/videoDateRouteDecision';
 
 export function eventLobbyHref(eventId: string): Href {
   return `/event/${eventId}/lobby` as Href;
@@ -53,4 +57,10 @@ export function hrefForActiveSession(session: ActiveSession): Href {
     case 'video':
       return videoDateHref(session.sessionId);
   }
+}
+
+export function hrefForCanonicalVideoDateRoute(
+  decision: VideoDateCanonicalRouteDecision,
+): Href {
+  return nativePathForCanonicalVideoDateRoute(decision) as Href;
 }

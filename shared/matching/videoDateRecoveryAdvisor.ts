@@ -1,8 +1,9 @@
 import {
   POST_DATE_SURVEY_INELIGIBLE_ENDED_REASONS,
-  canAttemptDailyRoomFromVideoSessionTruth,
   decideVideoSessionRouteFromTruth,
+  type VideoSessionTruthRouteDecision,
 } from "./activeSession";
+import { decideCanonicalVideoDateRoute } from "./videoDateRouteDecision";
 import {
   resolveReadyGateTerminalRecovery,
   type ReadyGateTerminalRecovery,
@@ -279,16 +280,22 @@ export function adviseVideoSessionTruthRecovery(
     nowMs?: number;
   },
 ): VideoDateRecoveryAdvisorDecision & {
-  routeDecision?: ReturnType<typeof decideVideoSessionRouteFromTruth>;
+  routeDecision?: VideoSessionTruthRouteDecision;
   canAttemptDaily?: boolean;
 } {
   const nowMs = params.nowMs ?? Date.now();
-  const routeDecision = decideVideoSessionRouteFromTruth(params.truth, nowMs);
-  const canAttemptDaily = canAttemptDailyRoomFromVideoSessionTruth(params.truth, nowMs);
   const sessionId = params.sessionId ?? params.truth?.id ?? null;
-  const eventId = params.truth?.event_id ?? params.eventId ?? null;
+  const canonical = decideCanonicalVideoDateRoute({
+    sessionId,
+    eventId: params.eventId,
+    truth: params.truth,
+    nowMs,
+  });
+  const routeDecision = canonical.legacyDecision;
+  const canAttemptDaily = canonical.canAttemptDaily;
+  const eventId = canonical.eventId ?? params.truth?.event_id ?? params.eventId ?? null;
 
-  if ((canAttemptDaily || routeDecision === "navigate_date") && sessionId) {
+  if (canonical.target === "date" && sessionId) {
     return {
       action: "go_date",
       sessionId,
@@ -301,7 +308,7 @@ export function adviseVideoSessionTruthRecovery(
     };
   }
 
-  if (routeDecision === "navigate_ready" && sessionId && eventId) {
+  if (canonical.target === "ready_gate" && sessionId && eventId) {
     return {
       action: "go_ready_gate",
       sessionId,
@@ -314,7 +321,20 @@ export function adviseVideoSessionTruthRecovery(
     };
   }
 
-  if (routeDecision === "ended") {
+  if (canonical.target === "survey" && sessionId) {
+    return {
+      action: "go_survey",
+      sessionId,
+      eventId,
+      reason: "terminal_encounter",
+      platform: params.platform,
+      surface: params.surface,
+      routeDecision,
+      canAttemptDaily,
+    };
+  }
+
+  if (canonical.target === "ended") {
     return {
       action: "show_terminal",
       sessionId,
@@ -328,7 +348,7 @@ export function adviseVideoSessionTruthRecovery(
     };
   }
 
-  if (eventId) {
+  if (canonical.target === "lobby" && eventId) {
     return {
       action: "go_lobby",
       sessionId,

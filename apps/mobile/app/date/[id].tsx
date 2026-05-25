@@ -2466,7 +2466,7 @@ export default function VideoDateScreen() {
           ? 'date'
           : recovery.action === 'go_ready_gate'
             ? 'ready'
-            : recovery.action === 'show_terminal'
+            : recovery.action === 'show_terminal' || recovery.action === 'go_survey'
               ? 'ended'
               : 'lobby';
       rcBreadcrumb(RC_CATEGORY.videoDateEntry, 'date_route_decision', {
@@ -2648,7 +2648,7 @@ export default function VideoDateScreen() {
       const reason =
         recovery.action === 'go_date'
           ? null
-          : recovery.action === 'show_terminal'
+          : recovery.action === 'show_terminal' || recovery.action === 'go_survey'
             ? 'session_ended'
             : canAttemptDaily
               ? 'video_truth_startable_after_refetch'
@@ -2658,7 +2658,7 @@ export default function VideoDateScreen() {
           ? 'date'
           : recovery.action === 'go_ready_gate'
             ? 'ready'
-            : recovery.action === 'show_terminal'
+            : recovery.action === 'show_terminal' || recovery.action === 'go_survey'
               ? 'ended'
               : 'lobby';
       rcBreadcrumb(RC_CATEGORY.videoDateEntry, 'date_route_decision', {
@@ -2705,7 +2705,7 @@ export default function VideoDateScreen() {
         router.replace(target);
         return true;
       }
-      if (recovery.action === 'show_terminal') {
+      if (recovery.action === 'show_terminal' || recovery.action === 'go_survey') {
         const openedSurvey = await openNativePostDateSurveyFromTerminalTruth(`${source}_ended_truth`, vs);
         if (openedSurvey) return true;
         const fallbackEventId = vs?.event_id ?? eventId;

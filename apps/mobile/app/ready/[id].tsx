@@ -206,9 +206,11 @@ export default function ReadyGateScreen() {
         ? 'date'
         : startable.recommend === 'ready'
           ? 'ready'
-          : startable.recommend === 'ended'
-            ? 'ended'
-            : 'lobby';
+          : startable.recommend === 'survey'
+            ? 'survey'
+            : startable.recommend === 'ended'
+              ? 'ended'
+              : 'lobby';
       rcBreadcrumb(RC_CATEGORY.readyGate, 'date_route_decision', {
         session_id: sid,
         user_id: user.id,
