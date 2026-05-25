@@ -45,6 +45,8 @@ test("Sprint 3 token refresh rejects room drift instead of minting against stale
   assert.match(tokenRefresh, /videoDateRoomNameForSession/);
   assert.match(tokenRefresh, /videoDateRoomUrlForName/);
   assert.match(tokenRefresh, /isDailyRoomUrlForName/);
+  assert.match(tokenRefresh, /const roomUrlMatchesExpectedRoom = isDailyRoomUrlForName\(roomUrl, expectedRoomName, DAILY_DOMAIN\)/);
+  assert.doesNotMatch(tokenRefresh, /roomUrl !== expectedRoomUrl/);
   assert.match(tokenRefresh, /event: "video_date_token_refresh_room_mismatch"/);
   assert.match(tokenRefresh, /return jsonResponse\(\{ ok: false, error: "room_mismatch", phase, retryable: true \}, 409\)/);
   assert.ok(

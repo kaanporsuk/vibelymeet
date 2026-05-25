@@ -2240,7 +2240,8 @@ test("native post-date survey drains queued ready gates across the whole survey 
 test("post-date queued matches route directly to standalone Ready Gate on web and native", () => {
   assert.match(webPostDateSurvey, /const target = `\/ready\/\$\{encodeURIComponent\(videoSessionId\)\}`/);
   assert.match(webPostDateSurvey, /const target = `\/ready\/\$\{encodeURIComponent\(nextSessionId\)\}`/);
-  assert.match(webPostDateSurvey, /serverNext\.action === "ready_gate" && nextSessionId/);
+  assert.match(webPostDateSurvey, /canonicalNextRoute\.target === "ready_gate" && nextSessionId/);
+  assert.doesNotMatch(webPostDateSurvey, /serverNext\.action === "ready_gate" && nextSessionId/);
   assert.match(webPostDateSurvey, /navigate\(target, \{ replace: true \}\)/);
   assert.match(webPostDateSurvey, /route: "ready_gate"/);
   assert.doesNotMatch(webPostDateSurvey, /buildEventLobbyPendingSessionUrl|event_lobby_pending_ready_gate/);

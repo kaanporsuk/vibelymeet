@@ -1,11 +1,192 @@
--- Sprint 7 ops health fast path.
+-- Follow-ups for Copilot/Codex review comments across PRs 1060-1070.
 --
--- The first Sprint 7 health RPC preserved the right privacy contract, but the
--- global dashboard path could scan broad observability windows on large
--- production tables. Keep the response contract identical while making each
--- rollup use bounded, indexed lateral reads.
+-- Applied after the original Sprint 5/Sprint 7 migrations because those
+-- versions are already present in the linked Supabase project.
 
-SET statement_timeout = '10min';
+CREATE OR REPLACE FUNCTION public.submit_post_date_verdict_v2(
+  p_session_id uuid,
+  p_liked boolean,
+  p_idempotency_key text,
+  p_safety_report jsonb DEFAULT NULL
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_uid uuid := auth.uid();
+  v_key text := NULLIF(btrim(COALESCE(p_idempotency_key, '')), '');
+  v_submission record;
+  v_session record;
+  v_target uuid;
+  v_report_reason text;
+  v_report_details text;
+  v_also_block boolean := false;
+  v_recent int;
+  v_report_id uuid;
+  v_block_result jsonb;
+  v_result jsonb;
+  v_effective_liked boolean := CASE WHEN p_safety_report IS NULL THEN p_liked ELSE false END;
+BEGIN
+  IF v_uid IS NULL THEN
+    RETURN jsonb_build_object('success', false, 'error', 'not_authenticated');
+  END IF;
+  IF v_key IS NULL OR length(v_key) < 8 OR length(v_key) > 160 THEN
+    RETURN jsonb_build_object('success', false, 'error', 'invalid_idempotency_key');
+  END IF;
+
+  INSERT INTO public.post_date_client_submissions (
+    actor_id, session_id, action, idempotency_key, liked, report_payload
+  )
+  VALUES (v_uid, p_session_id, 'verdict', v_key, v_effective_liked, p_safety_report)
+  ON CONFLICT (actor_id, idempotency_key) DO NOTHING;
+
+  SELECT * INTO v_submission
+  FROM public.post_date_client_submissions
+  WHERE actor_id = v_uid
+    AND idempotency_key = v_key
+  FOR UPDATE;
+
+  IF v_submission.result IS NOT NULL THEN
+    RETURN v_submission.result || jsonb_build_object('idempotent', true);
+  END IF;
+  IF v_submission.session_id IS DISTINCT FROM p_session_id
+     OR v_submission.action IS DISTINCT FROM 'verdict' THEN
+    RETURN jsonb_build_object('success', false, 'error', 'idempotency_key_conflict');
+  END IF;
+
+  SELECT * INTO v_session
+  FROM public.video_sessions
+  WHERE id = p_session_id
+  FOR UPDATE;
+
+  IF v_session IS NULL THEN
+    v_result := jsonb_build_object('success', false, 'error', 'session_not_found');
+    UPDATE public.post_date_client_submissions SET result = v_result, updated_at = now() WHERE id = v_submission.id;
+    RETURN v_result;
+  END IF;
+
+  IF v_uid NOT IN (v_session.participant_1_id, v_session.participant_2_id) THEN
+    v_result := jsonb_build_object('success', false, 'error', 'not_participant');
+    UPDATE public.post_date_client_submissions SET result = v_result, updated_at = now() WHERE id = v_submission.id;
+    RETURN v_result;
+  END IF;
+
+  v_target := CASE WHEN v_session.participant_1_id = v_uid THEN v_session.participant_2_id ELSE v_session.participant_1_id END;
+
+  IF p_safety_report IS NOT NULL THEN
+    IF jsonb_typeof(p_safety_report) IS DISTINCT FROM 'object' THEN
+      v_result := jsonb_build_object('success', false, 'error', 'invalid_report_payload');
+      UPDATE public.post_date_client_submissions SET result = v_result, updated_at = now() WHERE id = v_submission.id;
+      RETURN v_result;
+    END IF;
+
+    v_report_reason := lower(btrim(COALESCE(p_safety_report->>'reason', '')));
+    IF v_report_reason NOT IN ('harassment', 'fake', 'inappropriate', 'spam', 'safety', 'underage', 'other') THEN
+      v_result := jsonb_build_object('success', false, 'error', 'invalid_reason');
+      UPDATE public.post_date_client_submissions SET result = v_result, updated_at = now() WHERE id = v_submission.id;
+      RETURN v_result;
+    END IF;
+
+    v_report_details := NULLIF(left(btrim(COALESCE(p_safety_report->>'details', '')), 4000), '');
+    v_also_block := lower(COALESCE(p_safety_report->>'alsoBlock', 'false')) = 'true';
+
+    SELECT count(*)::int INTO v_recent
+    FROM public.user_reports
+    WHERE reporter_id = v_uid
+      AND created_at > now() - interval '1 hour';
+
+    IF v_recent >= 20 THEN
+      v_result := jsonb_build_object('success', false, 'error', 'rate_limited');
+      UPDATE public.post_date_client_submissions SET result = v_result, updated_at = now() WHERE id = v_submission.id;
+      RETURN v_result;
+    END IF;
+  END IF;
+
+  v_result := public.submit_post_date_verdict(p_session_id, v_effective_liked);
+
+  IF COALESCE((v_result->>'success')::boolean, true) IS FALSE THEN
+    UPDATE public.post_date_client_submissions SET result = v_result, updated_at = now() WHERE id = v_submission.id;
+    RETURN v_result;
+  END IF;
+
+  IF p_safety_report IS NOT NULL THEN
+    INSERT INTO public.user_reports (
+      reporter_id,
+      reported_id,
+      reason,
+      details,
+      also_blocked
+    )
+    VALUES (
+      v_uid,
+      v_target,
+      v_report_reason,
+      v_report_details,
+      v_also_block
+    )
+    RETURNING id INTO v_report_id;
+
+    IF v_also_block THEN
+      v_block_result := public.block_user_with_cleanup(v_target, 'Reported: ' || v_report_reason, NULL);
+    END IF;
+
+    UPDATE public.post_date_pending_verdicts
+    SET
+      completed_at = COALESCE(completed_at, now()),
+      status = 'completed',
+      updated_at = now()
+    WHERE session_id = p_session_id
+      AND completed_at IS NULL;
+
+    v_result := v_result || jsonb_build_object(
+      'safety_report_recorded', true,
+      'report_id', v_report_id,
+      'safety_reported', true,
+      'awaiting_partner_verdict', false,
+      'block', v_block_result
+    );
+
+    IF COALESCE((v_result->>'idempotent')::boolean, false) THEN
+      PERFORM public.append_video_session_event_v2(
+        p_session_id,
+        'post_date_safety_report_recorded',
+        'safety_review',
+        v_uid,
+        jsonb_build_object(
+          'action', 'submit_safety_report',
+          'report_id', v_result->>'report_id',
+          'reported_participant_role', CASE
+            WHEN v_uid = v_session.participant_1_id THEN 'participant_2'
+            WHEN v_uid = v_session.participant_2_id THEN 'participant_1'
+            ELSE NULL
+          END
+        ),
+        jsonb_build_object(
+          'action', 'submit_safety_report',
+          'report_id', v_result->>'report_id'
+        ),
+        false,
+        gen_random_uuid()
+      );
+    END IF;
+  END IF;
+
+  UPDATE public.post_date_client_submissions
+  SET result = v_result, updated_at = now()
+  WHERE id = v_submission.id;
+
+  RETURN v_result || jsonb_build_object(
+    'idempotent', COALESCE((v_result->>'idempotent')::boolean, false)
+  );
+END;
+$function$;
+
+REVOKE ALL ON FUNCTION public.submit_post_date_verdict_v2(uuid, boolean, text, jsonb)
+  FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.submit_post_date_verdict_v2(uuid, boolean, text, jsonb)
+  TO authenticated, service_role;
 
 CREATE OR REPLACE FUNCTION public.get_video_date_sprint7_ops_health(
   p_event_id uuid DEFAULT NULL
@@ -295,7 +476,7 @@ BEGIN
           WHERE eo.reason_code IN ('no_queued_session', 'session_not_promotable', 'queued_session_not_promotable')
         )::integer AS queue_drain_no_match_count,
         count(*) FILTER (
-          WHERE eo.outcome NOT IN ('success', 'no_op')
+          WHERE eo.outcome NOT IN ('success', 'no_op', 'blocked')
         )::integer AS queue_drain_failure_count
       FROM public.event_loop_observability_events eo
       WHERE eo.created_at >= now() - w.window_interval
@@ -390,7 +571,7 @@ GRANT EXECUTE ON FUNCTION public.get_video_date_sprint7_ops_health(uuid)
   TO service_role;
 
 COMMENT ON FUNCTION public.get_video_date_sprint7_ops_health(uuid) IS
-  'Service-role-only Sprint 7 Video Date safety/privacy/ops dashboard payload. Fast-path rollups use bounded indexed reads and return only counts, enum-like reasons, operational IDs, timestamps, and privacy-contract metadata.';
+  'Service-role-only Sprint 7 Video Date safety/privacy/ops dashboard payload. Queue drain blocked outcomes are treated as normal safety interlocks, not failures.';
 
 INSERT INTO public.migration_classifications (
   migration_version,
@@ -400,10 +581,10 @@ INSERT INTO public.migration_classifications (
   destructive_requires_signoff
 )
 VALUES (
-  '20260525235500',
-  'Video date Sprint 7 ops health fast path',
+  '20260525235900',
+  'Review comments 1060-1070 follow-ups',
   'schema+policy',
-  'Replaces Sprint 7 health RPC body with bounded indexed lateral rollups. Additive function replacement only; privacy contract and service-role-only grants preserved.',
+  'Forward follow-up for merged PR review comments: emits safety-review events for idempotent post-date report retries and excludes blocked queue-drain safety outcomes from failure rollups.',
   false
 )
 ON CONFLICT (migration_version) DO UPDATE
@@ -411,5 +592,3 @@ SET title = EXCLUDED.title,
     classification = EXCLUDED.classification,
     risk_notes = EXCLUDED.risk_notes,
     destructive_requires_signoff = EXCLUDED.destructive_requires_signoff;
-
-RESET statement_timeout;

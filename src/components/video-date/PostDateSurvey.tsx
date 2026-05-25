@@ -605,7 +605,7 @@ export const PostDateSurvey = ({
           next_session_id: serverNext.nextSessionId,
         });
 
-        if (serverNext.action === "ready_gate" && nextSessionId && canonicalNextRoute.target === "ready_gate") {
+        if (canonicalNextRoute.target === "ready_gate" && nextSessionId) {
           queuedNavigationStartedRef.current = true;
           const target = `/ready/${encodeURIComponent(nextSessionId)}`;
           trackEvent(LobbyPostDateEvents.POST_DATE_CONTINUITY_ROUTE_TAKEN, {

@@ -401,3 +401,5 @@ SET title = EXCLUDED.title,
     classification = EXCLUDED.classification,
     risk_notes = EXCLUDED.risk_notes,
     destructive_requires_signoff = EXCLUDED.destructive_requires_signoff;
+
+RESET statement_timeout;
