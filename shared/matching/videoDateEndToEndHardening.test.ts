@@ -2261,9 +2261,12 @@ test("web standalone Ready Gate hosts the overlay instead of bouncing through lo
   assert.match(webReadyRedirect, /import ReadyGateOverlay/);
   assert.match(webReadyRedirect, /recovery\.action === "go_ready_gate"[\s\S]+setRouteState\(\{ kind: "hosting", eventId: recovery\.eventId \}\)/);
   assert.match(webReadyRedirect, /adviseVideoSessionTruthRecovery/);
-  assert.match(webReadyRedirect, /if \(recovery\.action === "go_ready_gate"\) \{[\s\S]*setRouteState\(\{ kind: "hosting", eventId: session\.event_id \}\)/);
+  assert.match(webReadyRedirect, /if \(recovery\.action === "go_ready_gate" \|\| registrationReadyGateFallback\) \{[\s\S]*setRouteState\(\{ kind: "hosting", eventId: session\.event_id \}\)/);
   assert.doesNotMatch(webReadyRedirect, /READY_GATE_HOSTABLE_STATUSES/);
-  assert.doesNotMatch(webReadyRedirect, /reg\?\.queue_status === "in_ready_gate"/);
+  assert.match(webReadyRedirect, /\.from\("event_registrations"\)[\s\S]+\.eq\("event_id", session\.event_id\)[\s\S]+\.eq\("profile_id", user\.id\)/);
+  assert.match(webReadyRedirect, /readyGateRegistration\?\.queue_status === "in_ready_gate"/);
+  assert.match(webReadyRedirect, /!readyGateRegistration\.current_room_id \|\| readyGateRegistration\.current_room_id === candidate/);
+  assert.match(webReadyRedirect, /recovery\.action === "go_ready_gate" \|\| registrationReadyGateFallback/);
   assert.match(webReadyRedirect, /persistReadyGateSuppressionV2/);
   assert.match(webReadyRedirect, /<ReadyGateOverlay/);
   assert.match(webReadyRedirect, /onNavigateToDate=\{\(nextSessionId\) => navigateToDate\(nextSessionId\)\}/);

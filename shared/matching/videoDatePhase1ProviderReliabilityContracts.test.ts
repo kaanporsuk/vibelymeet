@@ -101,6 +101,8 @@ test("Phase 1 outbox and deadline workers use mutexes, row lease refresh, failur
     assert.match(source, /logVideoDateProviderFailure/);
     assert.match(source, /deadLetterVideoDateProviderFailure/);
     assert.match(source, /captureVideoDateProviderException/);
+    assert.match(source, /isWorkerAlreadyRunningError\(workerError\)[\s\S]+ok: true,[\s\S]+skipped: workerError/);
+    assert.match(source, /ok: false,[\s\S]+error: workerError,[\s\S]+\}, 500\)/);
     assert.doesNotMatch(source, /(?<!WithTimeout)fetch\(/);
   }
 

@@ -2699,6 +2699,9 @@ export default function EventLobbyScreen() {
 
       const videoSessionId = videoSessionIdFromSwipePayload(normalizedEnvelope);
       const openingReadyGate = shouldOpenReadyGateFromSwipePayload(normalizedEnvelope);
+      const readyGateOpenSuppressed = Boolean(
+        openingReadyGate && videoSessionId && isReadyGateManualExitSuppressed(videoSessionId),
+      );
       const conflictDetected =
         outcome === 'already_matched' || outcome === 'participant_has_active_session_conflict';
       const recoveryStartedAtMs = conflictDetected ? Date.now() : null;
@@ -2752,11 +2755,12 @@ export default function EventLobbyScreen() {
         }
       }
       if (openingReadyGate && videoSessionId) {
-        if (isReadyGateManualExitSuppressed(videoSessionId)) {
+        if (readyGateOpenSuppressed) {
           rcBreadcrumb(RC_CATEGORY.readyGate, 'swipe_ready_gate_open_suppressed_after_manual_exit', {
             session_id: videoSessionId,
             event_id: id,
           });
+          scheduleDeckRefresh('swipe_ready_gate_open_suppressed_after_manual_exit');
         } else {
           lastOpenedSessionRef.current = videoSessionId;
           logVdbgSessionStage('ready_gate_open', videoSessionId, {
@@ -2792,7 +2796,9 @@ export default function EventLobbyScreen() {
         }
       }
 
-      showSwipeToast(outcome, { openingReadyGate });
+      if (!readyGateOpenSuppressed) {
+        showSwipeToast(outcome, { openingReadyGate });
+      }
       if (outcome === 'super_vibe_sent' || outcome === 'limit_reached' || outcome === 'match_queued') {
         scheduleLobbyRefreshBurst('swipe_result_counts');
       }

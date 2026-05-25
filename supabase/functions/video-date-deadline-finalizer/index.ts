@@ -52,6 +52,10 @@ function json(body: Record<string, unknown>, status = 200): Response {
   });
 }
 
+function isWorkerAlreadyRunningError(error: string | undefined): boolean {
+  return error === "worker_already_running";
+}
+
 function safeEqual(a: string, b: string): boolean {
   if (a.length !== b.length) return false;
   let mismatch = 0;
@@ -203,21 +207,30 @@ Deno.serve(async (req) => {
     metadata: { source: body.source ?? null, batch_size: batchSize },
   });
   if (!workerRun.ok) {
+    const workerError = workerRun.error ?? "worker_mutex_failed";
+    if (isWorkerAlreadyRunningError(workerError)) {
+      return json({
+        ok: true,
+        skipped: workerError,
+        worker_id: workerId,
+        latency_ms: Date.now() - startedAt,
+      });
+    }
     await logVideoDateProviderFailure(supabase, {
       targetKind: "worker",
       provider: "worker",
       operation: WORKER_KIND,
-      errorCode: workerRun.error ?? "worker_already_running",
-      errorMessage: workerRun.error ?? "worker_already_running",
+      errorCode: workerError,
+      errorMessage: workerError,
       retryAfterSeconds: 30,
       metadata: { source: body.source ?? null },
     });
     return json({
-      ok: true,
-      skipped: workerRun.error ?? "worker_already_running",
+      ok: false,
+      error: workerError,
       worker_id: workerId,
       latency_ms: Date.now() - startedAt,
-    });
+    }, 500);
   }
 
   const workerLease = createWorkerRunRefresher(supabase, {
