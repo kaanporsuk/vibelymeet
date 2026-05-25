@@ -155,6 +155,7 @@ export function bucketVideoDateLatencyMs(durationMs: number | null | undefined):
 }
 
 export type ReadyGateToDateLatencyCheckpoint =
+  | "swipe_result"
   | "ready_gate_impression"
   | "ready_tap"
   | "ready_gate_transition_started"
@@ -273,6 +274,7 @@ export type ReadyGateToDateLatencyContext = {
   dailyPrewarmDestroyedAtMs?: number;
   videoDateRoutePreloadStartedAtMs?: number;
   videoDateRoutePreloadCompletedAtMs?: number;
+  swipeResultObservedAtMs?: number;
   mutualSwipeObservedAtMs?: number;
   roomPreCreateStartedAtMs?: number;
   roomPreCreateSuccessAtMs?: number;
@@ -331,6 +333,8 @@ function diffMs(fromMs: number | null | undefined, toMs: number | null | undefin
 
 function checkpointField(checkpoint: ReadyGateToDateLatencyCheckpoint): keyof ReadyGateToDateLatencyContext {
   switch (checkpoint) {
+    case "swipe_result":
+      return "swipeResultObservedAtMs";
     case "ready_gate_impression":
       return "readyGateOpenedAtMs";
     case "ready_tap":
@@ -477,18 +481,23 @@ export function startReadyGateToDateLatencyContext({
   permissionHandoffUsed?: boolean | null;
   nowMs?: number;
 }): ReadyGateToDateLatencyContext {
-  const context: ReadyGateToDateLatencyContext = {
-    platform,
-    sessionId,
-    eventId,
-    sourceSurface,
-    entryAttemptId,
-    videoDateTraceId,
-    cachedPrepareEntry,
-    providerVerifySkipped,
-    permissionHandoffUsed,
-    readyGateOpenedAtMs: nowMs,
-  };
+  const context =
+    readyGateToDateLatencyContexts.get(sessionId) ??
+    ({
+      platform,
+      sessionId,
+      eventId,
+      sourceSurface,
+    } satisfies ReadyGateToDateLatencyContext);
+  context.platform = platform;
+  context.eventId = eventId;
+  context.sourceSurface = sourceSurface;
+  context.entryAttemptId = entryAttemptId;
+  context.videoDateTraceId = videoDateTraceId;
+  context.cachedPrepareEntry = cachedPrepareEntry;
+  context.providerVerifySkipped = providerVerifySkipped;
+  context.permissionHandoffUsed = permissionHandoffUsed;
+  context.readyGateOpenedAtMs = nowMs;
   readyGateToDateLatencyContexts.set(sessionId, context);
   return context;
 }

@@ -56,7 +56,11 @@ import {
   isDuplicateSwipeResult,
   resolveDeckEmptyReason,
 } from '@clientShared/observability/eventLobbyObservability';
-import { bucketVideoDateLatencyMs } from '@clientShared/observability/videoDateOperatorMetrics';
+import {
+  bucketVideoDateLatencyMs,
+  buildReadyGateToDateLatencyPayload,
+  recordReadyGateToDateLatencyCheckpoint,
+} from '@clientShared/observability/videoDateOperatorMetrics';
 import { LiveSurfaceOfflineStrip } from '@/components/connectivity/LiveSurfaceOfflineStrip';
 import { useVibelyDialog } from '@/components/VibelyDialog';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -2478,7 +2482,7 @@ export default function EventLobbyScreen() {
         <View style={[styles.centered, { backgroundColor: theme.background }]}>
           <ErrorState
             title="This event has ended"
-            message="The live lobby is closed. Check your matches to keep the conversation going."
+            message="The live lobby is closed. Head to Matches to keep conversations going."
             actionLabel="View matches"
             onActionPress={() => router.replace('/(tabs)/matches')}
           />
@@ -2601,6 +2605,7 @@ export default function EventLobbyScreen() {
     }
     const targetId = current.id;
     const targetProfile = current;
+    const swipeStartedAtMs = Date.now();
     let optimisticRemainingVisible = sortedProfiles.length;
     let swipeSequence: number | null = null;
     try {
@@ -2747,6 +2752,29 @@ export default function EventLobbyScreen() {
 
       const videoSessionId = videoSessionIdFromSwipePayload(normalizedEnvelope);
       const openingReadyGate = shouldOpenReadyGateFromSwipePayload(normalizedEnvelope);
+      const swipeResultDurationMs = Math.max(0, Date.now() - swipeStartedAtMs);
+      if (openingReadyGate && videoSessionId) {
+        const swipeResultContext = recordReadyGateToDateLatencyCheckpoint({
+          sessionId: videoSessionId,
+          platform: 'native',
+          eventId: id,
+          sourceSurface: 'event_lobby',
+          checkpoint: 'swipe_result',
+        });
+        trackEvent(
+          LobbyPostDateEvents.READY_GATE_TO_DATE_LATENCY_CHECKPOINT,
+          buildReadyGateToDateLatencyPayload({
+            context: swipeResultContext,
+            checkpoint: 'swipe_result',
+            sourceAction: 'swipe_result',
+            outcome: 'success',
+            durationMs: swipeResultDurationMs,
+            extra: {
+              swipe_result_ms: swipeResultDurationMs,
+            },
+          }),
+        );
+      }
       const readyGateOpenSuppressed = Boolean(
         openingReadyGate && videoSessionId && isReadyGateManualExitSuppressed(videoSessionId),
       );

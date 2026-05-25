@@ -78,7 +78,7 @@ test("Phase 4 deck UI distinguishes terminal, ineligible, empty, and retry state
       reason: "event_ended",
       badge: "Event ended",
       title: "This event has ended",
-      message: "The live lobby is closed. Check your matches to keep the conversation going.",
+      message: "The live lobby is closed. Head to Matches to keep conversations going.",
       actionLabel: "View matches",
       actionTarget: "matches",
       showRefresh: false,
@@ -103,7 +103,7 @@ test("Phase 4 deck UI distinguishes terminal, ineligible, empty, and retry state
   assert.equal(resolveEventDeckPhase4UiState({ platform: "native", deckStateReason: "scan_window_exhausted" }).showMysteryMatch, true);
   assert.equal(resolveEventDeckPhase4UiState({ platform: "web", deckErrorReason: "network_error" }).actionLabel, "Retry");
   assert.equal(resolveEventDeckPhase4UiState({ platform: "native", deckErrorReason: "rpc_error" }).retryable, true);
-  assert.equal(resolveEventDeckPhase4UiState({ platform: "web", deckStateReason: "queue_waiting" }).title, "Waiting for a match");
+  assert.equal(resolveEventDeckPhase4UiState({ platform: "web", deckStateReason: "queue_waiting" }).title, "Holding your place");
   assert.equal(resolveEventDeckPhase4UiState({ platform: "web", deckStateReason: "queue_waiting" }).showRefresh, false);
   assert.equal(resolveEventDeckPhase4UiState({ platform: "web", deckStateReason: "blocked" }).title, "This match is unavailable");
   assert.equal(resolveEventDeckPhase4UiState({ platform: "web", deckStateReason: "media_unavailable" }).title, "Media is unavailable");
@@ -303,8 +303,8 @@ test("Phase 4 queue copy keeps compact labels stable and exposes richer queue fi
 
   assert.deepEqual(resolveVideoDateQueueCopy(null, 1), {
     compactLabel: "1 waiting in queue",
-    title: "Waiting for a match",
-    message: "Ready Gate opens when a match is available.",
+    title: "Holding your place",
+    message: "Keep browsing. Ready Gate opens automatically when a match is available.",
     positionLabel: null,
     etaLabel: null,
     reliefLabel: null,

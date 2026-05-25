@@ -33,6 +33,7 @@ export type EmitVideoDateLaunchLatencyCheckpointResult =
   | { ok: false; skipped?: boolean; reason: string };
 
 const ALLOWED_CHECKPOINTS = new Set<ReadyGateToDateLatencyCheckpoint>([
+  "swipe_result",
   "ready_gate_impression",
   "ready_tap",
   "ready_gate_transition_started",
@@ -114,6 +115,7 @@ const SAFE_PAYLOAD_KEYS = new Set([
   "ready_actor_order",
   "attempt_count",
   "duration_ms",
+  "swipe_result_ms",
   "ready_gate_open_to_ready_tap_ms",
   "ready_tap_to_both_ready_ms",
   "ready_tap_to_prepare_entry_ms",
@@ -251,6 +253,9 @@ function latencyMsForCheckpoint(
   checkpoint: ReadyGateToDateLatencyCheckpoint,
   payload: VideoDateLaunchLatencyPayload,
 ): number | null {
+  if (checkpoint === "swipe_result" && typeof payload.swipe_result_ms === "number") {
+    return payload.swipe_result_ms;
+  }
   if (checkpoint === "room_pre_create_success" && typeof payload.mutual_swipe_to_room_ready_ms === "number") {
     return payload.mutual_swipe_to_room_ready_ms;
   }
@@ -281,10 +286,25 @@ function latencyMsForCheckpoint(
   if (checkpoint === "date_route_module_preloaded" && typeof payload.date_route_module_preload_ms === "number") {
     return payload.date_route_module_preload_ms;
   }
+  if (checkpoint === "daily_join_success" && typeof payload.date_route_to_daily_join_ms === "number") {
+    return payload.date_route_to_daily_join_ms;
+  }
+  if (checkpoint === "daily_join_success" && typeof payload.ready_tap_to_daily_join_ms === "number") {
+    return payload.ready_tap_to_daily_join_ms;
+  }
+  if (checkpoint === "remote_seen" && typeof payload.daily_join_to_remote_seen_ms === "number") {
+    return payload.daily_join_to_remote_seen_ms;
+  }
+  if (checkpoint === "remote_seen" && typeof payload.ready_tap_to_remote_seen_ms === "number") {
+    return payload.ready_tap_to_remote_seen_ms;
+  }
   if (checkpoint === "first_remote_frame" && typeof payload.ready_tap_to_first_remote_frame_ms === "number") {
     return payload.ready_tap_to_first_remote_frame_ms;
   }
   if (checkpoint === "first_remote_frame") return null;
+  if (checkpoint === "remote_readable" && typeof payload.first_remote_frame_to_readable_ms === "number") {
+    return payload.first_remote_frame_to_readable_ms;
+  }
   return typeof payload.duration_ms === "number" ? payload.duration_ms : null;
 }
 

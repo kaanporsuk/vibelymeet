@@ -9,6 +9,7 @@ import {
   Pressable,
   StyleSheet,
   Modal,
+  ScrollView,
   Image,
   ActivityIndicator,
   PermissionsAndroid,
@@ -17,6 +18,7 @@ import {
   Linking,
   type AppStateStatus,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import Svg, { Circle } from 'react-native-svg';
 import { Ionicons } from '@expo/vector-icons';
 import { Camera } from 'expo-camera';
@@ -1512,7 +1514,17 @@ export function ReadyGateOverlay({
 
   return (
     <Modal visible transparent animationType="fade" onRequestClose={() => { void handleSkip(); }}>
-      <View style={[styles.backdrop, { backgroundColor: 'rgba(0,0,0,0.8)' }]} pointerEvents="auto">
+      <SafeAreaView
+        style={[styles.backdrop, { backgroundColor: 'rgba(0,0,0,0.8)' }]}
+        pointerEvents="auto"
+        accessibilityViewIsModal
+      >
+        <ScrollView
+          contentContainerStyle={styles.backdropContent}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
+          bounces={false}
+        >
         {permissionsResolved && hasMediaPermission === false ? (
           <Card variant="glass" style={[styles.card, { borderColor: theme.glassBorder }]}>
             <Ionicons name="videocam-off-outline" size={34} color={theme.textSecondary} />
@@ -1542,6 +1554,8 @@ export function ReadyGateOverlay({
             <Pressable
               onPress={() => { void handleSkip(); }}
               disabled={terminalActionPending}
+              accessibilityRole="button"
+              accessibilityLabel="Back to lobby"
               style={({ pressed }) => [
                 styles.skipWrap,
                 terminalActionPending && { opacity: 0.5 },
@@ -1590,6 +1604,8 @@ export function ReadyGateOverlay({
             <Pressable
               onPress={() => { void handleSkip(); }}
               disabled={terminalActionPending}
+              accessibilityRole="button"
+              accessibilityLabel="Back to lobby"
               style={({ pressed }) => [
                 styles.skipWrap,
                 terminalActionPending && { opacity: 0.5 },
@@ -1697,7 +1713,7 @@ export function ReadyGateOverlay({
                 </View>
 
                 <VibelyButton
-                  label={markingReady ? 'Marking ready...' : "I'm Ready ✨"}
+                  label={markingReady ? 'Marking...' : "I'm Ready"}
                   onPress={() => {
                     if (markingReady || terminalActionPending) return;
                     const latencyContext = recordReadyGateToDateLatencyCheckpoint({
@@ -1795,6 +1811,8 @@ export function ReadyGateOverlay({
                       })();
                     }}
                     disabled={requestingSnooze || markingReady || terminalActionPending}
+                    accessibilityRole="button"
+                    accessibilityLabel="Snooze this Ready Gate for two minutes"
                     style={({ pressed }) => [
                       styles.skipWrap,
                       (requestingSnooze || markingReady || terminalActionPending) && { opacity: 0.5 },
@@ -1809,6 +1827,8 @@ export function ReadyGateOverlay({
                   <Pressable
                     onPress={() => { void handleSkip(); }}
                     disabled={requestingSnooze || markingReady || terminalActionPending}
+                    accessibilityRole="button"
+                    accessibilityLabel="Step away from this Ready Gate"
                     style={({ pressed }) => [
                       styles.skipWrap,
                       (requestingSnooze || markingReady || terminalActionPending) && { opacity: 0.5 },
@@ -1836,6 +1856,8 @@ export function ReadyGateOverlay({
                 <Pressable
                   onPress={() => { void handleSkip(); }}
                   disabled={requestingSnooze || markingReady || terminalActionPending}
+                  accessibilityRole="button"
+                  accessibilityLabel="Step away while waiting for your match"
                   style={({ pressed }) => [
                     styles.skipWrap,
                     (requestingSnooze || markingReady || terminalActionPending) && { opacity: 0.5 },
@@ -1850,7 +1872,8 @@ export function ReadyGateOverlay({
             )}
           </Card>
         )}
-      </View>
+        </ScrollView>
+      </SafeAreaView>
     </Modal>
   );
 }
@@ -1858,6 +1881,9 @@ export function ReadyGateOverlay({
 const styles = StyleSheet.create({
   backdrop: {
     flex: 1,
+  },
+  backdropContent: {
+    flexGrow: 1,
     justifyContent: 'center',
     alignItems: 'center',
     padding: spacing.xl,
@@ -1865,6 +1891,7 @@ const styles = StyleSheet.create({
   card: {
     width: '100%',
     maxWidth: 360,
+    minHeight: 420,
     padding: spacing.xl + spacing.md,
     alignItems: 'center',
   },
@@ -1886,12 +1913,14 @@ const styles = StyleSheet.create({
     ...typography.titleLG,
     marginBottom: spacing.xs,
     textAlign: 'center',
+    flexShrink: 1,
   },
   subtitle: {
     fontSize: 14,
     lineHeight: 20,
     marginBottom: spacing.md,
     textAlign: 'center',
+    flexShrink: 1,
   },
   permissionLoadingSub: {
     fontSize: 13,
@@ -1943,6 +1972,7 @@ const styles = StyleSheet.create({
   readyBtn: {
     alignSelf: 'stretch',
     marginBottom: spacing.lg,
+    minHeight: 48,
   },
   helperText: {
     fontSize: 12,
@@ -1950,8 +1980,10 @@ const styles = StyleSheet.create({
     marginBottom: spacing.sm,
   },
   skipWrap: {
+    minHeight: 44,
     paddingVertical: spacing.sm,
     paddingHorizontal: spacing.md,
+    justifyContent: 'center',
   },
   secondaryRow: {
     flexDirection: 'row',
@@ -1966,6 +1998,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
+    minHeight: 44,
     paddingVertical: 10,
     paddingHorizontal: 16,
     borderRadius: radius.pill,

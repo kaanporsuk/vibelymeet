@@ -205,6 +205,31 @@ test("latency buckets and context durations are stable", () => {
   );
 });
 
+test("Ready Gate context preserves the pre-handoff swipe result checkpoint", () => {
+  const initialContext = recordReadyGateToDateLatencyCheckpoint({
+    platform: "web",
+    sessionId: "session-swipe-result-preserved",
+    eventId: "event-sprint-6",
+    sourceSurface: "event_lobby",
+    checkpoint: "swipe_result",
+    nowMs: 500,
+  });
+  assert.equal(initialContext.swipeResultObservedAtMs, 500);
+
+  const readyGateContext = startReadyGateToDateLatencyContext({
+    platform: "web",
+    sessionId: "session-swipe-result-preserved",
+    eventId: "event-sprint-6",
+    sourceSurface: "ready_gate_overlay",
+    nowMs: 900,
+  });
+
+  assert.equal(readyGateContext.swipeResultObservedAtMs, 500);
+  assert.equal(readyGateContext.readyGateOpenedAtMs, 900);
+  assert.equal(readyGateContext.sourceSurface, "ready_gate_overlay");
+  assert.equal(readyGateContext.eventId, "event-sprint-6");
+});
+
 test("Phase 7 Daily performance checkpoints compute token-free segment durations", async () => {
   const ctx = startReadyGateToDateLatencyContext({
     platform: "web",

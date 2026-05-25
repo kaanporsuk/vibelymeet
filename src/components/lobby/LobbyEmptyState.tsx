@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import { motion } from "framer-motion";
+import { motion, useReducedMotion } from "framer-motion";
 import { Sparkles, RefreshCw, Radio } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { trackEvent } from "@/lib/analytics";
@@ -29,6 +29,7 @@ const LobbyEmptyState = ({
   onAction,
 }: LobbyEmptyStateProps) => {
   const impressionRef = useRef(false);
+  const prefersReducedMotion = useReducedMotion();
 
   useEffect(() => {
     impressionRef.current = false;
@@ -55,12 +56,12 @@ const LobbyEmptyState = ({
 
   return (
     <motion.div
-      initial={{ opacity: 0, y: 12 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.35, ease: [0.22, 1, 0.36, 1] }}
+      initial={prefersReducedMotion ? { opacity: 0 } : { opacity: 0, y: 12 }}
+      animate={prefersReducedMotion ? { opacity: 1 } : { opacity: 1, y: 0 }}
+      transition={prefersReducedMotion ? { duration: 0.12 } : { duration: 0.35, ease: [0.22, 1, 0.36, 1] }}
       className="w-full max-w-sm mx-auto"
     >
-      <div className="relative rounded-3xl overflow-hidden border border-white/[0.12] bg-gradient-to-b from-zinc-900/90 via-zinc-950 to-black p-8 sm:p-10 text-center shadow-[0_0_60px_-12px_hsl(var(--neon-violet)/0.35)]">
+      <div className="relative min-h-[320px] rounded-3xl overflow-hidden border border-white/[0.12] bg-gradient-to-b from-zinc-900/90 via-zinc-950 to-black p-8 sm:p-10 text-center shadow-[0_0_60px_-12px_hsl(var(--neon-violet)/0.35)]">
         <div
           className="pointer-events-none absolute inset-0 opacity-90"
           style={{
@@ -71,22 +72,23 @@ const LobbyEmptyState = ({
 
         <div className="relative space-y-6">
           <motion.div
-            animate={{ scale: [1, 1.03, 1] }}
-            transition={{ duration: 3, repeat: Infinity, ease: "easeInOut" }}
+            animate={prefersReducedMotion ? undefined : { scale: [1, 1.03, 1] }}
+            transition={prefersReducedMotion ? undefined : { duration: 3, repeat: Infinity, ease: "easeInOut" }}
             className="w-20 h-20 mx-auto rounded-2xl bg-white/[0.06] border border-white/10 flex items-center justify-center backdrop-blur-sm"
+            aria-hidden="true"
           >
             <Sparkles className="w-9 h-9 text-primary" strokeWidth={1.5} />
           </motion.div>
 
-          <div className="space-y-2">
+          <div className="min-w-0 space-y-2" role="status" aria-live="polite">
             <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-white/[0.06] border border-white/10 text-[10px] font-semibold uppercase tracking-wider text-white/60 mx-auto">
               <Radio className="w-3 h-3 text-neon-cyan" />
               {badge ?? "Deck clear"}
             </div>
-            <h3 className="text-xl font-display font-bold text-white tracking-tight">
+            <h3 className="text-xl font-display font-bold text-white tracking-tight break-words">
               {title ?? "You've seen everyone for now"}
             </h3>
-            <p className="text-sm text-white/55 leading-relaxed">
+            <p className="text-sm text-white/55 leading-relaxed break-words">
               {message ??
                 "More people may join the room — your deck refreshes every few seconds. Tap refresh if you don't want to wait."}
             </p>
@@ -97,7 +99,7 @@ const LobbyEmptyState = ({
               variant="outline"
               size="default"
               onClick={onAction ?? handleRefresh}
-              className="gap-2 border-white/20 bg-white/[0.04] text-white hover:bg-white/[0.08] hover:text-white"
+              className="min-h-11 gap-2 whitespace-normal border-white/20 bg-white/[0.04] text-white hover:bg-white/[0.08] hover:text-white"
             >
               {showRefreshIcon ? <RefreshCw className="w-4 h-4" /> : null}
               {actionLabel}

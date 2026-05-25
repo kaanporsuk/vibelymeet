@@ -2288,7 +2288,7 @@ const ReadyGateOverlay = ({
             animate={{ opacity: 1, scale: 1 }}
             className="absolute inset-0 z-10 bg-background flex items-center justify-center"
           >
-            <div className="text-center space-y-4" role="status" aria-live="polite" aria-atomic="true">
+            <div className="px-6 text-center space-y-4" role="status" aria-live="polite" aria-atomic="true">
               <motion.div
                 animate={prefersReducedMotion ? undefined : { scale: [1, 1.2, 1] }}
                 transition={prefersReducedMotion ? undefined : { duration: 1.5, repeat: Infinity }}
@@ -2300,10 +2300,10 @@ const ReadyGateOverlay = ({
                   <Sparkles className="w-12 h-12 text-primary mx-auto" />
                 )}
               </motion.div>
-              <p className="text-lg font-display font-semibold text-foreground">
+              <p className="text-lg font-display font-semibold text-foreground break-words">
                 {transitionCopy.title}
               </p>
-              <p className="text-sm text-muted-foreground max-w-xs mx-auto">{transitionCopy.body}</p>
+              <p className="text-sm text-muted-foreground max-w-xs mx-auto break-words">{transitionCopy.body}</p>
               {prepareEntryStatus === "failed" && (
                 <div className="flex items-center justify-center gap-3 pt-2">
                   {prepareEntryFailure?.retryable && (
@@ -2312,7 +2312,7 @@ const ReadyGateOverlay = ({
                       onClick={retryPrepareEntry}
                       disabled={terminalActionPending}
                       aria-label="Try video setup again"
-                      className="px-4 py-2 rounded-full bg-primary text-primary-foreground text-sm font-medium"
+                      className="min-h-10 px-4 py-2 rounded-full bg-primary text-primary-foreground text-sm font-medium"
                     >
                       Try again
                     </button>
@@ -2325,7 +2325,7 @@ const ReadyGateOverlay = ({
                     disabled={terminalActionPending}
                     aria-label="Leave this Ready Gate and return to the lobby"
                     aria-busy={terminalActionPending}
-                    className="px-4 py-2 rounded-full border border-border text-sm font-medium text-foreground disabled:opacity-50"
+                    className="min-h-10 px-4 py-2 rounded-full border border-border text-sm font-medium text-foreground disabled:opacity-50"
                   >
                     {terminalActionPending ? "Leaving..." : "Back to lobby"}
                   </button>
@@ -2347,7 +2347,7 @@ const ReadyGateOverlay = ({
         animate={prefersReducedMotion ? { opacity: 1 } : { y: 0, scale: 1, opacity: 1 }}
         exit={prefersReducedMotion ? { opacity: 0 } : { y: 100, scale: 0.95, opacity: 0 }}
         transition={prefersReducedMotion ? { duration: 0.12 } : { type: "spring", stiffness: 300, damping: 28 }}
-        className="relative z-10 max-h-full w-full max-w-sm overflow-y-auto rounded-3xl border border-white/10 overscroll-contain"
+        className="relative z-10 max-h-full min-h-[min(30rem,calc(100dvh-2rem))] w-full max-w-sm overflow-y-auto rounded-3xl border border-white/10 overscroll-contain sm:min-h-[min(34rem,calc(100dvh-2rem))]"
         style={{
           background:
             "linear-gradient(145deg, hsl(var(--card)), hsl(var(--card) / 0.95))",
@@ -2357,10 +2357,10 @@ const ReadyGateOverlay = ({
         <div className="p-6 space-y-5">
           {/* Heading */}
           <div className="text-center space-y-1">
-            <h2 id="ready-gate-title" className="text-xl font-display font-bold text-foreground">
+            <h2 id="ready-gate-title" className="text-xl font-display font-bold text-foreground break-words">
               Ready to vibe?
             </h2>
-            <p id="ready-gate-description" className="text-sm text-muted-foreground">
+            <p id="ready-gate-description" className="text-sm text-muted-foreground break-words">
               You matched with {partnerName || "someone"}.
             </p>
           </div>
@@ -2461,7 +2461,7 @@ const ReadyGateOverlay = ({
                   <span className="min-w-0 flex-1">
                     <span className="block truncate text-xs font-semibold text-foreground">{row.label}</span>
                     {row.status !== "ok" && (
-                      <span className="block text-[11px] leading-4 text-muted-foreground">{row.title}</span>
+                      <span className="block break-words text-[11px] leading-4 text-muted-foreground">{row.title}</span>
                     )}
                   </span>
                   {showAction && (
@@ -2469,7 +2469,7 @@ const ReadyGateOverlay = ({
                       type="button"
                       onClick={() => handleDiagnosticAction(row)}
                       disabled={terminalActionPending}
-                      className="shrink-0 rounded-full border border-white/10 px-2.5 py-1 text-[11px] font-semibold text-foreground disabled:opacity-50"
+                      className="min-h-8 shrink-0 rounded-full border border-white/10 px-2.5 py-1 text-[11px] font-semibold text-foreground disabled:opacity-50"
                     >
                       {row.actionLabel}
                     </button>
@@ -2481,12 +2481,12 @@ const ReadyGateOverlay = ({
 
           {/* Action area */}
           {showRealtimeFallbackCopy && !isTransitioning && (
-            <p className="text-center text-xs text-muted-foreground" role="status" aria-live="polite">
+            <p className="text-center text-xs text-muted-foreground break-words" role="status" aria-live="polite">
               Syncing your date status...
             </p>
           )}
           {terminalActionError && !isTransitioning && (
-            <p className="text-center text-xs text-destructive" role="alert">
+            <p className="text-center text-xs text-destructive break-words" role="alert">
               {terminalActionError}
             </p>
           )}
@@ -2605,8 +2605,8 @@ const ReadyGateOverlay = ({
                     />
                   </svg>
                   <div className="w-24 h-24 rounded-full bg-gradient-to-br from-primary to-accent flex items-center justify-center shadow-lg shadow-primary/30">
-                    <span className="text-sm font-display font-bold text-primary-foreground text-center leading-tight px-1">
-                      {markingReady ? "Marking ready..." : "I'm Ready"}
+                    <span className="text-[13px] font-display font-bold text-primary-foreground text-center leading-tight px-1">
+                      {markingReady ? "Marking..." : "I'm Ready"}
                     </span>
                   </div>
                 </motion.button>
@@ -2614,7 +2614,7 @@ const ReadyGateOverlay = ({
               <p className="sr-only">
                 {timeLeft > 0 ? `${timeLeft} seconds left in this Ready Gate.` : "Ready Gate countdown ended."}
               </p>
-              <p className="text-center text-xs text-muted-foreground">
+              <p className="text-center text-xs text-muted-foreground break-words">
                 Snooze gives you up to 2 extra minutes. Step away exits this match attempt.
               </p>
 
@@ -2659,7 +2659,7 @@ const ReadyGateOverlay = ({
                   disabled={requestingSnooze || markingReady || terminalActionPending}
                   aria-label="Snooze this Ready Gate for two minutes"
                   aria-busy={requestingSnooze}
-                  className="rounded-full px-4 py-2 text-xs text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50"
+                  className="min-h-10 rounded-full px-4 py-2 text-xs text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50"
                 >
                   {requestingSnooze ? "Snoozing..." : "Snooze — give me 2 min"}
                 </button>
@@ -2672,7 +2672,7 @@ const ReadyGateOverlay = ({
                   disabled={markingReady || requestingSnooze || terminalActionPending}
                   aria-label="Step away from this Ready Gate"
                   aria-busy={terminalActionPending}
-                  className="rounded-full px-4 py-2 text-xs text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50"
+                  className="min-h-10 rounded-full px-4 py-2 text-xs text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50"
                 >
                   {terminalActionPending ? "Leaving..." : "Step away"}
                 </button>
@@ -2685,7 +2685,7 @@ const ReadyGateOverlay = ({
                 transition={prefersReducedMotion ? undefined : { duration: 2, repeat: Infinity }}
                 role="status"
                 aria-live="polite"
-                className="inline-flex items-center gap-2 px-5 py-2.5 rounded-full bg-primary/10 border border-primary/20"
+                className="inline-flex min-h-10 items-center gap-2 px-5 py-2.5 rounded-full bg-primary/10 border border-primary/20"
               >
                 {showConnectingReadinessCopy ? (
                   <Sparkles className="w-4 h-4 text-primary" aria-hidden="true" />
@@ -2694,7 +2694,7 @@ const ReadyGateOverlay = ({
                 ) : (
                   <Check className="w-4 h-4 text-primary" aria-hidden="true" />
                 )}
-                <span className="text-sm font-medium text-foreground">
+                <span className="text-sm font-medium text-foreground break-words">
                   {readyGateReadinessCopy.text}
                 </span>
               </motion.div>
@@ -2706,7 +2706,7 @@ const ReadyGateOverlay = ({
                 disabled={requestingSnooze || markingReady || terminalActionPending}
                 aria-label="Step away while waiting for your match"
                 aria-busy={terminalActionPending}
-                className="block mx-auto rounded-full px-5 py-2 text-xs text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50"
+                className="block min-h-10 mx-auto rounded-full px-5 py-2 text-xs text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50"
               >
                 {terminalActionPending ? "Leaving..." : "Step away"}
               </button>
