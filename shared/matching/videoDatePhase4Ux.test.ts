@@ -205,6 +205,24 @@ test("Phase 4 queue labels stay approximate and expose priority relief", () => {
     ),
     "2 waiting in queue",
   );
+  assert.equal(
+    formatVideoDateQueueHintLabel(
+      {
+        ok: true,
+        queued: true,
+        reason: null,
+        sessionId: "session-sub-one-position",
+        eventQueuedCount: 2,
+        userQueuedCount: 1,
+        position: 0.6,
+        waitAgeSeconds: 20,
+        estimatedWaitSeconds: 4,
+        reliefActive: false,
+      },
+      0,
+    ),
+    "Position 1 · now",
+  );
 });
 
 test("Phase 4 queue copy keeps compact labels stable and exposes richer queue fields", () => {
@@ -263,6 +281,25 @@ test("Phase 4 queue copy keeps compact labels stable and exposes richer queue fi
   );
   assert.equal(fractionalPositionCopy.compactLabel, "Position 2 · ~2m");
   assert.equal(fractionalPositionCopy.positionLabel, "Position 2");
+
+  const subOnePositionCopy = resolveVideoDateQueueCopy(
+    {
+      ok: true,
+      queued: true,
+      reason: null,
+      sessionId: "session-sub-one",
+      eventQueuedCount: 2,
+      userQueuedCount: 1,
+      position: 0.4,
+      waitAgeSeconds: 12,
+      estimatedWaitSeconds: null,
+      reliefActive: false,
+    },
+    0,
+  );
+  assert.equal(subOnePositionCopy.compactLabel, "Position 1");
+  assert.equal(subOnePositionCopy.positionLabel, "You're next");
+  assert.equal(subOnePositionCopy.isNext, true);
 
   assert.deepEqual(resolveVideoDateQueueCopy(null, 1), {
     compactLabel: "1 waiting in queue",

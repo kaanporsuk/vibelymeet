@@ -3540,7 +3540,7 @@ export default function VideoDateScreen() {
         setShowProfileSheet(false);
         setShowInCallSafety(false);
       }
-      if (!outcome.ended && !outcome.alsoBlock) return;
+      if (!outcome.ended) return;
       if (sessionId && !videoDateEndedRef.current) {
         videoDateEndedRef.current = true;
         trackEvent('video_date_ended', {

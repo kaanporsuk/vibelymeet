@@ -1112,6 +1112,7 @@ export function ReadyGateOverlay({
   }, [sessionId, syncSession]);
 
   useEffect(() => {
+    if (permissionsResolved) return;
     let cancelled = false;
     void (async () => {
       const ok = await requestMediaPermissions();
@@ -1131,7 +1132,7 @@ export function ReadyGateOverlay({
     return () => {
       cancelled = true;
     };
-  }, [requestMediaPermissions, eventId, sessionId]);
+  }, [permissionsResolved, requestMediaPermissions, eventId, sessionId]);
 
   useEffect(() => {
     if (iAmReady) setMarkingReady(false);

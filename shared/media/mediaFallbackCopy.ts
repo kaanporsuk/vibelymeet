@@ -90,7 +90,7 @@ export function resolveMediaFallbackReason(input: {
 
   const code = typeof input.errorCode === "string" ? input.errorCode : "";
   if (code === "auth_expired") return "auth_expired";
-  if (code === "asset_deleted" || code === "media_asset_processing_failed" || code === "media_asset_unavailable") {
+  if (code === "asset_deleted" || code === "media_asset_processing_failed") {
     return "asset_deleted";
   }
   if (code === "network_error" || code === "provider_unreachable") return "provider_unreachable";

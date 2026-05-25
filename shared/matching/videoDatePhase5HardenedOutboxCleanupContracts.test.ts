@@ -8,6 +8,7 @@ const read = (path: string) => readFileSync(join(root, path), "utf8");
 
 const migration = read("supabase/migrations/20260524203000_video_date_phase5_hardened_outbox_finalizer_cleanup.sql");
 const reviewComments1041To1049Migration = read("supabase/migrations/20260525180000_review_comments_1041_1049.sql");
+const reviewComments1051To1058Migration = read("supabase/migrations/20260525203000_review_comments_1051_1058.sql");
 const reliabilityMigration = read("supabase/migrations/20260524090000_video_date_phase1_provider_reliability.sql");
 const helper = read("supabase/functions/_shared/video-date-provider-reliability.ts");
 const outboxDrainer = read("supabase/functions/video-date-outbox-drainer/index.ts");
@@ -89,6 +90,9 @@ test("Phase 5 cleanup checks safety evidence before Daily room deletion", () => 
   assert.match(reviewComments1041To1049Migration, /CREATE OR REPLACE FUNCTION public\.record_video_date_orphan_room_cleanup_audit_v2/);
   assert.match(reviewComments1041To1049Migration, /'skipped_safety_review'/);
   assert.match(reviewComments1041To1049Migration, /TO service_role/);
+  assert.match(reviewComments1051To1058Migration, /DROP CONSTRAINT IF EXISTS video_date_orphan_room_cleanup_audit_action_check/);
+  assert.match(reviewComments1051To1058Migration, /ADD CONSTRAINT video_date_orphan_room_cleanup_audit_action_check/);
+  assert.match(reviewComments1051To1058Migration, /'skipped_safety_review'/);
   assert.ok(
     orphanCleanup.indexOf("checkSafetyInterlock") < orphanCleanup.indexOf("getDailyRoomPresence(room.name)"),
     "cleanup must run the safety interlock before the first provider presence/delete path",
