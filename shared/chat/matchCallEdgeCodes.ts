@@ -10,6 +10,7 @@ export const MATCH_CALL_EDGE_CODES = {
   PARTICIPANT_PAUSED: "PARTICIPANT_PAUSED",
   PARTICIPANT_SUSPENDED: "PARTICIPANT_SUSPENDED",
   PROFILE_UNAVAILABLE: "PROFILE_UNAVAILABLE",
+  DAILY_RATE_LIMIT: "DAILY_RATE_LIMIT",
   TOKEN_ISSUE_FAILED: "TOKEN_ISSUE_FAILED",
   USERS_BLOCKED: "USERS_BLOCKED",
 } as const;
@@ -33,6 +34,7 @@ export const MATCH_CALL_EDGE_MESSAGES: Record<string, string> = {
   [MATCH_CALL_EDGE_CODES.PARTICIPANT_PAUSED]: "Calls aren’t available while an account is paused.",
   [MATCH_CALL_EDGE_CODES.PARTICIPANT_SUSPENDED]: "Calls aren’t available for this account right now.",
   [MATCH_CALL_EDGE_CODES.PROFILE_UNAVAILABLE]: "Calls aren’t available for this chat right now.",
+  [MATCH_CALL_EDGE_CODES.DAILY_RATE_LIMIT]: "Call service is busy — please try again in a moment.",
   [MATCH_CALL_EDGE_CODES.TOKEN_ISSUE_FAILED]: "Could not connect — please try again in a moment.",
   [MATCH_CALL_EDGE_CODES.USERS_BLOCKED]: "This call is no longer available.",
 };

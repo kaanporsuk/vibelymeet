@@ -21,9 +21,12 @@ import {
   captureVideoDateProviderException,
   enforceProviderRateLimit,
   fetchWithTimeout,
+  numericEnv,
   parseRetryAfterSeconds,
   providerFailureCode,
+  providerFailureRetryAfter,
   providerFetchTimeoutMs,
+  ProviderRateLimitError,
   providerRateLimitConfig,
 } from "../_shared/video-date-provider-reliability.ts";
 
@@ -61,6 +64,7 @@ const DAILY_VIDEO_DATE_HANDSHAKE_SECONDS = 60;
 const DAILY_VIDEO_DATE_BASE_DATE_SECONDS = 300;
 const DAILY_VIDEO_DATE_PROVIDER_PROOF_FRESH_MS = 90_000;
 const DAILY_VIDEO_DATE_PROVIDER_PROOF_CLOCK_SKEW_MS = 5_000;
+const DAILY_PROVIDER_MAX_RETRY_SLEEP_SECONDS = numericEnv("DAILY_PROVIDER_MAX_RETRY_SLEEP_SECONDS", 5, 0, 30);
 const EDGE_PROCESS_STARTED_AT_MS = Date.now();
 
 let providerReliabilityClient: any = null;
@@ -123,6 +127,8 @@ type ClientRequestContext = {
   client_runtime_version: string | null;
 };
 
+type SupabaseEdgeClient = ReturnType<typeof createClient<any>>;
+
 type DailyProviderOperation = "create_room" | "create_token" | "lookup_room" | "delete_room";
 
 type DailyProviderErrorCode =
@@ -140,6 +146,7 @@ class DailyProviderError extends Error {
   readonly vibelyCode: DailyProviderErrorCode;
   readonly httpStatus: number;
   readonly clientMessage: string;
+  readonly retryAfterSeconds: number | null;
 
   constructor(params: {
     operation: DailyProviderOperation;
@@ -149,6 +156,7 @@ class DailyProviderError extends Error {
     vibelyCode: DailyProviderErrorCode;
     httpStatus: number;
     clientMessage: string;
+    retryAfterSeconds?: number | null;
   }) {
     super(
       params.status == null
@@ -163,6 +171,9 @@ class DailyProviderError extends Error {
     this.vibelyCode = params.vibelyCode;
     this.httpStatus = params.httpStatus;
     this.clientMessage = params.clientMessage;
+    this.retryAfterSeconds = typeof params.retryAfterSeconds === "number" && Number.isFinite(params.retryAfterSeconds)
+      ? Math.min(300, Math.max(1, Math.ceil(params.retryAfterSeconds)))
+      : null;
   }
 }
 
@@ -199,22 +210,29 @@ async function dailyProviderFetch(
       retryAfterSeconds: 30,
     });
   } catch (error) {
+    const code = providerFailureCode(error);
+    const rateLimited = error instanceof ProviderRateLimitError || code === "provider_rate_limited";
+    const retryAfterSeconds = rateLimited ? providerFailureRetryAfter(error, 30) : null;
     await captureVideoDateProviderException(error, {
       provider: "daily",
       operation,
       room_name: roomName ?? null,
-      provider_code: providerFailureCode(error),
+      provider_code: code,
+      retry_after_seconds: retryAfterSeconds,
     });
     throw new DailyProviderError({
       operation,
       status: null,
-      providerCode: providerFailureCode(error),
+      providerCode: code,
       roomName,
-      vibelyCode: providerFailureCode(error) === "provider_rate_limited"
+      vibelyCode: rateLimited
         ? "DAILY_RATE_LIMIT"
         : "DAILY_PROVIDER_UNAVAILABLE",
-      httpStatus: 503,
-      clientMessage: "Video service temporarily unavailable.",
+      httpStatus: rateLimited ? 429 : 503,
+      clientMessage: rateLimited
+        ? "Video service is rate limited. Please try again shortly."
+        : "Video service temporarily unavailable.",
+      retryAfterSeconds,
     });
   }
 }
@@ -338,7 +356,7 @@ function classifyDailyProviderStatus(status: number): {
   if (status === 429) {
     return {
       vibelyCode: "DAILY_RATE_LIMIT",
-      httpStatus: 503,
+      httpStatus: 429,
       clientMessage: "Video service is rate limited. Please try again shortly.",
     };
   }
@@ -375,8 +393,45 @@ async function dailyProviderErrorFromResponse(
     status: res.status,
     providerCode,
     roomName,
+    retryAfterSeconds: res.status === 429 ? parseRetryAfterSeconds(res.headers, 30) : null,
     ...classification,
   });
+}
+
+function retryAfterHeaderValue(retryAfterSeconds: number | null | undefined): string | null {
+  if (typeof retryAfterSeconds !== "number" || !Number.isFinite(retryAfterSeconds)) return null;
+  return String(Math.min(300, Math.max(1, Math.ceil(retryAfterSeconds))));
+}
+
+function jsonHeadersWithRetryAfter(
+  retryAfterSeconds: number | null | undefined,
+  extra: Record<string, string> = {},
+): Record<string, string> {
+  const headers: Record<string, string> = {
+    ...corsHeaders,
+    "Content-Type": "application/json",
+    ...extra,
+  };
+  const retryAfter = retryAfterHeaderValue(retryAfterSeconds);
+  if (retryAfter) headers["Retry-After"] = retryAfter;
+  return headers;
+}
+
+function retryAfterJsonFields(retryAfterSeconds: number | null | undefined): Record<string, number> {
+  const retryAfter = retryAfterHeaderValue(retryAfterSeconds);
+  return retryAfter
+    ? {
+      retry_after_seconds: Number(retryAfter),
+      retryAfterSeconds: Number(retryAfter),
+    }
+    : {};
+}
+
+async function waitForBoundedDailyProviderRetry(headers: Headers, fallbackSeconds: number): Promise<boolean> {
+  const retryAfterSeconds = parseRetryAfterSeconds(headers, fallbackSeconds);
+  if (retryAfterSeconds > DAILY_PROVIDER_MAX_RETRY_SLEEP_SECONDS) return false;
+  await new Promise((resolve) => setTimeout(resolve, retryAfterSeconds * 1000));
+  return true;
 }
 
 function logDailyProviderFailure(
@@ -413,7 +468,7 @@ function logDailyProviderFailure(
 }
 
 async function createDailyProviderFailureResponse(params: {
-  serviceClient: ReturnType<typeof createClient>;
+  serviceClient: SupabaseEdgeClient;
   error: DailyProviderError;
   action: DateRoomAction;
   sessionId: string | null | undefined;
@@ -449,6 +504,7 @@ async function createDailyProviderFailureResponse(params: {
       provider_status: params.error.status,
       provider_code: params.error.providerCode,
       http_status: params.error.httpStatus,
+      retry_after_seconds: params.error.retryAfterSeconds,
     },
   });
   return createDateRoomRejectResponse({
@@ -462,12 +518,14 @@ async function createDailyProviderFailureResponse(params: {
     requestContext: params.requestContext,
     session: params.session,
     detail: params.error.message,
+    retryAfterSeconds: params.error.retryAfterSeconds,
     extra: {
       entry_attempt_id: params.entryAttemptId ?? null,
       video_date_trace_id: params.videoDateTraceId ?? params.entryAttemptId ?? null,
       operation: params.error.operation,
       provider_status: params.error.status,
       provider_code: params.error.providerCode,
+      retry_after_seconds: params.error.retryAfterSeconds,
     },
   });
 }
@@ -483,10 +541,30 @@ function createGenericDailyProviderFailureResponse(error: DailyProviderError, ac
       error: error.clientMessage,
       code: error.vibelyCode,
       message: error.clientMessage,
+      ...retryAfterJsonFields(error.retryAfterSeconds),
     }),
     {
       status: error.httpStatus,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
+      headers: jsonHeadersWithRetryAfter(error.retryAfterSeconds),
+    },
+  );
+}
+
+function createCallServiceProviderFailureResponse(
+  providerError: DailyProviderError | null,
+  fallbackCode = "TOKEN_ISSUE_FAILED",
+): Response {
+  const retryAfterSeconds = providerError?.retryAfterSeconds ?? null;
+  return new Response(
+    JSON.stringify({
+      error: providerError?.clientMessage ?? "Call service temporarily unavailable",
+      code: providerError?.vibelyCode ?? fallbackCode,
+      ...(providerError ? { provider_code: providerError.providerCode } : {}),
+      ...retryAfterJsonFields(retryAfterSeconds),
+    }),
+    {
+      status: providerError?.httpStatus ?? 503,
+      headers: jsonHeadersWithRetryAfter(retryAfterSeconds),
     },
   );
 }
@@ -510,6 +588,7 @@ function logDateRoomReject(params: {
   session?: VideoDateRoomGateSession | null;
   detail?: string | null;
   extra?: Record<string, unknown>;
+  retryAfterSeconds?: number | null;
 }) {
   const { action, sessionId, userId, code, httpStatus, requestContext, session, detail, extra } = params;
   console.log(
@@ -547,6 +626,7 @@ function createDateRoomRejectResponse(params: {
   session?: VideoDateRoomGateSession | null;
   detail?: string | null;
   extra?: Record<string, unknown>;
+  retryAfterSeconds?: number | null;
 }) {
   logDateRoomReject({
     action: params.action,
@@ -564,11 +644,12 @@ function createDateRoomRejectResponse(params: {
       error: params.error,
       code: params.code,
       ...(params.message ? { message: params.message } : {}),
+      ...retryAfterJsonFields(params.retryAfterSeconds),
       ...(params.extra ? { details: params.extra } : {}),
     }),
     {
       status: params.status,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
+      headers: jsonHeadersWithRetryAfter(params.retryAfterSeconds),
     },
   );
 }
@@ -586,7 +667,7 @@ type VideoDateProviderObservabilityOperation =
   | "create_date_room_provider_error";
 
 async function recordVideoDateProviderObservability(params: {
-  serviceClient: ReturnType<typeof createClient>;
+  serviceClient: SupabaseEdgeClient;
   operation: VideoDateProviderObservabilityOperation;
   outcome: "success" | "blocked" | "error" | "no_op";
   reasonCode?: string | null;
@@ -750,7 +831,7 @@ function videoDateRoomGateSessionEnded(session: {
 }
 
 async function persistVideoDateRoomMetadata(
-  serviceClient: ReturnType<typeof createClient>,
+  serviceClient: SupabaseEdgeClient,
   params: {
     sessionId: string;
     roomName: string;
@@ -888,7 +969,7 @@ async function persistVideoDateRoomMetadata(
 }
 
 async function confirmVideoDateEntryPrepared(
-  serviceClient: ReturnType<typeof createClient>,
+  serviceClient: SupabaseEdgeClient,
   params: {
     sessionId: string;
     roomName: string;
@@ -906,7 +987,7 @@ async function confirmVideoDateEntryPrepared(
 }
 
 async function isPairBlocked(
-  serviceClient: ReturnType<typeof createClient>,
+  serviceClient: SupabaseEdgeClient,
   userA: string,
   userB: string,
 ): Promise<boolean> {
@@ -932,7 +1013,7 @@ async function isPairBlocked(
 }
 
 async function maybeReturnBlockedDateSessionFallback(params: {
-  serviceClient: ReturnType<typeof createClient>;
+  serviceClient: SupabaseEdgeClient;
   action: DateRoomAction;
   sessionId: unknown;
   userId: string;
@@ -973,7 +1054,7 @@ async function maybeReturnBlockedDateSessionFallback(params: {
 }
 
 async function maybeReturnBlockedMatchFallback(params: {
-  serviceClient: ReturnType<typeof createClient>;
+  serviceClient: SupabaseEdgeClient;
   matchId: unknown;
   userId: string;
   event: string;
@@ -1010,7 +1091,7 @@ async function maybeReturnBlockedMatchFallback(params: {
 }
 
 async function maybeReturnBlockedMatchCallFallback(params: {
-  serviceClient: ReturnType<typeof createClient>;
+  serviceClient: SupabaseEdgeClient;
   callId: unknown;
   userId: string;
   event: string;
@@ -1071,8 +1152,9 @@ async function createMeetingToken(
   }, roomName);
 
   if (res.status === 429 && retries > 0) {
-    await new Promise((r) => setTimeout(r, parseRetryAfterSeconds(res.headers, 3 - retries) * 1000));
-    return createMeetingToken(roomName, userId, expSeconds, retries - 1, options);
+    if (await waitForBoundedDailyProviderRetry(res.headers, 3 - retries)) {
+      return createMeetingToken(roomName, userId, expSeconds, retries - 1, options);
+    }
   }
 
   if (!res.ok) {
@@ -1121,7 +1203,7 @@ function videoDatePhaseDeadlineAtMs(session: VideoDateRoomGateSession): number |
 }
 
 async function isClientFeatureFlagEnabled(
-  supabase: ReturnType<typeof createClient>,
+  supabase: SupabaseEdgeClient,
   flag: string,
   userId: string,
 ): Promise<boolean> {
@@ -1199,8 +1281,9 @@ async function createDailyRoom(
   }, roomName);
 
   if (res.status === 429 && retries > 0) {
-    await new Promise((r) => setTimeout(r, parseRetryAfterSeconds(res.headers, 3 - retries) * 1000));
-    return createDailyRoom(roomName, props, retries - 1);
+    if (await waitForBoundedDailyProviderRetry(res.headers, 3 - retries)) {
+      return createDailyRoom(roomName, props, retries - 1);
+    }
   }
 
   if (res.status === 400) {
@@ -1259,8 +1342,9 @@ async function getDailyRoomProviderState(roomName: string, retries = 2): Promise
   }, roomName);
 
   if (res.status === 429 && retries > 0) {
-    await new Promise((r) => setTimeout(r, parseRetryAfterSeconds(res.headers, 3 - retries) * 1000));
-    return getDailyRoomProviderState(roomName, retries - 1);
+    if (await waitForBoundedDailyProviderRetry(res.headers, 3 - retries)) {
+      return getDailyRoomProviderState(roomName, retries - 1);
+    }
   }
 
   if (res.status === 404) return { exists: false, expired: false, expiresAt: null };
@@ -1291,8 +1375,9 @@ async function deleteDailyRoom(
       headers: { Authorization: `Bearer ${DAILY_API_KEY}` },
     }, roomName);
     if (res.status === 429 && retries > 0) {
-      await new Promise((r) => setTimeout(r, parseRetryAfterSeconds(res.headers, 3 - retries) * 1000));
-      return deleteDailyRoom(roomName, options, retries - 1);
+      if (await waitForBoundedDailyProviderRetry(res.headers, 3 - retries)) {
+        return deleteDailyRoom(roomName, options, retries - 1);
+      }
     }
     if (res.ok) return "deleted";
     if (res.status === 404) return "not_found_idempotent";
@@ -1436,7 +1521,7 @@ function hasFreshVideoDateProviderRoomProof(params: {
 }
 
 async function ensureVideoDateProviderRoomForToken(params: {
-  serviceClient: ReturnType<typeof createClient>;
+  serviceClient: SupabaseEdgeClient;
   action: DateRoomAction;
   sessionId: string;
   userId: string;
@@ -1788,7 +1873,7 @@ function profileIsSuspended(p: MatchCallProfileGate | null | undefined): boolean
 
 /** Server-owned gates for chat match calls (aligns with product: no calls on blocked/suspended/paused pairs; one active/ringing row per match). */
 async function assertCreateMatchCallAllowed(params: {
-  serviceClient: ReturnType<typeof createClient>;
+  serviceClient: SupabaseEdgeClient;
   matchId: string;
   callerId: string;
   calleeId: string;
@@ -1877,7 +1962,7 @@ async function assertCreateMatchCallAllowed(params: {
 }
 
 async function fetchOpenMatchCallForMatch(
-  serviceClient: ReturnType<typeof createClient>,
+  serviceClient: SupabaseEdgeClient,
   matchId: string,
 ): Promise<OpenMatchCallForRetry | null> {
   const { data, error } = await serviceClient
@@ -2044,15 +2129,8 @@ async function maybeCreateMatchCallRetryResponse(params: {
         detail,
       }),
     );
-    return new Response(
-      JSON.stringify({
-        error: "Call service temporarily unavailable",
-        code: "TOKEN_ISSUE_FAILED",
-      }),
-      {
-        status: 503,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      },
+    return createCallServiceProviderFailureResponse(
+      isDailyProviderError(tokenErr) ? tokenErr : null,
     );
   }
 }
@@ -2231,10 +2309,11 @@ serve(async (req) => {
             code: providerError?.vibelyCode ?? "DIAGNOSTIC_ENTRY_FAILED",
             error: providerError?.clientMessage ?? "Video diagnostics are temporarily unavailable.",
             retryable: true,
+            ...retryAfterJsonFields(providerError?.retryAfterSeconds),
           }),
           {
             status: providerError?.httpStatus ?? 503,
-            headers: { ...corsHeaders, "Content-Type": "application/json", "Cache-Control": "no-store" },
+            headers: jsonHeadersWithRetryAfter(providerError?.retryAfterSeconds, { "Cache-Control": "no-store" }),
           },
         );
       }
@@ -3896,7 +3975,7 @@ serve(async (req) => {
         match.profile_id_1 === user.id
           ? match.profile_id_2
           : match.profile_id_1;
-      const callTypeValue = callType === "voice" ? "voice" : "video";
+      const callTypeValue: "voice" | "video" = callType === "voice" ? "voice" : "video";
 
       const gate = await assertCreateMatchCallAllowed({
         serviceClient,
@@ -3978,15 +4057,8 @@ serve(async (req) => {
             detail,
           }),
         );
-        return new Response(
-          JSON.stringify({
-            error: "Call service temporarily unavailable",
-            code: "TOKEN_ISSUE_FAILED",
-          }),
-          {
-            status: 503,
-            headers: { ...corsHeaders, "Content-Type": "application/json" },
-          },
+        return createCallServiceProviderFailureResponse(
+          isDailyProviderError(tokenErr) ? tokenErr : null,
         );
       }
 
@@ -4242,15 +4314,8 @@ serve(async (req) => {
             detail,
           }),
         );
-        return new Response(
-          JSON.stringify({
-            error: "Call service temporarily unavailable",
-            code: "TOKEN_ISSUE_FAILED",
-          }),
-          {
-            status: 503,
-            headers: { ...corsHeaders, "Content-Type": "application/json" },
-          },
+        return createCallServiceProviderFailureResponse(
+          isDailyProviderError(tokenErr) ? tokenErr : null,
         );
       }
 
@@ -4325,7 +4390,7 @@ serve(async (req) => {
       }
 
       let callForToken = call as MatchCallRow;
-      const callTypeValue = callForToken.call_type === "voice" ? "voice" : "video";
+      const callTypeValue: "voice" | "video" = callForToken.call_type === "voice" ? "voice" : "video";
       if (!canIssueAnswerTokenForMatchCallStatus(callForToken.status)) {
         console.log(
           JSON.stringify({
@@ -4463,15 +4528,8 @@ serve(async (req) => {
             );
           }
         }
-        return new Response(
-          JSON.stringify({
-            error: "Call service temporarily unavailable",
-            code: "TOKEN_ISSUE_FAILED",
-          }),
-          {
-            status: 503,
-            headers: { ...corsHeaders, "Content-Type": "application/json" },
-          }
+        return createCallServiceProviderFailureResponse(
+          isDailyProviderError(tokenErr) ? tokenErr : null,
         );
       }
 

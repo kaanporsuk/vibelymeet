@@ -3,6 +3,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { buildMeetingTokenProperties } from "../daily-room/dailyRoomContracts.ts";
 import {
   fetchWithTimeout,
+  numericEnv,
   parseRetryAfterSeconds,
   ProviderRateLimitError,
   providerFetchTimeoutMs,
@@ -18,6 +19,12 @@ const DAILY_API_KEY = Deno.env.get("DAILY_API_KEY")?.trim() ?? "";
 const DAILY_API_URL = "https://api.daily.co/v1";
 const DAILY_VIDEO_DATE_ROOM_TTL_SECONDS = 14_400;
 const DAILY_VIDEO_DATE_TOKEN_TTL_SECONDS = DAILY_VIDEO_DATE_ROOM_TTL_SECONDS;
+const DAILY_TOKEN_REFRESH_PROVIDER_MAX_RETRY_SLEEP_SECONDS = numericEnv(
+  "DAILY_TOKEN_REFRESH_PROVIDER_MAX_RETRY_SLEEP_SECONDS",
+  5,
+  0,
+  30,
+);
 const DAILY_VIDEO_DATE_TOKEN_PHASE_EXTENSION_BUFFER_MS = 2 * 60 * 1000;
 const DAILY_VIDEO_DATE_TOKEN_MIN_TTL_SECONDS = 180;
 const UUID_PATTERN =
@@ -37,14 +44,35 @@ type SnapshotPayload = {
   } | null;
 };
 
-function jsonResponse(payload: unknown, status = 200): Response {
+type SupabaseEdgeClient = ReturnType<typeof createClient<any>>;
+
+function retryAfterHeaderValue(retryAfterSeconds: number | null | undefined): string | null {
+  if (typeof retryAfterSeconds !== "number" || !Number.isFinite(retryAfterSeconds)) return null;
+  return String(Math.min(300, Math.max(1, Math.ceil(retryAfterSeconds))));
+}
+
+async function waitForBoundedDailyTokenRetry(headers: Headers, fallbackSeconds: number): Promise<boolean> {
+  const retryAfterSeconds = parseRetryAfterSeconds(headers, fallbackSeconds);
+  if (retryAfterSeconds > DAILY_TOKEN_REFRESH_PROVIDER_MAX_RETRY_SLEEP_SECONDS) return false;
+  await new Promise((resolve) => setTimeout(resolve, retryAfterSeconds * 1000));
+  return true;
+}
+
+function jsonResponse(payload: unknown, status = 200, retryAfterSeconds?: number | null): Response {
+  const headers: Record<string, string> = {
+    ...corsHeaders,
+    "Content-Type": "application/json",
+    "Cache-Control": "no-store",
+  };
+  const retryAfter = retryAfterHeaderValue(retryAfterSeconds);
+  if (retryAfter) headers["Retry-After"] = retryAfter;
   return new Response(JSON.stringify(payload), {
     status,
-    headers: { ...corsHeaders, "Content-Type": "application/json", "Cache-Control": "no-store" },
+    headers,
   });
 }
 
-async function enforceTokenRefreshRateLimit(supabase: any): Promise<void> {
+async function enforceTokenRefreshRateLimit(supabase: SupabaseEdgeClient): Promise<void> {
   const { data, error } = await supabase.rpc("take_video_date_token_refresh_rate_limit_v1");
   if (error) throw new Error("daily_token_rate_limit_check_failed");
   const payload = (data ?? {}) as { ok?: boolean; error?: string; retryAfterSeconds?: number; scope?: string };
@@ -63,7 +91,7 @@ async function enforceTokenRefreshRateLimit(supabase: any): Promise<void> {
   }
 }
 
-async function isClientFeatureFlagEnabled(supabase: any, flag: string, userId: string): Promise<boolean> {
+async function isClientFeatureFlagEnabled(supabase: SupabaseEdgeClient, flag: string, userId: string): Promise<boolean> {
   try {
     const { data, error } = await supabase.rpc("evaluate_client_feature_flag", {
       p_flag: flag,
@@ -118,7 +146,7 @@ function resolveTokenWindow(snapshot: SnapshotPayload, issuedAtMs: number, phase
 }
 
 async function createMeetingToken(
-  supabase: any,
+  supabase: SupabaseEdgeClient,
   roomName: string,
   userId: string,
   ttlSeconds: number,
@@ -155,8 +183,18 @@ async function createMeetingToken(
   });
 
   if (response.status === 429 && retries > 0) {
-    await new Promise((resolve) => setTimeout(resolve, parseRetryAfterSeconds(response.headers, 2) * 1000));
-    return createMeetingToken(supabase, roomName, userId, ttlSeconds, retries - 1);
+    if (await waitForBoundedDailyTokenRetry(response.headers, 2)) {
+      return createMeetingToken(supabase, roomName, userId, ttlSeconds, retries - 1);
+    }
+  }
+
+  if (response.status === 429) {
+    throw new ProviderRateLimitError(
+      "daily",
+      "meeting_token",
+      parseRetryAfterSeconds(response.headers, 30),
+      "provider_rate_limited",
+    );
   }
 
   if (!response.ok) {
@@ -276,7 +314,7 @@ serve(async (req) => {
         retryable: true,
         retry_after_seconds: tokenError.retryAfterSeconds,
         retryAfterSeconds: tokenError.retryAfterSeconds,
-      }, 429);
+      }, 429, tokenError.retryAfterSeconds);
     }
     console.error(JSON.stringify({
       event: "video_date_token_refresh_failed",
