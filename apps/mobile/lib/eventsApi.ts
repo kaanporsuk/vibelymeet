@@ -783,7 +783,7 @@ export async function drainMatchQueue(
   }
 }
 
-/** Count of queued matches (ready_gate_status = 'queued') for this user in this event. */
+/** Count eligible queued video dates for this user using the shared server queue hint. */
 export async function getQueuedMatchCount(eventId: string, userId: string): Promise<number> {
   const hint = await fetchVideoDateQueueHint(eventId, userId);
   return hint.ok ? hint.userQueuedCount : 0;

@@ -837,7 +837,21 @@ const EventLobby = () => {
     });
   }, []);
 
-  // Swipe action — show Ready Gate on immediate match
+  // Queue drain / realtime — activates ready gate when a queued video session becomes ready
+  const { queuedCount, refreshQueueCount, isDraining: queueDrainInFlight } = useMatchQueue({
+    eventId,
+    currentStatus: currentStatus || "browsing",
+    enabled: lobbySideEffectsEnabled,
+    onVideoSessionReady: (videoSessionId) => {
+      openReadyGateSession(videoSessionId, "match_queue");
+      scheduleLobbyConvergenceRefresh(videoSessionId, "match_queue");
+    },
+    onQueuedSessionExpired: () => {
+      toast.info(QUEUED_MATCH_TIMED_OUT_USER_MESSAGE, { duration: 4200 });
+    },
+  });
+
+  // Swipe action — show Ready Gate on immediate match and converge queued matches immediately.
   const { swipe } = useSwipeAction({
     eventId: eventId || "",
     canAttemptPairing: !readinessV2.enabled || videoDateReadiness.canAttemptPairing,
@@ -846,21 +860,9 @@ const EventLobby = () => {
       openReadyGateSession(videoSessionId, "swipe_result");
       scheduleLobbyConvergenceRefresh(videoSessionId, "swipe_result");
     },
-    onVideoSessionQueued: () => {
-      // Toast already handled by useSwipeAction
-    },
-  });
-
-  // Queue drain / realtime — activates ready gate when a queued video session becomes ready
-  const { queuedCount, refreshQueueCount, isDraining: queueDrainInFlight } = useMatchQueue({
-    eventId,
-    currentStatus: currentStatus || "browsing",
-    enabled: lobbySideEffectsEnabled,
-    onVideoSessionReady: () => {
-      scheduleLobbyConvergenceRefresh(null, "match_queue");
-    },
-    onQueuedSessionExpired: () => {
-      toast.info(QUEUED_MATCH_TIMED_OUT_USER_MESSAGE, { duration: 4200 });
+    onVideoSessionQueued: (videoSessionId) => {
+      void refreshQueueCount(1);
+      scheduleLobbyConvergenceRefresh(videoSessionId, "swipe_queued");
     },
   });
   const queueHintEnabled =
