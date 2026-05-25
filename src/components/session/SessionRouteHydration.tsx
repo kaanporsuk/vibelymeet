@@ -6,10 +6,12 @@ import { useSessionHydration } from "@/contexts/SessionHydrationContext";
 import { supabase } from "@/integrations/supabase/client";
 import { clearDateEntryTransition, isDateEntryTransitionActive } from "@/lib/dateEntryTransitionLatch";
 import {
-  canAttemptDailyRoomFromVideoSessionTruth,
-  decideVideoSessionRouteFromTruth,
   videoSessionHasPostDateSurveyTruth,
 } from "@clientShared/matching/activeSession";
+import {
+  decideCanonicalVideoDateRoute,
+  webPathForCanonicalVideoDateRoute,
+} from "@clientShared/matching/videoDateRouteDecision";
 
 function routeHydrationDebug(message: string, data?: Record<string, unknown>) {
   if (!import.meta.env.DEV) return;
@@ -83,10 +85,14 @@ export function SessionRouteHydration() {
         return;
       }
 
-      const truthDecision = decideVideoSessionRouteFromTruth(vs);
-      const canAttemptDaily = canAttemptDailyRoomFromVideoSessionTruth(vs);
+      const canonicalRoute = decideCanonicalVideoDateRoute({
+        sessionId: sessionIdFromUrl,
+        eventId: activeSession.eventId,
+        truth: vs,
+      });
+      const canAttemptDaily = canonicalRoute.canAttemptDaily;
 
-      if (truthDecision === "ended") {
+      if (canonicalRoute.target === "ended" || canonicalRoute.target === "survey") {
         const pendingSurveyTerminalEncounter = videoSessionHasPostDateSurveyTruth(vs);
         clearDateEntryTransition(sessionIdFromUrl);
         routeHydrationDebug("blocked ready_gate bounce; video session ended", {
@@ -100,13 +106,15 @@ export function SessionRouteHydration() {
           reason: pendingSurveyTerminalEncounter
             ? "pending_survey_terminal_encounter"
             : "video_session_ended",
+          canonicalTarget: canonicalRoute.target,
+          canonicalReason: canonicalRoute.reason,
           endedAt: vs.ended_at,
           latchActive: latchActiveAtStart,
         });
         return;
       }
 
-      if (canAttemptDaily || truthDecision === "navigate_date") {
+      if (canonicalRoute.target === "date") {
         routeHydrationDebug("blocked ready_gate bounce; video session is date-capable", {
           sessionId: sessionIdFromUrl,
           state: vs.state,
@@ -119,6 +127,8 @@ export function SessionRouteHydration() {
           userId: user.id,
           eventId: activeSession.eventId,
           reason: canAttemptDaily ? "video_session_daily_startable" : "video_session_handshake_or_date",
+          canonicalTarget: canonicalRoute.target,
+          canonicalReason: canonicalRoute.reason,
           canAttemptDaily,
           routed_to: "date",
           state: vs.state,
@@ -151,21 +161,26 @@ export function SessionRouteHydration() {
       const key = `${sessionIdFromUrl}:ready_gate`;
       if (lastReadyGateRedirectKey.current === key) return;
       lastReadyGateRedirectKey.current = key;
-      routeHydrationDebug("redirecting date route back to ready gate lobby", {
+      const target = canonicalRoute.target === "ready_gate"
+        ? webPathForCanonicalVideoDateRoute(canonicalRoute)
+        : `/event/${encodeURIComponent(activeSession.eventId)}/lobby`;
+      routeHydrationDebug("redirecting date route back to canonical surface", {
         sessionId: sessionIdFromUrl,
         eventId: activeSession.eventId,
+        target,
       });
       vdbg("route_hydration_ready_gate_bounce", {
         sessionId: sessionIdFromUrl,
         userId: user.id,
         eventId: activeSession.eventId,
-        reason: "ready_gate_active_without_date_latch_or_handshake",
+        reason: canonicalRoute.reason,
+        canonicalTarget: canonicalRoute.target,
         latchActive: false,
         state: vs.state,
         phase: vs.phase,
         handshakeStarted: Boolean(vs.handshake_started_at),
       });
-      navigate(`/event/${encodeURIComponent(activeSession.eventId)}/lobby`, { replace: true });
+      navigate(target, { replace: true });
     })();
 
     return () => {

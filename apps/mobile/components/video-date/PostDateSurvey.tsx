@@ -63,6 +63,10 @@ import {
   normalizePostDateVerdictConfirmationResult,
   type PostDateVerdictUiState,
 } from '../../../../shared/matching/postDateVerdictConfirmation';
+import {
+  decideCanonicalVideoDateRoute,
+  type VideoDateRouteSessionTruth,
+} from '../../../../shared/matching/videoDateRouteDecision';
 
 type Props = {
   sessionId: string;
@@ -80,6 +84,22 @@ type Props = {
 };
 
 type SurveyStep = 'verdict' | 'celebration' | 'awaiting_partner' | 'highlights' | 'safety' | 'done';
+const POST_DATE_NEXT_SESSION_TRUTH_SELECT =
+  'id, event_id, participant_1_id, participant_2_id, daily_room_name, daily_room_url, ended_at, ended_reason, state, phase, handshake_started_at, date_started_at, participant_1_joined_at, participant_2_joined_at, ready_gate_status, ready_gate_expires_at';
+
+async function fetchPostDateNextSessionTruth(
+  sessionId: string | null | undefined,
+  action: string | null | undefined,
+): Promise<VideoDateRouteSessionTruth | null> {
+  if (!sessionId || (action !== 'video_date' && action !== 'ready_gate')) return null;
+  const { data, error } = await supabase
+    .from('video_sessions')
+    .select(POST_DATE_NEXT_SESSION_TRUTH_SELECT)
+    .eq('id', sessionId)
+    .maybeSingle();
+  if (error || !data) return null;
+  return data as VideoDateRouteSessionTruth;
+}
 
 type CelebrationData = {
   sharedVibes: string[];
@@ -687,6 +707,16 @@ export function PostDateSurvey({
       if (!nextError && serverNext) {
         const nextEventId = serverNext.eventId ?? eventId;
         const nextSessionId = serverNext.nextSessionId ?? serverNext.sessionId ?? sessionId;
+        const nextSessionTruth = await fetchPostDateNextSessionTruth(nextSessionId, serverNext.action);
+        const canonicalNextRoute = decideCanonicalVideoDateRoute({
+          sessionId: nextSessionId,
+          eventId: nextEventId,
+          truth: nextSessionTruth,
+          serverNextSurface: {
+            ...serverNext,
+            targetId: serverNext.targetId ?? partnerId,
+          },
+        });
         trackEvent(LobbyPostDateEvents.POST_DATE_CONTINUITY_NEXT_ACTION_DECIDED, {
           platform: 'native',
           session_id: sessionId,
@@ -709,7 +739,7 @@ export function PostDateSurvey({
           next_session_id: serverNext.nextSessionId,
         });
 
-        if (serverNext.action === 'ready_gate' && nextSessionId && onQueuedVideoSessionReady) {
+        if (canonicalNextRoute.target === 'ready_gate' && nextSessionId && onQueuedVideoSessionReady) {
           queuedNavigationStartedRef.current = true;
           trackEvent(LobbyPostDateEvents.POST_DATE_CONTINUITY_ROUTE_TAKEN, {
             platform: 'native',
@@ -723,7 +753,7 @@ export function PostDateSurvey({
           return;
         }
 
-        if (serverNext.action === 'video_date' && nextSessionId) {
+        if (canonicalNextRoute.target === 'date' && nextSessionId) {
           queuedNavigationStartedRef.current = true;
           trackEvent(LobbyPostDateEvents.POST_DATE_CONTINUITY_ROUTE_TAKEN, {
             platform: 'native',
@@ -741,12 +771,12 @@ export function PostDateSurvey({
           return;
         }
 
-        if (serverNext.action === 'survey') {
+        if (canonicalNextRoute.target === 'survey') {
           setStep('verdict');
           return;
         }
 
-        if (serverNext.action === 'chat') {
+        if (canonicalNextRoute.target === 'chat') {
           trackEvent(LobbyPostDateEvents.POST_DATE_CONTINUITY_ROUTE_TAKEN, {
             platform: 'native',
             session_id: sessionId,
@@ -763,7 +793,7 @@ export function PostDateSurvey({
           return;
         }
 
-        if (serverNext.action === 'lobby') {
+        if (canonicalNextRoute.target === 'lobby') {
           trackEvent(LobbyPostDateEvents.POST_DATE_CONTINUITY_ROUTE_TAKEN, {
             platform: 'native',
             session_id: sessionId,
@@ -777,7 +807,7 @@ export function PostDateSurvey({
           return;
         }
 
-        if (serverNext.action === 'wrap_up') {
+        if (canonicalNextRoute.target === 'ended') {
           trackEvent(LobbyPostDateEvents.POST_DATE_CONTINUITY_ROUTE_TAKEN, {
             platform: 'native',
             session_id: sessionId,
@@ -791,7 +821,7 @@ export function PostDateSurvey({
           return;
         }
 
-        if (serverNext.action === 'home') {
+        if (canonicalNextRoute.target === 'home') {
           onDone();
           return;
         }

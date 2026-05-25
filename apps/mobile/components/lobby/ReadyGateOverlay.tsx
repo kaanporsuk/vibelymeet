@@ -810,6 +810,32 @@ export function ReadyGateOverlay({
     [eventId, onLobbyUserMessage, onNavigateToDate, preloadVideoDateRoute, sessionId, suppressDuplicateNav, trackNativeReadyGateEvent, userId],
   );
 
+  const navigateToDateForSurveyRecovery = useCallback(
+    (source: string) => {
+      if (dateNavigationStartedRef.current || closedRef.current) {
+        suppressDuplicateNav(source);
+        return;
+      }
+      dateNavigationStartedRef.current = true;
+      closedRef.current = true;
+      setIsTransitioning(true);
+      setPrepareEntryStatus('idle');
+      setPrepareEntryFailure(null);
+      rcBreadcrumb(RC_CATEGORY.readyGate, 'pending_survey_navigation_started', {
+        session_id: sessionId,
+        event_id: eventId,
+        source,
+      });
+      vdbg('ready_gate_pending_survey_navigate_to_date', {
+        sessionId,
+        eventId,
+        source,
+      });
+      router.replace(`/date/${sessionId}` as Href);
+    },
+    [eventId, sessionId, suppressDuplicateNav],
+  );
+
   const reconcileFromCanonicalTruth = useCallback(
     async (source: string) => {
       const [vs, regRes] = await Promise.all([
@@ -835,6 +861,8 @@ export function ReadyGateOverlay({
       const routedTo =
         recovery.action === 'go_date'
           ? 'date'
+          : recovery.action === 'go_survey'
+            ? 'survey'
           : recovery.action === 'go_ready_gate'
             ? 'ready'
             : 'none';
@@ -884,6 +912,11 @@ export function ReadyGateOverlay({
         return true;
       }
 
+      if (recovery.action === 'go_survey') {
+        navigateToDateForSurveyRecovery('pending_survey_recovery');
+        return true;
+      }
+
       if (decision === 'navigate_ready') {
         return false;
       }
@@ -900,7 +933,7 @@ export function ReadyGateOverlay({
 
       return false;
     },
-    [eventId, onClose, onLobbyUserMessage, sessionId, startPrepareEntryHandoff, startRoomWarmupAfterReady, userId]
+    [eventId, navigateToDateForSurveyRecovery, onClose, onLobbyUserMessage, sessionId, startPrepareEntryHandoff, startRoomWarmupAfterReady, userId]
   );
 
   const handleBothReady = useCallback((
@@ -1219,6 +1252,10 @@ export function ReadyGateOverlay({
         await reconcileFromCanonicalTruth('overlay_initial_daily_startable_check');
         return;
       }
+      if (recovery.action === 'go_survey') {
+        navigateToDateForSurveyRecovery('overlay_initial_pending_survey');
+        return;
+      }
       if (!vs || recovery.action !== 'go_ready_gate') {
         trackEvent(LobbyPostDateEvents.READY_GATE_STALE_CLOSE, {
           platform: 'native',
@@ -1246,7 +1283,7 @@ export function ReadyGateOverlay({
     return () => {
       cancelled = true;
     };
-  }, [eventId, onClose, onLobbyUserMessage, reconcileFromCanonicalTruth, sessionId, startRoomWarmupAfterReady, userId]);
+  }, [eventId, navigateToDateForSurveyRecovery, onClose, onLobbyUserMessage, reconcileFromCanonicalTruth, sessionId, startRoomWarmupAfterReady, userId]);
 
   const handleSkip = useCallback(async (reason: 'skip' = 'skip') => {
     if (dateNavigationStartedRef.current || closedRef.current || terminalActionInFlightRef.current) return;

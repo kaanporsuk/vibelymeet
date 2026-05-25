@@ -2,15 +2,14 @@ import { useEffect, useRef } from 'react';
 import { router, usePathname } from 'expo-router';
 import { useAuth } from '@/context/AuthContext';
 import { useSessionHydration } from '@/context/SessionHydrationContext';
-import { readyGateHref } from '@/lib/activeSessionRoutes';
+import { hrefForCanonicalVideoDateRoute } from '@/lib/activeSessionRoutes';
 import { isDateEntryTransitionActive } from '@/lib/dateEntryTransitionLatch';
 import { fetchVideoSessionDateEntryTruthCoalesced } from '@/lib/videoDateApi';
 import { RC_CATEGORY, rcBreadcrumb } from '@/lib/nativeRcDiagnostics';
 import {
-  canAttemptDailyRoomFromVideoSessionTruth,
-  decideVideoSessionRouteFromTruth,
   videoSessionHasPostDateSurveyTruth,
 } from '@clientShared/matching/activeSession';
+import { decideCanonicalVideoDateRoute } from '@clientShared/matching/videoDateRouteDecision';
 
 /**
  * Stack-level owner for `/date/[id]` when `useActiveSession` is **ready_gate** for that id →
@@ -56,23 +55,31 @@ export function NativeSessionRouteHydration() {
         });
         return;
       }
-      const truthDecision = decideVideoSessionRouteFromTruth(vs);
-      const canAttemptDaily = canAttemptDailyRoomFromVideoSessionTruth(vs);
-      if (truthDecision === 'ended') {
+      const canonicalRoute = decideCanonicalVideoDateRoute({
+        sessionId: sid,
+        eventId: activeSession.eventId,
+        truth: vs,
+      });
+      const canAttemptDaily = canonicalRoute.canAttemptDaily;
+      if (canonicalRoute.target === 'ended' || canonicalRoute.target === 'survey') {
         const pendingSurveyTerminalEncounter = videoSessionHasPostDateSurveyTruth(vs);
         rcBreadcrumb(RC_CATEGORY.videoDateEntry, 'navigate_to_date_blocked', {
           session_id: sid,
           reason: pendingSurveyTerminalEncounter ? 'pending_survey_terminal_encounter' : 'video_sessions_ended',
+          canonical_target: canonicalRoute.target,
+          canonical_reason: canonicalRoute.reason,
           vs_state: vs?.state ?? null,
           vs_phase: vs?.phase ?? null,
           survey_required: pendingSurveyTerminalEncounter,
         });
         return;
       }
-      if (canAttemptDaily || truthDecision === 'navigate_date') {
+      if (canonicalRoute.target === 'date') {
         rcBreadcrumb(RC_CATEGORY.videoDateEntry, 'navigate_to_date_blocked', {
           session_id: sid,
           reason: canAttemptDaily ? 'video_sessions_daily_startable' : 'video_sessions_handshake_or_date',
+          canonical_target: canonicalRoute.target,
+          canonical_reason: canonicalRoute.reason,
           can_attempt_daily: canAttemptDaily,
           routed_to: 'date',
           handshake_started_at: Boolean(vs?.handshake_started_at),
@@ -83,10 +90,12 @@ export function NativeSessionRouteHydration() {
         });
         return;
       }
-      if (truthDecision !== 'navigate_ready') {
+      if (canonicalRoute.target !== 'ready_gate') {
         rcBreadcrumb(RC_CATEGORY.videoDateEntry, 'navigate_to_date_blocked', {
           session_id: sid,
           reason: 'video_sessions_not_ready_gate_eligible',
+          canonical_target: canonicalRoute.target,
+          canonical_reason: canonicalRoute.reason,
           vs_state: vs?.state ?? null,
           vs_phase: vs?.phase ?? null,
           ready_gate_status: vs?.ready_gate_status ?? null,
@@ -100,11 +109,12 @@ export function NativeSessionRouteHydration() {
         session_id: sid,
         source: 'native_session_route_hydration',
         can_attempt_daily: canAttemptDaily,
+        canonical_reason: canonicalRoute.reason,
         ready_gate_status: vs?.ready_gate_status ?? null,
         ready_gate_expires_at: vs?.ready_gate_expires_at == null ? null : String(vs.ready_gate_expires_at),
         routed_to: 'ready',
       });
-      router.replace(readyGateHref(sid));
+      router.replace(hrefForCanonicalVideoDateRoute(canonicalRoute));
     })();
 
     return () => {

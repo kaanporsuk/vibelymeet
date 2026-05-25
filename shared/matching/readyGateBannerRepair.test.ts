@@ -90,6 +90,8 @@ test("web and native active-session hydration sync Ready Gate before showing ban
     assert.match(source, /ready_gate_transition/);
     assert.match(source, /p_action:\s*["']sync["']/);
     assert.match(source, /readyGateTransitionResultReadyGateEligible/);
+    assert.match(source, /ready_gate_sync_date_capable_without_provider_room/);
+    assert.match(source, /const freshDateRoute =\s*[\r\n]+\s*canAttemptDaily &&[\r\n]+\s*isActiveSessionDirectFallbackFresh/);
     assert.match(source, /ready_gate_sync_not_startable/);
   }
 });

@@ -22,6 +22,7 @@ import { useUserProfile } from "@/contexts/AuthContext";
 import { requestWebPushPermissionAndSync } from "@/lib/requestWebPushPermission";
 import { supabase } from "@/integrations/supabase/client";
 import type { ScheduleHubItem } from "../../shared/schedule/planningHub";
+import { decideCanonicalVideoDateRoute } from "@clientShared/matching/videoDateRouteDecision";
 
 function isScheduleShareHubItem(item: ScheduleHubItem): boolean {
   return item.timeChoiceKey === "share_schedule" || item.scheduleShareEnabled;
@@ -100,7 +101,7 @@ const SchedulePage = () => {
 
       const { data: reg } = await supabase
         .from("event_registrations")
-        .select("current_room_id, queue_status")
+        .select("current_room_id, event_id, queue_status")
         .eq("profile_id", user.id)
         .in("queue_status", ["in_handshake", "in_date"])
         .not("current_room_id", "is", null)
@@ -113,12 +114,20 @@ const SchedulePage = () => {
 
       const { data: session } = await supabase
         .from("video_sessions")
-        .select("id, ended_at")
+        .select("id, event_id, participant_1_id, participant_2_id, daily_room_name, daily_room_url, ended_at, ended_reason, state, phase, handshake_started_at, date_started_at, participant_1_joined_at, participant_2_joined_at, ready_gate_status, ready_gate_expires_at")
         .eq("id", reg.current_room_id)
-        .is("ended_at", null)
         .maybeSingle();
 
-      setActiveDateSessionId(session?.id ?? null);
+      const route = decideCanonicalVideoDateRoute({
+        sessionId: reg.current_room_id,
+        truth: session,
+        registration: {
+          current_room_id: reg.current_room_id,
+          queue_status: reg.queue_status,
+          event_id: session?.event_id ?? reg.event_id ?? null,
+        },
+      });
+      setActiveDateSessionId(route.target === "date" ? session?.id ?? null : null);
     };
 
     void checkActiveDateSession();
