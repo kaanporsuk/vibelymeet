@@ -70,7 +70,9 @@
     "test:daily-drop-matcher": "tsx supabase/functions/_shared/dailyDropMatcher.test.ts",
     "regen:supabase-types": "./scripts/regen-supabase-types.sh",
     "audit:surfaces": "node scripts/surface-inventory-audit.mjs",
-    "test:e2e": "node ./node_modules/@playwright/test/cli.js test -c e2e/playwright.config.ts"
+    "test:e2e": "node ./node_modules/@playwright/test/cli.js test -c e2e/playwright.config.ts",
+    "phase8:config-readiness": "tsx scripts/phase8-certification.ts config-readiness",
+    "certify:video-date:required": "node scripts/certify-video-date-required.mjs"
   },
   "dependencies": {
     "@daily-co/daily-js": "^0.87.0",

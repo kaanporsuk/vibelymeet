@@ -70,7 +70,7 @@ Durable contract for web and native:
 - Daily room identity remains deterministic and session-scoped; both participants must target the same `video_sessions.id` and Daily room.
 - Each participant receives a distinct user-scoped Daily token. Non-participants must not receive tokens or write join stamps.
 - Critical video-date lifecycle state remains backend-owned through RPCs/state-machine functions; clients render and route from server truth.
-- Daily fallback diagnostics must not log meeting tokens, auth headers, provider secrets, or raw secret values.
+- Daily provider diagnostics must not log meeting tokens, auth headers, provider secrets, or raw secret values.
 
 Release evidence:
 

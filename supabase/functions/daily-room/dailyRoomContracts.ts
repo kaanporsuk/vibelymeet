@@ -75,6 +75,16 @@ export type DailyProductionConfigReadiness = {
   blockers: string[];
 };
 
+export type DailyRuntimeConfig = {
+  ok: boolean;
+  code: "OK" | "DAILY_CONFIG_BLOCKED";
+  dailyApiKey: string | null;
+  dailyDomain: string;
+  dailyDomainEnv: string | null;
+  fallbackUsed: boolean;
+  blockers: string[];
+};
+
 function isConfiguredSecretValue(value: string | null | undefined): boolean {
   const trimmed = value?.trim();
   if (!trimmed) return false;
@@ -86,6 +96,54 @@ function isConfiguredDomainValue(value: string | null | undefined): boolean {
   if (!trimmed) return false;
   if (/^(changeme|change-me|change_me|placeholder|example|dummy|test|todo)$/i.test(trimmed)) return false;
   return /^[a-z0-9.-]+$/i.test(trimmed);
+}
+
+function isExplicitLocalDailyEnvironment(value: string | null | undefined): boolean {
+  const normalized = value?.trim().toLowerCase();
+  return normalized === "local" ||
+    normalized === "dev" ||
+    normalized === "development" ||
+    normalized === "test";
+}
+
+export function resolveDailyRuntimeConfig(params: {
+  dailyApiKey?: string | null;
+  dailyDomainEnv?: string | null;
+  environment?: string | null;
+  allowLocalFallback?: boolean;
+  requireApiKey?: boolean;
+}): DailyRuntimeConfig {
+  const blockers: string[] = [];
+  const dailyApiKey = params.dailyApiKey?.trim() || null;
+  const dailyDomainEnv = params.dailyDomainEnv?.trim() || null;
+  const canUseLocalFallback =
+    params.allowLocalFallback === true &&
+    isExplicitLocalDailyEnvironment(params.environment);
+  const fallbackUsed = !dailyDomainEnv && canUseLocalFallback;
+  const dailyDomain = dailyDomainEnv || DAILY_ROOM_DOMAIN_FALLBACK;
+
+  if (params.requireApiKey !== false && !isConfiguredSecretValue(dailyApiKey)) {
+    blockers.push("daily_api_key_missing");
+  }
+
+  if (!dailyDomainEnv) {
+    if (!canUseLocalFallback) {
+      blockers.push("daily_domain_missing");
+      blockers.push("daily_domain_fallback_blocked");
+    }
+  } else if (!isConfiguredDomainValue(dailyDomainEnv)) {
+    blockers.push("daily_domain_invalid");
+  }
+
+  return {
+    ok: blockers.length === 0,
+    code: blockers.length === 0 ? "OK" : "DAILY_CONFIG_BLOCKED",
+    dailyApiKey,
+    dailyDomain,
+    dailyDomainEnv,
+    fallbackUsed,
+    blockers,
+  };
 }
 
 export function evaluateDailyProductionConfigReadiness(params: {

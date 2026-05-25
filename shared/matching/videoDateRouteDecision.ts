@@ -529,6 +529,30 @@ export function legacyVideoDateTruthRouteDecision(
   return decision.legacyDecision;
 }
 
+export function canonicalVideoDateRouteLogDetail(
+  decision: VideoDateCanonicalRouteDecision,
+  params: {
+    sourceSurface?: string | null;
+    sourceAction?: string | null;
+  } = {},
+): Record<string, string | boolean | null> {
+  return {
+    source_surface: params.sourceSurface ?? null,
+    source_action: params.sourceAction ?? null,
+    canonical_target: decision.target,
+    canonical_reason: decision.reason,
+    canonical_session_id: decision.sessionId,
+    canonical_event_id: decision.eventId,
+    canonical_match_id: decision.matchId ?? null,
+    canonical_target_id: decision.targetId ?? null,
+    canonical_queue_status: decision.queueStatus ?? null,
+    canonical_ready_gate_status: decision.readyGateStatus ?? null,
+    canonical_can_attempt_daily: decision.canAttemptDaily,
+    canonical_has_provider_room: decision.hasProviderRoom,
+    canonical_legacy_decision: decision.legacyDecision,
+  };
+}
+
 function encodeSegment(value: string): string {
   return encodeURIComponent(value);
 }

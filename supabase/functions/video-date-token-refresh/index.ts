@@ -2,10 +2,10 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import {
   buildMeetingTokenProperties,
-  DAILY_ROOM_DOMAIN_FALLBACK,
   DAILY_VIDEO_DATE_ROOM_MAX_PARTICIPANTS,
   DAILY_VIDEO_DATE_ROOM_TTL_SECONDS as DAILY_VIDEO_DATE_ROOM_TTL_SECONDS_CONTRACT,
   isDailyRoomUrlForName,
+  resolveDailyRuntimeConfig,
   videoDateRoomNameForSession,
   videoDateRoomUrlForName,
 } from "../daily-room/dailyRoomContracts.ts";
@@ -23,12 +23,25 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
-const DAILY_API_KEY = Deno.env.get("DAILY_API_KEY")?.trim() ?? "";
-const DAILY_DOMAIN_ENV = Deno.env.get("DAILY_DOMAIN")?.trim();
-const DAILY_DOMAIN = DAILY_DOMAIN_ENV || DAILY_ROOM_DOMAIN_FALLBACK;
-if (!DAILY_DOMAIN_ENV) {
+const DAILY_RUNTIME_CONFIG = resolveDailyRuntimeConfig({
+  dailyApiKey: Deno.env.get("DAILY_API_KEY")?.trim(),
+  dailyDomainEnv: Deno.env.get("DAILY_DOMAIN")?.trim(),
+  environment: Deno.env.get("ENVIRONMENT")?.trim(),
+  allowLocalFallback: true,
+  requireApiKey: true,
+});
+const DAILY_API_KEY = DAILY_RUNTIME_CONFIG.dailyApiKey ?? "";
+const DAILY_DOMAIN = DAILY_RUNTIME_CONFIG.dailyDomain;
+if (!DAILY_RUNTIME_CONFIG.ok) {
   console.error(JSON.stringify({
-    event: "video_date_token_refresh_daily_domain_env_missing",
+    event: "video_date_token_refresh_daily_config_blocked",
+    code: "DAILY_CONFIG_BLOCKED",
+    blockers: DAILY_RUNTIME_CONFIG.blockers,
+    fallback_used: DAILY_RUNTIME_CONFIG.fallbackUsed,
+  }));
+} else if (DAILY_RUNTIME_CONFIG.fallbackUsed) {
+  console.error(JSON.stringify({
+    event: "video_date_token_refresh_daily_domain_local_fallback_used",
     code: "DAILY_DOMAIN_FALLBACK_USED",
     daily_domain: DAILY_DOMAIN,
   }));
@@ -404,6 +417,24 @@ serve(async (req) => {
 
   if (!sessionId) return jsonResponse({ ok: false, error: "missing_session_id" }, 400);
   if (!UUID_PATTERN.test(sessionId)) return jsonResponse({ ok: false, error: "invalid_session_id" }, 400);
+
+  if (!DAILY_RUNTIME_CONFIG.ok) {
+    console.error(JSON.stringify({
+      event: "video_date_token_refresh_config_blocked_request",
+      code: "DAILY_CONFIG_BLOCKED",
+      session_id: sessionId,
+      user_id: user.id,
+      blockers: DAILY_RUNTIME_CONFIG.blockers,
+      fallback_used: DAILY_RUNTIME_CONFIG.fallbackUsed,
+    }));
+    return jsonResponse({
+      ok: false,
+      code: "DAILY_CONFIG_BLOCKED",
+      error: "daily_config_blocked",
+      retryable: true,
+      blockers: DAILY_RUNTIME_CONFIG.blockers,
+    }, 503);
+  }
 
   const { data, error } = await supabase.rpc("get_video_date_snapshot_core", {
     p_session_id: sessionId,

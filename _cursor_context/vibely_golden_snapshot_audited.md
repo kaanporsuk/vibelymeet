@@ -287,7 +287,7 @@ Only **two** Supabase storage buckets are live and in use: `chat-videos`, `proof
 - OneSignal App ID now reads from `VITE_ONESIGNAL_APP_ID` with a fallback to the historical hardcoded value in `src/lib/onesignal.ts`.
 - Sentry DSN now reads from `VITE_SENTRY_DSN` with a fallback to the historical hardcoded value in `src/main.tsx`.
 - PostHog host now reads from `VITE_POSTHOG_HOST` with a fallback to `https://eu.i.posthog.com` in `src/main.tsx`; the API key remains env-driven via `VITE_POSTHOG_API_KEY`.
-- Daily fallback domain defaults to `vibelyapp.daily.co` in the `daily-room` function if env is absent.
+- Daily video-date domain is env-owned via `DAILY_DOMAIN`; staging/production Daily actions fail closed if it is absent. The `vibelyapp.daily.co` fallback is only local/dev/test with explicit `ENVIRONMENT`.
 - Several frontend and function files hardcode the production domain `vibelymeet.com` for links, referrals, notifications, unsubscribe flows, and email templates.
 - Bunny video upload endpoint is hardcoded to `video.bunnycdn.com/tusupload` in the vibe studio modal.
 

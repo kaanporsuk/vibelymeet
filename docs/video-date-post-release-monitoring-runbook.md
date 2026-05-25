@@ -13,7 +13,8 @@ Current Video Date v4.2 baseline as of 2026-05-22:
 - Post-deploy database status: `supabase db push --linked --dry-run` reported the remote database is up to date.
 - Manual app smoke remains separate. Do not run web/native builds from this monitoring runbook.
 - Do not recreate the Daily webhook or rotate/print `DAILY_WEBHOOK_SECRET`; use webhook UUID `a5407924-6f29-4a35-835a-ff5185eeae5c`.
-- Closure reliability follow-up: run live RLS proof with `npm run test:video-date-runtime-rls:required` only when the `VIDEO_DATE_RLS_*` and `VIDEO_DATE_PUBLIC_API_RLS_*` env vars are populated for a seeded staging/synthetic project.
+- Required automated gate: run `npm run certify:video-date:required` before release decisions. This includes live RLS required mode (`npm run test:video-date-runtime-rls:required`) when `VIDEO_DATE_RLS_*` and `VIDEO_DATE_PUBLIC_API_RLS_*` env vars are populated for a seeded staging/synthetic project, plus the Daily config readiness check.
+- Daily config is fail-closed for staging/production certification: `DAILY_DOMAIN`, `DAILY_API_KEY`, `DAILY_WEBHOOK_SECRET`, and `CRON_SECRET` or `PHASE8_STAGING_CRON_SECRET` must be present. The `vibelyapp.daily.co` domain fallback is allowed only when `ENVIRONMENT` is explicitly local/dev/test.
 - Operator tooling note: Supabase CLI v2.101.0 or newer is recommended. Node `DEP0205` warnings are non-blocking while the Video Date contract and typecheck commands pass; dependency upgrades are tracked separately from runtime reliability.
 
 Historical baseline for the first hardening campaign:

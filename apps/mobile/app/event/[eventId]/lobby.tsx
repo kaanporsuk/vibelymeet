@@ -81,6 +81,7 @@ import {
 } from '@/lib/videoDateReadiness';
 import { markNativeVideoDateLaunchIntent, videoDateLaunchBreadcrumb } from '@/lib/videoDateLaunchTrace';
 import {
+  canonicalVideoDateRouteLogDetail,
   decideCanonicalVideoDateRoute,
   isVideoDateReadyGateActiveStatus,
 } from '@clientShared/matching/videoDateRouteDecision';
@@ -900,6 +901,19 @@ export default function EventLobbyScreen() {
                 }
                 return;
               }
+              const rescueCanonicalRoute = decideCanonicalVideoDateRoute({
+                sessionId: rescueSid,
+                eventId: id,
+                truth: rescueStartable.truth,
+              });
+              rcBreadcrumb(RC_CATEGORY.lobbyDateEntry, 'date_navigation_rescue_canonical_recheck', {
+                session_id: rescueSid,
+                event_id: id,
+                ...canonicalVideoDateRouteLogDetail(rescueCanonicalRoute, {
+                  sourceSurface: 'event_lobby',
+                  sourceAction: 'ready_gate_overlay_rescue',
+                }),
+              });
               const rescueNavigated = navigateToDateSessionGuarded({
                 sessionId: rescueSid,
                 pathname: pathnameRef.current,
@@ -1369,6 +1383,10 @@ export default function EventLobbyScreen() {
             eventId: id,
             truth: session,
           });
+          const canonicalLog = canonicalVideoDateRouteLogDetail(canonicalRoute, {
+            sourceSurface: 'event_lobby',
+            sourceAction: `ready_gate_open_${trigger}`,
+          });
           const decision = canonicalRoute.legacyDecision;
           const canAttemptDaily = canonicalRoute.canAttemptDaily;
           if (canonicalRoute.target === 'date') {
@@ -1387,6 +1405,7 @@ export default function EventLobbyScreen() {
               decision,
               can_attempt_daily: canAttemptDaily,
               reason: null,
+              ...canonicalLog,
               canonical_reason: canonicalRoute.reason,
               ready_gate_status: session.ready_gate_status ?? null,
               ready_gate_expires_at:
@@ -1402,6 +1421,7 @@ export default function EventLobbyScreen() {
               sessionId,
               decision,
               canAttemptDaily,
+              ...canonicalLog,
               canonicalReason: canonicalRoute.reason,
               readyGateStatus: session.ready_gate_status ?? null,
               readyGateExpiresAt: session.ready_gate_expires_at ?? null,

@@ -39,7 +39,10 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { END_ACCOUNT_BREAK_PROFILE_UPDATE } from "@/lib/endAccountBreak";
 import { deckCardUrl } from "@/utils/imageUrl";
 import { claimDateNavigation } from "@/lib/dateNavigationGuard";
-import { decideCanonicalVideoDateRoute } from "@clientShared/matching/videoDateRouteDecision";
+import {
+  canonicalVideoDateRouteLogDetail,
+  decideCanonicalVideoDateRoute,
+} from "@clientShared/matching/videoDateRouteDecision";
 import {
   getPostDateLobbyContinuityDecision,
   secondsUntilPostDateEventEnd,
@@ -1214,6 +1217,10 @@ const EventLobby = () => {
         eventId,
         truth: session,
       });
+      const canonicalLog = canonicalVideoDateRouteLogDetail(routeDecision, {
+        sourceSurface: "event_lobby",
+        sourceAction: source,
+      });
 
       if (routeDecision.target === "date") {
         lobbyDebug("same-session active date detected from participant-scoped video session realtime", {
@@ -1222,7 +1229,7 @@ const EventLobby = () => {
           phase: session.phase,
           readyGateStatus: session.ready_gate_status,
           readyGateExpiresAt: session.ready_gate_expires_at,
-          canonicalReason: routeDecision.reason,
+          ...canonicalLog,
         });
         scheduleLobbyConvergenceRefresh(sessionId, `${source}_active_date`);
         prepareAndNavigateToDateSession(sessionId, source);
@@ -1230,6 +1237,12 @@ const EventLobby = () => {
       }
 
       if (routeDecision.target === "ready_gate") {
+        lobbyDebug("same-session Ready Gate detected from participant-scoped video session realtime", {
+          sessionId,
+          readyGateStatus: session.ready_gate_status,
+          readyGateExpiresAt: session.ready_gate_expires_at,
+          ...canonicalLog,
+        });
         openReadyGateSession(sessionId, source);
         scheduleLobbyConvergenceRefresh(sessionId, source);
       }

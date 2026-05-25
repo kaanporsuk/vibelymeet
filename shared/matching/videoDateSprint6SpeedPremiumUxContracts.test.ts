@@ -34,6 +34,7 @@ const sharedPrepareEntry = read("shared/matching/videoDatePrepareEntry.ts");
 const webPrepareEntry = read("src/lib/videoDatePrepareEntry.ts");
 const nativePrepareEntry = read("apps/mobile/lib/videoDatePrepareEntry.ts");
 const qaChecklist = read("docs/qa/video-date-sprint6-speed-premium-ux.md");
+const operatorDashboards = read("docs/observability/video-date-operator-dashboards.md");
 const packageJson = read("package.json");
 
 test("Sprint 6 latency checkpoints cover the full swipe-to-playable-frame path", () => {
@@ -60,6 +61,9 @@ test("Sprint 6 latency checkpoints cover the full swipe-to-playable-frame path",
   assert.match(launchLatencyMirror, /checkpoint === "daily_join_success"[\s\S]+payload\.date_route_to_daily_join_ms/);
   assert.match(launchLatencyMirror, /checkpoint === "remote_seen"[\s\S]+payload\.daily_join_to_remote_seen_ms/);
   assert.match(launchLatencyMirror, /checkpoint === "remote_readable"[\s\S]+payload\.first_remote_frame_to_readable_ms/);
+  assert.match(operatorDashboards, /first remote media proxy/);
+  assert.match(operatorDashboards, /not proof that a remote frame was rendered on screen/);
+  assert.match(operatorDashboards, /first-playable-media proxy/);
 });
 
 test("Sprint 6 swipe-result latency is emitted by web and native before Ready Gate handoff", () => {

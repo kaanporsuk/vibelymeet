@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import {
+  canonicalVideoDateRouteLogDetail,
   decideCanonicalVideoDateRoute,
   isVideoDateReadyGateActiveStatus,
   isVideoDateReadyGateTerminalStatus,
@@ -275,27 +276,74 @@ test("Sprint 1 critical surfaces consume the canonical route contract", () => {
   assert.match(read("shared/matching/activeSession.ts"), /decideCanonicalVideoDateRoute/);
   assert.match(read("shared/matching/videoDateRecoveryAdvisor.ts"), /decideCanonicalVideoDateRoute/);
   assert.match(read("src/pages/EventLobby.tsx"), /decideCanonicalVideoDateRoute/);
+  assert.match(read("src/pages/EventLobby.tsx"), /canonicalVideoDateRouteLogDetail/);
   assert.match(read("src/components/session/SessionRouteHydration.tsx"), /decideCanonicalVideoDateRoute/);
+  assert.match(read("src/components/session/SessionRouteHydration.tsx"), /canonicalVideoDateRouteLogDetail/);
   assert.match(read("src/components/session/SessionRouteHydration.tsx"), /webPathForCanonicalVideoDateRoute/);
   assert.match(read("src/pages/Schedule.tsx"), /decideCanonicalVideoDateRoute/);
-  assert.match(read("src/pages/ReadyRedirect.tsx"), /adviseVideoSessionTruthRecovery/);
+  assert.match(read("src/pages/ReadyRedirect.tsx"), /decideCanonicalVideoDateRoute/);
+  assert.match(read("src/pages/ReadyRedirect.tsx"), /canonicalVideoDateRouteLogDetail/);
+  assert.match(read("src/pages/ReadyRedirect.tsx"), /webPathForCanonicalVideoDateRoute/);
+  assert.doesNotMatch(read("src/pages/ReadyRedirect.tsx"), /registrationReadyGateFallback/);
   assert.match(read("src/pages/ReadyRedirect.tsx"), /ended_reason/);
   assert.match(read("src/pages/VideoDate.tsx"), /canonical_ready_gate_without_provider_prepared_truth/);
   assert.match(read("src/pages/VideoDate.tsx"), /date_guard_canonical_not_startable/);
   assert.match(read("src/pages/VideoDate.tsx"), /date_guard_canonical_ready_gate/);
   assert.match(read("src/components/lobby/ReadyGateOverlay.tsx"), /pending_survey_navigation_started/);
   assert.match(read("src/components/video-date/PostDateSurvey.tsx"), /decideCanonicalVideoDateRoute/);
+  assert.match(read("src/components/video-date/PostDateSurvey.tsx"), /canonicalVideoDateRouteLogDetail/);
   assert.match(read("src/components/video-date/PostDateSurvey.tsx"), /fetchPostDateNextSessionTruth/);
   assert.match(read("apps/mobile/app/event/[eventId]/lobby.tsx"), /decideCanonicalVideoDateRoute/);
+  assert.match(read("apps/mobile/app/event/[eventId]/lobby.tsx"), /canonicalVideoDateRouteLogDetail/);
   assert.match(read("apps/mobile/components/NativeSessionRouteHydration.tsx"), /decideCanonicalVideoDateRoute/);
+  assert.match(read("apps/mobile/components/NativeSessionRouteHydration.tsx"), /canonicalVideoDateRouteLogDetail/);
+  assert.match(read("apps/mobile/components/NotificationDeepLinkHandler.tsx"), /canonicalVideoDateRouteLogDetail/);
   assert.match(read("apps/mobile/lib/activeSessionRoutes.ts"), /hrefForCanonicalVideoDateRoute/);
   assert.match(read("apps/mobile/lib/videoDateEntryStartable.ts"), /decideCanonicalVideoDateRoute/);
   assert.match(read("apps/mobile/lib/videoDateEntryStartable.ts"), /recommend: 'survey'/);
   assert.match(read("apps/mobile/app/ready/[id].tsx"), /startable\.recommend === 'survey'/);
+  assert.match(read("apps/mobile/app/ready/[id].tsx"), /canonicalVideoDateRouteLogDetail/);
   assert.match(read("apps/mobile/app/event/[eventId]/lobby.tsx"), /startable\.recommend === 'survey'/);
   assert.match(read("apps/mobile/app/date/[id].tsx"), /adviseVideoSessionTruthRecovery/);
   assert.match(read("apps/mobile/components/lobby/ReadyGateOverlay.tsx"), /pending_survey_navigation_started/);
   assert.match(read("apps/mobile/components/lobby/ReadyGateOverlay.tsx"), /router\.replace\(`\/date\/\$\{sessionId\}` as Href\)/);
   assert.match(read("apps/mobile/components/video-date/PostDateSurvey.tsx"), /decideCanonicalVideoDateRoute/);
+  assert.match(read("apps/mobile/components/video-date/PostDateSurvey.tsx"), /canonicalVideoDateRouteLogDetail/);
   assert.match(read("apps/mobile/components/video-date/PostDateSurvey.tsx"), /fetchPostDateNextSessionTruth/);
+});
+
+test("Sprint 1 canonical route log detail has one shared reason shape", () => {
+  const decision = decideCanonicalVideoDateRoute({
+    sessionId: SESSION_ID,
+    eventId: EVENT_ID,
+    truth: {
+      id: SESSION_ID,
+      event_id: EVENT_ID,
+      ready_gate_status: "both_ready",
+      ready_gate_expires_at: new Date(NOW_MS + 30_000).toISOString(),
+      daily_room_name: "date-session-1",
+      daily_room_url: "https://vibelyapp.daily.co/date-session-1",
+      state: "handshake",
+    },
+    nowMs: NOW_MS,
+  });
+
+  assert.deepEqual(canonicalVideoDateRouteLogDetail(decision, {
+    sourceSurface: "event_lobby",
+    sourceAction: "realtime",
+  }), {
+    source_surface: "event_lobby",
+    source_action: "realtime",
+    canonical_target: "date",
+    canonical_reason: "provider_room_date_ready",
+    canonical_session_id: SESSION_ID,
+    canonical_event_id: EVENT_ID,
+    canonical_match_id: null,
+    canonical_target_id: null,
+    canonical_queue_status: null,
+    canonical_ready_gate_status: "both_ready",
+    canonical_can_attempt_daily: true,
+    canonical_has_provider_room: true,
+    canonical_legacy_decision: "navigate_date",
+  });
 });

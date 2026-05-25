@@ -60,6 +60,7 @@ import {
   type PostDateVerdictUiState,
 } from "@clientShared/matching/postDateVerdictConfirmation";
 import {
+  canonicalVideoDateRouteLogDetail,
   decideCanonicalVideoDateRoute,
   webPathForCanonicalVideoDateRoute,
   type VideoDateRouteSessionTruth,
@@ -583,6 +584,10 @@ export const PostDateSurvey = ({
             targetId: serverNext.targetId ?? partnerId,
           },
         });
+        const canonicalNextLog = canonicalVideoDateRouteLogDetail(canonicalNextRoute, {
+          sourceSurface: "post_date_survey",
+          sourceAction: "survey_finish_server_continuity",
+        });
         trackEvent(LobbyPostDateEvents.POST_DATE_CONTINUITY_NEXT_ACTION_DECIDED, {
           platform: "web",
           session_id: sessionId,
@@ -590,6 +595,7 @@ export const PostDateSurvey = ({
           action: serverNext.action,
           source: "survey_finish_server_continuity",
           reason_code: serverNext.reason,
+          ...canonicalNextLog,
           next_session_id: serverNext.nextSessionId,
           match_id: serverNext.matchId,
           seconds_until_event_end: serverNext.secondsUntilEventEnd,

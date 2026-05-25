@@ -71,12 +71,14 @@ test("web and native date recovery use advisor for truth and token decisions", (
   }
 });
 
-test("notification and standalone Ready Gate snapshot routing use advisor directly", () => {
+test("notification and standalone Ready Gate routing use snapshot advisors and canonical truth", () => {
   assert.match(nativeNotificationDeepLink, /adviseVideoDateSnapshotRecovery/);
   assert.match(nativeNotificationDeepLink, /adviseVideoSessionTruthRecovery/);
   assert.match(nativeNotificationDeepLink, /surface: 'notification_deep_link'/);
   assert.match(webReadyRedirect, /adviseVideoDateSnapshotRecovery/);
-  assert.match(webReadyRedirect, /adviseVideoSessionTruthRecovery/);
+  assert.match(webReadyRedirect, /decideCanonicalVideoDateRoute/);
+  assert.match(webReadyRedirect, /webPathForCanonicalVideoDateRoute/);
+  assert.doesNotMatch(webReadyRedirect, /registrationReadyGateFallback/);
   assert.match(webReadyRedirect, /surface: "ready_redirect"/);
   assert.match(nativeReadyRoute, /adviseVideoDateSnapshotRecovery/);
   assert.match(nativeReadyRoute, /adviseVideoSessionTruthRecovery/);

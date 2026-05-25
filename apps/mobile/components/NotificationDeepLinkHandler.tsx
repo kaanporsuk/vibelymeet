@@ -29,6 +29,10 @@ import {
   adviseVideoDateSnapshotRecovery,
   adviseVideoSessionTruthRecovery,
 } from '@clientShared/matching/videoDateRecoveryAdvisor';
+import {
+  canonicalVideoDateRouteLogDetail,
+  decideCanonicalVideoDateRoute,
+} from '@clientShared/matching/videoDateRouteDecision';
 import { clearDateEntryTransition, markVideoDateEntryPipelineStarted } from '@/lib/dateEntryTransitionLatch';
 import { useFeatureFlag } from '@/hooks/useFeatureFlag';
 import {
@@ -315,6 +319,24 @@ async function reconcileHrefWithRegistration(
   let truthDecision = recovery.routeDecision;
   let canAttemptDaily = recovery.canAttemptDaily === true;
 
+  const canonicalDecisionLog = (sourceAction: string) =>
+    canonicalVideoDateRouteLogDetail(
+      decideCanonicalVideoDateRoute({
+        sessionId: sid,
+        eventId: String(vs.event_id),
+        truth,
+        registration: {
+          event_id: String(vs.event_id),
+          queue_status: reg?.queue_status ?? null,
+          current_room_id: reg?.current_room_id ?? null,
+        },
+      }),
+      {
+        sourceSurface: 'notification_deep_link',
+        sourceAction,
+      },
+    );
+
   const emitDecision = (
     decision: 'navigate_date' | 'navigate_ready' | 'stay_lobby' | 'ended',
     reason: string | null,
@@ -327,6 +349,7 @@ async function reconcileHrefWithRegistration(
       can_attempt_daily: canAttemptDaily,
       reason,
       routed_to: routedTo,
+      ...canonicalDecisionLog('date_route_decision'),
       queue_status: reg?.queue_status ?? null,
       current_room_id: reg?.current_room_id ?? null,
       vs_state: truth?.state ?? null,

@@ -87,12 +87,13 @@ test("daily-room reads required Daily env names", () => {
   assert.match(dailyRoom, /const DAILY_API_URL = "https:\/\/api\.daily\.co\/v1"/);
 });
 
-test("daily-room handles DAILY_DOMAIN and documents the fallback domain risk", () => {
-  assert.match(dailyRoom, /const DAILY_DOMAIN_FALLBACK = "vibelyapp\.daily\.co"/);
-  assert.match(dailyRoom, /const DAILY_DOMAIN = DAILY_DOMAIN_ENV \|\| DAILY_DOMAIN_FALLBACK/);
-  assert.match(dailyRoom, /daily_domain_env_missing/);
+test("daily-room fail-closes missing DAILY_DOMAIN outside explicit local fallback", () => {
+  assert.match(dailyRoomContracts, /resolveDailyRuntimeConfig/);
+  assert.match(dailyRoom, /const DAILY_RUNTIME_CONFIG = resolveDailyRuntimeConfig/);
+  assert.match(dailyRoom, /code: "DAILY_CONFIG_BLOCKED"/);
+  assert.match(dailyRoom, /dailyConfigRequiredForAction\(action\)/);
   assert.match(dailyRoomContracts, /videoDateRoomUrlForName\(roomName: string, dailyDomain: string\)/);
-  assert.match(providerSheet, /fallback is still code-supported for resilience/);
+  assert.match(providerSheet, /fallback is still code-supported for local resilience|DAILY_CONFIG_BLOCKED/i);
   assert.match(branchDelta, /Fallback Domain Posture/);
 });
 

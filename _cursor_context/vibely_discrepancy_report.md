@@ -186,7 +186,7 @@ The audited repo confirms rebuild-sensitive hardcoded points such as:
 - OneSignal App ID in `src/lib/onesignal.ts`
 - Sentry DSN in `src/main.tsx`
 - PostHog host in `src/main.tsx`
-- Daily fallback domain in the `daily-room` function
+- Daily video-date domain is now env-owned via `DAILY_DOMAIN`; staging/production provider actions fail closed when it is missing
 - Bunny TUS upload endpoint in the frontend upload flow
 
 **Impact:** a rebuild based only on env restoration is insufficient.
@@ -306,4 +306,3 @@ The material issues were not philosophical or stylistic. They were practical:
 - under-documented hardcoded production dependencies
 
 That is why the audited pack is required as the canonical rebuild baseline.
-

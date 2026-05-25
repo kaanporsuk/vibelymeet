@@ -20,7 +20,7 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-const DAILY_API_KEY = Deno.env.get("DAILY_API_KEY")!;
+const DAILY_API_KEY = Deno.env.get("DAILY_API_KEY")?.trim() ?? "";
 const DAILY_API_URL = "https://api.daily.co/v1";
 const DELETE_GRACE_MS = 45_000;
 const CLEANUP_PROVIDER_RETRIES = numericEnv("VIDEO_DATE_ROOM_CLEANUP_PROVIDER_RETRIES", 2, 0, 5);
@@ -352,6 +352,27 @@ serve(async (req) => {
   const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
   const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
   const supabase = createClient(supabaseUrl, serviceKey);
+
+  if (!DAILY_API_KEY) {
+    console.error(JSON.stringify({
+      event: "video_date_room_cleanup_daily_config_blocked",
+      code: "DAILY_CONFIG_BLOCKED",
+      blockers: ["daily_api_key_missing"],
+    }));
+    return new Response(
+      JSON.stringify({
+        ok: false,
+        code: "DAILY_CONFIG_BLOCKED",
+        error: "daily_config_blocked",
+        retryable: true,
+        blockers: ["daily_api_key_missing"],
+      }),
+      {
+        status: 503,
+        headers: { ...corsHeaders, "Content-Type": "application/json", "Cache-Control": "no-store" },
+      },
+    );
+  }
 
   // Short buffer after ended_at avoids racing with clients still tearing down.
   // Destructive cleanup still checks Daily presence before deleting.

@@ -429,6 +429,8 @@ LIMIT 50;
 
 Create one dashboard named `Video Date Operator Loop`.
 
+The `admin-video-date-ops` Edge Function wraps the Sprint 7 Supabase health RPC with an application-level timeout and returns a degraded `source_error` payload instead of waiting on a long database statement. Long-running SQL inspection is reserved for explicit offline diagnostics, not dashboard page loads.
+
 Recommended insight groups:
 
 1. Ready Gate latency funnel.

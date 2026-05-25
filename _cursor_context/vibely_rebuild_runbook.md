@@ -663,7 +663,7 @@ If domain changes, you must audit at least:
 - OneSignal App ID in `src/lib/onesignal.ts`
 - Sentry DSN in `src/main.tsx`
 - PostHog host in `src/main.tsx`
-- Daily fallback domain `vibelyapp.daily.co` in `daily-room`
+- Daily video-date domain is env-owned via `DAILY_DOMAIN`; staging/production Daily actions fail closed if it is missing. The historical `vibelyapp.daily.co` fallback is local/dev/test only when `ENVIRONMENT` is explicitly local.
 - Bunny upload endpoint `video.bunnycdn.com/tusupload`
 
 A rebuild that changes providers or domains must patch these intentionally.

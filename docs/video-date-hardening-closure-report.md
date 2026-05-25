@@ -37,7 +37,7 @@ Accepted contract:
 - Each participant receives a distinct user-scoped Daily token.
 - Non-participants cannot receive Daily tokens or write Daily join stamps.
 - Clients must not own critical video-date lifecycle writes.
-- Daily fallback diagnostics must not expose meeting tokens, auth headers, provider secrets, or raw secret values.
+- Daily provider diagnostics must not expose meeting tokens, auth headers, provider secrets, or raw secret values.
 
 Release evidence:
 

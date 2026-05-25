@@ -10,6 +10,18 @@ Supabase project `schdyxcunwcvddlcshwd` has migrations through `20260522161000_m
 
 Do not recreate already-closed provider resources during certification. Daily webhook provider registration is closed under webhook UUID `a5407924-6f29-4a35-835a-ff5185eeae5c`; use the real two-user smoke below for delivery proof instead of creating another webhook or rotating/printing `DAILY_WEBHOOK_SECRET`.
 
+## Required Automated Gate
+
+Run the hard required automated gate before any release decision:
+
+```bash
+npm run certify:video-date:required
+```
+
+This gate runs typecheck, the full Video Date v4 contract suite, event-lobby regression, Daily room contracts, runtime RLS in required mode, and the Phase 8 Daily config readiness check. It does not run web/native builds, device QA, screenshots, or two-user/provider-dashboard manual proof; those stay user-owned and are recorded separately with `docs/video-date-required-certification-template.json`.
+
+Daily production config is fail-closed. `DAILY_DOMAIN`, `DAILY_API_KEY`, `DAILY_WEBHOOK_SECRET`, and `CRON_SECRET` or `PHASE8_STAGING_CRON_SECRET` must be present for certification. `DAILY_DOMAIN` may fall back to `vibelyapp.daily.co` only when `ENVIRONMENT` is explicitly local/dev/test, never in staging or production certification.
+
 ## PR 8.1 - Two-User Certification
 
 Preferred automation is the nightly/manual GitHub workflow:

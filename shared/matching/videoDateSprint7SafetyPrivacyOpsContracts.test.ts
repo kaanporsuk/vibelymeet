@@ -88,6 +88,9 @@ test("Sprint 7 service-role operator health RPC is aggregate-only and wired into
   }
 
   assert.match(adminOps, /getSprint7SafetyPrivacyOpsHealthPayload/);
+  assert.match(adminOps, /SPRINT7_OPS_HEALTH_RPC_TIMEOUT_MS/);
+  assert.match(adminOps, /withOpsTimeout/);
+  assert.match(adminOps, /sprint7_ops_health_timeout/);
   assert.match(adminOps, /service\.rpc\("get_video_date_sprint7_ops_health"/);
   assert.match(adminOps, /safety_privacy_ops_health:\s*selectSprint7SafetyPrivacyOpsHealth/);
   assert.match(adminOps, /SPRINT7_PRIVACY_CONTRACT_FALLBACK/);
@@ -297,6 +300,8 @@ test("Sprint 7 dashboards, runbooks, launch checklist, and final certification a
   }
 
   assert.match(operatorDashboards, /video-date-sprint7-safety-privacy-ops\.md/);
+  assert.match(operatorDashboards, /application-level timeout/);
+  assert.match(operatorDashboards, /source_error/);
   assert.match(operatorMetrics, /get_video_date_sprint7_ops_health/);
   assert.match(operatorMetrics, /safety_privacy_ops_health/);
 });
