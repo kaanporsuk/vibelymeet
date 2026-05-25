@@ -274,11 +274,13 @@ export function useMediaAsset({
           onProcessingStatusChangeRef.current?.(nextStatus);
           if (nextStatus === 'ready') {
             setError(null);
+            setFallbackReason(null);
             void refreshRef.current('manual', { bypassFailureCooldown: true });
           } else if (nextStatus === 'failed') {
             requestSeqRef.current += 1;
             setStatus('error');
             setError('media_asset_processing_failed');
+            setFallbackReason(resolveMediaFallbackReason({ errorCode: 'media_asset_processing_failed' }));
           }
         },
       )
