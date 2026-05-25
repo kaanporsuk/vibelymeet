@@ -8,6 +8,8 @@
 --   profile text, names, emails, phone numbers, media paths, or freeform report
 --   details are exposed.
 
+SET statement_timeout = '10min';
+
 CREATE INDEX IF NOT EXISTS idx_video_sessions_sprint7_ops_state
   ON public.video_sessions(event_id, ended_at, phase, ready_gate_status, state_updated_at DESC);
 
