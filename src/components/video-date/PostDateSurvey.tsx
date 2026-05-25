@@ -793,13 +793,14 @@ export const PostDateSurvey = ({
       if (!user?.id || isSubmitting || verdictUiState === "submitting" || verdictUiState === "confirmed") return;
       const previousStep = step;
       const optimisticStep: SurveyStep = liked ? "awaiting_partner" : "highlights";
+      const canOptimisticallyAdvanceVerdict = postDateInstantNextV2.enabled && !verdictConfirmEnabled;
       let optimisticallyAdvanced = false;
       setIsSubmitting(true);
       setVerdictUiState("submitting");
       setVerdictError(null);
       setVerdictRetryable(false);
       setLastVerdictAttempt(liked);
-      if (postDateInstantNextV2.enabled) {
+      if (canOptimisticallyAdvanceVerdict) {
         setStep(optimisticStep);
         optimisticallyAdvanced = true;
         trackEvent("post_date_verdict_optimistic_started", {
@@ -850,8 +851,8 @@ export const PostDateSurvey = ({
                 ? "This date session is no longer available."
                 : "Something went wrong. Please try again.",
           );
-          if (postDateInstantNextV2.enabled) {
-            if (optimisticallyAdvanced) setStep(previousStep);
+          if (optimisticallyAdvanced) {
+            setStep(previousStep);
             trackEvent("post_date_verdict_optimistic_rollback", {
               platform: "web",
               session_id: sessionId,
@@ -868,18 +869,20 @@ export const PostDateSurvey = ({
           setVerdictRetryable(true);
           setVerdictError("Couldn't confirm your answer. Tap to retry.");
           setVerdictUiState("retryable_failed");
-          if (optimisticallyAdvanced) setStep(previousStep);
-          trackEvent("post_date_verdict_optimistic_rollback", {
-            platform: "web",
-            session_id: sessionId,
-            event_id: eventId,
-            reason: "confirmation_timeout",
-            rollback_step: previousStep,
-          });
+          if (optimisticallyAdvanced) {
+            setStep(previousStep);
+            trackEvent("post_date_verdict_optimistic_rollback", {
+              platform: "web",
+              session_id: sessionId,
+              event_id: eventId,
+              reason: "confirmation_timeout",
+              rollback_step: previousStep,
+            });
+          }
           return;
         }
         const confirmedVerdict = normalizePostDateVerdictConfirmationResult(confirmedResult);
-        if (postDateInstantNextV2.enabled) {
+        if (optimisticallyAdvanced) {
           trackEvent("post_date_verdict_optimistic_confirmed", {
             platform: "web",
             session_id: sessionId,
@@ -946,8 +949,8 @@ export const PostDateSurvey = ({
         setVerdictRetryable(true);
         setVerdictError("Couldn't save your answer. Tap to retry.");
         setVerdictUiState("retryable_failed");
-        if (postDateInstantNextV2.enabled) {
-          if (optimisticallyAdvanced) setStep(previousStep);
+        if (optimisticallyAdvanced) {
+          setStep(previousStep);
           trackEvent("post_date_verdict_optimistic_rollback", {
             platform: "web",
             session_id: sessionId,
@@ -968,9 +971,9 @@ export const PostDateSurvey = ({
       verdictUiState,
       logJourney,
       postDateInstantNextV2.enabled,
+      verdictConfirmEnabled,
       submitVerdictV3.enabled,
       step,
-      verdictConfirmEnabled,
       waitForVerdictConfirmation,
       applyConfirmedVerdictStep,
     ]

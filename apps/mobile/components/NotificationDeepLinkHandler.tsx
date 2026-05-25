@@ -117,33 +117,44 @@ function providerNotificationIdFromUnknown(value: unknown): string | null {
 
 const NOTIFICATION_OPEN_ACK_TIMEOUT_MS = 1200;
 
-async function resolveNotificationOpenSideEffectGate(
-  data: Record<string, unknown>,
-  providerNotificationId: string | null,
-): Promise<boolean> {
+async function withNotificationOpenAckTimeout<T>(operation: Promise<T>): Promise<T | null> {
   let timer: ReturnType<typeof setTimeout> | null = null;
-  const hasDispatchGroup = hasDispatchGroupPayload(data);
-  const hasNotificationId = hasNotificationIdPayload(data);
-  const defaultWhenUnconfirmed = !(hasDispatchGroup || hasNotificationId);
   try {
-    const result = await Promise.race([
-      Promise.all([
-        ackNotificationDispatchFromPayload(data, 'native_click', providerNotificationId),
-        markNotificationOpenedV2FromPayload(data),
-      ]),
+    return await Promise.race([
+      operation,
       new Promise<null>((resolve) => {
         timer = setTimeout(() => resolve(null), NOTIFICATION_OPEN_ACK_TIMEOUT_MS);
       }),
     ]);
-    if (!result) return defaultWhenUnconfirmed;
-    const [ack, opened] = result;
-    if (ack.dispatchGroupId) return ack.ok === true && ack.firstAck === true;
-    if (opened.notificationId) return opened.ok === true && opened.firstOpen === true;
+  } catch {
+    return null;
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
+async function resolveNotificationOpenSideEffectGate(
+  data: Record<string, unknown>,
+  providerNotificationId: string | null,
+): Promise<boolean> {
+  const hasDispatchGroup = hasDispatchGroupPayload(data);
+  const hasNotificationId = hasNotificationIdPayload(data);
+  const defaultWhenUnconfirmed = !(hasDispatchGroup || hasNotificationId);
+  try {
+    const [ack, opened] = await Promise.all([
+      hasDispatchGroup
+        ? withNotificationOpenAckTimeout(ackNotificationDispatchFromPayload(data, 'native_click', providerNotificationId))
+        : Promise.resolve(null),
+      hasNotificationId
+        ? withNotificationOpenAckTimeout(markNotificationOpenedV2FromPayload(data))
+        : Promise.resolve(null),
+    ]);
+    if (ack?.dispatchGroupId) return ack.ok === true && ack.firstAck === true;
+    if (opened?.notificationId) return opened.ok === true && opened.firstOpen === true;
+    if (!ack && !opened) return defaultWhenUnconfirmed;
     return true;
   } catch {
     return defaultWhenUnconfirmed;
-  } finally {
-    if (timer) clearTimeout(timer);
   }
 }
 

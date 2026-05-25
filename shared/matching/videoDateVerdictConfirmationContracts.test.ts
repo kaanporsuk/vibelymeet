@@ -125,6 +125,9 @@ test("web and native surveys gate optimistic advancement behind shared confirmat
     assert.match(source, /derivePostDateSurveyStepFromVerdict/);
     assert.match(source, /nextSurface\.action === ["']survey["']/);
     assert.match(source, /confirmation_timeout/);
+    assert.match(source, /const canOptimisticallyAdvanceVerdict = postDateInstantNextV2\.enabled && !verdictConfirmEnabled/);
+    assert.match(source, /if \(canOptimisticallyAdvanceVerdict\) \{[\s\S]+setStep\(optimisticStep\)/);
+    assert.match(source, /const confirmedResult = verdictConfirmEnabled \? await waitForVerdictConfirmation\(result\) : result/);
     assert.match(source, /recordReportPassVerdict[\s\S]+waitForVerdictConfirmation/);
     assert.match(source, /report_pass_confirmation_failed/);
     assert.match(source, /highlightsSaveInFlightRef/);

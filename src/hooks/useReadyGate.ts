@@ -450,7 +450,7 @@ export const useReadyGate = ({ sessionId, eventId, onBothReady, onForfeited }: U
     const committedClientSyncedAtMs = serverClock.clientSyncedAtMs ?? currentTruth.clientSyncedAtMs;
     const committedExpiresAt = hasReadyGateExpiresAt ? expiresAt : currentTruth.expiresAt;
     const committedPhaseDeadlineAtMs =
-      parseReadyGateExpiryMs(committedExpiresAt) ?? currentTruth.phaseDeadlineAtMs;
+      hasReadyGateExpiresAt ? parseReadyGateExpiryMs(committedExpiresAt) : currentTruth.phaseDeadlineAtMs;
     const committedClockSkewMs =
       committedServerNowMs != null && committedClientSyncedAtMs != null
         ? committedServerNowMs - committedClientSyncedAtMs

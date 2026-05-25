@@ -22,6 +22,7 @@ test("legacy snapshot token issuance uses shared Daily provider reliability", ()
     "providerFetchTimeoutMs",
     "parseRetryAfterSeconds",
     "ProviderRateLimitError",
+    "ProviderTimeoutError",
     "providerFailureCode",
     "providerFailureMessage",
     "providerFailureRetryAfter",
@@ -45,6 +46,10 @@ test("snapshot token failures surface bounded 429 retry-after without leaking to
   assert.match(snapshotFunction, /"Retry-After"/);
   assert.match(snapshotFunction, /retry_after_seconds/);
   assert.match(snapshotFunction, /retryAfterSeconds/);
+  assert.match(snapshotFunction, /clientError: "daily_token_failed"/);
+  assert.doesNotMatch(snapshotFunction, /clientError: "provider_rate_limited"/);
+  assert.match(snapshotFunction, /error instanceof ProviderRateLimitError \|\| error instanceof ProviderTimeoutError/);
+  assert.doesNotMatch(snapshotFunction, /snapshotTokenFailureStatus\(error\) === 429/);
   assert.match(snapshotFunction, /provider_status/);
   assert.doesNotMatch(snapshotFunction, /provider_payload|raw_payload|response_body/i);
   assert.doesNotMatch(snapshotFunction, /console\.(?:log|error|warn)\([^)]*DAILY_API_KEY/);
