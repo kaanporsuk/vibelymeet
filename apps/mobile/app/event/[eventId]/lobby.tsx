@@ -936,8 +936,13 @@ export default function EventLobbyScreen() {
     refetchIntervalInBackground: false,
     staleTime: 3_000,
   });
-  const queueHintCopy = resolveVideoDateQueueCopy(queueHint, queuedMatchCount);
+  const queueFallbackCount =
+    sameEventActiveSession?.kind === 'syncing' ? Math.max(queuedMatchCount, 1) : queuedMatchCount;
+  const queueHintCopy = resolveVideoDateQueueCopy(queueHint, queueFallbackCount);
   const queueHintLabel = queueHintCopy.compactLabel;
+  const queueHintDetailParts = queueHintCopy.detailParts.length > 0
+    ? queueHintCopy.detailParts
+    : [queueHintLabel];
 
   /** Full-screen yield: server truth says handshake/date — do not show deck-empty underneath. */
   const yieldingToVideoDateUi = useMemo(
@@ -3037,13 +3042,31 @@ export default function EventLobbyScreen() {
                   <Ionicons name="sparkles" size={40} color={theme.neonPink} />
                 </View>
                 <Text style={[styles.emptyTitle, { color: theme.text }]}>
-                  {postSurveyReturnContext ? postSurveyContinuityDecision.title : 'Your match is syncing'}
+                  {postSurveyReturnContext ? postSurveyContinuityDecision.title : queueHintCopy.title}
                 </Text>
-                  <Text style={[styles.emptyMessage, { color: theme.textSecondary }]}>
-                    {postSurveyReturnContext
-                      ? postSurveyContinuityDecision.message
-                      : 'We’re opening Ready Gate as soon as you’re both available in this lobby. Stay here — we’ll bring you in automatically.'}
-                  </Text>
+                <Text style={[styles.emptyMessage, { color: theme.textSecondary }]}>
+                  {postSurveyReturnContext ? postSurveyContinuityDecision.message : queueHintCopy.message}
+                </Text>
+                {!postSurveyReturnContext ? (
+                  <View style={styles.queueDetailRow}>
+                    {queueHintDetailParts.map((part) => (
+                      <View
+                        key={part}
+                        style={[
+                          styles.queueDetailChip,
+                          {
+                            backgroundColor: withAlpha(theme.text, 0.06),
+                            borderColor: theme.glassBorder,
+                          },
+                        ]}
+                      >
+                        <Text style={[styles.queueDetailText, { color: theme.text }]} numberOfLines={1}>
+                          {part}
+                        </Text>
+                      </View>
+                    ))}
+                  </View>
+                ) : null}
                 <View style={styles.emptyCheckingRow}>
                   <Ionicons name="sync" size={14} color={theme.tint} />
                   <Text style={[styles.emptySubline, { color: theme.tint }]}>
@@ -3774,6 +3797,21 @@ const styles = StyleSheet.create({
   },
   emptyTitle: { fontSize: 18, fontWeight: '600', marginBottom: spacing.sm, textAlign: 'center' },
   emptyMessage: { fontSize: 14, textAlign: 'center', marginBottom: spacing.md, paddingHorizontal: spacing.sm },
+  queueDetailRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'center',
+    gap: spacing.xs,
+    marginBottom: spacing.md,
+  },
+  queueDetailChip: {
+    maxWidth: 132,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: radius.pill,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 5,
+  },
+  queueDetailText: { fontSize: 11, fontWeight: '700' },
   emptySubline: { fontSize: 12, textAlign: 'center', marginBottom: spacing.lg },
   emptyPrimaryBtn: {
     flexDirection: 'row',

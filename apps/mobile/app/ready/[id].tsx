@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { StyleSheet, View, Text, Pressable, Image, ScrollView, ActivityIndicator, PermissionsAndroid, Platform, AppState, type AppStateStatus } from 'react-native';
+import { StyleSheet, View, Text, Pressable, Image, ScrollView, ActivityIndicator, PermissionsAndroid, Platform, AppState, Linking, type AppStateStatus } from 'react-native';
 import { useLocalSearchParams, usePathname, router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -10,6 +10,7 @@ import { avatarUrl } from '@/lib/imageUrl';
 import { supabase } from '@/lib/supabase';
 import Colors from '@/constants/Colors';
 import { GlassHeaderBar, Card, VibelyButton, ErrorState } from '@/components/ui';
+import { ReadyGateDiagnosticChecklist } from '@/components/lobby/ReadyGateDiagnosticChecklist';
 import { spacing, radius, typography } from '@/constants/theme';
 import { withAlpha } from '@/lib/colorUtils';
 import { useColorScheme } from '@/components/useColorScheme';
@@ -20,6 +21,12 @@ import { eventLobbyHref, tabsRootHref } from '@/lib/activeSessionRoutes';
 import { navigateToDateSessionGuarded } from '@/lib/dateNavigationGuard';
 import { clearDateEntryTransition } from '@/lib/dateEntryTransitionLatch';
 import { ensureVideoDateStartableBeforeNavigation } from '@/lib/videoDateEntryStartable';
+import {
+  defaultNativeReadyGateMediaDiagnostics,
+  defaultNativeReadyGatePermissionDiagnostics,
+  inspectNativeReadyGateMediaDevices,
+  type NativeReadyGatePermissionDiagnosticState,
+} from '@/lib/readyGateNativeMediaDiagnostics';
 import { fetchVideoSessionDateEntryTruthCoalesced } from '@/lib/videoDateApi';
 import { fetchVideoDateSnapshot } from '@/lib/videoDateSnapshot';
 import { prepareVideoDateEntry } from '@/lib/videoDatePrepareEntry';
@@ -46,7 +53,11 @@ import {
   resolveReadyGateTerminalRecoveryViaAdvisor as resolveReadyGateTerminalRecovery,
 } from '@clientShared/matching/videoDateRecoveryAdvisor';
 import { getReadyGateReadinessStatusCopy } from '@clientShared/matching/readyGateReadiness';
-import { resolveReadyGatePrepareEntryFailureCopy } from '@clientShared/matching/readyGateDiagnosticCopy';
+import {
+  resolveReadyGateDiagnosticChecklist,
+  resolveReadyGatePrepareEntryFailureCopy,
+  type ReadyGateDiagnosticCopy,
+} from '@clientShared/matching/readyGateDiagnosticCopy';
 
 const GATE_TIMEOUT_SEC = READY_GATE_DEFAULT_TIMEOUT_SECONDS;
 const READY_GATE_TRUTH_RECONCILE_MS = 10_000;
@@ -83,6 +94,8 @@ export default function ReadyGateScreen() {
     serverNowMs,
     clientSyncedAtMs,
     phaseDeadlineAtMs,
+    realtimeDegraded,
+    sequenceGapUnresolved,
     retryBroadcastGapRecovery,
     readyGateClockEnabled,
   } = useReadyGate(sessionId ?? null, user?.id ?? null);
@@ -100,6 +113,12 @@ export default function ReadyGateScreen() {
   const [hasMediaPermission, setHasMediaPermission] = useState<boolean | null>(null);
   const [terminalActionPending, setTerminalActionPending] = useState(false);
   const [terminalActionError, setTerminalActionError] = useState<string | null>(null);
+  const [prepareEntryFailureCode, setPrepareEntryFailureCode] = useState<string | null>(null);
+  const [prepareEntryFailureRetryable, setPrepareEntryFailureRetryable] = useState(false);
+  const [nativeMediaDiagnostics, setNativeMediaDiagnostics] = useState(defaultNativeReadyGateMediaDiagnostics);
+  const [nativePermissionDiagnostics, setNativePermissionDiagnostics] = useState(
+    defaultNativeReadyGatePermissionDiagnostics,
+  );
   const invalidSessionLoggedRef = useRef(false);
   /** At most one explain-then-navigate dialog per mount / session id (stale vs invalid deep link). */
   const redirectExplainedRef = useRef(false);
@@ -109,9 +128,29 @@ export default function ReadyGateScreen() {
   const expirySyncInFlightRef = useRef(false);
   const expirySyncRetryAtMsRef = useRef(0);
   const readyGateOpenedAtMsRef = useRef(Date.now());
+  const activeSessionIdRef = useRef<string | null>(sessionId ? String(sessionId) : null);
   const { show: showDialog, dialog: dialogEl } = useVibelyDialog();
 
-  const requestMediaPermissions = async (): Promise<boolean> => {
+  const refreshNativeMediaDiagnostics = useCallback(async (permission: boolean | null = hasMediaPermission) => {
+    const activeSessionId = activeSessionIdRef.current;
+    setNativeMediaDiagnostics((current) => ({
+      ...current,
+      cameraDeviceStatus: permission ? 'checking' : current.cameraDeviceStatus,
+      microphoneDeviceStatus: permission ? 'checking' : current.microphoneDeviceStatus,
+    }));
+    const next = await inspectNativeReadyGateMediaDevices(permission);
+    if (activeSessionIdRef.current !== activeSessionId) return;
+    setNativeMediaDiagnostics(next);
+  }, [hasMediaPermission]);
+
+  const requestMediaPermissions = useCallback(async (): Promise<boolean> => {
+    const markPermissionResult = (permissions: NativeReadyGatePermissionDiagnosticState) => {
+      const ok = permissions.cameraPermissionStatus === 'ok' && permissions.microphonePermissionStatus === 'ok';
+      setHasMediaPermission(ok);
+      setPermissionsResolved(true);
+      setNativePermissionDiagnostics(permissions);
+      void refreshNativeMediaDiagnostics(ok);
+    };
     if (Platform.OS === 'android') {
       const granted = await PermissionsAndroid.requestMultiple([
         PermissionsAndroid.PERMISSIONS.CAMERA,
@@ -120,17 +159,29 @@ export default function ReadyGateScreen() {
       const ok =
         granted[PermissionsAndroid.PERMISSIONS.CAMERA] === PermissionsAndroid.RESULTS.GRANTED &&
         granted[PermissionsAndroid.PERMISSIONS.RECORD_AUDIO] === PermissionsAndroid.RESULTS.GRANTED;
-      setHasMediaPermission(ok);
-      setPermissionsResolved(true);
+      const permissions: NativeReadyGatePermissionDiagnosticState = {
+        cameraPermissionStatus:
+          granted[PermissionsAndroid.PERMISSIONS.CAMERA] === PermissionsAndroid.RESULTS.GRANTED ? 'ok' : 'blocked',
+        microphonePermissionStatus:
+          granted[PermissionsAndroid.PERMISSIONS.RECORD_AUDIO] === PermissionsAndroid.RESULTS.GRANTED ? 'ok' : 'blocked',
+      };
+      markPermissionResult(permissions);
       return ok;
     }
     const cam = await Camera.requestCameraPermissionsAsync();
     const mic = await Camera.requestMicrophonePermissionsAsync();
-    const ok = cam.status === 'granted' && mic.status === 'granted';
-    setHasMediaPermission(ok);
-    setPermissionsResolved(true);
+    const permissions: NativeReadyGatePermissionDiagnosticState = {
+      cameraPermissionStatus: cam.status === 'granted' ? 'ok' : 'blocked',
+      microphonePermissionStatus: mic.status === 'granted' ? 'ok' : 'blocked',
+    };
+    markPermissionResult(permissions);
+    const ok = permissions.cameraPermissionStatus === 'ok' && permissions.microphonePermissionStatus === 'ok';
     return ok;
-  };
+  }, [refreshNativeMediaDiagnostics]);
+
+  useEffect(() => {
+    activeSessionIdRef.current = sessionId ? String(sessionId) : null;
+  }, [sessionId]);
 
   const reconcileFromCanonicalTruth = useCallback(
     async (source: string) => {
@@ -184,6 +235,8 @@ export default function ReadyGateScreen() {
           return true;
         }
         dateNavigationStartedRef.current = true;
+        setPrepareEntryFailureCode(null);
+        setPrepareEntryFailureRetryable(false);
         const prepared = await prepareVideoDateEntry(sid, {
           eventId: eventId ?? null,
           userId: user.id,
@@ -193,6 +246,8 @@ export default function ReadyGateScreen() {
           dateNavigationStartedRef.current = false;
           setTransitioning(false);
           clearDateEntryTransition(sid);
+          setPrepareEntryFailureCode(prepared.code);
+          setPrepareEntryFailureRetryable(prepared.retryable);
           setTerminalActionError(resolveReadyGatePrepareEntryFailureCopy({
             code: prepared.code,
             platform: 'native',
@@ -325,6 +380,10 @@ export default function ReadyGateScreen() {
     setHasMediaPermission(null);
     setTerminalActionPending(false);
     setTerminalActionError(null);
+    setPrepareEntryFailureCode(null);
+    setPrepareEntryFailureRetryable(false);
+    setNativeMediaDiagnostics(defaultNativeReadyGateMediaDiagnostics());
+    setNativePermissionDiagnostics(defaultNativeReadyGatePermissionDiagnostics());
   }, [sessionId, user?.id]);
 
   useEffect(() => {
@@ -338,7 +397,7 @@ export default function ReadyGateScreen() {
     return () => {
       cancelled = true;
     };
-  }, [permissionRequestEligible, sessionId, user?.id]);
+  }, [permissionRequestEligible, requestMediaPermissions, sessionId, user?.id]);
 
   useEffect(() => {
     if (!sessionId || !user?.id || !sessionLookupDone) return;
@@ -750,6 +809,74 @@ export default function ReadyGateScreen() {
     );
   }
 
+  const readyGateReadinessCopy = getReadyGateReadinessStatusCopy({
+    iAmReady,
+    partnerReady,
+    partnerReadyKnown,
+    isBothReady,
+    markingReady,
+    partnerName: partnerName ?? 'Your match',
+  });
+  const showConnectingReadinessCopy = readyGateReadinessCopy.key === 'both_ready_connecting';
+  const showReadyActionControls = !iAmReady && !showConnectingReadinessCopy;
+  const readinessStatusIcon = showConnectingReadinessCopy
+    ? 'sparkles'
+    : readyGateReadinessCopy.key === 'syncing'
+      ? 'time-outline'
+      : 'checkmark-circle';
+  const statusLine = isSnoozed
+    ? `${partnerName ?? 'Partner'} needs a moment — back in ${Math.floor(snoozeTimeLeft / 60)}:${String(snoozeTimeLeft % 60).padStart(2, '0')}`
+    : readyGateReadinessCopy.key === 'waiting_both'
+      ? `Ready check ends in ${timeLeft}s`
+      : readyGateReadinessCopy.text;
+  const diagnosticChecklist = resolveReadyGateDiagnosticChecklist({
+    platform: 'native',
+    partnerName: partnerName ?? 'Your match',
+    cameraPermissionStatus: permissionsResolved
+      ? nativePermissionDiagnostics.cameraPermissionStatus
+      : 'checking',
+    microphonePermissionStatus: permissionsResolved
+      ? nativePermissionDiagnostics.microphonePermissionStatus
+      : 'checking',
+    cameraDeviceStatus: nativeMediaDiagnostics.cameraDeviceStatus,
+    microphoneDeviceStatus: nativeMediaDiagnostics.microphoneDeviceStatus,
+    videoProviderStatus: prepareEntryFailureCode
+      ? 'failed'
+      : transitioning || isBothReady
+        ? 'checking'
+        : 'unknown',
+    realtimeSyncStatus: realtimeDegraded || sequenceGapUnresolved ? 'warning' : 'ok',
+    partnerReadinessStatus: isBothReady || partnerReady ? 'ok' : iAmReady ? 'warning' : 'checking',
+  });
+  const handleDiagnosticAction = (row: ReadyGateDiagnosticCopy) => {
+    if (terminalActionPending) return;
+    switch (row.actionKind) {
+      case 'open_settings':
+        void Linking.openSettings().catch(() => {
+          void requestMediaPermissions();
+        });
+        return;
+      case 'request_permission':
+        void requestMediaPermissions();
+        return;
+      case 'retry':
+        if (row.key === 'video_provider' && prepareEntryFailureRetryable) {
+          void reconcileFromCanonicalTruth('diagnostic_retry');
+          return;
+        }
+        void refreshNativeMediaDiagnostics();
+        return;
+      case 'check_connection':
+        void syncSession();
+        void retryBroadcastGapRecovery('diagnostic_retry');
+        void reconcileFromCanonicalTruth('diagnostic_retry');
+        return;
+      case 'none':
+      case 'wait':
+        return;
+    }
+  };
+
   if (permissionsResolved && hasMediaPermission === false) {
     return (
       <View style={[styles.centered, { backgroundColor: theme.background }]}>
@@ -759,6 +886,12 @@ export default function ReadyGateScreen() {
         <Text style={[styles.transitioningSub, { color: theme.textSecondary }]}>
           Allow camera and microphone access to join this date.
         </Text>
+        <ReadyGateDiagnosticChecklist
+          rows={diagnosticChecklist.rows}
+          theme={theme}
+          actionDisabled={terminalActionPending}
+          onAction={handleDiagnosticAction}
+        />
         <VibelyButton label="Enable permissions" onPress={() => void requestMediaPermissions()} variant="primary" size="lg" />
         <Pressable
           onPress={() => {
@@ -784,27 +917,6 @@ export default function ReadyGateScreen() {
       </View>
     );
   }
-
-  const readyGateReadinessCopy = getReadyGateReadinessStatusCopy({
-    iAmReady,
-    partnerReady,
-    partnerReadyKnown,
-    isBothReady,
-    markingReady,
-    partnerName: partnerName ?? 'Your match',
-  });
-  const showConnectingReadinessCopy = readyGateReadinessCopy.key === 'both_ready_connecting';
-  const showReadyActionControls = !iAmReady && !showConnectingReadinessCopy;
-  const readinessStatusIcon = showConnectingReadinessCopy
-    ? 'sparkles'
-    : readyGateReadinessCopy.key === 'syncing'
-      ? 'time-outline'
-      : 'checkmark-circle';
-  const statusLine = isSnoozed
-    ? `${partnerName ?? 'Partner'} needs a moment — back in ${Math.floor(snoozeTimeLeft / 60)}:${String(snoozeTimeLeft % 60).padStart(2, '0')}`
-    : readyGateReadinessCopy.key === 'waiting_both'
-      ? `Ready check ends in ${timeLeft}s`
-      : readyGateReadinessCopy.text;
 
   return (
     <View style={[styles.container, { backgroundColor: theme.background }]}>
@@ -850,6 +962,13 @@ export default function ReadyGateScreen() {
           {terminalActionError ? (
             <Text style={[styles.actionError, { color: theme.danger }]}>{terminalActionError}</Text>
           ) : null}
+
+          <ReadyGateDiagnosticChecklist
+            rows={diagnosticChecklist.rows}
+            theme={theme}
+            actionDisabled={terminalActionPending}
+            onAction={handleDiagnosticAction}
+          />
         </Card>
 
         <View style={styles.actions}>
