@@ -111,6 +111,10 @@ function hlsErrorStatusCode(data: HlsErrorData | undefined): number | null {
   );
 }
 
+export function hlsPlaybackErrorStatusCode(detail: unknown): number | null {
+  return hlsErrorStatusCode(detail as HlsErrorData | undefined);
+}
+
 function isAuthStatusCode(statusCode: number | null): boolean {
   return statusCode === 401 || statusCode === 403;
 }

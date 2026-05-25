@@ -4,6 +4,7 @@ import { Loader2, X, AlertCircle } from "lucide-react";
 import { useMediaAsset, useMediaAssetPlayback, type MediaAssetKind } from "@/hooks/useMediaAsset";
 import { usePrefersReducedMotion } from "@/hooks/usePrefersReducedMotion";
 import { refreshMediaAsset as refreshResolvedMediaAsset } from "@/lib/mediaAssetResolver";
+import { hlsPlaybackErrorStatusCode } from "@/lib/vibeVideo/attachHlsPlayback";
 import {
   resolveMediaFallbackCopy,
   resolveMediaFallbackReason,
@@ -217,10 +218,13 @@ export function ChatVideoLightbox({
     };
   }, [canMountPlayer, isHlsUrl, playableVideoUrl, prefersReducedMotion, revealPlayer]);
 
-  const handlePlaybackAttachError = useCallback(() => {
+  const handlePlaybackAttachError = useCallback((_kind: unknown, detail?: unknown) => {
     void refreshMedia().then((didRefresh) => {
       if (!didRefresh) {
-        setFallbackReason(resolveMediaFallbackReason({ stage: isHlsUrl ? "hls_auth" : "playback" }));
+        setFallbackReason(resolveMediaFallbackReason({
+          stage: isHlsUrl ? "hls_auth" : "playback",
+          httpStatus: isHlsUrl ? hlsPlaybackErrorStatusCode(detail) : null,
+        }));
         setPhase("error");
       }
     });

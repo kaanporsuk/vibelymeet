@@ -30,6 +30,9 @@ test("media fallback reason classification is privacy-safe and deterministic", (
   assert.equal(resolveMediaFallbackReason({ httpStatus: 503 }), "provider_unreachable");
   assert.equal(resolveMediaFallbackReason({ stage: "poster" }), "poster_unavailable");
   assert.equal(resolveMediaFallbackReason({ stage: "hls_auth" }), "hls_auth_failed");
+  assert.equal(resolveMediaFallbackReason({ stage: "hls_auth", httpStatus: 403 }), "hls_auth_failed");
+  assert.equal(resolveMediaFallbackReason({ stage: "hls_auth", httpStatus: 404 }), "asset_deleted");
+  assert.equal(resolveMediaFallbackReason({ stage: "hls_auth", httpStatus: 503 }), "provider_unreachable");
   assert.equal(resolveMediaFallbackReason({ errorCode: "resolver_error" }), "unknown");
 });
 
@@ -82,5 +85,21 @@ test("profile and chat playback surfaces consume shared fallback copy", () => {
   for (const relativePath of surfaces) {
     const contents = readFileSync(join(root, relativePath), "utf8");
     assert.match(contents, /resolveMediaFallbackCopy|fallbackCopy/, relativePath);
+  }
+});
+
+test("web HLS playback fallbacks preserve HTTP-status-specific reasons", () => {
+  const surfaces = [
+    "src/components/vibe-video/VibePlayer.tsx",
+    "src/components/vibe-video/VibeVideoFullscreenPlayer.tsx",
+    "src/components/chat/VideoMessageBubble.tsx",
+    "src/components/chat/VibeClipBubble.tsx",
+    "src/components/chat/ChatVideoLightbox.tsx",
+  ];
+
+  for (const relativePath of surfaces) {
+    const contents = readFileSync(join(root, relativePath), "utf8");
+    assert.match(contents, /hlsPlaybackErrorStatusCode/, relativePath);
+    assert.match(contents, /httpStatus:/, relativePath);
   }
 });

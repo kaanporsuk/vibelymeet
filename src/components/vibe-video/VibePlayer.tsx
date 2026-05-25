@@ -7,6 +7,7 @@ import { useMediaAsset, useMediaAssetPlayback } from "@/hooks/useMediaAsset";
 import { useMediaPlaybackQoE } from "@/hooks/useMediaPlaybackQoE";
 import { usePrefersReducedMotion } from "@/hooks/usePrefersReducedMotion";
 import { useMediaVideoPreloadForVisibility } from "@/hooks/useMediaVideoPreloadPolicy";
+import { hlsPlaybackErrorStatusCode } from "@/lib/vibeVideo/attachHlsPlayback";
 import {
   isHlsMediaAssetUrl,
   isProfileVibeVideoRef,
@@ -223,23 +224,21 @@ export const VibePlayer = ({
     }
   }, [isMuted]);
 
-  const reportPlaybackError = useCallback((kind: string = "element") => {
+  const reportPlaybackError = useCallback((kind: string = "element", fallbackReasonOverride?: MediaFallbackReason) => {
+    const fallbackReason =
+      fallbackReasonOverride ??
+      (kind === "signed_url_resolve_failed"
+        ? mediaAssetFallbackReason ?? "unknown"
+        : resolveMediaFallbackReason({
+            stage: usesSignedProfileRef && isHlsPlaybackUrl ? "hls_auth" : "playback",
+          }));
     setHasError(true);
     setIsLoading(false);
-    setPlaybackFallbackReason(
-      kind === "signed_url_resolve_failed"
-        ? mediaAssetFallbackReason ?? "unknown"
-        : resolveMediaFallbackReason({ stage: usesSignedProfileRef && isHlsPlaybackUrl ? "hls_auth" : "playback" }),
-    );
+    setPlaybackFallbackReason(fallbackReason);
     trackVibeVideoEvent(VIBE_VIDEO_EVENTS.playbackFailed, {
       source: "vibe_player_inline",
       kind,
-      fallback_reason:
-        kind === "signed_url_resolve_failed"
-          ? mediaAssetFallbackReason ?? "unknown"
-          : usesSignedProfileRef && isHlsPlaybackUrl
-            ? "hls_auth_failed"
-            : "unknown",
+      fallback_reason: fallbackReason,
       backend_reports_ready: backendReportsReady,
     });
     Sentry.addBreadcrumb({
@@ -250,11 +249,15 @@ export const VibePlayer = ({
     });
   }, [backendReportsReady, isHlsPlaybackUrl, mediaAssetFallbackReason, usesSignedProfileRef]);
   const handlePlaybackAttachError = useCallback((kind: "native" | "unsupported" | "fatal", detail?: unknown) => {
-    reportPlaybackError(kind);
+    const fallbackReason = resolveMediaFallbackReason({
+      stage: usesSignedProfileRef && isHlsPlaybackUrl ? "hls_auth" : "playback",
+      httpStatus: isHlsPlaybackUrl ? hlsPlaybackErrorStatusCode(detail) : null,
+    });
+    reportPlaybackError(kind, fallbackReason);
     if (detail && typeof window !== "undefined" && window.localStorage.getItem("__vibely_diag") === "1") {
       console.warn("[VibeVideo] inline hls playback error", detail);
     }
-  }, [reportPlaybackError]);
+  }, [isHlsPlaybackUrl, reportPlaybackError, usesSignedProfileRef]);
   const refreshPlaybackOnAuthError = useCallback(async () => {
     if (!usesSignedProfileRef) return null;
     if (hlsAuthRefreshAttemptCountRef.current >= MAX_HLS_AUTH_REFRESH_ATTEMPTS) return null;

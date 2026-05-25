@@ -3,6 +3,7 @@ import { afterEach, test } from "node:test";
 import {
   __setHlsLoaderForTest,
   attachHlsPlayback,
+  hlsPlaybackErrorStatusCode,
   type HlsAuthErrorRefreshDetail,
   type HlsPlaybackErrorKind,
 } from "./attachHlsPlayback.ts";
@@ -133,6 +134,14 @@ async function attachWithFakeHls(
 afterEach(() => {
   __setHlsLoaderForTest(null);
   FakeHls.instances = [];
+});
+
+test("extracts HLS playback HTTP status without exposing raw error details", () => {
+  assert.equal(hlsPlaybackErrorStatusCode({ response: { code: 403 } }), 403);
+  assert.equal(hlsPlaybackErrorStatusCode({ response: { status: 404 } }), 404);
+  assert.equal(hlsPlaybackErrorStatusCode({ networkDetails: { statusCode: 503 } }), 503);
+  assert.equal(hlsPlaybackErrorStatusCode({ details: "manifestLoadError" }), null);
+  assert.equal(hlsPlaybackErrorStatusCode(null), null);
 });
 
 test("hls.js auth errors refresh the signed source and restart loading once", async () => {

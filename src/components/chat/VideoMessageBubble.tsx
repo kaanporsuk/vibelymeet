@@ -8,6 +8,7 @@ import { useMediaPlaybackQoE } from "@/hooks/useMediaPlaybackQoE";
 import { usePrefersReducedMotion } from "@/hooks/usePrefersReducedMotion";
 import { useMediaVideoPreloadForVisibility } from "@/hooks/useMediaVideoPreloadPolicy";
 import { refreshMediaAsset as refreshResolvedMediaAsset } from "@/lib/mediaAssetResolver";
+import { hlsPlaybackErrorStatusCode } from "@/lib/vibeVideo/attachHlsPlayback";
 import {
   resolveMediaFallbackCopy,
   resolveMediaFallbackReason,
@@ -277,11 +278,14 @@ export const VideoMessageBubble = ({
     autoPlay: false,
     expiresAtMs: mediaAssetExpiresAtMs,
     onManifestParsed: markReadyIfPossible,
-    onError: () => {
+    onError: (_kind, detail) => {
       setIsLoading(false);
       void tryRefreshAfterFailure().then((didRefresh) => {
         if (!didRefresh) {
-          setFallbackReason(resolveMediaFallbackReason({ stage: isHlsUrl ? "hls_auth" : "playback" }));
+          setFallbackReason(resolveMediaFallbackReason({
+            stage: isHlsUrl ? "hls_auth" : "playback",
+            httpStatus: isHlsUrl ? hlsPlaybackErrorStatusCode(detail) : null,
+          }));
           setLoadError(true);
         }
       });
