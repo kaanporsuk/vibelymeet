@@ -72,6 +72,13 @@ test("deck empty reason taxonomy stays coarse and safe", () => {
   );
   assert.equal(resolveDeckEmptyReason({ deckEnabled: true, totalProfiles: 3, visibleProfiles: 0 }), "all_candidates_seen_locally");
   assert.equal(resolveDeckEmptyReason({ deckEnabled: true, queuedCount: 1 }), "all_candidates_busy_or_unavailable");
+  assert.equal(resolveDeckEmptyReason({ deckEnabled: true, deckStateReason: "safety_limited" }), "user_not_eligible");
+  assert.equal(resolveDeckEmptyReason({ deckEnabled: true, deckStateReason: "media_unavailable" }), "rpc_error");
+  assert.equal(
+    resolveDeckEmptyReason({ deckEnabled: true, deckStateReason: "queue_waiting" }),
+    "all_candidates_busy_or_unavailable",
+  );
+  assert.equal(resolveDeckEmptyReason({ deckEnabled: true, deckStateReason: "terminal_event_state" }), "event_not_active");
   assert.equal(resolveDeckEmptyReason({ deckEnabled: true }), "no_confirmed_candidates");
 });
 

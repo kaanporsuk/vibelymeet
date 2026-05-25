@@ -1,4 +1,8 @@
 import type { VideoDateQueueHint } from "./videoDatePublicApi";
+import {
+  resolveVideoDateLobbyStateCopy,
+  type VideoDateLobbyFocusedReason,
+} from "./videoDateLobbyStateCopy";
 
 export type VideoDateHandshakeUiTruth = {
   participant_1_id?: string | null;
@@ -232,24 +236,42 @@ function blockedState(input: {
   };
 }
 
+function focusedLobbyState(input: {
+  kind: EventDeckPhase4UiKind;
+  focusedReason: VideoDateLobbyFocusedReason;
+  reason?: string;
+}): EventDeckPhase4UiState {
+  const copy = resolveVideoDateLobbyStateCopy({ reason: input.focusedReason });
+  const actionTarget: EventDeckPhase4ActionTarget =
+    copy.actionTarget === "event" || copy.actionTarget === "matches" || copy.actionTarget === "refresh"
+      ? copy.actionTarget
+      : "refresh";
+
+  return {
+    kind: input.kind,
+    reason: input.reason ?? copy.reason,
+    badge: copy.badge,
+    title: copy.title,
+    message: copy.message,
+    actionLabel: copy.actionLabel,
+    actionTarget,
+    showRefresh: copy.retryable && actionTarget === "refresh",
+    showMysteryMatch: false,
+    retryable: copy.retryable,
+    terminal: copy.terminal,
+  };
+}
+
 export function resolveEventDeckPhase4UiState(
   input: ResolveEventDeckPhase4UiStateInput,
 ): EventDeckPhase4UiState {
   const deckErrorReason = normalizeReason(input.deckErrorReason);
   if (deckErrorReason === "network_error" || deckErrorReason === "rpc_error") {
-    return {
+    return focusedLobbyState({
       kind: "retryable_error",
+      focusedReason: "recoverable_fetch_error",
       reason: deckErrorReason,
-      badge: "Connection",
-      title: "Couldn't load deck",
-      message: "We couldn't load people in this room. Check your connection and tap Retry.",
-      actionLabel: "Retry",
-      actionTarget: "refresh",
-      showRefresh: true,
-      showMysteryMatch: false,
-      retryable: true,
-      terminal: false,
-    };
+    });
   }
 
   const observedReason = normalizeReason(input.observedReason);
@@ -258,14 +280,10 @@ export function resolveEventDeckPhase4UiState(
 
   if (deckStateReason === "event_not_active") {
     if (inactiveReason === "event_ended" || inactiveReason === "event_outside_live_window") {
-      return blockedState({
+      return focusedLobbyState({
         kind: "event_ended",
+        focusedReason: "terminal_event_state",
         reason: inactiveReason,
-        badge: "Event ended",
-        title: "This event has ended",
-        message: "The live lobby is closed. Check your matches to keep the conversation going.",
-        actionLabel: "View matches",
-        actionTarget: "matches",
       });
     }
     if (inactiveReason === "event_not_started") {
@@ -290,15 +308,40 @@ export function resolveEventDeckPhase4UiState(
     });
   }
 
-  if (deckStateReason === "not_registered" || observedReason === "user_not_eligible") {
-    return blockedState({
-      kind: "not_registered",
+  if (
+    deckStateReason === "queue_waiting" ||
+    deckStateReason === "queued" ||
+    deckStateReason === "match_queued" ||
+    deckStateReason === "all_candidates_busy_or_unavailable"
+  ) {
+    return focusedLobbyState({
+      kind: "empty",
+      focusedReason: "queue_waiting",
       reason: deckStateReason,
-      badge: "Registration needed",
-      title: "Only confirmed guests can swipe here",
-      message: "Head back to the event page to check your registration status.",
-      actionLabel: "Back to event",
-      actionTarget: "event",
+    });
+  }
+
+  if (deckStateReason === "safety_limited" || deckStateReason === "blocked" || deckStateReason === "reported") {
+    return focusedLobbyState({
+      kind: "empty",
+      focusedReason: "safety_limited",
+      reason: deckStateReason,
+    });
+  }
+
+  if (deckStateReason === "media_unavailable") {
+    return focusedLobbyState({
+      kind: "retryable_error",
+      focusedReason: "media_unavailable",
+      reason: deckStateReason,
+    });
+  }
+
+  if (deckStateReason === "not_registered" || observedReason === "user_not_eligible") {
+    return focusedLobbyState({
+      kind: "not_registered",
+      focusedReason: "geo_or_eligibility_mismatch",
+      reason: deckStateReason,
     });
   }
 

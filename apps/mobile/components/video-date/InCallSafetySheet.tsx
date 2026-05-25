@@ -25,7 +25,12 @@ import {
   submitVideoDateSafetyReportRpc,
   type SubmitVideoDateSafetyReportRpcResult,
 } from '@clientShared/safety/submitUserReportRpc';
-import { resolveVideoDateSafetySubmitCopy } from '@clientShared/safety/videoDateSafetyCopy';
+import {
+  isVideoDateSafetySubmitErrorRetryable,
+  resolveVideoDateSafetySubmitCopy,
+  resolveVideoDateSafetySubmitOutcome,
+  type VideoDateSafetySubmitOutcome,
+} from '@clientShared/safety/videoDateSafetyCopy';
 import {
   buildVideoDateSafetyIdempotencyKey,
   createVideoDateClientRequestId,
@@ -38,8 +43,12 @@ type Props = {
   reportedUserId: string | null;
   sessionId?: string | null;
   safetyV2?: boolean;
+  onReportOnlySuccess?: (outcome: VideoDateSafetySubmitOutcome) => void | Promise<void>;
   onEndAfterReport: () => void | Promise<void>;
-  onServerEndedAfterReport?: (result: Extract<SubmitVideoDateSafetyReportRpcResult, { ok: true }>) => void | Promise<void>;
+  onServerEndedAfterReport?: (
+    result: Extract<SubmitVideoDateSafetyReportRpcResult, { ok: true }>,
+    outcome: VideoDateSafetySubmitOutcome,
+  ) => void | Promise<void>;
 };
 
 export function InCallSafetySheet({
@@ -48,6 +57,7 @@ export function InCallSafetySheet({
   reportedUserId,
   sessionId,
   safetyV2 = false,
+  onReportOnlySuccess,
   onEndAfterReport,
   onServerEndedAfterReport,
 }: Props) {
@@ -58,6 +68,7 @@ export function InCallSafetySheet({
   const [alsoBlock, setAlsoBlock] = useState(false);
   const [busy, setBusy] = useState<'idle' | 'report' | 'end'>('idle');
   const requestRef = useRef<{ mode: 'report' | 'end'; key: string; payloadSignature: string } | null>(null);
+  const submitInFlightRef = useRef(false);
 
   const reset = () => {
     setReason('harassment');
@@ -65,13 +76,21 @@ export function InCallSafetySheet({
     setAlsoBlock(false);
     setBusy('idle');
     requestRef.current = null;
+    submitInFlightRef.current = false;
+  };
+
+  const requestClose = () => {
+    if (submitInFlightRef.current) return;
+    onClose();
   };
 
   const submit = async (mode: 'report' | 'end') => {
+    if (submitInFlightRef.current) return;
     if (!reportedUserId) {
       Alert.alert('Missing profile', 'Could not determine who to report. Try again in a moment.');
       return;
     }
+    submitInFlightRef.current = true;
     setBusy(mode);
     const trimmedDetails = details.trim() || null;
     let result: SubmitVideoDateSafetyReportRpcResult = { ok: false, error: 'Could not send report. Try again.' };
@@ -119,15 +138,22 @@ export function InCallSafetySheet({
     } catch (error) {
       result = { ok: false, error: error instanceof Error ? error.message : 'Could not send report. Try again.' };
     }
-    setBusy('idle');
     if (!result.ok) {
+      setBusy('idle');
+      submitInFlightRef.current = false;
+      const retryable = isVideoDateSafetySubmitErrorRetryable(result.error);
       const copy = resolveVideoDateSafetySubmitCopy({
         ok: false,
         mode,
         error: result.error || 'Try again.',
         reportRecorded: result.reportRecorded === true,
+        retryable,
       });
       Alert.alert(copy.title, copy.message);
+      if (!retryable) {
+        reset();
+        onClose();
+      }
       return;
     }
     const copy = resolveVideoDateSafetySubmitCopy({
@@ -138,14 +164,24 @@ export function InCallSafetySheet({
       surveyRequired: result.surveyRequired,
       idempotent: result.idempotent,
     });
+    const outcome = resolveVideoDateSafetySubmitOutcome({
+      mode,
+      alsoBlock,
+      ended: result.ended,
+      surveyRequired: result.surveyRequired,
+      idempotent: result.idempotent,
+      reportRecorded: true,
+      reportId: result.reportId,
+    });
     reset();
     onClose();
     if (safetyV2 && result.ended) {
-      await onServerEndedAfterReport?.(result);
+      await onServerEndedAfterReport?.(result, outcome);
       return;
     }
     if (mode === 'report') {
       Alert.alert(copy.title, copy.message);
+      await onReportOnlySuccess?.(outcome);
       return;
     }
     await onEndAfterReport();
@@ -157,7 +193,7 @@ export function InCallSafetySheet({
     <KeyboardAwareBottomSheetModal
       visible={visible}
       animationType="slide"
-      onRequestClose={onClose}
+      onRequestClose={requestClose}
       backdropColor="rgba(0,0,0,0.6)"
       maxHeightRatio={0.88}
       sheetStyle={[styles.sheet, { backgroundColor: theme.surface, borderColor: theme.border }]}
@@ -173,10 +209,12 @@ export function InCallSafetySheet({
           <Pressable
             key={r.id}
             onPress={() => setReason(r.id)}
+            disabled={disabled}
             style={[
               styles.reasonRow,
               { borderColor: theme.border },
               reason === r.id && { backgroundColor: theme.muted },
+              disabled && styles.disabledAction,
             ]}
           >
             <Text style={{ color: theme.text }}>{r.label}</Text>
@@ -225,7 +263,7 @@ export function InCallSafetySheet({
         </Pressable>
       </View>
 
-      <Pressable onPress={onClose} style={styles.cancel}>
+      <Pressable onPress={requestClose} style={[styles.cancel, disabled && styles.disabledAction]} disabled={disabled}>
         <Text style={{ color: theme.mutedForeground }}>Cancel</Text>
       </Pressable>
     </KeyboardAwareBottomSheetModal>
@@ -292,5 +330,8 @@ const styles = StyleSheet.create({
   cancel: {
     alignItems: 'center',
     paddingVertical: spacing.md,
+  },
+  disabledAction: {
+    opacity: 0.55,
   },
 });

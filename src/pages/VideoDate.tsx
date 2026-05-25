@@ -139,6 +139,7 @@ import {
   VIDEO_DATE_REMOTE_OBJECT_POSITION,
   videoDateAspectRatio,
 } from "@clientShared/matching/videoDateMediaContract";
+import type { VideoDateSafetySubmitOutcome } from "@clientShared/safety/videoDateSafetyCopy";
 
 const HANDSHAKE_TIME = 60;
 const DATE_TIME = 300;
@@ -455,6 +456,7 @@ const VideoDate = () => {
     expiresAt: string | null;
   } | null>(null);
   const [showInCallSafety, setShowInCallSafety] = useState(false);
+  const [safetySubmitOutcome, setSafetySubmitOutcome] = useState<VideoDateSafetySubmitOutcome | null>(null);
   const [showEndDateConfirm, setShowEndDateConfirm] = useState(false);
   const [isEndDateConfirming, setIsEndDateConfirming] = useState(false);
   const [isLeavingVideoDate, setIsLeavingVideoDate] = useState(false);
@@ -529,6 +531,10 @@ const VideoDate = () => {
 
   const { credits, refetch: refetchCredits } = useCredits();
   const { setStatus } = useEventStatus({ eventId });
+
+  useEffect(() => {
+    setSafetySubmitOutcome(null);
+  }, [id, partnerId]);
 
   const markDateFlowEntered = useCallback(() => {
     hasEnteredDateFlowRef.current = true;
@@ -4108,8 +4114,42 @@ const VideoDate = () => {
     await handleCallEnd();
   }, [endCall, handleCallEnd]);
 
+  const handleReportOnlySafetySuccess = useCallback(
+    async (outcome: VideoDateSafetySubmitOutcome) => {
+      setSafetySubmitOutcome(outcome);
+      if (outcome.alsoBlock || outcome.ended) {
+        setShowProfileSheet(false);
+        setShowInCallSafety(false);
+      }
+      if (!outcome.ended && !outcome.alsoBlock) return;
+      await endCall("end_after_in_call_report");
+      explicitEndRequestedRef.current = "acked";
+      setShowFeedback(false);
+      const target = resolveVideoDateExitTarget(eventId);
+      vdbgRedirect(target, "safety_report_report_only_ended", { sessionId: id ?? null, eventId: eventId ?? null });
+      navigate(target, { replace: true });
+    },
+    [endCall, eventId, id, navigate, resolveVideoDateExitTarget],
+  );
+
   const handleServerEndedAfterInCallReport = useCallback(
-    async (result: { surveyRequired?: boolean }) => {
+    async (result: { surveyRequired?: boolean }, outcome?: VideoDateSafetySubmitOutcome) => {
+      setSafetySubmitOutcome((current) =>
+        outcome
+          ? { ...outcome, ended: true, surveyRequired: result.surveyRequired === true }
+          : current
+            ? { ...current, ended: true, surveyRequired: result.surveyRequired === true }
+            : {
+                mode: "end",
+                alsoBlock: false,
+                ended: true,
+                surveyRequired: result.surveyRequired === true,
+                idempotent: false,
+                reportRecorded: true,
+                nextDestination: result.surveyRequired === true ? "survey" : "lobby",
+              },
+      );
+      setShowProfileSheet(false);
       await endCall("end_after_in_call_report");
       explicitEndRequestedRef.current = "acked";
       recordUserAction("video_date_safety_end_succeeded", {
@@ -4165,6 +4205,10 @@ const VideoDate = () => {
     phase !== "handshake" || Boolean(handshakeStartedAt);
   const partnerFirstName = partner.name.trim().split(/\s+/)[0] || partner.name;
   const isUrgent = phase === "date" && (timeLeft ?? 999) <= 10;
+  const suppressPartnerControlsAfterSafety = safetySubmitOutcome?.alsoBlock === true || safetySubmitOutcome?.ended === true;
+  const canOpenInCallSafety = Boolean(
+    partnerId && id && !showFeedback && phase !== "ended" && !suppressPartnerControlsAfterSafety,
+  );
   const transportReconnectVisible =
     dailyReconnectState === "interrupted" ||
     dailyReconnectState === "partner_reconnecting" ||
@@ -4781,16 +4825,20 @@ const VideoDate = () => {
           }}
           onLeave={requestEndDateConfirmation}
           isLeaving={isLeavingVideoDate}
-          onViewProfile={() => {
-            recordUserAction("video_date_control_clicked", {
-              surface: "video_date",
-              session_id: id,
-              control: "view_profile",
-            });
-            setShowProfileSheet(true);
-          }}
+          onViewProfile={
+            suppressPartnerControlsAfterSafety
+              ? undefined
+              : () => {
+                  recordUserAction("video_date_control_clicked", {
+                    surface: "video_date",
+                    session_id: id,
+                    control: "view_profile",
+                  });
+                  setShowProfileSheet(true);
+                }
+          }
           onSafety={
-            partnerId && !showFeedback && (isConnected || safetyAlwaysOnV2.enabled)
+            canOpenInCallSafety
               ? () => {
                   recordUserAction("video_date_control_clicked", {
                     surface: "video_date",
@@ -4880,6 +4928,7 @@ const VideoDate = () => {
         reportedUserId={partnerId || null}
         sessionId={id || null}
         safetyV2={safetyV2.enabled || safetyAlwaysOnV2.enabled}
+        onReportOnlySuccess={handleReportOnlySafetySuccess}
         onEndAfterReport={handleEndAfterInCallReport}
         onServerEndedAfterReport={handleServerEndedAfterInCallReport}
       />

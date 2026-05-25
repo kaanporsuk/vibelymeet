@@ -179,6 +179,7 @@ import {
   VIDEO_DATE_REMOTE_OBJECT_POSITION,
   videoDateAspectRatio,
 } from '@clientShared/matching/videoDateMediaContract';
+import type { VideoDateSafetySubmitOutcome } from '@clientShared/safety/videoDateSafetyCopy';
 import {
   VIDEO_DATE_ICE_BREAKER_MANUAL_PAUSE_MS,
   normalizeVideoDateIceBreakerIndex,
@@ -910,6 +911,7 @@ export default function VideoDateScreen() {
   const [nativeBackgroundStatus, setNativeBackgroundStatus] = useState<'none' | 'grace' | 'recovered'>('none');
   const [nativeBackgroundGraceSeconds, setNativeBackgroundGraceSeconds] = useState(0);
   const [showInCallSafety, setShowInCallSafety] = useState(false);
+  const [safetySubmitOutcome, setSafetySubmitOutcome] = useState<VideoDateSafetySubmitOutcome | null>(null);
   const [isEndDateConfirming, setIsEndDateConfirming] = useState(false);
   const [netQualityTier, setNetQualityTier] = useState<'good' | 'fair' | 'poor'>('good');
   const [dateEntryPermissionEligible, setDateEntryPermissionEligible] = useState(false);
@@ -2217,6 +2219,10 @@ export default function VideoDateScreen() {
   latestDateRouteSessionIdRef.current = sessionId ?? null;
   latestDateRouteUserIdRef.current = user?.id ?? null;
   latestDateRouteEndedRef.current = Boolean(session?.ended_at || session?.state === 'ended' || phase === 'ended');
+
+  useEffect(() => {
+    setSafetySubmitOutcome(null);
+  }, [sessionId, partnerId]);
 
   useEffect(() => {
     localTimeLeftRef.current = localTimeLeft;
@@ -3527,8 +3533,48 @@ export default function VideoDateScreen() {
     await handleCallEnd('local_end');
   }, [handleCallEnd]);
 
+  const handleReportOnlySafetySuccess = useCallback(
+    async (outcome: VideoDateSafetySubmitOutcome) => {
+      setSafetySubmitOutcome(outcome);
+      if (outcome.alsoBlock || outcome.ended) {
+        setShowProfileSheet(false);
+        setShowInCallSafety(false);
+      }
+      if (!outcome.ended && !outcome.alsoBlock) return;
+      if (sessionId && !videoDateEndedRef.current) {
+        videoDateEndedRef.current = true;
+        trackEvent('video_date_ended', {
+          session_id: sessionId,
+          reason: 'ended_from_client',
+          source: 'safety_report',
+          survey_required: outcome.surveyRequired,
+        });
+      }
+      setShowFeedback(false);
+      await cleanupForAbortWithoutServerEnd();
+      router.replace(eventId ? eventLobbyHref(eventId) : tabsRootHref());
+    },
+    [cleanupForAbortWithoutServerEnd, eventId, sessionId],
+  );
+
   const handleServerEndedAfterInCallReport = useCallback(
-    async (result: { surveyRequired?: boolean }) => {
+    async (result: { surveyRequired?: boolean }, outcome?: VideoDateSafetySubmitOutcome) => {
+      setSafetySubmitOutcome((current) =>
+        outcome
+          ? { ...outcome, ended: true, surveyRequired: result.surveyRequired === true }
+          : current
+            ? { ...current, ended: true, surveyRequired: result.surveyRequired === true }
+            : {
+                mode: 'end',
+                alsoBlock: false,
+                ended: true,
+                surveyRequired: result.surveyRequired === true,
+                idempotent: false,
+                reportRecorded: true,
+                nextDestination: result.surveyRequired === true ? 'survey' : 'lobby',
+              },
+      );
+      setShowProfileSheet(false);
       if (sessionId && !videoDateEndedRef.current) {
         videoDateEndedRef.current = true;
         trackEvent('video_date_ended', {
@@ -8225,6 +8271,10 @@ export default function VideoDateScreen() {
     hasHandshakePeerEvidence &&
     !peerMissingTerminal;
   const showDatePhaseChrome = !showFeedback && phase === 'date' && hasRemotePartner;
+  const suppressPartnerControlsAfterSafety = safetySubmitOutcome?.alsoBlock === true || safetySubmitOutcome?.ended === true;
+  const canOpenInCallSafety = Boolean(
+    partnerId && sessionId && !showFeedback && phase !== 'ended' && !suppressPartnerControlsAfterSafety,
+  );
   const handshakeUiState = useMemo(
     () => resolveVideoDateHandshakeUiState(session, user?.id),
     [session, user?.id],
@@ -9216,9 +9266,9 @@ export default function VideoDateScreen() {
           onToggleMute={toggleMute}
           onToggleVideo={toggleVideo}
           onLeave={handleEndDateFromControls}
-          onViewProfile={() => setShowProfileSheet(true)}
+          onViewProfile={suppressPartnerControlsAfterSafety ? undefined : () => setShowProfileSheet(true)}
           onSafety={
-            partnerId && !showFeedback && (hasRemotePartner || safetyAlwaysOnV2.enabled)
+            canOpenInCallSafety
               ? () => setShowInCallSafety(true)
               : undefined
           }
@@ -9231,6 +9281,7 @@ export default function VideoDateScreen() {
         reportedUserId={partnerId || null}
         sessionId={sessionId ?? null}
         safetyV2={safetyV2.enabled || safetyAlwaysOnV2.enabled}
+        onReportOnlySuccess={handleReportOnlySafetySuccess}
         onEndAfterReport={handleEndAfterInCallReport}
         onServerEndedAfterReport={handleServerEndedAfterInCallReport}
       />

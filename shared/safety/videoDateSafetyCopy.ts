@@ -2,6 +2,17 @@ export type VideoDateSafetySubmitMode = "report" | "end";
 export type VideoDateSafetyNextDestination = "stay" | "survey" | "lobby" | "home";
 export type VideoDateSafetyTone = "success" | "warning" | "error";
 
+export type VideoDateSafetySubmitOutcome = {
+  mode: VideoDateSafetySubmitMode;
+  alsoBlock: boolean;
+  ended: boolean;
+  surveyRequired: boolean;
+  idempotent: boolean;
+  reportRecorded: boolean;
+  reportId?: string;
+  nextDestination: VideoDateSafetyNextDestination;
+};
+
 export type VideoDateSafetySubmitCopy = {
   title: string;
   message: string;
@@ -17,16 +28,33 @@ function cleanError(error: string | null | undefined): string | null {
   return trimmed.length > 0 ? trimmed : null;
 }
 
+export function isVideoDateSafetySubmitErrorRetryable(error: string | null | undefined): boolean {
+  switch (cleanError(error)) {
+    case "not_authenticated":
+    case "unauthorized":
+    case "invalid_reason":
+    case "invalid_idempotency_key":
+    case "idempotency_conflict":
+    case "rate_limited":
+    case "session_not_found":
+    case "not_participant":
+    case "session_ended":
+      return false;
+    default:
+      return true;
+  }
+}
+
 function messageForSafetyError(error: string | null, mode: VideoDateSafetySubmitMode): string {
   switch (error) {
     case "not_authenticated":
     case "unauthorized":
       return "Please sign in again, then try once more.";
     case "invalid_reason":
-      return "Choose a report reason and try again.";
+      return "Reopen Safety, choose a report reason, and try again.";
     case "invalid_idempotency_key":
     case "idempotency_conflict":
-      return "This safety action could not be verified. Try again.";
+      return "This safety action could not be verified. Reopen Safety and try again.";
     case "command_in_progress":
       return "A safety action is already in progress. Wait a moment and try again.";
     case "rate_limited":
@@ -83,7 +111,7 @@ export function resolveVideoDateSafetySubmitCopy(input: {
   const blockSentence = input.alsoBlock ? " This person is blocked." : "";
   const duplicateSentence = input.idempotent ? " We already had this report, so nothing was duplicated." : "";
 
-  if (input.ended || input.mode === "end") {
+  if (input.ended || input.mode === "end" || input.alsoBlock) {
     return {
       title: "Report sent",
       message: input.surveyRequired
@@ -103,5 +131,35 @@ export function resolveVideoDateSafetySubmitCopy(input: {
     secondaryActionLabel: null,
     tone: "success",
     nextDestination: "stay",
+  };
+}
+
+export function resolveVideoDateSafetySubmitOutcome(input: {
+  mode: VideoDateSafetySubmitMode;
+  alsoBlock?: boolean | null;
+  ended?: boolean | null;
+  surveyRequired?: boolean | null;
+  idempotent?: boolean | null;
+  reportRecorded?: boolean | null;
+  reportId?: string | null;
+}): VideoDateSafetySubmitOutcome {
+  const copy = resolveVideoDateSafetySubmitCopy({
+    ok: true,
+    mode: input.mode,
+    alsoBlock: input.alsoBlock,
+    ended: input.ended,
+    surveyRequired: input.surveyRequired,
+    idempotent: input.idempotent,
+  });
+
+  return {
+    mode: input.mode,
+    alsoBlock: input.alsoBlock === true,
+    ended: input.ended === true || input.mode === "end" || input.alsoBlock === true,
+    surveyRequired: input.surveyRequired === true,
+    idempotent: input.idempotent === true,
+    reportRecorded: input.reportRecorded !== false,
+    reportId: input.reportId ?? undefined,
+    nextDestination: copy.nextDestination,
   };
 }

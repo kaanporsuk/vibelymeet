@@ -102,6 +102,12 @@ test("Phase 4 deck UI distinguishes terminal, ineligible, empty, and retry state
   assert.equal(resolveEventDeckPhase4UiState({ platform: "native", deckStateReason: "scan_window_exhausted" }).showMysteryMatch, true);
   assert.equal(resolveEventDeckPhase4UiState({ platform: "web", deckErrorReason: "network_error" }).actionLabel, "Retry");
   assert.equal(resolveEventDeckPhase4UiState({ platform: "native", deckErrorReason: "rpc_error" }).retryable, true);
+  assert.equal(resolveEventDeckPhase4UiState({ platform: "web", deckStateReason: "queue_waiting" }).title, "Waiting for a match");
+  assert.equal(resolveEventDeckPhase4UiState({ platform: "web", deckStateReason: "queue_waiting" }).showRefresh, false);
+  assert.equal(resolveEventDeckPhase4UiState({ platform: "web", deckStateReason: "blocked" }).title, "This match is unavailable");
+  assert.equal(resolveEventDeckPhase4UiState({ platform: "web", deckStateReason: "media_unavailable" }).title, "Media is unavailable");
+  assert.equal(resolveEventDeckPhase4UiState({ platform: "web", deckStateReason: "media_unavailable" }).retryable, true);
+  assert.equal(resolveEventDeckPhase4UiState({ platform: "web", deckStateReason: "event_not_active", inactiveReason: "event_ended" }).terminal, true);
 });
 
 test("Phase 4 queue labels stay approximate and expose priority relief", () => {
@@ -292,6 +298,7 @@ test("Phase 4 web/native surfaces consume shared UX helpers", () => {
 
   assert.match(webLobby, /resolveEventDeckPhase4UiState/);
   assert.match(nativeLobby, /resolveEventDeckPhase4UiState/);
+  assert.match(read("shared/matching/videoDatePhase4Ux.ts"), /resolveVideoDateLobbyStateCopy/);
   assert.match(webLobby, /deckState\?\.inactive_reason/);
   assert.match(nativeLobby, /deckState\?\.inactive_reason/);
   assert.match(webLobby, /resolveVideoDateQueueCopy/);

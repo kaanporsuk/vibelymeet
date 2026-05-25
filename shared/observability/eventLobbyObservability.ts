@@ -164,7 +164,27 @@ export function resolveDeckEmptyReason(input: {
   const deckStateReason = sanitizeReasonCode(input.deckStateReason, "");
   if (input.deckError) return classifyDeckFetchError(input.deckErrorValue);
   if (deckStateReason === "event_not_active") return "event_not_active";
-  if (deckStateReason === "not_registered" || deckStateReason === "viewer_paused") return "user_not_eligible";
+  if (
+    deckStateReason === "not_registered" ||
+    deckStateReason === "viewer_paused" ||
+    deckStateReason === "safety_limited" ||
+    deckStateReason === "blocked" ||
+    deckStateReason === "reported" ||
+    deckStateReason === "geo_or_eligibility_mismatch"
+  ) {
+    return "user_not_eligible";
+  }
+  if (deckStateReason === "media_unavailable") return "rpc_error";
+  if (deckStateReason === "recoverable_fetch_error") return "network_error";
+  if (deckStateReason === "terminal_event_state") return "event_not_active";
+  if (
+    deckStateReason === "queue_waiting" ||
+    deckStateReason === "queued" ||
+    deckStateReason === "match_queued" ||
+    deckStateReason === "all_candidates_busy_or_unavailable"
+  ) {
+    return "all_candidates_busy_or_unavailable";
+  }
   if (deckStateReason === "no_remaining_profiles") return "all_candidates_seen_locally";
   if (deckStateReason === "no_confirmed_candidates") return "no_confirmed_candidates";
   if (deckStateReason === "scan_window_exhausted") return "all_candidates_filtered";
