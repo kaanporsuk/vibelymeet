@@ -27,6 +27,33 @@ type MatchQueueSourceSurface = "event_lobby" | "post_date_survey";
 
 const QUEUED_SESSION_RECOVERY_FIRST_DRAIN_MS = 1_200;
 const QUEUED_SESSION_RECOVERY_DRAIN_MS = 5_000;
+const RETRYABLE_QUEUE_HINT_FAILURE_REASONS = new Set([
+  "rpc_error",
+  "network_error",
+  "PGRST000",
+  "PGRST001",
+  "PGRST002",
+  "PGRST003",
+  "40001",
+  "40P01",
+  "53300",
+  "53400",
+  "55P03",
+  "57014",
+]);
+
+function shouldRetainQueueCountOnHintFailure(reason: string | null | undefined): boolean {
+  const code = reason?.trim();
+  if (!code) return true;
+  if (
+    code === "missing_args" ||
+    code === "not_registered" ||
+    code === "42501" ||
+    code === "22P02"
+  ) return false;
+  if (code.startsWith("08")) return true;
+  return RETRYABLE_QUEUE_HINT_FAILURE_REASONS.has(code);
+}
 
 interface UseMatchQueueOptions {
   eventId: string | undefined;
@@ -130,7 +157,21 @@ export const useMatchQueue = ({
     const requestSeq = activeRefreshSeqRef.current + 1;
     activeRefreshSeqRef.current = requestSeq;
 
-    const hint = await fetchVideoDateQueueHint(requestEventId, requestUserId);
+    let hint: Awaited<ReturnType<typeof fetchVideoDateQueueHint>>;
+    try {
+      hint = await fetchVideoDateQueueHint(requestEventId, requestUserId);
+    } catch (err) {
+      if (!isCurrentScope(requestEventId, requestUserId) || activeRefreshSeqRef.current !== requestSeq) {
+        return;
+      }
+      if (import.meta.env.DEV) {
+        console.warn("[useMatchQueue] queued hint query failed:", err);
+      }
+      const fallbackCount = Math.max(lastQueuedCountRef.current, minimumOnFailure);
+      lastQueuedCountRef.current = fallbackCount;
+      setQueuedCount(fallbackCount);
+      return;
+    }
 
     if (!isCurrentScope(requestEventId, requestUserId) || activeRefreshSeqRef.current !== requestSeq) {
       return;
@@ -140,9 +181,14 @@ export const useMatchQueue = ({
       if (import.meta.env.DEV) {
         console.warn("[useMatchQueue] queued hint query failed:", hint.reason ?? "unknown");
       }
-      const fallbackCount = Math.max(lastQueuedCountRef.current, minimumOnFailure);
-      lastQueuedCountRef.current = fallbackCount;
-      setQueuedCount(fallbackCount);
+      if (shouldRetainQueueCountOnHintFailure(hint.reason)) {
+        const fallbackCount = Math.max(lastQueuedCountRef.current, minimumOnFailure);
+        lastQueuedCountRef.current = fallbackCount;
+        setQueuedCount(fallbackCount);
+      } else {
+        lastQueuedCountRef.current = 0;
+        setQueuedCount(0);
+      }
       return;
     }
 

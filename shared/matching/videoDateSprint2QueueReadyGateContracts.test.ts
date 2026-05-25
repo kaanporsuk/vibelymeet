@@ -68,6 +68,13 @@ test("Sprint 2 web queue recovery cannot leave a user silently queued", () => {
   assert.match(webUseMatchQueue, /setInterval\(\(\) =>\s*{\s*void drainQueueOnce\("queued_recovery_poll"\)/s);
   assert.match(webUseMatchQueue, /void refreshQueueCount\(\)/);
   assert.match(webUseMatchQueue, /minimumOnFailure = 0/);
+  assert.match(webUseMatchQueue, /shouldRetainQueueCountOnHintFailure/);
+  assert.match(webUseMatchQueue, /RETRYABLE_QUEUE_HINT_FAILURE_REASONS/);
+  assert.match(webUseMatchQueue, /code === "not_registered"/);
+  assert.match(webUseMatchQueue, /code === "missing_args"/);
+  assert.match(webUseMatchQueue, /code === "42501"/);
+  assert.match(webUseMatchQueue, /code === "22P02"/);
+  assert.match(webUseMatchQueue, /setQueuedCount\(0\)/);
   assert.match(webUseMatchQueue, /isVideoDateReadyGateActiveStatus\(session\.ready_gate_status\)/);
   assert.doesNotMatch(
     webUseMatchQueue,
