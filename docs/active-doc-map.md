@@ -1,6 +1,6 @@
 # Active doc map
 
-Date: 2026-05-01
+Date: 2026-05-25
 Purpose: Keep one current execution path visible for native launch closure and make older planning/runbook references explicitly historical.
 
 ---
@@ -21,6 +21,7 @@ Use `docs/native-external-setup-checklist.md` for provider/store depth and `docs
 
 | Evidence type | Canonical file |
 |---|---|
+| **Video Date Sprint 0 baseline and risk map (2026-05-25)** | `docs/audits/video-date-sprint0-baseline-risk-map-2026-05-25.md`; branch delta `docs/branch-deltas/video-date-sprint0-baseline-risk-map.md`; regression assertion `shared/matching/videoDateSprint0BaselineContracts.test.ts` |
 | **Branch delta (Video Dates P0/P1 closure)** | `docs/branch-deltas/fix-video-date-p0-p1-closure.md` |
 | **Full-system forensic closure audit + cleanup matrix (2026-04-14)** | `docs/audits/full-system-forensic-closure-audit-2026-04-14.md` and `docs/audits/full-system-cleanup-matrix-2026-04-14.md` |
 | **Branch delta (forensic audit pass)** | `docs/branch-deltas/audit-full-system-forensic-closure-and-cleanup.md` |
@@ -71,6 +72,7 @@ Use `docs/native-external-setup-checklist.md` for provider/store depth and `docs
 | Role | File |
 |---|---|
 | Preflight | `npm run launch:preflight` + `npm run typecheck` |
+| **Video Date Sprint 0 source baseline and risk map** | `docs/audits/video-date-sprint0-baseline-risk-map-2026-05-25.md` |
 | **Architecture, providers, import boundaries (`@shared/*` vs root `shared/`)** | `docs/vibely-canonical-project-reference.md` |
 | **Native v1 architecture lock (routes, backend contracts, providers, gap list)** | `docs/native-sprint0-architecture-lock.md` |
 | **Ready Gate / video-date registration ownership** | `docs/ready-gate-server-owned-registration-status-final-audit.md` |
