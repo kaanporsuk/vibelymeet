@@ -13,6 +13,7 @@ const deadlineFinalizer = read("supabase/functions/video-date-deadline-finalizer
 const dailyRoom = read("supabase/functions/daily-room/index.ts");
 const tokenRefresh = read("supabase/functions/video-date-token-refresh/index.ts");
 const sendNotification = read("supabase/functions/send-notification/index.ts");
+const supabaseTypes = read("src/integrations/supabase/types.ts");
 const packageJson = read("package.json");
 
 test("Phase 1 reliability migration adds worker leases, row refresh, rate limits, and failure stores", () => {
@@ -50,6 +51,28 @@ test("Phase 1 reliability migration adds worker leases, row refresh, rate limits
   assert.match(migration, /worker_already_running/);
   assert.match(migration, /lease_lost/);
   assert.match(migration, /provider_rate_limited/);
+});
+
+test("Phase 1 public interfaces are present in generated Supabase types", () => {
+  for (const table of [
+    "video_date_worker_runs",
+    "video_date_provider_rate_limits",
+    "video_date_provider_outbox_failure_log",
+    "video_date_provider_dead_letters",
+  ]) {
+    assert.match(supabaseTypes, new RegExp(`${table}: \\{\\s+Row:`));
+  }
+
+  for (const fn of [
+    "begin_video_date_worker_run_v1",
+    "refresh_video_date_worker_run_v1",
+    "finish_video_date_worker_run_v1",
+    "refresh_video_date_provider_outbox_claim_v1",
+    "refresh_video_session_deadline_claim_v1",
+    "take_provider_rate_limit_token_v1",
+  ]) {
+    assert.match(supabaseTypes, new RegExp(`${fn}: \\{\\s+Args:`));
+  }
 });
 
 test("Phase 1 reliability helper provides bounded fetch, rate limiting, leases, Sentry, and DLQ logging", () => {

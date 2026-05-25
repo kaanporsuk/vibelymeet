@@ -133,7 +133,9 @@ test("web EventLobby wires the gate into deck, queue/status side effects, action
   assert.match(webLobby, /useMatchQueue\(\{[\s\S]*enabled: lobbySideEffectsEnabled/);
   assert.match(webLobby, /LobbyUnavailableState/);
   assert.match(webLobby, /EventEndedModal isOpen=\{showEventEndedModal\}/);
-  assert.match(webLobby, /const swipeControlsDisabled =[\s\S]*isProcessing[\s\S]*pendingSwipeTargetId[\s\S]*!lobbyActionsEnabled[\s\S]*swipeRateLimited/);
+  assert.match(webLobby, /const currentSwipePending = currentProfile \? pendingSwipeTargetIds\.has\(currentProfile\.id\) : false/);
+  assert.match(webLobby, /pendingSwipeTargetIdsRef\.current\.has\(currentProfile\.id\)/);
+  assert.match(webLobby, /const swipeControlsDisabled =[\s\S]*currentSwipePending[\s\S]*!lobbyActionsEnabled[\s\S]*swipeRateLimited/);
   assert.match(webLobby, /disabled=\{swipeControlsDisabled\}/);
   assert.match(webLobby, /readyGateOverlayAllowed/);
 });

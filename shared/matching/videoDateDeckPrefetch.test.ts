@@ -8,7 +8,10 @@ import {
   isVideoDateSwipeRateLimited,
   recordVideoDateDeckRecentSwipe,
   removeVideoDateDeckRecentSwipe,
+  shouldRestoreVideoDateDeckCardAfterSwipeFailure,
   shouldSuppressVideoDateDeckProfile,
+  VIDEO_DATE_DECK_PREFETCH_LIMIT,
+  VIDEO_DATE_DECK_RECENT_SWIPE_TTL_MS,
   VIDEO_DATE_DECK_DEFAULT_REFETCH_INTERVAL_MS,
   VIDEO_DATE_DECK_FINAL_REFETCH_INTERVAL_MS,
   VIDEO_DATE_DECK_LAST_CHANCE_REFETCH_INTERVAL_MS,
@@ -29,6 +32,7 @@ test("predictive deck prefetch items include media-versioned cache keys", () => 
     },
   ]);
 
+  assert.equal(VIDEO_DATE_DECK_PREFETCH_LIMIT, 3);
   assert.equal(items.length, 2);
   assert.equal(items[0].mediaVersion, "2026-05-24T12:00:00.000Z");
   assert.match(items[0].cacheKey, /p1:2026-05-24T12:00:00\.000Z:photos\/a\.jpg/);
@@ -128,8 +132,10 @@ test("recent swipe suppression keeps last targets out briefly and supports rollb
   const nowMs = 1_000_000;
   const entries = recordVideoDateDeckRecentSwipe([], "p1", nowMs);
 
+  assert.equal(VIDEO_DATE_DECK_RECENT_SWIPE_TTL_MS, 90_000);
   assert.equal(shouldSuppressVideoDateDeckProfile({ id: "p1" }, entries, nowMs + 30_000), true);
-  assert.equal(shouldSuppressVideoDateDeckProfile({ id: "p1" }, entries, nowMs + 61_000), false);
+  assert.equal(shouldSuppressVideoDateDeckProfile({ id: "p1" }, entries, nowMs + 89_000), true);
+  assert.equal(shouldSuppressVideoDateDeckProfile({ id: "p1" }, entries, nowMs + 91_000), false);
   assert.equal(shouldSuppressVideoDateDeckProfile({ id: "p2" }, [{ profileId: "p2", swipedAtMs: nowMs + 10_000 }], nowMs), false);
   assert.equal(
     shouldSuppressVideoDateDeckProfile({ id: "p1" }, removeVideoDateDeckRecentSwipe(entries, "p1", nowMs + 5_000), nowMs + 5_000),
@@ -154,4 +160,13 @@ test("swipe 429 helpers normalize retry-after shapes", () => {
     getVideoDateSwipeRateLimitRetryUntilMs({ result: "rate_limited", retry_after: retryAt }, nowMs),
     Date.parse(retryAt),
   );
+});
+
+test("deck swipe rollback restores retryable failures but not permanent no-restore outcomes", () => {
+  assert.equal(shouldRestoreVideoDateDeckCardAfterSwipeFailure("rate_limited"), true);
+  assert.equal(shouldRestoreVideoDateDeckCardAfterSwipeFailure("internal_error"), true);
+  assert.equal(shouldRestoreVideoDateDeckCardAfterSwipeFailure("blocked"), false);
+  assert.equal(shouldRestoreVideoDateDeckCardAfterSwipeFailure("reported"), false);
+  assert.equal(shouldRestoreVideoDateDeckCardAfterSwipeFailure("target_not_found"), false);
+  assert.equal(shouldRestoreVideoDateDeckCardAfterSwipeFailure({ result: "already_swiped" }), false);
 });

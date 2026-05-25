@@ -1,6 +1,6 @@
-export const VIDEO_DATE_DECK_PREFETCH_LIMIT = 2;
+export const VIDEO_DATE_DECK_PREFETCH_LIMIT = 3;
 export const VIDEO_DATE_DECK_RECENT_SWIPE_LIMIT = 30;
-export const VIDEO_DATE_DECK_RECENT_SWIPE_TTL_MS = 60_000;
+export const VIDEO_DATE_DECK_RECENT_SWIPE_TTL_MS = 90_000;
 export const VIDEO_DATE_DECK_DEFAULT_REFETCH_INTERVAL_MS = 15_000;
 export const VIDEO_DATE_DECK_LATE_REFETCH_INTERVAL_MS = 5_000;
 export const VIDEO_DATE_DECK_FINAL_REFETCH_INTERVAL_MS = 2_000;
@@ -51,6 +51,19 @@ export type VideoDateSwipeRateLimitLike = {
   retry_at?: string | number | null;
   retryAt?: string | number | null;
 };
+
+export type VideoDateSwipeOutcomeLike = VideoDateSwipeRateLimitLike | string | null | undefined;
+
+const VIDEO_DATE_DECK_NO_RESTORE_SWIPE_OUTCOMES = new Set([
+  "already_swiped",
+  "blocked",
+  "pair_already_met_this_event",
+  "permanent_failure",
+  "reported",
+  "swipe_already_recorded",
+  "target_not_found",
+  "target_unavailable",
+]);
 
 function cleanString(value: unknown): string | null {
   if (typeof value !== "string") return null;
@@ -241,9 +254,24 @@ export function getVideoDateDeckAdaptiveRefetchIntervalMs(input: {
 }
 
 export function isVideoDateSwipeRateLimited(result: VideoDateSwipeRateLimitLike | null | undefined): boolean {
-  const rawCode = result?.outcome ?? result?.result ?? result?.error ?? result?.reason;
-  const code = typeof rawCode === "string" ? rawCode.trim().toLowerCase() : rawCode;
+  const code = videoDateSwipeOutcomeCode(result);
   return code === "rate_limited" || code === "too_many_requests" || code === "swipe_rate_limited";
+}
+
+export function shouldRestoreVideoDateDeckCardAfterSwipeFailure(
+  result: VideoDateSwipeOutcomeLike,
+): boolean {
+  const code = videoDateSwipeOutcomeCode(result);
+  return code == null || !VIDEO_DATE_DECK_NO_RESTORE_SWIPE_OUTCOMES.has(code);
+}
+
+function videoDateSwipeOutcomeCode(result: VideoDateSwipeOutcomeLike): string | null {
+  const rawCode = typeof result === "string"
+    ? result
+    : result?.outcome ?? result?.result ?? result?.error ?? result?.reason;
+  if (typeof rawCode !== "string") return null;
+  const code = rawCode.trim().toLowerCase();
+  return code === "swipe_recorded" ? "vibe_recorded" : code || null;
 }
 
 export function getVideoDateSwipeRateLimitRetryUntilMs(

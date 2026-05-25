@@ -9,6 +9,7 @@ import {
   ShieldCheck,
   Users,
   HeartHandshake,
+  TimerReset,
 } from "lucide-react";
 import { DeckProfile } from "@/hooks/useEventDeck";
 import { ProfilePhoto } from "@/components/ui/ProfilePhoto";
@@ -23,6 +24,9 @@ interface LobbyProfileCardProps {
   profile: DeckProfile;
   userVibes: string[];
   isBehind?: boolean;
+  retryState?: {
+    remainingSeconds: number;
+  } | null;
 }
 
 function formatHeightCm(cm: number | null | undefined): string | null {
@@ -30,7 +34,7 @@ function formatHeightCm(cm: number | null | undefined): string | null {
   return `${cm} cm`;
 }
 
-const LobbyProfileCard = ({ profile, userVibes, isBehind = false }: LobbyProfileCardProps) => {
+const LobbyProfileCard = ({ profile, userVibes, isBehind = false, retryState = null }: LobbyProfileCardProps) => {
   void userVibes; // Partner vibe tags come from `get_event_deck.shared_vibe_count` only (avoid per-card profile_vibes fetches).
   const navigate = useNavigate();
   const queryClient = useQueryClient();
@@ -110,6 +114,17 @@ const LobbyProfileCard = ({ profile, userVibes, isBehind = false }: LobbyProfile
       />
       <div className="absolute inset-0 bg-gradient-to-t from-black via-black/55 to-black/10 pointer-events-none" />
       <div className="absolute inset-0 bg-gradient-to-b from-black/40 via-transparent to-transparent pointer-events-none rounded-3xl" />
+
+      {!isBehind && retryState && retryState.remainingSeconds > 0 ? (
+        <div
+          className="absolute left-3 right-3 top-16 z-30 flex items-center justify-center gap-2 rounded-xl border border-amber-300/40 bg-black/65 px-3 py-2 text-xs font-semibold text-amber-100 shadow-lg backdrop-blur-md"
+          role="status"
+          aria-live="polite"
+        >
+          <TimerReset className="h-4 w-4 shrink-0 text-amber-200" />
+          <span>Retry in {retryState.remainingSeconds}s</span>
+        </div>
+      ) : null}
 
       {/* Top chrome */}
       <div className="absolute top-0 left-0 right-0 z-20 flex items-start justify-between gap-2 p-3 sm:p-4">

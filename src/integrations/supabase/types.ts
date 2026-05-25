@@ -5510,6 +5510,169 @@ export type Database = {
           },
         ]
       }
+      video_date_provider_dead_letters: {
+        Row: {
+          created_at: string
+          deadline_id: number | null
+          id: number
+          operation: string | null
+          outbox_id: number | null
+          payload: Json
+          provider: string | null
+          reason: string
+          session_id: string | null
+          target_kind: string
+        }
+        Insert: {
+          created_at?: string
+          deadline_id?: number | null
+          id?: number
+          operation?: string | null
+          outbox_id?: number | null
+          payload?: Json
+          provider?: string | null
+          reason: string
+          session_id?: string | null
+          target_kind: string
+        }
+        Update: {
+          created_at?: string
+          deadline_id?: number | null
+          id?: number
+          operation?: string | null
+          outbox_id?: number | null
+          payload?: Json
+          provider?: string | null
+          reason?: string
+          session_id?: string | null
+          target_kind?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "video_date_provider_dead_letters_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "video_sessions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      video_date_provider_outbox_failure_log: {
+        Row: {
+          created_at: string
+          deadline_id: number | null
+          error_code: string | null
+          error_message: string | null
+          id: number
+          lease_lost: boolean
+          metadata: Json
+          operation: string | null
+          outbox_id: number | null
+          permanent: boolean
+          provider: string | null
+          retry_after_seconds: number | null
+          session_id: string | null
+          target_kind: string
+        }
+        Insert: {
+          created_at?: string
+          deadline_id?: number | null
+          error_code?: string | null
+          error_message?: string | null
+          id?: number
+          lease_lost?: boolean
+          metadata?: Json
+          operation?: string | null
+          outbox_id?: number | null
+          permanent?: boolean
+          provider?: string | null
+          retry_after_seconds?: number | null
+          session_id?: string | null
+          target_kind: string
+        }
+        Update: {
+          created_at?: string
+          deadline_id?: number | null
+          error_code?: string | null
+          error_message?: string | null
+          id?: number
+          lease_lost?: boolean
+          metadata?: Json
+          operation?: string | null
+          outbox_id?: number | null
+          permanent?: boolean
+          provider?: string | null
+          retry_after_seconds?: number | null
+          session_id?: string | null
+          target_kind?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "video_date_provider_outbox_failure_log_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "video_sessions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      video_date_provider_rate_limits: {
+        Row: {
+          bucket: string
+          capacity: number
+          provider: string
+          refill_per_second: number
+          tokens: number
+          updated_at: string
+        }
+        Insert: {
+          bucket: string
+          capacity: number
+          provider: string
+          refill_per_second: number
+          tokens?: number
+          updated_at?: string
+        }
+        Update: {
+          bucket?: string
+          capacity?: number
+          provider?: string
+          refill_per_second?: number
+          tokens?: number
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      video_date_worker_runs: {
+        Row: {
+          claim_expires_at: string | null
+          claimed_by: string | null
+          heartbeat_at: string | null
+          metadata: Json
+          run_started_at: string | null
+          updated_at: string
+          worker_kind: string
+        }
+        Insert: {
+          claim_expires_at?: string | null
+          claimed_by?: string | null
+          heartbeat_at?: string | null
+          metadata?: Json
+          run_started_at?: string | null
+          updated_at?: string
+          worker_kind: string
+        }
+        Update: {
+          claim_expires_at?: string | null
+          claimed_by?: string | null
+          heartbeat_at?: string | null
+          metadata?: Json
+          run_started_at?: string | null
+          updated_at?: string
+          worker_kind?: string
+        }
+        Relationships: []
+      }
       video_date_surface_claims: {
         Row: {
           claimed_at: string
@@ -6206,6 +6369,71 @@ export type Database = {
       }
     }
     Functions: {
+      ack_notification_dispatch: {
+        Args: {
+          p_ack_source?: string
+          p_dispatch_group_id: string
+          p_payload?: Json
+          p_provider_notification_id?: string
+        }
+        Returns: Json
+      }
+      begin_video_date_worker_run_v1: {
+        Args: {
+          p_lease_seconds?: number
+          p_metadata?: Json
+          p_worker_id: string
+          p_worker_kind: string
+        }
+        Returns: Json
+      }
+      finish_video_date_worker_run_v1: {
+        Args: {
+          p_metadata?: Json
+          p_worker_id: string
+          p_worker_kind: string
+        }
+        Returns: Json
+      }
+      refresh_video_date_provider_outbox_claim_v1: {
+        Args: {
+          p_lease_seconds?: number
+          p_outbox_id: number
+          p_worker_id: string
+        }
+        Returns: Json
+      }
+      refresh_video_date_worker_run_v1: {
+        Args: {
+          p_lease_seconds?: number
+          p_metadata?: Json
+          p_worker_id: string
+          p_worker_kind: string
+        }
+        Returns: Json
+      }
+      refresh_video_session_deadline_claim_v1: {
+        Args: {
+          p_deadline_id: number
+          p_lease_seconds?: number
+          p_worker_id: string
+        }
+        Returns: Json
+      }
+      take_provider_rate_limit_token_v1: {
+        Args: {
+          p_bucket: string
+          p_capacity?: number
+          p_cost?: number
+          p_provider: string
+          p_refill_per_second?: number
+        }
+        Returns: Json
+      }
+      take_video_date_token_refresh_rate_limit_v1: {
+        Args: never
+        Returns: Json
+      }
       _apply_date_plan_event_lock: {
         Args: {
           p_date_plan_id: string

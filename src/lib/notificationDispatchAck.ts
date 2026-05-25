@@ -21,12 +21,12 @@ export async function ackNotificationDispatchFromPayload(
   const dispatchGroupId = dispatchGroupIdFromPayload(payload);
   if (!dispatchGroupId) return { ok: true, firstAck: true, dispatchGroupId: null };
   try {
-    const { data, error } = await supabase.rpc("ack_notification_dispatch" as never, {
+    const { data, error } = await supabase.rpc("ack_notification_dispatch", {
       p_dispatch_group_id: dispatchGroupId,
       p_provider_notification_id: providerNotificationId ?? null,
       p_ack_source: ackSource,
       p_payload: payload && typeof payload === "object" ? payload : {},
-    } as never);
+    });
     if (error) return { ok: false, firstAck: true, dispatchGroupId };
     const record = data && typeof data === "object" ? data as Record<string, unknown> : {};
     return {
@@ -45,9 +45,9 @@ export async function markNotificationOpenedV2FromPayload(
   const notificationId = notificationIdFromPayload(payload);
   if (!notificationId) return { ok: true, firstOpen: true, openedAt: null, notificationId: null };
   try {
-    const { data, error } = await supabase.rpc("mark_notification_opened_v2" as never, {
+    const { data, error } = await supabase.rpc("mark_notification_opened_v2", {
       notification_id: notificationId,
-    } as never);
+    });
     if (error) return { ok: false, firstOpen: false, openedAt: null, notificationId };
     const record = data && typeof data === "object" ? data as Record<string, unknown> : {};
     const ok = record.ok !== false;
