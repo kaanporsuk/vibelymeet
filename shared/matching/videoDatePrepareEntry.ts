@@ -119,6 +119,7 @@ export type PreparedVideoDateEntryHandoffValidation =
         | "expired"
         | "token_expired"
         | "missing_room"
+        | "room_mismatch"
         | "missing_token"
         | "invalid_state"
         | "invalid_phase"
@@ -200,6 +201,36 @@ function isoFromMs(value: number): string {
 
 function readTokenExpiresAtMs(value: PreparedVideoDateEntry): number {
   return value.token_expires_at ? new Date(value.token_expires_at).getTime() : NaN;
+}
+
+function nonEmptyString(value: unknown): value is string {
+  return typeof value === "string" && value.trim().length > 0;
+}
+
+function preparedEntryRoomUrlMatchesRoomName(roomUrl: string, roomName: string): boolean {
+  try {
+    const url = new URL(roomUrl);
+    return url.protocol === "https:" && url.pathname.replace(/\/+$/, "") === `/${roomName}`;
+  } catch {
+    return false;
+  }
+}
+
+function isPreparedEntryStartableState(value: unknown): boolean {
+  return value === "handshake" || value === "date";
+}
+
+function preparedEntryInvalidStartabilityCode(data: unknown): string | null {
+  if (!data || typeof data !== "object") return "PREPARE_ENTRY_INVALID_PAYLOAD";
+  const row = data as Partial<PreparedVideoDateEntry>;
+  if (row.success !== true) return "PREPARE_ENTRY_INVALID_PAYLOAD";
+  if (!nonEmptyString(row.room_name) || !nonEmptyString(row.room_url)) return "PREPARE_ENTRY_MISSING_ROOM";
+  if (!preparedEntryRoomUrlMatchesRoomName(row.room_url, row.room_name)) return "PREPARE_ENTRY_ROOM_MISMATCH";
+  if (!nonEmptyString(row.token)) return "PREPARE_ENTRY_MISSING_TOKEN";
+  if (!isPreparedEntryStartableState(row.session_state)) return "PREPARE_ENTRY_INVALID_STATE";
+  if (!isPreparedEntryStartableState(row.session_phase)) return "PREPARE_ENTRY_INVALID_PHASE";
+  if (row.ready_gate_status && row.ready_gate_status !== "both_ready") return "PREPARE_ENTRY_INVALID_READY_GATE";
+  return null;
 }
 
 function buildPreparedVideoDateEntryHandoffEnvelope(entry: PreparedVideoDateEntryCacheEntry): PreparedVideoDateEntryHandoffEnvelope {
@@ -304,7 +335,19 @@ export function peekPreparedVideoDateEntryHandoff(
     return { ok: false, reason: "expired" };
   }
   if (!envelope.roomName || !envelope.roomUrl) return { ok: false, reason: "missing_room" };
+  if (
+    envelope.roomName !== cacheEntry.value.room_name ||
+    envelope.roomUrl !== cacheEntry.value.room_url ||
+    !preparedEntryRoomUrlMatchesRoomName(envelope.roomUrl, envelope.roomName)
+  ) {
+    rejectCachedPreparedVideoDateEntry(sessionId, userId);
+    return { ok: false, reason: "room_mismatch" };
+  }
   if (!envelope.token) return { ok: false, reason: "missing_token" };
+  if (envelope.token !== cacheEntry.value.token) {
+    rejectCachedPreparedVideoDateEntry(sessionId, userId);
+    return { ok: false, reason: "missing_token" };
+  }
   const tokenExpiresAtMs = readTokenExpiresAtMs(cacheEntry.value);
   if (!Number.isFinite(tokenExpiresAtMs) || tokenExpiresAtMs <= nowMs + 5_000) {
     rejectCachedPreparedVideoDateEntry(sessionId, userId);
@@ -338,9 +381,7 @@ export function consumePreparedVideoDateEntryHandoff(
 }
 
 function hasPreparedEntryPayload(data: unknown): data is PreparedVideoDateEntry {
-  if (!data || typeof data !== "object") return false;
-  const row = data as Partial<PreparedVideoDateEntry>;
-  return row.success === true && typeof row.room_name === "string" && typeof row.room_url === "string" && typeof row.token === "string";
+  return preparedEntryInvalidStartabilityCode(data) === null;
 }
 
 export function hasPreparedVideoDateSoloEntryPayload(data: unknown): data is PreparedVideoDateSoloEntry {
@@ -450,6 +491,17 @@ export async function prepareVideoDateEntryWithClient(
           cached: false,
           cacheKey: key,
           cacheEntry,
+        };
+      }
+
+      if (!error && data && typeof data === "object" && (data as { success?: unknown }).success === true) {
+        return {
+          ok: false,
+          code: preparedEntryInvalidStartabilityCode(data) ?? "PREPARE_ENTRY_INVALID_PAYLOAD",
+          message: "Prepared video date entry was not startable.",
+          retryable: true,
+          entryAttemptId,
+          providerOperation: null,
         };
       }
 

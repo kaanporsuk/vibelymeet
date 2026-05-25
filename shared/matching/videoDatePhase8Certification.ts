@@ -125,6 +125,9 @@ export type VideoDatePhase8CertificationInput = {
   firstFrameP95Ms: number | null;
   firstFrameP99Ms: number | null;
   queueFairnessStatus: "healthy" | "warning" | "critical" | "unknown";
+  dailyProductionConfigReady: boolean;
+  dailyWebhookSecretReady: boolean;
+  dailyCleanupCronReady: boolean;
   coreFlagsEnabled: boolean;
   coreFlagsKilled: boolean;
   currentRolloutBps: number;
@@ -157,6 +160,9 @@ export function evaluateVideoDatePhase8RolloutStep(
   addBlocker(blockers, !input.loadPassed, "load_not_passed");
   addBlocker(blockers, !input.coreFlagsEnabled, "core_flags_not_enabled");
   addBlocker(blockers, input.coreFlagsKilled, "core_flag_kill_switch_active");
+  addBlocker(blockers, !input.dailyProductionConfigReady, "daily_production_config_not_ready");
+  addBlocker(blockers, !input.dailyWebhookSecretReady, "daily_webhook_secret_not_ready");
+  addBlocker(blockers, !input.dailyCleanupCronReady, "daily_cleanup_cron_not_ready");
   addBlocker(blockers, input.recoveryPageAlerts > 0, "recovery_page_alerts_active");
   addBlocker(blockers, input.stuckActiveSessionsOver2m > 0, "stuck_active_sessions_over_2m");
   addBlocker(blockers, input.queueFairnessStatus === "critical", "queue_fairness_critical");
@@ -246,6 +252,7 @@ export function isVideoDateLegacyDeckCleanupAllowed(
     | "currentRolloutBps"
     | "coreFlagsEnabled"
     | "coreFlagsKilled"
+    | "dailyCleanupCronReady"
     | "recoveryPageAlerts"
     | "stuckActiveSessionsOver2m"
   >,
@@ -255,6 +262,7 @@ export function isVideoDateLegacyDeckCleanupAllowed(
     input.currentRolloutBps >= 10000 &&
     input.coreFlagsEnabled &&
     !input.coreFlagsKilled &&
+    input.dailyCleanupCronReady &&
     input.recoveryPageAlerts === 0 &&
     input.stuckActiveSessionsOver2m === 0
   );
@@ -264,6 +272,9 @@ export type VideoDatePhase8ReleaseClosureInput = Pick<
   VideoDatePhase8CertificationInput,
   | "coreFlagsEnabled"
   | "coreFlagsKilled"
+  | "dailyProductionConfigReady"
+  | "dailyWebhookSecretReady"
+  | "dailyCleanupCronReady"
   | "currentRolloutBps"
   | "deckDeal100PctBaked"
   | "recoveryPageAlerts"
@@ -282,6 +293,9 @@ export function getVideoDatePhase8ReleaseClosureBlockers(
   const blockers: string[] = [];
   addBlocker(blockers, !input.coreFlagsEnabled, "core_flags_not_enabled");
   addBlocker(blockers, input.coreFlagsKilled, "core_flag_kill_switch_active");
+  addBlocker(blockers, !input.dailyProductionConfigReady, "daily_production_config_not_ready");
+  addBlocker(blockers, !input.dailyWebhookSecretReady, "daily_webhook_secret_not_ready");
+  addBlocker(blockers, !input.dailyCleanupCronReady, "daily_cleanup_cron_not_ready");
   addBlocker(blockers, input.currentRolloutBps < 10000, "current_rollout_bps_below_100pct");
   addBlocker(blockers, !input.rollout1PctPassed, "rollout_1pct_not_certified");
   addBlocker(blockers, !input.rollout10PctPassed, "rollout_10pct_not_certified");

@@ -63,6 +63,9 @@ const cleanInput: VideoDatePhase8CertificationInput = {
   firstFrameP95Ms: 4200,
   firstFrameP99Ms: 7200,
   queueFairnessStatus: "healthy",
+  dailyProductionConfigReady: true,
+  dailyWebhookSecretReady: true,
+  dailyCleanupCronReady: true,
   coreFlagsEnabled: true,
   coreFlagsKilled: false,
   currentRolloutBps: 0,
@@ -131,12 +134,18 @@ test("Phase 8 rollout decision blocks on missing proof and allows only clean ram
   const blocked = evaluateVideoDatePhase8Rollout({
     ...cleanInput,
     currentRolloutBps: 10000,
+    dailyProductionConfigReady: false,
+    dailyWebhookSecretReady: false,
+    dailyCleanupCronReady: false,
     firstFrameSampleCount: 10,
     firstFrameP95Ms: 6100,
     queueFairnessStatus: "critical",
     deckDeal100PctBaked: false,
   });
   assert.equal(blocked[0].allowed, false);
+  assert.ok(blocked[0].blockers.includes("daily_production_config_not_ready"));
+  assert.ok(blocked[0].blockers.includes("daily_webhook_secret_not_ready"));
+  assert.ok(blocked[0].blockers.includes("daily_cleanup_cron_not_ready"));
   assert.ok(blocked[0].blockers.includes("queue_fairness_critical"));
   assert.ok(blocked[1].blockers.includes("insufficient_first_frame_samples"));
   assert.ok(blocked[1].blockers.includes("first_frame_p95_over_target"));
@@ -167,6 +176,14 @@ test("legacy deck cleanup is impossible until server-dealt deck has baked at 100
     isVideoDateLegacyDeckCleanupAllowed({
       ...cleanInput,
       currentRolloutBps: 5000,
+    }),
+    false,
+  );
+  assert.equal(
+    isVideoDateLegacyDeckCleanupAllowed({
+      ...cleanInput,
+      dailyCleanupCronReady: false,
+      currentRolloutBps: 10000,
     }),
     false,
   );
@@ -253,6 +270,19 @@ test("end-state rollout proof is fail-safe against blocked readiness rows", () =
     /record_video_date_phase8_certification_run_v2/,
   );
   assert.doesNotMatch(rolloutSelfCheckMigration, /DAILY_API_KEY|createMeetingToken|meeting_token|daily_token|Bearer/i);
+});
+
+test("Phase 8 certification treats Daily production config as an ops launch blocker", () => {
+  assert.match(phase8CertificationScript, /evaluateDailyProductionConfigReadiness/);
+  assert.match(phase8CertificationScript, /function assertDailyProductionLaunchConfigReady/);
+  assert.match(phase8CertificationScript, /daily_production_config_blocked/);
+  assert.match(phase8CertificationScript, /DAILY_API_KEY/);
+  assert.match(phase8CertificationScript, /DAILY_DOMAIN/);
+  assert.match(phase8CertificationScript, /DAILY_WEBHOOK_SECRET/);
+  assert.match(phase8CertificationScript, /PHASE8_STAGING_CRON_SECRET", "CRON_SECRET"/);
+  assert.match(phase8CertificationScript, /recordRolloutStep[\s\S]*assertDailyProductionLaunchConfigReady/);
+  assert.match(phase8CertificationScript, /recordLegacyCleanup[\s\S]*assertDailyProductionLaunchConfigReady/);
+  assert.doesNotMatch(phase8CertificationScript, /dailyApiKey[\s\S]{0,200}console\.log|DAILY_API_KEY[\s\S]{0,200}console\.log/);
 });
 
 test("PR 8.5 retires client-only deck fallback on web and native", () => {

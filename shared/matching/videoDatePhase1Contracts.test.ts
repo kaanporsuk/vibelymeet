@@ -232,7 +232,7 @@ test("public API interface changes are exposed for deck state, queue hints, paym
   assert.match(publicApiMigration, /NOTIFY pgrst, 'reload schema'/);
   assert.match(tokenRefreshFunction, /get_video_date_snapshot_core/);
   assert.match(tokenRefreshFunction, /\/meeting-tokens/);
-  assert.match(tokenRefreshFunction, /DAILY_VIDEO_DATE_ROOM_TTL_SECONDS = 14_400/);
+  assert.match(tokenRefreshFunction, /DAILY_VIDEO_DATE_ROOM_TTL_SECONDS = DAILY_VIDEO_DATE_ROOM_TTL_SECONDS_CONTRACT/);
   assert.match(tokenRefreshFunction, /DAILY_VIDEO_DATE_TOKEN_TTL_SECONDS = DAILY_VIDEO_DATE_ROOM_TTL_SECONDS/);
   assert.match(tokenRefreshFunction, /ejectAtTokenExp: true/);
   assert.match(webTokenRefreshLib, /VIDEO_DATE_TOKEN_REFRESH_FUNCTION_NAME/);

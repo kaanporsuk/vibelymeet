@@ -80,7 +80,7 @@ test("prepareVideoDateEntryWithClient caches a successful token by session and u
 test("prepared entry handoff is session/user scoped and consumed once", async () => {
   clearPreparedVideoDateEntryCache();
 
-  await prepareVideoDateEntryWithClient({
+  const result = await prepareVideoDateEntryWithClient({
     sessionId: SESSION_ID,
     userId: USER_ID,
     nowMs: 1000,
@@ -107,7 +107,7 @@ test("prepared entry handoff is session/user scoped and consumed once", async ()
 test("prepared entry handoff rejects stale or unsafe envelopes", async () => {
   clearPreparedVideoDateEntryCache();
 
-  await prepareVideoDateEntryWithClient({
+  const result = await prepareVideoDateEntryWithClient({
     sessionId: SESSION_ID,
     userId: USER_ID,
     nowMs: 1000,
@@ -120,16 +120,19 @@ test("prepared entry handoff rejects stale or unsafe envelopes", async () => {
     classifyFailure: async () => ({ kind: "unknown", retryable: false }),
   });
 
+  assert.equal(result.ok, false);
+  assert.equal(result.ok === false && result.code, "PREPARE_ENTRY_INVALID_READY_GATE");
+  assert.equal(result.ok === false && result.retryable, true);
   const rejected = peekPreparedVideoDateEntryHandoff(SESSION_ID, USER_ID, 1200);
   assert.equal(rejected.ok, false);
-  assert.equal(rejected.ok === false && rejected.reason, "invalid_ready_gate");
+  assert.equal(rejected.ok === false && rejected.reason, "missing");
   assert.equal(getCachedPreparedVideoDateEntry(SESSION_ID, USER_ID, 1200), null);
 });
 
 test("prepared entry handoff rejects terminal state even when ready gate metadata looks reusable", async () => {
   clearPreparedVideoDateEntryCache();
 
-  await prepareVideoDateEntryWithClient({
+  const result = await prepareVideoDateEntryWithClient({
     sessionId: SESSION_ID,
     userId: USER_ID,
     nowMs: 1000,
@@ -142,16 +145,18 @@ test("prepared entry handoff rejects terminal state even when ready gate metadat
     classifyFailure: async () => ({ kind: "unknown", retryable: false }),
   });
 
+  assert.equal(result.ok, false);
+  assert.equal(result.ok === false && result.code, "PREPARE_ENTRY_INVALID_STATE");
   const rejected = peekPreparedVideoDateEntryHandoff(SESSION_ID, USER_ID, 1200);
   assert.equal(rejected.ok, false);
-  assert.equal(rejected.ok === false && rejected.reason, "invalid_state");
+  assert.equal(rejected.ok === false && rejected.reason, "missing");
   assert.equal(getCachedPreparedVideoDateEntry(SESSION_ID, USER_ID, 1200), null);
 });
 
 test("prepared entry handoff rejects missing phase proof", async () => {
   clearPreparedVideoDateEntryCache();
 
-  await prepareVideoDateEntryWithClient({
+  const result = await prepareVideoDateEntryWithClient({
     sessionId: SESSION_ID,
     userId: USER_ID,
     nowMs: 1000,
@@ -164,9 +169,32 @@ test("prepared entry handoff rejects missing phase proof", async () => {
     classifyFailure: async () => ({ kind: "unknown", retryable: false }),
   });
 
+  assert.equal(result.ok, false);
+  assert.equal(result.ok === false && result.code, "PREPARE_ENTRY_INVALID_PHASE");
   const rejected = peekPreparedVideoDateEntryHandoff(SESSION_ID, USER_ID, 1200);
   assert.equal(rejected.ok, false);
-  assert.equal(rejected.ok === false && rejected.reason, "invalid_phase");
+  assert.equal(rejected.ok === false && rejected.reason, "missing");
+  assert.equal(getCachedPreparedVideoDateEntry(SESSION_ID, USER_ID, 1200), null);
+});
+
+test("prepareVideoDateEntryWithClient rejects room URL and room-name mismatches before caching", async () => {
+  clearPreparedVideoDateEntryCache();
+
+  const result = await prepareVideoDateEntryWithClient({
+    sessionId: SESSION_ID,
+    userId: USER_ID,
+    nowMs: 1000,
+    invoke: async () => ({
+      data: {
+        ...successPayload(),
+        room_url: "https://vibelyapp.daily.co/different-room",
+      },
+    }),
+    classifyFailure: async () => ({ kind: "unknown", retryable: false }),
+  });
+
+  assert.equal(result.ok, false);
+  assert.equal(result.ok === false && result.code, "PREPARE_ENTRY_ROOM_MISMATCH");
   assert.equal(getCachedPreparedVideoDateEntry(SESSION_ID, USER_ID, 1200), null);
 });
 

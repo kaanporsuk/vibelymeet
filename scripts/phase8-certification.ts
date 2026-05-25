@@ -1,5 +1,6 @@
 #!/usr/bin/env tsx
 import { createClient } from "@supabase/supabase-js";
+import { evaluateDailyProductionConfigReadiness } from "../supabase/functions/daily-room/dailyRoomContracts";
 
 type CertificationRunKind =
   | "two_user_e2e"
@@ -72,7 +73,8 @@ function usage(): never {
 
 Environment:
   PHASE8_STAGING_SUPABASE_URL or SUPABASE_URL
-  PHASE8_STAGING_SUPABASE_SERVICE_ROLE_KEY or SUPABASE_SERVICE_ROLE_KEY`);
+  PHASE8_STAGING_SUPABASE_SERVICE_ROLE_KEY or SUPABASE_SERVICE_ROLE_KEY
+  DAILY_API_KEY, DAILY_DOMAIN, DAILY_WEBHOOK_SECRET, and PHASE8_STAGING_CRON_SECRET or CRON_SECRET for rollout/cleanup certification`);
   process.exit(2);
 }
 
@@ -156,6 +158,31 @@ function requiredEnv(...names: string[]): string {
     if (value && value.trim()) return value.trim();
   }
   throw new Error(`Missing required env: ${names.join(" or ")}`);
+}
+
+function optionalEnv(...names: string[]): string | null {
+  for (const name of names) {
+    const value = process.env[name];
+    if (value && value.trim()) return value.trim();
+  }
+  return null;
+}
+
+function assertDailyProductionLaunchConfigReady(): Record<string, unknown> {
+  const readiness = evaluateDailyProductionConfigReadiness({
+    dailyApiKey: optionalEnv("PHASE8_DAILY_API_KEY", "DAILY_API_KEY"),
+    dailyDomainEnv: optionalEnv("PHASE8_DAILY_DOMAIN", "DAILY_DOMAIN"),
+    dailyWebhookSecret: optionalEnv("PHASE8_DAILY_WEBHOOK_SECRET", "DAILY_WEBHOOK_SECRET"),
+    cleanupCronSecret: optionalEnv("PHASE8_STAGING_CRON_SECRET", "CRON_SECRET"),
+  });
+  if (!readiness.ready) {
+    throw new Error(`daily_production_config_blocked: ${readiness.blockers.join(",")}`);
+  }
+  return {
+    daily_production_config_ready: true,
+    daily_webhook_secret_ready: true,
+    daily_cleanup_cron_ready: true,
+  };
 }
 
 function supabaseAdmin() {
@@ -244,12 +271,13 @@ async function recordRolloutStep(input: {
   expiresAt?: string | null;
 }) {
   assertNoSecretKeys(input.report ?? {});
+  const dailyConfigReport = assertDailyProductionLaunchConfigReady();
   await assertRolloutReadiness(input.eventId ?? null, input.rolloutBps);
   const { data, error } = await supabaseAdmin().rpc("record_video_date_phase8_rollout_step_v2", {
     p_event_id: input.eventId ?? null,
     p_rollout_bps: input.rolloutBps,
     p_commit_sha: input.commitSha ?? null,
-    p_report: input.report ?? {},
+    p_report: { ...(input.report ?? {}), ...dailyConfigReport },
     p_notes: input.notes ?? null,
     p_expires_at: input.expiresAt ?? null,
   });
@@ -266,9 +294,10 @@ async function recordLegacyCleanup(input: {
   expiresAt?: string | null;
 }) {
   assertNoSecretKeys(input.report ?? {});
+  const dailyConfigReport = assertDailyProductionLaunchConfigReady();
   const { data, error } = await supabaseAdmin().rpc("record_video_date_phase8_legacy_cleanup_v2", {
     p_commit_sha: input.commitSha ?? null,
-    p_report: input.report ?? {},
+    p_report: { ...(input.report ?? {}), ...dailyConfigReport },
     p_notes: input.notes ?? null,
     p_expires_at: input.expiresAt ?? null,
   });

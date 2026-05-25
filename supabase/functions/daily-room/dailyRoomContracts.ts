@@ -35,6 +35,86 @@ export function videoDateRoomUrlForName(roomName: string, dailyDomain: string): 
   return `https://${dailyDomain}/${roomName}`;
 }
 
+export const DAILY_ROOM_DOMAIN_FALLBACK = "vibelyapp.daily.co" as const;
+export const DAILY_VIDEO_DATE_ROOM_TTL_SECONDS = 14_400 as const;
+export const DAILY_VIDEO_DATE_ROOM_MAX_PARTICIPANTS = 2 as const;
+
+export function buildVideoDateRoomProperties(params: {
+  nowSeconds?: number;
+  ttlSeconds?: number;
+} = {}): {
+  max_participants: typeof DAILY_VIDEO_DATE_ROOM_MAX_PARTICIPANTS;
+  enable_chat: false;
+  enable_screenshare: false;
+  enable_recording: false;
+  enable_knocking: false;
+  enforce_unique_user_ids: true;
+  start_video_off: false;
+  start_audio_off: false;
+  exp: number;
+  eject_at_room_exp: true;
+} {
+  const nowSeconds = params.nowSeconds ?? Math.floor(Date.now() / 1000);
+  const ttlSeconds = params.ttlSeconds ?? DAILY_VIDEO_DATE_ROOM_TTL_SECONDS;
+  return {
+    max_participants: DAILY_VIDEO_DATE_ROOM_MAX_PARTICIPANTS,
+    enable_chat: false,
+    enable_screenshare: false,
+    enable_recording: false,
+    enable_knocking: false,
+    enforce_unique_user_ids: true,
+    start_video_off: false,
+    start_audio_off: false,
+    exp: nowSeconds + ttlSeconds,
+    eject_at_room_exp: true,
+  };
+}
+
+export type DailyProductionConfigReadiness = {
+  ready: boolean;
+  blockers: string[];
+};
+
+function isConfiguredSecretValue(value: string | null | undefined): boolean {
+  const trimmed = value?.trim();
+  if (!trimmed) return false;
+  return !/^(changeme|change-me|change_me|placeholder|example|dummy|test|todo)$/i.test(trimmed);
+}
+
+function isConfiguredDomainValue(value: string | null | undefined): boolean {
+  const trimmed = value?.trim();
+  if (!trimmed) return false;
+  if (/^(changeme|change-me|change_me|placeholder|example|dummy|test|todo)$/i.test(trimmed)) return false;
+  return /^[a-z0-9.-]+$/i.test(trimmed);
+}
+
+export function evaluateDailyProductionConfigReadiness(params: {
+  dailyApiKey?: string | null;
+  dailyDomainEnv?: string | null;
+  dailyWebhookSecret?: string | null;
+  cleanupCronSecret?: string | null;
+}): DailyProductionConfigReadiness {
+  const blockers: string[] = [];
+
+  if (!isConfiguredSecretValue(params.dailyApiKey)) blockers.push("daily_api_key_missing");
+
+  const domain = params.dailyDomainEnv?.trim() ?? "";
+  if (!domain) {
+    blockers.push("daily_domain_missing");
+    blockers.push("daily_domain_fallback_used");
+  } else if (!isConfiguredDomainValue(domain)) {
+    blockers.push("daily_domain_invalid");
+  }
+
+  if (!isConfiguredSecretValue(params.dailyWebhookSecret)) blockers.push("daily_webhook_secret_missing");
+  if (!isConfiguredSecretValue(params.cleanupCronSecret)) blockers.push("daily_cleanup_cron_secret_missing");
+
+  return {
+    ready: blockers.length === 0,
+    blockers,
+  };
+}
+
 export function isDailyRoomUrlForName(value: string, roomName: string, dailyDomain: string): boolean {
   try {
     const url = new URL(value);

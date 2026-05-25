@@ -260,7 +260,9 @@ export function startWebVideoDateDailyPrewarm(params: {
   const existing = prewarmEntries.get(key);
   if (existing) {
     if (existing.expiresAtMs > Date.now()) {
-      if (existing.roomUrl === params.roomUrl) return { ok: true, entry: publicEntry(existing) };
+      if (existing.roomName === params.roomName && existing.roomUrl === params.roomUrl) {
+        return { ok: true, entry: publicEntry(existing) };
+      }
       fallbackEntry(existing, "daily_prewarm_room_changed");
     } else {
       fallbackEntry(existing, "daily_prewarm_expired_before_restart");
@@ -361,6 +363,7 @@ export async function preAuthWebVideoDateDailyPrewarm(params: {
   sessionId: string;
   userId: string;
   eventId: string | null;
+  roomName: string;
   roomUrl: string;
   token: string;
   source: string;
@@ -368,7 +371,13 @@ export async function preAuthWebVideoDateDailyPrewarm(params: {
 }): Promise<boolean> {
   if (!prewarmEnabled()) return false;
   const entry = prewarmEntries.get(keyFor(params.sessionId, params.userId));
-  if (!entry || entry.roomUrl !== params.roomUrl || entry.status === "destroyed" || entry.status === "fallback") {
+  if (
+    !entry ||
+    entry.roomName !== params.roomName ||
+    entry.roomUrl !== params.roomUrl ||
+    entry.status === "destroyed" ||
+    entry.status === "fallback"
+  ) {
     return false;
   }
   if (entry.status === "joined") {
@@ -407,6 +416,7 @@ export async function joinWebVideoDateDailyPrewarm(params: {
   sessionId: string;
   userId: string;
   eventId: string | null;
+  roomName: string;
   roomUrl: string;
   token: string;
   source: string;
@@ -415,7 +425,13 @@ export async function joinWebVideoDateDailyPrewarm(params: {
 }): Promise<boolean> {
   if (!joinPrewarmEnabled(params.joinSource)) return false;
   const entry = prewarmEntries.get(keyFor(params.sessionId, params.userId));
-  if (!entry || entry.roomUrl !== params.roomUrl || entry.status === "destroyed" || entry.status === "fallback") {
+  if (
+    !entry ||
+    entry.roomName !== params.roomName ||
+    entry.roomUrl !== params.roomUrl ||
+    entry.status === "destroyed" ||
+    entry.status === "fallback"
+  ) {
     return false;
   }
   if (entry.status === "joined") return true;

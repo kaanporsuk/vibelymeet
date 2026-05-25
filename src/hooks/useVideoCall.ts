@@ -2972,8 +2972,82 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
             cause: cause instanceof Error ? cause.message : cause ? String(cause) : null,
           });
           const refresh = await refreshVideoDateToken(sessionId);
-          const durationMs = Date.now() - refreshStartedAtMs;
+          let durationMs = Date.now() - refreshStartedAtMs;
           if (refresh.ok === false) {
+            if (refresh.error === "room_not_ready") {
+              vdbg("daily_token_refresh_prepare_entry_recovery_started", {
+                sessionId,
+                eventId: truthRow.event_id ?? eventId,
+                userId,
+                sourceAction,
+                roomName: roomData.room_name,
+              });
+              const prepared = await prepareVideoDateEntry(sessionId, {
+                eventId: truthRow.event_id ?? eventId,
+                userId,
+                source: `${sourceAction}_room_recovery`,
+                force: true,
+              });
+              durationMs = Date.now() - refreshStartedAtMs;
+              if (
+                prepared.ok === true &&
+                prepared.data.room_name === roomData.room_name &&
+                prepared.data.room_url === roomData.room_url
+              ) {
+                activePreparedEntryCacheRef.current = prepared.cacheEntry;
+                activePreparedEntryCacheHitRef.current = prepared.cached;
+                lastProviderVerifySkippedRef.current = prepared.data.provider_verify_skipped ?? null;
+                roomData = {
+                  ...roomData,
+                  token: prepared.data.token,
+                  token_expires_at: prepared.data.token_expires_at ?? null,
+                  entry_attempt_id: prepared.data.entry_attempt_id ?? roomData.entry_attempt_id ?? null,
+                  video_date_trace_id: prepared.data.video_date_trace_id ?? prepared.data.entry_attempt_id ?? roomData.video_date_trace_id ?? null,
+                  provider_room_recreated: prepared.data.provider_room_recreated ?? roomData.provider_room_recreated,
+                  provider_verify_skipped: prepared.data.provider_verify_skipped ?? roomData.provider_verify_skipped,
+                };
+                vdbg("daily_token_refresh_prepare_entry_recovery_success", {
+                  sessionId,
+                  eventId: truthRow.event_id ?? eventId,
+                  userId,
+                  sourceAction,
+                  roomName: roomData.room_name,
+                  tokenExpiresAt: roomData.token_expires_at ?? null,
+                  durationMs,
+                });
+                trackEvent(LobbyPostDateEvents.VIDEO_DATE_DAILY_TOKEN_SUCCESS, {
+                  platform: "web",
+                  session_id: sessionId,
+                  event_id: truthRow.event_id ?? eventId,
+                  source_surface: "video_date_daily",
+                  source_action: sourceAction,
+                  cached: prepared.cached,
+                  handoff_used: false,
+                  attempt: 2,
+                  attempt_count: 2,
+                  entry_attempt_id: prepared.data.entry_attempt_id ?? null,
+                  video_date_trace_id: prepared.data.video_date_trace_id ?? prepared.data.entry_attempt_id ?? null,
+                  recovered_via_prepare_entry: true,
+                  provider_verify_reason: prepared.data.provider_verify_reason ?? null,
+                  provider_verify_skipped: prepared.data.provider_verify_skipped === true,
+                  duration_ms: durationMs,
+                  latency_bucket: bucketVideoDateLatencyMs(durationMs),
+                });
+                return true;
+              }
+              vdbg("daily_token_refresh_prepare_entry_recovery_failed", {
+                sessionId,
+                eventId: truthRow.event_id ?? eventId,
+                userId,
+                sourceAction,
+                reason: prepared.ok === true ? "room_mismatch" : prepared.code,
+                previousRoomName: roomData.room_name,
+                preparedRoomName: prepared.ok === true ? prepared.data.room_name : null,
+                previousRoomUrl: roomData.room_url,
+                preparedRoomUrl: prepared.ok === true ? prepared.data.room_url : null,
+                durationMs,
+              });
+            }
             vdbg("daily_token_refresh_failed", {
               sessionId,
               eventId: truthRow.event_id ?? eventId,

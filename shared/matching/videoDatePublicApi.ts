@@ -12,6 +12,12 @@ export type VideoDateTokenRefreshOk = {
   token: string;
   tokenExpiresAt: number;
   tokenExpiresAtIso: string | null;
+  tokenTtlSeconds: number | null;
+  tokenExpiryReason: string | null;
+  providerRoomRecovered: boolean | null;
+  providerVerifyReason: string | null;
+  dailyRoomVerifiedAt: string | null;
+  dailyRoomExpiresAt: string | null;
 };
 
 export type VideoDateTokenRefreshError = {
@@ -201,6 +207,17 @@ export function normalizeVideoDateTokenRefresh(payload: unknown): VideoDateToken
     token,
     tokenExpiresAt,
     tokenExpiresAtIso: nullableString(record.token_expires_at) ?? nullableString(record.tokenExpiresAtIso),
+    tokenTtlSeconds: nullableNumber(record.token_ttl_seconds ?? record.tokenTtlSeconds),
+    tokenExpiryReason: nullableString(record.token_expiry_reason) ?? nullableString(record.tokenExpiryReason),
+    providerRoomRecovered:
+      typeof record.provider_room_recovered === "boolean"
+        ? record.provider_room_recovered
+        : typeof record.providerRoomRecovered === "boolean"
+          ? record.providerRoomRecovered
+          : null,
+    providerVerifyReason: nullableString(record.provider_verify_reason) ?? nullableString(record.providerVerifyReason),
+    dailyRoomVerifiedAt: nullableString(record.daily_room_verified_at) ?? nullableString(record.dailyRoomVerifiedAt),
+    dailyRoomExpiresAt: nullableString(record.daily_room_expires_at) ?? nullableString(record.dailyRoomExpiresAt),
   };
 }
 
