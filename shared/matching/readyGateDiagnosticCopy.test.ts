@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import {
+  resolveReadyGateDiagnosticChecklist,
   resolveReadyGateDiagnosticCopy,
   resolveReadyGatePrepareEntryFailureCopy,
 } from "./readyGateDiagnosticCopy";
@@ -33,6 +34,61 @@ test("Ready Gate diagnostics expose actionable platform copy", () => {
   }).message, "Sam is not ready yet. We will connect you when both of you are ready.");
   assert.equal(resolveReadyGateDiagnosticCopy({ key: "realtime_sync", status: "checking" }).actionKind, "wait");
   assert.equal(resolveReadyGateDiagnosticCopy({ key: "video_provider", status: "failed" }).actionLabel, "Retry video setup");
+});
+
+test("Ready Gate diagnostic checklist keeps every focused readiness row privacy-safe", () => {
+  const checklist = resolveReadyGateDiagnosticChecklist({
+    platform: "native",
+    partnerName: "Sam",
+    cameraPermissionStatus: "ok",
+    microphonePermissionStatus: "blocked",
+    cameraDeviceStatus: "unknown",
+    microphoneDeviceStatus: "unknown",
+    videoProviderStatus: "checking",
+    realtimeSyncStatus: "warning",
+    partnerReadinessStatus: "warning",
+  });
+
+  assert.deepEqual(checklist.rows.map((row) => row.key), [
+    "camera_permission",
+    "microphone_permission",
+    "camera_device",
+    "microphone_device",
+    "video_provider",
+    "realtime_sync",
+    "partner_readiness",
+  ]);
+  assert.equal(checklist.canProceed, false);
+  assert.equal(checklist.primaryIssue?.key, "microphone_permission");
+  assert.equal(checklist.primaryIssue?.actionKind, "open_settings");
+  assert.equal(
+    checklist.rows.find((row) => row.key === "partner_readiness")?.message,
+    "Sam is not ready yet. We will connect you when both of you are ready.",
+  );
+  assert.equal(
+    resolveReadyGateDiagnosticChecklist({
+      cameraPermissionStatus: "ok",
+      microphonePermissionStatus: "ok",
+      cameraDeviceStatus: "ok",
+      microphoneDeviceStatus: "ok",
+      videoProviderStatus: "checking",
+      realtimeSyncStatus: "ok",
+      partnerReadinessStatus: "ok",
+    }).canProceed,
+    false,
+  );
+
+  const optimisticChecklist = resolveReadyGateDiagnosticChecklist({
+    cameraPermissionStatus: "ok",
+    microphonePermissionStatus: "ok",
+    cameraDeviceStatus: "ok",
+    microphoneDeviceStatus: "ok",
+    videoProviderStatus: "ok",
+    realtimeSyncStatus: "ok",
+    partnerReadinessStatus: "ok",
+  });
+  assert.equal(optimisticChecklist.primaryIssue, null);
+  assert.equal(optimisticChecklist.canProceed, true);
 });
 
 test("Ready Gate prepare-entry failure copy preserves web and native provider wording", () => {
@@ -74,4 +130,35 @@ test("web and native Ready Gate surfaces consume shared failure copy", () => {
   for (const source of [webReadyGate, nativeOverlay, nativeReadyRoute]) {
     assert.match(source, /resolveReadyGatePrepareEntryFailureCopy/);
   }
+});
+
+test("web and native Ready Gate surfaces consume shared diagnostic checklist copy", () => {
+  const webReadyGate = read("src/components/lobby/ReadyGateOverlay.tsx");
+  const nativeOverlay = read("apps/mobile/components/lobby/ReadyGateOverlay.tsx");
+  const nativeReadyRoute = read("apps/mobile/app/ready/[id].tsx");
+
+  for (const source of [webReadyGate, nativeOverlay, nativeReadyRoute]) {
+    assert.match(source, /resolveReadyGateDiagnosticChecklist/);
+  }
+  assert.match(nativeOverlay, /ReadyGateDiagnosticChecklist/);
+  assert.match(nativeReadyRoute, /ReadyGateDiagnosticChecklist/);
+  assert.match(nativeOverlay, /inspectNativeReadyGateMediaDevices/);
+  assert.match(nativeReadyRoute, /inspectNativeReadyGateMediaDevices/);
+  assert.match(nativeOverlay, /nativePermissionDiagnostics\.cameraPermissionStatus/);
+  assert.match(nativeOverlay, /nativePermissionDiagnostics\.microphonePermissionStatus/);
+  assert.match(nativeReadyRoute, /nativePermissionDiagnostics\.cameraPermissionStatus/);
+  assert.match(nativeReadyRoute, /nativePermissionDiagnostics\.microphonePermissionStatus/);
+  assert.doesNotMatch(nativeOverlay, /hasMediaPermission \? 'ok' : 'blocked'/);
+  assert.doesNotMatch(nativeReadyRoute, /hasMediaPermission \? 'ok' : 'blocked'/);
+});
+
+test("Ready Gate device diagnostics avoid false hardware failures behind permission gates", () => {
+  const webReadyGate = read("src/components/lobby/ReadyGateOverlay.tsx");
+  const nativeMediaDiagnostics = read("apps/mobile/lib/readyGateNativeMediaDiagnostics.ts");
+
+  assert.match(webReadyGate, /resolveMediaDiagnosticsAfterPrewarmError/);
+  assert.match(webReadyGate, /mergeRefreshedDiagnosticStatus/);
+  assert.match(nativeMediaDiagnostics, /cameraAvailable === false[\s\S]*hasMediaPermission \? 'failed' : 'unknown'/);
+  assert.match(nativeMediaDiagnostics, /hasMediaPermission\s*\?\s*'failed'\s*:\s*next\.cameraDeviceStatus/);
+  assert.match(nativeMediaDiagnostics, /hasMediaPermission\s*\?\s*'failed'\s*:\s*next\.microphoneDeviceStatus/);
 });

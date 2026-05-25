@@ -48,6 +48,24 @@ export type ReadyGatePrepareEntryFailureCopy = {
   terminal: boolean;
 };
 
+export type ReadyGateDiagnosticChecklistInput = {
+  platform?: ReadyGatePlatform;
+  partnerName?: string | null;
+  cameraPermissionStatus?: ReadyGateDiagnosticStatus | null;
+  microphonePermissionStatus?: ReadyGateDiagnosticStatus | null;
+  cameraDeviceStatus?: ReadyGateDiagnosticStatus | null;
+  microphoneDeviceStatus?: ReadyGateDiagnosticStatus | null;
+  videoProviderStatus?: ReadyGateDiagnosticStatus | null;
+  realtimeSyncStatus?: ReadyGateDiagnosticStatus | null;
+  partnerReadinessStatus?: ReadyGateDiagnosticStatus | null;
+};
+
+export type ReadyGateDiagnosticChecklist = {
+  rows: ReadyGateDiagnosticCopy[];
+  primaryIssue: ReadyGateDiagnosticCopy | null;
+  canProceed: boolean;
+};
+
 const DIAGNOSTIC_LABELS: Record<ReadyGateDiagnosticKey, string> = {
   camera_permission: "Camera permission",
   microphone_permission: "Microphone permission",
@@ -69,6 +87,13 @@ function severityForStatus(status: ReadyGateDiagnosticStatus): ReadyGateDiagnost
   if (status === "blocked" || status === "failed") return "error";
   if (status === "warning") return "warning";
   return "info";
+}
+
+function normalizeDiagnosticStatus(
+  status: ReadyGateDiagnosticStatus | null | undefined,
+  fallback: ReadyGateDiagnosticStatus,
+): ReadyGateDiagnosticStatus {
+  return status ?? fallback;
 }
 
 export function resolveReadyGateDiagnosticCopy(input: {
@@ -171,6 +196,66 @@ export function resolveReadyGateDiagnosticCopy(input: {
         actionKind: "wait",
       };
   }
+}
+
+export function resolveReadyGateDiagnosticChecklist(
+  input: ReadyGateDiagnosticChecklistInput,
+): ReadyGateDiagnosticChecklist {
+  const platform = input.platform ?? "web";
+  const partnerName = input.partnerName ?? null;
+  const rows = [
+    resolveReadyGateDiagnosticCopy({
+      key: "camera_permission",
+      status: normalizeDiagnosticStatus(input.cameraPermissionStatus, "unknown"),
+      platform,
+      partnerName,
+    }),
+    resolveReadyGateDiagnosticCopy({
+      key: "microphone_permission",
+      status: normalizeDiagnosticStatus(input.microphonePermissionStatus, "unknown"),
+      platform,
+      partnerName,
+    }),
+    resolveReadyGateDiagnosticCopy({
+      key: "camera_device",
+      status: normalizeDiagnosticStatus(input.cameraDeviceStatus, "unknown"),
+      platform,
+      partnerName,
+    }),
+    resolveReadyGateDiagnosticCopy({
+      key: "microphone_device",
+      status: normalizeDiagnosticStatus(input.microphoneDeviceStatus, "unknown"),
+      platform,
+      partnerName,
+    }),
+    resolveReadyGateDiagnosticCopy({
+      key: "video_provider",
+      status: normalizeDiagnosticStatus(input.videoProviderStatus, "checking"),
+      platform,
+      partnerName,
+    }),
+    resolveReadyGateDiagnosticCopy({
+      key: "realtime_sync",
+      status: normalizeDiagnosticStatus(input.realtimeSyncStatus, "checking"),
+      platform,
+      partnerName,
+    }),
+    resolveReadyGateDiagnosticCopy({
+      key: "partner_readiness",
+      status: normalizeDiagnosticStatus(input.partnerReadinessStatus, "checking"),
+      platform,
+      partnerName,
+    }),
+  ];
+  const primaryIssue =
+    rows.find((row) => row.severity === "error") ??
+    rows.find((row) => row.severity === "warning") ??
+    null;
+  return {
+    rows,
+    primaryIssue,
+    canProceed: rows.every((row) => row.status === "ok"),
+  };
 }
 
 export function resolveReadyGatePrepareEntryFailureCopy(input: {

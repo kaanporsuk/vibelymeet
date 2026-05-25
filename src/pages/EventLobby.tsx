@@ -891,6 +891,9 @@ const EventLobby = () => {
   });
   const queueHintCopy = resolveVideoDateQueueCopy(queueHint, queuedCount);
   const queueHintLabel = queueHintCopy.compactLabel;
+  const queueHintDetailParts = queueHintCopy.detailParts.length > 0
+    ? queueHintCopy.detailParts
+    : [queueHintLabel];
 
   useEffect(() => {
     if (!eventId || !lobbySideEffectsEnabled) return;
@@ -2067,6 +2070,7 @@ const EventLobby = () => {
     !(currentProfile && !deckLoading);
   const suppressDeckUiForConvergence =
     yieldingToVideoDateUi || yieldingToReadyGateUi || showPostSurveyQueueCheck;
+  const showQueueWaitingPanel = queuedCount > 0 && !activeSessionId && !suppressDeckUiForConvergence;
   const readyGateOverlayAllowed = Boolean(
     activeSessionId &&
       eventId &&
@@ -2273,6 +2277,36 @@ const EventLobby = () => {
 
       {/* Card Area */}
       <main className="flex-1 flex flex-col items-center justify-center px-4 py-5 max-w-lg mx-auto w-full relative z-10">
+        {showQueueWaitingPanel && (
+          <section
+            className="mb-4 w-full rounded-2xl border border-fuchsia-300/20 bg-fuchsia-500/[0.08] p-4 text-left shadow-[0_0_28px_rgba(217,70,239,0.08)]"
+            aria-label="Queue status"
+          >
+            <div className="flex items-start gap-3">
+              <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-fuchsia-400/15 text-fuchsia-200">
+                <Sparkles className="h-4 w-4" aria-hidden="true" />
+              </span>
+              <div className="min-w-0 flex-1">
+                <h2 className="text-sm font-display font-semibold text-white">
+                  {queueHintCopy.title}
+                </h2>
+                <p className="mt-1 text-xs leading-5 text-white/55">
+                  {queueHintCopy.message}
+                </p>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {queueHintDetailParts.map((part) => (
+                    <span
+                      key={part}
+                      className="rounded-full border border-white/10 bg-white/[0.06] px-2.5 py-1 text-[11px] font-semibold text-white/75"
+                    >
+                      {part}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </section>
+        )}
         {suppressDeckUiForConvergence ? (
           <div className="flex flex-col items-center justify-center flex-1 px-4 py-8 text-center max-w-sm mx-auto w-full min-h-[min(280px,50vh)]">
             <div className="w-12 h-12 rounded-full border-2 border-primary border-t-transparent animate-spin shadow-[0_0_24px_hsl(var(--primary)/0.35)] mb-5" />

@@ -296,6 +296,14 @@ test("Phase 4 web/native surfaces consume shared UX helpers", () => {
   assert.match(nativeLobby, /deckState\?\.inactive_reason/);
   assert.match(webLobby, /resolveVideoDateQueueCopy/);
   assert.match(nativeLobby, /resolveVideoDateQueueCopy/);
+  assert.match(webLobby, /queueHintCopy\.title/);
+  assert.match(webLobby, /queueHintCopy\.message/);
+  assert.match(webLobby, /queueHintDetailParts/);
+  assert.match(nativeLobby, /queueHintCopy\.title/);
+  assert.match(nativeLobby, /queueHintCopy\.message/);
+  assert.match(nativeLobby, /queueHintDetailParts/);
+  assert.match(nativeLobby, /queueFallbackCount/);
+  assert.match(nativeLobby, /Math\.max\(queuedMatchCount, 1\)/);
   assert.doesNotMatch(webLobby, /formatVideoDateQueueHintLabel/);
   assert.doesNotMatch(nativeLobby, /formatVideoDateQueueHintLabel/);
   assert.match(webLobby, /emptyDeckUiState\.showRefresh/);

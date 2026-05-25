@@ -74,7 +74,12 @@ import {
   getReadyGatePermissionPrewarmReleaseDelayMs,
   getReadyGateReadinessStatusCopy,
 } from "@clientShared/matching/readyGateReadiness";
-import { resolveReadyGatePrepareEntryFailureCopy } from "@clientShared/matching/readyGateDiagnosticCopy";
+import {
+  resolveReadyGateDiagnosticChecklist,
+  resolveReadyGatePrepareEntryFailureCopy,
+  type ReadyGateDiagnosticCopy,
+  type ReadyGateDiagnosticStatus,
+} from "@clientShared/matching/readyGateDiagnosticCopy";
 
 interface ReadyGateOverlayProps {
   sessionId: string;
@@ -107,6 +112,20 @@ type ReadyGatePermissionPrewarmMedia = {
   captureProfile: VideoDateWebMediaCaptureProfile;
   acquiredAtMs: number;
   source: string;
+};
+
+type ReadyGateMediaDiagnosticState = {
+  cameraPermissionStatus: ReadyGateDiagnosticStatus;
+  microphonePermissionStatus: ReadyGateDiagnosticStatus;
+  cameraDeviceStatus: ReadyGateDiagnosticStatus;
+  microphoneDeviceStatus: ReadyGateDiagnosticStatus;
+};
+
+const READY_GATE_MEDIA_DIAGNOSTICS_CHECKING: ReadyGateMediaDiagnosticState = {
+  cameraPermissionStatus: "checking",
+  microphonePermissionStatus: "checking",
+  cameraDeviceStatus: "unknown",
+  microphoneDeviceStatus: "unknown",
 };
 
 function stopMediaStreamTracks(stream: MediaStream | null) {
@@ -180,6 +199,111 @@ function waitForMediaStreamWithTimeout(
   });
 }
 
+function permissionStateToDiagnosticStatus(state: PermissionState | null): ReadyGateDiagnosticStatus {
+  if (state === "granted") return "ok";
+  if (state === "denied") return "blocked";
+  return "unknown";
+}
+
+async function queryWebMediaPermissionState(name: "camera" | "microphone"): Promise<PermissionState | null> {
+  if (typeof navigator === "undefined" || !navigator.permissions?.query) return null;
+  try {
+    const status = await navigator.permissions.query({ name: name as PermissionName });
+    return status.state;
+  } catch {
+    return null;
+  }
+}
+
+async function inspectWebReadyGateMediaDiagnostics(): Promise<ReadyGateMediaDiagnosticState> {
+  const [cameraPermission, microphonePermission] = await Promise.all([
+    queryWebMediaPermissionState("camera"),
+    queryWebMediaPermissionState("microphone"),
+  ]);
+  const next: ReadyGateMediaDiagnosticState = {
+    cameraPermissionStatus: permissionStateToDiagnosticStatus(cameraPermission),
+    microphonePermissionStatus: permissionStateToDiagnosticStatus(microphonePermission),
+    cameraDeviceStatus: "unknown",
+    microphoneDeviceStatus: "unknown",
+  };
+
+  if (typeof navigator === "undefined" || !navigator.mediaDevices?.enumerateDevices) return next;
+
+  try {
+    const devices = await navigator.mediaDevices.enumerateDevices();
+    const hasCamera = devices.some((device) => device.kind === "videoinput");
+    const hasMicrophone = devices.some((device) => device.kind === "audioinput");
+    next.cameraDeviceStatus = hasCamera ? "ok" : cameraPermission === "granted" ? "failed" : "unknown";
+    next.microphoneDeviceStatus = hasMicrophone ? "ok" : microphonePermission === "granted" ? "failed" : "unknown";
+  } catch {
+    next.cameraDeviceStatus = "unknown";
+    next.microphoneDeviceStatus = "unknown";
+  }
+
+  return next;
+}
+
+function mediaDiagnosticFromPrewarmError(error: unknown): Partial<ReadyGateMediaDiagnosticState> {
+  const errorName = error instanceof Error ? error.name : "";
+  if (errorName === "NotAllowedError" || errorName === "PermissionDeniedError" || errorName === "SecurityError") {
+    return {
+      cameraPermissionStatus: "blocked",
+      microphonePermissionStatus: "blocked",
+    };
+  }
+  if (errorName === "NotFoundError" || errorName === "DevicesNotFoundError") {
+    return {
+      cameraDeviceStatus: "failed",
+      microphoneDeviceStatus: "failed",
+    };
+  }
+  if (isVideoDateCameraConstraintError(error)) {
+    return {
+      cameraDeviceStatus: "failed",
+    };
+  }
+  return {
+    cameraPermissionStatus: "warning",
+    microphonePermissionStatus: "warning",
+  };
+}
+
+function mergeInspectedDiagnosticStatus(
+  inspectedStatus: ReadyGateDiagnosticStatus,
+  fallbackStatus: ReadyGateDiagnosticStatus | undefined,
+): ReadyGateDiagnosticStatus {
+  return inspectedStatus === "unknown" && fallbackStatus ? fallbackStatus : inspectedStatus;
+}
+
+function mergeRefreshedDiagnosticStatus(
+  inspectedStatus: ReadyGateDiagnosticStatus,
+  currentStatus: ReadyGateDiagnosticStatus,
+): ReadyGateDiagnosticStatus {
+  if (inspectedStatus !== "unknown") return inspectedStatus;
+  if (currentStatus === "checking") return "unknown";
+  return currentStatus;
+}
+
+async function resolveMediaDiagnosticsAfterPrewarmError(error: unknown): Promise<ReadyGateMediaDiagnosticState> {
+  const fallback = mediaDiagnosticFromPrewarmError(error);
+  const inspected = await inspectWebReadyGateMediaDiagnostics();
+  return {
+    cameraPermissionStatus: mergeInspectedDiagnosticStatus(
+      inspected.cameraPermissionStatus,
+      fallback.cameraPermissionStatus,
+    ),
+    microphonePermissionStatus: mergeInspectedDiagnosticStatus(
+      inspected.microphonePermissionStatus,
+      fallback.microphonePermissionStatus,
+    ),
+    cameraDeviceStatus: mergeInspectedDiagnosticStatus(inspected.cameraDeviceStatus, fallback.cameraDeviceStatus),
+    microphoneDeviceStatus: mergeInspectedDiagnosticStatus(
+      inspected.microphoneDeviceStatus,
+      fallback.microphoneDeviceStatus,
+    ),
+  };
+}
+
 type ReadyGateTerminalDetail = {
   status?: string | null;
   reason?: string | null;
@@ -225,6 +349,9 @@ const ReadyGateOverlay = ({
   const [requestingSnooze, setRequestingSnooze] = useState(false);
   const [prepareEntryStatus, setPrepareEntryStatus] = useState<PrepareEntryStatus>("idle");
   const [prepareEntryFailure, setPrepareEntryFailure] = useState<PrepareEntryFailureState>(null);
+  const [mediaDiagnostics, setMediaDiagnostics] = useState<ReadyGateMediaDiagnosticState>(
+    READY_GATE_MEDIA_DIAGNOSTICS_CHECKING,
+  );
   const [showRealtimeFallbackCopy, setShowRealtimeFallbackCopy] = useState(false);
   const [realtimeDegraded, setRealtimeDegraded] = useState(false);
   const [terminalActionPending, setTerminalActionPending] = useState(false);
@@ -511,6 +638,34 @@ const ReadyGateOverlay = ({
     [eventId, sessionId],
   );
 
+  const refreshMediaDiagnostics = useCallback(async () => {
+    const readyGateKey = activeReadyGateKeyRef.current;
+    setMediaDiagnostics((current) => ({
+      ...current,
+      cameraPermissionStatus:
+        current.cameraPermissionStatus === "blocked" ? "blocked" : "checking",
+      microphonePermissionStatus:
+        current.microphonePermissionStatus === "blocked" ? "blocked" : "checking",
+    }));
+    const next = await inspectWebReadyGateMediaDiagnostics();
+    if (activeReadyGateKeyRef.current !== readyGateKey) return;
+    setMediaDiagnostics((current) => ({
+      cameraPermissionStatus: mergeRefreshedDiagnosticStatus(
+        next.cameraPermissionStatus,
+        current.cameraPermissionStatus,
+      ),
+      microphonePermissionStatus: mergeRefreshedDiagnosticStatus(
+        next.microphonePermissionStatus,
+        current.microphonePermissionStatus,
+      ),
+      cameraDeviceStatus: mergeRefreshedDiagnosticStatus(next.cameraDeviceStatus, current.cameraDeviceStatus),
+      microphoneDeviceStatus: mergeRefreshedDiagnosticStatus(
+        next.microphoneDeviceStatus,
+        current.microphoneDeviceStatus,
+      ),
+    }));
+  }, []);
+
   // Web Ready Gate permission prewarm: writes the existing
   // VideoDatePermissionHandoff (consumed by useVideoCall ~L1372) so the date
   // screen can skip its own getUserMedia roundtrip. Two trigger sources:
@@ -689,6 +844,12 @@ const ReadyGateOverlay = ({
         } else {
           permissionPrewarmMediaHandoffStoredRef.current = true;
         }
+        setMediaDiagnostics({
+          cameraPermissionStatus: "ok",
+          microphonePermissionStatus: "ok",
+          cameraDeviceStatus: "ok",
+          microphoneDeviceStatus: "ok",
+        });
         const durationMs = Math.max(0, Date.now() - startedAtMs);
         const successContext = recordReadyGateToDateLatencyCheckpoint({
           sessionId,
@@ -733,6 +894,9 @@ const ReadyGateOverlay = ({
           }
         }
         if (!isActiveReadyGate) return;
+        const nextMediaDiagnostics = await resolveMediaDiagnosticsAfterPrewarmError(error);
+        if (activeReadyGateKeyRef.current !== readyGateKey) return;
+        setMediaDiagnostics(nextMediaDiagnostics);
         if (sourceAction === "permission_prewarm_silent_no_permissions_api") {
           vdbg("ready_gate_permission_prewarm_silent_fallback_failed", {
             sessionId,
@@ -1798,6 +1962,7 @@ const ReadyGateOverlay = ({
     setRequestingSnooze(false);
     setPrepareEntryStatus("idle");
     setPrepareEntryFailure(null);
+    setMediaDiagnostics(READY_GATE_MEDIA_DIAGNOSTICS_CHECKING);
     clearRealtimeFallbackCopy();
     setRealtimeDegraded(false);
     setTerminalActionPending(false);
@@ -1840,8 +2005,9 @@ const ReadyGateOverlay = ({
 
   useEffect(() => {
     if (!sessionId || !eventId || !user?.id) return;
+    void refreshMediaDiagnostics();
     void runPermissionPrewarm("ready_gate_open");
-  }, [eventId, runPermissionPrewarm, sessionId, user?.id]);
+  }, [eventId, refreshMediaDiagnostics, runPermissionPrewarm, sessionId, user?.id]);
 
   useEffect(() => {
     return () => {
@@ -2023,6 +2189,44 @@ const ReadyGateOverlay = ({
   });
   const showConnectingReadinessCopy = readyGateReadinessCopy.key === "both_ready_connecting";
   const showReadyActionControls = !iAmReady && !showConnectingReadinessCopy;
+  const diagnosticChecklist = resolveReadyGateDiagnosticChecklist({
+    platform: "web",
+    partnerName,
+    ...mediaDiagnostics,
+    videoProviderStatus:
+      prepareEntryStatus === "failed"
+        ? "failed"
+        : prepareEntryStatus !== "idle" || isBothReady
+          ? "checking"
+          : "unknown",
+    realtimeSyncStatus: realtimeDegraded || sequenceGapUnresolved ? "warning" : "ok",
+    partnerReadinessStatus: isBothReady || partnerReady ? "ok" : iAmReady ? "warning" : "checking",
+  });
+  const handleDiagnosticAction = (row: ReadyGateDiagnosticCopy) => {
+    if (terminalActionPending) return;
+    switch (row.actionKind) {
+      case "request_permission":
+        void runPermissionPrewarm("ready_tap").then(() => {
+          void refreshMediaDiagnostics();
+        });
+        return;
+      case "retry":
+        if (row.key === "video_provider" && prepareEntryFailure?.retryable) {
+          retryPrepareEntry();
+          return;
+        }
+        void refreshMediaDiagnostics();
+        return;
+      case "check_connection":
+        void retryBroadcastGapRecovery("diagnostic_retry");
+        void reconcileSession("diagnostic_retry");
+        return;
+      case "open_settings":
+      case "none":
+      case "wait":
+        return;
+    }
+  };
 
   return (
     <motion.div
@@ -2199,6 +2403,49 @@ const ReadyGateOverlay = ({
               </motion.div>
             )}
           </AnimatePresence>
+
+          <div
+            className="space-y-2 border-t border-white/10 pt-3"
+            aria-label="Ready Gate diagnostics"
+          >
+            {diagnosticChecklist.rows.map((row) => {
+              const isError = row.severity === "error";
+              const isWarning = row.severity === "warning";
+              const accentClass =
+                row.severity === "success"
+                  ? "text-green-400 bg-green-400/10"
+                  : isError
+                    ? "text-destructive bg-destructive/10"
+                    : isWarning
+                      ? "text-amber-300 bg-amber-300/10"
+                      : "text-muted-foreground bg-white/5";
+              const Icon = row.status === "ok" ? Check : isError ? X : Clock;
+              const showAction = row.actionLabel && row.actionKind !== "none" && row.actionKind !== "wait";
+              return (
+                <div key={row.key} className="flex min-h-10 items-center gap-2 text-left">
+                  <span className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full ${accentClass}`}>
+                    <Icon className="h-3.5 w-3.5" aria-hidden="true" />
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-xs font-semibold text-foreground">{row.label}</span>
+                    {row.status !== "ok" && (
+                      <span className="block text-[11px] leading-4 text-muted-foreground">{row.title}</span>
+                    )}
+                  </span>
+                  {showAction && (
+                    <button
+                      type="button"
+                      onClick={() => handleDiagnosticAction(row)}
+                      disabled={terminalActionPending}
+                      className="shrink-0 rounded-full border border-white/10 px-2.5 py-1 text-[11px] font-semibold text-foreground disabled:opacity-50"
+                    >
+                      {row.actionLabel}
+                    </button>
+                  )}
+                </div>
+              );
+            })}
+          </div>
 
           {/* Action area */}
           {showRealtimeFallbackCopy && !isTransitioning && (
