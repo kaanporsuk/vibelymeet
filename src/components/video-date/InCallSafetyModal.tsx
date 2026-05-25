@@ -19,7 +19,12 @@ import {
   submitVideoDateSafetyReportRpc,
   type SubmitVideoDateSafetyReportRpcResult,
 } from "@clientShared/safety/submitUserReportRpc";
-import { resolveVideoDateSafetySubmitCopy } from "@clientShared/safety/videoDateSafetyCopy";
+import {
+  isVideoDateSafetySubmitErrorRetryable,
+  resolveVideoDateSafetySubmitCopy,
+  resolveVideoDateSafetySubmitOutcome,
+  type VideoDateSafetySubmitOutcome,
+} from "@clientShared/safety/videoDateSafetyCopy";
 import {
   buildVideoDateSafetyIdempotencyKey,
   createVideoDateClientRequestId,
@@ -33,11 +38,14 @@ type Props = {
   sessionId?: string | null;
   safetyV2?: boolean;
   /** Submit report only; stay on call */
-  onReportOnlySuccess?: () => void;
+  onReportOnlySuccess?: (outcome: VideoDateSafetySubmitOutcome) => void | Promise<void>;
   /** After successful report, end call + survey (parent handles end) */
   onEndAfterReport?: () => void | Promise<void>;
   /** v2 path: report RPC already ended server state; parent cleans local media + opens the right terminal UX. */
-  onServerEndedAfterReport?: (result: Extract<SubmitVideoDateSafetyReportRpcResult, { ok: true }>) => void | Promise<void>;
+  onServerEndedAfterReport?: (
+    result: Extract<SubmitVideoDateSafetyReportRpcResult, { ok: true }>,
+    outcome: VideoDateSafetySubmitOutcome,
+  ) => void | Promise<void>;
 };
 
 export function InCallSafetyModal({
@@ -55,6 +63,7 @@ export function InCallSafetyModal({
   const [alsoBlock, setAlsoBlock] = useState(false);
   const [submitting, setSubmitting] = useState<"idle" | "report" | "end">("idle");
   const requestRef = useRef<{ mode: "report" | "end"; key: string; payloadSignature: string } | null>(null);
+  const submitInFlightRef = useRef(false);
 
   const reset = () => {
     setReason("harassment");
@@ -62,15 +71,18 @@ export function InCallSafetyModal({
     setAlsoBlock(false);
     setSubmitting("idle");
     requestRef.current = null;
+    submitInFlightRef.current = false;
   };
 
   const handleOpenChange = (next: boolean) => {
+    if (!next && submitInFlightRef.current) return;
     if (!next) reset();
     onOpenChange(next);
   };
 
   const submit = async (mode: "report" | "end") => {
-    if (!reportedUserId) return;
+    if (!reportedUserId || submitInFlightRef.current) return;
+    submitInFlightRef.current = true;
     setSubmitting(mode);
     const trimmedDetails = details.trim() || null;
     let result: SubmitVideoDateSafetyReportRpcResult = { ok: false, error: "Could not send report. Try again." };
@@ -118,18 +130,25 @@ export function InCallSafetyModal({
     } catch (error) {
       result = { ok: false, error: error instanceof Error ? error.message : "Could not send report. Try again." };
     }
-    setSubmitting("idle");
     if (!result.ok) {
+      setSubmitting("idle");
+      submitInFlightRef.current = false;
+      const error = "error" in result ? result.error : "Could not send report. Try again.";
+      const retryable = isVideoDateSafetySubmitErrorRetryable(error);
       const copy = resolveVideoDateSafetySubmitCopy({
         ok: false,
         mode,
-        error: "error" in result ? result.error : "Could not send report. Try again.",
+        error,
         reportRecorded: "reportRecorded" in result ? result.reportRecorded : false,
+        retryable,
       });
       if (copy.tone === "warning") {
         toast.info(copy.title, { description: copy.message });
       } else {
         toast.error(copy.title, { description: copy.message });
+      }
+      if (!retryable) {
+        handleOpenChange(false);
       }
       return;
     }
@@ -141,13 +160,22 @@ export function InCallSafetyModal({
       surveyRequired: result.surveyRequired,
       idempotent: result.idempotent,
     });
+    const outcome = resolveVideoDateSafetySubmitOutcome({
+      mode,
+      alsoBlock,
+      ended: result.ended,
+      surveyRequired: result.surveyRequired,
+      idempotent: result.idempotent,
+      reportRecorded: true,
+      reportId: result.reportId,
+    });
     toast.success(copy.title, { description: copy.message });
     reset();
     handleOpenChange(false);
     if (safetyV2 && result.ended) {
-      await onServerEndedAfterReport?.(result);
+      await onServerEndedAfterReport?.(result, outcome);
     } else if (mode === "report") {
-      onReportOnlySuccess?.();
+      await onReportOnlySuccess?.(outcome);
     } else {
       await onEndAfterReport?.();
     }

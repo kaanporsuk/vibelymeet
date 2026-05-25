@@ -22,7 +22,7 @@ type Props = {
   onToggleMute: () => void;
   onToggleVideo: () => void;
   onLeave: () => void;
-  onViewProfile: () => void;
+  onViewProfile?: () => void;
   /** In-call safety report (`submit_user_report`). Omit when not in active call. */
   onSafety?: () => void;
 };
@@ -49,7 +49,7 @@ export function VideoDateControls({
   const leaveButtonSize = { width: leaveSize, height: leaveSize, borderRadius: leaveSize / 2 };
   const iconOn = theme.text;
 
-  const profileBlock = (
+  const profileBlock = onViewProfile ? (
     <Pressable
       onPress={onViewProfile}
       style={({ pressed }) => [styles.profileCluster, pressed && styles.pressed]}
@@ -67,6 +67,8 @@ export function VideoDateControls({
         <Ionicons name="person" size={iconSize} color={iconOn} />
       </View>
     </Pressable>
+  ) : (
+    <View style={quietButtonSize} accessibilityElementsHidden />
   );
 
   return (

@@ -17,7 +17,7 @@ interface VideoDateControlsProps {
   onToggleMute: () => void;
   onToggleVideo: () => void;
   onLeave: () => void;
-  onViewProfile: () => void;
+  onViewProfile?: () => void;
   /** In-call safety report (canonical `submit_user_report`); omit when not in active call. */
   onSafety?: () => void;
   /** Open the audio output picker; omit on platforms that don't expose audio sink selection. */
@@ -53,17 +53,21 @@ export const VideoDateControls = ({
     >
       {/* Left: Profile + audio settings */}
       <div className="flex items-center gap-[clamp(0.25rem,1.6vw,0.5rem)]">
-        <motion.div whileTap={{ scale: 0.9 }}>
-          <Button
-            variant="secondary"
-            size="icon"
-            aria-label="View profile"
-            className={`${controlBtn} ${quietBtn}`}
-            onClick={onViewProfile}
-          >
-            <User className="w-5 h-5 text-foreground" />
-          </Button>
-        </motion.div>
+        {onViewProfile ? (
+          <motion.div whileTap={{ scale: 0.9 }}>
+            <Button
+              variant="secondary"
+              size="icon"
+              aria-label="View profile"
+              className={`${controlBtn} ${quietBtn}`}
+              onClick={onViewProfile}
+            >
+              <User className="w-5 h-5 text-foreground" />
+            </Button>
+          </motion.div>
+        ) : (
+          <div className={`${controlBtn}`} aria-hidden />
+        )}
         {onAudioSettings && (
           <motion.div whileTap={{ scale: 0.9 }}>
             <Button

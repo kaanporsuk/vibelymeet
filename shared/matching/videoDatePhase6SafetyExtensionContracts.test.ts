@@ -134,11 +134,19 @@ test("mutual extension performs no provider work after credit debit", () => {
 
 test("PR 6.3 always-on safety flag drives web and native v2 safety surfaces", () => {
   assert.match(webVideoDate, /useFeatureFlag\("video_date\.safety_always_on_v2"\)/);
-  assert.match(webVideoDate, /isConnected \|\| safetyAlwaysOnV2\.enabled/);
+  assert.match(
+    webVideoDate,
+    /const canOpenInCallSafety = Boolean\(\s*partnerId && id && !showFeedback && phase !== "ended" && !suppressPartnerControlsAfterSafety,\s*\)/,
+  );
   assert.match(webVideoDate, /safetyV2=\{safetyV2\.enabled \|\| safetyAlwaysOnV2\.enabled\}/);
+  assert.doesNotMatch(webVideoDate, /isConnected \|\| safetyAlwaysOnV2\.enabled/);
   assert.match(nativeVideoDate, /useFeatureFlag\('video_date\.safety_always_on_v2'\)/);
-  assert.match(nativeVideoDate, /hasRemotePartner \|\| safetyAlwaysOnV2\.enabled/);
+  assert.match(
+    nativeVideoDate,
+    /const canOpenInCallSafety = Boolean\(\s*partnerId && sessionId && !showFeedback && phase !== 'ended' && !suppressPartnerControlsAfterSafety,\s*\)/,
+  );
   assert.match(nativeVideoDate, /safetyV2=\{safetyV2\.enabled \|\| safetyAlwaysOnV2\.enabled\}/);
+  assert.doesNotMatch(nativeVideoDate, /hasRemotePartner \|\| safetyAlwaysOnV2\.enabled/);
 });
 
 test("web and native consume mutual extension behind the default-off flag", () => {
