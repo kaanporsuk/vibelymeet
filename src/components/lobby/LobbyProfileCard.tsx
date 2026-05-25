@@ -117,12 +117,12 @@ const LobbyProfileCard = ({ profile, userVibes, isBehind = false, retryState = n
 
       {!isBehind && retryState && retryState.remainingSeconds > 0 ? (
         <div
-          className="absolute left-3 right-3 top-16 z-30 flex items-center justify-center gap-2 rounded-xl border border-amber-300/40 bg-black/65 px-3 py-2 text-xs font-semibold text-amber-100 shadow-lg backdrop-blur-md"
+          className="absolute left-3 right-3 top-16 z-30 flex min-h-10 items-center justify-center gap-2 rounded-xl border border-amber-300/40 bg-black/65 px-3 py-2 text-xs font-semibold text-amber-100 shadow-lg backdrop-blur-md"
           role="status"
           aria-live="polite"
         >
           <TimerReset className="h-4 w-4 shrink-0 text-amber-200" />
-          <span>Retry in {retryState.remainingSeconds}s</span>
+          <span className="min-w-0 truncate tabular-nums">Retry in {retryState.remainingSeconds}s</span>
         </div>
       ) : null}
 
@@ -199,8 +199,8 @@ const LobbyProfileCard = ({ profile, userVibes, isBehind = false, retryState = n
         )}
 
         <div>
-          <div className="flex items-baseline gap-2 flex-wrap">
-            <h3 className="text-2xl sm:text-3xl font-display font-bold text-white tracking-tight drop-shadow-sm">
+          <div className="flex min-w-0 items-baseline gap-2 flex-wrap">
+            <h3 className="min-w-0 max-w-full break-words text-2xl sm:text-3xl font-display font-bold text-white tracking-tight drop-shadow-sm">
               {profile.name}
             </h3>
             {profile.age != null ? (
@@ -208,12 +208,12 @@ const LobbyProfileCard = ({ profile, userVibes, isBehind = false, retryState = n
             ) : null}
           </div>
           {profile.tagline ? (
-            <p className="text-sm text-white/80 font-medium mt-1 line-clamp-1">{profile.tagline}</p>
+            <p className="text-sm text-white/80 font-medium mt-1 line-clamp-1 break-words">{profile.tagline}</p>
           ) : null}
         </div>
 
         {intentDisplay ? (
-          <p className="text-[11px] sm:text-xs text-primary/90 font-medium line-clamp-1 border-l-2 border-primary/50 pl-2">
+          <p className="text-[11px] sm:text-xs text-primary/90 font-medium line-clamp-1 break-words border-l-2 border-primary/50 pl-2">
             <span className="mr-1" aria-hidden>
               {intentDisplay.emoji}
             </span>

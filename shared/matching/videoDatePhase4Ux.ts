@@ -165,10 +165,10 @@ export function resolveVideoDateQueueCopy(
   if (hint?.queued) {
     return {
       compactLabel,
-      title: isNext ? "You're next" : "Waiting for a match",
+      title: isNext ? "You're next" : "Holding your place",
       message: isNext
-        ? "Keep this room open. Ready Gate will open as soon as your match is ready."
-        : "You are in the matching queue. Ready Gate opens when a match is available.",
+        ? "Keep this room open. Ready Gate will open the moment your match is ready."
+        : "You are in the matching queue. Keep browsing while we hold your spot.",
       positionLabel,
       etaLabel,
       reliefLabel,
@@ -179,8 +179,8 @@ export function resolveVideoDateQueueCopy(
 
   return {
     compactLabel,
-    title: "Waiting for a match",
-    message: "Ready Gate opens when a match is available.",
+    title: "Holding your place",
+    message: "Keep browsing. Ready Gate opens automatically when a match is available.",
     positionLabel: null,
     etaLabel: null,
     reliefLabel: null,
@@ -299,7 +299,7 @@ export function resolveEventDeckPhase4UiState(
         reason: inactiveReason,
         badge: "Not live yet",
         title: "This event isn't live yet",
-        message: "The server has not opened this lobby yet. Check the event page countdown.",
+      message: "The server has not opened this lobby yet. Check the event page countdown.",
         actionLabel: "Back to event",
         actionTarget: "event",
       });
@@ -309,7 +309,7 @@ export function resolveEventDeckPhase4UiState(
       reason: inactiveReason || "event_not_active",
       badge: "Lobby closed",
       title: "This lobby is closed",
-      message: "The server says this event is no longer accepting lobby swipes.",
+      message: "This event is no longer accepting lobby swipes.",
       actionLabel: "Back to event",
       actionTarget: "event",
     });
@@ -371,7 +371,7 @@ export function resolveEventDeckPhase4UiState(
       reason: deckStateReason,
       badge: "Room warming up",
       title: "No confirmed guests are available yet",
-      message: "Confirmed guests may still join the live room. Your deck refreshes automatically, and you can refresh any time.",
+      message: "Confirmed guests may still join. Your deck refreshes automatically, and you can refresh any time.",
     });
   }
 

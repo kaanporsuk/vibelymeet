@@ -170,7 +170,7 @@ export function getWebEventLobbyGateState(input: {
     return blockedState(
       "ended",
       "This event has ended",
-      "The live lobby is closed. Check your matches to keep the conversation going.",
+      "The live lobby is closed. Head to Matches to keep conversations going.",
       "View matches",
       "matches",
     );

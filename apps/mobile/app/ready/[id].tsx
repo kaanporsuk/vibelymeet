@@ -903,6 +903,8 @@ export default function ReadyGateScreen() {
             if (eventId) router.replace(eventLobbyHref(eventId));
             else router.replace(tabsRootHref());
           }}
+          accessibilityRole="button"
+          accessibilityLabel="Back to lobby"
           style={styles.ghostBtn}
         >
           <Text style={[styles.ghostBtnText, { color: theme.textSecondary }]}>Back to lobby</Text>
@@ -927,7 +929,12 @@ export default function ReadyGateScreen() {
     <View style={[styles.container, { backgroundColor: theme.background }]}>
       {dialogEl}
       <GlassHeaderBar insets={insets} style={styles.headerBar}>
-        <Pressable onPress={handleSkip} style={({ pressed }) => [styles.backBtn, pressed && { opacity: 0.8 }]}>
+        <Pressable
+          onPress={handleSkip}
+          accessibilityRole="button"
+          accessibilityLabel="Back to lobby"
+          style={({ pressed }) => [styles.backBtn, pressed && { opacity: 0.8 }]}
+        >
           <Ionicons name="arrow-back" size={24} color={theme.text} />
         </Pressable>
         <Text style={[styles.headerTitle, { color: theme.text }]} numberOfLines={1}>Ready to vibe?</Text>
@@ -943,7 +950,9 @@ export default function ReadyGateScreen() {
               <Ionicons name="person" size={48} color={theme.textSecondary} />
             )}
           </View>
-          <Text style={[styles.partnerName, { color: theme.text }]}>{partnerName ?? 'Your match'}</Text>
+          <Text style={[styles.partnerName, { color: theme.text }]} numberOfLines={2}>
+            {partnerName ?? 'Your match'}
+          </Text>
 
           <View style={[styles.statusPill, { backgroundColor: theme.surface, borderColor: theme.border }]}>
             <Ionicons name="time-outline" size={16} color={theme.textSecondary} />
@@ -980,7 +989,7 @@ export default function ReadyGateScreen() {
           {showReadyActionControls ? (
             <>
               <VibelyButton
-                label={markingReady ? 'Marking ready...' : "I'm Ready ✨"}
+                label={markingReady ? 'Marking...' : "I'm Ready"}
                 onPress={() => {
                   if (markingReady || requestingSnooze || terminalActionPending) return;
                   setMarkingReady(true);
@@ -1032,6 +1041,8 @@ export default function ReadyGateScreen() {
                     })();
                   }}
                   disabled={requestingSnooze || markingReady || terminalActionPending}
+                  accessibilityRole="button"
+                  accessibilityLabel="Snooze this Ready Gate for two minutes"
                   style={({ pressed }) => [
                     styles.ghostBtn,
                     (requestingSnooze || markingReady || terminalActionPending) && { opacity: 0.5 },
@@ -1046,6 +1057,8 @@ export default function ReadyGateScreen() {
                 <Pressable
                   onPress={handleSkip}
                   disabled={requestingSnooze || markingReady || terminalActionPending}
+                  accessibilityRole="button"
+                  accessibilityLabel="Step away from this Ready Gate"
                   style={({ pressed }) => [
                     styles.ghostBtn,
                     (requestingSnooze || markingReady || terminalActionPending) && { opacity: 0.5 },
@@ -1071,6 +1084,8 @@ export default function ReadyGateScreen() {
               <Pressable
                 onPress={handleSkip}
                 disabled={terminalActionPending}
+                accessibilityRole="button"
+                accessibilityLabel="Step away while waiting for your match"
                 style={({ pressed }) => [styles.ghostBtn, terminalActionPending && { opacity: 0.5 }, pressed && { opacity: 0.8 }]}
               >
                 <Text style={[styles.ghostBtnText, { color: theme.textSecondary }]}>
@@ -1106,7 +1121,7 @@ const styles = StyleSheet.create({
     marginBottom: spacing.md,
   },
   avatarImg: { width: '100%', height: '100%' },
-  partnerName: { ...typography.titleLG, marginBottom: spacing.lg },
+  partnerName: { ...typography.titleLG, marginBottom: spacing.lg, textAlign: 'center', flexShrink: 1 },
   statusPill: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1140,20 +1155,21 @@ const styles = StyleSheet.create({
   snoozeCueText: { fontSize: 14 },
   actionError: { fontSize: 13, textAlign: 'center', marginTop: spacing.md },
   actions: { alignItems: 'center', gap: spacing.lg },
-  primaryBtn: { alignSelf: 'stretch' },
+  primaryBtn: { alignSelf: 'stretch', minHeight: 48 },
   helperText: {
     fontSize: 12,
     textAlign: 'center',
     marginBottom: spacing.sm,
   },
   secondaryRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
-  ghostBtn: { paddingVertical: spacing.sm, paddingHorizontal: spacing.md },
+  ghostBtn: { minHeight: 44, paddingVertical: spacing.sm, paddingHorizontal: spacing.md, justifyContent: 'center' },
   ghostBtnText: { fontSize: 13 },
   dot: { fontSize: 14 },
   waitingPill: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.sm,
+    minHeight: 44,
     paddingVertical: spacing.md,
     paddingHorizontal: spacing.lg,
     borderRadius: radius.pill,

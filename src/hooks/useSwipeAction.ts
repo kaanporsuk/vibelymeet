@@ -12,7 +12,11 @@ import {
   getSwipeNotificationSuppressionReason,
   isDuplicateSwipeResult,
 } from "@clientShared/observability/eventLobbyObservability";
-import { bucketVideoDateLatencyMs } from "@clientShared/observability/videoDateOperatorMetrics";
+import {
+  bucketVideoDateLatencyMs,
+  buildReadyGateToDateLatencyPayload,
+  recordReadyGateToDateLatencyCheckpoint,
+} from "@clientShared/observability/videoDateOperatorMetrics";
 import {
   getSwipeFailureUserMessage,
   type SwipeSessionStageResult,
@@ -198,6 +202,7 @@ export const useSwipeAction = ({
       }
 
       setIsProcessing(true);
+      const swipeStartedAtMs = Date.now();
       try {
         trackEvent(EventLobbyObservabilityEvents.LOBBY_SWIPE_SUBMITTED, {
           event_id: eventId,
@@ -298,6 +303,29 @@ export const useSwipeAction = ({
         });
         const sessionId = videoSessionIdFromSwipePayload(raw);
         const opensReadyGate = shouldOpenReadyGateFromSwipePayload(raw);
+        const swipeResultDurationMs = Math.max(0, Date.now() - swipeStartedAtMs);
+        if (sessionId && opensReadyGate) {
+          const swipeResultContext = recordReadyGateToDateLatencyCheckpoint({
+            sessionId,
+            platform: "web",
+            eventId,
+            sourceSurface: "event_lobby",
+            checkpoint: "swipe_result",
+          });
+          trackEvent(
+            LobbyPostDateEvents.READY_GATE_TO_DATE_LATENCY_CHECKPOINT,
+            buildReadyGateToDateLatencyPayload({
+              context: swipeResultContext,
+              checkpoint: "swipe_result",
+              sourceAction: "swipe_result",
+              outcome: "success",
+              durationMs: swipeResultDurationMs,
+              extra: {
+                swipe_result_ms: swipeResultDurationMs,
+              },
+            }),
+          );
+        }
         const conflictDetected =
           outcome === "already_matched" || outcome === "participant_has_active_session_conflict";
         const recoveryStartedAtMs = conflictDetected ? Date.now() : null;
