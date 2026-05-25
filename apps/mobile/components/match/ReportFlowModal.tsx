@@ -5,6 +5,7 @@
  */
 import React, { useMemo, useRef, useState } from 'react';
 import { View, Text, Pressable, StyleSheet, TextInput, ScrollView, ActivityIndicator } from 'react-native';
+import { useQueryClient } from '@tanstack/react-query';
 import { Ionicons } from '@expo/vector-icons';
 import Colors from '@/constants/Colors';
 import { useColorScheme } from '@/components/useColorScheme';
@@ -35,6 +36,7 @@ export function ReportFlowModal({
   reportedHasVibeVideo = false,
 }: ReportFlowModalProps) {
   const theme = Colors[useColorScheme()];
+  const queryClient = useQueryClient();
   const [step, setStep] = useState<'reason' | 'details' | 'action' | 'success'>('reason');
   const [reason, setReason] = useState<ReportReasonId | null>(null);
   const [details, setDetails] = useState('');
@@ -86,6 +88,11 @@ export function ReportFlowModal({
           also_block: alsoBlock,
         });
       }
+      void Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['event-deck'] }),
+        queryClient.invalidateQueries({ queryKey: ['profile-live-counts'] }),
+        queryClient.invalidateQueries({ queryKey: ['matches'] }),
+      ]).catch(() => {});
       setStep('success');
       if (completionTimeoutRef.current !== null) clearTimeout(completionTimeoutRef.current);
       completionTimeoutRef.current = setTimeout(() => {

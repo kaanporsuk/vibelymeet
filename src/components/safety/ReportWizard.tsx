@@ -18,7 +18,7 @@ import { Switch } from "@/components/ui/switch";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { useUserProfile } from "@/contexts/AuthContext";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ProfilePhoto } from "@/components/ui/ProfilePhoto";
 import { formatDistanceToNow } from "date-fns";
 import { REPORT_REASONS, type ReportReasonId } from "../../../shared/safety/reportReasons";
@@ -73,6 +73,7 @@ const HIGH_SEVERITY: ReadonlySet<ReportReasonId> = new Set([
 
 const ReportWizard = ({ onBack, onComplete, preSelectedUser }: ReportWizardProps) => {
   const { user } = useUserProfile();
+  const queryClient = useQueryClient();
   const [step, setStep] = useState<ReportStep>(preSelectedUser ? "reason" : "identify");
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedUser, setSelectedUser] = useState<ReportableUser | null>(
@@ -161,6 +162,11 @@ const ReportWizard = ({ onBack, onComplete, preSelectedUser }: ReportWizardProps
           also_block: alsoBlock,
         });
       }
+      void Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["event-deck"] }),
+        queryClient.invalidateQueries({ queryKey: ["profile-live-counts"] }),
+        queryClient.invalidateQueries({ queryKey: ["matches"] }),
+      ]).catch(() => {});
 
       setStep("success");
     } catch (error) {

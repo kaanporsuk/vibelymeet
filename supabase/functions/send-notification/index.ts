@@ -674,6 +674,10 @@ async function otherParticipantFromVideoSession(sessionId: string, recipientId: 
   return null
 }
 
+function isVideoDatePairNotificationCategory(category: string): boolean {
+  return isVideoDatePushPayloadCategory(category)
+}
+
 async function resolveActorId(recipientId: string, category: string, data: any): Promise<string | null> {
   const directActor = firstPayloadUuid(data, [
     'sender_id',
@@ -690,6 +694,7 @@ async function resolveActorId(recipientId: string, category: string, data: any):
     (category === 'messages' ||
       category === 'match_call' ||
       category === 'new_match' ||
+      category === 'date_reminder' ||
       category.startsWith('date_suggestion_'))
   ) {
     const peer = await otherParticipantFromMatch(matchId, recipientId)
@@ -698,7 +703,7 @@ async function resolveActorId(recipientId: string, category: string, data: any):
 
   const sessionId = firstPayloadUuid(data, ['video_session_id', 'session_id'])
     ?? (category === 'ready_gate' ? firstPayloadUuid(data, ['match_id']) : null)
-  if (sessionId && (category === 'ready_gate' || category === 'date_starting' || category === 'partner_ready')) {
+  if (sessionId && isVideoDatePairNotificationCategory(category)) {
     const peer = await otherParticipantFromVideoSession(sessionId, recipientId)
     if (peer && peer !== recipientId) return peer
   }
@@ -712,20 +717,48 @@ async function isPairBlocked(userA: string, userB: string): Promise<boolean> {
     .select('id')
     .eq('blocker_id', userA)
     .eq('blocked_id', userB)
-    .maybeSingle()
+    .limit(1)
 
   if (blockAError) throw blockAError
-  if (blockA?.id) return true
+  if (Array.isArray(blockA) && blockA.length > 0) return true
 
   const { data: blockB, error: blockBError } = await supabase
     .from('blocked_users')
     .select('id')
     .eq('blocker_id', userB)
     .eq('blocked_id', userA)
-    .maybeSingle()
+    .limit(1)
 
   if (blockBError) throw blockBError
-  return Boolean(blockB?.id)
+  return Array.isArray(blockB) && blockB.length > 0
+}
+
+async function isPairReported(userA: string, userB: string): Promise<boolean> {
+  const { data: reportA, error: reportAError } = await supabase
+    .from('user_reports')
+    .select('id')
+    .eq('reporter_id', userA)
+    .eq('reported_id', userB)
+    .limit(1)
+
+  if (reportAError) throw reportAError
+  if (Array.isArray(reportA) && reportA.length > 0) return true
+
+  const { data: reportB, error: reportBError } = await supabase
+    .from('user_reports')
+    .select('id')
+    .eq('reporter_id', userB)
+    .eq('reported_id', userA)
+    .limit(1)
+
+  if (reportBError) throw reportBError
+  return Array.isArray(reportB) && reportB.length > 0
+}
+
+async function unsafeNotificationPairReason(userA: string, userB: string): Promise<'blocked_pair' | 'reported_pair' | null> {
+  if (await isPairBlocked(userA, userB)) return 'blocked_pair'
+  if (await isPairReported(userA, userB)) return 'reported_pair'
+  return null
 }
 
 async function validateClientNotificationRequest(
@@ -1479,20 +1512,22 @@ Deno.serve(async (req) => {
     if (!skipsPerBucketPreferenceCheck(category)) {
       const actorId = resolvedActorId ?? await resolveActorId(user_id, category, data)
       resolvedActorId = actorId
-      if (actorId && await isPairBlocked(user_id, actorId)) {
-        console.log('send_notification_suppressed_blocked_pair', JSON.stringify({
+      const pairSafetyReason = actorId ? await unsafeNotificationPairReason(user_id, actorId) : null
+      if (actorId && pairSafetyReason) {
+        console.log('send_notification_suppressed_unsafe_pair', JSON.stringify({
           user_id,
           actor_id: actorId,
           category,
           match_id: data?.match_id ?? null,
           session_id: getSessionId(data),
+          reason: pairSafetyReason,
         }))
-        await logNotification(user_id, category, title, body, data, false, 'blocked_pair', diagnostic({
-          suppressionReason: 'blocked_pair',
-          suppressionGate: 'blocked_pair',
+        await logNotification(user_id, category, title, body, data, false, pairSafetyReason, diagnostic({
+          suppressionReason: pairSafetyReason,
+          suppressionGate: pairSafetyReason,
         }))
-        emitLifecycle('suppressed', 'blocked_pair')
-        return new Response(JSON.stringify({ success: false, reason: 'blocked_pair', code: 'suppressed_blocked_pair' }), {
+        emitLifecycle('suppressed', pairSafetyReason)
+        return new Response(JSON.stringify({ success: false, reason: pairSafetyReason, code: `suppressed_${pairSafetyReason}` }), {
           status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
         })
       }

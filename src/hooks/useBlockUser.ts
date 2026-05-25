@@ -45,6 +45,7 @@ export const useBlockUser = () => {
 
   const invalidateBlockEffects = () => {
     queryClient.invalidateQueries({ queryKey: ["blocked-users"] });
+    queryClient.invalidateQueries({ queryKey: ["event-deck"] });
     queryClient.invalidateQueries({ queryKey: ["matches"] });
     queryClient.invalidateQueries({ queryKey: ["dashboard-matches"] });
     queryClient.invalidateQueries({ queryKey: ["profile-live-counts"] });
