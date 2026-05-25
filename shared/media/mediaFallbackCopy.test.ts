@@ -48,6 +48,22 @@ test("web and native media hooks import the shared fallback contract", () => {
   assert.match(nativeHook, /resolveMediaFallbackReason/);
 });
 
+test("web and native media hooks attach fallback reasons to realtime failed assets", () => {
+  const hooks = [
+    readFileSync(join(root, "src/hooks/useMediaAsset.ts"), "utf8"),
+    readFileSync(join(root, "apps/mobile/hooks/useMediaAsset.ts"), "utf8"),
+  ];
+
+  for (const hook of hooks) {
+    assert.match(hook, /nextStatus === ['"]failed['"]/);
+    assert.match(hook, /setError\(['"]media_asset_processing_failed['"]\)/);
+    assert.match(
+      hook,
+      /setFallbackReason\(resolveMediaFallbackReason\(\{ errorCode: ['"]media_asset_processing_failed['"] \}\)\)/,
+    );
+  }
+});
+
 test("profile and chat playback surfaces consume shared fallback copy", () => {
   const surfaces = [
     "src/components/vibe-video/VibePlayer.tsx",
