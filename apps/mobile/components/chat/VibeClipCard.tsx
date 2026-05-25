@@ -24,6 +24,11 @@ import { useReduceMotionState } from '@/hooks/useReduceMotion';
 import { MediaPlaceholder } from '@/components/media/MediaPlaceholder';
 import type { MediaPlaceholderKind } from '@clientShared/media/placeholders';
 import {
+  resolveMediaFallbackCopy,
+  resolveMediaFallbackReason,
+  type MediaFallbackReason,
+} from '@clientShared/media/mediaFallbackCopy';
+import {
   syncChatVibeClipUploadStatus,
   type ChatVibeClipProcessingStatus,
 } from '@/lib/mediaAssetResolver';
@@ -314,6 +319,7 @@ function VibeClipCardInner({
 }: VibeClipCardInnerProps) {
   const theme = Colors[useColorScheme()];
   const [hasError, setHasError] = useState(false);
+  const [fallbackReason, setFallbackReason] = useState<MediaFallbackReason | null>(null);
   const [isReady, setIsReady] = useState(false);
   const [isBuffering, setIsBuffering] = useState(false);
   const [hasPlayed, setHasPlayed] = useState(false);
@@ -328,6 +334,7 @@ function VibeClipCardInner({
     meta.videoUrl,
     shouldAttachPlayback,
   ]);
+  const playbackFailureStage = isHlsUri(meta.videoUrl) ? 'hls_auth' : 'playback';
   const qoe = useNativeMediaPlaybackQoE({
     enabled: shouldAttachPlayback,
     family: 'vibe_clip',
@@ -368,6 +375,7 @@ function VibeClipCardInner({
     setIsReady(false);
     setIsBuffering(false);
     setHasError(false);
+    setFallbackReason(null);
     setHasPlayed(false);
     setPlayRequested(false);
   }, [meta.videoUrl]);
@@ -406,9 +414,15 @@ function VibeClipCardInner({
           }
           void onRefreshClipMedia('playback')
             .then((didRefresh) => {
-              if (!didRefresh) setHasError(true);
+              if (!didRefresh) {
+                setFallbackReason(resolveMediaFallbackReason({ stage: playbackFailureStage }));
+                setHasError(true);
+              }
             })
-            .catch(() => setHasError(true));
+            .catch(() => {
+              setFallbackReason(resolveMediaFallbackReason({ stage: playbackFailureStage }));
+              setHasError(true);
+            });
           setIsBuffering(false);
           return;
         }
@@ -433,6 +447,7 @@ function VibeClipCardInner({
     isPendingLocalPreview,
     onRefreshClipMedia,
     player,
+    playbackFailureStage,
     qoe,
     shouldAttachPlayback,
   ]);
@@ -465,12 +480,18 @@ function VibeClipCardInner({
       }
       void onRefreshClipMedia('playback')
         .then((didRefresh) => {
-          if (!didRefresh) setHasError(true);
+          if (!didRefresh) {
+            setFallbackReason(resolveMediaFallbackReason({ stage: playbackFailureStage }));
+            setHasError(true);
+          }
         })
-        .catch(() => setHasError(true));
+        .catch(() => {
+          setFallbackReason(resolveMediaFallbackReason({ stage: playbackFailureStage }));
+          setHasError(true);
+        });
     }, CLIP_PLAYBACK_LOAD_TIMEOUT_MS);
     return () => clearTimeout(timeoutId);
-  }, [handlePendingLocalPreviewFailure, hasError, isPendingLocalPreview, isReady, onRefreshClipMedia, playRequested]);
+  }, [handlePendingLocalPreviewFailure, hasError, isPendingLocalPreview, isReady, onRefreshClipMedia, playbackFailureStage, playRequested]);
 
   useEffect(() => {
     if (!immersiveActive) return;
@@ -578,6 +599,7 @@ function VibeClipCardInner({
           : 'player_loading';
   const showPlayAffordance =
     !hasPlayed && !hasError && previewState !== 'buffering';
+  const fallbackCopy = resolveMediaFallbackCopy({ reason: fallbackReason ?? 'unknown' });
 
   return (
     <View
@@ -680,26 +702,30 @@ function VibeClipCardInner({
         {hasError ? (
           <View style={[styles.loadingOverlay, styles.clipErrorOverlay]}>
             <Ionicons name="videocam-off-outline" size={28} color="rgba(196,181,253,0.88)" />
+            <Text style={styles.clipUnavailableTitle}>{fallbackCopy.title}</Text>
             <Text
               style={{ color: theme.textSecondary, fontSize: 12, marginTop: 8, textAlign: 'center', paddingHorizontal: 16 }}
             >
-              {"Couldn't load clip"}
+              {fallbackCopy.message}
             </Text>
-            <Pressable
-              onPress={() => {
-                onResetPlaybackRefreshAttempt();
-                setHasError(false);
-                setIsBuffering(true);
-                void onRefreshClipMedia('manual')
-                  .then((didRefresh) => {
-                    if (!didRefresh) onRemountPlayer();
-                  })
-                  .catch(onRemountPlayer);
-              }}
-              style={({ pressed }) => [styles.clipRetryBtn, pressed && { opacity: 0.88 }]}
-            >
-              <Text style={styles.clipRetryLabel}>Try again</Text>
-            </Pressable>
+            {fallbackCopy.actionLabel ? (
+              <Pressable
+                onPress={() => {
+                  onResetPlaybackRefreshAttempt();
+                  setFallbackReason(null);
+                  setHasError(false);
+                  setIsBuffering(true);
+                  void onRefreshClipMedia('manual')
+                    .then((didRefresh) => {
+                      if (!didRefresh) onRemountPlayer();
+                    })
+                    .catch(onRemountPlayer);
+                }}
+                style={({ pressed }) => [styles.clipRetryBtn, pressed && { opacity: 0.88 }]}
+              >
+                <Text style={styles.clipRetryLabel}>{fallbackCopy.actionLabel}</Text>
+              </Pressable>
+            ) : null}
           </View>
         ) : null}
 
@@ -837,6 +863,7 @@ function VibeClipCardPosterOnly({
   const isProcessing = isServerProcessingClip(meta);
   const isFailed = isFailedClip(meta);
   const canOpenImmersive = isRemotePlaybackUri(meta.videoUrl) || isLocalPreviewUri(meta.videoUrl);
+  const unavailableCopy = resolveMediaFallbackCopy({ reason: 'asset_deleted' });
 
   return (
     <View
@@ -901,7 +928,8 @@ function VibeClipCardPosterOnly({
         {isFailed ? (
           <View style={[styles.loadingOverlay, styles.clipErrorOverlay]} pointerEvents="none">
             <Ionicons name="videocam-off-outline" size={28} color="rgba(196,181,253,0.88)" />
-            <Text style={styles.clipUnavailableText}>Clip unavailable</Text>
+            <Text style={styles.clipUnavailableTitle}>{unavailableCopy.title}</Text>
+            <Text style={styles.clipUnavailableText}>{unavailableCopy.message}</Text>
           </View>
         ) : isProcessing ? (
           <View style={styles.playOverlay} pointerEvents="none">
@@ -1389,6 +1417,14 @@ const styles = StyleSheet.create({
   clipErrorOverlay: {
     zIndex: 20,
     backgroundColor: 'rgba(17,17,24,0.94)',
+  },
+  clipUnavailableTitle: {
+    color: 'rgba(255,255,255,0.9)',
+    fontSize: 13,
+    fontWeight: '700',
+    marginTop: 8,
+    textAlign: 'center',
+    paddingHorizontal: 16,
   },
   clipUnavailableText: {
     color: 'rgba(226,232,240,0.78)',

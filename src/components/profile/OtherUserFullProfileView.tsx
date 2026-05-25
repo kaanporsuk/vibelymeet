@@ -169,6 +169,8 @@ export function OtherUserFullProfileView({
     url: signedVibeVideoUrl,
     posterUrl: signedVibeVideoPosterUrl,
     status: signedVibeVideoStatus,
+    fallbackCopy: signedVibeVideoFallbackCopy,
+    refresh: refreshSignedVibeVideo,
   } = useMediaAsset({
     kind: "profile_vibe_video",
     sourceRef: signedVibeVideoRef,
@@ -487,11 +489,23 @@ export function OtherUserFullProfileView({
                     <AlertCircle className="mt-0.5 h-5 w-5 text-amber-400" aria-hidden />
                     <div>
                       <h3 className="text-sm font-semibold text-foreground">
-                        Vibe Video preview syncing
+                        {signedVibeVideoFallbackCopy?.title ?? "Vibe Video preview syncing"}
                       </h3>
                       <p className="mt-1 text-sm text-muted-foreground">
-                        The clip is ready on our side and playback should appear shortly.
+                        {signedVibeVideoFallbackCopy?.message ??
+                          "The clip is ready on our side and playback should appear shortly."}
                       </p>
+                      {signedVibeVideoFallbackCopy?.actionLabel && signedVibeVideoRef ? (
+                        <button
+                          type="button"
+                          className="mt-3 rounded-full border border-primary/35 bg-primary/10 px-4 py-1.5 text-xs font-semibold text-primary transition-colors hover:bg-primary/15"
+                          onClick={() => {
+                            void refreshSignedVibeVideo("manual", { bypassFailureCooldown: true });
+                          }}
+                        >
+                          {signedVibeVideoFallbackCopy.actionLabel}
+                        </button>
+                      ) : null}
                     </div>
                   </div>
                 </div>

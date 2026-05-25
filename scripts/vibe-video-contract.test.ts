@@ -379,10 +379,10 @@ test("web and native upload controllers expose an explicit stalled phase", () =>
 
 test("web stalled Vibe Video polling resumes once when the tab becomes visible", () => {
   const webController = read("src/lib/heroVideo/heroVideoUploadController.ts");
-  const webTelemetry = read("src/lib/vibeVideo/vibeVideoTelemetry.ts");
+  const sharedTelemetry = read("shared/media/mediaTelemetry.ts");
 
-  assert.match(webTelemetry, /vibe_video_poll_stalled_visible/);
-  assert.match(webTelemetry, /vibe_video_visibility_resume_poll/);
+  assert.match(sharedTelemetry, /vibe_video_poll_stalled_visible/);
+  assert.match(sharedTelemetry, /vibe_video_visibility_resume_poll/);
   assert.match(webController, /let _visibilityChangeHandler: \(\(\) => void\) \| null = null/);
   assert.match(webController, /_visibilityListenerAttached \|\| _visibilityChangeHandler/);
   assert.match(webController, /_visibilityChangeHandler = _handleVisibilityChange/);
@@ -445,30 +445,27 @@ test("UID-only Vibe Score and onboarding UID preservation remain source-backed",
   assert.match(wizard, /server-computed vibe score/);
 });
 
-test("create-video-upload requires durable media-session state before credentials are returned", () => {
+test("create-video-upload requires durable upload-attempt state before credentials are returned", () => {
   const edge = read("supabase/functions/create-video-upload/index.ts");
   const orphanMigration = read("supabase/migrations/20260501130000_vibe_video_upload_orphan_cleanup.sql");
 
   const attemptCreateIdx = edge.indexOf('cleanupFailurePath = "create_vibe_video_upload_attempt"');
-  const sessionCreateIdx = edge.indexOf('"create_media_session"');
   const profileActivateIdx = edge.indexOf('"activate_profile_vibe_video"');
   assert.ok(attemptCreateIdx >= 0, "vibe_video_uploads idempotency reservation missing");
-  assert.ok(sessionCreateIdx >= 0, "create_media_session call missing");
   assert.ok(profileActivateIdx >= 0, "activate_profile_vibe_video call missing");
   assert.ok(
-    attemptCreateIdx < sessionCreateIdx,
-    "upload attempt must be reserved before durable session/profile writes",
-  );
-  assert.ok(
-    sessionCreateIdx < profileActivateIdx,
-    "media session must be durable before profile UID activation",
+    attemptCreateIdx < profileActivateIdx,
+    "upload attempt must be reserved before durable profile/media-asset activation",
   );
 
-  assert.match(edge, /media_session_create_failed/);
+  assert.match(edge, /New uploads are durable through vibe_video_uploads \+ media_assets/);
+  assert.match(edge, /const sessionId: string \| null = null/);
+  assert.match(edge, /const mediaAssetId = typeof lr\.asset_id === "string" \? lr\.asset_id : null/);
+  assert.match(edge, /\.update\(\{ media_asset_id: mediaAssetId \}\)/);
+  assert.doesNotMatch(edge, /"create_media_session"/);
+  assert.doesNotMatch(edge, /media_session_create_failed/);
   assert.match(edge, /enqueue_vibe_video_orphan_delete/);
   assert.match(edge, /create_video_upload_durable_orphan_cleanup_enqueued/);
-  assert.match(edge, /failure_path: "create_media_session_error"/);
-  assert.match(edge, /failure_path: "create_media_session_rejected"/);
   assert.match(edge, /failure_path: "activate_profile_vibe_video_error"/);
   assert.match(edge, /failure_path: "activate_profile_vibe_video_rejected"/);
   assert.match(edge, /attemptCreateError\?\.code === "23505"/);
@@ -482,7 +479,6 @@ test("create-video-upload requires durable media-session state before credential
   assert.match(edge, /has_media_session/);
   assert.match(edge, /has_media_asset/);
   assert.match(edge, /profile_linked/);
-  assert.match(edge, /create_video_upload_attempt_session_link_failed/);
   assert.match(edge, /create_video_upload_attempt_asset_link_failed_but_repairable/);
   assert.match(edge, /bunny_create_invalid_response/);
   assert.match(edge, /markVibeVideoUploadAttemptFailed/);
@@ -490,12 +486,9 @@ test("create-video-upload requires durable media-session state before credential
     edge.indexOf("enqueueDurableOrphanCleanup") < edge.indexOf('method: "DELETE"'),
     "durable orphan cleanup must be enqueued before best-effort Bunny DELETE",
   );
-  assert.match(edge, /create_video_upload_media_session_create_rejected/);
-  assert.match(edge, /create_video_upload_media_session_uploading_mark_failed_but_repairable/);
   assert.match(edge, /repairableLifecycleState/);
   assert.match(edge, /uploadCredentialsReturned = true/);
   assert.match(edge, /createdVideoId &&[\s\S]*?!uploadCredentialsReturned[\s\S]*?cleanupCreatedVideo/);
-  assert.match(edge, /if \(sessionError\) \{[\s\S]*?media_session_create_failed[\s\S]*?return json/);
 
   assert.match(orphanMigration, /CREATE OR REPLACE FUNCTION public\.enqueue_vibe_video_orphan_delete/);
   assert.match(orphanMigration, /SECURITY DEFINER/);
@@ -783,6 +776,7 @@ test("Vibe Video telemetry events are wired on web and native", () => {
   const webChatHeader = read("src/components/chat/ChatHeader.tsx");
   const webMessages = read("src/hooks/useMessages.ts");
   const nativeReportFlow = read("apps/mobile/components/match/ReportFlowModal.tsx");
+  const sharedTelemetry = read("shared/media/mediaTelemetry.ts");
 
   const requiredEvents = [
     "vibe_video_credentials_request_started",
@@ -812,10 +806,13 @@ test("Vibe Video telemetry events are wired on web and native", () => {
     "vibe_video_profile_report_submitted",
   ];
 
+  for (const eventName of requiredEvents) {
+    assert.match(sharedTelemetry, new RegExp(eventName));
+  }
+
   for (const source of [webTelemetry, nativeTelemetry]) {
-    for (const eventName of requiredEvents) {
-      assert.match(source, new RegExp(eventName));
-    }
+    assert.match(source, /MEDIA_VIBE_VIDEO_EVENTS/);
+    assert.match(source, /export const VIBE_VIDEO_EVENTS = MEDIA_VIBE_VIDEO_EVENTS/);
     assert.doesNotMatch(source, /signedUrl|Authorization/);
     assert.doesNotMatch(source, /\|file\|/);
   }
@@ -843,11 +840,14 @@ test("Vibe Video CDN hostname telemetry covers missing web config and native per
   const webTelemetry = read("src/lib/vibeVideo/vibeVideoTelemetry.ts");
   const nativePlaybackUrl = read("apps/mobile/lib/vibeVideoPlaybackUrl.ts");
   const nativeTelemetry = read("apps/mobile/lib/vibeVideoTelemetry.ts");
+  const sharedTelemetry = read("shared/media/mediaTelemetry.ts");
   const mismatchStart = nativePlaybackUrl.indexOf("function trackCdnHostnamePersistenceMismatch");
   const mismatchEnd = nativePlaybackUrl.indexOf("/**", mismatchStart);
   const mismatchFunction = nativePlaybackUrl.slice(mismatchStart, mismatchEnd);
 
-  assert.match(webTelemetry, /vibe_video_cdn_hostname_fallback_used/);
+  assert.match(sharedTelemetry, /vibe_video_cdn_hostname_fallback_used/);
+  assert.match(webTelemetry, /MEDIA_VIBE_VIDEO_EVENTS/);
+  assert.match(nativeTelemetry, /MEDIA_VIBE_VIDEO_EVENTS/);
   assert.match(webState, /let webCdnHostnameFallbackReported = false/);
   assert.match(webState, /function trackWebCdnHostnameFallbackUsed/);
   assert.match(webState, /if \(webCdnHostnameFallbackReported\) return/);
@@ -858,7 +858,7 @@ test("Vibe Video CDN hostname telemetry covers missing web config and native per
   assert.match(webState, /if \(!hostname\) \{/);
   assert.match(webState, /return hostname/);
 
-  assert.match(nativeTelemetry, /vibe_video_cdn_hostname_persistence_mismatch/);
+  assert.match(sharedTelemetry, /vibe_video_cdn_hostname_persistence_mismatch/);
   assert.match(nativePlaybackUrl, /let reportedEnvPersistedMismatch = false/);
   assert.match(nativePlaybackUrl, /function trackCdnHostnamePersistenceMismatch/);
   assert.match(nativePlaybackUrl, /if \(reportedEnvPersistedMismatch\) return/);
@@ -1047,8 +1047,12 @@ test("media v2 Vibe Video attempts are schema-backed and dual-written by server 
   assert.match(createUpload, /repairableLifecycleState: durableAttemptMediaAssetId\(reusableAttempt\) == null/);
   assert.match(createUpload, /provider_object_id: videoId/);
   assert.match(createUpload, /media_asset_id: mediaAssetId/);
-  assert.match(createUpload, /draft_media_session_id: sessionId/);
-  assert.match(createUpload, /link_vibe_video_upload_attempt_session/);
+  assert.match(createUpload, /const sessionId: string \| null = null/);
+  assert.match(createUpload, /New uploads are durable through vibe_video_uploads \+ media_assets/);
+  assert.match(createUpload, /cleanupFailurePath = "link_vibe_video_upload_attempt_asset"/);
+  assert.match(createUpload, /\.update\(\{ media_asset_id: mediaAssetId \}\)/);
+  assert.doesNotMatch(createUpload, /draft_media_session_id: sessionId/);
+  assert.doesNotMatch(createUpload, /link_vibe_video_upload_attempt_session/);
   assert.match(createUpload, /attemptAssetLinkRepairable/);
   assert.match(createUpload, /uploadAttemptId: attemptRow\.id/);
   assert.match(createUpload, /status: "superseded", error_detail: "replaced_by_new_upload"/);

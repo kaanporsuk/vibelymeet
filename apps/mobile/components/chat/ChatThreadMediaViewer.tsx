@@ -26,6 +26,7 @@ import {
   safeRemoveExpoSharedObjectSubscription,
 } from '@/lib/expoSharedObjectSafe';
 import { useReduceMotionState } from '@/hooks/useReduceMotion';
+import { resolveMediaFallbackCopy } from '@clientShared/media/mediaFallbackCopy';
 
 export type ChatThreadPhotoItem = { id: string; uri: string; sourceRef?: string | null };
 
@@ -324,6 +325,7 @@ function VideoViewerBody({
   const [playablePosterUri, setPlayablePosterUri] = useState(posterUri ?? null);
   const [resolveFailed, setResolveFailed] = useState(false);
   const refreshAttemptedForUriRef = useRef<string | null>(null);
+  const resolveFallbackCopy = resolveMediaFallbackCopy({ reason: 'unknown' });
 
   useEffect(() => {
     setPlayableUri(uri);
@@ -379,21 +381,24 @@ function VideoViewerBody({
             {resolveFailed ? (
               <View style={styles.videoErrorOverlay}>
                 <Ionicons name="alert-circle-outline" size={40} color="rgba(196,181,253,0.9)" />
-                <Text style={styles.videoErrorText}>Couldn&apos;t play this video.</Text>
-                <Pressable
-                  onPress={() => {
-                    refreshAttemptedForUriRef.current = null;
-                    setResolveFailed(false);
-                    void refreshMedia()
-                      .then((didRefresh) => {
-                        if (!didRefresh) setResolveFailed(true);
-                      })
-                      .catch(() => setResolveFailed(true));
-                  }}
-                  style={({ pressed }) => [styles.videoRetryBtn, pressed && { opacity: 0.88 }]}
-                >
-                  <Text style={styles.videoRetryLabel}>Try again</Text>
-                </Pressable>
+                <Text style={styles.videoErrorTitle}>{resolveFallbackCopy.title}</Text>
+                <Text style={styles.videoErrorText}>{resolveFallbackCopy.message}</Text>
+                {resolveFallbackCopy.actionLabel ? (
+                  <Pressable
+                    onPress={() => {
+                      refreshAttemptedForUriRef.current = null;
+                      setResolveFailed(false);
+                      void refreshMedia()
+                        .then((didRefresh) => {
+                          if (!didRefresh) setResolveFailed(true);
+                        })
+                        .catch(() => setResolveFailed(true));
+                    }}
+                    style={({ pressed }) => [styles.videoRetryBtn, pressed && { opacity: 0.88 }]}
+                  >
+                    <Text style={styles.videoRetryLabel}>{resolveFallbackCopy.actionLabel}</Text>
+                  </Pressable>
+                ) : null}
               </View>
             ) : (
               <View style={styles.videoLoadingOverlay} pointerEvents="none">
@@ -450,6 +455,7 @@ function VideoViewerStage({
   const [phase, setPhase] = useState<'loading' | 'ready' | 'error'>('loading');
   const [manualPlaybackRequested, setManualPlaybackRequested] = useState(false);
   const { reduceMotion, resolved: reduceMotionResolved } = useReduceMotionState();
+  const playbackFallbackCopy = resolveMediaFallbackCopy({ reason: isHlsUri(uri) ? 'hls_auth_failed' : 'unknown' });
   const shouldAttachPlayback = reduceMotionResolved && (!reduceMotion || manualPlaybackRequested);
   const playerSource = useMemo<VideoSource>(() => (shouldAttachPlayback ? videoSourceForUri(uri) : null), [
     shouldAttachPlayback,
@@ -581,21 +587,24 @@ function VideoViewerStage({
           {phase === 'error' ? (
             <View style={styles.videoErrorOverlay}>
               <Ionicons name="alert-circle-outline" size={40} color="rgba(196,181,253,0.9)" />
-              <Text style={styles.videoErrorText}>Couldn&apos;t play this video.</Text>
-              <Pressable
-                onPress={() => {
-                  onResetPlaybackRefreshAttempt();
-                  setPhase('loading');
-                  void onRefreshMedia()
-                    .then((didRefresh) => {
-                      if (!didRefresh) onRemountPlayer();
-                    })
-                    .catch(onRemountPlayer);
-                }}
-                style={({ pressed }) => [styles.videoRetryBtn, pressed && { opacity: 0.88 }]}
-              >
-                <Text style={styles.videoRetryLabel}>Try again</Text>
-              </Pressable>
+              <Text style={styles.videoErrorTitle}>{playbackFallbackCopy.title}</Text>
+              <Text style={styles.videoErrorText}>{playbackFallbackCopy.message}</Text>
+              {playbackFallbackCopy.actionLabel ? (
+                <Pressable
+                  onPress={() => {
+                    onResetPlaybackRefreshAttempt();
+                    setPhase('loading');
+                    void onRefreshMedia()
+                      .then((didRefresh) => {
+                        if (!didRefresh) onRemountPlayer();
+                      })
+                      .catch(onRemountPlayer);
+                  }}
+                  style={({ pressed }) => [styles.videoRetryBtn, pressed && { opacity: 0.88 }]}
+                >
+                  <Text style={styles.videoRetryLabel}>{playbackFallbackCopy.actionLabel}</Text>
+                </Pressable>
+              ) : null}
             </View>
           ) : null}
         </View>
@@ -738,6 +747,12 @@ const styles = StyleSheet.create({
     fontSize: 14,
     textAlign: 'center',
     lineHeight: 20,
+  },
+  videoErrorTitle: {
+    color: 'rgba(255,255,255,0.9)',
+    fontSize: 15,
+    fontWeight: '700',
+    textAlign: 'center',
   },
   videoRetryBtn: {
     marginTop: 4,

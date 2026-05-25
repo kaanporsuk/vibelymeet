@@ -20,6 +20,11 @@ import {
 } from "@/lib/vibeVideo/profileVibeVideoTtff";
 import { trackVibeVideoEvent, VIBE_VIDEO_EVENTS } from "@/lib/vibeVideo/vibeVideoTelemetry";
 import {
+  resolveMediaFallbackCopy,
+  resolveMediaFallbackReason,
+  type MediaFallbackReason,
+} from "@clientShared/media/mediaFallbackCopy";
+import {
   captionTextFromMediaCaptions,
   mediaCaptionLanguage,
   mediaCaptionsToWebVtt,
@@ -62,6 +67,7 @@ export function VibeVideoFullscreenPlayer({
   const [manualPlaybackRequested, setManualPlaybackRequested] = useState(false);
   const [showCaptions, setShowCaptions] = useState(true);
   const [captionTrackUrl, setCaptionTrackUrl] = useState<string | null>(null);
+  const [playbackFallbackReason, setPlaybackFallbackReason] = useState<MediaFallbackReason | null>(null);
   const prefersReducedMotion = usePrefersReducedMotion();
 
   const vibeVideoInfo = resolveWebVibeVideoState({
@@ -80,7 +86,10 @@ export function VibeVideoFullscreenPlayer({
     placeholderHash,
     dominantColor,
     status: mediaAssetStatus,
+    fallbackReason: mediaAssetFallbackReason,
+    fallbackCopy: mediaAssetFallbackCopy,
     expiresAtMs: mediaAssetExpiresAtMs,
+    refresh: refreshMediaAsset,
   } = useMediaAsset({
     kind: usesSignedProfileRef ? "profile_vibe_video" : "vibe_video",
     sourceRef: vibeVideoInfo.playbackUrl,
@@ -89,6 +98,16 @@ export function VibeVideoFullscreenPlayer({
     enabled: show && isReady,
   });
   const playbackUrl = mediaAssetUrl ?? (usesSignedProfileRef ? null : vibeVideoInfo.playbackUrl);
+  const isHlsPlaybackUrl = playbackUrl ? isHlsMediaAssetUrl(playbackUrl) : false;
+  const playbackFallbackCopy = playbackFallbackReason
+    ? resolveMediaFallbackCopy({ reason: playbackFallbackReason })
+    : null;
+  const visibleFallbackCopy =
+    playbackFallbackCopy ??
+    mediaAssetFallbackCopy ??
+    resolveMediaFallbackCopy({
+      reason: usesSignedProfileRef && isHlsPlaybackUrl ? "hls_auth_failed" : "unknown",
+    });
   const captionText = captionTextFromMediaCaptions(captions);
   const captionLanguage = mediaCaptionLanguage(captions) ?? "und";
   const shouldAttachPlayback = !prefersReducedMotion || manualPlaybackRequested;
@@ -142,9 +161,13 @@ export function VibeVideoFullscreenPlayer({
 
   const reportPlaybackError = useCallback((kind: "native" | "unsupported" | "fatal", detail?: unknown) => {
     setPlaybackFailed(true);
+    setPlaybackFallbackReason(resolveMediaFallbackReason({
+      stage: usesSignedProfileRef && isHlsPlaybackUrl ? "hls_auth" : "playback",
+    }));
     trackVibeVideoEvent(VIBE_VIDEO_EVENTS.playbackFailed, {
       source: "vibe_player_fullscreen",
       kind,
+      fallback_reason: usesSignedProfileRef && isHlsPlaybackUrl ? "hls_auth_failed" : "unknown",
       video_guid: vibeVideoInfo.uid,
     });
     Sentry.addBreadcrumb({
@@ -153,7 +176,7 @@ export function VibeVideoFullscreenPlayer({
       level: "error",
       data: { surface: "fullscreen", kind, detail: kind === "fatal" ? (detail as { type?: unknown })?.type : undefined },
     });
-  }, [vibeVideoInfo.uid]);
+  }, [isHlsPlaybackUrl, usesSignedProfileRef, vibeVideoInfo.uid]);
 
   useEffect(() => {
     setPlaybackFailed(false);
@@ -162,6 +185,7 @@ export function VibeVideoFullscreenPlayer({
     profileVibeVideoTtffTokenRef.current = null;
     hlsAuthRefreshAttemptCountRef.current = 0;
     setManualPlaybackRequested(false);
+    setPlaybackFallbackReason(null);
   }, [show, vibeVideoInfo.playbackUrl]);
 
   useEffect(() => {
@@ -194,9 +218,11 @@ export function VibeVideoFullscreenPlayer({
     if (!playbackUrl) {
       if (usesSignedProfileRef && mediaAssetStatus !== "error") return;
       setPlaybackFailed(true);
+      setPlaybackFallbackReason(usesSignedProfileRef ? mediaAssetFallbackReason ?? "unknown" : "unknown");
       trackVibeVideoEvent(VIBE_VIDEO_EVENTS.playbackFailed, {
         source: "vibe_player_fullscreen",
         kind: usesSignedProfileRef ? "signed_resolve_failed" : "missing_src",
+        fallback_reason: usesSignedProfileRef ? mediaAssetFallbackReason ?? "unknown" : "unknown",
         has_uid: true,
       });
       Sentry.addBreadcrumb({
@@ -229,6 +255,7 @@ export function VibeVideoFullscreenPlayer({
     playbackUrl,
     usesSignedProfileRef,
     mediaAssetStatus,
+    mediaAssetFallbackReason,
     reportSucceeded,
     vibeVideoInfo.uid,
     prefersReducedMotion,
@@ -410,10 +437,32 @@ export function VibeVideoFullscreenPlayer({
               className="absolute inset-0 z-20 flex flex-col items-center justify-center px-8 text-center"
               onClick={(e) => e.stopPropagation()}
             >
-              <p className="text-white text-base font-medium">Can&apos;t play right now</p>
+              <p className="text-white text-base font-medium">{visibleFallbackCopy.title}</p>
               <p className="text-white/70 text-sm mt-2 max-w-sm">
-                It&apos;s ready on our side, but playback didn&apos;t load. Try again in a moment.
+                {visibleFallbackCopy.message}
               </p>
+              {visibleFallbackCopy.actionLabel ? (
+                <button
+                  type="button"
+                  className="mt-4 rounded-full border border-white/25 bg-white/10 px-5 py-2 text-xs font-semibold text-white transition-colors hover:bg-white/15"
+                  onClick={() => {
+                    setPlaybackFailed(false);
+                    setPlaybackFallbackReason(null);
+                    setHasFirstFrame(false);
+                    playbackSucceededRef.current = false;
+                    hlsAuthRefreshAttemptCountRef.current = 0;
+                    if (usesSignedProfileRef) {
+                      void refreshMediaAsset("manual", { bypassFailureCooldown: true }).then(() => {
+                        videoRef.current?.load();
+                      });
+                    } else {
+                      videoRef.current?.load();
+                    }
+                  }}
+                >
+                  {visibleFallbackCopy.actionLabel}
+                </button>
+              ) : null}
             </div>
           )}
 

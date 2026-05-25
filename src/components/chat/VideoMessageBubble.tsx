@@ -8,6 +8,11 @@ import { useMediaPlaybackQoE } from "@/hooks/useMediaPlaybackQoE";
 import { usePrefersReducedMotion } from "@/hooks/usePrefersReducedMotion";
 import { useMediaVideoPreloadForVisibility } from "@/hooks/useMediaVideoPreloadPolicy";
 import { refreshMediaAsset as refreshResolvedMediaAsset } from "@/lib/mediaAssetResolver";
+import {
+  resolveMediaFallbackCopy,
+  resolveMediaFallbackReason,
+  type MediaFallbackReason,
+} from "@clientShared/media/mediaFallbackCopy";
 
 interface VideoMessageBubbleProps {
   videoUrl: string;
@@ -58,12 +63,15 @@ export const VideoMessageBubble = ({
   const [isReady, setIsReady] = useState(false);
   const [hasMetadata, setHasMetadata] = useState(false);
   const [loadError, setLoadError] = useState(false);
+  const [fallbackReason, setFallbackReason] = useState<MediaFallbackReason | null>(null);
   const [isViewportVisible, setIsViewportVisible] = useState(true);
   const prefersReducedMotion = usePrefersReducedMotion();
   const playbackRefreshAttemptCountRef = useRef(0);
   const {
     url: mediaAssetUrl,
     expiresAtMs: mediaAssetExpiresAtMs,
+    fallbackReason: mediaAssetFallbackReason,
+    fallbackCopy: mediaAssetFallbackCopy,
     refresh: refreshMediaAsset,
   } = useMediaAsset({
     kind: mediaKind,
@@ -76,6 +84,10 @@ export const VideoMessageBubble = ({
   const [playableVideoUrl, setPlayableVideoUrl] = useState(mediaAssetUrl ?? videoUrl);
   const playableVideoUrlRef = useRef(mediaAssetUrl ?? videoUrl);
   const isHlsUrl = /\.m3u8(?:[?#]|$)/i.test(playableVideoUrl);
+  const visibleFallbackCopy =
+    (fallbackReason ? resolveMediaFallbackCopy({ reason: fallbackReason }) : null) ??
+    mediaAssetFallbackCopy ??
+    resolveMediaFallbackCopy({ reason: "unknown" });
 
   const isIosSafari = useMemo(() => {
     if (typeof navigator === "undefined") return false;
@@ -97,6 +109,7 @@ export const VideoMessageBubble = ({
     setIsReady(false);
     setHasMetadata(false);
     setLoadError(false);
+    setFallbackReason(null);
     playbackRefreshAttemptCountRef.current = 0;
   }, [mediaAssetUrl, videoUrl]);
 
@@ -180,7 +193,10 @@ export const VideoMessageBubble = ({
         const name = err instanceof Error ? err.name : "";
         if (name === "AbortError" || name === "NotAllowedError" || name === "NotSupportedError") {
           void tryRefreshAfterFailure().then((didRefresh) => {
-            if (!didRefresh) setLoadError(true);
+            if (!didRefresh) {
+              setFallbackReason(mediaAssetFallbackReason ?? "unknown");
+              setLoadError(true);
+            }
           });
         }
       });
@@ -188,7 +204,7 @@ export const VideoMessageBubble = ({
       video.pause();
       setIsPlaying(false);
     }
-  }, [tryRefreshAfterFailure]);
+  }, [mediaAssetFallbackReason, tryRefreshAfterFailure]);
 
   const toggleMute = useCallback((e: React.MouseEvent) => {
     e.stopPropagation();
@@ -264,7 +280,10 @@ export const VideoMessageBubble = ({
     onError: () => {
       setIsLoading(false);
       void tryRefreshAfterFailure().then((didRefresh) => {
-        if (!didRefresh) setLoadError(true);
+        if (!didRefresh) {
+          setFallbackReason(resolveMediaFallbackReason({ stage: isHlsUrl ? "hls_auth" : "playback" }));
+          setLoadError(true);
+        }
       });
     },
     onAuthErrorRefresh: refreshPlaybackOnAuthError,
@@ -288,24 +307,32 @@ export const VideoMessageBubble = ({
         )}
       >
         <AlertCircle className="w-6 h-6 text-muted-foreground" />
-        <span className="text-[11px] text-muted-foreground text-center leading-snug">Couldn't load video</span>
-        <button
-          type="button"
-          onClick={() => {
-            playbackRefreshAttemptCountRef.current = 0;
-            setLoadError(false);
-            setIsLoading(true);
-            setIsReady(false);
-            setIsPlaying(false);
-            setCurrentTime(0);
-            void refreshVideoUrl({ bypassFailureCooldown: true }).then((freshUrl) => {
-              if (!freshUrl || freshUrl === playableVideoUrl) videoRef.current?.load();
-            });
-          }}
-          className="text-[11px] font-medium text-primary hover:underline underline-offset-2"
-        >
-          Retry
-        </button>
+        <span className="text-[11px] font-semibold text-muted-foreground text-center leading-snug">
+          {visibleFallbackCopy.title}
+        </span>
+        <span className="text-[10px] text-muted-foreground/85 text-center leading-snug">
+          {visibleFallbackCopy.message}
+        </span>
+        {visibleFallbackCopy.actionLabel ? (
+          <button
+            type="button"
+            onClick={() => {
+              playbackRefreshAttemptCountRef.current = 0;
+              setLoadError(false);
+              setFallbackReason(null);
+              setIsLoading(true);
+              setIsReady(false);
+              setIsPlaying(false);
+              setCurrentTime(0);
+              void refreshVideoUrl({ bypassFailureCooldown: true }).then((freshUrl) => {
+                if (!freshUrl || freshUrl === playableVideoUrl) videoRef.current?.load();
+              });
+            }}
+            className="text-[11px] font-medium text-primary hover:underline underline-offset-2"
+          >
+            {visibleFallbackCopy.actionLabel}
+          </button>
+        ) : null}
       </div>
     );
   }
@@ -385,7 +412,10 @@ export const VideoMessageBubble = ({
             if (isHlsUrl) return;
             setIsLoading(false);
             void tryRefreshAfterFailure().then((didRefresh) => {
-              if (!didRefresh) setLoadError(true);
+              if (!didRefresh) {
+                setFallbackReason(resolveMediaFallbackReason({ stage: "playback" }));
+                setLoadError(true);
+              }
             });
           }}
           onTimeUpdate={handleTimeUpdate}

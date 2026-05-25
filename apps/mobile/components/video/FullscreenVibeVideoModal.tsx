@@ -23,6 +23,7 @@ import { useReduceMotion } from '@/hooks/useReduceMotion';
 import { isProfileVibeVideoRef } from '@/lib/mediaAssetResolver';
 import type { VibeVideoState } from '@/lib/vibeVideoState';
 import type { MediaCaptions } from '../../../../shared/media/captions';
+import { resolveMediaFallbackCopy } from '@clientShared/media/mediaFallbackCopy';
 
 export interface FullscreenVibeVideoModalProps {
   visible: boolean;
@@ -76,6 +77,10 @@ export function FullscreenVibeVideoModal({
   const uid = typeof bunnyVideoUid === 'string' ? bunnyVideoUid.trim() : '';
   const expectedPatternUrl =
     !usesSignedProfileRef && uid && streamHostname ? `https://${streamHostname}/${uid}/playlist.m3u8` : null;
+  const playbackFallbackCopy = resolveMediaFallbackCopy({
+    reason: usesSignedProfileRef ? 'hls_auth_failed' : 'unknown',
+  });
+  const deletedFallbackCopy = resolveMediaFallbackCopy({ reason: 'asset_deleted' });
 
   const errorKind: 'none' | 'config' | 'url' | 'playback' = (() => {
     if (!visible) return 'none';
@@ -164,14 +169,14 @@ export function FullscreenVibeVideoModal({
     });
   }, [visible, errorKind, uid, playbackUrl, streamHostname, usesSignedProfileRef, configMissing, expectedPatternUrl]);
 
-  const renderErrorCard = (title: string, body: string, showRetry?: boolean) => (
+  const renderErrorCard = (title: string, body: string, showRetry?: boolean, retryLabel = 'Try again') => (
     <View style={styles.errorWrap}>
       <Ionicons name="alert-circle-outline" size={40} color="#fbbf24" />
       <Text style={styles.errorTitle}>{title}</Text>
       <Text style={styles.errorBody}>{body}</Text>
       {showRetry ? (
         <Pressable onPress={handleRetryPlayback} style={styles.errorSecondary}>
-          <Text style={styles.errorSecondaryText}>Try again</Text>
+          <Text style={styles.errorSecondaryText}>{retryLabel}</Text>
         </Pressable>
       ) : null}
       <Pressable onPress={handleClose} style={styles.errorClose}>
@@ -191,24 +196,23 @@ export function FullscreenVibeVideoModal({
         ? 'Still processing'
         : 'Video still processing'
       : canonicalUrlState === 'failed' || canonicalUrlState === 'error'
-        ? 'Video needs a fresh take'
+        ? deletedFallbackCopy.title
         : canonicalUrlState === 'ready'
           ? 'Preview still syncing'
-          : 'Profile clip not found';
+          : deletedFallbackCopy.title;
   const urlBody =
     canonicalUrlState === 'processing' || canonicalUrlState === 'stale_processing'
       ? canonicalUrlState === 'stale_processing'
         ? 'Still processing. Refresh, try again later, or re-upload if it does not finish.'
         : "Your video uploaded and is still processing. This can take a few minutes. We'll keep checking."
       : canonicalUrlState === 'failed' || canonicalUrlState === 'error'
-        ? 'This clip did not reach playback. Record again from Profile Studio.'
+        ? deletedFallbackCopy.message
         : canonicalUrlState === 'ready'
           ? 'The clip is ready on our side, but this device is still waiting on a playable preview URL.'
-          : 'There is not a profile clip to play yet. Pull to refresh or record again.';
+          : deletedFallbackCopy.message;
 
-  const playbackTitle = 'Playback failed';
-  const playbackBody =
-    'The video stream failed to load. If this persists, try again after pulling to refresh on Profile.';
+  const playbackTitle = playbackFallbackCopy.title;
+  const playbackBody = playbackFallbackCopy.message;
 
   return (
     <Modal
@@ -225,7 +229,7 @@ export function FullscreenVibeVideoModal({
           : errorKind === 'url'
             ? renderErrorCard(urlTitle, urlBody, false)
             : errorKind === 'playback'
-              ? renderErrorCard(playbackTitle, playbackBody, true)
+              ? renderErrorCard(playbackTitle, playbackBody, !!playbackFallbackCopy.actionLabel, playbackFallbackCopy.actionLabel ?? undefined)
               : playbackUrl
                 ? (
                     <>

@@ -116,6 +116,7 @@ import {
 } from '@/lib/chatMessageContent';
 import { refreshMediaAssetUrl } from '@/lib/mediaAssetResolver';
 import { useMediaAsset } from '@/hooks/useMediaAsset';
+import { resolveMediaFallbackCopy } from '@clientShared/media/mediaFallbackCopy';
 import { extractVibeClipMeta } from '../../../../shared/chat/messageRouting';
 import { VibeClipCard, type VibeClipLocalRecovery, type VibeClipPosterPreviewState } from '@/components/chat/VibeClipCard';
 import {
@@ -781,6 +782,7 @@ function ChatVideoCardBody({
 }: ChatVideoCardProps & { onRefreshMediaUri: () => Promise<boolean>; onRemountPlayer: () => void }) {
   const [hasError, setHasError] = useState(false);
   const [isReady, setIsReady] = useState(false);
+  const fallbackCopy = resolveMediaFallbackCopy({ reason: uri.includes('.m3u8') ? 'hls_auth_failed' : 'unknown' });
   const player = useVideoPlayer(uri, (p) => {
     p.loop = false;
   });
@@ -877,29 +879,36 @@ function ChatVideoCardBody({
       {hasError ? (
         <View style={[styles.chatVideoFallback, styles.chatVideoErrorOverlay]} pointerEvents="box-none">
           <Ionicons name="videocam-off-outline" size={28} color="rgba(196,181,253,0.85)" />
-          <Text style={{ color: theme.textSecondary, fontSize: 12, marginTop: 8, textAlign: 'center' }}>
-            Couldn&apos;t load video
+          <Text style={{ color: theme.text, fontSize: 13, fontWeight: '700', marginTop: 8, textAlign: 'center' }}>
+            {fallbackCopy.title}
           </Text>
-          <Pressable
-            onPress={() => {
-              void onRefreshMediaUri()
-                .then((didRefresh) => {
-                  if (!didRefresh) onRemountPlayer();
-                })
-                .catch(onRemountPlayer);
-            }}
-            style={({ pressed }) => [
-              { marginTop: 12, paddingHorizontal: 14, paddingVertical: 8, borderRadius: 999 },
-              {
-                borderWidth: StyleSheet.hairlineWidth,
-                borderColor: 'rgba(192,132,252,0.4)',
-                backgroundColor: 'rgba(139,92,246,0.12)',
-              },
-              pressed && { opacity: 0.85 },
-            ]}
-          >
-            <Text style={{ fontSize: 11, fontWeight: '700', color: 'rgba(216,180,254,0.95)' }}>Try again</Text>
-          </Pressable>
+          <Text style={{ color: theme.textSecondary, fontSize: 12, marginTop: 8, textAlign: 'center' }}>
+            {fallbackCopy.message}
+          </Text>
+          {fallbackCopy.actionLabel ? (
+            <Pressable
+              onPress={() => {
+                void onRefreshMediaUri()
+                  .then((didRefresh) => {
+                    if (!didRefresh) onRemountPlayer();
+                  })
+                  .catch(onRemountPlayer);
+              }}
+              style={({ pressed }) => [
+                { marginTop: 12, paddingHorizontal: 14, paddingVertical: 8, borderRadius: 999 },
+                {
+                  borderWidth: StyleSheet.hairlineWidth,
+                  borderColor: 'rgba(192,132,252,0.4)',
+                  backgroundColor: 'rgba(139,92,246,0.12)',
+                },
+                pressed && { opacity: 0.85 },
+              ]}
+            >
+              <Text style={{ fontSize: 11, fontWeight: '700', color: 'rgba(216,180,254,0.95)' }}>
+                {fallbackCopy.actionLabel}
+              </Text>
+            </Pressable>
+          ) : null}
         </View>
       ) : null}
       {onRequestImmersive ? (
