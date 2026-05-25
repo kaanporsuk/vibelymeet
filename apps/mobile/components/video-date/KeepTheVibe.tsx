@@ -8,6 +8,7 @@ import { spacing, radius } from '@/constants/theme';
 import Colors from '@/constants/Colors';
 import { useColorScheme } from '@/components/useColorScheme';
 import type { VideoDateExtendOutcome } from '@clientShared/matching/videoDateExtensionSpend';
+import { resolveVideoDateExtensionCopy } from '@clientShared/matching/videoDateExtensionCopy';
 import { trackEvent } from '@/lib/analytics';
 import {
   LobbyPostDateEvents,
@@ -45,14 +46,17 @@ export function KeepTheVibe({
 
   const withCreditsImpRef = useRef(false);
   const noCreditsImpRef = useRef(false);
-  const extraTimeActionLabel =
-    pendingPartnerRequestType === 'extra_time' ? 'Accept +2' : mutualMode ? 'Ask +2' : '+2 min';
-  const extendedVibeActionLabel =
-    pendingPartnerRequestType === 'extended_vibe' ? 'Accept +5' : mutualMode ? 'Ask +5' : '+5 min';
-  const extraTimeActionVerb =
-    pendingPartnerRequestType === 'extra_time' ? 'Accept adding' : mutualMode ? 'Ask to add' : 'Add';
-  const extendedVibeActionVerb =
-    pendingPartnerRequestType === 'extended_vibe' ? 'Accept adding' : mutualMode ? 'Ask to add' : 'Add';
+  const extraTimeCopy = resolveVideoDateExtensionCopy({
+    type: 'extra_time',
+    state: pendingPartnerRequestType === 'extra_time' ? 'partner_pending' : 'available',
+    mutualMode,
+  });
+  const extendedVibeCopy = resolveVideoDateExtensionCopy({
+    type: 'extended_vibe',
+    state: pendingPartnerRequestType === 'extended_vibe' ? 'partner_pending' : 'available',
+    mutualMode,
+  });
+  const noCreditsCopy = resolveVideoDateExtensionCopy({ state: 'insufficient_credits' });
 
   useEffect(() => {
     if (!analyticsSessionId) return;
@@ -147,16 +151,16 @@ export function KeepTheVibe({
             accessibilityLabel="Get video date credits"
             accessibilityHint="Opens credits in settings. Your date stays active."
           >
-            <Text style={[styles.getCreditsTitle, { color: theme.text }]}>Get Credits</Text>
+            <Text style={[styles.getCreditsTitle, { color: theme.text }]}>{noCreditsCopy.label}</Text>
             <Text style={[styles.getCreditsSub, { color: theme.mutedForeground }]}>
-              Extra Time adds +2 min. Extended Vibe adds +5 min.
+              {noCreditsCopy.message}
             </Text>
             <Text style={[styles.getCreditsFootnote, { color: theme.mutedForeground }]}>
               Opens in settings - your date continues.
             </Text>
           </Pressable>
         ) : (
-          <Text style={[styles.hint, { color: theme.mutedForeground }]}>Get credits for +time</Text>
+          <Text style={[styles.hint, { color: theme.mutedForeground }]}>{noCreditsCopy.label} for +time</Text>
         )}
       </View>
     );
@@ -174,14 +178,14 @@ export function KeepTheVibe({
             pressed && styles.pressed,
           ]}
           accessibilityRole="button"
-          accessibilityLabel={`${extraTimeActionVerb} 2 minutes with Extra Time, ${extraTimeCredits} credit${extraTimeCredits === 1 ? '' : 's'} left`}
+          accessibilityLabel={`${extraTimeCopy.actionVerb} 2 minutes with Extra Time, ${extraTimeCredits} credit${extraTimeCredits === 1 ? '' : 's'} left`}
         >
           {isExtending ? (
             <ActivityIndicator size="small" color={theme.tint} />
           ) : (
             <>
               <Text style={styles.pillIcon}>⏱</Text>
-              <Text style={[styles.pillText, { color: theme.text }]}>{extraTimeActionLabel}</Text>
+              <Text style={[styles.pillText, { color: theme.text }]}>{extraTimeCopy.label}</Text>
               <Text style={[styles.pillCount, { color: theme.mutedForeground }]}>({extraTimeCredits})</Text>
             </>
           )}
@@ -197,14 +201,14 @@ export function KeepTheVibe({
             pressed && styles.pressed,
           ]}
           accessibilityRole="button"
-          accessibilityLabel={`${extendedVibeActionVerb} 5 minutes with Extended Vibe, ${extendedVibeCredits} credit${extendedVibeCredits === 1 ? '' : 's'} left`}
+          accessibilityLabel={`${extendedVibeCopy.actionVerb} 5 minutes with Extended Vibe, ${extendedVibeCredits} credit${extendedVibeCredits === 1 ? '' : 's'} left`}
         >
           {isExtending ? (
             <ActivityIndicator size="small" color={theme.accent} />
           ) : (
             <>
               <Text style={styles.pillIcon}>✨</Text>
-              <Text style={[styles.pillText, { color: theme.text }]}>{extendedVibeActionLabel}</Text>
+              <Text style={[styles.pillText, { color: theme.text }]}>{extendedVibeCopy.label}</Text>
               <Text style={[styles.pillCount, { color: theme.mutedForeground }]}>({extendedVibeCredits})</Text>
             </>
           )}

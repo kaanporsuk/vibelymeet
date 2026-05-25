@@ -114,8 +114,8 @@ import {
 } from '@shared/matching/videoSessionFlow';
 import { shouldTopUpVideoDateDeck } from '@clientShared/matching/videoDateInstantExperience';
 import {
-  formatVideoDateQueueHintLabel,
   resolveEventDeckPhase4UiState,
+  resolveVideoDateQueueCopy,
 } from '@clientShared/matching/videoDatePhase4Ux';
 import {
   createVideoDateSessionChannel,
@@ -936,7 +936,8 @@ export default function EventLobbyScreen() {
     refetchIntervalInBackground: false,
     staleTime: 3_000,
   });
-  const queueHintLabel = formatVideoDateQueueHintLabel(queueHint, queuedMatchCount);
+  const queueHintCopy = resolveVideoDateQueueCopy(queueHint, queuedMatchCount);
+  const queueHintLabel = queueHintCopy.compactLabel;
 
   /** Full-screen yield: server truth says handshake/date — do not show deck-empty underneath. */
   const yieldingToVideoDateUi = useMemo(

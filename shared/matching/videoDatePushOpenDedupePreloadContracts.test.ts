@@ -57,7 +57,7 @@ test("video-date OneSignal payloads carry canonical open, dedupe, route, and ent
   assert.match(sendNotification, /next\.event_id = eventId/);
   assert.match(sendNotification, /category: args\.category/);
   assert.match(sendNotification, /ONESIGNAL_DATA_MAX_BYTES = 2048/);
-  assert.doesNotMatch(sendNotification, /3 \* 1024/);
+  assert.match(sendNotification, /VIDEO_DATE_PRELOAD_DATA_MAX_BYTES = 3 \* 1024/);
   assert.match(sendNotification, /compactVideoDateOsDataForPush\(osData\)/);
   assert.match(postDateVerdictReminders, /const dedupeKey = `post_date_feedback:\$\{row\.session_id\}:\$\{row\.missing_user_id\}`/);
   assert.match(postDateVerdictReminders, /dedupe_key: dedupeKey/);

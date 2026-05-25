@@ -3,8 +3,10 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import {
+  formatVideoDateQueueEtaLabel,
   formatVideoDateQueueHintLabel,
   resolveEventDeckPhase4UiState,
+  resolveVideoDateQueueCopy,
   resolveVideoDateHandshakeUiState,
   shouldShowVideoDateIceBreaker,
 } from "./videoDatePhase4Ux";
@@ -176,6 +178,95 @@ test("Phase 4 queue labels stay approximate and expose priority relief", () => {
     ),
     "1 waiting in queue · ~15s",
   );
+  assert.equal(formatVideoDateQueueHintLabel(null, Number.NaN), "0 waiting in queue");
+  assert.equal(formatVideoDateQueueEtaLabel(Number.NaN), null);
+  assert.equal(
+    formatVideoDateQueueHintLabel(
+      {
+        ok: true,
+        queued: true,
+        reason: null,
+        sessionId: "session-bad-position",
+        eventQueuedCount: 2,
+        userQueuedCount: 1,
+        position: Number.POSITIVE_INFINITY,
+        waitAgeSeconds: 20,
+        estimatedWaitSeconds: Number.POSITIVE_INFINITY,
+        reliefActive: false,
+      },
+      Number.NaN,
+    ),
+    "2 waiting in queue",
+  );
+});
+
+test("Phase 4 queue copy keeps compact labels stable and exposes richer queue fields", () => {
+  const nextCopy = resolveVideoDateQueueCopy(
+    {
+      ok: true,
+      queued: true,
+      reason: null,
+      sessionId: "session-next",
+      eventQueuedCount: 3,
+      userQueuedCount: 1,
+      position: 1,
+      waitAgeSeconds: 10,
+      estimatedWaitSeconds: 4,
+      reliefActive: false,
+    },
+    0,
+  );
+  assert.equal(nextCopy.compactLabel, "Position 1 · now");
+  assert.equal(nextCopy.isNext, true);
+  assert.equal(nextCopy.positionLabel, "You're next");
+  assert.deepEqual(nextCopy.detailParts, ["You're next", "now"]);
+
+  const reliefCopy = resolveVideoDateQueueCopy(
+    {
+      ok: true,
+      queued: true,
+      reason: null,
+      sessionId: "session-relief",
+      eventQueuedCount: 4,
+      userQueuedCount: 1,
+      position: 3,
+      waitAgeSeconds: 90,
+      estimatedWaitSeconds: 65,
+      reliefActive: true,
+    },
+    0,
+  );
+  assert.equal(reliefCopy.compactLabel, "Position 3 · ~2m · priority boost");
+  assert.deepEqual(reliefCopy.detailParts, ["Position 3", "~2m", "priority boost"]);
+
+  const fractionalPositionCopy = resolveVideoDateQueueCopy(
+    {
+      ok: true,
+      queued: true,
+      reason: null,
+      sessionId: "session-fractional",
+      eventQueuedCount: 4,
+      userQueuedCount: 1,
+      position: 2.9,
+      waitAgeSeconds: 90,
+      estimatedWaitSeconds: 61,
+      reliefActive: false,
+    },
+    0,
+  );
+  assert.equal(fractionalPositionCopy.compactLabel, "Position 2 · ~2m");
+  assert.equal(fractionalPositionCopy.positionLabel, "Position 2");
+
+  assert.deepEqual(resolveVideoDateQueueCopy(null, 1), {
+    compactLabel: "1 waiting in queue",
+    title: "Waiting for a match",
+    message: "Ready Gate opens when a match is available.",
+    positionLabel: null,
+    etaLabel: null,
+    reliefLabel: null,
+    isNext: false,
+    detailParts: ["1 waiting in queue"],
+  });
 });
 
 test("Phase 4 web/native surfaces consume shared UX helpers", () => {
@@ -203,8 +294,10 @@ test("Phase 4 web/native surfaces consume shared UX helpers", () => {
   assert.match(nativeLobby, /resolveEventDeckPhase4UiState/);
   assert.match(webLobby, /deckState\?\.inactive_reason/);
   assert.match(nativeLobby, /deckState\?\.inactive_reason/);
-  assert.match(webLobby, /formatVideoDateQueueHintLabel/);
-  assert.match(nativeLobby, /formatVideoDateQueueHintLabel/);
+  assert.match(webLobby, /resolveVideoDateQueueCopy/);
+  assert.match(nativeLobby, /resolveVideoDateQueueCopy/);
+  assert.doesNotMatch(webLobby, /formatVideoDateQueueHintLabel/);
+  assert.doesNotMatch(nativeLobby, /formatVideoDateQueueHintLabel/);
   assert.match(webLobby, /emptyDeckUiState\.showRefresh/);
   assert.match(webLobby, /deckErrorUiState\.actionLabel \|\| deckErrorUiState\.showRefresh/);
   assert.match(webLobby, /deckErrorUiState\.actionTarget === "matches"[\s\S]+navigate\("\/matches"/);

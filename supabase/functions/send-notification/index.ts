@@ -347,6 +347,7 @@ function jsonByteLength(value: unknown): number {
 }
 
 const ONESIGNAL_DATA_MAX_BYTES = 2048
+const VIDEO_DATE_PRELOAD_DATA_MAX_BYTES = 3 * 1024
 
 function createCorrelationId(): string {
   try {
@@ -562,7 +563,7 @@ async function buildVideoDatePushPayloadV2(args: {
     correlation_id: correlationId,
   }
   if (dispatchGroupId) payload.dispatch_group_id = dispatchGroupId
-  if (jsonByteLength(payload) <= ONESIGNAL_DATA_MAX_BYTES) return payload
+  if (jsonByteLength(payload) <= VIDEO_DATE_PRELOAD_DATA_MAX_BYTES) return payload
   preload.partnerThumbUrl = null
   payload.partnerThumbUrl = null
   if (jsonByteLength(payload) <= ONESIGNAL_DATA_MAX_BYTES) return payload

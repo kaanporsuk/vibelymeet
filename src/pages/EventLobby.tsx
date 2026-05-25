@@ -84,8 +84,8 @@ import {
 import { isActiveSessionSingleOwnerEnabled } from "@/lib/runtimeFlags";
 import { fetchVideoDateQueueHint } from "@/lib/videoDateQueueHint";
 import {
-  formatVideoDateQueueHintLabel,
   resolveEventDeckPhase4UiState,
+  resolveVideoDateQueueCopy,
   type EventDeckPhase4UiState,
 } from "@clientShared/matching/videoDatePhase4Ux";
 
@@ -889,7 +889,8 @@ const EventLobby = () => {
     refetchIntervalInBackground: false,
     staleTime: 3_000,
   });
-  const queueHintLabel = formatVideoDateQueueHintLabel(queueHint, queuedCount);
+  const queueHintCopy = resolveVideoDateQueueCopy(queueHint, queuedCount);
+  const queueHintLabel = queueHintCopy.compactLabel;
 
   useEffect(() => {
     if (!eventId || !lobbySideEffectsEnabled) return;

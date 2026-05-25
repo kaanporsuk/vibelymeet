@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { Clock, Sparkles, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import type { VideoDateExtendOutcome } from "@clientShared/matching/videoDateExtensionSpend";
+import { resolveVideoDateExtensionCopy } from "@clientShared/matching/videoDateExtensionCopy";
 import { trackEvent } from "@/lib/analytics";
 import {
   LobbyPostDateEvents,
@@ -35,14 +36,17 @@ export const KeepTheVibe = ({
 
   const withCreditsImpRef = useRef(false);
   const noCreditsImpRef = useRef(false);
-  const extraTimeActionLabel =
-    pendingPartnerRequestType === "extra_time" ? "Accept +2" : mutualMode ? "Ask +2" : "+2 min";
-  const extendedVibeActionLabel =
-    pendingPartnerRequestType === "extended_vibe" ? "Accept +5" : mutualMode ? "Ask +5" : "+5 min";
-  const extraTimeActionVerb =
-    pendingPartnerRequestType === "extra_time" ? "Accept adding" : mutualMode ? "Ask to add" : "Add";
-  const extendedVibeActionVerb =
-    pendingPartnerRequestType === "extended_vibe" ? "Accept adding" : mutualMode ? "Ask to add" : "Add";
+  const extraTimeCopy = resolveVideoDateExtensionCopy({
+    type: "extra_time",
+    state: pendingPartnerRequestType === "extra_time" ? "partner_pending" : "available",
+    mutualMode,
+  });
+  const extendedVibeCopy = resolveVideoDateExtensionCopy({
+    type: "extended_vibe",
+    state: pendingPartnerRequestType === "extended_vibe" ? "partner_pending" : "available",
+    mutualMode,
+  });
+  const noCreditsCopy = resolveVideoDateExtensionCopy({ state: "insufficient_credits" });
 
   useEffect(() => {
     if (!analyticsSessionId) return;
@@ -94,7 +98,8 @@ export const KeepTheVibe = ({
           credit_type: type,
           credits_state: creditsState,
         });
-        toast("Request sent. The date extends if your match accepts.", { duration: 2500 });
+        const pendingCopy = resolveVideoDateExtensionCopy({ type, state: "local_pending" });
+        toast(pendingCopy.toastMessage ?? pendingCopy.message, { duration: 2500 });
         setIsExtending(false);
         return;
       }
@@ -106,13 +111,12 @@ export const KeepTheVibe = ({
         minutes_added: outcome.minutesAdded ?? minutes,
         credits_state: bucketCreditsRemaining(Math.max(0, creditsSum - 1)),
       });
-      const minutesLabel = Number.isInteger(outcome.minutesAdded)
-        ? String(outcome.minutesAdded)
-        : outcome.minutesAdded.toFixed(1);
-      toast.success(
-        `${minutesLabel} extra ${outcome.minutesAdded === 1 ? "minute" : "minutes"} added!`,
-        { duration: 2500 },
-      );
+      const appliedCopy = resolveVideoDateExtensionCopy({
+        type,
+        state: "applied",
+        minutes: outcome.minutesAdded ?? minutes,
+      });
+      toast.success(appliedCopy.toastMessage ?? appliedCopy.message, { duration: 2500 });
     } else if (outcome.ok === false) {
       trackEvent(LobbyPostDateEvents.EXTEND_DATE_FAILURE, {
         platform: "web",
@@ -121,7 +125,13 @@ export const KeepTheVibe = ({
         reason: outcome.silent ? "silent" : "spend_failed",
       });
       if (!outcome.silent && outcome.userMessage) {
-        toast.error(outcome.userMessage);
+        const failedCopy = resolveVideoDateExtensionCopy({
+          type,
+          state: "failed",
+          mutualMode,
+          userMessage: outcome.userMessage,
+        });
+        toast.error(failedCopy.toastMessage ?? failedCopy.message);
       }
     }
 
@@ -157,7 +167,7 @@ export const KeepTheVibe = ({
                 whileTap={{ scale: 0.9 }}
                 disabled={isExtending}
                 onClick={() => handleExtend(2, "extra_time")}
-                aria-label={`${extraTimeActionVerb} 2 minutes with Extra Time credit, ${extraTimeCredits} remaining`}
+                aria-label={`${extraTimeCopy.actionVerb} 2 minutes with Extra Time credit, ${extraTimeCredits} remaining`}
                 className="flex items-center gap-1 px-3 py-1.5 rounded-full bg-card/70 backdrop-blur-md border border-white/10 text-xs font-medium text-foreground hover:bg-card/90 transition-colors disabled:opacity-50"
               >
                 {isExtending ? (
@@ -165,7 +175,7 @@ export const KeepTheVibe = ({
                 ) : (
                   <Clock className="w-3 h-3 text-primary" />
                 )}
-                {extraTimeActionLabel}
+                {extraTimeCopy.label}
                 <span className="text-muted-foreground">({extraTimeCredits})</span>
               </motion.button>
             )}
@@ -181,7 +191,7 @@ export const KeepTheVibe = ({
                 whileTap={{ scale: 0.9 }}
                 disabled={isExtending}
                 onClick={() => handleExtend(5, "extended_vibe")}
-                aria-label={`${extendedVibeActionVerb} 5 minutes with Extended Vibe credit, ${extendedVibeCredits} remaining`}
+                aria-label={`${extendedVibeCopy.actionVerb} 5 minutes with Extended Vibe credit, ${extendedVibeCredits} remaining`}
                 className="flex items-center gap-1 px-3 py-1.5 rounded-full bg-card/70 backdrop-blur-md border border-white/10 text-xs font-medium text-foreground hover:bg-card/90 transition-colors disabled:opacity-50"
               >
                 {isExtending ? (
@@ -189,7 +199,7 @@ export const KeepTheVibe = ({
                 ) : (
                   <Sparkles className="w-3 h-3 text-accent" />
                 )}
-                {extendedVibeActionLabel}
+                {extendedVibeCopy.label}
                 <span className="text-muted-foreground">({extendedVibeCredits})</span>
               </motion.button>
             )}
@@ -198,8 +208,7 @@ export const KeepTheVibe = ({
       ) : (
         <div className="flex flex-col items-center gap-1 max-w-[220px]">
           <p className="text-[9px] text-muted-foreground text-center leading-snug">
-            Extra Time adds <span className="text-foreground/90 font-medium">+2 min</span>. Extended Vibe adds{" "}
-            <span className="text-foreground/90 font-medium">+5 min</span>.
+            {noCreditsCopy.message}
           </p>
           <motion.button
             whileTap={{ scale: 0.95 }}
@@ -208,7 +217,7 @@ export const KeepTheVibe = ({
             className="flex items-center gap-1 px-3 py-1.5 rounded-full bg-card/70 backdrop-blur-md border border-primary/30 text-xs font-medium text-foreground hover:bg-card/90 transition-colors"
           >
             <Sparkles className="w-3 h-3 text-primary" />
-            Get Credits
+            {noCreditsCopy.label}
           </motion.button>
           <span className="text-[9px] text-muted-foreground text-center">Opens in a new tab — your date continues</span>
         </div>

@@ -25,6 +25,7 @@ import {
   submitVideoDateSafetyReportRpc,
   type SubmitVideoDateSafetyReportRpcResult,
 } from '@clientShared/safety/submitUserReportRpc';
+import { resolveVideoDateSafetySubmitCopy } from '@clientShared/safety/videoDateSafetyCopy';
 import {
   buildVideoDateSafetyIdempotencyKey,
   createVideoDateClientRequestId,
@@ -120,9 +121,23 @@ export function InCallSafetySheet({
     }
     setBusy('idle');
     if (!result.ok) {
-      Alert.alert('Could not send report', result.error || 'Try again.');
+      const copy = resolveVideoDateSafetySubmitCopy({
+        ok: false,
+        mode,
+        error: result.error || 'Try again.',
+        reportRecorded: result.reportRecorded === true,
+      });
+      Alert.alert(copy.title, copy.message);
       return;
     }
+    const copy = resolveVideoDateSafetySubmitCopy({
+      ok: true,
+      mode,
+      alsoBlock,
+      ended: result.ended,
+      surveyRequired: result.surveyRequired,
+      idempotent: result.idempotent,
+    });
     reset();
     onClose();
     if (safetyV2 && result.ended) {
@@ -130,7 +145,7 @@ export function InCallSafetySheet({
       return;
     }
     if (mode === 'report') {
-      Alert.alert('Thanks', 'We received your report.');
+      Alert.alert(copy.title, copy.message);
       return;
     }
     await onEndAfterReport();

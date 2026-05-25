@@ -140,7 +140,8 @@ test("Phase 4 push preload is compact, routeable, and ack-deduped", () => {
   assert.match(sendNotification, /osData = compactVideoDateOsDataForPush\(osData\)/);
   assert.match(sendNotification, /dispatch_group_id/);
   assert.match(sendNotification, /phaseDeadlineAt/);
-  assert.match(sendNotification, /jsonByteLength\(payload\) <= 3 \* 1024/);
+  assert.match(sendNotification, /VIDEO_DATE_PRELOAD_DATA_MAX_BYTES = 3 \* 1024/);
+  assert.match(sendNotification, /jsonByteLength\(payload\) <= VIDEO_DATE_PRELOAD_DATA_MAX_BYTES/);
   assert.match(migration, /CREATE TABLE IF NOT EXISTS public\.notification_acks/);
   assert.match(migration, /CREATE OR REPLACE FUNCTION public\.ack_notification_dispatch/);
   assert.match(migration, /UNIQUE INDEX IF NOT EXISTS notification_acks_user_dispatch_group_uidx/);

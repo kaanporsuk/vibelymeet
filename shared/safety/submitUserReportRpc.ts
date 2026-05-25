@@ -12,7 +12,15 @@ export type SubmitVideoDateSafetyReportRpcResult =
       surveyRequired: boolean;
       idempotent: boolean;
     }
-  | { ok: false; error: string };
+  | {
+      ok: false;
+      error: string;
+      reportRecorded?: boolean;
+      reportId?: string;
+      ended?: boolean;
+      surveyRequired?: boolean;
+      idempotent?: boolean;
+    };
 
 /**
  * Canonical server-owned report path (`submit_user_report` RPC): validation, rate limit, optional block.
@@ -90,12 +98,21 @@ export async function submitVideoDateSafetyReportRpc(
     success?: boolean;
     error?: string;
     report_id?: string;
+    safety_report_recorded?: boolean;
     ended?: boolean;
     survey_required?: boolean;
     idempotent?: boolean;
   } | null;
   if (row && row.success === false) {
-    return { ok: false, error: row.error ?? "unknown" };
+    return {
+      ok: false,
+      error: row.error ?? "unknown",
+      reportRecorded: row.safety_report_recorded === true,
+      reportId: row.report_id,
+      ended: row.ended === true,
+      surveyRequired: row.survey_required === true,
+      idempotent: row.idempotent === true,
+    };
   }
 
   return {

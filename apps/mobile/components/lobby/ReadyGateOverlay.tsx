@@ -80,6 +80,7 @@ import {
   setVideoDatePermissionHandoff,
 } from '@clientShared/matching/videoDatePermissionHandoff';
 import { getReadyGateReadinessStatusCopy } from '@clientShared/matching/readyGateReadiness';
+import { resolveReadyGatePrepareEntryFailureCopy } from '@clientShared/matching/readyGateDiagnosticCopy';
 
 const RING_SIZE = 88;
 const STROKE = 4;
@@ -107,19 +108,7 @@ const NativeReadyGateEvents = {
 } as const;
 
 function prepareEntryFailureMessage(code: string): string {
-  const recovery = resolveReadyGateTerminalRecovery({
-    code,
-    errorCode: code,
-    source: 'prepare_entry',
-  });
-  if (!recovery.retryable || code === 'EVENT_NOT_ACTIVE') return recovery.body;
-  if (code === 'UNAUTHORIZED' || code === 'auth') return 'Please sign in again, then try once more.';
-  if (code === 'SESSION_ENDED') return 'This Ready Gate has already ended.';
-  if (code === 'ACCESS_DENIED' || code === 'BLOCKED_PAIR') return 'This date is no longer available.';
-  if (code === 'DAILY_AUTH_FAILED' || code === 'DAILY_CREDENTIALS_INVALID') {
-    return 'Video setup is unavailable right now. Please try again later.';
-  }
-  return 'Could not prepare this date. Please try again.';
+  return resolveReadyGatePrepareEntryFailureCopy({ code, platform: 'native' }).message;
 }
 
 function sleep(ms: number): Promise<void> {
