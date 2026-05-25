@@ -23,11 +23,15 @@ test("classifies Daily auth failures as non-retryable provider auth failures", a
 test("classifies Daily rate limits as retryable", async () => {
   const failure = await classifyDailyRoomInvokeFailure({
     action: DAILY_ROOM_ACTIONS.PREPARE_ENTRY,
-    data: { code: "DAILY_RATE_LIMIT" },
-    response: new Response(JSON.stringify({ code: "DAILY_RATE_LIMIT" }), { status: 503 }),
+    data: { code: "DAILY_RATE_LIMIT", retry_after_seconds: 7 },
+    response: new Response(JSON.stringify({ code: "DAILY_RATE_LIMIT", retry_after_seconds: 7 }), {
+      status: 429,
+      headers: { "Retry-After": "7" },
+    }),
   });
 
   assert.equal(failure.kind, "DAILY_RATE_LIMIT");
+  assert.equal(failure.httpStatus, 429);
   assert.equal(failure.retryable, true);
   assert.equal(isRetryableDailyRoomFailure("DAILY_RATE_LIMIT"), true);
 });

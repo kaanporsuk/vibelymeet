@@ -1175,7 +1175,11 @@ test("daily-room health ping and edge cold-start timing are additive", () => {
 
 test("daily-room classifies Daily provider failures without leaking raw response bodies", () => {
   assert.match(dailyRoomFunction, /status === 401 \|\| status === 403[\s\S]*DAILY_AUTH_FAILED/s);
-  assert.match(dailyRoomFunction, /status === 429[\s\S]*DAILY_RATE_LIMIT/s);
+  assert.match(dailyRoomFunction, /status === 429[\s\S]*DAILY_RATE_LIMIT[\s\S]*httpStatus: 429/s);
+  assert.match(dailyRoomFunction, /headers\["Retry-After"\] = retryAfter/);
+  assert.match(dailyRoomFunction, /retry_after_seconds: Number\(retryAfter\)/);
+  assert.match(dailyRoomFunction, /DAILY_PROVIDER_MAX_RETRY_SLEEP_SECONDS/);
+  assert.match(dailyRoomFunction, /waitForBoundedDailyProviderRetry/);
   assert.match(dailyRoomFunction, /status >= 500[\s\S]*DAILY_PROVIDER_UNAVAILABLE/s);
   assert.match(dailyRoomFunction, /status >= 400[\s\S]*DAILY_REQUEST_REJECTED/s);
   assert.match(dailyRoomFunction, /event: "daily_provider_error"/);
@@ -1225,6 +1229,13 @@ test("video-date room cleanup checks Daily presence before destructive delete", 
     videoDateRoomCleanupFunction,
     /function providerFailureReason\(status: number \| null\): string \{[\s\S]*status === 429[\s\S]*provider_rate_limited[\s\S]*status >= 500[\s\S]*provider_unavailable/s,
   );
+  assert.match(videoDateRoomCleanupFunction, /fetchWithTimeout/);
+  assert.match(videoDateRoomCleanupFunction, /enforceProviderRateLimit\(supabase, providerRateLimitConfig\("daily", params\.bucket\)\)/);
+  assert.match(videoDateRoomCleanupFunction, /bucket: "room_lookup"/);
+  assert.match(videoDateRoomCleanupFunction, /bucket: "room_delete"/);
+  assert.match(videoDateRoomCleanupFunction, /parseRetryAfterSeconds\(res\.headers, 30\)/);
+  assert.match(videoDateRoomCleanupFunction, /headers\["Retry-After"\]/);
+  assert.doesNotMatch(videoDateRoomCleanupFunction, /(?<!WithTimeout)fetch\(/);
   assert.match(
     videoDateRoomCleanupFunction,
     /function markRoomCleaned\([\s\S]*endedAt: string \| null[\s\S]*if \(!endedAt\) return false/s,
@@ -1241,7 +1252,9 @@ test("video-date room cleanup checks Daily presence before destructive delete", 
   assert.match(videoDateRoomCleanupFunction, /if \(presence\.ok && presence\.activeCount > 0\)[\s\S]*continue;/s);
   assert.match(videoDateRoomCleanupFunction, /if \(!presence\.ok\)[\s\S]*cleanup_deferred_provider_check_failed[\s\S]*continue;/s);
   assert.match(videoDateRoomCleanupFunction, /if \(presence\.ok && !presence\.exists\)[\s\S]*markRoomCleaned\(supabase, row\.id, name, endedAt\)/s);
-  assert.match(videoDateRoomCleanupFunction, /const ok = await deleteDailyRoom\(name\);[\s\S]*markRoomCleaned\(supabase, row\.id, name, endedAt\)/s);
+  assert.match(videoDateRoomCleanupFunction, /const deleteResult = await deleteDailyRoom\(supabase, name\);[\s\S]*if \(deleteResult\.ok\)[\s\S]*markRoomCleaned\(supabase, row\.id, name, endedAt\)/s);
+  assert.match(videoDateRoomCleanupFunction, /provider_rate_limited: providerRateLimited/);
+  assert.match(videoDateRoomCleanupFunction, /status: responseStatus/);
   assert.doesNotMatch(videoDateRoomCleanupFunction, /cleanup_hard_delete_after_provider_check_failed/);
   assert.doesNotMatch(videoDateRoomCleanupFunction, /HARD_DELETE_FALLBACK_MS/);
 });

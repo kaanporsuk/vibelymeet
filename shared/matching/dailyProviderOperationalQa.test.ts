@@ -155,6 +155,12 @@ test("cleanup workers preserve provider delete posture for terminal rows", () =>
   assert.match(videoDateCleanup, /DAILY_API_KEY/);
   assert.match(videoDateCleanup, /DELETE/);
   assert.match(videoDateCleanup, /daily_room_name/);
+  assert.match(videoDateCleanup, /fetchWithTimeout/);
+  assert.match(videoDateCleanup, /providerRateLimitConfig\("daily", params\.bucket\)/);
+  assert.match(videoDateCleanup, /bucket: "room_lookup"/);
+  assert.match(videoDateCleanup, /bucket: "room_delete"/);
+  assert.match(videoDateCleanup, /Retry-After/);
+  assert.doesNotMatch(videoDateCleanup, /(?<!WithTimeout)fetch\(/);
   assert.match(matchCallCleanup, /DAILY_API_KEY/);
   assert.match(matchCallCleanup, /provider_deleted_at/);
   assert.match(matchCallCleanup, /DELETE/);

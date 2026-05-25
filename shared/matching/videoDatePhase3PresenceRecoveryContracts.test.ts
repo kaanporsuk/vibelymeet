@@ -125,10 +125,10 @@ test("Phase 3 broadcast gap recovery retries snapshots without token leakage", (
 });
 
 test("Phase 3 room cleanup checks provider presence immediately before delete", () => {
-  assert.match(roomCleanup, /const finalPresence = await getDailyRoomPresence\(name\)/);
+  assert.match(roomCleanup, /const finalPresence = await getDailyRoomPresence\(supabase, name\)/);
   assert.match(roomCleanup, /cleanup_delete_aborted_active_participants_second_check/);
   assert.match(roomCleanup, /cleanup_deferred_provider_second_check_failed/);
-  assert.match(roomCleanup, /const ok = await deleteDailyRoom\(name\)/);
+  assert.match(roomCleanup, /const deleteResult = await deleteDailyRoom\(supabase, name\)/);
 
   assert.match(orphanRoomCleanup, /const finalPresence = await getDailyRoomPresence\(room\.name\)/);
   assert.match(orphanRoomCleanup, /provider_presence_second_check_failed/);

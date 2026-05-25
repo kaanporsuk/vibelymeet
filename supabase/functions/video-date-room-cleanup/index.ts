@@ -1,5 +1,19 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import {
+  captureVideoDateProviderException,
+  enforceProviderRateLimit,
+  fetchWithTimeout,
+  logVideoDateProviderFailure,
+  numericEnv,
+  parseRetryAfterSeconds,
+  providerFailureCode,
+  providerFailureMessage,
+  providerFailureRetryAfter,
+  providerFetchTimeoutMs,
+  ProviderRateLimitError,
+  providerRateLimitConfig,
+} from "../_shared/video-date-provider-reliability.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -9,6 +23,8 @@ const corsHeaders = {
 const DAILY_API_KEY = Deno.env.get("DAILY_API_KEY")!;
 const DAILY_API_URL = "https://api.daily.co/v1";
 const DELETE_GRACE_MS = 45_000;
+const CLEANUP_PROVIDER_RETRIES = numericEnv("VIDEO_DATE_ROOM_CLEANUP_PROVIDER_RETRIES", 2, 0, 5);
+const CLEANUP_MAX_RETRY_SLEEP_SECONDS = numericEnv("VIDEO_DATE_ROOM_CLEANUP_MAX_RETRY_SLEEP_SECONDS", 5, 0, 30);
 
 type VideoDateCleanupRow = {
   id: string;
@@ -25,7 +41,26 @@ type VideoDateCleanupRow = {
 type DailyPresenceCheck =
   | { ok: true; exists: true; activeCount: number }
   | { ok: true; exists: false; activeCount: 0 }
-  | { ok: false; status: number | null; providerCode: string | null; reason: string };
+  | { ok: false; status: number | null; providerCode: string | null; reason: string; retryAfterSeconds: number | null };
+
+type DailyProviderFetchFailure = {
+  ok: false;
+  status: number | null;
+  providerCode: string | null;
+  reason: string;
+  retryAfterSeconds: number | null;
+};
+
+type DailyProviderFetchSuccess = {
+  ok: true;
+  response: Response;
+};
+
+type DailyProviderFetchResult = DailyProviderFetchSuccess | DailyProviderFetchFailure;
+
+type DailyRoomDeleteResult =
+  | { ok: true; status: number }
+  | { ok: false; status: number | null; providerCode: string | null; reason: string; retryAfterSeconds: number | null };
 
 type CleanupSingleSelectBuilder = {
   maybeSingle(): PromiseLike<{ data: { id?: string } | null; error: unknown }>;
@@ -37,6 +72,7 @@ type CleanupUpdateBuilder = {
 };
 
 type CleanupSupabaseClient = {
+  rpc(functionName: string, params: Record<string, unknown>): PromiseLike<{ data: unknown; error: { message?: string } | null }>;
   from(table: "video_sessions"): {
     update(values: { daily_room_name: null; daily_room_url: null }): CleanupUpdateBuilder;
   };
@@ -80,68 +116,197 @@ function providerFailureReason(status: number | null): string {
   return "provider_check_rejected";
 }
 
-async function getDailyRoomPresence(roomName: string, retries = 2): Promise<DailyPresenceCheck> {
-  try {
-    const res = await fetch(
-      `${DAILY_API_URL}/rooms/${encodeURIComponent(roomName)}/presence`,
-      {
-        method: "GET",
-        headers: { Authorization: `Bearer ${DAILY_API_KEY}` },
-      },
-    );
-
-    if (res.status === 404) {
-      return { ok: true, exists: false, activeCount: 0 };
-    }
-    if (res.status === 429 && retries > 0) {
-      await new Promise((resolve) => setTimeout(resolve, 1000 * (3 - retries)));
-      return getDailyRoomPresence(roomName, retries - 1);
-    }
-    if (!res.ok) {
-      return {
-        ok: false,
-        status: res.status,
-        providerCode: await readProviderCode(res),
-        reason: providerFailureReason(res.status),
-      };
-    }
-
-    const body = (await res.json().catch(() => null)) as {
-      total_count?: unknown;
-      data?: unknown;
-    } | null;
-    const activeCount = typeof body?.total_count === "number" && Number.isFinite(body.total_count)
-      ? body.total_count
-      : Array.isArray(body?.data)
-        ? body.data.length
-        : null;
-    if (activeCount == null) {
-      return {
-        ok: false,
-        status: res.status,
-        providerCode: null,
-        reason: "provider_presence_response_malformed",
-      };
-    }
-    return { ok: true, exists: true, activeCount: Math.max(0, activeCount) };
-  } catch {
-    return { ok: false, status: null, providerCode: null, reason: "network_error" };
+function jsonHeaders(retryAfterSeconds?: number | null): Record<string, string> {
+  const headers: Record<string, string> = { ...corsHeaders, "Content-Type": "application/json" };
+  if (typeof retryAfterSeconds === "number" && Number.isFinite(retryAfterSeconds)) {
+    headers["Retry-After"] = String(Math.min(300, Math.max(1, Math.ceil(retryAfterSeconds))));
   }
+  return headers;
 }
 
-async function deleteDailyRoom(roomName: string): Promise<boolean> {
-  try {
-    const res = await fetch(
-      `${DAILY_API_URL}/rooms/${encodeURIComponent(roomName)}`,
-      {
-        method: "DELETE",
-        headers: { Authorization: `Bearer ${DAILY_API_KEY}` },
-      },
-    );
-    return res.ok || res.status === 404;
-  } catch {
-    return false;
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function boundedRetryDelaySeconds(headers: Headers | null | undefined, fallback: number): number {
+  return Math.min(300, Math.max(1, parseRetryAfterSeconds(headers, fallback)));
+}
+
+function shouldRetryProviderStatus(status: number): boolean {
+  return status === 429 || status >= 500;
+}
+
+async function fetchDailyProvider(
+  supabase: CleanupSupabaseClient,
+  params: {
+    operation: "room_presence" | "room_delete";
+    bucket: "room_lookup" | "room_delete";
+    url: string;
+    init: RequestInit;
+    roomName: string;
+  },
+  retries = CLEANUP_PROVIDER_RETRIES,
+): Promise<DailyProviderFetchResult> {
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      await enforceProviderRateLimit(supabase, providerRateLimitConfig("daily", params.bucket));
+      const response = await fetchWithTimeout(params.url, params.init, {
+        provider: "daily",
+        operation: params.operation,
+        timeoutMs: providerFetchTimeoutMs("daily", params.operation),
+        retryAfterSeconds: 30,
+      });
+      if (shouldRetryProviderStatus(response.status) && attempt < retries) {
+        const retryAfterSeconds = boundedRetryDelaySeconds(response.headers, attempt + 1);
+        if (retryAfterSeconds <= CLEANUP_MAX_RETRY_SLEEP_SECONDS) {
+          await sleep(retryAfterSeconds * 1000);
+          continue;
+        }
+      }
+      return { ok: true, response };
+    } catch (error) {
+      const code = providerFailureCode(error);
+      const rateLimited = error instanceof ProviderRateLimitError || code === "provider_rate_limited";
+      const retryAfterSeconds = rateLimited
+        ? providerFailureRetryAfter(error, 30)
+        : Math.min(CLEANUP_MAX_RETRY_SLEEP_SECONDS || 1, Math.max(1, attempt + 1));
+      if (attempt < retries && retryAfterSeconds <= CLEANUP_MAX_RETRY_SLEEP_SECONDS) {
+        await sleep(retryAfterSeconds * 1000);
+        continue;
+      }
+      await captureVideoDateProviderException(error, {
+        provider: "daily",
+        operation: params.operation,
+        room_name: params.roomName,
+        provider_code: code,
+        retry_after_seconds: rateLimited ? retryAfterSeconds : null,
+      });
+      return {
+        ok: false,
+        status: rateLimited ? 429 : null,
+        providerCode: code,
+        reason: rateLimited ? "provider_rate_limited" : providerFailureMessage(error),
+        retryAfterSeconds: rateLimited ? retryAfterSeconds : null,
+      };
+    }
   }
+  return { ok: false, status: null, providerCode: null, reason: "network_error", retryAfterSeconds: null };
+}
+
+async function getDailyRoomPresence(
+  supabase: CleanupSupabaseClient,
+  roomName: string,
+): Promise<DailyPresenceCheck> {
+  const result = await fetchDailyProvider(supabase, {
+    operation: "room_presence",
+    bucket: "room_lookup",
+    url: `${DAILY_API_URL}/rooms/${encodeURIComponent(roomName)}/presence?limit=100`,
+    init: {
+      method: "GET",
+      headers: { Authorization: `Bearer ${DAILY_API_KEY}` },
+    },
+    roomName,
+  });
+
+  if (!result.ok) return result;
+
+  const res = result.response;
+  if (res.status === 404) {
+    return { ok: true, exists: false, activeCount: 0 };
+  }
+  if (!res.ok) {
+    return {
+      ok: false,
+      status: res.status,
+      providerCode: await readProviderCode(res),
+      reason: providerFailureReason(res.status),
+      retryAfterSeconds: res.status === 429 ? parseRetryAfterSeconds(res.headers, 30) : null,
+    };
+  }
+
+  const body = (await res.json().catch(() => null)) as {
+    total_count?: unknown;
+    data?: unknown;
+  } | null;
+  const activeCount = typeof body?.total_count === "number" && Number.isFinite(body.total_count)
+    ? body.total_count
+    : Array.isArray(body?.data)
+      ? body.data.length
+      : null;
+  if (activeCount == null) {
+    return {
+      ok: false,
+      status: res.status,
+      providerCode: null,
+      reason: "provider_presence_response_malformed",
+      retryAfterSeconds: null,
+    };
+  }
+  return { ok: true, exists: true, activeCount: Math.max(0, activeCount) };
+}
+
+async function deleteDailyRoom(
+  supabase: CleanupSupabaseClient,
+  roomName: string,
+): Promise<DailyRoomDeleteResult> {
+  const result = await fetchDailyProvider(supabase, {
+    operation: "room_delete",
+    bucket: "room_delete",
+    url: `${DAILY_API_URL}/rooms/${encodeURIComponent(roomName)}`,
+    init: {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${DAILY_API_KEY}` },
+    },
+    roomName,
+  });
+
+  if (!result.ok) return result;
+
+  const res = result.response;
+  if (res.ok || res.status === 404) return { ok: true, status: res.status };
+  return {
+    ok: false,
+    status: res.status,
+    providerCode: await readProviderCode(res),
+    reason: providerFailureReason(res.status),
+    retryAfterSeconds: res.status === 429 ? parseRetryAfterSeconds(res.headers, 30) : null,
+  };
+}
+
+function mergeRetryAfter(current: number | null, next: number | null | undefined): number | null {
+  if (typeof next !== "number" || !Number.isFinite(next)) return current;
+  const sanitized = Math.min(300, Math.max(1, Math.ceil(next)));
+  return current == null ? sanitized : Math.max(current, sanitized);
+}
+
+function providerFailureIsRateLimited(input: { status: number | null; reason: string }): boolean {
+  return input.status === 429 || input.reason === "provider_rate_limited";
+}
+
+async function logCleanupProviderFailure(
+  supabase: CleanupSupabaseClient,
+  params: {
+    sessionId: string;
+    operation: "room_presence" | "room_delete";
+    status: number | null;
+    providerCode: string | null;
+    reason: string;
+    retryAfterSeconds: number | null;
+  },
+): Promise<void> {
+  await logVideoDateProviderFailure(supabase, {
+    targetKind: "provider",
+    sessionId: params.sessionId,
+    provider: "daily",
+    operation: params.operation,
+    errorCode: params.providerCode ?? params.reason,
+    errorMessage: params.reason,
+    retryAfterSeconds: params.retryAfterSeconds,
+    permanent: params.reason === "provider_auth_failed",
+    metadata: {
+      provider_status: params.status,
+    },
+  });
 }
 
 async function markRoomCleaned(
@@ -218,6 +383,8 @@ serve(async (req) => {
   let deferredProviderCheckFailed = 0;
   let deferredUnsafeState = 0;
   let deleteFailed = 0;
+  let providerRateLimited = 0;
+  let retryAfterSeconds: number | null = null;
   for (const row of (rows ?? []) as VideoDateCleanupRow[]) {
     const name = row.daily_room_name;
     const endedAt = row.ended_at;
@@ -245,7 +412,7 @@ serve(async (req) => {
       continue;
     }
 
-    const presence = await getDailyRoomPresence(name);
+    const presence = await getDailyRoomPresence(supabase, name);
     if (presence.ok && !presence.exists) {
       const marked = await markRoomCleaned(supabase, row.id, name, endedAt);
       if (marked) alreadyCleaned++;
@@ -283,6 +450,18 @@ serve(async (req) => {
 
     if (!presence.ok) {
       deferredProviderCheckFailed++;
+      if (providerFailureIsRateLimited(presence)) {
+        providerRateLimited++;
+        retryAfterSeconds = mergeRetryAfter(retryAfterSeconds, presence.retryAfterSeconds);
+      }
+      await logCleanupProviderFailure(supabase, {
+        sessionId: row.id,
+        operation: "room_presence",
+        status: presence.status,
+        providerCode: presence.providerCode,
+        reason: presence.reason,
+        retryAfterSeconds: presence.retryAfterSeconds,
+      });
       console.log(
         JSON.stringify({
           event: "cleanup_deferred_provider_check_failed",
@@ -291,6 +470,7 @@ serve(async (req) => {
           provider_status: presence.status,
           providerCode: presence.providerCode,
           reason: presence.reason,
+          retry_after_seconds: presence.retryAfterSeconds,
           ended_at: endedAt,
           ended_reason: row.ended_reason,
           ended_age_ms: ageMs,
@@ -299,7 +479,7 @@ serve(async (req) => {
       continue;
     }
 
-    const finalPresence = await getDailyRoomPresence(name);
+    const finalPresence = await getDailyRoomPresence(supabase, name);
     if (finalPresence.ok && !finalPresence.exists) {
       const marked = await markRoomCleaned(supabase, row.id, name, endedAt);
       if (marked) alreadyCleaned++;
@@ -334,6 +514,18 @@ serve(async (req) => {
 
     if (!finalPresence.ok) {
       deferredProviderCheckFailed++;
+      if (providerFailureIsRateLimited(finalPresence)) {
+        providerRateLimited++;
+        retryAfterSeconds = mergeRetryAfter(retryAfterSeconds, finalPresence.retryAfterSeconds);
+      }
+      await logCleanupProviderFailure(supabase, {
+        sessionId: row.id,
+        operation: "room_presence",
+        status: finalPresence.status,
+        providerCode: finalPresence.providerCode,
+        reason: finalPresence.reason,
+        retryAfterSeconds: finalPresence.retryAfterSeconds,
+      });
       console.log(
         JSON.stringify({
           event: "cleanup_deferred_provider_second_check_failed",
@@ -342,6 +534,7 @@ serve(async (req) => {
           provider_status: finalPresence.status,
           providerCode: finalPresence.providerCode,
           reason: finalPresence.reason,
+          retry_after_seconds: finalPresence.retryAfterSeconds,
           ended_at: endedAt,
           ended_reason: row.ended_reason,
           ended_age_ms: ageMs,
@@ -350,18 +543,34 @@ serve(async (req) => {
       continue;
     }
 
-    const ok = await deleteDailyRoom(name);
-    if (ok) {
+    const deleteResult = await deleteDailyRoom(supabase, name);
+    if (deleteResult.ok) {
       // Clear the room reference so this row is not re-processed.
       const marked = await markRoomCleaned(supabase, row.id, name, endedAt);
       if (marked) deleted++;
     } else {
       deleteFailed++;
+      if (providerFailureIsRateLimited(deleteResult)) {
+        providerRateLimited++;
+        retryAfterSeconds = mergeRetryAfter(retryAfterSeconds, deleteResult.retryAfterSeconds);
+      }
+      await logCleanupProviderFailure(supabase, {
+        sessionId: row.id,
+        operation: "room_delete",
+        status: deleteResult.status,
+        providerCode: deleteResult.providerCode,
+        reason: deleteResult.reason,
+        retryAfterSeconds: deleteResult.retryAfterSeconds,
+      });
       console.log(
         JSON.stringify({
           event: "cleanup_delete_failed",
           session_id: row.id,
           room_name: name,
+          provider_status: deleteResult.status,
+          providerCode: deleteResult.providerCode,
+          reason: deleteResult.reason,
+          retry_after_seconds: deleteResult.retryAfterSeconds,
           ended_at: endedAt,
           ended_reason: row.ended_reason,
           ended_age_ms: ageMs,
@@ -380,12 +589,15 @@ serve(async (req) => {
       deferred_provider_check_failed: deferredProviderCheckFailed,
       deferred_unsafe_state: deferredUnsafeState,
       delete_failed: deleteFailed,
+      provider_rate_limited: providerRateLimited,
+      retry_after_seconds: retryAfterSeconds,
     }),
   );
 
+  const responseStatus = providerRateLimited > 0 ? 429 : 200;
   return new Response(
     JSON.stringify({
-      ok: true,
+      ok: providerRateLimited === 0,
       candidates: rows?.length ?? 0,
       daily_delete_attempts: deleted,
       already_cleaned: alreadyCleaned,
@@ -393,7 +605,14 @@ serve(async (req) => {
       deferred_provider_check_failed: deferredProviderCheckFailed,
       deferred_unsafe_state: deferredUnsafeState,
       delete_failed: deleteFailed,
+      provider_rate_limited: providerRateLimited,
+      ...(retryAfterSeconds != null
+        ? {
+          retry_after_seconds: retryAfterSeconds,
+          retryAfterSeconds,
+        }
+        : {}),
     }),
-    { headers: { ...corsHeaders, "Content-Type": "application/json" } },
+    { status: responseStatus, headers: jsonHeaders(retryAfterSeconds) },
   );
 });

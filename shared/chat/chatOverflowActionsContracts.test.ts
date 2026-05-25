@@ -129,6 +129,19 @@ test("archiving is private organization state and does not globally block match 
   assert.doesNotMatch(dailyRoom, /archived_at/);
 });
 
+test("match-call provider rate limits are surfaced through shared UI codes", () => {
+  const dailyRoom = read("supabase/functions/daily-room/index.ts");
+  const sharedCodes = read("shared/chat/matchCallEdgeCodes.ts");
+  const webMatchCallHook = read("src/hooks/useMatchCall.tsx");
+  const nativeMatchCallHook = read("apps/mobile/lib/useMatchCall.tsx");
+
+  assert.match(dailyRoom, /DAILY_RATE_LIMIT/);
+  assert.match(sharedCodes, /DAILY_RATE_LIMIT: "DAILY_RATE_LIMIT"/);
+  assert.match(sharedCodes, /\[MATCH_CALL_EDGE_CODES\.DAILY_RATE_LIMIT\]/);
+  assert.match(webMatchCallHook, /messageForMatchCallEdgeCode\(answerEdgeCode\)/);
+  assert.match(nativeMatchCallHook, /messageForMatchCallEdgeCode\(result\.code\)/);
+});
+
 test("match-call end reason migrations preserve archive and block terminal reasons", () => {
   const endReasonMigration = read("supabase/migrations/20260511120000_match_call_end_reasons.sql");
   const repairMigration = read("supabase/migrations/20260511133000_match_call_blocked_pair_reason_repair.sql");
