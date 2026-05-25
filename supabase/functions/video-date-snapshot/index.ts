@@ -1,6 +1,18 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { buildMeetingTokenProperties } from "../daily-room/dailyRoomContracts.ts";
+import {
+  enforceProviderRateLimit,
+  fetchWithTimeout,
+  numericEnv,
+  parseRetryAfterSeconds,
+  providerFailureCode,
+  providerFailureMessage,
+  providerFailureRetryAfter,
+  providerFetchTimeoutMs,
+  ProviderRateLimitError,
+  providerRateLimitConfig,
+} from "../_shared/video-date-provider-reliability.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -14,8 +26,16 @@ const DAILY_VIDEO_DATE_ROOM_TTL_SECONDS = 14_400;
 const DAILY_VIDEO_DATE_SNAPSHOT_TOKEN_TTL_SECONDS = DAILY_VIDEO_DATE_ROOM_TTL_SECONDS;
 const DAILY_VIDEO_DATE_SNAPSHOT_TOKEN_PHASE_EXTENSION_BUFFER_MS = 2 * 60 * 1000;
 const DAILY_VIDEO_DATE_SNAPSHOT_TOKEN_MIN_TTL_SECONDS = 180;
+const DAILY_SNAPSHOT_TOKEN_MAX_RETRY_SLEEP_SECONDS = numericEnv(
+  "DAILY_SNAPSHOT_TOKEN_MAX_RETRY_SLEEP_SECONDS",
+  5,
+  0,
+  30,
+);
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+let providerReliabilityClient: any = null;
 
 type SnapshotPayload = {
   ok?: boolean;
@@ -35,11 +55,42 @@ type SnapshotPayload = {
   } | null;
 };
 
-function jsonResponse(payload: unknown, status = 200): Response {
+function retryAfterHeaderValue(retryAfterSeconds: number | null | undefined): string | null {
+  if (typeof retryAfterSeconds !== "number" || !Number.isFinite(retryAfterSeconds)) return null;
+  return String(Math.min(300, Math.max(1, Math.ceil(retryAfterSeconds))));
+}
+
+function jsonResponse(payload: unknown, status = 200, retryAfterSeconds?: number | null): Response {
+  const headers: Record<string, string> = {
+    ...corsHeaders,
+    "Content-Type": "application/json",
+    "Cache-Control": "no-store",
+  };
+  const retryAfter = retryAfterHeaderValue(retryAfterSeconds);
+  if (retryAfter) headers["Retry-After"] = retryAfter;
   return new Response(JSON.stringify(payload), {
     status,
-    headers: { ...corsHeaders, "Content-Type": "application/json", "Cache-Control": "no-store" },
+    headers,
   });
+}
+
+function retryAfterJsonFields(retryAfterSeconds: number | null | undefined): Record<string, number> {
+  const retryAfter = retryAfterHeaderValue(retryAfterSeconds);
+  return retryAfter
+    ? {
+      retry_after_seconds: Number(retryAfter),
+      retryAfterSeconds: Number(retryAfter),
+    }
+    : {};
+}
+
+function getProviderReliabilityClient(): any {
+  if (providerReliabilityClient) return providerReliabilityClient;
+  const supabaseUrl = Deno.env.get("SUPABASE_URL")?.trim();
+  const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")?.trim();
+  if (!supabaseUrl || !serviceRoleKey) return null;
+  providerReliabilityClient = createClient(supabaseUrl, serviceRoleKey);
+  return providerReliabilityClient;
 }
 
 function errorStatus(error: string | undefined): number {
@@ -83,6 +134,28 @@ async function isClientFeatureFlagEnabled(supabase: any, flag: string, userId: s
   }
 }
 
+class SnapshotDailyTokenError extends Error {
+  readonly httpStatus: number;
+  readonly retryAfterSeconds: number | null;
+  readonly providerStatus: number | null;
+  readonly clientError: string;
+
+  constructor(input: {
+    message: string;
+    httpStatus: number;
+    retryAfterSeconds?: number | null;
+    providerStatus?: number | null;
+    clientError?: string;
+  }) {
+    super(input.message);
+    this.name = "SnapshotDailyTokenError";
+    this.httpStatus = input.httpStatus;
+    this.retryAfterSeconds = input.retryAfterSeconds ?? null;
+    this.providerStatus = input.providerStatus ?? null;
+    this.clientError = input.clientError ?? input.message;
+  }
+}
+
 function resolveSnapshotTokenWindow(snapshot: SnapshotPayload, issuedAtMs: number, phaseBoundedTokens: boolean): {
   ttlSeconds: number;
   tokenExpiresAt: number;
@@ -121,16 +194,34 @@ function resolveSnapshotTokenWindow(snapshot: SnapshotPayload, issuedAtMs: numbe
   };
 }
 
-async function createMeetingToken(roomName: string, userId: string, ttlSeconds: number): Promise<{
+async function createMeetingToken(
+  roomName: string,
+  userId: string,
+  ttlSeconds: number,
+  retries = 1,
+): Promise<{
   token: string;
   tokenExpiresAt: number;
 }> {
   if (!DAILY_API_KEY) {
-    throw new Error("daily_api_key_missing");
+    throw new SnapshotDailyTokenError({
+      message: "daily_api_key_missing",
+      httpStatus: 503,
+      clientError: "daily_token_failed",
+    });
+  }
+  const reliabilityClient = getProviderReliabilityClient();
+  if (!reliabilityClient) {
+    throw new SnapshotDailyTokenError({
+      message: "provider_reliability_client_missing",
+      httpStatus: 503,
+      clientError: "daily_token_failed",
+    });
   }
   const issuedAtMs = Date.now();
   const tokenExpiresAt = issuedAtMs + ttlSeconds * 1000;
-  const response = await fetch(`${DAILY_API_URL}/meeting-tokens`, {
+  await enforceProviderRateLimit(reliabilityClient, providerRateLimitConfig("daily", "meeting_token"));
+  const response = await fetchWithTimeout(`${DAILY_API_URL}/meeting-tokens`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -145,7 +236,29 @@ async function createMeetingToken(roomName: string, userId: string, ttlSeconds: 
         ejectAtTokenExp: true,
       }),
     }),
+  }, {
+    provider: "daily",
+    operation: "snapshot_token",
+    timeoutMs: providerFetchTimeoutMs("daily", "snapshot_token"),
   });
+
+  if (response.status === 429 && retries > 0) {
+    const retryAfterSeconds = parseRetryAfterSeconds(response.headers, 30);
+    if (retryAfterSeconds <= DAILY_SNAPSHOT_TOKEN_MAX_RETRY_SLEEP_SECONDS) {
+      await new Promise((resolve) => setTimeout(resolve, retryAfterSeconds * 1000));
+      return createMeetingToken(roomName, userId, ttlSeconds, retries - 1);
+    }
+  }
+
+  if (response.status === 429) {
+    throw new SnapshotDailyTokenError({
+      message: "daily_token_provider_rate_limited",
+      httpStatus: 429,
+      retryAfterSeconds: parseRetryAfterSeconds(response.headers, 30),
+      providerStatus: response.status,
+      clientError: "provider_rate_limited",
+    });
+  }
 
   if (!response.ok) {
     const providerStatus = response.status;
@@ -154,14 +267,42 @@ async function createMeetingToken(roomName: string, userId: string, ttlSeconds: 
       provider_status: providerStatus,
       room_name: roomName,
     }));
-    throw new Error("daily_token_failed");
+    throw new SnapshotDailyTokenError({
+      message: "daily_token_failed",
+      httpStatus: 503,
+      providerStatus,
+      clientError: "daily_token_failed",
+    });
   }
 
   const payload = await response.json().catch(() => null) as { token?: unknown } | null;
   if (typeof payload?.token !== "string" || !payload.token) {
-    throw new Error("daily_token_invalid_response");
+    throw new SnapshotDailyTokenError({
+      message: "daily_token_invalid_response",
+      httpStatus: 503,
+      clientError: "daily_token_failed",
+    });
   }
   return { token: payload.token, tokenExpiresAt };
+}
+
+function snapshotTokenFailureStatus(error: unknown): number {
+  if (error instanceof SnapshotDailyTokenError) return error.httpStatus;
+  if (error instanceof ProviderRateLimitError) return 429;
+  return 503;
+}
+
+function snapshotTokenFailureRetryAfter(error: unknown): number | null {
+  if (error instanceof SnapshotDailyTokenError) return error.retryAfterSeconds;
+  if (error instanceof ProviderRateLimitError) return error.retryAfterSeconds;
+  if (snapshotTokenFailureStatus(error) === 429) return providerFailureRetryAfter(error, 30);
+  return null;
+}
+
+function snapshotTokenFailureClientError(error: unknown): string {
+  if (error instanceof SnapshotDailyTokenError) return error.clientError;
+  if (error instanceof ProviderRateLimitError) return error.clientError;
+  return "daily_token_failed";
 }
 
 serve(async (req) => {
@@ -254,13 +395,24 @@ serve(async (req) => {
       },
     });
   } catch (tokenError) {
+    const status = snapshotTokenFailureStatus(tokenError);
+    const retryAfterSeconds = snapshotTokenFailureRetryAfter(tokenError);
+    const clientError = snapshotTokenFailureClientError(tokenError);
     console.error(JSON.stringify({
       event: "video_date_snapshot_token_issue_failed",
       session_id: sessionId,
       user_id: user.id,
       room_name: roomName,
-      error: tokenError instanceof Error ? tokenError.message : "unknown",
+      provider_status: tokenError instanceof SnapshotDailyTokenError ? tokenError.providerStatus : null,
+      provider_code: providerFailureCode(tokenError),
+      retry_after_seconds: retryAfterSeconds,
+      error: providerFailureMessage(tokenError),
     }));
-    return jsonResponse({ ok: false, error: "daily_token_failed", retryable: true }, 503);
+    return jsonResponse({
+      ok: false,
+      error: clientError,
+      retryable: true,
+      ...retryAfterJsonFields(retryAfterSeconds),
+    }, status, retryAfterSeconds);
   }
 });

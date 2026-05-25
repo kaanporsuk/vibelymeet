@@ -40,3 +40,28 @@ export const VIDEO_DATE_V4_CLIENT_FEATURE_FLAGS = [
 ] as const;
 
 export type VideoDateV4ClientFeatureFlagKey = (typeof VIDEO_DATE_V4_CLIENT_FEATURE_FLAGS)[number];
+
+export const VIDEO_DATE_FEATURE_FLAG_ALIAS_GROUPS = {
+  readyGateResilientClock: {
+    canonical: ["video_date.timeline_v2", "video_date.broadcast_v2"],
+    aliases: ["video_date.ready_gate_resilient_clock_v1"],
+    description: "Ready Gate server-clock countdown and realtime resilience.",
+  },
+  pushOpenDedupe: {
+    canonical: ["video_date.multi_device_dedup_v2"],
+    aliases: ["video_date.push_open_dedupe_v1"],
+    description: "Video-date push open dedupe and canonical deep-link handling.",
+  },
+  verdictConfirmation: {
+    canonical: ["video_date.verdict_confirm_v2"],
+    aliases: ["video_date.verdict_confirm_v1"],
+    description: "Post-date verdict confirmation before permanent UI advancement.",
+  },
+  deckOptimisticPolish: {
+    canonical: ["video_date.deck_prefetch_polish_v2"],
+    aliases: ["video_date.deck_optimistic_v1"],
+    description: "Optimistic deck polish, prefetch, and retry-state UI.",
+  },
+} as const;
+
+export type VideoDateFeatureFlagAliasGroupKey = keyof typeof VIDEO_DATE_FEATURE_FLAG_ALIAS_GROUPS;
