@@ -57,6 +57,11 @@ export function applyVideoDateTimelineSnapshot(
     return { action: "stale", timeline: previous };
   }
 
+  const invalidReason = invalidVideoDateTimelineSnapshotReason(snapshot);
+  if (invalidReason) {
+    return { action: "invalid", timeline: previous ?? null, reason: invalidReason };
+  }
+
   return {
     action: "accepted",
     timeline: videoDateTimelineFromSnapshot(snapshot, options),
@@ -189,6 +194,18 @@ function timelineDurationMs(timeline: VideoDateTimelineState): number {
   const deadlineMs = nullableFiniteNumber(timeline.phaseDeadlineAtMs);
   if (startedAtMs === null || deadlineMs === null || deadlineMs <= startedAtMs) return 0;
   return deadlineMs - startedAtMs;
+}
+
+function invalidVideoDateTimelineSnapshotReason(snapshot: VideoDateSnapshotOk): string | null {
+  if (snapshot.phase !== "handshake" && snapshot.phase !== "date") return null;
+  const startedAtMs = nullableFiniteNumber(snapshot.phaseStartedAt);
+  const deadlineMs = nullableFiniteNumber(snapshot.phaseDeadlineAt);
+  if (startedAtMs === null) return "missing_phase_started_at";
+  if (deadlineMs === null) return "missing_phase_deadline";
+  if (deadlineMs <= startedAtMs) {
+    return "invalid_phase_deadline";
+  }
+  return null;
 }
 
 function emptyTimelineCountdown(remainingSeconds: number | null, durationMs: number): VideoDatePhaseCountdown {

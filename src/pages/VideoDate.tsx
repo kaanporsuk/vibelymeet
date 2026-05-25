@@ -152,6 +152,7 @@ const WEB_LIFECYCLE_AWAY_GRACE_MS = 12_000;
 const VIDEO_DATE_ACCESS_LOADING_WATCHDOG_MS = 8_000;
 const VIDEO_DATE_MANUAL_EXIT_CLEANUP_TIMEOUT_MS = 2_500;
 const TERMINAL_SURVEY_RECONCILE_INTERVAL_MS = 2_500;
+const TERMINAL_SURVEY_CONFIRM_RETRY_DELAYS_MS = [0, 350, 900, 1_600] as const;
 const REMOTE_DATE_VIDEO_CONTAINER_CLASS = "flex-1 relative bg-black";
 // Product invariant: remote date video preserves the full encoded camera frame.
 // Do not switch this to cover/scale/transform; use a separate decorative layer for cinematic crops.
@@ -161,6 +162,10 @@ type VideoDateEndReason = "ended_from_client" | "partial_join_peer_timeout" | "d
 type VideoDateManualExitStepStatus = "completed" | "failed" | "timed_out";
 
 type WebLifecycleLeaveSource = "beforeunload" | "pagehide" | "visibilitychange" | "freeze";
+
+function waitForVideoDateRuntimeRecovery(ms: number): Promise<void> {
+  return new Promise((resolve) => window.setTimeout(resolve, ms));
+}
 
 function normalizedDateExtraSeconds(raw: unknown): number {
   return typeof raw === "number" && Number.isFinite(raw) ? Math.max(0, Math.floor(raw)) : 0;
@@ -1372,6 +1377,65 @@ const VideoDate = () => {
       return decision;
     },
     [id, timelineV2.enabled],
+  );
+
+  const confirmTerminalPostDateSurveyFromServerTruth = useCallback(
+    async (source: string) => {
+      if (!id || !user?.id) return false;
+      for (let attempt = 0; attempt < TERMINAL_SURVEY_CONFIRM_RETRY_DELAYS_MS.length; attempt += 1) {
+        const delayMs = TERMINAL_SURVEY_CONFIRM_RETRY_DELAYS_MS[attempt];
+        if (delayMs > 0) {
+          await waitForVideoDateRuntimeRecovery(delayMs);
+        }
+        if (surveyOpenedRef.current) return true;
+
+        const attemptSource = attempt === 0 ? source : `${source}_retry_${attempt}`;
+        const { data: sessionRow, error: sessionError } = await supabase
+          .from("video_sessions")
+          .select(TERMINAL_SURVEY_SESSION_SELECT)
+          .eq("id", id)
+          .maybeSingle();
+        if (sessionError || !sessionRow) {
+          vdbg("terminal_post_date_survey_confirmation_row_unavailable", {
+            sessionId: id,
+            userId: user.id,
+            source: attemptSource,
+            attempt,
+            error: sessionError ? { code: sessionError.code, message: sessionError.message } : null,
+          });
+        } else if (videoSessionIndicatesTerminalEnd(sessionRow)) {
+          const recovered = await recoverTerminalPostDateSurvey(attemptSource, sessionRow);
+          if (recovered) return true;
+        }
+
+        if (timelineV2.enabled) {
+          const snapshot = await fetchVideoDateSnapshot(id, { includeToken: false });
+          const decision = applyTimelineSnapshot(snapshot, `${attemptSource}_snapshot`);
+          if (
+            snapshot.ok === true &&
+            decision?.action === "accepted" &&
+            (snapshot.phase === "ended" || snapshot.phase === "verdict")
+          ) {
+            setTimingRefreshNonce((n) => n + 1);
+          }
+        }
+      }
+
+      vdbg("terminal_post_date_survey_confirmation_unresolved", {
+        sessionId: id,
+        userId: user.id,
+        source,
+        attempts: TERMINAL_SURVEY_CONFIRM_RETRY_DELAYS_MS.length,
+      });
+      return false;
+    },
+    [
+      applyTimelineSnapshot,
+      id,
+      recoverTerminalPostDateSurvey,
+      timelineV2.enabled,
+      user?.id,
+    ],
   );
 
   useEffect(() => {
@@ -3827,11 +3891,11 @@ const VideoDate = () => {
         });
         const { data: sessionRow } = await supabase
           .from("video_sessions")
-          .select("ended_at, ended_reason, state, phase, date_started_at, participant_1_joined_at, participant_2_joined_at")
+          .select(TERMINAL_SURVEY_SESSION_SELECT)
           .eq("id", id)
           .maybeSingle();
         if (videoSessionIndicatesTerminalEnd(sessionRow)) {
-          const recovered = await recoverTerminalPostDateSurvey("local_end_recovered_after_rpc_error");
+          const recovered = await recoverTerminalPostDateSurvey("local_end_recovered_after_rpc_error", sessionRow);
           if (!recovered) {
             toast.error("Couldn't finish ending the date. Please try again.");
             explicitEndRequestedRef.current = "idle";
@@ -3862,24 +3926,25 @@ const VideoDate = () => {
         phase,
         reason,
       });
-      const { data: sessionRow } = await supabase
-        .from("video_sessions")
-        .select("ended_at, ended_reason, state, phase, date_started_at, participant_1_joined_at, participant_2_joined_at")
-        .eq("id", id)
-        .maybeSingle();
-      if (videoSessionIndicatesTerminalEnd(sessionRow)) {
-        const recovered = await recoverTerminalPostDateSurvey("local_end");
-        if (recovered) {
-          markDateFlowEntered();
-          return;
-        }
+      const terminalHandled = await confirmTerminalPostDateSurveyFromServerTruth("local_end");
+      if (terminalHandled) {
+        markDateFlowEntered();
+        return;
       }
 
-      {
-        markDateFlowEntered();
-        clearHandshakeGraceState();
-        openPostDateSurvey("local_end");
+      recordUserAction("video_date_end_failed", {
+        surface: "video_date",
+        session_id: id,
+        phase,
+        reason,
+        failure_kind: "terminal_confirmation_missing",
+      });
+      if (reason === "date_timeout") {
+        countdownCompletionKeyRef.current = null;
+        setTimingRefreshNonce((n) => n + 1);
       }
+      toast.error("We're still confirming the date ended. Please try again in a moment.");
+      explicitEndRequestedRef.current = "idle";
     } catch (error) {
       recordUserAction("video_date_end_failed", {
         surface: "video_date",
@@ -3903,9 +3968,8 @@ const VideoDate = () => {
     dateExtraSeconds,
     dateTimeoutV2.enabled,
     recoverTerminalPostDateSurvey,
+    confirmTerminalPostDateSurveyFromServerTruth,
     markDateFlowEntered,
-    clearHandshakeGraceState,
-    openPostDateSurvey,
   ]);
 
   useEffect(() => {
@@ -4244,10 +4308,12 @@ const VideoDate = () => {
         survey_required: result.surveyRequired === true,
       });
       if (result.surveyRequired === true) {
-        markDateFlowEntered();
-        clearHandshakeGraceState();
-        openPostDateSurvey("local_end");
-        return;
+        const terminalHandled = await confirmTerminalPostDateSurveyFromServerTruth("safety_report_server_ended");
+        if (terminalHandled) {
+          markDateFlowEntered();
+          return;
+        }
+        toast.error("We recorded your report and are syncing the date ending.");
       }
       setShowFeedback(false);
       const target = resolveVideoDateExitTarget(eventId);
@@ -4255,13 +4321,12 @@ const VideoDate = () => {
       navigate(target, { replace: true });
     },
     [
-      clearHandshakeGraceState,
+      confirmTerminalPostDateSurveyFromServerTruth,
       endCall,
       eventId,
       id,
       markDateFlowEntered,
       navigate,
-      openPostDateSurvey,
       phase,
       resolveVideoDateExitTarget,
     ],

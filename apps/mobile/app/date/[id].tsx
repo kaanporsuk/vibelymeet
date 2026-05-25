@@ -205,6 +205,7 @@ const PREJOIN_STEP_TIMEOUT_MS = 12000;
 const NATIVE_BACKGROUND_GRACE_MS = 12_000;
 const NATIVE_BACKGROUND_GRACE_SECONDS = Math.ceil(NATIVE_BACKGROUND_GRACE_MS / 1000);
 const NATIVE_BACKGROUND_RECOVERED_BANNER_MS = 2_500;
+const NATIVE_TERMINAL_SURVEY_CONFIRM_RETRY_DELAYS_MS = [0, 350, 900, 1_600] as const;
 const ICE_BREAKER_CLOCK_TICK_MS = 1_000;
 const DATE_CONTROLS_STACK_HEIGHT = 104;
 const DATE_PHASE_ICE_BREAKER_MIN_BOTTOM = 148;
@@ -233,6 +234,10 @@ type NativeVideoDateSurfaceClaimResult = {
 // media before the server deadline is allowed to call completeHandshake.
 // Prevents expiry on slow Daily join where media arrives just before the 60 s mark.
 const MIN_DECISION_WINDOW_AFTER_MEDIA_MS = 15_000;
+
+function sleepNativeRuntimeRecovery(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 type DailyCallObject = VideoDateDailyCallObject;
 type DailyReceiveSettingsCapable = {
   updateReceiveSettings?: (settings: Record<string, unknown>) => Promise<unknown>;
@@ -829,6 +834,12 @@ function shouldRecoverPendingPostDateSurvey(
   return videoSessionHasPostDateSurveyTruth(session);
 }
 
+function nativeVideoSessionIndicatesTerminalEnd(
+  session: { ended_at?: string | null; state?: string | null; phase?: string | null } | null,
+): boolean {
+  return Boolean(session && (session.ended_at || session.state === 'ended' || session.phase === 'ended'));
+}
+
 type NativeTerminalSurveySessionRow = {
   id?: string | null;
   participant_1_id?: string | null;
@@ -1216,11 +1227,7 @@ export default function VideoDateScreen() {
         ).data;
 
       if (!sessionRow) return false;
-      const terminal =
-        Boolean(sessionRow.ended_at) ||
-        sessionRow.state === 'ended' ||
-        sessionRow.phase === 'ended';
-      if (!terminal) return false;
+      if (!nativeVideoSessionIndicatesTerminalEnd(sessionRow)) return false;
 
       const { data: verdict } = await supabase
         .from('date_feedback')
@@ -1286,6 +1293,83 @@ export default function VideoDateScreen() {
       return true;
     },
     [eventId, logJourney, sessionId, user?.id]
+  );
+
+  const confirmNativeTerminalPostDateRecovery = useCallback(
+    async (source: string, sessionOverride?: NativeTerminalSurveySessionRow | null) => {
+      if (!sessionId || !user?.id) return false;
+      for (let attempt = 0; attempt < NATIVE_TERMINAL_SURVEY_CONFIRM_RETRY_DELAYS_MS.length; attempt += 1) {
+        const delayMs = NATIVE_TERMINAL_SURVEY_CONFIRM_RETRY_DELAYS_MS[attempt];
+        if (delayMs > 0) {
+          await sleepNativeRuntimeRecovery(delayMs);
+        }
+
+        const attemptSource = attempt === 0 ? source : `${source}_retry_${attempt}`;
+        let sessionRow: NativeTerminalSurveySessionRow | null =
+          attempt === 0 && sessionOverride ? sessionOverride : null;
+        if (!sessionRow) {
+          const { data, error } = await supabase
+            .from('video_sessions')
+            .select(NATIVE_TERMINAL_SURVEY_SESSION_SELECT)
+            .eq('id', sessionId)
+            .maybeSingle();
+          if (error || !data) {
+            vdbg('terminal_post_date_survey_confirmation_row_unavailable', {
+              sessionId,
+              userId: user.id,
+              source: attemptSource,
+              attempt,
+              error: error?.message ?? null,
+            });
+          }
+          sessionRow = data ?? null;
+        }
+
+        if (!nativeVideoSessionIndicatesTerminalEnd(sessionRow)) {
+          if (attempt < NATIVE_TERMINAL_SURVEY_CONFIRM_RETRY_DELAYS_MS.length - 1) {
+            await refetchVideoSession().catch(() => undefined);
+          }
+          continue;
+        }
+
+        const recoveredSurvey = await openNativePostDateSurveyFromTerminalTruth(attemptSource, sessionRow);
+        if (recoveredSurvey) return true;
+
+        const fallbackEventId = sessionRow?.event_id ?? eventId;
+        const target = fallbackEventId ? eventLobbyHref(fallbackEventId) : tabsRootHref();
+        setShowFeedback(false);
+        clearDateEntryTransition(sessionId);
+        vdbgRedirect(target, `${attemptSource}_terminal_no_survey_truth`, {
+          sessionId,
+          userId: user.id,
+          eventId: fallbackEventId ?? null,
+          endedAt: sessionRow?.ended_at ?? null,
+          endedReason: sessionRow?.ended_reason ?? null,
+        });
+        logJourney('date_route_bounced', {
+          reason: `${attemptSource}_terminal_no_survey_truth`,
+          target: String(target),
+        });
+        router.replace(target);
+        return true;
+      }
+
+      vdbg('terminal_post_date_survey_confirmation_unresolved', {
+        sessionId,
+        userId: user.id,
+        source,
+        attempts: NATIVE_TERMINAL_SURVEY_CONFIRM_RETRY_DELAYS_MS.length,
+      });
+      return false;
+    },
+    [
+      eventId,
+      logJourney,
+      openNativePostDateSurveyFromTerminalTruth,
+      refetchVideoSession,
+      sessionId,
+      user?.id,
+    ],
   );
 
   const beginBootstrapTiming = useCallback((step: string, data?: Record<string, unknown>) => {
@@ -3462,12 +3546,12 @@ export default function VideoDateScreen() {
       }
       addVideoDateBreadcrumb('Call ended (user)', 'info', { sessionId, source, dateWasEstablished });
       if (source === 'server_end') {
-        const recoveredSurvey = await openNativePostDateSurveyFromTerminalTruth(source);
-        if (recoveredSurvey || dateWasEstablished) {
-          logJourney('survey_opened', { source }, `survey_opened_${source}`);
-          if (!recoveredSurvey) setShowFeedback(true);
+        const terminalHandled = await confirmNativeTerminalPostDateRecovery(source);
+        if (terminalHandled) {
+          vdbg('server_end_terminal_handled', { sessionId, source });
         } else {
           setShowFeedback(false);
+          router.replace(eventId ? eventLobbyHref(eventId) : tabsRootHref());
         }
         await cleanupForAbortWithoutServerEnd();
         return;
@@ -3500,10 +3584,23 @@ export default function VideoDateScreen() {
         if (reason === 'date_timeout') {
           emitConfirmedEndedAnalytics();
         }
-        logJourney('survey_opened', { source: 'local_end_confirmed' }, 'survey_opened_local_end_confirmed');
-        const recoveredSurvey = await openNativePostDateSurveyFromTerminalTruth('local_end_confirmed');
-        if (!recoveredSurvey) setShowFeedback(true);
+        const terminalHandled = await confirmNativeTerminalPostDateRecovery('local_end_confirmed');
+        if (terminalHandled) {
+          vdbg('local_end_terminal_handled', { sessionId, source: 'local_end_confirmed' });
+          await cleanupForAbortWithoutServerEnd();
+          return;
+        }
+
+        if (reason === 'date_timeout') {
+          videoDateEndedRef.current = false;
+          countdownCompletionKeyRef.current = null;
+          setShowFeedback(false);
+          await refetchVideoSession();
+          return;
+        }
+        setShowFeedback(false);
         await cleanupForAbortWithoutServerEnd();
+        Alert.alert('Date ending is still syncing', 'Please try ending the date again in a moment.');
         return;
       }
       setShowFeedback(false);
@@ -3513,10 +3610,10 @@ export default function VideoDateScreen() {
       cleanupForAbortWithoutServerEnd,
       sessionId,
       dateTimeoutV2.enabled,
-      logJourney,
       fetchServerTerminalTruth,
-      openNativePostDateSurveyFromTerminalTruth,
+      confirmNativeTerminalPostDateRecovery,
       refetchVideoSession,
+      eventId,
     ],
   );
 
@@ -3585,20 +3682,22 @@ export default function VideoDateScreen() {
           survey_required: result.surveyRequired === true,
         });
       }
-      const recoveredSurvey = await openNativePostDateSurveyFromTerminalTruth('local_end_confirmed');
       if (result.surveyRequired === true) {
-        logJourney(
-          'survey_opened',
-          { source: 'safety_report_v2_server_end' },
-          'survey_opened_safety_report_v2_server_end',
-        );
-        if (!recoveredSurvey) setShowFeedback(true);
+        const terminalHandled = await confirmNativeTerminalPostDateRecovery('safety_report_v2_server_end');
+        if (terminalHandled) {
+          vdbg('safety_report_terminal_handled', { sessionId, source: 'safety_report_v2_server_end' });
+        } else {
+          setShowFeedback(false);
+          Alert.alert('Report recorded', 'We are still syncing the date ending. Please return to the lobby.');
+          router.replace(eventId ? eventLobbyHref(eventId) : tabsRootHref());
+        }
       } else {
         setShowFeedback(false);
+        router.replace(eventId ? eventLobbyHref(eventId) : tabsRootHref());
       }
       await cleanupForAbortWithoutServerEnd();
     },
-    [cleanupForAbortWithoutServerEnd, logJourney, openNativePostDateSurveyFromTerminalTruth, sessionId],
+    [cleanupForAbortWithoutServerEnd, confirmNativeTerminalPostDateRecovery, eventId, sessionId],
   );
 
   /** Foreground/background: make app backgrounding server-observable and bounded. */
@@ -3667,7 +3766,18 @@ export default function VideoDateScreen() {
             }
             void (async () => {
               await cleanupDailyAndLocalState();
-              await endVideoDate(sessionId, 'app_background_timeout');
+              const ended = await endVideoDate(sessionId, 'app_background_timeout');
+              vdbg('native_background_timeout_end_result', {
+                sessionId,
+                eventId: eventId || null,
+                source: 'app_foreground_after_background_timeout',
+                ended,
+              });
+              if (ended) {
+                await confirmNativeTerminalPostDateRecovery('app_foreground_after_background_timeout');
+              } else {
+                await refetchVideoSession();
+              }
             })();
           } else {
             void markReconnectReturn(sessionId);
@@ -3839,7 +3949,16 @@ export default function VideoDateScreen() {
             });
             void (async () => {
               await cleanupDailyAndLocalState();
-              await endVideoDate(sessionId, 'app_background_timeout');
+              const ended = await endVideoDate(sessionId, 'app_background_timeout');
+              vdbg('native_background_timeout_end_result', {
+                sessionId,
+                eventId: eventId || null,
+                source: 'app_background_timeout',
+                ended,
+              });
+              if (!ended) {
+                await refetchVideoSession().catch(() => undefined);
+              }
             })();
           }, NATIVE_BACKGROUND_GRACE_MS);
         }
@@ -3853,7 +3972,14 @@ export default function VideoDateScreen() {
       appStateBackgroundStartedAtRef.current = null;
       sub.remove();
     };
-  }, [cleanupDailyAndLocalState, eventId, retryBroadcastGapRecovery, sessionId, refetchVideoSession]);
+  }, [
+    cleanupDailyAndLocalState,
+    confirmNativeTerminalPostDateRecovery,
+    eventId,
+    retryBroadcastGapRecovery,
+    sessionId,
+    refetchVideoSession,
+  ]);
 
   useEffect(() => {
     if (!sessionId || phase === 'ended') return;
