@@ -8,6 +8,7 @@ const root = process.cwd();
 const read = (path: string) => readFileSync(join(root, path), "utf8");
 
 const closureMigration = read("supabase/migrations/20260523202000_reliability_gap_closure.sql");
+const reviewCommentMigration = read("supabase/migrations/20260525170000_review_comments_1032_1040.sql");
 const queueFairnessMigration = read("supabase/migrations/20260522011000_video_date_phase6_queue_fairness.sql");
 const publicApiMigration = read("supabase/migrations/20260523123000_public_api_interface_changes.sql");
 const eventProfileAdapters = read("supabase/functions/_shared/eventProfileAdapters.ts");
@@ -22,6 +23,7 @@ function functionSection(source: string, functionName: string): string {
 }
 
 const recoverySection = functionSection(closureMigration, "recover_ready_gate_missing_rooms_v1");
+const reviewRecoverySection = functionSection(reviewCommentMigration, "recover_ready_gate_missing_rooms_v1");
 const expireWrapperSection = functionSection(closureMigration, "expire_stale_video_sessions_bounded");
 const drainSection = functionSection(closureMigration, "drain_match_queue_v2");
 const deckV3Section = functionSection(closureMigration, "get_event_deck_v3");
@@ -69,6 +71,19 @@ test("Ready Gate missing-room recovery enqueues room repair before terminal clea
       expireWrapperSection.indexOf("expire_stale_vsessions_bounded_202605232020_base"),
     "stale cleanup must attempt Ready Gate room recovery before delegating to terminal cleanup",
   );
+});
+
+test("Ready Gate missing-room early-grace recovery does not extend itself via state_updated_at", () => {
+  const start = reviewRecoverySection.indexOf("IF r.both_ready_at + v_grace > v_now THEN");
+  const end = reviewRecoverySection.indexOf("IF v_has_outbox AND v_latest_outbox.state = 'done'", start);
+  assert.ok(start > -1, "early-grace branch should exist in review follow-up migration");
+  assert.ok(end > start, "early-grace branch should end before done-outbox branch");
+  const earlyGraceBranch = reviewRecoverySection.slice(start, end);
+
+  assert.match(earlyGraceBranch, /ready_gate_expires_at = GREATEST/);
+  assert.match(earlyGraceBranch, /prepare_entry_expires_at = GREATEST/);
+  assert.doesNotMatch(earlyGraceBranch, /state_updated_at\s*=/);
+  assert.match(reviewCommentMigration, /without extending early grace through state_updated_at/);
 });
 
 test("drain_match_queue_v2 uses non-blocking advisory locks and exposes lock_busy", () => {

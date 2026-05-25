@@ -206,6 +206,9 @@ test("Phase 4 web/native surfaces consume shared UX helpers", () => {
   assert.match(webLobby, /formatVideoDateQueueHintLabel/);
   assert.match(nativeLobby, /formatVideoDateQueueHintLabel/);
   assert.match(webLobby, /emptyDeckUiState\.showRefresh/);
+  assert.match(webLobby, /deckErrorUiState\.actionLabel \|\| deckErrorUiState\.showRefresh/);
+  assert.match(webLobby, /deckErrorUiState\.actionTarget === "matches"[\s\S]+navigate\("\/matches"/);
+  assert.match(webLobby, /deckErrorUiState\.actionTarget === "event"[\s\S]+navigate\(eventId \? `\/events\/\$\{eventId\}` : "\/events"/);
   assert.match(nativeLobby, /router\.replace\('\/\(tabs\)\/matches'\)/);
   assert.match(nativeLobby, /emptyDeckUiState\.showMysteryMatch/);
   assert.match(nativeLobby, /emptyDeckUiState\.showRefresh/);

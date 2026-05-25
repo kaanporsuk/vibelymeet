@@ -104,6 +104,25 @@ test("Phase 3 broadcast gap recovery retries snapshots without token leakage", (
   assert.equal(recordVideoDateBroadcastGapRecoverySuccess(state, 13, 2000)?.exhausted, false);
   assert.equal(recordVideoDateBroadcastGapRecoverySuccess(state, 14), null);
 
+  let exhausted = createVideoDateBroadcastGapRecovery({
+    sessionId: "22222222-2222-4222-8222-222222222222",
+    targetSeq: 20,
+    expectedSeq: 18,
+    maxAttempts: 1,
+  }, 5000);
+  exhausted = recordVideoDateBroadcastGapRecoveryFailure(exhausted, "snapshot_timeout", 5000);
+  assert.equal(exhausted.exhausted, true);
+  const reopened = mergeVideoDateBroadcastGapRecovery(exhausted, {
+    sessionId: exhausted.sessionId,
+    targetSeq: 21,
+    expectedSeq: 19,
+  }, 6000);
+  assert.equal(reopened.exhausted, false);
+  assert.equal(reopened.attempts, 0);
+  assert.equal(reopened.lastError, null);
+  assert.equal(reopened.nextRetryAtMs, 6000);
+  assert.equal(shouldAttemptVideoDateBroadcastGapRecovery(reopened, 6000), true);
+
   for (const source of [webVideoDate, webReadyGate, nativeVideoDateApi, nativeReadyGateApi]) {
     assert.match(source, /mergeVideoDateBroadcastGapRecovery/);
     assert.match(source, /recordVideoDateBroadcastGapRecoveryFailure/);

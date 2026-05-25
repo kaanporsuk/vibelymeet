@@ -22,6 +22,9 @@ test("native lobby normalizes swipe outcome fields before routing and telemetry"
   assert.match(nativeLobby, /shouldAdvanceLobbyDeckAfterSwipe\(failureOutcome\)/);
   assert.match(nativeLobby, /videoSessionIdFromSwipePayload\(normalizedEnvelope\)/);
   assert.match(nativeLobby, /shouldOpenReadyGateFromSwipePayload\(normalizedEnvelope\)/);
+  assert.match(nativeLobby, /readyGateOpenSuppressed/);
+  assert.match(nativeLobby, /swipe_ready_gate_open_suppressed_after_manual_exit/);
+  assert.match(nativeLobby, /if \(!readyGateOpenSuppressed\) \{[\s\S]+showSwipeToast\(outcome, \{ openingReadyGate \}\)/);
 });
 
 test("native lobby treats backend event_not_active as a terminal gate", () => {

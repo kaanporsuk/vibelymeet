@@ -129,9 +129,11 @@ test(
       const ownViewOfOtherPaymentEvent = await participant.rpc("get_event_ticket_payment_status_v1", {
         p_event_id: runtimeEnv.otherPaymentEventId,
       });
-      if (ownViewOfOtherPaymentEvent.error) {
-        assert.equal(hasDeniedError(ownViewOfOtherPaymentEvent), false, "payment status should be caller-scoped, not table-denied");
-      }
+      assert.equal(
+        ownViewOfOtherPaymentEvent.error,
+        null,
+        `payment status should be caller-scoped and callable: ${ownViewOfOtherPaymentEvent.error?.message ?? "unknown"}`,
+      );
       const payload = payloadRecord(ownViewOfOtherPaymentEvent);
       assert.equal(JSON.stringify(payload).includes(runtimeEnv.otherCheckoutSessionId), false);
     }

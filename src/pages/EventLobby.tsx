@@ -2327,13 +2327,21 @@ const EventLobby = () => {
             <p className="text-sm text-white/55">
               {deckErrorUiState.message}
             </p>
-            {(deckErrorUiState.showRefresh || deckErrorUiState.actionTarget === "end_break") && (
+            {(deckErrorUiState.actionLabel || deckErrorUiState.showRefresh) && (
               <Button
                 type="button"
                 variant="outline"
                 className="border-white/20 bg-white/[0.06] text-white hover:bg-white/10"
                 disabled={deckErrorUiState.actionTarget === "end_break" && endingBreak}
                 onClick={() => {
+                  if (deckErrorUiState.actionTarget === "matches") {
+                    navigate("/matches", { replace: true });
+                    return;
+                  }
+                  if (deckErrorUiState.actionTarget === "event") {
+                    navigate(eventId ? `/events/${eventId}` : "/events", { replace: true });
+                    return;
+                  }
                   if (deckErrorUiState.actionTarget === "end_break") {
                     handleEndBreak();
                     return;

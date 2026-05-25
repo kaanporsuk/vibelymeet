@@ -46,9 +46,11 @@ export function mergeVideoDateBroadcastGapRecovery(
 
   const targetSeq = Math.max(existing.targetSeq, normalizeTargetSequence(input.targetSeq));
   const expectedSeq = normalizeSequence(input.expectedSeq);
+  const reopensExhaustedGap = existing.exhausted && targetSeq > existing.targetSeq;
   return {
     ...existing,
     targetSeq,
+    attempts: reopensExhaustedGap ? 0 : existing.attempts,
     expectedSeq:
       expectedSeq == null
         ? existing.expectedSeq
@@ -56,8 +58,9 @@ export function mergeVideoDateBroadcastGapRecovery(
           ? expectedSeq
           : Math.min(existing.expectedSeq, expectedSeq),
     maxAttempts: normalizeMaxAttempts(input.maxAttempts ?? existing.maxAttempts),
-    exhausted: existing.exhausted && targetSeq === existing.targetSeq,
-    nextRetryAtMs: existing.exhausted && targetSeq > existing.targetSeq ? nowMs : existing.nextRetryAtMs,
+    lastError: reopensExhaustedGap ? null : existing.lastError,
+    exhausted: reopensExhaustedGap ? false : existing.exhausted && targetSeq === existing.targetSeq,
+    nextRetryAtMs: reopensExhaustedGap ? nowMs : existing.nextRetryAtMs,
   };
 }
 

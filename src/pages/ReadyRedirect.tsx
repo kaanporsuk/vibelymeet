@@ -176,6 +176,15 @@ const ReadyRedirect = () => {
         return;
       }
 
+      const { data: readyGateRegistration } = await supabase
+        .from("event_registrations")
+        .select("queue_status, current_room_id")
+        .eq("event_id", session.event_id)
+        .eq("profile_id", user.id)
+        .maybeSingle();
+
+      if (cancelled) return;
+
       const recovery = adviseVideoSessionTruthRecovery({
         sessionId: candidate,
         eventId: session.event_id,
@@ -189,7 +198,11 @@ const ReadyRedirect = () => {
         return;
       }
 
-      if (recovery.action === "go_ready_gate") {
+      const registrationReadyGateFallback =
+        readyGateRegistration?.queue_status === "in_ready_gate" &&
+        (!readyGateRegistration.current_room_id || readyGateRegistration.current_room_id === candidate);
+
+      if (recovery.action === "go_ready_gate" || registrationReadyGateFallback) {
         setRouteState({ kind: "hosting", eventId: session.event_id });
         return;
       }
