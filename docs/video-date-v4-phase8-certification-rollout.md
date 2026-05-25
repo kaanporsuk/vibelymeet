@@ -80,7 +80,7 @@ npm run phase8:certify -- native-smoke \
 
 ## PR 8.2 - RLS, Chaos, And Load
 
-Run the runtime Realtime RLS test against a synthetic session:
+Run runtime RLS proof in required mode against a seeded synthetic/staging project. This command fails before running tests if any required env var is missing; the normal `npm run test:video-date-v4` path still skips live RLS tests when these values are absent.
 
 ```bash
 VIDEO_DATE_RLS_SUPABASE_URL=<url> \
@@ -88,10 +88,24 @@ VIDEO_DATE_RLS_SUPABASE_ANON_KEY=<anon_key> \
 VIDEO_DATE_RLS_SESSION_ID=<session_uuid> \
 VIDEO_DATE_RLS_PARTICIPANT_JWT=<participant_jwt> \
 VIDEO_DATE_RLS_NON_PARTICIPANT_JWT=<nonparticipant_jwt> \
-npx tsx shared/matching/videoDateRealtimeRlsRuntime.test.ts
+VIDEO_DATE_PUBLIC_API_RLS_SUPABASE_URL=<url> \
+VIDEO_DATE_PUBLIC_API_RLS_SUPABASE_ANON_KEY=<anon_key> \
+VIDEO_DATE_PUBLIC_API_RLS_EVENT_ID=<event_uuid> \
+VIDEO_DATE_PUBLIC_API_RLS_USER_ID=<participant_user_uuid> \
+VIDEO_DATE_PUBLIC_API_RLS_OTHER_USER_ID=<other_user_uuid> \
+VIDEO_DATE_PUBLIC_API_RLS_PARTICIPANT_JWT=<participant_jwt> \
+VIDEO_DATE_PUBLIC_API_RLS_NON_PARTICIPANT_JWT=<nonparticipant_jwt> \
+VIDEO_DATE_PUBLIC_API_RLS_SESSION_ID=<active_session_uuid> \
+npm run test:video-date-runtime-rls:required
 ```
 
 Chaos certification must include duplicate taps, Broadcast loss, Daily webhook loss, worker crash/retry, mobile backgrounding, reconnect grace expiry, provider room cleanup dry-run, and delayed push/deep link recovery. Load certification must prove queue drain, deadline finalizer, outbox drainer, snapshot fetch, and Daily token paths stay below the Phase 7 P95/P99 targets at the intended rollout slice.
+
+Focused closure smoke remains manual and must be recorded through the existing Phase 8 certification tooling, not a new ledger. Cover Ready Gate reconnect after degraded/closed realtime, push deep link on two devices with duplicate-open behavior, post-date verdict confirmation plus next-surface fallback, deck optimistic swipe rollback plus in-card 429 retry state, and Daily room cleanup dry-run/rate-limit response. Web and native builds plus real-device smoke are release activities and are not run by this contract suite.
+
+Canonical rollout flags for this closure are the v2 flags. The v1 names are compatibility aliases: Ready Gate uses `video_date.timeline_v2` and `video_date.broadcast_v2` with alias `video_date.ready_gate_resilient_clock_v1`; push dedupe uses `video_date.multi_device_dedup_v2` with alias `video_date.push_open_dedupe_v1`; verdict confirmation uses `video_date.verdict_confirm_v2` with alias `video_date.verdict_confirm_v1`; deck polish uses `video_date.deck_prefetch_polish_v2` with alias `video_date.deck_optimistic_v1`. Where the shared alias helper is used, a canonical kill switch wins over an enabled alias.
+
+Tooling note: Supabase CLI v2.101.0 or newer is recommended for operators. The current Node `DEP0205` warning is non-blocking while the required tests pass; dependency/tool upgrades are separate maintenance work, not part of Video Date reliability semantics.
 
 Daily webhook provider registration is already complete for Video Date. Use the existing webhook UUID `a5407924-6f29-4a35-835a-ff5185eeae5c` at `https://schdyxcunwcvddlcshwd.supabase.co/functions/v1/video-date-daily-webhook`; do not create another webhook, and do not print or rotate `DAILY_WEBHOOK_SECRET`. The registered event types are `participant.joined` and `participant.left`. Real-event certification is complete only after a two-user smoke makes Daily `lastMomentPushed` non-null, keeps `failedCount=0`, and shows matching accepted rows in `video_date_daily_webhook_events`.
 
