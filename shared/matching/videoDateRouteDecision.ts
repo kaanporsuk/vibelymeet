@@ -112,6 +112,7 @@ export const POST_DATE_SURVEY_INELIGIBLE_ENDED_REASONS = [
   "handshake_grace_expired",
   "partial_join_peer_timeout",
   "blocked_pair",
+  "blocked_or_reported_pair",
 ] as const;
 
 const postDateSurveyIneligibleEndedReasons = new Set<string>(

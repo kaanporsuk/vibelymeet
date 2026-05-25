@@ -72,6 +72,7 @@ serve(async (req) => {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
+    const effectiveLiked = action === "verdict" && body?.safety_report != null ? false : liked;
 
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const anonKey = Deno.env.get("SUPABASE_ANON_KEY")!;
@@ -94,19 +95,19 @@ serve(async (req) => {
         ? body?.transition_version === "v3"
           ? await userClient.rpc("submit_post_date_verdict_v3", {
               p_session_id: sessionId,
-              p_liked: liked as boolean,
+              p_liked: effectiveLiked as boolean,
               p_idempotency_key: idempotencyKey,
               p_safety_report: body?.safety_report ?? null,
             })
           : await userClient.rpc("submit_post_date_verdict_v2", {
               p_session_id: sessionId,
-              p_liked: liked as boolean,
+              p_liked: effectiveLiked as boolean,
               p_idempotency_key: idempotencyKey,
               p_safety_report: body?.safety_report ?? null,
             })
         : await userClient.rpc("submit_post_date_verdict", {
             p_session_id: sessionId,
-            p_liked: liked as boolean,
+            p_liked: effectiveLiked as boolean,
           });
 
     if (error) {
