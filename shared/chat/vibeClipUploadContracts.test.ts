@@ -566,7 +566,9 @@ test("video bubbles remain adaptive and full-width across web and native chat", 
   assert.match(nativeChat, /remove\(outboxItemId\);[\s\S]{0,500}openVideoMessageOptions\(\)/);
   assert.match(nativeVibeClipCard, /void refreshClipMedia\('preview'\);/);
   assert.doesNotMatch(nativeVibeClipCard, /if \(didRefresh\) posterRefreshAttemptedForRef\.current = null/);
-  assert.match(nativeVibeClipCard, /Clip unavailable/);
+  assert.match(nativeVibeClipCard, /resolveMediaFallbackCopy/);
+  assert.match(nativeVibeClipCard, /fallbackCopy\.title/);
+  assert.match(nativeVibeClipCard, /unavailableCopy\.title/);
   assert.doesNotMatch(nativeVibeClipCard, /Tap to play/);
   assert.doesNotMatch(nativeVibeClipCard, /Loading clip/);
   assert.match(nativeVibeClipCard, /const \[hasPlayed, setHasPlayed\] = useState\(false\)/);
@@ -732,7 +734,10 @@ test("native pending Vibe Clip local preview failures stay in preparing state", 
   assert.match(nativeVibeClipCard, /const shouldAutoSyncProcessingStatus = isSyncableServerProcessing;/);
   assert.doesNotMatch(nativeVibeClipCard, /shouldAutoSyncProcessingStatus =[\s\S]{0,140}videoSourceRef \|\| thumbnailSourceRef/);
   assert.match(nativeVibeClipCard, /const isProcessing = isServerProcessingClip\(resolvedMeta\)/);
-  assert.match(nativeVibeClipCard, /if \(!didRefresh\) setHasError\(true\)/);
+  assert.match(
+    nativeVibeClipCard,
+    /if \(!didRefresh\) \{[\s\S]{0,140}setFallbackReason\(resolveMediaFallbackReason\(\{ stage: playbackFailureStage \}\)\);[\s\S]{0,80}setHasError\(true\);/,
+  );
 });
 
 test("native chat validates library and camera video before enqueue", () => {

@@ -4,6 +4,11 @@ import { Loader2, X, AlertCircle } from "lucide-react";
 import { useMediaAsset, useMediaAssetPlayback, type MediaAssetKind } from "@/hooks/useMediaAsset";
 import { usePrefersReducedMotion } from "@/hooks/usePrefersReducedMotion";
 import { refreshMediaAsset as refreshResolvedMediaAsset } from "@/lib/mediaAssetResolver";
+import {
+  resolveMediaFallbackCopy,
+  resolveMediaFallbackReason,
+  type MediaFallbackReason,
+} from "@clientShared/media/mediaFallbackCopy";
 
 type ChatVideoLightboxProps = {
   videoUrl: string;
@@ -47,6 +52,7 @@ export function ChatVideoLightbox({
   const [phase, setPhase] = useState<LightboxPhase>("loading");
   const [playableVideoUrl, setPlayableVideoUrl] = useState(videoUrl);
   const [playablePosterUrl, setPlayablePosterUrl] = useState(posterUrl ?? null);
+  const [fallbackReason, setFallbackReason] = useState<MediaFallbackReason | null>(null);
   const playbackRefreshAttemptCountRef = useRef(0);
   const playableVideoUrlRef = useRef(playableVideoUrl);
   const posterUrlRef = useRef(posterUrl ?? null);
@@ -57,6 +63,8 @@ export function ChatVideoLightbox({
   const {
     url: videoAssetUrl,
     expiresAtMs: videoAssetExpiresAtMs,
+    fallbackReason: videoAssetFallbackReason,
+    fallbackCopy: videoAssetFallbackCopy,
     refresh: refreshVideoAsset,
   } = useMediaAsset({
     kind: mediaKind,
@@ -95,6 +103,10 @@ export function ChatVideoLightbox({
   const isLocalUrl = /^(blob:|file:|data:)/i.test(playableVideoUrl);
   const canMountPlayer = isRemoteUrl || isLocalUrl;
   const isHlsUrl = isHlsMediaUrl(playableVideoUrl);
+  const visibleFallbackCopy =
+    (fallbackReason ? resolveMediaFallbackCopy({ reason: fallbackReason }) : null) ??
+    videoAssetFallbackCopy ??
+    resolveMediaFallbackCopy({ reason: "unknown" });
 
   useEffect(() => {
     const prev = document.body.style.overflow;
@@ -168,24 +180,30 @@ export function ChatVideoLightbox({
     playableVideoUrlRef.current = videoUrl;
     setPlayableVideoUrl(videoUrl);
     setPlayablePosterUrl(posterUrlRef.current);
+    setFallbackReason(null);
     playbackRefreshAttemptCountRef.current = 0;
     resetPhase();
     if (!isPlayableMediaUrl(videoUrl) && videoSourceRef) {
       const refresh = refreshMediaRef.current;
       if (!refresh) {
+        setFallbackReason(videoAssetFallbackReason ?? "unknown");
         setPhase("error");
         return;
       }
       void refresh("initial").then((didRefresh) => {
-        if (!didRefresh) setPhase("error");
+        if (!didRefresh) {
+          setFallbackReason(videoAssetFallbackReason ?? "unknown");
+          setPhase("error");
+        }
       });
       return;
     }
     if (!isPlayableMediaUrl(videoUrl)) {
+      setFallbackReason("unknown");
       setPhase("error");
       return;
     }
-  }, [resetPhase, videoSourceRef, videoUrl]);
+  }, [resetPhase, videoAssetFallbackReason, videoSourceRef, videoUrl]);
 
   useEffect(() => {
     const v = videoRef.current;
@@ -201,9 +219,12 @@ export function ChatVideoLightbox({
 
   const handlePlaybackAttachError = useCallback(() => {
     void refreshMedia().then((didRefresh) => {
-      if (!didRefresh) setPhase("error");
+      if (!didRefresh) {
+        setFallbackReason(resolveMediaFallbackReason({ stage: isHlsUrl ? "hls_auth" : "playback" }));
+        setPhase("error");
+      }
     });
-  }, [refreshMedia]);
+  }, [isHlsUrl, refreshMedia]);
   const refreshPlaybackOnAuthError = useCallback(async () => {
     if (!messageId || !videoSourceRef) return null;
     if (playbackRefreshAttemptCountRef.current >= MAX_LIGHTBOX_PLAYBACK_REFRESH_ATTEMPTS) return null;
@@ -301,22 +322,26 @@ export function ChatVideoLightbox({
           {phase === "error" ? (
             <div className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-4 bg-black/80 px-6">
               <AlertCircle className="h-10 w-10 text-fuchsia-400/80" />
-              <p className="text-center text-sm text-white/75">Couldn&apos;t play this video.</p>
-              <button
-                type="button"
-                className="rounded-full border border-fuchsia-500/35 bg-fuchsia-500/10 px-5 py-2 text-xs font-semibold text-fuchsia-200 transition-colors hover:bg-fuchsia-500/20"
-                onClick={() => {
-                  playbackRefreshAttemptCountRef.current = 0;
-                  resetPhase();
-                  void refreshMedia("manual").then((didRefresh) => {
-                    if (didRefresh) return;
-                    videoRef.current?.load();
-                    void videoRef.current?.play().catch(() => revealPlayer());
-                  });
-                }}
-              >
-                Try again
-              </button>
+              <p className="text-center text-sm font-semibold text-white/85">{visibleFallbackCopy.title}</p>
+              <p className="max-w-sm text-center text-xs leading-5 text-white/65">{visibleFallbackCopy.message}</p>
+              {visibleFallbackCopy.actionLabel ? (
+                <button
+                  type="button"
+                  className="rounded-full border border-fuchsia-500/35 bg-fuchsia-500/10 px-5 py-2 text-xs font-semibold text-fuchsia-200 transition-colors hover:bg-fuchsia-500/20"
+                  onClick={() => {
+                    playbackRefreshAttemptCountRef.current = 0;
+                    setFallbackReason(null);
+                    resetPhase();
+                    void refreshMedia("manual").then((didRefresh) => {
+                      if (didRefresh) return;
+                      videoRef.current?.load();
+                      void videoRef.current?.play().catch(() => revealPlayer());
+                    });
+                  }}
+                >
+                  {visibleFallbackCopy.actionLabel}
+                </button>
+              ) : null}
             </div>
           ) : null}
 

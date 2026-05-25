@@ -7,6 +7,15 @@ export type MediaFallbackReason =
   | "unknown";
 
 export type MediaFallbackRetryPolicy = "auto_refresh_once" | "manual_retry" | "no_retry";
+export type MediaFallbackResolveErrorCode =
+  | "network_error"
+  | "auth_expired"
+  | "asset_deleted"
+  | "provider_unreachable"
+  | "resolver_error"
+  | "media_asset_processing_failed"
+  | "media_asset_unavailable";
+export type MediaFallbackFailureStage = "resolve" | "poster" | "playback" | "hls_auth";
 
 export type MediaFallbackCopy = {
   title: string;
@@ -15,6 +24,28 @@ export type MediaFallbackCopy = {
   retryPolicy: MediaFallbackRetryPolicy;
   telemetryReason: MediaFallbackReason;
 };
+
+export function resolveMediaFallbackReason(input: {
+  reason?: MediaFallbackReason | null;
+  errorCode?: MediaFallbackResolveErrorCode | string | null;
+  httpStatus?: number | null;
+  stage?: MediaFallbackFailureStage | null;
+}): MediaFallbackReason {
+  if (input.reason) return input.reason;
+  if (input.stage === "poster") return "poster_unavailable";
+  if (input.stage === "hls_auth") return "hls_auth_failed";
+
+  const code = typeof input.errorCode === "string" ? input.errorCode : "";
+  if (code === "auth_expired") return "auth_expired";
+  if (code === "asset_deleted" || code === "media_asset_processing_failed" || code === "media_asset_unavailable") {
+    return "asset_deleted";
+  }
+  if (code === "network_error" || code === "provider_unreachable") return "provider_unreachable";
+  if (input.httpStatus === 401 || input.httpStatus === 403) return "auth_expired";
+  if (input.httpStatus === 404 || input.httpStatus === 410) return "asset_deleted";
+  if (input.httpStatus === 502 || input.httpStatus === 503 || input.httpStatus === 504) return "provider_unreachable";
+  return "unknown";
+}
 
 export function resolveMediaFallbackCopy(input: {
   reason: MediaFallbackReason;

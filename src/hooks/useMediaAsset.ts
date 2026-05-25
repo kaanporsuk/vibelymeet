@@ -14,6 +14,12 @@ import {
 import { attachHlsPlayback } from "@/lib/vibeVideo/attachHlsPlayback";
 import type { HlsAuthErrorRefreshDetail, HlsPlaybackRefreshResult } from "@/lib/vibeVideo/attachHlsPlayback";
 import type { MediaPlaceholderKind } from "@clientShared/media/placeholders";
+import {
+  resolveMediaFallbackCopy,
+  resolveMediaFallbackReason,
+  type MediaFallbackCopy,
+  type MediaFallbackReason,
+} from "@clientShared/media/mediaFallbackCopy";
 
 export type { MediaAssetKind } from "@/lib/mediaAssetResolver";
 export type MediaAssetRefreshReason = "cache" | "initial" | "preview" | "playback" | "manual" | "proactive";
@@ -39,6 +45,8 @@ type UseMediaAssetResult = {
   dominantColor: string | null;
   status: UseMediaAssetStatus;
   error: string | null;
+  fallbackReason: MediaFallbackReason | null;
+  fallbackCopy: MediaFallbackCopy | null;
   expiresAtMs: number | null;
   isPlayable: boolean;
   refresh: (reason?: MediaAssetRefreshReason, options?: MediaAssetRefreshOptions) => Promise<string | null>;
@@ -146,6 +154,7 @@ export function useMediaAsset({
   const [dominantColor, setDominantColor] = useState<string | null>(null);
   const [status, setStatus] = useState<UseMediaAssetStatus>(() => mediaStatusForUrl(initial));
   const [error, setError] = useState<string | null>(null);
+  const [fallbackReason, setFallbackReason] = useState<MediaFallbackReason | null>(null);
   const [expiresAtMs, setExpiresAtMs] = useState<number | null>(null);
   const onResolvedUrlRef = useRef(onResolvedUrl);
   const onProcessingStatusChangeRef = useRef(onProcessingStatusChange);
@@ -168,6 +177,7 @@ export function useMediaAsset({
     setDominantColor(null);
     setStatus(mediaStatusForUrl(next));
     setError(null);
+    setFallbackReason(null);
     setExpiresAtMs(null);
     requestSeqRef.current += 1;
   }, [initialUrl, sourceRef]);
@@ -179,8 +189,11 @@ export function useMediaAsset({
   ): string | null => {
     if (requestSeqRef.current !== seq) return null;
     if (!result?.url) {
+      const errorCode = failureCode ?? "media_asset_unavailable";
+      const reason = resolveMediaFallbackReason({ errorCode });
       setStatus("error");
-      setError(failureCode ?? "media_asset_unavailable");
+      setError(errorCode);
+      setFallbackReason(reason);
       return null;
     }
     setUrl(result.url);
@@ -190,6 +203,7 @@ export function useMediaAsset({
     setDominantColor(result.dominantColor);
     setStatus("ready");
     setError(null);
+    setFallbackReason(null);
     setExpiresAtMs(Number.isFinite(result.expiresAtMs) ? result.expiresAtMs : null);
     onResolvedUrlRef.current?.(result.url);
     return result.url;
@@ -328,11 +342,13 @@ export function useMediaAsset({
       dominantColor,
       status,
       error,
+      fallbackReason,
+      fallbackCopy: fallbackReason ? resolveMediaFallbackCopy({ reason: fallbackReason }) : null,
       expiresAtMs,
       isPlayable: isPlayableMediaAssetUrl(url),
       refresh,
     }),
-    [dominantColor, error, expiresAtMs, placeholderHash, placeholderKind, posterUrl, refresh, status, url],
+    [dominantColor, error, expiresAtMs, fallbackReason, placeholderHash, placeholderKind, posterUrl, refresh, status, url],
   );
 }
 

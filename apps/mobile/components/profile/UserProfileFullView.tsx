@@ -405,6 +405,8 @@ export function UserProfileFullView({
     url: signedVibeVideoUrl,
     posterUrl: signedVibeVideoPosterUrl,
     status: signedVibeVideoStatus,
+    fallbackCopy: signedVibeVideoFallbackCopy,
+    refresh: refreshSignedVibeVideo,
   } = useMediaAsset({
     kind: 'profile_vibe_video',
     sourceRef: signedVibeVideoRef,
@@ -711,12 +713,27 @@ export function UserProfileFullView({
             <RNView style={s.section}>
               <RNView style={[s.videoCard, s.videoProcessingCard, { borderColor: theme.glassBorder }]}>
                 <Ionicons name="sync" size={32} color="#FBBF24" />
-                <Text style={[s.videoProcessingTitle, { color: theme.text }]}>Preview still syncing</Text>
-                <Text style={[s.videoProcessingSub, { color: theme.textSecondary }]}>
-                  {isOwnProfile
-                    ? 'Your Vibe Video is ready on the backend, but this device is still waiting on a playable preview URL.'
-                    : 'The clip is ready on our side and playback should appear shortly.'}
+                <Text style={[s.videoProcessingTitle, { color: theme.text }]}>
+                  {signedVibeVideoFallbackCopy?.title ?? 'Preview still syncing'}
                 </Text>
+                <Text style={[s.videoProcessingSub, { color: theme.textSecondary }]}>
+                  {signedVibeVideoFallbackCopy?.message ??
+                    (isOwnProfile
+                      ? 'Your Vibe Video is ready on the backend, but this device is still waiting on a playable preview URL.'
+                      : 'The clip is ready on our side and playback should appear shortly.')}
+                </Text>
+                {signedVibeVideoFallbackCopy?.actionLabel && signedVibeVideoRef ? (
+                  <Pressable
+                    onPress={() => {
+                      void refreshSignedVibeVideo('manual', { bypassFailureCooldown: true });
+                    }}
+                    style={({ pressed }) => [s.videoRetryButton, pressed && { opacity: 0.85 }]}
+                    accessibilityRole="button"
+                    accessibilityLabel={signedVibeVideoFallbackCopy.actionLabel}
+                  >
+                    <Text style={s.videoRetryText}>{signedVibeVideoFallbackCopy.actionLabel}</Text>
+                  </Pressable>
+                ) : null}
               </RNView>
             </RNView>
           ) : null}
@@ -1158,6 +1175,20 @@ const s = StyleSheet.create({
     fontFamily: fonts.body,
     textAlign: 'center',
     lineHeight: 18,
+  },
+  videoRetryButton: {
+    marginTop: 2,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 999,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(139,92,246,0.42)',
+    backgroundColor: 'rgba(139,92,246,0.14)',
+  },
+  videoRetryText: {
+    color: 'rgba(233,213,255,0.95)',
+    fontSize: 12,
+    fontFamily: fonts.bodyBold,
   },
   videoFailedCard: {
     justifyContent: 'center',

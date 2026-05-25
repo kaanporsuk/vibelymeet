@@ -16,6 +16,11 @@ import {
 import { MediaPlaceholder } from "@/components/media/MediaPlaceholder";
 import { trackVibeVideoEvent, VIBE_VIDEO_EVENTS } from "@/lib/vibeVideo/vibeVideoTelemetry";
 import {
+  resolveMediaFallbackCopy,
+  resolveMediaFallbackReason,
+  type MediaFallbackReason,
+} from "@clientShared/media/mediaFallbackCopy";
+import {
   captionTextFromMediaCaptions,
   mediaCaptionLanguage,
   mediaCaptionsToWebVtt,
@@ -66,6 +71,7 @@ export const VibePlayer = ({
   const [manualPlaybackRequested, setManualPlaybackRequested] = useState(false);
   const [showCaptions, setShowCaptions] = useState(true);
   const [captionTrackUrl, setCaptionTrackUrl] = useState<string | null>(null);
+  const [playbackFallbackReason, setPlaybackFallbackReason] = useState<MediaFallbackReason | null>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const manualPlayPendingRef = useRef(false);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -82,7 +88,10 @@ export const VibePlayer = ({
     placeholderHash,
     dominantColor,
     status: mediaAssetStatus,
+    fallbackReason: mediaAssetFallbackReason,
+    fallbackCopy: mediaAssetFallbackCopy,
     expiresAtMs: mediaAssetExpiresAtMs,
+    refresh: refreshMediaAsset,
   } = useMediaAsset({
     kind: usesSignedProfileRef ? "profile_vibe_video" : "vibe_video",
     sourceRef: videoUrl,
@@ -91,6 +100,15 @@ export const VibePlayer = ({
   });
   const playbackUrl = mediaAssetUrl ?? (usesSignedProfileRef ? null : videoUrl);
   const isHlsPlaybackUrl = playbackUrl ? isHlsMediaAssetUrl(playbackUrl) : false;
+  const playbackFallbackCopy = playbackFallbackReason
+    ? resolveMediaFallbackCopy({ reason: playbackFallbackReason })
+    : null;
+  const visibleFallbackCopy =
+    playbackFallbackCopy ??
+    mediaAssetFallbackCopy ??
+    resolveMediaFallbackCopy({
+      reason: usesSignedProfileRef && isHlsPlaybackUrl ? "hls_auth_failed" : "unknown",
+    });
   const posterUrl = mediaAssetPosterUrl ?? thumbnailUrl;
   const effectiveAutoPlay = autoPlay && !prefersReducedMotion;
   const shouldAttachPlayback = shouldLoad && !!playbackUrl && (!prefersReducedMotion || manualPlaybackRequested);
@@ -141,6 +159,7 @@ export const VibePlayer = ({
     playbackSucceededRef.current = false;
     firstFrameReportedRef.current = false;
     hlsAuthRefreshAttemptCountRef.current = 0;
+    setPlaybackFallbackReason(null);
   }, [videoUrl]);
 
   // iOS Safari has a hard limit on ~4 simultaneous buffering <video> elements.
@@ -207,9 +226,20 @@ export const VibePlayer = ({
   const reportPlaybackError = useCallback((kind: string = "element") => {
     setHasError(true);
     setIsLoading(false);
+    setPlaybackFallbackReason(
+      kind === "signed_url_resolve_failed"
+        ? mediaAssetFallbackReason ?? "unknown"
+        : resolveMediaFallbackReason({ stage: usesSignedProfileRef && isHlsPlaybackUrl ? "hls_auth" : "playback" }),
+    );
     trackVibeVideoEvent(VIBE_VIDEO_EVENTS.playbackFailed, {
       source: "vibe_player_inline",
       kind,
+      fallback_reason:
+        kind === "signed_url_resolve_failed"
+          ? mediaAssetFallbackReason ?? "unknown"
+          : usesSignedProfileRef && isHlsPlaybackUrl
+            ? "hls_auth_failed"
+            : "unknown",
       backend_reports_ready: backendReportsReady,
     });
     Sentry.addBreadcrumb({
@@ -218,7 +248,7 @@ export const VibePlayer = ({
       level: "error",
       data: { surface: "vibe_player", kind },
     });
-  }, [backendReportsReady]);
+  }, [backendReportsReady, isHlsPlaybackUrl, mediaAssetFallbackReason, usesSignedProfileRef]);
   const handlePlaybackAttachError = useCallback((kind: "native" | "unsupported" | "fatal", detail?: unknown) => {
     reportPlaybackError(kind);
     if (detail && typeof window !== "undefined" && window.localStorage.getItem("__vibely_diag") === "1") {
@@ -369,6 +399,23 @@ export const VibePlayer = ({
     setIsLoading(false);
   };
 
+  const handleFallbackRetry = useCallback((event: React.MouseEvent) => {
+    event.stopPropagation();
+    setHasError(false);
+    setPlaybackFallbackReason(null);
+    setIsLoaded(false);
+    setIsLoading(true);
+    hlsAuthRefreshAttemptCountRef.current = 0;
+    playbackAttemptedRef.current = false;
+    if (usesSignedProfileRef) {
+      void refreshMediaAsset("manual", { bypassFailureCooldown: true }).then(() => {
+        videoRef.current?.load();
+      });
+      return;
+    }
+    videoRef.current?.load();
+  }, [refreshMediaAsset, usesSignedProfileRef]);
+
   return (
     <div ref={containerRef} className={cn("relative overflow-hidden bg-secondary", className)}>
       <MediaPlaceholder
@@ -401,13 +448,22 @@ export const VibePlayer = ({
         <div className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-background/70 px-4 text-center backdrop-blur-sm">
           <Play className="w-8 h-8 text-muted-foreground mb-2 opacity-80" />
           <p className="text-sm font-medium text-foreground">
-            Can't play right now
+            {visibleFallbackCopy.title}
           </p>
-          {backendReportsReady && (
-            <p className="text-xs text-muted-foreground mt-1.5 max-w-[240px]">
-              It's ready on our side, but playback didn't load. Try again shortly.
-            </p>
-          )}
+          <p className="text-xs text-muted-foreground mt-1.5 max-w-[240px]">
+            {backendReportsReady && playbackFallbackReason === "unknown"
+              ? "It's ready on our side, but playback didn't load. Try again shortly."
+              : visibleFallbackCopy.message}
+          </p>
+          {visibleFallbackCopy.actionLabel ? (
+            <button
+              type="button"
+              onClick={handleFallbackRetry}
+              className="mt-3 rounded-full border border-primary/35 bg-primary/10 px-4 py-1.5 text-xs font-semibold text-primary transition-colors hover:bg-primary/15"
+            >
+              {visibleFallbackCopy.actionLabel}
+            </button>
+          ) : null}
         </div>
       )}
 

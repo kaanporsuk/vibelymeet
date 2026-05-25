@@ -34,6 +34,11 @@ import {
   syncChatVibeClipUploadStatus,
   type ChatVibeClipProcessingStatus,
 } from "@/lib/mediaAssetResolver";
+import {
+  resolveMediaFallbackCopy,
+  resolveMediaFallbackReason,
+  type MediaFallbackReason,
+} from "@clientShared/media/mediaFallbackCopy";
 
 type VideoElementWithWebkitFullscreen = HTMLVideoElement & {
   webkitEnterFullscreen?: () => void;
@@ -128,6 +133,7 @@ export const VibeClipBubble = ({
   const [isReady, setIsReady] = useState(false);
   const [hasMetadata, setHasMetadata] = useState(false);
   const [loadError, setLoadError] = useState(false);
+  const [mediaFallbackReason, setMediaFallbackReason] = useState<MediaFallbackReason | null>(null);
   const [hasPlayed, setHasPlayed] = useState(false);
   const [showReactBar, setShowReactBar] = useState(false);
   const [playableVideoUrl, setPlayableVideoUrl] = useState(meta.videoUrl);
@@ -156,6 +162,8 @@ export const VibeClipBubble = ({
   const {
     url: videoAssetUrl,
     expiresAtMs: videoAssetExpiresAtMs,
+    fallbackReason: videoAssetFallbackReason,
+    fallbackCopy: videoAssetFallbackCopy,
     refresh: refreshVideoAsset,
   } = useMediaAsset({
     kind: "vibe_clip",
@@ -172,6 +180,7 @@ export const VibeClipBubble = ({
     placeholderKind: thumbnailPlaceholderKind,
     placeholderHash: thumbnailPlaceholderHash,
     dominantColor: thumbnailDominantColor,
+    fallbackCopy: thumbnailFallbackCopy,
     refresh: refreshThumbnailAsset,
   } = useMediaAsset({
     kind: "thumbnail",
@@ -219,6 +228,7 @@ export const VibeClipBubble = ({
     setPlayRequested(false);
     setHasMetadata(false);
     setLoadError(false);
+    setMediaFallbackReason(null);
     setSyncedProcessingStatus(null);
     setShowCaptions(initialCaptionPreference());
     setCaptionTrackUrl(null);
@@ -480,9 +490,12 @@ export const VibeClipBubble = ({
 
   const handlePlaybackAttachError = useCallback(() => {
     void refreshClipMedia().then((didRefresh) => {
-      if (!didRefresh) setLoadError(true);
+      if (!didRefresh) {
+        setMediaFallbackReason(resolveMediaFallbackReason({ stage: isHlsUrl ? "hls_auth" : "playback" }));
+        setLoadError(true);
+      }
     });
-  }, [refreshClipMedia]);
+  }, [isHlsUrl, refreshClipMedia]);
   const refreshPlaybackOnAuthError = useCallback(async () => {
     if (!sparkMessageId || !videoSourceRef) return null;
     if (playbackRefreshAttemptCountRef.current >= MAX_CLIP_PLAYBACK_REFRESH_ATTEMPTS) return null;
@@ -508,7 +521,10 @@ export const VibeClipBubble = ({
       return;
     }
     void refreshClipMedia().then((didRefresh) => {
-      if (!didRefresh) setLoadError(true);
+      if (!didRefresh) {
+        setMediaFallbackReason(resolveMediaFallbackReason({ stage: "playback" }));
+        setLoadError(true);
+      }
     });
   }, [isHlsUrl, isLocalPreview, isUploadPendingStatus, refreshClipMedia]);
 
@@ -556,7 +572,10 @@ export const VibeClipBubble = ({
     }
     const timeoutId = window.setTimeout(() => {
       void refreshClipMedia().then((didRefresh) => {
-        if (!didRefresh) setLoadError(true);
+        if (!didRefresh) {
+          setMediaFallbackReason(videoAssetFallbackReason ?? "unknown");
+          setLoadError(true);
+        }
       });
     }, CLIP_PLAYBACK_LOAD_TIMEOUT_MS);
     return () => window.clearTimeout(timeoutId);
@@ -568,6 +587,7 @@ export const VibeClipBubble = ({
     loadError,
     playRequested,
     refreshClipMedia,
+    videoAssetFallbackReason,
   ]);
 
   const togglePlay = useCallback(() => {
@@ -577,7 +597,10 @@ export const VibeClipBubble = ({
       setPlayRequested(true);
       setIsLoading(true);
       void refreshClipMedia("initial").then((didRefresh) => {
-        if (!didRefresh) setLoadError(true);
+        if (!didRefresh) {
+          setMediaFallbackReason(videoAssetFallbackReason ?? "unknown");
+          setLoadError(true);
+        }
       });
       return;
     }
@@ -600,7 +623,10 @@ export const VibeClipBubble = ({
         const name = err instanceof Error ? err.name : "";
         if (name === "AbortError" || name === "NotAllowedError" || name === "NotSupportedError") {
           void refreshClipMedia().then((didRefresh) => {
-            if (!didRefresh) setLoadError(true);
+            if (!didRefresh) {
+              setMediaFallbackReason(videoAssetFallbackReason ?? "unknown");
+              setLoadError(true);
+            }
           });
         }
       });
@@ -608,7 +634,7 @@ export const VibeClipBubble = ({
       video.pause();
       setIsPlaying(false);
     }
-  }, [canMountPlayer, displayMeta.durationSec, displayMeta.thumbnailUrl, isMine, isServerProcessing, refreshClipMedia, threadMessageCount]);
+  }, [canMountPlayer, displayMeta.durationSec, displayMeta.thumbnailUrl, isMine, isServerProcessing, refreshClipMedia, threadMessageCount, videoAssetFallbackReason]);
 
   const toggleMute = useCallback((e: React.MouseEvent) => {
     e.stopPropagation();
@@ -626,7 +652,10 @@ export const VibeClipBubble = ({
         if (!canMountPlayer) {
           void refreshClipMedia("initial").then((didRefresh) => {
             if (didRefresh) requestImmersiveWithCurrentMedia();
-            else setLoadError(true);
+            else {
+              setMediaFallbackReason(videoAssetFallbackReason ?? "unknown");
+              setLoadError(true);
+            }
           });
         } else {
           requestImmersiveWithCurrentMedia();
@@ -642,7 +671,7 @@ export const VibeClipBubble = ({
         webkitVideo.webkitEnterFullscreen?.();
       }
     },
-    [canMountPlayer, isServerProcessing, onRequestImmersive, refreshClipMedia, requestImmersiveWithCurrentMedia],
+    [canMountPlayer, isServerProcessing, onRequestImmersive, refreshClipMedia, requestImmersiveWithCurrentMedia, videoAssetFallbackReason],
   );
 
   useEffect(() => {
@@ -669,7 +698,10 @@ export const VibeClipBubble = ({
       if (!canMountPlayer) {
         void refreshClipMedia("initial").then((didRefresh) => {
           if (didRefresh) requestImmersiveWithCurrentMedia();
-          else setLoadError(true);
+          else {
+            setMediaFallbackReason(videoAssetFallbackReason ?? "unknown");
+            setLoadError(true);
+          }
         });
       } else {
         requestImmersiveWithCurrentMedia();
@@ -677,7 +709,7 @@ export const VibeClipBubble = ({
       return;
     }
     togglePlay();
-  }, [canMountPlayer, isServerProcessing, onRequestImmersive, refreshClipMedia, requestImmersiveWithCurrentMedia, togglePlay]);
+  }, [canMountPlayer, isServerProcessing, onRequestImmersive, refreshClipMedia, requestImmersiveWithCurrentMedia, togglePlay, videoAssetFallbackReason]);
 
   const handleTimeUpdate = useCallback(() => {
     if (videoRef.current) setCurrentTime(videoRef.current.currentTime);
@@ -719,6 +751,12 @@ export const VibeClipBubble = ({
   const isBuffering = isReady && isLoading && isPlaying;
   const isProcessingFailed = processingStatus === "failed";
   const shouldShowLoadError = loadError && !isUploadPendingStatus;
+  const visibleFallbackCopy = isProcessingFailed
+    ? resolveMediaFallbackCopy({ reason: "asset_deleted" })
+    : (mediaFallbackReason ? resolveMediaFallbackCopy({ reason: mediaFallbackReason }) : null) ??
+      videoAssetFallbackCopy ??
+      thumbnailFallbackCopy ??
+      resolveMediaFallbackCopy({ reason: "unknown" });
   const clipAspectRatio =
     typeof displayMeta.aspectRatio === "number" && Number.isFinite(displayMeta.aspectRatio) && displayMeta.aspectRatio > 0
       ? Math.max(0.5, Math.min(1.2, displayMeta.aspectRatio))
@@ -738,13 +776,19 @@ export const VibeClipBubble = ({
       data-processing-status={processingStatus}
     >
         <AlertCircle className="w-7 h-7 text-violet-400/90" />
-        <span className="text-[11px] text-muted-foreground text-center leading-snug">Clip unavailable</span>
-        {loadError ? (
+        <span className="text-[11px] font-semibold text-muted-foreground text-center leading-snug">
+          {visibleFallbackCopy.title}
+        </span>
+        <span className="text-[10px] text-muted-foreground/85 text-center leading-snug">
+          {visibleFallbackCopy.message}
+        </span>
+        {loadError && visibleFallbackCopy.actionLabel ? (
           <button
             type="button"
             onClick={() => {
               playbackRefreshAttemptCountRef.current = 0;
               setLoadError(false);
+              setMediaFallbackReason(null);
               setIsLoading(true);
               setIsReady(false);
               setIsPlaying(false);
@@ -755,7 +799,7 @@ export const VibeClipBubble = ({
             }}
             className="text-[11px] font-semibold text-violet-400 hover:text-violet-300 underline-offset-2 hover:underline"
           >
-            Try again
+            {visibleFallbackCopy.actionLabel}
           </button>
         ) : null}
       </div>
