@@ -102,6 +102,17 @@ test("native overlay maps terminal recovery and observes duplicate side effects"
   assert.match(nativeReadyGateOverlay, /nonRetryablePrepareFailureRef/);
 });
 
+test("native Ready Gate auto permission prompts stop after the first resolved request", () => {
+  assert.match(
+    nativeReadyRoute,
+    /if \(!sessionId \|\| !user\?\.id \|\| !permissionRequestEligible\) return;\s*if \(permissionsResolved\) return;[\s\S]+const ok = await requestMediaPermissions\(\);/,
+  );
+  assert.match(
+    nativeReadyGateOverlay,
+    /useEffect\(\(\) => \{\s*if \(permissionsResolved\) return;[\s\S]+const ok = await requestMediaPermissions\(\);/,
+  );
+});
+
 test("native overlay gates date navigation behind prepareVideoDateEntry success", () => {
   const prepareIndex = nativeReadyGateOverlay.indexOf("const result = await prepareVideoDateEntry(sessionId");
   const successIndex = nativeReadyGateOverlay.indexOf("if (result.ok === true)", prepareIndex);

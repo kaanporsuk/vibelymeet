@@ -4121,7 +4121,7 @@ const VideoDate = () => {
         setShowProfileSheet(false);
         setShowInCallSafety(false);
       }
-      if (!outcome.ended && !outcome.alsoBlock) return;
+      if (!outcome.ended) return;
       await endCall("end_after_in_call_report");
       explicitEndRequestedRef.current = "acked";
       setShowFeedback(false);

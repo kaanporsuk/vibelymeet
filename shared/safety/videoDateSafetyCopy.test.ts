@@ -17,14 +17,24 @@ test("video-date safety submit copy covers report, block, end, and survey routin
     ok: true,
     mode: "report",
     alsoBlock: true,
+    ended: false,
   }), {
-    title: "Report sent",
-    message: "We received your report and are ending the date. This person is blocked.",
-    primaryActionLabel: "Continue",
+    title: "Report received",
+    message: "Thanks. We received your report and our team will review it. This person is blocked.",
+    primaryActionLabel: "Continue call",
     secondaryActionLabel: null,
     tone: "success",
-    nextDestination: "lobby",
+    nextDestination: "stay",
   });
+
+  const endedReportCopy = resolveVideoDateSafetySubmitCopy({
+    ok: true,
+    mode: "report",
+    alsoBlock: true,
+    ended: true,
+  });
+  assert.equal(endedReportCopy.nextDestination, "lobby");
+  assert.match(endedReportCopy.message, /ending the date/);
 
   const endCopy = resolveVideoDateSafetySubmitCopy({
     ok: true,
@@ -100,8 +110,8 @@ test("video-date safety submit outcome and retryability stay privacy-safe", () =
     ended: false,
     surveyRequired: false,
   });
-  assert.equal(blockOutcome.ended, true);
-  assert.equal(blockOutcome.nextDestination, "lobby");
+  assert.equal(blockOutcome.ended, false);
+  assert.equal(blockOutcome.nextDestination, "stay");
 
   const outcome = resolveVideoDateSafetySubmitOutcome({
     mode: "report",
@@ -153,4 +163,8 @@ test("web and native safety surfaces consume shared submit copy", () => {
   assert.match(nativeVideoDate, /onReportOnlySuccess=\{handleReportOnlySafetySuccess\}/);
   assert.match(webVideoDate, /suppressPartnerControlsAfterSafety/);
   assert.match(nativeVideoDate, /suppressPartnerControlsAfterSafety/);
+  assert.match(webVideoDate, /if \(!outcome\.ended\) return;/);
+  assert.match(nativeVideoDate, /if \(!outcome\.ended\) return;/);
+  assert.doesNotMatch(webVideoDate, /!outcome\.ended && !outcome\.alsoBlock/);
+  assert.doesNotMatch(nativeVideoDate, /!outcome\.ended && !outcome\.alsoBlock/);
 });

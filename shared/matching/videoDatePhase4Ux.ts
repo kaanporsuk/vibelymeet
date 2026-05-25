@@ -123,7 +123,7 @@ function safeQueueCount(value: number | null | undefined): number {
 
 function safeQueuePosition(value: number | null | undefined): number | null {
   if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) return null;
-  return Math.floor(value);
+  return Math.max(1, Math.floor(value));
 }
 
 export function formatVideoDateQueueHintLabel(

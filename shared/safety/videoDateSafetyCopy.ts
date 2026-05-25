@@ -111,7 +111,7 @@ export function resolveVideoDateSafetySubmitCopy(input: {
   const blockSentence = input.alsoBlock ? " This person is blocked." : "";
   const duplicateSentence = input.idempotent ? " We already had this report, so nothing was duplicated." : "";
 
-  if (input.ended || input.mode === "end" || input.alsoBlock) {
+  if (input.ended || input.mode === "end") {
     return {
       title: "Report sent",
       message: input.surveyRequired
@@ -161,7 +161,7 @@ export function resolveVideoDateSafetySubmitOutcome(input: {
   return {
     mode: input.mode,
     alsoBlock: input.alsoBlock === true,
-    ended: input.ended === true || input.mode === "end" || input.alsoBlock === true,
+    ended: input.ended === true || input.mode === "end",
     surveyRequired: input.surveyRequired === true,
     idempotent: input.idempotent === true,
     reportRecorded: input.reportRecorded !== false,

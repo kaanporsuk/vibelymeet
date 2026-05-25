@@ -388,6 +388,7 @@ export default function ReadyGateScreen() {
 
   useEffect(() => {
     if (!sessionId || !user?.id || !permissionRequestEligible) return;
+    if (permissionsResolved) return;
     let cancelled = false;
     void (async () => {
       const ok = await requestMediaPermissions();
@@ -397,7 +398,7 @@ export default function ReadyGateScreen() {
     return () => {
       cancelled = true;
     };
-  }, [permissionRequestEligible, requestMediaPermissions, sessionId, user?.id]);
+  }, [permissionRequestEligible, permissionsResolved, requestMediaPermissions, sessionId, user?.id]);
 
   useEffect(() => {
     if (!sessionId || !user?.id || !sessionLookupDone) return;
