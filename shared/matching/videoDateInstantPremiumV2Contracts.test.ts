@@ -17,6 +17,7 @@ const webLobby = readFileSync(join(root, "src/pages/EventLobby.tsx"), "utf8");
 const nativeLobby = readFileSync(join(root, "apps/mobile/app/event/[eventId]/lobby.tsx"), "utf8");
 const webVideoDate = readFileSync(join(root, "src/pages/VideoDate.tsx"), "utf8");
 const webVideoCall = readFileSync(join(root, "src/hooks/useVideoCall.ts"), "utf8");
+const webLobbyProfileCard = readFileSync(join(root, "src/components/lobby/LobbyProfileCard.tsx"), "utf8");
 const nativeVideoDate = readFileSync(join(root, "apps/mobile/app/date/[id].tsx"), "utf8");
 const webSurvey = readFileSync(join(root, "src/components/video-date/PostDateSurvey.tsx"), "utf8");
 const nativeSurvey = readFileSync(join(root, "apps/mobile/components/video-date/PostDateSurvey.tsx"), "utf8");
@@ -33,11 +34,15 @@ const dailySingletonMatchEtaMigration = readFileSync(
   join(root, "supabase/migrations/20260522203000_video_date_daily_singleton_match_eta_hint.sql"),
   "utf8",
 );
-const instantPremiumMigrations = `${instantPremiumMigration}\n${dailySingletonMatchEtaMigration}`;
+const publicInterfaceAliasMigration = readFileSync(
+  join(root, "supabase/migrations/20260525150000_video_date_public_interface_alias_flags.sql"),
+  "utf8",
+);
+const instantPremiumMigrations = `${instantPremiumMigration}\n${dailySingletonMatchEtaMigration}\n${publicInterfaceAliasMigration}`;
 const packageJson = readFileSync(join(root, "package.json"), "utf8");
 
-test("instant premium deck prefetch helper dedupes media and preserves top-2 scope", () => {
-  assert.equal(VIDEO_DATE_DECK_PREFETCH_LIMIT, 2);
+test("instant premium deck prefetch helper dedupes media and preserves top-3 scope", () => {
+  assert.equal(VIDEO_DATE_DECK_PREFETCH_LIMIT, 3);
   assert.deepEqual(
     getVideoDateDeckPrefetchItems([
       { id: "a", primary_photo_path: "same.jpg", photos: ["fallback-a.jpg"] },
@@ -62,6 +67,14 @@ test("instant premium deck prefetch helper dedupes media and preserves top-2 sco
         sourceKind: "photo",
         rank: 1,
       },
+      {
+        profileId: "d",
+        source: "avatar.jpg",
+        mediaVersion: null,
+        cacheKey: "d:unversioned:avatar.jpg",
+        sourceKind: "avatar_url",
+        rank: 2,
+      },
     ],
   );
 });
@@ -78,6 +91,8 @@ test("deck buffer and top-up rules remain the shipped 5/2 server-dealt contract"
 test("web and native lobbies prefetch leading deck media, track paint/cache/top-up, and refetch stale deck state", () => {
   for (const source of [webLobby, nativeLobby]) {
     assert.match(source, /useFeatureFlag\(["']video_date\.deck_prefetch_polish_v2["']\)/);
+    assert.match(source, /useFeatureFlag\(["']video_date\.deck_optimistic_v1["']\)/);
+    assert.match(source, /isFeatureFlagEnabledWithAlias/);
     assert.match(source, /getVideoDateDeckPrefetchItems\(sortedProfiles\)/);
     assert.match(source, /video_date_deck_prefetch_cache_hit/);
     assert.match(source, /video_date_deck_prefetch_cache_miss/);
@@ -86,7 +101,19 @@ test("web and native lobbies prefetch leading deck media, track paint/cache/top-
     assert.match(source, /video_date_deck_top_up_decision/);
     assert.match(source, /shouldTopUpVideoDateDeck\(remainingVisible\)/);
     assert.match(source, /invalidateQueries\(\{ queryKey: \[[^\]]*event-deck/);
+    assert.match(source, /pendingSwipeTargetIds/);
+    assert.match(source, /pendingSwipeTargetIdsRef/);
+    assert.match(source, /optimisticSwipeSequenceRef/);
+    assert.match(source, /shouldRestoreVideoDateDeckCardAfterSwipeFailure/);
+    assert.match(source, /video_date_deck_optimistic_restore_skipped/);
+    assert.match(source, /currentCardRetryState/);
+    assert.match(source, /finally\s*\{\s*removePendingSwipeTargetId\(targetId\);/);
   }
+  assert.match(webLobby, /rollbackOptimisticSwipeOnException/);
+  assert.match(webLobbyProfileCard, /retryState/);
+  assert.match(webLobbyProfileCard, /Retry in/);
+  assert.match(nativeLobby, /cardRetryState/);
+  assert.match(nativeLobby, /Retry in/);
 });
 
 test("web and native lobbies use timeline v2 plus private active-session Broadcast with legacy fallbacks", () => {
@@ -213,9 +240,13 @@ test("new instant premium flags are default-off", () => {
     "video_date.daily_call_singleton_v2",
     "video_date.broadcast_batched_v2",
     "video_date.resilience_v2",
+    "video_date.deck_optimistic_v1",
   ]) {
     assert.match(flags, new RegExp(`"${flag.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}"`));
-    assert.match(instantPremiumMigrations, new RegExp(`'${flag.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}', false, 0`));
+    assert.match(
+      instantPremiumMigrations,
+      new RegExp(`'${flag.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}'[\\s\\S]{0,120}false[\\s\\S]{0,40}0`),
+    );
   }
 });
 

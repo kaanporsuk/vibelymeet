@@ -9,6 +9,7 @@ import {
   prefetchClientFeatureFlags as prefetchRuntimeClientFeatureFlags,
   type ClientFeatureFlagKey,
 } from "./clientFeatureFlagCore";
+import { isFeatureFlagEnabledWithAlias } from "./featureFlagAliasResolution";
 
 const baseMigration = readFileSync("supabase/migrations/20260519120000_client_feature_flags.sql", "utf8");
 const hardeningMigration = readFileSync("supabase/migrations/20260520120000_client_feature_flags_hardening.sql", "utf8");
@@ -26,8 +27,16 @@ const readyGateResilientClockAliasMigration = readFileSync(
   "supabase/migrations/20260525113000_ready_gate_resilient_clock_alias_flag.sql",
   "utf8",
 );
-const migration = `${baseMigration}\n${hardeningMigration}\n${videoDatePhase0Migration}\n${videoDatePhase5AuditMigration}\n${videoDateInstantPremiumMigration}\n${videoDateDailySingletonMigration}\n${readyGateResilientClockAliasMigration}`;
-const videoDateFlagSeedMigration = `${videoDatePhase0Migration}\n${videoDatePhase5AuditMigration}\n${videoDateInstantPremiumMigration}\n${videoDateDailySingletonMigration}\n${readyGateResilientClockAliasMigration}`;
+const verdictConfirmationMigration = readFileSync(
+  "supabase/migrations/20260525090000_video_date_verdict_confirmation_v2.sql",
+  "utf8",
+);
+const publicInterfaceAliasMigration = readFileSync(
+  "supabase/migrations/20260525150000_video_date_public_interface_alias_flags.sql",
+  "utf8",
+);
+const migration = `${baseMigration}\n${hardeningMigration}\n${videoDatePhase0Migration}\n${videoDatePhase5AuditMigration}\n${videoDateInstantPremiumMigration}\n${videoDateDailySingletonMigration}\n${readyGateResilientClockAliasMigration}\n${verdictConfirmationMigration}\n${publicInterfaceAliasMigration}`;
+const videoDateFlagSeedMigration = `${videoDatePhase0Migration}\n${videoDatePhase5AuditMigration}\n${videoDateInstantPremiumMigration}\n${videoDateDailySingletonMigration}\n${readyGateResilientClockAliasMigration}\n${verdictConfirmationMigration}\n${publicInterfaceAliasMigration}`;
 const core = readFileSync("shared/featureFlags/clientFeatureFlagCore.ts", "utf8");
 const videoDateFlags = readFileSync("shared/featureFlags/videoDateV4Flags.ts", "utf8");
 const webHook = readFileSync("src/hooks/useFeatureFlag.ts", "utf8");
@@ -180,6 +189,7 @@ test("video date v4 flags are typed, prefetched, and use namespaced stable rollo
     "video_date.broadcast_v2",
     "video_date.timeline_v2",
     "video_date.deck_prefetch_polish_v2",
+    "video_date.deck_optimistic_v1",
     "video_date.lobby_timeline_v2",
     "video_date.post_date_instant_next_v2",
     "video_date.daily_call_singleton_v2",
@@ -191,6 +201,9 @@ test("video date v4 flags are typed, prefetched, and use namespaced stable rollo
     "video_date.daily_pool_v2",
     "video_date.multi_device_v2",
     "video_date.ready_gate_resilient_clock_v1",
+    "video_date.push_open_dedupe_v1",
+    "video_date.verdict_confirm_v2",
+    "video_date.verdict_confirm_v1",
     "video_date.outbox_v2.mark_ready",
     "video_date.outbox_v2.forfeit",
     "video_date.outbox_v2.continue_handshake",
@@ -210,6 +223,13 @@ test("video date v4 flags are typed, prefetched, and use namespaced stable rollo
   assert.match(core, /VIDEO_DATE_V4_CLIENT_FEATURE_FLAGS/);
   assert.match(core, /export const CLIENT_FEATURE_FLAG_TELEMETRY_EVENT = "client_feature_flag_evaluated"/);
   assert.match(core, /export const LEGACY_CLIENT_FEATURE_FLAG_TELEMETRY_EVENT = "media_v2_flag_evaluated"/);
+});
+
+test("feature flag alias helper lets canonical kill switch win over compatibility aliases", () => {
+  assert.equal(isFeatureFlagEnabledWithAlias({ enabled: true }, { enabled: false }), true);
+  assert.equal(isFeatureFlagEnabledWithAlias({ enabled: false }, { enabled: true }), true);
+  assert.equal(isFeatureFlagEnabledWithAlias({ enabled: true, source: "kill_switched" }, { enabled: true }), false);
+  assert.equal(isFeatureFlagEnabledWithAlias({ enabled: false }, { enabled: false }), false);
 });
 
 test("web/native hooks use the shared core with persisted initial data and debounced refresh", () => {

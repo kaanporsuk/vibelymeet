@@ -78,7 +78,9 @@ test("native lobby respects deck availability state and media contract", () => {
 
   assert.match(nativeLobby, /currentAvailabilityState = current\?\.availability_state \?\? 'available'/);
   assert.match(nativeLobby, /currentIsSwipeable = currentAvailabilityState === 'available'/);
-  assert.match(nativeLobby, /swipeActionsDisabled = processing \|\| Boolean\(pendingSwipeTargetId\) \|\| !currentIsSwipeable \|\| swipeRateLimited/);
+  assert.match(nativeLobby, /currentSwipePending = current \? pendingSwipeTargetIds\.has\(current\.id\) : false/);
+  assert.match(nativeLobby, /pendingSwipeTargetIdsRef\.current\.has\(current\.id\)/);
+  assert.match(nativeLobby, /swipeActionsDisabled = currentSwipePending \|\| !currentIsSwipeable \|\| swipeRateLimited/);
   assert.match(nativeLobby, /disabled=\{swipeActionsDisabled/);
   assert.match(nativeLobby, /availabilityState = profile\.availability_state \?\? 'available'/);
   assert.match(nativeLobby, /queueBadgeLabel = isUnavailable \? 'Unavailable' : 'In session'/);

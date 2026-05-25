@@ -4,7 +4,7 @@
  * Foreground: suppress message notifications when already viewing that chat thread.
  * When unauthenticated, queues the path until session is ready (see `pendingNotificationDeepLink`).
  */
-import { useEffect, useRef } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import type { Session } from '@supabase/supabase-js';
 import { router, usePathname, type Href } from 'expo-router';
 import { OneSignal, NotificationWillDisplayEvent } from 'react-native-onesignal';
@@ -40,6 +40,7 @@ import { classifyPushDeepLink, recordPushDeliveryTelemetry } from '@/lib/pushDel
 import { resolveNotificationActionRoute } from '@/lib/notificationActions';
 import { ackNotificationDispatchFromPayload, markNotificationOpenedV2FromPayload } from '@/lib/notificationDispatchAck';
 import { preloadVideoDatePushTargetsFromPayload } from '@/lib/videoDatePushPreload';
+import { isFeatureFlagEnabledWithAlias } from '@clientShared/featureFlags/featureFlagAliasResolution';
 
 /**
  * Matches `EntryStateRouteGate`: only then is expo-router allowed to show protected stacks
@@ -405,6 +406,11 @@ export function NotificationDeepLinkHandler() {
   const drainQueueV2 = useFeatureFlag('video_date.outbox_v2.drain_match_queue');
   const snapshotV2 = useFeatureFlag('video_date.snapshot_v2');
   const multiDeviceDedupV2 = useFeatureFlag('video_date.multi_device_dedup_v2');
+  const pushOpenDedupeAliasV1 = useFeatureFlag('video_date.push_open_dedupe_v1');
+  const multiDeviceDedupEnabled = useMemo(
+    () => isFeatureFlagEnabledWithAlias(multiDeviceDedupV2, pushOpenDedupeAliasV1),
+    [multiDeviceDedupV2, pushOpenDedupeAliasV1],
+  );
   const prevUserIdRef = useRef<string | undefined>(undefined);
 
   const entryReady = isEntryReadyForNotificationDeepLink(
@@ -526,7 +532,7 @@ export function NotificationDeepLinkHandler() {
       try {
         notification = event.getNotification();
         raw = notification.additionalData as Record<string, unknown> | undefined;
-        hasDispatchGroup = multiDeviceDedupV2.enabled && hasDispatchGroupPayload(raw);
+        hasDispatchGroup = multiDeviceDedupEnabled && hasDispatchGroupPayload(raw);
         const chatPeerProfileId =
           typeof raw?.sender_id === 'string'
             ? raw.sender_id
@@ -562,7 +568,7 @@ export function NotificationDeepLinkHandler() {
                 : typeof (notification as unknown as { notificationID?: unknown }).notificationID === 'string'
                   ? String((notification as unknown as { notificationID?: unknown }).notificationID)
                   : null;
-            if (multiDeviceDedupV2.enabled) {
+            if (multiDeviceDedupEnabled) {
               const ack = await ackNotificationDispatchFromPayload(raw, 'native_foreground_display', providerNotificationId);
               if (ack.dispatchGroupId && ack.firstAck === false) {
                 rcBreadcrumb(RC_CATEGORY.notifDeepLink, 'foreground_suppressed_dispatch_ack', {
@@ -593,7 +599,7 @@ export function NotificationDeepLinkHandler() {
       OneSignal.Notifications.removeEventListener('click', onClick);
       OneSignal.Notifications.removeEventListener('foregroundWillDisplay', onForeground);
     };
-  }, [drainQueueV2.enabled, multiDeviceDedupV2.enabled, snapshotV2.enabled, user?.id, entryReady]);
+  }, [drainQueueV2.enabled, multiDeviceDedupEnabled, snapshotV2.enabled, user?.id, entryReady]);
 
   return null;
 }

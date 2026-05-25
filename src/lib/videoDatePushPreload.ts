@@ -148,11 +148,11 @@ async function currentViewerId(): Promise<string | null> {
 }
 
 async function preloadEventDeckAndTopMedia(eventId: string, viewerId: string): Promise<void> {
-  const { data, error } = await supabase.rpc("get_event_deck" as never, {
+  const { data, error } = await supabase.rpc("get_event_deck", {
     p_event_id: eventId,
     p_user_id: viewerId,
     p_limit: VIDEO_DATE_DECK_BUFFER_LIMIT,
-  } as never);
+  });
   if (error) return;
   const deck = parseEventDeckResponse(data);
   const media = getVideoDateDeckPrefetchItems(deck.profiles, PUSH_DECK_PREFETCH_MEDIA_LIMIT);

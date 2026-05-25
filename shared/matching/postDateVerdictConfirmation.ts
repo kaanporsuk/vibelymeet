@@ -2,6 +2,10 @@ import {
   normalizeServerPostDateNextSurface,
   type ServerPostDateNextSurface,
 } from "./postDateContinuity";
+import {
+  isFeatureFlagEnabledWithAlias,
+  type FeatureFlagAliasLike,
+} from "../featureFlags/featureFlagAliasResolution";
 
 export const POST_DATE_VERDICT_CONFIRM_TIMEOUT_MS = 2_500;
 
@@ -31,11 +35,6 @@ export type PostDateVerdictConfirmationResult = {
   partnerVerdictRecorded: boolean;
 };
 
-type VerdictConfirmFlagLike = {
-  enabled?: boolean;
-  source?: string | null;
-};
-
 type VerdictBroadcastLike = {
   kind?: string | null;
   sessionSeq?: number | null;
@@ -44,11 +43,10 @@ type VerdictBroadcastLike = {
 };
 
 export function isVideoDateVerdictConfirmEnabled(
-  v2: VerdictConfirmFlagLike | null | undefined,
-  v1: VerdictConfirmFlagLike | null | undefined,
+  v2: FeatureFlagAliasLike | null | undefined,
+  v1: FeatureFlagAliasLike | null | undefined,
 ): boolean {
-  if (v2?.source === "kill_switched") return false;
-  return v2?.enabled === true || v1?.enabled === true;
+  return isFeatureFlagEnabledWithAlias(v2, v1);
 }
 
 export function normalizePostDateVerdictConfirmationResult(

@@ -29,6 +29,7 @@ test("mark_notification_opened_v2 preserves ownership and first-open semantics",
   assert.match(migration, /opened_at = COALESCE\(opened_at, now\(\)\)/);
   assert.match(migration, /'first_open', v_first_open/);
   assert.match(migration, /GRANT EXECUTE ON FUNCTION public\.mark_notification_opened_v2\(uuid\) TO authenticated, service_role/);
+  assert.match(types, /ack_notification_dispatch: \{\s+Args: \{\s+p_ack_source\?: string\s+p_dispatch_group_id: string\s+p_payload\?: Json\s+p_provider_notification_id\?: string\s+\}\s+Returns: Json\s+\}/);
   assert.match(types, /mark_notification_opened_v2: \{\s+Args: \{ notification_id: string \}\s+Returns: Json\s+\}/);
 });
 
@@ -69,6 +70,8 @@ test("web and native push clicks ack dispatch, mark opens, and keep navigation c
   for (const source of [webAck, nativeAck]) {
     assert.match(source, /markNotificationOpenedV2FromPayload/);
     assert.match(source, /mark_notification_opened_v2/);
+    assert.doesNotMatch(source, /mark_notification_opened_v2["'] as never/);
+    assert.doesNotMatch(source, /ack_notification_dispatch["'] as never/);
     assert.match(source, /firstOpen: ok && record\.first_open === true/);
     assert.match(source, /return \{ ok: false, firstOpen: false, openedAt: null, notificationId \}/);
     assert.match(source, /notification_id/);
@@ -82,6 +85,9 @@ test("web and native push clicks ack dispatch, mark opens, and keep navigation c
 
   assert.match(nativeDeepLink, /ackNotificationDispatchFromPayload\(data, 'native_click'/);
   assert.match(nativeDeepLink, /markNotificationOpenedV2FromPayload\(data\)/);
+  assert.match(nativeDeepLink, /useFeatureFlag\('video_date\.push_open_dedupe_v1'\)/);
+  assert.match(nativeDeepLink, /isFeatureFlagEnabledWithAlias\(multiDeviceDedupV2, pushOpenDedupeAliasV1\)/);
+  assert.match(nativeDeepLink, /multiDeviceDedupEnabled && hasDispatchGroupPayload\(raw\)/);
   assert.match(nativeDeepLink, /allowOneShotSideEffects/);
   assert.match(nativeDeepLink, /NOTIFICATION_OPEN_ACK_TIMEOUT_MS = 1200/);
   assert.match(nativeDeepLink, /Promise\.race/);
@@ -102,6 +108,7 @@ test("push preloads are real, bounded, and do not block navigation", () => {
     assert.match(source, /withTimeout\(preloadVideoDatePushTargets\(payload, viewerId\), VIDEO_DATE_PUSH_PRELOAD_TIMEOUT_MS\)/);
     assert.match(source, /fetchVideoDateSnapshot\(sessionId, \{ includeToken: false \}\)/);
     assert.match(source, /get_event_deck/);
+    assert.doesNotMatch(source, /get_event_deck["'] as never/);
     assert.doesNotMatch(source, /get_event_deck_v3|fetchEventDeck/);
     assert.match(source, /getVideoDateDeckPrefetchItems\(deck\.profiles, PUSH_DECK_PREFETCH_MEDIA_LIMIT\)/);
     assert.match(source, /PUSH_DECK_PREFETCH_MEDIA_LIMIT = 3/);

@@ -61,9 +61,11 @@ import {
   isVideoDateSwipeRateLimited,
   recordVideoDateDeckRecentSwipe,
   removeVideoDateDeckRecentSwipe,
+  shouldRestoreVideoDateDeckCardAfterSwipeFailure,
   shouldSuppressVideoDateDeckProfile,
   type VideoDateDeckRecentSwipeEntry,
 } from "@clientShared/matching/videoDateDeckPrefetch";
+import { isFeatureFlagEnabledWithAlias } from "@clientShared/featureFlags/featureFlagAliasResolution";
 import { shouldTopUpVideoDateDeck } from "@clientShared/matching/videoDateInstantExperience";
 import {
   createVideoDateSessionChannel,
@@ -323,7 +325,12 @@ const EventLobby = () => {
   const { setStatus, currentStatus } = useEventStatus({ eventId, enabled: lobbySideEffectsEnabled });
   const readinessV2 = useFeatureFlag("video_date.readiness_v2");
   const deckPrefetchPolishV2 = useFeatureFlag("video_date.deck_prefetch_polish_v2");
+  const deckOptimisticAliasV1 = useFeatureFlag("video_date.deck_optimistic_v1");
   const lobbyTimelineV2 = useFeatureFlag("video_date.lobby_timeline_v2");
+  const deckPrefetchPolishEnabled = useMemo(
+    () => isFeatureFlagEnabledWithAlias(deckPrefetchPolishV2, deckOptimisticAliasV1),
+    [deckOptimisticAliasV1, deckPrefetchPolishV2],
+  );
   const videoDateReadiness = useNonBlockingVideoDateReadiness(
     eventId,
     readinessV2.enabled && lobbySideEffectsEnabled,
@@ -374,6 +381,7 @@ const EventLobby = () => {
   const deckPrefetchLoadedRef = useRef<Set<string>>(new Set());
   const deckPrefetchCacheHitTrackedRef = useRef<Set<string>>(new Set());
   const recentSwipeTargetsRef = useRef<VideoDateDeckRecentSwipeEntry[]>([]);
+  const optimisticSwipeSequenceRef = useRef(0);
   const lobbyBroadcastSessionSeqRef = useRef<number | null>(null);
   const lobbyBroadcastSessionSeqSessionRef = useRef<string | null>(null);
   const lifecycleDebugKeyRef = useRef<string | null>(null);
@@ -819,11 +827,32 @@ const EventLobby = () => {
   /** Remaining super vibes this event (server caps at 3 per event on event_swipes). */
   const [superVibeRemaining, setSuperVibeRemaining] = useState(3);
   const [userVibes, setUserVibes] = useState<string[]>([]);
-  const [pendingSwipeTargetId, setPendingSwipeTargetId] = useState<string | null>(null);
+  const [pendingSwipeTargetIds, setPendingSwipeTargetIds] = useState<Set<string>>(() => new Set());
   const [swipeRateLimitUntilMs, setSwipeRateLimitUntilMs] = useState<number | null>(null);
+  const pendingSwipeTargetIdsRef = useRef<Set<string>>(new Set());
+
+  const addPendingSwipeTargetId = useCallback((targetId: string) => {
+    pendingSwipeTargetIdsRef.current.add(targetId);
+    setPendingSwipeTargetIds((current) => {
+      if (current.has(targetId)) return current;
+      const next = new Set(current);
+      next.add(targetId);
+      return next;
+    });
+  }, []);
+
+  const removePendingSwipeTargetId = useCallback((targetId: string) => {
+    pendingSwipeTargetIdsRef.current.delete(targetId);
+    setPendingSwipeTargetIds((current) => {
+      if (!current.has(targetId)) return current;
+      const next = new Set(current);
+      next.delete(targetId);
+      return next;
+    });
+  }, []);
 
   // Swipe action — show Ready Gate on immediate match
-  const { swipe, isProcessing } = useSwipeAction({
+  const { swipe } = useSwipeAction({
     eventId: eventId || "",
     canAttemptPairing: !readinessV2.enabled || videoDateReadiness.canAttemptPairing,
     readinessBlockMessage: videoDateReadiness.reason,
@@ -1184,7 +1213,7 @@ const EventLobby = () => {
       if (!isParticipant) return;
       const sessionId = typeof session.id === "string" ? session.id : null;
       if (!sessionId) return;
-      if (deckPrefetchPolishV2.enabled) {
+      if (deckPrefetchPolishEnabled) {
         void queryClient.invalidateQueries({ queryKey: ["event-deck", eventId, user.id] });
       }
 
@@ -1245,7 +1274,7 @@ const EventLobby = () => {
     prepareAndNavigateToDateSession,
     openReadyGateSession,
     scheduleLobbyConvergenceRefresh,
-    deckPrefetchPolishV2.enabled,
+    deckPrefetchPolishEnabled,
     lobbyBroadcastSessionId,
     lobbyTimelineV2.enabled,
     queryClient,
@@ -1259,7 +1288,7 @@ const EventLobby = () => {
       if (decision.action === "invalid" || decision.action === "duplicate") return;
       lobbyBroadcastSessionSeqRef.current = event.sessionSeq;
       scheduleLobbyConvergenceRefresh(event.sessionId, `broadcast_${event.kind}`);
-      if (deckPrefetchPolishV2.enabled) {
+      if (deckPrefetchPolishEnabled) {
         void queryClient.invalidateQueries({ queryKey: ["event-deck", eventId, user.id] });
       }
       if (event.kind === "ready_gate_both_ready") {
@@ -1267,7 +1296,7 @@ const EventLobby = () => {
       }
     },
     [
-      deckPrefetchPolishV2.enabled,
+      deckPrefetchPolishEnabled,
       eventId,
       lobbyBroadcastSessionId,
       prepareAndNavigateToDateSession,
@@ -1371,7 +1400,7 @@ const EventLobby = () => {
   }, [queuedCount, sortedProfiles.length]);
 
   useEffect(() => {
-    if (typeof window === "undefined" || deckPrefetchPolishV2.enabled) return;
+    if (typeof window === "undefined" || deckPrefetchPolishEnabled) return;
     for (const profile of sortedProfiles.slice(0, 3)) {
       const src = deckCardUrl(
         profile.primary_photo_path ?? profile.photos?.[0] ?? profile.avatar_url,
@@ -1382,7 +1411,7 @@ const EventLobby = () => {
       image.decoding = "async";
       image.src = src;
     }
-  }, [deckPrefetchPolishV2.enabled, sortedProfiles]);
+  }, [deckPrefetchPolishEnabled, sortedProfiles]);
 
   const deckPrefetchItems = useMemo(
     () =>
@@ -1394,7 +1423,7 @@ const EventLobby = () => {
   );
 
   useEffect(() => {
-    if (!deckPrefetchPolishV2.enabled || typeof window === "undefined") return;
+    if (!deckPrefetchPolishEnabled || typeof window === "undefined") return;
     for (const item of deckPrefetchItems) {
       const src = item.url;
       if (!src) continue;
@@ -1464,7 +1493,7 @@ const EventLobby = () => {
       };
       image.src = src;
     }
-  }, [deckPrefetchItems, deckPrefetchPolishV2.enabled, eventId]);
+  }, [deckPrefetchItems, deckPrefetchPolishEnabled, eventId]);
 
   const currentProfile = sortedProfiles[0] || null;
   const nextProfile = sortedProfiles[1] || null;
@@ -1472,8 +1501,12 @@ const EventLobby = () => {
   const swipeRateLimitRemainingSeconds =
     swipeRateLimitUntilMs != null ? Math.max(0, Math.ceil((swipeRateLimitUntilMs - lobbyClockMs) / 1000)) : 0;
   const swipeRateLimited = swipeRateLimitRemainingSeconds > 0;
+  const currentCardRetryState = swipeRateLimited
+    ? { remainingSeconds: swipeRateLimitRemainingSeconds }
+    : null;
+  const currentSwipePending = currentProfile ? pendingSwipeTargetIds.has(currentProfile.id) : false;
   const swipeControlsDisabled =
-    isProcessing || Boolean(pendingSwipeTargetId) || !lobbyActionsEnabled || swipeRateLimited;
+    currentSwipePending || !lobbyActionsEnabled || swipeRateLimited;
   const eventEndsAtForContinuity = eventEndTime;
   const secondsUntilEventEnd = useMemo(
     () => secondsUntilPostDateEventEnd(eventEndsAtForContinuity),
@@ -1481,7 +1514,8 @@ const EventLobby = () => {
   );
 
   useEffect(() => {
-    setPendingSwipeTargetId(null);
+    pendingSwipeTargetIdsRef.current = new Set();
+    setPendingSwipeTargetIds(new Set());
     setSwipeRateLimitUntilMs(null);
   }, [eventId]);
 
@@ -1612,7 +1646,7 @@ const EventLobby = () => {
   const advanceDeckAfterSwipe = useCallback(
     (targetId: string) => {
       const paintStartedAt =
-        deckPrefetchPolishV2.enabled && typeof performance !== "undefined" ? performance.now() : null;
+        deckPrefetchPolishEnabled && typeof performance !== "undefined" ? performance.now() : null;
       let remainingVisible = 0;
       let nextProfileAfterSwipe: DeckProfile | null = null;
       queryClient.setQueryData<EventDeckFetchResult>(
@@ -1638,7 +1672,7 @@ const EventLobby = () => {
         nextProfileAfterSwipe = fallbackNext[0] ?? null;
       }
       const shouldTopUp = shouldTopUpVideoDateDeck(remainingVisible);
-      if (deckPrefetchPolishV2.enabled) {
+      if (deckPrefetchPolishEnabled) {
         trackEvent("video_date_deck_top_up_decision", {
           platform: "web",
           event_id: eventId,
@@ -1669,11 +1703,20 @@ const EventLobby = () => {
         void queryClient.invalidateQueries({ queryKey: ["event-deck", eventId, user?.id] });
       }
     },
-    [deckPrefetchPolishV2.enabled, eventId, profiles, queryClient, user?.id]
+    [deckPrefetchPolishEnabled, eventId, profiles, queryClient, user?.id]
   );
 
   const restoreDeckProfileAfterOptimisticSwipe = useCallback(
-    (profile: DeckProfile) => {
+    (profile: DeckProfile, swipeSequence: number | null = null) => {
+      if (swipeSequence !== null && swipeSequence < optimisticSwipeSequenceRef.current) {
+        trackEvent("video_date_deck_optimistic_restore_skipped", {
+          platform: "web",
+          event_id: eventId,
+          reason: "superseded",
+          profile_id_present: Boolean(profile.id),
+        });
+        return false;
+      }
       queryClient.setQueryData<EventDeckFetchResult>(
         ["event-deck", eventId, user?.id, "deck_v3"],
         (current) => {
@@ -1690,6 +1733,7 @@ const EventLobby = () => {
         },
       );
       recentSwipeTargetsRef.current = removeVideoDateDeckRecentSwipe(recentSwipeTargetsRef.current, profile.id);
+      return true;
     },
     [eventId, queryClient, user?.id],
   );
@@ -1714,7 +1758,9 @@ const EventLobby = () => {
 
   const startOptimisticSwipe = useCallback(
     (profile: DeckProfile, swipeType: "vibe" | "pass" | "super_vibe") => {
-      setPendingSwipeTargetId(profile.id);
+      const swipeSequence = optimisticSwipeSequenceRef.current + 1;
+      optimisticSwipeSequenceRef.current = swipeSequence;
+      addPendingSwipeTargetId(profile.id);
       recentSwipeTargetsRef.current = recordVideoDateDeckRecentSwipe(recentSwipeTargetsRef.current, profile.id);
       advanceDeckAfterSwipe(profile.id);
       trackEvent("video_date_deck_optimistic_swipe", {
@@ -1722,13 +1768,15 @@ const EventLobby = () => {
         event_id: eventId,
         swipe_type: swipeType,
         pending_swipe: true,
+        pending_swipe_ids: pendingSwipeTargetIds.size + 1,
       });
+      return swipeSequence;
     },
-    [advanceDeckAfterSwipe, eventId],
+    [addPendingSwipeTargetId, advanceDeckAfterSwipe, eventId, pendingSwipeTargetIds.size],
   );
 
   const handleVibe = useCallback(async () => {
-    if (!currentProfile || swipeControlsDisabled) return;
+    if (!currentProfile || swipeControlsDisabled || pendingSwipeTargetIdsRef.current.has(currentProfile.id)) return;
     void preloadRoute("videoDate");
     const targetId = currentProfile.id;
     const targetProfile = currentProfile;
@@ -1738,45 +1786,69 @@ const EventLobby = () => {
       swipe_type: "vibe",
     });
     haptics.light();
-    startOptimisticSwipe(targetProfile, "vibe");
-    const result = await swipe(targetId, "vibe");
-    setPendingSwipeTargetId((current) => (current === targetId ? null : current));
-    if (!result) {
-      restoreDeckProfileAfterOptimisticSwipe(targetProfile);
-      return;
-    }
-
-    const rawCode = result.result ?? result.outcome ?? result.error;
-    const code = rawCode === "swipe_recorded" ? "vibe_recorded" : rawCode;
-    if (result.success === false) {
-      applySwipeRateLimit(result);
-      if (!shouldAdvanceLobbyDeckAfterSwipe(code)) {
-        restoreDeckProfileAfterOptimisticSwipe(targetProfile);
+    let swipeSequence: number | null = null;
+    let rollbackOptimisticSwipeOnException = false;
+    try {
+      swipeSequence = startOptimisticSwipe(targetProfile, "vibe");
+      rollbackOptimisticSwipeOnException = true;
+      const result = await swipe(targetId, "vibe");
+      if (!result) {
+        restoreDeckProfileAfterOptimisticSwipe(targetProfile, swipeSequence);
+        rollbackOptimisticSwipeOnException = false;
+        return;
       }
-      return;
-    }
-    if (!shouldAdvanceLobbyDeckAfterSwipe(code)) {
-      restoreDeckProfileAfterOptimisticSwipe(targetProfile);
-      return;
-    }
 
-    trackEvent("lobby_profile_swiped", { event_id: eventId, swipe_type: "vibe", target_present: true });
-    recordUserAction("event_lobby_swipe_succeeded", {
-      surface: "event_lobby",
-      event_id: eventId,
-      swipe_type: "vibe",
-      result_code: code,
-    });
+      const rawCode = result.result ?? result.outcome ?? result.error;
+      const code = rawCode === "swipe_recorded" ? "vibe_recorded" : rawCode;
+      if (result.success === false) {
+        applySwipeRateLimit(result);
+        if (!shouldAdvanceLobbyDeckAfterSwipe(code) && shouldRestoreVideoDateDeckCardAfterSwipeFailure(code)) {
+          restoreDeckProfileAfterOptimisticSwipe(targetProfile, swipeSequence);
+        }
+        rollbackOptimisticSwipeOnException = false;
+        return;
+      }
+      if (!shouldAdvanceLobbyDeckAfterSwipe(code)) {
+        if (shouldRestoreVideoDateDeckCardAfterSwipeFailure(code)) {
+          restoreDeckProfileAfterOptimisticSwipe(targetProfile, swipeSequence);
+        }
+        rollbackOptimisticSwipeOnException = false;
+        return;
+      }
 
-    if (code === "match" || code === "match_queued") {
-      haptics.medium();
-      void queryClient.invalidateQueries({ queryKey: ["profile-live-counts"] });
+      rollbackOptimisticSwipeOnException = false;
+      trackEvent("lobby_profile_swiped", { event_id: eventId, swipe_type: "vibe", target_present: true });
+      recordUserAction("event_lobby_swipe_succeeded", {
+        surface: "event_lobby",
+        event_id: eventId,
+        swipe_type: "vibe",
+        result_code: code,
+      });
+
+      if (code === "match" || code === "match_queued") {
+        haptics.medium();
+        void queryClient.invalidateQueries({ queryKey: ["profile-live-counts"] });
+      }
+    } catch (error) {
+      if (rollbackOptimisticSwipeOnException) {
+        restoreDeckProfileAfterOptimisticSwipe(targetProfile, swipeSequence);
+      }
+      Sentry.addBreadcrumb({
+        category: "event-lobby",
+        message: "lobby_swipe_optimistic_exception",
+        level: "warning",
+        data: { event_id: eventId, swipe_type: "vibe", error_name: error instanceof Error ? error.name : "unknown" },
+      });
+      toast.error("Something went wrong. Try again.");
+    } finally {
+      removePendingSwipeTargetId(targetId);
     }
   }, [
     applySwipeRateLimit,
     currentProfile,
     eventId,
     queryClient,
+    removePendingSwipeTargetId,
     restoreDeckProfileAfterOptimisticSwipe,
     startOptimisticSwipe,
     swipe,
@@ -1784,7 +1856,7 @@ const EventLobby = () => {
   ]);
 
   const handlePass = useCallback(async () => {
-    if (!currentProfile || swipeControlsDisabled) return;
+    if (!currentProfile || swipeControlsDisabled || pendingSwipeTargetIdsRef.current.has(currentProfile.id)) return;
     void preloadRoute("videoDate");
     const targetId = currentProfile.id;
     const targetProfile = currentProfile;
@@ -1793,38 +1865,62 @@ const EventLobby = () => {
       event_id: eventId,
       swipe_type: "pass",
     });
-    startOptimisticSwipe(targetProfile, "pass");
-    const result = await swipe(targetId, "pass");
-    setPendingSwipeTargetId((current) => (current === targetId ? null : current));
-    if (!result) {
-      restoreDeckProfileAfterOptimisticSwipe(targetProfile);
-      return;
-    }
-
-    const code = result.result ?? result.outcome ?? result.error;
-    if (result.success === false) {
-      applySwipeRateLimit(result);
-      if (!shouldAdvanceLobbyDeckAfterSwipe(code)) {
-        restoreDeckProfileAfterOptimisticSwipe(targetProfile);
+    let swipeSequence: number | null = null;
+    let rollbackOptimisticSwipeOnException = false;
+    try {
+      swipeSequence = startOptimisticSwipe(targetProfile, "pass");
+      rollbackOptimisticSwipeOnException = true;
+      const result = await swipe(targetId, "pass");
+      if (!result) {
+        restoreDeckProfileAfterOptimisticSwipe(targetProfile, swipeSequence);
+        rollbackOptimisticSwipeOnException = false;
+        return;
       }
-      return;
-    }
-    if (!shouldAdvanceLobbyDeckAfterSwipe(code)) {
-      restoreDeckProfileAfterOptimisticSwipe(targetProfile);
-      return;
-    }
 
-    trackEvent("lobby_profile_swiped", { event_id: eventId, swipe_type: "pass", target_present: true });
-    recordUserAction("event_lobby_swipe_succeeded", {
-      surface: "event_lobby",
-      event_id: eventId,
-      swipe_type: "pass",
-      result_code: code,
-    });
+      const code = result.result ?? result.outcome ?? result.error;
+      if (result.success === false) {
+        applySwipeRateLimit(result);
+        if (!shouldAdvanceLobbyDeckAfterSwipe(code) && shouldRestoreVideoDateDeckCardAfterSwipeFailure(code)) {
+          restoreDeckProfileAfterOptimisticSwipe(targetProfile, swipeSequence);
+        }
+        rollbackOptimisticSwipeOnException = false;
+        return;
+      }
+      if (!shouldAdvanceLobbyDeckAfterSwipe(code)) {
+        if (shouldRestoreVideoDateDeckCardAfterSwipeFailure(code)) {
+          restoreDeckProfileAfterOptimisticSwipe(targetProfile, swipeSequence);
+        }
+        rollbackOptimisticSwipeOnException = false;
+        return;
+      }
+
+      rollbackOptimisticSwipeOnException = false;
+      trackEvent("lobby_profile_swiped", { event_id: eventId, swipe_type: "pass", target_present: true });
+      recordUserAction("event_lobby_swipe_succeeded", {
+        surface: "event_lobby",
+        event_id: eventId,
+        swipe_type: "pass",
+        result_code: code,
+      });
+    } catch (error) {
+      if (rollbackOptimisticSwipeOnException) {
+        restoreDeckProfileAfterOptimisticSwipe(targetProfile, swipeSequence);
+      }
+      Sentry.addBreadcrumb({
+        category: "event-lobby",
+        message: "lobby_swipe_optimistic_exception",
+        level: "warning",
+        data: { event_id: eventId, swipe_type: "pass", error_name: error instanceof Error ? error.name : "unknown" },
+      });
+      toast.error("Something went wrong. Try again.");
+    } finally {
+      removePendingSwipeTargetId(targetId);
+    }
   }, [
     applySwipeRateLimit,
     currentProfile,
     eventId,
+    removePendingSwipeTargetId,
     restoreDeckProfileAfterOptimisticSwipe,
     startOptimisticSwipe,
     swipe,
@@ -1832,7 +1928,7 @@ const EventLobby = () => {
   ]);
 
   const handleSuperVibe = useCallback(async () => {
-    if (!currentProfile || swipeControlsDisabled) return;
+    if (!currentProfile || swipeControlsDisabled || pendingSwipeTargetIdsRef.current.has(currentProfile.id)) return;
     void preloadRoute("videoDate");
     haptics.light();
     const targetId = currentProfile.id;
@@ -1842,43 +1938,67 @@ const EventLobby = () => {
       event_id: eventId,
       swipe_type: "super_vibe",
     });
-    startOptimisticSwipe(targetProfile, "super_vibe");
-    const result = await swipe(targetId, "super_vibe");
-    setPendingSwipeTargetId((current) => (current === targetId ? null : current));
-    if (!result) {
-      restoreDeckProfileAfterOptimisticSwipe(targetProfile);
-      return;
-    }
-
-    const code = result.result ?? result.outcome ?? result.error;
-    if (result.success === false) {
-      applySwipeRateLimit(result);
-      if (!shouldAdvanceLobbyDeckAfterSwipe(code)) {
-        restoreDeckProfileAfterOptimisticSwipe(targetProfile);
+    let swipeSequence: number | null = null;
+    let rollbackOptimisticSwipeOnException = false;
+    try {
+      swipeSequence = startOptimisticSwipe(targetProfile, "super_vibe");
+      rollbackOptimisticSwipeOnException = true;
+      const result = await swipe(targetId, "super_vibe");
+      if (!result) {
+        restoreDeckProfileAfterOptimisticSwipe(targetProfile, swipeSequence);
+        rollbackOptimisticSwipeOnException = false;
+        return;
       }
-      return;
-    }
-    if (!shouldAdvanceLobbyDeckAfterSwipe(code)) {
-      restoreDeckProfileAfterOptimisticSwipe(targetProfile);
-      return;
-    }
 
-    if (code === "super_vibe_sent") {
-      setSuperVibeRemaining((prev) => Math.max(0, prev - 1));
-      trackEvent("super_vibe_used", { event_id: eventId, target_present: true });
-    }
+      const code = result.result ?? result.outcome ?? result.error;
+      if (result.success === false) {
+        applySwipeRateLimit(result);
+        if (!shouldAdvanceLobbyDeckAfterSwipe(code) && shouldRestoreVideoDateDeckCardAfterSwipeFailure(code)) {
+          restoreDeckProfileAfterOptimisticSwipe(targetProfile, swipeSequence);
+        }
+        rollbackOptimisticSwipeOnException = false;
+        return;
+      }
+      if (!shouldAdvanceLobbyDeckAfterSwipe(code)) {
+        if (shouldRestoreVideoDateDeckCardAfterSwipeFailure(code)) {
+          restoreDeckProfileAfterOptimisticSwipe(targetProfile, swipeSequence);
+        }
+        rollbackOptimisticSwipeOnException = false;
+        return;
+      }
 
-    trackEvent("lobby_profile_swiped", { event_id: eventId, swipe_type: "super_vibe", target_present: true });
-    recordUserAction("event_lobby_swipe_succeeded", {
-      surface: "event_lobby",
-      event_id: eventId,
-      swipe_type: "super_vibe",
-      result_code: code,
-    });
+      rollbackOptimisticSwipeOnException = false;
+      if (code === "super_vibe_sent") {
+        setSuperVibeRemaining((prev) => Math.max(0, prev - 1));
+        trackEvent("super_vibe_used", { event_id: eventId, target_present: true });
+      }
+
+      trackEvent("lobby_profile_swiped", { event_id: eventId, swipe_type: "super_vibe", target_present: true });
+      recordUserAction("event_lobby_swipe_succeeded", {
+        surface: "event_lobby",
+        event_id: eventId,
+        swipe_type: "super_vibe",
+        result_code: code,
+      });
+    } catch (error) {
+      if (rollbackOptimisticSwipeOnException) {
+        restoreDeckProfileAfterOptimisticSwipe(targetProfile, swipeSequence);
+      }
+      Sentry.addBreadcrumb({
+        category: "event-lobby",
+        message: "lobby_swipe_optimistic_exception",
+        level: "warning",
+        data: { event_id: eventId, swipe_type: "super_vibe", error_name: error instanceof Error ? error.name : "unknown" },
+      });
+      toast.error("Something went wrong. Try again.");
+    } finally {
+      removePendingSwipeTargetId(targetId);
+    }
   }, [
     applySwipeRateLimit,
     currentProfile,
     eventId,
+    removePendingSwipeTargetId,
     restoreDeckProfileAfterOptimisticSwipe,
     startOptimisticSwipe,
     swipe,
@@ -2275,6 +2395,7 @@ const EventLobby = () => {
                   onSwipeLeft={handlePass}
                   onSwipeRight={handleVibe}
                   disabled={swipeControlsDisabled}
+                  retryState={currentCardRetryState}
                 />
               )}
             </AnimatePresence>
@@ -2434,9 +2555,10 @@ interface SwipeableCardProps {
   onSwipeLeft: () => void;
   onSwipeRight: () => void;
   disabled?: boolean;
+  retryState?: { remainingSeconds: number } | null;
 }
 
-const SwipeableCard = ({ profile, userVibes, onSwipeLeft, onSwipeRight, disabled }: SwipeableCardProps) => {
+const SwipeableCard = ({ profile, userVibes, onSwipeLeft, onSwipeRight, disabled, retryState }: SwipeableCardProps) => {
   const prefersReducedMotion = useReducedMotion();
   const x = useMotionValue(0);
   const rotate = useTransform(x, [-200, 0, 200], [-5, 0, 5]);
@@ -2481,7 +2603,7 @@ const SwipeableCard = ({ profile, userVibes, onSwipeLeft, onSwipeRight, disabled
         <span className="text-destructive font-display font-bold text-lg">PASS</span>
       </motion.div>
 
-      <LobbyProfileCard profile={profile} userVibes={userVibes} />
+      <LobbyProfileCard profile={profile} userVibes={userVibes} retryState={retryState} />
     </motion.div>
   );
 };
