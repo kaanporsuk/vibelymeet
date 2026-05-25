@@ -2115,7 +2115,8 @@ test("video date button escape contracts keep web and native users routable", ()
     /onLeave=\{peerMissing\.terminal \? handlePeerMissingLeave : handlePreDateExit\}/,
   );
   assert.match(webVideoDatePage, /const hasDateEntryTruth =[\s\S]*hasEnteredDateFlowRef\.current[\s\S]*phaseRef\.current === "date"[\s\S]*Boolean\(dateStartedAt\)[\s\S]*videoSessionHasEncounterExposureTruth\(handshakeTruth\)/);
-  assert.match(webVideoDatePage, /recoverTerminalPostDateSurvey\("local_end"\)/);
+  assert.match(webVideoDatePage, /confirmTerminalPostDateSurveyFromServerTruth\("local_end"\)/);
+  assert.doesNotMatch(webVideoDatePage, /openPostDateSurvey\(["']local_end["']\)/);
   assert.match(webDateNavigationGuard, /recent_manual_exit/);
   assert.match(webDateNavigationGuard, /sessionStorage/);
   assert.match(webActiveSessionHook, /isDateNavigationSuppressedAfterManualExit\(next\.sessionId\)/);
@@ -2139,12 +2140,13 @@ test("native local date end waits for server terminal truth before survey", () =
   );
   assert.match(
     nativeVideoDateRoute,
-    /if \(source === 'server_end'\) \{[\s\S]*setShowFeedback\(true\)[\s\S]*await cleanupForAbortWithoutServerEnd\(\);[\s\S]*return;/s,
+    /if \(source === 'server_end'\) \{[\s\S]*confirmNativeTerminalPostDateRecovery\(source\)[\s\S]*router\.replace\(eventId \? eventLobbyHref\(eventId\) : tabsRootHref\(\)\)[\s\S]*await cleanupForAbortWithoutServerEnd\(\);[\s\S]*return;/s,
   );
   assert.match(
     nativeVideoDateRoute,
-    /let terminalConfirmed = false;[\s\S]*terminalConfirmed = await endVideoDate\(sessionId, reason,[\s\S]*dateTimeoutV2: dateTimeoutV2\.enabled[\s\S]*terminalConfirmed = await fetchServerTerminalTruth\(\);[\s\S]*if \(!terminalConfirmed\) \{[\s\S]*setShowFeedback\(false\)[\s\S]*Alert\.alert\('Could not end date yet'[\s\S]*return;[\s\S]*logJourney\('survey_opened', \{ source: 'local_end_confirmed' \}/s,
+    /let terminalConfirmed = false;[\s\S]*terminalConfirmed = await endVideoDate\(sessionId, reason,[\s\S]*dateTimeoutV2: dateTimeoutV2\.enabled[\s\S]*terminalConfirmed = await fetchServerTerminalTruth\(\);[\s\S]*if \(!terminalConfirmed\) \{[\s\S]*setShowFeedback\(false\)[\s\S]*Alert\.alert\('Could not end date yet'[\s\S]*return;[\s\S]*const terminalHandled = await confirmNativeTerminalPostDateRecovery\('local_end_confirmed'\)/s,
   );
+  assert.doesNotMatch(nativeVideoDateRoute, /if \(!recoveredSurvey\) setShowFeedback\(true\)/);
 });
 
 test("mobile terminal survey recovery does not depend on Daily-observed remote presence", () => {
@@ -3108,6 +3110,8 @@ test("native AppState background path remains statically covered for away, retur
   assert.match(nativeVideoDateRoute, /Reconnected/);
   assert.match(nativeVideoDateRoute, /app_background_timeout/);
   assert.match(nativeVideoDateRoute, /setTimeout\(\(\) => \{[\s\S]*endVideoDate\(sessionId, 'app_background_timeout'\)[\s\S]*\}, NATIVE_BACKGROUND_GRACE_MS\)/);
+  assert.match(nativeVideoDateRoute, /native_background_timeout_end_result/);
+  assert.match(nativeVideoDateRoute, /if \(!ended\) \{[\s\S]*refetchVideoSession\(\)\.catch\(\(\) => undefined\)/);
 });
 
 test("half-verdict timeout detector is scheduled through optional pg_cron", () => {
