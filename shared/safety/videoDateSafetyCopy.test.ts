@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import {
   isVideoDateSafetySubmitErrorRetryable,
+  resolveVideoDateSafetyCopy,
   resolveVideoDateSafetySubmitCopy,
   resolveVideoDateSafetySubmitOutcome,
 } from "./videoDateSafetyCopy";
@@ -81,6 +82,15 @@ test("video-date safety submit copy handles recorded-report follow-up failure", 
   assert.equal(copy.title, "Report received");
   assert.equal(copy.tone, "warning");
   assert.match(copy.message, /could not end the date/);
+});
+
+test("legacy safety copy helper name remains a stable alias", () => {
+  const input = {
+    ok: true,
+    mode: "report" as const,
+    alsoBlock: false,
+  };
+  assert.deepEqual(resolveVideoDateSafetyCopy(input), resolveVideoDateSafetySubmitCopy(input));
 });
 
 test("video-date safety submit outcome and retryability stay privacy-safe", () => {

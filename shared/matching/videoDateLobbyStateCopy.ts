@@ -113,3 +113,9 @@ export function resolveVideoDateLobbyStateCopy(input: {
       };
   }
 }
+
+export function resolveLobbyEmptyStateCopy(input: {
+  reason: VideoDateLobbyFocusedReason;
+}): VideoDateLobbyStateCopy {
+  return resolveVideoDateLobbyStateCopy(input);
+}

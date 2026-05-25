@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
+  resolveLobbyEmptyStateCopy,
   resolveVideoDateLobbyStateCopy,
   type VideoDateLobbyFocusedReason,
 } from "./videoDateLobbyStateCopy";
@@ -26,4 +27,9 @@ test("focused lobby state copy separates retryable and terminal states", () => {
   assert.equal(resolveVideoDateLobbyStateCopy({ reason: "terminal_event_state" }).terminal, true);
   assert.equal(resolveVideoDateLobbyStateCopy({ reason: "queue_waiting" }).actionLabel, null);
   assert.equal(resolveVideoDateLobbyStateCopy({ reason: "geo_or_eligibility_mismatch" }).actionTarget, "event");
+});
+
+test("legacy lobby empty-state helper name remains a stable alias", () => {
+  const input = { reason: "media_unavailable" as const };
+  assert.deepEqual(resolveLobbyEmptyStateCopy(input), resolveVideoDateLobbyStateCopy(input));
 });

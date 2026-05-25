@@ -21,6 +21,10 @@ import { isHlsMediaAssetUrl, isProfileVibeVideoRef, prewarmMediaAssets } from '@
 import { trackEvent } from '@/lib/analytics';
 import { MediaPlaceholder } from '@/components/media/MediaPlaceholder';
 import { captionTextFromMediaCaptions, type MediaCaptions } from '../../../../shared/media/captions';
+import {
+  resolveNativeMediaPlaybackFallbackReason,
+  type MediaFallbackReason,
+} from '../../../../shared/media/mediaFallbackCopy';
 
 export type VibeVideoPlayerProps = {
   sourceUri: string;
@@ -36,7 +40,7 @@ export type VibeVideoPlayerProps = {
    * Helps correlate invalid URL vs CDN vs player errors.
    */
   diagContext: string;
-  onPlayerFatalError?: () => void;
+  onPlayerFatalError?: (reason?: MediaFallbackReason) => void;
   onPlaybackRequest?: () => void;
   onFirstFrame?: () => void;
   /** Fires when the current source plays through to its end (expo-video `playToEnd`). Not pause/seek/buffer. */
@@ -82,6 +86,7 @@ export function VibeVideoPlayer({
     placeholderHash,
     dominantColor,
     status: mediaAssetStatus,
+    fallbackReason: mediaAssetFallbackReason,
     expiresAtMs: mediaAssetExpiresAtMs,
     refresh: refreshMediaAsset,
   } = useMediaAsset({
@@ -181,9 +186,15 @@ export function VibeVideoPlayer({
   useEffect(() => {
     if (usesSignedProfileRef && mediaAssetStatus === 'error' && !signedResolveFailureReportedRef.current) {
       signedResolveFailureReportedRef.current = true;
-      onPlayerFatalError?.();
+      onPlayerFatalError?.(
+        mediaAssetFallbackReason ??
+          resolveNativeMediaPlaybackFallbackReason({
+            uri: playbackSourceUri || sourceUri,
+            isSignedSource: usesSignedProfileRef,
+          }),
+      );
     }
-  }, [mediaAssetStatus, onPlayerFatalError, usesSignedProfileRef]);
+  }, [mediaAssetFallbackReason, mediaAssetStatus, onPlayerFatalError, playbackSourceUri, sourceUri, usesSignedProfileRef]);
 
   useEffect(() => {
     setShowPoster(!!effectivePosterUri);
@@ -390,6 +401,12 @@ export function VibeVideoPlayer({
         }
         if (st !== 'error') return;
 
+        const fallbackReason = resolveNativeMediaPlaybackFallbackReason({
+          uri: playbackSourceUri || sourceUri,
+          error: payload,
+          isSignedSource: usesSignedProfileRef,
+        });
+
         const reportFatalPlaybackError = () => {
           if (warnedRef.current) return;
           warnedRef.current = true;
@@ -408,10 +425,7 @@ export function VibeVideoPlayer({
             streamHostnameSource: hostSource,
             streamHostnameSet: !!hostname,
             status: st,
-            // expo-video may attach error details on the player in some versions
-            nativeError: typeof (payload as { error?: string }).error === 'string'
-              ? (payload as { error?: string }).error
-              : undefined,
+            fallbackReason,
           });
           trackVibeVideoEvent(VIBE_VIDEO_EVENTS.playbackFailed, {
             source: diagContext,
@@ -419,7 +433,7 @@ export function VibeVideoPlayer({
             stream_hostname_source: hostSource,
           });
           qoe.markError();
-          onPlayerFatalError?.();
+          onPlayerFatalError?.(fallbackReason);
         };
 
         if (
@@ -451,6 +465,7 @@ export function VibeVideoPlayer({
     qoe,
     refreshPlaybackAfterAuthError,
     shouldAttachPlayback,
+    sourceUri,
     usesSignedProfileRef,
   ]);
 

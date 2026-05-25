@@ -25,7 +25,7 @@ import { MediaPlaceholder } from '@/components/media/MediaPlaceholder';
 import type { MediaPlaceholderKind } from '@clientShared/media/placeholders';
 import {
   resolveMediaFallbackCopy,
-  resolveMediaFallbackReason,
+  resolveNativeMediaPlaybackFallbackReason,
   type MediaFallbackReason,
 } from '@clientShared/media/mediaFallbackCopy';
 import {
@@ -334,7 +334,6 @@ function VibeClipCardInner({
     meta.videoUrl,
     shouldAttachPlayback,
   ]);
-  const playbackFailureStage = isHlsUri(meta.videoUrl) ? 'hls_auth' : 'playback';
   const qoe = useNativeMediaPlaybackQoE({
     enabled: shouldAttachPlayback,
     family: 'vibe_clip',
@@ -407,6 +406,7 @@ function VibeClipCardInner({
     const sub = safeExpoSharedObjectCall(
       () => player.addListener('statusChange', (payload) => {
         if (payload.status === 'error') {
+          const reason = resolveNativeMediaPlaybackFallbackReason({ uri: meta.videoUrl, error: payload });
           qoe.markError();
           if (isPendingLocalPreview) {
             handlePendingLocalPreviewFailure();
@@ -415,12 +415,12 @@ function VibeClipCardInner({
           void onRefreshClipMedia('playback')
             .then((didRefresh) => {
               if (!didRefresh) {
-                setFallbackReason(resolveMediaFallbackReason({ stage: playbackFailureStage }));
+                setFallbackReason(reason);
                 setHasError(true);
               }
             })
             .catch(() => {
-              setFallbackReason(resolveMediaFallbackReason({ stage: playbackFailureStage }));
+              setFallbackReason(reason);
               setHasError(true);
             });
           setIsBuffering(false);
@@ -445,9 +445,9 @@ function VibeClipCardInner({
   }, [
     handlePendingLocalPreviewFailure,
     isPendingLocalPreview,
+    meta.videoUrl,
     onRefreshClipMedia,
     player,
-    playbackFailureStage,
     qoe,
     shouldAttachPlayback,
   ]);
@@ -481,17 +481,17 @@ function VibeClipCardInner({
       void onRefreshClipMedia('playback')
         .then((didRefresh) => {
           if (!didRefresh) {
-            setFallbackReason(resolveMediaFallbackReason({ stage: playbackFailureStage }));
+            setFallbackReason(resolveNativeMediaPlaybackFallbackReason({ uri: meta.videoUrl }));
             setHasError(true);
           }
         })
         .catch(() => {
-          setFallbackReason(resolveMediaFallbackReason({ stage: playbackFailureStage }));
+          setFallbackReason(resolveNativeMediaPlaybackFallbackReason({ uri: meta.videoUrl }));
           setHasError(true);
         });
     }, CLIP_PLAYBACK_LOAD_TIMEOUT_MS);
     return () => clearTimeout(timeoutId);
-  }, [handlePendingLocalPreviewFailure, hasError, isPendingLocalPreview, isReady, onRefreshClipMedia, playbackFailureStage, playRequested]);
+  }, [handlePendingLocalPreviewFailure, hasError, isPendingLocalPreview, isReady, meta.videoUrl, onRefreshClipMedia, playRequested]);
 
   useEffect(() => {
     if (!immersiveActive) return;
