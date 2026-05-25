@@ -11,6 +11,7 @@ import {
   providerFailureRetryAfter,
   providerFetchTimeoutMs,
   ProviderRateLimitError,
+  ProviderTimeoutError,
   providerRateLimitConfig,
 } from "../_shared/video-date-provider-reliability.ts";
 
@@ -256,7 +257,7 @@ async function createMeetingToken(
       httpStatus: 429,
       retryAfterSeconds: parseRetryAfterSeconds(response.headers, 30),
       providerStatus: response.status,
-      clientError: "provider_rate_limited",
+      clientError: "daily_token_failed",
     });
   }
 
@@ -294,14 +295,15 @@ function snapshotTokenFailureStatus(error: unknown): number {
 
 function snapshotTokenFailureRetryAfter(error: unknown): number | null {
   if (error instanceof SnapshotDailyTokenError) return error.retryAfterSeconds;
-  if (error instanceof ProviderRateLimitError) return error.retryAfterSeconds;
-  if (snapshotTokenFailureStatus(error) === 429) return providerFailureRetryAfter(error, 30);
+  if (error instanceof ProviderRateLimitError || error instanceof ProviderTimeoutError) {
+    return providerFailureRetryAfter(error, 30);
+  }
   return null;
 }
 
 function snapshotTokenFailureClientError(error: unknown): string {
   if (error instanceof SnapshotDailyTokenError) return error.clientError;
-  if (error instanceof ProviderRateLimitError) return error.clientError;
+  if (error instanceof ProviderRateLimitError) return "daily_token_failed";
   return "daily_token_failed";
 }
 

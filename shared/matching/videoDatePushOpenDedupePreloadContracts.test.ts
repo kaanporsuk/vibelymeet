@@ -36,9 +36,13 @@ test("mark_notification_opened_v2 preserves ownership and first-open semantics",
 test("video-date OneSignal payloads carry canonical open, dedupe, route, and entity fields", () => {
   const ensureIndex = sendNotification.indexOf("await ensureInAppNotification(finalTitle, finalBody)");
   const attachIndex = sendNotification.indexOf("osData = attachVideoDateOneSignalContract");
+  const compactIndex = sendNotification.indexOf("osData = compactVideoDateOsDataForPush(osData)");
+  const collapseIndex = sendNotification.indexOf("collapseId = osData.dispatch_group_id.trim().slice(0, 64)");
   const payloadIndex = sendNotification.indexOf("const osPayload: any =");
   assert.ok(ensureIndex > 0, "in-app row must be ensured before provider payload assembly");
   assert.ok(attachIndex > ensureIndex, "OneSignal data contract must be attached after inbox UUID exists");
+  assert.ok(compactIndex > attachIndex, "OneSignal data must be compacted after canonical fields are attached");
+  assert.ok(collapseIndex > compactIndex, "collapse_id fallback must see dispatch_group_id added by attach/compaction");
   assert.ok(payloadIndex > attachIndex, "OneSignal payload must use the canonicalized data");
 
   assert.match(sendNotification, /function attachVideoDateOneSignalContract/);
@@ -52,6 +56,9 @@ test("video-date OneSignal payloads carry canonical open, dedupe, route, and ent
   assert.match(sendNotification, /next\.video_session_id = sessionId/);
   assert.match(sendNotification, /next\.event_id = eventId/);
   assert.match(sendNotification, /category: args\.category/);
+  assert.match(sendNotification, /ONESIGNAL_DATA_MAX_BYTES = 2048/);
+  assert.doesNotMatch(sendNotification, /3 \* 1024/);
+  assert.match(sendNotification, /compactVideoDateOsDataForPush\(osData\)/);
   assert.match(postDateVerdictReminders, /const dedupeKey = `post_date_feedback:\$\{row\.session_id\}:\$\{row\.missing_user_id\}`/);
   assert.match(postDateVerdictReminders, /dedupe_key: dedupeKey/);
   assert.match(dateReminderCron, /const dedupeKey = `date_reminder:\$\{plan\.id\}:\$\{uid\}:30m`/);
@@ -90,10 +97,13 @@ test("web and native push clicks ack dispatch, mark opens, and keep navigation c
   assert.match(nativeDeepLink, /multiDeviceDedupEnabled && hasDispatchGroupPayload\(raw\)/);
   assert.match(nativeDeepLink, /allowOneShotSideEffects/);
   assert.match(nativeDeepLink, /NOTIFICATION_OPEN_ACK_TIMEOUT_MS = 1200/);
+  assert.match(nativeDeepLink, /withNotificationOpenAckTimeout/);
   assert.match(nativeDeepLink, /Promise\.race/);
+  assert.doesNotMatch(nativeDeepLink, /Promise\.all\(\[\s*ackNotificationDispatchFromPayload[\s\S]+markNotificationOpenedV2FromPayload/);
   assert.match(nativeDeepLink, /defaultWhenUnconfirmed = !\(hasDispatchGroup \|\| hasNotificationId\)/);
-  assert.match(nativeDeepLink, /if \(ack\.dispatchGroupId\) return ack\.ok === true && ack\.firstAck === true/);
-  assert.match(nativeDeepLink, /if \(opened\.notificationId\) return opened\.ok === true && opened\.firstOpen === true/);
+  assert.match(nativeDeepLink, /if \(ack\?\.dispatchGroupId\) return ack\.ok === true && ack\.firstAck === true/);
+  assert.match(nativeDeepLink, /if \(opened\?\.notificationId\) return opened\.ok === true && opened\.firstOpen === true/);
+  assert.match(nativeDeepLink, /if \(!ack && !opened\) return defaultWhenUnconfirmed/);
   assert.match(nativeDeepLink, /queueNotificationDeepLinkPath\(pathStr, \{ allowOneShotSideEffects \}\)/);
   assert.match(nativeDeepLink, /allowOneShotSideEffects: pending\.allowOneShotSideEffects/);
   assert.match(nativeDeepLink, /reconcileHrefWithRegistration\(pathStr, user\.id/);

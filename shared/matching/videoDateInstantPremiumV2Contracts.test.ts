@@ -104,8 +104,10 @@ test("web and native lobbies prefetch leading deck media, track paint/cache/top-
     assert.match(source, /pendingSwipeTargetIds/);
     assert.match(source, /pendingSwipeTargetIdsRef/);
     assert.match(source, /optimisticSwipeSequenceRef/);
+    assert.match(source, /optimisticSwipeSequenceRef\.current = 0/);
     assert.match(source, /shouldRestoreVideoDateDeckCardAfterSwipeFailure/);
     assert.match(source, /video_date_deck_optimistic_restore_skipped/);
+    assert.match(source, /video_date_deck_optimistic_restore_skipped[\s\S]+removeVideoDateDeckRecentSwipe\(recentSwipeTargetsRef\.current, profile\.id\)/);
     assert.match(source, /currentCardRetryState/);
     assert.match(source, /finally\s*\{\s*removePendingSwipeTargetId\(targetId\);/);
   }
@@ -146,6 +148,7 @@ test("post-date instant next is prestaged, deck-prefetched, optimistic for norma
     assert.match(source, /fetchEventDeck\(/);
     assert.match(source, /getVideoDateDeckPrefetchItems/);
     assert.match(source, /const optimisticStep: SurveyStep = liked \? ["']awaiting_partner["'] : ["']highlights["']/);
+    assert.match(source, /const canOptimisticallyAdvanceVerdict = postDateInstantNextV2\.enabled && !verdictConfirmEnabled/);
     assert.match(source, /setStep\(optimisticStep\)/);
     assert.match(source, /post_date_verdict_optimistic_started/);
     assert.match(source, /post_date_verdict_optimistic_confirmed/);

@@ -905,13 +905,14 @@ export function PostDateSurvey({
     if (submitting || verdictUiState === 'submitting' || verdictUiState === 'confirmed') return;
     const previousStep = step;
     const optimisticStep: SurveyStep = liked ? 'awaiting_partner' : 'highlights';
+    const canOptimisticallyAdvanceVerdict = postDateInstantNextV2.enabled && !verdictConfirmEnabled;
     let optimisticallyAdvanced = false;
     setSubmitting(true);
     setVerdictUiState('submitting');
     setVerdictError(null);
     setVerdictRetryable(false);
     setLastVerdictAttempt(liked);
-    if (postDateInstantNextV2.enabled) {
+    if (canOptimisticallyAdvanceVerdict) {
       setStep(optimisticStep);
       optimisticallyAdvanced = true;
       trackEvent('post_date_verdict_optimistic_started', {
@@ -955,8 +956,8 @@ export function PostDateSurvey({
         setVerdictRetryable(true);
         setVerdictError("Couldn't save your answer. Tap to retry.");
         setVerdictUiState('retryable_failed');
-        if (postDateInstantNextV2.enabled) {
-          if (optimisticallyAdvanced) setStep(previousStep);
+        if (optimisticallyAdvanced) {
+          setStep(previousStep);
           trackEvent('post_date_verdict_optimistic_rollback', {
             platform: 'native',
             session_id: sessionId,
@@ -980,8 +981,8 @@ export function PostDateSurvey({
             !['blocked_pair', 'not_participant', 'session_not_found'].includes(result.code),
         );
         setVerdictError(verdictFailureUserMessage(result));
-        if (postDateInstantNextV2.enabled) {
-          if (optimisticallyAdvanced) setStep(previousStep);
+        if (optimisticallyAdvanced) {
+          setStep(previousStep);
           trackEvent('post_date_verdict_optimistic_rollback', {
             platform: 'native',
             session_id: sessionId,
@@ -999,18 +1000,20 @@ export function PostDateSurvey({
         setVerdictRetryable(true);
         setVerdictError("Couldn't confirm your answer. Tap to retry.");
         setVerdictUiState('retryable_failed');
-        if (optimisticallyAdvanced) setStep(previousStep);
-        trackEvent('post_date_verdict_optimistic_rollback', {
-          platform: 'native',
-          session_id: sessionId,
-          event_id: eventId,
-          reason: 'confirmation_timeout',
-          rollback_step: previousStep,
-        });
+        if (optimisticallyAdvanced) {
+          setStep(previousStep);
+          trackEvent('post_date_verdict_optimistic_rollback', {
+            platform: 'native',
+            session_id: sessionId,
+            event_id: eventId,
+            reason: 'confirmation_timeout',
+            rollback_step: previousStep,
+          });
+        }
         return;
       }
       const confirmedVerdict = normalizePostDateVerdictConfirmationResult(confirmedResult);
-      if (postDateInstantNextV2.enabled) {
+      if (optimisticallyAdvanced) {
         trackEvent('post_date_verdict_optimistic_confirmed', {
           platform: 'native',
           session_id: sessionId,
@@ -1073,8 +1076,8 @@ export function PostDateSurvey({
       setVerdictRetryable(true);
       setVerdictError("Couldn't save your answer. Tap to retry.");
       setVerdictUiState('retryable_failed');
-      if (postDateInstantNextV2.enabled) {
-        if (optimisticallyAdvanced) setStep(previousStep);
+      if (optimisticallyAdvanced) {
+        setStep(previousStep);
         trackEvent('post_date_verdict_optimistic_rollback', {
           platform: 'native',
           session_id: sessionId,

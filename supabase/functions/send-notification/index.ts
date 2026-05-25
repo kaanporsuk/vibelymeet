@@ -346,6 +346,8 @@ function jsonByteLength(value: unknown): number {
   return new TextEncoder().encode(text).length
 }
 
+const ONESIGNAL_DATA_MAX_BYTES = 2048
+
 function createCorrelationId(): string {
   try {
     return crypto.randomUUID()
@@ -560,16 +562,16 @@ async function buildVideoDatePushPayloadV2(args: {
     correlation_id: correlationId,
   }
   if (dispatchGroupId) payload.dispatch_group_id = dispatchGroupId
-  if (jsonByteLength(payload) <= 3 * 1024) return payload
+  if (jsonByteLength(payload) <= ONESIGNAL_DATA_MAX_BYTES) return payload
   preload.partnerThumbUrl = null
   payload.partnerThumbUrl = null
-  if (jsonByteLength(payload) <= 3 * 1024) return payload
+  if (jsonByteLength(payload) <= ONESIGNAL_DATA_MAX_BYTES) return payload
   preload.phaseStartedAtMs = null
   return payload
 }
 
 function compactVideoDateOsDataForPush(osData: Record<string, unknown>): Record<string, unknown> {
-  if (!osData.video_date_preload || jsonByteLength(osData) <= 3 * 1024) return osData
+  if (!osData.video_date_preload || jsonByteLength(osData) <= ONESIGNAL_DATA_MAX_BYTES) return osData
   const preload = osData.video_date_preload && typeof osData.video_date_preload === 'object'
     ? osData.video_date_preload as Record<string, unknown>
     : null
@@ -578,7 +580,7 @@ function compactVideoDateOsDataForPush(osData: Record<string, unknown>): Record<
     partnerThumbUrl: null,
     video_date_preload: preload ? { ...preload, partnerThumbUrl: null } : osData.video_date_preload,
   }
-  if (jsonByteLength(withoutThumb) <= 3 * 1024) return withoutThumb
+  if (jsonByteLength(withoutThumb) <= ONESIGNAL_DATA_MAX_BYTES) return withoutThumb
   const withoutStartedAt: Record<string, unknown> = {
     ...withoutThumb,
     video_date_preload: preload ? {
@@ -587,7 +589,49 @@ function compactVideoDateOsDataForPush(osData: Record<string, unknown>): Record<
       phaseStartedAtMs: null,
     } : withoutThumb.video_date_preload,
   }
-  return withoutStartedAt
+  if (jsonByteLength(withoutStartedAt) <= ONESIGNAL_DATA_MAX_BYTES) return withoutStartedAt
+
+  const minimal: Record<string, unknown> = {}
+  for (const key of [
+    'category',
+    'action',
+    'notification_id',
+    'dedupe_key',
+    'dispatch_group_id',
+    'deep_link',
+    'url',
+    'video_session_id',
+    'event_id',
+    'correlation_id',
+    'admission_status',
+  ]) {
+    if (osData[key] != null) minimal[key] = osData[key]
+  }
+  const minimalPreload: Record<string, unknown> = {}
+  if (preload) {
+    for (const key of [
+      'schema',
+      'sessionId',
+      'eventId',
+      'state',
+      'phaseDeadlineAtMs',
+      'correlationId',
+      'dispatchGroupId',
+      'serverNowMs',
+    ]) {
+      if (preload[key] != null) minimalPreload[key] = preload[key]
+    }
+    if (!minimal.video_session_id && typeof preload.sessionId === 'string') minimal.video_session_id = preload.sessionId
+    if (!minimal.event_id && typeof preload.eventId === 'string') minimal.event_id = preload.eventId
+    if (!minimal.dispatch_group_id && typeof preload.dispatchGroupId === 'string') minimal.dispatch_group_id = preload.dispatchGroupId
+    if (!minimal.correlation_id && typeof preload.correlationId === 'string') minimal.correlation_id = preload.correlationId
+    if (Object.keys(minimalPreload).length > 0) {
+      const withMinimalPreload = { ...minimal, video_date_preload: minimalPreload }
+      if (jsonByteLength(withMinimalPreload) <= ONESIGNAL_DATA_MAX_BYTES) return withMinimalPreload
+    }
+  }
+  if (jsonByteLength(minimal) <= ONESIGNAL_DATA_MAX_BYTES) return minimal
+  return minimal
 }
 
 function isUuid(value: unknown): value is string {
@@ -1750,9 +1794,6 @@ Deno.serve(async (req) => {
       webPath = deepLink
     }
 
-    if (multiDeviceDedupV2Enabled && !collapseId && typeof osData.dispatch_group_id === 'string' && osData.dispatch_group_id.trim()) {
-      collapseId = osData.dispatch_group_id.trim().slice(0, 64)
-    }
     osData = attachVideoDateOneSignalContract({
       category,
       data,
@@ -1763,6 +1804,9 @@ Deno.serve(async (req) => {
       deepLink: webPath,
     })
     osData = compactVideoDateOsDataForPush(osData)
+    if (multiDeviceDedupV2Enabled && !collapseId && typeof osData.dispatch_group_id === 'string' && osData.dispatch_group_id.trim()) {
+      collapseId = osData.dispatch_group_id.trim().slice(0, 64)
+    }
 
     const osPayload: any = {
       app_id: ONESIGNAL_APP_ID,

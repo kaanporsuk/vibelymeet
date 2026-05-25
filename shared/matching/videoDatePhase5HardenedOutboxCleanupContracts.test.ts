@@ -7,6 +7,7 @@ const root = process.cwd();
 const read = (path: string) => readFileSync(join(root, path), "utf8");
 
 const migration = read("supabase/migrations/20260524203000_video_date_phase5_hardened_outbox_finalizer_cleanup.sql");
+const reviewComments1041To1049Migration = read("supabase/migrations/20260525180000_review_comments_1041_1049.sql");
 const reliabilityMigration = read("supabase/migrations/20260524090000_video_date_phase1_provider_reliability.sql");
 const helper = read("supabase/functions/_shared/video-date-provider-reliability.ts");
 const outboxDrainer = read("supabase/functions/video-date-outbox-drainer/index.ts");
@@ -85,6 +86,9 @@ test("Phase 5 cleanup checks safety evidence before Daily room deletion", () => 
   assert.match(orphanCleanup, /video_date_orphan_safety_interlock_v1/);
   assert.match(orphanCleanup, /action: "skipped_safety_review"/);
   assert.match(orphanCleanup, /reason: "safety_interlock_unavailable"/);
+  assert.match(reviewComments1041To1049Migration, /CREATE OR REPLACE FUNCTION public\.record_video_date_orphan_room_cleanup_audit_v2/);
+  assert.match(reviewComments1041To1049Migration, /'skipped_safety_review'/);
+  assert.match(reviewComments1041To1049Migration, /TO service_role/);
   assert.ok(
     orphanCleanup.indexOf("checkSafetyInterlock") < orphanCleanup.indexOf("getDailyRoomPresence(room.name)"),
     "cleanup must run the safety interlock before the first provider presence/delete path",

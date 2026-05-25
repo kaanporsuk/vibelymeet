@@ -1225,6 +1225,7 @@ export default function EventLobbyScreen() {
           reason: 'superseded',
           profile_id_present: Boolean(profile.id),
         });
+        recentSwipeTargetsRef.current = removeVideoDateDeckRecentSwipe(recentSwipeTargetsRef.current, profile.id);
         return false;
       }
       queryClient.setQueryData<EventDeckFetchResult>(
@@ -2042,6 +2043,7 @@ export default function EventLobbyScreen() {
   const swipeActionsDisabled = currentSwipePending || !currentIsSwipeable || swipeRateLimited;
 
   useEffect(() => {
+    optimisticSwipeSequenceRef.current = 0;
     pendingSwipeTargetIdsRef.current = new Set();
     setPendingSwipeTargetIds(new Set());
     setSwipeRateLimitUntilMs(null);
