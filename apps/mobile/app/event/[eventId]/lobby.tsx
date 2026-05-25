@@ -671,6 +671,17 @@ export default function EventLobbyScreen() {
   /** Dedupe informational drain-reason toasts per user/event/reason for this screen. */
   const drainReasonNotifiedKeysRef = useRef<Set<string>>(new Set());
   const isActiveLobbyContextRef = useRef(false);
+  const queueRefreshSeqRef = useRef(0);
+  const queueRefreshScopeRef = useRef({
+    eventId: id ?? null,
+    userId: user?.id ?? null,
+    sideEffectsEnabled: lobbySideEffectsEnabled,
+  });
+  queueRefreshScopeRef.current = {
+    eventId: id ?? null,
+    userId: user?.id ?? null,
+    sideEffectsEnabled: lobbySideEffectsEnabled,
+  };
   const [isLobbyFocused, setIsLobbyFocused] = useState(false);
 
   const {
@@ -1440,13 +1451,28 @@ export default function EventLobbyScreen() {
 
   const refreshQueueAndSuperVibe = useCallback(async () => {
     if (!id || !user?.id || !lobbySideEffectsEnabled) {
+      queueRefreshSeqRef.current += 1;
       setQueuedMatchCount(0);
       return;
     }
+    const requestSeq = queueRefreshSeqRef.current + 1;
+    queueRefreshSeqRef.current = requestSeq;
+    const requestEventId = id;
+    const requestUserId = user.id;
     const [count, remaining] = await Promise.all([
-      getQueuedMatchCount(id, user.id),
-      getSuperVibeRemaining(id, user.id),
+      getQueuedMatchCount(requestEventId, requestUserId),
+      getSuperVibeRemaining(requestEventId, requestUserId),
     ]);
+    const scope = queueRefreshScopeRef.current;
+    if (
+      queueRefreshSeqRef.current !== requestSeq ||
+      scope.eventId !== requestEventId ||
+      scope.userId !== requestUserId ||
+      !scope.sideEffectsEnabled ||
+      !isActiveLobbyContextRef.current
+    ) {
+      return;
+    }
     setQueuedMatchCount(count);
     setSuperVibeRemaining(remaining);
     void refetchActiveSession();

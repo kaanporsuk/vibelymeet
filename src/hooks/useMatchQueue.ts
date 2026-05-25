@@ -10,6 +10,7 @@ import {
 } from "@shared/matching/videoSessionFlow";
 import { getMatchQueueDrainReasonCopy } from "@clientShared/matching/matchQueueDrainReasonCopy";
 import { isMatchQueueDrainEligible } from "@clientShared/matching/matchQueueDrainEligibility";
+import { isVideoDateReadyGateActiveStatus } from "@clientShared/matching/videoDateRouteDecision";
 import { trackEvent } from "@/lib/analytics";
 import { LobbyPostDateEvents } from "@clientShared/analytics/lobbyToPostDateJourney";
 import {
@@ -23,6 +24,36 @@ import {
 import { fetchVideoDateQueueHint } from "@/lib/videoDateQueueHint";
 
 type MatchQueueSourceSurface = "event_lobby" | "post_date_survey";
+
+const QUEUED_SESSION_RECOVERY_FIRST_DRAIN_MS = 1_200;
+const QUEUED_SESSION_RECOVERY_DRAIN_MS = 5_000;
+const RETRYABLE_QUEUE_HINT_FAILURE_REASONS = new Set([
+  "rpc_error",
+  "network_error",
+  "PGRST000",
+  "PGRST001",
+  "PGRST002",
+  "PGRST003",
+  "40001",
+  "40P01",
+  "53300",
+  "53400",
+  "55P03",
+  "57014",
+]);
+
+function shouldRetainQueueCountOnHintFailure(reason: string | null | undefined): boolean {
+  const code = reason?.trim();
+  if (!code) return true;
+  if (
+    code === "missing_args" ||
+    code === "not_registered" ||
+    code === "42501" ||
+    code === "22P02"
+  ) return false;
+  if (code.startsWith("08")) return true;
+  return RETRYABLE_QUEUE_HINT_FAILURE_REASONS.has(code);
+}
 
 interface UseMatchQueueOptions {
   eventId: string | undefined;
@@ -64,6 +95,20 @@ export const useMatchQueue = ({
   /** Dedupe informational drain-reason toasts per user/event/reason for this hook instance. */
   const drainReasonNotifiedKeysRef = useRef(new Set<string>());
   const lastQueuedCountRef = useRef(0);
+  const drainInFlightRef = useRef(false);
+  const activeDrainSeqRef = useRef(0);
+  const activeRefreshSeqRef = useRef(0);
+  const scopeRef = useRef({
+    enabled,
+    eventId: eventId ?? null,
+    userId: user?.id ?? null,
+  });
+
+  scopeRef.current = {
+    enabled,
+    eventId: eventId ?? null,
+    userId: user?.id ?? null,
+  };
 
   useEffect(() => {
     onReadyRef.current = onVideoSessionReady;
@@ -73,7 +118,22 @@ export const useMatchQueue = ({
     onQueuedExpiredRef.current = onQueuedSessionExpired;
   }, [onQueuedSessionExpired]);
 
+  const isCurrentScope = useCallback((requestEventId: string, requestUserId: string) => {
+    const scope = scopeRef.current;
+    return (
+      scope.enabled &&
+      scope.eventId === requestEventId &&
+      scope.userId === requestUserId
+    );
+  }, []);
+
   useEffect(() => {
+    activeDrainSeqRef.current += 1;
+    activeRefreshSeqRef.current += 1;
+    drainInFlightRef.current = false;
+    lastQueuedCountRef.current = 0;
+    setQueuedCount(0);
+    setIsDraining(false);
     readyNotifiedIdsRef.current.clear();
     queuedExpiryNotifiedIdsRef.current.clear();
     drainReasonNotifiedKeysRef.current.clear();
@@ -85,36 +145,69 @@ export const useMatchQueue = ({
     onReadyRef.current?.(videoSessionId, partnerId);
   }, []);
 
-  const refreshQueueCount = useCallback(async () => {
+  const refreshQueueCount = useCallback(async (minimumOnFailure = 0) => {
     if (!enabled || !eventId || !user?.id) {
       lastQueuedCountRef.current = 0;
       setQueuedCount(0);
       return;
     }
 
-    const hint = await fetchVideoDateQueueHint(eventId, user.id);
+    const requestEventId = eventId;
+    const requestUserId = user.id;
+    const requestSeq = activeRefreshSeqRef.current + 1;
+    activeRefreshSeqRef.current = requestSeq;
+
+    let hint: Awaited<ReturnType<typeof fetchVideoDateQueueHint>>;
+    try {
+      hint = await fetchVideoDateQueueHint(requestEventId, requestUserId);
+    } catch (err) {
+      if (!isCurrentScope(requestEventId, requestUserId) || activeRefreshSeqRef.current !== requestSeq) {
+        return;
+      }
+      if (import.meta.env.DEV) {
+        console.warn("[useMatchQueue] queued hint query failed:", err);
+      }
+      const fallbackCount = Math.max(lastQueuedCountRef.current, minimumOnFailure);
+      lastQueuedCountRef.current = fallbackCount;
+      setQueuedCount(fallbackCount);
+      return;
+    }
+
+    if (!isCurrentScope(requestEventId, requestUserId) || activeRefreshSeqRef.current !== requestSeq) {
+      return;
+    }
 
     if (!hint.ok) {
       if (import.meta.env.DEV) {
         console.warn("[useMatchQueue] queued hint query failed:", hint.reason ?? "unknown");
       }
-      setQueuedCount(lastQueuedCountRef.current);
+      if (shouldRetainQueueCountOnHintFailure(hint.reason)) {
+        const fallbackCount = Math.max(lastQueuedCountRef.current, minimumOnFailure);
+        lastQueuedCountRef.current = fallbackCount;
+        setQueuedCount(fallbackCount);
+      } else {
+        lastQueuedCountRef.current = 0;
+        setQueuedCount(0);
+      }
       return;
     }
 
     const nextCount = hint.userQueuedCount;
     lastQueuedCountRef.current = nextCount;
     setQueuedCount(nextCount);
-  }, [enabled, eventId, user?.id]);
+  }, [enabled, eventId, isCurrentScope, user?.id]);
 
   useEffect(() => {
     if (enabled) return;
+    activeDrainSeqRef.current += 1;
+    activeRefreshSeqRef.current += 1;
     lastQueuedCountRef.current = 0;
+    drainInFlightRef.current = false;
     setQueuedCount(0);
     setIsDraining(false);
   }, [enabled]);
 
-  useEffect(() => {
+  const drainQueueOnce = useCallback(async (sourceAction: string) => {
     if (
       !enabled ||
       !eventId ||
@@ -122,113 +215,125 @@ export const useMatchQueue = ({
       !isMatchQueueDrainEligible(currentStatus, { enableSurveyPhaseDrain })
     ) return;
 
-    const drainQueue = async () => {
-      setIsDraining(true);
-      trackEvent(EventLobbyObservabilityEvents.QUEUE_DRAIN_ATTEMPTED, {
-        platform: "web",
-        event_id: eventId,
+    if (drainInFlightRef.current) return;
+    const requestEventId = eventId;
+    const requestUserId = user.id;
+    const requestSeq = activeDrainSeqRef.current + 1;
+    activeDrainSeqRef.current = requestSeq;
+    drainInFlightRef.current = true;
+    setIsDraining(true);
+    trackEvent(EventLobbyObservabilityEvents.QUEUE_DRAIN_ATTEMPTED, {
+      platform: "web",
+      event_id: requestEventId,
+      source_surface: sourceSurface,
+      source_action: sourceAction,
+      queue_status: currentStatus,
+    });
+    try {
+      const { data, error } = drainMatchQueueV2.enabled
+        ? await supabase.rpc("drain_match_queue_v2" as never, {
+            p_event_id: requestEventId,
+            p_idempotency_key: buildVideoDateQueueDrainIdempotencyKey(
+              requestEventId,
+              createVideoDateClientRequestId(),
+            ),
+          } as never)
+        : await supabase.rpc("drain_match_queue", {
+            p_event_id: requestEventId,
+          });
+
+      if (!isCurrentScope(requestEventId, requestUserId) || activeDrainSeqRef.current !== requestSeq) {
+        return;
+      }
+
+      if (error) {
+        trackEvent(EventLobbyObservabilityEvents.QUEUE_DRAIN_RESULT, {
+          ...buildQueueDrainResultPayload({
+            eventId: requestEventId,
+            platform: "web",
+            error,
+            sourceAction,
+          }),
+          source_surface: sourceSurface,
+          queue_status: currentStatus,
+        });
+        return;
+      }
+
+      const result = data as DrainMatchQueueResult;
+      trackEvent(EventLobbyObservabilityEvents.QUEUE_DRAIN_RESULT, {
+        ...buildQueueDrainResultPayload({
+          eventId: requestEventId,
+          platform: "web",
+          result,
+          sourceAction,
+        }),
         source_surface: sourceSurface,
-        source_action: "use_match_queue",
         queue_status: currentStatus,
       });
-      try {
-        const { data, error } = drainMatchQueueV2.enabled
-          ? await supabase.rpc("drain_match_queue_v2" as never, {
-              p_event_id: eventId,
-              p_idempotency_key: buildVideoDateQueueDrainIdempotencyKey(
-                eventId,
-                createVideoDateClientRequestId(),
-              ),
-            } as never)
-          : await supabase.rpc("drain_match_queue", {
-              p_event_id: eventId,
-            });
-
-        if (error) {
-          trackEvent(EventLobbyObservabilityEvents.QUEUE_DRAIN_RESULT, {
-            ...buildQueueDrainResultPayload({
-              eventId,
-              platform: "web",
-              error,
-              sourceAction: "use_match_queue",
-            }),
-            source_surface: sourceSurface,
-            queue_status: currentStatus,
-          });
-          return;
-        }
-
-        const result = data as DrainMatchQueueResult;
-        trackEvent(EventLobbyObservabilityEvents.QUEUE_DRAIN_RESULT, {
-          ...buildQueueDrainResultPayload({
-            eventId,
-            platform: "web",
-            result,
-            sourceAction: "use_match_queue",
-          }),
+      const reason =
+        data && typeof data === "object" && "reason" in data
+          ? String((data as { reason?: unknown }).reason ?? "")
+          : null;
+      const sessionId = videoSessionIdFromDrainPayload(result);
+      if (result?.found && sessionId && result.partner_id) {
+        trackEvent(LobbyPostDateEvents.VIDEO_DATE_QUEUE_DRAIN_FOUND, {
+          platform: "web",
+          event_id: requestEventId,
           source_surface: sourceSurface,
-          queue_status: currentStatus,
+          session_id: sessionId,
         });
-        const reason =
-          data && typeof data === "object" && "reason" in data
-            ? String((data as { reason?: unknown }).reason ?? "")
-            : null;
-        const sessionId = videoSessionIdFromDrainPayload(result);
-        if (result?.found && sessionId && result.partner_id) {
-          trackEvent(LobbyPostDateEvents.VIDEO_DATE_QUEUE_DRAIN_FOUND, {
+        notifyReadyOnce(sessionId, result.partner_id);
+      } else if (result?.queued || reason) {
+        trackEvent(
+          result?.queued
+            ? LobbyPostDateEvents.VIDEO_DATE_QUEUE_DRAIN_BLOCKED
+            : LobbyPostDateEvents.VIDEO_DATE_QUEUE_DRAIN_NOT_FOUND,
+          {
             platform: "web",
-            event_id: eventId,
+            event_id: requestEventId,
             source_surface: sourceSurface,
-            session_id: sessionId,
-          });
-          notifyReadyOnce(sessionId, result.partner_id);
-        } else if (result?.queued || reason) {
-          trackEvent(
-            result?.queued
-              ? LobbyPostDateEvents.VIDEO_DATE_QUEUE_DRAIN_BLOCKED
-              : LobbyPostDateEvents.VIDEO_DATE_QUEUE_DRAIN_NOT_FOUND,
-            {
-              platform: "web",
-              event_id: eventId,
-              source_surface: sourceSurface,
-              reason,
-            },
-          );
-        } else {
-          trackEvent(LobbyPostDateEvents.VIDEO_DATE_QUEUE_DRAIN_NOT_FOUND, {
-            platform: "web",
-            event_id: eventId,
-            source_surface: sourceSurface,
-          });
-        }
-
-        const copy = result?.found ? null : getMatchQueueDrainReasonCopy(reason);
-        if (copy && !suppressDrainReasonToasts) {
-          const key = `${user.id}:${eventId}:${copy.reason}`;
-          if (!drainReasonNotifiedKeysRef.current.has(key)) {
-            drainReasonNotifiedKeysRef.current.add(key);
-            toast.info(copy.message, { id: `match-queue-drain:${key}`, duration: 3800 });
-          }
-        }
-      } catch (err) {
-        console.error("Error draining queue:", err);
-        trackEvent(EventLobbyObservabilityEvents.QUEUE_DRAIN_RESULT, {
-          ...buildQueueDrainResultPayload({
-            eventId,
-            platform: "web",
-            error: err,
-            sourceAction: "use_match_queue",
-          }),
+            reason,
+          },
+        );
+      } else {
+        trackEvent(LobbyPostDateEvents.VIDEO_DATE_QUEUE_DRAIN_NOT_FOUND, {
+          platform: "web",
+          event_id: requestEventId,
           source_surface: sourceSurface,
-          queue_status: currentStatus,
         });
-      } finally {
-        setIsDraining(false);
       }
-    };
 
-    drainQueue();
-    refreshQueueCount();
+      const copy = result?.found ? null : getMatchQueueDrainReasonCopy(reason);
+      if (copy && !suppressDrainReasonToasts) {
+        const key = `${requestUserId}:${requestEventId}:${copy.reason}`;
+        if (!drainReasonNotifiedKeysRef.current.has(key)) {
+          drainReasonNotifiedKeysRef.current.add(key);
+          toast.info(copy.message, { id: `match-queue-drain:${key}`, duration: 3800 });
+        }
+      }
+    } catch (err) {
+      console.error("Error draining queue:", err);
+      if (!isCurrentScope(requestEventId, requestUserId) || activeDrainSeqRef.current !== requestSeq) {
+        return;
+      }
+      trackEvent(EventLobbyObservabilityEvents.QUEUE_DRAIN_RESULT, {
+        ...buildQueueDrainResultPayload({
+          eventId: requestEventId,
+          platform: "web",
+          error: err,
+          sourceAction,
+        }),
+        source_surface: sourceSurface,
+        queue_status: currentStatus,
+      });
+    } finally {
+      if (isCurrentScope(requestEventId, requestUserId) && activeDrainSeqRef.current === requestSeq) {
+        drainInFlightRef.current = false;
+        setIsDraining(false);
+        void refreshQueueCount();
+      }
+    }
   }, [
     enabled,
     eventId,
@@ -240,6 +345,57 @@ export const useMatchQueue = ({
     refreshQueueCount,
     notifyReadyOnce,
     drainMatchQueueV2.enabled,
+    isCurrentScope,
+  ]);
+
+  useEffect(() => {
+    if (
+      !enabled ||
+      !eventId ||
+      !user?.id ||
+      !isMatchQueueDrainEligible(currentStatus, { enableSurveyPhaseDrain })
+    ) return;
+
+    void drainQueueOnce("use_match_queue");
+    void refreshQueueCount();
+  }, [
+    enabled,
+    eventId,
+    user?.id,
+    currentStatus,
+    enableSurveyPhaseDrain,
+    drainQueueOnce,
+    refreshQueueCount,
+  ]);
+
+  useEffect(() => {
+    if (
+      !enabled ||
+      !eventId ||
+      !user?.id ||
+      queuedCount <= 0 ||
+      !isMatchQueueDrainEligible(currentStatus, { enableSurveyPhaseDrain })
+    ) return;
+
+    const firstTimer = setTimeout(() => {
+      void drainQueueOnce("queued_recovery_poll");
+    }, QUEUED_SESSION_RECOVERY_FIRST_DRAIN_MS);
+    const intervalId = setInterval(() => {
+      void drainQueueOnce("queued_recovery_poll");
+    }, QUEUED_SESSION_RECOVERY_DRAIN_MS);
+
+    return () => {
+      clearTimeout(firstTimer);
+      clearInterval(intervalId);
+    };
+  }, [
+    enabled,
+    eventId,
+    user?.id,
+    queuedCount,
+    currentStatus,
+    enableSurveyPhaseDrain,
+    drainQueueOnce,
   ]);
 
   useEffect(() => {
@@ -273,7 +429,7 @@ export const useMatchQueue = ({
         onQueuedExpiredRef.current?.(session.id);
       }
 
-      if (session.ready_gate_status === "ready" && payload.old?.ready_gate_status === "queued") {
+      if (isVideoDateReadyGateActiveStatus(session.ready_gate_status)) {
         const partnerId =
           session.participant_1_id === user.id
             ? session.participant_2_id
@@ -281,7 +437,7 @@ export const useMatchQueue = ({
         if (partnerId) notifyReadyOnce(session.id, partnerId);
       }
 
-      refreshQueueCount();
+      void refreshQueueCount();
     };
 
     const handleInsert = (payload: { new: Record<string, unknown> }) => {
@@ -299,7 +455,7 @@ export const useMatchQueue = ({
 
       if (!isParticipant) return;
 
-      if (session.ready_gate_status === "ready") {
+      if (isVideoDateReadyGateActiveStatus(session.ready_gate_status)) {
         const partnerId =
           session.participant_1_id === user.id
             ? session.participant_2_id
@@ -307,7 +463,7 @@ export const useMatchQueue = ({
         if (partnerId) notifyReadyOnce(session.id, partnerId);
       }
 
-      refreshQueueCount();
+      void refreshQueueCount();
     };
 
     const channel = supabase.channel(`match-queue-${eventId}-${user.id}`);
