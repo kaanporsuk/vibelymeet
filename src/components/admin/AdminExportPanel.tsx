@@ -25,10 +25,10 @@ import {
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { supabase } from "@/integrations/supabase/client";
-import { callAdminRpc, sanitizeAdminRpcErrorMessage, type AdminRpcPayload } from "@/lib/adminRpc";
-import { resolveSupabaseFunctionErrorMessage } from "@/lib/supabaseFunctionInvokeErrors";
+import { callAdminRpc, type AdminRpcPayload } from "@/lib/adminRpc";
 import { formatAdminUtcDateTimeForExport } from "@/lib/adminTime";
 import { adminToast } from "@/lib/adminToast";
+import { resolveAdminErrorMessage, resolveAdminFunctionErrorMessage } from "@/lib/adminErrorResolver";
 
 type GovernedExportScope =
   | "user"
@@ -317,11 +317,11 @@ const AdminExportPanel = () => {
         },
       });
       if (error) {
-        throw new Error(await resolveSupabaseFunctionErrorMessage(error, data, "Governed export queue failed"));
+        throw new Error(await resolveAdminFunctionErrorMessage(error, data, "Governed export queue failed"));
       }
       const payload = data as GovernedExportResponse | null;
       if (!payload || payload.success === false || payload.ok === false) {
-        throw new Error(payload?.message || payload?.error || "Governed export queue failed");
+        throw new Error(resolveAdminErrorMessage(payload, "Governed export queue failed"));
       }
       setQueuedJob(payload);
       await exportJobs.refetch();
@@ -332,7 +332,7 @@ const AdminExportPanel = () => {
     } catch (error) {
       adminToast.error({
         id: "admin-export-governed-failed",
-        title: sanitizeAdminRpcErrorMessage(error),
+        title: resolveAdminErrorMessage(error, "Governed export queue failed"),
       });
     } finally {
       setIsQueueing(false);
@@ -462,7 +462,7 @@ const AdminExportPanel = () => {
               <AlertTriangle className="h-4 w-4" />
               <AlertTitle>Compliance permission unavailable</AlertTitle>
               <AlertDescription>
-                {sanitizeAdminRpcErrorMessage(compliancePermission.error)}
+                {resolveAdminErrorMessage(compliancePermission.error, "Compliance permission check failed")}
               </AlertDescription>
             </Alert>
           ) : null}
@@ -533,7 +533,9 @@ const AdminExportPanel = () => {
             <Alert className="border-destructive/30 bg-destructive/10">
               <AlertTriangle className="h-4 w-4" />
               <AlertTitle>Export jobs unavailable</AlertTitle>
-              <AlertDescription>{exportJobs.error instanceof Error ? exportJobs.error.message : "Could not read governed export jobs."}</AlertDescription>
+              <AlertDescription>
+                {resolveAdminErrorMessage(exportJobs.error, "Could not read governed export jobs.")}
+              </AlertDescription>
             </Alert>
           ) : exportJobs.isLoading ? (
             <div className="flex items-center gap-2 text-sm text-muted-foreground">

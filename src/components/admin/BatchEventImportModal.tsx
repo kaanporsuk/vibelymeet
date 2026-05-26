@@ -34,6 +34,7 @@ import { callAdminRpc, createAdminIdempotencyKey, createAdminTargetIdempotencyKe
 import { inferEventCategoryKeysFromLegacyTags } from "@clientShared/eventCategories";
 import { formatAdminUtcDate } from "@/lib/adminTime";
 import { adminToast } from "@/lib/adminToast";
+import { resolveAdminErrorMessage } from "@/lib/adminErrorResolver";
 
 interface BatchEventImportModalProps {
   onClose: () => void;
@@ -460,7 +461,7 @@ const BatchEventImportModal = ({ onClose }: BatchEventImportModalProps) => {
           failedRows.push({
             rowNumber: toImport[index]._index + 1,
             title: row.title,
-            message: err instanceof Error ? err.message : "Unknown import failure",
+            message: resolveAdminErrorMessage(err, "Unknown import failure"),
           });
         }
       }
@@ -501,7 +502,7 @@ const BatchEventImportModal = ({ onClose }: BatchEventImportModalProps) => {
       adminToast.error({
         id: "batch-event-import-failed",
         title: "Import failed",
-        description: err instanceof Error ? err.message : "Please try again.",
+        description: resolveAdminErrorMessage(err, "Please try again."),
       });
     } finally {
       setIsImporting(false);

@@ -20,9 +20,10 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { callAdminRpc, sanitizeAdminRpcErrorMessage, type AdminRpcPayload } from "@/lib/adminRpc";
+import { callAdminRpc, type AdminRpcPayload } from "@/lib/adminRpc";
 import { useDebouncedValue } from "@/hooks/useDebouncedValue";
 import { formatAdminRelativeTime } from "@/lib/adminTime";
+import { resolveAdminErrorMessage } from "@/lib/adminErrorResolver";
 
 type OpsStatus = "healthy" | "degraded" | "incident" | "unknown" | "unavailable" | string;
 
@@ -238,7 +239,7 @@ const fulfilledValue = <T,>(result: PromiseSettledResult<T>): T | undefined =>
   result.status === "fulfilled" ? result.value : undefined;
 
 const failureFor = (rpc: OperationsRpcName, result: PromiseSettledResult<unknown>): OperationsFailure | null =>
-  result.status === "rejected" ? { rpc, message: sanitizeAdminRpcErrorMessage(result.reason) } : null;
+  result.status === "rejected" ? { rpc, message: resolveAdminErrorMessage(result.reason, `${rpc} failed`) } : null;
 
 const unavailableSection = (label: string, rpc: OperationsRpcName, failures: OperationsFailure[]) => {
   const failure = failures.find((item) => item.rpc === rpc);

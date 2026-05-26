@@ -31,6 +31,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useEventCategories, type EventCategory } from "@/hooks/useEventCategories";
 import { formatAdminUtcDate, formatAdminUtcDateTime, formatAdminUtcTime } from "@/lib/adminTime";
 import { adminToast } from "@/lib/adminToast";
+import { resolveAdminErrorMessage } from "@/lib/adminErrorResolver";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -74,10 +75,6 @@ type PendingEventPanelAction =
   | { kind: "finalize-repair"; event: AdminEventRow }
   | { kind: "bulk-archive"; count: number }
   | null;
-
-function errorMessage(error: unknown, fallback: string): string {
-  return error instanceof Error && error.message ? error.message : fallback;
-}
 
 const getLifecycleSnapshot = (event: AdminEventRow, nowMs = Date.now()) => {
   return resolveEventLifecycle({
@@ -361,7 +358,7 @@ const AdminEventCategoryManager = () => {
     onError: (error: unknown) => {
       adminToast.error({
         id: "event-category-update-failed",
-        title: errorMessage(error, "Failed to update category"),
+        title: resolveAdminErrorMessage(error, "Failed to update category"),
       });
     },
     onSettled: () => setPendingKey(null),
@@ -387,7 +384,7 @@ const AdminEventCategoryManager = () => {
     onError: (error: unknown) => {
       adminToast.error({
         id: "event-category-create-failed",
-        title: errorMessage(error, "Failed to create category"),
+        title: resolveAdminErrorMessage(error, "Failed to create category"),
       });
     },
   });
@@ -710,7 +707,7 @@ const AdminEventsPanel = () => {
     },
     onError: (err: unknown) => adminToast.error({
       id: 'event-delete-failed',
-      title: `Failed to delete: ${errorMessage(err, "delete_failed")}`,
+      title: `Failed to delete: ${resolveAdminErrorMessage(err, "delete_failed")}`,
     }),
   });
 
@@ -738,7 +735,7 @@ const AdminEventsPanel = () => {
     },
     onError: (err: unknown) => adminToast.error({
       id: "event-cancel-failed",
-      title: errorMessage(err, 'Failed to cancel event'),
+      title: resolveAdminErrorMessage(err, 'Failed to cancel event'),
     }),
   });
 
@@ -766,7 +763,7 @@ const AdminEventsPanel = () => {
     },
     onError: (err: unknown) => adminToast.error({
       id: "event-finalize-failed",
-      title: errorMessage(err, "Failed to finalize event"),
+      title: resolveAdminErrorMessage(err, "Failed to finalize event"),
     }),
   });
 

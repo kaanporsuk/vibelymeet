@@ -20,7 +20,8 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { callAdminRpc, sanitizeAdminRpcErrorMessage, type AdminRpcPayload } from "@/lib/adminRpc";
+import { callAdminRpc, type AdminRpcPayload } from "@/lib/adminRpc";
+import { resolveAdminErrorMessage } from "@/lib/adminErrorResolver";
 import {
   asArray,
   asRecord,
@@ -679,7 +680,7 @@ const AdminP4IntelligencePanel = () => {
           } else {
             payload.failures.push({
               rpc: request.rpc,
-              message: sanitizeAdminRpcErrorMessage(result.reason),
+              message: resolveAdminErrorMessage(result.reason, "Could not load intelligence panel"),
             });
           }
           return payload;

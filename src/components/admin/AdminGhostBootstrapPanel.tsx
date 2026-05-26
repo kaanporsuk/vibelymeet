@@ -39,6 +39,7 @@ import {
 import { cn } from '@/lib/utils';
 import { formatAdminUtcDate, formatAdminUtcDateTime } from '@/lib/adminTime';
 import { adminToast } from '@/lib/adminToast';
+import { resolveAdminErrorMessage } from '@/lib/adminErrorResolver';
 
 type Ghost = {
   profile_id: string;
@@ -96,7 +97,7 @@ export function AdminGhostBootstrapPanel() {
 
       setGhosts(data || []);
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'Failed to fetch ghost accounts';
+      const message = resolveAdminErrorMessage(err, 'Failed to fetch ghost accounts');
       setError(message);
       adminToast.error({
         id: 'ghost-bootstrap-fetch-failed',

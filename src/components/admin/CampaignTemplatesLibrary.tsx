@@ -22,6 +22,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { adminToast } from "@/lib/adminToast";
+import { resolveAdminErrorMessage } from "@/lib/adminErrorResolver";
 
 export interface CampaignTemplate {
   id: string;
@@ -271,7 +272,7 @@ const CampaignTemplatesLibrary = ({ onSelectTemplate }: CampaignTemplatesLibrary
       adminToast.error({
         id: `campaign-template-copy-failed-${template.id}`,
         title: "Could not copy template",
-        description: error instanceof Error ? error.message : undefined,
+        description: resolveAdminErrorMessage(error, "Clipboard write failed."),
       });
     }
   };

@@ -22,6 +22,7 @@ import React from "react";
 import { callAdminRpc, createAdminIdempotencyKey, createAdminTargetIdempotencyKey } from "@/lib/adminRpc";
 import { formatAdminUtcDateTime } from "@/lib/adminTime";
 import { adminToast } from "@/lib/adminToast";
+import { resolveAdminErrorMessage } from "@/lib/adminErrorResolver";
 import { useEventCategories } from "@/hooks/useEventCategories";
 import { inferEventCategoryKeysFromLegacyTags } from "@clientShared/eventCategories";
 import { clientRequestIdForUploadFile } from "@/services/imageUploadService";
@@ -320,7 +321,7 @@ const AdminEventFormModal = ({ event, onClose }: AdminEventFormModalProps) => {
     queryKey: ['vibe-tags'],
     queryFn: async () => {
       const { data, error } = await supabase.from('vibe_tags').select('*').order('category');
-      if (error) throw error;
+      if (error) throw new Error(resolveAdminErrorMessage(error, "Could not load vibe tags"));
       return data || [];
     },
   });
@@ -438,7 +439,7 @@ const AdminEventFormModal = ({ event, onClose }: AdminEventFormModalProps) => {
       const { data, error } = await supabase.rpc("admin_get_event_confirmed_gender_counts", {
         p_event_id: event!.id,
       });
-      if (error) throw error;
+      if (error) throw new Error(resolveAdminErrorMessage(error, "Could not load event gender counts"));
       return data as {
         ok?: boolean;
         male?: number;
@@ -560,7 +561,7 @@ const AdminEventFormModal = ({ event, onClose }: AdminEventFormModalProps) => {
       adminToast.error({
         id: "admin-event-cover-upload-error",
         title: "Failed to upload image",
-        description: error instanceof Error ? error.message : "Please try again.",
+        description: resolveAdminErrorMessage(error, "Please try again."),
       });
     } finally {
       setIsUploading(false);
@@ -707,7 +708,7 @@ const AdminEventFormModal = ({ event, onClose }: AdminEventFormModalProps) => {
       adminToast.error({
         id: "admin-event-save-error",
         title: "Failed to save event",
-        description: error.message,
+        description: resolveAdminErrorMessage(error, "Please try again."),
       });
     },
   });
@@ -748,7 +749,7 @@ const AdminEventFormModal = ({ event, onClose }: AdminEventFormModalProps) => {
       adminToast.error({
         id: "admin-event-category-create-error",
         title: "Failed to create category",
-        description: error instanceof Error ? error.message : undefined,
+        description: resolveAdminErrorMessage(error, "Failed to create category"),
       });
     },
   });

@@ -176,7 +176,7 @@ async function tryResolveSelfieDisplayUrl(
     if (error || !data?.signedUrl) {
       return {
         kind: "fail",
-        message: error?.message ?? "Could not create signed URL for proof selfie",
+        message: sanitizeErrorMessage(error?.message ?? "Could not create signed URL for proof selfie"),
         shape,
       };
     }
@@ -281,7 +281,7 @@ serve(async (req) => {
       req,
       {
         success: false,
-        error: outcome.message,
+        error: sanitizeErrorMessage(outcome.message),
         shape: outcome.shape,
       },
       200,

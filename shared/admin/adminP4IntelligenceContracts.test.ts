@@ -215,7 +215,7 @@ test("P4 compliance export queue requires reason, permission, audit, and expiry"
   assert.match(exportPanel, /compliance\.manage/);
   assert.match(exportPanel, /Compliance permission unavailable/);
   assert.match(exportPanel, /hasCompliancePermission !== true/);
-  assert.match(exportPanel, /sanitizeAdminRpcErrorMessage/);
+  assert.match(exportPanel, /resolveAdminErrorMessage/);
   assert.match(exportPanel, /Governed export queue is the only export path/);
   assert.match(exportPanel, /isPiiAllowedForScope/);
   assert.match(exportPanel, /Minimum for this scope/);
@@ -291,7 +291,7 @@ test("P4 /kaan Intelligence panel renders partial data when one read RPC fails",
   assert.match(intelligencePanel, /Promise\.allSettled/);
   assert.doesNotMatch(intelligencePanel, /Promise\.all\(/);
   assert.match(intelligencePanel, /type P4Failure/);
-  assert.match(intelligencePanel, /sanitizeAdminRpcErrorMessage/);
+  assert.match(intelligencePanel, /resolveAdminErrorMessage/);
   assert.match(intelligencePanel, /P4 intelligence data is partially unavailable/);
   assert.match(intelligencePanel, /Successful RPC sections are still shown below/);
 });
@@ -478,7 +478,7 @@ test("P4 Edge Function wrappers are configured and delegate to constrained RPCs"
   assert.match(exportFunction, /scope_type_and_reason_required/);
   assert.match(exportFunction, /EXPORT_QUEUE_FAILED/);
   assert.match(exportFunction, /statusForAdminError/);
-  assert.match(exportPanel, /resolveSupabaseFunctionErrorMessage/);
+  assert.match(exportPanel, /resolveAdminFunctionErrorMessage/);
   assert.doesNotMatch(exportFunction, /return jsonResponse\(req, \{ success: false, error: error\.message \}, \{ status: 200 \}\)/);
   assert.doesNotMatch(exportFunction, /SERVICE_ROLE/);
 });

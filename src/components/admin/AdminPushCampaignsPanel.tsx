@@ -43,6 +43,7 @@ import AdminConfirmDialog from "./AdminConfirmDialog";
 import { callAdminRpc, createAdminIdempotencyKey, createAdminTargetIdempotencyKey, type AdminRpcPayload } from "@/lib/adminRpc";
 import { formatAdminUtcDateTime } from "@/lib/adminTime";
 import { adminToast } from "@/lib/adminToast";
+import { resolveAdminErrorMessage } from "@/lib/adminErrorResolver";
 
 interface Campaign {
   id: string;
@@ -365,7 +366,7 @@ const AdminPushCampaignsPanel = () => {
       adminToast.error({
         id: "admin-push-campaign-save-error",
         title: "Failed to save campaign",
-        description: error instanceof Error ? error.message : undefined,
+        description: resolveAdminErrorMessage(error, "Failed to save campaign"),
       });
     } finally {
       setIsSavingCampaign(false);
@@ -394,7 +395,7 @@ const AdminPushCampaignsPanel = () => {
       adminToast.error({
         id: `admin-push-campaign-delete-error-${id}`,
         title: "Failed to delete campaign",
-        description: error instanceof Error ? error.message : undefined,
+        description: resolveAdminErrorMessage(error, "Failed to delete campaign"),
       });
       throw error;
     } finally {

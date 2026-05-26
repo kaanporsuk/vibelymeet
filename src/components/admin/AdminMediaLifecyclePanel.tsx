@@ -28,6 +28,7 @@ import {
 } from "@/components/ui/select";
 import AdminConfirmDialog from "./AdminConfirmDialog";
 import { adminToast } from "@/lib/adminToast";
+import { resolveAdminErrorMessage, resolveAdminFunctionErrorMessage } from "@/lib/adminErrorResolver";
 
 type OwnedFamily = "vibe_video" | "profile_photo" | "event_cover";
 type ChatMode = "retain_until_eligible" | "soft_delete" | "immediate";
@@ -205,7 +206,7 @@ async function fetchSnapshot(): Promise<SnapshotPayload> {
     body: { action: "snapshot" },
   });
   if (error || !data?.success) {
-    throw new Error(data?.error || error?.message || "Failed to load media lifecycle controls");
+    throw new Error(await resolveAdminFunctionErrorMessage(error, data, "Failed to load media lifecycle controls"));
   }
   return data as SnapshotPayload & { success: true };
 }
@@ -621,7 +622,7 @@ export default function AdminMediaLifecyclePanel() {
       const { data, error } = await supabase.functions.invoke("admin-media-lifecycle-controls", {
         body: { action: "update_family", media_family: mediaFamily, retention_days: retentionDays, worker_enabled: draft.workerEnabled },
       });
-      if (error || !data?.success) throw new Error(data?.error || error?.message || "Failed to update setting");
+      if (error || !data?.success) throw new Error(await resolveAdminFunctionErrorMessage(error, data, "Failed to update setting"));
       return data as AuditAwareResponse;
     },
     onSuccess: (result, variables) => {
@@ -635,7 +636,7 @@ export default function AdminMediaLifecyclePanel() {
     },
     onError: (error) => adminToast.error({
       id: "media-lifecycle-family-update-failed",
-      title: error instanceof Error ? error.message : "Could not save media setting",
+      title: resolveAdminErrorMessage(error, "Could not save media setting"),
     }),
   });
 
@@ -648,7 +649,7 @@ export default function AdminMediaLifecyclePanel() {
       const { data, error } = await supabase.functions.invoke("admin-media-lifecycle-controls", {
         body: { action: "update_chat_policy", retention_mode: chatMode, eligible_days: eligibleDays, worker_enabled: chatWorkerEnabled },
       });
-      if (error || !data?.success) throw new Error(data?.error || error?.message || "Failed to update chat policy");
+      if (error || !data?.success) throw new Error(await resolveAdminFunctionErrorMessage(error, data, "Failed to update chat policy"));
       return data as AuditAwareResponse;
     },
     onSuccess: (result) => {
@@ -662,7 +663,7 @@ export default function AdminMediaLifecyclePanel() {
     },
     onError: (error) => adminToast.error({
       id: "media-lifecycle-chat-policy-update-failed",
-      title: error instanceof Error ? error.message : "Could not save chat policy",
+      title: resolveAdminErrorMessage(error, "Could not save chat policy"),
     }),
   });
 
@@ -672,7 +673,7 @@ export default function AdminMediaLifecyclePanel() {
       const { data, error } = await supabase.functions.invoke("admin-media-lifecycle-controls", {
         body: { action: "retry_failed", family: family ?? null, status, limit: 50, reset_attempts: resetAttempts },
       });
-      if (error || !data?.success) throw new Error(data?.error || error?.message || "Retry failed");
+      if (error || !data?.success) throw new Error(await resolveAdminFunctionErrorMessage(error, data, "Retry failed"));
       return data as { retried_count: number } & AuditAwareResponse & { status?: RetryStatus };
     },
     onSuccess: (result, variables) => {
@@ -685,7 +686,7 @@ export default function AdminMediaLifecyclePanel() {
     },
     onError: (error) => adminToast.error({
       id: "media-lifecycle-retry-failed",
-      title: error instanceof Error ? error.message : "Could not retry jobs",
+      title: resolveAdminErrorMessage(error, "Could not retry jobs"),
     }),
   });
 
@@ -694,7 +695,7 @@ export default function AdminMediaLifecyclePanel() {
       const { data, error } = await supabase.functions.invoke("admin-media-lifecycle-controls", {
         body: { action: "requeue_stale", stale_minutes: 30 },
       });
-      if (error || !data?.success) throw new Error(data?.error || error?.message || "Requeue failed");
+      if (error || !data?.success) throw new Error(await resolveAdminFunctionErrorMessage(error, data, "Requeue failed"));
       return data as { requeued_count: number } & AuditAwareResponse;
     },
     onSuccess: (result) => {
@@ -707,7 +708,7 @@ export default function AdminMediaLifecyclePanel() {
     },
     onError: (error) => adminToast.error({
       id: "media-lifecycle-requeue-stale-failed",
-      title: error instanceof Error ? error.message : "Could not requeue stale jobs",
+      title: resolveAdminErrorMessage(error, "Could not requeue stale jobs"),
     }),
   });
 
@@ -716,7 +717,7 @@ export default function AdminMediaLifecyclePanel() {
       const { data, error } = await supabase.functions.invoke("admin-media-lifecycle-controls", {
         body: { action: "repair_orphan_event_covers", limit: 50 },
       });
-      if (error || !data?.success) throw new Error(data?.error || error?.message || "Repair failed");
+      if (error || !data?.success) throw new Error(await resolveAdminFunctionErrorMessage(error, data, "Repair failed"));
       return data as {
         repaired_count: number;
         synced_events: number;
@@ -734,7 +735,7 @@ export default function AdminMediaLifecyclePanel() {
     },
     onError: (error) => adminToast.error({
       id: "media-lifecycle-event-cover-repair-failed",
-      title: error instanceof Error ? error.message : "Could not repair event covers",
+      title: resolveAdminErrorMessage(error, "Could not repair event covers"),
     }),
   });
 
@@ -743,7 +744,7 @@ export default function AdminMediaLifecyclePanel() {
       const { data, error } = await supabase.functions.invoke("admin-media-lifecycle-controls", {
         body: { action: "worker_dry_run", batch_size: 20 },
       });
-      if (error || !data?.success) throw new Error(data?.error || error?.message || "Dry run failed");
+      if (error || !data?.success) throw new Error(await resolveAdminFunctionErrorMessage(error, data, "Dry run failed"));
       return data as { preview?: WorkerDryRunPreview } & AuditAwareResponse;
     },
     onSuccess: (result) => {
@@ -756,7 +757,7 @@ export default function AdminMediaLifecyclePanel() {
     },
     onError: (error) => adminToast.error({
       id: "media-lifecycle-worker-preview-failed",
-      title: error instanceof Error ? error.message : "Could not preview worker run",
+      title: resolveAdminErrorMessage(error, "Could not preview worker run"),
     }),
   });
 

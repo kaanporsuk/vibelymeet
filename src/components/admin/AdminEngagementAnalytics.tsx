@@ -31,7 +31,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { useAdminEngagementAnalytics } from "@/hooks/useAdminEngagementAnalytics";
-import { sanitizeAdminRpcErrorMessage } from "@/lib/adminRpc";
+import { resolveAdminErrorMessage } from "@/lib/adminErrorResolver";
 
 const COLORS = ["hsl(var(--primary))", "hsl(var(--accent))", "#22d3ee", "#f472b6", "#a78bfa", "#34d399"];
 
@@ -133,8 +133,8 @@ const AdminEngagementAnalytics = () => {
               <p className="text-sm text-muted-foreground">
                 Metrics are hidden until the backend engagement read model succeeds.
               </p>
-              {error?.message && (
-                <p className="text-xs text-muted-foreground mt-1">{sanitizeAdminRpcErrorMessage(error)}</p>
+              {error && (
+                <p className="text-xs text-muted-foreground mt-1">{resolveAdminErrorMessage(error, "Could not load engagement analytics")}</p>
               )}
             </div>
           </div>

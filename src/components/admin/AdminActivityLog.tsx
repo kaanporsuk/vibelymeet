@@ -35,8 +35,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { callAdminRpc, sanitizeAdminRpcErrorMessage, type AdminRpcPayload } from "@/lib/adminRpc";
+import { callAdminRpc, type AdminRpcPayload } from "@/lib/adminRpc";
 import { formatAdminRelativeTime, formatAdminUtcDate, formatAdminUtcDateTime } from "@/lib/adminTime";
+import { resolveAdminErrorMessage } from "@/lib/adminErrorResolver";
 
 type AdminLogDetails = Record<string, unknown>;
 
@@ -501,7 +502,7 @@ const AdminActivityLog = () => {
               <div className="rounded-xl border border-destructive/30 bg-destructive/10 p-4 text-sm text-destructive">
                 Unable to read activity logs from admin_search_admin_audit_logs.
                 <span className="mt-1 block text-xs">
-                  {sanitizeAdminRpcErrorMessage(error)}
+                  {resolveAdminErrorMessage(error, "Could not load activity log")}
                 </span>
               </div>
             ) : logs.length === 0 ? (

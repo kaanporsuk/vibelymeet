@@ -33,13 +33,12 @@ import AdminConfirmDialog from "./AdminConfirmDialog";
 import {
   callAdminRpc,
   createAdminTargetIdempotencyKey,
-  sanitizeAdminRpcErrorMessage,
   type AdminRpcPayload,
 } from "@/lib/adminRpc";
 import { invalidateAdminQueries } from "@/lib/adminQueryInvalidation";
-import { resolveSupabaseFunctionErrorMessage } from "@/lib/supabaseFunctionInvokeErrors";
 import { formatAdminRelativeTime } from "@/lib/adminTime";
 import { adminToast } from "@/lib/adminToast";
+import { resolveAdminErrorMessage, resolveAdminFunctionErrorMessage } from "@/lib/adminErrorResolver";
 
 type TicketRow = {
   id: string;
@@ -370,7 +369,10 @@ export default function SupportInbox() {
         title: variables.toast_message ?? "Ticket updated",
       });
     },
-    onError: (err) => adminToast.error({ id: "admin-support-ticket-update-error", title: sanitizeAdminRpcErrorMessage(err) }),
+    onError: (err) => adminToast.error({
+      id: "admin-support-ticket-update-error",
+      title: resolveAdminErrorMessage(err, "Could not update support ticket"),
+    }),
   });
 
   const sendReplyMutation = useMutation({
@@ -394,9 +396,9 @@ export default function SupportInbox() {
       });
 
       if (error) {
-        throw new Error(await resolveSupabaseFunctionErrorMessage(error, data, "Failed to send reply"));
+        throw new Error(await resolveAdminFunctionErrorMessage(error, data, "Failed to send reply"));
       }
-      if (!data?.success) throw new Error(data?.message || data?.error || "Failed to send reply");
+      if (!data?.success) throw new Error(await resolveAdminFunctionErrorMessage(null, data, "Failed to send reply"));
       return { response: data, ticketId: selected.id };
     },
     onSuccess: ({ response: result, ticketId }) => {
@@ -416,7 +418,10 @@ export default function SupportInbox() {
         });
       }
     },
-    onError: (err) => adminToast.error({ id: "admin-support-reply-error", title: sanitizeAdminRpcErrorMessage(err) }),
+    onError: (err) => adminToast.error({
+      id: "admin-support-reply-error",
+      title: resolveAdminErrorMessage(err, "Failed to send reply"),
+    }),
   });
 
   const createExceptionMutation = useMutation({
@@ -446,7 +451,10 @@ export default function SupportInbox() {
       invalidateSupportQueries();
       adminToast.success({ id: `admin-support-exception-created-${ticketId}`, title: "Payment exception case created" });
     },
-    onError: (err) => adminToast.error({ id: "admin-support-exception-create-error", title: sanitizeAdminRpcErrorMessage(err) }),
+    onError: (err) => adminToast.error({
+      id: "admin-support-exception-create-error",
+      title: resolveAdminErrorMessage(err, "Could not create payment exception case"),
+    }),
   });
 
   const transitionExceptionMutation = useMutation({
@@ -478,7 +486,10 @@ export default function SupportInbox() {
       invalidateSupportQueries();
       adminToast.success({ id: `admin-support-exception-updated-${exceptionId}`, title: "Payment exception case updated" });
     },
-    onError: (err) => adminToast.error({ id: "admin-support-exception-update-error", title: sanitizeAdminRpcErrorMessage(err) }),
+    onError: (err) => adminToast.error({
+      id: "admin-support-exception-update-error",
+      title: resolveAdminErrorMessage(err, "Could not update payment exception case"),
+    }),
   });
 
   const saveContext = () => {
@@ -615,7 +626,7 @@ export default function SupportInbox() {
             <div className="space-y-3 p-5 text-sm">
               <p className="font-medium">Unable to load support inbox</p>
               <p className="text-muted-foreground">
-                {sanitizeAdminRpcErrorMessage(supportInboxQuery.error)}
+                {resolveAdminErrorMessage(supportInboxQuery.error, "Could not load support inbox")}
               </p>
               <Button size="sm" variant="outline" className="gap-2" onClick={() => supportInboxQuery.refetch()}>
                 <RefreshCw className="h-4 w-4" />
@@ -712,7 +723,7 @@ export default function SupportInbox() {
           <div className="flex flex-1 flex-col items-center justify-center gap-3 p-8 text-center text-sm">
             <p className="font-medium">Unable to load support thread</p>
             <p className="max-w-md text-muted-foreground">
-              {sanitizeAdminRpcErrorMessage(supportThreadQuery.error)}
+              {resolveAdminErrorMessage(supportThreadQuery.error, "Could not load support thread")}
             </p>
             <Button size="sm" variant="outline" className="gap-2" onClick={() => supportThreadQuery.refetch()}>
               <RefreshCw className="h-4 w-4" />

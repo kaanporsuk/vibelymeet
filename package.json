@@ -58,6 +58,8 @@
     "test:admin-media-lifecycle": "tsx shared/admin/adminMediaLifecycleContracts.test.ts",
     "test:admin-p4-intelligence": "tsx shared/admin/adminP4IntelligenceContracts.test.ts",
     "test:admin-route-access": "tsx shared/admin/adminRouteAccess.test.ts",
+    "test:admin-sprint5-release-hardening": "tsx shared/admin/adminSprint5ReleaseHardening.test.ts",
+    "test:security-headers": "tsx scripts/securityHeaders.test.ts",
     "test:event-booking-safety": "tsx shared/eventBookingEditability.test.ts && tsx shared/matching/eventRegistrationSelfCancelCutoff.test.ts && tsx shared/matching/eventBookingUiCutoff.test.ts",
     "test:hardening-contracts": "bash scripts/run_hardening_contract_tests.sh",
     "test:video-date-ux-contracts": "tsx shared/matching/readyGateDiagnosticCopy.test.ts && tsx shared/safety/videoDateSafetyCopy.test.ts && tsx shared/matching/videoDateLobbyStateCopy.test.ts && tsx shared/media/mediaFallbackCopy.test.ts && tsx shared/matching/videoDateExtensionCopy.test.ts && tsx shared/matching/videoDatePhase4Ux.test.ts && tsx shared/matching/videoDateSurfaceRenderContracts.test.ts && tsx shared/observability/eventLobbyObservability.test.ts",

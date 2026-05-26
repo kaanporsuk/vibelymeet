@@ -15,6 +15,7 @@ import { Input } from "@/components/ui/input";
 import { supabase } from "@/integrations/supabase/client";
 import { formatAdminUtcDateTime, formatAdminUtcTime } from "@/lib/adminTime";
 import { adminToast } from "@/lib/adminToast";
+import { resolveAdminErrorMessage, resolveAdminFunctionErrorMessage } from "@/lib/adminErrorResolver";
 
 type AdminVideoDateTimelineResponse = {
   ok: boolean;
@@ -134,8 +135,9 @@ const AdminVideoDateTimelinePanel = () => {
         },
       );
 
-      if (error) throw error;
-      if (!data?.ok) throw new Error(data?.error || data?.code || "Timeline unavailable");
+      if (error || !data?.ok) {
+        throw new Error(await resolveAdminFunctionErrorMessage(error, data, "Timeline unavailable"));
+      }
       return data;
     },
     enabled: Boolean(submittedSessionId),
@@ -260,7 +262,7 @@ const AdminVideoDateTimelinePanel = () => {
 
       {timelineQuery.error && (
         <div className="rounded-xl border border-amber-500/25 bg-amber-500/10 p-4 text-sm text-amber-200">
-          {timelineQuery.error instanceof Error ? timelineQuery.error.message : "Timeline unavailable"}
+          {resolveAdminErrorMessage(timelineQuery.error, "Timeline unavailable")}
         </div>
       )}
 
