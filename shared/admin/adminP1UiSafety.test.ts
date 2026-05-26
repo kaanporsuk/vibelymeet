@@ -4,6 +4,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { resolveReportSearchQuery } from "../../src/components/admin/adminReportSearch";
 import { resolveSupabaseFunctionErrorMessage } from "../supabaseFunctionInvokeErrors";
+import { formatAdminRelativeTime } from "../../src/lib/adminTime";
 
 const root = process.cwd();
 const read = (path: string) => readFileSync(join(root, path), "utf8");
@@ -103,6 +104,26 @@ test("event form footer still submits through validation path", () => {
   assert.doesNotMatch(footer, /saveEvent\.mutate\(\)/);
 });
 
+test("admin relative time preserves future retry windows", () => {
+  const nowMs = Date.parse("2026-05-26T10:00:00.000Z");
+
+  assert.equal(formatAdminRelativeTime("2026-05-26T10:05:00.000Z", nowMs), "in 5m");
+  assert.equal(formatAdminRelativeTime("2026-05-26T12:00:00.000Z", nowMs), "in 2h");
+  assert.equal(formatAdminRelativeTime("2026-05-26T09:55:00.000Z", nowMs), "5m ago");
+});
+
+test("admin realtime deletion events refresh the deletions panel query family", () => {
+  assert.match(adminQueryInvalidation, /deletions:\s*\[\["admin-account-deletions"\]\]/);
+  assert.match(
+    adminRealtime,
+    /table:\s*"account_deletion_requests",\s*areas:\s*\["deletions",\s*"users",\s*"overview"\]/,
+  );
+  assert.match(
+    adminRealtime,
+    /table:\s*"account_deletion_completion_jobs",\s*areas:\s*\["deletions",\s*"users",\s*"overview"\]/,
+  );
+});
+
 test("sprint 4 admin UX guardrails are wired into real admin surfaces", () => {
   assert.match(adminTime, /timeZone:\s*"UTC"/);
   assert.match(adminTime, /formatAdminUtcDateTime/);
@@ -124,6 +145,7 @@ test("sprint 4 admin UX guardrails are wired into real admin surfaces", () => {
   assert.match(adminEventForm, /parseLocalEndOfDay\(endsOnDate\)\?\.toISOString\(\)/);
   assert.match(adminEventForm, /geoSearchError/);
   assert.match(adminEventForm, /latestGeoQueryRef/);
+  assert.match(adminEventForm, /if \(q\.length < 2\) \{[\s\S]{0,160}setIsGeocoding\(false\);[\s\S]{0,80}return;/);
   assert.match(adminEventForm, /City search is unavailable/);
   assert.match(adminEventForm, /role="alert" className="text-xs text-destructive"/);
   assert.doesNotMatch(adminEventForm, /catch \(_\) \{\}/);

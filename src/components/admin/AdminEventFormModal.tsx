@@ -506,7 +506,12 @@ const AdminEventFormModal = ({ event, onClose }: AdminEventFormModalProps) => {
     setCityQuery(q);
     latestGeoQueryRef.current = q;
     if (geocodeTimeout.current) clearTimeout(geocodeTimeout.current);
-    if (q.length < 2) { setGeoResults([]); setGeoSearchError(null); return; }
+    if (q.length < 2) {
+      setGeoResults([]);
+      setGeoSearchError(null);
+      setIsGeocoding(false);
+      return;
+    }
     geocodeTimeout.current = setTimeout(async () => {
       const requestedQuery = q;
       setIsGeocoding(true);

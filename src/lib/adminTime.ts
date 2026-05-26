@@ -65,14 +65,15 @@ export function formatAdminUtcDateTimeForExport(value: string | Date | null | un
 export function formatAdminRelativeTime(value: string | Date | null | undefined, nowMs = Date.now()): string {
   const date = parseAdminDate(value);
   if (!date) return "Unavailable";
-  const diffMs = Math.max(0, nowMs - date.getTime());
-  const minutes = Math.floor(diffMs / 60_000);
-  if (minutes < 1) return "just now";
-  if (minutes < 60) return `${minutes}m ago`;
+  const diffMs = nowMs - date.getTime();
+  const future = diffMs < 0;
+  const minutes = Math.floor(Math.abs(diffMs) / 60_000);
+  if (minutes < 1) return future ? "in <1m" : "just now";
+  if (minutes < 60) return future ? `in ${minutes}m` : `${minutes}m ago`;
   const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours}h ago`;
+  if (hours < 24) return future ? `in ${hours}h` : `${hours}h ago`;
   const days = Math.floor(hours / 24);
-  if (days < 30) return `${days}d ago`;
+  if (days < 30) return future ? `in ${days}d` : `${days}d ago`;
   return formatAdminUtcDate(date);
 }
 

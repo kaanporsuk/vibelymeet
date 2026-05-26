@@ -64,13 +64,16 @@ function useSafeSpeechRecognitionEvent<K extends SpeechRecognitionEventName>(
 
     let subscription: EventSubscriptionLike | null = null;
     try {
-      const addListener = speechRecognition.addListener as (
+      subscription = (speechRecognition.addListener as (
         name: SpeechRecognitionEventName,
         next: (event: unknown) => void,
-      ) => EventSubscriptionLike;
-      subscription = addListener(eventName, (event) => {
-        listenerRef.current(event as ExpoSpeechRecognitionNativeEventMap[K]);
-      });
+      ) => EventSubscriptionLike).call(
+        speechRecognition,
+        eventName,
+        (event) => {
+          listenerRef.current(event as ExpoSpeechRecognitionNativeEventMap[K]);
+        },
+      );
     } catch {
       return undefined;
     }

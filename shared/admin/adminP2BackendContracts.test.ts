@@ -53,6 +53,9 @@ const adminRoleSessionInvalidationMigration = read(
 const adminHardeningGapClosureMigration = read(
   "supabase/migrations/20260526050000_admin_hardening_gap_closure.sql",
 );
+const reviewComments1071To1081FollowupMigration = read(
+  "supabase/migrations/20260526093000_review_comments_1071_1081_followups.sql",
+);
 const tierConfigAuthorityMigration = read("supabase/migrations/20260507190000_tier_config_backend_authority.sql");
 const tierConfigConcurrencyRepairMigration = read(
   "supabase/migrations/20260507193000_tier_config_backend_authority_concurrency_repair.sql",
@@ -516,6 +519,10 @@ test("Sprint 2 account deletion completion is durable and cannot bypass hard-del
   assert.match(sprint2DurableWorkflowsMigration, /cron\.schedule\(\s*'process-admin-durable-jobs'/);
   assert.match(sprint2DurableWorkflowsMigration, /state IN \('retryable_failed', 'blocked', 'permanent_failed'\) THEN now\(\)/);
   assert.match(sprint2DurableWorkflowsMigration, /attempts = CASE[\s\S]*state = 'permanent_failed' THEN 0/);
+  assert.match(
+    reviewComments1071To1081FollowupMigration,
+    /attempts = CASE[\s\S]*state IN \('retryable_failed', 'blocked', 'permanent_failed'\) THEN 0/,
+  );
   assert.match(processAdminDurableJobsFunction, /enqueue_due_account_deletion_completion_jobs_v1/);
   assert.match(processAdminDurableJobsFunction, /complete_account_deletion_media_cleanup/);
   assert.match(processAdminDurableJobsFunction, /scrub_account_deletion_profile_pii_v1/);
@@ -570,6 +577,10 @@ test("Sprint 2 support replies enqueue retryable delivery jobs instead of reques
   assert.match(processAdminDurableJobsFunction, /parsed\.onesignal_id/);
   assert.match(processAdminDurableJobsFunction, /push_provider_id_missing/);
   assert.match(processAdminDurableJobsFunction, /support_delivery_state_update_failed/);
+  assert.match(
+    processAdminDurableJobsFunction,
+    /if \(readError\) \{[\s\S]+errorCode: "support_context_read_failed"[\s\S]+permanent: false/,
+  );
   assert.match(processAdminDurableJobsFunction, /blocked: result\.blocked === true/);
   assert.match(processAdminDurableJobsFunction, /api\.resend\.com\/emails/);
   assert.match(processAdminDurableJobsFunction, /"Idempotency-Key": `support-reply-email\/\$\{job\.id\}`/);
@@ -788,6 +799,9 @@ test("send-support-reply saves through the governed admin reply RPC and returns 
   assert.match(sendSupportReplyFunction, /authenticateAdminRequest\(req,\s*\{[\s\S]*requiredPermission: "support\.manage"/);
   assert.match(adminAuthShared, /requiredPermission\?: string/);
   assert.match(adminAuthShared, /admin_role_permissions/);
+  assert.ok(
+    adminAuthShared.includes("\\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\\b"),
+  );
   assert.match(sendSupportReplyFunction, /preflightResponse\(req\)/);
   assert.doesNotMatch(sendSupportReplyFunction, /Access-Control-Allow-Origin["']:\s*["']\*["']/);
   assert.match(sendSupportReplyFunction, /idempotent_replay/);

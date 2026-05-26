@@ -519,8 +519,9 @@ async function loadSupportContext(supabase: any, job: SupportDeliveryJob): Promi
   ticket: SupportTicket | null;
   reply: SupportReply | null;
   displayName: string;
+  readError: string | null;
 }> {
-  const [{ data: ticket }, { data: reply }] = await Promise.all([
+  const [{ data: ticket, error: ticketError }, { data: reply, error: replyError }] = await Promise.all([
     supabase
       .from("support_tickets")
       .select("id, reference_id, user_id, user_email")
@@ -532,6 +533,15 @@ async function loadSupportContext(supabase: any, job: SupportDeliveryJob): Promi
       .eq("id", job.reply_id)
       .maybeSingle(),
   ]);
+  const readError = ticketError?.message ?? replyError?.message ?? null;
+  if (readError) {
+    return {
+      ticket: null,
+      reply: null,
+      displayName: "there",
+      readError: sanitizeErrorMessage(readError),
+    };
+  }
 
   let displayName = "there";
   if (ticket?.user_id) {
@@ -543,6 +553,7 @@ async function loadSupportContext(supabase: any, job: SupportDeliveryJob): Promi
     ticket: (ticket ?? null) as SupportTicket | null,
     reply: (reply ?? null) as SupportReply | null,
     displayName,
+    readError: null,
   };
 }
 
@@ -726,14 +737,27 @@ async function processSupportJob(
   job: SupportDeliveryJob,
   workerId: string,
 ): Promise<{ ok: boolean; error?: string }> {
-  const { ticket, reply, displayName } = await loadSupportContext(supabase, job);
+  const { ticket, reply, displayName, readError } = await loadSupportContext(supabase, job);
+  if (readError) {
+    const stateSaved = await completeSupportJob(supabase, job, workerId, {
+      success: false,
+      error: readError,
+      errorCode: "support_context_read_failed",
+      retryAfterSeconds: retryAfterForStatus(null),
+      permanent: false,
+    });
+    if (!stateSaved) return { ok: false, error: "support_delivery_state_update_failed" };
+    return { ok: false, error: "support_context_read_failed" };
+  }
+
   if (!ticket || !reply) {
-    await completeSupportJob(supabase, job, workerId, {
+    const stateSaved = await completeSupportJob(supabase, job, workerId, {
       success: false,
       error: "Support ticket or reply was not found.",
       errorCode: "support_context_missing",
       permanent: true,
     });
+    if (!stateSaved) return { ok: false, error: "support_delivery_state_update_failed" };
     return { ok: false, error: "support_context_missing" };
   }
 
