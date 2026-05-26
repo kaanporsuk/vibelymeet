@@ -26,14 +26,18 @@
  * • All mutations require an active session — never called unauthenticated.
  * • linkIdentity() is used for OAuth, never signInWithOAuth() — prevents second-account creation.
  * • updateUser() edits the existing auth.users row — never creates a new account.
- * • Cross-account conflicts are surfaced via mapIdentityLinkingError(); no silent merge.
+ * • Cross-account conflicts are surfaced through shared identity-linking auth copy; no silent merge.
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
-import { mapIdentityLinkingError } from '@shared/authConflictMessages';
 import { validatePasswordPolicy, passwordPolicyMessage } from '@clientShared/passwordPolicy';
+import {
+  authIdentityMethodLabel,
+  safeAuthErrorMessage,
+  safeIdentityLinkingErrorMessage,
+} from '@clientShared/authErrorCopy';
 
 // ---------- types ----------
 
@@ -129,7 +133,7 @@ export function useIdentityLinking() {
       setState(prev => ({
         ...prev,
         isLoading: false,
-        error: err instanceof Error ? err.message : 'Failed to fetch identities',
+        error: safeAuthErrorMessage(err, 'Failed to fetch identities.'),
       }));
     }
   }, [session?.user?.id, session?.user?.email, session?.user?.phone]);
@@ -147,7 +151,12 @@ export function useIdentityLinking() {
         const { error } = await supabase.auth.exchangeCodeForSession(code);
         if (error) {
           const { data } = await supabase.auth.getSession();
-          if (!data.session) setState(prev => ({ ...prev, error: error.message }));
+          if (!data.session) {
+            setState(prev => ({
+              ...prev,
+              error: safeAuthErrorMessage(error, 'Failed to finish linking this sign-in method.'),
+            }));
+          }
         }
       }
 
@@ -184,7 +193,7 @@ export function useIdentityLinking() {
         return;
       }
       if (isProviderLinked(provider)) {
-        setState(prev => ({ ...prev, error: `${provider} is already linked to your account.` }));
+        setState(prev => ({ ...prev, error: `${authIdentityMethodLabel(provider)} is already linked to your account.` }));
         return;
       }
       if (provider !== 'google' && provider !== 'apple') {
@@ -213,7 +222,11 @@ export function useIdentityLinking() {
           ...prev,
           isLinking: false,
           linkingProvider: null,
-          error: mapIdentityLinkingError(err, provider as OAuthLinkProvider),
+          error: safeIdentityLinkingErrorMessage(
+            err,
+            provider as OAuthLinkProvider,
+            `Failed to link ${authIdentityMethodLabel(provider)}.`,
+          ),
         }));
       }
     },
@@ -233,15 +246,23 @@ export function useIdentityLinking() {
       }
 
       const rawIdentity = rawIdentitiesRef.current.find(i => i.provider === provider);
-      if (!rawIdentity) throw new Error(`${provider} is not linked to your account.`);
+      if (!rawIdentity) throw new Error(`${authIdentityMethodLabel(provider)} is not linked to your account.`);
 
       setState(prev => ({ ...prev, isLinking: true, linkingProvider: provider, error: null }));
       try {
         const { error } = await supabase.auth.unlinkIdentity(rawIdentity);
-        if (error) throw new Error(mapIdentityLinkingError(error, provider));
+        if (error) {
+          throw new Error(
+            safeIdentityLinkingErrorMessage(
+              error,
+              provider,
+              `Failed to unlink ${authIdentityMethodLabel(provider)}.`,
+            ),
+          );
+        }
         await fetchIdentities();
       } catch (err) {
-        const message = err instanceof Error ? err.message : `Failed to unlink ${provider}.`;
+        const message = safeAuthErrorMessage(err, `Failed to unlink ${authIdentityMethodLabel(provider)}.`);
         setState(prev => ({ ...prev, error: message }));
         throw err;
       } finally {
@@ -271,10 +292,10 @@ export function useIdentityLinking() {
       setState(prev => ({ ...prev, isLinking: true, linkingProvider: 'email', error: null }));
       try {
         const { error } = await supabase.auth.updateUser({ password });
-        if (error) throw new Error(mapIdentityLinkingError(error, 'email'));
+        if (error) throw new Error(safeIdentityLinkingErrorMessage(error, 'email', 'Failed to set password.'));
         await fetchIdentities();
       } catch (err) {
-        const message = err instanceof Error ? err.message : 'Failed to set password.';
+        const message = safeAuthErrorMessage(err, 'Failed to set password.');
         setState(prev => ({ ...prev, error: message }));
         throw err;
       } finally {
@@ -298,11 +319,11 @@ export function useIdentityLinking() {
       setState(prev => ({ ...prev, isLinking: true, linkingProvider: 'email', error: null }));
       try {
         const { error } = await supabase.auth.updateUser({ email });
-        if (error) throw new Error(mapIdentityLinkingError(error, 'email'));
+        if (error) throw new Error(safeIdentityLinkingErrorMessage(error, 'email', 'Failed to add email.'));
         // Don't fetchIdentities() yet — identity only appears after email confirmation.
         return { confirmationRequired: true };
       } catch (err) {
-        const message = err instanceof Error ? err.message : 'Failed to add email.';
+        const message = safeAuthErrorMessage(err, 'Failed to add email.');
         setState(prev => ({ ...prev, error: message }));
         throw err;
       } finally {
@@ -325,10 +346,14 @@ export function useIdentityLinking() {
       setState(prev => ({ ...prev, isLinking: true, linkingProvider: 'phone', error: null }));
       try {
         const { error } = await supabase.auth.updateUser({ phone });
-        if (error) throw new Error(mapIdentityLinkingError(error, 'phone'));
+        if (error) {
+          throw new Error(
+            safeIdentityLinkingErrorMessage(error, 'phone', 'Failed to send verification code.'),
+          );
+        }
         return { otpSent: true };
       } catch (err) {
-        const message = err instanceof Error ? err.message : 'Failed to send verification code.';
+        const message = safeAuthErrorMessage(err, 'Failed to send verification code.');
         setState(prev => ({ ...prev, error: message, isLinking: false, linkingProvider: null }));
         throw err;
       }
@@ -341,10 +366,10 @@ export function useIdentityLinking() {
     async (phone: string, token: string): Promise<void> => {
       try {
         const { error } = await supabase.auth.verifyOtp({ phone, token, type: 'phone_change' });
-        if (error) throw new Error(mapIdentityLinkingError(error, 'phone'));
+        if (error) throw new Error(safeIdentityLinkingErrorMessage(error, 'phone', 'Phone verification failed.'));
         await fetchIdentities();
       } catch (err) {
-        const message = err instanceof Error ? err.message : 'Phone verification failed.';
+        const message = safeAuthErrorMessage(err, 'Phone verification failed.');
         setState(prev => ({ ...prev, error: message }));
         throw err;
       } finally {

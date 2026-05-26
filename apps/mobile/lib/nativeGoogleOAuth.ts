@@ -4,6 +4,7 @@ import {
   completeSessionFromAuthReturnUrl,
   getNativeGoogleOAuthRedirectUrl,
 } from '@/lib/nativeAuthRedirect';
+import { safeAuthErrorMessage } from '@clientShared/authErrorCopy';
 
 export type NativeGoogleOAuthResult = { cancelled: boolean; error: Error | null };
 
@@ -23,7 +24,7 @@ export async function startNativeGoogleOAuth(supabase: SupabaseClient): Promise<
   });
 
   if (oauthError) {
-    return { cancelled: false, error: new Error(oauthError.message) };
+    return { cancelled: false, error: new Error(safeAuthErrorMessage(oauthError, 'Google sign-in failed.')) };
   }
 
   const authUrl = data?.url;

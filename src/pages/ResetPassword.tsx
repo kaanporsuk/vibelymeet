@@ -25,6 +25,7 @@ import {
   type WebPasswordRecoveryState,
 } from "@/lib/webPasswordRecovery";
 import { validatePasswordPolicy, passwordPolicyMessage } from "@clientShared/passwordPolicy";
+import { safeAuthErrorMessage } from "@clientShared/authErrorCopy";
 
 type ResetMode = "request" | "update" | "success";
 type SuccessKind = "request" | "update";
@@ -134,7 +135,7 @@ const ResetPassword = () => {
       });
 
       if (error) {
-        setFormError(error.message);
+        setFormError(safeAuthErrorMessage(error, "Failed to send reset email. Please try again."));
         return;
       }
 
@@ -175,7 +176,7 @@ const ResetPassword = () => {
       const { error } = await supabase.auth.updateUser({ password });
 
       if (error) {
-        setFormError(error.message);
+        setFormError(safeAuthErrorMessage(error, "Failed to update password. Please try again."));
         return;
       }
 

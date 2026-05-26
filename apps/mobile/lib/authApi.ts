@@ -6,13 +6,26 @@ import {
   type EntryStateResponse,
 } from '@shared/entryState';
 import { validatePasswordPolicy, passwordPolicyMessage } from '@clientShared/passwordPolicy';
+import { safeAuthErrorMessage } from '@clientShared/authErrorCopy';
 
 export type OnboardingStatus = 'complete' | 'incomplete' | 'unknown';
+
+function normalizeAuthContractError(
+  error: unknown,
+  fallbackCode: string,
+  fallbackMessage: string,
+): ReturnType<typeof normalizeContractError> {
+  const normalized = normalizeContractError(error, fallbackCode, fallbackMessage);
+  return {
+    ...normalized,
+    message: safeAuthErrorMessage(error, fallbackMessage),
+  };
+}
 
 export async function signInWithEmail(email: string, password: string): Promise<{ ok: true } | { ok: false; error: ReturnType<typeof normalizeContractError> }> {
   const { error } = await supabase.auth.signInWithPassword({ email, password });
   if (error) {
-    return { ok: false, error: normalizeContractError(error, 'auth_sign_in_failed', 'Sign in failed.') };
+    return { ok: false, error: normalizeAuthContractError(error, 'auth_sign_in_failed', 'Sign in failed.') };
   }
   return { ok: true };
 }
@@ -21,7 +34,7 @@ export async function requestPasswordReset(email: string): Promise<{ ok: true } 
   const redirectTo = getNativePasswordResetRedirectUrl();
   const { error } = await supabase.auth.resetPasswordForEmail(email, { redirectTo });
   if (error) {
-    return { ok: false, error: normalizeContractError(error, 'auth_reset_request_failed', 'Could not send reset email.') };
+    return { ok: false, error: normalizeAuthContractError(error, 'auth_reset_request_failed', 'Could not send reset email.') };
   }
   return { ok: true };
 }
@@ -40,7 +53,7 @@ export async function updatePassword(newPassword: string): Promise<{ ok: true } 
   }
   const { error } = await supabase.auth.updateUser({ password: newPassword });
   if (error) {
-    return { ok: false, error: normalizeContractError(error, 'auth_password_update_failed', 'Could not update password.') };
+    return { ok: false, error: normalizeAuthContractError(error, 'auth_password_update_failed', 'Could not update password.') };
   }
   return { ok: true };
 }

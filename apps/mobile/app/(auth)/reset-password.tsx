@@ -14,6 +14,7 @@ import {
   type PasswordRecoveryStatus,
 } from '@shared/authRedirect';
 import { validatePasswordPolicy, passwordPolicyMessage } from '@clientShared/passwordPolicy';
+import { safeAuthErrorMessage } from '@clientShared/authErrorCopy';
 
 const WEB_APP_ORIGIN = (process.env.EXPO_PUBLIC_WEB_APP_URL ?? 'https://www.vibelymeet.com').replace(/\/$/, '');
 
@@ -50,13 +51,17 @@ export default function ResetPasswordScreen() {
 
   useEffect(() => {
     if (recoveryStatus === 'invalid') {
-      setError(authLinkError ?? 'That recovery link is invalid or expired.');
+      setError(
+        authLinkError
+          ? safeAuthErrorMessage({ message: authLinkError }, 'That recovery link is invalid or expired.')
+          : 'That recovery link is invalid or expired.',
+      );
       setMessage('Request a fresh reset email below.');
       return;
     }
 
     if (authLinkError) {
-      setError(authLinkError);
+      setError(safeAuthErrorMessage({ message: authLinkError }, 'That recovery link is invalid or expired.'));
       setMessage('Request a fresh reset email below.');
       return;
     }
