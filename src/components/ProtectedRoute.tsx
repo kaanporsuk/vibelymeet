@@ -1,8 +1,8 @@
-import { ReactNode } from "react";
+import { ReactNode, useEffect } from "react";
 import { Navigate, useLocation } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
-import { Loader2, WifiOff } from "lucide-react";
-import { useQuery } from "@tanstack/react-query";
+import { AlertTriangle, Loader2, RefreshCw, ShieldOff, WifiOff } from "lucide-react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 
@@ -12,19 +12,87 @@ interface ProtectedRouteProps {
   requireOnboarding?: boolean;
 }
 
+type AdminVerificationStatus = "admin" | "not_admin" | "unauthenticated";
+
+type AdminVerificationResult = {
+  isAdmin: boolean;
+  status: AdminVerificationStatus;
+  message?: string;
+};
+
+function functionErrorStatus(error: unknown): number | null {
+  const context = (error as { context?: unknown } | null)?.context;
+  if (context && typeof context === "object") {
+    const status = (context as { status?: unknown }).status;
+    if (typeof status === "number") return status;
+  }
+  return null;
+}
+
+function adminVerificationMessage(error: unknown) {
+  const status = functionErrorStatus(error);
+  if (status) return `Admin verification failed (HTTP ${status}).`;
+  return "Admin verification failed. Please retry before continuing.";
+}
+
+function AdminAccessProblem({
+  kind,
+  message,
+  isRetrying,
+  onRetry,
+  onSignOut,
+}: {
+  kind: "denied" | "error";
+  message: string;
+  isRetrying: boolean;
+  onRetry: () => void;
+  onSignOut: () => void;
+}) {
+  const Icon = kind === "denied" ? ShieldOff : AlertTriangle;
+  return (
+    <div className="min-h-screen bg-background flex flex-col items-center justify-center p-6 text-center">
+      <div className="w-16 h-16 rounded-full bg-muted flex items-center justify-center mb-6">
+        <Icon className="w-8 h-8 text-muted-foreground" />
+      </div>
+      <h1 className="text-2xl font-display font-bold text-foreground mb-2">
+        {kind === "denied" ? "Admin Access Unavailable" : "Admin Verification Failed"}
+      </h1>
+      <p className="text-muted-foreground mb-6 max-w-sm">{message}</p>
+      <div className="flex flex-col sm:flex-row gap-3">
+        <Button onClick={onRetry} disabled={isRetrying}>
+          {isRetrying ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
+          Retry
+        </Button>
+        <Button variant="outline" onClick={onSignOut}>
+          Sign Out
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 export function ProtectedRoute({
   children,
   requireAdmin = false,
   requireOnboarding = true
 }: ProtectedRouteProps) {
-  const { isAuthenticated, isLoading, session, isOfflineAtBoot, entryState, entryStateLoading, isProfileLoading } = useAuth();
+  const { isAuthenticated, isLoading, session, isOfflineAtBoot, entryState, entryStateLoading, isProfileLoading, logout } = useAuth();
   const location = useLocation();
+  const queryClient = useQueryClient();
 
   // Server-side admin role verification via edge function - cannot be bypassed
-  const { data: isServerVerifiedAdmin, isLoading: isAdminCheckLoading } = useQuery({
+  const {
+    data: adminVerification,
+    error: adminVerificationError,
+    isLoading: isAdminCheckLoading,
+    isFetching: isAdminCheckFetching,
+    refetch: refetchAdminVerification,
+  } = useQuery<AdminVerificationResult>({
     queryKey: ['verify-admin-role', session?.user?.id],
     queryFn: async () => {
-      if (!session?.user?.id) return false;
+      if (!session?.user?.id) {
+        return { isAdmin: false, status: "unauthenticated" };
+      }
 
       try {
         const { data, error } = await supabase.functions.invoke('verify-admin', {
@@ -34,20 +102,55 @@ export function ProtectedRoute({
         });
 
         if (error) {
+          const status = functionErrorStatus(error);
+          if (status === 401) {
+            return { isAdmin: false, status: "unauthenticated", message: "Your admin session expired." };
+          }
+          if (status === 403) {
+            return { isAdmin: false, status: "not_admin", message: "Admin role is required." };
+          }
           console.error('Admin verification error');
-          return false;
+          throw new Error(adminVerificationMessage(error));
         }
 
-        return data?.isAdmin === true;
+        if (data?.isAdmin === true) return { isAdmin: true, status: "admin" };
+        return {
+          isAdmin: false,
+          status: data?.status === "unauthenticated" ? "unauthenticated" : "not_admin",
+          message: typeof data?.message === "string" ? data.message : "Admin role is required.",
+        };
       } catch (err) {
         console.error('Admin verification failed');
-        return false;
+        throw err instanceof Error ? err : new Error("Admin verification failed.");
       }
     },
     enabled: !!session?.user?.id && requireAdmin,
-    staleTime: 1000 * 60 * 5,
-    retry: false,
+    staleTime: 30_000,
+    refetchOnWindowFocus: "always",
+    refetchOnReconnect: true,
+    refetchInterval: requireAdmin ? 60_000 : false,
+    retry: 1,
   });
+
+  useEffect(() => {
+    if (!requireAdmin || !session?.user?.id) return undefined;
+
+    const userId = session.user.id;
+    const channel = supabase
+      .channel(`admin-role-watch:${userId}`)
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "user_roles", filter: `user_id=eq.${userId}` },
+        () => {
+          void queryClient.invalidateQueries({ queryKey: ['verify-admin-role', userId] });
+        },
+      )
+      .subscribe();
+
+    return () => {
+      void supabase.removeChannel(channel);
+    };
+  }, [queryClient, requireAdmin, session?.user?.id]);
 
   const isCheckingAdmin = requireAdmin && isAdminCheckLoading;
 
@@ -80,8 +183,28 @@ export function ProtectedRoute({
   }
 
   // Server-side verified admin check - cannot be bypassed via client-side manipulation
-  if (requireAdmin && !isServerVerifiedAdmin) {
-    return <Navigate to="/dashboard" replace />;
+  if (requireAdmin && adminVerificationError) {
+    return (
+      <AdminAccessProblem
+        kind="error"
+        message={adminVerificationMessage(adminVerificationError)}
+        isRetrying={isAdminCheckFetching}
+        onRetry={() => void refetchAdminVerification()}
+        onSignOut={() => void logout()}
+      />
+    );
+  }
+
+  if (requireAdmin && adminVerification?.status !== "admin") {
+    return (
+      <AdminAccessProblem
+        kind="denied"
+        message={adminVerification?.message ?? "Your current session does not have admin access. Sign in with an admin account to continue."}
+        isRetrying={isAdminCheckFetching}
+        onRetry={() => void refetchAdminVerification()}
+        onSignOut={() => void logout()}
+      />
+    );
   }
 
   if (requireOnboarding) {

@@ -1,11 +1,14 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2.88.0";
-
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers":
-    "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
-};
+import {
+  adminJsonResponse,
+  authenticateAdminRequest,
+  sanitizeErrorMessage,
+  statusForAdminError,
+} from "../_shared/adminAuth.ts";
+import {
+  isBrowserOriginRejected,
+  preflightResponse,
+} from "../_shared/cors.ts";
 
 type AdminCreateSupportReplyPayload = {
   success?: boolean;
@@ -26,68 +29,32 @@ function escapeHtml(s: string): string {
     .replace(/"/g, "&quot;");
 }
 
-function jsonResponse(body: Record<string, unknown>, status = 200) {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { ...corsHeaders, "Content-Type": "application/json" },
-  });
-}
-
-function sanitizeErrorMessage(reason: unknown): string {
-  return String(reason instanceof Error ? reason.message : reason || "Unknown error")
-    .replace(/https?:\/\/\S+/g, "[url]")
-    .replace(/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g, "[email]")
-    .replace(/\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/gi, "[id]")
-    .replace(/\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b/g, "[token]")
-    .replace(/\b(?:Bearer|Token)\s+[A-Za-z0-9._~+/=-]+/gi, "[token]")
-    .replace(/\s+/g, " ")
-    .trim()
-    .slice(0, 220);
+function jsonResponse(req: Request, body: Record<string, unknown>, status = 200) {
+  return adminJsonResponse(req, body, status);
 }
 
 function statusForRpcError(error: string | undefined) {
-  switch (error) {
-    case "UNAUTHENTICATED":
-      return 401;
-    case "FORBIDDEN":
-      return 403;
-    case "NOT_FOUND":
-      return 404;
-    case "INVALID_TRANSITION":
-    case "CONFLICT":
-      return 409;
-    case "VALIDATION_ERROR":
-      return 400;
-    default:
-      return 400;
-  }
+  return statusForAdminError(error, 400);
 }
 
 serve(async (req) => {
   if (req.method === "OPTIONS") {
-    return new Response(null, { headers: corsHeaders });
+    return preflightResponse(req);
+  }
+  if (isBrowserOriginRejected(req)) {
+    return jsonResponse(req, { success: false, error: "ORIGIN_NOT_ALLOWED" }, 403);
+  }
+  if (req.method !== "POST") {
+    return jsonResponse(req, { success: false, error: "METHOD_NOT_ALLOWED" }, 405);
   }
 
   try {
-    const authHeader = req.headers.get("Authorization");
-    if (!authHeader?.startsWith("Bearer ")) {
-      return jsonResponse({ error: "Unauthorized" }, 401);
-    }
+    const auth = await authenticateAdminRequest(req);
+    if (!auth.ok) return auth.response;
 
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-    const anonKey = Deno.env.get("SUPABASE_ANON_KEY")!;
-
-    const userClient = createClient(supabaseUrl, anonKey, {
-      global: { headers: { Authorization: authHeader } },
-    });
-
-    const { data: userData, error: userErr } = await userClient.auth.getUser();
-    if (userErr || !userData?.user) {
-      return jsonResponse({ error: "Unauthorized" }, 401);
-    }
-
-    const service = createClient(supabaseUrl, serviceKey);
+    const service = auth.context.adminClient;
 
     const requestBody = await req.json().catch(() => ({}));
     const ticketId = typeof requestBody.ticket_id === "string" ? requestBody.ticket_id : "";
@@ -96,10 +63,10 @@ serve(async (req) => {
     const idempotencyKey = typeof requestBody.idempotency_key === "string" ? requestBody.idempotency_key : null;
 
     if (!ticketId || !replyMessage) {
-      return jsonResponse({ error: "ticket_id and reply_message required" }, 400);
+      return jsonResponse(req, { error: "ticket_id and reply_message required" }, 400);
     }
 
-    const { data: replyPayloadRaw, error: replyRpcError } = await userClient.rpc("admin_create_support_reply", {
+    const { data: replyPayloadRaw, error: replyRpcError } = await auth.context.userClient.rpc("admin_create_support_reply", {
       p_ticket_id: ticketId,
       p_message: replyMessage,
       p_idempotency_key: idempotencyKey,
@@ -107,6 +74,7 @@ serve(async (req) => {
 
     if (replyRpcError) {
       return jsonResponse(
+        req,
         {
           success: false,
           error: "RPC_ERROR",
@@ -119,6 +87,7 @@ serve(async (req) => {
     const replyPayload = replyPayloadRaw as AdminCreateSupportReplyPayload | null;
     if (!replyPayload?.success) {
       return jsonResponse(
+        req,
         {
           success: false,
           error: replyPayload?.error ?? "SAVE_FAILED",
@@ -129,7 +98,7 @@ serve(async (req) => {
     }
 
     if (replyPayload.idempotent_replay) {
-      return jsonResponse({
+      return jsonResponse(req, {
         success: true,
         idempotent_replay: true,
         ticket_id: replyPayload.ticket_id ?? ticketId,
@@ -146,7 +115,7 @@ serve(async (req) => {
       .single();
 
     if (ticketError || !ticket) {
-      return jsonResponse({
+      return jsonResponse(req, {
         success: true,
         ticket_id: ticketId,
         reply_id: replyPayload.reply?.id ?? null,
@@ -241,7 +210,7 @@ serve(async (req) => {
       }
     }
 
-    return jsonResponse({
+    return jsonResponse(req, {
       success: true,
       ticket_id: ticketId,
       reply_id: replyPayload.reply?.id ?? null,
@@ -250,6 +219,6 @@ serve(async (req) => {
     });
   } catch (e) {
     console.error("send-support-reply:", sanitizeErrorMessage(e));
-    return jsonResponse({ error: "INTERNAL_ERROR", message: sanitizeErrorMessage(e) }, 500);
+    return jsonResponse(req, { error: "INTERNAL_ERROR", message: sanitizeErrorMessage(e) }, 500);
   }
 });

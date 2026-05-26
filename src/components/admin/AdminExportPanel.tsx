@@ -26,6 +26,7 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import { supabase } from "@/integrations/supabase/client";
 import { callAdminRpc, sanitizeAdminRpcErrorMessage, type AdminRpcPayload } from "@/lib/adminRpc";
+import { resolveSupabaseFunctionErrorMessage } from "@/lib/supabaseFunctionInvokeErrors";
 import { toast } from "sonner";
 
 type GovernedExportScope =
@@ -299,7 +300,9 @@ const AdminExportPanel = () => {
           pii_classification: piiClassification,
         },
       });
-      if (error) throw new Error(error.message || "Governed export queue failed");
+      if (error) {
+        throw new Error(await resolveSupabaseFunctionErrorMessage(error, data, "Governed export queue failed"));
+      }
       const payload = data as GovernedExportResponse | null;
       if (!payload || payload.success === false || payload.ok === false) {
         throw new Error(payload?.message || payload?.error || "Governed export queue failed");

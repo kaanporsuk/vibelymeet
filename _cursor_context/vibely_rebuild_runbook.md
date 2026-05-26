@@ -4,7 +4,7 @@
 >
 > **2026-04-11:** Repo hardening removed unrouted `VideoLobby.tsx` and legacy `ReadyGate.tsx`; `/ready/:readyId` uses `ReadyRedirect`. Mentions of those files below are **historical**. Production hosting is **not** Lovable-first — see root `README.md` and `docs/vibely-canonical-project-reference.md`.
 >
-> **2026-05-23:** Current dependency-closure addendum: the repo now contains **67 deployable Edge Functions** and **67 matching `supabase/config.toml` entries** for project `schdyxcunwcvddlcshwd`. Older counts in historical sections are superseded; use `_cursor_context/vibely_edge_function_manifest.md` and `supabase/config.toml` as the current function inventory.
+> **2026-05-26:** Current dependency-closure addendum: the repo now contains **70 deployable Edge Functions** and **70 matching `supabase/config.toml` entries** for project `schdyxcunwcvddlcshwd`. Older counts in historical sections are superseded; use `_cursor_context/vibely_edge_function_manifest.md` and `supabase/config.toml` as the current function inventory.
 >
 > **2026-04-23:** Phase 2 adds migration `20260423120000_event_loop_observability.sql` (table `event_loop_observability_events` + instrumented queue/promotion/cleanup RPCs). Apply with normal `supabase db push` / linked migration flow; no new Edge deploy or secrets. Operator reads: service-role SQL / dashboard — not anon/authenticated.
 >
@@ -454,8 +454,8 @@ supabase secrets list
 
 Current repo state:
 
-- 67 deployable function directories exist under `supabase/functions`, excluding `_shared`.
-- 67 matching `[functions.<slug>]` entries exist in `supabase/config.toml`.
+- 70 deployable function directories exist under `supabase/functions`, excluding `_shared`.
+- 70 matching `[functions.<slug>]` entries exist in `supabase/config.toml`.
 - Canonical project ref for production rebuilds is `schdyxcunwcvddlcshwd / MVP_Vibe`.
 - Source-of-truth inventory files are `supabase/config.toml` and `_cursor_context/vibely_edge_function_manifest.md`; `_cursor_context/vibely_machine_readable_inventory.json` is historical unless regenerated.
 
@@ -483,10 +483,10 @@ Do not deploy all functions for a scoped repair unless the release plan explicit
 
 ### JWT behavior
 
-`supabase/config.toml` configures all 67 current function entries.
+`supabase/config.toml` configures all 70 current function entries.
 
-- 39 functions have gateway JWT verification on.
-- 28 functions have gateway JWT verification off and rely on function-specific controls such as provider signatures, webhook tokens, `CRON_SECRET`, admin/service checks, or intentionally health-only behavior.
+- 40 functions have gateway JWT verification on.
+- 30 functions have gateway JWT verification off and rely on function-specific controls such as provider signatures, webhook tokens, `CRON_SECRET`, admin/service checks, or intentionally health-only behavior.
 
 For the current slug-by-slug list, use `_cursor_context/vibely_edge_function_manifest.md` §2. Do not copy older 34/21, 45, 55, or 28-function historical lists into rebuild steps.
 
@@ -713,8 +713,8 @@ A rebuild should not be considered complete until all of the following are true:
 - frontend boots with no missing-env crash
 - all migrations apply cleanly
 - all expected buckets exist with expected access behavior
-- all 67 Edge Functions are deployed when doing a full rebuild
-- JWT behavior matches config (39 JWT-at-gateway, 28 public-but-protected); required secrets set
+- all 70 Edge Functions are deployed when doing a full rebuild
+- JWT behavior matches config (40 JWT-at-gateway, 30 public-but-protected); required secrets set
 - Bunny upload + playback works
 - Stripe checkout + webhook works
 - phone verification works
@@ -728,6 +728,6 @@ A rebuild should not be considered complete until all of the following are true:
 
 - Prefer **rebuild by preservation**, not opportunistic cleanup.
 - **`VideoLobby.tsx` was removed in 2026-04-11** after documentation (`docs/repo-hardening-closure-2026-04-11.md`) — the old “unrouted but keep” warning applied **before** that removal; do not reintroduce without product need.
-- All 67 current deployable functions are in config.toml; no source/config gaps.
+- All 70 current deployable functions are in config.toml; no source/config gaps.
 - Treat the root `.env` as historical artifact, not source of truth.
 - After any successful rebuild, immediately generate updated manifests and a rebuild delta so the next operator is not relying on memory.

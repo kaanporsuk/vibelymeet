@@ -1,52 +1,49 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import {
+  adminJsonResponse,
+  authenticateAdminRequest,
+  sanitizeErrorMessage,
+  statusForAdminError,
+} from "../_shared/adminAuth.ts";
+import {
+  isBrowserOriginRejected,
+  preflightResponse,
+} from "../_shared/cors.ts";
 
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers":
-    "authorization, x-client-info, apikey, content-type",
-};
-
-function jsonResponse(body: Record<string, unknown>, status = 200) {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { ...corsHeaders, "Content-Type": "application/json" },
-  });
+function jsonResponse(req: Request, body: Record<string, unknown>, status = 200) {
+  return adminJsonResponse(req, body, status);
 }
 
 serve(async (req) => {
   if (req.method === "OPTIONS") {
-    return new Response(null, { headers: corsHeaders });
+    return preflightResponse(req);
+  }
+  if (isBrowserOriginRejected(req)) {
+    return jsonResponse(req, { success: false, error: "ORIGIN_NOT_ALLOWED" }, 403);
+  }
+  if (req.method !== "POST") {
+    return jsonResponse(req, { success: false, error: "METHOD_NOT_ALLOWED" }, 405);
   }
 
   try {
-    const authHeader = req.headers.get("authorization");
-    if (!authHeader) {
-      return jsonResponse({ success: false, error: "Not authenticated" }, 401);
+    const auth = await authenticateAdminRequest(req);
+    if (!auth.ok) return auth.response;
+
+    const body = await req.json().catch(() => null);
+    if (!body || typeof body !== "object") {
+      return jsonResponse(req, { success: false, error: "Invalid JSON body" }, 400);
     }
-
-    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-    const supabase = createClient(supabaseUrl, Deno.env.get("SUPABASE_ANON_KEY")!, {
-      global: { headers: { Authorization: authHeader } },
-    });
-
-    const { data: { user }, error: authError } = await supabase.auth.getUser();
-    if (authError || !user) {
-      return jsonResponse({ success: false, error: "Authentication failed" }, 401);
-    }
-
-    const body = await req.json();
     const { verification_id, action, rejection_reason, idempotency_key } = body;
 
     if (!verification_id || !action) {
-      return jsonResponse({ success: false, error: "Missing verification_id or action" });
+      return jsonResponse(req, { success: false, error: "Missing verification_id or action" }, 400);
     }
 
     if (action !== "approve" && action !== "reject") {
-      return jsonResponse({ success: false, error: "Invalid action" });
+      return jsonResponse(req, { success: false, error: "Invalid action" }, 400);
     }
 
-    const { data, error } = await supabase.rpc("admin_review_photo_verification", {
+    const { data, error } = await auth.context.userClient.rpc("admin_review_photo_verification", {
       p_verification_id: verification_id,
       p_action: action,
       p_rejection_reason: rejection_reason ?? null,
@@ -54,21 +51,26 @@ serve(async (req) => {
     });
 
     if (error) {
-      console.error("admin_review_photo_verification RPC error:", error);
-      return jsonResponse({ success: false, error: error.message }, 500);
+      console.error("admin_review_photo_verification RPC error:", sanitizeErrorMessage(error.message));
+      return jsonResponse(
+        req,
+        { success: false, error: "RPC_ERROR", message: sanitizeErrorMessage(error.message) },
+        statusForAdminError(error),
+      );
     }
 
     const payload = data as { success?: boolean; error?: string; message?: string } | null;
     if (!payload?.success) {
       return jsonResponse(
+        req,
         { success: false, error: payload?.error ?? "review_failed", message: payload?.message },
-        payload?.error === "FORBIDDEN" ? 403 : payload?.error === "UNAUTHENTICATED" ? 401 : 400,
+        statusForAdminError(payload?.error, 400),
       );
     }
 
-    return jsonResponse(payload);
+    return jsonResponse(req, payload);
   } catch (err) {
-    console.error("Crash:", err);
-    return jsonResponse({ success: false, error: "Server error" }, 500);
+    console.error("Crash:", sanitizeErrorMessage(err));
+    return jsonResponse(req, { success: false, error: "Server error" }, 500);
   }
 });

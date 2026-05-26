@@ -116,7 +116,7 @@ All critical RPCs exist with the expected signatures.
 
 ### 3a. Deployed Edge Functions (historical 2026-03-18 snapshot)
 
-> Update 2026-05-23: the linked project and repo have moved beyond this March snapshot. The current repo contains 67 deployable Edge Functions (excluding `_shared`) and 67 matching `supabase/config.toml` entries. Historical mentions of `email-drip`, `unsubscribe`, `account-pause`, and `account-resume` are superseded for current ops; those slugs are absent unless deliberately restored. Use `_cursor_context/vibely_edge_function_manifest.md` plus `supabase functions list` for the canonical current inventory.
+> Update 2026-05-26: the linked project and repo have moved beyond this March snapshot. The current repo contains 70 deployable Edge Functions (excluding `_shared`) and 70 matching `supabase/config.toml` entries. Historical mentions of `email-drip`, `unsubscribe`, `account-pause`, and `account-resume` are superseded for current ops; those slugs are absent unless deliberately restored. Use `_cursor_context/vibely_edge_function_manifest.md` plus `supabase functions list` for the canonical current inventory.
 
 33 functions: `delete-account`, `email-verification`, `event-notifications`, `push-webhook`, `geocode`, `verify-admin`, `forward-geocode`, `daily-room`, `phone-verify`, `admin-review-verification`, `create-video-upload`, `video-webhook`, `delete-vibe-video`, `upload-image`, `upload-voice`, `upload-event-cover`, `create-checkout-session`, `stripe-webhook`, `create-event-checkout`, `create-credits-checkout`, `create-portal-session`, `cancel-deletion`, `request-account-deletion`, `send-notification`, `generate-daily-drops`, `upload-chat-video`, `daily-drop-actions`, `send-message`, `swipe-actions`, `revenuecat-webhook`.
 

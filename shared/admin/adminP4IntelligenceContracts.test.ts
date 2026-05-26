@@ -472,9 +472,14 @@ test("P4 Edge Function wrappers are configured and delegate to constrained RPCs"
   assert.match(growthFunction, /record_growth_attribution_event/);
   assert.match(growthFunction, /SUPABASE_ANON_KEY/);
   assert.doesNotMatch(growthFunction, /SERVICE_ROLE/);
+  assert.match(exportFunction, /authenticateAdminRequest\(req\)/);
   assert.match(exportFunction, /admin_create_data_export_job/);
-  assert.match(exportFunction, /Authorization: authHeader/);
+  assert.match(exportFunction, /auth\.context\.userClient\.rpc\("admin_create_data_export_job"/);
   assert.match(exportFunction, /scope_type_and_reason_required/);
+  assert.match(exportFunction, /EXPORT_QUEUE_FAILED/);
+  assert.match(exportFunction, /statusForAdminError/);
+  assert.match(exportPanel, /resolveSupabaseFunctionErrorMessage/);
+  assert.doesNotMatch(exportFunction, /return jsonResponse\(req, \{ success: false, error: error\.message \}, \{ status: 200 \}\)/);
   assert.doesNotMatch(exportFunction, /SERVICE_ROLE/);
 });
 

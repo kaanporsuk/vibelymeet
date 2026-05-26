@@ -8,8 +8,25 @@ import { Label } from "@/components/ui/label";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 
+type AdminSessionVerification =
+  | { status: "admin" }
+  | { status: "not_admin"; message: string }
+  | { status: "unauthenticated"; message: string }
+  | { status: "verification_failed"; message: string };
+
+function functionErrorStatus(error: unknown): number | null {
+  const context = (error as { context?: unknown } | null)?.context;
+  if (context && typeof context === "object") {
+    const status = (context as { status?: unknown }).status;
+    if (typeof status === "number") return status;
+  }
+  return null;
+}
+
 const verifyAdminSession = async (accessToken?: string | null) => {
-  if (!accessToken) return false;
+  if (!accessToken) {
+    return { status: "unauthenticated", message: "Admin session is required." } satisfies AdminSessionVerification;
+  }
 
   try {
     const { data, error } = await supabase.functions.invoke("verify-admin", {
@@ -19,14 +36,25 @@ const verifyAdminSession = async (accessToken?: string | null) => {
     });
 
     if (error) {
+      const status = functionErrorStatus(error);
+      if (status === 401) {
+        return { status: "unauthenticated", message: "Your session expired. Sign in again." } satisfies AdminSessionVerification;
+      }
+      if (status === 403) {
+        return { status: "not_admin", message: "This account does not have admin privileges." } satisfies AdminSessionVerification;
+      }
       console.error("Admin verification failed");
-      return false;
+      return { status: "verification_failed", message: "Could not verify admin access. Try again." } satisfies AdminSessionVerification;
     }
 
-    return data?.isAdmin === true;
+    if (data?.isAdmin === true) return { status: "admin" } satisfies AdminSessionVerification;
+    return {
+      status: data?.status === "unauthenticated" ? "unauthenticated" : "not_admin",
+      message: typeof data?.message === "string" ? data.message : "This account does not have admin privileges.",
+    } satisfies AdminSessionVerification;
   } catch (err) {
     console.error("Admin verification request failed:", err);
-    return false;
+    return { status: "verification_failed", message: "Could not reach admin verification. Try again." } satisfies AdminSessionVerification;
   }
 };
 
@@ -44,9 +72,16 @@ const AdminLogin = () => {
       try {
         const { data: { session } } = await supabase.auth.getSession();
         if (session?.user) {
-          const isAdmin = await verifyAdminSession(session.access_token);
-          if (isAdmin) {
+          const verification = await verifyAdminSession(session.access_token);
+          if (verification.status === "admin") {
             navigate('/kaan/dashboard');
+            return;
+          }
+          if (verification.status === "not_admin" || verification.status === "unauthenticated") {
+            await supabase.auth.signOut();
+            toast.error("Admin access required", { description: verification.message });
+          } else {
+            toast.error("Admin verification failed", { description: verification.message });
           }
         }
       } catch (err) {
@@ -75,10 +110,13 @@ const AdminLogin = () => {
       }
 
       if (data.user) {
-        const isAdmin = await verifyAdminSession(data.session?.access_token);
-        if (!isAdmin) {
+        const verification = await verifyAdminSession(data.session?.access_token);
+        if (verification.status !== "admin") {
           await supabase.auth.signOut();
-          toast.error("Access Denied", { description: "You don't have admin privileges" });
+          toast.error(
+            verification.status === "verification_failed" ? "Could not verify access" : "Access Denied",
+            { description: verification.message },
+          );
           setIsLoading(false);
           return;
         }

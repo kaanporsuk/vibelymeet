@@ -1,4 +1,5 @@
 import { supabase } from "@/integrations/supabase/client";
+import { queryClient } from "@/lib/queryClient";
 
 export type AdminRpcPayload = {
   success?: boolean;
@@ -12,6 +13,15 @@ type RpcArgs = Record<string, unknown>;
 
 function fallbackIdempotencyKey(operation: string): string {
   return `${operation}:${Date.now()}:${Math.random().toString(36).slice(2)}`;
+}
+
+function maybeInvalidateAdminVerification(reason: unknown) {
+  const raw = reason instanceof Error ? reason.message : String(reason || "");
+  const isAuthzFailure =
+    /\b(UNAUTHENTICATED|UNAUTHORIZED|FORBIDDEN)\b|admin role is required|permission is required|permission denied|not authorized|insufficient/i.test(raw);
+  if (isAuthzFailure) {
+    void queryClient.invalidateQueries({ queryKey: ["verify-admin-role"] });
+  }
 }
 
 export function createAdminIdempotencyKey(operation: string): string {
@@ -50,11 +60,15 @@ export async function callAdminRpc<T extends AdminRpcPayload = AdminRpcPayload>(
     error: { message?: string } | null;
   };
 
-  if (error) throw new Error(error.message || `${fn} failed`);
+  if (error) {
+    maybeInvalidateAdminVerification(error.message);
+    throw new Error(error.message || `${fn} failed`);
+  }
 
   const payload = data as T | null;
   if (!payload) throw new Error(`${fn} returned no response`);
   if (payload.success === false || payload.ok === false) {
+    maybeInvalidateAdminVerification(payload.error ?? payload.message);
     throw new Error(adminRpcErrorMessage(payload, `${fn} failed`));
   }
 

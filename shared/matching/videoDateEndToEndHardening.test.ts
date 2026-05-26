@@ -2953,14 +2953,15 @@ test("operator timeline UI uses admin Edge Function instead of direct browser RP
 test("admin-video-date-ops gates service-role timeline access behind role and session validation", () => {
   assert.match(adminVideoDateOpsFunction, /action === "get_session_timeline"/);
   assert.match(adminVideoDateOpsFunction, /isValidUuid\(sessionId\)/);
-  assert.match(adminVideoDateOpsFunction, /typedErrorResponse\("invalid_session_id"/);
+  assert.match(adminVideoDateOpsFunction, /typedErrorResponse\(req, "invalid_session_id"/);
+  assert.match(adminVideoDateOpsFunction, /authenticateAdminRequest\(req, \{ requireAdmin: false \}\)/);
+  assert.match(adminVideoDateOpsFunction, /auth\.context\.roles\.map\(\(role\) => \(\{ role \}\)\)/);
   assert.match(adminVideoDateOpsFunction, /hasVideoDateTimelineRole\(roleRows\)/);
-  assert.match(adminVideoDateOpsFunction, /const allowedRoles = \["admin"\]/);
   assert.doesNotMatch(adminVideoDateOpsFunction, /"moderator"/);
-  assert.match(adminVideoDateOpsFunction, /\.in\("role", allowedRoles\)/);
-  assert.match(adminVideoDateOpsFunction, /const service = createClient\(supabaseUrl, serviceKey\)/);
+  assert.match(adminVideoDateOpsFunction, /const service = auth\.context\.adminClient as unknown as SupabaseClientLike/);
+  assert.doesNotMatch(adminVideoDateOpsFunction, /SUPABASE_SERVICE_ROLE_KEY/);
   assert.match(adminVideoDateOpsFunction, /service\.rpc\("get_video_date_session_timeline"/);
-  assert.match(adminVideoDateOpsFunction, /typedErrorResponse\(timeline\.code, timeline\.error, timeline\.status\)/);
+  assert.match(adminVideoDateOpsFunction, /typedErrorResponse\(req, timeline\.code, timeline\.error, timeline\.status\)/);
   assert.match(adminVideoDateOpsFunction, /code: "not_found"/);
   assert.match(adminVideoDateOpsFunction, /safeVideoDateTimelineRows/);
 });

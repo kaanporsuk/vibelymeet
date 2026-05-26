@@ -1,5 +1,13 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2.88.0";
+import {
+  adminJsonResponse,
+  authenticateAdminRequest,
+  sanitizeErrorMessage,
+} from "../_shared/adminAuth.ts";
+import {
+  isBrowserOriginRejected,
+  preflightResponse,
+} from "../_shared/cors.ts";
 import {
   VIDEO_DATE_OPS_WINDOWS,
   classifyHigherIsBetter,
@@ -17,12 +25,6 @@ import {
   type VideoDateSessionTimelineRow,
   type VideoDateOpsWindowDefinition,
 } from "../_shared/admin-video-date-ops.ts";
-
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers":
-    "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
-};
 
 const MAX_ROWS = 10_000;
 const SURVEY_CONVERSION_WINDOW_MS = 10 * 60 * 1000;
@@ -223,14 +225,11 @@ type AdminVideoDateOpsRequest = {
   session_id?: string | null;
 };
 
-const jsonResponse = (body: unknown, status = 200) =>
-  new Response(JSON.stringify(body), {
-    status,
-    headers: { ...corsHeaders, "Content-Type": "application/json" },
-  });
+const jsonResponse = (req: Request, body: unknown, status = 200) =>
+  adminJsonResponse(req, body, status);
 
-const typedErrorResponse = (code: string, message: string, status: number) =>
-  jsonResponse({ ok: false, code, error: message }, status);
+const typedErrorResponse = (req: Request, code: string, message: string, status: number) =>
+  jsonResponse(req, { ok: false, code, error: message }, status);
 
 async function withOpsTimeout<T>(
   promise: PromiseLike<T>,
@@ -314,7 +313,7 @@ async function fetchByIds<T>(
   const allRows: T[] = [];
   for (const chunk of chunks) {
     const { data, error } = await service.from(table).select(select).in("id", chunk).limit(MAX_ROWS);
-    if (error) return { rows: allRows, error: error.message, truncated: allRows.length >= MAX_ROWS };
+    if (error) return { rows: allRows, error: sanitizeErrorMessage(error.message), truncated: allRows.length >= MAX_ROWS };
     allRows.push(...((data ?? []) as T[]));
     if (allRows.length >= MAX_ROWS) break;
   }
@@ -340,7 +339,7 @@ async function fetchFeedbackRowsForSessions(
       .order("created_at", { ascending: true })
       .limit(MAX_ROWS);
 
-    if (error) return { rows: allRows, error: error.message, truncated: allRows.length >= MAX_ROWS };
+    if (error) return { rows: allRows, error: sanitizeErrorMessage(error.message), truncated: allRows.length >= MAX_ROWS };
     allRows.push(...((data ?? []) as FeedbackRow[]));
     if (allRows.length >= MAX_ROWS) break;
   }
@@ -460,7 +459,7 @@ async function fetchSlowLaunchTimelineRows(
   });
 
   if (error) {
-    console.error("admin-video-date-ops slow launch timeline rpc:", error.message);
+    console.error("admin-video-date-ops slow launch timeline rpc:", sanitizeErrorMessage(error.message));
     return { rows: [], error: "timeline_unavailable" };
   }
 
@@ -1192,7 +1191,7 @@ async function getSprint7SafetyPrivacyOpsHealthPayload(
       event_id: eventId,
       privacy_contract: null,
       windows: [],
-      source_error: error.message,
+      source_error: sanitizeErrorMessage(error.message),
     };
   }
 
@@ -1308,7 +1307,7 @@ async function getSessionTimeline(service: SupabaseClientLike, sessionId: string
     .maybeSingle();
 
   if (sessionError) {
-    console.error("admin-video-date-ops timeline session lookup:", sessionError.message);
+    console.error("admin-video-date-ops timeline session lookup:", sanitizeErrorMessage(sessionError.message));
     return { ok: false as const, status: 500, code: "internal_error", error: "Timeline lookup failed" };
   }
 
@@ -1321,7 +1320,7 @@ async function getSessionTimeline(service: SupabaseClientLike, sessionId: string
   });
 
   if (error) {
-    console.error("admin-video-date-ops timeline rpc:", error.message);
+    console.error("admin-video-date-ops timeline rpc:", sanitizeErrorMessage(error.message));
     return { ok: false as const, status: 500, code: "internal_error", error: "Timeline unavailable" };
   }
 
@@ -1333,71 +1332,48 @@ async function getSessionTimeline(service: SupabaseClientLike, sessionId: string
 
 serve(async (req) => {
   if (req.method === "OPTIONS") {
-    return new Response(null, { headers: corsHeaders });
+    return preflightResponse(req);
+  }
+  if (isBrowserOriginRejected(req)) {
+    return typedErrorResponse(req, "origin_not_allowed", "Origin not allowed", 403);
   }
 
   if (req.method !== "POST") {
-    return typedErrorResponse("method_not_allowed", "Method not allowed", 405);
+    return typedErrorResponse(req, "method_not_allowed", "Method not allowed", 405);
   }
 
   try {
-    const authHeader = req.headers.get("Authorization");
-    if (!authHeader?.startsWith("Bearer ")) {
-      return typedErrorResponse("unauthorized", "Unauthorized", 401);
-    }
-
-    const supabaseUrl = Deno.env.get("SUPABASE_URL");
-    const anonKey = Deno.env.get("SUPABASE_ANON_KEY");
-    if (!supabaseUrl || !anonKey) {
-      return typedErrorResponse("internal_error", "Function is not configured", 500);
-    }
-
     const body = await req.json().catch(() => ({}));
     const action = parseAction(body);
 
-    const userClient = createClient(supabaseUrl, anonKey, {
-      global: { headers: { Authorization: authHeader } },
-    });
-
-    const { data: userData, error: userError } = await userClient.auth.getUser();
-    if (userError || !userData?.user) {
-      return typedErrorResponse("unauthorized", "Unauthorized", 401);
+    const auth = await authenticateAdminRequest(req, { requireAdmin: false });
+    if (!auth.ok) {
+      return typedErrorResponse(req, auth.code.toLowerCase(), auth.message, auth.status);
     }
 
-    const allowedRoles = ["admin"];
-    const { data: roleRows, error: roleError } = await userClient
-      .from("user_roles")
-      .select("role")
-      .eq("user_id", userData.user.id)
-      .in("role", allowedRoles);
-
+    const roleRows = auth.context.roles.map((role) => ({ role }));
     const hasAccess = action === "get_session_timeline"
       ? hasVideoDateTimelineRole(roleRows)
-      : (roleRows ?? []).some((row) => row.role === "admin");
+      : auth.context.isAdmin;
 
-    if (roleError || !hasAccess) {
-      return typedErrorResponse("forbidden", "Forbidden", 403);
+    if (!hasAccess) {
+      return typedErrorResponse(req, "forbidden", "Forbidden", 403);
     }
 
-    const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
-    if (!serviceKey) {
-      return typedErrorResponse("internal_error", "Function is not configured", 500);
-    }
-
-    const service = createClient(supabaseUrl, serviceKey) as unknown as SupabaseClientLike;
+    const service = auth.context.adminClient as unknown as SupabaseClientLike;
 
     if (action === "get_session_timeline") {
       const sessionId = parseSessionId(body);
       if (!isValidUuid(sessionId)) {
-        return typedErrorResponse("invalid_session_id", "A valid video session UUID is required", 400);
+        return typedErrorResponse(req, "invalid_session_id", "A valid video session UUID is required", 400);
       }
 
       const timeline = await getSessionTimeline(service, sessionId);
       if (!timeline.ok) {
-        return typedErrorResponse(timeline.code, timeline.error, timeline.status);
+        return typedErrorResponse(req, timeline.code, timeline.error, timeline.status);
       }
 
-      return jsonResponse({
+      return jsonResponse(req, {
         ok: true,
         generated_at: new Date().toISOString(),
         session_id: sessionId,
@@ -1414,14 +1390,14 @@ serve(async (req) => {
       ),
     );
 
-    return jsonResponse({
+    return jsonResponse(req, {
       ok: true,
       generated_at: new Date().toISOString(),
       event_id: eventId,
       windows,
     });
   } catch (error) {
-    console.error("admin-video-date-ops:", error);
-    return typedErrorResponse("internal_error", "Internal server error", 500);
+    console.error("admin-video-date-ops:", sanitizeErrorMessage(error));
+    return typedErrorResponse(req, "internal_error", "Internal server error", 500);
   }
 });
