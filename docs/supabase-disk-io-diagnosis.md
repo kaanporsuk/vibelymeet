@@ -307,9 +307,9 @@ When that evidence is available, re-rank §2 and §11 against actual measurement
 
 ---
 
-## Appendix B: Edge Function inventory (55 functions)
+## Appendix B: Historical Edge Function IO Snapshot
 
-> Compiled by direct read of [supabase/functions/](../supabase/functions/). Trigger column: cron / webhook / client / admin. Schedule given when verified from a migration. IO risk is repo-grounded.
+> Historical 2026-04 snapshot compiled by direct read of [supabase/functions/](../supabase/functions/). It is superseded for current deploy/config parity by `_cursor_context/vibely_edge_function_manifest.md`, which records the current 70-function inventory. Keep this table only as IO-risk provenance for functions that existed when the disk diagnosis was written.
 
 | # | Function | Trigger | Schedule | Reads | Writes | IO risk |
 |---|---|---|---|---|---|---|

@@ -1,5 +1,14 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import {
+  adminJsonResponse,
+  authenticateAdminRequest,
+  sanitizeErrorMessage,
+  type AdminSupabaseClient,
+} from "../_shared/adminAuth.ts";
+import {
+  isBrowserOriginRejected,
+  preflightResponse,
+} from "../_shared/cors.ts";
 
 /**
  * Path resolution must stay aligned with `src/lib/proofSelfieUrl.ts` (resolveProofSelfieObjectPathForSigning).
@@ -114,17 +123,8 @@ function resolveProofSelfieObjectPathForSigning(raw: string | null | undefined):
   };
 }
 
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers":
-    "authorization, x-client-info, apikey, content-type",
-};
-
-function jsonResponse(body: Record<string, unknown>, status = 200) {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { ...corsHeaders, "Content-Type": "application/json" },
-  });
+function jsonResponse(req: Request, body: Record<string, unknown>, status = 200) {
+  return adminJsonResponse(req, body, status);
 }
 
 type SignOutcome =
@@ -134,7 +134,7 @@ type SignOutcome =
 
 /** Best-effort size from Storage list metadata (service role). Undefined if unknown. */
 async function proofSelfieObjectSizeBytesFromList(
-  service: ReturnType<typeof createClient>,
+  service: AdminSupabaseClient,
   objectPath: string,
 ): Promise<number | undefined> {
   const i = objectPath.indexOf("/");
@@ -154,7 +154,7 @@ async function proofSelfieObjectSizeBytesFromList(
 }
 
 async function tryResolveSelfieDisplayUrl(
-  service: ReturnType<typeof createClient>,
+  service: AdminSupabaseClient,
   raw: string,
 ): Promise<SignOutcome> {
   const { objectPath, shape } = resolveProofSelfieObjectPathForSigning(raw);
@@ -204,53 +204,32 @@ async function tryResolveSelfieDisplayUrl(
 
 serve(async (req) => {
   if (req.method === "OPTIONS") {
-    return new Response(null, { headers: corsHeaders });
+    return preflightResponse(req);
+  }
+  if (isBrowserOriginRejected(req)) {
+    return jsonResponse(req, { success: false, error: "ORIGIN_NOT_ALLOWED" }, 403);
+  }
+  if (req.method !== "POST") {
+    return jsonResponse(req, { success: false, error: "METHOD_NOT_ALLOWED" }, 405);
   }
 
   try {
-    const authHeader = req.headers.get("authorization");
-    if (!authHeader) {
-      return jsonResponse({ success: false, error: "Not authenticated" }, 401);
-    }
-
-    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-    const supabaseAnon = Deno.env.get("SUPABASE_ANON_KEY")!;
-    const supabaseService = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-
-    const userClient = createClient(supabaseUrl, supabaseAnon, {
-      global: { headers: { Authorization: authHeader } },
-    });
-
-    const { data: { user }, error: authError } = await userClient.auth.getUser();
-    if (authError || !user) {
-      return jsonResponse({ success: false, error: "Authentication failed" }, 401);
-    }
-
-    const admin = createClient(supabaseUrl, supabaseService);
-    const { data: roleData } = await admin
-      .from("user_roles")
-      .select("role")
-      .eq("user_id", user.id)
-      .eq("role", "admin")
-      .maybeSingle();
-
-    if (!roleData) {
-      return jsonResponse({ success: false, error: "Unauthorized — admin only" }, 403);
-    }
+    const auth = await authenticateAdminRequest(req);
+    if (!auth.ok) return auth.response;
 
     let body: { verification_id?: string };
     try {
       body = await req.json();
     } catch {
-      return jsonResponse({ success: false, error: "Invalid JSON body" }, 400);
+      return jsonResponse(req, { success: false, error: "Invalid JSON body" }, 400);
     }
 
     const verificationId = body.verification_id;
     if (!verificationId || typeof verificationId !== "string") {
-      return jsonResponse({ success: false, error: "Missing verification_id" }, 400);
+      return jsonResponse(req, { success: false, error: "Missing verification_id" }, 400);
     }
 
-    const { data: verification, error: fetchErr } = await admin
+    const { data: verification, error: fetchErr } = await auth.context.adminClient
       .from("photo_verifications")
       .select("id, user_id, selfie_url")
       .eq("id", verificationId)
@@ -258,12 +237,13 @@ serve(async (req) => {
 
     if (fetchErr || !verification) {
       return jsonResponse(
+        req,
         { success: false, error: "Verification not found" },
         200,
       );
     }
 
-    const { data: profile } = await admin
+    const { data: profile } = await auth.context.adminClient
       .from("profiles")
       .select("proof_selfie_url")
       .eq("id", verification.user_id)
@@ -272,23 +252,24 @@ serve(async (req) => {
     const verificationSelfie = (verification.selfie_url as string) ?? "";
     const profileSelfie = profile?.proof_selfie_url ?? "";
 
-    let outcome = await tryResolveSelfieDisplayUrl(admin, verificationSelfie);
+    let outcome = await tryResolveSelfieDisplayUrl(auth.context.adminClient, verificationSelfie);
     if (
       outcome.kind === "fail" &&
       profileSelfie.length > 0 &&
       profileSelfie !== verificationSelfie
     ) {
-      outcome = await tryResolveSelfieDisplayUrl(admin, profileSelfie);
+      outcome = await tryResolveSelfieDisplayUrl(auth.context.adminClient, profileSelfie);
     }
 
     if (outcome.kind === "signed") {
-      return jsonResponse({ success: true, signedUrl: outcome.signedUrl }, 200);
+      return jsonResponse(req, { success: true, signedUrl: outcome.signedUrl }, 200);
     }
     if (outcome.kind === "direct") {
-      return jsonResponse({ success: true, directUrl: outcome.url }, 200);
+      return jsonResponse(req, { success: true, directUrl: outcome.url }, 200);
     }
 
     return jsonResponse(
+      req,
       {
         success: false,
         error: outcome.message,
@@ -297,7 +278,7 @@ serve(async (req) => {
       200,
     );
   } catch (err) {
-    console.error("admin-proof-selfie-sign:", err);
-    return jsonResponse({ success: false, error: "Server error" }, 500);
+    console.error("admin-proof-selfie-sign:", sanitizeErrorMessage(err));
+    return jsonResponse(req, { success: false, error: "Server error" }, 500);
   }
 });

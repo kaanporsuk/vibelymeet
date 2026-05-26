@@ -7,8 +7,9 @@
 ## Findings Addressed
 
 - Refreshed the stale operator runbook Edge Function inventory in `_cursor_context/vibely_rebuild_runbook.md` Section 13.
-- Replaced the historical 30-function baseline and stale JWT counts with the current 55-function repo inventory.
+- Replaced the historical 30-function baseline and stale JWT counts with the current config-backed repo inventory.
 - Added static proof that the runbook function list and JWT counts match `supabase/config.toml` and the actual `supabase/functions` directories.
+- Follow-up audit alignment refreshed the manifest, provider sheet, dependency ledger, machine-readable inventory, and release notes to the same 70/40/30 source/config truth.
 
 ## Findings Deferred
 
@@ -19,20 +20,35 @@
 ## Files Changed
 
 - `_cursor_context/vibely_rebuild_runbook.md`
+- `_cursor_context/vibely_edge_function_manifest.md`
+- `_cursor_context/vibely_external_dependency_ledger.md`
+- `_cursor_context/vibely_supabase_provider_sheet.md`
+- `_cursor_context/vibely_machine_readable_inventory.json`
+- `_cursor_context/vibely_golden_snapshot_audited.md`
+- `docs/external-dependency-closure-plan-2026-05-23.md`
+- `docs/investigations/final-release-ops-readiness.md`
+- `docs/release/final-hardening-release-rehearsal.md`
+- `docs/supabase-disk-io-diagnosis.md`
+- `docs/supabase-full-backend-vs-frontend-audit.md`
+- `docs/supabase-live-backend-audit.md`
 - `shared/matching/finalReleaseOpsReadinessClosure.test.ts`
+- `shared/matching/finalHardeningReleaseRehearsal.test.ts`
+- `shared/matching/supabaseFunctionConfigGaps.test.ts`
 - `docs/branch-deltas/fix-final-release-ops-readiness-closure.md`
 
 ## Exact Implementation
 
-- Updated Section 13 of the rebuild runbook to record the then-current function inventory. This branch-delta is superseded by the 2026-05-23 external-dependency closure pass:
-  - 67 deployable function directories excluding `_shared`
-  - 67 `[functions.<slug>]` entries in `supabase/config.toml`
-  - 39 `verify_jwt = true` functions
-  - 28 `verify_jwt = false` functions
+- Updated Section 13 of the rebuild runbook to record the current config-backed function inventory:
+  - 70 deployable function directories excluding `_shared`
+  - 70 `[functions.<slug>]` entries in `supabase/config.toml`
+  - 40 `verify_jwt = true` functions
+  - 30 `verify_jwt = false` functions
   - canonical production project ref `schdyxcunwcvddlcshwd / MVP_Vibe`
   - targeted deploy guidance for scoped repairs
   - full rebuild deploy guidance only for planned rebuild/cutover work
 - Removed stale operator-facing counts and obsolete function names from the active inventory section.
+- Marked older 55/67-function snapshots as historical where they remain useful provenance.
+- Converted stale count assertions to derive function/config counts from the actual repo tree.
 
 ## Tests Added/Updated
 
@@ -41,7 +57,7 @@
 The closure test checks:
 
 - the investigation report and this branch delta exist
-- runbook Section 13 uses the current 55-function inventory
+- runbook Section 13 uses the current config-backed function inventory
 - runbook Section 13 no longer carries stale historical function guidance
 - function inventory and JWT counts match `supabase/config.toml` and the function directories
 - no migration, validation SQL, or Edge Function artifact was added

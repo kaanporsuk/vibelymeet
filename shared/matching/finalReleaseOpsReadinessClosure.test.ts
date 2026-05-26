@@ -65,71 +65,21 @@ const investigation = read(investigationPath);
 const runbook = read(runbookPath);
 const section13 = extractSection(runbook, "## 13. Edge Function inventory to deploy", "## 14. Optional local function serving");
 
-const jwtTrueFunctions = [
-  "admin-data-export",
-  "admin-media-lifecycle-controls",
-  "admin-proof-selfie-sign",
-  "admin-review-verification",
-  "admin-video-date-ops",
-  "cancel-deletion",
-  "chat-thread-page",
-  "create-checkout-session",
-  "create-event-checkout",
-  "create-portal-session",
-  "create-video-upload",
-  "daily-drop-actions",
-  "daily-room",
-  "date-suggestion-actions",
-  "delete-account",
-  "delete-vibe-video",
-  "email-verification",
-  "event-notifications",
-  "forward-geocode",
-  "geocode",
-  "phone-verify",
-  "post-date-verdict",
-  "send-game-event",
-  "send-message",
-  "send-notification",
-  "send-support-reply",
-  "swipe-actions",
-  "sync-revenuecat-subscriber",
-  "sync-vibe-video-status",
-  "upload-chat-video",
-  "upload-event-cover",
-  "upload-image",
-  "upload-voice",
-  "verify-admin",
-].sort();
-
-const jwtFalseFunctions = [
-  "check-daily-drop-health",
-  "create-credits-checkout",
-  "credit-replenish",
-  "date-reminder-cron",
-  "date-suggestion-expiry",
-  "event-reminders",
-  "generate-daily-drops",
-  "get-chat-media-url",
-  "health",
-  "match-call-room-cleanup",
-  "post-date-verdict-reminders",
-  "process-media-delete-jobs",
-  "process-waitlist-promotion-notify-queue",
-  "push-webhook",
-  "record-growth-attribution",
-  "request-account-deletion",
-  "revenuecat-webhook",
-  "send-email",
-  "stripe-webhook",
-  "video-date-room-cleanup",
-  "video-webhook",
-].sort();
+const currentFunctionDirs = functionDirs();
+const currentConfigEntries = configJwtEntries();
+const jwtTrueFunctions = [...currentConfigEntries.entries()]
+  .filter(([, verifyJwt]) => verifyJwt)
+  .map(([slug]) => slug)
+  .sort();
+const jwtFalseFunctions = [...currentConfigEntries.entries()]
+  .filter(([, verifyJwt]) => !verifyJwt)
+  .map(([slug]) => slug)
+  .sort();
 
 test("closure addresses the final release-ops investigation finding", () => {
   assert.equal(exists(investigationPath), true);
   assert.match(investigation, /WARN/);
-  assert.match(investigation, /stale historical Edge Function inventory text/);
+  assert.match(investigation, /stale .*Edge Function inventory text|older historical Edge Function deploy section/);
   assert.equal(exists(branchDeltaPath), true);
   const branchDelta = read(branchDeltaPath);
   assert.match(branchDelta, new RegExp(investigationPath.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
@@ -137,14 +87,13 @@ test("closure addresses the final release-ops investigation finding", () => {
 });
 
 test("runbook section 13 uses the current function inventory and JWT counts", () => {
-  assert.match(section13, /55 deployable function directories/);
-  assert.match(section13, /55 matching `\[functions\.<slug>\]` entries/);
-  assert.match(section13, /34 functions\*\* have `verify_jwt = true`/);
-  assert.match(section13, /21 functions\*\* have `verify_jwt = false`/);
+  assert.match(section13, new RegExp(`${currentFunctionDirs.length} deployable function directories`));
+  assert.match(section13, new RegExp(`${currentConfigEntries.size} matching ` + "`\\[functions\\.<slug>\\]` entries"));
+  assert.match(section13, new RegExp(`${jwtTrueFunctions.length} functions have gateway JWT verification on`));
+  assert.match(section13, new RegExp(`${jwtFalseFunctions.length} functions have gateway JWT verification off`));
   assert.match(section13, /schdyxcunwcvddlcshwd \/ MVP_Vibe/);
-  for (const slug of [...jwtTrueFunctions, ...jwtFalseFunctions]) {
-    assert.match(section13, new RegExp(`\\\`${slug}\\\``), `${slug} should be listed in Section 13`);
-  }
+  assert.match(section13, /_cursor_context\/vibely_edge_function_manifest\.md/);
+  assert.match(section13, /supabase\/config\.toml/);
 });
 
 test("runbook section 13 no longer carries stale historical function guidance", () => {
@@ -157,10 +106,9 @@ test("runbook section 13 no longer carries stale historical function guidance", 
 });
 
 test("runbook Section 13 inventory matches config and function directories", () => {
-  const dirs = functionDirs();
-  const config = configJwtEntries();
-  assert.equal(dirs.length, 55);
-  assert.equal(config.size, 55);
+  const dirs = currentFunctionDirs;
+  const config = currentConfigEntries;
+  assert.equal(config.size, dirs.length);
   assert.deepEqual([...config.keys()].sort(), dirs);
   assert.deepEqual(
     [...config.entries()]

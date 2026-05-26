@@ -13,6 +13,17 @@ function exists(path: string): boolean {
   return existsSync(join(root, path));
 }
 
+function listFunctionDirs(): string[] {
+  return readdirSync(join(root, "supabase/functions"))
+    .filter((name) => name !== "_shared")
+    .filter((name) => statSync(join(root, "supabase/functions", name)).isDirectory())
+    .sort();
+}
+
+function listConfiguredFunctions(config: string): string[] {
+  return Array.from(config.matchAll(/^\[functions\.([^\]]+)\]$/gm), (match) => match[1]).sort();
+}
+
 function readTreeFiles(
   dir: string,
   extensions: ReadonlySet<string>,
@@ -87,17 +98,14 @@ test("no-Docker and no-local-Supabase operating model is recorded", () => {
 });
 
 test("Supabase project ref and current function inventory are recorded", () => {
+  const functionDirs = listFunctionDirs();
+  const configured = listConfiguredFunctions(supabaseConfig);
+
   assert.match(supabaseConfig, /project_id = "schdyxcunwcvddlcshwd"/);
   assert.match(rehearsal, /schdyxcunwcvddlcshwd \/ MVP_Vibe/);
-  assert.match(rehearsal, /55 deployable function directories/);
-  assert.match(rehearsal, /55 `\[functions\.<slug>\]` entries|55 `\[functions\.<slug>\]` entries/);
-  assert.equal(
-    readdirSync(join(root, "supabase/functions"))
-      .filter((name) => name !== "_shared")
-      .filter((name) => statSync(join(root, "supabase/functions", name)).isDirectory())
-      .length,
-    55,
-  );
+  assert.deepEqual(configured, functionDirs);
+  assert.match(rehearsal, new RegExp(`${functionDirs.length} deployable function directories`));
+  assert.match(rehearsal, new RegExp(`${configured.length} ` + "`\\[functions\\.<slug>\\]` entries"));
 });
 
 test("provider manual checklist section exists for required providers", () => {

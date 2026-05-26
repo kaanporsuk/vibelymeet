@@ -129,10 +129,13 @@ test("native consumers do not directly write Ready Gate-owned event_registration
 });
 
 test("web date handoff remains gated by prepare-entry or date-capable backend truth", () => {
+  const readyRedirect = read("src/pages/ReadyRedirect.tsx");
   assert.match(read("src/components/lobby/ReadyGateOverlay.tsx"), /prepareVideoDateEntry/);
   assert.match(read("src/lib/videoDatePrepareEntry.ts"), /PREPARE_VIDEO_DATE_ENTRY_ACTION/);
-  assert.match(read("src/pages/ReadyRedirect.tsx"), /adviseVideoSessionTruthRecovery/);
-  assert.match(read("src/pages/ReadyRedirect.tsx"), /recovery\.action === "go_date"/);
+  assert.match(readyRedirect, /adviseVideoDateSnapshotRecovery/);
+  assert.match(readyRedirect, /decideCanonicalVideoDateRoute/);
+  assert.match(readyRedirect, /recovery\.action === "go_date"/);
+  assert.match(readyRedirect, /canonicalRoute\.target === "date"/);
   assert.match(read("src/pages/VideoDate.tsx"), /useVideoCall/);
   assert.match(read("src/hooks/useVideoCall.ts"), /prepareVideoDateEntry/);
 });

@@ -126,7 +126,7 @@
 - **Scenario:** Without CSP, a single XSS via reflected param or vulnerable dependency allows full session takeover. Without `Permissions-Policy`, embedded iframes (Daily) can request camera/mic on a different policy than the host. Without HSTS, a downgrade attack is possible during initial load. Without `Referrer-Policy: strict-origin-when-cross-origin`, full URLs (which contain match IDs and event IDs) leak via outbound link clicks.
 - **Fix:** Add a `headers` block to `vercel.json` with at minimum:
   - `Strict-Transport-Security: max-age=63072000; includeSubDomains; preload`
-  - `Content-Security-Policy` with `frame-src https://*.daily.co`, `connect-src` allowlist for Supabase/Bunny/PostHog/Sentry/OneSignal/Daily, `script-src 'self' 'unsafe-inline'` (you'll need nonce migration to drop `unsafe-inline`)
+  - `Content-Security-Policy` with explicit Daily origins such as `frame-src https://vibelyapp.daily.co`, `connect-src` allowlist for Supabase/Bunny/PostHog/Sentry/OneSignal/Daily, `script-src 'self' 'unsafe-inline'` (you'll need nonce migration to drop `unsafe-inline`)
   - `Permissions-Policy: camera=(self "https://vibelyapp.daily.co"), microphone=(self "https://vibelyapp.daily.co"), geolocation=(self), payment=(self "https://js.stripe.com")`
   - `X-Content-Type-Options: nosniff`
   - `Referrer-Policy: strict-origin-when-cross-origin`

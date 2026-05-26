@@ -99,13 +99,13 @@ From the frozen baseline and generated types, Supabase owns:
 Legacy / Bunny-migrated (not active Supabase buckets): `profile-photos`, `vibe-videos`, `event-covers`, `voice-messages`. Treat as legacy for rebuild; image/event/voice/vibe media are on Bunny.
 
 ## C. Edge Function layer
-Deployable functions: **67**
+Deployable functions: **70**
 
 Shared helper directory:
 - `_shared`
 
 ### Function config (post-hardening)
-All 67 deployable functions are listed in `supabase/config.toml`. No config gaps. JWT-at-gateway: 39 functions. Public-but-protected (`verify_jwt = false`): 28 functions, including external/provider/cron endpoints such as `push-webhook`, `video-webhook`, `video-date-daily-webhook`, `stripe-webhook`, `revenuecat-webhook`, `event-reminders`, `send-email`, `request-account-deletion`, `record-growth-attribution`, `generate-daily-drops`, `check-daily-drop-health`, `check-bunny-cdn-health`, `get-chat-media-url`, and scheduled cleanup/drainer functions.
+All 70 deployable functions are listed in `supabase/config.toml`. No config gaps. JWT-at-gateway: 40 functions. Public-but-protected (`verify_jwt = false`): 30 functions, including external/provider/cron endpoints such as `push-webhook`, `video-webhook`, `video-date-daily-webhook`, `stripe-webhook`, `revenuecat-webhook`, `event-reminders`, `send-email`, `request-account-deletion`, `record-growth-attribution`, `generate-daily-drops`, `check-daily-drop-health`, `check-bunny-cdn-health`, `get-chat-media-url`, and scheduled cleanup/drainer functions.
 
 ## D. Secrets/runtime layer
 Supabase stores and exposes runtime secrets used by Edge Functions.
@@ -175,9 +175,9 @@ Verify:
 
 ## D. Edge Function parity
 Verify:
-- all 67 deployable functions are present and listed in config.toml
+- all 70 deployable functions are present and listed in config.toml
 - `_shared` compiles into dependents correctly
-- 39 functions deployed with JWT enforced; 28 public-but-protected with correct secrets/tokens set
+- 40 functions deployed with JWT enforced; 30 public-but-protected with correct secrets/tokens set
 
 ## E. Secrets parity
 Verify all required secrets exist before testing function flows.
@@ -229,13 +229,13 @@ Do not assume the checked-in root `.env` covers this set. It does not.
 ## 8. Supabase function deployment sheet (post-hardening)
 
 ### Function count
-- 67 deployable functions; all listed in `supabase/config.toml`.
+- 70 deployable functions; all listed in `supabase/config.toml`.
 
 ### JWT-at-gateway (`verify_jwt = true`)
-39 functions are gateway-JWT protected. Use `supabase/config.toml` and `_cursor_context/vibely_edge_function_manifest.md` for the authoritative slug list.
+40 functions are gateway-JWT protected. Use `supabase/config.toml` and `_cursor_context/vibely_edge_function_manifest.md` for the authoritative slug list.
 
 ### Public-but-protected (`verify_jwt = false`)
-28 functions are gateway-public but protected by provider signatures, webhook tokens, service-role/admin controls, or `CRON_SECRET`-style guards in code. Use `supabase/config.toml` and `_cursor_context/vibely_edge_function_manifest.md` for the authoritative slug list.
+30 functions are gateway-public but protected by provider signatures, webhook tokens, service-role/admin controls, or `CRON_SECRET`-style guards in code. Use `supabase/config.toml` and `_cursor_context/vibely_edge_function_manifest.md` for the authoritative slug list.
 
 ### Stream 19 rebuild-sensitive posture notes
 - `forward-geocode`: `verify_jwt = true`; also resolves the Supabase user in code, gates admin/premium/onboarding city search, applies a per-user rate limit, and then calls OpenStreetMap Nominatim.
@@ -336,7 +336,7 @@ Confirm:
 
 ### Step 4 — Function check
 Confirm:
-- all 67 current deployable functions are deployed when doing a full rebuild
+- all 70 current deployable functions are deployed when doing a full rebuild
 - `phone-verify` JWT-enforced
 - `forward-geocode` and `push-webhook` explicitly accounted for
 

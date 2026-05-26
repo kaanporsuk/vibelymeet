@@ -600,16 +600,19 @@ test("Support Inbox live drift guard reasserts realtime and least-privilege gran
 });
 
 test("send-support-reply saves through the governed admin reply RPC before notification side effects", () => {
-  const saveIndex = sendSupportReplyFunction.indexOf('userClient.rpc("admin_create_support_reply"');
+  const saveIndex = sendSupportReplyFunction.indexOf('auth.context.userClient.rpc("admin_create_support_reply"');
   const notificationIndex = sendSupportReplyFunction.indexOf("/functions/v1/send-notification");
 
   assert.ok(saveIndex > -1, "send-support-reply must call admin_create_support_reply");
   assert.ok(notificationIndex > saveIndex, "reply save must happen before notification delivery");
+  assert.match(sendSupportReplyFunction, /authenticateAdminRequest\(req\)/);
+  assert.match(sendSupportReplyFunction, /preflightResponse\(req\)/);
+  assert.doesNotMatch(sendSupportReplyFunction, /Access-Control-Allow-Origin["']:\s*["']\*["']/);
   assert.match(sendSupportReplyFunction, /idempotent_replay/);
   assert.match(sendSupportReplyFunction, /notification_warning/);
   assert.match(sendSupportReplyFunction, /email_warning/);
   assert.match(sendSupportReplyFunction, /sanitizeErrorMessage/);
-  assert.match(sendSupportReplyFunction, /case "INVALID_TRANSITION":[\s\S]{0,80}return 409/);
+  assert.match(sendSupportReplyFunction, /statusForAdminError\(error, 400\)/);
   assert.match(sendSupportReplyFunction, /send-notification error for support reply:", sanitizeErrorMessage\(notifyError\)/);
   assert.match(sendSupportReplyFunction, /Resend email failed for support reply:", sanitizeErrorMessage\(emailError\)/);
   assert.match(sendSupportReplyFunction, /send-support-reply:", sanitizeErrorMessage\(e\)/);
@@ -770,7 +773,10 @@ test("covered admin UI no longer performs known multi-step browser writes", () =
 
 test("verification Edge Function is a thin admin RPC wrapper", () => {
   assert.match(verificationFunction, /admin_review_photo_verification/);
-  assert.match(verificationFunction, /Authorization: authHeader/);
+  assert.match(verificationFunction, /authenticateAdminRequest\(req\)/);
+  assert.match(verificationFunction, /auth\.context\.userClient\.rpc\("admin_review_photo_verification"/);
+  assert.match(verificationFunction, /preflightResponse\(req\)/);
+  assert.doesNotMatch(verificationFunction, /Access-Control-Allow-Origin["']:\s*["']\*["']/);
   assert.doesNotMatch(verificationFunction, /from\(["']photo_verifications["']\)[\s\S]{0,300}\.update\(/);
   assert.doesNotMatch(verificationFunction, /from\(["']profiles["']\)[\s\S]{0,300}\.update\(/);
 });

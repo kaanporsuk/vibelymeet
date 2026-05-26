@@ -1,9 +1,13 @@
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-};
+import {
+  adminJsonResponse,
+  authenticateAdminRequest,
+  sanitizeErrorMessage,
+  type AdminSupabaseClient,
+} from "../_shared/adminAuth.ts";
+import {
+  isBrowserOriginRejected,
+  preflightResponse,
+} from "../_shared/cors.ts";
 
 const CHAT_MEDIA_FAMILIES = [
   "chat_image",
@@ -92,12 +96,12 @@ type AuditLogResult = {
 };
 
 type SnapshotCore = ReturnType<typeof buildSnapshotFromSummary>;
+type AdminMediaAuth =
+  | { ok: false; error: Response }
+  | { ok: true; admin: AdminSupabaseClient; userId: string };
 
-function json(body: Record<string, unknown>, status = 200) {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { ...corsHeaders, "Content-Type": "application/json" },
-  });
+function json(req: Request, body: Record<string, unknown>, status = 200): Response {
+  return adminJsonResponse(req, body, status);
 }
 
 function buildSnapshotFromSummary(settings: SettingsRow[], summary: SnapshotSummary) {
@@ -175,8 +179,8 @@ function numericRecordValue(record: Record<string, unknown> | null, key: string)
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
-function validationResponse(error: unknown) {
-  return json({
+function validationResponse(req: Request, error: unknown): Response {
+  return json(req, {
     success: false,
     error: error instanceof Error ? error.message : "Invalid media lifecycle input",
   }, 400);
@@ -249,14 +253,14 @@ function buildActivationRecommendation(
 // Keep the fast cron.job read separate from best-effort run history so an
 // expensive cron.job_run_details read cannot make an active scheduler look down.
 
-async function fetchCronStatusViaSQL(admin: ReturnType<typeof createClient>) {
+async function fetchCronStatusViaSQL(admin: AdminSupabaseClient) {
   const [healthResult, cronJobResult] = await Promise.all([
     admin.rpc("summarize_media_lifecycle_health"),
     admin.rpc("get_media_worker_cron_job_status"),
   ]);
 
   if (healthResult.error) {
-    console.error("[admin-media-lifecycle-controls] health RPC failed:", healthResult.error.message);
+    console.error("[admin-media-lifecycle-controls] health RPC failed:", sanitizeErrorMessage(healthResult.error.message));
   }
 
   const health = healthResult.data as unknown as Record<string, unknown> | null;
@@ -271,8 +275,8 @@ async function fetchCronStatusViaSQL(admin: ReturnType<typeof createClient>) {
       runsRaw = legacyResult.data as unknown as Record<string, unknown> | null;
       runsError = null;
     } else {
-      console.error("[admin-media-lifecycle-controls] cron job status RPC failed:", cronJobResult.error.message);
-      console.error("[admin-media-lifecycle-controls] legacy cron status RPC failed:", legacyResult.error.message);
+      console.error("[admin-media-lifecycle-controls] cron job status RPC failed:", sanitizeErrorMessage(cronJobResult.error.message));
+      console.error("[admin-media-lifecycle-controls] legacy cron status RPC failed:", sanitizeErrorMessage(legacyResult.error.message));
     }
   }
 
@@ -283,7 +287,7 @@ async function fetchCronStatusViaSQL(admin: ReturnType<typeof createClient>) {
         status: "rpc_error" as CronStatusCode,
         found: false,
         jobname: MEDIA_WORKER_JOB_NAME,
-        message: cronJobResult.error.message,
+        message: sanitizeErrorMessage(cronJobResult.error.message),
       },
       cron_job: null,
       recent_runs: [] as CronRunRow[],
@@ -307,7 +311,7 @@ async function fetchCronStatusViaSQL(admin: ReturnType<typeof createClient>) {
   if (!cronJobResult.error) {
     const runsResult = await admin.rpc("get_media_worker_cron_run_history");
     if (runsResult.error) {
-      console.error("[admin-media-lifecycle-controls] cron run history RPC failed:", runsResult.error.message);
+      console.error("[admin-media-lifecycle-controls] cron run history RPC failed:", sanitizeErrorMessage(runsResult.error.message));
     }
     runsRaw = runsResult.data as unknown as Record<string, unknown> | null;
     runsError = runsResult.error;
@@ -353,7 +357,7 @@ async function fetchCronStatusViaSQL(admin: ReturnType<typeof createClient>) {
 
 // ── Ops: fetch failed and stale-claimed jobs ──────────────────────────────────
 
-async function fetchOpsJobLists(admin: ReturnType<typeof createClient>) {
+async function fetchOpsJobLists(admin: AdminSupabaseClient) {
   const STALE_MINUTES = 30;
   const staleThreshold = new Date(Date.now() - STALE_MINUTES * 60 * 1000).toISOString();
 
@@ -389,7 +393,7 @@ async function fetchOpsJobLists(admin: ReturnType<typeof createClient>) {
 
 // ── Main snapshot ─────────────────────────────────────────────────────────────
 
-async function fetchSnapshot(admin: ReturnType<typeof createClient>) {
+async function fetchSnapshot(admin: AdminSupabaseClient) {
   const [settingsResult, summaryResult] = await Promise.all([
     admin
       .from("media_retention_settings")
@@ -436,46 +440,15 @@ function ensureNonNegativeInteger(name: string, value: unknown, allowNull = true
   return value;
 }
 
-async function requireAdmin(req: Request) {
-  const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-  const supabaseAnonKey = Deno.env.get("SUPABASE_ANON_KEY")!;
-  const supabaseServiceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-  const authHeader = req.headers.get("Authorization");
+async function requireAdmin(req: Request): Promise<AdminMediaAuth> {
+  const auth = await authenticateAdminRequest(req);
+  if (!auth.ok) return { ok: false, error: auth.response };
 
-  if (!authHeader) {
-    return { error: json({ success: false, error: "Unauthorized" }, 401) };
-  }
-
-  const userClient = createClient(supabaseUrl, supabaseAnonKey, {
-    global: { headers: { Authorization: authHeader } },
-  });
-  const { data: authData, error: authError } = await userClient.auth.getUser();
-  if (authError || !authData.user) {
-    return { error: json({ success: false, error: "Unauthorized" }, 401) };
-  }
-
-  const admin = createClient(supabaseUrl, supabaseServiceRoleKey);
-  const { data: roleRow, error: roleError } = await admin
-    .from("user_roles")
-    .select("role")
-    .eq("user_id", authData.user.id)
-    .eq("role", "admin")
-    .maybeSingle();
-
-  if (roleError) {
-    console.error("admin-media-lifecycle-controls role lookup failed:", roleError.message);
-    return { error: json({ success: false, error: "Failed to verify admin role" }, 500) };
-  }
-
-  if (!roleRow) {
-    return { error: json({ success: false, error: "Forbidden" }, 403) };
-  }
-
-  return { admin, userId: authData.user.id };
+  return { ok: true, admin: auth.context.adminClient, userId: auth.context.user.id };
 }
 
 async function logAdminAction(
-  admin: ReturnType<typeof createClient>,
+  admin: AdminSupabaseClient,
   adminUserId: string,
   actionType: string,
   targetType: string,
@@ -490,26 +463,33 @@ async function logAdminAction(
     details: { ...details, target_key: targetKey },
   });
   if (error) {
-    console.error("admin-media-lifecycle-controls activity log failed:", error.message);
-    return { audit_logged: false, audit_error: error.message };
+    const sanitized = sanitizeErrorMessage(error.message);
+    console.error("admin-media-lifecycle-controls activity log failed:", sanitized);
+    return { audit_logged: false, audit_error: sanitized };
   }
   return { audit_logged: true, audit_error: null };
 }
 
 // ── Request handler ───────────────────────────────────────────────────────────
 
-Deno.serve(async (req) => {
+Deno.serve(async (req): Promise<Response> => {
   if (req.method === "OPTIONS") {
-    return new Response(null, { headers: corsHeaders });
+    return preflightResponse(req);
+  }
+  if (isBrowserOriginRejected(req)) {
+    return json(req, { success: false, error: "ORIGIN_NOT_ALLOWED" }, 403);
+  }
+  if (req.method !== "GET" && req.method !== "POST") {
+    return json(req, { success: false, error: "METHOD_NOT_ALLOWED" }, 405);
   }
 
   const auth = await requireAdmin(req);
-  if ("error" in auth) return auth.error;
+  if (!auth.ok) return auth.error;
 
   try {
     if (req.method === "GET") {
       const snapshot = await fetchSnapshot(auth.admin);
-      return json({ success: true, ...snapshot });
+      return json(req, { success: true, ...snapshot });
     }
 
     let body: Record<string, unknown> = {};
@@ -521,7 +501,7 @@ Deno.serve(async (req) => {
 
     if (action === "snapshot") {
       const snapshot = await fetchSnapshot(auth.admin);
-      return json({ success: true, ...snapshot });
+      return json(req, { success: true, ...snapshot });
     }
 
     // ── ops_summary: lightweight health + cron + failed/stale, no full asset scan ──
@@ -531,7 +511,7 @@ Deno.serve(async (req) => {
         fetchCronStatusViaSQL(auth.admin),
         fetchOpsJobLists(auth.admin),
       ]);
-      return json({
+      return json(req, {
         success: true,
         health: opsStatus.health,
         cron_status: opsStatus.cron_status,
@@ -556,8 +536,9 @@ Deno.serve(async (req) => {
       );
 
       if (previewError) {
-        console.error("worker_dry_run preview RPC failed:", previewError.message);
-        return json({ success: false, error: previewError.message }, 500);
+        const sanitized = sanitizeErrorMessage(previewError.message);
+        console.error("worker_dry_run preview RPC failed:", sanitized);
+        return json(req, { success: false, error: sanitized }, 500);
       }
 
       const audit = await logAdminAction(
@@ -569,7 +550,7 @@ Deno.serve(async (req) => {
         { batch_size: batchSize, preview },
       );
 
-      return json({ success: true, dry_run: true, preview, ...audit });
+      return json(req, { success: true, dry_run: true, preview, ...audit });
     }
 
     // ── Mutation: requeue_stale ───────────────────────────────────────────────
@@ -577,15 +558,16 @@ Deno.serve(async (req) => {
     if (action === "requeue_stale") {
       const staleMinutes = typeof body.stale_minutes === "number" ? body.stale_minutes : 30;
       if (!Number.isInteger(staleMinutes) || staleMinutes < 1) {
-        return json({ success: false, error: "stale_minutes must be a positive integer" }, 400);
+        return json(req, { success: false, error: "stale_minutes must be a positive integer" }, 400);
       }
 
       const { data: requeuedCount, error: requeueError } = await auth.admin
         .rpc("requeue_stale_media_delete_jobs", { p_stale_minutes: staleMinutes });
 
       if (requeueError) {
-        console.error("requeue_stale RPC failed:", requeueError.message);
-        return json({ success: false, error: requeueError.message }, 500);
+        const sanitized = sanitizeErrorMessage(requeueError.message);
+        console.error("requeue_stale RPC failed:", sanitized);
+        return json(req, { success: false, error: sanitized }, 500);
       }
 
       const audit = await logAdminAction(auth.admin, auth.userId, "media_jobs_requeue_stale", "media_delete_jobs", null, {
@@ -594,7 +576,7 @@ Deno.serve(async (req) => {
       });
 
       console.log(`[admin-media-lifecycle-controls] requeue_stale: requeued=${requeuedCount} stale_minutes=${staleMinutes} admin=${auth.userId}`);
-      return json({ success: true, requeued_count: requeuedCount, ...audit });
+      return json(req, { success: true, requeued_count: requeuedCount, ...audit });
     }
 
     // ── Mutation: retry_failed ────────────────────────────────────────────────
@@ -606,10 +588,10 @@ Deno.serve(async (req) => {
       const resetAttempts = body.reset_attempts === true;
 
       if (!Number.isInteger(limit) || limit < 1 || limit > 500) {
-        return json({ success: false, error: "limit must be an integer between 1 and 500" }, 400);
+        return json(req, { success: false, error: "limit must be an integer between 1 and 500" }, 400);
       }
       if (status !== null && !["failed", "abandoned"].includes(status)) {
-        return json({ success: false, error: "status must be failed, abandoned, or null" }, 400);
+        return json(req, { success: false, error: "status must be failed, abandoned, or null" }, 400);
       }
 
       const { data: retriedCount, error: retryError } = await auth.admin
@@ -621,8 +603,9 @@ Deno.serve(async (req) => {
         });
 
       if (retryError) {
-        console.error("retry_failed RPC failed:", retryError.message);
-        return json({ success: false, error: retryError.message }, 500);
+        const sanitized = sanitizeErrorMessage(retryError.message);
+        console.error("retry_failed RPC failed:", sanitized);
+        return json(req, { success: false, error: sanitized }, 500);
       }
 
       const audit = await logAdminAction(auth.admin, auth.userId, "media_jobs_retry_failed", "media_delete_jobs", null, {
@@ -634,7 +617,7 @@ Deno.serve(async (req) => {
       });
 
       console.log(`[admin-media-lifecycle-controls] retry_failed: retried=${retriedCount} family=${family ?? "all"} status=${status ?? "all"} reset_attempts=${resetAttempts} admin=${auth.userId}`);
-      return json({ success: true, retried_count: retriedCount, ...audit });
+      return json(req, { success: true, retried_count: retriedCount, ...audit });
     }
 
     // ── Mutation: repair_orphan_event_covers ────────────────────────────────
@@ -642,15 +625,16 @@ Deno.serve(async (req) => {
     if (action === "repair_orphan_event_covers") {
       const limit = typeof body.limit === "number" ? body.limit : 50;
       if (!Number.isInteger(limit) || limit < 1 || limit > 500) {
-        return json({ success: false, error: "limit must be an integer between 1 and 500" }, 400);
+        return json(req, { success: false, error: "limit must be an integer between 1 and 500" }, 400);
       }
 
       const { data: repairResult, error: repairError } = await auth.admin
         .rpc("repair_event_cover_media_lifecycle", { p_limit: limit });
 
       if (repairError) {
-        console.error("repair_orphan_event_covers RPC failed:", repairError.message);
-        return json({ success: false, error: repairError.message }, 500);
+        const sanitized = sanitizeErrorMessage(repairError.message);
+        console.error("repair_orphan_event_covers RPC failed:", sanitized);
+        return json(req, { success: false, error: sanitized }, 500);
       }
 
       const repairSummary = (repairResult ?? {}) as Record<string, unknown>;
@@ -667,7 +651,7 @@ Deno.serve(async (req) => {
 
       const snapshot = await fetchSnapshot(auth.admin);
       console.log(`[admin-media-lifecycle-controls] repair_orphan_event_covers: repaired=${repairedCount} synced_events=${syncedEvents} soft_deleted_assets=${softDeletedAssets} limit=${limit} admin=${auth.userId}`);
-      return json({
+      return json(req, {
         success: true,
         repaired_count: repairedCount,
         synced_events: syncedEvents,
@@ -682,7 +666,7 @@ Deno.serve(async (req) => {
     if (action === "update_family") {
       const mediaFamily = body.media_family;
       if (!OWNED_MEDIA_FAMILIES.includes(mediaFamily as (typeof OWNED_MEDIA_FAMILIES)[number])) {
-        return json({ success: false, error: "media_family must be vibe_video, profile_photo, or event_cover" }, 400);
+        return json(req, { success: false, error: "media_family must be vibe_video, profile_photo, or event_cover" }, 400);
       }
 
       const { data: currentRow, error: currentError } = await auth.admin
@@ -692,7 +676,7 @@ Deno.serve(async (req) => {
         .single();
 
       if (currentError || !currentRow) {
-        return json({ success: false, error: "Retention setting not found" }, 404);
+        return json(req, { success: false, error: "Retention setting not found" }, 404);
       }
 
       const updates: Record<string, unknown> = {
@@ -704,18 +688,18 @@ Deno.serve(async (req) => {
         try {
           updates.retention_days = ensureNonNegativeInteger("retention_days", body.retention_days);
         } catch (error) {
-          return validationResponse(error);
+          return validationResponse(req, error);
         }
       }
       if (Object.prototype.hasOwnProperty.call(body, "worker_enabled")) {
         if (typeof body.worker_enabled !== "boolean") {
-          return json({ success: false, error: "worker_enabled must be boolean" }, 400);
+          return json(req, { success: false, error: "worker_enabled must be boolean" }, 400);
         }
         updates.worker_enabled = body.worker_enabled;
       }
 
       if (Object.keys(updates).length <= 2) {
-        return json({ success: false, error: "No allowed updates provided" }, 400);
+        return json(req, { success: false, error: "No allowed updates provided" }, 400);
       }
 
       const { data: updatedRow, error: updateError } = await auth.admin
@@ -726,7 +710,7 @@ Deno.serve(async (req) => {
         .single();
 
       if (updateError) {
-        return json({ success: false, error: updateError.message }, 500);
+        return json(req, { success: false, error: sanitizeErrorMessage(updateError.message) }, 500);
       }
 
       const audit = await logAdminAction(auth.admin, auth.userId, "media_retention_setting_updated", "media_retention_settings", String(mediaFamily), {
@@ -735,7 +719,7 @@ Deno.serve(async (req) => {
       });
 
       const snapshot = await fetchSnapshot(auth.admin);
-      return json({ success: true, updated: updatedRow, ...audit, ...snapshot });
+      return json(req, { success: true, updated: updatedRow, ...audit, ...snapshot });
     }
 
     // ── Mutation: update_chat_policy ─────────────────────────────────────────
@@ -743,7 +727,7 @@ Deno.serve(async (req) => {
     if (action === "update_chat_policy") {
       const retentionMode = body.retention_mode;
       if (!["retain_until_eligible", "soft_delete", "immediate"].includes(String(retentionMode))) {
-        return json({ success: false, error: "retention_mode must be retain_until_eligible, soft_delete, or immediate" }, 400);
+        return json(req, { success: false, error: "retention_mode must be retain_until_eligible, soft_delete, or immediate" }, 400);
       }
 
       const eligibleDaysProvided = Object.prototype.hasOwnProperty.call(body, "eligible_days");
@@ -758,7 +742,7 @@ Deno.serve(async (req) => {
         try {
           updates.eligible_days = ensureNonNegativeInteger("eligible_days", body.eligible_days);
         } catch (error) {
-          return validationResponse(error);
+          return validationResponse(req, error);
         }
       } else if (retentionMode !== "retain_until_eligible") {
         updates.eligible_days = null;
@@ -766,7 +750,7 @@ Deno.serve(async (req) => {
 
       if (workerEnabledProvided) {
         if (typeof body.worker_enabled !== "boolean") {
-          return json({ success: false, error: "worker_enabled must be boolean" }, 400);
+          return json(req, { success: false, error: "worker_enabled must be boolean" }, 400);
         }
         updates.worker_enabled = body.worker_enabled;
       }
@@ -777,7 +761,7 @@ Deno.serve(async (req) => {
         .in("media_family", [...CHAT_MEDIA_FAMILIES]);
 
       if (currentError) {
-        return json({ success: false, error: currentError.message }, 500);
+        return json(req, { success: false, error: sanitizeErrorMessage(currentError.message) }, 500);
       }
 
       const { data: updatedRows, error: updateError } = await auth.admin
@@ -787,7 +771,7 @@ Deno.serve(async (req) => {
         .select("media_family, retention_mode, retention_days, eligible_days, worker_enabled, dry_run, batch_size, max_attempts, notes, updated_at, updated_by");
 
       if (updateError) {
-        return json({ success: false, error: updateError.message }, 500);
+        return json(req, { success: false, error: sanitizeErrorMessage(updateError.message) }, 500);
       }
 
       const audit = await logAdminAction(auth.admin, auth.userId, "media_retention_chat_policy_updated", "media_retention_settings", "chat_media_group", {
@@ -796,15 +780,15 @@ Deno.serve(async (req) => {
       });
 
       const snapshot = await fetchSnapshot(auth.admin);
-      return json({ success: true, updated: updatedRows, ...audit, ...snapshot });
+      return json(req, { success: true, updated: updatedRows, ...audit, ...snapshot });
     }
 
-    return json({ success: false, error: "Unsupported action" }, 400);
+    return json(req, { success: false, error: "Unsupported action" }, 400);
   } catch (error) {
-    console.error("admin-media-lifecycle-controls error:", error);
-    return json({
+    console.error("admin-media-lifecycle-controls error:", sanitizeErrorMessage(error));
+    return json(req, {
       success: false,
-      error: error instanceof Error ? error.message : "Internal server error",
+      error: sanitizeErrorMessage(error instanceof Error ? error.message : "Internal server error"),
     }, 500);
   }
 });

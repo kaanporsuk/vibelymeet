@@ -1,6 +1,10 @@
 const DEFAULT_ALLOWED_ORIGINS = [
   "https://vibelymeet.com",
   "https://www.vibelymeet.com",
+  "capacitor://localhost",
+  "ionic://localhost",
+  "http://localhost",
+  "http://127.0.0.1",
   "http://localhost:5173",
   "http://127.0.0.1:5173",
   "http://localhost:8080",
@@ -32,6 +36,16 @@ export function allowedOrigins(): Set<string> {
 export function isAllowedOrigin(origin: string | null): boolean {
   if (!origin) return true;
   return allowedOrigins().has(origin.replace(/\/+$/, ""));
+}
+
+export function isHttpAllowedOrigin(origin: string | null): boolean {
+  if (!origin || !isAllowedOrigin(origin)) return false;
+  try {
+    const parsed = new URL(origin.replace(/\/+$/, ""));
+    return parsed.protocol === "https:" || parsed.protocol === "http:";
+  } catch {
+    return false;
+  }
 }
 
 export function isBrowserOriginRejected(req: Request): boolean {
@@ -81,6 +95,6 @@ export function jsonResponse(
 
 export function requestOriginOrDefault(req: Request): string {
   const origin = req.headers.get("Origin")?.replace(/\/+$/, "") ?? null;
-  if (origin && isAllowedOrigin(origin)) return origin;
+  if (origin && isHttpAllowedOrigin(origin)) return origin;
   return Deno.env.get("PUBLIC_SITE_URL")?.replace(/\/+$/, "") || "https://www.vibelymeet.com";
 }

@@ -106,7 +106,10 @@ test("event cover lifecycle repairs staged uploads and orphan active assets", ()
 test("media lifecycle validation failures are surfaced as operator-safe 400s", () => {
   assert.match(adminFunction, /function validationResponse/);
   assert.match(adminFunction, /Invalid media lifecycle input/);
-  assert.match(adminFunction, /return validationResponse\(error\)/);
+  assert.match(adminFunction, /return validationResponse\(req, error\)/);
+  assert.match(adminFunction, /authenticateAdminRequest\(req\)/);
+  assert.match(adminFunction, /preflightResponse\(req\)/);
+  assert.doesNotMatch(adminFunction, /Access-Control-Allow-Origin["']:\s*["']\*["']/);
 });
 
 test("worker promotion accepts family filter before claiming jobs", () => {

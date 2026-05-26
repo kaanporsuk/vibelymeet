@@ -74,6 +74,11 @@ test("Phase 2 checkout and webhook record snapshots and enqueue refunds for paid
   assert.match(checkout, /tier_at_checkout: tierAtCheckout/);
   assert.match(checkout, /entitlement_snapshot: entitlementSnapshot/);
   assert.match(checkout, /event_snapshot: eventSnapshot/);
+  assert.match(cors, /capacitor:\/\/localhost/);
+  assert.match(cors, /ionic:\/\/localhost/);
+  assert.match(cors, /function isHttpAllowedOrigin/);
+  assert.match(cors, /parsed\.protocol === "https:" \|\| parsed\.protocol === "http:"/);
+  assert.match(cors, /if \(origin && isHttpAllowedOrigin\(origin\)\) return origin/);
 
   assert.match(webhook, /enqueue_event_ticket_refund_v1/);
   assert.match(webhook, /stripeObjectId\(session\.payment_intent\)/);
@@ -112,7 +117,8 @@ test("Phase 2 swipe notifications use durable outbox and drainer preserves custo
   assert.match(outboxDrainer, /const body = stringField\(row\.payload, "body"\)/);
   assert.match(outboxDrainer, /if \(title\) requestBody\.title = title/);
   assert.match(outboxDrainer, /if \(body\) requestBody\.body = body/);
-  assert.match(outboxDrainer, /dedupe_key: stringField\(row\.payload, "dedupe_key", "dedupeKey"\) \?\? row\.dedupe_key/);
+  assert.match(outboxDrainer, /const dedupeKey = stringField\(row\.payload, "dedupe_key", "dedupeKey"\) \?\? row\.dedupe_key \?\? null/);
+  assert.match(outboxDrainer, /dedupe_key: dedupeKey \?\? undefined/);
   assert.match(outboxDrainer, /PERMANENT_NOTIFICATION_SUPPRESSIONS/);
   assert.match(outboxDrainer, /notificationPayloadFailureResult/);
   assert.match(outboxDrainer, /no_player_id/);
