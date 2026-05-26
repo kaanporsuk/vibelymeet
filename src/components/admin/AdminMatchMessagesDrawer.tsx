@@ -12,9 +12,9 @@ import {
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { format } from "date-fns";
 import { avatarUrl as avatarPreset } from "@/utils/imageUrl";
 import { callAdminRpc, type AdminRpcPayload } from "@/lib/adminRpc";
+import { formatAdminUtcDate, formatAdminUtcDateTime } from "@/lib/adminTime";
 
 interface AdminMatchMessagesDrawerProps {
   userId: string;
@@ -228,7 +228,7 @@ const AdminMatchMessagesDrawer = ({
                         <div className="flex items-center gap-3 text-sm text-muted-foreground">
                           <span className="flex items-center gap-1">
                             <Calendar className="w-3 h-3" />
-                            {format(new Date(match.matched_at), "MMM d, yyyy")}
+                            {formatAdminUtcDate(match.matched_at)}
                           </span>
                           <span className="flex items-center gap-1">
                             <MessageSquare className="w-3 h-3" />
@@ -280,7 +280,7 @@ const AdminMatchMessagesDrawer = ({
                         <p className="text-sm whitespace-pre-wrap break-words">{msg.content}</p>
                         <div className={`flex items-center gap-2 mt-1 ${isFromUser ? "justify-end" : "justify-start"}`}>
                           <span className={`text-xs ${isFromUser ? "text-primary-foreground/70" : "text-muted-foreground"}`}>
-                            {format(new Date(msg.created_at), "MMM d, HH:mm")}
+                            {formatAdminUtcDateTime(msg.created_at)}
                           </span>
                           {!isFromUser && msg.read_at && (
                             <span className="text-xs text-muted-foreground">• Read</span>

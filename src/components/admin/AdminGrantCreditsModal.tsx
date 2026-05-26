@@ -3,10 +3,10 @@ import { useQueryClient } from "@tanstack/react-query";
 import { motion, AnimatePresence } from "framer-motion";
 import { X, Plus, Minus, Coins, Sparkles, Clock } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { toast } from "sonner";
 import AdminConfirmDialog from "./AdminConfirmDialog";
 import { callAdminRpc, createAdminTargetIdempotencyKey } from "@/lib/adminRpc";
 import { invalidateAdminQueries } from "@/lib/adminQueryInvalidation";
+import { adminToast } from "@/lib/adminToast";
 
 interface AdminGrantCreditsModalProps {
   userId: string;
@@ -40,7 +40,10 @@ const AdminGrantCreditsModal = ({
 
   const openGrantConfirmation = () => {
     if (extraTime === 0 && extendedVibe === 0) {
-      toast.error("Select at least one credit type");
+      adminToast.error({
+        id: "grant-credits-none-selected",
+        title: "Select at least one credit type",
+      });
       return;
     }
     setConfirmOpen(true);
@@ -48,7 +51,10 @@ const AdminGrantCreditsModal = ({
 
   const handleGrant = async () => {
     if (extraTime === 0 && extendedVibe === 0) {
-      toast.error("Select at least one credit type");
+      adminToast.error({
+        id: "grant-credits-none-selected",
+        title: "Select at least one credit type",
+      });
       return;
     }
 
@@ -73,17 +79,21 @@ const AdminGrantCreditsModal = ({
         }),
       });
 
-      toast.success(
-        `Granted ${extraTime > 0 ? `${extraTime}× Extra Time` : ""}${
+      adminToast.success({
+        id: `grant-credits-success-${userId}`,
+        title: `Granted ${extraTime > 0 ? `${extraTime}× Extra Time` : ""}${
           extraTime > 0 && extendedVibe > 0 ? " + " : ""
-        }${extendedVibe > 0 ? `${extendedVibe}× Extended Vibe` : ""} to ${userName}`
-      );
+        }${extendedVibe > 0 ? `${extendedVibe}× Extended Vibe` : ""} to ${userName}`,
+      });
       await invalidateAdminQueries(queryClient, ["users"]);
       setConfirmOpen(false);
       onClose();
     } catch (err) {
-      console.error("Error granting credits:", err);
-      toast.error("Failed to grant credits");
+      adminToast.error({
+        id: `grant-credits-failed-${userId}`,
+        title: "Failed to grant credits",
+        description: err instanceof Error ? err.message : undefined,
+      });
     } finally {
       setIsSubmitting(false);
     }

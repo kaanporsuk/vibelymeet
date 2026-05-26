@@ -9,7 +9,6 @@ import {
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { supabase } from "@/integrations/supabase/client";
-import { toast } from "sonner";
 import { useQuery } from "@tanstack/react-query";
 import AdminSidebar from "@/components/admin/AdminSidebar";
 import AdminStaleBundleNotice from "@/components/admin/AdminStaleBundleNotice";
@@ -20,6 +19,7 @@ import {
   useAdminOverviewDashboard,
 } from "@/hooks/useAdminOverviewDashboard";
 import { callAdminRpc, type AdminRpcPayload } from "@/lib/adminRpc";
+import { adminToast } from "@/lib/adminToast";
 
 const AdminUsersPanel = lazy(() => import("@/components/admin/AdminUsersPanel"));
 const AdminEventsPanel = lazy(() => import("@/components/admin/AdminEventsPanel"));
@@ -149,7 +149,10 @@ const AdminDashboard = () => {
 
   const handleLogout = async () => {
     await supabase.auth.signOut();
-    toast.success("Logged out successfully");
+    adminToast.success({
+      id: "admin-logout-success",
+      title: "Logged out successfully",
+    });
     navigate('/kaan');
   };
 

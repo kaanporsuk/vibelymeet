@@ -21,7 +21,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { toast } from "sonner";
+import { adminToast } from "@/lib/adminToast";
 
 export interface CampaignTemplate {
   id: string;
@@ -244,13 +244,36 @@ const CampaignTemplatesLibrary = ({ onSelectTemplate }: CampaignTemplatesLibrary
         body: editedBody,
       });
       setPreviewTemplate(null);
-      toast.success('Template applied! Customize your campaign.');
+      adminToast.success({
+        id: "campaign-template-applied",
+        title: "Template applied",
+        description: "Customize your campaign.",
+      });
     }
   };
   
-  const handleCopyTemplate = (template: CampaignTemplate) => {
-    navigator.clipboard.writeText(`${template.title}\n\n${template.body}`);
-    toast.success('Template copied to clipboard!');
+  const handleCopyTemplate = async (template: CampaignTemplate) => {
+    if (!navigator.clipboard) {
+      adminToast.error({
+        id: "campaign-template-copy-unavailable",
+        title: "Clipboard unavailable",
+      });
+      return;
+    }
+
+    try {
+      await navigator.clipboard.writeText(`${template.title}\n\n${template.body}`);
+      adminToast.success({
+        id: `campaign-template-copied-${template.id}`,
+        title: "Template copied to clipboard",
+      });
+    } catch (error) {
+      adminToast.error({
+        id: `campaign-template-copy-failed-${template.id}`,
+        title: "Could not copy template",
+        description: error instanceof Error ? error.message : undefined,
+      });
+    }
   };
   
   const getCategoryColor = (category: string) => {

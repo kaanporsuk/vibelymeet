@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type AriaAttributes, type KeyboardEvent } from "react";
 import AdminReportsSummary from "@/components/admin/AdminReportsSummary";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { motion } from "framer-motion";
@@ -48,8 +48,6 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
-import { format } from "date-fns";
-import { toast } from "sonner";
 import { avatarUrl as avatarPreset } from "@/utils/imageUrl";
 import { REPORT_REASONS, type ReportReasonId } from "../../../shared/safety/reportReasons";
 import { resolvePrimaryProfilePhotoPath } from "../../../shared/profilePhoto/resolvePrimaryProfilePhotoPath";
@@ -58,6 +56,9 @@ import { callAdminRpc, createAdminTargetIdempotencyKey, type AdminRpcPayload } f
 import { invalidateAdminQueries } from "@/lib/adminQueryInvalidation";
 import { useDebouncedValue } from "@/hooks/useDebouncedValue";
 import { resolveReportSearchQuery } from "./adminReportSearch";
+import AdminEmptyState from "./AdminEmptyState";
+import { formatAdminUtcDateTime } from "@/lib/adminTime";
+import { adminToast } from "@/lib/adminToast";
 
 type SortField = "created_at" | "status";
 type SortDirection = "asc" | "desc";
@@ -138,11 +139,13 @@ const AdminReportsPanel = () => {
   const [actionType, setActionType] = useState<ReportActionType>("dismiss");
   const [policyCategory, setPolicyCategory] = useState<PolicyCategory>("other");
   const [pageIndex, setPageIndex] = useState(0);
+  const reportDialogTriggerRef = useRef<HTMLElement | null>(null);
   const debouncedSearchQuery = useDebouncedValue(searchQuery, 350);
   const normalizedSearchQuery = debouncedSearchQuery.trim();
   const reportSearchQuery = resolveReportSearchQuery(normalizedSearchQuery);
 
-  const openReportActionDialog = (report: UserReportRow) => {
+  const openReportActionDialog = (report: UserReportRow, trigger?: HTMLElement | null) => {
+    reportDialogTriggerRef.current = trigger ?? (document.activeElement instanceof HTMLElement ? document.activeElement : null);
     setSelectedReport(report);
     setActionType("dismiss");
     setActionNotes("");
@@ -158,6 +161,9 @@ const AdminReportsPanel = () => {
     setActionNotes("");
     setActionType("dismiss");
     setPolicyCategory("other");
+    const trigger = reportDialogTriggerRef.current;
+    reportDialogTriggerRef.current = null;
+    window.requestAnimationFrame(() => trigger?.focus());
   };
 
   // Fetch paginated reports through the backend admin read model.
@@ -265,13 +271,25 @@ const AdminReportsPanel = () => {
         p_recommendation_id: null,
       });
     },
-    onSuccess: () => {
+    onSuccess: (_data, variables) => {
       void invalidateAdminQueries(queryClient, ["reports", "overview", "badges"]);
-      toast.success("Report action completed");
+      const inspectedStatus = variables.action === "dismiss" ? "dismissed" : "action_taken";
+      const reportForInspection = { ...variables.report, status: inspectedStatus };
+      adminToast.success({
+        id: `admin-report-action-${variables.report.id}`,
+        title: "Report action completed",
+        description: "This moderation action is not undoable from the toast. Reopen the report record if you need to inspect the result.",
+        action: {
+          label: "Reopen report",
+          onClick: () => openReportActionDialog(reportForInspection),
+        },
+      });
       closeReportActionDialog();
     },
     onError: () => {
-      toast.error("Report action was not completed", {
+      adminToast.error({
+        id: "admin-report-action-error",
+        title: "Report action was not completed",
         description: "The backend admin_resolve_report transaction failed, so no partial UI success was reported.",
       });
     },
@@ -321,12 +339,31 @@ const AdminReportsPanel = () => {
     );
   };
 
+  const getAriaSort = (field: SortField): AriaAttributes["aria-sort"] => {
+    if (sortField !== field) return "none";
+    return sortDirection === "asc" ? "ascending" : "descending";
+  };
+
+  const activateReportRow = (report: UserReportRow, trigger: HTMLElement | null) => {
+    if (report.status !== "pending") return;
+    openReportActionDialog(report, trigger);
+  };
+
+  const handleReportRowKeyDown = (event: KeyboardEvent<HTMLTableRowElement>, report: UserReportRow) => {
+    if (event.key !== "Enter" && event.key !== " ") return;
+    event.preventDefault();
+    activateReportRow(report, event.currentTarget);
+  };
+
   const handleTakeAction = async () => {
     if (!selectedReport) return;
     const notes = actionNotes.trim();
 
     if ((actionType === "warn" || actionType === "suspend") && !notes) {
-      toast.error(actionType === "warn" ? "Add a warning message before issuing a warning" : "Add suspension notes before suspending the user");
+      adminToast.error({
+        id: "admin-report-notes-required",
+        title: actionType === "warn" ? "Add a warning message before issuing a warning" : "Add suspension notes before suspending the user",
+      });
       return;
     }
 
@@ -338,7 +375,9 @@ const AdminReportsPanel = () => {
         policyCategory,
       });
     } catch (error) {
-      toast.error("Report action was not completed", {
+      adminToast.error({
+        id: "admin-report-action-error",
+        title: "Report action was not completed",
         description:
           actionType === "dismiss"
             ? "The backend report resolution transaction failed."
@@ -352,13 +391,17 @@ const AdminReportsPanel = () => {
     if (!selectedReport) return;
     const notes = actionNotes.trim();
     if ((actionType === "warn" || actionType === "suspend") && !notes) {
-      toast.error(actionType === "warn" ? "Add a warning message before issuing a warning" : "Add suspension notes before suspending the user");
+      adminToast.error({
+        id: "admin-report-notes-required",
+        title: actionType === "warn" ? "Add a warning message before issuing a warning" : "Add suspension notes before suspending the user",
+      });
       return;
     }
     setShowActionConfirm(true);
   };
 
   const reportActionPending = resolveReport.isPending;
+  const selectedReportIsActionable = selectedReport?.status === "pending";
   const reportActionLabel =
     actionType === "suspend" ? "Suspend User" : actionType === "warn" ? "Issue Warning" : "Dismiss Report";
   const reportActionDescription = selectedReport
@@ -452,8 +495,10 @@ const AdminReportsPanel = () => {
                 <TableHead>Reported User</TableHead>
                 <TableHead>Reporter</TableHead>
                 <TableHead>Reason</TableHead>
-                <TableHead>
+                <TableHead aria-sort={getAriaSort("created_at")}>
                   <button
+                    type="button"
+                    aria-label={`Sort by report date ${sortField === "created_at" ? sortDirection : "inactive"}`}
                     onClick={() => handleSort("created_at")}
                     className="flex items-center gap-2 hover:text-foreground transition-colors"
                   >
@@ -461,8 +506,10 @@ const AdminReportsPanel = () => {
                     {getSortIcon("created_at")}
                   </button>
                 </TableHead>
-                <TableHead>
+                <TableHead aria-sort={getAriaSort("status")}>
                   <button
+                    type="button"
+                    aria-label={`Sort by report status ${sortField === "status" ? sortDirection : "inactive"}`}
                     onClick={() => handleSort("status")}
                     className="flex items-center gap-2 hover:text-foreground transition-colors"
                   >
@@ -484,19 +531,32 @@ const AdminReportsPanel = () => {
                 ))
               ) : reportsUnavailable ? (
                 <TableRow className="border-border/50">
-                  <TableCell colSpan={6} className="text-center py-8 text-destructive">
-                    <AlertTriangle className="w-8 h-8 mx-auto mb-2 opacity-70" />
-                    <p className="font-medium">Reports unavailable</p>
-                    <p className="text-xs text-muted-foreground mt-1">
-                      This is a fetch failure, not proof that no reports exist.
-                    </p>
+                  <TableCell colSpan={6}>
+                    <AdminEmptyState
+                      icon={AlertTriangle}
+                      title="Reports unavailable"
+                      description="This is a fetch failure, not proof that no reports exist."
+                      tone="danger"
+                    />
                   </TableCell>
                 </TableRow>
               ) : reports.length === 0 ? (
                 <TableRow className="border-border/50">
-                  <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
-                    <AlertTriangle className="w-8 h-8 mx-auto mb-2 opacity-50" />
-                    No reports found
+                  <TableCell colSpan={6}>
+                    <AdminEmptyState
+                      icon={AlertTriangle}
+                      title="No reports found"
+                      description={reportSearchQuery || statusFilter !== "all" ? "Try clearing search or status filters." : "New safety reports will appear here."}
+                      actionLabel={reportSearchQuery || statusFilter !== "all" ? "Clear filters" : undefined}
+                      onAction={
+                        reportSearchQuery || statusFilter !== "all"
+                          ? () => {
+                              setSearchQuery("");
+                              setStatusFilter("all");
+                            }
+                          : undefined
+                      }
+                    />
                   </TableCell>
                 </TableRow>
               ) : (
@@ -506,7 +566,15 @@ const AdminReportsPanel = () => {
                   const ReasonIcon = reasonIcons[report.reason] || AlertTriangle;
 
                   return (
-                    <TableRow key={report.id} className="border-border/50 hover:bg-secondary/30">
+                    <TableRow
+                      key={report.id}
+                      tabIndex={0}
+                      aria-label={`Report against ${reported?.name || "unknown user"} from ${reporter?.name || "unknown reporter"}. ${report.status === "pending" ? "Press Enter to review." : "Already reviewed."}`}
+                      aria-disabled={report.status !== "pending"}
+                      onClick={(event) => activateReportRow(report, event.currentTarget)}
+                      onKeyDown={(event) => handleReportRowKeyDown(event, report)}
+                      className={`border-border/50 hover:bg-secondary/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-inset ${report.status === "pending" ? "cursor-pointer" : ""}`}
+                    >
                       <TableCell>
                         <div className="flex items-center gap-3">
                           <Avatar className="h-10 w-10 border-2 border-red-500/30">
@@ -539,7 +607,7 @@ const AdminReportsPanel = () => {
                       </TableCell>
                       <TableCell>
                         <span className="text-sm text-muted-foreground">
-                          {format(new Date(report.created_at), "MMM d, yyyy")}
+                          {formatAdminUtcDateTime(report.created_at)}
                         </span>
                       </TableCell>
                       <TableCell>{getStatusBadge(report.status)}</TableCell>
@@ -547,7 +615,10 @@ const AdminReportsPanel = () => {
                         <Button
                           variant="outline"
                           size="sm"
-                          onClick={() => openReportActionDialog(report)}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            openReportActionDialog(report, event.currentTarget);
+                          }}
                           className="gap-2"
                           disabled={report.status !== "pending"}
                         >
@@ -577,9 +648,11 @@ const AdminReportsPanel = () => {
       >
         <DialogContent className="bg-card border-border">
           <DialogHeader>
-            <DialogTitle>Review Report</DialogTitle>
+            <DialogTitle>{selectedReportIsActionable ? "Review Report" : "Report Record"}</DialogTitle>
             <DialogDescription>
-              Take action on this report against{" "}
+              {selectedReportIsActionable
+                ? "Take action on this report against "
+                : "This report has already been handled and is open for inspection against "}
               {selectedReport ? profiles?.[selectedReport.reported_id]?.name || "the reported user" : "the reported user"}
             </DialogDescription>
           </DialogHeader>
@@ -605,7 +678,11 @@ const AdminReportsPanel = () => {
               {/* Action type */}
               <div className="space-y-2">
                 <label className="text-sm font-medium text-foreground">Action</label>
-                <Select value={actionType} onValueChange={(v) => setActionType(v as ReportActionType)}>
+                <Select
+                  value={actionType}
+                  onValueChange={(v) => setActionType(v as ReportActionType)}
+                  disabled={!selectedReportIsActionable}
+                >
                   <SelectTrigger className="bg-secondary/50">
                     <SelectValue />
                   </SelectTrigger>
@@ -619,7 +696,11 @@ const AdminReportsPanel = () => {
 
               <div className="space-y-2">
                 <label className="text-sm font-medium text-foreground">Policy category</label>
-                <Select value={policyCategory} onValueChange={(v) => setPolicyCategory(v as PolicyCategory)}>
+                <Select
+                  value={policyCategory}
+                  onValueChange={(v) => setPolicyCategory(v as PolicyCategory)}
+                  disabled={!selectedReportIsActionable}
+                >
                   <SelectTrigger className="bg-secondary/50">
                     <SelectValue />
                   </SelectTrigger>
@@ -643,6 +724,7 @@ const AdminReportsPanel = () => {
                   value={actionNotes}
                   onChange={(e) => setActionNotes(e.target.value)}
                   placeholder="Add notes about this action..."
+                  readOnly={!selectedReportIsActionable}
                   className="bg-secondary/50"
                 />
               </div>
@@ -651,36 +733,38 @@ const AdminReportsPanel = () => {
 
           <DialogFooter>
             <Button variant="outline" onClick={closeReportActionDialog}>
-              Cancel
+              {selectedReportIsActionable ? "Cancel" : "Close"}
             </Button>
-            <Button
-              onClick={requestReportActionConfirmation}
-              disabled={reportActionPending}
-              className={
-                actionType === "suspend"
-                  ? "bg-destructive hover:bg-destructive/90"
-                  : "bg-primary"
-              }
-            >
-              {reportActionPending ? (
-                <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-              ) : actionType === "suspend" ? (
-                <>
-                  <Ban className="w-4 h-4 mr-2" />
-                  Suspend User
-                </>
-              ) : actionType === "warn" ? (
-                <>
-                  <AlertTriangle className="w-4 h-4 mr-2" />
-                  Issue Warning
-                </>
-              ) : (
-                <>
-                  <XCircle className="w-4 h-4 mr-2" />
-                  Dismiss
-                </>
-              )}
-            </Button>
+            {selectedReportIsActionable ? (
+              <Button
+                onClick={requestReportActionConfirmation}
+                disabled={reportActionPending}
+                className={
+                  actionType === "suspend"
+                    ? "bg-destructive hover:bg-destructive/90"
+                    : "bg-primary"
+                }
+              >
+                {reportActionPending ? (
+                  <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                ) : actionType === "suspend" ? (
+                  <>
+                    <Ban className="w-4 h-4 mr-2" />
+                    Suspend User
+                  </>
+                ) : actionType === "warn" ? (
+                  <>
+                    <AlertTriangle className="w-4 h-4 mr-2" />
+                    Issue Warning
+                  </>
+                ) : (
+                  <>
+                    <XCircle className="w-4 h-4 mr-2" />
+                    Dismiss
+                  </>
+                )}
+              </Button>
+            ) : null}
           </DialogFooter>
         </DialogContent>
       </Dialog>

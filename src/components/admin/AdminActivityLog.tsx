@@ -36,7 +36,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { callAdminRpc, sanitizeAdminRpcErrorMessage, type AdminRpcPayload } from "@/lib/adminRpc";
-import { format, formatDistanceToNow } from "date-fns";
+import { formatAdminRelativeTime, formatAdminUtcDate, formatAdminUtcDateTime } from "@/lib/adminTime";
 
 type AdminLogDetails = Record<string, unknown>;
 
@@ -551,7 +551,9 @@ const AdminActivityLog = () => {
                           <span className="text-xs text-muted-foreground">{shortenId(log.target_id)}</span>
                         )}
                         <span className="text-xs text-muted-foreground">
-                          {formatDistanceToNow(new Date(log.created_at), { addSuffix: true })}
+                          <span title={formatAdminUtcDateTime(log.created_at)}>
+                            {formatAdminRelativeTime(log.created_at)}
+                          </span>
                         </span>
                       </div>
 
@@ -581,8 +583,8 @@ const AdminActivityLog = () => {
                     </div>
 
                     <div className="shrink-0 text-right text-xs text-muted-foreground">
-                      <div>{format(new Date(log.created_at), "MMM d, HH:mm")}</div>
-                      <div className="mt-1">{format(new Date(log.created_at), "yyyy-MM-dd")}</div>
+                      <div>{formatAdminUtcDateTime(log.created_at)}</div>
+                      <div className="mt-1">{formatAdminUtcDate(log.created_at)}</div>
                     </div>
                   </motion.div>
                 );

@@ -27,7 +27,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { supabase } from "@/integrations/supabase/client";
 import { callAdminRpc, sanitizeAdminRpcErrorMessage, type AdminRpcPayload } from "@/lib/adminRpc";
 import { resolveSupabaseFunctionErrorMessage } from "@/lib/supabaseFunctionInvokeErrors";
-import { toast } from "sonner";
+import { formatAdminUtcDateTimeForExport } from "@/lib/adminTime";
+import { adminToast } from "@/lib/adminToast";
 
 type GovernedExportScope =
   | "user"
@@ -188,7 +189,7 @@ function isPiiAllowedForScope(option: GovernedExportOption, classification: PiiC
 }
 
 const formatDateTime = (value: string | null | undefined) =>
-  value ? format(new Date(value), "yyyy-MM-dd HH:mm:ss") : "";
+  formatAdminUtcDateTimeForExport(value);
 
 const AdminExportPanel = () => {
   const [selectedGovernedScope, setSelectedGovernedScope] = useState<GovernedExportScope>("user");
@@ -269,23 +270,38 @@ const AdminExportPanel = () => {
 
   const queueGovernedExport = async () => {
     if (hasCompliancePermission !== true) {
-      toast.error("Compliance permission is required for governed exports.");
+      adminToast.error({
+        id: "admin-export-missing-compliance-permission",
+        title: "Compliance permission is required for governed exports.",
+      });
       return;
     }
     if (hasInvalidDateRange) {
-      toast.error(isCustomRangeReversed ? "Custom start date must be before the end date." : "Both custom dates are required.");
+      adminToast.error({
+        id: "admin-export-invalid-date-range",
+        title: isCustomRangeReversed ? "Custom start date must be before the end date." : "Both custom dates are required.",
+      });
       return;
     }
     if (isPiiBelowScopeMinimum) {
-      toast.error(`This scope requires ${piiLabels[selectedGovernedOption.pii]} classification or higher.`);
+      adminToast.error({
+        id: "admin-export-pii-classification-too-low",
+        title: `This scope requires ${piiLabels[selectedGovernedOption.pii]} classification or higher.`,
+      });
       return;
     }
     if (!reason.trim()) {
-      toast.error("A reason is required for governed exports.");
+      adminToast.error({
+        id: "admin-export-missing-reason",
+        title: "A reason is required for governed exports.",
+      });
       return;
     }
     if (selectedGovernedOption.requiresUserId && !userId.trim()) {
-      toast.error("A user ID is required for this governed export scope.");
+      adminToast.error({
+        id: "admin-export-missing-user-id",
+        title: "A user ID is required for this governed export scope.",
+      });
       return;
     }
 
@@ -309,9 +325,15 @@ const AdminExportPanel = () => {
       }
       setQueuedJob(payload);
       await exportJobs.refetch();
-      toast.success("Governed export queued");
+      adminToast.success({
+        id: "admin-export-governed-queued",
+        title: "Governed export queued",
+      });
     } catch (error) {
-      toast.error(sanitizeAdminRpcErrorMessage(error));
+      adminToast.error({
+        id: "admin-export-governed-failed",
+        title: sanitizeAdminRpcErrorMessage(error),
+      });
     } finally {
       setIsQueueing(false);
     }

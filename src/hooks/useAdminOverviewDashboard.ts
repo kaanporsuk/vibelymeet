@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { callAdminRpc, type AdminRpcPayload } from "@/lib/adminRpc";
+export { formatAdminCount, formatAdminUtcDateTime } from "@/lib/adminTime";
 
 export const ADMIN_OVERVIEW_DASHBOARD_QUERY_KEY = ["admin-overview-dashboard"] as const;
 
@@ -112,23 +113,4 @@ export function useAdminOverviewDashboard() {
       callAdminRpc<AdminOverviewDashboardPayload>("admin_get_overview_dashboard", {}),
     refetchInterval: 30000,
   });
-}
-
-export function formatAdminUtcDateTime(value: string | null | undefined): string {
-  if (!value) return "Never";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "Unavailable";
-  return new Intl.DateTimeFormat("en-US", {
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-    hour12: true,
-    timeZone: "UTC",
-  }).format(date) + " UTC";
-}
-
-export function formatAdminCount(value: number | null | undefined): string {
-  if (value == null || !Number.isFinite(value)) return "Unavailable";
-  return value.toLocaleString();
 }

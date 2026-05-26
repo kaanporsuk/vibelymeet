@@ -5,7 +5,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import type { Json } from "@/integrations/supabase/types";
 import { sanitizeAdminRpcErrorMessage } from "@/lib/adminRpc";
-import { toast } from "sonner";
+import { adminToast } from "@/lib/adminToast";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
@@ -27,6 +27,7 @@ import {
   type TierId,
 } from "@shared/tiers";
 import AdminConfirmDialog from "./AdminConfirmDialog";
+import { formatAdminUtcDateTime } from "@/lib/adminTime";
 
 const SECTIONS: { title: string; category: CapabilityMeta["category"] }[] = [
   { title: "Feature gates", category: "boolean" },
@@ -138,13 +139,16 @@ function CapabilityCell({
             max={TIER_CONFIG_MAX_INTEGER}
             step={1}
             onChange={(e) => setNumDraft(e.target.value)}
-            onBlur={() => {
-              const n = parseNonNegativeInteger(numDraft);
-              if (n === null) {
-                setNumDraft(String(rawValue ?? 0));
-                toast.error(`Enter a whole number from 0 to ${TIER_CONFIG_MAX_INTEGER}`);
-                return;
-              }
+              onBlur={() => {
+                const n = parseNonNegativeInteger(numDraft);
+                if (n === null) {
+                  setNumDraft(String(rawValue ?? 0));
+                  adminToast.error({
+                    id: `tier-config-invalid-number-${meta.key}`,
+                    title: `Enter a whole number from 0 to ${TIER_CONFIG_MAX_INTEGER}`,
+                  });
+                  return;
+                }
               onSet(n);
             }}
           />
@@ -196,7 +200,10 @@ function CapabilityCell({
                 const n = parseNonNegativeInteger(numDraft);
                 if (n === null) {
                   setNumDraft(String(rawValue ?? 0));
-                  toast.error(`Use the Unlimited switch or enter a whole number from 0 to ${TIER_CONFIG_MAX_INTEGER}`);
+                  adminToast.error({
+                    id: `tier-config-invalid-number-or-null-${meta.key}`,
+                    title: `Use the Unlimited switch or enter a whole number from 0 to ${TIER_CONFIG_MAX_INTEGER}`,
+                  });
                   return;
                 }
                 onSet(n);
@@ -344,7 +351,10 @@ const AdminTierConfigPanel = () => {
     },
     onError: (err, _v, ctx) => {
       if (ctx?.prev) qc.setQueryData(["tier-config-overrides"], ctx.prev);
-      toast.error(sanitizeAdminRpcErrorMessage(err));
+      adminToast.error({
+        id: "tier-config-save-failed",
+        title: sanitizeAdminRpcErrorMessage(err),
+      });
     },
     onSettled: () => {
       void qc.invalidateQueries({ queryKey: ["tier-config-overrides"] });
@@ -370,7 +380,10 @@ const AdminTierConfigPanel = () => {
     },
     onError: (err, _v, ctx) => {
       if (ctx?.prev) qc.setQueryData(["tier-config-overrides"], ctx.prev);
-      toast.error(sanitizeAdminRpcErrorMessage(err));
+      adminToast.error({
+        id: "tier-config-reset-failed",
+        title: sanitizeAdminRpcErrorMessage(err),
+      });
     },
     onSettled: () => {
       void qc.invalidateQueries({ queryKey: ["tier-config-overrides"] });
@@ -538,7 +551,7 @@ const AdminTierConfigPanel = () => {
                   <span className="text-foreground font-medium">{row.tier_id}</span>
                   <span className="text-muted-foreground">·</span>
                   <span className="text-primary">{row.capability_key}</span>
-                  <span className="text-muted-foreground ml-auto">{new Date(row.created_at).toLocaleString()}</span>
+                  <span className="text-muted-foreground ml-auto">{formatAdminUtcDateTime(row.created_at)}</span>
                 </div>
                 <div className="mt-1 grid gap-1 text-muted-foreground sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
                   <span className="truncate">actor: {row.admin_id ?? "unknown"}</span>

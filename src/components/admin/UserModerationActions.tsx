@@ -31,11 +31,11 @@ import {
 } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { format } from "date-fns";
-import { toast } from "sonner";
 import AdminConfirmDialog from "./AdminConfirmDialog";
 import { callAdminRpc, createAdminTargetIdempotencyKey } from "@/lib/adminRpc";
 import { invalidateAdminQueries } from "@/lib/adminQueryInvalidation";
+import { formatAdminUtcDateTime } from "@/lib/adminTime";
+import { adminToast } from "@/lib/adminToast";
 
 export type AdminSuspensionRow = {
   id: string;
@@ -134,12 +134,17 @@ const UserModerationActions = ({
     },
     onSuccess: () => {
       void invalidateAdminQueries(queryClient, ["users"]);
-      toast.success(`${userName} has been suspended`);
+      adminToast.success({
+        id: `admin-user-suspended-${userId}`,
+        title: `${userName} has been suspended`,
+        description: "This change is not undone from a toast. Reopen moderation history to review or lift it deliberately.",
+        action: { label: "View history", onClick: () => setActiveTab("history") },
+      });
       setSuspendReason("");
       setSuspendDuration("permanent");
     },
     onError: () => {
-      toast.error('Failed to suspend user');
+      adminToast.error({ id: `admin-user-suspend-error-${userId}`, title: "Failed to suspend user" });
     },
   });
 
@@ -164,10 +169,14 @@ const UserModerationActions = ({
     },
     onSuccess: () => {
       void invalidateAdminQueries(queryClient, ["users"]);
-      toast.success(`Suspension lifted for ${userName}`);
+      adminToast.success({
+        id: `admin-user-suspension-lifted-${userId}`,
+        title: `Suspension lifted for ${userName}`,
+        action: { label: "View history", onClick: () => setActiveTab("history") },
+      });
     },
     onError: () => {
-      toast.error('Failed to lift suspension');
+      adminToast.error({ id: `admin-user-lift-error-${userId}`, title: "Failed to lift suspension" });
     },
   });
 
@@ -191,12 +200,17 @@ const UserModerationActions = ({
     },
     onSuccess: () => {
       void invalidateAdminQueries(queryClient, ["users"]);
-      toast.success(`Warning sent to ${userName}`);
+      adminToast.success({
+        id: `admin-user-warning-${userId}`,
+        title: `Warning sent to ${userName}`,
+        description: "Warnings are auditable records. Use moderation history to review the exact message.",
+        action: { label: "View history", onClick: () => setActiveTab("history") },
+      });
       setWarningReason("");
       setWarningMessage("");
     },
     onError: () => {
-      toast.error('Failed to send warning');
+      adminToast.error({ id: `admin-user-warning-error-${userId}`, title: "Failed to send warning" });
     },
   });
 
@@ -253,7 +267,7 @@ const UserModerationActions = ({
             </p>
             {currentSuspension.expires_at && (
               <p className="text-xs text-muted-foreground mt-1">
-                Expires: {format(new Date(currentSuspension.expires_at), 'PPp')}
+                Expires: {formatAdminUtcDateTime(currentSuspension.expires_at)}
               </p>
             )}
           </div>
@@ -418,20 +432,20 @@ const UserModerationActions = ({
                           {suspension.status}
                         </Badge>
                         <span className="text-xs text-muted-foreground">
-                          {format(new Date(suspension.suspended_at), 'PPp')}
+                          {formatAdminUtcDateTime(suspension.suspended_at)}
                         </span>
                       </div>
                       <p className="text-sm text-foreground">{suspension.reason}</p>
                       {suspension.expires_at && (
                         <p className="text-xs text-muted-foreground mt-1">
                           {suspension.status === 'active' ? 'Expires' : 'Was set to expire'}:{' '}
-                          {format(new Date(suspension.expires_at), 'PPp')}
+                          {formatAdminUtcDateTime(suspension.expires_at)}
                         </p>
                       )}
                       {suspension.lifted_at && (
                         <p className="text-xs text-green-400 mt-1 flex items-center gap-1">
                           <CheckCircle className="w-3 h-3" />
-                          Lifted: {format(new Date(suspension.lifted_at), 'PPp')}
+                          Lifted: {formatAdminUtcDateTime(suspension.lifted_at)}
                         </p>
                       )}
                     </div>
@@ -458,14 +472,14 @@ const UserModerationActions = ({
                           {warning.reason.replace('_', ' ')}
                         </Badge>
                         <span className="text-xs text-muted-foreground">
-                          {format(new Date(warning.created_at), 'PPp')}
+                          {formatAdminUtcDateTime(warning.created_at)}
                         </span>
                       </div>
                       <p className="text-sm text-foreground">{warning.message}</p>
                       {warning.acknowledged_at && (
                         <p className="text-xs text-green-400 mt-1 flex items-center gap-1">
                           <CheckCircle className="w-3 h-3" />
-                          Acknowledged: {format(new Date(warning.acknowledged_at), 'PPp')}
+                          Acknowledged: {formatAdminUtcDateTime(warning.acknowledged_at)}
                         </p>
                       )}
                     </div>

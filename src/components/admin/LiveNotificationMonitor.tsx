@@ -22,6 +22,7 @@ import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { usePushNotificationEvents, NotificationPlatform, NotificationStatus } from "@/hooks/usePushNotificationEvents";
+import { formatAdminUtcTime } from "@/lib/adminTime";
 
 const LiveNotificationMonitor = () => {
   const { 
@@ -107,7 +108,7 @@ const LiveNotificationMonitor = () => {
     : events.filter(e => e.platform === activeTab);
 
   const formatTimestamp = (timestamp: string) => {
-    return new Date(timestamp).toLocaleTimeString();
+    return formatAdminUtcTime(timestamp);
   };
 
   const hasProviderIdentifier = (value: string | null) => Boolean(value && value !== "[REDACTED]");

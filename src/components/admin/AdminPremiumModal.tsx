@@ -11,11 +11,12 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
-import { format, addWeeks, addMonths, addYears } from "date-fns";
-import { toast } from "sonner";
+import { addWeeks, addMonths, addYears } from "date-fns";
 import AdminConfirmDialog from "./AdminConfirmDialog";
 import { callAdminRpc, createAdminTargetIdempotencyKey } from "@/lib/adminRpc";
 import { invalidateAdminQueries } from "@/lib/adminQueryInvalidation";
+import { formatAdminUtcDate, formatAdminUtcDateTime } from "@/lib/adminTime";
+import { adminToast } from "@/lib/adminToast";
 
 interface AdminPremiumModalProps {
   userId: string;
@@ -26,6 +27,7 @@ interface AdminPremiumModalProps {
   history?: PremiumHistoryEntry[];
   isOpen: boolean;
   onClose: () => void;
+  onReopen?: () => void;
 }
 
 type Duration = "1week" | "1month" | "3months" | "1year" | "custom";
@@ -85,6 +87,7 @@ const AdminPremiumModal = ({
   history = [],
   isOpen,
   onClose,
+  onReopen,
 }: AdminPremiumModalProps) => {
   const queryClient = useQueryClient();
   const [duration, setDuration] = useState<Duration>("1month");
@@ -112,6 +115,11 @@ const AdminPremiumModal = ({
   const closeModal = () => {
     setPendingAction(null);
     onClose();
+  };
+
+  const reopenHistory = () => {
+    setHistoryOpen(true);
+    onReopen?.();
   };
 
   const getTargetDate = (baseDate: Date): Date => {
@@ -163,11 +171,15 @@ const AdminPremiumModal = ({
         }),
       });
 
-      toast.success(`${selectedTierLabel} granted to ${userName} until ${format(targetDate, "MMM d, yyyy")}`);
+      adminToast.success({
+        id: `admin-premium-grant-${userId}`,
+        title: `${selectedTierLabel} granted to ${userName} until ${formatAdminUtcDate(targetDate)}`,
+        action: { label: "View history", onClick: reopenHistory },
+      });
       await invalidatePremiumQueries();
       closeModal();
     } catch (e: unknown) {
-      toast.error(premiumErrorMessage(e, "Failed to grant premium"));
+      adminToast.error({ id: `admin-premium-grant-error-${userId}`, title: premiumErrorMessage(e, "Failed to grant premium") });
     } finally {
       setIsSubmitting(false);
     }
@@ -196,11 +208,15 @@ const AdminPremiumModal = ({
         }),
       });
 
-      toast.success(`${selectedTierLabel} extended for ${userName} until ${format(targetDate, "MMM d, yyyy")}`);
+      adminToast.success({
+        id: `admin-premium-extend-${userId}`,
+        title: `${selectedTierLabel} extended for ${userName} until ${formatAdminUtcDate(targetDate)}`,
+        action: { label: "View history", onClick: reopenHistory },
+      });
       await invalidatePremiumQueries();
       closeModal();
     } catch (e: unknown) {
-      toast.error(premiumErrorMessage(e, "Failed to extend premium"));
+      adminToast.error({ id: `admin-premium-extend-error-${userId}`, title: premiumErrorMessage(e, "Failed to extend premium") });
     } finally {
       setIsSubmitting(false);
     }
@@ -225,11 +241,16 @@ const AdminPremiumModal = ({
         }),
       });
 
-      toast.success(`Premium revoked for ${userName}`);
+      adminToast.success({
+        id: `admin-premium-revoke-${userId}`,
+        title: `Premium revoked for ${userName}`,
+        description: "Premium changes are not undone from toast; use the modal to grant or extend again deliberately.",
+        action: { label: "View history", onClick: reopenHistory },
+      });
       await invalidatePremiumQueries();
       closeModal();
     } catch (e: unknown) {
-      toast.error(premiumErrorMessage(e, "Failed to revoke premium"));
+      adminToast.error({ id: `admin-premium-revoke-error-${userId}`, title: premiumErrorMessage(e, "Failed to revoke premium") });
     } finally {
       setIsSubmitting(false);
     }
@@ -237,7 +258,7 @@ const AdminPremiumModal = ({
 
   const premiumActionCopy = (() => {
     const targetDate = getPendingTargetDate(pendingAction);
-    const accessLine = targetDate ? `\nAccess through: ${format(targetDate, "MMM d, yyyy")}` : "";
+    const accessLine = targetDate ? `\nAccess through: ${formatAdminUtcDate(targetDate)}` : "";
     const reasonLine = reason.trim() ? `\nReason: ${reason.trim()}` : "";
     if (pendingAction === "grant") {
       return {
@@ -325,7 +346,7 @@ const AdminPremiumModal = ({
               ✦ Active {currentTierLabel}
             </Badge>
             <p className="text-xs text-muted-foreground">
-              Expires: {currentPremiumUntil ? format(new Date(currentPremiumUntil), "MMM d, yyyy 'at' h:mm a") : "Never"}
+              Expires: {currentPremiumUntil ? formatAdminUtcDateTime(currentPremiumUntil) : "Never"}
             </p>
           </div>
         ) : (
@@ -431,7 +452,7 @@ const AdminPremiumModal = ({
                 </Badge>
                 <div className="min-w-0">
                   <p className="text-muted-foreground">
-                    by {entry.adminName} · {format(new Date(entry.created_at), "MMM d, yyyy")}
+                    by {entry.adminName} · {formatAdminUtcDate(entry.created_at)}
                   </p>
                   {entry.reason && (
                     <p className="text-foreground truncate">{entry.reason}</p>

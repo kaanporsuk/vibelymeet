@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { motion, AnimatePresence } from "framer-motion";
 import {
@@ -32,11 +32,12 @@ import {
   DropdownMenuSeparator,
   DropdownMenuCheckboxItem,
 } from "@/components/ui/dropdown-menu";
-import { formatDistanceToNow } from "date-fns";
-import { toast } from "sonner";
 import AdminConfirmDialog from "./AdminConfirmDialog";
+import AdminEmptyState from "./AdminEmptyState";
 import { callAdminRpc, createAdminIdempotencyKey } from "@/lib/adminRpc";
 import { invalidateAdminQueries } from "@/lib/adminQueryInvalidation";
+import { formatAdminRelativeTime, formatAdminUtcDateTime } from "@/lib/adminTime";
+import { adminToast } from "@/lib/adminToast";
 
 const notificationIcons: Record<string, React.ComponentType<{ className?: string }>> = {
   new_user: User,
@@ -72,6 +73,7 @@ interface AdminNotificationsPanelProps {
 
 const AdminNotificationsPanel = ({ isOpen, onClose }: AdminNotificationsPanelProps) => {
   const queryClient = useQueryClient();
+  const panelTriggerRef = useRef<HTMLElement | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [activeFilters, setActiveFilters] = useState<Set<string>>(new Set());
   const [showUnreadOnly, setShowUnreadOnly] = useState(false);
@@ -81,6 +83,17 @@ const AdminNotificationsPanel = ({ isOpen, onClose }: AdminNotificationsPanelPro
     confirmLabel: string;
     onConfirm: () => void | Promise<unknown>;
   } | null>(null);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    panelTriggerRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+  }, [isOpen]);
+
+  const closePanel = () => {
+    onClose();
+    const trigger = panelTriggerRef.current;
+    window.requestAnimationFrame(() => trigger?.focus());
+  };
 
   type AdminNotificationRow = {
     id: string;
@@ -221,7 +234,10 @@ const AdminNotificationsPanel = ({ isOpen, onClose }: AdminNotificationsPanelPro
     onSuccess: () => {
       invalidateNotificationViews();
       setSelectedIds(new Set());
-      toast.success('Selected notifications marked as read');
+      adminToast.success({
+        id: "admin-notifications-bulk-read",
+        title: "Selected notifications marked as read",
+      });
     },
   });
 
@@ -237,7 +253,10 @@ const AdminNotificationsPanel = ({ isOpen, onClose }: AdminNotificationsPanelPro
     },
     onSuccess: () => {
       invalidateNotificationViews();
-      toast.success('All notifications marked as read');
+      adminToast.success({
+        id: "admin-notifications-all-read",
+        title: "All notifications marked as read",
+      });
     },
   });
 
@@ -269,7 +288,12 @@ const AdminNotificationsPanel = ({ isOpen, onClose }: AdminNotificationsPanelPro
     onSuccess: () => {
       invalidateNotificationViews();
       setSelectedIds(new Set());
-      toast.success('Selected notifications deleted');
+      adminToast.success({
+        id: "admin-notifications-bulk-delete",
+        title: "Selected notifications deleted",
+        description: "Deletion is permanent for admin notification rows.",
+        action: { label: "Refresh", onClick: () => void refetch() },
+      });
     },
   });
 
@@ -285,7 +309,12 @@ const AdminNotificationsPanel = ({ isOpen, onClose }: AdminNotificationsPanelPro
     },
     onSuccess: () => {
       invalidateNotificationViews();
-      toast.success('All notifications cleared');
+      adminToast.success({
+        id: "admin-notifications-clear-all",
+        title: "All notifications cleared",
+        description: "Deletion is permanent for admin notification rows.",
+        action: { label: "Refresh", onClick: () => void refetch() },
+      });
     },
   });
 
@@ -305,7 +334,7 @@ const AdminNotificationsPanel = ({ isOpen, onClose }: AdminNotificationsPanelPro
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         exit={{ opacity: 0 }}
-        onClick={onClose}
+        onClick={closePanel}
         className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50"
       />
 
@@ -339,7 +368,7 @@ const AdminNotificationsPanel = ({ isOpen, onClose }: AdminNotificationsPanelPro
             >
               <RefreshCw className="w-4 h-4" />
             </Button>
-            <Button variant="ghost" size="icon" onClick={onClose} className="h-8 w-8">
+            <Button variant="ghost" size="icon" onClick={closePanel} className="h-8 w-8">
               <X className="w-4 h-4" />
             </Button>
           </div>
@@ -524,29 +553,22 @@ const AdminNotificationsPanel = ({ isOpen, onClose }: AdminNotificationsPanelPro
                 <div key={i} className="h-20 bg-secondary/50 rounded-xl animate-pulse" />
               ))
             ) : isError ? (
-              <div className="text-center py-12">
-                <BellOff className="w-12 h-12 mx-auto text-muted-foreground mb-4" />
-                <p className="text-destructive">Could not load admin notifications.</p>
-                <p className="text-xs text-muted-foreground mt-1">
-                  This is a fetch failure, not proof that no notifications exist.
-                </p>
-              </div>
+              <AdminEmptyState
+                icon={BellOff}
+                title="Could not load admin notifications."
+                description="This is a fetch failure, not proof that no notifications exist."
+                actionLabel="Retry"
+                onAction={() => void refetch()}
+                tone="danger"
+              />
             ) : !filteredNotifications.length ? (
-              <div className="text-center py-12">
-                <BellOff className="w-12 h-12 mx-auto text-muted-foreground mb-4" />
-                <p className="text-muted-foreground">
-                  {hasFilters ? 'No notifications match your filters' : 'No notifications yet'}
-                </p>
-                {hasFilters && (
-                  <Button
-                    variant="link"
-                    onClick={clearFilters}
-                    className="mt-2"
-                  >
-                    Clear filters
-                  </Button>
-                )}
-              </div>
+              <AdminEmptyState
+                icon={BellOff}
+                title={hasFilters ? "No notifications match your filters" : "No notifications yet"}
+                description={hasFilters ? "Clear the active type or unread filters to inspect the latest loaded notifications." : "New admin notifications will appear here."}
+                actionLabel={hasFilters ? "Clear filters" : undefined}
+                onAction={hasFilters ? clearFilters : undefined}
+              />
             ) : (
               <AnimatePresence>
                 {filteredNotifications.map((notification, index) => {
@@ -633,7 +655,9 @@ const AdminNotificationsPanel = ({ isOpen, onClose }: AdminNotificationsPanelPro
                               {notificationTypeLabels[notification.type] || notification.type}
                             </Badge>
                             <span className="text-xs text-muted-foreground">
-                              {formatDistanceToNow(new Date(notification.created_at!), { addSuffix: true })}
+                              <span title={formatAdminUtcDateTime(notification.created_at)}>
+                                {formatAdminRelativeTime(notification.created_at)}
+                              </span>
                             </span>
                           </div>
                         </div>

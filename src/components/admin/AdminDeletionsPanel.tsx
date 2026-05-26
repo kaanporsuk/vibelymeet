@@ -1,10 +1,8 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { format } from "date-fns";
 import { AlertTriangle, CheckCircle, Clock, Loader2, RotateCcw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { toast } from "sonner";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import AdminConfirmDialog from "./AdminConfirmDialog";
 import {
@@ -13,6 +11,8 @@ import {
   sanitizeAdminRpcErrorMessage,
   type AdminRpcPayload,
 } from "@/lib/adminRpc";
+import { formatAdminUtcDateTime } from "@/lib/adminTime";
+import { adminToast } from "@/lib/adminToast";
 
 type TabFilter = "pending" | "completed" | "cancelled";
 
@@ -56,11 +56,8 @@ const EMPTY_COUNTS: AccountDeletionCounts = {
 
 const ACCOUNT_DELETIONS_QUERY_KEY = "admin-account-deletions";
 
-function formatTimestamp(value: string | null | undefined, dateFormat = "MMM d, yyyy HH:mm") {
-  if (!value) return "Unavailable";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "Unavailable";
-  return format(date, dateFormat);
+function formatTimestamp(value: string | null | undefined, _dateFormat = "MMM d, yyyy HH:mm") {
+  return formatAdminUtcDateTime(value, "Unavailable");
 }
 
 function statusBadge(status: string) {
@@ -156,10 +153,16 @@ const AdminDeletionsPanel = () => {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: [ACCOUNT_DELETIONS_QUERY_KEY] });
       setRequestToComplete(null);
-      toast.success("Deletion completion job queued");
+      adminToast.success({
+        id: "account-deletion-completion-queued",
+        title: "Deletion completion job queued",
+      });
     },
     onError: (reason) => {
-      toast.error(sanitizeAdminRpcErrorMessage(reason));
+      adminToast.error({
+        id: "account-deletion-completion-failed",
+        title: sanitizeAdminRpcErrorMessage(reason),
+      });
     },
   });
 
