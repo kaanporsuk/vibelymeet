@@ -1,4 +1,4 @@
-import { ReactNode, useEffect } from "react";
+import { ReactNode, useEffect, useRef } from "react";
 import { Navigate, useLocation } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import { AlertTriangle, Loader2, RefreshCw, ShieldOff, WifiOff } from "lucide-react";
@@ -12,7 +12,7 @@ interface ProtectedRouteProps {
   requireOnboarding?: boolean;
 }
 
-type AdminVerificationStatus = "admin" | "not_admin" | "unauthenticated";
+type AdminVerificationStatus = "admin" | "not_admin" | "revoked" | "unauthenticated";
 
 type AdminVerificationResult = {
   isAdmin: boolean;
@@ -42,18 +42,24 @@ function AdminAccessProblem({
   onRetry,
   onSignOut,
 }: {
-  kind: "denied" | "error";
+  kind: "denied" | "revoked" | "error";
   message: string;
   isRetrying: boolean;
   onRetry: () => void;
   onSignOut: () => void;
 }) {
-  const Icon = kind === "denied" ? ShieldOff : AlertTriangle;
+  const Icon = kind === "error" ? AlertTriangle : ShieldOff;
   const isTransient = kind === "error";
-  const title = kind === "denied" ? "Admin Access Unavailable" : "Admin Verification Temporarily Failed";
-  const guidance = kind === "denied"
-    ? "Your role may have been revoked, or this session belongs to a non-admin account."
-    : "This usually means the admin verification Edge Function or network request failed. Your session has not been signed out.";
+  const title = kind === "error"
+    ? "Admin Verification Temporarily Failed"
+    : kind === "revoked"
+      ? "Admin Access Revoked"
+      : "Admin Access Unavailable";
+  const guidance = kind === "error"
+    ? "This usually means the admin verification Edge Function or network request failed. Your session has not been signed out."
+    : kind === "revoked"
+      ? "This admin session is no longer trusted because the account's admin role changed. Sign out before using another account."
+      : "This session belongs to a non-admin account.";
 
   return (
     <div
@@ -97,6 +103,7 @@ export function ProtectedRoute({
   const { isAuthenticated, isLoading, session, isOfflineAtBoot, entryState, entryStateLoading, isProfileLoading, logout } = useAuth();
   const location = useLocation();
   const queryClient = useQueryClient();
+  const verifiedAdminUserIdRef = useRef<string | null>(null);
 
   // Server-side admin role verification via edge function - cannot be bypassed
   const {
@@ -104,6 +111,7 @@ export function ProtectedRoute({
     error: adminVerificationError,
     isLoading: isAdminCheckLoading,
     isFetching: isAdminCheckFetching,
+    isFetchedAfterMount: isAdminVerificationFetchedAfterMount,
     refetch: refetchAdminVerification,
   } = useQuery<AdminVerificationResult>({
     queryKey: ['verify-admin-role', session?.user?.id],
@@ -131,10 +139,21 @@ export function ProtectedRoute({
         }
 
         if (data?.isAdmin === true) return { isAdmin: true, status: "admin" };
+        const serverStatus = data?.status === "revoked"
+          ? "revoked"
+          : data?.status === "unauthenticated"
+            ? "unauthenticated"
+            : "not_admin";
+        const wasSameUserVerifiedAdmin = verifiedAdminUserIdRef.current === session.user.id;
+        const status = wasSameUserVerifiedAdmin && serverStatus === "not_admin" ? "revoked" : serverStatus;
         return {
           isAdmin: false,
-          status: data?.status === "unauthenticated" ? "unauthenticated" : "not_admin",
-          message: typeof data?.message === "string" ? data.message : "Admin role is required.",
+          status,
+          message: typeof data?.message === "string"
+            ? data.message
+            : status === "revoked"
+              ? "Admin access was revoked for this account."
+              : "Admin role is required.",
         };
       } catch (err) {
         throw err instanceof Error ? err : new Error("Admin verification failed.");
@@ -142,11 +161,20 @@ export function ProtectedRoute({
     },
     enabled: !!session?.user?.id && requireAdmin,
     staleTime: 30_000,
+    refetchOnMount: "always",
     refetchOnWindowFocus: "always",
     refetchOnReconnect: true,
     refetchInterval: requireAdmin ? 60_000 : false,
     retry: 1,
   });
+
+  useEffect(() => {
+    if (adminVerification?.status === "admin") {
+      verifiedAdminUserIdRef.current = session?.user?.id ?? null;
+    } else if (!session?.user?.id) {
+      verifiedAdminUserIdRef.current = null;
+    }
+  }, [adminVerification?.status, session?.user?.id]);
 
   useEffect(() => {
     if (!requireAdmin || !session?.user?.id) return undefined;
@@ -180,7 +208,12 @@ export function ProtectedRoute({
     };
   }, [queryClient, requireAdmin, session?.user?.id]);
 
-  const isCheckingAdmin = requireAdmin && isAdminCheckLoading;
+  const isRevalidatingCachedAdmin =
+    requireAdmin &&
+    Boolean(adminVerification) &&
+    !isAdminVerificationFetchedAfterMount &&
+    isAdminCheckFetching;
+  const isCheckingAdmin = requireAdmin && (isAdminCheckLoading || isRevalidatingCachedAdmin);
 
   // Show loading while: initial auth check, profile loading, or admin check
   if (isLoading || (requireOnboarding && isAuthenticated && (isProfileLoading || entryStateLoading)) || isCheckingAdmin) {
@@ -224,10 +257,13 @@ export function ProtectedRoute({
   }
 
   if (requireAdmin && adminVerification?.status !== "admin") {
+    const isRevoked = adminVerification?.status === "revoked";
     return (
       <AdminAccessProblem
-        kind="denied"
-        message={adminVerification?.message ?? "Your current session does not have admin access. Sign in with an admin account to continue."}
+        kind={isRevoked ? "revoked" : "denied"}
+        message={adminVerification?.message ?? (isRevoked
+          ? "Admin access was revoked for this account."
+          : "Your current session does not have admin access. Sign in with an admin account to continue.")}
         isRetrying={isAdminCheckFetching}
         onRetry={() => void refetchAdminVerification()}
         onSignOut={() => void logout()}

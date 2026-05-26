@@ -30,7 +30,7 @@ import {
 import { invalidateAdminQueries } from "@/lib/adminQueryInvalidation";
 import { formatAdminRelativeTime, formatAdminUtcDateTime } from "@/lib/adminTime";
 import { adminToast } from "@/lib/adminToast";
-import { resolveAdminErrorMessage } from "@/lib/adminErrorResolver";
+import { resolveAdminErrorMessage, resolveAdminFunctionErrorMessage } from "@/lib/adminErrorResolver";
 
 type TabFilter = "pending" | "approved" | "rejected";
 
@@ -39,6 +39,7 @@ type ResolvedVerificationUrls = {
   selfie: string | null;
   selfieError: string | null;
   selfieExpiresAt: string | null;
+  selfieLoadedAt: string | null;
   /** Populated for <img onError> diagnostics */
   _diag?: {
     verificationId: string;
@@ -155,18 +156,23 @@ const AdminPhotoVerificationPanel = () => {
         );
 
         if (invokeError) {
+          const message = await resolveAdminFunctionErrorMessage(
+            invokeError,
+            data,
+            "Could not reach selfie signing service. Deploy the Edge Function `admin-proof-selfie-sign` or try again.",
+          );
           console.warn("[admin photo verification] selfie sign invoke failed", {
             verificationId: diag.verificationId,
-            message: invokeError.message,
+            message,
           });
           return [
             v.id,
             {
               profile: profileUrl,
               selfie: null,
-              selfieError:
-                "Could not reach selfie signing service. Deploy the Edge Function `admin-proof-selfie-sign` or try again.",
+              selfieError: message,
               selfieExpiresAt: null,
+              selfieLoadedAt: null,
               _diag: diag,
             } satisfies ResolvedVerificationUrls,
           ] as const;
@@ -191,6 +197,7 @@ const AdminPhotoVerificationPanel = () => {
                 selfie: null,
                 selfieError: "Signed selfie expiry metadata was missing. Refresh before review can continue.",
                 selfieExpiresAt: null,
+                selfieLoadedAt: null,
                 _diag: diag,
               } satisfies ResolvedVerificationUrls,
             ] as const;
@@ -203,19 +210,36 @@ const AdminPhotoVerificationPanel = () => {
               selfie: body.signedUrl,
               selfieError: null,
               selfieExpiresAt: expiresAt,
+              selfieLoadedAt: null,
               _diag: diag,
             } satisfies ResolvedVerificationUrls,
           ] as const;
         }
 
         if (body?.success && typeof body.directUrl === "string") {
+          const expiresAt = typeof body.expires_at === "string" ? body.expires_at : null;
+          if (!expiresAt || !Number.isFinite(Date.parse(expiresAt))) {
+            return [
+              v.id,
+              {
+                profile: profileUrl,
+                selfie: null,
+                selfieError: "Direct selfie revalidation metadata was missing. Refresh before review can continue.",
+                selfieExpiresAt: null,
+                selfieLoadedAt: null,
+                _diag: diag,
+              } satisfies ResolvedVerificationUrls,
+            ] as const;
+          }
+
           return [
             v.id,
             {
               profile: profileUrl,
               selfie: body.directUrl,
               selfieError: null,
-              selfieExpiresAt: null,
+              selfieExpiresAt: expiresAt,
+              selfieLoadedAt: null,
               _diag: diag,
             } satisfies ResolvedVerificationUrls,
           ] as const;
@@ -235,6 +259,7 @@ const AdminPhotoVerificationPanel = () => {
             selfieError:
               body?.error ?? "Could not load verification selfie.",
             selfieExpiresAt: null,
+            selfieLoadedAt: null,
             _diag: diag,
           } satisfies ResolvedVerificationUrls,
         ] as const;
@@ -262,6 +287,7 @@ const AdminPhotoVerificationPanel = () => {
             selfie: null,
             selfieError: "Could not load verification selfie.",
             selfieExpiresAt: null,
+            selfieLoadedAt: null,
             _diag: {
               verificationId: v.id,
               userId: v.user_id,
@@ -341,7 +367,8 @@ const AdminPhotoVerificationPanel = () => {
     const urls = resolvedUrls[verificationId];
     const expiresAtMs = urls?.selfieExpiresAt ? Date.parse(urls.selfieExpiresAt) : null;
     const expired = typeof expiresAtMs === "number" && Number.isFinite(expiresAtMs) && expiresAtMs <= Date.now();
-    const ready = Boolean(urls?.selfie) && !urls?.selfieError && !expired;
+    const loaded = Boolean(urls?.selfieLoadedAt);
+    const ready = Boolean(urls?.selfie) && loaded && !urls?.selfieError && !expired;
     const message = !urls
       ? "Selfie is still loading."
       : urls.selfieError
@@ -350,6 +377,8 @@ const AdminPhotoVerificationPanel = () => {
           ? "Selfie link expired. Refreshing the signed URL before review can continue."
           : !urls.selfie
             ? "Verification selfie is unavailable."
+            : !loaded
+              ? "Selfie image is still loading. Wait for it to render before review can continue."
             : null;
 
     return { ready, expired, message };
@@ -478,17 +507,17 @@ const AdminPhotoVerificationPanel = () => {
     return "Low confidence";
   };
 
-  const onSelfieImageError = useCallback((verificationId: string) => {
+  const onSelfieImageError = useCallback((verificationId: string, attemptedUrl: string) => {
     setResolvedUrls((prev) => {
       const cur = prev[verificationId];
-      if (!cur?.selfie) return prev;
+      if (!cur?.selfie || cur.selfie !== attemptedUrl) return prev;
       console.warn("[admin photo verification] selfie image load failed", {
         verificationId,
         userId: cur._diag?.userId,
         storedSelfieRef: cur._diag?.originalSelfieUrl
           ? redactUrlForLog(cur._diag.originalSelfieUrl)
           : null,
-        attemptedUrlRedacted: redactUrlForLog(cur.selfie),
+        attemptedUrlRedacted: redactUrlForLog(attemptedUrl),
       });
       return {
         ...prev,
@@ -498,6 +527,21 @@ const AdminPhotoVerificationPanel = () => {
           selfieError:
             "Selfie failed to load (expired link, missing object, or blocked request). Check Network tab if needed.",
           selfieExpiresAt: null,
+          selfieLoadedAt: null,
+        },
+      };
+    });
+  }, []);
+
+  const onSelfieImageLoad = useCallback((verificationId: string, loadedUrl: string) => {
+    setResolvedUrls((prev) => {
+      const cur = prev[verificationId];
+      if (!cur?.selfie || cur.selfie !== loadedUrl || cur.selfieLoadedAt) return prev;
+      return {
+        ...prev,
+        [verificationId]: {
+          ...cur,
+          selfieLoadedAt: new Date().toISOString(),
         },
       };
     });
@@ -559,6 +603,7 @@ const AdminPhotoVerificationPanel = () => {
           {verifications.map((v) => {
             const profile = profileMap[v.user_id];
             const urls = resolvedUrls[v.id];
+            const selfieUrl = urls?.selfie ?? null;
             const selfieAccess = getSelfieAccess(v.id);
             const timestampLabel = activeTab === "pending" ? "Submitted" : "Reviewed";
             const timestampValue = activeTab === "pending" ? v.created_at : v.reviewed_at ?? v.created_at;
@@ -579,12 +624,13 @@ const AdminPhotoVerificationPanel = () => {
                   <div className="space-y-1">
                     <p className="text-xs text-muted-foreground text-center">Verification Selfie</p>
                     <div className="aspect-[4/5] rounded-xl overflow-hidden bg-secondary">
-                      {urls?.selfie && !selfieAccess?.expired ? (
+                      {selfieUrl && !selfieAccess?.expired ? (
                         <img
-                          src={urls.selfie}
+                          src={selfieUrl}
                           alt="Selfie"
                           className="w-full h-full object-cover"
-                          onError={() => onSelfieImageError(v.id)}
+                          onLoad={() => onSelfieImageLoad(v.id, selfieUrl)}
+                          onError={() => onSelfieImageError(v.id, selfieUrl)}
                         />
                       ) : urls?.selfieError || selfieAccess?.message ? (
                         <div className="w-full h-full flex flex-col items-center justify-center gap-2 p-3 text-center">

@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { motion } from "framer-motion";
 import { useNavigate } from "react-router-dom";
-import { Shield, Lock, Mail, Eye, EyeOff, Sparkles } from "lucide-react";
+import { AlertTriangle, Eye, EyeOff, Lock, LogOut, Mail, RefreshCw, Shield, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -12,6 +12,7 @@ import { resolveAdminErrorMessage } from "@/lib/adminErrorResolver";
 type AdminSessionVerification =
   | { status: "admin" }
   | { status: "not_admin"; message: string }
+  | { status: "revoked"; message: string }
   | { status: "unauthenticated"; message: string }
   | { status: "verification_failed"; message: string };
 
@@ -48,6 +49,12 @@ const verifyAdminSession = async (accessToken?: string | null) => {
     }
 
     if (data?.isAdmin === true) return { status: "admin" } satisfies AdminSessionVerification;
+    if (data?.status === "revoked") {
+      return {
+        status: "revoked",
+        message: typeof data?.message === "string" ? data.message : "Admin access was revoked for this account.",
+      } satisfies AdminSessionVerification;
+    }
     return {
       status: data?.status === "unauthenticated" ? "unauthenticated" : "not_admin",
       message: typeof data?.message === "string" ? data.message : "This account does not have admin privileges.",
@@ -57,6 +64,11 @@ const verifyAdminSession = async (accessToken?: string | null) => {
   }
 };
 
+const signOutCurrentSession = async () => {
+  const { error } = await supabase.auth.signOut();
+  if (error) throw error;
+};
+
 const AdminLogin = () => {
   const navigate = useNavigate();
   const [email, setEmail] = useState("");
@@ -64,6 +76,7 @@ const AdminLogin = () => {
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [isCheckingAuth, setIsCheckingAuth] = useState(true);
+  const [existingSessionCheckError, setExistingSessionCheckError] = useState<string | null>(null);
 
   useEffect(() => {
     // Check if already logged in as admin
@@ -76,8 +89,26 @@ const AdminLogin = () => {
             navigate('/kaan/dashboard');
             return;
           }
-          if (verification.status === "not_admin" || verification.status === "unauthenticated") {
-            await supabase.auth.signOut();
+          if (
+            verification.status === "not_admin" ||
+            verification.status === "revoked" ||
+            verification.status === "unauthenticated"
+          ) {
+            try {
+              await signOutCurrentSession();
+            } catch (signOutError) {
+              const clearMessage = resolveAdminErrorMessage(
+                signOutError,
+                "Could not clear the current session. Try signing out again before continuing.",
+              );
+              setExistingSessionCheckError(`${verification.message} ${clearMessage}`);
+              adminToast.error({
+                id: "admin-login-existing-session-clear-failed",
+                title: "Could not sign out",
+                description: clearMessage,
+              });
+              return;
+            }
             adminToast.error({
               id: "admin-login-existing-session-denied",
               title: "Admin access required",
@@ -89,6 +120,7 @@ const AdminLogin = () => {
               title: "Admin verification failed",
               description: verification.message,
             });
+            setExistingSessionCheckError(verification.message);
           }
         }
       } catch {
@@ -96,12 +128,33 @@ const AdminLogin = () => {
           id: "admin-login-session-check-failed",
           title: "Admin session check failed",
         });
+        setExistingSessionCheckError("Could not verify the current session. Retry verification or sign out before continuing.");
       } finally {
         setIsCheckingAuth(false);
       }
     };
     checkExistingSession();
   }, [navigate]);
+
+  const signOutExistingSession = async () => {
+    setIsLoading(true);
+    try {
+      await signOutCurrentSession();
+      setExistingSessionCheckError(null);
+      adminToast.success({
+        id: "admin-login-existing-session-cleared",
+        title: "Session cleared",
+      });
+    } catch (err) {
+      adminToast.error({
+        id: "admin-login-existing-session-clear-failed",
+        title: "Could not sign out",
+        description: resolveAdminErrorMessage(err, "Could not clear the current session. Try again."),
+      });
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -126,7 +179,22 @@ const AdminLogin = () => {
       if (data.user) {
         const verification = await verifyAdminSession(data.session?.access_token);
         if (verification.status !== "admin") {
-          await supabase.auth.signOut();
+          try {
+            await signOutCurrentSession();
+          } catch (signOutError) {
+            const clearMessage = resolveAdminErrorMessage(
+              signOutError,
+              "Could not clear the non-admin session. Try signing out again before continuing.",
+            );
+            setExistingSessionCheckError(`${verification.message} ${clearMessage}`);
+            adminToast.error({
+              id: "admin-login-access-denied-clear-failed",
+              title: "Access denied",
+              description: clearMessage,
+            });
+            setIsLoading(false);
+            return;
+          }
           adminToast.error({
             id: verification.status === "verification_failed" ? "admin-login-verify-failed" : "admin-login-access-denied",
             title: verification.status === "verification_failed" ? "Could not verify access" : "Access Denied",
@@ -161,6 +229,34 @@ const AdminLogin = () => {
           transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
           className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full"
         />
+      </div>
+    );
+  }
+
+  if (existingSessionCheckError) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center p-4">
+        <div className="w-full max-w-md glass-card p-8 rounded-3xl text-center" role="alert" aria-live="assertive">
+          <div className="mx-auto mb-5 flex h-14 w-14 items-center justify-center rounded-full bg-amber-500/10">
+            <AlertTriangle className="h-7 w-7 text-amber-500" />
+          </div>
+          <h1 className="text-2xl font-bold font-display text-foreground">
+            Could not verify current session
+          </h1>
+          <p className="mt-3 text-sm text-muted-foreground">
+            {existingSessionCheckError}
+          </p>
+          <div className="mt-6 flex flex-col gap-3 sm:flex-row">
+            <Button className="flex-1" onClick={() => window.location.reload()} disabled={isLoading}>
+              <RefreshCw className="mr-2 h-4 w-4" />
+              Retry
+            </Button>
+            <Button className="flex-1" variant="outline" onClick={signOutExistingSession} disabled={isLoading}>
+              <LogOut className="mr-2 h-4 w-4" />
+              Sign Out
+            </Button>
+          </div>
+        </div>
       </div>
     );
   }

@@ -634,7 +634,16 @@ test("photo verification selfie signer path resolver stays aligned with the shar
   assert.match(adminPhotoVerification, /throttleDelayMs/);
   assert.match(adminPhotoVerification, /Signed selfie expiry metadata was missing/);
   assert.match(adminPhotoVerification, /selfieExpiresAt/);
+  assert.match(adminPhotoVerification, /selfieLoadedAt/);
+  assert.match(adminPhotoVerification, /const onSelfieImageLoad = useCallback/);
+  assert.match(adminPhotoVerification, /cur\.selfie !== loadedUrl/);
+  assert.match(adminPhotoVerification, /cur\.selfie !== attemptedUrl/);
+  assert.match(adminPhotoVerification, /const selfieUrl = urls\?\.selfie \?\? null/);
+  assert.match(adminPhotoVerification, /onLoad=\{\(\) => onSelfieImageLoad\(v\.id, selfieUrl\)\}/);
+  assert.match(adminPhotoVerification, /onError=\{\(\) => onSelfieImageError\(v\.id, selfieUrl\)\}/);
   assert.match(adminPhotoVerification, /const getSelfieAccess = useCallback/);
+  assert.match(adminPhotoVerification, /const loaded = Boolean\(urls\?\.selfieLoadedAt\)/);
+  assert.match(adminPhotoVerification, /Boolean\(urls\?\.selfie\) && loaded && !urls\?\.selfieError && !expired/);
   assert.match(adminPhotoVerification, /expiresAtMs <= Date\.now\(\)/);
   assert.match(adminPhotoVerification, /const selfieAccess = getSelfieAccess\(verification\.id\)/);
   assert.match(adminPhotoVerification, /disabled=\{approveMutation\.isPending \|\| !selfieAccess\?\.ready\}/);
@@ -662,6 +671,21 @@ test("admin badge mutations invalidate the centralized dashboard badge count", (
   assert.match(adminNotifications, /invalidateAdminQueries\(queryClient, \["notifications"\]\)/);
   assert.match(supportInbox, /invalidateAdminQueries\(queryClient, \["support"\]\)/);
   assert.match(adminQueryInvalidation, /admin-dashboard-badge-counts/);
+});
+
+test("account deletion realtime invalidates the deletion read model directly", () => {
+  assert.match(adminQueryInvalidation, /\| "deletions"/);
+  assert.match(adminQueryInvalidation, /deletions: \[\["admin-account-deletions"\]\]/);
+  assert.match(
+    adminRealtime,
+    /table: "account_deletion_requests", areas: \["deletions", "users", "overview"\]/,
+  );
+  assert.match(
+    adminRealtime,
+    /table: "account_deletion_completion_jobs", areas: \["deletions", "users", "overview"\]/,
+  );
+  assert.match(adminDeletions, /completion_steps/);
+  assert.match(adminDeletions, /Legacy checkpoint/);
 });
 
 test("admin component and dashboard sources avoid browser-side HEAD count reads", () => {

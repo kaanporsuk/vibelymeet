@@ -33,6 +33,13 @@ type DeletionRequest = {
   completion_next_retry_at?: string | null;
   completion_last_error?: string | null;
   completion_error_code?: string | null;
+  completion_steps?: {
+    provider_cleanup_completed_at?: string | null;
+    media_cleanup_completed_at?: string | null;
+    pii_scrub_completed_at?: string | null;
+    auth_delete_completed_at?: string | null;
+  } | null;
+  legacy_checkpoint?: boolean | null;
 };
 
 type AccountDeletionCounts = {
@@ -96,6 +103,13 @@ function completionActionHint(request: DeletionRequest) {
   if (request.completion_job_state === "completed") return "Cleanup completed";
   return "Review job state before retry";
 }
+
+const COMPLETION_STEP_LABELS = [
+  ["provider_cleanup_completed_at", "Provider"],
+  ["media_cleanup_completed_at", "Media"],
+  ["pii_scrub_completed_at", "PII"],
+  ["auth_delete_completed_at", "Auth"],
+] as const;
 
 const AdminDeletionsPanel = () => {
   const queryClient = useQueryClient();
@@ -180,6 +194,11 @@ const AdminDeletionsPanel = () => {
               {request.user_name || "Unknown User"}
             </p>
             {statusBadge(request.status)}
+            {request.legacy_checkpoint ? (
+              <Badge variant="outline" className="text-amber-500 border-amber-500/30">
+                Legacy checkpoint
+              </Badge>
+            ) : null}
           </div>
           <p className="text-xs text-muted-foreground">
             Requested: {formatTimestamp(request.requested_at)}
@@ -205,7 +224,30 @@ const AdminDeletionsPanel = () => {
           {request.completion_job_state && (
             <p className="text-xs text-muted-foreground">
               Completion job: {request.completion_job_state}
+              {typeof request.completion_attempts === "number" ? ` · attempts ${request.completion_attempts}` : ""}
             </p>
+          )}
+          {request.completion_next_retry_at && request.completion_job_state !== "completed" && (
+            <p className="text-xs text-muted-foreground">
+              Next retry: {formatTimestamp(request.completion_next_retry_at)}
+            </p>
+          )}
+          {request.completion_steps && (
+            <div className="flex flex-wrap gap-1.5 pt-1">
+              {COMPLETION_STEP_LABELS.map(([key, label]) => {
+                const completedAt = request.completion_steps?.[key] ?? null;
+                return (
+                  <Badge
+                    key={key}
+                    variant="outline"
+                    className={completedAt ? "text-green-500 border-green-500/30" : "text-muted-foreground border-border"}
+                    title={completedAt ? `${label} completed ${formatTimestamp(completedAt)}` : `${label} not completed`}
+                  >
+                    {label}: {completedAt ? "done" : "pending"}
+                  </Badge>
+                );
+              })}
+            </div>
           )}
           {request.completion_last_error && (
             <p className="text-xs text-destructive break-words">

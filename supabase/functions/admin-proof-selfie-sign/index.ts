@@ -16,6 +16,7 @@ import {
 const PROOF_SELFIES_BUCKET = "proof-selfies";
 const BUCKET_PREFIX = `${PROOF_SELFIES_BUCKET}/`;
 const SIGNED_SELFIE_TTL_SECONDS = 3600;
+const DIRECT_SELFIE_REVALIDATION_SECONDS = 900;
 const UUID_FOLDER =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -130,7 +131,7 @@ function jsonResponse(req: Request, body: Record<string, unknown>, status = 200)
 
 type SignOutcome =
   | { kind: "signed"; signedUrl: string; expiresAt: string }
-  | { kind: "direct"; url: string }
+  | { kind: "direct"; url: string; expiresAt: string }
   | { kind: "fail"; message: string; shape: ProofSelfieStoredShape };
 
 /** Best-effort size from Storage list metadata (service role). Undefined if unknown. */
@@ -197,7 +198,11 @@ async function tryResolveSelfieDisplayUrl(
         shape,
       };
     }
-    return { kind: "direct", url: trimmed };
+    return {
+      kind: "direct",
+      url: trimmed,
+      expiresAt: new Date(Date.now() + DIRECT_SELFIE_REVALIDATION_SECONDS * 1000).toISOString(),
+    };
   }
 
   return {
@@ -240,11 +245,20 @@ serve(async (req) => {
       .eq("id", verificationId)
       .maybeSingle();
 
-    if (fetchErr || !verification) {
+    if (fetchErr) {
+      console.error("admin-proof-selfie-sign lookup failed:", sanitizeErrorMessage(fetchErr.message));
+      return jsonResponse(
+        req,
+        { success: false, error: "Could not load verification selfie metadata" },
+        500,
+      );
+    }
+
+    if (!verification) {
       return jsonResponse(
         req,
         { success: false, error: "Verification not found" },
-        200,
+        404,
       );
     }
 
@@ -274,7 +288,7 @@ serve(async (req) => {
       );
     }
     if (outcome.kind === "direct") {
-      return jsonResponse(req, { success: true, directUrl: outcome.url, expires_at: null }, 200);
+      return jsonResponse(req, { success: true, directUrl: outcome.url, expires_at: outcome.expiresAt }, 200);
     }
 
     return jsonResponse(
@@ -284,7 +298,7 @@ serve(async (req) => {
         error: sanitizeErrorMessage(outcome.message),
         shape: outcome.shape,
       },
-      200,
+      422,
     );
   } catch (err) {
     console.error("admin-proof-selfie-sign:", sanitizeErrorMessage(err));

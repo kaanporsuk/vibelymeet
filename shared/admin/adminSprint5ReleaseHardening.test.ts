@@ -74,6 +74,12 @@ test("admin Edge Function error bodies stay sanitized before the UI renders them
   const proofSelfieSign = read("supabase/functions/admin-proof-selfie-sign/index.ts");
   assert.match(proofSelfieSign, /message: sanitizeErrorMessage\(error\?\.message/);
   assert.match(proofSelfieSign, /error: sanitizeErrorMessage\(outcome\.message\)/);
+  assert.match(proofSelfieSign, /admin-proof-selfie-sign lookup failed/);
+  assert.match(proofSelfieSign, /Could not load verification selfie metadata/);
+  assert.match(proofSelfieSign, /"Verification not found"[\s\S]*404/);
+  assert.match(proofSelfieSign, /DIRECT_SELFIE_REVALIDATION_SECONDS/);
+  assert.match(proofSelfieSign, /expires_at: outcome\.expiresAt/);
+  assert.match(proofSelfieSign, /422/);
   assert.doesNotMatch(proofSelfieSign, /message: error\?\.message \?\?/);
   assert.doesNotMatch(proofSelfieSign, /error: outcome\.message/);
 
@@ -137,7 +143,10 @@ test("frontend assumptions match the hardened admin RPC and Edge contracts", () 
   const protectedRoute = read("src/components/ProtectedRoute.tsx");
   assert.match(protectedRoute, /AdminAccessProblem/);
   assert.match(protectedRoute, /verification Edge Function or network request failed/);
-  assert.match(protectedRoute, /Your role may have been revoked/);
+  assert.match(protectedRoute, /Admin Access Revoked/);
+  assert.match(protectedRoute, /verifiedAdminUserIdRef/);
+  assert.match(protectedRoute, /verifiedAdminUserIdRef\.current === session\.user\.id/);
+  assert.match(protectedRoute, /data\?\.status === "revoked"/);
   assert.match(protectedRoute, /admin_session_invalidation_events/);
   assert.match(protectedRoute, /onRetry=\{\(\) => void refetchAdminVerification\(\)\}/);
   assert.match(protectedRoute, /refetchOnWindowFocus: "always"/);

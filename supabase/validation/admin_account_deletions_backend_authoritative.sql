@@ -78,6 +78,17 @@ select
     like '%profile_pii_scrubbed'', false%' as ok;
 
 select
+  'account_deletion_completed_rows_require_durable_evidence_or_legacy_checkpoint' as check_name,
+  pg_get_functiondef('public.admin_mark_account_deletion_completed(uuid, text, text)'::regprocedure)
+    like '%COMPLETION_EVIDENCE_MISSING%'
+  and pg_get_functiondef('public.admin_mark_account_deletion_completed(uuid, text, text)'::regprocedure)
+    like '%COMPLETION_EVIDENCE_INCOMPLETE%'
+  and pg_get_functiondef('public.admin_mark_account_deletion_completed(uuid, text, text)'::regprocedure)
+    like '%v_hard_delete_evidence_complete%'
+  and pg_get_functiondef('public.admin_mark_account_deletion_completed(uuid, text, text)'::regprocedure)
+    like '%legacy_checkpoint%' as ok;
+
+select
   'account_deletion_completion_jobs_guard_hard_delete_steps' as check_name,
   to_regclass('public.account_deletion_completion_jobs') is not null
   and to_regprocedure('public.complete_account_deletion_completion_step_v1(uuid, text, text, text, jsonb)') is not null
@@ -150,6 +161,37 @@ where n.nspname = 'public'
     'claim_support_reply_delivery_jobs_v1',
     'complete_support_reply_delivery_job_v1'
   );
+
+select
+  'durable_admin_job_realtime_tables_have_explicit_grants_and_rls' as check_name,
+  to_regclass('public.account_deletion_completion_jobs') is not null
+  and to_regclass('public.support_reply_delivery_jobs') is not null
+  and has_table_privilege('authenticated', 'public.account_deletion_completion_jobs', 'SELECT')
+  and has_table_privilege('authenticated', 'public.support_reply_delivery_jobs', 'SELECT')
+  and has_table_privilege('service_role', 'public.account_deletion_completion_jobs', 'SELECT')
+  and has_table_privilege('service_role', 'public.account_deletion_completion_jobs', 'INSERT')
+  and has_table_privilege('service_role', 'public.account_deletion_completion_jobs', 'UPDATE')
+  and has_table_privilege('service_role', 'public.account_deletion_completion_jobs', 'DELETE')
+  and has_table_privilege('service_role', 'public.support_reply_delivery_jobs', 'SELECT')
+  and has_table_privilege('service_role', 'public.support_reply_delivery_jobs', 'INSERT')
+  and has_table_privilege('service_role', 'public.support_reply_delivery_jobs', 'UPDATE')
+  and has_table_privilege('service_role', 'public.support_reply_delivery_jobs', 'DELETE')
+  and not has_table_privilege('anon', 'public.account_deletion_completion_jobs', 'SELECT')
+  and not has_table_privilege('anon', 'public.support_reply_delivery_jobs', 'SELECT')
+  and (
+    select c.relrowsecurity
+    from pg_class c
+    join pg_namespace n on n.oid = c.relnamespace
+    where n.nspname = 'public'
+      and c.relname = 'account_deletion_completion_jobs'
+  )
+  and (
+    select c.relrowsecurity
+    from pg_class c
+    join pg_namespace n on n.oid = c.relnamespace
+    where n.nspname = 'public'
+      and c.relname = 'support_reply_delivery_jobs'
+  ) as ok;
 
 select
   'account_deletion_list_reports_hidden_statuses' as check_name,
