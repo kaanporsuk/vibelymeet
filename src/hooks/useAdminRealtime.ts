@@ -19,6 +19,8 @@ type AdminRealtimeSpec = {
   areas: readonly AdminInvalidationArea[];
 };
 
+type AdminRealtimeEvent = NonNullable<AdminRealtimeSpec["event"]>;
+
 type PendingInvalidation = {
   timer: ReturnType<typeof setTimeout>;
   areas: readonly AdminInvalidationArea[];
@@ -177,21 +179,25 @@ export const useAdminRealtime = ({ enabled = true, activePanel = "overview" }: U
 
     const channels = specs.map((spec) => {
       const channel = supabase.channel(spec.channel);
-      const onPostgresChanges = channel.on as unknown as (
-        type: "postgres_changes",
-        filter: { event: AdminRealtimeSpec["event"] | "*"; schema: "public"; table: string },
-        callback: () => void,
-      ) => typeof channel;
+      const realtimeChannel = channel as typeof channel & {
+        on(
+          type: "postgres_changes",
+          filter: { event: AdminRealtimeEvent; schema: "public"; table: string },
+          callback: () => void,
+        ): typeof channel;
+      };
 
-      return onPostgresChanges(
-        "postgres_changes",
-        {
-          event: spec.event ?? "*",
-          schema: "public",
-          table: spec.table,
-        },
-        () => scheduleInvalidation(spec.areas),
-      ).subscribe();
+      return realtimeChannel
+        .on(
+          "postgres_changes",
+          {
+            event: spec.event ?? "*",
+            schema: "public",
+            table: spec.table,
+          },
+          () => scheduleInvalidation(spec.areas),
+        )
+        .subscribe();
     });
 
     return () => {

@@ -11,6 +11,7 @@ const protectedRoute = read("src/components/ProtectedRoute.tsx");
 const adminLogin = read("src/pages/admin/AdminLogin.tsx");
 const adminDashboard = read("src/pages/admin/AdminDashboard.tsx");
 const adminSidebar = read("src/components/admin/AdminSidebar.tsx");
+const adminRealtime = read("src/hooks/useAdminRealtime.ts");
 const sharedAdminAuth = read("supabase/functions/_shared/adminAuth.ts");
 const sharedCors = read("supabase/functions/_shared/cors.ts");
 const verifyAdminFunction = read("supabase/functions/verify-admin/index.ts");
@@ -76,6 +77,14 @@ test("admin dashboard access uses verify-admin edge verification", () => {
   assert.match(protectedRoute, /table: "admin_session_invalidation_events"/);
   assert.match(protectedRoute, /admin-session-invalidation:\$\{userId\}/);
   assert.match(protectedRoute, /invalidateQueries\(\{ queryKey: \['verify-admin-role', userId\] \}\)/);
+});
+
+test("admin dashboard realtime keeps Supabase channel methods bound", () => {
+  assert.match(adminRealtime, /supabase\.channel\(spec\.channel\)/);
+  assert.doesNotMatch(adminRealtime, /const\s+\w+\s*=\s*channel\.on\b/);
+  assert.doesNotMatch(adminRealtime, /channel\.on\s+as\s+unknown/);
+  assert.match(adminRealtime, /const realtimeChannel = channel as typeof channel &/);
+  assert.match(adminRealtime, /realtimeChannel\s*\.\s*on\(\s*"postgres_changes"[\s\S]*\)\s*\.subscribe\(\)/);
 });
 
 test("admin role changes emit explicit session invalidation events", () => {
