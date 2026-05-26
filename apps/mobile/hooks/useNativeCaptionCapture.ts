@@ -1,11 +1,11 @@
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Platform } from 'react-native';
 import { getLocales } from 'expo-localization';
-import {
-  ExpoSpeechRecognitionModule,
-  useSpeechRecognitionEvent,
-  type ExpoSpeechRecognitionResultEvent,
-  type ExpoSpeechRecognitionErrorEvent,
+import { requireOptionalNativeModule } from 'expo-modules-core';
+import type {
+  ExpoSpeechRecognitionNativeEventMap,
+  ExpoSpeechRecognitionResultEvent,
+  ExpoSpeechRecognitionErrorEvent,
 } from 'expo-speech-recognition';
 import { trackEvent } from '@/lib/analytics';
 import type { MediaCaptions } from '../../../shared/media/captions';
@@ -13,6 +13,77 @@ import type { MediaCaptions } from '../../../shared/media/captions';
 type CaptionCaptureSurface =
   | 'native_chat_vibe_clip_recorder'
   | 'native_vibe_video_recorder';
+
+type ExpoSpeechRecognitionRuntime = typeof import('expo-speech-recognition');
+type ExpoSpeechRecognitionModuleApi = ExpoSpeechRecognitionRuntime['ExpoSpeechRecognitionModule'];
+type SpeechRecognitionEventName = keyof ExpoSpeechRecognitionNativeEventMap;
+type SpeechRecognitionEventListener<K extends SpeechRecognitionEventName> = (
+  event: ExpoSpeechRecognitionNativeEventMap[K],
+) => void;
+type EventSubscriptionLike = {
+  remove: () => void;
+};
+
+let cachedSpeechRecognitionModule: ExpoSpeechRecognitionModuleApi | undefined;
+
+function isNativeSpeechRecognitionModuleAvailable(): boolean {
+  return !!requireOptionalNativeModule('ExpoSpeechRecognition');
+}
+
+function loadSpeechRecognitionModule(): ExpoSpeechRecognitionModuleApi | null {
+  if (cachedSpeechRecognitionModule) return cachedSpeechRecognitionModule;
+  if (!isNativeSpeechRecognitionModuleAvailable()) {
+    return null;
+  }
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports -- optional native module for stale dev clients
+    const speechRecognition = require('expo-speech-recognition') as Pick<
+      ExpoSpeechRecognitionRuntime,
+      'ExpoSpeechRecognitionModule'
+    >;
+    cachedSpeechRecognitionModule = speechRecognition.ExpoSpeechRecognitionModule;
+  } catch {
+    return null;
+  }
+  return cachedSpeechRecognitionModule ?? null;
+}
+
+function useSafeSpeechRecognitionEvent<K extends SpeechRecognitionEventName>(
+  eventName: K,
+  listener: SpeechRecognitionEventListener<K>,
+) {
+  const listenerRef = useRef(listener);
+
+  useEffect(() => {
+    listenerRef.current = listener;
+  }, [listener]);
+
+  useEffect(() => {
+    const speechRecognition = loadSpeechRecognitionModule();
+    if (!speechRecognition) return undefined;
+
+    let subscription: EventSubscriptionLike | null = null;
+    try {
+      const addListener = speechRecognition.addListener as (
+        name: SpeechRecognitionEventName,
+        next: (event: unknown) => void,
+      ) => EventSubscriptionLike;
+      subscription = addListener(eventName, (event) => {
+        listenerRef.current(event as ExpoSpeechRecognitionNativeEventMap[K]);
+      });
+    } catch {
+      return undefined;
+    }
+
+    return () => {
+      try {
+        subscription?.remove();
+      } catch {
+        // Best effort; listener cleanup should not make the recorder unusable.
+      }
+    };
+  }, [eventName]);
+}
 
 function languageTag(): string {
   const locale = getLocales()[0]?.languageTag;
@@ -60,10 +131,26 @@ export function useNativeCaptionCapture(surface: CaptionCaptureSurface) {
     return next;
   }, []);
 
+  const markUnavailable = useCallback((reason: string) => {
+    activeRef.current = false;
+    setRecognizing(false);
+    setUnavailableReason(reason);
+    trackEvent('caption_capture_unavailable', {
+      surface,
+      platform: Platform.OS,
+      reason,
+    });
+  }, [surface]);
+
   const startRecognitionForRun = useCallback((runId: number): boolean => {
     if (runIdRef.current !== runId || stoppingRef.current || !activeRef.current) return false;
+    const speechRecognition = loadSpeechRecognitionModule();
+    if (!speechRecognition) {
+      markUnavailable('native_module_unavailable');
+      return false;
+    }
     try {
-      ExpoSpeechRecognitionModule.start({
+      speechRecognition.start({
         lang: languageRef.current,
         interimResults: true,
         continuous: true,
@@ -75,25 +162,18 @@ export function useNativeCaptionCapture(surface: CaptionCaptureSurface) {
       return true;
     } catch {
       if (runIdRef.current === runId) {
-        activeRef.current = false;
-        setRecognizing(false);
-        setUnavailableReason('recognition_start_failed');
-        trackEvent('caption_capture_unavailable', {
-          surface,
-          platform: Platform.OS,
-          reason: 'recognition_start_failed',
-        });
+        markUnavailable('recognition_start_failed');
       }
       return false;
     }
-  }, [surface]);
+  }, [markUnavailable]);
 
-  useSpeechRecognitionEvent('start', () => {
+  useSafeSpeechRecognitionEvent('start', () => {
     if (!activeRef.current) return;
     setRecognizing(true);
   });
 
-  useSpeechRecognitionEvent('end', () => {
+  useSafeSpeechRecognitionEvent('end', () => {
     if (!activeRef.current) return;
     setRecognizing(false);
     refreshTranscript();
@@ -105,7 +185,7 @@ export function useNativeCaptionCapture(surface: CaptionCaptureSurface) {
     startRecognitionForRun(runIdRef.current);
   });
 
-  useSpeechRecognitionEvent('result', (event: ExpoSpeechRecognitionResultEvent) => {
+  useSafeSpeechRecognitionEvent('result', (event: ExpoSpeechRecognitionResultEvent) => {
     if (!activeRef.current) return;
     const text = normalizeCaptionText(event.results.map((r) => r.transcript).filter(Boolean).join(' '));
     if (!text) return;
@@ -118,7 +198,7 @@ export function useNativeCaptionCapture(surface: CaptionCaptureSurface) {
     refreshTranscript();
   });
 
-  useSpeechRecognitionEvent('error', (event: ExpoSpeechRecognitionErrorEvent) => {
+  useSafeSpeechRecognitionEvent('error', (event: ExpoSpeechRecognitionErrorEvent) => {
     if (!activeRef.current) return;
     const stoppedByUser = stoppingRef.current && event.error === 'aborted';
     if (stoppedByUser) return;
@@ -157,30 +237,24 @@ export function useNativeCaptionCapture(surface: CaptionCaptureSurface) {
     activeRef.current = true;
     stoppingRef.current = false;
 
-    const available = ExpoSpeechRecognitionModule.isRecognitionAvailable();
+    const speechRecognition = loadSpeechRecognitionModule();
+    if (!speechRecognition) {
+      markUnavailable('native_module_unavailable');
+      return false;
+    }
+
+    const available = speechRecognition.isRecognitionAvailable();
     if (!available) {
-      activeRef.current = false;
-      setUnavailableReason('recognition_unavailable');
-      trackEvent('caption_capture_unavailable', {
-        surface,
-        platform: Platform.OS,
-        reason: 'recognition_unavailable',
-      });
+      markUnavailable('recognition_unavailable');
       return false;
     }
 
     let permissions;
     try {
-      permissions = await ExpoSpeechRecognitionModule.requestPermissionsAsync();
+      permissions = await speechRecognition.requestPermissionsAsync();
     } catch {
       if (runIdRef.current === runId) {
-        activeRef.current = false;
-        setUnavailableReason('permission_request_failed');
-        trackEvent('caption_capture_unavailable', {
-          surface,
-          platform: Platform.OS,
-          reason: 'permission_request_failed',
-        });
+        markUnavailable('permission_request_failed');
       }
       return false;
     }
@@ -190,26 +264,13 @@ export function useNativeCaptionCapture(surface: CaptionCaptureSurface) {
     }
 
     if (!permissions.granted) {
-      activeRef.current = false;
-      setUnavailableReason('permission_denied');
-      trackEvent('caption_capture_unavailable', {
-        surface,
-        platform: Platform.OS,
-        reason: 'permission_denied',
-      });
+      markUnavailable('permission_denied');
       return false;
     }
 
-    const onDevice = ExpoSpeechRecognitionModule.supportsOnDeviceRecognition();
+    const onDevice = speechRecognition.supportsOnDeviceRecognition();
     if (!onDevice) {
-      activeRef.current = false;
-      setRecognizing(false);
-      setUnavailableReason('on_device_recognition_unavailable');
-      trackEvent('caption_capture_unavailable', {
-        surface,
-        platform: Platform.OS,
-        reason: 'on_device_recognition_unavailable',
-      });
+      markUnavailable('on_device_recognition_unavailable');
       return false;
     }
     setRecognizing(true);
@@ -220,14 +281,14 @@ export function useNativeCaptionCapture(surface: CaptionCaptureSurface) {
       language: languageRef.current,
     });
     return startRecognitionForRun(runId);
-  }, [reset, startRecognitionForRun, surface]);
+  }, [markUnavailable, reset, startRecognitionForRun, surface]);
 
   const stop = useCallback(() => {
     runIdRef.current += 1;
     if (activeRef.current || recognizing) {
       stoppingRef.current = true;
       try {
-        ExpoSpeechRecognitionModule.stop();
+        loadSpeechRecognitionModule()?.stop();
       } catch {
         // Best effort; the snapshot below still preserves captured interim text.
       }
@@ -251,7 +312,7 @@ export function useNativeCaptionCapture(surface: CaptionCaptureSurface) {
     activeRef.current = false;
     setRecognizing(false);
     try {
-      ExpoSpeechRecognitionModule.abort();
+      loadSpeechRecognitionModule()?.abort();
     } catch {
       // Best effort only; abort is cleanup.
     }
