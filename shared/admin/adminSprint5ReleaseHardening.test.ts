@@ -138,6 +138,7 @@ test("frontend assumptions match the hardened admin RPC and Edge contracts", () 
   assert.match(protectedRoute, /AdminAccessProblem/);
   assert.match(protectedRoute, /verification Edge Function or network request failed/);
   assert.match(protectedRoute, /Your role may have been revoked/);
+  assert.match(protectedRoute, /admin_session_invalidation_events/);
   assert.match(protectedRoute, /onRetry=\{\(\) => void refetchAdminVerification\(\)\}/);
   assert.match(protectedRoute, /refetchOnWindowFocus: "always"/);
   assert.match(protectedRoute, /refetchInterval: requireAdmin \? 60_000 : false/);

@@ -14,6 +14,9 @@ const adminSidebar = read("src/components/admin/AdminSidebar.tsx");
 const sharedAdminAuth = read("supabase/functions/_shared/adminAuth.ts");
 const sharedCors = read("supabase/functions/_shared/cors.ts");
 const verifyAdminFunction = read("supabase/functions/verify-admin/index.ts");
+const adminRoleSessionInvalidationMigration = read(
+  "supabase/migrations/20260526040000_admin_role_session_invalidation_events.sql",
+);
 
 const sprint1AdminEdgeFunctions = [
   "supabase/functions/verify-admin/index.ts",
@@ -62,7 +65,26 @@ test("admin dashboard access uses verify-admin edge verification", () => {
   assert.match(protectedRoute, /refetchOnWindowFocus: "always"/);
   assert.match(protectedRoute, /refetchInterval: requireAdmin \? 60_000 : false/);
   assert.match(protectedRoute, /table: "user_roles"/);
+  assert.match(protectedRoute, /table: "admin_session_invalidation_events"/);
+  assert.match(protectedRoute, /admin-session-invalidation:\$\{userId\}/);
   assert.match(protectedRoute, /invalidateQueries\(\{ queryKey: \['verify-admin-role', userId\] \}\)/);
+});
+
+test("admin role changes emit explicit session invalidation events", () => {
+  assert.match(adminRoleSessionInvalidationMigration, /CREATE TABLE IF NOT EXISTS public\.admin_session_invalidation_events/);
+  assert.match(adminRoleSessionInvalidationMigration, /event_type IN \('role_granted', 'role_revoked', 'role_changed', 'session_invalidated'\)/);
+  assert.match(adminRoleSessionInvalidationMigration, /GRANT SELECT ON TABLE public\.admin_session_invalidation_events TO authenticated/);
+  assert.match(adminRoleSessionInvalidationMigration, /GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public\.admin_session_invalidation_events TO service_role/);
+  assert.match(adminRoleSessionInvalidationMigration, /admin_session_invalidation_events_user_select_own/);
+  assert.match(adminRoleSessionInvalidationMigration, /auth\.uid\(\) = user_id/);
+  assert.match(adminRoleSessionInvalidationMigration, /record_admin_session_invalidation_from_user_role/);
+  assert.match(adminRoleSessionInvalidationMigration, /NEW\.role IN \('admin'::public\.app_role, 'moderator'::public\.app_role\)/);
+  assert.match(adminRoleSessionInvalidationMigration, /OLD\.role IN \('admin'::public\.app_role, 'moderator'::public\.app_role\)/);
+  assert.match(adminRoleSessionInvalidationMigration, /moved_to_another_user/);
+  assert.match(adminRoleSessionInvalidationMigration, /moved_from_another_user/);
+  assert.match(adminRoleSessionInvalidationMigration, /AFTER INSERT OR UPDATE OR DELETE[\s\S]*ON public\.user_roles/);
+  assert.match(adminRoleSessionInvalidationMigration, /ALTER PUBLICATION supabase_realtime ADD TABLE public\.admin_session_invalidation_events/);
+  assert.doesNotMatch(adminRoleSessionInvalidationMigration, /actor_id/);
 });
 
 test("admin login uses the same server verification path as the protected dashboard", () => {
