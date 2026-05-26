@@ -292,10 +292,18 @@ test("Phase 9 captions stay on chat clips while profile Vibe Videos suppress gen
 
   assert.match(packageJson, /expo-speech-recognition/);
   assert.match(nativeHook, /expo-speech-recognition/);
+  assert.doesNotMatch(nativeHook, /import\s+(?!type\b)[\s\S]{0,160}from 'expo-speech-recognition'/);
+  assert.doesNotMatch(nativeHook, /import\s+\{[\s\S]*ExpoSpeechRecognitionModule[\s\S]*\}\s+from 'expo-speech-recognition'/);
+  assert.doesNotMatch(nativeHook, /useSpeechRecognitionEvent/);
+  assert.match(nativeHook, /requireOptionalNativeModule/);
+  assert.match(nativeHook, /requireOptionalNativeModule\('ExpoSpeechRecognition'\)[\s\S]*require\('expo-speech-recognition'\)/);
+  assert.doesNotMatch(nativeHook, /cachedSpeechRecognitionModule\s*=\s*null/);
+  assert.match(nativeHook, /require\('expo-speech-recognition'\)/);
+  assert.match(nativeHook, /native_module_unavailable/);
   assert.match(nativeHook, /requiresOnDeviceRecognition: true/);
   assert.match(nativeHook, /on_device_recognition_unavailable/);
   assert.match(nativeHook, /startRecognitionForRun/);
-  assert.match(nativeHook, /useSpeechRecognitionEvent\('end'[\s\S]*startRecognitionForRun/);
+  assert.match(nativeHook, /useSafeSpeechRecognitionEvent\('end'[\s\S]*startRecognitionForRun/);
   assert.match(nativeChat, /NativeVibeClipCameraModal/);
   assert.match(nativeChat, /captions: p\.captions \?\? null/);
   assert.match(nativeVibeRecord, /useReduceMotion/);
