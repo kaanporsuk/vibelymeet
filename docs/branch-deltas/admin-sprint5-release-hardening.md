@@ -15,11 +15,14 @@ Sprint 5 closes the admin remediation series with integration guardrails, consis
   - `npm run test:admin-sprint5-release-hardening`
 - Added an explicit security-header script:
   - `npm run test:security-headers`
+- Added the final public admin session invalidation interface:
+  - `supabase/migrations/20260526040000_admin_role_session_invalidation_events.sql`
+  - emits minimal `admin_session_invalidation_events` from `user_roles` changes and lets admin clients refetch `verify-admin` immediately without exposing the acting admin id to the affected session.
 
 ## Release Behavior Notes
 
 - Export errors now surface through non-200 Edge Function failures and sanitized admin UI messages instead of relying on HTTP 200 plus `{ success: false }`.
-- Role revocation and non-admin sessions remain server-verified through `verify-admin`; transient verification failures keep a recoverable retry path instead of silently treating every failure as access denial.
+- Role revocation and non-admin sessions remain server-verified through `verify-admin`; `admin_session_invalidation_events` now provide an explicit realtime invalidation path, and transient verification failures keep a recoverable retry path instead of silently treating every failure as access denial.
 - Deletion completion is job-gated. A request is not fully complete until durable cleanup has succeeded, including provider cleanup, media cleanup, PII/profile scrub, and Supabase auth deletion.
 - Support delivery is visible through reply delivery jobs. Reply save can succeed while email or push delivery retries remain queued or warning-visible.
 - UTC timestamps are the admin default unless a field is explicitly labeled as local or user time.

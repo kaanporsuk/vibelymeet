@@ -306,6 +306,39 @@ export type Database = {
           },
         ]
       }
+      admin_session_invalidation_events: {
+        Row: {
+          created_at: string
+          event_type: string
+          id: string
+          metadata: Json
+          previous_role: Database["public"]["Enums"]["app_role"] | null
+          reason: string | null
+          role: Database["public"]["Enums"]["app_role"] | null
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          event_type: string
+          id?: string
+          metadata?: Json
+          previous_role?: Database["public"]["Enums"]["app_role"] | null
+          reason?: string | null
+          role?: Database["public"]["Enums"]["app_role"] | null
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          event_type?: string
+          id?: string
+          metadata?: Json
+          previous_role?: Database["public"]["Enums"]["app_role"] | null
+          reason?: string | null
+          role?: Database["public"]["Enums"]["app_role"] | null
+          user_id?: string
+        }
+        Relationships: []
+      }
       age_gate_blocks: {
         Row: {
           blocked_at: string | null

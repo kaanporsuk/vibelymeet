@@ -47,6 +47,9 @@ const sprint2DurableWorkflowsMigration = read(
 const sprint3DataScaleRealtimeMediaMigration = read(
   "supabase/migrations/20260526030000_admin_sprint3_data_scale_realtime_media.sql",
 );
+const adminRoleSessionInvalidationMigration = read(
+  "supabase/migrations/20260526040000_admin_role_session_invalidation_events.sql",
+);
 const tierConfigAuthorityMigration = read("supabase/migrations/20260507190000_tier_config_backend_authority.sql");
 const tierConfigConcurrencyRepairMigration = read(
   "supabase/migrations/20260507193000_tier_config_backend_authority_concurrency_repair.sql",
@@ -112,6 +115,16 @@ const webEntitlementsContext = read("src/contexts/EntitlementsContext.tsx");
 const mobileEntitlementsContext = read("apps/mobile/context/EntitlementsContext.tsx");
 const supabaseTypes = read("src/integrations/supabase/types.ts");
 const regenSupabaseTypesScript = read("scripts/regen-supabase-types.sh");
+
+function tableTypes(tableName: string): string {
+  const marker = `      ${tableName}: {`;
+  const start = supabaseTypes.indexOf(marker);
+  assert.notEqual(start, -1, `Missing Supabase type table ${tableName}`);
+  const rest = supabaseTypes.slice(start + marker.length);
+  const nextTable = /\n\x20{6}[A-Za-z0-9_]+: \{/.exec(rest);
+  const end = nextTable ? start + marker.length + nextTable.index : supabaseTypes.length;
+  return supabaseTypes.slice(start, end);
+}
 
 function fnSection(fnName: string): string {
   const marker = `CREATE OR REPLACE FUNCTION public.${fnName}`;
@@ -561,6 +574,29 @@ test("Sprint 2 audit reads and exports are themselves audited with enriched colu
   assert.match(sprint2DurableWorkflowsMigration, /meta_audit_log_id/);
   assert.match(sprint2DurableWorkflowsMigration, /admin_audit_logs\.exported/);
   assert.match(sprint2DurableWorkflowsMigration, /trg_audit_admin_audit_log_export_job/);
+});
+
+test("public admin data interface includes explicit role/session invalidation events", () => {
+  const adminSessionInvalidationTypes = tableTypes("admin_session_invalidation_events");
+
+  assert.match(adminRoleSessionInvalidationMigration, /CREATE TABLE IF NOT EXISTS public\.admin_session_invalidation_events/);
+  assert.match(adminRoleSessionInvalidationMigration, /idx_admin_session_invalidation_events_user_created/);
+  assert.match(adminRoleSessionInvalidationMigration, /GRANT SELECT ON TABLE public\.admin_session_invalidation_events TO authenticated/);
+  assert.match(adminRoleSessionInvalidationMigration, /GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public\.admin_session_invalidation_events TO service_role/);
+  assert.match(adminRoleSessionInvalidationMigration, /admin_session_invalidation_events_user_select_own/);
+  assert.match(adminRoleSessionInvalidationMigration, /admin_session_invalidation_events_admin_select/);
+  assert.match(adminRoleSessionInvalidationMigration, /record_admin_session_invalidation_from_user_role/);
+  assert.match(adminRoleSessionInvalidationMigration, /NEW\.role IN \('admin'::public\.app_role, 'moderator'::public\.app_role\)/);
+  assert.match(adminRoleSessionInvalidationMigration, /OLD\.role IN \('admin'::public\.app_role, 'moderator'::public\.app_role\)/);
+  assert.match(adminRoleSessionInvalidationMigration, /NEW\.user_id IS NOT DISTINCT FROM OLD\.user_id/);
+  assert.match(adminRoleSessionInvalidationMigration, /moved_to_another_user/);
+  assert.match(adminRoleSessionInvalidationMigration, /moved_from_another_user/);
+  assert.match(adminRoleSessionInvalidationMigration, /event_type IN \('role_granted', 'role_revoked', 'role_changed', 'session_invalidated'\)/);
+  assert.match(adminRoleSessionInvalidationMigration, /ALTER PUBLICATION supabase_realtime ADD TABLE public\.admin_session_invalidation_events/);
+  assert.doesNotMatch(adminRoleSessionInvalidationMigration, /actor_id/);
+  assert.match(adminSessionInvalidationTypes, /event_type: string/);
+  assert.doesNotMatch(adminSessionInvalidationTypes, /actor_id/);
+  assert.match(adminSessionInvalidationTypes, /previous_role: Database\["public"\]\["Enums"\]\["app_role"\] \| null/);
 });
 
 test("browser mutation surfaces call semantic admin RPCs", () => {
