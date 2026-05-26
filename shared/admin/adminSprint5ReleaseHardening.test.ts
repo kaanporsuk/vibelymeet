@@ -33,6 +33,7 @@ const sprintAdminEdgeFunctions = [
   "supabase/functions/admin-video-date-ops/index.ts",
   "supabase/functions/upload-event-cover/index.ts",
   "supabase/functions/send-support-reply/index.ts",
+  "supabase/functions/event-notifications/index.ts",
 ];
 
 test("admin UI routes failures through the shared admin error resolver", () => {

@@ -46,6 +46,14 @@ function consoleLines(source: string): string[] {
   return source.split("\n").filter((line) => /console\.(?:log|warn|error)/.test(line));
 }
 
+function section(source: string, startMarker: string, endMarker: string): string {
+  const start = source.indexOf(startMarker);
+  assert.notEqual(start, -1, `Missing source section start: ${startMarker}`);
+  const end = source.indexOf(endMarker, start + startMarker.length);
+  assert.notEqual(end, -1, `Missing source section end: ${endMarker}`);
+  return source.slice(start, end);
+}
+
 const emailVerification = read("supabase/functions/email-verification/index.ts");
 const eventNotifications = read("supabase/functions/event-notifications/index.ts");
 const sendEmail = read("supabase/functions/send-email/index.ts");
@@ -99,11 +107,17 @@ test("email verification verify path checks expiry and attempt limits", () => {
 
 test("event notification email path requires authenticated admin posture", () => {
   assert.match(supabaseConfig, /\[functions\.event-notifications\][\s\S]{0,80}verify_jwt = true/);
-  assert.match(eventNotifications, /const authHeader = req\.headers\.get\("Authorization"\)/);
-  assert.match(eventNotifications, /supabaseUser\.auth\.getUser\(\)/);
-  assert.match(eventNotifications, /\.from\("user_roles"\)[\s\S]{0,180}\.eq\("role", "admin"\)/);
+  assert.match(eventNotifications, /preflightResponse\(req\)/);
+  assert.match(eventNotifications, /isBrowserOriginRejected\(req\)/);
+  assert.doesNotMatch(eventNotifications, /Access-Control-Allow-Origin["']:\s*["']\*["']/);
+  assert.match(eventNotifications, /authenticateAdminRequest\(req\)/);
+  assert.doesNotMatch(eventNotifications, /\.from\("user_roles"\)[\s\S]{0,180}\.eq\("role", "admin"\)/);
   assert.match(eventNotifications, /functionName:\s*"event-notifications"/);
   assert.match(adminEventForm, /supabase\.functions\.invoke\('event-notifications'/);
+  assert.match(adminEventForm, /resolveAdminFunctionErrorMessage\(error, data, "Announcement email failed"\)/);
+  assert.match(adminEventForm, /Event created, but announcement email did not complete/);
+  const notificationInvoke = section(adminEventForm, "supabase.functions.invoke('event-notifications'", "if (isRecurring)");
+  assert.doesNotMatch(notificationInvoke, /catch \(_\) \{\}/);
 });
 
 test("event notification sends use Resend, production links, and unsubscribe suppression", () => {
@@ -111,7 +125,11 @@ test("event notification sends use Resend, production links, and unsubscribe sup
   assert.match(eventNotifications, /fetch\("https:\/\/api\.resend\.com\/emails"/);
   assert.match(eventNotifications, /"Vibely <notifications@vibelymeet\.com>"/);
   assert.match(eventNotifications, /\.eq\("email_verified", true\)[\s\S]{0,80}\.eq\("email_unsubscribed", false\)/);
-  assert.match(eventNotifications, /https:\/\/www\.vibelymeet\.com\/events\/\$\{event\.id\}/);
+  assert.match(eventNotifications, /https:\/\/www\.vibelymeet\.com\/events\/\$\{safeEventId\}/);
+  assert.match(eventNotifications, /escapeHtml/);
+  assert.match(eventNotifications, /emailSubjectText/);
+  assert.match(eventNotifications, /formatEventDateUtc/);
+  assert.match(eventNotifications, /EMAIL_BATCH_SIZE/);
   assert.match(eventNotifications, /event-notifications resend_failed/);
   assert.match(eventNotifications, /bodyLength:\s*error\.length/);
   assert.doesNotMatch(eventNotifications, /Failed to send email to \$\{to\}/);
@@ -138,7 +156,7 @@ test("unsubscribe is retired instead of assumed active; UNSUB_HMAC_SECRET restor
 
 test("active production email links use the canonical vibelymeet.com origin", () => {
   assert.match(emailVerification, /https:\/\/www\.vibelymeet\.com\/vibely-logo-full-gradient\.png/);
-  assert.match(eventNotifications, /https:\/\/www\.vibelymeet\.com\/events\/\$\{event\.id\}/);
+  assert.match(eventNotifications, /https:\/\/www\.vibelymeet\.com\/events\/\$\{safeEventId\}/);
   assert.match(sendEmail, /const APP_URL = Deno\.env\.get\("APP_URL"\) \|\| "https:\/\/www\.vibelymeet\.com"/);
   assert.match(branchDelta, /`curl -I -L https:\/\/www\.vibelymeet\.com\/`: HTTP 200/);
   assert.match(branchDelta, /`curl -I -L https:\/\/vibelymeet\.com\/`: HTTP 307 to `https:\/\/www\.vibelymeet\.com\/`, then HTTP 200/);

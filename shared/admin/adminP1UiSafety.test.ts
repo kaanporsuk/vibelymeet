@@ -122,6 +122,11 @@ test("sprint 4 admin UX guardrails are wired into real admin surfaces", () => {
   assert.match(adminEventForm, /cursor = addYearsClamped\(cursor, 1\)/);
   assert.match(adminEventForm, /admin_generate_recurring_events/);
   assert.match(adminEventForm, /parseLocalEndOfDay\(endsOnDate\)\?\.toISOString\(\)/);
+  assert.match(adminEventForm, /geoSearchError/);
+  assert.match(adminEventForm, /latestGeoQueryRef/);
+  assert.match(adminEventForm, /City search is unavailable/);
+  assert.match(adminEventForm, /role="alert" className="text-xs text-destructive"/);
+  assert.doesNotMatch(adminEventForm, /catch \(_\) \{\}/);
   assert.doesNotMatch(adminEventForm, /toast\.(success|error|warning|info|message)/);
   assert.match(adminEvents, /closeEventFormModal/);
   assert.match(adminEvents, /restorePanelFocus/);
