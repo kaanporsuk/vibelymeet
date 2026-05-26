@@ -79,6 +79,9 @@ test("admin Edge Function error bodies stay sanitized before the UI renders them
   assert.match(proofSelfieSign, /Could not load verification selfie metadata/);
   assert.match(proofSelfieSign, /"Verification not found"[\s\S]*404/);
   assert.match(proofSelfieSign, /DIRECT_SELFIE_REVALIDATION_SECONDS/);
+  assert.match(proofSelfieSign, /ADMIN_PROOF_SELFIE_TRUSTED_ORIGINS/);
+  assert.match(proofSelfieSign, /isTrustedDirectSelfieUrl/);
+  assert.match(proofSelfieSign, /allowed proof-selfie media origin/);
   assert.match(proofSelfieSign, /expires_at: outcome\.expiresAt/);
   assert.match(proofSelfieSign, /422/);
   assert.doesNotMatch(proofSelfieSign, /message: error\?\.message \?\?/);
@@ -137,6 +140,9 @@ test("frontend assumptions match the hardened admin RPC and Edge contracts", () 
   const photoVerificationPanel = read("src/components/admin/AdminPhotoVerificationPanel.tsx");
   assert.match(photoVerificationPanel, /expires_at/);
   assert.match(photoVerificationPanel, /selfieExpiresAt/);
+  assert.match(photoVerificationPanel, /adminUtcDayStartIso\(\)/);
+  assert.match(photoVerificationPanel, /SELFIE_SIGN_CONCURRENCY = 4/);
+  assert.match(photoVerificationPanel, /shouldRefreshSelfieEntry/);
   assert.match(photoVerificationPanel, /previous\?\.selfie === nextUrls\.selfie && previous\.selfieLoadedAt/);
   assert.match(photoVerificationPanel, /window\.addEventListener\("focus", refreshOnFocus\)/);
   assert.match(photoVerificationPanel, /document\.addEventListener\("visibilitychange", refreshOnFocus\)/);
@@ -150,6 +156,7 @@ test("frontend assumptions match the hardened admin RPC and Edge contracts", () 
   assert.match(protectedRoute, /verifiedAdminUserIdRef\.current === session\.user\.id/);
   assert.match(protectedRoute, /data\?\.status === "revoked"/);
   assert.match(protectedRoute, /admin_session_invalidation_events/);
+  assert.doesNotMatch(protectedRoute, /table: "user_roles"/);
   assert.match(protectedRoute, /onRetry=\{\(\) => void refetchAdminVerification\(\)\}/);
   assert.match(protectedRoute, /refetchOnWindowFocus: "always"/);
   assert.match(protectedRoute, /refetchInterval: requireAdmin \? 60_000 : false/);

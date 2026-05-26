@@ -18,6 +18,12 @@ Sprint 5 closes the admin remediation series with integration guardrails, consis
 - Added the final public admin session invalidation interface:
   - `supabase/migrations/20260526040000_admin_role_session_invalidation_events.sql`
   - emits minimal `admin_session_invalidation_events` from `user_roles` changes and lets admin clients refetch `verify-admin` immediately without exposing the acting admin id to the affected session.
+- Added the definitive admin gap-closure pass:
+  - `supabase/migrations/20260526100000_admin_gap_closure_definitive.sql`
+  - exposes durable admin job health, safe manual retry RPCs, meta-audit filtering, and server-side admin event pagination/filtering.
+- Hardened proof-selfie direct media handling so Supabase storage is signed, trusted direct media origins must be explicit HTTPS allowlist entries, and unknown external URLs fail closed.
+- Tightened admin event and photo verification behavior: photo “today” stats use UTC day starts, recurrence generation partial failures are warning-visible with retry, and event destructive confirmations use the shared admin dialog pattern.
+- Operator env note: `REVENUECAT_SECRET_API_KEY` is required for RevenueCat subscriber cleanup, and `ADMIN_PROOF_SELFIE_TRUSTED_ORIGINS` can explicitly add trusted HTTPS direct proof-selfie media origins when proof selfies are not stored in Supabase.
 
 ## Release Behavior Notes
 
@@ -28,6 +34,11 @@ Sprint 5 closes the admin remediation series with integration guardrails, consis
 - UTC timestamps are the admin default unless a field is explicitly labeled as local or user time.
 - Daily CSP stays pinned to explicit Daily origins: `https://vibelyapp.daily.co`, `https://api.daily.co`, and `wss://vibelyapp.daily.co`.
 - Admin and support Edge Functions stay on shared allowlisted CORS helpers, including web origins and native/mobile `capacitor://localhost` compatibility.
+- RevenueCat account deletion cleanup is externally enforced. Active RevenueCat subscriptions require provider deletion evidence or the durable job blocks with an explicit provider/configuration reason.
+- Durable worker health is visible in Operations: cron readiness where discoverable, last worker run, backlog counts, blocked/permanent/retryable failures, stale processing jobs, and safe retry actions.
+- Admin audit browsing hides meta-audit noise by default while retaining an explicit include toggle for incident reconstruction.
+- Admin Events no longer depends on a 1000-row browser fetch; the read model accepts filters, returns `total_count`, and keeps counts correct even when the current page offset has gone stale.
+- Proof-selfie signing refreshes only missing or near-expiry visible URLs with bounded concurrency, avoiding focus-time Edge Function bursts.
 
 ## Validation
 
@@ -49,4 +60,4 @@ npm run test:client-feature-flags
 npm run test:security-headers
 ```
 
-Manual release checks still matter for device/browser confidence: admin login, non-admin login, role revocation while logged in, failed export, support email warning, deletion completion job state, reports pagination/search, selfie URL expiry refresh, event recurrence preview, keyboard row navigation, modal focus restoration, and UTC timestamp scan.
+Manual release checks still matter for device/browser confidence: admin login, non-admin login, role revocation while logged in, failed export, support email warning, deletion completion job state and retry, durable worker health, reports and events pagination/search, selfie URL expiry refresh and unknown external URL rejection, event recurrence preview and recurrence retry warning, keyboard row navigation, modal focus restoration, and UTC timestamp scan.

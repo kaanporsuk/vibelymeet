@@ -32,6 +32,7 @@ import { useEventCategories, type EventCategory } from "@/hooks/useEventCategori
 import { formatAdminUtcDate, formatAdminUtcDateTime, formatAdminUtcTime } from "@/lib/adminTime";
 import { adminToast } from "@/lib/adminToast";
 import { resolveAdminErrorMessage } from "@/lib/adminErrorResolver";
+import { useDebouncedValue } from "@/hooks/useDebouncedValue";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -65,6 +66,8 @@ type AdminEventRow = {
 type AdminEventsPayload = {
   events?: AdminEventRow[];
   total_count?: number;
+  limit?: number;
+  offset?: number;
 };
 
 type PendingEventPanelAction =
@@ -74,7 +77,18 @@ type PendingEventPanelAction =
   | { kind: "archive-series"; event: AdminEventRow; childCount: number }
   | { kind: "finalize-repair"; event: AdminEventRow }
   | { kind: "bulk-archive"; count: number }
+  | { kind: "cancel"; event: AdminEventRow }
+  | { kind: "delete"; event: AdminEventRow }
   | null;
+
+const EVENTS_PAGE_SIZE = 50;
+const TIME_SENSITIVE_STATUS_FILTERS = new Set([
+  "live",
+  "upcoming",
+  "wrap_up_grace",
+  "needs_finalization_repair",
+  "ended",
+]);
 
 const getLifecycleSnapshot = (event: AdminEventRow, nowMs = Date.now()) => {
   return resolveEventLifecycle({
@@ -99,14 +113,6 @@ const STATUS_STYLES: Record<string, string> = {
   needs_finalization_repair: 'bg-red-500/10 text-red-300 border-red-500/30',
 };
 
-const getAdminStatusDisplay = (event: AdminEventRow, nowMs = Date.now()): string => {
-  const lifecycle = getLifecycleSnapshot(event, nowMs);
-  if (lifecycle.isArchived) return "archived";
-  if (lifecycle.needsFinalizationRepair) return "needs_finalization_repair";
-  if (lifecycle.isInFinalizationGrace) return "wrap_up_grace";
-  return lifecycle.lifecycle;
-};
-
 const formatStatusFilterLabel = (status: string): string => {
   if (status === "all") return "All Statuses";
   if (status === "wrap_up_grace") return "Wrap-up";
@@ -127,11 +133,6 @@ function parseEventDate(value: string | null | undefined): Date | null {
   if (!value) return null;
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? null : date;
-}
-
-function eventUtcDateKey(value: string | null | undefined): string {
-  const date = parseEventDate(value);
-  return date ? date.toISOString().slice(0, 10) : "";
 }
 
 function eventUtcDayOfMonth(value: string | null | undefined): number | null {
@@ -518,6 +519,10 @@ const AdminEventsPanel = () => {
   const [pendingEventAction, setPendingEventAction] = useState<PendingEventPanelAction>(null);
   const [isBulkArchiving, setIsBulkArchiving] = useState(false);
   const [isGeneratingOccurrences, setIsGeneratingOccurrences] = useState(false);
+  const [pageIndex, setPageIndex] = useState(0);
+  const debouncedSearchQuery = useDebouncedValue(searchQuery);
+  const lifecycleMinuteBucket = Math.floor(lifecycleNowMs / 60_000);
+  const lifecycleQueryBucket = TIME_SENSITIVE_STATUS_FILTERS.has(statusFilter) ? lifecycleMinuteBucket : "static";
 
   // Bulk selection
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -595,43 +600,51 @@ const AdminEventsPanel = () => {
       });
   };
 
+  useEffect(() => {
+    setPageIndex(0);
+  }, [debouncedSearchQuery, showArchived, statusFilter, scopeFilter, cityFilter, dateFrom, dateTo]);
+
   // Fetch events
-  const { data: events = [], isLoading } = useQuery({
-    queryKey: ['admin-events', searchQuery, showArchived],
+  const { data: eventsPayload, isLoading } = useQuery({
+    queryKey: ['admin-events', debouncedSearchQuery, showArchived, statusFilter, scopeFilter, cityFilter, dateFrom, dateTo, lifecycleQueryBucket, pageIndex],
     queryFn: async () => {
       const payload = await callAdminRpc<AdminEventsPayload>("admin_list_events", {
         p_filters: {
-          search: searchQuery.trim() || null,
+          search: debouncedSearchQuery.trim() || null,
           show_archived: showArchived,
+          status: statusFilter === "all" ? null : statusFilter,
+          scope: scopeFilter === "all" ? null : scopeFilter,
+          city: cityFilter === "all" ? null : cityFilter.trim() || null,
+          date_from: dateFrom || null,
+          date_to: dateTo || null,
         },
-        p_limit: 1000,
-        p_offset: 0,
+        p_limit: EVENTS_PAGE_SIZE,
+        p_offset: pageIndex * EVENTS_PAGE_SIZE,
       });
 
-      return payload.events ?? [];
+      return payload;
     },
   });
 
-  // Unique cities for filter
-  const uniqueCities = useMemo(() =>
-    [...new Set(events.filter(e => e.city).map(e => e.city as string))].sort(),
-    [events]
-  );
+  const events = eventsPayload?.events ?? [];
+  const totalCount = Number.isFinite(Number(eventsPayload?.total_count))
+    ? Math.max(0, Number(eventsPayload?.total_count))
+    : events.length;
+  const totalPages = Math.max(1, Math.ceil(totalCount / EVENTS_PAGE_SIZE));
+  const canGoPrevious = pageIndex > 0;
+  const canGoNext = pageIndex + 1 < totalPages;
+  const firstVisibleEvent = totalCount === 0 ? 0 : pageIndex * EVENTS_PAGE_SIZE + 1;
+  const lastVisibleEvent = Math.min(totalCount, pageIndex * EVENTS_PAGE_SIZE + events.length);
 
-  // Filtered events
-  const filteredEvents = useMemo(() => {
-    return events.filter(event => {
-      const statusDisplay = getAdminStatusDisplay(event, lifecycleNowMs);
-      if (statusFilter !== 'all' && statusDisplay !== statusFilter) return false;
-      if (scopeFilter !== 'all' && (event.scope || 'global') !== scopeFilter) return false;
-      if (cityFilter !== 'all' && event.city !== cityFilter) return false;
-      const eventDateKey = eventUtcDateKey(event.event_date);
-      if ((dateFrom || dateTo) && !eventDateKey) return false;
-      if (dateFrom && eventDateKey < dateFrom) return false;
-      if (dateTo && eventDateKey > dateTo) return false;
-      return true;
-    });
-  }, [events, lifecycleNowMs, statusFilter, scopeFilter, cityFilter, dateFrom, dateTo]);
+  useEffect(() => {
+    if (!isLoading && pageIndex >= totalPages) {
+      setPageIndex(totalPages - 1);
+    }
+  }, [isLoading, pageIndex, totalPages]);
+
+  // Filtered events are now server-side paginated. Keep this alias so grouping
+  // logic stays isolated from the RPC shape.
+  const filteredEvents = events;
 
   // Grouped by series
   const groupedEvents = useMemo(() => {
@@ -925,6 +938,20 @@ const AdminEventsPanel = () => {
           confirmLabel: "Archive Selected",
           variant: "destructive" as const,
         };
+      case "cancel":
+        return {
+          title: `Cancel "${pendingEventAction.event.title}"?`,
+          description: "The event will be marked cancelled and will no longer behave as active, upcoming, or live for users. Existing registrations stay in the database. The backend reports whether cancellation notification queueing happened; cancellation notifications may be recorded as not queued until a dispatcher is connected.",
+          confirmLabel: "Cancel Event",
+          variant: "destructive" as const,
+        };
+      case "delete":
+        return {
+          title: `Permanently delete "${pendingEventAction.event.title}"?`,
+          description: "This server action removes swipes, sessions, vibes, registrations, and the event in one transaction. This cannot be undone.",
+          confirmLabel: "Delete Permanently",
+          variant: "destructive" as const,
+        };
       default:
         return { title: "", description: "", confirmLabel: "Confirm", variant: "destructive" as const };
     }
@@ -946,6 +973,15 @@ const AdminEventsPanel = () => {
     }
     if (pendingEventAction.kind === "finalize-repair") {
       return finalizeRepairEvent.mutateAsync(pendingEventAction.event);
+    }
+    if (pendingEventAction.kind === "cancel") {
+      return cancelEvent.mutateAsync({
+        eventId: pendingEventAction.event.id,
+        title: pendingEventAction.event.title,
+      });
+    }
+    if (pendingEventAction.kind === "delete") {
+      return deleteEvent.mutateAsync(pendingEventAction.event.id);
     }
     return bulkArchive();
   };
@@ -1135,7 +1171,7 @@ const AdminEventsPanel = () => {
                 <DropdownMenuItem onClick={() => openAttendeesModal(event, eventMenuTriggerRef.current)} className="gap-2">
                   <UserCheck className="w-4 h-4" />Attendees
                 </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => window.open(`/events/${event.id}`, '_blank')} className="gap-2">
+                <DropdownMenuItem onClick={() => window.open(`/events/${event.id}`, '_blank', 'noopener,noreferrer')} className="gap-2">
                   <Eye className="w-4 h-4" />View
                 </DropdownMenuItem>
 
@@ -1157,21 +1193,7 @@ const AdminEventsPanel = () => {
                   <>
                     <DropdownMenuSeparator />
                     <DropdownMenuItem
-                      onClick={() => {
-                        const title = event.title as string;
-                        const message = [
-                          `Cancel "${title}"?`,
-                          '',
-                          'The event will be marked cancelled. It will no longer behave as an active, upcoming, or live event for users.',
-                          'Existing registrations stay in the database (this is not delete). Use attendee tools or permanent delete if you need accounts or rows removed.',
-                          'Cancel is different from Archive (organizational hide), End (normal completion), and Delete (erase event data).',
-                          '',
-                          'After cancel, the backend reports whether notification queueing happened. In the current P2 contract, cancellation notifications may be recorded as not queued until a dispatcher is connected.',
-                        ].join('\n');
-                        if (confirm(message)) {
-                          cancelEvent.mutate({ eventId: event.id, title });
-                        }
-                      }}
+                      onClick={() => setPendingEventAction({ kind: "cancel", event })}
                       disabled={cancelEvent.isPending}
                       className="gap-2 text-amber-600 focus:text-amber-600"
                     >
@@ -1198,21 +1220,7 @@ const AdminEventsPanel = () => {
                       <RotateCcw className="w-4 h-4" />Unarchive
                     </DropdownMenuItem>
                     <DropdownMenuItem
-                      onClick={() => {
-                        if (
-                          confirm(
-                            'PERMANENTLY DELETE this event and ALL its data? The database will remove swipes, video sessions, vibes, registrations, and the event in one transaction. This cannot be undone.'
-                          )
-                        ) {
-                          if (
-                            confirm(
-                              'Final confirmation: every registration and session row for this event will be erased. Continue?'
-                            )
-                          ) {
-                            deleteEvent.mutate(event.id);
-                          }
-                        }
-                      }}
+                      onClick={() => setPendingEventAction({ kind: "delete", event })}
                       className="gap-2 text-destructive focus:text-destructive">
                       <Trash2 className="w-4 h-4" />Delete Permanently
                     </DropdownMenuItem>
@@ -1236,21 +1244,7 @@ const AdminEventsPanel = () => {
 
                     {/* Delete — available for all non-archived events */}
                     <DropdownMenuItem
-                      onClick={() => {
-                        if (
-                          confirm(
-                            `Permanently delete "${event.title}"? The server removes swipes, sessions, vibes, registrations, and the event in one transaction. This cannot be undone.`
-                          )
-                        ) {
-                          if (
-                            confirm(
-                              'Final confirmation: all registrations and related rows for this event will be erased. Continue?'
-                            )
-                          ) {
-                            deleteEvent.mutate(event.id);
-                          }
-                        }
-                      }}
+                      onClick={() => setPendingEventAction({ kind: "delete", event })}
                       className="gap-2 text-destructive focus:text-destructive"
                     >
                       <Trash2 className="w-4 h-4" />Delete
@@ -1270,7 +1264,13 @@ const AdminEventsPanel = () => {
 
   const pendingActionCopy = getPendingActionCopy();
   const isPanelActionPending =
-    archiveEvent.isPending || archiveSeries.isPending || finalizeRepairEvent.isPending || isBulkArchiving || isGeneratingOccurrences;
+    archiveEvent.isPending ||
+    archiveSeries.isPending ||
+    finalizeRepairEvent.isPending ||
+    cancelEvent.isPending ||
+    deleteEvent.isPending ||
+    isBulkArchiving ||
+    isGeneratingOccurrences;
 
   return (
     <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="space-y-6">
@@ -1312,15 +1312,13 @@ const AdminEventsPanel = () => {
           </SelectContent>
         </Select>
 
-        {uniqueCities.length > 0 && (
-          <Select value={cityFilter} onValueChange={setCityFilter}>
-            <SelectTrigger className="w-36 h-8 text-xs bg-secondary/50"><SelectValue placeholder="City" /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All Cities</SelectItem>
-              {uniqueCities.map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}
-            </SelectContent>
-          </Select>
-        )}
+        <Input
+          value={cityFilter === "all" ? "" : cityFilter}
+          onChange={(event) => setCityFilter(event.target.value || "all")}
+          aria-label="Filter events by city"
+          placeholder="City"
+          className="h-8 w-36 bg-secondary/50 text-xs"
+        />
 
         <div className="flex items-center gap-1">
           <Input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)}
@@ -1409,6 +1407,36 @@ const AdminEventsPanel = () => {
         </div>
       </div>
 
+      <div className="flex flex-col gap-3 rounded-xl border border-border bg-secondary/20 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="text-sm text-muted-foreground">
+          Showing <span className="text-foreground">{firstVisibleEvent}-{lastVisibleEvent}</span> of{" "}
+          <span className="text-foreground">{totalCount}</span> events
+        </div>
+        <div className="flex items-center gap-2">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            disabled={!canGoPrevious || isLoading}
+            onClick={() => setPageIndex((page) => Math.max(0, page - 1))}
+          >
+            Previous
+          </Button>
+          <span className="text-xs text-muted-foreground">
+            Page {pageIndex + 1} of {totalPages}
+          </span>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            disabled={!canGoNext || isLoading}
+            onClick={() => setPageIndex((page) => page + 1)}
+          >
+            Next
+          </Button>
+        </div>
+      </div>
+
       <AdminEventCategoryManager />
 
       {/* Modals */}
@@ -1420,7 +1448,10 @@ const AdminEventsPanel = () => {
         variant={pendingActionCopy.variant}
         isPending={isPanelActionPending}
         onOpenChange={(open) => {
-          if (!open) setPendingEventAction(null);
+          if (!open) {
+            setPendingEventAction(null);
+            restorePanelFocus(eventMenuTriggerRef);
+          }
         }}
         onConfirm={confirmPendingEventAction}
       />

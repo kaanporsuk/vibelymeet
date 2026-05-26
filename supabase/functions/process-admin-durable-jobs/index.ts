@@ -103,6 +103,59 @@ function response(req: Request, body: Record<string, unknown>, status = 200): Re
   });
 }
 
+async function recordWorkerRunStart(
+  supabase: any,
+  workerId: string,
+  action: WorkerRequest["action"],
+  batchSize: number,
+): Promise<void> {
+  const { error } = await supabase
+    .from("admin_durable_worker_runs")
+    .upsert(
+      {
+        worker_name: WORKER_NAME,
+        worker_id: workerId,
+        status: "running",
+        action: action ?? "all",
+        batch_size: batchSize,
+        started_at: new Date().toISOString(),
+        finished_at: null,
+        last_heartbeat_at: new Date().toISOString(),
+        last_error: null,
+        result: null,
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: "worker_name" },
+    );
+  if (error) {
+    console.warn("admin durable worker start health record skipped:", sanitizeErrorMessage(error.message));
+  }
+}
+
+async function recordWorkerRunFinish(
+  supabase: any,
+  workerId: string,
+  status: "completed" | "completed_with_failures" | "failed",
+  result: Record<string, unknown> | null,
+  errorMessage: string | null = null,
+): Promise<void> {
+  const { error } = await supabase
+    .from("admin_durable_worker_runs")
+    .update({
+      worker_id: workerId,
+      status,
+      finished_at: new Date().toISOString(),
+      last_heartbeat_at: new Date().toISOString(),
+      last_error: errorMessage ? sanitizeErrorMessage(errorMessage) : null,
+      result,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("worker_name", WORKER_NAME);
+  if (error) {
+    console.warn("admin durable worker finish health record skipped:", sanitizeErrorMessage(error.message));
+  }
+}
+
 function escapeHtml(value: string): string {
   return value
     .replace(/&/g, "&amp;")
@@ -206,6 +259,33 @@ async function activeStripeSubscriptionsForCustomer(stripeKey: string, customerI
   return { ok: true, ids: Array.from(new Set(ids)) };
 }
 
+async function deleteRevenueCatSubscriber(revenueCatKey: string, appUserId: string): Promise<{
+  ok: boolean;
+  error?: string;
+  status?: number;
+}> {
+  const providerRes = await fetch(
+    `https://api.revenuecat.com/v1/subscribers/${encodeURIComponent(appUserId)}`,
+    {
+      method: "DELETE",
+      headers: {
+        Authorization: `Bearer ${revenueCatKey}`,
+      },
+    },
+  );
+  const providerBody = await providerRes.text();
+
+  if (!providerRes.ok && providerRes.status !== 404) {
+    return {
+      ok: false,
+      error: providerBody || `RevenueCat subscriber deletion failed with ${providerRes.status}.`,
+      status: providerRes.status,
+    };
+  }
+
+  return { ok: true };
+}
+
 async function completeDeletionStep(
   supabase: any,
   job: DeletionJob,
@@ -262,7 +342,7 @@ async function cleanupProviderSubscriptions(supabase: any, job: DeletionJob): Pr
 }> {
   const { data: subscriptions, error } = await supabase
     .from("subscriptions")
-    .select("id, stripe_subscription_id, stripe_customer_id, status, provider")
+    .select("id, stripe_subscription_id, stripe_customer_id, rc_original_app_user_id, status, provider")
     .eq("user_id", job.user_id)
     .in("status", ["active", "trialing", "past_due", "unpaid"]);
 
@@ -293,10 +373,12 @@ async function cleanupProviderSubscriptions(supabase: any, job: DeletionJob): Pr
   });
   const revenueCatSubscriptions = activeSubscriptions.filter((subscription) => subscription.provider === "revenuecat");
   const stripeProviderIds: string[] = [];
+  const revenueCatProviderIds: string[] = [];
   const localCancellationIds: string[] = [];
   let stripeRowsMissingSubscriptionId = 0;
   let stripeRowsWithoutActiveProviderMatch = 0;
   const stripeKey = Deno.env.get("STRIPE_SECRET_KEY")?.trim();
+  const revenueCatKey = Deno.env.get("REVENUECAT_SECRET_API_KEY")?.trim();
 
   if (stripeSubscriptions.length > 0 && !stripeKey) {
     return {
@@ -307,6 +389,16 @@ async function cleanupProviderSubscriptions(supabase: any, job: DeletionJob): Pr
     };
   }
   const requiredStripeKey = stripeKey ?? "";
+
+  if (revenueCatSubscriptions.length > 0 && !revenueCatKey) {
+    return {
+      ok: false,
+      error: "REVENUECAT_SECRET_API_KEY is not configured for account deletion provider cleanup.",
+      errorCode: "revenuecat_not_configured",
+      blocked: true,
+    };
+  }
+  const requiredRevenueCatKey = revenueCatKey ?? "";
 
   for (const subscription of stripeSubscriptions) {
     const subscriptionId = typeof subscription.stripe_subscription_id === "string"
@@ -357,11 +449,42 @@ async function cleanupProviderSubscriptions(supabase: any, job: DeletionJob): Pr
   }
 
   for (const subscription of revenueCatSubscriptions) {
+    const appUserIds = Array.from(
+      new Set([
+        job.user_id,
+        typeof subscription.rc_original_app_user_id === "string" ? subscription.rc_original_app_user_id : "",
+      ].map((value) => value.trim()).filter(Boolean)),
+    );
+
+    if (appUserIds.length === 0) {
+      return {
+        ok: false,
+        error: "Active RevenueCat subscription row is missing a provider app user id.",
+        errorCode: "revenuecat_provider_identity_missing",
+        blocked: true,
+      };
+    }
+
+    for (const appUserId of appUserIds) {
+      const deleted = await deleteRevenueCatSubscriber(requiredRevenueCatKey, appUserId);
+      if (!deleted.ok) {
+        return {
+          ok: false,
+          error: deleted.error,
+          errorCode: `revenuecat_${deleted.status ?? "failed"}`,
+          retryAfterSeconds: retryAfterForStatus(deleted.status ?? null),
+          permanent: permanentHttpFailure(deleted.status ?? null),
+        };
+      }
+      revenueCatProviderIds.push(appUserId);
+    }
+
     if (typeof subscription.id === "string") localCancellationIds.push(subscription.id);
   }
 
   const uniqueLocalCancellationIds = Array.from(new Set(localCancellationIds));
   const uniqueStripeProviderIds = Array.from(new Set(stripeProviderIds));
+  const uniqueRevenueCatProviderIds = Array.from(new Set(revenueCatProviderIds));
   if (uniqueLocalCancellationIds.length > 0) {
     const { error: updateError } = await supabase
       .from("subscriptions")
@@ -396,7 +519,10 @@ async function cleanupProviderSubscriptions(supabase: any, job: DeletionJob): Pr
       stripe_subscriptions_cancelled: uniqueStripeProviderIds.length,
       stripe_rows_missing_subscription_id: stripeRowsMissingSubscriptionId,
       stripe_rows_without_active_provider_match: stripeRowsWithoutActiveProviderMatch,
-      revenuecat_subscriptions_revoked_locally: revenueCatSubscriptions.length,
+      revenuecat_subscriptions_checked: revenueCatSubscriptions.length,
+      revenuecat_cleanup_mode: revenueCatSubscriptions.length > 0 ? "delete_subscriber_gdpr" : "none",
+      revenuecat_subscribers_deleted: uniqueRevenueCatProviderIds.length,
+      revenuecat_provider_ids: uniqueRevenueCatProviderIds,
       local_subscription_rows_cancelled: uniqueLocalCancellationIds.length,
     },
   };
@@ -850,6 +976,8 @@ Deno.serve(async (req) => {
     });
   }
 
+  await recordWorkerRunStart(supabase, workerId, action, batchSize);
+
   const result = {
     account_deletions: { claimed: 0, completed: 0, failed: 0 },
     support_delivery: { claimed: 0, completed: 0, failed: 0 },
@@ -860,14 +988,20 @@ Deno.serve(async (req) => {
     const { error: enqueueError } = await supabase.rpc("enqueue_due_account_deletion_completion_jobs_v1", {
       p_limit: batchSize,
     });
-    if (enqueueError) return response(req, { ok: false, error: enqueueError.message }, 500);
+    if (enqueueError) {
+      await recordWorkerRunFinish(supabase, workerId, "failed", result, enqueueError.message);
+      return response(req, { ok: false, error: enqueueError.message }, 500);
+    }
 
     const { data, error } = await supabase.rpc("claim_account_deletion_completion_jobs_v1", {
       p_worker_id: workerId,
       p_limit: batchSize,
       p_lease_seconds: leaseSeconds,
     });
-    if (error) return response(req, { ok: false, error: error.message }, 500);
+    if (error) {
+      await recordWorkerRunFinish(supabase, workerId, "failed", result, error.message);
+      return response(req, { ok: false, error: error.message }, 500);
+    }
 
     const jobs = (data ?? []) as DeletionJob[];
     result.account_deletions.claimed = jobs.length;
@@ -888,7 +1022,10 @@ Deno.serve(async (req) => {
       p_limit: batchSize,
       p_lease_seconds: leaseSeconds,
     });
-    if (error) return response(req, { ok: false, error: error.message }, 500);
+    if (error) {
+      await recordWorkerRunFinish(supabase, workerId, "failed", result, error.message);
+      return response(req, { ok: false, error: error.message }, 500);
+    }
 
     const jobs = (data ?? []) as SupportDeliveryJob[];
     result.support_delivery.claimed = jobs.length;
@@ -902,6 +1039,12 @@ Deno.serve(async (req) => {
       }
     }
   }
+
+  const finalStatus = result.failures.length > 0 ? "completed_with_failures" : "completed";
+  await recordWorkerRunFinish(supabase, workerId, finalStatus, {
+    ...result,
+    latency_ms: Date.now() - startedAt,
+  });
 
   return response(req, {
     ok: true,

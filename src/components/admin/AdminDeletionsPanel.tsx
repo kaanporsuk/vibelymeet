@@ -104,6 +104,14 @@ function completionActionHint(request: DeletionRequest) {
   return "Review job state before retry";
 }
 
+function canRetryCompletionJob(request: DeletionRequest): boolean {
+  return Boolean(
+    request.completion_job_id &&
+      request.completion_job_state &&
+      ["retryable_failed", "blocked", "permanent_failed"].includes(request.completion_job_state),
+  );
+}
+
 const COMPLETION_STEP_LABELS = [
   ["provider_cleanup_completed_at", "Provider"],
   ["media_cleanup_completed_at", "Media"],
@@ -180,8 +188,44 @@ const AdminDeletionsPanel = () => {
     },
   });
 
+  const retryCompletionJob = useMutation({
+    mutationFn: async (request: DeletionRequest) => {
+      if (!request.completion_job_id) throw new Error("Missing completion job id.");
+      return callAdminRpc("admin_retry_account_deletion_completion_job", {
+        p_job_id: request.completion_job_id,
+        p_reason: "Manual durable cleanup retry from Admin Account Deletions tab",
+        p_idempotency_key: createAdminTargetIdempotencyKey(
+          "admin_retry_account_deletion_completion_job",
+          request.completion_job_id,
+          {
+            request_id: request.id,
+            user_id: request.user_id,
+            completion_job_state: request.completion_job_state ?? null,
+            completion_attempts: request.completion_attempts ?? 0,
+            completion_error_code: request.completion_error_code ?? null,
+            completion_next_retry_at: request.completion_next_retry_at ?? null,
+          },
+        ),
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: [ACCOUNT_DELETIONS_QUERY_KEY] });
+      adminToast.success({
+        id: "account-deletion-completion-retry-queued",
+        title: "Deletion cleanup retry queued",
+      });
+    },
+    onError: (reason) => {
+      adminToast.error({
+        id: "account-deletion-completion-retry-failed",
+        title: resolveAdminErrorMessage(reason, "Could not retry deletion cleanup job"),
+      });
+    },
+  });
+
   const renderRequestRow = (request: DeletionRequest, showCompleteAction = false) => {
     const isCompleteActionDisabled = markCompleted.isPending || !request.can_mark_completed;
+    const canRetryJob = canRetryCompletionJob(request);
 
     return (
       <div
@@ -275,6 +319,22 @@ const AdminDeletionsPanel = () => {
               <p className="text-[11px] text-muted-foreground text-right">
                 {completionActionHint(request)}
               </p>
+            )}
+            {canRetryJob && (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => retryCompletionJob.mutate(request)}
+                disabled={retryCompletionJob.isPending}
+                className="gap-1"
+              >
+                {retryCompletionJob.isPending ? (
+                  <Loader2 className="w-3 h-3 animate-spin" />
+                ) : (
+                  <RotateCcw className="w-3 h-3" />
+                )}
+                Retry Cleanup
+              </Button>
             )}
           </div>
         )}

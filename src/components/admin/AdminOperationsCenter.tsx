@@ -135,12 +135,24 @@ type AuditPayload = AdminRpcPayload & {
   offset?: number;
 };
 
+type DurableJobHealthPayload = AdminRpcPayload & {
+  generated_at?: string;
+  status?: OpsStatus;
+  worker_name?: string;
+  worker_stale_after_minutes?: number;
+  cron_job_present?: boolean | null;
+  last_run?: Record<string, unknown> | null;
+  account_deletions?: Record<string, unknown>;
+  support_delivery?: Record<string, unknown>;
+};
+
 type OperationsRpcName =
   | "admin_get_system_health"
   | "admin_get_provider_health"
   | "admin_get_rebuild_status"
   | "admin_get_incident_signals"
-  | "admin_get_admin_permissions";
+  | "admin_get_admin_permissions"
+  | "admin_get_admin_durable_job_health";
 
 type OperationsFailure = {
   rpc: OperationsRpcName;
@@ -153,6 +165,7 @@ type OperationsData = {
   rebuild?: RebuildStatusPayload;
   incidents?: IncidentSignalsPayload;
   permissions?: PermissionsPayload;
+  durable?: DurableJobHealthPayload;
   failures: OperationsFailure[];
 };
 
@@ -235,6 +248,9 @@ const factRows = (value: Record<string, unknown> | undefined) =>
     </div>
   ));
 
+const nestedValue = (source: Record<string, unknown> | undefined, key: string): unknown =>
+  source && typeof source === "object" ? source[key] : undefined;
+
 const fulfilledValue = <T,>(result: PromiseSettledResult<T>): T | undefined =>
   result.status === "fulfilled" ? result.value : undefined;
 
@@ -258,6 +274,7 @@ const AdminOperationsCenter = () => {
   const [auditActorId, setAuditActorId] = useState("");
   const [auditFrom, setAuditFrom] = useState("");
   const [auditTo, setAuditTo] = useState("");
+  const [includeMetaAudit, setIncludeMetaAudit] = useState(false);
 
   const debouncedAuditAction = useDebouncedValue(auditAction);
   const debouncedAuditTargetType = useDebouncedValue(auditTargetType);
@@ -274,12 +291,13 @@ const AdminOperationsCenter = () => {
   const opsQuery = useQuery<OperationsData>({
     queryKey: ["admin-operations-center"],
     queryFn: async () => {
-      const [system, providers, rebuild, incidents, permissions] = await Promise.allSettled([
+      const [system, providers, rebuild, incidents, permissions, durable] = await Promise.allSettled([
         callAdminRpc<SystemHealthPayload>("admin_get_system_health", {}),
         callAdminRpc<ProviderHealthPayload>("admin_get_provider_health", {}),
         callAdminRpc<RebuildStatusPayload>("admin_get_rebuild_status", {}),
         callAdminRpc<IncidentSignalsPayload>("admin_get_incident_signals", {}),
         callAdminRpc<PermissionsPayload>("admin_get_admin_permissions", {}),
+        callAdminRpc<DurableJobHealthPayload>("admin_get_admin_durable_job_health", {}),
       ]);
 
       return {
@@ -288,12 +306,14 @@ const AdminOperationsCenter = () => {
         rebuild: fulfilledValue(rebuild),
         incidents: fulfilledValue(incidents),
         permissions: fulfilledValue(permissions),
+        durable: fulfilledValue(durable),
         failures: [
           failureFor("admin_get_system_health", system),
           failureFor("admin_get_provider_health", providers),
           failureFor("admin_get_rebuild_status", rebuild),
           failureFor("admin_get_incident_signals", incidents),
           failureFor("admin_get_admin_permissions", permissions),
+          failureFor("admin_get_admin_durable_job_health", durable),
         ].filter((failure): failure is OperationsFailure => Boolean(failure)),
       };
     },
@@ -309,6 +329,7 @@ const AdminOperationsCenter = () => {
       debouncedAuditActorId,
       debouncedAuditFrom,
       debouncedAuditTo,
+      includeMetaAudit,
     ],
     queryFn: async () =>
       callAdminRpc<AuditPayload>("admin_search_admin_audit_logs", {
@@ -320,6 +341,7 @@ const AdminOperationsCenter = () => {
         p_to: toIsoOrNull(debouncedAuditTo),
         p_limit: 25,
         p_offset: 0,
+        p_include_meta: includeMetaAudit,
       }),
     enabled: !auditUuidFiltersInvalid,
   });
@@ -330,6 +352,7 @@ const AdminOperationsCenter = () => {
       opsQuery.data?.providers?.overall_status,
       opsQuery.data?.rebuild?.status,
       opsQuery.data?.incidents?.status,
+      opsQuery.data?.durable?.status,
     ];
     if (opsQuery.data?.failures.length) statuses.push("degraded");
     if (opsQuery.data?.failures.length && statuses.every((status) => !status)) return "unavailable";
@@ -342,6 +365,9 @@ const AdminOperationsCenter = () => {
   const rebuild = opsQuery.data?.rebuild;
   const incidents = opsQuery.data?.incidents;
   const permissions = opsQuery.data?.permissions;
+  const durable = opsQuery.data?.durable;
+  const durableDeletion = durable?.account_deletions;
+  const durableSupport = durable?.support_delivery;
   const healthAreas = asArray<HealthArea>(system?.health_areas);
   const providerChecks = asArray<ProviderCheck>(providers?.providers);
   const incidentSignals = asArray<IncidentSignal>(incidents?.signals);
@@ -354,7 +380,8 @@ const AdminOperationsCenter = () => {
       auditTargetId.trim() ||
       auditActorId.trim() ||
       auditFrom.trim() ||
-      auditTo.trim(),
+      auditTo.trim() ||
+      includeMetaAudit,
   );
   const permissionCatalogByArea = useMemo(() => {
     const grantedPermissions = asArray<string>(permissions?.permissions);
@@ -378,6 +405,7 @@ const AdminOperationsCenter = () => {
     setAuditActorId("");
     setAuditFrom("");
     setAuditTo("");
+    setIncludeMetaAudit(false);
   };
 
   if (opsQuery.isLoading) {
@@ -469,6 +497,86 @@ const AdminOperationsCenter = () => {
           <div className="md:col-span-2 xl:col-span-3">
             {unavailableSection("System health", "admin_get_system_health", operationFailures)}
           </div>
+        )}
+      </section>
+
+      <section className="rounded-xl border border-border bg-card p-4">
+        <div className="mb-4 flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2">
+            <Database className="h-5 w-5 text-primary" />
+            <h3 className="text-lg font-semibold text-foreground">Durable Admin Jobs</h3>
+          </div>
+          {statusBadge(durable?.status)}
+        </div>
+        {!durable ? (
+          unavailableSection("Durable admin jobs", "admin_get_admin_durable_job_health", operationFailures)
+        ) : (
+          <>
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+              <div className="rounded-lg border border-border/70 bg-secondary/20 p-3">
+                <div className="text-xs text-muted-foreground">Worker</div>
+                <div className="mt-1 text-sm font-medium text-foreground">
+                  {String(nestedValue(durable.last_run ?? undefined, "status") ?? "no run")}
+                </div>
+                <div className="mt-1 text-xs text-muted-foreground">
+                  Last heartbeat {formatRelativeTime(nestedValue(durable.last_run ?? undefined, "last_heartbeat_at"))}
+                </div>
+              </div>
+              <div className="rounded-lg border border-border/70 bg-secondary/20 p-3">
+                <div className="text-xs text-muted-foreground">Cron</div>
+                <div className="mt-1 text-sm font-medium text-foreground">
+                  {durable.cron_job_present === true ? "scheduled" : durable.cron_job_present === false ? "missing" : "not discoverable"}
+                </div>
+                <div className="mt-1 text-xs text-muted-foreground">
+                  Stale after {formatCount(durable.worker_stale_after_minutes)} min
+                </div>
+              </div>
+              <div className="rounded-lg border border-border/70 bg-secondary/20 p-3">
+                <div className="text-xs text-muted-foreground">Last Error</div>
+                <div className="mt-1 text-sm font-medium text-foreground">
+                  {String(nestedValue(durable.last_run ?? undefined, "last_error") ?? "none")}
+                </div>
+              </div>
+            </div>
+            <div className="mt-4 grid grid-cols-1 gap-4 xl:grid-cols-2">
+              {[
+                { title: "Deletion Completion", data: durableDeletion },
+                { title: "Support Delivery", data: durableSupport },
+              ].map((item) => (
+                <div key={item.title} className="rounded-lg border border-border/70 bg-secondary/20 p-4">
+                  <div className="mb-3 text-sm font-medium text-foreground">{item.title}</div>
+                  <div className="grid grid-cols-2 gap-2 text-xs">
+                    <div className="rounded-md bg-background/50 p-2">
+                      <div className="text-muted-foreground">Blocked</div>
+                      <div className="text-lg font-semibold text-foreground">{formatCount(nestedValue(item.data, "blocked_count"))}</div>
+                    </div>
+                    <div className="rounded-md bg-background/50 p-2">
+                      <div className="text-muted-foreground">Retryable</div>
+                      <div className="text-lg font-semibold text-foreground">{formatCount(nestedValue(item.data, "retryable_failed_count"))}</div>
+                    </div>
+                    <div className="rounded-md bg-background/50 p-2">
+                      <div className="text-muted-foreground">Permanent Failed</div>
+                      <div className="text-lg font-semibold text-foreground">{formatCount(nestedValue(item.data, "permanent_failed_count"))}</div>
+                    </div>
+                    <div className="rounded-md bg-background/50 p-2">
+                      <div className="text-muted-foreground">Stale Processing</div>
+                      <div className="text-lg font-semibold text-foreground">{formatCount(nestedValue(item.data, "stale_processing_count"))}</div>
+                    </div>
+                  </div>
+                  <div className="mt-3 space-y-1.5">
+                    {factRows(nestedValue(item.data, "counts_by_state") as Record<string, unknown> | undefined)}
+                  </div>
+                  {nestedValue(item.data, "oldest_pending_or_failed") ? (
+                    <pre className="mt-3 max-h-28 overflow-auto rounded-md bg-background/70 p-3 text-xs text-muted-foreground">
+                      {JSON.stringify(nestedValue(item.data, "oldest_pending_or_failed"), null, 2)}
+                    </pre>
+                  ) : (
+                    <div className="mt-3 text-xs text-muted-foreground">No pending or failed jobs.</div>
+                  )}
+                </div>
+              ))}
+            </div>
+          </>
         )}
       </section>
 
@@ -655,7 +763,7 @@ const AdminOperationsCenter = () => {
               </Badge>
             )}
           </div>
-          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-7">
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-8">
             <div className="relative">
               <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
               <Input
@@ -699,6 +807,15 @@ const AdminOperationsCenter = () => {
               onChange={(event) => setAuditTo(event.target.value)}
               aria-label="Filter audit logs to timestamp"
             />
+            <Button
+              variant={includeMetaAudit ? "secondary" : "outline"}
+              size="sm"
+              type="button"
+              onClick={() => setIncludeMetaAudit((value) => !value)}
+              aria-pressed={includeMetaAudit}
+            >
+              Meta {includeMetaAudit ? "shown" : "hidden"}
+            </Button>
             <Button
               variant="outline"
               size="sm"

@@ -62,6 +62,12 @@ export function formatAdminUtcDateTimeForExport(value: string | Date | null | un
   return date.toISOString().replace("T", " ").replace(/\.\d{3}Z$/, " UTC");
 }
 
+export function adminUtcDayStartIso(value: string | Date | number = Date.now()): string {
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) return new Date(Date.now()).toISOString().slice(0, 10) + "T00:00:00.000Z";
+  return `${date.toISOString().slice(0, 10)}T00:00:00.000Z`;
+}
+
 export function formatAdminRelativeTime(value: string | Date | null | undefined, nowMs = Date.now()): string {
   const date = parseAdminDate(value);
   if (!date) return "Unavailable";

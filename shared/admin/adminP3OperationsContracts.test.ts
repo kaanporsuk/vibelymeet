@@ -186,6 +186,11 @@ test("P3 Operations Center calls backend read RPCs and exposes incident/audit/re
   assert.match(operationsCenter, /p_target_id: uuidOrNull\(debouncedAuditTargetId\)/);
   assert.match(operationsCenter, /p_actor_id: uuidOrNull\(debouncedAuditActorId\)/);
   assert.match(operationsCenter, /p_from: toIsoOrNull\(debouncedAuditFrom\)/);
+  assert.match(operationsCenter, /p_include_meta: includeMetaAudit/);
+  assert.match(operationsCenter, /Durable Admin Jobs/);
+  assert.match(operationsCenter, /admin_get_admin_durable_job_health/);
+  assert.match(operationsCenter, /cron_job_present/);
+  assert.match(operationsCenter, /oldest_pending_or_failed/);
   assert.match(operationsCenter, /const debouncedTargetIdInvalid = Boolean\(debouncedAuditTargetId\.trim\(\)\) && !uuidOrNull\(debouncedAuditTargetId\)/);
   assert.match(operationsCenter, /const debouncedActorIdInvalid = Boolean\(debouncedAuditActorId\.trim\(\)\) && !uuidOrNull\(debouncedAuditActorId\)/);
   assert.match(operationsCenter, /const auditUuidFiltersInvalid = targetIdInvalid \|\| actorIdInvalid \|\| debouncedTargetIdInvalid \|\| debouncedActorIdInvalid/);
@@ -211,6 +216,7 @@ test("P3 Operations Center renders partial data when a backend read RPC fails", 
   assert.match(operationsCenter, /failureFor\("admin_get_rebuild_status"/);
   assert.match(operationsCenter, /failureFor\("admin_get_incident_signals"/);
   assert.match(operationsCenter, /failureFor\("admin_get_admin_permissions"/);
+  assert.match(operationsCenter, /failureFor\("admin_get_admin_durable_job_health"/);
 });
 
 test("P3 Operations Center has no direct writes or browser-side provider calls", () => {
@@ -230,6 +236,8 @@ test("Activity Log tab uses the governed audit RPC instead of direct table reads
   assert.match(activityLog, /p_to: toBoundary/);
   assert.match(activityLog, /p_limit: ACTIVITY_LOG_PAGE_SIZE/);
   assert.match(activityLog, /p_offset: pageIndex \* ACTIVITY_LOG_PAGE_SIZE/);
+  assert.match(activityLog, /p_include_meta: includeMetaAudit/);
+  assert.match(activityLog, /Meta \{includeMetaAudit \? "shown" : "hidden"\}/);
   assert.match(activityLog, /enabled: !hasInvalidDateRange/);
   assert.match(activityLog, /resolveAdminErrorMessage\(error, "Could not load activity log"\)/);
   assert.match(activityLog, /Array\.isArray\(activityPayload\?\.rows\)/);

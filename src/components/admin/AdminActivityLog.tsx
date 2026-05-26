@@ -326,6 +326,7 @@ const AdminActivityLog = () => {
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
   const [pageIndex, setPageIndex] = useState(0);
+  const [includeMetaAudit, setIncludeMetaAudit] = useState(false);
 
   const hasInvalidDateRange = Boolean(dateFrom && dateTo && dateFrom > dateTo);
   const fromBoundary = useMemo(() => formatDateBoundary(dateFrom, "start"), [dateFrom]);
@@ -339,7 +340,7 @@ const AdminActivityLog = () => {
     isLoading,
     refetch,
   } = useQuery<AdminActivityLogPayload>({
-    queryKey: ["admin-activity-logs", filterAction, filterTarget, fromBoundary, toBoundary, pageIndex],
+    queryKey: ["admin-activity-logs", filterAction, filterTarget, fromBoundary, toBoundary, includeMetaAudit, pageIndex],
     queryFn: async () =>
       callAdminRpc<AdminActivityLogPayload>("admin_search_admin_audit_logs", {
         p_action_type: filterAction === "all" ? null : filterAction,
@@ -350,6 +351,7 @@ const AdminActivityLog = () => {
         p_to: toBoundary,
         p_limit: ACTIVITY_LOG_PAGE_SIZE,
         p_offset: pageIndex * ACTIVITY_LOG_PAGE_SIZE,
+        p_include_meta: includeMetaAudit,
       }),
     enabled: !hasInvalidDateRange,
   });
@@ -385,7 +387,7 @@ const AdminActivityLog = () => {
           <h2 className="text-xl font-bold text-foreground">Activity Log</h2>
           <p className="text-sm text-muted-foreground">Track all admin moderation and production-impacting actions</p>
         </div>
-        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-[220px_190px_150px_150px_auto]">
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-[220px_190px_150px_150px_auto_auto]">
           <Select
             value={filterAction}
             onValueChange={(value) => {
@@ -443,6 +445,17 @@ const AdminActivityLog = () => {
             }}
             className="bg-secondary/50"
           />
+          <Button
+            type="button"
+            variant={includeMetaAudit ? "secondary" : "outline"}
+            onClick={() => {
+              setIncludeMetaAudit((value) => !value);
+              resetPage();
+            }}
+            aria-pressed={includeMetaAudit}
+          >
+            Meta {includeMetaAudit ? "shown" : "hidden"}
+          </Button>
           <Button
             type="button"
             variant="outline"

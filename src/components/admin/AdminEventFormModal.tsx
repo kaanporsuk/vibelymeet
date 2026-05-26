@@ -26,6 +26,7 @@ import { resolveAdminErrorMessage, resolveAdminFunctionErrorMessage } from "@/li
 import { useEventCategories } from "@/hooks/useEventCategories";
 import { inferEventCategoryKeysFromLegacyTags } from "@clientShared/eventCategories";
 import { clientRequestIdForUploadFile } from "@/services/imageUploadService";
+import AdminConfirmDialog from "./AdminConfirmDialog";
 
 interface AdminEventFormModalProps {
   event?: AdminEventFormEvent | null;
@@ -45,6 +46,11 @@ const DAYS_FULL = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Frid
 type Scope = "global" | "regional" | "local";
 type RecurrenceType = "weekly" | "biweekly" | "monthly_day" | "monthly_weekday" | "yearly";
 type RecurrenceEnd = "never" | "after" | "on_date";
+
+type SubmitConfirmation = {
+  title: string;
+  description: string;
+};
 
 type VibeTagRow = {
   id: string;
@@ -388,6 +394,7 @@ const AdminEventFormModal = ({ event, onClose }: AdminEventFormModalProps) => {
   const [endsOnDate, setEndsOnDate] = useState("");
   const [generateCount, setGenerateCount] = useState(8);
   const [isGenerating, setIsGenerating] = useState(false);
+  const [submitConfirmation, setSubmitConfirmation] = useState<SubmitConfirmation | null>(null);
   const [timeNowMs, setTimeNowMs] = useState(Date.now());
   const todayDateInput = useMemo(() => formatDateInputValue(new Date(timeNowMs)), [timeNowMs]);
   const eventStart = useMemo(() => parseLocalEventStart(eventDate, eventTime), [eventDate, eventTime]);
@@ -607,6 +614,28 @@ const AdminEventFormModal = ({ event, onClose }: AdminEventFormModalProps) => {
     }
   };
 
+  const retryGenerateOccurrences = useCallback(async (parentEventId: string, count: number, idempotencyKey: string) => {
+    try {
+      const payload = await callAdminRpc("admin_generate_recurring_events", {
+        p_parent_event_id: parentEventId,
+        p_count: count,
+        p_idempotency_key: idempotencyKey,
+      });
+      queryClient.invalidateQueries({ queryKey: ['admin-events'] });
+      queryClient.invalidateQueries({ queryKey: ['visible-events'] });
+      adminToast.success({
+        id: `admin-event-recurring-retry-${parentEventId}`,
+        title: `Generated ${Number(payload.generated_count || 0)} recurring occurrences`,
+      });
+    } catch (error) {
+      adminToast.error({
+        id: `admin-event-recurring-retry-failed-${parentEventId}`,
+        title: "Recurring generation retry failed",
+        description: resolveAdminErrorMessage(error, "Try again after checking the event."),
+      });
+    }
+  }, [queryClient]);
+
   // Save mutation
   const saveEvent = useMutation({
     mutationFn: async () => {
@@ -696,24 +725,32 @@ const AdminEventFormModal = ({ event, onClose }: AdminEventFormModalProps) => {
 
         if (isRecurring) {
           setIsGenerating(true);
+          const recurrenceIdempotencyKey = createAdminTargetIdempotencyKey("admin_generate_recurring_events", result.id, {
+            count: generateCount,
+          });
           try {
             const recurringPayload = await callAdminRpc("admin_generate_recurring_events", {
               p_parent_event_id: result.id,
               p_count: generateCount,
-              p_idempotency_key: createAdminTargetIdempotencyKey("admin_generate_recurring_events", result.id, {
-                count: generateCount,
-              }),
+              p_idempotency_key: recurrenceIdempotencyKey,
             });
             adminToast.success({
               id: `admin-event-save-${result.id}`,
               title: `Created recurring event + ${Number(recurringPayload.generated_count || 0)} upcoming occurrences`,
               description: "The event list and discover feeds are refreshing.",
             });
-          } catch (_) {
-            adminToast.success({
-              id: `admin-event-save-${result.id}`,
-              title: "Event created successfully",
-              description: "Recurring occurrence generation did not report additional rows.",
+          } catch (recurrenceError) {
+            adminToast.warning({
+              id: `admin-event-recurring-generation-warning-${result.id}`,
+              title: "Event created, but recurrence generation failed",
+              description: resolveAdminErrorMessage(
+                recurrenceError,
+                "Open the event and retry recurring occurrence generation before announcing the full series.",
+              ),
+              action: {
+                label: "Retry",
+                onClick: () => void retryGenerateOccurrences(result.id, generateCount, recurrenceIdempotencyKey),
+              },
             });
           } finally {
             setIsGenerating(false);
@@ -790,6 +827,7 @@ const AdminEventFormModal = ({ event, onClose }: AdminEventFormModalProps) => {
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    const confirmationMessages: string[] = [];
     if (!title || !coverImage || !eventDate || !eventTime) {
       adminToast.error({ id: "admin-event-required-fields", title: "Please fill in all required fields" });
       return;
@@ -813,16 +851,12 @@ const AdminEventFormModal = ({ event, onClose }: AdminEventFormModalProps) => {
         return;
       }
 
-      const ok = window.confirm(
+      confirmationMessages.push(
         [
           "This event start time is already in the past.",
-          "",
           "Saving can affect admin reporting, discovery visibility, and client-side event lifecycle handling.",
-          "",
-          "Save anyway?",
-        ].join("\n"),
+        ].join("\n\n"),
       );
-      if (!ok) return;
     }
 
     const durationMinutes = parseInt(duration, 10);
@@ -912,7 +946,7 @@ const AdminEventFormModal = ({ event, onClose }: AdminEventFormModalProps) => {
     }
 
     if (genderCapWarnings.length > 0) {
-      const ok = window.confirm(
+      confirmationMessages.push(
         [
           "Per-gender caps are below current confirmed counts for at least one bucket:",
           "",
@@ -920,30 +954,33 @@ const AdminEventFormModal = ({ event, onClose }: AdminEventFormModalProps) => {
           "",
           "Admission paths still use total max_attendees only — these caps are planning hints and are not auto-enforced on the server.",
           "Lowering caps does not remove or rebalance confirmed attendees.",
-          "",
-          "Save anyway?",
         ].join("\n")
       );
-      if (!ok) return;
     }
 
     if (capacityBelowConfirmed) {
-      const ok = window.confirm(
+      confirmationMessages.push(
         [
           `Save with total capacity ${effectiveMaxAttendees} while ${confirmedHeadcount} user(s) still have confirmed seats?`,
           '',
           'The backend does not automatically remove or demote confirmed attendees when capacity goes down.',
           'To enforce the new cap, remove specific people from the Attendees panel after saving.',
-          '',
-          'Save anyway?',
         ].join('\n')
       );
-      if (!ok) return;
+    }
+
+    if (confirmationMessages.length > 0) {
+      setSubmitConfirmation({
+        title: "Save event with warnings?",
+        description: confirmationMessages.join("\n\n"),
+      });
+      return;
     }
     saveEvent.mutate();
   };
 
   return (
+    <>
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
       className="fixed inset-0 bg-background z-50 flex flex-col">
       {/* Header */}
@@ -1519,6 +1556,22 @@ const AdminEventFormModal = ({ event, onClose }: AdminEventFormModalProps) => {
         </div>
       </div>
     </motion.div>
+    <AdminConfirmDialog
+      open={!!submitConfirmation}
+      title={submitConfirmation?.title ?? ""}
+      description={submitConfirmation?.description ?? ""}
+      confirmLabel="Save Anyway"
+      variant="destructive"
+      isPending={saveEvent.isPending || isGenerating}
+      onOpenChange={(open) => {
+        if (!open) setSubmitConfirmation(null);
+      }}
+      onConfirm={() => {
+        setSubmitConfirmation(null);
+        saveEvent.mutate();
+      }}
+    />
+    </>
   );
 };
 

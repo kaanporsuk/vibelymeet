@@ -33,14 +33,14 @@ const ALWAYS_ON_BADGE_SPECS: readonly AdminRealtimeSpec[] = [
     areas: ["notifications"],
   },
   {
-    channel: "admin-support-tickets-realtime",
+    channel: "admin-support-tickets-badges-realtime",
     table: "support_tickets",
-    areas: ["support"],
+    areas: ["badges"],
   },
   {
-    channel: "admin-support-replies-realtime",
+    channel: "admin-support-replies-badges-realtime",
     table: "support_ticket_replies",
-    areas: ["support"],
+    areas: ["badges"],
   },
 ];
 
