@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, Flag, RefreshCw, Search, Trash2 } from "lucide-react";
-import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -9,6 +8,8 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { callAdminRpc, type AdminRpcPayload } from "@/lib/adminRpc";
+import { formatAdminUtcDateTime } from "@/lib/adminTime";
+import { adminToast } from "@/lib/adminToast";
 
 type ClientFeatureFlagRow = {
   flag_key: string;
@@ -52,13 +53,7 @@ type AdminSearchUsersPayload = AdminRpcPayload & {
 };
 
 function formatUpdatedAt(value: string | null | undefined): string {
-  if (!value) return "Never";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "Unknown";
-  return new Intl.DateTimeFormat(undefined, {
-    dateStyle: "medium",
-    timeStyle: "short",
-  }).format(date);
+  return formatAdminUtcDateTime(value);
 }
 
 const AdminClientFeatureFlagsPanel = () => {
@@ -137,10 +132,16 @@ const AdminClientFeatureFlagsPanel = () => {
       });
     },
     onSuccess: async () => {
-      toast.success("Feature flag updated");
+      adminToast.success({
+        id: selectedFlag ? `client-feature-flag-updated-${selectedFlag.flag_key}` : "client-feature-flag-updated",
+        title: "Feature flag updated",
+      });
       await invalidatePanel();
     },
-    onError: (error) => toast.error(error instanceof Error ? error.message : "Could not update feature flag"),
+    onError: (error) => adminToast.error({
+      id: selectedFlag ? `client-feature-flag-update-failed-${selectedFlag.flag_key}` : "client-feature-flag-update-failed",
+      title: error instanceof Error ? error.message : "Could not update feature flag",
+    }),
   });
 
   const upsertOverrideMutation = useMutation({
@@ -156,12 +157,18 @@ const AdminClientFeatureFlagsPanel = () => {
       });
     },
     onSuccess: async () => {
-      toast.success("Override saved");
+      adminToast.success({
+        id: selectedFlag ? `client-feature-flag-override-saved-${selectedFlag.flag_key}` : "client-feature-flag-override-saved",
+        title: "Override saved",
+      });
       setOverrideUserId("");
       setOverrideReason("");
       await invalidatePanel();
     },
-    onError: (error) => toast.error(error instanceof Error ? error.message : "Could not save override"),
+    onError: (error) => adminToast.error({
+      id: selectedFlag ? `client-feature-flag-override-save-failed-${selectedFlag.flag_key}` : "client-feature-flag-override-save-failed",
+      title: error instanceof Error ? error.message : "Could not save override",
+    }),
   });
 
   const deleteOverrideMutation = useMutation({
@@ -174,11 +181,17 @@ const AdminClientFeatureFlagsPanel = () => {
       });
     },
     onSuccess: async () => {
-      toast.success("Override removed");
+      adminToast.success({
+        id: selectedFlag ? `client-feature-flag-override-removed-${selectedFlag.flag_key}` : "client-feature-flag-override-removed",
+        title: "Override removed",
+      });
       setOverrideReason("");
       await invalidatePanel();
     },
-    onError: (error) => toast.error(error instanceof Error ? error.message : "Could not remove override"),
+    onError: (error) => adminToast.error({
+      id: selectedFlag ? `client-feature-flag-override-remove-failed-${selectedFlag.flag_key}` : "client-feature-flag-override-remove-failed",
+      title: error instanceof Error ? error.message : "Could not remove override",
+    }),
   });
 
   return (

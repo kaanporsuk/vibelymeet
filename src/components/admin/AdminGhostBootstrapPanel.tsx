@@ -28,9 +28,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { format } from 'date-fns';
 import { Loader2, Eye, AlertTriangle, CheckCircle2, AlertCircle } from 'lucide-react';
-import { toast } from 'sonner';
 import {
   Dialog,
   DialogContent,
@@ -39,6 +37,8 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { cn } from '@/lib/utils';
+import { formatAdminUtcDate, formatAdminUtcDateTime } from '@/lib/adminTime';
+import { adminToast } from '@/lib/adminToast';
 
 type Ghost = {
   profile_id: string;
@@ -98,7 +98,10 @@ export function AdminGhostBootstrapPanel() {
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to fetch ghost accounts';
       setError(message);
-      toast.error(message);
+      adminToast.error({
+        id: 'ghost-bootstrap-fetch-failed',
+        title: message,
+      });
     } finally {
       setIsLoading(false);
     }
@@ -293,7 +296,7 @@ export function AdminGhostBootstrapPanel() {
                     <TableCell className="text-sm">
                       {g.days_since_creation}d
                       <div className="text-xs text-muted-foreground">
-                        {format(new Date(g.created_at), 'MMM d')}
+                        {formatAdminUtcDate(g.created_at)}
                       </div>
                     </TableCell>
 
@@ -314,7 +317,7 @@ export function AdminGhostBootstrapPanel() {
                     {/* Last Seen */}
                     <TableCell className="text-sm text-muted-foreground">
                       {g.last_seen_at
-                        ? format(new Date(g.last_seen_at), 'MMM d HH:mm')
+                        ? formatAdminUtcDateTime(g.last_seen_at)
                         : 'Never'}
                     </TableCell>
 
@@ -375,7 +378,7 @@ export function AdminGhostBootstrapPanel() {
                 <div>
                   <label className="text-xs font-semibold text-muted-foreground">Created At</label>
                   <p className="text-sm">
-                    {format(new Date(selectedGhost.created_at), 'PPP p')} ({selectedGhost.days_since_creation}d ago)
+                    {formatAdminUtcDateTime(selectedGhost.created_at)} ({selectedGhost.days_since_creation}d ago)
                   </p>
                 </div>
 
@@ -390,7 +393,7 @@ export function AdminGhostBootstrapPanel() {
                   <label className="text-xs font-semibold text-muted-foreground">Last Seen</label>
                   <p className="text-sm">
                     {selectedGhost.last_seen_at
-                      ? format(new Date(selectedGhost.last_seen_at), 'PPP p')
+                      ? formatAdminUtcDateTime(selectedGhost.last_seen_at)
                       : 'Never'}
                   </p>
                 </div>

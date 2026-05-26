@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback, useEffect, memo } from "react";
+import { useState, useRef, useCallback, useEffect, useMemo, memo } from "react";
 import { useMutation, useQueryClient, useQuery } from "@tanstack/react-query";
 import { motion, AnimatePresence } from "framer-motion";
 import {
@@ -16,11 +16,12 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import { supabase } from "@/integrations/supabase/client";
-import { toast } from "sonner";
 import { format } from "date-fns";
 import { EVENT_LANGUAGES } from "@/lib/eventLanguages";
 import React from "react";
 import { callAdminRpc, createAdminIdempotencyKey, createAdminTargetIdempotencyKey } from "@/lib/adminRpc";
+import { formatAdminUtcDateTime } from "@/lib/adminTime";
+import { adminToast } from "@/lib/adminToast";
 import { useEventCategories } from "@/hooks/useEventCategories";
 import { inferEventCategoryKeysFromLegacyTags } from "@clientShared/eventCategories";
 import { clientRequestIdForUploadFile } from "@/services/imageUploadService";
@@ -126,6 +127,130 @@ function isSupportedCoverImageFile(file: File): boolean {
   const declaredType = file.type.split(";")[0]?.trim().toLowerCase() ?? "";
   if (declaredType.startsWith("image/")) return true;
   return /\.(jpe?g|png|webp|heic|heif)$/i.test(file.name);
+}
+
+function formatDateInputValue(date: Date): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function parseLocalEventStart(dateValue: string, timeValue: string): Date | null {
+  if (!dateValue || !timeValue) return null;
+  const date = new Date(`${dateValue}T${timeValue}`);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function parseLocalEndOfDay(dateValue: string): Date | null {
+  if (!dateValue) return null;
+  const date = new Date(`${dateValue}T23:59:59.999`);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function ordinalSuffix(value: number): string {
+  const remainder = value % 100;
+  if (remainder >= 11 && remainder <= 13) return "th";
+  const lastDigit = value % 10;
+  if (lastDigit === 1) return "st";
+  if (lastDigit === 2) return "nd";
+  if (lastDigit === 3) return "rd";
+  return "th";
+}
+
+function sameLocalClock(source: Date, target: Date): Date {
+  const next = new Date(target);
+  next.setHours(source.getHours(), source.getMinutes(), 0, 0);
+  return next;
+}
+
+function addMonthsClamped(source: Date, monthsToAdd: number): Date {
+  const target = new Date(source);
+  const originalDay = source.getDate();
+  target.setDate(1);
+  target.setMonth(source.getMonth() + monthsToAdd);
+  const lastDay = new Date(target.getFullYear(), target.getMonth() + 1, 0).getDate();
+  target.setDate(Math.min(originalDay, lastDay));
+  return sameLocalClock(source, target);
+}
+
+function addYearsClamped(source: Date, yearsToAdd: number): Date {
+  const target = new Date(source);
+  const originalMonth = source.getMonth();
+  const originalDay = source.getDate();
+  target.setDate(1);
+  target.setFullYear(source.getFullYear() + yearsToAdd);
+  target.setMonth(originalMonth);
+  const lastDay = new Date(target.getFullYear(), target.getMonth() + 1, 0).getDate();
+  target.setDate(Math.min(originalDay, lastDay));
+  return sameLocalClock(source, target);
+}
+
+function getNthWeekdayOfMonth(source: Date, monthsToAdd: number): Date {
+  const weekday = source.getDay();
+  const nth = Math.ceil(source.getDate() / 7);
+  const firstOfMonth = new Date(source.getFullYear(), source.getMonth() + monthsToAdd, 1);
+  const offset = (weekday - firstOfMonth.getDay() + 7) % 7;
+  const candidate = new Date(firstOfMonth);
+  candidate.setDate(1 + offset + (nth - 1) * 7);
+  if (candidate.getMonth() !== firstOfMonth.getMonth()) {
+    candidate.setDate(candidate.getDate() - 7);
+  }
+  return sameLocalClock(source, candidate);
+}
+
+function buildRecurrencePreview({
+  eventDate,
+  eventTime,
+  recurrenceType,
+  generateCount,
+  recurrenceEndsAt,
+}: {
+  eventDate: string;
+  eventTime: string;
+  recurrenceType: RecurrenceType;
+  generateCount: number;
+  recurrenceEndsAt?: Date | null;
+}): Date[] {
+  const start = parseLocalEventStart(eventDate, eventTime);
+  if (!start) return [];
+  const limit = Math.max(1, Math.min(5, Number.isFinite(generateCount) ? generateCount : 5));
+  const isWithinEnd = (candidate: Date) => !recurrenceEndsAt || candidate.getTime() <= recurrenceEndsAt.getTime();
+
+  if (recurrenceType === "weekly" || recurrenceType === "biweekly") {
+    const intervalDays = recurrenceType === "biweekly" ? 14 : 7;
+    const results: Date[] = [];
+    for (let occurrence = 1; results.length < limit; occurrence += 1) {
+      const candidate = sameLocalClock(start, new Date(start.getFullYear(), start.getMonth(), start.getDate() + intervalDays * occurrence));
+      if (!isWithinEnd(candidate)) break;
+      results.push(candidate);
+    }
+    return results;
+  }
+
+  if (recurrenceType === "monthly_day") {
+    const results: Date[] = [];
+    let cursor = start;
+    while (results.length < limit) {
+      cursor = addMonthsClamped(cursor, 1);
+      if (!isWithinEnd(cursor)) break;
+      results.push(cursor);
+    }
+    return results;
+  }
+
+  if (recurrenceType === "monthly_weekday") {
+    return Array.from({ length: limit }, (_, index) => getNthWeekdayOfMonth(start, index + 1)).filter(isWithinEnd);
+  }
+
+  const results: Date[] = [];
+  let cursor = start;
+  while (results.length < limit) {
+    cursor = addYearsClamped(cursor, 1);
+    if (!isWithinEnd(cursor)) break;
+    results.push(cursor);
+  }
+  return results;
 }
 
 // ✅ CollapsibleSection defined OUTSIDE the component to prevent re-mount on parent re-render
@@ -261,6 +386,40 @@ const AdminEventFormModal = ({ event, onClose }: AdminEventFormModalProps) => {
   const [endsOnDate, setEndsOnDate] = useState("");
   const [generateCount, setGenerateCount] = useState(8);
   const [isGenerating, setIsGenerating] = useState(false);
+  const [timeNowMs, setTimeNowMs] = useState(Date.now());
+  const todayDateInput = useMemo(() => formatDateInputValue(new Date(timeNowMs)), [timeNowMs]);
+  const eventStart = useMemo(() => parseLocalEventStart(eventDate, eventTime), [eventDate, eventTime]);
+  const eventStartsInPast = Boolean(eventStart && eventStart.getTime() <= timeNowMs);
+  const isWeeklyCadence = recurrenceType === "weekly" || recurrenceType === "biweekly";
+  const eventStartWeekday = eventStart?.getDay() ?? null;
+  const effectiveWeeklyRecurrenceDays = useMemo(
+    () => (isWeeklyCadence ? (eventStartWeekday == null ? selectedDays.slice(0, 1) : [eventStartWeekday]) : selectedDays),
+    [eventStartWeekday, isWeeklyCadence, selectedDays],
+  );
+  const recurrencePreviewCount = useMemo(() => {
+    const requestedCount = Number.isFinite(generateCount) ? generateCount : 5;
+    if (recurrenceEnd !== "after") return requestedCount;
+    const endCount = parseInt(endsAfterCount, 10);
+    return Number.isFinite(endCount) ? Math.min(requestedCount, endCount) : requestedCount;
+  }, [endsAfterCount, generateCount, recurrenceEnd]);
+  const recurrencePreviewEndsAt = useMemo(
+    () => (recurrenceEnd === "on_date" ? parseLocalEndOfDay(endsOnDate) : null),
+    [endsOnDate, recurrenceEnd],
+  );
+  const dateTimeWarningId = `${formId}-date-time-warning`;
+  const recurrencePreview = useMemo(
+    () =>
+      isRecurring
+        ? buildRecurrencePreview({
+            eventDate,
+            eventTime,
+            recurrenceType,
+            generateCount: recurrencePreviewCount,
+            recurrenceEndsAt: recurrencePreviewEndsAt,
+          })
+        : [],
+    [eventDate, eventTime, isRecurring, recurrencePreviewCount, recurrencePreviewEndsAt, recurrenceType],
+  );
 
   const totalCapacity = (parseInt(maxMaleAttendees, 10) || 0) +
     (parseInt(maxFemaleAttendees, 10) || 0) +
@@ -327,6 +486,17 @@ const AdminEventFormModal = ({ event, onClose }: AdminEventFormModalProps) => {
     }
   }
 
+  useEffect(() => {
+    setTimeNowMs(Date.now());
+    const timer = window.setInterval(() => setTimeNowMs(Date.now()), 30_000);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  useEffect(() => {
+    if (!isRecurring || !isWeeklyCadence || eventStartWeekday == null) return;
+    setSelectedDays((prev) => (prev.length === 1 && prev[0] === eventStartWeekday ? prev : [eventStartWeekday]));
+  }, [eventStartWeekday, isRecurring, isWeeklyCadence]);
+
   // City search debounce
   const geocodeTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
   const handleCitySearch = useCallback(async (q: string) => {
@@ -356,8 +526,14 @@ const AdminEventFormModal = ({ event, onClose }: AdminEventFormModalProps) => {
   const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    if (!isSupportedCoverImageFile(file)) { toast.error('Please upload an image file'); return; }
-    if (file.size > 20 * 1024 * 1024) { toast.error('Image must be less than 20MB'); return; }
+    if (!isSupportedCoverImageFile(file)) {
+      adminToast.error({ id: "admin-event-cover-type", title: "Please upload an image file" });
+      return;
+    }
+    if (file.size > 20 * 1024 * 1024) {
+      adminToast.error({ id: "admin-event-cover-size", title: "Image must be less than 20MB" });
+      return;
+    }
     setIsUploading(true);
     try {
       const { data: { session } } = await supabase.auth.getSession();
@@ -373,7 +549,7 @@ const AdminEventFormModal = ({ event, onClose }: AdminEventFormModalProps) => {
       });
       setCoverImage(uploaded.url);
       if (uploaded.assetId) setCurrentCoverAssetId(uploaded.assetId);
-      toast.success('Cover image uploaded');
+      adminToast.success({ id: "admin-event-cover-uploaded", title: "Cover image uploaded" });
     } catch (error: unknown) {
       if (error && typeof error === "object" && "code" in error && error.code === "stale_cover_update") {
         const nextCoverAssetId = "currentCoverAssetId" in error && typeof error.currentCoverAssetId === "string"
@@ -381,7 +557,9 @@ const AdminEventFormModal = ({ event, onClose }: AdminEventFormModalProps) => {
           : null;
         setCurrentCoverAssetId(nextCoverAssetId);
       }
-      toast.error('Failed to upload image', {
+      adminToast.error({
+        id: "admin-event-cover-upload-error",
+        title: "Failed to upload image",
         description: error instanceof Error ? error.message : "Please try again.",
       });
     } finally {
@@ -396,10 +574,10 @@ const AdminEventFormModal = ({ event, onClose }: AdminEventFormModalProps) => {
     switch (recurrenceType) {
       case 'weekly': return `Every ${DAYS_FULL[d.getDay()]}`;
       case 'biweekly': return `Every other ${DAYS_FULL[d.getDay()]}`;
-      case 'monthly_day': return `Monthly on the ${d.getDate()}${['th','st','nd','rd'][d.getDate()%10>3||Math.floor(d.getDate()/10)===1?0:d.getDate()%10]}`;
+      case 'monthly_day': return `Monthly on the ${d.getDate()}${ordinalSuffix(d.getDate())}`;
       case 'monthly_weekday': {
         const nth = Math.ceil(d.getDate() / 7);
-        const sfx = ['th','st','nd','rd'][nth>3?0:nth];
+        const sfx = ordinalSuffix(nth);
         return `Monthly on the ${nth}${sfx} ${DAYS_FULL[d.getDay()]}`;
       }
       case 'yearly': return `Yearly on ${format(d, 'MMM d')}`;
@@ -410,7 +588,8 @@ const AdminEventFormModal = ({ event, onClose }: AdminEventFormModalProps) => {
   // Save mutation
   const saveEvent = useMutation({
     mutationFn: async () => {
-      const eventDateTime = new Date(`${eventDate}T${eventTime}`);
+      const eventDateTime = parseLocalEventStart(eventDate, eventTime);
+      if (!eventDateTime) throw new Error("Choose a valid event date and time.");
       const eventData: EventSavePayload = {
         title, description,
         cover_image: coverImage,
@@ -436,9 +615,9 @@ const AdminEventFormModal = ({ event, onClose }: AdminEventFormModalProps) => {
         is_location_specific: scope === 'local',
         is_recurring: isRecurring,
         recurrence_type: isRecurring ? recurrenceType : null,
-        recurrence_days: isRecurring && ['weekly', 'biweekly'].includes(recurrenceType) ? selectedDays : null,
+        recurrence_days: isRecurring && ['weekly', 'biweekly'].includes(recurrenceType) ? effectiveWeeklyRecurrenceDays : null,
         recurrence_count: isRecurring && recurrenceEnd === 'after' ? parseInt(endsAfterCount, 10) : null,
-        recurrence_ends_at: isRecurring && recurrenceEnd === 'on_date' && endsOnDate ? new Date(endsOnDate).toISOString() : null,
+        recurrence_ends_at: isRecurring && recurrenceEnd === 'on_date' && endsOnDate ? parseLocalEndOfDay(endsOnDate)?.toISOString() ?? null : null,
       };
 
       if (!isEditing) eventData.status = 'upcoming';
@@ -490,17 +669,33 @@ const AdminEventFormModal = ({ event, onClose }: AdminEventFormModalProps) => {
                 count: generateCount,
               }),
             });
-            toast.success(`Created recurring event + ${Number(recurringPayload.generated_count || 0)} upcoming occurrences`);
+            adminToast.success({
+              id: `admin-event-save-${result.id}`,
+              title: `Created recurring event + ${Number(recurringPayload.generated_count || 0)} upcoming occurrences`,
+              description: "The event list and discover feeds are refreshing.",
+            });
           } catch (_) {
-            toast.success('Event created successfully');
+            adminToast.success({
+              id: `admin-event-save-${result.id}`,
+              title: "Event created successfully",
+              description: "Recurring occurrence generation did not report additional rows.",
+            });
           } finally {
             setIsGenerating(false);
           }
         } else {
-          toast.success('Event created successfully');
+          adminToast.success({
+            id: `admin-event-save-${result.id}`,
+            title: "Event created successfully",
+            description: "The event list and discover feeds are refreshing.",
+          });
         }
       } else {
-        toast.success('Event updated successfully');
+        adminToast.success({
+          id: `admin-event-save-${result.id}`,
+          title: "Event updated successfully",
+          description: "The event list and discover feeds are refreshing.",
+        });
       }
 
       queryClient.invalidateQueries({ queryKey: ['admin-events'] });
@@ -509,13 +704,27 @@ const AdminEventFormModal = ({ event, onClose }: AdminEventFormModalProps) => {
       onClose();
     },
     onError: (error) => {
-      toast.error('Failed to save event', { description: error.message });
+      adminToast.error({
+        id: "admin-event-save-error",
+        title: "Failed to save event",
+        description: error.message,
+      });
     },
   });
 
   const toggleCategory = (categoryKey: string) => setSelectedCategoryKeys(prev => prev.includes(categoryKey) ? prev.filter(t => t !== categoryKey) : [...prev, categoryKey]);
   const toggleVibe = (vibeLabel: string) => setSelectedVibes(prev => prev.includes(vibeLabel) ? prev.filter(v => v !== vibeLabel) : [...prev, vibeLabel]);
-  const toggleDay = (d: number) => setSelectedDays(prev => prev.includes(d) ? (prev.length > 1 ? prev.filter(x => x !== d) : prev) : [...prev, d]);
+  const selectWeeklyRecurrenceDay = (day: number) => {
+    setSelectedDays([day]);
+    const dateForWeekday = eventDate
+      ? parseLocalEventStart(eventDate, eventTime || "00:00")
+      : null;
+    if (!dateForWeekday) return;
+    const dayOffset = (day - dateForWeekday.getDay() + 7) % 7;
+    const nextDate = new Date(dateForWeekday);
+    nextDate.setDate(dateForWeekday.getDate() + dayOffset);
+    setEventDate(formatDateInputValue(nextDate));
+  };
 
   const createCategory = useMutation({
     mutationFn: async () => {
@@ -533,28 +742,62 @@ const AdminEventFormModal = ({ event, onClose }: AdminEventFormModalProps) => {
       setNewCategoryEmoji("✨");
       setShowNewCategory(false);
       await queryClient.invalidateQueries({ queryKey: ["event-categories"] });
-      toast.success("Category created");
+      adminToast.success({ id: "admin-event-category-created", title: "Category created" });
     },
     onError: (error) => {
-      toast.error("Failed to create category", { description: error instanceof Error ? error.message : undefined });
+      adminToast.error({
+        id: "admin-event-category-create-error",
+        title: "Failed to create category",
+        description: error instanceof Error ? error.message : undefined,
+      });
     },
   });
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!title || !coverImage || !eventDate || !eventTime) {
-      toast.error('Please fill in all required fields');
+      adminToast.error({ id: "admin-event-required-fields", title: "Please fill in all required fields" });
       return;
+    }
+
+    if (!eventStart) {
+      adminToast.error({
+        id: "admin-event-invalid-start",
+        title: "Choose a valid event date and time",
+      });
+      return;
+    }
+
+    if (eventStart.getTime() <= Date.now()) {
+      if (!isEditing) {
+        adminToast.error({
+          id: "admin-event-past-start",
+          title: "Choose a future start time",
+          description: "New events cannot be scheduled in the past because web, native, and mobile clients hide or finalize past event rows differently.",
+        });
+        return;
+      }
+
+      const ok = window.confirm(
+        [
+          "This event start time is already in the past.",
+          "",
+          "Saving can affect admin reporting, discovery visibility, and client-side event lifecycle handling.",
+          "",
+          "Save anyway?",
+        ].join("\n"),
+      );
+      if (!ok) return;
     }
 
     const durationMinutes = parseInt(duration, 10);
     if (!Number.isFinite(durationMinutes) || durationMinutes < 15 || durationMinutes > 480) {
-      toast.error("Duration must be between 15 and 480 minutes");
+      adminToast.error({ id: "admin-event-duration-invalid", title: "Duration must be between 15 and 480 minutes" });
       return;
     }
 
     if (effectiveMaxAttendees < 1 || effectiveMaxAttendees > 10000) {
-      toast.error("Capacity must be between 1 and 10000 attendees");
+      adminToast.error({ id: "admin-event-capacity-invalid", title: "Capacity must be between 1 and 10000 attendees" });
       return;
     }
 
@@ -566,7 +809,7 @@ const AdminEventFormModal = ({ event, onClose }: AdminEventFormModalProps) => {
       if (!raw.trim()) continue;
       const cap = parseInt(raw, 10);
       if (!Number.isFinite(cap) || cap < 0 || cap > 10000) {
-        toast.error(`${label} must be a number from 0 to 10000`);
+        adminToast.error({ id: `admin-event-gender-cap-${label}`, title: `${label} must be a number from 0 to 10000` });
         return;
       }
     }
@@ -574,13 +817,13 @@ const AdminEventFormModal = ({ event, onClose }: AdminEventFormModalProps) => {
     if (!isFree) {
       const price = parseFloat(priceAmount);
       if (!Number.isFinite(price) || price <= 0) {
-        toast.error("Paid events require a price greater than 0");
+        adminToast.error({ id: "admin-event-price-invalid", title: "Paid events require a price greater than 0" });
         return;
       }
     }
 
     if (scope === "regional" && !resolvedCountry.trim()) {
-      toast.error("Regional events require a country");
+      adminToast.error({ id: "admin-event-regional-country-required", title: "Regional events require a country" });
       return;
     }
 
@@ -593,31 +836,42 @@ const AdminEventFormModal = ({ event, onClose }: AdminEventFormModalProps) => {
         resolvedLat >= -90 &&
         resolvedLat <= 90 &&
         resolvedLng >= -180 &&
-        resolvedLng <= 180;
+          resolvedLng <= 180;
       if (!hasValidCoordinates || !resolvedCity.trim()) {
-        toast.error("Local events require a selected city with coordinates");
+        adminToast.error({ id: "admin-event-local-city-required", title: "Local events require a selected city with coordinates" });
         return;
       }
       if (!Number.isFinite(radiusKm) || radiusKm < 5 || radiusKm > 500) {
-        toast.error("Local event radius must be between 5 and 500 km");
+        adminToast.error({ id: "admin-event-radius-invalid", title: "Local event radius must be between 5 and 500 km" });
         return;
       }
     }
 
     if (isRecurring) {
-      if (["weekly", "biweekly"].includes(recurrenceType) && selectedDays.length === 0) {
-        toast.error("Recurring weekly events require at least one day");
+      if (["weekly", "biweekly"].includes(recurrenceType) && effectiveWeeklyRecurrenceDays.length === 0) {
+        adminToast.error({ id: "admin-event-recurrence-day-required", title: "Recurring weekly events require at least one day" });
         return;
       }
       if (recurrenceEnd === "after") {
         const count = parseInt(endsAfterCount, 10);
         if (!Number.isFinite(count) || count < 1 || count > 100) {
-          toast.error("Recurrence end count must be between 1 and 100");
+          adminToast.error({ id: "admin-event-recurrence-count-invalid", title: "Recurrence end count must be between 1 and 100" });
+          return;
+        }
+      }
+      if (recurrenceEnd === "on_date") {
+        const recurrenceEndDate = parseLocalEndOfDay(endsOnDate);
+        if (!recurrenceEndDate || Number.isNaN(recurrenceEndDate.getTime())) {
+          adminToast.error({ id: "admin-event-recurrence-end-invalid", title: "Choose a valid recurrence end date" });
+          return;
+        }
+        if (recurrenceEndDate.getTime() < eventStart.getTime()) {
+          adminToast.error({ id: "admin-event-recurrence-end-before-start", title: "Recurrence end date must be on or after the event start" });
           return;
         }
       }
       if (generateCount < 1 || generateCount > 52) {
-        toast.error("Generated occurrence count must be between 1 and 52");
+        adminToast.error({ id: "admin-event-generate-count-invalid", title: "Generated occurrence count must be between 1 and 52" });
         return;
       }
     }
@@ -736,17 +990,32 @@ const AdminEventFormModal = ({ event, onClose }: AdminEventFormModalProps) => {
             badge={eventDate && eventTime ? `${eventDate} ${eventTime}` : undefined}>
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
               <div className="space-y-2">
-                <Label>Date *</Label>
+                <Label htmlFor={`${formId}-event-date`}>Date (local admin time) *</Label>
                 <div className="relative">
                   <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
-                  <Input type="date" value={eventDate} onChange={(e) => setEventDate(e.target.value)} className="pl-10 bg-secondary/50" />
+                  <Input
+                    id={`${formId}-event-date`}
+                    type="date"
+                    value={eventDate}
+                    min={!isEditing ? todayDateInput : undefined}
+                    onChange={(e) => setEventDate(e.target.value)}
+                    aria-describedby={eventStartsInPast ? dateTimeWarningId : undefined}
+                    className="pl-10 bg-secondary/50"
+                  />
                 </div>
               </div>
               <div className="space-y-2">
-                <Label>Time *</Label>
+                <Label htmlFor={`${formId}-event-time`}>Time (local admin time) *</Label>
                 <div className="relative">
                   <Clock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
-                  <Input type="time" value={eventTime} onChange={(e) => setEventTime(e.target.value)} className="pl-10 bg-secondary/50" />
+                  <Input
+                    id={`${formId}-event-time`}
+                    type="time"
+                    value={eventTime}
+                    onChange={(e) => setEventTime(e.target.value)}
+                    aria-describedby={eventStartsInPast ? dateTimeWarningId : undefined}
+                    className="pl-10 bg-secondary/50"
+                  />
                 </div>
               </div>
               <div className="space-y-2">
@@ -755,6 +1024,20 @@ const AdminEventFormModal = ({ event, onClose }: AdminEventFormModalProps) => {
                   onChange={(e) => setDuration(e.target.value)} className="bg-secondary/50" />
               </div>
             </div>
+            {eventStartsInPast && (
+              <div
+                id={dateTimeWarningId}
+                role="alert"
+                className="rounded-lg border border-amber-500/35 bg-amber-500/10 p-3 text-sm"
+              >
+                <p className="font-medium text-amber-200">
+                  {isEditing ? "This event starts in the past" : "New events must start in the future"}
+                </p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Saved event timestamps are stored in UTC. The fields above use this admin device&apos;s local time.
+                </p>
+              </div>
+            )}
           </CollapsibleSection>
 
           {/* Recurrence */}
@@ -784,16 +1067,26 @@ const AdminEventFormModal = ({ event, onClose }: AdminEventFormModalProps) => {
 
                 {['weekly', 'biweekly'].includes(recurrenceType) && (
                   <div className="space-y-2">
-                    <Label>On days</Label>
+                    <Label>On weekday</Label>
                     <div className="flex gap-1">
-                      {DAYS_SHORT.map((d, i) => (
-                        <button key={i} type="button" onClick={() => toggleDay(i)}
-                          className={`w-9 h-9 rounded-full text-sm font-medium transition-all ${selectedDays.includes(i)
-                            ? 'bg-primary text-primary-foreground'
-                            : 'bg-secondary/50 text-muted-foreground hover:bg-secondary'}`}>
-                          {d}
-                        </button>
-                      ))}
+                      {DAYS_SHORT.map((d, i) => {
+                        const daySelected = effectiveWeeklyRecurrenceDays.includes(i);
+                        return (
+                          <button
+                            key={i}
+                            type="button"
+                            onClick={() => selectWeeklyRecurrenceDay(i)}
+                            aria-label={`${DAYS_FULL[i]} recurrence day ${daySelected ? "selected" : "not selected"}`}
+                            aria-pressed={daySelected}
+                            title={`Set recurrence day to ${DAYS_FULL[i]}`}
+                            className={`w-9 h-9 rounded-full text-sm font-medium transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background ${daySelected
+                              ? 'bg-primary text-primary-foreground'
+                              : 'bg-secondary/50 text-muted-foreground hover:bg-secondary'}`}
+                          >
+                            <span aria-hidden="true">{d}</span>
+                          </button>
+                        );
+                      })}
                     </div>
                   </div>
                 )}
@@ -823,7 +1116,7 @@ const AdminEventFormModal = ({ event, onClose }: AdminEventFormModalProps) => {
                           {opt === 'on_date' && (
                             <span className="flex items-center gap-2">
                               On date
-                              <Input type="date" value={endsOnDate} onChange={(e) => setEndsOnDate(e.target.value)}
+                              <Input type="date" value={endsOnDate} min={eventDate || todayDateInput} onChange={(e) => setEndsOnDate(e.target.value)}
                                 className="h-7 text-sm bg-secondary/50" />
                             </span>
                           )}
@@ -834,10 +1127,32 @@ const AdminEventFormModal = ({ event, onClose }: AdminEventFormModalProps) => {
                 </div>
 
                 <div className="flex items-center gap-3 p-3 rounded-xl bg-secondary/30">
-                  <span className="text-sm text-muted-foreground">Generate next</span>
+                  <span className="text-sm text-muted-foreground">{isEditing ? "Preview next" : "Generate next"}</span>
                   <Input type="number" value={generateCount} onChange={(e) => setGenerateCount(parseInt(e.target.value) || 8)}
                     className="w-20 h-8 text-sm bg-secondary/50" min="1" max="52" />
-                  <span className="text-sm text-muted-foreground">occurrences on save</span>
+                  <span className="text-sm text-muted-foreground">{isEditing ? "occurrences" : "occurrences on save"}</span>
+                </div>
+
+                <div className="rounded-xl border border-border bg-secondary/20 p-3">
+                  <p className="text-sm font-medium text-foreground">Recurrence preview</p>
+                  {recurrencePreview.length > 0 ? (
+                    <>
+                      <ol className="mt-2 space-y-1 text-xs text-muted-foreground">
+                        {recurrencePreview.map((previewDate) => (
+                          <li key={previewDate.toISOString()}>
+                            {formatAdminUtcDateTime(previewDate)}
+                          </li>
+                        ))}
+                      </ol>
+                      <p className="mt-2 text-[11px] text-muted-foreground">
+                        Preview follows the backend recurrence cadence and is shown as stored UTC timestamps; form inputs use local admin time.
+                      </p>
+                    </>
+                  ) : (
+                    <p className="mt-2 text-xs text-muted-foreground">
+                      Add a valid date and time to preview generated occurrences.
+                    </p>
+                  )}
                 </div>
               </div>
             )}

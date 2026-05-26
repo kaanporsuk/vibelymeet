@@ -43,6 +43,11 @@ const adminDeletions = read("src/components/admin/AdminDeletionsPanel.tsx");
 const adminPushCampaigns = read("src/components/admin/AdminPushCampaignsPanel.tsx");
 const adminMatchMessages = read("src/components/admin/AdminMatchMessagesDrawer.tsx");
 const adminEventForm = read("src/components/admin/AdminEventFormModal.tsx");
+const adminEmptyState = read("src/components/admin/AdminEmptyState.tsx");
+const adminToast = read("src/lib/adminToast.ts");
+const adminTime = read("src/lib/adminTime.ts");
+const sonnerUi = read("src/components/ui/sonner.tsx");
+const protectedRoute = read("src/components/ProtectedRoute.tsx");
 const adminOverviewDashboardMigration = read("supabase/migrations/20260506135000_admin_overview_dashboard_read_model.sql");
 const adminOverviewOperationalTruthMigration = read("supabase/migrations/20260507211000_admin_overview_operational_truth.sql");
 const eventLifecycleAutoFinalizationMigration = read("supabase/migrations/20260508103000_event_lifecycle_auto_finalization.sql");
@@ -96,6 +101,65 @@ test("event form footer still submits through validation path", () => {
   assert.match(adminEventForm, /<form id=\{formId\} onSubmit=\{handleSubmit\}/);
   assert.match(footer, /<Button type="submit" form=\{formId\}/);
   assert.doesNotMatch(footer, /saveEvent\.mutate\(\)/);
+});
+
+test("sprint 4 admin UX guardrails are wired into real admin surfaces", () => {
+  assert.match(adminTime, /timeZone:\s*"UTC"/);
+  assert.match(adminTime, /formatAdminUtcDateTime/);
+  assert.match(adminToast, /id:\s*options\.id/);
+  assert.match(sonnerUi, /visibleToasts=\{4\}/);
+  assert.match(adminEmptyState, /AdminEmptyState/);
+  assert.doesNotMatch(adminComponentAndPageSources, /from ["']sonner["']|toast\.(success|error|warning|info|message)/);
+
+  assert.match(adminEventForm, /Date \(local admin time\)/);
+  assert.match(adminEventForm, /Choose a future start time/);
+  assert.match(adminEventForm, /selectWeeklyRecurrenceDay/);
+  assert.match(adminEventForm, /aria-pressed=\{daySelected\}/);
+  assert.match(adminEventForm, /DAYS_FULL\[i\]/);
+  assert.match(adminEventForm, /Recurrence preview/);
+  assert.match(adminEventForm, /formatAdminUtcDateTime\(previewDate\)/);
+  assert.match(adminEventForm, /cursor = addMonthsClamped\(cursor, 1\)/);
+  assert.match(adminEventForm, /cursor = addYearsClamped\(cursor, 1\)/);
+  assert.match(adminEventForm, /admin_generate_recurring_events/);
+  assert.match(adminEventForm, /parseLocalEndOfDay\(endsOnDate\)\?\.toISOString\(\)/);
+  assert.doesNotMatch(adminEventForm, /toast\.(success|error|warning|info|message)/);
+  assert.match(adminEvents, /closeEventFormModal/);
+  assert.match(adminEvents, /restorePanelFocus/);
+
+  assert.match(adminReports, /tabIndex=\{0\}/);
+  assert.match(adminReports, /handleReportRowKeyDown/);
+  assert.match(adminReports, /aria-sort=\{getAriaSort\("created_at"\)\}/);
+  assert.match(adminReports, /formatAdminUtcDateTime\(report\.created_at\)/);
+  assert.match(adminReports, /AdminEmptyState/);
+  assert.match(adminReports, /Reopen report/);
+  assert.match(adminReports, /selectedReportIsActionable/);
+  assert.match(adminReports, /status: inspectedStatus/);
+
+  assert.match(adminUsers, /tabIndex=\{0\}/);
+  assert.match(adminUsers, /handleUserRowKeyDown/);
+  assert.match(adminUsers, /aria-sort=\{getAriaSort\("created_at"\)\}/);
+  assert.match(adminUsers, /formatAdminUtcDateTime\(user\.created_at\)/);
+  assert.match(adminUsers, /closeUserDrawer/);
+
+  assert.match(adminNotifications, /AdminEmptyState/);
+  assert.match(adminNotifications, /adminToast/);
+  assert.match(adminNotifications, /formatAdminRelativeTime\(notification\.created_at\)/);
+  assert.match(adminPushCampaigns, /campaignFormTriggerRef/);
+  assert.doesNotMatch(adminPushCampaigns, /toast\.(success|error|warning|info|message)/);
+  assert.match(adminPushCampaigns, /requestAnimationFrame\(\(\) => trigger\?\.focus\(\)\)/);
+  assert.match(supportInbox, /profileDrawerTriggerRef/);
+
+  assert.match(adminPhotoVerification, /restoreFocus/);
+  assert.match(adminPhotoVerification, /View approved/);
+  assert.match(adminPhotoVerification, /View rejected/);
+  assert.match(adminPhotoVerification, /formatAdminRelativeTime\(timestampValue\)/);
+  assert.match(adminUserDetail, /motion\.button/);
+  assert.match(adminUserDetail, /closeLightbox/);
+
+  assert.match(protectedRoute, /Admin Verification Temporarily Failed/);
+  assert.match(protectedRoute, /Retry Verification/);
+  assert.match(protectedRoute, /Reload Tab/);
+  assert.match(protectedRoute, /role="alert"/);
 });
 
 test("high-risk admin UI mutations route through confirmation copy", () => {
@@ -174,7 +238,7 @@ test("report actions use backend transaction instead of client side-effect orche
   assert.doesNotMatch(actionHandler, /await suspendUser\.mutateAsync/);
   assert.doesNotMatch(actionHandler, /await issueWarning\.mutateAsync/);
 
-  const actionSuccess = section(adminReports, "onSuccess: () => {", "onError");
+  const actionSuccess = section(adminReports, "onSuccess: (_data, variables) => {", "onError");
   assert.match(actionSuccess, /invalidateAdminQueries\(queryClient, \["reports", "overview", "badges"\]\)/);
   assert.match(adminQueryInvalidation, /\["admin-reports"\]/);
   assert.match(adminQueryInvalidation, /\["admin-reports-summary"\]/);
@@ -320,7 +384,7 @@ test("overview charts and Daily Drop read from the backend overview surface", ()
   assert.match(adminDailyDrop, /getTodayBatchCutoffUtc/);
   assert.match(adminDailyDrop, /still marked started and may need investigation/);
   assert.match(adminDailyDrop, /notification_failures/);
-  assert.match(adminDailyDrop, /toast\.warning/);
+  assert.match(adminDailyDrop, /adminToast\.warning/);
   assert.match(adminDailyDrop, /Daily Drop status unavailable/);
   assert.doesNotMatch(adminDailyDrop, /\.from\(['"]daily_drops['"]\)/);
   assert.doesNotMatch(adminDailyDrop, /admin-daily-drops-today/);

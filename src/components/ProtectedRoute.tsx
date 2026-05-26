@@ -49,20 +49,38 @@ function AdminAccessProblem({
   onSignOut: () => void;
 }) {
   const Icon = kind === "denied" ? ShieldOff : AlertTriangle;
+  const isTransient = kind === "error";
+  const title = kind === "denied" ? "Admin Access Unavailable" : "Admin Verification Temporarily Failed";
+  const guidance = kind === "denied"
+    ? "Your role may have been revoked, or this session belongs to a non-admin account."
+    : "This usually means the admin verification Edge Function or network request failed. Your session has not been signed out.";
+
   return (
-    <div className="min-h-screen bg-background flex flex-col items-center justify-center p-6 text-center">
+    <div
+      className="min-h-screen bg-background flex flex-col items-center justify-center p-6 text-center"
+      role="alert"
+      aria-live="assertive"
+    >
       <div className="w-16 h-16 rounded-full bg-muted flex items-center justify-center mb-6">
         <Icon className="w-8 h-8 text-muted-foreground" />
       </div>
       <h1 className="text-2xl font-display font-bold text-foreground mb-2">
-        {kind === "denied" ? "Admin Access Unavailable" : "Admin Verification Failed"}
+        {title}
       </h1>
-      <p className="text-muted-foreground mb-6 max-w-sm">{message}</p>
+      <div className="mb-6 max-w-md space-y-2">
+        <p className="text-muted-foreground">{message}</p>
+        <p className="text-sm text-muted-foreground">{guidance}</p>
+      </div>
       <div className="flex flex-col sm:flex-row gap-3">
         <Button onClick={onRetry} disabled={isRetrying}>
           {isRetrying ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
-          Retry
+          Retry Verification
         </Button>
+        {isTransient ? (
+          <Button variant="outline" onClick={() => window.location.reload()}>
+            Reload Tab
+          </Button>
+        ) : null}
         <Button variant="outline" onClick={onSignOut}>
           Sign Out
         </Button>
@@ -109,7 +127,6 @@ export function ProtectedRoute({
           if (status === 403) {
             return { isAdmin: false, status: "not_admin", message: "Admin role is required." };
           }
-          console.error('Admin verification error');
           throw new Error(adminVerificationMessage(error));
         }
 
@@ -120,7 +137,6 @@ export function ProtectedRoute({
           message: typeof data?.message === "string" ? data.message : "Admin role is required.",
         };
       } catch (err) {
-        console.error('Admin verification failed');
         throw err instanceof Error ? err : new Error("Admin verification failed.");
       }
     },

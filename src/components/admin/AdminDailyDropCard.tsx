@@ -12,12 +12,12 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import { supabase } from '@/integrations/supabase/client';
-import { toast } from 'sonner';
 import {
   formatAdminUtcDateTime,
   type AdminOverviewDailyDropLastRun,
   useAdminOverviewDashboard,
 } from '@/hooks/useAdminOverviewDashboard';
+import { adminToast } from '@/lib/adminToast';
 
 function runStatusClass(status: AdminOverviewDailyDropLastRun['status'] | undefined) {
   if (status === 'failed' || status === 'partial') {
@@ -102,19 +102,34 @@ export default function AdminDailyDropCard() {
         const notificationFailures = Number(data?.notification_failures ?? 0);
         const message = `Generated ${data.pairs_created} pairs, notified ${data.users_notified} users`;
         if (notificationFailures > 0) {
-          toast.warning(`${message}, ${notificationFailures} notification failure${notificationFailures === 1 ? '' : 's'}`);
+          adminToast.warning({
+            id: 'daily-drop-generate-partial-notifications',
+            title: `${message}, ${notificationFailures} notification failure${notificationFailures === 1 ? '' : 's'}`,
+          });
         } else {
-          toast.success(message);
+          adminToast.success({
+            id: 'daily-drop-generate-success',
+            title: message,
+          });
         }
       } else if (data?.error === 'insert_failed' || data?.error === 'insert_partial') {
-        toast.error(data?.details || data?.error || 'Insert failed');
+        adminToast.error({
+          id: 'daily-drop-generate-insert-failed',
+          title: data?.details || data?.error || 'Insert failed',
+        });
       } else {
-        toast.info(data?.reason || data?.error || 'No drops generated');
+        adminToast.info({
+          id: 'daily-drop-generate-no-op',
+          title: data?.reason || data?.error || 'No drops generated',
+        });
       }
       void refetch();
     } catch (err) {
-      toast.error('Failed to generate drops');
-      console.error(err);
+      adminToast.error({
+        id: 'daily-drop-generate-failed',
+        title: 'Failed to generate drops',
+        description: err instanceof Error ? err.message : undefined,
+      });
     } finally {
       setIsGenerating(false);
       setOverrideOpen(false);

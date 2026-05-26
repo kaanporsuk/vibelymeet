@@ -1,10 +1,9 @@
-import { useState, useEffect, useMemo, useCallback, useRef } from "react";
+import { useState, useEffect, useMemo, useCallback, useRef, type MutableRefObject } from "react";
 import { motion } from "framer-motion";
 import { ShieldCheck, CheckCircle2, XCircle, Loader2, AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { supabase } from "@/integrations/supabase/client";
-import { toast } from "sonner";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { resolvePhotoUrl } from "@/lib/photoUtils";
 import {
@@ -22,6 +21,7 @@ import {
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import AdminConfirmDialog from "./AdminConfirmDialog";
+import AdminEmptyState from "./AdminEmptyState";
 import {
   callAdminRpc,
   createAdminTargetIdempotencyKey,
@@ -29,6 +29,8 @@ import {
   type AdminRpcPayload,
 } from "@/lib/adminRpc";
 import { invalidateAdminQueries } from "@/lib/adminQueryInvalidation";
+import { formatAdminRelativeTime, formatAdminUtcDateTime } from "@/lib/adminTime";
+import { adminToast } from "@/lib/adminToast";
 
 type TabFilter = "pending" | "approved" | "rejected";
 
@@ -107,6 +109,8 @@ const AdminPhotoVerificationPanel = () => {
   const [rejectConfirmation, setRejectConfirmation] = useState<{ id: string; userId: string; reason: string } | null>(null);
   const selfieRefreshSequence = useRef(0);
   const lastSelfieRefreshAt = useRef(0);
+  const approveTriggerRef = useRef<HTMLElement | null>(null);
+  const rejectTriggerRef = useRef<HTMLElement | null>(null);
 
   const { data: verifications = [], isLoading } = useQuery({
     queryKey: ["admin-photo-verifications", activeTab],
@@ -351,6 +355,37 @@ const AdminPhotoVerificationPanel = () => {
     return { ready, expired, message };
   }, [resolvedUrls]);
 
+  const restoreFocus = useCallback((ref: MutableRefObject<HTMLElement | null>) => {
+    const trigger = ref.current;
+    ref.current = null;
+    window.requestAnimationFrame(() => trigger?.focus());
+  }, []);
+
+  const openApprovalConfirmation = useCallback((verification: PhotoVerificationRow, trigger: HTMLElement | null) => {
+    approveTriggerRef.current = trigger;
+    setApprovalTarget(verification);
+  }, []);
+
+  const closeApprovalConfirmation = useCallback(() => {
+    setApprovalTarget(null);
+    restoreFocus(approveTriggerRef);
+  }, [restoreFocus]);
+
+  const openRejectModal = useCallback((verification: PhotoVerificationRow, trigger: HTMLElement | null) => {
+    rejectTriggerRef.current = trigger;
+    setRejectModal({ id: verification.id, userId: verification.user_id });
+  }, []);
+
+  const closeRejectModal = useCallback(() => {
+    setRejectModal(null);
+    restoreFocus(rejectTriggerRef);
+  }, [restoreFocus]);
+
+  const closeRejectConfirmation = useCallback(() => {
+    setRejectConfirmation(null);
+    restoreFocus(rejectTriggerRef);
+  }, [restoreFocus]);
+
   const approveMutation = useMutation({
     mutationFn: async (verification: PhotoVerificationRow) => {
       const selfieAccess = getSelfieAccess(verification.id);
@@ -374,13 +409,23 @@ const AdminPhotoVerificationPanel = () => {
         ),
       });
     },
-    onSuccess: () => {
-      toast.success("User verified successfully");
+    onSuccess: (_data, verification) => {
+      adminToast.success({
+        id: `admin-photo-verification-approve-${verification.id}`,
+        title: "User verified successfully",
+        description: "This approval is permanent unless another admin action changes the user state.",
+        action: { label: "View approved", onClick: () => setActiveTab("approved") },
+      });
       setApprovalTarget(null);
+      restoreFocus(approveTriggerRef);
       void invalidateAdminQueries(queryClient, ["photoVerification", "users"]);
     },
     onError: (err: unknown) => {
-      toast.error("Failed to approve: " + (err instanceof Error ? err.message : "Unknown error"));
+      adminToast.error({
+        id: "admin-photo-verification-approve-error",
+        title: "Failed to approve",
+        description: err instanceof Error ? err.message : "Unknown error",
+      });
     },
   });
 
@@ -398,14 +443,24 @@ const AdminPhotoVerificationPanel = () => {
         }),
       });
     },
-    onSuccess: () => {
-      toast.success("Verification rejected");
+    onSuccess: (_data, variables) => {
+      adminToast.success({
+        id: `admin-photo-verification-reject-${variables.id}`,
+        title: "Verification rejected",
+        description: "This rejection is permanent unless another admin action changes the user state.",
+        action: { label: "View rejected", onClick: () => setActiveTab("rejected") },
+      });
       setRejectModal(null);
       setRejectConfirmation(null);
+      restoreFocus(rejectTriggerRef);
       void invalidateAdminQueries(queryClient, ["photoVerification", "users"]);
     },
     onError: (err: unknown) => {
-      toast.error("Failed to reject: " + (err instanceof Error ? err.message : "Unknown error"));
+      adminToast.error({
+        id: "admin-photo-verification-reject-error",
+        title: "Failed to reject",
+        description: err instanceof Error ? err.message : "Unknown error",
+      });
     },
   });
 
@@ -421,16 +476,6 @@ const AdminPhotoVerificationPanel = () => {
     if (score >= 70) return "High confidence";
     if (score >= 40) return "Medium confidence";
     return "Low confidence";
-  };
-
-  const timeAgo = (dateStr: string) => {
-    const diff = Date.now() - new Date(dateStr).getTime();
-    const mins = Math.floor(diff / 60000);
-    if (mins < 60) return `${mins}m ago`;
-    const hours = Math.floor(mins / 60);
-    if (hours < 24) return `${hours}h ago`;
-    const days = Math.floor(hours / 24);
-    return `${days}d ago`;
   };
 
   const onSelfieImageError = useCallback((verificationId: string) => {
@@ -504,10 +549,11 @@ const AdminPhotoVerificationPanel = () => {
           <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
         </div>
       ) : verifications.length === 0 ? (
-        <div className="text-center py-12 text-muted-foreground">
-          <ShieldCheck className="w-12 h-12 mx-auto mb-3 opacity-30" />
-          <p>No {activeTab} verifications</p>
-        </div>
+        <AdminEmptyState
+          icon={ShieldCheck}
+          title={`No ${activeTab} verifications`}
+          description={activeTab === "pending" ? "New verification submissions will appear here." : "Recently reviewed verification rows appear here for the last 30 days."}
+        />
       ) : (
         <div className="space-y-4">
           {verifications.map((v) => {
@@ -566,7 +612,10 @@ const AdminPhotoVerificationPanel = () => {
                       {profile?.name || "Unknown"}{profile?.age ? `, ${profile.age}` : ""}
                     </p>
                     <p className="text-xs text-muted-foreground">
-                      {timestampLabel} {timeAgo(timestampValue)}
+                      {timestampLabel}{" "}
+                      <span title={formatAdminUtcDateTime(timestampValue)}>
+                        {formatAdminRelativeTime(timestampValue)}
+                      </span>
                     </p>
                   </div>
                   <div className="text-right">
@@ -596,7 +645,7 @@ const AdminPhotoVerificationPanel = () => {
                     <Button
                       variant="outline"
                       className="flex-1 text-destructive border-destructive/30 hover:bg-destructive/10"
-                      onClick={() => setRejectModal({ id: v.id, userId: v.user_id })}
+                      onClick={(event) => openRejectModal(v, event.currentTarget)}
                       disabled={rejectMutation.isPending}
                     >
                       <XCircle className="w-4 h-4 mr-1" />
@@ -605,7 +654,7 @@ const AdminPhotoVerificationPanel = () => {
                     <Button
                       variant="default"
                       className="flex-1 bg-green-600 hover:bg-green-700 text-white"
-                      onClick={() => setApprovalTarget(v)}
+                      onClick={(event) => openApprovalConfirmation(v, event.currentTarget)}
                       disabled={approveMutation.isPending || !selfieAccess?.ready}
                       title={!selfieAccess?.ready ? selfieAccess?.message ?? "Selfie is unavailable" : undefined}
                     >
@@ -625,7 +674,7 @@ const AdminPhotoVerificationPanel = () => {
       )}
 
       {/* Reject Modal */}
-      <Dialog open={!!rejectModal} onOpenChange={(o) => !o && setRejectModal(null)}>
+      <Dialog open={!!rejectModal} onOpenChange={(o) => !o && closeRejectModal()}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle>Reject Verification</DialogTitle>
@@ -652,7 +701,7 @@ const AdminPhotoVerificationPanel = () => {
               />
             )}
             <div className="flex gap-2">
-              <Button variant="outline" className="flex-1" onClick={() => setRejectModal(null)}>
+              <Button variant="outline" className="flex-1" onClick={closeRejectModal}>
                 Cancel
               </Button>
               <Button
@@ -662,7 +711,10 @@ const AdminPhotoVerificationPanel = () => {
                   if (!rejectModal) return;
                   const reason = rejectReason === "Other" ? rejectCustomReason.trim() : rejectReason;
                   if (!reason) {
-                    toast.error("Add a rejection reason before final confirmation.");
+                    adminToast.error({
+                      id: "admin-photo-verification-reason-required",
+                      title: "Add a rejection reason before final confirmation",
+                    });
                     return;
                   }
                   setRejectModal(null);
@@ -685,7 +737,7 @@ const AdminPhotoVerificationPanel = () => {
         variant="default"
         isPending={approveMutation.isPending}
         onOpenChange={(open) => {
-          if (!open) setApprovalTarget(null);
+          if (!open) closeApprovalConfirmation();
         }}
         onConfirm={() => approvalTarget ? approveMutation.mutateAsync(approvalTarget) : undefined}
       />
@@ -696,7 +748,7 @@ const AdminPhotoVerificationPanel = () => {
         confirmLabel="Reject Verification"
         isPending={rejectMutation.isPending}
         onOpenChange={(open) => {
-          if (!open) setRejectConfirmation(null);
+          if (!open) closeRejectConfirmation();
         }}
         onConfirm={() =>
           rejectConfirmation

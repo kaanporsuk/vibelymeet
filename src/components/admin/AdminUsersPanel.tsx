@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type AriaAttributes, type KeyboardEvent } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { motion, AnimatePresence } from "framer-motion";
 import {
@@ -13,6 +13,7 @@ import {
   ShieldCheck,
   ShieldX,
   Crown,
+  AlertTriangle,
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -33,17 +34,18 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { format } from "date-fns";
 import {
   getRelationshipIntentAliases,
   getRelationshipIntentDisplaySafe,
   type RelationshipIntentId,
 } from "@shared/profileContracts";
 import AdminUserDetailDrawer from "./AdminUserDetailDrawer";
+import AdminEmptyState from "./AdminEmptyState";
 import { avatarUrl as avatarPreset } from "@/utils/imageUrl";
 import { resolvePrimaryProfilePhotoPath } from "../../../shared/profilePhoto/resolvePrimaryProfilePhotoPath";
 import { callAdminRpc, type AdminRpcPayload } from "@/lib/adminRpc";
 import { useDebouncedValue } from "@/hooks/useDebouncedValue";
+import { formatAdminUtcDateTime } from "@/lib/adminTime";
 
 type SortField = 'name' | 'created_at' | 'age' | 'location' | 'total_matches' | 'event_registrations';
 type SortDirection = 'asc' | 'desc';
@@ -177,6 +179,7 @@ const AdminUsersPanel = () => {
   const [sortDirection, setSortDirection] = useState<SortDirection>('desc');
   const [pageIndex, setPageIndex] = useState(0);
   const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
+  const userDrawerTriggerRef = useRef<HTMLElement | null>(null);
   const debouncedSearchQuery = useDebouncedValue(searchQuery, 350);
 
   // Fetch users through the backend admin aggregate so counts and filters are server-owned.
@@ -250,6 +253,29 @@ const AdminUsersPanel = () => {
     return sortDirection === 'asc' ?
       <ChevronUp className="w-4 h-4 text-primary" /> :
       <ChevronDown className="w-4 h-4 text-primary" />;
+  };
+
+  const getAriaSort = (field: SortField): AriaAttributes["aria-sort"] => {
+    if (sortField !== field) return "none";
+    return sortDirection === "asc" ? "ascending" : "descending";
+  };
+
+  const openUserDrawer = (userId: string, trigger?: HTMLElement | null) => {
+    userDrawerTriggerRef.current = trigger ?? (document.activeElement instanceof HTMLElement ? document.activeElement : null);
+    setSelectedUserId(userId);
+  };
+
+  const closeUserDrawer = () => {
+    setSelectedUserId(null);
+    const trigger = userDrawerTriggerRef.current;
+    userDrawerTriggerRef.current = null;
+    window.requestAnimationFrame(() => trigger?.focus());
+  };
+
+  const handleUserRowKeyDown = (event: KeyboardEvent<HTMLTableRowElement>, userId: string) => {
+    if (event.key !== "Enter" && event.key !== " ") return;
+    event.preventDefault();
+    openUserDrawer(userId, event.currentTarget);
   };
 
   return (
@@ -387,8 +413,10 @@ const AdminUsersPanel = () => {
           <Table>
             <TableHeader>
               <TableRow className="border-border/50 hover:bg-transparent">
-                <TableHead className="w-[250px]">
+                <TableHead className="w-[250px]" aria-sort={getAriaSort("name")}>
                   <button
+                    type="button"
+                    aria-label={`Sort by user name ${sortField === "name" ? sortDirection : "inactive"}`}
                     onClick={() => handleSort('name')}
                     className="flex items-center gap-2 hover:text-foreground transition-colors"
                   >
@@ -397,8 +425,10 @@ const AdminUsersPanel = () => {
                   </button>
                 </TableHead>
                 <TableHead>Gender</TableHead>
-                <TableHead>
+                <TableHead aria-sort={getAriaSort("age")}>
                   <button
+                    type="button"
+                    aria-label={`Sort by age ${sortField === "age" ? sortDirection : "inactive"}`}
                     onClick={() => handleSort('age')}
                     className="flex items-center gap-2 hover:text-foreground transition-colors"
                   >
@@ -406,8 +436,10 @@ const AdminUsersPanel = () => {
                     {getSortIcon('age')}
                   </button>
                 </TableHead>
-                <TableHead>
+                <TableHead aria-sort={getAriaSort("location")}>
                   <button
+                    type="button"
+                    aria-label={`Sort by location ${sortField === "location" ? sortDirection : "inactive"}`}
                     onClick={() => handleSort('location')}
                     className="flex items-center gap-2 hover:text-foreground transition-colors"
                   >
@@ -418,8 +450,10 @@ const AdminUsersPanel = () => {
                 <TableHead>Height</TableHead>
                 <TableHead>Looking For</TableHead>
                 <TableHead>Vibes</TableHead>
-                <TableHead>
+                <TableHead aria-sort={getAriaSort("total_matches")}>
                   <button
+                    type="button"
+                    aria-label={`Sort by matches ${sortField === "total_matches" ? sortDirection : "inactive"}`}
                     onClick={() => handleSort('total_matches')}
                     className="flex items-center gap-2 hover:text-foreground transition-colors"
                   >
@@ -427,8 +461,10 @@ const AdminUsersPanel = () => {
                     {getSortIcon('total_matches')}
                   </button>
                 </TableHead>
-                <TableHead>
+                <TableHead aria-sort={getAriaSort("event_registrations")}>
                   <button
+                    type="button"
+                    aria-label={`Sort by event registrations ${sortField === "event_registrations" ? sortDirection : "inactive"}`}
                     onClick={() => handleSort('event_registrations')}
                     className="flex items-center gap-2 hover:text-foreground transition-colors"
                   >
@@ -436,8 +472,10 @@ const AdminUsersPanel = () => {
                     {getSortIcon('event_registrations')}
                   </button>
                 </TableHead>
-                <TableHead>
+                <TableHead aria-sort={getAriaSort("created_at")}>
                   <button
+                    type="button"
+                    aria-label={`Sort by joined date ${sortField === "created_at" ? sortDirection : "inactive"}`}
                     onClick={() => handleSort('created_at')}
                     className="flex items-center gap-2 hover:text-foreground transition-colors"
                   >
@@ -459,14 +497,31 @@ const AdminUsersPanel = () => {
                 ))
               ) : usersError ? (
                 <TableRow className="border-border/50">
-                  <TableCell colSpan={11} className="text-center py-8 text-destructive">
-                    Could not load users or derived event registration counts.
+                  <TableCell colSpan={11}>
+                    <AdminEmptyState
+                      icon={AlertTriangle}
+                      title="Could not load users or derived event registration counts."
+                      description="This is a read-model failure, not proof that no users exist."
+                      tone="danger"
+                    />
                   </TableCell>
                 </TableRow>
               ) : users.length === 0 ? (
                 <TableRow className="border-border/50">
-                  <TableCell colSpan={11} className="text-center py-8 text-muted-foreground">
-                    No users found
+                  <TableCell colSpan={11}>
+                    <AdminEmptyState
+                      icon={Search}
+                      title="No users found"
+                      description="Try clearing search, gender, verification, lifecycle, or relationship filters."
+                      actionLabel="Clear filters"
+                      onAction={() => {
+                        setSearchQuery("");
+                        setGenderFilter("all");
+                        setVerificationFilter("all");
+                        setLookingForFilter("all");
+                        setLifecycleFilter("all");
+                      }}
+                    />
                   </TableCell>
                 </TableRow>
               ) : (
@@ -483,8 +538,11 @@ const AdminUsersPanel = () => {
                   return (
                   <TableRow
                     key={user.id}
-                    className="border-border/50 hover:bg-secondary/30 cursor-pointer"
-                    onClick={() => setSelectedUserId(user.id)}
+                    tabIndex={0}
+                    aria-label={`Open user ${user.name || "unnamed user"}`}
+                    onClick={(event) => openUserDrawer(user.id, event.currentTarget)}
+                    onKeyDown={(event) => handleUserRowKeyDown(event, user.id)}
+                    className="border-border/50 hover:bg-secondary/30 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-inset"
                   >
                     <TableCell>
                       <div className="flex items-center gap-3">
@@ -593,7 +651,7 @@ const AdminUsersPanel = () => {
                     </TableCell>
                     <TableCell>
                       <span className="text-sm text-muted-foreground">
-                        {format(new Date(user.created_at), 'MMM d, yyyy')}
+                        {formatAdminUtcDateTime(user.created_at)}
                       </span>
                     </TableCell>
                     <TableCell className="text-right">
@@ -602,7 +660,7 @@ const AdminUsersPanel = () => {
                         size="sm"
                         onClick={(e) => {
                           e.stopPropagation();
-                          setSelectedUserId(user.id);
+                          openUserDrawer(user.id, e.currentTarget);
                         }}
                         className="gap-2"
                       >
@@ -624,7 +682,7 @@ const AdminUsersPanel = () => {
         {selectedUserId && (
           <AdminUserDetailDrawer
             userId={selectedUserId}
-            onClose={() => setSelectedUserId(null)}
+            onClose={closeUserDrawer}
           />
         )}
       </AnimatePresence>

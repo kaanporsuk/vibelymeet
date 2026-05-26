@@ -28,10 +28,10 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { resolvePhotoUrl } from "@/lib/photoUtils";
-import { toast } from "sonner";
-import { format } from "date-fns";
 import AdminConfirmDialog from "./AdminConfirmDialog";
 import { callAdminRpc, createAdminTargetIdempotencyKey, type AdminRpcPayload } from "@/lib/adminRpc";
+import { formatAdminUtcDate, formatAdminUtcDateTime, formatAdminUtcDateTimeForExport } from "@/lib/adminTime";
+import { adminToast } from "@/lib/adminToast";
 
 type AdminAttendeesEvent = {
   id: string;
@@ -126,10 +126,16 @@ const AdminEventAttendeesModal = ({ event, onClose }: AdminEventAttendeesModalPr
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["admin-event-attendees", event.id] });
       queryClient.invalidateQueries({ queryKey: ["admin-events"] });
-      toast.success("Registration removed");
+      adminToast.success({
+        id: `event-attendee-registration-removed-${event.id}`,
+        title: "Registration removed",
+      });
     },
     onError: () => {
-      toast.error("Failed to remove registration");
+      adminToast.error({
+        id: `event-attendee-registration-remove-failed-${event.id}`,
+        title: "Failed to remove registration",
+      });
     },
   });
 
@@ -154,10 +160,16 @@ const AdminEventAttendeesModal = ({ event, onClose }: AdminEventAttendeesModalPr
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['admin-event-attendees', event.id] });
-      toast.success('Attendance marked');
+      adminToast.success({
+        id: `event-attendance-marked-${event.id}`,
+        title: 'Attendance marked',
+      });
     },
     onError: () => {
-      toast.error('Failed to mark attendance');
+      adminToast.error({
+        id: `event-attendance-mark-failed-${event.id}`,
+        title: 'Failed to mark attendance',
+      });
     },
   });
 
@@ -191,10 +203,16 @@ const AdminEventAttendeesModal = ({ event, onClose }: AdminEventAttendeesModalPr
       queryClient.invalidateQueries({ queryKey: ['admin-event-attendees', event.id] });
       const count = Number(payload.affected_count ?? selectedAttendees.length);
       setSelectedAttendees([]);
-      toast.success(`Marked ${count} attendees`);
+      adminToast.success({
+        id: `event-bulk-attendance-marked-${event.id}`,
+        title: `Marked ${count} attendees`,
+      });
     },
     onError: () => {
-      toast.error('Failed to mark attendance');
+      adminToast.error({
+        id: `event-bulk-attendance-mark-failed-${event.id}`,
+        title: 'Failed to mark attendance',
+      });
     },
   });
 
@@ -217,7 +235,10 @@ const AdminEventAttendeesModal = ({ event, onClose }: AdminEventAttendeesModalPr
 
   const requestEventReminder = async () => {
     if (reminderCooldownActive) {
-      toast.message("Please wait 5 minutes between event reminder requests.");
+      adminToast.info({
+        id: `event-reminder-cooldown-${event.id}`,
+        title: "Please wait 5 minutes between event reminder requests.",
+      });
       return;
     }
     setIsRequestingReminder(true);
@@ -231,13 +252,18 @@ const AdminEventAttendeesModal = ({ event, onClose }: AdminEventAttendeesModalPr
         }),
       });
       setLastReminderRequestAt(Date.now());
-      toast.success("Reminder request recorded", {
+      adminToast.success({
+        id: `event-reminder-recorded-${event.id}`,
+        title: "Reminder request recorded",
         description: payload.notifications_not_queued
           ? "No user notifications were queued because the backend dispatcher is not connected for this reminder."
           : undefined,
       });
     } catch (error) {
-      toast.error("Failed to record reminder request");
+      adminToast.error({
+        id: `event-reminder-record-failed-${event.id}`,
+        title: "Failed to record reminder request",
+      });
       throw error;
     } finally {
       setIsRequestingReminder(false);
@@ -258,7 +284,7 @@ const AdminEventAttendeesModal = ({ event, onClose }: AdminEventAttendeesModalPr
           profile?.name || 'Unknown',
           profile?.age || '',
           profile?.gender || '',
-          format(new Date(reg.registered_at), 'yyyy-MM-dd HH:mm'),
+          formatAdminUtcDateTimeForExport(reg.registered_at),
           String(reg.admission_status ?? ''),
           att
         ].join(',');
@@ -272,7 +298,10 @@ const AdminEventAttendeesModal = ({ event, onClose }: AdminEventAttendeesModalPr
     a.download = `${event.title}-attendees.csv`;
     a.click();
     URL.revokeObjectURL(url);
-    toast.success('Attendee list exported');
+    adminToast.success({
+      id: `event-attendees-exported-${event.id}`,
+      title: 'Attendee list exported',
+    });
   };
 
   // Filter registrations based on status toggles
@@ -312,7 +341,7 @@ const AdminEventAttendeesModal = ({ event, onClose }: AdminEventAttendeesModalPr
               Event Attendees
             </h2>
             <p className="text-sm text-muted-foreground">
-              {event.title} · {format(new Date(event.event_date), 'MMM d, yyyy')}
+              {event.title} · {formatAdminUtcDate(event.event_date)}
             </p>
           </div>
           <Button variant="ghost" size="icon" onClick={onClose}>
@@ -552,7 +581,7 @@ const AdminEventAttendeesModal = ({ event, onClose }: AdminEventAttendeesModalPr
                       <div className="flex items-center gap-2 text-xs text-muted-foreground">
                         <span>{profile?.age} · {profile?.gender}</span>
                         <span>·</span>
-                        <span>Registered {format(new Date(reg.registered_at), 'MMM d, h:mm a')}</span>
+                        <span>Registered {formatAdminUtcDateTime(reg.registered_at)}</span>
                       </div>
                     </div>
                     <div className="flex items-center gap-2">
@@ -597,7 +626,10 @@ const AdminEventAttendeesModal = ({ event, onClose }: AdminEventAttendeesModalPr
                           <DropdownMenuItem
                             onClick={() => {
                               if (!reg.profile_id) {
-                                toast.error("Missing attendee profile");
+                                adminToast.error({
+                                  id: `event-attendee-missing-profile-${event.id}`,
+                                  title: "Missing attendee profile",
+                                });
                                 return;
                               }
                               setRegistrationToRemove({

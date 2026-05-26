@@ -36,6 +36,7 @@ import {
 } from "recharts";
 import { useNavigate } from "react-router-dom";
 import { resolveEventLifecycle } from "@/lib/eventLifecycle";
+import { formatAdminUtcDateTime, formatAdminUtcTime } from "@/lib/adminTime";
 
 const COLORS = ["#ec4899", "#8b5cf6", "#06b6d4", "#f97316", "#22c55e"];
 
@@ -662,7 +663,7 @@ const AdminLiveEventMetrics = () => {
                 computed: {selectedEventPhase.label}
               </Badge>
               {selectedEventPhase.endIso && (
-                <span>window end {new Date(selectedEventPhase.endIso).toLocaleString()}</span>
+                <span>window end {formatAdminUtcDateTime(selectedEventPhase.endIso)}</span>
               )}
             </div>
           )}
@@ -750,7 +751,7 @@ const AdminLiveEventMetrics = () => {
               </div>
               {videoDateOps?.generated_at && (
                 <Badge className="bg-secondary text-muted-foreground border-white/10">
-                  updated {new Date(videoDateOps.generated_at).toLocaleTimeString()}
+                  updated {formatAdminUtcTime(videoDateOps.generated_at)}
                 </Badge>
               )}
             </div>
@@ -828,7 +829,7 @@ const AdminLiveEventMetrics = () => {
                         <div>
                           <h4 className="text-sm font-semibold text-foreground">{window.label} window</h4>
                           <p className="text-[11px] text-muted-foreground">
-                            since {new Date(window.since).toLocaleString()}
+                            since {formatAdminUtcDateTime(window.since)}
                           </p>
                         </div>
                         {truncated && (
@@ -1089,7 +1090,7 @@ const AdminLiveEventMetrics = () => {
                         <Badge className="bg-primary/15 text-primary border-primary/30">{item.category}</Badge>
                         <Badge className="bg-cyan-500/15 text-cyan-300 border-cyan-500/30">{item.result}</Badge>
                       </div>
-                      <span className="text-[11px] text-muted-foreground">{new Date(item.timestamp).toLocaleString()}</span>
+                      <span className="text-[11px] text-muted-foreground">{formatAdminUtcDateTime(item.timestamp)}</span>
                     </div>
                     <div className="mt-2 grid grid-cols-1 md:grid-cols-2 gap-1 text-[11px] text-muted-foreground">
                       <span>session: {item.session_id ? "linked" : "-"}</span>
@@ -1132,7 +1133,7 @@ const AdminLiveEventMetrics = () => {
                       <Badge className="bg-secondary text-foreground border-white/10">{item.exception_type}</Badge>
                       <Badge className="bg-cyan-500/15 text-cyan-300 border-cyan-500/30">{item.exception_status}</Badge>
                     </div>
-                    <span className="text-[11px] text-muted-foreground">{new Date(item.updated_at).toLocaleString()}</span>
+                    <span className="text-[11px] text-muted-foreground">{formatAdminUtcDateTime(item.updated_at)}</span>
                   </div>
                   <div className="mt-2 grid grid-cols-1 md:grid-cols-2 gap-1 text-[11px] text-muted-foreground">
                     <span>exception_ref: {item.id ? "present" : "-"}</span>

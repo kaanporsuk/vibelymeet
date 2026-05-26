@@ -36,13 +36,13 @@ import {
 } from "@/components/ui/card";
 import { Slider } from "@/components/ui/slider";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { toast } from "sonner";
-import { format } from "date-fns";
 import PushAnalyticsDashboard from "./PushAnalyticsDashboard";
 import CampaignTemplatesLibrary, { CampaignTemplate } from "./CampaignTemplatesLibrary";
 import LiveNotificationMonitor from "./LiveNotificationMonitor";
 import AdminConfirmDialog from "./AdminConfirmDialog";
 import { callAdminRpc, createAdminIdempotencyKey, createAdminTargetIdempotencyKey, type AdminRpcPayload } from "@/lib/adminRpc";
+import { formatAdminUtcDateTime } from "@/lib/adminTime";
+import { adminToast } from "@/lib/adminToast";
 
 interface Campaign {
   id: string;
@@ -211,6 +211,7 @@ const AdminPushCampaignsPanel = () => {
   const [isDeletingCampaign, setIsDeletingCampaign] = useState(false);
   const [isSavingCampaign, setIsSavingCampaign] = useState(false);
   const createDraftIntentIdRef = useRef(createAdminIdempotencyKey("admin_upsert_push_campaign_draft_form"));
+  const campaignFormTriggerRef = useRef<HTMLElement | null>(null);
   
   const { data: campaignsReadModel, isError: campaignsReadError } = useQuery({
     queryKey: ['push-campaigns'],
@@ -293,6 +294,20 @@ const AdminPushCampaignsPanel = () => {
     setFormData({ title: '', body: '' });
     setSegment(createDefaultTargetSegment());
     createDraftIntentIdRef.current = createAdminIdempotencyKey("admin_upsert_push_campaign_draft_form");
+    const trigger = campaignFormTriggerRef.current;
+    campaignFormTriggerRef.current = null;
+    window.requestAnimationFrame(() => trigger?.focus());
+  };
+
+  const openCreateCampaignForm = (trigger: HTMLElement | null) => {
+    campaignFormTriggerRef.current = trigger ?? (document.activeElement instanceof HTMLElement ? document.activeElement : null);
+    setEditingCampaign(null);
+    setShowCreateForm(true);
+  };
+
+  const openEditCampaignForm = (campaign: Campaign, trigger: HTMLElement | null) => {
+    campaignFormTriggerRef.current = trigger ?? (document.activeElement instanceof HTMLElement ? document.activeElement : null);
+    setEditingCampaign(campaign);
   };
 
   const handleSaveCampaign = async () => {
@@ -302,12 +317,12 @@ const AdminPushCampaignsPanel = () => {
     const body = formData.body.trim();
 
     if (!title || !body) {
-      toast.error('Please fill in all required fields');
+      adminToast.error({ id: "admin-push-campaign-required-fields", title: "Please fill in all required fields" });
       return;
     }
 
     if (editingCampaign && editingCampaign.status !== 'draft') {
-      toast.error('Only draft campaigns can be edited');
+      adminToast.error({ id: "admin-push-campaign-edit-non-draft", title: "Only draft campaigns can be edited" });
       return;
     }
 
@@ -336,18 +351,22 @@ const AdminPushCampaignsPanel = () => {
             }),
       });
 
-      toast.success(
-        isEditing
-          ? 'Campaign updated successfully.'
-          : 'Campaign draft saved. Delivery is disabled until the backend dispatcher is implemented.'
-      );
+      adminToast.success({
+        id: isEditing ? `admin-push-campaign-updated-${editingCampaign?.id}` : "admin-push-campaign-created",
+        title: isEditing
+          ? "Campaign updated successfully."
+          : "Campaign draft saved. Delivery is disabled until the backend dispatcher is implemented.",
+      });
 
       // Refresh campaigns list
       queryClient.invalidateQueries({ queryKey: ['push-campaigns'] });
       resetCampaignForm();
     } catch (error) {
-      console.error('Campaign error:', error);
-      toast.error('Failed to save campaign');
+      adminToast.error({
+        id: "admin-push-campaign-save-error",
+        title: "Failed to save campaign",
+        description: error instanceof Error ? error.message : undefined,
+      });
     } finally {
       setIsSavingCampaign(false);
     }
@@ -358,7 +377,7 @@ const AdminPushCampaignsPanel = () => {
 
     const campaign = campaigns.find((candidate) => candidate.id === id);
     if (campaign?.status !== 'draft') {
-      toast.error('Only draft campaigns can be deleted');
+      adminToast.error({ id: `admin-push-campaign-delete-non-draft-${id}`, title: "Only draft campaigns can be deleted" });
       return;
     }
 
@@ -370,10 +389,13 @@ const AdminPushCampaignsPanel = () => {
       });
       
       queryClient.invalidateQueries({ queryKey: ['push-campaigns'] });
-      toast.success('Campaign deleted');
+      adminToast.success({ id: `admin-push-campaign-deleted-${id}`, title: "Campaign deleted" });
     } catch (error) {
-      console.error('Delete error:', error);
-      toast.error('Failed to delete campaign');
+      adminToast.error({
+        id: `admin-push-campaign-delete-error-${id}`,
+        title: "Failed to delete campaign",
+        description: error instanceof Error ? error.message : undefined,
+      });
       throw error;
     } finally {
       setIsDeletingCampaign(false);
@@ -429,6 +451,7 @@ const AdminPushCampaignsPanel = () => {
   };
 
   const handleSelectTemplate = (template: CampaignTemplate) => {
+    campaignFormTriggerRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     setEditingCampaign(null);
     setSegment(createDefaultTargetSegment());
     setFormData({
@@ -453,7 +476,7 @@ const AdminPushCampaignsPanel = () => {
           </p>
         </div>
         <Button
-          onClick={() => setShowCreateForm(true)}
+          onClick={(event) => openCreateCampaignForm(event.currentTarget)}
           className="bg-gradient-to-r from-primary to-accent gap-2"
         >
           <Plus className="w-5 h-5" />
@@ -611,7 +634,7 @@ const AdminPushCampaignsPanel = () => {
                       <Button
                         variant="ghost"
                         size="icon"
-                        onClick={() => setEditingCampaign(campaign)}
+                        onClick={(event) => openEditCampaignForm(campaign, event.currentTarget)}
                         disabled={!isDraft}
                         aria-label={isDraft ? "Edit draft campaign" : "Only draft campaigns can be edited"}
                         title={isDraft ? "Edit draft campaign" : "Only draft campaigns can be edited"}
@@ -676,7 +699,7 @@ const AdminPushCampaignsPanel = () => {
                   {campaign.scheduledAt && (
                     <div className="text-xs text-amber-500">
                       <Clock className="w-3 h-3 inline mr-1" />
-                      Legacy scheduled timestamp stored for {format(new Date(campaign.scheduledAt), 'MMM d, yyyy h:mm a')}; no backend dispatcher is connected.
+                      Legacy scheduled timestamp stored for {formatAdminUtcDateTime(campaign.scheduledAt)}; no backend dispatcher is connected.
                     </div>
                   )}
                 </motion.div>

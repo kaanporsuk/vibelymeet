@@ -2,7 +2,6 @@ import { FormEvent, useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useSearchParams } from "react-router-dom";
 import { Activity, Copy, Loader2, Search } from "lucide-react";
-import { toast } from "sonner";
 import {
   extractVideoDateTimelineTraceIds,
   isValidUuid,
@@ -14,6 +13,8 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { supabase } from "@/integrations/supabase/client";
+import { formatAdminUtcDateTime, formatAdminUtcTime } from "@/lib/adminTime";
+import { adminToast } from "@/lib/adminToast";
 
 type AdminVideoDateTimelineResponse = {
   ok: boolean;
@@ -42,9 +43,9 @@ const formatMs = (value: number | null | undefined): string => {
 const formatTimestamp = (value: string) => {
   const date = new Date(value);
   if (!Number.isFinite(date.getTime())) {
-    return { local: value, utc: value };
+    return { primary: value, iso: value };
   }
-  return { local: date.toLocaleString(), utc: date.toISOString() };
+  return { primary: formatAdminUtcDateTime(date), iso: date.toISOString() };
 };
 
 const CopyIconButton = ({ value, label }: { value: string | null | undefined; label: string }) => {
@@ -58,14 +59,23 @@ const CopyIconButton = ({ value, label }: { value: string | null | undefined; la
       aria-label={`Copy ${label}`}
       onClick={async () => {
         if (!navigator.clipboard) {
-          toast.error("Clipboard unavailable");
+          adminToast.error({
+            id: `video-date-timeline-copy-unavailable-${label}`,
+            title: "Clipboard unavailable",
+          });
           return;
         }
         try {
           await navigator.clipboard.writeText(value);
-          toast.success(`${label} copied`);
+          adminToast.success({
+            id: `video-date-timeline-copied-${label}`,
+            title: `${label} copied`,
+          });
         } catch {
-          toast.error(`Could not copy ${label}`);
+          adminToast.error({
+            id: `video-date-timeline-copy-failed-${label}`,
+            title: `Could not copy ${label}`,
+          });
         }
       }}
     >
@@ -167,7 +177,10 @@ const AdminVideoDateTimelinePanel = () => {
     event.preventDefault();
     const nextSessionId = trimmedSessionInput;
     if (!isValidUuid(nextSessionId)) {
-      toast.error("Enter a valid video session UUID");
+      adminToast.error({
+        id: "video-date-timeline-invalid-session-id",
+        title: "Enter a valid video session UUID",
+      });
       return;
     }
     setSubmittedSessionId(nextSessionId);
@@ -207,7 +220,7 @@ const AdminVideoDateTimelinePanel = () => {
             )}
             {timelineQuery.data?.generated_at && (
               <Badge className="bg-secondary text-muted-foreground border-white/10">
-                fetched {new Date(timelineQuery.data.generated_at).toLocaleTimeString()}
+                fetched {formatAdminUtcTime(timelineQuery.data.generated_at)}
               </Badge>
             )}
           </div>
@@ -318,8 +331,8 @@ const AdminVideoDateTimelinePanel = () => {
                       )}
                     </div>
                     <div className="space-y-0.5 text-xs text-muted-foreground">
-                      <div>{timestamp.local}</div>
-                      <div className="font-mono text-[10px]">{timestamp.utc}</div>
+                      <div>{timestamp.primary}</div>
+                      <div className="font-mono text-[10px]">{timestamp.iso}</div>
                     </div>
                   </div>
                   <Badge className="bg-secondary text-muted-foreground border-white/10">{row.source}</Badge>

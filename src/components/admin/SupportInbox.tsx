@@ -1,6 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { formatDistanceToNow } from "date-fns";
 import {
   CheckCircle2,
   ExternalLink,
@@ -26,7 +25,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { toast } from "sonner";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { STATUS_CONFIG, PRIORITY_CONFIG, type SupportStatus, type SupportPriority } from "@/lib/supportStatus";
 import { SUPPORT_CATEGORIES, type PrimaryType } from "@/lib/supportCategories";
@@ -40,6 +38,8 @@ import {
 } from "@/lib/adminRpc";
 import { invalidateAdminQueries } from "@/lib/adminQueryInvalidation";
 import { resolveSupabaseFunctionErrorMessage } from "@/lib/supabaseFunctionInvokeErrors";
+import { formatAdminRelativeTime } from "@/lib/adminTime";
+import { adminToast } from "@/lib/adminToast";
 
 type TicketRow = {
   id: string;
@@ -200,10 +200,7 @@ const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{
 const REFUND_EXCEPTION_TYPES = new Set<ExceptionType>(["refund_requested", "refund_handled_externally"]);
 
 function formatRelativeTime(value: string | null | undefined) {
-  if (!value) return "-";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "-";
-  return formatDistanceToNow(date, { addSuffix: true });
+  return value ? formatAdminRelativeTime(value) : "-";
 }
 
 function getInitials(name: string | null | undefined, fallback: string) {
@@ -242,6 +239,7 @@ export default function SupportInbox() {
   const [exceptionResolutionDraft, setExceptionResolutionDraft] = useState("");
   const [externalRefundReferenceDraft, setExternalRefundReferenceDraft] = useState("");
   const [pendingExceptionAction, setPendingExceptionAction] = useState<"create" | "transition" | null>(null);
+  const profileDrawerTriggerRef = useRef<HTMLElement | null>(null);
 
   const normalizedSearch = search.trim();
   const hasActiveFilters =
@@ -367,9 +365,12 @@ export default function SupportInbox() {
     },
     onSuccess: (_data, variables) => {
       invalidateSupportQueries();
-      toast.success(variables.toast_message ?? "Ticket updated");
+      adminToast.success({
+        id: `admin-support-ticket-update-${variables.toast_message ?? "status"}`,
+        title: variables.toast_message ?? "Ticket updated",
+      });
     },
-    onError: (err) => toast.error(sanitizeAdminRpcErrorMessage(err)),
+    onError: (err) => adminToast.error({ id: "admin-support-ticket-update-error", title: sanitizeAdminRpcErrorMessage(err) }),
   });
 
   const sendReplyMutation = useMutation({
@@ -396,19 +397,26 @@ export default function SupportInbox() {
         throw new Error(await resolveSupabaseFunctionErrorMessage(error, data, "Failed to send reply"));
       }
       if (!data?.success) throw new Error(data?.message || data?.error || "Failed to send reply");
-      return data;
+      return { response: data, ticketId: selected.id };
     },
-    onSuccess: (result) => {
+    onSuccess: ({ response: result, ticketId }) => {
       setReplyText("");
       invalidateSupportQueries();
       const warnings = [result.notification_warning, result.email_warning].filter(Boolean).join(" ");
       if (warnings) {
-        toast.warning("Reply saved with warnings", { description: warnings });
+        adminToast.warning({
+          id: `admin-support-reply-warning-${ticketId}`,
+          title: "Reply saved with warnings",
+          description: warnings,
+        });
       } else {
-        toast.success(result.idempotent_replay ? "Reply already saved" : "Reply saved and delivery queued");
+        adminToast.success({
+          id: `admin-support-reply-${ticketId}`,
+          title: result.idempotent_replay ? "Reply already saved" : "Reply saved and delivery queued",
+        });
       }
     },
-    onError: (err) => toast.error(sanitizeAdminRpcErrorMessage(err)),
+    onError: (err) => adminToast.error({ id: "admin-support-reply-error", title: sanitizeAdminRpcErrorMessage(err) }),
   });
 
   const createExceptionMutation = useMutation({
@@ -432,13 +440,13 @@ export default function SupportInbox() {
           notes: exceptionNotesDraft.trim() || null,
         }),
       });
-      return data;
+      return { data, ticketId: selected.id };
     },
-    onSuccess: () => {
+    onSuccess: ({ ticketId }) => {
       invalidateSupportQueries();
-      toast.success("Payment exception case created");
+      adminToast.success({ id: `admin-support-exception-created-${ticketId}`, title: "Payment exception case created" });
     },
-    onError: (err) => toast.error(sanitizeAdminRpcErrorMessage(err)),
+    onError: (err) => adminToast.error({ id: "admin-support-exception-create-error", title: sanitizeAdminRpcErrorMessage(err) }),
   });
 
   const transitionExceptionMutation = useMutation({
@@ -464,20 +472,20 @@ export default function SupportInbox() {
           support_ticket_id: selected?.id ?? null,
         }),
       });
-      return data;
+      return { data, exceptionId: linkedException.id };
     },
-    onSuccess: () => {
+    onSuccess: ({ exceptionId }) => {
       invalidateSupportQueries();
-      toast.success("Payment exception case updated");
+      adminToast.success({ id: `admin-support-exception-updated-${exceptionId}`, title: "Payment exception case updated" });
     },
-    onError: (err) => toast.error(sanitizeAdminRpcErrorMessage(err)),
+    onError: (err) => adminToast.error({ id: "admin-support-exception-update-error", title: sanitizeAdminRpcErrorMessage(err) }),
   });
 
   const saveContext = () => {
     const eventId = eventIdDraft.trim();
     const checkoutSessionId = checkoutSessionDraft.trim();
     if (eventId && !UUID_PATTERN.test(eventId)) {
-      toast.error("Enter a valid event UUID before saving context.");
+      adminToast.error({ id: "admin-support-event-uuid-invalid", title: "Enter a valid event UUID before saving context" });
       return;
     }
 
@@ -492,12 +500,12 @@ export default function SupportInbox() {
 
   const requestExceptionAction = (action: "create" | "transition") => {
     if (REFUND_EXCEPTION_TYPES.has(exceptionTypeDraft) && !exceptionNotesDraft.trim()) {
-      toast.error("Refund-related exception cases require notes before submit.");
+      adminToast.error({ id: "admin-support-refund-notes-required", title: "Refund-related exception cases require notes before submit" });
       return;
     }
 
     if (action === "transition" && exceptionTypeDraft === "refund_handled_externally" && !externalRefundReferenceDraft.trim()) {
-      toast.error("External refund reference is required when a refund is handled externally.");
+      adminToast.error({ id: "admin-support-refund-reference-required", title: "External refund reference is required when a refund is handled externally" });
       return;
     }
 
@@ -514,6 +522,18 @@ export default function SupportInbox() {
     setTypeFilter("all");
     setPriorityFilter("all");
     setSearch("");
+  };
+
+  const openProfileDrawer = (userId: string, trigger: HTMLElement | null) => {
+    profileDrawerTriggerRef.current = trigger ?? (document.activeElement instanceof HTMLElement ? document.activeElement : null);
+    setProfileUserId(userId);
+  };
+
+  const closeProfileDrawer = () => {
+    setProfileUserId(null);
+    const trigger = profileDrawerTriggerRef.current;
+    profileDrawerTriggerRef.current = null;
+    window.requestAnimationFrame(() => trigger?.focus());
   };
 
   const exceptionConfirmCopy = pendingExceptionAction === "create"
@@ -796,7 +816,7 @@ export default function SupportInbox() {
                   <span>{selected.os_version ?? "-"}</span>
                 </div>
               </div>
-              <Button variant="outline" size="sm" className="gap-2" onClick={() => setProfileUserId(selected.user_id)}>
+              <Button variant="outline" size="sm" className="gap-2" onClick={(event) => openProfileDrawer(selected.user_id, event.currentTarget)}>
                 <ExternalLink className="h-4 w-4" />
                 Open profile
               </Button>
@@ -1040,7 +1060,7 @@ export default function SupportInbox() {
         ) : null}
       </div>
 
-      {profileUserId ? <AdminUserDetailDrawer userId={profileUserId} onClose={() => setProfileUserId(null)} /> : null}
+      {profileUserId ? <AdminUserDetailDrawer userId={profileUserId} onClose={closeProfileDrawer} /> : null}
       <AdminConfirmDialog
         open={!!pendingExceptionAction}
         title={exceptionConfirmCopy.title}

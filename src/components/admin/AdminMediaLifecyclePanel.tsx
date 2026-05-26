@@ -12,7 +12,6 @@ import {
   Timer,
   XCircle,
 } from "lucide-react";
-import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -28,6 +27,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import AdminConfirmDialog from "./AdminConfirmDialog";
+import { adminToast } from "@/lib/adminToast";
 
 type OwnedFamily = "vibe_video" | "profile_photo" | "event_cover";
 type ChatMode = "retain_until_eligible" | "soft_delete" | "immediate";
@@ -223,7 +223,9 @@ function formatRelative(iso: string | null): string {
 
 function warnIfAuditMissing(result: AuditAwareResponse) {
   if (result.audit_logged === false) {
-    toast.warning("Action succeeded, but audit logging failed", {
+    adminToast.warning({
+      id: "media-lifecycle-audit-missing",
+      title: "Action succeeded, but audit logging failed",
       description: result.audit_error ?? "Check Edge Function logs before relying on the audit trail.",
     });
   }
@@ -625,10 +627,16 @@ export default function AdminMediaLifecyclePanel() {
     onSuccess: (result, variables) => {
       warnIfAuditMissing(result);
       setFamilyDirty((curr) => ({ ...curr, [variables.mediaFamily]: false }));
-      toast.success(`${FAMILY_LABELS[variables.mediaFamily]} updated`);
+      adminToast.success({
+        id: `media-lifecycle-family-updated-${variables.mediaFamily}`,
+        title: `${FAMILY_LABELS[variables.mediaFamily]} updated`,
+      });
       void qc.invalidateQueries({ queryKey: ["admin-media-lifecycle-controls"] });
     },
-    onError: (error) => toast.error(error instanceof Error ? error.message : "Could not save media setting"),
+    onError: (error) => adminToast.error({
+      id: "media-lifecycle-family-update-failed",
+      title: error instanceof Error ? error.message : "Could not save media setting",
+    }),
   });
 
   const saveChatMutation = useMutation({
@@ -646,10 +654,16 @@ export default function AdminMediaLifecyclePanel() {
     onSuccess: (result) => {
       warnIfAuditMissing(result);
       setChatDirty(false);
-      toast.success("Chat media policy updated");
+      adminToast.success({
+        id: "media-lifecycle-chat-policy-updated",
+        title: "Chat media policy updated",
+      });
       void qc.invalidateQueries({ queryKey: ["admin-media-lifecycle-controls"] });
     },
-    onError: (error) => toast.error(error instanceof Error ? error.message : "Could not save chat policy"),
+    onError: (error) => adminToast.error({
+      id: "media-lifecycle-chat-policy-update-failed",
+      title: error instanceof Error ? error.message : "Could not save chat policy",
+    }),
   });
 
   const retryFailedMutation = useMutation({
@@ -663,10 +677,16 @@ export default function AdminMediaLifecyclePanel() {
     },
     onSuccess: (result, variables) => {
       warnIfAuditMissing(result);
-      toast.success(`Retried ${result.retried_count} ${variables.status} job${result.retried_count === 1 ? "" : "s"}`);
+      adminToast.success({
+        id: `media-lifecycle-retried-${variables.status}`,
+        title: `Retried ${result.retried_count} ${variables.status} job${result.retried_count === 1 ? "" : "s"}`,
+      });
       void qc.invalidateQueries({ queryKey: ["admin-media-lifecycle-controls"] });
     },
-    onError: (error) => toast.error(error instanceof Error ? error.message : "Could not retry jobs"),
+    onError: (error) => adminToast.error({
+      id: "media-lifecycle-retry-failed",
+      title: error instanceof Error ? error.message : "Could not retry jobs",
+    }),
   });
 
   const requeueStaleMutation = useMutation({
@@ -679,10 +699,16 @@ export default function AdminMediaLifecyclePanel() {
     },
     onSuccess: (result) => {
       warnIfAuditMissing(result);
-      toast.success(`Requeued ${result.requeued_count} stale job${result.requeued_count === 1 ? "" : "s"}`);
+      adminToast.success({
+        id: "media-lifecycle-requeued-stale",
+        title: `Requeued ${result.requeued_count} stale job${result.requeued_count === 1 ? "" : "s"}`,
+      });
       void qc.invalidateQueries({ queryKey: ["admin-media-lifecycle-controls"] });
     },
-    onError: (error) => toast.error(error instanceof Error ? error.message : "Could not requeue stale jobs"),
+    onError: (error) => adminToast.error({
+      id: "media-lifecycle-requeue-stale-failed",
+      title: error instanceof Error ? error.message : "Could not requeue stale jobs",
+    }),
   });
 
   const repairOrphanEventCoversMutation = useMutation({
@@ -699,12 +725,17 @@ export default function AdminMediaLifecyclePanel() {
     },
     onSuccess: (result) => {
       warnIfAuditMissing(result);
-      toast.success(`Repaired ${result.repaired_count} event cover lifecycle issue${result.repaired_count === 1 ? "" : "s"}`, {
+      adminToast.success({
+        id: "media-lifecycle-event-covers-repaired",
+        title: `Repaired ${result.repaired_count} event cover lifecycle issue${result.repaired_count === 1 ? "" : "s"}`,
         description: `${result.synced_events} synced, ${result.soft_deleted_assets} soft-deleted.`,
       });
       void qc.invalidateQueries({ queryKey: ["admin-media-lifecycle-controls"] });
     },
-    onError: (error) => toast.error(error instanceof Error ? error.message : "Could not repair event covers"),
+    onError: (error) => adminToast.error({
+      id: "media-lifecycle-event-cover-repair-failed",
+      title: error instanceof Error ? error.message : "Could not repair event covers",
+    }),
   });
 
   const workerDryRunMutation = useMutation({
@@ -718,9 +749,15 @@ export default function AdminMediaLifecyclePanel() {
     onSuccess: (result) => {
       warnIfAuditMissing(result);
       setWorkerDryRunPreview(result.preview ?? null);
-      toast.success(`Previewed ${result.preview?.preview_count ?? 0} media worker candidate${result.preview?.preview_count === 1 ? "" : "s"}`);
+      adminToast.success({
+        id: "media-lifecycle-worker-previewed",
+        title: `Previewed ${result.preview?.preview_count ?? 0} media worker candidate${result.preview?.preview_count === 1 ? "" : "s"}`,
+      });
     },
-    onError: (error) => toast.error(error instanceof Error ? error.message : "Could not preview worker run"),
+    onError: (error) => adminToast.error({
+      id: "media-lifecycle-worker-preview-failed",
+      title: error instanceof Error ? error.message : "Could not preview worker run",
+    }),
   });
 
   const mediaMutationPending =

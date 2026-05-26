@@ -86,7 +86,7 @@ test("admin login clears session-check loading even when verification rejects", 
   );
 
   assert.match(verifier, /try \{/);
-  assert.match(verifier, /catch \(err\)/);
+  assert.match(verifier, /catch(?: \(err\))? \{/);
   assert.match(sessionCheck, /try \{/);
   assert.match(sessionCheck, /finally \{/);
   assert.match(sessionCheck, /setIsCheckingAuth\(false\)/);

@@ -17,12 +17,12 @@ import {
   X,
   type LucideIcon,
 } from "lucide-react";
-import { formatDistanceToNow } from "date-fns";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { callAdminRpc, sanitizeAdminRpcErrorMessage, type AdminRpcPayload } from "@/lib/adminRpc";
 import { useDebouncedValue } from "@/hooks/useDebouncedValue";
+import { formatAdminRelativeTime } from "@/lib/adminTime";
 
 type OpsStatus = "healthy" | "degraded" | "incident" | "unknown" | "unavailable" | string;
 
@@ -199,8 +199,7 @@ const formatPercent = (value: unknown): string =>
 
 const formatRelativeTime = (value: unknown): string => {
   if (typeof value !== "string" || !value) return "unknown time";
-  const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? value : formatDistanceToNow(date, { addSuffix: true });
+  return formatAdminRelativeTime(value);
 };
 
 const shortenId = (value: string): string => value.length <= 16 ? value : `${value.slice(0, 8)}...${value.slice(-4)}`;

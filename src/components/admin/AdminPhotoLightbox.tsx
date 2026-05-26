@@ -1,4 +1,4 @@
-import { useCallback, useState, useEffect } from "react";
+import { useCallback, useState, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { X, ChevronLeft, ChevronRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -19,7 +19,7 @@ const AdminPhotoLightbox = ({
 }: AdminPhotoLightboxProps) => {
   const [currentIndex, setCurrentIndex] = useState(initialIndex);
   const [refreshedUrl, setRefreshedUrl] = useState<string | null>(null);
-  const [isLoading, setIsLoading] = useState(false);
+  const closeButtonRef = useRef<HTMLButtonElement | null>(null);
 
   useEffect(() => {
     setCurrentIndex(initialIndex);
@@ -52,6 +52,11 @@ const AdminPhotoLightbox = ({
     }
   }, [isOpen, handleKeyDown]);
 
+  useEffect(() => {
+    if (!isOpen) return;
+    window.requestAnimationFrame(() => closeButtonRef.current?.focus());
+  }, [isOpen]);
+
   if (!isOpen) return null;
 
   return (
@@ -62,13 +67,18 @@ const AdminPhotoLightbox = ({
         exit={{ opacity: 0 }}
         className="fixed inset-0 z-[100] bg-black/95 flex items-center justify-center"
         onClick={onClose}
+        role="dialog"
+        aria-modal="true"
+        aria-label="Photo preview"
       >
         {/* Close Button */}
         <Button
+          ref={closeButtonRef}
           variant="ghost"
           size="icon"
           onClick={onClose}
           className="absolute top-4 right-4 z-10 text-white hover:bg-white/10"
+          aria-label="Close photo preview"
         >
           <X className="w-6 h-6" />
         </Button>
@@ -84,6 +94,7 @@ const AdminPhotoLightbox = ({
                 handlePrev();
               }}
               className="absolute left-4 z-10 text-white hover:bg-white/10 w-12 h-12"
+              aria-label="Previous photo"
             >
               <ChevronLeft className="w-8 h-8" />
             </Button>
@@ -95,6 +106,7 @@ const AdminPhotoLightbox = ({
                 handleNext();
               }}
               className="absolute right-4 z-10 text-white hover:bg-white/10 w-12 h-12"
+              aria-label="Next photo"
             >
               <ChevronRight className="w-8 h-8" />
             </Button>
@@ -111,15 +123,11 @@ const AdminPhotoLightbox = ({
           className="max-w-[90vw] max-h-[90vh] flex items-center justify-center"
           onClick={(e) => e.stopPropagation()}
         >
-          {isLoading ? (
-            <div className="w-16 h-16 border-4 border-white/20 border-t-white rounded-full animate-spin" />
-          ) : (
-            <img
-              src={refreshedUrl || photos[currentIndex]}
-              alt={`Photo ${currentIndex + 1}`}
-              className="max-w-full max-h-[90vh] object-contain rounded-lg"
-            />
-          )}
+          <img
+            src={refreshedUrl || photos[currentIndex]}
+            alt={`Photo ${currentIndex + 1}`}
+            className="max-w-full max-h-[90vh] object-contain rounded-lg"
+          />
         </motion.div>
 
         {/* Indicators */}
@@ -132,6 +140,8 @@ const AdminPhotoLightbox = ({
                   e.stopPropagation();
                   setCurrentIndex(i);
                 }}
+                aria-label={`View photo ${i + 1}`}
+                aria-pressed={i === currentIndex}
                 className={`w-2 h-2 rounded-full transition-all ${
                   i === currentIndex
                     ? "bg-white w-6"

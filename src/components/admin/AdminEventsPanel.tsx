@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo, type ReactNode } from "react";
+import { useEffect, useRef, useState, useMemo, type MutableRefObject, type ReactNode } from "react";
 import { useSearchParams } from "react-router-dom";
 import { eventCoverThumbUrl } from "@/utils/imageUrl";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -20,8 +20,6 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { format } from "date-fns";
-import { toast } from "sonner";
 import AdminEventFormModal from "./AdminEventFormModal";
 import AdminEventAttendeesModal from "./AdminEventAttendeesModal";
 import AdminEventControls from "./AdminEventControls";
@@ -31,6 +29,8 @@ import AdminConfirmDialog from "./AdminConfirmDialog";
 import { callAdminRpc, createAdminTargetIdempotencyKey } from "@/lib/adminRpc";
 import { supabase } from "@/integrations/supabase/client";
 import { useEventCategories, type EventCategory } from "@/hooks/useEventCategories";
+import { formatAdminUtcDate, formatAdminUtcDateTime, formatAdminUtcTime } from "@/lib/adminTime";
+import { adminToast } from "@/lib/adminToast";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -353,10 +353,16 @@ const AdminEventCategoryManager = () => {
     },
     onSuccess: () => {
       invalidateCategorySurfaces();
-      toast.success("Category updated");
+      adminToast.success({
+        id: "event-category-updated",
+        title: "Category updated",
+      });
     },
     onError: (error: unknown) => {
-      toast.error(errorMessage(error, "Failed to update category"));
+      adminToast.error({
+        id: "event-category-update-failed",
+        title: errorMessage(error, "Failed to update category"),
+      });
     },
     onSettled: () => setPendingKey(null),
   });
@@ -373,10 +379,16 @@ const AdminEventCategoryManager = () => {
     onSuccess: () => {
       invalidateCategorySurfaces();
       setShowCreateRow(false);
-      toast.success("Category created");
+      adminToast.success({
+        id: "event-category-created",
+        title: "Category created",
+      });
     },
     onError: (error: unknown) => {
-      toast.error(errorMessage(error, "Failed to create category"));
+      adminToast.error({
+        id: "event-category-create-failed",
+        title: errorMessage(error, "Failed to create category"),
+      });
     },
   });
 
@@ -469,6 +481,10 @@ const AdminEventsPanel = () => {
   const [showBatchImport, setShowBatchImport] = useState(false);
   const [editingEvent, setEditingEvent] = useState<AdminEventRow | null>(null);
   const [viewingAttendeesEvent, setViewingAttendeesEvent] = useState<AdminEventRow | null>(null);
+  const eventFormTriggerRef = useRef<HTMLElement | null>(null);
+  const attendeesTriggerRef = useRef<HTMLElement | null>(null);
+  const batchImportTriggerRef = useRef<HTMLElement | null>(null);
+  const eventMenuTriggerRef = useRef<HTMLElement | null>(null);
 
   // Filters
   const [statusFilter, setStatusFilter] = useState("all");
@@ -494,6 +510,7 @@ const AdminEventsPanel = () => {
 
   useEffect(() => {
     if (searchParams.get("create") !== "event") return;
+    eventFormTriggerRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     setShowCreateModal(true);
     setSearchParams((current) => {
       const next = new URLSearchParams(current);
@@ -501,6 +518,48 @@ const AdminEventsPanel = () => {
       return next;
     }, { replace: true });
   }, [searchParams, setSearchParams]);
+
+  const restorePanelFocus = (ref: MutableRefObject<HTMLElement | null>) => {
+    const trigger = ref.current;
+    ref.current = null;
+    window.requestAnimationFrame(() => trigger?.focus());
+  };
+
+  const openCreateEventModal = (trigger: HTMLElement | null) => {
+    eventFormTriggerRef.current = trigger ?? (document.activeElement instanceof HTMLElement ? document.activeElement : null);
+    setShowCreateModal(true);
+  };
+
+  const openEditEventModal = (event: AdminEventRow, trigger: HTMLElement | null) => {
+    eventFormTriggerRef.current = trigger ?? (document.activeElement instanceof HTMLElement ? document.activeElement : null);
+    setEditingEvent(event);
+  };
+
+  const closeEventFormModal = () => {
+    setShowCreateModal(false);
+    setEditingEvent(null);
+    restorePanelFocus(eventFormTriggerRef);
+  };
+
+  const openAttendeesModal = (event: AdminEventRow, trigger: HTMLElement | null) => {
+    attendeesTriggerRef.current = trigger ?? (document.activeElement instanceof HTMLElement ? document.activeElement : null);
+    setViewingAttendeesEvent(event);
+  };
+
+  const closeAttendeesModal = () => {
+    setViewingAttendeesEvent(null);
+    restorePanelFocus(attendeesTriggerRef);
+  };
+
+  const openBatchImportModal = (trigger: HTMLElement | null) => {
+    batchImportTriggerRef.current = trigger ?? (document.activeElement instanceof HTMLElement ? document.activeElement : null);
+    setShowBatchImport(true);
+  };
+
+  const closeBatchImportModal = () => {
+    setShowBatchImport(false);
+    restorePanelFocus(batchImportTriggerRef);
+  };
 
   const broadcastEventEnded = (eventId: string) => {
     const channel = supabase.channel(`event-status-${eventId}`);
@@ -619,9 +678,15 @@ const AdminEventsPanel = () => {
     },
     onSuccess: (_, { unarchive }) => {
       queryClient.invalidateQueries({ queryKey: ['admin-events'] });
-      toast.success(unarchive ? 'Event unarchived' : 'Event archived');
+      adminToast.success({
+        id: unarchive ? 'event-unarchived' : 'event-archived',
+        title: unarchive ? 'Event unarchived' : 'Event archived',
+      });
     },
-    onError: () => toast.error('Failed to update archive status'),
+    onError: () => adminToast.error({
+      id: 'event-archive-status-update-failed',
+      title: 'Failed to update archive status',
+    }),
   });
 
   const deleteEvent = useMutation({
@@ -638,9 +703,15 @@ const AdminEventsPanel = () => {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['admin-events'] });
-      toast.success('Event permanently deleted');
+      adminToast.success({
+        id: 'event-permanently-deleted',
+        title: 'Event permanently deleted',
+      });
     },
-    onError: (err: unknown) => toast.error(`Failed to delete: ${errorMessage(err, "delete_failed")}`),
+    onError: (err: unknown) => adminToast.error({
+      id: 'event-delete-failed',
+      title: `Failed to delete: ${errorMessage(err, "delete_failed")}`,
+    }),
   });
 
   const cancelEvent = useMutation({
@@ -657,13 +728,18 @@ const AdminEventsPanel = () => {
     },
     onSuccess: (payload) => {
       queryClient.invalidateQueries({ queryKey: ['admin-events'] });
-      toast.success("Event cancelled", {
+      adminToast.success({
+        id: "event-cancelled",
+        title: "Event cancelled",
         description: payload.notifications_not_queued
           ? "Backend lifecycle update succeeded. User cancellation notifications were not queued by the event lifecycle backend."
           : undefined,
       });
     },
-    onError: (err: unknown) => toast.error(errorMessage(err, 'Failed to cancel event')),
+    onError: (err: unknown) => adminToast.error({
+      id: "event-cancel-failed",
+      title: errorMessage(err, 'Failed to cancel event'),
+    }),
   });
 
   const finalizeRepairEvent = useMutation({
@@ -683,9 +759,15 @@ const AdminEventsPanel = () => {
       queryClient.invalidateQueries({ queryKey: ['admin-events'] });
       queryClient.invalidateQueries({ queryKey: ['events'] });
       queryClient.invalidateQueries({ queryKey: ['visible-events'] });
-      toast.success(`Finalized "${event.title}"`);
+      adminToast.success({
+        id: `event-finalized-${event.id}`,
+        title: `Finalized "${event.title}"`,
+      });
     },
-    onError: (err: unknown) => toast.error(errorMessage(err, "Failed to finalize event")),
+    onError: (err: unknown) => adminToast.error({
+      id: "event-finalize-failed",
+      title: errorMessage(err, "Failed to finalize event"),
+    }),
   });
 
   // Archive entire series
@@ -707,9 +789,15 @@ const AdminEventsPanel = () => {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['admin-events'] });
-      toast.success('Entire series archived');
+      adminToast.success({
+        id: 'event-series-archived',
+        title: 'Entire series archived',
+      });
     },
-    onError: () => toast.error('Failed to archive series'),
+    onError: () => adminToast.error({
+      id: 'event-series-archive-failed',
+      title: 'Failed to archive series',
+    }),
   });
 
   // Bulk archive
@@ -731,7 +819,10 @@ const AdminEventsPanel = () => {
       });
       queryClient.invalidateQueries({ queryKey: ['admin-events'] });
       setSelectedIds(new Set());
-      toast.success(`${eventIds.length} events archived`);
+      adminToast.success({
+        id: 'event-bulk-archived',
+        title: `${eventIds.length} events archived`,
+      });
     } finally {
       setIsBulkArchiving(false);
     }
@@ -759,7 +850,10 @@ const AdminEventsPanel = () => {
         }),
       });
       queryClient.invalidateQueries({ queryKey: ['admin-events'] });
-      toast.success(`Generated ${Number(data.generated_count || 0)} new occurrences`);
+      adminToast.success({
+        id: `event-recurring-generated-${parentId}`,
+        title: `Generated ${Number(data.generated_count || 0)} new occurrences`,
+      });
     } finally {
       setIsGeneratingOccurrences(false);
     }
@@ -933,8 +1027,8 @@ const AdminEventsPanel = () => {
             <div className="flex items-center gap-2">
               <Calendar className="w-4 h-4 text-muted-foreground shrink-0" />
               <div>
-                <p className="text-sm text-foreground">{format(new Date(event.event_date), 'MMM d, yyyy')}</p>
-                <p className="text-xs text-muted-foreground">{format(new Date(event.event_date), 'h:mm a')}</p>
+                <p className="text-sm text-foreground">{formatAdminUtcDate(event.event_date)}</p>
+                <p className="text-xs text-muted-foreground">{formatAdminUtcTime(event.event_date)}</p>
               </div>
             </div>
           </TableCell>
@@ -977,12 +1071,12 @@ const AdminEventsPanel = () => {
             </Badge>
             {event.ended_at && (
               <p className="mt-1 text-[10px] text-muted-foreground">
-                Finalized {format(new Date(event.ended_at), 'MMM d, h:mm a')}
+                Finalized {formatAdminUtcDateTime(event.ended_at)}
               </p>
             )}
             {!event.ended_at && lifecycle.isInFinalizationGrace && lifecycle.autoFinalizeAt && (
               <p className="mt-1 text-[10px] text-muted-foreground">
-                Auto-finalizes {format(lifecycle.autoFinalizeAt, 'h:mm a')}
+                Auto-finalizes {formatAdminUtcTime(lifecycle.autoFinalizeAt)}
               </p>
             )}
             {!event.ended_at && lifecycle.needsFinalizationRepair && (
@@ -996,15 +1090,27 @@ const AdminEventsPanel = () => {
           <TableCell className="text-right">
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button variant="ghost" size="icon"><MoreHorizontal className="w-4 h-4" /></Button>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  aria-label={`Open actions for ${event.title}`}
+                  onFocus={(focusEvent) => {
+                    eventMenuTriggerRef.current = focusEvent.currentTarget;
+                  }}
+                  onClick={(clickEvent) => {
+                    eventMenuTriggerRef.current = clickEvent.currentTarget;
+                  }}
+                >
+                  <MoreHorizontal className="w-4 h-4" />
+                </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="bg-card border-border">
                 {canEdit && (
-                  <DropdownMenuItem onClick={() => setEditingEvent(event)} className="gap-2">
+                  <DropdownMenuItem onClick={() => openEditEventModal(event, eventMenuTriggerRef.current)} className="gap-2">
                     <Edit className="w-4 h-4" />Edit
                   </DropdownMenuItem>
                 )}
-                <DropdownMenuItem onClick={() => setViewingAttendeesEvent(event)} className="gap-2">
+                <DropdownMenuItem onClick={() => openAttendeesModal(event, eventMenuTriggerRef.current)} className="gap-2">
                   <UserCheck className="w-4 h-4" />Attendees
                 </DropdownMenuItem>
                 <DropdownMenuItem onClick={() => window.open(`/events/${event.id}`, '_blank')} className="gap-2">
@@ -1154,10 +1260,10 @@ const AdminEventsPanel = () => {
             className="pl-11 bg-secondary/50" />
         </div>
         <div className="flex gap-2">
-          <Button variant="outline" onClick={() => setShowBatchImport(true)} className="gap-2">
+          <Button variant="outline" onClick={(event) => openBatchImportModal(event.currentTarget)} className="gap-2">
             <Upload className="w-5 h-5" />Batch Import
           </Button>
-          <Button onClick={() => setShowCreateModal(true)} className="bg-gradient-to-r from-primary to-accent gap-2">
+          <Button onClick={(event) => openCreateEventModal(event.currentTarget)} className="bg-gradient-to-r from-primary to-accent gap-2">
             <Plus className="w-5 h-5" />Create Event
           </Button>
         </div>
@@ -1295,16 +1401,16 @@ const AdminEventsPanel = () => {
       />
       <AnimatePresence>
         {(showCreateModal || editingEvent) && (
-          <AdminEventFormModal event={editingEvent} onClose={() => { setShowCreateModal(false); setEditingEvent(null); }} />
+          <AdminEventFormModal event={editingEvent} onClose={closeEventFormModal} />
         )}
       </AnimatePresence>
       <AnimatePresence>
         {viewingAttendeesEvent && (
-          <AdminEventAttendeesModal event={viewingAttendeesEvent} onClose={() => setViewingAttendeesEvent(null)} />
+          <AdminEventAttendeesModal event={viewingAttendeesEvent} onClose={closeAttendeesModal} />
         )}
       </AnimatePresence>
       <AnimatePresence>
-        {showBatchImport && <BatchEventImportModal onClose={() => setShowBatchImport(false)} />}
+        {showBatchImport && <BatchEventImportModal onClose={closeBatchImportModal} />}
       </AnimatePresence>
     </motion.div>
   );

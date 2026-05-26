@@ -28,11 +28,12 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { toast } from "sonner";
 import { useQueryClient } from "@tanstack/react-query";
 import Papa from "papaparse";
 import { callAdminRpc, createAdminIdempotencyKey, createAdminTargetIdempotencyKey } from "@/lib/adminRpc";
 import { inferEventCategoryKeysFromLegacyTags } from "@clientShared/eventCategories";
+import { formatAdminUtcDate } from "@/lib/adminTime";
+import { adminToast } from "@/lib/adminToast";
 
 interface BatchEventImportModalProps {
   onClose: () => void;
@@ -323,7 +324,10 @@ const BatchEventImportModal = ({ onClose }: BatchEventImportModalProps) => {
           const arr = (Array.isArray(parsed) ? parsed : [parsed]) as RawImportEvent[];
           setEvents(arr.map((ev, i) => validateEvent(ev, i)));
         } catch {
-          toast.error("Invalid JSON file");
+          adminToast.error({
+            id: "batch-event-import-invalid-json",
+            title: "Invalid JSON file",
+          });
         }
       };
       reader.readAsText(file);
@@ -335,10 +339,17 @@ const BatchEventImportModal = ({ onClose }: BatchEventImportModalProps) => {
         complete: (results) => {
           setEvents((results.data as RawImportEvent[]).map((ev, i) => validateEvent(ev, i)));
         },
-        error: () => toast.error("Failed to parse CSV"),
+        error: () => adminToast.error({
+          id: "batch-event-import-csv-parse-failed",
+          title: "Failed to parse CSV",
+        }),
       });
     } else {
-      toast.error("Unsupported file type. Use .json or .csv");
+      adminToast.error({
+        id: "batch-event-import-unsupported-file",
+        title: "Unsupported file type",
+        description: "Use .json or .csv.",
+      });
     }
   }, []);
 
@@ -396,7 +407,10 @@ const BatchEventImportModal = ({ onClose }: BatchEventImportModalProps) => {
   const handleImport = async () => {
     const toImport = events.filter((e) => e._selected && e._valid);
     if (toImport.length === 0) {
-      toast.error("No valid events selected");
+      adminToast.error({
+        id: "batch-event-import-none-selected",
+        title: "No valid events selected",
+      });
       return;
     }
 
@@ -468,23 +482,25 @@ const BatchEventImportModal = ({ onClose }: BatchEventImportModalProps) => {
           .slice(0, 3)
           .map((row) => `row ${row.rowNumber} (${row.title}): ${row.message}`)
           .join("; ");
-        toast.error(
-          `${successfulIndexes.length} of ${toImport.length} selected events were imported. ${failedRows.length} failed.`,
-          {
-            description: `${failedSummary}${failedRows.length > 3 ? "; more rows failed" : ""}. Confirmed successful rows were deselected to prevent duplicate retries.`,
-          }
-        );
+        adminToast.error({
+          id: "batch-event-import-partial-failed",
+          title: `${successfulIndexes.length} of ${toImport.length} selected events were imported. ${failedRows.length} failed.`,
+          description: `${failedSummary}${failedRows.length > 3 ? "; more rows failed" : ""}. Confirmed successful rows were deselected to prevent duplicate retries.`,
+        });
         return;
       }
 
       const skipped = events.length - toImport.length;
-      toast.success(
-        `${toImport.length} of ${events.length} events imported successfully.${skipped > 0 ? ` ${skipped} skipped.` : ""}`
-      );
+      adminToast.success({
+        id: "batch-event-import-success",
+        title: `${toImport.length} of ${events.length} events imported successfully.${skipped > 0 ? ` ${skipped} skipped.` : ""}`,
+      });
       importBatchIntentIdRef.current = createAdminIdempotencyKey("admin_batch_event_import");
       onClose();
     } catch (err: unknown) {
-      toast.error("Import failed", {
+      adminToast.error({
+        id: "batch-event-import-failed",
+        title: "Import failed",
         description: err instanceof Error ? err.message : "Please try again.",
       });
     } finally {
@@ -605,7 +621,7 @@ const BatchEventImportModal = ({ onClose }: BatchEventImportModalProps) => {
                           </TableCell>
                           <TableCell className="font-medium text-foreground">{ev.title || "—"}</TableCell>
                           <TableCell className="text-sm">
-                            {ev.event_date ? new Date(ev.event_date).toLocaleDateString() : "—"}
+                            {ev.event_date ? formatAdminUtcDate(ev.event_date, "—") : "—"}
                           </TableCell>
                           <TableCell>{ev.duration_minutes} min</TableCell>
                           <TableCell>{ev.max_attendees}</TableCell>

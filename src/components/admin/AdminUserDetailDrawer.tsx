@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { motion } from "framer-motion";
 import {
@@ -30,7 +30,6 @@ import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { format } from "date-fns";
 import UserModerationActions, { type AdminModerationReadModel } from "./UserModerationActions";
 import AdminProfilePreview from "./AdminProfilePreview";
 import AdminMatchMessagesDrawer from "./AdminMatchMessagesDrawer";
@@ -44,6 +43,7 @@ import { getRelationshipIntentDisplaySafe } from "@shared/profileContracts";
 import { resolveWebVibeVideoState } from "@/lib/vibeVideo/webVibeVideoState";
 import { VibePlayer } from "@/components/vibe-video/VibePlayer";
 import { callAdminRpc, type AdminRpcPayload } from "@/lib/adminRpc";
+import { formatAdminUtcDate, formatAdminUtcDateTime } from "@/lib/adminTime";
 
 interface AdminUserDetailDrawerProps {
   userId: string;
@@ -193,7 +193,7 @@ const getProfileSubscriptionTier = (profile?: AdminUserProfileRow | null): "free
 };
 
 const formatNullableDateTime = (value?: string | null): string => (
-  value ? format(new Date(value), "MMM d, yyyy HH:mm") : "N/A"
+  formatAdminUtcDateTime(value, "N/A")
 );
 
 const AdminUserDetailDrawer = ({ userId, onClose }: AdminUserDetailDrawerProps) => {
@@ -205,6 +205,8 @@ const AdminUserDetailDrawer = ({ userId, onClose }: AdminUserDetailDrawerProps) 
   const [refreshedPhotos, setRefreshedPhotos] = useState<string[]>([]);
   const [lightboxOpen, setLightboxOpen] = useState(false);
   const [lightboxIndex, setLightboxIndex] = useState(0);
+  const nestedDialogTriggerRef = useRef<HTMLElement | null>(null);
+  const lightboxTriggerRef = useRef<HTMLElement | null>(null);
 
   const { data: userDetail, isLoading, isError } = useQuery({
     queryKey: ['admin-user-detail', userId],
@@ -269,9 +271,33 @@ const AdminUserDetailDrawer = ({ userId, onClose }: AdminUserDetailDrawerProps) 
 
   const displayPhotos = refreshedPhotos.length > 0 ? refreshedPhotos : profile?.photos || [];
 
-  const openLightbox = (index: number) => {
+  const restoreNestedDialogFocus = () => {
+    const trigger = nestedDialogTriggerRef.current;
+    nestedDialogTriggerRef.current = null;
+    window.requestAnimationFrame(() => trigger?.focus());
+  };
+
+  const openNestedDialog = (open: () => void, trigger: HTMLElement | null) => {
+    nestedDialogTriggerRef.current = trigger;
+    open();
+  };
+
+  const closeNestedDialog = (close: () => void) => {
+    close();
+    restoreNestedDialogFocus();
+  };
+
+  const openLightbox = (index: number, trigger: HTMLElement | null) => {
+    lightboxTriggerRef.current = trigger;
     setLightboxIndex(index);
     setLightboxOpen(true);
+  };
+
+  const closeLightbox = () => {
+    setLightboxOpen(false);
+    const trigger = lightboxTriggerRef.current;
+    lightboxTriggerRef.current = null;
+    window.requestAnimationFrame(() => trigger?.focus());
   };
 
   return (
@@ -304,7 +330,7 @@ const AdminUserDetailDrawer = ({ userId, onClose }: AdminUserDetailDrawerProps) 
             <Button
               variant="outline"
               size="sm"
-              onClick={() => setShowProfilePreview(true)}
+              onClick={(event) => openNestedDialog(() => setShowProfilePreview(true), event.currentTarget)}
               className="gap-2 shrink-0"
             >
               <Eye className="w-4 h-4" />
@@ -313,7 +339,7 @@ const AdminUserDetailDrawer = ({ userId, onClose }: AdminUserDetailDrawerProps) 
             <Button
               variant="outline"
               size="sm"
-              onClick={() => setShowMatchMessages(true)}
+              onClick={(event) => openNestedDialog(() => setShowMatchMessages(true), event.currentTarget)}
               className="gap-2 shrink-0"
             >
               <MessagesSquare className="w-4 h-4" />
@@ -322,7 +348,7 @@ const AdminUserDetailDrawer = ({ userId, onClose }: AdminUserDetailDrawerProps) 
             <Button
               variant="outline"
               size="sm"
-              onClick={() => setShowGrantCredits(true)}
+              onClick={(event) => openNestedDialog(() => setShowGrantCredits(true), event.currentTarget)}
               className="gap-2 text-primary border-primary/30 hover:bg-primary/10 shrink-0"
             >
               <Sparkles className="w-4 h-4" />
@@ -331,7 +357,7 @@ const AdminUserDetailDrawer = ({ userId, onClose }: AdminUserDetailDrawerProps) 
             <Button
               variant="outline"
               size="sm"
-              onClick={() => setShowPremiumModal(true)}
+              onClick={(event) => openNestedDialog(() => setShowPremiumModal(true), event.currentTarget)}
               className="gap-2 text-accent border-accent/30 hover:bg-accent/10 shrink-0"
             >
               <Crown className="w-4 h-4" />
@@ -340,7 +366,7 @@ const AdminUserDetailDrawer = ({ userId, onClose }: AdminUserDetailDrawerProps) 
             <Button
               variant="outline"
               size="sm"
-              onClick={() => setShowModeration(true)}
+              onClick={(event) => openNestedDialog(() => setShowModeration(true), event.currentTarget)}
               className="gap-2 text-yellow-500 border-yellow-500/30 hover:bg-yellow-500/10 shrink-0"
             >
               <Shield className="w-4 h-4" />
@@ -396,7 +422,7 @@ const AdminUserDetailDrawer = ({ userId, onClose }: AdminUserDetailDrawerProps) 
                         }
                       >
                         <Crown className="w-3 h-3 mr-1" />
-                        {subscriptionTierLabel} {profile.premium_until ? `until ${format(new Date(profile.premium_until), 'MMM d, yyyy')}` : '(forever)'}
+                        {subscriptionTierLabel} {profile.premium_until ? `until ${formatAdminUtcDate(profile.premium_until)}` : '(forever)'}
                       </Badge>
                     )}
                     {subscriptionTier === "free" && (
@@ -482,7 +508,7 @@ const AdminUserDetailDrawer = ({ userId, onClose }: AdminUserDetailDrawerProps) 
                       <div>
                         <p className="text-muted-foreground">Birthday</p>
                         <p className="text-foreground">
-                          {profile.birth_date ? format(new Date(profile.birth_date), 'MMM d, yyyy') : 'N/A'}
+                          {profile.birth_date ? formatAdminUtcDate(profile.birth_date, "N/A") : 'N/A'}
                         </p>
                       </div>
                       <div>
@@ -533,7 +559,7 @@ const AdminUserDetailDrawer = ({ userId, onClose }: AdminUserDetailDrawerProps) 
                       <div>
                         <p className="text-muted-foreground">Created</p>
                         <p className="text-foreground">
-                          {format(new Date(profile.created_at), 'MMM d, yyyy HH:mm')}
+                          {formatAdminUtcDateTime(profile.created_at)}
                         </p>
                       </div>
                       <div>
@@ -579,12 +605,14 @@ const AdminUserDetailDrawer = ({ userId, onClose }: AdminUserDetailDrawerProps) 
                 <TabsContent value="photos" className="mt-4">
                   <div className="grid grid-cols-3 gap-2">
                     {displayPhotos.map((photo: string, i: number) => (
-                      <motion.div
+                      <motion.button
                         key={i}
-                        className="aspect-square rounded-xl overflow-hidden bg-secondary/50 cursor-pointer relative group"
+                        type="button"
+                        className="aspect-square rounded-xl overflow-hidden bg-secondary/50 cursor-pointer relative group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background"
                         whileHover={{ scale: 1.02 }}
                         whileTap={{ scale: 0.98 }}
-                        onClick={() => openLightbox(i)}
+                        onClick={(event) => openLightbox(i, event.currentTarget)}
+                        aria-label={`Open photo ${i + 1} for ${profile.name || "user"}`}
                       >
                         <img
                           src={photo}
@@ -598,7 +626,7 @@ const AdminUserDetailDrawer = ({ userId, onClose }: AdminUserDetailDrawerProps) 
                         <div className="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-colors flex items-center justify-center opacity-0 group-hover:opacity-100">
                           <ZoomIn className="w-6 h-6 text-white" />
                         </div>
-                      </motion.div>
+                      </motion.button>
                     ))}
                     {displayPhotos.length === 0 && (
                       <div className="col-span-3 text-center py-8 text-muted-foreground">
@@ -683,7 +711,7 @@ const AdminUserDetailDrawer = ({ userId, onClose }: AdminUserDetailDrawerProps) 
                               {partner?.name || 'Unknown'}
                             </p>
                             <p className="text-xs text-muted-foreground">
-                              {format(new Date(drop.created_at), 'MMM d, yyyy')}
+                              {formatAdminUtcDate(drop.created_at)}
                             </p>
                           </div>
                           <Badge
@@ -734,7 +762,7 @@ const AdminUserDetailDrawer = ({ userId, onClose }: AdminUserDetailDrawerProps) 
                               {otherUser?.name || 'Unknown'}
                             </p>
                             <p className="text-xs text-muted-foreground">
-                              Matched {format(new Date(match.matched_at), 'MMM d, yyyy')}
+                              Matched {formatAdminUtcDate(match.matched_at)}
                             </p>
                           </div>
                           <Heart className="w-4 h-4 text-pink-400" />
@@ -763,7 +791,7 @@ const AdminUserDetailDrawer = ({ userId, onClose }: AdminUserDetailDrawerProps) 
           userName={profile.name || 'User'}
           moderation={moderation}
           isOpen={showModeration}
-          onClose={() => setShowModeration(false)}
+          onClose={() => closeNestedDialog(() => setShowModeration(false))}
         />
       )}
 
@@ -772,7 +800,7 @@ const AdminUserDetailDrawer = ({ userId, onClose }: AdminUserDetailDrawerProps) 
         profile={profile}
         vibes={vibes}
         isOpen={showProfilePreview}
-        onClose={() => setShowProfilePreview(false)}
+        onClose={() => closeNestedDialog(() => setShowProfilePreview(false))}
       />
 
       {/* Match Messages Drawer */}
@@ -781,7 +809,7 @@ const AdminUserDetailDrawer = ({ userId, onClose }: AdminUserDetailDrawerProps) 
           userId={userId}
           userName={profile.name || 'User'}
           isOpen={showMatchMessages}
-          onClose={() => setShowMatchMessages(false)}
+          onClose={() => closeNestedDialog(() => setShowMatchMessages(false))}
         />
       )}
 
@@ -790,7 +818,7 @@ const AdminUserDetailDrawer = ({ userId, onClose }: AdminUserDetailDrawerProps) 
         photos={displayPhotos}
         initialIndex={lightboxIndex}
         isOpen={lightboxOpen}
-        onClose={() => setLightboxOpen(false)}
+        onClose={closeLightbox}
       />
 
       {/* Grant Credits Modal */}
@@ -800,7 +828,7 @@ const AdminUserDetailDrawer = ({ userId, onClose }: AdminUserDetailDrawerProps) 
           userName={profile.name || 'User'}
           currentCredits={credits}
           isOpen={showGrantCredits}
-          onClose={() => setShowGrantCredits(false)}
+          onClose={() => closeNestedDialog(() => setShowGrantCredits(false))}
         />
       )}
 
@@ -814,7 +842,8 @@ const AdminUserDetailDrawer = ({ userId, onClose }: AdminUserDetailDrawerProps) 
           currentPremiumUntil={profile.premium_until || null}
           history={premiumHistory}
           isOpen={showPremiumModal}
-          onClose={() => setShowPremiumModal(false)}
+          onClose={() => closeNestedDialog(() => setShowPremiumModal(false))}
+          onReopen={() => setShowPremiumModal(true)}
         />
       )}
     </>

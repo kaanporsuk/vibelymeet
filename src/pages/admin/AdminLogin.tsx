@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { supabase } from "@/integrations/supabase/client";
-import { toast } from "sonner";
+import { adminToast } from "@/lib/adminToast";
 
 type AdminSessionVerification =
   | { status: "admin" }
@@ -43,7 +43,6 @@ const verifyAdminSession = async (accessToken?: string | null) => {
       if (status === 403) {
         return { status: "not_admin", message: "This account does not have admin privileges." } satisfies AdminSessionVerification;
       }
-      console.error("Admin verification failed");
       return { status: "verification_failed", message: "Could not verify admin access. Try again." } satisfies AdminSessionVerification;
     }
 
@@ -52,8 +51,7 @@ const verifyAdminSession = async (accessToken?: string | null) => {
       status: data?.status === "unauthenticated" ? "unauthenticated" : "not_admin",
       message: typeof data?.message === "string" ? data.message : "This account does not have admin privileges.",
     } satisfies AdminSessionVerification;
-  } catch (err) {
-    console.error("Admin verification request failed:", err);
+  } catch {
     return { status: "verification_failed", message: "Could not reach admin verification. Try again." } satisfies AdminSessionVerification;
   }
 };
@@ -79,13 +77,24 @@ const AdminLogin = () => {
           }
           if (verification.status === "not_admin" || verification.status === "unauthenticated") {
             await supabase.auth.signOut();
-            toast.error("Admin access required", { description: verification.message });
+            adminToast.error({
+              id: "admin-login-existing-session-denied",
+              title: "Admin access required",
+              description: verification.message,
+            });
           } else {
-            toast.error("Admin verification failed", { description: verification.message });
+            adminToast.error({
+              id: "admin-login-existing-session-verify-failed",
+              title: "Admin verification failed",
+              description: verification.message,
+            });
           }
         }
-      } catch (err) {
-        console.error("Admin session check failed:", err);
+      } catch {
+        adminToast.error({
+          id: "admin-login-session-check-failed",
+          title: "Admin session check failed",
+        });
       } finally {
         setIsCheckingAuth(false);
       }
@@ -104,7 +113,11 @@ const AdminLogin = () => {
       });
 
       if (error) {
-        toast.error("Login failed", { description: error.message });
+        adminToast.error({
+          id: "admin-login-auth-failed",
+          title: "Login failed",
+          description: error.message,
+        });
         setIsLoading(false);
         return;
       }
@@ -113,19 +126,27 @@ const AdminLogin = () => {
         const verification = await verifyAdminSession(data.session?.access_token);
         if (verification.status !== "admin") {
           await supabase.auth.signOut();
-          toast.error(
-            verification.status === "verification_failed" ? "Could not verify access" : "Access Denied",
-            { description: verification.message },
-          );
+          adminToast.error({
+            id: verification.status === "verification_failed" ? "admin-login-verify-failed" : "admin-login-access-denied",
+            title: verification.status === "verification_failed" ? "Could not verify access" : "Access Denied",
+            description: verification.message,
+          });
           setIsLoading(false);
           return;
         }
 
-        toast.success("Welcome back, Admin!");
+        adminToast.success({
+          id: "admin-login-success",
+          title: "Welcome back, Admin!",
+        });
         navigate('/kaan/dashboard');
       }
     } catch (err) {
-      toast.error("An error occurred");
+      adminToast.error({
+        id: "admin-login-unexpected-error",
+        title: "An error occurred",
+        description: err instanceof Error ? err.message : undefined,
+      });
     } finally {
       setIsLoading(false);
     }

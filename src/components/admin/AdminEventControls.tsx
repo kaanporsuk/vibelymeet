@@ -2,12 +2,12 @@ import { useState } from "react";
 import { motion } from "framer-motion";
 import { StopCircle, Plus, Bell } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import AdminConfirmDialog from "./AdminConfirmDialog";
 import { callAdminRpc, createAdminTargetIdempotencyKey } from "@/lib/adminRpc";
-import { format } from "date-fns";
+import { formatAdminUtcTime } from "@/lib/adminTime";
+import { adminToast } from "@/lib/adminToast";
 
 interface AdminEventControlsProps {
   eventId: string;
@@ -80,9 +80,15 @@ const AdminEventControls = ({
       queryClient.invalidateQueries({ queryKey: ["admin-events"] });
       queryClient.invalidateQueries({ queryKey: ["events"] });
       queryClient.invalidateQueries({ queryKey: ["visible-events"] });
-      toast.success(`"${eventTitle}" has been ended`);
+      adminToast.success({
+        id: `event-ended-${eventId}`,
+        title: `"${eventTitle}" has been ended`,
+      });
     },
-    onError: () => toast.error("Failed to end event"),
+    onError: () => adminToast.error({
+      id: `event-end-failed-${eventId}`,
+      title: "Failed to end event",
+    }),
   });
 
   const extendEvent = useMutation({
@@ -101,9 +107,15 @@ const AdminEventControls = ({
     onSuccess: (extraMinutes) => {
       queryClient.invalidateQueries({ queryKey: ["admin-events"] });
       queryClient.invalidateQueries({ queryKey: ["events"] });
-      toast.success(`Extended "${eventTitle}" by ${extraMinutes} minutes`);
+      adminToast.success({
+        id: `event-extended-${eventId}`,
+        title: `Extended "${eventTitle}" by ${extraMinutes} minutes`,
+      });
     },
-    onError: () => toast.error("Failed to extend event"),
+    onError: () => adminToast.error({
+      id: `event-extend-failed-${eventId}`,
+      title: "Failed to extend event",
+    }),
   });
 
   const normalizedRawStatus = rawStatus?.toLowerCase() || "";
@@ -118,7 +130,7 @@ const AdminEventControls = ({
   const showWrapUpGrace = isComputedEnded && isInFinalizationGrace && !endedAt;
   const showGoLive = normalizedComputedStatus === "live" && normalizedRawStatus !== "live";
   const reminderCooldown = reminderSentAt && Date.now() - reminderSentAt < 15 * 60 * 1000;
-  const autoFinalizeLabel = autoFinalizeAt ? format(autoFinalizeAt, "h:mm a") : null;
+  const autoFinalizeLabel = autoFinalizeAt ? formatAdminUtcTime(autoFinalizeAt) : null;
 
   const handleGoLive = async () => {
     setIsGoingLive(true);
@@ -133,13 +145,18 @@ const AdminEventControls = ({
       });
       queryClient.invalidateQueries({ queryKey: ["admin-events"] });
       queryClient.invalidateQueries({ queryKey: ["events"] });
-      toast.success(`"${eventTitle}" is live`, {
+      adminToast.success({
+        id: `event-go-live-${eventId}`,
+        title: `"${eventTitle}" is live`,
         description: payload.notifications_not_queued
           ? "Backend lifecycle update succeeded. User notifications were not queued by the event lifecycle backend."
           : undefined,
       });
     } catch (error) {
-      toast.error("Failed to set event live");
+      adminToast.error({
+        id: `event-go-live-failed-${eventId}`,
+        title: "Failed to set event live",
+      });
       throw error;
     } finally {
       setIsGoingLive(false);
@@ -158,13 +175,18 @@ const AdminEventControls = ({
         }),
       });
       setReminderSentAt(Date.now());
-      toast.success("Reminder request recorded", {
+      adminToast.success({
+        id: `event-control-reminder-recorded-${eventId}`,
+        title: "Reminder request recorded",
         description: payload.notifications_not_queued
           ? "No user notifications were queued because a backend dispatcher did not handle this reminder."
           : undefined,
       });
     } catch {
-      toast.error("Failed to send reminder");
+      adminToast.error({
+        id: `event-control-reminder-failed-${eventId}`,
+        title: "Failed to send reminder",
+      });
       throw new Error("Failed to send reminder");
     } finally {
       setIsSendingReminder(false);
