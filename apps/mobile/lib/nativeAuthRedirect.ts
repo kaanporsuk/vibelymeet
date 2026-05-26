@@ -6,6 +6,7 @@ import {
   parseSupabaseAuthReturnUrl,
   type PasswordRecoveryStatus,
 } from '@shared/authRedirect';
+import { safeAuthErrorMessage } from '@clientShared/authErrorCopy';
 
 const GOOGLE_OAUTH_CALLBACK_PATH = 'auth/callback';
 const ROOT_PATH = '/';
@@ -47,6 +48,10 @@ export type NativeAuthRedirectResult = {
   error: Error | null;
 };
 
+function authRedirectError(error: unknown, fallback: string): Error {
+  return new Error(safeAuthErrorMessage(error, fallback));
+}
+
 export async function completeSessionFromAuthReturnUrl(
   supabase: SupabaseClient,
   url: string,
@@ -82,7 +87,7 @@ export async function completeSessionFromAuthReturnUrl(
       handled: true,
       recovery,
       recoveryStatus: recovery ? 'invalid' : 'none',
-      error: new Error(authReturn.authError),
+      error: authRedirectError({ message: authReturn.authError }, 'Could not complete sign-in. Try again.'),
     };
   }
 
@@ -92,7 +97,7 @@ export async function completeSessionFromAuthReturnUrl(
       handled: true,
       recovery,
       recoveryStatus: recovery ? (error ? 'invalid' : 'ready') : 'none',
-      error: error ? new Error(error.message) : null,
+      error: error ? authRedirectError(error, 'Could not complete sign-in. Try again.') : null,
     };
   }
 
@@ -105,7 +110,7 @@ export async function completeSessionFromAuthReturnUrl(
       handled: true,
       recovery,
       recoveryStatus: error ? 'invalid' : 'ready',
-      error: error ? new Error(error.message) : null,
+      error: error ? authRedirectError(error, 'That recovery link is invalid or expired.') : null,
     };
   }
 
@@ -118,7 +123,7 @@ export async function completeSessionFromAuthReturnUrl(
       handled: true,
       recovery,
       recoveryStatus: recovery ? (error ? 'invalid' : 'ready') : 'none',
-      error: error ? new Error(error.message) : null,
+      error: error ? authRedirectError(error, 'Could not complete sign-in. Try again.') : null,
     };
   }
 

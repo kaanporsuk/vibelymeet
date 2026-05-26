@@ -9,6 +9,7 @@ import {
   parseSupabaseAuthReturnUrl,
   type PasswordRecoveryStatus,
 } from "@shared/authRedirect";
+import { safeAuthErrorMessage } from "@clientShared/authErrorCopy";
 
 export type WebPasswordRecoveryState = {
   status: PasswordRecoveryStatus;
@@ -228,6 +229,15 @@ function passwordRecoveryFallbackError(): Error {
   );
 }
 
+function passwordRecoveryAuthError(error: unknown): Error {
+  return new Error(
+    safeAuthErrorMessage(
+      error,
+      "We couldn't confirm that reset link. Request a fresh password reset email and try again.",
+    ),
+  );
+}
+
 export async function completeWebPasswordRecoveryFromUrl(
   url: string,
 ): Promise<WebPasswordRecoveryResult> {
@@ -249,7 +259,7 @@ export async function completeWebPasswordRecoveryFromUrl(
     return {
       handled: true,
       recovery: true,
-      error: new Error(parsed.authError),
+      error: passwordRecoveryAuthError({ message: parsed.authError }),
       sessionUserId: null,
     };
   }
@@ -267,7 +277,7 @@ export async function completeWebPasswordRecoveryFromUrl(
         return {
           handled: true,
           recovery: true,
-          error: new Error(error.message),
+          error: passwordRecoveryAuthError(error),
           sessionUserId: null,
         };
       }
@@ -335,7 +345,7 @@ export async function completeWebPasswordRecoveryFromUrl(
       return {
         handled: true,
         recovery: true,
-        error: error ? new Error(error.message) : passwordRecoveryFallbackError(),
+        error: error ? passwordRecoveryAuthError(error) : passwordRecoveryFallbackError(),
         sessionUserId: null,
       };
     }
@@ -358,7 +368,7 @@ export async function completeWebPasswordRecoveryFromUrl(
       return {
         handled: true,
         recovery: true,
-        error: error ? new Error(error.message) : passwordRecoveryFallbackError(),
+        error: error ? passwordRecoveryAuthError(error) : passwordRecoveryFallbackError(),
         sessionUserId: null,
       };
     }

@@ -27,6 +27,7 @@ import {
 } from "@shared/authConflictMessages";
 import { applyBrowserReferralAttribution, captureBrowserReferral } from "@/lib/referrals";
 import { validatePasswordPolicy, passwordPolicyMessage } from "@clientShared/passwordPolicy";
+import { mapPhoneOtpSendError, safeAuthErrorMessage } from "@clientShared/authErrorCopy";
 
 type AuthView =
   | "welcome"
@@ -37,16 +38,7 @@ type AuthView =
   | "success";
 
 function getAuthErrorMessage(error: unknown, fallback: string): string {
-  if (error instanceof Error && error.message) return error.message;
-  if (
-    typeof error === "object" &&
-    error !== null &&
-    "message" in error &&
-    typeof error.message === "string"
-  ) {
-    return error.message;
-  }
-  return fallback;
+  return safeAuthErrorMessage(error, fallback);
 }
 
 const Auth = () => {
@@ -103,7 +95,7 @@ const Auth = () => {
       const prov = pendingOAuthProviderRef.current ?? "google";
       const ctx = prov === "apple" ? "apple" : "google";
       const { message } = mapAuthConflictError({ message: oauthErr }, ctx);
-      setError(message || oauthErr);
+      setError(message || safeAuthErrorMessage({ message: oauthErr }, "Could not complete sign-in. Try again."));
       setView("welcome");
       setOtpError(null);
       pendingOAuthProviderRef.current = null;
@@ -129,7 +121,7 @@ const Auth = () => {
         if (hashErr) {
           const ctx = oauthProv === "apple" ? "apple" : "google";
           const { message } = mapAuthConflictError({ message: hashErr }, ctx);
-          setError(message || hashErr);
+          setError(message || safeAuthErrorMessage({ message: hashErr }, "Could not complete sign-in. Try again."));
         } else {
           setError("Could not complete sign-in. Try again.");
         }
@@ -285,7 +277,7 @@ const Auth = () => {
       if (conflict.message) {
         setError(conflict.message);
       } else {
-        setError(getAuthErrorMessage(err, "Something went wrong. Please try again."));
+        setError(mapPhoneOtpSendError(err));
       }
     } finally {
       setLoading(false);
@@ -332,7 +324,7 @@ const Auth = () => {
     } catch (err: unknown) {
       const conflict = mapAuthConflictError(err, "phone_otp_resend");
       setOtpError(
-        conflict.message || "Could not resend code. Please try again in a moment."
+        conflict.message || mapPhoneOtpSendError(err)
       );
     } finally {
       setLoading(false);

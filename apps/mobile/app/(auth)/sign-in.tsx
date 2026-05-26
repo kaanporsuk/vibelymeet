@@ -18,13 +18,14 @@ import { startNativeGoogleOAuth } from '@/lib/nativeGoogleOAuth';
 import { ensureProfileReady } from '@/lib/profileBootstrap';
 import { getNativeEmailSignUpRedirectUrl } from '@/lib/nativeAuthRedirect';
 import { getDefaultPhoneCountry, isValidSignInPhone } from '@/lib/phoneSignInNormalize';
+import { authErrorDebugInfo, mapPhoneOtpSendError, safeAuthErrorMessage } from '@clientShared/authErrorCopy';
 import { buildAppleNameMetadataPatch, createAppleAuthNoncePair, logAppleNonceDebug } from '@/lib/appleAuth';
 import { mapAuthConflictError } from '@shared/authConflictMessages';
 import { KeyboardAwareBottomSheetModal } from '@/components/keyboard/KeyboardAwareBottomSheetModal';
 import { validatePasswordPolicy, passwordPolicyMessage } from '@clientShared/passwordPolicy';
 
 function errorMessage(error: unknown, fallback: string): string {
-  return error instanceof Error ? error.message : fallback;
+  return safeAuthErrorMessage(error, fallback);
 }
 
 function errorCode(error: unknown): string | undefined {
@@ -59,30 +60,6 @@ function isAppleAuthCancelled(error: unknown): boolean {
   return /AuthorizationError(?:\s+error)?\s+1001|ASAuthorizationController credential request failed/i.test(
     errorMessage(error, ''),
   );
-}
-
-function errorStatus(error: unknown): number | undefined {
-  return typeof error === 'object' && error !== null && 'status' in error
-    ? Number((error as { status?: unknown }).status)
-    : undefined;
-}
-
-function mapPhoneOtpSendError(e: unknown): string {
-  const msg = errorMessage(e, '');
-  const lower = msg.toLowerCase();
-  if (/phone.*not.*enabled|sms.*not|provider|not supported/i.test(msg)) {
-    return 'Phone sign-in isn’t available on this app build. Try email or another method, or contact support.';
-  }
-  if (/invalid.*phone|malformed|format|e\.164/i.test(msg)) {
-    return 'That number doesn’t look valid for the selected country. Use digits only and skip the leading 0.';
-  }
-  if (/rate|too many|flood|429/i.test(lower) || errorStatus(e) === 429) {
-    return 'Too many attempts. Wait a few minutes, then try again.';
-  }
-  if ((/otp|sms|send|text/i.test(lower) && /fail|error|unable/i.test(lower)) || /confirmation/i.test(lower)) {
-    return 'We couldn’t send a code to this number. Check the number and your connection, then try again.';
-  }
-  return msg || 'Couldn’t send the code. Try again.';
 }
 
 /** Dev-only: never log full numbers; keep enough to verify country + length. */
@@ -307,7 +284,7 @@ export default function SignInScreen() {
     handledAuthLinkErrorRef.current = authLinkError;
     setLoading(false);
     setView('welcome');
-    setError(authLinkError);
+    setError(safeAuthErrorMessage({ message: authLinkError }, 'Could not complete sign-in. Try again.'));
   }, [authLinkError]);
 
   useEffect(() => {
@@ -385,9 +362,7 @@ export default function SignInScreen() {
       const { data, error: otpError } = await supabase.auth.signInWithOtp({ phone: e164 });
       logPhoneOtpDebug('signInWithOtp response', e164, {
         hasError: !!otpError,
-        errorMessage: otpError?.message ?? null,
-        errorCode: (otpError as { code?: string } | null)?.code ?? null,
-        errorStatus: (otpError as { status?: number } | null)?.status ?? null,
+        error: otpError ? authErrorDebugInfo(otpError) : null,
         hasData: data != null,
         dataUser: !!data?.user,
         dataSession: !!data?.session,
@@ -449,8 +424,7 @@ export default function SignInScreen() {
       const { data, error: otpError } = await supabase.auth.signInWithOtp({ phone: phoneForOtp });
       logPhoneOtpDebug('signInWithOtp resend', phoneForOtp, {
         hasError: !!otpError,
-        errorMessage: otpError?.message ?? null,
-        errorCode: (otpError as { code?: string } | null)?.code ?? null,
+        error: otpError ? authErrorDebugInfo(otpError) : null,
         hasData: data != null,
       });
       if (otpError) throw otpError;
@@ -555,7 +529,7 @@ export default function SignInScreen() {
       if (cancelled) return;
       if (oauthErr) {
         const conflict = mapAuthConflictError(oauthErr, 'google');
-        setError(conflict.message || String(oauthErr.message || 'Google sign-in failed.'));
+        setError(conflict.message || safeAuthErrorMessage(oauthErr, 'Google sign-in failed.'));
         return;
       }
       trackEvent('auth_social_completed', { provider: 'google', platform: 'native' });
