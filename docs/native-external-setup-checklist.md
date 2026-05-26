@@ -31,6 +31,7 @@ Exact checklist for external provider and store setup required before TestFlight
 | `STRIPE_SECRET_KEY` | stripe-webhook, create-checkout-session, etc. | Already set. |
 | `STRIPE_WEBHOOK_SECRET` | stripe-webhook | Already set. |
 | `REVENUECAT_WEBHOOK_AUTHORIZATION` | revenuecat-webhook | Set to a shared secret; configure the **same value** as the Authorization header in RevenueCat dashboard webhook. Use a long random string (e.g. `openssl rand -hex 32`). |
+| `REVENUECAT_SECRET_API_KEY` | sync-revenuecat-subscriber, process-admin-durable-jobs | RevenueCat secret API key for server-side subscriber sync and account-deletion provider cleanup. |
 
 ---
 
@@ -60,6 +61,7 @@ The following must be done in RevenueCat and Supabase before TestFlight/Play or 
 
 - [ ] Deploy Edge Function: `supabase functions deploy revenuecat-webhook`.
 - [ ] Set secret: `REVENUECAT_WEBHOOK_AUTHORIZATION` to the same value configured as the Authorization header in the RevenueCat webhook.
+- [ ] Set secret: `REVENUECAT_SECRET_API_KEY` so authenticated restore sync and durable account-deletion cleanup can call RevenueCat server APIs.
 - [ ] Migrations applied so `subscriptions` has `provider` and trigger updates `profiles.is_premium` (see §1).
 
 ### 2.3 App-side

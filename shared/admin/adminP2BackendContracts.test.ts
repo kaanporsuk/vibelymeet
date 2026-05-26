@@ -56,6 +56,9 @@ const adminHardeningGapClosureMigration = read(
 const reviewComments1071To1081FollowupMigration = read(
   "supabase/migrations/20260526093000_review_comments_1071_1081_followups.sql",
 );
+const adminGapClosureDefinitiveMigration = read(
+  "supabase/migrations/20260526100000_admin_gap_closure_definitive.sql",
+);
 const tierConfigAuthorityMigration = read("supabase/migrations/20260507190000_tier_config_backend_authority.sql");
 const tierConfigConcurrencyRepairMigration = read(
   "supabase/migrations/20260507193000_tier_config_backend_authority_concurrency_repair.sql",
@@ -533,7 +536,14 @@ test("Sprint 2 account deletion completion is durable and cannot bypass hard-del
   assert.match(processAdminDurableJobsFunction, /activeStripeSubscriptionsForCustomer/);
   assert.match(processAdminDurableJobsFunction, /stripe_provider_identity_missing/);
   assert.match(processAdminDurableJobsFunction, /stripe_rows_missing_subscription_id/);
-  assert.match(processAdminDurableJobsFunction, /revenuecat_subscriptions_revoked_locally/);
+  assert.match(processAdminDurableJobsFunction, /deleteRevenueCatSubscriber/);
+  assert.match(processAdminDurableJobsFunction, /REVENUECAT_SECRET_API_KEY/);
+  assert.match(processAdminDurableJobsFunction, /revenuecat_not_configured/);
+  assert.match(processAdminDurableJobsFunction, /revenuecat_provider_identity_missing/);
+  assert.match(processAdminDurableJobsFunction, /revenuecat_cleanup_mode/);
+  assert.match(processAdminDurableJobsFunction, /revenuecat_subscribers_deleted/);
+  assert.match(processAdminDurableJobsFunction, /revenuecat_provider_ids/);
+  assert.doesNotMatch(processAdminDurableJobsFunction, /revenuecat_subscriptions_revoked_locally/);
   assert.match(processAdminDurableJobsFunction, /local_subscription_rows_cancelled/);
   assert.match(processAdminDurableJobsFunction, /subscription_entitlement_recompute_failed/);
 });
@@ -550,6 +560,22 @@ test("admin durable job realtime tables have explicit grants and completed delet
   assert.match(adminHardeningGapClosureMigration, /v_hard_delete_evidence_complete/);
   assert.match(adminHardeningGapClosureMigration, /'legacy_checkpoint', COALESCE\(v_job\.legacy_checkpoint, false\)/);
   assert.match(adminHardeningGapClosureMigration, /auth_user_deleted', v_hard_delete_evidence_complete/);
+});
+
+test("definitive durable worker health and manual retry contracts are exposed", () => {
+  assert.match(adminGapClosureDefinitiveMigration, /CREATE TABLE IF NOT EXISTS public\.admin_durable_worker_runs/);
+  assert.match(adminGapClosureDefinitiveMigration, /CREATE OR REPLACE FUNCTION public\.admin_get_admin_durable_job_health/);
+  assert.match(adminGapClosureDefinitiveMigration, /cron_job_present/);
+  assert.match(adminGapClosureDefinitiveMigration, /oldest_pending_or_failed/);
+  assert.match(adminGapClosureDefinitiveMigration, /blocked_count/);
+  assert.match(adminGapClosureDefinitiveMigration, /stale_processing_count/);
+  assert.match(adminGapClosureDefinitiveMigration, /CREATE OR REPLACE FUNCTION public\.admin_retry_support_reply_delivery_job/);
+  assert.match(adminGapClosureDefinitiveMigration, /CREATE OR REPLACE FUNCTION public\.admin_retry_account_deletion_completion_job/);
+  assert.match(adminGapClosureDefinitiveMigration, /support\.reply_delivery_retry_queued/);
+  assert.match(adminGapClosureDefinitiveMigration, /account_deletion\.completion_job_retry_queued/);
+  assert.match(processAdminDurableJobsFunction, /recordWorkerRunStart/);
+  assert.match(processAdminDurableJobsFunction, /recordWorkerRunFinish/);
+  assert.match(processAdminDurableJobsFunction, /admin_durable_worker_runs/);
 });
 
 test("Sprint 2 support replies enqueue retryable delivery jobs instead of request-bound side effects", () => {
@@ -602,6 +628,9 @@ test("Sprint 2 audit reads and exports are themselves audited with enriched colu
   assert.match(sprint2DurableWorkflowsMigration, /meta_audit_log_id/);
   assert.match(sprint2DurableWorkflowsMigration, /admin_audit_logs\.exported/);
   assert.match(sprint2DurableWorkflowsMigration, /trg_audit_admin_audit_log_export_job/);
+  assert.match(adminGapClosureDefinitiveMigration, /p_include_meta boolean DEFAULT false/);
+  assert.match(adminGapClosureDefinitiveMigration, /al\.action_type NOT IN \('admin_audit_logs\.searched', 'admin_audit_logs\.exported'\)/);
+  assert.match(adminGapClosureDefinitiveMigration, /'include_meta', p_include_meta/);
 });
 
 test("public admin data interface includes explicit role/session invalidation events", () => {

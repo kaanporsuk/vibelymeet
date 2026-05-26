@@ -33,6 +33,10 @@ const profileDirectPrivacyMigration = readFileSync(
   join(root, "supabase/migrations/20260517123000_profile_direct_select_self_only.sql"),
   "utf8"
 );
+const adminGapClosureDefinitiveMigration = readFileSync(
+  join(root, "supabase/migrations/20260526100000_admin_gap_closure_definitive.sql"),
+  "utf8"
+);
 
 function section(source: string, startMarker: string, endMarker: string): string {
   const start = source.indexOf(startMarker);
@@ -43,12 +47,19 @@ function section(source: string, startMarker: string, endMarker: string): string
 }
 
 test("admin events query uses the admin read model RPC", () => {
-  const query = section(adminEventsPanel, "queryKey: ['admin-events'", "// Unique cities");
+  const query = section(adminEventsPanel, "queryKey: ['admin-events'", "// Filtered events are now server-side paginated");
 
   assert.match(query, /callAdminRpc<AdminEventsPayload>\("admin_list_events"/);
   assert.match(query, /p_filters/);
+  assert.match(query, /debouncedSearchQuery/);
   assert.match(query, /show_archived: showArchived/);
-  assert.match(query, /p_limit: 1000/);
+  assert.match(query, /status: statusFilter === "all" \? null : statusFilter/);
+  assert.match(query, /scope: scopeFilter === "all" \? null : scopeFilter/);
+  assert.match(query, /city: cityFilter === "all" \? null : cityFilter\.trim\(\) \|\| null/);
+  assert.match(query, /date_from: dateFrom \|\| null/);
+  assert.match(query, /date_to: dateTo \|\| null/);
+  assert.match(query, /p_limit: EVENTS_PAGE_SIZE/);
+  assert.match(query, /p_offset: pageIndex \* EVENTS_PAGE_SIZE/);
   assert.doesNotMatch(query, /\.from\(['"]events['"]\)/);
   assert.doesNotMatch(query, /\.select\(['"]\*['"]\)/);
   assert.doesNotMatch(query, /\.update\s*\(/);
@@ -101,28 +112,43 @@ test("admin event controls receive raw and computed lifecycle state", () => {
 test("admin event computed lifecycle refreshes while the panel stays open", () => {
   assert.match(adminEventsPanel, /const \[lifecycleNowMs, setLifecycleNowMs\] = useState\(\(\) => Date\.now\(\)\)/);
   assert.match(adminEventsPanel, /window\.setInterval\(\(\) => setLifecycleNowMs\(Date\.now\(\)\), 30_000\)/);
-  assert.match(adminEventsPanel, /getAdminStatusDisplay\(event, lifecycleNowMs\)/);
-  assert.match(adminEventsPanel, /\[events, lifecycleNowMs, statusFilter, scopeFilter, cityFilter, dateFrom, dateTo\]/);
+  assert.match(adminEventsPanel, /const lifecycleMinuteBucket = Math\.floor\(lifecycleNowMs \/ 60_000\)/);
+  assert.match(adminEventsPanel, /const lifecycleQueryBucket = TIME_SENSITIVE_STATUS_FILTERS\.has\(statusFilter\) \? lifecycleMinuteBucket : "static"/);
+  assert.match(adminEventsPanel, /lifecycleQueryBucket, pageIndex/);
+  assert.match(adminEventsPanel, /getLifecycleSnapshot\(event, lifecycleNowMs\)/);
 });
 
 test("admin event date filters and recurrence summaries use UTC dates", () => {
   const recurrenceHelpers = section(adminEventsPanel, "const UTC_DAYS_SHORT", "type CategoryUpdateInput");
-  const filterLogic = section(adminEventsPanel, "// Filtered events", "// Grouped by series");
+  const query = section(adminEventsPanel, "queryKey: ['admin-events'", "// Filtered events are now server-side paginated");
 
   assert.match(recurrenceHelpers, /getUTCDate\(\)/);
   assert.match(recurrenceHelpers, /getUTCDay\(\)/);
   assert.doesNotMatch(recurrenceHelpers, /\.getDate\(\)/);
   assert.doesNotMatch(recurrenceHelpers, /\.getDay\(\)/);
 
-  assert.match(filterLogic, /eventUtcDateKey\(event\.event_date\)/);
-  assert.match(filterLogic, /\(dateFrom \|\| dateTo\) && !eventDateKey/);
-  assert.match(filterLogic, /eventDateKey < dateFrom/);
-  assert.match(filterLogic, /eventDateKey > dateTo/);
-  assert.doesNotMatch(filterLogic, /new Date\(dateFrom\)/);
-  assert.doesNotMatch(filterLogic, /new Date\(dateTo/);
+  assert.match(query, /date_from: dateFrom \|\| null/);
+  assert.match(query, /date_to: dateTo \|\| null/);
+  assert.match(adminGapClosureDefinitiveMigration, /v_date_from::timestamp AT TIME ZONE 'UTC'/);
+  assert.match(adminGapClosureDefinitiveMigration, /\(v_date_to \+ 1\)::timestamp AT TIME ZONE 'UTC'/);
   assert.match(adminEventsPanel, /aria-label="Filter events from UTC date"/);
   assert.match(adminEventsPanel, /aria-label="Filter events to UTC date"/);
   assert.match(adminEventsPanel, /w-\[7\.5rem\] sm:w-36/);
+});
+
+test("admin events definitive gap closure migration owns server-side pagination filters", () => {
+  assert.match(adminGapClosureDefinitiveMigration, /CREATE OR REPLACE FUNCTION public\.admin_list_events/);
+  assert.match(adminGapClosureDefinitiveMigration, /v_limit integer := LEAST\(GREATEST\(COALESCE\(p_limit, 50\), 1\), 200\)/);
+  assert.match(adminGapClosureDefinitiveMigration, /v_status := NULLIF/);
+  assert.match(adminGapClosureDefinitiveMigration, /admin_status_display/);
+  assert.match(adminGapClosureDefinitiveMigration, /needs_finalization_repair/);
+  assert.match(adminGapClosureDefinitiveMigration, /wrap_up_grace/);
+  assert.match(adminGapClosureDefinitiveMigration, /v_scope IS NULL OR v_scope = 'all'/);
+  assert.match(adminGapClosureDefinitiveMigration, /v_city IS NULL OR v_city = 'all'/);
+  assert.match(adminGapClosureDefinitiveMigration, /lower\(btrim\(COALESCE\(e\.city, ''\)\)\) = lower\(v_city\)/);
+  assert.match(adminGapClosureDefinitiveMigration, /total_count/);
+  assert.match(adminEventsPanel, /EVENTS_PAGE_SIZE = 50/);
+  assert.match(adminEventsPanel, /Page \{pageIndex \+ 1\} of \{totalPages\}/);
 });
 
 test("expired computed events cannot be cancelled from the row menu", () => {

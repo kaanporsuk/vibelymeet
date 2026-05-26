@@ -28,7 +28,7 @@ import {
   type AdminRpcPayload,
 } from "@/lib/adminRpc";
 import { invalidateAdminQueries } from "@/lib/adminQueryInvalidation";
-import { formatAdminRelativeTime, formatAdminUtcDateTime } from "@/lib/adminTime";
+import { adminUtcDayStartIso, formatAdminRelativeTime, formatAdminUtcDateTime } from "@/lib/adminTime";
 import { adminToast } from "@/lib/adminToast";
 import { resolveAdminErrorMessage, resolveAdminFunctionErrorMessage } from "@/lib/adminErrorResolver";
 
@@ -87,6 +87,7 @@ const REJECTION_REASONS = [
 ];
 const SELFIE_URL_REFRESH_BEFORE_EXPIRY_MS = 5 * 60 * 1000;
 const SELFIE_URL_MIN_REFRESH_DELAY_MS = 30 * 1000;
+const SELFIE_SIGN_CONCURRENCY = 4;
 
 /** Avoid logging signed URL query tokens (bearer access) to the console. */
 function redactUrlForLog(url: string): string {
@@ -99,6 +100,51 @@ function redactUrlForLog(url: string): string {
   }
 }
 
+async function mapWithConcurrency<T, R>(
+  values: readonly T[],
+  concurrency: number,
+  mapper: (value: T, index: number) => Promise<R>,
+): Promise<Array<PromiseSettledResult<R>>> {
+  const results: Array<PromiseSettledResult<R>> = new Array(values.length);
+  let nextIndex = 0;
+  const workerCount = Math.min(Math.max(1, concurrency), values.length);
+
+  await Promise.all(
+    Array.from({ length: workerCount }, async () => {
+      while (nextIndex < values.length) {
+        const currentIndex = nextIndex;
+        nextIndex += 1;
+        const value = values[currentIndex] as T;
+        try {
+          results[currentIndex] = {
+            status: "fulfilled",
+            value: await mapper(value, currentIndex),
+          };
+        } catch (reason) {
+          results[currentIndex] = { status: "rejected", reason };
+        }
+      }
+    }),
+  );
+
+  return results;
+}
+
+function shouldRefreshSelfieEntry(
+  row: PhotoVerificationRow,
+  existing: ResolvedVerificationUrls | undefined,
+  force: boolean,
+): boolean {
+  if (force) return true;
+  if (!row.selfie_url) return false;
+  if (!existing) return true;
+  if (!existing.selfie || existing.selfieError) return true;
+  if (!existing.selfieExpiresAt) return true;
+  const expiresAtMs = Date.parse(existing.selfieExpiresAt);
+  if (!Number.isFinite(expiresAtMs)) return true;
+  return expiresAtMs - Date.now() <= SELFIE_URL_REFRESH_BEFORE_EXPIRY_MS;
+}
+
 const AdminPhotoVerificationPanel = () => {
   const queryClient = useQueryClient();
   const [activeTab, setActiveTab] = useState<TabFilter>("pending");
@@ -108,6 +154,7 @@ const AdminPhotoVerificationPanel = () => {
   const [resolvedUrls, setResolvedUrls] = useState<Record<string, ResolvedVerificationUrls>>({});
   const [approvalTarget, setApprovalTarget] = useState<PhotoVerificationRow | null>(null);
   const [rejectConfirmation, setRejectConfirmation] = useState<{ id: string; userId: string; reason: string } | null>(null);
+  const resolvedUrlsRef = useRef<Record<string, ResolvedVerificationUrls>>({});
   const selfieRefreshSequence = useRef(0);
   const lastSelfieRefreshAt = useRef(0);
   const approveTriggerRef = useRef<HTMLElement | null>(null);
@@ -131,8 +178,12 @@ const AdminPhotoVerificationPanel = () => {
     [verifications]
   );
 
+  useEffect(() => {
+    resolvedUrlsRef.current = resolvedUrls;
+  }, [resolvedUrls]);
+
   // Selfie: server-side signed URL (service role) after admin JWT check — avoids client Storage/RLS edge cases.
-  const refreshSelfieUrls = useCallback(async () => {
+  const refreshSelfieUrls = useCallback(async ({ force = false }: { force?: boolean } = {}) => {
     const refreshId = ++selfieRefreshSequence.current;
     lastSelfieRefreshAt.current = Date.now();
     if (verifications.length === 0) {
@@ -140,8 +191,37 @@ const AdminPhotoVerificationPanel = () => {
       return;
     }
 
-    const settledEntries = await Promise.allSettled(
-      verifications.map(async (v) => {
+    const existingById = resolvedUrlsRef.current;
+    const candidateRows = verifications.filter((v) => shouldRefreshSelfieEntry(v, existingById[v.id], force));
+    if (candidateRows.length === 0) {
+      setResolvedUrls((prev) => {
+        const next: Record<string, ResolvedVerificationUrls> = {};
+        for (const v of verifications) {
+          const existing = prev[v.id];
+          next[v.id] = existing
+            ? { ...existing, profile: resolvePhotoUrl(v.profile_photo_url) }
+            : {
+                profile: resolvePhotoUrl(v.profile_photo_url),
+                selfie: null,
+                selfieError: v.selfie_url ? "Selfie is queued for signing." : "No verification selfie was submitted.",
+                selfieExpiresAt: null,
+                selfieLoadedAt: null,
+                _diag: {
+                  verificationId: v.id,
+                  userId: v.user_id,
+                  originalSelfieUrl: (v.selfie_url as string | null | undefined) ?? "",
+                },
+              };
+        }
+        return next;
+      });
+      return;
+    }
+
+    const settledEntries = await mapWithConcurrency(
+      candidateRows,
+      SELFIE_SIGN_CONCURRENCY,
+      async (v) => {
         const profileUrl = resolvePhotoUrl(v.profile_photo_url);
         const rawSelfie = (v.selfie_url as string | null | undefined) ?? "";
         const diag = {
@@ -263,7 +343,7 @@ const AdminPhotoVerificationPanel = () => {
             _diag: diag,
           } satisfies ResolvedVerificationUrls,
         ] as const;
-      }),
+      },
     );
 
     const entries = settledEntries.flatMap((result, index) => {
@@ -271,7 +351,7 @@ const AdminPhotoVerificationPanel = () => {
         return result.value ? [result.value] : [];
       }
 
-      const v = verifications[index];
+      const v = candidateRows[index];
       console.warn("[admin photo verification] selfie resolution failed", {
         verificationId: v?.id,
         message: resolveAdminErrorMessage(result.reason, "Could not load verification selfie."),
@@ -301,6 +381,23 @@ const AdminPhotoVerificationPanel = () => {
     if (refreshId !== selfieRefreshSequence.current) return;
     setResolvedUrls((prev) => {
       const next: Record<string, ResolvedVerificationUrls> = {};
+      for (const v of verifications) {
+        const previous = prev[v.id];
+        next[v.id] = previous
+          ? { ...previous, profile: resolvePhotoUrl(v.profile_photo_url) }
+          : {
+              profile: resolvePhotoUrl(v.profile_photo_url),
+              selfie: null,
+              selfieError: v.selfie_url ? "Selfie is queued for signing." : "No verification selfie was submitted.",
+              selfieExpiresAt: null,
+              selfieLoadedAt: null,
+              _diag: {
+                verificationId: v.id,
+                userId: v.user_id,
+                originalSelfieUrl: (v.selfie_url as string | null | undefined) ?? "",
+              },
+            };
+      }
       for (const e of entries) {
         if (!e) continue;
         const [id, nextUrls] = e;
@@ -314,7 +411,7 @@ const AdminPhotoVerificationPanel = () => {
   }, [verifications]);
 
   useEffect(() => {
-    void refreshSelfieUrls();
+    void refreshSelfieUrls({ force: true });
   }, [refreshSelfieUrls]);
 
   useEffect(() => {
@@ -354,9 +451,7 @@ const AdminPhotoVerificationPanel = () => {
   const { data: stats } = useQuery({
     queryKey: ["admin-verification-stats"],
     queryFn: async () => {
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
-      const todayStr = today.toISOString();
+      const todayStr = adminUtcDayStartIso();
 
       const counts = await callAdminRpc<PhotoVerificationCountsPayload>("admin_get_photo_verification_counts", {
         p_today_start: todayStr,

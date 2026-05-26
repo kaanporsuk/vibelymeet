@@ -17,6 +17,13 @@ const PROOF_SELFIES_BUCKET = "proof-selfies";
 const BUCKET_PREFIX = `${PROOF_SELFIES_BUCKET}/`;
 const SIGNED_SELFIE_TTL_SECONDS = 3600;
 const DIRECT_SELFIE_REVALIDATION_SECONDS = 900;
+const TRUSTED_DIRECT_SELFIE_ORIGIN_ENVS = [
+  "ADMIN_PROOF_SELFIE_TRUSTED_ORIGINS",
+  "BUNNY_CDN_HOSTNAME",
+  "BUNNY_STREAM_CDN_HOSTNAME",
+  "BUNNY_CHAT_STREAM_CDN_HOSTNAME",
+  "BUNNY_ARCHIVE_CDN_HOSTNAME",
+] as const;
 const UUID_FOLDER =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -38,6 +45,41 @@ function isAbsoluteMediaUrl(raw: string): boolean {
     p.startsWith("blob:") ||
     p.startsWith("data:")
   );
+}
+
+function trustedOriginFromValue(raw: string): string | null {
+  const value = raw.trim();
+  if (!value || value.includes("*")) return null;
+  try {
+    const url = new URL(/^https?:\/\//i.test(value) ? value : `https://${value}`);
+    if (url.protocol !== "https:") return null;
+    return url.origin.toLowerCase();
+  } catch {
+    return null;
+  }
+}
+
+function trustedDirectSelfieOrigins(): Set<string> {
+  const origins = new Set<string>();
+  for (const envName of TRUSTED_DIRECT_SELFIE_ORIGIN_ENVS) {
+    const raw = Deno.env.get(envName)?.trim();
+    if (!raw) continue;
+    for (const part of raw.split(",")) {
+      const origin = trustedOriginFromValue(part);
+      if (origin) origins.add(origin);
+    }
+  }
+  return origins;
+}
+
+function isTrustedDirectSelfieUrl(raw: string): boolean {
+  try {
+    const url = new URL(raw.trim());
+    if (url.protocol !== "https:") return false;
+    return trustedDirectSelfieOrigins().has(url.origin.toLowerCase());
+  } catch {
+    return false;
+  }
 }
 
 function looksLikeSupabaseStorageUrl(url: string): boolean {
@@ -194,7 +236,15 @@ async function tryResolveSelfieDisplayUrl(
       return {
         kind: "fail",
         message:
-          "Stored selfie is not an object key and valid direct display is only allowed for http(s) URLs",
+          "Stored selfie is not an object key and valid direct display is only allowed for trusted HTTPS media URLs",
+        shape,
+      };
+    }
+    if (!isTrustedDirectSelfieUrl(trimmed)) {
+      return {
+        kind: "fail",
+        message:
+          "Stored selfie URL is not on an allowed proof-selfie media origin. Ask the user to resubmit verification from the app.",
         shape,
       };
     }

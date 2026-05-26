@@ -72,7 +72,7 @@ test("admin dashboard access uses verify-admin edge verification", () => {
   assert.match(protectedRoute, /isRevalidatingCachedAdmin/);
   assert.match(protectedRoute, /refetchOnWindowFocus: "always"/);
   assert.match(protectedRoute, /refetchInterval: requireAdmin \? 60_000 : false/);
-  assert.match(protectedRoute, /table: "user_roles"/);
+  assert.doesNotMatch(protectedRoute, /table: "user_roles"/);
   assert.match(protectedRoute, /table: "admin_session_invalidation_events"/);
   assert.match(protectedRoute, /admin-session-invalidation:\$\{userId\}/);
   assert.match(protectedRoute, /invalidateQueries\(\{ queryKey: \['verify-admin-role', userId\] \}\)/);

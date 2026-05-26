@@ -4,7 +4,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { resolveReportSearchQuery } from "../../src/components/admin/adminReportSearch";
 import { resolveSupabaseFunctionErrorMessage } from "../supabaseFunctionInvokeErrors";
-import { formatAdminRelativeTime } from "../../src/lib/adminTime";
+import { adminUtcDayStartIso, formatAdminRelativeTime } from "../../src/lib/adminTime";
 
 const root = process.cwd();
 const read = (path: string) => readFileSync(join(root, path), "utf8");
@@ -112,6 +112,13 @@ test("admin relative time preserves future retry windows", () => {
   assert.equal(formatAdminRelativeTime("2026-05-26T09:55:00.000Z", nowMs), "5m ago");
 });
 
+test("photo verification today stats use UTC day boundaries", () => {
+  assert.equal(adminUtcDayStartIso("2026-05-26T23:59:59.999+14:00"), "2026-05-26T00:00:00.000Z");
+  assert.equal(adminUtcDayStartIso("2026-05-26T00:30:00.000-10:00"), "2026-05-26T00:00:00.000Z");
+  assert.match(adminPhotoVerification, /adminUtcDayStartIso\(\)/);
+  assert.doesNotMatch(adminPhotoVerification, /setHours\(0,\s*0,\s*0,\s*0\)/);
+});
+
 test("admin realtime deletion events refresh the deletions panel query family", () => {
   assert.match(adminQueryInvalidation, /deletions:\s*\[\["admin-account-deletions"\]\]/);
   assert.match(
@@ -142,6 +149,9 @@ test("sprint 4 admin UX guardrails are wired into real admin surfaces", () => {
   assert.match(adminEventForm, /cursor = addMonthsClamped\(cursor, 1\)/);
   assert.match(adminEventForm, /cursor = addYearsClamped\(cursor, 1\)/);
   assert.match(adminEventForm, /admin_generate_recurring_events/);
+  assert.match(adminEventForm, /const recurrenceIdempotencyKey = createAdminTargetIdempotencyKey/);
+  assert.match(adminEventForm, /retryGenerateOccurrences\(result\.id, generateCount, recurrenceIdempotencyKey\)/);
+  assert.doesNotMatch(adminEventForm, /retry_from_toast/);
   assert.match(adminEventForm, /parseLocalEndOfDay\(endsOnDate\)\?\.toISOString\(\)/);
   assert.match(adminEventForm, /geoSearchError/);
   assert.match(adminEventForm, /latestGeoQueryRef/);
@@ -457,6 +467,8 @@ test("Support Inbox has honest empty/error states and governed data access", () 
   assert.match(supportInbox, /supabase\.functions\.invoke<SendSupportReplyResponse>\("send-support-reply"/);
   assert.match(supportInbox, /resolveAdminFunctionErrorMessage/);
   assert.match(supportInbox, /Delivery jobs/);
+  assert.match(supportInbox, /admin_retry_support_reply_delivery_job/);
+  assert.match(supportInbox, /Retry/);
   assert.match(supportInbox, /latest_reply_id/);
   assert.doesNotMatch(supportInbox, /\.from\(["']support_tickets["']\)/);
   assert.doesNotMatch(supportInbox, /\.from\(["']support_ticket_replies["']\)/);
@@ -465,6 +477,9 @@ test("Support Inbox has honest empty/error states and governed data access", () 
 
   assert.match(adminRealtime, /admin-support-tickets-realtime/);
   assert.match(adminRealtime, /admin-support-replies-realtime/);
+  assert.match(adminRealtime, /admin-support-tickets-badges-realtime/);
+  assert.match(adminRealtime, /admin-support-replies-badges-realtime/);
+  assert.match(adminRealtime, /areas: \["badges"\]/);
   assert.match(adminRealtime, /admin-support-events-realtime/);
   assert.match(adminRealtime, /admin-support-delivery-jobs-realtime/);
   assert.match(adminQueryInvalidation, /\["admin-support-tickets"\]/);
@@ -626,7 +641,8 @@ test("tier config writes are confirmed, governed, and backend-authoritative", ()
 });
 
 test("photo verification selfie signing is row-resilient and redacts unexpected failures", () => {
-  assert.match(adminPhotoVerification, /Promise\.allSettled/);
+  assert.match(adminPhotoVerification, /mapWithConcurrency/);
+  assert.match(adminPhotoVerification, /PromiseSettledResult/);
   assert.match(adminPhotoVerification, /selfie resolution failed/);
   assert.match(adminPhotoVerification, /resolveAdminErrorMessage/);
   assert.match(adminPhotoVerification, /redactUrlForLog/);
@@ -653,10 +669,18 @@ test("photo verification selfie signer path resolver stays aligned with the shar
   assert.match(adminProofSelfieSign, /resolveProofSelfieObjectPathForSigning/);
   assert.match(adminProofSelfieSign, /SIGNED_SELFIE_TTL_SECONDS = 3600/);
   assert.match(adminProofSelfieSign, /createSignedUrl\(objectPath, SIGNED_SELFIE_TTL_SECONDS\)/);
+  assert.match(adminProofSelfieSign, /ADMIN_PROOF_SELFIE_TRUSTED_ORIGINS/);
+  assert.match(adminProofSelfieSign, /isTrustedDirectSelfieUrl/);
+  assert.match(adminProofSelfieSign, /url\.protocol !== "https:"/);
+  assert.match(adminProofSelfieSign, /allowed proof-selfie media origin/);
   assert.match(adminProofSelfieSign, /expires_at: outcome\.expiresAt/);
   assert.match(adminProofSelfieSign, /proof_selfie_url/);
   assert.match(adminPhotoVerification, /admin-proof-selfie-sign/);
   assert.match(adminPhotoVerification, /SELFIE_URL_REFRESH_BEFORE_EXPIRY_MS/);
+  assert.match(adminPhotoVerification, /SELFIE_SIGN_CONCURRENCY = 4/);
+  assert.match(adminPhotoVerification, /mapWithConcurrency/);
+  assert.match(adminPhotoVerification, /shouldRefreshSelfieEntry/);
+  assert.match(adminPhotoVerification, /refreshSelfieUrls\(\{ force: true \}\)/);
   assert.match(adminPhotoVerification, /lastSelfieRefreshAt/);
   assert.match(adminPhotoVerification, /throttleDelayMs/);
   assert.match(adminPhotoVerification, /Signed selfie expiry metadata was missing/);

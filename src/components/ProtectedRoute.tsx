@@ -184,15 +184,6 @@ export function ProtectedRoute({
       void queryClient.invalidateQueries({ queryKey: ['verify-admin-role', userId] });
     };
 
-    const roleChannel = supabase
-      .channel(`admin-role-watch:${userId}`)
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "user_roles", filter: `user_id=eq.${userId}` },
-        invalidateAdminVerification,
-      )
-      .subscribe();
-
     const invalidationChannel = supabase
       .channel(`admin-session-invalidation:${userId}`)
       .on(
@@ -203,7 +194,6 @@ export function ProtectedRoute({
       .subscribe();
 
     return () => {
-      void supabase.removeChannel(roleChannel);
       void supabase.removeChannel(invalidationChannel);
     };
   }, [queryClient, requireAdmin, session?.user?.id]);

@@ -219,6 +219,12 @@ function deliveryStateVariant(state: string): "default" | "secondary" | "destruc
   return "destructive";
 }
 
+function canRetryDeliveryJob(job: SupportDeliveryJobRow): boolean {
+  if (job.state === "completed") return false;
+  if (job.state === "processing") return false;
+  return ["retryable_failed", "blocked", "permanent_failed"].includes(job.state);
+}
+
 export default function SupportInbox() {
   const queryClient = useQueryClient();
   const [statusFilter, setStatusFilter] = useState<string>("all");
@@ -421,6 +427,36 @@ export default function SupportInbox() {
     onError: (err) => adminToast.error({
       id: "admin-support-reply-error",
       title: resolveAdminErrorMessage(err, "Failed to send reply"),
+    }),
+  });
+
+  const retryDeliveryJobMutation = useMutation({
+    mutationFn: async (job: SupportDeliveryJobRow) => {
+      const payload = await callAdminRpc("admin_retry_support_reply_delivery_job", {
+        p_job_id: job.id,
+        p_reason: `Manual retry from support inbox for ${job.channel} delivery`,
+        p_idempotency_key: createAdminTargetIdempotencyKey("admin_retry_support_reply_delivery_job", job.id, {
+          ticket_id: job.ticket_id,
+          reply_id: job.reply_id,
+          channel: job.channel,
+          state: job.state,
+          attempts: job.attempts,
+          error_code: job.error_code,
+          updated_at: job.updated_at,
+        }),
+      });
+      return { payload, job };
+    },
+    onSuccess: ({ job }) => {
+      invalidateSupportQueries();
+      adminToast.success({
+        id: `admin-support-delivery-retry-${job.id}`,
+        title: `${job.channel} delivery retry queued`,
+      });
+    },
+    onError: (err) => adminToast.error({
+      id: "admin-support-delivery-retry-error",
+      title: resolveAdminErrorMessage(err, "Could not retry delivery job"),
     }),
   });
 
@@ -897,7 +933,11 @@ export default function SupportInbox() {
                 <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Delivery jobs</p>
                 <div className="space-y-2">
                   {deliveryJobs.map((job) => (
-                    <div key={job.id} className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                    <div
+                      key={job.id}
+                      className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground"
+                      title={job.last_error ?? undefined}
+                    >
                       <Badge variant="outline" className="capitalize">
                         {job.channel}
                       </Badge>
@@ -909,6 +949,24 @@ export default function SupportInbox() {
                       {job.error_code ? <span className="text-destructive">error: {job.error_code}</span> : null}
                       {job.next_retry_at && job.state !== "completed" ? (
                         <span>next retry {formatRelativeTime(job.next_retry_at)}</span>
+                      ) : null}
+                      {job.last_error ? <span className="max-w-[260px] truncate">{job.last_error}</span> : null}
+                      {canRetryDeliveryJob(job) ? (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="h-7 gap-1 px-2 text-xs"
+                          disabled={retryDeliveryJobMutation.isPending}
+                          onClick={() => retryDeliveryJobMutation.mutate(job)}
+                        >
+                          {retryDeliveryJobMutation.isPending ? (
+                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                          ) : (
+                            <RefreshCw className="h-3.5 w-3.5" />
+                          )}
+                          Retry
+                        </Button>
                       ) : null}
                     </div>
                   ))}
