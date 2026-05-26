@@ -50,6 +50,9 @@ const sprint3DataScaleRealtimeMediaMigration = read(
 const adminRoleSessionInvalidationMigration = read(
   "supabase/migrations/20260526040000_admin_role_session_invalidation_events.sql",
 );
+const adminHardeningGapClosureMigration = read(
+  "supabase/migrations/20260526050000_admin_hardening_gap_closure.sql",
+);
 const tierConfigAuthorityMigration = read("supabase/migrations/20260507190000_tier_config_backend_authority.sql");
 const tierConfigConcurrencyRepairMigration = read(
   "supabase/migrations/20260507193000_tier_config_backend_authority_concurrency_repair.sql",
@@ -528,6 +531,20 @@ test("Sprint 2 account deletion completion is durable and cannot bypass hard-del
   assert.match(processAdminDurableJobsFunction, /subscription_entitlement_recompute_failed/);
 });
 
+test("admin durable job realtime tables have explicit grants and completed deletion drift is blocked", () => {
+  assert.match(adminHardeningGapClosureMigration, /REVOKE ALL ON TABLE public\.account_deletion_completion_jobs FROM PUBLIC, anon/);
+  assert.match(adminHardeningGapClosureMigration, /GRANT SELECT ON TABLE public\.account_deletion_completion_jobs TO authenticated/);
+  assert.match(adminHardeningGapClosureMigration, /GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public\.account_deletion_completion_jobs TO service_role/);
+  assert.match(adminHardeningGapClosureMigration, /REVOKE ALL ON TABLE public\.support_reply_delivery_jobs FROM PUBLIC, anon/);
+  assert.match(adminHardeningGapClosureMigration, /GRANT SELECT ON TABLE public\.support_reply_delivery_jobs TO authenticated/);
+  assert.match(adminHardeningGapClosureMigration, /GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public\.support_reply_delivery_jobs TO service_role/);
+  assert.match(adminHardeningGapClosureMigration, /COMPLETION_EVIDENCE_MISSING/);
+  assert.match(adminHardeningGapClosureMigration, /COMPLETION_EVIDENCE_INCOMPLETE/);
+  assert.match(adminHardeningGapClosureMigration, /v_hard_delete_evidence_complete/);
+  assert.match(adminHardeningGapClosureMigration, /'legacy_checkpoint', COALESCE\(v_job\.legacy_checkpoint, false\)/);
+  assert.match(adminHardeningGapClosureMigration, /auth_user_deleted', v_hard_delete_evidence_complete/);
+});
+
 test("Sprint 2 support replies enqueue retryable delivery jobs instead of request-bound side effects", () => {
   assert.match(sprint2DurableWorkflowsMigration, /CREATE TABLE IF NOT EXISTS public\.support_reply_delivery_jobs/);
   assert.match(sprint2DurableWorkflowsMigration, /provider_id text/);
@@ -597,6 +614,10 @@ test("public admin data interface includes explicit role/session invalidation ev
   assert.match(adminSessionInvalidationTypes, /event_type: string/);
   assert.doesNotMatch(adminSessionInvalidationTypes, /actor_id/);
   assert.match(adminSessionInvalidationTypes, /previous_role: Database\["public"\]\["Enums"\]\["app_role"\] \| null/);
+  assert.match(adminHardeningGapClosureMigration, /purge_old_admin_session_invalidation_events/);
+  assert.match(adminHardeningGapClosureMigration, /p_retention_days integer DEFAULT 90/);
+  assert.match(adminHardeningGapClosureMigration, /REVOKE ALL ON FUNCTION public\.purge_old_admin_session_invalidation_events/);
+  assert.match(adminHardeningGapClosureMigration, /GRANT EXECUTE ON FUNCTION public\.purge_old_admin_session_invalidation_events\(integer, integer\) TO service_role/);
 });
 
 test("browser mutation surfaces call semantic admin RPCs", () => {

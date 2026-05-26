@@ -9,6 +9,7 @@ export type AdminInvalidationArea =
   | "engagement"
   | "badges"
   | "users"
+  | "deletions"
   | "events"
   | "reports"
   | "notifications"
@@ -20,6 +21,7 @@ const ADMIN_INVALIDATION_QUERY_KEYS: Record<AdminInvalidationArea, readonly Quer
   engagement: [ADMIN_ENGAGEMENT_ANALYTICS_QUERY_KEY],
   badges: [ADMIN_DASHBOARD_BADGE_COUNTS_QUERY_KEY],
   users: [["admin-users"], ["admin-user-detail"]],
+  deletions: [["admin-account-deletions"]],
   events: [["admin-events"]],
   reports: [["admin-reports"], ["admin-reports-summary"]],
   notifications: [["admin-notifications"], ADMIN_DASHBOARD_BADGE_COUNTS_QUERY_KEY],

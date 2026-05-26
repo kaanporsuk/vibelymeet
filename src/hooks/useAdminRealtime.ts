@@ -97,8 +97,8 @@ const PANEL_REALTIME_SPECS: Record<string, readonly AdminRealtimeSpec[]> = {
     { channel: "admin-campaigns-notification-log-realtime", table: "notification_log", areas: ["engagement"] },
   ],
   deletions: [
-    { channel: "admin-deletions-requests-realtime", table: "account_deletion_requests", areas: ["users"] },
-    { channel: "admin-deletions-jobs-realtime", table: "account_deletion_completion_jobs", areas: ["users"] },
+    { channel: "admin-deletions-requests-realtime", table: "account_deletion_requests", areas: ["deletions", "users", "overview"] },
+    { channel: "admin-deletions-jobs-realtime", table: "account_deletion_completion_jobs", areas: ["deletions", "users", "overview"] },
   ],
 };
 
