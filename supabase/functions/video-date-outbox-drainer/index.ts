@@ -640,9 +640,15 @@ async function processOutboxRow(
   const kind = row.kind.toLowerCase();
   if (kind === "noop" || kind === "telemetry.noop") return { success: true, reason: "noop" };
   if (kind === "daily.ensure_video_date_room" || kind === "daily.ensure_room" || kind === "ensure_video_date_room") {
+    if (!DAILY_RUNTIME_CONFIG.ok) {
+      return { success: false, reason: "daily_config_blocked", retryAfterSeconds: 300, permanent: false };
+    }
     return ensureVideoDateRoom(supabase, row, signal);
   }
   if (kind === "daily.delete_video_date_room" || kind === "daily.delete_room" || kind === "delete_video_date_room") {
+    if (!DAILY_RUNTIME_CONFIG.ok) {
+      return { success: false, reason: "daily_config_blocked", retryAfterSeconds: 300, permanent: false };
+    }
     return deleteVideoDateRoom(supabase, row, signal);
   }
   if (kind === "notification.send" || kind === "push.send") {
@@ -767,18 +773,6 @@ Deno.serve(async (req) => {
       preview: data ?? [],
       latency_ms: Date.now() - startedAt,
     });
-  }
-
-  if (!DAILY_RUNTIME_CONFIG.ok) {
-    return json({
-      ok: false,
-      code: "DAILY_CONFIG_BLOCKED",
-      error: "daily_config_blocked",
-      retryable: true,
-      blockers: DAILY_RUNTIME_CONFIG.blockers,
-      worker_id: workerId,
-      latency_ms: Date.now() - startedAt,
-    }, 503);
   }
 
   const workerLeaseSeconds = Math.max(120, Math.min(600, leaseSeconds * 3));

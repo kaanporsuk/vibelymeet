@@ -137,6 +137,7 @@ test("frontend assumptions match the hardened admin RPC and Edge contracts", () 
   const photoVerificationPanel = read("src/components/admin/AdminPhotoVerificationPanel.tsx");
   assert.match(photoVerificationPanel, /expires_at/);
   assert.match(photoVerificationPanel, /selfieExpiresAt/);
+  assert.match(photoVerificationPanel, /previous\?\.selfie === nextUrls\.selfie && previous\.selfieLoadedAt/);
   assert.match(photoVerificationPanel, /window\.addEventListener\("focus", refreshOnFocus\)/);
   assert.match(photoVerificationPanel, /document\.addEventListener\("visibilitychange", refreshOnFocus\)/);
   assert.match(photoVerificationPanel, /disabled=\{approveMutation\.isPending \|\| !selfieAccess\?\.ready\}/);

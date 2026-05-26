@@ -298,12 +298,19 @@ const AdminPhotoVerificationPanel = () => {
       ];
     });
 
-    const next: Record<string, ResolvedVerificationUrls> = {};
-    for (const e of entries) {
-      if (e) next[e[0]] = e[1];
-    }
     if (refreshId !== selfieRefreshSequence.current) return;
-    setResolvedUrls(next);
+    setResolvedUrls((prev) => {
+      const next: Record<string, ResolvedVerificationUrls> = {};
+      for (const e of entries) {
+        if (!e) continue;
+        const [id, nextUrls] = e;
+        const previous = prev[id];
+        next[id] = previous?.selfie === nextUrls.selfie && previous.selfieLoadedAt
+          ? { ...nextUrls, selfieLoadedAt: previous.selfieLoadedAt }
+          : nextUrls;
+      }
+      return next;
+    });
   }, [verifications]);
 
   useEffect(() => {

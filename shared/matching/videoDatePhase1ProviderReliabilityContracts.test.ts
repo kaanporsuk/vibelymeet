@@ -116,6 +116,8 @@ test("Phase 1 outbox and deadline workers use mutexes, row lease refresh, failur
   assert.match(outboxDrainer, /body\.config\?\.max_participants !== 2/);
   assert.match(outboxDrainer, /result\.success \|\| result\.permanent === true \? null : result\.retryAfterSeconds/);
   assert.match(outboxDrainer, /daily_create_failed:invalid_room_response/);
+  assert.match(outboxDrainer, /reason: "daily_config_blocked", retryAfterSeconds: 300, permanent: false/);
+  assert.doesNotMatch(outboxDrainer, /if \(!DAILY_RUNTIME_CONFIG\.ok\) \{\s*return json\(/);
   assert.match(outboxDrainer, /providerFailureRetryAfter/);
   assert.match(deadlineFinalizer, /finalize_video_session_deadline_v2/);
 });

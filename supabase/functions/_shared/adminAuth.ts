@@ -34,7 +34,7 @@ export function sanitizeErrorMessage(reason: unknown): string {
   return String(reason instanceof Error ? reason.message : reason || "Unknown error")
     .replace(/https?:\/\/\S+/g, "[url]")
     .replace(/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g, "[email]")
-    .replace(/\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/gi, "[id]")
+    .replace(/\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/gi, "[id]")
     .replace(/\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b/g, "[token]")
     .replace(/\b(?:Bearer|Token)\s+[A-Za-z0-9._~+/=-]+/gi, "[token]")
     .replace(/\b(api[_-]?key|apikey|authorization|secret)\s*[:=]\s*[^,\s)]+/gi, "$1=[redacted]")
