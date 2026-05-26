@@ -48,6 +48,22 @@ test("native cached session helper recovers invalid refresh errors", () => {
   assert.match(nativeAuthSession, /recoverNativeAuthSession\('cached-session', e\)/);
 });
 
+test("native layout uses Vibely-managed auth refresh instead of SDK auto-refresh", () => {
+  const layout = read("apps/mobile/app/_layout.tsx");
+  const recovery = read("apps/mobile/lib/nativeAuthRecovery.ts");
+
+  assert.match(layout, /SupabaseManagedAuthRefreshAppStateBridge/);
+  assert.match(layout, /classifyAuthRefreshError/);
+  assert.match(layout, /requestManagedAuthRefresh/);
+  assert.match(layout, /applyManagedAuthRefreshSession\(supabase\.auth, refreshSession, refreshResponse,/);
+  assert.match(layout, /shouldApply:\s*\(\)\s*=>/);
+  assert.match(layout, /recoverNativeAuthSession\('managed-refresh', error\)/);
+  assert.match(layout, /managed_refresh_stale_attempt_recovered/);
+  assert.doesNotMatch(layout, /supabase\.auth\.refreshSession\(refreshSession\)/);
+  assert.doesNotMatch(layout, /startAutoRefresh/);
+  assert.match(recovery, /'managed-refresh'/);
+});
+
 test("hot-path native token consumers use cached recovery helper", () => {
   const hotPathFiles = [
     "apps/mobile/lib/chatMediaUpload.ts",

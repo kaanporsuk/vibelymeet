@@ -50,7 +50,9 @@ test("swipe-actions keeps strict Supabase gateway JWT verification", () => {
 test("web swipe posts to swipe-actions with an explicit user JWT", () => {
   assert.match(webSwipe, /useAuth\(\)/);
   assert.match(webSwipe, /resolveWebSwipeAccessToken\(session\)/);
-  assert.match(webSwipe, /supabase\.auth\.refreshSession\(activeSession\)/);
+  assert.match(webSwipe, /requestManagedAuthRefresh/);
+  assert.match(webSwipe, /applyManagedAuthRefreshSession\(supabase\.auth, activeSession, refreshResponse\)/);
+  assert.doesNotMatch(webSwipe, /supabase\.auth\.refreshSession\(activeSession\)/);
   assert.match(webSwipe, /fetch\(swipeActionsUrl/);
   assert.match(webSwipe, /functions\/v1\/swipe-actions/);
   assert.match(webSwipe, /Authorization:\s*`Bearer \$\{accessToken\}`/);
@@ -76,7 +78,9 @@ test("native auth helper refreshes near-expiry swipe tokens without bypassing th
   assert.match(nativeAuthSession, /refreshInFlight/);
   assert.match(nativeAuthSession, /cacheVersion/);
   assert.match(nativeAuthSession, /cacheVersion !== requestVersion/);
-  assert.match(nativeAuthSession, /supabase\.auth\.refreshSession\(session\)/);
+  assert.match(nativeAuthSession, /requestManagedAuthRefresh/);
+  assert.match(nativeAuthSession, /applyManagedAuthRefreshSession\(supabase\.auth, session, refreshResponse,/);
+  assert.doesNotMatch(nativeAuthSession, /supabase\.auth\.refreshSession\(session\)/);
   assert.match(nativeAuthSession, /export async function getFreshCachedAccessToken/);
 });
 

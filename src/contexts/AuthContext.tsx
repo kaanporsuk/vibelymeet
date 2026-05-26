@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode, useCallback, useRef } from "react";
-import { supabase } from "@/integrations/supabase/client";
+import { SUPABASE_PUBLISHABLE_KEY, SUPABASE_URL, supabase } from "@/integrations/supabase/client";
 import { Session, User as SupabaseUser } from "@supabase/supabase-js";
 import { END_ACCOUNT_BREAK_PROFILE_UPDATE } from "@/lib/endAccountBreak";
 import { trackEvent } from "@/lib/analytics";
@@ -25,6 +25,17 @@ import {
   markMediaSdkForegroundReconcile,
   shouldRunMediaSdkForegroundReconcile,
 } from "@clientShared/media-sdk";
+import {
+  AUTH_REFRESH_LEAD_MS,
+  AUTH_REFRESH_STALE_RACE_CHECK_DELAYS_MS,
+  applyManagedAuthRefreshSession,
+  authRefreshDebugInfo,
+  classifyAuthRefreshError,
+  isNewerAuthRefreshSession,
+  nextAuthRefreshDelayMs,
+  requestManagedAuthRefresh,
+  shouldRefreshSessionSoon,
+} from "@clientShared/authRefreshPolicy";
 
 interface User {
   id: string;
@@ -66,6 +77,10 @@ const SessionContext = createContext<SessionContextType | undefined>(undefined);
 const ProfileContext = createContext<ProfileContextType | undefined>(undefined);
 const BOOT_TIMEOUT_MS = 9_000;
 const AUTH_SESSION_TIMEOUT_MS = 5_000;
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
 function withBootTimeout<T>(
   promise: PromiseLike<T>,
@@ -122,6 +137,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const currentAuthProvider = getAuthProvider(session?.user);
   const authUserIdRef = useRef<string | null>(null);
   const sessionUserRef = useRef<SupabaseUser | null>(null);
+  const managedRefreshFailureCountRef = useRef(0);
+  const managedRefreshInFlightRef = useRef(false);
 
   const clearFeatureFlagState = useCallback(async () => {
     await clearClientFeatureFlagCache();
@@ -149,6 +166,29 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       ),
     ]).catch(() => undefined);
   }, []);
+
+  const clearLocalAuthSession = useCallback(async (reason: string, error: unknown) => {
+    recordBrowserEvent("browser.auth_refresh_invalid_session", {
+      reason,
+      error: authRefreshDebugInfo(error),
+    });
+    managedRefreshFailureCountRef.current = 0;
+    clearPreparedVideoDateEntryCache();
+    clearMyLocationDataCache();
+    removeAllRealtimeChannels(supabase, "auth_refresh_invalid_session");
+    await withBootTimeout(
+      supabase.auth.signOut({ scope: "local" }),
+      "auth.signOut.local",
+      AUTH_SESSION_TIMEOUT_MS,
+    ).catch(() => undefined);
+    await clearFeatureFlagState();
+    sessionUserRef.current = null;
+    authUserIdRef.current = null;
+    setUser(null);
+    setSession(null);
+    setEntryState(null);
+    setEntryStateLoading(false);
+  }, [clearFeatureFlagState]);
 
   useEffect(() => {
     let cancelled = false;
@@ -223,6 +263,190 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     authUserIdRef.current = currentUserId;
   }, [currentUserId]);
+
+  useEffect(() => {
+    if (!session?.refresh_token || typeof session.expires_at !== "number") {
+      managedRefreshFailureCountRef.current = 0;
+      return;
+    }
+
+    let cancelled = false;
+    let refreshTimer: ReturnType<typeof setTimeout> | null = null;
+    let activeSession = session;
+    const sessionUserId = session.user.id;
+    managedRefreshFailureCountRef.current = 0;
+
+    const clearRefreshTimer = () => {
+      if (refreshTimer) {
+        clearTimeout(refreshTimer);
+        refreshTimer = null;
+      }
+    };
+
+    const canRefreshNow = () => {
+      if (typeof navigator !== "undefined" && navigator.onLine === false) return false;
+      if (typeof document !== "undefined" && document.visibilityState !== "visible") return false;
+      return true;
+    };
+
+    const scheduleRetry = (reason: string, delayMs: number) => {
+      clearRefreshTimer();
+      if (cancelled || !canRefreshNow()) return;
+      refreshTimer = setTimeout(() => {
+        void attemptRefresh(`retry:${reason}`);
+      }, delayMs);
+    };
+
+    const scheduleNext = (reason: string) => {
+      clearRefreshTimer();
+      if (
+        cancelled ||
+        !canRefreshNow() ||
+        !activeSession.refresh_token ||
+        typeof activeSession.expires_at !== "number"
+      ) return;
+      const failureCount = managedRefreshFailureCountRef.current;
+      const delayMs = failureCount > 0
+        ? nextAuthRefreshDelayMs(failureCount)
+        : Math.max(0, activeSession.expires_at * 1000 - Date.now() - AUTH_REFRESH_LEAD_MS);
+      refreshTimer = setTimeout(() => {
+        void attemptRefresh(`timer:${reason}`);
+      }, delayMs);
+    };
+
+    async function recoverFromStaleRefreshRace(attemptedSession: Session, reason: string) {
+      for (const delayMs of AUTH_REFRESH_STALE_RACE_CHECK_DELAYS_MS) {
+        if (cancelled) return true;
+        if (delayMs > 0) await sleep(delayMs);
+        const { data } = await supabase.auth.getSession().catch(() => ({ data: { session: null } }));
+        const latestSession = data.session;
+        if (!isNewerAuthRefreshSession(latestSession, attemptedSession)) {
+          continue;
+        }
+
+        activeSession = latestSession;
+        sessionUserRef.current = latestSession.user;
+        setSession(latestSession);
+        managedRefreshFailureCountRef.current = 0;
+        recordBrowserEvent("browser.auth_refresh_stale_attempt_recovered", { reason });
+        scheduleNext("stale_attempt_recovered");
+        return true;
+      }
+      return false;
+    }
+
+    async function handleRefreshFailure(error: unknown, reason: string, attemptedSession: Session = activeSession) {
+      const kind = classifyAuthRefreshError(error);
+      if (kind === "invalid_session") {
+        if (await recoverFromStaleRefreshRace(attemptedSession, reason)) {
+          return;
+        }
+        await clearLocalAuthSession(reason, error);
+        return;
+      }
+
+      const failureCount = managedRefreshFailureCountRef.current + 1;
+      managedRefreshFailureCountRef.current = failureCount;
+      const delayMs = nextAuthRefreshDelayMs(failureCount);
+      recordBrowserEvent("browser.auth_refresh_retry_scheduled", {
+        reason,
+        failure_count: failureCount,
+        delay_ms: delayMs,
+        error: authRefreshDebugInfo(error),
+      });
+      scheduleRetry(reason, delayMs);
+    }
+
+    async function attemptRefresh(reason: string) {
+      if (cancelled) return;
+      if (managedRefreshInFlightRef.current) {
+        scheduleRetry(reason, 1_000);
+        return;
+      }
+      if (!canRefreshNow()) {
+        scheduleNext(reason);
+        return;
+      }
+      if (!shouldRefreshSessionSoon(activeSession, Date.now()) && managedRefreshFailureCountRef.current === 0) {
+        scheduleNext(reason);
+        return;
+      }
+
+      const refreshSession = activeSession;
+      managedRefreshInFlightRef.current = true;
+      try {
+        const refreshResponse = await requestManagedAuthRefresh({
+          supabaseUrl: SUPABASE_URL,
+          publishableKey: SUPABASE_PUBLISHABLE_KEY,
+          refreshToken: refreshSession.refresh_token,
+        });
+        const nextSession = await applyManagedAuthRefreshSession(supabase.auth, refreshSession, refreshResponse, {
+          shouldApply: () =>
+            !cancelled &&
+            authUserIdRef.current === sessionUserId &&
+            activeSession.refresh_token === refreshSession.refresh_token,
+        });
+        if (cancelled) return;
+        if (!nextSession) return;
+        if (authUserIdRef.current !== sessionUserId || nextSession.user.id !== sessionUserId) {
+          return;
+        }
+
+        const recoveredAfterFailures = managedRefreshFailureCountRef.current;
+        managedRefreshFailureCountRef.current = 0;
+        activeSession = nextSession;
+        sessionUserRef.current = nextSession.user;
+        setSession(nextSession);
+        if (recoveredAfterFailures > 0) {
+          recordBrowserEvent("browser.auth_refresh_succeeded", {
+            reason,
+            recovered_after_failures: recoveredAfterFailures,
+          });
+        }
+        scheduleNext("success");
+      } catch (error) {
+        if (!cancelled) {
+          await handleRefreshFailure(error, reason, refreshSession);
+        }
+      } finally {
+        managedRefreshInFlightRef.current = false;
+      }
+    }
+
+    const resumeRefresh = (reason: string) => {
+      if (shouldRefreshSessionSoon(activeSession, Date.now()) || managedRefreshFailureCountRef.current > 0) {
+        void attemptRefresh(reason);
+        return;
+      }
+      scheduleNext(reason);
+    };
+
+    const handleOnline = () => resumeRefresh("online");
+    const handleVisibilityChange = () => {
+      if (typeof document !== "undefined" && document.visibilityState === "visible") {
+        resumeRefresh("visible");
+      }
+    };
+
+    scheduleNext("session");
+    if (typeof window !== "undefined") {
+      window.addEventListener("online", handleOnline);
+    }
+    if (typeof document !== "undefined") {
+      document.addEventListener("visibilitychange", handleVisibilityChange);
+    }
+
+    return () => {
+      cancelled = true;
+      clearRefreshTimer();
+      if (typeof window !== "undefined") {
+        window.removeEventListener("online", handleOnline);
+      }
+      if (typeof document !== "undefined") {
+        document.removeEventListener("visibilitychange", handleVisibilityChange);
+      }
+    };
+  }, [clearLocalAuthSession, session]);
 
   const refreshProfile = useCallback(async () => {
     if (!currentUserId) {

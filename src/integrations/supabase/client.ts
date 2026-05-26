@@ -31,6 +31,6 @@ export const supabase = createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {
   auth: {
     storage: browserStorage,
     persistSession: isBrowser,
-    autoRefreshToken: isBrowser,
+    autoRefreshToken: false,
   }
 });
