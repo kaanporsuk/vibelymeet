@@ -48,6 +48,10 @@ type AdminAuditRow = {
   target_type: string;
   target_id: string | null;
   details: AdminLogDetails | null;
+  request_id?: string | null;
+  correlation_id?: string | null;
+  action_outcome?: string | null;
+  error_code?: string | null;
   created_at: string;
 };
 
@@ -271,6 +275,20 @@ const formatTargetLabel = (targetType: string): string => formatUnknownActionLab
 const shortenId = (id: string): string => {
   if (id.length <= 16) return id;
   return `${id.slice(0, 8)}...${id.slice(-4)}`;
+};
+
+const outcomeClassName = (outcome: string | null | undefined): string => {
+  const normalized = (outcome ?? "").toLowerCase();
+  if (normalized.includes("fail") || normalized.includes("error") || normalized.includes("blocked")) {
+    return toneClasses.destructive;
+  }
+  if (normalized.includes("warn") || normalized.includes("retry") || normalized.includes("queued")) {
+    return toneClasses.warning;
+  }
+  if (normalized.includes("success") || normalized.includes("complete")) {
+    return toneClasses.positive;
+  }
+  return toneClasses.neutral;
 };
 
 const formatDateBoundary = (date: string, edge: "start" | "end"): string | null => {
@@ -519,6 +537,16 @@ const AdminActivityLog = () => {
                         <Badge variant="outline" className="border-border text-muted-foreground">
                           {formatTargetLabel(log.target_type)}
                         </Badge>
+                        {log.action_outcome && (
+                          <Badge variant="outline" className={outcomeClassName(log.action_outcome)}>
+                            {log.action_outcome}
+                          </Badge>
+                        )}
+                        {log.error_code && (
+                          <Badge variant="outline" className={toneClasses.destructive}>
+                            {log.error_code}
+                          </Badge>
+                        )}
                         {log.target_id && (
                           <span className="text-xs text-muted-foreground">{shortenId(log.target_id)}</span>
                         )}
@@ -539,6 +567,16 @@ const AdminActivityLog = () => {
                         <p className="text-xs text-muted-foreground mt-2 truncate">
                           {details}
                         </p>
+                      )}
+                      {(log.request_id || log.correlation_id) && (
+                        <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
+                          {log.request_id && (
+                            <span title={log.request_id}>request {shortenId(log.request_id)}</span>
+                          )}
+                          {log.correlation_id && (
+                            <span title={log.correlation_id}>correlation {shortenId(log.correlation_id)}</span>
+                          )}
+                        </div>
                       )}
                     </div>
 

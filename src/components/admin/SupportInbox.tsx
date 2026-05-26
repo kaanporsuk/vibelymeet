@@ -34,7 +34,7 @@ import AdminUserDetailDrawer from "./AdminUserDetailDrawer";
 import AdminConfirmDialog from "./AdminConfirmDialog";
 import {
   callAdminRpc,
-  createAdminIdempotencyKey,
+  createAdminTargetIdempotencyKey,
   sanitizeAdminRpcErrorMessage,
   type AdminRpcPayload,
 } from "@/lib/adminRpc";
@@ -127,6 +127,22 @@ type SupportEventRow = {
   created_at: string;
 };
 
+type SupportDeliveryJobRow = {
+  id: string;
+  ticket_id: string;
+  reply_id: string;
+  channel: "push" | "email" | string;
+  state: string;
+  provider_id: string | null;
+  attempts: number;
+  next_retry_at: string | null;
+  last_error: string | null;
+  error_code: string | null;
+  created_at: string;
+  updated_at: string;
+  completed_at: string | null;
+};
+
 type SupportInboxPayload = AdminRpcPayload & {
   tickets?: TicketSummary[];
   counts?: {
@@ -149,6 +165,7 @@ type SupportThreadPayload = AdminRpcPayload & {
   replies?: ReplyRow[];
   linked_exception?: EventPaymentExceptionRow | null;
   support_events?: SupportEventRow[];
+  delivery_jobs?: SupportDeliveryJobRow[];
 };
 
 type SendSupportReplyResponse = {
@@ -158,6 +175,7 @@ type SendSupportReplyResponse = {
   idempotent_replay?: boolean;
   notification_warning?: string | null;
   email_warning?: string | null;
+  delivery_jobs?: Array<{ id?: string; channel?: string; state?: string }>;
 };
 
 const EXCEPTION_TYPE_OPTIONS: { value: ExceptionType; label: string }[] = [
@@ -196,6 +214,12 @@ function getInitials(name: string | null | undefined, fallback: string) {
 
 function PlatformIcon({ platform }: { platform: string | null }) {
   return platform?.toLowerCase() === "web" ? <Monitor className="h-3 w-3" /> : <Smartphone className="h-3 w-3" />;
+}
+
+function deliveryStateVariant(state: string): "default" | "secondary" | "destructive" {
+  if (state === "completed") return "default";
+  if (state === "queued" || state === "processing" || state === "retryable_failed") return "secondary";
+  return "destructive";
 }
 
 export default function SupportInbox() {
@@ -261,6 +285,7 @@ export default function SupportInbox() {
   const threadReplies = supportThreadQuery.data?.replies ?? [];
   const linkedException = supportThreadQuery.data?.linked_exception ?? null;
   const supportEvents = supportThreadQuery.data?.support_events ?? [];
+  const deliveryJobs = supportThreadQuery.data?.delivery_jobs ?? [];
   const profile = supportThreadQuery.data?.profile ?? null;
   const profileName = profile?.name ?? selectedSummary?.profile_name ?? "User";
   const profileAvatarUrl = profile?.avatar_url ?? selectedSummary?.profile_avatar_url ?? null;
@@ -331,7 +356,14 @@ export default function SupportInbox() {
         p_set_event_id: payload.set_event_id ?? false,
         p_checkout_session_id: payload.checkout_session_id ?? null,
         p_set_checkout_session_id: payload.set_checkout_session_id ?? false,
-        p_idempotency_key: createAdminIdempotencyKey("admin_update_support_ticket"),
+        p_idempotency_key: createAdminTargetIdempotencyKey("admin_update_support_ticket", selected.id, {
+          selected_updated_at: selected.updated_at,
+          status: payload.status ?? null,
+          priority: payload.priority ?? null,
+          admin_notes: payload.set_admin_notes ? payload.admin_notes ?? null : null,
+          event_id: payload.set_event_id ? payload.event_id ?? null : null,
+          checkout_session_id: payload.set_checkout_session_id ? payload.checkout_session_id ?? null : null,
+        }),
       });
     },
     onSuccess: (_data, variables) => {
@@ -352,7 +384,12 @@ export default function SupportInbox() {
           ticket_id: selected.id,
           reply_message: message,
           send_email: sendEmail,
-          idempotency_key: createAdminIdempotencyKey("admin_create_support_reply"),
+          idempotency_key: createAdminTargetIdempotencyKey("admin_create_support_reply", selected.id, {
+            message,
+            send_email: sendEmail,
+            latest_reply_id: threadReplies[threadReplies.length - 1]?.id ?? null,
+            reply_count: threadReplies.length,
+          }),
         },
       });
 
@@ -369,7 +406,7 @@ export default function SupportInbox() {
       if (warnings) {
         toast.warning("Reply saved with warnings", { description: warnings });
       } else {
-        toast.success(result.idempotent_replay ? "Reply already saved" : "Reply sent");
+        toast.success(result.idempotent_replay ? "Reply already saved" : "Reply saved and delivery queued");
       }
     },
     onError: (err) => toast.error(sanitizeAdminRpcErrorMessage(err)),
@@ -386,7 +423,15 @@ export default function SupportInbox() {
         p_checkout_session_id: selected.checkout_session_id,
         p_support_ticket_id: selected.id,
         p_notes: exceptionNotesDraft.trim() || null,
-        p_idempotency_key: createAdminIdempotencyKey("admin_create_event_payment_exception"),
+        p_idempotency_key: createAdminTargetIdempotencyKey("admin_create_event_payment_exception", selected.id, {
+          selected_updated_at: selected.updated_at,
+          event_id: selected.event_id,
+          profile_id: selected.user_id,
+          exception_type: exceptionTypeDraft,
+          exception_status: exceptionStatusDraft,
+          checkout_session_id: selected.checkout_session_id,
+          notes: exceptionNotesDraft.trim() || null,
+        }),
       });
       return data;
     },
@@ -409,7 +454,16 @@ export default function SupportInbox() {
         p_refund_handled_externally: exceptionTypeDraft === "refund_handled_externally" ? true : null,
         p_external_refund_reference: externalRefundReferenceDraft.trim() || null,
         p_support_ticket_id: selected?.id ?? null,
-        p_idempotency_key: createAdminIdempotencyKey("admin_transition_event_payment_exception"),
+        p_idempotency_key: createAdminTargetIdempotencyKey("admin_transition_event_payment_exception", linkedException.id, {
+          exception_updated_at: linkedException.updated_at,
+          exception_type: exceptionTypeDraft,
+          exception_status: exceptionStatusDraft,
+          resolution: exceptionResolutionDraft.trim() || null,
+          notes: exceptionNotesDraft.trim() || null,
+          refund_handled_externally: exceptionTypeDraft === "refund_handled_externally",
+          external_refund_reference: externalRefundReferenceDraft.trim() || null,
+          support_ticket_id: selected?.id ?? null,
+        }),
       });
       return data;
     },
@@ -807,6 +861,30 @@ export default function SupportInbox() {
                 })}
               </div>
             </ScrollArea>
+
+            {deliveryJobs.length > 0 ? (
+              <div className="space-y-2 border-t border-border bg-secondary/10 p-4">
+                <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Delivery jobs</p>
+                <div className="space-y-2">
+                  {deliveryJobs.map((job) => (
+                    <div key={job.id} className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                      <Badge variant="outline" className="capitalize">
+                        {job.channel}
+                      </Badge>
+                      <Badge variant={deliveryStateVariant(job.state)} className="capitalize">
+                        {job.state.replace(/_/g, " ")}
+                      </Badge>
+                      <span>{job.attempts} attempts</span>
+                      {job.provider_id ? <span>provider_id: {job.provider_id}</span> : null}
+                      {job.error_code ? <span className="text-destructive">error: {job.error_code}</span> : null}
+                      {job.next_retry_at && job.state !== "completed" ? (
+                        <span>next retry {formatRelativeTime(job.next_retry_at)}</span>
+                      ) : null}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : null}
 
             {selected.status !== "resolved" ? (
               <div className="space-y-3 border-t border-border p-4">

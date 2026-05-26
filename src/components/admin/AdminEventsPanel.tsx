@@ -28,7 +28,7 @@ import AdminEventControls from "./AdminEventControls";
 import BatchEventImportModal from "./BatchEventImportModal";
 import { resolveEventLifecycle } from "@/lib/eventLifecycle";
 import AdminConfirmDialog from "./AdminConfirmDialog";
-import { callAdminRpc, createAdminIdempotencyKey } from "@/lib/adminRpc";
+import { callAdminRpc, createAdminTargetIdempotencyKey } from "@/lib/adminRpc";
 import { supabase } from "@/integrations/supabase/client";
 import { useEventCategories, type EventCategory } from "@/hooks/useEventCategories";
 
@@ -581,6 +581,15 @@ const AdminEventsPanel = () => {
   const allVisibleSelected =
     visibleEventIds.length > 0 && visibleEventIds.every(id => selectedIds.has(id));
 
+  const eventIdempotencyState = (event: AdminEventRow | undefined | null) => ({
+    status: event?.status ?? null,
+    ended_at: event?.ended_at ?? null,
+    archived_at: event?.archived_at ?? null,
+    event_date: event?.event_date ?? null,
+    duration_minutes: event?.duration_minutes ?? null,
+    occurrence_number: event?.occurrence_number ?? null,
+  });
+
   useEffect(() => {
     setSelectedIds(prev => {
       if (prev.size === 0) return prev;
@@ -594,10 +603,18 @@ const AdminEventsPanel = () => {
   // Archive mutation
   const archiveEvent = useMutation({
     mutationFn: async ({ id, unarchive }: { id: string; unarchive?: boolean }) => {
+      const event = events.find((candidate) => candidate.id === id);
       await callAdminRpc(unarchive ? "admin_unarchive_event" : "admin_archive_event", {
         p_event_id: id,
         p_reason: unarchive ? "Unarchived from /kaan dashboard" : "Archived from /kaan dashboard",
-        p_idempotency_key: createAdminIdempotencyKey(unarchive ? "admin_unarchive_event" : "admin_archive_event"),
+        p_idempotency_key: createAdminTargetIdempotencyKey(
+          unarchive ? "admin_unarchive_event" : "admin_archive_event",
+          id,
+          {
+            action: unarchive ? "unarchive" : "archive",
+            ...eventIdempotencyState(event),
+          },
+        ),
       });
     },
     onSuccess: (_, { unarchive }) => {
@@ -609,10 +626,14 @@ const AdminEventsPanel = () => {
 
   const deleteEvent = useMutation({
     mutationFn: async (eventId: string) => {
+      const event = events.find((candidate) => candidate.id === eventId);
       await callAdminRpc('admin_delete_event', {
         p_event_id: eventId,
         p_reason: "Permanently deleted from /kaan dashboard",
-        p_idempotency_key: createAdminIdempotencyKey("admin_delete_event"),
+        p_idempotency_key: createAdminTargetIdempotencyKey("admin_delete_event", eventId, {
+          action: "delete",
+          ...eventIdempotencyState(event),
+        }),
       });
     },
     onSuccess: () => {
@@ -624,10 +645,14 @@ const AdminEventsPanel = () => {
 
   const cancelEvent = useMutation({
     mutationFn: async ({ eventId, title }: { eventId: string; title: string }) => {
+      const event = events.find((candidate) => candidate.id === eventId);
       return callAdminRpc('admin_cancel_event', {
         p_event_id: eventId,
         p_reason: `Cancelled from /kaan dashboard: ${title}`,
-        p_idempotency_key: createAdminIdempotencyKey("admin_cancel_event"),
+        p_idempotency_key: createAdminTargetIdempotencyKey("admin_cancel_event", eventId, {
+          title,
+          ...eventIdempotencyState(event),
+        }),
       });
     },
     onSuccess: (payload) => {
@@ -646,7 +671,10 @@ const AdminEventsPanel = () => {
       await callAdminRpc("admin_end_event", {
         p_event_id: event.id,
         p_reason: "Finalization repair from /kaan dashboard",
-        p_idempotency_key: createAdminIdempotencyKey("admin_end_event"),
+        p_idempotency_key: createAdminTargetIdempotencyKey("admin_end_event", event.id, {
+          action: "finalization-repair",
+          ...eventIdempotencyState(event),
+        }),
       });
       return event;
     },
@@ -663,10 +691,18 @@ const AdminEventsPanel = () => {
   // Archive entire series
   const archiveSeries = useMutation({
     mutationFn: async (parentId: string) => {
+      const parent = events.find((candidate) => candidate.id === parentId);
+      const childIds = events
+        .filter((candidate) => candidate.parent_event_id === parentId)
+        .map((candidate) => candidate.id);
       await callAdminRpc("admin_archive_event_series", {
         p_parent_event_id: parentId,
         p_reason: "Archived recurring series from /kaan dashboard",
-        p_idempotency_key: createAdminIdempotencyKey("admin_archive_event_series"),
+        p_idempotency_key: createAdminTargetIdempotencyKey("admin_archive_event_series", parentId, {
+          action: "archive-series",
+          child_ids: childIds,
+          ...eventIdempotencyState(parent),
+        }),
       });
     },
     onSuccess: () => {
@@ -685,7 +721,13 @@ const AdminEventsPanel = () => {
       await callAdminRpc("admin_bulk_archive_events", {
         p_event_ids: eventIds,
         p_reason: "Bulk archived from /kaan dashboard",
-        p_idempotency_key: createAdminIdempotencyKey("admin_bulk_archive_events"),
+        p_idempotency_key: createAdminTargetIdempotencyKey("admin_bulk_archive_events", eventIds, {
+          action: "bulk-archive",
+          selected_states: eventIds.map((id) => ({
+            id,
+            ...eventIdempotencyState(events.find((candidate) => candidate.id === id)),
+          })),
+        }),
       });
       queryClient.invalidateQueries({ queryKey: ['admin-events'] });
       setSelectedIds(new Set());
@@ -699,10 +741,22 @@ const AdminEventsPanel = () => {
   const generateMore = async (parentId: string, count: number) => {
     setIsGeneratingOccurrences(true);
     try {
+      const parent = events.find((candidate) => candidate.id === parentId);
+      const existingChildren = events
+        .filter((candidate) => candidate.parent_event_id === parentId)
+        .map((candidate) => ({
+          id: candidate.id,
+          event_date: candidate.event_date,
+          occurrence_number: candidate.occurrence_number ?? null,
+        }));
       const data = await callAdminRpc("admin_generate_recurring_events", {
         p_parent_event_id: parentId,
         p_count: count,
-        p_idempotency_key: createAdminIdempotencyKey("admin_generate_recurring_events"),
+        p_idempotency_key: createAdminTargetIdempotencyKey("admin_generate_recurring_events", parentId, {
+          count,
+          existing_children: existingChildren,
+          ...eventIdempotencyState(parent),
+        }),
       });
       queryClient.invalidateQueries({ queryKey: ['admin-events'] });
       toast.success(`Generated ${Number(data.generated_count || 0)} new occurrences`);

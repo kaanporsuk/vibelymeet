@@ -39,10 +39,10 @@
 ## Exact Implementation
 
 - Updated Section 13 of the rebuild runbook to record the current config-backed function inventory:
-  - 70 deployable function directories excluding `_shared`
-  - 70 `[functions.<slug>]` entries in `supabase/config.toml`
+  - 71 deployable function directories excluding `_shared`
+  - 71 `[functions.<slug>]` entries in `supabase/config.toml`
   - 40 `verify_jwt = true` functions
-  - 30 `verify_jwt = false` functions
+  - 31 `verify_jwt = false` functions
   - canonical production project ref `schdyxcunwcvddlcshwd / MVP_Vibe`
   - targeted deploy guidance for scoped repairs
   - full rebuild deploy guidance only for planned rebuild/cutover work

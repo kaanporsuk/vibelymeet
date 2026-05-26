@@ -41,6 +41,9 @@ const supportInboxMigration = read("supabase/migrations/20260507180000_admin_sup
 const supportInboxLiveDriftGuardMigration = read(
   "supabase/migrations/20260508093000_admin_support_inbox_live_drift_guard.sql",
 );
+const sprint2DurableWorkflowsMigration = read(
+  "supabase/migrations/20260526020000_admin_sprint2_durable_compliance_audit.sql",
+);
 const tierConfigAuthorityMigration = read("supabase/migrations/20260507190000_tier_config_backend_authority.sql");
 const tierConfigConcurrencyRepairMigration = read(
   "supabase/migrations/20260507193000_tier_config_backend_authority_concurrency_repair.sql",
@@ -62,6 +65,7 @@ const badgeLegacyFeedbackCleanupMigration = read(
 const validation = read("supabase/validation/admin_p2_backend_authoritative_hardening.sql");
 const accountDeletionsValidation = read("supabase/validation/admin_account_deletions_backend_authoritative.sql");
 const adminRpc = read("src/lib/adminRpc.ts");
+const functionConfig = read("supabase/config.toml");
 const adminDashboard = read("src/pages/admin/AdminDashboard.tsx");
 const staleBundleNotice = read("src/components/admin/AdminStaleBundleNotice.tsx");
 const grantCredits = read("src/components/admin/AdminGrantCreditsModal.tsx");
@@ -95,7 +99,10 @@ const pushAnalytics = read("src/hooks/usePushAnalytics.ts");
 const pushNotificationEventsHook = read("src/hooks/usePushNotificationEvents.ts");
 const verificationFunction = read("supabase/functions/admin-review-verification/index.ts");
 const generateDailyDropsFunction = read("supabase/functions/generate-daily-drops/index.ts");
+const adminAuthShared = read("supabase/functions/_shared/adminAuth.ts");
 const sendSupportReplyFunction = read("supabase/functions/send-support-reply/index.ts");
+const sendNotificationFunction = read("supabase/functions/send-notification/index.ts");
+const processAdminDurableJobsFunction = read("supabase/functions/process-admin-durable-jobs/index.ts");
 const createEventCheckoutFunction = read("supabase/functions/create-event-checkout/index.ts");
 const dateSuggestionActionsFunction = read("supabase/functions/date-suggestion-actions/index.ts");
 const webEntitlementsContext = read("src/contexts/EntitlementsContext.tsx");
@@ -239,25 +246,27 @@ function adminUsersLifecycleFnSection(fnName: string): string {
 
 function accountDeletionsFnSection(fnName: string): string {
   const marker = `CREATE OR REPLACE FUNCTION public.${fnName}`;
-  const start = accountDeletionsMigration.indexOf(marker);
+  const source = `${accountDeletionsMigration}\n${sprint2DurableWorkflowsMigration}`;
+  const start = source.lastIndexOf(marker);
   assert.notEqual(start, -1, `Missing function ${fnName}`);
-  const next = accountDeletionsMigration.indexOf("\nCREATE OR REPLACE FUNCTION public.", start + marker.length);
-  const revoke = accountDeletionsMigration.indexOf("\nREVOKE ALL ON FUNCTION", start + marker.length);
+  const next = source.indexOf("\nCREATE OR REPLACE FUNCTION public.", start + marker.length);
+  const revoke = source.indexOf("\nREVOKE ALL ON FUNCTION", start + marker.length);
   const candidates = [next, revoke].filter((i) => i !== -1);
-  const end = candidates.length ? Math.min(...candidates) : accountDeletionsMigration.length;
-  return accountDeletionsMigration.slice(start, end);
+  const end = candidates.length ? Math.min(...candidates) : source.length;
+  return source.slice(start, end);
 }
 
 function supportInboxFnSection(fnName: string): string {
   const marker = `CREATE OR REPLACE FUNCTION public.${fnName}`;
-  const start = supportInboxMigration.indexOf(marker);
+  const source = `${supportInboxMigration}\n${sprint2DurableWorkflowsMigration}`;
+  const start = source.lastIndexOf(marker);
   assert.notEqual(start, -1, `Missing function ${fnName}`);
-  const next = supportInboxMigration.indexOf("\nCREATE OR REPLACE FUNCTION public.", start + marker.length);
-  const revoke = supportInboxMigration.indexOf("\nREVOKE ALL ON FUNCTION", start + marker.length);
-  const classification = supportInboxMigration.indexOf("\nINSERT INTO public.migration_classifications", start + marker.length);
+  const next = source.indexOf("\nCREATE OR REPLACE FUNCTION public.", start + marker.length);
+  const revoke = source.indexOf("\nREVOKE ALL ON FUNCTION", start + marker.length);
+  const classification = source.indexOf("\nINSERT INTO public.migration_classifications", start + marker.length);
   const candidates = [next, revoke, classification].filter((i) => i !== -1);
-  const end = candidates.length ? Math.min(...candidates) : supportInboxMigration.length;
-  return supportInboxMigration.slice(start, end);
+  const end = candidates.length ? Math.min(...candidates) : source.length;
+  return source.slice(start, end);
 }
 
 function tierConfigAuthorityFnSection(fnName: string): string {
@@ -408,9 +417,8 @@ test("account deletion admin RPCs are guarded, audited, and ACL pinned", () => {
     assert.match(source, /SET search_path = public, pg_catalog/, `${fn} must pin search_path`);
     assert.match(source, /auth\.uid\(\)/, `${fn} must derive admin identity from auth.uid()`);
     assert.match(source, /public\.has_role\(v_admin_id, 'admin'::public\.app_role\)/, `${fn} must verify admin role`);
-    assert.match(accountDeletionsMigration, new RegExp(`REVOKE ALL ON FUNCTION public\\.${fn}\\(`), `${fn} must be revoked from PUBLIC`);
-    assert.match(accountDeletionsMigration, new RegExp(`REVOKE ALL ON FUNCTION public\\.${fn}\\([^)]+\\) FROM PUBLIC, anon, authenticated;`), `${fn} must clear stale explicit anon/authenticated grants before regrant`);
-    assert.match(accountDeletionsMigration, new RegExp(`GRANT EXECUTE ON FUNCTION public\\.${fn}\\(`), `${fn} must be granted to authenticated`);
+    assert.match(`${accountDeletionsMigration}\n${sprint2DurableWorkflowsMigration}`, new RegExp(`REVOKE ALL ON FUNCTION public\\.${fn}\\(`), `${fn} must be revoked from PUBLIC`);
+    assert.match(`${accountDeletionsMigration}\n${sprint2DurableWorkflowsMigration}`, new RegExp(`GRANT EXECUTE ON FUNCTION public\\.${fn}\\(`), `${fn} must be granted to authenticated`);
   }
 
   assert.match(listSource, /public\.account_deletion_requests/);
@@ -422,17 +430,22 @@ test("account deletion admin RPCs are guarded, audited, and ACL pinned", () => {
   assert.match(completeSource, /admin_idempotency_begin/);
   assert.match(completeSource, /admin_idempotency_complete/);
   assert.match(completeSource, /log_admin_action/);
-  assert.match(completeSource, /v_before\.status/);
+  assert.match(completeSource, /v_request\.status/);
   assert.match(completeSource, /scheduled_deletion_at > now\(\)/);
-  assert.match(completeSource, /completed_at = now\(\)/);
-  assert.match(completeSource, /cancelled_at = NULL/);
+  assert.match(completeSource, /account_deletion_completion_jobs/);
+  assert.match(completeSource, /completion_job_queued/);
   assert.match(completeSource, /auth_user_deleted', false/);
-  assert.match(completeSource, /profile_deleted', false/);
+  assert.match(completeSource, /profile_pii_scrubbed', false/);
   assert.match(accountDeletionsMigration, /DROP POLICY IF EXISTS "Admins can view all deletion requests"/);
   assert.match(accountDeletionsMigration, /DROP POLICY IF EXISTS "Admins can update deletion requests"/);
   assert.match(accountDeletionsValidation, /admin_account_deletions_rpcs_acl_and_security_definer/);
   assert.match(accountDeletionsValidation, /account_deletion_requests_rls_enabled/);
-  assert.match(accountDeletionsValidation, /account_deletion_completion_requires_pending_due_and_checkpoint_invariants/);
+  assert.match(accountDeletionsValidation, /account_deletion_completion_requires_pending_due_and_durable_job_invariants/);
+  assert.match(accountDeletionsValidation, /account_deletion_completion_jobs_guard_hard_delete_steps/);
+  assert.match(accountDeletionsValidation, /account_deletion_profile_scrub_clears_identity_and_entitlements/);
+  assert.match(accountDeletionsValidation, /account_deletion_completion_worker_rpcs_service_role_only/);
+  assert.match(accountDeletionsValidation, /support_reply_delivery_worker_rpcs_service_role_only/);
+  assert.match(accountDeletionsValidation, /profile_pii_scrubbed'', false/);
   assert.match(accountDeletionsValidation, /account_deletion_list_reports_hidden_statuses/);
 });
 
@@ -444,8 +457,103 @@ test("retry-prone P2 mutations use idempotency ledger", () => {
   }
 });
 
+test("Sprint 2 account deletion completion is durable and cannot bypass hard-delete steps", () => {
+  assert.match(sprint2DurableWorkflowsMigration, /CREATE TABLE IF NOT EXISTS public\.account_deletion_completion_jobs/);
+  for (const state of ["queued", "processing", "blocked", "retryable_failed", "permanent_failed", "completed"]) {
+    assert.match(sprint2DurableWorkflowsMigration, new RegExp(`'${state}'`), `missing deletion job state ${state}`);
+  }
+  assert.match(sprint2DurableWorkflowsMigration, /provider_cleanup_completed_at/);
+  assert.match(sprint2DurableWorkflowsMigration, /media_cleanup_completed_at/);
+  assert.match(sprint2DurableWorkflowsMigration, /pii_scrub_completed_at/);
+  assert.match(sprint2DurableWorkflowsMigration, /auth_delete_completed_at/);
+  assert.match(sprint2DurableWorkflowsMigration, /ACCOUNT_DELETION_COMPLETION_JOB_INCOMPLETE/);
+  assert.match(sprint2DurableWorkflowsMigration, /DROP TRIGGER IF EXISTS trg_account_deletion_requests_media_lifecycle/);
+  assert.match(sprint2DurableWorkflowsMigration, /DROP CONSTRAINT IF EXISTS account_deletion_requests_user_id_auth_users_fkey/);
+  assert.match(sprint2DurableWorkflowsMigration, /daily_drops_opener_sender_id_fkey[\s\S]*ON DELETE SET NULL/);
+  assert.match(sprint2DurableWorkflowsMigration, /legacy_checkpoint/);
+  assert.match(sprint2DurableWorkflowsMigration, /enqueue_due_account_deletion_completion_jobs_v1/);
+  assert.match(sprint2DurableWorkflowsMigration, /scrub_account_deletion_profile_pii_v1/);
+  assert.match(sprint2DurableWorkflowsMigration, /is_premium = false/);
+  assert.match(sprint2DurableWorkflowsMigration, /premium_until = NULL/);
+  assert.match(sprint2DurableWorkflowsMigration, /premium_granted_by = NULL/);
+  assert.match(sprint2DurableWorkflowsMigration, /subscription_tier = 'free'/);
+  assert.match(sprint2DurableWorkflowsMigration, /proof_selfie_url = NULL/);
+  assert.match(sprint2DurableWorkflowsMigration, /bunny_video_uid = NULL/);
+  assert.match(sprint2DurableWorkflowsMigration, /discoverable = false/);
+  assert.match(sprint2DurableWorkflowsMigration, /last_seen_at = NULL/);
+  assert.match(sprint2DurableWorkflowsMigration, /suspension_reason = NULL/);
+  assert.doesNotMatch(sprint2DurableWorkflowsMigration, /video_intro_url = NULL/);
+  assert.match(sprint2DurableWorkflowsMigration, /entitlements_scrubbed/);
+  assert.match(sprint2DurableWorkflowsMigration, /process-admin-durable-jobs/);
+  assert.match(sprint2DurableWorkflowsMigration, /cron\.schedule\(\s*'process-admin-durable-jobs'/);
+  assert.match(sprint2DurableWorkflowsMigration, /state IN \('retryable_failed', 'blocked', 'permanent_failed'\) THEN now\(\)/);
+  assert.match(sprint2DurableWorkflowsMigration, /attempts = CASE[\s\S]*state = 'permanent_failed' THEN 0/);
+  assert.match(processAdminDurableJobsFunction, /enqueue_due_account_deletion_completion_jobs_v1/);
+  assert.match(processAdminDurableJobsFunction, /complete_account_deletion_media_cleanup/);
+  assert.match(processAdminDurableJobsFunction, /scrub_account_deletion_profile_pii_v1/);
+  assert.match(processAdminDurableJobsFunction, /supabase\.auth\.admin\.deleteUser\(job\.user_id\)/);
+  assert.match(processAdminDurableJobsFunction, /claim_account_deletion_completion_jobs_v1/);
+  assert.match(processAdminDurableJobsFunction, /fail_account_deletion_completion_job_v1/);
+  assert.match(processAdminDurableJobsFunction, /provider !== "stripe" && provider !== "revenuecat"/);
+  assert.match(processAdminDurableJobsFunction, /activeStripeSubscriptionsForCustomer/);
+  assert.match(processAdminDurableJobsFunction, /stripe_provider_identity_missing/);
+  assert.match(processAdminDurableJobsFunction, /stripe_rows_missing_subscription_id/);
+  assert.match(processAdminDurableJobsFunction, /revenuecat_subscriptions_revoked_locally/);
+  assert.match(processAdminDurableJobsFunction, /local_subscription_rows_cancelled/);
+  assert.match(processAdminDurableJobsFunction, /subscription_entitlement_recompute_failed/);
+});
+
+test("Sprint 2 support replies enqueue retryable delivery jobs instead of request-bound side effects", () => {
+  assert.match(sprint2DurableWorkflowsMigration, /CREATE TABLE IF NOT EXISTS public\.support_reply_delivery_jobs/);
+  assert.match(sprint2DurableWorkflowsMigration, /provider_id text/);
+  assert.match(sprint2DurableWorkflowsMigration, /attempts integer NOT NULL DEFAULT 0/);
+  assert.match(sprint2DurableWorkflowsMigration, /next_retry_at timestamptz NOT NULL DEFAULT now\(\)/);
+  assert.match(sprint2DurableWorkflowsMigration, /last_error text/);
+  assert.match(sprint2DurableWorkflowsMigration, /channel text NOT NULL CHECK \(channel IN \('push', 'email'\)\)/);
+  assert.match(supportInboxFnSection("admin_create_support_reply"), /support_reply_delivery_jobs/);
+  assert.match(supportInboxFnSection("admin_create_support_reply"), /missing_recipient_email/);
+  assert.match(supportInboxFnSection("admin_get_support_ticket_thread"), /delivery_jobs/);
+  assert.match(sendSupportReplyFunction, /p_send_email: sendEmail/);
+  assert.match(supabaseTypes, /admin_create_support_reply:[\s\S]*p_send_email\?: boolean/);
+  assert.match(sendSupportReplyFunction, /delivery_jobs/);
+  assert.doesNotMatch(sendSupportReplyFunction, /\/functions\/v1\/send-notification/);
+  assert.doesNotMatch(sendSupportReplyFunction, /api\.resend\.com\/emails/);
+  assert.match(processAdminDurableJobsFunction, /claim_support_reply_delivery_jobs_v1/);
+  assert.match(processAdminDurableJobsFunction, /complete_support_reply_delivery_job_v1/);
+  assert.match(processAdminDurableJobsFunction, /\/functions\/v1\/send-notification/);
+  assert.match(processAdminDurableJobsFunction, /send-notification did not deliver push/);
+  assert.match(processAdminDurableJobsFunction, /provider_idempotency_key: job\.id/);
+  assert.match(processAdminDurableJobsFunction, /typeof parsed\.status === "number" \? parsed\.status : notifyRes\.status/);
+  assert.match(processAdminDurableJobsFunction, /send-notification skipped push delivery/);
+  assert.match(processAdminDurableJobsFunction, /parsed\.onesignal_id/);
+  assert.match(processAdminDurableJobsFunction, /push_provider_id_missing/);
+  assert.match(processAdminDurableJobsFunction, /support_delivery_state_update_failed/);
+  assert.match(processAdminDurableJobsFunction, /blocked: result\.blocked === true/);
+  assert.match(processAdminDurableJobsFunction, /api\.resend\.com\/emails/);
+  assert.match(processAdminDurableJobsFunction, /"Idempotency-Key": `support-reply-email\/\$\{job\.id\}`/);
+  assert.match(processAdminDurableJobsFunction, /email_provider_id_missing/);
+  assert.match(sendNotificationFunction, /provider_idempotency_key/);
+  assert.match(sendNotificationFunction, /osPayload\.idempotency_key = requestProviderIdempotencyKey/);
+  assert.match(processAdminDurableJobsFunction, /allowedHeaders: "authorization, x-client-info, apikey, content-type, x-cron-secret"/);
+  assert.match(sendSupportReplyFunction, /success: false, error: "ticket_id and reply_message required"/);
+  assert.match(functionConfig, /\[functions\.process-admin-durable-jobs\]\nverify_jwt = false/);
+});
+
+test("Sprint 2 audit reads and exports are themselves audited with enriched columns", () => {
+  assert.match(sprint2DurableWorkflowsMigration, /ADD COLUMN IF NOT EXISTS request_id text/);
+  assert.match(sprint2DurableWorkflowsMigration, /ADD COLUMN IF NOT EXISTS correlation_id text/);
+  assert.match(sprint2DurableWorkflowsMigration, /ADD COLUMN IF NOT EXISTS action_outcome text/);
+  assert.match(sprint2DurableWorkflowsMigration, /ADD COLUMN IF NOT EXISTS error_code text/);
+  assert.match(sprint2DurableWorkflowsMigration, /idx_admin_activity_logs_action_type_created_at/);
+  assert.match(sprint2DurableWorkflowsMigration, /admin_audit_logs\.searched/);
+  assert.match(sprint2DurableWorkflowsMigration, /meta_audit_log_id/);
+  assert.match(sprint2DurableWorkflowsMigration, /admin_audit_logs\.exported/);
+  assert.match(sprint2DurableWorkflowsMigration, /trg_audit_admin_audit_log_export_job/);
+});
+
 test("browser mutation surfaces call semantic admin RPCs", () => {
   assert.match(adminRpc, /createAdminIdempotencyKey/);
+  assert.match(adminRpc, /createAdminTargetIdempotencyKey/);
   assert.match(adminRpc, /payload\.success === false \|\| payload\.ok === false/);
   assert.match(grantCredits, /callAdminRpc\("admin_adjust_user_credits"/);
   assert.match(premium, /callAdminRpc\("admin_set_premium_status"/);
@@ -484,11 +592,16 @@ test("browser mutation surfaces call semantic admin RPCs", () => {
   assert.match(verification, /callAdminRpc\("admin_review_photo_verification"/);
   assert.match(adminDeletions, /callAdminRpc<AccountDeletionListPayload>\("admin_list_account_deletions"/);
   assert.match(adminDeletions, /callAdminRpc\("admin_mark_account_deletion_completed"/);
-  assert.match(adminDeletions, /createAdminIdempotencyKey\("admin_mark_account_deletion_completed"\)/);
+  assert.match(adminDeletions, /createAdminTargetIdempotencyKey\(\s*"admin_mark_account_deletion_completed"/);
+  assert.match(adminDeletions, /completion_attempts/);
+  assert.match(adminDeletions, /completion_job_state/);
   assert.match(support, /callAdminRpc<SupportInboxPayload>\("admin_get_support_inbox"/);
   assert.match(support, /callAdminRpc<SupportThreadPayload>\("admin_get_support_ticket_thread"/);
   assert.match(support, /callAdminRpc\("admin_update_support_ticket"/);
   assert.match(support, /supabase\.functions\.invoke<SendSupportReplyResponse>\("send-support-reply"/);
+  assert.match(support, /Delivery jobs/);
+  assert.match(support, /latest_reply_id/);
+  assert.match(support, /selected_updated_at/);
   assert.match(support, /callAdminRpc\("admin_create_event_payment_exception"/);
   assert.match(support, /callAdminRpc\("admin_transition_event_payment_exception"/);
   assert.match(overviewHook, /callAdminRpc<AdminOverviewDashboardPayload>\("admin_get_overview_dashboard"/);
@@ -526,8 +639,8 @@ test("Support Inbox admin RPCs are governed, audited, ACL pinned, and lifecycle-
     assert.doesNotMatch(source, writeStatement, `${fn} must stay read-only`);
     assert.doesNotMatch(source, /SELECT\s+\*/, `${fn} must avoid wide table projection`);
     assert.doesNotMatch(source, /to_jsonb\(/, `${fn} must avoid implicit row JSON projection`);
-    assert.match(supportInboxMigration, new RegExp(`REVOKE ALL ON FUNCTION public\\.${fn}\\([^)]+\\) FROM PUBLIC, anon, authenticated;`), `${fn} must clear stale grants`);
-    assert.match(supportInboxMigration, new RegExp(`GRANT EXECUTE ON FUNCTION public\\.${fn}\\(`), `${fn} must be granted to authenticated`);
+    assert.match(`${supportInboxMigration}\n${sprint2DurableWorkflowsMigration}`, new RegExp(`REVOKE ALL ON FUNCTION public\\.${fn}\\([^)]+\\) FROM PUBLIC, anon, authenticated;`), `${fn} must clear stale grants`);
+    assert.match(`${supportInboxMigration}\n${sprint2DurableWorkflowsMigration}`, new RegExp(`GRANT EXECUTE ON FUNCTION public\\.${fn}\\(`), `${fn} must be granted to authenticated`);
   }
 
   for (const fn of ["admin_update_support_ticket", "admin_create_support_reply"]) {
@@ -540,8 +653,8 @@ test("Support Inbox admin RPCs are governed, audited, ACL pinned, and lifecycle-
     assert.match(source, /admin_idempotency_complete/, `${fn} must complete the idempotency ledger`);
     assert.match(source, /log_admin_action/, `${fn} must write admin_activity_logs`);
     assert.match(source, /public\.support_ticket_events/, `${fn} must leave a support event trail`);
-    assert.match(supportInboxMigration, new RegExp(`REVOKE ALL ON FUNCTION public\\.${fn}\\([^)]+\\) FROM PUBLIC, anon, authenticated;`), `${fn} must clear stale grants`);
-    assert.match(supportInboxMigration, new RegExp(`GRANT EXECUTE ON FUNCTION public\\.${fn}\\(`), `${fn} must be granted to authenticated`);
+    assert.match(`${supportInboxMigration}\n${sprint2DurableWorkflowsMigration}`, new RegExp(`REVOKE ALL ON FUNCTION public\\.${fn}\\([^)]+\\) FROM PUBLIC, anon, authenticated;`), `${fn} must clear stale grants`);
+    assert.match(`${supportInboxMigration}\n${sprint2DurableWorkflowsMigration}`, new RegExp(`GRANT EXECUTE ON FUNCTION public\\.${fn}\\(`), `${fn} must be granted to authenticated`);
   }
 
   assert.match(supportInboxFnSection("admin_create_support_reply"), /v_ticket\.status = 'resolved'/);
@@ -599,23 +712,26 @@ test("Support Inbox live drift guard reasserts realtime and least-privilege gran
   assert.match(supportInboxLiveDriftGuardMigration, /No support data is rewritten or deleted/);
 });
 
-test("send-support-reply saves through the governed admin reply RPC before notification side effects", () => {
+test("send-support-reply saves through the governed admin reply RPC and returns durable delivery state", () => {
   const saveIndex = sendSupportReplyFunction.indexOf('auth.context.userClient.rpc("admin_create_support_reply"');
-  const notificationIndex = sendSupportReplyFunction.indexOf("/functions/v1/send-notification");
 
   assert.ok(saveIndex > -1, "send-support-reply must call admin_create_support_reply");
-  assert.ok(notificationIndex > saveIndex, "reply save must happen before notification delivery");
-  assert.match(sendSupportReplyFunction, /authenticateAdminRequest\(req\)/);
+  assert.match(sendSupportReplyFunction, /authenticateAdminRequest\(req,\s*\{[\s\S]*requiredPermission: "support\.manage"/);
+  assert.match(adminAuthShared, /requiredPermission\?: string/);
+  assert.match(adminAuthShared, /admin_role_permissions/);
   assert.match(sendSupportReplyFunction, /preflightResponse\(req\)/);
   assert.doesNotMatch(sendSupportReplyFunction, /Access-Control-Allow-Origin["']:\s*["']\*["']/);
   assert.match(sendSupportReplyFunction, /idempotent_replay/);
+  assert.match(sendSupportReplyFunction, /delivery_jobs/);
+  assert.match(sendSupportReplyFunction, /notification_job_id/);
+  assert.match(sendSupportReplyFunction, /email_job_id/);
   assert.match(sendSupportReplyFunction, /notification_warning/);
   assert.match(sendSupportReplyFunction, /email_warning/);
   assert.match(sendSupportReplyFunction, /sanitizeErrorMessage/);
   assert.match(sendSupportReplyFunction, /statusForAdminError\(error, 400\)/);
-  assert.match(sendSupportReplyFunction, /send-notification error for support reply:", sanitizeErrorMessage\(notifyError\)/);
-  assert.match(sendSupportReplyFunction, /Resend email failed for support reply:", sanitizeErrorMessage\(emailError\)/);
   assert.match(sendSupportReplyFunction, /send-support-reply:", sanitizeErrorMessage\(e\)/);
+  assert.doesNotMatch(sendSupportReplyFunction, /\/functions\/v1\/send-notification/);
+  assert.doesNotMatch(sendSupportReplyFunction, /api\.resend\.com\/emails/);
   assert.doesNotMatch(sendSupportReplyFunction, /jsonResponse\(\{ error: String\(e\) \}/);
   assert.doesNotMatch(sendSupportReplyFunction, /from\(["']support_ticket_replies["']\)[\s\S]{0,300}\.insert\(/);
   assert.doesNotMatch(sendSupportReplyFunction, /from\(["']support_tickets["']\)[\s\S]{0,300}\.update\(/);

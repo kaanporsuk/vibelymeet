@@ -69,13 +69,13 @@
         "Video Date Daily webhook closure (2026-05-22): video-date-daily-webhook is a provider-public Daily HMAC endpoint using DAILY_WEBHOOK_SECRET and the schdyxcunwcvddlcshwd function URL.",
         "Media derivatives closure (2026-05-22): 20260522161000_media_derivatives_placeholders_realtime.sql adds durable profile/chat image derivative paths, dominant-color placeholders, owner-scoped realtime media broadcasts, and profile photo derivative hydration through profile_photo_derivatives_for_paths.",
         "External dependency closure (2026-05-23): Supabase core is healthy; Daily webhook registration is closed by operator evidence, while real join/leave delivery remains pending until lastMomentPushed is non-null.",
-        "Edge Function repo refresh (2026-05-26): source/config inventory is 70 deployable functions, 40 JWT-at-gateway functions, and 30 public-but-protected functions. Re-confirm cloud deployment after function source/config changes.",
+        "Edge Function repo refresh (2026-05-26): source/config inventory is 71 deployable functions, 40 JWT-at-gateway functions, and 31 public-but-protected functions. Re-confirm cloud deployment after function source/config changes.",
         "The top-level edge_functions array remains a historical partial inventory; use current_edge_function_inventory_2026_05_26 for current source/config truth."
       ],
       "repo_inventory_counts": {
-        "edge_functions_deployable": 70,
+        "edge_functions_deployable": 71,
         "edge_function_shared_dirs": 1,
-        "migrations": 516,
+        "migrations": 550,
         "live_public_tables_after_sprint3": 48,
         "pages_src_root_ts_tsx": 33,
         "pages_src_all_tsx_recursive": 55,
@@ -87,7 +87,7 @@
         "linked_db_public_views": 11,
         "linked_db_public_functions": 127,
         "linked_db_public_enum_groups": 4,
-        "edge_function_config_entries": 70
+        "edge_function_config_entries": 71
       },
       "mechanical_trust_closure_2026_04_14": {
         "types_regenerated_from_project_id": "schdyxcunwcvddlcshwd",
@@ -158,10 +158,10 @@
       ],
       "current_edge_function_inventory_2026_05_26": {
         "source": "supabase/config.toml and supabase/functions/*/index.ts",
-        "deployable_function_count": 70,
-        "config_entry_count": 70,
+        "deployable_function_count": 71,
+        "config_entry_count": 71,
         "jwt_at_gateway_count": 40,
-        "public_but_protected_count": 30,
+        "public_but_protected_count": 31,
         "slugs": [
           {
             "name": "admin-data-export",
@@ -313,6 +313,10 @@
           },
           {
             "name": "post-date-verdict-reminders",
+            "verify_jwt": false
+          },
+          {
+            "name": "process-admin-durable-jobs",
             "verify_jwt": false
           },
           {
@@ -1390,6 +1394,19 @@
         "apps/mobile/components/video-date/PostDateSurvey.tsx",
         "src/components/video-date/PostDateSurvey.tsx"
       ]
+    },
+    {
+      "name": "process-admin-durable-jobs",
+      "config_listed": true,
+      "verify_jwt": false,
+      "env_vars": [
+        "CRON_SECRET",
+        "RESEND_API_KEY",
+        "STRIPE_SECRET_KEY",
+        "SUPABASE_SERVICE_ROLE_KEY",
+        "SUPABASE_URL"
+      ],
+      "frontend_references": []
     },
     {
       "name": "process-media-delete-jobs",

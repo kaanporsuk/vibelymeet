@@ -12,7 +12,7 @@ supabase link --project-ref schdyxcunwcvddlcshwd
 
 **Live DB SQL:** Sections that require Postgres (full RPC enumeration vs `types.ts`, `pg_publication_tables`, RLS dump, triggers, cron, indexes, storage buckets) should be executed in the **Supabase SQL Editor** using the queries in this doc. This report uses **generated types** (`src/integrations/supabase/types.ts`) as the RPC catalog and **migrations** for RLS/trigger hints where live SQL was not executed here.
 
-> Current repo addendum (2026-05-26): this document is a historical/live audit snapshot. The current repo contains **70 deployable Edge Functions** with **70 matching `supabase/config.toml` entries**. Historical rows below that mention `account-pause`, `account-resume`, `email-drip`, or `unsubscribe` are superseded for current ops: those function slugs are absent from current source/config/cloud inventory unless deliberately restored. Use `_cursor_context/vibely_edge_function_manifest.md` and `docs/external-dependency-closure-plan-2026-05-23.md` for current closure state.
+> Current repo addendum (2026-05-26): this document is a historical/live audit snapshot. The current repo contains **71 deployable Edge Functions** with **71 matching `supabase/config.toml` entries**. Historical rows below that mention `account-pause`, `account-resume`, `email-drip`, or `unsubscribe` are superseded for current ops: those function slugs are absent from current source/config/cloud inventory unless deliberately restored. Use `_cursor_context/vibely_edge_function_manifest.md` and `docs/external-dependency-closure-plan-2026-05-23.md` for current closure state.
 
 ---
 

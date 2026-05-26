@@ -798,6 +798,7 @@ const AdminUserDetailDrawer = ({ userId, onClose }: AdminUserDetailDrawerProps) 
         <AdminGrantCreditsModal
           userId={userId}
           userName={profile.name || 'User'}
+          currentCredits={credits}
           isOpen={showGrantCredits}
           onClose={() => setShowGrantCredits(false)}
         />

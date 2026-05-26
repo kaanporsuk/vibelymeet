@@ -20,7 +20,7 @@ import { toast } from "sonner";
 import { format } from "date-fns";
 import { EVENT_LANGUAGES } from "@/lib/eventLanguages";
 import React from "react";
-import { callAdminRpc, createAdminIdempotencyKey } from "@/lib/adminRpc";
+import { callAdminRpc, createAdminIdempotencyKey, createAdminTargetIdempotencyKey } from "@/lib/adminRpc";
 import { useEventCategories } from "@/hooks/useEventCategories";
 import { inferEventCategoryKeysFromLegacyTags } from "@clientShared/eventCategories";
 import { clientRequestIdForUploadFile } from "@/services/imageUploadService";
@@ -171,6 +171,7 @@ CollapsibleSection.displayName = "CollapsibleSection";
 const AdminEventFormModal = ({ event, onClose }: AdminEventFormModalProps) => {
   const queryClient = useQueryClient();
   const isEditing = !!event;
+  const createEventIntentIdRef = useRef(createAdminIdempotencyKey("admin_create_event_form"));
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isUploading, setIsUploading] = useState(false);
   const formId = `admin-event-form-${event?.id ?? "new"}`;
@@ -446,13 +447,27 @@ const AdminEventFormModal = ({ event, onClose }: AdminEventFormModalProps) => {
         const payload = await callAdminRpc("admin_update_event", {
           p_event_id: event.id,
           p_payload: eventData,
-          p_idempotency_key: createAdminIdempotencyKey("admin_update_event"),
+          p_idempotency_key: createAdminTargetIdempotencyKey("admin_update_event", event.id, {
+            before: {
+              title: event.title ?? null,
+              event_date: event.event_date ?? null,
+              duration_minutes: event.duration_minutes ?? null,
+              current_attendees: event.current_attendees ?? null,
+              is_recurring: event.is_recurring ?? null,
+              recurrence_type: event.recurrence_type ?? null,
+            },
+            after: eventData,
+          }),
         });
         return { id: event.id, action: 'edit_event', eventData: (payload.event || eventData) as EventSavePayload };
       } else {
         const payload = await callAdminRpc("admin_create_event", {
           p_payload: eventData,
-          p_idempotency_key: createAdminIdempotencyKey("admin_create_event"),
+          p_idempotency_key: createAdminTargetIdempotencyKey(
+            "admin_create_event",
+            createEventIntentIdRef.current,
+            eventData,
+          ),
         });
         return { id: String(payload.event_id), action: 'create_event', eventData: (payload.event || eventData) as EventSavePayload };
       }
@@ -471,7 +486,9 @@ const AdminEventFormModal = ({ event, onClose }: AdminEventFormModalProps) => {
             const recurringPayload = await callAdminRpc("admin_generate_recurring_events", {
               p_parent_event_id: result.id,
               p_count: generateCount,
-              p_idempotency_key: createAdminIdempotencyKey("admin_generate_recurring_events"),
+              p_idempotency_key: createAdminTargetIdempotencyKey("admin_generate_recurring_events", result.id, {
+                count: generateCount,
+              }),
             });
             toast.success(`Created recurring event + ${Number(recurringPayload.generated_count || 0)} upcoming occurrences`);
           } catch (_) {

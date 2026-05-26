@@ -1,4 +1,4 @@
-import { useMemo, useState, useEffect } from "react";
+import { useMemo, useState, useEffect, useRef } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { motion, AnimatePresence } from "framer-motion";
 import {
@@ -42,7 +42,7 @@ import PushAnalyticsDashboard from "./PushAnalyticsDashboard";
 import CampaignTemplatesLibrary, { CampaignTemplate } from "./CampaignTemplatesLibrary";
 import LiveNotificationMonitor from "./LiveNotificationMonitor";
 import AdminConfirmDialog from "./AdminConfirmDialog";
-import { callAdminRpc, createAdminIdempotencyKey, type AdminRpcPayload } from "@/lib/adminRpc";
+import { callAdminRpc, createAdminIdempotencyKey, createAdminTargetIdempotencyKey, type AdminRpcPayload } from "@/lib/adminRpc";
 
 interface Campaign {
   id: string;
@@ -210,6 +210,7 @@ const AdminPushCampaignsPanel = () => {
   const [campaignToDelete, setCampaignToDelete] = useState<Campaign | null>(null);
   const [isDeletingCampaign, setIsDeletingCampaign] = useState(false);
   const [isSavingCampaign, setIsSavingCampaign] = useState(false);
+  const createDraftIntentIdRef = useRef(createAdminIdempotencyKey("admin_upsert_push_campaign_draft_form"));
   
   const { data: campaignsReadModel, isError: campaignsReadError } = useQuery({
     queryKey: ['push-campaigns'],
@@ -291,6 +292,7 @@ const AdminPushCampaignsPanel = () => {
     setEditingCampaign(null);
     setFormData({ title: '', body: '' });
     setSegment(createDefaultTargetSegment());
+    createDraftIntentIdRef.current = createAdminIdempotencyKey("admin_upsert_push_campaign_draft_form");
   };
 
   const handleSaveCampaign = async () => {
@@ -319,7 +321,19 @@ const AdminPushCampaignsPanel = () => {
         p_title: title,
         p_body: body,
         p_target_segment: supportedSegment,
-        p_idempotency_key: createAdminIdempotencyKey("admin_upsert_push_campaign_draft"),
+        p_idempotency_key: editingCampaign?.id
+          ? createAdminTargetIdempotencyKey("admin_upsert_push_campaign_draft", editingCampaign.id, {
+              current_status: editingCampaign.status,
+              current_created_at: editingCampaign.createdAt,
+              title,
+              body,
+              target_segment: supportedSegment,
+            })
+          : createAdminTargetIdempotencyKey("admin_upsert_push_campaign_draft", createDraftIntentIdRef.current, {
+              title,
+              body,
+              target_segment: supportedSegment,
+            }),
       });
 
       toast.success(
@@ -352,7 +366,7 @@ const AdminPushCampaignsPanel = () => {
     try {
       await callAdminRpc("admin_delete_push_campaign_draft", {
         p_campaign_id: id,
-        p_idempotency_key: createAdminIdempotencyKey("admin_delete_push_campaign_draft"),
+        p_idempotency_key: createAdminTargetIdempotencyKey("admin_delete_push_campaign_draft", id, "delete"),
       });
       
       queryClient.invalidateQueries({ queryKey: ['push-campaigns'] });

@@ -10,24 +10,30 @@ import {
   preflightResponse,
 } from "../_shared/cors.ts";
 
+type DeliveryJob = {
+  id?: string;
+  channel?: "push" | "email";
+  state?: string;
+  attempts?: number;
+  next_retry_at?: string | null;
+  last_error?: string | null;
+  error_code?: string | null;
+  provider_id?: string | null;
+};
+
 type AdminCreateSupportReplyPayload = {
   success?: boolean;
   error?: string;
   message?: string;
   idempotent_replay?: boolean;
   ticket_id?: string;
+  notification_warning?: string | null;
+  email_warning?: string | null;
+  delivery_jobs?: DeliveryJob[];
   reply?: {
     id?: string;
   };
 };
-
-function escapeHtml(s: string): string {
-  return s
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
-}
 
 function jsonResponse(req: Request, body: Record<string, unknown>, status = 200) {
   return adminJsonResponse(req, body, status);
@@ -49,12 +55,11 @@ serve(async (req) => {
   }
 
   try {
-    const auth = await authenticateAdminRequest(req);
+    const auth = await authenticateAdminRequest(req, {
+      requireAdmin: false,
+      requiredPermission: "support.manage",
+    });
     if (!auth.ok) return auth.response;
-
-    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-    const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-    const service = auth.context.adminClient;
 
     const requestBody = await req.json().catch(() => ({}));
     const ticketId = typeof requestBody.ticket_id === "string" ? requestBody.ticket_id : "";
@@ -63,13 +68,14 @@ serve(async (req) => {
     const idempotencyKey = typeof requestBody.idempotency_key === "string" ? requestBody.idempotency_key : null;
 
     if (!ticketId || !replyMessage) {
-      return jsonResponse(req, { error: "ticket_id and reply_message required" }, 400);
+      return jsonResponse(req, { success: false, error: "ticket_id and reply_message required" }, 400);
     }
 
     const { data: replyPayloadRaw, error: replyRpcError } = await auth.context.userClient.rpc("admin_create_support_reply", {
       p_ticket_id: ticketId,
       p_message: replyMessage,
       p_idempotency_key: idempotencyKey,
+      p_send_email: sendEmail,
     });
 
     if (replyRpcError) {
@@ -97,128 +103,23 @@ serve(async (req) => {
       );
     }
 
-    if (replyPayload.idempotent_replay) {
-      return jsonResponse(req, {
-        success: true,
-        idempotent_replay: true,
-        ticket_id: replyPayload.ticket_id ?? ticketId,
-        reply_id: replyPayload.reply?.id ?? null,
-        notification_warning: null,
-        email_warning: null,
-      });
-    }
-
-    const { data: ticket, error: ticketError } = await service
-      .from("support_tickets")
-      .select("id, reference_id, user_id, user_email")
-      .eq("id", ticketId)
-      .single();
-
-    if (ticketError || !ticket) {
-      return jsonResponse(req, {
-        success: true,
-        ticket_id: ticketId,
-        reply_id: replyPayload.reply?.id ?? null,
-        notification_warning: "Reply saved but notification context could not be loaded.",
-        email_warning: sendEmail ? "Reply saved but email context could not be loaded." : null,
-      });
-    }
-
-    const { data: prof } = await service.from("profiles").select("name").eq("id", ticket.user_id).maybeSingle();
-    const displayName = prof?.name ?? "there";
-
-    let notificationWarning: string | null = null;
-    let emailWarning: string | null = null;
-
-    try {
-      const notifyRes = await fetch(`${supabaseUrl}/functions/v1/send-notification`, {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${serviceKey}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          user_id: ticket.user_id,
-          category: "support_reply",
-          title: "Vibely Support",
-          body: `We've replied to your request ${ticket.reference_id}`,
-          data: {
-            type: "support_reply",
-            ticket_id: ticket.id,
-            reference_id: ticket.reference_id,
-            url: `/settings/ticket/${ticket.id}`,
-          },
-          bypass_preferences: true,
-        }),
-      });
-
-      if (!notifyRes.ok) {
-        const txt = await notifyRes.text();
-        console.error("send-notification failed:", notifyRes.status, sanitizeErrorMessage(txt));
-        notificationWarning = "Reply saved but push notification could not be delivered.";
-      }
-    } catch (notifyError) {
-      console.error("send-notification error for support reply:", sanitizeErrorMessage(notifyError));
-      notificationWarning = "Reply saved but push notification could not be delivered.";
-    }
-
-    if (sendEmail && ticket.user_email) {
-      const resendKey = Deno.env.get("RESEND_API_KEY");
-      if (resendKey) {
-        const safeBody = escapeHtml(replyMessage).replace(/\n/g, "<br/>");
-        try {
-          const emailRes = await fetch("https://api.resend.com/emails", {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              Authorization: `Bearer ${resendKey}`,
-            },
-            body: JSON.stringify({
-              from: "Vibely Support <support@vibelymeet.com>",
-              to: ticket.user_email,
-              subject: `Re: Your request ${ticket.reference_id}`,
-              html: `
-          <div style="font-family: sans-serif; max-width: 520px; margin: 0 auto;">
-            <h2 style="color: #8B5CF6;">Vibely Support</h2>
-            <p>Hi ${escapeHtml(displayName)},</p>
-            <p>We've replied to your request <strong>${escapeHtml(ticket.reference_id)}</strong>.</p>
-            <div style="background: #f9f9f9; border-left: 3px solid #8B5CF6;
-                        padding: 12px 16px; margin: 16px 0; border-radius: 4px;">
-              ${safeBody}
-            </div>
-            <p>You can view the full conversation in the Vibely app under
-               Settings -> Support & Feedback -> Your Requests.</p>
-            <p style="color: #888; font-size: 12px;">
-              Ref: ${escapeHtml(ticket.reference_id)} - vibelymeet.com
-            </p>
-          </div>
-        `,
-            }),
-          });
-
-          if (!emailRes.ok) {
-            const body = await emailRes.text();
-            console.error("Resend email non-OK response for support reply:", emailRes.status, sanitizeErrorMessage(body));
-            emailWarning = "Reply saved but email notification could not be sent.";
-          }
-        } catch (emailError) {
-          console.error("Resend email failed for support reply:", sanitizeErrorMessage(emailError));
-          emailWarning = "Reply saved but email notification could not be sent.";
-        }
-      } else {
-        emailWarning = "Reply saved but email notification is not configured.";
-      }
-    }
+    const deliveryJobs = Array.isArray(replyPayload.delivery_jobs) ? replyPayload.delivery_jobs : [];
+    const pushJob = deliveryJobs.find((job) => job.channel === "push");
+    const emailJob = deliveryJobs.find((job) => job.channel === "email");
 
     return jsonResponse(req, {
       success: true,
-      ticket_id: ticketId,
+      idempotent_replay: replyPayload.idempotent_replay === true,
+      ticket_id: replyPayload.ticket_id ?? ticketId,
       reply_id: replyPayload.reply?.id ?? null,
-      notification_warning: notificationWarning,
-      email_warning: emailWarning,
+      delivery_jobs: deliveryJobs,
+      notification_job_id: pushJob?.id ?? null,
+      email_job_id: emailJob?.id ?? null,
+      notification_warning: replyPayload.notification_warning ?? null,
+      email_warning: replyPayload.email_warning ?? null,
     });
   } catch (e) {
     console.error("send-support-reply:", sanitizeErrorMessage(e));
-    return jsonResponse(req, { error: "INTERNAL_ERROR", message: sanitizeErrorMessage(e) }, 500);
+    return jsonResponse(req, { success: false, error: "INTERNAL_ERROR", message: sanitizeErrorMessage(e) }, 500);
   }
 });

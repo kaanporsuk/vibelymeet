@@ -63,19 +63,93 @@ select
   ) as ok;
 
 select
-  'account_deletion_completion_requires_pending_due_and_checkpoint_invariants' as check_name,
+  'account_deletion_completion_requires_pending_due_and_durable_job_invariants' as check_name,
   pg_get_functiondef('public.admin_mark_account_deletion_completed(uuid, text, text)'::regprocedure)
-    like '%v_before.status%'
+    like '%v_request.status%'
   and pg_get_functiondef('public.admin_mark_account_deletion_completed(uuid, text, text)'::regprocedure)
     like '%scheduled_deletion_at > now()%'
   and pg_get_functiondef('public.admin_mark_account_deletion_completed(uuid, text, text)'::regprocedure)
-    like '%completed_at = now()%'
+    like '%account_deletion_completion_jobs%'
   and pg_get_functiondef('public.admin_mark_account_deletion_completed(uuid, text, text)'::regprocedure)
-    like '%cancelled_at = NULL%'
+    like '%completion_job_queued%'
   and pg_get_functiondef('public.admin_mark_account_deletion_completed(uuid, text, text)'::regprocedure)
     like '%auth_user_deleted'', false%'
   and pg_get_functiondef('public.admin_mark_account_deletion_completed(uuid, text, text)'::regprocedure)
-    like '%profile_deleted'', false%' as ok;
+    like '%profile_pii_scrubbed'', false%' as ok;
+
+select
+  'account_deletion_completion_jobs_guard_hard_delete_steps' as check_name,
+  to_regclass('public.account_deletion_completion_jobs') is not null
+  and to_regprocedure('public.complete_account_deletion_completion_step_v1(uuid, text, text, text, jsonb)') is not null
+  and to_regprocedure('public.fail_account_deletion_completion_job_v1(uuid, text, text, text, integer, boolean, boolean)') is not null
+  and exists (
+    select 1
+    from pg_trigger
+    where tgname = 'trg_account_deletion_completion_guard'
+      and not tgisinternal
+  )
+  and pg_get_functiondef('public.account_deletion_completion_guard()'::regprocedure)
+    like '%provider_cleanup_completed_at IS NOT NULL%'
+  and pg_get_functiondef('public.account_deletion_completion_guard()'::regprocedure)
+    like '%media_cleanup_completed_at IS NOT NULL%'
+  and pg_get_functiondef('public.account_deletion_completion_guard()'::regprocedure)
+    like '%pii_scrub_completed_at IS NOT NULL%'
+  and pg_get_functiondef('public.account_deletion_completion_guard()'::regprocedure)
+    like '%auth_delete_completed_at IS NOT NULL%' as ok;
+
+select
+  'account_deletion_profile_scrub_clears_identity_and_entitlements' as check_name,
+  pg_get_functiondef('public.scrub_account_deletion_profile_pii_v1(uuid)'::regprocedure)
+    like '%phone_number = NULL%'
+  and pg_get_functiondef('public.scrub_account_deletion_profile_pii_v1(uuid)'::regprocedure)
+    like '%verified_email = NULL%'
+  and pg_get_functiondef('public.scrub_account_deletion_profile_pii_v1(uuid)'::regprocedure)
+    like '%is_premium = false%'
+  and pg_get_functiondef('public.scrub_account_deletion_profile_pii_v1(uuid)'::regprocedure)
+    like '%premium_until = NULL%'
+  and pg_get_functiondef('public.scrub_account_deletion_profile_pii_v1(uuid)'::regprocedure)
+    like '%subscription_tier = ''free''%'
+  and pg_get_functiondef('public.scrub_account_deletion_profile_pii_v1(uuid)'::regprocedure)
+    like '%proof_selfie_url = NULL%'
+  and pg_get_functiondef('public.scrub_account_deletion_profile_pii_v1(uuid)'::regprocedure)
+    like '%bunny_video_uid = NULL%'
+  and pg_get_functiondef('public.scrub_account_deletion_profile_pii_v1(uuid)'::regprocedure)
+    like '%discoverable = false%'
+  and pg_get_functiondef('public.scrub_account_deletion_profile_pii_v1(uuid)'::regprocedure)
+    like '%last_seen_at = NULL%'
+  and pg_get_functiondef('public.scrub_account_deletion_profile_pii_v1(uuid)'::regprocedure)
+    like '%suspension_reason = NULL%' as ok;
+
+select
+  'account_deletion_completion_worker_rpcs_service_role_only' as check_name,
+  count(*) = 5
+  and bool_and(has_function_privilege('service_role', p.oid, 'EXECUTE'))
+  and bool_and(not has_function_privilege('authenticated', p.oid, 'EXECUTE'))
+  and bool_and(not has_function_privilege('anon', p.oid, 'EXECUTE')) as ok
+from pg_proc p
+join pg_namespace n on n.oid = p.pronamespace
+where n.nspname = 'public'
+  and p.proname in (
+    'enqueue_due_account_deletion_completion_jobs_v1',
+    'claim_account_deletion_completion_jobs_v1',
+    'complete_account_deletion_completion_step_v1',
+    'fail_account_deletion_completion_job_v1',
+    'scrub_account_deletion_profile_pii_v1'
+  );
+
+select
+  'support_reply_delivery_worker_rpcs_service_role_only' as check_name,
+  count(*) = 2
+  and bool_and(has_function_privilege('service_role', p.oid, 'EXECUTE'))
+  and bool_and(not has_function_privilege('authenticated', p.oid, 'EXECUTE'))
+  and bool_and(not has_function_privilege('anon', p.oid, 'EXECUTE')) as ok
+from pg_proc p
+join pg_namespace n on n.oid = p.pronamespace
+where n.nspname = 'public'
+  and p.proname in (
+    'claim_support_reply_delivery_jobs_v1',
+    'complete_support_reply_delivery_job_v1'
+  );
 
 select
   'account_deletion_list_reports_hidden_statuses' as check_name,

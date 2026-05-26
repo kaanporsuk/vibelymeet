@@ -6,7 +6,7 @@ import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import AdminConfirmDialog from "./AdminConfirmDialog";
-import { callAdminRpc, createAdminIdempotencyKey } from "@/lib/adminRpc";
+import { callAdminRpc, createAdminTargetIdempotencyKey } from "@/lib/adminRpc";
 import { format } from "date-fns";
 
 interface AdminEventControlsProps {
@@ -42,6 +42,13 @@ const AdminEventControls = ({
   const [reminderSentAt, setReminderSentAt] = useState<number | null>(null);
   const [isSendingReminder, setIsSendingReminder] = useState(false);
   const [isGoingLive, setIsGoingLive] = useState(false);
+  const eventStateIntent = {
+    raw_status: rawStatus ?? null,
+    computed_status: computedStatus,
+    ended_at: endedAt ?? null,
+    archived_at: archivedAt ?? null,
+    auto_finalize_at: autoFinalizeAt?.toISOString() ?? null,
+  };
 
   const broadcastEventEnded = () => {
     const channel = supabase.channel(`event-status-${eventId}`);
@@ -62,7 +69,10 @@ const AdminEventControls = ({
       await callAdminRpc("admin_end_event", {
         p_event_id: eventId,
         p_reason: "Ended from /kaan dashboard",
-        p_idempotency_key: createAdminIdempotencyKey("admin_end_event"),
+        p_idempotency_key: createAdminTargetIdempotencyKey("admin_end_event", eventId, {
+          action: "manual-end",
+          ...eventStateIntent,
+        }),
       });
     },
     onSuccess: () => {
@@ -81,7 +91,10 @@ const AdminEventControls = ({
         p_event_id: eventId,
         p_minutes: extraMinutes,
         p_reason: "Extended from /kaan dashboard",
-        p_idempotency_key: createAdminIdempotencyKey("admin_extend_event"),
+        p_idempotency_key: createAdminTargetIdempotencyKey("admin_extend_event", eventId, {
+          extraMinutes,
+          ...eventStateIntent,
+        }),
       });
       return extraMinutes;
     },
@@ -113,7 +126,10 @@ const AdminEventControls = ({
       const payload = await callAdminRpc("admin_go_live_event", {
         p_event_id: eventId,
         p_reason: "Set live from /kaan dashboard",
-        p_idempotency_key: createAdminIdempotencyKey("admin_go_live_event"),
+        p_idempotency_key: createAdminTargetIdempotencyKey("admin_go_live_event", eventId, {
+          action: "go-live",
+          ...eventStateIntent,
+        }),
       });
       queryClient.invalidateQueries({ queryKey: ["admin-events"] });
       queryClient.invalidateQueries({ queryKey: ["events"] });
@@ -136,7 +152,10 @@ const AdminEventControls = ({
       const payload = await callAdminRpc("admin_send_event_reminder", {
         p_event_id: eventId,
         p_reason: "Reminder requested from /kaan dashboard",
-        p_idempotency_key: createAdminIdempotencyKey("admin_send_event_reminder"),
+        p_idempotency_key: createAdminTargetIdempotencyKey("admin_send_event_reminder", eventId, {
+          action: "dashboard-reminder",
+          reminder_window: Math.floor(Date.now() / (15 * 60 * 1000)),
+        }),
       });
       setReminderSentAt(Date.now());
       toast.success("Reminder request recorded", {

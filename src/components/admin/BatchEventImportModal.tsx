@@ -31,7 +31,7 @@ import {
 import { toast } from "sonner";
 import { useQueryClient } from "@tanstack/react-query";
 import Papa from "papaparse";
-import { callAdminRpc, createAdminIdempotencyKey } from "@/lib/adminRpc";
+import { callAdminRpc, createAdminIdempotencyKey, createAdminTargetIdempotencyKey } from "@/lib/adminRpc";
 import { inferEventCategoryKeysFromLegacyTags } from "@clientShared/eventCategories";
 
 interface BatchEventImportModalProps {
@@ -303,6 +303,7 @@ function validateEvent(ev: RawImportEvent, index: number): ValidatedEvent {
 const BatchEventImportModal = ({ onClose }: BatchEventImportModalProps) => {
   const queryClient = useQueryClient();
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const importBatchIntentIdRef = useRef(createAdminIdempotencyKey("admin_batch_event_import"));
   const [activeTab, setActiveTab] = useState("json");
   const [events, setEvents] = useState<ValidatedEvent[]>([]);
   const [isImporting, setIsImporting] = useState(false);
@@ -435,7 +436,10 @@ const BatchEventImportModal = ({ onClose }: BatchEventImportModalProps) => {
         try {
           await callAdminRpc("admin_create_event", {
             p_payload: row,
-            p_idempotency_key: createAdminIdempotencyKey("admin_create_event"),
+            p_idempotency_key: createAdminTargetIdempotencyKey("admin_create_event", {
+              batch_intent_id: importBatchIntentIdRef.current,
+              source_row_index: toImport[index]._index,
+            }, row),
           });
           successfulIndexes.push(toImport[index]._index);
         } catch (err: unknown) {
@@ -477,6 +481,7 @@ const BatchEventImportModal = ({ onClose }: BatchEventImportModalProps) => {
       toast.success(
         `${toImport.length} of ${events.length} events imported successfully.${skipped > 0 ? ` ${skipped} skipped.` : ""}`
       );
+      importBatchIntentIdRef.current = createAdminIdempotencyKey("admin_batch_event_import");
       onClose();
     } catch (err: unknown) {
       toast.error("Import failed", {

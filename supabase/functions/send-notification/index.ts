@@ -137,6 +137,14 @@ function normalizeInboxCategory(category: string): string {
   return 'system'
 }
 
+function validProviderIdempotencyKey(value: unknown): string | null {
+  if (typeof value !== 'string') return null
+  const trimmed = value.trim()
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(trimmed)
+    ? trimmed
+    : null
+}
+
 function priorityForInbox(category: string, requested: unknown): NotificationPriority {
   if (requested === 'low' || requested === 'normal' || requested === 'high' || requested === 'urgent') return requested
   if (category === 'ready_gate' || category === 'partner_ready' || category === 'date_starting' || category === 'reconnection' || category === 'match_call') return 'urgent'
@@ -1405,6 +1413,7 @@ Deno.serve(async (req) => {
       group_key,
       expires_at,
       actor_id,
+      provider_idempotency_key,
     } = requestBody
     const data = requestBody.data && typeof requestBody.data === 'object' && !Array.isArray(requestBody.data)
       ? requestBody.data
@@ -1415,6 +1424,7 @@ Deno.serve(async (req) => {
     const wantsPush = channels.includes('push')
     const requestedAction = normalizeActionFromRequest(action)
     const requestDedupeKey = typeof dedupe_key === 'string' && dedupe_key.trim() ? dedupe_key.trim() : null
+    const requestProviderIdempotencyKey = validProviderIdempotencyKey(provider_idempotency_key)
     let inAppNotificationId: string | null = null
     let resolvedActorId: string | null = typeof actor_id === 'string' && actor_id.trim() ? actor_id.trim() : null
 
@@ -1860,6 +1870,10 @@ Deno.serve(async (req) => {
 
     if (collapseId) {
       osPayload.collapse_id = collapseId
+    }
+
+    if (requestProviderIdempotencyKey) {
+      osPayload.idempotency_key = requestProviderIdempotencyKey
     }
 
     if (image_url) {

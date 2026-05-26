@@ -1,14 +1,20 @@
 import { useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { motion, AnimatePresence } from "framer-motion";
 import { X, Plus, Minus, Coins, Sparkles, Clock } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 import AdminConfirmDialog from "./AdminConfirmDialog";
-import { callAdminRpc, createAdminIdempotencyKey } from "@/lib/adminRpc";
+import { callAdminRpc, createAdminTargetIdempotencyKey } from "@/lib/adminRpc";
 
 interface AdminGrantCreditsModalProps {
   userId: string;
   userName: string;
+  currentCredits?: {
+    extra_time_credits: number;
+    extended_vibe_credits: number;
+    updated_at: string | null;
+  };
   isOpen: boolean;
   onClose: () => void;
 }
@@ -16,9 +22,11 @@ interface AdminGrantCreditsModalProps {
 const AdminGrantCreditsModal = ({
   userId,
   userName,
+  currentCredits,
   isOpen,
   onClose,
 }: AdminGrantCreditsModalProps) => {
+  const queryClient = useQueryClient();
   const [extraTime, setExtraTime] = useState(1);
   const [extendedVibe, setExtendedVibe] = useState(0);
   const [reason, setReason] = useState("");
@@ -55,7 +63,13 @@ const AdminGrantCreditsModal = ({
         p_user_id: userId,
         p_adjustments: adjustments,
         p_reason: reason || null,
-        p_idempotency_key: createAdminIdempotencyKey("admin_adjust_user_credits"),
+        p_idempotency_key: createAdminTargetIdempotencyKey("admin_adjust_user_credits", userId, {
+          adjustments,
+          current_extra_time_credits: currentCredits?.extra_time_credits ?? null,
+          current_extended_vibe_credits: currentCredits?.extended_vibe_credits ?? null,
+          current_credits_updated_at: currentCredits?.updated_at ?? null,
+          reason: reason || null,
+        }),
       });
 
       toast.success(
@@ -63,6 +77,10 @@ const AdminGrantCreditsModal = ({
           extraTime > 0 && extendedVibe > 0 ? " + " : ""
         }${extendedVibe > 0 ? `${extendedVibe}× Extended Vibe` : ""} to ${userName}`
       );
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["admin-user-detail", userId] }),
+        queryClient.invalidateQueries({ queryKey: ["admin-users"] }),
+      ]);
       setConfirmOpen(false);
       onClose();
     } catch (err) {

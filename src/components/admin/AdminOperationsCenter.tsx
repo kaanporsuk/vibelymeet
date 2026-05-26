@@ -59,6 +59,10 @@ type AuditRow = {
   target_type: string;
   target_id: string | null;
   details: Record<string, unknown> | null;
+  request_id?: string | null;
+  correlation_id?: string | null;
+  action_outcome?: string | null;
+  error_code?: string | null;
   created_at: string;
 };
 
@@ -196,6 +200,16 @@ const formatRelativeTime = (value: unknown): string => {
   if (typeof value !== "string" || !value) return "unknown time";
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? value : formatDistanceToNow(date, { addSuffix: true });
+};
+
+const shortenId = (value: string): string => value.length <= 16 ? value : `${value.slice(0, 8)}...${value.slice(-4)}`;
+
+const auditOutcomeClass = (outcome: string | null | undefined): string => {
+  const normalized = (outcome ?? "").toLowerCase();
+  if (normalized.includes("fail") || normalized.includes("error") || normalized.includes("blocked")) return statusClasses.incident;
+  if (normalized.includes("warn") || normalized.includes("retry") || normalized.includes("queued")) return statusClasses.degraded;
+  if (normalized.includes("success") || normalized.includes("complete")) return statusClasses.healthy;
+  return statusClasses.unknown;
 };
 
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -735,6 +749,16 @@ const AdminOperationsCenter = () => {
                       <Badge variant="outline" className="border-primary/30 text-primary">
                         {row.action_type}
                       </Badge>
+                      {row.action_outcome && (
+                        <Badge variant="outline" className={auditOutcomeClass(row.action_outcome)}>
+                          {row.action_outcome}
+                        </Badge>
+                      )}
+                      {row.error_code && (
+                        <Badge variant="outline" className={statusClasses.incident}>
+                          {row.error_code}
+                        </Badge>
+                      )}
                       <span className="text-sm font-medium text-foreground">{row.target_type}</span>
                       {row.target_id && <span className="text-xs text-muted-foreground">{row.target_id}</span>}
                     </div>
@@ -742,6 +766,12 @@ const AdminOperationsCenter = () => {
                       <LockKeyhole className="h-3.5 w-3.5" />
                       {row.admin_name || row.admin_id || "unknown admin"}
                     </div>
+                    {(row.request_id || row.correlation_id) && (
+                      <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
+                        {row.request_id && <span title={row.request_id}>request {shortenId(row.request_id)}</span>}
+                        {row.correlation_id && <span title={row.correlation_id}>correlation {shortenId(row.correlation_id)}</span>}
+                      </div>
+                    )}
                   </div>
                   <div className="text-xs text-muted-foreground">
                     {formatRelativeTime(row.created_at)}

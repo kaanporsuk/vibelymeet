@@ -34,7 +34,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { format } from "date-fns";
 import { toast } from "sonner";
 import AdminConfirmDialog from "./AdminConfirmDialog";
-import { callAdminRpc, createAdminIdempotencyKey } from "@/lib/adminRpc";
+import { callAdminRpc, createAdminTargetIdempotencyKey } from "@/lib/adminRpc";
 
 export type AdminSuspensionRow = {
   id: string;
@@ -99,6 +99,14 @@ const UserModerationActions = ({
   const currentSuspension = moderation?.current_suspension ?? null;
   const suspensionHistory = moderation?.suspension_history ?? [];
   const warningHistory = moderation?.warning_history ?? [];
+  const latestSuspension = suspensionHistory.reduce<AdminSuspensionRow | null>((latest, entry) => {
+    if (!latest) return entry;
+    return new Date(entry.suspended_at).getTime() > new Date(latest.suspended_at).getTime() ? entry : latest;
+  }, null);
+  const latestWarning = warningHistory.reduce<AdminWarningRow | null>((latest, entry) => {
+    if (!latest) return entry;
+    return new Date(entry.created_at).getTime() > new Date(latest.created_at).getTime() ? entry : latest;
+  }, null);
 
   // Suspend user mutation
   const suspendUser = useMutation({
@@ -113,7 +121,14 @@ const UserModerationActions = ({
         p_reason: suspendReason,
         p_message: null,
         p_suspension_expires_at: expiresAt,
-        p_idempotency_key: createAdminIdempotencyKey("admin_moderate_user"),
+        p_idempotency_key: createAdminTargetIdempotencyKey("admin_moderate_user", userId, {
+          action: "suspend_user",
+          current_suspension_id: currentSuspension?.id ?? null,
+          latest_suspension_id: latestSuspension?.id ?? null,
+          suspension_history_count: suspensionHistory.length,
+          reason: suspendReason,
+          expires_at: expiresAt,
+        }),
       });
     },
     onSuccess: () => {
@@ -139,7 +154,12 @@ const UserModerationActions = ({
         p_reason: "Lift active suspension",
         p_message: null,
         p_suspension_expires_at: null,
-        p_idempotency_key: createAdminIdempotencyKey("admin_moderate_user"),
+        p_idempotency_key: createAdminTargetIdempotencyKey("admin_moderate_user", userId, {
+          action: "lift_suspension",
+          current_suspension_id: currentSuspension.id,
+          current_suspension_status: currentSuspension.status,
+          current_suspended_at: currentSuspension.suspended_at,
+        }),
       });
     },
     onSuccess: () => {
@@ -161,7 +181,13 @@ const UserModerationActions = ({
         p_reason: warningReason,
         p_message: warningMessage,
         p_suspension_expires_at: null,
-        p_idempotency_key: createAdminIdempotencyKey("admin_moderate_user"),
+        p_idempotency_key: createAdminTargetIdempotencyKey("admin_moderate_user", userId, {
+          action: "issue_warning",
+          latest_warning_id: latestWarning?.id ?? null,
+          warning_history_count: warningHistory.length,
+          reason: warningReason,
+          message: warningMessage,
+        }),
       });
     },
     onSuccess: () => {

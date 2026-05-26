@@ -31,7 +31,7 @@ import { resolvePhotoUrl } from "@/lib/photoUtils";
 import { toast } from "sonner";
 import { format } from "date-fns";
 import AdminConfirmDialog from "./AdminConfirmDialog";
-import { callAdminRpc, createAdminIdempotencyKey, type AdminRpcPayload } from "@/lib/adminRpc";
+import { callAdminRpc, createAdminTargetIdempotencyKey, type AdminRpcPayload } from "@/lib/adminRpc";
 
 type AdminAttendeesEvent = {
   id: string;
@@ -107,11 +107,20 @@ const AdminEventAttendeesModal = ({ event, onClose }: AdminEventAttendeesModalPr
 
   const removeRegistration = useMutation({
     mutationFn: async (profileId: string) => {
+      const registration = registrations?.find((row) => row.profile_id === profileId) ?? null;
       await callAdminRpc("admin_remove_event_registration", {
         p_event_id: event.id,
         p_profile_id: profileId,
         p_reason: "Removed registration from /kaan attendees modal",
-        p_idempotency_key: createAdminIdempotencyKey("admin_remove_event_registration"),
+        p_idempotency_key: createAdminTargetIdempotencyKey("admin_remove_event_registration", {
+          event_id: event.id,
+          profile_id: profileId,
+        }, {
+          action: "remove",
+          registration_id: registration?.id ?? null,
+          admission_status: registration?.admission_status ?? null,
+          registered_at: registration?.registered_at ?? null,
+        }),
       });
     },
     onSuccess: () => {
@@ -127,12 +136,20 @@ const AdminEventAttendeesModal = ({ event, onClose }: AdminEventAttendeesModalPr
   // Mark attendance mutation
   const markAttendance = useMutation({
     mutationFn: async ({ registrationId, attended }: { registrationId: string; attended: boolean }) => {
+      const registration = registrations?.find((row) => row.id === registrationId) ?? null;
       return callAdminRpc<{ affected_count?: number }>("admin_mark_event_attendance", {
         p_event_id: event.id,
         p_registration_ids: [registrationId],
         p_attended: attended,
         p_reason: "Marked attendance from /kaan attendees modal",
-        p_idempotency_key: createAdminIdempotencyKey("admin_mark_event_attendance"),
+        p_idempotency_key: createAdminTargetIdempotencyKey("admin_mark_event_attendance", {
+          event_id: event.id,
+          registration_id: registrationId,
+        }, {
+          action: attended ? "attended" : "not-attended",
+          current_attendance_marked: registration?.attendance_marked ?? null,
+          current_attended: registration?.attended ?? null,
+        }),
       });
     },
     onSuccess: () => {
@@ -147,12 +164,27 @@ const AdminEventAttendeesModal = ({ event, onClose }: AdminEventAttendeesModalPr
   // Bulk mark attendance
   const bulkMarkAttendance = useMutation({
     mutationFn: async (attended: boolean) => {
+      const selectedSnapshot = selectedAttendees.map((registrationId) => {
+        const registration = registrations?.find((row) => row.id === registrationId) ?? null;
+        return {
+          registration_id: registrationId,
+          attendance_marked: registration?.attendance_marked ?? null,
+          attended: registration?.attended ?? null,
+        };
+      });
+
       return callAdminRpc<{ affected_count?: number }>("admin_mark_event_attendance", {
         p_event_id: event.id,
         p_registration_ids: selectedAttendees,
         p_attended: attended,
         p_reason: "Bulk marked attendance from /kaan attendees modal",
-        p_idempotency_key: createAdminIdempotencyKey("admin_mark_event_attendance"),
+        p_idempotency_key: createAdminTargetIdempotencyKey("admin_mark_event_attendance", {
+          event_id: event.id,
+          registration_ids: selectedAttendees,
+        }, {
+          action: attended ? "bulk-attended" : "bulk-not-attended",
+          selected_snapshot: selectedSnapshot,
+        }),
       });
     },
     onSuccess: (payload) => {
@@ -193,7 +225,10 @@ const AdminEventAttendeesModal = ({ event, onClose }: AdminEventAttendeesModalPr
       const payload = await callAdminRpc("admin_send_event_reminder", {
         p_event_id: event.id,
         p_reason: "Reminder requested from /kaan attendees modal",
-        p_idempotency_key: createAdminIdempotencyKey("admin_send_event_reminder"),
+        p_idempotency_key: createAdminTargetIdempotencyKey("admin_send_event_reminder", event.id, {
+          action: "attendees-reminder",
+          reminder_window: Math.floor(Date.now() / NOTIFY_ALL_COOLDOWN_MS),
+        }),
       });
       setLastReminderRequestAt(Date.now());
       toast.success("Reminder request recorded", {

@@ -9,7 +9,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import AdminConfirmDialog from "./AdminConfirmDialog";
 import {
   callAdminRpc,
-  createAdminIdempotencyKey,
+  createAdminTargetIdempotencyKey,
   sanitizeAdminRpcErrorMessage,
   type AdminRpcPayload,
 } from "@/lib/adminRpc";
@@ -27,6 +27,12 @@ type DeletionRequest = {
   cancelled_at: string | null;
   reason: string | null;
   can_mark_completed: boolean;
+  completion_job_id?: string | null;
+  completion_job_state?: string | null;
+  completion_attempts?: number | null;
+  completion_next_retry_at?: string | null;
+  completion_last_error?: string | null;
+  completion_error_code?: string | null;
 };
 
 type AccountDeletionCounts = {
@@ -85,6 +91,15 @@ function statusBadge(status: string) {
   }
 }
 
+function completionActionHint(request: DeletionRequest) {
+  if (!request.scheduled_deletion_at) return "Missing scheduled date";
+  if (!request.completion_job_state) return "Eligible after scheduled date";
+  if (request.completion_job_state === "queued") return "Cleanup already queued";
+  if (request.completion_job_state === "processing") return "Cleanup in progress";
+  if (request.completion_job_state === "completed") return "Cleanup completed";
+  return "Review job state before retry";
+}
+
 const AdminDeletionsPanel = () => {
   const queryClient = useQueryClient();
   const [activeTab, setActiveTab] = useState<TabFilter>("pending");
@@ -124,13 +139,24 @@ const AdminDeletionsPanel = () => {
     mutationFn: async (request: DeletionRequest) =>
       callAdminRpc("admin_mark_account_deletion_completed", {
         p_request_id: request.id,
-        p_reason: "Verified from /kaan Account Deletions tab",
-        p_idempotency_key: createAdminIdempotencyKey("admin_mark_account_deletion_completed"),
+        p_reason: "Durable completion job queued from Admin Account Deletions tab",
+        p_idempotency_key: createAdminTargetIdempotencyKey(
+          "admin_mark_account_deletion_completed",
+          request.id,
+          {
+            intent: "queue-durable-completion-v1",
+            completion_job_id: request.completion_job_id ?? null,
+            completion_job_state: request.completion_job_state ?? "missing",
+            completion_attempts: request.completion_attempts ?? 0,
+            completion_error_code: request.completion_error_code ?? null,
+            completion_next_retry_at: request.completion_next_retry_at ?? null,
+          },
+        ),
       }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: [ACCOUNT_DELETIONS_QUERY_KEY] });
       setRequestToComplete(null);
-      toast.success("Deletion request marked completed as a verified checkpoint");
+      toast.success("Deletion completion job queued");
     },
     onError: (reason) => {
       toast.error(sanitizeAdminRpcErrorMessage(reason));
@@ -173,6 +199,16 @@ const AdminDeletionsPanel = () => {
           {request.reason && (
             <p className="text-xs text-muted-foreground break-words">Reason: {request.reason}</p>
           )}
+          {request.completion_job_state && (
+            <p className="text-xs text-muted-foreground">
+              Completion job: {request.completion_job_state}
+            </p>
+          )}
+          {request.completion_last_error && (
+            <p className="text-xs text-destructive break-words">
+              Last job error: {request.completion_error_code || "job_error"}
+            </p>
+          )}
         </div>
         {showCompleteAction && (
           <div className="flex flex-col items-end gap-1 shrink-0">
@@ -188,13 +224,11 @@ const AdminDeletionsPanel = () => {
               ) : (
                 <CheckCircle className="w-3 h-3" />
               )}
-              Mark Completed
+              Queue Cleanup
             </Button>
             {!request.can_mark_completed && (
               <p className="text-[11px] text-muted-foreground text-right">
-                {request.scheduled_deletion_at
-                  ? "Eligible after scheduled date"
-                  : "Missing scheduled date"}
+                {completionActionHint(request)}
               </p>
             )}
           </div>
@@ -313,9 +347,9 @@ const AdminDeletionsPanel = () => {
 
       <AdminConfirmDialog
         open={!!requestToComplete}
-        title="Mark deletion request completed?"
-        description={`This does not delete the Supabase auth user or profile.\n\nIt marks this request as a verified completion checkpoint for ${requestToComplete?.user_name || "this user"}. Existing database triggers may release account-deletion media holds.`}
-        confirmLabel="Mark Completed"
+        title="Queue durable deletion cleanup?"
+        description={`This queues the durable completion worker for ${requestToComplete?.user_name || "this user"}.\n\nThe request will not be marked completed until provider cleanup, media cleanup, profile PII scrub, and Supabase auth deletion all succeed.`}
+        confirmLabel="Queue Cleanup"
         isPending={markCompleted.isPending}
         onOpenChange={(open) => {
           if (!open) setRequestToComplete(null);
