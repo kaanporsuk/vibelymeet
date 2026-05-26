@@ -24,7 +24,7 @@ import { Textarea } from "@/components/ui/textarea";
 import AdminConfirmDialog from "./AdminConfirmDialog";
 import {
   callAdminRpc,
-  createAdminIdempotencyKey,
+  createAdminTargetIdempotencyKey,
   sanitizeAdminRpcErrorMessage,
   type AdminRpcPayload,
 } from "@/lib/adminRpc";
@@ -283,7 +283,16 @@ const AdminPhotoVerificationPanel = () => {
         p_verification_id: verification.id,
         p_action: "approve",
         p_rejection_reason: null,
-        p_idempotency_key: createAdminIdempotencyKey("admin_review_photo_verification"),
+        p_idempotency_key: createAdminTargetIdempotencyKey(
+          "admin_review_photo_verification",
+          verification.id,
+          {
+            action: "approve",
+            current_status: verification.status,
+            reviewed_at: verification.reviewed_at,
+            created_at: verification.created_at,
+          },
+        ),
       });
     },
     onSuccess: () => {
@@ -303,7 +312,12 @@ const AdminPhotoVerificationPanel = () => {
         p_verification_id: id,
         p_action: "reject",
         p_rejection_reason: reason,
-        p_idempotency_key: createAdminIdempotencyKey("admin_review_photo_verification"),
+        p_idempotency_key: createAdminTargetIdempotencyKey("admin_review_photo_verification", id, {
+          action: "reject",
+          current_status: verifications.find((row) => row.id === id)?.status ?? null,
+          reviewed_at: verifications.find((row) => row.id === id)?.reviewed_at ?? null,
+          reason,
+        }),
       });
     },
     onSuccess: () => {

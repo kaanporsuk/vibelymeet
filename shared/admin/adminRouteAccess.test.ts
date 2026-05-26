@@ -22,6 +22,7 @@ const sprint1AdminEdgeFunctions = [
   "supabase/functions/admin-proof-selfie-sign/index.ts",
   "supabase/functions/admin-media-lifecycle-controls/index.ts",
   "supabase/functions/admin-video-date-ops/index.ts",
+  "supabase/functions/upload-event-cover/index.ts",
   "supabase/functions/send-support-reply/index.ts",
 ].map((path) => ({ path, source: read(path) }));
 
@@ -94,12 +95,13 @@ test("admin login clears session-check loading even when verification rejects", 
 test("Sprint 1 admin Edge Functions use shared auth and allowlisted CORS", () => {
   assert.match(sharedAdminAuth, /authenticateAdminRequest/);
   assert.match(sharedAdminAuth, /statusForAdminError/);
+  assert.match(sharedAdminAuth, /INTERNAL_ERROR[\s\S]*SERVER_MISCONFIGURED[\s\S]*return 500/);
   assert.match(sharedCors, /capacitor:\/\/localhost/);
   assert.match(sharedCors, /if \(!origin\) return true/);
 
   for (const { path, source } of sprint1AdminEdgeFunctions) {
     assert.doesNotMatch(source, /Access-Control-Allow-Origin["']:\s*["']\*["']/, `${path} must not use wildcard CORS`);
-    assert.match(source, /preflightResponse\(req\)/, `${path} must use shared preflight CORS`);
+    assert.match(source, /preflightResponse\(req(?:,|\))/, `${path} must use shared preflight CORS`);
     if (path.includes("admin-media-lifecycle-controls")) {
       assert.match(source, /req\.method !== "GET" && req\.method !== "POST"/, `${path} must reject unsupported methods`);
     } else {

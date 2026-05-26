@@ -9,6 +9,7 @@ export type AdminAuthContext = {
   userClient: AdminSupabaseClient;
   adminClient: AdminSupabaseClient;
   roles: string[];
+  permissions: string[];
   isAdmin: boolean;
 };
 
@@ -26,6 +27,7 @@ export type AdminAuthResult =
 
 type AuthOptions = {
   requireAdmin?: boolean;
+  requiredPermission?: string;
 };
 
 export function sanitizeErrorMessage(reason: unknown): string {
@@ -57,6 +59,7 @@ export function statusForAdminError(errorOrCode: unknown, fallback = 500): numbe
   if (code.includes("FORBIDDEN") || code === "42501" || code === "403") return 403;
   if (code.includes("NOT_FOUND") || code === "404") return 404;
   if (code.includes("CONFLICT") || code.includes("INVALID_TRANSITION") || code === "409") return 409;
+  if (code.includes("INTERNAL_ERROR") || code.includes("SERVER_MISCONFIGURED") || code === "500") return 500;
   if (
     code.includes("VALIDATION") ||
     code.includes("BAD_REQUEST") ||
@@ -106,7 +109,8 @@ export async function authenticateAdminRequest(
   req: Request,
   options: AuthOptions = {},
 ): Promise<AdminAuthResult> {
-  const requireAdmin = options.requireAdmin !== false;
+  const requiredPermission = options.requiredPermission?.trim() || null;
+  const requireAdmin = options.requireAdmin === true || (options.requireAdmin !== false && !requiredPermission);
   const authHeader = req.headers.get("Authorization");
   if (!authHeader?.startsWith("Bearer ")) {
     return authFailure(req, "UNAUTHENTICATED", "Admin session is required.", 401);
@@ -148,8 +152,31 @@ export async function authenticateAdminRequest(
     .filter((role): role is string => Boolean(role));
   const isAdmin = roles.includes("admin");
 
+  let permissions: string[] = [];
+  if (requiredPermission && roles.length > 0) {
+    const { data: permissionRows, error: permissionError } = await adminClient
+      .from("admin_role_permissions")
+      .select("permission")
+      .in("role", roles);
+
+    if (permissionError) {
+      console.error("[admin-auth] permission lookup failed:", sanitizeErrorMessage(permissionError.message));
+      return authFailure(req, "ADMIN_VERIFICATION_FAILED", "Admin permission verification failed.", 500);
+    }
+
+    permissions = Array.from(new Set(
+      (permissionRows ?? [])
+        .map((row: { permission?: unknown }) => typeof row.permission === "string" ? row.permission : null)
+        .filter((permission): permission is string => Boolean(permission)),
+    ));
+  }
+
   if (requireAdmin && !isAdmin) {
     return authFailure(req, "FORBIDDEN", "Admin role is required.", 403);
+  }
+
+  if (requiredPermission && !permissions.includes("admin.super") && !permissions.includes(requiredPermission)) {
+    return authFailure(req, "FORBIDDEN", `${requiredPermission} permission is required.`, 403);
   }
 
   return {
@@ -160,6 +187,7 @@ export async function authenticateAdminRequest(
       userClient,
       adminClient,
       roles,
+      permissions,
       isAdmin,
     },
   };

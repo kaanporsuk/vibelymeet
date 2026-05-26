@@ -56,31 +56,135 @@ export type Database = {
         }
         Relationships: []
       }
+      account_deletion_completion_jobs: {
+        Row: {
+          attempts: number
+          auth_delete_completed_at: string | null
+          blocked_reason: string | null
+          completed_at: string | null
+          created_at: string
+          deletion_request_id: string
+          error_code: string | null
+          id: string
+          last_error: string | null
+          last_error_at: string | null
+          lease_expires_at: string | null
+          legacy_checkpoint: boolean
+          max_attempts: number
+          media_cleanup_completed_at: string | null
+          metadata: Json
+          next_retry_at: string
+          pii_scrub_completed_at: string | null
+          provider_cleanup_completed_at: string | null
+          provider_cleanup_provider_id: string | null
+          request_reason: string | null
+          requested_by: string | null
+          state: string
+          updated_at: string
+          user_id: string
+          worker_id: string | null
+        }
+        Insert: {
+          attempts?: number
+          auth_delete_completed_at?: string | null
+          blocked_reason?: string | null
+          completed_at?: string | null
+          created_at?: string
+          deletion_request_id: string
+          error_code?: string | null
+          id?: string
+          last_error?: string | null
+          last_error_at?: string | null
+          lease_expires_at?: string | null
+          legacy_checkpoint?: boolean
+          max_attempts?: number
+          media_cleanup_completed_at?: string | null
+          metadata?: Json
+          next_retry_at?: string
+          pii_scrub_completed_at?: string | null
+          provider_cleanup_completed_at?: string | null
+          provider_cleanup_provider_id?: string | null
+          request_reason?: string | null
+          requested_by?: string | null
+          state?: string
+          updated_at?: string
+          user_id: string
+          worker_id?: string | null
+        }
+        Update: {
+          attempts?: number
+          auth_delete_completed_at?: string | null
+          blocked_reason?: string | null
+          completed_at?: string | null
+          created_at?: string
+          deletion_request_id?: string
+          error_code?: string | null
+          id?: string
+          last_error?: string | null
+          last_error_at?: string | null
+          lease_expires_at?: string | null
+          legacy_checkpoint?: boolean
+          max_attempts?: number
+          media_cleanup_completed_at?: string | null
+          metadata?: Json
+          next_retry_at?: string
+          pii_scrub_completed_at?: string | null
+          provider_cleanup_completed_at?: string | null
+          provider_cleanup_provider_id?: string | null
+          request_reason?: string | null
+          requested_by?: string | null
+          state?: string
+          updated_at?: string
+          user_id?: string
+          worker_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "account_deletion_completion_jobs_deletion_request_id_fkey"
+            columns: ["deletion_request_id"]
+            isOneToOne: true
+            referencedRelation: "account_deletion_requests"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       admin_activity_logs: {
         Row: {
           action_type: string
+          action_outcome: string | null
           admin_id: string | null
+          correlation_id: string | null
           created_at: string
           details: Json | null
+          error_code: string | null
           id: string
+          request_id: string | null
           target_id: string | null
           target_type: string
         }
         Insert: {
           action_type: string
+          action_outcome?: string | null
           admin_id?: string | null
+          correlation_id?: string | null
           created_at?: string
           details?: Json | null
+          error_code?: string | null
           id?: string
+          request_id?: string | null
           target_id?: string | null
           target_type: string
         }
         Update: {
           action_type?: string
+          action_outcome?: string | null
           admin_id?: string | null
+          correlation_id?: string | null
           created_at?: string
           details?: Json | null
+          error_code?: string | null
           id?: string
+          request_id?: string | null
           target_id?: string | null
           target_type?: string
         }
@@ -4779,6 +4883,97 @@ export type Database = {
         }
         Relationships: []
       }
+      support_reply_delivery_jobs: {
+        Row: {
+          attempts: number
+          channel: string
+          completed_at: string | null
+          created_at: string
+          error_code: string | null
+          id: string
+          last_error: string | null
+          last_error_at: string | null
+          lease_expires_at: string | null
+          max_attempts: number
+          metadata: Json
+          next_retry_at: string
+          provider_id: string | null
+          recipient_email: string | null
+          recipient_user_id: string | null
+          reply_id: string
+          state: string
+          ticket_id: string
+          updated_at: string
+          worker_id: string | null
+        }
+        Insert: {
+          attempts?: number
+          channel: string
+          completed_at?: string | null
+          created_at?: string
+          error_code?: string | null
+          id?: string
+          last_error?: string | null
+          last_error_at?: string | null
+          lease_expires_at?: string | null
+          max_attempts?: number
+          metadata?: Json
+          next_retry_at?: string
+          provider_id?: string | null
+          recipient_email?: string | null
+          recipient_user_id?: string | null
+          reply_id: string
+          state?: string
+          ticket_id: string
+          updated_at?: string
+          worker_id?: string | null
+        }
+        Update: {
+          attempts?: number
+          channel?: string
+          completed_at?: string | null
+          created_at?: string
+          error_code?: string | null
+          id?: string
+          last_error?: string | null
+          last_error_at?: string | null
+          lease_expires_at?: string | null
+          max_attempts?: number
+          metadata?: Json
+          next_retry_at?: string
+          provider_id?: string | null
+          recipient_email?: string | null
+          recipient_user_id?: string | null
+          reply_id?: string
+          state?: string
+          ticket_id?: string
+          updated_at?: string
+          worker_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "support_reply_delivery_jobs_recipient_user_id_fkey"
+            columns: ["recipient_user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "support_reply_delivery_jobs_reply_id_fkey"
+            columns: ["reply_id"]
+            isOneToOne: false
+            referencedRelation: "support_ticket_replies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "support_reply_delivery_jobs_ticket_id_fkey"
+            columns: ["ticket_id"]
+            isOneToOne: false
+            referencedRelation: "support_tickets"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       support_ticket_attachments: {
         Row: {
           created_at: string
@@ -6604,6 +6799,7 @@ export type Database = {
         Args: {
           p_idempotency_key?: string
           p_message: string
+          p_send_email?: boolean
           p_ticket_id: string
         }
         Returns: Json
@@ -7194,6 +7390,16 @@ export type Database = {
           reminder_type: string
         }[]
       }
+      claim_account_deletion_completion_jobs_v1: {
+        Args: { p_lease_seconds?: number; p_limit?: number; p_worker_id: string }
+        Returns: Database["public"]["Tables"]["account_deletion_completion_jobs"]["Row"][]
+        SetofOptions: {
+          from: "*"
+          to: "account_deletion_completion_jobs"
+          isOneToOne: false
+          isSetofReturn: true
+        }
+      }
       claim_growth_attribution: {
         Args: { p_context?: Json; p_referral_token: string }
         Returns: Json
@@ -7273,6 +7479,16 @@ export type Database = {
           submitted_by: string
         }[]
       }
+      claim_support_reply_delivery_jobs_v1: {
+        Args: { p_lease_seconds?: number; p_limit?: number; p_worker_id: string }
+        Returns: Database["public"]["Tables"]["support_reply_delivery_jobs"]["Row"][]
+        SetofOptions: {
+          from: "*"
+          to: "support_reply_delivery_jobs"
+          isOneToOne: false
+          isSetofReturn: true
+        }
+      }
       claim_video_date_surface: {
         Args: {
           p_client_instance_id: string
@@ -7305,8 +7521,32 @@ export type Database = {
         Args: { p_user_id: string }
         Returns: Json
       }
+      complete_account_deletion_completion_step_v1: {
+        Args: {
+          p_details?: Json
+          p_job_id: string
+          p_provider_id?: string
+          p_step: string
+          p_worker_id: string
+        }
+        Returns: Json
+      }
       complete_media_delete_job: {
         Args: { p_error?: string; p_job_id: string; p_success: boolean }
+        Returns: Json
+      }
+      complete_support_reply_delivery_job_v1: {
+        Args: {
+          p_blocked?: boolean
+          p_error?: string
+          p_error_code?: string
+          p_job_id: string
+          p_permanent?: boolean
+          p_provider_id?: string
+          p_retry_after_seconds?: number
+          p_success: boolean
+          p_worker_id: string
+        }
         Returns: Json
       }
       complete_onboarding: { Args: { p_user_id: string }; Returns: Json }
@@ -7417,6 +7657,10 @@ export type Database = {
       drain_match_queue_20260502083000_active_base: {
         Args: { p_event_id: string }
         Returns: Json
+      }
+      enqueue_due_account_deletion_completion_jobs_v1: {
+        Args: { p_limit?: number }
+        Returns: number
       }
       enqueue_media_delete: {
         Args: { p_asset_id: string; p_job_type?: string }
@@ -7535,6 +7779,18 @@ export type Database = {
       extract_chat_image_path_from_content: {
         Args: { p_content: string }
         Returns: string
+      }
+      fail_account_deletion_completion_job_v1: {
+        Args: {
+          p_blocked?: boolean
+          p_error: string
+          p_error_code?: string
+          p_job_id: string
+          p_permanent?: boolean
+          p_retry_after_seconds?: number
+          p_worker_id: string
+        }
+        Returns: Json
       }
       finalize_due_events: {
         Args: { p_limit?: number; p_now?: string }
@@ -8362,6 +8618,10 @@ export type Database = {
           p_step: number
           p_user_id: string
         }
+        Returns: Json
+      }
+      scrub_account_deletion_profile_pii_v1: {
+        Args: { p_user_id: string }
         Returns: Json
       }
       select_pending_cooldown_pairs: {

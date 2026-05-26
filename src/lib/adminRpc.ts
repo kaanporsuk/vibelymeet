@@ -15,6 +15,30 @@ function fallbackIdempotencyKey(operation: string): string {
   return `${operation}:${Date.now()}:${Math.random().toString(36).slice(2)}`;
 }
 
+function stableScopeHash(value: string): string {
+  let hashA = 0x811c9dc5;
+  let hashB = 0x9e3779b9;
+  for (let index = 0; index < value.length; index += 1) {
+    const code = value.charCodeAt(index);
+    hashA ^= code;
+    hashA = Math.imul(hashA, 0x01000193);
+    hashB ^= code + index;
+    hashB = Math.imul(hashB, 0x85ebca6b);
+  }
+  return `${(hashA >>> 0).toString(36)}${(hashB >>> 0).toString(36)}`;
+}
+
+function normalizeIdempotencyPart(value: unknown): string {
+  if (Array.isArray(value)) return value.map(normalizeIdempotencyPart).sort().join(",");
+  if (value && typeof value === "object") {
+    return Object.entries(value as Record<string, unknown>)
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([key, entry]) => `${key}:${normalizeIdempotencyPart(entry)}`)
+      .join("|");
+  }
+  return String(value ?? "").trim().slice(0, 500);
+}
+
 function maybeInvalidateAdminVerification(reason: unknown) {
   const raw = reason instanceof Error ? reason.message : String(reason || "");
   const isAuthzFailure =
@@ -29,6 +53,16 @@ export function createAdminIdempotencyKey(operation: string): string {
     return `${operation}:${crypto.randomUUID()}`;
   }
   return fallbackIdempotencyKey(operation);
+}
+
+export function createAdminTargetIdempotencyKey(
+  operation: string,
+  target: unknown,
+  intent: unknown = "default",
+): string {
+  const targetPart = normalizeIdempotencyPart(target) || "untargeted";
+  const intentPart = normalizeIdempotencyPart(intent) || "default";
+  return `${operation}:target:${stableScopeHash(`${operation}|${targetPart}|${intentPart}`)}`;
 }
 
 export function adminRpcErrorMessage(payload: AdminRpcPayload | null | undefined, fallback: string) {

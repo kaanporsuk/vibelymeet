@@ -447,7 +447,8 @@ test("upload-voice is receipt-backed, hash-bound, and wired to durable outbox id
 });
 
 test("upload-event-cover uses strong sniffing, stale cover guards, and attached receipts", () => {
-  assert.match(uploadEventCover, /\.from\("user_roles"\)[\s\S]+\.eq\("role", "admin"\)/);
+  assert.match(uploadEventCover, /authenticateAdminRequest\(req\)/);
+  assert.doesNotMatch(uploadEventCover, /Access-Control-Allow-Origin["']:\s*["']\*["']/);
   assert.match(mediaArchitectureDoc, /Event-cover uploads remain admin-only[\s\S]+events` schema has no[\s\S]+owner\/host column/);
   assert.match(uploadEventCover, /validateImageUploadBytes\(fileBuffer, file\.type\)/);
   assert.match(uploadEventCover, /function clientRequestIdForUpload/);

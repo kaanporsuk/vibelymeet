@@ -101,7 +101,7 @@ PASS: Both functions are explicitly represented in config.
 
 - `supabase/config.toml` contains `[functions.forward-geocode]` with `verify_jwt = true`.
 - `supabase/config.toml` contains `[functions.push-webhook]` with `verify_jwt = false`.
-- Current 2026-05-26 dependency-closure evidence supersedes older function-count snapshots: 70 deployable directories and 70 config entries.
+- Current 2026-05-26 dependency-closure evidence supersedes older function-count snapshots: 71 deployable directories and 71 config entries.
 
 PASS: `forward-geocode` role and auth posture are intentional.
 
@@ -162,7 +162,7 @@ PASS: Manual release gates, rollback notes, and operator steps exist.
 
 PASS: Rebuild runbook stale Edge Function inventory text has a current addendum.
 
-- `_cursor_context/vibely_rebuild_runbook.md` Section 13 now records 70 deployable functions, 70 config entries, and points operators to the current manifest/config for slug-level JWT posture.
+- `_cursor_context/vibely_rebuild_runbook.md` Section 13 now records 71 deployable functions, 71 config entries, and points operators to the current manifest/config for slug-level JWT posture.
 - Obsolete names such as `account-pause`, `account-resume`, `email-drip`, `unsubscribe`, and `vibe-notification` remain historical only unless deliberately restored.
 
 ## Cross-Final Findings
@@ -173,7 +173,7 @@ PASS: External dependency ledger is aligned with current final posture.
 
 PASS: Rebuild runbook is aligned by current addendum.
 
-- Current authoritative sources say 70 deployable functions and 70 config entries.
+- Current authoritative sources say 71 deployable functions and 71 config entries.
 - The runbook now points to the config-backed manifest as source of truth.
 
 PASS: Function manifest no longer has unresolved `forward-geocode` / `push-webhook` ambiguity.

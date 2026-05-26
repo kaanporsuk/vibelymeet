@@ -30,13 +30,13 @@ This is a rebuild and hardening artifact, not a substitute for reading function 
 
 ### Current-state addendum (2026-05-01, refreshed 2026-05-26)
 
-- Current repo inventory is **70** deployable function directories and **70** matching `[functions.<slug>]` entries in `supabase/config.toml`; no source/config gaps were observed.
+- Current repo inventory is **71** deployable function directories and **71** matching `[functions.<slug>]` entries in `supabase/config.toml`; no source/config gaps were observed.
 - **`forward-geocode`:** Explicitly configured with `verify_jwt = true`. It also resolves the Supabase user in code, permits admin/premium users plus onboarding city search, rate-limits by user, and then queries OpenStreetMap Nominatim.
 - **`push-webhook`:** Explicitly configured with `verify_jwt = false` because provider callbacks cannot present a Supabase JWT. It fail-closes unless `PUSH_WEBHOOK_SECRET` is set and the request sends the matching `x-webhook-secret` header. Repo evidence treats it as generic FCM/APNs/web receipt telemetry; OneSignal receipt dashboard wiring is not proven from source.
 
 ### Current-state addendum (2026-04-13)
 
-This manifest started as a frozen/post-hardening baseline artifact. The current repo has moved ahead (inventory reconciled to **70** deployable functions as of 2026-05-26 — see §2):
+This manifest started as a frozen/post-hardening baseline artifact. The current repo has moved ahead (inventory reconciled to **71** deployable functions as of 2026-05-26 — see §2):
 
 - Sprint 1 adds `process-media-delete-jobs` with `verify_jwt = false` and manual `CRON_SECRET` bearer auth in code.
 - Sprint 3 does **not** add a new Edge Function slug, but it changes:
@@ -70,6 +70,7 @@ This manifest started as a frozen/post-hardening baseline artifact. The current 
   - `match-call-room-cleanup`
   - `post-date-verdict`
   - `post-date-verdict-reminders`
+  - `process-admin-durable-jobs`
   - `process-event-ticket-refunds`
   - `process-media-delete-jobs`
   - `record-growth-attribution`
@@ -91,8 +92,8 @@ This manifest started as a frozen/post-hardening baseline artifact. The current 
 
 | Item | Count |
 |------|------:|
-| Deployable Edge Function directories (`supabase/functions/*`, excluding `_shared`) | **70** |
-| `[functions.<name>]` entries in `supabase/config.toml` | **70** |
+| Deployable Edge Function directories (`supabase/functions/*`, excluding `_shared`) | **71** |
+| `[functions.<name>]` entries in `supabase/config.toml` | **71** |
 
 The `_shared` directory is shared Deno helpers only — **not** a deployable function slug.
 
@@ -100,7 +101,7 @@ For a machine-readable list, regenerate `_cursor_context/vibely_machine_readable
 
 ### Historical baseline (frozen golden; superseded)
 
-The original golden export documented **34** deployable functions; subsequent notes sometimes said **45**, **46**, **49**, **51**, **53**, **55**, or **67** while the repo grew. **None of those older counts matches the current tree.** Use **70** for ops, config review, and rebuild checklists. Sprint notes in §1 (e.g. `admin-media-lifecycle-controls`, media lifecycle dual-writes) remain valid as history.
+The original golden export documented **34** deployable functions; subsequent notes sometimes said **45**, **46**, **49**, **51**, **53**, **55**, **67**, or **70** while the repo grew. **None of those older counts matches the current tree.** Use **71** for ops, config review, and rebuild checklists. Sprint notes in §1 (e.g. `admin-media-lifecycle-controls`, media lifecycle dual-writes) remain valid as history.
 
 ### Gateway JWT posture from config (post-hardening)
 
@@ -108,7 +109,7 @@ The original golden export documented **34** deployable functions; subsequent no
 daily-room, video-date-snapshot, video-date-token-refresh, delete-account, email-verification, event-notifications, verify-admin, geocode, phone-verify, admin-review-verification, admin-media-lifecycle-controls, create-video-upload, sync-vibe-video-status, delete-vibe-video, upload-image, upload-voice, upload-chat-video, create-chat-vibe-clip-upload, complete-chat-vibe-clip-upload, sync-chat-vibe-clip-status, dismiss-chat-vibe-clip-upload, upload-event-cover, create-checkout-session, create-event-checkout, create-portal-session, cancel-deletion, sync-revenuecat-subscriber, send-notification, daily-drop-actions, send-message, chat-thread-page, send-game-event, swipe-actions, post-date-verdict, forward-geocode, date-suggestion-actions, send-support-reply, admin-proof-selfie-sign, admin-video-date-ops, admin-data-export.
 
 **Public-but-protected (`verify_jwt = false`):**  
-event-reminders, video-webhook, get-chat-media-url, backfill-media-placeholders, stripe-webhook, process-event-ticket-refunds, create-credits-checkout, request-account-deletion, revenuecat-webhook, generate-daily-drops, post-date-verdict-reminders, push-webhook, health, date-suggestion-expiry, credit-replenish, date-reminder-cron, process-waitlist-promotion-notify-queue, process-media-delete-jobs, match-call-room-cleanup, video-date-room-cleanup, synthetic-video-date-monitor, video-date-outbox-drainer, video-date-deadline-finalizer, video-date-daily-webhook, video-date-orphan-room-cleanup, video-date-recovery-alert-dispatcher, send-email, record-growth-attribution, check-daily-drop-health, check-bunny-cdn-health.
+event-reminders, video-webhook, get-chat-media-url, backfill-media-placeholders, stripe-webhook, process-event-ticket-refunds, create-credits-checkout, request-account-deletion, revenuecat-webhook, generate-daily-drops, post-date-verdict-reminders, push-webhook, health, date-suggestion-expiry, credit-replenish, date-reminder-cron, process-waitlist-promotion-notify-queue, process-media-delete-jobs, match-call-room-cleanup, video-date-room-cleanup, synthetic-video-date-monitor, video-date-outbox-drainer, video-date-deadline-finalizer, video-date-daily-webhook, video-date-orphan-room-cleanup, video-date-recovery-alert-dispatcher, send-email, process-admin-durable-jobs, record-growth-attribution, check-daily-drop-health, check-bunny-cdn-health.
 
 ---
 
@@ -573,6 +574,7 @@ Functions not directly invoked from the normal frontend but still operationally 
 ### Resend
 - `email-verification`
 - `event-notifications`
+- `process-admin-durable-jobs` (support reply delivery worker)
 - `email-drip`
 
 ### Twilio
@@ -580,6 +582,7 @@ Functions not directly invoked from the normal frontend but still operationally 
 
 ### OneSignal / push delivery
 - `send-notification`
+- `process-admin-durable-jobs` (delegates support push delivery through `send-notification`)
 - `push-webhook`
 - `vibe-notification` (notification event involvement)
 
@@ -626,9 +629,9 @@ These functions fail operationally if secrets mismatch provider setup:
 
 For rebuild fidelity (post-hardening):
 
-1. Deploy all 70 functions only during a full rebuild (config.toml covers all; no gaps).
+1. Deploy all 71 functions only during a full rebuild (config.toml covers all; no gaps).
 2. Set required secrets: `PUSH_WEBHOOK_SECRET`, `UNSUB_HMAC_SECRET`, `CRON_SECRET`, `BUNNY_VIDEO_WEBHOOK_TOKEN`, `DAILY_WEBHOOK_SECRET`, plus existing Stripe/Bunny/Daily/Resend/Twilio/OneSignal vars.
-3. JWT-at-gateway functions (40) will reject unauthenticated requests; public-but-protected (30) use provider signatures, secret/token checks, cron auth, or explicit public behavior in code.
+3. JWT-at-gateway functions (40) will reject unauthenticated requests; public-but-protected (31) use provider signatures, secret/token checks, cron auth, or explicit public behavior in code.
 4. Re-register provider webhooks: Stripe signature; Bunny video callback URL with `?token=...`; Daily `video-date-daily-webhook` with base64 HMAC and `participant.joined` / `participant.left`; push webhook with `x-webhook-secret`; email-drip cron with Bearer CRON_SECRET.
 5. Smoke-test frontend call paths and provider callback paths separately.
 

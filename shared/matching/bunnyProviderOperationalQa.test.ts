@@ -141,7 +141,8 @@ test("upload-image uses Bunny Storage and the photos path convention", () => {
 });
 
 test("upload-event-cover uses Bunny Storage and the events path convention", () => {
-  assert.match(uploadEventCover, /\.from\("user_roles"\)[\s\S]{0,160}\.eq\("role", "admin"\)/);
+  assert.match(uploadEventCover, /authenticateAdminRequest\(req\)/);
+  assert.doesNotMatch(uploadEventCover, /Access-Control-Allow-Origin["']:\s*["']\*["']/);
   assert.match(uploadEventCover, /BUNNY_STORAGE_ZONE/);
   assert.match(uploadEventCover, /BUNNY_STORAGE_API_KEY/);
   assert.match(uploadEventCover, /https:\/\/storage\.bunnycdn\.com\/\$\{storageZone\}\/\$\{uploadPath\}/);

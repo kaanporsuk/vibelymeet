@@ -14,7 +14,7 @@ import {
 import { format, addWeeks, addMonths, addYears } from "date-fns";
 import { toast } from "sonner";
 import AdminConfirmDialog from "./AdminConfirmDialog";
-import { callAdminRpc, createAdminIdempotencyKey } from "@/lib/adminRpc";
+import { callAdminRpc, createAdminTargetIdempotencyKey } from "@/lib/adminRpc";
 
 interface AdminPremiumModalProps {
   userId: string;
@@ -97,6 +97,10 @@ const AdminPremiumModal = ({
   const currentTierLabel = formatTierLabel(currentTier);
   const selectedTierLabel = formatTierLabel(grantTier);
   const customDateMissing = duration === "custom" && !customDate;
+  const latestHistoryEntry = history.reduce<PremiumHistoryEntry | null>((latest, entry) => {
+    if (!latest) return entry;
+    return new Date(entry.created_at).getTime() > new Date(latest.created_at).getTime() ? entry : latest;
+  }, null);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -149,7 +153,16 @@ const AdminPremiumModal = ({
         p_premium_until: targetDate.toISOString(),
         p_subscription_tier: grantTier,
         p_reason: reason || null,
-        p_idempotency_key: createAdminIdempotencyKey("admin_set_premium_status"),
+        p_idempotency_key: createAdminTargetIdempotencyKey("admin_set_premium_status", userId, {
+          action: "grant",
+          current_is_premium: currentIsPremium,
+          current_subscription_tier: currentSubscriptionTier ?? null,
+          current_premium_until: currentPremiumUntil,
+          latest_history_id: latestHistoryEntry?.id ?? null,
+          premium_until: targetDate.toISOString(),
+          subscription_tier: grantTier,
+          reason: reason || null,
+        }),
       });
 
       toast.success(`${selectedTierLabel} granted to ${userName} until ${format(targetDate, "MMM d, yyyy")}`);
@@ -173,7 +186,16 @@ const AdminPremiumModal = ({
         p_premium_until: targetDate.toISOString(),
         p_subscription_tier: grantTier,
         p_reason: reason || null,
-        p_idempotency_key: createAdminIdempotencyKey("admin_set_premium_status"),
+        p_idempotency_key: createAdminTargetIdempotencyKey("admin_set_premium_status", userId, {
+          action: "extend",
+          current_is_premium: currentIsPremium,
+          current_subscription_tier: currentSubscriptionTier ?? null,
+          current_premium_until: currentPremiumUntil,
+          latest_history_id: latestHistoryEntry?.id ?? null,
+          premium_until: targetDate.toISOString(),
+          subscription_tier: grantTier,
+          reason: reason || null,
+        }),
       });
 
       toast.success(`${selectedTierLabel} extended for ${userName} until ${format(targetDate, "MMM d, yyyy")}`);
@@ -195,7 +217,14 @@ const AdminPremiumModal = ({
         p_premium_until: null,
         p_subscription_tier: "free",
         p_reason: reason || null,
-        p_idempotency_key: createAdminIdempotencyKey("admin_set_premium_status"),
+        p_idempotency_key: createAdminTargetIdempotencyKey("admin_set_premium_status", userId, {
+          action: "revoke",
+          current_is_premium: currentIsPremium,
+          current_subscription_tier: currentSubscriptionTier ?? null,
+          current_premium_until: currentPremiumUntil,
+          latest_history_id: latestHistoryEntry?.id ?? null,
+          reason: reason || null,
+        }),
       });
 
       toast.success(`Premium revoked for ${userName}`);

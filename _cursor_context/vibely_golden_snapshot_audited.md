@@ -157,7 +157,7 @@ Verified in `src/App.tsx`:
 
 ### Function config audit (`supabase/config.toml`) — post-hardening
 
-- Historical snapshot note: this section originally covered a 28-function subset. Current 2026-05-26 repo evidence shows 70 deployable source directories, 70 `config.toml` function declarations, 40 JWT-at-gateway functions, and 30 public-but-protected functions. Use `_cursor_context/vibely_edge_function_manifest.md` and `supabase/config.toml` for the current slug/JWT list; `_cursor_context/vibely_machine_readable_inventory.json` is historical unless regenerated.
+- Historical snapshot note: this section originally covered a 28-function subset. Current 2026-05-26 repo evidence shows 71 deployable source directories, 71 `config.toml` function declarations, 40 JWT-at-gateway functions, and 31 public-but-protected functions. Use `_cursor_context/vibely_edge_function_manifest.md` and `supabase/config.toml` for the current slug/JWT list; `_cursor_context/vibely_machine_readable_inventory.json` is historical unless regenerated.
 - Required hardening secrets: `PUSH_WEBHOOK_SECRET`, `UNSUB_HMAC_SECRET`, `CRON_SECRET`, `BUNNY_VIDEO_WEBHOOK_TOKEN`.
 
 ### Live Supabase storage buckets

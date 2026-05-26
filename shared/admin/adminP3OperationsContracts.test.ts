@@ -193,6 +193,11 @@ test("P3 Operations Center calls backend read RPCs and exposes incident/audit/re
   assert.match(operationsCenter, /if \(!auditUuidFiltersInvalid\) \{\s*auditQuery\.refetch\(\);/);
   assert.match(operationsCenter, /UUID filters pause search until they contain a valid UUID/);
   assert.match(operationsCenter, /permissionCatalogByArea/);
+  assert.match(operationsCenter, /action_outcome\?: string \| null/);
+  assert.match(operationsCenter, /error_code\?: string \| null/);
+  assert.match(operationsCenter, /request_id\?: string \| null/);
+  assert.match(operationsCenter, /correlation_id\?: string \| null/);
+  assert.match(operationsCenter, /auditOutcomeClass/);
   assert.doesNotMatch(operationsCenter, /\.slice\(0,\s*12\)/);
 });
 
@@ -229,6 +234,11 @@ test("Activity Log tab uses the governed audit RPC instead of direct table reads
   assert.match(activityLog, /sanitizeAdminRpcErrorMessage\(error\)/);
   assert.match(activityLog, /Array\.isArray\(activityPayload\?\.rows\)/);
   assert.match(activityLog, /Number\.isFinite\(reportedTotalCount\)/);
+  assert.match(activityLog, /action_outcome\?: string \| null/);
+  assert.match(activityLog, /error_code\?: string \| null/);
+  assert.match(activityLog, /request_id\?: string \| null/);
+  assert.match(activityLog, /correlation_id\?: string \| null/);
+  assert.match(activityLog, /outcomeClassName/);
   assert.match(fnSectionFrom(auditStableOrderingMigration, "admin_search_admin_audit_logs"), /ORDER BY al\.created_at DESC, al\.id DESC/);
   assert.match(fnSectionFrom(auditStableOrderingMigration, "admin_search_admin_audit_logs"), /jsonb_agg\(to_jsonb\(page\) ORDER BY page\.created_at DESC, page\.id DESC\)/);
   assert.match(auditStableOrderingClassificationMigration, /INSERT INTO public\.migration_classifications/);

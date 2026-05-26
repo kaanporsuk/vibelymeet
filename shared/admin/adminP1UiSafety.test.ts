@@ -145,7 +145,7 @@ test("high-risk admin UI mutations route through confirmation copy", () => {
   assert.match(adminMediaLifecycle, /Save chat media policy\?/);
   assert.match(adminDailyDrop, /Generate today's drops\?/);
   assert.match(adminDailyDrop, /can create production daily-drop pairs and notify users/);
-  assert.match(adminDeletions, /Mark deletion request completed\?/);
+  assert.match(adminDeletions, /Queue durable deletion cleanup\?/);
   assert.match(adminPushCampaigns, /Delete push campaign\?/);
 
   for (const source of [
@@ -162,7 +162,7 @@ test("high-risk admin UI mutations route through confirmation copy", () => {
 test("report actions use backend transaction instead of client side-effect orchestration", () => {
   assert.match(adminReports, /callAdminRpc\("admin_resolve_report(_with_policy)?"/);
   assert.match(adminReports, /p_action: rpcAction/);
-  assert.match(adminReports, /p_idempotency_key: createAdminIdempotencyKey\("admin_resolve_report"\)/);
+  assert.match(adminReports, /p_idempotency_key: createAdminTargetIdempotencyKey\("admin_resolve_report"/);
   assert.match(adminReports, /The required moderation side effect and report closure run in one backend transaction/);
   assert.doesNotMatch(adminReports, /\.from\("user_warnings"\)\.insert/);
   assert.doesNotMatch(adminReports, /\.from\("user_suspensions"\)\.insert/);
@@ -349,6 +349,8 @@ test("Support Inbox has honest empty/error states and governed data access", () 
   assert.match(supportInbox, /callAdminRpc\("admin_update_support_ticket"/);
   assert.match(supportInbox, /supabase\.functions\.invoke<SendSupportReplyResponse>\("send-support-reply"/);
   assert.match(supportInbox, /resolveSupabaseFunctionErrorMessage/);
+  assert.match(supportInbox, /Delivery jobs/);
+  assert.match(supportInbox, /latest_reply_id/);
   assert.doesNotMatch(supportInbox, /\.from\(["']support_tickets["']\)/);
   assert.doesNotMatch(supportInbox, /\.from\(["']support_ticket_replies["']\)/);
   assert.doesNotMatch(supportInbox, /\.from\(["']event_payment_exceptions["']\)/);
@@ -637,7 +639,7 @@ test("password reset is visibly unavailable instead of toast-only fake action", 
 
 test("premium operations use backend transaction RPC", () => {
   assert.match(adminPremium, /callAdminRpc\("admin_set_premium_status"/);
-  assert.match(adminPremium, /p_idempotency_key: createAdminIdempotencyKey\("admin_set_premium_status"\)/);
+  assert.match(adminPremium, /p_idempotency_key: createAdminTargetIdempotencyKey\("admin_set_premium_status"/);
   assert.match(adminPremium, /profile state, premium_history, and admin audit logging are transactional/);
   assert.match(adminPremium, /history = \[\]/);
   assert.match(adminPremium, /const closeModal = \(\) =>/);
@@ -706,12 +708,11 @@ test("push campaign targeting UI exposes only supported filters and flags legacy
   assert.doesNotMatch(adminPushCampaigns, /Vibes & Interests/);
 });
 
-test("account deletion action copy is honest about completion-only behavior", () => {
+test("account deletion action copy is honest about durable completion behavior", () => {
   assert.doesNotMatch(adminDeletions, /Process Now/);
-  assert.doesNotMatch(adminDeletions, /process deletion/i);
-  assert.match(adminDeletions, /Mark Completed/);
-  assert.match(adminDeletions, /This does not delete the Supabase auth user or profile/);
-  assert.match(adminDeletions, /verified completion checkpoint/);
+  assert.match(adminDeletions, /Queue Cleanup/);
+  assert.match(adminDeletions, /provider cleanup, media cleanup, profile PII scrub, and Supabase auth deletion all succeed/);
+  assert.match(adminDeletions, /Deletion completion job queued/);
   assert.match(adminDeletions, /Eligible after scheduled date/);
   assert.match(adminDeletions, /Missing scheduled date/);
   assert.match(adminDeletions, /Unable to load account deletion requests/);

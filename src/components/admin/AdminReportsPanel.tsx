@@ -54,7 +54,7 @@ import { avatarUrl as avatarPreset } from "@/utils/imageUrl";
 import { REPORT_REASONS, type ReportReasonId } from "../../../shared/safety/reportReasons";
 import { resolvePrimaryProfilePhotoPath } from "../../../shared/profilePhoto/resolvePrimaryProfilePhotoPath";
 import AdminConfirmDialog from "./AdminConfirmDialog";
-import { callAdminRpc, createAdminIdempotencyKey, type AdminRpcPayload } from "@/lib/adminRpc";
+import { callAdminRpc, createAdminTargetIdempotencyKey, type AdminRpcPayload } from "@/lib/adminRpc";
 import { ADMIN_OVERVIEW_DASHBOARD_QUERY_KEY } from "@/hooks/useAdminOverviewDashboard";
 import { normalizeReportSearchText, resolveReportSearchQuery } from "./adminReportSearch";
 
@@ -223,7 +223,13 @@ const AdminReportsPanel = () => {
         p_reason: notes || reasonLabels[report.reason] || report.reason,
         p_message: notes || null,
         p_suspension_expires_at: null,
-        p_idempotency_key: createAdminIdempotencyKey("admin_resolve_report"),
+        p_idempotency_key: createAdminTargetIdempotencyKey("admin_resolve_report", report.id, {
+          action: rpcAction,
+          report_status: report.status,
+          report_created_at: report.created_at,
+          policy_category: policyCategory,
+          reason: notes || reasonLabels[report.reason] || report.reason,
+        }),
         p_policy_category: policyCategory,
         p_recommendation_id: null,
       });

@@ -71,11 +71,14 @@ export function corsHeadersForRequest(
   return headers;
 }
 
-export function preflightResponse(req: Request): Response {
+export function preflightResponse(
+  req: Request,
+  options: { allowedHeaders?: string; methods?: string } = {},
+): Response {
   if (isBrowserOriginRejected(req)) {
-    return new Response(null, { status: 403, headers: corsHeadersForRequest(req) });
+    return new Response(null, { status: 403, headers: corsHeadersForRequest(req, options) });
   }
-  return new Response(null, { status: 204, headers: corsHeadersForRequest(req) });
+  return new Response(null, { status: 204, headers: corsHeadersForRequest(req, options) });
 }
 
 export function jsonResponse(
