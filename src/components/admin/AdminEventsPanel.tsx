@@ -121,15 +121,38 @@ const SCOPE_BADGE: Record<string, string> = {
   local:    '📍 Local',
 };
 
+const UTC_DAYS_SHORT = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+
+function parseEventDate(value: string | null | undefined): Date | null {
+  if (!value) return null;
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function eventUtcDateKey(value: string | null | undefined): string {
+  const date = parseEventDate(value);
+  return date ? date.toISOString().slice(0, 10) : "";
+}
+
+function eventUtcDayOfMonth(value: string | null | undefined): number | null {
+  return parseEventDate(value)?.getUTCDate() ?? null;
+}
+
+function eventUtcWeekday(value: string | null | undefined): number | null {
+  return parseEventDate(value)?.getUTCDay() ?? null;
+}
+
 const getRecurrenceSummary = (event: AdminEventRow): string => {
   switch (event.recurrence_type) {
     case 'weekly':    return `Every week`;
     case 'biweekly':  return `Every 2 weeks`;
-    case 'monthly_day': return `Monthly on ${new Date(event.event_date).getDate()}`;
+    case 'monthly_day': {
+      const day = eventUtcDayOfMonth(event.event_date);
+      return day == null ? 'Monthly' : `Monthly on ${day}`;
+    }
     case 'monthly_weekday': {
-      const d = new Date(event.event_date);
-      const days = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
-      return `Monthly ${days[d.getDay()]}`;
+      const weekday = eventUtcWeekday(event.event_date);
+      return weekday == null ? 'Monthly' : `Monthly ${UTC_DAYS_SHORT[weekday]}`;
     }
     case 'yearly': return `Yearly`;
     default: return '';
@@ -602,8 +625,10 @@ const AdminEventsPanel = () => {
       if (statusFilter !== 'all' && statusDisplay !== statusFilter) return false;
       if (scopeFilter !== 'all' && (event.scope || 'global') !== scopeFilter) return false;
       if (cityFilter !== 'all' && event.city !== cityFilter) return false;
-      if (dateFrom && new Date(event.event_date) < new Date(dateFrom)) return false;
-      if (dateTo && new Date(event.event_date) > new Date(dateTo + 'T23:59')) return false;
+      const eventDateKey = eventUtcDateKey(event.event_date);
+      if ((dateFrom || dateTo) && !eventDateKey) return false;
+      if (dateFrom && eventDateKey < dateFrom) return false;
+      if (dateTo && eventDateKey > dateTo) return false;
       return true;
     });
   }, [events, lifecycleNowMs, statusFilter, scopeFilter, cityFilter, dateFrom, dateTo]);
@@ -1299,10 +1324,13 @@ const AdminEventsPanel = () => {
 
         <div className="flex items-center gap-1">
           <Input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)}
-            className="h-8 text-xs w-36 bg-secondary/50" placeholder="From" />
+            aria-label="Filter events from UTC date"
+            className="h-8 text-xs w-[7.5rem] sm:w-36 bg-secondary/50" placeholder="From UTC" />
           <span className="text-muted-foreground text-xs">–</span>
           <Input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)}
-            className="h-8 text-xs w-36 bg-secondary/50" placeholder="To" />
+            aria-label="Filter events to UTC date"
+            className="h-8 text-xs w-[7.5rem] sm:w-36 bg-secondary/50" placeholder="To UTC" />
+          <span className="text-muted-foreground text-xs">UTC</span>
         </div>
 
         <div className="flex items-center gap-2">

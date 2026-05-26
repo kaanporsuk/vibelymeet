@@ -22,7 +22,7 @@ import React from "react";
 import { callAdminRpc, createAdminIdempotencyKey, createAdminTargetIdempotencyKey } from "@/lib/adminRpc";
 import { formatAdminUtcDateTime } from "@/lib/adminTime";
 import { adminToast } from "@/lib/adminToast";
-import { resolveAdminErrorMessage } from "@/lib/adminErrorResolver";
+import { resolveAdminErrorMessage, resolveAdminFunctionErrorMessage } from "@/lib/adminErrorResolver";
 import { useEventCategories } from "@/hooks/useEventCategories";
 import { inferEventCategoryKeysFromLegacyTags } from "@clientShared/eventCategories";
 import { clientRequestIdForUploadFile } from "@/services/imageUploadService";
@@ -360,6 +360,7 @@ const AdminEventFormModal = ({ event, onClose }: AdminEventFormModalProps) => {
   const [scope, setScope] = useState<Scope>(event?.scope || "global");
   const [cityQuery, setCityQuery] = useState(event?.city || "");
   const [geoResults, setGeoResults] = useState<GeoResult[]>([]);
+  const [geoSearchError, setGeoSearchError] = useState<string | null>(null);
   const [isGeocoding, setIsGeocoding] = useState(false);
   const [resolvedLat, setResolvedLat] = useState<number | null>(event?.latitude ?? null);
   const [resolvedLng, setResolvedLng] = useState<number | null>(event?.longitude ?? null);
@@ -500,17 +501,32 @@ const AdminEventFormModal = ({ event, onClose }: AdminEventFormModalProps) => {
 
   // City search debounce
   const geocodeTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const latestGeoQueryRef = useRef("");
   const handleCitySearch = useCallback(async (q: string) => {
     setCityQuery(q);
+    latestGeoQueryRef.current = q;
     if (geocodeTimeout.current) clearTimeout(geocodeTimeout.current);
-    if (q.length < 2) { setGeoResults([]); return; }
+    if (q.length < 2) { setGeoResults([]); setGeoSearchError(null); return; }
     geocodeTimeout.current = setTimeout(async () => {
+      const requestedQuery = q;
       setIsGeocoding(true);
       try {
         const { data, error } = await supabase.functions.invoke('forward-geocode', { body: { query: q } });
-        if (!error && Array.isArray(data)) setGeoResults(data);
-      } catch (_) {}
-      setIsGeocoding(false);
+        if (latestGeoQueryRef.current !== requestedQuery) return;
+        if (error || !Array.isArray(data)) {
+          setGeoResults([]);
+          setGeoSearchError(await resolveAdminFunctionErrorMessage(error, data, "City search is unavailable"));
+          return;
+        }
+        setGeoResults(data);
+        setGeoSearchError(null);
+      } catch (geocodeError) {
+        if (latestGeoQueryRef.current !== requestedQuery) return;
+        setGeoResults([]);
+        setGeoSearchError(resolveAdminErrorMessage(geocodeError, "City search is unavailable"));
+      } finally {
+        if (latestGeoQueryRef.current === requestedQuery) setIsGeocoding(false);
+      }
     }, 300);
   }, []);
 
@@ -655,10 +671,23 @@ const AdminEventFormModal = ({ event, onClose }: AdminEventFormModalProps) => {
     onSuccess: async (result) => {
       if (result.action === 'create_event') {
         try {
-          await supabase.functions.invoke('event-notifications', {
+          const { data, error } = await supabase.functions.invoke('event-notifications', {
             body: { type: 'event_created', eventId: result.id, eventTitle: title, eventDate: result.eventData.event_date, eventDescription: description }
           });
-        } catch (_) {}
+          if (error || !data?.success) {
+            adminToast.warning({
+              id: `admin-event-notification-warning-${result.id}`,
+              title: "Event created, but announcement email did not complete",
+              description: await resolveAdminFunctionErrorMessage(error, data, "Announcement email failed"),
+            });
+          }
+        } catch (notificationError) {
+          adminToast.warning({
+            id: `admin-event-notification-warning-${result.id}`,
+            title: "Event created, but announcement email did not complete",
+            description: resolveAdminErrorMessage(notificationError, "Announcement email failed"),
+          });
+        }
 
         if (isRecurring) {
           setIsGenerating(true);
@@ -1286,6 +1315,9 @@ const AdminEventFormModal = ({ event, onClose }: AdminEventFormModalProps) => {
                     <Input value={cityQuery} onChange={(e) => handleCitySearch(e.target.value)}
                       placeholder="Search city name..." className="pl-10 pr-10 bg-secondary/50" />
                   </div>
+                  {geoSearchError && (
+                    <p role="alert" className="text-xs text-destructive">{geoSearchError}</p>
+                  )}
                   {geoResults.length > 0 && (
                     <div className="absolute z-20 w-full mt-1 bg-card border border-border rounded-xl shadow-lg overflow-hidden">
                       {geoResults.map((r, i) => (

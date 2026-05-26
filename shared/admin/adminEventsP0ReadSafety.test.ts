@@ -105,6 +105,26 @@ test("admin event computed lifecycle refreshes while the panel stays open", () =
   assert.match(adminEventsPanel, /\[events, lifecycleNowMs, statusFilter, scopeFilter, cityFilter, dateFrom, dateTo\]/);
 });
 
+test("admin event date filters and recurrence summaries use UTC dates", () => {
+  const recurrenceHelpers = section(adminEventsPanel, "const UTC_DAYS_SHORT", "type CategoryUpdateInput");
+  const filterLogic = section(adminEventsPanel, "// Filtered events", "// Grouped by series");
+
+  assert.match(recurrenceHelpers, /getUTCDate\(\)/);
+  assert.match(recurrenceHelpers, /getUTCDay\(\)/);
+  assert.doesNotMatch(recurrenceHelpers, /\.getDate\(\)/);
+  assert.doesNotMatch(recurrenceHelpers, /\.getDay\(\)/);
+
+  assert.match(filterLogic, /eventUtcDateKey\(event\.event_date\)/);
+  assert.match(filterLogic, /\(dateFrom \|\| dateTo\) && !eventDateKey/);
+  assert.match(filterLogic, /eventDateKey < dateFrom/);
+  assert.match(filterLogic, /eventDateKey > dateTo/);
+  assert.doesNotMatch(filterLogic, /new Date\(dateFrom\)/);
+  assert.doesNotMatch(filterLogic, /new Date\(dateTo/);
+  assert.match(adminEventsPanel, /aria-label="Filter events from UTC date"/);
+  assert.match(adminEventsPanel, /aria-label="Filter events to UTC date"/);
+  assert.match(adminEventsPanel, /w-\[7\.5rem\] sm:w-36/);
+});
+
 test("expired computed events cannot be cancelled from the row menu", () => {
   const rowRender = section(adminEventsPanel, "const renderEventRow", "return (");
 
