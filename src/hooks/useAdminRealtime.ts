@@ -1,260 +1,206 @@
 import { useEffect, useCallback, useRef } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
-import { ADMIN_ENGAGEMENT_ANALYTICS_QUERY_KEY } from "@/hooks/useAdminEngagementAnalytics";
-import { ADMIN_OVERVIEW_DASHBOARD_QUERY_KEY } from "@/hooks/useAdminOverviewDashboard";
+import type { Database } from "@/integrations/supabase/types";
+import {
+  invalidateAdminQueries,
+  type AdminInvalidationArea,
+} from "@/lib/adminQueryInvalidation";
 
 interface UseAdminRealtimeOptions {
   enabled?: boolean;
+  activePanel?: string;
 }
 
-export const useAdminRealtime = ({ enabled = true }: UseAdminRealtimeOptions = {}) => {
+type AdminRealtimeSpec = {
+  channel: string;
+  table: keyof Database["public"]["Tables"];
+  event?: "*" | "INSERT" | "UPDATE" | "DELETE";
+  areas: readonly AdminInvalidationArea[];
+};
+
+type PendingInvalidation = {
+  timer: ReturnType<typeof setTimeout>;
+  areas: readonly AdminInvalidationArea[];
+};
+
+const REALTIME_INVALIDATION_DELAY_MS = 750;
+
+const ALWAYS_ON_BADGE_SPECS: readonly AdminRealtimeSpec[] = [
+  {
+    channel: "admin-notifications-badges-realtime",
+    table: "admin_notifications",
+    areas: ["notifications"],
+  },
+  {
+    channel: "admin-support-tickets-realtime",
+    table: "support_tickets",
+    areas: ["support"],
+  },
+  {
+    channel: "admin-support-replies-realtime",
+    table: "support_ticket_replies",
+    areas: ["support"],
+  },
+];
+
+const PANEL_REALTIME_SPECS: Record<string, readonly AdminRealtimeSpec[]> = {
+  overview: [
+    { channel: "admin-overview-profiles-realtime", table: "profiles", areas: ["users", "overview"] },
+    { channel: "admin-overview-matches-realtime", table: "matches", areas: ["overview", "engagement"] },
+    { channel: "admin-overview-events-realtime", table: "events", areas: ["events", "overview"] },
+    { channel: "admin-overview-registrations-realtime", table: "event_registrations", areas: ["events", "overview", "engagement"] },
+    { channel: "admin-overview-daily-drops-realtime", table: "daily_drops", areas: ["overview", "engagement"] },
+    { channel: "admin-overview-daily-drop-runs-realtime", table: "daily_drop_generation_runs", areas: ["overview"] },
+    { channel: "admin-overview-notification-log-realtime", table: "notification_log", areas: ["engagement"] },
+    { channel: "admin-overview-messages-realtime", table: "messages", event: "INSERT", areas: ["overview", "engagement"] },
+  ],
+  users: [
+    { channel: "admin-users-profiles-realtime", table: "profiles", areas: ["users", "overview"] },
+    { channel: "admin-users-registrations-realtime", table: "event_registrations", areas: ["users", "overview"] },
+    { channel: "admin-users-matches-realtime", table: "matches", areas: ["users", "overview"] },
+    { channel: "admin-users-messages-realtime", table: "messages", event: "INSERT", areas: ["users", "overview"] },
+    { channel: "admin-users-video-sessions-realtime", table: "video_sessions", areas: ["users", "overview"] },
+    { channel: "admin-users-daily-drops-realtime", table: "daily_drops", areas: ["users", "overview"] },
+  ],
+  events: [
+    { channel: "admin-events-realtime", table: "events", areas: ["events", "overview"] },
+    { channel: "admin-event-registrations-realtime", table: "event_registrations", areas: ["events", "overview", "engagement"] },
+  ],
+  "event-analytics": [
+    { channel: "admin-event-analytics-events-realtime", table: "events", areas: ["events", "overview"] },
+    { channel: "admin-event-analytics-registrations-realtime", table: "event_registrations", areas: ["events", "overview", "engagement"] },
+    { channel: "admin-event-analytics-reports-realtime", table: "user_reports", areas: ["reports", "overview"] },
+  ],
+  reports: [
+    { channel: "admin-reports-realtime", table: "user_reports", areas: ["reports", "overview"] },
+    { channel: "admin-reports-profiles-realtime", table: "profiles", areas: ["reports"] },
+  ],
+  engagement: [
+    { channel: "admin-engagement-daily-drops-realtime", table: "daily_drops", areas: ["engagement", "overview"] },
+    { channel: "admin-engagement-daily-drop-runs-realtime", table: "daily_drop_generation_runs", areas: ["engagement", "overview"] },
+    { channel: "admin-engagement-notification-log-realtime", table: "notification_log", areas: ["engagement"] },
+    { channel: "admin-engagement-messages-realtime", table: "messages", event: "INSERT", areas: ["engagement", "overview"] },
+    { channel: "admin-engagement-matches-realtime", table: "matches", areas: ["engagement", "overview"] },
+  ],
+  "photo-verification": [
+    { channel: "admin-photo-verifications-realtime", table: "photo_verifications", areas: ["photoVerification"] },
+    { channel: "admin-photo-verification-profiles-realtime", table: "profiles", areas: ["photoVerification", "users"] },
+  ],
+  support: [
+    { channel: "admin-support-tickets-realtime", table: "support_tickets", areas: ["support"] },
+    { channel: "admin-support-replies-realtime", table: "support_ticket_replies", areas: ["support"] },
+    { channel: "admin-support-events-realtime", table: "support_ticket_events", areas: ["support"] },
+    { channel: "admin-support-delivery-jobs-realtime", table: "support_reply_delivery_jobs", areas: ["support"] },
+  ],
+  campaigns: [
+    { channel: "admin-campaigns-notification-log-realtime", table: "notification_log", areas: ["engagement"] },
+  ],
+  deletions: [
+    { channel: "admin-deletions-requests-realtime", table: "account_deletion_requests", areas: ["users"] },
+    { channel: "admin-deletions-jobs-realtime", table: "account_deletion_completion_jobs", areas: ["users"] },
+  ],
+};
+
+const uniqueRealtimeSpecs = (specs: readonly AdminRealtimeSpec[]) => {
+  const byChannel = new Map<string, AdminRealtimeSpec>();
+  for (const spec of specs) byChannel.set(spec.channel, spec);
+  return [...byChannel.values()];
+};
+
+export const useAdminRealtime = ({ enabled = true, activePanel = "overview" }: UseAdminRealtimeOptions = {}) => {
   const queryClient = useQueryClient();
-  const overviewInvalidationTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const invalidationTimers = useRef<Map<string, PendingInvalidation>>(new Map());
 
-  const invalidateOverview = useCallback(() => {
-    if (overviewInvalidationTimer.current) return;
+  const scheduleInvalidation = useCallback((areas: readonly AdminInvalidationArea[]) => {
+    const uniqueAreas = [...new Set(areas)];
+    if (uniqueAreas.length === 0) return;
 
-    overviewInvalidationTimer.current = setTimeout(() => {
-      overviewInvalidationTimer.current = null;
-      queryClient.invalidateQueries({ queryKey: ADMIN_OVERVIEW_DASHBOARD_QUERY_KEY });
-    }, 750);
+    const timerKey = [...uniqueAreas].sort().join("|");
+    const existing = invalidationTimers.current.get(timerKey);
+    if (existing) clearTimeout(existing.timer);
+    const timer = setTimeout(() => {
+      invalidationTimers.current.delete(timerKey);
+      void invalidateAdminQueries(queryClient, uniqueAreas);
+    }, REALTIME_INVALIDATION_DELAY_MS);
+
+    invalidationTimers.current.set(timerKey, { timer, areas: uniqueAreas });
   }, [queryClient]);
 
-  const invalidateEngagement = useCallback(() => {
-    queryClient.invalidateQueries({ queryKey: ADMIN_ENGAGEMENT_ANALYTICS_QUERY_KEY });
+  const clearTimers = useCallback((flushPending = false) => {
+    const pending = [...invalidationTimers.current.values()];
+    for (const { timer } of pending) clearTimeout(timer);
+    invalidationTimers.current.clear();
+    if (!flushPending || pending.length === 0) return;
+
+    const areasToFlush = new Set<AdminInvalidationArea>();
+    for (const { areas } of pending) {
+      for (const area of areas) areasToFlush.add(area);
+    }
+    void invalidateAdminQueries(queryClient, [...areasToFlush]);
   }, [queryClient]);
 
   const invalidateAllStats = useCallback(() => {
-    invalidateOverview();
-    invalidateEngagement();
-    queryClient.invalidateQueries({ queryKey: ["admin-dashboard-badge-counts"] });
-  }, [invalidateEngagement, invalidateOverview, queryClient]);
-
-  const invalidateUsers = useCallback(() => {
-    queryClient.invalidateQueries({ queryKey: ["admin-users"] });
-    invalidateOverview();
-  }, [invalidateOverview, queryClient]);
-
-  const invalidateMatches = useCallback(() => {
-    invalidateOverview();
-    invalidateEngagement();
-  }, [invalidateEngagement, invalidateOverview]);
-
-  const invalidateEvents = useCallback(() => {
-    queryClient.invalidateQueries({ queryKey: ["admin-events"] });
-    invalidateOverview();
-  }, [invalidateOverview, queryClient]);
-
-  const invalidateEventEngagement = useCallback(() => {
-    invalidateEvents();
-    invalidateEngagement();
-  }, [invalidateEngagement, invalidateEvents]);
-
-  const invalidateNotifications = useCallback(() => {
-    queryClient.invalidateQueries({ queryKey: ["admin-dashboard-badge-counts"] });
-    queryClient.invalidateQueries({ queryKey: ["admin-notifications"] });
+    void invalidateAdminQueries(queryClient, ["overview", "engagement", "badges"]);
   }, [queryClient]);
 
-  const invalidateSupport = useCallback(() => {
-    queryClient.invalidateQueries({ queryKey: ["admin-dashboard-badge-counts"] });
-    queryClient.invalidateQueries({ queryKey: ["admin-support-tickets"] });
-    queryClient.invalidateQueries({ queryKey: ["admin-support-thread"] });
+  const invalidateUsers = useCallback(() => {
+    void invalidateAdminQueries(queryClient, ["users", "overview"]);
+  }, [queryClient]);
+
+  const invalidateMatches = useCallback(() => {
+    void invalidateAdminQueries(queryClient, ["overview", "engagement"]);
+  }, [queryClient]);
+
+  const invalidateEvents = useCallback(() => {
+    void invalidateAdminQueries(queryClient, ["events", "overview"]);
+  }, [queryClient]);
+
+  const invalidateNotifications = useCallback(() => {
+    void invalidateAdminQueries(queryClient, ["notifications"]);
   }, [queryClient]);
 
   const invalidateReports = useCallback(() => {
-    queryClient.invalidateQueries({ queryKey: ["admin-reports"] });
-    queryClient.invalidateQueries({ queryKey: ["admin-reports-summary"] });
-    invalidateOverview();
-  }, [invalidateOverview, queryClient]);
-
-  const invalidatePhotoVerifications = useCallback(() => {
-    queryClient.invalidateQueries({ queryKey: ["admin-photo-verifications"] });
-    queryClient.invalidateQueries({ queryKey: ["admin-verification-stats"] });
+    void invalidateAdminQueries(queryClient, ["reports", "overview"]);
   }, [queryClient]);
 
   useEffect(() => {
-    if (!enabled) return;
+    if (!enabled) {
+      clearTimers(true);
+      return undefined;
+    }
 
-    // Subscribe to profiles table changes
-    const profilesChannel = supabase
-      .channel("admin-profiles-realtime")
-      .on(
+    const specs = uniqueRealtimeSpecs([
+      ...ALWAYS_ON_BADGE_SPECS,
+      ...(PANEL_REALTIME_SPECS[activePanel] ?? []),
+    ]);
+
+    const channels = specs.map((spec) => {
+      const channel = supabase.channel(spec.channel);
+      const onPostgresChanges = channel.on as unknown as (
+        type: "postgres_changes",
+        filter: { event: AdminRealtimeSpec["event"] | "*"; schema: "public"; table: string },
+        callback: () => void,
+      ) => typeof channel;
+
+      return onPostgresChanges(
         "postgres_changes",
-        { event: "*", schema: "public", table: "profiles" },
-        invalidateUsers
-      )
-      .subscribe();
-
-    // Subscribe to matches table changes
-    const matchesChannel = supabase
-      .channel("admin-matches-realtime")
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "matches" },
-        invalidateMatches
-      )
-      .subscribe();
-
-    // Subscribe to events table changes
-    const eventsChannel = supabase
-      .channel("admin-events-realtime")
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "events" },
-        invalidateEvents
-      )
-      .subscribe();
-
-    // Subscribe to event_registrations table changes
-    const registrationsChannel = supabase
-      .channel("admin-registrations-realtime")
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "event_registrations" },
-        invalidateEventEngagement
-      )
-      .subscribe();
-
-    // Subscribe to daily drops for Overview status freshness
-    const dailyDropsChannel = supabase
-      .channel("admin-daily-drops-realtime")
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "daily_drops" },
-        () => {
-          invalidateOverview();
-          invalidateEngagement();
-        }
-      )
-      .subscribe();
-
-    const dailyDropRunsChannel = supabase
-      .channel("admin-daily-drop-generation-runs-realtime")
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "daily_drop_generation_runs" },
-        invalidateOverview
-      )
-      .subscribe();
-
-    // Provider push telemetry is read through redacted admin RPCs and refreshed by polling.
-    // Realtime authorizes against the base table RLS, which intentionally hides other users' rows.
-
-    const engagementNotificationLogChannel = supabase
-      .channel("admin-engagement-notification-log-realtime")
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "notification_log" },
-        invalidateEngagement
-      )
-      .subscribe();
-
-    // Subscribe to admin_notifications table changes
-    const notificationsChannel = supabase
-      .channel("admin-notifications-realtime")
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "admin_notifications" },
-        invalidateNotifications
-      )
-      .subscribe();
-
-    // Subscribe to user_reports table changes
-    const reportsChannel = supabase
-      .channel("admin-reports-realtime")
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "user_reports" },
-        () => {
-          invalidateReports();
-          invalidateNotifications();
-        }
-      )
-      .subscribe();
-
-    const supportTicketsChannel = supabase
-      .channel("admin-support-tickets-realtime")
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "support_tickets" },
-        invalidateSupport
-      )
-      .subscribe();
-
-    const supportRepliesChannel = supabase
-      .channel("admin-support-replies-realtime")
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "support_ticket_replies" },
-        invalidateSupport
-      )
-      .subscribe();
-
-    const supportEventsChannel = supabase
-      .channel("admin-support-events-realtime")
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "support_ticket_events" },
-        invalidateSupport
-      )
-      .subscribe();
-
-    const photoVerificationsChannel = supabase
-      .channel("admin-photo-verifications-realtime")
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "photo_verifications" },
-        invalidatePhotoVerifications
-      )
-      .subscribe();
-
-    // Subscribe to messages for real-time message count
-    const messagesChannel = supabase
-      .channel("admin-messages-realtime")
-      .on(
-        "postgres_changes",
-        { event: "INSERT", schema: "public", table: "messages" },
-        () => {
-          invalidateOverview();
-          invalidateEngagement();
-        }
-      )
-      .subscribe();
+        {
+          event: spec.event ?? "*",
+          schema: "public",
+          table: spec.table,
+        },
+        () => scheduleInvalidation(spec.areas),
+      ).subscribe();
+    });
 
     return () => {
-      if (overviewInvalidationTimer.current) {
-        clearTimeout(overviewInvalidationTimer.current);
-        overviewInvalidationTimer.current = null;
+      clearTimers(true);
+      for (const channel of channels) {
+        supabase.removeChannel(channel);
       }
-      supabase.removeChannel(profilesChannel);
-      supabase.removeChannel(matchesChannel);
-      supabase.removeChannel(eventsChannel);
-      supabase.removeChannel(registrationsChannel);
-      supabase.removeChannel(dailyDropsChannel);
-      supabase.removeChannel(dailyDropRunsChannel);
-      supabase.removeChannel(engagementNotificationLogChannel);
-      supabase.removeChannel(notificationsChannel);
-      supabase.removeChannel(reportsChannel);
-      supabase.removeChannel(supportTicketsChannel);
-      supabase.removeChannel(supportRepliesChannel);
-      supabase.removeChannel(supportEventsChannel);
-      supabase.removeChannel(photoVerificationsChannel);
-      supabase.removeChannel(messagesChannel);
     };
-  }, [
-    enabled,
-    invalidateEngagement,
-    invalidateEventEngagement,
-    invalidateOverview,
-    invalidateUsers,
-    invalidateMatches,
-    invalidateEvents,
-    invalidateNotifications,
-    invalidateReports,
-    invalidateSupport,
-    invalidatePhotoVerifications,
-  ]);
+  }, [activePanel, clearTimers, enabled, scheduleInvalidation]);
 
   return {
     invalidateAllStats,

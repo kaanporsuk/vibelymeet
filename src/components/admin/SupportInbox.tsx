@@ -38,6 +38,7 @@ import {
   sanitizeAdminRpcErrorMessage,
   type AdminRpcPayload,
 } from "@/lib/adminRpc";
+import { invalidateAdminQueries } from "@/lib/adminQueryInvalidation";
 import { resolveSupabaseFunctionErrorMessage } from "@/lib/supabaseFunctionInvokeErrors";
 
 type TicketRow = {
@@ -247,9 +248,7 @@ export default function SupportInbox() {
     statusFilter !== "all" || typeFilter !== "all" || priorityFilter !== "all" || normalizedSearch.length > 0;
 
   const invalidateSupportQueries = () => {
-    queryClient.invalidateQueries({ queryKey: ["admin-support-tickets"] });
-    queryClient.invalidateQueries({ queryKey: ["admin-support-thread"] });
-    queryClient.invalidateQueries({ queryKey: ["admin-dashboard-badge-counts"] });
+    void invalidateAdminQueries(queryClient, ["support"]);
   };
 
   const supportInboxQuery = useQuery({

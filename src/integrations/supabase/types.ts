@@ -6948,6 +6948,7 @@ export type Database = {
       admin_get_reports_read_model: {
         Args: {
           p_limit?: number
+          p_offset?: number
           p_search?: string
           p_sort_direction?: string
           p_sort_field?: string

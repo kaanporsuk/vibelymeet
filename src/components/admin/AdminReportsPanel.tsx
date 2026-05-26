@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import AdminReportsSummary from "@/components/admin/AdminReportsSummary";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { motion } from "framer-motion";
@@ -55,13 +55,15 @@ import { REPORT_REASONS, type ReportReasonId } from "../../../shared/safety/repo
 import { resolvePrimaryProfilePhotoPath } from "../../../shared/profilePhoto/resolvePrimaryProfilePhotoPath";
 import AdminConfirmDialog from "./AdminConfirmDialog";
 import { callAdminRpc, createAdminTargetIdempotencyKey, type AdminRpcPayload } from "@/lib/adminRpc";
-import { ADMIN_OVERVIEW_DASHBOARD_QUERY_KEY } from "@/hooks/useAdminOverviewDashboard";
-import { normalizeReportSearchText, resolveReportSearchQuery } from "./adminReportSearch";
+import { invalidateAdminQueries } from "@/lib/adminQueryInvalidation";
+import { useDebouncedValue } from "@/hooks/useDebouncedValue";
+import { resolveReportSearchQuery } from "./adminReportSearch";
 
 type SortField = "created_at" | "status";
 type SortDirection = "asc" | "desc";
 type ReportActionType = "dismiss" | "warn" | "suspend";
 type PolicyCategory = "harassment" | "fake" | "inappropriate" | "spam" | "safety" | "underage" | "no_show" | "payment" | "other";
+const REPORTS_PAGE_SIZE = 50;
 
 type UserReportRow = {
   id: string;
@@ -90,6 +92,9 @@ type ReportsReadModelPayload = AdminRpcPayload & {
       reported_profile?: Omit<ReportProfileRow, "avatarUrl"> | null;
     }
   >;
+  limit?: number;
+  offset?: number;
+  total_count?: number;
 };
 
 const reasonIcons: Record<ReportReasonId, LucideIcon> = {
@@ -132,7 +137,9 @@ const AdminReportsPanel = () => {
   const [actionNotes, setActionNotes] = useState("");
   const [actionType, setActionType] = useState<ReportActionType>("dismiss");
   const [policyCategory, setPolicyCategory] = useState<PolicyCategory>("other");
-  const normalizedSearchQuery = searchQuery.trim();
+  const [pageIndex, setPageIndex] = useState(0);
+  const debouncedSearchQuery = useDebouncedValue(searchQuery, 350);
+  const normalizedSearchQuery = debouncedSearchQuery.trim();
   const reportSearchQuery = resolveReportSearchQuery(normalizedSearchQuery);
 
   const openReportActionDialog = (report: UserReportRow) => {
@@ -153,55 +160,79 @@ const AdminReportsPanel = () => {
     setPolicyCategory("other");
   };
 
-  // Fetch all reports
-  const { data: reports, isLoading, isError } = useQuery({
-    queryKey: ["admin-reports", statusFilter, sortField, sortDirection, normalizedSearchQuery, reportSearchQuery],
+  // Fetch paginated reports through the backend admin read model.
+  const { data: reportsPayload, isLoading, isError } = useQuery({
+    queryKey: ["admin-reports", statusFilter, sortField, sortDirection, reportSearchQuery, pageIndex],
     queryFn: async () => {
       const payload = await callAdminRpc<ReportsReadModelPayload>("admin_get_reports_read_model", {
         p_status: statusFilter,
         p_sort_field: sortField,
         p_sort_direction: sortDirection,
-        p_limit: 200,
+        p_limit: REPORTS_PAGE_SIZE,
+        p_offset: pageIndex * REPORTS_PAGE_SIZE,
         p_search: reportSearchQuery || null,
       });
 
-      return (payload.reports ?? []).map((report) => ({
-        ...report,
-        reporter_profile: report.reporter_profile
-          ? {
-              ...report.reporter_profile,
-              avatarUrl: avatarPreset(
-                resolvePrimaryProfilePhotoPath({
-                  photos: report.reporter_profile.photos,
-                  avatar_url: report.reporter_profile.avatar_url,
-                }),
-              ),
-            }
-          : null,
-        reported_profile: report.reported_profile
-          ? {
-              ...report.reported_profile,
-              avatarUrl: avatarPreset(
-                resolvePrimaryProfilePhotoPath({
-                  photos: report.reported_profile.photos,
-                  avatar_url: report.reported_profile.avatar_url,
-                }),
-              ),
-            }
-          : null,
-      })) as UserReportRow[];
+      return {
+        reports: (payload.reports ?? []).map((report) => ({
+          ...report,
+          reporter_profile: report.reporter_profile
+            ? {
+                ...report.reporter_profile,
+                avatarUrl: avatarPreset(
+                  resolvePrimaryProfilePhotoPath({
+                    photos: report.reporter_profile.photos,
+                    avatar_url: report.reporter_profile.avatar_url,
+                  }),
+                ),
+              }
+            : null,
+          reported_profile: report.reported_profile
+            ? {
+                ...report.reported_profile,
+                avatarUrl: avatarPreset(
+                  resolvePrimaryProfilePhotoPath({
+                    photos: report.reported_profile.photos,
+                    avatar_url: report.reported_profile.avatar_url,
+                  }),
+                ),
+              }
+            : null,
+        })) as UserReportRow[],
+        totalCount: Number(payload.total_count ?? 0),
+        limit: Number(payload.limit ?? REPORTS_PAGE_SIZE),
+        offset: Number(payload.offset ?? pageIndex * REPORTS_PAGE_SIZE),
+      };
     },
   });
 
+  const reports = useMemo(() => reportsPayload?.reports ?? [], [reportsPayload?.reports]);
+  const totalCount = Number(reportsPayload?.totalCount ?? reports.length);
+  const totalPages = Math.max(1, Math.ceil(totalCount / REPORTS_PAGE_SIZE));
+  const firstVisibleReport = totalCount === 0 ? 0 : pageIndex * REPORTS_PAGE_SIZE + 1;
+  const lastVisibleReport = Math.min(totalCount, pageIndex * REPORTS_PAGE_SIZE + reports.length);
+  const canGoPrevious = pageIndex > 0;
+  const canGoNext = pageIndex + 1 < totalPages;
+
   const profiles = useMemo(() => {
     const profileMap: Record<string, ReportProfileRow> = {};
-    for (const report of reports ?? []) {
+    for (const report of reports) {
       if (report.reporter_profile?.id) profileMap[report.reporter_profile.id] = report.reporter_profile;
       if (report.reported_profile?.id) profileMap[report.reported_profile.id] = report.reported_profile;
     }
     return profileMap;
   }, [reports]);
   const reportsUnavailable = isError;
+
+  useEffect(() => {
+    setPageIndex(0);
+  }, [reportSearchQuery, sortField, sortDirection, statusFilter]);
+
+  useEffect(() => {
+    if (!isLoading && !isError && pageIndex > 0 && reports.length === 0) {
+      setPageIndex(Math.max(0, totalPages - 1));
+    }
+  }, [isError, isLoading, pageIndex, reports.length, totalPages]);
 
   const resolveReport = useMutation({
     mutationFn: async ({
@@ -235,9 +266,7 @@ const AdminReportsPanel = () => {
       });
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["admin-reports"] });
-      queryClient.invalidateQueries({ queryKey: ["admin-reports-summary"] });
-      queryClient.invalidateQueries({ queryKey: ADMIN_OVERVIEW_DASHBOARD_QUERY_KEY });
+      void invalidateAdminQueries(queryClient, ["reports", "overview", "badges"]);
       toast.success("Report action completed");
       closeReportActionDialog();
     },
@@ -255,6 +284,7 @@ const AdminReportsPanel = () => {
       setSortField(field);
       setSortDirection("desc");
     }
+    setPageIndex(0);
   };
 
   const getSortIcon = (field: SortField) => {
@@ -339,23 +369,6 @@ const AdminReportsPanel = () => {
         : `This will mark the report as dismissed through admin_resolve_report with policy category "${policyLabel(policyCategory)}".${actionNotes.trim() ? `\n\nNotes: ${actionNotes.trim()}` : ""}`
     : "";
 
-  // Filter by search query
-  const filteredReports = reports?.filter((report) => {
-    if (!normalizedSearchQuery) return true;
-    const reporter = profiles?.[report.reporter_id];
-    const reported = profiles?.[report.reported_id];
-    const searchLower = normalizedSearchQuery.toLowerCase();
-    const normalizedSearch = normalizeReportSearchText(normalizedSearchQuery);
-    const reasonLabel = reasonLabels[report.reason] || report.reason;
-    return (
-      reporter?.name?.toLowerCase().includes(searchLower) ||
-      reported?.name?.toLowerCase().includes(searchLower) ||
-      report.reason?.toLowerCase().includes(searchLower) ||
-      reasonLabel.toLowerCase().includes(searchLower) ||
-      normalizeReportSearchText(reasonLabel).includes(normalizedSearch)
-    );
-  });
-
   return (
     <motion.div
       initial={{ opacity: 0, y: 20 }}
@@ -372,11 +385,20 @@ const AdminReportsPanel = () => {
             <Input
               placeholder="Search by user name or reason..."
               value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
+              onChange={(e) => {
+                setSearchQuery(e.target.value);
+                setPageIndex(0);
+              }}
               className="pl-11 bg-secondary/50"
             />
           </div>
-          <Select value={statusFilter} onValueChange={setStatusFilter}>
+          <Select
+            value={statusFilter}
+            onValueChange={(value) => {
+              setStatusFilter(value);
+              setPageIndex(0);
+            }}
+          >
             <SelectTrigger className="w-full md:w-[180px] bg-secondary/50">
               <SelectValue placeholder="Filter by status" />
             </SelectTrigger>
@@ -388,6 +410,36 @@ const AdminReportsPanel = () => {
               <SelectItem value="dismissed">Dismissed</SelectItem>
             </SelectContent>
           </Select>
+        </div>
+        <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <p className="text-sm text-muted-foreground">
+              Showing {firstVisibleReport}-{lastVisibleReport} of {totalCount} reports
+            </p>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Page {pageIndex + 1} of {totalPages}.
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={!canGoPrevious || isLoading}
+              onClick={() => setPageIndex((page) => Math.max(0, page - 1))}
+            >
+              Previous
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={!canGoNext || isLoading}
+              onClick={() => setPageIndex((page) => page + 1)}
+            >
+              Next
+            </Button>
+          </div>
         </div>
       </div>
 
@@ -440,7 +492,7 @@ const AdminReportsPanel = () => {
                     </p>
                   </TableCell>
                 </TableRow>
-              ) : filteredReports?.length === 0 ? (
+              ) : reports.length === 0 ? (
                 <TableRow className="border-border/50">
                   <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
                     <AlertTriangle className="w-8 h-8 mx-auto mb-2 opacity-50" />
@@ -448,7 +500,7 @@ const AdminReportsPanel = () => {
                   </TableCell>
                 </TableRow>
               ) : (
-                filteredReports?.map((report) => {
+                reports.map((report) => {
                   const reported = profiles?.[report.reported_id];
                   const reporter = profiles?.[report.reporter_id];
                   const ReasonIcon = reasonIcons[report.reason] || AlertTriangle;

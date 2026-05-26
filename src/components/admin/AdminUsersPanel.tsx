@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { motion, AnimatePresence } from "framer-motion";
 import {
@@ -43,6 +43,7 @@ import AdminUserDetailDrawer from "./AdminUserDetailDrawer";
 import { avatarUrl as avatarPreset } from "@/utils/imageUrl";
 import { resolvePrimaryProfilePhotoPath } from "../../../shared/profilePhoto/resolvePrimaryProfilePhotoPath";
 import { callAdminRpc, type AdminRpcPayload } from "@/lib/adminRpc";
+import { useDebouncedValue } from "@/hooks/useDebouncedValue";
 
 type SortField = 'name' | 'created_at' | 'age' | 'location' | 'total_matches' | 'event_registrations';
 type SortDirection = 'asc' | 'desc';
@@ -176,10 +177,11 @@ const AdminUsersPanel = () => {
   const [sortDirection, setSortDirection] = useState<SortDirection>('desc');
   const [pageIndex, setPageIndex] = useState(0);
   const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
+  const debouncedSearchQuery = useDebouncedValue(searchQuery, 350);
 
   // Fetch users through the backend admin aggregate so counts and filters are server-owned.
   const { data: usersPayload, isLoading, isError: usersError } = useQuery({
-    queryKey: ['admin-users', searchQuery, genderFilter, verificationFilter, lookingForFilter, lifecycleFilter, sortField, sortDirection, pageIndex],
+    queryKey: ['admin-users', debouncedSearchQuery.trim(), genderFilter, verificationFilter, lookingForFilter, lifecycleFilter, sortField, sortDirection, pageIndex],
     queryFn: async () => {
       const filters: Record<string, unknown> = {};
       if (genderFilter !== 'all') filters.gender_bucket = genderFilter;
@@ -198,7 +200,7 @@ const AdminUsersPanel = () => {
       }
 
       return callAdminRpc<AdminSearchUsersPayload>("admin_search_users", {
-        p_search: searchQuery.trim() || null,
+        p_search: debouncedSearchQuery.trim() || null,
         p_filters: filters,
         p_sort: getServerSort(sortField, sortDirection),
         p_limit: USERS_PAGE_SIZE,
@@ -214,6 +216,12 @@ const AdminUsersPanel = () => {
   const lastVisibleUser = Math.min(totalCount, pageIndex * USERS_PAGE_SIZE + users.length);
   const canGoPrevious = pageIndex > 0;
   const canGoNext = pageIndex + 1 < totalPages;
+
+  useEffect(() => {
+    if (!isLoading && !usersError && pageIndex > 0 && users.length === 0) {
+      setPageIndex(Math.max(0, totalPages - 1));
+    }
+  }, [isLoading, pageIndex, totalPages, users.length, usersError]);
 
   const refreshedAvatars = useMemo(() => {
     const resolved: Record<string, string> = {};

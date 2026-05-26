@@ -14,6 +14,7 @@ import { useQuery } from "@tanstack/react-query";
 import AdminSidebar from "@/components/admin/AdminSidebar";
 import AdminStaleBundleNotice from "@/components/admin/AdminStaleBundleNotice";
 import { useAdminRealtime } from "@/hooks/useAdminRealtime";
+import { ADMIN_DASHBOARD_BADGE_COUNTS_QUERY_KEY } from "@/lib/adminQueryInvalidation";
 import {
   formatAdminUtcDateTime,
   useAdminOverviewDashboard,
@@ -113,11 +114,11 @@ const AdminDashboard = () => {
   const [showNotifications, setShowNotifications] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
-  // Enable real-time updates
-  useAdminRealtime({ enabled: true });
+  // Enable scoped real-time updates for the visible admin surface.
+  useAdminRealtime({ enabled: true, activePanel });
 
   const { data: badgeCounts } = useQuery({
-    queryKey: ['admin-dashboard-badge-counts'],
+    queryKey: ADMIN_DASHBOARD_BADGE_COUNTS_QUERY_KEY,
     queryFn: async () =>
       callAdminRpc<AdminDashboardBadgeCountsPayload>("admin_get_dashboard_badge_counts", {}),
     refetchInterval: 30000,

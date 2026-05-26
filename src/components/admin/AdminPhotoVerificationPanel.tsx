@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback } from "react";
+import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { motion } from "framer-motion";
 import { ShieldCheck, CheckCircle2, XCircle, Loader2, AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -28,6 +28,7 @@ import {
   sanitizeAdminRpcErrorMessage,
   type AdminRpcPayload,
 } from "@/lib/adminRpc";
+import { invalidateAdminQueries } from "@/lib/adminQueryInvalidation";
 
 type TabFilter = "pending" | "approved" | "rejected";
 
@@ -35,6 +36,7 @@ type ResolvedVerificationUrls = {
   profile: string;
   selfie: string | null;
   selfieError: string | null;
+  selfieExpiresAt: string | null;
   /** Populated for <img onError> diagnostics */
   _diag?: {
     verificationId: string;
@@ -80,6 +82,8 @@ const REJECTION_REASONS = [
   "Suspicious or edited photo",
   "Other",
 ];
+const SELFIE_URL_REFRESH_BEFORE_EXPIRY_MS = 5 * 60 * 1000;
+const SELFIE_URL_MIN_REFRESH_DELAY_MS = 30 * 1000;
 
 /** Avoid logging signed URL query tokens (bearer access) to the console. */
 function redactUrlForLog(url: string): string {
@@ -101,6 +105,8 @@ const AdminPhotoVerificationPanel = () => {
   const [resolvedUrls, setResolvedUrls] = useState<Record<string, ResolvedVerificationUrls>>({});
   const [approvalTarget, setApprovalTarget] = useState<PhotoVerificationRow | null>(null);
   const [rejectConfirmation, setRejectConfirmation] = useState<{ id: string; userId: string; reason: string } | null>(null);
+  const selfieRefreshSequence = useRef(0);
+  const lastSelfieRefreshAt = useRef(0);
 
   const { data: verifications = [], isLoading } = useQuery({
     queryKey: ["admin-photo-verifications", activeTab],
@@ -121,141 +127,191 @@ const AdminPhotoVerificationPanel = () => {
   );
 
   // Selfie: server-side signed URL (service role) after admin JWT check — avoids client Storage/RLS edge cases.
-  useEffect(() => {
-    let cancelled = false;
+  const refreshSelfieUrls = useCallback(async () => {
+    const refreshId = ++selfieRefreshSequence.current;
+    lastSelfieRefreshAt.current = Date.now();
+    if (verifications.length === 0) {
+      setResolvedUrls({});
+      return;
+    }
 
-    const resolveUrls = async () => {
-      const settledEntries = await Promise.allSettled(
-        verifications.map(async (v) => {
-          const profileUrl = resolvePhotoUrl(v.profile_photo_url);
-          const rawSelfie = (v.selfie_url as string | null | undefined) ?? "";
-          const diag = {
-            verificationId: v.id,
-            userId: v.user_id,
-            originalSelfieUrl: rawSelfie,
-          };
+    const settledEntries = await Promise.allSettled(
+      verifications.map(async (v) => {
+        const profileUrl = resolvePhotoUrl(v.profile_photo_url);
+        const rawSelfie = (v.selfie_url as string | null | undefined) ?? "";
+        const diag = {
+          verificationId: v.id,
+          userId: v.user_id,
+          originalSelfieUrl: rawSelfie,
+        };
 
-          const { data, error: invokeError } = await supabase.functions.invoke(
-            "admin-proof-selfie-sign",
-            { body: { verification_id: v.id } },
-          );
+        const { data, error: invokeError } = await supabase.functions.invoke(
+          "admin-proof-selfie-sign",
+          { body: { verification_id: v.id } },
+        );
 
-          if (cancelled) return null;
-
-          if (invokeError) {
-            console.warn("[admin photo verification] selfie sign invoke failed", {
-              verificationId: diag.verificationId,
-              message: invokeError.message,
-            });
-            return [
-              v.id,
-              {
-                profile: profileUrl,
-                selfie: null,
-                selfieError:
-                  "Could not reach selfie signing service. Deploy the Edge Function `admin-proof-selfie-sign` or try again.",
-                _diag: diag,
-              } satisfies ResolvedVerificationUrls,
-            ] as const;
-          }
-
-          const body = data as {
-            success?: boolean;
-            signedUrl?: string;
-            directUrl?: string;
-            error?: string;
-            shape?: string;
-          };
-
-          if (body?.success && typeof body.signedUrl === "string") {
-            return [
-              v.id,
-              {
-                profile: profileUrl,
-                selfie: body.signedUrl,
-                selfieError: null,
-                _diag: diag,
-              } satisfies ResolvedVerificationUrls,
-            ] as const;
-          }
-
-          if (body?.success && typeof body.directUrl === "string") {
-            return [
-              v.id,
-              {
-                profile: profileUrl,
-                selfie: body.directUrl,
-                selfieError: null,
-                _diag: diag,
-              } satisfies ResolvedVerificationUrls,
-            ] as const;
-          }
-
-          console.warn("[admin photo verification] selfie sign rejected", {
+        if (invokeError) {
+          console.warn("[admin photo verification] selfie sign invoke failed", {
             verificationId: diag.verificationId,
-            error: body?.error,
-            shape: body?.shape,
+            message: invokeError.message,
           });
-
           return [
             v.id,
             {
               profile: profileUrl,
               selfie: null,
               selfieError:
-                body?.error ?? "Could not load verification selfie.",
+                "Could not reach selfie signing service. Deploy the Edge Function `admin-proof-selfie-sign` or try again.",
+              selfieExpiresAt: null,
               _diag: diag,
             } satisfies ResolvedVerificationUrls,
           ] as const;
-        }),
-      );
-
-      if (cancelled) return;
-
-      const entries = settledEntries.flatMap((result, index) => {
-        if (result.status === "fulfilled") {
-          return result.value ? [result.value] : [];
         }
 
-        const v = verifications[index];
-        console.warn("[admin photo verification] selfie resolution failed", {
-          verificationId: v?.id,
-          message: sanitizeAdminRpcErrorMessage(result.reason),
-        });
+        const body = data as {
+          success?: boolean;
+          signedUrl?: string;
+          directUrl?: string;
+          expires_at?: string | null;
+          error?: string;
+          shape?: string;
+        };
 
-        if (!v) return [];
+        if (body?.success && typeof body.signedUrl === "string") {
+          const expiresAt = typeof body.expires_at === "string" ? body.expires_at : null;
+          if (!expiresAt || !Number.isFinite(Date.parse(expiresAt))) {
+            return [
+              v.id,
+              {
+                profile: profileUrl,
+                selfie: null,
+                selfieError: "Signed selfie expiry metadata was missing. Refresh before review can continue.",
+                selfieExpiresAt: null,
+                _diag: diag,
+              } satisfies ResolvedVerificationUrls,
+            ] as const;
+          }
 
-        return [
-          [
+          return [
             v.id,
             {
-              profile: resolvePhotoUrl(v.profile_photo_url),
-              selfie: null,
-              selfieError: "Could not load verification selfie.",
-              _diag: {
-                verificationId: v.id,
-                userId: v.user_id,
-                originalSelfieUrl: (v.selfie_url as string | null | undefined) ?? "",
-              },
+              profile: profileUrl,
+              selfie: body.signedUrl,
+              selfieError: null,
+              selfieExpiresAt: expiresAt,
+              _diag: diag,
             } satisfies ResolvedVerificationUrls,
-          ] as const,
-        ];
+          ] as const;
+        }
+
+        if (body?.success && typeof body.directUrl === "string") {
+          return [
+            v.id,
+            {
+              profile: profileUrl,
+              selfie: body.directUrl,
+              selfieError: null,
+              selfieExpiresAt: null,
+              _diag: diag,
+            } satisfies ResolvedVerificationUrls,
+          ] as const;
+        }
+
+        console.warn("[admin photo verification] selfie sign rejected", {
+          verificationId: diag.verificationId,
+          error: body?.error,
+          shape: body?.shape,
+        });
+
+        return [
+          v.id,
+          {
+            profile: profileUrl,
+            selfie: null,
+            selfieError:
+              body?.error ?? "Could not load verification selfie.",
+            selfieExpiresAt: null,
+            _diag: diag,
+          } satisfies ResolvedVerificationUrls,
+        ] as const;
+      }),
+    );
+
+    const entries = settledEntries.flatMap((result, index) => {
+      if (result.status === "fulfilled") {
+        return result.value ? [result.value] : [];
+      }
+
+      const v = verifications[index];
+      console.warn("[admin photo verification] selfie resolution failed", {
+        verificationId: v?.id,
+        message: sanitizeAdminRpcErrorMessage(result.reason),
       });
 
-      const next: Record<string, ResolvedVerificationUrls> = {};
-      for (const e of entries) {
-        if (e) next[e[0]] = e[1];
-      }
-      setResolvedUrls(next);
+      if (!v) return [];
+
+      return [
+        [
+          v.id,
+          {
+            profile: resolvePhotoUrl(v.profile_photo_url),
+            selfie: null,
+            selfieError: "Could not load verification selfie.",
+            selfieExpiresAt: null,
+            _diag: {
+              verificationId: v.id,
+              userId: v.user_id,
+              originalSelfieUrl: (v.selfie_url as string | null | undefined) ?? "",
+            },
+          } satisfies ResolvedVerificationUrls,
+        ] as const,
+      ];
+    });
+
+    const next: Record<string, ResolvedVerificationUrls> = {};
+    for (const e of entries) {
+      if (e) next[e[0]] = e[1];
+    }
+    if (refreshId !== selfieRefreshSequence.current) return;
+    setResolvedUrls(next);
+  }, [verifications]);
+
+  useEffect(() => {
+    void refreshSelfieUrls();
+  }, [refreshSelfieUrls]);
+
+  useEffect(() => {
+    const refreshOnFocus = () => {
+      if (!document.hidden) void refreshSelfieUrls();
     };
 
-    if (verifications.length > 0) void resolveUrls();
-    else setResolvedUrls({});
+    window.addEventListener("focus", refreshOnFocus);
+    document.addEventListener("visibilitychange", refreshOnFocus);
 
     return () => {
-      cancelled = true;
+      window.removeEventListener("focus", refreshOnFocus);
+      document.removeEventListener("visibilitychange", refreshOnFocus);
     };
-  }, [verifications]);
+  }, [refreshSelfieUrls]);
+
+  useEffect(() => {
+    const expiringAt = Object.values(resolvedUrls)
+      .map((entry) => (entry.selfieExpiresAt ? Date.parse(entry.selfieExpiresAt) : NaN))
+      .filter((value) => Number.isFinite(value))
+      .sort((a, b) => a - b)[0];
+
+    if (!expiringAt) return;
+
+    const msUntilRefreshWindow = expiringAt - Date.now() - SELFIE_URL_REFRESH_BEFORE_EXPIRY_MS;
+    const msSinceLastRefresh = Date.now() - lastSelfieRefreshAt.current;
+    const throttleDelayMs = Math.max(0, SELFIE_URL_MIN_REFRESH_DELAY_MS - msSinceLastRefresh);
+    const delayMs =
+      msUntilRefreshWindow <= 0
+        ? throttleDelayMs
+        : Math.max(SELFIE_URL_MIN_REFRESH_DELAY_MS, msUntilRefreshWindow);
+    const timeout = window.setTimeout(() => void refreshSelfieUrls(), delayMs);
+    return () => window.clearTimeout(timeout);
+  }, [refreshSelfieUrls, resolvedUrls]);
 
   // Stats
   const { data: stats } = useQuery({
@@ -277,8 +333,31 @@ const AdminPhotoVerificationPanel = () => {
     },
   });
 
+  const getSelfieAccess = useCallback((verificationId: string) => {
+    const urls = resolvedUrls[verificationId];
+    const expiresAtMs = urls?.selfieExpiresAt ? Date.parse(urls.selfieExpiresAt) : null;
+    const expired = typeof expiresAtMs === "number" && Number.isFinite(expiresAtMs) && expiresAtMs <= Date.now();
+    const ready = Boolean(urls?.selfie) && !urls?.selfieError && !expired;
+    const message = !urls
+      ? "Selfie is still loading."
+      : urls.selfieError
+        ? urls.selfieError
+        : expired
+          ? "Selfie link expired. Refreshing the signed URL before review can continue."
+          : !urls.selfie
+            ? "Verification selfie is unavailable."
+            : null;
+
+    return { ready, expired, message };
+  }, [resolvedUrls]);
+
   const approveMutation = useMutation({
     mutationFn: async (verification: PhotoVerificationRow) => {
+      const selfieAccess = getSelfieAccess(verification.id);
+      if (!selfieAccess?.ready) {
+        throw new Error(selfieAccess?.message ?? "Verification selfie is unavailable.");
+      }
+
       await callAdminRpc("admin_review_photo_verification", {
         p_verification_id: verification.id,
         p_action: "approve",
@@ -298,8 +377,7 @@ const AdminPhotoVerificationPanel = () => {
     onSuccess: () => {
       toast.success("User verified successfully");
       setApprovalTarget(null);
-      queryClient.invalidateQueries({ queryKey: ["admin-photo-verifications"] });
-      queryClient.invalidateQueries({ queryKey: ["admin-verification-stats"] });
+      void invalidateAdminQueries(queryClient, ["photoVerification", "users"]);
     },
     onError: (err: unknown) => {
       toast.error("Failed to approve: " + (err instanceof Error ? err.message : "Unknown error"));
@@ -324,8 +402,7 @@ const AdminPhotoVerificationPanel = () => {
       toast.success("Verification rejected");
       setRejectModal(null);
       setRejectConfirmation(null);
-      queryClient.invalidateQueries({ queryKey: ["admin-photo-verifications"] });
-      queryClient.invalidateQueries({ queryKey: ["admin-verification-stats"] });
+      void invalidateAdminQueries(queryClient, ["photoVerification", "users"]);
     },
     onError: (err: unknown) => {
       toast.error("Failed to reject: " + (err instanceof Error ? err.message : "Unknown error"));
@@ -363,7 +440,9 @@ const AdminPhotoVerificationPanel = () => {
       console.warn("[admin photo verification] selfie image load failed", {
         verificationId,
         userId: cur._diag?.userId,
-        storedSelfieRef: cur._diag?.originalSelfieUrl,
+        storedSelfieRef: cur._diag?.originalSelfieUrl
+          ? redactUrlForLog(cur._diag.originalSelfieUrl)
+          : null,
         attemptedUrlRedacted: redactUrlForLog(cur.selfie),
       });
       return {
@@ -373,6 +452,7 @@ const AdminPhotoVerificationPanel = () => {
           selfie: null,
           selfieError:
             "Selfie failed to load (expired link, missing object, or blocked request). Check Network tab if needed.",
+          selfieExpiresAt: null,
         },
       };
     });
@@ -433,6 +513,7 @@ const AdminPhotoVerificationPanel = () => {
           {verifications.map((v) => {
             const profile = profileMap[v.user_id];
             const urls = resolvedUrls[v.id];
+            const selfieAccess = getSelfieAccess(v.id);
             const timestampLabel = activeTab === "pending" ? "Submitted" : "Reviewed";
             const timestampValue = activeTab === "pending" ? v.created_at : v.reviewed_at ?? v.created_at;
             return (
@@ -452,17 +533,19 @@ const AdminPhotoVerificationPanel = () => {
                   <div className="space-y-1">
                     <p className="text-xs text-muted-foreground text-center">Verification Selfie</p>
                     <div className="aspect-[4/5] rounded-xl overflow-hidden bg-secondary">
-                      {urls?.selfie ? (
+                      {urls?.selfie && !selfieAccess?.expired ? (
                         <img
                           src={urls.selfie}
                           alt="Selfie"
                           className="w-full h-full object-cover"
                           onError={() => onSelfieImageError(v.id)}
                         />
-                      ) : urls?.selfieError ? (
+                      ) : urls?.selfieError || selfieAccess?.message ? (
                         <div className="w-full h-full flex flex-col items-center justify-center gap-2 p-3 text-center">
                           <AlertTriangle className="w-8 h-8 text-destructive shrink-0" />
-                          <p className="text-xs font-medium text-destructive">{urls.selfieError}</p>
+                          <p className="text-xs font-medium text-destructive">
+                            {urls?.selfieError ?? selfieAccess?.message}
+                          </p>
                           <p className="text-[10px] text-muted-foreground">
                             If needed, check the browser console (URLs are redacted for security).
                           </p>
@@ -523,7 +606,8 @@ const AdminPhotoVerificationPanel = () => {
                       variant="default"
                       className="flex-1 bg-green-600 hover:bg-green-700 text-white"
                       onClick={() => setApprovalTarget(v)}
-                      disabled={approveMutation.isPending}
+                      disabled={approveMutation.isPending || !selfieAccess?.ready}
+                      title={!selfieAccess?.ready ? selfieAccess?.message ?? "Selfie is unavailable" : undefined}
                     >
                       {approveMutation.isPending ? (
                         <Loader2 className="w-4 h-4 mr-1 animate-spin" />

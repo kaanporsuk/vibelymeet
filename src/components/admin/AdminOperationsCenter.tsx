@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { motion } from "framer-motion";
 import {
@@ -22,6 +22,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { callAdminRpc, sanitizeAdminRpcErrorMessage, type AdminRpcPayload } from "@/lib/adminRpc";
+import { useDebouncedValue } from "@/hooks/useDebouncedValue";
 
 type OpsStatus = "healthy" | "degraded" | "incident" | "unknown" | "unavailable" | string;
 
@@ -239,17 +240,6 @@ const fulfilledValue = <T,>(result: PromiseSettledResult<T>): T | undefined =>
 
 const failureFor = (rpc: OperationsRpcName, result: PromiseSettledResult<unknown>): OperationsFailure | null =>
   result.status === "rejected" ? { rpc, message: sanitizeAdminRpcErrorMessage(result.reason) } : null;
-
-const useDebouncedValue = <T,>(value: T, delayMs = 350): T => {
-  const [debounced, setDebounced] = useState(value);
-
-  useEffect(() => {
-    const timeout = window.setTimeout(() => setDebounced(value), delayMs);
-    return () => window.clearTimeout(timeout);
-  }, [value, delayMs]);
-
-  return debounced;
-};
 
 const unavailableSection = (label: string, rpc: OperationsRpcName, failures: OperationsFailure[]) => {
   const failure = failures.find((item) => item.rpc === rpc);

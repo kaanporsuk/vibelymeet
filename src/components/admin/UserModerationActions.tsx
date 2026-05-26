@@ -35,6 +35,7 @@ import { format } from "date-fns";
 import { toast } from "sonner";
 import AdminConfirmDialog from "./AdminConfirmDialog";
 import { callAdminRpc, createAdminTargetIdempotencyKey } from "@/lib/adminRpc";
+import { invalidateAdminQueries } from "@/lib/adminQueryInvalidation";
 
 export type AdminSuspensionRow = {
   id: string;
@@ -132,8 +133,7 @@ const UserModerationActions = ({
       });
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['admin-user-detail', userId] });
-      queryClient.invalidateQueries({ queryKey: ['admin-users'] });
+      void invalidateAdminQueries(queryClient, ["users"]);
       toast.success(`${userName} has been suspended`);
       setSuspendReason("");
       setSuspendDuration("permanent");
@@ -163,8 +163,7 @@ const UserModerationActions = ({
       });
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['admin-user-detail', userId] });
-      queryClient.invalidateQueries({ queryKey: ['admin-users'] });
+      void invalidateAdminQueries(queryClient, ["users"]);
       toast.success(`Suspension lifted for ${userName}`);
     },
     onError: () => {
@@ -191,8 +190,7 @@ const UserModerationActions = ({
       });
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['admin-user-detail', userId] });
-      queryClient.invalidateQueries({ queryKey: ['admin-users'] });
+      void invalidateAdminQueries(queryClient, ["users"]);
       toast.success(`Warning sent to ${userName}`);
       setWarningReason("");
       setWarningMessage("");
