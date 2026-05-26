@@ -44,6 +44,9 @@ const supportInboxLiveDriftGuardMigration = read(
 const sprint2DurableWorkflowsMigration = read(
   "supabase/migrations/20260526020000_admin_sprint2_durable_compliance_audit.sql",
 );
+const sprint3DataScaleRealtimeMediaMigration = read(
+  "supabase/migrations/20260526030000_admin_sprint3_data_scale_realtime_media.sql",
+);
 const tierConfigAuthorityMigration = read("supabase/migrations/20260507190000_tier_config_backend_authority.sql");
 const tierConfigConcurrencyRepairMigration = read(
   "supabase/migrations/20260507193000_tier_config_backend_authority_concurrency_repair.sql",
@@ -217,6 +220,15 @@ function reviewCommentFollowupFnSection(fnName: string): string {
   const candidates = [next, revoke].filter((i) => i !== -1);
   const end = candidates.length ? Math.min(...candidates) : reviewCommentFollowupMigration.length;
   return reviewCommentFollowupMigration.slice(start, end);
+}
+
+function sprint3DataScaleFnSection(fnName: string): string {
+  const marker = `CREATE OR REPLACE FUNCTION public.${fnName}`;
+  const start = sprint3DataScaleRealtimeMediaMigration.indexOf(marker);
+  assert.notEqual(start, -1, `Missing function ${fnName}`);
+  const revoke = sprint3DataScaleRealtimeMediaMigration.indexOf("\nREVOKE ALL ON FUNCTION", start + marker.length);
+  const end = revoke === -1 ? sprint3DataScaleRealtimeMediaMigration.length : revoke;
+  return sprint3DataScaleRealtimeMediaMigration.slice(start, end);
 }
 
 function badgeLegacyFeedbackCleanupFnSection(fnName: string): string {
@@ -1275,6 +1287,27 @@ test("admin panel list/detail read model RPCs are security definer, admin checke
   assert.match(reviewCommentFollowupMigration, /GRANT EXECUTE ON FUNCTION public\.admin_get_reports_read_model\(text, text, text, integer, text\) TO authenticated/);
 });
 
+test("Sprint 3 reports read model is paginated and exposes stable total count", () => {
+  const reportsPageable = sprint3DataScaleFnSection("admin_get_reports_read_model");
+
+  assert.match(sprint3DataScaleRealtimeMediaMigration, /DROP FUNCTION IF EXISTS public\.admin_get_reports_read_model\(text, text, text, integer, text\)/);
+  assert.match(reportsPageable, /p_limit integer DEFAULT 50/);
+  assert.match(reportsPageable, /p_offset integer DEFAULT 0/);
+  assert.match(reportsPageable, /v_offset integer := GREATEST\(COALESCE\(p_offset, 0\), 0\)/);
+  assert.match(reportsPageable, /counted AS \(/);
+  assert.match(reportsPageable, /LIMIT v_limit OFFSET v_offset/);
+  assert.match(reportsPageable, /'total_count', v_total_count/);
+  assert.match(reportsPageable, /'offset', v_offset/);
+  assert.match(sprint3DataScaleRealtimeMediaMigration, /idx_user_reports_admin_created_id/);
+  assert.match(sprint3DataScaleRealtimeMediaMigration, /idx_user_reports_admin_status_created_id/);
+  assert.match(sprint3DataScaleRealtimeMediaMigration, /REVOKE ALL ON FUNCTION public\.admin_get_reports_read_model\(text, text, text, integer, text, integer\)/);
+  assert.match(sprint3DataScaleRealtimeMediaMigration, /GRANT EXECUTE ON FUNCTION public\.admin_get_reports_read_model\(text, text, text, integer, text, integer\)/);
+  assert.match(supabaseTypes, /admin_get_reports_read_model:[\s\S]*p_offset\?: number/);
+  assert.match(sprint3DataScaleRealtimeMediaMigration, /ALTER PUBLICATION supabase_realtime ADD TABLE public\.support_reply_delivery_jobs/);
+  assert.match(sprint3DataScaleRealtimeMediaMigration, /ALTER PUBLICATION supabase_realtime ADD TABLE public\.account_deletion_completion_jobs/);
+  assert.match(sprint3DataScaleRealtimeMediaMigration, /'20260526030000'/);
+});
+
 test("photo verification hardening constrains user submissions and preserves duplicate pending rows", () => {
   assert.match(photoVerificationHardeningMigration, /ADD CONSTRAINT photo_verifications_status_check/);
   assert.match(photoVerificationHardeningMigration, /CHECK \(status IN \('pending', 'approved', 'rejected', 'superseded'\)\)/);
@@ -1459,5 +1492,8 @@ test("admin dashboard surfaces stale hashed bundles before more admin work", () 
   assert.match(staleBundleNotice, /ENTRY_MODULE_PATTERN/);
   assert.match(staleBundleNotice, /vibely_bundle_check/);
   assert.match(staleBundleNotice, /cache: "no-store"/);
+  assert.match(staleBundleNotice, /STALE_BUNDLE_BACKGROUND_INTERVAL_MS = 5 \* 60 \* 1000/);
+  assert.match(staleBundleNotice, /window\.addEventListener\("focus", checkOnFocus\)/);
+  assert.match(staleBundleNotice, /document\.addEventListener\("visibilitychange", checkOnFocus\)/);
   assert.match(staleBundleNotice, /window\.location\.reload\(\)/);
 });

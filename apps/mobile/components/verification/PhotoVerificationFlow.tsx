@@ -19,6 +19,8 @@ import { withAlpha } from '@/lib/colorUtils';
 import { supabase } from '@/lib/supabase';
 import { KeyboardAwareBottomSheetModal } from '@/components/keyboard/KeyboardAwareBottomSheetModal';
 import { prepareProofSelfieUploadPayload } from '@/lib/proofSelfiePrepareUpload';
+import { fetchMyProfileSettings } from '@/lib/myProfileSettings';
+import { resolvePhotoVerificationState } from '@/lib/photoVerificationState';
 
 type Step = 'capture' | 'preview' | 'submitting' | 'submitted';
 
@@ -30,6 +32,21 @@ export type PhotoVerificationFlowProps = {
   /** Used as `profile_photo_url` for reviewer context. */
   profilePhotoUrl?: string | null;
 };
+
+function isPostgrestCode(error: unknown, code: string): boolean {
+  return (
+    typeof error === 'object' &&
+    error !== null &&
+    'code' in error &&
+    error.code === code
+  );
+}
+
+function firstProfilePhoto(raw: unknown): string {
+  if (!Array.isArray(raw)) return '';
+  const photo = raw.find((item) => typeof item === 'string' && item.trim().length > 0);
+  return typeof photo === 'string' ? photo.trim() : '';
+}
 
 export function PhotoVerificationFlow({ visible, onClose, onSubmissionComplete, profilePhotoUrl }: PhotoVerificationFlowProps) {
   const theme = Colors[useColorScheme()];
@@ -74,6 +91,30 @@ export function PhotoVerificationFlow({ visible, onClose, onSubmissionComplete, 
       const user = auth.user;
       if (!user) throw new Error('Not authenticated');
 
+      const [profileData, { data: pendingVerification, error: pendingError }] = await Promise.all([
+        fetchMyProfileSettings(),
+        supabase
+          .from('photo_verifications')
+          .select('id')
+          .eq('user_id', user.id)
+          .eq('status', 'pending')
+          .limit(1)
+          .maybeSingle(),
+      ]);
+
+      if (profileData?.id && profileData.id !== user.id) throw new Error('Profile settings user mismatch');
+      if (pendingError) throw pendingError;
+      const currentStatus = resolvePhotoVerificationState({
+        photoVerified: profileData?.photo_verified,
+        photoVerificationExpiresAt: profileData?.photo_verification_expires_at,
+        latestPhotoVerificationStatus: pendingVerification ? 'pending' : null,
+      });
+      if (currentStatus === 'approved') throw new Error('Photo already verified.');
+      if (pendingVerification) throw new Error('Your verification is already under review.');
+
+      const profilePhoto = firstProfilePhoto(profileData?.photos) || (profilePhotoUrl ?? '').trim();
+      if (!profilePhoto) throw new Error('Please add a profile photo before starting photo verification.');
+
       const fileName = `${user.id}/${Date.now()}_verification.jpg`;
       const { body, contentType, cleanup } = await prepareProofSelfieUploadPayload(selfieUri);
       try {
@@ -93,7 +134,6 @@ export function PhotoVerificationFlow({ visible, onClose, onSubmissionComplete, 
       }
 
       const selfieUrl = fileName;
-      const profilePhoto = (profilePhotoUrl ?? '').trim();
 
       const { error: insertError } = await supabase.from('photo_verifications').insert({
         user_id: user.id,
@@ -101,7 +141,19 @@ export function PhotoVerificationFlow({ visible, onClose, onSubmissionComplete, 
         profile_photo_url: profilePhoto,
         status: 'pending',
       });
-      if (insertError) throw insertError;
+      if (insertError) {
+        const { error: cleanupError } = await supabase.storage.from('proof-selfies').remove([fileName]);
+        if (__DEV__ && cleanupError) {
+          console.warn('[proof-selfie] cleanup_unlinked_upload_failed', {
+            path: fileName,
+            error: cleanupError.message,
+          });
+        }
+        if (isPostgrestCode(insertError, '23505')) {
+          throw new Error('Your verification is already under review.');
+        }
+        throw insertError;
+      }
 
       // For reviewer/audit reference. Does not imply approval.
       await supabase.from('profiles').update({ proof_selfie_url: selfieUrl }).eq('id', user.id);
@@ -228,4 +280,3 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
 });
-

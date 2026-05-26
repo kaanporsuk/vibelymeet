@@ -49,6 +49,17 @@ test("web capture and entry gates handle slow cameras and duplicate pending stat
   );
 });
 
+test("native proof-selfie flow preflights pending state and cleans unlinked uploads", () => {
+  assert.match(nativeVerification, /fetchMyProfileSettings\(\)/);
+  assert.match(nativeVerification, /\.from\('photo_verifications'\)[\s\S]*\.eq\('status', 'pending'\)/);
+  assert.match(nativeVerification, /currentStatus === 'approved'/);
+  assert.match(nativeVerification, /Your verification is already under review/);
+  assert.match(nativeVerification, /Please add a profile photo before starting photo verification/);
+  assert.match(nativeVerification, /const profilePhoto = firstProfilePhoto\(profileData\?\.photos\) \|\| \(profilePhotoUrl \?\? ''\)\.trim\(\)/);
+  assert.match(nativeVerification, /\.from\('proof-selfies'\)\.remove\(\[fileName\]\)/);
+  assert.match(nativeVerification, /isPostgrestCode\(insertError, '23505'\)/);
+});
+
 test("web and native store proof selfies under authenticated user-owned paths", () => {
   assert.match(webVerification, /const submissionUserId = authData\.user\?\.id/);
   assert.match(webVerification, /const fileName = `\$\{submissionUserId\}\/\$\{Date\.now\(\)\}_verification\.jpg`/);

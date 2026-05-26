@@ -3,6 +3,7 @@ import { AlertTriangle, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 const ENTRY_MODULE_PATTERN = /\/assets\/index-[^"']+\.js/;
+const STALE_BUNDLE_BACKGROUND_INTERVAL_MS = 5 * 60 * 1000;
 
 function entryModuleFromDocument(doc: Document): string | null {
   const scripts = Array.from(doc.querySelectorAll<HTMLScriptElement>('script[type="module"][src]'));
@@ -51,10 +52,18 @@ const AdminStaleBundleNotice = () => {
       }
     };
 
+    const checkOnFocus = () => {
+      if (!document.hidden) void checkForNewBundle();
+    };
+
     void checkForNewBundle();
-    const intervalId = window.setInterval(checkForNewBundle, 60000);
+    window.addEventListener("focus", checkOnFocus);
+    document.addEventListener("visibilitychange", checkOnFocus);
+    const intervalId = window.setInterval(checkForNewBundle, STALE_BUNDLE_BACKGROUND_INTERVAL_MS);
     return () => {
       cancelled = true;
+      window.removeEventListener("focus", checkOnFocus);
+      document.removeEventListener("visibilitychange", checkOnFocus);
       window.clearInterval(intervalId);
     };
   }, []);

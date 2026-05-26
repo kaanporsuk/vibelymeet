@@ -15,6 +15,7 @@ import { format, addWeeks, addMonths, addYears } from "date-fns";
 import { toast } from "sonner";
 import AdminConfirmDialog from "./AdminConfirmDialog";
 import { callAdminRpc, createAdminTargetIdempotencyKey } from "@/lib/adminRpc";
+import { invalidateAdminQueries } from "@/lib/adminQueryInvalidation";
 
 interface AdminPremiumModalProps {
   userId: string;
@@ -136,10 +137,7 @@ const AdminPremiumModal = ({
   };
 
   const invalidatePremiumQueries = async () => {
-    await Promise.all([
-      queryClient.invalidateQueries({ queryKey: ["admin-users"] }),
-      queryClient.invalidateQueries({ queryKey: ["admin-user-detail", userId] }),
-    ]);
+    await invalidateAdminQueries(queryClient, ["users"]);
   };
 
   const handleGrant = async () => {

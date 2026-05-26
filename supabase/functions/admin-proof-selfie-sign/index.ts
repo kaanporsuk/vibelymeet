@@ -15,6 +15,7 @@ import {
  */
 const PROOF_SELFIES_BUCKET = "proof-selfies";
 const BUCKET_PREFIX = `${PROOF_SELFIES_BUCKET}/`;
+const SIGNED_SELFIE_TTL_SECONDS = 3600;
 const UUID_FOLDER =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -128,7 +129,7 @@ function jsonResponse(req: Request, body: Record<string, unknown>, status = 200)
 }
 
 type SignOutcome =
-  | { kind: "signed"; signedUrl: string }
+  | { kind: "signed"; signedUrl: string; expiresAt: string }
   | { kind: "direct"; url: string }
   | { kind: "fail"; message: string; shape: ProofSelfieStoredShape };
 
@@ -171,7 +172,7 @@ async function tryResolveSelfieDisplayUrl(
     }
     const { data, error } = await service.storage
       .from(PROOF_SELFIES_BUCKET)
-      .createSignedUrl(objectPath, 3600);
+      .createSignedUrl(objectPath, SIGNED_SELFIE_TTL_SECONDS);
     if (error || !data?.signedUrl) {
       return {
         kind: "fail",
@@ -179,7 +180,11 @@ async function tryResolveSelfieDisplayUrl(
         shape,
       };
     }
-    return { kind: "signed", signedUrl: data.signedUrl };
+    return {
+      kind: "signed",
+      signedUrl: data.signedUrl,
+      expiresAt: new Date(Date.now() + SIGNED_SELFIE_TTL_SECONDS * 1000).toISOString(),
+    };
   }
 
   if (shape === "absolute_non_supabase") {
@@ -262,10 +267,14 @@ serve(async (req) => {
     }
 
     if (outcome.kind === "signed") {
-      return jsonResponse(req, { success: true, signedUrl: outcome.signedUrl }, 200);
+      return jsonResponse(
+        req,
+        { success: true, signedUrl: outcome.signedUrl, expires_at: outcome.expiresAt },
+        200,
+      );
     }
     if (outcome.kind === "direct") {
-      return jsonResponse(req, { success: true, directUrl: outcome.url }, 200);
+      return jsonResponse(req, { success: true, directUrl: outcome.url, expires_at: null }, 200);
     }
 
     return jsonResponse(

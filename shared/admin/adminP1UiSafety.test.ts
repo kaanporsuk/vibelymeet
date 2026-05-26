@@ -19,6 +19,7 @@ const adminAnalytics = read("src/components/admin/AdminAnalyticsCharts.tsx");
 const adminQuickActions = read("src/components/admin/AdminQuickActionsCards.tsx");
 const adminDailyDrop = read("src/components/admin/AdminDailyDropCard.tsx");
 const adminRealtime = read("src/hooks/useAdminRealtime.ts");
+const adminQueryInvalidation = read("src/lib/adminQueryInvalidation.ts");
 const adminOverviewHook = read("src/hooks/useAdminOverviewDashboard.ts");
 const adminDashboard = read("src/pages/admin/AdminDashboard.tsx");
 const adminEngagement = read("src/components/admin/AdminEngagementAnalytics.tsx");
@@ -174,9 +175,10 @@ test("report actions use backend transaction instead of client side-effect orche
   assert.doesNotMatch(actionHandler, /await issueWarning\.mutateAsync/);
 
   const actionSuccess = section(adminReports, "onSuccess: () => {", "onError");
-  assert.match(actionSuccess, /\["admin-reports"\]/);
-  assert.match(actionSuccess, /\["admin-reports-summary"\]/);
-  assert.match(actionSuccess, /ADMIN_OVERVIEW_DASHBOARD_QUERY_KEY/);
+  assert.match(actionSuccess, /invalidateAdminQueries\(queryClient, \["reports", "overview", "badges"\]\)/);
+  assert.match(adminQueryInvalidation, /\["admin-reports"\]/);
+  assert.match(adminQueryInvalidation, /\["admin-reports-summary"\]/);
+  assert.match(adminQueryInvalidation, /ADMIN_OVERVIEW_DASHBOARD_QUERY_KEY/);
 });
 
 test("reports list distinguishes fetch failures from true empty results", () => {
@@ -188,14 +190,21 @@ test("reports list distinguishes fetch failures from true empty results", () => 
   assert.match(adminReports, /No reports found/);
 });
 
-test("reports search maps visible reason labels while preserving client-side label filtering", () => {
+test("reports search maps visible reason labels before server-side pagination", () => {
   assert.match(adminReports, /resolveReportSearchQuery/);
-  assert.match(adminReports, /normalizeReportSearchText/);
+  assert.match(adminReports, /useDebouncedValue\(searchQuery, 350\)/);
   assert.match(adminReportSearch, /word\.length >= 4/);
   assert.doesNotMatch(adminReportSearch, /"profile", "content"/);
   assert.match(adminReports, /p_search: reportSearchQuery \|\| null/);
+  assert.match(adminReports, /p_limit: REPORTS_PAGE_SIZE/);
+  assert.match(adminReports, /p_offset: pageIndex \* REPORTS_PAGE_SIZE/);
+  assert.match(adminReports, /total_count/);
+  assert.doesNotMatch(adminReports, /reports\.length === 0 && totalCount > 0/);
+  assert.match(adminReports, /!isError && pageIndex > 0 && reports\.length === 0/);
   assert.match(adminReports, /reasonLabels\[report\.reason\]/);
-  assert.match(adminReports, /normalizeReportSearchText\(reasonLabel\)\.includes\(normalizedSearch\)/);
+  assert.doesNotMatch(adminReports, /filteredReports/);
+  assert.match(adminUsers, /useDebouncedValue\(searchQuery, 350\)/);
+  assert.match(adminUsers, /pageIndex > 0 && users\.length === 0/);
 });
 
 test("reports reason-label search normalization covers visible label terms", () => {
@@ -214,10 +223,12 @@ test("reports reason-label search normalization covers visible label terms", () 
 });
 
 test("reports realtime refreshes list, summary, and overview together", () => {
-  const invalidateReports = section(adminRealtime, "const invalidateReports = useCallback", "const invalidatePhotoVerifications");
-  assert.match(invalidateReports, /\["admin-reports"\]/);
-  assert.match(invalidateReports, /\["admin-reports-summary"\]/);
-  assert.match(invalidateReports, /invalidateOverview\(\)/);
+  assert.match(adminRealtime, /channel: "admin-reports-realtime"/);
+  assert.match(adminRealtime, /table: "user_reports"/);
+  assert.match(adminRealtime, /areas: \["reports", "overview"\]/);
+  assert.match(adminQueryInvalidation, /\["admin-reports"\]/);
+  assert.match(adminQueryInvalidation, /\["admin-reports-summary"\]/);
+  assert.match(adminQueryInvalidation, /ADMIN_OVERVIEW_DASHBOARD_QUERY_KEY/);
 });
 
 test("overview metrics and event analytics labels match query semantics", () => {
@@ -316,16 +327,20 @@ test("overview charts and Daily Drop read from the backend overview surface", ()
 });
 
 test("overview realtime invalidates the active backend query key", () => {
-  assert.match(adminRealtime, /ADMIN_OVERVIEW_DASHBOARD_QUERY_KEY/);
-  assert.match(adminRealtime, /ADMIN_ENGAGEMENT_ANALYTICS_QUERY_KEY/);
-  assert.match(adminRealtime, /admin-daily-drops-realtime/);
-  assert.match(adminRealtime, /admin-daily-drop-generation-runs-realtime/);
+  assert.match(adminQueryInvalidation, /ADMIN_OVERVIEW_DASHBOARD_QUERY_KEY/);
+  assert.match(adminQueryInvalidation, /ADMIN_ENGAGEMENT_ANALYTICS_QUERY_KEY/);
+  assert.match(adminRealtime, /activePanel/);
+  assert.match(adminRealtime, /PANEL_REALTIME_SPECS/);
+  assert.match(adminRealtime, /admin-overview-daily-drops-realtime/);
+  assert.match(adminRealtime, /admin-overview-daily-drop-runs-realtime/);
   assert.match(adminRealtime, /table: "daily_drop_generation_runs"/);
   assert.match(adminRealtime, /admin-engagement-notification-log-realtime/);
-  assert.match(adminRealtime, /Realtime authorizes against the base table RLS/);
   assert.doesNotMatch(adminRealtime, /table: "push_notification_events"/);
-  assert.match(adminRealtime, /invalidateOverview/);
-  assert.match(adminRealtime, /invalidateEngagement/);
+  assert.match(adminRealtime, /scheduleInvalidation/);
+  assert.match(adminRealtime, /REALTIME_INVALIDATION_DELAY_MS/);
+  assert.match(adminRealtime, /PendingInvalidation/);
+  assert.match(adminRealtime, /clearTimers\(true\)/);
+  assert.match(adminRealtime, /flushPending/);
   assert.match(adminRealtime, /setTimeout/);
   assert.match(adminRealtime, /clearTimeout/);
   assert.doesNotMatch(adminRealtime, /admin-users-count/);
@@ -336,8 +351,9 @@ test("overview realtime invalidates the active backend query key", () => {
 test("photo verification realtime invalidates the admin list and stats query keys", () => {
   assert.match(adminRealtime, /admin-photo-verifications-realtime/);
   assert.match(adminRealtime, /table: "photo_verifications"/);
-  assert.match(adminRealtime, /\["admin-photo-verifications"\]/);
-  assert.match(adminRealtime, /\["admin-verification-stats"\]/);
+  assert.match(adminRealtime, /areas: \["photoVerification"\]/);
+  assert.match(adminQueryInvalidation, /\["admin-photo-verifications"\]/);
+  assert.match(adminQueryInvalidation, /\["admin-verification-stats"\]/);
 });
 
 test("Support Inbox has honest empty/error states and governed data access", () => {
@@ -359,8 +375,9 @@ test("Support Inbox has honest empty/error states and governed data access", () 
   assert.match(adminRealtime, /admin-support-tickets-realtime/);
   assert.match(adminRealtime, /admin-support-replies-realtime/);
   assert.match(adminRealtime, /admin-support-events-realtime/);
-  assert.match(adminRealtime, /\["admin-support-tickets"\]/);
-  assert.match(adminRealtime, /\["admin-support-thread"\]/);
+  assert.match(adminRealtime, /admin-support-delivery-jobs-realtime/);
+  assert.match(adminQueryInvalidation, /\["admin-support-tickets"\]/);
+  assert.match(adminQueryInvalidation, /\["admin-support-thread"\]/);
 });
 
 test("Support Inbox function errors preserve human server messages", async () => {
@@ -498,7 +515,8 @@ test("notifications copy is scoped to the latest 100 and broad actions say so", 
   assert.match(adminNotifications, /one admin_notifications row/);
   assert.match(adminNotifications, /selected loaded admin notification rows/);
   assert.match(adminNotifications, /This is a fetch failure, not proof that no notifications exist/);
-  assert.match(adminNotifications, /admin-dashboard-badge-counts/);
+  assert.match(adminNotifications, /invalidateAdminQueries\(queryClient, \["notifications"\]\)/);
+  assert.match(adminQueryInvalidation, /admin-dashboard-badge-counts/);
   assert.match(adminNotifications, /Promise\.allSettled/);
 });
 
@@ -542,9 +560,20 @@ test("photo verification selfie signer path resolver stays aligned with the shar
 
   assert.match(proofSelfieUrl, /resolveProofSelfieObjectPathForSigning/);
   assert.match(adminProofSelfieSign, /resolveProofSelfieObjectPathForSigning/);
-  assert.match(adminProofSelfieSign, /createSignedUrl\(objectPath, 3600\)/);
+  assert.match(adminProofSelfieSign, /SIGNED_SELFIE_TTL_SECONDS = 3600/);
+  assert.match(adminProofSelfieSign, /createSignedUrl\(objectPath, SIGNED_SELFIE_TTL_SECONDS\)/);
+  assert.match(adminProofSelfieSign, /expires_at: outcome\.expiresAt/);
   assert.match(adminProofSelfieSign, /proof_selfie_url/);
   assert.match(adminPhotoVerification, /admin-proof-selfie-sign/);
+  assert.match(adminPhotoVerification, /SELFIE_URL_REFRESH_BEFORE_EXPIRY_MS/);
+  assert.match(adminPhotoVerification, /lastSelfieRefreshAt/);
+  assert.match(adminPhotoVerification, /throttleDelayMs/);
+  assert.match(adminPhotoVerification, /Signed selfie expiry metadata was missing/);
+  assert.match(adminPhotoVerification, /selfieExpiresAt/);
+  assert.match(adminPhotoVerification, /const getSelfieAccess = useCallback/);
+  assert.match(adminPhotoVerification, /expiresAtMs <= Date\.now\(\)/);
+  assert.match(adminPhotoVerification, /const selfieAccess = getSelfieAccess\(verification\.id\)/);
+  assert.match(adminPhotoVerification, /disabled=\{approveMutation\.isPending \|\| !selfieAccess\?\.ready\}/);
   assert.doesNotMatch(adminPhotoVerification, /resolvePhotoUrl\(v\.selfie_url/);
 });
 
@@ -566,8 +595,9 @@ test("photo verification submission preflights pending rows and profile photo be
 test("admin badge mutations invalidate the centralized dashboard badge count", () => {
   assert.doesNotMatch(adminNotifications, /admin-unread-notifications/);
   assert.doesNotMatch(supportInbox, /admin-support-open-count/);
-  assert.match(adminNotifications, /admin-dashboard-badge-counts/);
-  assert.match(supportInbox, /admin-dashboard-badge-counts/);
+  assert.match(adminNotifications, /invalidateAdminQueries\(queryClient, \["notifications"\]\)/);
+  assert.match(supportInbox, /invalidateAdminQueries\(queryClient, \["support"\]\)/);
+  assert.match(adminQueryInvalidation, /admin-dashboard-badge-counts/);
 });
 
 test("admin component and dashboard sources avoid browser-side HEAD count reads", () => {
@@ -629,6 +659,11 @@ test("Users workflow nested tools consume backend read-model data instead of dir
   assert.match(adminProfilePreview, /profile: AdminPreviewProfile \| null/);
   assert.match(userModeration, /moderation\?: AdminModerationReadModel \| null/);
   assert.match(adminPremium, /history\?: PremiumHistoryEntry\[\]/);
+  assert.match(userModeration, /invalidateAdminQueries\(queryClient, \["users"\]\)/);
+  assert.match(adminPremium, /invalidateAdminQueries\(queryClient, \["users"\]\)/);
+  assert.match(adminGrantCredits, /invalidateAdminQueries\(queryClient, \["users"\]\)/);
+  assert.doesNotMatch(usersWorkflowSources, /queryClient\.invalidateQueries\(\{ queryKey: \["admin-users"\]/);
+  assert.doesNotMatch(usersWorkflowSources, /queryClient\.invalidateQueries\(\{ queryKey: \["admin-user-detail"/);
 });
 
 test("password reset is visibly unavailable instead of toast-only fake action", () => {

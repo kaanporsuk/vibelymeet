@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 import AdminConfirmDialog from "./AdminConfirmDialog";
 import { callAdminRpc, createAdminTargetIdempotencyKey } from "@/lib/adminRpc";
+import { invalidateAdminQueries } from "@/lib/adminQueryInvalidation";
 
 interface AdminGrantCreditsModalProps {
   userId: string;
@@ -77,10 +78,7 @@ const AdminGrantCreditsModal = ({
           extraTime > 0 && extendedVibe > 0 ? " + " : ""
         }${extendedVibe > 0 ? `${extendedVibe}× Extended Vibe` : ""} to ${userName}`
       );
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ["admin-user-detail", userId] }),
-        queryClient.invalidateQueries({ queryKey: ["admin-users"] }),
-      ]);
+      await invalidateAdminQueries(queryClient, ["users"]);
       setConfirmOpen(false);
       onClose();
     } catch (err) {

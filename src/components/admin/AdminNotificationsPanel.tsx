@@ -36,6 +36,7 @@ import { formatDistanceToNow } from "date-fns";
 import { toast } from "sonner";
 import AdminConfirmDialog from "./AdminConfirmDialog";
 import { callAdminRpc, createAdminIdempotencyKey } from "@/lib/adminRpc";
+import { invalidateAdminQueries } from "@/lib/adminQueryInvalidation";
 
 const notificationIcons: Record<string, React.ComponentType<{ className?: string }>> = {
   new_user: User,
@@ -189,8 +190,7 @@ const AdminNotificationsPanel = ({ isOpen, onClose }: AdminNotificationsPanelPro
     filteredNotifications.every(n => selectedIds.has(n.id));
 
   const invalidateNotificationViews = () => {
-    queryClient.invalidateQueries({ queryKey: ['admin-notifications'] });
-    queryClient.invalidateQueries({ queryKey: ['admin-dashboard-badge-counts'] });
+    void invalidateAdminQueries(queryClient, ["notifications"]);
   };
 
   // Mark as read mutation
