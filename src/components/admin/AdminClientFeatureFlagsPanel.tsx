@@ -10,6 +10,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { callAdminRpc, type AdminRpcPayload } from "@/lib/adminRpc";
 import { formatAdminUtcDateTime } from "@/lib/adminTime";
 import { adminToast } from "@/lib/adminToast";
+import { resolveAdminErrorMessage } from "@/lib/adminErrorResolver";
 
 type ClientFeatureFlagRow = {
   flag_key: string;
@@ -140,7 +141,7 @@ const AdminClientFeatureFlagsPanel = () => {
     },
     onError: (error) => adminToast.error({
       id: selectedFlag ? `client-feature-flag-update-failed-${selectedFlag.flag_key}` : "client-feature-flag-update-failed",
-      title: error instanceof Error ? error.message : "Could not update feature flag",
+      title: resolveAdminErrorMessage(error, "Could not update feature flag"),
     }),
   });
 
@@ -167,7 +168,7 @@ const AdminClientFeatureFlagsPanel = () => {
     },
     onError: (error) => adminToast.error({
       id: selectedFlag ? `client-feature-flag-override-save-failed-${selectedFlag.flag_key}` : "client-feature-flag-override-save-failed",
-      title: error instanceof Error ? error.message : "Could not save override",
+      title: resolveAdminErrorMessage(error, "Could not save override"),
     }),
   });
 
@@ -190,7 +191,7 @@ const AdminClientFeatureFlagsPanel = () => {
     },
     onError: (error) => adminToast.error({
       id: selectedFlag ? `client-feature-flag-override-remove-failed-${selectedFlag.flag_key}` : "client-feature-flag-override-remove-failed",
-      title: error instanceof Error ? error.message : "Could not remove override",
+      title: resolveAdminErrorMessage(error, "Could not remove override"),
     }),
   });
 

@@ -18,6 +18,7 @@ import {
   useAdminOverviewDashboard,
 } from '@/hooks/useAdminOverviewDashboard';
 import { adminToast } from '@/lib/adminToast';
+import { resolveAdminErrorMessage, resolveAdminFunctionErrorMessage } from '@/lib/adminErrorResolver';
 
 function runStatusClass(status: AdminOverviewDailyDropLastRun['status'] | undefined) {
   if (status === 'failed' || status === 'partial') {
@@ -96,7 +97,9 @@ export default function AdminDailyDropCard() {
       const { data, error } = await supabase.functions.invoke('generate-daily-drops', {
         body: force ? { force: true } : {},
       });
-      if (error) throw error;
+      if (error) {
+        throw new Error(await resolveAdminFunctionErrorMessage(error, data, 'Failed to generate drops'));
+      }
 
       if (data?.success) {
         const notificationFailures = Number(data?.notification_failures ?? 0);
@@ -115,12 +118,12 @@ export default function AdminDailyDropCard() {
       } else if (data?.error === 'insert_failed' || data?.error === 'insert_partial') {
         adminToast.error({
           id: 'daily-drop-generate-insert-failed',
-          title: data?.details || data?.error || 'Insert failed',
+          title: resolveAdminErrorMessage(data?.details || data?.error, 'Insert failed'),
         });
       } else {
         adminToast.info({
           id: 'daily-drop-generate-no-op',
-          title: data?.reason || data?.error || 'No drops generated',
+          title: resolveAdminErrorMessage(data?.reason || data?.error, 'No drops generated'),
         });
       }
       void refetch();
@@ -128,7 +131,7 @@ export default function AdminDailyDropCard() {
       adminToast.error({
         id: 'daily-drop-generate-failed',
         title: 'Failed to generate drops',
-        description: err instanceof Error ? err.message : undefined,
+        description: resolveAdminErrorMessage(err, 'Failed to generate drops'),
       });
     } finally {
       setIsGenerating(false);
@@ -182,7 +185,7 @@ export default function AdminDailyDropCard() {
           <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />
           <div>
             <p className="font-medium">Unable to load Daily Drop status</p>
-            <p>{error?.message || "Backend overview read failed."}</p>
+            <p>{resolveAdminErrorMessage(error, "Backend overview read failed.")}</p>
           </div>
         </div>
       )}

@@ -7,6 +7,7 @@ import AdminConfirmDialog from "./AdminConfirmDialog";
 import { callAdminRpc, createAdminTargetIdempotencyKey } from "@/lib/adminRpc";
 import { invalidateAdminQueries } from "@/lib/adminQueryInvalidation";
 import { adminToast } from "@/lib/adminToast";
+import { resolveAdminErrorMessage } from "@/lib/adminErrorResolver";
 
 interface AdminGrantCreditsModalProps {
   userId: string;
@@ -92,7 +93,7 @@ const AdminGrantCreditsModal = ({
       adminToast.error({
         id: `grant-credits-failed-${userId}`,
         title: "Failed to grant credits",
-        description: err instanceof Error ? err.message : undefined,
+        description: resolveAdminErrorMessage(err, "Failed to grant credits"),
       });
     } finally {
       setIsSubmitting(false);

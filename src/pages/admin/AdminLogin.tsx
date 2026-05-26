@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { supabase } from "@/integrations/supabase/client";
 import { adminToast } from "@/lib/adminToast";
+import { resolveAdminErrorMessage } from "@/lib/adminErrorResolver";
 
 type AdminSessionVerification =
   | { status: "admin" }
@@ -116,7 +117,7 @@ const AdminLogin = () => {
         adminToast.error({
           id: "admin-login-auth-failed",
           title: "Login failed",
-          description: error.message,
+          description: resolveAdminErrorMessage(error, "Admin login failed."),
         });
         setIsLoading(false);
         return;
@@ -145,7 +146,7 @@ const AdminLogin = () => {
       adminToast.error({
         id: "admin-login-unexpected-error",
         title: "An error occurred",
-        description: err instanceof Error ? err.message : undefined,
+        description: resolveAdminErrorMessage(err, "Admin login failed."),
       });
     } finally {
       setIsLoading(false);

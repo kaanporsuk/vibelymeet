@@ -17,6 +17,7 @@ import { callAdminRpc, createAdminTargetIdempotencyKey } from "@/lib/adminRpc";
 import { invalidateAdminQueries } from "@/lib/adminQueryInvalidation";
 import { formatAdminUtcDate, formatAdminUtcDateTime } from "@/lib/adminTime";
 import { adminToast } from "@/lib/adminToast";
+import { resolveAdminErrorMessage } from "@/lib/adminErrorResolver";
 
 interface AdminPremiumModalProps {
   userId: string;
@@ -43,10 +44,6 @@ type PremiumHistoryEntry = {
   admin_id: string | null;
   adminName: string;
 };
-
-function premiumErrorMessage(error: unknown, fallback: string): string {
-  return error instanceof Error && error.message ? error.message : fallback;
-}
 
 const durationOptions: { value: Duration; label: string }[] = [
   { value: "1week", label: "1 Week" },
@@ -179,7 +176,7 @@ const AdminPremiumModal = ({
       await invalidatePremiumQueries();
       closeModal();
     } catch (e: unknown) {
-      adminToast.error({ id: `admin-premium-grant-error-${userId}`, title: premiumErrorMessage(e, "Failed to grant premium") });
+      adminToast.error({ id: `admin-premium-grant-error-${userId}`, title: resolveAdminErrorMessage(e, "Failed to grant premium") });
     } finally {
       setIsSubmitting(false);
     }
@@ -216,7 +213,7 @@ const AdminPremiumModal = ({
       await invalidatePremiumQueries();
       closeModal();
     } catch (e: unknown) {
-      adminToast.error({ id: `admin-premium-extend-error-${userId}`, title: premiumErrorMessage(e, "Failed to extend premium") });
+      adminToast.error({ id: `admin-premium-extend-error-${userId}`, title: resolveAdminErrorMessage(e, "Failed to extend premium") });
     } finally {
       setIsSubmitting(false);
     }
@@ -250,7 +247,7 @@ const AdminPremiumModal = ({
       await invalidatePremiumQueries();
       closeModal();
     } catch (e: unknown) {
-      adminToast.error({ id: `admin-premium-revoke-error-${userId}`, title: premiumErrorMessage(e, "Failed to revoke premium") });
+      adminToast.error({ id: `admin-premium-revoke-error-${userId}`, title: resolveAdminErrorMessage(e, "Failed to revoke premium") });
     } finally {
       setIsSubmitting(false);
     }

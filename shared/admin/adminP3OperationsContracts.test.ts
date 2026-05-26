@@ -231,7 +231,7 @@ test("Activity Log tab uses the governed audit RPC instead of direct table reads
   assert.match(activityLog, /p_limit: ACTIVITY_LOG_PAGE_SIZE/);
   assert.match(activityLog, /p_offset: pageIndex \* ACTIVITY_LOG_PAGE_SIZE/);
   assert.match(activityLog, /enabled: !hasInvalidDateRange/);
-  assert.match(activityLog, /sanitizeAdminRpcErrorMessage\(error\)/);
+  assert.match(activityLog, /resolveAdminErrorMessage\(error, "Could not load activity log"\)/);
   assert.match(activityLog, /Array\.isArray\(activityPayload\?\.rows\)/);
   assert.match(activityLog, /Number\.isFinite\(reportedTotalCount\)/);
   assert.match(activityLog, /action_outcome\?: string \| null/);

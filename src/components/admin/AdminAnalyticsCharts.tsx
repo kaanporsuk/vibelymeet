@@ -19,6 +19,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { AlertTriangle, Users, Heart, Calendar, TrendingUp } from "lucide-react";
 import { useAdminOverviewDashboard } from "@/hooks/useAdminOverviewDashboard";
+import { resolveAdminErrorMessage } from "@/lib/adminErrorResolver";
 
 const COLORS = ['hsl(var(--primary))', 'hsl(var(--accent))', '#22d3ee', '#f472b6', '#a78bfa'];
 
@@ -75,7 +76,11 @@ const AdminAnalyticsCharts = () => {
               <p className="text-sm text-muted-foreground">
                 Chart data is hidden until the backend overview read succeeds.
               </p>
-              {error?.message && <p className="text-xs text-muted-foreground mt-1">{error.message}</p>}
+              {error && (
+                <p className="text-xs text-muted-foreground mt-1">
+                  {resolveAdminErrorMessage(error, "Could not load Overview charts")}
+                </p>
+              )}
             </div>
           </div>
           <Button variant="outline" size="sm" onClick={() => void refetch()}>

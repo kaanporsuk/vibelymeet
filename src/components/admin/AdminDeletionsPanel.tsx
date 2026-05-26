@@ -8,9 +8,9 @@ import AdminConfirmDialog from "./AdminConfirmDialog";
 import {
   callAdminRpc,
   createAdminTargetIdempotencyKey,
-  sanitizeAdminRpcErrorMessage,
   type AdminRpcPayload,
 } from "@/lib/adminRpc";
+import { resolveAdminErrorMessage } from "@/lib/adminErrorResolver";
 import { formatAdminUtcDateTime } from "@/lib/adminTime";
 import { adminToast } from "@/lib/adminToast";
 
@@ -161,7 +161,7 @@ const AdminDeletionsPanel = () => {
     onError: (reason) => {
       adminToast.error({
         id: "account-deletion-completion-failed",
-        title: sanitizeAdminRpcErrorMessage(reason),
+        title: resolveAdminErrorMessage(reason, "Could not queue deletion completion job"),
       });
     },
   });
@@ -257,7 +257,7 @@ const AdminDeletionsPanel = () => {
             <div>
               <p className="font-medium text-foreground">Unable to load account deletion requests</p>
               <p className="text-sm text-muted-foreground">
-                {sanitizeAdminRpcErrorMessage(error)}
+                {resolveAdminErrorMessage(error, "Could not load account deletion requests")}
               </p>
             </div>
             <Button variant="outline" size="sm" onClick={() => void refetch()}>

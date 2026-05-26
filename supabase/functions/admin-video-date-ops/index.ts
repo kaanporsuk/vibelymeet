@@ -293,7 +293,7 @@ async function fetchRows<T>(
   const rows = (data ?? []) as T[];
   return {
     rows,
-    error: error?.message,
+    error: error ? sanitizeErrorMessage(error.message) : undefined,
     truncated: rows.length >= MAX_ROWS,
   };
 }

@@ -25,12 +25,12 @@ import AdminEmptyState from "./AdminEmptyState";
 import {
   callAdminRpc,
   createAdminTargetIdempotencyKey,
-  sanitizeAdminRpcErrorMessage,
   type AdminRpcPayload,
 } from "@/lib/adminRpc";
 import { invalidateAdminQueries } from "@/lib/adminQueryInvalidation";
 import { formatAdminRelativeTime, formatAdminUtcDateTime } from "@/lib/adminTime";
 import { adminToast } from "@/lib/adminToast";
+import { resolveAdminErrorMessage } from "@/lib/adminErrorResolver";
 
 type TabFilter = "pending" | "approved" | "rejected";
 
@@ -249,7 +249,7 @@ const AdminPhotoVerificationPanel = () => {
       const v = verifications[index];
       console.warn("[admin photo verification] selfie resolution failed", {
         verificationId: v?.id,
-        message: sanitizeAdminRpcErrorMessage(result.reason),
+        message: resolveAdminErrorMessage(result.reason, "Could not load verification selfie."),
       });
 
       if (!v) return [];
@@ -424,7 +424,7 @@ const AdminPhotoVerificationPanel = () => {
       adminToast.error({
         id: "admin-photo-verification-approve-error",
         title: "Failed to approve",
-        description: err instanceof Error ? err.message : "Unknown error",
+        description: resolveAdminErrorMessage(err, "Approval failed"),
       });
     },
   });
@@ -459,7 +459,7 @@ const AdminPhotoVerificationPanel = () => {
       adminToast.error({
         id: "admin-photo-verification-reject-error",
         title: "Failed to reject",
-        description: err instanceof Error ? err.message : "Unknown error",
+        description: resolveAdminErrorMessage(err, "Rejection failed"),
       });
     },
   });

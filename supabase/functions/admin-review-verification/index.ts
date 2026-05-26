@@ -63,7 +63,11 @@ serve(async (req) => {
     if (!payload?.success) {
       return jsonResponse(
         req,
-        { success: false, error: payload?.error ?? "review_failed", message: payload?.message },
+        {
+          success: false,
+          error: payload?.error ?? "review_failed",
+          message: sanitizeErrorMessage(payload?.message ?? payload?.error ?? "Photo verification review failed."),
+        },
         statusForAdminError(payload?.error, 400),
       );
     }

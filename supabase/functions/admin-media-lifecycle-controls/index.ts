@@ -182,7 +182,7 @@ function numericRecordValue(record: Record<string, unknown> | null, key: string)
 function validationResponse(req: Request, error: unknown): Response {
   return json(req, {
     success: false,
-    error: error instanceof Error ? error.message : "Invalid media lifecycle input",
+    error: sanitizeErrorMessage(error instanceof Error ? error.message : "Invalid media lifecycle input"),
   }, 400);
 }
 

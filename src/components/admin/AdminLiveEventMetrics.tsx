@@ -17,7 +17,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { supabase } from "@/integrations/supabase/client";
-import { callAdminRpc, sanitizeAdminRpcErrorMessage, type AdminRpcPayload } from "@/lib/adminRpc";
+import { callAdminRpc, type AdminRpcPayload } from "@/lib/adminRpc";
 import {
   Select,
   SelectContent,
@@ -37,6 +37,7 @@ import {
 import { useNavigate } from "react-router-dom";
 import { resolveEventLifecycle } from "@/lib/eventLifecycle";
 import { formatAdminUtcDateTime, formatAdminUtcTime } from "@/lib/adminTime";
+import { resolveAdminErrorMessage, resolveAdminFunctionErrorMessage } from "@/lib/adminErrorResolver";
 
 const COLORS = ["#ec4899", "#8b5cf6", "#06b6d4", "#f97316", "#22c55e"];
 
@@ -571,8 +572,9 @@ const AdminLiveEventMetrics = () => {
         "admin-video-date-ops",
         { body: { event_id: eventId } },
       );
-      if (error) throw error;
-      if (!data?.ok) throw new Error(data?.error || "Video Date Ops metrics unavailable");
+      if (error || !data?.ok) {
+        throw new Error(await resolveAdminFunctionErrorMessage(error, data, "Could not load Video Date Ops metrics"));
+      }
       return data;
     },
     enabled: !!eventId,
@@ -675,7 +677,7 @@ const AdminLiveEventMetrics = () => {
           <div className="rounded-xl border border-amber-500/25 bg-amber-500/10 p-4 text-sm text-amber-200">
             Unable to load the Event Analytics event selector.
             <span className="mt-1 block text-xs">
-              {sanitizeAdminRpcErrorMessage(eventsError)}
+              {resolveAdminErrorMessage(eventsError, "Could not load event metrics")}
             </span>
           </div>
         </div>
@@ -692,7 +694,7 @@ const AdminLiveEventMetrics = () => {
           <div className="rounded-xl border border-amber-500/25 bg-amber-500/10 p-4 text-sm text-amber-200">
             Unable to load Event Analytics metrics for the selected event.
             <span className="mt-1 block text-xs">
-              {sanitizeAdminRpcErrorMessage(metricsError)}
+              {resolveAdminErrorMessage(metricsError, "Could not load live event metrics")}
             </span>
           </div>
         </div>
@@ -774,7 +776,7 @@ const AdminLiveEventMetrics = () => {
             {videoDateOpsError && !videoDateOpsLoading && (
               <div className="rounded-xl border border-amber-500/25 bg-amber-500/10 p-4 text-sm text-amber-200">
                 Video Date Ops metrics are unavailable:{" "}
-                {videoDateOpsError instanceof Error ? videoDateOpsError.message : String(videoDateOpsError)}
+                {resolveAdminErrorMessage(videoDateOpsError, "Could not load Video Date Ops metrics")}
               </div>
             )}
 
@@ -1053,7 +1055,7 @@ const AdminLiveEventMetrics = () => {
               <div className="rounded-xl border border-amber-500/25 bg-amber-500/10 p-4 text-sm text-amber-200">
                 Backend lifecycle read model unavailable.
                 <span className="mt-1 block text-xs">
-                  {sanitizeAdminRpcErrorMessage(lifecycleFeedError)}
+                  {resolveAdminErrorMessage(lifecycleFeedError, "Could not load lifecycle feed")}
                 </span>
               </div>
             </div>
@@ -1155,7 +1157,7 @@ const AdminLiveEventMetrics = () => {
           <div className="rounded-xl border border-amber-500/25 bg-amber-500/10 p-4 text-sm text-amber-200">
             Post-event feedback metrics are unavailable.
             <span className="mt-1 block text-xs">
-              {sanitizeAdminRpcErrorMessage(postMetricsError)}
+              {resolveAdminErrorMessage(postMetricsError, "Could not load post-event metrics")}
             </span>
           </div>
         </div>

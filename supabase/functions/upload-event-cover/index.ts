@@ -2,6 +2,7 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.88.0";
 import {
   authenticateAdminRequest,
+  sanitizeErrorMessage,
 } from "../_shared/adminAuth.ts";
 import { bunnyCdnUrl } from "../_shared/bunny-media.ts";
 import {
@@ -50,6 +51,20 @@ function safeUnexpectedError(error: unknown): Record<string, string> {
     return { name: error.name || "Error" };
   }
   return { name: typeof error };
+}
+
+function safeLogMessage(error: unknown, fallback: string): string {
+  const record = isRecord(error) ? error : null;
+  const raw = error instanceof Error
+    ? error.message
+    : typeof error === "string" && error.trim()
+      ? error
+      : typeof record?.message === "string" && record.message.trim()
+        ? record.message
+        : typeof record?.error === "string" && record.error.trim()
+          ? record.error
+          : fallback;
+  return sanitizeErrorMessage(raw);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -123,7 +138,9 @@ async function updateMediaAssetPlaceholder(
     })
     .eq("id", assetId);
   if (error) {
-    console.error(`[upload-event-cover] media asset placeholder update failed assetId=${assetId} err=${error.message}`);
+    console.error(
+      `[upload-event-cover] media asset placeholder update failed assetId=${assetId} err=${safeLogMessage(error, "placeholder_update_failed")}`,
+    );
   }
 }
 
@@ -166,7 +183,9 @@ async function fetchCurrentEventCover(
     .maybeSingle();
 
   if (error) {
-    console.error(`[upload-event-cover] current cover lookup failed eventId=${eventId} err=${error.message}`);
+    console.error(
+      `[upload-event-cover] current cover lookup failed eventId=${eventId} err=${safeLogMessage(error, "current_cover_lookup_failed")}`,
+    );
     throw new Error("current_cover_lookup_failed");
   }
   return {
@@ -237,7 +256,9 @@ serve(async (req) => {
         .maybeSingle();
 
       if (eventError) {
-        console.error(`[upload-event-cover] event lookup failed eventId=${eventId} err=${eventError.message}`);
+        console.error(
+          `[upload-event-cover] event lookup failed eventId=${eventId} err=${safeLogMessage(eventError, "event_lookup_failed")}`,
+        );
         return json(req, { success: false, error: "Event lookup failed" });
       }
       if (!eventRow) {
@@ -409,8 +430,12 @@ serve(async (req) => {
           );
           const repair = isRecord(repairData) ? repairData : {};
           if (receiptRepairError || repair.success !== true) {
+            const repairError = safeLogMessage(
+              receiptRepairError ?? repair.error,
+              "receipt_attached_repair_failed",
+            );
             console.error(
-              `[upload-event-cover] receipt attached repair failed path=${reservedPath} err=${receiptRepairError?.message ?? repair.error}`,
+              `[upload-event-cover] receipt attached repair failed path=${reservedPath} err=${repairError}`,
             );
           } else {
             void captureReceiptTransition({
@@ -519,8 +544,10 @@ serve(async (req) => {
         );
         const completion = isRecord(completionData) ? completionData : {};
         if (completionError || completion.success !== true) {
-          const lastError = completionError?.message ||
-            (typeof completion.error === "string" ? completion.error : "asset_register_failed");
+          const lastError = safeLogMessage(
+            completionError ?? completion.error,
+            "asset_register_failed",
+          );
           console.error(`[upload-event-cover] media asset registration failed path=${uploadPath} err=${lastError}`);
           const { data: failedData } = await adminSupabase.rpc("mark_media_upload_receipt_failed", {
             p_receipt_id: receiptId,
@@ -586,8 +613,9 @@ serve(async (req) => {
       });
 
       if (replaceError) {
+        const replaceErrorMessage = safeLogMessage(replaceError, "event_cover_reference_replace_failed");
         console.error(
-          `[upload-event-cover] media reference replace failed assetId=${assetId} eventId=${eventId} err=${replaceError.message}`,
+          `[upload-event-cover] media reference replace failed assetId=${assetId} eventId=${eventId} err=${replaceErrorMessage}`,
         );
         if (receiptId) {
           await adminSupabase.rpc("complete_storage_media_upload", {
@@ -605,7 +633,7 @@ serve(async (req) => {
             p_receipt_status: "uploaded",
             p_metadata: { ...baseReceiptMetadata, uploaded_at: new Date().toISOString() },
             p_reference_id: null,
-            p_last_error: replaceError.message,
+            p_last_error: replaceErrorMessage,
           });
         }
         return json(req, { success: false, error: "Upload lifecycle registration failed" });
@@ -674,8 +702,12 @@ serve(async (req) => {
       );
       const completion = isRecord(completionData) ? completionData : {};
       if (receiptUpdateError || completion.success !== true) {
+        const completionError = safeLogMessage(
+          receiptUpdateError ?? completion.error,
+          "receipt_completion_failed",
+        );
         console.error(
-          `[upload-event-cover] receipt completion failed path=${uploadPath} err=${receiptUpdateError?.message ?? completion.error}`,
+          `[upload-event-cover] receipt completion failed path=${uploadPath} err=${completionError}`,
         );
         return json(req, { success: false, error: "Upload receipt completion failed" });
       }

@@ -13,6 +13,7 @@ import {
   formatAdminCount,
   useAdminOverviewDashboard,
 } from "@/hooks/useAdminOverviewDashboard";
+import { resolveAdminErrorMessage } from "@/lib/adminErrorResolver";
 
 const AdminStatsCards = () => {
   const {
@@ -55,8 +56,10 @@ const AdminStatsCards = () => {
               <p className="text-sm text-muted-foreground">
                 Backend admin metrics are unavailable, so the dashboard is not showing fallback zeroes.
               </p>
-              {error?.message && (
-                <p className="text-xs text-muted-foreground mt-1">{error.message}</p>
+              {error && (
+                <p className="text-xs text-muted-foreground mt-1">
+                  {resolveAdminErrorMessage(error, "Could not load Overview metrics")}
+                </p>
               )}
             </div>
           </div>

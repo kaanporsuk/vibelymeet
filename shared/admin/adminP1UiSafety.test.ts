@@ -428,7 +428,7 @@ test("Support Inbox has honest empty/error states and governed data access", () 
   assert.match(supportInbox, /callAdminRpc<SupportThreadPayload>\("admin_get_support_ticket_thread"/);
   assert.match(supportInbox, /callAdminRpc\("admin_update_support_ticket"/);
   assert.match(supportInbox, /supabase\.functions\.invoke<SendSupportReplyResponse>\("send-support-reply"/);
-  assert.match(supportInbox, /resolveSupabaseFunctionErrorMessage/);
+  assert.match(supportInbox, /resolveAdminFunctionErrorMessage/);
   assert.match(supportInbox, /Delivery jobs/);
   assert.match(supportInbox, /latest_reply_id/);
   assert.doesNotMatch(supportInbox, /\.from\(["']support_tickets["']\)/);
@@ -589,7 +589,7 @@ test("tier config writes are confirmed, governed, and backend-authoritative", ()
   assert.match(adminTierConfig, /set_tier_config_override/);
   assert.match(adminTierConfig, /reset_tier_config_override/);
   assert.match(adminTierConfig, /get_tier_capabilities/);
-  assert.match(adminTierConfig, /sanitizeAdminRpcErrorMessage/);
+  assert.match(adminTierConfig, /resolveAdminErrorMessage/);
   assert.match(adminTierConfig, /Backend reads use <code className="text-xs">get_user_tier_capabilities<\/code>/);
   assert.match(adminTierConfig, /parseNonNegativeInteger/);
   assert.match(adminTierConfig, /Unable to load Tier Config/);
@@ -601,7 +601,7 @@ test("tier config writes are confirmed, governed, and backend-authoritative", ()
 test("photo verification selfie signing is row-resilient and redacts unexpected failures", () => {
   assert.match(adminPhotoVerification, /Promise\.allSettled/);
   assert.match(adminPhotoVerification, /selfie resolution failed/);
-  assert.match(adminPhotoVerification, /sanitizeAdminRpcErrorMessage/);
+  assert.match(adminPhotoVerification, /resolveAdminErrorMessage/);
   assert.match(adminPhotoVerification, /redactUrlForLog/);
   assert.match(adminPhotoVerification, /attemptedUrlRedacted/);
 });

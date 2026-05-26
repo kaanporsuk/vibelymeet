@@ -4,7 +4,7 @@ import { AlertTriangle, ChevronDown, Loader2, X } from "lucide-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import type { Json } from "@/integrations/supabase/types";
-import { sanitizeAdminRpcErrorMessage } from "@/lib/adminRpc";
+import { resolveAdminErrorMessage } from "@/lib/adminErrorResolver";
 import { adminToast } from "@/lib/adminToast";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -61,7 +61,7 @@ async function fetchTierCapabilities(tierId: TierId): Promise<FlatCapabilities> 
   const { data, error } = await supabase.rpc("get_tier_capabilities", {
     p_tier_id: tierId,
   });
-  if (error) throw error;
+  if (error) throw new Error(resolveAdminErrorMessage(error, "Could not load tier capabilities"));
   if (!data || typeof data !== "object" || Array.isArray(data)) {
     throw new Error("Tier capabilities were not returned by the backend");
   }
@@ -276,7 +276,7 @@ const AdminTierConfigPanel = () => {
     queryKey: ["tier-config-overrides"],
     queryFn: async (): Promise<TierConfigOverride[]> => {
       const { data, error } = await supabase.from("tier_config_overrides").select("tier_id, capability_key, value");
-      if (error) throw error;
+      if (error) throw new Error(resolveAdminErrorMessage(error, "Could not load tier overrides"));
       return (data ?? []) as TierConfigOverride[];
     },
   });
@@ -289,7 +289,7 @@ const AdminTierConfigPanel = () => {
         .select("id, tier_id, capability_key, old_value, new_value, action, admin_id, created_at")
         .order("created_at", { ascending: false })
         .limit(20);
-      if (error) throw error;
+      if (error) throw new Error(resolveAdminErrorMessage(error, "Could not load tier audit entries"));
       return (data ?? []) as AuditRow[];
     },
   });
@@ -339,7 +339,7 @@ const AdminTierConfigPanel = () => {
         p_capability_key: meta.key,
         p_value: value as Json,
       });
-      if (error) throw error;
+      if (error) throw new Error(resolveAdminErrorMessage(error, "Could not save tier override"));
     },
     onMutate: async ({ tierId, meta, value }) => {
       await qc.cancelQueries({ queryKey: ["tier-config-overrides"] });
@@ -353,7 +353,7 @@ const AdminTierConfigPanel = () => {
       if (ctx?.prev) qc.setQueryData(["tier-config-overrides"], ctx.prev);
       adminToast.error({
         id: "tier-config-save-failed",
-        title: sanitizeAdminRpcErrorMessage(err),
+        title: resolveAdminErrorMessage(err, "Could not save tier override"),
       });
     },
     onSettled: () => {
@@ -369,7 +369,7 @@ const AdminTierConfigPanel = () => {
         p_tier_id: tierId,
         p_capability_key: meta.key,
       });
-      if (error) throw error;
+      if (error) throw new Error(resolveAdminErrorMessage(error, "Could not reset tier override"));
     },
     onMutate: async ({ tierId, meta }) => {
       await qc.cancelQueries({ queryKey: ["tier-config-overrides"] });
@@ -382,7 +382,7 @@ const AdminTierConfigPanel = () => {
       if (ctx?.prev) qc.setQueryData(["tier-config-overrides"], ctx.prev);
       adminToast.error({
         id: "tier-config-reset-failed",
-        title: sanitizeAdminRpcErrorMessage(err),
+        title: resolveAdminErrorMessage(err, "Could not reset tier override"),
       });
     },
     onSettled: () => {
@@ -442,7 +442,7 @@ const AdminTierConfigPanel = () => {
                 Defaults are hidden because backend-resolved tier capabilities could not be verified.
               </p>
               <p className="mt-2 text-xs text-muted-foreground">
-                {sanitizeAdminRpcErrorMessage(loadError)}
+                {resolveAdminErrorMessage(loadError, "Could not load tier configuration")}
               </p>
             </div>
             <Button
@@ -537,7 +537,7 @@ const AdminTierConfigPanel = () => {
           {auditIsError ? (
             <div className="flex items-center gap-2 text-xs text-destructive">
               <AlertTriangle className="h-4 w-4" />
-              <span>{sanitizeAdminRpcErrorMessage(auditError)}</span>
+              <span>{resolveAdminErrorMessage(auditError, "Could not load tier audit entries")}</span>
             </div>
           ) : auditRows.length === 0 ? (
             <p className="text-xs text-muted-foreground">No audit entries yet.</p>

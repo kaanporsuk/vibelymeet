@@ -10,6 +10,7 @@ import {
   formatAdminUtcDateTime,
   useAdminOverviewDashboard,
 } from "@/hooks/useAdminOverviewDashboard";
+import { resolveAdminErrorMessage } from "@/lib/adminErrorResolver";
 
 interface AdminQuickActionsCardsProps {
   onNavigateToReports: () => void;
@@ -68,7 +69,11 @@ const AdminQuickActionsCards = ({
                 <p className="text-sm text-muted-foreground">
                   Counts are hidden until the backend overview read succeeds.
                 </p>
-                {error?.message && <p className="text-xs text-muted-foreground mt-1">{error.message}</p>}
+                {error && (
+                  <p className="text-xs text-muted-foreground mt-1">
+                    {resolveAdminErrorMessage(error, "Could not load Quick Actions")}
+                  </p>
+                )}
               </div>
             </div>
             <Button variant="outline" size="sm" onClick={() => void refetch()}>
