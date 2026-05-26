@@ -58,7 +58,7 @@ import { ChatOutboxProvider, useChatOutbox } from '@/lib/chatOutbox/ChatOutboxCo
 import { ChatOutboxRunner } from '@/lib/chatOutbox/ChatOutboxRunner';
 import { PostDateOutboxRunner } from '@/lib/postDateOutbox/PostDateOutboxRunner';
 import { MatchCallProvider } from '@/lib/useMatchCall';
-import { supabase } from '@/lib/supabase';
+import { SUPABASE_PUBLISHABLE_KEY, SUPABASE_URL, supabase } from '@/lib/supabase';
 import {
   selectPrimaryRecoveryAttentionTarget,
   uploadAttentionTargetIdentity,
@@ -67,6 +67,19 @@ import { completeSessionFromAuthReturnUrl } from '@/lib/nativeAuthRedirect';
 import { applyNativeReferralAttribution, captureNativeReferral } from '@/lib/referrals';
 import { RC_CATEGORY, rcBreadcrumb } from '@/lib/nativeRcDiagnostics';
 import { queryClient } from '@/lib/queryClient';
+import {
+  AUTH_REFRESH_LEAD_MS,
+  AUTH_REFRESH_STALE_RACE_CHECK_DELAYS_MS,
+  applyManagedAuthRefreshSession,
+  authRefreshDebugInfo,
+  classifyAuthRefreshError,
+  isNewerAuthRefreshSession,
+  nextAuthRefreshDelayMs,
+  requestManagedAuthRefresh,
+  shouldRefreshSessionSoon,
+} from '@clientShared/authRefreshPolicy';
+import { invalidateCachedSession, primeCachedSession } from '@/lib/nativeAuthSession';
+import { recoverNativeAuthSession } from '@/lib/nativeAuthRecovery';
 
 // ─── Sentry (matches web src/main.tsx)
 const SENTRY_DSN = process.env.EXPO_PUBLIC_SENTRY_DSN ?? '';
@@ -100,6 +113,10 @@ if (__DEV__) {
     'has no packages',
     'packages configured',
   ]);
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 // Wire the module-level native hero upload controller to the query client so it
@@ -416,32 +433,191 @@ function AuthRedirectHandler({ onReferralCaptured }: { onReferralCaptured: () =>
   return null;
 }
 
-function SupabaseAutoRefreshAppStateBridge() {
+function SupabaseManagedAuthRefreshAppStateBridge() {
   const { loading, session } = useAuth();
-  const hasRefreshableSession = Boolean(session?.refresh_token);
+  const appStateRef = useRef<AppStateStatus>(AppState.currentState);
+  const managedRefreshFailureCountRef = useRef(0);
+  const managedRefreshInFlightRef = useRef(false);
 
   useEffect(() => {
-    if (loading || !hasRefreshableSession) {
-      void supabase.auth.stopAutoRefresh();
+    void supabase.auth.stopAutoRefresh();
+  }, []);
+
+  useEffect(() => {
+    if (loading || !session?.refresh_token || typeof session.expires_at !== 'number') {
+      managedRefreshFailureCountRef.current = 0;
       return;
     }
 
-    const handleAppStateChange = (nextState: AppStateStatus) => {
-      if (nextState === 'active' && hasRefreshableSession) {
-        void supabase.auth.startAutoRefresh();
+    let cancelled = false;
+    let refreshTimer: ReturnType<typeof setTimeout> | null = null;
+    let activeSession = session;
+    const sessionUserId = session.user.id;
+    managedRefreshFailureCountRef.current = 0;
+
+    const clearRefreshTimer = () => {
+      if (refreshTimer) {
+        clearTimeout(refreshTimer);
+        refreshTimer = null;
+      }
+    };
+
+    const isAppActive = () => appStateRef.current === 'active';
+
+    const scheduleRetry = (reason: string, delayMs: number) => {
+      clearRefreshTimer();
+      if (cancelled || !isAppActive()) return;
+      refreshTimer = setTimeout(() => {
+        void attemptRefresh(`retry:${reason}`);
+      }, delayMs);
+    };
+
+    const scheduleNext = (reason: string) => {
+      clearRefreshTimer();
+      if (
+        cancelled ||
+        !isAppActive() ||
+        !activeSession.refresh_token ||
+        typeof activeSession.expires_at !== 'number'
+      ) return;
+      const failureCount = managedRefreshFailureCountRef.current;
+      const delayMs = failureCount > 0
+        ? nextAuthRefreshDelayMs(failureCount)
+        : Math.max(0, activeSession.expires_at * 1000 - Date.now() - AUTH_REFRESH_LEAD_MS);
+      refreshTimer = setTimeout(() => {
+        void attemptRefresh(`timer:${reason}`);
+      }, delayMs);
+    };
+
+    async function recoverFromStaleRefreshRace(attemptedSession: NonNullable<typeof session>, reason: string) {
+      for (const delayMs of AUTH_REFRESH_STALE_RACE_CHECK_DELAYS_MS) {
+        if (cancelled) return true;
+        if (delayMs > 0) await sleep(delayMs);
+        const { data } = await supabase.auth.getSession().catch(() => ({ data: { session: null } }));
+        const latestSession = data.session;
+        if (!isNewerAuthRefreshSession(latestSession, attemptedSession)) {
+          continue;
+        }
+
+        activeSession = latestSession;
+        primeCachedSession(latestSession);
+        managedRefreshFailureCountRef.current = 0;
+        rcBreadcrumb(RC_CATEGORY.authBoot, 'managed_refresh_stale_attempt_recovered', { reason });
+        scheduleNext('stale_attempt_recovered');
+        return true;
+      }
+      return false;
+    }
+
+    async function handleRefreshFailure(
+      error: unknown,
+      reason: string,
+      attemptedSession: NonNullable<typeof session> = activeSession,
+    ) {
+      const kind = classifyAuthRefreshError(error);
+      if (kind === 'invalid_session') {
+        if (await recoverFromStaleRefreshRace(attemptedSession, reason)) {
+          return;
+        }
+        rcBreadcrumb(RC_CATEGORY.authBoot, 'managed_refresh_invalid_session', {
+          reason,
+          error: authRefreshDebugInfo(error),
+        });
+        managedRefreshFailureCountRef.current = 0;
+        invalidateCachedSession();
+        await recoverNativeAuthSession('managed-refresh', error);
         return;
       }
-      void supabase.auth.stopAutoRefresh();
+
+      const failureCount = managedRefreshFailureCountRef.current + 1;
+      managedRefreshFailureCountRef.current = failureCount;
+      const delayMs = nextAuthRefreshDelayMs(failureCount);
+      rcBreadcrumb(RC_CATEGORY.authBoot, 'managed_refresh_retry_scheduled', {
+        reason,
+        failure_count: failureCount,
+        delay_ms: delayMs,
+        error: authRefreshDebugInfo(error),
+      });
+      scheduleRetry(reason, delayMs);
+    }
+
+    async function attemptRefresh(reason: string) {
+      if (cancelled) return;
+      if (managedRefreshInFlightRef.current) {
+        scheduleRetry(reason, 1_000);
+        return;
+      }
+      if (!isAppActive()) return;
+      if (!shouldRefreshSessionSoon(activeSession, Date.now()) && managedRefreshFailureCountRef.current === 0) {
+        scheduleNext(reason);
+        return;
+      }
+
+      const refreshSession = activeSession;
+      managedRefreshInFlightRef.current = true;
+      try {
+        const refreshResponse = await requestManagedAuthRefresh({
+          supabaseUrl: SUPABASE_URL,
+          publishableKey: SUPABASE_PUBLISHABLE_KEY,
+          refreshToken: refreshSession.refresh_token,
+        });
+        const nextSession = await applyManagedAuthRefreshSession(supabase.auth, refreshSession, refreshResponse, {
+          shouldApply: () =>
+            !cancelled &&
+            activeSession.user.id === sessionUserId &&
+            activeSession.refresh_token === refreshSession.refresh_token,
+        });
+        if (cancelled) return;
+        if (!nextSession) return;
+        if (nextSession.user.id !== sessionUserId) return;
+
+        const recoveredAfterFailures = managedRefreshFailureCountRef.current;
+        managedRefreshFailureCountRef.current = 0;
+        activeSession = nextSession;
+        primeCachedSession(nextSession);
+        if (recoveredAfterFailures > 0) {
+          rcBreadcrumb(RC_CATEGORY.authBoot, 'managed_refresh_succeeded', {
+            reason,
+            recovered_after_failures: recoveredAfterFailures,
+          });
+        }
+        scheduleNext('success');
+      } catch (error) {
+        if (!cancelled) {
+          await handleRefreshFailure(error, reason, refreshSession);
+        }
+      } finally {
+        managedRefreshInFlightRef.current = false;
+      }
+    }
+
+    const resumeRefresh = (reason: string) => {
+      if (!isAppActive()) return;
+      if (shouldRefreshSessionSoon(activeSession, Date.now()) || managedRefreshFailureCountRef.current > 0) {
+        void attemptRefresh(reason);
+        return;
+      }
+      scheduleNext(reason);
+    };
+
+    const handleAppStateChange = (nextState: AppStateStatus) => {
+      appStateRef.current = nextState;
+      if (nextState !== 'active') {
+        clearRefreshTimer();
+        return;
+      }
+      resumeRefresh('app_state_active');
     };
 
     handleAppStateChange(AppState.currentState);
     const subscription = AppState.addEventListener('change', handleAppStateChange);
 
     return () => {
+      cancelled = true;
       subscription.remove();
-      void supabase.auth.stopAutoRefresh();
+      clearRefreshTimer();
     };
-  }, [hasRefreshableSession, loading]);
+  }, [loading, session]);
 
   return null;
 }
@@ -717,7 +893,7 @@ function RootLayoutNav() {
           <SessionHydrationProvider>
           <MatchCallProvider>
             <ChatOutboxProvider>
-            <SupabaseAutoRefreshAppStateBridge />
+            <SupabaseManagedAuthRefreshAppStateBridge />
             <NativeMediaSdkReconcileAppStateBridge />
             <RealtimeLifecycleJanitor />
             <AuthRedirectHandler onReferralCaptured={() => setReferralSyncTick((t) => t + 1)} />

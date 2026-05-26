@@ -18,12 +18,20 @@
  * API helpers that don't need a fresh network verify.  Auth-critical paths (sign-in, token
  * refresh, MFA) should continue to call supabase.auth directly.
  */
-import { supabase } from '@/lib/supabase';
+import { SUPABASE_PUBLISHABLE_KEY, SUPABASE_URL, supabase } from '@/lib/supabase';
 import {
   isRecoverableNativeAuthError,
   recoverNativeAuthSession,
 } from '@/lib/nativeAuthRecovery';
 import type { Session } from '@supabase/supabase-js';
+import {
+  AUTH_REFRESH_STALE_RACE_CHECK_DELAYS_MS,
+  applyManagedAuthRefreshSession,
+  authRefreshDebugInfo,
+  classifyAuthRefreshError,
+  isNewerAuthRefreshSession,
+  requestManagedAuthRefresh,
+} from '@clientShared/authRefreshPolicy';
 
 const TTL_MS = 30_000; // 30 s — short enough that a refresh will have landed
 const SWIPE_AUTH_REFRESH_WINDOW_MS = 60_000;
@@ -36,6 +44,10 @@ let cacheVersion = 0;
 
 function nowMs(): number {
   return Date.now();
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function invalidate(): void {
@@ -57,6 +69,60 @@ function isSessionExpiredForSwipe(session: Session | null | undefined): boolean 
 function shouldRefreshSessionForSwipe(session: Session | null | undefined): boolean {
   const expiresAtMs = sessionExpiresAtMs(session);
   return expiresAtMs != null && expiresAtMs <= nowMs() + SWIPE_AUTH_REFRESH_WINDOW_MS;
+}
+
+async function recoverFromCachedRefreshRace(attemptedSession: Session): Promise<Session | null> {
+  for (const delayMs of AUTH_REFRESH_STALE_RACE_CHECK_DELAYS_MS) {
+    if (delayMs > 0) await sleep(delayMs);
+    const {
+      data: { session: latestSession },
+    } = await supabase.auth.getSession().catch(() => ({ data: { session: null } }));
+    if (!isNewerAuthRefreshSession(latestSession, attemptedSession)) {
+      continue;
+    }
+    primeCachedSession(latestSession);
+    return latestSession;
+  }
+  return null;
+}
+
+async function resolveFreshSessionAfterCacheInvalidation(
+  requestVersion: number,
+  nextSession: Session,
+): Promise<Session | null> {
+  if (cacheVersion === requestVersion) {
+    primeCachedSession(nextSession);
+    return nextSession;
+  }
+
+  const {
+    data: { session: latestSession },
+  } = await supabase.auth.getSession().catch(() => ({ data: { session: null } }));
+  if (
+    latestSession?.refresh_token === nextSession.refresh_token &&
+    latestSession.user.id === nextSession.user.id
+  ) {
+    primeCachedSession(latestSession);
+    return latestSession;
+  }
+  return null;
+}
+
+async function handleCachedRefreshFailure(session: Session, error: unknown): Promise<Session | null> {
+  const kind = classifyAuthRefreshError(error);
+  if (kind === 'invalid_session') {
+    const raceRecoveredSession = await recoverFromCachedRefreshRace(session);
+    if (raceRecoveredSession) return raceRecoveredSession;
+    await recoverNativeAuthSession('cached-session', error);
+    invalidate();
+    return null;
+  }
+
+  if (__DEV__ && kind === 'fatal') {
+    console.warn('[nativeAuthSession] refreshSession failed:', authRefreshDebugInfo(error));
+  }
+
+  return isSessionExpiredForSwipe(session) ? null : session;
 }
 
 /**
@@ -135,40 +201,19 @@ export async function getFreshCachedSession(): Promise<Session | null> {
   const requestVersion = cacheVersion;
   refreshInFlight = (async (): Promise<Session | null> => {
     try {
-      const { data, error } = await supabase.auth.refreshSession(session);
-      if (error) {
-        if (isRecoverableNativeAuthError(error)) {
-          await recoverNativeAuthSession('cached-session', error);
-          invalidate();
-          return null;
-        }
-        if (__DEV__) {
-          console.warn('[nativeAuthSession] refreshSession error:', error.message);
-        }
-        if (isSessionExpiredForSwipe(session)) {
-          invalidate();
-          return null;
-        }
-        return session;
-      }
+      const refreshResponse = await requestManagedAuthRefresh({
+        supabaseUrl: SUPABASE_URL,
+        publishableKey: SUPABASE_PUBLISHABLE_KEY,
+        refreshToken: session.refresh_token,
+      });
+      const nextSession = await applyManagedAuthRefreshSession(supabase.auth, session, refreshResponse, {
+        shouldApply: () => cacheVersion === requestVersion,
+      });
+      if (!nextSession) return null;
 
-      if (cacheVersion !== requestVersion) return null;
-      cached = { session: data.session, expiresAt: nowMs() + TTL_MS };
-      return data.session;
+      return resolveFreshSessionAfterCacheInvalidation(requestVersion, nextSession);
     } catch (e) {
-      if (isRecoverableNativeAuthError(e)) {
-        await recoverNativeAuthSession('cached-session', e);
-        invalidate();
-        return null;
-      }
-      if (__DEV__) {
-        console.warn('[nativeAuthSession] refreshSession threw:', e);
-      }
-      if (isSessionExpiredForSwipe(session)) {
-        invalidate();
-        return null;
-      }
-      return session;
+      return handleCachedRefreshFailure(session, e);
     } finally {
       if (cacheVersion === requestVersion) {
         refreshInFlight = null;
@@ -203,4 +248,15 @@ export async function getCachedUserId(): Promise<string | null> {
  */
 export function invalidateCachedSession(): void {
   invalidate();
+}
+
+export function primeCachedSession(session: Session | null): void {
+  if (!session) {
+    invalidate();
+    return;
+  }
+  cacheVersion += 1;
+  cached = { session, expiresAt: nowMs() + TTL_MS };
+  inFlight = null;
+  refreshInFlight = null;
 }

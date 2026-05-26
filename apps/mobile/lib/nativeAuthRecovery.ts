@@ -1,7 +1,7 @@
 import { clearNativeSupabaseAuthStorage } from '@/lib/authStorage';
 import { supabase } from '@/lib/supabase';
 
-export type NativeAuthRecoveryReason = 'bootstrap' | 'cached-session' | 'sign-out';
+export type NativeAuthRecoveryReason = 'bootstrap' | 'cached-session' | 'managed-refresh' | 'sign-out';
 
 const INVALID_REFRESH_TOKEN_PATTERNS = [
   /invalid refresh token/i,

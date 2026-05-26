@@ -25,6 +25,12 @@ import {
   shouldTrackQueuedSwipeSession,
   videoSessionIdFromSwipePayload,
 } from "@shared/matching/videoSessionFlow";
+import {
+  AUTH_REFRESH_STALE_RACE_CHECK_DELAYS_MS,
+  applyManagedAuthRefreshSession,
+  isNewerAuthRefreshSession,
+  requestManagedAuthRefresh,
+} from "@clientShared/authRefreshPolicy";
 import { getVideoDateSwipeRateLimitRetryUntilMs } from "@clientShared/matching/videoDateDeckPrefetch";
 
 type SwipeType = "vibe" | "pass" | "super_vibe";
@@ -46,6 +52,10 @@ function shouldRefreshSessionForSwipe(session: Session | null | undefined): bool
   return expiresAtMs != null && expiresAtMs <= Date.now() + SWIPE_AUTH_REFRESH_WINDOW_MS;
 }
 
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 function unauthorizedSwipeResult(): SwipeSessionStageResult {
   return {
     success: false,
@@ -55,6 +65,17 @@ function unauthorizedSwipeResult(): SwipeSessionStageResult {
     message: "Sign in again to keep swiping.",
     notification_suppressed: true,
   };
+}
+
+async function recoverSwipeRefreshRace(attemptedSession: Session): Promise<Session | null> {
+  for (const delayMs of AUTH_REFRESH_STALE_RACE_CHECK_DELAYS_MS) {
+    if (delayMs > 0) await sleep(delayMs);
+    const { data } = await supabase.auth.getSession().catch(() => ({ data: { session: null } }));
+    if (isNewerAuthRefreshSession(data.session, attemptedSession)) {
+      return data.session;
+    }
+  }
+  return null;
 }
 
 async function resolveWebSwipeAccessToken(preferredSession: Session | null): Promise<string | null> {
@@ -69,10 +90,22 @@ async function resolveWebSwipeAccessToken(preferredSession: Session | null): Pro
   if (!activeSession?.access_token) return null;
 
   if (shouldRefreshSessionForSwipe(activeSession)) {
-    const { data, error } = await supabase.auth.refreshSession(activeSession);
-    if (!error && data.session?.access_token) {
-      activeSession = data.session;
-    } else if (isSessionExpiredForSwipe(activeSession)) {
+    try {
+      const refreshResponse = await requestManagedAuthRefresh({
+        supabaseUrl: SUPABASE_URL,
+        publishableKey: SUPABASE_PUBLISHABLE_KEY,
+        refreshToken: activeSession.refresh_token,
+      });
+      activeSession = await applyManagedAuthRefreshSession(supabase.auth, activeSession, refreshResponse) ?? activeSession;
+    } catch {
+      const recoveredSession = await recoverSwipeRefreshRace(activeSession);
+      if (recoveredSession?.access_token) {
+        activeSession = recoveredSession;
+      } else if (isSessionExpiredForSwipe(activeSession)) {
+        return null;
+      }
+    }
+    if (isSessionExpiredForSwipe(activeSession)) {
       return null;
     }
   }
