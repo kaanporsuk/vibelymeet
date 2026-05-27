@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import type { Session as SupabaseSession } from "@supabase/supabase-js";
 import { motion, AnimatePresence } from "framer-motion";
 import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
@@ -37,8 +38,121 @@ type AuthView =
   | "email_signup_pending"
   | "success";
 
+type WebOAuthProvider = "google" | "apple";
+
+const WEB_OAUTH_PROVIDER_STORAGE_KEY = "vibely.pending_oauth_provider";
+const WEB_OAUTH_PROVIDER_COOKIE = "vibely_pending_oauth_provider";
+const WEB_OAUTH_CALLBACK_TIMEOUT_MS = 5_000;
+const WEB_OAUTH_PROVIDER_CONTEXT_TTL_SECONDS = 5 * 60;
+
 function getAuthErrorMessage(error: unknown, fallback: string): string {
   return safeAuthErrorMessage(error, fallback);
+}
+
+function isWebOAuthProvider(value: string | null): value is WebOAuthProvider {
+  return value === "google" || value === "apple";
+}
+
+function readStoredOAuthProvider(): WebOAuthProvider | null {
+  try {
+    const value = window.sessionStorage.getItem(WEB_OAUTH_PROVIDER_STORAGE_KEY);
+    if (isWebOAuthProvider(value)) return value;
+  } catch {
+    /* sessionStorage can be unavailable in hardened browser modes. */
+  }
+  return readOAuthProviderCookie();
+}
+
+function storeOAuthProvider(provider: WebOAuthProvider) {
+  try {
+    window.sessionStorage.setItem(WEB_OAUTH_PROVIDER_STORAGE_KEY, provider);
+  } catch {
+    /* sessionStorage can be unavailable in hardened browser modes. */
+  }
+  writeOAuthProviderCookie(provider);
+}
+
+function clearStoredOAuthProvider() {
+  try {
+    window.sessionStorage.removeItem(WEB_OAUTH_PROVIDER_STORAGE_KEY);
+  } catch {
+    /* sessionStorage can be unavailable in hardened browser modes. */
+  }
+  clearOAuthProviderCookie();
+}
+
+function getCallbackProvider(search: string): WebOAuthProvider | null {
+  const params = new URLSearchParams(search || "");
+  const provider = params.get("provider");
+  return isWebOAuthProvider(provider) ? provider : null;
+}
+
+function readOAuthProviderCookie(): WebOAuthProvider | null {
+  try {
+    const pair = document.cookie
+      .split(";")
+      .map(part => part.trim())
+      .find(part => part.startsWith(`${WEB_OAUTH_PROVIDER_COOKIE}=`));
+    if (!pair) return null;
+    const value = decodeURIComponent(pair.slice(WEB_OAUTH_PROVIDER_COOKIE.length + 1));
+    return isWebOAuthProvider(value) ? value : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeOAuthProviderCookie(provider: WebOAuthProvider) {
+  try {
+    const secure = window.location.protocol === "https:" ? "Secure" : "";
+    document.cookie = [
+      `${WEB_OAUTH_PROVIDER_COOKIE}=${encodeURIComponent(provider)}`,
+      "Path=/auth",
+      `Max-Age=${WEB_OAUTH_PROVIDER_CONTEXT_TTL_SECONDS}`,
+      "SameSite=Lax",
+      secure,
+    ].filter(Boolean).join("; ");
+  } catch {
+    /* Cookies can be unavailable in hardened browser modes. */
+  }
+}
+
+function clearOAuthProviderCookie() {
+  try {
+    const secure = window.location.protocol === "https:" ? "; Secure" : "";
+    document.cookie = `${WEB_OAUTH_PROVIDER_COOKIE}=; Path=/auth; Max-Age=0; SameSite=Lax${secure}`;
+  } catch {
+    /* Cookies can be unavailable in hardened browser modes. */
+  }
+}
+
+function waitForOAuthSession(timeoutMs = WEB_OAUTH_CALLBACK_TIMEOUT_MS): Promise<SupabaseSession | null> {
+  return new Promise((resolve) => {
+    let settled = false;
+    let timeout: ReturnType<typeof setTimeout> | null = null;
+    let subscription: { unsubscribe: () => void } | null = null;
+
+    const finish = (session: SupabaseSession | null) => {
+      if (settled) return;
+      settled = true;
+      if (timeout) clearTimeout(timeout);
+      subscription?.unsubscribe();
+      resolve(session);
+    };
+
+    timeout = setTimeout(() => finish(null), timeoutMs);
+
+    const listener = supabase.auth.onAuthStateChange((_event, session) => {
+      if (session?.user) finish(session);
+    });
+    subscription = listener.data.subscription;
+
+    void supabase.auth
+      .getSession()
+      .then(({ data: { session } }) => {
+        if (session?.user) finish(session);
+      })
+      .catch(() => undefined);
+  });
 }
 
 const Auth = () => {
@@ -47,7 +161,7 @@ const Auth = () => {
   const [searchParams] = useSearchParams();
   const { session, entryState, entryStateLoading } = useAuth();
   const sessionUser = session?.user ?? null;
-  const pendingOAuthProviderRef = useRef<"google" | "apple" | null>(null);
+  const pendingOAuthProviderRef = useRef<WebOAuthProvider | null>(null);
 
   const [view, setView] = useState<AuthView>("welcome");
   const [loading, setLoading] = useState(false);
@@ -90,15 +204,18 @@ const Auth = () => {
   useEffect(() => {
     const search = location.search || "";
     const hash = location.hash || "";
+    const callbackProvider =
+      getCallbackProvider(search) ?? readStoredOAuthProvider() ?? pendingOAuthProviderRef.current;
     const oauthErr = parseOAuthCallbackErrorDescription(search, hash);
     if (oauthErr) {
-      const prov = pendingOAuthProviderRef.current ?? "google";
+      const prov = callbackProvider ?? "google";
       const ctx = prov === "apple" ? "apple" : "google";
       const { message } = mapAuthConflictError({ message: oauthErr }, ctx);
       setError(message || safeAuthErrorMessage({ message: oauthErr }, "Could not complete sign-in. Try again."));
       setView("welcome");
       setOtpError(null);
       pendingOAuthProviderRef.current = null;
+      clearStoredOAuthProvider();
       navigate("/auth", { replace: true });
       return;
     }
@@ -108,17 +225,34 @@ const Auth = () => {
 
     let cancelled = false;
     void (async () => {
-      await new Promise((r) => setTimeout(r, 100));
-      const { data: { session: s } } = await supabase.auth.getSession();
+      const code = params.get("code");
+      let exchangeError: unknown = null;
+      let callbackSession: SupabaseSession | null = null;
+
+      if (code) {
+        const { data, error } = await supabase.auth.exchangeCodeForSession(code);
+        if (data.session?.user) {
+          callbackSession = data.session;
+        } else if (error) {
+          exchangeError = error;
+        }
+      }
+
+      const s = callbackSession ?? await waitForOAuthSession();
       if (cancelled) return;
-      const oauthProv = pendingOAuthProviderRef.current;
+      const oauthProv = callbackProvider;
       pendingOAuthProviderRef.current = null;
+      clearStoredOAuthProvider();
       if (s?.user) {
         setView("success");
         trackEvent("auth_method_selected", { method: "oauth_callback", platform: "web" });
       } else {
         const hashErr = parseOAuthCallbackErrorDescription("", hash);
-        if (hashErr) {
+        if (exchangeError) {
+          const ctx = oauthProv === "apple" ? "apple" : "google";
+          const { message } = mapAuthConflictError(exchangeError, ctx);
+          setError(message || safeAuthErrorMessage(exchangeError, "Could not complete sign-in. Try again."));
+        } else if (hashErr) {
           const ctx = oauthProv === "apple" ? "apple" : "google";
           const { message } = mapAuthConflictError({ message: hashErr }, ctx);
           setError(message || safeAuthErrorMessage({ message: hashErr }, "Could not complete sign-in. Try again."));
@@ -333,28 +467,42 @@ const Auth = () => {
 
   const handleGoogle = async () => {
     pendingOAuthProviderRef.current = "google";
+    storeOAuthProvider("google");
     trackEvent("auth_method_selected", { method: "google", platform: "web" });
     trackEvent("auth_social_started", { provider: "google" });
     recordUserAction("auth_social_started", { surface: "auth", provider: "google" });
-    await supabase.auth.signInWithOAuth({
+    const { error: oauthError } = await supabase.auth.signInWithOAuth({
       provider: "google",
       options: {
         redirectTo: `${window.location.origin}/auth?provider_callback=true`,
       },
     });
+    if (oauthError) {
+      pendingOAuthProviderRef.current = null;
+      clearStoredOAuthProvider();
+      const { message } = mapAuthConflictError(oauthError, "google");
+      setError(message || safeAuthErrorMessage(oauthError, "Could not start Google sign-in. Try again."));
+    }
   };
 
   const handleApple = async () => {
     pendingOAuthProviderRef.current = "apple";
+    storeOAuthProvider("apple");
     trackEvent("auth_method_selected", { method: "apple", platform: "web" });
     trackEvent("auth_social_started", { provider: "apple" });
     recordUserAction("auth_social_started", { surface: "auth", provider: "apple" });
-    await supabase.auth.signInWithOAuth({
+    const { error: oauthError } = await supabase.auth.signInWithOAuth({
       provider: "apple",
       options: {
         redirectTo: `${window.location.origin}/auth?provider_callback=true`,
       },
     });
+    if (oauthError) {
+      pendingOAuthProviderRef.current = null;
+      clearStoredOAuthProvider();
+      const { message } = mapAuthConflictError(oauthError, "apple");
+      setError(message || safeAuthErrorMessage(oauthError, "Could not start Apple sign-in. Try again."));
+    }
   };
 
   const handleEmailSignIn = async () => {

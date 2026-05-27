@@ -38,6 +38,7 @@ import {
   safeAuthErrorMessage,
   safeIdentityLinkingErrorMessage,
 } from '@clientShared/authErrorCopy';
+import { parseOAuthCallbackErrorDescription } from '@shared/authConflictMessages';
 
 // ---------- types ----------
 
@@ -48,6 +49,22 @@ type OAuthLinkProvider = Extract<ProviderType, 'google' | 'apple'>;
 type RawUserIdentity = NonNullable<
   Awaited<ReturnType<typeof supabase.auth.getUserIdentities>>['data']
 >['identities'][number];
+
+const IDENTITY_LINKING_CALLBACK_PARAMS = [
+  'linking',
+  'provider',
+  'code',
+  'error',
+  'error_code',
+  'error_description',
+  'state',
+] as const;
+
+function clearIdentityLinkingCallbackUrl(url: URL) {
+  IDENTITY_LINKING_CALLBACK_PARAMS.forEach(p => url.searchParams.delete(p));
+  url.hash = '';
+  window.history.replaceState({}, document.title, url.toString());
+}
 
 export interface LinkedIdentity {
   provider: ProviderType;
@@ -146,25 +163,53 @@ export function useIdentityLinking() {
       const url = new URL(window.location.href);
       if (url.searchParams.get('linking') !== 'true') return;
 
+      const providerParam = url.searchParams.get('provider');
+      const provider: OAuthLinkProvider = providerParam === 'apple' ? 'apple' : 'google';
+      const oauthError = parseOAuthCallbackErrorDescription(url.search, url.hash);
+      if (oauthError) {
+        setState(prev => ({
+          ...prev,
+          isLinking: false,
+          linkingProvider: null,
+          error: safeIdentityLinkingErrorMessage(
+            { message: oauthError },
+            provider,
+            `Failed to link ${authIdentityMethodLabel(provider)}.`,
+          ),
+        }));
+        clearIdentityLinkingCallbackUrl(url);
+        return;
+      }
+
       const code = url.searchParams.get('code');
       if (code) {
         const { error } = await supabase.auth.exchangeCodeForSession(code);
         if (error) {
-          const { data } = await supabase.auth.getSession();
-          if (!data.session) {
-            setState(prev => ({
-              ...prev,
-              error: safeAuthErrorMessage(error, 'Failed to finish linking this sign-in method.'),
-            }));
+          const { data: identityData } = await supabase.auth.getUserIdentities();
+          const alreadyLinked = (identityData?.identities ?? []).some(i => i.provider === provider);
+          if (alreadyLinked) {
+            await fetchIdentities();
+            clearIdentityLinkingCallbackUrl(url);
+            return;
           }
+
+          setState(prev => ({
+            ...prev,
+            isLinking: false,
+            linkingProvider: null,
+            error: safeIdentityLinkingErrorMessage(
+              error,
+              provider,
+              `Failed to link ${authIdentityMethodLabel(provider)}.`,
+            ),
+          }));
+          clearIdentityLinkingCallbackUrl(url);
+          return;
         }
       }
 
       await fetchIdentities();
-
-      ['linking', 'provider', 'code', 'error', 'error_code', 'error_description', 'state']
-        .forEach(p => url.searchParams.delete(p));
-      window.history.replaceState({}, document.title, url.toString());
+      clearIdentityLinkingCallbackUrl(url);
     };
     void finish();
   }, [fetchIdentities]);
