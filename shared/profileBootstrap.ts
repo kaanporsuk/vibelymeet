@@ -34,6 +34,9 @@ export type ProfileBootstrapClient = {
   from: (table: "profiles") => ProfilesTable;
 };
 
+// Defensive, read-only readiness check for the auth.users -> profiles DB trigger.
+// This helper must never insert/upsert profiles; missing rows route callers to
+// entry recovery so backend bootstrap ownership remains singular.
 const inflightByUserId = new Map<string, Promise<EnsureProfileReadyResult>>();
 
 function asMessage(value: unknown): string {

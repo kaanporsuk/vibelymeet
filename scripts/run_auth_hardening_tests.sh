@@ -6,6 +6,7 @@ npx tsx shared/authErrorCopy.test.ts
 npx tsx shared/authWebOAuthLinkingContracts.test.ts
 npx tsx shared/authSprint3Contracts.test.ts
 npx tsx shared/authSprint4Contracts.test.ts
+npx tsx shared/authSprint6Contracts.test.ts
 npx tsx shared/authProviderDashboardClosureContracts.test.ts
 npx tsx shared/matching/resendEmailProviderOperationalQa.test.ts
 npx tsx shared/matching/twilioPhoneVerificationQa.test.ts

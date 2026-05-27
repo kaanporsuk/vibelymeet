@@ -91,7 +91,7 @@ Findings:
 - Stream 14 is closed on `main`; the branch delta and `resendEmailProviderOperationalQa.test.ts` are present.
 - Active Resend functions read `RESEND_API_KEY` by name only.
 - `email-verification` requires an authenticated user, canonicalizes the account email, generates OTPs server-side, stores HMAC-SHA256 OTP hashes, and expires codes after 10 minutes.
-- Verification checks failed-attempt counts through `verification_attempts` and enforces the documented 7-attempt hourly cap.
+- Verification checks failed-attempt counts through `verification_attempts` with `flow = 'email_otp_verify'` and enforces the documented 7-attempt hourly cap.
 - Raw OTP values are not logged; the static QA test asserts this.
 - `event-notifications` is `verify_jwt = true`, resolves the caller, checks `user_roles.role = admin`, and rate-limits notification requests.
 - Event notification recipient queries require verified email and `email_unsubscribed = false`.
@@ -120,7 +120,7 @@ Findings:
 - `phone-verify` is configured with `verify_jwt = true` in `supabase/config.toml`.
 - The function requires an auth header and resolves the authenticated Supabase user before diagnostics or Twilio provider calls.
 - Send and check actions remain `send_otp` and `verify_otp` on the same Edge Function.
-- Send attempts are counted in `verification_attempts`; the documented limit remains 5 sends per authenticated user per hour.
+- Send attempts are counted in `verification_attempts` with `flow = 'phone_verify_send'`; the documented limit remains 5 sends per authenticated user per hour.
 - Twilio Lookup V2 is called with `Fields=line_type_intelligence`; non-mobile line types are blocked, and Lookup failures remain fail-open by documented launch-risk choice.
 - One-user-one-phone safety is checked before sending and again before marking verification success.
 - Verification success writes `profiles.phone_number`, `profiles.phone_verified`, and `profiles.phone_verified_at` through the authenticated service-role Edge path.

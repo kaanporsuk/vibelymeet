@@ -2,7 +2,7 @@
 
 Date: 2026-05-27
 
-This document consolidates the original Vibely auth investigation with the separate report assessment. It started as a Sprint 0 baseline artifact; the current repo now also carries the Sprint 1 profile write hardening migration and contracts, and production Supabase project `schdyxcunwcvddlcshwd` now passes the live auth audit.
+This document consolidates the original Vibely auth investigation with the separate report assessment. It started as a Sprint 0 baseline artifact; the current repo now also carries the Sprint 1-6 auth hardening code, migrations, docs, and contracts. Production Supabase project `schdyxcunwcvddlcshwd` passed the live auth audit after Sprint 5; the Sprint 6 migration is prepared locally and must be applied before the next post-deploy live audit.
 
 ## Findings Carried Forward
 
@@ -19,11 +19,23 @@ Status after the current repo changes and the latest live audit:
 - Sprint 4 implemented: auth UI exposes forgot-password entry points from the welcome surface and the email sign-in subview.
 - Sprint 4 implemented: web auth renders Turnstile for Supabase Auth entry calls and password reauth surfaces; native auth uses `/auth/challenge` with app-scheme return before token-bearing Supabase calls. Expo Go `exp://` callbacks against the production web challenge are intentionally skipped; use installed staging builds or a local challenge origin for native CAPTCHA smoke. Dashboard CAPTCHA state must still be verified and must not be enabled in production until staging smoke passes.
 - Sprint 5 implemented: authenticated account deletion now treats the pending deletion request as the idempotency anchor, retries safely after consumed reauth only with fresh proof or same-code recent email proof, aborts before Stripe if request creation fails, cancels non-terminal Stripe subscription states, records Stripe cleanup failures to payment observability, and returns user-safe retry/support copy without losing the pending request.
-- Metadata display names from auth providers should be sanitized before profile bootstrap writes.
-- `ensureProfileReady()` should be documented as a defensive check around the DB trigger.
-- `email-verification` logs should avoid recipient PII and full provider response bodies.
-- `phone-verify` `health_check` should be admin/service-only or removed.
-- `verification_attempts` throttling should be split or namespaced by flow.
+- Sprint 6 implemented: metadata display names from auth providers are sanitized before profile bootstrap writes.
+- Sprint 6 implemented: `ensureProfileReady()` is documented as a defensive, read-only check around the DB trigger and does not client-create profiles.
+- Sprint 6 implemented: `email-verification` logs no longer emit recipient/user email values or full Resend response bodies.
+- Sprint 6 implemented: `phone-verify` `health_check` has been removed from the client-callable surface.
+- Sprint 6 implemented: `verification_attempts` throttling is namespaced by flow so email OTP failures and phone verification sends do not throttle or clear each other.
+
+## Current Live Alignment Note
+
+The current local repo is ahead of production Supabase for Sprint 6. A read-only `npm run audit:auth-live` before applying `20260527130000_auth_sprint6_data_quality_observability.sql` is expected to fail on these Sprint 6-only checks:
+
+- `sanitize_profile_display_name_body`
+- `bootstrap_profile_display_name_sanitizer`
+- `verification_attempts_flow_column`
+- `verification_attempts_flow_index`
+- `verification_attempts_client_grants`
+
+Release order requirement: apply the Sprint 6 migration first, then deploy the changed `email-verification` and `phone-verify` Edge Functions, then rerun `npm run audit:auth-live`. Do not deploy the current Edge Function code ahead of the migration, because both functions write `verification_attempts.flow`.
 
 ## Supported Current Good State
 

@@ -9,6 +9,7 @@ const RESEND_API_KEY = Deno.env.get("RESEND_API_KEY");
 const EMAIL_VERIFICATION_FROM_EMAIL =
   Deno.env.get("EMAIL_VERIFICATION_FROM_EMAIL") ||
   "Vibely <hello@vibelymeet.com>";
+const EMAIL_OTP_VERIFY_FLOW = "email_otp_verify";
 
 /** Preferred secret for new OTP sends (dedicated pepper, else service role). */
 function getOtpHmacSecret(): string | null {
@@ -50,7 +51,7 @@ interface ApiErrorPayload {
   status?: number;
 }
 
-function jsonResponse(payload: Record<string, unknown>, status = 200): Response {
+function jsonResponse(payload: unknown, status = 200): Response {
   return new Response(JSON.stringify(payload), {
     status,
     headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -73,6 +74,17 @@ function identityProvidersForLog(user: {
   return (user.identities ?? [])
     .map((i) => (typeof i.provider === "string" ? i.provider : null))
     .filter((p): p is string => !!p);
+}
+
+function parsedObject(value: unknown): Record<string, unknown> | null {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+function stringField(value: Record<string, unknown> | null, field: string): string | null {
+  const raw = value?.[field];
+  return typeof raw === "string" && raw.trim().length > 0 ? raw : null;
 }
 
 // Generate a 6-digit OTP using cryptographically secure random
@@ -184,7 +196,10 @@ async function sendEmail(
     };
   }
 
-  logStage("resend_request_start", { requestId, to, from: EMAIL_VERIFICATION_FROM_EMAIL });
+  logStage("resend_request_start", {
+    requestId,
+    fromConfigured: EMAIL_VERIFICATION_FROM_EMAIL.trim().length > 0,
+  });
   const response = await fetch("https://api.resend.com/emails", {
     method: "POST",
     headers: {
@@ -236,30 +251,23 @@ async function sendEmail(
   } catch {
     responseBody = responseText;
   }
+  const responseObject = parsedObject(responseBody);
 
   logStage("resend_response", {
     requestId,
     status: response.status,
     ok: response.ok,
-    body: responseBody,
+    providerId: stringField(responseObject, "id"),
+    providerRequestId: response.headers.get("x-request-id"),
+    bodyLength: responseText.length,
   });
 
   if (!response.ok) {
-    const resendMessage =
-      typeof responseBody === "object" && responseBody !== null
-        ? ((responseBody as { message?: unknown; error?: unknown }).message ??
-          (responseBody as { message?: unknown; error?: unknown }).error)
-        : responseBody;
-    const errorMessage =
-      typeof resendMessage === "string" && resendMessage.trim().length > 0
-        ? resendMessage
-        : "Email provider rejected the verification send request.";
-
     return {
       ok: false,
       status: response.status >= 500 ? 502 : response.status,
       payload: {
-        error: `Unable to send verification email: ${errorMessage}`,
+        error: "Unable to send verification email. Please try again later.",
         code: "resend_rejected",
         status: response.status,
       },
@@ -326,10 +334,10 @@ const handler = async (req: Request): Promise<Response> => {
       logStage("send_user_resolved", {
         requestId,
         userId: user.id,
-        jwtUserEmail: user.email ?? null,
-        jwtAuthEmail,
-        canonicalAuthEmail,
-        requestedEmail,
+        jwtAuthEmailPresent: !!jwtAuthEmail,
+        canonicalAuthEmailPresent: !!canonicalAuthEmail,
+        requestedEmailPresent: !!requestedEmail,
+        requestedMatchesCanonical: !!requestedEmail && requestedEmail === canonicalAuthEmail,
         emailConfirmedAt: resolvedUser.email_confirmed_at ?? user.email_confirmed_at ?? null,
         adminUserFetchError: adminUserError?.message ?? null,
         identityProviders: identityProvidersForLog(resolvedUser),
@@ -353,8 +361,8 @@ const handler = async (req: Request): Promise<Response> => {
           requestId,
           userId: user.id,
           branch: "requested_mismatch_canonical",
-          requestedEmail,
-          canonicalAuthEmail,
+          requestedEmailPresent: !!requestedEmail,
+          canonicalAuthEmailPresent: !!canonicalAuthEmail,
         });
         return jsonResponse(
           { error: "Only the current email on your account can be verified.", code: "email_mismatch" },
@@ -367,8 +375,8 @@ const handler = async (req: Request): Promise<Response> => {
       logStage("canonical_email_resolved", {
         requestId,
         userId: user.id,
-        canonicalAuthEmail: authEmail,
-        requestedEmail,
+        canonicalAuthEmailPresent: !!authEmail,
+        requestedMatchesCanonical: true,
       });
 
       const otp = generateOtp();
@@ -450,8 +458,7 @@ const handler = async (req: Request): Promise<Response> => {
         return jsonResponse(resendResult.payload, resendResult.status);
       }
 
-      console.log(`OTP sent successfully to ${authEmail}`);
-      logStage("send_completed", { requestId, userId: user.id, email: authEmail });
+      logStage("send_completed", { requestId, userId: user.id });
 
       return jsonResponse({ success: true, message: "Verification code sent" }, 200);
     }
@@ -472,10 +479,10 @@ const handler = async (req: Request): Promise<Response> => {
       logStage("verify_user_resolved", {
         requestId,
         userId: user.id,
-        jwtUserEmail: user.email ?? null,
-        jwtAuthEmail: jwtAuthEmailVerify,
-        canonicalAuthEmail: canonicalAuthEmailVerify,
-        requestedEmail,
+        jwtAuthEmailPresent: !!jwtAuthEmailVerify,
+        canonicalAuthEmailPresent: !!canonicalAuthEmailVerify,
+        requestedEmailPresent: !!requestedEmail,
+        requestedMatchesCanonical: !!requestedEmail && requestedEmail === canonicalAuthEmailVerify,
         emailConfirmedAt: verifyResolvedUser.email_confirmed_at ?? user.email_confirmed_at ?? null,
         adminUserFetchError: verifyAdminError?.message ?? null,
         identityProviders: identityProvidersForLog(verifyResolvedUser),
@@ -501,7 +508,7 @@ const handler = async (req: Request): Promise<Response> => {
 
       const authEmail = canonicalAuthEmailVerify;
 
-      console.log(`Verifying OTP for user ${user.id}, email: ${authEmail}`);
+      logStage("verify_entered", { requestId, userId: user.id });
 
       // Check failed attempt count (max 7 per hour)
       const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
@@ -509,6 +516,7 @@ const handler = async (req: Request): Promise<Response> => {
         .from("verification_attempts")
         .select("*", { count: "exact", head: true })
         .eq("user_id", user.id)
+        .eq("flow", EMAIL_OTP_VERIFY_FLOW)
         .gte("attempt_at", oneHourAgo);
 
       if (countError) {
@@ -580,7 +588,7 @@ const handler = async (req: Request): Promise<Response> => {
         // Record failed attempt
         await supabaseAdmin
           .from("verification_attempts")
-          .insert({ user_id: user.id });
+          .insert({ user_id: user.id, flow: EMAIL_OTP_VERIFY_FLOW });
         
         const remainingAttempts = MAX_ATTEMPTS - ((attemptCount ?? 0) + 1);
         console.log(`Invalid OTP attempt for user ${user.id}. Remaining attempts: ${remainingAttempts}`);
@@ -598,7 +606,8 @@ const handler = async (req: Request): Promise<Response> => {
       await supabaseAdmin
         .from("verification_attempts")
         .delete()
-        .eq("user_id", user.id);
+        .eq("user_id", user.id)
+        .eq("flow", EMAIL_OTP_VERIFY_FLOW);
 
       // Mark as verified and delete the verification record for security
       await supabaseAdmin

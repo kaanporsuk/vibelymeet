@@ -39,7 +39,8 @@ No real SMS smoke was run.
 
 - Gateway JWT posture: `verify_jwt = true` in `supabase/config.toml`.
 - The function also resolves the authenticated Supabase user through `supabase.auth.getUser()`.
-- Stream 15 changed the internal ordering so the dev diagnostic `health_check` and Twilio secret posture response require authenticated user context before returning any provider configuration booleans.
+- Stream 15 originally changed the internal ordering so the dev diagnostic `health_check` required authenticated user context before returning provider configuration booleans.
+- Sprint 6 supersedes that posture: the client-callable `health_check` action has been removed entirely, and provider configuration failures now return coarse user-safe copy while logging only a missing-secret count.
 - This does not loosen the gateway posture and does not add public phone verification behavior.
 
 ## Twilio Secret Posture
@@ -64,7 +65,7 @@ No new env vars were added. The function still uses Supabase runtime env names a
 
 ## Rate-Limit and Attempt Posture
 
-- Send attempts are counted in `verification_attempts`.
+- Send attempts are counted in `verification_attempts` with `flow = 'phone_verify_send'`.
 - The existing limit remains max 5 SMS sends per authenticated user per hour.
 - The response remains product-compatible with `errorType: "rate_limited"` and `retry_after: 3600`.
 - The web/native client-side failed OTP attempt counters are UX-local only and do not replace Twilio Verify's server-side check behavior.
@@ -101,11 +102,11 @@ Code fixes made:
   - masked phone metadata before logging
   - removed partial Twilio secret, auth token length, full phone number, Verify URL, provider response body/message, and raw exception-object logging
   - kept Twilio status/error-code observability without printing OTPs or secret values
-  - moved authenticated user resolution ahead of `health_check`
+  - Sprint 6 later removed the client-callable `health_check` action completely
 - `src/components/PhoneVerification.tsx`
   - removed full phone number and full function response logging
   - kept sanitized failure categories for local diagnosis
-  - kept the dev-only `__vibely_diag=1` health check, now backed by an authenticated function path
+  - Sprint 6 later removed the dev-only `__vibely_diag=1` health check call
 
 OTP values, Twilio secret values, full phone numbers, provider URLs, and raw provider responses are not logged by the audited active phone verification paths.
 
@@ -113,7 +114,7 @@ OTP values, Twilio secret values, full phone numbers, provider URLs, and raw pro
 
 - `shared/matching/twilioPhoneVerificationQa.test.ts`
 
-Coverage includes gateway JWT posture, Twilio env usage, authenticated-user ordering, send/check actions, rate limiting and attempt tracking, Lookup/VoIP blocking posture, one-user-one-phone checks, WebOTP entry support, safe logging, no new env vars/migrations/native modules, no `expo-av`, and Streams 1-14 artifact presence.
+Coverage includes gateway JWT posture, Twilio env usage, unsupported-action rejection before provider config checks, send/check actions, flow-scoped rate limiting and attempt tracking, Lookup/VoIP blocking posture, one-user-one-phone checks, WebOTP entry support, safe logging, no new env vars/native modules, no `expo-av`, and Streams 1-14 artifact presence.
 
 ## Manual Twilio Dashboard Checklist
 
@@ -138,10 +139,9 @@ Coverage includes gateway JWT posture, Twilio env usage, authenticated-user orde
 
 ## Deploy Requirements
 
-- Supabase migration requirement: none.
+- Supabase migration requirement: Sprint 6 adds `verification_attempts.flow`; apply `20260527130000_auth_sprint6_data_quality_observability.sql` before deploying the current `phone-verify` code.
 - Edge Function deploy requirement: `phone-verify` changed and must be deployed after merge only:
   - `supabase functions deploy phone-verify --project-ref schdyxcunwcvddlcshwd`
-- No DB deploy is required.
 - No other Edge Function changed.
 
 ## Safety Confirmations
