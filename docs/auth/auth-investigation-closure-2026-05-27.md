@@ -2,7 +2,7 @@
 
 Date: 2026-05-27
 
-This document consolidates the original Vibely auth investigation with the separate report assessment. It started as a Sprint 0 baseline artifact; the current repo now also carries the Sprint 1-6 auth hardening code, migrations, docs, and contracts. Production Supabase project `schdyxcunwcvddlcshwd` passed the live auth audit after Sprint 5; the Sprint 6 migration is prepared locally and must be applied before the next post-deploy live audit.
+This document consolidates the original Vibely auth investigation with the separate report assessment. It started as a Sprint 0 baseline artifact; the current repo now also carries the Sprint 1-7 auth hardening code, migrations, docs, contracts, and release certification. Production Supabase project `schdyxcunwcvddlcshwd` passes the post-Sprint-6 live auth audit with `0 fail, 0 warn, 40 checks`.
 
 ## Findings Carried Forward
 
@@ -27,15 +27,9 @@ Status after the current repo changes and the latest live audit:
 
 ## Current Live Alignment Note
 
-The current local repo is ahead of production Supabase for Sprint 6. A read-only `npm run audit:auth-live` before applying `20260527130000_auth_sprint6_data_quality_observability.sql` is expected to fail on these Sprint 6-only checks:
+Production Supabase is aligned with the current repo for Sprints 0-6. The Sprint 6 migration `20260527130000_auth_sprint6_data_quality_observability.sql` has been applied, and the changed `email-verification` and `phone-verify` Edge Functions have been deployed. Post-deploy `npm run audit:auth-live` passes with `0 fail, 0 warn, 40 checks`.
 
-- `sanitize_profile_display_name_body`
-- `bootstrap_profile_display_name_sanitizer`
-- `verification_attempts_flow_column`
-- `verification_attempts_flow_index`
-- `verification_attempts_client_grants`
-
-Release order requirement: apply the Sprint 6 migration first, then deploy the changed `email-verification` and `phone-verify` Edge Functions, then rerun `npm run audit:auth-live`. Do not deploy the current Edge Function code ahead of the migration, because both functions write `verification_attempts.flow`.
+Release-order invariant for future environments: apply the Sprint 6 migration first, then deploy the changed `email-verification` and `phone-verify` Edge Functions, then rerun `npm run audit:auth-live`. Do not deploy the current Edge Function code ahead of the migration, because both functions write `verification_attempts.flow`.
 
 ## Supported Current Good State
 
@@ -71,4 +65,4 @@ Do not implement these claims as written:
 - Sprint 4: abuse controls, CAPTCHA, cooldowns, and auth UX.
 - Sprint 5: account deletion idempotency and provider side-effect observability.
 - Sprint 6: data quality, route hygiene, logging reduction, and throttling namespaces.
-- Sprint 7: release certification and rollout.
+- Sprint 7: release certification and rollout. Certification record: `docs/auth/auth-release-certification-2026-05-27.md`.
