@@ -615,6 +615,31 @@ const handler = async (req: Request): Promise<Response> => {
         );
       }
 
+      const verifiedEmail = verifyResolvedUser.email ?? user.email ?? authEmail;
+      const { error: profileError } = await supabaseAdmin.rpc(
+        "mark_profile_email_verified_from_server",
+        {
+          p_user_id: user.id,
+          p_verified_email: verifiedEmail,
+        },
+      );
+
+      if (profileError) {
+        console.error("Profile update error:", safeErrorMessage(profileError));
+        logStage("verify_profile_update_failed", {
+          requestId,
+          userId: user.id,
+          error: profileError.message,
+        });
+        return jsonResponse(
+          {
+            error: "Could not mark your email as verified. Please try again.",
+            code: "profile_verification_update_failed",
+          },
+          500,
+        );
+      }
+
       // Success - clear failed attempts for this user
       await supabaseAdmin
         .from("verification_attempts")
@@ -627,19 +652,6 @@ const handler = async (req: Request): Promise<Response> => {
         .from("email_verifications")
         .delete()
         .eq("id", verification.id);
-
-      const verifiedEmail = verifyResolvedUser.email ?? user.email ?? authEmail;
-      const { error: profileError } = await supabaseAdmin.rpc(
-        "mark_profile_email_verified_from_server",
-        {
-          p_user_id: user.id,
-          p_verified_email: verifiedEmail,
-        },
-      );
-
-      if (profileError) {
-        console.error("Profile update error:", safeErrorMessage(profileError));
-      }
 
       console.log(`Email verified successfully for user ${user.id}`);
 

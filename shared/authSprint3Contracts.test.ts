@@ -177,6 +177,7 @@ test("web premium checkout preserves a safe return path through auth", () => {
   assert.match(authPage, /function normalizeAuthNextPath\(value: string \| null\): string \| null/);
   assert.match(authPage, /!trimmed\.startsWith\("\/"\) \|\| trimmed\.startsWith\("\/\/"\)/);
   assert.match(authPage, /normalized\.startsWith\("\/auth"\)/);
+  assert.match(authPage, /if \(!normalized\) \{[\s\S]{0,80}clearStoredAuthNextPath\(\);[\s\S]{0,40}return;/);
   assert.match(authPage, /writeAuthNextPathCookie\(normalized\)/);
   assert.match(authPage, /readAuthNextPathCookie\(\)/);
   assert.match(authPage, /const nextPath = searchParams\.get\("next"\)/);

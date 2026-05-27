@@ -10,6 +10,7 @@ const migrationPath = "supabase/migrations/20260527120000_auth_profile_write_pri
 const migration = read(migrationPath);
 const writerMigrationPath = "supabase/migrations/20260527123000_auth_verified_contact_server_writers.sql";
 const writerMigration = read(writerMigrationPath);
+const reviewFollowupsMigration = read("supabase/migrations/20260527234117_review_comments_1086_1100_followups.sql");
 const generatedTypes = read("src/integrations/supabase/types.ts");
 
 const backendOwnedProfileColumns = [
@@ -235,8 +236,9 @@ test("generated Supabase types include auth hardening RPC interfaces", () => {
   assert.match(generatedTypes, /mark_profile_phone_verified_from_server:\s*\{\s*Args:\s*\{[\s\S]{0,120}p_phone_number: string[\s\S]{0,120}p_user_id: string[\s\S]{0,120}p_verified_at\?: string[\s\S]{0,120}\}\s*Returns: undefined\s*\}/);
 });
 
-test("client profile flows no longer self-insert profiles or write backend-owned verification references", () => {
+test("client profile flows repair missing bootstrap rows through a narrow backend RPC only", () => {
   const webProfileService = read("src/services/profileService.ts");
+  const nativeProfileApi = read("apps/mobile/lib/profileApi.ts");
   const webPhotoVerification = read("src/components/verification/SimplePhotoVerification.tsx");
   const nativePhotoVerification = read("apps/mobile/components/verification/PhotoVerificationFlow.tsx");
 
@@ -245,8 +247,23 @@ test("client profile flows no longer self-insert profiles or write backend-owned
     webProfileService.indexOf("// Location auto-detect utilities"),
   );
   assert.match(createProfileSection, /\.from\("profiles"\)\s+\.update\(updateData\)/);
+  assert.match(createProfileSection, /\.rpc\("ensure_profile_from_auth_user"\)/);
+  assert.match(createProfileSection, /retriedProfile/);
   assert.doesNotMatch(createProfileSection, /\.upsert\(/);
+  assert.doesNotMatch(createProfileSection, /\.insert\(/);
   assert.match(createProfileSection, /Profile setup is not ready/);
+  assert.match(nativeProfileApi, /\.rpc\('ensure_profile_from_auth_user'\)/);
+  assert.match(nativeProfileApi, /retriedProfile/);
+  assert.doesNotMatch(nativeProfileApi, /\.upsert\(/);
+
+  assert.match(reviewFollowupsMigration, /CREATE OR REPLACE FUNCTION public\.ensure_profile_from_auth_user\(\)/);
+  assert.match(reviewFollowupsMigration, /SECURITY DEFINER/);
+  assert.match(reviewFollowupsMigration, /v_user_id uuid := auth\.uid\(\)/);
+  assert.match(reviewFollowupsMigration, /set_config\('vibely\.verification_server_update', '1', true\)/);
+  assert.match(reviewFollowupsMigration, /INSERT INTO public\.profiles/);
+  assert.match(reviewFollowupsMigration, /ON CONFLICT \(id\) DO NOTHING/);
+  assert.match(reviewFollowupsMigration, /GRANT EXECUTE ON FUNCTION public\.ensure_profile_from_auth_user\(\) TO authenticated, service_role/);
+  assert.match(generatedTypes, /ensure_profile_from_auth_user:\s*\{\s*Args: never;\s*Returns: boolean\s*\}/);
 
   for (const source of [webPhotoVerification, nativePhotoVerification]) {
     assert.match(source, /photo_verifications/);
@@ -262,6 +279,8 @@ test("verification Edge Functions use trusted RPC writers for profile trust fiel
   assert.match(emailVerification, /\.rpc\(\s*"mark_profile_email_verified_from_server"/);
   assert.match(emailVerification, /p_user_id:\s*user\.id/);
   assert.match(emailVerification, /p_verified_email:\s*verifiedEmail/);
+  assert.match(emailVerification, /profile_verification_update_failed/);
+  assert.match(emailVerification, /return jsonResponse\([\s\S]{0,240}profile_verification_update_failed[\s\S]{0,80}500/);
 
   assert.match(phoneVerification, /\.rpc\(\s*"mark_profile_phone_verified_from_server"/);
   assert.match(phoneVerification, /p_user_id:\s*user\.id/);

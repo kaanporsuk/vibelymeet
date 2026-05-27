@@ -1,7 +1,7 @@
--- Harden OneSignal logout cleanup when the client cannot read the current
--- subscription id. A null subscription id only clears legacy preference mirrors;
--- durable push_subscriptions rows require a concrete subscription id so one
--- device logout cannot unregister the user's other devices.
+-- Follow-ups for Codex review comments across PRs 1086-1100.
+-- This migration re-applies database fixes in forward-only form so cloud
+-- projects that already ran earlier merged migrations still reach the safe
+-- final state.
 
 BEGIN;
 
@@ -59,6 +59,61 @@ $$;
 REVOKE ALL ON FUNCTION public.unregister_onesignal_push_subscription(text, text) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.unregister_onesignal_push_subscription(text, text) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.unregister_onesignal_push_subscription(text, text) TO service_role;
+
+CREATE OR REPLACE FUNCTION public.ensure_profile_from_auth_user()
+RETURNS boolean
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO public, pg_catalog
+AS $$
+DECLARE
+  v_user_id uuid := auth.uid();
+  v_inserted integer := 0;
+BEGIN
+  IF v_user_id IS NULL THEN
+    RAISE EXCEPTION 'ensure_profile_from_auth_user requires an authenticated user'
+      USING ERRCODE = '28000';
+  END IF;
+
+  IF EXISTS (SELECT 1 FROM public.profiles WHERE id = v_user_id) THEN
+    RETURN false;
+  END IF;
+
+  PERFORM set_config('vibely.verification_server_update', '1', true);
+
+  BEGIN
+    INSERT INTO public.profiles (
+      id,
+      name,
+      age,
+      gender,
+      birth_date
+    )
+    VALUES (
+      v_user_id,
+      '',
+      18,
+      'prefer_not_to_say',
+      NULL
+    )
+    ON CONFLICT (id) DO NOTHING;
+
+    GET DIAGNOSTICS v_inserted = ROW_COUNT;
+  EXCEPTION WHEN OTHERS THEN
+    PERFORM set_config('vibely.verification_server_update', NULL, true);
+    RAISE;
+  END;
+
+  PERFORM set_config('vibely.verification_server_update', NULL, true);
+  RETURN v_inserted > 0;
+END;
+$$;
+
+COMMENT ON FUNCTION public.ensure_profile_from_auth_user() IS
+  'Authenticated fallback for a missing auth.users -> profiles bootstrap row. Inserts only the caller profile id plus safe onboarding defaults through the backend-owned profile insert guard.';
+
+REVOKE ALL ON FUNCTION public.ensure_profile_from_auth_user() FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.ensure_profile_from_auth_user() TO authenticated, service_role;
 
 NOTIFY pgrst, 'reload schema';
 

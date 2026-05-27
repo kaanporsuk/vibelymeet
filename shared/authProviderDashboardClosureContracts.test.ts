@@ -74,18 +74,21 @@ test("Sprint 2 live provider check records exact redirect shapes from current re
     assert.match(liveCheck, new RegExp(url.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
   }
 
-  assert.match(liveCheck, /Vite local dev port is `8080`, not `5173`/);
+  assert.match(liveCheck, /Vite local dev port is `8080`/);
+  assert.match(liveCheck, /Playwright E2E uses `127\.0\.0\.1:5173`/);
   assert.match(checklist, /localhost:8080/);
+  assert.match(checklist, /localhost:5173/);
   assert.match(sharedCors, /http:\/\/localhost:8080/);
   assert.match(sharedCors, /http:\/\/127\.0\.0\.1:8080/);
-  assert.doesNotMatch(sharedCors, /localhost:5173|127\.0\.0\.1:5173/);
+  assert.match(sharedCors, /http:\/\/localhost:5173/);
+  assert.match(sharedCors, /http:\/\/127\.0\.0\.1:5173/);
   assert.match(webIdentityLinking, /const redirectUrl = new URL\('\/settings', window\.location\.origin\)/);
   assert.match(webIdentityLinking, /redirectUrl\.searchParams\.set\('drawer', 'account'\)/);
   assert.match(webSettings, /drawer === "account"[\s\S]+setActiveDrawer\("account"\)/);
   assert.match(nativeAuthRedirect, /const ROOT_PATH = '\/'/);
   assert.match(nativeAuthRedirect, /Linking\.createURL\(ROOT_PATH\)/);
   assert.match(liveCheck, /standalone builds can represent that root as `com\.vibelymeet\.vibely:\/\/\/`/);
-  assert.match(checklist, /Historical note: do not keep `localhost:5173`/);
+  assert.match(checklist, /Playwright E2E keeps `localhost:5173`/);
 });
 
 test("Sprint 2 live provider check covers provider dashboards without recording secrets", () => {

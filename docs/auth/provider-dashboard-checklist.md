@@ -74,9 +74,11 @@ Required development values for the current repo:
 - `http://localhost:8080/reset-password`
 - `http://localhost:8080/settings?drawer=account&linking=true&provider=google`
 - `http://localhost:8080/settings?drawer=account&linking=true&provider=apple`
+- `http://localhost:5173`
+- `http://127.0.0.1:5173`
 - any active preview domains used for manual QA.
 
-Historical note: do not keep `localhost:5173` unless another approved local workflow still uses it. Current `vite.config.ts` sets the dev server port to `8080`.
+Current `vite.config.ts` sets the interactive dev server port to `8080`. Playwright E2E keeps `localhost:5173` / `127.0.0.1:5173` because `e2e/playwright.config.ts` starts Vite on that port.
 
 Native root note: `getNativeEmailSignUpRedirectUrl()` calls `Linking.createURL("/")`; standalone Expo builds can emit the app root as `com.vibelymeet.vibely:///`. Keep the double-slash root only as compatibility coverage if the dashboard already normalizes it.
 

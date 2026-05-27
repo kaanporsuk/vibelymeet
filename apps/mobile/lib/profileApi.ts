@@ -298,8 +298,26 @@ export async function updateMyProfile(updates: NativeProfileUpdatePayload): Prom
     db.event_discovery_prefs = serializeEventDiscoveryPrefs(updates.event_discovery_prefs);
   }
   if (Object.keys(db).length > 0) {
-    const { error } = await supabase.from('profiles').update(db).eq('id', user.id);
+    const { data: updatedProfile, error } = await supabase
+      .from('profiles')
+      .update(db)
+      .eq('id', user.id)
+      .select('id')
+      .maybeSingle();
     if (error) throw error;
+    if (!updatedProfile) {
+      const { error: bootstrapError } = await supabase.rpc('ensure_profile_from_auth_user');
+      if (bootstrapError) throw bootstrapError;
+
+      const { data: retriedProfile, error: retryError } = await supabase
+        .from('profiles')
+        .update(db)
+        .eq('id', user.id)
+        .select('id')
+        .maybeSingle();
+      if (retryError) throw retryError;
+      if (!retriedProfile) throw new Error('Profile setup is not ready. Please sign out and sign in again.');
+    }
   }
   if (updates.vibes !== undefined) {
     await syncProfileVibes(user.id, updates.vibes);

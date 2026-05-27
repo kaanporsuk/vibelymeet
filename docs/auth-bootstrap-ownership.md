@@ -150,7 +150,7 @@ This addendum captures final post-incident hardening after missing-profile repai
 - Bootstrap helper cleanup:
   - Removed legacy wrapper `ensureBootstrapProfileExists(...)` from `apps/mobile/lib/profileBootstrap.ts`.
   - Canonical contract remains `ensureProfileReady(...)`.
-  - `ensureProfileReady(...)` is a defensive, read-only check around the `auth.users` -> `profiles` trigger. It only selects the caller's profile row, retries briefly for trigger delivery, and reports `profile_missing` to recovery flows. It must not insert, upsert, or repair `profiles` client-side.
+  - `ensureProfileReady(...)` is a defensive, read-only check around the `auth.users` -> `profiles` trigger. It only selects the caller's profile row, retries briefly for trigger delivery, and reports `profile_missing` to recovery flows. It must not insert or upsert `profiles` client-side; final onboarding may invoke the narrow backend-owned `ensure_profile_from_auth_user()` RPC if the trigger row is still missing.
   - Removed stale reason variants that no longer reflect ownership (`auth_context_session`, `auth_context_state_change`).
 
 - Journey CTA refinement (safe, owner-preserving):

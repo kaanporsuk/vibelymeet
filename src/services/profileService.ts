@@ -408,7 +408,20 @@ export const createProfile = async (profileData: ProfileUpdatePayload): Promise<
 
   if (error) throw error;
   if (!updatedProfile) {
-    throw new Error("Profile setup is not ready. Please sign out and sign in again.");
+    const { error: bootstrapError } = await supabase.rpc("ensure_profile_from_auth_user");
+    if (bootstrapError) throw bootstrapError;
+
+    const { data: retriedProfile, error: retryError } = await supabase
+      .from("profiles")
+      .update(updateData)
+      .eq("id", user.id)
+      .select("id")
+      .maybeSingle();
+
+    if (retryError) throw retryError;
+    if (!retriedProfile) {
+      throw new Error("Profile setup is not ready. Please sign out and sign in again.");
+    }
   }
 
   // Handle vibes
