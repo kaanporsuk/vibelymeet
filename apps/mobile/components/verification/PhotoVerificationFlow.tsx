@@ -3,7 +3,7 @@
  * Mirrors web `SimplePhotoVerification` semantics:
  * - upload selfie to `proof-selfies`
  * - insert `photo_verifications` with `status: "pending"`
- * - update `profiles.proof_selfie_url`
+ * - leave profile verification fields to admin/server-owned review flows
  * - do NOT set `profiles.photo_verified` client-side (admin-only approval)
  */
 import React, { useEffect, useMemo, useState } from 'react';
@@ -154,9 +154,6 @@ export function PhotoVerificationFlow({ visible, onClose, onSubmissionComplete, 
         }
         throw insertError;
       }
-
-      // For reviewer/audit reference. Does not imply approval.
-      await supabase.from('profiles').update({ proof_selfie_url: selfieUrl }).eq('id', user.id);
 
       setStep('submitted');
       setTimeout(() => {
