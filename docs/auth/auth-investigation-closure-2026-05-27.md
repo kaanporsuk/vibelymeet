@@ -13,18 +13,14 @@ Status after the current repo changes and the latest live audit:
 - Live-confirmed: direct profile inserts are blocked unless they come from trusted backend context; auth bootstrap sets that context explicitly.
 - Live-confirmed: `bootstrap_profile_from_auth_user()` and `resolve_entry_state()` execute grants are tightened.
 - Sprint 2 dated provider closure exists at `docs/auth/provider-live-check-2026-05-27.md`.
+- Sprint 3 implemented: web and native Supabase clients explicitly use PKCE, web OAuth callbacks carry provider context, generic email confirmation/email-change auth returns are consumed manually, auth-return URLs are scrubbed after capture, bootstrap refresh runs before entry-state resolution, expired-session redirects surface user copy, and linked-method UI distinguishes confirmed, pending, and session-email-without-password states.
 - Still manual: dashboard-only provider settings must be verified for identity linking, same-email account behavior, Google Cloud, Apple Developer, Twilio SID equality, Resend SMTP, redirect allow-list, CAPTCHA dashboard state, and rate limits.
-- Web OAuth callback should not rely on a fixed 100ms sleep and should preserve provider context across redirect.
-- Web identity-linking callback must surface OAuth/linking errors before clearing URL parameters.
-- Linked-method UI must distinguish confirmed identities from synthetic session-level email/phone entries that may still be pending confirmation.
-- `autoRefreshToken:false` is mitigated by managed refresh, but cold-start refresh should happen before protected route data is fetched when a persisted session is expired or near expiry.
 - Phone OTP first-send error paths need cooldown behavior on web and native.
 - Auth UI should expose forgot-password entry points outside only the email sign-in subview.
 - Auth CAPTCHA is not wired in app code yet; dashboard CAPTCHA state must be verified and Sprint 4 should add web/native token collection before enabling it.
 - Account deletion already creates/ensures a durable deletion request before Stripe cancellation, but still needs idempotency and better external-side-effect observability.
 - Metadata display names from auth providers should be sanitized before profile bootstrap writes.
 - `ensureProfileReady()` should be documented as a defensive check around the DB trigger.
-- Native `profile-preview` should join the protected root segment list for route consistency.
 - `email-verification` logs should avoid recipient PII and full provider response bodies.
 - `phone-verify` `health_check` should be admin/service-only or removed.
 - `verification_attempts` throttling should be split or namespaced by flow.
@@ -50,9 +46,9 @@ Do not implement these claims as written:
 - "`delete-account` cancels Stripe before inserting the deletion request." Stale. Current code creates/ensures the deletion request before Stripe cancellation. Sprint 5 should harden idempotency and failure recording, not reverse an already-correct order.
 - "Native `authUserIdRef` race." Stale. Native sets the ref synchronously inside `applyAuthSession()`.
 - "All SECURITY DEFINER functions check `auth.uid()` internally." Disgrounded. There are many definer functions, bootstrap is trigger-owned and does not check `auth.uid()`, and live routine grants still need tightening.
-- "Web Supabase JS defaults to PKCE." Wrong for the installed SDK. Web currently uses implicit flow unless explicitly configured; native explicitly sets `flowType: 'pkce'`.
+- "Web Supabase JS defaults to PKCE." Wrong for the installed SDK at the time of investigation. Sprint 3 now explicitly configures web and native with `flowType: 'pkce'`.
 - "Direct `GET /profiles?id=eq.{uuid}` always returns 403." Overstated. Owner safe-column direct reads exist; cross-user direct profile reads must remain blocked.
-- "OAuth params are not stripped." Mostly stale. Current sign-in callback clears params, but provider context is lost across full redirect.
+- "OAuth params are not stripped." Stale. Current sign-in callback clears params and Sprint 3 carries provider context through redirect before clearing.
 
 ## Sprint Mapping
 

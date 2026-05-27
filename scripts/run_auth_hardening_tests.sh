@@ -4,6 +4,7 @@ set -euo pipefail
 npm run test:auth-redirect-contract
 npx tsx shared/authErrorCopy.test.ts
 npx tsx shared/authWebOAuthLinkingContracts.test.ts
+npx tsx shared/authSprint3Contracts.test.ts
 npx tsx shared/authProviderDashboardClosureContracts.test.ts
 npx tsx shared/matching/resendEmailProviderOperationalQa.test.ts
 npx tsx shared/matching/twilioPhoneVerificationQa.test.ts

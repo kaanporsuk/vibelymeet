@@ -434,7 +434,7 @@ function AuthRedirectHandler({ onReferralCaptured }: { onReferralCaptured: () =>
 }
 
 function SupabaseManagedAuthRefreshAppStateBridge() {
-  const { loading, session } = useAuth();
+  const { loading, session, markSessionExpired } = useAuth();
   const appStateRef = useRef<AppStateStatus>(AppState.currentState);
   const managedRefreshFailureCountRef = useRef(0);
   const managedRefreshInFlightRef = useRef(false);
@@ -526,6 +526,7 @@ function SupabaseManagedAuthRefreshAppStateBridge() {
         managedRefreshFailureCountRef.current = 0;
         invalidateCachedSession();
         await recoverNativeAuthSession('managed-refresh', error);
+        markSessionExpired();
         return;
       }
 
@@ -617,7 +618,7 @@ function SupabaseManagedAuthRefreshAppStateBridge() {
       subscription.remove();
       clearRefreshTimer();
     };
-  }, [loading, session]);
+  }, [loading, markSessionExpired, session]);
 
   return null;
 }
@@ -753,7 +754,7 @@ function ReferralAttributionSync({ syncTick }: { syncTick: number }) {
 
 function EntryStateRouteGate({ children }: { children: ReactNode }) {
   const segments = useSegments();
-  const { session, loading, entryState, entryStateLoading } = useAuth();
+  const { session, loading, authRedirectReason, entryState, entryStateLoading } = useAuth();
   const rootSegment = segments[0] ?? null;
   const isProtectedRoute = rootSegment != null && PROTECTED_ROOT_SEGMENTS.has(rootSegment);
 
@@ -770,6 +771,16 @@ function EntryStateRouteGate({ children }: { children: ReactNode }) {
   }
 
   if (!session) {
+    if (authRedirectReason === 'session_expired') {
+      return (
+        <Redirect
+          href={{
+            pathname: '/(auth)/sign-in',
+            params: { authError: 'Your session expired. Sign in again to continue.' },
+          }}
+        />
+      );
+    }
     return <Redirect href="/(auth)/sign-in" />;
   }
 

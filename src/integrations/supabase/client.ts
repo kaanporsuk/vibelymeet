@@ -32,5 +32,7 @@ export const supabase = createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {
     storage: browserStorage,
     persistSession: isBrowser,
     autoRefreshToken: false,
+    detectSessionInUrl: false,
+    flowType: 'pkce',
   }
 });

@@ -18,8 +18,11 @@ test("web OAuth callback is deterministic across full-page redirects", () => {
   assert.match(authPage, /SameSite=Lax/);
   assert.match(authPage, /storeOAuthProvider\("google"\)/);
   assert.match(authPage, /storeOAuthProvider\("apple"\)/);
-  assert.match(authPage, /redirectTo: `\$\{window\.location\.origin\}\/auth\?provider_callback=true`/);
-  assert.doesNotMatch(authPage, /provider_callback=true&provider=(google|apple)/);
+  assert.match(authPage, /function getWebOAuthRedirectUrl\(provider: WebOAuthProvider\): string/);
+  assert.match(authPage, /redirectUrl\.searchParams\.set\("provider_callback", "true"\)/);
+  assert.match(authPage, /redirectUrl\.searchParams\.set\("provider", provider\)/);
+  assert.match(authPage, /redirectTo: getWebOAuthRedirectUrl\("google"\)/);
+  assert.match(authPage, /redirectTo: getWebOAuthRedirectUrl\("apple"\)/);
   assert.match(authPage, /getCallbackProvider\(search\) \?\? readStoredOAuthProvider\(\) \?\? pendingOAuthProviderRef\.current/);
   assert.match(authPage, /WEB_OAUTH_CALLBACK_TIMEOUT_MS = 5_000/);
   assert.match(authPage, /supabase\.auth\.onAuthStateChange/);

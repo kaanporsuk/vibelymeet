@@ -1,9 +1,9 @@
 import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import * as Sentry from '@sentry/react-native';
 import { Session, User } from '@supabase/supabase-js';
-import { supabase } from '@/lib/supabase';
+import { SUPABASE_PUBLISHABLE_KEY, SUPABASE_URL, supabase } from '@/lib/supabase';
 import { clearNativeSupabaseAuthStorage } from '@/lib/authStorage';
-import { invalidateCachedSession } from '@/lib/nativeAuthSession';
+import { invalidateCachedSession, primeCachedSession } from '@/lib/nativeAuthSession';
 import {
   isInvalidRefreshTokenError,
   isNoSessionError,
@@ -35,11 +35,21 @@ import {
   prefetchClientFeatureFlagsForUser,
 } from '@/lib/clientFeatureFlags';
 import { markMediaSdkForegroundReconcile } from '@clientShared/media-sdk';
+import {
+  applyManagedAuthRefreshSession,
+  authRefreshDebugInfo,
+  classifyAuthRefreshError,
+  requestManagedAuthRefresh,
+  shouldRefreshSessionSoon,
+} from '@clientShared/authRefreshPolicy';
+
+type AuthRedirectReason = 'session_expired' | null;
 
 type AuthState = {
   user: User | null;
   session: Session | null;
   loading: boolean;
+  authRedirectReason: AuthRedirectReason;
   entryState: EntryStateResponse | null;
   entryStateLoading: boolean;
   profilePresence: 'present' | 'missing' | 'unknown';
@@ -52,6 +62,7 @@ type AuthContextValue = AuthState & {
   signOut: () => Promise<void>;
   refreshEntryState: () => Promise<EntryStateResponse | null>;
   refreshOnboarding: () => Promise<void>;
+  markSessionExpired: () => void;
 };
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -77,6 +88,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
+  const [authRedirectReason, setAuthRedirectReason] = useState<AuthRedirectReason>(null);
   const [entryState, setEntryState] = useState<EntryStateResponse | null>(null);
   const [entryStateLoading, setEntryStateLoading] = useState(false);
   const currentUserId = session?.user?.id ?? null;
@@ -110,13 +122,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     ]).catch(() => undefined);
   }, []);
 
-  const clearAuthState = useCallback(() => {
+  const clearAuthState = useCallback((redirectReason: AuthRedirectReason = null) => {
     clearPreparedVideoDateEntryCache();
     clearMyLocationDataCache();
+    removeAllRealtimeChannels(supabase, redirectReason === 'session_expired' ? 'auth_session_expired' : 'auth_state_clear');
     void clearFeatureFlagState();
     authUserIdRef.current = null;
     setSession(null);
     setUser(null);
+    setAuthRedirectReason(redirectReason);
     setEntryState(null);
     setEntryStateLoading(false);
   }, [clearFeatureFlagState]);
@@ -146,6 +160,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
     setSession(s);
     setUser(s?.user ?? null);
+    if (s?.user) {
+      setAuthRedirectReason(null);
+    }
     if (!s?.user) {
       setEntryState(null);
       setEntryStateLoading(false);
@@ -208,6 +225,43 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }, [currentAuthProvider, currentUserId]);
 
+  const refreshBootstrapSessionIfNeeded = useCallback(async (bootSession: Session | null) => {
+    if (!bootSession?.refresh_token || typeof bootSession.expires_at !== 'number') {
+      return bootSession;
+    }
+    if (!shouldRefreshSessionSoon(bootSession, Date.now())) {
+      primeCachedSession(bootSession);
+      return bootSession;
+    }
+
+    try {
+      const refreshResponse = await requestManagedAuthRefresh({
+        supabaseUrl: SUPABASE_URL,
+        publishableKey: SUPABASE_PUBLISHABLE_KEY,
+        refreshToken: bootSession.refresh_token,
+      });
+      const refreshedSession = await applyManagedAuthRefreshSession(supabase.auth, bootSession, refreshResponse);
+      primeCachedSession(refreshedSession ?? bootSession);
+      return refreshedSession ?? bootSession;
+    } catch (error) {
+      const kind = classifyAuthRefreshError(error);
+      rcBreadcrumb(RC_CATEGORY.authBoot, 'bootstrap_refresh_failed', {
+        kind,
+        error: authRefreshDebugInfo(error),
+      });
+      if (__DEV__) {
+        console.warn('[auth] bootstrap refresh failed:', authRefreshDebugInfo(error));
+      }
+      if (kind === 'invalid_session' || bootSession.expires_at * 1000 <= Date.now()) {
+        await recoverNativeAuthSession('bootstrap', error);
+        invalidateCachedSession();
+        return null;
+      }
+      primeCachedSession(bootSession);
+      return bootSession;
+    }
+  }, []);
+
   useEffect(() => {
     let isMounted = true;
     let subscription: { unsubscribe: () => void } | null = null;
@@ -243,17 +297,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
           if (!isMounted) return;
           invalidateCachedSession();
-          clearAuthState();
+          clearAuthState(isRecoverableNativeAuthError(error) ? 'session_expired' : null);
           setLoading(false);
           subscribeAfterBootstrap();
           return;
         }
 
+        const readySession = await refreshBootstrapSessionIfNeeded(s);
         if (!isMounted) return;
-        if (s?.user?.id) {
+        if (readySession?.user?.id) {
           await hydrateNativeClientFeatureFlagCache();
         }
-        applyAuthSession(s);
+        applyAuthSession(readySession);
+        if (!readySession && s) {
+          clearAuthState('session_expired');
+        }
         setLoading(false);
       } catch (error) {
         if (isRecoverableNativeAuthError(error)) {
@@ -263,7 +321,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         }
         if (!isMounted) return;
         invalidateCachedSession();
-        clearAuthState();
+        clearAuthState(isRecoverableNativeAuthError(error) ? 'session_expired' : null);
         setLoading(false);
       }
 
@@ -277,7 +335,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       isMounted = false;
       subscription?.unsubscribe();
     };
-  }, [applyAuthSession, clearAuthState]);
+  }, [applyAuthSession, clearAuthState, refreshBootstrapSessionIfNeeded]);
 
   useEffect(() => {
     authUserIdRef.current = currentUserId;
@@ -366,6 +424,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     await refreshEntryState();
   }, [refreshEntryState]);
 
+  const markSessionExpired = useCallback(() => {
+    clearAuthState('session_expired');
+  }, [clearAuthState]);
+
   const onboardingStatus = getEntryStateOnboardingStatus(entryState);
   const profilePresence =
     entryState?.state === 'missing_profile'
@@ -378,6 +440,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     user,
     session,
     loading,
+    authRedirectReason,
     entryState,
     entryStateLoading,
     profilePresence,
@@ -387,6 +450,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     signOut,
     refreshEntryState,
     refreshOnboarding,
+    markSessionExpired,
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

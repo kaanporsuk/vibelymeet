@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
+  AlertCircle,
   ArrowLeft,
   ArrowRight,
   Check,
@@ -125,26 +126,38 @@ function clearOAuthProviderCookie() {
   }
 }
 
+function getWebOAuthRedirectUrl(provider: WebOAuthProvider): string {
+  const redirectUrl = new URL("/auth", window.location.origin);
+  redirectUrl.searchParams.set("provider_callback", "true");
+  redirectUrl.searchParams.set("provider", provider);
+  return redirectUrl.toString();
+}
+
 function waitForOAuthSession(timeoutMs = WEB_OAUTH_CALLBACK_TIMEOUT_MS): Promise<SupabaseSession | null> {
   return new Promise((resolve) => {
     let settled = false;
     let timeout: ReturnType<typeof setTimeout> | null = null;
-    let subscription: { unsubscribe: () => void } | null = null;
+    let unsubscribe: (() => void) | null = null;
 
     const finish = (session: SupabaseSession | null) => {
       if (settled) return;
       settled = true;
       if (timeout) clearTimeout(timeout);
-      subscription?.unsubscribe();
+      unsubscribe?.();
       resolve(session);
     };
 
     timeout = setTimeout(() => finish(null), timeoutMs);
 
-    const listener = supabase.auth.onAuthStateChange((_event, session) => {
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, session) => {
       if (session?.user) finish(session);
     });
-    subscription = listener.data.subscription;
+    unsubscribe = () => subscription.unsubscribe();
+    if (settled) {
+      unsubscribe();
+    }
 
     void supabase.auth
       .getSession()
@@ -193,6 +206,24 @@ const Auth = () => {
     () => buildPhoneE164(countryCode, phoneInput),
     [countryCode, phoneInput]
   );
+  const sessionExpiredMessage =
+    searchParams.get("reason") === "session_expired"
+      ? "Your session expired. Sign in again to continue."
+      : null;
+
+  useEffect(() => {
+    const authReturnError = searchParams.get("auth_error");
+    if (!authReturnError) return;
+
+    setError(safeAuthErrorMessage({ message: authReturnError }, "Could not complete sign-in. Try again."));
+    setView("welcome");
+    setOtpError(null);
+
+    const nextParams = new URLSearchParams(location.search);
+    nextParams.delete("auth_error");
+    const nextSearch = nextParams.toString();
+    navigate(nextSearch ? `/auth?${nextSearch}` : "/auth", { replace: true });
+  }, [location.search, navigate, searchParams]);
 
   // Track auth page view + preserve referral
   useEffect(() => {
@@ -474,7 +505,7 @@ const Auth = () => {
     const { error: oauthError } = await supabase.auth.signInWithOAuth({
       provider: "google",
       options: {
-        redirectTo: `${window.location.origin}/auth?provider_callback=true`,
+        redirectTo: getWebOAuthRedirectUrl("google"),
       },
     });
     if (oauthError) {
@@ -494,7 +525,7 @@ const Auth = () => {
     const { error: oauthError } = await supabase.auth.signInWithOAuth({
       provider: "apple",
       options: {
-        redirectTo: `${window.location.origin}/auth?provider_callback=true`,
+        redirectTo: getWebOAuthRedirectUrl("apple"),
       },
     });
     if (oauthError) {
@@ -1113,6 +1144,15 @@ const Auth = () => {
       </div>
 
       <div className="relative z-10 w-full max-w-md px-6">
+        {sessionExpiredMessage && view !== "success" && (
+          <div
+            role="status"
+            className="mb-4 flex items-start gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-100"
+          >
+            <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+            <span>{sessionExpiredMessage}</span>
+          </div>
+        )}
         <AnimatePresence mode="wait">
           {view === "welcome" && renderWelcome()}
           {view === "otp" && renderOtp()}

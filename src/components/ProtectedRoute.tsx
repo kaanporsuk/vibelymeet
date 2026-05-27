@@ -100,7 +100,7 @@ export function ProtectedRoute({
   requireAdmin = false,
   requireOnboarding = true
 }: ProtectedRouteProps) {
-  const { isAuthenticated, isLoading, session, isOfflineAtBoot, entryState, entryStateLoading, isProfileLoading, logout } = useAuth();
+  const { isAuthenticated, isLoading, session, isOfflineAtBoot, authRedirectReason, entryState, entryStateLoading, isProfileLoading, logout } = useAuth();
   const location = useLocation();
   const queryClient = useQueryClient();
   const verifiedAdminUserIdRef = useRef<string | null>(null);
@@ -229,8 +229,12 @@ export function ProtectedRoute({
   }
 
   if (!isAuthenticated) {
-    const search = location.search;
-    return <Navigate to={search ? `/auth${search}` : "/auth"} replace />;
+    const authSearch = new URLSearchParams(location.search);
+    if (authRedirectReason === "session_expired") {
+      authSearch.set("reason", "session_expired");
+    }
+    const authQuery = authSearch.toString();
+    return <Navigate to={authQuery ? `/auth?${authQuery}` : "/auth"} replace />;
   }
 
   // Server-side verified admin check - cannot be bypassed via client-side manipulation

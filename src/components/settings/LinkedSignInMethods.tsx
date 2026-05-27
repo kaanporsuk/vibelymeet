@@ -272,6 +272,8 @@ export function LinkedSignInMethods() {
           const isLinked = isLinkedMap[provider.id];
           const isBusy = isLinking && linkingProvider === provider.id;
           const identity = identities.find(i => i.provider === provider.id);
+          const isPending = identity?.status === 'pending_confirmation';
+          const isSessionOnlyEmail = provider.id === 'email' && isPending && Boolean(sessionEmail);
           const canUnlink = canUnlinkProvider(provider.id);
 
           return (
@@ -291,13 +293,18 @@ export function LinkedSignInMethods() {
                   </span>
                   <div>
                     <p className="text-sm font-medium">{provider.label}</p>
-                    {isLinked && identity?.identity_data?.email && (
+                    {(isLinked || isPending) && identity?.identity_data?.email && (
                       <p className="text-xs text-muted-foreground">{identity.identity_data.email}</p>
                     )}
-                    {isLinked && identity?.identity_data?.phone && (
+                    {(isLinked || isPending) && identity?.identity_data?.phone && (
                       <p className="text-xs text-muted-foreground">{identity.identity_data.phone}</p>
                     )}
-                    {provider.id === 'email' && !isLinked && sessionEmail && (
+                    {isPending && (
+                      <p className="text-xs text-amber-500">
+                        {isSessionOnlyEmail ? 'Add password to enable email sign-in' : 'Awaiting confirmation'}
+                      </p>
+                    )}
+                    {provider.id === 'email' && !isLinked && !isPending && sessionEmail && (
                       <p className="text-xs text-muted-foreground">
                         {sessionEmail} — no password set
                       </p>

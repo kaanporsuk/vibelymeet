@@ -41,7 +41,8 @@
  * ───────
  * supabase.auth.unlinkIdentity() is available. A user may unlink any identity as long
  * as at least one other identity remains (prevents orphaned accounts).
- * canRemoveMethod is computed from the live identity count.
+ * canRemoveMethod is computed from confirmed Supabase identities, not pending
+ * session-level email/phone fields.
  *
  * SECURITY INVARIANTS
  * ───────────────────
@@ -59,6 +60,7 @@ import * as WebBrowser from 'expo-web-browser';
 import * as AppleAuthentication from 'expo-apple-authentication';
 import {
   completeSessionFromAuthReturnUrl,
+  getNativeEmailChangeRedirectUrl,
   getNativeGoogleOAuthRedirectUrl,
 } from '@/lib/nativeAuthRedirect';
 import { createAppleAuthNoncePair, logAppleNonceDebug } from '@/lib/appleAuth';
@@ -72,6 +74,7 @@ import {
 // ---------- types ----------
 
 export type ProviderType = 'google' | 'apple' | 'email' | 'phone';
+export type LinkedIdentityStatus = 'confirmed' | 'pending_confirmation';
 
 // Derive raw identity type from the SDK return so we can pass it to unlinkIdentity().
 type RawUserIdentity = NonNullable<
@@ -82,6 +85,7 @@ export interface LinkedIdentity {
   provider: ProviderType;
   user_id: string;
   identity_id: string;
+  status: LinkedIdentityStatus;
   identity_data?: {
     email?: string;
     phone?: string;
@@ -143,14 +147,18 @@ export function useIdentityLinking() {
         provider: i.provider as ProviderType,
         user_id: i.user_id,
         identity_id: i.identity_id,
+        status: 'confirmed',
         identity_data: i.identity_data as LinkedIdentity['identity_data'],
       }));
 
+      // Session contacts exist on auth.users, but they are not confirmed sign-in
+      // identities. UI must explain the provider-specific next step.
       if (session.user.email && !linked.some(i => i.provider === 'email')) {
         linked.push({
           provider: 'email',
           user_id: session.user.id,
           identity_id: `email-${session.user.id}`,
+          status: 'pending_confirmation',
           identity_data: { email: session.user.email },
         });
       }
@@ -159,6 +167,7 @@ export function useIdentityLinking() {
           provider: 'phone',
           user_id: session.user.id,
           identity_id: `phone-${session.user.id}`,
+          status: 'pending_confirmation',
           identity_data: { phone: session.user.phone },
         });
       }
@@ -177,16 +186,18 @@ export function useIdentityLinking() {
 
   // ─── read helpers ─────────────────────────────────────────────────────────
 
+  const confirmedLinkedCount = state.identities.filter(i => i.status === 'confirmed').length;
+
   const isProviderLinked = useCallback(
-    (provider: ProviderType) => state.identities.some(i => i.provider === provider),
+    (provider: ProviderType) => state.identities.some(i => i.provider === provider && i.status === 'confirmed'),
     [state.identities],
   );
 
-  const canRemoveMethod = state.identities.length >= 2;
+  const canRemoveMethod = confirmedLinkedCount >= 2;
 
   const canUnlinkProvider = useCallback(
-    (provider: ProviderType) => state.identities.length >= 2 && isProviderLinked(provider),
-    [state.identities.length, isProviderLinked],
+    (provider: ProviderType) => confirmedLinkedCount >= 2 && isProviderLinked(provider),
+    [confirmedLinkedCount, isProviderLinked],
   );
 
   // ─── Apple native token linking ───────────────────────────────────────────
@@ -304,7 +315,7 @@ export function useIdentityLinking() {
     async (provider: ProviderType) => {
       if (!session?.user?.id) throw new Error('You must be signed in to unlink a method.');
 
-      if (state.identities.length < 2) {
+      if (confirmedLinkedCount < 2) {
         throw new Error(
           'You cannot remove your last sign-in method. Add another method first.',
         );
@@ -334,7 +345,7 @@ export function useIdentityLinking() {
         setState(prev => ({ ...prev, isLinking: false, linkingProvider: null }));
       }
     },
-    [session?.user?.id, state.identities.length, fetchIdentities],
+    [session?.user?.id, confirmedLinkedCount, fetchIdentities],
   );
 
   // ─── Email: Case A — add password to existing email account ───────────────
@@ -374,7 +385,10 @@ export function useIdentityLinking() {
 
       setState(prev => ({ ...prev, isLinking: true, linkingProvider: 'email', error: null }));
       try {
-        const { error } = await supabase.auth.updateUser({ email });
+        const { error } = await supabase.auth.updateUser(
+          { email },
+          { emailRedirectTo: getNativeEmailChangeRedirectUrl() },
+        );
         if (error) throw new Error(safeIdentityLinkingErrorMessage(error, 'email', 'Failed to add email.'));
         return { confirmationRequired: true };
       } catch (err) {
@@ -435,11 +449,11 @@ export function useIdentityLinking() {
 
   // ─── computed ─────────────────────────────────────────────────────────────
 
-  const hasGoogle = state.identities.some(i => i.provider === 'google');
-  const hasApple = state.identities.some(i => i.provider === 'apple');
-  const hasEmail = state.identities.some(i => i.provider === 'email');
-  const hasPhone = state.identities.some(i => i.provider === 'phone');
-  const linkedCount = state.identities.length;
+  const hasGoogle = isProviderLinked('google');
+  const hasApple = isProviderLinked('apple');
+  const hasEmail = isProviderLinked('email');
+  const hasPhone = isProviderLinked('phone');
+  const linkedCount = confirmedLinkedCount;
 
   const sessionEmail = session?.user?.email ?? null;
   const sessionPhone = session?.user?.phone ?? null;

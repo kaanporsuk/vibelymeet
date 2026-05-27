@@ -18,6 +18,7 @@ import { AuthProvider, useAuth } from "@/contexts/AuthContext";
 import NotificationContainer from "./components/notifications/NotificationContainer";
 import { NotificationManager } from "./components/notifications/NotificationManager";
 import { ProtectedRoute } from "./components/ProtectedRoute";
+import { WebAuthReturnHandler } from "./components/WebAuthReturnHandler";
 import { WebPasswordRecoveryHandler } from "./components/WebPasswordRecoveryHandler";
 import { useActivityHeartbeat } from "./hooks/useActivityHeartbeat";
 import { useAppBootstrap } from "./hooks/useAppBootstrap";
@@ -589,6 +590,7 @@ const App = () => {
                   <WebChatOutboxRunner />
                   <WebUploadRecoveryNotifier />
                   <WebPostDateOutboxRunner />
+                  <WebAuthReturnHandler />
                   <WebPasswordRecoveryHandler />
                   <PostHogPageTracker />
                   <RealtimeLifecycleJanitor />
