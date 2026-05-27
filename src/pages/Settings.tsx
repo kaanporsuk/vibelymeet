@@ -115,6 +115,13 @@ const Settings = () => {
         next.delete("drawer");
         return next;
       }, { replace: true });
+    } else if (drawer === "account") {
+      setActiveDrawer("account");
+      setSearchParams((prev) => {
+        const next = new URLSearchParams(prev);
+        next.delete("drawer");
+        return next;
+      }, { replace: true });
     } else if (drawer === "support") {
       setShowFeedback(true);
     }

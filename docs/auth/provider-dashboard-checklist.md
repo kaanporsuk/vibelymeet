@@ -2,7 +2,9 @@
 
 Last updated: 2026-05-27
 
-This checklist is the manual companion to `npm run audit:auth-live`. The audit script can verify repo-visible settings, live Auth settings exposed by Supabase, function JWT config, Edge Function names, Edge secret names, and live database grants when the local Supabase CLI can query the linked project. It cannot prove Google Cloud, Apple Developer, Resend SMTP, or all Supabase dashboard-only settings.
+This checklist is the manual companion to `npm run audit:auth-live`. The audit script can verify repo-visible settings, live Auth settings exposed by Supabase, function JWT config, Edge Function names, Edge secret names, and live database grants when the local Supabase CLI can query the linked project. It cannot prove Google Cloud, Apple Developer, Resend SMTP, redirect allow-list contents, manual identity-linking toggles, same-email behavior, Twilio dashboard SID equality, CAPTCHA dashboard state, or all Supabase dashboard-only settings.
+
+Dated Sprint 2 live check: `docs/auth/provider-live-check-2026-05-27.md`.
 
 Do not paste provider secrets, P8 keys, OAuth client secrets, SMTP passwords, Twilio auth tokens, or Supabase service-role keys into this document. Record status and names only.
 
@@ -42,20 +44,35 @@ Required production values:
 
 - `https://www.vibelymeet.com`
 - `https://vibelymeet.com`
+- `https://www.vibelymeet.com/`
+- `https://vibelymeet.com/`
 - `https://www.vibelymeet.com/auth?provider_callback=true`
 - `https://vibelymeet.com/auth?provider_callback=true`
 - `https://www.vibelymeet.com/reset-password`
 - `https://vibelymeet.com/reset-password`
+- `https://www.vibelymeet.com/settings?drawer=account&linking=true&provider=google`
+- `https://www.vibelymeet.com/settings?drawer=account&linking=true&provider=apple`
+- `https://vibelymeet.com/settings?drawer=account&linking=true&provider=google`
+- `https://vibelymeet.com/settings?drawer=account&linking=true&provider=apple`
+- `com.vibelymeet.vibely:///`
 - `com.vibelymeet.vibely://`
 - `com.vibelymeet.vibely://auth/callback`
+- `com.vibelymeet.vibely://auth/callback?linking=true&provider=google`
 - `com.vibelymeet.vibely://reset-password`
 
-Required development values:
+Required development values for the current repo:
 
-- `http://localhost:5173`
-- `http://localhost:5173/auth?provider_callback=true`
-- `http://localhost:5173/reset-password`
+- `http://localhost:8080`
+- `http://localhost:8080/`
+- `http://localhost:8080/auth?provider_callback=true`
+- `http://localhost:8080/reset-password`
+- `http://localhost:8080/settings?drawer=account&linking=true&provider=google`
+- `http://localhost:8080/settings?drawer=account&linking=true&provider=apple`
 - any active preview domains used for manual QA.
+
+Historical note: do not keep `localhost:5173` unless another approved local workflow still uses it. Current `vite.config.ts` sets the dev server port to `8080`.
+
+Native root note: `getNativeEmailSignUpRedirectUrl()` calls `Linking.createURL("/")`; standalone Expo builds can emit the app root as `com.vibelymeet.vibely:///`. Keep the double-slash root only as compatibility coverage if the dashboard already normalizes it.
 
 ## Google OAuth
 
@@ -139,8 +156,9 @@ npm run audit:auth-live
 npm run test:auth-hardening
 ```
 
-Expected pre-deploy behavior:
+Expected behavior:
 
-- `audit:auth-live` may fail on the known `profiles` grant and verified contact trigger gaps until the auth profile write hardening migration has been applied to that environment.
+- `audit:auth-live` should pass with `0 fail, 0 warn` on production after Sprint 1 migrations and Edge writer changes are deployed.
+- On a fresh staging environment, failures around `profiles` grants, verified contact triggers, or verified-contact writer RPCs mean Sprint 1 hardening is not applied there yet.
 - The script must not print secret values, OAuth secrets, provider token digests, SMTP passwords, or service-role keys.
 - `test:auth-hardening` runs local contract tests only and must not send real SMS/email or mutate provider accounts.

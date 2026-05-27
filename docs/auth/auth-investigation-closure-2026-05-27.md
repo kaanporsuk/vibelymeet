@@ -2,17 +2,18 @@
 
 Date: 2026-05-27
 
-This document consolidates the original Vibely auth investigation with the separate report assessment. It started as a Sprint 0 baseline artifact; the current repo now also carries the Sprint 1 profile write hardening migration and contracts. Live environments still need the migration applied before the audit turns green.
+This document consolidates the original Vibely auth investigation with the separate report assessment. It started as a Sprint 0 baseline artifact; the current repo now also carries the Sprint 1 profile write hardening migration and contracts, and production Supabase project `schdyxcunwcvddlcshwd` now passes the live auth audit.
 
 ## Findings Carried Forward
 
-Status after the current repo changes:
+Status after the current repo changes and the latest live audit:
 
-- Implemented in repo, pending live migration: `public.profiles` write grants are narrowed to owner-editable columns only.
-- Implemented in repo, pending live migration: `phone_number`, `verified_email`, phone/email/photo verification state, proof-selfie references, and photo verification expiry are backend-owned trust fields.
-- Implemented in repo, pending live migration: direct profile inserts are blocked unless they come from trusted backend context; auth bootstrap sets that context explicitly.
-- Implemented in repo, pending live migration: `bootstrap_profile_from_auth_user()` and `resolve_entry_state()` execute grants are tightened.
-- Still manual: dashboard-only provider settings must be verified for identity linking, Google, Apple, Twilio, Resend SMTP, redirect allow-list, CAPTCHA, and rate limits.
+- Live-confirmed: `public.profiles` write grants are narrowed to owner-editable columns only.
+- Live-confirmed: `phone_number`, `verified_email`, phone/email/photo verification state, proof-selfie references, and photo verification expiry are backend-owned trust fields.
+- Live-confirmed: direct profile inserts are blocked unless they come from trusted backend context; auth bootstrap sets that context explicitly.
+- Live-confirmed: `bootstrap_profile_from_auth_user()` and `resolve_entry_state()` execute grants are tightened.
+- Sprint 2 dated provider closure exists at `docs/auth/provider-live-check-2026-05-27.md`.
+- Still manual: dashboard-only provider settings must be verified for identity linking, same-email account behavior, Google Cloud, Apple Developer, Twilio SID equality, Resend SMTP, redirect allow-list, CAPTCHA dashboard state, and rate limits.
 - Web OAuth callback should not rely on a fixed 100ms sleep and should preserve provider context across redirect.
 - Web identity-linking callback must surface OAuth/linking errors before clearing URL parameters.
 - Linked-method UI must distinguish confirmed identities from synthetic session-level email/phone entries that may still be pending confirmation.
