@@ -141,6 +141,12 @@ assert.match(webOneSignalSource, /push_notification_deeplink_result/);
 const nativeOneSignalSource = readFileSync(join(process.cwd(), 'apps/mobile/lib/onesignal.ts'), 'utf8');
 assert.match(nativeOneSignalSource, /identityGeneration/);
 assert.match(nativeOneSignalSource, /stale_identity/);
+assert.match(nativeOneSignalSource, /EXPO_PUBLIC_ONESIGNAL_APP_ID \?\? ''/);
+assert.doesNotMatch(nativeOneSignalSource, /97e52ea2-6a27-4486-a678-4dd8a0d49e94/);
+assert.match(nativeOneSignalSource, /initAttemptedAppId/);
+assert.match(nativeOneSignalSource, /runtimeState\.initAttemptedAppId === APP_ID/);
+assert.match(nativeOneSignalSource, /if \(!ensureOneSignalInitialized\(\)\) return syncResult\('init_failed'\);/);
+assert.doesNotMatch(nativeOneSignalSource, /ONESIGNAL_REST_API_KEY/);
 
 const webPushTelemetrySource = readFileSync(join(process.cwd(), 'src/lib/pushDeliveryTelemetry.ts'), 'utf8');
 assert.match(webPushTelemetrySource, /push_permission_prompt_result/);

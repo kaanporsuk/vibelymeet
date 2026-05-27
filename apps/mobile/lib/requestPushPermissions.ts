@@ -1,23 +1,28 @@
 /**
- * After in-app prompt: expo OS state + single requestOsPushPermission path (no OneSignal.requestPermission).
+ * After in-app prompt: OneSignal-safe native OS permission request + backend sync.
  * Backend sync is separate from requesting OS permission.
  */
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase } from '@/lib/supabase';
-import { disablePush, getNativeOneSignalClientSnapshot, syncPushSubscriptionToBackend } from '@/lib/onesignal';
+import {
+  disablePush,
+  getNativeOneSignalClientSnapshot,
+  initOneSignal,
+  requestOneSignalPushPermission,
+  syncPushSubscriptionToBackend,
+} from '@/lib/onesignal';
 import { PAUSED_UNTIL_KEY } from '@/lib/notificationPause';
 import { recordPushDeliveryTelemetry } from '@/lib/pushDeliveryTelemetry';
 import {
   getStableOsPushPermissionState,
   pushPermDevLog,
-  requestOsPushPermission,
   type OsPushPermissionState,
 } from '@/lib/osPushPermission';
 import type { PushSyncResult } from '@clientShared/pushDeliveryHealth';
 
 export const VIBELY_PUSH_PERMISSION_ASKED_KEY = 'vibely_push_permission_asked';
 
-const APP_ID = process.env.EXPO_PUBLIC_ONESIGNAL_APP_ID ?? '';
+const APP_ID = (process.env.EXPO_PUBLIC_ONESIGNAL_APP_ID ?? '').trim();
 
 export type PushPromptOsStatus = OsPushPermissionState | 'unknown';
 
@@ -68,6 +73,10 @@ export async function shouldOfferDashboardPushPreprompt(
       });
       return false;
     }
+    if (!APP_ID) {
+      logPrepromptSuppressed('app_id_missing');
+      return false;
+    }
     if (context.osStatus !== 'undetermined') {
       logPrepromptSuppressed('hydrated_os_state_not_promptable', {
         osStatus: context.osStatus,
@@ -93,6 +102,7 @@ export async function shouldOfferDashboardPushPreprompt(
       return false;
     }
 
+    initOneSignal();
     const liveOsStatus = await getStableOsPushPermissionState('dashboard_preprompt_offer');
     if (liveOsStatus !== 'undetermined') {
       logPrepromptSuppressed('live_os_state_not_promptable', { liveOsStatus });
@@ -121,6 +131,9 @@ export async function shouldShowDashboardPushPreprompt(
     if (!pushPromptSessionState.prepromptScheduledThisSession) {
       return { offer: false, reason: 'preprompt_not_scheduled' };
     }
+    if (!APP_ID) {
+      return { offer: false, reason: 'app_id_missing' };
+    }
     if (!context.permissionStateHydrated) {
       return { offer: false, reason: 'permission_state_not_hydrated' };
     }
@@ -134,6 +147,7 @@ export async function shouldShowDashboardPushPreprompt(
       return { offer: false, reason: 'os_permission_request_in_flight' };
     }
 
+    initOneSignal();
     const liveOsStatus = await getStableOsPushPermissionState('dashboard_preprompt_show');
     if (liveOsStatus !== 'undetermined') {
       return { offer: false, reason: `live_os_state_${liveOsStatus}` };
@@ -235,12 +249,13 @@ export async function syncBackendAfterPushGrant(userId: string): Promise<PushSyn
 }
 
 export async function requestPushPermissionsAfterPrompt(userId: string): Promise<PushPromptResult> {
-  await AsyncStorage.setItem(VIBELY_PUSH_PERMISSION_ASKED_KEY, 'true');
   if (!APP_ID) {
     recordNativePushPromptResult('no_app_id', 'unknown');
     return { outcome: 'no_app_id' };
   }
 
+  await AsyncStorage.setItem(VIBELY_PUSH_PERMISSION_ASKED_KEY, 'true');
+  initOneSignal();
   const os = await getPromptableOsState('request_push_permissions_after_prompt_before');
   if (!os) {
     recordNativePushPromptResult('denied_after_sheet', 'unknown');
@@ -262,7 +277,7 @@ export async function requestPushPermissionsAfterPrompt(userId: string): Promise
 
   setDashboardPushOsPermissionRequestInFlight(true);
   try {
-    const { granted } = await requestOsPushPermission();
+    const { granted } = await requestOneSignalPushPermission();
     if (granted) {
       recordNativePushPromptResult('granted', 'granted');
       const sync = await syncBackendAfterPushGrant(userId);

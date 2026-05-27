@@ -7,14 +7,18 @@ import { AppState, Linking, Platform, type AppStateStatus } from 'react-native';
 import {
   getStableOsPushPermissionState,
   pushPermDevLog,
-  requestOsPushPermission,
   type OsPushPermissionState,
 } from '@/lib/osPushPermission';
-import { logOneSignalPushDiagnostics } from '@/lib/onesignal';
+import {
+  getNativeOneSignalClientSnapshot,
+  initOneSignal,
+  logOneSignalPushDiagnostics,
+  requestOneSignalPushPermission,
+} from '@/lib/onesignal';
 
 export type RequestPushPermissionResult = {
   granted: boolean;
-  /** System already denied push — never call requestPermissionsAsync again; show branded recovery. */
+  /** System already denied push — show branded recovery instead of prompting again. */
   osDenied: boolean;
 };
 
@@ -118,6 +122,11 @@ async function refreshSharedPushPermission(source: string, force = false): Promi
 
   const refreshPromise = (async () => {
     try {
+      if (!getNativeOneSignalClientSnapshot().appIdConfigured) {
+        pushPermDevLog('permission_state_refresh_suppressed', { source, reason: 'app_id_missing' });
+        return 'unknown';
+      }
+      initOneSignal();
       const next = await getStableOsPushPermissionState(source);
       applyOsState(next, source);
       return next;
@@ -180,8 +189,8 @@ export function usePushPermission() {
   }, []);
 
   const requestPermission = useCallback(async (): Promise<RequestPushPermissionResult> => {
-    pushPermDevLog('usePushPermission.requestPermission (delegates to requestOsPushPermission)');
-    const result = await requestOsPushPermission();
+    pushPermDevLog('usePushPermission.requestPermission (delegates to OneSignal-safe request helper)');
+    const result = await requestOneSignalPushPermission();
     await refreshSharedPushPermission('request_permission_completed', true);
     await logOneSignalPushDiagnostics('after requestPermission');
     return result;
@@ -210,7 +219,7 @@ export function usePushPermission() {
     isGranted,
     isDenied,
     permissionStateHydrated,
-    /** True when the OS will show the real permission sheet if we call requestOsPushPermission */
+    /** True when the OS will show the real permission sheet if we call the OneSignal-safe request helper. */
     canRequestOsPermission,
     isDefault,
     isUnknown,

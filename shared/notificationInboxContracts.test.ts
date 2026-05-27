@@ -65,6 +65,17 @@ test("web and native clients share notification action normalization while keepi
   assert.match(sharedNotifications, /case 'open_daily_drop':\s+return '\/daily-drop'/);
   assert.equal(exists("src/lib/notificationActions.ts"), true);
   assert.equal(exists("apps/mobile/lib/notificationActions.ts"), true);
+  assert.match(mobileDeepLinkHandler, /resolveNotificationActionRoute\(additionalData\?\.action\)/);
+  assert.match(mobileDeepLinkHandler, /function shouldPreferNativeActionRoute/);
+  assert.match(mobileDeepLinkHandler, /function sanitizeDiagnosticHref/);
+  assert.match(mobileDeepLinkHandler, /\^\(chat\|daily-drop\|ready\|date\|event\|events\|settings\|premium\|user\|matches\)/);
+  assert.match(mobileDeepLinkHandler, /DIAGNOSTIC_HREF_KEYS/);
+  assert.match(mobileDeepLinkHandler, /route: sanitizeDiagnosticHref\(route\)/);
+  assert.match(mobileDeepLinkHandler, /rawHref: sanitizeDiagnosticHref\(rawHref\)/);
+  assert.match(mobileDeepLinkHandler, /case 'open_event_lobby':/);
+  assert.match(mobileDeepLinkHandler, /case 'open_ready_gate':/);
+  assert.match(mobileDeepLinkHandler, /case 'open_video_date':/);
+  assert.match(mobileDeepLinkHandler, /case 'open_daily_drop':\s+return true/);
 });
 
 test("web and mobile inbox hooks use the same table, realtime channel, and RPC mutations", () => {

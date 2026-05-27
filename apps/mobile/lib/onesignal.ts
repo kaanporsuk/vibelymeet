@@ -9,22 +9,91 @@
 import { Platform } from 'react-native';
 import { OneSignal } from 'react-native-onesignal';
 import { supabase } from '@/lib/supabase';
-import { getOsPushPermissionState } from '@/lib/osPushPermission';
+import {
+  getOsPushPermissionState,
+  requestOsPushPermission,
+  type OsPushPermissionState,
+  type OsPushRequestResult,
+} from '@/lib/osPushPermission';
 import { recordPushDeliveryTelemetry } from '@/lib/pushDeliveryTelemetry';
 import type { PushSdkHealth, PushSyncResult } from '@clientShared/pushDeliveryHealth';
 
-const APP_ID = process.env.EXPO_PUBLIC_ONESIGNAL_APP_ID ?? '';
+const APP_ID = (process.env.EXPO_PUBLIC_ONESIGNAL_APP_ID ?? '').trim();
 const PLAYER_ID_SYNC_ATTEMPTS = 8;
 const PLAYER_ID_INITIAL_RETRY_MS = 500;
 const PLAYER_ID_MAX_RETRY_MS = 3000;
 
-let initialized = false;
-let overLimitTagWritesSuppressed = false;
-let lastAppliedTagDigest: string | null = null;
-let activeIdentityUserId: string | null = null;
-let lastLoggedInUserId: string | null = null;
-let identityGeneration = 0;
-const permissionGrantedSyncInFlightByUser = new Map<string, Promise<PushSyncResult>>();
+export type NativeOneSignalNotificationOpenSnapshot = {
+  receivedAt: string;
+  route: string | null;
+  rawHref: string | null;
+  category: string | null;
+  type: string | null;
+  actionKind: string | null;
+  payload: Record<string, unknown> | null;
+};
+
+export type NativeOneSignalDiagnostics = {
+  appIdConfigured: boolean;
+  initialized: boolean;
+  sdkStatus: PushSdkHealth;
+  permissionState: OsPushPermissionState | 'unknown';
+  subscriptionId: string | null;
+  subscriptionIdPresent: boolean;
+  optedIn: boolean | null;
+  activeIdentityUserId: string | null;
+  lastLoggedInUserId: string | null;
+  sdkExternalUserId: string | null;
+  currentSupabaseUserId: string | null;
+  identityMatchesSession: boolean | null;
+  lastNotificationOpen: NativeOneSignalNotificationOpenSnapshot | null;
+};
+
+type NativeOneSignalRuntimeState = {
+  initializedAppId: string | null;
+  initAttemptedAppId: string | null;
+  initFailedAppId: string | null;
+  nativeEventListenersAppId: string | null;
+  overLimitTagWritesSuppressed: boolean;
+  lastAppliedTagDigest: string | null;
+  activeIdentityUserId: string | null;
+  lastLoggedInUserId: string | null;
+  identityGeneration: number;
+  permissionGrantedSyncInFlightByUser: Map<string, Promise<PushSyncResult>>;
+  lastNotificationOpen: NativeOneSignalNotificationOpenSnapshot | null;
+  diagnosticsListeners: Set<() => void>;
+};
+
+type GlobalWithNativeOneSignalState = typeof globalThis & {
+  __vibelyNativeOneSignalState?: NativeOneSignalRuntimeState;
+};
+
+const runtimeState = ((globalThis as GlobalWithNativeOneSignalState).__vibelyNativeOneSignalState ??= {
+  initializedAppId: null,
+  initAttemptedAppId: null,
+  initFailedAppId: null,
+  nativeEventListenersAppId: null,
+  overLimitTagWritesSuppressed: false,
+  lastAppliedTagDigest: null,
+  activeIdentityUserId: null,
+  lastLoggedInUserId: null,
+  identityGeneration: 0,
+  permissionGrantedSyncInFlightByUser: new Map<string, Promise<PushSyncResult>>(),
+  lastNotificationOpen: null,
+  diagnosticsListeners: new Set<() => void>(),
+});
+
+runtimeState.initAttemptedAppId ??= null;
+runtimeState.initFailedAppId ??= null;
+runtimeState.nativeEventListenersAppId ??= null;
+runtimeState.overLimitTagWritesSuppressed ??= false;
+runtimeState.lastAppliedTagDigest ??= null;
+runtimeState.activeIdentityUserId ??= null;
+runtimeState.lastLoggedInUserId ??= null;
+runtimeState.identityGeneration ??= 0;
+runtimeState.permissionGrantedSyncInFlightByUser ??= new Map<string, Promise<PushSyncResult>>();
+runtimeState.lastNotificationOpen ??= null;
+runtimeState.diagnosticsListeners ??= new Set<() => void>();
 
 type PushSubscriptionRpcError = {
   code?: string;
@@ -57,10 +126,52 @@ function isMissingPushSubscriptionRpc(error: PushSubscriptionRpcError | null | u
   return /42883|PGRST202|Could not find the function|register_onesignal_push_subscription|unregister_onesignal_push_subscription/i.test(haystack);
 }
 
+function emitOneSignalDiagnosticsChanged(): void {
+  for (const listener of runtimeState.diagnosticsListeners) {
+    try {
+      listener();
+    } catch {
+      /* diagnostics listeners must never affect push flows */
+    }
+  }
+}
+
+function isOneSignalInitialized(): boolean {
+  return Boolean(APP_ID && runtimeState.initializedAppId === APP_ID);
+}
+
+function currentSdkStatus(): PushSdkHealth {
+  if (!APP_ID) return 'app_id_missing';
+  if (runtimeState.initFailedAppId === APP_ID && !isOneSignalInitialized()) return 'init_failed';
+  return isOneSignalInitialized() ? 'ready' : 'pending';
+}
+
+function registerOneSignalRuntimeEventListeners(): void {
+  if (!APP_ID || runtimeState.nativeEventListenersAppId === APP_ID) return;
+  try {
+    OneSignal.User.pushSubscription.addEventListener('change', () => {
+      emitOneSignalDiagnosticsChanged();
+    });
+    OneSignal.User.addEventListener('change', () => {
+      emitOneSignalDiagnosticsChanged();
+    });
+    runtimeState.nativeEventListenersAppId = APP_ID;
+  } catch (e) {
+    if (__DEV__) {
+      console.warn('[Vibely] OneSignal runtime listener registration failed:', e);
+    }
+  }
+}
+
 function ensureOneSignalInitialized(): boolean {
   if (!APP_ID) return false;
-  if (!initialized) initOneSignal();
-  return initialized;
+  if (isOneSignalInitialized()) {
+    registerOneSignalRuntimeEventListeners();
+    return true;
+  }
+  if (runtimeState.initFailedAppId === APP_ID || runtimeState.initAttemptedAppId === APP_ID) return false;
+  initOneSignal();
+  return isOneSignalInitialized();
 }
 
 export function getNativeOneSignalClientSnapshot(): {
@@ -71,22 +182,73 @@ export function getNativeOneSignalClientSnapshot(): {
   const appIdConfigured = APP_ID.trim().length > 0;
   return {
     appIdConfigured,
-    initialized,
-    sdkStatus: !appIdConfigured ? 'app_id_missing' : initialized ? 'ready' : 'pending',
+    initialized: isOneSignalInitialized(),
+    sdkStatus: appIdConfigured ? currentSdkStatus() : 'app_id_missing',
+  };
+}
+
+export function subscribeNativeOneSignalDiagnostics(listener: () => void): () => void {
+  runtimeState.diagnosticsListeners.add(listener);
+  return () => {
+    runtimeState.diagnosticsListeners.delete(listener);
+  };
+}
+
+export function recordOneSignalNotificationOpenForDiagnostics(
+  snapshot: NativeOneSignalNotificationOpenSnapshot,
+): void {
+  if (!__DEV__) return;
+  runtimeState.lastNotificationOpen = snapshot;
+  emitOneSignalDiagnosticsChanged();
+}
+
+export async function getNativeOneSignalDiagnostics(
+  currentSupabaseUserId?: string | null,
+): Promise<NativeOneSignalDiagnostics> {
+  const client = getNativeOneSignalClientSnapshot();
+  let permissionState: NativeOneSignalDiagnostics['permissionState'] = 'unknown';
+  try {
+    if (APP_ID) {
+      permissionState = await getOsPushPermissionState();
+    }
+  } catch {
+    permissionState = 'unknown';
+  }
+
+  const [subscriptionId, optedIn, sdkExternalUserId] = await Promise.all([
+    getCurrentNativePlayerId(),
+    getCurrentNativePushSubscribed(),
+    getCurrentOneSignalExternalUserId(),
+  ]);
+  const sessionUserId = currentSupabaseUserId ?? null;
+  const loggedInUserId = runtimeState.lastLoggedInUserId ?? sdkExternalUserId;
+
+  return {
+    ...client,
+    permissionState,
+    subscriptionId,
+    subscriptionIdPresent: Boolean(subscriptionId),
+    optedIn,
+    activeIdentityUserId: runtimeState.activeIdentityUserId,
+    lastLoggedInUserId: runtimeState.lastLoggedInUserId,
+    sdkExternalUserId,
+    currentSupabaseUserId: sessionUserId,
+    identityMatchesSession: sessionUserId ? Boolean(loggedInUserId) && loggedInUserId === sessionUserId : null,
+    lastNotificationOpen: runtimeState.lastNotificationOpen,
   };
 }
 
 export function getOneSignalIdentityGeneration(): number {
-  return identityGeneration;
+  return runtimeState.identityGeneration;
 }
 
 export function isCurrentOneSignalIdentity(userId: string, generation: number): boolean {
-  return activeIdentityUserId === userId && identityGeneration === generation;
+  return runtimeState.activeIdentityUserId === userId && runtimeState.identityGeneration === generation;
 }
 
 export async function getCurrentNativePlayerId(): Promise<string | null> {
   if (!APP_ID) return null;
-  ensureOneSignalInitialized();
+  if (!ensureOneSignalInitialized()) return null;
   try {
     return await OneSignal.User.pushSubscription.getIdAsync();
   } catch {
@@ -96,9 +258,19 @@ export async function getCurrentNativePlayerId(): Promise<string | null> {
 
 export async function getCurrentNativePushSubscribed(): Promise<boolean | null> {
   if (!APP_ID) return null;
-  ensureOneSignalInitialized();
+  if (!ensureOneSignalInitialized()) return null;
   try {
     return await OneSignal.User.pushSubscription.getOptedInAsync();
+  } catch {
+    return null;
+  }
+}
+
+export async function getCurrentOneSignalExternalUserId(): Promise<string | null> {
+  if (!APP_ID) return null;
+  if (!ensureOneSignalInitialized()) return null;
+  try {
+    return await OneSignal.User.getExternalId();
   } catch {
     return null;
   }
@@ -108,15 +280,8 @@ export async function getCurrentNativePushSubscribed(): Promise<boolean | null> 
 export async function logOneSignalPushDiagnostics(context: string): Promise<void> {
   if (!__DEV__ || !APP_ID) return;
   try {
-    const subscriptionId = await OneSignal.User.pushSubscription.getIdAsync();
-    let optedIn: boolean | undefined;
-    try {
-      optedIn = await (OneSignal.User.pushSubscription as { getOptedInAsync?: () => Promise<boolean> })
-        .getOptedInAsync?.();
-    } catch {
-      optedIn = undefined;
-    }
-    console.log(`[Vibely][push][onesignal] ${context}`, { subscriptionId, optedIn });
+    const diagnostics = await getNativeOneSignalDiagnostics();
+    console.log(`[Vibely][push][onesignal] ${context}`, diagnostics);
   } catch (e) {
     console.log(`[Vibely][push][onesignal] ${context}`, e);
   }
@@ -129,11 +294,21 @@ function pushSyncDevLog(message: string, extra?: Record<string, unknown>): void 
 }
 
 export function initOneSignal(): void {
-  if (initialized || !APP_ID) return;
+  if (isOneSignalInitialized() || !APP_ID || runtimeState.initAttemptedAppId === APP_ID) {
+    if (isOneSignalInitialized()) registerOneSignalRuntimeEventListeners();
+    return;
+  }
+  runtimeState.initAttemptedAppId = APP_ID;
+  emitOneSignalDiagnosticsChanged();
   try {
     OneSignal.initialize(APP_ID);
-    initialized = true;
+    runtimeState.initializedAppId = APP_ID;
+    runtimeState.initFailedAppId = null;
+    registerOneSignalRuntimeEventListeners();
+    emitOneSignalDiagnosticsChanged();
   } catch (e) {
+    runtimeState.initFailedAppId = APP_ID;
+    emitOneSignalDiagnosticsChanged();
     console.warn('[Vibely] OneSignal init failed:', e);
     recordPushDeliveryTelemetry('push_registration_sync_result', {
       platform: 'native',
@@ -144,22 +319,35 @@ export function initOneSignal(): void {
   }
 }
 
-export function bindOneSignalExternalUser(userId: string): number {
-  if (activeIdentityUserId !== userId) {
-    identityGeneration += 1;
-    activeIdentityUserId = userId;
+export async function requestOneSignalPushPermission(): Promise<OsPushRequestResult> {
+  if (!APP_ID || !ensureOneSignalInitialized()) {
+    return { granted: false, osDenied: false };
   }
-  const generation = identityGeneration;
-  if (!APP_ID || !userId) return generation;
-  ensureOneSignalInitialized();
-  if (lastLoggedInUserId === userId) return generation;
+  const result = await requestOsPushPermission();
+  emitOneSignalDiagnosticsChanged();
+  return result;
+}
+
+export function bindOneSignalExternalUser(userId: string): number {
+  const nextUserId = userId.trim();
+  if (runtimeState.activeIdentityUserId !== nextUserId) {
+    runtimeState.identityGeneration += 1;
+    runtimeState.activeIdentityUserId = nextUserId || null;
+    emitOneSignalDiagnosticsChanged();
+  }
+  const generation = runtimeState.identityGeneration;
+  if (!APP_ID || !nextUserId) return generation;
+  if (!ensureOneSignalInitialized()) return generation;
+  if (runtimeState.lastLoggedInUserId === nextUserId) return generation;
   try {
-    OneSignal.login(userId);
-    if (isCurrentOneSignalIdentity(userId, generation)) {
-      lastLoggedInUserId = userId;
+    OneSignal.login(nextUserId);
+    if (isCurrentOneSignalIdentity(nextUserId, generation)) {
+      runtimeState.lastLoggedInUserId = nextUserId;
+      emitOneSignalDiagnosticsChanged();
     }
   } catch (e) {
-    lastLoggedInUserId = null;
+    runtimeState.lastLoggedInUserId = null;
+    emitOneSignalDiagnosticsChanged();
     console.warn('[Vibely] OneSignal login failed:', e);
   }
   return generation;
@@ -228,7 +416,7 @@ async function unregisterStoredPushSubscription(
 async function pushSubscriptionToBackend(userId: string): Promise<PushSyncResult> {
   pushSyncDevLog('pushSubscriptionToBackend:start', { userId });
   if (!APP_ID) return syncResult('app_id_missing');
-  if (!initialized) initOneSignal();
+  if (!ensureOneSignalInitialized()) return syncResult('init_failed');
   const generation = bindOneSignalExternalUser(userId);
 
   let subscriptionId: string | null = null;
@@ -285,6 +473,7 @@ export async function registerPushWithBackend(userId: string): Promise<PushSyncR
   if (!APP_ID) return syncResult('app_id_missing');
   pushSyncDevLog('registerPushWithBackend (sync-only, no OS prompt)', { userId });
   try {
+    if (!ensureOneSignalInitialized()) return syncResult('init_failed');
     if ((await getOsPushPermissionState()) !== 'granted') return syncResult('permission_denied');
     return await pushSubscriptionToBackend(userId);
   } catch (e) {
@@ -299,7 +488,7 @@ export async function registerPushWithBackend(userId: string): Promise<PushSyncR
  */
 export async function syncPushWithBackendIfPermissionGranted(userId: string): Promise<PushSyncResult> {
   if (!APP_ID) return syncResult('app_id_missing');
-  const existing = permissionGrantedSyncInFlightByUser.get(userId);
+  const existing = runtimeState.permissionGrantedSyncInFlightByUser.get(userId);
   if (existing) {
     pushSyncDevLog('syncPushWithBackendIfPermissionGranted:coalesced', { userId });
     return existing;
@@ -307,6 +496,7 @@ export async function syncPushWithBackendIfPermissionGranted(userId: string): Pr
   pushSyncDevLog('syncPushWithBackendIfPermissionGranted', { userId });
   const run = (async () => {
     try {
+      if (!ensureOneSignalInitialized()) return syncResult('init_failed');
       if ((await getOsPushPermissionState()) !== 'granted') return syncResult('permission_denied');
       return await pushSubscriptionToBackend(userId);
     } catch (e) {
@@ -314,35 +504,37 @@ export async function syncPushWithBackendIfPermissionGranted(userId: string): Pr
       return syncResult('upsert_failed', null, e instanceof Error ? e.message : String(e));
     }
   })().finally(() => {
-    permissionGrantedSyncInFlightByUser.delete(userId);
+    runtimeState.permissionGrantedSyncInFlightByUser.delete(userId);
   });
-  permissionGrantedSyncInFlightByUser.set(userId, run);
+  runtimeState.permissionGrantedSyncInFlightByUser.set(userId, run);
   return run;
 }
 
 export function logoutOneSignal(): void {
-  identityGeneration += 1;
-  activeIdentityUserId = null;
-  lastLoggedInUserId = null;
+  runtimeState.identityGeneration += 1;
+  runtimeState.activeIdentityUserId = null;
+  runtimeState.lastLoggedInUserId = null;
   try {
-    OneSignal.logout();
+    if (ensureOneSignalInitialized()) OneSignal.logout();
   } catch {}
-  overLimitTagWritesSuppressed = false;
-  lastAppliedTagDigest = null;
+  runtimeState.overLimitTagWritesSuppressed = false;
+  runtimeState.lastAppliedTagDigest = null;
+  emitOneSignalDiagnosticsChanged();
 }
 
 function optOutNativePushSubscriptionForLogout(): void {
   if (!APP_ID) return;
   try {
-    ensureOneSignalInitialized();
+    if (!ensureOneSignalInitialized()) return;
     OneSignal.User.pushSubscription.optOut();
   } catch {}
 }
 
 export async function disconnectOneSignalForLogout(userId?: string | null): Promise<void> {
-  identityGeneration += 1;
-  activeIdentityUserId = null;
-  lastLoggedInUserId = null;
+  runtimeState.identityGeneration += 1;
+  runtimeState.activeIdentityUserId = null;
+  runtimeState.lastLoggedInUserId = null;
+  emitOneSignalDiagnosticsChanged();
   const subscriptionId = await getCurrentNativePlayerId();
   if (userId) {
     const unregisterError = await unregisterStoredPushSubscription(userId, subscriptionId);
@@ -366,12 +558,13 @@ export function setNativePushSuppressed(suppress: boolean): void {
 export function disablePush(disable: boolean): void {
   if (!APP_ID) return;
   try {
-    ensureOneSignalInitialized();
+    if (!ensureOneSignalInitialized()) return;
     if (disable) {
       OneSignal.User.pushSubscription.optOut();
     } else {
       OneSignal.User.pushSubscription.optIn();
     }
+    emitOneSignalDiagnosticsChanged();
   } catch (e) {
     console.warn('[Vibely] disablePush failed:', e);
   }
@@ -462,7 +655,7 @@ export async function setOneSignalTags(input: OneSignalTagsInput): Promise<void>
     pushSyncDevLog('setOneSignalTags skipped', { reason: 'native_sdk_tags_disabled' });
     return;
   }
-  if (overLimitTagWritesSuppressed) {
+  if (runtimeState.overLimitTagWritesSuppressed) {
     pushSyncDevLog('setOneSignalTags skipped', { reason: 'over_limit_suppressed' });
     return;
   }
@@ -476,22 +669,22 @@ export async function setOneSignalTags(input: OneSignalTagsInput): Promise<void>
       subscription_tier: tier,
     };
     const digest = digestOneSignalTags(tags);
-    if (lastAppliedTagDigest === digest) {
+    if (runtimeState.lastAppliedTagDigest === digest) {
       pushSyncDevLog('setOneSignalTags skipped', { reason: 'unchanged_tags' });
       return;
     }
     // OneSignal docs: when user is at/over tag limit, delete first then add in a second request.
     await removeOneSignalTags(OBSOLETE_OR_EPHEMERAL_TAG_KEYS);
     await OneSignal.User.addTags(tags);
-    lastAppliedTagDigest = digest;
+    runtimeState.lastAppliedTagDigest = digest;
   } catch (e) {
     if (looksLikeTagLimitError(e)) {
-      overLimitTagWritesSuppressed = true;
+      runtimeState.overLimitTagWritesSuppressed = true;
     }
     oneSignalTagWriteWarn('add_durable_tags', e, {
       durableKeys: DURABLE_SEGMENTATION_TAG_KEYS,
       obsoleteKeys: OBSOLETE_OR_EPHEMERAL_TAG_KEYS,
-      overLimitTagWritesSuppressed,
+      overLimitTagWritesSuppressed: runtimeState.overLimitTagWritesSuppressed,
     });
   }
 }
