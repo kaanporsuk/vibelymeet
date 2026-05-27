@@ -90,8 +90,9 @@ test("notification design doc matches current native push implementation", () =>
   assert.match(pushRegistration, /syncNativePushDeliveryOnForeground\(user\.id, reason\)/);
   assert.match(notificationDeepLinkHandler, /OneSignal\.Notifications\.addEventListener/);
   assert.match(notificationDeepLinkHandler, /reconcileHrefWithRegistration/);
-  assert.match(authContext, /mobile_onesignal_player_id:\s*null/);
-  assert.match(authContext, /mobile_onesignal_subscribed:\s*false/);
+  assert.match(authContext, /disconnectOneSignalForLogout\(uid\)/);
+  assert.match(nativeOneSignal, /mobile_onesignal_player_id:\s*null/);
+  assert.match(nativeOneSignal, /mobile_onesignal_subscribed:\s*false/);
 });
 
 test("provider readiness and closure artifacts remain present", () => {

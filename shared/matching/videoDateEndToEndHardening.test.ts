@@ -1467,7 +1467,9 @@ test("native date entry reuses same-session Daily joins across remounts and resc
 });
 
 test("native provider wrappers coalesce duplicate foreground/user sync noise", () => {
-  assert.match(nativeOneSignal, /permissionGrantedSyncInFlightByUser = new Map<string, Promise<PushSyncResult>>/);
+  assert.match(nativeOneSignal, /__vibelyNativeOneSignalState/);
+  assert.match(nativeOneSignal, /permissionGrantedSyncInFlightByUser:\s*new Map<string, Promise<PushSyncResult>>\(\)/);
+  assert.match(nativeOneSignal, /permissionGrantedSyncInFlightByUser \?\?= new Map<string, Promise<PushSyncResult>>\(\)/);
   assert.match(nativeOneSignal, /syncPushWithBackendIfPermissionGranted:coalesced/);
   assert.match(nativeOneSignal, /permissionGrantedSyncInFlightByUser\.set\(userId, run\)/);
   assert.match(nativeOneSignal, /permissionGrantedSyncInFlightByUser\.delete\(userId\)/);

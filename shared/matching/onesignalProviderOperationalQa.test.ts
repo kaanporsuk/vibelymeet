@@ -84,10 +84,12 @@ test("native OneSignal identity and subscription sync mirror the backend contrac
   assert.match(nativeOneSignal, /EXPO_PUBLIC_ONESIGNAL_APP_ID/);
   assert.match(nativeOneSignal, /react-native-onesignal/);
   assert.match(nativeOneSignal, /lastLoggedInUserId/);
-  assert.match(nativeOneSignal, /if \(lastLoggedInUserId === userId\) return generation/);
-  assert.match(nativeOneSignal, /OneSignal\.login\(userId\)/);
+  assert.match(nativeOneSignal, /runtimeState\.lastLoggedInUserId === nextUserId/);
+  assert.match(nativeOneSignal, /OneSignal\.login\(nextUserId\)/);
   assert.match(nativeOneSignal, /OneSignal\.logout\(\)/);
   assert.match(nativeOneSignal, /ensureOneSignalInitialized\(\)/);
+  assert.match(nativeOneSignal, /requestOneSignalPushPermission/);
+  assert.match(nativeOneSignal, /initAttemptedAppId/);
   assert.match(nativeOneSignal, /register_onesignal_push_subscription/);
   assert.match(nativeOneSignal, /unregister_onesignal_push_subscription/);
   assert.match(nativeOneSignal, /OneSignal\.User\.pushSubscription\.optOut\(\)/);

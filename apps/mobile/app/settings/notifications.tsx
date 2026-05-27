@@ -43,6 +43,11 @@ import { useFocusEffect } from '@react-navigation/native';
 import { getCalendars } from 'expo-localization';
 import DateTimePicker, { type DateTimePickerEvent } from '@react-native-community/datetimepicker';
 import { useVibelyDialog } from '@/components/VibelyDialog';
+import {
+  getNativeOneSignalDiagnostics,
+  subscribeNativeOneSignalDiagnostics,
+  type NativeOneSignalDiagnostics,
+} from '@/lib/onesignal';
 
 type IoniconName = React.ComponentProps<typeof Ionicons>['name'];
 
@@ -268,11 +273,20 @@ export default function NotificationsSettingsScreen() {
   const [remainingTick, setRemainingTick] = useState(0);
   const [showStartPicker, setShowStartPicker] = useState(false);
   const [showEndPicker, setShowEndPicker] = useState(false);
+  const [oneSignalDiagnostics, setOneSignalDiagnostics] = useState<NativeOneSignalDiagnostics | null>(null);
+
+  const refreshOneSignalDiagnostics = useCallback(() => {
+    if (!__DEV__) return;
+    void getNativeOneSignalDiagnostics(user?.id ?? null)
+      .then(setOneSignalDiagnostics)
+      .catch(() => setOneSignalDiagnostics(null));
+  }, [user?.id]);
 
   useFocusEffect(
     useCallback(() => {
       void refresh();
-    }, [refresh])
+      refreshOneSignalDiagnostics();
+    }, [refresh, refreshOneSignalDiagnostics])
   );
 
   const isPaused = Boolean(prefs.paused_until && new Date(prefs.paused_until) > new Date());
@@ -315,6 +329,12 @@ export default function NotificationsSettingsScreen() {
     const id = setInterval(() => setRemainingTick((t) => t + 1), 30000);
     return () => clearInterval(id);
   }, [isPaused]);
+
+  useEffect(() => {
+    if (!__DEV__) return;
+    refreshOneSignalDiagnostics();
+    return subscribeNativeOneSignalDiagnostics(refreshOneSignalDiagnostics);
+  }, [refreshOneSignalDiagnostics]);
 
   const activePauseKind = useMemo((): PauseKind | null => {
     if (!isPaused) return null;
@@ -548,6 +568,64 @@ export default function NotificationsSettingsScreen() {
     );
   };
 
+  const renderDiagnosticsCard = () => {
+    if (!__DEV__ || !oneSignalDiagnostics) return null;
+    const lastOpen = oneSignalDiagnostics.lastNotificationOpen;
+    const payloadPreview = lastOpen?.payload ? JSON.stringify(lastOpen.payload, null, 2) : 'None';
+    const rows: Array<[string, string]> = [
+      ['Initialized', oneSignalDiagnostics.initialized ? 'yes' : 'no'],
+      ['SDK', oneSignalDiagnostics.sdkStatus],
+      ['Permission', oneSignalDiagnostics.permissionState],
+      ['Subscription ID', oneSignalDiagnostics.subscriptionIdPresent ? 'present' : 'missing'],
+      ['Opted in', oneSignalDiagnostics.optedIn == null ? 'unknown' : oneSignalDiagnostics.optedIn ? 'yes' : 'no'],
+      ['Supabase user', oneSignalDiagnostics.currentSupabaseUserId ?? 'none'],
+      ['Active identity', oneSignalDiagnostics.activeIdentityUserId ?? 'none'],
+      ['Login call', oneSignalDiagnostics.lastLoggedInUserId ?? 'none'],
+      ['SDK external ID', oneSignalDiagnostics.sdkExternalUserId ?? 'unknown'],
+      [
+        'Identity match',
+        oneSignalDiagnostics.identityMatchesSession == null
+          ? 'unknown'
+          : oneSignalDiagnostics.identityMatchesSession
+            ? 'yes'
+            : 'no',
+      ],
+      ['Last open route', lastOpen?.route ?? 'none'],
+      ['Last raw href', lastOpen?.rawHref ?? 'none'],
+    ];
+
+    return (
+      <View style={{ gap: 8 }}>
+        <Text style={[styles.sectionTitle, { color: theme.mutedForeground }]}>DEV PUSH DIAGNOSTICS</Text>
+        <View style={[styles.sectionCard, { backgroundColor: theme.glassSurface, borderColor: theme.glassBorder }]}>
+          {rows.map(([label, value], idx) => (
+            <View
+              key={label}
+              style={[
+                styles.diagnosticRow,
+                idx < rows.length - 1 && {
+                  borderBottomWidth: StyleSheet.hairlineWidth,
+                  borderBottomColor: withAlpha(theme.border, 0.35),
+                },
+              ]}
+            >
+              <Text style={[styles.diagnosticLabel, { color: theme.mutedForeground }]}>{label}</Text>
+              <Text style={[styles.diagnosticValue, { color: theme.text }]} selectable numberOfLines={2}>
+                {value}
+              </Text>
+            </View>
+          ))}
+          <View style={styles.diagnosticPayloadWrap}>
+            <Text style={[styles.diagnosticLabel, { color: theme.mutedForeground }]}>Last sanitized payload</Text>
+            <Text style={[styles.diagnosticPayload, { color: theme.text }]} selectable>
+              {payloadPreview}
+            </Text>
+          </View>
+        </View>
+      </View>
+    );
+  };
+
   return (
     <>
     <View style={[{ flex: 1, backgroundColor: theme.background }]}>
@@ -596,6 +674,8 @@ export default function NotificationsSettingsScreen() {
         ) : null}
 
         {renderStatusCard()}
+
+        {renderDiagnosticsCard()}
 
         <Pressable
           onPress={() => setPauseModalVisible(true)}
@@ -956,5 +1036,28 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     borderRadius: 12,
     borderWidth: 1,
+  },
+  diagnosticRow: {
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    gap: 4,
+  },
+  diagnosticLabel: {
+    fontSize: 11,
+    fontWeight: '700',
+    textTransform: 'uppercase',
+  },
+  diagnosticValue: {
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  diagnosticPayloadWrap: {
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    gap: 6,
+  },
+  diagnosticPayload: {
+    fontSize: 11,
+    lineHeight: 16,
   },
 });

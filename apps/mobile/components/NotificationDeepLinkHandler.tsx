@@ -45,6 +45,10 @@ import { resolveNotificationActionRoute } from '@/lib/notificationActions';
 import { ackNotificationDispatchFromPayload, markNotificationOpenedV2FromPayload } from '@/lib/notificationDispatchAck';
 import { preloadVideoDatePushTargetsFromPayload } from '@/lib/videoDatePushPreload';
 import { isFeatureFlagEnabledWithAlias } from '@clientShared/featureFlags/featureFlagAliasResolution';
+import {
+  recordOneSignalNotificationOpenForDiagnostics,
+  type NativeOneSignalNotificationOpenSnapshot,
+} from '@/lib/onesignal';
 
 /**
  * Matches `EntryStateRouteGate`: only then is expo-router allowed to show protected stacks
@@ -63,23 +67,46 @@ function isEntryReadyForNotificationDeepLink(
   return entryState.state === 'complete';
 }
 
+function pathFromUrlLike(raw: string): string | null {
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
+  if (trimmed.startsWith('/')) return trimmed;
+  if (/^(chat|daily-drop|ready|date|event|events|settings|premium|user|matches)(\/|$)/.test(trimmed)) {
+    return `/${trimmed}`;
+  }
+  try {
+    const u = new URL(trimmed);
+    if (u.protocol !== 'http:' && u.protocol !== 'https:' && u.host) {
+      const customSchemePath = `/${u.host}${u.pathname === '/' ? '' : u.pathname}`;
+      return customSchemePath.startsWith('/') ? customSchemePath : null;
+    }
+    const path = u.pathname && u.pathname !== '/' ? u.pathname : '/';
+    return path.startsWith('/') ? path : null;
+  } catch {
+    return null;
+  }
+}
+
+function sanitizeDiagnosticHref(value: string | null | undefined): string | null {
+  const raw = value?.trim();
+  if (!raw) return null;
+  const path = pathFromUrlLike(raw);
+  const safe = (path ?? raw).split(/[?#]/)[0] || '/';
+  return safe.length > 180 ? `${safe.slice(0, 177)}...` : safe;
+}
+
 function hrefFromPayload(additionalData: Record<string, unknown> | undefined, launchURL?: string): Href | null {
   const raw =
     (additionalData && typeof additionalData.url === 'string' && additionalData.url) ||
     (additionalData && typeof additionalData.deep_link === 'string' && additionalData.deep_link) ||
     (additionalData && typeof additionalData.deepLink === 'string' && additionalData.deepLink) ||
+    (additionalData && typeof additionalData.route === 'string' && additionalData.route) ||
+    (additionalData && typeof additionalData.path === 'string' && additionalData.path) ||
     (launchURL && launchURL.trim() ? launchURL.trim() : '');
 
   if (!raw) return null;
-  if (raw.startsWith('/')) return raw as Href;
-  try {
-    const u = new URL(raw);
-    const path = u.pathname && u.pathname !== '/' ? u.pathname : '/';
-    if (path.startsWith('/')) return path as Href;
-  } catch {
-    /* ignore */
-  }
-  return null;
+  const path = pathFromUrlLike(raw);
+  return path ? (path as Href) : null;
 }
 
 function rawHrefFromPayload(additionalData: Record<string, unknown> | undefined, launchURL?: string): string | null {
@@ -87,8 +114,160 @@ function rawHrefFromPayload(additionalData: Record<string, unknown> | undefined,
     (additionalData && typeof additionalData.url === 'string' && additionalData.url) ||
     (additionalData && typeof additionalData.deep_link === 'string' && additionalData.deep_link) ||
     (additionalData && typeof additionalData.deepLink === 'string' && additionalData.deepLink) ||
+    (additionalData && typeof additionalData.route === 'string' && additionalData.route) ||
+    (additionalData && typeof additionalData.path === 'string' && additionalData.path) ||
     (launchURL && launchURL.trim() ? launchURL.trim() : '');
   return raw || null;
+}
+
+const DIAGNOSTIC_PAYLOAD_KEYS = [
+  'category',
+  'type',
+  'url',
+  'deep_link',
+  'deepLink',
+  'route',
+  'path',
+  'action',
+  'match_id',
+  'sender_id',
+  'other_user_id',
+  'event_id',
+  'video_session_id',
+  'session_id',
+  'drop_id',
+  'ticket_id',
+  'notification_id',
+  'in_app_notification_id',
+  'dispatch_group_id',
+] as const;
+
+const DIAGNOSTIC_HREF_KEYS = new Set<unknown>([
+  'url',
+  'deep_link',
+  'deepLink',
+  'route',
+  'path',
+]);
+
+const DIAGNOSTIC_ACTION_KEYS = [
+  'kind',
+  'matchId',
+  'match_id',
+  'userId',
+  'user_id',
+  'otherUserId',
+  'other_user_id',
+  'eventId',
+  'event_id',
+  'sessionId',
+  'session_id',
+  'video_session_id',
+  'dropId',
+  'drop_id',
+] as const;
+
+function sanitizeDiagnosticPrimitive(value: unknown): unknown {
+  if (value == null) return null;
+  if (typeof value === 'boolean' || typeof value === 'number') return value;
+  if (typeof value === 'string') return value.length > 180 ? `${value.slice(0, 177)}...` : value;
+  return undefined;
+}
+
+function sanitizeDiagnosticAction(value: unknown): Record<string, unknown> | string | null {
+  if (typeof value === 'string') return value;
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const input = value as Record<string, unknown>;
+  const out: Record<string, unknown> = {};
+  for (const key of DIAGNOSTIC_ACTION_KEYS) {
+    const next = sanitizeDiagnosticPrimitive(input[key]);
+    if (next !== undefined) out[key] = next;
+  }
+  return Object.keys(out).length > 0 ? out : null;
+}
+
+function sanitizeNotificationPayloadForDiagnostics(
+  data: Record<string, unknown> | undefined,
+): Record<string, unknown> | null {
+  if (!data) return null;
+  const out: Record<string, unknown> = {};
+  for (const key of DIAGNOSTIC_PAYLOAD_KEYS) {
+    if (!Object.prototype.hasOwnProperty.call(data, key)) continue;
+    if (key === 'action') {
+      const action = sanitizeDiagnosticAction(data.action);
+      if (action) out.action = action;
+      continue;
+    }
+    if (DIAGNOSTIC_HREF_KEYS.has(key)) {
+      const next = typeof data[key] === 'string' ? sanitizeDiagnosticHref(data[key]) : null;
+      if (next !== null) out[key] = next;
+      continue;
+    }
+    const next = sanitizeDiagnosticPrimitive(data[key]);
+    if (next !== undefined) out[key] = next;
+  }
+  return Object.keys(out).length > 0 ? out : null;
+}
+
+function actionKindForDiagnostics(data: Record<string, unknown> | undefined): string | null {
+  if (!data) return null;
+  const action = data.action;
+  if (typeof action === 'string' && action.trim()) return action.trim();
+  if (action && typeof action === 'object' && !Array.isArray(action)) {
+    const kind = (action as Record<string, unknown>).kind;
+    if (typeof kind === 'string' && kind.trim()) return kind.trim();
+  }
+  return null;
+}
+
+function routePath(value: Href | string): string {
+  return String(value).split(/[?#]/)[0] || '/';
+}
+
+function shouldPreferNativeActionRoute(
+  additionalData: Record<string, unknown> | undefined,
+  base: Href,
+  actionRoute: Href,
+): boolean {
+  const kind = actionKindForDiagnostics(additionalData);
+  if (!kind) return false;
+  const basePath = routePath(base);
+  const nativeActionPath = routePath(actionRoute);
+  if (basePath === nativeActionPath) return false;
+
+  switch (kind) {
+    case 'open_event_lobby':
+    case 'open_ready_gate':
+    case 'open_video_date':
+    case 'open_daily_drop':
+      return true;
+    case 'open_credits':
+      return basePath === '/credits';
+    case 'open_verification':
+      return basePath === '/profile';
+    case 'open_notification_settings':
+      return basePath === '/settings';
+    default:
+      return false;
+  }
+}
+
+function recordNotificationOpenDiagnostics(
+  additionalData: Record<string, unknown> | undefined,
+  rawHref: string | null,
+  route: string | null,
+): NativeOneSignalNotificationOpenSnapshot {
+  const snapshot: NativeOneSignalNotificationOpenSnapshot = {
+    receivedAt: new Date().toISOString(),
+    route: sanitizeDiagnosticHref(route),
+    rawHref: sanitizeDiagnosticHref(rawHref),
+    category: typeof additionalData?.category === 'string' ? additionalData.category : null,
+    type: typeof additionalData?.type === 'string' ? additionalData.type : null,
+    actionKind: actionKindForDiagnostics(additionalData),
+    payload: sanitizeNotificationPayloadForDiagnostics(additionalData),
+  };
+  recordOneSignalNotificationOpenForDiagnostics(snapshot);
+  return snapshot;
 }
 
 function hasDispatchGroupPayload(data: Record<string, unknown> | undefined): boolean {
@@ -167,12 +346,14 @@ function resolveNotificationHref(
   additionalData: Record<string, unknown> | undefined,
   launchURL?: string | undefined
 ): Href | null {
+  const actionRoute = resolveNotificationActionRoute(additionalData?.action);
   const peer =
     typeof additionalData?.other_user_id === 'string' && additionalData.other_user_id.length > 0
       ? additionalData.other_user_id
       : null;
   const base = hrefFromPayload(additionalData, launchURL);
-  if (!base || typeof base !== 'string') return resolveNotificationActionRoute(additionalData?.action);
+  if (!base || typeof base !== 'string') return actionRoute;
+  if (actionRoute && shouldPreferNativeActionRoute(additionalData, base, actionRoute)) return actionRoute;
   if (!peer) return base;
   if (base.startsWith('/chat/')) {
     return `/chat/${peer}` as Href;
@@ -467,16 +648,27 @@ export function NotificationDeepLinkHandler() {
     const pending = takePendingNotificationDeepLinkPath();
     if (!pending) return;
     void (async () => {
-      const href = await reconcileHrefWithRegistration(pending.path, user.id, {
-        drainMatchQueueV2: drainQueueV2.enabled,
-        snapshotRecoveryV2: snapshotV2.enabled,
-        allowOneShotSideEffects: pending.allowOneShotSideEffects,
-      });
+      let href: Href = pending.path as Href;
+      try {
+        href = await reconcileHrefWithRegistration(pending.path, user.id, {
+          drainMatchQueueV2: drainQueueV2.enabled,
+          snapshotRecoveryV2: snapshotV2.enabled,
+          allowOneShotSideEffects: pending.allowOneShotSideEffects,
+        });
+      } catch (e) {
+        if (__DEV__) {
+          console.warn('[Vibely][push][deeplink] pending reconcile failed; using queued path', e);
+        }
+      }
       rcBreadcrumb(RC_CATEGORY.notifDeepLink, 'notification_pending_navigate', {
         href: String(href),
       });
       router.push(href);
-    })();
+    })().catch((e) => {
+      if (__DEV__) {
+        console.warn('[Vibely][push][deeplink] pending navigation failed', e);
+      }
+    });
   }, [drainQueueV2.enabled, snapshotV2.enabled, user?.id, entryReady]);
 
   useEffect(() => {
@@ -506,6 +698,7 @@ export function NotificationDeepLinkHandler() {
         });
         if (data?.type === 'support_reply' && typeof data.ticket_id === 'string') {
           const ticketPath = `/settings/ticket/${data.ticket_id}`;
+          recordNotificationOpenDiagnostics(additionalData, rawHref, ticketPath);
           recordPushDeliveryTelemetry('push_notification_deeplink_result', {
             platform: 'native',
             surface: 'onesignal_click',
@@ -523,6 +716,10 @@ export function NotificationDeepLinkHandler() {
         }
         const resolved = resolveNotificationHref(additionalData, launchURL);
         if (!resolved) {
+          const snapshot = recordNotificationOpenDiagnostics(additionalData, rawHref, null);
+          if (__DEV__) {
+            console.log('[Vibely][push][deeplink] ignored unknown notification payload', snapshot);
+          }
           if (additionalData && typeof additionalData === 'object') {
             rcBreadcrumb(RC_CATEGORY.notifDeepLink, 'notification_tap_no_href', {
               has_url_key: typeof (additionalData as Record<string, unknown>).url === 'string',
@@ -536,6 +733,7 @@ export function NotificationDeepLinkHandler() {
           return;
         }
         const pathStr = String(resolved);
+        recordNotificationOpenDiagnostics(additionalData, rawHref, pathStr);
         recordPushDeliveryTelemetry('push_notification_deeplink_result', {
           platform: 'native',
           surface: 'onesignal_click',
@@ -546,16 +744,28 @@ export function NotificationDeepLinkHandler() {
           rcBreadcrumb(RC_CATEGORY.notifDeepLink, 'notification_tap_queued', { href: pathStr });
           return;
         }
-        const nextHref = await reconcileHrefWithRegistration(pathStr, user.id, {
-          drainMatchQueueV2: drainQueueV2.enabled,
-          snapshotRecoveryV2: snapshotV2.enabled,
-          allowOneShotSideEffects,
-        });
+        let nextHref: Href = pathStr as Href;
+        try {
+          nextHref = await reconcileHrefWithRegistration(pathStr, user.id, {
+            drainMatchQueueV2: drainQueueV2.enabled,
+            snapshotRecoveryV2: snapshotV2.enabled,
+            allowOneShotSideEffects,
+          });
+        } catch (e) {
+          if (__DEV__) {
+            console.warn('[Vibely][push][deeplink] reconcile failed; using resolved path', e);
+          }
+        }
+        recordNotificationOpenDiagnostics(additionalData, rawHref, String(nextHref));
         rcBreadcrumb(RC_CATEGORY.notifDeepLink, 'notification_tap_navigate', {
           href: String(nextHref),
         });
         router.push(nextHref);
-      })();
+      })().catch((e) => {
+        if (__DEV__) {
+          console.warn('[Vibely][push][deeplink] click handling failed', e);
+        }
+      });
     };
 
     const onForeground = (event: NotificationWillDisplayEvent) => {
