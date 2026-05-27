@@ -18,6 +18,7 @@ test("authenticated delete-account requires server-verified reauth proof", () =>
   assert.match(edgeFunction, /"schedule_deletion"/);
   assert.match(edgeFunction, /reauth_required/);
   assert.match(edgeFunction, /verifyDeletionReauth/);
+  assert.match(edgeFunction, /hasRecentVerifiedReauthChallenge/);
   assert.match(edgeFunction, /reauthCode/);
   assert.match(edgeFunction, /reauthChannel/);
   assert.match(edgeFunction, /account_deletion_reauth_challenges/);
@@ -32,6 +33,73 @@ test("authenticated delete-account requires server-verified reauth proof", () =>
   assert.match(edgeFunction, /if \(updateError \|\| !consumedChallenge\?\.id\)/);
   assert.match(edgeFunction, /ACCOUNT_DELETION_RATE_LIMIT_PEPPER/);
   assert.doesNotMatch(edgeFunction, /turnstile|captchaToken|siteverify/i);
+});
+
+test("authenticated delete-account is idempotent around the durable pending request", () => {
+  assert.match(edgeFunction, /findPendingDeletionRequest/);
+  assert.match(edgeFunction, /ensurePendingDeletionRequest/);
+  assert.match(edgeFunction, /finalizeDeletionSchedule/);
+  assert.match(edgeFunction, /deletion_already_pending/);
+  assert.match(edgeFunction, /deletion_request_pending/);
+  assert.match(edgeFunction, /idempotent/);
+  assert.match(edgeFunction, /insertError\?\.code === "23505"[\s\S]*findPendingDeletionRequest/);
+
+  const existingCheck = edgeFunction.indexOf("const existingPending = await findPendingDeletionRequest");
+  const recentVerifiedCheck = edgeFunction.indexOf("const recentlyVerified = await hasRecentVerifiedReauthChallenge");
+  const existingPendingVerify = edgeFunction.indexOf(
+    "const reauthResult = await verifyDeletionReauth",
+    recentVerifiedCheck,
+  );
+  const existingPendingFinalize = edgeFunction.indexOf("return await finalizeDeletionSchedule", existingPendingVerify);
+  assert.ok(existingCheck >= 0, "schedule path should check existing pending request");
+  assert.ok(recentVerifiedCheck > existingCheck, "existing pending request should check recent server reauth");
+  assert.ok(existingPendingVerify > recentVerifiedCheck, "existing pending request should fall back to fresh reauth");
+  assert.ok(existingPendingFinalize > existingPendingVerify, "existing pending request should finalize only after reauth gate");
+  assert.ok(
+    existingCheck < recentVerifiedCheck,
+    "existing pending request should not bypass the authenticated deletion reauth boundary",
+  );
+  assert.match(edgeFunction, /if \(!recentlyVerified\) \{[\s\S]*verifyDeletionReauth[\s\S]*if \(!reauthResult\.ok\) return reauthResult\.response;[\s\S]*\}[\s\S]*return await finalizeDeletionSchedule/);
+  assert.match(edgeFunction, /\.not\("verified_at", "is", null\)/);
+  assert.match(edgeFunction, /\.not\("consumed_at", "is", null\)/);
+  assert.match(edgeFunction, /\.gt\("verified_at", verifiedAfter\)/);
+  assert.match(edgeFunction, /if \(channel !== "email"\) return false/);
+  assert.match(edgeFunction, /SMS re-checks Twilio/);
+
+  const ensureRequest = edgeFunction.indexOf("const deletionRequest = await ensurePendingDeletionRequest");
+  const finalizeAfterEnsure = edgeFunction.indexOf("return await finalizeDeletionSchedule", ensureRequest);
+  assert.ok(ensureRequest >= 0, "first schedule path should ensure durable request");
+  assert.ok(finalizeAfterEnsure > ensureRequest, "side effects should run only after durable request exists");
+  assert.match(
+    edgeFunction,
+    /if \(!deletionRequest\.ok\) \{[\s\S]*return response\(req, \{ success: false, error: deletionRequest\.error \}\);[\s\S]*\}[\s\S]*return await finalizeDeletionSchedule/,
+    "request creation failure must abort before cleanup side effects",
+  );
+});
+
+test("account deletion Stripe cleanup is retryable, observable, and sanitized", () => {
+  assert.match(edgeFunction, /recordPaymentObservability/);
+  assert.match(edgeFunction, /account_deletion_stripe_cancellation/);
+  assert.match(edgeFunction, /function shouldCancelStripeSubscription/);
+  assert.match(edgeFunction, /"canceled", "incomplete_expired"/);
+  assert.match(edgeFunction, /if \(!shouldCancelStripeSubscription\(stripeSubscription\.status\)\)/);
+  assert.doesNotMatch(edgeFunction, /\["active", "trialing"\]\.includes/);
+  assert.match(edgeFunction, /stripe_subscription_cancel_provider_failed/);
+  assert.match(edgeFunction, /stripe_subscription_cancel_request_failed/);
+  assert.match(edgeFunction, /stripe_subscription_cancel_skipped_missing_secret/);
+  assert.match(edgeFunction, /stripe_subscription_cancel_local_update_failed/);
+  assert.match(edgeFunction, /stripe_subscription_cancel_entitlement_recompute_failed/);
+  assert.match(edgeFunction, /stripe_subscription_inactive_entitlement_recompute_failed/);
+  assert.match(edgeFunction, /stripe_subscription_canceled_for_account_deletion/);
+  assert.match(edgeFunction, /subscription_cleanup_pending/);
+  assert.match(edgeFunction, /warning_code/);
+  assert.match(edgeFunction, /warning_retryable/);
+  assert.match(edgeFunction, /Try again later or contact support if billing still appears/);
+  assert.match(edgeFunction, /stripe_http_\$\{cancelRes\.status\}/);
+  assert.match(edgeFunction, /metadata_summary:[\s\S]*deletion_request_id/);
+  assert.doesNotMatch(edgeFunction, /cancelBody/);
+  assert.doesNotMatch(edgeFunction, /await cancelRes\.text\(\)/);
+  assert.doesNotMatch(edgeFunction, /Failed to cancel Stripe subscription:[\s\S]*body/i);
 });
 
 test("reauth challenge storage is service-role only and short-lived", () => {
@@ -51,6 +119,9 @@ test("web Settings delete requests OTP before scheduling deletion", () => {
   assert.match(webHook, /action: "schedule_deletion"/);
   assert.match(webHook, /reauthCode: reauth\.code/);
   assert.match(webHook, /reauthChannel: reauth\.channel/);
+  assert.match(webHook, /typeof data\?\.warning === "string"/);
+  assert.match(webHook, /data\?\.deletion_request_pending === true/);
+  assert.match(webHook, /toast\.info\(warning/);
   assert.match(webModal, /alternateReauthChannel/);
   assert.match(webModal, /onRequestVerification/);
   assert.match(webModal, /Use \{alternateReauthChannel === "phone" \? "phone" : "email"\} instead/);
@@ -68,6 +139,10 @@ test("native Settings delete requests OTP before scheduling deletion", () => {
   assert.match(nativeDelete, /action: 'schedule_deletion'/);
   assert.match(nativeDelete, /reauthCode: code/);
   assert.match(nativeDelete, /reauthChannel: challenge\.channel/);
+  assert.match(nativeDelete, /warning\?: string/);
+  assert.match(nativeDelete, /deletion_request_pending\?: boolean/);
+  assert.match(nativeDelete, /payload\?\.deletion_request_pending === true/);
+  assert.match(nativeDelete, /variant: payload\.warning \? 'warning' : 'success'/);
   assert.match(nativeDelete, /alternateReauthChannel/);
   assert.match(nativeDelete, /Use \{alternateReauthChannel === 'phone' \? 'phone' : 'email'\} instead/);
   assert.match(nativeDelete, /Verify it’s you/);

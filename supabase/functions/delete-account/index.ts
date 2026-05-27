@@ -2,6 +2,7 @@ import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient, type SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.88.0";
 import { checkRateLimit, createRateLimitResponse } from "../_shared/rate-limiter.ts";
 import { applyAccountDeletionMediaHold } from "../_shared/media-lifecycle.ts";
+import { recordPaymentObservability } from "../_shared/paymentObservability.ts";
 import { normalizeEmailAddress, resolveCanonicalAuthEmail } from "../_shared/verificationSemantics.ts";
 import {
   corsHeadersForRequest,
@@ -41,6 +42,32 @@ type ReauthTarget = {
   maskedDestination: string;
 };
 
+type PendingDeletionRequest = {
+  id: string;
+  scheduled_deletion_at: string | null;
+};
+
+type DeletionRequestEnsureResult =
+  | { ok: true; request: PendingDeletionRequest; created: boolean }
+  | { ok: false; error: string };
+
+type StripeSubscriptionRow = {
+  stripe_subscription_id: string | null;
+  stripe_customer_id: string | null;
+  status: string | null;
+};
+
+type DeletionCleanupWarning = {
+  code: string;
+  message: string;
+  retryable: boolean;
+};
+
+type StripeCancellationResult = {
+  attempted: boolean;
+  warning: DeletionCleanupWarning | null;
+};
+
 function response(req: Request, body: Record<string, unknown>, status = 200): Response {
   return jsonResponse(req, body, { status });
 }
@@ -63,6 +90,307 @@ function normalizeReason(input: unknown): string | null {
   if (typeof input !== "string") return null;
   const reason = input.trim();
   return reason.length > 0 ? reason.slice(0, 200) : null;
+}
+
+function userSafeStripeCleanupWarning(): DeletionCleanupWarning {
+  return {
+    code: "stripe_subscription_cleanup_pending",
+    message:
+      "Your deletion request is saved, but we could not finish subscription cancellation automatically. Try again later or contact support if billing still appears.",
+    retryable: true,
+  };
+}
+
+function shouldCancelStripeSubscription(status: string | null): boolean {
+  const normalizedStatus = typeof status === "string" ? status.trim().toLowerCase() : "";
+  return !["canceled", "incomplete_expired"].includes(normalizedStatus);
+}
+
+async function findPendingDeletionRequest(
+  supabaseAdmin: AdminSupabaseClient,
+  userId: string,
+): Promise<DeletionRequestEnsureResult | { ok: true; request: null; created: false }> {
+  const { data, error } = await supabaseAdmin
+    .from("account_deletion_requests")
+    .select("id, scheduled_deletion_at")
+    .eq("user_id", userId)
+    .eq("status", "pending")
+    .order("requested_at", { ascending: true })
+    .limit(1)
+    .maybeSingle();
+
+  if (error) {
+    console.error("Error checking existing deletion request:", error.message);
+    return { ok: false, error: "Failed to check deletion status" };
+  }
+
+  return {
+    ok: true,
+    request: data ? data as PendingDeletionRequest : null,
+    created: false,
+  };
+}
+
+async function ensurePendingDeletionRequest(
+  supabaseAdmin: AdminSupabaseClient,
+  userId: string,
+  reason: string | null,
+): Promise<DeletionRequestEnsureResult> {
+  const existing = await findPendingDeletionRequest(supabaseAdmin, userId);
+  if (!existing.ok) return existing;
+  if (existing.request) return { ok: true, request: existing.request, created: false };
+
+  const { data: insertedRequest, error: insertError } = await supabaseAdmin
+    .from("account_deletion_requests")
+    .insert({
+      user_id: userId,
+      reason,
+      status: "pending",
+    })
+    .select("id, scheduled_deletion_at")
+    .maybeSingle();
+
+  if (!insertError && insertedRequest?.id) {
+    return { ok: true, request: insertedRequest as PendingDeletionRequest, created: true };
+  }
+
+  if (insertError?.code === "23505") {
+    const raced = await findPendingDeletionRequest(supabaseAdmin, userId);
+    if (raced.ok && raced.request) {
+      return { ok: true, request: raced.request, created: false };
+    }
+  }
+
+  if (insertError) console.error("Error inserting deletion request:", insertError.message);
+  return { ok: false, error: "Failed to create deletion request" };
+}
+
+async function recordDeletionStripeCancellation(
+  supabaseAdmin: AdminSupabaseClient,
+  params: {
+    userId: string;
+    deletionRequestId: string;
+    status: "succeeded" | "failed";
+    result: string;
+    errorCode?: string | null;
+    subscription?: StripeSubscriptionRow | null;
+    metadata?: Record<string, unknown>;
+  },
+): Promise<void> {
+  await recordPaymentObservability(supabaseAdmin, {
+    category: "account_deletion_stripe_cancellation",
+    status: params.status,
+    result: params.result,
+    error_code: params.errorCode ?? null,
+    stripe_customer_id: params.subscription?.stripe_customer_id ?? null,
+    stripe_subscription_id: params.subscription?.stripe_subscription_id ?? null,
+    user_id: params.userId,
+    metadata_summary: {
+      deletion_request_id: params.deletionRequestId,
+      subscription_status: params.subscription?.status ?? null,
+      ...params.metadata,
+    },
+  });
+}
+
+async function cancelStripeSubscriptionForDeletion(
+  supabaseAdmin: AdminSupabaseClient,
+  userId: string,
+  deletionRequestId: string,
+): Promise<StripeCancellationResult> {
+  const { data: subscription, error: subscriptionError } = await supabaseAdmin
+    .from("subscriptions")
+    .select("stripe_subscription_id, stripe_customer_id, status")
+    .eq("user_id", userId)
+    .eq("provider", "stripe")
+    .maybeSingle();
+
+  if (subscriptionError) {
+    console.error("delete-account Stripe subscription lookup failed:", subscriptionError.message);
+    await recordDeletionStripeCancellation(supabaseAdmin, {
+      userId,
+      deletionRequestId,
+      status: "failed",
+      result: "stripe_subscription_lookup_failed",
+      errorCode: "subscription_lookup_failed",
+    });
+    return { attempted: false, warning: userSafeStripeCleanupWarning() };
+  }
+
+  const stripeSubscription = subscription as StripeSubscriptionRow | null;
+  if (!stripeSubscription?.stripe_subscription_id) {
+    return { attempted: false, warning: null };
+  }
+
+  if (!shouldCancelStripeSubscription(stripeSubscription.status)) {
+    const { error: recomputeError } = await supabaseAdmin.rpc(
+      "recompute_profile_subscription_entitlement",
+      { p_user_id: userId },
+    );
+    if (recomputeError) {
+      console.error("delete-account inactive Stripe entitlement recompute failed:", recomputeError.message);
+      await recordDeletionStripeCancellation(supabaseAdmin, {
+        userId,
+        deletionRequestId,
+        status: "failed",
+        result: "stripe_subscription_inactive_entitlement_recompute_failed",
+        errorCode: "local_entitlement_recompute_failed",
+        subscription: stripeSubscription,
+      });
+      return { attempted: false, warning: userSafeStripeCleanupWarning() };
+    }
+    return { attempted: false, warning: null };
+  }
+
+  const stripeSecretKey = Deno.env.get("STRIPE_SECRET_KEY");
+  if (!stripeSecretKey) {
+    await recordDeletionStripeCancellation(supabaseAdmin, {
+      userId,
+      deletionRequestId,
+      status: "failed",
+      result: "stripe_subscription_cancel_skipped_missing_secret",
+      errorCode: "stripe_secret_missing",
+      subscription: stripeSubscription,
+    });
+    return { attempted: true, warning: userSafeStripeCleanupWarning() };
+  }
+
+  let cancelRes: Response;
+  try {
+    cancelRes = await fetch(
+      `https://api.stripe.com/v1/subscriptions/${stripeSubscription.stripe_subscription_id}`,
+      {
+        method: "DELETE",
+        headers: {
+          Authorization: `Bearer ${stripeSecretKey}`,
+          "Content-Type": "application/x-www-form-urlencoded",
+        },
+      },
+    );
+  } catch {
+    console.error("delete-account Stripe cancellation failed: request_error");
+    await recordDeletionStripeCancellation(supabaseAdmin, {
+      userId,
+      deletionRequestId,
+      status: "failed",
+      result: "stripe_subscription_cancel_request_failed",
+      errorCode: "stripe_request_error",
+      subscription: stripeSubscription,
+    });
+    return { attempted: true, warning: userSafeStripeCleanupWarning() };
+  }
+
+  if (!cancelRes.ok) {
+    console.error("delete-account Stripe cancellation failed:", cancelRes.status);
+    await recordDeletionStripeCancellation(supabaseAdmin, {
+      userId,
+      deletionRequestId,
+      status: "failed",
+      result: "stripe_subscription_cancel_provider_failed",
+      errorCode: `stripe_http_${cancelRes.status}`,
+      subscription: stripeSubscription,
+      metadata: { http_status: cancelRes.status },
+    });
+    return { attempted: true, warning: userSafeStripeCleanupWarning() };
+  }
+
+  const { error: updateError } = await supabaseAdmin
+    .from("subscriptions")
+    .update({ status: "canceled" })
+    .eq("user_id", userId)
+    .eq("provider", "stripe")
+    .eq("stripe_subscription_id", stripeSubscription.stripe_subscription_id);
+
+  if (updateError) {
+    console.error("delete-account local subscription update failed:", updateError.message);
+    await recordDeletionStripeCancellation(supabaseAdmin, {
+      userId,
+      deletionRequestId,
+      status: "failed",
+      result: "stripe_subscription_cancel_local_update_failed",
+      errorCode: "local_subscription_update_failed",
+      subscription: stripeSubscription,
+    });
+    return { attempted: true, warning: userSafeStripeCleanupWarning() };
+  }
+
+  const { error: recomputeError } = await supabaseAdmin.rpc(
+    "recompute_profile_subscription_entitlement",
+    { p_user_id: userId },
+  );
+  if (recomputeError) {
+    console.error("Failed to recompute profile entitlement after Stripe cancellation:", recomputeError.message);
+    await recordDeletionStripeCancellation(supabaseAdmin, {
+      userId,
+      deletionRequestId,
+      status: "failed",
+      result: "stripe_subscription_cancel_entitlement_recompute_failed",
+      errorCode: "local_entitlement_recompute_failed",
+      subscription: stripeSubscription,
+    });
+    return { attempted: true, warning: userSafeStripeCleanupWarning() };
+  }
+
+  await recordDeletionStripeCancellation(supabaseAdmin, {
+    userId,
+    deletionRequestId,
+    status: "succeeded",
+    result: "stripe_subscription_canceled_for_account_deletion",
+    subscription: stripeSubscription,
+  });
+
+  return { attempted: true, warning: null };
+}
+
+async function finalizeDeletionSchedule(
+  req: Request,
+  supabaseAdmin: AdminSupabaseClient,
+  userId: string,
+  deletionRequest: PendingDeletionRequest,
+  idempotent: boolean,
+): Promise<Response> {
+  const mediaHoldResult = await applyAccountDeletionMediaHold(supabaseAdmin, userId);
+  if (!mediaHoldResult.success) {
+    console.error("Error applying deletion media hold:", mediaHoldResult.error);
+    return response(req, {
+      success: false,
+      code: "media_cleanup_prepare_failed",
+      error:
+        "Your deletion request is saved, but cleanup preparation could not finish. Please try again or contact support.",
+      deletion_request_pending: true,
+      deletion_request_id: deletionRequest.id,
+      scheduled_deletion_at: deletionRequest.scheduled_deletion_at,
+      idempotent,
+    });
+  }
+
+  const stripeCancellation = await cancelStripeSubscriptionForDeletion(
+    supabaseAdmin,
+    userId,
+    deletionRequest.id,
+  );
+
+  const body: Record<string, unknown> = {
+    success: true,
+    code: idempotent ? "deletion_already_pending" : "deletion_scheduled",
+    message: "Account scheduled for deletion",
+    deletion_request_pending: true,
+    deletion_request_id: deletionRequest.id,
+    scheduled_deletion_at: deletionRequest.scheduled_deletion_at,
+    idempotent,
+    media_hold_applied: true,
+    media_hold_matches_touched: mediaHoldResult.matchesTouched ?? 0,
+    stripe_cancellation_attempted: stripeCancellation.attempted,
+  };
+
+  if (stripeCancellation.warning) {
+    body.warning_code = stripeCancellation.warning.code;
+    body.warning = stripeCancellation.warning.message;
+    body.warning_retryable = stripeCancellation.warning.retryable;
+    body.subscription_cleanup_pending = true;
+  }
+
+  return response(req, body);
 }
 
 function phoneFromIdentity(user: AdminUserLike): string | null {
@@ -539,6 +867,46 @@ async function verifyDeletionReauth(
   return { ok: true };
 }
 
+async function hasRecentVerifiedReauthChallenge(
+  supabaseAdmin: AdminSupabaseClient,
+  userId: string,
+  channel: ReauthChannel | null,
+  code: string | null,
+): Promise<boolean> {
+  if (!channel || !code) return false;
+  if (channel !== "email") return false;
+
+  const target = await resolveReauthTarget(supabaseAdmin, userId, channel);
+  if (!target || target.channel !== channel) return false;
+
+  const destinationHash = await hmacStoredForm(
+    normalizeEmailAddress(target.destination) ?? target.destination,
+    "destination",
+  );
+  const verifiedAfter = new Date(Date.now() - REAUTH_TTL_MS).toISOString();
+  const { data: challenge, error } = await supabaseAdmin
+    .from("account_deletion_reauth_challenges")
+    .select("id, code_hash")
+    .eq("user_id", userId)
+    .eq("channel", channel)
+    .eq("destination_hash", destinationHash)
+    .not("verified_at", "is", null)
+    .not("consumed_at", "is", null)
+    .gt("verified_at", verifiedAfter)
+    .order("verified_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (error || !challenge?.id) {
+    if (error) console.error("delete-account recent reauth lookup failed:", error.message);
+    return false;
+  }
+
+  if (!challenge.code_hash) return false;
+  const expected = await hmacStoredForm(code, "account-deletion-code");
+  return timingSafeEqualUtf8(expected, challenge.code_hash);
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return preflightResponse(req);
@@ -588,10 +956,38 @@ serve(async (req) => {
       return await requestReauthChallenge(req, supabaseAdmin, userId, reauthChannel);
     }
 
+    const existingPending = await findPendingDeletionRequest(supabaseAdmin, userId);
+    if (!existingPending.ok) {
+      return response(req, { success: false, error: existingPending.error });
+    }
+    if (existingPending.request) {
+      // Existing pending rows are idempotent only after fresh proof; email can
+      // reuse the same recently verified code hash, while SMS re-checks Twilio.
+      const recentlyVerified = await hasRecentVerifiedReauthChallenge(
+        supabaseAdmin,
+        userId,
+        reauthChannel,
+        reauthCode,
+      );
+      if (!recentlyVerified) {
+        const reauthResult = await verifyDeletionReauth(req, supabaseAdmin, userId, reauthChannel, reauthCode);
+        if (!reauthResult.ok) return reauthResult.response;
+      }
+
+      return await finalizeDeletionSchedule(
+        req,
+        supabaseAdmin,
+        userId,
+        existingPending.request,
+        true,
+      );
+    }
+
     const reauthResult = await verifyDeletionReauth(req, supabaseAdmin, userId, reauthChannel, reauthCode);
     if (!reauthResult.ok) return reauthResult.response;
 
-    // Rate limiting: 1 scheduled delete request per hour, after account-owner proof succeeds.
+    // Rate limiting only applies to the first durable deletion request. Retries
+    // against an existing pending request are idempotent and handled above.
     const rateLimitResult = await checkRateLimit(userId, {
       functionName: "delete-account",
       maxRequests: 1,
@@ -602,96 +998,17 @@ serve(async (req) => {
       return createRateLimitResponse(rateLimitResult, corsHeaders);
     }
 
-    // 1. Insert deletion request if none is already pending.
-    const { data: existingPending, error: existingPendingError } = await supabaseAdmin
-      .from("account_deletion_requests")
-      .select("id")
-      .eq("user_id", userId)
-      .eq("status", "pending")
-      .limit(1)
-      .maybeSingle();
-
-    if (existingPendingError) {
-      console.error("Error checking existing deletion request:", existingPendingError.message);
-      return response(req, { success: false, error: "Failed to check deletion status" });
+    const deletionRequest = await ensurePendingDeletionRequest(supabaseAdmin, userId, reason);
+    if (!deletionRequest.ok) {
+      return response(req, { success: false, error: deletionRequest.error });
     }
 
-    if (!existingPending) {
-      const { error: insertError } = await supabaseAdmin
-        .from("account_deletion_requests")
-        .insert({
-          user_id: userId,
-          reason,
-          status: "pending",
-        });
-
-      if (insertError && insertError.code !== "23505") {
-        console.error("Error inserting deletion request:", insertError.message);
-        return response(req, { success: false, error: "Failed to create deletion request" });
-      }
-    }
-
-    const mediaHoldResult = await applyAccountDeletionMediaHold(supabaseAdmin, userId);
-    if (!mediaHoldResult.success) {
-      console.error("Error applying deletion media hold:", mediaHoldResult.error);
-      return response(req, { success: false, error: "Failed to prepare media cleanup" });
-    }
-
-    // 2. Cancel any active Stripe subscription
-    try {
-      const { data: subscription } = await supabaseAdmin
-        .from("subscriptions")
-        .select("stripe_subscription_id, stripe_customer_id, status")
-        .eq("user_id", userId)
-        .eq("provider", "stripe")
-        .maybeSingle();
-
-      if (subscription?.stripe_subscription_id && ["active", "trialing"].includes(subscription.status)) {
-        const stripeSecretKey = Deno.env.get("STRIPE_SECRET_KEY");
-        if (stripeSecretKey) {
-          const cancelRes = await fetch(
-            `https://api.stripe.com/v1/subscriptions/${subscription.stripe_subscription_id}`,
-            {
-              method: "DELETE",
-              headers: {
-                Authorization: `Bearer ${stripeSecretKey}`,
-                "Content-Type": "application/x-www-form-urlencoded",
-              },
-            }
-          );
-          const cancelBody = await cancelRes.text();
-          if (cancelRes.ok) {
-            // Update local subscription status
-            await supabaseAdmin
-              .from("subscriptions")
-              .update({ status: "canceled" })
-              .eq("user_id", userId)
-              .eq("provider", "stripe");
-            const { error: recomputeError } = await supabaseAdmin.rpc(
-              "recompute_profile_subscription_entitlement",
-              { p_user_id: userId },
-            );
-            if (recomputeError) {
-              console.error("Failed to recompute profile entitlement after Stripe cancellation:", recomputeError.message);
-            }
-          } else {
-            console.error("Failed to cancel Stripe subscription:", cancelBody);
-          }
-        }
-      }
-    } catch (stripeErr) {
-      console.error("Stripe cancellation error:", stripeErr);
-      // Don't fail the deletion request if Stripe fails
-    }
-
-    return response(
+    return await finalizeDeletionSchedule(
       req,
-      {
-        success: true,
-        message: "Account scheduled for deletion",
-        media_hold_applied: true,
-        media_hold_matches_touched: mediaHoldResult.matchesTouched ?? 0,
-      },
+      supabaseAdmin,
+      userId,
+      deletionRequest.request,
+      !deletionRequest.created,
     );
   } catch (error) {
     console.error("Unexpected error in delete-account:", error);

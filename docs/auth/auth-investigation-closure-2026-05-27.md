@@ -18,7 +18,7 @@ Status after the current repo changes and the latest live audit:
 - Sprint 4 implemented: phone OTP first-send and resend paths now use shared cooldowns on web and native, with provider retry hints honored when present.
 - Sprint 4 implemented: auth UI exposes forgot-password entry points from the welcome surface and the email sign-in subview.
 - Sprint 4 implemented: web auth renders Turnstile for Supabase Auth entry calls and password reauth surfaces; native auth uses `/auth/challenge` with app-scheme return before token-bearing Supabase calls. Expo Go `exp://` callbacks against the production web challenge are intentionally skipped; use installed staging builds or a local challenge origin for native CAPTCHA smoke. Dashboard CAPTCHA state must still be verified and must not be enabled in production until staging smoke passes.
-- Account deletion already creates/ensures a durable deletion request before Stripe cancellation, but still needs idempotency and better external-side-effect observability.
+- Sprint 5 implemented: authenticated account deletion now treats the pending deletion request as the idempotency anchor, retries safely after consumed reauth only with fresh proof or same-code recent email proof, aborts before Stripe if request creation fails, cancels non-terminal Stripe subscription states, records Stripe cleanup failures to payment observability, and returns user-safe retry/support copy without losing the pending request.
 - Metadata display names from auth providers should be sanitized before profile bootstrap writes.
 - `ensureProfileReady()` should be documented as a defensive check around the DB trigger.
 - `email-verification` logs should avoid recipient PII and full provider response bodies.
@@ -43,7 +43,7 @@ Status after the current repo changes and the latest live audit:
 Do not implement these claims as written:
 
 - "No emergencies." Wrong. The live verified contact trust-field gap is a release-blocking database privilege issue.
-- "`delete-account` cancels Stripe before inserting the deletion request." Stale. Current code creates/ensures the deletion request before Stripe cancellation. Sprint 5 should harden idempotency and failure recording, not reverse an already-correct order.
+- "`delete-account` cancels Stripe before inserting the deletion request." Stale. Current code creates/ensures the deletion request before Stripe cancellation; Sprint 5 has now hardened idempotency and failure recording around that ordering.
 - "Native `authUserIdRef` race." Stale. Native sets the ref synchronously inside `applyAuthSession()`.
 - "All SECURITY DEFINER functions check `auth.uid()` internally." Disgrounded. There are many definer functions, bootstrap is trigger-owned and does not check `auth.uid()`, and live routine grants still need tightening.
 - "Web Supabase JS defaults to PKCE." Wrong for the installed SDK at the time of investigation. Sprint 3 now explicitly configures web and native with `flowType: 'pkce'`.
