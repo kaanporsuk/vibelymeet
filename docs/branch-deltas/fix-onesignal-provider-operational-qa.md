@@ -119,11 +119,17 @@ Operationally:
 ## Code Fixes
 
 - `apps/mobile/lib/onesignal.ts` now tracks the last successfully logged-in OneSignal user ID and skips duplicate `OneSignal.login` calls for the same Supabase user.
-- No web, Edge Function, Supabase migration, notification category, preference, or provider payload semantics changed.
+- Follow-up remediation keeps notification category, preference, and provider targeting semantics unchanged while hardening native config, diagnostics, and multi-device health checks.
+- `apps/mobile/app.config.js` now configures OneSignal Android notification icons and accent color.
+- `apps/mobile/plugins/withIosNativeBuildSettings.js` now applies the iOS deployment target to app and extension targets.
+- `send-notification` now stores redacted provider response snippets and explicit provider acceptance metadata in `push_delivery_diagnostic`.
+- Web and native push health checks now prefer authoritative `push_subscriptions` rows before legacy `notification_preferences` mirrors.
+- Web and native logout cleanup now use cached last-known subscription IDs, with a Supabase RPC fallback that can remove the current user's platform bucket when the SDK cannot return an ID.
 
 ## Tests Added
 
 - `shared/matching/onesignalProviderOperationalQa.test.ts`
+- `shared/pushDeliveryHealth.test.ts`
 
 Coverage:
 
@@ -131,8 +137,10 @@ Coverage:
 - OneSignal root service-worker assets exist locally
 - app-owned `public/sw.js` remains distinct from remote OneSignal push
 - web and native identity binding dedupe repeated login calls
-- web/native player-id and subscription sync writes `notification_preferences`
-- `send-notification` reads OneSignal secrets and preserves suppression/provider logging
+- web/native player-id and subscription sync writes `push_subscriptions` and legacy `notification_preferences` mirrors
+- web/native logout cleanup does not leave stale `push_subscriptions` rows when the SDK cannot read the current subscription ID
+- native OneSignal app/NSE deployment target and Android icon config stay present
+- `send-notification` reads OneSignal secrets and preserves suppression/provider diagnostics
 - notification deep-link payloads remain URL-based and native-compatible
 - `push-webhook` is documented as not proven wired to OneSignal delivery receipts
 - no env vars, native modules, `expo-av`, migrations, or provider semantics were added
@@ -156,11 +164,11 @@ No real production push smoke was run in this stream.
 
 ## Deploy Requirements
 
-- Supabase migration deploy: not required
-- Edge Function deploy: not required
-- Web/static deploy: normal host deployment after merge only if web/public files changed
+- Supabase migration deploy: required for `20260527221500_onesignal_unregister_null_subscription_cleanup.sql`
+- Edge Function deploy: required for the `send-notification` diagnostic hardening
+- Web/static deploy: normal host deployment after merge because web push-health diagnostics changed
 - Environment variables: none
-- Native modules: none
+- Native modules: none; native binary rebuild required only to ship the Android notification icon/config and iOS deployment-target fix
 - `expo-av`: not used
 - Docker/local Supabase: not used
 

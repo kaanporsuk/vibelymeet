@@ -25,12 +25,55 @@ type BackendPushRow = {
   pausedUntil: string | null;
 };
 
+type BackendPushSubscriptionRow = {
+  subscription_id: string | null;
+  subscribed: boolean | null;
+};
+
 const EMPTY_BACKEND_ROW: BackendPushRow = {
   playerId: null,
   subscribed: false,
   pushEnabled: true,
   pausedUntil: null,
 };
+
+function isMissingPushSubscriptionsRelation(error: { code?: string; message?: string; details?: string; hint?: string } | null | undefined): boolean {
+  const haystack = `${error?.code ?? ''} ${error?.message ?? ''} ${error?.details ?? ''} ${error?.hint ?? ''}`;
+  return /42P01|PGRST205|push_subscriptions|relation .* does not exist|Could not find the table/i.test(haystack);
+}
+
+function rowToBackendSubscription(row: BackendPushSubscriptionRow | null | undefined): Pick<BackendPushRow, 'playerId' | 'subscribed'> | null {
+  const playerId = typeof row?.subscription_id === 'string' && row.subscription_id.trim()
+    ? row.subscription_id.trim()
+    : null;
+  if (!playerId) return null;
+  return {
+    playerId,
+    subscribed: row?.subscribed === true,
+  };
+}
+
+async function readBackendPushSubscription(userId: string, localPlayerId: string | null): Promise<Pick<BackendPushRow, 'playerId' | 'subscribed'> | null> {
+  const subscriptionId = localPlayerId?.trim() || null;
+  if (!subscriptionId) return null;
+
+  const { data, error } = await supabase
+    .from('push_subscriptions')
+    .select('subscription_id, subscribed')
+    .eq('user_id', userId)
+    .eq('provider', 'onesignal')
+    .eq('subscription_id', subscriptionId)
+    .maybeSingle();
+
+  if (error) {
+    if (!isMissingPushSubscriptionsRelation(error)) {
+      if (__DEV__) console.warn('[push-health] Failed to read native push subscription row:', error.message);
+    }
+    return null;
+  }
+
+  return rowToBackendSubscription(data as BackendPushSubscriptionRow | null);
+}
 
 function permissionToHealth(status: string): PushPermissionHealth {
   if (status === 'granted') return 'granted';
@@ -62,19 +105,34 @@ export function usePushDeliveryHealth(userId: string | null | undefined) {
       setBackend(EMPTY_BACKEND_ROW);
       return;
     }
-    const { data, error } = await supabase
-      .from('notification_preferences')
-      .select('mobile_onesignal_player_id, mobile_onesignal_subscribed, push_enabled, paused_until')
-      .eq('user_id', userId)
-      .maybeSingle();
+    const [localId, prefsResult] = await Promise.all([
+      getCurrentNativePlayerId(),
+      supabase
+        .from('notification_preferences')
+        .select('mobile_onesignal_player_id, mobile_onesignal_subscribed, push_enabled, paused_until')
+        .eq('user_id', userId)
+        .maybeSingle(),
+    ]);
+    const { data, error } = prefsResult;
     if (error) {
       if (__DEV__) console.warn('[push-health] Failed to read native push backend row:', error.message);
       return;
     }
+    const currentSubscriptionId = localId?.trim() || null;
+    const normalized = await readBackendPushSubscription(userId, currentSubscriptionId);
     if (!mountedRef.current) return;
+    const legacyPlayerId =
+      typeof data?.mobile_onesignal_player_id === 'string' && data.mobile_onesignal_player_id.trim()
+        ? data.mobile_onesignal_player_id.trim()
+        : null;
+    const legacyMatchesCurrentDevice =
+      !currentSubscriptionId || !legacyPlayerId || legacyPlayerId === currentSubscriptionId;
+    const legacySubscribed = legacyMatchesCurrentDevice
+      ? (data?.mobile_onesignal_subscribed as boolean | null | undefined) ?? false
+      : false;
     setBackend({
-      playerId: (data?.mobile_onesignal_player_id as string | null | undefined) ?? null,
-      subscribed: (data?.mobile_onesignal_subscribed as boolean | null | undefined) ?? false,
+      playerId: normalized?.playerId ?? (legacyMatchesCurrentDevice ? legacyPlayerId : null),
+      subscribed: normalized?.subscribed ?? legacySubscribed,
       pushEnabled: (data?.push_enabled as boolean | null | undefined) ?? true,
       pausedUntil: (data?.paused_until as string | null | undefined) ?? null,
     });
@@ -86,7 +144,7 @@ export function usePushDeliveryHealth(userId: string | null | undefined) {
       getCurrentNativePushSubscribed(),
     ]);
     if (!mountedRef.current) return;
-    setLocalPlayerId(playerId);
+    setLocalPlayerId(playerId?.trim() || null);
     setSdkSubscribed(optedIn);
   }, []);
 

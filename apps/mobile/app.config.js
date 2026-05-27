@@ -25,7 +25,14 @@ module.exports = () => {
   const plugins = [
     [
       'onesignal-expo-plugin',
-      { ...oneSignalOptions, mode: oneSignalMode, iPhoneDeploymentTarget: '15.1' },
+      {
+        ...oneSignalOptions,
+        mode: oneSignalMode,
+        iPhoneDeploymentTarget: '15.1',
+        smallIcons: ['./assets/onesignal/ic_stat_onesignal_default.png'],
+        largeIcons: ['./assets/onesignal/ic_onesignal_large_icon_default.png'],
+        smallIconAccentColor: '#8B5CF6',
+      },
     ],
     ...(appJson.expo.plugins || []).filter((p) => getPluginName(p) !== 'onesignal-expo-plugin'),
   ];

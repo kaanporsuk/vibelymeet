@@ -284,7 +284,7 @@ Only **two** Supabase storage buckets are live and in use: `chat-videos`, `proof
 
 ## 9. Hardcoded integration touchpoints that matter for rebuild
 
-- OneSignal App ID now reads from `VITE_ONESIGNAL_APP_ID` with a fallback to the historical hardcoded value in `src/lib/onesignal.ts`.
+- OneSignal App ID reads from `VITE_ONESIGNAL_APP_ID`; web push is disabled if it is unset, with no hardcoded runtime fallback.
 - Sentry DSN now reads from `VITE_SENTRY_DSN` with a fallback to the historical hardcoded value in `src/main.tsx`.
 - PostHog host now reads from `VITE_POSTHOG_HOST` with a fallback to `https://eu.i.posthog.com` in `src/main.tsx`; the API key remains env-driven via `VITE_POSTHOG_API_KEY`.
 - Daily video-date domain is env-owned via `DAILY_DOMAIN`; staging/production Daily actions fail closed if it is absent. The `vibelyapp.daily.co` fallback is only local/dev/test with explicit `ENVIRONMENT`.

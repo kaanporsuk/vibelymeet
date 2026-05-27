@@ -6,10 +6,16 @@ This document covers Vibely native Android push wiring for `apps/mobile`.
 
 - Android package: `com.vibelymeet.vibely`
 - iOS bundle identifier: `com.vibelymeet.vibely`
-- OneSignal App ID: `97e52ea2-6a27-4486-a678-4dd8a0d49e94`
-- Required client env var: `EXPO_PUBLIC_ONESIGNAL_APP_ID=97e52ea2-6a27-4486-a678-4dd8a0d49e94`
+- OneSignal App ID source of truth: the confirmed OneSignal dashboard app used by web, native, and Supabase.
+- Required client env var: `EXPO_PUBLIC_ONESIGNAL_APP_ID=<confirmed OneSignal App ID>`
+- Web env var for the same app: `VITE_ONESIGNAL_APP_ID=<confirmed OneSignal App ID>`
+- Supabase secrets for the same app: `ONESIGNAL_APP_ID` and `ONESIGNAL_REST_API_KEY`
 - Supabase project ref: `schdyxcunwcvddlcshwd`
 - OneSignal Android / FCM dashboard setup: completed for package `com.vibelymeet.vibely`
+
+The historical UUID previously shown in this document is not a runtime fallback. If
+`EXPO_PUBLIC_ONESIGNAL_APP_ID` is missing, native push initialization is disabled
+for that build/runtime.
 
 Do not put `ONESIGNAL_REST_API_KEY`, Supabase service-role keys, Firebase service account JSON, Google OAuth client secrets, Google Play service account JSON, Stripe secret keys, RevenueCat secret keys, or APNs private keys in the mobile app.
 
@@ -62,7 +68,7 @@ A native rebuild is required whenever the installed binary does not already incl
 
 ## Android Test Procedure
 
-1. Confirm `.env` or EAS env contains `EXPO_PUBLIC_ONESIGNAL_APP_ID=97e52ea2-6a27-4486-a678-4dd8a0d49e94`.
+1. Confirm `.env` or EAS env contains `EXPO_PUBLIC_ONESIGNAL_APP_ID=<confirmed OneSignal App ID>`.
 2. Install a development or preview Android build on a device or emulator with Google Play Services.
 3. Sign in through the existing Supabase OAuth/session flow.
 4. Open notification settings or the app prompt flow and allow notifications.

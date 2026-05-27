@@ -1023,7 +1023,7 @@ Using `git diff --name-status fff9438..HEAD`.
 - **Optional**
   - `VITE_BUNNY_CDN_HOSTNAME`
   - `VITE_BUNNY_STREAM_CDN_HOSTNAME`
-  - `VITE_ONESIGNAL_APP_ID` (with code fallback to a hard-coded ID, which is a temporary compatibility choice).
+  - `VITE_ONESIGNAL_APP_ID` (web push is disabled if unset; there is no hard-coded runtime fallback).
   - `VITE_POSTHOG_API_KEY`, `VITE_POSTHOG_HOST`
   - `VITE_SENTRY_DSN`
   - `VITE_APP_URL`, `VITE_STRIPE_PUBLISHABLE_KEY`
@@ -1205,5 +1205,4 @@ This section synthesizes what can be concluded from code and docs only.
 - **Store/provider setup state (from repo docs + operator report):**  
   - Supabase migrations and Edge Functions are fully specified and ready to apply; Android build can target them.  
   - RevenueCat, OneSignal, Daily, App Store Connect, and Google Play have detailed setup/validation docs, with actual dashboard configuration and verification still needing to be recorded outside this repo.
-
 

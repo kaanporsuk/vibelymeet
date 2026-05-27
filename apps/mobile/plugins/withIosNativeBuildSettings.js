@@ -5,6 +5,27 @@ const path = require('path');
 const IOS_DEPLOYMENT_TARGET = '15.1';
 const ONESIGNAL_EXTENSION_TARGET = 'OneSignalNotificationServiceExtension';
 
+function unquote(value) {
+  return String(value || '').replace(/^"|"$/g, '');
+}
+
+function isAppOrExtensionTarget(target) {
+  const productType = unquote(target.productType);
+  return (
+    productType === 'com.apple.product-type.application' ||
+    productType === 'com.apple.product-type.app-extension'
+  );
+}
+
+function applyDeploymentTarget(project, target) {
+  IOSConfig.XcodeUtils.getBuildConfigurationsForListId(
+    project,
+    target.buildConfigurationList
+  ).forEach(([, buildConfig]) => {
+    buildConfig.buildSettings.IPHONEOS_DEPLOYMENT_TARGET = IOS_DEPLOYMENT_TARGET;
+  });
+}
+
 /**
  * Durable managed-workflow fixes for SDK 55 / RN 0.83 native generation.
  */
@@ -33,22 +54,17 @@ module.exports = function withIosNativeBuildSettings(config) {
 
   return withXcodeProject(config, (modConfig) => {
     const project = modConfig.modResults;
-    const extensionTargetEntry = IOSConfig.Target.getNativeTargets(project).find(
-      ([, target]) =>
-        target.name === ONESIGNAL_EXTENSION_TARGET ||
-        target.name === `"${ONESIGNAL_EXTENSION_TARGET}"`
-    );
-    const [, extensionTarget] = extensionTargetEntry || [];
+    const targetNames = new Set([
+      unquote(modConfig.modRequest.projectName),
+      unquote(config.name),
+      ONESIGNAL_EXTENSION_TARGET,
+    ].filter(Boolean));
 
-    if (!extensionTarget) {
-      return modConfig;
-    }
-
-    IOSConfig.XcodeUtils.getBuildConfigurationsForListId(
-      project,
-      extensionTarget.buildConfigurationList
-    ).forEach(([, buildConfig]) => {
-      buildConfig.buildSettings.IPHONEOS_DEPLOYMENT_TARGET = IOS_DEPLOYMENT_TARGET;
+    IOSConfig.Target.getNativeTargets(project).forEach(([, target]) => {
+      const targetName = unquote(target.name);
+      if (targetNames.has(targetName) || isAppOrExtensionTarget(target)) {
+        applyDeploymentTarget(project, target);
+      }
     });
 
     return modConfig;
