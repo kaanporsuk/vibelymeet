@@ -249,7 +249,8 @@ export function useIdentityLinking() {
       try {
         setState(prev => ({ ...prev, isLinking: true, linkingProvider: provider, error: null }));
 
-        const redirectUrl = new URL(window.location.href);
+        const redirectUrl = new URL('/settings', window.location.origin);
+        redirectUrl.searchParams.set('drawer', 'account');
         redirectUrl.searchParams.set('linking', 'true');
         redirectUrl.searchParams.set('provider', provider);
 
