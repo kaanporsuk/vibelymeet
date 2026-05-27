@@ -267,14 +267,14 @@ serve(async (req) => {
         });
       }
 
-      const { error: updateErr } = await admin
-        .from("profiles")
-        .update({
-          phone_number: phoneNumber,
-          phone_verified: true,
-          phone_verified_at: new Date().toISOString(),
-        })
-        .eq("id", user.id);
+      const { error: updateErr } = await admin.rpc(
+        "mark_profile_phone_verified_from_server",
+        {
+          p_user_id: user.id,
+          p_phone_number: phoneNumber,
+          p_verified_at: new Date().toISOString(),
+        },
+      );
 
       if (updateErr) {
         logError("profile_update_failed", { requestId, code: updateErr.code ?? "unknown" });

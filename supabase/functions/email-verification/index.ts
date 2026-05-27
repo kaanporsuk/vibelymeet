@@ -606,14 +606,14 @@ const handler = async (req: Request): Promise<Response> => {
         .delete()
         .eq("id", verification.id);
 
-      // Update profile
-      const { error: profileError } = await supabaseAdmin
-        .from("profiles")
-        .update({
-          email_verified: true,
-          verified_email: verifyResolvedUser.email ?? user.email ?? authEmail,
-        })
-        .eq("id", user.id);
+      const verifiedEmail = verifyResolvedUser.email ?? user.email ?? authEmail;
+      const { error: profileError } = await supabaseAdmin.rpc(
+        "mark_profile_email_verified_from_server",
+        {
+          p_user_id: user.id,
+          p_verified_email: verifiedEmail,
+        },
+      );
 
       if (profileError) {
         console.error("Profile update error:", profileError);

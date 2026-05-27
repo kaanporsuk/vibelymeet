@@ -137,7 +137,9 @@ test("one-user-one-phone association guard remains present", () => {
   }
   assert.match(phoneVerify, /\.from\("profiles"\)[\s\S]{0,160}\.eq\("phone_number", phoneNumber\)[\s\S]{0,120}\.eq\("phone_verified", true\)[\s\S]{0,120}\.neq\("id", user\.id\)/);
   assert.match(phoneVerify, /errorType:\s*"phone_already_claimed"/);
-  assert.match(phoneVerify, /phone_verified_at:\s*new Date\(\)\.toISOString\(\)/);
+  assert.match(phoneVerify, /\.rpc\(\s*"mark_profile_phone_verified_from_server"/);
+  assert.match(phoneVerify, /p_phone_number:\s*phoneNumber/);
+  assert.match(phoneVerify, /p_verified_at:\s*new Date\(\)\.toISOString\(\)/);
   assert.match(phoneVerificationState, /profiles\.phone_verified` is the verified truth/);
   assert.match(nativeProfileApi, /fetchMyProfileSettings\(\)/);
   assert.match(nativeProfileApi, /phone_number: row\.phone_number \?\? null/);
