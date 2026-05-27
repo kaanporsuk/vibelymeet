@@ -143,6 +143,7 @@ test("frontend assumptions match the hardened admin RPC and Edge contracts", () 
   assert.match(photoVerificationPanel, /adminUtcDayStartIso\(\)/);
   assert.match(photoVerificationPanel, /SELFIE_SIGN_CONCURRENCY = 4/);
   assert.match(photoVerificationPanel, /shouldRefreshSelfieEntry/);
+  assert.match(photoVerificationPanel, /sourceSelfieUrl !== existingSourceSelfieUrl/);
   assert.match(photoVerificationPanel, /previous\?\.selfie === nextUrls\.selfie && previous\.selfieLoadedAt/);
   assert.match(photoVerificationPanel, /window\.addEventListener\("focus", refreshOnFocus\)/);
   assert.match(photoVerificationPanel, /document\.addEventListener\("visibilitychange", refreshOnFocus\)/);

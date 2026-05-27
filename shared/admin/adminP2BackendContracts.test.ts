@@ -56,6 +56,9 @@ const adminHardeningGapClosureMigration = read(
 const reviewComments1071To1081FollowupMigration = read(
   "supabase/migrations/20260526093000_review_comments_1071_1081_followups.sql",
 );
+const reviewComments1082To1087FollowupMigration = read(
+  "supabase/migrations/20260527003000_review_comments_1082_1087_followups.sql",
+);
 const adminGapClosureDefinitiveMigration = read(
   "supabase/migrations/20260526100000_admin_gap_closure_definitive.sql",
 );
@@ -603,6 +606,7 @@ test("Sprint 2 support replies enqueue retryable delivery jobs instead of reques
   assert.match(processAdminDurableJobsFunction, /parsed\.onesignal_id/);
   assert.match(processAdminDurableJobsFunction, /push_provider_id_missing/);
   assert.match(processAdminDurableJobsFunction, /support_delivery_state_update_failed/);
+  assert.match(processAdminDurableJobsFunction, /catch \(error\) \{[\s\S]*recordWorkerRunFinish\(supabase, workerId, "failed"/);
   assert.match(
     processAdminDurableJobsFunction,
     /if \(readError\) \{[\s\S]+errorCode: "support_context_read_failed"[\s\S]+permanent: false/,
@@ -614,6 +618,11 @@ test("Sprint 2 support replies enqueue retryable delivery jobs instead of reques
   assert.match(sendNotificationFunction, /provider_idempotency_key/);
   assert.match(sendNotificationFunction, /osPayload\.idempotency_key = requestProviderIdempotencyKey/);
   assert.match(processAdminDurableJobsFunction, /allowedHeaders: "authorization, x-client-info, apikey, content-type, x-cron-secret"/);
+  assert.match(reviewComments1082To1087FollowupMigration, /COMPLETION_EVIDENCE_MISSING/);
+  assert.match(reviewComments1082To1087FollowupMigration, /COMPLETION_EVIDENCE_INCOMPLETE/);
+  assert.match(reviewComments1082To1087FollowupMigration, /v_hard_delete_evidence_complete/);
+  assert.match(reviewComments1082To1087FollowupMigration, /'auth_user_deleted', v_hard_delete_evidence_complete/);
+  assert.match(reviewComments1082To1087FollowupMigration, /'profile_pii_scrubbed', v_hard_delete_evidence_complete/);
   assert.match(sendSupportReplyFunction, /success: false, error: "ticket_id and reply_message required"/);
   assert.match(functionConfig, /\[functions\.process-admin-durable-jobs\]\nverify_jwt = false/);
 });
