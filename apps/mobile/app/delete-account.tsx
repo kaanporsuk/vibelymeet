@@ -133,8 +133,29 @@ export default function DeleteAccountScreen() {
           reauthCode: code,
         },
       });
-      const payload = data as { success?: boolean; error?: string; code?: string } | null;
+      const payload = data as {
+        success?: boolean;
+        error?: string;
+        code?: string;
+        warning?: string;
+        deletion_request_pending?: boolean;
+      } | null;
       if (error || payload?.success !== true) {
+        if (!error && payload?.deletion_request_pending === true) {
+          await refetchDeletionState();
+          setStep('warning');
+          setSelectedReason(null);
+          setConfirmText('');
+          setReauthChallenge(null);
+          setReauthCode('');
+          showDialog({
+            title: 'Deletion request saved',
+            message: payload.error ?? 'Your deletion request is saved, but some cleanup still needs a retry.',
+            variant: 'warning',
+            primaryAction: { label: 'OK', onPress: () => {} },
+          });
+          return;
+        }
         if (payload?.code === 'reauth_invalid' || payload?.code === 'reauth_required') {
           setReauthError(payload.error ?? 'Verification failed. Request a new code and try again.');
           return;
@@ -155,9 +176,9 @@ export default function DeleteAccountScreen() {
       setReauthCode('');
       showDialog({
         title: 'Deletion scheduled',
-        message:
+        message: payload.warning ??
           'Your account is set to be removed after the date shown on this screen. You can keep using Vibely during the grace window, and you can return here before that date to tap “Cancel Deletion”.',
-        variant: 'success',
+        variant: payload.warning ? 'warning' : 'success',
         primaryAction: { label: 'OK', onPress: () => {} },
       });
     } catch {

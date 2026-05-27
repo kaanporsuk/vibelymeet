@@ -91,13 +91,28 @@ export const useDeleteAccount = () => {
       }
 
       if (!data?.success) {
+        if (data?.deletion_request_pending === true) {
+          window.dispatchEvent(new Event("vibely:deletion-state-changed"));
+          toast.info(
+            data?.error ||
+              "Your deletion request is saved, but some cleanup still needs a retry.",
+            { duration: 6500 },
+          );
+          setIsDeleting(false);
+          return true;
+        }
         toast.error(data?.error || "Failed to schedule account deletion");
         setIsDeleting(false);
         return false;
       }
 
       window.dispatchEvent(new Event("vibely:deletion-state-changed"));
-      toast.success("Account deletion scheduled. You can cancel it before the removal date.");
+      const warning = typeof data?.warning === "string" ? data.warning : null;
+      if (warning) {
+        toast.info(warning, { duration: 6500 });
+      } else {
+        toast.success("Account deletion scheduled. You can cancel it before the removal date.");
+      }
 
       setIsDeleting(false);
       return true;
