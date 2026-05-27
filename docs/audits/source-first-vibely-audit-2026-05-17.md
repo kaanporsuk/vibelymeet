@@ -344,17 +344,17 @@ Acceptance Criteria:
 Severity: Medium
 Category: privacy / operational risk
 
-Evidence:
+Original Evidence:
 
-- `email-verification` logs Resend request metadata with raw `to` email at `supabase/functions/email-verification/index.ts:187`.
-- It logs the full parsed provider response body at `supabase/functions/email-verification/index.ts:240`.
-- It logs canonical/requested email values in `send_user_resolved` at `supabase/functions/email-verification/index.ts:326`.
-- It logs `OTP sent successfully to ${authEmail}` at `supabase/functions/email-verification/index.ts:453`.
-- It logs `Verifying OTP ... email: ${authEmail}` at `supabase/functions/email-verification/index.ts:504`.
+- Before Sprint 6, `email-verification` logged Resend request metadata with raw `to` email at `supabase/functions/email-verification/index.ts:187`.
+- Before Sprint 6, it logged the full parsed provider response body at `supabase/functions/email-verification/index.ts:240`.
+- Before Sprint 6, it logged canonical/requested email values in `send_user_resolved` at `supabase/functions/email-verification/index.ts:326`.
+- Before Sprint 6, it logged `OTP sent successfully to ${authEmail}` at `supabase/functions/email-verification/index.ts:453`.
+- Before Sprint 6, it logged `Verifying OTP ... email: ${authEmail}` at `supabase/functions/email-verification/index.ts:504`.
 
 Impact:
 
-The function does not log the raw OTP, which is good. It does put email addresses and arbitrary provider response bodies into function logs. Logs often have wider retention and audience than primary data stores, and provider errors can include request fragments. This is unnecessary PII exposure.
+The function did not log the raw OTP, which was good. Before Sprint 6, it did put email addresses and arbitrary provider response bodies into function logs. Logs often have wider retention and audience than primary data stores, and provider errors can include request fragments. This was unnecessary PII exposure.
 
 Fix Plan:
 
@@ -368,19 +368,25 @@ Acceptance Criteria:
 - Operational logs still show request id, user id, stage, provider status, and safe error category.
 - Manual OTP send/verify failure still has enough diagnostics without raw email addresses.
 
+Status update (2026-05-27):
+
+- Remediated in Sprint 6. `email-verification` now logs Resend status, ok flag, provider id/request id when present, and body length only.
+- User/canonical/requested email values are represented as presence/match booleans in logs, not raw addresses.
+- `shared/matching/resendEmailProviderOperationalQa.test.ts` and `shared/authSprint6Contracts.test.ts` guard this posture.
+
 ### VIB-AUD-011: Phone Verification Health Check Leaks Provider Configuration State
 
 Severity: Low
 Category: operational risk / privacy
 
-Evidence:
+Original Evidence:
 
-- `phone-verify` requires a valid user token, then returns `hasSid`, `hasToken`, and `hasVerify` for `action === "health_check"` at `supabase/functions/phone-verify/index.ts:79`.
-- The web phone verification UI calls this path at `src/components/PhoneVerification.tsx:146`.
+- Before Sprint 6, `phone-verify` required a valid user token, then returned `hasSid`, `hasToken`, and `hasVerify` for `action === "health_check"` at `supabase/functions/phone-verify/index.ts:79`.
+- Before Sprint 6, the web phone verification UI called this path at `src/components/PhoneVerification.tsx:146`.
 
 Impact:
 
-Any authenticated user can learn whether Twilio account, auth token, and verify-service secrets are configured in the current environment. This does not reveal the secret values, but it leaks operational state and can help attackers time abuse or social-engineering reports.
+Before Sprint 6, any authenticated user could learn whether Twilio account, auth token, and verify-service secrets were configured in the current environment. This did not reveal the secret values, but it leaked operational state and could help attackers time abuse or social-engineering reports.
 
 Fix Plan:
 
@@ -392,6 +398,12 @@ Acceptance Criteria:
 - Non-admin authenticated callers cannot retrieve `hasSid`, `hasToken`, or `hasVerify`.
 - Phone verification UI still shows a user-friendly unavailable state when SMS is not configured.
 - Admin/ops diagnostics can still inspect provider setup through an admin-only surface.
+
+Status update (2026-05-27):
+
+- Remediated in Sprint 6. The client-callable `health_check` action was removed from `phone-verify`, and the web phone verification component no longer calls it.
+- Provider config failures now return coarse user-safe copy and log only `missingCount`, not missing secret names or secret presence booleans.
+- `shared/matching/twilioPhoneVerificationQa.test.ts` and `shared/authSprint6Contracts.test.ts` guard this posture.
 
 ### VIB-AUD-012: `ready_gate_transition` Grants Execute To `anon`
 

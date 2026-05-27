@@ -113,6 +113,22 @@ sensitive_fn as (
     and p.proname = 'protect_sensitive_profile_columns'
   limit 1
 ),
+sanitize_name_fn as (
+  select p.oid, pg_get_functiondef(p.oid) as body
+  from pg_proc p
+  join pg_namespace n on n.oid = p.pronamespace
+  where n.nspname = 'public'
+    and p.proname = 'sanitize_profile_display_name'
+  limit 1
+),
+bootstrap_fn as (
+  select p.oid, pg_get_functiondef(p.oid) as body
+  from pg_proc p
+  join pg_namespace n on n.oid = p.pronamespace
+  where n.nspname = 'public'
+    and p.proname = 'bootstrap_profile_from_auth_user'
+  limit 1
+),
 verification_writer_functions(routine_name) as (
   values
     ('mark_profile_email_verified_from_server'),
@@ -346,6 +362,166 @@ select
     '[]'::jsonb
   )::text as detail
 from routine_grant_violations
+
+union all
+
+select
+  'sanitize_profile_display_name_body' as check_key,
+  'public.sanitize_profile_display_name' as subject,
+  case
+    when exists (
+      select 1
+      from sanitize_name_fn
+      where lower(body) like '%pg_catalog%'
+        and lower(body) like '%chr(8203)%'
+        and lower(body) like '%chr(65279)%'
+        and lower(body) like '%[[:cntrl:]]%'
+        and lower(body) like '%[[:space:]]+%'
+        and lower(body) like '%left(value, 80)%'
+        and lower(body) like '%btrim(left(value, 80))%'
+    ) then 'pass'
+    else 'fail'
+  end as status,
+  jsonb_build_object(
+    'function_exists', exists(select 1 from sanitize_name_fn),
+    'uses_pg_catalog_search_path', exists(select 1 from sanitize_name_fn where lower(body) like '%pg_catalog%'),
+    'removes_zero_width', exists(select 1 from sanitize_name_fn where lower(body) like '%chr(8203)%' and lower(body) like '%chr(65279)%'),
+    'removes_control_chars', exists(select 1 from sanitize_name_fn where lower(body) like '%[[:cntrl:]]%'),
+    'collapses_whitespace', exists(select 1 from sanitize_name_fn where lower(body) like '%[[:space:]]+%'),
+    'caps_length', exists(select 1 from sanitize_name_fn where lower(body) like '%left(value, 80)%'),
+    'trims_after_cap', exists(select 1 from sanitize_name_fn where lower(body) like '%btrim(left(value, 80))%')
+  )::text as detail
+
+union all
+
+select
+  'bootstrap_profile_display_name_sanitizer' as check_key,
+  'public.bootstrap_profile_from_auth_user' as subject,
+  case
+    when exists (
+      select 1
+      from bootstrap_fn
+      where lower(body) like '%sanitize_profile_display_name%'
+        and lower(body) like '%raw_user_meta_data%'
+        and lower(body) like '%full_name%'
+        and lower(body) like '%name%'
+        and lower(body) like '%display_name%'
+        and lower(body) like '%vibely.verification_server_update%'
+        and lower(body) like '%pg_catalog%'
+    ) then 'pass'
+    else 'fail'
+  end as status,
+  jsonb_build_object(
+    'function_exists', exists(select 1 from bootstrap_fn),
+    'uses_sanitizer', exists(select 1 from bootstrap_fn where lower(body) like '%sanitize_profile_display_name%'),
+    'uses_display_name_fallback', exists(select 1 from bootstrap_fn where lower(body) like '%raw_user_meta_data%' and lower(body) like '%display_name%'),
+    'sets_verification_context', exists(select 1 from bootstrap_fn where lower(body) like '%vibely.verification_server_update%'),
+    'uses_pg_catalog_search_path', exists(select 1 from bootstrap_fn where lower(body) like '%pg_catalog%')
+  )::text as detail
+
+union all
+
+select
+  'verification_attempts_flow_column' as check_key,
+  'public.verification_attempts' as subject,
+  case
+    when exists (
+      select 1
+      from information_schema.columns c
+      where c.table_schema = 'public'
+        and c.table_name = 'verification_attempts'
+        and c.column_name = 'flow'
+        and c.is_nullable = 'NO'
+        and c.column_default like '%legacy%'
+    )
+    and exists (
+      select 1
+      from pg_constraint con
+      join pg_class rel on rel.oid = con.conrelid
+      join pg_namespace ns on ns.oid = rel.relnamespace
+      where ns.nspname = 'public'
+        and rel.relname = 'verification_attempts'
+        and con.conname = 'verification_attempts_flow_format'
+        and pg_get_constraintdef(con.oid) like '%flow%'
+    )
+    then 'pass'
+    else 'fail'
+  end as status,
+  jsonb_build_object(
+    'flow_column_exists', exists (
+      select 1 from information_schema.columns c
+      where c.table_schema = 'public'
+        and c.table_name = 'verification_attempts'
+        and c.column_name = 'flow'
+    ),
+    'flow_not_null_default_legacy', exists (
+      select 1 from information_schema.columns c
+      where c.table_schema = 'public'
+        and c.table_name = 'verification_attempts'
+        and c.column_name = 'flow'
+        and c.is_nullable = 'NO'
+        and c.column_default like '%legacy%'
+    ),
+    'flow_check_exists', exists (
+      select 1
+      from pg_constraint con
+      join pg_class rel on rel.oid = con.conrelid
+      join pg_namespace ns on ns.oid = rel.relnamespace
+      where ns.nspname = 'public'
+        and rel.relname = 'verification_attempts'
+        and con.conname = 'verification_attempts_flow_format'
+    )
+  )::text as detail
+
+union all
+
+select
+  'verification_attempts_flow_index' as check_key,
+  'public.verification_attempts' as subject,
+  case
+    when exists (
+      select 1
+      from pg_indexes
+      where schemaname = 'public'
+        and tablename = 'verification_attempts'
+        and indexname = 'idx_verification_attempts_user_flow_time'
+        and indexdef like '%user_id%'
+        and indexdef like '%flow%'
+        and indexdef like '%attempt_at%'
+    ) then 'pass'
+    else 'fail'
+  end as status,
+  jsonb_build_object(
+    'index_exists', exists (
+      select 1
+      from pg_indexes
+      where schemaname = 'public'
+        and tablename = 'verification_attempts'
+        and indexname = 'idx_verification_attempts_user_flow_time'
+    )
+  )::text as detail
+
+union all
+
+select
+  'verification_attempts_client_grants' as check_key,
+  r.role_name as subject,
+  case
+    when count(g.privilege_type) filter (
+      where g.privilege_type in ('SELECT', 'INSERT', 'UPDATE', 'DELETE', 'TRUNCATE', 'TRIGGER', 'REFERENCES')
+    ) = 0 then 'pass'
+    else 'fail'
+  end as status,
+  coalesce(
+    jsonb_agg(distinct g.privilege_type) filter (where g.privilege_type is not null),
+    '[]'::jsonb
+  )::text as detail
+from roles r
+left join information_schema.role_table_grants g
+  on g.table_schema = 'public'
+  and g.table_name = 'verification_attempts'
+  and g.grantee = r.role_name
+group by r.role_name
 
 union all
 

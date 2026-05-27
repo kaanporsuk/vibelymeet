@@ -98,11 +98,13 @@ test("email OTP values are HMAC-hashed before storage and raw OTPs are not logge
 
 test("email verification verify path checks expiry and attempt limits", () => {
   assert.match(emailVerification, /const MAX_ATTEMPTS = 7/);
-  assert.match(emailVerification, /\.from\("verification_attempts"\)[\s\S]{0,220}\.gte\("attempt_at", oneHourAgo\)/);
+  assert.match(emailVerification, /const EMAIL_OTP_VERIFY_FLOW = "email_otp_verify"/);
+  assert.match(emailVerification, /\.from\("verification_attempts"\)[\s\S]{0,260}\.eq\("flow", EMAIL_OTP_VERIFY_FLOW\)[\s\S]{0,120}\.gte\("attempt_at", oneHourAgo\)/);
   assert.match(emailVerification, /attemptCount[\s\S]{0,80}MAX_ATTEMPTS/);
   assert.match(emailVerification, /\.from\("email_verifications"\)[\s\S]{0,260}\.gt\("expires_at", new Date\(\)\.toISOString\(\)\)/);
   assert.match(emailVerification, /const isValidCode = await verifyOtpHash\(code, storedCode, requestId\)/);
-  assert.match(emailVerification, /\.from\("verification_attempts"\)[\s\S]{0,120}\.insert\(\{ user_id: user\.id \}\)/);
+  assert.match(emailVerification, /\.from\("verification_attempts"\)[\s\S]{0,140}\.insert\(\{ user_id: user\.id, flow: EMAIL_OTP_VERIFY_FLOW \}\)/);
+  assert.match(emailVerification, /\.from\("verification_attempts"\)[\s\S]{0,120}\.delete\(\)[\s\S]{0,120}\.eq\("flow", EMAIL_OTP_VERIFY_FLOW\)/);
 });
 
 test("event notification email path requires authenticated admin posture", () => {
@@ -178,6 +180,22 @@ test("active email console logging does not print secret or OTP values", () => {
   }
 });
 
+test("email-verification logs avoid recipient PII and raw Resend response bodies", () => {
+  assert.match(emailVerification, /resend_request_start[\s\S]{0,140}fromConfigured/);
+  assert.doesNotMatch(emailVerification, /resend_request_start[\s\S]{0,180}\bto\b/);
+  assert.match(emailVerification, /resend_response[\s\S]{0,220}providerId/);
+  assert.match(emailVerification, /resend_response[\s\S]{0,220}providerRequestId/);
+  assert.match(emailVerification, /resend_response[\s\S]{0,220}bodyLength/);
+  assert.doesNotMatch(emailVerification, /resend_response[\s\S]{0,220}\bbody:\s*responseBody/);
+  assert.doesNotMatch(emailVerification, /jwtUserEmail|jwtAuthEmail:\s|canonicalAuthEmail:\s/);
+  for (const line of consoleLines(emailVerification)) {
+    assert.doesNotMatch(line, /email:\s*authEmail|authEmail|requestedEmail|canonicalAuthEmail|jwtAuthEmail/);
+  }
+  assert.doesNotMatch(emailVerification, /OTP sent successfully to|Verifying OTP for user \$\{user\.id\}, email:/);
+  assert.match(emailVerification, /requestedEmailPresent/);
+  assert.match(emailVerification, /requestedMatchesCanonical/);
+});
+
 test("web and native email verification flows remain backend-gated", () => {
   assert.match(webEmailHook, /supabase\.functions\.invoke\("email-verification\/send"/);
   assert.match(webEmailHook, /supabase\.functions\.invoke\("email-verification\/verify"/);
@@ -245,7 +263,9 @@ test("Streams 1-13 artifacts remain present", () => {
 });
 
 test("Resend operational QA docs capture deployment and manual dashboard follow-up", () => {
-  assert.match(branchDelta, /Supabase migration requirement: none/);
+  assert.match(branchDelta, /Stream 14 Supabase migration requirement was none/);
+  assert.match(branchDelta, /Sprint 6 now adds `verification_attempts\.flow`/);
+  assert.match(branchDelta, /supabase functions deploy email-verification --project-ref schdyxcunwcvddlcshwd/);
   assert.match(branchDelta, /Edge Function deploy requirement: `event-notifications` changed/);
   assert.match(branchDelta, /No production email was sent/);
   assert.match(branchDelta, /Manual Resend Dashboard Checklist/);

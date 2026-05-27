@@ -5648,18 +5648,21 @@ export type Database = {
       verification_attempts: {
         Row: {
           attempt_at: string
+          flow: string
           id: string
           ip_address: string | null
           user_id: string
         }
         Insert: {
           attempt_at?: string
+          flow?: string
           id?: string
           ip_address?: string | null
           user_id: string
         }
         Update: {
           attempt_at?: string
+          flow?: string
           id?: string
           ip_address?: string | null
           user_id?: string

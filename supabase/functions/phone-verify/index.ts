@@ -6,6 +6,7 @@ const corsHeaders = {
   "Access-Control-Allow-Headers":
     "authorization, x-client-info, apikey, content-type",
 };
+const PHONE_VERIFY_SEND_FLOW = "phone_verify_send";
 
 // IMPORTANT: Always return HTTP 200. Use { success: false, error: "..." }
 // for errors. The Supabase SDK discards response bodies for non-2xx codes.
@@ -72,29 +73,23 @@ serve(async (req) => {
     }
     logInfo("auth_resolved", { requestId, userId: user.id });
 
+    if (action !== "send_otp" && action !== "verify_otp") {
+      return jsonResponse({ success: false, error: "Invalid action." });
+    }
+
     const TWILIO_SID = Deno.env.get("TWILIO_ACCOUNT_SID");
     const TWILIO_TOKEN = Deno.env.get("TWILIO_AUTH_TOKEN");
     const TWILIO_VERIFY_SID = Deno.env.get("TWILIO_VERIFY_SERVICE_SID");
 
-    if (action === "health_check") {
-      return jsonResponse({
-        success: true,
-        hasSid: !!TWILIO_SID,
-        hasToken: !!TWILIO_TOKEN,
-        hasVerify: !!TWILIO_VERIFY_SID,
-      });
-    }
-
     if (!TWILIO_SID || !TWILIO_TOKEN || !TWILIO_VERIFY_SID) {
-      const missing = [
-        !TWILIO_SID && "TWILIO_ACCOUNT_SID",
-        !TWILIO_TOKEN && "TWILIO_AUTH_TOKEN",
-        !TWILIO_VERIFY_SID && "TWILIO_VERIFY_SERVICE_SID",
-      ].filter(Boolean);
-      logError("twilio_config_missing", { requestId, missingCount: missing.length });
+      const missingCount =
+        Number(!TWILIO_SID) +
+        Number(!TWILIO_TOKEN) +
+        Number(!TWILIO_VERIFY_SID);
+      logError("twilio_config_missing", { requestId, missingCount });
       return jsonResponse({
         success: false,
-        error: "SMS service not configured. Missing: " + missing.join(", "),
+        error: "SMS service is temporarily unavailable. Please try again later.",
       });
     }
 
@@ -109,6 +104,7 @@ serve(async (req) => {
         .from("verification_attempts")
         .select("*", { count: "exact", head: true })
         .eq("user_id", user.id)
+        .eq("flow", PHONE_VERIFY_SEND_FLOW)
         .gte("attempt_at", oneHourAgo);
 
       if (attemptCount !== null && attemptCount >= 5) {
@@ -162,6 +158,7 @@ serve(async (req) => {
       // Log attempt
       await admin.from("verification_attempts").insert({
         user_id: user.id,
+        flow: PHONE_VERIFY_SEND_FLOW,
         ip_address: req.headers.get("x-forwarded-for") || "unknown",
       });
 
@@ -187,12 +184,11 @@ serve(async (req) => {
 
       if (!res.ok) {
         const twilioCode = data?.code;
-        const msg = data?.message || "Unknown error";
         logError("twilio_send_error", { requestId, twilioCode: twilioCode ?? null });
 
         const errorMap: Record<number, string> = {
-          20003: "SMS authentication error — check Twilio credentials.",
-          20404: "Verify service not found — check TWILIO_VERIFY_SERVICE_SID.",
+          20003: "SMS service is temporarily unavailable. Please try again later.",
+          20404: "SMS service is temporarily unavailable. Please try again later.",
           21211: "Invalid phone number format.",
           21408: "SMS to this country is not enabled in Twilio.",
           21610: "This number opted out of SMS. Text START to re-enable.",
@@ -204,8 +200,8 @@ serve(async (req) => {
 
         return jsonResponse({
           success: false,
-          error: errorMap[twilioCode] || `Twilio error: ${msg}`,
-          twilioCode,
+          error: errorMap[twilioCode] || "SMS service is temporarily unavailable. Please try again later.",
+          errorType: "provider_unavailable",
         });
       }
 
@@ -243,7 +239,11 @@ serve(async (req) => {
         const errCode = data?.code;
         if (errCode === 60202) return jsonResponse({ success: false, error: "Max attempts reached. Request a new code." });
         if (errCode === 20404) return jsonResponse({ success: false, error: "Code expired. Request a new one." });
-        return jsonResponse({ success: false, error: data?.message || "Verification failed." });
+        return jsonResponse({
+          success: false,
+          error: "Verification service is temporarily unavailable. Please try again later.",
+          errorType: "provider_unavailable",
+        });
       }
 
       if (data.status !== "approved") {

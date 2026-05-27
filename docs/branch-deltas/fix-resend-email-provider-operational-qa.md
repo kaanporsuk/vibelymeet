@@ -63,7 +63,7 @@ No new env vars were added. `CRON_SECRET` and `UNSUB_HMAC_SECRET` remain present
 - The Edge Function requires a logged-in Supabase user.
 - The requested email must match the canonical auth email resolved by shared verification semantics.
 - OTPs are generated server-side, stored as Web Crypto HMAC-SHA256 values, expire after 10 minutes, and verify through timing-safe comparison.
-- Failed verification attempts are counted through `verification_attempts`, capped at 7 attempts per hour.
+- Failed verification attempts are counted through `verification_attempts` with `flow = 'email_otp_verify'`, capped at 7 attempts per hour.
 - Raw OTP values are not logged.
 - Resend sends from `Vibely <hello@vibelymeet.com>` unless `EMAIL_VERIFICATION_FROM_EMAIL` overrides it.
 
@@ -128,11 +128,12 @@ Coverage includes Resend env usage, OTP hashing and expiry/attempt checks, admin
 
 ## Deploy Requirements
 
-- Supabase migration requirement: none.
+- Stream 14 Supabase migration requirement was none.
+- Sprint 6 now adds `verification_attempts.flow`; apply `20260527130000_auth_sprint6_data_quality_observability.sql` before deploying the current `email-verification` code.
 - Edge Function deploy requirement: `event-notifications` changed and must be deployed after merge only:
   - `supabase functions deploy event-notifications --project-ref schdyxcunwcvddlcshwd`
-- No other email function changed.
-- No DB deploy is required.
+- Sprint 6 Edge Function deploy requirement: `email-verification` changed and must be deployed with the Sprint 6 migration:
+  - `supabase functions deploy email-verification --project-ref schdyxcunwcvddlcshwd`
 
 ## Safety Confirmations
 

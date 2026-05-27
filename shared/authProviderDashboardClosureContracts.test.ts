@@ -116,7 +116,8 @@ test("Sprint 2 live provider check covers provider dashboards without recording 
 });
 
 test("closure ledger points to Sprint 2 and no longer says Sprint 1 is pending live migration", () => {
-  assert.match(closure, /production Supabase project `schdyxcunwcvddlcshwd` now passes the live auth audit/);
+  assert.match(closure, /Production Supabase project `schdyxcunwcvddlcshwd` passed the live auth audit after Sprint 5/);
+  assert.match(closure, /Sprint 6 migration is prepared locally and must be applied before the next post-deploy live audit/);
   assert.match(closure, /Sprint 2 dated provider closure exists at `docs\/auth\/provider-live-check-2026-05-27\.md`/);
   assert.doesNotMatch(closure, /pending live migration/);
 });

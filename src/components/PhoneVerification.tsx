@@ -76,18 +76,6 @@ function detectCountryFromLocale(): string {
   return "US";
 }
 
-function phoneVerifyDiagEnabled(): boolean {
-  try {
-    return Boolean(
-      typeof window !== "undefined" &&
-      import.meta.env.DEV &&
-      window.localStorage?.getItem("__vibely_diag") === "1"
-    );
-  } catch {
-    return false;
-  }
-}
-
 export function PhoneVerification({ open, onOpenChange, onVerified, initialPhoneE164 }: PhoneVerificationProps) {
   const detectedCountry = detectCountryFromLocale();
   const defaultDialCode = COUNTRY_CODES.find(c => c.country === detectedCountry)?.code || "+1";
@@ -138,25 +126,6 @@ export function PhoneVerification({ open, onOpenChange, onVerified, initialPhone
     }
   }, [open, initialPhoneE164, defaultDialCode]);
 
-  // Health check (dev-only diagnostic)
-  useEffect(() => {
-    if (open) {
-      if (!phoneVerifyDiagEnabled()) return;
-      supabase.functions
-        .invoke("phone-verify", { body: { action: "health_check", phoneNumber: "+0" } })
-        .then(({ data, error: invokeError }) => {
-          if (invokeError) console.error("Phone verify health check failed.");
-          else if (data && (!data.hasSid || !data.hasToken || !data.hasVerify)) {
-            console.error("Phone verify provider config incomplete.", {
-              hasSid: !!data.hasSid,
-              hasToken: !!data.hasToken,
-              hasVerify: !!data.hasVerify,
-            });
-          }
-        });
-    }
-  }, [open]);
-
   // Resend cooldown timer
   useEffect(() => {
     if (resendCooldown <= 0) return;
@@ -194,7 +163,6 @@ export function PhoneVerification({ open, onOpenChange, onVerified, initialPhone
       if (!data?.success) {
         console.error("Phone verify send failed.", {
           errorType: data?.errorType ?? null,
-          twilioCode: data?.twilioCode ?? null,
         });
         setError(data?.error || "Failed to send code.");
         setIsLoading(false);

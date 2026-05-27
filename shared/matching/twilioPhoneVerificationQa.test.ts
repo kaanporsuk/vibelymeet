@@ -91,15 +91,17 @@ test("phone-verify reads the expected Twilio secret names only", () => {
   assert.match(providerLedger, /`TWILIO_VERIFY_SERVICE_SID`/);
 });
 
-test("phone-verify requires authenticated user context before diagnostics or provider calls", () => {
+test("phone-verify rejects unsupported actions before provider config checks", () => {
   assertOrder(phoneVerify, [
     ["auth header read", "const authHeader = req.headers.get(\"authorization\")"],
     ["auth user resolution", "supabase.auth.getUser()"],
-    ["health check after auth", "if (action === \"health_check\")"],
+    ["unsupported action reject", "if (action !== \"send_otp\" && action !== \"verify_otp\")"],
     ["provider auth material after auth", "const twilioAuth = btoa(`${TWILIO_SID}:${TWILIO_TOKEN}`)"],
   ]);
   assert.match(phoneVerify, /if \(!authHeader\)[\s\S]{0,140}Not authenticated/);
   assert.match(phoneVerify, /if \(authError \|\| !user\)[\s\S]{0,180}Authentication failed/);
+  assert.doesNotMatch(phoneVerify, /health_check|hasSid|hasToken|hasVerify/);
+  assert.doesNotMatch(webPhoneVerification, /health_check|phoneVerifyDiagEnabled/);
 });
 
 test("send and check actions remain product-compatible", () => {
@@ -115,11 +117,12 @@ test("send and check actions remain product-compatible", () => {
 
 test("rate limiting and attempt tracking remain present", () => {
   assert.match(phoneVerify, /Rate limiting: max 5 SMS per hour per user/);
+  assert.match(phoneVerify, /const PHONE_VERIFY_SEND_FLOW = "phone_verify_send"/);
   assert.match(phoneVerify, /const oneHourAgo = new Date\(Date\.now\(\) - 60 \* 60 \* 1000\)\.toISOString\(\)/);
-  assert.match(phoneVerify, /\.from\("verification_attempts"\)[\s\S]{0,220}\.gte\("attempt_at", oneHourAgo\)/);
+  assert.match(phoneVerify, /\.from\("verification_attempts"\)[\s\S]{0,260}\.eq\("flow", PHONE_VERIFY_SEND_FLOW\)[\s\S]{0,120}\.gte\("attempt_at", oneHourAgo\)/);
   assert.match(phoneVerify, /attemptCount !== null && attemptCount >= 5/);
   assert.match(phoneVerify, /errorType:\s*"rate_limited"/);
-  assert.match(phoneVerify, /\.from\("verification_attempts"\)\.insert\(\{/);
+  assert.match(phoneVerify, /\.from\("verification_attempts"\)\.insert\(\{[\s\S]{0,100}flow:\s*PHONE_VERIFY_SEND_FLOW/);
 });
 
 test("Lookup line-type guard remains present and fail-open posture is documented", () => {
@@ -157,6 +160,8 @@ test("phone verification logs exclude OTPs, phone numbers, and secret values", (
   assert.match(phoneVerify, /maskPhoneForLog/);
   assert.match(phoneVerify, /requestId = crypto\.randomUUID\(\)/);
   assert.doesNotMatch(phoneVerify, /TWILIO_[A-Z_]+\.slice|TWILIO_TOKEN\.length|url\.slice\(0/);
+  assert.match(phoneVerify, /twilio_config_missing[\s\S]{0,120}missingCount/);
+  assert.doesNotMatch(phoneVerify, /Missing: "\s*\+|Missing: " \+|check TWILIO_VERIFY_SERVICE_SID|check Twilio credentials/);
   assert.doesNotMatch(webPhoneVerification, /Sending OTP to:|Send OTP response:|Verify OTP response:|OTP sent successfully/);
 
   const activeSources = [phoneVerify, webPhoneVerification, nativePhoneVerification].join("\n");
@@ -174,11 +179,11 @@ test("phone verification logs exclude OTPs, phone numbers, and secret values", (
   }
 });
 
-test("no env vars, migrations, native modules, expo-av, or unrelated provider changes were added", () => {
+test("no Twilio SDK, native modules, expo-av, or unrelated provider changes were added", () => {
   assert.equal(
     readdirSync(join(root, "supabase/migrations")).some((name) => name.includes("twilio_phone_verification_qa")),
     false,
-    "Stream 15 should not add a Supabase migration",
+    "Stream 15 should not add a Twilio-specific migration",
   );
   assert.doesNotMatch(rootPackageJson, /"@twilio|twilio"\s*:/);
   assert.doesNotMatch(nativePackageJson, /"@twilio|twilio|expo-av"\s*:/);
@@ -231,6 +236,8 @@ test("Twilio operational QA docs capture deploy posture and manual dashboard fol
   assert.match(branchDelta, /`phone-verify`: active/);
   assert.match(branchDelta, /`TWILIO_ACCOUNT_SID`: present by name/);
   assert.match(branchDelta, /No real SMS smoke was run/);
+  assert.match(branchDelta, /Sprint 6 supersedes that posture: the client-callable `health_check` action has been removed entirely/);
+  assert.match(branchDelta, /Sprint 6 adds `verification_attempts\.flow`/);
   assert.match(branchDelta, /Edge Function deploy requirement: `phone-verify` changed/);
   assert.match(branchDelta, /Manual Twilio Dashboard Checklist/);
   assert.match(branchDelta, /Verify service SID matches `TWILIO_VERIFY_SERVICE_SID`/);

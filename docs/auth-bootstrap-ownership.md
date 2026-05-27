@@ -150,6 +150,7 @@ This addendum captures final post-incident hardening after missing-profile repai
 - Bootstrap helper cleanup:
   - Removed legacy wrapper `ensureBootstrapProfileExists(...)` from `apps/mobile/lib/profileBootstrap.ts`.
   - Canonical contract remains `ensureProfileReady(...)`.
+  - `ensureProfileReady(...)` is a defensive, read-only check around the `auth.users` -> `profiles` trigger. It only selects the caller's profile row, retries briefly for trigger delivery, and reports `profile_missing` to recovery flows. It must not insert, upsert, or repair `profiles` client-side.
   - Removed stale reason variants that no longer reflect ownership (`auth_context_session`, `auth_context_state_change`).
 
 - Journey CTA refinement (safe, owner-preserving):
@@ -160,4 +161,3 @@ This addendum captures final post-incident hardening after missing-profile repai
 - Legacy/compat surfaces intentionally retained:
   - Web `/vibe-studio` is now a dedicated Vibe Studio management route (recording still reuses shared `VibeStudioModal` plumbing).
   - Deprecated `signUp(...)` surfaces remain explicit fail-fast guardrails in web/native auth contexts.
-
