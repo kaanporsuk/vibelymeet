@@ -291,13 +291,9 @@ export function SimplePhotoVerification({
         throw insertError;
       }
 
-      // Update proof_selfie_url on profile for reference
-      await supabase
-        .from("profiles")
-        .update({ proof_selfie_url: selfieUrl })
-        .eq("id", submissionUserId);
-
-      // Do NOT set photo_verified = true — admin will do that
+      // Do NOT set profiles.proof_selfie_url or photo_verified here. The
+      // photo_verifications row is the review source of truth; admin/server
+      // code owns profile verification fields.
       trackEvent('photo_verification_submitted');
       setScreen("submitted");
       toast.success("Selfie submitted for review!");

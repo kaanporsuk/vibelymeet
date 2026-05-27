@@ -376,7 +376,7 @@ export const syncProfileVibes = async (profileId: string, vibeLabels: string[]):
   if (insertError) throw insertError;
 };
 
-// Create a new profile during onboarding
+// Complete the bootstrap-created profile during onboarding.
 export const createProfile = async (profileData: ProfileUpdatePayload): Promise<void> => {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) throw new Error("Not authenticated");
@@ -392,20 +392,24 @@ export const createProfile = async (profileData: ProfileUpdatePayload): Promise<
 
   const dbData = profileToDb(profileData);
   
-  // Add required fields
-  const insertData = {
-    id: user.id,
+  const updateData = {
     name: profileData.name || "",
     gender: profileData.gender || "",
     age: profileData.birthDate ? calculateAge(profileData.birthDate) : 18,
     ...dbData,
   };
 
-  const { error } = await supabase
+  const { data: updatedProfile, error } = await supabase
     .from("profiles")
-    .upsert(insertData);
+    .update(updateData)
+    .eq("id", user.id)
+    .select("id")
+    .maybeSingle();
 
   if (error) throw error;
+  if (!updatedProfile) {
+    throw new Error("Profile setup is not ready. Please sign out and sign in again.");
+  }
 
   // Handle vibes
   if (profileData.vibes && profileData.vibes.length > 0) {
