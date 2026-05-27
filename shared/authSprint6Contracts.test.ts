@@ -116,6 +116,8 @@ test("Sprint 6 closure ledger is current", () => {
   assert.match(closure, /Sprint 6 implemented: `phone-verify` `health_check` has been removed/);
   assert.match(closure, /Sprint 6 implemented: `verification_attempts` throttling is namespaced by flow/);
   assert.match(closure, /Current Live Alignment Note/);
-  assert.match(closure, /apply the Sprint 6 migration first, then deploy the changed `email-verification` and `phone-verify` Edge Functions/);
+  assert.match(closure, /Production Supabase is aligned with the current repo for Sprints 0-6/);
+  assert.match(closure, /Post-deploy `npm run audit:auth-live` passes with `0 fail, 0 warn, 40 checks`/);
+  assert.match(closure, /Release-order invariant for future environments: apply the Sprint 6 migration first, then deploy the changed `email-verification` and `phone-verify` Edge Functions/);
   assert.match(closure, /Do not deploy the current Edge Function code ahead of the migration/);
 });
