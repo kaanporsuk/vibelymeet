@@ -58,6 +58,8 @@ test("verification_attempts is namespaced by flow in schema, email, and phone wr
   assert.match(generatedTypes, /verification_attempts: \{[\s\S]{0,160}flow: string/);
   assert.match(generatedTypes, /Insert: \{[\s\S]{0,120}flow\?: string/);
   assert.match(generatedTypes, /Update: \{[\s\S]{0,120}flow\?: string/);
+  assert.match(generatedTypes, /sanitize_profile_display_name:\s*\{\s*Args:\s*\{\s*p_input: string\s*\}\s*Returns: string \| null\s*\}/);
+  assert.match(read("scripts/regen-supabase-types.sh"), /Expected sanitize_profile_display_name to return string \| null/);
 });
 
 test("live audit harness proves Sprint 6 database posture after migration", () => {

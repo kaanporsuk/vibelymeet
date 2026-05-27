@@ -13,11 +13,12 @@ const viteConfig = read("vite.config.ts");
 const webIdentityLinking = read("src/hooks/useIdentityLinking.ts");
 const webSettings = read("src/pages/Settings.tsx");
 const nativeAuthRedirect = read("apps/mobile/lib/nativeAuthRedirect.ts");
+const sharedCors = read("supabase/functions/_shared/cors.ts");
 
 test("Sprint 2 live provider check records live-confirmed auth settings and audit scope", () => {
   assert.match(liveCheck, /production Supabase project `schdyxcunwcvddlcshwd`/);
   assert.match(liveCheck, /npm run audit:auth-live/);
-  assert.match(liveCheck, /Result: `0 fail, 0 warn, 33 checks`/);
+  assert.match(liveCheck, /Result: `0 fail, 0 warn, 40 checks`/);
 
   for (const setting of [
     "Signup enabled",
@@ -75,6 +76,9 @@ test("Sprint 2 live provider check records exact redirect shapes from current re
 
   assert.match(liveCheck, /Vite local dev port is `8080`, not `5173`/);
   assert.match(checklist, /localhost:8080/);
+  assert.match(sharedCors, /http:\/\/localhost:8080/);
+  assert.match(sharedCors, /http:\/\/127\.0\.0\.1:8080/);
+  assert.doesNotMatch(sharedCors, /localhost:5173|127\.0\.0\.1:5173/);
   assert.match(webIdentityLinking, /const redirectUrl = new URL\('\/settings', window\.location\.origin\)/);
   assert.match(webIdentityLinking, /redirectUrl\.searchParams\.set\('drawer', 'account'\)/);
   assert.match(webSettings, /drawer === "account"[\s\S]+setActiveDrawer\("account"\)/);
