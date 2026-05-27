@@ -113,6 +113,37 @@ sensitive_fn as (
     and p.proname = 'protect_sensitive_profile_columns'
   limit 1
 ),
+verification_writer_functions(routine_name) as (
+  values
+    ('mark_profile_email_verified_from_server'),
+    ('mark_profile_phone_verified_from_server')
+),
+verification_writer_fn as (
+  select p.proname as routine_name, pg_get_functiondef(p.oid) as body
+  from pg_proc p
+  join pg_namespace n on n.oid = p.pronamespace
+  where n.nspname = 'public'
+    and p.proname in (
+      'mark_profile_email_verified_from_server',
+      'mark_profile_phone_verified_from_server'
+    )
+),
+verification_writer_grants as (
+  select
+    f.routine_name,
+    coalesce(bool_or(rp.grantee = 'service_role' and rp.privilege_type = 'EXECUTE'), false) as service_role_execute,
+    count(*) filter (where rp.grantee in ('PUBLIC', 'anon', 'authenticated')) as public_client_grants,
+    coalesce(
+      jsonb_agg(jsonb_build_object('grantee', rp.grantee, 'privilege', rp.privilege_type))
+        filter (where rp.grantee is not null),
+      '[]'::jsonb
+    ) as grants
+  from verification_writer_functions f
+  left join information_schema.routine_privileges rp
+    on rp.specific_schema = 'public'
+    and rp.routine_name = f.routine_name
+  group by f.routine_name
+),
 routine_grant_violations as (
   select routine_name, grantee, privilege_type
   from information_schema.routine_privileges
@@ -315,6 +346,47 @@ select
     '[]'::jsonb
   )::text as detail
 from routine_grant_violations
+
+union all
+
+select
+  'verification_writer_routine_grants' as check_key,
+  'public verified-contact writer routines' as subject,
+  case
+    when count(*) = 2
+      and count(*) filter (where service_role_execute and public_client_grants = 0) = 2 then 'pass'
+    else 'fail'
+  end as status,
+  jsonb_agg(
+    jsonb_build_object(
+      'routine', routine_name,
+      'service_role_execute', service_role_execute,
+      'public_client_grants', public_client_grants,
+      'grants', grants
+    )
+    order by routine_name
+  )::text as detail
+from verification_writer_grants
+
+union all
+
+select
+  'verification_writer_routine_bodies' as check_key,
+  'public verified-contact writer routines' as subject,
+  case
+    when count(*) = 2
+      and bool_and(lower(body) like '%vibely.verification_server_update%')
+      and bool_and(lower(body) like '%server verification context required%')
+      and bool_or(routine_name = 'mark_profile_email_verified_from_server' and lower(body) like '%verified_email%' and lower(body) like '%email_verified%')
+      and bool_or(routine_name = 'mark_profile_phone_verified_from_server' and lower(body) like '%phone_number%' and lower(body) like '%phone_verified%' and lower(body) like '%phone_verified_at%')
+      then 'pass'
+    else 'fail'
+  end as status,
+  jsonb_build_object(
+    'function_count', count(*),
+    'functions', coalesce(jsonb_agg(routine_name order by routine_name), '[]'::jsonb)
+  )::text as detail
+from verification_writer_fn
 order by check_key, subject;
 `;
 

@@ -8,6 +8,8 @@ const read = (path: string) => readFileSync(join(root, path), "utf8");
 
 const migrationPath = "supabase/migrations/20260527120000_auth_profile_write_privilege_hardening.sql";
 const migration = read(migrationPath);
+const writerMigrationPath = "supabase/migrations/20260527123000_auth_verified_contact_server_writers.sql";
+const writerMigration = read(writerMigrationPath);
 
 const backendOwnedProfileColumns = [
   "phone_number",
@@ -191,6 +193,42 @@ test("routine execute grants are tightened for bootstrap and entry state", () =>
   assert.match(migration, /NOTIFY pgrst, 'reload schema';/);
 });
 
+test("verified contact server writer RPCs own trusted profile mutations", () => {
+  for (const [functionName, trustedColumns] of [
+    [
+      "mark_profile_email_verified_from_server",
+      ["email_verified", "verified_email"],
+    ],
+    [
+      "mark_profile_phone_verified_from_server",
+      ["phone_number", "phone_verified", "phone_verified_at"],
+    ],
+  ] as const) {
+    assert.match(writerMigration, new RegExp(`CREATE OR REPLACE FUNCTION public\\.${functionName}\\(`));
+    assert.match(writerMigration, new RegExp(`COMMENT ON FUNCTION public\\.${functionName}`));
+    assert.match(
+      writerMigration,
+      new RegExp(`REVOKE ALL ON FUNCTION public\\.${functionName}[\\s\\S]*FROM PUBLIC, anon, authenticated;`),
+    );
+    assert.match(
+      writerMigration,
+      new RegExp(`GRANT EXECUTE ON FUNCTION public\\.${functionName}[\\s\\S]*TO service_role;`),
+    );
+
+    for (const column of trustedColumns) {
+      assert.match(writerMigration, new RegExp(`\\b${column}\\b`));
+    }
+  }
+
+  assert.match(writerMigration, /SECURITY DEFINER/);
+  assert.match(writerMigration, /SET search_path TO public, pg_catalog/);
+  assert.match(writerMigration, /v_request_role <> 'service_role'/);
+  assert.match(writerMigration, /PERFORM set_config\('vibely\.verification_server_update', '1', true\);/);
+  assert.match(writerMigration, /EXCEPTION WHEN OTHERS THEN\s+PERFORM set_config\('vibely\.verification_server_update', NULL, true\);\s+RAISE;/);
+  assert.match(writerMigration, /PERFORM set_config\('vibely\.verification_server_update', NULL, true\);\s+END;/);
+  assert.match(writerMigration, /NOTIFY pgrst, 'reload schema';/);
+});
+
 test("client profile flows no longer self-insert profiles or write backend-owned verification references", () => {
   const webProfileService = read("src/services/profileService.ts");
   const webPhotoVerification = read("src/components/verification/SimplePhotoVerification.tsx");
@@ -208,6 +246,38 @@ test("client profile flows no longer self-insert profiles or write backend-owned
     assert.match(source, /photo_verifications/);
     assert.doesNotMatch(source, /update\(\{\s*proof_selfie_url/);
     assert.doesNotMatch(source, /photo_verified\s*:\s*true/);
+  }
+});
+
+test("verification Edge Functions use trusted RPC writers for profile trust fields", () => {
+  const emailVerification = read("supabase/functions/email-verification/index.ts");
+  const phoneVerification = read("supabase/functions/phone-verify/index.ts");
+
+  assert.match(emailVerification, /\.rpc\(\s*"mark_profile_email_verified_from_server"/);
+  assert.match(emailVerification, /p_user_id:\s*user\.id/);
+  assert.match(emailVerification, /p_verified_email:\s*verifiedEmail/);
+
+  assert.match(phoneVerification, /\.rpc\(\s*"mark_profile_phone_verified_from_server"/);
+  assert.match(phoneVerification, /p_user_id:\s*user\.id/);
+  assert.match(phoneVerification, /p_phone_number:\s*phoneNumber/);
+  assert.match(phoneVerification, /p_verified_at:\s*new Date\(\)\.toISOString\(\)/);
+
+  for (const source of [emailVerification, phoneVerification]) {
+    for (const updateBlock of directProfileUpdateBlocks(source)) {
+      for (const column of [
+        "phone_number",
+        "verified_email",
+        "phone_verified",
+        "phone_verified_at",
+        "email_verified",
+      ]) {
+        assert.doesNotMatch(
+          updateBlock,
+          new RegExp(`\\b${column}\\b`),
+          `verification Edge Function directly updates backend-owned profiles.${column}`,
+        );
+      }
+    }
   }
 });
 
@@ -238,6 +308,8 @@ test("live audit harness checks the same root-cause surfaces", () => {
     "profiles_blocked_column_writes",
     "protect_sensitive_profile_columns_body",
     "routine_execute_grants",
+    "verification_writer_routine_grants",
+    "verification_writer_routine_bodies",
   ]) {
     assert.match(audit, new RegExp(check));
   }
