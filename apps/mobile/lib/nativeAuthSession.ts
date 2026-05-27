@@ -122,7 +122,12 @@ async function handleCachedRefreshFailure(session: Session, error: unknown): Pro
     console.warn('[nativeAuthSession] refreshSession failed:', authRefreshDebugInfo(error));
   }
 
-  return isSessionExpiredForSwipe(session) ? null : session;
+  if (isSessionExpiredForSwipe(session)) {
+    invalidate();
+    return null;
+  }
+
+  return session;
 }
 
 /**

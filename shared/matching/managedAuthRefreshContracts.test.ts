@@ -67,6 +67,7 @@ test('native cached refresh helper keeps recovery and sanitized diagnostics alig
   assert.match(nativeAuthSession, /isNewerAuthRefreshSession/);
   assert.match(nativeAuthSession, /recoverNativeAuthSession\('cached-session', error\)/);
   assert.match(nativeAuthSession, /authRefreshDebugInfo\(error\)/);
+  assert.match(nativeAuthSession, /isSessionExpiredForSwipe\(session\)[\s\S]*invalidate\(\);[\s\S]*return null/);
   assert.match(nativeAuthSession, /export function primeCachedSession/);
   assert.match(nativeRecovery, /'managed-refresh'/);
 });

@@ -680,6 +680,7 @@ test("photo verification selfie signer path resolver stays aligned with the shar
   assert.match(adminPhotoVerification, /SELFIE_SIGN_CONCURRENCY = 4/);
   assert.match(adminPhotoVerification, /mapWithConcurrency/);
   assert.match(adminPhotoVerification, /shouldRefreshSelfieEntry/);
+  assert.match(adminPhotoVerification, /sourceSelfieUrl !== existingSourceSelfieUrl/);
   assert.match(adminPhotoVerification, /refreshSelfieUrls\(\{ force: true \}\)/);
   assert.match(adminPhotoVerification, /lastSelfieRefreshAt/);
   assert.match(adminPhotoVerification, /throttleDelayMs/);

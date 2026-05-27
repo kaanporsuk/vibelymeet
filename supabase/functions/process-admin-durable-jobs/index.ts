@@ -103,6 +103,17 @@ function response(req: Request, body: Record<string, unknown>, status = 200): Re
   });
 }
 
+function messageFromUnknown(error: unknown, fallback: string): string {
+  if (error instanceof Error && error.message) return error.message;
+  if (typeof error === "string" && error.trim()) return error;
+  try {
+    const serialized = JSON.stringify(error);
+    return serialized && serialized !== "{}" ? serialized : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
 async function recordWorkerRunStart(
   supabase: any,
   workerId: string,
@@ -984,72 +995,83 @@ Deno.serve(async (req) => {
     failures: [] as Array<{ type: string; id: string; reason: string }>,
   };
 
-  if (action === "all" || action === "account_deletions") {
-    const { error: enqueueError } = await supabase.rpc("enqueue_due_account_deletion_completion_jobs_v1", {
-      p_limit: batchSize,
-    });
-    if (enqueueError) {
-      await recordWorkerRunFinish(supabase, workerId, "failed", result, enqueueError.message);
-      return response(req, { ok: false, error: enqueueError.message }, 500);
-    }
+  try {
+    if (action === "all" || action === "account_deletions") {
+      const { error: enqueueError } = await supabase.rpc("enqueue_due_account_deletion_completion_jobs_v1", {
+        p_limit: batchSize,
+      });
+      if (enqueueError) {
+        await recordWorkerRunFinish(supabase, workerId, "failed", result, enqueueError.message);
+        return response(req, { ok: false, error: enqueueError.message }, 500);
+      }
 
-    const { data, error } = await supabase.rpc("claim_account_deletion_completion_jobs_v1", {
-      p_worker_id: workerId,
-      p_limit: batchSize,
-      p_lease_seconds: leaseSeconds,
-    });
-    if (error) {
-      await recordWorkerRunFinish(supabase, workerId, "failed", result, error.message);
-      return response(req, { ok: false, error: error.message }, 500);
-    }
+      const { data, error } = await supabase.rpc("claim_account_deletion_completion_jobs_v1", {
+        p_worker_id: workerId,
+        p_limit: batchSize,
+        p_lease_seconds: leaseSeconds,
+      });
+      if (error) {
+        await recordWorkerRunFinish(supabase, workerId, "failed", result, error.message);
+        return response(req, { ok: false, error: error.message }, 500);
+      }
 
-    const jobs = (data ?? []) as DeletionJob[];
-    result.account_deletions.claimed = jobs.length;
-    for (const job of jobs) {
-      const processed = await processDeletionJob(supabase, job, workerId);
-      if (processed.ok) {
-        result.account_deletions.completed += 1;
-      } else {
-        result.account_deletions.failed += 1;
-        result.failures.push({ type: "account_deletion", id: job.id, reason: processed.error ?? "unknown" });
+      const jobs = (data ?? []) as DeletionJob[];
+      result.account_deletions.claimed = jobs.length;
+      for (const job of jobs) {
+        const processed = await processDeletionJob(supabase, job, workerId);
+        if (processed.ok) {
+          result.account_deletions.completed += 1;
+        } else {
+          result.account_deletions.failed += 1;
+          result.failures.push({ type: "account_deletion", id: job.id, reason: processed.error ?? "unknown" });
+        }
       }
     }
-  }
 
-  if (action === "all" || action === "support_delivery") {
-    const { data, error } = await supabase.rpc("claim_support_reply_delivery_jobs_v1", {
-      p_worker_id: workerId,
-      p_limit: batchSize,
-      p_lease_seconds: leaseSeconds,
-    });
-    if (error) {
-      await recordWorkerRunFinish(supabase, workerId, "failed", result, error.message);
-      return response(req, { ok: false, error: error.message }, 500);
-    }
+    if (action === "all" || action === "support_delivery") {
+      const { data, error } = await supabase.rpc("claim_support_reply_delivery_jobs_v1", {
+        p_worker_id: workerId,
+        p_limit: batchSize,
+        p_lease_seconds: leaseSeconds,
+      });
+      if (error) {
+        await recordWorkerRunFinish(supabase, workerId, "failed", result, error.message);
+        return response(req, { ok: false, error: error.message }, 500);
+      }
 
-    const jobs = (data ?? []) as SupportDeliveryJob[];
-    result.support_delivery.claimed = jobs.length;
-    for (const job of jobs) {
-      const processed = await processSupportJob(supabase, supabaseUrl, serviceKey, job, workerId);
-      if (processed.ok) {
-        result.support_delivery.completed += 1;
-      } else {
-        result.support_delivery.failed += 1;
-        result.failures.push({ type: "support_delivery", id: job.id, reason: processed.error ?? "unknown" });
+      const jobs = (data ?? []) as SupportDeliveryJob[];
+      result.support_delivery.claimed = jobs.length;
+      for (const job of jobs) {
+        const processed = await processSupportJob(supabase, supabaseUrl, serviceKey, job, workerId);
+        if (processed.ok) {
+          result.support_delivery.completed += 1;
+        } else {
+          result.support_delivery.failed += 1;
+          result.failures.push({ type: "support_delivery", id: job.id, reason: processed.error ?? "unknown" });
+        }
       }
     }
+
+    const finalStatus = result.failures.length > 0 ? "completed_with_failures" : "completed";
+    await recordWorkerRunFinish(supabase, workerId, finalStatus, {
+      ...result,
+      latency_ms: Date.now() - startedAt,
+    });
+
+    return response(req, {
+      ok: true,
+      worker_id: workerId,
+      result,
+      latency_ms: Date.now() - startedAt,
+    });
+  } catch (error) {
+    const message = messageFromUnknown(error, "Unexpected durable worker processing error.");
+    const sanitizedMessage = sanitizeErrorMessage(message);
+    result.failures.push({ type: "worker_run", id: workerId, reason: sanitizedMessage });
+    await recordWorkerRunFinish(supabase, workerId, "failed", {
+      ...result,
+      latency_ms: Date.now() - startedAt,
+    }, message);
+    return response(req, { ok: false, error: sanitizedMessage, worker_id: workerId }, 500);
   }
-
-  const finalStatus = result.failures.length > 0 ? "completed_with_failures" : "completed";
-  await recordWorkerRunFinish(supabase, workerId, finalStatus, {
-    ...result,
-    latency_ms: Date.now() - startedAt,
-  });
-
-  return response(req, {
-    ok: true,
-    worker_id: workerId,
-    result,
-    latency_ms: Date.now() - startedAt,
-  });
 });

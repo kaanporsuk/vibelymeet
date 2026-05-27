@@ -136,8 +136,11 @@ function shouldRefreshSelfieEntry(
   force: boolean,
 ): boolean {
   if (force) return true;
-  if (!row.selfie_url) return false;
   if (!existing) return true;
+  const sourceSelfieUrl = (row.selfie_url as string | null | undefined) ?? "";
+  const existingSourceSelfieUrl = existing._diag?.originalSelfieUrl ?? "";
+  if (sourceSelfieUrl !== existingSourceSelfieUrl) return true;
+  if (!sourceSelfieUrl) return false;
   if (!existing.selfie || existing.selfieError) return true;
   if (!existing.selfieExpiresAt) return true;
   const expiresAtMs = Date.parse(existing.selfieExpiresAt);
@@ -229,6 +232,20 @@ const AdminPhotoVerificationPanel = () => {
           userId: v.user_id,
           originalSelfieUrl: rawSelfie,
         };
+
+        if (!rawSelfie) {
+          return [
+            v.id,
+            {
+              profile: profileUrl,
+              selfie: null,
+              selfieError: "No verification selfie was submitted.",
+              selfieExpiresAt: null,
+              selfieLoadedAt: null,
+              _diag: diag,
+            } satisfies ResolvedVerificationUrls,
+          ] as const;
+        }
 
         const { data, error: invokeError } = await supabase.functions.invoke(
           "admin-proof-selfie-sign",
