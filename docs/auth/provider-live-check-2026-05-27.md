@@ -61,10 +61,14 @@ These are the exact callback shapes the current code can emit and therefore the 
 |---|---|---|
 | `https://www.vibelymeet.com` | Production canonical origin | `DASHBOARD-MANUAL` |
 | `https://vibelymeet.com` | Apex production origin | `DASHBOARD-MANUAL` |
-| `https://www.vibelymeet.com/` | Web email sign-up confirmation root | `DASHBOARD-MANUAL` |
-| `https://vibelymeet.com/` | Apex web email sign-up confirmation root | `DASHBOARD-MANUAL` |
+| `https://www.vibelymeet.com/` | Web email sign-up and email-change confirmation root | `DASHBOARD-MANUAL` |
+| `https://vibelymeet.com/` | Apex web email sign-up and email-change confirmation root | `DASHBOARD-MANUAL` |
 | `https://www.vibelymeet.com/auth?provider_callback=true` | Web Google/Apple OAuth callback | `DASHBOARD-MANUAL` |
+| `https://www.vibelymeet.com/auth?provider_callback=true&provider=google` | Web Google OAuth callback with Sprint 3 provider context | `DASHBOARD-MANUAL` |
+| `https://www.vibelymeet.com/auth?provider_callback=true&provider=apple` | Web Apple OAuth callback with Sprint 3 provider context | `DASHBOARD-MANUAL` |
 | `https://vibelymeet.com/auth?provider_callback=true` | Apex web Google/Apple OAuth callback | `DASHBOARD-MANUAL` |
+| `https://vibelymeet.com/auth?provider_callback=true&provider=google` | Apex web Google OAuth callback with Sprint 3 provider context | `DASHBOARD-MANUAL` |
+| `https://vibelymeet.com/auth?provider_callback=true&provider=apple` | Apex web Apple OAuth callback with Sprint 3 provider context | `DASHBOARD-MANUAL` |
 | `https://www.vibelymeet.com/reset-password` | Web password reset | `DASHBOARD-MANUAL` |
 | `https://vibelymeet.com/reset-password` | Apex web password reset | `DASHBOARD-MANUAL` |
 | `https://www.vibelymeet.com/settings?drawer=account&linking=true&provider=google` | Web Google account-linking callback | `DASHBOARD-MANUAL` |
@@ -72,12 +76,14 @@ These are the exact callback shapes the current code can emit and therefore the 
 | `https://vibelymeet.com/settings?drawer=account&linking=true&provider=google` | Apex web Google account-linking callback | `DASHBOARD-MANUAL` |
 | `https://vibelymeet.com/settings?drawer=account&linking=true&provider=apple` | Apex web Apple account-linking callback | `DASHBOARD-MANUAL` |
 | `http://localhost:8080` | Vite dev server in `vite.config.ts` | `DASHBOARD-MANUAL` |
-| `http://localhost:8080/` | Local web email sign-up confirmation root | `DASHBOARD-MANUAL` |
+| `http://localhost:8080/` | Local web email sign-up and email-change confirmation root | `DASHBOARD-MANUAL` |
 | `http://localhost:8080/auth?provider_callback=true` | Local web OAuth callback | `DASHBOARD-MANUAL` |
+| `http://localhost:8080/auth?provider_callback=true&provider=google` | Local web Google OAuth callback with Sprint 3 provider context | `DASHBOARD-MANUAL` |
+| `http://localhost:8080/auth?provider_callback=true&provider=apple` | Local web Apple OAuth callback with Sprint 3 provider context | `DASHBOARD-MANUAL` |
 | `http://localhost:8080/reset-password` | Local web password reset | `DASHBOARD-MANUAL` |
 | `http://localhost:8080/settings?drawer=account&linking=true&provider=google` | Local web Google account-linking callback | `DASHBOARD-MANUAL` |
 | `http://localhost:8080/settings?drawer=account&linking=true&provider=apple` | Local web Apple account-linking callback | `DASHBOARD-MANUAL` |
-| `com.vibelymeet.vibely:///` | Native email sign-up confirmation root emitted by `Linking.createURL("/")` in standalone builds | `DASHBOARD-MANUAL` |
+| `com.vibelymeet.vibely:///` | Native email sign-up and email-change confirmation root emitted by `Linking.createURL("/")` in standalone builds | `DASHBOARD-MANUAL` |
 | `com.vibelymeet.vibely://` | Native app-scheme root compatibility if the dashboard normalizes root URLs | `DASHBOARD-MANUAL` |
 | `com.vibelymeet.vibely://auth/callback` | Native Google OAuth callback | `DASHBOARD-MANUAL` |
 | `com.vibelymeet.vibely://auth/callback?linking=true&provider=google` | Native Google account-linking callback | `DASHBOARD-MANUAL` |
@@ -86,16 +92,17 @@ These are the exact callback shapes the current code can emit and therefore the 
 
 Repo evidence:
 
-- Web Google/Apple sign-in uses `redirectTo: ${window.location.origin}/auth?provider_callback=true`.
+- Web Google/Apple sign-in uses `redirectTo: ${window.location.origin}/auth?provider_callback=true&provider=google|apple`.
 - Web Google/Apple account linking uses deterministic `/settings?drawer=account&linking=true&provider=google|apple` redirects.
+- Web generic email confirmation, email-change, and magic-link auth returns are manually consumed by `WebAuthReturnHandler` because the web client disables automatic URL parsing for explicit PKCE handling.
 - Web Settings opens the account drawer from `drawer=account` so the linking callback hook is mounted on return.
-- Web email sign-up uses `emailRedirectTo: ${window.location.origin}/`, including the root slash.
+- Web email sign-up and email-change flows use `emailRedirectTo: ${window.location.origin}/`, including the root slash.
 - Web password reset uses `redirectTo: ${window.location.origin}/reset-password`.
 - Native scheme is `com.vibelymeet.vibely`.
 - Native Google OAuth callback is built from `Linking.createURL("auth/callback")`.
 - Native Google account linking appends `?linking=true&provider=google` to the same callback path.
 - Native password reset callback is built from `Linking.createURL("reset-password")`.
-- Native email sign-up confirmation callback is built from `Linking.createURL("/")`; standalone builds can represent that root as `com.vibelymeet.vibely:///`.
+- Native email sign-up and email-change confirmation callbacks are built from `Linking.createURL("/")`; standalone builds can represent that root as `com.vibelymeet.vibely:///`.
 - Vite local dev port is `8080`, not `5173`, in the current repo.
 
 Follow-up: the previous checklist mentioned `localhost:5173`; that is stale for the current `vite.config.ts`. Keep `5173` only if another approved local workflow still uses it.
@@ -105,7 +112,7 @@ Follow-up: the previous checklist mentioned `localhost:5173`; that is stale for 
 | Item | Expected | Status | Evidence / Follow-up |
 |---|---|---|---|
 | Supabase Google provider enabled | enabled | `LIVE-CONFIRMED` | `/auth/v1/settings` confirms `external.google = true`. |
-| Web OAuth flow | Supabase OAuth redirect | `REPO-CONFIRMED` | Web auth calls `signInWithOAuth({ provider: "google" })` with `/auth?provider_callback=true`. |
+| Web OAuth flow | Supabase OAuth redirect | `REPO-CONFIRMED` | Web auth calls `signInWithOAuth({ provider: "google" })` with `/auth?provider_callback=true&provider=google`. |
 | Native OAuth flow | browser OAuth callback hydration | `REPO-CONFIRMED` | Native calls `signInWithOAuth({ provider: "google", skipBrowserRedirect: true })`, opens `WebBrowser.openAuthSessionAsync`, and completes from the returned URL. |
 | Google Cloud production web origin | `https://www.vibelymeet.com` and apex if used | `DASHBOARD-MANUAL` | Must be confirmed in Google Cloud Console. |
 | Google Cloud redirect/callback URLs | Supabase callback URL plus app callback behavior | `DASHBOARD-MANUAL` | Must be confirmed in Google Cloud Console and Supabase provider settings. |

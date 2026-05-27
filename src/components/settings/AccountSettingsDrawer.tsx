@@ -37,6 +37,7 @@ import { openPremium } from "@/lib/premiumNavigation";
 import { PREMIUM_ENTRY_SURFACE } from "@shared/premiumFunnel";
 import { useUserProfile } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
+import { getWebEmailChangeRedirectUrl } from "@/lib/webAuthRedirectUrls";
 import { toast } from "sonner";
 import { fetchMyProfileSettings } from "@/services/myProfileSettings";
 import { cn } from "@/lib/utils";
@@ -209,9 +210,10 @@ export const AccountSettingsDrawer = ({
 
     setEmailLoading(true);
     try {
-      const { error } = await supabase.auth.updateUser({
-        email: newEmail,
-      });
+      const { error } = await supabase.auth.updateUser(
+        { email: newEmail },
+        { emailRedirectTo: getWebEmailChangeRedirectUrl() },
+      );
 
       if (error) throw error;
 

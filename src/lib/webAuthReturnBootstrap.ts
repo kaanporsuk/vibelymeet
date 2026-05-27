@@ -28,3 +28,18 @@ export function clearCapturedInitialAuthReturnUrl(): void {
   capturedInitialAuthReturnUrl = null;
   capturedInitialAuthReturnConsumed = true;
 }
+
+export function scrubCurrentAuthReturnUrl(authReturnUrl: string): void {
+  if (typeof window === 'undefined') return;
+  if (window.location.href !== authReturnUrl) return;
+
+  try {
+    window.history.replaceState(
+      window.history.state,
+      document.title,
+      window.location.pathname,
+    );
+  } catch {
+    // Leave navigation to the normal auth-return completion path.
+  }
+}

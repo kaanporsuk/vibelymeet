@@ -7,6 +7,7 @@
 import assert from "node:assert/strict";
 import {
   hasPasswordRecoveryIntent,
+  normalizeAuthReturnTokenHashOtpType,
   parseSupabaseAuthReturnUrl,
 } from "../supabase/functions/_shared/authRedirect.ts";
 
@@ -66,6 +67,12 @@ function main() {
   const malformed = parseSupabaseAuthReturnUrl("not-a-url");
   assert.equal(malformed.isValidUrl, false);
   assert.equal(classifyRecoveryReturnUrl("not-a-url"), "none");
+
+  assert.equal(normalizeAuthReturnTokenHashOtpType("signup", false), "signup");
+  assert.equal(normalizeAuthReturnTokenHashOtpType("magiclink", false), "magiclink");
+  assert.equal(normalizeAuthReturnTokenHashOtpType("email_change", false), "email_change");
+  assert.equal(normalizeAuthReturnTokenHashOtpType("signup", true), "recovery");
+  assert.equal(normalizeAuthReturnTokenHashOtpType("unknown", false), null);
 
   console.log("auth-redirect-contract: all assertions passed");
 }

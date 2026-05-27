@@ -58,6 +58,7 @@ interface SessionContextType {
   isAuthenticated: boolean;
   isLoading: boolean;
   isProfileLoading: boolean;
+  authRedirectReason: "session_expired" | null;
   entryState: EntryStateResponse | null;
   entryStateLoading: boolean;
   isOfflineAtBoot: boolean;
@@ -129,6 +130,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isProfileLoading, setIsProfileLoading] = useState(false);
+  const [authRedirectReason, setAuthRedirectReason] = useState<"session_expired" | null>(null);
   const [entryState, setEntryState] = useState<EntryStateResponse | null>(null);
   const [entryStateLoading, setEntryStateLoading] = useState(false);
   const [isOfflineAtBoot, setIsOfflineAtBoot] = useState(false);
@@ -186,9 +188,40 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     authUserIdRef.current = null;
     setUser(null);
     setSession(null);
+    setAuthRedirectReason("session_expired");
     setEntryState(null);
     setEntryStateLoading(false);
   }, [clearFeatureFlagState]);
+
+  const refreshBootstrapSessionIfNeeded = useCallback(async (bootSession: Session | null) => {
+    if (!bootSession?.refresh_token || typeof bootSession.expires_at !== "number") {
+      return bootSession;
+    }
+    if (!shouldRefreshSessionSoon(bootSession, Date.now())) {
+      return bootSession;
+    }
+
+    try {
+      const refreshResponse = await requestManagedAuthRefresh({
+        supabaseUrl: SUPABASE_URL,
+        publishableKey: SUPABASE_PUBLISHABLE_KEY,
+        refreshToken: bootSession.refresh_token,
+      });
+      const refreshedSession = await applyManagedAuthRefreshSession(supabase.auth, bootSession, refreshResponse);
+      return refreshedSession ?? bootSession;
+    } catch (error) {
+      const kind = classifyAuthRefreshError(error);
+      recordBrowserEvent("browser.auth_bootstrap_refresh_failed", {
+        kind,
+        error: authRefreshDebugInfo(error),
+      });
+      if (kind === "invalid_session" || bootSession.expires_at * 1000 <= Date.now()) {
+        await clearLocalAuthSession(`bootstrap_refresh_${kind}`, error);
+        return null;
+      }
+      return bootSession;
+    }
+  }, [clearLocalAuthSession]);
 
   useEffect(() => {
     let cancelled = false;
@@ -199,6 +232,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setSession(session);
         authUserIdRef.current = nextUserId;
         sessionUserRef.current = session?.user ?? null;
+        if (nextUserId) {
+          setAuthRedirectReason(null);
+        }
         if (!nextUserId) {
           clearPreparedVideoDateEntryCache();
           clearMyLocationDataCache();
@@ -227,14 +263,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       supabase.auth.getSession(),
       "auth.getSession",
       AUTH_SESSION_TIMEOUT_MS,
-    ).then(({ data: { session } }) => {
+    ).then(async ({ data: { session } }) => {
       if (cancelled) return;
-      const nextUserId = session?.user?.id ?? null;
+      const readySession = await refreshBootstrapSessionIfNeeded(session);
+      if (cancelled) return;
+      const nextUserId = readySession?.user?.id ?? null;
       authUserIdRef.current = nextUserId;
-      sessionUserRef.current = session?.user ?? null;
-      setSession(session);
+      sessionUserRef.current = readySession?.user ?? null;
+      setSession(readySession);
+      if (nextUserId) {
+        setAuthRedirectReason(null);
+      }
       setEntryStateLoading(!!nextUserId);
-      if (!session?.user && !navigator.onLine) {
+      if (!readySession?.user && !navigator.onLine) {
         setIsOfflineAtBoot(true);
       }
     }).catch(() => {
@@ -258,7 +299,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       subscription.unsubscribe();
       window.removeEventListener("online", handleOnline);
     };
-  }, [clearFeatureFlagState]);
+  }, [clearFeatureFlagState, refreshBootstrapSessionIfNeeded]);
 
   useEffect(() => {
     authUserIdRef.current = currentUserId;
@@ -592,6 +633,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const signIn = async (email: string, password: string): Promise<{ error: Error | null }> => {
     const { error } = await supabase.auth.signInWithPassword({ email, password });
+    if (!error) setAuthRedirectReason(null);
     return { error };
   };
 
@@ -618,6 +660,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     });
     await withBootTimeout(supabase.auth.signOut(), "auth.signOut", AUTH_SESSION_TIMEOUT_MS).catch(() => undefined);
     await clearFeatureFlagState();
+    setAuthRedirectReason(null);
     sessionUserRef.current = null;
     authUserIdRef.current = null;
     setUser(null);
@@ -635,6 +678,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         isAuthenticated: !!session,
         isLoading,
         isProfileLoading,
+        authRedirectReason,
         entryState,
         entryStateLoading,
         isOfflineAtBoot,

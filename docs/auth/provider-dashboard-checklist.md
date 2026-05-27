@@ -44,17 +44,21 @@ Required production values:
 
 - `https://www.vibelymeet.com`
 - `https://vibelymeet.com`
-- `https://www.vibelymeet.com/`
-- `https://vibelymeet.com/`
+- `https://www.vibelymeet.com/` (web email sign-up and email-change confirmation)
+- `https://vibelymeet.com/` (apex web email sign-up and email-change confirmation)
 - `https://www.vibelymeet.com/auth?provider_callback=true`
+- `https://www.vibelymeet.com/auth?provider_callback=true&provider=google`
+- `https://www.vibelymeet.com/auth?provider_callback=true&provider=apple`
 - `https://vibelymeet.com/auth?provider_callback=true`
+- `https://vibelymeet.com/auth?provider_callback=true&provider=google`
+- `https://vibelymeet.com/auth?provider_callback=true&provider=apple`
 - `https://www.vibelymeet.com/reset-password`
 - `https://vibelymeet.com/reset-password`
 - `https://www.vibelymeet.com/settings?drawer=account&linking=true&provider=google`
 - `https://www.vibelymeet.com/settings?drawer=account&linking=true&provider=apple`
 - `https://vibelymeet.com/settings?drawer=account&linking=true&provider=google`
 - `https://vibelymeet.com/settings?drawer=account&linking=true&provider=apple`
-- `com.vibelymeet.vibely:///`
+- `com.vibelymeet.vibely:///` (native email sign-up and email-change confirmation root)
 - `com.vibelymeet.vibely://`
 - `com.vibelymeet.vibely://auth/callback`
 - `com.vibelymeet.vibely://auth/callback?linking=true&provider=google`
@@ -65,6 +69,8 @@ Required development values for the current repo:
 - `http://localhost:8080`
 - `http://localhost:8080/`
 - `http://localhost:8080/auth?provider_callback=true`
+- `http://localhost:8080/auth?provider_callback=true&provider=google`
+- `http://localhost:8080/auth?provider_callback=true&provider=apple`
 - `http://localhost:8080/reset-password`
 - `http://localhost:8080/settings?drawer=account&linking=true&provider=google`
 - `http://localhost:8080/settings?drawer=account&linking=true&provider=apple`
@@ -86,7 +92,7 @@ Supabase provider:
 Google Cloud Console:
 
 - Production web origin is allowed.
-- Production `/auth?provider_callback=true` redirect is allowed where applicable.
+- Production `/auth?provider_callback=true&provider=google|apple` redirects are allowed where applicable.
 - Native callback `com.vibelymeet.vibely://auth/callback` is supported by the configured flow or explicitly documented as Supabase/browser callback mediated.
 - Preview and local development callbacks are present only when needed.
 

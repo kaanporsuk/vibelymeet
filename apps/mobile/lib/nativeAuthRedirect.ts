@@ -2,6 +2,7 @@ import * as Linking from 'expo-linking';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import {
   hasPasswordRecoveryIntent,
+  normalizeAuthReturnTokenHashOtpType,
   normalizeAuthRedirectPath,
   parseSupabaseAuthReturnUrl,
   type PasswordRecoveryStatus,
@@ -34,6 +35,10 @@ export function getNativePasswordResetRedirectUrl(): string {
 }
 
 export function getNativeEmailSignUpRedirectUrl(): string {
+  return Linking.createURL(ROOT_PATH);
+}
+
+export function getNativeEmailChangeRedirectUrl(): string {
   return Linking.createURL(ROOT_PATH);
 }
 
@@ -101,16 +106,29 @@ export async function completeSessionFromAuthReturnUrl(
     };
   }
 
-  if (authReturn.tokenHash && recovery) {
+  if (authReturn.tokenHash) {
+    const otpType = normalizeAuthReturnTokenHashOtpType(authReturn.type, recovery);
+    if (!otpType) {
+      return {
+        handled: true,
+        recovery,
+        recoveryStatus: recovery ? 'invalid' : 'none',
+        error: new Error('Auth redirect did not include a recognized verification type. Please request a fresh link.'),
+      };
+    }
+
+    const tokenHashFallback = recovery
+      ? 'That recovery link is invalid or expired.'
+      : 'That sign-in link is invalid or expired. Please request a fresh link.';
     const { error } = await supabase.auth.verifyOtp({
       token_hash: authReturn.tokenHash,
-      type: 'recovery',
+      type: otpType,
     });
     return {
       handled: true,
       recovery,
-      recoveryStatus: error ? 'invalid' : 'ready',
-      error: error ? authRedirectError(error, 'That recovery link is invalid or expired.') : null,
+      recoveryStatus: recovery ? (error ? 'invalid' : 'ready') : 'none',
+      error: error ? authRedirectError(error, tokenHashFallback) : null,
     };
   }
 

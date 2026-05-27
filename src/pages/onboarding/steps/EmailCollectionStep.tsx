@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { supabase } from "@/integrations/supabase/client";
+import { getWebEmailChangeRedirectUrl } from "@/lib/webAuthRedirectUrls";
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -26,7 +27,10 @@ export const EmailCollectionStep = ({ onNext, onSkip }: EmailCollectionStepProps
     if (!valid || loading) return;
     setLoading(true);
     try {
-      const { error } = await supabase.auth.updateUser({ email: email.trim() });
+      const { error } = await supabase.auth.updateUser(
+        { email: email.trim() },
+        { emailRedirectTo: getWebEmailChangeRedirectUrl() },
+      );
       if (error) throw error;
       setEmailSaved(true);
       setMessage(`Check your inbox to confirm this account email. You can add the email trust badge later from Settings.`);

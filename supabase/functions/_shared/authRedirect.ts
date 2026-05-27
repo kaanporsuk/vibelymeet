@@ -12,6 +12,14 @@ export type ParsedSupabaseAuthReturnUrl = {
   hasAuthPayload: boolean;
 };
 
+export type AuthReturnTokenHashOtpType =
+  | 'signup'
+  | 'invite'
+  | 'magiclink'
+  | 'recovery'
+  | 'email_change'
+  | 'email';
+
 function emptyParsedAuthReturn(): ParsedSupabaseAuthReturnUrl {
   return {
     isValidUrl: false,
@@ -63,6 +71,24 @@ export function isPasswordRecoveryStatus(
     || value === 'invalid'
     || value === 'success'
   );
+}
+
+export function normalizeAuthReturnTokenHashOtpType(
+  type: string | null | undefined,
+  recovery: boolean,
+): AuthReturnTokenHashOtpType | null {
+  if (recovery) return 'recovery';
+
+  switch (type) {
+    case 'signup':
+    case 'invite':
+    case 'magiclink':
+    case 'email_change':
+    case 'email':
+      return type;
+    default:
+      return null;
+  }
 }
 
 export function parseSupabaseAuthReturnUrl(url: string): ParsedSupabaseAuthReturnUrl {

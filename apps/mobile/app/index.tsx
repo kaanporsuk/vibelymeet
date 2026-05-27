@@ -8,7 +8,7 @@ import { RC_CATEGORY, rcBreadcrumb } from '@/lib/nativeRcDiagnostics';
 const ENTRY_RECOVERY_HREF = '/entry-recovery' as Href;
 
 export default function Index() {
-  const { session, loading, entryState, entryStateLoading } = useAuth();
+  const { session, loading, authRedirectReason, entryState, entryStateLoading } = useAuth();
   const colorScheme: 'light' | 'dark' = useColorScheme() === 'light' ? 'light' : 'dark';
   const themeColors = Colors[colorScheme];
   const bootLogKey = useRef<string | null>(null);
@@ -44,6 +44,16 @@ export default function Index() {
   }
 
   if (!session) {
+    if (authRedirectReason === 'session_expired') {
+      return (
+        <Redirect
+          href={{
+            pathname: '/(auth)/sign-in',
+            params: { authError: 'Your session expired. Sign in again to continue.' },
+          }}
+        />
+      );
+    }
     return <Redirect href="/(auth)/sign-in" />;
   }
 

@@ -7,7 +7,10 @@ import {
   markWebPasswordRecoveryInvalid,
   markWebPasswordRecoveryReady,
 } from "@/lib/webPasswordRecovery";
-import { clearCapturedInitialAuthReturnUrl } from "@/lib/webAuthReturnBootstrap";
+import {
+  clearCapturedInitialAuthReturnUrl,
+  scrubCurrentAuthReturnUrl,
+} from "@/lib/webAuthReturnBootstrap";
 import { matchesAuthRedirectPath } from "@shared/authRedirect";
 
 export function WebPasswordRecoveryHandler() {
@@ -36,6 +39,7 @@ export function WebPasswordRecoveryHandler() {
     if (lastHandledUrlRef.current === pendingRecoveryUrl) return;
 
     lastHandledUrlRef.current = pendingRecoveryUrl;
+    scrubCurrentAuthReturnUrl(pendingRecoveryUrl);
     let cancelled = false;
 
     void (async () => {

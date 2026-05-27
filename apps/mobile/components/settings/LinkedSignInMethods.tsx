@@ -305,10 +305,18 @@ export function LinkedSignInMethods({ theme }: LinkedSignInMethodsProps) {
               const isBusy = isLinking && linkingProvider === provider.id;
               const canUnlink = canUnlinkProvider(provider.id);
               const identity = identities.find(i => i.provider === provider.id);
+              const isPending = identity?.status === 'pending_confirmation';
+              const isSessionOnlyEmail = provider.id === 'email' && isPending && Boolean(sessionEmail);
               const isLast = idx === availableProviders.length - 1;
 
               let sublabel = provider.sublabel;
-              if (provider.id === 'email' && !isLinked && sessionEmail) {
+              if (isSessionOnlyEmail && identity?.identity_data?.email) {
+                sublabel = `${identity.identity_data.email} — add password to enable sign-in`;
+              } else if (isPending && identity?.identity_data?.email) {
+                sublabel = `${identity.identity_data.email} — awaiting confirmation`;
+              } else if (isPending && identity?.identity_data?.phone) {
+                sublabel = `${identity.identity_data.phone} — awaiting confirmation`;
+              } else if (provider.id === 'email' && !isLinked && sessionEmail) {
                 sublabel = `${sessionEmail} — no password`;
               }
 
@@ -334,11 +342,11 @@ export function LinkedSignInMethods({ theme }: LinkedSignInMethodsProps) {
                       <Text style={[styles.providerLabel, { color: theme.text }]}>
                         {provider.label}
                       </Text>
-                      {isLinked && identity?.identity_data?.email ? (
+                      {(isLinked || isPending) && identity?.identity_data?.email ? (
                         <Text style={[styles.providerSub, { color: theme.mutedForeground }]}>
                           {identity.identity_data.email}
                         </Text>
-                      ) : isLinked && identity?.identity_data?.phone ? (
+                      ) : (isLinked || isPending) && identity?.identity_data?.phone ? (
                         <Text style={[styles.providerSub, { color: theme.mutedForeground }]}>
                           {identity.identity_data.phone}
                         </Text>
@@ -347,6 +355,11 @@ export function LinkedSignInMethods({ theme }: LinkedSignInMethodsProps) {
                           {sublabel}
                         </Text>
                       )}
+                      {isPending ? (
+                        <Text style={[styles.providerSub, { color: '#D97706' }]}>
+                          {isSessionOnlyEmail ? 'Add password to enable email sign-in' : 'Awaiting confirmation'}
+                        </Text>
+                      ) : null}
                     </View>
                   </View>
 

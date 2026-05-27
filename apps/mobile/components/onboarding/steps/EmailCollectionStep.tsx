@@ -5,6 +5,7 @@ import { Text } from '@/components/Themed';
 import { VibelyButton } from '@/components/ui';
 import Colors from '@/constants/Colors';
 import { useColorScheme } from '@/components/useColorScheme';
+import { getNativeEmailChangeRedirectUrl } from '@/lib/nativeAuthRedirect';
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -27,7 +28,10 @@ export default function EmailCollectionStep({ onNext, onSkip }: { onNext: () => 
     setLoading(true);
     setErrorMessage(null);
     try {
-      const { error } = await supabase.auth.updateUser({ email: email.trim() });
+      const { error } = await supabase.auth.updateUser(
+        { email: email.trim() },
+        { emailRedirectTo: getNativeEmailChangeRedirectUrl() },
+      );
       if (error) throw error;
       setEmailSaved(true);
       setMessage('Check your inbox to confirm this account email. You can add the email trust badge later from Settings.');

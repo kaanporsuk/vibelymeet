@@ -34,6 +34,7 @@ import { useAuth } from '@/context/AuthContext';
 import { useNativeLogout } from '@/hooks/useNativeLogout';
 import { presentNativeLogoutConfirm } from '@/lib/presentNativeLogoutConfirm';
 import { supabase } from '@/lib/supabase';
+import { getNativeEmailChangeRedirectUrl } from '@/lib/nativeAuthRedirect';
 import { useDeletionRecovery } from '@/lib/useDeletionRecovery';
 import { DeletionRecoveryBanner } from '@/components/settings/DeletionRecoveryBanner';
 import { PhoneVerificationFlow } from '@/components/verification/PhoneVerificationFlow';
@@ -1084,7 +1085,10 @@ export default function AccountSettingsScreen() {
               }
               setEmailSubmitting(true);
               try {
-                const { error } = await supabase.auth.updateUser({ email: newEmail });
+                const { error } = await supabase.auth.updateUser(
+                  { email: newEmail },
+                  { emailRedirectTo: getNativeEmailChangeRedirectUrl() },
+                );
                 if (error) {
                   show({
                     title: 'Couldn’t update',
