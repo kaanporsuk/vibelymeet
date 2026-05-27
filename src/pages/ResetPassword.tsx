@@ -5,6 +5,8 @@ import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { AuthTurnstile } from "@/components/auth/AuthTurnstile";
+import { webTurnstileEnabled } from "@/lib/authTurnstile";
 import {
   AlertCircle,
   ArrowLeft,
@@ -26,6 +28,7 @@ import {
 } from "@/lib/webPasswordRecovery";
 import { validatePasswordPolicy, passwordPolicyMessage } from "@clientShared/passwordPolicy";
 import { safeAuthErrorMessage } from "@clientShared/authErrorCopy";
+import { formatAuthCooldown, nextAuthOtpCooldownSeconds } from "@clientShared/authOtpCooldown";
 
 type ResetMode = "request" | "update" | "success";
 type SuccessKind = "request" | "update";
@@ -46,6 +49,17 @@ const ResetPassword = () => {
   const [confirmPassword, setConfirmPassword] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [formError, setFormError] = useState("");
+  const [resetRequestAttempts, setResetRequestAttempts] = useState(0);
+  const [resetRequestCooldown, setResetRequestCooldown] = useState(0);
+  const [captchaToken, setCaptchaToken] = useState("");
+  const [captchaResetSignal, setCaptchaResetSignal] = useState(0);
+
+  const authCaptchaRequired = webTurnstileEnabled();
+
+  const resetCaptcha = useCallback(() => {
+    setCaptchaToken("");
+    setCaptchaResetSignal((value) => value + 1);
+  }, []);
 
   const currentUrlShowsRecoveryReturn = useMemo(() => {
     if (typeof window === "undefined") return false;
@@ -120,34 +134,61 @@ const ResetPassword = () => {
     };
   }, [syncRecoveryState]);
 
+  useEffect(() => {
+    if (resetRequestCooldown <= 0) return;
+    const id = setInterval(() => {
+      setResetRequestCooldown((value) => (value > 0 ? value - 1 : 0));
+    }, 1000);
+    return () => clearInterval(id);
+  }, [resetRequestCooldown]);
+
   const handleRequestReset = async () => {
     if (!email.trim()) {
       setFormError("Please enter your email");
       return;
     }
+    if (resetRequestCooldown > 0) return;
+    if (authCaptchaRequired && !captchaToken) {
+      setFormError("Complete verification to send a reset link.");
+      return;
+    }
 
+    const requestCaptchaToken = captchaToken || undefined;
     setIsLoading(true);
     setFormError("");
 
     try {
       const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), {
         redirectTo: `${window.location.origin}/reset-password`,
+        ...(requestCaptchaToken ? { captchaToken: requestCaptchaToken } : {}),
       });
 
       if (error) {
+        const attempt = resetRequestAttempts + 1;
+        const cooldown = nextAuthOtpCooldownSeconds(attempt, error);
+        setResetRequestAttempts(attempt);
+        setResetRequestCooldown(cooldown);
         setFormError(safeAuthErrorMessage(error, "Failed to send reset email. Please try again."));
         return;
       }
 
+      const attempt = resetRequestAttempts + 1;
+      setResetRequestAttempts(attempt);
+      setResetRequestCooldown(nextAuthOtpCooldownSeconds(attempt));
       successKindRef.current = "request";
       setSuccessKind("request");
       setMode("success");
       clearWebPasswordRecoveryState();
       setRecoveryState(readWebPasswordRecoveryState());
       toast.success("Password reset email sent. Check your inbox.");
-    } catch {
+    } catch (err: unknown) {
+      const attempt = resetRequestAttempts + 1;
+      const cooldown = nextAuthOtpCooldownSeconds(attempt, err);
+      setResetRequestAttempts(attempt);
+      setResetRequestCooldown(cooldown);
       setFormError("Failed to send reset email. Please try again.");
     } finally {
+      if (requestCaptchaToken) resetCaptcha();
       setIsLoading(false);
     }
   };
@@ -351,6 +392,12 @@ const ResetPassword = () => {
                     {formError}
                   </motion.p>
                 )}
+                <AuthTurnstile
+                  action="web_password_reset"
+                  onTokenChange={setCaptchaToken}
+                  resetSignal={captchaResetSignal}
+                  className="flex justify-center"
+                />
               </div>
 
               <Button
@@ -358,10 +405,16 @@ const ResetPassword = () => {
                 variant="gradient"
                 size="lg"
                 className="w-full h-14 text-lg font-semibold"
-                disabled={isLoading}
+                disabled={
+                  isLoading
+                  || resetRequestCooldown > 0
+                  || (authCaptchaRequired && !captchaToken)
+                }
               >
                 {isLoading ? (
                   <Loader2 className="w-5 h-5 animate-spin" />
+                ) : resetRequestCooldown > 0 ? (
+                  `Send Again In ${formatAuthCooldown(resetRequestCooldown)}`
                 ) : (
                   "Send Reset Link"
                 )}

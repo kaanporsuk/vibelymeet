@@ -77,7 +77,8 @@ test("native Settings delete requests OTP before scheduling deletion", () => {
 });
 
 test("public delete-account remains the only Turnstile-gated delete flow", () => {
-  assert.match(publicDelete, /VITE_TURNSTILE_SITE_KEY/);
+  assert.match(publicDelete, /WEB_TURNSTILE_SITE_KEY/);
+  assert.match(publicDelete, /loadTurnstileScript/);
   assert.match(publicDelete, /window\.turnstile\.render/);
   assert.match(publicDelete, /captchaToken/);
   assert.doesNotMatch(publicDelete, /turnstile\.execute|invisible/i);

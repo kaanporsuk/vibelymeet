@@ -15,6 +15,7 @@ import Colors from '@/constants/Colors';
 import { useColorScheme } from '@/components/useColorScheme';
 import { VibelyButton } from '@/components/ui';
 import { startNativeGoogleOAuth } from '@/lib/nativeGoogleOAuth';
+import { requestNativeAuthCaptchaToken } from '@/lib/nativeAuthCaptcha';
 import { ensureProfileReady } from '@/lib/profileBootstrap';
 import { getNativeEmailSignUpRedirectUrl } from '@/lib/nativeAuthRedirect';
 import { getDefaultPhoneCountry, isValidSignInPhone } from '@/lib/phoneSignInNormalize';
@@ -23,6 +24,7 @@ import { buildAppleNameMetadataPatch, createAppleAuthNoncePair, logAppleNonceDeb
 import { mapAuthConflictError } from '@shared/authConflictMessages';
 import { KeyboardAwareBottomSheetModal } from '@/components/keyboard/KeyboardAwareBottomSheetModal';
 import { validatePasswordPolicy, passwordPolicyMessage } from '@clientShared/passwordPolicy';
+import { formatAuthCooldown, nextAuthOtpCooldownSeconds } from '@clientShared/authOtpCooldown';
 
 function errorMessage(error: unknown, fallback: string): string {
   return safeAuthErrorMessage(error, fallback);
@@ -177,6 +179,8 @@ export default function SignInScreen() {
   const [phoneForOtp, setPhoneForOtp] = useState('');
   const [otpDigits, setOtpDigits] = useState(['', '', '', '', '', '']);
   const otpRefs = useRef<Array<TextInput | null>>([]);
+  const [phoneSendAttempts, setPhoneSendAttempts] = useState(0);
+  const [phoneSendCooldownRemaining, setPhoneSendCooldownRemaining] = useState(0);
   const [resendRemaining, setResendRemaining] = useState(0);
   const [resendAttempts, setResendAttempts] = useState(0);
 
@@ -184,6 +188,7 @@ export default function SignInScreen() {
   const [password, setPassword] = useState('');
   const [name, setName] = useState('');
   const [pendingConfirmationEmail, setPendingConfirmationEmail] = useState('');
+  const [emailResendAttempts, setEmailResendAttempts] = useState(0);
   const [emailResendCooldown, setEmailResendCooldown] = useState(0);
   const [emailResendMessage, setEmailResendMessage] = useState<string | null>(null);
   const [appleSignInAvailable, setAppleSignInAvailable] = useState<boolean | null>(null);
@@ -247,6 +252,12 @@ export default function SignInScreen() {
     const timer = setInterval(() => setResendRemaining((v) => Math.max(0, v - 1)), 1000);
     return () => clearInterval(timer);
   }, [resendRemaining]);
+
+  useEffect(() => {
+    if (phoneSendCooldownRemaining <= 0) return;
+    const timer = setInterval(() => setPhoneSendCooldownRemaining((v) => Math.max(0, v - 1)), 1000);
+    return () => clearInterval(timer);
+  }, [phoneSendCooldownRemaining]);
 
   useEffect(() => {
     if (emailResendCooldown <= 0) return;
@@ -354,12 +365,21 @@ export default function SignInScreen() {
       setError('Enter a valid phone number for this country (digits only, no leading 0).');
       return;
     }
+    if (phoneSendCooldownRemaining > 0) return;
     setLoading(true);
     setError(null);
     trackEvent('auth_method_selected', { method: 'phone', platform: 'native' });
     trackEvent('auth_phone_submitted', { platform: 'native' });
     try {
-      const { data, error: otpError } = await supabase.auth.signInWithOtp({ phone: e164 });
+      const captcha = await requestNativeAuthCaptchaToken('native_phone_otp_send');
+      if (!captcha.ok) {
+        setError(captcha.message);
+        return;
+      }
+      const { data, error: otpError } = await supabase.auth.signInWithOtp({
+        phone: e164,
+        ...(captcha.token ? { options: { captchaToken: captcha.token } } : {}),
+      });
       logPhoneOtpDebug('signInWithOtp response', e164, {
         hasError: !!otpError,
         error: otpError ? authErrorDebugInfo(otpError) : null,
@@ -371,9 +391,15 @@ export default function SignInScreen() {
       setPhoneForOtp(e164);
       setOtpDigits(['', '', '', '', '', '']);
       setView('otp');
+      setPhoneSendAttempts(0);
+      setPhoneSendCooldownRemaining(0);
       setResendAttempts(0);
       setResendRemaining(60);
     } catch (e: unknown) {
+      const attempt = phoneSendAttempts + 1;
+      const cooldown = nextAuthOtpCooldownSeconds(attempt, e);
+      setPhoneSendAttempts(attempt);
+      setPhoneSendCooldownRemaining(cooldown);
       const conflict = mapAuthConflictError(e, 'phone_otp_send');
       if (conflict.message) {
         setError(conflict.message);
@@ -421,7 +447,15 @@ export default function SignInScreen() {
     setLoading(true);
     setError(null);
     try {
-      const { data, error: otpError } = await supabase.auth.signInWithOtp({ phone: phoneForOtp });
+      const captcha = await requestNativeAuthCaptchaToken('native_phone_otp_resend');
+      if (!captcha.ok) {
+        setError(captcha.message);
+        return;
+      }
+      const { data, error: otpError } = await supabase.auth.signInWithOtp({
+        phone: phoneForOtp,
+        ...(captcha.token ? { options: { captchaToken: captcha.token } } : {}),
+      });
       logPhoneOtpDebug('signInWithOtp resend', phoneForOtp, {
         hasError: !!otpError,
         error: otpError ? authErrorDebugInfo(otpError) : null,
@@ -430,8 +464,12 @@ export default function SignInScreen() {
       if (otpError) throw otpError;
       const nextAttempts = resendAttempts + 1;
       setResendAttempts(nextAttempts);
-      setResendRemaining(nextAttempts === 1 ? 60 : nextAttempts === 2 ? 180 : 900);
+      setResendRemaining(nextAuthOtpCooldownSeconds(nextAttempts));
     } catch (e: unknown) {
+      const nextAttempts = resendAttempts + 1;
+      const cooldown = nextAuthOtpCooldownSeconds(nextAttempts, e);
+      setResendAttempts(nextAttempts);
+      setResendRemaining(cooldown);
       const conflict = mapAuthConflictError(e, 'phone_otp_resend');
       if (conflict.message) setError(conflict.message);
       else setError(mapPhoneOtpSendError(e));
@@ -447,7 +485,16 @@ export default function SignInScreen() {
     trackEvent('auth_method_selected', { method: 'email', platform: 'native' });
     trackEvent('auth_email_signin', { platform: 'native' });
     try {
-      const { error: e } = await supabase.auth.signInWithPassword({ email: email.trim(), password });
+      const captcha = await requestNativeAuthCaptchaToken('native_email_signin');
+      if (!captcha.ok) {
+        setError(captcha.message);
+        return;
+      }
+      const { error: e } = await supabase.auth.signInWithPassword({
+        email: email.trim(),
+        password,
+        ...(captcha.token ? { options: { captchaToken: captcha.token } } : {}),
+      });
       if (e) throw e;
       setView('success');
     } catch (e: unknown) {
@@ -470,12 +517,18 @@ export default function SignInScreen() {
     setError(null);
     try {
       const signupEmail = email.trim();
+      const captcha = await requestNativeAuthCaptchaToken('native_email_signup');
+      if (!captcha.ok) {
+        setError(captcha.message);
+        return;
+      }
       const { data, error: e } = await supabase.auth.signUp({
         email: signupEmail,
         password,
         options: {
           emailRedirectTo: getNativeEmailSignUpRedirectUrl(),
           data: { name: name.trim() },
+          ...(captcha.token ? { captchaToken: captcha.token } : {}),
         },
       });
       if (e) throw e;
@@ -489,6 +542,9 @@ export default function SignInScreen() {
         return;
       }
       setPendingConfirmationEmail(signupEmail);
+      setEmailResendAttempts(0);
+      setEmailResendCooldown(60);
+      setEmailResendMessage(null);
       setView('email_signup_pending');
     } catch (e: unknown) {
       const conflict = mapAuthConflictError(e, 'email_sign_up');
@@ -506,16 +562,34 @@ export default function SignInScreen() {
   const handleResendConfirmation = async () => {
     if (!pendingConfirmationEmail || emailResendCooldown > 0) return;
     setEmailResendMessage(null);
+    setLoading(true);
     try {
+      const captcha = await requestNativeAuthCaptchaToken('native_email_signup_resend');
+      if (!captcha.ok) {
+        setEmailResendMessage(captcha.message);
+        return;
+      }
       const { error } = await supabase.auth.resend({
         type: 'signup',
         email: pendingConfirmationEmail,
+        options: {
+          emailRedirectTo: getNativeEmailSignUpRedirectUrl(),
+          ...(captcha.token ? { captchaToken: captcha.token } : {}),
+        },
       });
       if (error) throw error;
-      setEmailResendCooldown(60);
+      const attempt = emailResendAttempts + 1;
+      setEmailResendAttempts(attempt);
+      setEmailResendCooldown(nextAuthOtpCooldownSeconds(attempt));
       setEmailResendMessage('Email sent again. Check your inbox.');
-    } catch {
-      setEmailResendMessage('Could not resend. Try again in a moment.');
+    } catch (e: unknown) {
+      const attempt = emailResendAttempts + 1;
+      const cooldown = nextAuthOtpCooldownSeconds(attempt, e);
+      setEmailResendAttempts(attempt);
+      setEmailResendCooldown(cooldown);
+      setEmailResendMessage(`Could not resend. Try again in ${formatAuthCooldown(cooldown)}.`);
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -575,10 +649,16 @@ export default function SignInScreen() {
       });
       if (!credential.identityToken) throw new Error('Missing Apple token');
       logAppleNonceDebug('Submitting native Apple sign-in nonce pair to Supabase', { rawNonce, hashedNonce });
+      const captcha = await requestNativeAuthCaptchaToken('native_apple_signin');
+      if (!captcha.ok) {
+        setError(captcha.message);
+        return;
+      }
       const { data, error: e } = await supabase.auth.signInWithIdToken({
         provider: 'apple',
         token: credential.identityToken,
         nonce: rawNonce,
+        ...(captcha.token ? { options: { captchaToken: captcha.token } } : {}),
       });
       if (e) throw e;
       const nameMetadataPatch = buildAppleNameMetadataPatch({
@@ -647,11 +727,17 @@ export default function SignInScreen() {
               placeholderTextColor={theme.textSecondary}
               style={[styles.input, { borderColor: theme.border, color: theme.text }]}
             />
-            <VibelyButton label="Continue" onPress={handlePhoneSubmit} variant="gradient" disabled={!phoneValid || loading} />
+            <VibelyButton
+              label={phoneSendCooldownRemaining > 0 ? `Try again in ${formatAuthCooldown(phoneSendCooldownRemaining)}` : 'Continue'}
+              onPress={handlePhoneSubmit}
+              variant="gradient"
+              disabled={!phoneValid || loading || phoneSendCooldownRemaining > 0}
+            />
             <Text style={[styles.or, { color: theme.textSecondary }]}>or</Text>
             <VibelyButton label="Continue with Google" onPress={handleGoogleSignIn} variant="secondary" disabled={loading} />
             {renderAppleAuthCta()}
             <Pressable onPress={() => { setView('email_signin'); setError(null); }}><Text style={{ color: theme.textSecondary, textAlign: 'center' }}>Use email instead</Text></Pressable>
+            <Pressable onPress={() => router.push('/(auth)/reset-password')}><Text style={{ color: theme.textSecondary, textAlign: 'center' }}>Forgot password?</Text></Pressable>
             <Text style={[styles.legalNotice, { color: theme.textSecondary }]}>
               By continuing, you agree to our{' '}
               <Text

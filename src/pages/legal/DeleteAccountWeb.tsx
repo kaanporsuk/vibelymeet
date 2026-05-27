@@ -5,26 +5,10 @@ import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { CheckCircle, Loader2 } from "lucide-react";
+import { WEB_TURNSTILE_SITE_KEY, loadTurnstileScript } from "@/lib/authTurnstile";
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
-const TURNSTILE_SITE_KEY = import.meta.env.VITE_TURNSTILE_SITE_KEY as string | undefined;
-
-declare global {
-  interface Window {
-    turnstile?: {
-      render: (
-        container: HTMLElement,
-        options: {
-          sitekey: string;
-          callback: (token: string) => void;
-          "expired-callback": () => void;
-          "error-callback": () => void;
-        }
-      ) => string;
-      reset: (widgetId?: string) => void;
-    };
-  }
-}
+const TURNSTILE_SITE_KEY = WEB_TURNSTILE_SITE_KEY;
 
 const DeleteAccountWeb = () => {
   const [email, setEmail] = useState("");
@@ -53,17 +37,17 @@ const DeleteAccountWeb = () => {
       });
     };
 
-    if (window.turnstile) {
-      renderTurnstile();
-      return;
-    }
+    const removeTurnstile = () => {
+      if (!turnstileWidgetRef.current) return;
+      window.turnstile?.remove?.(turnstileWidgetRef.current);
+      turnstileWidgetRef.current = null;
+    };
 
-    const script = document.createElement("script");
-    script.src = "https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit";
-    script.async = true;
-    script.defer = true;
-    script.onload = renderTurnstile;
-    document.head.appendChild(script);
+    const cleanupScriptListener = loadTurnstileScript(renderTurnstile);
+    return () => {
+      cleanupScriptListener();
+      removeTurnstile();
+    };
   }, [submitted]);
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -74,13 +58,13 @@ const DeleteAccountWeb = () => {
       await fetch(`${SUPABASE_URL}/functions/v1/request-account-deletion`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-	        body: JSON.stringify({ email, reason: reason || null, source: "web", captchaToken }),
-	      });
-	    } catch {
-	      // Always show success to not reveal if email exists
-	    }
-	    window.turnstile?.reset(turnstileWidgetRef.current ?? undefined);
-	    setCaptchaToken("");
+        body: JSON.stringify({ email, reason: reason || null, source: "web", captchaToken }),
+      });
+    } catch {
+      // Always show success to not reveal if email exists
+    }
+    window.turnstile?.reset(turnstileWidgetRef.current ?? undefined);
+    setCaptchaToken("");
     setSubmitted(true);
     setLoading(false);
   };
@@ -141,27 +125,27 @@ const DeleteAccountWeb = () => {
               </Select>
             </div>
 
-	            <div className="space-y-2">
-	              <Label htmlFor="confirm">Type DELETE to confirm</Label>
+            <div className="space-y-2">
+              <Label htmlFor="confirm">Type DELETE to confirm</Label>
               <Input
                 id="confirm"
                 placeholder="DELETE"
                 value={confirmText}
                 onChange={(e) => setConfirmText(e.target.value)}
                 className={confirmText && !isConfirmed ? "border-destructive" : ""}
-	              />
-	            </div>
+              />
+            </div>
 
-	            <div className="space-y-2">
-	              <Label>Verification</Label>
-	              {TURNSTILE_SITE_KEY ? (
-	                <div ref={turnstileRef} className="min-h-[65px]" />
-	              ) : (
-	                <p className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
-	                  Verification is temporarily unavailable. Please delete your account from inside the app.
-	                </p>
-	              )}
-	            </div>
+            <div className="space-y-2">
+              <Label>Verification</Label>
+              {TURNSTILE_SITE_KEY ? (
+                <div ref={turnstileRef} className="min-h-[65px]" />
+              ) : (
+                <p className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+                  Verification is temporarily unavailable. Please delete your account from inside the app.
+                </p>
+              )}
+            </div>
 
             <Button
               type="submit"

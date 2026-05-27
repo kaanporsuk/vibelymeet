@@ -53,6 +53,7 @@ import { useStatusDialog } from '@/components/ui/StatusDialog';
 import { endAccountBreakForUser } from '@/lib/endAccountBreak';
 import { fetchMyPhotoVerificationState, type PhotoVerificationState } from '@/lib/photoVerificationState';
 import { fetchMyProfileSettings } from '@/lib/myProfileSettings';
+import { requestNativeAuthCaptchaToken } from '@/lib/nativeAuthCaptcha';
 import { isCurrentEmailVerified, resolveCanonicalAuthEmail } from '@shared/verificationSemantics';
 import { PASSWORD_MIN_LENGTH, validatePasswordPolicy, passwordPolicyMessage } from '@clientShared/passwordPolicy';
 
@@ -1170,9 +1171,21 @@ export default function AccountSettingsScreen() {
                 }
                 setPasswordSubmitting(true);
                 try {
+                  const captcha = await requestNativeAuthCaptchaToken('native_settings_password_reauth');
+                  if (!captcha.ok) {
+                    show({
+                      title: 'Verification cancelled',
+                      message: captcha.message,
+                      variant: 'warning',
+                      primaryAction: { label: 'OK', onPress: () => {} },
+                    });
+                    return;
+                  }
+
                   const { error: authErr } = await supabase.auth.signInWithPassword({
                     email,
                     password: currentPassword,
+                    ...(captcha.token ? { options: { captchaToken: captcha.token } } : {}),
                   });
                   if (authErr) {
                     show({

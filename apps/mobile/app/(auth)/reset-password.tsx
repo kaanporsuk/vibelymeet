@@ -7,6 +7,7 @@ import { Text } from '@/components/Themed';
 import { useColorScheme } from '@/components/useColorScheme';
 import Colors from '@/constants/Colors';
 import { requestPasswordReset, updatePassword } from '@/lib/authApi';
+import { requestNativeAuthCaptchaToken } from '@/lib/nativeAuthCaptcha';
 import { useAuth } from '@/context/AuthContext';
 import { VibelyButton } from '@/components/ui';
 import {
@@ -15,6 +16,7 @@ import {
 } from '@shared/authRedirect';
 import { validatePasswordPolicy, passwordPolicyMessage } from '@clientShared/passwordPolicy';
 import { safeAuthErrorMessage } from '@clientShared/authErrorCopy';
+import { formatAuthCooldown, nextAuthOtpCooldownSeconds } from '@clientShared/authOtpCooldown';
 
 const WEB_APP_ORIGIN = (process.env.EXPO_PUBLIC_WEB_APP_URL ?? 'https://www.vibelymeet.com').replace(/\/$/, '');
 
@@ -46,6 +48,8 @@ export default function ResetPasswordScreen() {
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [passwordUpdated, setPasswordUpdated] = useState(false);
+  const [resetRequestAttempts, setResetRequestAttempts] = useState(0);
+  const [resetRequestCooldown, setResetRequestCooldown] = useState(0);
 
   const recoveryReady = recoveryStatus === 'ready';
 
@@ -80,18 +84,37 @@ export default function ResetPasswordScreen() {
     return () => clearTimeout(timer);
   }, [passwordUpdated, refreshEntryState]);
 
+  useEffect(() => {
+    if (resetRequestCooldown <= 0) return;
+    const timer = setInterval(() => setResetRequestCooldown((v) => Math.max(0, v - 1)), 1000);
+    return () => clearInterval(timer);
+  }, [resetRequestCooldown]);
+
   const handleRequestReset = async () => {
-    if (!email.trim()) return;
+    if (!email.trim() || resetRequestCooldown > 0) return;
     setPasswordUpdated(false);
     setLoading(true);
     setError(null);
     setMessage(null);
-    const result = await requestPasswordReset(email.trim());
+    const captcha = await requestNativeAuthCaptchaToken('native_password_reset');
+    if (!captcha.ok) {
+      setError(captcha.message);
+      setLoading(false);
+      return;
+    }
+    const result = await requestPasswordReset(email.trim(), captcha.token);
     if (!result.ok) {
+      const attempt = resetRequestAttempts + 1;
+      const cooldown = nextAuthOtpCooldownSeconds(attempt, result.error);
+      setResetRequestAttempts(attempt);
+      setResetRequestCooldown(cooldown);
       setError(result.error.message);
       setLoading(false);
       return;
     }
+    const attempt = resetRequestAttempts + 1;
+    setResetRequestAttempts(attempt);
+    setResetRequestCooldown(nextAuthOtpCooldownSeconds(attempt));
     setMessage('Reset link sent. Open the email link on this device. Vibely will switch this screen into password update mode once the recovery session is ready.');
     setLoading(false);
   };
@@ -140,7 +163,17 @@ export default function ResetPasswordScreen() {
             placeholderTextColor={theme.textSecondary}
             style={[styles.input, { borderColor: theme.border, color: theme.text }]}
           />
-          <VibelyButton label={loading ? 'Sending...' : 'Send reset link'} onPress={handleRequestReset} disabled={loading || !email.trim()} />
+          <VibelyButton
+            label={
+              resetRequestCooldown > 0
+                ? `Send again in ${formatAuthCooldown(resetRequestCooldown)}`
+                : loading
+                  ? 'Sending...'
+                  : 'Send reset link'
+            }
+            onPress={handleRequestReset}
+            disabled={loading || !email.trim() || resetRequestCooldown > 0}
+          />
         </>
       ) : (
         <>

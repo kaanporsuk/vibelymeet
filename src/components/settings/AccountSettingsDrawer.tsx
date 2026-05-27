@@ -20,6 +20,7 @@ import {
   Crown,
 } from "lucide-react";
 import { PhoneVerification } from "@/components/PhoneVerification";
+import { AuthTurnstile } from "@/components/auth/AuthTurnstile";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -52,6 +53,7 @@ import {
   showSettingsMemberElevated,
 } from "@shared/settingsMembershipDisplay";
 import { fetchMyPhoneVerificationProfile } from "@/lib/phoneVerificationState";
+import { webTurnstileEnabled } from "@/lib/authTurnstile";
 import { EmailVerificationFlow } from "@/components/verification/EmailVerificationFlow";
 import { isCurrentEmailVerified, resolveCanonicalAuthEmail } from "@shared/verificationSemantics";
 import { LinkedSignInMethods } from "@/components/settings/LinkedSignInMethods";
@@ -121,6 +123,8 @@ export const AccountSettingsDrawer = ({
   const [showPasswordForPhone, setShowPasswordForPhone] = useState(false);
   const [phoneChangePassword, setPhoneChangePassword] = useState("");
   const [phoneReauthLoading, setPhoneReauthLoading] = useState(false);
+  const [phoneReauthCaptchaToken, setPhoneReauthCaptchaToken] = useState("");
+  const [phoneReauthCaptchaResetSignal, setPhoneReauthCaptchaResetSignal] = useState(0);
 
   const [onBreak, setOnBreak] = useState(false);
   const [breakUntilIso, setBreakUntilIso] = useState<string | null>(null);
@@ -180,9 +184,22 @@ export const AccountSettingsDrawer = ({
   const [showNewPassword, setShowNewPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [passwordLoading, setPasswordLoading] = useState(false);
+  const [passwordReauthCaptchaToken, setPasswordReauthCaptchaToken] = useState("");
+  const [passwordReauthCaptchaResetSignal, setPasswordReauthCaptchaResetSignal] = useState(0);
+  const authCaptchaRequired = webTurnstileEnabled();
 
   const validateEmail = (email: string) => {
     return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+  };
+
+  const resetPhoneReauthCaptcha = () => {
+    setPhoneReauthCaptchaToken("");
+    setPhoneReauthCaptchaResetSignal((value) => value + 1);
+  };
+
+  const resetPasswordReauthCaptcha = () => {
+    setPasswordReauthCaptchaToken("");
+    setPasswordReauthCaptchaResetSignal((value) => value + 1);
   };
 
   const getPasswordStrength = (password: string) => {
@@ -242,12 +259,19 @@ export const AccountSettingsDrawer = ({
       return;
     }
 
+    if (authCaptchaRequired && !passwordReauthCaptchaToken) {
+      toast.error("Complete the security check before updating your password");
+      return;
+    }
+
+    const requestCaptchaToken = passwordReauthCaptchaToken || undefined;
     setPasswordLoading(true);
     try {
       // Re-authenticate with current password first
       const { error: signInError } = await supabase.auth.signInWithPassword({
         email: user?.email || "",
         password: currentPassword,
+        ...(requestCaptchaToken ? { options: { captchaToken: requestCaptchaToken } } : {}),
       });
 
       if (signInError) {
@@ -272,6 +296,7 @@ export const AccountSettingsDrawer = ({
       const message = error instanceof Error ? error.message : "Failed to update password";
       toast.error(message);
     } finally {
+      if (requestCaptchaToken) resetPasswordReauthCaptcha();
       setPasswordLoading(false);
     }
   };
@@ -642,24 +667,39 @@ export const AccountSettingsDrawer = ({
                     value={phoneChangePassword}
                     onChange={(e) => setPhoneChangePassword(e.target.value)}
                   />
+                  <AuthTurnstile
+                    action="web_settings_phone_reauth"
+                    onTokenChange={setPhoneReauthCaptchaToken}
+                    resetSignal={phoneReauthCaptchaResetSignal}
+                  />
                   <div className="flex gap-2">
                     <Button
                       variant="ghost"
                       size="sm"
-                      onClick={() => { setShowPasswordForPhone(false); setPhoneChangePassword(""); }}
+                      onClick={() => {
+                        setShowPasswordForPhone(false);
+                        setPhoneChangePassword("");
+                        resetPhoneReauthCaptcha();
+                      }}
                     >
                       Cancel
                     </Button>
                     <Button
                       variant="gradient"
                       size="sm"
-                      disabled={!phoneChangePassword || phoneReauthLoading}
+                      disabled={!phoneChangePassword || phoneReauthLoading || (authCaptchaRequired && !phoneReauthCaptchaToken)}
                       onClick={async () => {
+                        if (authCaptchaRequired && !phoneReauthCaptchaToken) {
+                          toast.error("Complete the security check before changing your phone number");
+                          return;
+                        }
+                        const requestCaptchaToken = phoneReauthCaptchaToken || undefined;
                         setPhoneReauthLoading(true);
                         try {
                           const { error } = await supabase.auth.signInWithPassword({
                             email: user?.email || "",
                             password: phoneChangePassword,
+                            ...(requestCaptchaToken ? { options: { captchaToken: requestCaptchaToken } } : {}),
                           });
                           if (error) {
                             toast.error("Incorrect password");
@@ -671,6 +711,7 @@ export const AccountSettingsDrawer = ({
                         } catch {
                           toast.error("Verification failed");
                         } finally {
+                          if (requestCaptchaToken) resetPhoneReauthCaptcha();
                           setPhoneReauthLoading(false);
                         }
                       }}
@@ -932,6 +973,12 @@ export const AccountSettingsDrawer = ({
                       )}
                     </div>
 
+                    <AuthTurnstile
+                      action="web_settings_password_reauth"
+                      onTokenChange={setPasswordReauthCaptchaToken}
+                      resetSignal={passwordReauthCaptchaResetSignal}
+                    />
+
                     <Button
                       variant="gradient"
                       size="sm"
@@ -942,7 +989,8 @@ export const AccountSettingsDrawer = ({
                         !confirmPassword ||
                         !passwordsMatch ||
                         passwordStrength.score < 2 ||
-                        passwordLoading
+                        passwordLoading ||
+                        (authCaptchaRequired && !passwordReauthCaptchaToken)
                       }
                       className="w-full"
                     >

@@ -65,7 +65,7 @@ interface SessionContextType {
   onboardingStatus: 'complete' | 'incomplete' | 'unknown';
   onboardingComplete: boolean | null;
   refreshEntryState: () => Promise<EntryStateResponse | null>;
-  signIn: (email: string, password: string) => Promise<{ error: Error | null }>;
+  signIn: (email: string, password: string, captchaToken?: string | null) => Promise<{ error: Error | null }>;
   logout: () => Promise<void>;
 }
 
@@ -631,8 +631,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return () => document.removeEventListener("visibilitychange", onVisibilityChange);
   }, [currentUserId, reconcileMediaUploadQueues]);
 
-  const signIn = async (email: string, password: string): Promise<{ error: Error | null }> => {
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
+  const signIn = async (email: string, password: string, captchaToken?: string | null): Promise<{ error: Error | null }> => {
+    const { error } = await supabase.auth.signInWithPassword({
+      email,
+      password,
+      ...(captchaToken ? { options: { captchaToken } } : {}),
+    });
     if (!error) setAuthRedirectReason(null);
     return { error };
   };

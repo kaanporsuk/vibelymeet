@@ -6,6 +6,7 @@ type RouteLoader = () => Promise<RouteModule>;
 export const routeLoaders = {
   index: () => import("@/pages/Index") as Promise<RouteModule>,
   auth: () => import("@/pages/Auth") as Promise<RouteModule>,
+  authChallenge: () => import("@/pages/AuthChallenge") as Promise<RouteModule>,
   entryRecovery: () => import("@/pages/EntryRecovery") as Promise<RouteModule>,
   inviteRedirect: () => import("@/pages/InviteRedirect") as Promise<RouteModule>,
   eventShortRedirect: () => import("@/pages/EventShortRedirect") as Promise<RouteModule>,
