@@ -701,6 +701,7 @@ const PROTECTED_ROOT_SEGMENTS = new Set([
   'date',
   'settings',
   'premium',
+  'profile-preview',
   'vibe-studio',
   'vibe-video-record',
   'user',
