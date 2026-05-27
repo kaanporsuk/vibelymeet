@@ -30,7 +30,7 @@
  *   BUNNY_ARCHIVE_STORAGE_ZONE, BUNNY_ARCHIVE_STORAGE_API_KEY
  */
 
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.88.0";
 import {
   archiveBunnyStorageFile,
   deleteBunnyStorageFile,

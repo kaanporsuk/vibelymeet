@@ -114,6 +114,9 @@ test("push-webhook remains secret-gated external telemetry", () => {
   assert.match(pushWebhook, /Deno\.env\.get\(["']PUSH_WEBHOOK_SECRET["']\)/);
   assert.match(pushWebhook, /Require PUSH_WEBHOOK_SECRET \(fail closed\)/);
   assert.match(pushWebhook, /req\.headers\.get\(["']x-webhook-secret["']\)/);
+  assert.match(pushWebhook, /timingSafeEqualString/);
+  assert.match(pushWebhook, /pushWebhookSecretMatches/);
+  assert.match(pushWebhook, /Internal server error/);
   assert.match(pushWebhook, /status:\s*503/);
   assert.match(pushWebhook, /status:\s*401/);
   assert.match(pushWebhook, /push_notification_events/);

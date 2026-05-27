@@ -44,6 +44,12 @@ function parseCaptchaTokenFromReturn(url: string): string | null {
 export async function requestNativeAuthCaptchaToken(action: string): Promise<NativeAuthCaptchaResult> {
   const returnUrl = getNativeAuthCaptchaReturnUrl();
   if (isExpoDevReturnUrl(returnUrl) && !isLocalChallengeOrigin()) {
+    if (!__DEV__) {
+      return {
+        ok: false,
+        message: 'Verification is not available in this build. Install the latest app and try again.',
+      };
+    }
     return { ok: true, token: null };
   }
 

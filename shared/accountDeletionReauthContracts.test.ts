@@ -12,6 +12,10 @@ const webHook = read("src/hooks/useDeleteAccount.ts");
 const webModal = read("src/components/settings/DeleteAccountModal.tsx");
 const nativeDelete = read("apps/mobile/app/delete-account.tsx");
 const publicDelete = read("src/pages/legal/DeleteAccountWeb.tsx");
+const publicDeleteFunction = read("supabase/functions/request-account-deletion/index.ts");
+const publicLookupMigration = read("supabase/migrations/20260527143000_public_account_deletion_email_lookup.sql");
+const hardeningRunner = read("scripts/run_auth_hardening_tests.sh");
+const denoEdgeCheck = read("scripts/deno_check_auth_edge_functions.sh");
 
 test("authenticated delete-account requires server-verified reauth proof", () => {
   assert.match(edgeFunction, /"request_reauth"/);
@@ -157,4 +161,32 @@ test("public delete-account remains the only Turnstile-gated delete flow", () =>
   assert.match(publicDelete, /window\.turnstile\.render/);
   assert.match(publicDelete, /captchaToken/);
   assert.doesNotMatch(publicDelete, /turnstile\.execute|invisible/i);
+});
+
+test("public account-deletion lookup uses supported service-role SQL, not a non-existent Admin API", () => {
+  assert.doesNotMatch(publicDeleteFunction, /getUserByEmail/);
+  assert.match(publicDeleteFunction, /resolve_account_deletion_user_id_by_email/);
+  assert.match(publicDeleteFunction, /function safeErrorMessage\(error: unknown\): string/);
+  assert.match(publicDeleteFunction, /"message" in error/);
+  assert.match(publicDeleteFunction, /typeof error === "string" \? error : "Unknown error"/);
+  assert.match(publicDeleteFunction, /lookupError\.message/);
+  assert.match(publicDeleteFunction, /typeof userId !== "string" \|\| !userId/);
+  assert.match(publicDeleteFunction, /account_deletion_requests/);
+  assert.match(publicDeleteFunction, /status: "pending"/);
+  assert.doesNotMatch(publicDeleteFunction, /console\.error\("request-account-deletion error:", err\)/);
+
+  assert.match(publicLookupMigration, /CREATE OR REPLACE FUNCTION public\.resolve_account_deletion_user_id_by_email\(p_email text\)/);
+  assert.match(publicLookupMigration, /SECURITY DEFINER/);
+  assert.match(publicLookupMigration, /FROM auth\.users u/);
+  assert.match(publicLookupMigration, /v_request_role <> 'service_role'/);
+  assert.match(publicLookupMigration, /REVOKE ALL ON FUNCTION public\.resolve_account_deletion_user_id_by_email\(text\) FROM PUBLIC, anon, authenticated/);
+  assert.match(publicLookupMigration, /GRANT EXECUTE ON FUNCTION public\.resolve_account_deletion_user_id_by_email\(text\) TO service_role/);
+  assert.match(publicLookupMigration, /NOTIFY pgrst, 'reload schema'/);
+});
+
+test("auth hardening runner Deno-checks the public deletion Edge Function", () => {
+  assert.match(hardeningRunner, /bash scripts\/deno_check_auth_edge_functions\.sh/);
+  assert.match(denoEdgeCheck, /deno check --no-lock/);
+  assert.match(denoEdgeCheck, /supabase\/functions\/request-account-deletion\/index\.ts/);
+  assert.match(denoEdgeCheck, /supabase\/functions\/delete-account\/index\.ts/);
 });

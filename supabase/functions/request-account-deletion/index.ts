@@ -1,4 +1,4 @@
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.88.0";
 import {
   isBrowserOriginRejected,
   jsonResponse,
@@ -35,6 +35,19 @@ async function verifyTurnstile(token: unknown, ip: string): Promise<boolean> {
   });
   const data = await res.json().catch(() => null) as { success?: boolean } | null;
   return res.ok && data?.success === true;
+}
+
+function safeErrorMessage(error: unknown): string {
+  if (error instanceof Error) return error.message;
+  if (
+    error &&
+    typeof error === "object" &&
+    "message" in error &&
+    typeof error.message === "string"
+  ) {
+    return error.message;
+  }
+  return typeof error === "string" ? error : "Unknown error";
 }
 
 Deno.serve(async (req) => {
@@ -84,15 +97,22 @@ Deno.serve(async (req) => {
       return jsonResponse(req, { success: true }, { status: 200 });
     }
 
-    const { data: userData, error: lookupError } = await supabaseAdmin.auth.admin.getUserByEmail(normalizedEmail);
-    if (lookupError || !userData?.user?.id) {
+    const { data: userId, error: lookupError } = await supabaseAdmin.rpc(
+      "resolve_account_deletion_user_id_by_email",
+      { p_email: normalizedEmail },
+    );
+    if (lookupError) {
+      console.error("request-account-deletion lookup error:", lookupError.message);
+      return jsonResponse(req, { success: true }, { status: 200 });
+    }
+    if (typeof userId !== "string" || !userId) {
       return jsonResponse(req, { success: true }, { status: 200 });
     }
 
     const safeSource = typeof source === "string" && source.trim() ? source.trim().slice(0, 40) : "public_web";
     const safeReason = typeof reason === "string" && reason.trim() ? reason.trim().slice(0, 2000) : "No reason provided";
     const { error: insertError } = await supabaseAdmin.from("account_deletion_requests").insert({
-      user_id: userData.user.id,
+      user_id: userId,
       reason: `[${safeSource}] ${safeReason}`,
       status: "pending",
     });
@@ -103,7 +123,7 @@ Deno.serve(async (req) => {
 
     return jsonResponse(req, { success: true }, { status: 200 });
   } catch (err) {
-    console.error("request-account-deletion error:", err);
+    console.error("request-account-deletion error:", safeErrorMessage(err));
     return jsonResponse(req, { success: true }, { status: 200 });
   }
 });

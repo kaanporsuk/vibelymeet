@@ -4,7 +4,7 @@
  * Requires REVENUECAT_WEBHOOK_AUTHORIZATION secret; configure the same value in RevenueCat dashboard.
  */
 
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.88.0'
 import {
   downgradeRevenueCatSubscriptionRow,
   upsertActiveRevenueCatSubscription,

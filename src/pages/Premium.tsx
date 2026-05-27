@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { Check, Crown, Loader2, ArrowLeft, Sparkles, ShieldCheck, Info } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useSubscription } from '@/hooks/useSubscription';
@@ -16,10 +16,12 @@ import { cn } from '@/lib/utils';
 
 const Premium = () => {
   const navigate = useNavigate();
+  const location = useLocation();
   const [searchParams] = useSearchParams();
   const { subscription, isPremium, isLoading, startCheckout } = useSubscription();
   const [selectedPlan, setSelectedPlan] = useState<'monthly' | 'annual'>('annual');
   const [checkoutLoading, setCheckoutLoading] = useState(false);
+  const [checkoutError, setCheckoutError] = useState<string | null>(null);
 
   const funnel = useMemo(
     () => readPremiumEntryFromSearchParams((k) => searchParams.get(k)),
@@ -45,9 +47,16 @@ const Premium = () => {
   const handleCheckout = async () => {
     trackEvent('checkout_started', { plan: selectedPlan });
     setCheckoutLoading(true);
+    setCheckoutError(null);
     const result = await startCheckout(selectedPlan);
     if (!result.success) {
       setCheckoutLoading(false);
+      if (result.error === 'Not authenticated') {
+        const nextPath = `${location.pathname}${location.search}`;
+        navigate(`/auth?reason=premium_checkout&next=${encodeURIComponent(nextPath)}`);
+        return;
+      }
+      setCheckoutError('Checkout could not be started. Please try again.');
     }
   };
 
@@ -233,6 +242,12 @@ const Premium = () => {
                   'Continue to secure checkout'
                 )}
               </Button>
+
+              {checkoutError ? (
+                <p role="alert" className="text-center text-sm text-destructive">
+                  {checkoutError}
+                </p>
+              ) : null}
 
               <p className="text-center text-xs text-muted-foreground leading-relaxed">
                 By continuing you agree to our terms and recurring billing for the plan you select. You can cancel

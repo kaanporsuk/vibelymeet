@@ -1,4 +1,4 @@
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.88.0";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -34,6 +34,24 @@ interface WebhookPayload {
   timestamp?: string;
 }
 
+function timingSafeEqualString(left: string, right: string): boolean {
+  const encoder = new TextEncoder();
+  const leftBytes = encoder.encode(left);
+  const rightBytes = encoder.encode(right);
+  const length = Math.max(leftBytes.length, rightBytes.length);
+  let diff = leftBytes.length ^ rightBytes.length;
+
+  for (let i = 0; i < length; i += 1) {
+    diff |= (leftBytes[i] ?? 0) ^ (rightBytes[i] ?? 0);
+  }
+
+  return diff === 0;
+}
+
+function pushWebhookSecretMatches(providedSecret: string | null, webhookSecret: string): boolean {
+  return typeof providedSecret === "string" && timingSafeEqualString(providedSecret, webhookSecret);
+}
+
 Deno.serve(async (req) => {
   // Handle CORS preflight
   if (req.method === "OPTIONS") {
@@ -55,7 +73,7 @@ Deno.serve(async (req) => {
     }
 
     const providedSecret = req.headers.get("x-webhook-secret");
-    if (providedSecret !== webhookSecret) {
+    if (!pushWebhookSecretMatches(providedSecret, webhookSecret)) {
       console.error("Invalid webhook secret");
       return new Response(
         JSON.stringify({ error: "Unauthorized" }),
@@ -99,10 +117,9 @@ Deno.serve(async (req) => {
     );
 
   } catch (error) {
-    console.error("Webhook processing error:", error);
-    const errorMessage = error instanceof Error ? error.message : "Unknown error";
+    console.error("Webhook processing error:", error instanceof Error ? error.message : "Unknown error");
     return new Response(
-      JSON.stringify({ error: errorMessage }),
+      JSON.stringify({ error: "Internal server error" }),
       { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   }

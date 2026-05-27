@@ -2,7 +2,7 @@
 
 Date: 2026-05-27
 
-This document consolidates the original Vibely auth investigation with the separate report assessment. It started as a Sprint 0 baseline artifact; the current repo now also carries the Sprint 1-7 auth hardening code, migrations, docs, contracts, and release certification. Production Supabase project `schdyxcunwcvddlcshwd` passes the post-Sprint-6 live auth audit with `0 fail, 0 warn, 40 checks`.
+This document consolidates the original Vibely auth investigation with the separate report assessment. It started as a Sprint 0 baseline artifact; the current repo now also carries the Sprint 1-7 auth hardening code, migrations, docs, contracts, and release certification. Production Supabase project `schdyxcunwcvddlcshwd` passes the current live auth audit with `0 fail, 0 warn, 41 checks`.
 
 ## Findings Carried Forward
 
@@ -27,9 +27,11 @@ Status after the current repo changes and the latest live audit:
 
 ## Current Live Alignment Note
 
-Production Supabase is aligned with the current repo for Sprints 0-6. The Sprint 6 migration `20260527130000_auth_sprint6_data_quality_observability.sql` has been applied, and the changed `email-verification` and `phone-verify` Edge Functions have been deployed. Post-deploy `npm run audit:auth-live` passes with `0 fail, 0 warn, 40 checks`.
+Production Supabase is aligned with the current repo for Sprints 0-7 plus the public deletion lookup follow-up. The Sprint 6 migration `20260527130000_auth_sprint6_data_quality_observability.sql` has been applied, the follow-up migration `20260527143000_public_account_deletion_email_lookup.sql` has been applied, and the changed Edge Functions have been deployed. Post-deploy `npm run audit:auth-live` passes with `0 fail, 0 warn, 41 checks`.
 
-Release-order invariant for future environments: apply the Sprint 6 migration first, then deploy the changed `email-verification` and `phone-verify` Edge Functions, then rerun `npm run audit:auth-live`. Do not deploy the current Edge Function code ahead of the migration, because both functions write `verification_attempts.flow`.
+Follow-up alignment: migration `20260527143000_public_account_deletion_email_lookup.sql` has also been applied, and the changed provider/auth/import-pin Edge Functions were redeployed through Supabase API bundling. The shared rate-limiter consumers `delete-account`, `event-notifications`, and `forward-geocode` were included in that redeploy set.
+
+Release-order invariant for future environments: apply all pending auth migrations through `20260527143000_public_account_deletion_email_lookup.sql`, then deploy the changed Edge Functions, then rerun `npm run audit:auth-live`. Do not deploy the current Edge Function code ahead of the Sprint 6 migration, because `email-verification` and `phone-verify` write `verification_attempts.flow`; do not deploy `request-account-deletion` ahead of the public deletion lookup migration, because it depends on `resolve_account_deletion_user_id_by_email`.
 
 ## Supported Current Good State
 

@@ -144,6 +144,28 @@ verification_writer_fn as (
       'mark_profile_phone_verified_from_server'
     )
 ),
+public_deletion_lookup_fn as (
+  select p.oid, pg_get_functiondef(p.oid) as body
+  from pg_proc p
+  join pg_namespace n on n.oid = p.pronamespace
+  where n.nspname = 'public'
+    and p.proname = 'resolve_account_deletion_user_id_by_email'
+  limit 1
+),
+public_deletion_lookup_grants as (
+  select
+    coalesce(bool_or(rp.grantee = 'service_role' and rp.privilege_type = 'EXECUTE'), false) as service_role_execute,
+    count(*) filter (where rp.grantee in ('PUBLIC', 'anon', 'authenticated')) as public_client_grants,
+    coalesce(
+      jsonb_agg(jsonb_build_object('grantee', rp.grantee, 'privilege', rp.privilege_type))
+        filter (where rp.grantee is not null),
+      '[]'::jsonb
+    ) as grants
+  from public_deletion_lookup_fn f
+  left join information_schema.routine_privileges rp
+    on rp.specific_schema = 'public'
+    and rp.routine_name = 'resolve_account_deletion_user_id_by_email'
+),
 verification_writer_grants as (
   select
     f.routine_name,
@@ -362,6 +384,32 @@ select
     '[]'::jsonb
   )::text as detail
 from routine_grant_violations
+
+union all
+
+select
+  'public_account_deletion_lookup_routine' as check_key,
+  'public.resolve_account_deletion_user_id_by_email' as subject,
+  case
+    when exists (
+      select 1
+      from public_deletion_lookup_fn f
+      cross join public_deletion_lookup_grants g
+      where lower(f.body) like '%from auth.users%'
+        and lower(f.body) like '%service_role%'
+        and lower(f.body) like '%security definer%'
+        and g.service_role_execute
+        and g.public_client_grants = 0
+    ) then 'pass'
+    else 'fail'
+  end as status,
+  jsonb_build_object(
+    'function_exists', exists(select 1 from public_deletion_lookup_fn),
+    'mentions_auth_users', exists(select 1 from public_deletion_lookup_fn where lower(body) like '%from auth.users%'),
+    'service_role_execute', coalesce((select service_role_execute from public_deletion_lookup_grants), false),
+    'public_client_grants', coalesce((select public_client_grants from public_deletion_lookup_grants), 0),
+    'grants', coalesce((select grants from public_deletion_lookup_grants), '[]'::jsonb)
+  )::text as detail
 
 union all
 

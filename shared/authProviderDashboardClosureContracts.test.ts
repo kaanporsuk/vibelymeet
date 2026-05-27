@@ -18,7 +18,7 @@ const sharedCors = read("supabase/functions/_shared/cors.ts");
 test("Sprint 2 live provider check records live-confirmed auth settings and audit scope", () => {
   assert.match(liveCheck, /production Supabase project `schdyxcunwcvddlcshwd`/);
   assert.match(liveCheck, /npm run audit:auth-live/);
-  assert.match(liveCheck, /Result: `0 fail, 0 warn, 40 checks`/);
+  assert.match(liveCheck, /Result: `0 fail, 0 warn, 41 checks`/);
 
   for (const setting of [
     "Signup enabled",
@@ -120,7 +120,7 @@ test("Sprint 2 live provider check covers provider dashboards without recording 
 });
 
 test("closure ledger points to Sprint 2 and no longer says Sprint 1 is pending live migration", () => {
-  assert.match(closure, /Production Supabase project `schdyxcunwcvddlcshwd` passes the post-Sprint-6 live auth audit with `0 fail, 0 warn, 40 checks`/);
+  assert.match(closure, /Production Supabase project `schdyxcunwcvddlcshwd` passes the current live auth audit with `0 fail, 0 warn, 41 checks`/);
   assert.match(closure, /Certification record: `docs\/auth\/auth-release-certification-2026-05-27\.md`/);
   assert.match(closure, /Sprint 2 dated provider closure exists at `docs\/auth\/provider-live-check-2026-05-27\.md`/);
   assert.doesNotMatch(closure, /pending live migration/);

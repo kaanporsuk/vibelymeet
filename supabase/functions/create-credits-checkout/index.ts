@@ -1,5 +1,5 @@
 import Stripe from 'https://esm.sh/stripe@14.21.0'
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.88.0'
 import { getCreditPack } from '../_shared/creditPacks.ts'
 import { recordPaymentObservability } from '../_shared/paymentObservability.ts'
 import {

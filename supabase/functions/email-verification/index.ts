@@ -1,5 +1,5 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.88.0";
 import {
   normalizeEmailAddress,
   resolveCanonicalAuthEmail,
@@ -85,6 +85,19 @@ function parsedObject(value: unknown): Record<string, unknown> | null {
 function stringField(value: Record<string, unknown> | null, field: string): string | null {
   const raw = value?.[field];
   return typeof raw === "string" && raw.trim().length > 0 ? raw : null;
+}
+
+function safeErrorMessage(error: unknown): string {
+  if (error instanceof Error) return error.message;
+  if (
+    error &&
+    typeof error === "object" &&
+    "message" in error &&
+    typeof error.message === "string"
+  ) {
+    return error.message;
+  }
+  return typeof error === "string" ? error : "Unknown error";
 }
 
 // Generate a 6-digit OTP using cryptographically secure random
@@ -307,7 +320,7 @@ const handler = async (req: Request): Promise<Response> => {
     // Get current user
     const { data: { user }, error: userError } = await supabaseClient.auth.getUser();
     if (userError || !user) {
-      console.error("User error:", userError);
+      console.error("User error:", safeErrorMessage(userError));
       logStage("auth_user_resolution_failed", {
         requestId,
         authError: userError?.message ?? "unknown",
@@ -395,7 +408,7 @@ const handler = async (req: Request): Promise<Response> => {
         .delete()
         .eq("user_id", user.id);
       if (deleteError) {
-        console.error("Delete old verification code error:", deleteError);
+        console.error("Delete old verification code error:", safeErrorMessage(deleteError));
         logStage("send_delete_existing_failed", {
           requestId,
           userId: user.id,
@@ -439,7 +452,7 @@ const handler = async (req: Request): Promise<Response> => {
         });
 
       if (insertError) {
-        console.error("Insert error:", insertError);
+        console.error("Insert error:", safeErrorMessage(insertError));
         logStage("otp_row_insert_fail", {
           requestId,
           userId: user.id,
@@ -520,7 +533,7 @@ const handler = async (req: Request): Promise<Response> => {
         .gte("attempt_at", oneHourAgo);
 
       if (countError) {
-        console.error("Failed attempt count error:", countError);
+        console.error("Failed attempt count error:", safeErrorMessage(countError));
       }
 
       const MAX_ATTEMPTS = 7;
@@ -546,7 +559,7 @@ const handler = async (req: Request): Promise<Response> => {
         .maybeSingle();
 
       if (findError) {
-        console.error("Find error:", findError);
+        console.error("Find error:", safeErrorMessage(findError));
         logStage("verify_lookup_failed", {
           requestId,
           userId: user.id,
@@ -625,7 +638,7 @@ const handler = async (req: Request): Promise<Response> => {
       );
 
       if (profileError) {
-        console.error("Profile update error:", profileError);
+        console.error("Profile update error:", safeErrorMessage(profileError));
       }
 
       console.log(`Email verified successfully for user ${user.id}`);
@@ -636,8 +649,8 @@ const handler = async (req: Request): Promise<Response> => {
     return jsonResponse({ error: "Invalid action" }, 400);
 
   } catch (error: unknown) {
-    const message = error instanceof Error ? error.message : "Internal error";
-    console.error("Error in email-verification function:", error);
+    const message = safeErrorMessage(error);
+    console.error("Error in email-verification function:", message);
     logStage("handler_unhandled_error", {
       requestId: requestId ?? null,
       error: message,

@@ -160,3 +160,30 @@ test("native generic auth-return handling covers PKCE codes and token_hash verif
   assert.match(nativeIndex, /authRedirectReason === 'session_expired'/);
   assert.match(nativeIndex, /Your session expired\. Sign in again to continue\./);
 });
+
+test("web premium checkout preserves a safe return path through auth", () => {
+  const authPage = read("src/pages/Auth.tsx");
+  const premiumPage = read("src/pages/Premium.tsx");
+
+  assert.match(premiumPage, /useLocation/);
+  assert.match(premiumPage, /result\.error === 'Not authenticated'/);
+  assert.match(premiumPage, /reason=premium_checkout&next=/);
+  assert.match(premiumPage, /encodeURIComponent\(nextPath\)/);
+  assert.match(premiumPage, /Checkout could not be started\. Please try again\./);
+
+  assert.match(authPage, /WEB_AUTH_NEXT_STORAGE_KEY/);
+  assert.match(authPage, /WEB_AUTH_NEXT_COOKIE/);
+  assert.match(authPage, /WEB_AUTH_NEXT_TTL_SECONDS = 10 \* 60/);
+  assert.match(authPage, /function normalizeAuthNextPath\(value: string \| null\): string \| null/);
+  assert.match(authPage, /!trimmed\.startsWith\("\/"\) \|\| trimmed\.startsWith\("\/\/"\)/);
+  assert.match(authPage, /normalized\.startsWith\("\/auth"\)/);
+  assert.match(authPage, /writeAuthNextPathCookie\(normalized\)/);
+  assert.match(authPage, /readAuthNextPathCookie\(\)/);
+  assert.match(authPage, /const nextPath = searchParams\.get\("next"\)/);
+  assert.match(authPage, /storeAuthNextPath\(nextPath\)/);
+  assert.match(authPage, /preserveAuthNextOnAuthScrubRef/);
+  assert.match(authPage, /provider_callback"\) !== "true"/);
+  assert.match(authPage, /readStoredAuthNextPath\(\) \?\? "\/home"/);
+  assert.match(authPage, /clearStoredAuthNextPath\(\)/);
+  assert.match(authPage, /Sign in to continue with Premium\./);
+});
