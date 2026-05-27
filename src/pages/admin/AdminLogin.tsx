@@ -5,9 +5,11 @@ import { AlertTriangle, Eye, EyeOff, Lock, LogOut, Mail, RefreshCw, Shield, Spar
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { AuthTurnstile } from "@/components/auth/AuthTurnstile";
 import { supabase } from "@/integrations/supabase/client";
 import { adminToast } from "@/lib/adminToast";
 import { resolveAdminErrorMessage } from "@/lib/adminErrorResolver";
+import { webTurnstileEnabled } from "@/lib/authTurnstile";
 
 type AdminSessionVerification =
   | { status: "admin" }
@@ -77,6 +79,14 @@ const AdminLogin = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [isCheckingAuth, setIsCheckingAuth] = useState(true);
   const [existingSessionCheckError, setExistingSessionCheckError] = useState<string | null>(null);
+  const [adminCaptchaToken, setAdminCaptchaToken] = useState("");
+  const [adminCaptchaResetSignal, setAdminCaptchaResetSignal] = useState(0);
+  const authCaptchaRequired = webTurnstileEnabled();
+
+  const resetAdminCaptcha = () => {
+    setAdminCaptchaToken("");
+    setAdminCaptchaResetSignal((value) => value + 1);
+  };
 
   useEffect(() => {
     // Check if already logged in as admin
@@ -158,12 +168,23 @@ const AdminLogin = () => {
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (authCaptchaRequired && !adminCaptchaToken) {
+      adminToast.error({
+        id: "admin-login-captcha-required",
+        title: "Verification required",
+        description: "Complete the security check before signing in.",
+      });
+      return;
+    }
+
+    const requestCaptchaToken = adminCaptchaToken || undefined;
     setIsLoading(true);
 
     try {
       const { data, error } = await supabase.auth.signInWithPassword({
         email,
         password,
+        ...(requestCaptchaToken ? { options: { captchaToken: requestCaptchaToken } } : {}),
       });
 
       if (error) {
@@ -217,6 +238,7 @@ const AdminLogin = () => {
         description: resolveAdminErrorMessage(err, "Admin login failed."),
       });
     } finally {
+      if (requestCaptchaToken) resetAdminCaptcha();
       setIsLoading(false);
     }
   };
@@ -344,9 +366,15 @@ const AdminLogin = () => {
               </div>
             </div>
 
+            <AuthTurnstile
+              action="web_admin_signin"
+              onTokenChange={setAdminCaptchaToken}
+              resetSignal={adminCaptchaResetSignal}
+            />
+
             <Button
               type="submit"
-              disabled={isLoading}
+              disabled={isLoading || (authCaptchaRequired && !adminCaptchaToken)}
               className="w-full h-12 bg-gradient-to-r from-primary to-accent hover:opacity-90 transition-opacity text-white font-semibold"
             >
               {isLoading ? (

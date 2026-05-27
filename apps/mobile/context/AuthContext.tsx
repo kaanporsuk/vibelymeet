@@ -58,7 +58,7 @@ type AuthState = {
 };
 
 type AuthContextValue = AuthState & {
-  signIn: (email: string, password: string) => Promise<{ error: Error | null }>;
+  signIn: (email: string, password: string, captchaToken?: string | null) => Promise<{ error: Error | null }>;
   signOut: () => Promise<void>;
   refreshEntryState: () => Promise<EntryStateResponse | null>;
   refreshOnboarding: () => Promise<void>;
@@ -364,8 +364,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }, [currentUserId, reconcileMediaUploadQueues, refreshEntryState, warmFeatureFlags]);
 
-  const signIn = useCallback(async (email: string, password: string) => {
-    const result = await signInWithEmail(email, password);
+  const signIn = useCallback(async (email: string, password: string, captchaToken?: string | null) => {
+    const result = await signInWithEmail(email, password, captchaToken);
     if (!result.ok) {
       return { error: toError(result.error) };
     }

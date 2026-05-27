@@ -22,17 +22,31 @@ function normalizeAuthContractError(
   };
 }
 
-export async function signInWithEmail(email: string, password: string): Promise<{ ok: true } | { ok: false; error: ReturnType<typeof normalizeContractError> }> {
-  const { error } = await supabase.auth.signInWithPassword({ email, password });
+export async function signInWithEmail(
+  email: string,
+  password: string,
+  captchaToken?: string | null,
+): Promise<{ ok: true } | { ok: false; error: ReturnType<typeof normalizeContractError> }> {
+  const { error } = await supabase.auth.signInWithPassword({
+    email,
+    password,
+    ...(captchaToken ? { options: { captchaToken } } : {}),
+  });
   if (error) {
     return { ok: false, error: normalizeAuthContractError(error, 'auth_sign_in_failed', 'Sign in failed.') };
   }
   return { ok: true };
 }
 
-export async function requestPasswordReset(email: string): Promise<{ ok: true } | { ok: false; error: ReturnType<typeof normalizeContractError> }> {
+export async function requestPasswordReset(
+  email: string,
+  captchaToken?: string | null,
+): Promise<{ ok: true } | { ok: false; error: ReturnType<typeof normalizeContractError> }> {
   const redirectTo = getNativePasswordResetRedirectUrl();
-  const { error } = await supabase.auth.resetPasswordForEmail(email, { redirectTo });
+  const { error } = await supabase.auth.resetPasswordForEmail(email, {
+    redirectTo,
+    ...(captchaToken ? { captchaToken } : {}),
+  });
   if (error) {
     return { ok: false, error: normalizeAuthContractError(error, 'auth_reset_request_failed', 'Could not send reset email.') };
   }

@@ -15,9 +15,9 @@ Status after the current repo changes and the latest live audit:
 - Sprint 2 dated provider closure exists at `docs/auth/provider-live-check-2026-05-27.md`.
 - Sprint 3 implemented: web and native Supabase clients explicitly use PKCE, web OAuth callbacks carry provider context, generic email confirmation/email-change auth returns are consumed manually, auth-return URLs are scrubbed after capture, bootstrap refresh runs before entry-state resolution, expired-session redirects surface user copy, and linked-method UI distinguishes confirmed, pending, and session-email-without-password states.
 - Still manual: dashboard-only provider settings must be verified for identity linking, same-email account behavior, Google Cloud, Apple Developer, Twilio SID equality, Resend SMTP, redirect allow-list, CAPTCHA dashboard state, and rate limits.
-- Phone OTP first-send error paths need cooldown behavior on web and native.
-- Auth UI should expose forgot-password entry points outside only the email sign-in subview.
-- Auth CAPTCHA is not wired in app code yet; dashboard CAPTCHA state must be verified and Sprint 4 should add web/native token collection before enabling it.
+- Sprint 4 implemented: phone OTP first-send and resend paths now use shared cooldowns on web and native, with provider retry hints honored when present.
+- Sprint 4 implemented: auth UI exposes forgot-password entry points from the welcome surface and the email sign-in subview.
+- Sprint 4 implemented: web auth renders Turnstile for Supabase Auth entry calls and password reauth surfaces; native auth uses `/auth/challenge` with app-scheme return before token-bearing Supabase calls. Expo Go `exp://` callbacks against the production web challenge are intentionally skipped; use installed staging builds or a local challenge origin for native CAPTCHA smoke. Dashboard CAPTCHA state must still be verified and must not be enabled in production until staging smoke passes.
 - Account deletion already creates/ensures a durable deletion request before Stripe cancellation, but still needs idempotency and better external-side-effect observability.
 - Metadata display names from auth providers should be sanitized before profile bootstrap writes.
 - `ensureProfileReady()` should be documented as a defensive check around the DB trigger.

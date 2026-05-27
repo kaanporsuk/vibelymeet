@@ -18,6 +18,8 @@ import {
 } from "lucide-react";
 import { CountryCodeSelector, getDefaultCountryCode } from "@/components/CountryCodeSelector";
 import { OtpInput } from "@/components/OtpInput";
+import { AuthTurnstile } from "@/components/auth/AuthTurnstile";
+import { webTurnstileEnabled } from "@/lib/authTurnstile";
 import { trackEvent } from "@/lib/analytics";
 import { recordUserAction } from "@/lib/browserDiagnostics";
 import { useAuth } from "@/contexts/AuthContext";
@@ -30,6 +32,7 @@ import {
 import { applyBrowserReferralAttribution, captureBrowserReferral } from "@/lib/referrals";
 import { validatePasswordPolicy, passwordPolicyMessage } from "@clientShared/passwordPolicy";
 import { mapPhoneOtpSendError, safeAuthErrorMessage } from "@clientShared/authErrorCopy";
+import { formatAuthCooldown, nextAuthOtpCooldownSeconds } from "@clientShared/authOtpCooldown";
 
 type AuthView =
   | "welcome"
@@ -184,8 +187,14 @@ const Auth = () => {
   const [phoneInput, setPhoneInput] = useState("");
   const [phoneForOtp, setPhoneForOtp] = useState<string | null>(null);
   const [otpError, setOtpError] = useState<string | null>(null);
+  const [phoneSendAttempts, setPhoneSendAttempts] = useState(0);
+  const [phoneSendCooldownRemaining, setPhoneSendCooldownRemaining] = useState(0);
   const [resendAttempts, setResendAttempts] = useState(0);
   const [resendRemaining, setResendRemaining] = useState(0);
+  const [phoneCaptchaToken, setPhoneCaptchaToken] = useState("");
+  const [phoneCaptchaResetSignal, setPhoneCaptchaResetSignal] = useState(0);
+  const [phoneResendCaptchaToken, setPhoneResendCaptchaToken] = useState("");
+  const [phoneResendCaptchaResetSignal, setPhoneResendCaptchaResetSignal] = useState(0);
   const [profileBootstrapState, setProfileBootstrapState] = useState<
     "idle" | "ensuring" | "ready" | "failed"
   >("idle");
@@ -194,8 +203,15 @@ const Auth = () => {
   const [password, setPassword] = useState("");
   const [name, setName] = useState("");
   const [pendingConfirmationEmail, setPendingConfirmationEmail] = useState("");
+  const [emailResendAttempts, setEmailResendAttempts] = useState(0);
   const [emailResendCooldown, setEmailResendCooldown] = useState(0);
   const [emailResendMessage, setEmailResendMessage] = useState<string | null>(null);
+  const [emailSignInCaptchaToken, setEmailSignInCaptchaToken] = useState("");
+  const [emailSignInCaptchaResetSignal, setEmailSignInCaptchaResetSignal] = useState(0);
+  const [emailSignUpCaptchaToken, setEmailSignUpCaptchaToken] = useState("");
+  const [emailSignUpCaptchaResetSignal, setEmailSignUpCaptchaResetSignal] = useState(0);
+  const [emailResendCaptchaToken, setEmailResendCaptchaToken] = useState("");
+  const [emailResendCaptchaResetSignal, setEmailResendCaptchaResetSignal] = useState(0);
 
   const isPhoneValid = useMemo(
     () => isValidSignInPhone(countryCode, phoneInput).valid,
@@ -210,6 +226,32 @@ const Auth = () => {
     searchParams.get("reason") === "session_expired"
       ? "Your session expired. Sign in again to continue."
       : null;
+  const authCaptchaRequired = webTurnstileEnabled();
+
+  const resetPhoneCaptcha = () => {
+    setPhoneCaptchaToken("");
+    setPhoneCaptchaResetSignal((value) => value + 1);
+  };
+
+  const resetPhoneResendCaptcha = () => {
+    setPhoneResendCaptchaToken("");
+    setPhoneResendCaptchaResetSignal((value) => value + 1);
+  };
+
+  const resetEmailSignInCaptcha = () => {
+    setEmailSignInCaptchaToken("");
+    setEmailSignInCaptchaResetSignal((value) => value + 1);
+  };
+
+  const resetEmailSignUpCaptcha = () => {
+    setEmailSignUpCaptchaToken("");
+    setEmailSignUpCaptchaResetSignal((value) => value + 1);
+  };
+
+  const resetEmailResendCaptcha = () => {
+    setEmailResendCaptchaToken("");
+    setEmailResendCaptchaResetSignal((value) => value + 1);
+  };
 
   useEffect(() => {
     const authReturnError = searchParams.get("auth_error");
@@ -311,6 +353,15 @@ const Auth = () => {
     return () => clearInterval(id);
   }, [resendRemaining]);
 
+  // Countdown for phone first-send failures
+  useEffect(() => {
+    if (phoneSendCooldownRemaining <= 0) return;
+    const id = setInterval(() => {
+      setPhoneSendCooldownRemaining((prev) => (prev > 0 ? prev - 1 : 0));
+    }, 1000);
+    return () => clearInterval(id);
+  }, [phoneSendCooldownRemaining]);
+
   // Countdown for email confirmation resend
   useEffect(() => {
     if (emailResendCooldown <= 0) return;
@@ -403,22 +454,46 @@ const Auth = () => {
 
   const handleResendConfirmation = async () => {
     if (!pendingConfirmationEmail || emailResendCooldown > 0) return;
+    if (authCaptchaRequired && !emailResendCaptchaToken) {
+      setEmailResendMessage("Complete verification to resend.");
+      return;
+    }
+    const captchaToken = emailResendCaptchaToken || undefined;
     setEmailResendMessage(null);
+    setLoading(true);
     try {
       const { error } = await supabase.auth.resend({
         type: "signup",
         email: pendingConfirmationEmail,
+        options: {
+          emailRedirectTo: `${window.location.origin}/`,
+          ...(captchaToken ? { captchaToken } : {}),
+        },
       });
       if (error) throw error;
-      setEmailResendCooldown(60);
+      const attempt = emailResendAttempts + 1;
+      setEmailResendAttempts(attempt);
+      setEmailResendCooldown(nextAuthOtpCooldownSeconds(attempt));
       setEmailResendMessage("Email sent again. Check your inbox.");
-    } catch {
-      setEmailResendMessage("Could not resend. Try again in a moment.");
+    } catch (err: unknown) {
+      const attempt = emailResendAttempts + 1;
+      const cooldown = nextAuthOtpCooldownSeconds(attempt, err);
+      setEmailResendAttempts(attempt);
+      setEmailResendCooldown(cooldown);
+      setEmailResendMessage(`Could not resend. Try again in ${formatAuthCooldown(cooldown)}.`);
+    } finally {
+      if (captchaToken) resetEmailResendCaptcha();
+      setLoading(false);
     }
   };
 
   const handlePhoneSubmit = async () => {
-    if (!isPhoneValid) return;
+    if (!isPhoneValid || phoneSendCooldownRemaining > 0) return;
+    if (authCaptchaRequired && !phoneCaptchaToken) {
+      setError("Complete verification to continue.");
+      return;
+    }
+    const captchaToken = phoneCaptchaToken || undefined;
     setLoading(true);
     setError(null);
     setOtpError(null);
@@ -429,15 +504,22 @@ const Auth = () => {
     try {
       const { error } = await supabase.auth.signInWithOtp({
         phone: fullPhone,
+        ...(captchaToken ? { options: { captchaToken } } : {}),
       });
       if (error) throw error;
       recordUserAction("auth_phone_otp_sent", { surface: "auth" });
       setPhoneForOtp(fullPhone);
       setView("otp");
+      setPhoneSendAttempts(0);
+      setPhoneSendCooldownRemaining(0);
       setResendAttempts(0);
       setResendRemaining(60);
     } catch (err: unknown) {
       recordUserAction("auth_phone_otp_send_failed", { surface: "auth" });
+      const attempt = phoneSendAttempts + 1;
+      const cooldown = nextAuthOtpCooldownSeconds(attempt, err);
+      setPhoneSendAttempts(attempt);
+      setPhoneSendCooldownRemaining(cooldown);
       const conflict = mapAuthConflictError(err, "phone_otp_send");
       if (conflict.message) {
         setError(conflict.message);
@@ -445,6 +527,7 @@ const Auth = () => {
         setError(mapPhoneOtpSendError(err));
       }
     } finally {
+      if (captchaToken) resetPhoneCaptcha();
       setLoading(false);
     }
   };
@@ -474,24 +557,34 @@ const Auth = () => {
 
   const handleResendOtp = async () => {
     if (!phoneForOtp || resendRemaining > 0) return;
+    if (authCaptchaRequired && !phoneResendCaptchaToken) {
+      setOtpError("Complete verification to resend.");
+      return;
+    }
+    const captchaToken = phoneResendCaptchaToken || undefined;
     setLoading(true);
     setOtpError(null);
 
     try {
       const { error } = await supabase.auth.signInWithOtp({
         phone: phoneForOtp,
+        ...(captchaToken ? { options: { captchaToken } } : {}),
       });
       if (error) throw error;
       const attempt = resendAttempts + 1;
       setResendAttempts(attempt);
-      const nextCooldown = attempt === 1 ? 60 : attempt === 2 ? 180 : 900;
-      setResendRemaining(nextCooldown);
+      setResendRemaining(nextAuthOtpCooldownSeconds(attempt));
     } catch (err: unknown) {
+      const attempt = resendAttempts + 1;
+      const cooldown = nextAuthOtpCooldownSeconds(attempt, err);
+      setResendAttempts(attempt);
+      setResendRemaining(cooldown);
       const conflict = mapAuthConflictError(err, "phone_otp_resend");
       setOtpError(
         conflict.message || mapPhoneOtpSendError(err)
       );
     } finally {
+      if (captchaToken) resetPhoneResendCaptcha();
       setLoading(false);
     }
   };
@@ -541,6 +634,11 @@ const Auth = () => {
       setError("Please fill in all fields");
       return;
     }
+    if (authCaptchaRequired && !emailSignInCaptchaToken) {
+      setError("Complete verification to sign in.");
+      return;
+    }
+    const captchaToken = emailSignInCaptchaToken || undefined;
     setLoading(true);
     setError(null);
     trackEvent("auth_method_selected", { method: "email", platform: "web" });
@@ -548,7 +646,11 @@ const Auth = () => {
     recordUserAction("auth_email_signin_clicked", { surface: "auth" });
 
     try {
-      const { error } = await supabase.auth.signInWithPassword({ email, password });
+      const { error } = await supabase.auth.signInWithPassword({
+        email,
+        password,
+        ...(captchaToken ? { options: { captchaToken } } : {}),
+      });
       if (error) throw error;
       recordUserAction("auth_email_signin_succeeded", { surface: "auth" });
       setView("success");
@@ -561,6 +663,7 @@ const Auth = () => {
         setError(getAuthErrorMessage(err, "Invalid email or password"));
       }
     } finally {
+      if (captchaToken) resetEmailSignInCaptcha();
       setLoading(false);
     }
   };
@@ -575,6 +678,11 @@ const Auth = () => {
       setError(passwordPolicy.message ?? passwordPolicyMessage());
       return;
     }
+    if (authCaptchaRequired && !emailSignUpCaptchaToken) {
+      setError("Complete verification to create your account.");
+      return;
+    }
+    const captchaToken = emailSignUpCaptchaToken || undefined;
     setLoading(true);
     setError(null);
     recordUserAction("auth_email_signup_clicked", { surface: "auth" });
@@ -588,6 +696,7 @@ const Auth = () => {
         options: {
           emailRedirectTo: redirectUrl,
           data: { name },
+          ...(captchaToken ? { captchaToken } : {}),
         },
       });
       if (error) throw error;
@@ -602,6 +711,9 @@ const Auth = () => {
         return;
       }
       setPendingConfirmationEmail(signupEmail);
+      setEmailResendAttempts(0);
+      setEmailResendCooldown(60);
+      setEmailResendMessage(null);
       setView("email_signup_pending");
     } catch (err: unknown) {
       recordUserAction("auth_email_signup_failed", { surface: "auth" });
@@ -615,6 +727,7 @@ const Auth = () => {
         setError(getAuthErrorMessage(err, "Sign up failed. Please try again."));
       }
     } finally {
+      if (captchaToken) resetEmailSignUpCaptcha();
       setLoading(false);
     }
   };
@@ -672,20 +785,33 @@ const Auth = () => {
               className="h-12 flex-1 bg-secondary/60 border-border focus:border-primary focus-visible:ring-primary/30"
             />
           </div>
-          {error && (
-            <p className="text-xs text-destructive mt-1 text-center">{error}</p>
-          )}
-          <Button
-            type="button"
-            onClick={handlePhoneSubmit}
-            disabled={!isPhoneValid || loading}
-            className="w-full h-12 text-sm font-semibold bg-gradient-to-r from-violet-500 to-pink-500 hover:from-violet-400 hover:to-pink-400 border-0"
-          >
-            {loading ? (
-              <Loader2 className="w-4 h-4 animate-spin" />
-            ) : (
-              <>
-                Continue
+              {error && (
+                <p className="text-xs text-destructive mt-1 text-center">{error}</p>
+              )}
+              <AuthTurnstile
+                action="web_phone_otp_send"
+                onTokenChange={setPhoneCaptchaToken}
+                resetSignal={phoneCaptchaResetSignal}
+                className="flex justify-center"
+              />
+              <Button
+                type="button"
+                onClick={handlePhoneSubmit}
+                disabled={
+                  !isPhoneValid
+                  || loading
+                  || phoneSendCooldownRemaining > 0
+                  || (authCaptchaRequired && !phoneCaptchaToken)
+                }
+                className="w-full h-12 text-sm font-semibold bg-gradient-to-r from-violet-500 to-pink-500 hover:from-violet-400 hover:to-pink-400 border-0"
+              >
+                {loading ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : phoneSendCooldownRemaining > 0 ? (
+                  `Try again in ${formatAuthCooldown(phoneSendCooldownRemaining)}`
+                ) : (
+                  <>
+                    Continue
                 <ArrowRight className="w-4 h-4 ml-1" />
               </>
             )}
@@ -729,6 +855,13 @@ const Auth = () => {
           }}
         >
           Use email instead
+        </button>
+        <button
+          type="button"
+          className="w-full text-xs text-muted-foreground hover:text-primary transition-colors text-center"
+          onClick={() => navigate("/reset-password")}
+        >
+          Forgot password?
         </button>
 
         <p className="text-[11px] text-center text-muted-foreground">
@@ -792,14 +925,22 @@ const Auth = () => {
         {resendRemaining > 0 ? (
           <p>Resend code in {Math.floor(resendRemaining / 60)}:{`${resendRemaining % 60}`.padStart(2, "0")}</p>
         ) : (
-          <button
-            type="button"
-            className="text-primary hover:text-primary/80"
-            onClick={handleResendOtp}
-            disabled={loading}
-          >
-            Didn&apos;t get it? Resend code
-          </button>
+          <>
+            <AuthTurnstile
+              action="web_phone_otp_resend"
+              onTokenChange={setPhoneResendCaptchaToken}
+              resetSignal={phoneResendCaptchaResetSignal}
+              className="flex justify-center"
+            />
+            <button
+              type="button"
+              className="text-primary hover:text-primary/80 disabled:text-muted-foreground"
+              onClick={handleResendOtp}
+              disabled={loading || (authCaptchaRequired && !phoneResendCaptchaToken)}
+            >
+              Didn&apos;t get it? Resend code
+            </button>
+          </>
         )}
         <button
           type="button"
@@ -876,10 +1017,16 @@ const Auth = () => {
           />
         </div>
         {error && <p className="text-xs text-destructive text-center">{error}</p>}
+        <AuthTurnstile
+          action="web_email_signin"
+          onTokenChange={setEmailSignInCaptchaToken}
+          resetSignal={emailSignInCaptchaResetSignal}
+          className="flex justify-center"
+        />
         <Button
           type="button"
           onClick={handleEmailSignIn}
-          disabled={loading}
+          disabled={loading || (authCaptchaRequired && !emailSignInCaptchaToken)}
           className="w-full h-11 text-sm font-semibold bg-gradient-to-r from-violet-500 to-pink-500 hover:from-violet-400 hover:to-pink-400 border-0"
         >
           {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : "Sign in"}
@@ -981,10 +1128,16 @@ const Auth = () => {
           />
         </div>
         {error && <p className="text-xs text-destructive text-center">{error}</p>}
+        <AuthTurnstile
+          action="web_email_signup"
+          onTokenChange={setEmailSignUpCaptchaToken}
+          resetSignal={emailSignUpCaptchaResetSignal}
+          className="flex justify-center"
+        />
         <Button
           type="button"
           onClick={handleEmailSignUp}
-          disabled={loading}
+          disabled={loading || (authCaptchaRequired && !emailSignUpCaptchaToken)}
           className="w-full h-11 text-sm font-semibold bg-gradient-to-r from-violet-500 to-pink-500 hover:from-violet-400 hover:to-pink-400 border-0"
         >
           {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : "Create account"}
@@ -1055,13 +1208,22 @@ const Auth = () => {
             Resend available in {emailResendCooldown}s
           </p>
         ) : (
-          <button
-            type="button"
-            className="w-full text-xs text-muted-foreground hover:text-primary"
-            onClick={handleResendConfirmation}
-          >
-            Resend confirmation email
-          </button>
+          <>
+            <AuthTurnstile
+              action="web_email_signup_resend"
+              onTokenChange={setEmailResendCaptchaToken}
+              resetSignal={emailResendCaptchaResetSignal}
+              className="flex justify-center"
+            />
+            <button
+              type="button"
+              className="w-full text-xs text-muted-foreground hover:text-primary disabled:hover:text-muted-foreground"
+              onClick={handleResendConfirmation}
+              disabled={loading || (authCaptchaRequired && !emailResendCaptchaToken)}
+            >
+              Resend confirmation email
+            </button>
+          </>
         )}
         <button
           type="button"

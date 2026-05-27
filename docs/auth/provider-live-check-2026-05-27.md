@@ -17,7 +17,7 @@ Status labels:
 | `LIVE-CONFIRMED` | Confirmed from live Supabase public Auth settings, Supabase CLI SQL, function inventory, function JWT config, or Edge secret-name inventory. |
 | `REPO-CONFIRMED` | Confirmed from current source code/config only. |
 | `DASHBOARD-MANUAL` | Must be confirmed in a provider dashboard because repo/public Supabase endpoints do not expose the needed value safely. |
-| `DEFERRED-SPRINT-4` | Intentionally not enabled until auth CAPTCHA token collection exists for web and native. |
+| `CODE-WIRED-SPRINT-4` | Auth CAPTCHA token collection exists in code; dashboard enablement still waits for staging smoke tests. |
 
 Commands run:
 
@@ -165,12 +165,12 @@ Risk if unresolved: Supabase signup confirmation and password reset email can st
 | Item | Expected | Status | Evidence / Follow-up |
 |---|---|---|---|
 | Public account deletion Turnstile | enabled | `LIVE-CONFIRMED` | Edge secret name `TURNSTILE_SECRET_KEY` exists; public delete-account route has Turnstile UI and server verification. |
-| Supabase Auth CAPTCHA | confirmed but not enabled until Sprint 4 | `DEFERRED-SPRINT-4` | Current auth UI does not pass CAPTCHA tokens to Supabase Auth calls. Do not enable production auth CAPTCHA yet. |
+| Supabase Auth CAPTCHA | code wired; dashboard enablement waits for staging smoke | `CODE-WIRED-SPRINT-4` | Web auth renders Turnstile for Supabase Auth entry calls plus admin/settings password reauth; native opens `/auth/challenge` for app-scheme auth calls and passes returned tokens where the Supabase SDK accepts them. Expo Go `exp://` callbacks against production web are intentionally skipped; use installed staging builds or local challenge origin for native CAPTCHA smoke. Do not enable production auth CAPTCHA until staging smoke passes. |
 | Phone OTP rate limits | reviewed | `DASHBOARD-MANUAL` | Supabase Auth and Twilio dashboard limits must be reviewed manually. |
 | Email signup/reset rate limits | reviewed | `DASHBOARD-MANUAL` | Supabase Auth dashboard limits must be reviewed manually. |
 | OAuth attempt rate limits | reviewed | `DASHBOARD-MANUAL` | Supabase Auth and provider dashboard limits must be reviewed manually. |
 
-Sprint 4 gate: enable Supabase Auth CAPTCHA only after web and native token collection paths are implemented and pass staging smoke tests.
+Sprint 4 gate: token collection paths are implemented in code. Enable Supabase Auth CAPTCHA only after web and native staging smoke tests pass.
 
 ## Required Manual Dashboard Checklist
 
@@ -185,7 +185,7 @@ These items remain intentionally open because they cannot be proven from the cur
 - Supabase Auth Twilio Verify Service SID matches Edge `TWILIO_VERIFY_SERVICE_SID`, or an intentional split is documented.
 - Twilio country allow-list, templates, sender behavior, fraud controls, and rate limits are reviewed.
 - Resend domain verification, SPF, DKIM, and DMARC are healthy.
-- Supabase Auth CAPTCHA/rate-limit dashboard values are recorded, with CAPTCHA left disabled until Sprint 4.
+- Supabase Auth CAPTCHA/rate-limit dashboard values are recorded, with production CAPTCHA left disabled until Sprint 4 staging smoke tests pass.
 
 ## Sprint 2 Verdict
 

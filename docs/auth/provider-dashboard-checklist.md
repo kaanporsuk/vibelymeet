@@ -141,17 +141,19 @@ Supabase Auth email:
 
 ## CAPTCHA And Rate Limits
 
-Before Sprint 4:
+Sprint 4 implementation gate:
 
-- Confirm Supabase Auth CAPTCHA dashboard setting, but do not enable production CAPTCHA until web and native token collection work in staging.
+- Auth code now collects CAPTCHA tokens on web and through native browser challenge return paths.
+- Confirm Supabase Auth CAPTCHA dashboard setting, but do not enable production CAPTCHA until web and native token collection pass staging smoke tests.
 - Confirm rate limits for email signup, password reset, phone OTP, token refresh, and OAuth attempts.
 - Record current values and any accepted exceptions.
 
 After Sprint 4:
 
-- CAPTCHA enabled for signup, phone OTP, signup resend, and password reset.
-- Web Turnstile works inline.
-- Native Turnstile challenge works through app scheme return.
+- Web Turnstile works inline for phone OTP send/resend, email sign-in/sign-up, signup resend, password reset, admin sign-in, and settings password/phone reauth.
+- Native Turnstile challenge works through `/auth/challenge` and returns to the app scheme before phone OTP send/resend, email sign-in/sign-up, signup resend, password reset, settings password reauth, and native Apple ID-token sign-in.
+- Native staging smoke should use an installed app build with the `com.vibelymeet.vibely://` scheme, or Expo Go with a local web challenge origin. Expo Go `exp://` callbacks against the production web origin intentionally skip the challenge because the production challenge page only trusts the app scheme.
+- Pass `captchaToken` to Supabase Auth calls where the SDK accepts it. OAuth browser redirects remain provider-owned and do not accept CAPTCHA tokens.
 
 ## Live Audit Commands
 

@@ -103,7 +103,7 @@ test("Sprint 2 live provider check covers provider dashboards without recording 
     "Supabase Auth SMTP",
     "Resend domain verification",
     "Twilio Verify Service SID",
-    "DEFERRED-SPRINT-4",
+    "CODE-WIRED-SPRINT-4",
   ]) {
     assert.match(liveCheck, new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
   }

@@ -62,6 +62,7 @@ import {
 
 const Index = lazyWithPreload(routeLoaders.index);
 const Auth = lazyWithPreload(routeLoaders.auth);
+const AuthChallenge = lazyWithPreload(routeLoaders.authChallenge);
 const EntryRecovery = lazyWithPreload(routeLoaders.entryRecovery);
 const InviteRedirect = lazyWithPreload(routeLoaders.inviteRedirect);
 const EventShortRedirect = lazyWithPreload(routeLoaders.eventShortRedirect);
@@ -609,6 +610,7 @@ const App = () => {
                     <Routes>
                       <Route path="/" element={<Index />} />
                       <Route path="/auth" element={<Auth />} />
+                      <Route path="/auth/challenge" element={<AuthChallenge />} />
                       <Route path="/entry-recovery" element={<ProtectedRoute><EntryRecovery /></ProtectedRoute>} />
                       <Route path="/invite" element={<InviteRedirect />} />
                       <Route path="/event/:eventId" element={<EventShortRedirect />} />
