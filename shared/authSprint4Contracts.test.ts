@@ -87,6 +87,8 @@ test("native auth uses browser challenge tokens for Supabase auth calls", () => 
   assert.match(nativeCaptcha, /Linking\.createURL\(AUTH_CAPTCHA_CALLBACK_PATH\)/);
   assert.match(nativeCaptcha, /new URL\('\/auth\/challenge', WEB_APP_ORIGIN\)/);
   assert.match(nativeCaptcha, /isExpoDevReturnUrl\(returnUrl\) && !isLocalChallengeOrigin\(\)/);
+  assert.match(nativeCaptcha, /if \(!__DEV__\)/);
+  assert.match(nativeCaptcha, /Verification is not available in this build/);
   assert.match(nativeCaptcha, /return \{ ok: true, token: null \}/);
   assert.match(nativeCaptcha, /WebBrowser\.openAuthSessionAsync\(challengeUrl, returnUrl\)/);
   assert.match(nativeCaptcha, /captchaToken/);

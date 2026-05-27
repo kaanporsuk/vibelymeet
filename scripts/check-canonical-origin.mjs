@@ -79,6 +79,26 @@ const ALLOWED_APEX_REFERENCES = [
     allow: [/Apex redirect: `https:\/\/vibelymeet\.com` redirects to `https:\/\/www\.vibelymeet\.com`/],
   },
   {
+    path: "docs/auth/provider-dashboard-checklist.md",
+    reason: "Supabase Auth redirect allow-list intentionally includes apex callback coverage.",
+    allow: [/`https:\/\/vibelymeet\.com(?:\/|\/auth\?provider_callback=true(?:&provider=(?:google|apple))?|\/reset-password|\/settings\?drawer=account&linking=true&provider=(?:google|apple))?`/],
+  },
+  {
+    path: "docs/auth/provider-live-check-2026-05-27.md",
+    reason: "Dated provider verification intentionally records apex redirect allow-list coverage.",
+    allow: [/\| `https:\/\/vibelymeet\.com(?:\/|\/auth\?provider_callback=true(?:&provider=(?:google|apple))?|\/reset-password|\/settings\?drawer=account&linking=true&provider=(?:google|apple))?` \|/],
+  },
+  {
+    path: "shared/authProviderDashboardClosureContracts.test.ts",
+    reason: "Provider dashboard closure contract intentionally asserts apex redirect allow-list coverage.",
+    allow: [/"https:\/\/vibelymeet\.com(?:\/|\/auth\?provider_callback=true(?:&provider=(?:google|apple))?|\/reset-password|\/settings\?drawer=account&linking=true&provider=(?:google|apple))?",/],
+  },
+  {
+    path: "supabase/functions/_shared/cors.ts",
+    reason: "Shared Edge CORS must accept apex-origin browser requests while the app canonicalizes to www.",
+    allow: [/^  "https:\/\/vibelymeet\.com",$/],
+  },
+  {
     path: "docs/authenticated-proof-and-rebuild-plan.md",
     reason: "Historical proof plan records apex redirect and earlier production proof evidence.",
     allow: [

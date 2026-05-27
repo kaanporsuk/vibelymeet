@@ -135,6 +135,11 @@ test("RevenueCat webhook and server sync reconcile into backend entitlements", (
   assert.match(syncRevenueCatSubscriber, /supabase\.auth\.getUser\(jwt\)/);
   assert.match(syncRevenueCatSubscriber, /REVENUECAT_SECRET_API_KEY/);
   assert.match(syncRevenueCatSubscriber, /https:\/\/api\.revenuecat\.com\/v1\/subscribers/);
+  assert.match(syncRevenueCatSubscriber, /revenuecat_sync_unavailable/);
+  assert.match(syncRevenueCatSubscriber, /subscription_sync_failed/);
+  assert.match(syncRevenueCatSubscriber, /bodyLength: text\.length/);
+  assert.doesNotMatch(syncRevenueCatSubscriber, /detail:\s*text\.slice/);
+  assert.doesNotMatch(syncRevenueCatSubscriber, /String\(e\)/);
   assert.match(revenueCatShared, /provider: 'revenuecat'/);
   assert.match(revenueCatShared, /recompute_profile_subscription_entitlement/);
   assert.match(revenueCatShared, /supabase\.rpc\('recompute_profile_subscription_entitlement'/);

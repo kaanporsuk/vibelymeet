@@ -97,8 +97,13 @@ test("phone-verify health_check is removed from callable web and Edge surfaces",
 
 test("provider failure copy does not expose provider response bodies to clients", () => {
   assert.match(emailVerification, /Unable to send verification email\. Please try again later\./);
+  assert.match(emailVerification, /function safeErrorMessage\(error: unknown\): string/);
+  assert.match(emailVerification, /"message" in error/);
+  assert.match(emailVerification, /typeof error === "string" \? error : "Unknown error"/);
+  assert.match(emailVerification, /console\.error\("Error in email-verification function:", message\)/);
   assert.doesNotMatch(emailVerification, /Unable to send verification email: \$\{errorMessage\}|resendMessage/);
   assert.doesNotMatch(emailVerification, /responseObject\.message|responseObject\.error/);
+  assert.doesNotMatch(emailVerification, /console\.error\("Error in email-verification function:", error\)/);
 
   assert.match(phoneVerify, /SMS service is temporarily unavailable\. Please try again later\./);
   assert.match(phoneVerify, /Verification service is temporarily unavailable\. Please try again later\./);
@@ -118,8 +123,9 @@ test("Sprint 6 closure ledger is current", () => {
   assert.match(closure, /Sprint 6 implemented: `phone-verify` `health_check` has been removed/);
   assert.match(closure, /Sprint 6 implemented: `verification_attempts` throttling is namespaced by flow/);
   assert.match(closure, /Current Live Alignment Note/);
-  assert.match(closure, /Production Supabase is aligned with the current repo for Sprints 0-6/);
-  assert.match(closure, /Post-deploy `npm run audit:auth-live` passes with `0 fail, 0 warn, 40 checks`/);
-  assert.match(closure, /Release-order invariant for future environments: apply the Sprint 6 migration first, then deploy the changed `email-verification` and `phone-verify` Edge Functions/);
-  assert.match(closure, /Do not deploy the current Edge Function code ahead of the migration/);
+  assert.match(closure, /Production Supabase is aligned with the current repo for Sprints 0-7 plus the public deletion lookup follow-up/);
+  assert.match(closure, /Post-deploy `npm run audit:auth-live` passes with `0 fail, 0 warn, 41 checks`/);
+  assert.match(closure, /Release-order invariant for future environments: apply all pending auth migrations through `20260527143000_public_account_deletion_email_lookup\.sql`/);
+  assert.match(closure, /Do not deploy the current Edge Function code ahead of the Sprint 6 migration/);
+  assert.match(closure, /do not deploy `request-account-deletion` ahead of the public deletion lookup migration/);
 });

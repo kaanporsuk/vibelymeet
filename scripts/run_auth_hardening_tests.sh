@@ -16,3 +16,4 @@ npx tsx shared/profile/profileWritePrivilegeContracts.test.ts
 npx tsx shared/matching/paymentEmailPhoneTrustSystemsClosure.test.ts
 npx tsx shared/authRefreshPolicy.test.ts
 npx tsx shared/accountDeletionReauthContracts.test.ts
+bash scripts/deno_check_auth_edge_functions.sh

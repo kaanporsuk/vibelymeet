@@ -46,8 +46,11 @@ type WebOAuthProvider = "google" | "apple";
 
 const WEB_OAUTH_PROVIDER_STORAGE_KEY = "vibely.pending_oauth_provider";
 const WEB_OAUTH_PROVIDER_COOKIE = "vibely_pending_oauth_provider";
+const WEB_AUTH_NEXT_STORAGE_KEY = "vibely.auth_next_path";
+const WEB_AUTH_NEXT_COOKIE = "vibely_auth_next_path";
 const WEB_OAUTH_CALLBACK_TIMEOUT_MS = 5_000;
 const WEB_OAUTH_PROVIDER_CONTEXT_TTL_SECONDS = 5 * 60;
+const WEB_AUTH_NEXT_TTL_SECONDS = 10 * 60;
 
 function getAuthErrorMessage(error: unknown, fallback: string): string {
   return safeAuthErrorMessage(error, fallback);
@@ -83,6 +86,92 @@ function clearStoredOAuthProvider() {
     /* sessionStorage can be unavailable in hardened browser modes. */
   }
   clearOAuthProviderCookie();
+}
+
+function normalizeAuthNextPath(value: string | null): string | null {
+  if (!value) return null;
+  const trimmed = value.trim();
+  if (!trimmed || trimmed.length > 500) return null;
+  if (!trimmed.startsWith("/") || trimmed.startsWith("//")) return null;
+
+  try {
+    const parsed = new URL(trimmed, window.location.origin);
+    if (parsed.origin !== window.location.origin) return null;
+    const normalized = `${parsed.pathname}${parsed.search}${parsed.hash}`;
+    if (normalized === "/" || normalized.startsWith("/auth") || normalized.startsWith("/reset-password")) {
+      return null;
+    }
+    return normalized;
+  } catch {
+    return null;
+  }
+}
+
+function storeAuthNextPath(path: string | null) {
+  const normalized = normalizeAuthNextPath(path);
+  if (!normalized) return;
+  try {
+    window.sessionStorage.setItem(WEB_AUTH_NEXT_STORAGE_KEY, normalized);
+  } catch {
+    /* sessionStorage can be unavailable in hardened browser modes. */
+  }
+  writeAuthNextPathCookie(normalized);
+}
+
+function readStoredAuthNextPath(): string | null {
+  try {
+    const value = normalizeAuthNextPath(window.sessionStorage.getItem(WEB_AUTH_NEXT_STORAGE_KEY));
+    if (value) return value;
+  } catch {
+    /* sessionStorage can be unavailable in hardened browser modes. */
+  }
+  return readAuthNextPathCookie();
+}
+
+function clearStoredAuthNextPath() {
+  try {
+    window.sessionStorage.removeItem(WEB_AUTH_NEXT_STORAGE_KEY);
+  } catch {
+    /* sessionStorage can be unavailable in hardened browser modes. */
+  }
+  clearAuthNextPathCookie();
+}
+
+function readAuthNextPathCookie(): string | null {
+  try {
+    const pair = document.cookie
+      .split(";")
+      .map(part => part.trim())
+      .find(part => part.startsWith(`${WEB_AUTH_NEXT_COOKIE}=`));
+    if (!pair) return null;
+    return normalizeAuthNextPath(decodeURIComponent(pair.slice(WEB_AUTH_NEXT_COOKIE.length + 1)));
+  } catch {
+    return null;
+  }
+}
+
+function writeAuthNextPathCookie(path: string) {
+  try {
+    const secure = window.location.protocol === "https:" ? "Secure" : "";
+    document.cookie = [
+      `${WEB_AUTH_NEXT_COOKIE}=${encodeURIComponent(path)}`,
+      "Path=/auth",
+      `Max-Age=${WEB_AUTH_NEXT_TTL_SECONDS}`,
+      "SameSite=Lax",
+      secure,
+    ].filter(Boolean).join("; ");
+  } catch {
+    /* Cookies can be unavailable in hardened browser modes. */
+  }
+}
+
+function clearAuthNextPathCookie() {
+  try {
+    const secure = window.location.protocol === "https:" ? "; Secure" : "";
+    document.cookie = `${WEB_AUTH_NEXT_COOKIE}=; Path=/auth; Max-Age=0; SameSite=Lax${secure}`;
+  } catch {
+    /* Cookies can be unavailable in hardened browser modes. */
+  }
 }
 
 function getCallbackProvider(search: string): WebOAuthProvider | null {
@@ -178,6 +267,7 @@ const Auth = () => {
   const { session, entryState, entryStateLoading } = useAuth();
   const sessionUser = session?.user ?? null;
   const pendingOAuthProviderRef = useRef<WebOAuthProvider | null>(null);
+  const preserveAuthNextOnAuthScrubRef = useRef(false);
 
   const [view, setView] = useState<AuthView>("welcome");
   const [loading, setLoading] = useState(false);
@@ -226,6 +316,11 @@ const Auth = () => {
     searchParams.get("reason") === "session_expired"
       ? "Your session expired. Sign in again to continue."
       : null;
+  const premiumCheckoutMessage =
+    searchParams.get("reason") === "premium_checkout"
+      ? "Sign in to continue with Premium."
+      : null;
+  const authReasonMessage = sessionExpiredMessage ?? premiumCheckoutMessage;
   const authCaptchaRequired = webTurnstileEnabled();
 
   const resetPhoneCaptcha = () => {
@@ -273,6 +368,21 @@ const Auth = () => {
     captureBrowserReferral(searchParams);
   }, [searchParams]);
 
+  useEffect(() => {
+    const nextPath = searchParams.get("next");
+    if (nextPath) {
+      storeAuthNextPath(nextPath);
+      return;
+    }
+    if (searchParams.get("provider_callback") !== "true") {
+      if (preserveAuthNextOnAuthScrubRef.current) {
+        preserveAuthNextOnAuthScrubRef.current = false;
+        return;
+      }
+      clearStoredAuthNextPath();
+    }
+  }, [searchParams]);
+
   // OAuth return: surface provider errors; confirm session after success redirect
   useEffect(() => {
     const search = location.search || "";
@@ -289,6 +399,7 @@ const Auth = () => {
       setOtpError(null);
       pendingOAuthProviderRef.current = null;
       clearStoredOAuthProvider();
+      preserveAuthNextOnAuthScrubRef.current = true;
       navigate("/auth", { replace: true });
       return;
     }
@@ -335,6 +446,7 @@ const Auth = () => {
         setView("welcome");
       }
       if (search.includes("provider_callback") || hash.length > 1) {
+        preserveAuthNextOnAuthScrubRef.current = true;
         navigate("/auth", { replace: true });
       }
     })();
@@ -428,7 +540,7 @@ const Auth = () => {
     const nextPath = !entryState
       ? "/entry-recovery"
       : entryState.route_hint === "app"
-        ? "/home"
+        ? readStoredAuthNextPath() ?? "/home"
         : entryState.route_hint === "onboarding"
           ? "/onboarding"
           : "/entry-recovery";
@@ -447,6 +559,7 @@ const Auth = () => {
           localStorage.removeItem("vibely_onboarding_v2");
         }
       }
+      clearStoredAuthNextPath();
       navigate(nextPath, { replace: true });
     }, delay);
     return () => clearTimeout(timer);
@@ -1306,13 +1419,13 @@ const Auth = () => {
       </div>
 
       <div className="relative z-10 w-full max-w-md px-6">
-        {sessionExpiredMessage && view !== "success" && (
+        {authReasonMessage && view !== "success" && (
           <div
             role="status"
             className="mb-4 flex items-start gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-100"
           >
             <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
-            <span>{sessionExpiredMessage}</span>
+            <span>{authReasonMessage}</span>
           </div>
         )}
         <AnimatePresence mode="wait">

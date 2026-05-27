@@ -13,8 +13,11 @@ Production Supabase project `schdyxcunwcvddlcshwd` is aligned with the current `
 - GitHub PR: `https://github.com/kaanporsuk/vibelymeet/pull/1096`
 - Merged commit on `main`: `9e1046281 Harden auth Sprint 6 data quality`
 - Applied migration: `20260527130000_auth_sprint6_data_quality_observability.sql`
+- Applied follow-up migration: `20260527143000_public_account_deletion_email_lookup.sql`
 - Deployed Edge Functions: `email-verification`, `phone-verify`
-- Final live audit: `0 fail, 0 warn, 40 checks`
+- Deployed follow-up Edge Functions: `request-account-deletion`, `push-webhook`, `sync-revenuecat-subscriber`, `send-email`, `create-credits-checkout`, `revenuecat-webhook`, `stripe-webhook`, `video-date-daily-webhook`
+- Deployed Supabase JS import-pin sweep: all changed Edge Functions that import `@supabase/supabase-js` plus `delete-account`, `event-notifications`, and `forward-geocode` for the shared rate-limiter update.
+- Final live audit: `0 fail, 0 warn, 41 checks`
 
 ## Automated Certification Commands
 
@@ -69,7 +72,7 @@ Final result after production migration and Edge Function deploy:
 - required Edge Function presence: pass
 - required Edge secret names: pass, names only
 
-Summary: `0 fail, 0 warn, 40 checks`.
+Summary: `0 fail, 0 warn, 41 checks`.
 
 ## Manual Smoke Matrix
 
@@ -99,6 +102,7 @@ Completed:
 - Sprint 6 database migration applied to production Supabase.
 - `email-verification` deployed after the migration.
 - `phone-verify` deployed after the migration.
+- Public deletion lookup follow-up migration applied and the changed provider/auth/import-pin Edge Functions redeployed through Supabase API bundling.
 - Production live audit passed after deploy.
 - Required GitHub checks and Vercel preview checks passed before merge.
 

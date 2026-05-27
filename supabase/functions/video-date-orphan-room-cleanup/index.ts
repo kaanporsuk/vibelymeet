@@ -1,5 +1,5 @@
 // deno-lint-ignore no-import-prefix
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.88.0";
 
 const corsHeaders: Record<string, string> = {
   "Access-Control-Allow-Origin": "*",

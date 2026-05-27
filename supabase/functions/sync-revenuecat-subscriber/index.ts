@@ -6,7 +6,7 @@
  * Secrets: REVENUECAT_SECRET_API_KEY (Project Settings → API keys → Secret API key in RC dashboard).
  */
 
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.88.0'
 import {
   pickActiveEntitlementFromSubscriberPayload,
   upsertActiveRevenueCatSubscription,
@@ -17,6 +17,13 @@ const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers':
     'authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version',
+}
+
+function safeSyncErrorMessage(error: unknown): string {
+  if (error && typeof error === 'object' && 'message' in error && typeof error.message === 'string') {
+    return error.message
+  }
+  return typeof error === 'string' ? error : 'Unknown error'
 }
 
 Deno.serve(async (req) => {
@@ -65,7 +72,8 @@ Deno.serve(async (req) => {
     if (rcRes.status === 404) {
       const { error } = await downgradeRevenueCatSubscriptionRow(supabase, user.id, 'EXPIRATION', null)
       if (error) {
-        return new Response(JSON.stringify({ success: false, error }), {
+        console.error('sync-revenuecat-subscriber downgrade error:', safeSyncErrorMessage(error))
+        return new Response(JSON.stringify({ success: false, error: 'subscription_sync_failed' }), {
           status: 500,
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         })
@@ -77,8 +85,12 @@ Deno.serve(async (req) => {
     }
 
     if (!rcRes.ok) {
-      const text = await rcRes.text()
-      return new Response(JSON.stringify({ success: false, error: `revenuecat_api_${rcRes.status}`, detail: text.slice(0, 200) }), {
+      const text = await rcRes.text().catch(() => '')
+      console.error('sync-revenuecat-subscriber provider error:', {
+        status: rcRes.status,
+        bodyLength: text.length,
+      })
+      return new Response(JSON.stringify({ success: false, error: 'revenuecat_sync_unavailable' }), {
         status: 502,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       })
@@ -92,7 +104,8 @@ Deno.serve(async (req) => {
     if (!picked) {
       const { error } = await downgradeRevenueCatSubscriptionRow(supabase, user.id, 'EXPIRATION', null)
       if (error) {
-        return new Response(JSON.stringify({ success: false, error }), {
+        console.error('sync-revenuecat-subscriber downgrade error:', safeSyncErrorMessage(error))
+        return new Response(JSON.stringify({ success: false, error: 'subscription_sync_failed' }), {
           status: 500,
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         })
@@ -113,7 +126,8 @@ Deno.serve(async (req) => {
       originalAppUserId,
     })
     if (error) {
-      return new Response(JSON.stringify({ success: false, error }), {
+      console.error('sync-revenuecat-subscriber upsert error:', safeSyncErrorMessage(error))
+      return new Response(JSON.stringify({ success: false, error: 'subscription_sync_failed' }), {
         status: 500,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       })
@@ -124,7 +138,8 @@ Deno.serve(async (req) => {
       { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     )
   } catch (e) {
-    return new Response(JSON.stringify({ success: false, error: String(e) }), {
+    console.error('sync-revenuecat-subscriber unexpected error:', e instanceof Error ? e.message : 'Unknown error')
+    return new Response(JSON.stringify({ success: false, error: 'subscription_sync_failed' }), {
       status: 500,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     })

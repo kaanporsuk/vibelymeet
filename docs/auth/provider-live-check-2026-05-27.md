@@ -25,7 +25,7 @@ Commands run:
 npm run audit:auth-live
 ```
 
-Result: `0 fail, 0 warn, 40 checks`
+Result: `0 fail, 0 warn, 41 checks`
 
 The audit confirmed:
 

@@ -1,4 +1,4 @@
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.88.0";
 import {
   buildVideoDateRoomProperties,
   DAILY_VIDEO_DATE_ROOM_TTL_SECONDS as DAILY_VIDEO_DATE_ROOM_TTL_SECONDS_CONTRACT,

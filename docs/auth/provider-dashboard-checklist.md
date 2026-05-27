@@ -166,7 +166,7 @@ npm run test:auth-hardening
 
 Expected behavior:
 
-- `audit:auth-live` should pass with `0 fail, 0 warn, 40 checks` on production after Sprint 1-6 migrations and Edge writer changes are deployed.
+- `audit:auth-live` should pass with `0 fail, 0 warn, 41 checks` on production after Sprint 1-7 migrations, the public deletion lookup follow-up, and changed Edge Functions are deployed.
 - On a fresh staging environment, failures around `profiles` grants, verified contact triggers, verified-contact writer RPCs, `sanitize_profile_display_name`, or `verification_attempts.flow` mean the auth hardening migrations are not fully applied there yet.
 - The script must not print secret values, OAuth secrets, provider token digests, SMTP passwords, or service-role keys.
 - `test:auth-hardening` runs local contract tests only and must not send real SMS/email or mutate provider accounts.

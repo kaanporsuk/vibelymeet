@@ -99,7 +99,7 @@ From the frozen baseline and generated types, Supabase owns:
 Legacy / Bunny-migrated (not active Supabase buckets): `profile-photos`, `vibe-videos`, `event-covers`, `voice-messages`. Treat as legacy for rebuild; image/event/voice/vibe media are on Bunny.
 
 ## C. Edge Function layer
-Deployable functions: **70**
+Deployable functions: **71**
 
 Shared helper directory:
 - `_shared`
@@ -177,7 +177,7 @@ Verify:
 Verify:
 - all 71 deployable functions are present and listed in config.toml
 - `_shared` compiles into dependents correctly
-- 40 functions deployed with JWT enforced; 30 public-but-protected with correct secrets/tokens set
+- 40 functions deployed with JWT enforced; 31 public-but-protected with correct secrets/tokens set
 
 ## E. Secrets parity
 Verify all required secrets exist before testing function flows.

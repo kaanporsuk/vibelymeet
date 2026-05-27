@@ -82,6 +82,84 @@ import { invalidateCachedSession, primeCachedSession } from '@/lib/nativeAuthSes
 import { recoverNativeAuthSession } from '@/lib/nativeAuthRecovery';
 
 // ─── Sentry (matches web src/main.tsx)
+const SENSITIVE_SENTRY_KEY_PATTERN = /(authorization|cookie|password|secret|token|jwt|email|phone|ip_address|access_token|refresh_token)/i;
+type NativeSentryMutableEvent = Record<string, unknown> & {
+  breadcrumbs?: unknown;
+  contexts?: unknown;
+  exception?: { values?: Array<Record<string, unknown>> };
+  extra?: unknown;
+  request?: Record<string, unknown>;
+};
+
+function sanitizeNativeSentryText(value: string, maxLength = 500): string {
+  return value
+    .replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi, '[redacted-email]')
+    .replace(/\+?\d[\d\s().-]{7,}\d/g, '[redacted-phone]')
+    .replace(/\b(Bearer|Basic)\s+[A-Za-z0-9._~+/=-]+/gi, '$1 [redacted]')
+    .slice(0, maxLength);
+}
+
+function sanitizeNativeSentryUrl(value: unknown): string | unknown {
+  if (typeof value !== 'string') return value;
+  try {
+    const parsed = new URL(value);
+    if (parsed.origin === 'null') {
+      const host = parsed.host ? `//${parsed.host}` : '';
+      return `${parsed.protocol}${host}${parsed.pathname}`;
+    }
+    return `${parsed.origin}${parsed.pathname}`;
+  } catch {
+    return sanitizeNativeSentryText(value);
+  }
+}
+
+function sanitizeNativeSentryPayload(value: unknown, depth = 0): unknown {
+  if (depth > 4) return '[redacted-depth]';
+  if (typeof value === 'string') return sanitizeNativeSentryText(value);
+  if (typeof value !== 'object' || value === null) return value;
+  if (Array.isArray(value)) {
+    return value.slice(0, 20).map((entry) => sanitizeNativeSentryPayload(entry, depth + 1));
+  }
+
+  const output: Record<string, unknown> = {};
+  for (const [key, entry] of Object.entries(value as Record<string, unknown>).slice(0, 60)) {
+    if (SENSITIVE_SENTRY_KEY_PATTERN.test(key)) {
+      output[key] = '[redacted]';
+      continue;
+    }
+    if (typeof entry === 'string' && /^(url|filename|abs_path|request_url)$/i.test(key)) {
+      output[key] = sanitizeNativeSentryUrl(entry);
+      continue;
+    }
+    output[key] = sanitizeNativeSentryPayload(entry, depth + 1);
+  }
+  return output;
+}
+
+function sanitizeNativeSentryEvent(event: NativeSentryMutableEvent): NativeSentryMutableEvent {
+  const request = event.request;
+  if (request) {
+    request.url = sanitizeNativeSentryUrl(request.url);
+    delete request.headers;
+    delete request.cookies;
+    delete request.data;
+    delete request.query_string;
+  }
+
+  event.extra = sanitizeNativeSentryPayload(event.extra);
+  event.contexts = sanitizeNativeSentryPayload(event.contexts);
+  event.breadcrumbs = sanitizeNativeSentryPayload(event.breadcrumbs);
+
+  const exception = event.exception;
+  if (exception?.values) {
+    exception.values = exception.values.map((entry) => (
+      sanitizeNativeSentryPayload(entry) as Record<string, unknown>
+    ));
+  }
+
+  return event;
+}
+
 const SENTRY_DSN = process.env.EXPO_PUBLIC_SENTRY_DSN ?? '';
 if (SENTRY_DSN) {
   Sentry.init({
@@ -93,7 +171,7 @@ if (SENTRY_DSN) {
         delete (event.user as Record<string, unknown>).email;
         delete (event.user as Record<string, unknown>).ip_address;
       }
-      return event;
+      return sanitizeNativeSentryEvent(event as unknown as NativeSentryMutableEvent) as unknown as typeof event;
     },
   });
 }
