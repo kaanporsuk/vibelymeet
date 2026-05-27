@@ -83,6 +83,8 @@ These are the exact callback shapes the current code can emit and therefore the 
 | `http://localhost:8080/reset-password` | Local web password reset | `DASHBOARD-MANUAL` |
 | `http://localhost:8080/settings?drawer=account&linking=true&provider=google` | Local web Google account-linking callback | `DASHBOARD-MANUAL` |
 | `http://localhost:8080/settings?drawer=account&linking=true&provider=apple` | Local web Apple account-linking callback | `DASHBOARD-MANUAL` |
+| `http://localhost:5173` | Playwright E2E local web root | `DASHBOARD-MANUAL` |
+| `http://127.0.0.1:5173` | Playwright E2E webServer origin | `DASHBOARD-MANUAL` |
 | `com.vibelymeet.vibely:///` | Native email sign-up and email-change confirmation root emitted by `Linking.createURL("/")` in standalone builds | `DASHBOARD-MANUAL` |
 | `com.vibelymeet.vibely://` | Native app-scheme root compatibility if the dashboard normalizes root URLs | `DASHBOARD-MANUAL` |
 | `com.vibelymeet.vibely://auth/callback` | Native Google OAuth callback | `DASHBOARD-MANUAL` |
@@ -103,9 +105,9 @@ Repo evidence:
 - Native Google account linking appends `?linking=true&provider=google` to the same callback path.
 - Native password reset callback is built from `Linking.createURL("reset-password")`.
 - Native email sign-up and email-change confirmation callbacks are built from `Linking.createURL("/")`; standalone builds can represent that root as `com.vibelymeet.vibely:///`.
-- Vite local dev port is `8080`, not `5173`, in the current repo.
+- Vite local dev port is `8080`; Playwright E2E uses `127.0.0.1:5173` from `e2e/playwright.config.ts`.
 
-Follow-up: the previous checklist mentioned `localhost:5173`; that is stale for the current `vite.config.ts`. Keep `5173` only if another approved local workflow still uses it.
+Follow-up: keep both `8080` and Playwright's `5173` origins in CORS/dashboard allowlists while the repo has both local workflows.
 
 ## Google OAuth
 

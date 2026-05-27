@@ -106,6 +106,10 @@ function shouldCancelStripeSubscription(status: string | null): boolean {
   return !["canceled", "incomplete_expired"].includes(normalizedStatus);
 }
 
+function isIdempotentStripeCancellationStatus(status: number): boolean {
+  return status === 404 || status === 410;
+}
+
 async function findPendingDeletionRequest(
   supabaseAdmin: AdminSupabaseClient,
   userId: string,
@@ -280,7 +284,9 @@ async function cancelStripeSubscriptionForDeletion(
     return { attempted: true, warning: userSafeStripeCleanupWarning() };
   }
 
-  if (!cancelRes.ok) {
+  const stripeCancellationAlreadySettled = !cancelRes.ok && isIdempotentStripeCancellationStatus(cancelRes.status);
+
+  if (!cancelRes.ok && !stripeCancellationAlreadySettled) {
     console.error("delete-account Stripe cancellation failed:", cancelRes.status);
     await recordDeletionStripeCancellation(supabaseAdmin, {
       userId,
@@ -335,8 +341,11 @@ async function cancelStripeSubscriptionForDeletion(
     userId,
     deletionRequestId,
     status: "succeeded",
-    result: "stripe_subscription_canceled_for_account_deletion",
+    result: stripeCancellationAlreadySettled
+      ? "stripe_subscription_cancel_already_settled_for_account_deletion"
+      : "stripe_subscription_canceled_for_account_deletion",
     subscription: stripeSubscription,
+    metadata: stripeCancellationAlreadySettled ? { http_status: cancelRes.status } : undefined,
   });
 
   return { attempted: true, warning: null };

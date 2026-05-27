@@ -107,6 +107,8 @@ test("web and native push clicks ack dispatch, mark opens, and keep navigation c
   assert.match(nativeDeepLink, /queueNotificationDeepLinkPath\(pathStr, \{ allowOneShotSideEffects \}\)/);
   assert.match(nativeDeepLink, /allowOneShotSideEffects: pending\.allowOneShotSideEffects/);
   assert.match(nativeDeepLink, /reconcileHrefWithRegistration\(pathStr, user\.id/);
+  assert.match(nativeDeepLink, /notification_tap_reconcile_failed/);
+  assert.doesNotMatch(nativeDeepLink, /reconcile failed; using resolved path/);
   assert.match(nativePendingDeepLink, /type PendingNotificationDeepLink/);
   assert.match(nativePendingDeepLink, /allowOneShotSideEffects: options\?\.allowOneShotSideEffects !== false/);
 });

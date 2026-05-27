@@ -753,8 +753,12 @@ export function NotificationDeepLinkHandler() {
           });
         } catch (e) {
           if (__DEV__) {
-            console.warn('[Vibely][push][deeplink] reconcile failed; using resolved path', e);
+            console.warn('[Vibely][push][deeplink] reconcile failed; ignoring notification tap', e);
           }
+          rcBreadcrumb(RC_CATEGORY.notifDeepLink, 'notification_tap_reconcile_failed', {
+            href: pathStr,
+          });
+          return;
         }
         recordNotificationOpenDiagnostics(additionalData, rawHref, String(nextHref));
         rcBreadcrumb(RC_CATEGORY.notifDeepLink, 'notification_tap_navigate', {

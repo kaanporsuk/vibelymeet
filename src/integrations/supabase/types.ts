@@ -10842,6 +10842,7 @@ export type Database = {
         }
         Returns: string
       }
+      ensure_profile_from_auth_user: { Args: never; Returns: boolean }
       ensure_vibe_video_asset: {
         Args: {
           p_legacy_id?: string

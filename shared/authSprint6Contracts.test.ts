@@ -86,7 +86,8 @@ test("ensureProfileReady remains a documented read-only trigger readiness check"
   assert.match(profileBootstrap, /\.from\("profiles"\)[\s\S]{0,80}\.select\("id"\)/);
   assert.doesNotMatch(profileBootstrap, /\.(?:insert|upsert)\(/);
   assert.match(bootstrapDocs, /`ensureProfileReady\(\.\.\.\)` is a defensive, read-only check/);
-  assert.match(bootstrapDocs, /must not insert, upsert, or repair `profiles` client-side/);
+  assert.match(bootstrapDocs, /must not insert or upsert `profiles` client-side/);
+  assert.match(bootstrapDocs, /ensure_profile_from_auth_user\(\)/);
 });
 
 test("phone-verify health_check is removed from callable web and Edge surfaces", () => {

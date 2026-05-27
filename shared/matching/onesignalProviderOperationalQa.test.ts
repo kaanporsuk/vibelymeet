@@ -30,6 +30,7 @@ const pushSubscriptionOwnershipMigration = read("supabase/migrations/20260523184
 const pushSubscriptionRpcGrantMigration = read("supabase/migrations/20260523193000_restrict_onesignal_push_subscription_rpc_grants.sql");
 const reviewFollowupsMigration = read("supabase/migrations/20260523201000_review_comment_followups_1019_1026.sql");
 const unregisterNullCleanupMigration = read("supabase/migrations/20260527221500_onesignal_unregister_null_subscription_cleanup.sql");
+const reviewComments1086To1100Migration = read("supabase/migrations/20260527234117_review_comments_1086_1100_followups.sql");
 const branchDelta = read("docs/branch-deltas/fix-onesignal-provider-operational-qa.md");
 
 test("web OneSignal initialization is env-backed and root-worker aware", () => {
@@ -209,7 +210,10 @@ test("OneSignal subscription ownership migration supports multi-device native de
   assert.match(reviewFollowupsMigration, /CREATE OR REPLACE FUNCTION public\.unregister_onesignal_push_subscription/);
   assert.match(reviewFollowupsMigration, /v_platform IN \('ios', 'android', 'native'\) AND platform IN \('ios', 'android', 'native'\)/);
   assert.match(unregisterNullCleanupMigration, /CREATE OR REPLACE FUNCTION public\.unregister_onesignal_push_subscription/);
-  assert.match(unregisterNullCleanupMigration, /v_subscription_id IS NULL OR subscription_id = v_subscription_id/);
+  assert.match(unregisterNullCleanupMigration, /IF v_subscription_id IS NOT NULL THEN[\s\S]*DELETE FROM public\.push_subscriptions/);
+  assert.doesNotMatch(unregisterNullCleanupMigration, /v_subscription_id IS NULL OR subscription_id = v_subscription_id/);
+  assert.match(reviewComments1086To1100Migration, /IF v_subscription_id IS NOT NULL THEN[\s\S]*DELETE FROM public\.push_subscriptions/);
+  assert.doesNotMatch(reviewComments1086To1100Migration, /v_subscription_id IS NULL OR subscription_id = v_subscription_id/);
   assert.match(unregisterNullCleanupMigration, /DELETE FROM public\.push_subscriptions/);
   assert.match(unregisterNullCleanupMigration, /GRANT EXECUTE ON FUNCTION public\.unregister_onesignal_push_subscription\(text, text\) TO authenticated/);
   assert.match(unregisterNullCleanupMigration, /GRANT EXECUTE ON FUNCTION public\.unregister_onesignal_push_subscription\(text, text\) TO service_role/);
@@ -235,6 +239,8 @@ test("notification deep-link payloads remain URL-based and native-compatible", (
   assert.match(nativeDeepLink, /launchURL/);
   assert.match(nativeDeepLink, /resolveNotificationHref/);
   assert.match(nativeDeepLink, /reconcileHrefWithRegistration/);
+  assert.match(nativeDeepLink, /notification_tap_reconcile_failed/);
+  assert.doesNotMatch(nativeDeepLink, /reconcile failed; using resolved path/);
   assert.match(nativeDeepLink, /shouldControlDisplay = hasDispatchGroup \|\| shouldSuppressSameThread/);
   assert.match(nativeDeepLink, /if \(!shouldControlDisplay\) return;\s*notification\.display\(\)/);
   assert.match(nativeDeepLink, /router\.push/);

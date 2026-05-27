@@ -109,7 +109,10 @@ function normalizeAuthNextPath(value: string | null): string | null {
 
 function storeAuthNextPath(path: string | null) {
   const normalized = normalizeAuthNextPath(path);
-  if (!normalized) return;
+  if (!normalized) {
+    clearStoredAuthNextPath();
+    return;
+  }
   try {
     window.sessionStorage.setItem(WEB_AUTH_NEXT_STORAGE_KEY, normalized);
   } catch {
