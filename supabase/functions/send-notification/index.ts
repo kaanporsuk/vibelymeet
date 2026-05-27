@@ -885,6 +885,9 @@ type PushDeliveryDiagnostic = {
   provider_http_status: number | null
   provider_error_code: string | null
   provider_notification_id: string | null
+  provider_response_body_snippet: string | null
+  provider_response_content_type: string | null
+  provider_accepted_at: string | null
   deeplink_url_present: boolean
   deeplink_url_kind: DeepLinkUrlKind
   deeplink_route_class: DeepLinkRouteClass
@@ -983,6 +986,15 @@ function diagnosticDeepLinkCandidate(category: string, data: any): unknown {
   return null
 }
 
+function redactedProviderResponseSnippet(value: string): string | null {
+  const trimmed = value.trim()
+  if (!trimmed) return null
+  return trimmed
+    .replace(/[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}/gi, '[uuid]')
+    .replace(/\b[A-Za-z0-9_-]{48,}\b/g, '[token]')
+    .slice(0, 500)
+}
+
 function buildPushDeliveryDiagnostic(args: {
   category: string
   data: any
@@ -995,6 +1007,9 @@ function buildPushDeliveryDiagnostic(args: {
   providerHttpStatus?: number | null
   providerErrorCode?: string | null
   providerNotificationId?: string | null
+  providerResponseBodySnippet?: string | null
+  providerResponseContentType?: string | null
+  providerAcceptedAt?: string | null
   deepLink?: unknown
   subscriptionTargetCount?: number | null
   subscriptionTableTargetCount?: number | null
@@ -1029,6 +1044,9 @@ function buildPushDeliveryDiagnostic(args: {
     provider_http_status: args.providerHttpStatus ?? null,
     provider_error_code: args.providerErrorCode ?? null,
     provider_notification_id: args.providerNotificationId ?? null,
+    provider_response_body_snippet: args.providerResponseBodySnippet ?? null,
+    provider_response_content_type: args.providerResponseContentType ?? null,
+    provider_accepted_at: args.providerAcceptedAt ?? null,
     ...deepLink,
     web_player_id_present: webPlayerPresent,
     web_subscribed: webPlayerSubscribed,
@@ -1882,6 +1900,7 @@ Deno.serve(async (req) => {
 
     let osResponse: Response
     let osResultText = ''
+    let osResponseContentType: string | null = null
     try {
       await enforceProviderRateLimit(supabase, providerRateLimitConfig('onesignal', 'notification_create'))
       osResponse = await fetchWithTimeout('https://api.onesignal.com/notifications', {
@@ -1896,6 +1915,7 @@ Deno.serve(async (req) => {
         operation: 'notification_create',
         timeoutMs: providerFetchTimeoutMs('onesignal', 'notification_create'),
       })
+      osResponseContentType = osResponse.headers.get('content-type')
       osResultText = await osResponse.text()
     } catch (error) {
       const suppressed = 'onesignal_exception'
@@ -1934,6 +1954,7 @@ Deno.serve(async (req) => {
     if (!osResponse.ok) {
       const errSnippet =
         osResultText.length > 280 ? `${osResultText.slice(0, 280)}…` : osResultText
+      const providerSnippet = redactedProviderResponseSnippet(osResultText)
       const suppressed = `onesignal_http_${osResponse.status}`
       emitLifecycle('delivery_error', suppressed)
       await logNotification(user_id, category, finalTitle, finalBody, data, false, suppressed, diagnostic({
@@ -1943,6 +1964,8 @@ Deno.serve(async (req) => {
         providerStatus: 'failed',
         providerHttpStatus: osResponse.status,
         providerErrorCode: suppressed,
+        providerResponseBodySnippet: providerSnippet,
+        providerResponseContentType: osResponseContentType,
         deepLink: webPath,
         subscriptionTargetCount: playerIds.length,
         subscriptionTableTargetCount,
@@ -1962,6 +1985,7 @@ Deno.serve(async (req) => {
     if (osLogicalFailure) {
       const errSnippet =
         osResultText.length > 280 ? `${osResultText.slice(0, 280)}…` : osResultText
+      const providerSnippet = redactedProviderResponseSnippet(osResultText)
       emitLifecycle('delivery_error', osLogicalFailure)
       await logNotification(user_id, category, finalTitle, finalBody, data, false, osLogicalFailure, diagnostic({
         suppressionReason: osLogicalFailure,
@@ -1970,6 +1994,8 @@ Deno.serve(async (req) => {
         providerStatus: 'logical_error',
         providerHttpStatus: osResponse.status,
         providerErrorCode: osLogicalFailure,
+        providerResponseBodySnippet: providerSnippet,
+        providerResponseContentType: osResponseContentType,
         deepLink: webPath,
         subscriptionTargetCount: playerIds.length,
         subscriptionTableTargetCount,
@@ -1987,11 +2013,15 @@ Deno.serve(async (req) => {
     }
 
     emitLifecycle('delivered', null)
+    const acceptedAt = new Date().toISOString()
     await logNotification(user_id, category, finalTitle, finalBody, data, true, undefined, diagnostic({
       providerRequestAttempted: true,
       providerStatus: 'accepted',
       providerHttpStatus: osResponse.status,
       providerNotificationId: notificationId ?? null,
+      providerResponseBodySnippet: redactedProviderResponseSnippet(osResultText),
+      providerResponseContentType: osResponseContentType,
+      providerAcceptedAt: acceptedAt,
       deepLink: webPath,
       subscriptionTargetCount: playerIds.length,
       subscriptionTableTargetCount,

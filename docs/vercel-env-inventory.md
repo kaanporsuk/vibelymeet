@@ -17,7 +17,7 @@ Built-in Vite flags (not set in the Vercel UI): `import.meta.env.DEV`, `import.m
 | `VITE_POSTHOG_API_KEY` | `main.tsx` (`posthog.init`) | Yes‡ | Client | Prod, Preview, Development |
 | `VITE_POSTHOG_HOST` | `main.tsx` (defaults to `https://eu.i.posthog.com` if unset) | No | Client | Prod, Preview, Development |
 | `VITE_SENTRY_DSN` | `main.tsx` (DSN fallback exists in code if unset) | No | Client | Prod, Preview, Development |
-| `VITE_ONESIGNAL_APP_ID` | `lib/onesignal.ts` (fallback in code if unset) | No | Client | Prod, Preview, Development |
+| `VITE_ONESIGNAL_APP_ID` | `lib/onesignal.ts` (web push disabled if unset; no runtime fallback) | No | Client | Prod, Preview, Development |
 | `VITE_TURNSTILE_SITE_KEY` | `pages/legal/DeleteAccountWeb.tsx`; renders the Cloudflare Turnstile widget on `/delete-account` | Required for public account deletion | Client/public site key | Prod, Preview, Development where `/delete-account` must work |
 | `VITE_APP_VERSION` | Injected by `vite.config.ts` `define` from `package.json`; `FeedbackDrawer.tsx` | No (build-time) | Client | All builds |
 

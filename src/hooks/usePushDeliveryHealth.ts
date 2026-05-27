@@ -21,12 +21,61 @@ type BackendPushRow = {
   pausedUntil: string | null;
 };
 
+type BackendPushSubscriptionRow = {
+  subscription_id: string | null;
+  subscribed: boolean | null;
+};
+
 const EMPTY_BACKEND_ROW: BackendPushRow = {
   playerId: null,
   subscribed: false,
   pushEnabled: true,
   pausedUntil: null,
 };
+
+function isMissingPushSubscriptionsRelation(error: { code?: string; message?: string; details?: string; hint?: string } | null | undefined): boolean {
+  const haystack = `${error?.code ?? ""} ${error?.message ?? ""} ${error?.details ?? ""} ${error?.hint ?? ""}`;
+  return /42P01|PGRST205|push_subscriptions|relation .* does not exist|Could not find the table/i.test(haystack);
+}
+
+function rowToBackendSubscription(row: BackendPushSubscriptionRow | null | undefined): Pick<BackendPushRow, "playerId" | "subscribed"> | null {
+  const playerId = typeof row?.subscription_id === "string" && row.subscription_id.trim()
+    ? row.subscription_id.trim()
+    : null;
+  if (!playerId) return null;
+  return {
+    playerId,
+    subscribed: row?.subscribed === true,
+  };
+}
+
+async function getCurrentWebPlayerId(): Promise<string | null> {
+  const snapshot = getOneSignalWebClientSnapshot();
+  if (snapshot.sdkStatus !== "ready") return null;
+  return getPlayerId({ attempts: 1, initialDelayMs: 0, maxDelayMs: 0 });
+}
+
+async function readBackendPushSubscription(userId: string, localPlayerId: string | null): Promise<Pick<BackendPushRow, "playerId" | "subscribed"> | null> {
+  const subscriptionId = localPlayerId?.trim() || null;
+  if (!subscriptionId) return null;
+
+  const { data, error } = await supabase
+    .from("push_subscriptions")
+    .select("subscription_id, subscribed")
+    .eq("user_id", userId)
+    .eq("provider", "onesignal")
+    .eq("subscription_id", subscriptionId)
+    .maybeSingle();
+
+  if (error) {
+    if (!isMissingPushSubscriptionsRelation(error)) {
+      console.warn("[push-health] Failed to read web push subscription row:", error.message);
+    }
+    return null;
+  }
+
+  return rowToBackendSubscription(data);
+}
 
 function permissionToHealth(permission: NotificationPermission, supported: boolean): PushPermissionHealth {
   if (!supported) return "unsupported";
@@ -61,19 +110,33 @@ export function usePushDeliveryHealth() {
       setBackend(EMPTY_BACKEND_ROW);
       return;
     }
-    const { data, error } = await supabase
-      .from("notification_preferences")
-      .select("onesignal_player_id, onesignal_subscribed, push_enabled, paused_until")
-      .eq("user_id", user.id)
-      .maybeSingle();
+    const [localId, prefsResult] = await Promise.all([
+      getCurrentWebPlayerId(),
+      supabase
+        .from("notification_preferences")
+        .select("onesignal_player_id, onesignal_subscribed, push_enabled, paused_until")
+        .eq("user_id", user.id)
+        .maybeSingle(),
+    ]);
+    const { data, error } = prefsResult;
     if (error) {
       console.warn("[push-health] Failed to read web push backend row:", error.message);
       return;
     }
+    const currentSubscriptionId = localId?.trim() || null;
+    const normalized = await readBackendPushSubscription(user.id, currentSubscriptionId);
     if (!mountedRef.current) return;
+    const legacyPlayerId = typeof data?.onesignal_player_id === "string" && data.onesignal_player_id.trim()
+      ? data.onesignal_player_id.trim()
+      : null;
+    const legacyMatchesCurrentDevice =
+      !currentSubscriptionId || !legacyPlayerId || legacyPlayerId === currentSubscriptionId;
+    const legacySubscribed = legacyMatchesCurrentDevice
+      ? data?.onesignal_subscribed ?? false
+      : false;
     setBackend({
-      playerId: data?.onesignal_player_id ?? null,
-      subscribed: data?.onesignal_subscribed ?? false,
+      playerId: normalized?.playerId ?? (legacyMatchesCurrentDevice ? legacyPlayerId : null),
+      subscribed: normalized?.subscribed ?? legacySubscribed,
       pushEnabled: data?.push_enabled ?? true,
       pausedUntil: data?.paused_until ?? null,
     });
@@ -85,9 +148,9 @@ export function usePushDeliveryHealth() {
       setLocalPlayerId(null);
       return;
     }
-    const id = await getPlayerId({ attempts: 1, initialDelayMs: 0, maxDelayMs: 0 });
+    const id = await getCurrentWebPlayerId();
     if (!mountedRef.current) return;
-    setLocalPlayerId(id);
+    setLocalPlayerId(id?.trim() || null);
   }, []);
 
   const refresh = useCallback(async () => {

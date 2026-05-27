@@ -15,7 +15,7 @@ import { pushPermDevLog } from '@/lib/osPushPermission';
  * useBackendSubscription (subscriptions row + profiles.is_premium) and useEntitlements (profiles.subscription_tier).
  */
 export function PushRegistration() {
-  const { user, onboardingComplete } = useAuth();
+  const { user, onboardingComplete, loading } = useAuth();
   const { tierId, isLoading: entLoading } = useEntitlements();
   const { isPremium, isLoading: subLoading } = useBackendSubscription(user?.id);
   const foregroundSyncInFlightRef = useRef(false);
@@ -54,12 +54,13 @@ export function PushRegistration() {
   );
 
   useEffect(() => {
+    if (loading) return;
     if (!user?.id) {
       logoutOneSignal();
       return;
     }
     bindOneSignalExternalUser(user.id);
-  }, [user?.id]);
+  }, [loading, user?.id]);
 
   useEffect(() => {
     if (!user?.id) return;

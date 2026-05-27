@@ -7,6 +7,7 @@
  * click lifecycle, and native OS permission/status checks.
  */
 import { Platform } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { OneSignal } from 'react-native-onesignal';
 import { supabase } from '@/lib/supabase';
 import {
@@ -22,6 +23,7 @@ const APP_ID = (process.env.EXPO_PUBLIC_ONESIGNAL_APP_ID ?? '').trim();
 const PLAYER_ID_SYNC_ATTEMPTS = 8;
 const PLAYER_ID_INITIAL_RETRY_MS = 500;
 const PLAYER_ID_MAX_RETRY_MS = 3000;
+const NATIVE_PUSH_SUBSCRIPTION_ID_CACHE_KEY = 'vibely.native_push_subscription_id_by_user.v1';
 
 export type NativeOneSignalNotificationOpenSnapshot = {
   receivedAt: string;
@@ -102,6 +104,8 @@ type PushSubscriptionRpcError = {
   hint?: string;
 };
 
+type StoredSubscriptionIdCache = Record<string, string>;
+
 function syncResult(
   code: PushSyncResult['code'],
   playerId: string | null = null,
@@ -118,6 +122,44 @@ function nativePushPlatform(): 'ios' | 'android' | 'native' {
   if (Platform.OS === 'ios') return 'ios';
   if (Platform.OS === 'android') return 'android';
   return 'native';
+}
+
+async function readStoredSubscriptionIds(): Promise<StoredSubscriptionIdCache> {
+  try {
+    const raw = await AsyncStorage.getItem(NATIVE_PUSH_SUBSCRIPTION_ID_CACHE_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+      ? (parsed as StoredSubscriptionIdCache)
+      : {};
+  } catch {
+    return {};
+  }
+}
+
+async function rememberNativePushSubscriptionId(userId: string, subscriptionId: string): Promise<void> {
+  try {
+    const next = await readStoredSubscriptionIds();
+    next[userId] = subscriptionId;
+    await AsyncStorage.setItem(NATIVE_PUSH_SUBSCRIPTION_ID_CACHE_KEY, JSON.stringify(next));
+  } catch {
+    /* AsyncStorage is best-effort only */
+  }
+}
+
+async function readRememberedNativePushSubscriptionId(userId: string): Promise<string | null> {
+  const value = (await readStoredSubscriptionIds())[userId];
+  return typeof value === 'string' && value.trim() ? value.trim() : null;
+}
+
+async function forgetRememberedNativePushSubscriptionId(userId: string): Promise<void> {
+  try {
+    const next = await readStoredSubscriptionIds();
+    delete next[userId];
+    await AsyncStorage.setItem(NATIVE_PUSH_SUBSCRIPTION_ID_CACHE_KEY, JSON.stringify(next));
+  } catch {
+    /* AsyncStorage is best-effort only */
+  }
 }
 
 function isMissingPushSubscriptionRpc(error: PushSubscriptionRpcError | null | undefined): boolean {
@@ -443,6 +485,7 @@ async function pushSubscriptionToBackend(userId: string): Promise<PushSyncResult
   if (!isCurrentOneSignalIdentity(userId, generation)) {
     return syncResult('stale_identity', subscriptionId);
   }
+  await rememberNativePushSubscriptionId(userId, subscriptionId);
   if (subscribed !== true) {
     return syncResult('sdk_not_ready', subscriptionId, 'OneSignal native subscription is not opted in yet.');
   }
@@ -535,12 +578,15 @@ export async function disconnectOneSignalForLogout(userId?: string | null): Prom
   runtimeState.activeIdentityUserId = null;
   runtimeState.lastLoggedInUserId = null;
   emitOneSignalDiagnosticsChanged();
-  const subscriptionId = await getCurrentNativePlayerId();
+  const liveSubscriptionId = await getCurrentNativePlayerId();
+  const subscriptionId =
+    liveSubscriptionId?.trim() || (userId ? await readRememberedNativePushSubscriptionId(userId) : null);
   if (userId) {
     const unregisterError = await unregisterStoredPushSubscription(userId, subscriptionId);
     if (unregisterError && __DEV__) {
       console.warn('[Vibely] Failed to unregister mobile push id:', unregisterError);
     }
+    await forgetRememberedNativePushSubscriptionId(userId);
   }
   optOutNativePushSubscriptionForLogout();
   logoutOneSignal();

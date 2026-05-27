@@ -773,6 +773,7 @@ export function NotificationDeepLinkHandler() {
       let raw: Record<string, unknown> | undefined;
       let shouldSuppressSameThread = false;
       let hasDispatchGroup = false;
+      let shouldControlDisplay = false;
       try {
         notification = event.getNotification();
         raw = notification.additionalData as Record<string, unknown> | undefined;
@@ -794,7 +795,8 @@ export function NotificationDeepLinkHandler() {
             cat === 'match_call' ||
             isDateSuggestionCat),
         );
-        if (hasDispatchGroup || shouldSuppressSameThread) {
+        shouldControlDisplay = hasDispatchGroup || shouldSuppressSameThread;
+        if (shouldControlDisplay) {
           event.preventDefault();
         }
       } catch {
@@ -829,6 +831,7 @@ export function NotificationDeepLinkHandler() {
             });
             return;
           }
+          if (!shouldControlDisplay) return;
           notification.display();
         } catch {
           /* default presentation if display fails */

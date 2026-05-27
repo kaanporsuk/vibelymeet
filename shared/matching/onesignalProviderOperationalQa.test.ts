@@ -25,9 +25,11 @@ const nativeNotificationPause = read("apps/mobile/lib/notificationPause.ts");
 const nativePushMasterSwitch = read("apps/mobile/lib/pushMasterSwitch.ts");
 const nativeDeepLink = read("apps/mobile/components/NotificationDeepLinkHandler.tsx");
 const nativeAppConfig = read("apps/mobile/app.config.js");
+const nativeIosBuildSettingsPlugin = read("apps/mobile/plugins/withIosNativeBuildSettings.js");
 const pushSubscriptionOwnershipMigration = read("supabase/migrations/20260523184500_onesignal_push_subscription_ownership.sql");
 const pushSubscriptionRpcGrantMigration = read("supabase/migrations/20260523193000_restrict_onesignal_push_subscription_rpc_grants.sql");
 const reviewFollowupsMigration = read("supabase/migrations/20260523201000_review_comment_followups_1019_1026.sql");
+const unregisterNullCleanupMigration = read("supabase/migrations/20260527221500_onesignal_unregister_null_subscription_cleanup.sql");
 const branchDelta = read("docs/branch-deltas/fix-onesignal-provider-operational-qa.md");
 
 test("web OneSignal initialization is env-backed and root-worker aware", () => {
@@ -53,6 +55,8 @@ test("root-served OneSignal service worker assets are represented and distinct f
 
 test("web identity binding and backend sync avoid token-refresh login spam", () => {
   assert.match(appBootstrap, /TOKEN_REFRESHED \/ session refresh/);
+  assert.match(appBootstrap, /const \{ session, isLoading \} = useAuth\(\)/);
+  assert.match(appBootstrap, /if \(isLoading\) return/);
   assert.match(appBootstrap, /const userId = session\?\.user\?\.id \?\? null/);
   assert.match(appBootstrap, /setExternalUserId\(userId\)/);
   assert.match(appBootstrap, /syncWebPushRegistrationToBackend\(userId\)/);
@@ -65,7 +69,12 @@ test("web identity binding and backend sync avoid token-refresh login spam", () 
 test("web player-id and subscription sync writes notification_preferences safely", () => {
   assert.match(webPushSync, /getPlayerId\(/);
   assert.match(webPushSync, /WEB_PLAYER_ID_LOGOUT_LOOKUP/);
-  assert.match(webPushSync, /const playerId = await getPlayerId\(WEB_PLAYER_ID_LOGOUT_LOOKUP\)/);
+  assert.match(webPushSync, /WEB_PUSH_SUBSCRIPTION_ID_CACHE_KEY/);
+  assert.match(webPushSync, /rememberWebPushSubscriptionId\(userId, playerId\)/);
+  assert.match(webPushSync, /readRememberedWebPushSubscriptionId\(userId\)/);
+  assert.match(webPushSync, /forgetRememberedWebPushSubscriptionId\(userId\)/);
+  assert.match(webPushSync, /const livePlayerId = await getPlayerId\(WEB_PLAYER_ID_LOGOUT_LOOKUP\)/);
+  assert.doesNotMatch(webPushSync, /playerId\s*\?\s*await pushSubscriptionRpc\(\)\.rpc\(["']unregister_onesignal_push_subscription["']/);
   assert.match(webPushSync, /p_subscription_id:\s*playerId/);
   assert.match(webPushSync, /isSubscribed\(\)/);
   assert.match(webPushSync, /register_onesignal_push_subscription/);
@@ -74,6 +83,12 @@ test("web player-id and subscription sync writes notification_preferences safely
   assert.match(webPushSync, /onesignal_player_id:\s*playerId/);
   assert.match(webPushSync, /onesignal_subscribed:\s*subscribed/);
   assert.match(webPushSync, /push_enabled:\s*true/);
+  assert.match(webPushHealth, /\.from\(["']push_subscriptions["']\)/);
+  assert.match(webPushHealth, /currentSubscriptionId = localId\?\.trim\(\) \|\| null/);
+  assert.match(webPushHealth, /readBackendPushSubscription\(user\.id, currentSubscriptionId\)/);
+  assert.match(webPushHealth, /legacyMatchesCurrentDevice/);
+  assert.doesNotMatch(webPushHealth, /Failed to read latest web push subscription row/);
+  assert.doesNotMatch(webPushHealth, /\.order\(["']last_seen_at["']/);
   assert.match(webPushHealth, /\.select\(["']onesignal_player_id, onesignal_subscribed, push_enabled, paused_until["']\)/);
   assert.match(webPushHealth, /vibely-onesignal-subscription-changed/);
   assert.match(pushPermissionPrompt, /requestWebPushPermissionAndSync\(user\.id\)/);
@@ -93,6 +108,10 @@ test("native OneSignal identity and subscription sync mirror the backend contrac
   assert.match(nativeOneSignal, /register_onesignal_push_subscription/);
   assert.match(nativeOneSignal, /unregister_onesignal_push_subscription/);
   assert.match(nativeOneSignal, /OneSignal\.User\.pushSubscription\.optOut\(\)/);
+  assert.match(nativeOneSignal, /NATIVE_PUSH_SUBSCRIPTION_ID_CACHE_KEY/);
+  assert.match(nativeOneSignal, /rememberNativePushSubscriptionId\(userId, subscriptionId\)/);
+  assert.match(nativeOneSignal, /readRememberedNativePushSubscriptionId\(userId\)/);
+  assert.match(nativeOneSignal, /forgetRememberedNativePushSubscriptionId\(userId\)/);
   assert.match(nativeOneSignal, /mobile_onesignal_player_id:\s*subscriptionId/);
   assert.match(nativeOneSignal, /mobile_onesignal_subscribed:\s*subscribed/);
   assert.match(
@@ -105,10 +124,27 @@ test("native OneSignal identity and subscription sync mirror the backend contrac
   );
   assert.match(nativeNotificationPause, /syncPushAfterRestoringDelivery\(userId\)/);
   assert.match(nativePushMasterSwitch, /syncPushAfterRestoringDelivery\(userId\)/);
+  assert.match(nativePushRegistration, /const \{ user, onboardingComplete, loading \} = useAuth\(\)/);
+  assert.match(nativePushRegistration, /if \(loading\) return/);
   assert.match(nativePushRegistration, /bindOneSignalExternalUser\(user\.id\)/);
   assert.match(nativePushRegistration, /syncNativePushDeliveryOnForeground\(user\.id/);
+  assert.match(nativePushHealth, /\.from\(['"]push_subscriptions['"]\)/);
+  assert.match(nativePushHealth, /currentSubscriptionId = localId\?\.trim\(\) \|\| null/);
+  assert.match(nativePushHealth, /readBackendPushSubscription\(userId, currentSubscriptionId\)/);
+  assert.match(nativePushHealth, /legacyMatchesCurrentDevice/);
+  assert.doesNotMatch(nativePushHealth, /Failed to read latest native push subscription row/);
+  assert.doesNotMatch(nativePushHealth, /\.order\(['"]last_seen_at['"]/);
   assert.match(nativeAppConfig, /onesignal-expo-plugin/);
   assert.match(nativeAppConfig, /mode:\s*oneSignalMode/);
+  assert.match(nativeAppConfig, /smallIcons:\s*\[\s*['"]\.\/assets\/onesignal\/ic_stat_onesignal_default\.png['"]\s*\]/);
+  assert.match(nativeAppConfig, /largeIcons:\s*\[\s*['"]\.\/assets\/onesignal\/ic_onesignal_large_icon_default\.png['"]\s*\]/);
+  assert.match(nativeAppConfig, /smallIconAccentColor:\s*['"]#8B5CF6['"]/);
+  assert.ok(existsSync(join(root, "apps/mobile/assets/onesignal/ic_stat_onesignal_default.png")));
+  assert.ok(existsSync(join(root, "apps/mobile/assets/onesignal/ic_onesignal_large_icon_default.png")));
+  assert.match(nativeIosBuildSettingsPlugin, /isAppOrExtensionTarget/);
+  assert.match(nativeIosBuildSettingsPlugin, /applyDeploymentTarget\(project, target\)/);
+  assert.match(nativeIosBuildSettingsPlugin, /IOS_DEPLOYMENT_TARGET = ['"]15\.1['"]/);
+  assert.match(nativeIosBuildSettingsPlugin, /IPHONEOS_DEPLOYMENT_TARGET/);
 });
 
 test("send-notification reads existing OneSignal secrets and logs safe suppression/provider outcomes", () => {
@@ -126,6 +162,9 @@ test("send-notification reads existing OneSignal secrets and logs safe suppressi
   assert.match(sendNotification, /provider_status/);
   assert.match(sendNotification, /provider_http_status/);
   assert.match(sendNotification, /provider_notification_id/);
+  assert.match(sendNotification, /provider_response_body_snippet/);
+  assert.match(sendNotification, /provider_response_content_type/);
+  assert.match(sendNotification, /provider_accepted_at/);
   assert.match(sendNotification, /console\.log\('OneSignal:', osResponse\.status/);
   assert.doesNotMatch(sendNotification, /console\.(?:log|warn|error)\([^)]*(ONESIGNAL_REST_API_KEY|Authorization|osPayload|osResponseText)[^)]*\)/);
 });
@@ -169,6 +208,11 @@ test("OneSignal subscription ownership migration supports multi-device native de
   assert.match(pushSubscriptionOwnershipMigration, /v_platform IN \('ios', 'android', 'native'\) AND platform IN \('ios', 'android', 'native'\)/);
   assert.match(reviewFollowupsMigration, /CREATE OR REPLACE FUNCTION public\.unregister_onesignal_push_subscription/);
   assert.match(reviewFollowupsMigration, /v_platform IN \('ios', 'android', 'native'\) AND platform IN \('ios', 'android', 'native'\)/);
+  assert.match(unregisterNullCleanupMigration, /CREATE OR REPLACE FUNCTION public\.unregister_onesignal_push_subscription/);
+  assert.match(unregisterNullCleanupMigration, /v_subscription_id IS NULL OR subscription_id = v_subscription_id/);
+  assert.match(unregisterNullCleanupMigration, /DELETE FROM public\.push_subscriptions/);
+  assert.match(unregisterNullCleanupMigration, /GRANT EXECUTE ON FUNCTION public\.unregister_onesignal_push_subscription\(text, text\) TO authenticated/);
+  assert.match(unregisterNullCleanupMigration, /GRANT EXECUTE ON FUNCTION public\.unregister_onesignal_push_subscription\(text, text\) TO service_role/);
   assert.match(pushSubscriptionOwnershipMigration, /GRANT EXECUTE ON FUNCTION public\.register_onesignal_push_subscription/);
   assert.match(pushSubscriptionOwnershipMigration, /NOTIFY pgrst, 'reload schema'/);
   assert.doesNotMatch(pushSubscriptionOwnershipMigration, /CREATE POLICY "Users can insert own push subscriptions"/);
@@ -191,6 +235,8 @@ test("notification deep-link payloads remain URL-based and native-compatible", (
   assert.match(nativeDeepLink, /launchURL/);
   assert.match(nativeDeepLink, /resolveNotificationHref/);
   assert.match(nativeDeepLink, /reconcileHrefWithRegistration/);
+  assert.match(nativeDeepLink, /shouldControlDisplay = hasDispatchGroup \|\| shouldSuppressSameThread/);
+  assert.match(nativeDeepLink, /if \(!shouldControlDisplay\) return;\s*notification\.display\(\)/);
   assert.match(nativeDeepLink, /router\.push/);
 });
 

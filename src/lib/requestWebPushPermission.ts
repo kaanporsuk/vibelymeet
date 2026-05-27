@@ -29,6 +29,7 @@ const WEB_PLAYER_ID_LOGOUT_LOOKUP = {
 };
 const WEB_PUSH_BACKEND_SYNC_TTL_MS = 10 * 60_000;
 const WEB_PUSH_BACKEND_SYNC_CACHE_KEY = "vibely.web_push_backend_sync.v1";
+const WEB_PUSH_SUBSCRIPTION_ID_CACHE_KEY = "vibely.web_push_subscription_id_by_user.v1";
 
 const syncInFlightByUser = new Map<string, Promise<PushSyncResult>>();
 const lastBackendSyncBySignature = new Map<
@@ -37,6 +38,7 @@ const lastBackendSyncBySignature = new Map<
 >();
 
 type StoredBackendSyncCache = Record<string, { syncedAtMs: number; result: PushSyncResult }>;
+type StoredSubscriptionIdCache = Record<string, string>;
 type PushSubscriptionRpcError = {
   code?: string;
   message?: string;
@@ -88,6 +90,47 @@ function writeStoredBackendSync(signature: string, result: PushSyncResult): void
     }
     cache[signature] = { syncedAtMs: Date.now(), result };
     window.localStorage.setItem(WEB_PUSH_BACKEND_SYNC_CACHE_KEY, JSON.stringify(cache));
+  } catch {
+    /* localStorage is best-effort only */
+  }
+}
+
+function readStoredSubscriptionIds(): StoredSubscriptionIdCache {
+  if (typeof window === "undefined") return {};
+  try {
+    const raw = window.localStorage.getItem(WEB_PUSH_SUBSCRIPTION_ID_CACHE_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? (parsed as StoredSubscriptionIdCache)
+      : {};
+  } catch {
+    return {};
+  }
+}
+
+function rememberWebPushSubscriptionId(userId: string, playerId: string): void {
+  if (typeof window === "undefined") return;
+  try {
+    const next = readStoredSubscriptionIds();
+    next[userId] = playerId;
+    window.localStorage.setItem(WEB_PUSH_SUBSCRIPTION_ID_CACHE_KEY, JSON.stringify(next));
+  } catch {
+    /* localStorage is best-effort only */
+  }
+}
+
+function readRememberedWebPushSubscriptionId(userId: string): string | null {
+  const value = readStoredSubscriptionIds()[userId];
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function forgetRememberedWebPushSubscriptionId(userId: string): void {
+  if (typeof window === "undefined") return;
+  try {
+    const next = readStoredSubscriptionIds();
+    delete next[userId];
+    window.localStorage.setItem(WEB_PUSH_SUBSCRIPTION_ID_CACHE_KEY, JSON.stringify(next));
   } catch {
     /* localStorage is best-effort only */
   }
@@ -156,13 +199,12 @@ async function registerStoredWebPushSubscription(
 }
 
 export async function disconnectWebPushForLogout(userId: string): Promise<void> {
-  const playerId = await getPlayerId(WEB_PLAYER_ID_LOGOUT_LOOKUP);
-  const { error } = playerId
-    ? await pushSubscriptionRpc().rpc("unregister_onesignal_push_subscription", {
-        p_subscription_id: playerId,
-        p_platform: "web",
-      })
-    : { error: null };
+  const livePlayerId = await getPlayerId(WEB_PLAYER_ID_LOGOUT_LOOKUP);
+  const playerId = livePlayerId?.trim() || readRememberedWebPushSubscriptionId(userId);
+  const { error } = await pushSubscriptionRpc().rpc("unregister_onesignal_push_subscription", {
+    p_subscription_id: playerId,
+    p_platform: "web",
+  });
 
   const { error: legacyError } = await supabase
     .from("notification_preferences")
@@ -175,6 +217,7 @@ export async function disconnectWebPushForLogout(userId: string): Promise<void> 
   if (error && !isMissingPushSubscriptionRpc(error)) {
     throw new Error(error.message ?? "push_subscription_unregister_failed");
   }
+  forgetRememberedWebPushSubscriptionId(userId);
 }
 
 async function syncWebPushRegistrationToBackendInternal(userId: string): Promise<PushSyncResult> {
@@ -209,6 +252,7 @@ async function syncWebPushRegistrationToBackendInternal(userId: string): Promise
       subscribed,
       code: cachedResult.code,
     });
+    rememberWebPushSubscriptionId(userId, playerId);
     return cachedResult;
   }
 
@@ -219,6 +263,7 @@ async function syncWebPushRegistrationToBackendInternal(userId: string): Promise
     return syncResult("upsert_failed", playerId, registerError);
   }
 
+  rememberWebPushSubscriptionId(userId, playerId);
   if (!subscribed) {
     const result = syncResult("sdk_not_ready", playerId, "OneSignal subscription is not opted in yet.");
     lastBackendSyncBySignature.set(signature, { syncedAtMs: Date.now(), result });

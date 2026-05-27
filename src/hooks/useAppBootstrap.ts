@@ -4,7 +4,7 @@ import { useAuth, useUserProfile } from "@/contexts/AuthContext";
 import { identifyUser, resetAnalytics, setUserProperties } from "@/lib/analytics";
 
 export const useAppBootstrap = () => {
-  const { session } = useAuth();
+  const { session, isLoading } = useAuth();
   const { user } = useUserProfile();
 
   // Auth-linked identities: Sentry + analytics + OneSignal.
@@ -15,6 +15,7 @@ export const useAppBootstrap = () => {
   const userCreatedAt = session?.user?.created_at;
 
   useEffect(() => {
+    if (isLoading) return;
     if (!userId) {
       Sentry.setUser(null);
       resetAnalytics();
@@ -46,7 +47,7 @@ export const useAppBootstrap = () => {
     };
 
     void syncOneSignal();
-  }, [userId, userEmail, userCreatedAt]);
+  }, [isLoading, userId, userEmail, userCreatedAt]);
 
   // Profile-linked analytics properties
   useEffect(() => {
