@@ -10,6 +10,7 @@ const migrationPath = "supabase/migrations/20260527120000_auth_profile_write_pri
 const migration = read(migrationPath);
 const writerMigrationPath = "supabase/migrations/20260527123000_auth_verified_contact_server_writers.sql";
 const writerMigration = read(writerMigrationPath);
+const generatedTypes = read("src/integrations/supabase/types.ts");
 
 const backendOwnedProfileColumns = [
   "phone_number",
@@ -227,6 +228,11 @@ test("verified contact server writer RPCs own trusted profile mutations", () => 
   assert.match(writerMigration, /EXCEPTION WHEN OTHERS THEN\s+PERFORM set_config\('vibely\.verification_server_update', NULL, true\);\s+RAISE;/);
   assert.match(writerMigration, /PERFORM set_config\('vibely\.verification_server_update', NULL, true\);\s+END;/);
   assert.match(writerMigration, /NOTIFY pgrst, 'reload schema';/);
+});
+
+test("generated Supabase types include auth hardening RPC interfaces", () => {
+  assert.match(generatedTypes, /mark_profile_email_verified_from_server:\s*\{\s*Args:\s*\{\s*p_user_id: string; p_verified_email: string\s*\}\s*Returns: undefined\s*\}/);
+  assert.match(generatedTypes, /mark_profile_phone_verified_from_server:\s*\{\s*Args:\s*\{[\s\S]{0,120}p_phone_number: string[\s\S]{0,120}p_user_id: string[\s\S]{0,120}p_verified_at\?: string[\s\S]{0,120}\}\s*Returns: undefined\s*\}/);
 });
 
 test("client profile flows no longer self-insert profiles or write backend-owned verification references", () => {

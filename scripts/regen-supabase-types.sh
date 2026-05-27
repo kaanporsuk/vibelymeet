@@ -30,5 +30,13 @@ perl -0ne 'exit(/tier_capability_type:\s*\{\s*Args:\s*\{\s*p_capability_key:\s*s
   exit 1
 }
 
+# Supabase CLI also emits this scalar SQL RPC as non-nullable, but the function
+# returns NULL when provider metadata sanitizes down to an empty display name.
+perl -0pi -e 's/(sanitize_profile_display_name:\s*\{\s*Args:\s*\{\s*p_input:\s*string\s*\}\s*Returns:\s*)string(\s*\})/${1}string | null${2}/' "$PATCHED"
+perl -0ne 'exit(/sanitize_profile_display_name:\s*\{\s*Args:\s*\{\s*p_input:\s*string\s*\}\s*Returns:\s*string \| null\s*\}/ ? 0 : 1)' "$PATCHED" || {
+  echo "Expected sanitize_profile_display_name to return string | null before writing $OUT" >&2
+  exit 1
+}
+
 mv "$PATCHED" "$OUT"
 echo "Wrote $OUT"

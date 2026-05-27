@@ -23,39 +23,6 @@ export type Database = {
   }
   public: {
     Tables: {
-      account_deletion_requests: {
-        Row: {
-          cancelled_at: string | null
-          completed_at: string | null
-          id: string
-          reason: string | null
-          requested_at: string | null
-          scheduled_deletion_at: string | null
-          status: string | null
-          user_id: string
-        }
-        Insert: {
-          cancelled_at?: string | null
-          completed_at?: string | null
-          id?: string
-          reason?: string | null
-          requested_at?: string | null
-          scheduled_deletion_at?: string | null
-          status?: string | null
-          user_id: string
-        }
-        Update: {
-          cancelled_at?: string | null
-          completed_at?: string | null
-          id?: string
-          reason?: string | null
-          requested_at?: string | null
-          scheduled_deletion_at?: string | null
-          status?: string | null
-          user_id?: string
-        }
-        Relationships: []
-      }
       account_deletion_completion_jobs: {
         Row: {
           attempts: number
@@ -148,10 +115,82 @@ export type Database = {
           },
         ]
       }
+      account_deletion_reauth_challenges: {
+        Row: {
+          channel: string
+          code_hash: string | null
+          consumed_at: string | null
+          created_at: string
+          destination_hash: string
+          expires_at: string
+          failed_attempts: number
+          id: string
+          user_id: string
+          verified_at: string | null
+        }
+        Insert: {
+          channel: string
+          code_hash?: string | null
+          consumed_at?: string | null
+          created_at?: string
+          destination_hash: string
+          expires_at: string
+          failed_attempts?: number
+          id?: string
+          user_id: string
+          verified_at?: string | null
+        }
+        Update: {
+          channel?: string
+          code_hash?: string | null
+          consumed_at?: string | null
+          created_at?: string
+          destination_hash?: string
+          expires_at?: string
+          failed_attempts?: number
+          id?: string
+          user_id?: string
+          verified_at?: string | null
+        }
+        Relationships: []
+      }
+      account_deletion_requests: {
+        Row: {
+          cancelled_at: string | null
+          completed_at: string | null
+          id: string
+          reason: string | null
+          requested_at: string | null
+          scheduled_deletion_at: string | null
+          status: string | null
+          user_id: string
+        }
+        Insert: {
+          cancelled_at?: string | null
+          completed_at?: string | null
+          id?: string
+          reason?: string | null
+          requested_at?: string | null
+          scheduled_deletion_at?: string | null
+          status?: string | null
+          user_id: string
+        }
+        Update: {
+          cancelled_at?: string | null
+          completed_at?: string | null
+          id?: string
+          reason?: string | null
+          requested_at?: string | null
+          scheduled_deletion_at?: string | null
+          status?: string | null
+          user_id?: string
+        }
+        Relationships: []
+      }
       admin_activity_logs: {
         Row: {
-          action_type: string
           action_outcome: string | null
+          action_type: string
           admin_id: string | null
           correlation_id: string | null
           created_at: string
@@ -163,8 +202,8 @@ export type Database = {
           target_type: string
         }
         Insert: {
-          action_type: string
           action_outcome?: string | null
+          action_type: string
           admin_id?: string | null
           correlation_id?: string | null
           created_at?: string
@@ -176,8 +215,8 @@ export type Database = {
           target_type: string
         }
         Update: {
-          action_type?: string
           action_outcome?: string | null
+          action_type?: string
           admin_id?: string | null
           correlation_id?: string | null
           created_at?: string
@@ -187,6 +226,51 @@ export type Database = {
           request_id?: string | null
           target_id?: string | null
           target_type?: string
+        }
+        Relationships: []
+      }
+      admin_durable_worker_runs: {
+        Row: {
+          action: string | null
+          batch_size: number | null
+          created_at: string
+          finished_at: string | null
+          last_error: string | null
+          last_heartbeat_at: string | null
+          result: Json | null
+          started_at: string | null
+          status: string
+          updated_at: string
+          worker_id: string | null
+          worker_name: string
+        }
+        Insert: {
+          action?: string | null
+          batch_size?: number | null
+          created_at?: string
+          finished_at?: string | null
+          last_error?: string | null
+          last_heartbeat_at?: string | null
+          result?: Json | null
+          started_at?: string | null
+          status?: string
+          updated_at?: string
+          worker_id?: string | null
+          worker_name: string
+        }
+        Update: {
+          action?: string | null
+          batch_size?: number | null
+          created_at?: string
+          finished_at?: string | null
+          last_error?: string | null
+          last_heartbeat_at?: string | null
+          result?: Json | null
+          started_at?: string | null
+          status?: string
+          updated_at?: string
+          worker_id?: string | null
+          worker_name?: string
         }
         Relationships: []
       }
@@ -399,6 +483,36 @@ export type Database = {
           },
         ]
       }
+      bunny_cdn_health_state: {
+        Row: {
+          alerted_at: string | null
+          consecutive_failures: number
+          last_checked_at: string
+          last_error: string | null
+          last_http_status: number | null
+          last_status: string
+          probe: string
+        }
+        Insert: {
+          alerted_at?: string | null
+          consecutive_failures?: number
+          last_checked_at?: string
+          last_error?: string | null
+          last_http_status?: number | null
+          last_status?: string
+          probe: string
+        }
+        Update: {
+          alerted_at?: string | null
+          consecutive_failures?: number
+          last_checked_at?: string
+          last_error?: string | null
+          last_http_status?: number | null
+          last_status?: string
+          probe?: string
+        }
+        Relationships: []
+      }
       chat_media_retention_states: {
         Row: {
           account_deletion_pending_at: string | null
@@ -432,6 +546,277 @@ export type Database = {
           retention_state?: string
           state_changed_at?: string
           updated_at?: string
+        }
+        Relationships: []
+      }
+      chat_vibe_clip_uploads: {
+        Row: {
+          aspect_ratio: number | null
+          captions: Json | null
+          client_request_id: string
+          created_at: string
+          duration_ms: number
+          encrypted_media: Json | null
+          error_detail: string | null
+          expires_at: string
+          id: string
+          match_id: string
+          media_asset_id: string | null
+          mime_type: string | null
+          provider_object_id: string
+          published_message_id: string | null
+          recovery_dismissed_at: string | null
+          recovery_dismissed_by: string | null
+          recovery_dismissed_reason: string | null
+          sender_id: string
+          source_bytes: number | null
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          aspect_ratio?: number | null
+          captions?: Json | null
+          client_request_id: string
+          created_at?: string
+          duration_ms: number
+          encrypted_media?: Json | null
+          error_detail?: string | null
+          expires_at: string
+          id?: string
+          match_id: string
+          media_asset_id?: string | null
+          mime_type?: string | null
+          provider_object_id: string
+          published_message_id?: string | null
+          recovery_dismissed_at?: string | null
+          recovery_dismissed_by?: string | null
+          recovery_dismissed_reason?: string | null
+          sender_id: string
+          source_bytes?: number | null
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          aspect_ratio?: number | null
+          captions?: Json | null
+          client_request_id?: string
+          created_at?: string
+          duration_ms?: number
+          encrypted_media?: Json | null
+          error_detail?: string | null
+          expires_at?: string
+          id?: string
+          match_id?: string
+          media_asset_id?: string | null
+          mime_type?: string | null
+          provider_object_id?: string
+          published_message_id?: string | null
+          recovery_dismissed_at?: string | null
+          recovery_dismissed_by?: string | null
+          recovery_dismissed_reason?: string | null
+          sender_id?: string
+          source_bytes?: number | null
+          status?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "chat_vibe_clip_uploads_match_id_fkey"
+            columns: ["match_id"]
+            isOneToOne: false
+            referencedRelation: "matches"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "chat_vibe_clip_uploads_media_asset_id_fkey"
+            columns: ["media_asset_id"]
+            isOneToOne: false
+            referencedRelation: "media_assets"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "chat_vibe_clip_uploads_published_message_id_fkey"
+            columns: ["published_message_id"]
+            isOneToOne: false
+            referencedRelation: "messages"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      client_feature_flag_history: {
+        Row: {
+          after_state: Json | null
+          before_state: Json | null
+          changed_at: string
+          changed_by: string | null
+          flag_key: string
+          id: string
+          operation: string
+        }
+        Insert: {
+          after_state?: Json | null
+          before_state?: Json | null
+          changed_at?: string
+          changed_by?: string | null
+          flag_key: string
+          id?: string
+          operation: string
+        }
+        Update: {
+          after_state?: Json | null
+          before_state?: Json | null
+          changed_at?: string
+          changed_by?: string | null
+          flag_key?: string
+          id?: string
+          operation?: string
+        }
+        Relationships: []
+      }
+      client_feature_flag_override_history: {
+        Row: {
+          after_state: Json | null
+          before_state: Json | null
+          changed_at: string
+          changed_by: string | null
+          flag_key: string
+          id: string
+          operation: string
+          user_id: string
+        }
+        Insert: {
+          after_state?: Json | null
+          before_state?: Json | null
+          changed_at?: string
+          changed_by?: string | null
+          flag_key: string
+          id?: string
+          operation: string
+          user_id: string
+        }
+        Update: {
+          after_state?: Json | null
+          before_state?: Json | null
+          changed_at?: string
+          changed_by?: string | null
+          flag_key?: string
+          id?: string
+          operation?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      client_feature_flag_service_evals: {
+        Row: {
+          bucket: number | null
+          caller_user_id: string | null
+          enabled: boolean
+          evaluated_at: string
+          evaluated_user_id: string | null
+          flag_key: string
+          id: string
+          rollout_bps: number | null
+          source: string
+        }
+        Insert: {
+          bucket?: number | null
+          caller_user_id?: string | null
+          enabled: boolean
+          evaluated_at?: string
+          evaluated_user_id?: string | null
+          flag_key: string
+          id?: string
+          rollout_bps?: number | null
+          source: string
+        }
+        Update: {
+          bucket?: number | null
+          caller_user_id?: string | null
+          enabled?: boolean
+          evaluated_at?: string
+          evaluated_user_id?: string | null
+          flag_key?: string
+          id?: string
+          rollout_bps?: number | null
+          source?: string
+        }
+        Relationships: []
+      }
+      client_feature_flag_user_overrides: {
+        Row: {
+          created_at: string
+          enabled: boolean
+          flag_key: string
+          reason: string
+          updated_at: string
+          updated_by: string | null
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          enabled: boolean
+          flag_key: string
+          reason?: string
+          updated_at?: string
+          updated_by?: string | null
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          enabled?: boolean
+          flag_key?: string
+          reason?: string
+          updated_at?: string
+          updated_by?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "client_feature_flag_user_overrides_flag_key_fkey"
+            columns: ["flag_key"]
+            isOneToOne: false
+            referencedRelation: "client_feature_flags"
+            referencedColumns: ["flag_key"]
+          },
+          {
+            foreignKeyName: "client_feature_flag_user_overrides_flag_key_fkey"
+            columns: ["flag_key"]
+            isOneToOne: false
+            referencedRelation: "vw_video_date_flag_rollout"
+            referencedColumns: ["flag_key"]
+          },
+        ]
+      }
+      client_feature_flags: {
+        Row: {
+          created_at: string
+          description: string
+          enabled: boolean
+          flag_key: string
+          kill_switch_active: boolean
+          rollout_bps: number
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          created_at?: string
+          description?: string
+          enabled?: boolean
+          flag_key: string
+          kill_switch_active?: boolean
+          rollout_bps?: number
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          created_at?: string
+          description?: string
+          enabled?: boolean
+          flag_key?: string
+          kill_switch_active?: boolean
+          rollout_bps?: number
+          updated_at?: string
+          updated_by?: string | null
         }
         Relationships: []
       }
@@ -830,8 +1215,36 @@ export type Database = {
             foreignKeyName: "date_feedback_session_id_fkey"
             columns: ["session_id"]
             isOneToOne: false
+            referencedRelation: "v_video_date_queue_fairness_candidates"
+            referencedColumns: ["session_id"]
+          },
+          {
+            foreignKeyName: "date_feedback_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
             referencedRelation: "video_sessions"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "date_feedback_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "vw_session_health"
+            referencedColumns: ["session_id"]
+          },
+          {
+            foreignKeyName: "date_feedback_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "vw_video_date_extension_refund_certification"
+            referencedColumns: ["session_id"]
+          },
+          {
+            foreignKeyName: "date_feedback_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "vw_video_date_provider_room_reconciliation"
+            referencedColumns: ["session_id"]
           },
         ]
       }
@@ -1537,6 +1950,67 @@ export type Database = {
         }
         Relationships: []
       }
+      event_participant_runtime_state: {
+        Row: {
+          client_platform: string | null
+          created_at: string
+          device_capabilities: Json
+          event_id: string
+          foreground: boolean
+          last_heartbeat_at: string
+          participant_id: string
+          readiness_checked_at: string | null
+          readiness_status: string
+          updated_at: string
+        }
+        Insert: {
+          client_platform?: string | null
+          created_at?: string
+          device_capabilities?: Json
+          event_id: string
+          foreground?: boolean
+          last_heartbeat_at?: string
+          participant_id: string
+          readiness_checked_at?: string | null
+          readiness_status?: string
+          updated_at?: string
+        }
+        Update: {
+          client_platform?: string | null
+          created_at?: string
+          device_capabilities?: Json
+          event_id?: string
+          foreground?: boolean
+          last_heartbeat_at?: string
+          participant_id?: string
+          readiness_checked_at?: string | null
+          readiness_status?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "event_participant_runtime_state_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "event_participant_runtime_state_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "vw_synthetic_video_date_health"
+            referencedColumns: ["event_id"]
+          },
+          {
+            foreignKeyName: "event_participant_runtime_state_participant_id_fkey"
+            columns: ["participant_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       event_payment_exceptions: {
         Row: {
           checkout_session_id: string | null
@@ -1617,6 +2091,13 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
+            foreignKeyName: "event_payment_exceptions_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "vw_synthetic_video_date_health"
+            referencedColumns: ["event_id"]
+          },
+          {
             foreignKeyName: "event_payment_exceptions_profile_id_fkey"
             columns: ["profile_id"]
             isOneToOne: false
@@ -1635,6 +2116,212 @@ export type Database = {
             columns: ["support_ticket_id"]
             isOneToOne: false
             referencedRelation: "support_tickets"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      event_profile_impression_events: {
+        Row: {
+          action: string
+          created_at: string
+          event_id: string
+          id: number
+          metadata: Json
+          session_id: string | null
+          source: string
+          target_id: string
+          viewer_id: string
+        }
+        Insert: {
+          action: string
+          created_at?: string
+          event_id: string
+          id?: number
+          metadata?: Json
+          session_id?: string | null
+          source?: string
+          target_id: string
+          viewer_id: string
+        }
+        Update: {
+          action?: string
+          created_at?: string
+          event_id?: string
+          id?: number
+          metadata?: Json
+          session_id?: string | null
+          source?: string
+          target_id?: string
+          viewer_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "event_profile_impression_events_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "event_profile_impression_events_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "vw_synthetic_video_date_health"
+            referencedColumns: ["event_id"]
+          },
+          {
+            foreignKeyName: "event_profile_impression_events_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "v_video_date_queue_fairness_candidates"
+            referencedColumns: ["session_id"]
+          },
+          {
+            foreignKeyName: "event_profile_impression_events_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "video_sessions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "event_profile_impression_events_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "vw_session_health"
+            referencedColumns: ["session_id"]
+          },
+          {
+            foreignKeyName: "event_profile_impression_events_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "vw_video_date_extension_refund_certification"
+            referencedColumns: ["session_id"]
+          },
+          {
+            foreignKeyName: "event_profile_impression_events_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "vw_video_date_provider_room_reconciliation"
+            referencedColumns: ["session_id"]
+          },
+          {
+            foreignKeyName: "event_profile_impression_events_target_id_fkey"
+            columns: ["target_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "event_profile_impression_events_viewer_id_fkey"
+            columns: ["viewer_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      event_profile_impressions: {
+        Row: {
+          event_id: string
+          first_seen_at: string
+          last_action: string
+          last_action_at: string
+          metadata: Json
+          session_id: string | null
+          source: string
+          strongest_exclusion_reason: string
+          target_id: string
+          updated_at: string
+          viewer_id: string
+        }
+        Insert: {
+          event_id: string
+          first_seen_at?: string
+          last_action: string
+          last_action_at?: string
+          metadata?: Json
+          session_id?: string | null
+          source?: string
+          strongest_exclusion_reason: string
+          target_id: string
+          updated_at?: string
+          viewer_id: string
+        }
+        Update: {
+          event_id?: string
+          first_seen_at?: string
+          last_action?: string
+          last_action_at?: string
+          metadata?: Json
+          session_id?: string | null
+          source?: string
+          strongest_exclusion_reason?: string
+          target_id?: string
+          updated_at?: string
+          viewer_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "event_profile_impressions_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "event_profile_impressions_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "vw_synthetic_video_date_health"
+            referencedColumns: ["event_id"]
+          },
+          {
+            foreignKeyName: "event_profile_impressions_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "v_video_date_queue_fairness_candidates"
+            referencedColumns: ["session_id"]
+          },
+          {
+            foreignKeyName: "event_profile_impressions_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "video_sessions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "event_profile_impressions_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "vw_session_health"
+            referencedColumns: ["session_id"]
+          },
+          {
+            foreignKeyName: "event_profile_impressions_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "vw_video_date_extension_refund_certification"
+            referencedColumns: ["session_id"]
+          },
+          {
+            foreignKeyName: "event_profile_impressions_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "vw_video_date_provider_room_reconciliation"
+            referencedColumns: ["session_id"]
+          },
+          {
+            foreignKeyName: "event_profile_impressions_target_id_fkey"
+            columns: ["target_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "event_profile_impressions_viewer_id_fkey"
+            columns: ["viewer_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
             referencedColumns: ["id"]
           },
         ]
@@ -1659,6 +2346,8 @@ export type Database = {
           profile_id: string
           promoted_at: string | null
           queue_status: string | null
+          ready_gate_suppressed_session_id: string | null
+          ready_gate_suppressed_until: string | null
           registered_at: string
           updated_at: string | null
           waitlisted_at: string | null
@@ -1682,6 +2371,8 @@ export type Database = {
           profile_id: string
           promoted_at?: string | null
           queue_status?: string | null
+          ready_gate_suppressed_session_id?: string | null
+          ready_gate_suppressed_until?: string | null
           registered_at?: string
           updated_at?: string | null
           waitlisted_at?: string | null
@@ -1705,6 +2396,8 @@ export type Database = {
           profile_id?: string
           promoted_at?: string | null
           queue_status?: string | null
+          ready_gate_suppressed_session_id?: string | null
+          ready_gate_suppressed_until?: string | null
           registered_at?: string
           updated_at?: string | null
           waitlisted_at?: string | null
@@ -1716,6 +2409,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "events"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "event_registrations_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "vw_synthetic_video_date_health"
+            referencedColumns: ["event_id"]
           },
           {
             foreignKeyName: "event_registrations_profile_id_fkey"
@@ -1778,6 +2478,13 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
+            foreignKeyName: "event_reminder_queue_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "vw_synthetic_video_date_health"
+            referencedColumns: ["event_id"]
+          },
+          {
             foreignKeyName: "event_reminder_queue_profile_id_fkey"
             columns: ["profile_id"]
             isOneToOne: false
@@ -1827,6 +2534,13 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
+            foreignKeyName: "event_swipes_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "vw_synthetic_video_date_health"
+            referencedColumns: ["event_id"]
+          },
+          {
             foreignKeyName: "event_swipes_target_id_fkey"
             columns: ["target_id"]
             isOneToOne: false
@@ -1866,6 +2580,13 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
+            foreignKeyName: "event_vibes_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "vw_synthetic_video_date_health"
+            referencedColumns: ["event_id"]
+          },
+          {
             foreignKeyName: "event_vibes_receiver_id_fkey"
             columns: ["receiver_id"]
             isOneToOne: false
@@ -1899,6 +2620,7 @@ export type Database = {
           is_free: boolean | null
           is_location_specific: boolean | null
           is_recurring: boolean | null
+          is_test_event: boolean
           language: string | null
           latitude: number | null
           location_address: string | null
@@ -1942,6 +2664,7 @@ export type Database = {
           is_free?: boolean | null
           is_location_specific?: boolean | null
           is_recurring?: boolean | null
+          is_test_event?: boolean
           language?: string | null
           latitude?: number | null
           location_address?: string | null
@@ -1985,6 +2708,7 @@ export type Database = {
           is_free?: boolean | null
           is_location_specific?: boolean | null
           is_recurring?: boolean | null
+          is_test_event?: boolean
           language?: string | null
           latitude?: number | null
           location_address?: string | null
@@ -2018,6 +2742,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "events"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "events_parent_event_id_fkey"
+            columns: ["parent_event_id"]
+            isOneToOne: false
+            referencedRelation: "vw_synthetic_video_date_health"
+            referencedColumns: ["event_id"]
           },
         ]
       }
@@ -2525,6 +3256,7 @@ export type Database = {
         Row: {
           archived_at: string | null
           archived_by: string | null
+          encrypted_conversation_keys: Json | null
           event_id: string | null
           id: string
           last_message_at: string | null
@@ -2535,6 +3267,7 @@ export type Database = {
         Insert: {
           archived_at?: string | null
           archived_by?: string | null
+          encrypted_conversation_keys?: Json | null
           event_id?: string | null
           id?: string
           last_message_at?: string | null
@@ -2545,6 +3278,7 @@ export type Database = {
         Update: {
           archived_at?: string | null
           archived_by?: string | null
+          encrypted_conversation_keys?: Json | null
           event_id?: string | null
           id?: string
           last_message_at?: string | null
@@ -2559,6 +3293,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "events"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "matches_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "vw_synthetic_video_date_health"
+            referencedColumns: ["event_id"]
           },
           {
             foreignKeyName: "matches_profile_id_1_fkey"
@@ -2578,60 +3319,99 @@ export type Database = {
       }
       media_assets: {
         Row: {
+          archive_error: string | null
+          archived_at: string | null
           bytes: number | null
+          content_sha256: string | null
           created_at: string
           deleted_at: string | null
+          derivative_display_path: string | null
+          derivative_hero_path: string | null
+          derivative_thumb_path: string | null
+          dominant_color: string | null
+          encryption_metadata: Json | null
           id: string
+          last_accessed_at: string | null
           last_error: string | null
           legacy_id: string | null
           legacy_table: string | null
           media_family: string
           mime_type: string | null
           owner_user_id: string | null
+          placeholder_hash: string | null
+          placeholder_kind: string | null
+          placeholder_updated_at: string | null
           provider: string
           provider_object_id: string | null
           provider_path: string | null
           purge_after: string | null
           purged_at: string | null
           status: string
+          storage_zone: string
           updated_at: string
         }
         Insert: {
+          archive_error?: string | null
+          archived_at?: string | null
           bytes?: number | null
+          content_sha256?: string | null
           created_at?: string
           deleted_at?: string | null
+          derivative_display_path?: string | null
+          derivative_hero_path?: string | null
+          derivative_thumb_path?: string | null
+          dominant_color?: string | null
+          encryption_metadata?: Json | null
           id?: string
+          last_accessed_at?: string | null
           last_error?: string | null
           legacy_id?: string | null
           legacy_table?: string | null
           media_family: string
           mime_type?: string | null
           owner_user_id?: string | null
+          placeholder_hash?: string | null
+          placeholder_kind?: string | null
+          placeholder_updated_at?: string | null
           provider: string
           provider_object_id?: string | null
           provider_path?: string | null
           purge_after?: string | null
           purged_at?: string | null
           status?: string
+          storage_zone?: string
           updated_at?: string
         }
         Update: {
+          archive_error?: string | null
+          archived_at?: string | null
           bytes?: number | null
+          content_sha256?: string | null
           created_at?: string
           deleted_at?: string | null
+          derivative_display_path?: string | null
+          derivative_hero_path?: string | null
+          derivative_thumb_path?: string | null
+          dominant_color?: string | null
+          encryption_metadata?: Json | null
           id?: string
+          last_accessed_at?: string | null
           last_error?: string | null
           legacy_id?: string | null
           legacy_table?: string | null
           media_family?: string
           mime_type?: string | null
           owner_user_id?: string | null
+          placeholder_hash?: string | null
+          placeholder_kind?: string | null
+          placeholder_updated_at?: string | null
           provider?: string
           provider_object_id?: string | null
           provider_path?: string | null
           purge_after?: string | null
           purged_at?: string | null
           status?: string
+          storage_zone?: string
           updated_at?: string
         }
         Relationships: [
@@ -2800,6 +3580,84 @@ export type Database = {
           worker_enabled?: boolean
         }
         Relationships: []
+      }
+      media_upload_receipts: {
+        Row: {
+          asset_id: string | null
+          attempt_count: number
+          client_request_id: string
+          content_sha256: string
+          created_at: string
+          id: string
+          last_error: string | null
+          last_failed_at: string | null
+          media_family: string
+          metadata: Json
+          next_retry_at: string | null
+          owner_user_id: string
+          provider: string
+          provider_object_id: string | null
+          provider_path: string | null
+          scope_key: string
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          asset_id?: string | null
+          attempt_count?: number
+          client_request_id: string
+          content_sha256: string
+          created_at?: string
+          id?: string
+          last_error?: string | null
+          last_failed_at?: string | null
+          media_family: string
+          metadata?: Json
+          next_retry_at?: string | null
+          owner_user_id: string
+          provider: string
+          provider_object_id?: string | null
+          provider_path?: string | null
+          scope_key?: string
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          asset_id?: string | null
+          attempt_count?: number
+          client_request_id?: string
+          content_sha256?: string
+          created_at?: string
+          id?: string
+          last_error?: string | null
+          last_failed_at?: string | null
+          media_family?: string
+          metadata?: Json
+          next_retry_at?: string | null
+          owner_user_id?: string
+          provider?: string
+          provider_object_id?: string | null
+          provider_path?: string | null
+          scope_key?: string
+          status?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "media_upload_receipts_asset_id_fkey"
+            columns: ["asset_id"]
+            isOneToOne: false
+            referencedRelation: "media_assets"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "media_upload_receipts_media_family_fkey"
+            columns: ["media_family"]
+            isOneToOne: false
+            referencedRelation: "media_retention_settings"
+            referencedColumns: ["media_family"]
+          },
+        ]
       }
       message_reactions: {
         Row: {
@@ -3144,6 +4002,42 @@ export type Database = {
           release_version?: string
           started_at?: string | null
           status?: string
+        }
+        Relationships: []
+      }
+      notification_acks: {
+        Row: {
+          ack_source: string | null
+          acked_at: string
+          created_at: string
+          dispatch_group_id: string
+          id: string
+          payload: Json
+          provider_notification_id: string | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          ack_source?: string | null
+          acked_at?: string
+          created_at?: string
+          dispatch_group_id: string
+          id?: string
+          payload?: Json
+          provider_notification_id?: string | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          ack_source?: string | null
+          acked_at?: string
+          created_at?: string
+          dispatch_group_id?: string
+          id?: string
+          payload?: Json
+          provider_notification_id?: string | null
+          updated_at?: string
+          user_id?: string
         }
         Relationships: []
       }
@@ -3562,8 +4456,36 @@ export type Database = {
             foreignKeyName: "post_date_client_submissions_session_id_fkey"
             columns: ["session_id"]
             isOneToOne: false
+            referencedRelation: "v_video_date_queue_fairness_candidates"
+            referencedColumns: ["session_id"]
+          },
+          {
+            foreignKeyName: "post_date_client_submissions_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
             referencedRelation: "video_sessions"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "post_date_client_submissions_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "vw_session_health"
+            referencedColumns: ["session_id"]
+          },
+          {
+            foreignKeyName: "post_date_client_submissions_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "vw_video_date_extension_refund_certification"
+            referencedColumns: ["session_id"]
+          },
+          {
+            foreignKeyName: "post_date_client_submissions_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "vw_video_date_provider_room_reconciliation"
+            referencedColumns: ["session_id"]
           },
         ]
       }
@@ -3621,8 +4543,36 @@ export type Database = {
             foreignKeyName: "post_date_pending_verdicts_session_id_fkey"
             columns: ["session_id"]
             isOneToOne: true
+            referencedRelation: "v_video_date_queue_fairness_candidates"
+            referencedColumns: ["session_id"]
+          },
+          {
+            foreignKeyName: "post_date_pending_verdicts_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: true
             referencedRelation: "video_sessions"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "post_date_pending_verdicts_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: true
+            referencedRelation: "vw_session_health"
+            referencedColumns: ["session_id"]
+          },
+          {
+            foreignKeyName: "post_date_pending_verdicts_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: true
+            referencedRelation: "vw_video_date_extension_refund_certification"
+            referencedColumns: ["session_id"]
+          },
+          {
+            foreignKeyName: "post_date_pending_verdicts_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: true
+            referencedRelation: "vw_video_date_provider_room_reconciliation"
+            referencedColumns: ["session_id"]
           },
         ]
       }
@@ -3706,6 +4656,7 @@ export type Database = {
       profile_vibe_videos: {
         Row: {
           asset_id: string
+          captions: Json | null
           created_at: string
           display_order: number
           id: string
@@ -3718,6 +4669,7 @@ export type Database = {
         }
         Insert: {
           asset_id: string
+          captions?: Json | null
           created_at?: string
           display_order?: number
           id?: string
@@ -3730,6 +4682,7 @@ export type Database = {
         }
         Update: {
           asset_id?: string
+          captions?: Json | null
           created_at?: string
           display_order?: number
           id?: string
@@ -3809,6 +4762,7 @@ export type Database = {
           distance_visibility: string | null
           email_unsubscribed: boolean
           email_verified: boolean | null
+          encryption_pub_key: string | null
           event_attendance_visibility: string | null
           event_discovery_prefs: Json | null
           events_attended: number | null
@@ -3858,6 +4812,7 @@ export type Database = {
           vibe_caption: string | null
           vibe_score: number
           vibe_score_label: string
+          vibe_video_captions: Json | null
           vibe_video_status: string | null
         }
         Insert: {
@@ -3882,6 +4837,7 @@ export type Database = {
           distance_visibility?: string | null
           email_unsubscribed?: boolean
           email_verified?: boolean | null
+          encryption_pub_key?: string | null
           event_attendance_visibility?: string | null
           event_discovery_prefs?: Json | null
           events_attended?: number | null
@@ -3931,6 +4887,7 @@ export type Database = {
           vibe_caption?: string | null
           vibe_score?: number
           vibe_score_label?: string
+          vibe_video_captions?: Json | null
           vibe_video_status?: string | null
         }
         Update: {
@@ -3955,6 +4912,7 @@ export type Database = {
           distance_visibility?: string | null
           email_unsubscribed?: boolean
           email_verified?: boolean | null
+          encryption_pub_key?: string | null
           event_attendance_visibility?: string | null
           event_discovery_prefs?: Json | null
           events_attended?: number | null
@@ -4004,6 +4962,7 @@ export type Database = {
           vibe_caption?: string | null
           vibe_score?: number
           vibe_score_label?: string
+          vibe_video_captions?: Json | null
           vibe_video_status?: string | null
         }
         Relationships: []
@@ -4204,6 +5163,42 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      push_subscriptions: {
+        Row: {
+          created_at: string
+          id: string
+          last_seen_at: string
+          platform: string
+          provider: string
+          subscribed: boolean
+          subscription_id: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          last_seen_at?: string
+          platform?: string
+          provider?: string
+          subscribed?: boolean
+          subscription_id: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          last_seen_at?: string
+          platform?: string
+          provider?: string
+          subscribed?: boolean
+          subscription_id?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
       }
       quality_budget_definitions: {
         Row: {
@@ -4649,13 +5644,16 @@ export type Database = {
         Row: {
           checkout_session_id: string
           created_at: string
+          entitlement_snapshot: Json
           event_id: string
+          event_snapshot: Json
           expected_amount: number
           expected_currency: string
           metadata: Json
           settled_at: string | null
           status: string
           stripe_event_id: string | null
+          tier_at_checkout: string | null
           updated_at: string
           user_id: string
           verified_at: string | null
@@ -4663,13 +5661,16 @@ export type Database = {
         Insert: {
           checkout_session_id: string
           created_at?: string
+          entitlement_snapshot?: Json
           event_id: string
+          event_snapshot?: Json
           expected_amount: number
           expected_currency: string
           metadata?: Json
           settled_at?: string | null
           status?: string
           stripe_event_id?: string | null
+          tier_at_checkout?: string | null
           updated_at?: string
           user_id: string
           verified_at?: string | null
@@ -4677,13 +5678,16 @@ export type Database = {
         Update: {
           checkout_session_id?: string
           created_at?: string
+          entitlement_snapshot?: Json
           event_id?: string
+          event_snapshot?: Json
           expected_amount?: number
           expected_currency?: string
           metadata?: Json
           settled_at?: string | null
           status?: string
           stripe_event_id?: string | null
+          tier_at_checkout?: string | null
           updated_at?: string
           user_id?: string
           verified_at?: string | null
@@ -4696,6 +5700,110 @@ export type Database = {
             referencedRelation: "events"
             referencedColumns: ["id"]
           },
+          {
+            foreignKeyName: "stripe_event_ticket_checkout_intents_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "vw_synthetic_video_date_health"
+            referencedColumns: ["event_id"]
+          },
+        ]
+      }
+      stripe_event_ticket_refunds: {
+        Row: {
+          amount: number | null
+          attempts: number
+          checkout_session_id: string
+          claim_expires_at: string | null
+          claimed_by: string | null
+          created_at: string
+          currency: string | null
+          event_id: string
+          id: string
+          last_error: string | null
+          max_attempts: number
+          metadata: Json
+          next_attempt_at: string
+          payment_intent_id: string | null
+          profile_id: string
+          reason_code: string
+          refunded_at: string | null
+          settlement_outcome: string | null
+          status: string
+          stripe_refund_id: string | null
+          stripe_refund_status: string | null
+          updated_at: string
+        }
+        Insert: {
+          amount?: number | null
+          attempts?: number
+          checkout_session_id: string
+          claim_expires_at?: string | null
+          claimed_by?: string | null
+          created_at?: string
+          currency?: string | null
+          event_id: string
+          id?: string
+          last_error?: string | null
+          max_attempts?: number
+          metadata?: Json
+          next_attempt_at?: string
+          payment_intent_id?: string | null
+          profile_id: string
+          reason_code: string
+          refunded_at?: string | null
+          settlement_outcome?: string | null
+          status?: string
+          stripe_refund_id?: string | null
+          stripe_refund_status?: string | null
+          updated_at?: string
+        }
+        Update: {
+          amount?: number | null
+          attempts?: number
+          checkout_session_id?: string
+          claim_expires_at?: string | null
+          claimed_by?: string | null
+          created_at?: string
+          currency?: string | null
+          event_id?: string
+          id?: string
+          last_error?: string | null
+          max_attempts?: number
+          metadata?: Json
+          next_attempt_at?: string
+          payment_intent_id?: string | null
+          profile_id?: string
+          reason_code?: string
+          refunded_at?: string | null
+          settlement_outcome?: string | null
+          status?: string
+          stripe_refund_id?: string | null
+          stripe_refund_status?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "stripe_event_ticket_refunds_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "stripe_event_ticket_refunds_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "vw_synthetic_video_date_health"
+            referencedColumns: ["event_id"]
+          },
+          {
+            foreignKeyName: "stripe_event_ticket_refunds_profile_id_fkey"
+            columns: ["profile_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
         ]
       }
       stripe_event_ticket_settlements: {
@@ -4706,6 +5814,7 @@ export type Database = {
           outcome: string
           profile_id: string
           result: Json
+          updated_at: string
         }
         Insert: {
           checkout_session_id: string
@@ -4714,6 +5823,7 @@ export type Database = {
           outcome: string
           profile_id: string
           result?: Json
+          updated_at?: string
         }
         Update: {
           checkout_session_id?: string
@@ -4722,6 +5832,7 @@ export type Database = {
           outcome?: string
           profile_id?: string
           result?: Json
+          updated_at?: string
         }
         Relationships: [
           {
@@ -4730,6 +5841,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "events"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "stripe_event_ticket_settlements_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "vw_synthetic_video_date_health"
+            referencedColumns: ["event_id"]
           },
           {
             foreignKeyName: "stripe_event_ticket_settlements_profile_id_fkey"
@@ -4880,42 +5998,6 @@ export type Database = {
           },
         ]
       }
-      support_response_templates: {
-        Row: {
-          active: boolean
-          body: string
-          category: string
-          created_at: string
-          id: string
-          pii_classification: string
-          template_key: string
-          title: string
-          updated_at: string
-        }
-        Insert: {
-          active?: boolean
-          body: string
-          category: string
-          created_at?: string
-          id?: string
-          pii_classification?: string
-          template_key: string
-          title: string
-          updated_at?: string
-        }
-        Update: {
-          active?: boolean
-          body?: string
-          category?: string
-          created_at?: string
-          id?: string
-          pii_classification?: string
-          template_key?: string
-          title?: string
-          updated_at?: string
-        }
-        Relationships: []
-      }
       support_reply_delivery_jobs: {
         Row: {
           attempts: number
@@ -5006,6 +6088,42 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      support_response_templates: {
+        Row: {
+          active: boolean
+          body: string
+          category: string
+          created_at: string
+          id: string
+          pii_classification: string
+          template_key: string
+          title: string
+          updated_at: string
+        }
+        Insert: {
+          active?: boolean
+          body: string
+          category: string
+          created_at?: string
+          id?: string
+          pii_classification?: string
+          template_key: string
+          title: string
+          updated_at?: string
+        }
+        Update: {
+          active?: boolean
+          body?: string
+          category?: string
+          created_at?: string
+          id?: string
+          pii_classification?: string
+          template_key?: string
+          title?: string
+          updated_at?: string
+        }
+        Relationships: []
       }
       support_ticket_attachments: {
         Row: {
@@ -5195,6 +6313,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "events"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "support_tickets_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "vw_synthetic_video_date_health"
+            referencedColumns: ["event_id"]
           },
           {
             foreignKeyName: "support_tickets_event_payment_exception_id_fkey"
@@ -5693,6 +6818,84 @@ export type Database = {
         }
         Relationships: []
       }
+      vibe_video_uploads: {
+        Row: {
+          aspect_ratio: number | null
+          attempt_count: number
+          captions: Json | null
+          client_request_id: string
+          created_at: string
+          draft_media_session_id: string | null
+          duration_ms: number | null
+          error_detail: string | null
+          expires_at: string
+          id: string
+          media_asset_id: string | null
+          mime_type: string | null
+          provider_object_id: string
+          source_bytes: number | null
+          status: string
+          updated_at: string
+          upload_context: string
+          user_id: string
+        }
+        Insert: {
+          aspect_ratio?: number | null
+          attempt_count?: number
+          captions?: Json | null
+          client_request_id: string
+          created_at?: string
+          draft_media_session_id?: string | null
+          duration_ms?: number | null
+          error_detail?: string | null
+          expires_at?: string
+          id?: string
+          media_asset_id?: string | null
+          mime_type?: string | null
+          provider_object_id: string
+          source_bytes?: number | null
+          status?: string
+          updated_at?: string
+          upload_context?: string
+          user_id: string
+        }
+        Update: {
+          aspect_ratio?: number | null
+          attempt_count?: number
+          captions?: Json | null
+          client_request_id?: string
+          created_at?: string
+          draft_media_session_id?: string | null
+          duration_ms?: number | null
+          error_detail?: string | null
+          expires_at?: string
+          id?: string
+          media_asset_id?: string | null
+          mime_type?: string | null
+          provider_object_id?: string
+          source_bytes?: number | null
+          status?: string
+          updated_at?: string
+          upload_context?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "vibe_video_uploads_draft_media_session_id_fkey"
+            columns: ["draft_media_session_id"]
+            isOneToOne: false
+            referencedRelation: "draft_media_sessions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "vibe_video_uploads_media_asset_id_fkey"
+            columns: ["media_asset_id"]
+            isOneToOne: false
+            referencedRelation: "media_assets"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       video_date_credit_extension_spends: {
         Row: {
           added_seconds: number
@@ -5729,8 +6932,36 @@ export type Database = {
             foreignKeyName: "video_date_credit_extension_spends_session_id_fkey"
             columns: ["session_id"]
             isOneToOne: false
+            referencedRelation: "v_video_date_queue_fairness_candidates"
+            referencedColumns: ["session_id"]
+          },
+          {
+            foreignKeyName: "video_date_credit_extension_spends_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
             referencedRelation: "video_sessions"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "video_date_credit_extension_spends_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "vw_session_health"
+            referencedColumns: ["session_id"]
+          },
+          {
+            foreignKeyName: "video_date_credit_extension_spends_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "vw_video_date_extension_refund_certification"
+            referencedColumns: ["session_id"]
+          },
+          {
+            foreignKeyName: "video_date_credit_extension_spends_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "vw_video_date_provider_room_reconciliation"
+            referencedColumns: ["session_id"]
           },
           {
             foreignKeyName: "video_date_credit_extension_spends_user_id_fkey"
@@ -5738,6 +6969,345 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "profiles"
             referencedColumns: ["id"]
+          },
+        ]
+      }
+      video_date_daily_webhook_events: {
+        Row: {
+          created_at: string
+          event_type: string
+          id: number
+          occurred_at: string
+          payload: Json
+          processed_at: string | null
+          processing_result: string | null
+          processing_state: string
+          provider_event_id: string
+          provider_participant_id: string | null
+          provider_user_id: string | null
+          room_name: string | null
+          session_id: string | null
+          signature_timestamp: string | null
+        }
+        Insert: {
+          created_at?: string
+          event_type: string
+          id?: never
+          occurred_at?: string
+          payload?: Json
+          processed_at?: string | null
+          processing_result?: string | null
+          processing_state?: string
+          provider_event_id: string
+          provider_participant_id?: string | null
+          provider_user_id?: string | null
+          room_name?: string | null
+          session_id?: string | null
+          signature_timestamp?: string | null
+        }
+        Update: {
+          created_at?: string
+          event_type?: string
+          id?: never
+          occurred_at?: string
+          payload?: Json
+          processed_at?: string | null
+          processing_result?: string | null
+          processing_state?: string
+          provider_event_id?: string
+          provider_participant_id?: string | null
+          provider_user_id?: string | null
+          room_name?: string | null
+          session_id?: string | null
+          signature_timestamp?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "video_date_daily_webhook_events_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "v_video_date_queue_fairness_candidates"
+            referencedColumns: ["session_id"]
+          },
+          {
+            foreignKeyName: "video_date_daily_webhook_events_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "video_sessions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "video_date_daily_webhook_events_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "vw_session_health"
+            referencedColumns: ["session_id"]
+          },
+          {
+            foreignKeyName: "video_date_daily_webhook_events_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "vw_video_date_extension_refund_certification"
+            referencedColumns: ["session_id"]
+          },
+          {
+            foreignKeyName: "video_date_daily_webhook_events_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "vw_video_date_provider_room_reconciliation"
+            referencedColumns: ["session_id"]
+          },
+        ]
+      }
+      video_date_extension_requests: {
+        Row: {
+          added_seconds: number
+          applied_at: string | null
+          applied_by: string | null
+          created_at: string
+          credit_type: string
+          expires_at: string
+          failure_reason: string | null
+          id: string
+          idempotency_key: string
+          partner_request_id: string | null
+          requester_id: string
+          session_id: string
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          added_seconds: number
+          applied_at?: string | null
+          applied_by?: string | null
+          created_at?: string
+          credit_type: string
+          expires_at?: string
+          failure_reason?: string | null
+          id?: string
+          idempotency_key: string
+          partner_request_id?: string | null
+          requester_id: string
+          session_id: string
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          added_seconds?: number
+          applied_at?: string | null
+          applied_by?: string | null
+          created_at?: string
+          credit_type?: string
+          expires_at?: string
+          failure_reason?: string | null
+          id?: string
+          idempotency_key?: string
+          partner_request_id?: string | null
+          requester_id?: string
+          session_id?: string
+          status?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "video_date_extension_requests_applied_by_fkey"
+            columns: ["applied_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "video_date_extension_requests_partner_request_id_fkey"
+            columns: ["partner_request_id"]
+            isOneToOne: false
+            referencedRelation: "video_date_extension_requests"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "video_date_extension_requests_requester_id_fkey"
+            columns: ["requester_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "video_date_extension_requests_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "v_video_date_queue_fairness_candidates"
+            referencedColumns: ["session_id"]
+          },
+          {
+            foreignKeyName: "video_date_extension_requests_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "video_sessions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "video_date_extension_requests_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "vw_session_health"
+            referencedColumns: ["session_id"]
+          },
+          {
+            foreignKeyName: "video_date_extension_requests_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "vw_video_date_extension_refund_certification"
+            referencedColumns: ["session_id"]
+          },
+          {
+            foreignKeyName: "video_date_extension_requests_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "vw_video_date_provider_room_reconciliation"
+            referencedColumns: ["session_id"]
+          },
+        ]
+      }
+      video_date_orphan_room_cleanup_audit: {
+        Row: {
+          action: string
+          active_participant_count: number
+          created_at: string
+          id: number
+          metadata: Json
+          provider_created_at: string | null
+          provider_expires_at: string | null
+          provider_room_id: string | null
+          reason: string
+          room_name: string
+          session_id: string | null
+        }
+        Insert: {
+          action: string
+          active_participant_count?: number
+          created_at?: string
+          id?: never
+          metadata?: Json
+          provider_created_at?: string | null
+          provider_expires_at?: string | null
+          provider_room_id?: string | null
+          reason: string
+          room_name: string
+          session_id?: string | null
+        }
+        Update: {
+          action?: string
+          active_participant_count?: number
+          created_at?: string
+          id?: never
+          metadata?: Json
+          provider_created_at?: string | null
+          provider_expires_at?: string | null
+          provider_room_id?: string | null
+          reason?: string
+          room_name?: string
+          session_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "video_date_orphan_room_cleanup_audit_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "v_video_date_queue_fairness_candidates"
+            referencedColumns: ["session_id"]
+          },
+          {
+            foreignKeyName: "video_date_orphan_room_cleanup_audit_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "video_sessions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "video_date_orphan_room_cleanup_audit_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "vw_session_health"
+            referencedColumns: ["session_id"]
+          },
+          {
+            foreignKeyName: "video_date_orphan_room_cleanup_audit_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "vw_video_date_extension_refund_certification"
+            referencedColumns: ["session_id"]
+          },
+          {
+            foreignKeyName: "video_date_orphan_room_cleanup_audit_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "vw_video_date_provider_room_reconciliation"
+            referencedColumns: ["session_id"]
+          },
+        ]
+      }
+      video_date_phase8_certification_runs: {
+        Row: {
+          certified_at: string | null
+          certified_by: string | null
+          commit_sha: string | null
+          created_at: string
+          event_id: string | null
+          expires_at: string | null
+          id: string
+          notes: string | null
+          platform: string
+          report: Json
+          rollout_bps: number | null
+          run_kind: string
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          certified_at?: string | null
+          certified_by?: string | null
+          commit_sha?: string | null
+          created_at?: string
+          event_id?: string | null
+          expires_at?: string | null
+          id?: string
+          notes?: string | null
+          platform: string
+          report?: Json
+          rollout_bps?: number | null
+          run_kind: string
+          status: string
+          updated_at?: string
+        }
+        Update: {
+          certified_at?: string | null
+          certified_by?: string | null
+          commit_sha?: string | null
+          created_at?: string
+          event_id?: string | null
+          expires_at?: string | null
+          id?: string
+          notes?: string | null
+          platform?: string
+          report?: Json
+          rollout_bps?: number | null
+          run_kind?: string
+          status?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "video_date_phase8_certification_runs_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "video_date_phase8_certification_runs_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "vw_synthetic_video_date_health"
+            referencedColumns: ["event_id"]
           },
         ]
       }
@@ -5780,11 +7350,140 @@ export type Database = {
         }
         Relationships: [
           {
+            foreignKeyName: "video_date_provider_dead_letters_deadline_id_fkey"
+            columns: ["deadline_id"]
+            isOneToOne: false
+            referencedRelation: "video_session_deadlines"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "video_date_provider_dead_letters_outbox_id_fkey"
+            columns: ["outbox_id"]
+            isOneToOne: false
+            referencedRelation: "video_date_provider_outbox"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "video_date_provider_dead_letters_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "v_video_date_queue_fairness_candidates"
+            referencedColumns: ["session_id"]
+          },
+          {
             foreignKeyName: "video_date_provider_dead_letters_session_id_fkey"
             columns: ["session_id"]
             isOneToOne: false
             referencedRelation: "video_sessions"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "video_date_provider_dead_letters_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "vw_session_health"
+            referencedColumns: ["session_id"]
+          },
+          {
+            foreignKeyName: "video_date_provider_dead_letters_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "vw_video_date_extension_refund_certification"
+            referencedColumns: ["session_id"]
+          },
+          {
+            foreignKeyName: "video_date_provider_dead_letters_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "vw_video_date_provider_room_reconciliation"
+            referencedColumns: ["session_id"]
+          },
+        ]
+      }
+      video_date_provider_outbox: {
+        Row: {
+          attempts: number
+          claim_expires_at: string | null
+          claimed_at: string | null
+          claimed_by: string | null
+          created_at: string
+          dedupe_key: string | null
+          id: number
+          kind: string
+          last_error: string | null
+          next_attempt_at: string
+          payload: Json
+          session_id: string | null
+          state: string
+          updated_at: string
+        }
+        Insert: {
+          attempts?: number
+          claim_expires_at?: string | null
+          claimed_at?: string | null
+          claimed_by?: string | null
+          created_at?: string
+          dedupe_key?: string | null
+          id?: number
+          kind: string
+          last_error?: string | null
+          next_attempt_at?: string
+          payload?: Json
+          session_id?: string | null
+          state?: string
+          updated_at?: string
+        }
+        Update: {
+          attempts?: number
+          claim_expires_at?: string | null
+          claimed_at?: string | null
+          claimed_by?: string | null
+          created_at?: string
+          dedupe_key?: string | null
+          id?: number
+          kind?: string
+          last_error?: string | null
+          next_attempt_at?: string
+          payload?: Json
+          session_id?: string | null
+          state?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "video_date_provider_outbox_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "v_video_date_queue_fairness_candidates"
+            referencedColumns: ["session_id"]
+          },
+          {
+            foreignKeyName: "video_date_provider_outbox_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "video_sessions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "video_date_provider_outbox_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "vw_session_health"
+            referencedColumns: ["session_id"]
+          },
+          {
+            foreignKeyName: "video_date_provider_outbox_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "vw_video_date_extension_refund_certification"
+            referencedColumns: ["session_id"]
+          },
+          {
+            foreignKeyName: "video_date_provider_outbox_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "vw_video_date_provider_room_reconciliation"
+            referencedColumns: ["session_id"]
           },
         ]
       }
@@ -5839,11 +7538,53 @@ export type Database = {
         }
         Relationships: [
           {
+            foreignKeyName: "video_date_provider_outbox_failure_log_deadline_id_fkey"
+            columns: ["deadline_id"]
+            isOneToOne: false
+            referencedRelation: "video_session_deadlines"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "video_date_provider_outbox_failure_log_outbox_id_fkey"
+            columns: ["outbox_id"]
+            isOneToOne: false
+            referencedRelation: "video_date_provider_outbox"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "video_date_provider_outbox_failure_log_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "v_video_date_queue_fairness_candidates"
+            referencedColumns: ["session_id"]
+          },
+          {
             foreignKeyName: "video_date_provider_outbox_failure_log_session_id_fkey"
             columns: ["session_id"]
             isOneToOne: false
             referencedRelation: "video_sessions"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "video_date_provider_outbox_failure_log_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "vw_session_health"
+            referencedColumns: ["session_id"]
+          },
+          {
+            foreignKeyName: "video_date_provider_outbox_failure_log_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "vw_video_date_extension_refund_certification"
+            referencedColumns: ["session_id"]
+          },
+          {
+            foreignKeyName: "video_date_provider_outbox_failure_log_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "vw_video_date_provider_room_reconciliation"
+            referencedColumns: ["session_id"]
           },
         ]
       }
@@ -5874,33 +7615,42 @@ export type Database = {
         }
         Relationships: []
       }
-      video_date_worker_runs: {
+      video_date_recovery_alert_dispatches: {
         Row: {
-          claim_expires_at: string | null
-          claimed_by: string | null
-          heartbeat_at: string | null
-          metadata: Json
-          run_started_at: string | null
-          updated_at: string
-          worker_kind: string
+          alert_payload: Json
+          created_at: string
+          fingerprint: string
+          hour_bucket: string
+          id: number
+          sentry_claimed_at: string | null
+          sentry_sent_at: string | null
+          severity: string
+          slack_claimed_at: string | null
+          slack_sent_at: string | null
         }
         Insert: {
-          claim_expires_at?: string | null
-          claimed_by?: string | null
-          heartbeat_at?: string | null
-          metadata?: Json
-          run_started_at?: string | null
-          updated_at?: string
-          worker_kind: string
+          alert_payload?: Json
+          created_at?: string
+          fingerprint: string
+          hour_bucket: string
+          id?: number
+          sentry_claimed_at?: string | null
+          sentry_sent_at?: string | null
+          severity: string
+          slack_claimed_at?: string | null
+          slack_sent_at?: string | null
         }
         Update: {
-          claim_expires_at?: string | null
-          claimed_by?: string | null
-          heartbeat_at?: string | null
-          metadata?: Json
-          run_started_at?: string | null
-          updated_at?: string
-          worker_kind?: string
+          alert_payload?: Json
+          created_at?: string
+          fingerprint?: string
+          hour_bucket?: string
+          id?: number
+          sentry_claimed_at?: string | null
+          sentry_sent_at?: string | null
+          severity?: string
+          slack_claimed_at?: string | null
+          slack_sent_at?: string | null
         }
         Relationships: []
       }
@@ -5947,8 +7697,371 @@ export type Database = {
             foreignKeyName: "video_date_surface_claims_session_id_fkey"
             columns: ["session_id"]
             isOneToOne: false
+            referencedRelation: "v_video_date_queue_fairness_candidates"
+            referencedColumns: ["session_id"]
+          },
+          {
+            foreignKeyName: "video_date_surface_claims_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
             referencedRelation: "video_sessions"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "video_date_surface_claims_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "vw_session_health"
+            referencedColumns: ["session_id"]
+          },
+          {
+            foreignKeyName: "video_date_surface_claims_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "vw_video_date_extension_refund_certification"
+            referencedColumns: ["session_id"]
+          },
+          {
+            foreignKeyName: "video_date_surface_claims_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "vw_video_date_provider_room_reconciliation"
+            referencedColumns: ["session_id"]
+          },
+        ]
+      }
+      video_date_webhook_dlq: {
+        Row: {
+          attempts: number
+          created_at: string
+          error_class: string
+          error_message: string | null
+          event_type: string | null
+          id: number
+          next_retry_at: string | null
+          payload_hash: string
+          provider: string
+          provider_event_id: string | null
+          retryable: boolean
+          room_name: string | null
+          sanitized_payload: Json
+          signature_timestamp: string | null
+          state: string
+          updated_at: string
+        }
+        Insert: {
+          attempts?: number
+          created_at?: string
+          error_class: string
+          error_message?: string | null
+          event_type?: string | null
+          id?: number
+          next_retry_at?: string | null
+          payload_hash: string
+          provider: string
+          provider_event_id?: string | null
+          retryable?: boolean
+          room_name?: string | null
+          sanitized_payload?: Json
+          signature_timestamp?: string | null
+          state?: string
+          updated_at?: string
+        }
+        Update: {
+          attempts?: number
+          created_at?: string
+          error_class?: string
+          error_message?: string | null
+          event_type?: string | null
+          id?: number
+          next_retry_at?: string | null
+          payload_hash?: string
+          provider?: string
+          provider_event_id?: string | null
+          retryable?: boolean
+          room_name?: string | null
+          sanitized_payload?: Json
+          signature_timestamp?: string | null
+          state?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      video_date_worker_runs: {
+        Row: {
+          claim_expires_at: string | null
+          claimed_by: string | null
+          heartbeat_at: string | null
+          metadata: Json
+          run_started_at: string | null
+          updated_at: string
+          worker_kind: string
+        }
+        Insert: {
+          claim_expires_at?: string | null
+          claimed_by?: string | null
+          heartbeat_at?: string | null
+          metadata?: Json
+          run_started_at?: string | null
+          updated_at?: string
+          worker_kind: string
+        }
+        Update: {
+          claim_expires_at?: string | null
+          claimed_by?: string | null
+          heartbeat_at?: string | null
+          metadata?: Json
+          run_started_at?: string | null
+          updated_at?: string
+          worker_kind?: string
+        }
+        Relationships: []
+      }
+      video_session_commands: {
+        Row: {
+          actor: string
+          command_kind: string
+          committed_at: string | null
+          created_at: string
+          id: number
+          idempotency_key: string
+          request_hash: string
+          request_payload: Json
+          result_payload: Json | null
+          session_id: string
+          status: string
+        }
+        Insert: {
+          actor: string
+          command_kind: string
+          committed_at?: string | null
+          created_at?: string
+          id?: number
+          idempotency_key: string
+          request_hash: string
+          request_payload?: Json
+          result_payload?: Json | null
+          session_id: string
+          status?: string
+        }
+        Update: {
+          actor?: string
+          command_kind?: string
+          committed_at?: string | null
+          created_at?: string
+          id?: number
+          idempotency_key?: string
+          request_hash?: string
+          request_payload?: Json
+          result_payload?: Json | null
+          session_id?: string
+          status?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "video_session_commands_actor_fkey"
+            columns: ["actor"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "video_session_commands_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "v_video_date_queue_fairness_candidates"
+            referencedColumns: ["session_id"]
+          },
+          {
+            foreignKeyName: "video_session_commands_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "video_sessions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "video_session_commands_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "vw_session_health"
+            referencedColumns: ["session_id"]
+          },
+          {
+            foreignKeyName: "video_session_commands_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "vw_video_date_extension_refund_certification"
+            referencedColumns: ["session_id"]
+          },
+          {
+            foreignKeyName: "video_session_commands_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "vw_video_date_provider_room_reconciliation"
+            referencedColumns: ["session_id"]
+          },
+        ]
+      }
+      video_session_deadlines: {
+        Row: {
+          attempts: number
+          claim_expires_at: string | null
+          claimed_at: string | null
+          claimed_by: string | null
+          created_at: string
+          due_at: string
+          id: number
+          kind: string
+          last_error: string | null
+          session_id: string
+          state: string
+          updated_at: string
+        }
+        Insert: {
+          attempts?: number
+          claim_expires_at?: string | null
+          claimed_at?: string | null
+          claimed_by?: string | null
+          created_at?: string
+          due_at: string
+          id?: number
+          kind: string
+          last_error?: string | null
+          session_id: string
+          state?: string
+          updated_at?: string
+        }
+        Update: {
+          attempts?: number
+          claim_expires_at?: string | null
+          claimed_at?: string | null
+          claimed_by?: string | null
+          created_at?: string
+          due_at?: string
+          id?: number
+          kind?: string
+          last_error?: string | null
+          session_id?: string
+          state?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "video_session_deadlines_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "v_video_date_queue_fairness_candidates"
+            referencedColumns: ["session_id"]
+          },
+          {
+            foreignKeyName: "video_session_deadlines_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "video_sessions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "video_session_deadlines_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "vw_session_health"
+            referencedColumns: ["session_id"]
+          },
+          {
+            foreignKeyName: "video_session_deadlines_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "vw_video_date_extension_refund_certification"
+            referencedColumns: ["session_id"]
+          },
+          {
+            foreignKeyName: "video_session_deadlines_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "vw_video_date_provider_room_reconciliation"
+            referencedColumns: ["session_id"]
+          },
+        ]
+      }
+      video_session_events: {
+        Row: {
+          actor: string | null
+          at: string
+          correlation_id: string
+          id: number
+          kind: string
+          payload: Json
+          sanitized_payload: Json
+          session_id: string
+          session_seq: number
+          visibility: string
+        }
+        Insert: {
+          actor?: string | null
+          at?: string
+          correlation_id?: string
+          id?: number
+          kind: string
+          payload?: Json
+          sanitized_payload?: Json
+          session_id: string
+          session_seq?: number
+          visibility?: string
+        }
+        Update: {
+          actor?: string | null
+          at?: string
+          correlation_id?: string
+          id?: number
+          kind?: string
+          payload?: Json
+          sanitized_payload?: Json
+          session_id?: string
+          session_seq?: number
+          visibility?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "video_session_events_actor_fkey"
+            columns: ["actor"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "video_session_events_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "v_video_date_queue_fairness_candidates"
+            referencedColumns: ["session_id"]
+          },
+          {
+            foreignKeyName: "video_session_events_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "video_sessions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "video_session_events_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "vw_session_health"
+            referencedColumns: ["session_id"]
+          },
+          {
+            foreignKeyName: "video_session_events_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "vw_video_date_extension_refund_certification"
+            referencedColumns: ["session_id"]
+          },
+          {
+            foreignKeyName: "video_session_events_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "vw_video_date_provider_room_reconciliation"
+            referencedColumns: ["session_id"]
           },
         ]
       }
@@ -5992,6 +8105,7 @@ export type Database = {
           refund_breakdown: Json | null
           refund_granted_at: string | null
           refund_status: string | null
+          session_seq: number
           snooze_expires_at: string | null
           snoozed_by: string | null
           started_at: string
@@ -6040,6 +8154,7 @@ export type Database = {
           refund_breakdown?: Json | null
           refund_granted_at?: string | null
           refund_status?: string | null
+          session_seq?: number
           snooze_expires_at?: string | null
           snoozed_by?: string | null
           started_at?: string
@@ -6088,6 +8203,7 @@ export type Database = {
           refund_breakdown?: Json | null
           refund_granted_at?: string | null
           refund_status?: string | null
+          session_seq?: number
           snooze_expires_at?: string | null
           snoozed_by?: string | null
           started_at?: string
@@ -6104,6 +8220,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "events"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "video_sessions_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "vw_synthetic_video_date_health"
+            referencedColumns: ["event_id"]
           },
           {
             foreignKeyName: "video_sessions_participant_1_id_fkey"
@@ -6155,6 +8278,13 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
+            foreignKeyName: "waitlist_promotion_notify_queue_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "vw_synthetic_video_date_health"
+            referencedColumns: ["event_id"]
+          },
+          {
             foreignKeyName: "waitlist_promotion_notify_queue_user_id_fkey"
             columns: ["user_id"]
             isOneToOne: false
@@ -6165,71 +8295,6 @@ export type Database = {
       }
     }
     Views: {
-      push_notification_events_admin: {
-        Row: {
-          apns_message_id: string | null
-          campaign_id: string | null
-          clicked_at: string | null
-          created_at: string | null
-          delivered_at: string | null
-          device_token: string | null
-          error_code: string | null
-          error_message: string | null
-          fcm_message_id: string | null
-          id: string | null
-          opened_at: string | null
-          platform: Database["public"]["Enums"]["notification_platform"] | null
-          queued_at: string | null
-          sent_at: string | null
-          status: Database["public"]["Enums"]["notification_status"] | null
-          user_id: string | null
-        }
-        Insert: {
-          apns_message_id?: never
-          campaign_id?: string | null
-          clicked_at?: string | null
-          created_at?: string | null
-          delivered_at?: string | null
-          device_token?: never
-          error_code?: string | null
-          error_message?: string | null
-          fcm_message_id?: never
-          id?: string | null
-          opened_at?: string | null
-          platform?: Database["public"]["Enums"]["notification_platform"] | null
-          queued_at?: string | null
-          sent_at?: string | null
-          status?: Database["public"]["Enums"]["notification_status"] | null
-          user_id?: string | null
-        }
-        Update: {
-          apns_message_id?: never
-          campaign_id?: string | null
-          clicked_at?: string | null
-          created_at?: string | null
-          delivered_at?: string | null
-          device_token?: never
-          error_code?: string | null
-          error_message?: string | null
-          fcm_message_id?: never
-          id?: string | null
-          opened_at?: string | null
-          platform?: Database["public"]["Enums"]["notification_platform"] | null
-          queued_at?: string | null
-          sent_at?: string | null
-          status?: Database["public"]["Enums"]["notification_status"] | null
-          user_id?: string | null
-        }
-        Relationships: [
-          {
-            foreignKeyName: "push_notification_events_campaign_id_fkey"
-            columns: ["campaign_id"]
-            isOneToOne: false
-            referencedRelation: "push_campaigns"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
       v_event_loop_drain_events: {
         Row: {
           actor_id: string | null
@@ -6598,73 +8663,725 @@ export type Database = {
         }
         Relationships: []
       }
+      v_video_date_queue_fairness_candidates: {
+        Row: {
+          actor_client_platform: string | null
+          actor_foreground: boolean | null
+          actor_gender: string | null
+          actor_hot_ready: boolean | null
+          actor_id: string | null
+          actor_last_heartbeat_at: string | null
+          actor_readiness_status: string | null
+          actor_recent_no_match_attempts: number | null
+          actor_recent_reliability_penalty: number | null
+          both_hot_ready: boolean | null
+          candidate_score: number | null
+          event_id: string | null
+          partner_client_platform: string | null
+          partner_foreground: boolean | null
+          partner_gender: string | null
+          partner_hot_ready: boolean | null
+          partner_id: string | null
+          partner_last_heartbeat_at: string | null
+          partner_readiness_status: string | null
+          partner_recent_reliability_penalty: number | null
+          queued_age_seconds: number | null
+          queued_at: string | null
+          queued_expires_at: string | null
+          recent_terminal_session_count: number | null
+          session_id: string | null
+          ttl_remaining_seconds: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "video_sessions_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "video_sessions_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "vw_synthetic_video_date_health"
+            referencedColumns: ["event_id"]
+          },
+        ]
+      }
+      v_video_date_queue_fairness_event_health: {
+        Row: {
+          actor_gender_slots: Json | null
+          actor_platform_slots: Json | null
+          avg_candidate_score: number | null
+          both_hot_ready_slots: number | null
+          drain_attempts_15m: number | null
+          drain_successes_15m: number | null
+          event_id: string | null
+          fairness_status: string | null
+          max_candidate_score: number | null
+          no_match_attempts_15m: number | null
+          not_both_hot_ready_slots: number | null
+          oldest_wait_seconds: number | null
+          p95_wait_seconds: number | null
+          queued_participant_slots: number | null
+          queued_session_count: number | null
+          reliability_penalized_slots: number | null
+          runtime_blocked_attempts_15m: number | null
+          starved_slots_120s: number | null
+          starved_slots_300s: number | null
+        }
+        Relationships: []
+      }
+      video_session_participant_events: {
+        Row: {
+          actor: string | null
+          at: string | null
+          correlation_id: string | null
+          id: number | null
+          kind: string | null
+          payload: Json | null
+          session_id: string | null
+          session_seq: number | null
+          visibility: string | null
+        }
+        Insert: {
+          actor?: string | null
+          at?: string | null
+          correlation_id?: string | null
+          id?: number | null
+          kind?: string | null
+          payload?: Json | null
+          session_id?: string | null
+          session_seq?: number | null
+          visibility?: string | null
+        }
+        Update: {
+          actor?: string | null
+          at?: string | null
+          correlation_id?: string | null
+          id?: number | null
+          kind?: string | null
+          payload?: Json | null
+          session_id?: string | null
+          session_seq?: number | null
+          visibility?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "video_session_events_actor_fkey"
+            columns: ["actor"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "video_session_events_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "v_video_date_queue_fairness_candidates"
+            referencedColumns: ["session_id"]
+          },
+          {
+            foreignKeyName: "video_session_events_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "video_sessions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "video_session_events_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "vw_session_health"
+            referencedColumns: ["session_id"]
+          },
+          {
+            foreignKeyName: "video_session_events_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "vw_video_date_extension_refund_certification"
+            referencedColumns: ["session_id"]
+          },
+          {
+            foreignKeyName: "video_session_events_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "vw_video_date_provider_room_reconciliation"
+            referencedColumns: ["session_id"]
+          },
+        ]
+      }
+      vw_outbox_health: {
+        Row: {
+          kind: string | null
+          late_rows: number | null
+          max_attempts: number | null
+          oldest_next_attempt_at: string | null
+          row_count: number | null
+          state: string | null
+        }
+        Relationships: []
+      }
+      vw_session_funnel: {
+        Row: {
+          active_sessions: number | null
+          bucket_utc: string | null
+          date_sessions: number | null
+          ended_sessions: number | null
+          event_id: string | null
+          handshake_sessions: number | null
+          is_test_event: boolean | null
+          ready_gate_sessions: number | null
+          sample_class: string | null
+          sessions_created: number | null
+          stuck_over_2m_sessions: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "video_sessions_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "video_sessions_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "vw_synthetic_video_date_health"
+            referencedColumns: ["event_id"]
+          },
+        ]
+      }
+      vw_session_health: {
+        Row: {
+          active_age_seconds: number | null
+          active_stuck_over_2m: boolean | null
+          daily_room_name: string | null
+          date_started_at: string | null
+          ended_at: string | null
+          ended_reason: string | null
+          event_id: string | null
+          handshake_started_at: string | null
+          is_test_event: boolean | null
+          last_state_at: string | null
+          participant_1_id: string | null
+          participant_2_id: string | null
+          phase: string | null
+          ready_gate_expires_at: string | null
+          ready_gate_status: string | null
+          sample_class: string | null
+          session_id: string | null
+          session_seq: number | null
+          started_at: string | null
+          state: string | null
+          state_updated_at: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "video_sessions_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "video_sessions_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "vw_synthetic_video_date_health"
+            referencedColumns: ["event_id"]
+          },
+          {
+            foreignKeyName: "video_sessions_participant_1_id_fkey"
+            columns: ["participant_1_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "video_sessions_participant_2_id_fkey"
+            columns: ["participant_2_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      vw_synthetic_video_date_health: {
+        Row: {
+          active_session_count: number | null
+          event_date: string | null
+          event_id: string | null
+          last_session_started_at: string | null
+          registration_count: number | null
+          session_count: number | null
+          status: string | null
+          stuck_over_2m_count: number | null
+          title: string | null
+        }
+        Relationships: []
+      }
+      vw_video_date_daily_performance_emission_health: {
+        Row: {
+          blocks_rollout_gate: boolean | null
+          emission_status: string | null
+          event_id: string | null
+          failure_count: number | null
+          last_sample_at: string | null
+          minimum_samples: number | null
+          missing_for_rollout_gate: boolean | null
+          p95_ms: number | null
+          p99_ms: number | null
+          sample_count: number | null
+          segment_key: string | null
+          segment_label: string | null
+          success_count: number | null
+          window_id: string | null
+          window_label: string | null
+        }
+        Relationships: []
+      }
+      vw_video_date_daily_performance_samples: {
+        Row: {
+          actor_id: string | null
+          created_at: string | null
+          detail: Json | null
+          event_id: string | null
+          latency_ms: number | null
+          outcome: string | null
+          platform: string | null
+          reason_code: string | null
+          segment_key: string | null
+          segment_label: string | null
+          session_id: string | null
+          source_operation: string | null
+        }
+        Relationships: []
+      }
+      vw_video_date_daily_performance_segment_health: {
+        Row: {
+          event_id: string | null
+          failure_count: number | null
+          last_sample_at: string | null
+          max_ms: number | null
+          p50_ms: number | null
+          p95_ms: number | null
+          p95_target_ms: number | null
+          p99_ms: number | null
+          p99_target_ms: number | null
+          platform: string | null
+          sample_count: number | null
+          segment_key: string | null
+          segment_label: string | null
+          segment_status: string | null
+          success_count: number | null
+          window_id: string | null
+          window_label: string | null
+        }
+        Relationships: []
+      }
+      vw_video_date_daily_pool_decision: {
+        Row: {
+          decision_reason: string | null
+          decision_status: string | null
+          event_id: string | null
+          extension_refresh_p95_ms: number | null
+          extension_refresh_sample_count: number | null
+          first_frame_p95_ms: number | null
+          first_frame_p99_ms: number | null
+          first_frame_sample_count: number | null
+          join_p95_ms: number | null
+          join_p99_ms: number | null
+          join_sample_count: number | null
+          reconnect_p95_ms: number | null
+          reconnect_sample_count: number | null
+          room_p95_ms: number | null
+          room_p99_ms: number | null
+          room_pool_recommended: boolean | null
+          room_sample_count: number | null
+          token_p95_ms: number | null
+          token_p99_ms: number | null
+          token_sample_count: number | null
+          window_id: string | null
+          window_label: string | null
+        }
+        Relationships: []
+      }
+      vw_video_date_extension_mutual_health: {
+        Row: {
+          applied_requests: number | null
+          event_id: string | null
+          expired_requests: number | null
+          failed_requests: number | null
+          insufficient_credit_failures: number | null
+          last_applied_at: string | null
+          last_request_at: string | null
+          pending_requests: number | null
+          room_expiry_failures: number | null
+          stale_pending_requests: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "video_sessions_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "video_sessions_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "vw_synthetic_video_date_health"
+            referencedColumns: ["event_id"]
+          },
+        ]
+      }
+      vw_video_date_extension_refund_certification: {
+        Row: {
+          ended_reason: string | null
+          event_id: string | null
+          extended_vibe_spend_count: number | null
+          extension_spend_count: number | null
+          extra_time_spend_count: number | null
+          has_mutual_extension_spend: boolean | null
+          refund_breakdown: Json | null
+          refund_granted_at: string | null
+          refund_status: string | null
+          session_id: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "video_sessions_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "video_sessions_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "vw_synthetic_video_date_health"
+            referencedColumns: ["event_id"]
+          },
+        ]
+      }
+      vw_video_date_flag_rollout: {
+        Row: {
+          description: string | null
+          enabled: boolean | null
+          flag_key: string | null
+          kill_switch_active: boolean | null
+          rollout_bps: number | null
+          updated_at: string | null
+        }
+        Insert: {
+          description?: string | null
+          enabled?: boolean | null
+          flag_key?: string | null
+          kill_switch_active?: boolean | null
+          rollout_bps?: number | null
+          updated_at?: string | null
+        }
+        Update: {
+          description?: string | null
+          enabled?: boolean | null
+          flag_key?: string | null
+          kill_switch_active?: boolean | null
+          rollout_bps?: number | null
+          updated_at?: string | null
+        }
+        Relationships: []
+      }
+      vw_video_date_lease_recovery_health: {
+        Row: {
+          expired_lease_count: number | null
+          failed_count: number | null
+          high_attempt_count: number | null
+          kind: string | null
+          late_due_count: number | null
+          max_attempts: number | null
+          oldest_due_age_seconds: number | null
+          oldest_due_at: string | null
+          queue_name: string | null
+          row_count: number | null
+          state: string | null
+        }
+        Relationships: []
+      }
+      vw_video_date_legacy_deck_cleanup_readiness: {
+        Row: {
+          cleanup_readiness_reason: string | null
+          current_state_since: string | null
+          deck_deal_100pct_active: boolean | null
+          deck_deal_100pct_baked: boolean | null
+          enabled: boolean | null
+          flag_key: string | null
+          kill_switch_active: boolean | null
+          rollout_bps: number | null
+        }
+        Relationships: []
+      }
+      vw_video_date_multi_device_health: {
+        Row: {
+          active_surface_conflict_count: number | null
+          active_surface_conflicts: Json | null
+          expired_unreleased_claim_count: number | null
+          live_claim_count: number | null
+          live_video_date_claim_count: number | null
+          observed_at: string | null
+        }
+        Relationships: []
+      }
+      vw_video_date_orphan_room_cleanup_health: {
+        Row: {
+          action: string | null
+          bucket_hour: string | null
+          destructive_candidate_count: number | null
+          failed_count: number | null
+          last_seen_at: string | null
+          reason: string | null
+          row_count: number | null
+        }
+        Relationships: []
+      }
+      vw_video_date_phase5_circuit_breaker_decision: {
+        Row: {
+          current_enabled: boolean | null
+          evaluated_at: string | null
+          feature_area: string | null
+          flag_key: string | null
+          kill_switch_active: boolean | null
+          observed_count: number | null
+          reason: string | null
+          should_disable: boolean | null
+          trip_threshold: number | null
+          window_label: string | null
+        }
+        Relationships: []
+      }
+      vw_video_date_phase8_certification_latest: {
+        Row: {
+          certified_at: string | null
+          certified_by: string | null
+          commit_sha: string | null
+          created_at: string | null
+          event_id: string | null
+          expires_at: string | null
+          id: string | null
+          notes: string | null
+          platform: string | null
+          report: Json | null
+          rollout_bps: number | null
+          run_kind: string | null
+          status: string | null
+          updated_at: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "video_date_phase8_certification_runs_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "video_date_phase8_certification_runs_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "vw_synthetic_video_date_health"
+            referencedColumns: ["event_id"]
+          },
+        ]
+      }
+      vw_video_date_phase8_release_closure: {
+        Row: {
+          core_flags_enabled: boolean | null
+          core_flags_killed: boolean | null
+          core_flags_present: boolean | null
+          current_rollout_bps: number | null
+          deck_deal_100pct_baked: boolean | null
+          generated_at: string | null
+          legacy_cleanup_passed: boolean | null
+          legacy_deck_cleanup_reason: string | null
+          present_flag_count: number | null
+          recovery_page_alerts: number | null
+          recovery_watch_alerts: number | null
+          release_blockers: string[] | null
+          release_track: string | null
+          required_flag_count: number | null
+          rollout_100pct_passed: boolean | null
+          rollout_10pct_passed: boolean | null
+          rollout_1pct_passed: boolean | null
+          rollout_50pct_passed: boolean | null
+          stuck_active_sessions_over_2m: number | null
+        }
+        Relationships: []
+      }
+      vw_video_date_phase8_rollout_readiness: {
+        Row: {
+          can_advance_rollout: boolean | null
+          chaos_passed: boolean | null
+          core_flags_enabled: boolean | null
+          core_flags_killed: boolean | null
+          core_flags_present: boolean | null
+          current_rollout_bps: number | null
+          deck_deal_100pct_baked: boolean | null
+          event_id: string | null
+          first_frame_p95_ms: number | null
+          first_frame_p99_ms: number | null
+          first_frame_sample_count: number | null
+          generated_at: string | null
+          legacy_deck_cleanup_reason: string | null
+          load_passed: boolean | null
+          queue_fairness_status: string | null
+          recovery_page_alerts: number | null
+          recovery_watch_alerts: number | null
+          rls_negative_passed: boolean | null
+          rollout_10pct_passed: boolean | null
+          rollout_1pct_passed: boolean | null
+          rollout_50pct_passed: boolean | null
+          rollout_blockers: string[] | null
+          stuck_active_sessions_over_2m: number | null
+          target_label: string | null
+          target_rollout_bps: number | null
+          two_user_native_passed: boolean | null
+          two_user_web_passed: boolean | null
+          window_id: string | null
+          window_label: string | null
+        }
+        Relationships: []
+      }
+      vw_video_date_phase8_rollout_step_latest: {
+        Row: {
+          certified_at: string | null
+          certified_by: string | null
+          commit_sha: string | null
+          created_at: string | null
+          event_id: string | null
+          expires_at: string | null
+          id: string | null
+          notes: string | null
+          platform: string | null
+          report: Json | null
+          rollout_bps: number | null
+          run_kind: string | null
+          status: string | null
+          updated_at: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "video_date_phase8_certification_runs_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "video_date_phase8_certification_runs_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "vw_synthetic_video_date_health"
+            referencedColumns: ["event_id"]
+          },
+        ]
+      }
+      vw_video_date_provider_room_reconciliation: {
+        Row: {
+          cleanup_candidate: boolean | null
+          daily_room_expires_at: string | null
+          daily_room_verified_at: string | null
+          ended_at: string | null
+          ended_reason: string | null
+          event_id: string | null
+          has_join_evidence: boolean | null
+          is_terminal: boolean | null
+          phase: string | null
+          room_name: string | null
+          room_url: string | null
+          session_id: string | null
+          session_seq: number | null
+          started_at: string | null
+          state: Database["public"]["Enums"]["video_date_state"] | null
+          terminal_age_seconds: number | null
+        }
+        Insert: {
+          cleanup_candidate?: never
+          daily_room_expires_at?: string | null
+          daily_room_verified_at?: string | null
+          ended_at?: string | null
+          ended_reason?: string | null
+          event_id?: string | null
+          has_join_evidence?: never
+          is_terminal?: never
+          phase?: string | null
+          room_name?: string | null
+          room_url?: string | null
+          session_id?: string | null
+          session_seq?: never
+          started_at?: string | null
+          state?: Database["public"]["Enums"]["video_date_state"] | null
+          terminal_age_seconds?: never
+        }
+        Update: {
+          cleanup_candidate?: never
+          daily_room_expires_at?: string | null
+          daily_room_verified_at?: string | null
+          ended_at?: string | null
+          ended_reason?: string | null
+          event_id?: string | null
+          has_join_evidence?: never
+          is_terminal?: never
+          phase?: string | null
+          room_name?: string | null
+          room_url?: string | null
+          session_id?: string | null
+          session_seq?: never
+          started_at?: string | null
+          state?: Database["public"]["Enums"]["video_date_state"] | null
+          terminal_age_seconds?: never
+        }
+        Relationships: [
+          {
+            foreignKeyName: "video_sessions_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "video_sessions_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "vw_synthetic_video_date_health"
+            referencedColumns: ["event_id"]
+          },
+        ]
+      }
+      vw_video_date_recovery_alerts: {
+        Row: {
+          details: Json | null
+          generated_at: string | null
+          kind: string | null
+          queue_name: string | null
+          severity: string | null
+          state: string | null
+        }
+        Relationships: []
+      }
+      vw_video_date_v4_schema_inventory: {
+        Row: {
+          object_kind: string | null
+          object_name: string | null
+          present: boolean | null
+        }
+        Relationships: []
+      }
     }
     Functions: {
-      ack_notification_dispatch: {
-        Args: {
-          p_ack_source?: string
-          p_dispatch_group_id: string
-          p_payload?: Json
-          p_provider_notification_id?: string
-        }
-        Returns: Json
-      }
-      begin_video_date_worker_run_v1: {
-        Args: {
-          p_lease_seconds?: number
-          p_metadata?: Json
-          p_worker_id: string
-          p_worker_kind: string
-        }
-        Returns: Json
-      }
-      finish_video_date_worker_run_v1: {
-        Args: {
-          p_metadata?: Json
-          p_worker_id: string
-          p_worker_kind: string
-        }
-        Returns: Json
-      }
-      refresh_video_date_provider_outbox_claim_v1: {
-        Args: {
-          p_lease_seconds?: number
-          p_outbox_id: number
-          p_worker_id: string
-        }
-        Returns: Json
-      }
-      refresh_video_date_worker_run_v1: {
-        Args: {
-          p_lease_seconds?: number
-          p_metadata?: Json
-          p_worker_id: string
-          p_worker_kind: string
-        }
-        Returns: Json
-      }
-      refresh_video_session_deadline_claim_v1: {
-        Args: {
-          p_deadline_id: number
-          p_lease_seconds?: number
-          p_worker_id: string
-        }
-        Returns: Json
-      }
-      take_provider_rate_limit_token_v1: {
-        Args: {
-          p_bucket: string
-          p_capacity?: number
-          p_cost?: number
-          p_provider: string
-          p_refill_per_second?: number
-        }
-        Returns: Json
-      }
-      take_video_date_token_refresh_rate_limit_v1: {
-        Args: never
-        Returns: Json
-      }
       _apply_date_plan_event_lock: {
         Args: {
           p_date_plan_id: string
@@ -6675,6 +9392,21 @@ export type Database = {
         Returns: undefined
       }
       _block_hour_range: { Args: { p_time_block: string }; Returns: unknown }
+      _date_suggestion_blocks_new_proposal: {
+        Args: {
+          p_expires_at: string
+          p_local_timezone: string
+          p_now?: string
+          p_revision_created_at: string
+          p_schedule_share_enabled: boolean
+          p_schedule_share_expires_at: string
+          p_starts_at: string
+          p_status: string
+          p_suggestion_created_at: string
+          p_time_choice_key: string
+        }
+        Returns: boolean
+      }
       _date_suggestion_compute_agreed: {
         Args: {
           new_block: string
@@ -6709,6 +9441,10 @@ export type Database = {
         }
         Returns: undefined
       }
+      _date_suggestion_normalize_timezone: {
+        Args: { p_timezone: string }
+        Returns: string
+      }
       _date_suggestion_partner_first_name: {
         Args: { p_user_id: string }
         Returns: string
@@ -6723,6 +9459,18 @@ export type Database = {
           p_viewer: string
         }
         Returns: undefined
+      }
+      _date_suggestion_window_end: {
+        Args: {
+          p_anchor_at: string
+          p_expires_at: string
+          p_local_timezone: string
+          p_schedule_share_enabled: boolean
+          p_schedule_share_expires_at: string
+          p_starts_at: string
+          p_time_choice_key: string
+        }
+        Returns: string
       }
       _get_user_tier_capabilities_unchecked: {
         Args: { p_user_id: string }
@@ -6755,6 +9503,15 @@ export type Database = {
       _user_monthly_event_join_count_unchecked: {
         Args: { p_user_id: string }
         Returns: number
+      }
+      ack_notification_dispatch: {
+        Args: {
+          p_ack_source?: string
+          p_dispatch_group_id: string
+          p_payload?: Json
+          p_provider_notification_id?: string
+        }
+        Returns: Json
       }
       activate_profile_vibe_video: {
         Args: { p_user_id: string; p_video_id: string; p_video_status?: string }
@@ -6815,7 +9572,12 @@ export type Database = {
         Returns: Json
       }
       admin_create_event_category: {
-        Args: { p_active?: boolean; p_emoji: string; p_label: string; p_sort_order?: number }
+        Args: {
+          p_active?: boolean
+          p_emoji: string
+          p_label: string
+          p_sort_order?: number
+        }
         Returns: Json
       }
       admin_create_event_payment_exception: {
@@ -6838,6 +9600,10 @@ export type Database = {
           p_send_email?: boolean
           p_ticket_id: string
         }
+        Returns: Json
+      }
+      admin_delete_client_feature_flag_override: {
+        Args: { p_flag: string; p_reason: string; p_user_id: string }
         Returns: Json
       }
       admin_delete_event: {
@@ -6890,6 +9656,7 @@ export type Database = {
         }
         Returns: Json
       }
+      admin_get_admin_durable_job_health: { Args: never; Returns: Json }
       admin_get_admin_permissions: { Args: never; Returns: Json }
       admin_get_authenticity_operations: {
         Args: { p_filters?: Json }
@@ -7090,12 +9857,21 @@ export type Database = {
         Args: { p_limit?: number; p_status?: string }
         Returns: Json
       }
+      admin_list_client_feature_flag_overrides: {
+        Args: { p_flag?: string; p_limit?: number; p_search?: string }
+        Returns: Json
+      }
+      admin_list_client_feature_flags: { Args: never; Returns: Json }
       admin_list_data_export_jobs: {
         Args: { p_filters?: Json; p_limit?: number; p_offset?: number }
         Returns: Json
       }
       admin_list_event_analytics_options: {
         Args: { p_include_archived?: boolean; p_limit?: number }
+        Returns: Json
+      }
+      admin_list_event_attendees: {
+        Args: { p_event_id: string; p_search?: string }
         Returns: Json
       }
       admin_list_events: {
@@ -7108,6 +9884,10 @@ export type Database = {
       }
       admin_list_photo_verifications: {
         Args: { p_limit?: number; p_reviewed_since?: string; p_status: string }
+        Returns: Json
+      }
+      admin_list_push_notification_events: {
+        Args: { p_limit?: number }
         Returns: Json
       }
       admin_mark_account_deletion_completed: {
@@ -7190,6 +9970,22 @@ export type Database = {
         }
         Returns: Json
       }
+      admin_retry_account_deletion_completion_job: {
+        Args: {
+          p_idempotency_key?: string
+          p_job_id: string
+          p_reason?: string
+        }
+        Returns: Json
+      }
+      admin_retry_support_reply_delivery_job: {
+        Args: {
+          p_idempotency_key?: string
+          p_job_id: string
+          p_reason?: string
+        }
+        Returns: Json
+      }
       admin_review_photo_verification: {
         Args: {
           p_action: string
@@ -7204,6 +10000,7 @@ export type Database = {
           p_action_type?: string
           p_actor_id?: string
           p_from?: string
+          p_include_meta?: boolean
           p_limit?: number
           p_offset?: number
           p_target_id?: string
@@ -7263,6 +10060,17 @@ export type Database = {
         }
         Returns: Json
       }
+      admin_update_client_feature_flag: {
+        Args: {
+          p_description: string
+          p_enabled: boolean
+          p_flag: string
+          p_kill_switch_active: boolean
+          p_reason: string
+          p_rollout_bps: number
+        }
+        Returns: Json
+      }
       admin_update_event: {
         Args: {
           p_event_id: string
@@ -7300,6 +10108,15 @@ export type Database = {
         }
         Returns: Json
       }
+      admin_upsert_client_feature_flag_override: {
+        Args: {
+          p_enabled: boolean
+          p_flag: string
+          p_reason: string
+          p_user_id: string
+        }
+        Returns: Json
+      }
       admin_upsert_push_campaign_draft: {
         Args: {
           p_body: string
@@ -7320,6 +10137,19 @@ export type Database = {
       }
       advance_video_session_vibe_question: {
         Args: { p_session_id: string }
+        Returns: Json
+      }
+      append_video_session_event_v2: {
+        Args: {
+          p_actor?: string
+          p_bump_seq?: boolean
+          p_correlation_id?: string
+          p_kind: string
+          p_payload?: Json
+          p_sanitized_payload?: Json
+          p_session_id: string
+          p_visibility?: string
+        }
         Returns: Json
       }
       apply_account_deletion_media_hold: {
@@ -7352,12 +10182,26 @@ export type Database = {
         Args: { p_referrer_id: string }
         Returns: Json
       }
+      apply_video_date_circuit_breaker_v1: {
+        Args: { p_dry_run?: boolean; p_reason?: string }
+        Returns: Json
+      }
       assert_tier_config_override_valid: {
         Args: { p_capability_key: string; p_value: Json }
         Returns: undefined
       }
       attach_chat_media_asset_to_match: {
         Args: { p_asset_id: string; p_match_id: string }
+        Returns: Json
+      }
+      attach_media_reference: {
+        Args: {
+          p_asset_id: string
+          p_ref_id: string
+          p_ref_key?: string
+          p_ref_table: string
+          p_ref_type: string
+        }
         Returns: Json
       }
       audit_active_video_date_surface_conflicts: {
@@ -7372,9 +10216,22 @@ export type Database = {
         Args: { p_limit?: number }
         Returns: Json
       }
+      begin_video_date_worker_run_v1: {
+        Args: {
+          p_lease_seconds?: number
+          p_metadata?: Json
+          p_worker_id: string
+          p_worker_kind: string
+        }
+        Returns: Json
+      }
       block_user_with_cleanup: {
         Args: { p_blocked_id: string; p_match_id?: string; p_reason?: string }
         Returns: Json
+      }
+      bump_video_session_seq: {
+        Args: { p_session_id: string }
+        Returns: number
       }
       calculate_vibe_score: { Args: { p_user_id: string }; Returns: Json }
       calculate_vibe_score_from_row: {
@@ -7415,6 +10272,46 @@ export type Database = {
         Returns: Json
       }
       check_premium_status: { Args: { p_user_id: string }; Returns: boolean }
+      claim_account_deletion_completion_jobs_v1: {
+        Args: {
+          p_lease_seconds?: number
+          p_limit?: number
+          p_worker_id: string
+        }
+        Returns: {
+          attempts: number
+          auth_delete_completed_at: string | null
+          blocked_reason: string | null
+          completed_at: string | null
+          created_at: string
+          deletion_request_id: string
+          error_code: string | null
+          id: string
+          last_error: string | null
+          last_error_at: string | null
+          lease_expires_at: string | null
+          legacy_checkpoint: boolean
+          max_attempts: number
+          media_cleanup_completed_at: string | null
+          metadata: Json
+          next_retry_at: string
+          pii_scrub_completed_at: string | null
+          provider_cleanup_completed_at: string | null
+          provider_cleanup_provider_id: string | null
+          request_reason: string | null
+          requested_by: string | null
+          state: string
+          updated_at: string
+          user_id: string
+          worker_id: string | null
+        }[]
+        SetofOptions: {
+          from: "*"
+          to: "account_deletion_completion_jobs"
+          isOneToOne: false
+          isSetofReturn: true
+        }
+      }
       claim_due_event_reminder_queue_rows: {
         Args: { p_limit?: number; p_stale_after_seconds?: number }
         Returns: {
@@ -7427,15 +10324,26 @@ export type Database = {
           reminder_type: string
         }[]
       }
-      claim_account_deletion_completion_jobs_v1: {
-        Args: { p_lease_seconds?: number; p_limit?: number; p_worker_id: string }
-        Returns: Database["public"]["Tables"]["account_deletion_completion_jobs"]["Row"][]
-        SetofOptions: {
-          from: "*"
-          to: "account_deletion_completion_jobs"
-          isOneToOne: false
-          isSetofReturn: true
+      claim_event_ticket_refund_jobs_v1: {
+        Args: {
+          p_lease_seconds?: number
+          p_limit?: number
+          p_worker_id: string
         }
+        Returns: {
+          amount: number
+          attempts: number
+          checkout_session_id: string
+          currency: string
+          event_id: string
+          id: string
+          max_attempts: number
+          metadata: Json
+          payment_intent_id: string
+          profile_id: string
+          reason_code: string
+          settlement_outcome: string
+        }[]
       }
       claim_growth_attribution: {
         Args: { p_context?: Json; p_referral_token: string }
@@ -7517,14 +10425,55 @@ export type Database = {
         }[]
       }
       claim_support_reply_delivery_jobs_v1: {
-        Args: { p_lease_seconds?: number; p_limit?: number; p_worker_id: string }
-        Returns: Database["public"]["Tables"]["support_reply_delivery_jobs"]["Row"][]
+        Args: {
+          p_lease_seconds?: number
+          p_limit?: number
+          p_worker_id: string
+        }
+        Returns: {
+          attempts: number
+          channel: string
+          completed_at: string | null
+          created_at: string
+          error_code: string | null
+          id: string
+          last_error: string | null
+          last_error_at: string | null
+          lease_expires_at: string | null
+          max_attempts: number
+          metadata: Json
+          next_retry_at: string
+          provider_id: string | null
+          recipient_email: string | null
+          recipient_user_id: string | null
+          reply_id: string
+          state: string
+          ticket_id: string
+          updated_at: string
+          worker_id: string | null
+        }[]
         SetofOptions: {
           from: "*"
           to: "support_reply_delivery_jobs"
           isOneToOne: false
           isSetofReturn: true
         }
+      }
+      claim_video_date_provider_outbox_v2: {
+        Args: {
+          p_lease_seconds?: number
+          p_limit?: number
+          p_worker_id: string
+        }
+        Returns: {
+          attempts: number
+          claim_expires_at: string
+          dedupe_key: string
+          id: number
+          kind: string
+          payload: Json
+          session_id: string
+        }[]
       }
       claim_video_date_surface: {
         Args: {
@@ -7535,6 +10484,21 @@ export type Database = {
           p_ttl_seconds?: number
         }
         Returns: Json
+      }
+      claim_video_session_deadlines_v2: {
+        Args: {
+          p_lease_seconds?: number
+          p_limit?: number
+          p_worker_id: string
+        }
+        Returns: {
+          attempts: number
+          claim_expires_at: string
+          due_at: string
+          id: number
+          kind: string
+          session_id: string
+        }[]
       }
       classify_stale_vibe_video_uploads: {
         Args: { p_limit?: number; p_stale_minutes?: number }
@@ -7554,9 +10518,13 @@ export type Database = {
         }
         Returns: Json
       }
-      complete_account_deletion_media_cleanup: {
-        Args: { p_user_id: string }
-        Returns: Json
+      client_feature_flag_bucket: {
+        Args: { p_flag: string; p_user: string }
+        Returns: number
+      }
+      client_feature_flag_user_bucket: {
+        Args: { p_user: string }
+        Returns: string
       }
       complete_account_deletion_completion_step_v1: {
         Args: {
@@ -7568,8 +10536,61 @@ export type Database = {
         }
         Returns: Json
       }
+      complete_account_deletion_media_cleanup: {
+        Args: { p_user_id: string }
+        Returns: Json
+      }
+      complete_event_ticket_refund_job_v1: {
+        Args: {
+          p_error?: string
+          p_job_id: string
+          p_noop_already_refunded?: boolean
+          p_permanent?: boolean
+          p_provider_refund_id?: string
+          p_provider_refund_status?: string
+          p_retry_after_seconds?: number
+          p_success: boolean
+          p_worker_id: string
+        }
+        Returns: Json
+      }
       complete_media_delete_job: {
         Args: { p_error?: string; p_job_id: string; p_success: boolean }
+        Returns: Json
+      }
+      complete_onboarding: { Args: { p_user_id: string }; Returns: Json }
+      complete_profile_photo_media_upload: {
+        Args: {
+          p_bytes?: number
+          p_content_sha256?: string
+          p_context: string
+          p_metadata?: Json
+          p_mime_type?: string
+          p_owner_user_id: string
+          p_provider: string
+          p_provider_path: string
+          p_receipt_id: string
+        }
+        Returns: Json
+      }
+      complete_storage_media_upload: {
+        Args: {
+          p_bytes?: number
+          p_content_sha256?: string
+          p_last_error?: string
+          p_legacy_id?: string
+          p_legacy_table?: string
+          p_media_family: string
+          p_metadata?: Json
+          p_mime_type?: string
+          p_owner_user_id: string
+          p_provider: string
+          p_provider_object_id?: string
+          p_provider_path?: string
+          p_receipt_id: string
+          p_receipt_status?: string
+          p_reference_id?: string
+        }
         Returns: Json
       }
       complete_support_reply_delivery_job_v1: {
@@ -7586,7 +10607,28 @@ export type Database = {
         }
         Returns: Json
       }
-      complete_onboarding: { Args: { p_user_id: string }; Returns: Json }
+      complete_video_date_provider_outbox_v2: {
+        Args: {
+          p_error?: string
+          p_outbox_id: number
+          p_permanent?: boolean
+          p_retry_after_seconds?: number
+          p_success: boolean
+          p_worker_id: string
+        }
+        Returns: Json
+      }
+      complete_video_session_deadline_v2: {
+        Args: {
+          p_deadline_id: number
+          p_error?: string
+          p_permanent?: boolean
+          p_retry_after_seconds?: number
+          p_success: boolean
+          p_worker_id: string
+        }
+        Returns: Json
+      }
       confirm_vde_prepared_202605031300_base: {
         Args: {
           p_entry_attempt_id?: string
@@ -7649,6 +10691,14 @@ export type Database = {
         Args: { p_action: string; p_payload: Json }
         Returns: Json
       }
+      date_suggestion_apply_v2_stale_window_dispatch_20260517: {
+        Args: { p_action: string; p_payload: Json }
+        Returns: Json
+      }
+      date_suggestion_expire_stale_open_suggestions: {
+        Args: { p_match_id?: string; p_now?: string }
+        Returns: number
+      }
       deduct_credit: {
         Args: { p_credit_type: string; p_user_id: string }
         Returns: boolean
@@ -7695,13 +10745,47 @@ export type Database = {
         Args: { p_event_id: string }
         Returns: Json
       }
+      drain_match_queue_v2: {
+        Args: { p_event_id: string; p_idempotency_key: string }
+        Returns: Json
+      }
       enqueue_due_account_deletion_completion_jobs_v1: {
         Args: { p_limit?: number }
         Returns: number
       }
+      enqueue_event_ticket_refund_v1: {
+        Args: {
+          p_amount?: number
+          p_checkout_session_id: string
+          p_currency?: string
+          p_event_id: string
+          p_metadata?: Json
+          p_payment_intent_id?: string
+          p_profile_id: string
+          p_reason_code?: string
+          p_settlement_outcome?: string
+          p_stripe_event_id?: string
+        }
+        Returns: Json
+      }
       enqueue_media_delete: {
         Args: { p_asset_id: string; p_job_type?: string }
         Returns: Json
+      }
+      enqueue_uploaded_media_orphan_delete_rows: {
+        Args: { p_family_filter?: string; p_limit?: number }
+        Returns: {
+          asset_id: string
+          job_id: string
+          media_family: string
+          provider: string
+          provider_object_id: string
+          provider_path: string
+        }[]
+      }
+      enqueue_uploaded_media_orphan_deletes: {
+        Args: { p_family_filter?: string; p_limit?: number }
+        Returns: number
       }
       enqueue_vibe_video_orphan_delete: {
         Args: {
@@ -7736,6 +10820,18 @@ export type Database = {
           state_id: string
         }[]
       }
+      ensure_event_ticket_refund_support_exception_v1: {
+        Args: {
+          p_checkout_session_id: string
+          p_event_id: string
+          p_exception_status?: string
+          p_exception_type?: string
+          p_notes?: string
+          p_profile_id: string
+          p_settlement_outcome?: string
+        }
+        Returns: string
+      }
       ensure_profile_photo_asset: {
         Args: {
           p_legacy_id?: string
@@ -7755,6 +10851,22 @@ export type Database = {
           p_video_id: string
         }
         Returns: string
+      }
+      evaluate_all_client_feature_flags: {
+        Args: { p_user?: string }
+        Returns: Json
+      }
+      evaluate_client_feature_flag: {
+        Args: { p_flag: string; p_user?: string }
+        Returns: boolean
+      }
+      evaluate_client_feature_flag_detail: {
+        Args: { p_flag: string; p_user?: string }
+        Returns: Json
+      }
+      evaluate_client_feature_flags: {
+        Args: { p_flag_keys: string[]; p_user?: string }
+        Returns: Json
       }
       event_category_keys_are_valid: {
         Args: { p_keys: string[] }
@@ -7804,6 +10916,10 @@ export type Database = {
         Args: { p_limit?: number }
         Returns: number
       }
+      expire_stale_vsessions_bounded_202605232020_base: {
+        Args: { p_limit?: number }
+        Returns: number
+      }
       expire_vd_phases_base_20260501133000: {
         Args: { p_limit?: number }
         Returns: Json
@@ -7846,6 +10962,10 @@ export type Database = {
         }
         Returns: Json
       }
+      finalize_video_session_deadline_v2: {
+        Args: { p_deadline_id: number; p_worker_id: string }
+        Returns: Json
+      }
       find_mystery_match: {
         Args: { p_event_id: string; p_user_id: string }
         Returns: Json
@@ -7860,6 +10980,10 @@ export type Database = {
       }
       find_video_date_match: {
         Args: { p_event_id: string; p_user_id: string }
+        Returns: Json
+      }
+      finish_video_date_worker_run_v1: {
+        Args: { p_metadata?: Json; p_worker_id: string; p_worker_kind: string }
         Returns: Json
       }
       generate_recurring_events: {
@@ -7972,6 +11096,36 @@ export type Database = {
           tagline: string
         }[]
       }
+      get_event_deck_v2: {
+        Args: { p_event_id: string; p_limit?: number; p_user_id: string }
+        Returns: {
+          about_me: string
+          age: number
+          availability_state: string
+          avatar_url: string
+          gender: string
+          has_met_before: boolean
+          has_super_vibed: boolean
+          height_cm: number
+          is_already_connected: boolean
+          job: string
+          location: string
+          looking_for: string
+          name: string
+          photo_verified: boolean
+          photos: string[]
+          premium_badge: string
+          primary_photo_path: string
+          profile_id: string
+          queue_status: string
+          shared_vibe_count: number
+          tagline: string
+        }[]
+      }
+      get_event_deck_v3: {
+        Args: { p_event_id: string; p_limit?: number; p_user_id: string }
+        Returns: Json
+      }
       get_event_lobby_active_state: {
         Args: { p_event_id: string; p_now?: string }
         Returns: {
@@ -7984,6 +11138,10 @@ export type Database = {
         Args: { p_event_id: string }
         Returns: string
       }
+      get_event_ticket_payment_status_v1: {
+        Args: { p_event_id: string }
+        Returns: Json
+      }
       get_event_visible_attendees: {
         Args: { p_event_id: string; p_viewer_id: string }
         Returns: string[]
@@ -7994,6 +11152,14 @@ export type Database = {
           match_count: number
           message_count: number
         }[]
+      }
+      get_media_upload_receipt_status: {
+        Args: {
+          p_client_request_id: string
+          p_media_family: string
+          p_scope_key: string
+        }
+        Returns: Json
       }
       get_media_worker_cron_job_status: {
         Args: { p_job_name?: string }
@@ -8047,6 +11213,7 @@ export type Database = {
           show_online_status: boolean
         }[]
       }
+      get_my_profile_settings: { Args: never; Returns: Json }
       get_onboarding_draft: { Args: { p_user_id: string }; Returns: Json }
       get_or_seed_video_session_vibe_questions: {
         Args: { p_questions: Json; p_session_id: string }
@@ -8084,6 +11251,10 @@ export type Database = {
           target_user_id: string
         }[]
       }
+      get_profiles_for_viewer: {
+        Args: { p_target_ids: string[] }
+        Returns: Json
+      }
       get_shared_schedule_for_date_planning: {
         Args: { p_match_id: string; p_subject_user_id: string }
         Returns: Json
@@ -8095,6 +11266,154 @@ export type Database = {
       }
       get_user_tier: { Args: { p_user_id: string }; Returns: string }
       get_user_tier_capabilities: { Args: { p_user_id: string }; Returns: Json }
+      get_video_date_circuit_breaker_decision_v1: {
+        Args: never
+        Returns: {
+          current_enabled: boolean
+          evaluated_at: string
+          feature_area: string
+          flag_key: string
+          kill_switch_active: boolean
+          observed_count: number
+          reason: string
+          should_disable: boolean
+          trip_threshold: number
+          window_label: string
+        }[]
+      }
+      get_video_date_daily_performance_decision: {
+        Args: { p_event_id?: string }
+        Returns: {
+          decision_reason: string
+          decision_status: string
+          event_id: string
+          extension_refresh_p95_ms: number
+          extension_refresh_sample_count: number
+          first_frame_p95_ms: number
+          first_frame_p99_ms: number
+          first_frame_sample_count: number
+          join_p95_ms: number
+          join_p99_ms: number
+          join_sample_count: number
+          reconnect_p95_ms: number
+          reconnect_sample_count: number
+          room_p95_ms: number
+          room_p99_ms: number
+          room_pool_recommended: boolean
+          room_sample_count: number
+          token_p95_ms: number
+          token_p99_ms: number
+          token_sample_count: number
+          window_id: string
+          window_label: string
+        }[]
+      }
+      get_video_date_daily_performance_emission_health: {
+        Args: { p_event_id?: string }
+        Returns: {
+          blocks_rollout_gate: boolean
+          emission_status: string
+          event_id: string
+          failure_count: number
+          last_sample_at: string
+          minimum_samples: number
+          missing_for_rollout_gate: boolean
+          p95_ms: number
+          p99_ms: number
+          sample_count: number
+          segment_key: string
+          segment_label: string
+          success_count: number
+          window_id: string
+          window_label: string
+        }[]
+      }
+      get_video_date_phase2_recovery_health: { Args: never; Returns: Json }
+      get_video_date_phase8_release_closure: {
+        Args: never
+        Returns: {
+          can_close_phase8: boolean
+          core_flags_enabled: boolean
+          core_flags_killed: boolean
+          core_flags_present: boolean
+          current_rollout_bps: number
+          deck_deal_100pct_baked: boolean
+          generated_at: string
+          legacy_cleanup_passed: boolean
+          legacy_deck_cleanup_reason: string
+          recovery_page_alerts: number
+          recovery_watch_alerts: number
+          release_blockers: string[]
+          release_track: string
+          rollout_100pct_passed: boolean
+          rollout_10pct_passed: boolean
+          rollout_1pct_passed: boolean
+          rollout_50pct_passed: boolean
+          stuck_active_sessions_over_2m: number
+        }[]
+      }
+      get_video_date_phase8_rollout_readiness: {
+        Args: { p_event_id?: string }
+        Returns: {
+          can_advance_rollout: boolean
+          chaos_passed: boolean
+          core_flags_enabled: boolean
+          core_flags_killed: boolean
+          core_flags_present: boolean
+          current_rollout_bps: number
+          deck_deal_100pct_baked: boolean
+          event_id: string
+          first_frame_p95_ms: number
+          first_frame_p99_ms: number
+          first_frame_sample_count: number
+          generated_at: string
+          legacy_deck_cleanup_reason: string
+          load_passed: boolean
+          queue_fairness_status: string
+          recovery_page_alerts: number
+          recovery_watch_alerts: number
+          rls_negative_passed: boolean
+          rollout_10pct_passed: boolean
+          rollout_1pct_passed: boolean
+          rollout_50pct_passed: boolean
+          rollout_blockers: string[]
+          stuck_active_sessions_over_2m: number
+          target_label: string
+          target_rollout_bps: number
+          two_user_native_passed: boolean
+          two_user_web_passed: boolean
+          window_id: string
+          window_label: string
+        }[]
+      }
+      get_video_date_queue_fairness_health: {
+        Args: { p_event_id?: string }
+        Returns: {
+          actor_gender_slots: Json
+          actor_platform_slots: Json
+          avg_candidate_score: number
+          both_hot_ready_slots: number
+          drain_attempts_15m: number
+          drain_successes_15m: number
+          event_id: string
+          fairness_status: string
+          max_candidate_score: number
+          no_match_attempts_15m: number
+          not_both_hot_ready_slots: number
+          oldest_wait_seconds: number
+          p95_wait_seconds: number
+          queued_participant_slots: number
+          queued_session_count: number
+          reliability_penalized_slots: number
+          runtime_blocked_attempts_15m: number
+          starved_slots_120s: number
+          starved_slots_300s: number
+        }[]
+      }
+      get_video_date_queue_hint_v1: {
+        Args: { p_event_id: string; p_user_id: string }
+        Returns: Json
+      }
       get_video_date_session_timeline: {
         Args: { p_session_id: string }
         Returns: {
@@ -8109,6 +11428,14 @@ export type Database = {
           source: string
           timeline_seq: number
         }[]
+      }
+      get_video_date_snapshot_core: {
+        Args: { p_session_id: string }
+        Returns: Json
+      }
+      get_video_date_sprint7_ops_health: {
+        Args: { p_event_id?: string }
+        Returns: Json
       }
       get_visible_events: {
         Args: {
@@ -8241,6 +11568,10 @@ export type Database = {
         Args: { lat1: number; lat2: number; lng1: number; lng2: number }
         Returns: number
       }
+      increment_vibe_video_upload_attempt_count: {
+        Args: { p_upload_id: string }
+        Returns: number
+      }
       infer_event_category_keys_from_legacy_tags: {
         Args: { p_tags: string[] }
         Returns: string[]
@@ -8303,8 +11634,21 @@ export type Database = {
         Args: { p_match_id: string }
         Returns: undefined
       }
+      mark_media_asset_accessed: {
+        Args: { p_asset_id: string }
+        Returns: undefined
+      }
       mark_media_asset_soft_deleted_if_unreferenced: {
         Args: { p_asset_id: string; p_deleted_at?: string }
+        Returns: Json
+      }
+      mark_media_upload_receipt_failed: {
+        Args: {
+          p_last_error: string
+          p_metadata?: Json
+          p_owner_user_id: string
+          p_receipt_id: string
+        }
         Returns: Json
       }
       mark_my_activity_seen: { Args: never; Returns: boolean }
@@ -8333,6 +11677,18 @@ export type Database = {
         Args: { p_limit?: number; p_older_than?: string }
         Returns: number
       }
+      mark_profile_email_verified_from_server: {
+        Args: { p_user_id: string; p_verified_email: string }
+        Returns: undefined
+      }
+      mark_profile_phone_verified_from_server: {
+        Args: {
+          p_phone_number: string
+          p_user_id: string
+          p_verified_at?: string
+        }
+        Returns: undefined
+      }
       mark_stale_vibe_video_uploads_failed: {
         Args: { p_limit?: number; p_stale_minutes?: number }
         Returns: Json
@@ -8349,6 +11705,18 @@ export type Database = {
         Args: { p_action: string; p_call_id: string; p_reason?: string }
         Returns: Json
       }
+      media_asset_can_access_user_topic: {
+        Args: { p_topic: string }
+        Returns: boolean
+      }
+      media_asset_realtime_topic_is_user: {
+        Args: { p_topic: string }
+        Returns: boolean
+      }
+      media_captions_jsonb_valid: {
+        Args: { p_captions: Json }
+        Returns: boolean
+      }
       media_compute_purge_after: {
         Args: { p_deleted_at?: string; p_media_family: string }
         Returns: string
@@ -8359,6 +11727,10 @@ export type Database = {
       }
       normalize_media_provider_path: {
         Args: { p_value: string }
+        Returns: string
+      }
+      normalize_onesignal_push_platform: {
+        Args: { p_platform: string }
         Returns: string
       }
       normalize_relationship_intent: {
@@ -8389,6 +11761,14 @@ export type Database = {
         Args: { p_stale_minutes: number }
         Returns: number
       }
+      persist_ready_gate_suppression_v2: {
+        Args: { p_session_id: string; p_suppressed_until?: string }
+        Returns: Json
+      }
+      preview_media_delete_worker_run: {
+        Args: { p_family_filter?: string; p_limit?: number }
+        Returns: Json
+      }
       profile_event_attendance_visible_to_viewer: {
         Args: { p_target_id: string; p_viewer_id: string }
         Returns: boolean
@@ -8400,6 +11780,10 @@ export type Database = {
       profile_location_coord: {
         Args: { p_key: string; p_location_data: Json }
         Returns: number
+      }
+      profile_photo_derivatives_for_paths: {
+        Args: { p_owner_user_id: string; p_photo_paths: string[] }
+        Returns: Json
       }
       profiles_have_qualifying_shared_event: {
         Args: { p_event_id?: string; p_profile_a: string; p_profile_b: string }
@@ -8457,6 +11841,10 @@ export type Database = {
         Args: { p_context?: string; p_photos: string[]; p_user_id: string }
         Returns: Json
       }
+      purge_old_admin_session_invalidation_events: {
+        Args: { p_limit?: number; p_retention_days?: number }
+        Returns: number
+      }
       ready_gate_transition: {
         Args: { p_action: string; p_reason?: string; p_session_id: string }
         Returns: Json
@@ -8493,8 +11881,20 @@ export type Database = {
         Args: { p_action: string; p_reason?: string; p_session_id: string }
         Returns: Json
       }
+      ready_gate_transition_20260524120000_clock_base: {
+        Args: { p_action: string; p_reason?: string; p_session_id: string }
+        Returns: Json
+      }
+      recompute_profile_live_counts: {
+        Args: { p_profile_id: string }
+        Returns: undefined
+      }
       recompute_profile_subscription_entitlement: {
         Args: { p_user_id: string }
+        Returns: Json
+      }
+      record_deck_deal_v2: {
+        Args: { p_event_id: string; p_source?: string; p_target_id: string }
         Returns: Json
       }
       record_event_loop_observability: {
@@ -8509,6 +11909,18 @@ export type Database = {
           p_session_id: string
         }
         Returns: undefined
+      }
+      record_event_profile_impression_v2: {
+        Args: {
+          p_action: string
+          p_event_id: string
+          p_metadata?: Json
+          p_session_id?: string
+          p_source?: string
+          p_target_id: string
+          p_viewer_id: string
+        }
+        Returns: Json
       }
       record_experiment_exposure: {
         Args: {
@@ -8528,6 +11940,14 @@ export type Database = {
         }
         Returns: Json
       }
+      record_heartbeat_v2: {
+        Args: {
+          p_client_platform?: string
+          p_event_id: string
+          p_foreground?: boolean
+        }
+        Returns: Json
+      }
       record_post_date_pending_verdict_reminder_result: {
         Args: { p_error?: string; p_session_id: string; p_success: boolean }
         Returns: Json
@@ -8536,7 +11956,34 @@ export type Database = {
         Args: { p_email_hash: string; p_ip_hash: string }
         Returns: Json
       }
+      record_readiness_check_v2: {
+        Args: {
+          p_capabilities?: Json
+          p_client_platform?: string
+          p_event_id: string
+          p_status: string
+        }
+        Returns: Json
+      }
       record_vd_launch_latency_202605061020_base: {
+        Args: {
+          p_checkpoint: string
+          p_latency_ms?: number
+          p_payload?: Json
+          p_session_id: string
+        }
+        Returns: Json
+      }
+      record_vd_launch_latency_202605220240_base: {
+        Args: {
+          p_checkpoint: string
+          p_latency_ms?: number
+          p_payload?: Json
+          p_session_id: string
+        }
+        Returns: Json
+      }
+      record_vd_launch_latency_202605252340_base: {
         Args: {
           p_checkpoint: string
           p_latency_ms?: number
@@ -8551,6 +11998,19 @@ export type Database = {
           p_latency_ms?: number
           p_payload?: Json
           p_session_id: string
+        }
+        Returns: Json
+      }
+      record_video_date_daily_webhook_event_v2: {
+        Args: {
+          p_event_type: string
+          p_occurred_at?: string
+          p_payload?: Json
+          p_provider_event_id: string
+          p_provider_participant_id?: string
+          p_provider_user_id?: string
+          p_room_name?: string
+          p_signature_timestamp?: string
         }
         Returns: Json
       }
@@ -8572,12 +12032,116 @@ export type Database = {
         }
         Returns: Json
       }
+      record_video_date_orphan_room_cleanup_audit_v2: {
+        Args: {
+          p_action: string
+          p_active_participant_count?: number
+          p_metadata?: Json
+          p_provider_created_at?: string
+          p_provider_expires_at?: string
+          p_provider_room_id?: string
+          p_reason: string
+          p_room_name: string
+          p_session_id?: string
+        }
+        Returns: Json
+      }
+      record_video_date_phase8_certification_run_v2: {
+        Args: {
+          p_commit_sha?: string
+          p_event_id?: string
+          p_expires_at?: string
+          p_notes?: string
+          p_platform: string
+          p_report?: Json
+          p_rollout_bps?: number
+          p_run_kind: string
+          p_status: string
+        }
+        Returns: Json
+      }
+      record_video_date_phase8_legacy_cleanup_v2: {
+        Args: {
+          p_commit_sha?: string
+          p_expires_at?: string
+          p_notes?: string
+          p_report?: Json
+        }
+        Returns: Json
+      }
+      record_video_date_phase8_rollout_step_v2: {
+        Args: {
+          p_commit_sha?: string
+          p_event_id: string
+          p_expires_at?: string
+          p_notes?: string
+          p_report?: Json
+          p_rollout_bps: number
+        }
+        Returns: Json
+      }
+      record_video_date_webhook_dlq_v1: {
+        Args: {
+          p_error_class?: string
+          p_error_message?: string
+          p_event_type?: string
+          p_payload_hash?: string
+          p_provider: string
+          p_provider_event_id?: string
+          p_retryable?: boolean
+          p_room_name?: string
+          p_sanitized_payload?: Json
+          p_signature_timestamp?: string
+        }
+        Returns: Json
+      }
+      recover_ready_gate_missing_rooms_v1: {
+        Args: {
+          p_grace_seconds?: number
+          p_limit?: number
+          p_terminal_after_seconds?: number
+        }
+        Returns: Json
+      }
       refresh_my_vibe_score: { Args: never; Returns: Json }
+      refresh_video_date_provider_outbox_claim_v1: {
+        Args: {
+          p_lease_seconds?: number
+          p_outbox_id: number
+          p_worker_id: string
+        }
+        Returns: Json
+      }
+      refresh_video_date_worker_run_v1: {
+        Args: {
+          p_lease_seconds?: number
+          p_metadata?: Json
+          p_worker_id: string
+          p_worker_kind: string
+        }
+        Returns: Json
+      }
+      refresh_video_session_deadline_claim_v1: {
+        Args: {
+          p_deadline_id: number
+          p_lease_seconds?: number
+          p_worker_id: string
+        }
+        Returns: Json
+      }
       refund_failed_video_date: {
         Args: { p_session_id: string }
         Returns: Json
       }
       register_for_event: { Args: { p_event_id: string }; Returns: Json }
+      register_onesignal_push_subscription: {
+        Args: {
+          p_platform?: string
+          p_subscribed?: boolean
+          p_subscription_id: string
+        }
+        Returns: undefined
+      }
       release_chat_match_participant: {
         Args: {
           p_match_id: string
@@ -8611,10 +12175,32 @@ export type Database = {
         Args: { p_limit?: number }
         Returns: number
       }
+      replace_event_cover_media_reference: {
+        Args: {
+          p_asset_id: string
+          p_event_id: string
+          p_expected_current_asset_id?: string
+        }
+        Returns: Json
+      }
       replenish_monthly_credits: { Args: never; Returns: Json }
       requeue_stale_media_delete_jobs: {
         Args: { p_stale_minutes?: number }
         Returns: number
+      }
+      reserve_media_upload: {
+        Args: {
+          p_client_request_id: string
+          p_content_sha256: string
+          p_media_family: string
+          p_metadata?: Json
+          p_owner_user_id: string
+          p_provider: string
+          p_provider_object_id?: string
+          p_provider_path?: string
+          p_scope_key: string
+        }
+        Returns: Json
       }
       reset_tier_config_override: {
         Args: { p_capability_key: string; p_tier_id: string }
@@ -8645,6 +12231,10 @@ export type Database = {
           p_status?: string
         }
         Returns: number
+      }
+      sanitize_profile_display_name: {
+        Args: { p_input: string }
+        Returns: string | null
       }
       save_onboarding_draft: {
         Args: {
@@ -8684,6 +12274,14 @@ export type Database = {
         Returns: undefined
       }
       settle_event_ticket_checkout: {
+        Args: {
+          p_checkout_session_id: string
+          p_event_id: string
+          p_profile_id: string
+        }
+        Returns: Json
+      }
+      settle_event_ticket_checkout_20260523200000_phase2_base: {
         Args: {
           p_checkout_session_id: string
           p_event_id: string
@@ -8754,6 +12352,28 @@ export type Database = {
         }
         Returns: Json
       }
+      submit_video_date_safety_report_v2: {
+        Args: {
+          p_also_block?: boolean
+          p_details?: string
+          p_end_session?: boolean
+          p_idempotency_key?: string
+          p_reason: string
+          p_session_id: string
+        }
+        Returns: Json
+      }
+      submit_video_date_safety_report_v2_20260522011000_error_base: {
+        Args: {
+          p_also_block?: boolean
+          p_details?: string
+          p_end_session?: boolean
+          p_idempotency_key?: string
+          p_reason: string
+          p_session_id: string
+        }
+        Returns: Json
+      }
       summarize_media_lifecycle_health: { Args: never; Returns: Json }
       summarize_media_lifecycle_snapshot: { Args: never; Returns: Json }
       sync_chat_message_media: { Args: { p_message_id: string }; Returns: Json }
@@ -8763,6 +12383,20 @@ export type Database = {
       }
       sync_profile_photo_media: {
         Args: { p_avatar_path?: string; p_photos: string[]; p_user_id: string }
+        Returns: Json
+      }
+      take_provider_rate_limit_token_v1: {
+        Args: {
+          p_bucket: string
+          p_capacity?: number
+          p_cost?: number
+          p_provider: string
+          p_refill_per_second?: number
+        }
+        Returns: Json
+      }
+      take_video_date_token_refresh_rate_limit_v1: {
+        Args: never
         Returns: Json
       }
       terminalize_event_ready_gates: {
@@ -8785,25 +12419,29 @@ export type Database = {
         Args: { p_capability_key: string; p_value: Json }
         Returns: boolean
       }
+      trigger_media_placeholder_backfill_now: {
+        Args: { p_dry_run?: boolean; p_limit?: number }
+        Returns: Json
+      }
+      trigger_video_date_orphan_cleanup_now: {
+        Args: { p_dry_run?: boolean }
+        Returns: Json
+      }
       unblock_user: { Args: { p_blocked_id: string }; Returns: Json }
       unclaim_stale_event_reminder_queue_rows: {
         Args: { p_limit?: number; p_stale_after_seconds?: number }
         Returns: number
       }
       unmatch_match: { Args: { p_match_id: string }; Returns: Json }
+      unregister_onesignal_push_subscription: {
+        Args: { p_platform?: string; p_subscription_id?: string }
+        Returns: undefined
+      }
       update_media_session_status: {
         Args: {
           p_error_detail?: string
           p_new_status: string
           p_provider_id: string
-        }
-        Returns: Json
-      }
-      update_vibe_video_upload_status: {
-        Args: {
-          p_error_detail?: string
-          p_new_status: string
-          p_provider_object_id: string
         }
         Returns: Json
       }
@@ -8842,6 +12480,30 @@ export type Database = {
         }
         Returns: Json
       }
+      update_vibe_video_upload_status: {
+        Args: {
+          p_error_detail?: string
+          p_new_status: string
+          p_provider_object_id: string
+        }
+        Returns: Json
+      }
+      upsert_media_asset: {
+        Args: {
+          p_bytes?: number
+          p_content_sha256?: string
+          p_legacy_id?: string
+          p_legacy_table?: string
+          p_media_family: string
+          p_mime_type?: string
+          p_owner_user_id?: string
+          p_provider: string
+          p_provider_object_id?: string
+          p_provider_path?: string
+          p_status?: string
+        }
+        Returns: Json
+      }
       verify_event_ticket_checkout_intent: {
         Args: {
           p_amount_total: number
@@ -8852,6 +12514,15 @@ export type Database = {
           p_stripe_event_id?: string
         }
         Returns: Json
+      }
+      vibe_video_upload_status_from_session: {
+        Args: { p_status: string }
+        Returns: string
+      }
+      video_date_broadcast_batched_v2_enabled: { Args: never; Returns: boolean }
+      video_date_can_access_session_topic: {
+        Args: { p_topic: string }
+        Returns: boolean
       }
       video_date_client_stuck_safe_bool: {
         Args: { p_value: string }
@@ -8865,6 +12536,22 @@ export type Database = {
         Args: { p_max_len?: number; p_value: string }
         Returns: string
       }
+      video_date_command_request_hash_v2: {
+        Args: {
+          p_command_kind: string
+          p_request_payload?: Json
+          p_session_id: string
+        }
+        Returns: string
+      }
+      video_date_impression_rank: {
+        Args: { p_reason: string }
+        Returns: number
+      }
+      video_date_jsonb_has_secret_key: {
+        Args: { p_value: Json }
+        Returns: boolean
+      }
       video_date_launch_latency_safe_bool: {
         Args: { p_value: string }
         Returns: boolean
@@ -8877,6 +12564,20 @@ export type Database = {
         Args: { p_max_len?: number; p_value: string }
         Returns: string
       }
+      video_date_orphan_safety_interlock_v1: {
+        Args: { p_room_name?: string; p_session_id: string }
+        Returns: Json
+      }
+      video_date_outbox_enqueue_v2: {
+        Args: {
+          p_dedupe_key?: string
+          p_kind: string
+          p_next_attempt_at?: string
+          p_payload?: Json
+          p_session_id: string
+        }
+        Returns: Json
+      }
       video_date_pair_has_terminal_encounter: {
         Args: {
           p_event_id: string
@@ -8884,6 +12585,14 @@ export type Database = {
           p_user_a: string
           p_user_b: string
         }
+        Returns: boolean
+      }
+      video_date_queue_participant_reliability_penalty: {
+        Args: { p_event_id: string; p_now?: string; p_participant_id: string }
+        Returns: number
+      }
+      video_date_realtime_topic_is_session: {
+        Args: { p_topic: string }
         Returns: boolean
       }
       video_date_session_has_encounter_exposure: {
@@ -8973,6 +12682,94 @@ export type Database = {
           p_state: string
         }
         Returns: boolean
+      }
+      video_session_command_begin_v2: {
+        Args: {
+          p_actor: string
+          p_command_kind: string
+          p_idempotency_key: string
+          p_request_hash?: string
+          p_request_payload?: Json
+          p_session_id: string
+        }
+        Returns: Json
+      }
+      video_session_command_finish_v2: {
+        Args: {
+          p_actor: string
+          p_command_id: number
+          p_result_payload?: Json
+          p_status: string
+        }
+        Returns: Json
+      }
+      video_session_continue_handshake_v2: {
+        Args: {
+          p_idempotency_key?: string
+          p_request_hash?: string
+          p_session_id: string
+        }
+        Returns: Json
+      }
+      video_session_date_timeout_v2: {
+        Args: {
+          p_idempotency_key?: string
+          p_request_hash?: string
+          p_session_id: string
+        }
+        Returns: Json
+      }
+      video_session_extend_date_v2: {
+        Args: {
+          p_credit_type: string
+          p_idempotency_key?: string
+          p_request_hash?: string
+          p_session_id: string
+        }
+        Returns: Json
+      }
+      video_session_extend_date_v2_20260522011000_replay_base: {
+        Args: {
+          p_credit_type: string
+          p_idempotency_key?: string
+          p_request_hash?: string
+          p_session_id: string
+        }
+        Returns: Json
+      }
+      video_session_forfeit_v2: {
+        Args: {
+          p_idempotency_key?: string
+          p_reason?: string
+          p_request_hash?: string
+          p_session_id: string
+        }
+        Returns: Json
+      }
+      video_session_handshake_auto_promote_v2: {
+        Args: {
+          p_idempotency_key?: string
+          p_request_hash?: string
+          p_session_id: string
+        }
+        Returns: Json
+      }
+      video_session_mark_ready_v2: {
+        Args: {
+          p_idempotency_key?: string
+          p_request_hash?: string
+          p_session_id: string
+        }
+        Returns: Json
+      }
+      video_session_request_extension_v2: {
+        Args: {
+          p_credit_type: string
+          p_idempotency_key?: string
+          p_request_hash?: string
+          p_session_id: string
+        }
+        Returns: Json
       }
       viewer_shares_event_with_profile: {
         Args: { p_other_profile_id: string }
