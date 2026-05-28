@@ -25,7 +25,7 @@ import { StatusBar } from 'expo-status-bar';
 import * as WebBrowser from 'expo-web-browser';
 import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
 import { DeactivatedAccountReactivationPrompt } from '@/components/DeactivatedAccountReactivationPrompt';
-import { ActivityIndicator, AppState, Pressable, StyleSheet, Text, type AppStateStatus, LogBox, View } from 'react-native';
+import { ActivityIndicator, Alert, AppState, Pressable, StyleSheet, Text, type AppStateStatus, LogBox, View } from 'react-native';
 import { useGlobalMessagesInboxInvalidation } from '@/lib/chatApi';
 import { useProfileCountsRealtime } from '@/lib/useProfileCountsRealtime';
 import { useRealtimeEvents } from '@/lib/useRealtimeEvents';
@@ -61,6 +61,7 @@ import { MatchCallProvider } from '@/lib/useMatchCall';
 import { SUPABASE_PUBLISHABLE_KEY, SUPABASE_URL, supabase } from '@/lib/supabase';
 import {
   selectPrimaryRecoveryAttentionTarget,
+  type UploadAttentionTarget,
   uploadAttentionTargetIdentity,
 } from '@clientShared/chat/uploadAttentionTargets';
 import { completeSessionFromAuthReturnUrl } from '@/lib/nativeAuthRedirect';
@@ -314,13 +315,30 @@ function RevenueCatUserSync() {
   return null;
 }
 
+function uploadAttentionTargetValidationKey(target: UploadAttentionTarget): string {
+  return [
+    uploadAttentionTargetIdentity(target),
+    target.status,
+    String(target.updatedAtMs),
+  ].join(':');
+}
+
 function NativeUploadRecoveryGlobalBanner({ theme }: { theme: typeof Colors.dark }) {
-  const { recoveryAttentionTargets } = useChatOutbox();
+  const {
+    recoveryAttentionTargets,
+    validateRecoveryAttentionTarget,
+    skipRecoveryAttentionTarget,
+  } = useChatOutbox();
   const pathname = usePathname();
+  const validationRunRef = useRef(0);
+  const candidateRecoveryAttentionTargetsRef = useRef<UploadAttentionTarget[]>([]);
+  const attentionActionRef = useRef<'review' | 'skip' | null>(null);
   const [hiddenAttentionTarget, setHiddenAttentionTarget] = useState<{
     identity: string;
     otherUserId: string | null;
   } | null>(null);
+  const [validatedRecoveryAttentionTargets, setValidatedRecoveryAttentionTargets] = useState<UploadAttentionTarget[]>([]);
+  const [attentionAction, setAttentionAction] = useState<'review' | 'skip' | null>(null);
   const currentOtherUserId = useMemo(() => {
     const match = pathname.match(/^\/chat\/([^/?#]+)/);
     if (!match?.[1]) return null;
@@ -339,17 +357,70 @@ function NativeUploadRecoveryGlobalBanner({ theme }: { theme: typeof Colors.dark
   const suppressedAttentionIdentity = shouldSuppressHiddenTarget
     ? hiddenAttentionTarget?.identity ?? ''
     : '';
-  const visibleRecoveryAttentionTargets = useMemo(
+  const candidateRecoveryAttentionTargets = useMemo(
     () =>
       recoveryAttentionTargets.filter(
         (target) => uploadAttentionTargetIdentity(target) !== suppressedAttentionIdentity,
       ),
     [recoveryAttentionTargets, suppressedAttentionIdentity],
   );
+  const candidateRecoveryAttentionKey = useMemo(
+    () => candidateRecoveryAttentionTargets.map(uploadAttentionTargetValidationKey).join('|'),
+    [candidateRecoveryAttentionTargets],
+  );
+
+  useEffect(() => {
+    candidateRecoveryAttentionTargetsRef.current = candidateRecoveryAttentionTargets;
+  }, [candidateRecoveryAttentionTargets]);
+
+  useEffect(() => {
+    const runId = validationRunRef.current + 1;
+    validationRunRef.current = runId;
+    const targets = candidateRecoveryAttentionTargetsRef.current;
+    if (targets.length === 0) {
+      setValidatedRecoveryAttentionTargets([]);
+      return;
+    }
+
+    setValidatedRecoveryAttentionTargets([]);
+    let cancelled = false;
+    void (async () => {
+      const validTargets: UploadAttentionTarget[] = [];
+      for (const target of targets) {
+        let result: Awaited<ReturnType<typeof validateRecoveryAttentionTarget>> | null = null;
+        try {
+          result = await validateRecoveryAttentionTarget(target);
+        } catch {
+          result = null;
+        }
+        if (cancelled || validationRunRef.current !== runId) return;
+        if (result?.status === 'valid') validTargets.push(result.target);
+      }
+      if (!cancelled && validationRunRef.current === runId) {
+        setValidatedRecoveryAttentionTargets(validTargets);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [candidateRecoveryAttentionKey, validateRecoveryAttentionTarget]);
+
+  const visibleRecoveryAttentionTargets = validatedRecoveryAttentionTargets;
   const primaryTarget = useMemo(
     () => selectPrimaryRecoveryAttentionTarget(visibleRecoveryAttentionTargets, currentOtherUserId),
     [currentOtherUserId, visibleRecoveryAttentionTargets],
   );
+  const beginAttentionAction = (action: 'review' | 'skip') => {
+    if (attentionActionRef.current) return false;
+    attentionActionRef.current = action;
+    setAttentionAction(action);
+    return true;
+  };
+  const endAttentionAction = () => {
+    attentionActionRef.current = null;
+    setAttentionAction(null);
+  };
 
   useEffect(() => {
     if (!hiddenAttentionTarget) return;
@@ -363,32 +434,64 @@ function NativeUploadRecoveryGlobalBanner({ theme }: { theme: typeof Colors.dark
 
   if (visibleRecoveryAttentionCount <= 0 || !primaryTarget) return null;
 
-  const handlePress = () => {
-    setHiddenAttentionTarget({
-      identity: uploadAttentionTargetIdentity(primaryTarget),
-      otherUserId: primaryTarget.otherUserId,
-    });
-    if (primaryTarget.otherUserId) {
-      router.push({
-        pathname: '/chat/[id]',
-        params: {
-          id: primaryTarget.otherUserId,
-          uploadAttention: primaryTarget.attentionId,
-          uploadAttentionNonce: String(Date.now()),
-        },
+  const handleReview = async () => {
+    if (!primaryTarget) return;
+    if (!beginAttentionAction('review')) return;
+    try {
+      const validation = await validateRecoveryAttentionTarget(primaryTarget);
+      if (validation.status !== 'valid') {
+        if (validation.status === 'unknown') {
+          Alert.alert('Couldn’t verify upload', 'Try again in a moment.');
+        } else {
+          Alert.alert('Upload cleared', 'That upload was already cleared or sent.');
+        }
+        return;
+      }
+      const target = validation.target;
+      setHiddenAttentionTarget({
+        identity: uploadAttentionTargetIdentity(target),
+        otherUserId: target.otherUserId,
       });
-      return;
+      if (target.otherUserId) {
+        router.push({
+          pathname: '/chat/[id]',
+          params: {
+            id: target.otherUserId,
+            uploadAttention: target.attentionId,
+            uploadAttentionClientRequestId: target.clientRequestId,
+            uploadAttentionNonce: String(Date.now()),
+          },
+        });
+        return;
+      }
+      router.push('/(tabs)/matches');
+    } catch {
+      Alert.alert('Couldn’t verify upload', 'Try again in a moment.');
+    } finally {
+      endAttentionAction();
     }
-    router.push('/(tabs)/matches');
+  };
+
+  const handleSkip = async () => {
+    if (!primaryTarget) return;
+    if (!beginAttentionAction('skip')) return;
+    try {
+      const result = await skipRecoveryAttentionTarget(primaryTarget);
+      if (result.status === 'failed') {
+        Alert.alert('Couldn’t clear upload', 'Try again in a moment.');
+      }
+    } catch {
+      Alert.alert('Couldn’t clear upload', 'Try again in a moment.');
+    } finally {
+      endAttentionAction();
+    }
   };
   const attentionLabel = visibleRecoveryAttentionCount === 1
     ? primaryTarget.label
     : `${visibleRecoveryAttentionCount} uploads need attention`;
 
   return (
-    <Pressable
-      onPress={handlePress}
-      accessibilityRole="button"
+    <View
       accessibilityLabel={attentionLabel}
       style={[
         uploadRecoveryStyles.banner,
@@ -400,11 +503,30 @@ function NativeUploadRecoveryGlobalBanner({ theme }: { theme: typeof Colors.dark
           {attentionLabel}
         </Text>
         <Text style={[uploadRecoveryStyles.subtitle, { color: theme.mutedForeground }]}>
-          View the stuck upload in chat.
+          Review recovery options in chat.
         </Text>
       </View>
-      <Text style={[uploadRecoveryStyles.action, { color: theme.tint }]}>Review</Text>
-    </Pressable>
+      <View style={uploadRecoveryStyles.actions}>
+        <Pressable
+          onPress={handleSkip}
+          disabled={attentionAction !== null}
+          accessibilityRole="button"
+          accessibilityLabel="Skip upload attention"
+          hitSlop={8}
+        >
+          <Text style={[uploadRecoveryStyles.action, { color: theme.mutedForeground }]}>Skip</Text>
+        </Pressable>
+        <Pressable
+          onPress={handleReview}
+          disabled={attentionAction !== null}
+          accessibilityRole="button"
+          accessibilityLabel="Review upload needing attention"
+          hitSlop={8}
+        >
+          <Text style={[uploadRecoveryStyles.action, { color: theme.tint }]}>Review</Text>
+        </Pressable>
+      </View>
+    </View>
   );
 }
 
@@ -1061,6 +1183,11 @@ const uploadRecoveryStyles = StyleSheet.create({
     marginTop: 2,
     fontSize: 12,
     lineHeight: 16,
+  },
+  actions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 14,
   },
   action: {
     fontSize: 13,

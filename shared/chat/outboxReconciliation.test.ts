@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { shouldPruneOutboxItemAfterServerReconcile } from "./outboxReconciliation";
+import {
+  isRawMessageDisplayReadyForOutboxCompletion,
+  shouldPruneOutboxItemAfterServerReconcile,
+} from "./outboxReconciliation";
 
 test("prunes an outbox row when its server message id is hydrated", () => {
   assert.equal(
@@ -51,6 +54,39 @@ test("prunes an image outbox row once the server image is display ready", () => 
         completedClientRequestIds: new Set(["photo-client-1"]),
       },
     ),
+    true,
+  );
+});
+
+test("raw message display readiness waits for renderable chat image urls", () => {
+  assert.equal(
+    isRawMessageDisplayReadyForOutboxCompletion({
+      content: "",
+      structured_payload: {
+        v: 2,
+        kind: "chat_image",
+        provider: "bunny_storage",
+        media_ref: "photos/private/photo.webp",
+      },
+    }),
+    false,
+  );
+
+  assert.equal(
+    isRawMessageDisplayReadyForOutboxCompletion({
+      content: "__IMAGE__|https://cdn.example.com/photo.webp",
+      structured_payload: null,
+    }),
+    true,
+  );
+});
+
+test("raw non-image messages are display ready for outbox completion", () => {
+  assert.equal(
+    isRawMessageDisplayReadyForOutboxCompletion({
+      content: "hello",
+      structured_payload: null,
+    }),
     true,
   );
 });

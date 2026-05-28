@@ -629,6 +629,10 @@ function localClientRequestIdFromUploadAttention(attentionId: string): string | 
   return attentionId.startsWith('local:') ? attentionId.slice('local:'.length) || null : null;
 }
 
+function clientUploadAttentionHighlightId(clientRequestId: string): string {
+  return `client:${clientRequestId}`;
+}
+
 function uploadAttentionIdForThreadMessage(message: ThreadMessage): string | null {
   if (isLocalMediaMessage(message) && message.localMedia.state === 'failed' && message.localMedia.outboxItemId) {
     return `local:${message.localMedia.outboxItemId}`;
@@ -1241,23 +1245,26 @@ function normalizeRouteParam(raw: string | string[] | undefined): string | undef
 }
 
 export default function ChatThreadScreen() {
-  const { id: routeChatId, smokeScenario, uploadAttention, uploadAttentionNonce } = useLocalSearchParams<{
+  const { id: routeChatId, smokeScenario, uploadAttention, uploadAttentionClientRequestId, uploadAttentionNonce } = useLocalSearchParams<{
     id: string | string[];
     smokeScenario?: string | string[];
     uploadAttention?: string | string[];
+    uploadAttentionClientRequestId?: string | string[];
     uploadAttentionNonce?: string | string[];
   }>();
   const otherUserId = normalizeRouteParam(routeChatId);
   const nativeSmokeScenarioId = normalizeRouteParam(smokeScenario);
   const uploadAttentionTargetId = normalizeRouteParam(uploadAttention) ?? '';
+  const uploadAttentionTargetClientRequestId = normalizeRouteParam(uploadAttentionClientRequestId) ?? '';
   const uploadAttentionTargetNonce = normalizeRouteParam(uploadAttentionNonce) ?? '';
   const clearUploadAttentionRouteParams = useCallback(() => {
-    if (!uploadAttentionTargetId && !uploadAttentionTargetNonce) return;
+    if (!uploadAttentionTargetId && !uploadAttentionTargetClientRequestId && !uploadAttentionTargetNonce) return;
     router.setParams({
       uploadAttention: undefined,
+      uploadAttentionClientRequestId: undefined,
       uploadAttentionNonce: undefined,
     });
-  }, [uploadAttentionTargetId, uploadAttentionTargetNonce]);
+  }, [uploadAttentionTargetClientRequestId, uploadAttentionTargetId, uploadAttentionTargetNonce]);
   const { width: windowWidth } = useWindowDimensions();
   const insets = useSafeAreaInsets();
   const colorScheme = useColorScheme();
@@ -2383,31 +2390,45 @@ export default function ChatThreadScreen() {
   }, [runVibeClipRecoverySweepForThread]);
 
   useEffect(() => {
-    if (!uploadAttentionTargetId || shellLoading || !data?.matchId) return;
+    if ((!uploadAttentionTargetId && !uploadAttentionTargetClientRequestId) || shellLoading || !data?.matchId) return;
 
-    const requestKey = `${otherUserId ?? ''}:${uploadAttentionTargetId}:${uploadAttentionTargetNonce || '0'}`;
+    const requestKey = `${otherUserId ?? ''}:${uploadAttentionTargetId}:${uploadAttentionTargetClientRequestId}:${uploadAttentionTargetNonce || '0'}`;
     if (uploadAttentionHandledKeyRef.current === requestKey) return;
 
     let cancelled = false;
     let interaction: { cancel?: () => void } | null = null;
-    const localClientRequestId = localClientRequestIdFromUploadAttention(uploadAttentionTargetId);
+    const attentionClientRequestId =
+      uploadAttentionTargetClientRequestId || localClientRequestIdFromUploadAttention(uploadAttentionTargetId);
 
     const scrollToTarget = () => {
       const index = flatListRows.findIndex(
         (row) =>
           row.type === 'message' &&
           (uploadAttentionIdForThreadMessage(row.message) === uploadAttentionTargetId ||
-            (localClientRequestId && threadMessageClientRequestId(row.message) === localClientRequestId)),
+            (attentionClientRequestId && threadMessageClientRequestId(row.message) === attentionClientRequestId)),
       );
       if (index < 0) return false;
       uploadAttentionHandledKeyRef.current = requestKey;
-      setHighlightedUploadAttentionId(uploadAttentionTargetId);
+      const matchedRow = flatListRows[index];
+      const matchedDirectly =
+        matchedRow?.type === 'message' &&
+        uploadAttentionIdForThreadMessage(matchedRow.message) === uploadAttentionTargetId;
+      setHighlightedUploadAttentionId(
+        matchedDirectly
+          ? uploadAttentionTargetId
+          : attentionClientRequestId
+            ? clientUploadAttentionHighlightId(attentionClientRequestId)
+            : uploadAttentionTargetId,
+      );
       listRef.current?.scrollToIndex({ index, animated: true, viewPosition: 0.5 });
       clearUploadAttentionHighlightTimeout();
       uploadAttentionHighlightTimeoutRef.current = setTimeout(() => {
         uploadAttentionHighlightTimeoutRef.current = null;
         setHighlightedUploadAttentionId((current) =>
-          current === uploadAttentionTargetId ? '' : current,
+          (uploadAttentionTargetId && current === uploadAttentionTargetId) ||
+          (attentionClientRequestId && current === clientUploadAttentionHighlightId(attentionClientRequestId))
+            ? ''
+            : current,
         );
       }, 2200);
       clearUploadAttentionRouteParams();
@@ -2421,8 +2442,8 @@ export default function ChatThreadScreen() {
           uploadAttentionRecoveryAttemptedKeyRef.current = requestKey;
           uploadAttentionRecoveryPendingKeyRef.current = requestKey;
           void (async () => {
-            const recoveredSentMessage = localClientRequestId
-              ? await recoverSentServerMessageForClientRequestId(localClientRequestId)
+            const recoveredSentMessage = attentionClientRequestId
+              ? await recoverSentServerMessageForClientRequestId(attentionClientRequestId)
               : false;
             if (!recoveredSentMessage) await runVibeClipRecoverySweepForThread('foreground');
           })().finally(() => {
@@ -2462,6 +2483,7 @@ export default function ChatThreadScreen() {
     shellLoading,
     showAppDialog,
     uploadAttentionRecoveryTick,
+    uploadAttentionTargetClientRequestId,
     uploadAttentionTargetId,
     uploadAttentionTargetNonce,
   ]);
@@ -3719,7 +3741,8 @@ export default function ChatThreadScreen() {
       uploadAttentionId === highlightedUploadAttentionId ||
       Boolean(
         uploadAttentionClientRequestId &&
-          highlightedUploadAttentionId === `local:${uploadAttentionClientRequestId}`,
+          (highlightedUploadAttentionId === `local:${uploadAttentionClientRequestId}` ||
+            highlightedUploadAttentionId === clientUploadAttentionHighlightId(uploadAttentionClientRequestId)),
       );
 
     const isDateTimeline =

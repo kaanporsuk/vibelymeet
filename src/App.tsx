@@ -57,6 +57,7 @@ import {
 } from "@/services/profileService";
 import {
   selectPrimaryRecoveryAttentionTarget,
+  type UploadAttentionTarget,
   uploadAttentionTargetIdentity,
 } from "../shared/chat/uploadAttentionTargets";
 
@@ -254,15 +255,33 @@ function currentChatOtherUserId(pathname: string): string | null {
   }
 }
 
+function uploadAttentionTargetValidationKey(target: UploadAttentionTarget): string {
+  return [
+    uploadAttentionTargetIdentity(target),
+    target.status,
+    String(target.updatedAtMs),
+  ].join(":");
+}
+
 const WebUploadRecoveryNotifier = () => {
-  const { items, recoveryAttentionTargets } = useWebChatOutbox();
+  const {
+    items,
+    recoveryAttentionTargets,
+    validateRecoveryAttentionTarget,
+    skipRecoveryAttentionTarget,
+  } = useWebChatOutbox();
   const navigate = useNavigate();
   const location = useLocation();
   const hiddenWithActiveUploadRef = useRef(false);
+  const validationRunRef = useRef(0);
+  const candidateRecoveryAttentionTargetsRef = useRef<UploadAttentionTarget[]>([]);
+  const attentionActionRef = useRef<"review" | "skip" | null>(null);
   const [hiddenAttentionTarget, setHiddenAttentionTarget] = useState<{
     identity: string;
     otherUserId: string | null;
   } | null>(null);
+  const [validatedRecoveryAttentionTargets, setValidatedRecoveryAttentionTargets] = useState<UploadAttentionTarget[]>([]);
+  const [attentionAction, setAttentionAction] = useState<"review" | "skip" | null>(null);
   const currentOtherUserId = useMemo(
     () => currentChatOtherUserId(location.pathname),
     [location.pathname],
@@ -276,33 +295,125 @@ const WebUploadRecoveryNotifier = () => {
   const suppressedAttentionIdentity = shouldSuppressHiddenTarget
     ? hiddenAttentionTarget?.identity ?? ""
     : "";
-  const visibleRecoveryAttentionTargets = useMemo(
+  const candidateRecoveryAttentionTargets = useMemo(
     () =>
       recoveryAttentionTargets.filter(
         (target) => uploadAttentionTargetIdentity(target) !== suppressedAttentionIdentity,
       ),
     [recoveryAttentionTargets, suppressedAttentionIdentity],
   );
+  const candidateRecoveryAttentionKey = useMemo(
+    () => candidateRecoveryAttentionTargets.map(uploadAttentionTargetValidationKey).join("|"),
+    [candidateRecoveryAttentionTargets],
+  );
+
+  useEffect(() => {
+    candidateRecoveryAttentionTargetsRef.current = candidateRecoveryAttentionTargets;
+  }, [candidateRecoveryAttentionTargets]);
+
+  useEffect(() => {
+    const runId = validationRunRef.current + 1;
+    validationRunRef.current = runId;
+    const targets = candidateRecoveryAttentionTargetsRef.current;
+    if (targets.length === 0) {
+      setValidatedRecoveryAttentionTargets([]);
+      return;
+    }
+
+    setValidatedRecoveryAttentionTargets([]);
+    let cancelled = false;
+    void (async () => {
+      const validTargets: UploadAttentionTarget[] = [];
+      for (const target of targets) {
+        let result: Awaited<ReturnType<typeof validateRecoveryAttentionTarget>> | null = null;
+        try {
+          result = await validateRecoveryAttentionTarget(target);
+        } catch {
+          result = null;
+        }
+        if (cancelled || validationRunRef.current !== runId) return;
+        if (result?.status === "valid") validTargets.push(result.target);
+      }
+      if (!cancelled && validationRunRef.current === runId) {
+        setValidatedRecoveryAttentionTargets(validTargets);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [candidateRecoveryAttentionKey, validateRecoveryAttentionTarget]);
+
+  const visibleRecoveryAttentionTargets = validatedRecoveryAttentionTargets;
   const primaryTarget = useMemo(
     () => selectPrimaryRecoveryAttentionTarget(visibleRecoveryAttentionTargets, currentOtherUserId),
     [currentOtherUserId, visibleRecoveryAttentionTargets],
   );
-  const handleReview = useCallback(() => {
+  const beginAttentionAction = useCallback((action: "review" | "skip") => {
+    if (attentionActionRef.current) return false;
+    attentionActionRef.current = action;
+    setAttentionAction(action);
+    return true;
+  }, []);
+  const endAttentionAction = useCallback(() => {
+    attentionActionRef.current = null;
+    setAttentionAction(null);
+  }, []);
+  const handleReview = useCallback(async () => {
     if (!primaryTarget) return;
-    setHiddenAttentionTarget({
-      identity: uploadAttentionTargetIdentity(primaryTarget),
-      otherUserId: primaryTarget.otherUserId,
-    });
-    if (!primaryTarget.otherUserId) {
-      navigate("/matches");
-      return;
+    if (!beginAttentionAction("review")) return;
+    try {
+      const validation = await validateRecoveryAttentionTarget(primaryTarget);
+      if (validation.status !== "valid") {
+        if (validation.status === "unknown") {
+          toast.error("Could not verify that upload yet. Try again in a moment.");
+        } else {
+          toast.info("That upload was already cleared or sent.");
+        }
+        return;
+      }
+      const target = validation.target;
+      setHiddenAttentionTarget({
+        identity: uploadAttentionTargetIdentity(target),
+        otherUserId: target.otherUserId,
+      });
+      if (!target.otherUserId) {
+        navigate("/matches");
+        return;
+      }
+      const params = new URLSearchParams({
+        uploadAttention: target.attentionId,
+        uploadAttentionClientRequestId: target.clientRequestId,
+        uploadAttentionNonce: String(Date.now()),
+      });
+      navigate(`/chat/${encodeURIComponent(target.otherUserId)}?${params.toString()}`);
+    } catch {
+      toast.error("Could not verify that upload yet. Try again in a moment.");
+    } finally {
+      endAttentionAction();
     }
-    const params = new URLSearchParams({
-      uploadAttention: primaryTarget.attentionId,
-      uploadAttentionNonce: String(Date.now()),
-    });
-    navigate(`/chat/${encodeURIComponent(primaryTarget.otherUserId)}?${params.toString()}`);
-  }, [navigate, primaryTarget]);
+  }, [beginAttentionAction, endAttentionAction, navigate, primaryTarget, validateRecoveryAttentionTarget]);
+
+  const handleSkip = useCallback(async () => {
+    if (!primaryTarget) return;
+    if (!beginAttentionAction("skip")) return;
+    try {
+      const result = await skipRecoveryAttentionTarget(primaryTarget);
+      if (result.status === "failed") {
+        toast.error("Could not clear that upload yet. Try again in a moment.");
+        return;
+      }
+      if (result.status === "removed") {
+        toast.info("Upload cleared.");
+        return;
+      }
+      toast.info("That upload was already cleared or sent.");
+    } catch {
+      toast.error("Could not clear that upload yet. Try again in a moment.");
+    } finally {
+      endAttentionAction();
+    }
+  }, [beginAttentionAction, endAttentionAction, primaryTarget, skipRecoveryAttentionTarget]);
   const activeUploadCount = items.filter(
     (item) =>
       item.payload.kind !== "text" &&
@@ -360,14 +471,25 @@ const WebUploadRecoveryNotifier = () => {
           {attentionLabel}
         </p>
         <p className="truncate text-xs text-muted-foreground">
-          View the stuck upload in chat.
+          Review recovery options in chat.
         </p>
       </div>
+      <Button
+        size="sm"
+        variant="ghost"
+        className="h-8 px-2"
+        aria-label="Skip upload attention"
+        disabled={attentionAction !== null}
+        onClick={handleSkip}
+      >
+        Skip
+      </Button>
       <Button
         size="sm"
         variant="secondary"
         className="h-8 px-3"
         aria-label="Review upload needing attention"
+        disabled={attentionAction !== null}
         onClick={handleReview}
       >
         Review

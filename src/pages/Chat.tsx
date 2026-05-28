@@ -232,6 +232,10 @@ function uploadAttentionClientRequestSelector(clientRequestId: string): string {
   return `[data-upload-attention-client-request-id="${cssAttributeValue(clientRequestId)}"]`;
 }
 
+function clientUploadAttentionHighlightId(clientRequestId: string): string {
+  return `client:${clientRequestId}`;
+}
+
 function localClientRequestIdFromUploadAttention(attentionId: string): string | null {
   return attentionId.startsWith("local:") ? attentionId.slice("local:".length) || null : null;
 }
@@ -662,16 +666,18 @@ const Chat = () => {
   const currentUserId = user?.id || "";
   const queryClient = useQueryClient();
   const uploadAttentionTargetId = searchParams.get("uploadAttention") ?? "";
+  const uploadAttentionClientRequestId = searchParams.get("uploadAttentionClientRequestId") ?? "";
   const uploadAttentionNonce = searchParams.get("uploadAttentionNonce") ?? "";
   const clearUploadAttentionRouteParams = useCallback(() => {
-    if (!uploadAttentionTargetId && !uploadAttentionNonce) return;
+    if (!uploadAttentionTargetId && !uploadAttentionClientRequestId && !uploadAttentionNonce) return;
     setSearchParams((prev) => {
       const next = new URLSearchParams(prev);
       next.delete("uploadAttention");
+      next.delete("uploadAttentionClientRequestId");
       next.delete("uploadAttentionNonce");
       return next;
     }, { replace: true });
-  }, [setSearchParams, uploadAttentionNonce, uploadAttentionTargetId]);
+  }, [setSearchParams, uploadAttentionClientRequestId, uploadAttentionNonce, uploadAttentionTargetId]);
 
   const {
     data: chatData,
@@ -2104,31 +2110,43 @@ const Chat = () => {
   }, [runVibeClipRecoverySweepForThread]);
 
   useEffect(() => {
-    if (!uploadAttentionTargetId || isLoadingChat || !chatData?.matchId) return;
+    if ((!uploadAttentionTargetId && !uploadAttentionClientRequestId) || isLoadingChat || !chatData?.matchId) return;
     if (typeof window === "undefined" || typeof document === "undefined") return;
 
-    const requestKey = `${id ?? ""}:${uploadAttentionTargetId}:${uploadAttentionNonce || "0"}`;
+    const requestKey = `${id ?? ""}:${uploadAttentionTargetId}:${uploadAttentionClientRequestId}:${uploadAttentionNonce || "0"}`;
     if (uploadAttentionHandledKeyRef.current === requestKey) return;
 
     let cancelled = false;
     let rafId: number | null = null;
-    const localClientRequestId = localClientRequestIdFromUploadAttention(uploadAttentionTargetId);
+    const attentionClientRequestId =
+      uploadAttentionClientRequestId || localClientRequestIdFromUploadAttention(uploadAttentionTargetId);
 
     const scrollToTarget = () => {
-      const directTarget = document.querySelector<HTMLElement>(uploadAttentionSelector(uploadAttentionTargetId));
-      const sentTarget = localClientRequestId
-        ? document.querySelector<HTMLElement>(uploadAttentionClientRequestSelector(localClientRequestId))
+      const directTarget = uploadAttentionTargetId
+        ? document.querySelector<HTMLElement>(uploadAttentionSelector(uploadAttentionTargetId))
+        : null;
+      const sentTarget = attentionClientRequestId
+        ? document.querySelector<HTMLElement>(uploadAttentionClientRequestSelector(attentionClientRequestId))
         : null;
       const el = directTarget ?? sentTarget;
       if (!el) return false;
       uploadAttentionHandledKeyRef.current = requestKey;
       el.scrollIntoView({ behavior: "smooth", block: "center" });
-      setHighlightedUploadAttentionId(uploadAttentionTargetId);
+      setHighlightedUploadAttentionId(
+        directTarget
+          ? uploadAttentionTargetId
+          : attentionClientRequestId
+            ? clientUploadAttentionHighlightId(attentionClientRequestId)
+            : uploadAttentionTargetId,
+      );
       clearUploadAttentionHighlightTimeout();
       uploadAttentionHighlightTimeoutRef.current = window.setTimeout(() => {
         uploadAttentionHighlightTimeoutRef.current = null;
         setHighlightedUploadAttentionId((current) =>
-          current === uploadAttentionTargetId ? "" : current,
+          (uploadAttentionTargetId && current === uploadAttentionTargetId) ||
+          (attentionClientRequestId && current === clientUploadAttentionHighlightId(attentionClientRequestId))
+            ? ""
+            : current,
         );
       }, UPLOAD_ATTENTION_HIGHLIGHT_MS);
       clearUploadAttentionRouteParams();
@@ -2141,8 +2159,8 @@ const Chat = () => {
         uploadAttentionRecoveryAttemptedKeyRef.current = requestKey;
         uploadAttentionRecoveryPendingKeyRef.current = requestKey;
         void (async () => {
-          const recoveredSentMessage = localClientRequestId
-            ? await recoverSentServerMessageForClientRequestId(localClientRequestId)
+          const recoveredSentMessage = attentionClientRequestId
+            ? await recoverSentServerMessageForClientRequestId(attentionClientRequestId)
             : false;
           if (!recoveredSentMessage) await runVibeClipRecoverySweepForThread("foreground");
         })().finally(() => {
@@ -2178,6 +2196,7 @@ const Chat = () => {
     runVibeClipRecoverySweepForThread,
     uploadAttentionRecoveryTick,
     uploadAttentionRowsKey,
+    uploadAttentionClientRequestId,
     uploadAttentionNonce,
     uploadAttentionTargetId,
   ]);
@@ -2860,7 +2879,8 @@ const Chat = () => {
                 uploadAttentionId === highlightedUploadAttentionId ||
                 Boolean(
                   uploadAttentionClientRequestId &&
-                    highlightedUploadAttentionId === `local:${uploadAttentionClientRequestId}`,
+                    (highlightedUploadAttentionId === `local:${uploadAttentionClientRequestId}` ||
+                      highlightedUploadAttentionId === clientUploadAttentionHighlightId(uploadAttentionClientRequestId)),
                 );
               const threadIdx = displayMessages.findIndex((m) => m.id === message.id);
               const mediaRecede =
