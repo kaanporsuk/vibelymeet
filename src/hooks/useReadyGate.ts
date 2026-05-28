@@ -882,6 +882,7 @@ export const useReadyGate = ({ sessionId, eventId, onBothReady, onForfeited }: U
       subscription.unsubscribe();
       clearBroadcastGapRetryTimer();
       broadcastGapRecoveryRef.current = null;
+      setSequenceGapUnresolved(false);
     };
   }, [
     readyGateBroadcastEnabled,
@@ -889,6 +890,7 @@ export const useReadyGate = ({ sessionId, eventId, onBothReady, onForfeited }: U
     clearBroadcastGapRetryTimer,
     eventId,
     reconcileBroadcastEvent,
+    setSequenceGapUnresolved,
     sessionId,
     user?.id,
   ]);

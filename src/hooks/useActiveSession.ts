@@ -459,6 +459,7 @@ export function useActiveSession(
   const staleActiveSessionEventKeyRef = useRef<string | null>(null);
   const checkInFlightRef = useRef<Promise<void> | null>(null);
   const checkQueuedRef = useRef(false);
+  const runCheckRef = useRef<(() => Promise<void>) | null>(null);
   const shadowCompareKeyRef = useRef<string | null>(null);
   const enabledRef = useRef(enabled);
   enabledRef.current = enabled;
@@ -816,8 +817,10 @@ export function useActiveSession(
     }
   }, [userId, eventFilter, commitActiveSession, emitStaleActiveSessionDetected]);
 
+  runCheckRef.current = runCheck;
+
   const check = useCallback(async () => {
-    if (!enabled) return;
+    if (!enabledRef.current) return;
 
     if (checkInFlightRef.current) {
       checkQueuedRef.current = true;
@@ -827,8 +830,8 @@ export function useActiveSession(
     const task = (async () => {
       do {
         checkQueuedRef.current = false;
-        await runCheck();
-      } while (mounted.current && enabled && checkQueuedRef.current);
+        await (runCheckRef.current ?? runCheck)();
+      } while (mounted.current && enabledRef.current && checkQueuedRef.current);
     })().finally(() => {
       checkInFlightRef.current = null;
     });

@@ -74,6 +74,7 @@ import {
   getReadyGatePermissionPrewarmReleaseDelayMs,
   getReadyGateReadinessStatusCopy,
 } from "@clientShared/matching/readyGateReadiness";
+import { READY_GATE_REALTIME_RECOVERY_STABLE_MS } from "@clientShared/matching/readyGateRealtimeSupervisor";
 import {
   resolveReadyGateDiagnosticChecklist,
   resolveReadyGatePrepareEntryFailureCopy,
@@ -382,6 +383,7 @@ const ReadyGateOverlay = ({
   const overlayRealtimeDegradedRef = useRef(false);
   const orchestratorRealtimeDegradedRef = useRef(false);
   const realtimeFallbackCopyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const overlayRealtimeRecoveryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const terminalActionInFlightRef = useRef(false);
   const manualExitRequestedRef = useRef(false);
   const dialogRef = useRef<HTMLDivElement | null>(null);
@@ -422,11 +424,26 @@ const ReadyGateOverlay = ({
     }
   }, []);
 
+  const clearOverlayRealtimeRecoveryTimer = useCallback(() => {
+    if (!overlayRealtimeRecoveryTimerRef.current) return;
+    clearTimeout(overlayRealtimeRecoveryTimerRef.current);
+    overlayRealtimeRecoveryTimerRef.current = null;
+  }, []);
+
   const clearRealtimeDegradedWhenHealthy = useCallback(() => {
     if (overlayRealtimeDegradedRef.current || orchestratorRealtimeDegradedRef.current) return;
     setRealtimeDegraded(false);
     clearRealtimeFallbackCopy();
   }, [clearRealtimeFallbackCopy]);
+
+  const scheduleOverlayRealtimeRecovery = useCallback(() => {
+    clearOverlayRealtimeRecoveryTimer();
+    overlayRealtimeRecoveryTimerRef.current = setTimeout(() => {
+      overlayRealtimeRecoveryTimerRef.current = null;
+      overlayRealtimeDegradedRef.current = false;
+      clearRealtimeDegradedWhenHealthy();
+    }, READY_GATE_REALTIME_RECOVERY_STABLE_MS);
+  }, [clearOverlayRealtimeRecoveryTimer, clearRealtimeDegradedWhenHealthy]);
 
   const releasePermissionPrewarmMedia = useCallback((reason: string) => {
     const media = permissionPrewarmMediaRef.current;
@@ -643,6 +660,7 @@ const ReadyGateOverlay = ({
 
   const markRealtimeDegraded = useCallback(
     (reason: "channel_error" | "channel_closed" | "channel_timed_out" | "missed_progress_detection") => {
+      clearOverlayRealtimeRecoveryTimer();
       overlayRealtimeDegradedRef.current = true;
       setRealtimeDegraded(true);
       if (readyGateRealtimeDegradedLoggedRef.current) return;
@@ -656,7 +674,7 @@ const ReadyGateOverlay = ({
         elapsed_ms: Math.max(0, Date.now() - readyGateOpenedAtMsRef.current),
       });
     },
-    [eventId, sessionId],
+    [clearOverlayRealtimeRecoveryTimer, eventId, sessionId],
   );
 
   const refreshMediaDiagnostics = useCallback(async () => {
@@ -1897,8 +1915,11 @@ const ReadyGateOverlay = ({
       )
       .subscribe((status) => {
         if (status === "SUBSCRIBED") {
-          overlayRealtimeDegradedRef.current = false;
-          clearRealtimeDegradedWhenHealthy();
+          if (overlayRealtimeDegradedRef.current) {
+            scheduleOverlayRealtimeRecovery();
+          } else {
+            clearRealtimeDegradedWhenHealthy();
+          }
         } else if (status === "CHANNEL_ERROR") {
           markRealtimeDegraded("channel_error");
         } else if (status === "TIMED_OUT") {
@@ -1909,6 +1930,7 @@ const ReadyGateOverlay = ({
       });
 
     return () => {
+      clearOverlayRealtimeRecoveryTimer();
       supabase.removeChannel(channel);
     };
   }, [
@@ -1918,7 +1940,9 @@ const ReadyGateOverlay = ({
     handleBothReady,
     reconcileSession,
     markRealtimeDegraded,
+    clearOverlayRealtimeRecoveryTimer,
     clearRealtimeDegradedWhenHealthy,
+    scheduleOverlayRealtimeRecovery,
   ]);
 
   useEffect(() => {
@@ -1973,6 +1997,7 @@ const ReadyGateOverlay = ({
     expirySyncRetryAtMsRef.current = 0;
     realtimeFallbackLoggedRef.current = false;
     readyGateRealtimeDegradedLoggedRef.current = false;
+    clearOverlayRealtimeRecoveryTimer();
     overlayRealtimeDegradedRef.current = false;
     orchestratorRealtimeDegradedRef.current = false;
     terminalActionInFlightRef.current = false;
@@ -2033,7 +2058,14 @@ const ReadyGateOverlay = ({
       });
     }
     preloadVideoDateRoute("ready_gate_open");
-  }, [sessionId, eventId, preloadVideoDateRoute, releasePermissionPrewarmMedia, clearRealtimeFallbackCopy]);
+  }, [
+    sessionId,
+    eventId,
+    preloadVideoDateRoute,
+    releasePermissionPrewarmMedia,
+    clearRealtimeFallbackCopy,
+    clearOverlayRealtimeRecoveryTimer,
+  ]);
 
   useEffect(() => {
     if (!sessionId || !eventId || !user?.id) return;
@@ -2045,6 +2077,14 @@ const ReadyGateOverlay = ({
     return () => {
       mountedRef.current = false;
       prepareEntryRunIdRef.current += 1;
+      if (overlayRealtimeRecoveryTimerRef.current) {
+        clearTimeout(overlayRealtimeRecoveryTimerRef.current);
+        overlayRealtimeRecoveryTimerRef.current = null;
+      }
+      if (realtimeFallbackCopyTimerRef.current) {
+        clearTimeout(realtimeFallbackCopyTimerRef.current);
+        realtimeFallbackCopyTimerRef.current = null;
+      }
       const latestContext = latestUnmountCleanupContextRef.current;
       if (!dateNavigationStartedRef.current && latestContext.userId) {
         destroyWebVideoDateDailyPrewarm(

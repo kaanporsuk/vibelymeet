@@ -1,5 +1,6 @@
 export const READY_GATE_REALTIME_RECONNECT_DELAYS_MS = [250, 500, 1_000, 2_000, 4_000] as const;
 export const READY_GATE_REALTIME_RECONNECT_MAX_DELAY_MS = 5_000;
+export const READY_GATE_REALTIME_RECOVERY_STABLE_MS = 1_500;
 
 export const READY_GATE_REALTIME_TELEMETRY = {
   DEGRADED: "ready_gate_realtime_degraded",
@@ -50,6 +51,7 @@ export type ReadyGateRealtimeSupervisorOptions = {
     eventName: ReadyGateRealtimeTelemetryName,
     payload: Record<string, unknown>,
   ) => void;
+  recoveryStableMs?: number;
   nowMs?: () => number;
 };
 
@@ -122,12 +124,20 @@ export function createReadyGateRealtimeSupervisor(
   const degradedSources = new Set<string>();
   let resubscribeAttempt = 0;
   let resubscribeTimer: ReturnType<typeof setTimeout> | null = null;
+  let recoveryTimer: ReturnType<typeof setTimeout> | null = null;
   const nowMs = options.nowMs ?? Date.now;
+  const recoveryStableMs = Math.max(0, options.recoveryStableMs ?? READY_GATE_REALTIME_RECOVERY_STABLE_MS);
 
   const clearResubscribeTimer = () => {
     if (!resubscribeTimer) return;
     clearTimeout(resubscribeTimer);
     resubscribeTimer = null;
+  };
+
+  const clearRecoveryTimer = () => {
+    if (!recoveryTimer) return;
+    clearTimeout(recoveryTimer);
+    recoveryTimer = null;
   };
 
   const baseContext = (
@@ -178,6 +188,16 @@ export function createReadyGateRealtimeSupervisor(
     );
   };
 
+  const recoverAfterStableWindow = (context: ReadyGateRealtimeSupervisorContext) => {
+    clearRecoveryTimer();
+    if (!degraded) return;
+    recoveryTimer = setTimeout(() => {
+      recoveryTimer = null;
+      if (disposed || degradedSources.size > 0) return;
+      setDegraded(false, context);
+    }, recoveryStableMs);
+  };
+
   const fetchCanonicalSnapshot = (context: ReadyGateRealtimeSupervisorContext) => {
     if (!options.fetchCanonicalSnapshot) return;
     void options.fetchCanonicalSnapshot(context).catch(() => undefined);
@@ -197,11 +217,12 @@ export function createReadyGateRealtimeSupervisor(
 
       clearResubscribeTimer();
       resubscribeAttempt = 0;
-      setDegraded(false, context);
+      recoverAfterStableWindow(context);
       return;
     }
 
     if (!isReadyGateRealtimeFailureStatus(status)) return;
+    clearRecoveryTimer();
     degradedSources.add(source);
     if (resubscribeTimer) return;
 
@@ -233,6 +254,7 @@ export function createReadyGateRealtimeSupervisor(
     const context = baseContext(source, null, { reason });
     if (degradedSources.size > 0) return;
 
+    clearRecoveryTimer();
     clearResubscribeTimer();
     resubscribeAttempt = 0;
     if (degraded) {
@@ -262,6 +284,7 @@ export function createReadyGateRealtimeSupervisor(
       disposed = true;
       degradedSources.clear();
       clearResubscribeTimer();
+      clearRecoveryTimer();
     },
   };
 }

@@ -25,6 +25,10 @@ function directive(name: string): string[] {
   return match.split(/\s+/).slice(1);
 }
 
+function sorted(values: string[]): string[] {
+  return [...values].sort();
+}
+
 test("production CSP allows first-party fonts, analytics assets, and CDN media", () => {
   assert.ok(directive("style-src").includes("https://fonts.googleapis.com"));
   assert.ok(directive("style-src").includes("https://onesignal.com"));
@@ -32,8 +36,14 @@ test("production CSP allows first-party fonts, analytics assets, and CDN media",
   assert.ok(directive("script-src").includes("https://eu-assets.i.posthog.com"));
   assert.ok(directive("script-src").includes("https://api.onesignal.com"));
   assert.ok(directive("script-src").includes("https://vibelyapp.daily.co"));
+  assert.ok(directive("script-src").includes("https://c.daily.co"));
+  assert.deepEqual(sorted(directive("script-src-elem")), sorted(directive("script-src")));
+  assert.ok(directive("script-src-elem").includes("https://c.daily.co"));
+  assert.ok(directive("script-src-elem").includes("https://vibelyapp.daily.co"));
   assert.ok(!directive("script-src").includes("https://*.daily.co"));
+  assert.ok(!directive("script-src-elem").includes("https://*.daily.co"));
   assert.ok(!directive("script-src").includes("'unsafe-eval'"));
+  assert.ok(!directive("script-src-elem").includes("'unsafe-eval'"));
   assert.ok(directive("connect-src").includes("https://eu-assets.i.posthog.com"));
   assert.ok(directive("connect-src").includes("wss://*.supabase.co"));
   assert.ok(directive("connect-src").includes("https://vibelyapp.daily.co"));

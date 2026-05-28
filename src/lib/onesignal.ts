@@ -20,6 +20,7 @@ const PLAYER_ID_INITIAL_POLL_MS = 500;
 const PLAYER_ID_MAX_POLL_MS = 4000;
 const ONESIGNAL_SDK_SRC = "https://cdn.onesignal.com/sdks/web/v16/OneSignalSDK.page.js";
 const ONESIGNAL_SCRIPT_ID = "onesignal-sdk-page";
+const ONESIGNAL_INIT_FALLBACK_TIMEOUT_MS = 12_000;
 
 type OneSignalClickEvent = {
   notification?: {
@@ -66,10 +67,12 @@ let resolveInit!: () => void;
 let sdkUsable = false;
 /** True after the deferred init callback has finished (success or catch). */
 let initResolvedFlag = false;
+let initFallbackTimer: ReturnType<typeof setTimeout> | null = null;
 let legacySwCleanupRan = false;
 
 /** Last user id passed to OneSignal.login — avoids duplicate login spam on re-renders / token refresh. */
 let lastLoggedInUserId: string | null = null;
+let loginInFlightUserId: string | null = null;
 let activeIdentityUserId: string | null = null;
 let identityGeneration = 0;
 
@@ -77,21 +80,40 @@ function ensureDeferredArray() {
   window.OneSignalDeferred = window.OneSignalDeferred || [];
 }
 
+function clearOneSignalInitFallbackTimer() {
+  if (!initFallbackTimer) return;
+  clearTimeout(initFallbackTimer);
+  initFallbackTimer = null;
+}
+
+function settleOneSignalInitUnavailable(reason: string) {
+  if (initResolvedFlag) return;
+  sdkUsable = false;
+  initResolvedFlag = true;
+  loginInFlightUserId = null;
+  clearOneSignalInitFallbackTimer();
+  resolveInit?.();
+  vibelyOsLog("onesignal:sdk unavailable", { reason });
+  dispatchInitSettled();
+}
+
+function handleOneSignalSdkScriptError() {
+  settleOneSignalInitUnavailable("sdk_script_failed");
+}
+
 function ensureOneSignalSdkScript() {
   if (typeof document === "undefined") return;
-  if (document.getElementById(ONESIGNAL_SCRIPT_ID)) return;
+  const existingScript = document.getElementById(ONESIGNAL_SCRIPT_ID);
+  if (existingScript instanceof HTMLScriptElement) {
+    existingScript.onerror = handleOneSignalSdkScriptError;
+    return;
+  }
   const script = document.createElement("script");
   script.id = ONESIGNAL_SCRIPT_ID;
   script.src = ONESIGNAL_SDK_SRC;
   script.defer = true;
   script.async = true;
-  script.onerror = () => {
-    sdkUsable = false;
-    initResolvedFlag = true;
-    resolveInit?.();
-    vibelyOsLog("onesignal:sdk script failed", {});
-    dispatchInitSettled();
-  };
+  script.onerror = handleOneSignalSdkScriptError;
   document.head.appendChild(script);
 }
 
@@ -172,6 +194,40 @@ function dispatchInitSettled() {
   }
 }
 
+function createDeferredSdkFallbackResolver<T>(
+  resolve: (value: T) => void,
+  fallback: T,
+): (value: T) => void {
+  let settled = false;
+  let removeInitSettledListener = () => undefined;
+  const finish = (value: T) => {
+    if (settled) return;
+    settled = true;
+    removeInitSettledListener();
+    resolve(value);
+  };
+
+  if (!initResolvedFlag && typeof window !== "undefined") {
+    const onInitSettled = () => {
+      if (!sdkUsable) finish(fallback);
+    };
+    window.addEventListener("vibely-onesignal-init-settled", onInitSettled, { once: true });
+    removeInitSettledListener = () => {
+      window.removeEventListener("vibely-onesignal-init-settled", onInitSettled);
+    };
+  }
+
+  return finish;
+}
+
+function clearInFlightLoginIfInitFails(userId: string) {
+  if (initResolvedFlag || typeof window === "undefined") return;
+  const onInitSettled = () => {
+    if (!sdkUsable && loginInFlightUserId === userId) loginInFlightUserId = null;
+  };
+  window.addEventListener("vibely-onesignal-init-settled", onInitSettled, { once: true });
+}
+
 export type OneSignalWebBootstrap = PushSdkHealth;
 
 export type OneSignalWebClientSnapshot = {
@@ -238,6 +294,10 @@ export const initOneSignal = () => {
   initFinished = new Promise<void>((resolve) => {
     resolveInit = resolve;
   });
+  clearOneSignalInitFallbackTimer();
+  initFallbackTimer = setTimeout(() => {
+    settleOneSignalInitUnavailable("sdk_init_timeout");
+  }, ONESIGNAL_INIT_FALLBACK_TIMEOUT_MS);
 
   ensureDeferredArray();
   window.OneSignalDeferred!.push(async (OneSignal: OneSignalWebSdk) => {
@@ -308,6 +368,7 @@ export const initOneSignal = () => {
       }
     } finally {
       initResolvedFlag = true;
+      clearOneSignalInitFallbackTimer();
       resolveInit();
       dispatchInitSettled();
     }
@@ -332,11 +393,16 @@ export const promptForPush = (): Promise<boolean> => {
       resolve(false);
       return;
     }
+    if (initResolvedFlag && !sdkUsable) {
+      resolve(false);
+      return;
+    }
+    const finish = createDeferredSdkFallbackResolver(resolve, false);
     ensureDeferredArray();
     window.OneSignalDeferred!.push(async (OneSignal: OneSignalWebSdk) => {
       const ok = await afterInit();
       if (!ok) {
-        resolve(false);
+        finish(false);
         return;
       }
       try {
@@ -344,10 +410,10 @@ export const promptForPush = (): Promise<boolean> => {
         const permission = await OneSignal.Notifications.requestPermission();
         const granted = normalizePermissionResult(permission);
         vibelyOsLog("promptForPush:after requestPermission", { permission, granted });
-        resolve(granted);
+        finish(granted);
       } catch (err) {
         vibelyOsLog("promptForPush:requestPermission threw", { error: String(err) });
-        resolve(false);
+        finish(false);
       }
     });
   });
@@ -373,11 +439,16 @@ export const getPlayerId = (options: GetPlayerIdOptions = {}): Promise<string | 
       resolve(null);
       return;
     }
+    if (initResolvedFlag && !sdkUsable) {
+      resolve(null);
+      return;
+    }
+    const finish = createDeferredSdkFallbackResolver<string | null>(resolve, null);
     ensureDeferredArray();
     window.OneSignalDeferred!.push(async (OneSignal: OneSignalWebSdk) => {
       const ok = await afterInit();
       if (!ok) {
-        resolve(null);
+        finish(null);
         return;
       }
       try {
@@ -385,15 +456,15 @@ export const getPlayerId = (options: GetPlayerIdOptions = {}): Promise<string | 
           const id = await OneSignal.User?.PushSubscription?.id;
           vibelyOsLog("getPlayerId:poll", { attempt: i + 1, hasId: Boolean(id) });
           if (id) {
-            resolve(id);
+            finish(id);
             return;
           }
           await new Promise((r) => setTimeout(r, playerIdPollDelay(i, initialDelayMs, maxDelayMs)));
         }
         vibelyOsLog("getPlayerId:exhausted", {});
-        resolve(null);
+        finish(null);
       } catch {
-        resolve(null);
+        finish(null);
       }
     });
   });
@@ -406,21 +477,26 @@ export const isSubscribed = (): Promise<boolean> => {
       resolve(false);
       return;
     }
+    if (initResolvedFlag && !sdkUsable) {
+      resolve(false);
+      return;
+    }
+    const finish = createDeferredSdkFallbackResolver(resolve, false);
     ensureDeferredArray();
     window.OneSignalDeferred!.push(async (OneSignal: OneSignalWebSdk) => {
       const ok = await afterInit();
       if (!ok) {
-        resolve(false);
+        finish(false);
         return;
       }
       try {
         const optedIn = OneSignal.User?.PushSubscription?.optedIn;
         const sub = !!optedIn;
         vibelyOsLog("isSubscribed:result", { optedIn: sub });
-        resolve(sub);
+        finish(sub);
       } catch {
         vibelyOsLog("isSubscribed:error", {});
-        resolve(false);
+        finish(false);
       }
     });
   });
@@ -441,17 +517,32 @@ export const setExternalUserId = (userId: string): number => {
   if (activeIdentityUserId !== userId) {
     identityGeneration += 1;
     activeIdentityUserId = userId;
+    lastLoggedInUserId = null;
+    loginInFlightUserId = null;
   }
   const generation = identityGeneration;
   if (!initEnqueued || !initFinished) return generation;
   if (lastLoggedInUserId === userId) return generation;
+  if (loginInFlightUserId === userId) return generation;
+  if (initResolvedFlag && !sdkUsable) return generation;
+  loginInFlightUserId = userId;
+  clearInFlightLoginIfInitFails(userId);
 
   ensureDeferredArray();
   window.OneSignalDeferred!.push(async (OneSignal: OneSignalWebSdk) => {
     const ok = await afterInit();
-    if (!ok) return;
-    if (!isCurrentOneSignalIdentity(userId, generation)) return;
-    if (lastLoggedInUserId === userId) return;
+    if (!ok) {
+      if (loginInFlightUserId === userId) loginInFlightUserId = null;
+      return;
+    }
+    if (!isCurrentOneSignalIdentity(userId, generation)) {
+      if (loginInFlightUserId === userId) loginInFlightUserId = null;
+      return;
+    }
+    if (lastLoggedInUserId === userId) {
+      if (loginInFlightUserId === userId) loginInFlightUserId = null;
+      return;
+    }
     try {
       await OneSignal.login(userId);
       if (!isCurrentOneSignalIdentity(userId, generation)) return;
@@ -459,6 +550,8 @@ export const setExternalUserId = (userId: string): number => {
     } catch (e) {
       console.warn("OneSignal login failed:", e);
       lastLoggedInUserId = null;
+    } finally {
+      if (loginInFlightUserId === userId) loginInFlightUserId = null;
     }
   });
   return generation;
@@ -471,8 +564,9 @@ export const removeExternalUserId = () => {
   identityGeneration += 1;
   activeIdentityUserId = null;
   const generation = identityGeneration;
-  if (!initEnqueued || !initFinished) return;
   lastLoggedInUserId = null;
+  loginInFlightUserId = null;
+  if (!initEnqueued || !initFinished) return;
 
   ensureDeferredArray();
   window.OneSignalDeferred!.push(async (OneSignal: OneSignalWebSdk) => {

@@ -375,6 +375,7 @@ export function bindOneSignalExternalUser(userId: string): number {
   if (runtimeState.activeIdentityUserId !== nextUserId) {
     runtimeState.identityGeneration += 1;
     runtimeState.activeIdentityUserId = nextUserId || null;
+    runtimeState.lastLoggedInUserId = null;
     emitOneSignalDiagnosticsChanged();
   }
   const generation = runtimeState.identityGeneration;

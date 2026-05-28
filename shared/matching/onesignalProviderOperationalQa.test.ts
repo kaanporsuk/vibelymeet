@@ -35,6 +35,10 @@ const branchDelta = read("docs/branch-deltas/fix-onesignal-provider-operational-
 
 test("web OneSignal initialization is env-backed and root-worker aware", () => {
   assert.match(read("index.html"), /OneSignalSDK\.page\.js/);
+  assert.match(webOneSignal, /const ONESIGNAL_SDK_SRC = "https:\/\/cdn\.onesignal\.com\/sdks\/web\/v16\/OneSignalSDK\.page\.js"/);
+  assert.match(webOneSignal, /ONESIGNAL_INIT_FALLBACK_TIMEOUT_MS = 12_000/);
+  assert.match(webOneSignal, /existingScript instanceof HTMLScriptElement/);
+  assert.match(webOneSignal, /script\.onerror = handleOneSignalSdkScriptError/);
   assert.match(webOneSignal, /import\.meta\.env\.VITE_ONESIGNAL_APP_ID/);
   assert.match(webOneSignal, /OneSignal\.init\(\{[\s\S]{0,240}appId/);
   assert.match(webOneSignal, /serviceWorkerParam:\s*\{ scope:\s*["']\/["'] \}/);
@@ -62,9 +66,21 @@ test("web identity binding and backend sync avoid token-refresh login spam", () 
   assert.match(appBootstrap, /setExternalUserId\(userId\)/);
   assert.match(appBootstrap, /syncWebPushRegistrationToBackend\(userId\)/);
   assert.match(webOneSignal, /lastLoggedInUserId/);
+  assert.match(webOneSignal, /loginInFlightUserId/);
+  assert.match(webOneSignal, /settleOneSignalInitUnavailable/);
+  assert.match(webOneSignal, /loginInFlightUserId = null;\s*clearOneSignalInitFallbackTimer\(\);\s*resolveInit\?\.\(\);\s*vibelyOsLog\("onesignal:sdk unavailable"/s);
+  assert.match(webOneSignal, /function createDeferredSdkFallbackResolver/);
+  assert.match(webOneSignal, /window\.addEventListener\("vibely-onesignal-init-settled", onInitSettled, \{ once: true \}\)/);
+  assert.match(webOneSignal, /activeIdentityUserId = userId;\s*lastLoggedInUserId = null;\s*loginInFlightUserId = null/s);
   assert.match(webOneSignal, /if \(lastLoggedInUserId === userId\) return generation/);
+  assert.match(webOneSignal, /if \(loginInFlightUserId === userId\) return generation/);
+  assert.match(webOneSignal, /if \(initResolvedFlag && !sdkUsable\) return generation/);
+  assert.match(webOneSignal, /loginInFlightUserId = userId/);
+  assert.match(webOneSignal, /clearInFlightLoginIfInitFails\(userId\)/);
   assert.match(webOneSignal, /OneSignal\.login\(userId\)/);
+  assert.match(webOneSignal, /if \(loginInFlightUserId === userId\) loginInFlightUserId = null/);
   assert.match(webOneSignal, /OneSignal\.logout\(\)/);
+  assert.match(nativeOneSignal, /runtimeState\.activeIdentityUserId = nextUserId \|\| null;\s*runtimeState\.lastLoggedInUserId = null/s);
 });
 
 test("web player-id and subscription sync writes notification_preferences safely", () => {
