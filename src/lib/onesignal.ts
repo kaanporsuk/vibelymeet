@@ -67,6 +67,7 @@ let resolveInit!: () => void;
 let sdkUsable = false;
 /** True after the deferred init callback has finished (success or catch). */
 let initResolvedFlag = false;
+let initTimedOut = false;
 let initFallbackTimer: ReturnType<typeof setTimeout> | null = null;
 let legacySwCleanupRan = false;
 
@@ -89,9 +90,16 @@ function clearOneSignalInitFallbackTimer() {
 function settleOneSignalInitUnavailable(reason: string) {
   if (initResolvedFlag) return;
   sdkUsable = false;
+  clearOneSignalInitFallbackTimer();
+  if (reason === "sdk_init_timeout") {
+    initTimedOut = true;
+    resolveInit?.();
+    vibelyOsLog("onesignal:sdk unavailable", { reason });
+    dispatchInitSettled();
+    return;
+  }
   initResolvedFlag = true;
   loginInFlightUserId = null;
-  clearOneSignalInitFallbackTimer();
   resolveInit?.();
   vibelyOsLog("onesignal:sdk unavailable", { reason });
   dispatchInitSettled();
@@ -207,6 +215,14 @@ function createDeferredSdkFallbackResolver<T>(
     resolve(value);
   };
 
+  if (initTimedOut && !initResolvedFlag) {
+    const schedule = typeof window !== "undefined" && typeof window.queueMicrotask === "function"
+      ? window.queueMicrotask.bind(window)
+      : (callback: () => void) => setTimeout(callback, 0);
+    schedule(() => finish(fallback));
+    return finish;
+  }
+
   if (!initResolvedFlag && typeof window !== "undefined") {
     const onInitSettled = () => {
       if (!sdkUsable) finish(fallback);
@@ -226,6 +242,23 @@ function clearInFlightLoginIfInitFails(userId: string) {
     if (!sdkUsable && loginInFlightUserId === userId) loginInFlightUserId = null;
   };
   window.addEventListener("vibely-onesignal-init-settled", onInitSettled, { once: true });
+}
+
+function waitForActualInitSettled(): Promise<void> {
+  if (initResolvedFlag || typeof window === "undefined") return Promise.resolve();
+  return new Promise((resolve) => {
+    let settled = false;
+    let timeout: ReturnType<typeof setTimeout>;
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      window.removeEventListener("vibely-onesignal-init-settled", finish);
+      resolve();
+    };
+    timeout = setTimeout(finish, ONESIGNAL_INIT_FALLBACK_TIMEOUT_MS);
+    window.addEventListener("vibely-onesignal-init-settled", finish, { once: true });
+  });
 }
 
 export type OneSignalWebBootstrap = PushSdkHealth;
@@ -367,9 +400,15 @@ export const initOneSignal = () => {
         console.warn("[OneSignal] init error:", e);
       }
     } finally {
+      const recoveredAfterTimeout = initTimedOut && sdkUsable;
       initResolvedFlag = true;
+      initTimedOut = false;
+      if (!sdkUsable) loginInFlightUserId = null;
       clearOneSignalInitFallbackTimer();
       resolveInit();
+      if (recoveredAfterTimeout) {
+        vibelyOsLog("onesignal:init recovered after timeout", {});
+      }
       dispatchInitSettled();
     }
   });
@@ -379,6 +418,9 @@ export const initOneSignal = () => {
 async function afterInit(): Promise<boolean> {
   if (!initEnqueued || !initFinished) return false;
   await initFinished;
+  if (!initResolvedFlag) {
+    await waitForActualInitSettled();
+  }
   return sdkUsable;
 }
 

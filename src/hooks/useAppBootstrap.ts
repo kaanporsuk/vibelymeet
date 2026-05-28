@@ -31,6 +31,7 @@ export const useAppBootstrap = () => {
       created_at: userCreatedAt,
     });
 
+    let cancelled = false;
     const syncOneSignal = async () => {
       try {
         const [{ initOneSignal, setExternalUserId }, { syncWebPushRegistrationToBackend }] =
@@ -38,6 +39,7 @@ export const useAppBootstrap = () => {
             import("@/lib/onesignal"),
             import("@/lib/requestWebPushPermission"),
           ]);
+        if (cancelled) return;
         initOneSignal();
         setExternalUserId(userId);
         await syncWebPushRegistrationToBackend(userId);
@@ -47,6 +49,15 @@ export const useAppBootstrap = () => {
     };
 
     void syncOneSignal();
+    const retrySyncOnLateOneSignalInit = (event: Event) => {
+      const sdkUsable = Boolean((event as CustomEvent<{ sdkUsable?: boolean }>).detail?.sdkUsable);
+      if (sdkUsable) void syncOneSignal();
+    };
+    window.addEventListener("vibely-onesignal-init-settled", retrySyncOnLateOneSignalInit);
+    return () => {
+      cancelled = true;
+      window.removeEventListener("vibely-onesignal-init-settled", retrySyncOnLateOneSignalInit);
+    };
   }, [isLoading, userId, userEmail, userCreatedAt]);
 
   // Profile-linked analytics properties

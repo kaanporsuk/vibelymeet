@@ -17,7 +17,7 @@ let lastPremiumNavigation: { routeKey: string; at: number } | null = null;
 
 function shouldSkipDuplicatePremiumNavigation(destination: string): boolean {
   const now = Date.now();
-  const routeKey = destination.split(/[?#]/, 1)[0] || destination;
+  const routeKey = destination;
   if (
     lastPremiumNavigation &&
     lastPremiumNavigation.routeKey === routeKey &&
