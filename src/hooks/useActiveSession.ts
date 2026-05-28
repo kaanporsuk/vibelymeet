@@ -838,7 +838,7 @@ export function useActiveSession(
 
     checkInFlightRef.current = task;
     return task;
-  }, [enabled, runCheck]);
+  }, [runCheck]);
 
   useEffect(() => {
     if (!enabled) {
