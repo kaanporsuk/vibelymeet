@@ -211,12 +211,19 @@ const PROFILE_STUDIO_PROMPT_DRAWER_PROPS = {
   fixed: true,
   repositionInputs: false,
 } as const;
+const PROFILE_STUDIO_BIO_DRAWER_PROPS = {
+  shouldScaleBackground: false,
+  fixed: true,
+  repositionInputs: false,
+} as const;
 const PROFILE_STUDIO_DRAWER_CONTENT_CLASS = "max-h-[88dvh] w-full max-w-[100svw] overflow-hidden";
 const PROFILE_STUDIO_DRAWER_BODY_CLASS =
   "min-h-0 flex-1 overflow-y-auto overflow-x-hidden px-4 pb-[max(1rem,env(safe-area-inset-bottom))]";
 const PROFILE_STUDIO_DRAWER_FOOTER_CLASS = "shrink-0 pb-[max(1rem,env(safe-area-inset-bottom))]";
 const PROFILE_STUDIO_PROMPT_KEYBOARD_GAP_PX = 8;
 const PROFILE_STUDIO_PROMPT_KEYBOARD_THRESHOLD_PX = 96;
+const PROFILE_STUDIO_BIO_KEYBOARD_GAP_PX = PROFILE_STUDIO_PROMPT_KEYBOARD_GAP_PX;
+const PROFILE_STUDIO_BIO_KEYBOARD_THRESHOLD_PX = PROFILE_STUDIO_PROMPT_KEYBOARD_THRESHOLD_PX;
 
 // ────────────────────────────────────────────────────────────────────
 // Quick Actions config
@@ -326,11 +333,22 @@ const ProfileStudio = () => {
   const [photoVerificationStatus, setPhotoVerificationStatus] = useState<PhotoVerificationState>("none");
   const [meetingPref, setMeetingPref] = useState<"events" | "dates" | "both">("both");
   const [promptDrawerKeyboardStyle, setPromptDrawerKeyboardStyle] = useState<CSSProperties | undefined>();
+  const [bioDrawerKeyboardStyle, setBioDrawerKeyboardStyle] = useState<CSSProperties | undefined>();
 
   const sectionRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const previousHeroVideoPhaseRef = useRef(heroVideoUpload.phase);
   /** After a successful save/remove, skip resetting shared draft state when the drawer closes (avoids racing stale `profile`). */
   const suppressProfileDraftResetRef = useRef(false);
+  const bioDrawerBodyRef = useRef<HTMLDivElement | null>(null);
+  const bioFieldRef = useRef<HTMLTextAreaElement | null>(null);
+  const bioDrawerNudgeRafRef = useRef<number | null>(null);
+  const bioDrawerNudgeTimeoutsRef = useRef<number[]>([]);
+  const bioDrawerKeyboardStyleClearTimeoutRef = useRef<number | null>(null);
+  const bioDrawerStableViewportHeightRef = useRef<number | null>(
+    typeof window === "undefined"
+      ? null
+      : Math.max(window.visualViewport?.height ?? 0, window.innerHeight ?? 0),
+  );
   const promptDrawerBodyRef = useRef<HTMLDivElement | null>(null);
   const promptAnswerFieldRef = useRef<HTMLTextAreaElement | null>(null);
   const promptAnswerNudgeRafRef = useRef<number | null>(null);
@@ -803,6 +821,166 @@ const ProfileStudio = () => {
     [profile],
   );
 
+  const clearBioDrawerNudges = useCallback(() => {
+    if (typeof window !== "undefined") {
+      if (bioDrawerNudgeRafRef.current !== null) {
+        window.cancelAnimationFrame(bioDrawerNudgeRafRef.current);
+      }
+      for (const timeoutId of bioDrawerNudgeTimeoutsRef.current) {
+        window.clearTimeout(timeoutId);
+      }
+    }
+    bioDrawerNudgeRafRef.current = null;
+    bioDrawerNudgeTimeoutsRef.current = [];
+  }, []);
+
+  const clearBioDrawerKeyboardStyleTimeout = useCallback(() => {
+    if (typeof window !== "undefined" && bioDrawerKeyboardStyleClearTimeoutRef.current !== null) {
+      window.clearTimeout(bioDrawerKeyboardStyleClearTimeoutRef.current);
+    }
+    bioDrawerKeyboardStyleClearTimeoutRef.current = null;
+  }, []);
+
+  const captureBioDrawerStableViewportHeight = useCallback(() => {
+    if (typeof window === "undefined") {
+      bioDrawerStableViewportHeightRef.current = null;
+      return;
+    }
+    bioDrawerStableViewportHeightRef.current = Math.max(
+      window.visualViewport?.height ?? 0,
+      window.innerHeight ?? 0,
+    );
+  }, []);
+
+  const clearBioDrawerKeyboardStyle = useCallback(() => {
+    clearBioDrawerKeyboardStyleTimeout();
+    setBioDrawerKeyboardStyle(undefined);
+  }, [clearBioDrawerKeyboardStyleTimeout]);
+
+  const scheduleBioDrawerKeyboardStyleClear = useCallback(() => {
+    if (typeof window === "undefined") {
+      setBioDrawerKeyboardStyle(undefined);
+      return;
+    }
+    clearBioDrawerKeyboardStyleTimeout();
+    bioDrawerKeyboardStyleClearTimeoutRef.current = window.setTimeout(() => {
+      bioDrawerKeyboardStyleClearTimeoutRef.current = null;
+      if (document.activeElement !== bioFieldRef.current) {
+        setBioDrawerKeyboardStyle(undefined);
+      }
+    }, 240);
+  }, [clearBioDrawerKeyboardStyleTimeout]);
+
+  const updateBioDrawerKeyboardStyle = useCallback(() => {
+    if (typeof window === "undefined" || typeof document === "undefined" || activeDrawer !== "bio") {
+      clearBioDrawerKeyboardStyle();
+      return;
+    }
+
+    const input = bioFieldRef.current;
+    const viewport = window.visualViewport;
+    const currentViewportHeight = viewport?.height ?? 0;
+    const currentLayoutHeight = window.innerHeight;
+    if (!input || document.activeElement !== input || !viewport) {
+      bioDrawerStableViewportHeightRef.current = Math.max(currentViewportHeight, currentLayoutHeight);
+      clearBioDrawerKeyboardStyle();
+      return;
+    }
+    clearBioDrawerKeyboardStyleTimeout();
+
+    const stableViewportHeight =
+      bioDrawerStableViewportHeightRef.current ?? Math.max(currentViewportHeight, currentLayoutHeight);
+    const keyboardOverlap = Math.max(
+      currentLayoutHeight - currentViewportHeight,
+      stableViewportHeight - currentViewportHeight,
+    );
+    if (keyboardOverlap < PROFILE_STUDIO_BIO_KEYBOARD_THRESHOLD_PX) {
+      clearBioDrawerKeyboardStyle();
+      return;
+    }
+
+    const top = Math.max(PROFILE_STUDIO_BIO_KEYBOARD_GAP_PX, viewport.offsetTop + PROFILE_STUDIO_BIO_KEYBOARD_GAP_PX);
+    const height = Math.max(1, currentViewportHeight - PROFILE_STUDIO_BIO_KEYBOARD_GAP_PX);
+    setBioDrawerKeyboardStyle({
+      top: `${top}px`,
+      bottom: "auto",
+      height: `${height}px`,
+      maxHeight: `${height}px`,
+      marginTop: 0,
+    });
+  }, [activeDrawer, clearBioDrawerKeyboardStyle, clearBioDrawerKeyboardStyleTimeout]);
+
+  const nudgeBioFieldIntoView = useCallback(() => {
+    if (typeof window === "undefined" || typeof document === "undefined") return;
+
+    const body = bioDrawerBodyRef.current;
+    const input = bioFieldRef.current;
+    if (!body || !input || document.activeElement !== input) return;
+    updateBioDrawerKeyboardStyle();
+
+    const alignInput = () => {
+      if (!body.isConnected || !input.isConnected || document.activeElement !== input) return;
+      updateBioDrawerKeyboardStyle();
+
+      const bodyRect = body.getBoundingClientRect();
+      const inputRect = input.getBoundingClientRect();
+      const viewportTop = window.visualViewport?.offsetTop ?? 0;
+      const viewportBottom = viewportTop + (window.visualViewport?.height ?? window.innerHeight);
+      const visibleTop = Math.max(bodyRect.top, viewportTop + 16);
+      const visibleBottom = Math.min(bodyRect.bottom, viewportBottom - 16);
+      const lowerOverflow = inputRect.bottom - visibleBottom + 24;
+
+      if (lowerOverflow > 0) {
+        body.scrollTo({ top: body.scrollTop + lowerOverflow, behavior: "auto" });
+        return;
+      }
+
+      const upperOverflow = visibleTop - inputRect.top;
+      if (upperOverflow > 0) {
+        body.scrollTo({ top: Math.max(0, body.scrollTop - upperOverflow), behavior: "auto" });
+      }
+    };
+
+    clearBioDrawerNudges();
+    bioDrawerNudgeRafRef.current = window.requestAnimationFrame(() => {
+      bioDrawerNudgeRafRef.current = null;
+      alignInput();
+    });
+    bioDrawerNudgeTimeoutsRef.current = [120, 320, 650].map((delay) => window.setTimeout(alignInput, delay));
+  }, [clearBioDrawerNudges, updateBioDrawerKeyboardStyle]);
+
+  useEffect(() => {
+    if (typeof window === "undefined" || activeDrawer !== "bio") {
+      clearBioDrawerKeyboardStyle();
+      return;
+    }
+
+    const viewport = window.visualViewport;
+    const handleBioViewportChange = () => {
+      updateBioDrawerKeyboardStyle();
+      nudgeBioFieldIntoView();
+    };
+
+    viewport?.addEventListener("resize", handleBioViewportChange);
+    viewport?.addEventListener("scroll", handleBioViewportChange);
+    window.addEventListener("orientationchange", handleBioViewportChange);
+    handleBioViewportChange();
+
+    return () => {
+      clearBioDrawerNudges();
+      clearBioDrawerKeyboardStyle();
+      viewport?.removeEventListener("resize", handleBioViewportChange);
+      viewport?.removeEventListener("scroll", handleBioViewportChange);
+      window.removeEventListener("orientationchange", handleBioViewportChange);
+    };
+  }, [
+    activeDrawer,
+    clearBioDrawerNudges,
+    clearBioDrawerKeyboardStyle,
+    nudgeBioFieldIntoView,
+    updateBioDrawerKeyboardStyle,
+  ]);
+
   const clearPromptAnswerNudges = useCallback(() => {
     if (typeof window !== "undefined") {
       if (promptAnswerNudgeRafRef.current !== null) {
@@ -965,10 +1143,17 @@ const ProfileStudio = () => {
 
   useEffect(
     () => () => {
+      clearBioDrawerNudges();
+      clearBioDrawerKeyboardStyleTimeout();
       clearPromptAnswerNudges();
       clearPromptDrawerKeyboardStyleTimeout();
     },
-    [clearPromptAnswerNudges, clearPromptDrawerKeyboardStyleTimeout],
+    [
+      clearBioDrawerKeyboardStyleTimeout,
+      clearBioDrawerNudges,
+      clearPromptAnswerNudges,
+      clearPromptDrawerKeyboardStyleTimeout,
+    ],
   );
 
   const openDrawer = (type: DrawerType) => {
@@ -996,6 +1181,7 @@ const ProfileStudio = () => {
       const mp = profile.lifestyle?.meeting_preference;
       setMeetingPref(mp === "events" || mp === "dates" || mp === "both" ? mp : "both");
     }
+    if (type === "bio") captureBioDrawerStableViewportHeight();
     setEditForm({ ...profile });
     setActiveDrawer(type);
   };
@@ -1897,16 +2083,25 @@ const ProfileStudio = () => {
       </Drawer>
 
       {/* Bio Editor */}
-      <Drawer {...PROFILE_STUDIO_DRAWER_PROPS} open={activeDrawer === "bio"} onOpenChange={handleProfileStudioDrawerOpenChange}>
-        <DrawerContent className={PROFILE_STUDIO_DRAWER_CONTENT_CLASS}>
+      <Drawer {...PROFILE_STUDIO_BIO_DRAWER_PROPS} open={activeDrawer === "bio"} onOpenChange={handleProfileStudioDrawerOpenChange}>
+        <DrawerContent className={PROFILE_STUDIO_DRAWER_CONTENT_CLASS} style={bioDrawerKeyboardStyle}>
           <DrawerHeader>
             <DrawerTitle className="font-display">About Me</DrawerTitle>
             <DrawerDescription>You have 3 seconds to make them care. Make it count.</DrawerDescription>
           </DrawerHeader>
-          <div className={PROFILE_STUDIO_DRAWER_BODY_CLASS}>
+          <div ref={bioDrawerBodyRef} className={PROFILE_STUDIO_DRAWER_BODY_CLASS}>
             <Textarea
+              ref={bioFieldRef}
               value={editForm.aboutMe || ""}
               onChange={(e) => setEditForm({ ...editForm, aboutMe: e.target.value.slice(0, MAX_ABOUT_ME_LENGTH) })}
+              onFocus={() => {
+                captureBioDrawerStableViewportHeight();
+                nudgeBioFieldIntoView();
+              }}
+              onBlur={() => {
+                clearBioDrawerNudges();
+                scheduleBioDrawerKeyboardStyleClear();
+              }}
               placeholder="Write something that makes them want to know more..."
               className="min-h-32 glass-card border-border resize-none"
               maxLength={MAX_ABOUT_ME_LENGTH}

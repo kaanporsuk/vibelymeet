@@ -67,13 +67,22 @@ test("web chat avoids jumpy rich-content reflow and older-message prepend snaps"
   assert.match(webChat, /className="relative block aspect-\[4\/5\] w-60 max-w-full overflow-hidden/);
 });
 
-test("web chat gates mobile keyboard viewport styling to focused mobile composer", () => {
+test("web chat pins mobile shell to visualViewport and preserves keyboard stickiness", () => {
   assert.match(webChat, /const composerChromeRef = useRef<HTMLDivElement>\(null\)/);
   assert.doesNotMatch(webChat, /visualViewportHeight/);
   assert.match(webChat, /type CSSProperties/);
   assert.match(webChat, /const CHAT_DESKTOP_VIEWPORT_QUERY = "\(min-width: 1024px\)";/);
   assert.match(webChat, /const CHAT_MOBILE_KEYBOARD_THRESHOLD_PX = 96;/);
   assert.match(webChat, /const CHAT_MOBILE_KEYBOARD_STYLE_CLEAR_DELAY_MS = 240;/);
+  assert.match(
+    webChat,
+    /function isDesktopChatViewport\(\): boolean \{[\s\S]*window\.matchMedia\(CHAT_DESKTOP_VIEWPORT_QUERY\)[\s\S]*window\.innerWidth >= 1024;/,
+  );
+  assert.match(
+    webChat,
+    /function chatMobileViewportStyleFromVisualViewport\(viewport: VisualViewport\): CSSProperties \{[\s\S]*position: "fixed",[\s\S]*top: `\$\{Math\.max\(0, viewport\.offsetTop\)\}px`,[\s\S]*height: `\$\{Math\.max\(1, viewport\.height\)\}px`,[\s\S]*width: "100vw",/,
+  );
+  assert.match(webChat, /function chatMobileViewportStylesEqual\(prev: CSSProperties \| undefined, next: CSSProperties\): boolean/);
   assert.match(
     webChat,
     /const \[mobileKeyboardViewportStyle, setMobileKeyboardViewportStyle\] = useState<CSSProperties \| undefined>\(\);/,
@@ -84,11 +93,15 @@ test("web chat gates mobile keyboard viewport styling to focused mobile composer
   );
   assert.match(
     webChat,
-    /const updateMobileKeyboardViewportStyle = useCallback\(\(\) => \{[\s\S]*const textarea = inputRef\.current;[\s\S]*const viewport = window\.visualViewport;[\s\S]*window\.matchMedia\(CHAT_DESKTOP_VIEWPORT_QUERY\)[\s\S]*const currentViewportHeight = viewport\?\.height \?\? 0;[\s\S]*const currentLayoutHeight = window\.innerHeight;[\s\S]*document\.activeElement !== textarea[\s\S]*mobileKeyboardStableViewportHeightRef\.current = Math\.max\(currentViewportHeight, currentLayoutHeight\);[\s\S]*const stableViewportHeight =[\s\S]*mobileKeyboardStableViewportHeightRef\.current[\s\S]*const keyboardOverlap = Math\.max\([\s\S]*currentLayoutHeight - currentViewportHeight,[\s\S]*stableViewportHeight - currentViewportHeight,[\s\S]*keyboardOverlap < CHAT_MOBILE_KEYBOARD_THRESHOLD_PX/,
+    /const applyMobileViewportStyle = useCallback\(\(viewport: VisualViewport\) => \{[\s\S]*chatMobileViewportStyleFromVisualViewport\(viewport\)[\s\S]*setMobileKeyboardViewportStyle\(\(prev\) =>[\s\S]*chatMobileViewportStylesEqual\(prev, nextStyle\)/,
   );
   assert.match(
     webChat,
-    /setMobileKeyboardViewportStyle\(\{\s*position: "fixed",\s*top: `\$\{Math\.max\(0, viewport\.offsetTop\)\}px`,\s*bottom: "auto",\s*left: "0px",\s*right: "0px",\s*height: `\$\{Math\.max\(1, viewport\.height\)\}px`,\s*width: "100vw",\s*\}\);/,
+    /const scheduleMobileKeyboardViewportStyleClear = useCallback\(\(\) => \{[\s\S]*document\.activeElement === inputRef\.current[\s\S]*const viewport = window\.visualViewport;[\s\S]*isDesktopChatViewport\(\)[\s\S]*mobileKeyboardStableViewportHeightRef\.current = Math\.max\(viewport\.height, window\.innerHeight\);[\s\S]*applyMobileViewportStyle\(viewport\);/,
+  );
+  assert.match(
+    webChat,
+    /const updateMobileKeyboardViewportStyle = useCallback\(\(\) => \{[\s\S]*const textarea = inputRef\.current;[\s\S]*const viewport = window\.visualViewport;[\s\S]*const currentViewportHeight = viewport\?\.height \?\? 0;[\s\S]*const currentLayoutHeight = window\.innerHeight;[\s\S]*if \(!viewport \|\| currentViewportHeight <= 0 \|\| isDesktopChatViewport\(\)\)[\s\S]*const textareaFocused = textarea !== null && document\.activeElement === textarea;[\s\S]*if \(!textareaFocused\) \{[\s\S]*mobileKeyboardStableViewportHeightRef\.current = Math\.max\(currentViewportHeight, currentLayoutHeight\);[\s\S]*applyMobileViewportStyle\(viewport\);[\s\S]*const stableViewportHeight =[\s\S]*mobileKeyboardStableViewportHeightRef\.current[\s\S]*const keyboardOverlap = Math\.max\([\s\S]*currentLayoutHeight - currentViewportHeight,[\s\S]*stableViewportHeight - currentViewportHeight,[\s\S]*keyboardOverlap < CHAT_MOBILE_KEYBOARD_THRESHOLD_PX[\s\S]*applyMobileViewportStyle\(viewport\);/,
   );
   assert.match(
     webChat,

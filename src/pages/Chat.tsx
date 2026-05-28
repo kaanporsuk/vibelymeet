@@ -131,6 +131,36 @@ const UPLOAD_ATTENTION_HIGHLIGHT_MS = 2200;
 const UPLOAD_ATTENTION_HIGHLIGHT_CLASS =
   "rounded-[1.25rem] bg-cyan-400/10 ring-2 ring-cyan-300/80 ring-offset-4 ring-offset-background shadow-[0_0_24px_rgba(34,211,238,0.24)]";
 
+function isDesktopChatViewport(): boolean {
+  const desktopMediaQuery =
+    typeof window.matchMedia === "function" ? window.matchMedia(CHAT_DESKTOP_VIEWPORT_QUERY) : null;
+  return desktopMediaQuery?.matches ?? window.innerWidth >= 1024;
+}
+
+function chatMobileViewportStyleFromVisualViewport(viewport: VisualViewport): CSSProperties {
+  return {
+    position: "fixed",
+    top: `${Math.max(0, viewport.offsetTop)}px`,
+    bottom: "auto",
+    left: "0px",
+    right: "0px",
+    height: `${Math.max(1, viewport.height)}px`,
+    width: "100vw",
+  };
+}
+
+function chatMobileViewportStylesEqual(prev: CSSProperties | undefined, next: CSSProperties): boolean {
+  return (
+    prev?.position === next.position &&
+    prev.top === next.top &&
+    prev.bottom === next.bottom &&
+    prev.left === next.left &&
+    prev.right === next.right &&
+    prev.height === next.height &&
+    prev.width === next.width
+  );
+}
+
 const VoiceRecorder = lazy(() => import("@/components/chat/VoiceRecorder"));
 const VideoMessageRecorder = lazy(() => import("@/components/chat/VideoMessageRecorder"));
 const VibeClipSendOptionsSheet = lazy(() => import("@/components/chat/VibeClipSendOptionsSheet"));
@@ -817,6 +847,13 @@ const Chat = () => {
     setMobileKeyboardViewportStyle(undefined);
   }, [clearMobileKeyboardViewportStyleTimeout]);
 
+  const applyMobileViewportStyle = useCallback((viewport: VisualViewport) => {
+    const nextStyle = chatMobileViewportStyleFromVisualViewport(viewport);
+    setMobileKeyboardViewportStyle((prev) =>
+      chatMobileViewportStylesEqual(prev, nextStyle) ? prev : nextStyle,
+    );
+  }, []);
+
   const scheduleMobileKeyboardViewportStyleClear = useCallback(() => {
     if (typeof window === "undefined" || typeof document === "undefined") {
       setMobileKeyboardViewportStyle(undefined);
@@ -826,11 +863,18 @@ const Chat = () => {
     clearMobileKeyboardViewportStyleTimeout();
     mobileKeyboardViewportStyleClearTimeoutRef.current = window.setTimeout(() => {
       mobileKeyboardViewportStyleClearTimeoutRef.current = null;
-      if (document.activeElement !== inputRef.current) {
+      if (document.activeElement === inputRef.current) return;
+
+      const viewport = window.visualViewport;
+      if (!viewport || viewport.height <= 0 || isDesktopChatViewport()) {
         setMobileKeyboardViewportStyle(undefined);
+        return;
       }
+
+      mobileKeyboardStableViewportHeightRef.current = Math.max(viewport.height, window.innerHeight);
+      applyMobileViewportStyle(viewport);
     }, CHAT_MOBILE_KEYBOARD_STYLE_CLEAR_DELAY_MS);
-  }, [clearMobileKeyboardViewportStyleTimeout]);
+  }, [applyMobileViewportStyle, clearMobileKeyboardViewportStyleTimeout]);
 
   const updateMobileKeyboardViewportStyle = useCallback(() => {
     if (typeof window === "undefined" || typeof document === "undefined") {
@@ -840,18 +884,22 @@ const Chat = () => {
 
     const textarea = inputRef.current;
     const viewport = window.visualViewport;
-    const desktopMediaQuery =
-      typeof window.matchMedia === "function" ? window.matchMedia(CHAT_DESKTOP_VIEWPORT_QUERY) : null;
-    const desktopViewport = desktopMediaQuery?.matches ?? window.innerWidth >= 1024;
     const currentViewportHeight = viewport?.height ?? 0;
     const currentLayoutHeight = window.innerHeight;
-    if (!textarea || document.activeElement !== textarea || !viewport || desktopViewport) {
+    if (!viewport || currentViewportHeight <= 0 || isDesktopChatViewport()) {
       mobileKeyboardStableViewportHeightRef.current = Math.max(currentViewportHeight, currentLayoutHeight);
       clearMobileKeyboardViewportStyle();
       return;
     }
 
     clearMobileKeyboardViewportStyleTimeout();
+    const textareaFocused = textarea !== null && document.activeElement === textarea;
+    if (!textareaFocused) {
+      mobileKeyboardStableViewportHeightRef.current = Math.max(currentViewportHeight, currentLayoutHeight);
+      applyMobileViewportStyle(viewport);
+      return;
+    }
+
     const stableViewportHeight =
       mobileKeyboardStableViewportHeightRef.current ?? Math.max(currentViewportHeight, currentLayoutHeight);
     const keyboardOverlap = Math.max(
@@ -860,20 +908,12 @@ const Chat = () => {
     );
     if (keyboardOverlap < CHAT_MOBILE_KEYBOARD_THRESHOLD_PX) {
       mobileKeyboardStableViewportHeightRef.current = Math.max(currentViewportHeight, currentLayoutHeight);
-      clearMobileKeyboardViewportStyle();
+      applyMobileViewportStyle(viewport);
       return;
     }
 
-    setMobileKeyboardViewportStyle({
-      position: "fixed",
-      top: `${Math.max(0, viewport.offsetTop)}px`,
-      bottom: "auto",
-      left: "0px",
-      right: "0px",
-      height: `${Math.max(1, viewport.height)}px`,
-      width: "100vw",
-    });
-  }, [clearMobileKeyboardViewportStyle, clearMobileKeyboardViewportStyleTimeout]);
+    applyMobileViewportStyle(viewport);
+  }, [applyMobileViewportStyle, clearMobileKeyboardViewportStyle, clearMobileKeyboardViewportStyleTimeout]);
 
   useEffect(
     () => () => {
