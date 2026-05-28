@@ -21,13 +21,9 @@ function nativePlatform(): PremiumAnalyticsPlatform {
   return "ios";
 }
 
-function premiumRouteKey(path: string): string {
-  return path.split(/[?#]/, 1)[0] || path;
-}
-
 function shouldSkipDuplicatePremiumNavigation(path: string): boolean {
   const now = Date.now();
-  const routeKey = premiumRouteKey(path);
+  const routeKey = path;
   if (
     lastPremiumNavigation &&
     lastPremiumNavigation.routeKey === routeKey &&

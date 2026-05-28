@@ -31,6 +31,7 @@ const pushSubscriptionRpcGrantMigration = read("supabase/migrations/202605231930
 const reviewFollowupsMigration = read("supabase/migrations/20260523201000_review_comment_followups_1019_1026.sql");
 const unregisterNullCleanupMigration = read("supabase/migrations/20260527221500_onesignal_unregister_null_subscription_cleanup.sql");
 const reviewComments1086To1100Migration = read("supabase/migrations/20260527234117_review_comments_1086_1100_followups.sql");
+const reviewComments1099To1106Migration = read("supabase/migrations/20260528130000_review_comments_1099_1106_followups.sql");
 const branchDelta = read("docs/branch-deltas/fix-onesignal-provider-operational-qa.md");
 
 test("web OneSignal initialization is env-backed and root-worker aware", () => {
@@ -68,7 +69,9 @@ test("web identity binding and backend sync avoid token-refresh login spam", () 
   assert.match(webOneSignal, /lastLoggedInUserId/);
   assert.match(webOneSignal, /loginInFlightUserId/);
   assert.match(webOneSignal, /settleOneSignalInitUnavailable/);
-  assert.match(webOneSignal, /loginInFlightUserId = null;\s*clearOneSignalInitFallbackTimer\(\);\s*resolveInit\?\.\(\);\s*vibelyOsLog\("onesignal:sdk unavailable"/s);
+  assert.match(webOneSignal, /reason === "sdk_init_timeout"[\s\S]*initTimedOut = true;[\s\S]*resolveInit\?\.\(\);[\s\S]*dispatchInitSettled\(\);/);
+  assert.match(webOneSignal, /function waitForActualInitSettled/);
+  assert.match(appBootstrap, /retrySyncOnLateOneSignalInit/);
   assert.match(webOneSignal, /function createDeferredSdkFallbackResolver/);
   assert.match(webOneSignal, /window\.addEventListener\("vibely-onesignal-init-settled", onInitSettled, \{ once: true \}\)/);
   assert.match(webOneSignal, /activeIdentityUserId = userId;\s*lastLoggedInUserId = null;\s*loginInFlightUserId = null/s);
@@ -230,6 +233,8 @@ test("OneSignal subscription ownership migration supports multi-device native de
   assert.doesNotMatch(unregisterNullCleanupMigration, /v_subscription_id IS NULL OR subscription_id = v_subscription_id/);
   assert.match(reviewComments1086To1100Migration, /IF v_subscription_id IS NOT NULL THEN[\s\S]*DELETE FROM public\.push_subscriptions/);
   assert.doesNotMatch(reviewComments1086To1100Migration, /v_subscription_id IS NULL OR subscription_id = v_subscription_id/);
+  assert.match(reviewComments1099To1106Migration, /IF v_subscription_id IS NULL THEN[\s\S]*RETURN;/);
+  assert.doesNotMatch(reviewComments1099To1106Migration, /v_subscription_id IS NULL OR (onesignal_player_id|mobile_onesignal_player_id|subscription_id)/);
   assert.match(unregisterNullCleanupMigration, /DELETE FROM public\.push_subscriptions/);
   assert.match(unregisterNullCleanupMigration, /GRANT EXECUTE ON FUNCTION public\.unregister_onesignal_push_subscription\(text, text\) TO authenticated/);
   assert.match(unregisterNullCleanupMigration, /GRANT EXECUTE ON FUNCTION public\.unregister_onesignal_push_subscription\(text, text\) TO service_role/);

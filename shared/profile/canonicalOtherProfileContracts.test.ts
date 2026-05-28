@@ -25,6 +25,7 @@ test("web other-user profile entry points render canonical profile content", () 
   assert.match(profilePreview, /useOtherUserFullProfile\(profileId\)/);
   assert.match(profilePreview, /refetch\(\)[\s\S]*result\.isError/);
   assert.match(profilePreview, /result\.data\?\.id !== profileId/);
+  assert.match(profilePreview, /if \(isLoading \|\| !hasFreshPreview\)/);
   assert.match(profilePreview, /freshPreviewFailed \|\| !profile/);
   assert.doesNotMatch(profilePreview, /ProfilePhoto|LifestyleDetails|BottomNav|VibePlayer|resolveWebVibeVideoState/);
   assert.match(drawer, /OtherUserFullProfileView/);
@@ -129,10 +130,10 @@ test("profile photo viewers are guarded against native and web self-reopen traps
 
   assert.match(webPreview, /refetchRequestIdRef/);
   assert.match(webPreview, /refetchRequestIdRef\.current !== requestId/);
-  assert.match(webPreview, /\(!hasFreshPreview && !profile\)/);
+  assert.match(webPreview, /if \(isLoading \|\| !hasFreshPreview\)/);
   assert.match(nativePreview, /refetchRequestIdRef/);
   assert.match(nativePreview, /refetchRequestIdRef\.current !== requestId/);
-  assert.match(nativePreview, /\(!hasFreshPreview && !profile\)/);
+  assert.match(nativePreview, /if \(isPending \|\| !hasFreshPreview\)/);
 });
 
 test("web profile hero controls keep reliable touch targets", () => {
@@ -193,6 +194,7 @@ test("native chat and matches route profile actions to the canonical user route"
   assert.match(nativeProfilePreview, /isOwnProfile=\{false\}/);
   assert.match(nativeProfilePreview, /refetch\(\)[\s\S]*result\.isError/);
   assert.match(nativeProfilePreview, /result\.data\?\.id !== profileId/);
+  assert.match(nativeProfilePreview, /if \(isPending \|\| !hasFreshPreview\)/);
   assert.match(nativeProfilePreview, /freshPreviewFailed \|\| \(isError && !profile\) \|\| !profile/);
   assert.doesNotMatch(nativeProfilePreview, /fetchMyProfile/);
   assert.doesNotMatch(nativeProfilePreview, /profileRowToUserProfileView/);

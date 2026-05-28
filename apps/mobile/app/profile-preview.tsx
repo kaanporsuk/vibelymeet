@@ -68,7 +68,7 @@ export default function ProfilePreviewScreen() {
     );
   }
 
-  if ((isPending && !profile) || (!hasFreshPreview && !profile)) {
+  if (isPending || !hasFreshPreview) {
     return (
       <View style={centered}>
         <LoadingState title="Loading preview..." message="Just a sec..." />

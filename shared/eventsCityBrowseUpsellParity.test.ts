@@ -139,7 +139,7 @@ test("premium navigation entry points dedupe rapid repeated taps", () => {
   assert.match(filterBar, /onClick=\{handlePremiumUpgrade\}/);
 
   assert.match(nativePremiumNavigation, /PREMIUM_NAV_DEDUPE_MS/);
-  assert.match(nativePremiumNavigation, /premiumRouteKey/);
+  assert.doesNotMatch(nativePremiumNavigation, /split\(\s*\/\[\?#\]\//);
   assert.match(nativePremiumNavigation, /lastPremiumNavigation: \{ routeKey: string; at: number \}/);
   assert.match(nativePremiumNavigation, /shouldSkipDuplicatePremiumNavigation/);
   assert.match(
@@ -148,6 +148,7 @@ test("premium navigation entry points dedupe rapid repeated taps", () => {
   );
 
   assert.match(webPremiumNavigation, /PREMIUM_NAV_DEDUPE_MS/);
+  assert.doesNotMatch(webPremiumNavigation, /split\(\s*\/\[\?#\]\//);
   assert.match(webPremiumNavigation, /lastPremiumNavigation: \{ routeKey: string; at: number \}/);
   assert.match(webPremiumNavigation, /shouldSkipDuplicatePremiumNavigation/);
   assert.match(
