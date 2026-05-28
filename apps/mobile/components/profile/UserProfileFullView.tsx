@@ -73,6 +73,8 @@ const PHOTO_ZOOM_SCALE = 2;
 const PHOTO_MAX_PINCH_SCALE = 4;
 const PHOTO_ZOOM_LOCK_SCALE = 1.03;
 const PHOTO_ZOOM_SPRING = { damping: 22, stiffness: 240, mass: 0.7 };
+const PHOTO_VIEWER_OPEN_GUARD_MS = 650;
+const PHOTO_VIEWER_CLOSE_GUARD_MS = 450;
 
 function clampPhotoPan(tx: number, ty: number, scale: number, width: number, height: number) {
   'worklet';
@@ -98,7 +100,16 @@ function AdaptiveNativeProfileMedia({
 }) {
   const [imageLoadState, setImageLoadState] = useState<NativeImageLoadState>({ uri: null, status: 'loading' });
   const resolvedUri = getImageUrl(uri, { width: 1400, quality: 88 });
+  const resolvedUriRef = useRef(resolvedUri);
   const failed = imageLoadState.uri === resolvedUri && imageLoadState.status === 'failed';
+  const loaded = imageLoadState.uri === resolvedUri && imageLoadState.status === 'loaded';
+  resolvedUriRef.current = resolvedUri;
+
+  useEffect(() => {
+    setImageLoadState((current) =>
+      current.uri === resolvedUri ? current : { uri: resolvedUri, status: 'loading' },
+    );
+  }, [resolvedUri]);
 
   const content = failed ? (
     <RNView style={[s.adaptiveFallback, { height }]}>
@@ -110,18 +121,27 @@ function AdaptiveNativeProfileMedia({
       <Image
         key={`background-${resolvedUri}`}
         source={{ uri: resolvedUri }}
-        style={s.adaptiveBackground}
+        style={[s.adaptiveBackground, !loaded && { opacity: 0 }]}
         resizeMode="cover"
         blurRadius={22}
       />
-      <RNView style={s.adaptiveDim} />
+      <RNView style={[s.adaptiveDim, !loaded && { opacity: 0 }]} />
+      {!loaded ? (
+        <RNView pointerEvents="none" style={s.adaptiveLoadingState}>
+          <ActivityIndicator color="#8B5CF6" />
+        </RNView>
+      ) : null}
       <Image
         key={`foreground-${resolvedUri}`}
         source={{ uri: resolvedUri }}
-        style={s.adaptiveForeground}
+        style={[s.adaptiveForeground, !loaded && { opacity: 0 }]}
         resizeMode="contain"
-        onLoad={() => setImageLoadState({ uri: resolvedUri, status: 'loaded' })}
-        onError={() => setImageLoadState({ uri: resolvedUri, status: 'failed' })}
+        onLoad={() => {
+          if (resolvedUriRef.current === resolvedUri) setImageLoadState({ uri: resolvedUri, status: 'loaded' });
+        }}
+        onError={() => {
+          if (resolvedUriRef.current === resolvedUri) setImageLoadState({ uri: resolvedUri, status: 'failed' });
+        }}
       />
     </>
   );
@@ -157,6 +177,8 @@ function ZoomableProfilePhotoPage({
   accessibilityLabel: string;
   onZoomChange: (zoomed: boolean) => void;
 }) {
+  const [imageLoadState, setImageLoadState] = useState<NativeImageLoadState>({ uri: null, status: 'loading' });
+  const uriRef = useRef(uri);
   const scale = useSharedValue(1);
   const tx = useSharedValue(0);
   const ty = useSharedValue(0);
@@ -168,10 +190,17 @@ function ZoomableProfilePhotoPage({
   const isActiveSV = useSharedValue(isActive);
   const [zoomed, setZoomed] = useState(false);
   const reduceMotion = useReduceMotion();
+  const failed = imageLoadState.uri === uri && imageLoadState.status === 'failed';
+  const loaded = imageLoadState.uri === uri && imageLoadState.status === 'loaded';
+  uriRef.current = uri;
 
   useEffect(() => {
     isActiveSV.value = isActive;
   }, [isActive, isActiveSV]);
+
+  useEffect(() => {
+    setImageLoadState((current) => (current.uri === uri ? current : { uri, status: 'loading' }));
+  }, [uri]);
 
   const notifyZoomChange = useCallback(
     (nextZoomed: boolean) => {
@@ -319,20 +348,90 @@ function ZoomableProfilePhotoPage({
       <RNView pointerEvents={isActive ? 'auto' : 'none'} style={[s.photoModalPage, { width, height }]}>
         <Animated.View style={[s.photoModalZoomLayer, { width, height }, outerStyle]}>
           <Animated.View style={[s.photoModalZoomLayer, { width, height }, innerStyle]}>
-            <Image
-              source={{ uri }}
-              style={s.photoModalImage}
-              resizeMode="contain"
-              accessible
-              accessibilityRole="imagebutton"
-              accessibilityLabel={`${accessibilityLabel}${zoomed ? ', zoomed in' : ''}`}
-              accessibilityActions={[{ name: 'activate', label: zoomed ? 'Zoom out' : 'Zoom in' }]}
-              onAccessibilityAction={handleAccessibilityAction}
-            />
+            {failed ? (
+              <RNView style={s.photoModalImageState}>
+                <Ionicons name="image-outline" size={40} color="rgba(255,255,255,0.72)" />
+                <Text style={s.adaptiveFallbackText}>Photo unavailable</Text>
+              </RNView>
+            ) : (
+              <>
+                {!loaded ? (
+                  <RNView pointerEvents="none" style={s.photoModalImageState}>
+                    <ActivityIndicator color="#8B5CF6" />
+                  </RNView>
+                ) : null}
+                <Image
+                  source={{ uri }}
+                  style={[s.photoModalImage, !loaded && { opacity: 0 }]}
+                  resizeMode="contain"
+                  accessible
+                  accessibilityRole="imagebutton"
+                  accessibilityLabel={`${accessibilityLabel}${zoomed ? ', zoomed in' : ''}`}
+                  accessibilityActions={[{ name: 'activate', label: zoomed ? 'Zoom out' : 'Zoom in' }]}
+                  onAccessibilityAction={handleAccessibilityAction}
+                  onLoad={() => {
+                    if (uriRef.current === uri) setImageLoadState({ uri, status: 'loaded' });
+                  }}
+                  onError={() => {
+                    if (uriRef.current === uri) setImageLoadState({ uri, status: 'failed' });
+                  }}
+                />
+              </>
+            )}
           </Animated.View>
         </Animated.View>
       </RNView>
     </GestureDetector>
+  );
+}
+
+function ModalProfilePhotoImage({
+  uri,
+  accessibilityLabel,
+}: {
+  uri: string;
+  accessibilityLabel: string;
+}) {
+  const [imageLoadState, setImageLoadState] = useState<NativeImageLoadState>({ uri: null, status: 'loading' });
+  const uriRef = useRef(uri);
+  const failed = imageLoadState.uri === uri && imageLoadState.status === 'failed';
+  const loaded = imageLoadState.uri === uri && imageLoadState.status === 'loaded';
+  uriRef.current = uri;
+
+  useEffect(() => {
+    setImageLoadState((current) => (current.uri === uri ? current : { uri, status: 'loading' }));
+  }, [uri]);
+
+  if (failed) {
+    return (
+      <RNView style={s.photoModalImageState}>
+        <Ionicons name="image-outline" size={40} color="rgba(255,255,255,0.72)" />
+        <Text style={s.adaptiveFallbackText}>Photo unavailable</Text>
+      </RNView>
+    );
+  }
+
+  return (
+    <>
+      {!loaded ? (
+        <RNView pointerEvents="none" style={s.photoModalImageState}>
+          <ActivityIndicator color="#8B5CF6" />
+        </RNView>
+      ) : null}
+      <Image
+        source={{ uri }}
+        style={[s.photoModalImage, !loaded && { opacity: 0 }]}
+        resizeMode="contain"
+        accessibilityRole="image"
+        accessibilityLabel={accessibilityLabel}
+        onLoad={() => {
+          if (uriRef.current === uri) setImageLoadState({ uri, status: 'loaded' });
+        }}
+        onError={() => {
+          if (uriRef.current === uri) setImageLoadState({ uri, status: 'failed' });
+        }}
+      />
+    </>
   );
 }
 
@@ -363,11 +462,20 @@ export function UserProfileFullView({
   const [photoViewerZoomed, setPhotoViewerZoomed] = useState(false);
   const photoPagerRef = useRef<ScrollView>(null);
   const profileVibeVideoTtffTokenRef = useRef<string | null>(null);
+  const photoViewerOpenBlockedUntilRef = useRef(Date.now() + PHOTO_VIEWER_OPEN_GUARD_MS);
+
+  const blockPhotoViewerOpens = useCallback((durationMs: number) => {
+    photoViewerOpenBlockedUntilRef.current = Math.max(
+      photoViewerOpenBlockedUntilRef.current,
+      Date.now() + durationMs,
+    );
+  }, []);
 
   const closePhotoViewer = useCallback(() => {
+    blockPhotoViewerOpens(PHOTO_VIEWER_CLOSE_GUARD_MS);
     setPhotoViewerZoomed(false);
     setPhotoViewerIndex(null);
-  }, []);
+  }, [blockPhotoViewerOpens]);
 
   const photoDismissPan = useMemo(
     () =>
@@ -515,6 +623,24 @@ export function UserProfileFullView({
   const galleryHeight = Math.max(220, Math.min(winHeight * 0.4, 420));
 
   useEffect(() => {
+    blockPhotoViewerOpens(PHOTO_VIEWER_OPEN_GUARD_MS);
+    setPhotoViewerZoomed(false);
+    setPhotoViewerIndex(null);
+  }, [blockPhotoViewerOpens, profile.id]);
+
+  useEffect(() => {
+    if (photoViewerIndex === null) return;
+    if (photos.length === 0) {
+      closePhotoViewer();
+      return;
+    }
+    if (photoViewerIndex >= photos.length) {
+      setPhotoViewerZoomed(false);
+      setPhotoViewerIndex(photos.length - 1);
+    }
+  }, [closePhotoViewer, photoViewerIndex, photos.length]);
+
+  useEffect(() => {
     if (photoViewerIndex === null || photos.length === 0) return;
     const idx = Math.min(Math.max(0, photoViewerIndex), photos.length - 1);
     requestAnimationFrame(() => {
@@ -527,9 +653,14 @@ export function UserProfileFullView({
   }, [photoViewerIndex]);
 
   const openPhotoViewer = useCallback((index: number) => {
+    if (Date.now() < photoViewerOpenBlockedUntilRef.current) return;
+    if (photoViewerIndex !== null) return;
+    if (!Number.isInteger(index) || index < 0 || index >= photos.length) return;
+    const prefetchUrl = getImageUrl(photos[index], { width: 1200, quality: 88 });
+    void Image.prefetch(prefetchUrl).catch(() => {});
     setPhotoViewerZoomed(false);
     setPhotoViewerIndex(index);
-  }, []);
+  }, [photoViewerIndex, photos]);
 
   const handlePhotoPagerMomentumEnd = useCallback(
     (event: NativeSyntheticEvent<NativeScrollEvent>) => {
@@ -573,6 +704,8 @@ export function UserProfileFullView({
       : '';
 
   const scrollBottomPad = isOwnProfile && onEditProfile ? 100 + insets.bottom : spacing['2xl'] + insets.bottom;
+  const photoViewerVisible = photoViewerIndex !== null && photos.length > 0;
+  const activePhotoViewerIndex = photoViewerIndex ?? 0;
 
   return (
     <RNView style={{ flex: 1, backgroundColor: theme.background }}>
@@ -958,66 +1091,69 @@ export function UserProfileFullView({
         onPlayToEnd={() => setHideVibingOnLabelAfterComplete(true)}
       />
 
-      <Modal
-        visible={photoViewerIndex !== null && photos.length > 0}
-        transparent
-        animationType={reduceMotion ? 'none' : 'fade'}
-        statusBarTranslucent
-        onRequestClose={closePhotoViewer}
-      >
-        <GestureHandlerRootView style={s.photoModalRoot}>
-          <RNView style={s.photoModalContent} {...photoDismissPan.panHandlers}>
-            <Pressable
-              onPress={closePhotoViewer}
-              style={[s.photoModalClose, { top: insets.top + 12 }]}
-              accessibilityRole="button"
-              accessibilityLabel="Close photo viewer"
+      {photoViewerVisible ? (
+        <Modal
+          visible
+          animationType={reduceMotion ? 'none' : 'fade'}
+          presentationStyle="fullScreen"
+          statusBarTranslucent
+          onRequestClose={closePhotoViewer}
+        >
+          <GestureHandlerRootView style={s.photoModalRoot}>
+            <RNView
+              style={s.photoModalContent}
+              accessibilityViewIsModal
+              importantForAccessibility="yes"
+              {...photoDismissPan.panHandlers}
             >
-              <Ionicons name="close" size={28} color="#fff" />
-            </Pressable>
-            <ScrollView
-              ref={photoPagerRef}
-              horizontal
-              pagingEnabled
-              showsHorizontalScrollIndicator={false}
-              scrollEnabled={!photoViewerZoomed}
-              keyboardShouldPersistTaps="handled"
-              style={s.photoModalPager}
-              contentContainerStyle={{ alignItems: 'center' }}
-              onMomentumScrollEnd={handlePhotoPagerMomentumEnd}
-            >
-              {photos.map((url, i) => {
-                const uri = getImageUrl(url, { width: 1200, quality: 88 });
-                const accessibilityLabel = `Profile photo ${i + 1} of ${photos.length}`;
-                if (i !== photoViewerIndex) {
+              <Pressable
+                onPress={closePhotoViewer}
+                style={[s.photoModalClose, { top: insets.top + 12 }]}
+                accessibilityRole="button"
+                accessibilityLabel="Close photo viewer"
+                hitSlop={12}
+              >
+                <Ionicons name="close" size={28} color="#fff" />
+              </Pressable>
+              <ScrollView
+                ref={photoPagerRef}
+                horizontal
+                pagingEnabled
+                showsHorizontalScrollIndicator={false}
+                scrollEnabled={!photoViewerZoomed}
+                keyboardShouldPersistTaps="handled"
+                contentOffset={{ x: activePhotoViewerIndex * winWidth, y: 0 }}
+                style={s.photoModalPager}
+                contentContainerStyle={{ alignItems: 'center' }}
+                onMomentumScrollEnd={handlePhotoPagerMomentumEnd}
+              >
+                {photos.map((url, i) => {
+                  const uri = getImageUrl(url, { width: 1200, quality: 88 });
+                  const accessibilityLabel = `Profile photo ${i + 1} of ${photos.length}`;
+                  if (i !== activePhotoViewerIndex) {
+                    return (
+                      <RNView key={`pv-${i}`} style={[s.photoModalPage, { width: winWidth, height: winHeight }]}>
+                        <ModalProfilePhotoImage uri={uri} accessibilityLabel={accessibilityLabel} />
+                      </RNView>
+                    );
+                  }
                   return (
-                    <RNView key={`pv-${i}`} style={[s.photoModalPage, { width: winWidth, height: winHeight }]}>
-                      <Image
-                        source={{ uri }}
-                        style={s.photoModalImage}
-                        resizeMode="contain"
-                        accessibilityRole="image"
-                        accessibilityLabel={accessibilityLabel}
-                      />
-                    </RNView>
+                    <ZoomableProfilePhotoPage
+                      key={`pv-${i}`}
+                      uri={uri}
+                      width={winWidth}
+                      height={winHeight}
+                      isActive
+                      accessibilityLabel={accessibilityLabel}
+                      onZoomChange={setPhotoViewerZoomed}
+                    />
                   );
-                }
-                return (
-                  <ZoomableProfilePhotoPage
-                    key={`pv-${i}`}
-                    uri={uri}
-                    width={winWidth}
-                    height={winHeight}
-                    isActive
-                    accessibilityLabel={accessibilityLabel}
-                    onZoomChange={setPhotoViewerZoomed}
-                  />
-                );
-              })}
-            </ScrollView>
-          </RNView>
-        </GestureHandlerRootView>
-      </Modal>
+                })}
+              </ScrollView>
+            </RNView>
+          </GestureHandlerRootView>
+        </Modal>
+      ) : null}
     </RNView>
   );
 }
@@ -1060,6 +1196,12 @@ const s = StyleSheet.create({
     color: 'rgba(255,255,255,0.74)',
     fontSize: 13,
     fontFamily: fonts.bodyMedium,
+  },
+  adaptiveLoadingState: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#111118',
   },
   headerBar: {
     position: 'absolute',
@@ -1399,5 +1541,11 @@ const s = StyleSheet.create({
   photoModalImage: {
     width: '100%',
     height: '100%',
+  },
+  photoModalImageState: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#000',
   },
 });

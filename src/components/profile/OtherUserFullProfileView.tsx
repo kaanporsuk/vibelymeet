@@ -54,6 +54,9 @@ type OtherUserFullProfileViewProps = {
 
 type DetailIcon = typeof Briefcase;
 
+const PHOTO_PREVIEW_OPEN_GUARD_MS = 350;
+const PHOTO_PREVIEW_CLOSE_GUARD_MS = 300;
+
 const lifestyleIconByKey: Record<string, DetailIcon> = {
   smoking: Sparkles,
   drinking: Wine,
@@ -137,12 +140,26 @@ export function OtherUserFullProfileView({
   const [showVideoPlayer, setShowVideoPlayer] = useState(false);
   const prefersReducedMotion = usePrefersReducedMotion();
   const profileVibeVideoTtffTokenRef = useRef<string | null>(null);
+  const photoPreviewOpenBlockedUntilRef = useRef(Date.now() + PHOTO_PREVIEW_OPEN_GUARD_MS);
+
+  const blockPhotoPreviewOpens = useCallback((durationMs: number) => {
+    photoPreviewOpenBlockedUntilRef.current = Math.max(
+      photoPreviewOpenBlockedUntilRef.current,
+      Date.now() + durationMs,
+    );
+  }, []);
+
+  const closePhotoPreview = useCallback(() => {
+    blockPhotoPreviewOpens(PHOTO_PREVIEW_CLOSE_GUARD_MS);
+    setPhotoPreviewIndex(null);
+  }, [blockPhotoPreviewOpens]);
 
   useEffect(() => {
+    blockPhotoPreviewOpens(PHOTO_PREVIEW_OPEN_GUARD_MS);
     setCurrentPhotoIndex(0);
     setPhotoPreviewIndex(null);
     setShowVideoPlayer(false);
-  }, [profile.id]);
+  }, [blockPhotoPreviewOpens, profile.id]);
 
   const photos = profile.photos;
   const heroPhoto = photos[currentPhotoIndex] ?? photos[0] ?? profile.avatarUrl ?? "";
@@ -151,6 +168,26 @@ export function OtherUserFullProfileView({
   const locationText = [profile.location, profile.distanceLabel].filter(Boolean).join(" • ");
   const intentRaw = profile.relationshipIntent || profile.lookingFor;
   const intentDisplay = intentRaw ? getRelationshipIntentDisplaySafe(intentRaw) : null;
+
+  useEffect(() => {
+    if (currentPhotoIndex >= photos.length) setCurrentPhotoIndex(0);
+    if (photoPreviewIndex === null) return;
+    if (photos.length === 0) {
+      closePhotoPreview();
+      return;
+    }
+    if (photoPreviewIndex >= photos.length) setPhotoPreviewIndex(photos.length - 1);
+  }, [closePhotoPreview, currentPhotoIndex, photoPreviewIndex, photos.length]);
+
+  const openPhotoPreview = useCallback(
+    (index: number) => {
+      if (Date.now() < photoPreviewOpenBlockedUntilRef.current) return;
+      if (photoPreviewIndex !== null) return;
+      if (!Number.isInteger(index) || index < 0 || index >= photos.length) return;
+      setPhotoPreviewIndex(index);
+    },
+    [photoPreviewIndex, photos.length],
+  );
 
   const vibeVideo = useMemo(
     () =>
@@ -250,7 +287,7 @@ export function OtherUserFullProfileView({
             alt={`${displayName}'s profile photo`}
             variant="hero"
             className="border-x-0 border-t-0"
-            onClick={() => setPhotoPreviewIndex(currentPhotoIndex)}
+            onClick={() => openPhotoPreview(currentPhotoIndex)}
           />
         ) : (
           <div className="flex h-[clamp(360px,62dvh,680px)] items-center justify-center rounded-b-[28px] bg-secondary text-muted-foreground">
@@ -598,7 +635,7 @@ export function OtherUserFullProfileView({
                     src={photo}
                     alt={`${displayName}'s photo ${index + 1}`}
                     variant="gallery"
-                    onClick={() => setPhotoPreviewIndex(index)}
+                    onClick={() => openPhotoPreview(index)}
                   />
                 ))}
               </div>
@@ -617,7 +654,7 @@ export function OtherUserFullProfileView({
         photos={photos}
         initialIndex={photoPreviewIndex ?? 0}
         isOpen={photoPreviewIndex !== null}
-        onClose={() => setPhotoPreviewIndex(null)}
+        onClose={closePhotoPreview}
       />
     </div>
   );

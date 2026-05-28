@@ -73,6 +73,68 @@ test("adaptive web media is used for hero, gallery, and fullscreen profile photo
   assert.match(fullscreen, /object-contain/);
 });
 
+test("profile photo viewers are guarded against native and web self-reopen traps", () => {
+  const canonical = read("src/components/profile/OtherUserFullProfileView.tsx");
+  const fullscreen = read("src/components/PhotoPreviewModal.tsx");
+  const nativeFullView = read("apps/mobile/components/profile/UserProfileFullView.tsx");
+  const webPreview = read("src/pages/ProfilePreview.tsx");
+  const nativePreview = read("apps/mobile/app/profile-preview.tsx");
+
+  assert.match(canonical, /PHOTO_PREVIEW_OPEN_GUARD_MS/);
+  assert.match(canonical, /PHOTO_PREVIEW_CLOSE_GUARD_MS/);
+  assert.match(canonical, /photoPreviewOpenBlockedUntilRef/);
+  assert.match(canonical, /const openPhotoPreview = useCallback/);
+  assert.match(canonical, /Date\.now\(\) < photoPreviewOpenBlockedUntilRef\.current/);
+  assert.match(canonical, /if \(!Number\.isInteger\(index\) \|\| index < 0 \|\| index >= photos\.length\) return/);
+  assert.match(canonical, /onClick=\{\(\) => openPhotoPreview\(currentPhotoIndex\)\}/);
+  assert.match(canonical, /onClick=\{\(\) => openPhotoPreview\(index\)\}/);
+  assert.doesNotMatch(canonical, /onClick=\{\(\) => setPhotoPreviewIndex/);
+
+  assert.match(fullscreen, /safeInitialIndex/);
+  assert.match(fullscreen, /const handleClose = useCallback/);
+  assert.match(fullscreen, /event\.stopPropagation\(\);[\s\S]*handleClose\(\);/);
+  assert.match(fullscreen, /if \(photos\.length === 0\)[\s\S]*handleClose\(\);/);
+  assert.match(fullscreen, /current\.src === resolvedCurrentPhoto \? current : \{ src: resolvedCurrentPhoto, status: "loading" \}/);
+  assert.match(fullscreen, /resolvedCurrentPhotoRef\.current === resolvedCurrentPhoto/);
+  assert.match(fullscreen, /ImageOff/);
+  assert.match(fullscreen, /Loader2/);
+  assert.match(fullscreen, /role="dialog"/);
+  assert.match(fullscreen, /aria-modal="true"/);
+  assert.match(fullscreen, /tabIndex=\{-1\}/);
+  assert.match(fullscreen, /previousFocusRef\.current\?\.focus\(\{ preventScroll: true \}\)/);
+
+  assert.match(nativeFullView, /PHOTO_VIEWER_OPEN_GUARD_MS/);
+  assert.match(nativeFullView, /PHOTO_VIEWER_CLOSE_GUARD_MS/);
+  assert.match(nativeFullView, /photoViewerOpenBlockedUntilRef/);
+  assert.match(nativeFullView, /const openPhotoViewer = useCallback/);
+  assert.match(nativeFullView, /Date\.now\(\) < photoViewerOpenBlockedUntilRef\.current/);
+  assert.match(nativeFullView, /if \(!Number\.isInteger\(index\) \|\| index < 0 \|\| index >= photos\.length\) return/);
+  assert.match(nativeFullView, /Image\.prefetch\(prefetchUrl\)/);
+  assert.match(nativeFullView, /presentationStyle="fullScreen"/);
+  assert.match(nativeFullView, /const photoViewerVisible = photoViewerIndex !== null && photos\.length > 0/);
+  assert.match(nativeFullView, /const activePhotoViewerIndex = photoViewerIndex \?\? 0/);
+  assert.match(nativeFullView, /\{photoViewerVisible \? \(/);
+  assert.match(nativeFullView, /contentOffset=\{\{ x: activePhotoViewerIndex \* winWidth, y: 0 \}\}/);
+  assert.match(nativeFullView, /ModalProfilePhotoImage/);
+  assert.match(nativeFullView, /resolvedUriRef\.current === resolvedUri/);
+  assert.match(nativeFullView, /uriRef\.current === uri/);
+  assert.match(nativeFullView, /accessibilityViewIsModal/);
+  const nativePhotoModalStart = nativeFullView.indexOf("<Modal\n          visible");
+  assert.ok(nativePhotoModalStart > -1);
+  const nativePhotoModalOpenTag = nativeFullView.slice(
+    nativePhotoModalStart,
+    nativeFullView.indexOf(">", nativePhotoModalStart),
+  );
+  assert.doesNotMatch(nativePhotoModalOpenTag, /\btransparent\b/);
+
+  assert.match(webPreview, /refetchRequestIdRef/);
+  assert.match(webPreview, /refetchRequestIdRef\.current !== requestId/);
+  assert.match(webPreview, /\(!hasFreshPreview && !profile\)/);
+  assert.match(nativePreview, /refetchRequestIdRef/);
+  assert.match(nativePreview, /refetchRequestIdRef\.current !== requestId/);
+  assert.match(nativePreview, /\(!hasFreshPreview && !profile\)/);
+});
+
 test("web profile hero controls keep reliable touch targets", () => {
   const canonical = read("src/components/profile/OtherUserFullProfileView.tsx");
 
@@ -172,7 +234,9 @@ test("native full profile includes adaptive media and explicit verification stat
   assert.doesNotMatch(nativeFullView, /failedUri/);
   assert.match(nativeFullView, /key=\{`background-\$\{resolvedUri\}`\}/);
   assert.match(nativeFullView, /key=\{`foreground-\$\{resolvedUri\}`\}/);
-  assert.match(nativeFullView, /onLoad=\{\(\) => setImageLoadState\(\{ uri: resolvedUri, status: 'loaded' \}\)\}/);
+  assert.match(nativeFullView, /current\.uri === resolvedUri \? current : \{ uri: resolvedUri, status: 'loading' \}/);
+  assert.match(nativeFullView, /adaptiveLoadingState/);
+  assert.match(nativeFullView, /if \(resolvedUriRef\.current === resolvedUri\) setImageLoadState\(\{ uri: resolvedUri, status: 'loaded' \}\)/);
   const nativeBackgroundStart = nativeFullView.indexOf('key={`background-${resolvedUri}`}');
   const nativeForegroundStart = nativeFullView.indexOf('key={`foreground-${resolvedUri}`}');
   assert.ok(nativeBackgroundStart > -1 && nativeForegroundStart > nativeBackgroundStart);

@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { motion, AnimatePresence, PanInfo, useAnimation } from "framer-motion";
-import { X, ChevronLeft, ChevronRight, ZoomIn, ZoomOut } from "lucide-react";
+import { X, ChevronLeft, ChevronRight, ZoomIn, ZoomOut, ImageOff, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { resolvePhotoUrl } from "@/lib/photoUtils";
@@ -24,44 +24,100 @@ export const PhotoPreviewModal = ({
   const [isZoomed, setIsZoomed] = useState(false);
   const [zoomScale, setZoomScale] = useState(1);
   const [dragDirection, setDragDirection] = useState<"left" | "right" | null>(null);
-  const containerRef = useRef<HTMLDivElement>(null);
-  const imageRef = useRef<HTMLImageElement>(null);
+  const [imageLoadState, setImageLoadState] = useState<{
+    src: string | null;
+    status: "loading" | "loaded" | "failed";
+  }>({ src: null, status: "loading" });
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const previousFocusRef = useRef<HTMLElement | null>(null);
   const lastTapRef = useRef<number>(0);
   const initialPinchDistanceRef = useRef<number | null>(null);
   const initialScaleRef = useRef<number>(1);
   const controls = useAnimation();
+  const safeInitialIndex = photos.length > 0
+    ? Math.min(Math.max(0, initialIndex), photos.length - 1)
+    : 0;
 
   useEffect(() => {
     if (isOpen) {
-      setCurrentIndex(initialIndex);
+      setCurrentIndex(safeInitialIndex);
       setIsZoomed(false);
       setZoomScale(1);
       setDragDirection(null);
     }
-  }, [isOpen, initialIndex]);
+  }, [isOpen, safeInitialIndex]);
+
+  const resetZoom = useCallback(() => {
+    setZoomScale(1);
+    setIsZoomed(false);
+    controls.start({ scale: 1, x: 0, y: 0 });
+  }, [controls]);
+
+  const handleClose = useCallback(() => {
+    lastTapRef.current = 0;
+    initialPinchDistanceRef.current = null;
+    resetZoom();
+    onClose();
+  }, [onClose, resetZoom]);
+
+  const toggleZoom = useCallback(() => {
+    if (isZoomed) {
+      resetZoom();
+      return;
+    }
+    setZoomScale(2.5);
+    setIsZoomed(true);
+    controls.start({ scale: 2.5 });
+  }, [controls, isZoomed, resetZoom]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    if (photos.length === 0) {
+      handleClose();
+      return;
+    }
+    if (currentIndex >= photos.length) setCurrentIndex(photos.length - 1);
+  }, [currentIndex, handleClose, isOpen, photos.length]);
+
+  const currentPhoto = photos[currentIndex] ?? "";
+  const resolvedCurrentPhoto = currentPhoto ? resolvePhotoUrl(currentPhoto) : "";
+  const resolvedCurrentPhotoRef = useRef(resolvedCurrentPhoto);
+  resolvedCurrentPhotoRef.current = resolvedCurrentPhoto;
+
+  useEffect(() => {
+    if (!isOpen || !resolvedCurrentPhoto) return;
+    setImageLoadState((current) =>
+      current.src === resolvedCurrentPhoto ? current : { src: resolvedCurrentPhoto, status: "loading" },
+    );
+  }, [isOpen, resolvedCurrentPhoto]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    previousFocusRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const frame = requestAnimationFrame(() => {
+      dialogRef.current?.focus();
+    });
+    return () => {
+      cancelAnimationFrame(frame);
+      previousFocusRef.current?.focus({ preventScroll: true });
+      previousFocusRef.current = null;
+    };
+  }, [isOpen]);
 
   // Handle double-tap to zoom
   const handleDoubleTap = useCallback((e: React.MouseEvent | React.TouchEvent) => {
     e.preventDefault();
+    e.stopPropagation();
     const now = Date.now();
     const timeSinceLastTap = now - lastTapRef.current;
     
     if (timeSinceLastTap < 300 && timeSinceLastTap > 0) {
-      // Double tap detected
-      if (isZoomed) {
-        setZoomScale(1);
-        setIsZoomed(false);
-        controls.start({ scale: 1, x: 0, y: 0 });
-      } else {
-        setZoomScale(2.5);
-        setIsZoomed(true);
-        controls.start({ scale: 2.5 });
-      }
+      toggleZoom();
       lastTapRef.current = 0;
     } else {
       lastTapRef.current = now;
     }
-  }, [isZoomed, controls]);
+  }, [toggleZoom]);
 
   // Pinch to zoom handlers
   const handleTouchStart = useCallback((e: React.TouchEvent) => {
@@ -98,14 +154,12 @@ export const PhotoPreviewModal = ({
 
   const handleTouchEnd = useCallback(() => {
     initialPinchDistanceRef.current = null;
-    
+
     // Snap back to 1 if scale is close to 1
     if (zoomScale < 1.1) {
-      setZoomScale(1);
-      setIsZoomed(false);
-      controls.start({ scale: 1, x: 0, y: 0 });
+      resetZoom();
     }
-  }, [zoomScale, controls]);
+  }, [resetZoom, zoomScale]);
 
   const handleNext = useCallback(() => {
     if (!isZoomed && currentIndex < photos.length - 1) {
@@ -146,14 +200,14 @@ export const PhotoPreviewModal = ({
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (!isOpen) return;
-      if (e.key === "Escape") onClose();
+      if (e.key === "Escape") handleClose();
       if (e.key === "ArrowRight") handleNext();
       if (e.key === "ArrowLeft") handlePrev();
     };
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [isOpen, onClose, handleNext, handlePrev]);
+  }, [isOpen, handleClose, handleNext, handlePrev]);
 
   // Lock body scroll when modal is open
   useEffect(() => {
@@ -167,7 +221,11 @@ export const PhotoPreviewModal = ({
     };
   }, [isOpen]);
 
-  if (!isOpen || photos.length === 0) return null;
+  if (!isOpen || photos.length === 0 || !resolvedCurrentPhoto) return null;
+
+  const imageStateMatches = imageLoadState.src === resolvedCurrentPhoto;
+  const imageLoading = !imageStateMatches || imageLoadState.status === "loading";
+  const imageFailed = imageStateMatches && imageLoadState.status === "failed";
 
   const slideVariants = {
     enter: (direction: "left" | "right" | null) => ({
@@ -188,12 +246,17 @@ export const PhotoPreviewModal = ({
     <AnimatePresence>
       {isOpen && (
         <motion.div
+          ref={dialogRef}
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
           className="fixed inset-0 z-[100] bg-background/95 backdrop-blur-lg flex flex-col"
+          tabIndex={-1}
+          role="dialog"
+          aria-modal="true"
+          aria-label="Photo viewer"
           onClick={(e) => {
-            if (e.target === e.currentTarget && !isZoomed) onClose();
+            if (e.target === e.currentTarget && !isZoomed) handleClose();
           }}
         >
           {/* Header */}
@@ -206,18 +269,12 @@ export const PhotoPreviewModal = ({
                 <Button
                   variant="ghost"
                   size="icon"
-                  onClick={() => {
-                    if (isZoomed) {
-                      setZoomScale(1);
-                      setIsZoomed(false);
-                      controls.start({ scale: 1, x: 0, y: 0 });
-                    } else {
-                      setZoomScale(2.5);
-                      setIsZoomed(true);
-                      controls.start({ scale: 2.5 });
-                    }
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    toggleZoom();
                   }}
                   className="w-10 h-10 rounded-full"
+                  aria-label={isZoomed ? "Zoom out" : "Zoom in"}
                 >
                   {isZoomed ? (
                     <ZoomOut className="w-5 h-5" />
@@ -229,8 +286,12 @@ export const PhotoPreviewModal = ({
               <Button
                 variant="ghost"
                 size="icon"
-                onClick={onClose}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  handleClose();
+                }}
                 className="w-10 h-10 rounded-full"
+                aria-label="Close photo viewer"
               >
                 <X className="w-5 h-5" />
               </Button>
@@ -239,7 +300,6 @@ export const PhotoPreviewModal = ({
 
           {/* Photo container */}
           <div
-            ref={containerRef}
             className="flex-1 flex items-center justify-center relative overflow-hidden px-4 min-h-0"
           >
             {/* Navigation arrows */}
@@ -248,7 +308,10 @@ export const PhotoPreviewModal = ({
                 <Button
                   variant="ghost"
                   size="icon"
-                  onClick={handlePrev}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    handlePrev();
+                  }}
                   disabled={currentIndex === 0}
                   className="absolute left-4 z-10 w-12 h-12 rounded-full bg-background/50 backdrop-blur-sm hover:bg-background/70 disabled:opacity-30"
                 >
@@ -257,7 +320,10 @@ export const PhotoPreviewModal = ({
                 <Button
                   variant="ghost"
                   size="icon"
-                  onClick={handleNext}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    handleNext();
+                  }}
                   disabled={currentIndex === photos.length - 1}
                   className="absolute right-4 z-10 w-12 h-12 rounded-full bg-background/50 backdrop-blur-sm hover:bg-background/70 disabled:opacity-30"
                 >
@@ -291,15 +357,42 @@ export const PhotoPreviewModal = ({
                   !isZoomed && photos.length === 1 && showZoom && "cursor-zoom-in"
                 )}
               >
-                <motion.img
-                  ref={imageRef}
-                  src={resolvePhotoUrl(photos[currentIndex])}
-                  alt={`Photo ${currentIndex + 1}`}
-                  animate={controls}
-                  className="max-w-full max-h-full object-contain rounded-xl select-none"
-                  draggable={false}
-                  style={{ touchAction: isZoomed ? "none" : "pan-y" }}
-                />
+                {imageLoading ? (
+                  <div className="absolute inset-0 flex items-center justify-center text-primary" aria-hidden>
+                    <Loader2 className="h-8 w-8 animate-spin" />
+                  </div>
+                ) : null}
+                {imageFailed ? (
+                  <div className="flex flex-col items-center justify-center gap-2 text-muted-foreground">
+                    <ImageOff className="h-9 w-9" aria-hidden />
+                    <span className="text-sm font-medium">Photo unavailable</span>
+                  </div>
+                ) : (
+                  <motion.img
+                    src={resolvedCurrentPhoto}
+                    alt={`Photo ${currentIndex + 1}`}
+                    animate={controls}
+                    className={cn(
+                      "max-w-full max-h-full object-contain rounded-xl select-none",
+                      imageLoading ? "opacity-0" : "opacity-100",
+                    )}
+                    draggable={false}
+                    style={{ touchAction: isZoomed ? "none" : "pan-y" }}
+                    onLoad={(event) => {
+                      if (
+                        resolvedCurrentPhotoRef.current === resolvedCurrentPhoto &&
+                        event.currentTarget.naturalWidth > 0
+                      ) {
+                        setImageLoadState({ src: resolvedCurrentPhoto, status: "loaded" });
+                      }
+                    }}
+                    onError={() => {
+                      if (resolvedCurrentPhotoRef.current === resolvedCurrentPhoto) {
+                        setImageLoadState({ src: resolvedCurrentPhoto, status: "failed" });
+                      }
+                    }}
+                  />
+                )}
               </motion.div>
             </AnimatePresence>
 
@@ -320,7 +413,8 @@ export const PhotoPreviewModal = ({
                     key={index}
                     whileHover={{ scale: 1.05 }}
                     whileTap={{ scale: 0.95 }}
-                    onClick={() => {
+                    onClick={(event) => {
+                      event.stopPropagation();
                       setDragDirection(index > currentIndex ? "left" : "right");
                       setCurrentIndex(index);
                     }}
