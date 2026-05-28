@@ -248,6 +248,7 @@ export default function EventDetailScreen() {
         variant: 'info',
         primaryAction: {
           label: 'View Premium',
+          dismissBeforeAction: true,
           onPress: () =>
             openPremium(router.push, {
               entry_surface: PREMIUM_ENTRY_SURFACE.PREMIUM_EVENT_REGISTER,
@@ -274,6 +275,7 @@ export default function EventDetailScreen() {
         variant: 'info',
         primaryAction: {
           label: 'View membership options',
+          dismissBeforeAction: true,
           onPress: () =>
             openPremium(router.push, {
               entry_surface: PREMIUM_ENTRY_SURFACE.VIP_EVENT_REGISTER,
