@@ -82,7 +82,10 @@ test("web chat pins mobile shell to visualViewport and preserves keyboard sticki
     webChat,
     /function chatMobileViewportStyleFromVisualViewport\(viewport: VisualViewport\): CSSProperties \{[\s\S]*position: "fixed",[\s\S]*top: `\$\{Math\.max\(0, viewport\.offsetTop\)\}px`,[\s\S]*height: `\$\{Math\.max\(1, viewport\.height\)\}px`,[\s\S]*width: "100vw",/,
   );
-  assert.match(webChat, /function chatMobileViewportStylesEqual\(prev: CSSProperties \| undefined, next: CSSProperties\): boolean/);
+  assert.match(
+    webChat,
+    /function chatMobileViewportStylesEqual\(prev: CSSProperties \| undefined, next: CSSProperties\): boolean \{\s*if \(!prev\) return false;/,
+  );
   assert.match(
     webChat,
     /const \[mobileKeyboardViewportStyle, setMobileKeyboardViewportStyle\] = useState<CSSProperties \| undefined>\(\);/,

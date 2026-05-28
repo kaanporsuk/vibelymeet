@@ -9,6 +9,8 @@ import { IntuitionGame } from "./games/IntuitionGame";
 interface GameBubbleRendererProps {
   message: GameMessage;
   matchName?: string;
+  currentUserId?: string | null;
+  starterUserId?: string | null;
   /** Session row `created_at` for expiry (e.g. vibe-game-session messages). */
   sessionCreatedAt?: string | null;
   onGameUpdate?: (
@@ -21,10 +23,15 @@ interface GameBubbleRendererProps {
 export const GameBubbleRenderer = ({
   message,
   matchName = "Match",
+  currentUserId,
+  starterUserId,
   sessionCreatedAt,
   onGameUpdate,
 }: GameBubbleRendererProps) => {
-  const isOwn = message.sender === "me";
+  const isOwn =
+    currentUserId && starterUserId
+      ? currentUserId === starterUserId
+      : message.sender === "me";
   const payload = message.gamePayload;
 
   if (!payload) return null;
@@ -90,6 +97,9 @@ export const GameBubbleRenderer = ({
           <RouletteGame
             payload={payload}
             isOwn={isOwn}
+            currentUserId={currentUserId}
+            starterUserId={starterUserId}
+            matchName={matchName}
             sessionCreatedAt={sessionCreatedAt}
             onAnswer={(answer) => handleUpdate({ receiverAnswer: answer, isUnlocked: true })}
           />

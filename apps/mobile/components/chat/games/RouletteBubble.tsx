@@ -8,6 +8,10 @@ import { spacing, radius } from '@/constants/theme';
 import type { NativeHydratedGameSessionView } from '@/lib/chatGameSessions';
 import type { RouletteSnapshot } from '@/lib/vibelyGamesTypes';
 import {
+  resolveRouletteAnswerLabels,
+  type RouletteViewerRole,
+} from '@clientShared/vibely-games/roulettePresentation';
+import {
   buildRouletteAnswerParams,
   formatSendGameEventError,
   useSendRouletteChoice,
@@ -92,7 +96,12 @@ export function RouletteBubble({ view, matchId, currentUserId, partnerName, time
     Number.isFinite(creationMs) &&
     Date.now() - creationMs > EXPIRY_MS;
 
-  const isStarter = view.starterUserId === currentUserId;
+  const answerLabels = resolveRouletteAnswerLabels({
+    currentUserId,
+    starterUserId: view.starterUserId,
+    partnerName,
+  });
+  const isStarter = answerLabels.viewerRole === 'starter';
   const complete = rouletteSnap.status === 'complete';
 
   const canBuild = buildRouletteAnswerParams(view, matchId, draftAnswer) != null;
@@ -145,7 +154,7 @@ export function RouletteBubble({ view, matchId, currentUserId, partnerName, time
         </View>
 
         {phase === 'complete' ? (
-          <CompleteBlock theme={theme} partnerName={partnerName} isStarter={isStarter} />
+          <CompleteBlock theme={theme} partnerName={partnerName} viewerRole={answerLabels.viewerRole} />
         ) : phase !== 'expired' && isNonCompleteNonSubmittingPhase(phase) ? (
           <StatusStrip phase={phase} partnerName={partnerName} theme={theme} />
         ) : null}
@@ -160,7 +169,7 @@ export function RouletteBubble({ view, matchId, currentUserId, partnerName, time
         ) : (
           <View style={styles.answerStack}>
             <AnswerCard
-              title={isStarter ? 'Your answer' : `${partnerName}'s answer`}
+              title={answerLabels.senderAnswerLabel}
               value={rouletteSnap.sender_answer}
               hidden={phase !== 'complete'}
               theme={theme}
@@ -209,7 +218,7 @@ export function RouletteBubble({ view, matchId, currentUserId, partnerName, time
               </View>
             ) : (
               <AnswerCard
-                title={isStarter ? `${partnerName}'s answer` : 'Your answer'}
+                title={answerLabels.receiverAnswerLabel}
                 value={rouletteSnap.receiver_answer ?? ''}
                 hidden={phase !== 'complete'}
                 theme={theme}
@@ -326,22 +335,25 @@ function AnswerCard({
 function CompleteBlock({
   theme,
   partnerName,
-  isStarter,
+  viewerRole,
 }: {
   theme: (typeof Colors)['light'];
   partnerName: string;
-  isStarter: boolean;
+  viewerRole: RouletteViewerRole;
 }) {
+  const detail =
+    viewerRole === 'starter'
+      ? `You and ${partnerName} both answered this question.`
+      : viewerRole === 'receiver'
+        ? 'You replied and unlocked both answers.'
+        : 'Both answers are unlocked.';
+
   return (
     <View style={[styles.completeBlock, { borderColor: 'rgba(6,182,212,0.45)', backgroundColor: 'rgba(6,182,212,0.1)' }]}>
       <Ionicons name="lock-open-outline" size={21} color={theme.neonCyan} />
       <View style={styles.statusTextWrap}>
         <Text style={[styles.statusTitle, { color: theme.text }]}>Answers revealed</Text>
-        <Text style={[styles.statusDetail, { color: theme.textSecondary }]}>
-          {isStarter
-            ? `You and ${partnerName} both answered this question.`
-            : `You replied and unlocked both answers.`}
-        </Text>
+        <Text style={[styles.statusDetail, { color: theme.textSecondary }]}>{detail}</Text>
       </View>
     </View>
   );

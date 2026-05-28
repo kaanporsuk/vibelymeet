@@ -6,6 +6,7 @@ export * from "./serialize";
 export * from "./reducer";
 export * from "./wouldRatherPrompts";
 export * from "./roulettePrompts";
+export * from "./roulettePresentation";
 export * from "./scavengerPrompts";
 export * from "./charadesEmojiPicker";
 export * from "./intuitionPrompts";

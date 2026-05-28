@@ -3,19 +3,39 @@ import { motion } from "framer-motion";
 import { RoulettePayload } from "@/types/games";
 import { cn } from "@/lib/utils";
 import { Lock, Eye } from "lucide-react";
+import { resolveRouletteAnswerLabels } from "@clientShared/vibely-games/roulettePresentation";
 
 const EXPIRY_MS = 48 * 60 * 60 * 1000;
 
 interface RouletteGameProps {
   payload: RoulettePayload;
   isOwn: boolean;
+  currentUserId?: string | null;
+  starterUserId?: string | null;
+  matchName?: string;
   sessionCreatedAt?: string | null;
   onAnswer?: (answer: string) => void;
 }
 
-export const RouletteGame = ({ payload, isOwn, sessionCreatedAt, onAnswer }: RouletteGameProps) => {
+export const RouletteGame = ({
+  payload,
+  isOwn,
+  currentUserId,
+  starterUserId,
+  matchName,
+  sessionCreatedAt,
+  onAnswer,
+}: RouletteGameProps) => {
   const [answerDraft, setAnswerDraft] = useState("");
 
+  const answerLabels = resolveRouletteAnswerLabels({
+    currentUserId,
+    starterUserId,
+    partnerName: matchName,
+    fallbackViewerIsStarter: isOwn,
+  });
+  const viewerIsStarter = answerLabels.viewerRole === "starter";
+  const viewerCanAnswer = answerLabels.viewerRole === "receiver";
   const isUnlocked = payload.data.isUnlocked;
   const hasSubmitted = !!payload.data.receiverAnswer || payload.step === "completed";
 
@@ -27,10 +47,10 @@ export const RouletteGame = ({ payload, isOwn, sessionCreatedAt, onAnswer }: Rou
 
   const handleSubmit = useCallback(() => {
     const trimmed = answerDraft.trim();
-    if (!trimmed || isOwn || hasSubmitted || isExpired) return;
+    if (!trimmed || !viewerCanAnswer || hasSubmitted || isExpired) return;
     onAnswer?.(trimmed);
     setAnswerDraft("");
-  }, [answerDraft, isOwn, hasSubmitted, isExpired, onAnswer]);
+  }, [answerDraft, viewerCanAnswer, hasSubmitted, isExpired, onAnswer]);
 
   const headerSub = isExpired
     ? "This challenge expired"
@@ -85,7 +105,7 @@ export const RouletteGame = ({ payload, isOwn, sessionCreatedAt, onAnswer }: Rou
           >
             <div className="flex items-center gap-2 mb-1">
               <span className="text-xs text-neon-violet font-medium">
-                {isOwn ? "Your answer" : "Their answer"}
+                {answerLabels.senderAnswerLabel}
               </span>
             </div>
             {isUnlocked ? (
@@ -113,7 +133,7 @@ export const RouletteGame = ({ payload, isOwn, sessionCreatedAt, onAnswer }: Rou
             <div className={cn("rounded-lg bg-neon-cyan/10 border border-neon-cyan/30", compact ? "py-1.5 px-2" : "p-2")}>
               <div className="flex items-center gap-2 mb-1">
                 <span className="text-xs text-neon-cyan font-medium">
-                  {isOwn ? "Their answer" : "Your answer"}
+                  {answerLabels.receiverAnswerLabel}
                 </span>
               </div>
               <motion.p
@@ -130,7 +150,7 @@ export const RouletteGame = ({ payload, isOwn, sessionCreatedAt, onAnswer }: Rou
               <p className="text-[11px] text-cyan-400 font-medium">Submitted</p>
               <p className="text-[10px] text-muted-foreground mt-0.5">Waiting for reveal</p>
             </div>
-          ) : !isOwn ? (
+          ) : viewerCanAnswer ? (
             <div className="space-y-2">
               <textarea
                 value={answerDraft}
@@ -150,9 +170,13 @@ export const RouletteGame = ({ payload, isOwn, sessionCreatedAt, onAnswer }: Rou
                 Answer to Unlock
               </button>
             </div>
-          ) : (
+          ) : viewerIsStarter ? (
             <div className={cn("rounded-lg bg-secondary/30 border border-border/30 text-center", compact ? "py-1.5 px-2" : "p-2")}>
               <p className="text-xs text-muted-foreground">Waiting for their answer...</p>
+            </div>
+          ) : (
+            <div className={cn("rounded-lg bg-secondary/30 border border-border/30 text-center", compact ? "py-1.5 px-2" : "p-2")}>
+              <p className="text-xs text-muted-foreground">Refresh to continue this round.</p>
             </div>
           )}
         </div>

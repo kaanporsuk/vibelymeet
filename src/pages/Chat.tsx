@@ -150,8 +150,10 @@ function chatMobileViewportStyleFromVisualViewport(viewport: VisualViewport): CS
 }
 
 function chatMobileViewportStylesEqual(prev: CSSProperties | undefined, next: CSSProperties): boolean {
+  if (!prev) return false;
+
   return (
-    prev?.position === next.position &&
+    prev.position === next.position &&
     prev.top === next.top &&
     prev.bottom === next.bottom &&
     prev.left === next.left &&
@@ -2988,6 +2990,8 @@ const Chat = () => {
                         <GameBubbleRenderer
                           message={hydratedGameMessage}
                           matchName={otherUser.name}
+                          currentUserId={currentUserId}
+                          starterUserId={groupedMessage.gameSessionView.starterUserId}
                           sessionCreatedAt={groupedMessage.gameSessionView.createdAt}
                           onGameUpdate={(_, __, updates) =>
                             submitPersistedGameAction(groupedMessage.gameSessionView!, payload, updates)
