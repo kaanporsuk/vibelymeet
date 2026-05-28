@@ -158,6 +158,19 @@ test("native standalone ready route and app foreground recovery remain present",
   assert.match(nativeActiveSession, /setInterval\(/);
 });
 
+test("active-session hydration coalesces overlapping realtime and foreground checks", () => {
+  for (const source of [webActiveSession, nativeActiveSession]) {
+    assert.match(source, /checkInFlightRef = useRef<Promise<void> \| null>\(null\)/);
+    assert.match(source, /checkQueuedRef = useRef\(false\)/);
+    assert.match(source, /runCheckRef = useRef<\(\(\) => Promise<void>\) \| null>\(null\)/);
+    assert.match(source, /const runCheck = useCallback\(async \(\) =>/);
+    assert.match(source, /runCheckRef\.current = runCheck/);
+    assert.match(source, /if \(checkInFlightRef\.current\) \{\s*checkQueuedRef\.current = true;\s*return checkInFlightRef\.current;\s*\}/);
+    assert.match(source, /do \{\s*checkQueuedRef\.current = false;\s*await \(runCheckRef\.current \?\? runCheck\)\(\);/);
+    assert.match(source, /checkInFlightRef\.current = null;/);
+  }
+});
+
 test("client subscription tightening did not introduce forbidden Ready Gate writes", () => {
   assertNoForbiddenSupabaseWrites(webRealtimeFiles, "video_sessions", forbiddenVideoSessionFields);
   assertNoForbiddenSupabaseWrites(webRealtimeFiles, "event_registrations", forbiddenRegistrationFields);

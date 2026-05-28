@@ -777,6 +777,7 @@ export function useReadyGate(
       subscription.unsubscribe();
       clearBroadcastGapRetryTimer();
       broadcastGapRecoveryRef.current = null;
+      setSequenceGapUnresolved(false);
     };
   }, [
     readyGateBroadcastEnabled,
@@ -784,6 +785,7 @@ export function useReadyGate(
     clearBroadcastGapRetryTimer,
     options?.eventId,
     reconcileBroadcastEvent,
+    setSequenceGapUnresolved,
     sessionId,
     userId,
   ]);

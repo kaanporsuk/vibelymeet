@@ -363,6 +363,9 @@ export function useActiveSession(
   const [hydrated, setHydrated] = useState(false);
   const mounted = useRef(true);
   const staleActiveSessionEventKeyRef = useRef<string | null>(null);
+  const checkInFlightRef = useRef<Promise<void> | null>(null);
+  const checkQueuedRef = useRef(false);
+  const runCheckRef = useRef<(() => Promise<void>) | null>(null);
 
   useEffect(() => {
     mounted.current = true;
@@ -397,7 +400,7 @@ export function useActiveSession(
     [eventFilter]
   );
 
-  const check = useCallback(async () => {
+  const runCheck = useCallback(async () => {
     if (!userId) {
       if (mounted.current) {
         setActiveSession(null);
@@ -709,6 +712,27 @@ export function useActiveSession(
       setHydrated(true);
     }
   }, [userId, eventFilter, emitStaleActiveSessionDetected]);
+
+  runCheckRef.current = runCheck;
+
+  const check = useCallback(async () => {
+    if (checkInFlightRef.current) {
+      checkQueuedRef.current = true;
+      return checkInFlightRef.current;
+    }
+
+    const task = (async () => {
+      do {
+        checkQueuedRef.current = false;
+        await (runCheckRef.current ?? runCheck)();
+      } while (mounted.current && checkQueuedRef.current);
+    })().finally(() => {
+      checkInFlightRef.current = null;
+    });
+
+    checkInFlightRef.current = task;
+    return task;
+  }, [runCheck]);
 
   useEffect(() => {
     void check();

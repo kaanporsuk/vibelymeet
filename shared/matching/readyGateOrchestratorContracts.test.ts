@@ -17,6 +17,7 @@ import {
   isReadyGateResilientClockEnabled,
   READY_GATE_REALTIME_RECONNECT_DELAYS_MS,
   READY_GATE_REALTIME_RECONNECT_MAX_DELAY_MS,
+  READY_GATE_REALTIME_RECOVERY_STABLE_MS,
   READY_GATE_REALTIME_TELEMETRY,
 } from "./readyGateRealtimeSupervisor";
 
@@ -54,7 +55,11 @@ test("Ready Gate realtime telemetry names stay exact", () => {
   });
 });
 
-test("Ready Gate realtime supervisor recovers only after all degraded sources resubscribe", () => {
+test("Ready Gate realtime orchestrator uses a stable recovery window", () => {
+  assert.equal(READY_GATE_REALTIME_RECOVERY_STABLE_MS, 1_500);
+});
+
+test("Ready Gate realtime supervisor recovers only after all degraded sources stay healthy", async () => {
   const emitted: string[] = [];
   const degradedStates: boolean[] = [];
   let snapshotFetches = 0;
@@ -65,6 +70,7 @@ test("Ready Gate realtime supervisor recovers only after all degraded sources re
     platform: "web",
     sourceSurface: "contract_test",
     nowMs: () => 1_000,
+    recoveryStableMs: 20,
     emitTelemetry: (eventName) => {
       emitted.push(eventName);
     },
@@ -90,15 +96,54 @@ test("Ready Gate realtime supervisor recovers only after all degraded sources re
   assert.deepEqual(emitted, [READY_GATE_REALTIME_TELEMETRY.DEGRADED]);
 
   supervisor.handleStatus("postgres_video_sessions", "SUBSCRIBED");
+  assert.equal(supervisor.isDegraded(), true);
+  assert.deepEqual(emitted, [READY_GATE_REALTIME_TELEMETRY.DEGRADED]);
+  assert.equal(snapshotFetches, 2);
+  assert.equal(resubscribeCount, 0);
+
+  await new Promise((resolve) => setTimeout(resolve, 30));
   assert.equal(supervisor.isDegraded(), false);
   assert.deepEqual(emitted, [
     READY_GATE_REALTIME_TELEMETRY.DEGRADED,
     READY_GATE_REALTIME_TELEMETRY.RECOVERED,
   ]);
-  assert.equal(snapshotFetches, 2);
-  assert.equal(resubscribeCount, 0);
   assert.deepEqual(degradedStates, [true, false]);
 
+  supervisor.dispose();
+});
+
+test("Ready Gate realtime supervisor cancels pending recovery on another failure", async () => {
+  const emitted: string[] = [];
+  const supervisor = createReadyGateRealtimeSupervisor({
+    sessionId: "session-1",
+    eventId: "event-1",
+    platform: "web",
+    sourceSurface: "contract_test",
+    nowMs: () => 1_000,
+    recoveryStableMs: 30,
+    emitTelemetry: (eventName) => {
+      emitted.push(eventName);
+    },
+    fetchCanonicalSnapshot: async () => ({ ok: true, seq: 7 }),
+    onResubscribe: () => undefined,
+  });
+
+  supervisor.handleStatus("postgres_video_sessions", "CHANNEL_ERROR");
+  supervisor.handleStatus("postgres_video_sessions", "SUBSCRIBED");
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  supervisor.handleStatus("postgres_video_sessions", "TIMED_OUT");
+  await new Promise((resolve) => setTimeout(resolve, 40));
+
+  assert.equal(supervisor.isDegraded(), true);
+  assert.deepEqual(emitted, [READY_GATE_REALTIME_TELEMETRY.DEGRADED]);
+
+  supervisor.handleStatus("postgres_video_sessions", "SUBSCRIBED");
+  await new Promise((resolve) => setTimeout(resolve, 40));
+  assert.equal(supervisor.isDegraded(), false);
+  assert.deepEqual(emitted, [
+    READY_GATE_REALTIME_TELEMETRY.DEGRADED,
+    READY_GATE_REALTIME_TELEMETRY.RECOVERED,
+  ]);
   supervisor.dispose();
 });
 
@@ -217,6 +262,7 @@ test("Ready Gate Phase 2 is wired across web, native, and database surfaces", ()
     assert.match(source, /CLOSED/);
     assert.match(source, /const snapshot = await fetchVideoDateSnapshot\(sessionId, \{ includeToken: false \}\);\s+if \(activeReadyGateSessionIdRef\.current !== sessionId\) return/);
     assert.match(source, /const syncResult = await syncSession\(\)/);
+    assert.match(source, /subscription\.unsubscribe\(\);\s+clearBroadcastGapRetryTimer\(\);\s+broadcastGapRecoveryRef\.current = null;\s+setSequenceGapUnresolved\(false\);/);
   }
 
   assert.match(nativeApi, /void syncSession\(\)/);
@@ -237,6 +283,9 @@ test("Ready Gate Phase 2 is wired across web, native, and database surfaces", ()
   assert.match(webOverlay, /orchestratorRealtimeDegraded/);
   assert.match(webOverlay, /overlayRealtimeDegradedRef/);
   assert.match(webOverlay, /orchestratorRealtimeDegradedRef/);
+  assert.match(webOverlay, /READY_GATE_REALTIME_RECOVERY_STABLE_MS/);
+  assert.match(webOverlay, /scheduleOverlayRealtimeRecovery/);
+  assert.match(webOverlay, /return \(\) => \{\s*clearOverlayRealtimeRecoveryTimer\(\);\s*supabase\.removeChannel\(channel\);/s);
   assert.match(webOverlay, /clearRealtimeDegradedWhenHealthy/);
   assert.doesNotMatch(webOverlay, /if \(!realtimeDegraded\) return;\s*setRealtimeDegraded\(false\)/);
   assert.match(webOverlay, /status === "SUBSCRIBED"/);
