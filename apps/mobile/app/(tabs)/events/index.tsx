@@ -19,7 +19,7 @@ import {
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
-import { useIsFocused } from '@react-navigation/native';
+import { useFocusEffect, useIsFocused } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { getLanguageLabel } from '@/lib/eventLanguages';
 import { Ionicons } from '@expo/vector-icons';
@@ -73,6 +73,8 @@ const TIME_FILTERS = [
   { key: 'this_week', label: 'This Week' },
   { key: 'upcoming', label: 'Upcoming' },
 ] as const;
+
+const FILTER_SHEET_DISMISS_BEFORE_NAV_MS = 360;
 
 /** Featured hero: live → upcoming → ended (grace), aligned with web Discover. */
 function discoverFeaturedRank(status: string): number {
@@ -755,7 +757,11 @@ export default function EventsListScreen() {
   const [timeFilter, setTimeFilter] = useState<string | null>(null);
   const [filters, setFilters] = useState<EventFilters>(DEFAULT_FILTERS);
   const [showFilterSheet, setShowFilterSheet] = useState(false);
+  const [filterPremiumUpgradePending, setFilterPremiumUpgradePending] = useState(false);
   const seededEventDiscoveryPrefs = useRef(false);
+  const filterPremiumUpgradePendingRef = useRef(false);
+  const filterPremiumUpgradeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const screenMountedRef = useRef(true);
   const [userCoords, setUserCoords] = useState<{ lat: number; lng: number } | null>(null);
   const [locationDismissed, setLocationDismissed] = useState(false);
   const [locationEnableLoading, setLocationEnableLoading] = useState(false);
@@ -765,6 +771,27 @@ export default function EventsListScreen() {
     isPlaceholderData: usingPlaceholderCategories,
   } = useEventCategories();
   const locationPermission = useLocationPermission();
+
+  const clearFilterPremiumUpgradeTransition = useCallback(() => {
+    if (filterPremiumUpgradeTimerRef.current) {
+      clearTimeout(filterPremiumUpgradeTimerRef.current);
+      filterPremiumUpgradeTimerRef.current = null;
+    }
+    filterPremiumUpgradePendingRef.current = false;
+    setFilterPremiumUpgradePending(false);
+  }, []);
+
+  useEffect(() => {
+    screenMountedRef.current = true;
+    return () => {
+      screenMountedRef.current = false;
+      if (filterPremiumUpgradeTimerRef.current) {
+        clearTimeout(filterPremiumUpgradeTimerRef.current);
+        filterPremiumUpgradeTimerRef.current = null;
+      }
+      filterPremiumUpgradePendingRef.current = false;
+    };
+  }, []);
   const { data: profileLocation } = useQuery({
     queryKey: ['profile-location', user?.id],
     queryFn: async () => {
@@ -912,6 +939,14 @@ export default function EventsListScreen() {
   }), [canCityBrowse, filters.locationMode, filters.selectedCity, filters.distanceKm, userCoords]);
 
   const isFocused = useIsFocused();
+  useFocusEffect(
+    useCallback(() => {
+      return () => {
+        setShowFilterSheet(false);
+        clearFilterPremiumUpgradeTransition();
+      };
+    }, [clearFilterPremiumUpgradeTransition])
+  );
   const { data: events = [], isLoading, error, refetch, isRefetching } = useDiscoverEvents(
     user?.id ?? null,
     discoverParams,
@@ -1037,6 +1072,26 @@ export default function EventsListScreen() {
     router.push(`/events/${id}` as const);
   };
 
+  const handleFilterPremiumUpgrade = useCallback(() => {
+    if (filterPremiumUpgradePendingRef.current) return;
+    filterPremiumUpgradePendingRef.current = true;
+    setFilterPremiumUpgradePending(true);
+    setShowFilterSheet(false);
+
+    if (filterPremiumUpgradeTimerRef.current) clearTimeout(filterPremiumUpgradeTimerRef.current);
+    filterPremiumUpgradeTimerRef.current = setTimeout(() => {
+      filterPremiumUpgradeTimerRef.current = null;
+      if (!screenMountedRef.current) return;
+      const openedPremium = openPremium(router.push, {
+        entry_surface: PREMIUM_ENTRY_SURFACE.CITY_BROWSE_EVENTS_FILTER,
+        feature: 'canCityBrowse',
+      });
+      if (!openedPremium) {
+        clearFilterPremiumUpgradeTransition();
+      }
+    }, FILTER_SHEET_DISMISS_BEFORE_NAV_MS);
+  }, [clearFilterPremiumUpgradeTransition, router]);
+
   if (error) {
     return (
       <View style={[styles.centered, { backgroundColor: theme.background }]}>
@@ -1108,11 +1163,14 @@ export default function EventsListScreen() {
           {/* Filters button */}
           <Pressable
             onPress={() => setShowFilterSheet(true)}
+            disabled={filterPremiumUpgradePending}
+            accessibilityState={{ disabled: filterPremiumUpgradePending, busy: filterPremiumUpgradePending }}
             style={[
               styles.filterBtn,
               sheetFilterCount > 0
                 ? { backgroundColor: '#8B5CF6', borderColor: '#8B5CF6' }
                 : { backgroundColor: 'rgba(255,255,255,0.06)', borderColor: 'rgba(139,92,246,0.4)' },
+              filterPremiumUpgradePending && { opacity: 0.6 },
             ]}
           >
             <Ionicons name="options-outline" size={16} color={sheetFilterCount > 0 ? '#fff' : '#8B5CF6'} />
@@ -1163,12 +1221,8 @@ export default function EventsListScreen() {
         onApply={setFilters}
         canCityBrowse={canCityBrowse}
         hasSavedLocation={hasLocation}
-        onPremiumUpgrade={() =>
-          openPremium(router.push, {
-            entry_surface: PREMIUM_ENTRY_SURFACE.CITY_BROWSE_EVENTS_FILTER,
-            feature: 'canCityBrowse',
-          })
-        }
+        premiumUpgradePending={filterPremiumUpgradePending}
+        onPremiumUpgrade={handleFilterPremiumUpgrade}
       />
 
       {/* Content — max width for tablet parity */}

@@ -41,6 +41,7 @@ export function WhoLikedYouGate({ count }: WhoLikedYouGateProps) {
       variant: 'info',
       primaryAction: {
         label: 'View Premium plans',
+        dismissBeforeAction: true,
         onPress: () =>
           openPremium(router.push, {
             entry_surface: PREMIUM_ENTRY_SURFACE.WHO_LIKED_YOU,

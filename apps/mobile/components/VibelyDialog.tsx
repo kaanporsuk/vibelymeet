@@ -21,6 +21,7 @@ const HORIZONTAL_MARGIN = 32;
 const INNER_PADDING = 24;
 const WARNING_AMBER = '#f59e0b';
 const PRIMARY_MIN_HEIGHT = Math.max(button.height.default, 48);
+const DISMISS_BEFORE_ACTION_DELAY_MS = 220;
 
 export interface VibelyDialogProps {
   visible: boolean;
@@ -31,6 +32,7 @@ export interface VibelyDialogProps {
   primaryAction: {
     label: string;
     onPress: () => void;
+    dismissBeforeAction?: boolean;
   };
   secondaryAction?: {
     label: string;
@@ -66,6 +68,8 @@ export function VibelyDialog({
   const theme = Colors[colorScheme];
   const opacity = useRef(new Animated.Value(0)).current;
   const scale = useRef(new Animated.Value(0.95)).current;
+  const primaryActionLockedRef = useRef(false);
+  const [primaryActionLocked, setPrimaryActionLocked] = useState(false);
   const [displayed, setDisplayed] = useState(visible);
 
   useLayoutEffect(() => {
@@ -75,6 +79,8 @@ export function VibelyDialog({
   useEffect(() => {
     if (!displayed) return;
     if (visible) {
+      primaryActionLockedRef.current = false;
+      setPrimaryActionLocked(false);
       opacity.setValue(0);
       scale.setValue(0.95);
       Animated.parallel([
@@ -112,11 +118,23 @@ export function VibelyDialog({
   }, [visible, displayed, opacity, scale]);
 
   const handlePrimary = () => {
-    primaryAction.onPress();
-    onClose();
+    if (primaryActionLockedRef.current) return;
+    primaryActionLockedRef.current = true;
+    setPrimaryActionLocked(true);
+    if (primaryAction.dismissBeforeAction) {
+      onClose();
+      setTimeout(primaryAction.onPress, DISMISS_BEFORE_ACTION_DELAY_MS);
+      return;
+    }
+    try {
+      primaryAction.onPress();
+    } finally {
+      onClose();
+    }
   };
 
   const handleSecondary = () => {
+    if (primaryActionLockedRef.current) return;
     secondaryAction?.onPress();
     onClose();
   };
@@ -170,7 +188,7 @@ export function VibelyDialog({
         >
           <Pressable
             style={[StyleSheet.absoluteFill, styles.backdropHit]}
-            onPress={onClose}
+            onPress={primaryActionLocked ? undefined : onClose}
             accessibilityLabel="Dismiss dialog"
           />
           <Animated.View
@@ -214,9 +232,11 @@ export function VibelyDialog({
               {variant === 'info' ? (
                 <Pressable
                   onPress={handlePrimary}
+                  disabled={primaryActionLocked}
                   style={({ pressed }) => [styles.primaryTouchable, { opacity: pressed ? 0.92 : 1 }]}
                   accessibilityRole="button"
                   accessibilityLabel={primaryAction.label}
+                  accessibilityState={{ disabled: primaryActionLocked, busy: primaryActionLocked }}
                 >
                   <LinearGradient
                     colors={['#8B5CF6', '#E84393']}
@@ -230,6 +250,7 @@ export function VibelyDialog({
               ) : (
                 <Pressable
                   onPress={handlePrimary}
+                  disabled={primaryActionLocked}
                   style={({ pressed }) => [
                     styles.primarySolid,
                     primaryBgStyle,
@@ -237,6 +258,7 @@ export function VibelyDialog({
                   ]}
                   accessibilityRole="button"
                   accessibilityLabel={primaryAction.label}
+                  accessibilityState={{ disabled: primaryActionLocked, busy: primaryActionLocked }}
                 >
                   <Text style={styles.primaryLabel}>{primaryAction.label}</Text>
                 </Pressable>
@@ -245,9 +267,11 @@ export function VibelyDialog({
               {secondaryAction ? (
                 <Pressable
                   onPress={handleSecondary}
+                  disabled={primaryActionLocked}
                   style={({ pressed }) => [styles.secondaryBtn, pressed && { opacity: 0.75 }]}
                   accessibilityRole="button"
                   accessibilityLabel={secondaryAction.label}
+                  accessibilityState={{ disabled: primaryActionLocked }}
                 >
                   <Text style={[styles.secondaryLabel, { color: theme.textSecondary }]}>
                     {secondaryAction.label}

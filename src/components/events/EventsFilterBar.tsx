@@ -146,6 +146,11 @@ export const EventsFilterBar = ({
     setCityResults([]);
   };
 
+  const handlePremiumUpgrade = useCallback(() => {
+    setShowPanel(false);
+    onPremiumUpgrade();
+  }, [onPremiumUpgrade]);
+
   const handleCitySearch = useCallback((q: string) => {
     setCityQuery(q);
     if (geocodeRef.current) clearTimeout(geocodeRef.current);
@@ -444,7 +449,7 @@ export const EventsFilterBar = ({
                             Search and join events anywhere in the world with Vibely Premium or VIP
                           </p>
                           <button
-                            onClick={onPremiumUpgrade}
+                            onClick={handlePremiumUpgrade}
                             className="mt-2 flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold bg-gradient-to-r from-primary to-accent text-primary-foreground"
                           >
                             <Sparkles className="w-3.5 h-3.5" />

@@ -12,12 +12,32 @@ export type OpenPremiumOptions = PremiumFunnelNavOptions & {
   platform?: PremiumAnalyticsPlatform;
 };
 
+const PREMIUM_NAV_DEDUPE_MS = 1000;
+let lastPremiumNavigation: { routeKey: string; at: number } | null = null;
+
+function shouldSkipDuplicatePremiumNavigation(destination: string): boolean {
+  const now = Date.now();
+  const routeKey = destination.split(/[?#]/, 1)[0] || destination;
+  if (
+    lastPremiumNavigation &&
+    lastPremiumNavigation.routeKey === routeKey &&
+    now - lastPremiumNavigation.at < PREMIUM_NAV_DEDUPE_MS
+  ) {
+    return true;
+  }
+  lastPremiumNavigation = { routeKey, at: now };
+  return false;
+}
+
 /**
  * Navigate to `/premium` with funnel query params and optional PostHog `premium_entry_tapped`.
  */
-export function openPremium(navigate: NavigateFunction, options: OpenPremiumOptions): void {
+export function openPremium(navigate: NavigateFunction, options: OpenPremiumOptions): boolean {
   const platform: PremiumAnalyticsPlatform = options.platform ?? "web";
   const { recordEntryTapped = true, platform: _p, ...navOpts } = options;
+  const search = buildPremiumQueryString(navOpts);
+  const destination = search ? `/premium?${search}` : "/premium";
+  if (shouldSkipDuplicatePremiumNavigation(destination)) return false;
   if (recordEntryTapped) {
     trackEvent("premium_entry_tapped", {
       entry_surface: navOpts.entry_surface,
@@ -26,6 +46,6 @@ export function openPremium(navigate: NavigateFunction, options: OpenPremiumOpti
       platform,
     });
   }
-  const search = buildPremiumQueryString(navOpts);
   navigate({ pathname: "/premium", search });
+  return true;
 }

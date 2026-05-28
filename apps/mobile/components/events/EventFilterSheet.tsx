@@ -70,11 +70,12 @@ interface EventFilterSheetProps {
   onApply: (filters: EventFilters) => void;
   canCityBrowse: boolean;
   onPremiumUpgrade: () => void;
+  premiumUpgradePending?: boolean;
   hasSavedLocation?: boolean;
 }
 
 export default function EventFilterSheet({
-  visible, onClose, filters, onApply, canCityBrowse, onPremiumUpgrade, hasSavedLocation,
+  visible, onClose, filters, onApply, canCityBrowse, onPremiumUpgrade, premiumUpgradePending = false, hasSavedLocation,
 }: EventFilterSheetProps) {
   const colorScheme = useColorScheme();
   const theme = Colors[colorScheme];
@@ -295,9 +296,18 @@ export default function EventFilterSheet({
   const activeCount = countActiveFilters(draft);
 
   const handleApply = () => {
-    onApply(draft);
+    const next =
+      !canCityBrowse && draft.locationMode === 'city'
+        ? { ...draft, locationMode: 'nearby' as const, selectedCity: null, distanceKm: DEFAULT_FILTERS.distanceKm }
+        : draft;
+    onApply(next);
     onClose();
   };
+
+  const handlePremiumUpgradePress = useCallback(() => {
+    if (premiumUpgradePending) return;
+    onPremiumUpgrade();
+  }, [onPremiumUpgrade, premiumUpgradePending]);
 
   return (
     <KeyboardAwareBottomSheetModal
@@ -473,9 +483,20 @@ export default function EventFilterSheet({
                   <Text style={[s.upsellDesc, { color: theme.textSecondary }]}>
                     Search and join events anywhere in the world with Vibely Premium or VIP
                   </Text>
-                  <Pressable onPress={onPremiumUpgrade} style={s.upsellCta}>
+                  <Pressable
+                    onPress={handlePremiumUpgradePress}
+                    disabled={premiumUpgradePending}
+                    accessibilityRole="button"
+                    accessibilityState={{ disabled: premiumUpgradePending, busy: premiumUpgradePending }}
+                    style={({ pressed }) => [
+                      s.upsellCta,
+                      (pressed || premiumUpgradePending) && { opacity: premiumUpgradePending ? 0.65 : 0.9 },
+                    ]}
+                  >
                     <Ionicons name="sparkles" size={14} color="#fff" />
-                    <Text style={s.upsellCtaText}>Upgrade to Premium</Text>
+                    <Text style={s.upsellCtaText}>
+                      {premiumUpgradePending ? 'Opening Premium...' : 'Upgrade to Premium'}
+                    </Text>
                   </Pressable>
                 </View>
               </View>
