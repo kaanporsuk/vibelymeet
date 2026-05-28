@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   buildRecoveryAttentionTargets,
+  normalizeServerRecoveryAttentionTarget,
   selectPrimaryRecoveryAttentionTarget,
   uploadAttentionTargetIdentity,
   type UploadAttentionLocalItem,
@@ -48,6 +49,46 @@ test("derives local failed upload targets with stable attention ids and labels",
   assert.equal(targets[1].label, "Photo upload needs attention");
 });
 
+test("ignores targets that cannot navigate to an exact chat thread", () => {
+  const targets = buildRecoveryAttentionTargets(
+    [
+      local({ id: "local-missing-peer", otherUserId: null }),
+      local({ id: "local-blank-peer", otherUserId: " " }),
+      local({ id: "local-ok", otherUserId: "user-1" }),
+    ],
+    [
+      server({ id: "server-missing-peer", otherUserId: null }),
+      server({ id: "server-blank-peer", otherUserId: " " }),
+      server({ id: "server-ok", clientRequestId: "server-client-ok", otherUserId: "user-2" }),
+    ],
+  );
+
+  assert.deepEqual(
+    targets.map((target) => target.attentionId),
+    ["local:local-ok", "server:server-ok"],
+  );
+});
+
+test("normalizes ids before deriving target keys", () => {
+  const targets = buildRecoveryAttentionTargets(
+    [
+      local({ id: " local-client ", otherUserId: "user-1" }),
+      local({ id: " " }),
+    ],
+    [
+      server({ id: " server-upload ", clientRequestId: " ", otherUserId: "user-2" }),
+    ],
+  );
+
+  assert.deepEqual(
+    targets.map((target) => [target.attentionId, target.clientRequestId]),
+    [
+      ["local:local-client", "local-client"],
+      ["server:server-upload", "server-upload"],
+    ],
+  );
+});
+
 test("dedupes server stale uploads behind the matching local failed client request", () => {
   const targets = buildRecoveryAttentionTargets(
     [local({ id: "client-1", payload: { kind: "video" } })],
@@ -63,6 +104,8 @@ test("dedupes server stale uploads behind the matching local failed client reque
 test("derives server stale upload targets and ignores dismissed rows", () => {
   const targets = buildRecoveryAttentionTargets([], [
     server({ id: "dismissed", recoveryDismissedAt: "2026-05-20T12:01:00.000Z" }),
+    server({ id: "published", publishedMessageId: "message-1" }),
+    server({ id: "ready", status: "ready" }),
     server({ id: "stale-1", clientRequestId: "client-1", updatedAt: "2026-05-20T11:59:00.000Z" }),
   ]);
 
@@ -94,4 +137,26 @@ test("target identity stays stable across status timestamp churn", () => {
   )[0];
 
   assert.equal(uploadAttentionTargetIdentity(first), uploadAttentionTargetIdentity(second));
+});
+
+test("rebases server targets onto the current upload row before acting", () => {
+  const staleTarget = buildRecoveryAttentionTargets(
+    [],
+    [server({ id: "old-upload", clientRequestId: "client-2", status: "processing" })],
+  )[0];
+
+  const normalized = normalizeServerRecoveryAttentionTarget(
+    staleTarget,
+    server({
+      id: "current-upload",
+      clientRequestId: "client-2",
+      status: "failed",
+      updatedAt: "2026-05-20T12:05:00.000Z",
+    }),
+  );
+
+  assert.equal(normalized?.attentionId, "server:current-upload");
+  assert.equal(normalized?.clientRequestId, "client-2");
+  assert.equal(normalized?.status, "failed");
+  assert.ok((normalized?.updatedAtMs ?? 0) > staleTarget.updatedAtMs);
 });

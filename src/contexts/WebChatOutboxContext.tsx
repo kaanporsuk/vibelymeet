@@ -20,7 +20,11 @@ import {
 } from "@/lib/webChatOutbox/execute";
 import { syncChatVibeClipUploadStatus } from "@/lib/mediaAssetResolver";
 import { isLikelyNetworkFailure, outboxFailureUserMessage } from "@/lib/webChatOutbox/network";
-import { CHAT_MESSAGE_SELECT, invalidateAfterThreadMutation, patchThreadCacheFromRawMessage } from "@/hooks/useMessages";
+import {
+  CHAT_MESSAGE_SELECT,
+  invalidateAfterThreadMutation,
+  patchThreadCacheFromRawMessage,
+} from "@/hooks/useMessages";
 import { trackEvent } from "@/lib/analytics";
 import { trackVibeClipEvent } from "@/lib/vibeClipAnalytics";
 import type { WebChatOutboxItem, WebChatOutboxPayload, WebChatOutboxQueueState } from "@/lib/webChatOutbox/types";
@@ -36,9 +40,13 @@ import {
 } from "../../shared/chat/vibeClipRecovery";
 import {
   buildRecoveryAttentionTargets,
+  normalizeServerRecoveryAttentionTarget,
   type UploadAttentionTarget,
+  type UploadAttentionSkipResult,
+  type UploadAttentionValidationResult,
 } from "../../shared/chat/uploadAttentionTargets";
 import {
+  isRawMessageDisplayReadyForOutboxCompletion,
   shouldPruneOutboxItemAfterServerReconcile,
   type OutboxServerMessageReconcileInput,
 } from "../../shared/chat/outboxReconciliation";
@@ -223,6 +231,8 @@ type WebChatOutboxContextValue = {
   retryAllFailed: () => void;
   retryVibeClipUpload: (clientRequestId: string, resumeStrategy?: VibeClipRecoveryResumeStrategy | null) => void;
   dismissStaleVibeClipUpload: (uploadId: string) => Promise<VibeClipRecoveryDismissResult | false>;
+  validateRecoveryAttentionTarget: (target: UploadAttentionTarget) => Promise<UploadAttentionValidationResult>;
+  skipRecoveryAttentionTarget: (target: UploadAttentionTarget) => Promise<UploadAttentionSkipResult>;
   remove: (itemId: string) => void;
   itemsForMatch: (matchId: string) => WebChatOutboxItem[];
   runVibeClipRecoverySweep: (trigger: VibeClipRecoverySweepTrigger, matchId?: string | null) => Promise<void>;
@@ -241,6 +251,7 @@ export function WebChatOutboxProvider({ children }: { children: ReactNode }) {
   const [staleVibeClipUploads, setStaleVibeClipUploads] = useState<VibeClipServerUpload[]>([]);
   const [sessionUploadStats, setSessionUploadStats] = useState({ enqueued: 0, succeeded: 0, failed: 0 });
   const itemsRef = useRef(items);
+  const staleVibeClipUploadsRef = useRef(staleVibeClipUploads);
   const processingRef = useRef<Set<string>>(new Set());
   const processingAbortControllersRef = useRef<Map<string, AbortController>>(new Map());
   const processTickRef = useRef<() => Promise<void>>(async () => undefined);
@@ -249,6 +260,10 @@ export function WebChatOutboxProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     itemsRef.current = items;
   }, [items]);
+
+  useEffect(() => {
+    staleVibeClipUploadsRef.current = staleVibeClipUploads;
+  }, [staleVibeClipUploads]);
 
   const updateItems = useCallback((updater: WebChatOutboxItem[] | ((prev: WebChatOutboxItem[]) => WebChatOutboxItem[])) => {
     const prev = itemsRef.current;
@@ -425,7 +440,7 @@ export function WebChatOutboxProvider({ children }: { children: ReactNode }) {
       trackDismissFailure();
       return false;
     }
-    setStaleVibeClipUploads((prev) => prev.filter((upload) => upload.id !== id));
+    setStaleVibeClipUploads((prev) => prev.filter((upload) => upload.id.trim() !== id));
     return response.already_published ? "already_published" : "dismissed";
   }, [userId]);
 
@@ -462,6 +477,163 @@ export function WebChatOutboxProvider({ children }: { children: ReactNode }) {
       void Promise.all(toCleanup.map((k) => deleteOutboxBlob(k)));
     }
   }, [updateItems]);
+
+  const recoverLocalAttentionIfServerMessageExists = useCallback(async (
+    item: WebChatOutboxItem,
+  ): Promise<"recovered" | "missing" | "lookup_failed"> => {
+    if (!userId) return "lookup_failed";
+    const { data, error } = await supabase
+      .from("messages")
+      .select(CHAT_MESSAGE_SELECT)
+      .eq("match_id", item.matchId)
+      .eq("sender_id", userId)
+      .filter("structured_payload->>client_request_id", "eq", item.id)
+      .limit(1);
+    if (error) return "lookup_failed";
+    const serverRow = Array.isArray(data) ? data[0] : null;
+    if (!serverRow?.id) return "missing";
+
+    const serverMessageIds = new Set<string>([String(serverRow.id)]);
+    const completedClientRequestIds = new Set<string>();
+    const displayReady = isRawMessageDisplayReadyForOutboxCompletion(serverRow);
+    const patchScope = item.invalidateScope ?? {
+      otherUserId: item.otherUserId,
+      currentUserId: item.userId,
+      matchId: item.matchId,
+    };
+    await patchThreadCacheFromRawMessage(queryClient, patchScope, serverRow);
+    if (displayReady) {
+      completedClientRequestIds.add(item.id);
+      reconcileWithServerMessages({ serverMessageIds, completedClientRequestIds });
+      return "recovered";
+    }
+
+    updateItems((prev) =>
+      prev.map((it) =>
+        it.id === item.id
+          ? {
+              ...it,
+              serverMessageId: String(serverRow.id),
+              state: "awaiting_hydration" as const,
+              lastError: undefined,
+              nextRetryAtMs: undefined,
+              hydrationLastCheckedAtMs: undefined,
+              hydrationDeadlineAtMs: Date.now() + HYDRATION_TIMEOUT_MS,
+              updatedAtMs: Date.now(),
+            }
+          : it,
+      ),
+    );
+    return "recovered";
+  }, [queryClient, reconcileWithServerMessages, updateItems, userId]);
+
+  const clearStaleVibeClipUpload = useCallback((uploadId: string) => {
+    setStaleVibeClipUploads((prev) => prev.filter((upload) => upload.id !== uploadId));
+  }, []);
+
+  const validateRecoveryAttentionTarget = useCallback(async (
+    target: UploadAttentionTarget,
+  ): Promise<UploadAttentionValidationResult> => {
+    if (target.kind === "local_failed") {
+      const item = itemsRef.current.find((it) => it.id === target.clientRequestId);
+      if (!item) return { status: "cleared", reason: "not_found" };
+      if (!isMediaOutboxItem(item)) return { status: "cleared", reason: "not_actionable" };
+      if (item.state !== "failed") return { status: "cleared", reason: "not_failed" };
+
+      const recovery = await recoverLocalAttentionIfServerMessageExists(item);
+      if (recovery === "recovered") return { status: "cleared", reason: "already_sent" };
+      return { status: "valid", target };
+    }
+
+    const uploadId = target.attentionId.startsWith("server:")
+      ? target.attentionId.slice("server:".length)
+      : "";
+    const upload = staleVibeClipUploadsRef.current.find(
+      (candidate) =>
+        candidate.id === uploadId ||
+        candidate.clientRequestId === target.clientRequestId,
+    );
+    if (!upload) return { status: "cleared", reason: "not_found" };
+    if (upload.recoveryDismissedAt) return { status: "cleared", reason: "already_dismissed" };
+    const currentTarget = normalizeServerRecoveryAttentionTarget(target, upload);
+    if (!currentTarget) return { status: "cleared", reason: "not_actionable" };
+    if (upload.publishedMessageId) {
+      clearStaleVibeClipUpload(upload.id);
+      return { status: "cleared", reason: "already_sent" };
+    }
+    if (upload.status === "ready") {
+      clearStaleVibeClipUpload(upload.id);
+      return { status: "cleared", reason: "ready" };
+    }
+
+    const synced = await syncChatVibeClipUploadStatus({
+      uploadId: upload.id,
+      clientRequestId: upload.clientRequestId,
+    });
+    if (!synced) {
+      return upload.status === "failed"
+        ? { status: "valid", target: currentTarget }
+        : { status: "unknown", reason: "sync_failed" };
+    }
+    if (synced.messageId) {
+      clearStaleVibeClipUpload(upload.id);
+      return { status: "cleared", reason: "already_sent" };
+    }
+    if (synced.status === "ready") {
+      clearStaleVibeClipUpload(upload.id);
+      return { status: "cleared", reason: "ready" };
+    }
+
+    const syncedUploadForTarget = {
+      ...upload,
+      id: synced.uploadId ?? upload.id,
+      matchId: synced.matchId ?? upload.matchId,
+      clientRequestId: synced.clientRequestId ?? upload.clientRequestId,
+      status: synced.status,
+      updatedAt: synced.updatedAt ?? upload.updatedAt,
+    };
+    const updatedTarget = normalizeServerRecoveryAttentionTarget(currentTarget, syncedUploadForTarget) ?? currentTarget;
+    setStaleVibeClipUploads((prev) =>
+      prev.map((candidate) =>
+        candidate.id === upload.id
+          ? {
+              ...candidate,
+              id: synced.uploadId ?? candidate.id,
+              matchId: synced.matchId ?? candidate.matchId,
+              clientRequestId: synced.clientRequestId ?? candidate.clientRequestId,
+              status: synced.status,
+              providerObjectId: synced.providerObjectId ?? candidate.providerObjectId,
+              expiresAt: synced.expiresAt ?? candidate.expiresAt,
+              updatedAt: synced.updatedAt ?? candidate.updatedAt,
+              publishedMessageId: synced.messageId ?? candidate.publishedMessageId,
+            }
+          : candidate,
+      ),
+    );
+    return { status: "valid", target: updatedTarget };
+  }, [clearStaleVibeClipUpload, recoverLocalAttentionIfServerMessageExists]);
+
+  const skipRecoveryAttentionTarget = useCallback(async (
+    target: UploadAttentionTarget,
+  ): Promise<UploadAttentionSkipResult> => {
+    const validation = await validateRecoveryAttentionTarget(target);
+    if (validation.status === "cleared") return { status: "cleared", reason: validation.reason };
+    if (validation.status === "unknown") return { status: "failed", reason: validation.reason };
+
+    if (validation.target.kind === "local_failed") {
+      remove(validation.target.clientRequestId);
+      return { status: "removed", target: validation.target };
+    }
+
+    const uploadId = validation.target.attentionId.startsWith("server:")
+      ? validation.target.attentionId.slice("server:".length)
+      : "";
+    if (!uploadId) return { status: "failed", reason: "remove_failed" };
+    const dismissed = await dismissStaleVibeClipUpload(uploadId);
+    if (!dismissed) return { status: "failed", reason: "remove_failed" };
+    if (dismissed === "already_published") return { status: "cleared", reason: "already_sent" };
+    return { status: "removed", target: validation.target };
+  }, [dismissStaleVibeClipUpload, remove, validateRecoveryAttentionTarget]);
 
   const itemsForMatch = useCallback(
     (matchId: string) =>
@@ -947,6 +1119,8 @@ export function WebChatOutboxProvider({ children }: { children: ReactNode }) {
       retryAllFailed,
       retryVibeClipUpload,
       dismissStaleVibeClipUpload,
+      validateRecoveryAttentionTarget,
+      skipRecoveryAttentionTarget,
       remove,
       itemsForMatch,
       runVibeClipRecoverySweep,
@@ -965,6 +1139,8 @@ export function WebChatOutboxProvider({ children }: { children: ReactNode }) {
       retryAllFailed,
       retryVibeClipUpload,
       dismissStaleVibeClipUpload,
+      validateRecoveryAttentionTarget,
+      skipRecoveryAttentionTarget,
       remove,
       itemsForMatch,
       runVibeClipRecoverySweep,

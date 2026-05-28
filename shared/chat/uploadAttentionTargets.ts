@@ -12,6 +12,30 @@ export type UploadAttentionTarget = {
   label: string;
 };
 
+export type UploadAttentionValidationResult =
+  | { status: "valid"; target: UploadAttentionTarget }
+  | {
+      status: "cleared";
+      reason:
+        | "already_sent"
+        | "already_dismissed"
+        | "not_found"
+        | "not_failed"
+        | "ready"
+        | "not_actionable";
+    }
+  | { status: "unknown"; reason: "sync_failed" | "lookup_failed" };
+
+export type UploadAttentionClearedReason = Extract<
+  UploadAttentionValidationResult,
+  { status: "cleared" }
+>["reason"];
+
+export type UploadAttentionSkipResult =
+  | { status: "removed"; target: UploadAttentionTarget }
+  | { status: "cleared"; reason: UploadAttentionClearedReason }
+  | { status: "failed"; reason: "sync_failed" | "lookup_failed" | "remove_failed" };
+
 export type UploadAttentionLocalItem = {
   id: string;
   matchId: string;
@@ -30,6 +54,7 @@ export type UploadAttentionServerUpload = {
   status: string;
   updatedAt?: string | null;
   recoveryDismissedAt?: string | null;
+  publishedMessageId?: string | null;
 };
 
 function mediaKindForPayload(kind: string): string {
@@ -67,6 +92,16 @@ function timestampFromLocalItem(item: UploadAttentionLocalItem): number {
   return createdAtMs ?? 0;
 }
 
+function isActionableServerUpload(upload: UploadAttentionServerUpload): boolean {
+  if (upload.recoveryDismissedAt || upload.publishedMessageId) return false;
+  return upload.status === "uploading" || upload.status === "processing" || upload.status === "failed";
+}
+
+function navigableOtherUserId(value: string | null | undefined): string | null {
+  const trimmed = value?.trim();
+  return trimmed ? trimmed : null;
+}
+
 export function buildRecoveryAttentionTargets(
   items: UploadAttentionLocalItem[],
   staleUploads: UploadAttentionServerUpload[],
@@ -75,13 +110,17 @@ export function buildRecoveryAttentionTargets(
 
   for (const item of items) {
     if (item.payload.kind === "text" || item.state !== "failed") continue;
+    const clientRequestId = item.id.trim();
+    if (!clientRequestId) continue;
+    const otherUserId = navigableOtherUserId(item.otherUserId);
+    if (!otherUserId) continue;
     const mediaKind = mediaKindForPayload(item.payload.kind);
-    targetsByClientRequestId.set(item.id, {
+    targetsByClientRequestId.set(clientRequestId, {
       kind: "local_failed",
-      attentionId: `local:${item.id}`,
+      attentionId: `local:${clientRequestId}`,
       matchId: item.matchId,
-      otherUserId: item.otherUserId ?? null,
-      clientRequestId: item.id,
+      otherUserId,
+      clientRequestId,
       updatedAtMs: timestampFromLocalItem(item),
       mediaKind,
       status: item.state,
@@ -90,15 +129,19 @@ export function buildRecoveryAttentionTargets(
   }
 
   for (const upload of staleUploads) {
-    if (upload.recoveryDismissedAt) continue;
-    const clientRequestId = upload.clientRequestId || upload.id;
+    if (!isActionableServerUpload(upload)) continue;
+    const uploadId = upload.id.trim();
+    if (!uploadId) continue;
+    const otherUserId = navigableOtherUserId(upload.otherUserId);
+    if (!otherUserId) continue;
+    const clientRequestId = upload.clientRequestId?.trim() || uploadId;
     if (targetsByClientRequestId.has(clientRequestId)) continue;
     const mediaKind = "clip";
     targetsByClientRequestId.set(clientRequestId, {
       kind: "server_stale",
-      attentionId: `server:${upload.id}`,
+      attentionId: `server:${uploadId}`,
       matchId: upload.matchId,
-      otherUserId: upload.otherUserId ?? null,
+      otherUserId,
       clientRequestId,
       updatedAtMs: timestampFromIso(upload.updatedAt),
       mediaKind,
@@ -122,6 +165,29 @@ export function uploadAttentionTargetIdentity(target: UploadAttentionTarget): st
     target.otherUserId ?? "",
     target.clientRequestId,
   ].join(":");
+}
+
+export function normalizeServerRecoveryAttentionTarget(
+  target: UploadAttentionTarget,
+  upload: UploadAttentionServerUpload,
+): UploadAttentionTarget | null {
+  const uploadId = upload.id.trim();
+  const otherUserId = navigableOtherUserId(upload.otherUserId ?? target.otherUserId);
+  const clientRequestId = upload.clientRequestId?.trim() || target.clientRequestId.trim();
+  if (!uploadId || !otherUserId || !clientRequestId) return null;
+  const updatedAtMs = timestampFromIso(upload.updatedAt);
+  return {
+    ...target,
+    kind: "server_stale",
+    attentionId: `server:${uploadId}`,
+    matchId: upload.matchId || target.matchId,
+    otherUserId,
+    clientRequestId,
+    updatedAtMs: updatedAtMs || target.updatedAtMs,
+    mediaKind: "clip",
+    status: upload.status,
+    label: labelForMediaKind("clip"),
+  };
 }
 
 export function selectPrimaryRecoveryAttentionTarget(
