@@ -248,7 +248,6 @@ function waitForActualInitSettled(): Promise<void> {
   if (initResolvedFlag || typeof window === "undefined") return Promise.resolve();
   return new Promise((resolve) => {
     let settled = false;
-    let timeout: ReturnType<typeof setTimeout>;
     const finish = () => {
       if (settled) return;
       settled = true;
@@ -256,7 +255,7 @@ function waitForActualInitSettled(): Promise<void> {
       window.removeEventListener("vibely-onesignal-init-settled", finish);
       resolve();
     };
-    timeout = setTimeout(finish, ONESIGNAL_INIT_FALLBACK_TIMEOUT_MS);
+    const timeout = setTimeout(finish, ONESIGNAL_INIT_FALLBACK_TIMEOUT_MS);
     window.addEventListener("vibely-onesignal-init-settled", finish, { once: true });
   });
 }

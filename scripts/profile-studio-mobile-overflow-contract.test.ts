@@ -53,20 +53,35 @@ assert.match(
   /const PROFILE_STUDIO_PROMPT_DRAWER_PROPS = \{\s*shouldScaleBackground: false,\s*fixed: true,\s*repositionInputs: false,\s*\} as const;/,
   "Profile Studio prompt drawer should disable Vaul input repositioning and own keyboard layout directly",
 );
+assert.match(
+  profileStudio,
+  /const PROFILE_STUDIO_BIO_DRAWER_PROPS = \{\s*shouldScaleBackground: false,\s*fixed: true,\s*repositionInputs: false,\s*\} as const;/,
+  "Profile Studio bio drawer should disable Vaul input repositioning and own keyboard layout directly",
+);
 assert.doesNotMatch(
   profileStudio,
   /const PROFILE_STUDIO_PROMPT_DRAWER_PROPS = \{[\s\S]*repositionInputs: true,[\s\S]*\} as const;/,
   "Profile Studio prompt drawer must not re-enable Vaul's global input repositioner",
 );
+assert.doesNotMatch(
+  profileStudio,
+  /const PROFILE_STUDIO_BIO_DRAWER_PROPS = \{[\s\S]*repositionInputs: true,[\s\S]*\} as const;/,
+  "Profile Studio bio drawer must not re-enable Vaul's global input repositioner",
+);
 assert.equal(
   countMatches(profileStudio, /<Drawer \{\.\.\.PROFILE_STUDIO_DRAWER_PROPS\}/g),
-  7,
-  "Every non-prompt local Profile Studio drawer should use the shared mobile-safe Vaul props",
+  6,
+  "Every non-keyboard-specific local Profile Studio drawer should use the shared mobile-safe Vaul props",
 );
 assert.equal(
   countMatches(profileStudio, /<Drawer \{\.\.\.PROFILE_STUDIO_PROMPT_DRAWER_PROPS\}/g),
   1,
   "Only the prompt drawer should use keyboard-specific Vaul props",
+);
+assert.equal(
+  countMatches(profileStudio, /<Drawer \{\.\.\.PROFILE_STUDIO_BIO_DRAWER_PROPS\}/g),
+  1,
+  "Only the About Me drawer should use bio-specific keyboard-safe Vaul props",
 );
 assert.match(
   profileStudio,
@@ -193,6 +208,67 @@ assert.match(
   profileStudio,
   /<DrawerContent className=\{PROFILE_STUDIO_DRAWER_CONTENT_CLASS\} style=\{promptDrawerKeyboardStyle\}>/,
   "Prompt drawer content should receive the keyboard-time visual viewport style",
+);
+
+assert.match(
+  profileStudio,
+  /const \[bioDrawerKeyboardStyle, setBioDrawerKeyboardStyle\] = useState<CSSProperties \| undefined>\(\);/,
+  "Bio drawer should keep keyboard-time layout style in React state",
+);
+assert.match(
+  profileStudio,
+  /const bioDrawerBodyRef = useRef<HTMLDivElement \| null>\(null\);[\s\S]*const bioFieldRef = useRef<HTMLTextAreaElement \| null>\(null\);/,
+  "Bio drawer should keep refs to its local scroll body and focused textarea",
+);
+assert.match(
+  profileStudio,
+  /const bioDrawerNudgeRafRef = useRef<number \| null>\(null\);[\s\S]*const bioDrawerNudgeTimeoutsRef = useRef<number\[\]>\(\[\]\);/,
+  "Bio drawer visibility nudges should be tracked so they can be cancelled",
+);
+assert.match(
+  profileStudio,
+  /const bioDrawerStableViewportHeightRef = useRef<number \| null>\([\s\S]*Math\.max\(window\.visualViewport\?\.height \?\? 0, window\.innerHeight \?\? 0\)/,
+  "Bio drawer should keep a stable pre-keyboard viewport baseline",
+);
+assert.match(
+  profileStudio,
+  /const updateBioDrawerKeyboardStyle = useCallback\(\(\) => \{[\s\S]*activeDrawer !== "bio"[\s\S]*const currentViewportHeight = viewport\?\.height \?\? 0;[\s\S]*const currentLayoutHeight = window\.innerHeight;[\s\S]*const stableViewportHeight =[\s\S]*bioDrawerStableViewportHeightRef\.current[\s\S]*const keyboardOverlap = Math\.max\([\s\S]*currentLayoutHeight - currentViewportHeight,[\s\S]*stableViewportHeight - currentViewportHeight,[\s\S]*viewport\.offsetTop \+ PROFILE_STUDIO_BIO_KEYBOARD_GAP_PX[\s\S]*currentViewportHeight - PROFILE_STUDIO_BIO_KEYBOARD_GAP_PX/,
+  "Bio drawer should derive focused keyboard layout from visualViewport bounds and stable baseline",
+);
+assert.match(
+  profileStudio,
+  /setBioDrawerKeyboardStyle\(\{\s*top: `\$\{top\}px`,\s*bottom: "auto",\s*height: `\$\{height\}px`,\s*maxHeight: `\$\{height\}px`,\s*marginTop: 0,\s*\}\);/,
+  "Bio drawer should apply top, bottom, height, maxHeight, and margin reset while the mobile keyboard is open",
+);
+assert.match(
+  profileStudio,
+  /const bioDrawerKeyboardStyleClearTimeoutRef = useRef<number \| null>\(null\);[\s\S]*const scheduleBioDrawerKeyboardStyleClear = useCallback/,
+  "Bio drawer should delay keyboard-style clearing after blur so Save/Cancel taps do not race layout movement",
+);
+assert.match(
+  profileStudio,
+  /const clearBioDrawerNudges = useCallback\(\(\) => \{[\s\S]*window\.cancelAnimationFrame\(bioDrawerNudgeRafRef\.current\);[\s\S]*window\.clearTimeout\(timeoutId\);/,
+  "Bio drawer should cancel queued visibility nudges on close/unmount",
+);
+assert.match(
+  profileStudio,
+  /const nudgeBioFieldIntoView = useCallback\(\(\) => \{[\s\S]*if \(!body \|\| !input \|\| document\.activeElement !== input\) return;[\s\S]*updateBioDrawerKeyboardStyle\(\);[\s\S]*const alignInput = \(\) => \{[\s\S]*updateBioDrawerKeyboardStyle\(\);[\s\S]*const bodyRect = body\.getBoundingClientRect\(\);/,
+  "Bio drawer should refresh visual-viewport-owned layout during delayed textarea nudges",
+);
+assert.match(
+  profileStudio,
+  /viewport\?\.addEventListener\("resize", handleBioViewportChange\);[\s\S]*viewport\?\.addEventListener\("scroll", handleBioViewportChange\);/,
+  "Bio drawer should re-check textarea visibility when the mobile visual viewport changes",
+);
+assert.match(
+  profileStudio,
+  /ref=\{bioFieldRef\}[\s\S]*onFocus=\{\(\) => \{[\s\S]*captureBioDrawerStableViewportHeight\(\);[\s\S]*nudgeBioFieldIntoView\(\);[\s\S]*\}\}[\s\S]*onBlur=\{\(\) => \{[\s\S]*clearBioDrawerNudges\(\);[\s\S]*scheduleBioDrawerKeyboardStyleClear\(\);[\s\S]*\}\}/,
+  "Bio textarea should capture the baseline on focus and schedule keyboard-style cleanup on blur",
+);
+assert.match(
+  profileStudio,
+  /<DrawerContent className=\{PROFILE_STUDIO_DRAWER_CONTENT_CLASS\} style=\{bioDrawerKeyboardStyle\}>/,
+  "Bio drawer content should receive the keyboard-time visual viewport style",
 );
 
 assert.match(

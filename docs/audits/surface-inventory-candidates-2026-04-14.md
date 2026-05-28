@@ -1,6 +1,6 @@
 # Surface inventory candidates (mechanical)
 
-**Generated:** 2026-05-09 via `node scripts/surface-inventory-audit.mjs`
+**Generated:** 2026-05-28 via `node scripts/surface-inventory-audit.mjs`
 
 ## Method
 
@@ -12,8 +12,8 @@ Import graph from `src/App.tsx`, expanding `@/*`, `@shared/*`, `@clientShared/*`
 |--------|----------------|
 | `src/pages` | **0** |
 | `src/hooks` | **0** |
-| `src/components` | **41** |
-| Modules in graph | **547** |
+| `src/components` | **39** |
+| Modules in graph | **666** |
 
 ## Orphan pages (0)
 
@@ -23,7 +23,7 @@ _None._
 
 _None._
 
-## Orphan components (41)
+## Orphan components (39)
 
 - `src/components/DashboardGreeting.tsx`
 - `src/components/EventCard.tsx`
@@ -33,7 +33,6 @@ _None._
 - `src/components/PageTransition.tsx`
 - `src/components/PhoneVerifiedBadge.tsx`
 - `src/components/PhotoGallery.tsx`
-- `src/components/ProfilePreview.tsx`
 - `src/components/ProgressBar.tsx`
 - `src/components/SuperLikeButton.tsx`
 - `src/components/VibeScore.tsx`
@@ -43,7 +42,6 @@ _None._
 - `src/components/safety/PauseAccountFlow.tsx`
 - `src/components/safety/SafetyHub.tsx`
 - `src/components/safety/SafetyTipsCarousel.tsx`
-- `src/components/schedule/DateProposalTicket.tsx`
 - `src/components/ui/accordion.tsx`
 - `src/components/ui/breadcrumb.tsx`
 - `src/components/ui/carousel.tsx`
@@ -74,6 +72,6 @@ _None._
 - Literal dynamic import() paths are analyzed; computed dynamic paths are not.
 - Files only loaded by Vite glob or runtime strings may false-positive as orphans.
 
-## Interpretation (2026-05-09 audit refresh)
+## Interpretation (2026-05-28 audit refresh)
 
 Legacy **video-date checkpoint / unused survey** orphans were already removed — see `docs/audits/orphan-triage-2026-04-14.md`. The current candidate list still contains mostly shadcn `ui/*`, wizard, safety, and marketing-style components. Treat this file as a triage queue, not a deletion manifest; do not mass-delete without product or route-level proof.
