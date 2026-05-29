@@ -2,6 +2,18 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Prevent iOS Safari focus auto-zoom: editable controls must render >=16px on mobile.
+   Declared unlayered so it overrides Tailwind text-sm/text-xs utilities; gated below the
+   md breakpoint so desktop sizing is untouched. Anything below 16px makes Safari zoom the
+   page on focus, which clips the right edge (zoom is unaffected by overflow-x: hidden). */
+@media (max-width: 767.98px) {
+  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]):not([type="button"]):not([type="submit"]):not([type="reset"]),
+  textarea,
+  [contenteditable="true"] {
+    font-size: 16px;
+  }
+}
+
 @layer base {
   :root {
     --background: 240 10% 4%;
