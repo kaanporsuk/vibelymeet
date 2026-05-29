@@ -71,6 +71,7 @@ test("web identity binding and backend sync avoid token-refresh login spam", () 
   assert.match(webOneSignal, /settleOneSignalInitUnavailable/);
   assert.match(webOneSignal, /reason === "sdk_init_timeout"[\s\S]*initTimedOut = true;[\s\S]*resolveInit\?\.\(\);[\s\S]*dispatchInitSettled\(\);/);
   assert.match(webOneSignal, /function waitForActualInitSettled/);
+  assert.match(webOneSignal, /await initFinished;\s*if \(!initResolvedFlag\) \{\s*await waitForActualInitSettled\(\);/s);
   assert.match(appBootstrap, /retrySyncOnLateOneSignalInit/);
   assert.match(webOneSignal, /function createDeferredSdkFallbackResolver/);
   assert.match(webOneSignal, /window\.addEventListener\("vibely-onesignal-init-settled", onInitSettled, \{ once: true \}\)/);

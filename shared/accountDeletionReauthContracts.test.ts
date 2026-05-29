@@ -88,9 +88,10 @@ test("account deletion Stripe cleanup is retryable, observable, and sanitized", 
   assert.match(edgeFunction, /"canceled", "incomplete_expired"/);
   assert.match(edgeFunction, /if \(!shouldCancelStripeSubscription\(stripeSubscription\.status\)\)/);
   assert.doesNotMatch(edgeFunction, /\["active", "trialing"\]\.includes/);
-  assert.doesNotMatch(edgeFunction, /function isIdempotentStripeCancellationStatus/);
-  assert.doesNotMatch(edgeFunction, /status === 404 \|\| status === 410/);
-  assert.doesNotMatch(edgeFunction, /stripeCancellationAlreadySettled/);
+  assert.match(edgeFunction, /function isIdempotentStripeCancellationStatus/);
+  assert.match(edgeFunction, /status === 404 \|\| status === 410/);
+  assert.match(edgeFunction, /stripeCancellationAlreadySettled/);
+  assert.match(edgeFunction, /!cancelRes\.ok && !stripeCancellationAlreadySettled/);
   assert.match(edgeFunction, /stripe_subscription_cancel_provider_failed/);
   assert.match(edgeFunction, /stripe_subscription_cancel_request_failed/);
   assert.match(edgeFunction, /stripe_subscription_cancel_skipped_missing_secret/);
@@ -98,7 +99,7 @@ test("account deletion Stripe cleanup is retryable, observable, and sanitized", 
   assert.match(edgeFunction, /stripe_subscription_cancel_entitlement_recompute_failed/);
   assert.match(edgeFunction, /stripe_subscription_inactive_entitlement_recompute_failed/);
   assert.match(edgeFunction, /stripe_subscription_canceled_for_account_deletion/);
-  assert.doesNotMatch(edgeFunction, /stripe_subscription_cancel_already_settled_for_account_deletion/);
+  assert.match(edgeFunction, /stripe_subscription_cancel_already_settled_for_account_deletion/);
   assert.match(edgeFunction, /subscription_cleanup_pending/);
   assert.match(edgeFunction, /warning_code/);
   assert.match(edgeFunction, /warning_retryable/);

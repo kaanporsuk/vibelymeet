@@ -17,7 +17,8 @@ import * as Sentry from "@sentry/react";
  * original blob so sending is never blocked — behaviour is then no worse than before.
  */
 
-const MP3_BITRATE_KBPS = 128;
+const MP3_BITRATE_KBPS = 96;
+const VOICE_UPLOAD_MAX_BYTES = 10 * 1024 * 1024;
 const PCM_BLOCK_SIZE = 1152; // MP3 frame size lamejs expects per encode call.
 
 // iOS-universal containers we should never re-encode.
@@ -113,7 +114,7 @@ export async function transcodeVoiceForUpload(blob: Blob): Promise<Blob> {
     if (tail.length > 0) chunks.push(new Uint8Array(tail));
 
     const mp3Blob = new Blob(chunks as BlobPart[], { type: "audio/mpeg" });
-    if (mp3Blob.size <= 0) return blob;
+    if (mp3Blob.size <= 0 || mp3Blob.size > VOICE_UPLOAD_MAX_BYTES) return blob;
     return mp3Blob;
   } catch (error) {
     Sentry.captureException(error, { tags: { area: "voice-transcode" } });

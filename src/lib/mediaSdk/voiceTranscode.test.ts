@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 
 import { transcodeVoiceForUpload } from "./voiceTranscode";
+
+const source = readFileSync(new URL("./voiceTranscode.ts", import.meta.url), "utf8");
 
 // These run under Node (tsx), where there is no `window`/AudioContext. That exercises both
 // the passthrough branch (already-universal types) and the fail-safe branch (a webm/ogg blob
@@ -34,4 +37,10 @@ test("webm/ogg fall back to the original blob when decoding is unavailable", asy
     // No AudioContext in Node -> fail-safe returns the original blob without throwing.
     assert.equal(result, blob, `expected fail-safe passthrough for ${type}`);
   }
+});
+
+test("web voice transcode stays under the upload contract", () => {
+  assert.match(source, /const MP3_BITRATE_KBPS = 96;/);
+  assert.match(source, /const VOICE_UPLOAD_MAX_BYTES = 10 \* 1024 \* 1024;/);
+  assert.match(source, /mp3Blob\.size <= 0 \|\| mp3Blob\.size > VOICE_UPLOAD_MAX_BYTES/);
 });
