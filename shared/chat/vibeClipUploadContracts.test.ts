@@ -366,7 +366,8 @@ test("web chat image outbox no longer invents JPEG declarations", () => {
 });
 
 test("video bubbles remain adaptive and full-width across web and native chat", () => {
-  assert.match(webVibeClipBubble, /w-\[min\(17\.5rem,calc\(100vw-4rem\)\)\] max-w-full/);
+  assert.match(webVibeClipBubble, /w-\[min\(17\.5rem,calc\(100svw-4rem\)\)\] max-w-full/);
+  assert.doesNotMatch(webVibeClipBubble, /100vw|w-screen/);
   assert.match(webVibeClipBubble, /Math\.max\(0\.5, Math\.min\(1\.2, displayMeta\.aspectRatio\)\)/);
   assert.match(webVibeClipBubble, /<AspectRatio ratio=\{clipAspectRatio\}>/);
   assert.match(webVibeClipBubble, /w-full h-full object-cover bg-black/);
@@ -530,7 +531,8 @@ test("video bubbles remain adaptive and full-width across web and native chat", 
   assert.match(webChat, /dismissResult === "already_published"[\s\S]{0,180}refreshThreadAfterVibeClipRecoverySweep/);
   assert.match(webChat, /Could not clear the saved upload yet/);
 
-  assert.match(webVideoBubble, /w-\[min\(17\.5rem,calc\(100vw-4rem\)\)\] max-w-full/);
+  assert.match(webVideoBubble, /w-\[min\(17\.5rem,calc\(100svw-4rem\)\)\] max-w-full/);
+  assert.doesNotMatch(webVideoBubble, /100vw|w-screen/);
   assert.match(webVideoBubble, /<AspectRatio ratio=\{9 \/ 16\}>/);
   assert.match(webVideoBubble, /w-full h-full object-cover bg-black/);
   assert.match(webVideoBubble, /aria-label=\{isMuted \? "Unmute video" : "Mute video"\}/);

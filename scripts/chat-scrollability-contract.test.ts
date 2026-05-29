@@ -15,6 +15,16 @@ function read(path: string): string {
 
 const webChat = read("src/pages/Chat.tsx");
 const dateSuggestionChip = read("src/components/chat/DateSuggestionChip.tsx");
+const webDateSuggestionCard = read("src/components/chat/DateSuggestionCard.tsx");
+const webDateSuggestionComposer = read("src/components/chat/DateSuggestionComposer.tsx");
+const webChatPhotoLightbox = read("src/components/chat/ChatPhotoLightbox.tsx");
+const webMessageBubble = read("src/components/chat/MessageBubble.tsx");
+const webPhotoCameraCaptureDialog = read("src/components/chat/PhotoCameraCaptureDialog.tsx");
+const webPhotoSendOptionsDialog = read("src/components/chat/PhotoSendOptionsDialog.tsx");
+const webVideoMessageBubble = read("src/components/chat/VideoMessageBubble.tsx");
+const webVibeClipBubble = read("src/components/chat/VibeClipBubble.tsx");
+const webVibeClipSendOptionsSheet = read("src/components/chat/VibeClipSendOptionsSheet.tsx");
+const webVoiceMessageBubble = read("src/components/chat/VoiceMessageBubble.tsx");
 const webMatches = read("src/hooks/useMatches.ts");
 const nativeChat = read("apps/mobile/app/chat/[id].tsx");
 const nativeChatApi = read("apps/mobile/lib/chatApi.ts");
@@ -80,8 +90,9 @@ test("web chat pins mobile shell to visualViewport and preserves keyboard sticki
   );
   assert.match(
     webChat,
-    /function chatMobileViewportStyleFromVisualViewport\(viewport: VisualViewport\): CSSProperties \{[\s\S]*position: "fixed",[\s\S]*top: `\$\{Math\.max\(0, viewport\.offsetTop\)\}px`,[\s\S]*height: `\$\{Math\.max\(1, viewport\.height\)\}px`,[\s\S]*width: "100vw",/,
+    /function chatMobileViewportStyleFromVisualViewport\(viewport: VisualViewport\): CSSProperties \{[\s\S]*position: "fixed",[\s\S]*top: `\$\{Math\.max\(0, viewport\.offsetTop\)\}px`,[\s\S]*left: `\$\{Math\.max\(0, viewport\.offsetLeft\)\}px`,[\s\S]*right: "auto",[\s\S]*height: `\$\{Math\.max\(1, viewport\.height\)\}px`,[\s\S]*width: `\$\{Math\.max\(1, viewport\.width\)\}px`,/,
   );
+  assert.doesNotMatch(webChat, /width: "100vw"/);
   assert.match(
     webChat,
     /function chatMobileViewportStylesEqual\(prev: CSSProperties \| undefined, next: CSSProperties\): boolean \{\s*if \(!prev\) return false;/,
@@ -115,11 +126,13 @@ test("web chat pins mobile shell to visualViewport and preserves keyboard sticki
   assert.match(webChat, /viewport\.addEventListener\("scroll", handleMobileViewportChange\)/);
   assert.match(
     webChat,
-    /className="fixed inset-0 h-\[100svh\] w-screen[\s\S]*lg:relative lg:inset-auto lg:w-auto/,
+    /className="fixed left-0 top-0 h-\[100svh\] w-full max-w-\[100svw\][\s\S]*overflow-hidden overflow-x-hidden[\s\S]*lg:relative lg:inset-auto lg:w-auto lg:max-w-none/,
   );
-  assert.doesNotMatch(webChat, /className="fixed inset-0 h-\[100dvh\] w-screen/);
+  assert.doesNotMatch(webChat, /className="fixed inset-0 h-\[100[ds]vh\] w-screen/);
   assert.match(webChat, /style=\{mobileKeyboardViewportStyle\}/);
   assert.match(webChat, /<div ref=\{composerChromeRef\} className="relative z-40 shrink-0">/);
+  assert.match(webChat, /<textarea[\s\S]*aria-label="Message"[\s\S]*className="[^"]*text-base leading-5/);
+  assert.doesNotMatch(webChat, /text-\[15px\] leading-5/);
   assert.match(
     webChat,
     /const handleComposerFocus = useCallback\(\(\) => \{[\s\S]*mobileKeyboardStableViewportHeightRef\.current = Math\.max\([\s\S]*window\.visualViewport\?\.height \?\? 0,[\s\S]*window\.innerHeight \?\? 0,[\s\S]*updateMobileKeyboardViewportStyle\(\);/,
@@ -130,6 +143,95 @@ test("web chat pins mobile shell to visualViewport and preserves keyboard sticki
   );
   assert.match(webChat, /onFocus=\{handleComposerFocus\}/);
   assert.match(webChat, /onBlur=\{handleComposerBlur\}/);
+});
+
+test("web chat message surfaces stay horizontally bounded on mobile", () => {
+  const boundedWebChatSurfaces = [
+    webChat,
+    webDateSuggestionCard,
+    webDateSuggestionComposer,
+    webChatPhotoLightbox,
+    webMessageBubble,
+    webPhotoCameraCaptureDialog,
+    webPhotoSendOptionsDialog,
+    webVideoMessageBubble,
+    webVibeClipBubble,
+    webVibeClipSendOptionsSheet,
+    webVoiceMessageBubble,
+  ].join("\n");
+
+  assert.match(
+    webChat,
+    /<section className="relative z-10 flex h-full w-full min-w-0 max-w-full overflow-hidden/,
+  );
+  assert.match(
+    webChat,
+    /className="min-w-0 flex-1 overflow-y-auto overflow-x-hidden overscroll-contain/,
+  );
+  assert.match(
+    webChat,
+    /<div ref=\{threadContentRef\} className="w-full min-w-0 max-w-2xl mx-auto overflow-x-hidden/,
+  );
+  assert.match(webChat, /max-w-\[min\(100%,calc\(100svw-1rem\),22rem\)\]/);
+  assert.match(webChat, /className="mx-auto flex w-full max-w-2xl min-w-0 items-stretch/);
+  assert.match(webChat, /className="mx-auto flex w-full max-w-2xl min-w-0 items-end/);
+  assert.match(
+    webMessageBubble,
+    /"flex w-full min-w-0 items-end gap-2 relative"/,
+  );
+  assert.match(
+    webMessageBubble,
+    /"max-w-\[min\(100%,calc\(100svw-1rem\),22rem\)\] min-w-0 px-3\.5 py-2 relative"/,
+  );
+  assert.match(
+    webMessageBubble,
+    /<p className="text-\[13px\] leading-relaxed whitespace-pre-wrap break-words \[overflow-wrap:anywhere\]">/,
+  );
+  assert.match(
+    webDateSuggestionCard,
+    /"w-full min-w-0 overflow-hidden rounded-xl border px-3 py-2 text-sm shadow-sm transition-all duration-300 break-words \[overflow-wrap:anywhere\]"/,
+  );
+  assert.match(webVideoMessageBubble, /w-\[min\(17\.5rem,calc\(100svw-4rem\)\)\] max-w-full/);
+  assert.match(webVibeClipBubble, /w-\[min\(17\.5rem,calc\(100svw-4rem\)\)\] max-w-full/);
+  assert.match(webPhotoCameraCaptureDialog, /calc\(100svw-1\.5rem\)/);
+  assert.match(webPhotoSendOptionsDialog, /calc\(100svw-2rem\)/);
+  assert.match(webChatPhotoLightbox, /max-w-\[min\(96svw,1200px\)\]/);
+  assert.match(webVibeClipSendOptionsSheet, /calc\(100svw-2rem\)/);
+  assert.match(webDateSuggestionComposer, /sm:w-\[min\(calc\(100svw-1\.5rem\),100%\)\]/);
+  assert.match(
+    webVoiceMessageBubble,
+    /className="flex min-w-0 w-full max-w-\[min\(18rem,100%\)\] items-center gap-1\.5 sm:min-w-\[140px\]"/,
+  );
+  assert.match(webChat, /const quickActionButtonClass =\s*"inline-flex h-11 min-h-11 w-full min-w-0[\s\S]*overflow-hidden/);
+  assert.match(
+    webChat,
+    /className="inline-flex h-9 min-w-0 items-center justify-center gap-1\.5 overflow-hidden rounded-xl[\s\S]*<span className="truncate">Photo<\/span>/,
+  );
+  assert.match(webChat, /<span className="truncate">Schedule<\/span>/);
+  assert.doesNotMatch(webChat, /whitespace-nowrap/);
+  assert.doesNotMatch(boundedWebChatSurfaces, /\b\d+(?:\.\d+)?vw\b|w-screen/);
+});
+
+test("native chat message surfaces stay horizontally bounded", () => {
+  assert.match(nativeChat, /const \{ width: windowWidth \} = useWindowDimensions\(\);/);
+  assert.match(
+    nativeChat,
+    /function getAdaptiveChatMediaWidth\(windowWidth: number\): number \{[\s\S]*windowWidth - layout\.containerPadding \* 2 - 92[\s\S]*Math\.min\(MEDIA_CARD_MAX_WIDTH, Math\.floor\(availableThreadWidth \* 0\.92\)\)/,
+  );
+  assert.match(
+    nativeChat,
+    /const mediaCardWidth = useMemo\([\s\S]*getAdaptiveChatMediaWidth\(windowWidth\)[\s\S]*\[windowWidth\]/,
+  );
+  assert.match(nativeChat, /rowMe: \{ alignItems: 'flex-end', width: '100%' \}/);
+  assert.match(nativeChat, /bubbleMeWrap: \{ maxWidth: '88%', minWidth: 0 \}/);
+  assert.match(nativeChat, /themRow: \{ flexDirection: 'row', alignItems: 'flex-end', width: '100%', gap: 8 \}/);
+  assert.match(nativeChat, /themBubbleColumn: \{ flex: 1, maxWidth: '88%', minWidth: 0 \}/);
+  assert.match(nativeChat, /mediaContentWrap: \{ maxWidth: '100%', minWidth: MEDIA_CARD_MIN_WIDTH \}/);
+  assert.match(nativeChat, /voiceContentWrap: \{ maxWidth: '100%', minWidth: MEDIA_CARD_MIN_WIDTH \}/);
+  assert.match(nativeChat, /voicePlayerWrap: \{ minWidth: MEDIA_CARD_MIN_WIDTH, width: '100%', maxWidth: '100%' \}/);
+  assert.match(nativeChat, /chatVideoCardOuter: \{[\s\S]*width: '100%',[\s\S]*maxWidth: '100%',[\s\S]*minWidth: MEDIA_CARD_MIN_WIDTH,/);
+  assert.match(nativeChat, /<View style=\{\[styles\.mediaContentWrap, \{ width: mediaCardWidth \}\]\}>/);
+  assert.match(nativeChat, /<View style=\{\[styles\.voiceContentWrap, \{ width: mediaCardWidth \}\]\}>/);
 });
 
 test("web floating chat controls do not block scroll gestures outside their real controls", () => {

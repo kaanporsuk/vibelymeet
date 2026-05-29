@@ -5,6 +5,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ScrollView,
+  FlatList,
   Image,
   StyleSheet,
   Pressable,
@@ -74,7 +75,8 @@ const PHOTO_MAX_PINCH_SCALE = 4;
 const PHOTO_ZOOM_LOCK_SCALE = 1.03;
 const PHOTO_ZOOM_SPRING = { damping: 22, stiffness: 240, mass: 0.7 };
 const PHOTO_VIEWER_OPEN_GUARD_MS = 650;
-const PHOTO_VIEWER_CLOSE_GUARD_MS = 450;
+const PHOTO_VIEWER_CLOSE_GUARD_MS = 900;
+const PHOTO_VIEWER_TOUCH_INTENT_MS = 650;
 
 function clampPhotoPan(tx: number, ty: number, scale: number, width: number, height: number) {
   'worklet';
@@ -91,11 +93,15 @@ function AdaptiveNativeProfileMedia({
   uri,
   height,
   onPress,
+  onPressIn,
+  onAccessibilityActivate,
   accessibilityLabel,
 }: {
   uri: string;
   height: number;
   onPress?: () => void;
+  onPressIn?: () => void;
+  onAccessibilityActivate?: () => void;
   accessibilityLabel?: string;
 }) {
   const [imageLoadState, setImageLoadState] = useState<NativeImageLoadState>({ uri: null, status: 'loading' });
@@ -150,8 +156,13 @@ function AdaptiveNativeProfileMedia({
     return (
       <Pressable
         onPress={onPress}
+        onPressIn={onPressIn}
         accessibilityRole="button"
         accessibilityLabel={accessibilityLabel ?? 'View profile photo'}
+        accessibilityActions={onAccessibilityActivate ? [{ name: 'activate', label: 'View photo' }] : undefined}
+        onAccessibilityAction={(event) => {
+          if (event.nativeEvent.actionName === 'activate') onAccessibilityActivate?.();
+        }}
         style={[s.adaptiveMedia, { height }]}
       >
         {content}
@@ -460,9 +471,10 @@ export function UserProfileFullView({
   const [hideVibingOnLabelAfterComplete, setHideVibingOnLabelAfterComplete] = useState(false);
   const [photoViewerIndex, setPhotoViewerIndex] = useState<number | null>(null);
   const [photoViewerZoomed, setPhotoViewerZoomed] = useState(false);
-  const photoPagerRef = useRef<ScrollView>(null);
+  const photoPagerRef = useRef<FlatList<string>>(null);
   const profileVibeVideoTtffTokenRef = useRef<string | null>(null);
   const photoViewerOpenBlockedUntilRef = useRef(Date.now() + PHOTO_VIEWER_OPEN_GUARD_MS);
+  const photoViewerTouchIntentRef = useRef<{ index: number; expiresAt: number } | null>(null);
 
   const blockPhotoViewerOpens = useCallback((durationMs: number) => {
     photoViewerOpenBlockedUntilRef.current = Math.max(
@@ -473,6 +485,7 @@ export function UserProfileFullView({
 
   const closePhotoViewer = useCallback(() => {
     blockPhotoViewerOpens(PHOTO_VIEWER_CLOSE_GUARD_MS);
+    photoViewerTouchIntentRef.current = null;
     setPhotoViewerZoomed(false);
     setPhotoViewerIndex(null);
   }, [blockPhotoViewerOpens]);
@@ -624,6 +637,7 @@ export function UserProfileFullView({
 
   useEffect(() => {
     blockPhotoViewerOpens(PHOTO_VIEWER_OPEN_GUARD_MS);
+    photoViewerTouchIntentRef.current = null;
     setPhotoViewerZoomed(false);
     setPhotoViewerIndex(null);
   }, [blockPhotoViewerOpens, profile.id]);
@@ -644,7 +658,7 @@ export function UserProfileFullView({
     if (photoViewerIndex === null || photos.length === 0) return;
     const idx = Math.min(Math.max(0, photoViewerIndex), photos.length - 1);
     requestAnimationFrame(() => {
-      photoPagerRef.current?.scrollTo({ x: idx * winWidth, animated: false });
+      photoPagerRef.current?.scrollToIndex({ index: idx, animated: false });
     });
   }, [photoViewerIndex, photos.length, winWidth]);
 
@@ -652,8 +666,26 @@ export function UserProfileFullView({
     setPhotoViewerZoomed(false);
   }, [photoViewerIndex]);
 
-  const openPhotoViewer = useCallback((index: number) => {
-    if (Date.now() < photoViewerOpenBlockedUntilRef.current) return;
+  const registerPhotoViewerTouchIntent = useCallback((index: number) => {
+    const now = Date.now();
+    if (now < photoViewerOpenBlockedUntilRef.current) return;
+    if (!Number.isInteger(index) || index < 0 || index >= photos.length) return;
+    photoViewerTouchIntentRef.current = {
+      index,
+      expiresAt: now + PHOTO_VIEWER_TOUCH_INTENT_MS,
+    };
+  }, [photos.length]);
+
+  const openPhotoViewer = useCallback((index: number, source: 'touch' | 'accessibility' = 'touch') => {
+    const now = Date.now();
+    if (source === 'touch') {
+      const intent = photoViewerTouchIntentRef.current;
+      photoViewerTouchIntentRef.current = null;
+      if (!intent || intent.index !== index || intent.expiresAt < now) return;
+    } else {
+      photoViewerTouchIntentRef.current = null;
+    }
+    if (now < photoViewerOpenBlockedUntilRef.current) return;
     if (photoViewerIndex !== null) return;
     if (!Number.isInteger(index) || index < 0 || index >= photos.length) return;
     const prefetchUrl = getImageUrl(photos[index], { width: 1200, quality: 88 });
@@ -705,7 +737,10 @@ export function UserProfileFullView({
 
   const scrollBottomPad = isOwnProfile && onEditProfile ? 100 + insets.bottom : spacing['2xl'] + insets.bottom;
   const photoViewerVisible = photoViewerIndex !== null && photos.length > 0;
-  const activePhotoViewerIndex = photoViewerIndex ?? 0;
+  const activePhotoViewerIndex =
+    photoViewerIndex === null || photos.length === 0
+      ? 0
+      : Math.min(Math.max(0, photoViewerIndex), photos.length - 1);
 
   return (
     <RNView style={{ flex: 1, backgroundColor: theme.background }}>
@@ -721,7 +756,9 @@ export function UserProfileFullView({
                 <AdaptiveNativeProfileMedia
                   uri={mainPhoto}
                   height={heroHeight}
+                  onPressIn={() => registerPhotoViewerTouchIntent(0)}
                   onPress={() => openPhotoViewer(0)}
+                  onAccessibilityActivate={() => openPhotoViewer(0, 'accessibility')}
                 />
               ) : (
                 <RNView style={[s.adaptiveFallback, { height: heroHeight }]}>
@@ -1050,7 +1087,9 @@ export function UserProfileFullView({
                     key={`photo-${i}`}
                     uri={url}
                     height={galleryHeight}
+                    onPressIn={() => registerPhotoViewerTouchIntent(i)}
                     onPress={() => openPhotoViewer(i)}
+                    onAccessibilityActivate={() => openPhotoViewer(i, 'accessibility')}
                     accessibilityLabel={`View photo ${i + 1} of ${photos.length}`}
                   />
                 ))}
@@ -1115,24 +1154,38 @@ export function UserProfileFullView({
               >
                 <Ionicons name="close" size={28} color="#fff" />
               </Pressable>
-              <ScrollView
+              <FlatList
                 ref={photoPagerRef}
+                data={photos}
                 horizontal
                 pagingEnabled
                 showsHorizontalScrollIndicator={false}
                 scrollEnabled={!photoViewerZoomed}
                 keyboardShouldPersistTaps="handled"
-                contentOffset={{ x: activePhotoViewerIndex * winWidth, y: 0 }}
+                initialScrollIndex={activePhotoViewerIndex}
+                initialNumToRender={1}
+                maxToRenderPerBatch={2}
+                windowSize={3}
                 style={s.photoModalPager}
                 contentContainerStyle={{ alignItems: 'center' }}
+                keyExtractor={(url, i) => `pv-${i}-${url}`}
+                getItemLayout={(_, index) => ({
+                  length: winWidth,
+                  offset: winWidth * index,
+                  index,
+                })}
                 onMomentumScrollEnd={handlePhotoPagerMomentumEnd}
-              >
-                {photos.map((url, i) => {
+                onScrollToIndexFailed={(info) => {
+                  requestAnimationFrame(() => {
+                    photoPagerRef.current?.scrollToIndex({ index: info.index, animated: false });
+                  });
+                }}
+                renderItem={({ item: url, index: i }) => {
                   const uri = getImageUrl(url, { width: 1200, quality: 88 });
                   const accessibilityLabel = `Profile photo ${i + 1} of ${photos.length}`;
                   if (i !== activePhotoViewerIndex) {
                     return (
-                      <RNView key={`pv-${i}`} style={[s.photoModalPage, { width: winWidth, height: winHeight }]}>
+                      <RNView style={[s.photoModalPage, { width: winWidth, height: winHeight }]}>
                         <ModalProfilePhotoImage uri={uri} accessibilityLabel={accessibilityLabel} />
                       </RNView>
                     );
@@ -1148,8 +1201,8 @@ export function UserProfileFullView({
                       onZoomChange={setPhotoViewerZoomed}
                     />
                   );
-                })}
-              </ScrollView>
+                }}
+              />
             </RNView>
           </GestureHandlerRootView>
         </Modal>

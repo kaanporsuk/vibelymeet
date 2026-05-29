@@ -1,4 +1,4 @@
-import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { type ReactNode, useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { View, Text, Pressable, StyleSheet, ActivityIndicator, type StyleProp, type ViewStyle } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useAudioPlayer, type AudioStatus } from 'expo-audio';
@@ -10,6 +10,8 @@ import {
   safeRemoveExpoSharedObjectSubscription,
 } from '@/lib/expoSharedObjectSafe';
 import { useMediaAsset } from '@/hooks/useMediaAsset';
+import { ensureVoicePlaybackAudioMode } from '@/lib/safeAudioMode';
+import { endVoicePlayback, startVoicePlayback } from '@/lib/voicePlaybackCoordinator';
 import { waveformHeightsFromSeed } from '../../../../shared/chat/voiceWaveformSeed';
 
 export function formatVoiceDurationClock(seconds: number): string {
@@ -127,6 +129,26 @@ export function VoiceMessagePlayer({
     [player],
   );
 
+  // One-voice-at-a-time: when this player is the active one, the coordinator pauses any
+  // other voice message that was playing.
+  const instanceId = useId();
+  const pauseSelf = useCallback(() => {
+    safeExpoSharedObjectCall(() => player.pause(), {
+      label: 'voice.player.pause.coordinator',
+      swallowAll: true,
+    });
+  }, [player]);
+
+  useEffect(() => {
+    if (playing) {
+      startVoicePlayback({ id: instanceId, pause: pauseSelf });
+    } else {
+      endVoicePlayback(instanceId);
+    }
+  }, [playing, instanceId, pauseSelf]);
+
+  useEffect(() => () => endVoicePlayback(instanceId), [instanceId]);
+
   useEffect(() => {
     setPlayableUri(mediaAssetUrl ?? uri);
     setHasError(false);
@@ -210,6 +232,13 @@ export function VoiceMessagePlayer({
 
   const toggle = async () => {
     const shouldAttemptRefresh = !playing && !hasError && messageId && sourceRef && refreshAttemptedForUriRef.current !== playableUri;
+
+    // Before any playback, force the iOS audio session into a playback-audible mode:
+    // playsInSilentMode (so the ring/silent switch doesn't mute) and allowsRecording=false
+    // (so output isn't stuck on the earpiece after a prior recording).
+    if (!playing) {
+      await ensureVoicePlaybackAudioMode();
+    }
 
     const didCall = safeExpoSharedObjectCall(
       () => {

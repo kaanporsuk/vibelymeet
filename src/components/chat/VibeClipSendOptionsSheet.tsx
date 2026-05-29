@@ -102,7 +102,7 @@ export function VibeClipSendOptionsSheet({
             "border border-white/10 bg-[#111116] px-5 pb-[max(1.5rem,env(safe-area-inset-bottom))] pt-4",
             "shadow-2xl shadow-black/45 outline-none data-[state=open]:animate-in data-[state=closed]:animate-out",
             "data-[state=closed]:slide-out-to-bottom data-[state=open]:slide-in-from-bottom",
-            "sm:left-1/2 sm:right-auto sm:bottom-6 sm:w-[min(34rem,calc(100vw-2rem))] sm:-translate-x-1/2 sm:rounded-[2rem]",
+            "sm:left-1/2 sm:right-auto sm:bottom-6 sm:w-[min(34rem,calc(100svw-2rem))] sm:-translate-x-1/2 sm:rounded-[2rem]",
           )}
           aria-describedby="vibe-clip-send-options-description"
           data-testid="vibe-clip-send-options"

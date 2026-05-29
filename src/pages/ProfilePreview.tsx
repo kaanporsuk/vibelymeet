@@ -14,6 +14,7 @@ const ProfilePreview = () => {
   const [hasFreshPreview, setHasFreshPreview] = useState(false);
   const [freshPreviewFailed, setFreshPreviewFailed] = useState(false);
   const refetchRequestIdRef = useRef(0);
+  const previewProfile = profile?.id === profileId ? profile : null;
 
   const handleClose = () => navigate(-1);
 
@@ -53,7 +54,7 @@ const ProfilePreview = () => {
     );
   }
 
-  if (isLoading || !hasFreshPreview) {
+  if ((isLoading && !previewProfile) || (!hasFreshPreview && !previewProfile)) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-background">
         <Loader2 className="h-8 w-8 animate-spin text-primary" />
@@ -61,14 +62,15 @@ const ProfilePreview = () => {
     );
   }
 
-  if (freshPreviewFailed || !profile) {
+  if (!previewProfile) {
+    const message = freshPreviewFailed
+      ? "Your public profile could not be refreshed right now."
+      : "Your public profile could not be opened right now.";
     return (
       <div className="flex min-h-screen items-center justify-center bg-background p-4">
         <div className="w-full max-w-sm rounded-2xl border border-border bg-card/70 p-6 text-center">
           <p className="text-lg font-semibold text-foreground">Profile preview unavailable</p>
-          <p className="mt-2 text-sm text-muted-foreground">
-            Your public profile could not be opened right now.
-          </p>
+          <p className="mt-2 text-sm text-muted-foreground">{message}</p>
           <Button type="button" onClick={handleClose} className="mt-5">
             Go back
           </Button>
@@ -77,7 +79,7 @@ const ProfilePreview = () => {
     );
   }
 
-  return <OtherUserFullProfileView profile={profile} onClose={handleClose} />;
+  return <OtherUserFullProfileView profile={previewProfile} onClose={handleClose} />;
 };
 
 export default ProfilePreview;

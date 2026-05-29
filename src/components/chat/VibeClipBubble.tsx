@@ -46,7 +46,7 @@ type VideoElementWithWebkitFullscreen = HTMLVideoElement & {
 };
 type VibeClipMediaRefreshReason = "preview" | "initial" | "playback" | "manual";
 
-const CLIP_BUBBLE_WIDTH_CLASS = "w-[min(17.5rem,calc(100vw-4rem))] max-w-full";
+const CLIP_BUBBLE_WIDTH_CLASS = "w-[min(17.5rem,calc(100svw-4rem))] max-w-full";
 const CHAT_VIBE_CLIP_STATUS_SYNC_SAFETY_NET_INTERVAL_MS = 30_000;
 const CLIP_PLAYBACK_LOAD_TIMEOUT_MS = 12_000;
 const MAX_CLIP_PLAYBACK_REFRESH_ATTEMPTS = 1;

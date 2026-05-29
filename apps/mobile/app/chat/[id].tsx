@@ -47,6 +47,7 @@ import {
   requestRecordingPermissionsAsync,
 } from 'expo-audio';
 import { useVideoPlayer, VideoView } from 'expo-video';
+import { ensureVoicePlaybackAudioMode } from '@/lib/safeAudioMode';
 import Colors from '@/constants/Colors';
 import { ErrorState } from '@/components/ui';
 import { useVibelyDialog } from '@/components/VibelyDialog';
@@ -2719,6 +2720,8 @@ export default function ChatThreadScreen() {
     } catch {
       await discardTemporaryVoiceUri(readRecorderUriSafely());
     } finally {
+      // Recording left the session in PlayAndRecord; restore loudspeaker playback mode.
+      void ensureVoicePlaybackAudioMode();
       voiceStopIntentRef.current = null;
       voiceStopInFlightRef.current = false;
     }
@@ -2771,6 +2774,8 @@ export default function ChatThreadScreen() {
         });
       }
     } finally {
+      // Recording left the session in PlayAndRecord; restore loudspeaker playback mode.
+      void ensureVoicePlaybackAudioMode();
       voiceRecordStartedAtRef.current = null;
       voiceStopIntentRef.current = null;
       voiceStopInFlightRef.current = false;

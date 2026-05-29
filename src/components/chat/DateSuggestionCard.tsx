@@ -650,7 +650,7 @@ export function DateSuggestionCard({
     <div
       data-suggestion-id={suggestion.id}
       className={cn(
-        "w-full rounded-xl border px-3 py-2 text-sm shadow-sm transition-all duration-300",
+        "w-full min-w-0 overflow-hidden rounded-xl border px-3 py-2 text-sm shadow-sm transition-all duration-300 break-words [overflow-wrap:anywhere]",
         showCelebration
           ? "border-primary/40 bg-gradient-to-br from-primary/15 to-transparent"
           : "border-border/60 bg-card/80 backdrop-blur-sm",

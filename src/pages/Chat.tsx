@@ -142,10 +142,10 @@ function chatMobileViewportStyleFromVisualViewport(viewport: VisualViewport): CS
     position: "fixed",
     top: `${Math.max(0, viewport.offsetTop)}px`,
     bottom: "auto",
-    left: "0px",
-    right: "0px",
+    left: `${Math.max(0, viewport.offsetLeft)}px`,
+    right: "auto",
     height: `${Math.max(1, viewport.height)}px`,
-    width: "100vw",
+    width: `${Math.max(1, viewport.width)}px`,
   };
 }
 
@@ -619,7 +619,7 @@ function VibeClipMessageRow({
       data-upload-attention-id={uploadAttentionId ?? undefined}
       data-upload-attention-client-request-id={uploadAttentionClientRequestId ?? undefined}
       className={cn(
-        "flex items-end gap-2 transition-[background-color,box-shadow] duration-300",
+        "flex w-full min-w-0 items-end gap-2 transition-[background-color,box-shadow] duration-300",
         isMine ? "justify-end" : "justify-start",
         message.isFirstInGroup ? "mt-2" : "mt-1",
         isUploadAttentionHighlighted && UPLOAD_ATTENTION_HIGHLIGHT_CLASS,
@@ -2645,7 +2645,7 @@ const Chat = () => {
   const hasActiveConversation = Boolean(chatData?.matchId && id && currentUserId);
   const composerMediaLocked = sendingPhoto || isRecordingVideo || isRecording;
   const quickActionButtonClass =
-    "inline-flex h-11 min-h-11 w-full items-center justify-start gap-2 rounded-xl border border-border/35 bg-secondary/35 px-3 text-left text-xs font-medium text-foreground/90 transition-colors hover:bg-secondary/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/45 disabled:pointer-events-none disabled:opacity-45";
+    "inline-flex h-11 min-h-11 w-full min-w-0 items-center justify-start gap-2 overflow-hidden rounded-xl border border-border/35 bg-secondary/35 px-3 text-left text-xs font-medium text-foreground/90 transition-colors hover:bg-secondary/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/45 disabled:pointer-events-none disabled:opacity-45";
 
   const guardActiveConversation = useCallback((message = "No active conversation found") => {
     if (hasActiveConversation) return true;
@@ -2777,12 +2777,12 @@ const Chat = () => {
 
   return (
     <div
-      className="fixed inset-0 h-[100svh] w-screen bg-[#050508] flex justify-center overflow-hidden lg:relative lg:inset-auto lg:w-auto lg:px-4 lg:py-3"
+      className="fixed left-0 top-0 h-[100svh] w-full max-w-[100svw] bg-[#050508] flex justify-center overflow-hidden overflow-x-hidden lg:relative lg:inset-auto lg:w-auto lg:max-w-none lg:px-4 lg:py-3"
       style={mobileKeyboardViewportStyle}
     >
       <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_8%,hsl(var(--primary)/0.11),transparent_34%),linear-gradient(180deg,rgba(255,255,255,0.025),transparent_32%)] pointer-events-none" />
-      <section className="relative z-10 flex h-full w-full max-w-6xl overflow-hidden bg-background/96 shadow-2xl shadow-black/35 ring-1 ring-border/45 lg:rounded-[1.75rem]">
-        <div className="min-w-0 flex flex-1 flex-col">
+      <section className="relative z-10 flex h-full w-full min-w-0 max-w-full overflow-hidden bg-background/96 shadow-2xl shadow-black/35 ring-1 ring-border/45 lg:max-w-6xl lg:rounded-[1.75rem]">
+        <div className="min-w-0 flex flex-1 flex-col overflow-hidden">
 
       <ChatHeader
         user={otherUser}
@@ -2807,7 +2807,7 @@ const Chat = () => {
         onTouchMove={onMainTouchMove}
         onTouchEnd={onMainTouchEnd}
         onTouchCancel={onMainTouchEnd}
-        className="flex-1 overflow-y-auto overscroll-contain px-2 sm:px-3 pt-1.5 pb-5 space-y-0 min-h-0"
+        className="min-w-0 flex-1 overflow-y-auto overflow-x-hidden overscroll-contain px-2 sm:px-3 pt-1.5 pb-5 space-y-0 min-h-0"
         style={{ WebkitOverflowScrolling: "touch", touchAction: "pan-y" }}
         aria-label="Conversation messages"
       >
@@ -2860,7 +2860,7 @@ const Chat = () => {
             </button>
           </motion.div>
         ) : (
-          <div ref={threadContentRef} className="w-full max-w-2xl mx-auto space-y-0 px-0.5 sm:px-0">
+          <div ref={threadContentRef} className="w-full min-w-0 max-w-2xl mx-auto overflow-x-hidden space-y-0 px-0.5 sm:px-0">
             {hasNextPage ? (
               <div className="flex justify-center py-2">
                 <button
@@ -2881,7 +2881,7 @@ const Chat = () => {
                 return (
                   <div
                     key={row.clusterKey}
-                    className={cn("flex justify-center w-full px-1", isFirstInGroup ? "mt-2" : "mt-1")}
+                    className={cn("flex w-full min-w-0 justify-center px-1", isFirstInGroup ? "mt-2" : "mt-1")}
                   >
                     <button
                       type="button"
@@ -2897,7 +2897,7 @@ const Chat = () => {
               }
               if (row.type === "pending_games_collapse") {
                 return (
-                  <div key={`cg-${row.clusterKey}`} className="flex justify-center w-full mt-2 mb-0.5">
+                  <div key={`cg-${row.clusterKey}`} className="flex w-full min-w-0 justify-center mt-2 mb-0.5">
                     <button
                       type="button"
                       className="text-[10px] font-medium text-muted-foreground underline-offset-2 hover:underline"
@@ -2932,12 +2932,12 @@ const Chat = () => {
                 <div
                   key={groupedMessage.id}
                   className={cn(
-                    "flex",
+                    "flex w-full min-w-0",
                     groupedMessage.sender === "me" ? "justify-end" : "justify-start",
                     groupedMessage.isFirstInGroup ? "mt-2" : "mt-1",
                   )}
                 >
-                  <div className="max-w-[min(92%,22rem)] w-full">
+                  <div className="w-full min-w-0 max-w-[min(100%,calc(100svw-1rem),22rem)]">
                     {groupedMessage.refId && suggestionById.get(groupedMessage.refId) ? (
                       <DateSuggestionCard
                         suggestion={suggestionById.get(groupedMessage.refId)!}
@@ -2964,14 +2964,14 @@ const Chat = () => {
                 <div
                   key={groupedMessage.id}
                   className={cn(
-                    "flex",
+                    "flex w-full min-w-0",
                     groupedMessage.sender === "me" ? "justify-end" : "justify-start",
                     groupedMessage.isFirstInGroup ? "mt-2" : "mt-1",
                   )}
                 >
                   <div
                     className={cn(
-                      "max-w-[min(92%,22rem)] w-full overflow-hidden transition-opacity duration-200",
+                      "w-full min-w-0 max-w-[min(100%,calc(100svw-1rem),22rem)] overflow-hidden transition-opacity duration-200",
                       groupedMessage.gameSessionView.status === "complete" && "opacity-[0.9] saturate-[0.92]",
                     )}
                   >
@@ -3077,7 +3077,7 @@ const Chat = () => {
                   data-upload-attention-id={uploadAttentionId ?? undefined}
                   data-upload-attention-client-request-id={uploadAttentionClientRequestId ?? undefined}
                   className={cn(
-                    "flex items-end gap-2 transition-[background-color,box-shadow] duration-300",
+                    "flex w-full min-w-0 items-end gap-2 transition-[background-color,box-shadow] duration-300",
                     groupedMessage.sender === "me" ? "justify-end" : "justify-start",
                     groupedMessage.isFirstInGroup ? "mt-2" : "mt-1",
                     isUploadAttentionHighlighted && UPLOAD_ATTENTION_HIGHLIGHT_CLASS,
@@ -3090,7 +3090,7 @@ const Chat = () => {
                       )}
                     </div>
                   )}
-                  <div>
+                  <div className="min-w-0 max-w-full">
                     <VideoMessageBubble
                       videoUrl={videoUrlForMessage(groupedMessage) ?? groupedMessage.videoUrl!}
                       videoSourceRef={groupedMessage.videoSourceRef}
@@ -3145,7 +3145,7 @@ const Chat = () => {
                     data-upload-attention-id={uploadAttentionId ?? undefined}
                     data-upload-attention-client-request-id={uploadAttentionClientRequestId ?? undefined}
                     className={cn(
-                      "flex items-end gap-2 transition-[background-color,box-shadow] duration-300",
+                      "flex w-full min-w-0 items-end gap-2 transition-[background-color,box-shadow] duration-300",
                       groupedMessage.sender === "me" ? "justify-end" : "justify-start",
                       groupedMessage.isFirstInGroup ? "mt-2" : "mt-1",
                       isUploadAttentionHighlighted && UPLOAD_ATTENTION_HIGHLIGHT_CLASS,
@@ -3158,7 +3158,7 @@ const Chat = () => {
                         )}
                       </div>
                     )}
-                    <div className="max-w-[min(92%,22rem)]">
+                    <div className="min-w-0 max-w-[min(100%,calc(100svw-1rem),22rem)]">
                       <button
                         type="button"
                         className="group relative block w-60 max-w-full cursor-zoom-in rounded-2xl border-0 bg-transparent p-0 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 focus-visible:ring-offset-2 focus-visible:ring-offset-background"
@@ -3253,7 +3253,7 @@ const Chat = () => {
                   data-upload-attention-id={uploadAttentionId ?? undefined}
                   data-upload-attention-client-request-id={uploadAttentionClientRequestId ?? undefined}
                   className={cn(
-                    "flex items-end gap-2 transition-[background-color,box-shadow] duration-300",
+                    "flex w-full min-w-0 items-end gap-2 transition-[background-color,box-shadow] duration-300",
                     groupedMessage.sender === "me" ? "justify-end" : "justify-start",
                     groupedMessage.isFirstInGroup ? "mt-2" : "mt-1",
                     isUploadAttentionHighlighted && UPLOAD_ATTENTION_HIGHLIGHT_CLASS,
@@ -3268,7 +3268,7 @@ const Chat = () => {
                   )}
                   <div
                     className={cn(
-                      "max-w-[min(92%,22rem)] rounded-2xl px-3 py-2",
+                      "min-w-0 max-w-[min(100%,calc(100svw-1rem),22rem)] rounded-2xl px-3 py-2",
                       groupedMessage.sender === "me"
                         ? "bg-gradient-primary text-primary-foreground"
                         : "glass-card border border-border/30 text-foreground",
@@ -3404,7 +3404,7 @@ const Chat = () => {
         />
 
         <div className="px-2 pb-0 pt-0">
-          <div className="max-w-2xl mx-auto flex items-stretch justify-center gap-1">
+          <div className="mx-auto flex w-full max-w-2xl min-w-0 items-stretch justify-center gap-1">
             <motion.button
               type="button"
               whileTap={{ scale: 0.98 }}
@@ -3441,44 +3441,44 @@ const Chat = () => {
               className="px-2 py-1"
             >
               <div
-                className="max-w-2xl mx-auto grid grid-cols-3 gap-1.5 rounded-2xl border border-border/40 bg-background/92 p-1.5 shadow-lg shadow-black/15 backdrop-blur-md"
+                className="mx-auto grid w-full max-w-2xl min-w-0 grid-cols-3 gap-1.5 rounded-2xl border border-border/40 bg-background/92 p-1.5 shadow-lg shadow-black/15 backdrop-blur-md"
                 data-testid="chat-attachment-tray"
               >
                 <button
                   type="button"
                   onClick={openPhotoPicker}
                   disabled={composerMediaLocked || !hasActiveConversation}
-                  className="h-9 rounded-xl bg-secondary/45 text-xs font-medium text-foreground/90 transition-colors hover:bg-secondary/70 disabled:pointer-events-none disabled:opacity-45 inline-flex items-center justify-center gap-1.5"
+                  className="inline-flex h-9 min-w-0 items-center justify-center gap-1.5 overflow-hidden rounded-xl bg-secondary/45 px-1.5 text-xs font-medium text-foreground/90 transition-colors hover:bg-secondary/70 disabled:pointer-events-none disabled:opacity-45"
                   aria-label="Add photo"
                   title="Add photo"
                   data-testid="chat-add-photo"
                 >
-                  {sendingPhoto ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Camera className="h-3.5 w-3.5" />}
-                  Photo
+                  {sendingPhoto ? <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" /> : <Camera className="h-3.5 w-3.5 shrink-0" />}
+                  <span className="truncate">Photo</span>
                 </button>
                 <button
                   type="button"
                   onClick={openVibeClipOptions}
                   disabled={composerMediaLocked || !hasActiveConversation}
-                  className="h-9 rounded-xl bg-violet-500/14 text-xs font-medium text-violet-100 transition-colors hover:bg-violet-500/24 disabled:pointer-events-none disabled:opacity-45 inline-flex items-center justify-center gap-1.5"
+                  className="inline-flex h-9 min-w-0 items-center justify-center gap-1.5 overflow-hidden rounded-xl bg-violet-500/14 px-1.5 text-xs font-medium text-violet-100 transition-colors hover:bg-violet-500/24 disabled:pointer-events-none disabled:opacity-45"
                   aria-label={VIBE_CLIP_CHAT_FILM_BUTTON_TITLE}
                   title={VIBE_CLIP_CHAT_FILM_BUTTON_TITLE}
                   data-testid="chat-add-vibe-clip"
                 >
-                  <Film className="h-3.5 w-3.5" />
-                  Clip
+                  <Film className="h-3.5 w-3.5 shrink-0" />
+                  <span className="truncate">Clip</span>
                 </button>
                 <button
                   type="button"
                   onClick={openScheduleShare}
                   disabled={!hasActiveConversation}
-                  className="h-9 rounded-xl bg-secondary/45 text-xs font-medium text-foreground/90 transition-colors hover:bg-secondary/70 disabled:pointer-events-none disabled:opacity-45 inline-flex items-center justify-center gap-1.5"
+                  className="inline-flex h-9 min-w-0 items-center justify-center gap-1.5 overflow-hidden rounded-xl bg-secondary/45 px-1.5 text-xs font-medium text-foreground/90 transition-colors hover:bg-secondary/70 disabled:pointer-events-none disabled:opacity-45"
                   aria-label="Vibely schedule"
                   title="Vibely schedule"
                   data-testid="chat-share-schedule"
                 >
-                  <CalendarDays className="h-3.5 w-3.5 text-cyan-300" />
-                  Schedule
+                  <CalendarDays className="h-3.5 w-3.5 shrink-0 text-cyan-300" />
+                  <span className="truncate">Schedule</span>
                 </button>
               </div>
             </motion.div>
@@ -3496,7 +3496,7 @@ const Chat = () => {
             tabIndex={-1}
             onChange={handlePhotoFileChange}
           />
-          <div className="flex items-end gap-1 max-w-2xl mx-auto">
+          <div className="mx-auto flex w-full max-w-2xl min-w-0 items-end gap-1">
             {/* Action buttons */}
             <div className="flex items-center gap-0.5 shrink-0">
               <motion.button
@@ -3533,7 +3533,7 @@ const Chat = () => {
                 aria-label="Message"
                 title={hasActiveConversation ? "Message" : "No active conversation"}
                 rows={1}
-                className="block box-border w-full min-h-10 text-[15px] leading-5 px-3 py-[9px] rounded-[20px] border border-border/45 bg-background/55 text-foreground placeholder:text-muted-foreground/55 placeholder:font-normal resize-none overflow-y-auto focus:outline-none focus:ring-2 focus:ring-primary/40 focus:border-primary/30 transition-all max-h-32 disabled:opacity-55"
+                className="block box-border w-full min-h-10 text-base leading-5 px-3 py-[9px] rounded-[20px] border border-border/45 bg-background/55 text-foreground placeholder:text-muted-foreground/55 placeholder:font-normal resize-none overflow-y-auto focus:outline-none focus:ring-2 focus:ring-primary/40 focus:border-primary/30 transition-all max-h-32 disabled:opacity-55"
                 style={{
                   height: "auto",
                 }}
@@ -3731,7 +3731,7 @@ const Chat = () => {
                       title="Voice Note"
                     >
                       <Loader2 className="h-4 w-4 shrink-0 animate-spin" aria-hidden />
-                      <span className="whitespace-nowrap">Voice Note</span>
+                      <span className="truncate">Voice Note</span>
                     </button>
                   }
                 >
@@ -3755,7 +3755,7 @@ const Chat = () => {
                   title="Schedule"
                 >
                   <CalendarDays className="h-4 w-4 shrink-0 text-neon-cyan" aria-hidden />
-                  <span className="whitespace-nowrap">Schedule</span>
+                  <span className="truncate">Schedule</span>
                 </button>
               </div>
             </div>

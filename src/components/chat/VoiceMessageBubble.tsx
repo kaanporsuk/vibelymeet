@@ -3,6 +3,7 @@ import { Play, Pause, Loader2, AlertCircle } from "lucide-react";
 import { motion } from "framer-motion";
 import { cn } from "@/lib/utils";
 import { useMediaAsset } from "@/hooks/useMediaAsset";
+import { isPlayableMediaAssetUrl } from "@/lib/mediaAssetResolver";
 import { usePrefersReducedMotion } from "@/hooks/usePrefersReducedMotion";
 import { waveformHeightsFromSeed } from "../../../shared/chat/voiceWaveformSeed";
 
@@ -28,8 +29,8 @@ export const VoiceMessageBubble = ({
   const [isLoading, setIsLoading] = useState(false);
   const [hasError, setHasError] = useState(false);
   const audioRef = useRef<HTMLAudioElement | null>(null);
-  const pendingAutoplayRef = useRef(false);
   const refreshAttemptedForUrlRef = useRef<string | null>(null);
+  const proactiveResolveDoneRef = useRef(false);
   const prefersReducedMotion = usePrefersReducedMotion();
   const { url: mediaAssetUrl, refresh: refreshMediaAsset } = useMediaAsset({
     kind: "voice",
@@ -63,6 +64,18 @@ export const VoiceMessageBubble = ({
     setPlayableUrl(freshUrl);
     return freshUrl;
   }, [audioSourceRef, messageId, refreshMediaAsset]);
+
+  // Proactively resolve a fresh, playable URL on mount when the message only carries a
+  // durable storage ref (or a non-playable value). This ensures the first tap already has a
+  // valid src, so play() succeeds inside the gesture on iOS without a refresh-then-retry.
+  useEffect(() => {
+    if (proactiveResolveDoneRef.current) return;
+    if (!messageId || !audioSourceRef) return;
+    const candidate = mediaAssetUrl ?? audioUrl;
+    if (candidate && isPlayableMediaAssetUrl(candidate)) return;
+    proactiveResolveDoneRef.current = true;
+    void refreshAudioUrl();
+  }, [messageId, audioSourceRef, mediaAssetUrl, audioUrl, refreshAudioUrl]);
 
   // Create and configure audio element
   useEffect(() => {
@@ -131,21 +144,6 @@ export const VoiceMessageBubble = ({
     audio.addEventListener("loadedmetadata", onLoadedMetadata);
     audio.addEventListener("ended", onEnded);
 
-    if (pendingAutoplayRef.current) {
-      pendingAutoplayRef.current = false;
-      setIsLoading(true);
-      void audio.play()
-        .then(() => {
-          setIsPlaying(true);
-          setIsLoading(false);
-          setHasError(false);
-        })
-        .catch(() => {
-          setIsLoading(false);
-          setHasError(true);
-        });
-    }
-
     return () => {
       audio.removeEventListener("canplay", onCanPlay);
       audio.removeEventListener("canplaythrough", onCanPlay);
@@ -160,68 +158,57 @@ export const VoiceMessageBubble = ({
     };
   }, [audioSourceRef, messageId, playableUrl, refreshAudioUrl]);
 
-  const playCurrentAudio = useCallback(async () => {
-    if (!audioRef.current) throw new Error("audio_unavailable");
-    await audioRef.current.play();
-    setIsPlaying(true);
-    setIsLoading(false);
-    setHasError(false);
-  }, []);
-
-  const refreshAndPlay = useCallback(async (fallbackToCurrentAudio: boolean): Promise<boolean> => {
-    setHasError(false);
+  const playSync = useCallback(() => {
+    const audio = audioRef.current;
+    if (!audio) {
+      setHasError(true);
+      return;
+    }
     setIsLoading(true);
-    pendingAutoplayRef.current = true;
-    const freshUrl = await refreshAudioUrl();
-
-    if (freshUrl && freshUrl !== playableUrl) {
-      refreshAttemptedForUrlRef.current = playableUrl ?? null;
-      return true;
-    }
-
-    pendingAutoplayRef.current = false;
-    if (!freshUrl && !fallbackToCurrentAudio) {
-      setIsLoading(false);
-      setHasError(true);
-      return false;
-    }
-
-    try {
-      if (!freshUrl) audioRef.current?.load();
-      await playCurrentAudio();
-      return true;
-    } catch {
-      setIsLoading(false);
-      setHasError(true);
-      return false;
-    }
-  }, [playCurrentAudio, playableUrl, refreshAudioUrl]);
-
-  const togglePlay = useCallback(async () => {
-    if (!audioRef.current) return;
-
-    if (isPlaying) {
-      audioRef.current.pause();
-      setIsPlaying(false);
-    } else {
-      setIsLoading(true);
-      setHasError(false);
-      try {
-        await playCurrentAudio();
-      } catch {
+    setHasError(false);
+    // play() is invoked synchronously inside the user's tap so iOS Safari treats it as a
+    // trusted gesture. We never re-issue play() after an async refresh (that would run
+    // outside the gesture and iOS blocks it); instead we refresh the URL and let the next
+    // tap play the rebuilt element within a fresh gesture.
+    void audio
+      .play()
+      .then(() => {
+        setIsPlaying(true);
+        setIsLoading(false);
+        setHasError(false);
+      })
+      .catch(() => {
+        setIsLoading(false);
+        setIsPlaying(false);
         if (audioSourceRef && messageId && refreshAttemptedForUrlRef.current !== playableUrl) {
-          await refreshAndPlay(false);
+          refreshAttemptedForUrlRef.current = playableUrl ?? null;
+          void refreshAudioUrl()
+            .then((freshUrl) => {
+              if (!freshUrl) setHasError(true);
+            })
+            .catch(() => setHasError(true));
           return;
         }
-        setIsLoading(false);
         setHasError(true);
-      }
-    }
-  }, [audioSourceRef, isPlaying, messageId, playableUrl, playCurrentAudio, refreshAndPlay]);
+      });
+  }, [audioSourceRef, messageId, playableUrl, refreshAudioUrl]);
 
-  const retry = useCallback(async () => {
-    await refreshAndPlay(true);
-  }, [refreshAndPlay]);
+  const togglePlay = useCallback(() => {
+    const audio = audioRef.current;
+    if (!audio) return;
+    if (isPlaying) {
+      audio.pause();
+      setIsPlaying(false);
+      return;
+    }
+    playSync();
+  }, [isPlaying, playSync]);
+
+  const handlePress = useCallback(() => {
+    // A manual tap after an error is allowed to retry the URL refresh again.
+    if (hasError) refreshAttemptedForUrlRef.current = null;
+    togglePlay();
+  }, [hasError, togglePlay]);
 
   const formatDuration = (s: number) => {
     const totalSecs = Math.round(s);
@@ -241,11 +228,11 @@ export const VoiceMessageBubble = ({
   })();
 
   return (
-    <div className="flex items-center gap-1.5 min-w-[140px] w-full max-w-[min(18rem,100%)]">
+    <div className="flex min-w-0 w-full max-w-[min(18rem,100%)] items-center gap-1.5 sm:min-w-[140px]">
       {/* Play/Pause button */}
       <motion.button
         whileTap={prefersReducedMotion ? undefined : { scale: 0.94 }}
-        onClick={hasError ? retry : togglePlay}
+        onClick={handlePress}
         className={cn(
           "w-8 h-8 rounded-full flex items-center justify-center shrink-0 ring-1 shadow-sm",
           !prefersReducedMotion && "transition-all duration-200",

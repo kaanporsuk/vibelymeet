@@ -246,7 +246,7 @@ export function ChatPhotoLightbox({ items, initialId, onClose, onRefreshItem }: 
         >
           <div
             className={cn(
-              "relative flex max-h-[min(88dvh,880px)] max-w-[min(96vw,1200px)] items-center justify-center",
+              "relative flex max-h-[min(88dvh,880px)] max-w-[min(96svw,1200px)] items-center justify-center",
               canPan && "touch-none",
             )}
             style={{
@@ -282,7 +282,7 @@ export function ChatPhotoLightbox({ items, initialId, onClose, onRefreshItem }: 
               initial={prefersReducedMotion ? false : { opacity: 0, scale: 0.94 }}
               animate={{ opacity: 1, scale: 1 }}
               transition={{ duration: prefersReducedMotion ? 0 : 0.2, ease: [0.22, 1, 0.36, 1] }}
-              className="max-h-[min(88dvh,880px)] max-w-[min(96vw,1200px)] select-none object-contain"
+              className="max-h-[min(88dvh,880px)] max-w-[min(96svw,1200px)] select-none object-contain"
             />
           </div>
         </motion.div>
