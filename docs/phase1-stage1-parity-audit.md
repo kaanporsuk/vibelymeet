@@ -16,7 +16,7 @@
 | **Cards / glass** | `src/index.css` (`.glass-card`), ad-hoc `glass-card` + `rounded-2xl` in pages | `apps/mobile/components/ui.tsx` → `Card`, `GlassSurface` |
 | **Inputs** | Tailwind `border-input`, `rounded-xl`/`rounded-2xl`, `h-12`/`h-14` in forms | `apps/mobile/components/ui.tsx` → `VibelyInput`, `inputStyles` |
 | **Screen shell / headers** | Sticky `glass-card border-b` headers in Dashboard, Matches, Settings, etc. | `ScreenContainer`, `ScreenHeader`, `GlassSurface` in screens |
-| **Tab bar** | `src/components/BottomNav.tsx` (web) | `apps/mobile/app/(tabs)/_layout.tsx` (Tabs) |
+| **Tab bar** | `src/components/navigation/BottomNav.tsx` (web) | `apps/mobile/app/(tabs)/_layout.tsx` (Tabs) |
 | **Empty / loading / error** | `EmptyMatchesState`, ad-hoc loading/error UIs | `EmptyState`, `LoadingState`, `ErrorState` in ui.tsx |
 | **Rows** | Ad-hoc list rows, settings-like rows | `SettingsRow`, `MatchListRow`, `DestructiveRow` |
 | **Avatars** | `ProfilePhoto`, `EventCover` in `src/components/ui/ProfilePhoto.tsx` etc. | `Avatar` in ui.tsx |

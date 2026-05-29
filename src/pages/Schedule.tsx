@@ -9,7 +9,7 @@ import { DateReminderCard } from "@/components/schedule/DateReminderCard";
 import { ChooseSharedBlockSheet, type OfferedBlock } from "@/components/chat/ChooseSharedBlockSheet";
 import { ExactTimePinSheet } from "@/components/chat/ExactTimePinSheet";
 import { PushSetupButton, PushSetupFlow } from "@/components/notifications/PushSetupFlow";
-import { BottomNav } from "@/components/BottomNav";
+import { BottomNav } from "@/components/navigation/BottomNav";
 import { useSchedule } from "@/hooks/useSchedule";
 import { useDateReminders } from "@/hooks/useDateReminders";
 import { useScheduleHub } from "@/hooks/useScheduleHub";

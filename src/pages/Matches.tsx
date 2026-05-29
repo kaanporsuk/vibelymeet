@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import { motion, AnimatePresence } from "framer-motion";
 import { Search, SlidersHorizontal, MessageCircle, Droplet, X } from "lucide-react";
-import { BottomNav } from "@/components/BottomNav";
+import { BottomNav } from "@/components/navigation/BottomNav";
 import { NewVibesRail } from "@/components/NewVibesRail";
 import { SwipeableMatchCard } from "@/components/SwipeableMatchCard";
 import { EmptyMatchesState } from "@/components/EmptyMatchesState";

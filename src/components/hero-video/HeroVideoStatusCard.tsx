@@ -46,6 +46,8 @@ interface HeroVideoStatusCardProps {
   className?: string;
 }
 
+const HERO_VIDEO_STATUS_CARD_BASE_CLASS = "max-w-full min-w-0 overflow-hidden rounded-2xl bg-white/5";
+
 function LocalPreviewPanel({ src, label }: { src: string | null; label: string }) {
   if (!src) return null;
   return (
@@ -134,7 +136,7 @@ export function HeroVideoStatusCard({
     const info = effectiveReadyInfo;
     const isPlayable = info.canPlay && !!info.playbackUrl;
     return (
-      <div className={cn("rounded-2xl overflow-hidden bg-white/5 border border-white/10", className)}>
+      <div className={cn(HERO_VIDEO_STATUS_CARD_BASE_CLASS, "border border-white/10", className)}>
         <div
           className={cn(
             "relative w-full",
@@ -187,26 +189,26 @@ export function HeroVideoStatusCard({
         </div>
 
         {!isPlayable && (
-          <div className="px-4 py-3 border-t border-amber-500/20 bg-amber-500/5">
-            <p className="text-sm font-semibold text-amber-100">
+          <div className="min-w-0 overflow-hidden px-4 py-3 border-t border-amber-500/20 bg-amber-500/5">
+            <p className="break-words text-sm font-semibold text-amber-100">
               Video saved, playback needs attention
             </p>
-            <p className="text-xs text-gray-400 mt-1 leading-relaxed">
+            <p className="mt-1 break-words text-xs leading-relaxed text-gray-400">
               Your Vibe Video is still saved, but playback is not available right now. Try again later or replace it.
             </p>
           </div>
         )}
 
         {info.caption && (
-          <div className="px-4 py-3 border-t border-white/10">
+          <div className="min-w-0 overflow-hidden px-4 py-3 border-t border-white/10">
             <p className="text-[10px] font-semibold uppercase tracking-widest text-violet-400 mb-0.5">
               Vibing on
             </p>
-            <p className="text-sm text-white font-medium">{info.caption}</p>
+            <p className="break-words text-sm font-medium text-white">{info.caption}</p>
           </div>
         )}
 
-        <div className="px-4 py-3 border-t border-white/8 flex items-center justify-between">
+        <div className="flex min-w-0 items-center justify-between gap-3 overflow-hidden px-4 py-3 border-t border-white/8">
           <button
             type="button"
             onClick={onOpenRecorder}
@@ -232,13 +234,13 @@ export function HeroVideoStatusCard({
   if (effectivePhase === "uploading") {
     const copy = vibeVideoUploadingCopy(ctrl.uploadProgress);
     return (
-      <div className={cn("rounded-2xl bg-white/5 border border-cyan-500/25 p-5", className)}>
+      <div className={cn(HERO_VIDEO_STATUS_CARD_BASE_CLASS, "border border-cyan-500/25 p-5", className)}>
         <LocalPreviewPanel src={ctrl.pendingLocalPreviewUrl} label="Local Vibe Video upload preview" />
         <div className="flex items-start gap-3 mb-3">
           <Loader2 className="w-5 h-5 text-cyan-300 animate-spin flex-shrink-0 mt-0.5" />
           <div className="min-w-0">
-            <p className="text-sm font-semibold text-white">{copy.title}</p>
-            <p className="text-xs text-gray-400 mt-0.5">
+            <p className="break-words text-sm font-semibold text-white">{copy.title}</p>
+            <p className="mt-0.5 break-words text-xs text-gray-400">
               {ctrl.uploadProgress > 0
                 ? `${ctrl.uploadProgress}% uploaded`
                 : copy.detail ?? "Starting upload"}
@@ -255,7 +257,7 @@ export function HeroVideoStatusCard({
           </div>
         )}
 
-        <p className="text-xs text-gray-500 mt-3 leading-relaxed">
+        <p className="mt-3 break-words text-xs leading-relaxed text-gray-500">
           {copy.description}
         </p>
       </div>
@@ -266,18 +268,18 @@ export function HeroVideoStatusCard({
   if (effectivePhase === "processing") {
     const copy = vibeVideoProcessingCopy(false);
     return (
-      <div className={cn("rounded-2xl bg-white/5 border border-violet-500/25 p-5", className)}>
+      <div className={cn(HERO_VIDEO_STATUS_CARD_BASE_CLASS, "border border-violet-500/25 p-5", className)}>
         <LocalPreviewPanel src={ctrl.pendingLocalPreviewUrl} label="Local Vibe Video processing preview" />
         <div className="flex items-start gap-3 mb-2">
           <Loader2 className="w-5 h-5 text-violet-300 animate-spin flex-shrink-0 mt-0.5" />
-          <div>
-            <p className="text-sm font-semibold text-white">{copy.title}</p>
-            <p className="text-xs text-gray-400 mt-0.5">
+          <div className="min-w-0">
+            <p className="break-words text-sm font-semibold text-white">{copy.title}</p>
+            <p className="mt-0.5 break-words text-xs text-gray-400">
               {copy.description}
             </p>
           </div>
         </div>
-        <p className="text-xs text-gray-500 mt-2 leading-relaxed">
+        <p className="mt-2 break-words text-xs leading-relaxed text-gray-500">
           You can leave this page. Processing continues on our servers.
         </p>
         {onRefresh ? (
@@ -298,11 +300,11 @@ export function HeroVideoStatusCard({
   if (effectivePhase === "failed") {
     const copy = vibeVideoFailedCopy(ctrl.phase === "failed" ? ctrl.errorMessage : null);
     return (
-      <div className={cn("rounded-2xl bg-white/5 border border-red-500/20 p-5", className)}>
+      <div className={cn(HERO_VIDEO_STATUS_CARD_BASE_CLASS, "border border-red-500/20 p-5", className)}>
         <div className="flex items-start gap-3 mb-3">
           <AlertCircle className="w-5 h-5 text-red-400 flex-shrink-0 mt-0.5" />
           <div className="min-w-0">
-            <p className="text-sm font-semibold text-white">{copy.title}</p>
+            <p className="break-words text-sm font-semibold text-white">{copy.title}</p>
             <p className="text-xs text-gray-400 mt-0.5 break-words">
               {copy.description}
             </p>
@@ -324,12 +326,12 @@ export function HeroVideoStatusCard({
   if (effectivePhase === "stalled") {
     const copy = vibeVideoStalledCopy(ctrl.errorMessage);
     return (
-      <div className={cn("rounded-2xl bg-white/5 border border-amber-500/25 p-5", className)}>
+      <div className={cn(HERO_VIDEO_STATUS_CARD_BASE_CLASS, "border border-amber-500/25 p-5", className)}>
         <LocalPreviewPanel src={ctrl.pendingLocalPreviewUrl} label="Local Vibe Video delayed processing preview" />
         <div className="flex items-start gap-3 mb-3">
           <AlertCircle className="w-5 h-5 text-amber-300 flex-shrink-0 mt-0.5" />
           <div className="min-w-0">
-            <p className="text-sm font-semibold text-white">{copy.title}</p>
+            <p className="break-words text-sm font-semibold text-white">{copy.title}</p>
             <p className="text-xs text-gray-400 mt-0.5 break-words">
               {copy.description}
             </p>
@@ -352,18 +354,18 @@ export function HeroVideoStatusCard({
     const isStale = backendInfo.state === "stale_processing";
     const copy = vibeVideoProcessingCopy(isStale);
     return (
-      <div className={cn("rounded-2xl bg-white/5 border border-violet-500/20 p-5", isStale && "border-amber-500/25", className)}>
+      <div className={cn(HERO_VIDEO_STATUS_CARD_BASE_CLASS, "border border-violet-500/20 p-5", isStale && "border-amber-500/25", className)}>
         <div className="flex items-start gap-3">
           {isStale ? (
             <AlertCircle className="w-5 h-5 text-amber-300 flex-shrink-0 mt-0.5" />
           ) : (
             <Loader2 className="w-5 h-5 text-violet-300 animate-spin flex-shrink-0 mt-0.5" />
           )}
-          <div>
-            <p className="text-sm font-semibold text-white">
+          <div className="min-w-0">
+            <p className="break-words text-sm font-semibold text-white">
               {copy.title}
             </p>
-            <p className="text-xs text-gray-400 mt-0.5">
+            <p className="mt-0.5 break-words text-xs text-gray-400">
               {copy.description}
             </p>
           </div>
@@ -395,12 +397,12 @@ export function HeroVideoStatusCard({
   // ── Backend inconsistency / resolver error ─────────────────────────────────
   if (backendInfo.state === "error") {
     return (
-      <div className={cn("rounded-2xl bg-white/5 border border-amber-500/25 p-5", className)}>
+      <div className={cn(HERO_VIDEO_STATUS_CARD_BASE_CLASS, "border border-amber-500/25 p-5", className)}>
         <div className="flex items-start gap-3 mb-3">
           <AlertCircle className="w-5 h-5 text-amber-300 flex-shrink-0 mt-0.5" />
           <div className="min-w-0">
-            <p className="text-sm font-semibold text-white">Vibe Video needs attention</p>
-            <p className="text-xs text-gray-400 mt-0.5 leading-relaxed">
+            <p className="break-words text-sm font-semibold text-white">Vibe Video needs attention</p>
+            <p className="mt-0.5 break-words text-xs leading-relaxed text-gray-400">
               We found video status without the video ID needed for playback. You did nothing wrong; record again to repair it.
             </p>
           </div>
@@ -421,7 +423,8 @@ export function HeroVideoStatusCard({
   return (
     <div
       className={cn(
-        "rounded-2xl bg-white/5 border border-white/10 border-dashed p-6 flex flex-col items-center text-center gap-4",
+        HERO_VIDEO_STATUS_CARD_BASE_CLASS,
+        "border border-white/10 border-dashed p-6 flex flex-col items-center text-center gap-4",
         className,
       )}
     >
@@ -429,8 +432,8 @@ export function HeroVideoStatusCard({
         <Video className="w-5 h-5 text-violet-300" />
       </div>
       <div>
-        <p className="text-sm font-semibold text-white">No Vibe Video yet</p>
-        <p className="text-xs text-gray-400 mt-1 max-w-xs leading-relaxed">
+        <p className="break-words text-sm font-semibold text-white">No Vibe Video yet</p>
+        <p className="mt-1 max-w-xs break-words text-xs leading-relaxed text-gray-400">
           Give people a feel for your energy before the first chat.
         </p>
       </div>

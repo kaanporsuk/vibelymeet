@@ -31,7 +31,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { persistPhotos } from "@/services/storageService";
 import { fetchMyProfileSettings } from "@/services/myProfileSettings";
-import { BottomNav } from "@/components/BottomNav";
+import { BottomNav } from "@/components/navigation/BottomNav";
 import { PhotoPreviewModal } from "@/components/PhotoPreviewModal";
 import { PhotoManager } from "@/components/PhotoManager";
 import { VibeTagSelector } from "@/components/VibeTagSelector";
@@ -216,7 +216,8 @@ const PROFILE_STUDIO_BIO_DRAWER_PROPS = {
   fixed: true,
   repositionInputs: false,
 } as const;
-const PROFILE_STUDIO_DRAWER_CONTENT_CLASS = "max-h-[88dvh] w-full max-w-[100svw] overflow-hidden";
+const PROFILE_STUDIO_DRAWER_CONTENT_CLASS =
+  "max-h-[88dvh] w-full max-w-full supports-[width:100dvw]:max-w-[100dvw] overflow-hidden";
 const PROFILE_STUDIO_DRAWER_BODY_CLASS =
   "min-h-0 flex-1 overflow-y-auto overflow-x-hidden px-4 pb-[max(1rem,env(safe-area-inset-bottom))]";
 const PROFILE_STUDIO_DRAWER_FOOTER_CLASS = "shrink-0 pb-[max(1rem,env(safe-area-inset-bottom))]";
@@ -1373,7 +1374,7 @@ const ProfileStudio = () => {
 
   if (isLoading || (!!profileUser?.id && !!profile.id && !profileBelongsToCurrentUser)) {
     return (
-      <div className="min-h-screen w-full max-w-[100svw] overflow-x-hidden bg-background flex items-center justify-center">
+      <div className="min-h-screen w-full max-w-full supports-[width:100dvw]:max-w-[100dvw] overflow-x-hidden bg-background flex items-center justify-center">
         <Loader2 className="w-8 h-8 animate-spin text-primary" />
       </div>
     );
@@ -1398,12 +1399,12 @@ const ProfileStudio = () => {
   // ── Render ────────────────────────────────────────────────────
 
   return (
-    <div className="min-h-screen w-full max-w-[100svw] overflow-x-hidden bg-background pb-[100px]">
+    <div className="min-h-screen w-full max-w-full supports-[width:100dvw]:max-w-[100dvw] overflow-x-hidden bg-background pb-[100px]">
       <div className="mx-auto w-full max-w-lg min-w-0 overflow-x-hidden px-4">
 
         {/* ═══ Section 1: Cinematic hero (compact on mobile, roomier on md+) ═══ */}
-        <div className="relative -mx-4 mb-0">
-          <div className="h-[120px] md:h-[148px] bg-gradient-to-br from-violet-600 via-fuchsia-600 to-pink-600 rounded-b-[1.25rem] md:rounded-b-3xl px-4 pt-2 md:pt-3 flex flex-row justify-between items-start">
+        <div className="relative -mx-4 mb-0 max-w-[calc(100%_+_2rem)] overflow-x-hidden">
+          <div className="h-[120px] md:h-[148px] max-w-full min-w-0 overflow-hidden bg-gradient-to-br from-violet-600 via-fuchsia-600 to-pink-600 rounded-b-[1.25rem] md:rounded-b-3xl px-4 pt-2 md:pt-3 flex flex-row justify-between items-start">
             <button
               type="button"
               onClick={() => navigate("/profile/preview")}
@@ -1456,10 +1457,10 @@ const ProfileStudio = () => {
             ref={(el) => {
               sectionRefs.current.hero = el;
             }}
-            className="text-center px-4 pt-2 md:pt-3 pb-1"
+            className="max-w-full min-w-0 overflow-hidden text-center px-4 pt-2 md:pt-3 pb-1"
           >
             <div className="flex items-center justify-center gap-1.5 flex-wrap">
-              <h1 className="text-[22px] md:text-2xl font-display font-bold text-white">
+              <h1 className="max-w-full break-words text-[22px] md:text-2xl font-display font-bold text-white">
                 {profile.name}
                 {profile.age != null ? `, ${profile.age}` : ""}
               </h1>
@@ -1483,20 +1484,20 @@ const ProfileStudio = () => {
             <button
               type="button"
               onClick={() => openDrawer("tagline")}
-              className="mt-1 flex w-full items-center justify-center gap-1.5 text-[13px] md:text-sm text-violet-300/90 italic line-clamp-2 hover:opacity-90"
+              className="mt-1 flex w-full max-w-full min-w-0 items-center justify-center gap-1.5 overflow-hidden text-[13px] md:text-sm text-violet-300/90 italic line-clamp-2 hover:opacity-90"
             >
-              <span>{profile.tagline?.trim() ? `“${profile.tagline.trim()}”` : "Add a tagline"}</span>
+              <span className="min-w-0 truncate">{profile.tagline?.trim() ? `“${profile.tagline.trim()}”` : "Add a tagline"}</span>
               <Pencil className="h-3.5 w-3.5 shrink-0 text-violet-400" />
             </button>
-            <p className="text-xs md:text-[13px] text-gray-400 mt-1 flex items-center justify-center gap-1">
+            <p className="mx-auto mt-1 flex max-w-full min-w-0 items-center justify-center gap-1 overflow-hidden text-xs text-gray-400 md:text-[13px]">
               <MapPin className="w-3 h-3 shrink-0" />
-              <span className="truncate">{profile.location || "Location not set"}</span>
+              <span className="min-w-0 truncate">{profile.location || "Location not set"}</span>
             </p>
           </div>
         </div>
 
         {/* Preview | Vibe Score circle | Complete Profile (native row) */}
-        <div className="mt-3 md:mt-4 flex flex-row items-center justify-between gap-2 px-0.5">
+        <div className="mt-3 md:mt-4 flex w-full max-w-full min-w-0 flex-row items-center justify-between gap-2 overflow-hidden px-0.5">
           <button
             type="button"
             onClick={() => navigate("/profile/preview")}
@@ -1533,12 +1534,12 @@ const ProfileStudio = () => {
         <button
           type="button"
           onClick={() => navigate("/schedule")}
-          className="w-full mt-2 md:mt-3 flex items-center gap-2.5 py-3 px-3.5 rounded-2xl border border-white/10 bg-white/5 text-left"
+          className="mt-2 flex w-full max-w-full min-w-0 items-center gap-2.5 overflow-hidden rounded-2xl border border-white/10 bg-white/5 px-3.5 py-3 text-left md:mt-3"
         >
           <CalendarDays className="w-4 h-4 text-primary shrink-0" />
           <div className="flex-1 min-w-0">
             <p className="text-sm font-semibold text-white">My Vibe Schedule</p>
-            <p className="text-xs text-gray-400 mt-0.5">
+            <p className="mt-0.5 truncate text-xs text-gray-400">
               {scheduleStatus.label === "No schedule set" ? "Set when you're open for dates" : scheduleStatus.label}
             </p>
           </div>
@@ -1547,7 +1548,7 @@ const ProfileStudio = () => {
         </button>
 
         {/* Counters */}
-        <div className="grid grid-cols-3 gap-2 mt-2 md:mt-2.5 mb-3 md:mb-4">
+        <div className="grid w-full max-w-full min-w-0 grid-cols-3 gap-2 overflow-hidden mt-2 md:mt-2.5 mb-3 md:mb-4">
           {(
             [
               { label: "Events", value: profileDisplayStats.events },
@@ -1557,10 +1558,10 @@ const ProfileStudio = () => {
           ).map((stat) => (
             <div
               key={stat.label}
-              className="rounded-xl border border-white/10 bg-white/5 py-2.5 md:py-3 flex flex-col items-center"
+              className="min-w-0 overflow-hidden rounded-xl border border-white/10 bg-white/5 py-2.5 md:py-3 flex flex-col items-center"
             >
-              <span className="text-xl md:text-[22px] font-display font-bold text-white">{stat.value}</span>
-              <span className="text-[11px] text-gray-400 font-medium mt-0.5">{stat.label}</span>
+              <span className="max-w-full truncate text-xl md:text-[22px] font-display font-bold text-white">{stat.value}</span>
+              <span className="mt-0.5 max-w-full truncate text-[11px] font-medium text-gray-400">{stat.label}</span>
             </div>
           ))}
         </div>
@@ -1581,11 +1582,11 @@ const ProfileStudio = () => {
         </div>
 
         {/* ═══ Section 4: Vibe Video Module ═══ */}
-        <div ref={(el) => { sectionRefs.current["video"] = el; }} className="mb-6">
-          <div className="mb-3 flex items-center justify-between gap-2">
-            <div className="flex items-center gap-2">
+        <div ref={(el) => { sectionRefs.current["video"] = el; }} className="mb-6 max-w-full min-w-0 overflow-hidden">
+          <div className="mb-3 flex max-w-full min-w-0 items-center justify-between gap-2">
+            <div className="flex min-w-0 items-center gap-2">
               <Video className="h-[18px] w-[18px] text-primary" />
-              <h3 className="text-base font-display font-semibold text-white">Vibe Video</h3>
+              <h3 className="truncate text-base font-display font-semibold text-white">Vibe Video</h3>
             </div>
             {canManageVibeVideo ? (
               <button
@@ -1606,21 +1607,22 @@ const ProfileStudio = () => {
               setProfileRefreshKey((k) => k + 1);
               heroVideoResumePollingForProfile(effectiveVibeVideo, { source: "manual_refresh" });
             }}
+            className="max-w-full min-w-0 overflow-hidden"
           />
         </div>
 
         {/* ═══ Section 5: Photos Module ═══ */}
-        <div ref={(el) => { sectionRefs.current["photos"] = el; }} className="mb-6">
+        <div ref={(el) => { sectionRefs.current["photos"] = el; }} className="mb-6 max-w-full min-w-0 overflow-hidden">
           {/* Header row */}
-          <div className="flex items-center justify-between mb-1">
-            <div className="flex items-center gap-2">
+          <div className="mb-1 flex max-w-full min-w-0 items-center justify-between gap-2 overflow-hidden">
+            <div className="flex min-w-0 items-center gap-2">
               <Camera className="w-[18px] h-[18px] text-primary" />
-              <h3 className="text-lg font-display font-bold text-white">Photos</h3>
-              <span className="ml-2 px-2.5 py-0.5 rounded-full bg-white/[0.08] text-xs font-semibold text-white/45">
+              <h3 className="truncate text-lg font-display font-bold text-white">Photos</h3>
+              <span className="shrink-0 px-2.5 py-0.5 rounded-full bg-white/[0.08] text-xs font-semibold text-white/45">
                 {profile.photos.length}/6
               </span>
             </div>
-            <button onClick={() => setShowPhotoDrawer(true)} className="text-violet-500 text-sm font-medium flex items-center gap-1 hover:text-violet-400 transition-colors">
+            <button onClick={() => setShowPhotoDrawer(true)} className="text-violet-500 text-sm font-medium flex shrink-0 items-center gap-1 hover:text-violet-400 transition-colors">
               Manage <ChevronRight className="w-3 h-3" />
             </button>
           </div>
@@ -1645,7 +1647,7 @@ const ProfileStudio = () => {
                     : () => setShowPhotoDrawer(true)
                   }
                   className={cn(
-                    "relative rounded-2xl overflow-hidden flex items-center justify-center w-full h-full transition-all",
+                    "relative rounded-2xl overflow-hidden flex items-center justify-center w-full h-full min-w-0 max-w-full transition-all",
                     url
                       ? "bg-black"
                       : "border-[1.5px] border-dashed border-violet-500/30 bg-white/[0.04] hover:border-violet-500/50 hover:bg-white/[0.06]"
@@ -1671,19 +1673,19 @@ const ProfileStudio = () => {
             };
 
             return (
-              <div className="flex flex-col gap-2">
+              <div className="flex w-full max-w-full min-w-0 flex-col gap-2 overflow-hidden">
                 {/* Row 1: Main (60%) + stacked pair (40%) */}
-                <div className="flex gap-2" style={{ height: 280 }}>
-                  <div className="flex" style={{ flex: 3 }}>
+                <div className="flex max-w-full min-w-0 gap-2 overflow-hidden" style={{ height: 280 }}>
+                  <div className="flex min-w-0" style={{ flex: 3 }}>
                     {renderSlot(0)}
                   </div>
-                  <div className="flex flex-col gap-2" style={{ flex: 2 }}>
+                  <div className="flex min-w-0 flex-col gap-2" style={{ flex: 2 }}>
                     {renderSlot(1)}
                     {renderSlot(2)}
                   </div>
                 </div>
                 {/* Row 2: three equal tiles */}
-                <div className="flex gap-2" style={{ height: 140 }}>
+                <div className="flex max-w-full min-w-0 gap-2 overflow-hidden" style={{ height: 140 }}>
                   {renderSlot(3)}
                   {renderSlot(4)}
                   {renderSlot(5)}
@@ -1694,12 +1696,12 @@ const ProfileStudio = () => {
         </div>
 
         {/* ═══ Section 6: Conversation Starters ═══ */}
-        <div ref={(el) => { sectionRefs.current["prompts"] = el; }} className="mb-6">
-          <div className="flex items-center gap-2 mb-3">
+        <div ref={(el) => { sectionRefs.current["prompts"] = el; }} className="mb-6 max-w-full min-w-0 overflow-hidden">
+          <div className="mb-3 flex max-w-full min-w-0 items-center gap-2 overflow-hidden">
             <Quote className="w-4 h-4 text-primary" />
-            <h3 className="text-base font-display font-semibold text-white">Conversation Starters</h3>
+            <h3 className="min-w-0 truncate text-base font-display font-semibold text-white">Conversation Starters</h3>
           </div>
-          <div className="space-y-3">
+          <div className="max-w-full min-w-0 space-y-3 overflow-hidden">
             {displayPrompts.map(({ slot, index }) => {
               const hasQuestion = !!slot.question?.trim();
               const answerTrim = slot.answer?.trim() ?? "";
@@ -1710,7 +1712,7 @@ const ProfileStudio = () => {
                   <button
                     key={`empty-${index}`}
                     onClick={() => openPromptEditor(index)}
-                    className="w-full rounded-2xl border border-dashed border-white/10 bg-white/5 py-8 flex flex-col items-center justify-center gap-2 hover:border-violet-500/30 transition-colors"
+                    className="flex w-full max-w-full min-w-0 flex-col items-center justify-center gap-2 overflow-hidden rounded-2xl border border-dashed border-white/10 bg-white/5 py-8 transition-colors hover:border-violet-500/30"
                   >
                     <span className="text-2xl">💬</span>
                     <span className="text-sm text-gray-400">Tap to add your answer...</span>
@@ -1723,18 +1725,18 @@ const ProfileStudio = () => {
                 <button
                   key={`prompt-${index}-${slot.question}`}
                   onClick={() => openPromptEditor(index)}
-                  className="w-full relative rounded-2xl bg-white/5 backdrop-blur border border-white/10 overflow-hidden text-left hover:bg-white/[0.07] transition-colors"
+                  className="relative w-full max-w-full min-w-0 overflow-hidden rounded-2xl border border-white/10 bg-white/5 text-left backdrop-blur transition-colors hover:bg-white/[0.07]"
                 >
                   <div className="absolute left-0 top-0 bottom-0 w-[3px] bg-gradient-to-b from-violet-500 to-pink-500" />
                   <div className="p-4 pl-5">
                     <div className="flex items-start justify-between gap-2">
                       <div className="flex items-start gap-2 flex-1 min-w-0">
                         <span className="text-lg mt-0.5">{emoji}</span>
-                        <span className="text-sm font-semibold text-gray-400">{slot.question}</span>
+                        <span className="min-w-0 break-words text-sm font-semibold text-gray-400">{slot.question}</span>
                       </div>
                       <Pencil className="w-4 h-4 text-gray-500 shrink-0 mt-1" />
                     </div>
-                    <p className="text-base font-semibold text-white mt-2">{answerTrim}</p>
+                    <p className="mt-2 break-words text-base font-semibold text-white">{answerTrim}</p>
                     <div className="flex items-center gap-1.5 mt-3">
                       <MessageCircle className="w-3.5 h-3.5 text-primary" />
                       <span className="text-xs text-gray-400 font-medium">Conversation starter</span>
@@ -1752,20 +1754,20 @@ const ProfileStudio = () => {
         </div>
 
         {/* ═══ Section 7: Looking For ═══ */}
-        <div ref={(el) => { sectionRefs.current["lookingFor"] = el; }} className="mb-6">
-          <div className="rounded-2xl bg-white/5 backdrop-blur border border-white/10 p-4">
-            <div className="flex items-center justify-between mb-3">
-              <div className="flex items-center gap-2">
+        <div ref={(el) => { sectionRefs.current["lookingFor"] = el; }} className="mb-6 max-w-full min-w-0 overflow-hidden">
+          <div className="max-w-full min-w-0 overflow-hidden rounded-2xl border border-white/10 bg-white/5 p-4 backdrop-blur">
+            <div className="mb-3 flex max-w-full min-w-0 items-center justify-between gap-2 overflow-hidden">
+              <div className="flex min-w-0 items-center gap-2">
                 <Target className="w-4 h-4 text-primary" />
-                <h3 className="text-base font-display font-semibold text-white">Looking For</h3>
+                <h3 className="min-w-0 truncate text-base font-display font-semibold text-white">Looking For</h3>
               </div>
-              <button onClick={() => openDrawer("intent")} className="text-primary text-sm font-medium flex items-center gap-1">
+              <button onClick={() => openDrawer("intent")} className="flex shrink-0 items-center gap-1 text-sm font-medium text-primary">
                 Edit <ChevronRight className="w-3 h-3" />
               </button>
             </div>
             <RelationshipIntent selected={profile.lookingFor || ""} />
-            <div className="flex items-center gap-2 mt-4 flex-wrap">
-              <span className="text-xs text-gray-400 font-medium">Open to:</span>
+            <div className="mt-4 flex max-w-full min-w-0 flex-wrap items-center gap-2 overflow-hidden">
+              <span className="shrink-0 text-xs font-medium text-gray-400">Open to:</span>
               {(["events", "dates", "both"] as const).map((opt) => {
                 const labels = { events: "Events", dates: "1:1 Dates", both: "Both" };
                 const isActive = storedMeetingPref === opt;
@@ -1788,15 +1790,15 @@ const ProfileStudio = () => {
         </div>
 
         {/* ═══ Section 8: About Me ═══ */}
-        <div ref={(el) => { sectionRefs.current.about = el; }} className="mb-6">
-          <div className="rounded-2xl bg-white/5 backdrop-blur border border-white/10 p-4">
-            <div className="flex items-center justify-between mb-3">
-              <h3 className="text-base font-display font-semibold text-white">About Me</h3>
-              <button onClick={() => openDrawer("bio")} className="text-primary text-sm font-medium flex items-center gap-1">
+        <div ref={(el) => { sectionRefs.current.about = el; }} className="mb-6 max-w-full min-w-0 overflow-hidden">
+          <div className="max-w-full min-w-0 overflow-hidden rounded-2xl border border-white/10 bg-white/5 p-4 backdrop-blur">
+            <div className="mb-3 flex max-w-full min-w-0 items-center justify-between gap-2 overflow-hidden">
+              <h3 className="min-w-0 truncate text-base font-display font-semibold text-white">About Me</h3>
+              <button onClick={() => openDrawer("bio")} className="flex shrink-0 items-center gap-1 text-sm font-medium text-primary">
                 Edit <ChevronRight className="w-3 h-3" />
               </button>
             </div>
-            <p className={cn("text-sm leading-relaxed", profile.aboutMe ? "text-gray-400" : "text-gray-600")}>
+            <p className={cn("break-words text-sm leading-relaxed", profile.aboutMe ? "text-gray-400" : "text-gray-600")}>
               {profile.aboutMe || "Tell potential matches about yourself..."}
             </p>
             <p className="text-[11px] text-gray-600 text-right mt-2">{(profile.aboutMe ?? "").length}/{MAX_ABOUT_ME_LENGTH}</p>
@@ -1809,19 +1811,19 @@ const ProfileStudio = () => {
         </div>
 
         {/* ═══ Section 9: My Vibes ═══ */}
-        <div className="mb-6">
-          <div className="rounded-2xl bg-white/5 backdrop-blur border border-white/10 p-4">
-            <div className="flex items-center justify-between mb-3">
-              <div className="flex items-center gap-2">
+        <div className="mb-6 max-w-full min-w-0 overflow-hidden">
+          <div className="max-w-full min-w-0 overflow-hidden rounded-2xl border border-white/10 bg-white/5 p-4 backdrop-blur">
+            <div className="mb-3 flex max-w-full min-w-0 items-center justify-between gap-2 overflow-hidden">
+              <div className="flex min-w-0 items-center gap-2">
                 <Sparkles className="w-4 h-4 text-primary" />
-                <h3 className="text-base font-display font-semibold text-white">My Vibes</h3>
+                <h3 className="min-w-0 truncate text-base font-display font-semibold text-white">My Vibes</h3>
               </div>
-              <button onClick={() => openDrawer("vibes")} className="text-primary text-sm font-medium flex items-center gap-1">
+              <button onClick={() => openDrawer("vibes")} className="flex shrink-0 items-center gap-1 text-sm font-medium text-primary">
                 Edit <ChevronRight className="w-3 h-3" />
               </button>
             </div>
             {profile.vibes.length > 0 ? (
-              <div className="flex flex-wrap gap-2">
+              <div className="flex max-w-full min-w-0 flex-wrap gap-2 overflow-hidden">
                 {profile.vibes.map((v) => (
                   <span
                     key={v}
@@ -1840,21 +1842,21 @@ const ProfileStudio = () => {
         </div>
 
         {/* ═══ Section 10: Vibe Schedule (14-day grid) ═══ */}
-        <div ref={(el) => { sectionRefs.current["schedule"] = el; }} className="mb-6">
-          <div className="rounded-2xl bg-white/5 backdrop-blur border border-white/10 p-4">
-            <div className="flex items-center justify-between mb-3">
-              <div className="flex items-center gap-2">
+        <div ref={(el) => { sectionRefs.current["schedule"] = el; }} className="mb-6 max-w-full min-w-0 overflow-hidden">
+          <div className="max-w-full min-w-0 overflow-hidden rounded-2xl border border-white/10 bg-white/5 p-4 backdrop-blur">
+            <div className="mb-3 flex max-w-full min-w-0 items-center justify-between gap-2 overflow-hidden">
+              <div className="flex min-w-0 items-center gap-2">
                 <CalendarDays className="w-4 h-4 text-primary" />
-                <h3 className="text-base font-display font-semibold text-white">Vibe Schedule</h3>
+                <h3 className="min-w-0 truncate text-base font-display font-semibold text-white">Vibe Schedule</h3>
               </div>
-              <button onClick={() => navigate("/schedule")} className="text-primary text-sm font-medium flex items-center gap-1">
+              <button onClick={() => navigate("/schedule")} className="flex shrink-0 items-center gap-1 text-sm font-medium text-primary">
                 Edit <ChevronRight className="w-3 h-3" />
               </button>
             </div>
 
-            <div className="flex items-center gap-2 mb-4">
+            <div className="mb-4 flex max-w-full min-w-0 items-center gap-2 overflow-hidden">
               <div className="w-2 h-2 rounded-full" style={{ backgroundColor: scheduleStatus.color }} />
-              <span className="text-sm font-semibold text-white">{scheduleStatus.label}</span>
+              <span className="min-w-0 truncate text-sm font-semibold text-white">{scheduleStatus.label}</span>
             </div>
 
             <div className="max-w-full min-w-0 overflow-x-auto overscroll-x-contain overflow-y-hidden scrollbar-hide">
@@ -1898,26 +1900,26 @@ const ProfileStudio = () => {
         </div>
 
         {/* ═══ Section 11: Details (Basics + Lifestyle) ═══ */}
-        <div ref={(el) => { sectionRefs.current.details = el; }} className="mb-6">
-          <div className="rounded-2xl bg-white/5 backdrop-blur border border-white/10 p-4">
-            <div className="flex items-center justify-between mb-3">
-              <h3 className="text-base font-display font-semibold text-white">Details</h3>
-              <button onClick={() => openDrawer("basics")} className="text-primary text-sm font-medium flex items-center gap-1">
+        <div ref={(el) => { sectionRefs.current.details = el; }} className="mb-6 max-w-full min-w-0 overflow-hidden">
+          <div className="max-w-full min-w-0 overflow-hidden rounded-2xl border border-white/10 bg-white/5 p-4 backdrop-blur">
+            <div className="mb-3 flex max-w-full min-w-0 items-center justify-between gap-2 overflow-hidden">
+              <h3 className="min-w-0 truncate text-base font-display font-semibold text-white">Details</h3>
+              <button onClick={() => openDrawer("basics")} className="flex shrink-0 items-center gap-1 text-sm font-medium text-primary">
                 Edit <ChevronRight className="w-3 h-3" />
               </button>
             </div>
 
-            <div className="grid grid-cols-2 gap-2 mb-4">
+            <div className="mb-4 grid max-w-full min-w-0 grid-cols-2 gap-2 overflow-hidden">
               {[
                 { icon: Cake, label: "Birthday", value: profile.birthDate ? `${profile.birthDate.toLocaleDateString()} (${profile.zodiac})` : "Not set" },
                 { icon: Briefcase, label: "Work", value: profile.job || "Not set" },
                 { icon: Ruler, label: "Height", value: profile.heightCm ? `${profile.heightCm} cm` : "Not set" },
                 { icon: MapPin, label: "Location", value: profile.location || "Not set" },
               ].map((item) => (
-                <div key={item.label} className="flex items-center gap-2.5 p-3 rounded-xl bg-white/5 border border-white/10">
+                <div key={item.label} className="flex min-w-0 items-center gap-2.5 overflow-hidden rounded-xl border border-white/10 bg-white/5 p-3">
                   <item.icon className="w-3.5 h-3.5 text-gray-500 shrink-0" />
                   <div className="min-w-0">
-                    <p className="text-[11px] text-gray-500">{item.label}</p>
+                    <p className="truncate text-[11px] text-gray-500">{item.label}</p>
                     <p className="text-[13px] font-semibold text-white truncate">{item.value}</p>
                   </div>
                 </div>
@@ -1933,26 +1935,26 @@ const ProfileStudio = () => {
         </div>
 
         {/* ═══ Section 12: Verification ═══ */}
-        <div ref={(el) => { sectionRefs.current["verification"] = el; }} className="mb-6">
-          <div className="rounded-2xl bg-white/5 backdrop-blur border border-white/10 p-4">
+        <div ref={(el) => { sectionRefs.current["verification"] = el; }} className="mb-6 max-w-full min-w-0 overflow-hidden">
+          <div className="max-w-full min-w-0 overflow-hidden rounded-2xl border border-white/10 bg-white/5 p-4 backdrop-blur">
             <VerificationSteps steps={verificationSteps} onStartStep={handleVerificationStep} />
           </div>
         </div>
 
         {/* ═══ Section 13: Invite Friends ═══ */}
-        <div className="mb-6">
-          <div className="rounded-2xl bg-white/5 backdrop-blur border border-white/10 p-4">
+        <div className="mb-6 max-w-full min-w-0 overflow-hidden">
+          <div className="max-w-full min-w-0 overflow-hidden rounded-2xl border border-white/10 bg-white/5 p-4 backdrop-blur">
             <button
               onClick={() => {
                 trackEvent("invite_hub_entry_tapped", { surface: "profile_studio", platform: "web" });
                 navigate("/settings/referrals");
               }}
-              className="w-full flex items-center gap-3 text-left"
+              className="flex w-full max-w-full min-w-0 items-center gap-3 overflow-hidden text-left"
             >
               <div className="w-10 h-10 rounded-xl bg-primary/15 flex items-center justify-center text-lg">💌</div>
               <div className="flex-1 min-w-0">
-                <p className="text-sm font-semibold text-white">Invite Friends</p>
-                <p className="text-xs text-gray-400">Share Vibely with your friends</p>
+                <p className="truncate text-sm font-semibold text-white">Invite Friends</p>
+                <p className="truncate text-xs text-gray-400">Share Vibely with your friends</p>
               </div>
               <ChevronRight className="w-4 h-4 text-gray-500" />
             </button>

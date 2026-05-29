@@ -2,7 +2,7 @@
 
 **Scope:** Compare web Dashboard (`src/pages/Dashboard.tsx`) with native dashboard (`apps/mobile/app/(tabs)/index.tsx`) to drive parity.
 
-**Web source:** `src/pages/Dashboard.tsx`, `src/components/DashboardGreeting.tsx`, `src/components/BottomNav.tsx`.
+**Web source:** `src/pages/Dashboard.tsx`, `src/components/DashboardGreeting.tsx`, `src/components/navigation/BottomNav.tsx`.
 
 ---
 

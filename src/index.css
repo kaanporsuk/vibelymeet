@@ -58,6 +58,23 @@
     @apply border-border;
   }
 
+  html,
+  body,
+  #root {
+    width: 100%;
+    max-width: 100%;
+    overflow-x: hidden;
+  }
+
+  html,
+  body {
+    min-height: 100%;
+  }
+
+  #root {
+    min-height: 100%;
+  }
+
   body {
     @apply bg-background text-foreground font-sans antialiased;
     font-family: 'Inter', system-ui, sans-serif;

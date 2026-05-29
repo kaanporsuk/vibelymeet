@@ -12,7 +12,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 
-import { BottomNav } from "@/components/BottomNav";
+import { BottomNav } from "@/components/navigation/BottomNav";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import VibeStudioModal from "@/components/vibe-video/VibeStudioModal";

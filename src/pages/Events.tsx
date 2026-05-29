@@ -10,7 +10,7 @@ import { useEntitlements } from "@/hooks/useEntitlements";
 import type { SelectedCity } from "@/components/events/EventsFilterBar";
 import { useVisibleEvents, useOtherCityEvents } from "@/hooks/useVisibleEvents";
 import { useUserProfile } from "@/contexts/AuthContext";
-import { BottomNav } from "@/components/BottomNav";
+import { BottomNav } from "@/components/navigation/BottomNav";
 import { FeaturedEventCard } from "@/components/events/FeaturedEventCard";
 import { EventsFilterBar } from "@/components/events/EventsFilterBar";
 import { EventsRail } from "@/components/events/EventsRail";

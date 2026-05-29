@@ -41,7 +41,7 @@ const VIBE_SCORE_DRAWER_PROPS = {
   fixed: true,
 } as const;
 const VIBE_SCORE_DRAWER_CONTENT_CLASS =
-  "max-h-[88dvh] w-full max-w-[100svw] overflow-hidden border-white/10 bg-zinc-950";
+  "max-h-[88dvh] w-full max-w-full supports-[width:100dvw]:max-w-[100dvw] overflow-hidden border-white/10 bg-zinc-950";
 const VIBE_SCORE_DRAWER_BODY_CLASS =
   "min-h-0 flex-1 overflow-y-auto overflow-x-hidden px-4 pb-[max(2rem,env(safe-area-inset-bottom))] pt-2";
 

@@ -22,7 +22,7 @@ import {
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { BottomNav } from "@/components/BottomNav";
+import { BottomNav } from "@/components/navigation/BottomNav";
 
 type CardTone = "violet" | "pink" | "cyan";
 
