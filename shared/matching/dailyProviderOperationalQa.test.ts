@@ -283,11 +283,11 @@ test("web Daily CSP supports CSP-safe script loading and websocket signaling", (
   assert.ok(!vercelCspDirective("script-src-elem").includes("https://*.daily.co"));
   assert.ok(!vercelCspDirective("script-src").includes("'unsafe-eval'"));
   assert.ok(!vercelCspDirective("script-src-elem").includes("'unsafe-eval'"));
-  assert.ok(vercelCspDirective("connect-src").includes("https://api.daily.co"));
-  assert.ok(vercelCspDirective("connect-src").includes("https://vibelyapp.daily.co"));
-  assert.ok(vercelCspDirective("connect-src").includes("wss://vibelyapp.daily.co"));
-  assert.ok(!vercelCspDirective("connect-src").includes("https://*.daily.co"));
-  assert.ok(!vercelCspDirective("connect-src").includes("wss://*.daily.co"));
+  assert.ok(vercelCspDirective("connect-src").includes("https://*.daily.co"));
+  assert.ok(vercelCspDirective("connect-src").includes("wss://*.daily.co"));
+  assert.ok(!vercelCspDirective("connect-src").includes("https://api.daily.co"));
+  assert.ok(!vercelCspDirective("connect-src").includes("https://vibelyapp.daily.co"));
+  assert.ok(!vercelCspDirective("connect-src").includes("wss://vibelyapp.daily.co"));
   assert.ok(vercelCspDirective("frame-src").includes("https://vibelyapp.daily.co"));
   assert.ok(!vercelCspDirective("frame-src").includes("https://*.daily.co"));
 });
@@ -317,6 +317,91 @@ test("existing match-call paths remain present on web and native", () => {
   assert.match(nativeMatchCallApi, /body:\s*\{ action: 'answer_match_call', callId \}/);
   assert.match(nativeMatchCallApi, /body:\s*\{ action: 'join_match_call', callId \}/);
   assert.match(nativeMatchCallApi, /body:\s*\{ action: 'delete_room', roomName \}/);
+});
+
+test("chat MatchCall Daily errors use one-shot provider teardown", () => {
+  for (const source of [webMatchCall, nativeMatchCall]) {
+    assert.match(source, /providerTeardownPromiseRef/);
+    assert.match(source, /const teardownForProviderError = useCallback/);
+    assert.match(source, /const waitForProviderTeardown = useCallback/);
+    assert.match(source, /provider_teardown_deduped/);
+    assert.match(source, /provider_teardown_awaited_by_flow/);
+    assert.match(source, /Promise\.resolve\(\)\s*\.\s*then\(\(\) => endCall\(["']provider_error["']\)\)/);
+    assert.match(source, /endCall\(["']provider_error["']\)/);
+    assert.match(source, /if \(await waitForProviderTeardown\(["']answer_call_catch["']\)\) return/);
+    assert.match(source, /if \(await waitForProviderTeardown\(["']start_call_catch["']\)\)[\s\S]*return/);
+    assert.match(source, /if \(await waitForProviderTeardown\(["']active_rejoin_catch["']\)\) return/);
+    assert.match(
+      source,
+      /callObject\.on\(["']error["'],\s*\([^)]*event[^)]*\)\s*=>[\s\S]*teardownForProviderError\(["']daily_error["'],\s*event\)/,
+    );
+    assert.match(
+      source,
+      /callObject\.on\(["']left-meeting["'],\s*\([^)]*event[^)]*\)\s*=>[\s\S]*dailyEventHasError\(event\)[\s\S]*teardownForProviderError\(["']left_meeting_error["'],\s*event\)/,
+    );
+  }
+  assert.match(webMatchCall, /toast\.error\(["']Call connection error["']\)/);
+  assert.match(nativeMatchCall, /Alert\.alert\(["']Call connection error["'],\s*["']Please try again\.["']\)/);
+});
+
+test("chat MatchCall cleanup owns Daily ref clearing and destroy", () => {
+  for (const source of [webMatchCall, nativeMatchCall]) {
+    const cleanupStart = source.indexOf("const cleanupLocalCall = useCallback");
+    const cleanupEnd = source.indexOf("const runSingleJoinFlow", cleanupStart);
+    const eventsStart = source.indexOf("const setupCallEvents = useCallback");
+    const eventsEnd = source.indexOf("const markIncomingCallMissed", eventsStart);
+    assert.ok(cleanupStart > 0 && cleanupEnd > cleanupStart, "cleanupLocalCall block should exist");
+    assert.ok(eventsStart > 0 && eventsEnd > eventsStart, "setupCallEvents block should exist");
+
+    const cleanupBlock = source.slice(cleanupStart, cleanupEnd);
+    const eventBlock = source.slice(eventsStart, eventsEnd);
+    assert.match(cleanupBlock, /localCallCleanupPromiseRef/);
+    assert.match(cleanupBlock, /const cleanupPromise = Promise\.resolve\(\)\.then\(async \(\) =>/);
+    assert.match(cleanupBlock, /preserveCallStateCleanupRef\.current = true/);
+    assert.match(cleanupBlock, /callObjectRef\.current = null/);
+    assert.match(cleanupBlock, /await callObject\.destroy\(\)/);
+    assert.match(eventBlock, /if \(preserveCallStateCleanupRef\.current\) return/);
+    assert.doesNotMatch(eventBlock, /callObjectRef\.current = null/);
+  }
+});
+
+test("chat MatchCall fresh creates recover stale or duplicate Daily objects", () => {
+  for (const source of [webMatchCall, nativeMatchCall]) {
+    assert.match(source, /isReusableDailyCallObject/);
+    assert.match(source, /readDailyMeetingState\(callObject\)\s*={2,3}\s*["']joined-meeting["']/);
+    assert.match(source, /isBusyDailyMeetingState/);
+    assert.match(source, /return !isTerminalDailyMeetingState\(state\)/);
+    assert.match(source, /fresh_create_duplicate_daily_instance_busy/);
+    assert.match(source, /cleanupStaleCallObjectForFreshCreate/);
+    assert.match(source, /fresh_create_cleaned_stale_call_object/);
+    assert.match(source, /fresh_create_recovered_duplicate_daily_instance/);
+    assert.match(source, /getCallInstance\(\)/);
+    assert.match(source, /const callObject = await createFreshMatchCallObject/);
+    assert.match(source, /preserveCallState:\s*true/);
+    assert.doesNotMatch(source, /allowMultipleCallInstances/);
+    assert.doesNotMatch(source, /skipped_duplicate_join/);
+  }
+});
+
+test("chat MatchCall refuses to steal non-terminal Daily singletons from other surfaces", () => {
+  for (const source of [webMatchCall, nativeMatchCall]) {
+    const joinStart = source.indexOf("const joinActiveCall = useCallback");
+    const joinEnd = source.indexOf("const reconcileCallRow", joinStart);
+    assert.ok(joinStart > 0 && joinEnd > joinStart, "joinActiveCall block should exist");
+    const joinBlock = source.slice(joinStart, joinEnd);
+
+    assert.match(source, /const hasBusyExternalDailyCall = useCallback/);
+    assert.match(source, /external_daily_call_busy/);
+    assert.match(source, /answer_call_preflight/);
+    assert.match(source, /start_call_preflight/);
+    assert.match(source, /active_rejoin_preflight/);
+    assert.match(source, /if \(!isBusyDailyMeetingState\(meetingState\)\) return false/);
+    assert.match(source, /fresh_create_duplicate_daily_instance_busy/);
+    assert.ok(
+      joinBlock.indexOf("active_rejoin_preflight") < joinBlock.indexOf("trackedCallIdRef.current = row.id"),
+      "active rejoin should check external Daily ownership before mutating local chat-call refs",
+    );
+  }
 });
 
 test("match_call_transition keeps duplicate answer and decline idempotent", () => {

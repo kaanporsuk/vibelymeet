@@ -101,6 +101,8 @@ type MatchCallCleanupOptions = {
   skipRoomDelete?: boolean;
   /** When true, `match_call_transition` was already applied (or DB row is already terminal). */
   skipServerTransition?: boolean;
+  /** When true, only release the Daily SDK object and preserve the active call flow state. */
+  preserveCallState?: boolean;
 };
 
 type WebCameraFacingMode = "user" | "environment";
@@ -393,6 +395,43 @@ function describeWebCameraSwitchError(error: unknown): { name: string; message: 
   return { name: "unknown", message: String(error) };
 }
 
+function readDailyMeetingState(callObject: Pick<DailyCall, "meetingState">): string | null {
+  try {
+    return callObject.meetingState();
+  } catch {
+    return "error";
+  }
+}
+
+function isTerminalDailyMeetingState(state: string | null): boolean {
+  return state === "left-meeting" || state === "error";
+}
+
+function isReusableDailyCallObject(callObject: DailyCall): boolean {
+  try {
+    if (callObject.isDestroyed()) return false;
+  } catch {
+    return false;
+  }
+
+  return readDailyMeetingState(callObject) === "joined-meeting";
+}
+
+function isBusyDailyMeetingState(state: string | null): boolean {
+  return !isTerminalDailyMeetingState(state);
+}
+
+function dailyEventHasError(event: unknown): boolean {
+  if (!event || typeof event !== "object") return false;
+  const payload = event as Record<string, unknown>;
+  return typeof payload.errorMsg === "string" || Boolean(payload.error);
+}
+
+function isDuplicateDailyCallObjectError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return /Duplicate DailyIframe instances|multiple call instances/i.test(message);
+}
+
 export function MatchCallProvider({ children }: { children: ReactNode }) {
   const { user } = useUserProfile();
   const currentUserId = user?.id ?? null;
@@ -422,6 +461,9 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
   const startCallLockRef = useRef(false);
   const joiningCallIdRef = useRef<string | null>(null);
   const joinPromiseRef = useRef<Promise<void> | null>(null);
+  const localCallCleanupPromiseRef = useRef<Promise<void> | null>(null);
+  const preserveCallStateCleanupRef = useRef(false);
+  const providerTeardownPromiseRef = useRef<Promise<void> | null>(null);
   const reconcileQueueRef = useRef(Promise.resolve());
   const reconcileSignatureByCallIdRef = useRef(new Map<string, string>());
   const durationIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -715,83 +757,121 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const cleanupLocalCall = useCallback(
-    async ({ deleteRoomName, skipRoomDelete = false, skipServerTransition = false }: MatchCallCleanupOptions = {}) => {
-      const shouldAttemptAbnormalRpc =
-        !skipServerTransition && !documentUnloadRpcIssuedRef.current && trackedCallIdRef.current;
+    async (options: MatchCallCleanupOptions = {}) => {
+      if (localCallCleanupPromiseRef.current) {
+        await localCallCleanupPromiseRef.current;
+      }
 
-      if (shouldAttemptAbnormalRpc) {
-        const callId = trackedCallIdRef.current!;
-        const action = resolveAbnormalTransitionForTeardown(
-          callId,
-          incomingCallRef.current,
-          callPhaseRef.current,
-        );
-        if (action) {
-          try {
-            await transitionCall(callId, action);
-            logMatchCallDiag("abnormal_teardown_rpc_ok", {
-              call_id: callId,
-              action,
-              phase: callPhaseRef.current,
-            });
-          } catch (err) {
-            logMatchCallDiag("abnormal_teardown_rpc_failed", {
-              call_id: callId,
-              action,
-              phase: callPhaseRef.current,
-              message: err instanceof Error ? err.message : String(err),
-            });
+      const cleanupPromise = Promise.resolve().then(async () => {
+        const {
+          deleteRoomName,
+          skipRoomDelete = false,
+          skipServerTransition = false,
+          preserveCallState = false,
+        } = options;
+        const shouldAttemptAbnormalRpc =
+          !preserveCallState &&
+          !skipServerTransition &&
+          !documentUnloadRpcIssuedRef.current &&
+          trackedCallIdRef.current;
+
+        if (shouldAttemptAbnormalRpc) {
+          const callId = trackedCallIdRef.current!;
+          const action = resolveAbnormalTransitionForTeardown(
+            callId,
+            incomingCallRef.current,
+            callPhaseRef.current,
+          );
+          if (action) {
+            try {
+              await transitionCall(callId, action);
+              logMatchCallDiag("abnormal_teardown_rpc_ok", {
+                call_id: callId,
+                action,
+                phase: callPhaseRef.current,
+              });
+            } catch (err) {
+              logMatchCallDiag("abnormal_teardown_rpc_failed", {
+                call_id: callId,
+                action,
+                phase: callPhaseRef.current,
+                message: err instanceof Error ? err.message : String(err),
+              });
+            }
           }
         }
-      }
-      documentUnloadRpcIssuedRef.current = false;
-
-      clearRingingTimeout();
-      clearRemoteReconnectGrace();
-      stopHeartbeat();
-      stopDurationTimer();
-
-      const callObject = callObjectRef.current;
-      // Null the ref BEFORE awaiting leave/destroy so any re-entrant call sees a clean
-      // slate and skips its own create. Without this, leave()/destroy() race a new
-      // createCallObject and Daily prints "multiple call instances" warnings.
-      callObjectRef.current = null;
-      if (callObject) {
-        try {
-          await callObject.leave();
-        } catch {
-          // ignore
+        if (!preserveCallState) {
+          documentUnloadRpcIssuedRef.current = false;
+          clearRingingTimeout();
+          stopDurationTimer();
         }
-        try {
-          await callObject.destroy();
-        } catch {
-          // ignore
+
+        clearRemoteReconnectGrace();
+        stopHeartbeat();
+
+        const callObject = callObjectRef.current;
+        // Null the ref before awaiting leave/destroy, but keep a cleanup promise so
+        // retries do not create a new Daily singleton until the old one is released.
+        callObjectRef.current = null;
+        if (preserveCallState) {
+          preserveCallStateCleanupRef.current = true;
         }
-      }
+        if (callObject) {
+          try {
+            try {
+              await callObject.leave();
+            } catch {
+              // ignore
+            }
+            try {
+              await callObject.destroy();
+            } catch {
+              // ignore
+            }
+          } finally {
+            if (preserveCallState) {
+              preserveCallStateCleanupRef.current = false;
+            }
+          }
+        } else if (preserveCallState) {
+          preserveCallStateCleanupRef.current = false;
+        }
 
-      clearVideoElements();
+        clearVideoElements();
 
-      const roomName = deleteRoomName ?? roomNameRef.current;
-      trackedCallIdRef.current = null;
-      roomNameRef.current = null;
-      startCallLockRef.current = false;
-      joiningCallIdRef.current = null;
-      joinPromiseRef.current = null;
-      reconcileSignatureByCallIdRef.current.clear();
-      setCallPhase("idle");
-      setIncomingCall(null);
-      setActiveMatchId(null);
-      setActivePartner(DEFAULT_PARTNER);
-      setCallDuration(0);
-      setIsMuted(false);
-      setIsVideoOff(false);
-      setCanFlipCamera(false);
-      setIsFlippingCamera(false);
-      flipCameraRef.current = false;
-      latestLocalParticipantRef.current = undefined;
+        const roomName = deleteRoomName ?? roomNameRef.current;
+        if (!preserveCallState) {
+          trackedCallIdRef.current = null;
+          roomNameRef.current = null;
+          startCallLockRef.current = false;
+          joiningCallIdRef.current = null;
+          joinPromiseRef.current = null;
+          reconcileSignatureByCallIdRef.current.clear();
+          setCallPhase("idle");
+          setIncomingCall(null);
+          setActiveMatchId(null);
+          setActivePartner(DEFAULT_PARTNER);
+          setCallDuration(0);
+          setIsMuted(false);
+          setIsVideoOff(false);
+          setCanFlipCamera(false);
+          setIsFlippingCamera(false);
+          flipCameraRef.current = false;
+          latestLocalParticipantRef.current = undefined;
+        }
 
-      if (roomName && !skipRoomDelete) {
-        await deleteRoom(roomName);
+        if (roomName && !skipRoomDelete) {
+          await deleteRoom(roomName);
+        }
+      });
+
+      localCallCleanupPromiseRef.current = cleanupPromise;
+      try {
+        await cleanupPromise;
+      } finally {
+        if (localCallCleanupPromiseRef.current === cleanupPromise) {
+          localCallCleanupPromiseRef.current = null;
+        }
       }
     },
     [
@@ -809,7 +889,11 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
 
   const runSingleJoinFlow = useCallback(
     async (callId: string, run: () => Promise<void>) => {
-      if (callObjectRef.current && trackedCallIdRef.current === callId) {
+      if (
+        callObjectRef.current &&
+        trackedCallIdRef.current === callId &&
+        isReusableDailyCallObject(callObjectRef.current)
+      ) {
         return;
       }
       if (joinPromiseRef.current) {
@@ -859,6 +943,159 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
       await cleanupLocalCall({ deleteRoomName: roomName, skipServerTransition: true });
     },
     [cleanupLocalCall, transitionCall],
+  );
+
+  const teardownForProviderError = useCallback(
+    (source: string, event?: unknown) => {
+      if (providerTeardownPromiseRef.current) {
+        logMatchCallDiag("provider_teardown_deduped", { source });
+        return;
+      }
+
+      logMatchCallDiag("provider_teardown_started", {
+        source,
+        message:
+          event && typeof event === "object" && "errorMsg" in event
+            ? String((event as { errorMsg?: unknown }).errorMsg ?? "")
+            : null,
+      });
+      toast.error("Call connection error");
+      const teardownPromise = Promise.resolve()
+        .then(() => endCall("provider_error"))
+        .finally(() => {
+          providerTeardownPromiseRef.current = null;
+        });
+      providerTeardownPromiseRef.current = teardownPromise;
+      void teardownPromise;
+    },
+    [endCall],
+  );
+
+  const waitForProviderTeardown = useCallback(async (source: string): Promise<boolean> => {
+    const teardownPromise = providerTeardownPromiseRef.current;
+    if (!teardownPromise) return false;
+
+    logMatchCallDiag("provider_teardown_awaited_by_flow", { source });
+    try {
+      await teardownPromise;
+    } catch {
+      // The provider teardown path owns final local cleanup; callers should not
+      // duplicate the same failure UX or transition if that cleanup itself fails.
+    }
+    return true;
+  }, []);
+
+  const hasBusyExternalDailyCall = useCallback(async (source: string): Promise<boolean> => {
+    try {
+      const DailyIframe = await loadDailyIframe();
+      const sdkCallObject = DailyIframe.getCallInstance();
+      if (!sdkCallObject || sdkCallObject === callObjectRef.current) return false;
+
+      const meetingState = readDailyMeetingState(sdkCallObject);
+      if (!isBusyDailyMeetingState(meetingState)) return false;
+
+      logMatchCallDiag("external_daily_call_busy", {
+        source,
+        meeting_state: meetingState,
+      });
+      return true;
+    } catch (err) {
+      logMatchCallDiag("external_daily_call_busy_check_failed", {
+        source,
+        message: err instanceof Error ? err.message : String(err),
+      });
+      return false;
+    }
+  }, []);
+
+  const cleanupStaleCallObjectForFreshCreate = useCallback(
+    async (callId: string, source: string): Promise<boolean> => {
+      if (localCallCleanupPromiseRef.current) {
+        logMatchCallDiag("fresh_create_waited_for_cleanup", { call_id: callId, source });
+        await localCallCleanupPromiseRef.current;
+      }
+
+      const existingCallObject = callObjectRef.current;
+      if (!existingCallObject) return false;
+
+      const meetingState = readDailyMeetingState(existingCallObject);
+      const sameCall = trackedCallIdRef.current === callId;
+      if (sameCall && isReusableDailyCallObject(existingCallObject)) {
+        logMatchCallDiag("fresh_create_reused_existing_call_object", {
+          call_id: callId,
+          source,
+          meeting_state: meetingState,
+        });
+        return true;
+      }
+
+      logMatchCallDiag("fresh_create_cleaned_stale_call_object", {
+        call_id: callId,
+        source,
+        tracked_call_id: trackedCallIdRef.current,
+        meeting_state: meetingState,
+      });
+      await cleanupLocalCall({
+        skipRoomDelete: true,
+        skipServerTransition: true,
+        preserveCallState: true,
+      });
+      return false;
+    },
+    [cleanupLocalCall],
+  );
+
+  const createFreshMatchCallObject = useCallback(
+    async (
+      DailyIframe: DailyIframeModule,
+      callId: string,
+      currentCallType: MatchCallType,
+      source: string,
+    ): Promise<DailyCall | null> => {
+      const shouldReuseExisting = await cleanupStaleCallObjectForFreshCreate(callId, source);
+      if (shouldReuseExisting) return null;
+
+      const options = dailyCallObjectOptions({
+        audioSource: true,
+        videoSource: currentCallType === "video",
+      });
+
+      try {
+        return DailyIframe.createCallObject(options);
+      } catch (error) {
+        if (!isDuplicateDailyCallObjectError(error)) throw error;
+
+        logMatchCallDiag("fresh_create_recovered_duplicate_daily_instance", {
+          call_id: callId,
+          source,
+          message: error instanceof Error ? error.message : String(error),
+        });
+        const sdkCallObject = DailyIframe.getCallInstance();
+        if (sdkCallObject) {
+          const sdkMeetingState = readDailyMeetingState(sdkCallObject);
+          if (isBusyDailyMeetingState(sdkMeetingState)) {
+            logMatchCallDiag("fresh_create_duplicate_daily_instance_busy", {
+              call_id: callId,
+              source,
+              meeting_state: sdkMeetingState,
+            });
+            throw error;
+          }
+          callObjectRef.current = sdkCallObject;
+          await cleanupLocalCall({
+            skipRoomDelete: true,
+            skipServerTransition: true,
+            preserveCallState: true,
+          });
+        } else if (localCallCleanupPromiseRef.current) {
+          await localCallCleanupPromiseRef.current;
+        } else {
+          throw error;
+        }
+        return DailyIframe.createCallObject(options);
+      }
+    },
+    [cleanupLocalCall, cleanupStaleCallObjectForFreshCreate],
   );
 
   const readLocalCameraSnapshot = useCallback((callObject: DailyCall): LocalCameraSnapshot => {
@@ -1048,17 +1285,17 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
         logMatchCallDiag("daily_error", {
           message: event && typeof event === "object" && "errorMsg" in event ? String((event as { errorMsg?: unknown }).errorMsg ?? "") : null,
         });
-        toast.error("Call connection error");
-        void endCall("provider_error");
+        teardownForProviderError("daily_error", event);
       });
 
-      callObject.on("left-meeting", () => {
+      callObject.on("left-meeting", (event) => {
+        if (preserveCallStateCleanupRef.current) return;
         clearRingingTimeout();
         stopDurationTimer();
         setCallPhase("idle");
-        // Null the ref under the same atomic block as the cleanup so that any subsequent
-        // start/answer/join sees a clean slate rather than racing the leftover ref.
-        callObjectRef.current = null;
+        if (dailyEventHasError(event)) {
+          teardownForProviderError("left_meeting_error", event);
+        }
       });
     },
     [
@@ -1074,6 +1311,7 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
       startHeartbeat,
       startDurationTimer,
       stopDurationTimer,
+      teardownForProviderError,
     ],
   );
 
@@ -1109,6 +1347,11 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
     const pendingIncoming = incomingCallRef.current;
     if (!pendingIncoming) return;
 
+    if (await hasBusyExternalDailyCall("answer_call_preflight")) {
+      toast.error("Finish your current call before answering");
+      return;
+    }
+
     let answeredRoomName: string | null = roomNameRef.current;
     let receivedJoinToken = false;
     try {
@@ -1138,19 +1381,14 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
       startDurationTimer();
 
       await runSingleJoinFlow(pendingIncoming.callId, async () => {
-        if (callObjectRef.current) {
-          logMatchCallDiag("answer_call_skipped_duplicate_join", {
-            call_id: pendingIncoming.callId,
-          });
-          return;
-        }
         const DailyIframe = await loadDailyIframe();
-        const callObject = DailyIframe.createCallObject(
-          dailyCallObjectOptions({
-            audioSource: true,
-            videoSource: pendingIncoming.callType === "video",
-          })
+        const callObject = await createFreshMatchCallObject(
+          DailyIframe,
+          pendingIncoming.callId,
+          pendingIncoming.callType,
+          "answer_call",
         );
+        if (!callObject) return;
         callObjectRef.current = callObject;
         setupCallEvents(callObject, pendingIncoming.callType);
 
@@ -1194,6 +1432,8 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
         startHeartbeat();
       });
     } catch (error) {
+      if (await waitForProviderTeardown("answer_call_catch")) return;
+
       console.error("[MatchCall] Answer error:", error);
       toast.error("Couldn't connect call");
 
@@ -1210,6 +1450,8 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
     }
   }, [
     cleanupLocalCall,
+    createFreshMatchCallObject,
+    hasBusyExternalDailyCall,
     incomingCallRef,
     renderLocalMedia,
     runSingleJoinFlow,
@@ -1217,6 +1459,7 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
     startDurationTimer,
     startHeartbeat,
     transitionCall,
+    waitForProviderTeardown,
   ]);
 
   const startCall = useCallback(
@@ -1235,6 +1478,11 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
         return;
       }
       startCallLockRef.current = true;
+      if (await hasBusyExternalDailyCall("start_call_preflight")) {
+        toast.error("Finish the current call before starting another one");
+        startCallLockRef.current = false;
+        return;
+      }
 
       logMatchCallDiag("start_call_invoked", { match_id: matchId, call_type: type });
       const startCallAttemptId = startCallAttemptRef.current + 1;
@@ -1397,20 +1645,14 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
         clearTimeout(startWatchdogId);
 
         await runSingleJoinFlow(callId, async () => {
-          if (callObjectRef.current) {
-            logMatchCallDiag("start_call_skipped_duplicate_join", {
-              call_id: callId,
-              match_id: matchId,
-            });
-            return;
-          }
           const DailyIframe = await loadDailyIframe();
-          const callObject = DailyIframe.createCallObject(
-            dailyCallObjectOptions({
-              audioSource: true,
-              videoSource: effectiveType === "video",
-            })
+          const callObject = await createFreshMatchCallObject(
+            DailyIframe,
+            callId,
+            effectiveType,
+            "start_call",
           );
+          if (!callObject) return;
           callObjectRef.current = callObject;
           setupCallEvents(callObject, effectiveType);
 
@@ -1479,6 +1721,9 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
         if (!isCurrentStartCallAttempt()) {
           return;
         }
+        if (await waitForProviderTeardown("start_call_catch")) {
+          return;
+        }
         console.error("[MatchCall] Start error:", error);
         logMatchCallDiag("start_call_threw", {
           match_id: matchId,
@@ -1503,7 +1748,9 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
       callPhaseRef,
       cleanupLocalCall,
       clearRingingTimeout,
+      createFreshMatchCallObject,
       deleteRoom,
+      hasBusyExternalDailyCall,
       incomingCallRef,
       renderLocalMedia,
       setupCallEvents,
@@ -1511,6 +1758,7 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
       startHeartbeat,
       stopDurationTimer,
       transitionCall,
+      waitForProviderTeardown,
     ],
   );
 
@@ -1747,6 +1995,11 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
     async (row: MatchCallRow) => {
       if (!currentUserId) return;
 
+      if (!callObjectRef.current && await hasBusyExternalDailyCall("active_rejoin_preflight")) {
+        toast.error("Finish your current call before joining");
+        return;
+      }
+
       trackedCallIdRef.current = row.id;
       roomNameRef.current = row.daily_room_name ?? null;
       const nextCallType = normalizeCallType(row.call_type);
@@ -1784,19 +2037,14 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
         }
 
         await runSingleJoinFlow(row.id, async () => {
-          if (callObjectRef.current) {
-            logMatchCallDiag("rejoin_skipped_duplicate_join", {
-              call_id: row.id,
-            });
-            return;
-          }
           const DailyIframe = await loadDailyIframe();
-          const callObject = DailyIframe.createCallObject(
-            dailyCallObjectOptions({
-              audioSource: true,
-              videoSource: nextCallType === "video",
-            })
+          const callObject = await createFreshMatchCallObject(
+            DailyIframe,
+            row.id,
+            nextCallType,
+            "rejoin_call",
           );
+          if (!callObject) return;
           callObjectRef.current = callObject;
           setupCallEvents(callObject, nextCallType);
           setCallPhase("in_call");
@@ -1842,6 +2090,8 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
           startHeartbeat();
         });
       } catch (err) {
+        if (await waitForProviderTeardown("active_rejoin_catch")) return;
+
         logMatchCallDiag("active_rejoin_failed", {
           call_id: row.id,
           message: err instanceof Error ? err.message : String(err),
@@ -1861,14 +2111,17 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
       activePartnerRef,
       cleanupLocalCall,
       clearRingingTimeout,
+      createFreshMatchCallObject,
       currentUserId,
       fetchPartnerSummary,
+      hasBusyExternalDailyCall,
       renderLocalMedia,
       runSingleJoinFlow,
       setupCallEvents,
       startDurationTimer,
       startHeartbeat,
       transitionCall,
+      waitForProviderTeardown,
     ],
   );
 
