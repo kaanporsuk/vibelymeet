@@ -369,8 +369,28 @@ assert.match(
 );
 assert.match(
   photoManageDrawer,
+  /relative z-10 flex w-full min-w-0 flex-col overflow-hidden border border-white\/10 bg-\[#0D0B1A\]/,
+  "Photo drawer modal shell should stay width-safe without a shared dynamic-viewport max-width",
+);
+assert.doesNotMatch(
+  photoManageDrawer,
   /relative z-10 flex w-full max-w-full supports-\[width:100dvw\]:max-w-\[100dvw\] min-w-0 flex-col overflow-hidden/,
-  "Photo drawer modal shell should not exceed the viewport width",
+  "Photo drawer modal shell must not let dynamic viewport max-width override the desktop cap",
+);
+assert.match(
+  photoManageDrawer,
+  /\? "h-\[92dvh\] max-h-\[92dvh\] max-w-full supports-\[width:100dvw\]:max-w-\[100dvw\] rounded-t-2xl"/,
+  "Photo drawer mobile shell should keep dynamic viewport width containment",
+);
+assert.match(
+  photoManageDrawer,
+  /: "max-h-\[88dvh\] max-w-\[560px\] rounded-2xl"/,
+  "Photo drawer desktop shell should preserve the compact 560px gallery manager",
+);
+assert.match(
+  photoManageDrawer,
+  /const \[isMobile, setIsMobile\] = useState\(\(\) => typeof window !== "undefined" && window\.innerWidth < 768\);/,
+  "Photo drawer should choose the mobile sheet animation before the first mobile paint",
 );
 assert.match(
   photoManageDrawer,
