@@ -646,7 +646,7 @@ export default function PhotoManageDrawer({
 
   // ── Responsive ───────────────────────────────────────────────
 
-  const [isMobile, setIsMobile] = useState(false);
+  const [isMobile, setIsMobile] = useState(() => typeof window !== "undefined" && window.innerWidth < 768);
   useEffect(() => {
     const check = () => setIsMobile(window.innerWidth < 768);
     check();
@@ -1040,9 +1040,9 @@ export default function PhotoManageDrawer({
           {/* Modal */}
           <motion.div
             className={cn(
-              "relative z-10 flex w-full max-w-full supports-[width:100dvw]:max-w-[100dvw] min-w-0 flex-col overflow-hidden border border-white/10 bg-[#0D0B1A]",
+              "relative z-10 flex w-full min-w-0 flex-col overflow-hidden border border-white/10 bg-[#0D0B1A]",
               isMobile
-                ? "h-[92dvh] max-h-[92dvh] rounded-t-2xl"
+                ? "h-[92dvh] max-h-[92dvh] max-w-full supports-[width:100dvw]:max-w-[100dvw] rounded-t-2xl"
                 : "max-h-[88dvh] max-w-[560px] rounded-2xl"
             )}
             initial={isMobile ? { y: "100%" } : { scale: 0.95, opacity: 0 }}
