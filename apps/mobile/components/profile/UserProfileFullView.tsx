@@ -29,6 +29,7 @@ import Animated, {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
+import { Image as ExpoImage } from 'expo-image';
 
 import Colors from '@/constants/Colors';
 import { spacing, radius, fonts, layout } from '@/constants/theme';
@@ -65,11 +66,6 @@ export type UserProfileFullViewProps = {
   hideHero?: boolean;
 };
 
-type NativeImageLoadState = {
-  uri: string | null;
-  status: 'loading' | 'loaded' | 'failed';
-};
-
 const PHOTO_ZOOM_SCALE = 2;
 const PHOTO_MAX_PINCH_SCALE = 4;
 const PHOTO_ZOOM_LOCK_SCALE = 1.03;
@@ -77,6 +73,10 @@ const PHOTO_ZOOM_SPRING = { damping: 22, stiffness: 240, mass: 0.7 };
 const PHOTO_VIEWER_OPEN_GUARD_MS = 650;
 const PHOTO_VIEWER_CLOSE_GUARD_MS = 900;
 const PHOTO_VIEWER_TOUCH_INTENT_MS = 650;
+
+// Stable noop so inactive photo pages can never write the shared `photoViewerZoomed` state
+// (only the active page is wired to the real setter).
+const NOOP_ZOOM_CHANGE = (_zoomed: boolean) => {};
 
 function clampPhotoPan(tx: number, ty: number, scale: number, width: number, height: number) {
   'worklet';
@@ -104,18 +104,12 @@ function AdaptiveNativeProfileMedia({
   onAccessibilityActivate?: () => void;
   accessibilityLabel?: string;
 }) {
-  const [imageLoadState, setImageLoadState] = useState<NativeImageLoadState>({ uri: null, status: 'loading' });
+  const reduceMotion = useReduceMotion();
+  // Key the error state to the URI so a late onError from a previous source can't poison the
+  // current photo, and a new URI clears the failed state synchronously (no reset effect needed).
+  const [failedUri, setFailedUri] = useState<string | null>(null);
   const resolvedUri = getImageUrl(uri, { width: 1400, quality: 88 });
-  const resolvedUriRef = useRef(resolvedUri);
-  const failed = imageLoadState.uri === resolvedUri && imageLoadState.status === 'failed';
-  const loaded = imageLoadState.uri === resolvedUri && imageLoadState.status === 'loaded';
-  resolvedUriRef.current = resolvedUri;
-
-  useEffect(() => {
-    setImageLoadState((current) =>
-      current.uri === resolvedUri ? current : { uri: resolvedUri, status: 'loading' },
-    );
-  }, [resolvedUri]);
+  const failed = failedUri === resolvedUri;
 
   const content = failed ? (
     <RNView style={[s.adaptiveFallback, { height }]}>
@@ -124,30 +118,25 @@ function AdaptiveNativeProfileMedia({
     </RNView>
   ) : (
     <>
-      <Image
-        key={`background-${resolvedUri}`}
+      {/* expo-image memory/disk cache keeps remounts from showing the old forced black load state. */}
+      <ExpoImage
+        recyclingKey={resolvedUri}
         source={{ uri: resolvedUri }}
-        style={[s.adaptiveBackground, !loaded && { opacity: 0 }]}
-        resizeMode="cover"
+        style={s.adaptiveBackground}
+        contentFit="cover"
         blurRadius={22}
+        cachePolicy="memory-disk"
+        transition={reduceMotion ? 0 : 150}
       />
-      <RNView style={[s.adaptiveDim, !loaded && { opacity: 0 }]} />
-      {!loaded ? (
-        <RNView pointerEvents="none" style={s.adaptiveLoadingState}>
-          <ActivityIndicator color="#8B5CF6" />
-        </RNView>
-      ) : null}
-      <Image
-        key={`foreground-${resolvedUri}`}
+      <RNView style={s.adaptiveDim} />
+      <ExpoImage
+        recyclingKey={resolvedUri}
         source={{ uri: resolvedUri }}
-        style={[s.adaptiveForeground, !loaded && { opacity: 0 }]}
-        resizeMode="contain"
-        onLoad={() => {
-          if (resolvedUriRef.current === resolvedUri) setImageLoadState({ uri: resolvedUri, status: 'loaded' });
-        }}
-        onError={() => {
-          if (resolvedUriRef.current === resolvedUri) setImageLoadState({ uri: resolvedUri, status: 'failed' });
-        }}
+        style={s.adaptiveForeground}
+        contentFit="contain"
+        cachePolicy="memory-disk"
+        transition={reduceMotion ? 0 : 150}
+        onError={() => setFailedUri(resolvedUri)}
       />
     </>
   );
@@ -173,8 +162,9 @@ function AdaptiveNativeProfileMedia({
   return <RNView style={[s.adaptiveMedia, { height }]}>{content}</RNView>;
 }
 
-function ZoomableProfilePhotoPage({
+const ZoomableProfilePhotoPage = React.memo(function ZoomableProfilePhotoPage({
   uri,
+  placeholderUri,
   width,
   height,
   isActive,
@@ -182,14 +172,18 @@ function ZoomableProfilePhotoPage({
   onZoomChange,
 }: {
   uri: string;
+  /** Low-res derivative shown while the full image decodes on a cache miss (avoids a black wait). */
+  placeholderUri?: string | null;
   width: number;
   height: number;
   isActive: boolean;
   accessibilityLabel: string;
   onZoomChange: (zoomed: boolean) => void;
 }) {
-  const [imageLoadState, setImageLoadState] = useState<NativeImageLoadState>({ uri: null, status: 'loading' });
-  const uriRef = useRef(uri);
+  // Key the error state to the URI so a stale onError can't poison the current photo, and a new
+  // URI clears the failed state synchronously without a reset effect.
+  const [failedUri, setFailedUri] = useState<string | null>(null);
+  const failed = failedUri === uri;
   const scale = useSharedValue(1);
   const tx = useSharedValue(0);
   const ty = useSharedValue(0);
@@ -201,17 +195,10 @@ function ZoomableProfilePhotoPage({
   const isActiveSV = useSharedValue(isActive);
   const [zoomed, setZoomed] = useState(false);
   const reduceMotion = useReduceMotion();
-  const failed = imageLoadState.uri === uri && imageLoadState.status === 'failed';
-  const loaded = imageLoadState.uri === uri && imageLoadState.status === 'loaded';
-  uriRef.current = uri;
 
   useEffect(() => {
     isActiveSV.value = isActive;
   }, [isActive, isActiveSV]);
-
-  useEffect(() => {
-    setImageLoadState((current) => (current.uri === uri ? current : { uri, status: 'loading' }));
-  }, [uri]);
 
   const notifyZoomChange = useCallback(
     (nextZoomed: boolean) => {
@@ -365,86 +352,32 @@ function ZoomableProfilePhotoPage({
                 <Text style={s.adaptiveFallbackText}>Photo unavailable</Text>
               </RNView>
             ) : (
-              <>
-                {!loaded ? (
-                  <RNView pointerEvents="none" style={s.photoModalImageState}>
-                    <ActivityIndicator color="#8B5CF6" />
-                  </RNView>
-                ) : null}
-                <Image
-                  source={{ uri }}
-                  style={[s.photoModalImage, !loaded && { opacity: 0 }]}
-                  resizeMode="contain"
-                  accessible
-                  accessibilityRole="imagebutton"
-                  accessibilityLabel={`${accessibilityLabel}${zoomed ? ', zoomed in' : ''}`}
-                  accessibilityActions={[{ name: 'activate', label: zoomed ? 'Zoom out' : 'Zoom in' }]}
-                  onAccessibilityAction={handleAccessibilityAction}
-                  onLoad={() => {
-                    if (uriRef.current === uri) setImageLoadState({ uri, status: 'loaded' });
-                  }}
-                  onError={() => {
-                    if (uriRef.current === uri) setImageLoadState({ uri, status: 'failed' });
-                  }}
-                />
-              </>
+              // expo-image memory/disk cache keeps decoded frames stable across re-renders/remounts.
+              // transition=0 in the viewer: no fade on a cache hit/remount, so there is no residual
+              // flicker. The low-res placeholder fills a cache-miss instead of a silent black wait.
+              <ExpoImage
+                recyclingKey={uri}
+                source={{ uri }}
+                placeholder={placeholderUri ? { uri: placeholderUri } : undefined}
+                placeholderContentFit="contain"
+                style={s.photoModalImage}
+                contentFit="contain"
+                cachePolicy="memory-disk"
+                transition={0}
+                accessible
+                accessibilityRole="imagebutton"
+                accessibilityLabel={`${accessibilityLabel}${zoomed ? ', zoomed in' : ''}`}
+                accessibilityActions={[{ name: 'activate', label: zoomed ? 'Zoom out' : 'Zoom in' }]}
+                onAccessibilityAction={handleAccessibilityAction}
+                onError={() => setFailedUri(uri)}
+              />
             )}
           </Animated.View>
         </Animated.View>
       </RNView>
     </GestureDetector>
   );
-}
-
-function ModalProfilePhotoImage({
-  uri,
-  accessibilityLabel,
-}: {
-  uri: string;
-  accessibilityLabel: string;
-}) {
-  const [imageLoadState, setImageLoadState] = useState<NativeImageLoadState>({ uri: null, status: 'loading' });
-  const uriRef = useRef(uri);
-  const failed = imageLoadState.uri === uri && imageLoadState.status === 'failed';
-  const loaded = imageLoadState.uri === uri && imageLoadState.status === 'loaded';
-  uriRef.current = uri;
-
-  useEffect(() => {
-    setImageLoadState((current) => (current.uri === uri ? current : { uri, status: 'loading' }));
-  }, [uri]);
-
-  if (failed) {
-    return (
-      <RNView style={s.photoModalImageState}>
-        <Ionicons name="image-outline" size={40} color="rgba(255,255,255,0.72)" />
-        <Text style={s.adaptiveFallbackText}>Photo unavailable</Text>
-      </RNView>
-    );
-  }
-
-  return (
-    <>
-      {!loaded ? (
-        <RNView pointerEvents="none" style={s.photoModalImageState}>
-          <ActivityIndicator color="#8B5CF6" />
-        </RNView>
-      ) : null}
-      <Image
-        source={{ uri }}
-        style={[s.photoModalImage, !loaded && { opacity: 0 }]}
-        resizeMode="contain"
-        accessibilityRole="image"
-        accessibilityLabel={accessibilityLabel}
-        onLoad={() => {
-          if (uriRef.current === uri) setImageLoadState({ uri, status: 'loaded' });
-        }}
-        onError={() => {
-          if (uriRef.current === uri) setImageLoadState({ uri, status: 'failed' });
-        }}
-      />
-    </>
-  );
-}
+});
 
 function CompactTrustPill() {
   return (
@@ -666,6 +599,22 @@ export function UserProfileFullView({
     setPhotoViewerZoomed(false);
   }, [photoViewerIndex]);
 
+  // Warm expo-image's cache for both the placeholder and full viewer resolutions.
+  const prefetchProfilePhoto = useCallback((index: number) => {
+    if (!Number.isInteger(index) || index < 0 || index >= photos.length) return;
+    const placeholderUrl = getImageUrl(photos[index], { width: 420, quality: 60 });
+    const fullUrl = getImageUrl(photos[index], { width: 1200, quality: 88 });
+    const urls = Array.from(new Set([placeholderUrl, fullUrl]));
+    void ExpoImage.prefetch(urls, { cachePolicy: 'memory-disk' }).catch(() => {});
+  }, [photos]);
+
+  // Prefetch the target plus immediate neighbors so opening/swiping usually avoids a cold cache.
+  const prefetchPhotosAround = useCallback((index: number) => {
+    prefetchProfilePhoto(index);
+    prefetchProfilePhoto(index - 1);
+    prefetchProfilePhoto(index + 1);
+  }, [prefetchProfilePhoto]);
+
   const registerPhotoViewerTouchIntent = useCallback((index: number) => {
     const now = Date.now();
     if (now < photoViewerOpenBlockedUntilRef.current) return;
@@ -674,7 +623,9 @@ export function UserProfileFullView({
       index,
       expiresAt: now + PHOTO_VIEWER_TOUCH_INTENT_MS,
     };
-  }, [photos.length]);
+    // Start fetching at press-in (earliest signal) so the placeholder/full image are usually ready by open.
+    prefetchProfilePhoto(index);
+  }, [photos.length, prefetchProfilePhoto]);
 
   const openPhotoViewer = useCallback((index: number, source: 'touch' | 'accessibility' = 'touch') => {
     const now = Date.now();
@@ -688,11 +639,10 @@ export function UserProfileFullView({
     if (now < photoViewerOpenBlockedUntilRef.current) return;
     if (photoViewerIndex !== null) return;
     if (!Number.isInteger(index) || index < 0 || index >= photos.length) return;
-    const prefetchUrl = getImageUrl(photos[index], { width: 1200, quality: 88 });
-    void Image.prefetch(prefetchUrl).catch(() => {});
+    prefetchPhotosAround(index);
     setPhotoViewerZoomed(false);
     setPhotoViewerIndex(index);
-  }, [photoViewerIndex, photos]);
+  }, [photoViewerIndex, photos.length, prefetchPhotosAround]);
 
   const handlePhotoPagerMomentumEnd = useCallback(
     (event: NativeSyntheticEvent<NativeScrollEvent>) => {
@@ -741,6 +691,37 @@ export function UserProfileFullView({
     photoViewerIndex === null || photos.length === 0
       ? 0
       : Math.min(Math.max(0, photoViewerIndex), photos.length - 1);
+
+  // Keep the photos adjacent to the current one warm in expo-image's cache as the user pages.
+  useEffect(() => {
+    if (!photoViewerVisible) return;
+    prefetchPhotosAround(activePhotoViewerIndex);
+  }, [activePhotoViewerIndex, photoViewerVisible, prefetchPhotosAround]);
+
+  // Every cell renders the same component type (ZoomableProfilePhotoPage); only `isActive` toggles.
+  // This keeps FlatList cells stable across re-renders so the active photo never remounts/re-fetches.
+  // Only the active page is wired to `setPhotoViewerZoomed`; inactive pages get a noop so a
+  // neighbor mounting/updating can never re-enable paging/dismiss while the active photo is zoomed.
+  const renderPhotoViewerItem = useCallback(
+    ({ item: url, index: i }: { item: string; index: number }) => {
+      const isActive = i === activePhotoViewerIndex;
+      const uri = getImageUrl(url, { width: 1200, quality: 88 });
+      const placeholderUri = getImageUrl(url, { width: 420, quality: 60 });
+      return (
+        <ZoomableProfilePhotoPage
+          key={`pv-${url}`}
+          uri={uri}
+          placeholderUri={placeholderUri}
+          width={winWidth}
+          height={winHeight}
+          isActive={isActive}
+          accessibilityLabel={`Profile photo ${i + 1} of ${photos.length}`}
+          onZoomChange={isActive ? setPhotoViewerZoomed : NOOP_ZOOM_CHANGE}
+        />
+      );
+    },
+    [activePhotoViewerIndex, photos.length, winHeight, winWidth],
+  );
 
   return (
     <RNView style={{ flex: 1, backgroundColor: theme.background }}>
@@ -1157,6 +1138,7 @@ export function UserProfileFullView({
               <FlatList
                 ref={photoPagerRef}
                 data={photos}
+                extraData={activePhotoViewerIndex}
                 horizontal
                 pagingEnabled
                 showsHorizontalScrollIndicator={false}
@@ -1180,28 +1162,7 @@ export function UserProfileFullView({
                     photoPagerRef.current?.scrollToIndex({ index: info.index, animated: false });
                   });
                 }}
-                renderItem={({ item: url, index: i }) => {
-                  const uri = getImageUrl(url, { width: 1200, quality: 88 });
-                  const accessibilityLabel = `Profile photo ${i + 1} of ${photos.length}`;
-                  if (i !== activePhotoViewerIndex) {
-                    return (
-                      <RNView style={[s.photoModalPage, { width: winWidth, height: winHeight }]}>
-                        <ModalProfilePhotoImage uri={uri} accessibilityLabel={accessibilityLabel} />
-                      </RNView>
-                    );
-                  }
-                  return (
-                    <ZoomableProfilePhotoPage
-                      key={`pv-${i}`}
-                      uri={uri}
-                      width={winWidth}
-                      height={winHeight}
-                      isActive
-                      accessibilityLabel={accessibilityLabel}
-                      onZoomChange={setPhotoViewerZoomed}
-                    />
-                  );
-                }}
+                renderItem={renderPhotoViewerItem}
               />
             </RNView>
           </GestureHandlerRootView>
@@ -1249,12 +1210,6 @@ const s = StyleSheet.create({
     color: 'rgba(255,255,255,0.74)',
     fontSize: 13,
     fontFamily: fonts.bodyMedium,
-  },
-  adaptiveLoadingState: {
-    ...StyleSheet.absoluteFillObject,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#111118',
   },
   headerBar: {
     position: 'absolute',

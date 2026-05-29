@@ -123,7 +123,10 @@ test("profile photo viewers are guarded against native and web self-reopen traps
   assert.match(nativeFullView, /intent\.index !== index \|\| intent\.expiresAt < now/);
   assert.match(nativeFullView, /now < photoViewerOpenBlockedUntilRef\.current/);
   assert.match(nativeFullView, /if \(!Number\.isInteger\(index\) \|\| index < 0 \|\| index >= photos\.length\) return/);
-  assert.match(nativeFullView, /Image\.prefetch\(prefetchUrl\)/);
+  assert.match(nativeFullView, /const prefetchProfilePhoto = useCallback/);
+  assert.match(nativeFullView, /const placeholderUrl = getImageUrl\(photos\[index\], \{ width: 420, quality: 60 \}\)/);
+  assert.match(nativeFullView, /const fullUrl = getImageUrl\(photos\[index\], \{ width: 1200, quality: 88 \}\)/);
+  assert.match(nativeFullView, /ExpoImage\.prefetch\(urls, \{ cachePolicy: 'memory-disk' \}\)/);
   assert.match(nativeFullView, /presentationStyle="fullScreen"/);
   assert.match(nativeFullView, /const photoViewerVisible = photoViewerIndex !== null && photos\.length > 0/);
   assert.match(nativeFullView, /Math\.min\(Math\.max\(0, photoViewerIndex\), photos\.length - 1\)/);
@@ -134,9 +137,11 @@ test("profile photo viewers are guarded against native and web self-reopen traps
   assert.match(nativeFullView, /getItemLayout=\{\(_, index\) => \(\{/);
   assert.match(nativeFullView, /onPressIn=\{\(\) => registerPhotoViewerTouchIntent\(0\)\}/);
   assert.match(nativeFullView, /onAccessibilityActivate=\{\(\) => openPhotoViewer\(0, 'accessibility'\)\}/);
-  assert.match(nativeFullView, /ModalProfilePhotoImage/);
-  assert.match(nativeFullView, /resolvedUriRef\.current === resolvedUri/);
-  assert.match(nativeFullView, /uriRef\.current === uri/);
+  assert.doesNotMatch(nativeFullView, /ModalProfilePhotoImage/);
+  assert.match(nativeFullView, /NOOP_ZOOM_CHANGE/);
+  assert.match(nativeFullView, /onZoomChange=\{isActive \? setPhotoViewerZoomed : NOOP_ZOOM_CHANGE\}/);
+  assert.match(nativeFullView, /failedUri === resolvedUri/);
+  assert.match(nativeFullView, /failedUri === uri/);
   assert.match(nativeFullView, /accessibilityViewIsModal/);
   assert.doesNotMatch(nativeFullView, /contentOffset=\{\{ x: activePhotoViewerIndex \* winWidth, y: 0 \}\}/);
   const nativePhotoModalStart = nativeFullView.indexOf("<Modal\n          visible");
@@ -204,7 +209,7 @@ test("web canonical profile keeps substance above the body photo gallery", () =>
   assert.match(chat, /Voice note loading[\s\S]*className=\{quickActionButtonClass\}/);
   assert.match(chat, /VoiceRecorder[\s\S]*className=\{quickActionButtonClass\}/);
   assert.doesNotMatch(chat, /className=\{cn\(quickActionButtonClass, "col-span-2 justify-center text-center"\)\}/);
-  assert.match(chat, /<span className="whitespace-nowrap">Schedule<\/span>/);
+  assert.match(chat, /<span className="truncate">Schedule<\/span>/);
 });
 
 test("native chat and matches route profile actions to the canonical user route", () => {
@@ -270,20 +275,25 @@ test("native full profile includes adaptive media and explicit verification stat
   const nativeFullView = read("apps/mobile/components/profile/UserProfileFullView.tsx");
 
   assert.match(nativeFullView, /AdaptiveNativeProfileMedia/);
-  assert.match(nativeFullView, /resizeMode="contain"/);
-  assert.match(nativeFullView, /type NativeImageLoadState/);
-  assert.match(nativeFullView, /imageLoadState\.uri === resolvedUri && imageLoadState\.status === 'failed'/);
-  assert.doesNotMatch(nativeFullView, /failedUri/);
-  assert.match(nativeFullView, /key=\{`background-\$\{resolvedUri\}`\}/);
-  assert.match(nativeFullView, /key=\{`foreground-\$\{resolvedUri\}`\}/);
-  assert.match(nativeFullView, /current\.uri === resolvedUri \? current : \{ uri: resolvedUri, status: 'loading' \}/);
-  assert.match(nativeFullView, /adaptiveLoadingState/);
-  assert.match(nativeFullView, /if \(resolvedUriRef\.current === resolvedUri\) setImageLoadState\(\{ uri: resolvedUri, status: 'loaded' \}\)/);
-  const nativeBackgroundStart = nativeFullView.indexOf('key={`background-${resolvedUri}`}');
-  const nativeForegroundStart = nativeFullView.indexOf('key={`foreground-${resolvedUri}`}');
+  assert.match(nativeFullView, /Image as ExpoImage/);
+  assert.match(nativeFullView, /contentFit="cover"/);
+  assert.match(nativeFullView, /contentFit="contain"/);
+  assert.match(nativeFullView, /cachePolicy="memory-disk"/);
+  assert.match(nativeFullView, /recyclingKey=\{resolvedUri\}/);
+  assert.match(nativeFullView, /recyclingKey=\{uri\}/);
+  assert.match(nativeFullView, /placeholderContentFit="contain"/);
+  assert.match(nativeFullView, /transition=\{0\}/);
+  assert.match(nativeFullView, /failedUri === resolvedUri/);
+  assert.match(nativeFullView, /failedUri === uri/);
+  assert.doesNotMatch(nativeFullView, /resizeMode="contain"/);
+  assert.doesNotMatch(nativeFullView, /type NativeImageLoadState/);
+  assert.doesNotMatch(nativeFullView, /imageLoadState/);
+  assert.doesNotMatch(nativeFullView, /adaptiveLoadingState/);
+  const nativeBackgroundStart = nativeFullView.indexOf('recyclingKey={resolvedUri}');
+  const nativeForegroundStart = nativeFullView.indexOf('style={s.adaptiveForeground}');
   assert.ok(nativeBackgroundStart > -1 && nativeForegroundStart > nativeBackgroundStart);
   const nativeBackgroundBlock = nativeFullView.slice(nativeBackgroundStart, nativeForegroundStart);
-  assert.doesNotMatch(nativeBackgroundBlock, /setImageLoadState|onError/);
+  assert.doesNotMatch(nativeBackgroundBlock, /setFailedUri|onError/);
   assert.match(nativeFullView, /Math\.min\(winHeight \* 0\.58, 620\)/);
   assert.match(nativeFullView, /Math\.max\(220, Math\.min\(winHeight \* 0\.4, 420\)\)/);
   assert.match(nativeFullView, /function CompactTrustPill/);
