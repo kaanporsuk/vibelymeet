@@ -2777,7 +2777,7 @@ const Chat = () => {
 
   return (
     <div
-      className="fixed inset-0 h-[100dvh] w-screen bg-[#050508] flex justify-center overflow-hidden lg:relative lg:inset-auto lg:w-auto lg:px-4 lg:py-3"
+      className="fixed inset-0 h-[100svh] w-screen bg-[#050508] flex justify-center overflow-hidden lg:relative lg:inset-auto lg:w-auto lg:px-4 lg:py-3"
       style={mobileKeyboardViewportStyle}
     >
       <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_8%,hsl(var(--primary)/0.11),transparent_34%),linear-gradient(180deg,rgba(255,255,255,0.025),transparent_32%)] pointer-events-none" />

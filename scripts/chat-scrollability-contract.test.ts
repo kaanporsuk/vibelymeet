@@ -115,8 +115,9 @@ test("web chat pins mobile shell to visualViewport and preserves keyboard sticki
   assert.match(webChat, /viewport\.addEventListener\("scroll", handleMobileViewportChange\)/);
   assert.match(
     webChat,
-    /className="fixed inset-0 h-\[100dvh\] w-screen[\s\S]*lg:relative lg:inset-auto lg:w-auto/,
+    /className="fixed inset-0 h-\[100svh\] w-screen[\s\S]*lg:relative lg:inset-auto lg:w-auto/,
   );
+  assert.doesNotMatch(webChat, /className="fixed inset-0 h-\[100dvh\] w-screen/);
   assert.match(webChat, /style=\{mobileKeyboardViewportStyle\}/);
   assert.match(webChat, /<div ref=\{composerChromeRef\} className="relative z-40 shrink-0">/);
   assert.match(
