@@ -369,7 +369,7 @@ export function PhotoCameraCaptureDialog({
         <DialogPrimitive.Overlay className="fixed inset-0 z-[90] bg-black/82 backdrop-blur-[1px] data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0" />
         <DialogPrimitive.Content
           className={cn(
-            "fixed left-1/2 top-1/2 z-[100] w-[min(31rem,calc(100vw-1.5rem))] -translate-x-1/2 -translate-y-1/2",
+            "fixed left-1/2 top-1/2 z-[100] w-[min(31rem,calc(100svw-1.5rem))] -translate-x-1/2 -translate-y-1/2",
             "max-h-[min(92vh,43rem)] overflow-y-auto rounded-[1.75rem] border border-white/10 bg-[#111116]/95 p-4 text-white shadow-2xl shadow-black/45 outline-none",
             "data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95",
           )}

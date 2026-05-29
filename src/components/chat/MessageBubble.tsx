@@ -124,7 +124,7 @@ export const MessageBubble = ({
       onMouseDown={handleTouchStart}
       onMouseUp={handleTouchEnd}
       onMouseLeave={handleTouchEnd}
-      className="relative select-none"
+      className="relative max-w-full min-w-0 select-none"
     >
       {/* Particle burst effect */}
       <AnimatePresence>
@@ -138,7 +138,7 @@ export const MessageBubble = ({
 
       <div
         className={cn(
-          "max-w-[min(92%,22rem)] px-3.5 py-2 relative",
+          "max-w-[min(100%,calc(100svw-1rem),22rem)] min-w-0 px-3.5 py-2 relative",
           isMe
             ? "bg-gradient-primary text-primary-foreground"
             : "glass-card text-foreground",
@@ -160,7 +160,7 @@ export const MessageBubble = ({
               )
         )}
       >
-        <p className="text-[13px] leading-relaxed">{message.text}</p>
+        <p className="text-[13px] leading-relaxed whitespace-pre-wrap break-words [overflow-wrap:anywhere]">{message.text}</p>
         {isMe && message.sendError ? (
           <div className="mt-1 flex flex-col items-end gap-1 text-right">
             <span className="text-[10px] text-primary-foreground/80">{message.sendError}</span>
@@ -271,7 +271,7 @@ export const MessageBubble = ({
         animate={{ opacity: 1, y: 0, scale: 1 }}
         transition={{ type: "spring", stiffness: 420, damping: 28, mass: 0.85 }}
         className={cn(
-          "flex items-end gap-2 relative",
+          "flex w-full min-w-0 items-end gap-2 relative",
           isMe ? "justify-end" : "justify-start",
           isFocused && "z-[100]",
           (message.reactionPair?.mine || message.reactionPair?.partner) && "mb-4",

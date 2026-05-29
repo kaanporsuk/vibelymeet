@@ -54,6 +54,7 @@ export default function ProfilePreviewScreen() {
     alignItems: 'center' as const,
     backgroundColor: theme.background,
   };
+  const previewProfile = profile?.id === profileId ? profile : null;
 
   if (!profileId) {
     return (
@@ -68,7 +69,7 @@ export default function ProfilePreviewScreen() {
     );
   }
 
-  if (isPending || !hasFreshPreview) {
+  if ((isPending && !previewProfile) || (!hasFreshPreview && !previewProfile)) {
     return (
       <View style={centered}>
         <LoadingState title="Loading preview..." message="Just a sec..." />
@@ -76,9 +77,9 @@ export default function ProfilePreviewScreen() {
     );
   }
 
-  if (freshPreviewFailed || (isError && !profile) || !profile) {
+  if (!previewProfile) {
     const msg =
-      isError && !profile
+      isError || freshPreviewFailed
         ? error instanceof Error
           ? error.message
           : "Couldn't load profile."
@@ -90,5 +91,5 @@ export default function ProfilePreviewScreen() {
     );
   }
 
-  return <UserProfileFullView profile={profile} isOwnProfile={false} onClose={() => router.back()} />;
+  return <UserProfileFullView profile={previewProfile} isOwnProfile={false} onClose={() => router.back()} />;
 }

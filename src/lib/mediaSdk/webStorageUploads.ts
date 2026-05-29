@@ -25,6 +25,7 @@ import {
 } from "@/services/eventCoverUploadService";
 import { createWebMediaUploadReconciler } from "@/lib/mediaSdk/reconciliation";
 import { webMediaTelemetrySinks } from "@/lib/mediaSdk/sinks";
+import { transcodeVoiceForUpload } from "@/lib/mediaSdk/voiceTranscode";
 
 type WebImageSdkUploadParams = {
   file: File | Blob;
@@ -414,6 +415,9 @@ export async function uploadEventCoverWithMediaSdk(
 export async function uploadVoiceWithMediaSdk(params: WebVoiceSdkUploadParams): Promise<string> {
   const matchId = typeof params.matchId === "string" ? params.matchId.trim() : "";
   const clientRequestId = params.clientRequestId ?? createMediaClientRequestId();
+  // Make web-recorded voice universally playable (webm/opus -> MP3) before upload.
+  // No-op for already-universal blobs; never throws (falls back to the original blob).
+  const voiceBlob = await transcodeVoiceForUpload(params.blob);
   const uploadUserId = await getCachedUploadUserId();
   let evaluation: ClientFeatureFlagEvaluation;
   try {
@@ -432,12 +436,12 @@ export async function uploadVoiceWithMediaSdk(params: WebVoiceSdkUploadParams): 
   });
 
   if (!canUseMediaSdk) {
-    return (await uploadVoiceToBunny(params.blob, params.accessToken, matchId, clientRequestId)).path;
+    return (await uploadVoiceToBunny(voiceBlob, params.accessToken, matchId, clientRequestId)).path;
   }
 
   const task = getWebStorageMediaSdk().voice.upload({
     family: "voice_note",
-    source: params.blob,
+    source: voiceBlob,
     context: {
       uploadContext: "chat",
       scopeKey: `match:${matchId}`,

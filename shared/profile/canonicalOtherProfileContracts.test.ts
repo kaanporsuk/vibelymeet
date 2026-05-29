@@ -25,8 +25,10 @@ test("web other-user profile entry points render canonical profile content", () 
   assert.match(profilePreview, /useOtherUserFullProfile\(profileId\)/);
   assert.match(profilePreview, /refetch\(\)[\s\S]*result\.isError/);
   assert.match(profilePreview, /result\.data\?\.id !== profileId/);
-  assert.match(profilePreview, /if \(isLoading \|\| !hasFreshPreview\)/);
-  assert.match(profilePreview, /freshPreviewFailed \|\| !profile/);
+  assert.match(profilePreview, /const previewProfile = profile\?\.id === profileId \? profile : null/);
+  assert.match(profilePreview, /\(isLoading && !previewProfile\) \|\| \(!hasFreshPreview && !previewProfile\)/);
+  assert.match(profilePreview, /if \(!previewProfile\)/);
+  assert.match(profilePreview, /profile=\{previewProfile\}/);
   assert.doesNotMatch(profilePreview, /ProfilePhoto|LifestyleDetails|BottomNav|VibePlayer|resolveWebVibeVideoState/);
   assert.match(drawer, /OtherUserFullProfileView/);
   assert.match(drawer, /useOtherUserFullProfile/);
@@ -80,6 +82,7 @@ test("profile photo viewers are guarded against native and web self-reopen traps
   const nativeFullView = read("apps/mobile/components/profile/UserProfileFullView.tsx");
   const webPreview = read("src/pages/ProfilePreview.tsx");
   const nativePreview = read("apps/mobile/app/profile-preview.tsx");
+  const nativeProfileStudio = read("apps/mobile/app/(tabs)/profile/ProfileStudio.tsx");
 
   assert.match(canonical, /PHOTO_PREVIEW_OPEN_GUARD_MS/);
   assert.match(canonical, /PHOTO_PREVIEW_CLOSE_GUARD_MS/);
@@ -106,20 +109,36 @@ test("profile photo viewers are guarded against native and web self-reopen traps
 
   assert.match(nativeFullView, /PHOTO_VIEWER_OPEN_GUARD_MS/);
   assert.match(nativeFullView, /PHOTO_VIEWER_CLOSE_GUARD_MS/);
+  assert.match(nativeFullView, /PHOTO_VIEWER_TOUCH_INTENT_MS/);
   assert.match(nativeFullView, /photoViewerOpenBlockedUntilRef/);
+  assert.match(nativeFullView, /photoViewerTouchIntentRef/);
+  assert.match(nativeFullView, /const registerPhotoViewerTouchIntent = useCallback/);
+  const nativeTouchIntentStart = nativeFullView.indexOf("const registerPhotoViewerTouchIntent = useCallback");
+  const nativeTouchIntentEnd = nativeFullView.indexOf("const openPhotoViewer = useCallback", nativeTouchIntentStart);
+  assert.ok(nativeTouchIntentStart > -1 && nativeTouchIntentEnd > nativeTouchIntentStart);
+  const nativeTouchIntentBlock = nativeFullView.slice(nativeTouchIntentStart, nativeTouchIntentEnd);
+  assert.match(nativeTouchIntentBlock, /now < photoViewerOpenBlockedUntilRef\.current/);
   assert.match(nativeFullView, /const openPhotoViewer = useCallback/);
-  assert.match(nativeFullView, /Date\.now\(\) < photoViewerOpenBlockedUntilRef\.current/);
+  assert.match(nativeFullView, /source: 'touch' \| 'accessibility' = 'touch'/);
+  assert.match(nativeFullView, /intent\.index !== index \|\| intent\.expiresAt < now/);
+  assert.match(nativeFullView, /now < photoViewerOpenBlockedUntilRef\.current/);
   assert.match(nativeFullView, /if \(!Number\.isInteger\(index\) \|\| index < 0 \|\| index >= photos\.length\) return/);
   assert.match(nativeFullView, /Image\.prefetch\(prefetchUrl\)/);
   assert.match(nativeFullView, /presentationStyle="fullScreen"/);
   assert.match(nativeFullView, /const photoViewerVisible = photoViewerIndex !== null && photos\.length > 0/);
-  assert.match(nativeFullView, /const activePhotoViewerIndex = photoViewerIndex \?\? 0/);
+  assert.match(nativeFullView, /Math\.min\(Math\.max\(0, photoViewerIndex\), photos\.length - 1\)/);
   assert.match(nativeFullView, /\{photoViewerVisible \? \(/);
-  assert.match(nativeFullView, /contentOffset=\{\{ x: activePhotoViewerIndex \* winWidth, y: 0 \}\}/);
+  assert.match(nativeFullView, /<FlatList/);
+  assert.match(nativeFullView, /initialScrollIndex=\{activePhotoViewerIndex\}/);
+  assert.match(nativeFullView, /initialNumToRender=\{1\}/);
+  assert.match(nativeFullView, /getItemLayout=\{\(_, index\) => \(\{/);
+  assert.match(nativeFullView, /onPressIn=\{\(\) => registerPhotoViewerTouchIntent\(0\)\}/);
+  assert.match(nativeFullView, /onAccessibilityActivate=\{\(\) => openPhotoViewer\(0, 'accessibility'\)\}/);
   assert.match(nativeFullView, /ModalProfilePhotoImage/);
   assert.match(nativeFullView, /resolvedUriRef\.current === resolvedUri/);
   assert.match(nativeFullView, /uriRef\.current === uri/);
   assert.match(nativeFullView, /accessibilityViewIsModal/);
+  assert.doesNotMatch(nativeFullView, /contentOffset=\{\{ x: activePhotoViewerIndex \* winWidth, y: 0 \}\}/);
   const nativePhotoModalStart = nativeFullView.indexOf("<Modal\n          visible");
   assert.ok(nativePhotoModalStart > -1);
   const nativePhotoModalOpenTag = nativeFullView.slice(
@@ -130,10 +149,29 @@ test("profile photo viewers are guarded against native and web self-reopen traps
 
   assert.match(webPreview, /refetchRequestIdRef/);
   assert.match(webPreview, /refetchRequestIdRef\.current !== requestId/);
-  assert.match(webPreview, /if \(isLoading \|\| !hasFreshPreview\)/);
+  assert.match(webPreview, /const previewProfile = profile\?\.id === profileId \? profile : null/);
+  assert.match(webPreview, /\(isLoading && !previewProfile\) \|\| \(!hasFreshPreview && !previewProfile\)/);
+  assert.match(webPreview, /if \(!previewProfile\)/);
+  assert.match(webPreview, /profile=\{previewProfile\}/);
   assert.match(nativePreview, /refetchRequestIdRef/);
   assert.match(nativePreview, /refetchRequestIdRef\.current !== requestId/);
-  assert.match(nativePreview, /if \(isPending \|\| !hasFreshPreview\)/);
+  assert.match(nativePreview, /const previewProfile = profile\?\.id === profileId \? profile : null/);
+  assert.match(nativePreview, /\(isPending && !previewProfile\) \|\| \(!hasFreshPreview && !previewProfile\)/);
+  assert.match(nativePreview, /if \(!previewProfile\)/);
+  assert.match(nativePreview, /profile=\{previewProfile\}/);
+
+  assert.match(nativeProfileStudio, /PROFILE_PREVIEW_PUSH_GUARD_MS/);
+  assert.match(nativeProfileStudio, /profilePreviewPushBlockedUntilRef/);
+  assert.match(nativeProfileStudio, /const openProfilePreview = useCallback/);
+  assert.match(nativeProfileStudio, /setPhotoViewerIndex\(null\)/);
+  assert.match(nativeProfileStudio, /setShowPhotoDrawer\(false\)/);
+  assert.match(nativeProfileStudio, /setPhotoDrawerLaunchAction\(null\)/);
+  assert.match(nativeProfileStudio, /setPhotoSourceMenu\(\{ open: false, anchor: null \}\)/);
+  assert.match(nativeProfileStudio, /onPress=\{openProfilePreview\}/);
+  assert.match(nativeProfileStudio, /const openProfileStudioPhotoViewer = useCallback/);
+  assert.match(nativeProfileStudio, /openProfileStudioPhotoViewer\(index\)/);
+  assert.doesNotMatch(nativeProfileStudio, /onPress=\{\(\) => [^}]*\/profile-preview/);
+  assert.doesNotMatch(nativeProfileStudio, /\? \(\) => setPhotoViewerIndex\(index\)/);
 });
 
 test("web profile hero controls keep reliable touch targets", () => {
@@ -194,8 +232,10 @@ test("native chat and matches route profile actions to the canonical user route"
   assert.match(nativeProfilePreview, /isOwnProfile=\{false\}/);
   assert.match(nativeProfilePreview, /refetch\(\)[\s\S]*result\.isError/);
   assert.match(nativeProfilePreview, /result\.data\?\.id !== profileId/);
-  assert.match(nativeProfilePreview, /if \(isPending \|\| !hasFreshPreview\)/);
-  assert.match(nativeProfilePreview, /freshPreviewFailed \|\| \(isError && !profile\) \|\| !profile/);
+  assert.match(nativeProfilePreview, /const previewProfile = profile\?\.id === profileId \? profile : null/);
+  assert.match(nativeProfilePreview, /\(isPending && !previewProfile\) \|\| \(!hasFreshPreview && !previewProfile\)/);
+  assert.match(nativeProfilePreview, /if \(!previewProfile\)/);
+  assert.match(nativeProfilePreview, /profile=\{previewProfile\}/);
   assert.doesNotMatch(nativeProfilePreview, /fetchMyProfile/);
   assert.doesNotMatch(nativeProfilePreview, /profileRowToUserProfileView/);
   assert.doesNotMatch(nativeProfilePreview, /onEditProfile/);

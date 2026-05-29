@@ -77,6 +77,7 @@ import { isCurrentEmailVerified, resolveCanonicalAuthEmail } from '@shared/verif
 const MAX_PHOTOS = 6;
 const MAX_ABOUT_ME_LENGTH = 140;
 const PROFILE_SCHEDULE_FOCUS_STALE_TIME_MS = 60_000;
+const PROFILE_PREVIEW_PUSH_GUARD_MS = 900;
 
 function shouldRefetchForFocus(
   dataUpdatedAt: number | undefined,
@@ -113,6 +114,7 @@ export default function ProfileStudio() {
   const theme = Colors[colorScheme];
   const qc = useQueryClient();
   const scrollRef = useRef<ScrollView>(null);
+  const profilePreviewPushBlockedUntilRef = useRef(0);
 
   // Section refs for quick-action scroll
   const sectionOffsets = useRef<Record<string, number>>({});
@@ -417,6 +419,17 @@ export default function ProfileStudio() {
     (router as { push: (p: string) => void }).push('/vibe-studio');
   }, [router]);
 
+  const openProfilePreview = useCallback(() => {
+    const now = Date.now();
+    if (now < profilePreviewPushBlockedUntilRef.current) return;
+    profilePreviewPushBlockedUntilRef.current = now + PROFILE_PREVIEW_PUSH_GUARD_MS;
+    setPhotoViewerIndex(null);
+    setShowPhotoDrawer(false);
+    setPhotoDrawerLaunchAction(null);
+    setPhotoSourceMenu({ open: false, anchor: null });
+    (router as { push: (p: string) => void }).push('/profile-preview');
+  }, [router]);
+
   const handleVibeScoreDrawerAction = (action: VibeScoreActionId) => {
     switch (action) {
       case 'vibes':
@@ -522,6 +535,15 @@ export default function ProfileStudio() {
     setPhotoDrawerLaunchAction({ id: Date.now() + Math.random(), kind });
     setShowPhotoDrawer(true);
   }, []);
+
+  const openProfileStudioPhotoViewer = useCallback((index: number) => {
+    const count = profile?.photos?.length ?? 0;
+    if (!Number.isInteger(index) || index < 0 || index >= count) return;
+    setShowPhotoDrawer(false);
+    setPhotoDrawerLaunchAction(null);
+    setPhotoSourceMenu({ open: false, anchor: null });
+    setPhotoViewerIndex(index);
+  }, [profile?.photos?.length]);
 
   // ── Prompt handlers ────────────────────────────────────────────
 
@@ -912,7 +934,7 @@ export default function ProfileStudio() {
       >
         <RNView style={s.heroTopRow}>
           <Pressable
-            onPress={() => (router as { push: (p: string) => void }).push('/profile-preview')}
+            onPress={openProfilePreview}
             style={s.heroIconBtn}
             accessibilityLabel="Preview profile"
           >
@@ -1019,7 +1041,7 @@ export default function ProfileStudio() {
       {/* ═══ Preview | Vibe Score circle | Complete Profile ═══ */}
       <RNView style={s.vibeScoreHeaderRow}>
         <Pressable
-          onPress={() => (router as { push: (p: string) => void }).push('/profile-preview')}
+          onPress={openProfilePreview}
           style={[s.vibeScorePreviewBtn, { borderColor: 'rgba(139, 92, 246, 0.4)' }]}
         >
           <Ionicons name="eye-outline" size={16} color="#8B5CF6" />
@@ -1390,7 +1412,7 @@ export default function ProfileStudio() {
                   <Pressable
                     onPress={
                       url
-                        ? () => setPhotoViewerIndex(index)
+                        ? () => openProfileStudioPhotoViewer(index)
                         : () => {
                             photoEmptySlotRefs.current[index]?.measureInWindow((x, y, width, height) => {
                               setPhotoSourceMenu({

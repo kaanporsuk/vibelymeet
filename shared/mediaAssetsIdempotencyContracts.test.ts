@@ -434,7 +434,11 @@ test("upload-voice is receipt-backed, hash-bound, and wired to durable outbox id
   assert.match(webOutboxExecute, /uploadVoiceWithMediaSdk\(\{[\s\S]+blob,[\s\S]+accessToken: session\.access_token,[\s\S]+matchId,[\s\S]+clientRequestId/);
   assert.doesNotMatch(webOutboxExecute, /uploadVoiceToBunny\(blob, session\.access_token, matchId, clientRequestId\)/);
   assert.match(webStorageSdkUploads, /evaluateClientFeatureFlagForUpload\("media_v2_voice", \{ userId: uploadUserId \}\)/);
-  assert.match(webStorageSdkUploads, /return \(await uploadVoiceToBunny\(params\.blob, params\.accessToken, matchId, clientRequestId\)\)\.path/);
+  // Cross-platform voice fix: web blobs are transcoded to a universally-playable format
+  // (webm/opus -> MP3) before upload, and the transcoded blob feeds both upload paths.
+  assert.match(webStorageSdkUploads, /const voiceBlob = await transcodeVoiceForUpload\(params\.blob\)/);
+  assert.match(webStorageSdkUploads, /return \(await uploadVoiceToBunny\(voiceBlob, params\.accessToken, matchId, clientRequestId\)\)\.path/);
+  assert.match(webStorageSdkUploads, /source: voiceBlob/);
 
   assert.match(nativeChatMediaUpload, /uploadVoiceMessage\([\s\S]+audioUri: string,[\s\S]+matchId: string,[\s\S]+clientRequestId\?: string/);
   assert.match(nativeChatMediaUpload, /formData\.append\('client_request_id', stableClientRequestId\)/);

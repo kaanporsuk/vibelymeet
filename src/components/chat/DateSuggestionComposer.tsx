@@ -406,7 +406,7 @@ export function DateSuggestionComposer({
       <DialogContent
         className={cn(
           "pointer-events-auto left-0 right-0 top-auto bottom-0 z-[120] flex max-h-[92dvh] w-full translate-x-0 translate-y-0 flex-col overflow-hidden rounded-t-2xl border-border/60 bg-background p-0 shadow-2xl shadow-black/45 outline-none",
-          "sm:left-[50%] sm:right-auto sm:top-[50%] sm:bottom-auto sm:w-[min(100vw-1.5rem,100%)] sm:translate-x-[-50%] sm:translate-y-[-50%] sm:rounded-2xl",
+          "sm:left-[50%] sm:right-auto sm:top-[50%] sm:bottom-auto sm:w-[min(calc(100svw-1.5rem),100%)] sm:translate-x-[-50%] sm:translate-y-[-50%] sm:rounded-2xl",
           step === 1 ? "sm:max-w-2xl" : "sm:max-w-lg",
         )}
       >

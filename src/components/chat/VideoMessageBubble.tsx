@@ -34,7 +34,7 @@ type VideoElementWithWebkitFullscreen = HTMLVideoElement & {
   webkitEnterFullscreen?: () => void;
 };
 
-const VIDEO_BUBBLE_WIDTH_CLASS = "w-[min(17.5rem,calc(100vw-4rem))] max-w-full";
+const VIDEO_BUBBLE_WIDTH_CLASS = "w-[min(17.5rem,calc(100svw-4rem))] max-w-full";
 const MAX_VIDEO_PLAYBACK_REFRESH_ATTEMPTS = 1;
 
 const formatDuration = (s: number) => {

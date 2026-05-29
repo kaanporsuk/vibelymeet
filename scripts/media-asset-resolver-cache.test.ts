@@ -498,11 +498,14 @@ assert.match(webBubble, /useMediaAsset/);
 assert.doesNotMatch(webBubble, wholeHookResultDependencyPattern);
 assert.match(webBubble, /kind: "voice"/);
 assert.match(webBubble, /refreshMediaAsset\("playback"\)/);
-assert.match(webBubble, /await audioRef\.current\.play\(\);[\s\S]{0,500}refreshAudioUrl/);
-assert.match(
-  webBubble,
-  /if \(freshUrl && freshUrl !== playableUrl\) \{[\s\S]{0,140}refreshAttemptedForUrlRef\.current = playableUrl \?\? null;[\s\S]{0,80}return true;/,
-);
+assert.match(webBubble, /isPlayableMediaAssetUrl/);
+assert.match(webBubble, /proactiveResolveDoneRef/);
+assert.match(webBubble, /void refreshAudioUrl\(\)/);
+assert.match(webBubble, /const playSync = useCallback\(\(\) => \{/);
+assert.match(webBubble, /void audio[\s\S]{0,80}\.play\(\)/);
+assert.match(webBubble, /\.catch\(\(\) => \{[\s\S]*refreshAudioUrl\(\)/);
+assert.match(webBubble, /refreshAttemptedForUrlRef\.current = playableUrl \?\? null/);
+assert.doesNotMatch(webBubble, /pendingAutoplayRef|refreshAndPlay|await audioRef\.current\.play/);
 assert.match(
   webBubble,
   /if \(!freshUrl \|\| freshUrl === playableUrl\) \{[\s\S]{0,120}setHasError\(true\);[\s\S]{0,80}return;[\s\S]{0,80}\}[\s\S]{0,80}refreshAttemptedForUrlRef\.current = playableUrl \?\? null;/,
