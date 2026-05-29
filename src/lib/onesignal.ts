@@ -295,7 +295,7 @@ export function getOneSignalWebClientSnapshot(): OneSignalWebClientSnapshot {
   };
 }
 
-/** Await first init attempt; use to avoid treating "init never ran" as "user not subscribed". */
+/** Await first init attempt; recoverable timeout waits for the real deferred SDK outcome. */
 export async function waitForOneSignalInitResult(): Promise<{
   initEnqueued: boolean;
   sdkUsable: boolean;
@@ -309,6 +309,9 @@ export async function waitForOneSignalInitResult(): Promise<{
     };
   }
   await initFinished;
+  if (!initResolvedFlag) {
+    await waitForActualInitSettled();
+  }
   return { initEnqueued: true, sdkUsable, sdkStatus: getOneSignalWebClientSnapshot().sdkStatus };
 }
 
