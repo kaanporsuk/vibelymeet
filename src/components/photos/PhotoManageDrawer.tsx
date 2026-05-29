@@ -54,6 +54,10 @@ interface PhotoManageDrawerProps {
 const MAX_PHOTOS = 6;
 /** Keep in sync with `supabase/functions/upload-image` max size. */
 const MAX_FILE_SIZE = 10 * 1024 * 1024;
+const PHOTO_VIEWPORT_WIDTH_CLASS =
+  "w-full max-w-full supports-[width:100dvw]:w-[100dvw] supports-[width:100dvw]:max-w-[100dvw]";
+const PHOTO_VIEWPORT_MAX_WIDTH_CLASS =
+  "max-w-full supports-[width:100dvw]:max-w-[100dvw]";
 
 /** Blob URLs keyed by slot index, shown while the upload is in-flight */
 type PendingPreviews = Map<number, string>;
@@ -428,8 +432,13 @@ function ConfirmDialog({
 }) {
   if (!isOpen) return null;
   return (
-    <div className="fixed inset-0 z-[70] flex w-[100svw] max-w-[100svw] items-center justify-center overflow-hidden px-4">
-      <div className="absolute inset-0 max-w-[100svw] bg-black/60" onClick={onCancel} />
+    <div
+      className={cn(
+        "fixed inset-0 z-[70] flex items-center justify-center overflow-hidden px-4",
+        PHOTO_VIEWPORT_WIDTH_CLASS,
+      )}
+    >
+      <div className={cn("absolute inset-0 bg-black/60", PHOTO_VIEWPORT_MAX_WIDTH_CLASS)} onClick={onCancel} />
       <motion.div
         className="relative z-10 w-full max-w-xs rounded-2xl bg-[#1C1A2E] border border-white/10 p-6 text-center"
         initial={{ scale: 0.95, opacity: 0 }}
@@ -492,7 +501,10 @@ function FullscreenViewer({
 
   return (
     <div
-      className="fixed inset-0 z-[9999] flex w-[100svw] max-w-[100svw] items-center justify-center overflow-hidden bg-black/95"
+      className={cn(
+        "fixed inset-0 z-[9999] flex items-center justify-center overflow-hidden bg-black/95",
+        PHOTO_VIEWPORT_WIDTH_CLASS,
+      )}
       onClick={onClose}
     >
       {/* Counter */}
@@ -534,7 +546,7 @@ function FullscreenViewer({
         src={fullScreenUrl(photos[currentIndex])}
         alt=""
         className={cn(
-          "max-w-[90svw] max-h-[85dvh] object-contain transition-transform duration-300 select-none",
+          "max-w-[90vw] supports-[width:100dvw]:max-w-[90dvw] max-h-[85dvh] object-contain transition-transform duration-300 select-none",
           zoomed ? "scale-[2] cursor-zoom-out" : "cursor-zoom-in"
         )}
         draggable={false}
@@ -1010,7 +1022,10 @@ export default function PhotoManageDrawer({
     <AnimatePresence>
       {isOpen && (
         <motion.div
-          className="fixed inset-0 z-50 flex w-[100svw] max-w-[100svw] items-end justify-center overflow-hidden sm:items-center sm:px-4"
+          className={cn(
+            "fixed inset-0 z-50 flex items-end justify-center overflow-hidden sm:items-center sm:px-4",
+            PHOTO_VIEWPORT_WIDTH_CLASS,
+          )}
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
@@ -1018,14 +1033,14 @@ export default function PhotoManageDrawer({
         >
           {/* Backdrop */}
           <motion.div
-            className="absolute inset-0 max-w-[100svw] bg-black/75 backdrop-blur-sm"
+            className={cn("absolute inset-0 bg-black/75 backdrop-blur-sm", PHOTO_VIEWPORT_MAX_WIDTH_CLASS)}
             onClick={handleCloseAttempt}
           />
 
           {/* Modal */}
           <motion.div
             className={cn(
-              "relative z-10 flex w-full max-w-[100svw] flex-col overflow-hidden border border-white/10 bg-[#0D0B1A]",
+              "relative z-10 flex w-full max-w-full supports-[width:100dvw]:max-w-[100dvw] min-w-0 flex-col overflow-hidden border border-white/10 bg-[#0D0B1A]",
               isMobile
                 ? "h-[92dvh] max-h-[92dvh] rounded-t-2xl"
                 : "max-h-[88dvh] max-w-[560px] rounded-2xl"

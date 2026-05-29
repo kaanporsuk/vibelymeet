@@ -1,6 +1,6 @@
 # Phase 2 — Web-to-native dashboard parity matrix
 
-**Web source:** `src/pages/Dashboard.tsx`, `src/components/DashboardGreeting.tsx`, `src/components/BottomNav.tsx`, `src/index.css` (.glass-card).  
+**Web source:** `src/pages/Dashboard.tsx`, `src/components/DashboardGreeting.tsx`, `src/components/navigation/BottomNav.tsx`, `src/index.css` (.glass-card).
 **Native source:** `apps/mobile/app/(tabs)/index.tsx`, `DashboardGreeting.tsx`, `(tabs)/_layout.tsx`, `components/ui.tsx` (GlassHeaderBar, Card, etc.).
 
 ---

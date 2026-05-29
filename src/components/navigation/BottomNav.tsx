@@ -43,8 +43,8 @@ export const BottomNav = () => {
   return (
     <nav
       className={cn(
-        "fixed z-50 flex max-w-lg items-center justify-around rounded-3xl border pb-safe",
-        "bottom-3 left-4 right-4 mx-auto",
+        "fixed left-1/2 z-50 flex w-[min(32rem,calc(100%_-_2rem))] max-w-[calc(100dvw_-_2rem)] -translate-x-1/2 items-center justify-around rounded-3xl border pb-safe",
+        "bottom-3",
         "bg-black/75 backdrop-blur-[20px] supports-[backdrop-filter]:bg-black/75",
         "border-[rgba(139,92,246,0.2)]",
         "shadow-[0_0_20px_rgba(139,92,246,0.1),0_4px_12px_rgba(0,0,0,0.3)]",

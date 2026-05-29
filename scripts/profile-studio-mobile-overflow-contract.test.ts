@@ -13,12 +13,31 @@ function countMatches(source: string, pattern: RegExp): number {
 }
 
 const profileStudio = read("src/pages/ProfileStudio.tsx");
+const indexCss = read("src/index.css");
+const bottomNav = read("src/components/navigation/BottomNav.tsx");
+const heroVideoStatusCard = read("src/components/hero-video/HeroVideoStatusCard.tsx");
 const vibeScoreDrawer = read("src/components/profile/VibeScoreDrawer.tsx");
 const photoManageDrawer = read("src/components/photos/PhotoManageDrawer.tsx");
 
 assert.match(
+  indexCss,
+  /html,\s*body,\s*#root\s*\{[\s\S]*width: 100%;[\s\S]*max-width: 100%;[\s\S]*overflow-x: hidden;/,
+  "Global web root should not allow document-level horizontal overflow",
+);
+assert.match(
+  indexCss,
+  /#root\s*\{[\s\S]*min-height: 100%;[\s\S]*\}/,
+  "Global root should retain full-height app sizing while clipping horizontal overflow",
+);
+
+assert.doesNotMatch(
   profileStudio,
-  /min-h-screen w-full max-w-\[100svw\] overflow-x-hidden bg-background/,
+  /100svw/,
+  "Profile Studio should not use 100svw for page or drawer containment",
+);
+assert.match(
+  profileStudio,
+  /min-h-screen w-full max-w-full supports-\[width:100dvw\]:max-w-\[100dvw\] overflow-x-hidden bg-background/,
   "Profile Studio page shell should be horizontally contained",
 );
 assert.match(
@@ -26,11 +45,46 @@ assert.match(
   /mx-auto w-full max-w-lg min-w-0 overflow-x-hidden px-4/,
   "Profile Studio main content should not allow children to widen the document",
 );
+assert.match(
+  profileStudio,
+  /relative -mx-4 mb-0 max-w-\[calc\(100%_\+_2rem\)\] overflow-x-hidden/,
+  "Profile Studio hero should clip its intentional full-bleed mobile treatment locally",
+);
+assert.match(
+  profileStudio,
+  /mt-3 md:mt-4 flex w-full max-w-full min-w-0 flex-row items-center justify-between gap-2 overflow-hidden/,
+  "Profile Studio action row should stay inside the viewport",
+);
+assert.match(
+  profileStudio,
+  /grid w-full max-w-full min-w-0 grid-cols-3 gap-2 overflow-hidden/,
+  "Profile Studio counters should stay inside the viewport",
+);
 
 assert.match(
   profileStudio,
   /flex w-full max-w-full min-w-0 gap-2 overflow-x-auto overscroll-x-contain overflow-y-hidden scrollbar-hide/,
   "Quick Actions should keep horizontal scroll local",
+);
+assert.match(
+  profileStudio,
+  /<HeroVideoStatusCard[\s\S]*className="max-w-full min-w-0 overflow-hidden"/,
+  "Vibe Video status card should receive viewport-contained wrapper classes",
+);
+assert.match(
+  heroVideoStatusCard,
+  /const HERO_VIDEO_STATUS_CARD_BASE_CLASS = "max-w-full min-w-0 overflow-hidden rounded-2xl bg-white\/5";/,
+  "HeroVideoStatusCard surfaces should be locally bounded by default",
+);
+assert.match(
+  heroVideoStatusCard,
+  /break-words/,
+  "HeroVideoStatusCard async status and caption copy should wrap instead of widening the viewport",
+);
+assert.match(
+  profileStudio,
+  /flex w-full max-w-full min-w-0 flex-col gap-2 overflow-hidden/,
+  "Photo grid should not widen the Profile Studio document",
 );
 assert.match(
   profileStudio,
@@ -85,7 +139,23 @@ assert.equal(
 );
 assert.match(
   profileStudio,
-  /const PROFILE_STUDIO_DRAWER_CONTENT_CLASS = "max-h-\[88dvh\] w-full max-w-\[100svw\] overflow-hidden";/,
+  /max-w-full min-w-0 overflow-hidden rounded-2xl border border-white\/10 bg-white\/5 p-4 backdrop-blur/,
+  "Editable Profile Studio card wrappers should clip long async content locally",
+);
+assert.match(
+  profileStudio,
+  /break-words text-sm leading-relaxed/,
+  "About Me copy should wrap instead of widening the viewport",
+);
+assert.match(
+  profileStudio,
+  /mb-4 grid max-w-full min-w-0 grid-cols-2 gap-2 overflow-hidden/,
+  "Details grid should stay bounded on narrow mobile viewports",
+);
+
+assert.match(
+  profileStudio,
+  /const PROFILE_STUDIO_DRAWER_CONTENT_CLASS =\s*"max-h-\[88dvh\] w-full max-w-full supports-\[width:100dvw\]:max-w-\[100dvw\] overflow-hidden";/,
   "Profile Studio drawer content should be bounded by the visual viewport",
 );
 assert.match(
@@ -278,8 +348,13 @@ assert.match(
 );
 assert.match(
   vibeScoreDrawer,
-  /max-h-\[88dvh\] w-full max-w-\[100svw\] overflow-hidden/,
+  /max-h-\[88dvh\] w-full max-w-full supports-\[width:100dvw\]:max-w-\[100dvw\] overflow-hidden/,
   "Vibe Score drawer content should be viewport bounded",
+);
+assert.doesNotMatch(
+  vibeScoreDrawer,
+  /100svw/,
+  "Vibe Score drawer should not use small viewport width containment",
 );
 assert.match(
   vibeScoreDrawer,
@@ -289,12 +364,12 @@ assert.match(
 
 assert.match(
   photoManageDrawer,
-  /fixed inset-0 z-50 flex w-\[100svw\] max-w-\[100svw\][^"]*overflow-hidden/,
-  "Photo drawer overlay should be bounded to the small viewport width",
+  /PHOTO_VIEWPORT_WIDTH_CLASS =\s*"w-full max-w-full supports-\[width:100dvw\]:w-\[100dvw\] supports-\[width:100dvw\]:max-w-\[100dvw\]";/,
+  "Photo drawer overlays should use full-width fallbacks with dynamic viewport enhancement",
 );
 assert.match(
   photoManageDrawer,
-  /relative z-10 flex w-full max-w-\[100svw\] flex-col overflow-hidden/,
+  /relative z-10 flex w-full max-w-full supports-\[width:100dvw\]:max-w-\[100dvw\] min-w-0 flex-col overflow-hidden/,
   "Photo drawer modal shell should not exceed the viewport width",
 );
 assert.match(
@@ -319,13 +394,29 @@ assert.match(
 );
 assert.match(
   photoManageDrawer,
-  /fixed inset-0 z-\[9999\] flex w-\[100svw\] max-w-\[100svw\][^"]*overflow-hidden/,
+  /fixed inset-0 z-\[9999\] flex items-center justify-center overflow-hidden bg-black\/95/,
   "Photo fullscreen viewer should also stay viewport bounded",
 );
 assert.match(
   photoManageDrawer,
-  /max-w-\[90svw\] max-h-\[85dvh\]/,
+  /max-w-\[90vw\] supports-\[width:100dvw\]:max-w-\[90dvw\] max-h-\[85dvh\]/,
   "Photo fullscreen image should use viewport-safe units",
+);
+assert.doesNotMatch(
+  photoManageDrawer,
+  /100svw|90svw/,
+  "Photo management overlays should not use small viewport width containment",
+);
+
+assert.match(
+  bottomNav,
+  /fixed left-1\/2 z-50 flex w-\[min\(32rem,calc\(100%_-_2rem\)\)\] max-w-\[calc\(100dvw_-_2rem\)\] -translate-x-1\/2/,
+  "BottomNav should be centered with a compatible width fallback and dynamic-viewport max bound",
+);
+assert.doesNotMatch(
+  bottomNav,
+  /bottom-3 left-4 right-4 mx-auto/,
+  "BottomNav should not use left/right fixed offsets that can contribute to document width",
 );
 
 console.log("profile-studio-mobile-overflow-contract: all assertions passed");
