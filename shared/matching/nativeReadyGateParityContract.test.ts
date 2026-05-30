@@ -126,6 +126,9 @@ test("native ready and date surfaces share one camera and microphone permission 
   assert.match(nativeMediaPermissions, /catch \(error\)/);
   assert.match(nativeMediaPermissions, /status: 'in_use_or_abort'/);
   assert.match(nativeMediaPermissions, /rawErrorName/);
+  assert.match(nativeMediaPermissions, /function diagnostics\(cameraStatus: string, microphoneStatus: string\)/);
+  assert.match(nativeMediaPermissions, /cameraPermissionStatus: diagnosticStatusFor\(cameraStatus\)/);
+  assert.match(nativeMediaPermissions, /microphonePermissionStatus: diagnosticStatusFor\(microphoneStatus\)/);
 
   for (const [path, source] of [
     ["apps/mobile/components/lobby/ReadyGateOverlay.tsx", nativeReadyGateOverlay],

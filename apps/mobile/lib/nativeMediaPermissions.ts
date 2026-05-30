@@ -50,10 +50,14 @@ function permissionResult(ok: boolean, cameraStatus: string, microphoneStatus: s
   });
 }
 
-function diagnostics(ok: boolean): NativeReadyGatePermissionDiagnosticState {
+function diagnosticStatusFor(status: string): NativeReadyGatePermissionDiagnosticState['cameraPermissionStatus'] {
+  return status === 'granted' ? 'ok' : 'blocked';
+}
+
+function diagnostics(cameraStatus: string, microphoneStatus: string): NativeReadyGatePermissionDiagnosticState {
   return {
-    cameraPermissionStatus: ok ? 'ok' : 'blocked',
-    microphonePermissionStatus: ok ? 'ok' : 'blocked',
+    cameraPermissionStatus: diagnosticStatusFor(cameraStatus),
+    microphonePermissionStatus: diagnosticStatusFor(microphoneStatus),
   };
 }
 
@@ -81,7 +85,7 @@ function finalizePermissionResult(params: {
   return {
     ok: params.ok,
     source: params.source,
-    permissions: diagnostics(params.ok),
+    permissions: diagnostics(params.cameraStatus, params.microphoneStatus),
     mediaPermission: params.mediaPermission ?? permissionResult(params.ok, params.cameraStatus, params.microphoneStatus),
     cameraStatus: params.cameraStatus,
     microphoneStatus: params.microphoneStatus,
