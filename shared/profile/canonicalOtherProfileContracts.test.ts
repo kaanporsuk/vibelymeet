@@ -29,7 +29,6 @@ test("web other-user profile entry points render canonical profile content", () 
   assert.match(profilePreview, /\(isLoading && !previewProfile\) \|\| \(!hasFreshPreview && !previewProfile\)/);
   assert.match(profilePreview, /if \(!previewProfile\)/);
   assert.match(profilePreview, /profile=\{previewProfile\}/);
-  assert.match(profilePreview, /enableInlineHeroPhotoPaging/);
   assert.doesNotMatch(profilePreview, /ProfilePhoto|LifestyleDetails|BottomNav|VibePlayer|resolveWebVibeVideoState/);
   assert.match(drawer, /OtherUserFullProfileView/);
   assert.match(drawer, /useOtherUserFullProfile/);
@@ -39,9 +38,6 @@ test("web other-user profile entry points render canonical profile content", () 
   assert.match(lobbyCard, /navigate\(`\/user\/\$\{profile\.id\}`\)/);
   assert.match(eventDetails, /navigate\(`\/user\/\$\{attendee\.id\}`\)/);
   assert.match(eventDetails, /navigate\(`\/user\/\$\{profileId\}`\)/);
-  assert.doesNotMatch(userRoute, /enableInlineHeroPhotoPaging/);
-  assert.doesNotMatch(drawer, /enableInlineHeroPhotoPaging/);
-  assert.doesNotMatch(partnerSheet, /enableInlineHeroPhotoPaging/);
 
   assert.match(chatHeader, /ProfileDetailDrawer/);
   assert.match(chat, /ProfileDetailDrawer/);
@@ -92,19 +88,30 @@ test("profile photo viewers are guarded against native and web self-reopen traps
   assert.match(canonical, /PHOTO_PREVIEW_CLOSE_GUARD_MS/);
   assert.match(canonical, /photoPreviewOpenBlockedUntilRef/);
   assert.match(canonical, /enableInlineHeroPhotoPaging\?: boolean/);
-  assert.match(canonical, /enableInlineHeroPhotoPaging = false/);
+  assert.match(canonical, /enableInlineHeroPhotoPaging = true/);
   assert.match(canonical, /const inlineHeroPhotoPagingEnabled = enableInlineHeroPhotoPaging && photos\.length > 1/);
   assert.match(canonical, /const openHeroPhotoPreview = useCallback/);
   assert.match(canonical, /heroSwipeSuppressClickUntilRef/);
+  assert.match(canonical, /heroTouchSwipeStartRef/);
+  assert.match(canonical, /const commitHeroPhotoSwipe = useCallback/);
   assert.match(canonical, /const handleHeroPointerDown = useCallback/);
   assert.match(canonical, /const handleHeroPointerUp = useCallback/);
+  assert.match(canonical, /event\.pointerType === "touch"/);
+  assert.match(canonical, /const handleHeroTouchStart = useCallback/);
+  assert.match(canonical, /const handleHeroTouchMove = useCallback/);
+  assert.match(canonical, /const handleHeroTouchEnd = useCallback/);
   assert.match(canonical, /HERO_PHOTO_SWIPE_MIN_DISTANCE_PX/);
   assert.match(canonical, /touchAction: "pan-y"/);
+  assert.match(canonical, /data-vaul-no-drag=\{inlineHeroPhotoPagingEnabled \? "" : undefined\}/);
   assert.match(canonical, /\[data-profile-hero-control\]/);
   assert.match(canonical, /const openPhotoPreview = useCallback/);
   assert.match(canonical, /Date\.now\(\) < photoPreviewOpenBlockedUntilRef\.current/);
   assert.match(canonical, /if \(!Number\.isInteger\(index\) \|\| index < 0 \|\| index >= photos\.length\) return/);
   assert.match(canonical, /onClick=\{openHeroPhotoPreview\}/);
+  assert.match(canonical, /onTouchStart=\{handleHeroTouchStart\}/);
+  assert.match(canonical, /onTouchCancel=\{handleHeroTouchCancel\}/);
+  assert.match(canonical, /onTouchMove=\{handleHeroTouchMove\}/);
+  assert.match(canonical, /onTouchEnd=\{handleHeroTouchEnd\}/);
   assert.match(canonical, /onClick=\{\(\) => openPhotoPreview\(index\)\}/);
   assert.doesNotMatch(canonical, /onClick=\{\(\) => setPhotoPreviewIndex/);
 
@@ -161,6 +168,7 @@ test("profile photo viewers are guarded against native and web self-reopen traps
   assert.match(nativeFullView, /const renderHeroPhotoItem = useCallback/);
   assert.match(nativeFullView, /inlineHeroPhotoPagingEnabled \? \(/);
   assert.match(nativeFullView, /horizontal[\s\S]{0,80}pagingEnabled/);
+  assert.match(nativeFullView, /nestedScrollEnabled[\s\S]{0,80}directionalLockEnabled/);
   assert.match(nativeFullView, /onScrollBeginDrag=\{handleHeroPhotoScrollBeginDrag\}/);
   assert.match(nativeFullView, /onScrollEndDrag=\{handleHeroPhotoScrollEndDrag\}/);
   assert.match(nativeFullView, /onMomentumScrollEnd=\{handleHeroPhotoMomentumEnd\}/);

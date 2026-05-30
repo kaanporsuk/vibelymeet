@@ -13,7 +13,6 @@ import {
   Image,
   Pressable,
   ActivityIndicator,
-  PermissionsAndroid,
   Platform,
   Animated,
   Dimensions,
@@ -30,7 +29,6 @@ import { useFocusEffect } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useQueryClient } from '@tanstack/react-query';
 import { BlurView } from 'expo-blur';
-import { Camera } from 'expo-camera';
 import { DailyMediaView } from '@daily-co/react-native-daily-js';
 import type { DailyParticipant } from '@daily-co/react-native-daily-js';
 import { useAuth } from '@/context/AuthContext';
@@ -116,6 +114,7 @@ import { trackEvent } from '@/lib/analytics';
 import { fetchEventDeck, type EventDeckFetchResult } from '@/lib/eventsApi';
 import { emitNativeVideoDateClientStuckState } from '@/lib/videoDateClientStuckObservability';
 import { setSafeAudioMode } from '@/lib/safeAudioMode';
+import { requestNativeCameraMicrophonePermissions } from '@/lib/nativeMediaPermissions';
 import {
   consumePreparedVideoDateEntry,
   getPreparedVideoDateEntry,
@@ -4777,93 +4776,100 @@ export default function VideoDateScreen() {
       }
       return ok;
     };
+    const trackPermissionDenied = (result: Awaited<ReturnType<typeof requestNativeCameraMicrophonePermissions>>) => {
+      if (!sessionId) return;
+      trackEvent(LobbyPostDateEvents.VIDEO_DATE_MEDIA_PERMISSION_DENIED, {
+        platform: 'native',
+        session_id: sessionId,
+        event_id: eventId || null,
+        source_surface: 'video_date_daily',
+        source_action: result.source,
+        reason: result.mediaPermission.rawErrorName ?? 'native_media_permission_denied',
+        permission_status: result.mediaPermission.status,
+        permission_state: result.mediaPermission.permissionState,
+        recovery_action: result.mediaPermission.recoveryAction,
+        camera_status: result.cameraStatus,
+        microphone_status: result.microphoneStatus,
+        camera_can_ask_again: result.cameraCanAskAgain,
+        microphone_can_ask_again: result.microphoneCanAskAgain,
+      });
+    };
     const permissionHandoff =
       sessionId && user?.id ? getVideoDatePermissionHandoff(sessionId, user.id) : null;
     if (permissionHandoff) {
-      vdbg('prejoin_state_hasPermission', { value: true, source: 'ready_gate_permission_handoff' });
-      setHasPermission(true);
-      return finishPermissionCheck(true, 'ready_gate_permission_handoff');
-    }
-    if (Platform.OS === 'android') {
-      const camOk = await PermissionsAndroid.check(PermissionsAndroid.PERMISSIONS.CAMERA);
-      const micOk = await PermissionsAndroid.check(PermissionsAndroid.PERMISSIONS.RECORD_AUDIO);
       vdbg('prejoin_step_prejoin_permissions_before', {
-        platform: 'android',
-        cameraGranted: camOk,
-        microphoneGranted: micOk,
+        platform: Platform.OS,
+        source: 'ready_gate_permission_handoff_verify',
+        handoffSource: permissionHandoff.source,
       });
-      if (camOk && micOk) {
-        vdbg('prejoin_state_hasPermission', { value: true, source: 'android_existing_grants' });
-        setHasPermission(true);
-        vdbg('prejoin_step_prejoin_permissions_after', {
-          platform: 'android',
-          cameraGranted: true,
-          microphoneGranted: true,
-          ok: true,
-          source: 'existing_grants',
-        });
-        return finishPermissionCheck(true, 'existing_grants');
-      }
-      const granted = await PermissionsAndroid.requestMultiple([
-        PermissionsAndroid.PERMISSIONS.CAMERA,
-        PermissionsAndroid.PERMISSIONS.RECORD_AUDIO,
-      ]);
-      const cameraGranted = granted[PermissionsAndroid.PERMISSIONS.CAMERA] === PermissionsAndroid.RESULTS.GRANTED;
-      const microphoneGranted = granted[PermissionsAndroid.PERMISSIONS.RECORD_AUDIO] === PermissionsAndroid.RESULTS.GRANTED;
-      const ok =
-        cameraGranted &&
-        microphoneGranted;
-      vdbg('prejoin_state_hasPermission', { value: ok, source: 'android_request' });
-      setHasPermission(ok);
-      vdbg('prejoin_step_prejoin_permissions_after', {
-        platform: 'android',
-        cameraGranted,
-        microphoneGranted,
-        cameraResult: granted[PermissionsAndroid.PERMISSIONS.CAMERA],
-        microphoneResult: granted[PermissionsAndroid.PERMISSIONS.RECORD_AUDIO],
-        ok,
-        source: 'request',
+      const result = await requestNativeCameraMicrophonePermissions({
+        sessionId,
+        userId: user?.id,
+        setHandoff: false,
+        sources: {
+          androidExisting: 'ready_gate_permission_handoff',
+          androidRequest: 'ready_gate_permission_handoff_request',
+          nativeExisting: 'ready_gate_permission_handoff',
+          nativeRequest: 'ready_gate_permission_handoff_request',
+        },
       });
-      return finishPermissionCheck(ok, 'request');
-    }
-    const camExisting = await Camera.getCameraPermissionsAsync();
-    const micExisting = await Camera.getMicrophonePermissionsAsync();
-    vdbg('prejoin_step_prejoin_permissions_before', {
-      platform: Platform.OS,
-      cameraStatus: camExisting.status,
-      microphoneStatus: micExisting.status,
-      cameraGranted: camExisting.status === 'granted',
-      microphoneGranted: micExisting.status === 'granted',
-    });
-    if (camExisting.status === 'granted' && micExisting.status === 'granted') {
-      vdbg('prejoin_state_hasPermission', { value: true, source: 'native_existing_grants' });
-      setHasPermission(true);
+      vdbg('prejoin_state_hasPermission', {
+        value: result.ok,
+        source: result.ok ? 'ready_gate_permission_handoff' : result.source,
+        permissionStatus: result.mediaPermission.status,
+      });
+      setHasPermission(result.ok);
       vdbg('prejoin_step_prejoin_permissions_after', {
         platform: Platform.OS,
-        cameraStatus: camExisting.status,
-        microphoneStatus: micExisting.status,
-        cameraGranted: true,
-        microphoneGranted: true,
-        ok: true,
-        source: 'existing_grants',
+        cameraStatus: result.cameraStatus,
+        microphoneStatus: result.microphoneStatus,
+        cameraGranted: result.cameraStatus === 'granted',
+        microphoneGranted: result.microphoneStatus === 'granted',
+        cameraCanAskAgain: result.cameraCanAskAgain,
+        microphoneCanAskAgain: result.microphoneCanAskAgain,
+        ok: result.ok,
+        source: result.ok ? 'ready_gate_permission_handoff' : result.source,
+        permissionStatus: result.mediaPermission.status,
+        recoveryAction: result.mediaPermission.recoveryAction,
       });
-      return finishPermissionCheck(true, 'existing_grants');
+      if (!result.ok) trackPermissionDenied(result);
+      return finishPermissionCheck(result.ok, result.ok ? 'ready_gate_permission_handoff' : result.source);
     }
-    const cam = await Camera.requestCameraPermissionsAsync();
-    const mic = await Camera.requestMicrophonePermissionsAsync();
-    const ok = cam.status === 'granted' && mic.status === 'granted';
-    vdbg('prejoin_state_hasPermission', { value: ok, source: 'native_request' });
-    setHasPermission(ok);
+    vdbg('prejoin_step_prejoin_permissions_before', {
+      platform: Platform.OS,
+      source: 'shared_native_media_permission_helper',
+    });
+    const result = await requestNativeCameraMicrophonePermissions({
+      sessionId,
+      userId: user?.id,
+      sources: {
+        androidExisting: 'existing_grants',
+        androidRequest: 'request',
+        nativeExisting: 'existing_grants',
+        nativeRequest: 'request',
+      },
+    });
+    vdbg('prejoin_state_hasPermission', {
+      value: result.ok,
+      source: result.source,
+      permissionStatus: result.mediaPermission.status,
+    });
+    setHasPermission(result.ok);
     vdbg('prejoin_step_prejoin_permissions_after', {
       platform: Platform.OS,
-      cameraStatus: cam.status,
-      microphoneStatus: mic.status,
-      cameraGranted: cam.status === 'granted',
-      microphoneGranted: mic.status === 'granted',
-      ok,
-      source: 'request',
+      cameraStatus: result.cameraStatus,
+      microphoneStatus: result.microphoneStatus,
+      cameraGranted: result.cameraStatus === 'granted',
+      microphoneGranted: result.microphoneStatus === 'granted',
+      cameraCanAskAgain: result.cameraCanAskAgain,
+      microphoneCanAskAgain: result.microphoneCanAskAgain,
+      ok: result.ok,
+      source: result.source,
+      permissionStatus: result.mediaPermission.status,
+      recoveryAction: result.mediaPermission.recoveryAction,
     });
-    return finishPermissionCheck(ok, 'request');
+    if (!result.ok) trackPermissionDenied(result);
+    return finishPermissionCheck(result.ok, result.source);
   }, [eventId, sessionId, user?.id]);
 
   const handleRetryInitialConnect = useCallback(async () => {
