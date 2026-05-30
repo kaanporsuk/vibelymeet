@@ -9,6 +9,7 @@ import { usePrefersReducedMotion } from "@/hooks/usePrefersReducedMotion";
 import { useMediaVideoPreloadForVisibility } from "@/hooks/useMediaVideoPreloadPolicy";
 import { refreshMediaAsset as refreshResolvedMediaAsset } from "@/lib/mediaAssetResolver";
 import { hlsPlaybackErrorStatusCode } from "@/lib/vibeVideo/attachHlsPlayback";
+import { claimInlineVideoPlayback, releaseInlineVideoPlayback } from "@/components/chat/inlineVideoPlaybackRegistry";
 import {
   resolveMediaFallbackCopy,
   resolveMediaFallbackReason,
@@ -235,12 +236,9 @@ export const VideoMessageBubble = ({
   );
 
   const onSurfaceInteract = useCallback(() => {
-    if (onRequestImmersive) {
-      onRequestImmersive();
-      return;
-    }
+    // Single tap plays inline in place; the ⤢ expand button opens the full-screen viewer.
     togglePlay();
-  }, [onRequestImmersive, togglePlay]);
+  }, [togglePlay]);
 
   const handleTimeUpdate = useCallback(() => {
     if (videoRef.current) {
@@ -251,6 +249,7 @@ export const VideoMessageBubble = ({
   const handleEnded = useCallback(() => {
     setIsPlaying(false);
     setCurrentTime(0);
+    releaseInlineVideoPlayback(videoRef.current);
   }, []);
 
   useMediaPlaybackQoE(videoRef, {
@@ -356,8 +355,9 @@ export const VideoMessageBubble = ({
           onSurfaceInteract();
         }
       }}
-      role={onRequestImmersive ? "button" : undefined}
-      tabIndex={onRequestImmersive ? 0 : undefined}
+      role="button"
+      tabIndex={0}
+      aria-label={isPlaying ? "Pause video" : "Play video"}
     >
       <div className="flex items-center gap-1 px-2 pt-1.5 pb-0.5">
         <span className="inline-flex items-center rounded-full border border-white/[0.1] bg-white/[0.04] px-1.5 py-px">
@@ -410,7 +410,9 @@ export const VideoMessageBubble = ({
           }}
           onLoadedData={markReadyIfPossible}
           onCanPlay={markReadyIfPossible}
+          onPlay={() => claimInlineVideoPlayback(videoRef.current)}
           onPlaying={() => setIsLoading(false)}
+          onPause={() => setIsPlaying(false)}
           onWaiting={() => setIsLoading(true)}
           onError={() => {
             if (isHlsUrl) return;
