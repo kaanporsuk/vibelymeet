@@ -2,23 +2,23 @@ import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { AlertTriangle, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import type { BookingAdmissionStatus } from "@/components/events/ManageBookingModal";
+import type { RegistrationAdmissionStatus } from "@/components/events/ManageRegistrationModal";
 
-interface CancelBookingModalProps {
+interface CancelRegistrationModalProps {
   isOpen: boolean;
   onClose: () => void;
   onConfirm: () => void | Promise<void>;
   eventTitle: string;
-  admissionStatus?: BookingAdmissionStatus;
+  admissionStatus?: RegistrationAdmissionStatus;
 }
 
-const CancelBookingModal = ({
+const CancelRegistrationModal = ({
   isOpen,
   onClose,
   onConfirm,
   eventTitle,
   admissionStatus = "confirmed",
-}: CancelBookingModalProps) => {
+}: CancelRegistrationModalProps) => {
   const [isCancelling, setIsCancelling] = useState(false);
   const isWaitlisted = admissionStatus === "waitlisted";
 
@@ -44,7 +44,7 @@ const CancelBookingModal = ({
     <>
       You’re about to release your <span className="font-medium text-foreground">confirmed</span> spot for{" "}
       <span className="font-medium text-foreground">{eventTitle}</span>. If this event uses a waitlist, the next person may
-      be offered your seat according to Vibely’s usual rules.
+      be offered the spot according to Vibely’s usual rules.
     </>
   );
   const confirmLabel = isWaitlisted ? "Leave waitlist" : "Release spot";
@@ -124,4 +124,4 @@ const CancelBookingModal = ({
   );
 };
 
-export default CancelBookingModal;
+export default CancelRegistrationModal;

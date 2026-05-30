@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { motion } from "framer-motion";
-import { Ticket, ArrowRight, CalendarCheck, LifeBuoy } from "lucide-react";
+import { ArrowRight, CalendarCheck, LifeBuoy } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { supabase } from "@/integrations/supabase/client";
 import { useQueryClient } from "@tanstack/react-query";
@@ -115,7 +115,7 @@ const EventPaymentSuccess = () => {
         transition={{ type: "spring", damping: 12, stiffness: 200 }}
         className="w-20 h-20 rounded-3xl bg-gradient-to-br from-primary to-accent flex items-center justify-center mb-6"
       >
-        <Ticket className="w-10 h-10 text-primary-foreground" />
+        <CalendarCheck className="w-10 h-10 text-primary-foreground" />
       </motion.div>
 
       <motion.h1

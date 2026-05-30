@@ -1,5 +1,5 @@
 import { motion } from "framer-motion";
-import { MapPin, Video, ExternalLink, Clock, Wifi, Lock, Play } from "lucide-react";
+import { Video, Clock, Wifi, Lock, Play } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
@@ -7,9 +7,6 @@ import { resolveEventLifecycle } from "@/lib/eventLifecycle";
 import { preloadRoute } from "@/lib/routePreload";
 
 interface VenueCardProps {
-  isVirtual: boolean;
-  venueName?: string;
-  address?: string;
   eventDate: Date;
   eventDurationMinutes?: number;
   eventStatus?: string | null;
@@ -22,9 +19,6 @@ interface VenueCardProps {
 }
 
 const VenueCard = ({ 
-  isVirtual, 
-  venueName, 
-  address, 
   eventDate, 
   eventDurationMinutes = 60,
   eventStatus: rawEventStatus,
@@ -32,7 +26,7 @@ const VenueCard = ({
   eventId,
   isRegistered = false,
   onAccessPress,
-  accessLabel = "Get Tickets",
+  accessLabel = "Reserve Spot",
   accessDisabled = false,
 }: VenueCardProps) => {
   const navigate = useNavigate();
@@ -100,13 +94,12 @@ const VenueCard = ({
 
   const prefetchLobby = () => preloadRoute("eventLobby");
 
-  if (isVirtual) {
-    return (
-      <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        className="glass-card p-5 space-y-4"
-      >
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 20 }}
+      animate={{ opacity: 1, y: 0 }}
+      className="glass-card p-5 space-y-4"
+    >
         <div className="flex items-center gap-3">
           <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-primary to-accent flex items-center justify-center">
             <Video className="w-6 h-6 text-primary-foreground" />
@@ -218,66 +211,6 @@ const VenueCard = ({
             </div>
           )
         )}
-      </motion.div>
-    );
-  }
-
-  return (
-    <motion.div
-      initial={{ opacity: 0, y: 20 }}
-      animate={{ opacity: 1, y: 0 }}
-      className="glass-card p-5 space-y-4"
-    >
-      <div className="flex items-center gap-3">
-        <div className="w-12 h-12 rounded-xl bg-accent/20 flex items-center justify-center">
-          <MapPin className="w-6 h-6 text-accent" />
-        </div>
-        <div>
-          <h3 className="font-semibold text-foreground">{venueName || "Secret Location"}</h3>
-          <p className="text-sm text-muted-foreground">{address || "Address revealed after registration"}</p>
-        </div>
-      </div>
-
-      {/* Mock Map */}
-      <div className="relative h-40 rounded-xl overflow-hidden border border-border">
-        <div className="absolute inset-0 bg-secondary">
-          <svg className="absolute inset-0 w-full h-full opacity-30">
-            <defs>
-              <pattern id="mapGrid" width="40" height="40" patternUnits="userSpaceOnUse">
-                <path d="M 40 0 L 0 0 0 40" fill="none" stroke="hsl(var(--border))" strokeWidth="1"/>
-              </pattern>
-            </defs>
-            <rect width="100%" height="100%" fill="url(#mapGrid)" />
-          </svg>
-
-          <svg className="absolute inset-0 w-full h-full">
-            <path d="M 20 80 Q 80 60 120 90 T 200 70 T 280 85" fill="none" stroke="hsl(var(--muted-foreground))" strokeWidth="2" opacity="0.3" />
-            <path d="M 30 120 Q 100 100 160 130 T 260 110" fill="none" stroke="hsl(var(--muted-foreground))" strokeWidth="2" opacity="0.2" />
-          </svg>
-
-          <motion.div
-            className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-full"
-            animate={{ y: [0, -5, 0] }}
-            transition={{ duration: 1.5, repeat: Infinity }}
-          >
-            <div className="relative">
-              <MapPin className="w-8 h-8 text-accent drop-shadow-lg" fill="hsl(var(--accent))" />
-              <motion.div
-                className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-4 h-1 rounded-full bg-accent/40"
-                animate={{ scale: [1, 1.5, 1], opacity: [0.4, 0.2, 0.4] }}
-                transition={{ duration: 1.5, repeat: Infinity }}
-              />
-            </div>
-          </motion.div>
-        </div>
-
-        <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-background to-transparent h-16" />
-      </div>
-
-      <Button variant="outline" className="w-full">
-        <ExternalLink className="w-4 h-4 mr-2" />
-        Get Directions
-      </Button>
     </motion.div>
   );
 };

@@ -259,7 +259,7 @@ export default function EventLobbyScreen() {
 
   const { data: event, isLoading: eventLoading } = useEventDetails(id);
   const { data: regSnapshot, isLoading: regLoading } = useIsRegisteredForEvent(id, user?.id);
-  const isConfirmedSeat = regSnapshot?.isConfirmed ?? false;
+  const isConfirmedRegistration = regSnapshot?.isConfirmed ?? false;
   const [lobbyClockMs, setLobbyClockMs] = useState(() => Date.now());
   const hasEvent = event != null;
   const eventDateValue = event?.event_date ?? null;
@@ -346,7 +346,7 @@ export default function EventLobbyScreen() {
       event &&
       !eventLoading &&
       !regLoading &&
-      isConfirmedSeat &&
+      isConfirmedRegistration &&
       !pauseStatus.isPaused &&
       isLiveWindow
   );
@@ -399,7 +399,7 @@ export default function EventLobbyScreen() {
       event &&
       !eventLoading &&
       !regLoading &&
-      isConfirmedSeat &&
+      isConfirmedRegistration &&
       !pauseStatus.isPaused &&
       !isEventCancelled &&
       !isEventArchived &&
@@ -1956,9 +1956,8 @@ export default function EventLobbyScreen() {
       minute: '2-digit',
       hour12: true,
     });
-    const place = event.location_name?.trim();
-    return `${t} · ${place || 'Live room'}`;
-  }, [event?.event_date, event?.location_name]);
+    return `${t} · Online lobby`;
+  }, [event?.event_date]);
 
   const showSwipeToast = useCallback(
     (result: string, options?: { openingReadyGate?: boolean }) => {
@@ -2141,7 +2140,7 @@ export default function EventLobbyScreen() {
     if (!user?.id) return 'missing_user';
     if (pauseStatus.isPaused) return 'account_paused';
     if (!hasEvent) return 'missing_event';
-    if (!isConfirmedSeat) return regSnapshot?.isWaitlisted ? 'not_confirmed' : 'not_registered';
+    if (!isConfirmedRegistration) return regSnapshot?.isWaitlisted ? 'not_confirmed' : 'not_registered';
     if (isEventCancelled) return 'cancelled';
     if (isEventArchived) return 'archived';
     if (isEventDraft) return 'draft';
@@ -2152,7 +2151,7 @@ export default function EventLobbyScreen() {
   }, [
     hasEvent,
     id,
-    isConfirmedSeat,
+    isConfirmedRegistration,
     isEventArchived,
     isEventCancelled,
     isEventDraft,
@@ -2486,7 +2485,7 @@ export default function EventLobbyScreen() {
         <View style={[styles.centered, { backgroundColor: theme.background }]}>
           <ErrorState
             title={title}
-            message="Head back to the event page for details and booking options."
+            message="Head back to the event page for details and registration options."
             actionLabel="Back to event"
             onActionPress={() => router.replace(`/(tabs)/events/${id}` as const)}
           />
@@ -2539,7 +2538,7 @@ export default function EventLobbyScreen() {
     );
   }
 
-  if (!isConfirmedSeat) {
+  if (!isConfirmedRegistration) {
     return (
       <>
         <View style={[styles.centered, { backgroundColor: theme.background }]}>

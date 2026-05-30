@@ -9,9 +9,9 @@ function readProjectFile(path: string): string {
   return readFileSync(join(root, path), "utf8");
 }
 
-test("web event details gates booking-management entry points behind self-cancel editability", () => {
+test("web event details gates registration-management entry points behind self-cancel editability", () => {
   const eventDetails = readProjectFile("src/pages/EventDetails.tsx");
-  const manageBookingModal = readProjectFile("src/components/events/ManageBookingModal.tsx");
+  const manageRegistrationModal = readProjectFile("src/components/events/ManageRegistrationModal.tsx");
 
   assert.match(eventDetails, /const canSelfCancelRegistration = bookingEditability\.canSelfCancel/);
   assert.match(eventDetails, /const \[eventClockMs, setEventClockMs\] = useState\(\(\) => Date\.now\(\)\)/);
@@ -21,36 +21,36 @@ test("web event details gates booking-management entry points behind self-cancel
   assert.match(eventDetails, /resolveEventBookingEditability\(\{[\s\S]*nowMs: eventClockMs/);
   assert.match(
     eventDetails,
-    /const canViewTicket =[\s\S]*hasEventAdmission &&[\s\S]*canSelfCancelRegistration \|\| \(isConfirmed && eventLifecycle\.isLive && !eventClosedForBookingCopy\)/,
+    /const canViewRegistration =[\s\S]*hasEventAdmission &&[\s\S]*canSelfCancelRegistration \|\| \(isConfirmed && eventLifecycle\.isLive && !eventClosedForBookingCopy\)/,
   );
-  assert.match(eventDetails, /canViewTicket[\s\S]*\? \(\) => setShowTicket\(true\)/);
-  assert.match(eventDetails, /isOpen=\{showManageBooking && canSelfCancelRegistration\}/);
-  assert.match(eventDetails, /isOpen=\{showCancelModal && canSelfCancelRegistration\}/);
-  assert.match(eventDetails, /showTicket && canViewTicket/);
+  assert.match(eventDetails, /canViewRegistration[\s\S]*\? \(\) => setShowRegistrationStub\(true\)/);
+  assert.match(eventDetails, /isOpen=\{showManageRegistration && canSelfCancelRegistration\}/);
+  assert.match(eventDetails, /isOpen=\{showCancelRegistrationModal && canSelfCancelRegistration\}/);
+  assert.match(eventDetails, /showRegistrationStub && canViewRegistration/);
   assert.match(eventDetails, /canCancel=\{canSelfCancelRegistration\}/);
-  assert.match(eventDetails, /Booking changes are closed for this event/);
+  assert.match(eventDetails, /Registration changes are closed for this event/);
 
-  assert.match(manageBookingModal, /canCancel\?: boolean/);
-  assert.match(manageBookingModal, /canCancel = true/);
-  assert.match(manageBookingModal, /\{canCancel \? \([\s\S]*\{releaseCta\}[\s\S]*\) : null\}/);
+  assert.match(manageRegistrationModal, /canCancel\?: boolean/);
+  assert.match(manageRegistrationModal, /canCancel = true/);
+  assert.match(manageRegistrationModal, /\{canCancel \? \([\s\S]*\{releaseCta\}[\s\S]*\) : null\}/);
 });
 
-test("mobile event details gates booking-management and stale ticket entry points behind self-cancel editability", () => {
+test("mobile event details gates registration-management and registration-stub entry points behind self-cancel editability", () => {
   const eventDetails = readProjectFile("apps/mobile/app/(tabs)/events/[id].tsx");
-  const manageBookingModal = readProjectFile("apps/mobile/components/events/ManageBookingModal.tsx");
+  const manageRegistrationModal = readProjectFile("apps/mobile/components/events/ManageRegistrationModal.tsx");
 
   assert.match(eventDetails, /const canSelfCancelRegistration = bookingEditability\?\.canSelfCancel \?\? false/);
-  assert.match(eventDetails, /visible=\{showManageBooking && canSelfCancelRegistration\}/);
+  assert.match(eventDetails, /visible=\{showManageRegistration && canSelfCancelRegistration\}/);
   assert.match(
     eventDetails,
-    /const canViewTicket =[\s\S]*hasAdmission && \(canSelfCancelRegistration \|\| \(isConfirmed && eventLive && !eventClosedForBookingCopy\)\)/,
+    /const canViewRegistration =[\s\S]*hasAdmission && \(canSelfCancelRegistration \|\| \(isConfirmed && eventLive && !eventClosedForBookingCopy\)\)/,
   );
-  assert.match(eventDetails, /visible=\{showTicket && canViewTicket\}/);
+  assert.match(eventDetails, /visible=\{showRegistrationStub && canViewRegistration\}/);
   assert.match(eventDetails, /canCancel=\{canSelfCancelRegistration\}/);
-  assert.match(eventDetails, /Booking changes are closed for this event/);
-  assert.match(eventDetails, /label="Booking Closed"/);
+  assert.match(eventDetails, /Registration changes are closed for this event/);
+  assert.match(eventDetails, /label="Registration Closed"/);
 
-  assert.match(manageBookingModal, /canCancel\?: boolean/);
-  assert.match(manageBookingModal, /canCancel = true/);
-  assert.match(manageBookingModal, /\{canCancel \? \([\s\S]*\{releaseCta\}[\s\S]*\) : null\}/);
+  assert.match(manageRegistrationModal, /canCancel\?: boolean/);
+  assert.match(manageRegistrationModal, /canCancel = true/);
+  assert.match(manageRegistrationModal, /\{canCancel \? \([\s\S]*\{releaseCta\}[\s\S]*\) : null\}/);
 });

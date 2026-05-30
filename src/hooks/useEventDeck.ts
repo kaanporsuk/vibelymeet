@@ -65,8 +65,9 @@ export const useEventDeck = ({ eventId, enabled = true, refetchIntervalMs }: Use
     profiles,
     deckState: deckResult?.deckState ?? null,
     deckOk: deckResult?.ok ?? false,
-    isLoading: query.isLoading || (query.isFetching && profiles.length === 0),
-    isError: query.isError,
+    isLoading: query.isLoading,
+    isRefreshing: query.isRefetching,
+    isError: query.isLoadingError,
     error: query.error,
     refetch: query.refetch,
   };

@@ -196,7 +196,7 @@ const AdminQuickActionsCards = ({
                   <p className="text-sm text-foreground">
                     {event.current_attendees || 0}/{event.max_attendees || 50}
                   </p>
-                  <p className="text-xs text-muted-foreground">Registered seats</p>
+                  <p className="text-xs text-muted-foreground">Registered spots</p>
                 </div>
               </motion.div>
             ))}

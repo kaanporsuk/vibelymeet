@@ -1,21 +1,17 @@
 /**
- * Venue card — parity with web: virtual (digital lobby, Enter Lobby when live) or physical (venue, address, directions).
+ * Online lobby card — parity with web: Enter Lobby when live, otherwise online access status.
  */
 import React, { useState, useEffect } from 'react';
-import { View, Text, Pressable, StyleSheet } from 'react-native';
+import { View, Text, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import Colors from '@/constants/Colors';
 import { useColorScheme } from '@/components/useColorScheme';
-import { withAlpha } from '@/lib/colorUtils';
 import { Card, VibelyButton } from '@/components/ui';
 import { spacing, radius } from '@/constants/theme';
 import { deriveEventPhase, formatVenuePhaseLabel } from '@/lib/eventPhase';
 
 type VenueCardProps = {
-  isVirtual: boolean;
-  venueName?: string;
-  address?: string;
   eventDate: Date;
   eventDurationMinutes?: number;
   eventStatus?: string | null;
@@ -29,9 +25,6 @@ type VenueCardProps = {
 };
 
 export function VenueCard({
-  isVirtual,
-  venueName,
-  address,
   eventDate,
   eventDurationMinutes = 60,
   eventStatus,
@@ -40,7 +33,7 @@ export function VenueCard({
   eventId,
   isRegistered = false,
   onAccessPress,
-  accessLabel = 'Get Tickets',
+  accessLabel = 'Reserve Spot',
   accessDisabled = false,
 }: VenueCardProps) {
   const theme = Colors[useColorScheme()];
@@ -66,86 +59,64 @@ export function VenueCard({
     if (eventId && phase.isLive) router.push(`/event/${eventId}/lobby` as const);
   };
 
-  if (isVirtual) {
-    return (
-      <Card variant="glass" style={[styles.card, { borderColor: theme.glassBorder }]}>
-        <View style={styles.row}>
-          <View style={[styles.iconWrap, { backgroundColor: theme.tintSoft }]}>
-            <Ionicons name="videocam" size={24} color={theme.tint} />
-          </View>
-          <View style={styles.heading}>
-            <Text style={[styles.venueTitle, { color: theme.text }]}>Digital Lobby</Text>
-            <Text style={[styles.venueSub, { color: theme.textSecondary }]}>Video Speed Dating</Text>
-          </View>
-        </View>
-        <View style={[styles.statusBlock, { backgroundColor: theme.surfaceSubtle, borderColor: theme.border }]}>
-          {phase.isLive && isRegistered ? (
-            <>
-              <View style={styles.liveRow}>
-                <View style={[styles.liveDot, { backgroundColor: theme.success }]} />
-                <Text style={[styles.liveText, { color: theme.success }]}>LIVE NOW</Text>
-              </View>
-              <Text style={[styles.timeUntil, { color: theme.textSecondary }]}>{timeUntil}</Text>
-            </>
-          ) : phase.isEnded ? (
-            <>
-              <Ionicons name="lock-closed" size={24} color={theme.textSecondary} />
-              <Text style={[styles.statusText, { color: theme.textSecondary }]}>Event has ended</Text>
-            </>
-          ) : isRegistered ? (
-            <>
-              <Ionicons name="wifi" size={24} color={theme.tint} />
-              <Text style={[styles.statusText, { color: theme.text }]}>Ready to connect</Text>
-              <Text style={[styles.timeUntil, { color: theme.textSecondary }]}>Lobby opens in: {timeUntil}</Text>
-            </>
-          ) : (
-            <>
-              <Ionicons name="lock-closed" size={24} color={theme.textSecondary} />
-              <Text style={[styles.statusText, { color: theme.textSecondary }]}>Register to unlock access</Text>
-            </>
-          )}
-        </View>
-        {phase.isLive && isRegistered ? (
-          <VibelyButton label="Enter Lobby" onPress={onEnterLobby} variant="gradient" style={styles.cta} />
-        ) : phase.isEnded ? (
-          <VibelyButton label="Event Ended" onPress={() => {}} variant="secondary" disabled style={styles.cta} />
-        ) : isRegistered ? (
-          <VibelyButton label="Lobby Opens Soon" onPress={() => {}} variant="secondary" disabled style={styles.cta} />
-        ) : (
-          onAccessPress ? (
-            <VibelyButton
-              label={accessLabel}
-              onPress={onAccessPress}
-              disabled={accessDisabled}
-              variant="secondary"
-              style={styles.cta}
-            />
-          ) : (
-            <View style={[styles.lockedHint, { backgroundColor: theme.surfaceSubtle, borderColor: theme.border }]}>
-              <Ionicons name="lock-closed-outline" size={14} color={theme.textSecondary} />
-              <Text style={[styles.lockedHintText, { color: theme.textSecondary }]}>Register from the event details CTA below</Text>
-            </View>
-          )
-        )}
-      </Card>
-    );
-  }
-
   return (
     <Card variant="glass" style={[styles.card, { borderColor: theme.glassBorder }]}>
       <View style={styles.row}>
-        <View style={[styles.iconWrap, { backgroundColor: withAlpha(theme.accent, 0.15) }]}>
-          <Ionicons name="location" size={24} color={theme.accent} />
+        <View style={[styles.iconWrap, { backgroundColor: theme.tintSoft }]}>
+          <Ionicons name="videocam" size={24} color={theme.tint} />
         </View>
         <View style={styles.heading}>
-          <Text style={[styles.venueTitle, { color: theme.text }]}>{venueName || 'Secret Location'}</Text>
-          <Text style={[styles.venueSub, { color: theme.textSecondary }]}>{address || 'Address revealed after registration'}</Text>
+          <Text style={[styles.lobbyTitle, { color: theme.text }]}>Digital Lobby</Text>
+          <Text style={[styles.lobbySub, { color: theme.textSecondary }]}>Video Speed Dating</Text>
         </View>
       </View>
-      <View style={[styles.mapPlaceholder, { backgroundColor: theme.surfaceSubtle, borderColor: theme.border }]}>
-        <Ionicons name="map" size={40} color={theme.textSecondary} />
+      <View style={[styles.statusBlock, { backgroundColor: theme.surfaceSubtle, borderColor: theme.border }]}>
+        {phase.isLive && isRegistered ? (
+          <>
+            <View style={styles.liveRow}>
+              <View style={[styles.liveDot, { backgroundColor: theme.success }]} />
+              <Text style={[styles.liveText, { color: theme.success }]}>LIVE NOW</Text>
+            </View>
+            <Text style={[styles.timeUntil, { color: theme.textSecondary }]}>{timeUntil}</Text>
+          </>
+        ) : phase.isEnded ? (
+          <>
+            <Ionicons name="lock-closed" size={24} color={theme.textSecondary} />
+            <Text style={[styles.statusText, { color: theme.textSecondary }]}>Event has ended</Text>
+          </>
+        ) : isRegistered ? (
+          <>
+            <Ionicons name="wifi" size={24} color={theme.tint} />
+            <Text style={[styles.statusText, { color: theme.text }]}>Ready to connect</Text>
+            <Text style={[styles.timeUntil, { color: theme.textSecondary }]}>Lobby opens in: {timeUntil}</Text>
+          </>
+        ) : (
+          <>
+            <Ionicons name="lock-closed" size={24} color={theme.textSecondary} />
+            <Text style={[styles.statusText, { color: theme.textSecondary }]}>Register to unlock access</Text>
+          </>
+        )}
       </View>
-      <VibelyButton label="Get Directions" onPress={() => {}} variant="secondary" style={styles.cta} />
+      {phase.isLive && isRegistered ? (
+        <VibelyButton label="Enter Lobby" onPress={onEnterLobby} variant="gradient" style={styles.cta} />
+      ) : phase.isEnded ? (
+        <VibelyButton label="Event Ended" onPress={() => {}} variant="secondary" disabled style={styles.cta} />
+      ) : isRegistered ? (
+        <VibelyButton label="Lobby Opens Soon" onPress={() => {}} variant="secondary" disabled style={styles.cta} />
+      ) : onAccessPress ? (
+        <VibelyButton
+          label={accessLabel}
+          onPress={onAccessPress}
+          disabled={accessDisabled}
+          variant="secondary"
+          style={styles.cta}
+        />
+      ) : (
+        <View style={[styles.lockedHint, { backgroundColor: theme.surfaceSubtle, borderColor: theme.border }]}>
+          <Ionicons name="lock-closed-outline" size={14} color={theme.textSecondary} />
+          <Text style={[styles.lockedHintText, { color: theme.textSecondary }]}>Register from the event details CTA below</Text>
+        </View>
+      )}
     </Card>
   );
 }
@@ -155,8 +126,8 @@ const styles = StyleSheet.create({
   row: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, marginBottom: spacing.md },
   iconWrap: { width: 48, height: 48, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
   heading: { flex: 1 },
-  venueTitle: { fontSize: 16, fontWeight: '600' },
-  venueSub: { fontSize: 13, marginTop: 2 },
+  lobbyTitle: { fontSize: 16, fontWeight: '600' },
+  lobbySub: { fontSize: 13, marginTop: 2 },
   statusBlock: {
     minHeight: 100,
     borderRadius: radius.lg,
@@ -172,7 +143,6 @@ const styles = StyleSheet.create({
   liveText: { fontSize: 13, fontWeight: '700' },
   timeUntil: { fontSize: 12 },
   statusText: { fontSize: 14, fontWeight: '500' },
-  mapPlaceholder: { height: 120, borderRadius: radius.lg, borderWidth: 1, alignItems: 'center', justifyContent: 'center', marginBottom: spacing.md },
   cta: { alignSelf: 'stretch' },
   lockedHint: {
     borderWidth: 1,

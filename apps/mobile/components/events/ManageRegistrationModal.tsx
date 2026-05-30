@@ -1,5 +1,5 @@
 /**
- * Manage booking modal — parity with web: admission (confirmed vs waitlist), venue, share, cancel.
+ * Manage registration modal — parity with web: admission (confirmed vs waitlist), online access, share, cancel.
  */
 import React from 'react';
 import { View, Text, Modal, Pressable, StyleSheet, Share } from 'react-native';
@@ -9,47 +9,43 @@ import { useColorScheme } from '@/components/useColorScheme';
 import { VibelyButton } from '@/components/ui';
 import { spacing, radius } from '@/constants/theme';
 
-export type BookingAdmissionStatus = 'confirmed' | 'waitlisted';
+export type RegistrationAdmissionStatus = 'confirmed' | 'waitlisted';
 
-type ManageBookingModalProps = {
+type ManageRegistrationModalProps = {
   visible: boolean;
   onClose: () => void;
   onCancel: () => void;
   eventTitle: string;
   eventDate: string;
   eventTime: string;
-  venue: string;
-  ticketNumber: string;
+  registrationNumber: string;
   price: number;
-  isVirtual?: boolean;
   /** Confirmed = lobby-eligible when live; waitlist must not imply lobby access. */
-  admissionStatus?: BookingAdmissionStatus;
+  admissionStatus?: RegistrationAdmissionStatus;
   canCancel?: boolean;
 };
 
-export function ManageBookingModal({
+export function ManageRegistrationModal({
   visible,
   onClose,
   onCancel,
   eventTitle,
   eventDate,
   eventTime,
-  venue,
-  ticketNumber,
+  registrationNumber,
   price,
-  isVirtual = false,
   admissionStatus = 'confirmed',
   canCancel = true,
-}: ManageBookingModalProps) {
+}: ManageRegistrationModalProps) {
   const theme = Colors[useColorScheme()];
   const isWaitlisted = admissionStatus === 'waitlisted';
-  const headerTitle = isWaitlisted ? 'Your waitlist spot' : 'Your Ticket';
-  const releaseCta = isWaitlisted ? 'Leave waitlist' : 'Cancel My Spot';
+  const headerTitle = isWaitlisted ? 'Your waitlist spot' : 'Your Registration';
+  const releaseCta = isWaitlisted ? 'Leave waitlist' : 'Release Spot';
 
   const handleShare = async () => {
     try {
       await Share.share({
-        title: `My Vibely Ticket - ${eventTitle}`,
+        title: `My Vibely Registration - ${eventTitle}`,
         message: `I'm going to ${eventTitle}! Join me on Vibely.`,
       });
     } catch {
@@ -60,7 +56,7 @@ export function ManageBookingModal({
   if (!visible) return null;
 
   return (
-    <Modal visible transparent animationType="slide">
+    <Modal visible transparent animationType="slide" onRequestClose={onClose}>
       <Pressable style={styles.backdrop} onPress={onClose}>
         <Pressable style={[styles.sheet, { backgroundColor: theme.glassSurface }]} onPress={(e) => e.stopPropagation()}>
           <View style={[styles.sheetHandle, { backgroundColor: theme.muted }]} />
@@ -68,13 +64,13 @@ export function ManageBookingModal({
             <Pressable onPress={onClose} style={styles.closeBtn} accessibilityLabel="Close">
               <Ionicons name="close" size={22} color={theme.text} />
             </Pressable>
-            <View style={styles.ticketHeader}>
-              <View style={[styles.ticketIcon, { backgroundColor: theme.tint }]}>
-                <Ionicons name="ticket" size={28} color="#fff" />
+            <View style={styles.registrationHeader}>
+              <View style={[styles.registrationIcon, { backgroundColor: theme.tint }]}>
+                <Ionicons name="checkmark-circle" size={28} color="#fff" />
               </View>
               <View>
                 <Text style={[styles.sheetTitle, { color: theme.text }]}>{headerTitle}</Text>
-                <Text style={[styles.ticketRef, { color: theme.textSecondary }]}>{ticketNumber}</Text>
+                <Text style={[styles.registrationRef, { color: theme.textSecondary }]}>{registrationNumber}</Text>
               </View>
             </View>
           </View>
@@ -90,43 +86,27 @@ export function ManageBookingModal({
                 <Text style={[styles.metaText, { color: theme.textSecondary }]}>{eventTime}</Text>
               </View>
               <View style={styles.metaRow}>
-                <Ionicons name="location-outline" size={16} color={theme.tint} />
-                <Text style={[styles.metaText, { color: theme.textSecondary }]}>{venue}</Text>
+                <Ionicons name="videocam-outline" size={16} color={theme.tint} />
+                <Text style={[styles.metaText, { color: theme.textSecondary }]}>Digital Lobby</Text>
               </View>
             </View>
-            {!isVirtual ? (
-              <View style={[styles.qrBlock, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+            <View style={[styles.accessBlock, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+              <Ionicons name="videocam" size={40} color={theme.tint} />
+              <Text style={[styles.accessHint, { color: theme.textSecondary }]}>
                 {isWaitlisted ? (
-                  <Text style={[styles.qrHint, { color: theme.textSecondary }]}>
-                    You have a paid waitlist spot, not a confirmed seat yet. In-person check-in details appear if you’re promoted
-                    before the event — keep an eye on the event page.
-                  </Text>
+                  <>
+                    The live lobby is for <Text style={{ fontWeight: '600', color: theme.text }}>confirmed</Text> guests. On the
+                    waitlist, you’ll only use <Text style={{ fontWeight: '600', color: theme.text }}>Enter Lobby</Text> if you’re
+                    promoted to a confirmed spot — we’ll update your status here when that happens.
+                  </>
                 ) : (
                   <>
-                    <Ionicons name="qr-code" size={64} color={theme.textSecondary} />
-                    <Text style={[styles.qrHint, { color: theme.textSecondary }]}>Show this at the door for check-in</Text>
+                    Join via the <Text style={{ fontWeight: '600', color: theme.text }}>Enter Lobby</Text> button when the event is
+                    live.
                   </>
                 )}
-              </View>
-            ) : (
-              <View style={[styles.qrBlock, { backgroundColor: theme.surface, borderColor: theme.border }]}>
-                <Ionicons name="videocam" size={40} color={theme.tint} />
-                <Text style={[styles.qrHint, { color: theme.textSecondary }]}>
-                  {isWaitlisted ? (
-                    <>
-                      The live lobby is for <Text style={{ fontWeight: '600', color: theme.text }}>confirmed</Text> guests. On the
-                      waitlist, you’ll only use <Text style={{ fontWeight: '600', color: theme.text }}>Enter Lobby</Text> if you’re
-                      promoted to a confirmed seat — we’ll update your status here when that happens.
-                    </>
-                  ) : (
-                    <>
-                      Join via the <Text style={{ fontWeight: '600', color: theme.text }}>Enter Lobby</Text> button when the event is
-                      live
-                    </>
-                  )}
-                </Text>
-              </View>
-            )}
+              </Text>
+            </View>
             <View style={[styles.priceRow, { backgroundColor: theme.surfaceSubtle }]}>
               <Text style={[styles.priceLabel, { color: theme.textSecondary }]}>{price <= 0 ? 'Price' : 'Amount paid'}</Text>
               <Text style={[styles.priceValue, { color: theme.text }]}>{price <= 0 ? 'Free' : `€${price.toFixed(2)}`}</Text>
@@ -165,17 +145,17 @@ const styles = StyleSheet.create({
   },
   header: { padding: spacing.lg, borderBottomWidth: 1 },
   closeBtn: { position: 'absolute', top: spacing.lg, right: spacing.lg, zIndex: 1, padding: spacing.xs },
-  ticketHeader: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
-  ticketIcon: { width: 56, height: 56, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
+  registrationHeader: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
+  registrationIcon: { width: 56, height: 56, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
   sheetTitle: { fontSize: 20, fontWeight: '700' },
-  ticketRef: { fontSize: 13, marginTop: 2 },
+  registrationRef: { fontSize: 13, marginTop: 2 },
   body: { padding: spacing.lg, gap: spacing.lg },
   detailBlock: { padding: spacing.lg, borderRadius: radius.xl, borderWidth: 1 },
   eventTitle: { fontSize: 18, fontWeight: '600', marginBottom: spacing.sm },
   metaRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginTop: 4 },
   metaText: { fontSize: 14 },
-  qrBlock: { padding: spacing.xl, borderRadius: radius.xl, borderWidth: 1, alignItems: 'center', gap: spacing.sm },
-  qrHint: { fontSize: 12, textAlign: 'center' },
+  accessBlock: { padding: spacing.xl, borderRadius: radius.xl, borderWidth: 1, alignItems: 'center', gap: spacing.sm },
+  accessHint: { fontSize: 12, textAlign: 'center' },
   priceRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: spacing.lg, borderRadius: radius.lg },
   priceLabel: { fontSize: 14 },
   priceValue: { fontSize: 18, fontWeight: '700' },

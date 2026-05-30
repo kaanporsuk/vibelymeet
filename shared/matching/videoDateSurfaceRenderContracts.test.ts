@@ -66,3 +66,31 @@ test("queue and lobby state surfaces render rich queue details and honor retry v
   assert.match(webLobby, /void refetchDeck\(\)/);
   assert.match(nativeLobby, /refetchDeck\(\)/);
 });
+
+test("event lobby keeps settled deck UI mounted during background deck refresh", () => {
+  const webLobby = read("src/pages/EventLobby.tsx");
+  const webDeckHook = read("src/hooks/useEventDeck.ts");
+  const nativeLobby = read("apps/mobile/app/event/[eventId]/lobby.tsx");
+  const nativeEventsApi = read("apps/mobile/lib/eventsApi.ts");
+
+  for (const source of [webDeckHook, nativeEventsApi]) {
+    assert.match(source, /isLoading:\s*query\.isLoading/);
+    assert.match(source, /isRefreshing:\s*query\.isRefetching/);
+    assert.match(source, /isError:\s*query\.isLoadingError/);
+    assert.doesNotMatch(source, /query\.isFetching && profiles\.length === 0/);
+  }
+
+  assert.match(webLobby, /deckLoading && sortedProfiles\.length === 0 && !deckError/);
+  assert.match(webLobby, /<LobbyEmptyState/);
+  assert.match(webLobby, /const currentProfile = sortedProfiles\[0\] \|\| null/);
+  assert.match(webLobby, /queryClient\.invalidateQueries\(\{ queryKey: \["event-deck", eventId, user\.id\] \}\)/);
+  assert.match(webLobby, /table:\s*"event_registrations"/);
+  assert.match(webLobby, /table:\s*"video_sessions"/);
+
+  assert.match(nativeLobby, /deckLoading && !hasCards/);
+  assert.match(nativeLobby, /Mystery Match \(optional\)/);
+  assert.match(nativeLobby, /const current = sortedProfiles\[0\] \?\? null/);
+  assert.match(nativeLobby, /queryClient\.invalidateQueries\(\{ queryKey: \['event-deck', id, user\.id\] \}\)/);
+  assert.match(nativeLobby, /table:\s*'event_registrations'/);
+  assert.match(nativeLobby, /table:\s*'video_sessions'/);
+});

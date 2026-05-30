@@ -105,7 +105,7 @@ export const EventCard = ({
           className={cn("w-full", (isConfirmed || isWaitlisted) && "border-neon-cyan text-neon-cyan")}
           onClick={handleOpenDetails}
         >
-          {isConfirmed ? "View Ticket" : isWaitlisted ? "On waitlist" : "Get Tickets"}
+          {isConfirmed ? "View Registration" : isWaitlisted ? "On waitlist" : "Reserve Spot"}
         </Button>
       </div>
     </div>

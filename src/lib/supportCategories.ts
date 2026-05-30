@@ -27,7 +27,7 @@ export const SUPPORT_CATEGORIES: Record<PrimaryType, CategoryConfig> = {
       'Account & login',
       'Billing & premium',
       'Payment failed or refund',
-      'Events & tickets',
+      'Events & registrations',
       'Matches & messages',
       'Notifications',
       'Profile & media',

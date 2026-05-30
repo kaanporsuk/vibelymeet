@@ -1,5 +1,5 @@
 import { motion } from "framer-motion";
-import { Users, Sparkles, Crown, Ticket, Lock } from "lucide-react";
+import { Users, Sparkles, Crown, CalendarCheck, Lock } from "lucide-react";
 
 export interface GuestListRosterAttendee {
   id: string;
@@ -20,7 +20,7 @@ interface GuestListRosterProps {
   /** Visible others on event (excludes hidden and unauthorized matches_only attendees) */
   visibleOtherCount: number;
   onAttendeeClick: (attendee: GuestListRosterAttendee) => void;
-  onTicketClick?: () => void;
+  onRegistrationClick?: () => void;
 }
 
 function ObscuredCard({ index }: { index: number }) {
@@ -53,7 +53,7 @@ const GuestListRoster = ({
   visibleCohortCount,
   visibleOtherCount,
   onAttendeeClick,
-  onTicketClick,
+  onRegistrationClick,
 }: GuestListRosterProps) => {
   const obscuredSlots = Math.min(obscuredRemaining, 12);
 
@@ -72,14 +72,16 @@ const GuestListRoster = ({
           </motion.div>
         </div>
 
-        {onTicketClick ? (
+        {onRegistrationClick ? (
           <motion.button
+            type="button"
             whileHover={{ scale: 1.05 }}
             whileTap={{ scale: 0.95 }}
-            onClick={onTicketClick}
+            onClick={onRegistrationClick}
+            aria-label="Open my registration"
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-gradient-to-r from-primary to-accent text-primary-foreground text-xs font-medium"
           >
-            <Ticket className="w-3 h-3" />
+            <CalendarCheck className="w-3 h-3" />
             My Spot
           </motion.button>
         ) : null}

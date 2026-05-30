@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { ReactNode } from "react";
+import type { PointerEvent as ReactPointerEvent, ReactNode } from "react";
 import {
   AlertCircle,
   ArrowLeft,
@@ -50,12 +50,16 @@ type OtherUserFullProfileViewProps = {
   actions?: ReactNode;
   compatibilityPercent?: number | null;
   closeLabel?: string;
+  enableInlineHeroPhotoPaging?: boolean;
 };
 
 type DetailIcon = typeof Briefcase;
 
 const PHOTO_PREVIEW_OPEN_GUARD_MS = 350;
 const PHOTO_PREVIEW_CLOSE_GUARD_MS = 300;
+const HERO_PHOTO_SWIPE_MIN_DISTANCE_PX = 42;
+const HERO_PHOTO_SWIPE_AXIS_RATIO = 1.2;
+const HERO_PHOTO_SWIPE_CLICK_SUPPRESS_MS = 350;
 
 const lifestyleIconByKey: Record<string, DetailIcon> = {
   smoking: Sparkles,
@@ -134,6 +138,7 @@ export function OtherUserFullProfileView({
   actions,
   compatibilityPercent,
   closeLabel = "Back",
+  enableInlineHeroPhotoPaging = false,
 }: OtherUserFullProfileViewProps) {
   const [currentPhotoIndex, setCurrentPhotoIndex] = useState(0);
   const [photoPreviewIndex, setPhotoPreviewIndex] = useState<number | null>(null);
@@ -141,6 +146,8 @@ export function OtherUserFullProfileView({
   const prefersReducedMotion = usePrefersReducedMotion();
   const profileVibeVideoTtffTokenRef = useRef<string | null>(null);
   const photoPreviewOpenBlockedUntilRef = useRef(Date.now() + PHOTO_PREVIEW_OPEN_GUARD_MS);
+  const heroSwipeStartRef = useRef<{ pointerId: number; x: number; y: number } | null>(null);
+  const heroSwipeSuppressClickUntilRef = useRef(0);
 
   const blockPhotoPreviewOpens = useCallback((durationMs: number) => {
     photoPreviewOpenBlockedUntilRef.current = Math.max(
@@ -163,6 +170,7 @@ export function OtherUserFullProfileView({
 
   const photos = profile.photos;
   const heroPhoto = photos[currentPhotoIndex] ?? photos[0] ?? profile.avatarUrl ?? "";
+  const inlineHeroPhotoPagingEnabled = enableInlineHeroPhotoPaging && photos.length > 1;
   const displayName = profile.name ?? "Vibely member";
   const title = profile.age ? `${displayName}, ${profile.age}` : displayName;
   const locationText = [profile.location, profile.distanceLabel].filter(Boolean).join(" • ");
@@ -187,6 +195,51 @@ export function OtherUserFullProfileView({
       setPhotoPreviewIndex(index);
     },
     [photoPreviewIndex, photos.length],
+  );
+
+  const openHeroPhotoPreview = useCallback(() => {
+    if (Date.now() < heroSwipeSuppressClickUntilRef.current) return;
+    openPhotoPreview(currentPhotoIndex);
+  }, [currentPhotoIndex, openPhotoPreview]);
+
+  const handleHeroPointerDown = useCallback(
+    (event: ReactPointerEvent<HTMLDivElement>) => {
+      if (!inlineHeroPhotoPagingEnabled || event.button !== 0) return;
+      if (event.target instanceof Element && event.target.closest("[data-profile-hero-control]")) return;
+      heroSwipeStartRef.current = {
+        pointerId: event.pointerId,
+        x: event.clientX,
+        y: event.clientY,
+      };
+      event.currentTarget.setPointerCapture(event.pointerId);
+    },
+    [inlineHeroPhotoPagingEnabled],
+  );
+
+  const handleHeroPointerCancel = useCallback(() => {
+    heroSwipeStartRef.current = null;
+  }, []);
+
+  const handleHeroPointerUp = useCallback(
+    (event: ReactPointerEvent<HTMLDivElement>) => {
+      const start = heroSwipeStartRef.current;
+      if (!inlineHeroPhotoPagingEnabled || !start || start.pointerId !== event.pointerId) return;
+      heroSwipeStartRef.current = null;
+
+      const dx = event.clientX - start.x;
+      const dy = event.clientY - start.y;
+      const absX = Math.abs(dx);
+      const absY = Math.abs(dy);
+      if (absX < HERO_PHOTO_SWIPE_MIN_DISTANCE_PX || absX < absY * HERO_PHOTO_SWIPE_AXIS_RATIO) return;
+
+      event.preventDefault();
+      heroSwipeSuppressClickUntilRef.current = Date.now() + HERO_PHOTO_SWIPE_CLICK_SUPPRESS_MS;
+      setCurrentPhotoIndex((index) => {
+        if (dx < 0) return Math.min(photos.length - 1, index + 1);
+        return Math.max(0, index - 1);
+      });
+    },
+    [inlineHeroPhotoPagingEnabled, photos.length],
   );
 
   const vibeVideo = useMemo(
@@ -280,14 +333,20 @@ export function OtherUserFullProfileView({
 
   return (
     <div className={cn("min-h-full bg-background text-foreground", className)}>
-      <div className="relative">
+      <div
+        className="relative"
+        onPointerDown={handleHeroPointerDown}
+        onPointerCancel={handleHeroPointerCancel}
+        onPointerUp={handleHeroPointerUp}
+        style={inlineHeroPhotoPagingEnabled ? { touchAction: "pan-y" } : undefined}
+      >
         {heroPhoto ? (
           <AdaptiveProfileMedia
             src={heroPhoto}
             alt={`${displayName}'s profile photo`}
             variant="hero"
             className="border-x-0 border-t-0"
-            onClick={() => openPhotoPreview(currentPhotoIndex)}
+            onClick={openHeroPhotoPreview}
           />
         ) : (
           <div className="flex h-[clamp(360px,62dvh,680px)] items-center justify-center rounded-b-[28px] bg-secondary text-muted-foreground">
@@ -303,6 +362,7 @@ export function OtherUserFullProfileView({
             onClick={onClose}
             className="absolute left-4 top-4 z-20 h-11 min-h-11 rounded-full px-3 sm:hidden"
             aria-label={closeLabel}
+            data-profile-hero-control="true"
           >
             <ArrowLeft className="h-4 w-4" />
             <span>{closeLabel}</span>
@@ -317,6 +377,7 @@ export function OtherUserFullProfileView({
             onClick={onClose}
             className="absolute right-4 top-4 z-20 hidden h-11 min-h-11 w-11 rounded-full sm:inline-flex"
             aria-label="Close profile"
+            data-profile-hero-control="true"
           >
             <X className="h-4 w-4" />
           </Button>
@@ -332,6 +393,7 @@ export function OtherUserFullProfileView({
                   className="flex h-11 min-h-11 flex-1 items-start rounded-full pt-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/80"
                   aria-label={`Show photo ${index + 1}`}
                   onClick={() => setCurrentPhotoIndex(index)}
+                  data-profile-hero-control="true"
                 >
                   <span
                     className={cn(
@@ -348,6 +410,7 @@ export function OtherUserFullProfileView({
                 className="pointer-events-auto flex h-12 w-12 items-center justify-center rounded-full border border-white/20 bg-black/25 text-white backdrop-blur-md transition hover:bg-black/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/80 disabled:cursor-not-allowed disabled:opacity-35"
                 aria-label="Previous photo"
                 disabled={currentPhotoIndex === 0}
+                data-profile-hero-control="true"
                 onClick={(event) => {
                   event.stopPropagation();
                   setCurrentPhotoIndex((index) => Math.max(0, index - 1));
@@ -360,6 +423,7 @@ export function OtherUserFullProfileView({
                 className="pointer-events-auto flex h-12 w-12 items-center justify-center rounded-full border border-white/20 bg-black/25 text-white backdrop-blur-md transition hover:bg-black/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/80 disabled:cursor-not-allowed disabled:opacity-35"
                 aria-label="Next photo"
                 disabled={currentPhotoIndex >= photos.length - 1}
+                data-profile-hero-control="true"
                 onClick={(event) => {
                   event.stopPropagation();
                   setCurrentPhotoIndex((index) => Math.min(photos.length - 1, index + 1));

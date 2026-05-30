@@ -28,6 +28,7 @@ test("active session hydration is coalesced and EventLobby can use the provider 
 
 test("focused web hot-path count queries no longer use HEAD", () => {
   const useMatchQueue = read("src/hooks/useMatchQueue.ts");
+  const queueHint = read("src/lib/videoDateQueueHint.ts");
   const eventLobby = read("src/pages/EventLobby.tsx");
   const pushPrompt = read("src/components/PushPermissionPrompt.tsx");
 
@@ -39,7 +40,9 @@ test("focused web hot-path count queries no longer use HEAD", () => {
     assert.doesNotMatch(source, /head:\s*true/, `${label} should avoid HEAD count queries`);
   }
 
-  assert.match(useMatchQueue, /\.select\("id",\s*\{\s*count:\s*"exact"\s*\}\)[\s\S]{0,240}\.limit\(1\)/);
+  assert.match(useMatchQueue, /fetchVideoDateQueueHint/);
+  assert.match(queueHint, /\.rpc\("get_video_date_queue_hint_v1"/);
+  assert.doesNotMatch(useMatchQueue, /\.from\("video_sessions"\)[\s\S]{0,240}\.select\(/);
   assert.match(eventLobby, /\.from\("event_swipes"\)[\s\S]{0,240}\.select\("id",\s*\{\s*count:\s*"exact"\s*\}\)[\s\S]{0,240}\.limit\(1\)/);
   assert.match(pushPrompt, /\.from\("matches"\)[\s\S]{0,240}\.select\("id",\s*\{\s*count:\s*"exact"\s*\}\)[\s\S]{0,240}\.limit\(1\)/);
   assert.match(pushPrompt, /\.from\("event_registrations"\)[\s\S]{0,240}\.select\("id",\s*\{\s*count:\s*"exact"\s*\}\)[\s\S]{0,240}\.limit\(1\)/);
@@ -153,9 +156,13 @@ test("home boot realtime and polling hot paths are narrowed or paused", () => {
   assert.match(heartbeat, /document\.visibilityState\s*!==\s*"visible"/);
   assert.match(eventReminders, /refetchInterval:\s*\(\)\s*=>[\s\S]{0,140}document\.visibilityState\s*===\s*"visible"\s*\?\s*60_000\s*:\s*false/);
   assert.match(eventReminders, /refetchIntervalInBackground:\s*false/);
-  assert.match(eventDeck, /refetchInterval:\s*\(\)\s*=>[\s\S]{0,140}document\.visibilityState\s*===\s*"visible"\s*\?\s*15_000\s*:\s*false/);
+  assert.match(eventDeck, /refetchInterval:\s*\(\)\s*=>/);
+  assert.match(eventDeck, /refetchIntervalMs\s*===\s*false/);
+  assert.match(eventDeck, /document\.visibilityState\s*!==\s*"visible"[\s\S]{0,80}return false/);
+  assert.match(eventDeck, /return refetchIntervalMs \?\? 15_000/);
   assert.match(eventDeck, /refetchIntervalInBackground:\s*false/);
-  assert.match(nativeEventsApi, /refetchInterval:\s*15_000/);
+  assert.match(nativeEventsApi, /refetchInterval:\s*options\?\.refetchIntervalMs === false/);
+  assert.match(nativeEventsApi, /options\?\.refetchIntervalMs \?\? 15_000/);
   assert.match(activeSession, /ACTIVE_SESSION_POLL_MS\s*=\s*30_000/);
   assert.match(activeSession, /document\.visibilityState\s*!==\s*"visible"/);
   assert.match(nativeRealtimeLifecycle, /seenFromNewest/);
@@ -288,7 +295,9 @@ test("dashboard request reduction defers rows and avoids obvious overfetch", () 
   assert.doesNotMatch(nativeDateSuggestionData, /\.select\(["']\*["']\)/);
   assert.doesNotMatch(notificationPreferences, /\.select\(["']\*["']\)/);
   assert.match(matchSuccessModal, /\.from\("matches"\)\.select\("id",\s*\{\s*count:\s*"exact",\s*head:\s*true\s*\}\)/);
-  assert.match(nativeEventsApi, /\.from\('video_sessions'\)[\s\S]{0,120}\.select\('id',\s*\{\s*count:\s*'exact',\s*head:\s*true\s*\}\)/);
+  assert.match(nativeEventsApi, /getQueuedMatchCount/);
+  assert.match(nativeEventsApi, /const hint = await fetchVideoDateQueueHint\(eventId, userId\)/);
+  assert.doesNotMatch(nativeEventsApi, /\.from\('video_sessions'\)[\s\S]{0,160}\.select\('id',\s*\{\s*count:\s*'exact'/);
   assert.match(nativeEventsApi, /\.from\('event_swipes'\)[\s\S]{0,120}\.select\('id',\s*\{\s*count:\s*'exact',\s*head:\s*true\s*\}\)/);
   assert.match(matches, /\.rpc\("get_dashboard_visible_matches",\s*\{\s*p_limit:\s*5\s*\}\)/);
   assert.match(matches, /function isMissingDashboardRpc/);

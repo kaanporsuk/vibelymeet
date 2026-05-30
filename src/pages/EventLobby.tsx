@@ -2220,7 +2220,7 @@ const EventLobby = () => {
               </h1>
               <p className="text-[11px] text-white/45 mt-0.5 truncate">
                 {event?.time}
-                {event?.venue ? ` · ${event.venue}` : " · Live room"}
+                {" · Online lobby"}
               </p>
               <div className="flex items-center justify-center gap-2 mt-2">
                 <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-500/15 border border-emerald-400/30 text-emerald-300 text-[10px] font-bold uppercase tracking-widest shadow-[0_0_24px_rgba(52,211,153,0.12)]">

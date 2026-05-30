@@ -19,13 +19,13 @@ import { toast } from "sonner";
 import confetti from "canvas-confetti";
 import { format } from "date-fns";
 import VenueCard from "@/components/events/VenueCard";
-import TicketStub from "@/components/events/TicketStub";
+import RegistrationStub from "@/components/events/RegistrationStub";
 import GuestListTeaser from "@/components/events/GuestListTeaser";
 import GuestListRoster, { type GuestListRosterAttendee } from "@/components/events/GuestListRoster";
 import PricingBar from "@/components/events/PricingBar";
 import PaymentModal from "@/components/events/PaymentModal";
-import ManageBookingModal from "@/components/events/ManageBookingModal";
-import CancelBookingModal from "@/components/events/CancelBookingModal";
+import ManageRegistrationModal from "@/components/events/ManageRegistrationModal";
+import CancelRegistrationModal from "@/components/events/CancelRegistrationModal";
 import { resolvePhotoUrl } from "@/lib/photoUtils";
 import { useUserProfile } from "@/contexts/AuthContext";
 import { useEventDetails, useIsRegisteredForEvent } from "@/hooks/useEventDetails";
@@ -101,9 +101,9 @@ const EventDetails = () => {
   // UI state
   const [scrollY, setScrollY] = useState(0);
   const [showPaymentModal, setShowPaymentModal] = useState(false);
-  const [showManageBooking, setShowManageBooking] = useState(false);
-  const [showCancelModal, setShowCancelModal] = useState(false);
-  const [showTicket, setShowTicket] = useState(false);
+  const [showManageRegistration, setShowManageRegistration] = useState(false);
+  const [showCancelRegistrationModal, setShowCancelRegistrationModal] = useState(false);
+  const [showRegistrationStub, setShowRegistrationStub] = useState(false);
   const [showEventPhoneNudge, setShowEventPhoneNudge] = useState(false);
   const [freeRegisterBusy, setFreeRegisterBusy] = useState(false);
   const [visibilityUpsell, setVisibilityUpsell] = useState<"premium" | "vip" | null>(null);
@@ -242,7 +242,7 @@ const EventDetails = () => {
   const bookingChangesClosed = !canSelfCancelRegistration;
   const confirmedAdmissionLooksClosed =
     eventClosedForBookingCopy || (bookingChangesClosed && !eventLifecycle.isLive);
-  const canViewTicket =
+  const canViewRegistration =
     hasEventAdmission &&
     (canSelfCancelRegistration || (isConfirmed && eventLifecycle.isLive && !eventClosedForBookingCopy));
   const isCancelled = event.status === "cancelled";
@@ -291,18 +291,16 @@ const EventDetails = () => {
         colors: ["#a855f7", "#ec4899", "#06b6d4"],
       });
       toast.success("You're on the list! 🎉", {
-        description: event.isVirtual
-          ? "You'll be able to join when the event goes live"
-          : "Check your email for confirmation",
+        description: "You'll be able to join when the event goes live",
       });
     } else {
       toast.success("Registration received", {
-        description: "Open the event page if your ticket or status doesn’t update right away.",
+        description: "Open the event page if your registration or status doesn’t update right away.",
       });
     }
 
     if (nowConfirmed || nowWaitlisted) {
-      setTimeout(() => setShowTicket(true), 800);
+      setTimeout(() => setShowRegistrationStub(true), 800);
     }
   };
 
@@ -353,9 +351,9 @@ const EventDetails = () => {
 
   const handleCancelConfirm = async () => {
     if (!canSelfCancelRegistration) {
-      setShowCancelModal(false);
-      setShowManageBooking(false);
-      toast.info("Booking changes are closed for this event.");
+      setShowCancelRegistrationModal(false);
+      setShowManageRegistration(false);
+      toast.info("Registration changes are closed for this event.");
       return;
     }
 
@@ -368,8 +366,8 @@ const EventDetails = () => {
       queryClient.invalidateQueries({ queryKey: ["user-registrations"] });
       queryClient.invalidateQueries({ queryKey: ["event-attendee-preview", id] });
 
-      setShowCancelModal(false);
-      setShowManageBooking(false);
+      setShowCancelRegistrationModal(false);
+      setShowManageRegistration(false);
 
       if (wasWaitlisted) {
         toast.success("Left the waitlist", {
@@ -378,10 +376,10 @@ const EventDetails = () => {
       } else if (wasConfirmed) {
         toast.success("Spot released", {
           description:
-            "Your confirmed seat is cancelled for this event. If a waitlist is in use, the next person may be offered the seat according to usual rules. Refund exceptions are handled manually by support.",
+            "Your confirmed spot is cancelled for this event. If a waitlist is in use, the next person may be offered the spot according to usual rules. Refund exceptions are handled manually by support.",
         });
       } else {
-        toast.success("Booking updated", {
+        toast.success("Registration updated", {
           description: "Your registration for this event has been removed.",
         });
       }
@@ -433,14 +431,14 @@ const EventDetails = () => {
     : eventLifecycle.isLive
       ? "Event is live"
       : bookingChangesClosed
-        ? "Booking closed"
+        ? "Registration closed"
         : "You're In!";
   const confirmedAdmissionSubtitle = eventClosedForBookingCopy
-    ? "Your booking is now closed"
+    ? "Your registration is now closed"
     : eventLifecycle.isLive
-      ? "Join from the venue section"
+      ? "Join from the online lobby section"
       : bookingChangesClosed
-        ? "Booking changes are closed for this event"
+        ? "Registration changes are closed for this event"
         : "See you there";
   const waitlistAdmissionSubtitle = eventClosedForBookingCopy
     ? "This waitlist is now closed"
@@ -523,7 +521,7 @@ const EventDetails = () => {
           <div className="rounded-xl border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm">
             <p className="font-semibold text-destructive">This event was cancelled</p>
             <p className="text-muted-foreground mt-1 leading-relaxed">
-              Registration, cancellation, and lobby access are closed. Your booking record stays on file for support and
+              Registration, cancellation, and lobby access are closed. Your registration record stays on file for support and
               attendance history.
             </p>
           </div>
@@ -628,11 +626,11 @@ const EventDetails = () => {
                   visibleCohortCount={preview.visible_cohort_count}
                   visibleOtherCount={preview.visible_other_count}
                   onAttendeeClick={(attendee) => navigate(`/user/${attendee.id}`)}
-                  onTicketClick={
+                  onRegistrationClick={
                     canSelfCancelRegistration
-                      ? () => setShowManageBooking(true)
-                      : canViewTicket
-                        ? () => setShowTicket(true)
+                      ? () => setShowManageRegistration(true)
+                      : canViewRegistration
+                        ? () => setShowRegistrationStub(true)
                         : undefined
                   }
                 />
@@ -665,13 +663,10 @@ const EventDetails = () => {
           />
         )}
 
-        {/* Venue */}
+        {/* Online lobby */}
         <div className="space-y-2">
-          <h2 className="text-lg font-semibold text-foreground">The Venue</h2>
+          <h2 className="text-lg font-semibold text-foreground">Online Lobby</h2>
           <VenueCard
-            isVirtual={event.isVirtual}
-            venueName={event.venue}
-            address={event.address}
             eventDate={event.eventDate}
             eventDurationMinutes={event.durationMinutes}
             eventStatus={event.status}
@@ -679,7 +674,7 @@ const EventDetails = () => {
             eventId={event.id}
             isRegistered={isConfirmed}
             onAccessPress={!isConfirmed && !isCancelled ? () => void handlePurchasePress() : undefined}
-            accessLabel={event.isFree || userPrice === 0 ? "Register" : "Get Tickets"}
+            accessLabel={event.isFree || userPrice === 0 ? "Register" : "Reserve Spot"}
             accessDisabled={purchaseCtaDisabled}
           />
         </div>
@@ -703,7 +698,7 @@ const EventDetails = () => {
           <div className="max-w-lg mx-auto p-4 flex items-center justify-between gap-3">
             <div>
               <p className="font-semibold text-destructive">Event cancelled</p>
-              <p className="text-xs text-muted-foreground">Booking changes are closed for this event</p>
+              <p className="text-xs text-muted-foreground">Registration changes are closed for this event</p>
             </div>
           </div>
         </div>
@@ -735,19 +730,19 @@ const EventDetails = () => {
               </div>
             </div>
             {canSelfCancelRegistration ? (
-              <Button variant="outline" onClick={() => setShowManageBooking(true)}>
-                Manage Booking
+              <Button variant="outline" onClick={() => setShowManageRegistration(true)}>
+                Manage Registration
               </Button>
-            ) : canViewTicket ? (
-              <Button variant="outline" onClick={() => setShowTicket(true)}>
-                View Ticket
+            ) : canViewRegistration ? (
+              <Button variant="outline" onClick={() => setShowRegistrationStub(true)}>
+                View Registration
               </Button>
             ) : null}
           </div>
         </div>
       )}
 
-      {/* Paid waitlist: show truthful status without implying a confirmed seat */}
+      {/* Paid waitlist: show truthful status without implying a confirmed spot */}
       {isWaitlisted && !isConfirmed && !isCancelled && (
         <div className="fixed bottom-0 left-0 right-0 z-40 glass-card border-t border-border/50 rounded-none">
           <div className="max-w-lg mx-auto p-4 flex items-center justify-between gap-3">
@@ -756,8 +751,8 @@ const EventDetails = () => {
               <p className="text-xs text-muted-foreground">{waitlistAdmissionSubtitle}</p>
             </div>
             {canSelfCancelRegistration ? (
-              <Button variant="outline" onClick={() => setShowManageBooking(true)}>
-                Manage Booking
+              <Button variant="outline" onClick={() => setShowManageRegistration(true)}>
+                Manage Registration
               </Button>
             ) : null}
           </div>
@@ -768,40 +763,38 @@ const EventDetails = () => {
       <PaymentModal
         isOpen={showPaymentModal}
         onClose={() => setShowPaymentModal(false)}
-        onSuccess={handlePaymentSuccess}
         eventId={event.id}
         eventTitle={event.title}
         eventDate={formatDate(event.eventDate)}
         price={userPrice}
       />
 
-      <ManageBookingModal
-        isOpen={showManageBooking && canSelfCancelRegistration}
-        onClose={() => setShowManageBooking(false)}
+      <ManageRegistrationModal
+        isOpen={showManageRegistration && canSelfCancelRegistration}
+        onClose={() => setShowManageRegistration(false)}
         onCancel={() => {
           if (!canSelfCancelRegistration) {
-            setShowManageBooking(false);
-            toast.info("Booking changes are closed for this event.");
+            setShowManageRegistration(false);
+            toast.info("Registration changes are closed for this event.");
             return;
           }
-          setShowManageBooking(false);
-          setShowCancelModal(true);
+          setShowManageRegistration(false);
+          setShowCancelRegistrationModal(true);
         }}
         eventId={event.id}
         referrerUserId={user?.id}
         eventTitle={event.title}
         eventDate={formatDate(event.eventDate)}
         eventTime={event.time}
-        venue={event.venue}
-        ticketNumber={`VBL-${event.id.slice(0, 8).toUpperCase()}`}
+        registrationNumber={`VBL-${event.id.slice(0, 8).toUpperCase()}`}
         price={userPrice}
         admissionStatus={isConfirmed ? "confirmed" : "waitlisted"}
         canCancel={canSelfCancelRegistration}
       />
 
-      <CancelBookingModal
-        isOpen={showCancelModal && canSelfCancelRegistration}
-        onClose={() => setShowCancelModal(false)}
+      <CancelRegistrationModal
+        isOpen={showCancelRegistrationModal && canSelfCancelRegistration}
+        onClose={() => setShowCancelRegistrationModal(false)}
         onConfirm={handleCancelConfirm}
         eventTitle={event.title}
         admissionStatus={isConfirmed ? "confirmed" : "waitlisted"}
@@ -839,17 +832,15 @@ const EventDetails = () => {
         continueLabel="View membership options"
       />
 
-      {/* Ticket Stub */}
+      {/* Registration Stub */}
       <AnimatePresence>
-        {showTicket && canViewTicket && (
-          <TicketStub
+        {showRegistrationStub && canViewRegistration && (
+          <RegistrationStub
             eventTitle={event.title}
             eventDate={formatDate(event.eventDate)}
             eventTime={event.time}
-            isVirtual={event.isVirtual}
-            venue={event.venue}
-            ticketNumber={`VBL-${event.id.slice(0, 8).toUpperCase()}`}
-            onClose={() => setShowTicket(false)}
+            registrationNumber={`VBL-${event.id.slice(0, 8).toUpperCase()}`}
+            onClose={() => setShowRegistrationStub(false)}
             admissionStatus={isConfirmed ? "confirmed" : "waitlisted"}
           />
         )}

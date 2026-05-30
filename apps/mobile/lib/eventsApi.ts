@@ -254,6 +254,9 @@ export type EventDetailsRow = EventRow & {
   location_name?: string | null;
   location_address?: string | null;
   is_location_specific?: boolean | null;
+  scope?: string | null;
+  city?: string | null;
+  country?: string | null;
   price_amount?: number | null;
   max_attendees?: number | null;
   max_male_attendees?: number | null;
@@ -328,11 +331,11 @@ export function useRegisteredUpcomingEventsForInvite(userId: string | null | und
 
       const { data: eventsData, error: eventsError } = await supabase
         .from('events')
-        .select('id, title, cover_image, event_date, duration_minutes, status, location_name')
+        .select('id, title, cover_image, event_date, duration_minutes, status, city, country')
         .in('id', eventIds)
         .order('event_date', { ascending: true });
       if (eventsError) throw eventsError;
-      const rows = (eventsData ?? []) as (EventRow & { location_name?: string | null })[];
+      const rows = (eventsData ?? []) as (EventRow & { city?: string | null; country?: string | null })[];
       const out: InviteSheetEventRow[] = [];
       for (const e of rows) {
         if (!isEventVisible(e)) continue;
@@ -344,7 +347,7 @@ export function useRegisteredUpcomingEventsForInvite(userId: string | null | und
           title: e.title,
           cover_url: e.cover_image || undefined,
           start_time: e.event_date,
-          city: e.location_name?.trim() || undefined,
+          city: [e.city, e.country].map((part) => part?.trim()).filter(Boolean).join(', ') || undefined,
         });
       }
       return out;
@@ -382,7 +385,7 @@ export function useIsRegisteredForEvent(eventId: string | undefined, userId: str
 
 export type NextRegisteredEventResult = {
   event: EventListItem | null;
-  /** Confirmed seat for `event` (lobby-eligible). */
+  /** Confirmed registration for `event` (lobby-eligible). */
   isRegistered: boolean;
   isWaitlisted: boolean;
   hasEventAdmission: boolean;
@@ -647,7 +650,9 @@ export function useEventDeck(
     data: profiles,
     deckState: deckResult?.deckState ?? null,
     deckOk: deckResult?.ok ?? false,
-    isLoading: query.isLoading || (query.isFetching && profiles.length === 0),
+    isLoading: query.isLoading,
+    isRefreshing: query.isRefetching,
+    isError: query.isLoadingError,
   };
 }
 

@@ -684,7 +684,7 @@ const AdminEventAttendeesModal = ({ event, onClose }: AdminEventAttendeesModalPr
       <AdminConfirmDialog
         open={!!registrationToRemove}
         title={`Remove ${registrationToRemove?.name ?? "this user"} from this event?`}
-        description="This calls admin_remove_event_registration. It removes the registration row, frees a confirmed seat when applicable, and may promote the waitlist according to backend rules."
+        description="This calls admin_remove_event_registration. It removes the registration row, frees confirmed capacity when applicable, and may promote the waitlist according to backend rules."
         confirmLabel="Remove Registration"
         variant="destructive"
         isPending={removeRegistration.isPending}

@@ -451,7 +451,7 @@ Deno.serve(async (req) => {
         const session = event.data.object as Stripe.Checkout.Session
         const userId = session.metadata?.supabase_user_id
 
-        // Handle event ticket purchase
+        // Handle event registration purchase
         if (session.metadata?.type === 'event_ticket') {
           const eventId = session.metadata?.event_id
           const amountTotal = typeof session.amount_total === 'number' ? session.amount_total : null

@@ -246,7 +246,7 @@ Deno.serve(async (req) => {
         price_data: {
           currency,
           product_data: {
-            name: 'Vibely Event Ticket',
+            name: 'Vibely Event Registration',
             description: eventData.title || 'Vibely event',
           },
           unit_amount: amountCents,

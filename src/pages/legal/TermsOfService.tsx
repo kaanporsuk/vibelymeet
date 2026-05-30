@@ -68,7 +68,7 @@ const TermsOfService = () => {
         <section>
           <h2>6. Payments</h2>
           <p>
-            Prices in EUR. Event tickets non-refundable after event starts (refundable 24h before). Credits non-refundable. Subscriptions cancel at period end. EU consumers have a 14-day right of withdrawal.
+            Prices in EUR. Paid event registrations non-refundable after event starts (refundable 24h before). Credits non-refundable. Subscriptions cancel at period end. EU consumers have a 14-day right of withdrawal.
           </p>
         </section>
 

@@ -1,5 +1,5 @@
 /**
- * Sticky bottom pricing bar — parity with web: price/Free, capacity state, Purchase CTA.
+ * Sticky bottom pricing bar — parity with web: price/Free, capacity state, registration CTA.
  */
 import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
@@ -49,7 +49,7 @@ export function PricingBar({
         ? 'Processing…'
         : isFree
           ? 'Register'
-          : `Purchase Ticket — €${Number(price).toFixed(2)}`;
+          : `Reserve Spot — €${Number(price).toFixed(2)}`;
 
   return (
     <View
@@ -75,7 +75,7 @@ export function PricingBar({
             )}
           </View>
           <Text style={[styles.priceNote, { color: theme.textSecondary }]}>
-            {eventEnded ? 'This event has ended' : soldOut ? 'No spots left' : 'Ticket price'}
+            {eventEnded ? 'This event has ended' : soldOut ? 'No spots left' : 'Event price'}
           </Text>
         </View>
         <VibelyButton
