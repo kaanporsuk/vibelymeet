@@ -1027,16 +1027,6 @@ export function ReadyGateOverlay({
     onForfeited: handleForfeited,
   });
 
-  // Both-ready liveness guard: if the orchestrator reports both participants
-  // ready but the one-shot onBothReady edge was missed (e.g. realtime degraded),
-  // still drive the prepare-entry handoff so the gate cannot silently stall on
-  // "Both ready. Connecting you now…". handleBothReady's in-flight/navigation
-  // guards keep it idempotent against the onBothReady and reconcile paths.
-  useEffect(() => {
-    if (!isBothReady) return;
-    handleBothReady('both_ready_observed');
-  }, [isBothReady, handleBothReady]);
-
   useEffect(() => {
     closedRef.current = false;
     dateNavigationStartedRef.current = false;
@@ -1109,6 +1099,16 @@ export function ReadyGateOverlay({
       }
     };
   }, [sessionId, eventId, preloadVideoDateRoute, userId]);
+
+  // Both-ready liveness guard: if the orchestrator reports both participants
+  // ready but the one-shot onBothReady edge was missed (e.g. realtime degraded),
+  // still drive the prepare-entry handoff so the gate cannot silently stall on
+  // "Both ready. Connecting you now…". It must run after the session reset
+  // effect above so reset cannot clear the in-flight handoff it starts.
+  useEffect(() => {
+    if (!isBothReady) return;
+    handleBothReady('both_ready_observed');
+  }, [isBothReady, handleBothReady]);
 
   useEffect(() => {
     const sync = () => {

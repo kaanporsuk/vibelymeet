@@ -8,6 +8,7 @@
    page on focus, which clips the right edge (zoom is unaffected by overflow-x: hidden). */
 @media (max-width: 767.98px) {
   input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]):not([type="button"]):not([type="submit"]):not([type="reset"]),
+  select,
   textarea,
   [contenteditable="true"] {
     font-size: 16px;

@@ -89,7 +89,8 @@ test("account deletion Stripe cleanup is retryable, observable, and sanitized", 
   assert.match(edgeFunction, /if \(!shouldCancelStripeSubscription\(stripeSubscription\.status\)\)/);
   assert.doesNotMatch(edgeFunction, /\["active", "trialing"\]\.includes/);
   assert.match(edgeFunction, /function isIdempotentStripeCancellationStatus/);
-  assert.match(edgeFunction, /status === 404 \|\| status === 410/);
+  assert.match(edgeFunction, /status === 410/);
+  assert.doesNotMatch(edgeFunction, /status === 404 \|\| status === 410/);
   assert.match(edgeFunction, /stripeCancellationAlreadySettled/);
   assert.match(edgeFunction, /!cancelRes\.ok && !stripeCancellationAlreadySettled/);
   assert.match(edgeFunction, /stripe_subscription_cancel_provider_failed/);
