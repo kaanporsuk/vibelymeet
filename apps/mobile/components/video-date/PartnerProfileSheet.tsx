@@ -48,7 +48,12 @@ export function PartnerProfileSheet({ isOpen, onClose, partner, partnerProfileId
             </Pressable>
           </View>
         ) : (
-          <UserProfileFullView profile={profile} isOwnProfile={false} onClose={onClose} />
+          <UserProfileFullView
+            profile={profile}
+            isOwnProfile={false}
+            onClose={onClose}
+            enableInlineHeroPhotoPaging
+          />
         )}
       </View>
     </Modal>

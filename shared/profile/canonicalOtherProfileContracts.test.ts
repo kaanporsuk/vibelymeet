@@ -285,14 +285,15 @@ test("native chat and matches route profile actions to the canonical user route"
   assert.doesNotMatch(nativeProfilePreview, /fetchMyProfile/);
   assert.doesNotMatch(nativeProfilePreview, /profileRowToUserProfileView/);
   assert.doesNotMatch(nativeProfilePreview, /onEditProfile/);
+  assert.match(nativeProfilePreview, /<UserProfileFullView[\s\S]*enableInlineHeroPhotoPaging[\s\S]*\/>/);
   assert.match(nativeLobby, /router\.push\(`\/user\/\$\{profile\.id\}`\)/);
   assert.match(nativeEventDetails, /router\.push\(`\/user\/\$\{attendee\.id\}` as const\)/);
   assert.match(nativeVideoDate, /PartnerProfileSheet/);
   assert.match(nativePartnerSheet, /UserProfileFullView/);
   assert.match(nativePartnerSheet, /isOwnProfile=\{false\}/);
   assert.doesNotMatch(nativePartnerSheet, /ProfileDetailSheet/);
-  assert.doesNotMatch(nativeUserProfile, /enableInlineHeroPhotoPaging/);
-  assert.doesNotMatch(nativePartnerSheet, /enableInlineHeroPhotoPaging/);
+  assert.match(nativeUserProfile, /<UserProfileFullView[\s\S]*enableInlineHeroPhotoPaging[\s\S]*\/>/);
+  assert.match(nativePartnerSheet, /<UserProfileFullView[\s\S]*enableInlineHeroPhotoPaging[\s\S]*\/>/);
   assert.equal(exists("apps/mobile/components/match/ProfileDetailSheet.tsx"), false);
 });
 
