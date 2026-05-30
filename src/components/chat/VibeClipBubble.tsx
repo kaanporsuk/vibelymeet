@@ -35,6 +35,7 @@ import {
   type ChatVibeClipProcessingStatus,
 } from "@/lib/mediaAssetResolver";
 import { hlsPlaybackErrorStatusCode } from "@/lib/vibeVideo/attachHlsPlayback";
+import { claimInlineVideoPlayback, releaseInlineVideoPlayback } from "@/components/chat/inlineVideoPlaybackRegistry";
 import {
   resolveMediaFallbackCopy,
   resolveMediaFallbackReason,
@@ -697,23 +698,11 @@ export const VibeClipBubble = ({
   }, []);
 
   const onVideoSurfaceClick = useCallback(() => {
+    // Single tap plays inline in place; the ⤢ expand button opens the full-screen viewer.
+    // togglePlay already lazily resolves the URL when the player isn't mountable yet.
     if (isServerProcessing) return;
-    if (onRequestImmersive) {
-      if (!canMountPlayer) {
-        void refreshClipMedia("initial").then((didRefresh) => {
-          if (didRefresh) requestImmersiveWithCurrentMedia();
-          else {
-            setMediaFallbackReason(videoAssetFallbackReason ?? "unknown");
-            setLoadError(true);
-          }
-        });
-      } else {
-        requestImmersiveWithCurrentMedia();
-      }
-      return;
-    }
     togglePlay();
-  }, [canMountPlayer, isServerProcessing, onRequestImmersive, refreshClipMedia, requestImmersiveWithCurrentMedia, togglePlay, videoAssetFallbackReason]);
+  }, [isServerProcessing, togglePlay]);
 
   const handleTimeUpdate = useCallback(() => {
     if (videoRef.current) setCurrentTime(videoRef.current.currentTime);
@@ -722,6 +711,7 @@ export const VibeClipBubble = ({
   const handleEnded = useCallback(() => {
     setIsPlaying(false);
     setCurrentTime(0);
+    releaseInlineVideoPlayback(videoRef.current);
     if (!playCompleteTracked.current) {
       playCompleteTracked.current = true;
       trackVibeClipEvent("clip_play_completed", {
@@ -836,7 +826,7 @@ export const VibeClipBubble = ({
         }}
         role={isSurfaceInteractive ? "button" : undefined}
         tabIndex={isSurfaceInteractive ? 0 : undefined}
-        aria-label={isSurfaceInteractive ? (onRequestImmersive ? "Open clip" : isPlaying ? "Pause clip" : "Play clip") : undefined}
+        aria-label={isSurfaceInteractive ? (isPlaying ? "Pause clip" : "Play clip") : undefined}
       >
         <AspectRatio ratio={clipAspectRatio}>
           {isAwaitingPlaybackIntent ? (
@@ -910,7 +900,9 @@ export const VibeClipBubble = ({
               }}
               onLoadedData={markReadyIfPossible}
               onCanPlay={markReadyIfPossible}
+              onPlay={() => claimInlineVideoPlayback(videoRef.current)}
               onPlaying={() => setIsLoading(false)}
+              onPause={() => setIsPlaying(false)}
               onWaiting={() => setIsLoading(true)}
               onError={handleVideoLoadError}
               onTimeUpdate={handleTimeUpdate}
