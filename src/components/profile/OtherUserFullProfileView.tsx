@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { PointerEvent as ReactPointerEvent, ReactNode } from "react";
+import type { PointerEvent as ReactPointerEvent, ReactNode, TouchEvent as ReactTouchEvent } from "react";
 import {
   AlertCircle,
   ArrowLeft,
@@ -54,12 +54,14 @@ type OtherUserFullProfileViewProps = {
 };
 
 type DetailIcon = typeof Briefcase;
+type HeroSwipeStart = { id: number; x: number; y: number };
 
 const PHOTO_PREVIEW_OPEN_GUARD_MS = 350;
 const PHOTO_PREVIEW_CLOSE_GUARD_MS = 300;
 const HERO_PHOTO_SWIPE_MIN_DISTANCE_PX = 42;
 const HERO_PHOTO_SWIPE_AXIS_RATIO = 1.2;
 const HERO_PHOTO_SWIPE_CLICK_SUPPRESS_MS = 350;
+const HERO_PHOTO_CONTROL_SELECTOR = "[data-profile-hero-control]";
 
 const lifestyleIconByKey: Record<string, DetailIcon> = {
   smoking: Sparkles,
@@ -69,6 +71,18 @@ const lifestyleIconByKey: Record<string, DetailIcon> = {
   pets: PawPrint,
   children: Heart,
 };
+
+function isHeroPhotoControlTarget(target: EventTarget | null) {
+  return target instanceof Element && target.closest(HERO_PHOTO_CONTROL_SELECTOR) !== null;
+}
+
+function findChangedTouch(touches: ReactTouchEvent<HTMLDivElement>["changedTouches"], identifier: number) {
+  for (let index = 0; index < touches.length; index += 1) {
+    const touch = touches.item(index);
+    if (touch?.identifier === identifier) return touch;
+  }
+  return null;
+}
 
 function Section({
   title,
@@ -138,7 +152,7 @@ export function OtherUserFullProfileView({
   actions,
   compatibilityPercent,
   closeLabel = "Back",
-  enableInlineHeroPhotoPaging = false,
+  enableInlineHeroPhotoPaging = true,
 }: OtherUserFullProfileViewProps) {
   const [currentPhotoIndex, setCurrentPhotoIndex] = useState(0);
   const [photoPreviewIndex, setPhotoPreviewIndex] = useState<number | null>(null);
@@ -146,7 +160,8 @@ export function OtherUserFullProfileView({
   const prefersReducedMotion = usePrefersReducedMotion();
   const profileVibeVideoTtffTokenRef = useRef<string | null>(null);
   const photoPreviewOpenBlockedUntilRef = useRef(Date.now() + PHOTO_PREVIEW_OPEN_GUARD_MS);
-  const heroSwipeStartRef = useRef<{ pointerId: number; x: number; y: number } | null>(null);
+  const heroSwipeStartRef = useRef<HeroSwipeStart | null>(null);
+  const heroTouchSwipeStartRef = useRef<HeroSwipeStart | null>(null);
   const heroSwipeSuppressClickUntilRef = useRef(0);
 
   const blockPhotoPreviewOpens = useCallback((durationMs: number) => {
@@ -202,16 +217,39 @@ export function OtherUserFullProfileView({
     openPhotoPreview(currentPhotoIndex);
   }, [currentPhotoIndex, openPhotoPreview]);
 
+  const commitHeroPhotoSwipe = useCallback(
+    (dx: number, dy: number) => {
+      if (!inlineHeroPhotoPagingEnabled) return false;
+      const absX = Math.abs(dx);
+      const absY = Math.abs(dy);
+      if (absX < HERO_PHOTO_SWIPE_MIN_DISTANCE_PX || absX < absY * HERO_PHOTO_SWIPE_AXIS_RATIO) {
+        return false;
+      }
+
+      heroSwipeSuppressClickUntilRef.current = Date.now() + HERO_PHOTO_SWIPE_CLICK_SUPPRESS_MS;
+      setCurrentPhotoIndex((index) => {
+        if (dx < 0) return Math.min(photos.length - 1, index + 1);
+        return Math.max(0, index - 1);
+      });
+      return true;
+    },
+    [inlineHeroPhotoPagingEnabled, photos.length],
+  );
+
   const handleHeroPointerDown = useCallback(
     (event: ReactPointerEvent<HTMLDivElement>) => {
-      if (!inlineHeroPhotoPagingEnabled || event.button !== 0) return;
-      if (event.target instanceof Element && event.target.closest("[data-profile-hero-control]")) return;
+      if (!inlineHeroPhotoPagingEnabled || event.pointerType === "touch" || event.button !== 0) return;
+      if (isHeroPhotoControlTarget(event.target)) return;
       heroSwipeStartRef.current = {
-        pointerId: event.pointerId,
+        id: event.pointerId,
         x: event.clientX,
         y: event.clientY,
       };
-      event.currentTarget.setPointerCapture(event.pointerId);
+      try {
+        event.currentTarget.setPointerCapture(event.pointerId);
+      } catch {
+        // Pointer capture can fail if the browser has already ended this pointer.
+      }
     },
     [inlineHeroPhotoPagingEnabled],
   );
@@ -223,23 +261,52 @@ export function OtherUserFullProfileView({
   const handleHeroPointerUp = useCallback(
     (event: ReactPointerEvent<HTMLDivElement>) => {
       const start = heroSwipeStartRef.current;
-      if (!inlineHeroPhotoPagingEnabled || !start || start.pointerId !== event.pointerId) return;
+      if (!inlineHeroPhotoPagingEnabled || !start || start.id !== event.pointerId) return;
       heroSwipeStartRef.current = null;
 
       const dx = event.clientX - start.x;
       const dy = event.clientY - start.y;
-      const absX = Math.abs(dx);
-      const absY = Math.abs(dy);
-      if (absX < HERO_PHOTO_SWIPE_MIN_DISTANCE_PX || absX < absY * HERO_PHOTO_SWIPE_AXIS_RATIO) return;
-
-      event.preventDefault();
-      heroSwipeSuppressClickUntilRef.current = Date.now() + HERO_PHOTO_SWIPE_CLICK_SUPPRESS_MS;
-      setCurrentPhotoIndex((index) => {
-        if (dx < 0) return Math.min(photos.length - 1, index + 1);
-        return Math.max(0, index - 1);
-      });
+      if (commitHeroPhotoSwipe(dx, dy)) event.preventDefault();
     },
-    [inlineHeroPhotoPagingEnabled, photos.length],
+    [commitHeroPhotoSwipe, inlineHeroPhotoPagingEnabled],
+  );
+
+  const handleHeroTouchStart = useCallback(
+    (event: ReactTouchEvent<HTMLDivElement>) => {
+      if (!inlineHeroPhotoPagingEnabled || event.touches.length !== 1) return;
+      if (isHeroPhotoControlTarget(event.target)) return;
+      const touch = event.touches.item(0);
+      if (!touch) return;
+      heroTouchSwipeStartRef.current = {
+        id: touch.identifier,
+        x: touch.clientX,
+        y: touch.clientY,
+      };
+    },
+    [inlineHeroPhotoPagingEnabled],
+  );
+
+  const handleHeroTouchCancel = useCallback(() => {
+    heroTouchSwipeStartRef.current = null;
+  }, []);
+
+  const handleHeroTouchMove = useCallback((event: ReactTouchEvent<HTMLDivElement>) => {
+    if (event.touches.length > 1) heroTouchSwipeStartRef.current = null;
+  }, []);
+
+  const handleHeroTouchEnd = useCallback(
+    (event: ReactTouchEvent<HTMLDivElement>) => {
+      const start = heroTouchSwipeStartRef.current;
+      if (!inlineHeroPhotoPagingEnabled || !start) return;
+      const touch = findChangedTouch(event.changedTouches, start.id);
+      heroTouchSwipeStartRef.current = null;
+      if (!touch) return;
+
+      const dx = touch.clientX - start.x;
+      const dy = touch.clientY - start.y;
+      if (commitHeroPhotoSwipe(dx, dy)) event.preventDefault();
+    },
+    [commitHeroPhotoSwipe, inlineHeroPhotoPagingEnabled],
   );
 
   const vibeVideo = useMemo(
@@ -338,6 +405,11 @@ export function OtherUserFullProfileView({
         onPointerDown={handleHeroPointerDown}
         onPointerCancel={handleHeroPointerCancel}
         onPointerUp={handleHeroPointerUp}
+        onTouchStart={handleHeroTouchStart}
+        onTouchCancel={handleHeroTouchCancel}
+        onTouchMove={handleHeroTouchMove}
+        onTouchEnd={handleHeroTouchEnd}
+        data-vaul-no-drag={inlineHeroPhotoPagingEnabled ? "" : undefined}
         style={inlineHeroPhotoPagingEnabled ? { touchAction: "pan-y" } : undefined}
       >
         {heroPhoto ? (

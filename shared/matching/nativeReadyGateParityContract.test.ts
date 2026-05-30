@@ -18,6 +18,7 @@ const nativeReadyGateOverlay = read("apps/mobile/components/lobby/ReadyGateOverl
 const nativeReadyRoute = read("apps/mobile/app/ready/[id].tsx");
 const nativeEventLobby = read("apps/mobile/app/event/[eventId]/lobby.tsx");
 const nativeDateRoute = read("apps/mobile/app/date/[id].tsx");
+const nativeMediaPermissions = read("apps/mobile/lib/nativeMediaPermissions.ts");
 const nativePrepareEntry = read("apps/mobile/lib/videoDatePrepareEntry.ts");
 const nativeEntryStartable = read("apps/mobile/lib/videoDateEntryStartable.ts");
 const nativeActiveSession = read("apps/mobile/lib/useActiveSession.ts");
@@ -111,6 +112,34 @@ test("native Ready Gate auto permission prompts stop after the first resolved re
     nativeReadyGateOverlay,
     /useEffect\(\(\) => \{\s*if \(permissionsResolved\) return;[\s\S]+const ok = await requestMediaPermissions\(\);/,
   );
+});
+
+test("native ready and date surfaces share one camera and microphone permission helper", () => {
+  assert.match(nativeMediaPermissions, /PermissionsAndroid\.check\(PermissionsAndroid\.PERMISSIONS\.CAMERA\)/);
+  assert.match(nativeMediaPermissions, /PermissionsAndroid\.requestMultiple\(/);
+  assert.match(nativeMediaPermissions, /Camera\.getCameraPermissionsAsync\(\)/);
+  assert.match(nativeMediaPermissions, /Camera\.getMicrophonePermissionsAsync\(\)/);
+  assert.match(nativeMediaPermissions, /Camera\.requestCameraPermissionsAsync\(\)/);
+  assert.match(nativeMediaPermissions, /Camera\.requestMicrophonePermissionsAsync\(\)/);
+  assert.match(nativeMediaPermissions, /setVideoDatePermissionHandoff\(/);
+  assert.match(nativeMediaPermissions, /mediaPermissionResultForStatus/);
+  assert.match(nativeMediaPermissions, /catch \(error\)/);
+  assert.match(nativeMediaPermissions, /status: 'in_use_or_abort'/);
+  assert.match(nativeMediaPermissions, /rawErrorName/);
+
+  for (const [path, source] of [
+    ["apps/mobile/components/lobby/ReadyGateOverlay.tsx", nativeReadyGateOverlay],
+    ["apps/mobile/app/ready/[id].tsx", nativeReadyRoute],
+    ["apps/mobile/app/date/[id].tsx", nativeDateRoute],
+  ] as const) {
+    assert.match(
+      source,
+      /requestNativeCameraMicrophonePermissions/,
+      `${path} should delegate native camera and microphone grants to the shared helper`,
+    );
+    assert.doesNotMatch(source, /PermissionsAndroid\.requestMultiple\(/, `${path} should not own Android prompts`);
+    assert.doesNotMatch(source, /Camera\.requestCameraPermissionsAsync\(/, `${path} should not own Expo prompts`);
+  }
 });
 
 test("native overlay gates date navigation behind prepareVideoDateEntry success", () => {

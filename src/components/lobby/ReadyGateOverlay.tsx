@@ -45,6 +45,7 @@ import {
   isVideoDateCameraConstraintError,
   type VideoDateWebMediaCaptureProfile,
 } from "@clientShared/matching/videoDateMediaContract";
+import { classifyMediaPermissionError } from "@clientShared/media/mediaPermissionResult";
 import {
   getReadyGateCountdownProgress,
   getReadyGateCountdownFromServerClock,
@@ -240,20 +241,20 @@ async function inspectWebReadyGateMediaDiagnostics(): Promise<ReadyGateMediaDiag
 }
 
 function mediaDiagnosticFromPrewarmError(error: unknown): Partial<ReadyGateMediaDiagnosticState> {
-  const errorName = error instanceof Error ? error.name : "";
-  if (errorName === "NotAllowedError" || errorName === "PermissionDeniedError" || errorName === "SecurityError") {
+  const permissionResult = classifyMediaPermissionError(error, "camera_microphone");
+  if (permissionResult.status === "denied") {
     return {
       cameraPermissionStatus: "blocked",
       microphonePermissionStatus: "blocked",
     };
   }
-  if (errorName === "NotFoundError" || errorName === "DevicesNotFoundError") {
+  if (permissionResult.status === "missing_device") {
     return {
       cameraDeviceStatus: "failed",
       microphoneDeviceStatus: "failed",
     };
   }
-  if (isVideoDateCameraConstraintError(error)) {
+  if (permissionResult.status === "constraint_failed" || isVideoDateCameraConstraintError(error)) {
     return {
       cameraDeviceStatus: "failed",
     };
@@ -921,6 +922,7 @@ const ReadyGateOverlay = ({
         });
       } catch (error) {
         stopMediaStreamTracks(media?.stream ?? null);
+        const permissionResult = classifyMediaPermissionError(error, "camera_microphone");
         const isActiveReadyGate = activeReadyGateKeyRef.current === readyGateKey;
         if (source === "ready_gate_open") {
           if (isActiveReadyGate) {
@@ -941,6 +943,9 @@ const ReadyGateOverlay = ({
               error instanceof Error
                 ? { name: error.name, message: error.message }
                 : String(error),
+            permissionStatus: permissionResult.status,
+            permissionState: permissionResult.permissionState,
+            recoveryAction: permissionResult.recoveryAction,
           });
           return;
         }
@@ -948,8 +953,11 @@ const ReadyGateOverlay = ({
           platform: "web",
           session_id: sessionId,
           event_id: eventId,
-          reason: error instanceof Error ? error.name : "permission_prewarm_failed",
+          reason: permissionResult.rawErrorName ?? "permission_prewarm_failed",
           error_cause: error instanceof Error ? error.message : String(error),
+          permission_status: permissionResult.status,
+          permission_state: permissionResult.permissionState,
+          recovery_action: permissionResult.recoveryAction,
           settings_deep_link: "browser_site_settings",
           source_surface: "ready_gate_overlay",
           source_action: sourceAction,
@@ -959,7 +967,10 @@ const ReadyGateOverlay = ({
           eventId,
           userId,
           source,
-          error_cause: error instanceof Error ? error.name : "permission_prewarm_failed",
+          error_cause: permissionResult.rawErrorName ?? "permission_prewarm_failed",
+          permissionStatus: permissionResult.status,
+          permissionState: permissionResult.permissionState,
+          recoveryAction: permissionResult.recoveryAction,
           settings_deep_link: "browser_site_settings",
           error:
             error instanceof Error

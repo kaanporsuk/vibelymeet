@@ -1,9 +1,8 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { StyleSheet, View, Text, Pressable, Image, ScrollView, ActivityIndicator, PermissionsAndroid, Platform, AppState, Linking, type AppStateStatus } from 'react-native';
+import { StyleSheet, View, Text, Pressable, Image, ScrollView, ActivityIndicator, AppState, Linking, type AppStateStatus } from 'react-native';
 import { useLocalSearchParams, usePathname, router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { Camera } from 'expo-camera';
 import { useAuth } from '@/context/AuthContext';
 import { useReadyGate } from '@/lib/readyGateApi';
 import { avatarUrl } from '@/lib/imageUrl';
@@ -25,8 +24,8 @@ import {
   defaultNativeReadyGateMediaDiagnostics,
   defaultNativeReadyGatePermissionDiagnostics,
   inspectNativeReadyGateMediaDevices,
-  type NativeReadyGatePermissionDiagnosticState,
 } from '@/lib/readyGateNativeMediaDiagnostics';
+import { requestNativeCameraMicrophonePermissions } from '@/lib/nativeMediaPermissions';
 import { fetchVideoSessionDateEntryTruthCoalesced } from '@/lib/videoDateApi';
 import { fetchVideoDateSnapshot } from '@/lib/videoDateSnapshot';
 import { prepareVideoDateEntry } from '@/lib/videoDatePrepareEntry';
@@ -147,40 +146,22 @@ export default function ReadyGateScreen() {
   }, [hasMediaPermission]);
 
   const requestMediaPermissions = useCallback(async (): Promise<boolean> => {
-    const markPermissionResult = (permissions: NativeReadyGatePermissionDiagnosticState) => {
-      const ok = permissions.cameraPermissionStatus === 'ok' && permissions.microphonePermissionStatus === 'ok';
-      setHasMediaPermission(ok);
-      setPermissionsResolved(true);
-      setNativePermissionDiagnostics(permissions);
-      void refreshNativeMediaDiagnostics(ok);
-    };
-    if (Platform.OS === 'android') {
-      const granted = await PermissionsAndroid.requestMultiple([
-        PermissionsAndroid.PERMISSIONS.CAMERA,
-        PermissionsAndroid.PERMISSIONS.RECORD_AUDIO,
-      ]);
-      const ok =
-        granted[PermissionsAndroid.PERMISSIONS.CAMERA] === PermissionsAndroid.RESULTS.GRANTED &&
-        granted[PermissionsAndroid.PERMISSIONS.RECORD_AUDIO] === PermissionsAndroid.RESULTS.GRANTED;
-      const permissions: NativeReadyGatePermissionDiagnosticState = {
-        cameraPermissionStatus:
-          granted[PermissionsAndroid.PERMISSIONS.CAMERA] === PermissionsAndroid.RESULTS.GRANTED ? 'ok' : 'blocked',
-        microphonePermissionStatus:
-          granted[PermissionsAndroid.PERMISSIONS.RECORD_AUDIO] === PermissionsAndroid.RESULTS.GRANTED ? 'ok' : 'blocked',
-      };
-      markPermissionResult(permissions);
-      return ok;
-    }
-    const cam = await Camera.requestCameraPermissionsAsync();
-    const mic = await Camera.requestMicrophonePermissionsAsync();
-    const permissions: NativeReadyGatePermissionDiagnosticState = {
-      cameraPermissionStatus: cam.status === 'granted' ? 'ok' : 'blocked',
-      microphonePermissionStatus: mic.status === 'granted' ? 'ok' : 'blocked',
-    };
-    markPermissionResult(permissions);
-    const ok = permissions.cameraPermissionStatus === 'ok' && permissions.microphonePermissionStatus === 'ok';
-    return ok;
-  }, [refreshNativeMediaDiagnostics]);
+    const result = await requestNativeCameraMicrophonePermissions({
+      sessionId: sessionId ? String(sessionId) : null,
+      userId: user?.id ?? null,
+      sources: {
+        androidExisting: 'standalone_ready_android_existing_grants',
+        androidRequest: 'standalone_ready_android_request',
+        nativeExisting: 'standalone_ready_native_existing_grants',
+        nativeRequest: 'standalone_ready_native_request',
+      },
+    });
+    setHasMediaPermission(result.ok);
+    setPermissionsResolved(true);
+    setNativePermissionDiagnostics(result.permissions);
+    void refreshNativeMediaDiagnostics(result.ok);
+    return result.ok;
+  }, [refreshNativeMediaDiagnostics, sessionId, user?.id]);
 
   useEffect(() => {
     activeSessionIdRef.current = sessionId ? String(sessionId) : null;

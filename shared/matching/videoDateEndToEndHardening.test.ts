@@ -1512,6 +1512,22 @@ test("native video date capture uses supported Daily defaults while web keeps ex
   assert.match(webVideoCallHook, /dailyVideoDateCallObjectOptionsWithAppAcquiredMedia/);
   assert.match(webVideoCallHook, /permission_handoff_media_acquired/);
   assert.match(webVideoCallHook, /daily_media_permission_handoff_fallback_to_preflight/);
+  assert.match(webVideoCallHook, /source_action: "media_handoff_miss"/);
+  assert.match(webVideoCallHook, /media_handoff_miss_reason: lastMediaHandoffMissReasonRef\.current/);
+  assert.match(webVideoCallHook, /mediaPermissionResultForStatus/);
+  assert.match(webVideoCallHook, /classifyMediaPermissionError\(error, "camera_microphone"\)/);
+  assert.match(webVideoCallHook, /permission_status: permissionResult\.status/);
+  assert.match(webVideoCallHook, /permission_state: permissionResult\.permissionState/);
+  assert.match(webVideoCallHook, /recovery_action: permissionResult\.recoveryAction/);
+  assert.match(webVideoCallHook, /deferredMediaPermissionError/);
+  assert.match(webVideoCallHook, /daily_media_permission_handoff_failed_without_preflight_retry/);
+  assert.match(webVideoCallHook, /releaseAppAcquiredMedia\("permission_handoff_media_failed"\)/);
+  assert.match(webVideoCallHook, /mediaPermissionFailureSourceAction = "permission_handoff_media_failed"/);
+  assert.match(webVideoCallHook, /source_action: mediaPermissionFailureSourceAction/);
+  assert.match(readyGateOverlay, /classifyMediaPermissionError\(error, "camera_microphone"\)/);
+  assert.match(readyGateOverlay, /permission_status: permissionResult\.status/);
+  assert.match(readyGateOverlay, /permission_state: permissionResult\.permissionState/);
+  assert.match(readyGateOverlay, /recovery_action: permissionResult\.recoveryAction/);
   assert.match(webVideoCallHook, /prewarmAppAcquiredMedia/);
   assert.match(webVideoCallHook, /releaseAppAcquiredMedia\("daily_room_failed_after_media_preflight"\)/);
   assert.match(webVideoCallHook, /VIDEO_DATE_SENDER_CAPTURE_DIAGNOSTIC/);
@@ -2103,6 +2119,10 @@ test("web and native use server-owned leave, reconnect, and permission recovery 
   assert.match(nativeVideoDateRoute, /markDailyJoinedWithBackoff\(/);
   assert.match(nativeVideoDateRoute, /supabase\.rpc\('mark_video_date_daily_joined'/);
   assert.match(nativeVideoDateRoute, /mark_video_date_daily_joined_retry_after_failure/);
+  assert.match(nativeVideoDateRoute, /ready_gate_permission_handoff_verify/);
+  assert.match(nativeVideoDateRoute, /VIDEO_DATE_MEDIA_PERMISSION_DENIED/);
+  assert.match(nativeVideoDateRoute, /permission_status: result\.mediaPermission\.status/);
+  assert.match(nativeVideoDateRoute, /recovery_action: result\.mediaPermission\.recoveryAction/);
   assert.doesNotMatch(nativeVideoDateRoute, /markVideoDateDailyJoined\(sessionId\)\.then\(\(retryOk\)/);
 });
 

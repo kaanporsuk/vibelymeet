@@ -12,8 +12,6 @@ import {
   ScrollView,
   Image,
   ActivityIndicator,
-  PermissionsAndroid,
-  Platform,
   AppState,
   Linking,
   type AppStateStatus,
@@ -21,7 +19,6 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Svg, { Circle } from 'react-native-svg';
 import { Ionicons } from '@expo/vector-icons';
-import { Camera } from 'expo-camera';
 import { router, type Href } from 'expo-router';
 import Colors from '@/constants/Colors';
 import { Card, VibelyButton } from '@/components/ui';
@@ -34,8 +31,8 @@ import {
   defaultNativeReadyGateMediaDiagnostics,
   defaultNativeReadyGatePermissionDiagnostics,
   inspectNativeReadyGateMediaDevices,
-  type NativeReadyGatePermissionDiagnosticState,
 } from '@/lib/readyGateNativeMediaDiagnostics';
+import { requestNativeCameraMicrophonePermissions } from '@/lib/nativeMediaPermissions';
 import { fetchVideoSessionDateEntryTruthCoalesced } from '@/lib/videoDateApi';
 import { RC_CATEGORY, rcBreadcrumb } from '@/lib/nativeRcDiagnostics';
 import { supabase } from '@/lib/supabase';
@@ -82,7 +79,6 @@ import {
 } from '@clientShared/observability/videoDateOperatorMetrics';
 import {
   getVideoDatePermissionHandoff,
-  setVideoDatePermissionHandoff,
 } from '@clientShared/matching/videoDatePermissionHandoff';
 import { getReadyGateReadinessStatusCopy } from '@clientShared/matching/readyGateReadiness';
 import {
@@ -211,67 +207,33 @@ export function ReadyGateOverlay({
   }, [hasMediaPermission]);
 
   const requestMediaPermissions = useCallback(async (): Promise<boolean> => {
-    const markPermissionResult = (
-      permissions: NativeReadyGatePermissionDiagnosticState,
-      source: string,
-    ) => {
-      const ok = permissions.cameraPermissionStatus === 'ok' && permissions.microphonePermissionStatus === 'ok';
-      setHasMediaPermission(ok);
-      setPermissionsResolved(true);
-      setNativePermissionDiagnostics(permissions);
-      void refreshNativeMediaDiagnostics(ok);
-      if (ok) {
-        setVideoDatePermissionHandoff({
-          sessionId,
-          userId,
-          platform: 'native',
-          source,
-        });
-      }
-    };
-    if (Platform.OS === 'android') {
-      const camOk = await PermissionsAndroid.check(PermissionsAndroid.PERMISSIONS.CAMERA);
-      const micOk = await PermissionsAndroid.check(PermissionsAndroid.PERMISSIONS.RECORD_AUDIO);
-      if (camOk && micOk) {
-        markPermissionResult(
-          { cameraPermissionStatus: 'ok', microphonePermissionStatus: 'ok' },
-          'ready_gate_android_existing_grants',
-        );
-        return true;
-      }
-      const granted = await PermissionsAndroid.requestMultiple([
-        PermissionsAndroid.PERMISSIONS.CAMERA,
-        PermissionsAndroid.PERMISSIONS.RECORD_AUDIO,
-      ]);
-      const permissions: NativeReadyGatePermissionDiagnosticState = {
-        cameraPermissionStatus:
-          granted[PermissionsAndroid.PERMISSIONS.CAMERA] === PermissionsAndroid.RESULTS.GRANTED ? 'ok' : 'blocked',
-        microphonePermissionStatus:
-          granted[PermissionsAndroid.PERMISSIONS.RECORD_AUDIO] === PermissionsAndroid.RESULTS.GRANTED ? 'ok' : 'blocked',
-      };
-      markPermissionResult(permissions, 'ready_gate_android_request');
-      const ok = permissions.cameraPermissionStatus === 'ok' && permissions.microphonePermissionStatus === 'ok';
-      return ok;
-    }
-    const camExisting = await Camera.getCameraPermissionsAsync();
-    const micExisting = await Camera.getMicrophonePermissionsAsync();
-    if (camExisting.status === 'granted' && micExisting.status === 'granted') {
-      markPermissionResult(
-        { cameraPermissionStatus: 'ok', microphonePermissionStatus: 'ok' },
-        'ready_gate_native_existing_grants',
-      );
-      return true;
-    }
-    const cam = await Camera.requestCameraPermissionsAsync();
-    const mic = await Camera.requestMicrophonePermissionsAsync();
-    const permissions: NativeReadyGatePermissionDiagnosticState = {
-      cameraPermissionStatus: cam.status === 'granted' ? 'ok' : 'blocked',
-      microphonePermissionStatus: mic.status === 'granted' ? 'ok' : 'blocked',
-    };
-    markPermissionResult(permissions, 'ready_gate_native_request');
-    const ok = permissions.cameraPermissionStatus === 'ok' && permissions.microphonePermissionStatus === 'ok';
-    return ok;
-  }, [refreshNativeMediaDiagnostics, sessionId, userId]);
+    const result = await requestNativeCameraMicrophonePermissions({
+      sessionId,
+      userId,
+      sources: {
+        androidExisting: 'ready_gate_android_existing_grants',
+        androidRequest: 'ready_gate_android_request',
+        nativeExisting: 'ready_gate_native_existing_grants',
+        nativeRequest: 'ready_gate_native_request',
+      },
+    });
+    setHasMediaPermission(result.ok);
+    setPermissionsResolved(true);
+    setNativePermissionDiagnostics(result.permissions);
+    void refreshNativeMediaDiagnostics(result.ok);
+    trackEvent('native_ready_gate_media_permission_result', {
+      platform: 'native',
+      session_id: sessionId,
+      event_id: eventId,
+      ok: result.ok,
+      source: result.source,
+      permission_status: result.mediaPermission.status,
+      recovery_action: result.mediaPermission.recoveryAction,
+      camera_status: result.cameraStatus,
+      microphone_status: result.microphoneStatus,
+    });
+    return result.ok;
+  }, [eventId, refreshNativeMediaDiagnostics, sessionId, userId]);
 
   const trackNativeReadyGateEvent = useCallback(
     (eventName: string, payload: Record<string, string | number | boolean | null | undefined>) => {

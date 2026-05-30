@@ -791,6 +791,8 @@ export function UserProfileFullView({
                     data={photos}
                     horizontal
                     pagingEnabled
+                    nestedScrollEnabled
+                    directionalLockEnabled
                     showsHorizontalScrollIndicator={false}
                     bounces={false}
                     initialNumToRender={1}

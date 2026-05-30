@@ -15,6 +15,14 @@ import { trackVibeVideoEvent, VIBE_VIDEO_EVENTS } from "@/lib/vibeVideo/vibeVide
 import { MAX_VIBE_CAPTION_LEN, MAX_VIBE_VIDEO_DURATION_S } from "@/lib/vibeVideo/constants";
 import { startWebVibeVideoUpload } from "@/lib/mediaSdk/webVideoUploads";
 import { usePrefersReducedMotion } from "@/hooks/usePrefersReducedMotion";
+import {
+  classifyMediaPermissionError,
+  mediaPermissionMessage,
+  mediaPermissionResultForStatus,
+  mediaPermissionTitle,
+  shouldRetryMediaPermissionWithFallback,
+  type MediaPermissionResult,
+} from "@clientShared/media/mediaPermissionResult";
 
 interface VibeStudioModalProps {
   open: boolean;
@@ -74,6 +82,8 @@ export const VibeStudioModal = ({
   const [isConfirming, setIsConfirming] = useState(false);
   const [facingMode, setFacingMode] = useState<'user' | 'environment'>('user');
   const [hasMultipleCameras, setHasMultipleCameras] = useState(false);
+  const [mediaPermissionResult, setMediaPermissionResult] = useState<MediaPermissionResult | null>(null);
+  const [cameraRequestNonce, setCameraRequestNonce] = useState(0);
   const videoRef = useRef<HTMLVideoElement>(null);
   const reviewVideoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -83,8 +93,23 @@ export const VibeStudioModal = ({
   const analyserRef = useRef<AnalyserNode | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const discardRecordingRef = useRef(false);
   // Store detected mimeType for use in onstop
   const detectedMimeTypeRef = useRef<string | null>(null);
+
+  const trackMediaPermissionBlocked = useCallback(
+    (result: MediaPermissionResult) => {
+      trackEvent("vibe_video_media_permission_blocked", {
+        status: result.status,
+        recovery_action: result.recoveryAction,
+        raw_error_name: result.rawErrorName,
+        permission_state: result.permissionState,
+        source_surface: "vibe_studio_modal",
+        upload_context: uploadContext,
+      });
+    },
+    [uploadContext],
+  );
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -94,41 +119,75 @@ export const VibeStudioModal = ({
     }
   }, [open, stage]);
 
-  // Request camera/mic permissions when modal opens
+  // Request camera/mic permissions when modal opens or when the user explicitly retries.
   useEffect(() => {
     if (!open) return;
     let activeVideoEl: HTMLVideoElement | null = null;
+    let active = true;
 
     const initCamera = async () => {
       try {
+        if (typeof navigator === "undefined" || !navigator.mediaDevices?.getUserMedia) {
+          const result = mediaPermissionResultForStatus({
+            status: "unsupported",
+            kind: "camera_microphone",
+            permissionState: "unsupported",
+            rawErrorName: "media_devices_unavailable",
+          });
+          setHasPermission(false);
+          setMediaPermissionResult(result);
+          trackMediaPermissionBlocked(result);
+          return;
+        }
+
+        setHasPermission(null);
+        setMediaPermissionResult(null);
+
         // Stop existing tracks before requesting new stream
         if (streamRef.current) {
           streamRef.current.getTracks().forEach((track) => track.stop());
           streamRef.current = null;
         }
 
-        const stream = await navigator.mediaDevices.getUserMedia({
-          video: {
-            facingMode: { ideal: facingMode ?? "user" },
-          },
-          audio: { echoCancellation: true, noiseSuppression: true },
-        }).catch(async () => {
+        let stream: MediaStream;
+        try {
+          stream = await navigator.mediaDevices.getUserMedia({
+            video: {
+              facingMode: { ideal: facingMode ?? "user" },
+            },
+            audio: { echoCancellation: true, noiseSuppression: true },
+          });
+        } catch (primaryError) {
+          if (!shouldRetryMediaPermissionWithFallback(primaryError)) {
+            throw primaryError;
+          }
           console.warn("[VibeVideo] facingMode constraint failed, falling back to default camera");
           if (facingMode === 'environment') {
             setFacingMode('user');
           }
-          return navigator.mediaDevices.getUserMedia({
+          stream = await navigator.mediaDevices.getUserMedia({
             video: true,
             audio: { echoCancellation: true, noiseSuppression: true },
           });
-        });
+        }
+
+        if (!active) {
+          stream.getTracks().forEach((track) => track.stop());
+          return;
+        }
+
         streamRef.current = stream;
         setHasPermission(true);
+        setMediaPermissionResult(null);
 
         // Re-check camera count after permission granted (labels now available)
-        const allDevices = await navigator.mediaDevices.enumerateDevices();
-        const videoDevices = allDevices.filter(d => d.kind === 'videoinput');
-        setHasMultipleCameras(videoDevices.length >= 2);
+        try {
+          const allDevices = await navigator.mediaDevices.enumerateDevices();
+          const videoDevices = allDevices.filter(d => d.kind === 'videoinput');
+          setHasMultipleCameras(videoDevices.length >= 2);
+        } catch {
+          setHasMultipleCameras(false);
+        }
 
         // Reset zoom to minimum if the browser supports it (iOS Safari safety net)
         try {
@@ -150,26 +209,42 @@ export const VibeStudioModal = ({
           videoEl.srcObject = stream;
         }
 
-        // Setup audio analyzer
-        const audioContext = new AudioContext();
-        audioContextRef.current = audioContext;
-        const source = audioContext.createMediaStreamSource(stream);
-        const analyser = audioContext.createAnalyser();
-        analyser.fftSize = 32;
-        source.connect(analyser);
-        analyserRef.current = analyser;
+        // Audio analysis is cosmetic; keep a valid camera stream even if the browser blocks it.
+        try {
+          const AudioContextCtor =
+            window.AudioContext ??
+            (window as Window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+          if (AudioContextCtor) {
+            const audioContext = new AudioContextCtor();
+            audioContextRef.current = audioContext;
+            const source = audioContext.createMediaStreamSource(stream);
+            const analyser = audioContext.createAnalyser();
+            analyser.fftSize = 32;
+            source.connect(analyser);
+            analyserRef.current = analyser;
+          }
+        } catch (audioError) {
+          console.warn("[VibeVideo] audio analyzer unavailable:", audioError);
+          analyserRef.current = null;
+        }
       } catch (err) {
         console.error("[VibeVideo] getUserMedia failed:", err);
+        if (!active) return;
+        const result = classifyMediaPermissionError(err, "camera_microphone");
+        setMediaPermissionResult(result);
         setHasPermission(false);
+        trackMediaPermissionBlocked(result);
       }
     };
 
     initCamera();
 
     return () => {
+      active = false;
       // 1. Stop MediaRecorder if active
       if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
         try {
+          discardRecordingRef.current = true;
           mediaRecorderRef.current.stop();
         } catch (e) {
           // Ignore
@@ -188,10 +263,12 @@ export const VibeStudioModal = ({
         activeVideoEl.srcObject = null;
       }
       if (audioContextRef.current) {
-        audioContextRef.current.close();
+        void audioContextRef.current.close().catch(() => undefined);
+        audioContextRef.current = null;
       }
+      analyserRef.current = null;
     };
-  }, [open, facingMode]);
+  }, [cameraRequestNonce, facingMode, open, trackMediaPermissionBlocked]);
 
   // Rotate coach tips
   useEffect(() => {
@@ -286,6 +363,13 @@ export const VibeStudioModal = ({
       };
 
       mediaRecorder.onstop = () => {
+        mediaRecorderRef.current = null;
+        if (discardRecordingRef.current) {
+          discardRecordingRef.current = false;
+          chunksRef.current = [];
+          detectedMimeTypeRef.current = null;
+          return;
+        }
         const detectedType = detectedMimeTypeRef.current;
         const blobType = detectedType?.startsWith("video/") ? detectedType.split(";")[0] : "video/webm";
         const blob = new Blob(chunksRef.current, { type: blobType });
@@ -301,9 +385,12 @@ export const VibeStudioModal = ({
         if (videoRef.current) {
           videoRef.current.srcObject = null;
         }
+        chunksRef.current = [];
+        detectedMimeTypeRef.current = null;
       };
 
       mediaRecorderRef.current = mediaRecorder;
+      discardRecordingRef.current = false;
       mediaRecorder.start(250);
       setCountdown(RECORDING_DURATION);
       setStage("recording");
@@ -334,6 +421,9 @@ export const VibeStudioModal = ({
     setUploadedFile(null);
     setStage("idle");
     setCountdown(RECORDING_DURATION);
+    setHasPermission(null);
+    setMediaPermissionResult(null);
+    setCameraRequestNonce((nonce) => nonce + 1);
   }, [isConfirming, recordedVideoUrl]);
 
   /**
@@ -412,6 +502,9 @@ export const VibeStudioModal = ({
     if (isConfirming) return;
     onOpenChange(false);
     setIsConfirming(false);
+    if (mediaRecorderRef.current?.state !== "inactive") {
+      discardRecordingRef.current = true;
+    }
     stopCameraTracks();
     setStage("idle");
     setCountdown(RECORDING_DURATION);
@@ -425,6 +518,8 @@ export const VibeStudioModal = ({
     setRecordedVideoUrl(null);
     setRecordedBlob(null);
     setUploadedFile(null);
+    setHasPermission(null);
+    setMediaPermissionResult(null);
     setVibeCaption(existingCaption);
     setCaptionEdited(false);
   }, [isConfirming, onOpenChange, recordedVideoUrl, stopCameraTracks, existingCaption]);
@@ -466,6 +561,7 @@ export const VibeStudioModal = ({
 
   const handleFileUpload = useCallback(async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
+    event.target.value = "";
     if (!file) return;
 
     // Validate file type
@@ -491,8 +587,10 @@ export const VibeStudioModal = ({
 
     setRecordedVideoUrl(url);
     setUploadedFile(file);
+    setMediaPermissionResult(null);
+    stopCameraTracks();
     setStage("preview");
-  }, []);
+  }, [stopCameraTracks]);
 
   const toggleVideoPlayback = useCallback(() => {
     const videoEl = reviewVideoRef.current;
@@ -554,6 +652,15 @@ export const VibeStudioModal = ({
   }, [open, existingCaption]);
 
   const progress = ((RECORDING_DURATION - countdown) / RECORDING_DURATION) * 100;
+  const permissionBlock =
+    mediaPermissionResult ??
+    mediaPermissionResultForStatus({
+      status: "promptable",
+      kind: "camera_microphone",
+      permissionState: "prompt",
+    });
+  const showPermissionBlock = hasPermission === false && stage !== "preview";
+  const shouldShowCaptureSurface = hasPermission !== false || stage === "preview";
 
   return (
     <Dialog open={open} onOpenChange={handleClose}>
@@ -573,22 +680,51 @@ export const VibeStudioModal = ({
           >
             <X className="w-5 h-5" />
           </Button>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="video/*"
+            className="hidden"
+            onChange={handleFileUpload}
+          />
 
-          {/* Permission Denied State */}
-          {hasPermission === false && (
+          {/* Permission recovery state */}
+          {showPermissionBlock && (
             <div className="flex-1 flex flex-col items-center justify-center p-6 text-center">
               <Video className="w-12 h-12 text-muted-foreground mb-4" />
               <h2 className="text-lg font-display font-bold text-foreground mb-2">
-                Camera Access Required
+                {mediaPermissionTitle(permissionBlock)}
               </h2>
-              <p className="text-sm text-muted-foreground">
-                Please allow camera and microphone access to record your Vibe Video.
+              <p className="text-sm text-muted-foreground max-w-sm">
+                {mediaPermissionMessage(permissionBlock)}
               </p>
+              <p className="mt-3 text-xs text-muted-foreground max-w-sm">
+                In Safari or Chrome, use the camera icon in the address bar or site settings to allow access for Vibely.
+              </p>
+              <div className="mt-6 flex w-full max-w-xs flex-col gap-3">
+                <Button
+                  type="button"
+                  variant="gradient"
+                  onClick={() => setCameraRequestNonce((nonce) => nonce + 1)}
+                  className="w-full"
+                >
+                  Try again
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => fileInputRef.current?.click()}
+                  className="w-full"
+                >
+                  <Upload className="mr-2 h-4 w-4" />
+                  Upload a video
+                </Button>
+              </div>
             </div>
           )}
 
           {/* Camera Preview (9:16 aspect ratio simulation) */}
-          {hasPermission !== false && (
+          {shouldShowCaptureSurface && (
             <div className="relative flex-1 bg-secondary overflow-hidden">
               {/* Local preview before confirm */}
               {stage === "preview" && recordedVideoUrl ? (
@@ -789,7 +925,7 @@ export const VibeStudioModal = ({
           )}
 
           {/* Bottom Controls */}
-          {hasPermission !== false && (
+          {shouldShowCaptureSurface && (
             <motion.div
               initial={prefersReducedMotion ? false : { y: 50, opacity: 0 }}
               animate={{ y: 0, opacity: 1 }}
@@ -797,15 +933,6 @@ export const VibeStudioModal = ({
             >
               {stage === "idle" && (
                 <div className="flex flex-col items-center gap-4">
-                  {/* Hidden file input for upload */}
-                  <input
-                    ref={fileInputRef}
-                    type="file"
-                    accept="video/*"
-                    className="hidden"
-                    onChange={handleFileUpload}
-                  />
-
                    {/* Mic & Camera Flip */}
                   <div className="flex items-center gap-3">
                     <Button

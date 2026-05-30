@@ -48,6 +48,10 @@ import {
   type VideoDateWebMediaCaptureProfile,
 } from "@clientShared/matching/videoDateMediaContract";
 import {
+  classifyMediaPermissionError,
+  mediaPermissionResultForStatus,
+} from "@clientShared/media/mediaPermissionResult";
+import {
   createVideoDateCameraSwitchRenderHint,
   parseVideoDateCameraSwitchRenderHint,
 } from "@clientShared/matching/videoDateCameraSwitchRenderHint";
@@ -1956,6 +1960,12 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
         source_action: "permission_check_started",
       });
       if (typeof navigator === "undefined" || !navigator.mediaDevices?.getUserMedia) {
+        const permissionResult = mediaPermissionResultForStatus({
+          status: "unsupported",
+          kind: "camera_microphone",
+          permissionState: "unsupported",
+          rawErrorName: "media_devices_unavailable",
+        });
         releaseAppAcquiredMedia("media_devices_unavailable");
         mediaPermissionDeniedRef.current = true;
         setHasPermission(false);
@@ -1964,7 +1974,13 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
           platform: "web",
           session_id: sessionId,
           event_id: eventId ?? null,
+          source_surface: "video_date_daily",
+          source_action: "permission_check_unsupported",
           reason: "media_devices_unavailable",
+          permission_status: permissionResult.status,
+          permission_state: permissionResult.permissionState,
+          recovery_action: permissionResult.recoveryAction,
+          media_handoff_miss_reason: null,
         });
         return false;
       }
@@ -2056,7 +2072,21 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
       } else {
         lastMediaHandoffMissReasonRef.current = mediaHandoff.reason;
       }
+      trackEvent(LobbyPostDateEvents.VIDEO_DATE_SENDER_CAPTURE_DIAGNOSTIC, {
+        platform: "web",
+        session_id: sessionId,
+        event_id: eventId ?? null,
+        source_surface: "video_date_daily",
+        source_action: "media_handoff_miss",
+        diagnostic_scope: "sender_capture",
+        app_acquired_media: false,
+        media_handoff_used: false,
+        media_handoff_miss_reason: lastMediaHandoffMissReasonRef.current,
+        ...summarizeWebRuntime(),
+      });
 
+      let deferredMediaPermissionError: unknown = null;
+      let mediaPermissionFailureSourceAction = "media_permission_preflight_failed";
       const permissionHandoff = userId ? getVideoDatePermissionHandoff(sessionId, userId) : null;
       if (permissionHandoff) {
         releaseAppAcquiredMedia("permission_handoff_media_restart");
@@ -2125,6 +2155,8 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
             userId: userId ?? null,
             error: error instanceof Error ? { name: error.name, message: error.message } : String(error),
           });
+          deferredMediaPermissionError = error;
+          mediaPermissionFailureSourceAction = "permission_handoff_media_failed";
         } finally {
           stopMediaStreamTracks(handoffStream);
         }
@@ -2172,16 +2204,30 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
           });
           return true;
         }
-        vdbg("daily_media_permission_handoff_fallback_to_preflight", {
-          sessionId,
-          eventId: eventId ?? null,
-          userId,
-          handoffSource: permissionHandoff.source,
-          mediaHandoffMissReason: lastMediaHandoffMissReasonRef.current,
-        });
+        if (deferredMediaPermissionError) {
+          vdbg("daily_media_permission_handoff_failed_without_preflight_retry", {
+            sessionId,
+            eventId: eventId ?? null,
+            userId,
+            handoffSource: permissionHandoff.source,
+            mediaHandoffMissReason: lastMediaHandoffMissReasonRef.current,
+          });
+        } else {
+          vdbg("daily_media_permission_handoff_fallback_to_preflight", {
+            sessionId,
+            eventId: eventId ?? null,
+            userId,
+            handoffSource: permissionHandoff.source,
+            mediaHandoffMissReason: lastMediaHandoffMissReasonRef.current,
+          });
+        }
       }
 
       try {
+        if (deferredMediaPermissionError) {
+          releaseAppAcquiredMedia("permission_handoff_media_failed");
+          throw deferredMediaPermissionError;
+        }
         releaseAppAcquiredMedia("media_permission_preflight_restart");
         let stream: MediaStream | null = null;
         let nextCaptureProfile: VideoDateWebMediaCaptureProfile = "ideal";
@@ -2307,25 +2353,33 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
         releaseAppAcquiredMedia("media_permission_preflight_failed");
         mediaPermissionDeniedRef.current = true;
         setHasPermission(false);
+        const permissionResult = classifyMediaPermissionError(error, "camera_microphone");
         const description = describeMediaError(error);
         setMediaPermissionError(description || "Camera or microphone permission was denied.");
         vdbg("daily_media_permission_preflight_failed", {
           sessionId,
           eventId: eventId ?? null,
           userId: userId ?? null,
+          sourceAction: mediaPermissionFailureSourceAction,
           error: error instanceof Error ? { name: error.name, message: error.message } : String(error),
         });
         trackEvent(LobbyPostDateEvents.CAMERA_PERMISSION_DENIED, {
           platform: "web",
           session_id: sessionId,
           event_id: eventId ?? null,
-          source: "media_preflight",
+          source: mediaPermissionFailureSourceAction,
         });
         trackEvent(LobbyPostDateEvents.VIDEO_DATE_MEDIA_PERMISSION_DENIED, {
           platform: "web",
           session_id: sessionId,
           event_id: eventId ?? null,
-          reason: error instanceof Error ? error.name : "media_permission_error",
+          source_surface: "video_date_daily",
+          source_action: mediaPermissionFailureSourceAction,
+          reason: permissionResult.rawErrorName ?? "media_permission_error",
+          permission_status: permissionResult.status,
+          permission_state: permissionResult.permissionState,
+          recovery_action: permissionResult.recoveryAction,
+          media_handoff_miss_reason: lastMediaHandoffMissReasonRef.current,
         });
         Sentry.captureMessage("video_date_media_permission_denied", {
           level: "warning",
@@ -3240,6 +3294,7 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
                 diagnostic_scope: "sender_capture",
                 capture_profile: nextCaptureProfile,
                 app_acquired_media: true,
+                media_handoff_miss_reason: lastMediaHandoffMissReasonRef.current,
                 audio_track_present: Boolean(audioTrack),
                 video_track_present: Boolean(videoTrack),
                 video_track_width: videoTrackSettings?.width ?? null,
