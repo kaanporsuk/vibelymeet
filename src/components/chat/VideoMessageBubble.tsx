@@ -22,6 +22,10 @@ interface VideoMessageBubbleProps {
   messageId?: string;
   mediaKind?: Extract<MediaAssetKind, "video" | "vibe_clip">;
   onResolvedVideoUrl?: (url: string) => void;
+  /** Optional poster. When a thumbnail ref is present it resolves through the same
+   *  signed-media path as Vibe Clips and shows before the first video frame. */
+  thumbnailUrl?: string | null;
+  thumbnailSourceRef?: string | null;
   duration: number;
   isMine: boolean;
   /** When set, tap / expand opens chat fullscreen viewer instead of browser fullscreen */
@@ -37,6 +41,13 @@ type VideoElementWithWebkitFullscreen = HTMLVideoElement & {
 
 const VIDEO_BUBBLE_WIDTH_CLASS = "w-[min(17.5rem,calc(100svw-4rem))] max-w-full";
 const MAX_VIDEO_PLAYBACK_REFRESH_ATTEMPTS = 1;
+// First-go poster reliability (mirrors VibeClipBubble): when a thumbnail ref exists,
+// re-sign + reload the poster on a bounded backoff so it appears before the first frame.
+const POSTER_PREVIEW_RETRY_DELAYS_MS = [1000, 3000, 8000];
+
+function isDisplayablePosterUrl(value: string | null | undefined): boolean {
+  return !!value && /^(https?:|blob:|data:|file:)/i.test(value);
+}
 
 const formatDuration = (s: number) => {
   const m = Math.floor(s / 60);
@@ -50,6 +61,8 @@ export const VideoMessageBubble = ({
   messageId,
   mediaKind = "video",
   onResolvedVideoUrl,
+  thumbnailUrl,
+  thumbnailSourceRef,
   duration,
   isMine,
   onRequestImmersive,
@@ -86,6 +99,20 @@ export const VideoMessageBubble = ({
   const [playableVideoUrl, setPlayableVideoUrl] = useState(mediaAssetUrl ?? videoUrl);
   const playableVideoUrlRef = useRef(mediaAssetUrl ?? videoUrl);
   const isHlsUrl = /\.m3u8(?:[?#]|$)/i.test(playableVideoUrl);
+
+  // Optional poster (legacy/plain chat video parity with Vibe Clips). No-op when the
+  // message carries no thumbnail ref — the loading shimmer behaves exactly as before.
+  const { url: thumbnailAssetUrl, refresh: refreshThumbnailAsset } = useMediaAsset({
+    kind: "thumbnail",
+    messageId,
+    sourceRef: thumbnailSourceRef,
+    initialUrl: thumbnailUrl,
+  });
+  const [playablePosterUrl, setPlayablePosterUrl] = useState<string | null>(thumbnailUrl ?? null);
+  const [posterImageBroken, setPosterImageBroken] = useState(false);
+  const playablePosterUrlRef = useRef<string | null>(thumbnailUrl ?? null);
+  const posterRetryStateRef = useRef<{ key: string; attempts: number }>({ key: "", attempts: 0 });
+  const posterNotReadyRef = useRef(false);
   const visibleFallbackCopy =
     (fallbackReason ? resolveMediaFallbackCopy({ reason: fallbackReason }) : null) ??
     mediaAssetFallbackCopy ??
@@ -114,6 +141,77 @@ export const VideoMessageBubble = ({
     setFallbackReason(null);
     playbackRefreshAttemptCountRef.current = 0;
   }, [mediaAssetUrl, videoUrl]);
+
+  useEffect(() => {
+    playablePosterUrlRef.current = thumbnailUrl ?? null;
+    setPlayablePosterUrl(thumbnailUrl ?? null);
+    setPosterImageBroken(false);
+    posterRetryStateRef.current = { key: "", attempts: 0 };
+  }, [thumbnailSourceRef, thumbnailUrl]);
+
+  useEffect(() => {
+    const next = thumbnailAssetUrl ?? null;
+    if (!next || next === playablePosterUrlRef.current) return;
+    playablePosterUrlRef.current = next;
+    setPlayablePosterUrl(next);
+    setPosterImageBroken(false);
+  }, [thumbnailAssetUrl]);
+
+  const refreshPoster = useCallback(async (): Promise<string | null> => {
+    if (!messageId || !thumbnailSourceRef) return null;
+    const fresh = await refreshThumbnailAsset("preview", {
+      bypassFailureCooldown: true,
+      suppressFailureCache: true,
+    });
+    if (!fresh) return null;
+    playablePosterUrlRef.current = fresh;
+    setPlayablePosterUrl(fresh);
+    setPosterImageBroken(false);
+    return fresh;
+  }, [messageId, refreshThumbnailAsset, thumbnailSourceRef]);
+
+  // Gated on !isReady: the poster only shows while the video frame isn't up, so once the
+  // video is ready we stop retrying (avoids wasteful re-signs on an already-playing video).
+  const posterNotReady =
+    !isReady &&
+    !!thumbnailSourceRef &&
+    (!playablePosterUrl || !isDisplayablePosterUrl(playablePosterUrl) || posterImageBroken);
+  useEffect(() => {
+    posterNotReadyRef.current = posterNotReady;
+  }, [posterNotReady]);
+
+  // Bounded first-go poster retry. Re-signs the thumbnail (new URL → <img> reloads) on a
+  // [1s, 3s, 8s] backoff while missing/broken, capped per target so a never-generated
+  // thumbnail cannot loop.
+  useEffect(() => {
+    if (!messageId || !thumbnailSourceRef || !posterNotReady) return;
+    const retryKey = `${messageId}:${thumbnailSourceRef}`;
+    if (posterRetryStateRef.current.key !== retryKey) {
+      posterRetryStateRef.current = { key: retryKey, attempts: 0 };
+    }
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const run = () => {
+      const state = posterRetryStateRef.current;
+      if (cancelled || state.attempts >= POSTER_PREVIEW_RETRY_DELAYS_MS.length) return;
+      const delay = POSTER_PREVIEW_RETRY_DELAYS_MS[state.attempts];
+      timer = setTimeout(() => {
+        timer = null;
+        if (cancelled || !posterNotReadyRef.current) return;
+        posterRetryStateRef.current.attempts += 1;
+        void refreshPoster().finally(() => {
+          if (!cancelled && posterNotReadyRef.current) run();
+        });
+      }, delay);
+    };
+    run();
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+    };
+  }, [messageId, posterNotReady, refreshPoster, thumbnailSourceRef]);
+
+  const canShowPoster = isDisplayablePosterUrl(playablePosterUrl);
 
   const refreshVideoUrl = useCallback(
     async (options?: { bypassFailureCooldown?: boolean }): Promise<string | null> => {
@@ -368,6 +466,15 @@ export const VideoMessageBubble = ({
         {/* Premium loading placeholder */}
         {!isReady && (
           <div className="absolute inset-0 bg-black">
+            {canShowPoster && !posterImageBroken ? (
+              <img
+                src={playablePosterUrl ?? undefined}
+                alt=""
+                className="absolute inset-0 h-full w-full object-cover"
+                draggable={false}
+                onError={() => setPosterImageBroken(true)}
+              />
+            ) : null}
             <div className="absolute inset-0 bg-gradient-to-br from-white/5 via-white/0 to-white/10" />
             <motion.div
               aria-hidden
@@ -400,6 +507,7 @@ export const VideoMessageBubble = ({
         <video
           ref={videoRef}
           src={isHlsUrl ? undefined : playableVideoUrl}
+          poster={canShowPoster ? playablePosterUrl ?? undefined : undefined}
           playsInline
           muted={isMuted}
           preload={videoPreload}

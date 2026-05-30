@@ -531,7 +531,16 @@ assert.match(webClipBubble, /videoSourceRef/);
 assert.match(webClipBubble, /thumbnailSourceRef/);
 assert.match(webClipBubble, /MAX_CLIP_PLAYBACK_REFRESH_ATTEMPTS/);
 assert.match(webClipBubble, /type VibeClipMediaRefreshReason = "preview" \| "initial" \| "playback" \| "manual"/);
-assert.match(webClipBubble, /reason === "manual" \? \{ bypassFailureCooldown: true \} : undefined/);
+assert.match(
+  webClipBubble,
+  /reason === "manual"[\s\S]{0,30}\? \{ bypassFailureCooldown: true \}[\s\S]{0,40}: reason === "preview"[\s\S]{0,60}\? \{ bypassFailureCooldown: true, suppressFailureCache: true \}[\s\S]{0,30}: undefined/,
+);
+// First-go poster reliability: bounded, capped backoff retry that re-signs the thumbnail.
+assert.match(webClipBubble, /POSTER_PREVIEW_RETRY_DELAYS_MS = \[1000, 3000, 8000\]/);
+assert.match(webClipBubble, /posterRetryStateRef/);
+assert.match(webClipBubble, /state\.attempts >= POSTER_PREVIEW_RETRY_DELAYS_MS\.length/);
+assert.match(webClipBubble, /void refreshClipMedia\("preview"\)\.finally\(/);
+assert.match(webClipBubble, /setPosterImageBroken\(true\)/);
 assert.match(webClipBubble, /refreshVideoAsset\(reason, refreshOptions\)/);
 assert.match(webClipBubble, /refreshThumbnailAsset\(reason === "manual" \? "manual" : "preview", refreshOptions\)/);
 assert.doesNotMatch(webClipBubble, /if \(didRefresh\) posterRefreshAttemptedForRef\.current = null/);
@@ -614,8 +623,15 @@ assert.match(nativeClipCard, /videoSourceRef/);
 assert.match(nativeClipCard, /thumbnailSourceRef/);
 assert.match(nativeClipCard, /MAX_CLIP_PLAYBACK_REFRESH_ATTEMPTS/);
 assert.match(nativeClipCard, /type VibeClipMediaRefreshReason = 'preview' \| 'initial' \| 'playback' \| 'manual'/);
-assert.match(nativeClipCard, /reason === 'manual' \? \{ bypassFailureCooldown: true \} : undefined/);
-assert.match(nativeClipCard, /posterRefreshAttemptedForRef/);
+assert.match(
+  nativeClipCard,
+  /reason === 'manual'[\s\S]{0,30}\? \{ bypassFailureCooldown: true \}[\s\S]{0,40}: reason === 'preview'[\s\S]{0,60}\? \{ bypassFailureCooldown: true, suppressFailureCache: true \}[\s\S]{0,30}: undefined/,
+);
+// First-go poster reliability mirrors web: bounded, capped backoff retry.
+assert.match(nativeClipCard, /POSTER_PREVIEW_RETRY_DELAYS_MS = \[1000, 3000, 8000\]/);
+assert.match(nativeClipCard, /posterRetryStateRef/);
+assert.match(nativeClipCard, /state\.attempts >= POSTER_PREVIEW_RETRY_DELAYS_MS\.length/);
+assert.match(nativeClipCard, /void refreshClipMedia\('preview'\)\.finally\(/);
 assert.match(nativeClipCard, /isResolvableMediaRef\(playableThumbnailUrl\)/);
 assert.match(nativeClipCard, /CLIP_PLAYBACK_LOAD_TIMEOUT_MS/);
 assert.match(nativeClipCard, /onResetPlaybackRefreshAttempt/);
