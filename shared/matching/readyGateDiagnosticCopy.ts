@@ -12,6 +12,7 @@ export type ReadyGateDiagnosticKey =
 export type ReadyGateDiagnosticStatus =
   | "ok"
   | "checking"
+  | "waiting"
   | "blocked"
   | "failed"
   | "warning"
@@ -86,6 +87,7 @@ function severityForStatus(status: ReadyGateDiagnosticStatus): ReadyGateDiagnost
   if (status === "ok") return "success";
   if (status === "blocked" || status === "failed") return "error";
   if (status === "warning") return "warning";
+  // "checking", "waiting", "unknown" are all informational, non-blocking states.
   return "info";
 }
 
@@ -119,6 +121,28 @@ export function resolveReadyGateDiagnosticCopy(input: {
       message: `${label} is ready for this date.`,
       actionLabel: null,
       actionKind: "none",
+    };
+  }
+
+  if (input.status === "waiting") {
+    // Neutral, pre-start state: nothing is being checked yet. Used for the
+    // video provider row before the prepare-entry handoff actually begins, so
+    // the UI does not falsely claim a "check in progress" when no check exists.
+    if (input.key === "video_provider") {
+      return {
+        ...base,
+        title: "Video setup waiting",
+        message: "We'll verify the video room when both people are ready.",
+        actionLabel: null,
+        actionKind: "wait",
+      };
+    }
+    return {
+      ...base,
+      title: `${label} waiting`,
+      message: "We'll check this when both people are ready.",
+      actionLabel: null,
+      actionKind: "wait",
     };
   }
 

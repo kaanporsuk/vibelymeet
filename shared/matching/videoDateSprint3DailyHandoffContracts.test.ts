@@ -125,8 +125,10 @@ test("Sprint 3 web and native prewarm reuse is bound to both canonical room name
   }
 
   for (const source of [webReadyGate, nativeReadyGate, nativeStandaloneReady]) {
+    // ReadyGate warms (camera + preauth) bound to the canonical room name/url,
+    // but never joins Daily — the real join is owned by /date (useVideoCall).
     assert.match(source, /preAuth(?:Web|Native)VideoDateDailyPrewarm\(\{[\s\S]*roomName: .*?\.data\.room_name/);
-    assert.match(source, /join(?:Web|Native)VideoDateDailyPrewarm\(\{[\s\S]*roomName: .*?\.data\.room_name/);
+    assert.doesNotMatch(source, /join(?:Web|Native)VideoDateDailyPrewarm/);
   }
 });
 

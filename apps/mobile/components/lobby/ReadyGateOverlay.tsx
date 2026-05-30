@@ -43,14 +43,9 @@ import { vdbg } from '@/lib/vdbg';
 import { READY_GATE_STALE_OR_ENDED_USER_MESSAGE } from '@shared/matching/videoSessionFlow';
 import { trackEvent } from '@/lib/analytics';
 import { emitNativeVideoDateClientStuckState } from '@/lib/videoDateClientStuckObservability';
-import {
-  prepareVideoDateEntry,
-  prepareVideoDateSoloEntry,
-  videoDateDailySoloPrejoinEnabled,
-} from '@/lib/videoDatePrepareEntry';
+import { prepareVideoDateEntry } from '@/lib/videoDatePrepareEntry';
 import {
   destroyNativeVideoDateDailyPrewarm,
-  joinNativeVideoDateDailyPrewarm,
   preAuthNativeVideoDateDailyPrewarm,
   startNativeVideoDateDailyPrewarm,
 } from '@/lib/videoDateDailyPrewarm';
@@ -402,41 +397,11 @@ export function ReadyGateOverlay({
           ok: prewarm.ok,
           reason: prewarm.ok === true ? null : prewarm.reason,
         });
-        if (
-          prewarm.ok === true &&
-          videoDateDailySoloPrejoinEnabled() &&
-          readyGateStatus !== 'both_ready' &&
-          !dateNavigationStartedRef.current &&
-          !closedRef.current
-        ) {
-          const soloEntry = await prepareVideoDateSoloEntry(sessionId, {
-            eventId,
-            userId,
-            source: 'ready_gate_solo_prejoin',
-          });
-          if (activeReadyGateKeyRef.current !== readyGateKey) return;
-          if (soloEntry.ok !== true || dateNavigationStartedRef.current || closedRef.current) {
-            vdbg('ready_gate_solo_prejoin_skipped', {
-              sessionId,
-              eventId,
-              userId,
-              source,
-              ok: soloEntry.ok,
-              code: soloEntry.ok === true ? null : soloEntry.code,
-            });
-            return;
-          }
-          await joinNativeVideoDateDailyPrewarm({
-            sessionId,
-            userId,
-            eventId,
-            roomName: soloEntry.data.room_name,
-            roomUrl: soloEntry.data.room_url,
-            token: soloEntry.data.token,
-            source: 'ready_gate_solo_prejoin',
-            joinSource: 'solo_prejoin',
-          });
-        }
+        // The ReadyGate warms camera/token/preauth only; it must never perform a
+        // real Daily join. A lobby-side join would start the backend handshake/
+        // warm-up clock before the user is on a stable /date route, causing
+        // handshake_timeout. The real join + mark_video_date_daily_joined is
+        // owned solely by /date (useVideoCall.startCall).
       })();
     },
     [activeReadyGateKey, eventId, hasMediaPermission, sessionId, userId],
@@ -634,6 +599,10 @@ export function ReadyGateOverlay({
                 ok: prewarm.ok,
                 reason: prewarm.ok === true ? null : prewarm.reason,
               });
+              // Pre-authenticate only — do NOT join Daily from the lobby. The
+              // real join (which starts the backend handshake clock) is owned by
+              // /date (useVideoCall.startCall) so the full warm-up window only
+              // begins once the user is on the stable date route.
               void preAuthNativeVideoDateDailyPrewarm({
                 sessionId,
                 userId,
@@ -642,16 +611,6 @@ export function ReadyGateOverlay({
                 roomUrl: result.data.room_url,
                 token: result.data.token,
                 source: 'ready_gate_prepare_success',
-              });
-              void joinNativeVideoDateDailyPrewarm({
-                sessionId,
-                userId,
-                eventId,
-                roomName: result.data.room_name,
-                roomUrl: result.data.room_url,
-                token: result.data.token,
-                source: 'ready_gate_prepare_success',
-                joinSource: 'both_ready',
               });
               if (dateNavigationStartedRef.current || closedRef.current) return;
               clearTimeout(slowWaitTimer);
@@ -944,7 +903,11 @@ export function ReadyGateOverlay({
   const handleBothReady = useCallback((
     sourceAction: 'both_ready_observed' | 'both_ready_observed_via_rpc_short_circuit' = 'both_ready_observed',
   ) => {
-    if (closedRef.current) return;
+    // Idempotent across the onBothReady edge and the both-ready liveness guard:
+    // once the handoff/navigation has started, don't re-fire analytics or the
+    // handoff. Manual retry and reconcile recovery call startPrepareEntryHandoff()
+    // directly, so they are unaffected by this guard.
+    if (closedRef.current || prepareEntryHandoffStartedRef.current || dateNavigationStartedRef.current) return;
     const source = sourceAction === 'both_ready_observed_via_rpc_short_circuit'
       ? 'mark_ready_rpc'
       : 'both_ready';
@@ -1063,6 +1026,16 @@ export function ReadyGateOverlay({
     onBothReady: handleBothReady,
     onForfeited: handleForfeited,
   });
+
+  // Both-ready liveness guard: if the orchestrator reports both participants
+  // ready but the one-shot onBothReady edge was missed (e.g. realtime degraded),
+  // still drive the prepare-entry handoff so the gate cannot silently stall on
+  // "Both ready. Connecting you now…". handleBothReady's in-flight/navigation
+  // guards keep it idempotent against the onBothReady and reconcile paths.
+  useEffect(() => {
+    if (!isBothReady) return;
+    handleBothReady('both_ready_observed');
+  }, [isBothReady, handleBothReady]);
 
   useEffect(() => {
     closedRef.current = false;
@@ -1475,12 +1448,14 @@ export function ReadyGateOverlay({
       : 'checking',
     cameraDeviceStatus: nativeMediaDiagnostics.cameraDeviceStatus,
     microphoneDeviceStatus: nativeMediaDiagnostics.microphoneDeviceStatus,
+    // Neutral "waiting" until the prepare-entry handoff actually begins; only
+    // "checking" while it is running; "failed" on terminal failure.
     videoProviderStatus:
       prepareEntryStatus === 'failed'
         ? 'failed'
-        : prepareEntryStatus !== 'idle' || isBothReady
+        : prepareEntryStatus !== 'idle'
           ? 'checking'
-          : 'unknown',
+          : 'waiting',
     realtimeSyncStatus: realtimeDegraded || sequenceGapUnresolved ? 'warning' : 'ok',
     partnerReadinessStatus: isBothReady || partnerReady ? 'ok' : iAmReady ? 'warning' : 'checking',
   });
