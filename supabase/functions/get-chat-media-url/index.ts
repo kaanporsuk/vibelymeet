@@ -15,6 +15,23 @@ const TOKEN_TTL_SECONDS = 15 * 60;
 // Safety margin so a cached proxy response never outlives the signed token in its URL.
 const PROXY_CACHE_SAFETY_SECONDS = 15;
 const SENTRY_FLUSH_TIMEOUT_MS = 1000;
+
+// Proxy-token signing should use a dedicated CHAT_MEDIA_PROXY_SECRET so it is decoupled from the
+// DB service-role key (rotation blast radius). We keep the fallback to avoid breaking media if the
+// secret is unset (fail-soft), but warn once so ops can provision it.
+let proxySecretFallbackWarned = false;
+function resolveProxyTokenSecret(serviceRoleKey: string): string {
+  const dedicated = (Deno.env.get("CHAT_MEDIA_PROXY_SECRET") ?? "").trim();
+  if (dedicated) return dedicated;
+  if (!proxySecretFallbackWarned) {
+    proxySecretFallbackWarned = true;
+    console.warn(JSON.stringify({
+      event: "chat_media_proxy_secret_fallback",
+      detail: "CHAT_MEDIA_PROXY_SECRET is unset; falling back to SUPABASE_SERVICE_ROLE_KEY. Set a dedicated secret in production.",
+    }));
+  }
+  return serviceRoleKey;
+}
 const encoder = new TextEncoder();
 let sentryInitialized = false;
 
@@ -718,7 +735,7 @@ async function handleIssueUrl(req: Request): Promise<Response> {
   const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
   const anonKey = Deno.env.get("SUPABASE_ANON_KEY")!;
   const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-  const tokenSecret = Deno.env.get("CHAT_MEDIA_PROXY_SECRET") || serviceRoleKey;
+  const tokenSecret = resolveProxyTokenSecret(serviceRoleKey);
 
   const userClient = createClient(supabaseUrl, anonKey, {
     global: { headers: { Authorization: authHeader } },
@@ -990,7 +1007,7 @@ async function handleProxy(req: Request): Promise<Response> {
   const corsHeaders = corsHeadersForRequest(req);
   const token = new URL(req.url).searchParams.get("token") ?? "";
   const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-  const tokenSecret = Deno.env.get("CHAT_MEDIA_PROXY_SECRET") || serviceRoleKey;
+  const tokenSecret = resolveProxyTokenSecret(serviceRoleKey);
   const claims = await verifyToken(tokenSecret, token);
   const path = typeof claims?.path === "string" ? normalizeStoragePathForProxy(claims.path) : "";
   const storageTier: BunnyStorageZoneTier = claims?.zone === "archive" ? "archive" : "hot";
@@ -1051,9 +1068,15 @@ async function handleProxy(req: Request): Promise<Response> {
     0,
     Math.min(TOKEN_TTL_SECONDS, tokenExpSeconds - nowSeconds - PROXY_CACHE_SAFETY_SECONDS),
   );
-  headers.set("Cache-Control", `private, max-age=${proxyMaxAgeSeconds}, immutable`);
+  // Only mark immutable when there is a real freshness window; `max-age=0, immutable` is a
+  // semantically awkward no-op. When near token expiry, omit immutable so the client revalidates.
+  headers.set(
+    "Cache-Control",
+    proxyMaxAgeSeconds > 0 ? `private, max-age=${proxyMaxAgeSeconds}, immutable` : "private, max-age=0",
+  );
   headers.set("Accept-Ranges", upstream.headers.get("Accept-Ranges") || "bytes");
-  for (const key of ["Content-Length", "Content-Range"]) {
+  // Pass through validators so the client can do efficient conditional revalidation after expiry.
+  for (const key of ["Content-Length", "Content-Range", "ETag", "Last-Modified"]) {
     const value = upstream.headers.get(key);
     if (value) headers.set(key, value);
   }

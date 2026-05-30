@@ -1,6 +1,7 @@
 export type MediaFallbackReason =
   | "auth_expired"
   | "asset_deleted"
+  | "processing_failed"
   | "provider_unreachable"
   | "poster_unavailable"
   | "hls_auth_failed"
@@ -90,9 +91,9 @@ export function resolveMediaFallbackReason(input: {
 
   const code = typeof input.errorCode === "string" ? input.errorCode : "";
   if (code === "auth_expired") return "auth_expired";
-  if (code === "asset_deleted" || code === "media_asset_processing_failed") {
-    return "asset_deleted";
-  }
+  // Processing failure is recoverable (retry/resend) — must NOT read as permanent deletion.
+  if (code === "media_asset_processing_failed") return "processing_failed";
+  if (code === "asset_deleted") return "asset_deleted";
   if (code === "network_error" || code === "provider_unreachable") return "provider_unreachable";
 
   const httpStatusReason = resolveHttpStatusFallbackReason(input.httpStatus);
@@ -148,6 +149,14 @@ export function resolveMediaFallbackCopy(input: {
         message: "This media is no longer available.",
         actionLabel: null,
         retryPolicy: "no_retry",
+        telemetryReason: input.reason,
+      };
+    case "processing_failed":
+      return {
+        title: "Processing didn't finish",
+        message: "This media couldn't finish processing. Try sending it again.",
+        actionLabel: "Retry",
+        retryPolicy: "manual_retry",
         telemetryReason: input.reason,
       };
     case "provider_unreachable":

@@ -27,7 +27,7 @@ test("media fallback copy defines retry policy without raw provider details", ()
 test("media fallback reason classification is privacy-safe and deterministic", () => {
   assert.equal(resolveMediaFallbackReason({ errorCode: "auth_expired" }), "auth_expired");
   assert.equal(resolveMediaFallbackReason({ errorCode: "asset_deleted" }), "asset_deleted");
-  assert.equal(resolveMediaFallbackReason({ errorCode: "media_asset_processing_failed" }), "asset_deleted");
+  assert.equal(resolveMediaFallbackReason({ errorCode: "media_asset_processing_failed" }), "processing_failed");
   assert.equal(resolveMediaFallbackReason({ errorCode: "media_asset_unavailable" }), "unknown");
   assert.equal(resolveMediaFallbackReason({ errorCode: "network_error" }), "provider_unreachable");
   assert.equal(resolveMediaFallbackReason({ httpStatus: 403 }), "auth_expired");

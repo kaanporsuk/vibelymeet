@@ -45,3 +45,29 @@ export async function deleteOutboxBlob(id: string): Promise<void> {
     tx.objectStore(STORE).delete(id);
   });
 }
+
+/**
+ * Best-effort orphan GC: delete any stored blob whose key is not referenced by a current outbox
+ * item. Prevents IndexedDB blob accumulation from crashed/cancelled sends. Never throws — GC must
+ * not block startup.
+ */
+export async function pruneOutboxBlobsExcept(keepIds: Set<string>): Promise<void> {
+  try {
+    const db = await openDb();
+    await new Promise<void>((resolve) => {
+      const tx = db.transaction(STORE, "readwrite");
+      const store = tx.objectStore(STORE);
+      const req = store.getAllKeys();
+      req.onsuccess = () => {
+        for (const key of (req.result as IDBValidKey[]) ?? []) {
+          if (typeof key === "string" && !keepIds.has(key)) store.delete(key);
+        }
+      };
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => resolve();
+      tx.onabort = () => resolve();
+    });
+  } catch {
+    /* best-effort */
+  }
+}

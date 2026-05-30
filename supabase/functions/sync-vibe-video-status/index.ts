@@ -60,10 +60,13 @@ async function getBunnyVideo(
   readKey: string,
   streamApiKey: string,
 ): Promise<BunnyLookupResult> {
+  // Prefer the dedicated Bunny Stream API key for provider reads; fall back to the webhook signing
+  // key only for backward compatibility. (Webhook HMAC and provider read access are different
+  // concerns — operators should configure BUNNY_STREAM_API_KEY for reads.)
   const attempts: Array<{ key: string; mode: BunnyAccessMode }> = [];
-  if (readKey) attempts.push({ key: readKey, mode: "read_only" });
-  if (streamApiKey && streamApiKey !== readKey) {
-    attempts.push({ key: streamApiKey, mode: "stream_api" });
+  if (streamApiKey) attempts.push({ key: streamApiKey, mode: "stream_api" });
+  if (readKey && readKey !== streamApiKey) {
+    attempts.push({ key: readKey, mode: "read_only" });
   }
 
   let lastFailure: Extract<BunnyLookupResult, { ok: false }> = {

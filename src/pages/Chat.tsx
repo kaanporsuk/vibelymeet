@@ -3176,6 +3176,7 @@ const Chat = () => {
                                 posterUrl: null,
                                 messageId: groupedMessage.id,
                                 videoSourceRef: groupedMessage.videoSourceRef,
+                                thumbnailSourceRef: groupedMessage.thumbnailSourceRef,
                                 mediaKind: "video",
                               })
                           : undefined

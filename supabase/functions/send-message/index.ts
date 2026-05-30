@@ -1,6 +1,58 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient, type SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.88.0";
 import { syncChatMessageMedia } from "../_shared/media-lifecycle.ts";
+import { maskId, redactMediaPath } from "../_shared/media-log-redact.ts";
+
+// Fail-soft media authorization: chat media paths embed `.../match-{matchId}/{senderId}/...`.
+// We verify the ref is scoped to this sender + match and log a redacted warning on mismatch,
+// but do NOT reject unless CHAT_MEDIA_SENDER_SCOPE_ENFORCE is explicitly enabled (default off),
+// so legitimate sends can never break. Flip the flag to hard-enforce once monitoring is clean.
+const SENDER_SCOPE_ENFORCE =
+  (Deno.env.get("CHAT_MEDIA_SENDER_SCOPE_ENFORCE") ?? "").trim().toLowerCase() === "true";
+
+function mediaRefSenderScope(value: string): { matchId: string | null; userId: string | null } {
+  const raw = value.trim();
+  let path = raw;
+  try {
+    path = new URL(raw).pathname;
+  } catch {
+    // raw storage ref (not an absolute URL) — use as-is
+  }
+  const m = path.match(/match-([0-9a-fA-F-]{36})\/([0-9a-fA-F-]{36})(?:\/|$)/);
+  return { matchId: m?.[1] ?? null, userId: m?.[2] ?? null };
+}
+
+/**
+ * Returns true when the send may proceed. Logs a redacted warning on a positive scope mismatch.
+ * "Unverifiable" refs (legacy absolute URLs we cannot parse) are allowed through even when
+ * enforcing, so only a *proven* cross-sender/cross-match ref is ever blocked.
+ */
+function mediaSenderScopeOk(
+  ref: string,
+  expectedMatchId: string,
+  expectedUserId: string,
+  family: "photos" | "voice" | "chat-videos",
+): boolean {
+  const { matchId, userId } = mediaRefSenderScope(ref);
+  const verdict = !matchId || !userId
+    ? "unverifiable"
+    : matchId === expectedMatchId && userId === expectedUserId
+      ? "ok"
+      : "mismatch";
+  if (verdict === "ok") return true;
+  console.warn(JSON.stringify({
+    event: "send_message_media_scope_check",
+    verdict,
+    family,
+    actor_id: maskId(expectedUserId),
+    match_id: maskId(expectedMatchId),
+    ref_match_id: maskId(matchId),
+    ref_user_id: maskId(userId),
+    ref: redactMediaPath(ref),
+    enforced: SENDER_SCOPE_ENFORCE,
+  }));
+  return !(verdict === "mismatch" && SENDER_SCOPE_ENFORCE);
+}
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -331,6 +383,15 @@ serve(async (req) => {
           { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
         );
       }
+      if (
+        !mediaSenderScopeOk(videoUrl, match_id, actorId, "chat-videos") ||
+        (thumbnailUrl && !mediaSenderScopeOk(thumbnailUrl, match_id, actorId, "chat-videos"))
+      ) {
+        return new Response(
+          JSON.stringify({ success: false, error: "invalid_media_url" }),
+          { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+        );
+      }
 
       const clipPayload = {
         v: 2,
@@ -442,6 +503,12 @@ serve(async (req) => {
           { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
         );
       }
+      if (!mediaSenderScopeOk(audioUrl, match_id, actorId, "voice")) {
+        return new Response(
+          JSON.stringify({ success: false, error: "invalid_media_url" }),
+          { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+        );
+      }
       const durationRaw = body.audio_duration_seconds;
       let durationSec = 1;
       if (typeof durationRaw === "number" && Number.isFinite(durationRaw)) {
@@ -544,6 +611,12 @@ serve(async (req) => {
     const trimmed = content!.trim();
     const chatImageMarkerUrl = imageMarkerUrl(trimmed);
     if (chatImageMarkerUrl && !mediaRefHasStorageSegment(chatImageMarkerUrl, "photos")) {
+      return new Response(
+        JSON.stringify({ success: false, error: "invalid_media_url" }),
+        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
+    }
+    if (chatImageMarkerUrl && !mediaSenderScopeOk(chatImageMarkerUrl, match_id, actorId, "photos")) {
       return new Response(
         JSON.stringify({ success: false, error: "invalid_media_url" }),
         { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },

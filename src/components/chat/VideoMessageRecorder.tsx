@@ -336,7 +336,17 @@ const VideoMessageRecorder = ({
     mimeTypeRef.current = mimeType;
 
     const options = mimeType ? { mimeType } : undefined;
-    const recorder = new MediaRecorder(stream, options);
+    let recorder: MediaRecorder;
+    try {
+      // MediaRecorder construction can throw on unsupported MIME/runtime states (older Safari,
+      // locked-down WebViews). Fail with a controlled toast instead of crashing the recorder UI.
+      recorder = new MediaRecorder(stream, options);
+    } catch (err) {
+      recordingActiveRef.current = false;
+      console.warn("[VideoMessageRecorder] MediaRecorder unsupported:", err instanceof Error ? err.name : err);
+      toast.error(VIBE_CLIP_WEB_TOAST_UNSUPPORTED);
+      return;
+    }
     mediaRecorderRef.current = recorder;
     chunksRef.current = [];
     durationRef.current = 0;
@@ -372,7 +382,16 @@ const VideoMessageRecorder = ({
       });
     };
 
-    recorder.start(100);
+    try {
+      recorder.start(100);
+    } catch (err) {
+      recordingActiveRef.current = false;
+      stopCaptionCapture();
+      mediaRecorderRef.current = null;
+      console.warn("[VideoMessageRecorder] MediaRecorder.start failed:", err instanceof Error ? err.name : err);
+      toast.error(VIBE_CLIP_WEB_TOAST_UNSUPPORTED);
+      return;
+    }
     setIsRecording(true);
     setDuration(0);
     trackVibeClipEvent("clip_record_started", {

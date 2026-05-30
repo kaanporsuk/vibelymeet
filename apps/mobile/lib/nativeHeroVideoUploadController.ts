@@ -565,18 +565,49 @@ async function _run(
       client_request_id: creds.clientRequestId,
       video_guid: creds.videoId,
     });
-    await uploadVibeVideoToBunny(
-      videoUri,
-      creds,
-      (bytesUploaded, bytesTotal) => {
-        if (uploadAc.signal.aborted) return;
-        if (!_isCurrent(runId)) return;
-        if (bytesTotal > 0) {
-          _setStateIfCurrent(runId, { uploadProgress: Math.round((bytesUploaded / bytesTotal) * 100) });
-        }
-      },
-      { signal: uploadAc.signal, uploadSource },
-    );
+    const runUpload = (uploadCreds: typeof creds) =>
+      uploadVibeVideoToBunny(
+        videoUri,
+        uploadCreds,
+        (bytesUploaded, bytesTotal) => {
+          if (uploadAc.signal.aborted) return;
+          if (!_isCurrent(runId)) return;
+          if (bytesTotal > 0) {
+            _setStateIfCurrent(runId, { uploadProgress: Math.round((bytesUploaded / bytesTotal) * 100) });
+          }
+        },
+        { signal: uploadAc.signal, uploadSource },
+      );
+
+    try {
+      await runUpload(creds);
+    } catch (error) {
+      if (!_isCurrent(runId)) return;
+      const status = (error as { tusStatus?: number | null })?.tusStatus ?? null;
+      // Stale signed credentials (401/403/410): re-mint for the SAME upload and retry once, so
+      // long/backgrounded uploads resume instead of failing (parity with Chat Vibe Clips + web).
+      if (status !== 401 && status !== 403 && status !== 410) throw error;
+      trackVibeVideoEvent(VIBE_VIDEO_EVENTS.credentialsRequestStarted, {
+        source: 'native_hero_video_controller',
+        upload_context: context,
+        upload_source: uploadSource,
+        client_request_id: creds.clientRequestId,
+        video_guid: creds.videoId,
+        recovery: 'stale_tus_credentials',
+        http_status: status,
+      });
+      const refreshed = await getCreateVideoUploadCredentials({
+        context,
+        clientRequestId: creds.clientRequestId,
+        mimeType: mimeFromExtension(extensionFromFileUri(videoUri)),
+      });
+      if (!_isCurrent(runId)) return;
+      if (refreshed.videoId !== creds.videoId) {
+        throw new Error('Upload recovery returned a different video. Please try again.');
+      }
+      activeVideoId = refreshed.videoId;
+      await runUpload(refreshed);
+    }
 
     if (!_isCurrent(runId)) return;
     failurePhase = 'processing';

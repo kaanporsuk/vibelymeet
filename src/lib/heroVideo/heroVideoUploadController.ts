@@ -70,6 +70,7 @@ const _subscribers = new Set<Subscriber>();
 let _activeTus: tus.Upload | null = null;
 let _pollTimerId: ReturnType<typeof setInterval> | null = null;
 let _pollAttempts = 0;
+let _pollSlowPhase = false;
 let _lastPollStatus: string | null = null;
 let _activeRunStartedAt = 0;
 let _visibilityListenerAttached = false;
@@ -81,9 +82,16 @@ let _activePollVideoId: string | null = null;
 let _activeClientRequestId: string | null = null;
 let _localPreviewTimerId: ReturnType<typeof setTimeout> | null = null;
 
-/** 36 × 5 s = 3 min max poll window before silently going idle */
+/** 36 × 5 s = 3 min fast poll window. */
 const POLL_MAX_ATTEMPTS = 36;
 const POLL_INTERVAL_MS = 5_000;
+/**
+ * After the fast window we do NOT give up: we keep polling at a low frequency so delayed Bunny
+ * processing / webhook delivery still resolves while the page stays open, instead of dropping the
+ * user into a "replace it" stall at 3 minutes. 24 × 30 s ≈ 12 min more (≈15 min total).
+ */
+const POLL_SLOW_INTERVAL_MS = 30_000;
+const POLL_SLOW_MAX_ATTEMPTS = 24;
 const LOCAL_PREVIEW_TTL_MS = 10 * 60 * 1000;
 
 // ─── Internal helpers ─────────────────────────────────────────────────────────
@@ -138,6 +146,7 @@ function _stopPoll(): void {
     clearInterval(_pollTimerId);
     _pollTimerId = null;
   }
+  _pollSlowPhase = false;
   _pollAttempts = 0;
   _lastPollStatus = null;
   _activePollVideoId = null;
@@ -302,24 +311,48 @@ async function _pollTick(expectedVideoId: string): Promise<void> {
     // transient network error — keep polling
   }
 
-  // Timeout: keep the video visible as an in-progress asset and offer repair copy.
-  if (_pollAttempts >= POLL_MAX_ATTEMPTS) {
+  // Fast window exhausted: don't give up. Drop to a low-frequency poll and keep the user in a
+  // "still processing" state so delayed Bunny processing/webhooks still resolve while the page is
+  // open. Only after the (much longer) slow window do we surface the stalled/repair state.
+  if (!_pollSlowPhase && _pollAttempts >= POLL_MAX_ATTEMPTS) {
+    if (!_isCurrentPoll(expectedVideoId)) return;
+    _pollSlowPhase = true;
+    _pollAttempts = 0;
+    if (_pollTimerId !== null) clearInterval(_pollTimerId);
+    _pollTimerId = setInterval(() => {
+      void _pollTick(expectedVideoId);
+    }, POLL_SLOW_INTERVAL_MS);
+    _retainLocalPreviewUntilTtl();
+    _setState({ phase: "processing", errorMessage: null });
+    trackVibeVideoEvent(VIBE_VIDEO_EVENTS.processingPollStarted, {
+      source: "hero_video_controller",
+      video_guid: expectedVideoId,
+      interval_ms: POLL_SLOW_INTERVAL_MS,
+      max_attempts: POLL_SLOW_MAX_ATTEMPTS,
+      poll_phase: "slow",
+    });
+    return;
+  }
+
+  // Timeout (slow window also exhausted): keep the video visible as an in-progress asset and offer
+  // repair copy. The profile query is invalidated so it still resolves if Bunny finishes later.
+  if (_pollSlowPhase && _pollAttempts >= POLL_SLOW_MAX_ATTEMPTS) {
     if (!_isCurrentPoll(expectedVideoId)) return;
     _stopPoll();
     _retainLocalPreviewUntilTtl();
     _setState({
       phase: "stalled",
-      errorMessage: "Your video is taking longer than expected. It is still saved; refresh later or replace it.",
+      errorMessage: "Your video is still processing. It is saved — check back shortly or replace it.",
     });
     trackVibeVideoEvent(VIBE_VIDEO_EVENTS.uploadStalled, {
       source: "hero_video_controller",
       video_guid: expectedVideoId,
-      attempts: POLL_MAX_ATTEMPTS,
+      attempts: POLL_MAX_ATTEMPTS + POLL_SLOW_MAX_ATTEMPTS,
     });
     trackVibeVideoEvent(VIBE_VIDEO_EVENTS.processingStalled, {
       source: "hero_video_controller",
       video_guid: expectedVideoId,
-      attempts: POLL_MAX_ATTEMPTS,
+      attempts: POLL_MAX_ATTEMPTS + POLL_SLOW_MAX_ATTEMPTS,
     });
     void queryClient.invalidateQueries({ queryKey: ["my-profile"] });
   }
@@ -540,6 +573,16 @@ export function heroVideoStartWithClientRequestId(
   void _run(file, caption, context, uploadClientRequestId);
 }
 
+/** Extract the HTTP status from a tus-js-client error, if present. */
+function tusStatusOf(error: unknown): number | null {
+  const status = (error as { originalResponse?: { getStatus?: () => number } })?.originalResponse?.getStatus?.();
+  return typeof status === "number" && Number.isFinite(status) ? status : null;
+}
+/** 401/403/410 from Bunny TUS means the signed credentials expired/rotated and must be re-minted. */
+function isStaleTusStatus(status: number | null): boolean {
+  return status === 401 || status === 403 || status === 410;
+}
+
 async function _run(
   file: File | Blob,
   caption?: string,
@@ -682,46 +725,112 @@ async function _run(
       client_request_id: clientRequestId,
       video_guid: videoId,
     });
-    await new Promise<void>((resolve, reject) => {
-      const upload = new tus.Upload(file, {
-        endpoint: "https://video.bunnycdn.com/tusupload",
-        retryDelays: [0, 3000, 5000, 10000],
-        chunkSize: 5 * 1024 * 1024,
-        headers: {
-          AuthorizationSignature: signature,
-          AuthorizationExpire: String(expirationTime),
-          VideoId: videoId,
-          LibraryId: String(libraryId),
-        },
-        metadata: {
-          filetype: (file as File).type || "video/mp4",
-          title: `vibe-video-${clientRequestId}`,
-        },
-        onError: (error: unknown) => {
-          const msg = error instanceof Error ? error.message : "Upload failed. Please try again.";
-          reject(new Error(msg));
-        },
-        onProgress: (bytesUploaded: number, bytesTotal: number) => {
-          if (bytesTotal > 0) {
-            setStateIfCurrent({ uploadProgress: Math.round((bytesUploaded / bytesTotal) * 100) });
-          }
-        },
-        onSuccess: () => {
-          resolve();
-        },
+    type TusCreds = { videoId: string; libraryId: unknown; expirationTime: unknown; signature: string };
+    const performTusUpload = (creds: TusCreds, resumePrevious: boolean) =>
+      new Promise<void>((resolve, reject) => {
+        const upload = new tus.Upload(file, {
+          endpoint: "https://video.bunnycdn.com/tusupload",
+          retryDelays: [0, 3000, 5000, 10000],
+          chunkSize: 5 * 1024 * 1024,
+          headers: {
+            AuthorizationSignature: creds.signature,
+            AuthorizationExpire: String(creds.expirationTime),
+            VideoId: creds.videoId,
+            LibraryId: String(creds.libraryId),
+          },
+          metadata: {
+            filetype: (file as File).type || "video/mp4",
+            title: `vibe-video-${clientRequestId}`,
+          },
+          onError: (error: unknown) => {
+            const msg = error instanceof Error ? error.message : "Upload failed. Please try again.";
+            const wrapped = new Error(msg) as Error & { tusStatus?: number | null };
+            wrapped.tusStatus = tusStatusOf(error);
+            reject(wrapped);
+          },
+          onProgress: (bytesUploaded: number, bytesTotal: number) => {
+            if (bytesTotal > 0) {
+              setStateIfCurrent({ uploadProgress: Math.round((bytesUploaded / bytesTotal) * 100) });
+            }
+          },
+          onSuccess: () => {
+            resolve();
+          },
+        });
+
+        _activeTus = upload;
+        const startUpload = () => {
+          if (_activeTus !== upload) return;
+          upload.start();
+        };
+        upload.findPreviousUploads().then((previousUploads) => {
+          if (_activeTus !== upload) return;
+          if (resumePrevious && previousUploads.length) upload.resumeFromPreviousUpload(previousUploads[0]);
+          startUpload();
+        }).catch(startUpload);
       });
 
-      _activeTus = upload;
-      const startUpload = () => {
-        if (_activeTus !== upload) return;
-        upload.start();
+    // Re-mint Bunny TUS credentials for the SAME upload (same client_request_id → same videoId).
+    // Mirrors the Chat Vibe Clip resilient upload so long/backgrounded uploads that cross the
+    // credential TTL can resume instead of failing after significant user effort.
+    const refreshTusCredentials = async (): Promise<TusCreds | null> => {
+      const res = await fetch(
+        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/create-video-upload`,
+        {
+          method: "POST",
+          headers: { Authorization: `Bearer ${session.access_token}`, "Content-Type": "application/json" },
+          body: JSON.stringify({
+            context,
+            client_request_id: clientRequestId,
+            source_bytes: typeof file.size === "number" ? file.size : null,
+            mime_type: file.type || "video/mp4",
+          }),
+        },
+      );
+      let body: Record<string, unknown> = {};
+      try {
+        body = (await res.json()) as Record<string, unknown>;
+      } catch {
+        /* empty body */
+      }
+      if (!res.ok || body.success !== true) return null;
+      const refreshedVideoId = String(body.videoId ?? "");
+      const refreshedSignature = String(body.signature ?? "");
+      if (!refreshedVideoId || !refreshedSignature || body.libraryId == null || body.expirationTime == null) {
+        return null;
+      }
+      return {
+        videoId: refreshedVideoId,
+        libraryId: body.libraryId,
+        expirationTime: body.expirationTime,
+        signature: refreshedSignature,
       };
-      upload.findPreviousUploads().then((previousUploads) => {
-        if (_activeTus !== upload) return;
-        if (previousUploads.length) upload.resumeFromPreviousUpload(previousUploads[0]);
-        startUpload();
-      }).catch(startUpload);
-    });
+    };
+
+    try {
+      await performTusUpload({ videoId, libraryId, expirationTime, signature }, true);
+    } catch (error) {
+      if (!isCurrentRun()) return;
+      const status = (error as { tusStatus?: number | null })?.tusStatus ?? null;
+      if (!isStaleTusStatus(status)) throw error;
+      trackVibeVideoEvent(VIBE_VIDEO_EVENTS.credentialsRequestStarted, {
+        source: "hero_video_controller",
+        upload_context: context,
+        client_request_id: clientRequestId,
+        video_guid: videoId,
+        recovery: "stale_tus_credentials",
+        http_status: status,
+      });
+      const refreshed = await refreshTusCredentials();
+      if (!isCurrentRun()) return;
+      if (!refreshed) throw error;
+      if (refreshed.videoId !== videoId) {
+        throw new Error("Upload recovery returned a different video. Please try again.");
+      }
+      activeVideoId = refreshed.videoId;
+      // Resume from the partial unless Bunny GC'd it (410), in which case restart from byte 0.
+      await performTusUpload(refreshed, status !== 410);
+    }
     if (!isCurrentRun()) return;
 
     _activeTus = null;

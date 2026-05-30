@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.88.0";
 import { bunnyCdnUrl } from "../_shared/bunny-media.ts";
+import { maskId, redactMediaPath } from "../_shared/media-log-redact.ts";
 import { MEDIA_FAMILIES, PROVIDERS } from "../_shared/media-lifecycle.ts";
 import { captureReceiptTransition } from "../_shared/media-upload-telemetry.ts";
 import { validateImageUploadBytes } from "../_shared/media-upload-sniffing.ts";
@@ -322,7 +323,7 @@ serve(async (req) => {
     });
 
     if (reserveError) {
-      console.error(`[upload-image] reserve_media_upload failed userId=${user.id} path=${storagePath} err=${reserveError.message}`);
+      console.error(`[upload-image] reserve_media_upload failed userId=${maskId(user.id)} path=${redactMediaPath(storagePath)} err=${reserveError.message}`);
       return json({ success: false, error: "Upload reservation failed" });
     }
 
@@ -373,7 +374,7 @@ serve(async (req) => {
           },
         );
         if (repairError) {
-          console.error(`[upload-image] receipt/session repair failed userId=${user.id} path=${reservedPath} err=${repairError.message}`);
+          console.error(`[upload-image] receipt/session repair failed userId=${maskId(user.id)} path=${redactMediaPath(reservedPath)} err=${repairError.message}`);
         } else {
           const repaired = isRecord(repairData) ? repairData : {};
           reservedSessionId = typeof repaired.session_id === "string" ? repaired.session_id : reservedSessionId;
@@ -520,7 +521,7 @@ serve(async (req) => {
         const lifecycleErrorMessage =
           completionError?.message ||
           (typeof completion.error === "string" ? completion.error : "asset_register_failed");
-        console.error(`[upload-image] receipt completion failed userId=${user.id} path=${uploadPath} err=${lifecycleErrorMessage}`);
+        console.error(`[upload-image] receipt completion failed userId=${maskId(user.id)} path=${redactMediaPath(uploadPath)} err=${lifecycleErrorMessage}`);
         const { data: failedData } = await adminSupabase.rpc("mark_media_upload_receipt_failed", {
           p_receipt_id: receiptId,
           p_owner_user_id: user.id,

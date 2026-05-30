@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.88.0";
 import { bunnyCdnUrl } from "../_shared/bunny-media.ts";
+import { maskId, redactMediaPath } from "../_shared/media-log-redact.ts";
 import { MEDIA_FAMILIES, PROVIDERS, registerMediaAsset } from "../_shared/media-lifecycle.ts";
 import {
   validateChatVideoThumbnailBytes,
@@ -32,9 +33,30 @@ function safeUnexpectedError(error: unknown): Record<string, string> {
   return { name: typeof error };
 }
 
+// Legacy storage-backed chat video upload. No supported client calls this anymore (Chat Vibe Clips
+// use create-chat-vibe-clip-upload → Bunny Stream TUS). It is disabled by default to stop the
+// lower-reliability, public-CDN, 8 MB path; set LEGACY_UPLOAD_CHAT_VIDEO_ENABLED=true to re-open it
+// for an emergency only. Returns 410 Gone so any stray old client gets a controlled, typed error.
+const LEGACY_UPLOAD_CHAT_VIDEO_ENABLED =
+  (Deno.env.get("LEGACY_UPLOAD_CHAT_VIDEO_ENABLED") ?? "").trim().toLowerCase() === "true";
+
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
+  }
+
+  if (!LEGACY_UPLOAD_CHAT_VIDEO_ENABLED) {
+    return new Response(
+      JSON.stringify({
+        success: false,
+        error: "endpoint_deprecated",
+        code: "deprecated",
+        retryable: false,
+        user_action: "update_app",
+        detail: "upload-chat-video is retired. Use Chat Vibe Clips (Bunny Stream).",
+      }),
+      { status: 410, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+    );
   }
 
   try {
@@ -215,7 +237,7 @@ serve(async (req) => {
       });
       if (!videoAsset.success) {
         console.error(
-          `[upload-chat-video] video asset registration failed userId=${user.id} matchId=${matchId} path=${storagePath} err=${videoAsset.error}`,
+          `[upload-chat-video] video asset registration failed userId=${maskId(user.id)} matchId=${maskId(matchId)} path=${redactMediaPath(storagePath)} err=${videoAsset.error}`,
         );
       }
 
