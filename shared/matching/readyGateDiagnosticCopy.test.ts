@@ -36,6 +36,40 @@ test("Ready Gate diagnostics expose actionable platform copy", () => {
   assert.equal(resolveReadyGateDiagnosticCopy({ key: "video_provider", status: "failed" }).actionLabel, "Retry video setup");
 });
 
+test("Ready Gate video_provider waiting copy is neutral, actionless, and non-blocking", () => {
+  assert.deepEqual(resolveReadyGateDiagnosticCopy({
+    key: "video_provider",
+    status: "waiting",
+    platform: "web",
+  }), {
+    key: "video_provider",
+    status: "waiting",
+    severity: "info",
+    label: "Video setup",
+    title: "Video setup waiting",
+    message: "We'll verify the video room when both people are ready.",
+    actionLabel: null,
+    actionKind: "wait",
+  });
+
+  // A waiting video_provider row must not falsely claim a check is running and
+  // must keep the gate from proceeding.
+  const checklist = resolveReadyGateDiagnosticChecklist({
+    cameraPermissionStatus: "ok",
+    microphonePermissionStatus: "ok",
+    cameraDeviceStatus: "ok",
+    microphoneDeviceStatus: "ok",
+    videoProviderStatus: "waiting",
+    realtimeSyncStatus: "ok",
+    partnerReadinessStatus: "ok",
+  });
+  assert.equal(checklist.canProceed, false);
+  assert.equal(checklist.primaryIssue, null);
+  const videoRow = checklist.rows.find((row) => row.key === "video_provider");
+  assert.equal(videoRow?.severity, "info");
+  assert.equal(videoRow?.title, "Video setup waiting");
+});
+
 test("Ready Gate diagnostic checklist keeps every focused readiness row privacy-safe", () => {
   const checklist = resolveReadyGateDiagnosticChecklist({
     platform: "native",

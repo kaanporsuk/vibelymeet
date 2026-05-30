@@ -1,0 +1,91 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+
+// Regression guard for the Video Date handoff/timer-ownership fix.
+//
+// Production session d6178b76 ended in `handshake_timeout` with the Daily room
+// created and both participants stamped joined. Root cause: the ReadyGate
+// performed a *real* Daily join during prewarm, starting the backend
+// handshake/warm-up clock before the user was on a stable /date route (and
+// could be bounced by duplicate-tab handling). The fix makes the ReadyGate
+// warm camera/token/preauth only, and keeps the real join + joined stamp owned
+// solely by the /date route (useVideoCall / native date route).
+
+const root = process.cwd();
+const read = (path: string) => readFileSync(join(root, path), "utf8");
+
+const webReadyGate = read("src/components/lobby/ReadyGateOverlay.tsx");
+const nativeReadyGate = read("apps/mobile/components/lobby/ReadyGateOverlay.tsx");
+const nativeReadyRoute = read("apps/mobile/app/ready/[id].tsx");
+const webVideoCall = read("src/hooks/useVideoCall.ts");
+const nativeDateRoute = read("apps/mobile/app/date/[id].tsx");
+
+const readyGateSurfaces: Array<[string, string]> = [
+  ["web ReadyGateOverlay", webReadyGate],
+  ["native ReadyGateOverlay", nativeReadyGate],
+  ["native ready route", nativeReadyRoute],
+];
+
+const dateRouteOwners: Array<[string, string]> = [
+  ["web /date (useVideoCall)", webVideoCall],
+  ["native /date route", nativeDateRoute],
+];
+
+test("ReadyGate surfaces warm Daily but never perform the real join (handshake-clock ownership)", () => {
+  for (const [name, source] of readyGateSurfaces) {
+    // No real Daily join from the lobby — that would start the backend
+    // handshake clock before the user is on a stable /date route.
+    assert.doesNotMatch(source, /join(Web|Native)VideoDateDailyPrewarm/, `${name} must not join Daily`);
+    // No solo-prejoin: its only purpose was an early real join.
+    assert.doesNotMatch(
+      source,
+      /videoDateDailySoloPrejoinEnabled|prepareVideoDateSoloEntry/,
+      `${name} must not solo-prejoin`,
+    );
+    // The joined stamp is owned by /date only (matches an actual rpc call, not comments).
+    assert.doesNotMatch(source, /rpc\(\s*['"]mark_video_date_daily_joined/, `${name} must not stamp joined`);
+  }
+  // ...but the ReadyGate still warms camera + preauth for a fast handoff.
+  assert.match(webReadyGate, /startWebVideoDateDailyPrewarm/);
+  assert.match(webReadyGate, /preAuthWebVideoDateDailyPrewarm/);
+  assert.match(nativeReadyGate, /startNativeVideoDateDailyPrewarm/);
+  assert.match(nativeReadyGate, /preAuthNativeVideoDateDailyPrewarm/);
+  assert.match(nativeReadyRoute, /startNativeVideoDateDailyPrewarm/);
+  assert.match(nativeReadyRoute, /preAuthNativeVideoDateDailyPrewarm/);
+});
+
+test("/date routes are the sole owners of the real Daily join + joined stamp", () => {
+  for (const [name, source] of dateRouteOwners) {
+    assert.match(source, /\.join\(\{\s*url:/, `${name} should perform the real Daily join`);
+    assert.match(source, /rpc\(\s*['"]mark_video_date_daily_joined/, `${name} should stamp joined`);
+  }
+});
+
+test("ReadyGate overlays reconcile both-ready into the prepare-entry handoff (liveness guard)", () => {
+  for (const [name, source] of [["web", webReadyGate], ["native", nativeReadyGate]] as Array<[string, string]>) {
+    assert.match(
+      source,
+      /if \(!isBothReady\) return;\s*handleBothReady\(['"]both_ready_observed['"]\)/,
+      `${name} overlay should drive handleBothReady when both are ready`,
+    );
+  }
+});
+
+test("ReadyGate video_provider row stays neutral (waiting) until prepare-entry begins", () => {
+  for (const [name, source] of [["web", webReadyGate], ["native", nativeReadyGate]] as Array<[string, string]>) {
+    // waiting before prepare-entry starts; checking only while it is running.
+    assert.match(
+      source,
+      /prepareEntryStatus !== ['"]idle['"]\s*\?\s*['"]checking['"]\s*:\s*['"]waiting['"]/,
+      `${name} overlay video_provider mapping should be checking-or-waiting`,
+    );
+    // Must not force "checking" merely because both are ready (the old bug).
+    assert.doesNotMatch(
+      source,
+      /prepareEntryStatus !== ['"]idle['"] \|\| isBothReady/,
+      `${name} overlay must not force checking on isBothReady`,
+    );
+  }
+});

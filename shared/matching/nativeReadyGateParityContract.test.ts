@@ -118,14 +118,14 @@ test("native overlay gates date navigation behind prepareVideoDateEntry success"
   const successIndex = nativeReadyGateOverlay.indexOf("if (result.ok === true)", prepareIndex);
   const startPrewarmIndex = nativeReadyGateOverlay.indexOf("startNativeVideoDateDailyPrewarm", successIndex);
   const preAuthIndex = nativeReadyGateOverlay.indexOf("void preAuthNativeVideoDateDailyPrewarm", startPrewarmIndex);
-  const joinIndex = nativeReadyGateOverlay.indexOf("void joinNativeVideoDateDailyPrewarm", preAuthIndex);
-  const navigateIndex = nativeReadyGateOverlay.indexOf("navigateWithLatency(`${source}_prepare_success`)", joinIndex);
+  const navigateIndex = nativeReadyGateOverlay.indexOf("navigateWithLatency(`${source}_prepare_success`)", preAuthIndex);
   assert.ok(prepareIndex >= 0, "native overlay should call prepareVideoDateEntry before date navigation");
   assert.ok(successIndex > prepareIndex, "native overlay should branch on prepare-entry success");
   assert.ok(startPrewarmIndex > successIndex, "native overlay should ensure Daily prewarm exists before navigation");
   assert.ok(preAuthIndex > startPrewarmIndex, "native overlay should start preauth before navigation");
-  assert.ok(joinIndex > preAuthIndex, "native overlay should start join prewarm before navigation");
-  assert.ok(navigateIndex > joinIndex, "native overlay should navigate only after prepare-entry success and prewarm start");
+  assert.ok(navigateIndex > preAuthIndex, "native overlay should navigate only after prepare-entry success and prewarm/preauth start");
+  // ReadyGate must NEVER join Daily — the real join is owned solely by /date.
+  assert.doesNotMatch(nativeReadyGateOverlay, /joinNativeVideoDateDailyPrewarm/);
   assert.doesNotMatch(nativeReadyGateOverlay, /isBothReady[\s\S]{0,120}onNavigateToDate\(sessionId\)/);
 });
 

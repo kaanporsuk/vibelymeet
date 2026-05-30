@@ -11,16 +11,18 @@ const nativeReadyGate = readFileSync(join(root, "apps/mobile/components/lobby/Re
 const nativeDate = readFileSync(join(root, "apps/mobile/app/date/[id].tsx"), "utf8");
 const nativeLobby = readFileSync(join(root, "apps/mobile/app/event/[eventId]/lobby.tsx"), "utf8");
 
-test("ready gate starts Daily prewarm after prepare success without awaiting both-ready join", () => {
+test("ready gate warms camera + preauth after prepare success but never joins Daily", () => {
+  // The ReadyGate must prewarm (camera + preauth) for a fast handoff but MUST
+  // NOT perform a real Daily join. A lobby-side join starts the backend
+  // handshake clock before the user is on a stable /date route, causing
+  // handshake_timeout. The real join is owned solely by /date (useVideoCall).
   assert.match(webReadyGate, /startWebVideoDateDailyPrewarm\(\{[\s\S]*source: "ready_gate_prepare_success"/);
   assert.match(webReadyGate, /void preAuthWebVideoDateDailyPrewarm\(\{[\s\S]*source: "ready_gate_prepare_success"/);
-  assert.match(webReadyGate, /void joinWebVideoDateDailyPrewarm\(\{[\s\S]*joinSource: "both_ready"/);
-  assert.doesNotMatch(webReadyGate, /await joinWebVideoDateDailyPrewarm\(\{[^}]*joinSource: "both_ready"/);
+  assert.doesNotMatch(webReadyGate, /joinWebVideoDateDailyPrewarm/);
 
   assert.match(nativeReadyGate, /startNativeVideoDateDailyPrewarm\(\{[\s\S]*source: 'ready_gate_prepare_success'/);
   assert.match(nativeReadyGate, /void preAuthNativeVideoDateDailyPrewarm\(\{[\s\S]*source: 'ready_gate_prepare_success'/);
-  assert.match(nativeReadyGate, /void joinNativeVideoDateDailyPrewarm\(\{[\s\S]*joinSource: 'both_ready'/);
-  assert.doesNotMatch(nativeReadyGate, /await joinNativeVideoDateDailyPrewarm\(\{[^}]*joinSource: 'both_ready'/);
+  assert.doesNotMatch(nativeReadyGate, /joinNativeVideoDateDailyPrewarm/);
 });
 
 test("web date route consumes the Ready Gate media stream before reacquiring media", () => {

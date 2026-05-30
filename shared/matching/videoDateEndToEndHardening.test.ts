@@ -2856,9 +2856,11 @@ test("Daily prewarm is platform-owned, flag-gated, consumable once, and instrume
   assert.match(readyGateOverlay, /waitForMediaStreamWithTimeout/);
   assert.match(readyGateOverlay, /stopMediaStreamTracks\(stream(?:\.stream)?\)/);
   assert.match(readyGateOverlay, /preAuthWebVideoDateDailyPrewarm/);
-  assert.match(readyGateOverlay, /joinWebVideoDateDailyPrewarm/);
-  assert.match(readyGateOverlay, /prepareVideoDateSoloEntry/);
-  assert.match(readyGateOverlay, /videoDateDailySoloPrejoinEnabled/);
+  // ReadyGate prewarms (camera + preauth) but must NEVER join Daily or run a
+  // solo prejoin — the real join is owned by /date (useVideoCall).
+  assert.doesNotMatch(readyGateOverlay, /joinWebVideoDateDailyPrewarm/);
+  assert.doesNotMatch(readyGateOverlay, /prepareVideoDateSoloEntry/);
+  assert.doesNotMatch(readyGateOverlay, /videoDateDailySoloPrejoinEnabled/);
   assert.match(readyGateOverlay, /preloadVideoDateRoute/);
   assert.match(nativeReadyGateOverlay, /preloadVideoDateRoute/);
   assert.match(nativeReadyGateOverlay, /router\.prefetch\(`\/date\/\$\{sessionId\}` as Href\)/);
@@ -2866,9 +2868,10 @@ test("Daily prewarm is platform-owned, flag-gated, consumable once, and instrume
   assert.match(nativeReadyGateOverlay, /startNativeVideoDateDailyPrewarm/);
   assert.match(nativeReadyGateOverlay, /startRoomWarmupAfterReady\('ready_tap_mark_ready_success'/);
   assert.match(nativeReadyGateOverlay, /preAuthNativeVideoDateDailyPrewarm/);
-  assert.match(nativeReadyGateOverlay, /joinNativeVideoDateDailyPrewarm/);
-  assert.match(nativeReadyGateOverlay, /prepareVideoDateSoloEntry/);
-  assert.match(nativeReadyGateOverlay, /videoDateDailySoloPrejoinEnabled/);
+  // Native ReadyGate parity: prewarm camera + preauth, never join Daily / solo prejoin.
+  assert.doesNotMatch(nativeReadyGateOverlay, /joinNativeVideoDateDailyPrewarm/);
+  assert.doesNotMatch(nativeReadyGateOverlay, /prepareVideoDateSoloEntry/);
+  assert.doesNotMatch(nativeReadyGateOverlay, /videoDateDailySoloPrejoinEnabled/);
   assert.match(nativeReadyGateOverlay, /destroyNativeVideoDateDailyPrewarm/);
   assert.match(webVideoCallHook, /consumeWebVideoDateDailyPrewarm/);
   assert.match(webVideoCallHook, /provider_verify_skipped: handoff\.cacheEntry\.value\.provider_verify_skipped/);

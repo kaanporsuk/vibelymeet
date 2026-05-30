@@ -6,16 +6,11 @@ import { useReadyGate } from "@/hooks/useReadyGate";
 import { vdbg } from "@/lib/vdbg";
 import { useUserProfile } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
-import {
-  prepareVideoDateEntry,
-  prepareVideoDateSoloEntry,
-  videoDateDailySoloPrejoinEnabled,
-} from "@/lib/videoDatePrepareEntry";
+import { prepareVideoDateEntry } from "@/lib/videoDatePrepareEntry";
 import { preloadRoute } from "@/lib/routePreload";
 import { videoDateWebMediaStreamConstraints } from "@/lib/dailyCallObjectConfig";
 import {
   destroyWebVideoDateDailyPrewarm,
-  joinWebVideoDateDailyPrewarm,
   preAuthWebVideoDateDailyPrewarm,
   startWebVideoDateDailyPrewarm,
 } from "@/lib/videoDateDailyPrewarm";
@@ -1083,41 +1078,12 @@ const ReadyGateOverlay = ({
           reason: prewarm.ok === true ? null : prewarm.reason,
           appAcquiredMedia: prewarm.ok === true ? Boolean(prewarm.entry.appAcquiredMedia) : false,
         });
-        if (
-          prewarm.ok === true &&
-          videoDateDailySoloPrejoinEnabled() &&
-          readyGateStatus !== "both_ready" &&
-          !dateNavigationStartedRef.current &&
-          !closedRef.current
-        ) {
-          const soloEntry = await prepareVideoDateSoloEntry(sessionId, {
-            eventId,
-            userId,
-            source: "ready_gate_solo_prejoin",
-          });
-          if (activeReadyGateKeyRef.current !== readyGateKey) return;
-          if (soloEntry.ok !== true || dateNavigationStartedRef.current || closedRef.current) {
-            vdbg("ready_gate_solo_prejoin_skipped", {
-              sessionId,
-              eventId,
-              userId,
-              source,
-              ok: soloEntry.ok,
-              code: soloEntry.ok === true ? null : soloEntry.code,
-            });
-            return;
-          }
-          await joinWebVideoDateDailyPrewarm({
-            sessionId,
-            userId,
-            eventId,
-            roomName: soloEntry.data.room_name,
-            roomUrl: soloEntry.data.room_url,
-            token: soloEntry.data.token,
-            source: "ready_gate_solo_prejoin",
-            joinSource: "solo_prejoin",
-          });
-        }
+        // The ReadyGate warms camera/token/preauth only; it must never perform a
+        // real Daily join. A lobby-side join would start the backend handshake/
+        // warm-up clock before the user is on a stable /date route (and can be
+        // bounced by duplicate-tab handling), causing handshake_timeout. The
+        // real join + mark_video_date_daily_joined is owned solely by /date
+        // (useVideoCall.startCall), which consumes this prewarmed call object.
       })();
     },
     [
@@ -1265,6 +1231,10 @@ const ReadyGateOverlay = ({
                 reason: prewarm.ok === true ? null : prewarm.reason,
                 appAcquiredMedia: prewarm.ok === true ? Boolean(prewarm.entry.appAcquiredMedia) : false,
               });
+              // Pre-authenticate only — do NOT join Daily from the lobby. The
+              // real join (which starts the backend handshake clock) is owned by
+              // /date (useVideoCall.startCall), so the full warm-up window only
+              // begins once the user is on the stable date route.
               void preAuthWebVideoDateDailyPrewarm({
                 sessionId,
                 userId: user.id,
@@ -1273,16 +1243,6 @@ const ReadyGateOverlay = ({
                 roomUrl: result.data.room_url,
                 token: result.data.token,
                 source: "ready_gate_prepare_success",
-              });
-              void joinWebVideoDateDailyPrewarm({
-                sessionId,
-                userId: user.id,
-                eventId,
-                roomName: result.data.room_name,
-                roomUrl: result.data.room_url,
-                token: result.data.token,
-                source: "ready_gate_prepare_success",
-                joinSource: "both_ready",
               });
             }
             if (!isCurrentPrepareRun()) return;
@@ -1549,6 +1509,17 @@ const ReadyGateOverlay = ({
     onBothReady: handleBothReady,
     onForfeited: handleForfeited,
   });
+
+  // Both-ready liveness guard: if the orchestrator reports both participants
+  // ready but the one-shot onBothReady edge was missed (e.g. realtime degraded
+  // / "Status sync delayed"), still drive the prepare-entry handoff so the gate
+  // cannot silently stall on "Both ready. Connecting you now…". handleBothReady's
+  // prepareEntryHandoffStartedRef / dateNavigationStartedRef guards keep it
+  // idempotent against the onBothReady and reconcile paths.
+  useEffect(() => {
+    if (!isBothReady) return;
+    handleBothReady("both_ready_observed");
+  }, [isBothReady, handleBothReady]);
 
   useEffect(() => {
     orchestratorRealtimeDegradedRef.current = orchestratorRealtimeDegraded;
@@ -2265,12 +2236,15 @@ const ReadyGateOverlay = ({
     platform: "web",
     partnerName,
     ...mediaDiagnostics,
+    // Neutral "waiting" until the prepare-entry handoff actually begins; only
+    // "checking" while it is running; "failed" on terminal failure. Avoids
+    // claiming a "check in progress" before any provider work has started.
     videoProviderStatus:
       prepareEntryStatus === "failed"
         ? "failed"
-        : prepareEntryStatus !== "idle" || isBothReady
+        : prepareEntryStatus !== "idle"
           ? "checking"
-          : "unknown",
+          : "waiting",
     realtimeSyncStatus: realtimeDegraded || sequenceGapUnresolved ? "warning" : "ok",
     partnerReadinessStatus: isBothReady || partnerReady ? "ok" : iAmReady ? "warning" : "checking",
   });

@@ -31,7 +31,6 @@ import { fetchVideoSessionDateEntryTruthCoalesced } from '@/lib/videoDateApi';
 import { fetchVideoDateSnapshot } from '@/lib/videoDateSnapshot';
 import { prepareVideoDateEntry } from '@/lib/videoDatePrepareEntry';
 import {
-  joinNativeVideoDateDailyPrewarm,
   preAuthNativeVideoDateDailyPrewarm,
   startNativeVideoDateDailyPrewarm,
 } from '@/lib/videoDateDailyPrewarm';
@@ -286,6 +285,9 @@ export default function ReadyGateScreen() {
           source: `ready_standalone_${source}`,
         });
         if (prewarm.ok) {
+          // Pre-authenticate only — do NOT join Daily from the ready route. The
+          // real join (which starts the backend handshake clock) is owned by
+          // /date (useVideoCall.startCall) so the warm-up window starts there.
           void preAuthNativeVideoDateDailyPrewarm({
             sessionId: sid,
             userId: user.id,
@@ -294,16 +296,6 @@ export default function ReadyGateScreen() {
             roomUrl: prepared.data.room_url,
             token: prepared.data.token,
             source: `ready_standalone_${source}`,
-          });
-          void joinNativeVideoDateDailyPrewarm({
-            sessionId: sid,
-            userId: user.id,
-            eventId: eventId ?? null,
-            roomName: prepared.data.room_name,
-            roomUrl: prepared.data.room_url,
-            token: prepared.data.token,
-            source: `ready_standalone_${source}`,
-            joinSource: 'both_ready',
           });
         }
         rcBreadcrumb(RC_CATEGORY.readyGate, 'standalone_navigate_to_date', {
@@ -868,7 +860,7 @@ export default function ReadyGateScreen() {
       ? 'failed'
       : transitioning || isBothReady
         ? 'checking'
-        : 'unknown',
+        : 'waiting',
     realtimeSyncStatus: realtimeDegraded || sequenceGapUnresolved ? 'warning' : 'ok',
     partnerReadinessStatus: isBothReady || partnerReady ? 'ok' : iAmReady ? 'warning' : 'checking',
   });
