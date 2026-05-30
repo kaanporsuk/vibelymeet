@@ -27,6 +27,7 @@ const outboxReconciliation = read("shared/chat/outboxReconciliation.ts");
 const webUploadMime = read("src/lib/webUploadMime.ts");
 const webVibeClipBubble = read("src/components/chat/VibeClipBubble.tsx");
 const webVideoBubble = read("src/components/chat/VideoMessageBubble.tsx");
+const webInlinePlaybackRegistry = read("src/components/chat/inlineVideoPlaybackRegistry.ts");
 const webVideoLightbox = read("src/components/chat/ChatVideoLightbox.tsx");
 const webStreamUpload = read("src/services/chatVibeClipStreamUploadService.ts");
 const webMediaSdkVideoUploads = read("src/lib/mediaSdk/webVideoUploads.ts");
@@ -416,7 +417,12 @@ test("video bubbles remain adaptive and full-width across web and native chat", 
   assert.match(webChat, /onRequestImmersive=\{handleRequestClipImmersive\}/);
   assert.match(webVibeClipBubble, /void refreshClipMedia\("preview"\)\.finally\(/);
   assert.match(webVibeClipBubble, /setPosterImageBroken\(true\)/);
+  assert.match(webVibeClipBubble, /if \(freshThumbnailUrl\) \{[\s\S]{0,220}setPosterImageBroken\(false\)/);
   assert.doesNotMatch(webVibeClipBubble, /if \(didRefresh\) posterRefreshAttemptedForRef\.current = null/);
+  assert.match(webInlinePlaybackRegistry, /registryPauseMarks/);
+  assert.match(webInlinePlaybackRegistry, /consumeInlineVideoPlaybackRegistryPause/);
+  assert.match(webVibeClipBubble, /consumeInlineVideoPlaybackRegistryPause\(video\)/);
+  assert.match(webVideoBubble, /consumeInlineVideoPlaybackRegistryPause\(video\)/);
   assert.match(webVibeClipBubble, /CLIP_PLAYBACK_LOAD_TIMEOUT_MS/);
   assert.match(webVibeClipBubble, /playbackRefreshAttemptCountRef\.current = 0;[\s\S]{0,160}setLoadError\(false\)/);
   assert.match(webVibeClipBubble, /aria-label=\{isMuted \? "Unmute clip" : "Mute clip"\}/);
@@ -968,6 +974,10 @@ test("server upload and publish paths enforce Bunny Stream Vibe Clip limits", ()
   assert.match(chatVibeClipRecoveryDismissalMigration, /idx_chat_vibe_clip_uploads_recovery_attention/);
   assert.match(chatVibeClipRecoveryDismissalMigration, /recovery_dismissed_at IS NULL/);
   assert.match(sendMessage, /const VIBE_CLIP_MAX_DURATION_MS = 30_000/);
+  assert.ok(
+    sendMessage.includes("chat-videos\\/([0-9a-fA-F-]{36})\\/([0-9a-fA-F-]{36})_"),
+    "send-message should verify legacy upload-chat-video sender scope refs",
+  );
   assert.match(sendMessage, /durationMs > VIBE_CLIP_MAX_DURATION_MS \+ VIBE_CLIP_DURATION_TOLERANCE_MS/);
   assert.match(sendMessage, /Video must be 30 seconds or shorter/);
   assert.match(sendMessage, /Math\.min\(VIBE_CLIP_MAX_DURATION_MS/);

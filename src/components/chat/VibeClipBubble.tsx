@@ -35,7 +35,11 @@ import {
   type ChatVibeClipProcessingStatus,
 } from "@/lib/mediaAssetResolver";
 import { hlsPlaybackErrorStatusCode } from "@/lib/vibeVideo/attachHlsPlayback";
-import { claimInlineVideoPlayback, releaseInlineVideoPlayback } from "@/components/chat/inlineVideoPlaybackRegistry";
+import {
+  claimInlineVideoPlayback,
+  consumeInlineVideoPlaybackRegistryPause,
+  releaseInlineVideoPlayback,
+} from "@/components/chat/inlineVideoPlaybackRegistry";
 import {
   resolveMediaFallbackCopy,
   resolveMediaFallbackReason,
@@ -421,6 +425,7 @@ export const VibeClipBubble = ({
     if (freshThumbnailUrl) {
       playableThumbnailUrlRef.current = freshThumbnailUrl;
       setPlayableThumbnailUrl(freshThumbnailUrl);
+      setPosterImageBroken(false);
       onResolvedThumbnailUrl?.(freshThumbnailUrl);
     }
     if (reason === "preview") return !!freshThumbnailUrl;
@@ -673,6 +678,7 @@ export const VibeClipBubble = ({
         }
       }).catch((err: unknown) => {
         const name = err instanceof Error ? err.name : "";
+        if (name === "AbortError" && consumeInlineVideoPlaybackRegistryPause(video)) return;
         if (name === "AbortError" || name === "NotAllowedError" || name === "NotSupportedError") {
           void refreshClipMedia().then((didRefresh) => {
             if (!didRefresh) {

@@ -10,6 +10,8 @@
 // shared provider, and pausing is a side-effect, not rendered UI.
 
 let activeInlineVideoEl: HTMLVideoElement | null = null;
+const registryPauseMarks = new WeakMap<HTMLVideoElement, number>();
+const REGISTRY_PAUSE_ABORT_GRACE_MS = 1500;
 
 /**
  * Mark `el` as the active inline video, pausing the previously active element if
@@ -21,13 +23,28 @@ export function claimInlineVideoPlayback(el: HTMLVideoElement | null): void {
   if (!el) return;
   if (activeInlineVideoEl && activeInlineVideoEl !== el && !activeInlineVideoEl.paused) {
     try {
+      registryPauseMarks.set(activeInlineVideoEl, Date.now());
       activeInlineVideoEl.pause();
     } catch {
       // Pausing a detached element can throw in rare cases; the registry is
       // best-effort, so swallow it.
+      registryPauseMarks.delete(activeInlineVideoEl);
     }
   }
   activeInlineVideoEl = el;
+}
+
+/**
+ * Returns true once for a recently registry-paused element. Browsers reject a
+ * pending play() promise with AbortError when another bubble pauses it; that is
+ * coordination, not a media failure.
+ */
+export function consumeInlineVideoPlaybackRegistryPause(el: HTMLVideoElement | null): boolean {
+  if (!el) return false;
+  const markedAt = registryPauseMarks.get(el);
+  if (markedAt == null) return false;
+  registryPauseMarks.delete(el);
+  return Date.now() - markedAt <= REGISTRY_PAUSE_ABORT_GRACE_MS;
 }
 
 /** Release `el` if it is the active element (e.g. on ended/unmount). */
@@ -35,4 +52,5 @@ export function releaseInlineVideoPlayback(el: HTMLVideoElement | null): void {
   if (el && activeInlineVideoEl === el) {
     activeInlineVideoEl = null;
   }
+  if (el) registryPauseMarks.delete(el);
 }

@@ -82,10 +82,16 @@ test("ReadyGate overlays reconcile both-ready into the prepare-entry handoff (li
     );
     assert.match(
       source,
-      /if \(!isBothReady\) return;\s*handleBothReady\(['"]both_ready_observed['"]\)/,
+      /if \(!isBothReady\) return;\s*(?:if \([^)]+StateSessionId !== sessionId\) return;\s*)?handleBothReady\(['"]both_ready_observed['"]\)/,
       `${name} overlay should drive handleBothReady when both are ready`,
     );
   }
+});
+
+test("web ReadyGate liveness guard ignores stale both-ready state after a session switch", () => {
+  assert.match(webReadyGate, /stateSessionId: readyGateStateSessionId/);
+  assert.match(webReadyGate, /if \(readyGateStateSessionId !== sessionId\) return;\s*handleBothReady\("both_ready_observed"\)/);
+  assert.match(webReadyGate, /readyGateStateSessionId,\s*sessionId/);
 });
 
 test("ReadyGate video_provider row stays neutral (waiting) until prepare-entry begins", () => {
