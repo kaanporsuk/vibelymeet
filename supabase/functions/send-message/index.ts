@@ -18,8 +18,15 @@ function mediaRefSenderScope(value: string): { matchId: string | null; userId: s
   } catch {
     // raw storage ref (not an absolute URL) — use as-is
   }
-  const m = path.match(/match-([0-9a-fA-F-]{36})\/([0-9a-fA-F-]{36})(?:\/|$)/);
-  return { matchId: m?.[1] ?? null, userId: m?.[2] ?? null };
+  const scoped = path.match(/match-([0-9a-fA-F-]{36})\/([0-9a-fA-F-]{36})(?:\/|$)/);
+  if (scoped) return { matchId: scoped[1] ?? null, userId: scoped[2] ?? null };
+
+  // Legacy upload-chat-video storage refs are shaped as:
+  // chat-videos/{matchId}/{senderId}_{timestamp}.{ext}
+  const legacyChatVideo = path.match(
+    /(?:^|\/)chat-videos\/([0-9a-fA-F-]{36})\/([0-9a-fA-F-]{36})_/,
+  );
+  return { matchId: legacyChatVideo?.[1] ?? null, userId: legacyChatVideo?.[2] ?? null };
 }
 
 /**

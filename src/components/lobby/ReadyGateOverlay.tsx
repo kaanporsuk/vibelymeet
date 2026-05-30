@@ -1499,6 +1499,7 @@ const ReadyGateOverlay = ({
     partnerReady,
     partnerReadyKnown,
     isBothReady,
+    stateSessionId: readyGateStateSessionId,
     partnerName,
     snoozedByPartner,
     expiresAt,
@@ -2046,8 +2047,9 @@ const ReadyGateOverlay = ({
   // it starts on first mount/session switch.
   useEffect(() => {
     if (!isBothReady) return;
+    if (readyGateStateSessionId !== sessionId) return;
     handleBothReady("both_ready_observed");
-  }, [isBothReady, handleBothReady]);
+  }, [isBothReady, handleBothReady, readyGateStateSessionId, sessionId]);
 
   useEffect(() => {
     if (!sessionId || !eventId || !user?.id) return;

@@ -9,7 +9,11 @@ import { usePrefersReducedMotion } from "@/hooks/usePrefersReducedMotion";
 import { useMediaVideoPreloadForVisibility } from "@/hooks/useMediaVideoPreloadPolicy";
 import { refreshMediaAsset as refreshResolvedMediaAsset } from "@/lib/mediaAssetResolver";
 import { hlsPlaybackErrorStatusCode } from "@/lib/vibeVideo/attachHlsPlayback";
-import { claimInlineVideoPlayback, releaseInlineVideoPlayback } from "@/components/chat/inlineVideoPlaybackRegistry";
+import {
+  claimInlineVideoPlayback,
+  consumeInlineVideoPlaybackRegistryPause,
+  releaseInlineVideoPlayback,
+} from "@/components/chat/inlineVideoPlaybackRegistry";
 import {
   resolveMediaFallbackCopy,
   resolveMediaFallbackReason,
@@ -291,6 +295,7 @@ export const VideoMessageBubble = ({
     if (video.paused) {
       video.play().then(() => setIsPlaying(true)).catch((err: unknown) => {
         const name = err instanceof Error ? err.name : "";
+        if (name === "AbortError" && consumeInlineVideoPlaybackRegistryPause(video)) return;
         if (name === "AbortError" || name === "NotAllowedError" || name === "NotSupportedError") {
           void tryRefreshAfterFailure().then((didRefresh) => {
             if (!didRefresh) {

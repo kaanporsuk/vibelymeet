@@ -48,6 +48,7 @@ import {
 } from "@clientShared/matching/videoDateBroadcastGapRecovery";
 
 interface ReadyGateState {
+  stateSessionId: string | null;
   status: ReadyGateStatus;
   iAmReady: boolean;
   partnerReady: boolean;
@@ -68,6 +69,7 @@ interface ReadyGateState {
 }
 
 const createInitialReadyGateState = (): ReadyGateState => ({
+  stateSessionId: null,
   status: ReadyGateStatus.Queued,
   iAmReady: initialReadyGateReadinessState.iAmReady,
   partnerReady: initialReadyGateReadinessState.partnerReady,
@@ -273,7 +275,10 @@ export const useReadyGate = ({ sessionId, eventId, onBothReady, onForfeited }: U
     broadcastV2Enabled: broadcastV2.enabled,
     aliasEnabled: readyGateResilientClockAlias.enabled,
   });
-  const [state, setState] = useState<ReadyGateState>(createInitialReadyGateState);
+  const [state, setState] = useState<ReadyGateState>(() => ({
+    ...createInitialReadyGateState(),
+    stateSessionId: sessionId,
+  }));
   const onBothReadyRef = useRef(onBothReady);
   const onForfeitedRef = useRef(onForfeited);
   const activeReadyGateSessionIdRef = useRef<string | null>(sessionId);
@@ -340,7 +345,10 @@ export const useReadyGate = ({ sessionId, eventId, onBothReady, onForfeited }: U
     };
     readyGateRealtimeSupervisorRef.current?.dispose();
     readyGateRealtimeSupervisorRef.current = null;
-    setState(createInitialReadyGateState());
+    setState({
+      ...createInitialReadyGateState(),
+      stateSessionId: sessionId,
+    });
   }, [sessionId]);
 
   useEffect(() => () => {
@@ -479,6 +487,7 @@ export const useReadyGate = ({ sessionId, eventId, onBothReady, onForfeited }: U
       });
 
       return {
+        stateSessionId: sessionId,
         status: nextStatus,
         iAmReady: readiness.iAmReady,
         partnerReady: readiness.partnerReady,
