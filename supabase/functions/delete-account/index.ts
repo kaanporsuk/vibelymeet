@@ -107,7 +107,9 @@ function shouldCancelStripeSubscription(status: string | null): boolean {
 }
 
 function isIdempotentStripeCancellationStatus(status: number): boolean {
-  return status === 404 || status === 410;
+  // Stripe 404 can mean a stale subscription id or wrong Stripe account/mode,
+  // so keep it retryable instead of marking local billing state as canceled.
+  return status === 410;
 }
 
 async function findPendingDeletionRequest(

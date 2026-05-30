@@ -29,6 +29,11 @@ assert.match(
   /#root\s*\{[\s\S]*min-height: 100%;[\s\S]*\}/,
   "Global root should retain full-height app sizing while clipping horizontal overflow",
 );
+assert.match(
+  indexCss,
+  /input:not\([\s\S]*\),\s*select,\s*textarea,\s*\[contenteditable="true"\]\s*\{[\s\S]*font-size: 16px;/,
+  "Mobile iOS focus zoom guard should include native select controls",
+);
 
 assert.doesNotMatch(
   profileStudio,

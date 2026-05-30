@@ -395,6 +395,9 @@ test("chat MatchCall refuses to steal non-terminal Daily singletons from other s
     assert.match(source, /answer_call_preflight/);
     assert.match(source, /start_call_preflight/);
     assert.match(source, /active_rejoin_preflight/);
+    assert.match(source, /if \(await hasBusyExternalDailyCall\(["']answer_call_preflight["']\)\)/);
+    assert.match(source, /if \(await hasBusyExternalDailyCall\(["']start_call_preflight["']\)\)/);
+    assert.match(source, /if \(!callObjectRef\.current && await hasBusyExternalDailyCall\(["']active_rejoin_preflight["']\)\)/);
     assert.match(source, /if \(!isBusyDailyMeetingState\(meetingState\)\) return false/);
     assert.match(source, /fresh_create_duplicate_daily_instance_busy/);
     assert.ok(

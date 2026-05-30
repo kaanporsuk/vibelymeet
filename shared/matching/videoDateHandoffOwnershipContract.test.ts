@@ -64,7 +64,22 @@ test("/date routes are the sole owners of the real Daily join + joined stamp", (
 });
 
 test("ReadyGate overlays reconcile both-ready into the prepare-entry handoff (liveness guard)", () => {
-  for (const [name, source] of [["web", webReadyGate], ["native", nativeReadyGate]] as Array<[string, string]>) {
+  for (const [name, source, resetMarker, guardMarker] of [
+    ["web", webReadyGate, 'releasePermissionPrewarmMedia("ready_gate_session_changed")', 'handleBothReady("both_ready_observed")'],
+    [
+      "native",
+      nativeReadyGate,
+      "setNativePermissionDiagnostics(defaultNativeReadyGatePermissionDiagnostics())",
+      "handleBothReady('both_ready_observed')",
+    ],
+  ] as Array<[string, string, string, string]>) {
+    const resetIndex = source.indexOf(resetMarker);
+    const guardIndex = source.indexOf(guardMarker);
+    assert.ok(resetIndex >= 0, `${name} overlay should reset session-owned handoff state`);
+    assert.ok(
+      guardIndex > resetIndex,
+      `${name} overlay liveness guard should run after session reset so reset cannot stale the handoff`,
+    );
     assert.match(
       source,
       /if \(!isBothReady\) return;\s*handleBothReady\(['"]both_ready_observed['"]\)/,

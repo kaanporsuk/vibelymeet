@@ -1052,7 +1052,7 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
     const pendingIncoming = incomingCallRef.current;
     if (!pendingIncoming) return;
 
-    if (hasBusyExternalDailyCall('answer_call_preflight')) {
+    if (await hasBusyExternalDailyCall('answer_call_preflight')) {
       Alert.alert('Call in progress', 'Finish your current call before answering.');
       return;
     }
@@ -1161,7 +1161,7 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
       if (startCallLockRef.current) return;
       if (trackedCallIdRef.current || incomingCallRef.current || callPhaseRef.current !== 'idle') return;
       startCallLockRef.current = true;
-      if (hasBusyExternalDailyCall('start_call_preflight')) {
+      if (await hasBusyExternalDailyCall('start_call_preflight')) {
         Alert.alert('Call in progress', 'Finish your current call before starting another one.');
         startCallLockRef.current = false;
         return;
@@ -1869,7 +1869,7 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
     async (row: MatchCallRow) => {
       if (!currentUserId) return;
 
-      if (!callObjectRef.current && hasBusyExternalDailyCall('active_rejoin_preflight')) {
+      if (!callObjectRef.current && await hasBusyExternalDailyCall('active_rejoin_preflight')) {
         Alert.alert('Call in progress', 'Finish your current call before joining.');
         return;
       }

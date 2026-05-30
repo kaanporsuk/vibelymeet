@@ -1510,17 +1510,6 @@ const ReadyGateOverlay = ({
     onForfeited: handleForfeited,
   });
 
-  // Both-ready liveness guard: if the orchestrator reports both participants
-  // ready but the one-shot onBothReady edge was missed (e.g. realtime degraded
-  // / "Status sync delayed"), still drive the prepare-entry handoff so the gate
-  // cannot silently stall on "Both ready. Connecting you now…". handleBothReady's
-  // prepareEntryHandoffStartedRef / dateNavigationStartedRef guards keep it
-  // idempotent against the onBothReady and reconcile paths.
-  useEffect(() => {
-    if (!isBothReady) return;
-    handleBothReady("both_ready_observed");
-  }, [isBothReady, handleBothReady]);
-
   useEffect(() => {
     orchestratorRealtimeDegradedRef.current = orchestratorRealtimeDegraded;
     if (orchestratorRealtimeDegraded) {
@@ -2037,6 +2026,17 @@ const ReadyGateOverlay = ({
     clearRealtimeFallbackCopy,
     clearOverlayRealtimeRecoveryTimer,
   ]);
+
+  // Both-ready liveness guard: if the orchestrator reports both participants
+  // ready but the one-shot onBothReady edge was missed (e.g. realtime degraded
+  // / "Status sync delayed"), still drive the prepare-entry handoff so the gate
+  // cannot silently stall on "Both ready. Connecting you now…". It must run
+  // after the session reset effect above so reset cannot invalidate the handoff
+  // it starts on first mount/session switch.
+  useEffect(() => {
+    if (!isBothReady) return;
+    handleBothReady("both_ready_observed");
+  }, [isBothReady, handleBothReady]);
 
   useEffect(() => {
     if (!sessionId || !eventId || !user?.id) return;
