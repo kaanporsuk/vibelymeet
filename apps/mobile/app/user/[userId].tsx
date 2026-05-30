@@ -138,7 +138,12 @@ export default function PublicProfileScreen() {
   return (
     <View style={{ flex: 1, backgroundColor: theme.background }}>
       {dialogEl}
-      <UserProfileFullView profile={profile} isOwnProfile={false} onClose={() => router.back()} />
+      <UserProfileFullView
+        profile={profile}
+        isOwnProfile={false}
+        onClose={() => router.back()}
+        enableInlineHeroPhotoPaging
+      />
 
       {user?.id && userId && !isUserBlocked(userId) ? (
         <View
