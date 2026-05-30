@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Image, Pressable, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Image as ExpoImage } from 'expo-image';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons } from '@expo/vector-icons';
 import { useVideoPlayer, VideoView, type VideoSource } from 'expo-video';
@@ -112,6 +113,10 @@ const INLINE_CLIP_MIN_ASPECT_RATIO = 0.78;
 const INLINE_CLIP_MAX_ASPECT_RATIO = 1.2;
 const INLINE_CLIP_MAX_HEIGHT = 360;
 const POSTER_PREVIEW_TIMEOUT_MS = 3500;
+// First-go poster reliability: Bunny can return a thumbnail URL before the image is
+// generated. Re-sign + reload on a bounded backoff so the first frame appears as soon
+// as Bunny catches up, without hammering the resolver. Mirrors the web VibeClipBubble.
+const POSTER_PREVIEW_RETRY_DELAYS_MS = [1000, 3000, 8000];
 const CLIP_PLAYBACK_LOAD_TIMEOUT_MS = 12_000;
 const MAX_CLIP_PLAYBACK_REFRESH_ATTEMPTS = 1;
 const CHAT_VIBE_CLIP_STATUS_SYNC_SAFETY_NET_INTERVAL_MS = 30_000;
@@ -174,7 +179,6 @@ function VibeClipPosterImage({
   placeholderHash,
   dominantColor,
   onPreviewStateChange,
-  onRefreshClipMedia,
 }: {
   uri: string | null;
   previewState: VibeClipPosterPreviewState;
@@ -182,7 +186,6 @@ function VibeClipPosterImage({
   placeholderHash?: string | null;
   dominantColor?: string | null;
   onPreviewStateChange?: (state: VibeClipPosterPreviewState, thumbnailUrl?: string | null) => void;
-  onRefreshClipMedia: (reason?: VibeClipMediaRefreshReason) => Promise<boolean>;
 }) {
   if (!uri || previewState === 'failed') {
     return (
@@ -200,17 +203,17 @@ function VibeClipPosterImage({
         hash={placeholderHash}
         dominantColor={dominantColor}
       />
-      <Image
+      <ExpoImage
         source={{ uri }}
         style={StyleSheet.absoluteFillObject}
-        resizeMode="cover"
+        contentFit="cover"
+        cachePolicy="memory-disk"
+        recyclingKey={uri}
         onLoad={() => onPreviewStateChange?.('ready', uri)}
         onError={() => {
-          void onRefreshClipMedia('preview')
-            .then((didRefresh) => {
-              if (!didRefresh) onPreviewStateChange?.('failed', uri);
-            })
-            .catch(() => onPreviewStateChange?.('failed', uri));
+          // Resolved URL but the file 404'd (Bunny still generating). Mark failed and
+          // let the parent's bounded retry re-sign + reload rather than firing here.
+          onPreviewStateChange?.('failed', uri);
         }}
       />
     </>
@@ -622,7 +625,6 @@ function VibeClipCardInner({
             placeholderHash={thumbnailPlaceholderHash}
             dominantColor={thumbnailDominantColor}
             onPreviewStateChange={onPosterPreviewStateChange}
-            onRefreshClipMedia={onRefreshClipMedia}
           />
         ) : null}
         {!isReady && !hasPosterVisual ? (
@@ -885,7 +887,6 @@ function VibeClipCardPosterOnly({
           placeholderHash={thumbnailPlaceholderHash}
           dominantColor={thumbnailDominantColor}
           onPreviewStateChange={onPosterPreviewStateChange}
-          onRefreshClipMedia={onRefreshClipMedia}
         />
         {!hasPosterVisual ? (
           <View style={styles.posterFallback} pointerEvents="none">
@@ -993,7 +994,8 @@ export function VibeClipCard(props: Props) {
   const [fallbackPosterPreviewState, setFallbackPosterPreviewState] =
     useState<VibeClipPosterPreviewState>('unknown');
   const playbackRefreshAttemptCountRef = useRef(0);
-  const posterRefreshAttemptedForRef = useRef<string | null>(null);
+  const posterRetryStateRef = useRef<{ key: string; attempts: number }>({ key: '', attempts: 0 });
+  const posterNotReadyRef = useRef(false);
   const localPreviewUnavailableForRef = useRef<string | null>(null);
   const playableVideoUrlRef = useRef(meta.videoUrl);
   const playableThumbnailUrlRef = useRef<string | null>(meta.thumbnailUrl ?? null);
@@ -1055,7 +1057,7 @@ export function VibeClipCard(props: Props) {
     setIsSyncingStatus(false);
     setFallbackPosterPreviewState('unknown');
     playbackRefreshAttemptCountRef.current = 0;
-    posterRefreshAttemptedForRef.current = null;
+    posterRetryStateRef.current = { key: '', attempts: 0 };
     readyRefreshKeyRef.current = null;
     statusSyncRunIdRef.current += 1;
     statusSyncInFlightRef.current = false;
@@ -1213,7 +1215,12 @@ export function VibeClipCard(props: Props) {
     ) {
       return false;
     }
-    const refreshOptions = reason === 'manual' ? { bypassFailureCooldown: true } : undefined;
+    const refreshOptions =
+      reason === 'manual'
+        ? { bypassFailureCooldown: true }
+        : reason === 'preview'
+          ? { bypassFailureCooldown: true, suppressFailureCache: true }
+          : undefined;
     if (reason === 'playback') {
       if (!videoSourceRef) return false;
       if (playbackRefreshAttemptCountRef.current >= MAX_CLIP_PLAYBACK_REFRESH_ATTEMPTS) return false;
@@ -1256,6 +1263,8 @@ export function VibeClipCard(props: Props) {
     const refreshKey = `${sparkMessageId}:${videoSourceRef ?? ''}:${thumbnailSourceRef ?? ''}`;
     if (readyRefreshKeyRef.current === refreshKey) return;
     readyRefreshKeyRef.current = refreshKey;
+    // The poster becomes available right as the clip turns ready — give it a fresh budget.
+    posterRetryStateRef.current = { key: '', attempts: 0 };
     void refreshClipMedia('manual');
   }, [processingStatus, refreshClipMedia, sparkMessageId, syncedProcessingStatus, thumbnailSourceRef, videoSourceRef]);
 
@@ -1266,22 +1275,48 @@ export function VibeClipCard(props: Props) {
     });
   }, [onRequestImmersive]);
 
+  // True while a poster is still expected but not displaying: unresolved ref, or
+  // resolved-but-broken (a 404 / load timeout before Bunny generated the thumbnail.jpg).
+  const posterNotReady =
+    !isSyncableServerProcessing &&
+    !!thumbnailSourceRef &&
+    (!playableThumbnailUrl ||
+      isResolvableMediaRef(playableThumbnailUrl) ||
+      effectivePosterPreviewState === 'failed');
   useEffect(() => {
-    const posterResolveKey = thumbnailSourceRef ?? playableThumbnailUrl ?? '';
-    const shouldResolvePosterPreview =
-      !isSyncableServerProcessing &&
-      !!thumbnailSourceRef &&
-      (!playableThumbnailUrl || isResolvableMediaRef(playableThumbnailUrl));
-    if (
-      !shouldResolvePosterPreview ||
-      !posterResolveKey ||
-      posterRefreshAttemptedForRef.current === posterResolveKey
-    ) {
-      return;
+    posterNotReadyRef.current = posterNotReady;
+  }, [posterNotReady]);
+
+  // Bounded first-go poster retry mirroring web: re-sign the thumbnail (new URL →
+  // <Image> reloads) on a [1s, 3s, 8s] backoff, capped per target so a thumbnail Bunny
+  // never generates cannot loop. Reset on target change / ready / manual retry.
+  useEffect(() => {
+    if (!sparkMessageId || !thumbnailSourceRef || !posterNotReady) return;
+    const retryKey = `${sparkMessageId}:${thumbnailSourceRef}`;
+    if (posterRetryStateRef.current.key !== retryKey) {
+      posterRetryStateRef.current = { key: retryKey, attempts: 0 };
     }
-    posterRefreshAttemptedForRef.current = posterResolveKey;
-    void refreshClipMedia('preview');
-  }, [isSyncableServerProcessing, playableThumbnailUrl, refreshClipMedia, thumbnailSourceRef]);
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const run = () => {
+      const state = posterRetryStateRef.current;
+      if (cancelled || state.attempts >= POSTER_PREVIEW_RETRY_DELAYS_MS.length) return;
+      const delay = POSTER_PREVIEW_RETRY_DELAYS_MS[state.attempts];
+      timer = setTimeout(() => {
+        timer = null;
+        if (cancelled || !posterNotReadyRef.current) return;
+        posterRetryStateRef.current.attempts += 1;
+        void refreshClipMedia('preview').finally(() => {
+          if (!cancelled && posterNotReadyRef.current) run();
+        });
+      }, delay);
+    };
+    run();
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+    };
+  }, [effectivePosterPreviewState, posterNotReady, refreshClipMedia, sparkMessageId, thumbnailSourceRef]);
 
   const resolvedMeta = {
     ...meta,
@@ -1338,6 +1373,7 @@ export function VibeClipCard(props: Props) {
       onRemountPlayer={() => setRetryNonce((n) => n + 1)}
       onResetPlaybackRefreshAttempt={() => {
         playbackRefreshAttemptCountRef.current = 0;
+        posterRetryStateRef.current = { key: '', attempts: 0 };
       }}
       playRequestToken={inlinePlayRequestToken}
       syncAttemptCount={syncAttemptCount}

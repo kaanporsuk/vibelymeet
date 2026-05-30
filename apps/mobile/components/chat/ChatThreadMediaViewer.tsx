@@ -3,12 +3,12 @@ import {
   Modal,
   View,
   Pressable,
-  Image,
   Dimensions,
   StyleSheet,
   Text,
   ActivityIndicator,
 } from 'react-native';
+import { Image as ExpoImage } from 'expo-image';
 import { Gesture, GestureDetector, GestureHandlerRootView } from 'react-native-gesture-handler';
 import Animated, {
   useSharedValue,
@@ -122,12 +122,13 @@ function ZoomablePhotoPage({
     <GestureDetector gesture={composed}>
       <Animated.View style={[styles.zoomShell, { width: W, height: H * 0.82 }]}>
         <Animated.View style={imageStyle}>
-          <Image
+          <ExpoImage
             source={{ uri }}
             style={{ width: maxW, height: maxH }}
-            resizeMode="contain"
+            contentFit="contain"
+            cachePolicy="memory-disk"
             accessibilityLabel="Chat photo"
-            onError={onLoadError}
+            onError={() => onLoadError?.()}
           />
         </Animated.View>
       </Animated.View>
@@ -566,10 +567,11 @@ function VideoViewerStage({
       <View style={styles.videoStageWrap}>
         <View style={[styles.videoFrame, { marginBottom: Math.max(12, insets.bottom + 8) }]}>
           {posterUri && phase === 'loading' ? (
-            <Image
+            <ExpoImage
               source={{ uri: posterUri }}
               style={StyleSheet.absoluteFillObject}
-              resizeMode="contain"
+              contentFit="contain"
+              cachePolicy="memory-disk"
               accessibilityElementsHidden
               importantForAccessibility="no-hide-descendants"
             />

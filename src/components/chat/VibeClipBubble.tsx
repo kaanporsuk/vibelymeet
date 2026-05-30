@@ -51,6 +51,10 @@ const CLIP_BUBBLE_WIDTH_CLASS = "w-[min(17.5rem,calc(100svw-4rem))] max-w-full";
 const CHAT_VIBE_CLIP_STATUS_SYNC_SAFETY_NET_INTERVAL_MS = 30_000;
 const CLIP_PLAYBACK_LOAD_TIMEOUT_MS = 12_000;
 const MAX_CLIP_PLAYBACK_REFRESH_ATTEMPTS = 1;
+// First-go poster reliability: Bunny can return a thumbnail URL before the image
+// is actually generated. Re-sign + reload the poster on a bounded backoff so the
+// first frame appears as soon as Bunny catches up, without hammering the resolver.
+const POSTER_PREVIEW_RETRY_DELAYS_MS = [1000, 3000, 8000];
 const VIBE_CLIP_CAPTIONS_PREF_KEY = "vibely:vibe-clip-captions";
 
 export type VibeClipLocalRecovery = {
@@ -140,6 +144,7 @@ export const VibeClipBubble = ({
   const [showReactBar, setShowReactBar] = useState(false);
   const [playableVideoUrl, setPlayableVideoUrl] = useState(meta.videoUrl);
   const [playableThumbnailUrl, setPlayableThumbnailUrl] = useState(meta.thumbnailUrl ?? null);
+  const [posterImageBroken, setPosterImageBroken] = useState(false);
   const [playRequested, setPlayRequested] = useState(false);
   const [syncedProcessingStatus, setSyncedProcessingStatus] = useState<ChatVibeClipProcessingStatus | null>(null);
   const [syncAttemptCount, setSyncAttemptCount] = useState(0);
@@ -151,7 +156,8 @@ export const VibeClipBubble = ({
   const playStartTracked = useRef(false);
   const playCompleteTracked = useRef(false);
   const playbackRefreshAttemptCountRef = useRef(0);
-  const posterRefreshAttemptedForRef = useRef<string | null>(null);
+  const posterRetryStateRef = useRef<{ key: string; attempts: number }>({ key: "", attempts: 0 });
+  const posterNotReadyRef = useRef(false);
   const playableVideoUrlRef = useRef(meta.videoUrl);
   const playableThumbnailUrlRef = useRef<string | null>(meta.thumbnailUrl ?? null);
   const readyRefreshKeyRef = useRef<string | null>(null);
@@ -239,7 +245,8 @@ export const VibeClipBubble = ({
     playStartTracked.current = false;
     playCompleteTracked.current = false;
     playbackRefreshAttemptCountRef.current = 0;
-    posterRefreshAttemptedForRef.current = null;
+    posterRetryStateRef.current = { key: "", attempts: 0 };
+    setPosterImageBroken(false);
     readyRefreshKeyRef.current = null;
     statusSyncRunIdRef.current += 1;
     statusSyncInFlightRef.current = false;
@@ -260,6 +267,8 @@ export const VibeClipBubble = ({
     if (!nextThumbnailUrl || nextThumbnailUrl === playableThumbnailUrlRef.current) return;
     playableThumbnailUrlRef.current = nextThumbnailUrl;
     setPlayableThumbnailUrl(nextThumbnailUrl);
+    // A freshly resolved URL deserves a clean load attempt before counting it broken.
+    setPosterImageBroken(false);
   }, [thumbnailAssetUrl]);
 
   const processingStatus = syncedProcessingStatus ?? meta.processingStatus;
@@ -298,6 +307,14 @@ export const VibeClipBubble = ({
     !isServerProcessing &&
     !!thumbnailSourceRef &&
     (!playableThumbnailUrl || isResolvableMediaRef(playableThumbnailUrl) || !canShowPosterImage);
+  // True while a poster is still expected but not yet displaying — either unresolved
+  // (shouldResolvePosterPreview) or resolved-but-broken (a 404 before Bunny generated it).
+  // Gated on !isReady: once the video's first frame is up the poster is irrelevant, so we
+  // stop retrying (avoids wasteful re-signs on an already-playing clip).
+  const posterNotReady =
+    !isReady &&
+    (shouldResolvePosterPreview ||
+      (!isServerProcessing && !!thumbnailSourceRef && posterImageBroken));
 
   const syncCurrentClipStatus = useCallback(async (): Promise<ChatVibeClipProcessingStatus | null> => {
     const result = await syncChatVibeClipUploadStatus({
@@ -387,7 +404,12 @@ export const VibeClipBubble = ({
 
   const refreshClipMedia = useCallback(async (reason: VibeClipMediaRefreshReason = "playback"): Promise<boolean> => {
     if (!sparkMessageId || (!videoSourceRef && !thumbnailSourceRef)) return false;
-    const refreshOptions = reason === "manual" ? { bypassFailureCooldown: true } : undefined;
+    const refreshOptions =
+      reason === "manual"
+        ? { bypassFailureCooldown: true }
+        : reason === "preview"
+          ? { bypassFailureCooldown: true, suppressFailureCache: true }
+          : undefined;
     if (reason === "playback") {
       if (!videoSourceRef) return false;
       if (playbackRefreshAttemptCountRef.current >= MAX_CLIP_PLAYBACK_REFRESH_ATTEMPTS) return false;
@@ -427,6 +449,9 @@ export const VibeClipBubble = ({
     const refreshKey = `${sparkMessageId}:${videoSourceRef ?? ""}:${thumbnailSourceRef ?? ""}`;
     if (readyRefreshKeyRef.current === refreshKey) return;
     readyRefreshKeyRef.current = refreshKey;
+    // The poster becomes available right as the clip turns ready — give it a fresh budget.
+    posterRetryStateRef.current = { key: "", attempts: 0 };
+    setPosterImageBroken(false);
     void refreshClipMedia("manual");
   }, [processingStatus, refreshClipMedia, sparkMessageId, syncedProcessingStatus, thumbnailSourceRef, videoSourceRef]);
 
@@ -438,17 +463,39 @@ export const VibeClipBubble = ({
   }, [onRequestImmersive]);
 
   useEffect(() => {
-    const posterResolveKey = thumbnailSourceRef ?? playableThumbnailUrl ?? "";
-    if (
-      !shouldResolvePosterPreview ||
-      !posterResolveKey ||
-      posterRefreshAttemptedForRef.current === posterResolveKey
-    ) {
-      return;
+    posterNotReadyRef.current = posterNotReady;
+  }, [posterNotReady]);
+
+  // Bounded first-go poster retry. Re-signs the thumbnail (new URL → <img> reloads)
+  // on a [1s, 3s, 8s] backoff while it is still missing/broken, capped per target so
+  // a never-generated thumbnail cannot loop. Reset on target change / ready / manual.
+  useEffect(() => {
+    if (!sparkMessageId || !thumbnailSourceRef || !posterNotReady) return;
+    const retryKey = `${sparkMessageId}:${thumbnailSourceRef}`;
+    if (posterRetryStateRef.current.key !== retryKey) {
+      posterRetryStateRef.current = { key: retryKey, attempts: 0 };
     }
-    posterRefreshAttemptedForRef.current = posterResolveKey;
-    void refreshClipMedia("preview");
-  }, [playableThumbnailUrl, refreshClipMedia, shouldResolvePosterPreview, thumbnailSourceRef]);
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const run = () => {
+      const state = posterRetryStateRef.current;
+      if (cancelled || state.attempts >= POSTER_PREVIEW_RETRY_DELAYS_MS.length) return;
+      const delay = POSTER_PREVIEW_RETRY_DELAYS_MS[state.attempts];
+      timer = setTimeout(() => {
+        timer = null;
+        if (cancelled || !posterNotReadyRef.current) return;
+        posterRetryStateRef.current.attempts += 1;
+        void refreshClipMedia("preview").finally(() => {
+          if (!cancelled && posterNotReadyRef.current) run();
+        });
+      }, delay);
+    };
+    run();
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+    };
+  }, [posterNotReady, refreshClipMedia, sparkMessageId, thumbnailSourceRef]);
 
   useEffect(() => {
     const vtt = mediaCaptionsToWebVtt(displayMeta.captions, displayMeta.durationMs);
@@ -781,6 +828,8 @@ export const VibeClipBubble = ({
             type="button"
             onClick={() => {
               playbackRefreshAttemptCountRef.current = 0;
+              posterRetryStateRef.current = { key: "", attempts: 0 };
+              setPosterImageBroken(false);
               setLoadError(false);
               setMediaFallbackReason(null);
               setIsLoading(true);
@@ -836,14 +885,17 @@ export const VibeClipBubble = ({
                 hash={thumbnailPlaceholderHash}
                 dominantColor={thumbnailDominantColor}
               />
-              {canShowPosterImage ? (
+              {canShowPosterImage && !posterImageBroken ? (
                 <img
                   src={displayMeta.thumbnailUrl ?? undefined}
                   alt=""
                   className="h-full w-full object-cover"
                   draggable={false}
                   onError={() => {
-                    void refreshClipMedia("preview");
+                    // Resolved URL but the file 404'd (Bunny still generating). Drop to the
+                    // blurhash placeholder (parity with native) and let the bounded retry
+                    // re-sign + reload rather than leaving a broken <img> on screen.
+                    setPosterImageBroken(true);
                   }}
                 />
               ) : (

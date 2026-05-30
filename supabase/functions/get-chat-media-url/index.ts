@@ -3,7 +3,7 @@ import { createClient, SupabaseClient } from "https://esm.sh/@supabase/supabase-
 import { isBlurhashValid } from "https://esm.sh/blurhash@2.0.5";
 import * as Sentry from "https://deno.land/x/sentry@8.55.0/index.mjs";
 import { bunnyStorageConfigForTier, type BunnyStorageZoneTier } from "../_shared/bunny-media.ts";
-import { signBunnyStreamDirectoryUrl } from "../_shared/bunny-stream-tokens.ts";
+import { signBunnyStorageUrl, signBunnyStreamDirectoryUrl } from "../_shared/bunny-stream-tokens.ts";
 import { corsHeadersForRequest, jsonResponse, preflightResponse } from "../_shared/cors.ts";
 import { syncChatMessageMedia } from "../_shared/media-lifecycle.ts";
 import { captureMediaTelemetry, sanitizeMediaTelemetryProperties } from "../_shared/media-telemetry.ts";
@@ -12,6 +12,8 @@ type MediaKind = "image" | "voice" | "video" | "vibe_clip" | "thumbnail" | "prof
 type MediaResolveVariant = "display" | "original";
 
 const TOKEN_TTL_SECONDS = 15 * 60;
+// Safety margin so a cached proxy response never outlives the signed token in its URL.
+const PROXY_CACHE_SAFETY_SECONDS = 15;
 const SENTRY_FLUSH_TIMEOUT_MS = 1000;
 const encoder = new TextEncoder();
 let sentryInitialized = false;
@@ -886,6 +888,44 @@ async function handleIssueUrl(req: Request): Promise<Response> {
     return jsonResponse(req, { success: false, error: "media_not_found" }, { status: 404, headers: corsHeaders });
   }
 
+  // Tier 2: prefer signed direct Bunny CDN delivery when configured + flag-enabled.
+  // Eliminates the Supabase Edge bandwidth + Bunny origin egress of the proxy and serves
+  // from Bunny's edge. Falls through to the proxy below when not configured (default).
+  const directCdn = directChatStorageCdnConfigForTier(storageZone);
+  if (directCdn) {
+    const directExpires = Math.floor(Date.now() / 1000) + TOKEN_TTL_SECONDS;
+    const directUrl = await signBunnyStorageUrl({
+      hostname: directCdn.hostname,
+      securityKey: directCdn.securityKey,
+      path: storageObject.path,
+      expires: directExpires,
+    });
+    logChatMediaUrl("info", "storage_direct_cdn_url_issued", {
+      message_id: scopedMessageId,
+      media_kind: mediaKind,
+      requester_id: user.id,
+      client_request_id: clientRequestId,
+      asset_id: asset.id,
+      provider: asset.provider,
+      storage_zone: storageZone,
+      expires_in_seconds: TOKEN_TTL_SECONDS,
+      variant: resolveVariant,
+      delivery: "direct_cdn",
+    });
+    return jsonResponse(
+      req,
+      {
+        success: true,
+        url: directUrl,
+        playbackKind: "progressive",
+        provider: "bunny_storage",
+        expiresInSeconds: TOKEN_TTL_SECONDS,
+        ...assetPresentationPayload(asset),
+      },
+      { headers: corsHeaders },
+    );
+  }
+
   const token = await createToken(tokenSecret, {
     sub: user.id,
     mid: scopedMessageId,
@@ -919,6 +959,31 @@ async function handleIssueUrl(req: Request): Promise<Response> {
     },
     { headers: corsHeaders },
   );
+}
+
+/**
+ * Tier-2 signed direct-CDN delivery for private chat Storage media. Returns null
+ * (→ Edge proxy fallback) unless `CHAT_MEDIA_DIRECT_CDN_ENABLED` is on AND a
+ * token-auth pull-zone hostname + security key are configured for the tier. Default
+ * off, so behavior is identical to the proxy path until explicitly enabled. Never
+ * reuses the public `BUNNY_CDN_HOSTNAME` (profile/event media) — chat media stays
+ * access-controlled via a dedicated token-auth zone.
+ */
+function directChatStorageCdnConfigForTier(
+  tier: BunnyStorageZoneTier,
+): { hostname: string; securityKey: string } | null {
+  const enabled = (Deno.env.get("CHAT_MEDIA_DIRECT_CDN_ENABLED") ?? "").trim().toLowerCase();
+  if (enabled !== "true" && enabled !== "1") return null;
+  const hostEnv = tier === "archive"
+    ? "BUNNY_CHAT_STORAGE_ARCHIVE_CDN_HOSTNAME"
+    : "BUNNY_CHAT_STORAGE_CDN_HOSTNAME";
+  const keyEnv = tier === "archive"
+    ? "BUNNY_CHAT_STORAGE_ARCHIVE_TOKEN_SECURITY_KEY"
+    : "BUNNY_CHAT_STORAGE_TOKEN_SECURITY_KEY";
+  const hostname = (Deno.env.get(hostEnv) ?? "").trim();
+  const securityKey = (Deno.env.get(keyEnv) ?? "").trim();
+  if (!hostname || !securityKey) return null;
+  return { hostname, securityKey };
 }
 
 async function handleProxy(req: Request): Promise<Response> {
@@ -974,7 +1039,19 @@ async function handleProxy(req: Request): Promise<Response> {
 
   const headers = new Headers(corsHeaders);
   headers.set("Content-Type", upstream.headers.get("Content-Type") || mime);
-  headers.set("Cache-Control", "private, max-age=60");
+  // Token-aligned client caching. Storage objects are content-addressed (req-{hash}) and
+  // therefore immutable, so the same signed URL can be reused for the full life of its
+  // token. Cap at the token TTL and subtract a safety margin so a cached response never
+  // outlives the token embedded in its URL. `private` keeps the per-user URL out of any
+  // shared/CDN cache. Replaces the previous fixed max-age=60, which forced repeat views
+  // within the token window to re-stream through Supabase + Bunny origin.
+  const nowSeconds = Math.floor(Date.now() / 1000);
+  const tokenExpSeconds = typeof claims.exp === "number" ? claims.exp : nowSeconds;
+  const proxyMaxAgeSeconds = Math.max(
+    0,
+    Math.min(TOKEN_TTL_SECONDS, tokenExpSeconds - nowSeconds - PROXY_CACHE_SAFETY_SECONDS),
+  );
+  headers.set("Cache-Control", `private, max-age=${proxyMaxAgeSeconds}, immutable`);
   headers.set("Accept-Ranges", upstream.headers.get("Accept-Ranges") || "bytes");
   for (const key of ["Content-Length", "Content-Range"]) {
     const value = upstream.headers.get(key);

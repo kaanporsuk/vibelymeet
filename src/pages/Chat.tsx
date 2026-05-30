@@ -664,6 +664,7 @@ function VibeClipMessageRow({
           <VideoMessageBubble
             videoUrl={fallbackVideoUrl}
             videoSourceRef={message.videoSourceRef}
+            thumbnailSourceRef={message.thumbnailSourceRef}
             messageId={message.id}
             mediaKind="vibe_clip"
             onResolvedVideoUrl={handleResolvedVideoUrl}
@@ -3161,6 +3162,7 @@ const Chat = () => {
                     <VideoMessageBubble
                       videoUrl={videoUrlForMessage(groupedMessage) ?? groupedMessage.videoUrl!}
                       videoSourceRef={groupedMessage.videoSourceRef}
+                      thumbnailSourceRef={groupedMessage.thumbnailSourceRef}
                       messageId={groupedMessage.id}
                       mediaKind="video"
                       onResolvedVideoUrl={(url) => rememberResolvedVideoUrl(groupedMessage.id, url)}
