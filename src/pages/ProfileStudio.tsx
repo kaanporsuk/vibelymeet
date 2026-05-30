@@ -957,17 +957,29 @@ const ProfileStudio = () => {
     }
 
     const viewport = window.visualViewport;
-    const handleBioViewportChange = () => {
+
+    const runBioViewportUpdate = () => {
       updateBioDrawerKeyboardStyle();
       nudgeBioFieldIntoView();
+    };
+
+    // Coalesce the keyboard-animation resize/scroll storm to one update per frame.
+    let rafId: number | null = null;
+    const handleBioViewportChange = () => {
+      if (rafId != null) return;
+      rafId = window.requestAnimationFrame(() => {
+        rafId = null;
+        runBioViewportUpdate();
+      });
     };
 
     viewport?.addEventListener("resize", handleBioViewportChange);
     viewport?.addEventListener("scroll", handleBioViewportChange);
     window.addEventListener("orientationchange", handleBioViewportChange);
-    handleBioViewportChange();
+    runBioViewportUpdate();
 
     return () => {
+      if (rafId != null) window.cancelAnimationFrame(rafId);
       clearBioDrawerNudges();
       clearBioDrawerKeyboardStyle();
       viewport?.removeEventListener("resize", handleBioViewportChange);
@@ -1117,17 +1129,29 @@ const ProfileStudio = () => {
     }
 
     const viewport = window.visualViewport;
-    const handlePromptViewportChange = () => {
+
+    const runPromptViewportUpdate = () => {
       updatePromptDrawerKeyboardStyle();
       nudgePromptAnswerIntoView();
+    };
+
+    // Coalesce the keyboard-animation resize/scroll storm to one update per frame.
+    let rafId: number | null = null;
+    const handlePromptViewportChange = () => {
+      if (rafId != null) return;
+      rafId = window.requestAnimationFrame(() => {
+        rafId = null;
+        runPromptViewportUpdate();
+      });
     };
 
     viewport?.addEventListener("resize", handlePromptViewportChange);
     viewport?.addEventListener("scroll", handlePromptViewportChange);
     window.addEventListener("orientationchange", handlePromptViewportChange);
-    handlePromptViewportChange();
+    runPromptViewportUpdate();
 
     return () => {
+      if (rafId != null) window.cancelAnimationFrame(rafId);
       clearPromptAnswerNudges();
       clearPromptDrawerKeyboardStyle();
       viewport?.removeEventListener("resize", handlePromptViewportChange);

@@ -91,5 +91,12 @@ export default function ProfilePreviewScreen() {
     );
   }
 
-  return <UserProfileFullView profile={previewProfile} isOwnProfile={false} onClose={() => router.back()} />;
+  return (
+    <UserProfileFullView
+      profile={previewProfile}
+      isOwnProfile={false}
+      onClose={() => router.back()}
+      enableInlineHeroPhotoPaging
+    />
+  );
 }

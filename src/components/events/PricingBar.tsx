@@ -54,7 +54,7 @@ const PricingBar = ({
         ? "Processing..."
         : price === 0
           ? "Register"
-          : "Purchase Ticket";
+          : "Reserve Spot";
 
   return (
     <div className="fixed bottom-0 left-0 right-0 z-40 glass-card border-t border-border/50 rounded-none">
@@ -78,7 +78,7 @@ const PricingBar = ({
               )}
             </div>
             <p className="text-xs text-muted-foreground">
-              {eventEnded ? "This event has ended" : soldOut ? "No spots left" : "Ticket price"}
+              {eventEnded ? "This event has ended" : soldOut ? "No spots left" : "Event price"}
             </p>
           </div>
 

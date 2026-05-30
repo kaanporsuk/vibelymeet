@@ -15,7 +15,7 @@ const GuestListTeaser = ({ viewerAdmission, visibleOtherCount }: GuestListTeaser
   const subtitle =
     viewerAdmission === "waitlisted"
       ? "Confirm your spot to see who you're most aligned with."
-      : "Get tickets to unlock personalized attendee previews.";
+      : "Reserve your spot to unlock personalized attendee previews.";
 
   const countLabel =
     visibleOtherCount === 1 ? "1 person visible to you" : `${visibleOtherCount} people visible to you`;

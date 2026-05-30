@@ -49,7 +49,7 @@ export function WhosGoingSection(props: Props) {
     const subtitle =
       viewerAdmission === 'waitlisted'
         ? "Confirm your spot to see who you're most aligned with."
-        : 'Get tickets to unlock personalized attendee previews.';
+        : 'Reserve your spot to unlock personalized attendee previews.';
 
     return (
       <View style={[styles.card, { backgroundColor: theme.surfaceSubtle, borderColor: theme.border }]}>

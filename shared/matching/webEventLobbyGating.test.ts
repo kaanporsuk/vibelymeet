@@ -58,7 +58,7 @@ test("missing event and stale direct links do not enable deck fetch", () => {
   assert.equal(gate({ eventId: undefined }).canFetchDeck, false);
 });
 
-test("registration gates block deck fetch for absent and non-confirmed seats", () => {
+test("registration gates block deck fetch for absent and non-confirmed registrations", () => {
   assert.equal(gate({ registration: { isConfirmed: false, isWaitlisted: false } }).kind, "not_registered");
   assert.equal(gate({ registration: { isConfirmed: false, isWaitlisted: false } }).canFetchDeck, false);
   assert.equal(gate({ registration: { isConfirmed: false, isWaitlisted: true } }).kind, "waitlisted");
@@ -154,7 +154,7 @@ test("native EventLobby blocks stale deck, status, foreground, and queue side ef
   assert.match(nativeEventsApi, /ended_at\?: string \| null/);
   assert.match(nativeLobby, /const lobbySideEffectsEnabled = Boolean\(/);
   assert.match(nativeLobby, /const deckQueryEnabled = Boolean\(/);
-  assert.match(nativeLobby, /const deckQueryEnabled = Boolean\([\s\S]+isConfirmedSeat[\s\S]+!pauseStatus\.isPaused[\s\S]+!isEventCancelled[\s\S]+!isEventArchived[\s\S]+!isEventDraft[\s\S]+!isEventEndedByTruth[\s\S]+resolvedEventLifecycle\?\.isLive/);
+  assert.match(nativeLobby, /const deckQueryEnabled = Boolean\([\s\S]+isConfirmedRegistration[\s\S]+!pauseStatus\.isPaused[\s\S]+!isEventCancelled[\s\S]+!isEventArchived[\s\S]+!isEventDraft[\s\S]+!isEventEndedByTruth[\s\S]+resolvedEventLifecycle\?\.isLive/);
   assert.match(nativeLobby, /useEventDeck\(\s*id,\s*user\?\.id \?\? null,\s*deckQueryEnabled,\s*\{ refetchIntervalMs: deckAdaptiveRefetchIntervalMs \},\s*\)/);
   assert.match(nativeLobby, /const queueHintEnabled =\s*deckQueryEnabled/);
   assert.match(nativeLobby, /useEventStatus\(id, user\?\.id \?\? undefined, lobbySideEffectsEnabled\)/);

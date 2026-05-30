@@ -124,7 +124,6 @@ type ReactionEmoji = "❤️" | "🔥" | "🤣" | "😮" | "👎";
 const DATE_SUGGESTION_KEYWORDS = ["free", "video", "call", "meet", "date", "tonight", "later", "available"];
 const CHAT_COMPOSER_CONTROL_CLASS = "h-10 w-10";
 const CHAT_DESKTOP_VIEWPORT_QUERY = "(min-width: 1024px)";
-const CHAT_MOBILE_KEYBOARD_THRESHOLD_PX = 96;
 const CHAT_MOBILE_KEYBOARD_STYLE_CLEAR_DELAY_MS = 240;
 const MATCHES_ROUTE = "/matches";
 const UPLOAD_ATTENTION_HIGHLIGHT_MS = 2200;
@@ -138,11 +137,18 @@ function isDesktopChatViewport(): boolean {
 }
 
 function chatMobileViewportStyleFromVisualViewport(viewport: VisualViewport): CSSProperties {
+  // Pin the overlay's top/left to 0 and only track height/width. Reading
+  // visualViewport.offsetTop and writing it back onto this position:fixed overlay
+  // is what made the container lurch on iOS Safari: when the keyboard opens, Safari
+  // auto-scrolls the layout viewport to reveal the focused input, spiking offsetTop
+  // mid-animation. The overlay's top edge must never move — only its bottom edge
+  // should rise to meet the keyboard (height shrink). The scroll lock below keeps
+  // offsetTop ~0 so this is stable in both interactive-widget modes.
   return {
     position: "fixed",
-    top: `${Math.max(0, viewport.offsetTop)}px`,
+    top: 0,
     bottom: "auto",
-    left: `${Math.max(0, viewport.offsetLeft)}px`,
+    left: 0,
     right: "auto",
     height: `${Math.max(1, viewport.height)}px`,
     width: `${Math.max(1, viewport.width)}px`,
@@ -902,18 +908,9 @@ const Chat = () => {
       return;
     }
 
-    const stableViewportHeight =
-      mobileKeyboardStableViewportHeightRef.current ?? Math.max(currentViewportHeight, currentLayoutHeight);
-    const keyboardOverlap = Math.max(
-      currentLayoutHeight - currentViewportHeight,
-      stableViewportHeight - currentViewportHeight,
-    );
-    if (keyboardOverlap < CHAT_MOBILE_KEYBOARD_THRESHOLD_PX) {
-      mobileKeyboardStableViewportHeightRef.current = Math.max(currentViewportHeight, currentLayoutHeight);
-      applyMobileViewportStyle(viewport);
-      return;
-    }
-
+    // With top pinned to 0, the scroll lock keeping offsetTop ~0, and the rAF-coalesced
+    // update path, there is no longer intermediate-frame jitter to suppress — always
+    // track visualViewport.height so the overlay's bottom edge rests above the keyboard.
     applyMobileViewportStyle(viewport);
   }, [applyMobileViewportStyle, clearMobileKeyboardViewportStyle, clearMobileKeyboardViewportStyleTimeout]);
 
@@ -923,6 +920,63 @@ const Chat = () => {
     },
     [clearMobileKeyboardViewportStyleTimeout],
   );
+
+  // Lock the document/layout viewport from scrolling while Chat is mounted on a
+  // mobile viewport. iOS Safari otherwise auto-scrolls the page to reveal the
+  // focused composer when the keyboard opens, spiking visualViewport.offsetTop and
+  // firing a storm of scroll/resize events — the source of the layout lurch. With
+  // scroll locked, offsetTop stays ~0 so the height-only overlay style is stable.
+  // No-op on desktop; engages/disengages across the 1024px breakpoint.
+  useEffect(() => {
+    if (typeof document === "undefined" || typeof window === "undefined") return;
+
+    const html = document.documentElement;
+    const body = document.body;
+    let locked = false;
+    let prevHtmlOverflow = "";
+    let prevBodyOverflow = "";
+    let prevHtmlOverscroll = "";
+    let prevBodyOverscroll = "";
+
+    const lock = () => {
+      if (locked) return;
+      locked = true;
+      prevHtmlOverflow = html.style.overflow;
+      prevBodyOverflow = body.style.overflow;
+      prevHtmlOverscroll = html.style.overscrollBehavior;
+      prevBodyOverscroll = body.style.overscrollBehavior;
+      html.style.overflow = "hidden";
+      body.style.overflow = "hidden";
+      html.style.overscrollBehavior = "none";
+      body.style.overscrollBehavior = "none";
+    };
+
+    const unlock = () => {
+      if (!locked) return;
+      locked = false;
+      html.style.overflow = prevHtmlOverflow;
+      body.style.overflow = prevBodyOverflow;
+      html.style.overscrollBehavior = prevHtmlOverscroll;
+      body.style.overscrollBehavior = prevBodyOverscroll;
+    };
+
+    const sync = () => {
+      if (isDesktopChatViewport()) unlock();
+      else lock();
+    };
+
+    sync();
+    const mql =
+      typeof window.matchMedia === "function" ? window.matchMedia(CHAT_DESKTOP_VIEWPORT_QUERY) : null;
+    mql?.addEventListener?.("change", sync);
+    window.addEventListener("orientationchange", sync);
+
+    return () => {
+      mql?.removeEventListener?.("change", sync);
+      window.removeEventListener("orientationchange", sync);
+      unlock();
+    };
+  }, []);
 
   const matchCall = useMatchCall({
     matchId: chatData?.matchId || null,
@@ -1762,12 +1816,24 @@ const Chat = () => {
   useEffect(() => {
     if (typeof window === "undefined") return;
     const viewport = window.visualViewport;
-    const handleMobileViewportChange = () => {
+
+    const runViewportUpdate = () => {
       updateMobileKeyboardViewportStyle();
       scheduleStickyBottomSnap({ instant: true });
     };
 
-    handleMobileViewportChange();
+    // Coalesce the resize/scroll event storm fired during the keyboard animation
+    // to at most one layout write per frame so the overlay tracks smoothly.
+    let rafId: number | null = null;
+    const handleMobileViewportChange = () => {
+      if (rafId != null) return;
+      rafId = window.requestAnimationFrame(() => {
+        rafId = null;
+        runViewportUpdate();
+      });
+    };
+
+    runViewportUpdate();
 
     if (viewport) {
       viewport.addEventListener("resize", handleMobileViewportChange);
@@ -1777,6 +1843,7 @@ const Chat = () => {
     window.addEventListener("orientationchange", handleMobileViewportChange);
 
     return () => {
+      if (rafId != null) window.cancelAnimationFrame(rafId);
       if (viewport) {
         viewport.removeEventListener("resize", handleMobileViewportChange);
         viewport.removeEventListener("scroll", handleMobileViewportChange);

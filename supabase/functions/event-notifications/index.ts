@@ -146,7 +146,11 @@ const handler = async (req: Request): Promise<Response> => {
     const formattedDate = formatEventDateUtc(event.event_date);
     const safeEventId = encodeURIComponent(String(event.id ?? eventId));
     const safeEventTitle = escapeHtml(event.title);
-    const safeLocationName = escapeHtml(event.location_name);
+    const rawCityContext = [event.city, event.country]
+      .map((part) => String(part ?? "").trim())
+      .filter(Boolean)
+      .join(", ");
+    const safeCityContext = escapeHtml(rawCityContext);
     const safeDescription = escapeHtml(truncateText(event.description, 150));
     const eventTitleForSubject = emailSubjectText(event.title, "Vibely Event");
 
@@ -195,7 +199,7 @@ const handler = async (req: Request): Promise<Response> => {
 	              <div style="background: rgba(139, 92, 246, 0.1); border: 2px solid rgba(139, 92, 246, 0.3); border-radius: 16px; padding: 24px; margin-bottom: 24px;">
 	                <h3 style="font-size: 18px; font-weight: bold; color: #8b5cf6; margin: 0 0 12px 0;">${safeEventTitle}</h3>
 	                <p style="color: #d1d5db; font-size: 14px; margin: 0 0 8px 0;">📅 ${escapeHtml(formattedDate)}</p>
-	                ${event.location_name ? `<p style="color: #d1d5db; font-size: 14px; margin: 0 0 8px 0;">📍 ${safeLocationName}</p>` : '<p style="color: #d1d5db; font-size: 14px; margin: 0 0 8px 0;">🌐 Virtual Event</p>'}
+	                ${safeCityContext ? `<p style="color: #d1d5db; font-size: 14px; margin: 0 0 8px 0;">🌐 Online event · For ${safeCityContext}</p>` : '<p style="color: #d1d5db; font-size: 14px; margin: 0 0 8px 0;">🌐 Online event</p>'}
 	                ${event.description ? `<p style="color: #9ca3af; font-size: 13px; margin: 12px 0 0 0;">${safeDescription}</p>` : ''}
 	              </div>
 

@@ -64,6 +64,7 @@ export type UserProfileFullViewProps = {
   onEditProfile?: () => void;
   onClose?: () => void;
   hideHero?: boolean;
+  enableInlineHeroPhotoPaging?: boolean;
 };
 
 const PHOTO_ZOOM_SCALE = 2;
@@ -394,6 +395,7 @@ export function UserProfileFullView({
   onEditProfile,
   onClose,
   hideHero = false,
+  enableInlineHeroPhotoPaging = false,
 }: UserProfileFullViewProps) {
   const insets = useSafeAreaInsets();
   const { width: winWidth, height: winHeight } = useWindowDimensions();
@@ -404,6 +406,8 @@ export function UserProfileFullView({
   const [hideVibingOnLabelAfterComplete, setHideVibingOnLabelAfterComplete] = useState(false);
   const [photoViewerIndex, setPhotoViewerIndex] = useState<number | null>(null);
   const [photoViewerZoomed, setPhotoViewerZoomed] = useState(false);
+  const [heroPhotoIndex, setHeroPhotoIndex] = useState(0);
+  const heroPagerRef = useRef<FlatList<string>>(null);
   const photoPagerRef = useRef<FlatList<string>>(null);
   const profileVibeVideoTtffTokenRef = useRef<string | null>(null);
   const photoViewerOpenBlockedUntilRef = useRef(Date.now() + PHOTO_VIEWER_OPEN_GUARD_MS);
@@ -441,7 +445,9 @@ export function UserProfileFullView({
     () => dedupeOtherUserPhotos(profile.photos, profile.avatar_url),
     [profile.photos, profile.avatar_url],
   );
-  const mainPhoto = photos[0] ?? profile.avatar_url ?? null;
+  const activeHeroPhotoIndex = photos.length > 0 ? Math.min(Math.max(0, heroPhotoIndex), photos.length - 1) : 0;
+  const mainPhoto = photos[activeHeroPhotoIndex] ?? profile.avatar_url ?? null;
+  const inlineHeroPhotoPagingEnabled = enableInlineHeroPhotoPaging && photos.length > 1;
   const nameTrim = profile.name?.trim() ?? '';
   const age = calculateAgeFromBirthDate(profile.birth_date) ?? profile.age;
   const tagline = profile.tagline?.trim();
@@ -571,9 +577,22 @@ export function UserProfileFullView({
   useEffect(() => {
     blockPhotoViewerOpens(PHOTO_VIEWER_OPEN_GUARD_MS);
     photoViewerTouchIntentRef.current = null;
+    setHeroPhotoIndex(0);
     setPhotoViewerZoomed(false);
     setPhotoViewerIndex(null);
   }, [blockPhotoViewerOpens, profile.id]);
+
+  useEffect(() => {
+    if (heroPhotoIndex < photos.length) return;
+    setHeroPhotoIndex(0);
+  }, [heroPhotoIndex, photos.length]);
+
+  useEffect(() => {
+    if (!inlineHeroPhotoPagingEnabled || photos.length === 0) return;
+    requestAnimationFrame(() => {
+      heroPagerRef.current?.scrollToIndex({ index: activeHeroPhotoIndex, animated: false });
+    });
+  }, [activeHeroPhotoIndex, inlineHeroPhotoPagingEnabled, photos.length, winWidth]);
 
   useEffect(() => {
     if (photoViewerIndex === null) return;
@@ -643,6 +662,22 @@ export function UserProfileFullView({
     setPhotoViewerZoomed(false);
     setPhotoViewerIndex(index);
   }, [photoViewerIndex, photos.length, prefetchPhotosAround]);
+
+  const handleHeroPhotoScrollBeginDrag = useCallback(() => {
+    photoViewerTouchIntentRef.current = null;
+  }, []);
+
+  const handleHeroPhotoMomentumEnd = useCallback(
+    (event: NativeSyntheticEvent<NativeScrollEvent>) => {
+      const idx = Math.round(event.nativeEvent.contentOffset.x / winWidth);
+      if (idx < 0 || idx >= photos.length || idx === heroPhotoIndex) return;
+      photoViewerTouchIntentRef.current = null;
+      setHeroPhotoIndex(idx);
+      prefetchPhotosAround(idx);
+    },
+    [heroPhotoIndex, photos.length, prefetchPhotosAround, winWidth],
+  );
+  const handleHeroPhotoScrollEndDrag = handleHeroPhotoMomentumEnd;
 
   const handlePhotoPagerMomentumEnd = useCallback(
     (event: NativeSyntheticEvent<NativeScrollEvent>) => {
@@ -723,6 +758,22 @@ export function UserProfileFullView({
     [activePhotoViewerIndex, photos.length, winHeight, winWidth],
   );
 
+  const renderHeroPhotoItem = useCallback(
+    ({ item: url, index: i }: { item: string; index: number }) => (
+      <RNView style={{ width: winWidth, height: heroHeight }}>
+        <AdaptiveNativeProfileMedia
+          uri={url}
+          height={heroHeight}
+          onPressIn={() => registerPhotoViewerTouchIntent(i)}
+          onPress={() => openPhotoViewer(i)}
+          onAccessibilityActivate={() => openPhotoViewer(i, 'accessibility')}
+          accessibilityLabel={`View photo ${i + 1} of ${photos.length}`}
+        />
+      </RNView>
+    ),
+    [heroHeight, openPhotoViewer, photos.length, registerPhotoViewerTouchIntent, winWidth],
+  );
+
   return (
     <RNView style={{ flex: 1, backgroundColor: theme.background }}>
       <ScrollView
@@ -734,13 +785,43 @@ export function UserProfileFullView({
           <>
             <RNView style={[s.hero, { height: heroHeight, backgroundColor: theme.surfaceSubtle }]}>
               {mainPhoto ? (
-                <AdaptiveNativeProfileMedia
-                  uri={mainPhoto}
-                  height={heroHeight}
-                  onPressIn={() => registerPhotoViewerTouchIntent(0)}
-                  onPress={() => openPhotoViewer(0)}
-                  onAccessibilityActivate={() => openPhotoViewer(0, 'accessibility')}
-                />
+                inlineHeroPhotoPagingEnabled ? (
+                  <FlatList
+                    ref={heroPagerRef}
+                    data={photos}
+                    horizontal
+                    pagingEnabled
+                    showsHorizontalScrollIndicator={false}
+                    bounces={false}
+                    initialNumToRender={1}
+                    maxToRenderPerBatch={2}
+                    windowSize={3}
+                    style={s.heroPager}
+                    keyExtractor={(url, i) => `hero-${i}-${url}`}
+                    getItemLayout={(_, index) => ({
+                      length: winWidth,
+                      offset: winWidth * index,
+                      index,
+                    })}
+                    onScrollBeginDrag={handleHeroPhotoScrollBeginDrag}
+                    onScrollEndDrag={handleHeroPhotoScrollEndDrag}
+                    onMomentumScrollEnd={handleHeroPhotoMomentumEnd}
+                    onScrollToIndexFailed={(info) => {
+                      requestAnimationFrame(() => {
+                        heroPagerRef.current?.scrollToIndex({ index: info.index, animated: false });
+                      });
+                    }}
+                    renderItem={renderHeroPhotoItem}
+                  />
+                ) : (
+                  <AdaptiveNativeProfileMedia
+                    uri={mainPhoto}
+                    height={heroHeight}
+                    onPressIn={() => registerPhotoViewerTouchIntent(activeHeroPhotoIndex)}
+                    onPress={() => openPhotoViewer(activeHeroPhotoIndex)}
+                    onAccessibilityActivate={() => openPhotoViewer(activeHeroPhotoIndex, 'accessibility')}
+                  />
+                )
               ) : (
                 <RNView style={[s.adaptiveFallback, { height: heroHeight }]}>
                   <Ionicons name="person" size={64} color={theme.mutedForeground} />
@@ -1176,6 +1257,10 @@ const s = StyleSheet.create({
   hero: {
     width: '100%',
     overflow: 'hidden',
+  },
+  heroPager: {
+    width: '100%',
+    height: '100%',
   },
   adaptiveMedia: {
     width: '100%',

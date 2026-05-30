@@ -1,5 +1,5 @@
 /**
- * Ticket stub modal — web parity: admission label and virtual / in-person messaging.
+ * Registration stub modal — web parity: admission label and online access messaging.
  */
 
 import React from 'react';
@@ -8,7 +8,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { spacing, radius, typography } from '@/constants/theme';
 import Colors from '@/constants/Colors';
 import { useColorScheme } from '@/components/useColorScheme';
-import type { BookingAdmissionStatus } from '@/components/events/ManageBookingModal';
+import type { RegistrationAdmissionStatus } from '@/components/events/ManageRegistrationModal';
 
 type Props = {
   visible: boolean;
@@ -16,21 +16,17 @@ type Props = {
   eventTitle: string;
   eventDate: string;
   eventTime: string;
-  venue: string;
-  ticketNumber: string;
-  isVirtual?: boolean;
-  admissionStatus?: BookingAdmissionStatus;
+  registrationNumber: string;
+  admissionStatus?: RegistrationAdmissionStatus;
 };
 
-export function TicketStub({
+export function RegistrationStub({
   visible,
   onClose,
   eventTitle,
   eventDate,
   eventTime,
-  venue,
-  ticketNumber,
-  isVirtual = false,
+  registrationNumber,
   admissionStatus = 'confirmed',
 }: Props) {
   const colorScheme = useColorScheme();
@@ -41,22 +37,20 @@ export function TicketStub({
 
   const label = isWaitlisted
     ? 'Waitlist spot'
-    : isVirtual
-      ? 'Vibely Registration'
-      : 'Vibely Ticket';
+    : 'Vibely Registration';
 
   return (
-    <Modal visible transparent animationType="slide">
+    <Modal visible transparent animationType="slide" onRequestClose={onClose}>
       <Pressable style={styles.backdrop} onPress={onClose}>
         <Pressable style={[styles.sheet, { backgroundColor: theme.surface, borderColor: theme.border }]} onPress={(e) => e.stopPropagation()}>
           <View style={[styles.sheetHandle, { backgroundColor: theme.muted }]} />
           <View style={[styles.header, { backgroundColor: theme.tintSoft }]}>
-            <View style={[styles.ticketIcon, { backgroundColor: theme.tint }]}>
-              <Ionicons name="ticket" size={24} color="#fff" />
+            <View style={[styles.registrationIcon, { backgroundColor: theme.tint }]}>
+              <Ionicons name="checkmark-circle" size={24} color="#fff" />
             </View>
             <View style={{ flex: 1 }}>
-              <Text style={[styles.ticketLabel, { color: theme.mutedForeground }]}>{label}</Text>
-              {!isVirtual ? <Text style={[styles.ticketNumber, { color: theme.text }]}>{ticketNumber}</Text> : null}
+              <Text style={[styles.registrationLabel, { color: theme.mutedForeground }]}>{label}</Text>
+              <Text style={[styles.registrationNumber, { color: theme.text }]}>{registrationNumber}</Text>
             </View>
           </View>
           <Text style={[styles.eventTitle, { color: theme.text }]}>{eventTitle}</Text>
@@ -73,34 +67,21 @@ export function TicketStub({
               <Text style={[styles.value, { color: theme.text }]}>{eventTime}</Text>
             </View>
             <View style={styles.row}>
-              <Ionicons name="location-outline" size={20} color={theme.tint} />
-              <Text style={[styles.label, { color: theme.mutedForeground }]}>Location</Text>
+              <Ionicons name="videocam-outline" size={20} color={theme.tint} />
+              <Text style={[styles.label, { color: theme.mutedForeground }]}>Access</Text>
               <Text style={[styles.value, { color: theme.text }]} numberOfLines={2}>
-                {isVirtual ? 'Virtual • Video Speed Dating' : venue}
+                Digital Lobby
               </Text>
             </View>
           </View>
-          {isVirtual ? (
-            <View style={[styles.extraBlock, { borderColor: theme.border }]}>
-              <Ionicons name="videocam" size={28} color={theme.tint} />
-              <Text style={[styles.extraText, { color: theme.mutedForeground }]}>
-                {isWaitlisted
-                  ? 'Enter Lobby is for confirmed guests. If you’re promoted from the waitlist, use Enter Lobby when the event is live.'
-                  : 'When the event goes live, use Enter Lobby from the event page to join.'}
-              </Text>
-            </View>
-          ) : isWaitlisted ? (
-            <View style={[styles.extraBlock, { borderColor: theme.border }]}>
-              <Text style={[styles.extraText, { color: theme.mutedForeground }]}>
-                Waitlist — not a confirmed seat yet. In-person check-in details appear if you’re promoted before the event.
-              </Text>
-            </View>
-          ) : (
-            <View style={[styles.extraBlock, { borderColor: theme.border }]}>
-              <Ionicons name="qr-code" size={48} color={theme.textSecondary} />
-              <Text style={[styles.extraText, { color: theme.mutedForeground }]}>Show this ticket at entry</Text>
-            </View>
-          )}
+          <View style={[styles.extraBlock, { borderColor: theme.border }]}>
+            <Ionicons name="videocam" size={28} color={theme.tint} />
+            <Text style={[styles.extraText, { color: theme.mutedForeground }]}>
+              {isWaitlisted
+                ? 'Enter Lobby is for confirmed guests. If you’re promoted from the waitlist, use Enter Lobby when the event is live.'
+                : 'When the event goes live, use Enter Lobby from the event page to join.'}
+            </Text>
+          </View>
           <Text style={[styles.dismissHint, { color: theme.mutedForeground }]}>Tap outside to close</Text>
         </Pressable>
       </Pressable>
@@ -138,19 +119,19 @@ const styles = StyleSheet.create({
     borderRadius: radius.xl,
     marginBottom: spacing.lg,
   },
-  ticketIcon: {
+  registrationIcon: {
     width: 44,
     height: 44,
     borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  ticketLabel: {
+  registrationLabel: {
     fontSize: 12,
     fontWeight: '600',
     textTransform: 'uppercase',
   },
-  ticketNumber: {
+  registrationNumber: {
     fontSize: 14,
     fontWeight: '600',
   },

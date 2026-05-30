@@ -92,7 +92,7 @@ export default function EventPaymentSuccessScreen() {
     <View style={[styles.container, { backgroundColor: theme.background, paddingTop: insets.top }]}>
       <View style={styles.content}>
         <View style={[styles.iconWrap, { backgroundColor: iconBg }]}>
-          <Ionicons name={isEventCancelled ? 'alert-circle-outline' : 'ticket'} size={56} color={iconColor} />
+          <Ionicons name={isEventCancelled ? 'alert-circle-outline' : 'calendar-outline'} size={56} color={iconColor} />
         </View>
         <Text style={[styles.title, { color: theme.text }]}>{headline}</Text>
         {eventTitle ? (

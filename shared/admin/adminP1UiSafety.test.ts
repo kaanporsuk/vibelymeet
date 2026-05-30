@@ -385,7 +385,7 @@ test("quick actions show only actionable upcoming events", () => {
   assert.match(adminQuickActions, /Unable to load Quick Actions/);
   assert.match(adminQuickActions, /Counts are hidden until the backend overview read succeeds/);
   assert.match(adminQuickActions, /Actionable Upcoming Events/);
-  assert.match(adminQuickActions, /Registered seats/);
+  assert.match(adminQuickActions, /Registered spots/);
   assert.doesNotMatch(adminQuickActions, /resolveEventLifecycle/);
   assert.doesNotMatch(adminQuickActions, /\.from\(['"]events['"]\)/);
   assert.doesNotMatch(adminQuickActions, /\.not\(['"]status['"]/);

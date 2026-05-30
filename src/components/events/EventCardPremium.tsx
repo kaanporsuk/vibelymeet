@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { trackEvent } from "@/lib/analytics";
 import { motion, AnimatePresence } from "framer-motion";
-import { Ticket, MapPin, Globe } from "lucide-react";
+import { CalendarCheck, MapPin, Globe } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { getLanguageLabel } from "@/lib/eventLanguages";
@@ -247,8 +247,8 @@ export const EventCardPremium = ({
               animate={{ scale: 1, opacity: 1 }}
               className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl bg-neon-cyan/10 border border-neon-cyan/30 text-neon-cyan font-medium"
             >
-              <Ticket className="w-4 h-4" />
-              {isConfirmed ? "View Ticket" : "On waitlist"}
+              <CalendarCheck className="w-4 h-4" />
+              {isConfirmed ? "View Registration" : "On waitlist"}
             </motion.button>
           ) : (
             <motion.div key="register" whileTap={{ scale: 0.97 }}>
@@ -263,7 +263,7 @@ export const EventCardPremium = ({
                   animate={{ opacity: 1, y: 0 }}
                   exit={{ opacity: 0, y: -10 }}
                 >
-                  Get Tickets
+                  Reserve Spot
                 </motion.span>
               </Button>
             </motion.div>

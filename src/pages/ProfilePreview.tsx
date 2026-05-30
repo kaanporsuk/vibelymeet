@@ -79,7 +79,13 @@ const ProfilePreview = () => {
     );
   }
 
-  return <OtherUserFullProfileView profile={previewProfile} onClose={handleClose} />;
+  return (
+    <OtherUserFullProfileView
+      profile={previewProfile}
+      onClose={handleClose}
+      enableInlineHeroPhotoPaging
+    />
+  );
 };
 
 export default ProfilePreview;

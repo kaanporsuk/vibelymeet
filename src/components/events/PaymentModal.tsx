@@ -9,7 +9,6 @@ import { toast } from "sonner";
 interface PaymentModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onSuccess: () => void;
   eventId: string;
   eventTitle: string;
   eventDate: string;
@@ -19,7 +18,6 @@ interface PaymentModalProps {
 const PaymentModal = ({
   isOpen,
   onClose,
-  onSuccess,
   eventId,
   eventTitle,
   eventDate,
@@ -117,7 +115,7 @@ const PaymentModal = ({
                 
                 <div className="flex justify-between items-center">
                   <div className="flex items-center gap-2">
-                    <span className="text-sm text-muted-foreground">Ticket</span>
+                    <span className="text-sm text-muted-foreground">Registration</span>
                   </div>
                   <span className="text-xl font-bold text-foreground">
                     €{price.toFixed(2)}
@@ -149,9 +147,9 @@ const PaymentModal = ({
                     className="mt-0.5 border-primary data-[state=checked]:bg-primary data-[state=checked]:border-primary"
                   />
                   <span className="text-sm text-muted-foreground leading-relaxed">
-                    I understand that this ticket secures my spot and is{" "}
+                    I understand that this registration secures my spot and is{" "}
                     <span className="text-destructive font-medium">non-refundable</span>.
-                    Cancellation will forfeit the ticket and release my spot to the waitlist. Refund exceptions are
+                    Cancellation will release my spot to the waitlist. Refund exceptions are
                     reviewed manually by support and are not automatic in-app.
                   </span>
                 </label>

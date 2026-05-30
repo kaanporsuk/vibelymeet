@@ -192,21 +192,21 @@ function useFeaturedCountdown(event: EventListItem | null) {
   return { timeLeft, isLive, expired };
 }
 
-// ── Featured hero card (first/upcoming event; web FeaturedEventCard parity — taller, countdown, View Ticket)
+// ── Featured hero card (first/upcoming event; web FeaturedEventCard parity — taller, countdown, registration CTA)
 function FeaturedEventCard({
   event,
   theme,
   onPress,
-  isConfirmedSeat,
-  isWaitlistedSeat,
+  isConfirmedAdmission,
+  isWaitlistedAdmission,
   attendees,
   attendeePreview,
 }: {
   event: EventListItem;
   theme: (typeof Colors)[keyof typeof Colors];
   onPress: () => void;
-  isConfirmedSeat?: boolean;
-  isWaitlistedSeat?: boolean;
+  isConfirmedAdmission?: boolean;
+  isWaitlistedAdmission?: boolean;
   attendees?: EventAttendee[];
   attendeePreview?: EventAttendeePreviewPayload;
 }) {
@@ -364,16 +364,16 @@ function FeaturedEventCard({
                 style={[
                   featuredStyles.cta,
                   {
-                    backgroundColor: isConfirmedSeat
+                    backgroundColor: isConfirmedAdmission
                       ? theme.neonCyan
-                      : isWaitlistedSeat
+                      : isWaitlistedAdmission
                         ? '#d97706'
                         : theme.accent,
                   },
                 ]}
               >
                 <Text style={featuredStyles.ctaLabel}>
-                  {isConfirmedSeat ? 'View Ticket' : isWaitlistedSeat ? 'On waitlist' : 'Get Tickets'}
+                  {isConfirmedAdmission ? 'View Registration' : isWaitlistedAdmission ? 'On waitlist' : 'Reserve Spot'}
                 </Text>
                 <Ionicons name="arrow-forward" size={16} color="#fff" />
               </View>
@@ -579,7 +579,7 @@ function EventRailCard({
 	          </Text>
         </View>
         <View style={[railCardStyles.cta, { backgroundColor: theme.tint }]}>
-          <Text style={railCardStyles.ctaLabel}>Get Tickets</Text>
+          <Text style={railCardStyles.ctaLabel}>Reserve Spot</Text>
         </View>
       </View>
     </Pressable>
@@ -1268,8 +1268,8 @@ export default function EventsListScreen() {
                 event={featuredEvent}
                 theme={theme}
                 onPress={() => handleEventPress(featuredEvent.id)}
-                isConfirmedSeat={!!isRegisteredForFeatured?.isConfirmed}
-                isWaitlistedSeat={!!isRegisteredForFeatured?.isWaitlisted}
+                isConfirmedAdmission={!!isRegisteredForFeatured?.isConfirmed}
+                isWaitlistedAdmission={!!isRegisteredForFeatured?.isWaitlisted}
                 attendees={featuredAttendees}
                 attendeePreview={featuredAttendeePreview}
               />

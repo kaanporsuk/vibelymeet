@@ -40,10 +40,10 @@ import { eventCoverUrl, avatarUrl } from '@/lib/imageUrl';
 import { InviteFriendsSheet } from '@/components/invite/InviteFriendsSheet';
 import { VenueCard } from '@/components/events/VenueCard';
 import { PricingBar } from '@/components/events/PricingBar';
-import { ManageBookingModal } from '@/components/events/ManageBookingModal';
+import { ManageRegistrationModal } from '@/components/events/ManageRegistrationModal';
 import { WhosGoingSection, type AttendeeDisplay } from '@/components/events/WhosGoingSection';
 import { MutualVibesSection } from '@/components/events/MutualVibesSection';
-import { TicketStub } from '@/components/events/TicketStub';
+import { RegistrationStub } from '@/components/events/RegistrationStub';
 import { supabase } from '@/lib/supabase';
 import { trackEvent } from '@/lib/analytics';
 import { format } from 'date-fns';
@@ -83,8 +83,8 @@ export default function EventDetailScreen() {
   const isWaitlisted = regSnapshot?.isWaitlisted ?? false;
   const hasAdmission = isConfirmed || isWaitlisted;
   const { registerForEvent, unregisterFromEvent, isRegistering, isUnregistering } = useRegisterForEvent();
-  const [showManageBooking, setShowManageBooking] = useState(false);
-  const [showTicket, setShowTicket] = useState(false);
+  const [showManageRegistration, setShowManageRegistration] = useState(false);
+  const [showRegistrationStub, setShowRegistrationStub] = useState(false);
   const [isPurchasing, setIsPurchasing] = useState(false);
   const [showFullDesc, setShowFullDesc] = useState(false);
   const [showInviteSheet, setShowInviteSheet] = useState(false);
@@ -291,8 +291,6 @@ export default function EventDetailScreen() {
     const ok = await registerForEvent(event.id);
     if (ok) {
       const { data: regSnap } = await refetchRegistration();
-      const evRow = event as EventDetailsRow;
-      const registrationIsVirtual = !evRow.is_location_specific;
       if (regSnap?.isWaitlisted) {
         showDialog({
           title: 'You’re on the waitlist',
@@ -304,16 +302,14 @@ export default function EventDetailScreen() {
       } else if (regSnap?.isConfirmed) {
         showDialog({
           title: 'You’re in!',
-          message: registrationIsVirtual
-            ? 'Your spot is confirmed. You’ll be able to join when the event goes live.'
-            : 'Your spot is confirmed. Check your email for details.',
+          message: 'Your spot is confirmed. You’ll be able to join when the event goes live.',
           variant: 'success',
           primaryAction: { label: 'Great', onPress: () => {} },
         });
       } else {
         showDialog({
           title: 'Registration received',
-          message: 'Hang tight while we sync your booking on this page.',
+          message: 'Hang tight while we sync your registration on this page.',
           variant: 'success',
           primaryAction: { label: 'OK', onPress: () => {} },
         });
@@ -430,10 +426,10 @@ export default function EventDetailScreen() {
   const handleUnregister = useCallback(async () => {
     if (!event) return;
     if (!canSelfCancelRegistration) {
-      setShowManageBooking(false);
+      setShowManageRegistration(false);
       showDialog({
-        title: 'Booking changes are closed',
-        message: "This event has started or is no longer active, so this booking can't be cancelled in-app.",
+        title: 'Registration changes are closed',
+        message: "This event has started or is no longer active, so this registration can't be cancelled in-app.",
         variant: 'info',
         primaryAction: { label: 'OK', onPress: () => {} },
       });
@@ -448,7 +444,7 @@ export default function EventDetailScreen() {
       queryClient.invalidateQueries({ queryKey: ['event-registration-check'] });
       queryClient.invalidateQueries({ queryKey: ['event-details', id] });
       queryClient.invalidateQueries({ queryKey: ['event-attendee-preview', id] });
-      setShowManageBooking(false);
+      setShowManageRegistration(false);
       if (wasWaitlisted) {
         showDialog({
           title: 'Left the waitlist',
@@ -460,13 +456,13 @@ export default function EventDetailScreen() {
         showDialog({
           title: 'Spot released',
           message:
-            'Your confirmed seat is cancelled for this event. If a waitlist is in use, the next person may be offered the seat according to usual rules.',
+            'Your confirmed spot is cancelled for this event. If a waitlist is in use, the next person may be offered the spot according to usual rules.',
           variant: 'success',
           primaryAction: { label: 'OK', onPress: () => {} },
         });
       } else {
         showDialog({
-          title: 'Booking updated',
+          title: 'Registration updated',
           message: 'Your registration for this event has been removed.',
           variant: 'success',
           primaryAction: { label: 'OK', onPress: () => {} },
@@ -494,11 +490,11 @@ export default function EventDetailScreen() {
 
   const openCancelConfirm = useCallback(() => {
     if (!event) return;
-    setShowManageBooking(false);
+    setShowManageRegistration(false);
     if (!canSelfCancelRegistration) {
       showDialog({
-        title: 'Booking changes are closed',
-        message: "This event has started or is no longer active, so this booking can't be cancelled in-app.",
+        title: 'Registration changes are closed',
+        message: "This event has started or is no longer active, so this registration can't be cancelled in-app.",
         variant: 'info',
         primaryAction: { label: 'OK', onPress: () => {} },
       });
@@ -518,7 +514,7 @@ export default function EventDetailScreen() {
     } else {
       showDialog({
         title: 'Release your spot?',
-        message: `You’re about to release your confirmed spot for ${event.title}. If this event uses a waitlist, the next person may be offered your seat according to Vibely’s usual rules.\n\n${refundNote}`,
+        message: `You’re about to release your confirmed spot for ${event.title}. If this event uses a waitlist, the next person may be offered the spot according to Vibely’s usual rules.\n\n${refundNote}`,
         variant: 'destructive',
         primaryAction: { label: 'Release spot', onPress: () => void handleUnregister() },
         secondaryAction: { label: 'Keep my spot', onPress: () => {} },
@@ -580,7 +576,10 @@ export default function EventDetailScreen() {
   const eventDate = new Date(event.event_date);
   const dateStr = format(eventDate, 'EEEE, MMMM d');
   const timeStr = format(eventDate, 'h:mm a');
-  const isVirtual = !eventRow.is_location_specific;
+  const cityContext = [eventRow.city, eventRow.country]
+    .map((part) => part?.trim())
+    .filter(Boolean)
+    .join(', ');
   const spotsLeft = Math.max(0, (eventRow.max_attendees ?? 50) - (event.current_attendees ?? 0));
   const soldOut = spotsLeft <= 0;
   const capacityStatus: 'available' | 'filling' | 'almostFull' =
@@ -605,21 +604,21 @@ export default function EventDetailScreen() {
     : eventLive
       ? 'Event is live'
       : bookingChangesClosed
-        ? 'Booking closed'
+        ? 'Registration closed'
         : "You're in!";
   const confirmedAdmissionSub = eventClosedForBookingCopy
-    ? 'Your booking is now closed'
+    ? 'Your registration is now closed'
     : eventLive
-      ? 'Join from the venue section'
+      ? 'Join from the online lobby section'
       : bookingChangesClosed
-        ? 'Booking changes are closed for this event'
-        : 'Your seat is confirmed';
+        ? 'Registration changes are closed for this event'
+        : 'Your spot is confirmed';
   const waitlistAdmissionSub = eventClosedForBookingCopy
     ? 'This waitlist is now closed'
     : eventLive || bookingChangesClosed
       ? 'Waitlist changes are closed'
       : "We'll confirm you if a spot opens";
-  const canViewTicket =
+  const canViewRegistration =
     hasAdmission && (canSelfCancelRegistration || (isConfirmed && eventLive && !eventClosedForBookingCopy));
 
   const tags = (event as { tags?: string[] | null }).tags ?? [];
@@ -629,7 +628,7 @@ export default function EventDetailScreen() {
     typeof event.cover_image === 'string' && event.cover_image.trim().length > 0;
   const coverUri = eventCoverUrl(event.cover_image);
   const registeredCount = event.current_attendees ?? 0;
-  const ticketNumber = `VBL-${event.id.slice(0, 8).toUpperCase()}`;
+  const registrationNumber = `VBL-${event.id.slice(0, 8).toUpperCase()}`;
   const floatingTabBarObstruction = FLOATING_TAB_BAR_HEIGHT + Math.max(insets.bottom, 8);
   const pricingBarBottomInset = floatingTabBarObstruction + spacing.xs;
   const pricingBarReserveSpace = 124 + pricingBarBottomInset;
@@ -730,20 +729,20 @@ export default function EventDetailScreen() {
                 {durationMin} min · {registeredCount} registered
             </Text>
           </View>
-          {eventRow.location_name ? (
-            <View style={styles.venueRow}>
+          {cityContext ? (
+            <View style={styles.contextRow}>
               <Ionicons name="location-outline" size={18} color={theme.textSecondary} />
-              <Text style={[styles.venueText, { color: theme.textSecondary }]}>
-                {eventRow.location_name}
+              <Text style={[styles.contextText, { color: theme.textSecondary }]}>
+                {cityContext}
               </Text>
             </View>
           ) : null}
           {(() => {
             const lang = getLanguageLabel(eventRow.language);
             return lang ? (
-              <View style={styles.venueRow}>
+              <View style={styles.contextRow}>
                 <Ionicons name="language-outline" size={18} color={theme.textSecondary} />
-                <Text style={[styles.venueText, { color: theme.textSecondary }]}>
+                <Text style={[styles.contextText, { color: theme.textSecondary }]}>
                   {lang.flag} {lang.label}
                 </Text>
               </View>
@@ -823,7 +822,7 @@ export default function EventDetailScreen() {
           >
             <Text style={[styles.cancelledBannerTitle, { color: theme.danger }]}>This event was cancelled</Text>
             <Text style={[styles.cancelledBannerBody, { color: theme.textSecondary }]}>
-              Registration, cancellation, and lobby access are closed. Your booking record stays on file for support and
+              Registration, cancellation, and lobby access are closed. Your registration record stays on file for support and
               attendance history.
             </Text>
           </View>
@@ -859,9 +858,9 @@ export default function EventDetailScreen() {
             mode="preview"
             revealed={previewOk ? revealedDisplays : []}
             obscuredCount={previewOk ? attendeePreview.obscured_remaining : 0}
-              visibleOtherCount={
-                previewOk ? attendeePreview.visible_other_count : 0
-              }
+            visibleOtherCount={
+              previewOk ? attendeePreview.visible_other_count : 0
+            }
             visibleCohortCount={previewOk ? attendeePreview.visible_cohort_count : 0}
             loading={!!user?.id && attendeePreviewLoading}
             onAttendeePress={(attendee) => {
@@ -871,22 +870,18 @@ export default function EventDetailScreen() {
           />
         ) : (
           <WhosGoingSection
-              mode="aggregate"
-              viewerAdmission={isWaitlisted ? 'waitlisted' : 'none'}
-              visibleOtherCount={teaserTotalOthers}
-            />
+            mode="aggregate"
+            viewerAdmission={isWaitlisted ? 'waitlisted' : 'none'}
+            visibleOtherCount={teaserTotalOthers}
+          />
         )}
 
         {isConfirmed && mutualVibes.length > 0 && (
           <MutualVibesSection mutualVibes={mutualVibes} onProfilePress={() => {}} />
         )}
 
-        {/* Venue — virtual (digital lobby) or physical */}
-        <Text style={[styles.sectionTitle, { color: theme.text }]}>The Venue</Text>
+        <Text style={[styles.sectionTitle, { color: theme.text }]}>Online Lobby</Text>
         <VenueCard
-          isVirtual={isVirtual}
-          venueName={eventRow.location_name ?? undefined}
-          address={eventRow.location_address ?? undefined}
           eventDate={eventDate}
           eventDurationMinutes={durationMin}
           eventStatus={eventRow.status}
@@ -895,7 +890,7 @@ export default function EventDetailScreen() {
           eventId={event.id}
           isRegistered={isConfirmed}
           onAccessPress={!hasAdmission && !isCancelled ? handlePurchase : undefined}
-          accessLabel={isFree || userPrice === 0 ? 'Register' : 'Get Tickets'}
+          accessLabel={isFree || userPrice === 0 ? 'Register' : 'Reserve Spot'}
           accessDisabled={isPurchasing || isRegistering || soldOut || eventEnded || isCancelled}
         />
 
@@ -909,7 +904,7 @@ export default function EventDetailScreen() {
                 <View style={styles.youreInText}>
                   <Text style={[styles.youreInTitle, { color: theme.text }]}>Event cancelled</Text>
                   <Text style={[styles.youreInSub, { color: theme.textSecondary }]}>
-                    Your booking is still on file. Booking changes are closed for this event.
+                    Your registration is still on file. Registration changes are closed for this event.
                   </Text>
                 </View>
               </View>
@@ -947,28 +942,28 @@ export default function EventDetailScreen() {
                   style={styles.cta}
                 />
               ) : bookingChangesClosed ? (
-                <VibelyButton label="Booking Closed" variant="secondary" disabled style={styles.cta} onPress={() => {}} />
+                <VibelyButton label="Registration Closed" variant="secondary" disabled style={styles.cta} onPress={() => {}} />
               ) : (
                 <VibelyButton
-                  label="View Ticket"
+                  label="View Registration"
                   variant="primary"
-                  onPress={() => setShowTicket(true)}
+                  onPress={() => setShowRegistrationStub(true)}
                   style={styles.cta}
                 />
               )}
               {eventLive && !eventClosedForBookingCopy ? (
                 <VibelyButton
-                  label="View Ticket"
+                  label="View Registration"
                   variant="secondary"
-                  onPress={() => setShowTicket(true)}
+                  onPress={() => setShowRegistrationStub(true)}
                   style={styles.cta}
                 />
               ) : null}
               {canSelfCancelRegistration ? (
                 <VibelyButton
-                  label="Manage Booking"
+                  label="Manage Registration"
                   variant="secondary"
-                  onPress={() => setShowManageBooking(true)}
+                  onPress={() => setShowManageRegistration(true)}
                   style={styles.cta}
                 />
               ) : null}
@@ -992,7 +987,7 @@ export default function EventDetailScreen() {
                 <View style={styles.youreInText}>
                   <Text style={[styles.youreInTitle, { color: theme.text }]}>Event cancelled</Text>
                   <Text style={[styles.youreInSub, { color: theme.textSecondary }]}>
-                    You were on the paid waitlist. Booking changes are closed for this event.
+                    You were on the paid waitlist. Registration changes are closed for this event.
                   </Text>
                 </View>
               </View>
@@ -1010,17 +1005,17 @@ export default function EventDetailScreen() {
               </View>
               {canSelfCancelRegistration ? (
                 <VibelyButton
-                  label="View Ticket"
+                  label="View Registration"
                   variant="primary"
-                  onPress={() => setShowTicket(true)}
+                  onPress={() => setShowRegistrationStub(true)}
                   style={styles.cta}
                 />
               ) : null}
               {canSelfCancelRegistration ? (
                 <VibelyButton
-                  label="Manage Booking"
+                  label="Manage Registration"
                   variant="secondary"
-                  onPress={() => setShowManageBooking(true)}
+                  onPress={() => setShowManageRegistration(true)}
                   style={styles.cta}
                 />
               ) : null}
@@ -1059,36 +1054,32 @@ export default function EventDetailScreen() {
           <View style={{ flex: 1, marginRight: spacing.md }}>
             <Text style={[styles.cancelledAdmissionTitle, { color: theme.danger }]}>Event cancelled</Text>
             <Text style={[styles.cancelledAdmissionSub, { color: theme.textSecondary }]}>
-              Booking changes are closed for this event
+              Registration changes are closed for this event
             </Text>
           </View>
         </View>
       ) : null}
 
-      <ManageBookingModal
-        visible={showManageBooking && canSelfCancelRegistration}
-        onClose={() => setShowManageBooking(false)}
+      <ManageRegistrationModal
+        visible={showManageRegistration && canSelfCancelRegistration}
+        onClose={() => setShowManageRegistration(false)}
         onCancel={openCancelConfirm}
         eventTitle={event.title}
         eventDate={dateStr}
         eventTime={timeStr}
-        venue={isVirtual ? 'Digital Lobby' : (eventRow.location_name ?? 'TBA')}
-        ticketNumber={ticketNumber}
+        registrationNumber={registrationNumber}
         price={userPrice}
-        isVirtual={isVirtual}
         admissionStatus={isConfirmed ? 'confirmed' : 'waitlisted'}
         canCancel={canSelfCancelRegistration}
       />
 
-      <TicketStub
-        visible={showTicket && canViewTicket}
-        onClose={() => setShowTicket(false)}
+      <RegistrationStub
+        visible={showRegistrationStub && canViewRegistration}
+        onClose={() => setShowRegistrationStub(false)}
         eventTitle={event.title}
         eventDate={dateStr}
         eventTime={timeStr}
-        venue={isVirtual ? 'Digital Lobby' : (eventRow.location_name ?? 'TBA')}
-        ticketNumber={ticketNumber}
-        isVirtual={isVirtual}
+        registrationNumber={registrationNumber}
         admissionStatus={isConfirmed ? 'confirmed' : 'waitlisted'}
       />
 
@@ -1101,7 +1092,7 @@ export default function EventDetailScreen() {
           title: event.title,
           cover_url: coverUri,
           start_time: event.event_date,
-          city: eventRow.location_name ?? undefined,
+          city: cityContext || undefined,
         }}
       />
 
@@ -1167,8 +1158,8 @@ const styles = StyleSheet.create({
     borderWidth: StyleSheet.hairlineWidth,
   },
   eventInfoText: { fontSize: 14 },
-  venueRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginTop: spacing.sm },
-  venueText: { fontSize: 14, flex: 1 },
+  contextRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginTop: spacing.sm },
+  contextText: { fontSize: 14, flex: 1 },
   recurringSeriesRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',

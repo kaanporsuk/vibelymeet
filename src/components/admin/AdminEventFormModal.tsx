@@ -961,7 +961,7 @@ const AdminEventFormModal = ({ event, onClose }: AdminEventFormModalProps) => {
     if (capacityBelowConfirmed) {
       confirmationMessages.push(
         [
-          `Save with total capacity ${effectiveMaxAttendees} while ${confirmedHeadcount} user(s) still have confirmed seats?`,
+          `Save with total capacity ${effectiveMaxAttendees} while ${confirmedHeadcount} user(s) still have confirmed registrations?`,
           '',
           'The backend does not automatically remove or demote confirmed attendees when capacity goes down.',
           'To enforce the new cap, remove specific people from the Attendees panel after saving.',
@@ -1300,7 +1300,7 @@ const AdminEventFormModal = ({ event, onClose }: AdminEventFormModalProps) => {
               <div className="rounded-lg border border-amber-500/35 bg-amber-500/10 p-3 text-sm">
                 <p className="font-medium text-amber-200">Capacity is below confirmed headcount</p>
                 <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
-                  Confirmed seats: <strong className="text-foreground">{confirmedHeadcount}</strong>. New
+                  Confirmed registrations: <strong className="text-foreground">{confirmedHeadcount}</strong>. New
                   cap: <strong className="text-foreground">{effectiveMaxAttendees}</strong>. The system does
                   not auto-demote confirmed attendees—you can still save, then adjust the roster in Attendees if
                   needed.

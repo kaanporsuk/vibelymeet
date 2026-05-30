@@ -398,7 +398,7 @@ export function eventTicketPaymentSuccessCopy(
       return {
         state,
         headline: "You're on the list!",
-        subline: "Check your email for confirmation.",
+        subline: "Your registration is confirmed. Join from the event page when the event goes live.",
         showSupportAction: false,
         showViewEventAction: true,
         celebrate: true,
@@ -416,7 +416,7 @@ export function eventTicketPaymentSuccessCopy(
       return {
         state,
         headline: "Refund pending",
-        subline: "Your payment was received, but we could not confirm this event ticket. Your refund is being processed automatically.",
+        subline: "Your payment was received, but we could not confirm this event registration. Your refund is being processed automatically.",
         showSupportAction: false,
         showViewEventAction: true,
         celebrate: false,
@@ -425,7 +425,7 @@ export function eventTicketPaymentSuccessCopy(
       return {
         state,
         headline: "Refund processed",
-        subline: "Your payment was received, but we could not confirm this event ticket. The refund has been sent back through Stripe.",
+        subline: "Your payment was received, but we could not confirm this event registration. The refund has been sent back through Stripe.",
         showSupportAction: false,
         showViewEventAction: true,
         celebrate: false,
@@ -443,7 +443,7 @@ export function eventTicketPaymentSuccessCopy(
       return {
         state,
         headline: "Payment needs support",
-        subline: "Your payment was received, but we need to reconcile the ticket or refund before confirming next steps.",
+        subline: "Your payment was received, but we need to reconcile the registration or refund before confirming next steps.",
         showSupportAction: true,
         showViewEventAction: true,
         celebrate: false,

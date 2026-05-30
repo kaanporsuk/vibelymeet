@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { trackEvent } from "@/lib/analytics";
 import { motion } from "framer-motion";
-import { Clock, Sparkles, Users, ArrowRight, CalendarCheck, Ticket } from "lucide-react";
+import { Clock, Sparkles, Users, ArrowRight, CalendarCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { useUserRegistrations } from "@/hooks/useRegistrations";
@@ -54,8 +54,8 @@ export const FeaturedEventCard = ({
   const coverSrc = eventCoverHeroUrl(image);
   const showEnded = !isLive && (status === "ended" || pastScheduledEnd);
 
-  const isConfirmedSeat = admission.confirmedEventIds.includes(id);
-  const isWaitlistedSeat = admission.waitlistedEventIds.includes(id);
+  const isConfirmedAdmission = admission.confirmedEventIds.includes(id);
+  const isWaitlistedAdmission = admission.waitlistedEventIds.includes(id);
 
   useEffect(() => {
     const calculateTimeLeft = () => {
@@ -300,7 +300,7 @@ export const FeaturedEventCard = ({
             </div>
           ) : (
           <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
-            {isConfirmedSeat ? (
+            {isConfirmedAdmission ? (
               <Button
                 onClick={handlePrimaryAction}
                 className={cn(
@@ -311,11 +311,11 @@ export const FeaturedEventCard = ({
                   "transition-shadow duration-300"
                 )}
               >
-                <Ticket className="w-5 h-5 mr-2" />
-                View Ticket
+                <CalendarCheck className="w-5 h-5 mr-2" />
+                View Registration
                 <ArrowRight className="w-4 h-4 ml-2" />
               </Button>
-            ) : isWaitlistedSeat ? (
+            ) : isWaitlistedAdmission ? (
               <Button
                 onClick={handlePrimaryAction}
                 className={cn(
@@ -325,7 +325,7 @@ export const FeaturedEventCard = ({
                   "transition-shadow duration-300"
                 )}
               >
-                <Ticket className="w-5 h-5 mr-2" />
+                <CalendarCheck className="w-5 h-5 mr-2" />
                 On waitlist
                 <ArrowRight className="w-4 h-4 ml-2" />
               </Button>
@@ -341,7 +341,7 @@ export const FeaturedEventCard = ({
                 )}
               >
                 <CalendarCheck className="w-5 h-5 mr-2" />
-                Get Tickets
+                Reserve Spot
                 <ArrowRight className="w-4 h-4 ml-2" />
               </Button>
             )}
