@@ -24,7 +24,20 @@ const BUNNY_CDN_PATH_PREFIX = (() => {
   return s;
 })();
 const SUPABASE_URL = process.env.EXPO_PUBLIC_SUPABASE_URL ?? '';
-const CONFIRMED_BUNNY_STORAGE_PREFIXES = ['photos/', 'events/', 'voice/', 'media/'];
+// Only intentionally-public families may map to the public Bunny CDN. `voice/` and `media/`
+// (always private chat media) were removed: they must resolve through the authorized
+// `get-chat-media-url` resolver, never the public CDN. Defense-in-depth (mirrors web).
+const CONFIRMED_BUNNY_STORAGE_PREFIXES = ['photos/', 'events/'];
+
+/** Private chat-scoped refs must never become a public CDN URL (mirrors web imageUrl.ts). */
+function isPrivateChatScopedStoragePath(p: string): boolean {
+  return (
+    p.startsWith('voice/') ||
+    p.startsWith('chat-videos/') ||
+    p.startsWith('photos/match-') ||
+    p.includes('/match-')
+  );
+}
 type ImageDerivativePathSet = { thumb?: string; display?: string; hero?: string };
 const imageDerivativePathsByOriginalPath = new Map<string, ImageDerivativePathSet>();
 
@@ -132,6 +145,8 @@ export function getImageUrl(
     }
     return p;
   }
+  // Never public-map a private chat-scoped ref; these must flow through get-chat-media-url.
+  if (isPrivateChatScopedStoragePath(p)) return PLACEHOLDER;
   if (CONFIRMED_BUNNY_STORAGE_PREFIXES.some((prefix) => p.startsWith(prefix))) {
     if (!BUNNY_CDN) {
       return PLACEHOLDER;

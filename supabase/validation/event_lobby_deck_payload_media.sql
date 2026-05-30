@@ -17,7 +17,8 @@ select
   'get_event_deck_safe_payload_shape' as check_name,
   count(*) = 1
   and bool_and(prosecdef)
-  and bool_and(proconfig @> array['search_path=public'])
+  -- Accept both `search_path=public` and the safer `search_path=public, pg_catalog` form.
+  and bool_and(array_to_string(proconfig, ',') like 'search_path=public%')
   and bool_and(result_type like '%primary_photo_path text%')
   and bool_and(result_type like '%photo_verified boolean%')
   and bool_and(result_type like '%premium_badge text%')

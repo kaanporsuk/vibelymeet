@@ -381,11 +381,19 @@ export function uploadVibeVideoToBunny(
           const msg = boundedErrorMessage(error);
           const status = err?.originalResponse?.getStatus?.();
           vibeVideoDiagVerbose('upload.tus.error', { message: msg, status });
-          if (/expired|401|403|signature/i.test(msg)) {
-            reject(new Error('Upload session expired. Please try uploading again.'));
-            return;
-          }
-          reject(error instanceof Error ? error : new Error('Upload failed. Please try again.'));
+          const isStale =
+            status === 401 || status === 403 || status === 410 || /expired|401|403|signature/i.test(msg);
+          const rejection = (
+            isStale
+              ? new Error('Upload session expired. Please try uploading again.')
+              : error instanceof Error
+                ? error
+                : new Error('Upload failed. Please try again.')
+          ) as Error & { tusStatus?: number | null };
+          // Carry the status so the orchestrator can re-mint credentials and resume (parity with
+          // Chat Vibe Clip recovery) instead of forcing a full manual retry.
+          rejection.tusStatus = typeof status === 'number' ? status : isStale ? 401 : null;
+          reject(rejection);
         },
         onProgress: (bytesUploaded: number, bytesTotal: number) => {
           const pct = bytesTotal > 0 ? bytesUploaded / bytesTotal : 0;

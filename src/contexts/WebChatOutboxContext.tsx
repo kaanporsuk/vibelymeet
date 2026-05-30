@@ -11,7 +11,7 @@ import {
 import { useQueryClient } from "@tanstack/react-query";
 import { useUserProfile } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
-import { deleteOutboxBlob } from "@/lib/webChatOutbox/blobIdb";
+import { deleteOutboxBlob, pruneOutboxBlobsExcept } from "@/lib/webChatOutbox/blobIdb";
 import { loadWebOutboxItems, saveWebOutboxItems } from "@/lib/webChatOutbox/store";
 import {
   executeWebOutboxItem,
@@ -315,6 +315,11 @@ export function WebChatOutboxProvider({ children }: { children: ReactNode }) {
         );
         requestProcessTick();
       }
+      // Best-effort GC: drop IndexedDB blobs no longer referenced by any pending item.
+      const keepKeys = new Set(
+        loaded.map(itemPayloadBlobKey).filter((k): k is string => typeof k === "string" && k.length > 0),
+      );
+      void pruneOutboxBlobsExcept(keepKeys);
     });
     return () => {
       cancelled = true;

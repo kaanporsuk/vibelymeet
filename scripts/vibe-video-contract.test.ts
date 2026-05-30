@@ -360,8 +360,10 @@ test("web and native upload controllers expose an explicit stalled phase", () =>
 
   assert.match(web, /"stalled"/);
   assert.match(native, /'stalled'/);
-  assert.match(web, /taking longer than expected/);
+  assert.match(web, /still processing/);
   assert.match(native, /taking longer than expected/);
+  // Web extends beyond the 3-min fast poll with a low-frequency slow phase before stalling.
+  assert.match(web, /POLL_SLOW_MAX_ATTEMPTS/);
   assert.match(sharedSemantics, /VIBE_VIDEO_STALE_PROCESSING_THRESHOLD_MS/);
   assert.match(sharedSemantics, /"stale_processing"/);
   assert.match(webState, /resolveCanonicalVibeVideoState/);
@@ -750,7 +752,7 @@ test("authenticated Vibe Video status sync repairs uploaded Bunny videos without
   assert.match(syncFunction, /BUNNY_WEBHOOK_SIGNING_KEY/);
   assert.match(syncFunction, /BUNNY_STREAM_API_KEY/);
   assert.match(syncFunction, /function getBunnyVideo/);
-  assert.match(syncFunction, /streamApiKey !== readKey/);
+  assert.match(syncFunction, /readKey !== streamApiKey/);
   assert.match(syncFunction, /attemptedStreamApiKey/);
   assert.match(syncFunction, /GET/);
   assert.match(syncFunction, /https:\/\/video\.bunnycdn\.com\/library\/\$\{libraryId\}\/videos\/\$\{videoId\}/);
