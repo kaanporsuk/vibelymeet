@@ -22,6 +22,8 @@ assert.equal(isPrivateChatScopedStoragePath(`events/${UUID_A}/req-DEADBEEF.jpg`)
 assert.equal(isPrivateChatScopedStoragePath(`photos/match-${UUID_A}/${UUID_B}/req-X.jpg`), true, "chat photo not guarded");
 assert.equal(isPrivateChatScopedStoragePath(`voice/match-${UUID_A}/${UUID_B}/req-X.m4a`), true, "voice not guarded");
 assert.equal(isPrivateChatScopedStoragePath("chat-videos/whatever/x.mp4"), true, "chat-videos not guarded");
+// Deprecated chat `media/` namespace stays private-by-default (no public `media` bucket exists).
+assert.equal(isPrivateChatScopedStoragePath("media/anything/x.jpg"), true, "media/ not guarded");
 
 // --- imageUrl public-mapping source contract (web + native) ---
 for (const p of ["src/utils/imageUrl.ts", "apps/mobile/lib/imageUrl.ts"]) {

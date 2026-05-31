@@ -1,6 +1,7 @@
 /**
- * Emoji reaction picker (❤️ 🔥 🤣 😮 👎). Shown on long-press on message.
- * Reference: src/components/chat/EmojiBar.tsx
+ * Emoji reaction picker (❤️ 😍 🔥 🤣 😮 👍 🥺). Shown on long-press on message.
+ * Kept in parity with the web picker src/components/chat/EmojiBar.tsx. 👎 was retired
+ * from the picker but remains valid in the shared allowlist for legacy reactions.
  */
 import React from 'react';
 import { View, Text, Modal, Pressable, StyleSheet } from 'react-native';
@@ -11,10 +12,12 @@ import type { ReactionEmoji } from '@/lib/chatApi';
 
 const EMOJIS: { emoji: ReactionEmoji; label: string }[] = [
   { emoji: '❤️', label: 'Love' },
+  { emoji: '😍', label: 'Crush' },
   { emoji: '🔥', label: 'Hot' },
   { emoji: '🤣', label: 'Laugh' },
-  { emoji: '😮', label: 'Shock' },
-  { emoji: '👎', label: 'Nope' },
+  { emoji: '😮', label: 'Wow' },
+  { emoji: '👍', label: 'Yes' },
+  { emoji: '🥺', label: 'Aww' },
 ];
 
 type ReactionPickerProps = {

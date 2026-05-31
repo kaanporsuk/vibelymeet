@@ -199,7 +199,11 @@ export const VibeClipBubble = ({
     messageId: sparkMessageId,
     sourceRef: thumbnailSourceRef,
     initialUrl: meta.thumbnailUrl,
-    autoResolve: false,
+    // Eagerly resolve the poster on mount so the thumbnail shows on chat open without a
+    // tap. Thumbnails are already prewarmed into the resolver cache at message-load time
+    // (useMessages prewarmMediaAssets), so this almost always hits cache. The video URL
+    // stays lazy (autoResolve: false) — only the cheap poster preloads.
+    autoResolve: true,
     onResolvedUrl: onResolvedThumbnailUrl,
   });
 
@@ -917,6 +921,17 @@ export const VibeClipBubble = ({
                 hash={thumbnailPlaceholderHash}
                 dominantColor={thumbnailDominantColor}
               />
+              {canShowPosterImage && !posterImageBroken ? (
+                // Keep the resolved poster visible while the video frame loads (e.g. right
+                // after a tap) so the surface doesn't flash from thumbnail back to blurhash.
+                <img
+                  src={displayMeta.thumbnailUrl ?? undefined}
+                  alt=""
+                  className="absolute inset-0 h-full w-full object-cover"
+                  draggable={false}
+                  onError={() => setPosterImageBroken(true)}
+                />
+              ) : null}
               <div className="absolute inset-0 bg-gradient-to-br from-white/5 via-white/0 to-white/10" />
               <motion.div
                 aria-hidden

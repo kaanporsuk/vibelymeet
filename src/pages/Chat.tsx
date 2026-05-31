@@ -28,6 +28,7 @@ import { ChatThreadSkeleton } from "@/components/chat/ChatThreadSkeleton";
 import { VoiceMessageBubble } from "@/components/chat/VoiceMessageBubble";
 import { VideoMessageBubble } from "@/components/chat/VideoMessageBubble";
 import { VibeClipBubble, type VibeClipLocalRecovery } from "@/components/chat/VibeClipBubble";
+import type { VoiceRecorderHandle } from "@/components/chat/VoiceRecorder";
 import { MessageStatus } from "@/components/chat/MessageStatus";
 import { MediaHealthPanel } from "@/components/media/MediaHealthPanel";
 import { MediaPlaceholder } from "@/components/media/MediaPlaceholder";
@@ -119,7 +120,8 @@ import {
 } from "../../shared/media/placeholders";
 
 type MessageStatusType = "sending" | "sent" | "delivered" | "read";
-type ReactionEmoji = "❤️" | "🔥" | "🤣" | "😮" | "👎";
+// Keep in sync with shared/chat/messageReactionModel.ts (👎 kept for legacy reactions).
+type ReactionEmoji = "❤️" | "😍" | "🔥" | "🤣" | "😮" | "👍" | "🥺" | "👎";
 
 const DATE_SUGGESTION_KEYWORDS = ["free", "video", "call", "meet", "date", "tonight", "later", "available"];
 const CHAT_COMPOSER_CONTROL_CLASS = "h-10 w-10";
@@ -785,6 +787,7 @@ const Chat = () => {
   const [awayFromBottom, setAwayFromBottom] = useState(false);
   const [newBelowCue, setNewBelowCue] = useState(false);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const voiceRecorderRef = useRef<VoiceRecorderHandle>(null);
   const photoInputRef = useRef<HTMLInputElement>(null);
   const gameStartLockRef = useRef(false);
   const actionLockRef = useRef<Set<string>>(new Set());
@@ -3111,7 +3114,12 @@ const Chat = () => {
                   onResolvedVideoUrl={rememberResolvedVideoUrl}
                   onResolvedThumbnailUrl={rememberResolvedThumbnailUrl}
                   onReplyWithClip={openVibeClipOptions}
-                  onVoiceReply={() => scrollToBottom()}
+                  onVoiceReply={() => {
+                    // Start the voice recorder directly within this click gesture (required
+                    // for getUserMedia), then bring the composer into view.
+                    voiceRecorderRef.current?.startRecording();
+                    scrollToBottom();
+                  }}
                   onSuggestDate={() =>
                     handleOpenDateComposer({ mode: "new", launchFrom: "vibe_clip" })
                   }
@@ -3678,6 +3686,7 @@ const Chat = () => {
                 }
               >
                 <VoiceRecorder
+                  ref={voiceRecorderRef}
                   disabled={!hasActiveConversation || composerMediaLocked}
                   onUnavailable={() => toast.error("No active conversation found")}
                   onRecordingStart={handleVoiceRecordingStart}

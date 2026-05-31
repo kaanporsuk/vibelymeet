@@ -1,9 +1,15 @@
-import { useState, useRef, useEffect, useCallback } from 'react';
+import { useState, useRef, useEffect, useCallback, forwardRef, useImperativeHandle } from 'react';
 import { motion } from 'framer-motion';
 import { Mic, Send, Trash2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 import { webMediaTranscode } from '@clientShared/media-sdk';
+
+/** Imperative handle so callers (e.g. the "Voice reply" clip CTA) can start recording
+ * directly within the user-gesture call stack that getUserMedia requires. */
+export interface VoiceRecorderHandle {
+  startRecording: () => void;
+}
 
 interface VoiceRecorderProps {
   onRecordingComplete: (audioBlob: Blob, duration: number) => void;
@@ -16,7 +22,7 @@ interface VoiceRecorderProps {
   label?: string;
 }
 
-const VoiceRecorder = ({
+const VoiceRecorder = forwardRef<VoiceRecorderHandle, VoiceRecorderProps>(({
   onRecordingComplete,
   onRecordingStart,
   onCancel,
@@ -25,7 +31,7 @@ const VoiceRecorder = ({
   className,
   variant = "icon",
   label = "Voice Note",
-}: VoiceRecorderProps) => {
+}, ref) => {
   const [isRecording, setIsRecording] = useState(false);
   const [duration, setDuration] = useState(0);
   const [audioLevels, setAudioLevels] = useState<number[]>(new Array(20).fill(0.1));
@@ -246,6 +252,14 @@ const VoiceRecorder = ({
     }
   };
 
+  // Allow external callers (the "Voice reply" CTA) to begin recording. Invoked from the
+  // CTA's onClick so the getUserMedia gesture requirement is still satisfied.
+  useImperativeHandle(ref, () => ({
+    startRecording: () => {
+      void startRecording();
+    },
+  }));
+
   // Stop recording
   const stopRecording = useCallback(() => {
     const recorder = mediaRecorderRef.current;
@@ -417,6 +431,8 @@ const VoiceRecorder = ({
       </motion.div>
     </div>
   );
-};
+});
+
+VoiceRecorder.displayName = "VoiceRecorder";
 
 export default VoiceRecorder;

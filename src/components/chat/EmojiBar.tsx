@@ -2,7 +2,9 @@ import { motion } from "framer-motion";
 import { useState } from "react";
 import { cn } from "@/lib/utils";
 
-export type ReactionEmoji = "❤️" | "🔥" | "🤣" | "😮" | "👎";
+// Keep in sync with the canonical allowlist in shared/chat/messageReactionModel.ts.
+// 👎 stays in the type for legacy reactions but is intentionally omitted from the picker.
+export type ReactionEmoji = "❤️" | "😍" | "🔥" | "🤣" | "😮" | "👍" | "🥺" | "👎";
 
 interface EmojiBarProps {
   onSelect: (emoji: ReactionEmoji) => void;
@@ -12,10 +14,12 @@ interface EmojiBarProps {
 
 const emojis: { emoji: ReactionEmoji; label: string }[] = [
   { emoji: "❤️", label: "Love" },
+  { emoji: "😍", label: "Crush" },
   { emoji: "🔥", label: "Hot" },
   { emoji: "🤣", label: "Laugh" },
-  { emoji: "😮", label: "Shock" },
-  { emoji: "👎", label: "Nope" },
+  { emoji: "😮", label: "Wow" },
+  { emoji: "👍", label: "Yes" },
+  { emoji: "🥺", label: "Aww" },
 ];
 
 export const EmojiBar = ({ onSelect, onClose, position }: EmojiBarProps) => {

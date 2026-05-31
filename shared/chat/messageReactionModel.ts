@@ -2,9 +2,12 @@
  * Shared reaction model for chat (web + native). Kept in shared/ for one source of truth.
  */
 
-export type ReactionEmoji = "❤️" | "🔥" | "🤣" | "😮" | "👎";
+// 👎 is retained here (type + ALLOWED) only so legacy reactions stored before it was
+// retired from the picker still validate and display. New reactions cannot pick it — see
+// the picker lists in EmojiBar (web) / ReactionPicker (native).
+export type ReactionEmoji = "❤️" | "😍" | "🔥" | "🤣" | "😮" | "👍" | "🥺" | "👎";
 
-const ALLOWED = new Set<string>(["❤️", "🔥", "🤣", "😮", "👎"]);
+const ALLOWED = new Set<string>(["❤️", "😍", "🔥", "🤣", "😮", "👍", "🥺", "👎"]);
 
 export function isReactionEmoji(s: string): s is ReactionEmoji {
   return ALLOWED.has(s);
