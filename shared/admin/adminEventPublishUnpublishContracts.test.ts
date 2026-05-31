@@ -10,10 +10,13 @@ const migration = read("supabase/migrations/20260601120000_admin_event_publish_u
 const adminEventsPanel = read("src/components/admin/AdminEventsPanel.tsx");
 const adminEventControls = read("src/components/admin/AdminEventControls.tsx");
 const adminEventForm = read("src/components/admin/AdminEventFormModal.tsx");
+const batchEventImport = read("src/components/admin/BatchEventImportModal.tsx");
 const adminEventInvalidation = read("src/lib/adminEventInvalidation.ts");
 const adminActivityLog = read("src/components/admin/AdminActivityLog.tsx");
 const webEventDetails = read("src/pages/EventDetails.tsx");
+const webEventUtils = read("src/utils/eventUtils.ts");
 const nativeEventDetails = read("apps/mobile/app/(tabs)/events/[id].tsx");
+const nativeEventsApi = read("apps/mobile/lib/eventsApi.ts");
 const supabaseTypes = read("src/integrations/supabase/types.ts");
 const discoverVisibility = read("shared/discoverEventVisibility.ts");
 const visibleEventsMigration = read("supabase/migrations/20260521161000_video_date_phase0_observability_flags.sql");
@@ -76,6 +79,9 @@ test("generic event updates cannot mutate lifecycle fields", () => {
   assert.match(update, /ARRAY\['archived_at', 'archived_by', 'ended_at', 'status'\]/);
   assert.match(update, /Event lifecycle fields must be changed through lifecycle admin actions/);
   assert.match(update, /INVALID_TRANSITION/);
+  assert.match(update, /v_before\.archived_at IS NOT NULL/);
+  assert.match(update, /lower\(COALESCE\(v_before\.status, ''\)\) = 'archived'/);
+  assert.match(update, /WHERE key NOT IN \('title', 'description', 'cover_image', 'language', 'tags', 'vibes', 'category_keys'\)/);
   assert.doesNotMatch(update, /SET[\s\S]{0,120}status = CASE WHEN p_payload \? 'status'/);
 });
 
@@ -84,7 +90,12 @@ test("recurrence generation preserves draft status and blocks invalid parents", 
   const wrapper = fnSection(migration, "admin_generate_recurring_events");
 
   assert.match(generator, /v_child_status := CASE WHEN lower\(COALESCE\(v_parent\.status, ''\)\) = 'draft' THEN 'draft' ELSE 'upcoming' END/);
-  assert.match(generator, /v_parent\.tags, v_child_status/);
+  assert.match(generator, /lower\(COALESCE\(status, ''\)\) NOT IN \('archived', 'cancelled'\)/);
+  assert.match(generator, /language, event_date/);
+  assert.match(generator, /tags, category_keys, status/);
+  assert.match(generator, /location_name, location_address/);
+  assert.match(generator, /is_location_specific, is_test_event/);
+  assert.match(generator, /COALESCE\(v_parent\.category_keys, ARRAY\[\]::text\[\]\), v_child_status/);
   assert.doesNotMatch(generator, /v_parent\.tags, 'upcoming'/);
 
   assert.match(wrapper, /v_parent_status IN \('archived', 'cancelled'\)/);
@@ -140,7 +151,7 @@ test("generated Supabase types expose publish and unpublish RPC contracts", () =
 });
 
 test("admin lifecycle controls refresh user-facing event caches", () => {
-  for (const source of [adminEventsPanel, adminEventControls, adminEventForm]) {
+  for (const source of [adminEventsPanel, adminEventControls, adminEventForm, batchEventImport]) {
     assert.match(source, /invalidateAdminEventSurfaces/);
   }
 
@@ -161,6 +172,13 @@ test("admin lifecycle controls refresh user-facing event caches", () => {
 });
 
 test("web and native direct event details block draft or archived registration attempts", () => {
+  assert.match(webEventUtils, /status === 'draft'/);
+  assert.match(webEventUtils, /status === 'archived'/);
+  assert.match(webEventUtils, /event\.archived_at/);
+  assert.match(nativeEventsApi, /status === 'draft'/);
+  assert.match(nativeEventsApi, /status === 'archived'/);
+  assert.match(nativeEventsApi, /event\.archived_at/);
+
   assert.match(webEventDetails, /const eventStatus = \(event\.status \?\? ""\)\.toLowerCase\(\)/);
   assert.match(webEventDetails, /eventStatus === "draft"/);
   assert.match(webEventDetails, /eventStatus === "archived"/);

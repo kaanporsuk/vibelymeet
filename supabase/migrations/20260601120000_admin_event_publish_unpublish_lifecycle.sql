@@ -390,7 +390,12 @@ DECLARE
   v_candidate date;
   v_child_status text;
 BEGIN
-  SELECT * INTO v_parent FROM events WHERE id = p_parent_id AND is_recurring = true;
+  SELECT * INTO v_parent
+  FROM events
+  WHERE id = p_parent_id
+    AND is_recurring = true
+    AND archived_at IS NULL
+    AND lower(COALESCE(status, '')) NOT IN ('archived', 'cancelled');
   IF NOT FOUND THEN RETURN 0; END IF;
 
   v_child_status := CASE WHEN lower(COALESCE(v_parent.status, '')) = 'draft' THEN 'draft' ELSE 'upcoming' END;
@@ -441,17 +446,21 @@ BEGIN
     END IF;
 
     INSERT INTO events (
-      title, description, cover_image, event_date, duration_minutes, max_attendees,
-      tags, status, vibes, max_male_attendees, max_female_attendees, max_nonbinary_attendees,
+      title, description, cover_image, language, event_date, duration_minutes, max_attendees,
+      tags, category_keys, status, vibes, max_male_attendees, max_female_attendees, max_nonbinary_attendees,
       visibility, is_free, price_amount, price_currency,
-      scope, latitude, longitude, radius_km, city, country,
+      scope, latitude, longitude, radius_km, city, country, location_name, location_address,
+      is_location_specific, is_test_event,
       parent_event_id, occurrence_number, is_recurring
     ) VALUES (
-      v_parent.title, v_parent.description, v_parent.cover_image, v_next_date,
-      v_parent.duration_minutes, v_parent.max_attendees, v_parent.tags, v_child_status,
+      v_parent.title, v_parent.description, v_parent.cover_image, v_parent.language, v_next_date,
+      v_parent.duration_minutes, v_parent.max_attendees, v_parent.tags,
+      COALESCE(v_parent.category_keys, ARRAY[]::text[]), v_child_status,
       v_parent.vibes, v_parent.max_male_attendees, v_parent.max_female_attendees, v_parent.max_nonbinary_attendees,
       v_parent.visibility, v_parent.is_free, v_parent.price_amount, v_parent.price_currency,
       v_parent.scope, v_parent.latitude, v_parent.longitude, v_parent.radius_km, v_parent.city, v_parent.country,
+      v_parent.location_name, v_parent.location_address,
+      COALESCE(v_parent.is_location_specific, false), COALESCE(v_parent.is_test_event, false),
       p_parent_id, v_occurrence, false
     );
 
@@ -583,6 +592,8 @@ BEGIN
   IF NOT FOUND THEN RETURN public.admin_json_error('NOT_FOUND', 'Event was not found.'); END IF;
 
   IF v_before.ended_at IS NOT NULL
+     OR v_before.archived_at IS NOT NULL
+     OR lower(COALESCE(v_before.status, '')) = 'archived'
      OR lower(COALESCE(v_before.status, '')) IN ('ended', 'completed')
      OR (v_before.event_date IS NOT NULL AND now() >= v_before.event_date + COALESCE(v_before.duration_minutes, 60) * interval '1 minute') THEN
     SELECT array_agg(key ORDER BY key)
