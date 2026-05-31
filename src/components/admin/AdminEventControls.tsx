@@ -8,6 +8,7 @@ import AdminConfirmDialog from "./AdminConfirmDialog";
 import { callAdminRpc, createAdminTargetIdempotencyKey } from "@/lib/adminRpc";
 import { formatAdminUtcTime } from "@/lib/adminTime";
 import { adminToast } from "@/lib/adminToast";
+import { invalidateAdminEventSurfaces } from "@/lib/adminEventInvalidation";
 
 interface AdminEventControlsProps {
   eventId: string;
@@ -49,6 +50,9 @@ const AdminEventControls = ({
     archived_at: archivedAt ?? null,
     auto_finalize_at: autoFinalizeAt?.toISOString() ?? null,
   };
+  const invalidateEventSurfaces = () => {
+    invalidateAdminEventSurfaces(queryClient);
+  };
 
   const broadcastEventEnded = () => {
     const channel = supabase.channel(`event-status-${eventId}`);
@@ -77,9 +81,7 @@ const AdminEventControls = ({
     },
     onSuccess: () => {
       broadcastEventEnded();
-      queryClient.invalidateQueries({ queryKey: ["admin-events"] });
-      queryClient.invalidateQueries({ queryKey: ["events"] });
-      queryClient.invalidateQueries({ queryKey: ["visible-events"] });
+      invalidateEventSurfaces();
       adminToast.success({
         id: `event-ended-${eventId}`,
         title: `"${eventTitle}" has been ended`,
@@ -105,8 +107,7 @@ const AdminEventControls = ({
       return extraMinutes;
     },
     onSuccess: (extraMinutes) => {
-      queryClient.invalidateQueries({ queryKey: ["admin-events"] });
-      queryClient.invalidateQueries({ queryKey: ["events"] });
+      invalidateEventSurfaces();
       adminToast.success({
         id: `event-extended-${eventId}`,
         title: `Extended "${eventTitle}" by ${extraMinutes} minutes`,
@@ -143,8 +144,7 @@ const AdminEventControls = ({
           ...eventStateIntent,
         }),
       });
-      queryClient.invalidateQueries({ queryKey: ["admin-events"] });
-      queryClient.invalidateQueries({ queryKey: ["events"] });
+      invalidateEventSurfaces();
       adminToast.success({
         id: `event-go-live-${eventId}`,
         title: `"${eventTitle}" is live`,

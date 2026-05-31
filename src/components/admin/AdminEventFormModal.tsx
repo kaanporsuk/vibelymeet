@@ -27,6 +27,7 @@ import { useEventCategories } from "@/hooks/useEventCategories";
 import { inferEventCategoryKeysFromLegacyTags } from "@clientShared/eventCategories";
 import { clientRequestIdForUploadFile } from "@/services/imageUploadService";
 import AdminConfirmDialog from "./AdminConfirmDialog";
+import { invalidateAdminEventSurfaces } from "@/lib/adminEventInvalidation";
 
 interface AdminEventFormModalProps {
   event?: AdminEventFormEvent | null;
@@ -623,8 +624,7 @@ const AdminEventFormModal = ({ event, onClose }: AdminEventFormModalProps) => {
         p_count: count,
         p_idempotency_key: idempotencyKey,
       });
-      queryClient.invalidateQueries({ queryKey: ['admin-events'] });
-      queryClient.invalidateQueries({ queryKey: ['visible-events'] });
+      invalidateAdminEventSurfaces(queryClient);
       adminToast.success({
         id: `admin-event-recurring-retry-${parentEventId}`,
         title: `Generated ${Number(payload.generated_count || 0)} recurring occurrences`,
@@ -778,11 +778,7 @@ const AdminEventFormModal = ({ event, onClose }: AdminEventFormModalProps) => {
         });
       }
 
-      queryClient.invalidateQueries({ queryKey: ['admin-events'] });
-      queryClient.invalidateQueries({ queryKey: ['events'] });
-      queryClient.invalidateQueries({ queryKey: ['visible-events'] });
-      queryClient.invalidateQueries({ queryKey: ['events-discover'] });
-      queryClient.invalidateQueries({ queryKey: ['other-city-events'] });
+      invalidateAdminEventSurfaces(queryClient);
       onClose();
     },
     onError: (error) => {

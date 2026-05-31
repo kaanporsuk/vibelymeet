@@ -8,10 +8,13 @@ const read = (path: string) => readFileSync(join(root, path), "utf8");
 
 const migration = read("supabase/migrations/20260601120000_admin_event_publish_unpublish_lifecycle.sql");
 const adminEventsPanel = read("src/components/admin/AdminEventsPanel.tsx");
+const adminEventControls = read("src/components/admin/AdminEventControls.tsx");
 const adminEventForm = read("src/components/admin/AdminEventFormModal.tsx");
+const adminEventInvalidation = read("src/lib/adminEventInvalidation.ts");
 const adminActivityLog = read("src/components/admin/AdminActivityLog.tsx");
 const webEventDetails = read("src/pages/EventDetails.tsx");
 const nativeEventDetails = read("apps/mobile/app/(tabs)/events/[id].tsx");
+const supabaseTypes = read("src/integrations/supabase/types.ts");
 const discoverVisibility = read("shared/discoverEventVisibility.ts");
 const visibleEventsMigration = read("supabase/migrations/20260521161000_video_date_phase0_observability_flags.sql");
 
@@ -97,9 +100,7 @@ test("admin Events UI exposes publish and unpublish actions without a generic st
   assert.match(adminEventsPanel, /kind: "publish-series"/);
   assert.match(adminEventsPanel, /kind: "unpublish-series"/);
   assert.match(adminEventsPanel, /The backend blocks this if the event has confirmed or waitlisted registrations/);
-  assert.match(adminEventsPanel, /visible-events/);
-  assert.match(adminEventsPanel, /events-discover/);
-  assert.match(adminEventsPanel, /other-city-events/);
+  assert.match(adminEventsPanel, /invalidateAdminEventSurfaces/);
 
   assert.doesNotMatch(adminEventForm, /<SelectItem value="draft"/);
   assert.doesNotMatch(adminEventForm, /<SelectItem value="upcoming"/);
@@ -114,6 +115,7 @@ test("create modal supports save as draft without announcement notifications", (
   assert.match(adminEventForm, /if \(!createdAsDraft\) \{/);
   assert.match(adminEventForm, /event-notifications/);
   assert.match(adminEventForm, /The event is not discoverable until it is published/);
+  assert.match(adminEventForm, /invalidateAdminEventSurfaces/);
 });
 
 test("activity log and discovery surfaces recognize the lifecycle model", () => {
@@ -126,6 +128,36 @@ test("activity log and discovery surfaces recognize the lifecycle model", () => 
   assert.match(visibleEventsMigration, /e\.status IS DISTINCT FROM 'cancelled'/);
   assert.match(discoverVisibility, /st === "draft"/);
   assert.match(discoverVisibility, /return false/);
+});
+
+test("generated Supabase types expose publish and unpublish RPC contracts", () => {
+  assert.match(supabaseTypes, /admin_publish_event: \{/);
+  assert.match(supabaseTypes, /admin_unpublish_event: \{/);
+  assert.match(supabaseTypes, /admin_publish_event_series: \{/);
+  assert.match(supabaseTypes, /admin_unpublish_event_series: \{/);
+  assert.match(supabaseTypes, /p_event_id: string/);
+  assert.match(supabaseTypes, /p_parent_event_id: string/);
+});
+
+test("admin lifecycle controls refresh user-facing event caches", () => {
+  for (const source of [adminEventsPanel, adminEventControls, adminEventForm]) {
+    assert.match(source, /invalidateAdminEventSurfaces/);
+  }
+
+  for (const queryKey of [
+    "admin-events",
+    "events",
+    "visible-events",
+    "events-discover",
+    "other-city-events",
+    "next-event",
+    "next-registered-event",
+    "event-details",
+    "registered-upcoming-events-invite",
+    "event-deck",
+  ]) {
+    assert.match(adminEventInvalidation, new RegExp(`\\["${queryKey}"\\]`));
+  }
 });
 
 test("web and native direct event details block draft or archived registration attempts", () => {

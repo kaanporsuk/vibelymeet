@@ -33,6 +33,7 @@ import { formatAdminUtcDate, formatAdminUtcDateTime, formatAdminUtcTime } from "
 import { adminToast } from "@/lib/adminToast";
 import { resolveAdminErrorMessage } from "@/lib/adminErrorResolver";
 import { useDebouncedValue } from "@/hooks/useDebouncedValue";
+import { invalidateAdminEventSurfaces } from "@/lib/adminEventInvalidation";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -689,11 +690,7 @@ const AdminEventsPanel = () => {
   });
 
   const invalidateEventSurfaces = () => {
-    queryClient.invalidateQueries({ queryKey: ['admin-events'] });
-    queryClient.invalidateQueries({ queryKey: ['events'] });
-    queryClient.invalidateQueries({ queryKey: ['visible-events'] });
-    queryClient.invalidateQueries({ queryKey: ['events-discover'] });
-    queryClient.invalidateQueries({ queryKey: ['other-city-events'] });
+    invalidateAdminEventSurfaces(queryClient);
   };
 
   useEffect(() => {
@@ -797,7 +794,7 @@ const AdminEventsPanel = () => {
       });
     },
     onSuccess: (_, { unarchive }) => {
-      queryClient.invalidateQueries({ queryKey: ['admin-events'] });
+      invalidateEventSurfaces();
       adminToast.success({
         id: unarchive ? 'event-unarchived' : 'event-archived',
         title: unarchive ? 'Event unarchived' : 'Event archived',
@@ -822,7 +819,7 @@ const AdminEventsPanel = () => {
       });
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['admin-events'] });
+      invalidateEventSurfaces();
       adminToast.success({
         id: 'event-permanently-deleted',
         title: 'Event permanently deleted',
@@ -847,7 +844,7 @@ const AdminEventsPanel = () => {
       });
     },
     onSuccess: (payload) => {
-      queryClient.invalidateQueries({ queryKey: ['admin-events'] });
+      invalidateEventSurfaces();
       adminToast.success({
         id: "event-cancelled",
         title: "Event cancelled",
@@ -876,9 +873,7 @@ const AdminEventsPanel = () => {
     },
     onSuccess: (event) => {
       broadcastEventEnded(event.id);
-      queryClient.invalidateQueries({ queryKey: ['admin-events'] });
-      queryClient.invalidateQueries({ queryKey: ['events'] });
-      queryClient.invalidateQueries({ queryKey: ['visible-events'] });
+      invalidateEventSurfaces();
       adminToast.success({
         id: `event-finalized-${event.id}`,
         title: `Finalized "${event.title}"`,
@@ -908,7 +903,7 @@ const AdminEventsPanel = () => {
       });
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['admin-events'] });
+      invalidateEventSurfaces();
       adminToast.success({
         id: 'event-series-archived',
         title: 'Entire series archived',
@@ -937,7 +932,7 @@ const AdminEventsPanel = () => {
           })),
         }),
       });
-      queryClient.invalidateQueries({ queryKey: ['admin-events'] });
+      invalidateEventSurfaces();
       setSelectedIds(new Set());
       adminToast.success({
         id: 'event-bulk-archived',
@@ -969,7 +964,7 @@ const AdminEventsPanel = () => {
           ...eventIdempotencyState(parent),
         }),
       });
-      queryClient.invalidateQueries({ queryKey: ['admin-events'] });
+      invalidateEventSurfaces();
       adminToast.success({
         id: `event-recurring-generated-${parentId}`,
         title: `Generated ${Number(data.generated_count || 0)} new occurrences`,
