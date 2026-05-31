@@ -174,6 +174,13 @@ function isEligibleAssetForKind(asset: MediaAssetRow, kind: MediaKind): boolean 
   return path.startsWith("chat-videos/") && !path.includes("_thumb.");
 }
 
+function assetPriorityForKind(asset: MediaAssetRow, kind: MediaKind): number {
+  if (kind !== "thumbnail") return 0;
+  if (asset.media_family === "chat_video_thumbnail") return 2;
+  if (asset.provider === "bunny_stream" && asset.media_family === "chat_video") return 1;
+  return 0;
+}
+
 function mediaKey(messageId: string, kind: MediaKind): string {
   return `${messageId}:${kind}`;
 }
@@ -237,7 +244,10 @@ async function resolvePageMediaUrls(params: {
       if (!familyMatches) continue;
       if (!isEligibleAssetForKind(asset, kind)) continue;
       const key = mediaKey(messageId, kind);
-      if (!assetsByKey.has(key)) assetsByKey.set(key, asset);
+      const existing = assetsByKey.get(key);
+      if (!existing || assetPriorityForKind(asset, kind) > assetPriorityForKind(existing, kind)) {
+        assetsByKey.set(key, asset);
+      }
     }
   }
 
@@ -266,25 +276,32 @@ async function resolvePageMediaUrls(params: {
         next.audio_url = durableAssetRef(next.id, "voice") ?? next.audio_url;
       }
 
-      if (next.video_url) {
+      const shouldHydrateVideo =
+        !!next.video_url || next.message_kind === "video" || next.message_kind === "vibe_clip";
+      if (shouldHydrateVideo) {
         const kind = next.message_kind === "vibe_clip" ? "vibe_clip" : "video";
-        next.video_url = durableAssetRef(next.id, kind) ?? next.video_url;
+        const durableVideoRef = durableAssetRef(next.id, kind);
+        if (durableVideoRef || next.video_url) next.video_url = durableVideoRef ?? next.video_url;
       }
 
-      const payload =
+      const existingPayload =
         next.structured_payload && typeof next.structured_payload === "object" && !Array.isArray(next.structured_payload)
           ? { ...(next.structured_payload as Record<string, unknown>) }
           : null;
+      const durableThumbnailRef = (shouldHydrateVideo || !!next.video_url) ? durableAssetRef(next.id, "thumbnail") : null;
+      const payload = existingPayload ?? (durableThumbnailRef ? {} : null);
       const thumbnailRef =
         typeof payload?.thumbnail_url === "string"
           ? payload.thumbnail_url
           : typeof payload?.poster_ref === "string"
             ? payload.poster_ref
             : null;
-      if (payload && thumbnailRef) {
-        const durableThumbnailRef = durableAssetRef(next.id, "thumbnail") ?? thumbnailRef;
-        payload.thumbnail_url = durableThumbnailRef;
-        if (typeof payload.poster_ref === "string") payload.poster_ref = durableThumbnailRef;
+      if (payload) {
+        const effectiveThumbnailRef = durableThumbnailRef ?? thumbnailRef;
+        if (effectiveThumbnailRef) {
+          payload.thumbnail_url = effectiveThumbnailRef;
+          if (next.video_url || typeof payload.poster_ref === "string") payload.poster_ref = effectiveThumbnailRef;
+        }
         next.structured_payload = payload;
       }
 

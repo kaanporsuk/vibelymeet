@@ -74,6 +74,15 @@ function isLocalPreviewUrl(value: string): boolean {
   return value.startsWith("blob:") || value.startsWith("file:") || value.startsWith("data:");
 }
 
+function isPlayableVideoUrl(value: string | null | undefined): value is string {
+  return !!value && (isLocalPreviewUrl(value) || /^https?:\/\//i.test(value));
+}
+
+function displayablePosterUrl(value: string | null | undefined): string | null {
+  if (!value) return null;
+  return isPlayableVideoUrl(value) ? value : null;
+}
+
 function isResolvableMediaRef(value: string | null | undefined): boolean {
   return !!value && !isLocalPreviewUrl(value) && !/^https?:\/\//i.test(value);
 }
@@ -160,6 +169,8 @@ export const VibeClipBubble = ({
   const playStartTracked = useRef(false);
   const playCompleteTracked = useRef(false);
   const playbackRefreshAttemptCountRef = useRef(0);
+  const initialPlaybackResolveInFlightRef = useRef(false);
+  const initialPlaybackResolveRunIdRef = useRef(0);
   const posterRetryStateRef = useRef<{ key: string; attempts: number }>({ key: "", attempts: 0 });
   const posterNotReadyRef = useRef(false);
   const playableVideoUrlRef = useRef(meta.videoUrl);
@@ -187,6 +198,10 @@ export const VibeClipBubble = ({
     onResolvedUrl: onResolvedVideoUrl,
     onProcessingStatusChange: handleRealtimeProcessingStatus,
   });
+  const handleResolvedThumbnailUrl = useCallback((url: string) => {
+    const displayableUrl = displayablePosterUrl(url);
+    if (displayableUrl) onResolvedThumbnailUrl?.(displayableUrl);
+  }, [onResolvedThumbnailUrl]);
   const {
     url: thumbnailAssetUrl,
     placeholderKind: thumbnailPlaceholderKind,
@@ -204,7 +219,7 @@ export const VibeClipBubble = ({
     // (useMessages prewarmMediaAssets), so this almost always hits cache. The video URL
     // stays lazy (autoResolve: false) — only the cheap poster preloads.
     autoResolve: true,
-    onResolvedUrl: onResolvedThumbnailUrl,
+    onResolvedUrl: handleResolvedThumbnailUrl,
   });
 
   const hasPrimary = !!(onReplyWithClip || onVoiceReply);
@@ -242,6 +257,8 @@ export const VibeClipBubble = ({
     setIsLoading(true);
     setIsReady(false);
     setPlayRequested(false);
+    initialPlaybackResolveInFlightRef.current = false;
+    initialPlaybackResolveRunIdRef.current += 1;
     setHasMetadata(false);
     setLoadError(false);
     setMediaFallbackReason(null);
@@ -271,7 +288,7 @@ export const VibeClipBubble = ({
   }, [videoAssetUrl]);
 
   useEffect(() => {
-    const nextThumbnailUrl = thumbnailAssetUrl ?? null;
+    const nextThumbnailUrl = displayablePosterUrl(thumbnailAssetUrl);
     if (!nextThumbnailUrl || nextThumbnailUrl === playableThumbnailUrlRef.current) return;
     playableThumbnailUrlRef.current = nextThumbnailUrl;
     setPlayableThumbnailUrl(nextThumbnailUrl);
@@ -290,19 +307,25 @@ export const VibeClipBubble = ({
     [meta, playableThumbnailUrl, playableVideoUrl, processingStatus],
   );
   const isLocalPreview = isLocalPreviewUrl(displayMeta.videoUrl);
-  const isRemotePlayableUrl = /^https?:\/\//i.test(displayMeta.videoUrl);
   const isHlsUrl = /\.m3u8(?:[?#]|$)/i.test(displayMeta.videoUrl);
-  const canMountPlayer = isRemotePlayableUrl || isLocalPreview;
+  const canMountPlayer = isPlayableVideoUrl(displayMeta.videoUrl);
   const isUploadPendingStatus = processingStatus === "uploading" || processingStatus === "processing";
   const isServerProcessing = isUploadPendingStatus && !isLocalPreview;
   const isAwaitingPlaybackIntent = !isServerProcessing && !canMountPlayer;
   const isSurfaceInteractive = !isServerProcessing;
   const effectiveClientRequestId = clientRequestId ?? meta.clientRequestId ?? null;
   const shouldAutoSyncProcessingStatus = isServerProcessing;
-  const canShowPosterImage =
-    !!displayMeta.thumbnailUrl &&
-    (isLocalPreviewUrl(displayMeta.thumbnailUrl) || /^https?:\/\//i.test(displayMeta.thumbnailUrl));
+  const displayableThumbnailUrl = displayablePosterUrl(displayMeta.thumbnailUrl);
+  const canShowPosterImage = !!displayableThumbnailUrl;
+  const showPosterVisual = canShowPosterImage && !posterImageBroken;
   const showPreparingOverlay = isServerProcessing || (!isReady && !isAwaitingPlaybackIntent && !isLocalPreview);
+  const showIdlePosterOverlay =
+    showPosterVisual &&
+    !isServerProcessing &&
+    canMountPlayer &&
+    isReady &&
+    !isPlaying &&
+    currentTime <= 0.05;
   const captionText = useMemo(() => captionTextFromMediaCaptions(displayMeta.captions), [displayMeta.captions]);
   const captionLanguage = useMemo(() => mediaCaptionLanguage(displayMeta.captions) ?? "und", [displayMeta.captions]);
   const videoPreload = useMediaVideoPreloadForVisibility(
@@ -426,17 +449,23 @@ export const VibeClipBubble = ({
     const freshThumbnailUrl = thumbnailSourceRef
       ? await refreshThumbnailAsset(reason === "manual" ? "manual" : "preview", refreshOptions)
       : null;
-    if (freshThumbnailUrl) {
-      playableThumbnailUrlRef.current = freshThumbnailUrl;
-      setPlayableThumbnailUrl(freshThumbnailUrl);
+    const displayableFreshThumbnailUrl = displayablePosterUrl(freshThumbnailUrl);
+    if (displayableFreshThumbnailUrl) {
+      playableThumbnailUrlRef.current = displayableFreshThumbnailUrl;
+      setPlayableThumbnailUrl(displayableFreshThumbnailUrl);
       setPosterImageBroken(false);
-      onResolvedThumbnailUrl?.(freshThumbnailUrl);
+      onResolvedThumbnailUrl?.(displayableFreshThumbnailUrl);
     }
-    if (reason === "preview") return !!freshThumbnailUrl;
+    if (reason === "preview") return !!displayableFreshThumbnailUrl;
     if (!videoSourceRef) return false;
 
     const freshVideoUrl = await refreshVideoAsset(reason, refreshOptions);
-    if (!freshVideoUrl || freshVideoUrl === playableVideoUrl) return false;
+    if (!freshVideoUrl) return false;
+    if (!isPlayableVideoUrl(freshVideoUrl)) return false;
+    if (freshVideoUrl === playableVideoUrl) {
+      videoRef.current?.load();
+      return true;
+    }
     playableVideoUrlRef.current = freshVideoUrl;
     setPlayableVideoUrl(freshVideoUrl);
     onResolvedVideoUrl?.(freshVideoUrl);
@@ -467,7 +496,7 @@ export const VibeClipBubble = ({
   const requestImmersiveWithCurrentMedia = useCallback(() => {
     onRequestImmersive?.({
       videoUrl: playableVideoUrlRef.current,
-      thumbnailUrl: playableThumbnailUrlRef.current,
+      thumbnailUrl: displayablePosterUrl(playableThumbnailUrlRef.current),
     });
   }, [onRequestImmersive]);
 
@@ -655,14 +684,30 @@ export const VibeClipBubble = ({
     if (isServerProcessing) return;
     const video = videoRef.current;
     if (!canMountPlayer) {
+      if (initialPlaybackResolveInFlightRef.current) return;
+      initialPlaybackResolveInFlightRef.current = true;
+      const runId = initialPlaybackResolveRunIdRef.current + 1;
+      initialPlaybackResolveRunIdRef.current = runId;
       setPlayRequested(true);
       setIsLoading(true);
-      void refreshClipMedia("initial").then((didRefresh) => {
-        if (!didRefresh) {
+      void refreshClipMedia("initial")
+        .then((didRefresh) => {
+          if (initialPlaybackResolveRunIdRef.current !== runId) return;
+          if (!didRefresh) {
+            setMediaFallbackReason(videoAssetFallbackReason ?? "unknown");
+            setLoadError(true);
+          }
+        })
+        .catch(() => {
+          if (initialPlaybackResolveRunIdRef.current !== runId) return;
           setMediaFallbackReason(videoAssetFallbackReason ?? "unknown");
           setLoadError(true);
-        }
-      });
+        })
+        .finally(() => {
+          if (initialPlaybackResolveRunIdRef.current === runId) {
+            initialPlaybackResolveInFlightRef.current = false;
+          }
+        });
       return;
     }
     if (!video) return;
@@ -712,13 +757,29 @@ export const VibeClipBubble = ({
       if (isServerProcessing) return;
       if (onRequestImmersive) {
         if (!canMountPlayer) {
-          void refreshClipMedia("initial").then((didRefresh) => {
-            if (didRefresh) requestImmersiveWithCurrentMedia();
-            else {
+          if (initialPlaybackResolveInFlightRef.current) return;
+          initialPlaybackResolveInFlightRef.current = true;
+          const runId = initialPlaybackResolveRunIdRef.current + 1;
+          initialPlaybackResolveRunIdRef.current = runId;
+          void refreshClipMedia("initial")
+            .then((didRefresh) => {
+              if (initialPlaybackResolveRunIdRef.current !== runId) return;
+              if (didRefresh) requestImmersiveWithCurrentMedia();
+              else {
+                setMediaFallbackReason(videoAssetFallbackReason ?? "unknown");
+                setLoadError(true);
+              }
+            })
+            .catch(() => {
+              if (initialPlaybackResolveRunIdRef.current !== runId) return;
               setMediaFallbackReason(videoAssetFallbackReason ?? "unknown");
               setLoadError(true);
-            }
-          });
+            })
+            .finally(() => {
+              if (initialPlaybackResolveRunIdRef.current === runId) {
+                initialPlaybackResolveInFlightRef.current = false;
+              }
+            });
         } else {
           requestImmersiveWithCurrentMedia();
         }
@@ -895,9 +956,9 @@ export const VibeClipBubble = ({
                 hash={thumbnailPlaceholderHash}
                 dominantColor={thumbnailDominantColor}
               />
-              {canShowPosterImage && !posterImageBroken ? (
+              {showPosterVisual ? (
                 <img
-                  src={displayMeta.thumbnailUrl ?? undefined}
+                  src={displayableThumbnailUrl ?? undefined}
                   alt=""
                   className="h-full w-full object-cover"
                   draggable={false}
@@ -921,11 +982,11 @@ export const VibeClipBubble = ({
                 hash={thumbnailPlaceholderHash}
                 dominantColor={thumbnailDominantColor}
               />
-              {canShowPosterImage && !posterImageBroken ? (
+              {showPosterVisual ? (
                 // Keep the resolved poster visible while the video frame loads (e.g. right
                 // after a tap) so the surface doesn't flash from thumbnail back to blurhash.
                 <img
-                  src={displayMeta.thumbnailUrl ?? undefined}
+                  src={displayableThumbnailUrl ?? undefined}
                   alt=""
                   className="absolute inset-0 h-full w-full object-cover"
                   draggable={false}
@@ -962,7 +1023,7 @@ export const VibeClipBubble = ({
             <video
               ref={videoRef}
               src={isHlsUrl ? undefined : displayMeta.videoUrl}
-              poster={displayMeta.thumbnailUrl ?? undefined}
+              poster={showPosterVisual ? displayableThumbnailUrl ?? undefined : undefined}
               playsInline
               muted={isMuted}
               preload={videoPreload}
@@ -989,6 +1050,16 @@ export const VibeClipBubble = ({
                 <track kind="subtitles" src={captionTrackUrl} srcLang={captionLanguage} label="Captions" default={showCaptions} />
               ) : null}
             </video>
+          ) : null}
+
+          {showIdlePosterOverlay ? (
+            <img
+              src={displayableThumbnailUrl ?? undefined}
+              alt=""
+              className="pointer-events-none absolute inset-0 h-full w-full object-cover"
+              draggable={false}
+              onError={() => setPosterImageBroken(true)}
+            />
           ) : null}
 
           {captionText && showCaptions && !isServerProcessing ? (

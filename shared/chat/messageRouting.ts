@@ -83,6 +83,74 @@ export interface VibeClipDisplayMeta {
   captions?: MediaCaptions | null;
 }
 
+const BUNNY_STREAM_VIDEO_ID_PATTERN =
+  "(?:[0-9a-f]{32}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})";
+const BUNNY_STREAM_VIDEO_ID_RE = new RegExp(`^${BUNNY_STREAM_VIDEO_ID_PATTERN}$`, "i");
+const BUNNY_STREAM_REF_RE = new RegExp(`^bunny_stream:(${BUNNY_STREAM_VIDEO_ID_PATTERN})(?::thumbnail)?$`, "i");
+
+function nonEmptyString(value: unknown): string | null {
+  return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
+}
+
+function isResolvedOrLocalMediaRef(value: string): boolean {
+  return /^https?:\/\//i.test(value) || value.startsWith("blob:") || value.startsWith("file:") || value.startsWith("data:");
+}
+
+function explicitChatVideoThumbnailValue(payload: Record<string, unknown> | null): string | null {
+  return nonEmptyString(payload?.thumbnail_url) ?? nonEmptyString(payload?.poster_ref);
+}
+
+function durableChatVideoThumbnailRef(value: unknown): string | null {
+  const ref = nonEmptyString(value);
+  if (!ref || isResolvedOrLocalMediaRef(ref)) return null;
+  return ref;
+}
+
+export function bunnyStreamVideoIdFromRef(rawRef: string | null | undefined): string | null {
+  const ref = nonEmptyString(rawRef);
+  if (!ref) return null;
+  const match = BUNNY_STREAM_REF_RE.exec(ref);
+  return match?.[1] ?? null;
+}
+
+export function bunnyStreamThumbnailRefFor(rawRef: string | null | undefined): string | null {
+  const videoId = bunnyStreamVideoIdFromRef(rawRef);
+  return videoId ? `bunny_stream:${videoId}:thumbnail` : null;
+}
+
+function bunnyStreamThumbnailRefFromProviderObjectId(value: unknown): string | null {
+  const id = nonEmptyString(value);
+  if (!id) return null;
+  if (BUNNY_STREAM_VIDEO_ID_RE.test(id)) return `bunny_stream:${id}:thumbnail`;
+  return bunnyStreamThumbnailRefFor(id);
+}
+
+function payloadDeclaresBunnyStream(payload: Record<string, unknown> | null): boolean {
+  return payload?.provider === "bunny_stream" || payload?.upload_provider === "bunny_stream";
+}
+
+export function deriveChatVideoThumbnailRef(row: {
+  video_url?: string | null;
+  structured_payload?: unknown;
+}): string | null {
+  const payload = structuredPayloadObject(row.structured_payload);
+  const explicitRef =
+    durableChatVideoThumbnailRef(payload?.thumbnail_url) ?? durableChatVideoThumbnailRef(payload?.poster_ref);
+  if (explicitRef) return explicitRef;
+
+  const playbackThumbnailRef = bunnyStreamThumbnailRefFor(nonEmptyString(payload?.playback_ref));
+  const videoThumbnailRef = bunnyStreamThumbnailRefFor(row.video_url);
+  const objectThumbnailRef = payloadDeclaresBunnyStream(payload)
+    ? bunnyStreamThumbnailRefFromProviderObjectId(payload?.provider_object_id)
+    : null;
+
+  return (
+    videoThumbnailRef ??
+    playbackThumbnailRef ??
+    objectThumbnailRef
+  );
+}
+
 /**
  * Extract canonical Vibe Clip display metadata from a message row.
  * Returns null if the row does not represent a valid vibe_clip.
@@ -100,6 +168,7 @@ export function extractVibeClipMeta(row: {
   const durationSec = Math.max(0, Math.round(durationMs / 1000));
   const mins = Math.floor(durationSec / 60);
   const secs = durationSec % 60;
+  const payload = structuredPayloadObject(row.structured_payload);
 
   return {
     videoUrl: row.video_url,
@@ -110,12 +179,7 @@ export function extractVibeClipMeta(row: {
       typeof sp?.client_request_id === "string" && sp.client_request_id.trim().length > 0
         ? sp.client_request_id.trim()
         : null,
-    thumbnailUrl:
-      typeof sp?.thumbnail_url === "string" && sp.thumbnail_url
-        ? sp.thumbnail_url
-        : typeof sp?.poster_ref === "string" && sp.poster_ref
-          ? sp.poster_ref
-          : null,
+    thumbnailUrl: explicitChatVideoThumbnailValue(payload) ?? deriveChatVideoThumbnailRef(row),
     posterSource:
       sp?.poster_source === "uploaded_thumbnail" || sp?.poster_source === "bunny_stream_thumbnail"
         ? sp.poster_source

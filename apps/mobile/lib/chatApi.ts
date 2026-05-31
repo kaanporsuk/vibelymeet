@@ -16,7 +16,7 @@ import {
   type ChatGameSessionMessageRow,
   type NativeHydratedGameSessionView,
 } from '@/lib/chatGameSessions';
-import { toRenderableMessageKind } from '../../../shared/chat/messageRouting';
+import { deriveChatVideoThumbnailRef, toRenderableMessageKind } from '../../../shared/chat/messageRouting';
 import type { ConversationPreview } from '../../../shared/chat/conversationListPreview';
 import {
   conversationPreviewSearchText,
@@ -479,18 +479,13 @@ function durableChatMediaSourceRef(value: string | null | undefined): string | u
   return trimmed;
 }
 
-function structuredPayloadObject(value: unknown): Record<string, unknown> | null {
-  return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : null;
-}
-
 function collectChatMediaSourceRefs(row: {
   content: string;
   audio_url?: string | null;
   video_url?: string | null;
   structured_payload?: unknown;
 }) {
-  const payload = structuredPayloadObject(row.structured_payload);
-  const thumbnailRef = typeof payload?.thumbnail_url === 'string' ? payload.thumbnail_url : null;
+  const thumbnailRef = deriveChatVideoThumbnailRef(row);
   return {
     audio: durableChatMediaSourceRef(row.audio_url),
     image: durableChatMediaSourceRef(
@@ -568,13 +563,7 @@ export async function hydrateChatRowsForDisplay(params: {
   for (const row of rowsForGames) {
     if (row.audio_source_ref) prewarmInputs.push({ messageId: row.id, kind: 'voice', sourceRef: row.audio_source_ref });
     if (row.image_source_ref) prewarmInputs.push({ messageId: row.id, kind: 'image', sourceRef: row.image_source_ref });
-    if (row.video_source_ref) {
-      prewarmInputs.push({
-        messageId: row.id,
-        kind: row.message_kind === 'vibe_clip' ? 'vibe_clip' : 'video',
-        sourceRef: row.video_source_ref,
-      });
-    }
+    // Keep video playback lazy on chat open; thumbnails are the eager visual contract.
     if (row.thumbnail_source_ref) {
       prewarmInputs.push({ messageId: row.id, kind: 'thumbnail', sourceRef: row.thumbnail_source_ref });
     }

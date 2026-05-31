@@ -10,6 +10,7 @@ import {
   normalizeMediaPlaceholderKind,
   type MediaPlaceholderKind,
 } from "@clientShared/media/placeholders";
+import { bunnyStreamThumbnailRefFor, deriveChatVideoThumbnailRef } from "@clientShared/chat/messageRouting";
 import { reserveMediaPrewarmBudgetForSource } from "@/lib/mediaPlaybackSessionPolicy";
 
 export type MediaAssetKind = "image" | "voice" | "video" | "vibe_clip" | "thumbnail" | "profile_vibe_video";
@@ -124,12 +125,6 @@ export function isHlsMediaAssetUrl(value: string | null | undefined): boolean {
 
 function isBunnyStreamRef(value: string): boolean {
   return value.startsWith("bunny_stream:");
-}
-
-export function bunnyStreamThumbnailRefFor(rawRef: string | null | undefined): string | null {
-  if (!rawRef) return null;
-  const match = /^bunny_stream:([0-9a-f-]{32,36})$/i.exec(rawRef.trim());
-  return match ? `bunny_stream:${match[1]}:thumbnail` : null;
 }
 
 export type ProfileVibeVideoRef = {
@@ -547,7 +542,7 @@ async function issueAndCacheMediaAsset(
       const { data, error, response } = await supabase.functions.invoke("get-chat-media-url", {
         body: profileRef
           ? { profileId: profileRef.profileId, mediaKind, sourceRef: rawRef }
-          : { messageId, mediaKind, ...(variant === "original" ? { variant } : {}) },
+          : { messageId, mediaKind, sourceRef: rawRef, ...(variant === "original" ? { variant } : {}) },
       });
       if (error) return issueResultForFunctionInvokeError(error, response);
       return { kind: "response", payload: data as ResolverResponse | null };
@@ -860,13 +855,28 @@ export async function resolveMessageMediaForDisplay<
     row.structured_payload && typeof row.structured_payload === "object" && !Array.isArray(row.structured_payload)
       ? { ...(row.structured_payload as Record<string, unknown>) }
       : null;
-  const thumbnailRef = typeof payload?.thumbnail_url === "string" ? payload.thumbnail_url : null;
-  if (payload && thumbnailRef) {
+  const thumbnailRef = deriveChatVideoThumbnailRef({
+    video_url: row.video_url,
+    structured_payload: payload,
+  });
+  if (thumbnailRef) {
+    const existingThumbnailUrl =
+      typeof payload?.thumbnail_url === "string" && isPlayableMediaAssetUrl(payload.thumbnail_url)
+        ? payload.thumbnail_url
+        : typeof payload?.poster_ref === "string" && isPlayableMediaAssetUrl(payload.poster_ref)
+          ? payload.poster_ref
+          : null;
     const thumbnailAsset = await getCachedMediaAsset(row.id, "thumbnail", thumbnailRef);
-    payload.thumbnail_url = thumbnailAsset?.url ?? "";
-    const placeholder = mediaPlaceholderPayload(thumbnailAsset);
-    if (placeholder) payload.thumbnail_placeholder = placeholder;
-    resolved.structured_payload = payload;
+    const resolvedThumbnailUrl =
+      thumbnailAsset?.url && isPlayableMediaAssetUrl(thumbnailAsset.url) ? thumbnailAsset.url : null;
+    const nextThumbnailUrl = resolvedThumbnailUrl ?? existingThumbnailUrl;
+    if (payload || nextThumbnailUrl) {
+      const displayPayload = payload ?? {};
+      displayPayload.thumbnail_url = nextThumbnailUrl ?? "";
+      const placeholder = mediaPlaceholderPayload(thumbnailAsset);
+      if (placeholder) displayPayload.thumbnail_placeholder = placeholder;
+      resolved.structured_payload = displayPayload;
+    }
   }
 
   const imageRef = extractChatImageMediaRef(row, { allowPrivateMediaRefs: true });

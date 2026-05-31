@@ -3,7 +3,7 @@ import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-nati
 import { Image as ExpoImage } from 'expo-image';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons } from '@expo/vector-icons';
-import { useVideoPlayer, VideoView, type VideoSource } from 'expo-video';
+import { useVideoPlayer, VideoView, type VideoPlayerStatus, type VideoSource } from 'expo-video';
 import Colors from '@/constants/Colors';
 import { useColorScheme } from '@/components/useColorScheme';
 import type { VibeClipDisplayMeta } from '../../../../shared/chat/messageRouting';
@@ -15,6 +15,7 @@ import { trackVibeClipEvent } from '@/lib/vibeClipAnalytics';
 import {
   attachSafeExpoSharedObjectPromise,
   safeExpoSharedObjectCall,
+  safeExpoSharedObjectRead,
   safeRemoveExpoSharedObjectSubscription,
 } from '@/lib/expoSharedObjectSafe';
 import { durationBucketFromSeconds, threadBucketFromCount } from '../../../../shared/chat/vibeClipAnalytics';
@@ -95,6 +96,9 @@ type VibeClipCardInnerProps = Props & {
 type VibeClipPosterProps = Props & {
   onRefreshClipMedia: (reason?: VibeClipMediaRefreshReason) => Promise<boolean>;
   onRequestInlinePlay: () => void;
+  initialPlaybackResolveFailed: boolean;
+  onInitialPlaybackResolveFailed: () => void;
+  onClearInitialPlaybackResolveFailed: () => void;
   syncAttemptCount: number;
   isSyncingStatus: boolean;
   onManualStatusSync: () => void;
@@ -138,6 +142,10 @@ function isRemotePlaybackUri(uri: string): boolean {
   return /^https?:\/\//i.test(uri);
 }
 
+function displayablePosterUri(uri: string | null | undefined): string | null {
+  return uri && (isLocalPreviewUri(uri) || isRemotePlaybackUri(uri)) ? uri : null;
+}
+
 function isResolvableMediaRef(uri: string | null | undefined): boolean {
   return !!uri && !isLocalPreviewUri(uri) && !isRemotePlaybackUri(uri);
 }
@@ -168,7 +176,7 @@ function posterStateForMeta(
   meta: VibeClipDisplayMeta,
   posterPreviewState?: VibeClipPosterPreviewState,
 ): VibeClipPosterPreviewState {
-  if (!meta.thumbnailUrl) return 'failed';
+  if (!displayablePosterUri(meta.thumbnailUrl)) return 'failed';
   return posterPreviewState ?? 'unknown';
 }
 
@@ -187,7 +195,8 @@ function VibeClipPosterImage({
   dominantColor?: string | null;
   onPreviewStateChange?: (state: VibeClipPosterPreviewState, thumbnailUrl?: string | null) => void;
 }) {
-  if (!uri || previewState === 'failed') {
+  const displayableUri = displayablePosterUri(uri);
+  if (!displayableUri || previewState === 'failed') {
     return (
       <MediaPlaceholder
         kind={placeholderKind}
@@ -204,16 +213,16 @@ function VibeClipPosterImage({
         dominantColor={dominantColor}
       />
       <ExpoImage
-        source={{ uri }}
+        source={{ uri: displayableUri }}
         style={StyleSheet.absoluteFillObject}
         contentFit="cover"
         cachePolicy="memory-disk"
-        recyclingKey={uri}
-        onLoad={() => onPreviewStateChange?.('ready', uri)}
+        recyclingKey={displayableUri}
+        onLoad={() => onPreviewStateChange?.('ready', displayableUri)}
         onError={() => {
           // Resolved URL but the file 404'd (Bunny still generating). Mark failed and
           // let the parent's bounded retry re-sign + reload rather than firing here.
-          onPreviewStateChange?.('failed', uri);
+          onPreviewStateChange?.('failed', displayableUri);
         }}
       />
     </>
@@ -387,15 +396,6 @@ function VibeClipCardInner({
     setPlayRequested(true);
   }, [playRequestToken]);
 
-  useEffect(() => {
-    if (!shouldAttachPlayback) return;
-    const result = safeExpoSharedObjectCall(() => player.replace(videoSourceForUri(meta.videoUrl)), {
-      label: 'vibeClip.player.replace',
-      swallowAll: true,
-    });
-    attachSafeExpoSharedObjectPromise(result, undefined, 'vibeClip.player.replace');
-  }, [meta.videoUrl, player, shouldAttachPlayback]);
-
   const handlePendingLocalPreviewFailure = useCallback(() => {
     onLocalPreviewUnavailable();
     setHasError(false);
@@ -404,39 +404,49 @@ function VibeClipCardInner({
     setPlayRequested(false);
   }, [onLocalPreviewUnavailable]);
 
+  const handlePlayerStatus = useCallback((status: VideoPlayerStatus, payload?: unknown) => {
+    if (status === 'error') {
+      const reason = resolveNativeMediaPlaybackFallbackReason({ uri: meta.videoUrl, error: payload });
+      qoe.markError();
+      if (isPendingLocalPreview) {
+        handlePendingLocalPreviewFailure();
+        return;
+      }
+      void onRefreshClipMedia('playback')
+        .then((didRefresh) => {
+          if (!didRefresh) {
+            setFallbackReason(reason);
+            setHasError(true);
+          }
+        })
+        .catch(() => {
+          setFallbackReason(reason);
+          setHasError(true);
+        });
+      setIsBuffering(false);
+      return;
+    }
+    setIsBuffering(status === 'loading');
+    if (status === 'loading') qoe.markBuffering();
+    if (status === 'readyToPlay') {
+      qoe.markReady();
+      setHasError(false);
+      setIsBuffering(false);
+      setIsReady(true);
+    }
+  }, [
+    handlePendingLocalPreviewFailure,
+    isPendingLocalPreview,
+    meta.videoUrl,
+    onRefreshClipMedia,
+    qoe,
+  ]);
+
   useEffect(() => {
     if (!shouldAttachPlayback) return;
     const sub = safeExpoSharedObjectCall(
       () => player.addListener('statusChange', (payload) => {
-        if (payload.status === 'error') {
-          const reason = resolveNativeMediaPlaybackFallbackReason({ uri: meta.videoUrl, error: payload });
-          qoe.markError();
-          if (isPendingLocalPreview) {
-            handlePendingLocalPreviewFailure();
-            return;
-          }
-          void onRefreshClipMedia('playback')
-            .then((didRefresh) => {
-              if (!didRefresh) {
-                setFallbackReason(reason);
-                setHasError(true);
-              }
-            })
-            .catch(() => {
-              setFallbackReason(reason);
-              setHasError(true);
-            });
-          setIsBuffering(false);
-          return;
-        }
-        setIsBuffering(payload.status === 'loading');
-        if (payload.status === 'loading') qoe.markBuffering();
-        if (payload.status === 'readyToPlay') {
-          qoe.markReady();
-          setHasError(false);
-          setIsBuffering(false);
-          setIsReady(true);
-        }
+        handlePlayerStatus(payload.status, payload);
       }),
       {
         label: 'vibeClip.player.statusListener',
@@ -444,16 +454,14 @@ function VibeClipCardInner({
         swallowAll: true,
       },
     );
+    const initialStatus = safeExpoSharedObjectRead<VideoPlayerStatus>(
+      () => player.status,
+      'idle',
+      'vibeClip.player.status.initial',
+    );
+    handlePlayerStatus(initialStatus);
     return () => safeRemoveExpoSharedObjectSubscription(sub, 'vibeClip.player.statusListener.remove');
-  }, [
-    handlePendingLocalPreviewFailure,
-    isPendingLocalPreview,
-    meta.videoUrl,
-    onRefreshClipMedia,
-    player,
-    qoe,
-    shouldAttachPlayback,
-  ]);
+  }, [handlePlayerStatus, player, shouldAttachPlayback]);
 
   const playInline = useCallback(() => {
     setPlayRequested(true);
@@ -568,17 +576,6 @@ function VibeClipCardInner({
     };
   }, [player, isMine, threadMessageCount, meta.videoUrl, meta.durationSec, meta.thumbnailUrl, qoe, shouldAttachPlayback]);
 
-  useEffect(
-    () => () => {
-      const result = safeExpoSharedObjectCall(() => player.pause(), {
-        label: 'vibeClip.player.pause.unmount',
-        swallowAll: true,
-      });
-      attachSafeExpoSharedObjectPromise(result, undefined, 'vibeClip.player.pause.unmount');
-    },
-    [player],
-  );
-
   const hasPrimary = !!onReplyWithClip || !!onVoiceReply;
   const hasSecondary = !!onSuggestDate || !!onReact;
   const showActions = hasPlayed && !isMine && (hasPrimary || hasSecondary);
@@ -590,7 +587,7 @@ function VibeClipCardInner({
   const cardAspectRatio = cardAspectRatioForMeta(meta);
   const posterState = posterStateForMeta(meta, posterPreviewState);
   const captionText = captionTextFromMediaCaptions(meta.captions);
-  const hasPosterVisual = !!meta.thumbnailUrl && posterState !== 'failed';
+  const hasPosterVisual = !!displayablePosterUri(meta.thumbnailUrl) && posterState !== 'failed';
   const previewState: ClipPreviewState = hasError
     ? 'failed'
     : isBuffering || (playRequested && !isReady)
@@ -643,6 +640,18 @@ function VibeClipCardInner({
           nativeControls
           contentFit="cover"
         />
+        {isReady && !hasPlayed && hasPosterVisual ? (
+          <View pointerEvents="none" style={StyleSheet.absoluteFillObject}>
+            <VibeClipPosterImage
+              uri={meta.thumbnailUrl}
+              previewState={posterState}
+              placeholderKind={thumbnailPlaceholderKind}
+              placeholderHash={thumbnailPlaceholderHash}
+              dominantColor={thumbnailDominantColor}
+              onPreviewStateChange={onPosterPreviewStateChange}
+            />
+          </View>
+        ) : null}
         {captionText && showCaptions ? (
           <View style={styles.captionOverlay} pointerEvents="none">
             <Text style={styles.captionOverlayText}>{captionText}</Text>
@@ -850,6 +859,9 @@ function VibeClipCardPosterOnly({
   onPosterPreviewStateChange,
   onRefreshClipMedia,
   onRequestInlinePlay,
+  initialPlaybackResolveFailed,
+  onInitialPlaybackResolveFailed,
+  onClearInitialPlaybackResolveFailed,
   threadVisualRecede = false,
   localRecovery,
   syncAttemptCount,
@@ -861,11 +873,21 @@ function VibeClipCardPosterOnly({
 }: VibeClipPosterProps) {
   const cardAspectRatio = cardAspectRatioForMeta(meta);
   const posterState = posterStateForMeta(meta, posterPreviewState);
-  const hasPosterVisual = !!meta.thumbnailUrl && posterState !== 'failed';
+  const hasPosterVisual = !!displayablePosterUri(meta.thumbnailUrl) && posterState !== 'failed';
   const isProcessing = isServerProcessingClip(meta);
   const isFailed = isFailedClip(meta);
   const canOpenImmersive = isRemotePlaybackUri(meta.videoUrl) || isLocalPreviewUri(meta.videoUrl);
   const unavailableCopy = resolveMediaFallbackCopy({ reason: 'asset_deleted' });
+  const initialResolveCopy = resolveMediaFallbackCopy({
+    reason: resolveNativeMediaPlaybackFallbackReason({ uri: meta.videoUrl }),
+  });
+  const immersiveResolveInFlightRef = useRef(false);
+  const immersiveResolveRunIdRef = useRef(0);
+
+  useEffect(() => {
+    immersiveResolveInFlightRef.current = false;
+    immersiveResolveRunIdRef.current += 1;
+  }, [meta.videoUrl]);
 
   return (
     <View
@@ -903,9 +925,22 @@ function VibeClipCardPosterOnly({
           <Pressable
             onPress={() => {
               if (!canOpenImmersive) {
-                void onRefreshClipMedia('initial').then((didRefresh) => {
-                  if (didRefresh) onRequestImmersive();
-                });
+                if (immersiveResolveInFlightRef.current) return;
+                immersiveResolveInFlightRef.current = true;
+                const runId = immersiveResolveRunIdRef.current + 1;
+                immersiveResolveRunIdRef.current = runId;
+                void onRefreshClipMedia('initial')
+                  .then((didRefresh) => {
+                    if (immersiveResolveRunIdRef.current !== runId) return;
+                    if (didRefresh) onRequestImmersive();
+                    else onInitialPlaybackResolveFailed();
+                  })
+                  .catch(onInitialPlaybackResolveFailed)
+                  .finally(() => {
+                    if (immersiveResolveRunIdRef.current === runId) {
+                      immersiveResolveInFlightRef.current = false;
+                    }
+                  });
                 return;
               }
               onRequestImmersive();
@@ -931,6 +966,23 @@ function VibeClipCardPosterOnly({
             <Ionicons name="videocam-off-outline" size={28} color="rgba(196,181,253,0.88)" />
             <Text style={styles.clipUnavailableTitle}>{unavailableCopy.title}</Text>
             <Text style={styles.clipUnavailableText}>{unavailableCopy.message}</Text>
+          </View>
+        ) : initialPlaybackResolveFailed ? (
+          <View style={[styles.loadingOverlay, styles.clipErrorOverlay]}>
+            <Ionicons name="videocam-off-outline" size={28} color="rgba(196,181,253,0.88)" />
+            <Text style={styles.clipUnavailableTitle}>{initialResolveCopy.title}</Text>
+            <Text style={styles.clipUnavailableText}>{initialResolveCopy.message}</Text>
+            {initialResolveCopy.actionLabel ? (
+              <Pressable
+                onPress={() => {
+                  onClearInitialPlaybackResolveFailed();
+                  onRequestInlinePlay();
+                }}
+                style={({ pressed }) => [styles.clipRetryBtn, pressed && { opacity: 0.88 }]}
+              >
+                <Text style={styles.clipRetryLabel}>{initialResolveCopy.actionLabel}</Text>
+              </Pressable>
+            ) : null}
           </View>
         ) : isProcessing ? (
           <View style={styles.playOverlay} pointerEvents="none">
@@ -986,6 +1038,7 @@ export function VibeClipCard(props: Props) {
   const [retryNonce, setRetryNonce] = useState(0);
   const [forceMountPlayer, setForceMountPlayer] = useState(false);
   const [inlinePlayRequestToken, setInlinePlayRequestToken] = useState(0);
+  const [initialPlaybackResolveFailed, setInitialPlaybackResolveFailed] = useState(false);
   const [playableVideoUrl, setPlayableVideoUrl] = useState(meta.videoUrl);
   const [playableThumbnailUrl, setPlayableThumbnailUrl] = useState(meta.thumbnailUrl ?? null);
   const [syncedProcessingStatus, setSyncedProcessingStatus] = useState<ChatVibeClipProcessingStatus | null>(null);
@@ -994,6 +1047,8 @@ export function VibeClipCard(props: Props) {
   const [fallbackPosterPreviewState, setFallbackPosterPreviewState] =
     useState<VibeClipPosterPreviewState>('unknown');
   const playbackRefreshAttemptCountRef = useRef(0);
+  const initialPlaybackResolveInFlightRef = useRef(false);
+  const initialPlaybackResolveRunIdRef = useRef(0);
   const posterRetryStateRef = useRef<{ key: string; attempts: number }>({ key: '', attempts: 0 });
   const posterNotReadyRef = useRef(false);
   const localPreviewUnavailableForRef = useRef<string | null>(null);
@@ -1006,6 +1061,10 @@ export function VibeClipCard(props: Props) {
   const handleRealtimeProcessingStatus = useCallback((status: ChatVibeClipProcessingStatus) => {
     setSyncedProcessingStatus(status);
   }, []);
+  const handleResolvedThumbnailUrl = useCallback((url: string) => {
+    const displayableUri = displayablePosterUri(url);
+    if (displayableUri) onResolvedThumbnailUrl?.(displayableUri);
+  }, [onResolvedThumbnailUrl]);
   const { url: videoAssetUrl, refresh: refreshVideoAsset } = useMediaAsset({
     kind: 'vibe_clip',
     messageId: sparkMessageId,
@@ -1027,8 +1086,8 @@ export function VibeClipCard(props: Props) {
     messageId: sparkMessageId,
     sourceRef: thumbnailSourceRef,
     initialUrl: meta.thumbnailUrl,
-    autoResolve: false,
-    onResolvedUrl: onResolvedThumbnailUrl,
+    autoResolve: true,
+    onResolvedUrl: handleResolvedThumbnailUrl,
   });
 
   useEffect(() => {
@@ -1049,6 +1108,9 @@ export function VibeClipCard(props: Props) {
     playableThumbnailUrlRef.current = meta.thumbnailUrl ?? null;
     setForceMountPlayer(false);
     setInlinePlayRequestToken(0);
+    setInitialPlaybackResolveFailed(false);
+    initialPlaybackResolveInFlightRef.current = false;
+    initialPlaybackResolveRunIdRef.current += 1;
     setRetryNonce(0);
     setPlayableVideoUrl(nextVideoUrl);
     setPlayableThumbnailUrl(meta.thumbnailUrl ?? null);
@@ -1077,7 +1139,7 @@ export function VibeClipCard(props: Props) {
   }, [isViewportActive]);
 
   useEffect(() => {
-    const nextThumbnailUrl = thumbnailAssetUrl ?? null;
+    const nextThumbnailUrl = displayablePosterUri(thumbnailAssetUrl);
     if (!nextThumbnailUrl || nextThumbnailUrl === playableThumbnailUrlRef.current) return;
     playableThumbnailUrlRef.current = nextThumbnailUrl;
     setPlayableThumbnailUrl(nextThumbnailUrl);
@@ -1229,17 +1291,23 @@ export function VibeClipCard(props: Props) {
     const freshThumbnailUri = thumbnailSourceRef
       ? await refreshThumbnailAsset(reason === 'manual' ? 'manual' : 'preview', refreshOptions)
       : null;
-    if (freshThumbnailUri) {
-      playableThumbnailUrlRef.current = freshThumbnailUri;
-      setPosterPreviewState('unknown', freshThumbnailUri);
-      setPlayableThumbnailUrl(freshThumbnailUri);
-      onResolvedThumbnailUrl?.(freshThumbnailUri);
+    const displayableFreshThumbnailUri = displayablePosterUri(freshThumbnailUri);
+    if (displayableFreshThumbnailUri) {
+      playableThumbnailUrlRef.current = displayableFreshThumbnailUri;
+      setPosterPreviewState('unknown', displayableFreshThumbnailUri);
+      setPlayableThumbnailUrl(displayableFreshThumbnailUri);
+      onResolvedThumbnailUrl?.(displayableFreshThumbnailUri);
     }
-    if (reason === 'preview') return !!freshThumbnailUri;
+    if (reason === 'preview') return !!displayableFreshThumbnailUri;
     if (!videoSourceRef) return false;
 
     const freshVideoUri = await refreshVideoAsset(reason, refreshOptions);
-    if (!freshVideoUri || freshVideoUri === playableVideoUrl) return false;
+    if (!freshVideoUri) return false;
+    if (!isRemotePlaybackUri(freshVideoUri) && !isLocalPreviewUri(freshVideoUri)) return false;
+    if (freshVideoUri === playableVideoUrl) {
+      setRetryNonce((n) => n + 1);
+      return true;
+    }
     localPreviewUnavailableForRef.current = null;
     playableVideoUrlRef.current = freshVideoUri;
     setPlayableVideoUrl(freshVideoUri);
@@ -1271,7 +1339,7 @@ export function VibeClipCard(props: Props) {
   const requestImmersiveWithCurrentMedia = useCallback(() => {
     onRequestImmersive?.({
       videoUrl: playableVideoUrlRef.current,
-      thumbnailUrl: playableThumbnailUrlRef.current,
+      thumbnailUrl: displayablePosterUri(playableThumbnailUrlRef.current),
     });
   }, [onRequestImmersive]);
 
@@ -1347,17 +1415,40 @@ export function VibeClipCard(props: Props) {
         {...resolvedProps}
         onRefreshClipMedia={refreshClipMedia}
         onRequestInlinePlay={() => {
+          setInitialPlaybackResolveFailed(false);
           if (!canMountPlayer) {
-            void refreshClipMedia('initial').then((didRefresh) => {
-              if (!didRefresh) return;
-              setInlinePlayRequestToken((token) => token + 1);
-              setForceMountPlayer(true);
-            });
+            if (initialPlaybackResolveInFlightRef.current) return;
+            initialPlaybackResolveInFlightRef.current = true;
+            const runId = initialPlaybackResolveRunIdRef.current + 1;
+            initialPlaybackResolveRunIdRef.current = runId;
+            void refreshClipMedia('initial')
+              .then((didRefresh) => {
+                if (initialPlaybackResolveRunIdRef.current !== runId) return;
+                if (!didRefresh) {
+                  setInitialPlaybackResolveFailed(true);
+                  return;
+                }
+                setInlinePlayRequestToken((token) => token + 1);
+                setForceMountPlayer(true);
+              })
+              .catch(() => {
+                if (initialPlaybackResolveRunIdRef.current === runId) {
+                  setInitialPlaybackResolveFailed(true);
+                }
+              })
+              .finally(() => {
+                if (initialPlaybackResolveRunIdRef.current === runId) {
+                  initialPlaybackResolveInFlightRef.current = false;
+                }
+              });
             return;
           }
           setInlinePlayRequestToken((token) => token + 1);
           setForceMountPlayer(true);
         }}
+        initialPlaybackResolveFailed={initialPlaybackResolveFailed}
+        onInitialPlaybackResolveFailed={() => setInitialPlaybackResolveFailed(true)}
+        onClearInitialPlaybackResolveFailed={() => setInitialPlaybackResolveFailed(false)}
         syncAttemptCount={syncAttemptCount}
         isSyncingStatus={isSyncingStatus}
         onManualStatusSync={requestManualStatusSync}

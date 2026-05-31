@@ -47,7 +47,7 @@ import {
   setAudioModeAsync,
   requestRecordingPermissionsAsync,
 } from 'expo-audio';
-import { useVideoPlayer, VideoView } from 'expo-video';
+import { useVideoPlayer, VideoView, type VideoPlayerStatus, type VideoSource } from 'expo-video';
 import { ensureVoicePlaybackAudioMode } from '@/lib/safeAudioMode';
 import Colors from '@/constants/Colors';
 import { ErrorState } from '@/components/ui';
@@ -123,7 +123,7 @@ import {
   resolveNativeMediaPlaybackFallbackReason,
   type MediaFallbackReason,
 } from '@clientShared/media/mediaFallbackCopy';
-import { extractVibeClipMeta } from '../../../../shared/chat/messageRouting';
+import { deriveChatVideoThumbnailRef, extractVibeClipMeta } from '../../../../shared/chat/messageRouting';
 import { VibeClipCard, type VibeClipLocalRecovery, type VibeClipPosterPreviewState } from '@/components/chat/VibeClipCard';
 import {
   ChatThreadPhotoViewerModal,
@@ -362,6 +362,38 @@ function vibeClipPosterCacheKey(messageId: string, thumbnailUri: string | null |
   if (!uri) return null;
   return `${messageId}:${uri}`;
 }
+
+function displayableChatVideoPosterUri(value: unknown): string | null {
+  const text = typeof value === 'string' ? value.trim() : '';
+  if (!text) return null;
+  return /^(https?:|blob:|data:|file:)/i.test(text) ? text : null;
+}
+
+function isChatVideoPlaybackUri(value: string | null | undefined): value is string {
+  return !!value && /^(https?:|blob:|data:|file:)/i.test(value);
+}
+
+function isChatVideoHlsUri(value: string): boolean {
+  return /\.m3u8(?:[?#]|$)/i.test(value);
+}
+
+function chatVideoSourceForUri(uri: string): VideoSource {
+  return isChatVideoHlsUri(uri) ? { uri, contentType: 'hls' } : uri;
+}
+
+function displayChatVideoPosterUriForMessage(
+  message: Pick<ThreadMessage, 'structuredPayload'>,
+  overrideUri?: string | null,
+): string | null {
+  const payload = message.structuredPayload;
+  return (
+    displayableChatVideoPosterUri(overrideUri) ??
+    displayableChatVideoPosterUri(payload?.thumbnail_url) ??
+    displayableChatVideoPosterUri(payload?.poster_ref)
+  );
+}
+
+const CHAT_VIDEO_POSTER_PREVIEW_RETRY_DELAYS_MS = [1000, 3000, 8000];
 
 function bubbleMediaNeighbors(
   rows: ChatListRow[],
@@ -729,9 +761,12 @@ function ChatImageCard({
 type ChatVideoCardProps = {
   uri: string;
   sourceRef?: string | null;
+  thumbnailUri?: string | null;
+  thumbnailSourceRef?: string | null;
   messageId?: string;
   mediaKind?: 'video' | 'vibe_clip';
   onResolvedUri?: (uri: string) => void;
+  onResolvedThumbnailUri?: (uri: string) => void;
   durationSec?: number | null;
   theme: (typeof Colors)['light'];
   isMine: boolean;
@@ -740,11 +775,35 @@ type ChatVideoCardProps = {
   threadVisualRecede?: boolean;
 };
 
+type ChatVideoMediaRefreshReason = 'initial' | 'playback' | 'manual';
+
 /** Remount inner body so expo-video player is recreated after a load error (Try again). */
 function ChatVideoCard(props: ChatVideoCardProps) {
-  const { mediaKind, messageId, onResolvedUri, sourceRef, uri } = props;
+  const {
+    mediaKind,
+    messageId,
+    onResolvedThumbnailUri,
+    onResolvedUri,
+    sourceRef,
+    thumbnailSourceRef,
+    thumbnailUri,
+    uri,
+  } = props;
   const [retryNonce, setRetryNonce] = useState(0);
+  const [forceMountPlayer, setForceMountPlayer] = useState(false);
+  const [inlinePlayRequestToken, setInlinePlayRequestToken] = useState(0);
+  const [isResolvingInitialPlayback, setIsResolvingInitialPlayback] = useState(false);
+  const [initialPlaybackResolveFailed, setInitialPlaybackResolveFailed] = useState(false);
+  const isMountedRef = useRef(true);
   const refreshAttemptedForUriRef = useRef<string | null>(null);
+  const initialPlaybackResolveInFlightRef = useRef(false);
+  const initialPlaybackResolveRunIdRef = useRef(0);
+  const posterRetryStateRef = useRef<{ key: string; attempts: number }>({ key: '', attempts: 0 });
+  const posterNotReadyRef = useRef(false);
+  const handleResolvedThumbnailUri = useCallback((resolvedUri: string) => {
+    const displayableUri = displayableChatVideoPosterUri(resolvedUri);
+    if (displayableUri) onResolvedThumbnailUri?.(displayableUri);
+  }, [onResolvedThumbnailUri]);
   const { url: mediaAssetUrl, refresh: refreshMediaAsset } = useMediaAsset({
     kind: mediaKind ?? 'video',
     messageId,
@@ -753,84 +812,260 @@ function ChatVideoCard(props: ChatVideoCardProps) {
     autoResolve: false,
     onResolvedUrl: onResolvedUri,
   });
+  const { url: thumbnailAssetUri, refresh: refreshThumbnailAsset } = useMediaAsset({
+    kind: 'thumbnail',
+    messageId,
+    sourceRef: thumbnailSourceRef,
+    initialUrl: thumbnailUri,
+    autoResolve: true,
+    onResolvedUrl: handleResolvedThumbnailUri,
+  });
   const [playableUri, setPlayableUri] = useState(mediaAssetUrl ?? uri);
+  const [playablePosterUri, setPlayablePosterUri] = useState<string | null>(
+    displayableChatVideoPosterUri(thumbnailUri),
+  );
+  const [posterImageBroken, setPosterImageBroken] = useState(false);
+
+  useEffect(() => () => {
+    isMountedRef.current = false;
+  }, []);
 
   useEffect(() => {
     setPlayableUri(mediaAssetUrl ?? uri);
     refreshAttemptedForUriRef.current = null;
   }, [mediaAssetUrl, uri]);
 
-  const refreshMediaUri = useCallback(async (): Promise<boolean> => {
-    if (!messageId || !sourceRef || refreshAttemptedForUriRef.current === playableUri) return false;
-    const freshUri = await refreshMediaAsset('playback');
-    if (!freshUri || freshUri === playableUri) return false;
-    refreshAttemptedForUriRef.current = playableUri;
+  useEffect(() => {
+    setForceMountPlayer(false);
+    setInlinePlayRequestToken(0);
+    setIsResolvingInitialPlayback(false);
+    setInitialPlaybackResolveFailed(false);
+    initialPlaybackResolveInFlightRef.current = false;
+    initialPlaybackResolveRunIdRef.current += 1;
+  }, [uri]);
+
+  useEffect(() => {
+    setPlayablePosterUri(displayableChatVideoPosterUri(thumbnailUri));
+    setPosterImageBroken(false);
+    posterRetryStateRef.current = { key: '', attempts: 0 };
+  }, [thumbnailSourceRef, thumbnailUri]);
+
+  useEffect(() => {
+    const next = displayableChatVideoPosterUri(thumbnailAssetUri);
+    if (!next) return;
+    setPlayablePosterUri((current) => (current === next ? current : next));
+    setPosterImageBroken(false);
+  }, [thumbnailAssetUri]);
+
+  const refreshMediaUri = useCallback(async (
+    reason: ChatVideoMediaRefreshReason = 'playback',
+    options?: { bypassFailureCooldown?: boolean },
+  ): Promise<boolean> => {
+    if (!messageId || !sourceRef) return false;
+    if (reason === 'playback' && refreshAttemptedForUriRef.current === playableUri) return false;
+    const freshUri = await refreshMediaAsset(reason, options);
+    if (!freshUri) return false;
+    if (!isChatVideoPlaybackUri(freshUri)) return false;
+    if (freshUri === playableUri) {
+      if (reason === 'playback') refreshAttemptedForUriRef.current = playableUri;
+      setRetryNonce((n) => n + 1);
+      return true;
+    }
+    if (reason === 'playback') refreshAttemptedForUriRef.current = playableUri;
     setPlayableUri(freshUri);
     onResolvedUri?.(freshUri);
     return true;
   }, [messageId, onResolvedUri, playableUri, refreshMediaAsset, sourceRef]);
+
+  const refreshPosterUri = useCallback(async (): Promise<string | null> => {
+    if (!messageId || !thumbnailSourceRef) return null;
+    const freshUri = await refreshThumbnailAsset('preview', {
+      bypassFailureCooldown: true,
+      suppressFailureCache: true,
+    });
+    const displayableFreshUri = displayableChatVideoPosterUri(freshUri);
+    if (!displayableFreshUri) return null;
+    setPlayablePosterUri(displayableFreshUri);
+    setPosterImageBroken(false);
+    onResolvedThumbnailUri?.(displayableFreshUri);
+    return displayableFreshUri;
+  }, [messageId, onResolvedThumbnailUri, refreshThumbnailAsset, thumbnailSourceRef]);
+
+  const posterNotReady =
+    !!thumbnailSourceRef &&
+    (!playablePosterUri || !displayableChatVideoPosterUri(playablePosterUri) || posterImageBroken);
+
+  useEffect(() => {
+    posterNotReadyRef.current = posterNotReady;
+  }, [posterNotReady]);
+
+  useEffect(() => {
+    if (!messageId || !thumbnailSourceRef || !posterNotReady) return;
+    const retryKey = `${messageId}:${thumbnailSourceRef}`;
+    if (posterRetryStateRef.current.key !== retryKey) {
+      posterRetryStateRef.current = { key: retryKey, attempts: 0 };
+    }
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const run = () => {
+      const state = posterRetryStateRef.current;
+      if (cancelled || state.attempts >= CHAT_VIDEO_POSTER_PREVIEW_RETRY_DELAYS_MS.length) return;
+      const delay = CHAT_VIDEO_POSTER_PREVIEW_RETRY_DELAYS_MS[state.attempts];
+      timer = setTimeout(() => {
+        timer = null;
+        if (cancelled || !posterNotReadyRef.current) return;
+        posterRetryStateRef.current.attempts += 1;
+        void refreshPosterUri().finally(() => {
+          if (!cancelled && posterNotReadyRef.current) run();
+        });
+      }, delay);
+    };
+    run();
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+    };
+  }, [messageId, posterNotReady, refreshPosterUri, thumbnailSourceRef]);
+
+  // Keep video playback lazy on chat open; thumbnails are the eager visual contract.
+  const canMountPlayer = isChatVideoPlaybackUri(playableUri);
+  const requestInlinePlay = useCallback(() => {
+    setInitialPlaybackResolveFailed(false);
+    if (!canMountPlayer) {
+      if (initialPlaybackResolveInFlightRef.current) return;
+      initialPlaybackResolveInFlightRef.current = true;
+      const runId = initialPlaybackResolveRunIdRef.current + 1;
+      initialPlaybackResolveRunIdRef.current = runId;
+      setIsResolvingInitialPlayback(true);
+      void refreshMediaUri('initial', { bypassFailureCooldown: true })
+        .then((didRefresh) => {
+          if (initialPlaybackResolveRunIdRef.current !== runId) return;
+          if (!isMountedRef.current) return;
+          if (!didRefresh) {
+            setInitialPlaybackResolveFailed(true);
+            return;
+          }
+          setInlinePlayRequestToken((token) => token + 1);
+          setForceMountPlayer(true);
+        })
+        .catch(() => {
+          if (initialPlaybackResolveRunIdRef.current !== runId) return;
+          if (isMountedRef.current) setInitialPlaybackResolveFailed(true);
+        })
+        .finally(() => {
+          if (initialPlaybackResolveRunIdRef.current === runId) {
+            initialPlaybackResolveInFlightRef.current = false;
+            if (isMountedRef.current) setIsResolvingInitialPlayback(false);
+          }
+        });
+      return;
+    }
+    setIsResolvingInitialPlayback(false);
+    setInlinePlayRequestToken((token) => token + 1);
+    setForceMountPlayer(true);
+  }, [canMountPlayer, refreshMediaUri]);
 
   return (
     <ChatVideoCardBody
       key={`${playableUri}-${retryNonce}`}
       {...props}
       uri={playableUri}
+      posterUri={displayableChatVideoPosterUri(playablePosterUri)}
+      onPosterLoadError={() => setPosterImageBroken(true)}
       onRefreshMediaUri={refreshMediaUri}
       onRemountPlayer={() => setRetryNonce((n) => n + 1)}
+      onRequestInlinePlay={requestInlinePlay}
+      shouldMountPlayer={canMountPlayer && forceMountPlayer}
+      playRequestToken={inlinePlayRequestToken}
+      isResolvingPlayback={isResolvingInitialPlayback}
+      initialPlaybackResolveFailed={initialPlaybackResolveFailed}
+      onClearInitialPlaybackResolveFailed={() => setInitialPlaybackResolveFailed(false)}
     />
   );
 }
 
 function ChatVideoCardBody({
   uri,
+  posterUri,
   durationSec,
   theme,
   isMine,
   onRequestImmersive,
   immersiveActive,
   threadVisualRecede = false,
+  onPosterLoadError,
   onRefreshMediaUri,
   onRemountPlayer,
-}: ChatVideoCardProps & { onRefreshMediaUri: () => Promise<boolean>; onRemountPlayer: () => void }) {
+  onRequestInlinePlay,
+  shouldMountPlayer,
+  playRequestToken,
+  isResolvingPlayback,
+  initialPlaybackResolveFailed,
+  onClearInitialPlaybackResolveFailed,
+}: ChatVideoCardProps & {
+  posterUri?: string | null;
+  onPosterLoadError?: () => void;
+  onRefreshMediaUri: (
+    reason?: ChatVideoMediaRefreshReason,
+    options?: { bypassFailureCooldown?: boolean },
+  ) => Promise<boolean>;
+  onRemountPlayer: () => void;
+  onRequestInlinePlay: () => void;
+  shouldMountPlayer: boolean;
+  playRequestToken: number;
+  isResolvingPlayback: boolean;
+  initialPlaybackResolveFailed: boolean;
+  onClearInitialPlaybackResolveFailed: () => void;
+}) {
   const [hasError, setHasError] = useState(false);
   const [isReady, setIsReady] = useState(false);
+  const [hasStartedPlayback, setHasStartedPlayback] = useState(false);
   const [fallbackReason, setFallbackReason] = useState<MediaFallbackReason | null>(null);
   const fallbackCopy = resolveMediaFallbackCopy({
     reason: fallbackReason ?? resolveNativeMediaPlaybackFallbackReason({ uri }),
   });
-  const player = useVideoPlayer(uri, (p) => {
+  const playerSource = useMemo<VideoSource>(() => (
+    shouldMountPlayer && isChatVideoPlaybackUri(uri) ? chatVideoSourceForUri(uri) : null
+  ), [shouldMountPlayer, uri]);
+  const player = useVideoPlayer(playerSource, (p) => {
     p.loop = false;
   });
 
   useEffect(() => {
     setHasError(false);
     setIsReady(false);
+    setHasStartedPlayback(false);
     setFallbackReason(null);
   }, [uri]);
 
+  const handlePlayerStatus = useCallback((status: VideoPlayerStatus, payload?: unknown) => {
+    if (status === 'error') {
+      const reason = resolveNativeMediaPlaybackFallbackReason({ uri, error: payload });
+      void onRefreshMediaUri()
+        .then((didRefresh) => {
+          if (!didRefresh) {
+            setFallbackReason(reason);
+            setHasError(true);
+          }
+        })
+        .catch(() => {
+          setFallbackReason(reason);
+          setHasError(true);
+        });
+      return;
+    }
+    if (status === 'readyToPlay') {
+      setFallbackReason(null);
+      setHasError(false);
+      setIsReady(true);
+    }
+  }, [onRefreshMediaUri, uri]);
+
   useEffect(() => {
+    if (!shouldMountPlayer) return undefined;
     const sub = safeExpoSharedObjectCall(
       () => player.addListener('statusChange', (payload) => {
-        if (payload.status === 'error') {
-          const reason = resolveNativeMediaPlaybackFallbackReason({ uri, error: payload });
-          void onRefreshMediaUri()
-            .then((didRefresh) => {
-              if (!didRefresh) {
-                setFallbackReason(reason);
-                setHasError(true);
-              }
-            })
-            .catch(() => {
-              setFallbackReason(reason);
-              setHasError(true);
-            });
-          return;
-        }
-        if (payload.status === 'readyToPlay') {
-          setFallbackReason(null);
-          setHasError(false);
-          setIsReady(true);
-        }
+        handlePlayerStatus(payload.status, payload);
       }),
       {
         label: 'chat.video.statusListener',
@@ -838,8 +1073,38 @@ function ChatVideoCardBody({
         swallowAll: true,
       },
     );
+    const initialStatus = safeExpoSharedObjectRead<VideoPlayerStatus>(
+      () => player.status,
+      'idle',
+      'chat.video.status.initial',
+    );
+    handlePlayerStatus(initialStatus);
     return () => safeRemoveExpoSharedObjectSubscription(sub, 'chat.video.statusListener.remove');
-  }, [onRefreshMediaUri, player, uri]);
+  }, [handlePlayerStatus, player, shouldMountPlayer]);
+
+  useEffect(() => {
+    if (!shouldMountPlayer) return undefined;
+    const sub = safeExpoSharedObjectCall(
+      () => player.addListener('playingChange', (payload) => {
+        if (payload.isPlaying) setHasStartedPlayback(true);
+      }),
+      {
+        label: 'chat.video.playingListener',
+        fallback: null,
+        swallowAll: true,
+      },
+    );
+    return () => safeRemoveExpoSharedObjectSubscription(sub, 'chat.video.playingListener.remove');
+  }, [player, shouldMountPlayer]);
+
+  useEffect(() => {
+    if (!shouldMountPlayer || !isReady || playRequestToken <= 0 || hasStartedPlayback) return;
+    const result = safeExpoSharedObjectCall(() => player.play(), {
+      label: 'chat.video.play.inline',
+      swallowAll: true,
+    });
+    attachSafeExpoSharedObjectPromise(result, undefined, 'chat.video.play.inline');
+  }, [hasStartedPlayback, isReady, playRequestToken, player, shouldMountPlayer]);
 
   useEffect(() => {
     if (!immersiveActive) return;
@@ -850,23 +1115,30 @@ function ChatVideoCardBody({
     attachSafeExpoSharedObjectPromise(result, undefined, 'chat.video.pause.immersive');
   }, [immersiveActive, player]);
 
-  useEffect(
-    () => () => {
-      const result = safeExpoSharedObjectCall(() => player.pause(), {
-        label: 'chat.video.pause.unmount',
-        swallowAll: true,
-      });
-      attachSafeExpoSharedObjectPromise(result, undefined, 'chat.video.pause.unmount');
-    },
-    [player],
-  );
-
   const durLabel =
     durationSec != null && durationSec > 0
       ? `${Math.floor(durationSec / 60)}:${Math.floor(durationSec % 60)
           .toString()
           .padStart(2, '0')}`
       : null;
+  const hasPlaybackError = hasError || initialPlaybackResolveFailed;
+  const showPoster = !!posterUri && !hasPlaybackError && (!shouldMountPlayer || !isReady || !hasStartedPlayback);
+  const showPreparingPlayback =
+    !hasPlaybackError && ((shouldMountPlayer && !isReady) || (!shouldMountPlayer && isResolvingPlayback));
+  const showPlayAffordance =
+    !hasPlaybackError && !isResolvingPlayback && !hasStartedPlayback && (!shouldMountPlayer || isReady);
+
+  const playInline = useCallback(() => {
+    if (!shouldMountPlayer) {
+      onRequestInlinePlay();
+      return;
+    }
+    const result = safeExpoSharedObjectCall(() => player.play(), {
+      label: 'chat.video.play.inline.manual',
+      swallowAll: true,
+    });
+    attachSafeExpoSharedObjectPromise(result, undefined, 'chat.video.play.inline.manual');
+  }, [onRequestInlinePlay, player, shouldMountPlayer]);
 
   return (
     <View
@@ -885,27 +1157,51 @@ function ChatVideoCardBody({
         </View>
       </View>
       <View style={styles.chatVideoInner}>
-        <VideoView
-          style={[StyleSheet.absoluteFillObject, hasError ? { opacity: 0 } : null]}
-          player={player}
-          nativeControls
-          contentFit="cover"
-        />
+        {shouldMountPlayer ? (
+          <VideoView
+            style={[StyleSheet.absoluteFillObject, hasError ? { opacity: 0 } : null]}
+            player={player}
+            nativeControls
+            contentFit="cover"
+          />
+        ) : null}
+        {showPoster ? (
+          <ExpoImage
+            source={{ uri: posterUri }}
+            style={styles.chatVideoPoster}
+            contentFit="cover"
+            transition={120}
+            pointerEvents="none"
+            onError={onPosterLoadError}
+          />
+        ) : null}
         <LinearGradient
           colors={['transparent', 'rgba(0,0,0,0.6)']}
           style={styles.chatVideoBottomGradient}
           pointerEvents="none"
         />
+        {showPlayAffordance ? (
+          <Pressable
+            onPress={playInline}
+            style={({ pressed }) => [styles.chatVideoPlayOverlay, pressed ? { opacity: 0.86 } : null]}
+            accessibilityRole="button"
+            accessibilityLabel="Play video"
+          >
+            <View style={styles.chatVideoPlayButton}>
+              <Ionicons name="play" size={24} color="rgba(255,255,255,0.96)" style={styles.chatVideoPlayIcon} />
+            </View>
+          </Pressable>
+        ) : null}
       </View>
-      {!isReady && !hasError ? (
-        <View style={styles.chatVideoFallback}>
+      {showPreparingPlayback ? (
+        <View style={[styles.chatVideoFallback, posterUri ? styles.chatVideoFallbackOverPoster : null]}>
           <View style={styles.chatVideoFallbackInner}>
             <ActivityIndicator color="rgba(216,180,254,0.95)" size="small" />
             <Text style={styles.chatVideoFallbackLabel}>Preparing playback…</Text>
           </View>
         </View>
       ) : null}
-      {hasError ? (
+      {hasPlaybackError ? (
         <View style={[styles.chatVideoFallback, styles.chatVideoErrorOverlay]} pointerEvents="box-none">
           <Ionicons name="videocam-off-outline" size={28} color="rgba(196,181,253,0.85)" />
           <Text style={{ color: theme.text, fontSize: 13, fontWeight: '700', marginTop: 8, textAlign: 'center' }}>
@@ -917,7 +1213,14 @@ function ChatVideoCardBody({
           {fallbackCopy.actionLabel ? (
             <Pressable
               onPress={() => {
-                void onRefreshMediaUri()
+                setHasError(false);
+                setFallbackReason(null);
+                onClearInitialPlaybackResolveFailed();
+                if (initialPlaybackResolveFailed && !shouldMountPlayer) {
+                  onRequestInlinePlay();
+                  return;
+                }
+                void onRefreshMediaUri('manual', { bypassFailureCooldown: true })
                   .then((didRefresh) => {
                     if (!didRefresh) onRemountPlayer();
                   })
@@ -1774,7 +2077,11 @@ export default function ChatThreadScreen() {
     setVideoUriOverridesById((prev) => (prev[messageId] === uri ? prev : { ...prev, [messageId]: uri }));
   }, []);
   const rememberResolvedThumbnailUri = useCallback((messageId: string, uri: string) => {
-    setThumbnailUriOverridesById((prev) => (prev[messageId] === uri ? prev : { ...prev, [messageId]: uri }));
+    const displayableUri = displayableChatVideoPosterUri(uri);
+    if (!displayableUri) return;
+    setThumbnailUriOverridesById((prev) => (
+      prev[messageId] === displayableUri ? prev : { ...prev, [messageId]: displayableUri }
+    ));
   }, []);
   const vibeClipPosterPreviewStateForMessage = useCallback(
     (messageId: string, thumbnailUri: string | null | undefined): VibeClipPosterPreviewState => {
@@ -1806,9 +2113,10 @@ export default function ChatThreadScreen() {
     const freshPosterUri = videoViewer.thumbnailSourceRef
       ? await refreshMediaAssetUrl(videoViewer.messageId, 'thumbnail', videoViewer.thumbnailSourceRef)
       : null;
-    if (freshPosterUri) rememberResolvedThumbnailUri(videoViewer.messageId, freshPosterUri);
+    const displayableFreshPosterUri = displayableChatVideoPosterUri(freshPosterUri);
+    if (displayableFreshPosterUri) rememberResolvedThumbnailUri(videoViewer.messageId, displayableFreshPosterUri);
     if (freshUri) rememberResolvedVideoUri(videoViewer.messageId, freshUri);
-    return { uri: freshUri, posterUri: freshPosterUri };
+    return { uri: freshUri, posterUri: displayableFreshPosterUri };
   }, [rememberResolvedThumbnailUri, rememberResolvedVideoUri, videoViewer]);
 
   const threadInvalidateScope = useMemo((): ThreadInvalidateScope | undefined => {
@@ -3470,6 +3778,12 @@ export default function ChatThreadScreen() {
           videoUrl: videoUriOverridesById[item.id] ?? clipMeta.videoUrl,
           thumbnailUrl: thumbnailUriOverridesById[item.id] ?? clipMeta.thumbnailUrl,
         };
+        const effectiveThumbnailSourceRef =
+          item.thumbnail_source_ref ??
+          deriveChatVideoThumbnailRef({
+            video_url: item.video_source_ref ?? item.video_url,
+            structured_payload: item.structuredPayload as Record<string, unknown> | null,
+          });
         const shouldMountPlayer = videoViewer?.uri === displayClipMeta.videoUrl;
         const isViewportActive = visibleVibeClipMessageIds === null || visibleVibeClipMessageIds.has(item.id);
         const posterPreviewState = vibeClipPosterPreviewStateForMessage(item.id, displayClipMeta.thumbnailUrl);
@@ -3498,7 +3812,7 @@ export default function ChatThreadScreen() {
               meta={displayClipMeta}
               isMine={isMe}
               videoSourceRef={item.video_source_ref}
-              thumbnailSourceRef={item.thumbnail_source_ref}
+              thumbnailSourceRef={effectiveThumbnailSourceRef}
               onResolvedVideoUrl={(uri) => rememberResolvedVideoUri(item.id, uri)}
               onResolvedThumbnailUrl={(uri) => rememberResolvedThumbnailUri(item.id, uri)}
               clientRequestId={clientRequestId}
@@ -3525,10 +3839,12 @@ export default function ChatThreadScreen() {
               onRequestImmersive={(media) =>
                 setVideoViewer({
                   uri: media?.videoUrl ?? displayClipMeta.videoUrl,
-                  poster: media?.thumbnailUrl ?? displayClipMeta.thumbnailUrl ?? null,
+                  poster:
+                    displayableChatVideoPosterUri(media?.thumbnailUrl) ??
+                    displayableChatVideoPosterUri(displayClipMeta.thumbnailUrl),
                   messageId: item.id,
                   sourceRef: item.video_source_ref,
-                  thumbnailSourceRef: item.thumbnail_source_ref,
+                  thumbnailSourceRef: effectiveThumbnailSourceRef,
                   mediaKind: 'vibe_clip',
                 })
               }
@@ -3609,22 +3925,37 @@ export default function ChatThreadScreen() {
     }
     if ((mediaKind === 'video' || (mediaKind === 'vibe_clip' && item.video_url)) && item.video_url) {
       const videoUri = videoUriForMessage(item) ?? item.video_url;
+      const effectiveThumbnailSourceRef =
+        item.thumbnail_source_ref ??
+        deriveChatVideoThumbnailRef({
+          video_url: item.video_source_ref ?? item.video_url,
+          structured_payload: item.structuredPayload as Record<string, unknown> | null,
+        });
+      const posterUri = displayChatVideoPosterUriForMessage(
+        item,
+        thumbnailUriOverridesById[item.id] ?? null,
+      );
       return (
         <View style={[styles.mediaContentWrap, { width: mediaCardWidth }]}>
           <ChatVideoCard
             uri={videoUri}
             sourceRef={item.video_source_ref}
+            thumbnailUri={posterUri}
+            thumbnailSourceRef={effectiveThumbnailSourceRef}
             messageId={item.id}
             mediaKind={mediaKind === 'vibe_clip' ? 'vibe_clip' : 'video'}
             onResolvedUri={(uri) => rememberResolvedVideoUri(item.id, uri)}
+            onResolvedThumbnailUri={(uri) => rememberResolvedThumbnailUri(item.id, uri)}
             durationSec={item.video_duration_seconds ?? null}
             theme={theme}
             isMine={isMe}
             onRequestImmersive={() =>
               setVideoViewer({
                 uri: videoUri,
+                poster: posterUri,
                 messageId: item.id,
                 sourceRef: item.video_source_ref,
+                thumbnailSourceRef: effectiveThumbnailSourceRef,
                 mediaKind: mediaKind === 'vibe_clip' ? 'vibe_clip' : 'video',
               })
             }
@@ -5198,6 +5529,10 @@ const styles = StyleSheet.create({
     color: 'rgba(255,255,255,0.5)',
   },
   chatVideoInner: { width: '100%', aspectRatio: 9 / 16, position: 'relative' },
+  chatVideoPoster: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0,0,0,0.2)',
+  },
   chatVideoBottomGradient: {
     position: 'absolute',
     left: 0,
@@ -5219,6 +5554,9 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     backgroundColor: 'rgba(8,8,14,0.5)',
   },
+  chatVideoFallbackOverPoster: {
+    backgroundColor: 'rgba(8,8,14,0.18)',
+  },
   chatVideoFallbackInner: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -5231,6 +5569,26 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0,0,0,0.5)',
   },
   chatVideoFallbackLabel: { color: 'rgba(255,255,255,0.9)', fontSize: 12, fontWeight: '600' },
+  chatVideoPlayOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    zIndex: 5,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(0,0,0,0.28)',
+  },
+  chatVideoPlayButton: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(255,255,255,0.28)',
+    backgroundColor: 'rgba(0,0,0,0.48)',
+  },
+  chatVideoPlayIcon: {
+    marginLeft: 3,
+  },
   chatVideoExpandBtn: {
     position: 'absolute',
     top: 8,

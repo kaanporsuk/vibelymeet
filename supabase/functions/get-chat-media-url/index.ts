@@ -333,6 +333,28 @@ function assetPresentationPayload(asset: MediaAssetRow | null | undefined): Reco
   };
 }
 
+function normalizedSourceRef(value: unknown): string | null {
+  return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
+}
+
+function bunnyStreamVideoIdFromSourceRef(value: unknown): string | null {
+  const ref = normalizedSourceRef(value);
+  if (!ref) return null;
+  const match = /^bunny_stream:([0-9a-f]{32}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(?::thumbnail)?$/i.exec(ref);
+  return match?.[1] ?? null;
+}
+
+function assetMatchesSourceRef(asset: MediaAssetRow, sourceRef: unknown): boolean {
+  const ref = normalizedSourceRef(sourceRef);
+  if (!ref) return false;
+  const streamVideoId = bunnyStreamVideoIdFromSourceRef(ref);
+  if (streamVideoId) {
+    return asset.provider === "bunny_stream" && asset.provider_object_id === streamVideoId;
+  }
+  const storageRef = normalizedAssetPath(ref);
+  return !!storageRef && asset.provider === "bunny_storage" && normalizedAssetPath(asset.provider_path) === storageRef;
+}
+
 async function userCanReadMessage(
   serviceClient: SupabaseClient,
   userId: string,
@@ -366,6 +388,7 @@ async function resolveMessageAsset(
   serviceClient: SupabaseClient,
   messageId: string,
   kind: MediaKind,
+  sourceRef?: unknown,
 ): Promise<MediaAssetRow | null> {
   const queryAssets = (selectColumns: string) =>
     serviceClient
@@ -376,7 +399,7 @@ async function resolveMessageAsset(
       .in("media_family", kind === "thumbnail" ? ["chat_video", "chat_video_thumbnail"] : [mediaFamilyForKind(kind)])
       .eq("status", "active")
       .order("created_at", { ascending: false })
-      .limit(5);
+      .limit(100);
 
   let { data, error } = await queryAssets(MEDIA_ASSET_RESOLVE_SELECT);
   if (error && isMissingDisplayDerivativeColumn(error)) {
@@ -385,26 +408,115 @@ async function resolveMessageAsset(
 
   if (error || !Array.isArray(data)) return null;
 
-  const assets = data as unknown as MediaAssetRow[];
-  return assets
-    .find((asset) => {
-      const objectId = typeof asset?.provider_object_id === "string" ? asset.provider_object_id : "";
-      if (
-        asset?.provider === "bunny_stream" &&
-        asset.status !== "purged" &&
-        objectId &&
-        asset.media_family === "chat_video" &&
-        (kind === "vibe_clip" || kind === "video" || kind === "thumbnail")
-      ) {
-        return true;
-      }
-      const path = typeof asset?.provider_path === "string" ? asset.provider_path : "";
-      if (asset?.provider !== "bunny_storage" || asset.status === "purged" || !path) return false;
-      if (kind === "image") return path.startsWith("photos/");
-      if (kind === "voice") return path.startsWith("voice/");
-      if (kind === "thumbnail") return path.includes("_thumb.");
-      return path.startsWith("chat-videos/") && !path.includes("_thumb.");
-    }) ?? null;
+  const isEligibleAsset = (asset: MediaAssetRow): boolean => {
+    const objectId = typeof asset?.provider_object_id === "string" ? asset.provider_object_id : "";
+    if (
+      asset?.provider === "bunny_stream" &&
+      asset.status !== "purged" &&
+      objectId &&
+      asset.media_family === "chat_video" &&
+      (kind === "vibe_clip" || kind === "video" || kind === "thumbnail")
+    ) {
+      return true;
+    }
+    const path = typeof asset?.provider_path === "string" ? asset.provider_path : "";
+    if (asset?.provider !== "bunny_storage" || asset.status === "purged" || !path) return false;
+    if (kind === "image") return path.startsWith("photos/");
+    if (kind === "voice") return path.startsWith("voice/");
+    if (kind === "thumbnail") return asset.media_family === "chat_video_thumbnail" && path.includes("_thumb.");
+    return path.startsWith("chat-videos/") && !path.includes("_thumb.");
+  };
+
+  const assets = (data as unknown as MediaAssetRow[]).filter(isEligibleAsset);
+
+  const loadExactSourceAssets = async (): Promise<MediaAssetRow[]> => {
+    const ref = normalizedSourceRef(sourceRef);
+    if (!ref) return [];
+    const streamVideoId = bunnyStreamVideoIdFromSourceRef(ref);
+    const storageRef = streamVideoId ? null : normalizedAssetPath(ref);
+    if (!streamVideoId && !storageRef) return [];
+
+    const queryExactAssets = (selectColumns: string) => {
+      const base = serviceClient
+        .from("media_assets")
+        .select(selectColumns)
+        .eq("legacy_table", "messages")
+        .eq("legacy_id", messageId)
+        .eq("status", "active");
+      const familyScoped =
+        kind === "thumbnail"
+          ? base.in("media_family", ["chat_video", "chat_video_thumbnail"])
+          : base.eq("media_family", mediaFamilyForKind(kind));
+      const sourceScoped = streamVideoId
+        ? familyScoped.eq("provider", "bunny_stream").eq("provider_object_id", streamVideoId)
+        : familyScoped.eq("provider", "bunny_storage").eq("provider_path", storageRef!);
+      return sourceScoped.order("created_at", { ascending: false }).limit(5);
+    };
+
+    let { data: exactData, error: exactError } = await queryExactAssets(MEDIA_ASSET_RESOLVE_SELECT);
+    if (exactError && isMissingDisplayDerivativeColumn(exactError)) {
+      ({ data: exactData, error: exactError } = await queryExactAssets(MEDIA_ASSET_LEGACY_RESOLVE_SELECT));
+    }
+    if (exactError || !Array.isArray(exactData)) return [];
+    return (exactData as unknown as MediaAssetRow[]).filter(isEligibleAsset);
+  };
+
+  const loadLatestExplicitThumbnailAsset = async (): Promise<MediaAssetRow | null> => {
+    if (kind !== "thumbnail") return null;
+    const queryExplicitThumbnail = (selectColumns: string) =>
+      serviceClient
+        .from("media_assets")
+        .select(selectColumns)
+        .eq("legacy_table", "messages")
+        .eq("legacy_id", messageId)
+        .eq("media_family", "chat_video_thumbnail")
+        .eq("status", "active")
+        .order("created_at", { ascending: false })
+        .limit(1);
+
+    let { data: thumbData, error: thumbError } = await queryExplicitThumbnail(MEDIA_ASSET_RESOLVE_SELECT);
+    if (thumbError && isMissingDisplayDerivativeColumn(thumbError)) {
+      ({ data: thumbData, error: thumbError } = await queryExplicitThumbnail(MEDIA_ASSET_LEGACY_RESOLVE_SELECT));
+    }
+    if (thumbError || !Array.isArray(thumbData)) return null;
+    return (thumbData as unknown as MediaAssetRow[]).find(isEligibleAsset) ?? null;
+  };
+
+  if (kind === "thumbnail") {
+    const sourceMatchedStorageThumbnail = assets.find((asset) =>
+      asset.media_family === "chat_video_thumbnail" && assetMatchesSourceRef(asset, sourceRef)
+    );
+    if (sourceMatchedStorageThumbnail) return sourceMatchedStorageThumbnail;
+
+    const sourceRefTargetsStorageThumbnail = !!normalizedSourceRef(sourceRef) && !bunnyStreamVideoIdFromSourceRef(sourceRef);
+    const exactSourceAssets = sourceRefTargetsStorageThumbnail ? await loadExactSourceAssets() : [];
+    const exactSourceStorageThumbnail = exactSourceAssets.find((asset) =>
+      asset.media_family === "chat_video_thumbnail" && assetMatchesSourceRef(asset, sourceRef)
+    );
+    if (exactSourceStorageThumbnail) return exactSourceStorageThumbnail;
+
+    const explicitThumbnailAsset = assets.find((asset) => asset.media_family === "chat_video_thumbnail");
+    if (explicitThumbnailAsset) return explicitThumbnailAsset;
+
+    const fallbackExplicitThumbnailAsset = await loadLatestExplicitThumbnailAsset();
+    if (fallbackExplicitThumbnailAsset) return fallbackExplicitThumbnailAsset;
+
+    const exactStreamSourceAssets = sourceRefTargetsStorageThumbnail ? [] : await loadExactSourceAssets();
+    const sourceMatchedStreamAsset = assets.find((asset) => assetMatchesSourceRef(asset, sourceRef));
+    if (sourceMatchedStreamAsset) return sourceMatchedStreamAsset;
+
+    const exactSourceStreamAsset = exactStreamSourceAssets.find((asset) => assetMatchesSourceRef(asset, sourceRef));
+    if (exactSourceStreamAsset) return exactSourceStreamAsset;
+
+    return assets.find((asset) => asset.provider === "bunny_stream" && asset.media_family === "chat_video")
+      ?? null;
+  }
+
+  const sourceMatchedAsset = assets.find((asset) => assetMatchesSourceRef(asset, sourceRef));
+  if (sourceMatchedAsset) return sourceMatchedAsset;
+  const exactSourceAsset = (await loadExactSourceAssets()).find((asset) => assetMatchesSourceRef(asset, sourceRef));
+  if (exactSourceAsset) return exactSourceAsset;
+  return assets[0] ?? null;
 }
 
 async function handleProfileVibeVideoIssue(params: {
@@ -791,7 +903,7 @@ async function handleIssueUrl(req: Request): Promise<Response> {
     client_request_id: clientRequestId,
   });
 
-  let asset = await resolveMessageAsset(serviceClient, scopedMessageId, mediaKind);
+  let asset = await resolveMessageAsset(serviceClient, scopedMessageId, mediaKind, body?.sourceRef);
   if (!asset?.provider_path && !asset?.provider_object_id) {
     logChatMediaUrl("info", "asset_missing_sync_requested", {
       message_id: scopedMessageId,
@@ -809,7 +921,7 @@ async function handleIssueUrl(req: Request): Promise<Response> {
         error_code: "sync_chat_message_media_failed",
       });
     }
-    asset = await resolveMessageAsset(serviceClient, scopedMessageId, mediaKind);
+    asset = await resolveMessageAsset(serviceClient, scopedMessageId, mediaKind, body?.sourceRef);
   }
 
   const streamVideoId = typeof asset?.provider_object_id === "string" ? asset.provider_object_id.trim() : "";

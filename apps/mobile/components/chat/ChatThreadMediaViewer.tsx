@@ -17,12 +17,13 @@ import Animated, {
   runOnJS,
 } from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
-import { useVideoPlayer, VideoView, type VideoSource } from 'expo-video';
+import { useVideoPlayer, VideoView, type VideoPlayerStatus, type VideoSource } from 'expo-video';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { resolvePreservedMediaSelectionId } from '../../../../shared/chat/mediaSelection';
 import {
   attachSafeExpoSharedObjectPromise,
   safeExpoSharedObjectCall,
+  safeExpoSharedObjectRead,
   safeRemoveExpoSharedObjectSubscription,
 } from '@/lib/expoSharedObjectSafe';
 import { useReduceMotionState } from '@/hooks/useReduceMotion';
@@ -39,6 +40,10 @@ const CLIP_PLAYBACK_LOAD_TIMEOUT_MS = 12_000;
 
 function isPlayableVideoUri(uri: string): boolean {
   return /^https?:\/\//i.test(uri) || uri.startsWith('file:') || uri.startsWith('blob:') || uri.startsWith('data:');
+}
+
+function displayablePosterUri(uri: string | null | undefined): string | null {
+  return uri && isPlayableVideoUri(uri) ? uri : null;
 }
 
 function isHlsUri(uri: string): boolean {
@@ -327,28 +332,53 @@ function VideoViewerBody({
   const insets = useSafeAreaInsets();
   const [retryKey, setRetryKey] = useState(0);
   const [playableUri, setPlayableUri] = useState(uri);
-  const [playablePosterUri, setPlayablePosterUri] = useState(posterUri ?? null);
+  const [playablePosterUri, setPlayablePosterUri] = useState(displayablePosterUri(posterUri));
   const [resolveFailed, setResolveFailed] = useState(false);
   const refreshAttemptedForUriRef = useRef<string | null>(null);
+  const posterResolveAttemptedForUriRef = useRef<string | null>(null);
   const resolveFallbackCopy = resolveMediaFallbackCopy({ reason: 'unknown' });
 
   useEffect(() => {
     setPlayableUri(uri);
-    setPlayablePosterUri(posterUri ?? null);
+    setPlayablePosterUri(displayablePosterUri(posterUri));
     setResolveFailed(false);
     refreshAttemptedForUriRef.current = null;
+    posterResolveAttemptedForUriRef.current = null;
   }, [posterUri, uri]);
 
-  const refreshMedia = useCallback(async (): Promise<boolean> => {
-    if (!onRefreshMedia || refreshAttemptedForUriRef.current === playableUri) return false;
+  const refreshMedia = useCallback(async (reason: 'playback' | 'poster' = 'playback'): Promise<boolean> => {
+    if (!onRefreshMedia || (reason === 'playback' && refreshAttemptedForUriRef.current === playableUri)) return false;
     const fresh = await onRefreshMedia();
-    if (fresh?.posterUri) setPlayablePosterUri(fresh.posterUri);
-    if (!fresh?.uri || fresh.uri === playableUri) return false;
+    const freshPosterUri = displayablePosterUri(fresh?.posterUri);
+    if (freshPosterUri) {
+      setPlayablePosterUri(freshPosterUri);
+    }
+    if (!fresh?.uri) return !!freshPosterUri;
+    if (!isPlayableVideoUri(fresh.uri)) return reason === 'poster' ? !!freshPosterUri : false;
+    if (fresh.uri === playableUri) {
+      if (reason === 'poster') return !!freshPosterUri;
+      refreshAttemptedForUriRef.current = playableUri;
+      setResolveFailed(false);
+      setRetryKey((k) => k + 1);
+      return true;
+    }
     refreshAttemptedForUriRef.current = playableUri;
     setResolveFailed(false);
     setPlayableUri(fresh.uri);
     return true;
   }, [onRefreshMedia, playableUri]);
+
+  useEffect(() => {
+    if (
+      displayablePosterUri(playablePosterUri) ||
+      !onRefreshMedia ||
+      posterResolveAttemptedForUriRef.current === playableUri
+    ) {
+      return;
+    }
+    posterResolveAttemptedForUriRef.current = playableUri;
+    void refreshMedia('poster');
+  }, [onRefreshMedia, playablePosterUri, playableUri, refreshMedia]);
 
   useEffect(() => {
     if (isPlayableVideoUri(playableUri)) {
@@ -383,6 +413,17 @@ function VideoViewerBody({
         </View>
         <View style={styles.videoStageWrap}>
           <View style={[styles.videoFrame, { marginBottom: Math.max(12, insets.bottom + 8) }]}>
+            {playablePosterUri ? (
+              <ExpoImage
+                source={{ uri: playablePosterUri }}
+                style={StyleSheet.absoluteFillObject}
+                contentFit="contain"
+                cachePolicy="memory-disk"
+                pointerEvents="none"
+                accessibilityElementsHidden
+                importantForAccessibility="no-hide-descendants"
+              />
+            ) : null}
             {resolveFailed ? (
               <View style={styles.videoErrorOverlay}>
                 <Ionicons name="alert-circle-outline" size={40} color="rgba(196,181,253,0.9)" />
@@ -423,7 +464,7 @@ function VideoViewerBody({
     <VideoViewerStage
       key={`${playableUri}-${retryKey}`}
       uri={playableUri}
-      posterUri={playablePosterUri}
+      posterUri={displayablePosterUri(playablePosterUri)}
       onClose={onClose}
       onRefreshMedia={refreshMedia}
       onRemountPlayer={() => {
@@ -483,40 +524,35 @@ function VideoViewerStage({
     setPhase('loading');
   }, [uri]);
 
-  useEffect(() => {
-    if (!shouldAttachPlayback) return;
-    const result = safeExpoSharedObjectCall(() => player.replace(videoSourceForUri(uri)), {
-      label: 'chat.viewerVideo.replace',
-      swallowAll: true,
-    });
-    attachSafeExpoSharedObjectPromise(result, undefined, 'chat.viewerVideo.replace');
-  }, [player, shouldAttachPlayback, uri]);
+  const handlePlayerStatus = useCallback((status: VideoPlayerStatus, payload?: unknown) => {
+    if (status === 'error') {
+      const reason = resolveNativeMediaPlaybackFallbackReason({ uri, error: payload });
+      void onRefreshMedia()
+        .then((didRefresh) => {
+          if (!didRefresh) {
+            setFallbackReason(reason);
+            setPhase('error');
+          }
+        })
+        .catch(() => {
+          setFallbackReason(reason);
+          setPhase('error');
+        });
+      return;
+    }
+    if (status === 'readyToPlay') {
+      revealPlayer();
+    }
+    if (status === 'loading') {
+      setPhase((current) => (current === 'ready' ? current : 'loading'));
+    }
+  }, [onRefreshMedia, revealPlayer, uri]);
 
   useEffect(() => {
     if (!shouldAttachPlayback) return;
     const sub = safeExpoSharedObjectCall(
       () => player.addListener('statusChange', (payload) => {
-        if (payload.status === 'error') {
-          const reason = resolveNativeMediaPlaybackFallbackReason({ uri, error: payload });
-          void onRefreshMedia()
-            .then((didRefresh) => {
-              if (!didRefresh) {
-                setFallbackReason(reason);
-                setPhase('error');
-              }
-            })
-            .catch(() => {
-              setFallbackReason(reason);
-              setPhase('error');
-            });
-          return;
-        }
-        if (payload.status === 'readyToPlay') {
-          revealPlayer();
-        }
-        if (payload.status === 'loading') {
-          setPhase((current) => (current === 'ready' ? current : 'loading'));
-        }
+        handlePlayerStatus(payload.status, payload);
       }),
       {
         label: 'chat.viewerVideo.statusListener',
@@ -524,8 +560,14 @@ function VideoViewerStage({
         swallowAll: true,
       },
     );
+    const initialStatus = safeExpoSharedObjectRead<VideoPlayerStatus>(
+      () => player.status,
+      'idle',
+      'chat.viewerVideo.status.initial',
+    );
+    handlePlayerStatus(initialStatus);
     return () => safeRemoveExpoSharedObjectSubscription(sub, 'chat.viewerVideo.statusListener.remove');
-  }, [onRefreshMedia, player, revealPlayer, shouldAttachPlayback, uri]);
+  }, [handlePlayerStatus, player, shouldAttachPlayback]);
 
   useEffect(() => {
     if (!shouldAttachPlayback) return;
@@ -534,13 +576,6 @@ function VideoViewerStage({
       swallowAll: true,
     });
     attachSafeExpoSharedObjectPromise(playResult, undefined, 'chat.viewerVideo.play');
-    return () => {
-      const pauseResult = safeExpoSharedObjectCall(() => player.pause(), {
-        label: 'chat.viewerVideo.pause.unmount',
-        swallowAll: true,
-      });
-      attachSafeExpoSharedObjectPromise(pauseResult, undefined, 'chat.viewerVideo.pause.unmount');
-    };
   }, [player, shouldAttachPlayback]);
 
   useEffect(() => {
@@ -566,18 +601,19 @@ function VideoViewerStage({
 
       <View style={styles.videoStageWrap}>
         <View style={[styles.videoFrame, { marginBottom: Math.max(12, insets.bottom + 8) }]}>
+          <VideoView style={styles.videoView} player={player} nativeControls contentFit="contain" />
+
           {posterUri && phase === 'loading' ? (
             <ExpoImage
               source={{ uri: posterUri }}
               style={StyleSheet.absoluteFillObject}
               contentFit="contain"
               cachePolicy="memory-disk"
+              pointerEvents="none"
               accessibilityElementsHidden
               importantForAccessibility="no-hide-descendants"
             />
           ) : null}
-
-          <VideoView style={styles.videoView} player={player} nativeControls contentFit="contain" />
 
           {phase === 'loading' && shouldAttachPlayback ? (
             <View style={styles.videoLoadingOverlay} pointerEvents="none">
