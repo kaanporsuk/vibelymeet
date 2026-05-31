@@ -30,6 +30,7 @@ interface VideoMessageBubbleProps {
    *  signed-media path as Vibe Clips and shows before the first video frame. */
   thumbnailUrl?: string | null;
   thumbnailSourceRef?: string | null;
+  onResolvedThumbnailUrl?: (url: string) => void;
   duration: number;
   isMine: boolean;
   /** When set, tap / expand opens chat fullscreen viewer instead of browser fullscreen */
@@ -42,14 +43,20 @@ interface VideoMessageBubbleProps {
 type VideoElementWithWebkitFullscreen = HTMLVideoElement & {
   webkitEnterFullscreen?: () => void;
 };
+type VideoMediaRefreshReason = "initial" | "playback" | "manual";
 
 const VIDEO_BUBBLE_WIDTH_CLASS = "w-[min(17.5rem,calc(100svw-4rem))] max-w-full";
 const MAX_VIDEO_PLAYBACK_REFRESH_ATTEMPTS = 1;
+const VIDEO_PLAYBACK_LOAD_TIMEOUT_MS = 12_000;
 // First-go poster reliability (mirrors VibeClipBubble): when a thumbnail ref exists,
 // re-sign + reload the poster on a bounded backoff so it appears before the first frame.
 const POSTER_PREVIEW_RETRY_DELAYS_MS = [1000, 3000, 8000];
 
 function isDisplayablePosterUrl(value: string | null | undefined): boolean {
+  return !!value && /^(https?:|blob:|data:|file:)/i.test(value);
+}
+
+function isMountableVideoUrl(value: string | null | undefined): boolean {
   return !!value && /^(https?:|blob:|data:|file:)/i.test(value);
 }
 
@@ -67,6 +74,7 @@ export const VideoMessageBubble = ({
   onResolvedVideoUrl,
   thumbnailUrl,
   thumbnailSourceRef,
+  onResolvedThumbnailUrl,
   duration,
   isMine,
   onRequestImmersive,
@@ -83,9 +91,12 @@ export const VideoMessageBubble = ({
   const [hasMetadata, setHasMetadata] = useState(false);
   const [loadError, setLoadError] = useState(false);
   const [fallbackReason, setFallbackReason] = useState<MediaFallbackReason | null>(null);
+  const [playRequested, setPlayRequested] = useState(false);
   const [isViewportVisible, setIsViewportVisible] = useState(true);
   const prefersReducedMotion = usePrefersReducedMotion();
   const playbackRefreshAttemptCountRef = useRef(0);
+  const initialPlaybackResolveInFlightRef = useRef(false);
+  const initialPlaybackResolveRunIdRef = useRef(0);
   const {
     url: mediaAssetUrl,
     expiresAtMs: mediaAssetExpiresAtMs,
@@ -103,6 +114,9 @@ export const VideoMessageBubble = ({
   const [playableVideoUrl, setPlayableVideoUrl] = useState(mediaAssetUrl ?? videoUrl);
   const playableVideoUrlRef = useRef(mediaAssetUrl ?? videoUrl);
   const isHlsUrl = /\.m3u8(?:[?#]|$)/i.test(playableVideoUrl);
+  const handleResolvedThumbnailUrl = useCallback((url: string) => {
+    if (isDisplayablePosterUrl(url)) onResolvedThumbnailUrl?.(url);
+  }, [onResolvedThumbnailUrl]);
 
   // Optional poster (legacy/plain chat video parity with Vibe Clips). No-op when the
   // message carries no thumbnail ref — the loading shimmer behaves exactly as before.
@@ -111,6 +125,7 @@ export const VideoMessageBubble = ({
     messageId,
     sourceRef: thumbnailSourceRef,
     initialUrl: thumbnailUrl,
+    onResolvedUrl: handleResolvedThumbnailUrl,
   });
   const [playablePosterUrl, setPlayablePosterUrl] = useState<string | null>(thumbnailUrl ?? null);
   const [posterImageBroken, setPosterImageBroken] = useState(false);
@@ -140,6 +155,9 @@ export const VideoMessageBubble = ({
     setCurrentTime(0);
     setIsLoading(true);
     setIsReady(false);
+    setPlayRequested(false);
+    initialPlaybackResolveInFlightRef.current = false;
+    initialPlaybackResolveRunIdRef.current += 1;
     setHasMetadata(false);
     setLoadError(false);
     setFallbackReason(null);
@@ -154,7 +172,7 @@ export const VideoMessageBubble = ({
   }, [thumbnailSourceRef, thumbnailUrl]);
 
   useEffect(() => {
-    const next = thumbnailAssetUrl ?? null;
+    const next = isDisplayablePosterUrl(thumbnailAssetUrl) ? thumbnailAssetUrl : null;
     if (!next || next === playablePosterUrlRef.current) return;
     playablePosterUrlRef.current = next;
     setPlayablePosterUrl(next);
@@ -167,11 +185,12 @@ export const VideoMessageBubble = ({
       bypassFailureCooldown: true,
       suppressFailureCache: true,
     });
-    if (!fresh) return null;
-    playablePosterUrlRef.current = fresh;
-    setPlayablePosterUrl(fresh);
+    const displayableFresh = isDisplayablePosterUrl(fresh) ? fresh : null;
+    if (!displayableFresh) return null;
+    playablePosterUrlRef.current = displayableFresh;
+    setPlayablePosterUrl(displayableFresh);
     setPosterImageBroken(false);
-    return fresh;
+    return displayableFresh;
   }, [messageId, refreshThumbnailAsset, thumbnailSourceRef]);
 
   // Gated on !isReady: the poster only shows while the video frame isn't up, so once the
@@ -216,12 +235,23 @@ export const VideoMessageBubble = ({
   }, [messageId, posterNotReady, refreshPoster, thumbnailSourceRef]);
 
   const canShowPoster = isDisplayablePosterUrl(playablePosterUrl);
+  const showPosterVisual = canShowPoster && !posterImageBroken;
+  const canMountPlayer = isMountableVideoUrl(playableVideoUrl);
+  const isAwaitingPlaybackIntent = !canMountPlayer;
+  const showResolvingPlaybackOverlay = isAwaitingPlaybackIntent && playRequested && !loadError;
+  const showIdlePosterOverlay =
+    showPosterVisual && canMountPlayer && isReady && !isPlaying && currentTime <= 0.05;
+  const showPreparingOverlay = !isReady && !isAwaitingPlaybackIntent;
 
   const refreshVideoUrl = useCallback(
-    async (options?: { bypassFailureCooldown?: boolean }): Promise<string | null> => {
+    async (
+      reason: VideoMediaRefreshReason = "playback",
+      options?: { bypassFailureCooldown?: boolean },
+    ): Promise<string | null> => {
       if (!messageId || !videoSourceRef) return null;
-      const freshUrl = await refreshMediaAsset(options?.bypassFailureCooldown ? "manual" : "playback", options);
+      const freshUrl = await refreshMediaAsset(reason, options);
       if (!freshUrl) return null;
+      if (!isMountableVideoUrl(freshUrl)) return null;
       playableVideoUrlRef.current = freshUrl;
       setPlayableVideoUrl(freshUrl);
       onResolvedVideoUrl?.(freshUrl);
@@ -234,8 +264,12 @@ export const VideoMessageBubble = ({
     if (!messageId || !videoSourceRef) return false;
     if (playbackRefreshAttemptCountRef.current >= MAX_VIDEO_PLAYBACK_REFRESH_ATTEMPTS) return false;
     playbackRefreshAttemptCountRef.current += 1;
-    const freshUrl = await refreshVideoUrl();
-    if (!freshUrl || freshUrl === playableVideoUrl) return false;
+    const freshUrl = await refreshVideoUrl("playback");
+    if (!freshUrl) return false;
+    if (freshUrl === playableVideoUrl) {
+      videoRef.current?.load();
+      return true;
+    }
     return true;
   }, [messageId, playableVideoUrl, refreshVideoUrl, videoSourceRef]);
 
@@ -289,10 +323,70 @@ export const VideoMessageBubble = ({
     return () => clearTimeout(t);
   }, [hasMetadata, isIosSafari, isReady, loadError]);
 
+  useEffect(() => {
+    if (!playRequested || !isReady) return;
+    const video = videoRef.current;
+    if (!video) return;
+    if (!video.paused) return;
+    video.play().then(() => setIsPlaying(true)).catch((err: unknown) => {
+      const name = err instanceof Error ? err.name : "";
+      if (name === "AbortError" && consumeInlineVideoPlaybackRegistryPause(video)) return;
+      if (name === "AbortError" || name === "NotAllowedError" || name === "NotSupportedError") {
+        void tryRefreshAfterFailure().then((didRefresh) => {
+          if (!didRefresh) {
+            setFallbackReason(mediaAssetFallbackReason ?? "unknown");
+            setLoadError(true);
+          }
+        });
+      }
+    });
+  }, [isReady, mediaAssetFallbackReason, playRequested, tryRefreshAfterFailure]);
+
+  useEffect(() => {
+    if (!playRequested || isReady || loadError || !canMountPlayer) return;
+    const timeoutId = window.setTimeout(() => {
+      void tryRefreshAfterFailure().then((didRefresh) => {
+        if (!didRefresh) {
+          setFallbackReason(mediaAssetFallbackReason ?? "unknown");
+          setLoadError(true);
+        }
+      });
+    }, VIDEO_PLAYBACK_LOAD_TIMEOUT_MS);
+    return () => window.clearTimeout(timeoutId);
+  }, [canMountPlayer, isReady, loadError, mediaAssetFallbackReason, playRequested, tryRefreshAfterFailure]);
+
   const togglePlay = useCallback(() => {
+    if (!canMountPlayer) {
+      if (playRequested || initialPlaybackResolveInFlightRef.current) return;
+      initialPlaybackResolveInFlightRef.current = true;
+      const runId = initialPlaybackResolveRunIdRef.current + 1;
+      initialPlaybackResolveRunIdRef.current = runId;
+      setPlayRequested(true);
+      setIsLoading(true);
+      void refreshVideoUrl("initial", { bypassFailureCooldown: true })
+        .then((freshUrl) => {
+          if (initialPlaybackResolveRunIdRef.current !== runId) return;
+          if (!freshUrl) {
+            setFallbackReason(mediaAssetFallbackReason ?? "unknown");
+            setLoadError(true);
+          }
+        })
+        .catch(() => {
+          if (initialPlaybackResolveRunIdRef.current !== runId) return;
+          setFallbackReason(mediaAssetFallbackReason ?? "unknown");
+          setLoadError(true);
+        })
+        .finally(() => {
+          if (initialPlaybackResolveRunIdRef.current === runId) {
+            initialPlaybackResolveInFlightRef.current = false;
+          }
+        });
+      return;
+    }
     const video = videoRef.current;
     if (!video) return;
     if (video.paused) {
+      setPlayRequested(true);
       video.play().then(() => setIsPlaying(true)).catch((err: unknown) => {
         const name = err instanceof Error ? err.name : "";
         if (name === "AbortError" && consumeInlineVideoPlaybackRegistryPause(video)) return;
@@ -308,8 +402,9 @@ export const VideoMessageBubble = ({
     } else {
       video.pause();
       setIsPlaying(false);
+      setPlayRequested(false);
     }
-  }, [mediaAssetFallbackReason, tryRefreshAfterFailure]);
+  }, [canMountPlayer, mediaAssetFallbackReason, playRequested, refreshVideoUrl, tryRefreshAfterFailure]);
 
   const toggleMute = useCallback((e: React.MouseEvent) => {
     e.stopPropagation();
@@ -356,7 +451,7 @@ export const VideoMessageBubble = ({
   }, []);
 
   useMediaPlaybackQoE(videoRef, {
-    enabled: !loadError,
+    enabled: canMountPlayer && !loadError,
     family: mediaKind,
     surface: "chat_video_message_bubble",
     provider: "bunny_storage",
@@ -376,7 +471,7 @@ export const VideoMessageBubble = ({
     return refreshResolvedMediaAsset(messageId, mediaKind, videoSourceRef, { suppressFailureCache: true });
   }, [mediaKind, messageId, videoSourceRef]);
   useMediaAssetPlayback(videoRef, playableVideoUrl, {
-    enabled: isHlsUrl && !loadError,
+    enabled: canMountPlayer && isHlsUrl && !loadError,
     autoPlay: false,
     expiresAtMs: mediaAssetExpiresAtMs,
     onManifestParsed: markReadyIfPossible,
@@ -398,11 +493,16 @@ export const VideoMessageBubble = ({
 
   const progress = duration > 0 ? (currentTime / duration) * 100 : 0;
   const isBuffering = isReady && isLoading && isPlaying;
-  const canPreloadPlayableVideo = /^https?:\/\//i.test(playableVideoUrl) || /^(blob:|file:|data:)/i.test(playableVideoUrl);
   const videoPreload = useMediaVideoPreloadForVisibility(
-    !immersiveActive && isViewportVisible && canPreloadPlayableVideo,
+    !immersiveActive && isViewportVisible && canMountPlayer,
     playableVideoUrl,
   );
+  const videoAriaLabel =
+    showResolvingPlaybackOverlay || showPreparingOverlay || isBuffering
+      ? "Preparing video"
+      : isPlaying
+        ? "Pause video"
+        : "Play video";
 
   if (loadError) {
     return (
@@ -430,7 +530,7 @@ export const VideoMessageBubble = ({
               setIsReady(false);
               setIsPlaying(false);
               setCurrentTime(0);
-              void refreshVideoUrl({ bypassFailureCooldown: true }).then((freshUrl) => {
+              void refreshVideoUrl("manual", { bypassFailureCooldown: true }).then((freshUrl) => {
                 if (!freshUrl || freshUrl === playableVideoUrl) videoRef.current?.load();
               });
             }}
@@ -460,7 +560,7 @@ export const VideoMessageBubble = ({
       }}
       role="button"
       tabIndex={0}
-      aria-label={isPlaying ? "Pause video" : "Play video"}
+      aria-label={videoAriaLabel}
     >
       <div className="flex items-center gap-1 px-2 pt-1.5 pb-0.5">
         <span className="inline-flex items-center rounded-full border border-white/[0.1] bg-white/[0.04] px-1.5 py-px">
@@ -469,9 +569,32 @@ export const VideoMessageBubble = ({
       </div>
       <AspectRatio ratio={9 / 16}>
         {/* Premium loading placeholder */}
-        {!isReady && (
+        {isAwaitingPlaybackIntent ? (
           <div className="absolute inset-0 bg-black">
-            {canShowPoster && !posterImageBroken ? (
+            {showPosterVisual ? (
+              <img
+                src={playablePosterUrl ?? undefined}
+                alt=""
+                className="absolute inset-0 h-full w-full object-cover"
+                draggable={false}
+                onError={() => setPosterImageBroken(true)}
+              />
+            ) : null}
+            <div className="absolute inset-0 bg-gradient-to-br from-white/[0.04] via-transparent to-fuchsia-400/[0.08]" />
+            {showResolvingPlaybackOverlay ? (
+              <div className="absolute inset-0 flex items-center justify-center bg-black/28">
+                <div className="flex items-center gap-2 rounded-full bg-black/55 px-3.5 py-2 backdrop-blur-md border border-fuchsia-500/15 shadow-[0_0_24px_rgba(168,85,247,0.12)]">
+                  <Loader2 className={cn("h-3.5 w-3.5 text-fuchsia-300/90", !prefersReducedMotion && "animate-spin")} />
+                  <span className="text-[11px] text-white/88 font-medium tracking-tight">Preparing playback…</span>
+                </div>
+              </div>
+            ) : null}
+          </div>
+        ) : null}
+
+        {showPreparingOverlay && (
+          <div className="absolute inset-0 bg-black">
+            {showPosterVisual ? (
               <img
                 src={playablePosterUrl ?? undefined}
                 alt=""
@@ -509,42 +632,54 @@ export const VideoMessageBubble = ({
           </div>
         )}
 
-        <video
-          ref={videoRef}
-          src={isHlsUrl ? undefined : playableVideoUrl}
-          poster={canShowPoster ? playablePosterUrl ?? undefined : undefined}
-          playsInline
-          muted={isMuted}
-          preload={videoPreload}
-          onLoadStart={() => setIsLoading(true)}
-          onLoadedMetadata={() => {
-            setHasMetadata(true);
-            markReadyIfPossible();
-          }}
-          onLoadedData={markReadyIfPossible}
-          onCanPlay={markReadyIfPossible}
-          onPlay={() => claimInlineVideoPlayback(videoRef.current)}
-          onPlaying={() => setIsLoading(false)}
-          onPause={() => setIsPlaying(false)}
-          onWaiting={() => setIsLoading(true)}
-          onError={() => {
-            if (isHlsUrl) return;
-            setIsLoading(false);
-            void tryRefreshAfterFailure().then((didRefresh) => {
-              if (!didRefresh) {
-                setFallbackReason(resolveMediaFallbackReason({ stage: "playback" }));
-                setLoadError(true);
-              }
-            });
-          }}
-          onTimeUpdate={handleTimeUpdate}
-          onEnded={handleEnded}
-          className={[
-            "w-full h-full object-cover bg-black",
-            "transition-opacity duration-300",
-            isReady ? "opacity-100" : "opacity-0",
-          ].join(" ")}
-        />
+        {canMountPlayer ? (
+          <video
+            ref={videoRef}
+            src={isHlsUrl ? undefined : playableVideoUrl}
+            poster={showPosterVisual ? playablePosterUrl ?? undefined : undefined}
+            playsInline
+            muted={isMuted}
+            preload={videoPreload}
+            onLoadStart={() => setIsLoading(true)}
+            onLoadedMetadata={() => {
+              setHasMetadata(true);
+              markReadyIfPossible();
+            }}
+            onLoadedData={markReadyIfPossible}
+            onCanPlay={markReadyIfPossible}
+            onPlay={() => claimInlineVideoPlayback(videoRef.current)}
+            onPlaying={() => setIsLoading(false)}
+            onPause={() => setIsPlaying(false)}
+            onWaiting={() => setIsLoading(true)}
+            onError={() => {
+              if (isHlsUrl) return;
+              setIsLoading(false);
+              void tryRefreshAfterFailure().then((didRefresh) => {
+                if (!didRefresh) {
+                  setFallbackReason(resolveMediaFallbackReason({ stage: "playback" }));
+                  setLoadError(true);
+                }
+              });
+            }}
+            onTimeUpdate={handleTimeUpdate}
+            onEnded={handleEnded}
+            className={[
+              "w-full h-full object-cover bg-black",
+              "transition-opacity duration-300",
+              isReady ? "opacity-100" : "opacity-0",
+            ].join(" ")}
+          />
+        ) : null}
+
+        {showIdlePosterOverlay ? (
+          <img
+            src={playablePosterUrl ?? undefined}
+            alt=""
+            className="pointer-events-none absolute inset-0 h-full w-full object-cover"
+            draggable={false}
+            onError={() => setPosterImageBroken(true)}
+          />
+        ) : null}
 
         {isBuffering ? (
           <div className="pointer-events-none absolute inset-0 z-[5] flex items-center justify-center bg-black/25">
@@ -556,7 +691,7 @@ export const VideoMessageBubble = ({
         ) : null}
 
         {/* Play overlay */}
-        {!isPlaying && isReady && (
+        {!isPlaying && (isReady || (isAwaitingPlaybackIntent && !showResolvingPlaybackOverlay)) && (
           <motion.div
             initial={prefersReducedMotion ? false : { opacity: 0 }}
             animate={{ opacity: 1 }}

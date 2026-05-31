@@ -39,8 +39,12 @@ import {
   inferChatMediaRenderKind,
   extractRenderableChatImageUrl,
 } from "@/lib/chatMessageContent";
-import { bunnyStreamThumbnailRefFor, refreshMediaAssetUrl } from "@/lib/mediaAssetResolver";
-import { extractVibeClipMeta, type VibeClipDisplayMeta } from "../../shared/chat/messageRouting";
+import { refreshMediaAssetUrl } from "@/lib/mediaAssetResolver";
+import {
+  deriveChatVideoThumbnailRef,
+  extractVibeClipMeta,
+  type VibeClipDisplayMeta,
+} from "../../shared/chat/messageRouting";
 import { clientRequestIdFromStructured } from "../../shared/chat/clientRequestId";
 import { postgrestQuotedInList } from "../../shared/chat/postgrestFilters";
 import { cn } from "@/lib/utils";
@@ -231,6 +235,24 @@ type ChatVideoLightboxState = {
   thumbnailSourceRef?: string | null;
   mediaKind?: "video" | "vibe_clip";
 };
+
+function displayableChatVideoPosterUrl(value: unknown): string | null {
+  const text = typeof value === "string" ? value.trim() : "";
+  if (!text) return null;
+  return /^(https?:|blob:|data:|file:)/i.test(text) ? text : null;
+}
+
+function displayChatVideoPosterUrlForMessage(
+  message: Pick<ChatMessage, "structuredPayload">,
+  overrideUrl?: string | null,
+): string | null {
+  const payload = message.structuredPayload;
+  return (
+    displayableChatVideoPosterUrl(overrideUrl) ??
+    displayableChatVideoPosterUrl(payload?.thumbnail_url) ??
+    displayableChatVideoPosterUrl(payload?.poster_ref)
+  );
+}
 
 function cssAttributeValue(value: string): string {
   if (typeof CSS !== "undefined" && typeof CSS.escape === "function") return CSS.escape(value);
@@ -524,6 +546,15 @@ function VibeClipMessageRow({
   const displayClipMeta = clipMeta ?? pendingClipMeta;
   const displayClipVideoUrl = displayClipMeta?.videoUrl ?? null;
   const displayClipThumbnailUrl = displayClipMeta?.thumbnailUrl ?? null;
+  const effectiveThumbnailSourceRef = useMemo(
+    () =>
+      message.thumbnailSourceRef ??
+      deriveChatVideoThumbnailRef({
+        video_url: message.videoSourceRef ?? message.videoUrl ?? null,
+        structured_payload: (message.structuredPayload as Record<string, unknown>) ?? null,
+      }),
+    [message.structuredPayload, message.thumbnailSourceRef, message.videoSourceRef, message.videoUrl],
+  );
   const isMine = message.sender === "me";
   const recoveryDecision = buildVibeClipRecovery({
     outboxItem: webOutboxVibeClipSummary(localOutboxItem),
@@ -569,18 +600,20 @@ function VibeClipMessageRow({
       if (!displayClipVideoUrl) return;
       onRequestImmersiveVideo({
         url: media?.videoUrl ?? displayClipVideoUrl,
-        posterUrl: media?.thumbnailUrl ?? displayClipThumbnailUrl,
+        posterUrl:
+          displayableChatVideoPosterUrl(media?.thumbnailUrl) ??
+          displayableChatVideoPosterUrl(displayClipThumbnailUrl),
         messageId: message.id,
         videoSourceRef: message.videoSourceRef,
-        thumbnailSourceRef: message.thumbnailSourceRef,
+        thumbnailSourceRef: effectiveThumbnailSourceRef,
         mediaKind: "vibe_clip",
       });
     },
     [
       displayClipThumbnailUrl,
       displayClipVideoUrl,
+      effectiveThumbnailSourceRef,
       message.id,
-      message.thumbnailSourceRef,
       message.videoSourceRef,
       onRequestImmersiveVideo,
     ],
@@ -589,12 +622,20 @@ function VibeClipMessageRow({
     if (!fallbackVideoUrl) return;
     onRequestImmersiveVideo({
       url: fallbackVideoUrl,
-      posterUrl: null,
+      posterUrl: displayableChatVideoPosterUrl(displayClipThumbnailUrl),
       messageId: message.id,
       videoSourceRef: message.videoSourceRef,
+      thumbnailSourceRef: effectiveThumbnailSourceRef,
       mediaKind: "vibe_clip",
     });
-  }, [fallbackVideoUrl, message.id, message.videoSourceRef, onRequestImmersiveVideo]);
+  }, [
+    displayClipThumbnailUrl,
+    effectiveThumbnailSourceRef,
+    fallbackVideoUrl,
+    message.id,
+    message.videoSourceRef,
+    onRequestImmersiveVideo,
+  ]);
   return (
     <div
       data-upload-attention-id={uploadAttentionId ?? undefined}
@@ -619,12 +660,7 @@ function VibeClipMessageRow({
             meta={displayClipMeta}
             isMine={isMine}
             videoSourceRef={message.videoSourceRef}
-            // Sent Vibe Clips often have no stored poster_ref, so thumbnailSourceRef is null and
-            // the bubble showed blank until tapped. Bunny Stream always exposes thumbnail.jpg in
-            // the clip's directory, so derive a thumbnail ref from the bunny_stream video ref;
-            // get-chat-media-url resolves kind=thumbnail off the same asset. No-op for received
-            // clips (explicit ref wins) and for local/processing clips (no bunny_stream ref yet).
-            thumbnailSourceRef={message.thumbnailSourceRef ?? bunnyStreamThumbnailRefFor(message.videoSourceRef)}
+            thumbnailSourceRef={effectiveThumbnailSourceRef}
             onResolvedVideoUrl={handleResolvedVideoUrl}
             onResolvedThumbnailUrl={handleResolvedThumbnailUrl}
             clientRequestId={message.clientRequestId ?? displayClipMeta.clientRequestId ?? null}
@@ -644,10 +680,12 @@ function VibeClipMessageRow({
           <VideoMessageBubble
             videoUrl={fallbackVideoUrl}
             videoSourceRef={message.videoSourceRef}
-            thumbnailSourceRef={message.thumbnailSourceRef}
+            thumbnailUrl={displayClipThumbnailUrl}
+            thumbnailSourceRef={effectiveThumbnailSourceRef}
             messageId={message.id}
             mediaKind="vibe_clip"
             onResolvedVideoUrl={handleResolvedVideoUrl}
+            onResolvedThumbnailUrl={handleResolvedThumbnailUrl}
             duration={message.videoDuration || 0}
             isMine={isMine}
             onRequestImmersive={message.videoUrl ? handleRequestFallbackImmersive : undefined}
@@ -1407,7 +1445,11 @@ const Chat = () => {
     setVideoUrlOverridesById((prev) => (prev[messageId] === url ? prev : { ...prev, [messageId]: url }));
   }, []);
   const rememberResolvedThumbnailUrl = useCallback((messageId: string, url: string) => {
-    setThumbnailUrlOverridesById((prev) => (prev[messageId] === url ? prev : { ...prev, [messageId]: url }));
+    const displayableUrl = displayableChatVideoPosterUrl(url);
+    if (!displayableUrl) return;
+    setThumbnailUrlOverridesById((prev) => (
+      prev[messageId] === displayableUrl ? prev : { ...prev, [messageId]: displayableUrl }
+    ));
   }, []);
   const closeVideoLightbox = useCallback(() => setVideoLightbox(null), []);
   const handleVideoLightboxResolvedVideoUrl = useCallback((url: string) => {
@@ -3101,74 +3143,86 @@ const Chat = () => {
                     openVibeClipOptions();
                   }}
                 />
-              ) : groupedMessage.type === "video" ? (
-                <div
-                  key={groupedMessage.id}
-                  data-upload-attention-id={uploadAttentionId ?? undefined}
-                  data-upload-attention-client-request-id={uploadAttentionClientRequestId ?? undefined}
-                  className={cn(
-                    "flex w-full min-w-0 items-end gap-2 transition-[background-color,box-shadow] duration-300",
-                    groupedMessage.sender === "me" ? "justify-end" : "justify-start",
-                    groupedMessage.isFirstInGroup ? "mt-2" : "mt-1",
-                    isUploadAttentionHighlighted && UPLOAD_ATTENTION_HIGHLIGHT_CLASS,
-                  )}
-                >
-                  {groupedMessage.sender !== "me" && (
-                    <div className="w-7 shrink-0">
-                      {groupedMessage.showAvatar && (
-                        <img src={otherUser.avatar_url} alt="" className="w-7 h-7 rounded-full object-cover" />
-                      )}
-                    </div>
-                  )}
-                  <div className="min-w-0 max-w-full">
-                    <VideoMessageBubble
-                      videoUrl={videoUrlForMessage(groupedMessage) ?? groupedMessage.videoUrl!}
-                      videoSourceRef={groupedMessage.videoSourceRef}
-                      thumbnailSourceRef={groupedMessage.thumbnailSourceRef}
-                      messageId={groupedMessage.id}
-                      mediaKind="video"
-                      onResolvedVideoUrl={(url) => rememberResolvedVideoUrl(groupedMessage.id, url)}
-                      duration={groupedMessage.videoDuration || 0}
-                      isMine={groupedMessage.sender === "me"}
-                      onRequestImmersive={
-                        groupedMessage.videoUrl
-                          ? () =>
-                              setVideoLightbox({
-                                url: videoUrlForMessage(groupedMessage) ?? groupedMessage.videoUrl!,
-                                posterUrl: null,
-                                messageId: groupedMessage.id,
-                                videoSourceRef: groupedMessage.videoSourceRef,
-                                thumbnailSourceRef: groupedMessage.thumbnailSourceRef,
-                                mediaKind: "video",
-                              })
-                          : undefined
-                      }
-                      immersiveActive={
-                        !!groupedMessage.videoUrl &&
-                        videoLightbox?.url === (videoUrlForMessage(groupedMessage) ?? groupedMessage.videoUrl)
-                      }
-                      threadVisualRecede={mediaRecede}
-                    />
-                    {groupedMessage.isLastInGroup && (
-                      <div
-                        className={cn(
-                          "mt-1 flex",
-                          groupedMessage.sender === "me" ? "justify-end" : "justify-start",
+              ) : groupedMessage.type === "video" ? (() => {
+                const videoUrl = videoUrlForMessage(groupedMessage) ?? groupedMessage.videoUrl!;
+                const effectiveThumbnailSourceRef =
+                  groupedMessage.thumbnailSourceRef ??
+                  deriveChatVideoThumbnailRef({
+                    video_url: groupedMessage.videoSourceRef ?? groupedMessage.videoUrl ?? null,
+                    structured_payload: groupedMessage.structuredPayload ?? null,
+                  });
+                const posterUrl = displayChatVideoPosterUrlForMessage(
+                  groupedMessage,
+                  thumbnailUrlOverridesById[groupedMessage.id] ?? null,
+                );
+                return (
+                  <div
+                    key={groupedMessage.id}
+                    data-upload-attention-id={uploadAttentionId ?? undefined}
+                    data-upload-attention-client-request-id={uploadAttentionClientRequestId ?? undefined}
+                    className={cn(
+                      "flex w-full min-w-0 items-end gap-2 transition-[background-color,box-shadow] duration-300",
+                      groupedMessage.sender === "me" ? "justify-end" : "justify-start",
+                      groupedMessage.isFirstInGroup ? "mt-2" : "mt-1",
+                      isUploadAttentionHighlighted && UPLOAD_ATTENTION_HIGHLIGHT_CLASS,
+                    )}
+                  >
+                    {groupedMessage.sender !== "me" && (
+                      <div className="w-7 shrink-0">
+                        {groupedMessage.showAvatar && (
+                          <img src={otherUser.avatar_url} alt="" className="w-7 h-7 rounded-full object-cover" />
                         )}
-                      >
-                        <MessageStatus
-                          status={groupedMessage.status || "delivered"}
-                          time={groupedMessage.time}
-                          isMyMessage={groupedMessage.sender === "me"}
-                          suppressSendingIndicator={groupedMessage.suppressSendingIndicator}
-                          showSendingSpinner={groupedMessage.showSendingSpinner}
-                          assistiveLabel={groupedMessage.statusAssistive}
-                        />
                       </div>
                     )}
+                    <div className="min-w-0 max-w-full">
+                      <VideoMessageBubble
+                        videoUrl={videoUrl}
+                        videoSourceRef={groupedMessage.videoSourceRef}
+                        thumbnailUrl={posterUrl}
+                        thumbnailSourceRef={effectiveThumbnailSourceRef}
+                        messageId={groupedMessage.id}
+                        mediaKind="video"
+                        onResolvedVideoUrl={(url) => rememberResolvedVideoUrl(groupedMessage.id, url)}
+                        onResolvedThumbnailUrl={(url) => rememberResolvedThumbnailUrl(groupedMessage.id, url)}
+                        duration={groupedMessage.videoDuration || 0}
+                        isMine={groupedMessage.sender === "me"}
+                        onRequestImmersive={
+                          groupedMessage.videoUrl
+                            ? () =>
+                                setVideoLightbox({
+                                  url: videoUrl,
+                                  posterUrl,
+                                  messageId: groupedMessage.id,
+                                  videoSourceRef: groupedMessage.videoSourceRef,
+                                  thumbnailSourceRef: effectiveThumbnailSourceRef,
+                                  mediaKind: "video",
+                                })
+                            : undefined
+                        }
+                        immersiveActive={!!groupedMessage.videoUrl && videoLightbox?.url === videoUrl}
+                        threadVisualRecede={mediaRecede}
+                      />
+                      {groupedMessage.isLastInGroup && (
+                        <div
+                          className={cn(
+                            "mt-1 flex",
+                            groupedMessage.sender === "me" ? "justify-end" : "justify-start",
+                          )}
+                        >
+                          <MessageStatus
+                            status={groupedMessage.status || "delivered"}
+                            time={groupedMessage.time}
+                            isMyMessage={groupedMessage.sender === "me"}
+                            suppressSendingIndicator={groupedMessage.suppressSendingIndicator}
+                            showSendingSpinner={groupedMessage.showSendingSpinner}
+                            assistiveLabel={groupedMessage.statusAssistive}
+                          />
+                        </div>
+                      )}
+                    </div>
                   </div>
-                </div>
-              ) : groupedMessage.type === "image" ? (() => {
+                );
+              })() : groupedMessage.type === "image" ? (() => {
                 const imageUrl = photoUrlForMessage(groupedMessage);
                 const imagePlaceholder = photoPlaceholderForMessage(groupedMessage);
                 return (

@@ -16,7 +16,7 @@ import {
   extractChatImageMediaRef,
   extractRenderableChatImageUrl,
 } from "@/lib/chatMessageContent";
-import { toRenderableMessageKind } from "../../shared/chat/messageRouting";
+import { deriveChatVideoThumbnailRef, toRenderableMessageKind } from "../../shared/chat/messageRouting";
 import { threadMessagesQueryKey, type ThreadInvalidateScope } from "../../shared/chat/queryKeys";
 import { postgrestQuotedInList } from "../../shared/chat/postgrestFilters";
 import { resolvePrimaryProfilePhotoPath } from "../../shared/profilePhoto/resolvePrimaryProfilePhotoPath";
@@ -208,18 +208,13 @@ function durableChatMediaSourceRef(value: string | null | undefined): string | u
   return trimmed;
 }
 
-function structuredPayloadObject(value: unknown): Record<string, unknown> | null {
-  return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : null;
-}
-
 function collectChatMediaSourceRefs(row: {
   content: string;
   audio_url?: string | null;
   video_url?: string | null;
   structured_payload?: unknown;
 }) {
-  const payload = structuredPayloadObject(row.structured_payload);
-  const thumbnailRef = typeof payload?.thumbnail_url === "string" ? payload.thumbnail_url : null;
+  const thumbnailRef = deriveChatVideoThumbnailRef(row);
   return {
     audio: durableChatMediaSourceRef(row.audio_url),
     image: durableChatMediaSourceRef(
@@ -320,13 +315,7 @@ export async function hydrateChatRowsForDisplay(
     if (!refs) continue;
     if (refs.audio) prewarmInputs.push({ messageId: row.id, kind: "voice", sourceRef: refs.audio });
     if (refs.image) prewarmInputs.push({ messageId: row.id, kind: "image", sourceRef: refs.image });
-    if (refs.video) {
-      prewarmInputs.push({
-        messageId: row.id,
-        kind: row.message_kind === "vibe_clip" ? "vibe_clip" : "video",
-        sourceRef: refs.video,
-      });
-    }
+    // Keep video playback lazy on chat open; thumbnails are the eager visual contract.
     if (refs.thumbnail) prewarmInputs.push({ messageId: row.id, kind: "thumbnail", sourceRef: refs.thumbnail });
   }
   const displayRowsPromise = Promise.all(collapsedRows.map((row) => resolveMessageMediaForDisplay(row)));

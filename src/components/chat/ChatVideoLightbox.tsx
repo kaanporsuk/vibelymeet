@@ -33,6 +33,10 @@ function isPlayableMediaUrl(value: string): boolean {
   return /^https?:\/\//i.test(value) || /^(blob:|file:|data:)/i.test(value);
 }
 
+function displayablePosterUrl(value: string | null | undefined): string | null {
+  return value && isPlayableMediaUrl(value) ? value : null;
+}
+
 function isHlsMediaUrl(value: string): boolean {
   return /\.m3u8(?:[?#]|$)/i.test(value);
 }
@@ -50,17 +54,19 @@ export function ChatVideoLightbox({
 }: ChatVideoLightboxProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const prefersReducedMotion = usePrefersReducedMotion();
+  const initialPosterUrl = displayablePosterUrl(posterUrl);
   const [phase, setPhase] = useState<LightboxPhase>("loading");
   const [playableVideoUrl, setPlayableVideoUrl] = useState(videoUrl);
-  const [playablePosterUrl, setPlayablePosterUrl] = useState(posterUrl ?? null);
+  const [playablePosterUrl, setPlayablePosterUrl] = useState(initialPosterUrl);
   const [fallbackReason, setFallbackReason] = useState<MediaFallbackReason | null>(null);
   const playbackRefreshAttemptCountRef = useRef(0);
   const playableVideoUrlRef = useRef(playableVideoUrl);
-  const posterUrlRef = useRef(posterUrl ?? null);
+  const posterUrlRef = useRef(initialPosterUrl);
   const onCloseRef = useRef(onClose);
   const onResolvedVideoUrlRef = useRef(onResolvedVideoUrl);
   const onResolvedThumbnailUrlRef = useRef(onResolvedThumbnailUrl);
   const refreshMediaRef = useRef<((reason?: LightboxMediaRefreshReason) => Promise<boolean>) | null>(null);
+  const initialResolveRunIdRef = useRef(0);
   const {
     url: videoAssetUrl,
     expiresAtMs: videoAssetExpiresAtMs,
@@ -79,9 +85,12 @@ export function ChatVideoLightbox({
     kind: "thumbnail",
     messageId,
     sourceRef: thumbnailSourceRef,
-    initialUrl: posterUrl,
+    initialUrl: initialPosterUrl,
     autoResolve: false,
-    onResolvedUrl: onResolvedThumbnailUrl,
+    onResolvedUrl: (url) => {
+      const displayableUrl = displayablePosterUrl(url);
+      if (displayableUrl) onResolvedThumbnailUrl?.(displayableUrl);
+    },
   });
 
   useEffect(() => {
@@ -104,6 +113,7 @@ export function ChatVideoLightbox({
   const isLocalUrl = /^(blob:|file:|data:)/i.test(playableVideoUrl);
   const canMountPlayer = isRemoteUrl || isLocalUrl;
   const isHlsUrl = isHlsMediaUrl(playableVideoUrl);
+  const visiblePosterUrl = displayablePosterUrl(playablePosterUrl);
   const visibleFallbackCopy =
     (fallbackReason ? resolveMediaFallbackCopy({ reason: fallbackReason }) : null) ??
     videoAssetFallbackCopy ??
@@ -130,8 +140,8 @@ export function ChatVideoLightbox({
   }, [playableVideoUrl]);
 
   useEffect(() => {
-    posterUrlRef.current = posterUrl ?? null;
-  }, [posterUrl]);
+    posterUrlRef.current = initialPosterUrl;
+  }, [initialPosterUrl]);
 
   useEffect(() => {
     if (!videoAssetUrl) return;
@@ -140,8 +150,18 @@ export function ChatVideoLightbox({
   }, [videoAssetUrl]);
 
   useEffect(() => {
-    setPlayablePosterUrl(posterAssetUrl ?? posterUrl ?? null);
-  }, [posterAssetUrl, posterUrl]);
+    setPlayablePosterUrl(displayablePosterUrl(posterAssetUrl) ?? initialPosterUrl);
+  }, [initialPosterUrl, posterAssetUrl]);
+
+  useEffect(() => {
+    if (displayablePosterUrl(playablePosterUrl) || !thumbnailSourceRef) return;
+    void refreshPosterAsset("cache").then((freshPosterUrl) => {
+      const displayableUrl = displayablePosterUrl(freshPosterUrl);
+      if (!displayableUrl) return;
+      setPlayablePosterUrl(displayableUrl);
+      onResolvedThumbnailUrlRef.current?.(displayableUrl);
+    });
+  }, [playablePosterUrl, refreshPosterAsset, thumbnailSourceRef]);
 
   const refreshMedia = useCallback(async (reason: LightboxMediaRefreshReason = "playback"): Promise<boolean> => {
     const currentUrl = playableVideoUrlRef.current;
@@ -157,11 +177,17 @@ export function ChatVideoLightbox({
         ? await refreshPosterAsset("manual", refreshOptions)
         : await refreshPosterAsset("cache")
       : null;
-    if (freshPosterUrl) {
-      setPlayablePosterUrl(freshPosterUrl);
-      onResolvedThumbnailUrlRef.current?.(freshPosterUrl);
+    const displayableFreshPosterUrl = displayablePosterUrl(freshPosterUrl);
+    if (displayableFreshPosterUrl) {
+      setPlayablePosterUrl(displayableFreshPosterUrl);
+      onResolvedThumbnailUrlRef.current?.(displayableFreshPosterUrl);
     }
-    if (!freshVideoUrl || freshVideoUrl === currentUrl) return false;
+    if (!freshVideoUrl) return false;
+    if (!isPlayableMediaUrl(freshVideoUrl)) return false;
+    if (freshVideoUrl === currentUrl) {
+      videoRef.current?.load();
+      return true;
+    }
     setPlayableVideoUrl(freshVideoUrl);
     onResolvedVideoUrlRef.current?.(freshVideoUrl);
     return true;
@@ -178,6 +204,8 @@ export function ChatVideoLightbox({
   }, [refreshMedia]);
 
   useEffect(() => {
+    const runId = initialResolveRunIdRef.current + 1;
+    initialResolveRunIdRef.current = runId;
     playableVideoUrlRef.current = videoUrl;
     setPlayableVideoUrl(videoUrl);
     setPlayablePosterUrl(posterUrlRef.current);
@@ -192,10 +220,15 @@ export function ChatVideoLightbox({
         return;
       }
       void refresh("initial").then((didRefresh) => {
+        if (initialResolveRunIdRef.current !== runId) return;
         if (!didRefresh) {
           setFallbackReason(videoAssetFallbackReason ?? "unknown");
           setPhase("error");
         }
+      }).catch(() => {
+        if (initialResolveRunIdRef.current !== runId) return;
+        setFallbackReason(videoAssetFallbackReason ?? "unknown");
+        setPhase("error");
       });
       return;
     }
@@ -354,7 +387,7 @@ export function ChatVideoLightbox({
               <video
                 ref={videoRef}
                 src={isHlsUrl ? undefined : playableVideoUrl}
-                poster={playablePosterUrl ?? undefined}
+                poster={visiblePosterUrl ?? undefined}
                 className="aspect-video max-h-[min(78dvh,800px)] w-full bg-black object-contain"
                 controls
                 playsInline
@@ -374,6 +407,14 @@ export function ChatVideoLightbox({
             ) : (
               <div className="aspect-video max-h-[min(78dvh,800px)] w-full bg-black" />
             )}
+            {visiblePosterUrl && phase === "loading" ? (
+              <img
+                src={visiblePosterUrl}
+                alt=""
+                className="pointer-events-none absolute inset-0 h-full w-full object-contain"
+                draggable={false}
+              />
+            ) : null}
           </div>
         </motion.div>
       </div>
