@@ -56,6 +56,7 @@ type ReadyGateBothReadySourceAction =
   | 'both_ready_observed_via_rpc_short_circuit';
 
 export type ReadyGateState = {
+  stateSessionId: string | null;
   status: string;
   iAmReady: boolean;
   partnerReady: boolean;
@@ -80,6 +81,7 @@ export type ReadyGateState = {
 };
 
 const createInitialReadyGateState = (): ReadyGateState => ({
+  stateSessionId: null,
   status: 'queued',
   iAmReady: initialReadyGateReadinessState.iAmReady,
   partnerReady: initialReadyGateReadinessState.partnerReady,
@@ -188,7 +190,10 @@ export function useReadyGate(
     broadcastV2Enabled: broadcastV2.enabled,
     aliasEnabled: readyGateResilientClockAlias.enabled,
   });
-  const [state, setState] = useState<ReadyGateState>(createInitialReadyGateState);
+  const [state, setState] = useState<ReadyGateState>(() => ({
+    ...createInitialReadyGateState(),
+    stateSessionId: sessionId ?? null,
+  }));
 
   const onBothReadyRef = useRef(options?.onBothReady);
   const onForfeitedRef = useRef(options?.onForfeited);
@@ -259,7 +264,10 @@ export function useReadyGate(
     }
     readyGateRealtimeSupervisorRef.current?.dispose();
     readyGateRealtimeSupervisorRef.current = null;
-    setState(createInitialReadyGateState());
+    setState({
+      ...createInitialReadyGateState(),
+      stateSessionId: sessionId ?? null,
+    });
   }, [sessionId]);
 
   useEffect(() => () => {
@@ -394,6 +402,7 @@ export function useReadyGate(
       });
 
       return {
+        stateSessionId: sessionId ?? null,
         status,
         iAmReady: readiness.iAmReady,
         partnerReady: readiness.partnerReady,
@@ -1189,7 +1198,8 @@ export function useReadyGate(
     return () => clearInterval(intervalId);
   }, [sessionId, state.realtimeDegraded, state.sequenceGapUnresolved, state.status, syncSession, userId]);
 
-  const isBothReady = state.isBothReady || state.status === BOTH_READY;
+  const isCurrentSessionState = state.stateSessionId === (sessionId ?? null);
+  const isBothReady = isCurrentSessionState && (state.isBothReady || state.status === BOTH_READY);
   const isForfeited = state.status === FORFEITED || state.status === EXPIRED;
   const isSnoozed = state.status === SNOOZED;
 

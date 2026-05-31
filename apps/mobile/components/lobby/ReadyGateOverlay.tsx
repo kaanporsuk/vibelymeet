@@ -980,6 +980,7 @@ export function ReadyGateOverlay({
     syncSession,
     retryBroadcastGapRecovery,
     isBothReady,
+    stateSessionId: readyGateStateSessionId,
     realtimeDegraded,
     sequenceGapUnresolved,
     readyGateClockEnabled,
@@ -1069,8 +1070,9 @@ export function ReadyGateOverlay({
   // effect above so reset cannot clear the in-flight handoff it starts.
   useEffect(() => {
     if (!isBothReady) return;
+    if (readyGateStateSessionId !== sessionId) return;
     handleBothReady('both_ready_observed');
-  }, [isBothReady, handleBothReady]);
+  }, [isBothReady, handleBothReady, readyGateStateSessionId, sessionId]);
 
   useEffect(() => {
     const sync = () => {

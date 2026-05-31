@@ -1231,7 +1231,7 @@ export function VibeClipCard(props: Props) {
       : null;
     if (freshThumbnailUri) {
       playableThumbnailUrlRef.current = freshThumbnailUri;
-      if (freshThumbnailUri !== playableThumbnailUrl) setFallbackPosterPreviewState('unknown');
+      setPosterPreviewState('unknown', freshThumbnailUri);
       setPlayableThumbnailUrl(freshThumbnailUri);
       onResolvedThumbnailUrl?.(freshThumbnailUri);
     }
@@ -1248,10 +1248,10 @@ export function VibeClipCard(props: Props) {
   }, [
     onResolvedThumbnailUrl,
     onResolvedVideoUrl,
-    playableThumbnailUrl,
     playableVideoUrl,
     refreshThumbnailAsset,
     refreshVideoAsset,
+    setPosterPreviewState,
     sparkMessageId,
     thumbnailSourceRef,
     videoSourceRef,
