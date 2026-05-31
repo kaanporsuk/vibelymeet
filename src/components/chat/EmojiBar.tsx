@@ -63,7 +63,7 @@ export const EmojiBar = ({ onSelect, onClose, position }: EmojiBarProps) => {
           position === "right" ? "right-0" : "left-0"
         )}
       >
-        <div className="flex items-center gap-1 px-3 py-2 rounded-full bg-background/80 backdrop-blur-xl border border-white/20 shadow-2xl">
+        <div className="flex items-center gap-0.5 px-2 py-2 rounded-full bg-background/80 backdrop-blur-xl border border-white/20 shadow-2xl">
           {emojis.map((item, index) => (
             <motion.button
               key={item.emoji}
@@ -80,7 +80,7 @@ export const EmojiBar = ({ onSelect, onClose, position }: EmojiBarProps) => {
                 setHoveredIndex(null);
               }}
               onClick={() => onSelect(item.emoji)}
-              className="w-10 h-10 flex items-center justify-center text-2xl rounded-full hover:bg-white/10 transition-colors cursor-pointer"
+              className="w-8 h-8 shrink-0 flex items-center justify-center text-xl rounded-full hover:bg-white/10 transition-colors cursor-pointer"
               aria-label={item.label}
             >
               {item.emoji}

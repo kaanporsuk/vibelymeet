@@ -39,7 +39,7 @@ import {
   inferChatMediaRenderKind,
   extractRenderableChatImageUrl,
 } from "@/lib/chatMessageContent";
-import { refreshMediaAssetUrl } from "@/lib/mediaAssetResolver";
+import { bunnyStreamThumbnailRefFor, refreshMediaAssetUrl } from "@/lib/mediaAssetResolver";
 import { extractVibeClipMeta, type VibeClipDisplayMeta } from "../../shared/chat/messageRouting";
 import { clientRequestIdFromStructured } from "../../shared/chat/clientRequestId";
 import { postgrestQuotedInList } from "../../shared/chat/postgrestFilters";
@@ -647,7 +647,12 @@ function VibeClipMessageRow({
             meta={displayClipMeta}
             isMine={isMine}
             videoSourceRef={message.videoSourceRef}
-            thumbnailSourceRef={message.thumbnailSourceRef}
+            // Sent Vibe Clips often have no stored poster_ref, so thumbnailSourceRef is null and
+            // the bubble showed blank until tapped. Bunny Stream always exposes thumbnail.jpg in
+            // the clip's directory, so derive a thumbnail ref from the bunny_stream video ref;
+            // get-chat-media-url resolves kind=thumbnail off the same asset. No-op for received
+            // clips (explicit ref wins) and for local/processing clips (no bunny_stream ref yet).
+            thumbnailSourceRef={message.thumbnailSourceRef ?? bunnyStreamThumbnailRefFor(message.videoSourceRef)}
             onResolvedVideoUrl={handleResolvedVideoUrl}
             onResolvedThumbnailUrl={handleResolvedThumbnailUrl}
             clientRequestId={message.clientRequestId ?? displayClipMeta.clientRequestId ?? null}
