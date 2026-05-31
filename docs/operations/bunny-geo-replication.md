@@ -9,6 +9,7 @@ Phase 9 expects Bunny Storage and Stream delivery to be operated as a multi-regi
 - Hot CDN hostname: `BUNNY_CDN_HOSTNAME`
 - Archive CDN hostname, when exposed directly: `BUNNY_ARCHIVE_CDN_HOSTNAME`
 - Private chat Storage CDN hostname: `BUNNY_CHAT_STORAGE_CDN_HOSTNAME` (`vibely-chat-storage-hot.b-cdn.net` in production)
+- Private chat Archive CDN hostname, when direct archive delivery is enabled: `BUNNY_CHAT_STORAGE_ARCHIVE_CDN_HOSTNAME`
 - Stream CDN hostname for chat clips: `BUNNY_CHAT_STREAM_CDN_HOSTNAME`
 - Stream CDN hostname for profile Vibe Videos: `BUNNY_STREAM_CDN_HOSTNAME`
 
@@ -77,7 +78,7 @@ Expected output includes:
 
 - `PASSED`
 - `public CDN ... denied`
-- `unsigned private chat CDN ... denied` when `BUNNY_CHAT_STORAGE_CDN_HOSTNAME` is set
+- `unsigned private chat CDN ... denied` when `BUNNY_CHAT_STORAGE_CDN_HOSTNAME` or `BUNNY_CHAT_STORAGE_ARCHIVE_CDN_HOSTNAME` is set
 
 The matching GitHub Actions workflow is `.github/workflows/media-privacy-live-probe.yml`. It runs on
 `main`, daily, and manually, using GitHub secrets for the Supabase service role and Bunny hostnames.

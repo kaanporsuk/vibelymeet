@@ -45,7 +45,8 @@ Do not delete or block broad `photos/*`; active profile/avatar public media uses
 
 The CI gate is `.github/workflows/media-privacy-live-probe.yml`. Repository secrets required there:
 `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `BUNNY_CDN_HOSTNAME`, and
-`BUNNY_CHAT_STORAGE_CDN_HOSTNAME`.
+`BUNNY_CHAT_STORAGE_CDN_HOSTNAME`. If archive direct-CDN delivery is enabled, also set
+`BUNNY_CHAT_STORAGE_ARCHIVE_CDN_HOSTNAME`.
 
 ---
 

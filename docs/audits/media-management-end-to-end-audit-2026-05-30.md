@@ -697,7 +697,7 @@ The P0 public-CDN private chat media exposure has been closed for active media:
 - Private chat Storage delivery uses a dedicated token-auth pull zone: `vibely-chat-storage-hot.b-cdn.net`.
 - Supabase Edge secrets now include `BUNNY_CHAT_STORAGE_CDN_HOSTNAME`, `BUNNY_CHAT_STORAGE_TOKEN_SECURITY_KEY`, `CHAT_MEDIA_DIRECT_CDN_ENABLED`, and `CHAT_MEDIA_PROXY_SECRET`.
 - Legacy active test chat images that used old public `photos/{userId}/...` paths were lifecycle-released and purged; broad `photos/*` was intentionally not deleted or blocked because profile/avatar media uses it.
-- `npm run probe:media-privacy` passed after cache purge and now checks both public-CDN denial and unsigned private-chat-CDN denial when `BUNNY_CHAT_STORAGE_CDN_HOSTNAME` is set.
+- `npm run probe:media-privacy` passed after cache purge and now checks public-CDN denial plus unsigned private-chat-CDN denial when `BUNNY_CHAT_STORAGE_CDN_HOSTNAME` / `BUNNY_CHAT_STORAGE_ARCHIVE_CDN_HOSTNAME` is set.
 - `.github/workflows/media-privacy-live-probe.yml` runs the read-only probe on `main`, daily, and manually.
 
 The historical findings above remain useful as evidence of what was found on 2026-05-30, but the P0
