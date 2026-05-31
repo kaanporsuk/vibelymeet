@@ -2,6 +2,7 @@ import {
   normalizeProfilePhotoDerivatives,
   type ProfilePhotoDerivativeMap,
 } from "../../shared/profile/photoDerivatives";
+import { isPrivateChatScopedStoragePath } from "../../shared/media/privateMediaPaths";
 
 const BUNNY_CDN = (() => {
   const raw = import.meta.env.VITE_BUNNY_CDN_HOSTNAME ?? "";
@@ -18,21 +19,6 @@ const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 // the authorized `get-chat-media-url` resolver, never the public CDN. Defense-in-depth so the
 // app can never emit a public URL for private chat media even if called with a raw ref.
 const CONFIRMED_BUNNY_STORAGE_PREFIXES = ["photos/", "events/"];
-
-/**
- * Chat-scoped (private) storage refs must never be turned into a public CDN URL. Profile photos
- * (`photos/{user_id}/…`) and event covers (`events/…`) are public; chat photos
- * (`photos/match-…`), voice (`voice/…`), and chat videos (`chat-videos/…`) are private and only
- * the signed resolver may produce their URLs.
- */
-function isPrivateChatScopedStoragePath(p: string): boolean {
-  return (
-    p.startsWith("voice/") ||
-    p.startsWith("chat-videos/") ||
-    p.startsWith("photos/match-") ||
-    p.includes("/match-")
-  );
-}
 type ImageDerivativePathSet = { thumb?: string; display?: string; hero?: string };
 const imageDerivativePathsByOriginalPath = new Map<string, ImageDerivativePathSet>();
 

@@ -641,7 +641,7 @@ assert.match(nativeClipCard, /refreshThumbnailAsset\(reason === 'manual' \? 'man
 assert.match(nativeClipCard, /onResolvedVideoUrl\?\.\(freshVideoUri\)/);
 assert.match(nativeClipCard, /onResolvedThumbnailUrl\?\.\(freshThumbnailUri\)/);
 assert.match(nativeClipCard, /\(!videoSourceRef && !thumbnailSourceRef\)/);
-assert.match(nativeClipCard, /freshThumbnailUri !== playableThumbnailUrl/);
+assert.match(nativeClipCard, /setPosterPreviewState\('unknown', freshThumbnailUri\)/);
 assert.doesNotMatch(nativeClipCard, /if \(didRefresh\) posterRefreshAttemptedForRef\.current = null/);
 assert.match(
   nativeChatScreen,
