@@ -49,5 +49,6 @@ jobs:
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           BUNNY_CDN_HOSTNAME: ${{ secrets.BUNNY_CDN_HOSTNAME }}
           BUNNY_CHAT_STORAGE_CDN_HOSTNAME: ${{ secrets.BUNNY_CHAT_STORAGE_CDN_HOSTNAME }}
+          BUNNY_CHAT_STORAGE_ARCHIVE_CDN_HOSTNAME: ${{ secrets.BUNNY_CHAT_STORAGE_ARCHIVE_CDN_HOSTNAME }}
           PROBE_SAMPLE_LIMIT: '8'
         run: npm run probe:media-privacy

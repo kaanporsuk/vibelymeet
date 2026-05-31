@@ -156,4 +156,5 @@ Functional (disposable pair, per CLAUDE.md): send + reopen a chat photo, a voice
 The GitHub Actions workflow `.github/workflows/media-privacy-live-probe.yml` runs the read-only
 probe on `main`, daily, and on demand. GitHub repository secrets required by that workflow:
 `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `BUNNY_CDN_HOSTNAME`, and
-`BUNNY_CHAT_STORAGE_CDN_HOSTNAME`.
+`BUNNY_CHAT_STORAGE_CDN_HOSTNAME`. If archive direct-CDN delivery is enabled, also set
+`BUNNY_CHAT_STORAGE_ARCHIVE_CDN_HOSTNAME` so archived private media is probed against the archive host.

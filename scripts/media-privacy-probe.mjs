@@ -10,7 +10,10 @@
 // Required env (skips gracefully if absent so it never blocks dev without creds):
 //   SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY
 //   BUNNY_CDN_HOSTNAME (public pull-zone host)  [VITE_/EXPO_PUBLIC_ variants accepted]
-// Optional: BUNNY_CDN_PATH_PREFIX, BUNNY_CHAT_STORAGE_CDN_HOSTNAME, PROBE_SAMPLE_LIMIT (default 8 per family)
+// Optional:
+//   BUNNY_CDN_PATH_PREFIX
+//   BUNNY_CHAT_STORAGE_CDN_HOSTNAME, BUNNY_CHAT_STORAGE_ARCHIVE_CDN_HOSTNAME
+//   PROBE_SAMPLE_LIMIT (default 8 per family)
 
 const SUPABASE_URL = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || "";
 const SERVICE_ROLE = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
@@ -20,6 +23,7 @@ const RAW_HOST =
   process.env.EXPO_PUBLIC_BUNNY_CDN_HOSTNAME ||
   "";
 const RAW_PRIVATE_CHAT_STORAGE_HOST = process.env.BUNNY_CHAT_STORAGE_CDN_HOSTNAME || "";
+const RAW_PRIVATE_CHAT_STORAGE_ARCHIVE_HOST = process.env.BUNNY_CHAT_STORAGE_ARCHIVE_CDN_HOSTNAME || "";
 const PATH_PREFIX = (process.env.BUNNY_CDN_PATH_PREFIX || "").replace(/^\/+|\/+$/g, "");
 const SAMPLE_LIMIT = Number.parseInt(process.env.PROBE_SAMPLE_LIMIT || "8", 10);
 
@@ -39,12 +43,13 @@ function normalizeHost(value) {
 
 const host = normalizeHost(RAW_HOST);
 const privateChatStorageHost = normalizeHost(RAW_PRIVATE_CHAT_STORAGE_HOST);
+const privateChatStorageArchiveHost = normalizeHost(RAW_PRIVATE_CHAT_STORAGE_ARCHIVE_HOST);
 
 async function fetchPrivateProviderPaths() {
   const familyList = PRIVATE_FAMILIES.join(",");
   const url =
     `${SUPABASE_URL.replace(/\/+$/, "")}/rest/v1/media_assets` +
-    `?select=provider_path,media_family,provider,status` +
+    `?select=provider_path,media_family,provider,status,storage_zone` +
     `&provider=eq.bunny_storage&status=eq.active&media_family=in.(${familyList})` +
     `&provider_path=not.is.null&limit=${SAMPLE_LIMIT * PRIVATE_FAMILIES.length}`;
   const res = await fetch(url, {
@@ -60,9 +65,18 @@ function publicUrlFor(providerPath) {
   return `https://${host}/${pathPart}`;
 }
 
-function privateChatStorageUrlFor(providerPath) {
+function privateChatStorageHostFor(row) {
+  const zone = row?.storage_zone === "archive" ? "archive" : "hot";
+  if (zone === "archive") return privateChatStorageArchiveHost;
+  return privateChatStorageHost;
+}
+
+function privateChatStorageUrlFor(row) {
+  const hostForRow = privateChatStorageHostFor(row);
+  if (!hostForRow) return null;
+  const providerPath = row?.provider_path || "";
   const clean = String(providerPath).replace(/^\/+/, "");
-  return `https://${privateChatStorageHost}/${clean}`;
+  return `https://${hostForRow}/${clean}`;
 }
 
 async function headStatus(url) {
@@ -105,8 +119,9 @@ async function main() {
       publicBreaches.push(fam); // family only; never the path
     }
 
-    if (privateChatStorageHost) {
-      const privateStatus = await headStatus(privateChatStorageUrlFor(row.provider_path));
+    const privateChatStorageUrl = privateChatStorageUrlFor(row);
+    if (privateChatStorageUrl) {
+      const privateStatus = await headStatus(privateChatStorageUrl);
       if (privateStatus === 200 || privateStatus === 206) {
         privateUnsignedBreaches.push(fam);
       }
@@ -114,7 +129,7 @@ async function main() {
   }
 
   console.log(`media-privacy-probe: probed ${probed} active private objects across ${perFamily.size} families`);
-  if (privateChatStorageHost) {
+  if (privateChatStorageHost || privateChatStorageArchiveHost) {
     console.log("media-privacy-probe: checked unsigned private chat CDN access");
   }
 
@@ -134,7 +149,7 @@ async function main() {
     console.error("Private chat media is reachable without token auth. Re-enable Bunny token authentication.");
     process.exit(1);
   }
-  console.log(privateChatStorageHost
+  console.log(privateChatStorageHost || privateChatStorageArchiveHost
     ? "media-privacy-probe: PASSED — public CDN and unsigned private chat CDN denied all sampled private media"
     : "media-privacy-probe: PASSED — public CDN denied all sampled private media");
 }
