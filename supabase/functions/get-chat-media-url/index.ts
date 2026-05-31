@@ -1003,8 +1003,33 @@ function directChatStorageCdnConfigForTier(
   return { hostname, securityKey };
 }
 
+// Token-aligned client caching value. Storage objects are content-addressed (req-{hash})
+// and therefore immutable, so the same signed URL can be reused for the full life of its
+// token. Cap at the token TTL minus a safety margin so a cached response never outlives the
+// token embedded in its URL. `private` keeps the per-user URL out of any shared/CDN cache.
+// Near token expiry, omit `immutable` so the client revalidates rather than serving stale.
+function proxyCacheControlValue(claims: Record<string, unknown>): string {
+  const nowSeconds = Math.floor(Date.now() / 1000);
+  const tokenExpSeconds = typeof claims.exp === "number" ? claims.exp : nowSeconds;
+  const proxyMaxAgeSeconds = Math.max(
+    0,
+    Math.min(TOKEN_TTL_SECONDS, tokenExpSeconds - nowSeconds - PROXY_CACHE_SAFETY_SECONDS),
+  );
+  return proxyMaxAgeSeconds > 0 ? `private, max-age=${proxyMaxAgeSeconds}, immutable` : "private, max-age=0";
+}
+
+// Parse the total object size from a `Content-Range: bytes <start>-<end>/<total>` header so a
+// HEAD probe (served via a 1-byte Range read of Bunny Storage, which has no HEAD verb) can
+// report the real full length to the caller.
+function totalLengthFromContentRange(value: string | null): string | null {
+  if (!value) return null;
+  const match = /\/(\d+)\s*$/.exec(value.trim());
+  return match ? match[1] : null;
+}
+
 async function handleProxy(req: Request): Promise<Response> {
-  const corsHeaders = corsHeadersForRequest(req);
+  const corsHeaders = corsHeadersForRequest(req, { methods: "GET,HEAD,POST,OPTIONS" });
+  const isHeadRequest = req.method === "HEAD";
   const token = new URL(req.url).searchParams.get("token") ?? "";
   const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
   const tokenSecret = resolveProxyTokenSecret(serviceRoleKey);
@@ -1036,13 +1061,20 @@ async function handleProxy(req: Request): Promise<Response> {
   }
   const upstreamHeaders: Record<string, string> = { AccessKey: storageConfig.apiKey };
   const range = req.headers.get("Range");
-  if (range) upstreamHeaders.Range = range;
+  if (range) {
+    upstreamHeaders.Range = range;
+  } else if (isHeadRequest) {
+    // Bunny Storage has no HEAD verb; a single-byte Range read returns the object metadata
+    // (full size via Content-Range) without downloading the body.
+    upstreamHeaders.Range = "bytes=0-0";
+  }
 
   const upstream = await fetch(`https://storage.bunnycdn.com/${storageConfig.zone}/${encodeStoragePathForProxy(path)}`, {
     headers: upstreamHeaders,
   });
 
-  if (!upstream.ok || !upstream.body) {
+  if (!upstream.ok) {
+    void upstream.body?.cancel().catch(() => {});
     logChatMediaUrl("error", "storage_proxy_fetch_failed", {
       message_id: typeof claims.mid === "string" ? claims.mid : null,
       media_kind: typeof claims.kind === "string" ? claims.kind : null,
@@ -1050,33 +1082,55 @@ async function handleProxy(req: Request): Promise<Response> {
       storage_zone: storageTier,
       upstream_status: upstream.status,
       has_range: Boolean(range),
+      is_head: isHeadRequest,
     });
     return jsonResponse(req, { success: false, error: "media_fetch_failed" }, { status: 502, headers: corsHeaders });
   }
 
   const headers = new Headers(corsHeaders);
   headers.set("Content-Type", upstream.headers.get("Content-Type") || mime);
-  // Token-aligned client caching. Storage objects are content-addressed (req-{hash}) and
-  // therefore immutable, so the same signed URL can be reused for the full life of its
-  // token. Cap at the token TTL and subtract a safety margin so a cached response never
-  // outlives the token embedded in its URL. `private` keeps the per-user URL out of any
-  // shared/CDN cache. Replaces the previous fixed max-age=60, which forced repeat views
-  // within the token window to re-stream through Supabase + Bunny origin.
-  const nowSeconds = Math.floor(Date.now() / 1000);
-  const tokenExpSeconds = typeof claims.exp === "number" ? claims.exp : nowSeconds;
-  const proxyMaxAgeSeconds = Math.max(
-    0,
-    Math.min(TOKEN_TTL_SECONDS, tokenExpSeconds - nowSeconds - PROXY_CACHE_SAFETY_SECONDS),
-  );
-  // Only mark immutable when there is a real freshness window; `max-age=0, immutable` is a
-  // semantically awkward no-op. When near token expiry, omit immutable so the client revalidates.
-  headers.set(
-    "Cache-Control",
-    proxyMaxAgeSeconds > 0 ? `private, max-age=${proxyMaxAgeSeconds}, immutable` : "private, max-age=0",
-  );
+  headers.set("Cache-Control", proxyCacheControlValue(claims));
   headers.set("Accept-Ranges", upstream.headers.get("Accept-Ranges") || "bytes");
   // Pass through validators so the client can do efficient conditional revalidation after expiry.
-  for (const key of ["Content-Length", "Content-Range", "ETag", "Last-Modified"]) {
+  for (const key of ["ETag", "Last-Modified"]) {
+    const value = upstream.headers.get(key);
+    if (value) headers.set(key, value);
+  }
+
+  // HEAD: report object metadata (size, type, range support, cache policy) with no body.
+  // Length comes from the probe's Content-Range, falling back to Content-Length when the
+  // origin ignored the range and returned the whole object (which we then discard).
+  if (isHeadRequest) {
+    const totalLength =
+      totalLengthFromContentRange(upstream.headers.get("Content-Range")) ??
+      upstream.headers.get("Content-Length");
+    if (totalLength) headers.set("Content-Length", totalLength);
+    void upstream.body?.cancel().catch(() => {});
+    logChatMediaUrl("info", "storage_proxy_head_served", {
+      message_id: typeof claims.mid === "string" ? claims.mid : null,
+      media_kind: typeof claims.kind === "string" ? claims.kind : null,
+      requester_id: typeof claims.sub === "string" ? claims.sub : null,
+      storage_zone: storageTier,
+      upstream_status: upstream.status,
+    });
+    return new Response(null, { status: 200, headers });
+  }
+
+  if (!upstream.body) {
+    logChatMediaUrl("error", "storage_proxy_fetch_failed", {
+      message_id: typeof claims.mid === "string" ? claims.mid : null,
+      media_kind: typeof claims.kind === "string" ? claims.kind : null,
+      requester_id: typeof claims.sub === "string" ? claims.sub : null,
+      storage_zone: storageTier,
+      upstream_status: upstream.status,
+      has_range: Boolean(range),
+      error_code: "missing_upstream_body",
+    });
+    return jsonResponse(req, { success: false, error: "media_fetch_failed" }, { status: 502, headers: corsHeaders });
+  }
+
+  // GET: stream the body with full length/range metadata (behavior unchanged).
+  for (const key of ["Content-Length", "Content-Range"]) {
     const value = upstream.headers.get(key);
     if (value) headers.set(key, value);
   }
@@ -1093,9 +1147,11 @@ async function handleProxy(req: Request): Promise<Response> {
 }
 
 serve(async (req) => {
-  if (req.method === "OPTIONS") return preflightResponse(req);
+  if (req.method === "OPTIONS") return preflightResponse(req, { methods: "GET,HEAD,POST,OPTIONS" });
   if (req.method === "GET" && new URL(req.url).searchParams.get("health") === "1") return handleHealth(req);
-  if (req.method === "GET") return handleProxy(req);
+  // HEAD shares the proxy path so progressive players that probe metadata before streaming
+  // (size / range support) get a real response instead of a 405.
+  if (req.method === "GET" || req.method === "HEAD") return handleProxy(req);
   if (req.method === "POST") return handleIssueUrl(req);
   return jsonResponse(req, { success: false, error: "method_not_allowed" }, { status: 405, headers: corsHeadersForRequest(req) });
 });
