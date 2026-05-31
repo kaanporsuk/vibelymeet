@@ -1,6 +1,6 @@
 # Media Lifecycle Operations Runbook
 
-Updated: 2026-04-14
+Updated: 2026-05-31
 
 This runbook is the operator guide for Vibely's live media lifecycle system, covering Sprints 1–4 plus ops hardening.
 
@@ -17,6 +17,35 @@ This runbook is the operator guide for Vibely's live media lifecycle system, cov
 | Schedule | `*/15 * * * *` — every 15 minutes |
 | Batch size | 200 (sent in body as `batch_size`) |
 | Cron status | **ENABLED** (2026-04-14) |
+
+---
+
+## Private chat media privacy gate
+
+Run the read-only privacy probe after any Bunny, media Edge Function, or media cleanup change:
+
+```bash
+BUNNY_CHAT_STORAGE_CDN_HOSTNAME=vibely-chat-storage-hot.b-cdn.net npm run probe:media-privacy
+```
+
+Expected result:
+
+- active private media is sampled without printing provider paths or PII
+- `cdn.vibelymeet.com` denies all sampled private chat media
+- unsigned `vibely-chat-storage-hot.b-cdn.net` access denies all sampled private chat media
+
+The public Bunny CDN must keep blocking only private path families:
+
+- `voice/*`
+- `chat-videos/*`
+- `photos/match-*`
+- `media/*`
+
+Do not delete or block broad `photos/*`; active profile/avatar public media uses that prefix.
+
+The CI gate is `.github/workflows/media-privacy-live-probe.yml`. Repository secrets required there:
+`SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `BUNNY_CDN_HOSTNAME`, and
+`BUNNY_CHAT_STORAGE_CDN_HOSTNAME`.
 
 ---
 
@@ -260,6 +289,10 @@ SELECT cron.schedule(
 ## Healthy state verification checklist
 
 Run this after any incident or configuration change:
+
+```bash
+BUNNY_CHAT_STORAGE_CDN_HOSTNAME=vibely-chat-storage-hot.b-cdn.net npm run probe:media-privacy
+```
 
 ```sql
 -- 1. Health summary

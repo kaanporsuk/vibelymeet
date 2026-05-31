@@ -91,6 +91,10 @@ Present:
 - `BUNNY_STORAGE_ZONE`
 - `BUNNY_STORAGE_API_KEY`
 - `BUNNY_CDN_HOSTNAME`
+- `BUNNY_CHAT_STORAGE_CDN_HOSTNAME`
+- `BUNNY_CHAT_STORAGE_TOKEN_SECURITY_KEY`
+- `CHAT_MEDIA_DIRECT_CDN_ENABLED`
+- `CHAT_MEDIA_PROXY_SECRET`
 - `BUNNY_VIDEO_WEBHOOK_TOKEN`
 - `BUNNY_WEBHOOK_SIGNING_KEY` (present externally; current `video-webhook` source uses `BUNNY_VIDEO_WEBHOOK_TOKEN` plus Stream signature validation against `BUNNY_STREAM_API_KEY`)
 
@@ -214,7 +218,14 @@ Before a media release or controlled internal smoke:
 7. Confirm `BUNNY_STORAGE_API_KEY` can write/delete in the Storage zone.
 8. Confirm `BUNNY_CDN_HOSTNAME` / `VITE_BUNNY_CDN_HOSTNAME` / `EXPO_PUBLIC_BUNNY_CDN_HOSTNAME` point to intended CDN/pull zone.
 9. Confirm DNS/custom hostname for `cdn.vibelymeet.com`.
-10. Run controlled internal media smoke only with a test user/test event:
+10. Confirm public CDN edge rule `Block_Not_Public_Media` is enabled and blocks only:
+    - `https://cdn.vibelymeet.com/voice/*`
+    - `https://cdn.vibelymeet.com/chat-videos/*`
+    - `https://cdn.vibelymeet.com/photos/match-*`
+    - `https://cdn.vibelymeet.com/media/*`
+11. Confirm private chat Storage pull zone `vibely-chat-storage-hot.b-cdn.net` points to the hot Storage zone with Token Authentication enabled and Token IP validation off.
+12. Run `BUNNY_CHAT_STORAGE_CDN_HOSTNAME=vibely-chat-storage-hot.b-cdn.net npm run probe:media-privacy`; it must pass public-CDN and unsigned-private-CDN denial checks.
+13. Run controlled internal media smoke only with a test user/test event:
     - vibe video upload
     - webhook readiness
     - HLS playback
@@ -222,7 +233,16 @@ Before a media release or controlled internal smoke:
     - image upload
     - event cover upload
     - voice upload
-11. Confirm chat videos remain on the current intended provider path. Current baseline uses Bunny Storage under `chat-videos/...`; do not migrate ownership without a separate stream.
+14. Confirm chat videos remain on the current intended provider path. Current baseline uses Bunny Storage under `chat-videos/...`; do not migrate ownership without a separate stream.
+
+## 2026-05-31 Private Chat Media Closure Addendum
+
+- The prior public-CDN private chat media exposure is closed by Bunny configuration plus code guards.
+- Active private chat Storage media is no longer allowed through `cdn.vibelymeet.com` by path.
+- Private chat Storage direct delivery uses `BUNNY_CHAT_STORAGE_CDN_HOSTNAME` with Bunny Token Authentication; resolver-issued signed URLs remain short-lived.
+- Unsigned requests to the private chat Storage CDN must fail.
+- The read-only GitHub Actions gate is `.github/workflows/media-privacy-live-probe.yml`; it runs on `main`, daily, and manually.
+- `LEGACY_UPLOAD_CHAT_VIDEO_ENABLED` should remain unset/off unless a separate rollback is approved.
 
 No real production media smoke was run in this stream.
 

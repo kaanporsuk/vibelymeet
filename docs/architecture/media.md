@@ -17,6 +17,13 @@ New Bunny Storage object paths are deterministic and scoped:
 The path token is a 32-character SHA-256 prefix. Receipt uniqueness remains the
 canonical conflict guarantee.
 
+Public CDN delivery is allowed only for public media families such as profile/avatar
+photos and event covers. Private chat Storage media (`photos/match-*`, `voice/*`,
+`chat-videos/*`, `media/*`) is resolved through `get-chat-media-url`; direct delivery
+uses the dedicated token-auth chat pull zone `BUNNY_CHAT_STORAGE_CDN_HOSTNAME`, with
+the Supabase Edge proxy kept as fallback. `npm run probe:media-privacy` is the release
+gate for public-CDN denial and unsigned private-chat-CDN denial.
+
 Event-cover uploads remain admin-only. The current `events` schema has no
 owner/host column that can safely authorize non-admin cover changes, so
 `upload-event-cover` gates writes through `user_roles.role = 'admin'` until the

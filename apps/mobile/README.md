@@ -22,13 +22,13 @@ Copy `.env.example` to `.env` and set:
 | `EXPO_PUBLIC_SUPABASE_URL` | Supabase project URL (same as web `VITE_SUPABASE_URL`) |
 | `EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY` | Supabase publishable key used by the mobile client. Preferred over the legacy anon key. |
 | `EXPO_PUBLIC_SUPABASE_ANON_KEY` | (Legacy) Supabase anon key, used only as a fallback if publishable key is not set. |
-| `EXPO_PUBLIC_BUNNY_CDN_HOSTNAME` | Optional; for `photos/` image URLs (same as web Bunny CDN). |
+| `EXPO_PUBLIC_BUNNY_CDN_HOSTNAME` | Optional; public profile/event/avatar image CDN only. Private chat media is resolved by Supabase Edge Functions, not by a mobile public env var. |
 | `EXPO_PUBLIC_ONESIGNAL_APP_ID` | OneSignal App ID for push (same as web). Required for push registration. |
 | `EXPO_PUBLIC_REVENUECAT_IOS_API_KEY` | RevenueCat public API key for iOS. Preferred on iOS; omit to fall back to `EXPO_PUBLIC_REVENUECAT_API_KEY`. |
 | `EXPO_PUBLIC_REVENUECAT_ANDROID_API_KEY` | RevenueCat public API key for Android. Preferred on Android; omit to fall back to `EXPO_PUBLIC_REVENUECAT_API_KEY`. |
 | `EXPO_PUBLIC_REVENUECAT_API_KEY` | RevenueCat public API key (fallback for both platforms if platform-specific key unset). Omit all to hide purchase UI. |
 
-Secrets stay out of committed source; use `.env` locally and EAS/CI secrets for builds.
+Secrets stay out of committed source; use `.env` locally and EAS/CI secrets for builds. Do not put Bunny private chat Storage token-auth values in Expo public env; those are Supabase Edge Function secrets.
 
 **EAS / npm install:** `.npmrc` sets `legacy-peer-deps=true` so cloud installs succeed despite (1) `@daily-co/config-plugin-rn-daily-js` declaring `expo@^54` while the app uses Expo 55, and (2) `@daily-co/react-native-daily-js` declaring a peer on `@react-native-async-storage/async-storage@^1.24.0` while we use `2.2.0` for Expo 55 compatibility. This is temporary until Daily publishes Expo 55–compatible packages; remove the override when no longer needed.
 
