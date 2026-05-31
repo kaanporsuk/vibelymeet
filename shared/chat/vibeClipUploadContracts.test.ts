@@ -611,7 +611,7 @@ test("video bubbles remain adaptive and full-width across web and native chat", 
   assert.match(nativeVibeClipCard, /onRefreshClipMedia\('playback'\)/);
   assert.match(nativeVibeClipCard, /onRefreshClipMedia\('manual'\)/);
   assert.match(nativeVibeClipCard, /if \(reason === 'preview'\) return !!freshThumbnailUri/);
-  assert.match(nativeVibeClipCard, /freshThumbnailUri !== playableThumbnailUrl/);
+  assert.match(nativeVibeClipCard, /setPosterPreviewState\('unknown', freshThumbnailUri\)/);
   assert.match(nativeVibeClipCard, /posterRetryStateRef/);
   assert.match(nativeVibeClipCard, /playableVideoUrlRef/);
   assert.match(nativeVibeClipCard, /playableThumbnailUrlRef/);

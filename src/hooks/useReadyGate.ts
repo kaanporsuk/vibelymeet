@@ -1364,8 +1364,12 @@ export const useReadyGate = ({ sessionId, eventId, onBothReady, onForfeited }: U
     };
   }, [eventId, fetchSession, sessionId, syncSession, user?.id]);
 
+  const isCurrentSessionState = state.stateSessionId === sessionId;
+  const isBothReady = isCurrentSessionState && state.isBothReady;
+
   return {
     ...state,
+    isBothReady,
     isSnoozed: state.status === ReadyGateStatus.Snoozed,
     markReady,
     skip,

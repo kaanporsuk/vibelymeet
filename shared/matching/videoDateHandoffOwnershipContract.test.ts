@@ -17,7 +17,9 @@ const root = process.cwd();
 const read = (path: string) => readFileSync(join(root, path), "utf8");
 
 const webReadyGate = read("src/components/lobby/ReadyGateOverlay.tsx");
+const webReadyGateHook = read("src/hooks/useReadyGate.ts");
 const nativeReadyGate = read("apps/mobile/components/lobby/ReadyGateOverlay.tsx");
+const nativeReadyGateApi = read("apps/mobile/lib/readyGateApi.ts");
 const nativeReadyRoute = read("apps/mobile/app/ready/[id].tsx");
 const webVideoCall = read("src/hooks/useVideoCall.ts");
 const nativeDateRoute = read("apps/mobile/app/date/[id].tsx");
@@ -88,10 +90,22 @@ test("ReadyGate overlays reconcile both-ready into the prepare-entry handoff (li
   }
 });
 
-test("web ReadyGate liveness guard ignores stale both-ready state after a session switch", () => {
+test("ReadyGate liveness guards ignore stale both-ready state after a session switch", () => {
+  assert.match(webReadyGateHook, /stateSessionId: string \| null/);
+  assert.match(webReadyGateHook, /const isCurrentSessionState = state\.stateSessionId === sessionId/);
+  assert.match(webReadyGateHook, /const isBothReady = isCurrentSessionState && state\.isBothReady/);
   assert.match(webReadyGate, /stateSessionId: readyGateStateSessionId/);
   assert.match(webReadyGate, /if \(readyGateStateSessionId !== sessionId\) return;\s*handleBothReady\("both_ready_observed"\)/);
   assert.match(webReadyGate, /readyGateStateSessionId,\s*sessionId/);
+  assert.match(nativeReadyGateApi, /stateSessionId: string \| null/);
+  assert.match(nativeReadyGateApi, /stateSessionId: sessionId \?\? null/);
+  assert.match(
+    nativeReadyGateApi,
+    /const isCurrentSessionState = state\.stateSessionId === \(sessionId \?\? null\);\s*const isBothReady = isCurrentSessionState && \(state\.isBothReady \|\| state\.status === BOTH_READY\)/,
+  );
+  assert.match(nativeReadyGate, /stateSessionId: readyGateStateSessionId/);
+  assert.match(nativeReadyGate, /if \(readyGateStateSessionId !== sessionId\) return;\s*handleBothReady\('both_ready_observed'\)/);
+  assert.match(nativeReadyGate, /readyGateStateSessionId,\s*sessionId/);
 });
 
 test("ReadyGate video_provider row stays neutral (waiting) until prepare-entry begins", () => {
