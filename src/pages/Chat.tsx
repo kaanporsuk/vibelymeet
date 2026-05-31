@@ -137,18 +137,19 @@ function isDesktopChatViewport(): boolean {
 }
 
 function chatMobileViewportStyleFromVisualViewport(viewport: VisualViewport): CSSProperties {
-  // Pin the overlay's top/left to 0 and only track height/width. Reading
-  // visualViewport.offsetTop and writing it back onto this position:fixed overlay
-  // is what made the container lurch on iOS Safari: when the keyboard opens, Safari
-  // auto-scrolls the layout viewport to reveal the focused input, spiking offsetTop
-  // mid-animation. The overlay's top edge must never move — only its bottom edge
-  // should rise to meet the keyboard (height shrink). The scroll lock below keeps
-  // offsetTop ~0 so this is stable in both interactive-widget modes.
+  // Anchor the overlay to the visual viewport. iOS Safari (when it ignores
+  // interactive-widget, i.e. the default resizes-visual mode) pans the visual
+  // viewport on keyboard open and DRAGS this position:fixed overlay up by
+  // visualViewport.offsetTop. We must COMPENSATE by writing top:offsetTop /
+  // left:offsetLeft so the overlay snaps back to the visible area (composer just
+  // above the keyboard). The position:fixed body scroll-lock below keeps offsetTop
+  // ~0 in the common case; this compensation is the safety net when iOS pans anyway.
+  // Pinning top:0 instead leaves the overlay stuck mid-screen with a black void.
   return {
     position: "fixed",
-    top: 0,
+    top: `${Math.max(0, viewport.offsetTop)}px`,
     bottom: "auto",
-    left: 0,
+    left: `${Math.max(0, viewport.offsetLeft)}px`,
     right: "auto",
     height: `${Math.max(1, viewport.height)}px`,
     width: `${Math.max(1, viewport.width)}px`,
@@ -924,9 +925,11 @@ const Chat = () => {
 
   // Lock the document/layout viewport from scrolling while Chat is mounted on a
   // mobile viewport. iOS Safari otherwise auto-scrolls the page to reveal the
-  // focused composer when the keyboard opens, spiking visualViewport.offsetTop and
-  // firing a storm of scroll/resize events — the source of the layout lurch. With
-  // scroll locked, offsetTop stays ~0 so the height-only overlay style is stable.
+  // focused composer when the keyboard opens, which pans the visual viewport
+  // (spiking visualViewport.offsetTop) and drags the position:fixed overlay up —
+  // the source of the layout lurch / black void. `overflow: hidden` does NOT lock
+  // scrolling on iOS Safari; the reliable technique is `position: fixed` on the body
+  // (pinned at the current scroll offset), restored + re-scrolled on unmount.
   // No-op on desktop; engages/disengages across the 1024px breakpoint.
   useEffect(() => {
     if (typeof document === "undefined" || typeof window === "undefined") return;
@@ -934,20 +937,40 @@ const Chat = () => {
     const html = document.documentElement;
     const body = document.body;
     let locked = false;
-    let prevHtmlOverflow = "";
-    let prevBodyOverflow = "";
-    let prevHtmlOverscroll = "";
-    let prevBodyOverscroll = "";
+    let savedScrollY = 0;
+    const prev = {
+      htmlOverflow: "",
+      bodyOverflow: "",
+      bodyPosition: "",
+      bodyTop: "",
+      bodyLeft: "",
+      bodyRight: "",
+      bodyWidth: "",
+      htmlOverscroll: "",
+      bodyOverscroll: "",
+    };
 
     const lock = () => {
       if (locked) return;
       locked = true;
-      prevHtmlOverflow = html.style.overflow;
-      prevBodyOverflow = body.style.overflow;
-      prevHtmlOverscroll = html.style.overscrollBehavior;
-      prevBodyOverscroll = body.style.overscrollBehavior;
+      savedScrollY = window.scrollY || window.pageYOffset || 0;
+      prev.htmlOverflow = html.style.overflow;
+      prev.bodyOverflow = body.style.overflow;
+      prev.bodyPosition = body.style.position;
+      prev.bodyTop = body.style.top;
+      prev.bodyLeft = body.style.left;
+      prev.bodyRight = body.style.right;
+      prev.bodyWidth = body.style.width;
+      prev.htmlOverscroll = html.style.overscrollBehavior;
+      prev.bodyOverscroll = body.style.overscrollBehavior;
+
       html.style.overflow = "hidden";
       body.style.overflow = "hidden";
+      body.style.position = "fixed";
+      body.style.top = `-${savedScrollY}px`;
+      body.style.left = "0";
+      body.style.right = "0";
+      body.style.width = "100%";
       html.style.overscrollBehavior = "none";
       body.style.overscrollBehavior = "none";
     };
@@ -955,10 +978,16 @@ const Chat = () => {
     const unlock = () => {
       if (!locked) return;
       locked = false;
-      html.style.overflow = prevHtmlOverflow;
-      body.style.overflow = prevBodyOverflow;
-      html.style.overscrollBehavior = prevHtmlOverscroll;
-      body.style.overscrollBehavior = prevBodyOverscroll;
+      html.style.overflow = prev.htmlOverflow;
+      body.style.overflow = prev.bodyOverflow;
+      body.style.position = prev.bodyPosition;
+      body.style.top = prev.bodyTop;
+      body.style.left = prev.bodyLeft;
+      body.style.right = prev.bodyRight;
+      body.style.width = prev.bodyWidth;
+      html.style.overscrollBehavior = prev.htmlOverscroll;
+      body.style.overscrollBehavior = prev.bodyOverscroll;
+      window.scrollTo(0, savedScrollY);
     };
 
     const sync = () => {

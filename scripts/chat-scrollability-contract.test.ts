@@ -82,8 +82,9 @@ test("web chat pins mobile shell to visualViewport and preserves keyboard sticki
   assert.doesNotMatch(webChat, /visualViewportHeight/);
   assert.match(webChat, /type CSSProperties/);
   assert.match(webChat, /const CHAT_DESKTOP_VIEWPORT_QUERY = "\(min-width: 1024px\)";/);
-  // The 96px keyboard-overlap heuristic was removed: with the overlay top pinned to 0,
-  // the document scroll lock, and rAF-coalesced updates there is no jitter left to gate.
+  // The 96px keyboard-overlap heuristic was removed: with offsetTop compensation,
+  // the position:fixed document scroll lock, and rAF-coalesced updates there is no
+  // jitter left to gate.
   assert.doesNotMatch(webChat, /CHAT_MOBILE_KEYBOARD_THRESHOLD_PX/);
   assert.doesNotMatch(webChat, /keyboardOverlap/);
   assert.match(webChat, /const CHAT_MOBILE_KEYBOARD_STYLE_CLEAR_DELAY_MS = 240;/);
@@ -93,9 +94,11 @@ test("web chat pins mobile shell to visualViewport and preserves keyboard sticki
   );
   assert.match(
     webChat,
-    // Overlay top/left are pinned to 0; only height/width track the visual viewport.
-    // Reading offsetTop back onto a position:fixed overlay was the source of the iOS jump.
-    /function chatMobileViewportStyleFromVisualViewport\(viewport: VisualViewport\): CSSProperties \{[\s\S]*position: "fixed",[\s\S]*top: 0,[\s\S]*left: 0,[\s\S]*right: "auto",[\s\S]*height: `\$\{Math\.max\(1, viewport\.height\)\}px`,[\s\S]*width: `\$\{Math\.max\(1, viewport\.width\)\}px`,/,
+    // Overlay top/left COMPENSATE for visualViewport.offsetTop/offsetLeft: iOS Safari
+    // (resizes-visual) pans the visual viewport and drags this position:fixed overlay
+    // up, so we must write top:offsetTop to snap it back. Pinning top:0 left it stuck
+    // mid-screen with a black void below.
+    /function chatMobileViewportStyleFromVisualViewport\(viewport: VisualViewport\): CSSProperties \{[\s\S]*position: "fixed",[\s\S]*top: `\$\{Math\.max\(0, viewport\.offsetTop\)\}px`,[\s\S]*left: `\$\{Math\.max\(0, viewport\.offsetLeft\)\}px`,[\s\S]*right: "auto",[\s\S]*height: `\$\{Math\.max\(1, viewport\.height\)\}px`,[\s\S]*width: `\$\{Math\.max\(1, viewport\.width\)\}px`,/,
   );
   assert.doesNotMatch(webChat, /width: "100vw"/);
   assert.match(
@@ -136,8 +139,14 @@ test("web chat pins mobile shell to visualViewport and preserves keyboard sticki
   );
   // While mounted on mobile, the document/layout viewport is locked so iOS Safari cannot
   // auto-scroll the page to reveal the composer (the cause of the offsetTop spike + jump).
+  // overflow:hidden does NOT lock scroll on iOS — body must be position:fixed, pinned at
+  // the saved scroll offset and re-scrolled on unlock.
   assert.match(webChat, /html\.style\.overflow = "hidden";/);
   assert.match(webChat, /body\.style\.overflow = "hidden";/);
+  assert.match(webChat, /body\.style\.position = "fixed";/);
+  assert.match(webChat, /body\.style\.top = `-\$\{savedScrollY\}px`;/);
+  assert.match(webChat, /savedScrollY = window\.scrollY \|\| window\.pageYOffset \|\| 0;/);
+  assert.match(webChat, /window\.scrollTo\(0, savedScrollY\);/);
   assert.match(
     webChat,
     /className="fixed left-0 top-0 h-\[100svh\] w-full max-w-\[100svw\][\s\S]*overflow-hidden overflow-x-hidden[\s\S]*lg:relative lg:inset-auto lg:w-auto lg:max-w-none/,
