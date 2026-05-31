@@ -35,6 +35,7 @@ import { inferEventCategoryKeysFromLegacyTags } from "@clientShared/eventCategor
 import { formatAdminUtcDate } from "@/lib/adminTime";
 import { adminToast } from "@/lib/adminToast";
 import { resolveAdminErrorMessage } from "@/lib/adminErrorResolver";
+import { invalidateAdminEventSurfaces } from "@/lib/adminEventInvalidation";
 
 interface BatchEventImportModalProps {
   onClose: () => void;
@@ -467,7 +468,7 @@ const BatchEventImportModal = ({ onClose }: BatchEventImportModalProps) => {
       }
 
       if (successfulIndexes.length > 0) {
-        queryClient.invalidateQueries({ queryKey: ["admin-events"] });
+        invalidateAdminEventSurfaces(queryClient);
       }
 
       if (failedRows.length > 0) {

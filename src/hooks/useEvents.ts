@@ -76,7 +76,7 @@ export const useEvents = () => {
     queryFn: async (): Promise<Event[]> => {
       const { data, error } = await supabase
         .from("events")
-        .select("id, title, description, cover_image, event_date, current_attendees, tags, status, ended_at, duration_minutes, max_attendees, language")
+        .select("id, title, description, cover_image, event_date, current_attendees, tags, status, archived_at, ended_at, duration_minutes, max_attendees, language")
         .order("event_date", { ascending: true });
 
       if (error) throw error;
@@ -90,6 +90,7 @@ export const useEvents = () => {
         current_attendees: number | null;
         tags: string[] | null;
         status: string | null;
+        archived_at: string | null;
         ended_at: string | null;
         duration_minutes: number | null;
         language: string | null;
@@ -102,6 +103,7 @@ export const useEvents = () => {
             event_date: event.event_date,
             duration_minutes: event.duration_minutes ?? undefined,
             status: event.status,
+            archived_at: event.archived_at,
           })
         )
         .map((event) => {
@@ -143,7 +145,7 @@ export const useInfiniteEvents = () => {
 
       const { data, error } = await supabase
         .from("events")
-        .select("id, title, description, cover_image, event_date, current_attendees, tags, status, ended_at, duration_minutes, max_attendees, language")
+        .select("id, title, description, cover_image, event_date, current_attendees, tags, status, archived_at, ended_at, duration_minutes, max_attendees, language")
         .order("event_date", { ascending: true })
         .range(from, to);
 
@@ -158,6 +160,7 @@ export const useInfiniteEvents = () => {
         current_attendees: number | null;
         tags: string[] | null;
         status: string | null;
+        archived_at: string | null;
         ended_at: string | null;
         duration_minutes: number | null;
         language: string | null;
@@ -169,6 +172,7 @@ export const useInfiniteEvents = () => {
           event_date: event.event_date,
           duration_minutes: event.duration_minutes ?? undefined,
           status: event.status,
+          archived_at: event.archived_at,
         })
       );
 
@@ -217,6 +221,8 @@ export const useNextEvent = () => {
         .from("events")
         .select("id, title, description, cover_image, event_date, current_attendees, tags, status, duration_minutes, max_attendees")
         .gte("event_date", new Date().toISOString())
+        .is("archived_at", null)
+        .not("status", "in", "(draft,cancelled,archived)")
         .order("event_date", { ascending: true })
         .limit(1)
         .maybeSingle();
@@ -291,6 +297,7 @@ export const useNextRegisteredEvent = () => {
               event_date: ev.event_date,
               duration_minutes: ev.duration_minutes,
               status: ev.status ?? null,
+              archived_at: ev.archived_at,
             })
           ) {
             return false;
@@ -382,6 +389,7 @@ export const useNextRegisteredEvent = () => {
             event_date: event.event_date,
             duration_minutes: event.duration_minutes,
             status: event.status,
+            archived_at: event.archived_at,
           })
         ) {
           return false;

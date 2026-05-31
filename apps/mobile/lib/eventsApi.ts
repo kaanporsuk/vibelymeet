@@ -39,8 +39,10 @@ function isEventVisible(event: {
   event_date: string;
   duration_minutes?: number | null;
   status?: string | null;
+  archived_at?: string | null;
 }): boolean {
-  if (event.status === 'cancelled' || event.status === 'draft') return false;
+  const status = (event.status ?? '').toLowerCase();
+  if (event.archived_at || status === 'cancelled' || status === 'draft' || status === 'archived') return false;
   return getEventEndTime(event.event_date, event.duration_minutes) > new Date();
 }
 
@@ -331,7 +333,7 @@ export function useRegisteredUpcomingEventsForInvite(userId: string | null | und
 
       const { data: eventsData, error: eventsError } = await supabase
         .from('events')
-        .select('id, title, cover_image, event_date, duration_minutes, status, city, country')
+        .select('id, title, cover_image, event_date, duration_minutes, status, archived_at, city, country')
         .in('id', eventIds)
         .order('event_date', { ascending: true });
       if (eventsError) throw eventsError;
@@ -422,7 +424,7 @@ export function useNextRegisteredEvent(userId: string | null | undefined, canCit
 
       const { data: eventsData, error: eventsError } = await supabase
         .from('events')
-        .select('id, title, description, cover_image, event_date, current_attendees, tags, status, ended_at, duration_minutes, max_attendees, language')
+        .select('id, title, description, cover_image, event_date, current_attendees, tags, status, archived_at, ended_at, duration_minutes, max_attendees, language')
         .in('id', eventIds)
         .order('event_date', { ascending: true });
 
@@ -433,6 +435,7 @@ export function useNextRegisteredEvent(userId: string | null | undefined, canCit
           event_date: e.event_date,
           duration_minutes: e.duration_minutes,
           status: e.status,
+          archived_at: e.archived_at,
         })
       );
       const notEnded = visible.filter((e) => {

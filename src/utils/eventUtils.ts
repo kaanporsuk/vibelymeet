@@ -46,7 +46,9 @@ export const isEventVisible = (event: {
   event_date: string;
   duration_minutes?: number | null;
   status?: string | null;
+  archived_at?: string | null;
 }): boolean => {
-  if (event.status === 'cancelled' || event.status === 'draft') return false;
+  const status = (event.status ?? '').toLowerCase();
+  if (event.archived_at || status === 'cancelled' || status === 'draft' || status === 'archived') return false;
   return getEventEndTime(event) > new Date();
 };
