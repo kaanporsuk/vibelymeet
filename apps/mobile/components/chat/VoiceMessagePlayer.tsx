@@ -119,16 +119,6 @@ export function VoiceMessagePlayer({
     return () => safeRemoveExpoSharedObjectSubscription(sub, 'voice.player.statusListener.remove');
   }, [player]);
 
-  useEffect(
-    () => () => {
-      safeExpoSharedObjectCall(() => player.pause(), {
-        label: 'voice.player.pause.unmount',
-        swallowAll: true,
-      });
-    },
-    [player],
-  );
-
   // One-voice-at-a-time: when this player is the active one, the coordinator pauses any
   // other voice message that was playing.
   const instanceId = useId();

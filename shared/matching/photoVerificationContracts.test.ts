@@ -33,12 +33,17 @@ test("web proof-selfie upload mirrors native byte-upload semantics without data-
 
 test("web capture and entry gates handle slow cameras and duplicate pending state", () => {
   assert.match(webVerification, /const \[isCameraReady, setIsCameraReady\] = useState\(false\)/);
+  assert.match(webVerification, /type ErrorPrimaryAction = "start_camera" \| "retry_submit" \| "close"/);
   assert.match(webVerification, /const markCameraReady = useCallback/);
   assert.match(webVerification, /setIsCameraReady\(!!video && video\.videoWidth > 0 && video\.videoHeight > 0\)/);
   assert.match(webVerification, /onLoadedMetadata=\{markCameraReady\}/);
   assert.match(webVerification, /onCanPlay=\{markCameraReady\}/);
   assert.match(webVerification, /disabled=\{!isCameraReady\}/);
   assert.match(webVerification, /Camera is still starting/);
+  assert.match(webVerification, /setErrorPrimaryAction\("close"\)/);
+  assert.match(webVerification, /setErrorPrimaryAction\(err instanceof WebProofSelfiePayloadError \|\| !capturedImage \? "start_camera" : "retry_submit"\)/);
+  assert.match(webVerification, /if \(errorPrimaryAction === "retry_submit"\)[\s\S]{0,120}void handleSubmit\(\)/);
+  assert.match(webVerification, /cameraRecoveryAction === "open_settings"[\s\S]{0,80}"I updated settings"/);
   assert.match(webVerification, /fetchMyProfileSettings\(\)/);
   assert.doesNotMatch(webVerification, /select\("photos, photo_verified, photo_verification_expires_at"\)/);
   assert.match(webVerification, /currentStatus === "approved"/);

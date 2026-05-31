@@ -6,7 +6,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import {
   Plus, Search, Edit, Trash2, Calendar, Users, Clock, Eye, MoreHorizontal,
   UserCheck, Upload, Archive, RotateCcw, RefreshCw, CheckSquare, Square,
-  Ban, StopCircle, ChevronDown, ChevronUp, Loader2,
+  Ban, StopCircle, ChevronDown, ChevronUp, Loader2, Send, EyeOff,
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -72,6 +72,10 @@ type AdminEventsPayload = {
 
 type PendingEventPanelAction =
   | { kind: "generate-more"; event: AdminEventRow; count: number }
+  | { kind: "publish"; event: AdminEventRow }
+  | { kind: "unpublish"; event: AdminEventRow }
+  | { kind: "publish-series"; event: AdminEventRow; childCount: number }
+  | { kind: "unpublish-series"; event: AdminEventRow; childCount: number }
   | { kind: "archive"; event: AdminEventRow }
   | { kind: "unarchive"; event: AdminEventRow }
   | { kind: "archive-series"; event: AdminEventRow; childCount: number }
@@ -684,6 +688,14 @@ const AdminEventsPanel = () => {
     occurrence_number: event?.occurrence_number ?? null,
   });
 
+  const invalidateEventSurfaces = () => {
+    queryClient.invalidateQueries({ queryKey: ['admin-events'] });
+    queryClient.invalidateQueries({ queryKey: ['events'] });
+    queryClient.invalidateQueries({ queryKey: ['visible-events'] });
+    queryClient.invalidateQueries({ queryKey: ['events-discover'] });
+    queryClient.invalidateQueries({ queryKey: ['other-city-events'] });
+  };
+
   useEffect(() => {
     setSelectedIds(prev => {
       if (prev.size === 0) return prev;
@@ -693,6 +705,79 @@ const AdminEventsPanel = () => {
       return next;
     });
   }, [visibleEventIds]);
+
+  const publishEvent = useMutation({
+    mutationFn: async ({ event, unpublish }: { event: AdminEventRow; unpublish?: boolean }) => {
+      return callAdminRpc(unpublish ? "admin_unpublish_event" : "admin_publish_event", {
+        p_event_id: event.id,
+        p_reason: unpublish
+          ? "Unpublished from /kaan dashboard"
+          : "Published from /kaan dashboard",
+        p_idempotency_key: createAdminTargetIdempotencyKey(
+          unpublish ? "admin_unpublish_event" : "admin_publish_event",
+          event.id,
+          {
+            action: unpublish ? "unpublish" : "publish",
+            ...eventIdempotencyState(event),
+          },
+        ),
+      });
+    },
+    onSuccess: (_, { event, unpublish }) => {
+      invalidateEventSurfaces();
+      adminToast.success({
+        id: unpublish ? `event-unpublished-${event.id}` : `event-published-${event.id}`,
+        title: unpublish ? "Event unpublished" : "Event published",
+        description: unpublish
+          ? "The event is back in draft and removed from discovery."
+          : "The event is upcoming and can appear in discovery when its visibility rules match.",
+      });
+    },
+    onError: (err: unknown, { unpublish }) => adminToast.error({
+      id: unpublish ? "event-unpublish-failed" : "event-publish-failed",
+      title: resolveAdminErrorMessage(err, unpublish ? "Failed to unpublish event" : "Failed to publish event"),
+    }),
+  });
+
+  const publishSeries = useMutation({
+    mutationFn: async ({ event, unpublish }: { event: AdminEventRow; unpublish?: boolean }) => {
+      const childIds = events
+        .filter((candidate) => candidate.parent_event_id === event.id)
+        .map((candidate) => candidate.id);
+      return callAdminRpc(unpublish ? "admin_unpublish_event_series" : "admin_publish_event_series", {
+        p_parent_event_id: event.id,
+        p_reason: unpublish
+          ? "Unpublished recurring series from /kaan dashboard"
+          : "Published recurring series from /kaan dashboard",
+        p_idempotency_key: createAdminTargetIdempotencyKey(
+          unpublish ? "admin_unpublish_event_series" : "admin_publish_event_series",
+          event.id,
+          {
+            action: unpublish ? "unpublish-series" : "publish-series",
+            child_ids: childIds,
+            ...eventIdempotencyState(event),
+          },
+        ),
+      });
+    },
+    onSuccess: (payload, { event, unpublish }) => {
+      invalidateEventSurfaces();
+      const changedCount = Number(
+        unpublish
+          ? payload.unpublished_count ?? 0
+          : payload.published_count ?? 0,
+      );
+      adminToast.success({
+        id: unpublish ? `event-series-unpublished-${event.id}` : `event-series-published-${event.id}`,
+        title: unpublish ? "Series unpublished" : "Series published",
+        description: `${changedCount} future occurrence${changedCount === 1 ? "" : "s"} updated.`,
+      });
+    },
+    onError: (err: unknown, { unpublish }) => adminToast.error({
+      id: unpublish ? "event-series-unpublish-failed" : "event-series-publish-failed",
+      title: resolveAdminErrorMessage(err, unpublish ? "Failed to unpublish series" : "Failed to publish series"),
+    }),
+  });
 
   // Archive mutation
   const archiveEvent = useMutation({
@@ -903,6 +988,34 @@ const AdminEventsPanel = () => {
           confirmLabel: "Generate Occurrences",
           variant: "default" as const,
         };
+      case "publish":
+        return {
+          title: `Publish "${pendingEventAction.event.title}"?`,
+          description: "This calls admin_publish_event. The backend changes the event from draft to upcoming, writes an audit log, and the event can appear in user discovery if its visibility, scope, tier, and location rules allow it.",
+          confirmLabel: "Publish Event",
+          variant: "default" as const,
+        };
+      case "unpublish":
+        return {
+          title: `Unpublish "${pendingEventAction.event.title}"?`,
+          description: "This calls admin_unpublish_event. The event returns to draft and is removed from user discovery. The backend blocks this if the event has confirmed or waitlisted registrations.",
+          confirmLabel: "Unpublish Event",
+          variant: "destructive" as const,
+        };
+      case "publish-series":
+        return {
+          title: `Publish recurring series "${pendingEventAction.event.title}"?`,
+          description: `This calls admin_publish_event_series for future eligible draft occurrences in the series. ${pendingEventAction.childCount} loaded occurrence${pendingEventAction.childCount === 1 ? "" : "s"} are visible in the current filtered view.`,
+          confirmLabel: "Publish Series",
+          variant: "default" as const,
+        };
+      case "unpublish-series":
+        return {
+          title: `Unpublish recurring series "${pendingEventAction.event.title}"?`,
+          description: "This calls admin_unpublish_event_series for future eligible upcoming occurrences. Those events return to draft and leave user discovery. The backend blocks the whole series action if any eligible occurrence has confirmed or waitlisted registrations.",
+          confirmLabel: "Unpublish Series",
+          variant: "destructive" as const,
+        };
       case "archive":
         return {
           title: `Archive "${pendingEventAction.event.title}"?`,
@@ -962,6 +1075,18 @@ const AdminEventsPanel = () => {
     if (pendingEventAction.kind === "generate-more") {
       return generateMore(pendingEventAction.event.id, pendingEventAction.count);
     }
+    if (pendingEventAction.kind === "publish") {
+      return publishEvent.mutateAsync({ event: pendingEventAction.event });
+    }
+    if (pendingEventAction.kind === "unpublish") {
+      return publishEvent.mutateAsync({ event: pendingEventAction.event, unpublish: true });
+    }
+    if (pendingEventAction.kind === "publish-series") {
+      return publishSeries.mutateAsync({ event: pendingEventAction.event });
+    }
+    if (pendingEventAction.kind === "unpublish-series") {
+      return publishSeries.mutateAsync({ event: pendingEventAction.event, unpublish: true });
+    }
     if (pendingEventAction.kind === "archive") {
       return archiveEvent.mutateAsync({ id: pendingEventAction.event.id });
     }
@@ -1018,6 +1143,7 @@ const AdminEventsPanel = () => {
     const isExpanded = expandedParents.has(event.id);
     const rawStatus = event.status?.toLowerCase() || '';
     const isArchived = lifecycle.isArchived;
+    const isFutureStart = Boolean(lifecycle.startsAt && lifecycle.startsAt.getTime() > lifecycleNowMs);
     const canEdit =
       !isArchived &&
       !event.ended_at &&
@@ -1028,6 +1154,22 @@ const AdminEventsPanel = () => {
       !event.ended_at &&
       computed !== 'ended' &&
       !['cancelled', 'draft', 'completed'].includes(rawStatus);
+    const canPublish =
+      !isArchived &&
+      !event.ended_at &&
+      !lifecycle.isEnded &&
+      isFutureStart &&
+      rawStatus === 'draft';
+    const canUnpublish =
+      !isArchived &&
+      !event.ended_at &&
+      computed === 'upcoming' &&
+      isFutureStart &&
+      rawStatus === 'upcoming';
+    const canGenerateMore =
+      isParent &&
+      !isArchived &&
+      !['archived', 'cancelled'].includes(rawStatus);
 
     return (
       <>
@@ -1175,6 +1317,32 @@ const AdminEventsPanel = () => {
                   <Eye className="w-4 h-4" />View
                 </DropdownMenuItem>
 
+                {(canPublish || canUnpublish) && (
+                  <>
+                    <DropdownMenuSeparator />
+                    {canPublish && (
+                      <DropdownMenuItem
+                        onClick={() => setPendingEventAction(isParent ? { kind: "publish-series", event, childCount: children.length } : { kind: "publish", event })}
+                        disabled={publishEvent.isPending || publishSeries.isPending}
+                        className="gap-2 text-emerald-400 focus:text-emerald-400"
+                      >
+                        <Send className="w-4 h-4" />
+                        {isParent ? "Publish Series" : "Publish"}
+                      </DropdownMenuItem>
+                    )}
+                    {canUnpublish && (
+                      <DropdownMenuItem
+                        onClick={() => setPendingEventAction(isParent ? { kind: "unpublish-series", event, childCount: children.length } : { kind: "unpublish", event })}
+                        disabled={publishEvent.isPending || publishSeries.isPending}
+                        className="gap-2 text-amber-400 focus:text-amber-400"
+                      >
+                        <EyeOff className="w-4 h-4" />
+                        {isParent ? "Unpublish Series" : "Unpublish"}
+                      </DropdownMenuItem>
+                    )}
+                  </>
+                )}
+
                 {lifecycle.needsFinalizationRepair && !event.ended_at && !isArchived && (
                   <>
                     <DropdownMenuSeparator />
@@ -1203,7 +1371,7 @@ const AdminEventsPanel = () => {
                   </>
                 )}
 
-                {isParent && (
+                {canGenerateMore && (
                   <>
                     <DropdownMenuSeparator />
                     <DropdownMenuItem onClick={() => setPendingEventAction({ kind: "generate-more", event, count: 4 })} className="gap-2">
@@ -1264,6 +1432,8 @@ const AdminEventsPanel = () => {
 
   const pendingActionCopy = getPendingActionCopy();
   const isPanelActionPending =
+    publishEvent.isPending ||
+    publishSeries.isPending ||
     archiveEvent.isPending ||
     archiveSeries.isPending ||
     finalizeRepairEvent.isPending ||

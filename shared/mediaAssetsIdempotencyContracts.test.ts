@@ -378,6 +378,9 @@ test("profile and fullscreen vibe video TTFF is prewarmed without hiding posters
   assert.match(nativeVibeVideoPlayer, /onPlaybackRequest\?\.\(\);[\s\S]{0,80}setManualPlaybackRequested\(true\)/);
   assert.match(nativeVibeVideoPlayer, /onFirstFrameRender=\{\(\) => \{[\s\S]*reportFirstFrame\(\);[\s\S]*\}\}/);
   assert.match(nativeVibeVideoPlayer, /warnedRef\.current = false;[\s\S]{0,80}\}, \[playbackSourceUri\]\);/);
+  assert.doesNotMatch(nativeVibeVideoPlayer, /player\.replace\(/);
+  assert.match(nativeVibeVideoPlayer, /vibeVideo\.player\.replaceAsync\.authRefreshSameUrl/);
+  assert.match(nativeVibeVideoPlayer, /vibeVideo\.player\.status\.initial/);
 
   assert.match(webAttachHlsPlayback, /export function preloadHlsPlaybackLibrary/);
   assert.match(webAttachHlsPlayback, /canPrewarmMedia\(HLS_LIBRARY_PRELOAD_ESTIMATE_BYTES\)/);
@@ -554,6 +557,8 @@ test("phase 5 voice capture hooks are configured for 96 kbps mono without expo-a
   assert.match(webVoiceRecorder, /webMediaTranscode\.voiceRecordingConfig\(\)/);
   assert.match(webVoiceRecorder, /getUserMedia\(recorderConfig\.constraints\)/);
   assert.match(webVoiceRecorder, /new MediaRecorder\(stream, recorderConfig\.options\)/);
+  assert.match(webVoiceRecorder, /permissionResult\.recoveryAction === "retry" \|\| permissionResult\.recoveryAction === "open_settings"/);
+  assert.match(webVoiceRecorder, /permissionResult\.recoveryAction === "open_settings" \? "I updated settings" : "Try again"/);
 
   assert.match(nativeMediaSdkAdapter, /voiceRecordingOptions/);
   assert.match(nativeMediaSdkAdapter, /numberOfChannels: 1/);

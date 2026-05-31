@@ -198,11 +198,10 @@ export function usePushPermission() {
 
   const openSettings = useCallback(() => {
     pushPermDevLog('openSettings / recovery path (passive — no OS permission request)');
-    if (Platform.OS === 'ios') {
-      Linking.openURL('app-settings:');
-    } else {
-      Linking.openSettings();
-    }
+    const task = Platform.OS === 'ios' ? Linking.openURL('app-settings:') : Linking.openSettings();
+    void task.catch((error) => {
+      if (__DEV__) console.warn('[pushPermission] openSettings failed:', error);
+    });
   }, []);
 
   const { osStatus, permissionStateHydrated } = snapshot;

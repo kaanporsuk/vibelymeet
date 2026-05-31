@@ -259,6 +259,32 @@ test("match-call camera switching stays wired on web and native chat calls", () 
   assert.match(nativeActiveCallOverlay, /name="camera-reverse"/);
 });
 
+test("match-call media toggles recover from blocked camera and microphone permissions", () => {
+  const webMatchCallHook = read("src/hooks/useMatchCall.tsx");
+  const nativeMatchCallHook = read("apps/mobile/lib/useMatchCall.tsx");
+
+  assert.match(webMatchCallHook, /audioState === "blocked"/);
+  assert.match(webMatchCallHook, /toast\.error\("Microphone access needed"/);
+  assert.match(webMatchCallHook, /Allow microphone access in your browser settings, then try again\./);
+  assert.match(webMatchCallHook, /label: "I updated settings"/);
+  assert.match(webMatchCallHook, /toggle_mute_settings_retry_failed/);
+  assert.match(webMatchCallHook, /videoState === "blocked"/);
+  assert.match(webMatchCallHook, /toast\.error\("Camera access needed"/);
+  assert.match(webMatchCallHook, /Allow camera access in your browser settings, then try again\./);
+  assert.match(webMatchCallHook, /toggle_video_settings_retry_failed/);
+  assert.doesNotMatch(webMatchCallHook, /Microphone is blocked\. Allow it in your browser settings to unmute\./);
+  assert.doesNotMatch(webMatchCallHook, /Camera is blocked\. Allow it in your browser settings to turn it on\./);
+
+  assert.match(nativeMatchCallHook, /local\?\.tracks\?\.audio\?\.state === 'blocked'/);
+  assert.match(nativeMatchCallHook, /Alert\.alert\(\s*'Microphone access needed'/);
+  assert.match(nativeMatchCallHook, /Re-enable it in Settings, then return to the call\./);
+  assert.match(nativeMatchCallHook, /\{ text: 'Open Settings', onPress: \(\) => void Linking\.openSettings\(\) \}/);
+  assert.match(nativeMatchCallHook, /Promise\.resolve\(\)[\s\S]{0,80}\.then\(\(\) => callObject\.setLocalAudio\(!nextMuted\)\)/);
+  assert.match(nativeMatchCallHook, /local\?\.tracks\?\.video\?\.state === 'blocked'/);
+  assert.match(nativeMatchCallHook, /Alert\.alert\(\s*'Camera access needed'/);
+  assert.match(nativeMatchCallHook, /Promise\.resolve\(\)[\s\S]{0,80}\.then\(\(\) => callObject\.setLocalVideo\(!nextVideoOff\)\)/);
+});
+
 test("match-call active voice controls stay vertically aligned on native and web", () => {
   const webActiveCallOverlay = read("src/components/chat/ActiveCallOverlay.tsx");
   const nativeActiveCallOverlay = read("apps/mobile/components/chat/ActiveCallOverlay.tsx");

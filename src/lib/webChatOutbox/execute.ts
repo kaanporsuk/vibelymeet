@@ -11,6 +11,7 @@ import { uploadAndPublishChatVibeClipWithMediaSdk } from "@/lib/mediaSdk/webVide
 import { uploadImageWithMediaSdk, uploadVoiceWithMediaSdk } from "@/lib/mediaSdk/webStorageUploads";
 import { formatChatImageMessageContent } from "@/lib/chatMessageContent";
 import { invalidateAfterThreadMutation, patchThreadCacheFromRawMessage } from "@/hooks/useMessages";
+import { bunnyStreamVideoIdFromRef } from "../../../shared/chat/messageRouting";
 import {
   GENERIC_UPLOAD_MIME_TYPE,
   imageMimeTypeForUpload,
@@ -45,7 +46,9 @@ function getServerMessageId(row: unknown): string | null {
 }
 
 function isBunnyStreamPlaybackRef(value: string | null | undefined): value is string {
-  return /^bunny_stream:[0-9a-f-]{32,36}$/i.test(value?.trim() ?? "");
+  const trimmed = value?.trim() ?? "";
+  const videoId = bunnyStreamVideoIdFromRef(trimmed);
+  return !!videoId && trimmed === `bunny_stream:${videoId}`;
 }
 
 const BLOCKED_MESSAGE_COPY = "You can't message this person.";

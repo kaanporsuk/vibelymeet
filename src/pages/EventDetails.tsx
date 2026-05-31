@@ -91,6 +91,7 @@ const EventDetails = () => {
         .eq('parent_event_id', event.parentEventId)
         .gt('event_date', event.eventDate.toISOString())
         .is('archived_at', null)
+        .not('status', 'in', '(draft,cancelled,archived)')
         .order('event_date', { ascending: true })
         .limit(1)
         .maybeSingle();
@@ -245,14 +246,24 @@ const EventDetails = () => {
   const canViewRegistration =
     hasEventAdmission &&
     (canSelfCancelRegistration || (isConfirmed && eventLifecycle.isLive && !eventClosedForBookingCopy));
-  const isCancelled = event.status === "cancelled";
-  const purchaseCtaDisabled = soldOut || eventEnded || freeRegisterBusy || isCancelled;
+  const eventStatus = (event.status ?? "").toLowerCase();
+  const isCancelled = eventStatus === "cancelled";
+  const isUnavailableStatus =
+    isCancelled ||
+    eventStatus === "draft" ||
+    eventStatus === "archived" ||
+    Boolean(event.archivedAt);
+  const unavailableEventTitle = isCancelled ? "This event was cancelled" : "This event is not available";
+  const unavailableEventBody = isCancelled
+    ? "Registration, cancellation, and lobby access are closed. Your registration record stays on file for support and attendance history."
+    : "Registration and lobby access are closed while this event is not published.";
+  const purchaseCtaDisabled = soldOut || eventEnded || freeRegisterBusy || isUnavailableStatus;
 
   const handlePaymentSuccess = async () => {
     setShowPaymentModal(false);
 
-    if (event.status === "cancelled") {
-      toast.error("This event was cancelled.");
+    if (isUnavailableStatus) {
+      toast.error(unavailableEventTitle);
       return;
     }
 
@@ -305,8 +316,8 @@ const EventDetails = () => {
   };
 
   const handlePurchasePress = async () => {
-    if (isCancelled) {
-      toast.error("This event was cancelled.");
+    if (isUnavailableStatus) {
+      toast.error(unavailableEventTitle);
       return;
     }
     if (soldOut || eventEnded || freeRegisterBusy) return;
@@ -517,18 +528,17 @@ const EventDetails = () => {
       {/* Content */}
       <div className="px-4 py-6 space-y-6">
 
-        {isCancelled && (
+        {isUnavailableStatus && (
           <div className="rounded-xl border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm">
-            <p className="font-semibold text-destructive">This event was cancelled</p>
+            <p className="font-semibold text-destructive">{unavailableEventTitle}</p>
             <p className="text-muted-foreground mt-1 leading-relaxed">
-              Registration, cancellation, and lobby access are closed. Your registration record stays on file for support and
-              attendance history.
+              {unavailableEventBody}
             </p>
           </div>
         )}
 
         {/* Phone verification nudge for events */}
-        {showEventPhoneNudge && !hasEventAdmission && (
+        {showEventPhoneNudge && !hasEventAdmission && !isUnavailableStatus && (
           <PhoneVerificationNudge
             variant="event"
             userId={user?.id ?? null}
@@ -673,7 +683,7 @@ const EventDetails = () => {
             eventEndedAt={event.endedAt}
             eventId={event.id}
             isRegistered={isConfirmed}
-            onAccessPress={!isConfirmed && !isCancelled ? () => void handlePurchasePress() : undefined}
+            onAccessPress={!isConfirmed && !isUnavailableStatus ? () => void handlePurchasePress() : undefined}
             accessLabel={event.isFree || userPrice === 0 ? "Register" : "Reserve Spot"}
             accessDisabled={purchaseCtaDisabled}
           />
@@ -681,7 +691,7 @@ const EventDetails = () => {
       </div>
 
       {/* Sticky Bottom Bar - Only show when not registered */}
-      {!hasEventAdmission && !isCancelled && (
+      {!hasEventAdmission && !isUnavailableStatus && (
         <PricingBar
           price={userPrice}
           capacityStatus={capacityInfo.status}
@@ -693,11 +703,11 @@ const EventDetails = () => {
         />
       )}
 
-      {isCancelled && hasEventAdmission && (
+      {isUnavailableStatus && hasEventAdmission && (
         <div className="fixed bottom-0 left-0 right-0 z-40 glass-card border-t border-destructive/30 rounded-none">
           <div className="max-w-lg mx-auto p-4 flex items-center justify-between gap-3">
             <div>
-              <p className="font-semibold text-destructive">Event cancelled</p>
+              <p className="font-semibold text-destructive">{isCancelled ? "Event cancelled" : "Event unavailable"}</p>
               <p className="text-xs text-muted-foreground">Registration changes are closed for this event</p>
             </div>
           </div>
@@ -705,7 +715,7 @@ const EventDetails = () => {
       )}
 
       {/* Confirmed admission bottom bar */}
-      {isConfirmed && !isCancelled && (
+      {isConfirmed && !isUnavailableStatus && (
         <div className="fixed bottom-0 left-0 right-0 z-40 glass-card border-t border-border/50 rounded-none">
           <div className="max-w-lg mx-auto p-4 flex items-center justify-between">
             <div className="flex items-center gap-3">
@@ -743,7 +753,7 @@ const EventDetails = () => {
       )}
 
       {/* Paid waitlist: show truthful status without implying a confirmed spot */}
-      {isWaitlisted && !isConfirmed && !isCancelled && (
+      {isWaitlisted && !isConfirmed && !isUnavailableStatus && (
         <div className="fixed bottom-0 left-0 right-0 z-40 glass-card border-t border-border/50 rounded-none">
           <div className="max-w-lg mx-auto p-4 flex items-center justify-between gap-3">
             <div>

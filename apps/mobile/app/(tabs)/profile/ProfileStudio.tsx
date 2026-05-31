@@ -746,7 +746,8 @@ export default function ProfileStudio() {
               title: 'Location Services are off',
               message: 'Turn on device Location Services, then return to Vibely to update your location.',
               variant: 'warning',
-              primaryAction: { label: 'OK', onPress: () => {} },
+              primaryAction: { label: 'Open Settings', onPress: () => void Linking.openSettings() },
+              secondaryAction: { label: 'Not now', onPress: () => {} },
             });
             return;
           case 'permission_denied':
@@ -756,7 +757,10 @@ export default function ProfileStudio() {
                 ? 'Location is off for Vibely. Enable it in Settings to update your location.'
                 : 'Allow location access so Vibely can set your city.',
               variant: 'warning',
-              primaryAction: { label: 'OK', onPress: () => {} },
+              primaryAction: result.canAskAgain === false
+                ? { label: 'Open Settings', onPress: () => void Linking.openSettings() }
+                : { label: 'Try again', onPress: () => void handleUpdateDeviceLocation() },
+              secondaryAction: { label: 'Not now', onPress: () => {} },
             });
             return;
           case 'geocode_failed':

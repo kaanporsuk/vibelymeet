@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { View, Text, Modal, Pressable, StyleSheet, ActivityIndicator, Image, Linking } from 'react-native';
+import { View, Text, Modal, Pressable, StyleSheet, ActivityIndicator, Image, Linking, Platform } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -16,6 +16,7 @@ import {
   type ThreadInvalidateScope,
 } from '@/lib/gamesApi';
 import { useVibelyDialog } from '@/components/VibelyDialog';
+import { permissionUxStatusFromGrant, resolvePermissionUx } from '@clientShared/permissions/permissionUx';
 
 type Props = {
   visible: boolean;
@@ -52,25 +53,23 @@ export function ScavengerStartSheet({ visible, onClose, matchId, partnerName, in
     setError(null);
     try {
       if (fromCamera) {
-        const { status } = await ImagePicker.requestCameraPermissionsAsync();
-        if (status !== 'granted') {
-          showDialog({
-            title: 'Camera Access Required',
-            message: 'Allow camera access in your Settings to take photos for this challenge.',
-            variant: 'info',
-            primaryAction: { label: 'Open Settings', onPress: () => void Linking.openSettings() },
-            secondaryAction: { label: 'Not Now', onPress: () => {} },
+        const permission = await ImagePicker.requestCameraPermissionsAsync();
+        if (permission.status !== 'granted') {
+          const copy = resolvePermissionUx({
+            capability: 'photo_capture',
+            status: permissionUxStatusFromGrant({
+              status: permission.status,
+              canAskAgain: permission.canAskAgain,
+            }),
+            platform: Platform.OS === 'ios' ? 'ios' : Platform.OS === 'android' ? 'android' : 'native',
           });
-          return;
-        }
-      } else {
-        const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-        if (status !== 'granted') {
           showDialog({
-            title: 'Photo Access Required',
-            message: 'Allow photo library access in your Settings to pick photos for this challenge.',
+            title: copy.title,
+            message: copy.message,
             variant: 'info',
-            primaryAction: { label: 'Open Settings', onPress: () => void Linking.openSettings() },
+            primaryAction: copy.primaryAction === 'open_settings'
+              ? { label: copy.primaryLabel, onPress: () => void Linking.openSettings() }
+              : { label: copy.primaryLabel, onPress: () => void pickPhoto(true) },
             secondaryAction: { label: 'Not Now', onPress: () => {} },
           });
           return;
@@ -92,7 +91,18 @@ export function ScavengerStartSheet({ visible, onClose, matchId, partnerName, in
       setSenderPhotoUrl(url);
       setSenderPhotoClientRequestId(clientRequestId);
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Could not upload photo.');
+      const message = e instanceof Error ? e.message : 'Could not upload photo.';
+      if (!fromCamera && /permission|denied|access/i.test(message)) {
+        showDialog({
+          title: 'Photo Access Required',
+          message: 'Photo access is off for Vibely. Re-enable it in Settings, or try taking a new photo.',
+          variant: 'info',
+          primaryAction: { label: 'Open Settings', onPress: () => void Linking.openSettings() },
+          secondaryAction: { label: 'Not Now', onPress: () => {} },
+        });
+        return;
+      }
+      setError(message);
     } finally {
       setUploading(false);
     }

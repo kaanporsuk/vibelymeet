@@ -4,6 +4,11 @@ import { Mic, Send, Trash2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 import { webMediaTranscode } from '@clientShared/media-sdk';
+import {
+  classifyMediaPermissionError,
+  mediaPermissionMessage,
+  mediaPermissionTitle,
+} from '@clientShared/media/mediaPermissionResult';
 
 /** Imperative handle so callers (e.g. the "Voice reply" clip CTA) can start recording
  * directly within the user-gesture call stack that getUserMedia requires. */
@@ -235,20 +240,23 @@ const VoiceRecorder = forwardRef<VoiceRecorderHandle, VoiceRecorderProps>(({
         navigator.vibrate(50);
       }
     } catch (err: unknown) {
-      const name = err instanceof Error ? err.name : "";
+      const permissionResult = classifyMediaPermissionError(err, "microphone");
       stopLiveResources();
       mediaRecorderRef.current = null;
       durationRef.current = 0;
       startInFlightRef.current = false;
       if (!mountedRef.current) return;
       resetVisualState();
-      if (name === "AbortError" || name === "NotAllowedError") {
-        toast.error("Microphone access was denied or cancelled");
-      } else if (name === "NotSupportedError") {
-        toast.error("Recording is not supported in this browser");
-      } else {
-        toast.error("Could not access microphone");
-      }
+      toast.error(mediaPermissionTitle(permissionResult), {
+        description: mediaPermissionMessage(permissionResult),
+        action:
+          permissionResult.recoveryAction === "retry" || permissionResult.recoveryAction === "open_settings"
+            ? {
+                label: permissionResult.recoveryAction === "open_settings" ? "I updated settings" : "Try again",
+                onClick: () => void startRecording(),
+              }
+            : undefined,
+      });
     }
   };
 

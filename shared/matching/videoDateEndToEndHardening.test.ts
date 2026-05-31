@@ -2554,7 +2554,9 @@ test("web video date access recovery covers permission denial and playback-block
   assert.match(webSelfViewPip, /VIDEO_DATE_PLAYBACK_RETRY/);
   assert.match(webSelfViewPip, /VIDEO_DATE_PLAYBACK_RECOVERED/);
   assert.match(webSelfViewPip, /Tap to resume video/);
-  assert.match(webVideoDatePage, /Allow access so your date can begin softly with audio and video/);
+  assert.match(webVideoDatePage, /mediaPermissionTitle\(permissionBlock\)/);
+  assert.match(webVideoDatePage, /mediaPermissionMessage\(permissionBlock\)/);
+  assert.match(webVideoDatePage, /permissionBlock\.recoveryAction === "open_settings" \? "I updated settings" : "Try again"/);
   assert.match(webVideoDatePage, /VIDEO_DATE_MEDIA_PERMISSION_RETRY/);
   assert.match(webVideoDatePage, /clearMediaPermissionError\(\)/);
   assert.match(webConnectionOverlay, /Resume audio\/video/);

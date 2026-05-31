@@ -18,6 +18,7 @@ import {
   Dimensions,
   AppState,
   Alert,
+  Linking,
   Easing,
   AccessibilityInfo,
   type LayoutChangeEvent,
@@ -1119,6 +1120,8 @@ export default function VideoDateScreen() {
 
   const [isConnecting, setIsConnecting] = useState(false);
   const [callError, setCallError] = useState<string | null>(null);
+  const [permissionRecoveryAction, setPermissionRecoveryAction] = useState<string | null>(null);
+  const permissionSettingsOpenedRef = useRef(false);
   const [warmupChoiceNotice, setWarmupChoiceNotice] = useState<VideoDateWarmupChoiceNotice | null>(null);
   const [localParticipant, setLocalParticipant] = useState<DailyParticipant | null>(null);
   const [remoteParticipant, setRemoteParticipant] = useState<DailyParticipant | null>(null);
@@ -4744,6 +4747,7 @@ export default function VideoDateScreen() {
       });
     }
     const finishPermissionCheck = (ok: boolean, source: string) => {
+      if (ok) setPermissionRecoveryAction(null);
       if (sessionId && ok) {
         const successContext = recordReadyGateToDateLatencyCheckpoint({
           sessionId,
@@ -4819,6 +4823,7 @@ export default function VideoDateScreen() {
         permissionStatus: result.mediaPermission.status,
       });
       setHasPermission(result.ok);
+      setPermissionRecoveryAction(result.ok ? null : result.mediaPermission.recoveryAction);
       vdbg('prejoin_step_prejoin_permissions_after', {
         platform: Platform.OS,
         cameraStatus: result.cameraStatus,
@@ -4855,6 +4860,7 @@ export default function VideoDateScreen() {
       permissionStatus: result.mediaPermission.status,
     });
     setHasPermission(result.ok);
+    setPermissionRecoveryAction(result.ok ? null : result.mediaPermission.recoveryAction);
     vdbg('prejoin_step_prejoin_permissions_after', {
       platform: Platform.OS,
       cameraStatus: result.cameraStatus,
@@ -4966,6 +4972,16 @@ export default function VideoDateScreen() {
     sessionId,
     user?.id,
   ]);
+
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (next) => {
+      if (next !== 'active' || !permissionSettingsOpenedRef.current) return;
+      permissionSettingsOpenedRef.current = false;
+      if (permissionRecoveryAction !== 'open_settings' || !preJoinFailed) return;
+      void handleRetryInitialConnect();
+    });
+    return () => sub.remove();
+  }, [handleRetryInitialConnect, permissionRecoveryAction, preJoinFailed]);
 
   useEffect(() => {
     const userId = user?.id ?? null;
@@ -9142,10 +9158,19 @@ export default function VideoDateScreen() {
               </Text>
               <View style={styles.initialTimeoutActions}>
                 <Pressable
-                  onPress={() => void handleRetryInitialConnect()}
+                  onPress={() => {
+                    if (permissionRecoveryAction === 'open_settings') {
+                      permissionSettingsOpenedRef.current = true;
+                      void Linking.openSettings();
+                      return;
+                    }
+                    void handleRetryInitialConnect();
+                  }}
                   style={({ pressed }) => [styles.initialRetryBtn, { backgroundColor: theme.tint }, pressed && styles.initialBtnPressed]}
                 >
-                  <Text style={styles.initialRetryText}>Retry</Text>
+                  <Text style={styles.initialRetryText}>
+                    {permissionRecoveryAction === 'open_settings' ? 'Open Settings' : 'Retry'}
+                  </Text>
                 </Pressable>
                 <Pressable
                   onPress={() => void handleAbortConnection()}

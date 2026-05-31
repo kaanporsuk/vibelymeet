@@ -5,6 +5,7 @@ import {
   mediaPermissionResultForStatus,
   type MediaPermissionResult,
 } from '@clientShared/media/mediaPermissionResult';
+import { permissionUxStatusFromGrant } from '@clientShared/permissions/permissionUx';
 import type { NativeReadyGatePermissionDiagnosticState } from '@/lib/readyGateNativeMediaDiagnostics';
 
 type NativePermissionSourceConfig = {
@@ -31,7 +32,13 @@ function errorField(error: unknown, field: 'name' | 'message'): string | null {
   return typeof value === 'string' && value.trim().length > 0 ? value.trim() : null;
 }
 
-function permissionResult(ok: boolean, cameraStatus: string, microphoneStatus: string): MediaPermissionResult {
+function permissionResult(
+  ok: boolean,
+  cameraStatus: string,
+  microphoneStatus: string,
+  cameraCanAskAgain: boolean | null,
+  microphoneCanAskAgain: boolean | null,
+): MediaPermissionResult {
   if (ok) {
     return mediaPermissionResultForStatus({
       status: 'granted',
@@ -39,10 +46,23 @@ function permissionResult(ok: boolean, cameraStatus: string, microphoneStatus: s
       permissionState: 'granted',
     });
   }
+  const cameraUxStatus = permissionUxStatusFromGrant({
+    status: cameraStatus,
+    canAskAgain: cameraCanAskAgain,
+  });
+  const microphoneUxStatus = permissionUxStatusFromGrant({
+    status: microphoneStatus,
+    canAskAgain: microphoneCanAskAgain,
+  });
+  const isSettingsOnly =
+    cameraUxStatus === 'blocked_settings' ||
+    microphoneUxStatus === 'blocked_settings' ||
+    cameraUxStatus === 'limited' ||
+    microphoneUxStatus === 'limited';
   const permissionState =
     cameraStatus === 'undetermined' || microphoneStatus === 'undetermined' ? 'prompt' : 'denied';
   return mediaPermissionResultForStatus({
-    status: 'denied',
+    status: isSettingsOnly ? 'blocked_settings' : 'denied_retryable',
     kind: 'camera_microphone',
     permissionState,
     rawErrorName: 'native_media_permission_denied',
@@ -86,7 +106,13 @@ function finalizePermissionResult(params: {
     ok: params.ok,
     source: params.source,
     permissions: diagnostics(params.cameraStatus, params.microphoneStatus),
-    mediaPermission: params.mediaPermission ?? permissionResult(params.ok, params.cameraStatus, params.microphoneStatus),
+    mediaPermission: params.mediaPermission ?? permissionResult(
+      params.ok,
+      params.cameraStatus,
+      params.microphoneStatus,
+      params.cameraCanAskAgain ?? null,
+      params.microphoneCanAskAgain ?? null,
+    ),
     cameraStatus: params.cameraStatus,
     microphoneStatus: params.microphoneStatus,
     cameraCanAskAgain: params.cameraCanAskAgain ?? null,

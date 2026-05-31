@@ -187,7 +187,7 @@ export const LocationStep = ({
         setSearchState("error");
         setFeedback({
           tone: "error",
-          text: "Location permission was denied. Search for your city instead, or enable access and try again.",
+          text: "Location permission was denied. Search for your city instead, or allow Location in this browser's site settings and try again.",
         });
         return;
       }

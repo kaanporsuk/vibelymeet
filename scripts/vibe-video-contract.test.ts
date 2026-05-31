@@ -883,7 +883,12 @@ test("native Vibe Video playback stays on expo-video and never imports expo-av",
   });
 
   assert.deepEqual(offenders, []);
-  assert.match(read("apps/mobile/components/video/VibeVideoPlayer.tsx"), /from 'expo-video'/);
+  const nativePlayer = read("apps/mobile/components/video/VibeVideoPlayer.tsx");
+  assert.match(nativePlayer, /from 'expo-video'/);
+  assert.doesNotMatch(nativePlayer, /player\.replace\(/);
+  assert.match(nativePlayer, /player\.replaceAsync\(freshUri\)/);
+  assert.doesNotMatch(nativePlayer, /vibeVideo\.player\.pause\.unmount/);
+  assert.match(nativePlayer, /vibeVideo\.player\.status\.initial/);
 });
 
 test("native Vibe Video surfaces use canonical resolver state for non-playable UI", () => {

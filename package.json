@@ -39,7 +39,7 @@
     "probe:media-privacy": "node scripts/media-privacy-probe.mjs",
     "lint:expo-public-secrets": "node scripts/check-expo-public-secrets.mjs",
     "test:media-privacy-guard": "tsx scripts/media-privacy-guard.test.ts",
-    "test:vibe-clip-upload-contract": "tsx src/lib/webUploadMime.test.ts && tsx shared/chat/vibeClipRecovery.test.ts && tsx shared/chat/uploadAttentionTargets.test.ts && tsx shared/chat/outboxReconciliation.test.ts && tsx shared/chat/postgrestFilters.test.ts && tsx shared/chat/vibeClipUploadContracts.test.ts",
+    "test:vibe-clip-upload-contract": "tsx src/lib/webUploadMime.test.ts && tsx shared/chat/vibeClipRecovery.test.ts && tsx shared/chat/uploadAttentionTargets.test.ts && tsx shared/chat/outboxReconciliation.test.ts && tsx shared/chat/postgrestFilters.test.ts && tsx shared/chat/vibeClipUploadContracts.test.ts && tsx shared/permissions/permissionUx.test.ts && tsx shared/permissions/nativePermissionSurfaceContracts.test.ts",
     "test:chat-vibe-clip-smoke-matrix": "bash scripts/run_chat_vibe_clip_smoke_matrix.sh --dry-run",
     "test:media-upload-sniffing": "tsx supabase/functions/_shared/media-upload-sniffing.test.ts",
     "test": "npm run test:media-sdk --silent",

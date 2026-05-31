@@ -1775,7 +1775,21 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
     const local = callObject.participants().local;
     const audioState = (local?.tracks?.audio?.state ?? "off") as MediaTrackStatus;
     if (audioState === "blocked") {
-      toast.error("Microphone is blocked. Allow it in your browser settings to unmute.");
+      toast.error("Microphone access needed", {
+        description: "Allow microphone access in your browser settings, then try again.",
+        action: {
+          label: "I updated settings",
+          onClick: () => {
+            void Promise.resolve()
+              .then(() => callObject.setLocalAudio(true))
+              .catch((err: unknown) => {
+                logMatchCallDiag("toggle_mute_settings_retry_failed", {
+                  message: err instanceof Error ? err.message : String(err),
+                });
+              });
+          },
+        },
+      });
       return;
     }
     // After the blocked early-return, audioState can only be "off"/"loading"/"playable"/etc.
@@ -1803,7 +1817,21 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
     const local = callObject.participants().local;
     const videoState = (local?.tracks?.video?.state ?? "off") as MediaTrackStatus;
     if (videoState === "blocked") {
-      toast.error("Camera is blocked. Allow it in your browser settings to turn it on.");
+      toast.error("Camera access needed", {
+        description: "Allow camera access in your browser settings, then try again.",
+        action: {
+          label: "I updated settings",
+          onClick: () => {
+            void Promise.resolve()
+              .then(() => callObject.setLocalVideo(true))
+              .catch((err: unknown) => {
+                logMatchCallDiag("toggle_video_settings_retry_failed", {
+                  message: err instanceof Error ? err.message : String(err),
+                });
+              });
+          },
+        },
+      });
       return;
     }
     const wantOn = videoState === "off";

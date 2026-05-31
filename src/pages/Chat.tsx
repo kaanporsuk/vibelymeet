@@ -3863,6 +3863,10 @@ const Chat = () => {
           open={showPhotoCamera}
           onOpenChange={setShowPhotoCamera}
           onCapturePhoto={queuePhotoFile}
+          onChooseLibrary={() => {
+            setShowPhotoCamera(false);
+            triggerPhotoFilePicker();
+          }}
           disabled={sendingPhoto}
         />
 

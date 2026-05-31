@@ -145,7 +145,12 @@ export function PushPermissionPrompt() {
           surface: "push_permission_prompt",
           reason: "permission_denied",
         });
-        toast.message("Notifications are blocked in your browser. You can enable them in site settings.");
+        toast.message("Notifications are blocked in your browser. You can enable them in site settings.", {
+          action: {
+            label: "Open settings",
+            onClick: () => window.location.assign("/settings?drawer=notifications"),
+          },
+        });
       } else if (result.code === "no_player_id_after_retry") {
         recordUserAction("push_prompt_enable_failed", {
           surface: "push_permission_prompt",

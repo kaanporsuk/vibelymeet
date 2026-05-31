@@ -40,7 +40,7 @@ test("Vibe Studio denied state keeps retry and upload recovery visible", () => {
   assert.match(vibeStudioModal, /showPermissionBlock =\s*hasPermission === false && stage !== "preview"/);
   assert.match(vibeStudioModal, /shouldShowCaptureSurface =\s*hasPermission !== false \|\| stage === "preview"/);
   assert.match(vibeStudioModal, /setCameraRequestNonce\(\(nonce\) => nonce \+ 1\)/);
-  assert.match(vibeStudioModal, />\s*Try again\s*<\/Button>/);
+  assert.match(vibeStudioModal, /permissionBlock\.recoveryAction === "open_settings" \? "I updated settings" : "Try again"/);
   assert.match(vibeStudioModal, />\s*Upload a video\s*<\/Button>/);
   assert.match(vibeStudioModal, /event\.target\.value = ""/);
   assert.match(vibeStudioModal, /setMediaPermissionResult\(null\);[\s\S]*stopCameraTracks\(\);[\s\S]*setStage\("preview"\)/);

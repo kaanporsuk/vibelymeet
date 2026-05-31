@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Platform } from 'react-native';
+import { Linking, Platform } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
+import { permissionUxStatusFromGrant, resolvePermissionUx } from '@clientShared/permissions/permissionUx';
 
 import {
   normalizeDocumentAssetForUpload,
@@ -131,6 +132,30 @@ function showOkDialog(show: DialogShow, title: string, message: string, variant:
     message,
     variant,
     primaryAction: { label: 'OK', onPress: () => {} },
+  });
+}
+
+function showCameraPermissionDialog(
+  show: DialogShow,
+  permission: { status?: string | null; canAskAgain?: boolean | null },
+  onRetry: () => void,
+) {
+  const copy = resolvePermissionUx({
+    capability: 'photo_capture',
+    status: permissionUxStatusFromGrant({
+      status: permission.status,
+      canAskAgain: permission.canAskAgain,
+    }),
+    platform: Platform.OS === 'ios' ? 'ios' : Platform.OS === 'android' ? 'android' : 'native',
+  });
+  show({
+    title: copy.title,
+    message: copy.message,
+    variant: 'info',
+    primaryAction: copy.primaryAction === 'open_settings'
+      ? { label: copy.primaryLabel, onPress: () => void Linking.openSettings() }
+      : { label: copy.primaryLabel, onPress: onRetry },
+    secondaryAction: { label: 'Not now', onPress: () => {} },
   });
 }
 
@@ -413,12 +438,6 @@ export function usePhotoBatchController({
       return;
     }
 
-    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (permission.status !== 'granted') {
-      showOkDialog(show, 'Photos need access', 'Allow access to your photos to add profile pictures.');
-      return;
-    }
-
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ['images'],
       allowsEditing: false,
@@ -474,12 +493,6 @@ export function usePhotoBatchController({
 
   const replaceOneFromLibrary = useCallback(
     async (index: number) => {
-      const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
-      if (permission.status !== 'granted') {
-        showOkDialog(show, 'Photos need access', 'Allow access to your photos to replace this shot.');
-        return;
-      }
-
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ['images'],
         allowsEditing: true,
@@ -536,7 +549,9 @@ export function usePhotoBatchController({
 
       const permission = await ImagePicker.requestCameraPermissionsAsync();
       if (permission.status !== 'granted') {
-        showOkDialog(show, 'Camera access', 'Allow camera access to take a new photo.');
+        showCameraPermissionDialog(show, permission, () => {
+          void takeOnePhoto(replaceIndex);
+        });
         return;
       }
 

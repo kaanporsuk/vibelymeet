@@ -150,6 +150,8 @@ test("web take-photo path opens in-app camera capture instead of upload picker",
   assert.match(webPhotoCamera, /navigator\.mediaDevices\.enumerateDevices/);
   assert.match(webPhotoCamera, /setHasMultipleCameras\(devices\.filter\(\(device\) => device\.kind === "videoinput"\)\.length > 1\)/);
   assert.match(webPhotoCamera, /navigator\.mediaDevices\?\.getUserMedia/);
+  assert.match(webPhotoCamera, /onChooseLibrary\?: \(\) => void/);
+  assert.match(webPhotoCamera, /Choose from library/);
   assert.match(webPhotoCamera, /startCamera\("environment"\)/);
   assert.match(webPhotoCamera, /exactFacingMode\?: boolean/);
   assert.match(webPhotoCamera, /facingMode:\s*opts\?\.exactFacingMode \? \{ exact: facingMode \} : \{ ideal: facingMode \}/);
@@ -264,6 +266,7 @@ test("web queue and upload preserve validated library video metadata", () => {
   assert.match(webOutboxExecute, /captions: payload\.captions \?\? null/);
   assert.match(webOutboxExecute, /ChatVibeClipUploadedButUnpublishedError/);
   assert.match(webOutboxExecute, /isBunnyStreamPlaybackRef\(item\.uploadedMediaUrl\)/);
+  assert.match(webOutboxExecute, /bunnyStreamVideoIdFromRef\(trimmed\)/);
   assert.doesNotMatch(webOutboxExecute, /invokePublishVibeClip/);
   assert.doesNotMatch(webMessagesHook, /usePublishVibeClip/);
   assert.doesNotMatch(webMessagesHook, /publish-vibe-clip/);
@@ -272,7 +275,7 @@ test("web queue and upload preserve validated library video metadata", () => {
   assert.match(webStreamUpload, /upload\.findPreviousUploads\(\)/);
   assert.match(webStreamUpload, /class ChatVibeClipUploadedButUnpublishedError/);
   assert.match(webStreamUpload, /completePublishedChatVibeClipUpload/);
-  assert.match(webStreamUpload, /providerObjectIdFromPlaybackRef/);
+  assert.match(webStreamUpload, /bunnyStreamVideoIdFromRef\(params\.playbackRef\)/);
   assert.match(webStreamUpload, /created\.status === "failed"/);
   assert.match(webStreamUpload, /!created\.status \|\| created\.status === "uploading"/);
   assert.match(webStreamUpload, /create-chat-vibe-clip-upload/);
@@ -816,6 +819,7 @@ test("native upload and cache keep mobile video formats intact", () => {
   assert.match(nativeOutboxExecute, /captions: payload\.captions \?\? null/);
   assert.match(nativeOutboxExecute, /ChatVibeClipUploadedButUnpublishedError/);
   assert.match(nativeOutboxExecute, /isBunnyStreamPlaybackRef\(item\.uploadedMediaUrl\)/);
+  assert.match(nativeOutboxExecute, /bunnyStreamVideoIdFromRef\(trimmed\)/);
   assert.match(nativeStreamUpload, /new tus\.Upload\(rnFileSource as unknown as File/);
   assert.match(nativeStreamUpload, /uploadSize: params\.fileSize/);
   assert.match(nativeStreamUpload, /upload\.findPreviousUploads\(\)/);
@@ -823,7 +827,7 @@ test("native upload and cache keep mobile video formats intact", () => {
   assert.match(nativeStreamUpload, /headers: \{ Authorization: `Bearer \$\{params\.accessToken\}` \}/);
   assert.match(nativeStreamUpload, /class ChatVibeClipUploadedButUnpublishedError/);
   assert.match(nativeStreamUpload, /completePublishedChatVibeClipUpload/);
-  assert.match(nativeStreamUpload, /providerObjectIdFromPlaybackRef/);
+  assert.match(nativeStreamUpload, /bunnyStreamVideoIdFromRef\(params\.playbackRef\)/);
   assert.match(nativeStreamUpload, /const originalExt = extensionFromUri\(params\.uri\) \|\| null/);
   assert.match(nativeStreamUpload, /stableUploadFileUri\(params\.uri, params\.clientRequestId, originalExt\)/);
   assert.match(nativeStreamUpload, /mimeFromExtension\(originalExt \?\? '', params\.mimeType\)/);
@@ -1002,8 +1006,15 @@ test("server upload and publish paths enforce Bunny Stream Vibe Clip limits", ()
   assert.match(webChat, /thumbnailSourceRef: effectiveThumbnailSourceRef/);
   assert.match(webVideoBubble, /kind: "thumbnail"[\s\S]{0,160}onResolvedUrl: handleResolvedThumbnailUrl/);
   assert.match(webVideoBubble, /initialPlaybackResolveInFlightRef/);
+  assert.match(webVideoBubble, /onResolvedThumbnailUrl\?: \(url: string\) => void/);
+  assert.match(webVideoBubble, /onResolvedUrl: handleResolvedThumbnailUrl/);
+  assert.match(webVideoBubble, /const isAwaitingPlaybackIntent = !canMountPlayer/);
+  assert.match(webVideoBubble, /const showResolvingPlaybackOverlay = isAwaitingPlaybackIntent && playRequested && !loadError/);
+  assert.match(webVideoBubble, /void refreshVideoUrl\("initial", \{ bypassFailureCooldown: true \}\)/);
   assert.match(webVideoLightbox, /poster=\{visiblePosterUrl \?\? undefined\}/);
   assert.match(webVideoLightbox, /initialResolveRunIdRef/);
+  assert.match(webVideoLightbox, /visiblePosterUrl && phase === "loading"/);
+  assert.match(webChatMediaResolver, /\{ messageId, mediaKind, sourceRef: rawRef/);
   assert.match(nativeChat, /deriveChatVideoThumbnailRef/);
   assert.match(nativeChatApi, /Keep video playback lazy on chat open; thumbnails are the eager visual contract/);
   assert.match(nativeChat, /const effectiveThumbnailSourceRef =/);
@@ -1013,10 +1024,17 @@ test("server upload and publish paths enforce Bunny Stream Vibe Clip limits", ()
   assert.match(nativeChat, /poster: posterUri/);
   assert.match(nativeChat, /kind: 'thumbnail'[\s\S]{0,160}autoResolve: true/);
   assert.match(nativeChat, /initialPlaybackResolveInFlightRef/);
-  assert.match(nativeChat, /type ChatVideoMediaRefreshReason = 'initial' \| 'playback' \| 'manual'/);
-  assert.match(nativeChat, /shouldMountPlayer && isChatVideoPlaybackUri\(uri\) \? chatVideoSourceForUri\(uri\) : null/);
   assert.match(nativeVibeClipCard, /initialPlaybackResolveInFlightRef/);
   assert.match(nativeVibeClipCard, /initialPlaybackResolveRunIdRef/);
+  assert.match(nativeChat, /CHAT_VIDEO_POSTER_PREVIEW_RETRY_DELAYS_MS = \[1000, 3000, 8000\]/);
+  assert.match(nativeChat, /type ChatVideoMediaRefreshReason = 'initial' \| 'playback' \| 'manual'/);
+  assert.match(nativeChat, /shouldMountPlayer && isChatVideoPlaybackUri\(uri\) \? chatVideoSourceForUri\(uri\) : null/);
+  assert.match(nativeChat, /const \[isResolvingInitialPlayback, setIsResolvingInitialPlayback\] = useState\(false\)/);
+  assert.match(nativeChat, /initialPlaybackResolveFailed/);
+  assert.match(nativeChat, /chat\.video\.status\.initial/);
+  assert.doesNotMatch(nativeChat, /chat\.video\.pause\.unmount/);
+  assert.match(nativeChat, /void refreshMediaUri\('initial', \{ bypassFailureCooldown: true \}\)/);
+  assert.match(nativeChatMediaResolver, /\{ messageId, mediaKind, sourceRef: rawRef/);
   assert.match(nativeVibeClipCard, /kind: 'thumbnail'[\s\S]{0,160}autoResolve: true/);
   assert.match(chatVibeClipMigration, /CREATE TABLE IF NOT EXISTS public\.chat_vibe_clip_uploads/);
   assert.match(chatVibeClipMigration, /UNIQUE \(sender_id, client_request_id\)/);

@@ -17,6 +17,7 @@ import {
   uploadChatImageWithMediaSdk,
   uploadVoiceWithMediaSdk,
 } from '@/lib/mediaSdk/nativeStorageUploads';
+import { bunnyStreamVideoIdFromRef } from '../../../../shared/chat/messageRouting';
 
 export class OutboxExecuteError extends Error {
   uploadedPublicUrl?: string;
@@ -43,7 +44,9 @@ function getServerMessageId(row: unknown): string | null {
 }
 
 function isBunnyStreamPlaybackRef(value: string | null | undefined): value is string {
-  return /^bunny_stream:[0-9a-f-]{32,36}$/i.test(value?.trim() ?? '');
+  const trimmed = value?.trim() ?? '';
+  const videoId = bunnyStreamVideoIdFromRef(trimmed);
+  return !!videoId && trimmed === `bunny_stream:${videoId}`;
 }
 
 export async function executeOutboxItem(
