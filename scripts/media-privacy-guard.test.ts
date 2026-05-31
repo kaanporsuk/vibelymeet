@@ -6,20 +6,32 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { maskId, redactMediaPath } from "../supabase/functions/_shared/media-log-redact.ts";
+import { isPrivateChatScopedStoragePath } from "../shared/media/privateMediaPaths.ts";
 
 const root = process.cwd();
 const read = (p: string) => readFileSync(join(root, p), "utf8");
 
-// --- imageUrl public-mapping guard (web + native) ---
+// --- FUNCTIONAL: the shared guard must classify private chat paths as private, and must NOT
+// misclassify public profile/event media (the regression that would break profile photos). ---
+const UUID_A = "11111111-1111-1111-1111-111111111111";
+const UUID_B = "22222222-2222-2222-2222-222222222222";
+// Public families → false (still public-mapped, profile photos keep working).
+assert.equal(isPrivateChatScopedStoragePath(`photos/${UUID_A}/req-DEADBEEF.jpg`), false, "profile photo misclassified as private");
+assert.equal(isPrivateChatScopedStoragePath(`events/${UUID_A}/req-DEADBEEF.jpg`), false, "event cover misclassified as private");
+// Private chat families → true (never public-mapped).
+assert.equal(isPrivateChatScopedStoragePath(`photos/match-${UUID_A}/${UUID_B}/req-X.jpg`), true, "chat photo not guarded");
+assert.equal(isPrivateChatScopedStoragePath(`voice/match-${UUID_A}/${UUID_B}/req-X.m4a`), true, "voice not guarded");
+assert.equal(isPrivateChatScopedStoragePath("chat-videos/whatever/x.mp4"), true, "chat-videos not guarded");
+
+// --- imageUrl public-mapping source contract (web + native) ---
 for (const p of ["src/utils/imageUrl.ts", "apps/mobile/lib/imageUrl.ts"]) {
   const src = read(p);
   // voice/ and media/ must no longer be public-mapped.
   assert.doesNotMatch(src, /CONFIRMED_BUNNY_STORAGE_PREFIXES\s*=\s*\[[^\]]*voice\//, `${p}: voice/ still public-mapped`);
   assert.doesNotMatch(src, /CONFIRMED_BUNNY_STORAGE_PREFIXES\s*=\s*\[[^\]]*media\//, `${p}: media/ still public-mapped`);
   assert.match(src, /CONFIRMED_BUNNY_STORAGE_PREFIXES\s*=\s*\[\s*['"]photos\/['"]\s*,\s*['"]events\/['"]\s*\]/, `${p}: prefixes not exactly photos/+events/`);
-  // chat-scoped paths must be blocked from public mapping.
-  assert.match(src, /function isPrivateChatScopedStoragePath/, `${p}: missing private-scope guard`);
-  assert.match(src, /p\.startsWith\(['"]photos\/match-['"]\)/, `${p}: photos/match- not guarded`);
+  // chat-scoped paths must be blocked from public mapping, via the shared guard, before mapping.
+  assert.match(src, /isPrivateChatScopedStoragePath\b/, `${p}: missing private-scope guard import/use`);
   assert.match(src, /isPrivateChatScopedStoragePath\(p\)\)\s*return PLACEHOLDER/, `${p}: guard not enforced before mapping`);
 }
 

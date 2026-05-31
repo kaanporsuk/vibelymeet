@@ -2,6 +2,7 @@ import {
   normalizeProfilePhotoDerivatives,
   type ProfilePhotoDerivativeMap,
 } from '../../../shared/profile/photoDerivatives';
+import { isPrivateChatScopedStoragePath } from '../../../shared/media/privateMediaPaths';
 
 /**
  * Resolve profile/event image paths to full URLs.
@@ -28,16 +29,6 @@ const SUPABASE_URL = process.env.EXPO_PUBLIC_SUPABASE_URL ?? '';
 // (always private chat media) were removed: they must resolve through the authorized
 // `get-chat-media-url` resolver, never the public CDN. Defense-in-depth (mirrors web).
 const CONFIRMED_BUNNY_STORAGE_PREFIXES = ['photos/', 'events/'];
-
-/** Private chat-scoped refs must never become a public CDN URL (mirrors web imageUrl.ts). */
-function isPrivateChatScopedStoragePath(p: string): boolean {
-  return (
-    p.startsWith('voice/') ||
-    p.startsWith('chat-videos/') ||
-    p.startsWith('photos/match-') ||
-    p.includes('/match-')
-  );
-}
 type ImageDerivativePathSet = { thumb?: string; display?: string; hero?: string };
 const imageDerivativePathsByOriginalPath = new Map<string, ImageDerivativePathSet>();
 
