@@ -36,12 +36,11 @@ test("web chat exits replace the chat route with matches", () => {
     [
       "clearChatBackNavWatchdogs();",
       "inputRef.current?.blur();",
-      "clearMobileKeyboardViewportStyle();",
       "setExiting(true);",
       "flushSync(() => {",
       "navigate(MATCHES_ROUTE, { replace: true });",
       "window.location.replace(MATCHES_ROUTE);",
-      "}, [navigate, clearChatBackNavWatchdogs, clearMobileKeyboardViewportStyle]);",
+      "}, [navigate, clearChatBackNavWatchdogs]);",
     ],
     "web returnToMatches",
   );
