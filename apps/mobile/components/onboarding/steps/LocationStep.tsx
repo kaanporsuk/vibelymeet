@@ -15,7 +15,7 @@ import {
 type GeoResult = { formatted?: string; city?: string; country?: string; lat?: number; lng?: number };
 type LocationPayload = { location: string; country: string; locationData: { lat: number; lng: number } | null };
 type FeedbackTone = 'info' | 'error';
-type FeedbackState = { tone: FeedbackTone; text: string } | null;
+type FeedbackState = { tone: FeedbackTone; text: string; action?: { label: string; onPress: () => void } } | null;
 
 const MIN_SEARCH_CHARS = 2;
 
@@ -81,6 +81,7 @@ export default function LocationStep({ location, onLocationChange, onNext }: { l
         openManualSearch({
           tone: 'error',
           text: 'Device Location Services are off. Search for your city instead, or turn them on in Settings and try again.',
+          action: { label: 'Open Settings', onPress: () => void locationPermission.openSettings() },
         });
         return;
       }
@@ -90,6 +91,9 @@ export default function LocationStep({ location, onLocationChange, onNext }: { l
           text: perm.canAskAgain === false
             ? 'Location access is off. Search for your city instead, or enable it in Settings and try again.'
             : 'Location permission was denied. Search for your city instead, or try again.',
+          action: perm.canAskAgain === false
+            ? { label: 'Open Settings', onPress: () => void locationPermission.openSettings() }
+            : undefined,
         });
         return;
       }
@@ -100,6 +104,9 @@ export default function LocationStep({ location, onLocationChange, onNext }: { l
           text: pos.status === 'services_disabled'
             ? 'Device Location Services are off. Search for your city instead, or turn them on in Settings and try again.'
             : "We couldn't determine your GPS position. Search for your city instead, or try again.",
+          action: pos.status === 'services_disabled'
+            ? { label: 'Open Settings', onPress: () => void locationPermission.openSettings() }
+            : undefined,
         });
         return;
       }
@@ -240,6 +247,10 @@ export default function LocationStep({ location, onLocationChange, onNext }: { l
           {feedback.tone === 'error' ? (
             <Pressable
               onPress={() => {
+                if (feedback.action) {
+                  feedback.action.onPress();
+                  return;
+                }
                 if (showSearch && search.trim().length >= MIN_SEARCH_CHARS) void searchCity();
                 else void autoDetect();
               }}
@@ -247,7 +258,7 @@ export default function LocationStep({ location, onLocationChange, onNext }: { l
               style={{ alignSelf: 'flex-start', opacity: detecting || searching ? 0.55 : 1 }}
             >
               <Text style={{ color: theme.tint, fontSize: 14, fontWeight: '600' }}>
-                {showSearch && search.trim().length >= MIN_SEARCH_CHARS ? 'Retry search' : 'Retry location'}
+                {feedback.action?.label ?? (showSearch && search.trim().length >= MIN_SEARCH_CHARS ? 'Retry search' : 'Retry location')}
               </Text>
             </Pressable>
           ) : null}

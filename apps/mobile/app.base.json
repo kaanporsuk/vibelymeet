@@ -22,11 +22,11 @@
           "remote-notification",
           "audio"
         ],
-        "NSCameraUsageDescription": "Vibely needs camera access for video dates and vibe video.",
-        "NSMicrophoneUsageDescription": "Vibely needs microphone access for video dates and vibe video.",
-        "NSPhotoLibraryUsageDescription": "Vibely needs photo library access to add profile photos.",
-        "NSLocationWhenInUseUsageDescription": "Vibely uses your location to show events and people near you.",
-        "NSLocationAlwaysAndWhenInUseUsageDescription": "Vibely uses your location to show events and people near you.",
+        "NSCameraUsageDescription": "Vibely uses your camera for video dates, Vibe Videos, chat clips, photos, and verification selfies.",
+        "NSMicrophoneUsageDescription": "Vibely uses your microphone for video dates, Vibe Videos, voice messages, and chat clips.",
+        "NSPhotoLibraryUsageDescription": "Vibely only uses the photos and videos you choose for profile photos and chat clips.",
+        "NSLocationWhenInUseUsageDescription": "Vibely uses your location while the app is open to show nearby events and people.",
+        "NSLocationAlwaysAndWhenInUseUsageDescription": "Vibely uses your location to show nearby events and people when you choose location features.",
         "UIApplicationSceneManifest": {
           "UIApplicationSupportsMultipleScenes": false
         },
@@ -81,16 +81,16 @@
       [
         "expo-camera",
         {
-          "cameraPermission": "Vibely needs camera access for video dates and vibe video.",
-          "microphonePermission": "Vibely needs microphone access for video dates and vibe video.",
+          "cameraPermission": "Vibely uses your camera for video dates, Vibe Videos, chat clips, photos, and verification selfies.",
+          "microphonePermission": "Vibely uses your microphone for video dates, Vibe Videos, voice messages, and chat clips.",
           "recordAudioAndroid": true
         }
       ],
       [
         "expo-image-picker",
         {
-          "photosPermission": "Vibely needs photo library access to add profile photos.",
-          "cameraPermission": "Vibely needs camera access to take profile photos."
+          "photosPermission": "Vibely only uses the photos and videos you choose for profile photos and chat clips.",
+          "cameraPermission": "Vibely uses your camera for profile photos, chat photos, and verification selfies."
         }
       ],
       "expo-apple-authentication"

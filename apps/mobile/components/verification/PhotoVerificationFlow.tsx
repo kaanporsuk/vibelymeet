@@ -7,7 +7,7 @@
  * - do NOT set `profiles.photo_verified` client-side (admin-only approval)
  */
 import React, { useEffect, useMemo, useState } from 'react';
-import { View, Image, Pressable, StyleSheet, ActivityIndicator } from 'react-native';
+import { View, Image, Pressable, StyleSheet, ActivityIndicator, Linking, Platform } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 
@@ -21,8 +21,18 @@ import { KeyboardAwareBottomSheetModal } from '@/components/keyboard/KeyboardAwa
 import { prepareProofSelfieUploadPayload } from '@/lib/proofSelfiePrepareUpload';
 import { fetchMyProfileSettings } from '@/lib/myProfileSettings';
 import { resolvePhotoVerificationState } from '@/lib/photoVerificationState';
+import {
+  permissionUxStatusFromGrant,
+  resolvePermissionUx,
+  type PermissionUxAction,
+} from '@clientShared/permissions/permissionUx';
 
 type Step = 'capture' | 'preview' | 'submitting' | 'submitted';
+
+type PermissionRecovery = {
+  primaryAction: PermissionUxAction;
+  primaryLabel: string;
+};
 
 export type PhotoVerificationFlowProps = {
   visible: boolean;
@@ -53,12 +63,14 @@ export function PhotoVerificationFlow({ visible, onClose, onSubmissionComplete, 
   const [step, setStep] = useState<Step>('capture');
   const [selfieUri, setSelfieUri] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [permissionRecovery, setPermissionRecovery] = useState<PermissionRecovery | null>(null);
 
   useEffect(() => {
     if (!visible) {
       setStep('capture');
       setSelfieUri(null);
       setError(null);
+      setPermissionRecovery(null);
     }
   }, [visible]);
 
@@ -66,9 +78,22 @@ export function PhotoVerificationFlow({ visible, onClose, onSubmissionComplete, 
 
   const startCapture = async () => {
     setError(null);
-    const { status } = await ImagePicker.requestCameraPermissionsAsync();
-    if (status !== 'granted') {
-      setError('Allow camera access to take a selfie.');
+    setPermissionRecovery(null);
+    const permission = await ImagePicker.requestCameraPermissionsAsync();
+    if (permission.status !== 'granted') {
+      const copy = resolvePermissionUx({
+        capability: 'photo_verification',
+        status: permissionUxStatusFromGrant({
+          status: permission.status,
+          canAskAgain: permission.canAskAgain,
+        }),
+        platform: Platform.OS === 'ios' ? 'ios' : Platform.OS === 'android' ? 'android' : 'native',
+      });
+      setError(copy.message);
+      setPermissionRecovery({
+        primaryAction: copy.primaryAction,
+        primaryLabel: copy.primaryLabel,
+      });
       return;
     }
     const result = await ImagePicker.launchCameraAsync({
@@ -197,6 +222,22 @@ export function PhotoVerificationFlow({ visible, onClose, onSubmissionComplete, 
           <VibelyText variant="bodySecondary" style={{ color: theme.danger }}>
             {error}
           </VibelyText>
+          {permissionRecovery ? (
+            <Pressable
+              onPress={() => {
+                if (permissionRecovery.primaryAction === 'open_settings') {
+                  void Linking.openSettings();
+                  return;
+                }
+                void startCapture();
+              }}
+              style={[styles.permissionAction, { borderColor: withAlpha(theme.danger, 0.3) }]}
+            >
+              <VibelyText variant="caption" style={{ color: theme.danger, fontWeight: '800' }}>
+                {permissionRecovery.primaryLabel}
+              </VibelyText>
+            </Pressable>
+          ) : null}
         </View>
       ) : null}
 
@@ -261,6 +302,14 @@ const styles = StyleSheet.create({
     borderRadius: radius.md,
     borderWidth: 1,
     padding: spacing.sm,
+    gap: spacing.sm,
+  },
+  permissionAction: {
+    alignSelf: 'flex-start',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
   },
   preview: {
     width: '100%',

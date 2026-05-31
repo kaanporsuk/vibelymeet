@@ -11,6 +11,13 @@ import {
   prepareWebProofSelfieUploadPayload,
   WebProofSelfiePayloadError,
 } from "@/lib/webProofSelfieUpload";
+import {
+  classifyMediaPermissionError,
+  mediaPermissionMessage,
+  mediaPermissionResultForStatus,
+  mediaPermissionTitle,
+  type MediaPermissionRecoveryAction,
+} from "@clientShared/media/mediaPermissionResult";
 
 interface SimplePhotoVerificationProps {
   open: boolean;
@@ -23,6 +30,7 @@ interface SimplePhotoVerificationProps {
 }
 
 type Screen = "intro" | "camera" | "preview" | "uploading" | "submitted" | "error";
+type ErrorPrimaryAction = "start_camera" | "retry_submit" | "close";
 
 type VerificationSubmitErrorOptions = {
   markPending?: boolean;
@@ -39,19 +47,6 @@ class VerificationSubmitError extends Error {
     this.markPending = options.markPending ?? false;
     this.closeWithoutStateChange = options.closeWithoutStateChange ?? false;
   }
-}
-
-function browserErrorName(error: unknown): string {
-  if (error instanceof Error) return error.name;
-  if (
-    typeof error === "object" &&
-    error !== null &&
-    "name" in error &&
-    typeof error.name === "string"
-  ) {
-    return error.name;
-  }
-  return "";
 }
 
 function isPostgrestCode(error: unknown, code: string): boolean {
@@ -80,6 +75,9 @@ export function SimplePhotoVerification({
   /** Data URL shown in preview; same bytes are uploaded (avoids async canvas.toBlob races that produced 0-byte Storage objects). */
   const [capturedImage, setCapturedImage] = useState<string | null>(null);
   const [cameraError, setCameraError] = useState<string | null>(null);
+  const [cameraErrorTitle, setCameraErrorTitle] = useState<string | null>(null);
+  const [cameraRecoveryAction, setCameraRecoveryAction] = useState<MediaPermissionRecoveryAction | null>(null);
+  const [errorPrimaryAction, setErrorPrimaryAction] = useState<ErrorPrimaryAction>("start_camera");
   const [isCameraReady, setIsCameraReady] = useState(false);
 
   const stopCamera = useCallback(() => {
@@ -103,6 +101,9 @@ export function SimplePhotoVerification({
       setScreen("intro");
       setCapturedImage(null);
       setCameraError(null);
+      setCameraErrorTitle(null);
+      setCameraRecoveryAction(null);
+      setErrorPrimaryAction("start_camera");
       setIsCameraReady(false);
     }
   }, [open, stopCamera]);
@@ -114,12 +115,24 @@ export function SimplePhotoVerification({
   const startCamera = async () => {
     // Check if getUserMedia is available
     if (!navigator.mediaDevices?.getUserMedia) {
-      setCameraError("Your browser doesn't support camera access. Please try from a mobile device or a modern browser like Chrome, Firefox, or Edge.");
+      const unsupported = mediaPermissionResultForStatus({
+        status: "unsupported",
+        kind: "camera",
+        permissionState: "unsupported",
+        rawErrorName: "getUserMedia_missing",
+      });
+      setCameraErrorTitle(mediaPermissionTitle(unsupported));
+      setCameraError(mediaPermissionMessage(unsupported));
+      setCameraRecoveryAction(unsupported.recoveryAction);
+      setErrorPrimaryAction("close");
       setScreen("error");
       return;
     }
 
     setCameraError(null);
+    setCameraErrorTitle(null);
+    setCameraRecoveryAction(null);
+    setErrorPrimaryAction("start_camera");
     setIsCameraReady(false);
     setScreen("camera");
 
@@ -142,16 +155,13 @@ export function SimplePhotoVerification({
         }
       }
     } catch (err: unknown) {
-      const errorName = browserErrorName(err);
       console.error("Camera error:", err);
       setIsCameraReady(false);
-      if (errorName === "NotAllowedError") {
-        setCameraError("Camera access denied. Please allow camera in your browser settings, then reload the page.");
-      } else if (errorName === "NotFoundError") {
-        setCameraError("No front camera found on this device.");
-      } else {
-        setCameraError("Could not access camera. Please try again.");
-      }
+      const permissionResult = classifyMediaPermissionError(err, "camera");
+      setCameraErrorTitle(mediaPermissionTitle(permissionResult));
+      setCameraError(mediaPermissionMessage(permissionResult));
+      setCameraRecoveryAction(permissionResult.recoveryAction);
+      setErrorPrimaryAction("start_camera");
       setScreen("error");
     }
   };
@@ -160,6 +170,8 @@ export function SimplePhotoVerification({
     if (!videoRef.current) return;
     if (!isCameraReady || videoRef.current.videoWidth <= 0 || videoRef.current.videoHeight <= 0) {
       setCameraError("Camera is still starting. Please wait a moment and try again.");
+      setCameraRecoveryAction("retry");
+      setErrorPrimaryAction("start_camera");
       return;
     }
 
@@ -169,6 +181,8 @@ export function SimplePhotoVerification({
     const ctx = canvas.getContext("2d");
     if (!ctx) {
       setCameraError("Your browser could not prepare the selfie. Please try again.");
+      setCameraRecoveryAction("retry");
+      setErrorPrimaryAction("start_camera");
       setScreen("error");
       return;
     }
@@ -182,6 +196,8 @@ export function SimplePhotoVerification({
     } catch (err) {
       console.error("Selfie capture failed:", err);
       setCameraError("Could not capture selfie. Please try again.");
+      setCameraRecoveryAction("retry");
+      setErrorPrimaryAction("start_camera");
       setScreen("error");
       return;
     }
@@ -321,9 +337,31 @@ export function SimplePhotoVerification({
           ? err.message
           : "Failed to upload selfie. Please try again.",
       );
+      setCameraErrorTitle("Could not submit selfie");
+      setCameraRecoveryAction("retry");
+      setErrorPrimaryAction(err instanceof WebProofSelfiePayloadError || !capturedImage ? "start_camera" : "retry_submit");
       setScreen("error");
     }
   };
+
+  const handleErrorPrimaryAction = () => {
+    if (errorPrimaryAction === "close") {
+      onOpenChange(false);
+      return;
+    }
+    if (errorPrimaryAction === "retry_submit") {
+      void handleSubmit();
+      return;
+    }
+    void startCamera();
+  };
+
+  const errorPrimaryLabel =
+    errorPrimaryAction === "close"
+      ? "Close"
+      : cameraRecoveryAction === "open_settings"
+        ? "I updated settings"
+        : "Try again";
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -445,14 +483,14 @@ export function SimplePhotoVerification({
           {screen === "error" && (
             <div className="flex flex-col items-center gap-4 py-8 text-center">
               <AlertCircle className="w-12 h-12 text-destructive" />
-              <p className="text-foreground font-medium">Something went wrong</p>
+              <p className="text-foreground font-medium">{cameraErrorTitle ?? "Something went wrong"}</p>
               <p className="text-sm text-muted-foreground">{cameraError}</p>
               <div className="flex gap-3 w-full">
                 <Button variant="outline" className="flex-1" onClick={() => onOpenChange(false)}>
                   Cancel
                 </Button>
-                <Button variant="gradient" className="flex-1" onClick={startCamera}>
-                  Try Again
+                <Button variant="gradient" className="flex-1" onClick={handleErrorPrimaryAction}>
+                  {errorPrimaryLabel}
                 </Button>
               </div>
             </div>

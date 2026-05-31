@@ -5,6 +5,7 @@ import {
   VIBE_CLIP_UPLOAD_EMPTY_FILE,
   VIBE_CLIP_UPLOAD_TOO_LARGE,
 } from "../../shared/chat/vibeClipCaptureCopy";
+import { bunnyStreamVideoIdFromRef } from "../../shared/chat/messageRouting";
 import type { VibeClipRecoveryResumeStrategy } from "../../shared/chat/vibeClipRecovery";
 
 const TUS_CHUNK_SIZE = 5 * 1024 * 1024;
@@ -264,11 +265,6 @@ function isStaleTusCredentialError(error: unknown): boolean {
   return status === 401 || status === 403 || status === 410;
 }
 
-function providerObjectIdFromPlaybackRef(ref: string | null | undefined): string | null {
-  const match = /^bunny_stream:([0-9a-f-]{32,36})(?::thumbnail)?$/i.exec(ref?.trim() ?? "");
-  return match?.[1] ?? null;
-}
-
 function resultFromCompletedUpload(params: {
   uploadId: string;
   videoId: string;
@@ -297,7 +293,7 @@ export async function completePublishedChatVibeClipUpload(params: {
   });
   const videoId =
     completed.provider_object_id ||
-    providerObjectIdFromPlaybackRef(params.playbackRef);
+    bunnyStreamVideoIdFromRef(params.playbackRef);
   if (!videoId) throw new Error("Clip confirmation was missing its Bunny video reference.");
 
   return resultFromCompletedUpload({

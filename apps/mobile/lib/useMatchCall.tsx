@@ -17,7 +17,7 @@ import {
   type ReactNode,
 } from 'react';
 import Daily, { type DailyParticipant } from '@daily-co/react-native-daily-js';
-import { Alert, AppState, type AppStateStatus } from 'react-native';
+import { Alert, AppState, Linking, type AppStateStatus } from 'react-native';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/context/AuthContext';
 import { IncomingCallOverlay } from '@/components/chat/IncomingCallOverlay';
@@ -1404,20 +1404,54 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
   const toggleMute = useCallback(() => {
     const callObject = callObjectRef.current;
     if (!callObject) return;
+    const local = callObject.participants().local;
+    if (local?.tracks?.audio?.state === 'blocked') {
+      Alert.alert(
+        'Microphone access needed',
+        'Microphone access is off for Vibely. Re-enable it in Settings, then return to the call.',
+        [
+          { text: 'Not now', style: 'cancel' },
+          { text: 'Open Settings', onPress: () => void Linking.openSettings() },
+        ],
+      );
+      return;
+    }
     const nextMuted = !isMuted;
-    callObject.setLocalAudio(!nextMuted);
-    setIsMuted(nextMuted);
+    void Promise.resolve()
+      .then(() => callObject.setLocalAudio(!nextMuted))
+      .then(() => setIsMuted(nextMuted))
+      .catch(() => {
+        Alert.alert('Microphone issue', 'Could not update your microphone. Try again in a moment.');
+      });
   }, [isMuted]);
 
   const toggleVideo = useCallback(() => {
     const callObject = callObjectRef.current;
     if (!callObject) return;
-    const nextVideoOff = !isVideoOff;
-    callObject.setLocalVideo(!nextVideoOff);
-    setIsVideoOff(nextVideoOff);
-    if (nextVideoOff) {
-      nativeCameraStateRef.current = emptyNativeCameraState();
+    const local = callObject.participants().local;
+    if (local?.tracks?.video?.state === 'blocked') {
+      Alert.alert(
+        'Camera access needed',
+        'Camera access is off for Vibely. Re-enable it in Settings, then return to the call.',
+        [
+          { text: 'Not now', style: 'cancel' },
+          { text: 'Open Settings', onPress: () => void Linking.openSettings() },
+        ],
+      );
+      return;
     }
+    const nextVideoOff = !isVideoOff;
+    void Promise.resolve()
+      .then(() => callObject.setLocalVideo(!nextVideoOff))
+      .then(() => {
+        setIsVideoOff(nextVideoOff);
+        if (nextVideoOff) {
+          nativeCameraStateRef.current = emptyNativeCameraState();
+        }
+      })
+      .catch(() => {
+        Alert.alert('Camera issue', 'Could not update your camera. Try again in a moment.');
+      });
   }, [isVideoOff]);
 
   const readNativeLocalCameraSnapshot = useCallback(

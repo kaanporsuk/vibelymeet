@@ -2,10 +2,14 @@ export type MediaPermissionStatus =
   | "granted"
   | "promptable"
   | "denied"
+  | "denied_retryable"
+  | "blocked_settings"
   | "unsupported"
   | "missing_device"
+  | "hardware_missing"
   | "constraint_failed"
-  | "in_use_or_abort";
+  | "in_use_or_abort"
+  | "in_use";
 
 export type MediaPermissionKind = "camera" | "microphone" | "camera_microphone";
 
@@ -146,50 +150,98 @@ function recoveryActionForStatus(status: MediaPermissionStatus): MediaPermission
     case "granted":
       return "none";
     case "promptable":
+    case "denied_retryable":
     case "constraint_failed":
     case "in_use_or_abort":
+    case "in_use":
       return "retry";
     case "denied":
+    case "blocked_settings":
       return "open_settings";
     case "missing_device":
+    case "hardware_missing":
       return "connect_device";
     case "unsupported":
       return "use_supported_browser";
   }
 }
 
+function mediaPermissionSubject(result: MediaPermissionResult): string {
+  if (result.kind === "camera") return "camera";
+  if (result.kind === "microphone") return "microphone";
+  return "camera and microphone";
+}
+
 export function mediaPermissionTitle(result: MediaPermissionResult): string {
   switch (result.status) {
     case "unsupported":
-      return "Recording is not available";
+      return result.kind === "camera" ? "Camera is not available" : "Recording is not available";
     case "missing_device":
-      return result.kind === "microphone" ? "Microphone not found" : "Camera not found";
+    case "hardware_missing":
+      return result.kind === "microphone"
+        ? "Microphone not found"
+        : result.kind === "camera"
+          ? "Camera not found"
+          : "Camera or microphone not found";
     case "in_use_or_abort":
-      return "Camera or microphone is busy";
+    case "in_use":
+      return result.kind === "microphone"
+        ? "Microphone is busy"
+        : result.kind === "camera"
+          ? "Camera is busy"
+          : "Camera or microphone is busy";
     case "constraint_failed":
-      return "Camera setup needs another try";
+      return result.kind === "microphone"
+        ? "Microphone setup needs another try"
+        : result.kind === "camera"
+          ? "Camera setup needs another try"
+          : "Camera or microphone setup needs another try";
     case "denied":
+    case "denied_retryable":
+    case "blocked_settings":
     case "promptable":
     case "granted":
-      return result.kind === "microphone" ? "Microphone access needed" : "Camera and microphone needed";
+      return result.kind === "microphone"
+        ? "Microphone access needed"
+        : result.kind === "camera"
+          ? "Camera access needed"
+          : "Camera and microphone needed";
   }
 }
 
 export function mediaPermissionMessage(result: MediaPermissionResult): string {
+  const subject = mediaPermissionSubject(result);
   switch (result.status) {
     case "unsupported":
-      return "This browser cannot record a Vibe Video. Upload a saved video instead.";
+      if (result.kind === "camera") {
+        return "This browser cannot use the camera here. Use a supported browser or choose a saved photo if available.";
+      }
+      if (result.kind === "microphone") {
+        return "This browser cannot record audio here. Use a supported browser and try again.";
+      }
+      return "This browser cannot record video here. Upload a saved video or use a supported browser.";
     case "missing_device":
-      return "We could not find the required camera or microphone on this device.";
+    case "hardware_missing":
+      return `We could not find the required ${subject} on this device.`;
     case "constraint_failed":
-      return "Your browser could not start the preferred camera. Try again or upload a saved video.";
+      if (result.kind === "microphone") {
+        return "Your browser could not start the microphone. Try again.";
+      }
+      if (result.kind === "camera") {
+        return "Your browser could not start the preferred camera. Try again or choose a saved photo if available.";
+      }
+      return "Your browser could not start the preferred camera or microphone. Try again or upload a saved video.";
     case "in_use_or_abort":
-      return "Another app or tab may be using the camera or microphone. Close it, then try again.";
+    case "in_use":
+      return `Another app or tab may be using the ${subject}. Close it, then try again.`;
     case "denied":
-      return "Allow camera and microphone access in your browser settings, then try again.";
+    case "blocked_settings":
+      return `Allow ${subject} access in your browser settings, then try again.`;
+    case "denied_retryable":
+      return `Allow ${subject} access, then try again.`;
     case "promptable":
-      return "Allow camera and microphone access to record your Vibe Video.";
+      return `Allow ${subject} access to continue.`;
     case "granted":
-      return "Camera and microphone access is ready.";
+      return `${subject[0].toUpperCase()}${subject.slice(1)} access is ready.`;
   }
 }

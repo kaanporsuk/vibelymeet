@@ -97,6 +97,7 @@ test("Phase 9 reduce-motion defaults, animation gates, and preload policy are pi
   const nativeQoe = read("apps/mobile/hooks/useNativeMediaPlaybackQoE.ts");
   const nativeVibePlayer = read("apps/mobile/components/video/VibeVideoPlayer.tsx");
   const nativeChatViewer = read("apps/mobile/components/chat/ChatThreadMediaViewer.tsx");
+  const nativeChat = read("apps/mobile/app/chat/[id].tsx");
   const nativeVibeClip = read("apps/mobile/components/chat/VibeClipCard.tsx");
   const nativeFullscreenVibe = read("apps/mobile/components/video/FullscreenVibeVideoModal.tsx");
   const nativeProfileFullView = read("apps/mobile/components/profile/UserProfileFullView.tsx");
@@ -122,15 +123,23 @@ test("Phase 9 reduce-motion defaults, animation gates, and preload policy are pi
   assert.match(nativeVibePlayer, /shouldAttachPlayback[\s\S]*reduceMotionResolved/);
   assert.match(nativeVibePlayer, /enabled: shouldAttachPlayback/);
   assert.match(nativeVibePlayer, /if \(!shouldAttachPlayback\) return;[\s\S]*player\.addListener\('statusChange'/);
+  assert.doesNotMatch(nativeVibePlayer, /player\.replace\(/);
+  assert.doesNotMatch(nativeVibePlayer, /vibeVideo\.player\.pause\.unmount/);
+  assert.match(nativeVibePlayer, /vibeVideo\.player\.status\.initial/);
   assert.match(nativeVibePlayer, /setManualPlaybackRequested\(true\)/);
   assert.match(nativeChatViewer, /useReduceMotionState/);
   assert.match(nativeChatViewer, /shouldAttachPlayback[\s\S]*reduceMotionResolved/);
-  assert.match(nativeChatViewer, /chat\.viewerVideo\.replace/);
+  assert.doesNotMatch(nativeChatViewer, /chat\.viewerVideo\.replace/);
+  assert.match(nativeChatViewer, /chat\.viewerVideo\.status\.initial/);
   assert.match(nativeChatViewer, /setManualPlaybackRequested\(true\)/);
+  assert.doesNotMatch(nativeChat, /chat\.video\.pause\.unmount/);
+  assert.match(nativeChat, /chat\.video\.status\.initial/);
   assert.match(nativeVibeClip, /useReduceMotionState/);
   assert.match(nativeVibeClip, /shouldAttachPlayback[\s\S]*reduceMotionResolved/);
   assert.match(nativeVibeClip, /useMemo<VideoSource>\(\(\) => \(shouldAttachPlayback \? videoSourceForUri\(meta\.videoUrl\) : null\)/);
   assert.match(nativeVibeClip, /enabled: shouldAttachPlayback/);
+  assert.doesNotMatch(nativeVibeClip, /vibeClip\.player\.replace/);
+  assert.match(nativeVibeClip, /vibeClip\.player\.status\.initial/);
   assert.match(nativeVibeClip, /if \(!shouldAttachPlayback\) return;[\s\S]*vibeClip\.player\.statusListener/);
   assert.match(nativeVibeClip, /if \(!immersiveActive\) return;[\s\S]*vibeClip\.player\.pause\.immersive/);
   assert.match(nativeVibePlayer, /vibeVideo\.player\.pause\.detached/);
@@ -144,7 +153,14 @@ test("Phase 9 reduce-motion defaults, animation gates, and preload policy are pi
   assert.match(webVibePlayer, /!prefersReducedMotion && "animate-spin"/);
   assert.match(webVibeClip, /useMediaVideoPreloadForVisibility[\s\S]*prefersReducedMotion/);
   assert.match(webVibeClip, /!prefersReducedMotion && "animate-spin"/);
+  assert.match(webVibeClip, /CLIP_PLAYBACK_LOAD_TIMEOUT_MS/);
+  assert.match(webVibeClip, /isIosSafari/);
+  assert.match(webVibeClip, /onLoadedData=\{markReadyIfPossible\}/);
+  assert.match(webVibeClip, /onCanPlay=\{markReadyIfPossible\}/);
   assert.match(webVideoBubble, /!prefersReducedMotion && "animate-spin"/);
+  assert.match(webVideoBubble, /isIosSafari/);
+  assert.match(webVideoBubble, /onLoadedData=\{markReadyIfPossible\}/);
+  assert.match(webVideoBubble, /onCanPlay=\{markReadyIfPossible\}/);
   assert.match(voiceBubble, /usePrefersReducedMotion/);
   assert.match(voiceBubble, /prefersReducedMotion \? undefined/);
   assert.match(lightbox, /prefersReducedMotion \? undefined/);
@@ -155,6 +171,9 @@ test("Phase 9 reduce-motion defaults, animation gates, and preload policy are pi
   assert.match(lightbox, /shouldAttachPlayback/);
   assert.match(chatVideoLightbox, /usePrefersReducedMotion/);
   assert.match(chatVideoLightbox, /autoPlay: !prefersReducedMotion/);
+  assert.match(chatVideoLightbox, /CLIP_PLAYBACK_LOAD_TIMEOUT_MS/);
+  assert.match(chatVideoLightbox, /onAutoplayBlocked: revealPlayer/);
+  assert.match(chatVideoLightbox, /onManifestParsed: revealPlayer/);
   assert.match(chatVideoLightbox, /prefersReducedMotion \? "" : "animate-spin"/);
   assert.match(chatPhotoLightbox, /usePrefersReducedMotion/);
   assert.match(vibeStudioModal, /usePrefersReducedMotion/);
@@ -222,7 +241,8 @@ test("chat shared video lightbox does not reset loading phase for unchanged medi
   );
   assert.match(chatVideoLightbox, /refreshMediaRef\.current = refreshMedia/);
   assert.match(chatVideoLightbox, /const refresh = refreshMediaRef\.current/);
-  assert.match(chatVideoLightbox, /const posterUrlRef = useRef\(posterUrl \?\? null\)/);
+  assert.match(chatVideoLightbox, /const initialPosterUrl = displayablePosterUrl\(posterUrl\)/);
+  assert.match(chatVideoLightbox, /const posterUrlRef = useRef\(initialPosterUrl\)/);
   assert.ok(chatVideoLightbox.includes("}, [resetPhase, videoAssetFallbackReason, videoSourceRef, videoUrl]);"));
   assert.ok(chatVideoLightbox.includes("}, [canMountPlayer, isHlsUrl, playableVideoUrl, prefersReducedMotion, revealPlayer]);"));
   assert.doesNotMatch(
@@ -474,6 +494,8 @@ test("Sprint 1 native HLS auth refresh stays bounded, signed-only, and fatal-saf
   assert.match(nativeVibePlayer, /authRefreshAttemptsRef\.current >= MAX_HLS_AUTH_REFRESH_ATTEMPTS/);
   assert.match(nativeVibePlayer, /refreshMediaAsset\('playback', \{ bypassFailureCooldown: true \}\)/);
   assert.match(nativeVibePlayer, /refreshMediaAsset\('proactive', \{ suppressFailureCache: true \}\)/);
+  assert.doesNotMatch(nativeVibePlayer, /vibeVideo\.player\.replace\.authRefresh/);
+  assert.match(nativeVibePlayer, /freshUri === playbackSourceUri[\s\S]*player\.replaceAsync\(freshUri\)/);
   assert.match(nativeVibePlayer, /if \(authRefreshInFlightRef\.current\) \{\s*scheduleRetry\(\);\s*return;\s*\}/);
   assert.match(nativeVibePlayer, /VIBE_VIDEO_EVENTS\.tokenRefreshOnAuthError/);
   assert.match(nativeMediaAssetHook, /kind === 'profile_vibe_video' && url && isHlsMediaAssetUrl\(url\)/);

@@ -79,6 +79,11 @@ import {
 } from "@clientShared/matching/videoDateCountdown";
 import { sendVideoDateSignalWithRetry } from "@clientShared/matching/videoDateSignalRetry";
 import {
+  mediaPermissionMessage,
+  mediaPermissionResultForStatus,
+  mediaPermissionTitle,
+} from "@clientShared/media/mediaPermissionResult";
+import {
   buildVideoDateExtensionIdempotencyKey,
   buildVideoDateMutualExtensionIdempotencyKey,
   buildVideoDateTransitionIdempotencyKey,
@@ -802,6 +807,7 @@ const VideoDate = () => {
     isMuted,
     isVideoOff,
     mediaPermissionError,
+    mediaPermissionResult,
     localVideoRef,
     remoteVideoRef,
     localStream,
@@ -4521,16 +4527,26 @@ const VideoDate = () => {
   }
 
   if (mediaPermissionError) {
+    const permissionBlock =
+      mediaPermissionResult ??
+      mediaPermissionResultForStatus({
+        status: "denied",
+        kind: "camera_microphone",
+        permissionState: "denied",
+        rawErrorMessage: mediaPermissionError,
+      });
     return (
       <div className="min-h-screen bg-background flex flex-col items-center justify-center p-6 text-center gap-4">
         <User className="w-14 h-14 text-muted-foreground" />
-        <h1 className="text-xl font-display font-semibold">Camera and microphone are needed</h1>
+        <h1 className="text-xl font-display font-semibold">{mediaPermissionTitle(permissionBlock)}</h1>
         <p className="text-muted-foreground text-sm max-w-sm">
-          Allow access so your date can begin softly with audio and video. Then try again.
+          {mediaPermissionMessage(permissionBlock)}
         </p>
-        <p className="text-xs text-muted-foreground max-w-sm">
-          In Chrome or Safari, use the camera icon in the address bar or your site settings to allow access for Vibely.
-        </p>
+        {permissionBlock.recoveryAction === "open_settings" ? (
+          <p className="text-xs text-muted-foreground max-w-sm">
+            Use the camera icon in the address bar or this browser's site settings, then return here.
+          </p>
+        ) : null}
         <div className="flex flex-col sm:flex-row gap-3">
           <Button
             type="button"
@@ -4547,7 +4563,7 @@ const VideoDate = () => {
               clearMediaPermissionError();
             }}
           >
-            Try again
+            {permissionBlock.recoveryAction === "open_settings" ? "I updated settings" : "Try again"}
           </Button>
           <Button
             type="button"

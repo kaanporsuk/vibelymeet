@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { X, SwitchCamera, Film, Sparkles, Upload, Loader2 } from "lucide-react";
+import { AlertCircle, RotateCcw, X, SwitchCamera, Film, Sparkles, Upload, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { trackEvent } from "@/lib/analytics";
@@ -24,6 +24,13 @@ import {
   type WebVibeClipCompleteMeta,
 } from "@/lib/webVibeClipLibraryUpload";
 import type { MediaCaptions } from "../../../shared/media/captions";
+import {
+  classifyMediaPermissionError,
+  mediaPermissionMessage,
+  mediaPermissionResultForStatus,
+  mediaPermissionTitle,
+  type MediaPermissionResult,
+} from "@clientShared/media/mediaPermissionResult";
 
 type BrowserSpeechRecognitionAlternative = {
   transcript?: string;
@@ -86,6 +93,7 @@ const VideoMessageRecorder = ({
   const [hasMultipleCameras, setHasMultipleCameras] = useState(false);
   const [cameraReady, setCameraReady] = useState(false);
   const [pendingRecording, setPendingRecording] = useState<PendingRecording | null>(null);
+  const [mediaPermissionResult, setMediaPermissionResult] = useState<MediaPermissionResult | null>(null);
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -213,6 +221,13 @@ const VideoMessageRecorder = ({
     async (facing: "user" | "environment", opts?: { cancelOnError?: boolean; silentError?: boolean }) => {
       if (!navigator.mediaDevices?.getUserMedia) {
         setCameraReady(false);
+        const result = mediaPermissionResultForStatus({
+          status: "unsupported",
+          kind: "camera_microphone",
+          permissionState: "unsupported",
+          rawErrorName: "getUserMedia_missing",
+        });
+        setMediaPermissionResult(result);
         if (!opts?.silentError) toast.error(VIBE_CLIP_WEB_TOAST_UNSUPPORTED);
         if (opts?.cancelOnError !== false) onCancel();
         return null;
@@ -227,12 +242,15 @@ const VideoMessageRecorder = ({
         previousStream?.getTracks().forEach((t) => t.stop());
         streamRef.current = stream;
         setCameraReady(true);
+        setMediaPermissionResult(null);
         if (videoRef.current) {
           videoRef.current.srcObject = stream;
         }
         void refreshCameraCount();
         return stream;
       } catch (err: unknown) {
+        const result = classifyMediaPermissionError(err, "camera_microphone");
+        setMediaPermissionResult(result);
         if (!opts?.silentError) {
           const name = err instanceof Error ? err.name : "";
           if (name === "AbortError" || name === "NotAllowedError") {
@@ -315,7 +333,10 @@ const VideoMessageRecorder = ({
   const startRecording = () => {
     if (isProcessingUpload) return;
     const stream = streamRef.current;
-    if (!stream) return;
+    if (!stream) {
+      void startCamera(facingMode, { cancelOnError: false });
+      return;
+    }
 
     const isSafari = /^((?!chrome|android).)*safari/i.test(navigator.userAgent);
     const supportedTypes = isSafari
@@ -485,6 +506,8 @@ const VideoMessageRecorder = ({
     return `${m}:${sec.toString().padStart(2, "0")}`;
   };
 
+  const permissionBlock = mediaPermissionResult;
+
   return (
     <motion.div
       initial={prefersReducedMotion ? false : { opacity: 0 }}
@@ -600,7 +623,7 @@ const VideoMessageRecorder = ({
         </div>
 
         {/* Center framing — idle only */}
-        {!isRecording && !pendingRecording && (
+        {!isRecording && !pendingRecording && !permissionBlock && (
           <div className="absolute left-0 right-0 top-[28%] flex flex-col items-center px-6 pointer-events-none">
             <div className="flex items-center gap-1.5 rounded-full bg-white/10 backdrop-blur-sm px-3 py-1.5 border border-white/15 mb-2">
               <Sparkles className="w-3.5 h-3.5 text-amber-200/90" aria-hidden />
@@ -616,6 +639,47 @@ const VideoMessageRecorder = ({
             </p>
           </div>
         )}
+
+        {!isRecording && !pendingRecording && permissionBlock ? (
+          <div className="absolute inset-x-4 top-1/2 mx-auto flex max-w-sm -translate-y-1/2 flex-col items-center rounded-3xl border border-white/12 bg-black/72 p-5 text-center shadow-2xl shadow-black/35 backdrop-blur-md">
+            <div className="mb-3 flex h-14 w-14 items-center justify-center rounded-full border border-violet-300/25 bg-violet-500/16 text-violet-100">
+              <AlertCircle className="h-7 w-7" aria-hidden />
+            </div>
+            <p className="text-lg font-bold text-white">{mediaPermissionTitle(permissionBlock)}</p>
+            <p className="mt-2 text-sm leading-relaxed text-white/68">{mediaPermissionMessage(permissionBlock)}</p>
+            <div className="mt-5 flex w-full flex-col gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setMediaPermissionResult(null);
+                  void startCamera(facingMode, { cancelOnError: false });
+                }}
+                className="inline-flex min-h-11 items-center justify-center gap-2 rounded-full bg-white px-5 text-sm font-bold text-black transition hover:bg-white/90"
+              >
+                <RotateCcw className="h-4 w-4" aria-hidden />
+                {permissionBlock.recoveryAction === "open_settings" ? "I updated settings" : "Try again"}
+              </button>
+              {showLibraryUpload ? (
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={isProcessingUpload}
+                  className="inline-flex min-h-11 items-center justify-center gap-2 rounded-full bg-white/10 px-5 text-sm font-bold text-white/80 ring-1 ring-white/12 transition hover:bg-white/15 disabled:pointer-events-none disabled:opacity-50"
+                >
+                  {isProcessingUpload ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : <Upload className="h-4 w-4" aria-hidden />}
+                  Upload video
+                </button>
+              ) : null}
+              <button
+                type="button"
+                onClick={handleCancel}
+                className="min-h-10 rounded-full text-sm font-semibold text-white/56 transition hover:text-white"
+              >
+                Not now
+              </button>
+            </div>
+          </div>
+        ) : null}
 
         <div className="flex-1" />
 

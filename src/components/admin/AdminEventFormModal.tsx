@@ -46,10 +46,12 @@ const DAYS_FULL = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Frid
 type Scope = "global" | "regional" | "local";
 type RecurrenceType = "weekly" | "biweekly" | "monthly_day" | "monthly_weekday" | "yearly";
 type RecurrenceEnd = "never" | "after" | "on_date";
+type EventCreateStatus = "draft" | "upcoming";
 
 type SubmitConfirmation = {
   title: string;
   description: string;
+  createStatus?: EventCreateStatus;
 };
 
 type VibeTagRow = {
@@ -638,7 +640,8 @@ const AdminEventFormModal = ({ event, onClose }: AdminEventFormModalProps) => {
 
   // Save mutation
   const saveEvent = useMutation({
-    mutationFn: async () => {
+    mutationFn: async (variables?: { createStatus?: EventCreateStatus }) => {
+      const createStatus = variables?.createStatus ?? "upcoming";
       const eventDateTime = parseLocalEventStart(eventDate, eventTime);
       if (!eventDateTime) throw new Error("Choose a valid event date and time.");
       const eventData: EventSavePayload = {
@@ -671,7 +674,7 @@ const AdminEventFormModal = ({ event, onClose }: AdminEventFormModalProps) => {
         recurrence_ends_at: isRecurring && recurrenceEnd === 'on_date' && endsOnDate ? parseLocalEndOfDay(endsOnDate)?.toISOString() ?? null : null,
       };
 
-      if (!isEditing) eventData.status = 'upcoming';
+      if (!isEditing) eventData.status = createStatus;
 
       if (isEditing) {
         const payload = await callAdminRpc("admin_update_event", {
@@ -689,7 +692,7 @@ const AdminEventFormModal = ({ event, onClose }: AdminEventFormModalProps) => {
             after: eventData,
           }),
         });
-        return { id: event.id, action: 'edit_event', eventData: (payload.event || eventData) as EventSavePayload };
+        return { id: event.id, action: 'edit_event', eventData: (payload.event || eventData) as EventSavePayload, status: null as EventCreateStatus | null };
       } else {
         const payload = await callAdminRpc("admin_create_event", {
           p_payload: eventData,
@@ -699,28 +702,31 @@ const AdminEventFormModal = ({ event, onClose }: AdminEventFormModalProps) => {
             eventData,
           ),
         });
-        return { id: String(payload.event_id), action: 'create_event', eventData: (payload.event || eventData) as EventSavePayload };
+        return { id: String(payload.event_id), action: 'create_event', eventData: (payload.event || eventData) as EventSavePayload, status: createStatus };
       }
     },
     onSuccess: async (result) => {
       if (result.action === 'create_event') {
-        try {
-          const { data, error } = await supabase.functions.invoke('event-notifications', {
-            body: { type: 'event_created', eventId: result.id, eventTitle: title, eventDate: result.eventData.event_date, eventDescription: description }
-          });
-          if (error || !data?.success) {
+        const createdAsDraft = result.status === "draft";
+        if (!createdAsDraft) {
+          try {
+            const { data, error } = await supabase.functions.invoke('event-notifications', {
+              body: { type: 'event_created', eventId: result.id, eventTitle: title, eventDate: result.eventData.event_date, eventDescription: description }
+            });
+            if (error || !data?.success) {
+              adminToast.warning({
+                id: `admin-event-notification-warning-${result.id}`,
+                title: "Event created, but announcement email did not complete",
+                description: await resolveAdminFunctionErrorMessage(error, data, "Announcement email failed"),
+              });
+            }
+          } catch (notificationError) {
             adminToast.warning({
               id: `admin-event-notification-warning-${result.id}`,
               title: "Event created, but announcement email did not complete",
-              description: await resolveAdminFunctionErrorMessage(error, data, "Announcement email failed"),
+              description: resolveAdminErrorMessage(notificationError, "Announcement email failed"),
             });
           }
-        } catch (notificationError) {
-          adminToast.warning({
-            id: `admin-event-notification-warning-${result.id}`,
-            title: "Event created, but announcement email did not complete",
-            description: resolveAdminErrorMessage(notificationError, "Announcement email failed"),
-          });
         }
 
         if (isRecurring) {
@@ -736,7 +742,7 @@ const AdminEventFormModal = ({ event, onClose }: AdminEventFormModalProps) => {
             });
             adminToast.success({
               id: `admin-event-save-${result.id}`,
-              title: `Created recurring event + ${Number(recurringPayload.generated_count || 0)} upcoming occurrences`,
+              title: `Created recurring event + ${Number(recurringPayload.generated_count || 0)} ${createdAsDraft ? "draft" : "upcoming"} occurrences`,
               description: "The event list and discover feeds are refreshing.",
             });
           } catch (recurrenceError) {
@@ -758,8 +764,10 @@ const AdminEventFormModal = ({ event, onClose }: AdminEventFormModalProps) => {
         } else {
           adminToast.success({
             id: `admin-event-save-${result.id}`,
-            title: "Event created successfully",
-            description: "The event list and discover feeds are refreshing.",
+            title: createdAsDraft ? "Draft event saved" : "Event created successfully",
+            description: createdAsDraft
+              ? "The event is not discoverable until it is published."
+              : "The event list and discover feeds are refreshing.",
           });
         }
       } else {
@@ -771,8 +779,10 @@ const AdminEventFormModal = ({ event, onClose }: AdminEventFormModalProps) => {
       }
 
       queryClient.invalidateQueries({ queryKey: ['admin-events'] });
+      queryClient.invalidateQueries({ queryKey: ['events'] });
       queryClient.invalidateQueries({ queryKey: ['visible-events'] });
       queryClient.invalidateQueries({ queryKey: ['events-discover'] });
+      queryClient.invalidateQueries({ queryKey: ['other-city-events'] });
       onClose();
     },
     onError: (error) => {
@@ -825,8 +835,7 @@ const AdminEventFormModal = ({ event, onClose }: AdminEventFormModalProps) => {
     },
   });
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
+  const validateAndSubmit = (createStatus: EventCreateStatus = "upcoming") => {
     const confirmationMessages: string[] = [];
     if (!title || !coverImage || !eventDate || !eventTime) {
       adminToast.error({ id: "admin-event-required-fields", title: "Please fill in all required fields" });
@@ -973,10 +982,16 @@ const AdminEventFormModal = ({ event, onClose }: AdminEventFormModalProps) => {
       setSubmitConfirmation({
         title: "Save event with warnings?",
         description: confirmationMessages.join("\n\n"),
+        createStatus,
       });
       return;
     }
-    saveEvent.mutate();
+    saveEvent.mutate({ createStatus });
+  };
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    validateAndSubmit("upcoming");
   };
 
   return (
@@ -1548,6 +1563,18 @@ const AdminEventFormModal = ({ event, onClose }: AdminEventFormModalProps) => {
       <div className="shrink-0 border-t border-border bg-card">
         <div className="max-w-4xl mx-auto px-4 py-4 flex justify-end gap-3">
           <Button variant="outline" onClick={onClose}>Cancel</Button>
+          {!isEditing && (
+            <Button
+              type="button"
+              variant="outline"
+              disabled={saveEvent.isPending || isGenerating}
+              onClick={() => validateAndSubmit("draft")}
+              className="gap-2"
+            >
+              {(saveEvent.isPending || isGenerating) ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+              Save as Draft
+            </Button>
+          )}
           <Button type="submit" form={formId} disabled={saveEvent.isPending || isGenerating}
             className="bg-gradient-primary text-primary-foreground gap-2">
             {(saveEvent.isPending || isGenerating) ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
@@ -1567,8 +1594,9 @@ const AdminEventFormModal = ({ event, onClose }: AdminEventFormModalProps) => {
         if (!open) setSubmitConfirmation(null);
       }}
       onConfirm={() => {
+        const createStatus = submitConfirmation?.createStatus ?? "upcoming";
         setSubmitConfirmation(null);
-        saveEvent.mutate();
+        saveEvent.mutate({ createStatus });
       }}
     />
     </>

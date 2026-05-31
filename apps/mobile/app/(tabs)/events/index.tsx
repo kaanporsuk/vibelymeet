@@ -16,6 +16,7 @@ import {
   RefreshControl,
   Dimensions,
   Alert,
+  Linking,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
@@ -872,6 +873,10 @@ export default function EventsListScreen() {
             Alert.alert(
               'Location Services are off',
               'Turn on device Location Services, then return to Vibely to see events near you.',
+              [
+                { text: 'Not now', style: 'cancel' },
+                { text: 'Open Settings', onPress: () => void Linking.openSettings() },
+              ],
             );
             return;
           case 'permission_denied':
@@ -880,6 +885,15 @@ export default function EventsListScreen() {
               result.canAskAgain === false
                 ? 'Location is turned off for Vibely. Enable it in Settings to see events near you.'
                 : 'Allow location access to save your area and show nearby events.',
+              result.canAskAgain === false
+                ? [
+                    { text: 'Not now', style: 'cancel' },
+                    { text: 'Open Settings', onPress: () => void Linking.openSettings() },
+                  ]
+                : [
+                    { text: 'Not now', style: 'cancel' },
+                    { text: 'Try again', onPress: () => void handleEnableProfileLocation() },
+                  ],
             );
             return;
           case 'geocode_failed':
@@ -888,12 +902,32 @@ export default function EventsListScreen() {
               "We couldn't match your GPS position to a city. Try again in a moment.",
             );
             return;
+          case 'gps_failed':
+            Alert.alert(
+              'Could not find your position',
+              "We couldn't determine your GPS position. Try again in a moment, or update your city from Profile.",
+              [
+                { text: 'Not now', style: 'cancel' },
+                { text: 'Try again', onPress: () => void handleEnableProfileLocation() },
+              ],
+            );
+            return;
+          case 'permission_error':
+            Alert.alert(
+              'Could not check location',
+              'Vibely could not read your location permission right now. Try again in a moment, or update your city from Profile.',
+              [
+                { text: 'Not now', style: 'cancel' },
+                { text: 'Try again', onPress: () => void handleEnableProfileLocation() },
+              ],
+            );
+            return;
           case 'backend_failed':
             if (__DEV__) console.warn('[events] update_profile_location:', result.message ?? result.error?.message);
             Alert.alert('Could not save location', 'Try again in a moment or update location from your profile.');
             return;
           default:
-            Alert.alert('Could not get location', 'Check permissions and try again.');
+            Alert.alert('Location not updated', 'Try again in a moment or update your city from Profile.');
             return;
         }
       }
@@ -905,7 +939,14 @@ export default function EventsListScreen() {
       await queryClient.invalidateQueries({ queryKey: ['next-registered-event'] });
     } catch (e) {
       if (__DEV__) console.warn('[events] enable location failed:', e);
-      Alert.alert('Could not get location', 'Check permissions and try again.');
+      Alert.alert(
+        'Could not get location',
+        'Location was not updated. Try again in a moment, or update your city from Profile.',
+        [
+          { text: 'Not now', style: 'cancel' },
+          { text: 'Try again', onPress: () => void handleEnableProfileLocation() },
+        ],
+      );
     } finally {
       setLocationEnableLoading(false);
     }

@@ -50,6 +50,7 @@ import {
 import {
   classifyMediaPermissionError,
   mediaPermissionResultForStatus,
+  type MediaPermissionResult,
 } from "@clientShared/media/mediaPermissionResult";
 import {
   createVideoDateCameraSwitchRenderHint,
@@ -750,6 +751,7 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
   const [dailyReconnectState, setDailyReconnectState] = useState<DailyReconnectState>("connected");
   const [reconnectGraceTimeLeft, setReconnectGraceTimeLeft] = useState(0);
   const [mediaPermissionError, setMediaPermissionError] = useState<string | null>(null);
+  const [mediaPermissionResult, setMediaPermissionResult] = useState<MediaPermissionResult | null>(null);
   const [captureProfile, setCaptureProfile] = useState<VideoDateWebMediaCaptureProfile>("ideal");
 
   const localVideoRef = useRef<HTMLVideoElement>(null);
@@ -1969,6 +1971,7 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
         releaseAppAcquiredMedia("media_devices_unavailable");
         mediaPermissionDeniedRef.current = true;
         setHasPermission(false);
+        setMediaPermissionResult(permissionResult);
         setMediaPermissionError("Camera and microphone access are not available in this browser.");
         trackEvent(LobbyPostDateEvents.VIDEO_DATE_MEDIA_PERMISSION_DENIED, {
           platform: "web",
@@ -2005,6 +2008,7 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
             consumedByDaily: false,
           };
           setHasPermission(true);
+          setMediaPermissionResult(null);
           setMediaPermissionError(null);
           const durationMs = Math.max(0, Date.now() - permissionStartedAt);
           const successContext = recordReadyGateToDateLatencyCheckpoint({
@@ -2164,6 +2168,7 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
           captureProfileRef.current = handoffCaptureProfile;
           setCaptureProfile(handoffCaptureProfile);
           setHasPermission(true);
+          setMediaPermissionResult(null);
           setMediaPermissionError(null);
           const durationMs = Math.max(0, Date.now() - permissionStartedAt);
           const successContext = recordReadyGateToDateLatencyCheckpoint({
@@ -2279,6 +2284,7 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
           consumedByDaily: false,
         };
         setHasPermission(true);
+        setMediaPermissionResult(null);
         setMediaPermissionError(null);
         const durationMs = Math.max(0, Date.now() - permissionStartedAt);
         const successContext = recordReadyGateToDateLatencyCheckpoint({
@@ -2355,6 +2361,7 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
         setHasPermission(false);
         const permissionResult = classifyMediaPermissionError(error, "camera_microphone");
         const description = describeMediaError(error);
+        setMediaPermissionResult(permissionResult);
         setMediaPermissionError(description || "Camera or microphone permission was denied.");
         vdbg("daily_media_permission_preflight_failed", {
           sessionId,
@@ -2880,6 +2887,7 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
       setIsConnecting(true);
       setIsConnected(false);
       setHasPermission(null);
+      setMediaPermissionResult(null);
       setMediaPermissionError(null);
       setRemotePlayback(createRemotePlaybackState());
       setPeerMissing({ terminal: false });
@@ -2974,6 +2982,7 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
             );
         if (skipMediaPreflightForSingleton) {
           setHasPermission(true);
+          setMediaPermissionResult(null);
           setMediaPermissionError(null);
           vdbg("daily_media_permission_preflight_skipped_for_singleton", {
             sessionId,
@@ -4224,6 +4233,12 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
             error: rawError ?? null,
           });
           setHasPermission(false);
+          setMediaPermissionResult(
+            classifyMediaPermissionError(
+              rawError ?? new Error(errorMsg ?? "Camera or microphone permission was denied."),
+              "camera_microphone",
+            ),
+          );
           setMediaPermissionError(errorMsg ?? "Camera or microphone permission was denied.");
           trackEvent(LobbyPostDateEvents.CAMERA_PERMISSION_DENIED, {
             platform: "web",
@@ -4847,6 +4862,7 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
   }, []);
 
   const clearMediaPermissionError = useCallback(() => {
+    setMediaPermissionResult(null);
     setMediaPermissionError(null);
   }, []);
 
@@ -5062,6 +5078,7 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
     isVideoOff,
     hasPermission,
     mediaPermissionError,
+    mediaPermissionResult,
     networkTier,
     remotePlayback,
     peerMissing,

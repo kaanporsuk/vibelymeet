@@ -17,6 +17,9 @@ import {
   StyleSheet,
   Pressable,
   TextInput,
+  AppState,
+  Linking,
+  Platform,
 } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import {
@@ -40,9 +43,15 @@ import { fetchMyProfile, MY_PROFILE_STALE_TIME_MS, myProfileQueryKey } from '@/l
 import { setSafeAudioMode } from '@/lib/safeAudioMode';
 import { KeyboardAwareCenteredModal } from '@/components/keyboard/KeyboardAwareCenteredModal';
 import { useVibelyDialog } from '@/components/VibelyDialog';
+import { PermissionRecoveryCard } from '@/components/permissions/PermissionRecoveryCard';
 import { useAuth } from '@/context/AuthContext';
 import { startNativeVibeVideoUpload } from '@/lib/mediaSdk/nativeVideoUploads';
 import { useReduceMotion } from '@/hooks/useReduceMotion';
+import {
+  permissionUxStatusForRequiredGrants,
+  resolvePermissionUx,
+  type PermissionUxStatus,
+} from '@clientShared/permissions/permissionUx';
 
 const MAX_DURATION_SEC = 15;
 const CAPTION_MAX = 50;
@@ -91,12 +100,13 @@ export default function VibeVideoRecordScreen() {
     staleTime: MY_PROFILE_STALE_TIME_MS,
   });
 
-  const [camPermission, requestCamPermission] = useCameraPermissions();
-  const [micPermission, requestMicPermission] = useMicrophonePermissions();
+  const [camPermission, requestCamPermission, getCamPermission] = useCameraPermissions();
+  const [micPermission, requestMicPermission, getMicPermission] = useMicrophonePermissions();
   const cameraRef = useRef<CameraView | null>(null);
   const libraryHandled = useRef(false);
   const captionSeededFromProfile = useRef(false);
   const sourceIntentHandledRef = useRef(false);
+  const settingsOpenedRef = useRef(false);
   const uploadSourceRef = useRef<'camera' | 'library' | 'unknown'>('unknown');
 
   const [stage, setStage] = useState<Stage>('idle');
@@ -148,13 +158,37 @@ export default function VibeVideoRecordScreen() {
     };
   }, [stage, recordedUri]);
 
-  const permission = !!(camPermission?.granted && micPermission?.granted);
   const skipCameraPermission = !!libraryParam;
+  const permissionStatus: PermissionUxStatus = permissionUxStatusForRequiredGrants([camPermission, micPermission]);
+  const permission = permissionStatus === 'granted';
+  const permissionCopy = resolvePermissionUx({
+    capability: 'profile_vibe_video',
+    status: permissionStatus,
+    platform: Platform.OS === 'ios' ? 'ios' : Platform.OS === 'android' ? 'android' : 'native',
+  });
 
   const requestPermission = async () => {
+    if (permissionStatus === 'blocked_settings') {
+      settingsOpenedRef.current = true;
+      await Linking.openSettings();
+      return;
+    }
     await requestCamPermission();
     await requestMicPermission();
   };
+
+  const refreshPermissions = useCallback(async () => {
+    await Promise.allSettled([getCamPermission(), getMicPermission()]);
+  }, [getCamPermission, getMicPermission]);
+
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (nextState) => {
+      if (nextState !== 'active' || !settingsOpenedRef.current) return;
+      settingsOpenedRef.current = false;
+      void refreshPermissions();
+    });
+    return () => sub.remove();
+  }, [refreshPermissions]);
 
   const returnToVibeStudio = useCallback(() => {
     (router as { replace: (p: string) => void }).replace('/vibe-studio');
@@ -211,25 +245,31 @@ export default function VibeVideoRecordScreen() {
   };
 
   const pickFromLibrary = async () => {
-    const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (!perm.granted) {
-      show({
-        title: 'Library access',
-        message: 'Allow photo library access to upload a video.',
-        variant: 'info',
-        primaryAction: { label: 'OK', onPress: () => {} },
+    try {
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Videos,
+        videoMaxDuration: MAX_DURATION_SEC,
+        quality: 1,
       });
-      return;
+      if (result.canceled || !result.assets[0]?.uri) return;
+      uploadSourceRef.current = 'library';
+      setRecordedUri(result.assets[0].uri);
+      setStage('preview');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Could not open your video library.';
+      const isPermissionError = /permission|denied|access/i.test(message);
+      show({
+        title: isPermissionError ? 'Video library access' : 'Video library',
+        message: isPermissionError
+          ? 'Photo access is off for Vibely. Re-enable it in Settings, or choose another recording path.'
+          : message,
+        variant: isPermissionError ? 'info' : 'warning',
+        primaryAction: isPermissionError
+          ? { label: 'Open Settings', onPress: () => void Linking.openSettings() }
+          : { label: 'OK', onPress: () => {} },
+        secondaryAction: isPermissionError ? { label: 'Not now', onPress: () => {} } : undefined,
+      });
     }
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Videos,
-      videoMaxDuration: MAX_DURATION_SEC,
-      quality: 1,
-    });
-    if (result.canceled || !result.assets[0]?.uri) return;
-    uploadSourceRef.current = 'library';
-    setRecordedUri(result.assets[0].uri);
-    setStage('preview');
   };
 
   // Auto-launch library picker when sourceIntent=library on onboarding
@@ -375,15 +415,19 @@ export default function VibeVideoRecordScreen() {
     return (
       <>
         <View style={[styles.centered, { backgroundColor: theme.background }]}>
-          <Text style={[styles.copy, { color: theme.textSecondary }]}>
-            Camera and microphone permission are needed to record your vibe video.
-          </Text>
-          <Pressable style={[styles.btn, { backgroundColor: theme.tint }]} onPress={requestPermission}>
-            <Text style={styles.btnLabel}>Allow</Text>
-          </Pressable>
-          <Pressable style={styles.backBtn} onPress={() => router.back()}>
-            <Text style={{ color: theme.tint }}>Back</Text>
-          </Pressable>
+          <PermissionRecoveryCard
+            testID="native-profile-vibe-video-permission-card"
+            icon="videocam-outline"
+            title={permissionCopy.title}
+            message={permissionCopy.message}
+            primaryLabel={permissionCopy.primaryLabel}
+            onPrimaryPress={() => void requestPermission()}
+            fallbackLabel={permissionCopy.fallbackLabel}
+            onFallbackPress={() => void pickFromLibrary()}
+            secondaryLabel="Back"
+            onSecondaryPress={() => router.back()}
+            loading={permissionStatus === 'checking'}
+          />
         </View>
         {dialog}
       </>
@@ -565,10 +609,6 @@ const styles = StyleSheet.create({
   previewSecondaryPressable: { alignItems: 'center', paddingVertical: 8 },
   previewSecondaryLabel: { color: 'rgba(255,255,255,0.7)', fontSize: 15, fontWeight: '500' },
   centered: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 24 },
-  copy: { fontSize: 16, textAlign: 'center' },
-  btn: { paddingVertical: 12, paddingHorizontal: 24, borderRadius: 8, marginTop: 16 },
-  btnLabel: { color: '#fff', fontWeight: '600' },
-  backBtn: { marginTop: 24 },
   closeBtn: {
     position: 'absolute',
     right: 16,

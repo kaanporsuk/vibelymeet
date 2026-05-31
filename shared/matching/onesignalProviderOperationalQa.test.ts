@@ -21,6 +21,7 @@ const nativeOneSignal = read("apps/mobile/lib/onesignal.ts");
 const nativePushRegistration = read("apps/mobile/components/PushRegistration.tsx");
 const nativePushForegroundSync = read("apps/mobile/lib/nativePushForegroundSync.ts");
 const nativePushHealth = read("apps/mobile/lib/usePushDeliveryHealth.ts");
+const nativePushPermission = read("apps/mobile/lib/usePushPermission.ts");
 const nativeNotificationPause = read("apps/mobile/lib/notificationPause.ts");
 const nativePushMasterSwitch = read("apps/mobile/lib/pushMasterSwitch.ts");
 const nativeDeepLink = read("apps/mobile/components/NotificationDeepLinkHandler.tsx");
@@ -113,6 +114,9 @@ test("web player-id and subscription sync writes notification_preferences safely
   assert.match(webPushHealth, /\.select\(["']onesignal_player_id, onesignal_subscribed, push_enabled, paused_until["']\)/);
   assert.match(webPushHealth, /vibely-onesignal-subscription-changed/);
   assert.match(pushPermissionPrompt, /requestWebPushPermissionAndSync\(user\.id\)/);
+  assert.match(pushPermissionPrompt, /Notifications are blocked in your browser/);
+  assert.match(pushPermissionPrompt, /label: "Open settings"/);
+  assert.match(pushPermissionPrompt, /window\.location\.assign\("\/settings\?drawer=notifications"\)/);
   assert.match(notificationsDrawer, /requestWebPushPermissionAndSync\(user\.id\)/);
 });
 
@@ -133,6 +137,8 @@ test("native OneSignal identity and subscription sync mirror the backend contrac
   assert.match(nativeOneSignal, /rememberNativePushSubscriptionId\(userId, subscriptionId\)/);
   assert.match(nativeOneSignal, /readRememberedNativePushSubscriptionId\(userId\)/);
   assert.match(nativeOneSignal, /forgetRememberedNativePushSubscriptionId\(userId\)/);
+  assert.match(nativePushPermission, /const task = Platform\.OS === 'ios' \? Linking\.openURL\('app-settings:'\) : Linking\.openSettings\(\)/);
+  assert.match(nativePushPermission, /task\.catch\(\(error\) =>/);
   assert.match(nativeOneSignal, /mobile_onesignal_player_id:\s*subscriptionId/);
   assert.match(nativeOneSignal, /mobile_onesignal_subscribed:\s*subscribed/);
   assert.match(

@@ -18,6 +18,7 @@ import {
   AppState,
   BackHandler,
   InteractionManager,
+  Linking,
   type AppStateStatus,
   type DimensionValue,
   type KeyboardEvent,
@@ -52,6 +53,7 @@ import { ensureVoicePlaybackAudioMode } from '@/lib/safeAudioMode';
 import Colors from '@/constants/Colors';
 import { ErrorState } from '@/components/ui';
 import { useVibelyDialog } from '@/components/VibelyDialog';
+import { PermissionRecoveryCard } from '@/components/permissions/PermissionRecoveryCard';
 import { spacing, layout } from '@/constants/theme';
 import { useColorScheme } from '@/components/useColorScheme';
 import { useAuth } from '@/context/AuthContext';
@@ -123,6 +125,12 @@ import {
   resolveNativeMediaPlaybackFallbackReason,
   type MediaFallbackReason,
 } from '@clientShared/media/mediaFallbackCopy';
+import {
+  permissionUxStatusForRequiredGrants,
+  permissionUxStatusFromGrant,
+  resolvePermissionUx,
+  type PermissionUxStatus,
+} from '@clientShared/permissions/permissionUx';
 import { deriveChatVideoThumbnailRef, extractVibeClipMeta } from '../../../../shared/chat/messageRouting';
 import { VibeClipCard, type VibeClipLocalRecovery, type VibeClipPosterPreviewState } from '@/components/chat/VibeClipCard';
 import {
@@ -1328,6 +1336,7 @@ function NativeVibeClipCameraModal({
   threadCount,
   disabled,
   onClose,
+  onChooseSavedVideo,
   onRecorded,
 }: {
   visible: boolean;
@@ -1335,13 +1344,15 @@ function NativeVibeClipCameraModal({
   threadCount: number;
   disabled?: boolean;
   onClose: () => void;
+  onChooseSavedVideo: () => void;
   onRecorded: (clip: NativeCapturedVibeClip) => Promise<void> | void;
 }) {
   const reduceMotion = useReduceMotion();
-  const [camPermission, requestCamPermission] = useCameraPermissions();
-  const [micPermission, requestMicPermission] = useMicrophonePermissions();
+  const [camPermission, requestCamPermission, getCamPermission] = useCameraPermissions();
+  const [micPermission, requestMicPermission, getMicPermission] = useMicrophonePermissions();
   const cameraRef = useRef<CameraView | null>(null);
   const startedAtRef = useRef<number | null>(null);
+  const settingsOpenedRef = useRef(false);
   const [stage, setStage] = useState<'idle' | 'recording' | 'preview'>('idle');
   const [facing, setFacing] = useState<CameraType>('front');
   const [recorded, setRecorded] = useState<{ uri: string; durationSeconds: number } | null>(null);
@@ -1355,7 +1366,13 @@ function NativeVibeClipCameraModal({
     language: captionLanguage,
     unavailableReason: captionUnavailableReason,
   } = useNativeCaptionCapture('native_chat_vibe_clip_recorder');
-  const hasPermission = camPermission?.granted && micPermission?.granted;
+  const permissionStatus: PermissionUxStatus = permissionUxStatusForRequiredGrants([camPermission, micPermission]);
+  const hasPermission = permissionStatus === 'granted';
+  const permissionCopy = resolvePermissionUx({
+    capability: 'chat_vibe_clip',
+    status: permissionStatus,
+    platform: Platform.OS === 'ios' ? 'ios' : Platform.OS === 'android' ? 'android' : 'native',
+  });
 
   const reset = useCallback(() => {
     startedAtRef.current = null;
@@ -1373,10 +1390,29 @@ function NativeVibeClipCameraModal({
     }
   }, [abortCaptionCapture, reset, visible]);
 
+  const refreshPermissions = useCallback(async () => {
+    await Promise.allSettled([getCamPermission(), getMicPermission()]);
+  }, [getCamPermission, getMicPermission]);
+
+  useEffect(() => {
+    if (!visible) return undefined;
+    const sub = AppState.addEventListener('change', (nextState) => {
+      if (nextState !== 'active' || !settingsOpenedRef.current) return;
+      settingsOpenedRef.current = false;
+      void refreshPermissions();
+    });
+    return () => sub.remove();
+  }, [refreshPermissions, visible]);
+
   const requestPermissions = useCallback(async () => {
+    if (permissionStatus === 'blocked_settings') {
+      settingsOpenedRef.current = true;
+      await Linking.openSettings();
+      return;
+    }
     await requestCamPermission();
     await requestMicPermission();
-  }, [requestCamPermission, requestMicPermission]);
+  }, [permissionStatus, requestCamPermission, requestMicPermission]);
 
   const startRecording = useCallback(async () => {
     if (!hasPermission || !cameraRef.current || stage !== 'idle' || disabled) return;
@@ -1464,7 +1500,7 @@ function NativeVibeClipCameraModal({
               />
               <View style={styles.nativeClipPreviewActions}>
                 <Pressable
-                  style={styles.nativeClipSecondaryButton}
+                  style={[styles.nativeClipPreviewActionButton, styles.nativeClipSecondaryButton]}
                   onPress={reset}
                   disabled={submitting}
                   accessibilityRole="button"
@@ -1472,7 +1508,7 @@ function NativeVibeClipCameraModal({
                   <Text style={styles.nativeClipSecondaryText}>Retake</Text>
                 </Pressable>
                 <Pressable
-                  style={[styles.nativeClipPrimaryButton, submitting && { opacity: 0.6 }]}
+                  style={[styles.nativeClipPreviewActionButton, styles.nativeClipPrimaryButton, submitting && { opacity: 0.6 }]}
                   onPress={() => void submit()}
                   disabled={submitting}
                   accessibilityRole="button"
@@ -1529,15 +1565,19 @@ function NativeVibeClipCameraModal({
           </>
         ) : (
           <View style={[styles.nativeClipPermission, { backgroundColor: theme.background }]}>
-            <Text style={[styles.nativeClipPermissionText, { color: theme.text }]}>
-              Camera and microphone access are needed for captioned clips.
-            </Text>
-            <Pressable style={[styles.nativeClipPrimaryButton, { minWidth: 180 }]} onPress={() => void requestPermissions()}>
-              <Text style={styles.nativeClipPrimaryText}>Allow</Text>
-            </Pressable>
-            <Pressable style={styles.nativeClipSecondaryButton} onPress={onClose}>
-              <Text style={styles.nativeClipSecondaryText}>Close</Text>
-            </Pressable>
+            <PermissionRecoveryCard
+              testID="native-vibe-clip-permission-card"
+              icon="videocam-outline"
+              title={permissionCopy.title}
+              message={permissionCopy.message}
+              primaryLabel={permissionCopy.primaryLabel}
+              onPrimaryPress={() => void requestPermissions()}
+              fallbackLabel={permissionCopy.fallbackLabel}
+              onFallbackPress={onChooseSavedVideo}
+              secondaryLabel="Not now"
+              onSecondaryPress={onClose}
+              loading={permissionStatus === 'checking'}
+            />
           </View>
         )}
       </KeyboardAvoidingView>
@@ -2933,8 +2973,35 @@ export default function ChatThreadScreen() {
     setVoiceError(null);
     voiceStopIntentRef.current = null;
     try {
-      const { granted } = await requestRecordingPermissionsAsync();
-      if (!granted) throw new Error('Permission denied');
+      const voicePermission = await requestRecordingPermissionsAsync();
+      if (!voicePermission.granted) {
+        const status = permissionUxStatusFromGrant({
+          status: voicePermission.status,
+          canAskAgain: voicePermission.canAskAgain,
+        });
+        const copy = resolvePermissionUx({
+          capability: 'voice_message',
+          status,
+          platform: Platform.OS === 'ios' ? 'ios' : Platform.OS === 'android' ? 'android' : 'native',
+        });
+        showAppDialog({
+          title: copy.title,
+          message: copy.message,
+          variant: 'info',
+          primaryAction: {
+            label: copy.primaryLabel,
+            onPress: () => {
+              if (copy.primaryAction === 'open_settings') {
+                void Linking.openSettings();
+                return;
+              }
+              void startVoiceRecording();
+            },
+          },
+          secondaryAction: { label: 'Not now', onPress: () => {} },
+        });
+        return;
+      }
       if (!screenMountedRef.current || exitingRef.current) return;
       await setAudioModeAsync({ allowsRecording: true, playsInSilentMode: true });
       if (!screenMountedRef.current || exitingRef.current) return;
@@ -2991,11 +3058,17 @@ export default function ChatThreadScreen() {
         (e.message.toLowerCase().includes('permission') || e.message.toLowerCase().includes('denied'));
       if (isPerm) {
         setVoiceError(null);
+        const copy = resolvePermissionUx({
+          capability: 'voice_message',
+          status: 'blocked_settings',
+          platform: Platform.OS === 'ios' ? 'ios' : Platform.OS === 'android' ? 'android' : 'native',
+        });
         showAppDialog({
-          title: 'Microphone needed',
-          message: 'Allow mic access so you can send voice messages.',
+          title: copy.title,
+          message: copy.message,
           variant: 'info',
-          primaryAction: { label: 'OK', onPress: () => {} },
+          primaryAction: { label: copy.primaryLabel, onPress: () => void Linking.openSettings() },
+          secondaryAction: { label: 'Not now', onPress: () => {} },
         });
         return;
       }
@@ -3113,16 +3186,6 @@ export default function ChatThreadScreen() {
     if (!data?.matchId || !user?.id || composerInputLocked) return;
     setVideoError(null);
     try {
-      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-      if (status !== 'granted') {
-        showAppDialog({
-          title: VIBE_CLIP_PERM_LIBRARY_TITLE,
-          message: VIBE_CLIP_PERM_LIBRARY_MESSAGE,
-          variant: 'info',
-          primaryAction: { label: 'OK', onPress: () => {} },
-        });
-        return;
-      }
       trackVibeClipEvent('clip_record_started', {
         capture_source: 'library',
         thread_bucket: threadBucketFromCount(displayMessages.length),
@@ -3190,11 +3253,16 @@ export default function ChatThreadScreen() {
       const msg = chatFriendlyErrorFromUnknown(e, { isVibeClip: true });
       if (!(isOffline && isLikelyNetworkFailure(e))) {
         setVideoError(msg);
+        const lower = msg.toLowerCase();
+        const isPermissionError = lower.includes('permission') || lower.includes('denied') || lower.includes('access');
         showAppDialog({
-          title: 'Vibe Clip',
-          message: msg,
-          variant: 'warning',
-          primaryAction: { label: 'OK', onPress: () => {} },
+          title: isPermissionError ? VIBE_CLIP_PERM_LIBRARY_TITLE : 'Vibe Clip',
+          message: isPermissionError ? VIBE_CLIP_PERM_LIBRARY_MESSAGE : msg,
+          variant: isPermissionError ? 'info' : 'warning',
+          primaryAction: isPermissionError
+            ? { label: 'Open Settings', onPress: () => void Linking.openSettings() }
+            : { label: 'OK', onPress: () => {} },
+          secondaryAction: isPermissionError ? { label: 'Not now', onPress: () => {} } : undefined,
         });
       } else {
         setVideoError(null);
@@ -3380,16 +3448,6 @@ export default function ChatThreadScreen() {
   const pickPhotoFromLibrary = async () => {
     if (!data?.matchId || !user?.id || composerInputLocked) return;
     try {
-      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-      if (status !== 'granted') {
-        showAppDialog({
-          title: 'Photos access',
-          message: 'Allow access to your photos to send a picture.',
-          variant: 'info',
-          primaryAction: { label: 'OK', onPress: () => {} },
-        });
-        return;
-      }
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ImagePicker.MediaTypeOptions.Images,
         quality: 0.85,
@@ -3399,11 +3457,16 @@ export default function ChatThreadScreen() {
     } catch (e) {
       const msg = chatFriendlyErrorFromUnknown(e);
       if (!(isOffline && isLikelyNetworkFailure(e))) {
+        const lower = msg.toLowerCase();
+        const isPermissionError = lower.includes('permission') || lower.includes('denied') || lower.includes('access');
         showAppDialog({
-          title: 'Photo',
-          message: msg,
-          variant: 'warning',
-          primaryAction: { label: 'OK', onPress: () => {} },
+          title: isPermissionError ? 'Photos access' : 'Photo',
+          message: isPermissionError ? 'Photo access is off for Vibely. Re-enable it in Settings, or choose a file if available.' : msg,
+          variant: isPermissionError ? 'info' : 'warning',
+          primaryAction: isPermissionError
+            ? { label: 'Open Settings', onPress: () => void Linking.openSettings() }
+            : { label: 'OK', onPress: () => {} },
+          secondaryAction: isPermissionError ? { label: 'Not now', onPress: () => {} } : undefined,
         });
       }
     }
@@ -3414,11 +3477,30 @@ export default function ChatThreadScreen() {
     try {
       const permission = await requestPhotoCameraPermission();
       if (!permission.granted) {
+        const status = permissionUxStatusFromGrant({
+          status: permission.status,
+          canAskAgain: permission.canAskAgain,
+        });
+        const copy = resolvePermissionUx({
+          capability: 'photo_capture',
+          status,
+          platform: Platform.OS === 'ios' ? 'ios' : Platform.OS === 'android' ? 'android' : 'native',
+        });
         showAppDialog({
-          title: 'Camera access',
-          message: 'Allow camera access to take a photo.',
+          title: copy.title,
+          message: copy.message,
           variant: 'info',
-          primaryAction: { label: 'OK', onPress: () => {} },
+          primaryAction: {
+            label: copy.primaryLabel,
+            onPress: () => {
+              if (copy.primaryAction === 'open_settings') {
+                void Linking.openSettings();
+                return;
+              }
+              void openPhotoCameraModal();
+            },
+          },
+          secondaryAction: { label: 'Choose from library', onPress: () => void pickPhotoFromLibrary() },
         });
         return;
       }
@@ -5148,6 +5230,10 @@ export default function ChatThreadScreen() {
         threadCount={displayMessages.length}
         disabled={composerInputLocked}
         onClose={() => setShowNativeVibeClipCamera(false)}
+        onChooseSavedVideo={() => {
+          setShowNativeVibeClipCamera(false);
+          void pickVideoFromLibrary();
+        }}
         onRecorded={handleNativeVibeClipRecorded}
       />
       {appDialog}
@@ -5704,8 +5790,10 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: 10,
   },
-  nativeClipPrimaryButton: {
+  nativeClipPreviewActionButton: {
     flex: 1,
+  },
+  nativeClipPrimaryButton: {
     minHeight: 48,
     borderRadius: 16,
     alignItems: 'center',
@@ -5718,7 +5806,6 @@ const styles = StyleSheet.create({
     fontWeight: '800',
   },
   nativeClipSecondaryButton: {
-    flex: 1,
     minHeight: 48,
     borderRadius: 16,
     alignItems: 'center',
@@ -5735,12 +5822,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: 24,
+    paddingVertical: 32,
     gap: 14,
-  },
-  nativeClipPermissionText: {
-    fontSize: 16,
-    textAlign: 'center',
-    lineHeight: 22,
   },
   videoDurationBadge: {
     position: 'absolute',

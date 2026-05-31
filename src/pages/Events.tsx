@@ -84,7 +84,7 @@ const LocationPromptBanner = () => {
       toast.success("Location saved! Discovering events near you…");
       setDismissed(true);
     } catch {
-      toast.error("Could not get location. Please check your browser permissions.");
+      toast.error("Could not get location. Allow Location in this browser's site settings, or choose a city filter.");
     } finally {
       setLoading(false);
     }
@@ -308,7 +308,7 @@ const Events = () => {
       if (!userCoords) {
         navigator.geolocation.getCurrentPosition(
           (pos) => setUserCoords({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
-          () => { toast.error("Could not get location. Check your browser permissions."); }
+          () => { toast.error("Could not get location. Allow Location in this browser's site settings, or choose a city filter."); }
         );
       }
     } else {

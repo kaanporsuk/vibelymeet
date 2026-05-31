@@ -1,13 +1,19 @@
 import * as DialogPrimitive from "@radix-ui/react-dialog";
-import { AlertCircle, Camera, Loader2, RotateCcw, Send, SwitchCamera, X } from "lucide-react";
+import { AlertCircle, Camera, ImagePlus, Loader2, RotateCcw, Send, SwitchCamera, X } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { cn } from "@/lib/utils";
+import {
+  classifyMediaPermissionError,
+  mediaPermissionMessage,
+  mediaPermissionTitle,
+} from "@clientShared/media/mediaPermissionResult";
 
 type PhotoCameraCaptureDialogProps = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onCapturePhoto: (file: File) => Promise<boolean> | boolean;
+  onChooseLibrary?: () => void;
   disabled?: boolean;
 };
 
@@ -51,21 +57,11 @@ async function canvasToJpegBlob(canvas: HTMLCanvasElement): Promise<Blob> {
 }
 
 function cameraErrorMessage(error: unknown): string {
-  const name =
-    error && typeof error === "object" && "name" in error
-      ? String((error as { name?: unknown }).name)
-      : "";
+  return mediaPermissionMessage(classifyMediaPermissionError(error, "camera"));
+}
 
-  if (name === "NotAllowedError" || name === "SecurityError") {
-    return "Allow camera access in your browser settings to take a photo.";
-  }
-  if (name === "NotFoundError" || name === "DevicesNotFoundError") {
-    return "No camera was found on this device.";
-  }
-  if (name === "NotReadableError" || name === "TrackStartError") {
-    return "Your camera is already in use by another app.";
-  }
-  return "Could not open the camera. Please try again.";
+function cameraErrorTitle(error: unknown): string {
+  return mediaPermissionTitle(classifyMediaPermissionError(error, "camera"));
 }
 
 function shouldRetryWithGenericCamera(error: unknown): boolean {
@@ -109,6 +105,7 @@ export function PhotoCameraCaptureDialog({
   open,
   onOpenChange,
   onCapturePhoto,
+  onChooseLibrary,
   disabled,
 }: PhotoCameraCaptureDialogProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -120,6 +117,7 @@ export function PhotoCameraCaptureDialog({
   const openRef = useRef(open);
   const [phase, setPhase] = useState<CapturePhase>("loading");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [errorTitle, setErrorTitle] = useState<string | null>(null);
   const [capturedFile, setCapturedFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -179,6 +177,7 @@ export function PhotoCameraCaptureDialog({
       stopCamera();
       setCapturedFile(null);
       revokePreviewUrl();
+      setErrorTitle("Camera is not available");
       setErrorMessage("Camera capture is not available in this browser.");
       setPhase("error");
       return null;
@@ -194,6 +193,7 @@ export function PhotoCameraCaptureDialog({
     captureLockRef.current = false;
     submitLockRef.current = false;
     setCapturedFile(null);
+    setErrorTitle(null);
     setErrorMessage(null);
     setIsSubmitting(false);
     setPhase("loading");
@@ -231,10 +231,12 @@ export function PhotoCameraCaptureDialog({
         streamRef.current = previousStream;
         if (videoRef.current) videoRef.current.srcObject = previousStream;
         setPhase("camera");
+        setErrorTitle(cameraErrorTitle(error));
         setErrorMessage(opts.silentError ? "Could not switch cameras. Please try again." : cameraErrorMessage(error));
         return null;
       }
       stopCamera();
+      setErrorTitle(cameraErrorTitle(error));
       setErrorMessage(cameraErrorMessage(error));
       setPhase("error");
       return null;
@@ -249,6 +251,7 @@ export function PhotoCameraCaptureDialog({
       captureLockRef.current = false;
       submitLockRef.current = false;
       setCapturedFile(null);
+      setErrorTitle(null);
       setErrorMessage(null);
       setIsSubmitting(false);
       setFacingMode("environment");
@@ -443,6 +446,9 @@ export function PhotoCameraCaptureDialog({
                   <AlertCircle className="h-7 w-7" aria-hidden />
                 </div>
                 <p className="max-w-sm text-sm leading-relaxed text-white/78">
+                  <span className="mb-1 block text-base font-bold text-white">
+                    {errorTitle ?? "Camera needed"}
+                  </span>
                   {errorMessage ?? "Could not open the camera. Please try again."}
                 </p>
                 <button
@@ -452,8 +458,19 @@ export function PhotoCameraCaptureDialog({
                   className="inline-flex min-h-11 items-center justify-center gap-2 rounded-full bg-white px-5 text-sm font-bold text-black transition hover:bg-white/90 disabled:pointer-events-none disabled:opacity-55"
                 >
                   <RotateCcw className="h-4 w-4" aria-hidden />
-                  Try again
+                  {errorMessage?.includes("browser settings") ? "I updated settings" : "Try again"}
                 </button>
+                {onChooseLibrary ? (
+                  <button
+                    type="button"
+                    onClick={onChooseLibrary}
+                    disabled={isSubmitting}
+                    className="inline-flex min-h-11 items-center justify-center gap-2 rounded-full bg-white/10 px-5 text-sm font-bold text-white/82 ring-1 ring-white/12 transition hover:bg-white/15 disabled:pointer-events-none disabled:opacity-55"
+                  >
+                    <ImagePlus className="h-4 w-4" aria-hidden />
+                    Choose from library
+                  </button>
+                ) : null}
               </div>
             ) : null}
           </div>

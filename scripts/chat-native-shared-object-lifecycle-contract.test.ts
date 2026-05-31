@@ -113,6 +113,7 @@ test("voice messages use safe local status listener instead of render-time statu
   assert.match(voiceMessagePlayer, /safeExpoSharedObjectRead/);
   assert.match(voiceMessagePlayer, /safeRemoveExpoSharedObjectSubscription/);
   assert.match(voiceMessagePlayer, /safeExpoSharedObjectCall\(\s*\(\) => player\.pause\(\)/);
+  assert.doesNotMatch(voiceMessagePlayer, /voice\.player\.pause\.unmount/);
 });
 
 test("native video surfaces guard player calls and subscription teardown", () => {
@@ -127,8 +128,24 @@ test("native video surfaces guard player calls and subscription teardown", () =>
     assert.doesNotMatch(source, /safeVideoPlayerCall/, `${label} moved off the legacy video-only helper`);
   }
 
-  assert.match(vibeVideoPlayer, /safeExpoSharedObjectCall\(\(\) => player\.replace/);
+  assert.doesNotMatch(vibeVideoPlayer, /player\.replace\(/, "shared vibe video player avoids synchronous replace()");
+  assert.match(vibeVideoPlayer, /player\.replaceAsync\(freshUri\)/);
+  assert.match(vibeVideoPlayer, /vibeVideo\.player\.replaceAsync\.authRefreshSameUrl/);
   assert.match(vibeVideoPlayer, /attachSafeExpoSharedObjectPromise/);
+  assert.match(vibeVideoPlayer, /safeExpoSharedObjectRead<VideoPlayerStatus>/);
+  assert.match(vibeVideoPlayer, /vibeVideo\.player\.status\.initial/);
+  assert.doesNotMatch(vibeVideoPlayer, /vibeVideo\.player\.pause\.unmount/);
+  assert.doesNotMatch(nativeChat, /chat\.video\.pause\.unmount/);
+  assert.match(nativeChat, /safeExpoSharedObjectRead<VideoPlayerStatus>/);
+  assert.match(nativeChat, /chat\.video\.status\.initial/);
+  assert.doesNotMatch(vibeClipCard, /player\.replace/, "vibe clip card relies on useVideoPlayer source creation");
+  assert.doesNotMatch(mediaViewer, /player\.replace/, "fullscreen chat media viewer relies on useVideoPlayer source creation");
+  assert.doesNotMatch(vibeClipCard, /vibeClip\.player\.pause\.unmount/);
+  assert.doesNotMatch(mediaViewer, /chat\.viewerVideo\.pause\.unmount/);
+  assert.match(vibeClipCard, /safeExpoSharedObjectRead<VideoPlayerStatus>/);
+  assert.match(vibeClipCard, /vibeClip\.player\.status\.initial/);
+  assert.match(mediaViewer, /safeExpoSharedObjectRead<VideoPlayerStatus>/);
+  assert.match(mediaViewer, /chat\.viewerVideo\.status\.initial/);
   assert.match(vibeClipCard, /safeExpoSharedObjectCall\(\(\) => player\.pause/);
   assert.match(mediaViewer, /safeExpoSharedObjectCall\(\(\) => player\.play/);
   assert.match(mediaViewer, /const \[resolveFailed, setResolveFailed\] = useState\(false\)/);

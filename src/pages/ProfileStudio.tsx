@@ -1290,7 +1290,7 @@ const ProfileStudio = () => {
       void queryClient.invalidateQueries({ queryKey: myProfileQueryKey(userId), exact: true });
       toast.success("Location updated!");
     } catch {
-      toast.error("Could not detect location. Check your browser's location permissions and try again.");
+      toast.error("Could not detect location. Allow Location in this browser's site settings and try again.");
     } finally {
       setIsDetectingLocation(false);
     }

@@ -708,7 +708,7 @@ export const VibeStudioModal = ({
                   onClick={() => setCameraRequestNonce((nonce) => nonce + 1)}
                   className="w-full"
                 >
-                  Try again
+                  {permissionBlock.recoveryAction === "open_settings" ? "I updated settings" : "Try again"}
                 </Button>
                 <Button
                   type="button"

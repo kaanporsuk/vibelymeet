@@ -68,6 +68,20 @@ const CHECKOUT_RETURN_ORIGIN = (
   'https://www.vibelymeet.com'
 ).replace(/\/+$/, '');
 
+function getUnavailableEventState(event: EventDetailsRow | null | undefined) {
+  const status = (event?.status ?? '').toLowerCase();
+  const isCancelled = status === 'cancelled';
+  const isUnavailable = isCancelled || status === 'draft' || status === 'archived' || Boolean(event?.archived_at);
+  return {
+    isCancelled,
+    isUnavailable,
+    title: isCancelled ? 'This event was cancelled' : 'This event is not available',
+    message: isCancelled
+      ? 'Registration and lobby access are closed.'
+      : 'Registration and lobby access are closed while this event is not published.',
+  };
+}
+
 export default function EventDetailScreen() {
   // === ALL HOOKS — must run before any conditional return (Rules of Hooks) ===
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -225,10 +239,11 @@ export default function EventDetailScreen() {
 
   const performRegisterCore = useCallback(async () => {
     if (!event) return;
-    if ((event as EventDetailsRow).status === 'cancelled') {
+    const unavailable = getUnavailableEventState(event as EventDetailsRow);
+    if (unavailable.isUnavailable) {
       showDialog({
-        title: 'This event was cancelled',
-        message: 'Registration and lobby access are closed.',
+        title: unavailable.title,
+        message: unavailable.message,
         variant: 'warning',
         primaryAction: { label: 'OK', onPress: () => {} },
       });
@@ -368,9 +383,10 @@ export default function EventDetailScreen() {
 
   const handlePurchase = useCallback(async () => {
     if (!event) return;
-    if ((event as EventDetailsRow).status === 'cancelled') {
+    const unavailable = getUnavailableEventState(event as EventDetailsRow);
+    if (unavailable.isUnavailable) {
       showDialog({
-        title: 'This event was cancelled',
+        title: unavailable.title,
         message: "You can't purchase or register for this event anymore.",
         variant: 'warning',
         primaryAction: { label: 'OK', onPress: () => {} },
@@ -535,6 +551,7 @@ export default function EventDetailScreen() {
         .eq('parent_event_id', parentEventIdForSeries!)
         .gt('event_date', currentEventDateIso!)
         .is('archived_at', null)
+        .not('status', 'in', '(draft,cancelled,archived)')
         .order('event_date', { ascending: true })
         .limit(1)
         .maybeSingle();
@@ -572,7 +589,9 @@ export default function EventDetailScreen() {
   }
 
   const eventRow = event as EventDetailsRow;
-  const isCancelled = eventRow.status === 'cancelled';
+  const unavailableEvent = getUnavailableEventState(eventRow);
+  const isCancelled = unavailableEvent.isCancelled;
+  const isUnavailableStatus = unavailableEvent.isUnavailable;
   const eventDate = new Date(event.event_date);
   const dateStr = format(eventDate, 'EEEE, MMMM d');
   const timeStr = format(eventDate, 'h:mm a');
@@ -670,7 +689,7 @@ export default function EventDetailScreen() {
           styles.content,
           {
             paddingBottom:
-              isCancelled && hasAdmission
+              isUnavailableStatus && hasAdmission
                 ? Math.max(layout.scrollContentPaddingBottomTab, 100 + floatingTabBarObstruction)
                 : !hasAdmission
                   ? Math.max(layout.scrollContentPaddingBottomTab, pricingBarReserveSpace)
@@ -813,22 +832,23 @@ export default function EventDetailScreen() {
           )}
         </Card>
 
-        {isCancelled ? (
+        {isUnavailableStatus ? (
           <View
             style={[
               styles.cancelledBanner,
               { backgroundColor: withAlpha(theme.danger, 0.12), borderColor: withAlpha(theme.danger, 0.4) },
             ]}
           >
-            <Text style={[styles.cancelledBannerTitle, { color: theme.danger }]}>This event was cancelled</Text>
+            <Text style={[styles.cancelledBannerTitle, { color: theme.danger }]}>{unavailableEvent.title}</Text>
             <Text style={[styles.cancelledBannerBody, { color: theme.textSecondary }]}>
-              Registration, cancellation, and lobby access are closed. Your registration record stays on file for support and
-              attendance history.
+              {isCancelled
+                ? 'Registration, cancellation, and lobby access are closed. Your registration record stays on file for support and attendance history.'
+                : 'Registration and lobby access are closed while this event is not published.'}
             </Text>
           </View>
         ) : null}
 
-        {showEventPhoneNudge && !hasAdmission && !isCancelled ? (
+        {showEventPhoneNudge && !hasAdmission && !isUnavailableStatus ? (
           <View style={{ marginBottom: spacing.lg }}>
             <PhoneVerificationNudge
               variant="event"
@@ -845,13 +865,15 @@ export default function EventDetailScreen() {
           </View>
         ) : null}
 
-        <Pressable
-          onPress={() => setShowInviteSheet(true)}
-          style={({ pressed }) => [styles.inviteFriendsBtn, { opacity: pressed ? 0.85 : 1 }]}
-        >
-          <Ionicons name="people-outline" size={18} color="#8B5CF6" />
-          <Text style={styles.inviteFriendsBtnText}>Invite friends to this event</Text>
-        </Pressable>
+        {!isUnavailableStatus ? (
+          <Pressable
+            onPress={() => setShowInviteSheet(true)}
+            style={({ pressed }) => [styles.inviteFriendsBtn, { opacity: pressed ? 0.85 : 1 }]}
+          >
+            <Ionicons name="people-outline" size={18} color="#8B5CF6" />
+            <Text style={styles.inviteFriendsBtnText}>Invite friends to this event</Text>
+          </Pressable>
+        ) : null}
 
         {isConfirmed ? (
           <WhosGoingSection
@@ -889,20 +911,20 @@ export default function EventDetailScreen() {
           currentTimeMs={phaseClockMs}
           eventId={event.id}
           isRegistered={isConfirmed}
-          onAccessPress={!hasAdmission && !isCancelled ? handlePurchase : undefined}
+          onAccessPress={!hasAdmission && !isUnavailableStatus ? handlePurchase : undefined}
           accessLabel={isFree || userPrice === 0 ? 'Register' : 'Reserve Spot'}
-          accessDisabled={isPurchasing || isRegistering || soldOut || eventEnded || isCancelled}
+          accessDisabled={isPurchasing || isRegistering || soldOut || eventEnded || isUnavailableStatus}
         />
 
         {isConfirmed ? (
-          isCancelled ? (
+          isUnavailableStatus ? (
             <>
               <View style={[styles.youreInBlock, { backgroundColor: withAlpha(theme.danger, 0.12), borderColor: theme.danger }]}>
                 <View style={[styles.youreInIconWrap, { backgroundColor: theme.danger }]}>
                   <Ionicons name="ban-outline" size={22} color="#fff" />
                 </View>
                 <View style={styles.youreInText}>
-                  <Text style={[styles.youreInTitle, { color: theme.text }]}>Event cancelled</Text>
+                  <Text style={[styles.youreInTitle, { color: theme.text }]}>{isCancelled ? 'Event cancelled' : 'Event unavailable'}</Text>
                   <Text style={[styles.youreInSub, { color: theme.textSecondary }]}>
                     Your registration is still on file. Registration changes are closed for this event.
                   </Text>
@@ -978,14 +1000,14 @@ export default function EventDetailScreen() {
             </>
           )
         ) : isWaitlisted ? (
-          isCancelled ? (
+          isUnavailableStatus ? (
             <>
               <View style={[styles.youreInBlock, { backgroundColor: withAlpha(theme.danger, 0.12), borderColor: theme.danger }]}>
                 <View style={[styles.youreInIconWrap, { backgroundColor: theme.danger }]}>
                   <Ionicons name="ban-outline" size={22} color="#fff" />
                 </View>
                 <View style={styles.youreInText}>
-                  <Text style={[styles.youreInTitle, { color: theme.text }]}>Event cancelled</Text>
+                  <Text style={[styles.youreInTitle, { color: theme.text }]}>{isCancelled ? 'Event cancelled' : 'Event unavailable'}</Text>
                   <Text style={[styles.youreInSub, { color: theme.textSecondary }]}>
                     You were on the paid waitlist. Registration changes are closed for this event.
                   </Text>
@@ -1027,7 +1049,7 @@ export default function EventDetailScreen() {
       </ScrollView>
 
       {/* Sticky bottom: pricing when not registered */}
-      {!hasAdmission && !isCancelled && (
+      {!hasAdmission && !isUnavailableStatus && (
         <PricingBar
           price={userPrice}
           capacityStatus={capacityStatus}
@@ -1040,7 +1062,7 @@ export default function EventDetailScreen() {
         />
       )}
 
-      {isCancelled && hasAdmission ? (
+      {isUnavailableStatus && hasAdmission ? (
         <View
           style={[
             styles.cancelledAdmissionBar,
@@ -1052,7 +1074,7 @@ export default function EventDetailScreen() {
           ]}
         >
           <View style={{ flex: 1, marginRight: spacing.md }}>
-            <Text style={[styles.cancelledAdmissionTitle, { color: theme.danger }]}>Event cancelled</Text>
+            <Text style={[styles.cancelledAdmissionTitle, { color: theme.danger }]}>{isCancelled ? 'Event cancelled' : 'Event unavailable'}</Text>
             <Text style={[styles.cancelledAdmissionSub, { color: theme.textSecondary }]}>
               Registration changes are closed for this event
             </Text>
@@ -1084,7 +1106,7 @@ export default function EventDetailScreen() {
       />
 
       <InviteFriendsSheet
-        visible={showInviteSheet}
+        visible={showInviteSheet && !isUnavailableStatus}
         onClose={() => setShowInviteSheet(false)}
         analyticsSurface="event_detail"
         event={{

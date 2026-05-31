@@ -28,6 +28,7 @@ test("media permission classifier retries only constraint failures", () => {
   );
 
   assert.equal(result.status, "constraint_failed");
+  assert.equal(mediaPermissionTitle(result), "Camera or microphone setup needs another try");
   assert.equal(result.recoveryAction, "retry");
   assert.equal(shouldRetryMediaPermissionWithFallback({ name: "OverconstrainedError" }), true);
   assert.equal(shouldRetryMediaPermissionWithFallback({ name: "SecurityError" }), false);
@@ -50,4 +51,16 @@ test("media permission copy stays tied to recovery categories", () => {
   assert.match(mediaPermissionMessage(denied), /browser settings/);
   assert.equal(promptable.status, "promptable");
   assert.equal(promptable.recoveryAction, "retry");
+});
+
+test("microphone-only failures do not mention camera recovery", () => {
+  const busy = classifyMediaPermissionError({ name: "NotReadableError" }, "microphone");
+  const constrained = classifyMediaPermissionError({ name: "OverconstrainedError" }, "microphone");
+
+  assert.equal(mediaPermissionTitle(busy), "Microphone is busy");
+  assert.match(mediaPermissionMessage(busy), /using the microphone/);
+  assert.doesNotMatch(mediaPermissionMessage(busy), /camera/);
+  assert.equal(mediaPermissionTitle(constrained), "Microphone setup needs another try");
+  assert.match(mediaPermissionMessage(constrained), /start the microphone/);
+  assert.doesNotMatch(mediaPermissionMessage(constrained), /saved video|saved photo|preferred camera/);
 });
