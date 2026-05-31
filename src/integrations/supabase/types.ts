@@ -9929,6 +9929,22 @@ export type Database = {
         Returns: Json
       }
       admin_p4_context_summary: { Args: { p_context: Json }; Returns: Json }
+      admin_publish_event: {
+        Args: {
+          p_event_id: string
+          p_idempotency_key?: string
+          p_reason?: string
+        }
+        Returns: Json
+      }
+      admin_publish_event_series: {
+        Args: {
+          p_idempotency_key?: string
+          p_parent_event_id: string
+          p_reason?: string
+        }
+        Returns: Json
+      }
       admin_record_moderation_recommendation_decision: {
         Args: {
           p_decision: string
@@ -10049,6 +10065,22 @@ export type Database = {
           p_refund_handled_externally?: boolean
           p_resolution?: string
           p_support_ticket_id?: string
+        }
+        Returns: Json
+      }
+      admin_unpublish_event: {
+        Args: {
+          p_event_id: string
+          p_idempotency_key?: string
+          p_reason?: string
+        }
+        Returns: Json
+      }
+      admin_unpublish_event_series: {
+        Args: {
+          p_idempotency_key?: string
+          p_parent_event_id: string
+          p_reason?: string
         }
         Returns: Json
       }
