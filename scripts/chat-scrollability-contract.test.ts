@@ -80,89 +80,86 @@ test("web chat avoids jumpy rich-content reflow and older-message prepend snaps"
 test("web chat pins mobile shell to visualViewport and preserves keyboard stickiness", () => {
   assert.match(webChat, /const composerChromeRef = useRef<HTMLDivElement>\(null\)/);
   assert.doesNotMatch(webChat, /visualViewportHeight/);
-  assert.match(webChat, /type CSSProperties/);
   assert.match(webChat, /const CHAT_DESKTOP_VIEWPORT_QUERY = "\(min-width: 1024px\)";/);
-  // The 96px keyboard-overlap heuristic was removed: with offsetTop compensation,
-  // the position:fixed document scroll lock, and rAF-coalesced updates there is no
-  // jitter left to gate.
+
+  // The overlay viewport-follow is IMPERATIVE (written straight to the node), never
+  // routed through React state — a setState -> render -> commit path lands the
+  // compensation a frame or more after iOS pans the visual viewport, which is the
+  // jump-to-top transient. None of the old React-state machinery may come back.
+  assert.doesNotMatch(webChat, /mobileKeyboardViewportStyle/);
+  assert.doesNotMatch(webChat, /chatMobileViewportStyleFromVisualViewport/);
+  assert.doesNotMatch(webChat, /updateMobileKeyboardViewportStyle/);
+  assert.doesNotMatch(webChat, /scheduleMobileKeyboardViewportStyleClear/);
   assert.doesNotMatch(webChat, /CHAT_MOBILE_KEYBOARD_THRESHOLD_PX/);
   assert.doesNotMatch(webChat, /keyboardOverlap/);
-  assert.match(webChat, /const CHAT_MOBILE_KEYBOARD_STYLE_CLEAR_DELAY_MS = 240;/);
+  assert.doesNotMatch(webChat, /CHAT_MOBILE_KEYBOARD_STYLE_CLEAR_DELAY_MS/);
+
   assert.match(
     webChat,
     /function isDesktopChatViewport\(\): boolean \{[\s\S]*window\.matchMedia\(CHAT_DESKTOP_VIEWPORT_QUERY\)[\s\S]*window\.innerWidth >= 1024;/,
   );
+
+  // The overlay node is held by a ref and styled imperatively.
+  assert.match(webChat, /const chatShellRef = useRef<HTMLDivElement \| null>\(null\)/);
   assert.match(
     webChat,
-    // Overlay top/left COMPENSATE for visualViewport.offsetTop/offsetLeft: iOS Safari
-    // (resizes-visual) pans the visual viewport and drags this position:fixed overlay
-    // up, so we must write top:offsetTop to snap it back. Pinning top:0 left it stuck
-    // mid-screen with a black void below.
-    /function chatMobileViewportStyleFromVisualViewport\(viewport: VisualViewport\): CSSProperties \{[\s\S]*position: "fixed",[\s\S]*top: `\$\{Math\.max\(0, viewport\.offsetTop\)\}px`,[\s\S]*left: `\$\{Math\.max\(0, viewport\.offsetLeft\)\}px`,[\s\S]*right: "auto",[\s\S]*height: `\$\{Math\.max\(1, viewport\.height\)\}px`,[\s\S]*width: `\$\{Math\.max\(1, viewport\.width\)\}px`,/,
+    /const lastShellStyleRef = useRef\(\{ top: "", left: "", height: "", width: "" \}\)/,
   );
-  assert.doesNotMatch(webChat, /width: "100vw"/);
+
+  // applyChatShellViewportStyle writes the visual-viewport offset/size DIRECTLY to the
+  // node (top/left COMPENSATE iOS's pan), clears on desktop, and writes only changed
+  // properties so a pure pan touches top/left and nothing else.
   assert.match(
     webChat,
-    /function chatMobileViewportStylesEqual\(prev: CSSProperties \| undefined, next: CSSProperties\): boolean \{\s*if \(!prev\) return false;/,
+    /const applyChatShellViewportStyle = useCallback\(\(\) => \{[\s\S]*const node = chatShellRef\.current;[\s\S]*const viewport = window\.visualViewport;[\s\S]*if \(viewport && !isDesktopChatViewport\(\)\) \{[\s\S]*top = `\$\{Math\.max\(0, viewport\.offsetTop\)\}px`;[\s\S]*left = `\$\{Math\.max\(0, viewport\.offsetLeft\)\}px`;[\s\S]*height = `\$\{Math\.max\(1, viewport\.height\)\}px`;[\s\S]*width = `\$\{Math\.max\(1, viewport\.width\)\}px`;[\s\S]*if \(last\.top !== top\) \{[\s\S]*node\.style\.top = top;/,
   );
+
+  // The visualViewport listener updates SYNCHRONOUSLY (no rAF, no React) so the
+  // compensation paints in the same frame as iOS's pan.
   assert.match(
     webChat,
-    /const \[mobileKeyboardViewportStyle, setMobileKeyboardViewportStyle\] = useState<CSSProperties \| undefined>\(\);/,
+    /const handleMobileViewportChange = \(\) => \{\s*applyChatShellViewportStyle\(\);\s*scheduleStickyBottomSnap\(\{ instant: true \}\);\s*\};/,
   );
-  assert.match(
-    webChat,
-    /const mobileKeyboardStableViewportHeightRef = useRef<number \| null>\([\s\S]*Math\.max\(window\.visualViewport\?\.height \?\? 0, window\.innerHeight \?\? 0\)/,
-  );
-  assert.match(
-    webChat,
-    /const applyMobileViewportStyle = useCallback\(\(viewport: VisualViewport\) => \{[\s\S]*chatMobileViewportStyleFromVisualViewport\(viewport\)[\s\S]*setMobileKeyboardViewportStyle\(\(prev\) =>[\s\S]*chatMobileViewportStylesEqual\(prev, nextStyle\)/,
-  );
-  assert.match(
-    webChat,
-    /const scheduleMobileKeyboardViewportStyleClear = useCallback\(\(\) => \{[\s\S]*document\.activeElement === inputRef\.current[\s\S]*const viewport = window\.visualViewport;[\s\S]*isDesktopChatViewport\(\)[\s\S]*mobileKeyboardStableViewportHeightRef\.current = Math\.max\(viewport\.height, window\.innerHeight\);[\s\S]*applyMobileViewportStyle\(viewport\);/,
-  );
-  assert.match(
-    webChat,
-    /const updateMobileKeyboardViewportStyle = useCallback\(\(\) => \{[\s\S]*const textarea = inputRef\.current;[\s\S]*const viewport = window\.visualViewport;[\s\S]*const currentViewportHeight = viewport\?\.height \?\? 0;[\s\S]*const currentLayoutHeight = window\.innerHeight;[\s\S]*if \(!viewport \|\| currentViewportHeight <= 0 \|\| isDesktopChatViewport\(\)\)[\s\S]*const textareaFocused = textarea !== null && document\.activeElement === textarea;[\s\S]*if \(!textareaFocused\) \{[\s\S]*mobileKeyboardStableViewportHeightRef\.current = Math\.max\(currentViewportHeight, currentLayoutHeight\);[\s\S]*applyMobileViewportStyle\(viewport\);[\s\S]*applyMobileViewportStyle\(viewport\);/,
-  );
+  assert.doesNotMatch(webChat, /rafId = window\.requestAnimationFrame\(\(\) => \{[\s\S]*applyChatShellViewportStyle/);
+  assert.match(webChat, /viewport\.addEventListener\("resize", handleMobileViewportChange\)/);
+  assert.match(webChat, /viewport\.addEventListener\("scroll", handleMobileViewportChange\)/);
+
   assert.match(
     webChat,
     /const scheduleStickyBottomSnap = useCallback\(\(opts\?: \{ instant\?: boolean \}\) => \{[\s\S]*if \(!stickToBottomRef\.current\) return;[\s\S]*if \(isUserScrollIntentActive\(\)\) return;[\s\S]*window\.requestAnimationFrame/,
   );
-  assert.match(webChat, /const viewport = window\.visualViewport/);
-  assert.match(webChat, /viewport\.addEventListener\("resize", handleMobileViewportChange\)/);
-  assert.match(webChat, /viewport\.addEventListener\("scroll", handleMobileViewportChange\)/);
-  // The keyboard-animation resize/scroll storm is coalesced to one layout write per frame.
-  assert.match(
-    webChat,
-    /const handleMobileViewportChange = \(\) => \{[\s\S]*if \(rafId != null\) return;[\s\S]*rafId = window\.requestAnimationFrame\(\(\) => \{[\s\S]*runViewportUpdate\(\);/,
-  );
-  // While mounted on mobile, the document/layout viewport is locked so iOS Safari cannot
-  // auto-scroll the page to reveal the composer (the cause of the offsetTop spike + jump).
-  // overflow:hidden does NOT lock scroll on iOS — body must be position:fixed, pinned at
-  // the saved scroll offset and re-scrolled on unlock.
+
+  // The body is locked with position:fixed (overflow:hidden does NOT lock iOS scroll),
+  // pinned at the saved offset and re-scrolled on unlock.
   assert.match(webChat, /html\.style\.overflow = "hidden";/);
   assert.match(webChat, /body\.style\.overflow = "hidden";/);
   assert.match(webChat, /body\.style\.position = "fixed";/);
   assert.match(webChat, /body\.style\.top = `-\$\{savedScrollY\}px`;/);
   assert.match(webChat, /savedScrollY = window\.scrollY \|\| window\.pageYOffset \|\| 0;/);
   assert.match(webChat, /window\.scrollTo\(0, savedScrollY\);/);
+
+  // The overlay keeps its baseline classes and is bound to the ref (no React style prop).
   assert.match(
     webChat,
-    /className="fixed left-0 top-0 h-\[100svh\] w-full max-w-\[100svw\][\s\S]*overflow-hidden overflow-x-hidden[\s\S]*lg:relative lg:inset-auto lg:w-auto lg:max-w-none/,
+    /ref=\{chatShellRef\}\s*className="fixed left-0 top-0 h-\[100svh\] w-full max-w-\[100svw\][\s\S]*overflow-hidden overflow-x-hidden[\s\S]*lg:relative lg:inset-auto lg:w-auto lg:max-w-none/,
   );
   assert.doesNotMatch(webChat, /className="fixed inset-0 h-\[100[ds]vh\] w-screen/);
-  assert.match(webChat, /style=\{mobileKeyboardViewportStyle\}/);
   assert.match(webChat, /<div ref=\{composerChromeRef\} className="relative z-40 shrink-0">/);
   assert.match(webChat, /<textarea[\s\S]*aria-label="Message"[\s\S]*className="[^"]*text-base leading-5/);
   assert.doesNotMatch(webChat, /text-\[15px\] leading-5/);
+
+  // Focus/blur both just re-sync the shell imperatively; no clear-delay machinery.
   assert.match(
     webChat,
-    /const handleComposerFocus = useCallback\(\(\) => \{[\s\S]*mobileKeyboardStableViewportHeightRef\.current = Math\.max\([\s\S]*window\.visualViewport\?\.height \?\? 0,[\s\S]*window\.innerHeight \?\? 0,[\s\S]*updateMobileKeyboardViewportStyle\(\);/,
+    /const handleComposerFocus = useCallback\(\(\) => \{\s*applyChatShellViewportStyle\(\);\s*scheduleStickyBottomSnap\(\{ instant: false \}\);/,
   );
   assert.match(
     webChat,
-    /const returnToMatches = useCallback\(\(\) => \{[\s\S]*inputRef\.current\?\.blur\(\);[\s\S]*clearMobileKeyboardViewportStyle\(\);[\s\S]*setExiting\(true\);/,
+    /const handleComposerBlur = useCallback\(\(\) => \{[\s\S]*applyChatShellViewportStyle\(\);\s*scheduleStickyBottomSnap\(\{ instant: true \}\);/,
+  );
+  assert.match(
+    webChat,
+    /const returnToMatches = useCallback\(\(\) => \{[\s\S]*inputRef\.current\?\.blur\(\);[\s\S]*setExiting\(true\);/,
   );
   assert.match(webChat, /onFocus=\{handleComposerFocus\}/);
   assert.match(webChat, /onBlur=\{handleComposerBlur\}/);

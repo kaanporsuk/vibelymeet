@@ -1,4 +1,4 @@
-import { lazy, Suspense, useState, useRef, useEffect, useLayoutEffect, useMemo, useCallback, type CSSProperties } from "react";
+import { lazy, Suspense, useState, useRef, useEffect, useLayoutEffect, useMemo, useCallback } from "react";
 import { flushSync } from "react-dom";
 import * as Sentry from "@sentry/react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -126,7 +126,6 @@ type ReactionEmoji = "❤️" | "😍" | "🔥" | "🤣" | "😮" | "👍" | "�
 const DATE_SUGGESTION_KEYWORDS = ["free", "video", "call", "meet", "date", "tonight", "later", "available"];
 const CHAT_COMPOSER_CONTROL_CLASS = "h-10 w-10";
 const CHAT_DESKTOP_VIEWPORT_QUERY = "(min-width: 1024px)";
-const CHAT_MOBILE_KEYBOARD_STYLE_CLEAR_DELAY_MS = 240;
 const MATCHES_ROUTE = "/matches";
 const UPLOAD_ATTENTION_HIGHLIGHT_MS = 2200;
 const UPLOAD_ATTENTION_HIGHLIGHT_CLASS =
@@ -138,39 +137,12 @@ function isDesktopChatViewport(): boolean {
   return desktopMediaQuery?.matches ?? window.innerWidth >= 1024;
 }
 
-function chatMobileViewportStyleFromVisualViewport(viewport: VisualViewport): CSSProperties {
-  // Anchor the overlay to the visual viewport. iOS Safari (when it ignores
-  // interactive-widget, i.e. the default resizes-visual mode) pans the visual
-  // viewport on keyboard open and DRAGS this position:fixed overlay up by
-  // visualViewport.offsetTop. We must COMPENSATE by writing top:offsetTop /
-  // left:offsetLeft so the overlay snaps back to the visible area (composer just
-  // above the keyboard). The position:fixed body scroll-lock below keeps offsetTop
-  // ~0 in the common case; this compensation is the safety net when iOS pans anyway.
-  // Pinning top:0 instead leaves the overlay stuck mid-screen with a black void.
-  return {
-    position: "fixed",
-    top: `${Math.max(0, viewport.offsetTop)}px`,
-    bottom: "auto",
-    left: `${Math.max(0, viewport.offsetLeft)}px`,
-    right: "auto",
-    height: `${Math.max(1, viewport.height)}px`,
-    width: `${Math.max(1, viewport.width)}px`,
-  };
-}
-
-function chatMobileViewportStylesEqual(prev: CSSProperties | undefined, next: CSSProperties): boolean {
-  if (!prev) return false;
-
-  return (
-    prev.position === next.position &&
-    prev.top === next.top &&
-    prev.bottom === next.bottom &&
-    prev.left === next.left &&
-    prev.right === next.right &&
-    prev.height === next.height &&
-    prev.width === next.width
-  );
-}
+// The mobile chat overlay is sized/positioned to the visual viewport IMPERATIVELY
+// (see applyChatShellViewportStyle inside the component) rather than through React
+// state. iOS Safari pans the visual viewport before paint when the keyboard opens;
+// writing the compensating top/left/height/width directly to the node inside the
+// visualViewport event handler lands in the SAME frame as the pan, eliminating the
+// jump-to-top transient that any setState -> render -> commit path produces.
 
 const VoiceRecorder = lazy(() => import("@/components/chat/VoiceRecorder"));
 const VideoMessageRecorder = lazy(() => import("@/components/chat/VideoMessageRecorder"));
@@ -807,13 +779,10 @@ const Chat = () => {
   const stickyBottomSnapTimeoutsRef = useRef<number[]>([]);
   const stickyBottomSnapRafRef = useRef<number | null>(null);
   const stickyBottomSnapUntilRef = useRef(0);
-  const mobileKeyboardViewportStyleClearTimeoutRef = useRef<number | null>(null);
-  const mobileKeyboardStableViewportHeightRef = useRef<number | null>(
-    typeof window === "undefined"
-      ? null
-      : Math.max(window.visualViewport?.height ?? 0, window.innerHeight ?? 0),
-  );
-  const [mobileKeyboardViewportStyle, setMobileKeyboardViewportStyle] = useState<CSSProperties | undefined>();
+  // The mobile chat overlay element; its viewport-following inline styles are written
+  // imperatively (see applyChatShellViewportStyle), never via React state.
+  const chatShellRef = useRef<HTMLDivElement | null>(null);
+  const lastShellStyleRef = useRef({ top: "", left: "", height: "", width: "" });
 
   useEffect(() => {
     chatMountedRef.current = true;
@@ -853,83 +822,44 @@ const Chat = () => {
     [clearChatBackNavWatchdogs],
   );
 
-  const clearMobileKeyboardViewportStyleTimeout = useCallback(() => {
-    if (typeof window !== "undefined" && mobileKeyboardViewportStyleClearTimeoutRef.current !== null) {
-      window.clearTimeout(mobileKeyboardViewportStyleClearTimeoutRef.current);
-    }
-    mobileKeyboardViewportStyleClearTimeoutRef.current = null;
-  }, []);
-
-  const clearMobileKeyboardViewportStyle = useCallback(() => {
-    clearMobileKeyboardViewportStyleTimeout();
-    setMobileKeyboardViewportStyle(undefined);
-  }, [clearMobileKeyboardViewportStyleTimeout]);
-
-  const applyMobileViewportStyle = useCallback((viewport: VisualViewport) => {
-    const nextStyle = chatMobileViewportStyleFromVisualViewport(viewport);
-    setMobileKeyboardViewportStyle((prev) =>
-      chatMobileViewportStylesEqual(prev, nextStyle) ? prev : nextStyle,
-    );
-  }, []);
-
-  const scheduleMobileKeyboardViewportStyleClear = useCallback(() => {
-    if (typeof window === "undefined" || typeof document === "undefined") {
-      setMobileKeyboardViewportStyle(undefined);
-      return;
-    }
-
-    clearMobileKeyboardViewportStyleTimeout();
-    mobileKeyboardViewportStyleClearTimeoutRef.current = window.setTimeout(() => {
-      mobileKeyboardViewportStyleClearTimeoutRef.current = null;
-      if (document.activeElement === inputRef.current) return;
-
-      const viewport = window.visualViewport;
-      if (!viewport || viewport.height <= 0 || isDesktopChatViewport()) {
-        setMobileKeyboardViewportStyle(undefined);
-        return;
-      }
-
-      mobileKeyboardStableViewportHeightRef.current = Math.max(viewport.height, window.innerHeight);
-      applyMobileViewportStyle(viewport);
-    }, CHAT_MOBILE_KEYBOARD_STYLE_CLEAR_DELAY_MS);
-  }, [applyMobileViewportStyle, clearMobileKeyboardViewportStyleTimeout]);
-
-  const updateMobileKeyboardViewportStyle = useCallback(() => {
-    if (typeof window === "undefined" || typeof document === "undefined") {
-      setMobileKeyboardViewportStyle(undefined);
-      return;
-    }
-
-    const textarea = inputRef.current;
+  // Size + position the mobile chat overlay to the visual viewport, written DIRECTLY
+  // to the node (no React state) so the compensation for iOS Safari's visual-viewport
+  // pan lands in the same paint as the pan itself — eliminating the jump-to-top
+  // transient that a setState -> render -> commit path produces. Only changed
+  // properties are touched (pure pans write `top`/`left` only). Cleared on desktop so
+  // the lg: centered-card layout (relative, h-[100svh]) takes over.
+  const applyChatShellViewportStyle = useCallback(() => {
+    const node = chatShellRef.current;
+    if (!node || typeof window === "undefined") return;
     const viewport = window.visualViewport;
-    const currentViewportHeight = viewport?.height ?? 0;
-    const currentLayoutHeight = window.innerHeight;
-    if (!viewport || currentViewportHeight <= 0 || isDesktopChatViewport()) {
-      mobileKeyboardStableViewportHeightRef.current = Math.max(currentViewportHeight, currentLayoutHeight);
-      clearMobileKeyboardViewportStyle();
-      return;
+    const last = lastShellStyleRef.current;
+    let top = "";
+    let left = "";
+    let height = "";
+    let width = "";
+    if (viewport && !isDesktopChatViewport()) {
+      top = `${Math.max(0, viewport.offsetTop)}px`;
+      left = `${Math.max(0, viewport.offsetLeft)}px`;
+      height = `${Math.max(1, viewport.height)}px`;
+      width = `${Math.max(1, viewport.width)}px`;
     }
-
-    clearMobileKeyboardViewportStyleTimeout();
-    const textareaFocused = textarea !== null && document.activeElement === textarea;
-    if (!textareaFocused) {
-      mobileKeyboardStableViewportHeightRef.current = Math.max(currentViewportHeight, currentLayoutHeight);
-      applyMobileViewportStyle(viewport);
-      return;
+    if (last.top !== top) {
+      node.style.top = top;
+      last.top = top;
     }
-
-    // With top pinned to 0, the scroll lock keeping offsetTop ~0, and the rAF-coalesced
-    // update path, there is no longer intermediate-frame jitter to suppress — always
-    // track visualViewport.height so the overlay's bottom edge rests above the keyboard.
-    applyMobileViewportStyle(viewport);
-  }, [applyMobileViewportStyle, clearMobileKeyboardViewportStyle, clearMobileKeyboardViewportStyleTimeout]);
-
-  useEffect(
-    () => () => {
-      clearMobileKeyboardViewportStyleTimeout();
-    },
-    [clearMobileKeyboardViewportStyleTimeout],
-  );
+    if (last.left !== left) {
+      node.style.left = left;
+      last.left = left;
+    }
+    if (last.height !== height) {
+      node.style.height = height;
+      last.height = height;
+    }
+    if (last.width !== width) {
+      node.style.width = width;
+      last.width = width;
+    }
+  }, []);
 
   // Lock the document/layout viewport from scrolling while Chat is mounted on a
   // mobile viewport. iOS Safari otherwise auto-scrolls the page to reveal the
@@ -1855,23 +1785,16 @@ const Chat = () => {
     if (typeof window === "undefined") return;
     const viewport = window.visualViewport;
 
-    const runViewportUpdate = () => {
-      updateMobileKeyboardViewportStyle();
+    // Update SYNCHRONOUSLY inside the visualViewport event (which fires before paint),
+    // never deferred to rAF/React — that defers compensation to a later frame and is
+    // exactly what produced the visible jump. Writing top/left here lands the overlay
+    // in the same frame iOS pans the visual viewport.
+    const handleMobileViewportChange = () => {
+      applyChatShellViewportStyle();
       scheduleStickyBottomSnap({ instant: true });
     };
 
-    // Coalesce the resize/scroll event storm fired during the keyboard animation
-    // to at most one layout write per frame so the overlay tracks smoothly.
-    let rafId: number | null = null;
-    const handleMobileViewportChange = () => {
-      if (rafId != null) return;
-      rafId = window.requestAnimationFrame(() => {
-        rafId = null;
-        runViewportUpdate();
-      });
-    };
-
-    runViewportUpdate();
+    applyChatShellViewportStyle();
 
     if (viewport) {
       viewport.addEventListener("resize", handleMobileViewportChange);
@@ -1879,34 +1802,32 @@ const Chat = () => {
     }
     window.addEventListener("resize", handleMobileViewportChange);
     window.addEventListener("orientationchange", handleMobileViewportChange);
+    const mql =
+      typeof window.matchMedia === "function" ? window.matchMedia(CHAT_DESKTOP_VIEWPORT_QUERY) : null;
+    mql?.addEventListener?.("change", handleMobileViewportChange);
 
     return () => {
-      if (rafId != null) window.cancelAnimationFrame(rafId);
       if (viewport) {
         viewport.removeEventListener("resize", handleMobileViewportChange);
         viewport.removeEventListener("scroll", handleMobileViewportChange);
       }
       window.removeEventListener("resize", handleMobileViewportChange);
       window.removeEventListener("orientationchange", handleMobileViewportChange);
+      mql?.removeEventListener?.("change", handleMobileViewportChange);
     };
-  }, [scheduleStickyBottomSnap, updateMobileKeyboardViewportStyle]);
+  }, [applyChatShellViewportStyle, scheduleStickyBottomSnap]);
 
   const handleComposerFocus = useCallback(() => {
-    clearMobileKeyboardViewportStyleTimeout();
-    if (typeof window !== "undefined") {
-      mobileKeyboardStableViewportHeightRef.current = Math.max(
-        window.visualViewport?.height ?? 0,
-        window.innerHeight ?? 0,
-      );
-    }
-    updateMobileKeyboardViewportStyle();
+    applyChatShellViewportStyle();
     scheduleStickyBottomSnap({ instant: false });
-  }, [clearMobileKeyboardViewportStyleTimeout, scheduleStickyBottomSnap, updateMobileKeyboardViewportStyle]);
+  }, [applyChatShellViewportStyle, scheduleStickyBottomSnap]);
 
   const handleComposerBlur = useCallback(() => {
-    scheduleMobileKeyboardViewportStyleClear();
+    // No manual clear: as the keyboard closes the visualViewport resizes back to full
+    // and applyChatShellViewportStyle (driven by the listeners above) restores the shell.
+    applyChatShellViewportStyle();
     scheduleStickyBottomSnap({ instant: true });
-  }, [scheduleMobileKeyboardViewportStyleClear, scheduleStickyBottomSnap]);
+  }, [applyChatShellViewportStyle, scheduleStickyBottomSnap]);
 
   const onMainScroll = useCallback(() => {
     const el = mainScrollRef.current;
@@ -2862,7 +2783,6 @@ const Chat = () => {
   const returnToMatches = useCallback(() => {
     clearChatBackNavWatchdogs();
     inputRef.current?.blur();
-    clearMobileKeyboardViewportStyle();
     setExiting(true);
 
     flushSync(() => {
@@ -2876,14 +2796,14 @@ const Chat = () => {
         window.location.replace(MATCHES_ROUTE);
       }, 250),
     );
-  }, [navigate, clearChatBackNavWatchdogs, clearMobileKeyboardViewportStyle]);
+  }, [navigate, clearChatBackNavWatchdogs]);
 
   if (exiting) return null;
 
   return (
     <div
+      ref={chatShellRef}
       className="fixed left-0 top-0 h-[100svh] w-full max-w-[100svw] bg-[#050508] flex justify-center overflow-hidden overflow-x-hidden lg:relative lg:inset-auto lg:w-auto lg:max-w-none lg:px-4 lg:py-3"
-      style={mobileKeyboardViewportStyle}
     >
       <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_8%,hsl(var(--primary)/0.11),transparent_34%),linear-gradient(180deg,rgba(255,255,255,0.025),transparent_32%)] pointer-events-none" />
       <section className="relative z-10 flex h-full w-full min-w-0 max-w-full overflow-hidden bg-background/96 shadow-2xl shadow-black/35 ring-1 ring-border/45 lg:max-w-6xl lg:rounded-[1.75rem]">
