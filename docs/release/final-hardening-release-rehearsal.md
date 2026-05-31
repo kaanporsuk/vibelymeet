@@ -171,6 +171,8 @@ Visible secret names included the expected families for Supabase self-reference,
 - Bunny Stream/Storage/CDN path conventions are documented and tested.
 - Relevant docs/tests: `docs/branch-deltas/fix-bunny-provider-operational-qa.md`, `shared/matching/bunnyProviderOperationalQa.test.ts`.
 - Manual gates: controlled internal Vibe Video, profile image, event cover, voice upload, HLS playback, webhook readiness, and delete QA with test users only.
+- Privacy gate: run `BUNNY_CHAT_STORAGE_CDN_HOSTNAME=vibely-chat-storage-hot.b-cdn.net npm run probe:media-privacy`; public CDN and unsigned private chat CDN must deny sampled private media.
+- Dashboard gate: keep `cdn.vibelymeet.com` blocking only `voice/*`, `chat-videos/*`, `photos/match-*`, and `media/*`; keep `vibely-chat-storage-hot.b-cdn.net` token authentication enabled.
 
 ### Daily
 

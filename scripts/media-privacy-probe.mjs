@@ -10,7 +10,7 @@
 // Required env (skips gracefully if absent so it never blocks dev without creds):
 //   SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY
 //   BUNNY_CDN_HOSTNAME (public pull-zone host)  [VITE_/EXPO_PUBLIC_ variants accepted]
-// Optional: BUNNY_CDN_PATH_PREFIX, PROBE_SAMPLE_LIMIT (default 8 per family)
+// Optional: BUNNY_CDN_PATH_PREFIX, BUNNY_CHAT_STORAGE_CDN_HOSTNAME, PROBE_SAMPLE_LIMIT (default 8 per family)
 
 const SUPABASE_URL = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || "";
 const SERVICE_ROLE = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
@@ -19,6 +19,7 @@ const RAW_HOST =
   process.env.VITE_BUNNY_CDN_HOSTNAME ||
   process.env.EXPO_PUBLIC_BUNNY_CDN_HOSTNAME ||
   "";
+const RAW_PRIVATE_CHAT_STORAGE_HOST = process.env.BUNNY_CHAT_STORAGE_CDN_HOSTNAME || "";
 const PATH_PREFIX = (process.env.BUNNY_CDN_PATH_PREFIX || "").replace(/^\/+|\/+$/g, "");
 const SAMPLE_LIMIT = Number.parseInt(process.env.PROBE_SAMPLE_LIMIT || "8", 10);
 
@@ -32,7 +33,12 @@ function skip(reason) {
 if (!SUPABASE_URL || !SERVICE_ROLE) skip("SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY not set");
 if (!RAW_HOST) skip("public Bunny CDN host not set");
 
-const host = RAW_HOST.replace(/^https?:\/\//i, "").replace(/\/+$/g, "");
+function normalizeHost(value) {
+  return String(value || "").replace(/^https?:\/\//i, "").replace(/\/+$/g, "");
+}
+
+const host = normalizeHost(RAW_HOST);
+const privateChatStorageHost = normalizeHost(RAW_PRIVATE_CHAT_STORAGE_HOST);
 
 async function fetchPrivateProviderPaths() {
   const familyList = PRIVATE_FAMILIES.join(",");
@@ -54,6 +60,20 @@ function publicUrlFor(providerPath) {
   return `https://${host}/${pathPart}`;
 }
 
+function privateChatStorageUrlFor(providerPath) {
+  const clean = String(providerPath).replace(/^\/+/, "");
+  return `https://${privateChatStorageHost}/${clean}`;
+}
+
+async function headStatus(url) {
+  try {
+    const res = await fetch(url, { method: "HEAD" });
+    return res.status;
+  } catch {
+    return -1; // network error / DNS — treated as denied (not reachable)
+  }
+}
+
 async function main() {
   let rows;
   try {
@@ -68,7 +88,8 @@ async function main() {
   }
 
   const perFamily = new Map();
-  const breaches = [];
+  const publicBreaches = [];
+  const privateUnsignedBreaches = [];
   let probed = 0;
 
   for (const row of rows) {
@@ -78,29 +99,44 @@ async function main() {
     perFamily.set(fam, count + 1);
     probed += 1;
 
-    let status = 0;
-    try {
-      const res = await fetch(publicUrlFor(row.provider_path), { method: "HEAD" });
-      status = res.status;
-    } catch {
-      status = -1; // network error / DNS — treated as denied (not reachable)
-    }
+    const publicStatus = await headStatus(publicUrlFor(row.provider_path));
     // 200/206 = publicly served = BREACH. 401/403/404/410 = correctly denied.
-    if (status === 200 || status === 206) {
-      breaches.push(fam); // family only; never the path
+    if (publicStatus === 200 || publicStatus === 206) {
+      publicBreaches.push(fam); // family only; never the path
+    }
+
+    if (privateChatStorageHost) {
+      const privateStatus = await headStatus(privateChatStorageUrlFor(row.provider_path));
+      if (privateStatus === 200 || privateStatus === 206) {
+        privateUnsignedBreaches.push(fam);
+      }
     }
   }
 
   console.log(`media-privacy-probe: probed ${probed} active private objects across ${perFamily.size} families`);
-  if (breaches.length > 0) {
-    const summary = [...breaches.reduce((m, f) => m.set(f, (m.get(f) || 0) + 1), new Map())]
+  if (privateChatStorageHost) {
+    console.log("media-privacy-probe: checked unsigned private chat CDN access");
+  }
+
+  if (publicBreaches.length > 0) {
+    const summary = [...publicBreaches.reduce((m, f) => m.set(f, (m.get(f) || 0) + 1), new Map())]
       .map(([f, c]) => `${f}=${c}`)
       .join(", ");
     console.error(`media-privacy-probe: FAILED — public CDN served private media (${summary}).`);
     console.error("Private chat media is publicly reachable by path. Fix the Bunny zone/token-auth config.");
     process.exit(1);
   }
-  console.log("media-privacy-probe: PASSED — public CDN denied all sampled private media");
+  if (privateUnsignedBreaches.length > 0) {
+    const summary = [...privateUnsignedBreaches.reduce((m, f) => m.set(f, (m.get(f) || 0) + 1), new Map())]
+      .map(([f, c]) => `${f}=${c}`)
+      .join(", ");
+    console.error(`media-privacy-probe: FAILED — private chat CDN served unsigned media (${summary}).`);
+    console.error("Private chat media is reachable without token auth. Re-enable Bunny token authentication.");
+    process.exit(1);
+  }
+  console.log(privateChatStorageHost
+    ? "media-privacy-probe: PASSED — public CDN and unsigned private chat CDN denied all sampled private media"
+    : "media-privacy-probe: PASSED — public CDN denied all sampled private media");
 }
 
 main().catch((err) => {

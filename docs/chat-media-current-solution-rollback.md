@@ -1,9 +1,8 @@
 # Chat Media — Current Solution & Rollback Reference
 
-**Status:** Operative rollback reference for private chat media delivery. This documents the
-**authorized Supabase Edge proxy** delivery path so we can deterministically roll back to it if
-the Tier-2 signed direct-CDN path (see [media_management_ultimate_improvement.md §A.10](./media_management_ultimate_improvement.md))
-is ever disabled or reverted.
+**Status:** Operative reference for private chat media delivery after the Bunny privacy closure.
+The current production path prefers a **dedicated token-auth Bunny pull zone** for private chat
+Storage media and keeps the **authorized Supabase Edge proxy** as the deterministic rollback path.
 
 **Baseline commit:** `8f5950f6` ("Harden media permissions and profile photo swipes (#1121)", 2026-05-30) plus
 branch `feat/chat-media-reliability-egress` (Tier 0 thumbnail reliability + Tier 1 cache/expo-image).
@@ -12,15 +11,16 @@ branch `feat/chat-media-reliability-egress` (Tier 0 thumbnail reliability + Tier
 
 ## 1. What the current solution is
 
-Private chat media uses an **authorized resolver + Edge proxy for Bunny Storage media**, and
-**signed Bunny Stream URLs for Stream media**. Bytes for Storage families stream **through** the
-Edge Function; Stream families resolve to a signed CDN URL the client fetches directly.
+Private chat media uses an **authorized resolver** for every URL issuance. For Bunny Storage
+families, the resolver prefers a short-lived signed URL on the dedicated private chat pull zone
+when `CHAT_MEDIA_DIRECT_CDN_ENABLED=true`; otherwise it falls back to the Edge proxy. Bunny Stream
+families resolve to signed Stream URLs.
 
 | Family | Provider | Delivery |
 |---|---|---|
-| Chat photo | `bunny_storage` | Edge proxy (`get-chat-media-url?token=…`) → streams from `storage.bunnycdn.com` |
-| Chat voice | `bunny_storage` | Edge proxy (same) |
-| Legacy/progressive chat video | `bunny_storage` | Edge proxy (same) |
+| Chat photo | `bunny_storage` | Signed private Bunny Storage CDN URL (`vibely-chat-storage-hot.b-cdn.net`) when enabled; Edge proxy fallback |
+| Chat voice | `bunny_storage` | Signed private Bunny Storage CDN URL when enabled; Edge proxy fallback |
+| Legacy/progressive chat video | `bunny_storage` | Legacy upload is gated off by default; existing active rows resolve through signed private CDN/proxy fallback |
 | Chat Vibe Clip | `bunny_stream` | Signed Bunny Stream HLS + poster (`bcdn_token` directory token) |
 | Profile Vibe Video (private) | `bunny_stream` | Signed Bunny Stream HLS + poster |
 
@@ -34,7 +34,18 @@ It is **not** part of this rollback path.
 2. Function validates the Supabase user, then checks message/match participation.
 3. Resolves the `media_assets` row for the message.
 4. `bunny_stream` → returns signed Bunny Stream `playlist.m3u8` + `thumbnail.jpg` URLs (`signBunnyStreamDirectoryUrl`).
-5. `bunny_storage` → mints a 15-minute HMAC proxy token and returns:
+5. `bunny_storage` with direct CDN enabled/configured → returns a 15-minute signed URL on
+   `BUNNY_CHAT_STORAGE_CDN_HOSTNAME` using Bunny token authentication:
+   ```json
+   {
+     "success": true,
+     "url": "https://vibely-chat-storage-hot.b-cdn.net/<private-path>?token=…&expires=…&token_path=…",
+     "playbackKind": "progressive",
+     "provider": "bunny_storage",
+     "expiresInSeconds": 900
+   }
+   ```
+6. `bunny_storage` with direct CDN disabled or missing config → mints a 15-minute HMAC proxy token and returns:
    ```json
    {
      "success": true,
@@ -44,9 +55,9 @@ It is **not** part of this rollback path.
      "expiresInSeconds": 900
    }
    ```
-6. Client `GET …?token=…` → `handleProxy` verifies the token, fetches
+7. Client `GET …?token=…` on the proxy fallback → `handleProxy` verifies the token, fetches
    `https://storage.bunnycdn.com/${zone}/${path}` with the `AccessKey` header, and streams the body.
-7. Proxy response headers (**current, after Tier 1**):
+8. Proxy response headers (**current, after Tier 1**):
    ```http
    Cache-Control: private, max-age=<remaining_token_seconds − 15>, immutable   # capped at 900
    Accept-Ranges: bytes
@@ -64,13 +75,13 @@ It is **not** part of this rollback path.
 - Web prewarms images via `new Image()` and HLS playlist/first-segment via `fetch(cache:"force-cache")`.
 - Native chat media renders through `expo-image` (`cachePolicy="memory-disk"`) after Tier 1.
 
-## 4. Required env / secrets (current proxy path)
+## 4. Required env / secrets
 
-No `BUNNY_CHAT_STORAGE_CDN_*` is required by the current path:
+Base resolver/proxy secrets:
 
 ```
 SUPABASE_URL, SUPABASE_ANON_KEY, SUPABASE_SERVICE_ROLE_KEY
-CHAT_MEDIA_PROXY_SECRET            # optional; falls back to service role key
+CHAT_MEDIA_PROXY_SECRET            # required in production; fallback exists only to avoid sudden breakage
 BUNNY_STORAGE_ZONE, BUNNY_STORAGE_API_KEY
 BUNNY_ARCHIVE_STORAGE_ZONE / BUNNY_STORAGE_ARCHIVE_ZONE        # optional archive tier
 BUNNY_ARCHIVE_STORAGE_API_KEY / BUNNY_STORAGE_ARCHIVE_API_KEY  # optional archive tier
@@ -78,7 +89,7 @@ BUNNY_CHAT_STREAM_CDN_HOSTNAME, BUNNY_CHAT_STREAM_TOKEN_SECURITY_KEY
 BUNNY_STREAM_CDN_HOSTNAME, BUNNY_STREAM_TOKEN_SECURITY_KEY
 ```
 
-### Tier-2 direct-CDN secrets (new — default OFF, optional)
+### Direct private-chat CDN secrets
 
 These gate the signed direct-CDN path. While `CHAT_MEDIA_DIRECT_CDN_ENABLED` is unset/false or
 the hostname/key are absent, delivery uses the proxy exactly as documented above (zero behavior change):
@@ -92,7 +103,18 @@ BUNNY_CHAT_STORAGE_ARCHIVE_TOKEN_SECURITY_KEY # optional, archive tier
 ```
 
 > Infra prerequisite: a **dedicated** Bunny pull zone (NOT the public `BUNNY_CDN_HOSTNAME`) with
-> Advanced Token Authentication enabled and its cache key configured to ignore `token`/`expires`.
+> Token Authentication enabled. Current production hostname: `vibely-chat-storage-hot.b-cdn.net`.
+
+### Public CDN deny rule
+
+The public CDN `cdn.vibelymeet.com` must keep a Bunny Edge Rule that blocks private path families:
+
+- `https://cdn.vibelymeet.com/voice/*`
+- `https://cdn.vibelymeet.com/chat-videos/*`
+- `https://cdn.vibelymeet.com/photos/match-*`
+- `https://cdn.vibelymeet.com/media/*`
+
+Do not block broad `photos/*`; public profile/avatar images legitimately live there.
 
 ## 5. Rollback procedure (disable Tier-2 signed direct CDN)
 
@@ -114,15 +136,24 @@ back to proxy-only delivery:
 ## 6. Rollback verification
 
 ```bash
+npm run probe:media-privacy
 npm run test:chat-media-cache
+npm run test:media-privacy-guard
+npm run test:chat-media-direct-cdn
 npm run test:vibe-clip-upload-contract
 npm run test:chat-native-lifecycle
 npm run typecheck
 ```
 
 Functional (disposable pair, per CLAUDE.md): send + reopen a chat photo, a voice note, and a Vibe Clip.
-- Photo/voice `url` host is **Supabase Functions**, not a Bunny CDN host.
-- `curl -I "<issued url>"` shows `Cache-Control: private, max-age=…, immutable` and `Accept-Ranges: bytes`.
+- With direct CDN enabled, photo/voice `url` host is `vibely-chat-storage-hot.b-cdn.net` and removing token query params fails.
+- With direct CDN disabled, photo/voice `url` host is **Supabase Functions**, not a Bunny CDN host.
+- Proxy fallback: `curl -I "<issued url>"` shows `Cache-Control: private, max-age=…, immutable` and `Accept-Ranges: bytes`.
 - A non-member / expired token receives `401`.
 - Range requests (video scrubbing) succeed.
 - Vibe Clip still resolves to signed Bunny Stream HLS.
+
+The GitHub Actions workflow `.github/workflows/media-privacy-live-probe.yml` runs the read-only
+probe on `main`, daily, and on demand. GitHub repository secrets required by that workflow:
+`SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `BUNNY_CDN_HOSTNAME`, and
+`BUNNY_CHAT_STORAGE_CDN_HOSTNAME`.

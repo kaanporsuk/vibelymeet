@@ -1,0 +1,53 @@
+name: Media Privacy Live Probe
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '17 6 * * *'
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/media-privacy-live-probe.yml'
+      - 'package-lock.json'
+      - 'package.json'
+      - 'scripts/media-privacy-probe.mjs'
+      - 'supabase/functions/get-chat-media-url/**'
+      - 'supabase/functions/send-message/**'
+      - 'supabase/functions/upload-chat-video/**'
+      - 'supabase/functions/upload-image/**'
+      - 'supabase/functions/upload-voice/**'
+      - 'src/utils/imageUrl.ts'
+      - 'apps/mobile/lib/imageUrl.ts'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  live-probe:
+    name: CDN must deny unsigned private media
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run read-only media privacy probe
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          BUNNY_CDN_HOSTNAME: ${{ secrets.BUNNY_CDN_HOSTNAME }}
+          BUNNY_CHAT_STORAGE_CDN_HOSTNAME: ${{ secrets.BUNNY_CHAT_STORAGE_CDN_HOSTNAME }}
+          PROBE_SAMPLE_LIMIT: '8'
+        run: npm run probe:media-privacy

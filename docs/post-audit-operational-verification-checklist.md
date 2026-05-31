@@ -12,6 +12,7 @@
 |-------|------|------|
 | Type safety | `npm run typecheck` | Required green before merge |
 | Lint | `npm run lint` | Warnings-only baseline; no new errors |
+| Media privacy probe | `BUNNY_CHAT_STORAGE_CDN_HOSTNAME=vibely-chat-storage-hot.b-cdn.net npm run probe:media-privacy` | Public CDN and unsigned private chat CDN must deny sampled private media |
 | Migration files present | `ls supabase/migrations/20260416100000*.sql` and `20260416110000*.sql` | Canonical location + regional rules |
 | Client location writes | Generic profile updaters reject `location` / `location_data` / `country` | See `assertNoDirectProfileLocationWrites` in [`supabase/functions/_shared/profileContracts.ts`](../supabase/functions/_shared/profileContracts.ts) and [`profileService.ts`](../src/services/profileService.ts) / [`profileApi.ts`](../apps/mobile/lib/profileApi.ts) |
 
@@ -36,6 +37,7 @@
 |------|----------------|
 | **Vercel production** | Deployed commit matches expected release; production env includes `VITE_ONESIGNAL_APP_ID` and Supabase URL/anon key for the project above |
 | **OneSignal runtime** | Web: init succeeds on `www.vibelymeet.com`; apex redirects to `www`; push receipt end-to-end. Native: `EXPO_PUBLIC_ONESIGNAL_APP_ID` in EAS secrets matches dashboard; device receives a test push |
+| **Bunny private chat media** | Public pull zone keeps the private-path edge rule enabled; private chat pull zone `vibely-chat-storage-hot.b-cdn.net` keeps Token Authentication enabled and Token IP validation off |
 | **`PUSH_WEBHOOK_SECRET`** | Set in Supabase Edge secrets; matches what OneSignal (or other) webhook sends in `x-webhook-secret`; `push-webhook` returns 503 if unset |
 | **Authenticated route smoke** | Re-run `npm run proof:browser-auth` (or equivalent) against the target URL when changing auth or shell routes |
 | **Rebuild rehearsal** | Follow `docs/rebuild-rehearsal-log.md` / team process — not automated here |

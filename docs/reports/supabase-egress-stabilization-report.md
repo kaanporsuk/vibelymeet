@@ -16,7 +16,7 @@ Scope: egress/client stabilization. Initial pass avoided schema changes; follow-
 | Edge Functions | Production traces showed `/functions/v1/health` twice on anonymous and authenticated boot. Current code removes the normal browser boot health probe; the in-page guard caches the first health result per boot for stale bundles or hidden callers. | Normal browser boot should make zero health calls; any unexpected health caller is capped to one network attempt per boot. |
 | Realtime | `supabase inspect db calls`: `realtime.list_changes` was top DB work: ~6.8M calls plus ~1.0M calls, ~63.1% of total statement execution time. | Realtime is the strongest systemic suspect. Client now exposes channel counts, prunes duplicates, removes all channels on logout, and narrows obvious broad listeners. |
 | Storage | Boot trace did not show Supabase Storage downloads. `storage.objects` is write-heavy in table stats but not a boot egress source in this trace. | Leave intentional Supabase buckets such as `proof-selfies` alone. |
-| Media/CDN | Auth boot loaded 2 Bunny/CDN photo assets, ~20.3 KB before and after. | Photo media was served from CDN. URL rewriting remains restricted to confirmed Bunny-backed `photos/`, `events/`, `voice/`, and `media/` paths. Chat video remains separate via `get-chat-media-url`. |
+| Media/CDN | Auth boot loaded 2 Bunny/CDN photo assets, ~20.3 KB before and after. | Photo media was served from CDN. Current privacy posture restricts public URL rewriting to public `photos/` and `events/` paths, with chat-scoped `photos/match-*`, `voice/`, `chat-videos/`, and `media/` resolved through the authorized chat-media resolver. |
 
 Cron inventory: 19 active cron jobs were observed read-only. Every-minute jobs include `send_event_reminders`, `expire_video_date_reconnect_graces`, `expire_stale_video_sessions`, `expire_stale_match_calls`, `finalize_due_events`, queue unclaiming, and several `net.http_post` Edge Function calls. No cron changes were made in this pass.
 
@@ -65,7 +65,7 @@ Top before/after request changes:
 - Reduced write churn:
   - Activity heartbeat is visible/foreground only and every 5 minutes on web and native.
   - Push sync signatures persist briefly in localStorage so unchanged `notification_preferences` upserts are skipped across boot/focus loops.
-- Media routing: only confirmed Bunny-backed `photos/`, `events/`, `voice/`, and `media/` paths are rewritten to Bunny/CDN. Chat video remains resolved by `get-chat-media-url`; `proof-selfies` and other intentional Supabase buckets are untouched.
+- Media routing: only public Bunny-backed `photos/` and `events/` paths are rewritten to the public CDN. Private chat-scoped paths (`photos/match-*`, `voice/`, `chat-videos/`, `media/`) remain resolved by `get-chat-media-url`; `proof-selfies` and other intentional Supabase buckets are untouched.
 - Added `scripts/supabase-egress-boot-trace.mjs` and `npm run trace:supabase-egress`.
 - Added native/mobile parity hardening: auth bootstrap/sign-out timeouts, stale entry-state guards, fallback entry-state recovery, duplicate realtime pruning on route/app-state changes, and full realtime cleanup on native sign-out.
 - Added Playwright coverage in `e2e/boot-timeout.spec.ts` for stalled Supabase boot requests exiting the global spinner.
