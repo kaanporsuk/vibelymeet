@@ -126,7 +126,8 @@ function isBunnyStreamRef(value: string): boolean {
   return value.startsWith("bunny_stream:");
 }
 
-function bunnyStreamThumbnailRefFor(rawRef: string): string | null {
+export function bunnyStreamThumbnailRefFor(rawRef: string | null | undefined): string | null {
+  if (!rawRef) return null;
   const match = /^bunny_stream:([0-9a-f-]{32,36})$/i.exec(rawRef.trim());
   return match ? `bunny_stream:${match[1]}:thumbnail` : null;
 }
