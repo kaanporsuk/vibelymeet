@@ -110,7 +110,7 @@ Read-only cloud audit:
 Repo audit:
 
 - 2026-05-26 repo refresh: `supabase/functions` has 71 deployable function directories, excluding `_shared`.
-- 2026-05-26 repo refresh: `supabase/config.toml` has 70 `[functions.<slug>]` entries.
+- 2026-05-26 repo refresh: `supabase/config.toml` has 71 `[functions.<slug>]` entries.
 - No config gaps were found.
 - Stream 20 changes no Edge Function source.
 - Stream 20 requires no Edge Function deploy.
@@ -155,7 +155,7 @@ Visible secret names included the expected families for Supabase self-reference,
 ### Supabase
 
 - Project linkage is known: `schdyxcunwcvddlcshwd / MVP_Vibe`.
-- 49 Edge Functions are represented in config and active in read-only cloud listing.
+- 71 Edge Functions are represented in config and current repo inventory.
 - Migration list showed local/remote parity in CLI output.
 - Storage and RLS details remain governed by the migration history and provider sheets.
 - Manual gates: do not run DB push without a separate migration review; verify dashboard-only settings before any rebuild cutover.

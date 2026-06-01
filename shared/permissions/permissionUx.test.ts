@@ -5,6 +5,7 @@ import {
   permissionUxStatusForRequiredGrants,
   permissionUxStatusFromBrowserMediaStatus,
   permissionUxStatusFromGrant,
+  permissionUxStatusFromMediaPermissionStatus,
   resolvePermissionUx,
 } from "./permissionUx";
 
@@ -46,6 +47,23 @@ test("chat vibe clip uses compact prompt copy with upload fallback", () => {
   assert.equal(prompt.fallbackLabel, "Choose saved video");
   assert.equal(blocked.primaryAction, "open_settings");
   assert.equal(blocked.primaryLabel, "Open Settings");
+});
+
+test("match calls use intent-specific media permission copy", () => {
+  const voice = resolvePermissionUx({ capability: "match_call_voice", status: "promptable", platform: "web" });
+  const video = resolvePermissionUx({
+    capability: "match_call_video",
+    status: "blocked_settings",
+    platform: "android",
+    mediaKind: "camera",
+  });
+
+  assert.equal(voice.title, "Microphone needed");
+  assert.match(voice.message, /voice call/);
+  assert.equal(voice.primaryLabel, "Allow microphone");
+  assert.equal(video.title, "Camera needed");
+  assert.match(video.message, /Camera access is off/);
+  assert.equal(video.primaryLabel, "Open Settings");
 });
 
 test("required media copy names the missing half after partial camera or microphone grants", () => {
@@ -121,4 +139,7 @@ test("browser media statuses normalize into the shared UX model", () => {
   assert.equal(permissionUxStatusFromBrowserMediaStatus("missing_device"), "hardware_missing");
   assert.equal(permissionUxStatusFromBrowserMediaStatus("in_use_or_abort"), "in_use");
   assert.equal(permissionUxStatusFromBrowserMediaStatus("constraint_failed"), "denied_retryable");
+  assert.equal(permissionUxStatusFromMediaPermissionStatus("blocked_settings"), "blocked_settings");
+  assert.equal(permissionUxStatusFromMediaPermissionStatus("hardware_missing"), "hardware_missing");
+  assert.equal(permissionUxStatusFromMediaPermissionStatus("denied_retryable"), "denied_retryable");
 });

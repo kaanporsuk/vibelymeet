@@ -18,6 +18,7 @@ import {
 import { useVibelyDialog } from '@/components/VibelyDialog';
 import { permissionUxStatusFromGrant, resolvePermissionUx } from '@clientShared/permissions/permissionUx';
 import { openPermissionSettings } from '@/lib/permissionSettings';
+import { isNativeMediaPermissionError } from '@/lib/nativeMediaPickerErrors';
 
 type Props = {
   visible: boolean;
@@ -33,16 +34,13 @@ function mediaErrorMessage(error: unknown): string {
     : 'Could not upload photo.';
 }
 
-function isPermissionLikeMediaError(error: unknown): boolean {
-  return /\b(permission|denied|access|authorized|authorization)\b/i.test(mediaErrorMessage(error));
-}
-
 export function ScavengerStartSheet({ visible, onClose, matchId, partnerName, invalidateScope }: Props) {
   const theme = Colors[useColorScheme()];
   const insets = useSafeAreaInsets();
   const { mutateAsync, isPending } = useStartScavengerGame();
   const [prompt, setPrompt] = useState<string>(() => randomScavengerPrompt());
   const [senderPhotoUrl, setSenderPhotoUrl] = useState<string | null>(null);
+  const [senderPhotoPreviewUri, setSenderPhotoPreviewUri] = useState<string | null>(null);
   const [senderPhotoClientRequestId, setSenderPhotoClientRequestId] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -53,6 +51,7 @@ export function ScavengerStartSheet({ visible, onClose, matchId, partnerName, in
     if (!visible) return;
     setPrompt(randomScavengerPrompt());
     setSenderPhotoUrl(null);
+    setSenderPhotoPreviewUri(null);
     setSenderPhotoClientRequestId(null);
     setUploading(false);
     setError(null);
@@ -100,10 +99,11 @@ export function ScavengerStartSheet({ visible, onClose, matchId, partnerName, in
         clientRequestId,
       });
       setSenderPhotoUrl(url);
+      setSenderPhotoPreviewUri(asset.uri);
       setSenderPhotoClientRequestId(clientRequestId);
     } catch (e) {
       const message = mediaErrorMessage(e);
-      if (isPermissionLikeMediaError(e)) {
+      if (isNativeMediaPermissionError(e)) {
         const copy = resolvePermissionUx({
           capability: fromCamera ? 'photo_capture' : 'photo_picker',
           status: 'blocked_settings',
@@ -245,8 +245,8 @@ export function ScavengerStartSheet({ visible, onClose, matchId, partnerName, in
           </View>
 
           <View style={[styles.previewCard, { borderColor: theme.border, backgroundColor: theme.surfaceSubtle }]}>
-            {senderPhotoUrl ? (
-              <Image source={{ uri: senderPhotoUrl }} style={styles.previewImage} />
+            {senderPhotoPreviewUri ? (
+              <Image source={{ uri: senderPhotoPreviewUri }} style={styles.previewImage} />
             ) : (
               <Text style={[styles.previewPlaceholder, { color: theme.textSecondary }]}>No photo selected yet</Text>
             )}

@@ -116,6 +116,7 @@ import { useConnectivity } from '@/lib/useConnectivity';
 import { useReduceMotion } from '@/hooks/useReduceMotion';
 import { chatFriendlyErrorFromUnknown, isLikelyNetworkFailure } from '@/lib/networkErrorMessage';
 import { openPermissionSettings, useSettingsReturnRefresh } from '@/lib/permissionSettings';
+import { classifyNativeMediaCaptureError, isNativeMediaPermissionError } from '@/lib/nativeMediaPickerErrors';
 import { getDocumentAsyncSafe, isDocumentPickerAvailable } from '@/lib/safeDocumentPicker';
 import { avatarUrl } from '@/lib/imageUrl';
 import { getChatPartnerActivityLine } from '@/lib/chatActivityStatus';
@@ -1594,6 +1595,7 @@ function NativeVibeClipCameraModal({
   const [recorded, setRecorded] = useState<{ uri: string; durationSeconds: number } | null>(null);
   const [captionReviewText, setCaptionReviewText] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const [recordingRecoveryStatus, setRecordingRecoveryStatus] = useState<PermissionUxStatus | null>(null);
   const {
     start: startCaptionCapture,
     stop: stopCaptionCapture,
@@ -1619,6 +1621,13 @@ function NativeVibeClipCameraModal({
     status: captionPermissionStatus,
     platform: Platform.OS === 'ios' ? 'ios' : Platform.OS === 'android' ? 'android' : 'native',
   });
+  const recordingRecoveryCopy = recordingRecoveryStatus
+    ? resolvePermissionUx({
+        capability: 'chat_vibe_clip',
+        status: recordingRecoveryStatus,
+        platform: Platform.OS === 'ios' ? 'ios' : Platform.OS === 'android' ? 'android' : 'native',
+      })
+    : null;
   const captionsReady = captionPermissionStatus === 'granted' && !captionUnavailableReason;
   const recordHint = stage === 'recording'
     ? captionsReady
@@ -1634,6 +1643,7 @@ function NativeVibeClipCameraModal({
     setRecorded(null);
     setCaptionReviewText('');
     setSubmitting(false);
+    setRecordingRecoveryStatus(null);
     resetCaptionCapture();
   }, [resetCaptionCapture]);
 
@@ -1708,6 +1718,7 @@ function NativeVibeClipCameraModal({
     if (!hasPermission || !cameraRef.current || stage !== 'idle' || disabled) return;
     startedAtRef.current = Date.now();
     setCaptionReviewText('');
+    setRecordingRecoveryStatus(null);
     setStage('recording');
     trackVibeClipEvent('clip_record_started', {
       capture_source: 'camera',
@@ -1733,13 +1744,32 @@ function NativeVibeClipCameraModal({
       } else {
         setStage('idle');
       }
-    } catch {
+    } catch (recordingError) {
       abortCaptionCapture();
+      setRecordingRecoveryStatus(classifyNativeMediaCaptureError(recordingError));
       setStage('idle');
     } finally {
       startedAtRef.current = null;
     }
   }, [abortCaptionCapture, disabled, hasPermission, stage, startCaptionCapture, stopCaptionCapture, threadCount]);
+
+  const handleRecordingRecoveryPrimary = useCallback(() => {
+    if (!recordingRecoveryCopy) return;
+    if (recordingRecoveryCopy.primaryAction === 'open_settings') {
+      settingsOpenedRef.current = true;
+      void openPermissionSettings('native_chat_vibe_clip_recording_error').then((opened) => {
+        if (!opened) {
+          settingsOpenedRef.current = false;
+          void refreshPermissions();
+        }
+      });
+      return;
+    }
+    setRecordingRecoveryStatus(null);
+    if (recordingRecoveryCopy.primaryAction === 'retry') {
+      void startRecording();
+    }
+  }, [recordingRecoveryCopy, refreshPermissions, startRecording]);
 
   const stopRecording = useCallback(() => {
     try {
@@ -1834,6 +1864,34 @@ function NativeVibeClipCameraModal({
               </Pressable>
             </View>
             <View style={styles.nativeClipCameraBottom}>
+              {recordingRecoveryCopy && stage !== 'recording' ? (
+                <View style={styles.nativeClipRecordingRecoveryPanel}>
+                  <Text style={styles.nativeClipRecordingRecoveryTitle}>{recordingRecoveryCopy.title}</Text>
+                  <Text style={styles.nativeClipRecordingRecoveryMessage}>{recordingRecoveryCopy.message}</Text>
+                  <View style={styles.nativeClipRecordingRecoveryActions}>
+                    <Pressable
+                      onPress={handleRecordingRecoveryPrimary}
+                      style={[styles.nativeClipRecordingRecoveryButton, styles.nativeClipRecordingRecoveryPrimary]}
+                      accessibilityRole="button"
+                    >
+                      <Text style={styles.nativeClipRecordingRecoveryPrimaryText}>
+                        {recordingRecoveryCopy.primaryLabel}
+                      </Text>
+                    </Pressable>
+                    {recordingRecoveryCopy.fallbackLabel ? (
+                      <Pressable
+                        onPress={onChooseSavedVideo}
+                        style={[styles.nativeClipRecordingRecoveryButton, styles.nativeClipRecordingRecoverySecondary]}
+                        accessibilityRole="button"
+                      >
+                        <Text style={styles.nativeClipRecordingRecoverySecondaryText}>
+                          {recordingRecoveryCopy.fallbackLabel}
+                        </Text>
+                      </Pressable>
+                    ) : null}
+                  </View>
+                </View>
+              ) : null}
               {stage === 'recording' ? (
                 <Pressable style={styles.nativeClipStopButton} onPress={stopRecording} accessibilityLabel="Stop recording">
                   <View style={styles.nativeClipStopIcon} />
@@ -3638,8 +3696,7 @@ export default function ChatThreadScreen() {
       return;
     }
     setVideoError(msg);
-    const lower = msg.toLowerCase();
-    const isPermissionError = lower.includes('permission') || lower.includes('denied') || lower.includes('access');
+    const isPermissionError = isNativeMediaPermissionError(error);
     const chooseFileSupported = isDocumentPickerAvailable();
     showAppDialog({
       title: isPermissionError ? VIBE_CLIP_PERM_LIBRARY_TITLE : 'Vibe Clip',
@@ -3950,8 +4007,7 @@ export default function ChatThreadScreen() {
     } catch (e) {
       const msg = chatFriendlyErrorFromUnknown(e);
       if (!(isOffline && isLikelyNetworkFailure(e))) {
-        const lower = msg.toLowerCase();
-        const isPermissionError = lower.includes('permission') || lower.includes('denied') || lower.includes('access');
+        const isPermissionError = isNativeMediaPermissionError(e);
         const chooseFileSupported = isDocumentPickerAvailable();
         showAppDialog({
           title: isPermissionError ? 'Photos access' : 'Photo',
@@ -6269,6 +6325,58 @@ const styles = StyleSheet.create({
     color: '#a78bfa',
     fontSize: 13,
     fontWeight: '800',
+  },
+  nativeClipRecordingRecoveryPanel: {
+    width: '92%',
+    maxWidth: 380,
+    borderRadius: 18,
+    padding: 12,
+    gap: 8,
+    backgroundColor: 'rgba(9,9,13,0.9)',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(255,255,255,0.18)',
+  },
+  nativeClipRecordingRecoveryTitle: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '800',
+    textAlign: 'center',
+  },
+  nativeClipRecordingRecoveryMessage: {
+    color: 'rgba(255,255,255,0.72)',
+    fontSize: 12,
+    lineHeight: 17,
+    textAlign: 'center',
+  },
+  nativeClipRecordingRecoveryActions: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  nativeClipRecordingRecoveryButton: {
+    flex: 1,
+    minHeight: 40,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 10,
+  },
+  nativeClipRecordingRecoveryPrimary: {
+    backgroundColor: '#8B5CF6',
+  },
+  nativeClipRecordingRecoverySecondary: {
+    backgroundColor: 'rgba(255,255,255,0.1)',
+  },
+  nativeClipRecordingRecoveryPrimaryText: {
+    color: '#fff',
+    fontSize: 13,
+    fontWeight: '800',
+    textAlign: 'center',
+  },
+  nativeClipRecordingRecoverySecondaryText: {
+    color: 'rgba(255,255,255,0.84)',
+    fontSize: 13,
+    fontWeight: '800',
+    textAlign: 'center',
   },
   nativeClipPreviewScrim: {
     ...StyleSheet.absoluteFillObject,

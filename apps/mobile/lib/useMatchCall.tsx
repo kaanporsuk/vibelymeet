@@ -17,7 +17,8 @@ import {
   type ReactNode,
 } from 'react';
 import Daily, { type DailyParticipant } from '@daily-co/react-native-daily-js';
-import { Alert, AppState, type AppStateStatus } from 'react-native';
+import { Alert, AppState, PermissionsAndroid, Platform, type AppStateStatus } from 'react-native';
+import { Camera } from 'expo-camera';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/context/AuthContext';
 import { IncomingCallOverlay } from '@/components/chat/IncomingCallOverlay';
@@ -40,6 +41,14 @@ import {
   type MatchCallTransitionAction,
 } from '@/lib/matchCallApi';
 import { openPermissionSettings } from '@/lib/permissionSettings';
+import { requestNativeCameraMicrophonePermissions } from '@/lib/nativeMediaPermissions';
+import {
+  permissionUxStatusFromGrant,
+  permissionUxStatusFromMediaPermissionStatus,
+  resolvePermissionUx,
+  type PermissionUxCopy,
+  type PermissionUxPlatform,
+} from '@clientShared/permissions/permissionUx';
 
 type MatchCallType = 'voice' | 'video';
 type MatchCallStatus = 'ringing' | 'active' | 'ended' | 'missed' | 'declined';
@@ -151,6 +160,81 @@ type MatchCallCleanupOptions = {
 
 type NativeDailyCallObject = ReturnType<typeof Daily.createCallObject>;
 type MatchCallPermissionSettingsTarget = 'microphone' | 'camera';
+type NativeMatchCallMediaPreflightResult =
+  | { ok: true }
+  | {
+      ok: false;
+      copy: PermissionUxCopy;
+      settingsSource: string;
+    };
+
+function nativePermissionPlatform(): PermissionUxPlatform {
+  if (Platform.OS === 'ios') return 'ios';
+  if (Platform.OS === 'android') return 'android';
+  return 'native';
+}
+
+async function requestNativeMatchCallMicrophonePermission(): Promise<NativeMatchCallMediaPreflightResult> {
+  if (Platform.OS === 'android') {
+    const existing = await PermissionsAndroid.check(PermissionsAndroid.PERMISSIONS.RECORD_AUDIO);
+    if (existing) return { ok: true };
+    const status = await PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.RECORD_AUDIO);
+    if (status === PermissionsAndroid.RESULTS.GRANTED) return { ok: true };
+    return {
+      ok: false,
+      settingsSource: 'match_call_voice_microphone',
+      copy: resolvePermissionUx({
+        capability: 'match_call_voice',
+        status: permissionUxStatusFromGrant({ status }),
+        platform: nativePermissionPlatform(),
+      }),
+    };
+  }
+
+  const existing = await Camera.getMicrophonePermissionsAsync();
+  if (existing.status === 'granted') return { ok: true };
+  const requested = await Camera.requestMicrophonePermissionsAsync();
+  if (requested.status === 'granted') return { ok: true };
+  return {
+    ok: false,
+    settingsSource: 'match_call_voice_microphone',
+    copy: resolvePermissionUx({
+      capability: 'match_call_voice',
+      status: permissionUxStatusFromGrant({
+        status: requested.status,
+        canAskAgain: requested.canAskAgain,
+      }),
+      platform: nativePermissionPlatform(),
+    }),
+  };
+}
+
+async function requestNativeMatchCallMediaPermission(
+  type: MatchCallType,
+): Promise<NativeMatchCallMediaPreflightResult> {
+  if (type === 'voice') return requestNativeMatchCallMicrophonePermission();
+
+  const result = await requestNativeCameraMicrophonePermissions({
+    sources: {
+      androidExisting: 'match_call_android_existing',
+      androidRequest: 'match_call_android_request',
+      nativeExisting: 'match_call_native_existing',
+      nativeRequest: 'match_call_native_request',
+    },
+    setHandoff: false,
+  });
+  if (result.ok) return { ok: true };
+  return {
+    ok: false,
+    settingsSource: 'match_call_video_media',
+    copy: resolvePermissionUx({
+      capability: 'match_call_video',
+      status: permissionUxStatusFromMediaPermissionStatus(result.mediaPermission.status),
+      platform: nativePermissionPlatform(),
+      mediaKind: result.mediaPermission.kind,
+    }),
+  };
+}
 
 function readDailyMeetingState(callObject: Pick<NativeDailyCallObject, 'meetingState'>): string | null {
   try {
@@ -885,6 +969,25 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
+  const showMatchCallPermissionRecovery = useCallback((
+    result: Exclude<NativeMatchCallMediaPreflightResult, { ok: true }>,
+    retry: () => void,
+  ) => {
+    const actions =
+      result.copy.primaryAction === 'open_settings'
+        ? [
+            { text: 'Not now', style: 'cancel' as const },
+            { text: result.copy.primaryLabel, onPress: () => void openPermissionSettings(result.settingsSource) },
+          ]
+        : result.copy.primaryAction === 'retry' || result.copy.primaryAction === 'request'
+          ? [
+              { text: 'Not now', style: 'cancel' as const },
+              { text: result.copy.primaryLabel, onPress: retry },
+            ]
+          : [{ text: result.copy.primaryLabel }];
+    Alert.alert(result.copy.title, result.copy.message, actions);
+  }, []);
+
   const cleanupStaleCallObjectForFreshCreate = useCallback(
     async (callId: string, source: string): Promise<boolean> => {
       if (localCallCleanupPromiseRef.current) {
@@ -1069,6 +1172,19 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
       return;
     }
 
+    const mediaPreflight = await requestNativeMatchCallMediaPermission(pendingIncoming.callType);
+    if (!mediaPreflight.ok) {
+      logMatchCallDiag('answer_call_media_preflight_blocked', {
+        call_id: pendingIncoming.callId,
+        call_type: pendingIncoming.callType,
+        action: mediaPreflight.copy.primaryAction,
+      });
+      showMatchCallPermissionRecovery(mediaPreflight, () => {
+        void acceptCall();
+      });
+      return;
+    }
+
     let answeredRoomName: string | null = roomNameRef.current;
     let receivedJoinToken = false;
     try {
@@ -1162,6 +1278,7 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
     incomingCallRef,
     runSingleJoinFlow,
     setupCallEvents,
+    showMatchCallPermissionRecovery,
     startDurationTimer,
     startHeartbeat,
     waitForProviderTeardown,
@@ -1175,6 +1292,20 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
       startCallLockRef.current = true;
       if (await hasBusyExternalDailyCall('start_call_preflight')) {
         Alert.alert('Call in progress', 'Finish your current call before starting another one.');
+        startCallLockRef.current = false;
+        return;
+      }
+
+      const mediaPreflight = await requestNativeMatchCallMediaPermission(type);
+      if (!mediaPreflight.ok) {
+        logMatchCallDiag('start_call_media_preflight_blocked', {
+          match_id: matchId,
+          call_type: type,
+          action: mediaPreflight.copy.primaryAction,
+        });
+        showMatchCallPermissionRecovery(mediaPreflight, () => {
+          void startCall({ matchId, type, partnerUserId, partnerName, partnerAvatarUri });
+        });
         startCallLockRef.current = false;
         return;
       }
@@ -1407,6 +1538,7 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
       incomingCallRef,
       runSingleJoinFlow,
       setupCallEvents,
+      showMatchCallPermissionRecovery,
       startHeartbeat,
       stopDurationTimer,
       waitForProviderTeardown,

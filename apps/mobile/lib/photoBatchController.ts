@@ -11,6 +11,7 @@ import { getDocumentAsyncSafe, isDocumentPickerAvailable } from '@/lib/safeDocum
 import { supabase } from '@/lib/supabase';
 import { uploadProfilePhotoWithMediaSdk } from '@/lib/mediaSdk/nativeStorageUploads';
 import { openPermissionSettings } from '@/lib/permissionSettings';
+import { isNativeMediaPermissionError } from '@/lib/nativeMediaPickerErrors';
 
 const MAX_PHOTOS_DEFAULT = 6;
 
@@ -165,12 +166,6 @@ function pickerErrorMessage(error: unknown, fallback: string): string {
   return fallback;
 }
 
-function isPermissionLikePickerError(error: unknown): boolean {
-  return /\b(permission|denied|access|authorized|authorization)\b/i.test(
-    pickerErrorMessage(error, ''),
-  );
-}
-
 function showPhotoPickerFailureDialog({
   show,
   error,
@@ -186,7 +181,7 @@ function showPhotoPickerFailureDialog({
   onRetry: () => void;
   source: string;
 }) {
-  if (isPermissionLikePickerError(error)) {
+  if (isNativeMediaPermissionError(error)) {
     const copy = resolvePermissionUx({
       capability: 'photo_picker',
       status: 'blocked_settings',
@@ -218,7 +213,7 @@ function showPhotoPickerFailureDialog({
 }
 
 function showCameraLaunchFailureDialog(show: DialogShow, error: unknown, onRetry: () => void) {
-  const permissionLike = isPermissionLikePickerError(error);
+  const permissionLike = isNativeMediaPermissionError(error);
   show({
     title: permissionLike ? 'Camera access' : 'Camera issue',
     message: permissionLike

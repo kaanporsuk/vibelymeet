@@ -19,10 +19,12 @@ test("native auth listener is registered only after bootstrap recovery can run",
     authContext,
     /await recoverNativeAuthSession\('bootstrap', error\);[\s\S]*subscribeAfterBootstrap\(\);/,
   );
-  assert.match(
-    authContext,
-    /applyAuthSession\(s\);\s*setLoading\(false\);[\s\S]*if \(!isMounted\) return;\s*subscribeAfterBootstrap\(\);/,
-  );
+  const successApplyIndex = authContext.indexOf("applyAuthSession(readySession);");
+  const successLoadingIndex = authContext.indexOf("setLoading(false);", successApplyIndex);
+  const successSubscribeIndex = authContext.indexOf("subscribeAfterBootstrap();", successLoadingIndex);
+  assert.ok(successApplyIndex >= 0, "bootstrap success should apply the refreshed readySession");
+  assert.ok(successLoadingIndex > successApplyIndex, "loading should clear after applying bootstrap session");
+  assert.ok(successSubscribeIndex > successLoadingIndex, "auth listener should subscribe after bootstrap loading clears");
   assert.doesNotMatch(nativeAuthSession, /supabase\.auth\.onAuthStateChange/);
 });
 

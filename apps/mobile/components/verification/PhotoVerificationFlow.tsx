@@ -6,7 +6,7 @@
  * - leave profile verification fields to admin/server-owned review flows
  * - do NOT set `profiles.photo_verified` client-side (admin-only approval)
  */
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { View, Image, Pressable, StyleSheet, ActivityIndicator, Platform } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
@@ -27,6 +27,7 @@ import {
   type PermissionUxAction,
 } from '@clientShared/permissions/permissionUx';
 import { openPermissionSettings, useSettingsReturnRefresh } from '@/lib/permissionSettings';
+import { classifyNativeMediaCaptureError } from '@/lib/nativeMediaPickerErrors';
 
 type Step = 'capture' | 'preview' | 'submitting' | 'submitted';
 
@@ -57,10 +58,6 @@ function firstProfilePhoto(raw: unknown): string {
   if (!Array.isArray(raw)) return '';
   const photo = raw.find((item) => typeof item === 'string' && item.trim().length > 0);
   return typeof photo === 'string' ? photo.trim() : '';
-}
-
-function isPermissionLikeCaptureError(error: unknown): boolean {
-  return error instanceof Error && /\b(permission|denied|access|authorized|authorization)\b/i.test(error.message);
 }
 
 export function PhotoVerificationFlow({ visible, onClose, onSubmissionComplete, profilePhotoUrl }: PhotoVerificationFlowProps) {
@@ -115,10 +112,10 @@ export function PhotoVerificationFlow({ visible, onClose, onSubmissionComplete, 
     } catch (captureError) {
       const copy = resolvePermissionUx({
         capability: 'photo_verification',
-        status: isPermissionLikeCaptureError(captureError) ? 'blocked_settings' : 'in_use',
+        status: classifyNativeMediaCaptureError(captureError),
         platform: Platform.OS === 'ios' ? 'ios' : Platform.OS === 'android' ? 'android' : 'native',
       });
-      setError(captureError instanceof Error && !isPermissionLikeCaptureError(captureError) ? captureError.message : copy.message);
+      setError(copy.message);
       setPermissionRecovery({
         primaryAction: copy.primaryAction,
         primaryLabel: copy.primaryLabel,
@@ -126,10 +123,32 @@ export function PhotoVerificationFlow({ visible, onClose, onSubmissionComplete, 
     }
   };
 
+  const refreshCameraPermissionState = useCallback(async () => {
+    const permission = await ImagePicker.getCameraPermissionsAsync();
+    if (permission.status === 'granted') {
+      setError(null);
+      setPermissionRecovery(null);
+      return;
+    }
+    const copy = resolvePermissionUx({
+      capability: 'photo_verification',
+      status: permissionUxStatusFromGrant({
+        status: permission.status,
+        canAskAgain: permission.canAskAgain,
+      }),
+      platform: Platform.OS === 'ios' ? 'ios' : Platform.OS === 'android' ? 'android' : 'native',
+    });
+    setError(copy.message);
+    setPermissionRecovery({
+      primaryAction: copy.primaryAction,
+      primaryLabel: copy.primaryLabel,
+    });
+  }, []);
+
   useSettingsReturnRefresh({
     enabled: visible,
     wasOpenedRef: settingsOpenedRef,
-    refresh: startCapture,
+    refresh: refreshCameraPermissionState,
     source: 'photo_verification',
   });
 

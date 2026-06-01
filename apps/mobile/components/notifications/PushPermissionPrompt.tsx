@@ -173,8 +173,7 @@ export function PushPermissionPrompt({ visible, onClose, userId, onCompleted }: 
             message: e instanceof Error ? e.message : String(e),
           });
         }
-        onClose();
-        onCompleted?.();
+        setPhase('deniedRecovery');
         return;
       }
       if (os === 'denied') {

@@ -24,6 +24,13 @@ import { logMatchCallDiag } from "@clientShared/chat/matchCallDiag";
 import { IncomingCallOverlay } from "@/components/chat/IncomingCallOverlay";
 import { ActiveCallOverlay } from "@/components/chat/ActiveCallOverlay";
 import { fetchUserProfile } from "@/services/fetchUserProfile";
+import {
+  classifyMediaPermissionError,
+  mediaPermissionMessage,
+  mediaPermissionResultForStatus,
+  mediaPermissionTitle,
+  type MediaPermissionResult,
+} from "@clientShared/media/mediaPermissionResult";
 
 type DailyIframeModule = typeof import("@daily-co/daily-js").default;
 
@@ -225,6 +232,10 @@ type StartCallParams = {
   partnerAvatar?: string | null;
 };
 
+type MatchCallPermissionRecovery =
+  | { kind: "start"; params: StartCallParams; result: MediaPermissionResult }
+  | { kind: "answer"; callId: string; callType: MatchCallType; result: MediaPermissionResult };
+
 type MatchCallContextValue = {
   isInCall: boolean;
   isRinging: boolean;
@@ -288,6 +299,30 @@ function useLatestRef<T>(value: T) {
 
 function sleepMatchCallCameraSwitch(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function requestWebMatchCallMediaPermission(type: MatchCallType): Promise<MediaPermissionResult | null> {
+  const kind = type === "video" ? "camera_microphone" : "microphone";
+  if (typeof navigator === "undefined" || !navigator.mediaDevices?.getUserMedia) {
+    return mediaPermissionResultForStatus({
+      status: "unsupported",
+      kind,
+      permissionState: "unsupported",
+      rawErrorName: "getUserMedia_missing",
+      rawErrorMessage: "Browser media capture is unavailable.",
+    });
+  }
+
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({
+      audio: true,
+      video: type === "video" ? { facingMode: "user" } : false,
+    });
+    for (const track of stream.getTracks()) track.stop();
+    return null;
+  } catch (error) {
+    return classifyMediaPermissionError(error, kind);
+  }
 }
 
 function normalizeWebCameraFacingMode(value: unknown): WebCameraFacingMode | null {
@@ -440,6 +475,55 @@ function isDuplicateDailyCallObjectError(error: unknown): boolean {
   ].some((pattern) => pattern.test(message));
 }
 
+function MatchCallPermissionRecoveryDialog({
+  recovery,
+  onRetry,
+  onDismiss,
+}: {
+  recovery: MatchCallPermissionRecovery;
+  onRetry: () => void;
+  onDismiss: () => void;
+}) {
+  const canRetry =
+    recovery.result.recoveryAction === "retry" ||
+    recovery.result.recoveryAction === "open_settings";
+  const primaryLabel = recovery.result.recoveryAction === "open_settings" ? "I updated settings" : "Try again";
+
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      data-testid="match-call-preflight-permission-recovery"
+      className="fixed inset-0 z-[60] flex items-center justify-center bg-background/84 px-4 backdrop-blur-md"
+    >
+      <div className="w-[min(100%,24rem)] rounded-2xl border border-border bg-card p-5 text-center shadow-2xl">
+        <p className="text-base font-bold text-foreground">{mediaPermissionTitle(recovery.result)}</p>
+        <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
+          {mediaPermissionMessage(recovery.result)}
+        </p>
+        <div className="mt-5 flex flex-col gap-2">
+          {canRetry ? (
+            <button
+              type="button"
+              onClick={onRetry}
+              className="min-h-11 rounded-xl bg-primary px-4 text-sm font-bold text-primary-foreground transition hover:bg-primary/90"
+            >
+              {primaryLabel}
+            </button>
+          ) : null}
+          <button
+            type="button"
+            onClick={onDismiss}
+            className="min-h-10 rounded-xl border border-border px-4 text-sm font-semibold text-foreground transition hover:bg-secondary"
+          >
+            Not now
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function MatchCallProvider({ children }: { children: ReactNode }) {
   const { user } = useUserProfile();
   const currentUserId = user?.id ?? null;
@@ -461,6 +545,7 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
   const [activePartner, setActivePartner] = useState<PartnerSummary>(DEFAULT_PARTNER);
   const [activeMatchId, setActiveMatchId] = useState<string | null>(null);
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
+  const [permissionRecovery, setPermissionRecovery] = useState<MatchCallPermissionRecovery | null>(null);
 
   const callObjectRef = useRef<DailyCall | null>(null);
   const trackedCallIdRef = useRef<string | null>(null);
@@ -1360,6 +1445,24 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
       return;
     }
 
+    const mediaPermission = await requestWebMatchCallMediaPermission(pendingIncoming.callType);
+    if (mediaPermission) {
+      logMatchCallDiag("answer_call_media_preflight_blocked", {
+        call_id: pendingIncoming.callId,
+        call_type: pendingIncoming.callType,
+        permission_status: mediaPermission.status,
+        recovery_action: mediaPermission.recoveryAction,
+      });
+      setPermissionRecovery({
+        kind: "answer",
+        callId: pendingIncoming.callId,
+        callType: pendingIncoming.callType,
+        result: mediaPermission,
+      });
+      return;
+    }
+    setPermissionRecovery(null);
+
     let answeredRoomName: string | null = roomNameRef.current;
     let receivedJoinToken = false;
     try {
@@ -1491,6 +1594,24 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
         startCallLockRef.current = false;
         return;
       }
+
+      const mediaPermission = await requestWebMatchCallMediaPermission(type);
+      if (mediaPermission) {
+        logMatchCallDiag("start_call_media_preflight_blocked", {
+          match_id: matchId,
+          call_type: type,
+          permission_status: mediaPermission.status,
+          recovery_action: mediaPermission.recoveryAction,
+        });
+        setPermissionRecovery({
+          kind: "start",
+          params: { matchId, type, partnerUserId, partnerName, partnerAvatar },
+          result: mediaPermission,
+        });
+        startCallLockRef.current = false;
+        return;
+      }
+      setPermissionRecovery(null);
 
       logMatchCallDiag("start_call_invoked", { match_id: matchId, call_type: type });
       const startCallAttemptId = startCallAttemptRef.current + 1;
@@ -1769,6 +1890,21 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
       waitForProviderTeardown,
     ],
   );
+
+  const retryPermissionRecovery = useCallback(() => {
+    const recovery = permissionRecovery;
+    if (!recovery) return;
+    setPermissionRecovery(null);
+    if (recovery.kind === "answer") {
+      if (incomingCallRef.current?.callId !== recovery.callId) {
+        toast.error("That call is no longer available");
+        return;
+      }
+      void answerCall();
+      return;
+    }
+    void startCall(recovery.params);
+  }, [answerCall, incomingCallRef, permissionRecovery, startCall]);
 
   /**
    * Toggle local audio. Source-of-truth: reads the current track state from Daily,
@@ -2476,6 +2612,14 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
   return (
     <MatchCallContext.Provider value={contextValue}>
       {children}
+
+      {permissionRecovery ? (
+        <MatchCallPermissionRecoveryDialog
+          recovery={permissionRecovery}
+          onRetry={retryPermissionRecovery}
+          onDismiss={() => setPermissionRecovery(null)}
+        />
+      ) : null}
 
       {incomingCall && (
         <IncomingCallOverlay

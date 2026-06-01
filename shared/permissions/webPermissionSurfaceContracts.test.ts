@@ -97,6 +97,18 @@ test("web match call blocked media controls keep persistent in-call recovery", (
   const hook = read("src/hooks/useMatchCall.tsx");
   const overlay = read("src/components/chat/ActiveCallOverlay.tsx");
 
+  assert.match(hook, /requestWebMatchCallMediaPermission/);
+  assert.match(hook, /navigator\.mediaDevices\.getUserMedia/);
+  assert.match(hook, /start_call_media_preflight_blocked/);
+  assert.match(hook, /answer_call_media_preflight_blocked/);
+  assert.match(hook, /data-testid="match-call-preflight-permission-recovery"/);
+  const startCallIndex = hook.indexOf("const startCall = useCallback");
+  const preflightIndex = hook.indexOf("requestWebMatchCallMediaPermission(type)", startCallIndex);
+  const createIndex = hook.indexOf('supabase.functions.invoke("daily-room"', startCallIndex);
+  assert.ok(
+    startCallIndex >= 0 && preflightIndex > startCallIndex && createIndex > preflightIndex,
+    "start call should preflight browser media before creating a Daily room",
+  );
   assert.match(hook, /audioState === "blocked"[\s\S]*setLocalAudio\(true\)/);
   assert.match(hook, /videoState === "blocked"[\s\S]*setLocalVideo\(true\)/);
   assert.match(overlay, /data-testid="match-call-media-permission-recovery"/);
@@ -104,4 +116,36 @@ test("web match call blocked media controls keep persistent in-call recovery", (
   assert.match(overlay, /Retry camera/);
   assert.match(overlay, /audioStatus === "blocked"/);
   assert.match(overlay, /videoStatus === "blocked"/);
+});
+
+test("web Scavenger uses real media selection and upload instead of mock remote photos", () => {
+  const creator = read("src/components/arcade/creators/ScavengerCreator.tsx");
+  const game = read("src/components/arcade/games/ScavengerGame.tsx");
+  const helper = read("src/lib/scavengerPhotoUpload.ts");
+  const gameTypes = read("src/types/games.ts");
+
+  for (const source of [creator, game]) {
+    assert.match(source, /type="file"/);
+    assert.match(source, /capture="environment"/);
+    assert.match(source, /uploadWebScavengerPhoto/);
+    assert.doesNotMatch(source, /images\.unsplash\.com/);
+    assert.doesNotMatch(source, /Mock photo upload/);
+  }
+  assert.match(game, /useMediaAsset/);
+  assert.match(game, /senderPhotoMessageId/);
+  assert.match(game, /receiverPhotoMessageId/);
+  assert.match(helper, /uploadImageWithMediaSdk/);
+  assert.match(helper, /context: "chat"/);
+  assert.match(helper, /matchId: cleanMatchId/);
+  assert.match(gameTypes, /type: 'scavenger'/);
+  assert.doesNotMatch(gameTypes, /Disabled: stubbed photo\/media flow/);
+});
+
+test("web notification master switch cannot enable app prefs while browser permission is blocked", () => {
+  const source = read("src/components/settings/NotificationsDrawer.tsx");
+
+  assert.match(source, /const handleMasterToggle = async/);
+  assert.match(source, /health\.status === "blocked"/);
+  assert.match(source, /Notification\.permission !== "granted"/);
+  assert.match(source, /onCheckedChange=\{\(checked\) => void handleMasterToggle\(checked\)\}/);
 });

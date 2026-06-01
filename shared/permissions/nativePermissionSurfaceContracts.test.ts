@@ -70,6 +70,19 @@ test("native media pickers do not preflight broad photo-library permission", () 
   assert.deepEqual(repoHits, []);
 });
 
+test("native iOS permission purpose strings stay scoped to shipped permission requests", () => {
+  const appConfig = JSON.parse(readRepo("apps/mobile/app.base.json")) as {
+    expo?: { ios?: { infoPlist?: Record<string, unknown> } };
+  };
+  const infoPlist = appConfig.expo?.ios?.infoPlist ?? {};
+
+  assert.equal(typeof infoPlist.NSCameraUsageDescription, "string");
+  assert.equal(typeof infoPlist.NSMicrophoneUsageDescription, "string");
+  assert.equal(typeof infoPlist.NSSpeechRecognitionUsageDescription, "string");
+  assert.equal(typeof infoPlist.NSLocationWhenInUseUsageDescription, "string");
+  assert.equal(infoPlist.NSLocationAlwaysAndWhenInUseUsageDescription, undefined);
+});
+
 test("native reusable permission card uses fixed-height actions", () => {
   const source = readRepo("apps/mobile/components/permissions/PermissionRecoveryCard.tsx");
   assert.match(source, /minHeight:\s*48/);
@@ -177,6 +190,48 @@ test("native permission settings recovery is centralized and refreshes on app re
   assert.deepEqual(directOpenSettingsHits, []);
 });
 
+test("native match calls preflight local media before Daily room work", () => {
+  const source = readRepo("apps/mobile/lib/useMatchCall.tsx");
+  const answer = /const acceptCall = useCallback\(async \(\) => \{([\s\S]*?)let answeredRoomName/.exec(source)?.[1] ?? "";
+  const start = /const startCall = useCallback\(\s*async \(\{ matchId, type, partnerUserId, partnerName, partnerAvatarUri \}: StartCallParams\) => \{([\s\S]*?)logMatchCallDiag\('start_call_invoked'/.exec(source)?.[1] ?? "";
+
+  assert.match(source, /requestNativeMatchCallMediaPermission/);
+  assert.match(source, /match_call_voice/);
+  assert.match(source, /match_call_video/);
+  assert.match(source, /requestNativeCameraMicrophonePermissions/);
+  assert.match(answer, /requestNativeMatchCallMediaPermission\(pendingIncoming\.callType\)/);
+  assert.match(answer, /answer_call_media_preflight_blocked/);
+  assert.match(start, /requestNativeMatchCallMediaPermission\(type\)/);
+  assert.match(start, /start_call_media_preflight_blocked/);
+  const startCallIndex = source.indexOf("const startCall = useCallback");
+  const preflightIndex = source.indexOf("requestNativeMatchCallMediaPermission(type)", startCallIndex);
+  const createIndex = source.indexOf("createMatchCall(matchId, type)", startCallIndex);
+  assert.ok(
+    startCallIndex >= 0 && preflightIndex > startCallIndex && createIndex > preflightIndex,
+    "start call should preflight before creating or joining a Daily room",
+  );
+});
+
+test("native photo verification refreshes permission state after Settings without auto-launching camera", () => {
+  const source = readRepo("apps/mobile/components/verification/PhotoVerificationFlow.tsx");
+  const settingsRefresh = /useSettingsReturnRefresh\(\{([\s\S]*?)\}\);/.exec(source)?.[1] ?? "";
+
+  assert.match(source, /const refreshCameraPermissionState = useCallback/);
+  assert.match(source, /ImagePicker\.getCameraPermissionsAsync\(\)/);
+  assert.match(settingsRefresh, /refresh: refreshCameraPermissionState/);
+  assert.doesNotMatch(settingsRefresh, /refresh: startCapture/);
+});
+
+test("native Vibe Clip recordAsync failures keep persistent recovery UI", () => {
+  const source = readRepo("apps/mobile/app/chat/[id].tsx");
+
+  assert.match(source, /recordingRecoveryStatus/);
+  assert.match(source, /classifyNativeMediaCaptureError\(recordingError\)/);
+  assert.match(source, /nativeClipRecordingRecoveryPanel/);
+  assert.match(source, /native_chat_vibe_clip_recording_error/);
+  assert.match(source, /onPress=\{onChooseSavedVideo\}/);
+});
+
 test("native profile photo picker and camera launch failures stay recoverable", () => {
   const photoBatch = readRepo("apps/mobile/lib/photoBatchController.ts");
 
@@ -191,12 +246,19 @@ test("native profile photo picker and camera launch failures stay recoverable", 
 test("native chat game photo pickers recover camera and library permission failures", () => {
   const bubble = readRepo("apps/mobile/components/chat/games/ScavengerBubble.tsx");
   const startSheet = readRepo("apps/mobile/components/chat/games/ScavengerStartSheet.tsx");
+  const helper = readRepo("apps/mobile/lib/nativeMediaPickerErrors.ts");
 
   for (const source of [bubble, startSheet]) {
-    assert.match(source, /isPermissionLikeMediaError/);
+    assert.match(source, /isNativeMediaPermissionError/);
     assert.match(source, /capability: fromCamera \? 'photo_capture' : 'photo_picker'/);
     assert.match(source, /Choose from library/);
     assert.match(source, /Take photo/);
     assert.match(source, /Camera issue/);
   }
+  assert.match(bubble, /useMediaAsset/);
+  assert.match(bubble, /senderPhotoMessageId/);
+  assert.match(bubble, /receiverPhotoMessageId/);
+  assert.match(startSheet, /senderPhotoPreviewUri/);
+  assert.match(helper, /isNativeMediaPermissionError/);
+  assert.match(helper, /classifyNativeMediaCaptureError/);
 });

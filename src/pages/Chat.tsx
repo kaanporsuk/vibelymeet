@@ -3059,6 +3059,13 @@ const Chat = () => {
                           matchName={otherUser.name}
                           currentUserId={currentUserId}
                           starterUserId={groupedMessage.gameSessionView.starterUserId}
+                          matchId={chatData?.matchId}
+                          scavengerSenderPhotoMessageId={groupedMessage.gameSessionView.backingMessageIds[0] ?? null}
+                          scavengerReceiverPhotoMessageId={
+                            groupedMessage.gameSessionView.backingMessageIds[
+                              groupedMessage.gameSessionView.backingMessageIds.length - 1
+                            ] ?? null
+                          }
                           sessionCreatedAt={groupedMessage.gameSessionView.createdAt}
                           onGameUpdate={(_, __, updates) =>
                             submitPersistedGameAction(groupedMessage.gameSessionView!, payload, updates)
@@ -4016,6 +4023,7 @@ const Chat = () => {
         <ScavengerCreator
           isOpen={activeGameCreator === "scavenger"}
           onClose={() => setActiveGameCreator(null)}
+          matchId={chatData?.matchId}
           onSubmit={(prompt, photoUrl) =>
             submitGameStart({
               gameType: "scavenger",

@@ -163,9 +163,12 @@ test("upload-voice uses Bunny Storage and the voice path convention", () => {
 
 test("URL resolvers support confirmed Bunny Storage prefixes and preserve legacy/Supabase paths", () => {
   for (const source of [webImageUrl, nativeImageUrl]) {
-    assert.match(source, /CONFIRMED_BUNNY_STORAGE_PREFIXES\s*=\s*\[\s*["']photos\/["'],\s*["']events\/["'],\s*["']voice\/["'],\s*["']media\/["']\s*\]/);
+    assert.match(source, /CONFIRMED_BUNNY_STORAGE_PREFIXES\s*=\s*\[\s*["']photos\/["'],\s*["']events\/["']\s*\]/);
     assert.match(source, /CONFIRMED_BUNNY_STORAGE_PREFIXES\.some\(\(prefix\) => p\.startsWith\(prefix\)\)/);
+    assert.match(source, /isPrivateChatScopedStoragePath\(p\)/);
     assert.doesNotMatch(source, /["']chat-videos\/["']/);
+    assert.doesNotMatch(source, /CONFIRMED_BUNNY_STORAGE_PREFIXES\s*=\s*\[[^\]]*["']voice\/["']/);
+    assert.doesNotMatch(source, /CONFIRMED_BUNNY_STORAGE_PREFIXES\s*=\s*\[[^\]]*["']media\/["']/);
     assert.match(source, /BUNNY_CDN/);
     assert.match(source, /storage\/v1\/object\/public/);
     assert.match(source, /supabase\.co/);

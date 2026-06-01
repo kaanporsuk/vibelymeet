@@ -26,7 +26,7 @@
         "NSMicrophoneUsageDescription": "Vibely uses your microphone when you choose to join video dates, record Vibe Videos or chat clips, and send voice messages.",
         "NSPhotoLibraryUsageDescription": "Vibely only uses the photos and videos you choose for profile photos, saved-video uploads, and chat media.",
         "NSLocationWhenInUseUsageDescription": "Vibely uses your location while the app is open, when you choose location features, to show nearby events and people.",
-        "NSLocationAlwaysAndWhenInUseUsageDescription": "Vibely uses your location when you choose location features to show nearby events and people.",
+        "NSSpeechRecognitionUsageDescription": "Vibely uses speech recognition only when you choose optional captions for clips.",
         "UIApplicationSceneManifest": {
           "UIApplicationSupportsMultipleScenes": false
         },

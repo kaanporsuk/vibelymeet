@@ -53,6 +53,7 @@ import {
   type PermissionUxStatus,
 } from '@clientShared/permissions/permissionUx';
 import { openPermissionSettings, useSettingsReturnRefresh } from '@/lib/permissionSettings';
+import { isNativeMediaPermissionError } from '@/lib/nativeMediaPickerErrors';
 
 const MAX_DURATION_SEC = 15;
 const CAPTION_MAX = 50;
@@ -305,7 +306,7 @@ export default function VibeVideoRecordScreen() {
       setStage('preview');
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Could not open your video library.';
-      const isPermissionError = /permission|denied|access/i.test(message);
+      const isPermissionError = isNativeMediaPermissionError(error);
       show({
         title: isPermissionError ? 'Video library access' : 'Video library',
         message: isPermissionError

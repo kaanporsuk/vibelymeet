@@ -1,5 +1,9 @@
+import type { MediaPermissionStatus } from "../media/mediaPermissionResult";
+
 export type PermissionCapability =
   | "video_date_media"
+  | "match_call_voice"
+  | "match_call_video"
   | "chat_vibe_clip"
   | "profile_vibe_video"
   | "voice_message"
@@ -70,6 +74,18 @@ const CAPABILITY_COPY: Record<PermissionCapability, CapabilityCopy> = {
     title: "Camera and microphone needed",
     requestMessage: "Allow access so you can join the video date with sound and video.",
     settingsMessage: "Camera or microphone access is off for Vibely. Re-enable it in Settings, then return here.",
+    primaryPromptLabel: "Allow camera & mic",
+  },
+  match_call_voice: {
+    title: "Microphone needed",
+    requestMessage: "Allow microphone access before starting the voice call.",
+    settingsMessage: "Microphone access is off for Vibely. Re-enable it in Settings, then return to the call.",
+    primaryPromptLabel: "Allow microphone",
+  },
+  match_call_video: {
+    title: "Camera and microphone needed",
+    requestMessage: "Allow access before starting the video call with sound and video.",
+    settingsMessage: "Camera or microphone access is off for Vibely. Re-enable it in Settings, then return to the call.",
     primaryPromptLabel: "Allow camera & mic",
   },
   chat_vibe_clip: {
@@ -145,6 +161,7 @@ const CAPABILITY_COPY: Record<PermissionCapability, CapabilityCopy> = {
 
 const REQUIRED_MEDIA_CAPABILITIES = new Set<PermissionCapability>([
   "video_date_media",
+  "match_call_video",
   "chat_vibe_clip",
   "profile_vibe_video",
 ]);
@@ -156,6 +173,13 @@ function mediaPurpose(capability: PermissionCapability, mediaKind: PermissionMed
       : mediaKind === "microphone"
         ? "join the video date with sound"
         : "join the video date with sound and video";
+  }
+  if (capability === "match_call_video") {
+    return mediaKind === "camera"
+      ? "start the video call with video"
+      : mediaKind === "microphone"
+        ? "start the video call with sound"
+        : "start the video call with sound and video";
   }
   if (capability === "chat_vibe_clip") {
     return mediaKind === "camera"
@@ -182,6 +206,8 @@ function mediaSettingsReturn(capability: PermissionCapability): string {
       return "return to record";
     case "video_date_media":
       return "return here";
+    case "match_call_video":
+      return "return to the call";
     default:
       return "return to Vibely";
   }
@@ -355,23 +381,31 @@ export function permissionUxMediaKindForRequiredGrants(
   return "camera_microphone";
 }
 
-export function permissionUxStatusFromBrowserMediaStatus(status: string): PermissionUxStatus {
+export function permissionUxStatusFromMediaPermissionStatus(status: MediaPermissionStatus): PermissionUxStatus {
   switch (status) {
     case "granted":
       return "granted";
     case "promptable":
       return "promptable";
     case "denied":
+    case "blocked_settings":
       return "blocked_settings";
     case "missing_device":
+    case "hardware_missing":
       return "hardware_missing";
     case "constraint_failed":
+    case "denied_retryable":
       return "denied_retryable";
     case "in_use_or_abort":
+    case "in_use":
       return "in_use";
     case "unsupported":
       return "unsupported";
     default:
       return "denied_retryable";
   }
+}
+
+export function permissionUxStatusFromBrowserMediaStatus(status: string): PermissionUxStatus {
+  return permissionUxStatusFromMediaPermissionStatus(status as MediaPermissionStatus);
 }

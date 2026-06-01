@@ -65,6 +65,22 @@ export default function LocationStep({ location, onLocationChange, onNext }: { l
     });
   };
 
+  const applyTypedCityOnly = () => {
+    const query = search.trim();
+    if (query.length < MIN_SEARCH_CHARS) {
+      setFeedback({
+        tone: 'error',
+        text: `Enter at least ${MIN_SEARCH_CHARS} characters to use a city manually.`,
+      });
+      return;
+    }
+    applyLocation({
+      location: query,
+      country: '',
+      locationData: null,
+    });
+  };
+
   const autoDetect = async () => {
     setDetecting(true);
     setFeedback(null);
@@ -156,14 +172,16 @@ export default function LocationStep({ location, onLocationChange, onNext }: { l
       if (list.length === 0) {
         setFeedback({
           tone: 'info',
-          text: 'No cities matched that search. Try a nearby city or include the country.',
+          text: 'No cities matched that search. Try a nearby city, include the country, or use the typed city.',
+          action: { label: 'Use typed city', onPress: applyTypedCityOnly },
         });
       }
     } catch {
       setResults([]);
       setFeedback({
         tone: 'error',
-        text: "We couldn't search right now. Check your connection and try again.",
+        text: "We couldn't search right now. You can retry or continue with the typed city.",
+        action: { label: 'Use typed city', onPress: applyTypedCityOnly },
       });
     } finally {
       setSearching(false);
@@ -244,7 +262,7 @@ export default function LocationStep({ location, onLocationChange, onNext }: { l
               {feedback.text}
             </Text>
           </View>
-          {feedback.tone === 'error' ? (
+          {feedback.tone === 'error' || feedback.action ? (
             <Pressable
               onPress={() => {
                 if (feedback.action) {
@@ -297,6 +315,13 @@ export default function LocationStep({ location, onLocationChange, onNext }: { l
               {detecting ? 'Trying your current location...' : 'Try current location again'}
             </Text>
           </Pressable>
+          {search.trim().length >= MIN_SEARCH_CHARS ? (
+            <Pressable onPress={applyTypedCityOnly} disabled={detecting || searching}>
+              <Text style={{ color: theme.textSecondary, textAlign: 'left', opacity: detecting || searching ? 0.6 : 1 }}>
+                Use typed city without coordinates
+              </Text>
+            </Pressable>
+          ) : null}
           {results.length > 0 ? (
             <FlatList
               data={results}

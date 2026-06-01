@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ComponentProps } from 'react';
-import { View, Text, Pressable, StyleSheet, ActivityIndicator, Image, Platform } from 'react-native';
+import { View, Text, Pressable, StyleSheet, ActivityIndicator, Image, Platform, type ImageStyle, type StyleProp } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
@@ -19,6 +19,9 @@ import { uploadChatImageWithMediaSdk } from '@/lib/mediaSdk/nativeStorageUploads
 import { useVibelyDialog } from '@/components/VibelyDialog';
 import { permissionUxStatusFromGrant, resolvePermissionUx } from '@clientShared/permissions/permissionUx';
 import { openPermissionSettings } from '@/lib/permissionSettings';
+import { isNativeMediaPermissionError } from '@/lib/nativeMediaPickerErrors';
+import { useMediaAsset } from '@/hooks/useMediaAsset';
+import { getImageUrl } from '@/lib/imageUrl';
 
 const EXPIRY_MS = 48 * 60 * 60 * 1000;
 
@@ -67,16 +70,13 @@ function mediaErrorMessage(error: unknown): string {
     : 'Could not upload photo.';
 }
 
-function isPermissionLikeMediaError(error: unknown): boolean {
-  return /\b(permission|denied|access|authorized|authorization)\b/i.test(mediaErrorMessage(error));
-}
-
 export function ScavengerBubble({ view, matchId, currentUserId, partnerName, timeLabel, invalidateScope }: Props) {
   const theme = Colors[useColorScheme()];
   const { show: showDialog, dialog: dialogEl } = useVibelyDialog();
   const { mutateAsync, isPending } = useSendScavengerChoice();
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [selectedPhotoUrl, setSelectedPhotoUrl] = useState<string | null>(null);
+  const [selectedPhotoPreviewUri, setSelectedPhotoPreviewUri] = useState<string | null>(null);
   const [selectedPhotoClientRequestId, setSelectedPhotoClientRequestId] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
   const tapGuard = useRef(false);
@@ -89,6 +89,7 @@ export function ScavengerBubble({ view, matchId, currentUserId, partnerName, tim
     if (!hasScavengerSnap) return;
     setSubmitError(null);
     setSelectedPhotoUrl(null);
+    setSelectedPhotoPreviewUri(null);
     setSelectedPhotoClientRequestId(null);
   }, [
     hasScavengerSnap,
@@ -166,10 +167,11 @@ export function ScavengerBubble({ view, matchId, currentUserId, partnerName, tim
         clientRequestId,
       });
       setSelectedPhotoUrl(url);
+      setSelectedPhotoPreviewUri(asset.uri);
       setSelectedPhotoClientRequestId(clientRequestId);
     } catch (e) {
       const message = mediaErrorMessage(e);
-      if (isPermissionLikeMediaError(e)) {
+      if (isNativeMediaPermissionError(e)) {
         const copy = resolvePermissionUx({
           capability: fromCamera ? 'photo_capture' : 'photo_picker',
           status: 'blocked_settings',
@@ -231,8 +233,12 @@ export function ScavengerBubble({ view, matchId, currentUserId, partnerName, tim
   const senderUri = scavengerSnap.sender_photo_url?.trim() ? scavengerSnap.sender_photo_url : null;
   const receiverFinalUri =
     complete && scavengerSnap.receiver_photo_url?.trim() ? scavengerSnap.receiver_photo_url : null;
-  const receiverDraftUri = !complete && selectedPhotoUrl ? selectedPhotoUrl : null;
+  const receiverDraftUri = !complete && selectedPhotoPreviewUri ? selectedPhotoPreviewUri : null;
   const receiverDisplayUri = receiverFinalUri ?? receiverDraftUri;
+  const senderPhotoMessageId = view.backingMessageIds[0] ?? view.latestMessageId;
+  const receiverPhotoMessageId = complete
+    ? view.backingMessageIds[view.backingMessageIds.length - 1] ?? view.latestMessageId
+    : null;
 
   return (
     <>
@@ -265,6 +271,7 @@ export function ScavengerBubble({ view, matchId, currentUserId, partnerName, tim
               theme={theme}
               title={isStarter ? 'Your photo' : `${partnerName}'s photo`}
               uri={senderUri}
+              messageId={senderPhotoMessageId}
               emptyPlaceholder="No challenge photo"
             />
             <ReceiverPhotoCard
@@ -275,6 +282,7 @@ export function ScavengerBubble({ view, matchId, currentUserId, partnerName, tim
               isExpired={isExpired}
               actionable={actionable}
               displayUri={receiverDisplayUri}
+              messageId={receiverPhotoMessageId}
               partnerName={partnerName}
             />
           </View>
@@ -398,18 +406,20 @@ function PhotoCard({
   theme,
   title,
   uri,
+  messageId,
   emptyPlaceholder,
 }: {
   theme: (typeof Colors)['light'];
   title: string;
   uri: string | null;
+  messageId?: string | null;
   emptyPlaceholder: string;
 }) {
   return (
     <View style={[styles.photoCard, { borderColor: theme.border, backgroundColor: theme.surfaceSubtle }]}>
       <Text style={[styles.photoLabel, { color: theme.textSecondary }]}>{title}</Text>
       {uri ? (
-        <Image source={{ uri }} style={styles.photo} />
+        <ResolvedScavengerPhoto uri={uri} messageId={messageId} style={styles.photo} />
       ) : (
         <Text style={[styles.hiddenText, { color: theme.textSecondary }]}>{emptyPlaceholder}</Text>
       )}
@@ -425,6 +435,7 @@ function ReceiverPhotoCard({
   isExpired,
   actionable,
   displayUri,
+  messageId,
   partnerName,
 }: {
   theme: (typeof Colors)['light'];
@@ -434,13 +445,14 @@ function ReceiverPhotoCard({
   isExpired: boolean;
   actionable: boolean;
   displayUri: string | null;
+  messageId?: string | null;
   partnerName: string;
 }) {
   if (complete && displayUri) {
     return (
       <View style={[styles.photoCard, { borderColor: theme.border, backgroundColor: theme.surfaceSubtle }]}>
         <Text style={[styles.photoLabel, { color: theme.textSecondary }]}>{title}</Text>
-        <Image source={{ uri: displayUri }} style={styles.photo} />
+        <ResolvedScavengerPhoto uri={displayUri} messageId={messageId} style={styles.photo} />
       </View>
     );
   }
@@ -499,6 +511,38 @@ function ReceiverPhotoCard({
   );
 }
 
+function ResolvedScavengerPhoto({
+  uri,
+  messageId,
+  style,
+}: {
+  uri: string;
+  messageId?: string | null;
+  style: StyleProp<ImageStyle>;
+}) {
+  const initialUrl = /^(https?:|file:|content:|blob:|data:)/i.test(uri) ? uri : null;
+  const media = useMediaAsset({
+    kind: 'image',
+    messageId,
+    sourceRef: uri,
+    initialUrl,
+    enabled: !!uri,
+  });
+  const displayUri = media.url
+    ? getImageUrl(media.url)
+    : initialUrl
+      ? getImageUrl(initialUrl)
+      : null;
+  if (!displayUri) {
+    return (
+      <View style={[style, styles.photoResolving]}>
+        <Ionicons name="image-outline" size={22} color="rgba(255,255,255,0.45)" />
+      </View>
+    );
+  }
+  return <Image source={{ uri: displayUri }} style={style} />;
+}
+
 const styles = StyleSheet.create({
   card: { borderRadius: radius.lg, borderWidth: StyleSheet.hairlineWidth, overflow: 'hidden' },
   accentBar: { height: 3, width: '100%' },
@@ -541,6 +585,7 @@ const styles = StyleSheet.create({
   },
   photoLabel: { fontSize: 11, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.4 },
   photo: { width: '100%', height: 112, borderRadius: radius.md, marginTop: 2 },
+  photoResolving: { alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(255,255,255,0.06)' },
   hiddenWrap: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: spacing.xs, paddingHorizontal: spacing.xs },
   hiddenText: { fontSize: 12, lineHeight: 17, textAlign: 'center' },
   replyActions: { flexDirection: 'row', gap: spacing.sm },

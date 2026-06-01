@@ -7,6 +7,7 @@ import {
   classifyMediaPermissionError,
   mediaPermissionMessage,
   mediaPermissionTitle,
+  type MediaPermissionRecoveryAction,
 } from "@clientShared/media/mediaPermissionResult";
 
 type PhotoCameraCaptureDialogProps = {
@@ -54,14 +55,6 @@ async function canvasToJpegBlob(canvas: HTMLCanvasElement): Promise<Blob> {
     throw new Error("empty_camera_photo");
   }
   return blob;
-}
-
-function cameraErrorMessage(error: unknown): string {
-  return mediaPermissionMessage(classifyMediaPermissionError(error, "camera"));
-}
-
-function cameraErrorTitle(error: unknown): string {
-  return mediaPermissionTitle(classifyMediaPermissionError(error, "camera"));
 }
 
 function shouldRetryWithGenericCamera(error: unknown): boolean {
@@ -118,6 +111,7 @@ export function PhotoCameraCaptureDialog({
   const [phase, setPhase] = useState<CapturePhase>("loading");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [errorTitle, setErrorTitle] = useState<string | null>(null);
+  const [errorRecoveryAction, setErrorRecoveryAction] = useState<MediaPermissionRecoveryAction | null>(null);
   const [capturedFile, setCapturedFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -179,6 +173,7 @@ export function PhotoCameraCaptureDialog({
       revokePreviewUrl();
       setErrorTitle("Camera is not available");
       setErrorMessage("Camera capture is not available in this browser.");
+      setErrorRecoveryAction("use_supported_browser");
       setPhase("error");
       return null;
     }
@@ -195,6 +190,7 @@ export function PhotoCameraCaptureDialog({
     setCapturedFile(null);
     setErrorTitle(null);
     setErrorMessage(null);
+    setErrorRecoveryAction(null);
     setIsSubmitting(false);
     setPhase("loading");
 
@@ -231,13 +227,17 @@ export function PhotoCameraCaptureDialog({
         streamRef.current = previousStream;
         if (videoRef.current) videoRef.current.srcObject = previousStream;
         setPhase("camera");
-        setErrorTitle(cameraErrorTitle(error));
-        setErrorMessage(opts.silentError ? "Could not switch cameras. Please try again." : cameraErrorMessage(error));
+        const permissionResult = classifyMediaPermissionError(error, "camera");
+        setErrorTitle(mediaPermissionTitle(permissionResult));
+        setErrorMessage(opts.silentError ? "Could not switch cameras. Please try again." : mediaPermissionMessage(permissionResult));
+        setErrorRecoveryAction(permissionResult.recoveryAction);
         return null;
       }
       stopCamera();
-      setErrorTitle(cameraErrorTitle(error));
-      setErrorMessage(cameraErrorMessage(error));
+      const permissionResult = classifyMediaPermissionError(error, "camera");
+      setErrorTitle(mediaPermissionTitle(permissionResult));
+      setErrorMessage(mediaPermissionMessage(permissionResult));
+      setErrorRecoveryAction(permissionResult.recoveryAction);
       setPhase("error");
       return null;
     }
@@ -253,6 +253,7 @@ export function PhotoCameraCaptureDialog({
       setCapturedFile(null);
       setErrorTitle(null);
       setErrorMessage(null);
+      setErrorRecoveryAction(null);
       setIsSubmitting(false);
       setFacingMode("environment");
       setHasMultipleCameras(false);
@@ -458,7 +459,7 @@ export function PhotoCameraCaptureDialog({
                   className="inline-flex min-h-11 items-center justify-center gap-2 rounded-full bg-white px-5 text-sm font-bold text-black transition hover:bg-white/90 disabled:pointer-events-none disabled:opacity-55"
                 >
                   <RotateCcw className="h-4 w-4" aria-hidden />
-                  {errorMessage?.includes("browser settings") ? "I updated settings" : "Try again"}
+                  {errorRecoveryAction === "open_settings" ? "I updated settings" : "Try again"}
                 </button>
                 {onChooseLibrary ? (
                   <button

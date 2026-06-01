@@ -178,6 +178,25 @@ export function NotificationsDrawer({ open, onOpenChange }: NotificationsDrawerP
     toast.success("Notifications resumed");
   };
 
+  const handleMasterToggle = async (nextEnabled: boolean) => {
+    if (nextEnabled && health.status === "blocked") {
+      toast.error("Allow notifications in your browser site settings first.");
+      return;
+    }
+    if (nextEnabled && health.status === "unsupported") {
+      toast.error("This browser does not support push notifications.");
+      return;
+    }
+    if (nextEnabled && health.status !== "enabled") {
+      await handleEnablePush();
+      await refreshPushHealth();
+      if (typeof Notification !== "undefined" && Notification.permission !== "granted") {
+        return;
+      }
+    }
+    toggle("push_enabled");
+  };
+
   const disabled = !prefs.push_enabled || isPaused;
 
   const ToggleRow = ({
@@ -315,7 +334,7 @@ export function NotificationsDrawer({ open, onOpenChange }: NotificationsDrawerP
                 )}
               </div>
             </div>
-            <Switch checked={prefs.push_enabled} onCheckedChange={() => toggle("push_enabled")} />
+            <Switch checked={prefs.push_enabled} onCheckedChange={(checked) => void handleMasterToggle(checked)} />
           </div>
 
           {isPaused ? (

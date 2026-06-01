@@ -11,6 +11,9 @@ interface GameBubbleRendererProps {
   matchName?: string;
   currentUserId?: string | null;
   starterUserId?: string | null;
+  matchId?: string | null;
+  scavengerSenderPhotoMessageId?: string | null;
+  scavengerReceiverPhotoMessageId?: string | null;
   /** Session row `created_at` for expiry (e.g. vibe-game-session messages). */
   sessionCreatedAt?: string | null;
   onGameUpdate?: (
@@ -25,6 +28,9 @@ export const GameBubbleRenderer = ({
   matchName = "Match",
   currentUserId,
   starterUserId,
+  matchId,
+  scavengerSenderPhotoMessageId,
+  scavengerReceiverPhotoMessageId,
   sessionCreatedAt,
   onGameUpdate,
 }: GameBubbleRendererProps) => {
@@ -88,6 +94,9 @@ export const GameBubbleRenderer = ({
           <ScavengerGame
             payload={payload}
             isOwn={isOwn}
+            matchId={matchId}
+            senderPhotoMessageId={scavengerSenderPhotoMessageId}
+            receiverPhotoMessageId={scavengerReceiverPhotoMessageId}
             onUploadPhoto={(url) => handleUpdate({ receiverPhotoUrl: url, isUnlocked: true })}
           />
         );

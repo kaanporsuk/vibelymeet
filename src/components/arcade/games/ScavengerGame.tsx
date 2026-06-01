@@ -1,28 +1,86 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { motion } from "framer-motion";
 import { ScavengerPayload } from "@/types/games";
 import { cn } from "@/lib/utils";
-import { Camera, Lock, Image } from "lucide-react";
+import { Camera, Lock, Image, ImagePlus } from "lucide-react";
+import { uploadWebScavengerPhoto } from "@/lib/scavengerPhotoUpload";
+import { getImageUrl } from "@/utils/imageUrl";
+import { useMediaAsset } from "@/hooks/useMediaAsset";
 
 interface ScavengerGameProps {
   payload: ScavengerPayload;
   isOwn: boolean;
+  matchId?: string | null;
+  senderPhotoMessageId?: string | null;
+  receiverPhotoMessageId?: string | null;
   onUploadPhoto?: (photoUrl: string) => void;
 }
 
-export const ScavengerGame = ({ payload, isOwn, onUploadPhoto }: ScavengerGameProps) => {
+function isImmediatelyDisplayablePhotoRef(value: string | null | undefined): boolean {
+  return !!value && /^(https?:|blob:|data:)/i.test(value);
+}
+
+function ResolvedScavengerPhoto({
+  sourceRef,
+  messageId,
+  alt,
+}: {
+  sourceRef: string;
+  messageId?: string | null;
+  alt: string;
+}) {
+  const initialUrl = isImmediatelyDisplayablePhotoRef(sourceRef) ? sourceRef : null;
+  const media = useMediaAsset({
+    kind: "image",
+    messageId,
+    sourceRef,
+    initialUrl,
+    enabled: !!sourceRef,
+  });
+  const src = media.url ? getImageUrl(media.url) : initialUrl ? getImageUrl(initialUrl) : "";
+  if (!src) {
+    return (
+      <div className="flex h-full w-full items-center justify-center bg-secondary/40">
+        <Image className="h-7 w-7 text-muted-foreground/50" />
+      </div>
+    );
+  }
+  return <img src={src} alt={alt} className="h-full w-full object-cover" />;
+}
+
+export const ScavengerGame = ({
+  payload,
+  isOwn,
+  matchId,
+  senderPhotoMessageId,
+  receiverPhotoMessageId,
+  onUploadPhoto,
+}: ScavengerGameProps) => {
   const [hasReplied, setHasReplied] = useState(!!payload.data.receiverPhotoUrl);
+  const [uploading, setUploading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const cameraInputRef = useRef<HTMLInputElement | null>(null);
+  const libraryInputRef = useRef<HTMLInputElement | null>(null);
   const isUnlocked = payload.data.isUnlocked;
 
-  // Mock photo upload
-  const handleUploadPhoto = () => {
-    // In real implementation, this would open camera/gallery
-    const mockPhoto = "https://images.unsplash.com/photo-1556742049-0cfed4f6a45d?w=400";
-    setHasReplied(true);
-    onUploadPhoto?.(mockPhoto);
+  const handlePhotoFile = async (file: File | undefined | null) => {
+    if (!file || uploading) return;
+    setUploading(true);
+    setError(null);
+    try {
+      const photoUrl = await uploadWebScavengerPhoto(file, matchId);
+      setHasReplied(true);
+      onUploadPhoto?.(photoUrl);
+    } catch (uploadError) {
+      setError(uploadError instanceof Error ? uploadError.message : "Could not upload this photo.");
+    } finally {
+      setUploading(false);
+    }
   };
 
   const compact = isUnlocked || hasReplied;
+  const senderPhotoRef = payload.data.senderPhotoUrl?.trim() || "";
+  const receiverPhotoRef = payload.data.receiverPhotoUrl?.trim() || "";
 
   return (
     <motion.div
@@ -57,15 +115,19 @@ export const ScavengerGame = ({ payload, isOwn, onUploadPhoto }: ScavengerGamePr
       <div className={cn("grid grid-cols-2", compact ? "p-1.5 gap-1" : "p-2 gap-1.5")}>
         {/* Sender's Photo */}
         <div className="aspect-square rounded-lg overflow-hidden relative">
-          {isUnlocked ? (
-            <motion.img
+          {isUnlocked && senderPhotoRef ? (
+            <motion.div
               initial={{ filter: "blur(20px)" }}
               animate={{ filter: "blur(0px)" }}
               transition={{ duration: 0.5 }}
-              src={payload.data.senderPhotoUrl || "https://images.unsplash.com/photo-1556742049-0cfed4f6a45d?w=400"}
-              alt="Sender's photo"
               className="w-full h-full object-cover"
-            />
+            >
+              <ResolvedScavengerPhoto
+                sourceRef={senderPhotoRef}
+                messageId={senderPhotoMessageId}
+                alt="Sender's photo"
+              />
+            </motion.div>
           ) : (
             <div className="w-full h-full bg-secondary/50 flex items-center justify-center relative">
               {/* Blurred placeholder */}
@@ -83,29 +145,71 @@ export const ScavengerGame = ({ payload, isOwn, onUploadPhoto }: ScavengerGamePr
 
         {/* Receiver's Photo / Upload Button */}
         <div className="aspect-square rounded-lg overflow-hidden relative">
-          {isUnlocked && hasReplied ? (
-            <motion.img
+          {isUnlocked && hasReplied && receiverPhotoRef ? (
+            <motion.div
               initial={{ filter: "blur(20px)" }}
               animate={{ filter: "blur(0px)" }}
               transition={{ duration: 0.5, delay: 0.2 }}
-              src={payload.data.receiverPhotoUrl || "https://images.unsplash.com/photo-1556742031-c6961e8560b0?w=400"}
-              alt="Receiver's photo"
               className="w-full h-full object-cover"
-            />
+            >
+              <ResolvedScavengerPhoto
+                sourceRef={receiverPhotoRef}
+                messageId={receiverPhotoMessageId}
+                alt="Receiver's photo"
+              />
+            </motion.div>
           ) : hasReplied ? (
             <div className="w-full h-full bg-green-500/20 flex items-center justify-center">
               <p className="text-xs text-green-400 text-center px-2">Photo submitted! Waiting for reveal...</p>
             </div>
           ) : !isOwn ? (
-            <motion.button
-              type="button"
-              whileTap={{ scale: 0.95 }}
-              onClick={handleUploadPhoto}
-              className="w-full h-full bg-secondary/50 hover:bg-green-500/20 flex flex-col items-center justify-center gap-2 transition-colors border-2 border-dashed border-green-500/30"
-            >
-              <Camera className="w-6 h-6 text-green-400" />
-              <span className="text-xs text-green-400 font-medium">Reply with Photo</span>
-            </motion.button>
+            <div className="flex h-full w-full flex-col items-center justify-center gap-1.5 border-2 border-dashed border-green-500/30 bg-secondary/50 p-2">
+              <input
+                ref={cameraInputRef}
+                type="file"
+                accept="image/*"
+                capture="environment"
+                className="hidden"
+                onChange={(event) => {
+                  void handlePhotoFile(event.currentTarget.files?.[0]);
+                  event.currentTarget.value = "";
+                }}
+              />
+              <input
+                ref={libraryInputRef}
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={(event) => {
+                  void handlePhotoFile(event.currentTarget.files?.[0]);
+                  event.currentTarget.value = "";
+                }}
+              />
+              <Camera className="h-5 w-5 text-green-400" />
+              <span className="text-center text-[11px] font-medium leading-tight text-green-400">
+                {uploading ? "Uploading..." : "Reply with photo"}
+              </span>
+              <div className="grid w-full grid-cols-2 gap-1">
+                <motion.button
+                  type="button"
+                  whileTap={{ scale: 0.95 }}
+                  onClick={() => cameraInputRef.current?.click()}
+                  disabled={uploading}
+                  className="rounded-md bg-green-500/20 px-1.5 py-1 text-[10px] font-bold text-green-300 disabled:opacity-50"
+                >
+                  Camera
+                </motion.button>
+                <motion.button
+                  type="button"
+                  whileTap={{ scale: 0.95 }}
+                  onClick={() => libraryInputRef.current?.click()}
+                  disabled={uploading}
+                  className="rounded-md bg-green-500/20 px-1.5 py-1 text-[10px] font-bold text-green-300 disabled:opacity-50"
+                >
+                  <ImagePlus className="mx-auto h-3 w-3" />
+                </motion.button>
+              </div>
+            </div>
           ) : (
             <div className="w-full h-full bg-secondary/30 flex items-center justify-center">
               <p className="text-xs text-muted-foreground text-center px-2">Waiting for reply...</p>
@@ -122,8 +226,8 @@ export const ScavengerGame = ({ payload, isOwn, onUploadPhoto }: ScavengerGamePr
       {/* Status message */}
       {!isUnlocked && !isOwn && !hasReplied && (
         <div className="px-2.5 pb-2">
-          <p className="text-[11px] text-center text-muted-foreground leading-snug">
-            Upload your photo to see theirs 👀
+          <p className="text-center text-[11px] leading-snug text-muted-foreground">
+            {error ?? "Upload your photo to see theirs"}
           </p>
         </div>
       )}
