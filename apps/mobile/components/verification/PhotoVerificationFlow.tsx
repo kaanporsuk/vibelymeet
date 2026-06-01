@@ -79,7 +79,7 @@ export function PhotoVerificationFlow({ visible, onClose, onSubmissionComplete, 
 
   const canSubmit = useMemo(() => !!selfieUri && step !== 'submitting', [selfieUri, step]);
 
-  const startCapture = async () => {
+  const startCapture = useCallback(async () => {
     setError(null);
     setPermissionRecovery(null);
     try {
@@ -121,7 +121,7 @@ export function PhotoVerificationFlow({ visible, onClose, onSubmissionComplete, 
         primaryLabel: copy.primaryLabel,
       });
     }
-  };
+  }, []);
 
   const refreshCameraPermissionState = useCallback(async () => {
     const permission = await ImagePicker.getCameraPermissionsAsync();

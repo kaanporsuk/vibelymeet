@@ -220,7 +220,7 @@ export default function VibeVideoRecordScreen() {
     });
   }, [router]);
 
-  const startRecording = async () => {
+  const startRecording = useCallback(async () => {
     if (!cameraRef.current || !permission) return;
     if (stage !== 'idle') return;
     setRecordingRecoveryStatus(null);
@@ -240,7 +240,7 @@ export default function VibeVideoRecordScreen() {
       setStage('idle');
       setRecordingRecoveryStatus(classifyNativeMediaCaptureError(e));
     }
-  };
+  }, [permission, stage]);
 
   const stopRecording = () => {
     try {
@@ -258,7 +258,7 @@ export default function VibeVideoRecordScreen() {
     setStage('idle');
   };
 
-  const pickFromDocument = async () => {
+  const pickFromDocument = useCallback(async () => {
     try {
       const result = await getDocumentAsyncSafe({
         type: ['video/mp4', 'video/quicktime', 'video/*'],
@@ -297,9 +297,9 @@ export default function VibeVideoRecordScreen() {
         primaryAction: { label: 'OK', onPress: () => {} },
       });
     }
-  };
+  }, [show]);
 
-  const pickFromLibrary = async () => {
+  const pickFromLibrary = useCallback(async function pickFromLibraryImpl() {
     try {
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ImagePicker.MediaTypeOptions.Videos,
@@ -325,7 +325,7 @@ export default function VibeVideoRecordScreen() {
           ? chooseFileSupported
             ? { label: 'Choose file', onPress: () => void pickFromDocument() }
             : { label: 'Open Settings', onPress: () => void openPermissionSettings('profile_vibe_video_library') }
-          : { label: 'Try again', onPress: () => void pickFromLibrary() },
+          : { label: 'Try again', onPress: () => void pickFromLibraryImpl() },
         secondaryAction: isPermissionError
           ? chooseFileSupported
             ? { label: 'Open Settings', onPress: () => void openPermissionSettings('profile_vibe_video_library') }
@@ -335,7 +335,7 @@ export default function VibeVideoRecordScreen() {
             : undefined,
       });
     }
-  };
+  }, [chooseFileSupported, pickFromDocument, show]);
 
   const handleRecordingRecoveryPrimary = useCallback(() => {
     if (!recordingRecoveryCopy) return;

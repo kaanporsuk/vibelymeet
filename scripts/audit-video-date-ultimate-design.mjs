@@ -75,8 +75,8 @@ function sliceBetween(key, startNeedle, endNeedle) {
 
 check(
   includes("webDate", "<PartnerProfileSheet") &&
-    matches("webDate", /onClick=\{\(\) => isConnected && setShowProfileSheet\(true\)\}/) &&
-    matches("webDate", /onViewProfile=\{\(\) => \{[\s\S]*setShowProfileSheet\(true\)/),
+    includes("webDate", "onClick={() => isConnected && setShowProfileSheet(true)}") &&
+    includes("webDate", "setShowProfileSheet(true)"),
   "Profile",
   "Web top chip and dock profile icon open the same non-destructive profile sheet.",
   `${evidence("webDate", "<PartnerProfileSheet")} and ${evidence("webDate", "setShowProfileSheet(true)")}`,
@@ -86,10 +86,12 @@ check(
 check(
   includes("nativeDate", "setShowProfileSheet(true)") &&
     includes("nativeDate", "styles.partnerChip") &&
-    matches("nativeDate", /onViewProfile=\{\(\) => setShowProfileSheet\(true\)\}/),
+    includes("nativeDate", "const profileSheetPartner") &&
+    includes("nativeDate", "partner={profileSheetPartner}") &&
+    includes("nativeDate", "onViewProfile={"),
   "Profile",
-  "Native top chip and dock profile icon open the same profile sheet.",
-  `${evidence("nativeDate", "styles.partnerChip")} and ${evidence("nativeDate", "onViewProfile={() => setShowProfileSheet(true)}")}`,
+  "Native top chip and dock profile icon open the same profile sheet, including basic-profile fallback while full data loads.",
+  `${evidence("nativeDate", "styles.partnerChip")} and ${evidence("nativeDate", "const profileSheetPartner")}`,
   files.nativeDate,
 );
 
@@ -189,11 +191,11 @@ check(
   !includes("webIceBreaker", "Choose when it feels right") &&
     !includes("nativeIceBreaker", "Choose when it feels right") &&
     !includes("nativeIceBreaker", "Choose only when it feels right") &&
-    includes("webVibeCheck", "Choose when it feels right") &&
-    includes("nativeVibeCheck", "Choose only when it feels right"),
+    includes("webVibeCheck", "Continue when ready") &&
+    includes("nativeVibeCheck", "Continue when ready"),
   "Icebreaker",
   "Decision guidance is removed from icebreaker and owned by Pass/Vibe.",
-  `${evidence("webVibeCheck", "Choose when it feels right")} and ${evidence("nativeVibeCheck", "Choose only when it feels right")}`,
+  `${evidence("webVibeCheck", "Continue when ready")} and ${evidence("nativeVibeCheck", "Continue when ready")}`,
   `${files.webIceBreaker}, ${files.nativeIceBreaker}, ${files.webVibeCheck}, ${files.nativeVibeCheck}`,
 );
 
@@ -241,8 +243,10 @@ check(
 check(
   includes("webVibeCheck", "bg-gradient-to-r from-primary to-accent") &&
     includes("nativeVibeCheck", "LinearGradient") &&
-    includes("webVibeCheck", "Vibe saved") &&
-    includes("nativeVibeCheck", "Vibe saved") &&
+    includes("webVibeCheck", "Ready to continue") &&
+    includes("nativeVibeCheck", "Ready to continue") &&
+    includes("webVibeCheck", "Continue when ready") &&
+    includes("nativeVibeCheck", "Continue when ready") &&
     !includes("webVibeCheck", "Your choice only continues after it saves") &&
     !includes("nativeVibeCheck", "Your choice only continues after it saves") &&
     !includes("webVibeCheck", "Soft nudge") &&
@@ -266,7 +270,7 @@ check(
 check(
   !includes("webControls", "partnerName") &&
     !includes("nativeControls", "partnerName") &&
-    matches("webControls", /User[\s\S]*Mic[\s\S]*aria-label="End call"[\s\S]*PhoneOff[\s\S]*Video[\s\S]*Shield/) &&
+    matches("webControls", /User[\s\S]*Mic[\s\S]*aria-label=\{isLeaving \? "Ending date" : "End date"\}[\s\S]*PhoneOff[\s\S]*Video[\s\S]*Shield/) &&
     matches("nativeControls", /person[\s\S]*mic[\s\S]*phone-hangup[\s\S]*videocam[\s\S]*shield-checkmark/),
   "Bottom Dock",
   "Bottom dock is icon-only and ordered Profile, Mic, End, Camera, Safety.",

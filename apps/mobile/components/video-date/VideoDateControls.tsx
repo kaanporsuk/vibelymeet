@@ -25,6 +25,7 @@ type Props = {
   onViewProfile?: () => void;
   /** In-call safety report (`submit_user_report`). Omit when not in active call. */
   onSafety?: () => void;
+  isLeaving?: boolean;
 };
 
 export function VideoDateControls({
@@ -35,6 +36,7 @@ export function VideoDateControls({
   onLeave,
   onViewProfile,
   onSafety,
+  isLeaving = false,
 }: Props) {
   const colorScheme = useColorScheme();
   const theme = Colors[colorScheme];
@@ -52,7 +54,8 @@ export function VideoDateControls({
   const profileBlock = onViewProfile ? (
     <Pressable
       onPress={onViewProfile}
-      style={({ pressed }) => [styles.profileCluster, pressed && styles.pressed]}
+      disabled={isLeaving}
+      style={({ pressed }) => [styles.profileCluster, pressed && !isLeaving && styles.pressed, isLeaving && styles.disabled]}
       accessibilityRole="button"
       accessibilityLabel="View profile"
     >
@@ -102,9 +105,10 @@ export function VideoDateControls({
 
         <Pressable
           onPress={onLeave}
-          style={({ pressed }) => [styles.leaveBtn, leaveButtonSize, pressed && styles.pressed]}
+          disabled={isLeaving}
+          style={({ pressed }) => [styles.leaveBtn, leaveButtonSize, pressed && !isLeaving && styles.pressed, isLeaving && styles.disabled]}
           accessibilityRole="button"
-          accessibilityLabel="End call"
+          accessibilityLabel={isLeaving ? 'Ending date' : 'End call'}
         >
           <MaterialCommunityIcons name="phone-hangup" size={leaveIconSize} color="#fff" />
         </Pressable>
@@ -132,12 +136,14 @@ export function VideoDateControls({
         {onSafety ? (
           <Pressable
             onPress={onSafety}
+            disabled={isLeaving}
             style={({ pressed }) => [
               styles.iconBtn,
               styles.quietBtn,
               quietButtonSize,
               { backgroundColor: 'rgba(255,255,255,0.07)', borderColor: theme.glassBorder },
-              pressed && styles.pressed,
+              pressed && !isLeaving && styles.pressed,
+              isLeaving && styles.disabled,
             ]}
             accessibilityRole="button"
             accessibilityLabel="Safety and report"
@@ -226,5 +232,8 @@ const styles = StyleSheet.create({
   },
   pressed: {
     opacity: 0.88,
+  },
+  disabled: {
+    opacity: 0.48,
   },
 });
