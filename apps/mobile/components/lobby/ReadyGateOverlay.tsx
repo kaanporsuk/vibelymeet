@@ -591,34 +591,45 @@ export function ReadyGateOverlay({
             });
             if (dateNavigationStartedRef.current || closedRef.current) return;
             if (result.ok === true) {
-              const prewarm = await startNativeVideoDateDailyPrewarm({
+              void startNativeVideoDateDailyPrewarm({
                 sessionId,
                 userId,
                 eventId,
                 roomName: result.data.room_name,
                 roomUrl: result.data.room_url,
                 source: 'ready_gate_prepare_success',
-              });
-              vdbg('ready_gate_daily_prewarm_prepare_success', {
-                sessionId,
-                eventId,
-                userId,
-                roomName: result.data.room_name,
-                ok: prewarm.ok,
-                reason: prewarm.ok === true ? null : prewarm.reason,
-              });
-              // Pre-authenticate only — do NOT join Daily from the lobby. The
-              // real join (which starts the backend handshake clock) is owned by
-              // /date (useVideoCall.startCall) so the full warm-up window only
-              // begins once the user is on the stable date route.
-              void preAuthNativeVideoDateDailyPrewarm({
-                sessionId,
-                userId,
-                eventId,
-                roomName: result.data.room_name,
-                roomUrl: result.data.room_url,
-                token: result.data.token,
-                source: 'ready_gate_prepare_success',
+              }).then((prewarm) => {
+                vdbg('ready_gate_daily_prewarm_prepare_success', {
+                  sessionId,
+                  eventId,
+                  userId,
+                  roomName: result.data.room_name,
+                  ok: prewarm.ok,
+                  reason: prewarm.ok === true ? null : prewarm.reason,
+                });
+                if (prewarm.ok === true) {
+                  // Pre-authenticate only — do NOT join Daily from the lobby. The
+                  // real join (which starts the backend handshake clock) is owned by
+                  // /date (useVideoCall.startCall) so the full warm-up window only
+                  // begins once the user is on the stable date route.
+                  void preAuthNativeVideoDateDailyPrewarm({
+                    sessionId,
+                    userId,
+                    eventId,
+                    roomName: result.data.room_name,
+                    roomUrl: result.data.room_url,
+                    token: result.data.token,
+                    source: 'ready_gate_prepare_success',
+                  });
+                }
+              }).catch((error) => {
+                vdbg('ready_gate_daily_prewarm_prepare_success_failed', {
+                  sessionId,
+                  eventId,
+                  userId,
+                  roomName: result.data.room_name,
+                  error: error instanceof Error ? { name: error.name, message: error.message } : String(error),
+                });
               });
               if (dateNavigationStartedRef.current || closedRef.current) return;
               clearTimeout(slowWaitTimer);

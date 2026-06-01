@@ -34,6 +34,17 @@ type GuardedNativeDailyCreateOptions = {
 };
 
 const FRESH_NATIVE_DAILY_CREATE_PROTECTION_MS = 10_000;
+const NATIVE_VIDEO_DATE_DAILY_CLEANUP_WAIT_TIMEOUT_MS = 3_000;
+const NATIVE_VIDEO_DATE_DAILY_DESTROY_TIMEOUT_MS = 2_500;
+const DUPLICATE_NATIVE_DAILY_CALL_OBJECT_ERROR_PATTERNS = [
+  /Duplicate\s+DailyIframe\s+instances/i,
+  /multiple\s+call\s+instances/i,
+  /call\s+object.*already/i,
+  /already.*call\s+object/i,
+  /only\s+one.*call/i,
+  /single.*call\s+instance/i,
+  /existing\s+call\s+instance/i,
+];
 const nativeVideoDateDailyCleanupPromises = new Set<Promise<void>>();
 let nativeVideoDateDailyCreateQueue: Promise<void> = Promise.resolve();
 let nativeVideoDateDailyCreateQueueDepth = 0;
@@ -47,7 +58,7 @@ let nativeVideoDateFreshCreatedCall:
 
 export function isDuplicateNativeDailyCallObjectError(error: unknown): boolean {
   const message = error instanceof Error ? error.message : String(error);
-  return /Duplicate DailyIframe instances|multiple call instances/i.test(message);
+  return DUPLICATE_NATIVE_DAILY_CALL_OBJECT_ERROR_PATTERNS.some((pattern) => pattern.test(message));
 }
 
 export function readNativeDailyMeetingState(
@@ -147,6 +158,29 @@ function isProtectedFreshCreatedNativeDailyCall(
   return true;
 }
 
+async function settleWithin<T>(
+  promise: Promise<T>,
+  timeoutMs: number,
+): Promise<
+  | { status: 'fulfilled'; value: T }
+  | { status: 'rejected'; error: unknown }
+  | { status: 'timed_out' }
+> {
+  return new Promise((resolve) => {
+    const timeout = setTimeout(() => resolve({ status: 'timed_out' }), timeoutMs);
+    promise.then(
+      (value) => {
+        clearTimeout(timeout);
+        resolve({ status: 'fulfilled', value });
+      },
+      (error) => {
+        clearTimeout(timeout);
+        resolve({ status: 'rejected', error });
+      },
+    );
+  });
+}
+
 export function registerNativeVideoDateDailyCleanup<T>(
   promise: Promise<T>,
   options?: {
@@ -187,9 +221,22 @@ export async function waitForNativeVideoDateDailyCleanup(
   onDiagnostic?.('native_video_date_daily_cleanup_awaited', {
     source,
     pendingCount: nativeVideoDateDailyCleanupPromises.size,
+    timeoutMs: NATIVE_VIDEO_DATE_DAILY_CLEANUP_WAIT_TIMEOUT_MS,
   });
   while (nativeVideoDateDailyCleanupPromises.size > 0) {
-    await Promise.all(Array.from(nativeVideoDateDailyCleanupPromises));
+    const pendingCount = nativeVideoDateDailyCleanupPromises.size;
+    const result = await settleWithin(
+      Promise.all(Array.from(nativeVideoDateDailyCleanupPromises)),
+      NATIVE_VIDEO_DATE_DAILY_CLEANUP_WAIT_TIMEOUT_MS,
+    );
+    if (result.status === 'timed_out') {
+      onDiagnostic?.('native_video_date_daily_cleanup_wait_timed_out', {
+        source,
+        pendingCount,
+        timeoutMs: NATIVE_VIDEO_DATE_DAILY_CLEANUP_WAIT_TIMEOUT_MS,
+      });
+      return true;
+    }
   }
   return true;
 }
@@ -215,7 +262,20 @@ async function destroyNativeDailyCallObject(
   onDiagnostic?: NativeDailyCallInstanceDiagnostic,
 ): Promise<boolean> {
   try {
-    await Promise.resolve(callObject.destroy());
+    const result = await settleWithin(
+      Promise.resolve(callObject.destroy()),
+      NATIVE_VIDEO_DATE_DAILY_DESTROY_TIMEOUT_MS,
+    );
+    if (result.status === 'timed_out') {
+      onDiagnostic?.('native_daily_guard_destroy_external_call_timed_out', {
+        source,
+        timeoutMs: NATIVE_VIDEO_DATE_DAILY_DESTROY_TIMEOUT_MS,
+      });
+      return false;
+    }
+    if (result.status === 'rejected') {
+      throw result.error;
+    }
     onDiagnostic?.('native_daily_guard_destroyed_idle_external_call', { source });
     return true;
   } catch (error) {

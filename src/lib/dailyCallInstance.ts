@@ -36,6 +36,17 @@ type GuardedDailyCreateOptions = {
 };
 
 const FRESH_DAILY_CREATE_PROTECTION_MS = 10_000;
+const WEB_VIDEO_DATE_DAILY_CLEANUP_WAIT_TIMEOUT_MS = 3_000;
+const WEB_VIDEO_DATE_DAILY_DESTROY_TIMEOUT_MS = 2_500;
+const DUPLICATE_DAILY_CALL_OBJECT_ERROR_PATTERNS = [
+  /Duplicate\s+DailyIframe\s+instances/i,
+  /multiple\s+call\s+instances/i,
+  /call\s+object.*already/i,
+  /already.*call\s+object/i,
+  /only\s+one.*call/i,
+  /single.*call\s+instance/i,
+  /existing\s+call\s+instance/i,
+];
 const webVideoDateDailyCleanupPromises = new Set<Promise<void>>();
 let webVideoDateDailyCreateQueue: Promise<void> = Promise.resolve();
 let webVideoDateDailyCreateQueueDepth = 0;
@@ -49,7 +60,7 @@ let webVideoDateFreshCreatedCall:
 
 export function isDuplicateDailyCallObjectError(error: unknown): boolean {
   const message = error instanceof Error ? error.message : String(error);
-  return /Duplicate DailyIframe instances|multiple call instances/i.test(message);
+  return DUPLICATE_DAILY_CALL_OBJECT_ERROR_PATTERNS.some((pattern) => pattern.test(message));
 }
 
 export function readDailyMeetingState(callObject: Pick<DailyCall, "meetingState">): string | null {
@@ -157,6 +168,29 @@ function isProtectedFreshCreatedDailyCall(
   return true;
 }
 
+async function settleWithin<T>(
+  promise: Promise<T>,
+  timeoutMs: number,
+): Promise<
+  | { status: "fulfilled"; value: T }
+  | { status: "rejected"; error: unknown }
+  | { status: "timed_out" }
+> {
+  return new Promise((resolve) => {
+    const timeout = setTimeout(() => resolve({ status: "timed_out" }), timeoutMs);
+    promise.then(
+      (value) => {
+        clearTimeout(timeout);
+        resolve({ status: "fulfilled", value });
+      },
+      (error) => {
+        clearTimeout(timeout);
+        resolve({ status: "rejected", error });
+      },
+    );
+  });
+}
+
 export function registerWebVideoDateDailyCleanup<T>(
   promise: Promise<T>,
   options?: {
@@ -197,9 +231,22 @@ export async function waitForWebVideoDateDailyCleanup(
   onDiagnostic?.("web_video_date_daily_cleanup_awaited", {
     source,
     pendingCount: webVideoDateDailyCleanupPromises.size,
+    timeoutMs: WEB_VIDEO_DATE_DAILY_CLEANUP_WAIT_TIMEOUT_MS,
   });
   while (webVideoDateDailyCleanupPromises.size > 0) {
-    await Promise.all(Array.from(webVideoDateDailyCleanupPromises));
+    const pendingCount = webVideoDateDailyCleanupPromises.size;
+    const result = await settleWithin(
+      Promise.all(Array.from(webVideoDateDailyCleanupPromises)),
+      WEB_VIDEO_DATE_DAILY_CLEANUP_WAIT_TIMEOUT_MS,
+    );
+    if (result.status === "timed_out") {
+      onDiagnostic?.("web_video_date_daily_cleanup_wait_timed_out", {
+        source,
+        pendingCount,
+        timeoutMs: WEB_VIDEO_DATE_DAILY_CLEANUP_WAIT_TIMEOUT_MS,
+      });
+      return true;
+    }
   }
   return true;
 }
@@ -226,7 +273,20 @@ async function destroyDailyCallObject(
   onDiagnostic?: DailyCallInstanceDiagnostic,
 ): Promise<boolean> {
   try {
-    await Promise.resolve(callObject.destroy());
+    const result = await settleWithin(
+      Promise.resolve(callObject.destroy()),
+      WEB_VIDEO_DATE_DAILY_DESTROY_TIMEOUT_MS,
+    );
+    if (result.status === "timed_out") {
+      onDiagnostic?.("daily_guard_destroy_external_call_timed_out", {
+        source,
+        timeoutMs: WEB_VIDEO_DATE_DAILY_DESTROY_TIMEOUT_MS,
+      });
+      return false;
+    }
+    if (result.status === "rejected") {
+      throw result.error;
+    }
     onDiagnostic?.("daily_guard_destroyed_idle_external_call", { source });
     return true;
   } catch (error) {
