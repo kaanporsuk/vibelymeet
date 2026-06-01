@@ -32,6 +32,11 @@ import {
   ProviderRateLimitError,
   providerRateLimitConfig,
 } from "../_shared/video-date-provider-reliability.ts";
+import {
+  corsHeadersForRequest,
+  isBrowserOriginRejected,
+  preflightResponse,
+} from "../_shared/cors.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -2225,7 +2230,13 @@ serve(async (req) => {
   const requestStartedAt = Date.now();
   const edgeProcessUptimeMs = Math.max(0, requestStartedAt - EDGE_PROCESS_STARTED_AT_MS);
   if (req.method === "OPTIONS")
-    return new Response("ok", { headers: corsHeaders });
+    return preflightResponse(req);
+  if (isBrowserOriginRejected(req)) {
+    return new Response(JSON.stringify({ error: "origin_not_allowed", code: "ORIGIN_NOT_ALLOWED" }), {
+      status: 403,
+      headers: { ...corsHeadersForRequest(req), "Content-Type": "application/json" },
+    });
+  }
 
   let actionForLog: string | null = null;
   let userIdForLog: string | null = null;

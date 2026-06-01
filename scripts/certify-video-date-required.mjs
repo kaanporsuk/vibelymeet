@@ -8,6 +8,7 @@ const steps = [
   ["daily-room-contract", "npm run test:daily-room-contract"],
   ["runtime-rls-required", "npm run test:video-date-runtime-rls:required"],
   ["phase8-config-readiness", "npm run phase8:config-readiness"],
+  ["phase8-live-certification", "npm run phase8:live-certify"],
 ];
 
 const manualEvidence = {
@@ -16,6 +17,9 @@ const manualEvidence = {
   android_two_user: "pending_user_owned",
   screenshot_review: "pending_user_owned",
   provider_dashboard_daily_webhook: "pending_user_owned",
+  provider_dashboard_daily_quota: "pending_user_owned",
+  cron_worker_schedule_health: "pending_user_owned",
+  recovery_alert_delivery: "pending_user_owned",
 };
 
 let failed = null;

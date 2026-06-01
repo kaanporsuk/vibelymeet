@@ -75,7 +75,9 @@ function usage(): never {
 Environment:
   PHASE8_STAGING_SUPABASE_URL or SUPABASE_URL
   PHASE8_STAGING_SUPABASE_SERVICE_ROLE_KEY or SUPABASE_SERVICE_ROLE_KEY
-  DAILY_API_KEY, DAILY_DOMAIN, DAILY_WEBHOOK_SECRET, and PHASE8_STAGING_CRON_SECRET or CRON_SECRET for rollout/cleanup certification`);
+  DAILY_API_KEY, DAILY_DOMAIN, DAILY_WEBHOOK_SECRET, PHASE8_STAGING_CRON_SECRET or CRON_SECRET,
+  and at least one recovery alert destination (SENTRY_DSN or VIDEO_DATE_RECOVERY_SLACK_WEBHOOK_URL/SLACK_WEBHOOK_URL)
+  for rollout/cleanup certification`);
   process.exit(2);
 }
 
@@ -183,6 +185,24 @@ function assertDailyProductionLaunchConfigReady(): Record<string, unknown> {
     daily_production_config_ready: true,
     daily_webhook_secret_ready: true,
     daily_cleanup_cron_ready: true,
+    ...assertRecoveryAlertConfigReady(),
+  };
+}
+
+function assertRecoveryAlertConfigReady(): Record<string, unknown> {
+  const sentryDsn = optionalEnv("PHASE8_SENTRY_DSN", "SENTRY_DSN");
+  const slackWebhook = optionalEnv(
+    "PHASE8_VIDEO_DATE_RECOVERY_SLACK_WEBHOOK_URL",
+    "VIDEO_DATE_RECOVERY_SLACK_WEBHOOK_URL",
+    "SLACK_WEBHOOK_URL",
+  );
+  if (!sentryDsn && !slackWebhook) {
+    throw new Error("recovery_alert_config_blocked: recovery_alert_destination_not_ready");
+  }
+  return {
+    recovery_alert_destination_ready: true,
+    recovery_alert_sentry_ready: Boolean(sentryDsn),
+    recovery_alert_slack_ready: Boolean(slackWebhook),
   };
 }
 

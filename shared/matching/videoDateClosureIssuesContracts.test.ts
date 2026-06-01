@@ -6,6 +6,14 @@ import {
 } from "../featureFlags/videoDateV4Flags";
 
 const snapshotFunction = readFileSync("supabase/functions/video-date-snapshot/index.ts", "utf8");
+const tokenRefreshFunction = readFileSync("supabase/functions/video-date-token-refresh/index.ts", "utf8");
+const dailyRoomFunction = readFileSync("supabase/functions/daily-room/index.ts", "utf8");
+const sendNotificationFunction = readFileSync("supabase/functions/send-notification/index.ts", "utf8");
+const webLobby = readFileSync("src/pages/EventLobby.tsx", "utf8");
+const flowHardeningFollowupsMigration = readFileSync(
+  "supabase/migrations/20260602000000_video_date_flow_hardening_followups.sql",
+  "utf8",
+);
 const packageJson = readFileSync("package.json", "utf8");
 const requiredCertificationGate = readFileSync("scripts/certify-video-date-required.mjs", "utf8");
 const runtimeRlsEnvGuard = readFileSync("scripts/require-video-date-runtime-rls-env.mjs", "utf8");
@@ -87,10 +95,14 @@ test("required runtime RLS command is explicit and fails fast when env is missin
     "npm run test:daily-room-contract",
     "npm run test:video-date-runtime-rls:required",
     "npm run phase8:config-readiness",
+    "npm run phase8:live-certify",
   ]) {
     assert.match(requiredCertificationGate, new RegExp(requiredStep.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
   }
   assert.match(requiredCertificationGate, /pending_user_owned/);
+  assert.match(requiredCertificationGate, /provider_dashboard_daily_quota/);
+  assert.match(requiredCertificationGate, /cron_worker_schedule_health/);
+  assert.match(requiredCertificationGate, /recovery_alert_delivery/);
 
   for (const envName of [
     "VIDEO_DATE_RLS_SUPABASE_URL",
@@ -113,6 +125,37 @@ test("required runtime RLS command is explicit and fails fast when env is missin
   assert.match(runtimeRlsEnvGuard, /process\.exit\(1\)/);
   assert.match(phase8Runbook, /npm run test:video-date-runtime-rls:required/);
   assert.match(monitoringRunbook, /npm run test:video-date-runtime-rls:required/);
+});
+
+test("video-date browser Edge functions reject unapproved origins through shared CORS helpers", () => {
+  for (const source of [snapshotFunction, tokenRefreshFunction, sendNotificationFunction]) {
+    assert.match(source, /from ['"]\.\.\/_shared\/cors\.ts['"]/);
+    assert.match(source, /preflightResponse\(req\)/);
+    assert.match(source, /isBrowserOriginRejected\(req\)/);
+    assert.doesNotMatch(source, /Access-Control-Allow-Origin['"]:\s*['"]\*/);
+  }
+  assert.match(dailyRoomFunction, /from "\.\.\/_shared\/cors\.ts"/);
+  assert.match(dailyRoomFunction, /preflightResponse\(req\)/);
+  assert.match(dailyRoomFunction, /isBrowserOriginRejected\(req\)/);
+  assert.match(dailyRoomFunction, /ORIGIN_NOT_ALLOWED/);
+});
+
+test("video-date SQL followups remove Ready Gate anon execute and gate legacy extension key hardening", () => {
+  assert.match(flowHardeningFollowupsMigration, /REVOKE EXECUTE ON FUNCTION public\.ready_gate_transition\(uuid, text, text\) FROM anon/);
+  assert.match(flowHardeningFollowupsMigration, /video_date\.require_legacy_extension_idempotency_key/);
+  assert.match(flowHardeningFollowupsMigration, /evaluate_client_feature_flag\(/);
+  assert.match(flowHardeningFollowupsMigration, /missing_idempotency_key/);
+  assert.match(flowHardeningFollowupsMigration, /REVOKE ALL ON FUNCTION public\.spend_video_date_credit_extension\(uuid, text, text\) FROM PUBLIC, anon/);
+});
+
+test("web lobby visibly disables pairing controls when readiness blocks pairing", () => {
+  assert.match(webLobby, /const pairingBlockedByReadiness =[\s\S]*readinessV2\.enabled[\s\S]*!videoDateReadiness\.canAttemptPairing/);
+  assert.match(webLobby, /const pairingControlsDisabled = swipeControlsDisabled \|\| pairingBlockedByReadiness/);
+  assert.match(webLobby, /disabled=\{pairingControlsDisabled \|\| superVibeRemaining <= 0\}/);
+  assert.match(webLobby, /disabled=\{pairingControlsDisabled\}/);
+  assert.match(webLobby, /rightSwipeDisabled=\{pairingControlsDisabled\}/);
+  assert.match(webLobby, /pairingReadinessMessage/);
+  assert.match(webLobby, /if \(event\.key === "ArrowLeft"\)[\s\S]*if \(swipeControlsDisabled\) return[\s\S]*else if \(event\.key === "ArrowRight"\)[\s\S]*if \(pairingControlsDisabled\) return/);
 });
 
 test("canonical video-date rollout flags and compatibility aliases are documented and typed", () => {
