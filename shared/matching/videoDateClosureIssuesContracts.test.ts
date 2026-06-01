@@ -10,6 +10,7 @@ const tokenRefreshFunction = readFileSync("supabase/functions/video-date-token-r
 const dailyRoomFunction = readFileSync("supabase/functions/daily-room/index.ts", "utf8");
 const sendNotificationFunction = readFileSync("supabase/functions/send-notification/index.ts", "utf8");
 const webLobby = readFileSync("src/pages/EventLobby.tsx", "utf8");
+const nativeLobby = readFileSync("apps/mobile/app/event/[eventId]/lobby.tsx", "utf8");
 const flowHardeningFollowupsMigration = readFileSync(
   "supabase/migrations/20260602000000_video_date_flow_hardening_followups.sql",
   "utf8",
@@ -19,6 +20,7 @@ const definitiveFlowHardeningMigration = readFileSync(
   "utf8",
 );
 const packageJson = readFileSync("package.json", "utf8");
+const certificationEnvExample = readFileSync(".env.certification.example", "utf8");
 const requiredCertificationGate = readFileSync("scripts/certify-video-date-required.mjs", "utf8");
 const runtimeRlsEnvGuard = readFileSync("scripts/require-video-date-runtime-rls-env.mjs", "utf8");
 const phase8Runbook = readFileSync("docs/video-date-v4-phase8-certification-rollout.md", "utf8");
@@ -107,6 +109,9 @@ test("required runtime RLS command is explicit and fails fast when env is missin
   assert.match(requiredCertificationGate, /provider_dashboard_daily_quota/);
   assert.match(requiredCertificationGate, /cron_worker_schedule_health/);
   assert.match(requiredCertificationGate, /recovery_alert_delivery/);
+  assert.match(certificationEnvExample, /SENTRY_DSN/);
+  assert.match(certificationEnvExample, /VIDEO_DATE_RECOVERY_SLACK_WEBHOOK_URL/);
+  assert.match(certificationEnvExample, /PHASE8_SENTRY_DSN/);
 
   for (const envName of [
     "VIDEO_DATE_RLS_SUPABASE_URL",
@@ -183,6 +188,19 @@ test("web lobby visibly disables pairing controls when readiness blocks pairing"
   assert.match(webLobby, /rightSwipeDisabled=\{pairingControlsDisabled\}/);
   assert.match(webLobby, /pairingReadinessMessage/);
   assert.match(webLobby, /if \(event\.key === "ArrowLeft"\)[\s\S]*if \(swipeControlsDisabled\) return[\s\S]*else if \(event\.key === "ArrowRight"\)[\s\S]*if \(pairingControlsDisabled\) return/);
+});
+
+test("native lobby visibly disables pairing controls when readiness blocks pairing", () => {
+  assert.match(nativeLobby, /const pairingBlockedByReadiness =[\s\S]*readinessV2\.enabled[\s\S]*!videoDateReadiness\.canAttemptPairing/);
+  assert.match(nativeLobby, /const pairingActionsDisabled = swipeActionsDisabled \|\| pairingBlockedByReadiness/);
+  assert.match(nativeLobby, /disabled=\{pairingActionsDisabled \|\| superVibeRemaining <= 0\}/);
+  assert.match(nativeLobby, /disabled=\{pairingActionsDisabled\}/);
+  assert.match(nativeLobby, /accessibilityRole="button"[\s\S]*accessibilityLabel="Pass"[\s\S]*accessibilityState=\{\{ disabled: swipeActionsDisabled \}\}/);
+  assert.match(nativeLobby, /accessibilityRole="button"[\s\S]*accessibilityLabel="Super vibe"[\s\S]*accessibilityState=\{\{ disabled: pairingActionsDisabled \|\| superVibeRemaining <= 0 \}\}/);
+  assert.match(nativeLobby, /accessibilityRole="button"[\s\S]*accessibilityLabel="Vibe"[\s\S]*accessibilityState=\{\{ disabled: pairingActionsDisabled \}\}/);
+  assert.match(nativeLobby, /pairingReadinessMessage/);
+  assert.match(nativeLobby, /accessibilityLiveRegion="polite"/);
+  assert.match(nativeLobby, /if \(swipeType !== 'pass' && readinessV2\.enabled && !videoDateReadiness\.canAttemptPairing\)/);
 });
 
 test("canonical video-date rollout flags and compatibility aliases are documented and typed", () => {
