@@ -446,8 +446,11 @@ test("video bubbles remain adaptive and full-width across web and native chat", 
   assert.match(webVideoBubble, /consumeInlineVideoPlaybackRegistryPause\(video\)/);
   assert.match(webVibeClipBubble, /CLIP_PLAYBACK_LOAD_TIMEOUT_MS/);
   assert.match(webVibeClipBubble, /const hasStartedPlaybackRef = useRef\(false\)/);
+  assert.match(webVibeClipBubble, /const reloadPreservesPlayIntentRef = useRef\(false\)/);
+  assert.match(webVibeClipBubble, /reloadPreservesPlayIntentRef\.current = playRequestedRef\.current \|\| initialPlaybackResolveInFlightRef\.current/);
+  assert.match(webVibeClipBubble, /if \(reloadPreservesPlayIntentRef\.current\) \{[\s\S]{0,120}return;/);
   assert.match(webVibeClipBubble, /if \(playRequestedRef\.current && !hasStartedPlaybackRef\.current\) \{[\s\S]{0,80}return;/);
-  assert.match(webVibeClipBubble, /const handlePause = useCallback\(\(\) => \{[\s\S]{0,260}setPlayRequested\(false\)/);
+  assert.match(webVibeClipBubble, /const handlePause = useCallback\(\(\) => \{[\s\S]{0,420}setPlayRequested\(false\);[\s\S]{0,40}\}, \[\]\);/);
   assert.match(webVibeClipBubble, /onPause=\{handlePause\}/);
   assert.match(webVibeClipBubble, /playbackRefreshAttemptCountRef\.current = 0;[\s\S]{0,160}setLoadError\(false\)/);
   assert.match(webVibeClipBubble, /aria-label=\{isMuted \? "Unmute clip" : "Mute clip"\}/);
@@ -1057,8 +1060,11 @@ test("server upload and publish paths enforce Bunny Stream Vibe Clip limits", ()
   assert.match(webVideoBubble, /if \(!posterImageBroken \|\| posterCandidateUrls\.length === 0\) return;[\s\S]{0,80}handlePosterImageError\(\);/);
   assert.match(webVideoBubble, /showPosterVisual && canMountPlayer && !showPreparingOverlay && !hasStartedPlayback/);
   assert.match(webVideoBubble, /const hasStartedPlaybackRef = useRef\(false\)/);
+  assert.match(webVideoBubble, /const reloadPreservesPlayIntentRef = useRef\(false\)/);
+  assert.match(webVideoBubble, /reloadPreservesPlayIntentRef\.current = playRequestedRef\.current \|\| initialPlaybackResolveInFlightRef\.current/);
+  assert.match(webVideoBubble, /if \(reloadPreservesPlayIntentRef\.current\) \{[\s\S]{0,120}return;/);
   assert.match(webVideoBubble, /if \(playRequestedRef\.current && !hasStartedPlaybackRef\.current\) \{[\s\S]{0,80}return;/);
-  assert.match(webVideoBubble, /const handlePause = useCallback\(\(\) => \{[\s\S]{0,260}setPlayRequested\(false\)/);
+  assert.match(webVideoBubble, /const handlePause = useCallback\(\(\) => \{[\s\S]{0,420}setPlayRequested\(false\);[\s\S]{0,40}\}, \[\]\);/);
   assert.match(webVideoBubble, /onPlaying=\{handlePlaying\}/);
   assert.match(webVideoBubble, /onPause=\{handlePause\}/);
   assert.doesNotMatch(webVideoBubble, /const posterNotReady =\s*!isReady/);
