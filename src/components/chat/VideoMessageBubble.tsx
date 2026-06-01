@@ -121,6 +121,8 @@ export const VideoMessageBubble = ({
   const [hasStartedPlayback, setHasStartedPlayback] = useState(false);
   const [isViewportVisible, setIsViewportVisible] = useState(true);
   const prefersReducedMotion = usePrefersReducedMotion();
+  const playRequestedRef = useRef(false);
+  const hasStartedPlaybackRef = useRef(false);
   const playbackRefreshAttemptCountRef = useRef(0);
   const initialPlaybackResolveInFlightRef = useRef(false);
   const initialPlaybackResolveRunIdRef = useRef(0);
@@ -180,14 +182,20 @@ export const VideoMessageBubble = ({
   }, []);
 
   useEffect(() => {
+    playRequestedRef.current = playRequested;
+  }, [playRequested]);
+
+  useEffect(() => {
     const nextUrl = mediaAssetUrl ?? videoUrl;
+    const preservePlayIntent = playRequestedRef.current || initialPlaybackResolveInFlightRef.current;
     playableVideoUrlRef.current = nextUrl;
     setPlayableVideoUrl(nextUrl);
     setIsPlaying(false);
     setCurrentTime(0);
     setIsLoading(true);
     setIsReady(false);
-    setPlayRequested(false);
+    setPlayRequested(preservePlayIntent);
+    hasStartedPlaybackRef.current = false;
     setHasStartedPlayback(false);
     initialPlaybackResolveInFlightRef.current = false;
     initialPlaybackResolveRunIdRef.current += 1;
@@ -235,6 +243,11 @@ export const VideoMessageBubble = ({
     }
     setPosterImageBroken(true);
   }, [handleResolvedThumbnailUrl]);
+
+  useEffect(() => {
+    if (!posterImageBroken || posterCandidateUrls.length === 0) return;
+    handlePosterImageError();
+  }, [handlePosterImageError, posterCandidateUrls, posterImageBroken]);
 
   const refreshPoster = useCallback(async (): Promise<string | null> => {
     if (!messageId || !thumbnailSourceRef) return null;
@@ -294,7 +307,7 @@ export const VideoMessageBubble = ({
   const canMountPlayer = isMountableVideoUrl(playableVideoUrl);
   const isAwaitingPlaybackIntent = !canMountPlayer;
   const showResolvingPlaybackOverlay = isAwaitingPlaybackIntent && playRequested && !loadError;
-  const showPreparingOverlay = !isReady && !isAwaitingPlaybackIntent;
+  const showPreparingOverlay = playRequested && !isReady && !isAwaitingPlaybackIntent;
   const showIdlePosterOverlay =
     showPosterVisual && canMountPlayer && !showPreparingOverlay && !hasStartedPlayback;
 
@@ -453,6 +466,7 @@ export const VideoMessageBubble = ({
     if (!canMountPlayer) {
       if (playRequested || initialPlaybackResolveInFlightRef.current) return;
       initialPlaybackResolveInFlightRef.current = true;
+      playRequestedRef.current = true;
       const runId = initialPlaybackResolveRunIdRef.current + 1;
       initialPlaybackResolveRunIdRef.current = runId;
       setPlayRequested(true);
@@ -480,6 +494,7 @@ export const VideoMessageBubble = ({
     const video = videoRef.current;
     if (!video) return;
     if (video.paused) {
+      playRequestedRef.current = true;
       setPlayRequested(true);
       video.play().then(() => setIsPlaying(true)).catch((err: unknown) => {
         const name = err instanceof Error ? err.name : "";
@@ -495,6 +510,7 @@ export const VideoMessageBubble = ({
       });
     } else {
       video.pause();
+      playRequestedRef.current = false;
       setIsPlaying(false);
       setPlayRequested(false);
     }
@@ -539,11 +555,18 @@ export const VideoMessageBubble = ({
   }, []);
 
   const handlePause = useCallback(() => {
+    if (playRequestedRef.current && !hasStartedPlaybackRef.current) {
+      setIsPlaying(false);
+      return;
+    }
+    playRequestedRef.current = false;
     setIsPlaying(false);
     setPlayRequested(false);
   }, []);
 
   const handleEnded = useCallback(() => {
+    playRequestedRef.current = false;
+    hasStartedPlaybackRef.current = false;
     setIsPlaying(false);
     setPlayRequested(false);
     setHasStartedPlayback(false);
@@ -554,6 +577,7 @@ export const VideoMessageBubble = ({
   const handlePlaying = useCallback(() => {
     setIsLoading(false);
     setIsPlaying(true);
+    hasStartedPlaybackRef.current = true;
     setHasStartedPlayback(true);
   }, []);
 
@@ -817,7 +841,7 @@ export const VideoMessageBubble = ({
         ) : null}
 
         {/* Play overlay */}
-        {!isPlaying && (isReady || (isAwaitingPlaybackIntent && !showResolvingPlaybackOverlay)) && (
+        {!isPlaying && !showPreparingOverlay && !showResolvingPlaybackOverlay && (canMountPlayer || isAwaitingPlaybackIntent) && (
           <motion.div
             initial={prefersReducedMotion ? false : { opacity: 0 }}
             animate={{ opacity: 1 }}

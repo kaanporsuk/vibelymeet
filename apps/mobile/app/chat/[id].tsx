@@ -980,7 +980,7 @@ function ChatVideoCard(props: ChatVideoCardProps) {
     setInitialPlaybackResolveFailed(false);
     initialPlaybackResolveInFlightRef.current = false;
     initialPlaybackResolveRunIdRef.current += 1;
-  }, [uri]);
+  }, [messageId, sourceRef]);
 
   useEffect(() => {
     setPlayablePosterUri(displayableChatVideoPosterUri(thumbnailUri));
@@ -1021,6 +1021,11 @@ function ChatVideoCard(props: ChatVideoCardProps) {
     setPosterImageBroken(true);
     setPosterImageState('failed');
   }, [onResolvedThumbnailUri, playablePosterUri]);
+
+  useEffect(() => {
+    if ((!posterImageBroken && posterImageState !== 'failed') || posterCandidateUris.length === 0) return;
+    handlePosterLoadError();
+  }, [handlePosterLoadError, posterCandidateUris, posterImageBroken, posterImageState]);
 
   const refreshMediaUri = useCallback(async (
     reason: ChatVideoMediaRefreshReason = 'playback',

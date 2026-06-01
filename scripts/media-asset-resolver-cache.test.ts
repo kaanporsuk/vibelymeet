@@ -276,6 +276,17 @@ try {
 let derivedThumbnailPrewarmInvokeCount = 0;
 __setChatMediaUrlIssuerForTests(async (_messageId, mediaKind) => {
   derivedThumbnailPrewarmInvokeCount += 1;
+  if (mediaKind === "vibe_clip") {
+    return {
+      success: true,
+      url: "https://vz-chat.example/bcdn_token=HS256-derived-play/stream-id/playlist.m3u8",
+      posterUrl: "https://vz-chat.example/bcdn_token=HS256-derived/stream-id/thumbnail.jpg",
+      posterFallbackUrls: ["https://vz-chat.example/bcdn_token=HS256-derived-fallback/stream-id/preview.webp"],
+      provider: "bunny_stream",
+      playbackKind: "hls",
+      expiresInSeconds: 300,
+    };
+  }
   assert.equal(mediaKind, "thumbnail");
   return {
     success: true,
@@ -314,9 +325,10 @@ try {
 
   assert.equal(
     (resolved.structured_payload as { thumbnail_url?: string } | null)?.thumbnail_url,
-    null,
+    "https://vz-chat.example/bcdn_token=HS256-derived/stream-id/thumbnail.jpg",
   );
-  assert.equal(derivedThumbnailPrewarmInvokeCount, 0);
+  assert.equal(resolved.video_url, "https://vz-chat.example/bcdn_token=HS256-derived-play/stream-id/playlist.m3u8");
+  assert.equal(derivedThumbnailPrewarmInvokeCount, 1);
   const prewarmed = await prewarmMediaAssets([
     { messageId, kind: "thumbnail", sourceRef: `bunny_stream:${videoId}:thumbnail` },
   ]);
@@ -334,6 +346,16 @@ try {
 let staleExplicitThumbnailResolveInvokeCount = 0;
 __setChatMediaUrlIssuerForTests(async (_messageId, mediaKind) => {
   staleExplicitThumbnailResolveInvokeCount += 1;
+  if (mediaKind === "vibe_clip") {
+    return {
+      success: true,
+      url: "https://vz-chat.example/bcdn_token=HS256-recovered-play/stream-id/playlist.m3u8",
+      posterUrl: "https://vz-chat.example/bcdn_token=HS256-recovered/stream-id/thumbnail.jpg",
+      provider: "bunny_stream",
+      playbackKind: "hls",
+      expiresInSeconds: 300,
+    };
+  }
   assert.equal(mediaKind, "thumbnail");
   return {
     success: true,
@@ -371,9 +393,9 @@ try {
 
   assert.equal(
     (resolved.structured_payload as { thumbnail_url?: string } | null)?.thumbnail_url,
-    "https://signed.example.com/expired-thumbnail.jpg",
+    "https://vz-chat.example/bcdn_token=HS256-recovered/stream-id/thumbnail.jpg",
   );
-  assert.equal(staleExplicitThumbnailResolveInvokeCount, 0);
+  assert.equal(staleExplicitThumbnailResolveInvokeCount, 1);
 } finally {
   __setChatMediaUrlIssuerForTests(null);
   __clearChatMediaUrlCacheForTests();
@@ -382,6 +404,16 @@ try {
 let genericVideoThumbnailResolveInvokeCount = 0;
 __setChatMediaUrlIssuerForTests(async (_messageId, mediaKind) => {
   genericVideoThumbnailResolveInvokeCount += 1;
+  if (mediaKind === "video") {
+    return {
+      success: true,
+      url: "https://vz-chat.example/bcdn_token=HS256-generic-play/stream-id/playlist.m3u8",
+      posterUrl: "https://vz-chat.example/bcdn_token=HS256-generic/stream-id/thumbnail.jpg",
+      provider: "bunny_stream",
+      playbackKind: "hls",
+      expiresInSeconds: 300,
+    };
+  }
   assert.equal(mediaKind, "thumbnail");
   return {
     success: true,
@@ -404,10 +436,11 @@ try {
   });
 
   assert.equal(
-    resolved.structured_payload,
-    null,
+    (resolved.structured_payload as { thumbnail_url?: string } | null)?.thumbnail_url,
+    "https://vz-chat.example/bcdn_token=HS256-generic/stream-id/thumbnail.jpg",
   );
-  assert.equal(genericVideoThumbnailResolveInvokeCount, 0);
+  assert.equal(resolved.video_url, "https://vz-chat.example/bcdn_token=HS256-generic-play/stream-id/playlist.m3u8");
+  assert.equal(genericVideoThumbnailResolveInvokeCount, 1);
 } finally {
   __setChatMediaUrlIssuerForTests(null);
   __clearChatMediaUrlCacheForTests();
@@ -783,9 +816,9 @@ assert.match(resolver, /if \(kind === "thumbnail"\) \{/);
 assert.match(resolver, /asset\.media_family === "chat_video_thumbnail"/);
 assert.match(resolver, /asset\.provider === "bunny_stream" && asset\.media_family === "chat_video"/);
 assert.match(resolver, /fileName: "preview\.webp"/);
-assert.match(resolver, /const previewUrl = mediaKind === "thumbnail"/);
-assert.match(resolver, /const fallbackUrls = previewUrl \? \[previewUrl\] : \[\]/);
-assert.match(resolver, /const posterFallbackUrls: string\[\] = \[\]/);
+assert.match(resolver, /const previewUrl = await signBunnyStreamDirectoryUrl/);
+assert.match(resolver, /const fallbackUrls = mediaKind === "thumbnail" \? \[previewUrl\] : \[\]/);
+assert.match(resolver, /const posterFallbackUrls = mediaKind === "thumbnail" \? \[\] : \[previewUrl\]/);
 assert.match(resolver, /function assetMatchesSourceRef\(asset: MediaAssetRow, sourceRef: unknown\): boolean/);
 assert.match(resolver, /const sourceMatchedStorageThumbnail = assets\.find/);
 assert.match(resolver, /const explicitThumbnailAsset = assets\.find\(\(asset\) => asset\.media_family === "chat_video_thumbnail"\)/);
@@ -832,7 +865,7 @@ assert.match(webVideoBubble, /if \(playRequested \|\| initialPlaybackResolveInFl
 assert.match(webVideoBubble, /\{canMountPlayer \? \([\s\S]{0,120}<video/);
 assert.match(webVideoBubble, /aria-label=\{videoAriaLabel\}/);
 assert.match(webVideoBubble, /Preparing playback…/);
-assert.match(webVideoBubble, /!isPlaying && \(isReady \|\| \(isAwaitingPlaybackIntent && !showResolvingPlaybackOverlay\)\)/);
+assert.match(webVideoBubble, /!isPlaying && !showPreparingOverlay && !showResolvingPlaybackOverlay && \(canMountPlayer \|\| isAwaitingPlaybackIntent\)/);
 assert.match(webVideoBubble, /bypassFailureCooldown: true/);
 assert.match(webVideoBubble, /if \(!freshUrl \|\| freshUrl === playableVideoUrl\) videoRef\.current\?\.load\(\);/);
 assert.match(
@@ -850,8 +883,13 @@ assert.match(webVideoBubble, /const showIdlePosterOverlay =/);
 assert.match(webVideoBubble, /const \[hasStartedPlayback, setHasStartedPlayback\] = useState\(false\)/);
 assert.match(webVideoBubble, /fallbackUrls: thumbnailFallbackUrls/);
 assert.match(webVideoBubble, /const handlePosterImageError = useCallback/);
+assert.match(webVideoBubble, /if \(!posterImageBroken \|\| posterCandidateUrls\.length === 0\) return;[\s\S]{0,80}handlePosterImageError\(\);/);
 assert.match(webVideoBubble, /showPosterVisual && canMountPlayer && !showPreparingOverlay && !hasStartedPlayback/);
-assert.match(webVideoBubble, /const handlePause = useCallback\(\(\) => \{[\s\S]{0,120}setPlayRequested\(false\);[\s\S]{0,40}\}, \[\]\);/);
+assert.match(webVideoBubble, /const playRequestedRef = useRef\(false\)/);
+assert.match(webVideoBubble, /const hasStartedPlaybackRef = useRef\(false\)/);
+assert.match(webVideoBubble, /const preservePlayIntent = playRequestedRef\.current \|\| initialPlaybackResolveInFlightRef\.current/);
+assert.match(webVideoBubble, /if \(playRequestedRef\.current && !hasStartedPlaybackRef\.current\) \{[\s\S]{0,80}return;/);
+assert.match(webVideoBubble, /const handlePause = useCallback\(\(\) => \{[\s\S]{0,260}setPlayRequested\(false\);[\s\S]{0,40}\}, \[\]\);/);
 assert.match(webVideoBubble, /onPlaying=\{handlePlaying\}/);
 assert.match(webVideoBubble, /onPause=\{handlePause\}/);
 assert.doesNotMatch(webVideoBubble, /const posterNotReady =\s*!isReady/);
@@ -880,10 +918,15 @@ assert.match(webClipBubble, /setPosterImageBroken\(true\)/);
 assert.match(webClipBubble, /poster=\{showPosterVisual \? displayableThumbnailUrl \?\? undefined : undefined\}/);
 assert.match(webClipBubble, /const showIdlePosterOverlay =/);
 assert.match(webClipBubble, /const \[hasStartedPlayback, setHasStartedPlayback\] = useState\(false\)/);
+assert.match(webClipBubble, /metaThumbnailUrlRef/);
+assert.doesNotMatch(webClipBubble, /\[meta\.processingStatus, meta\.thumbnailUrl, meta\.videoUrl, sparkMessageId\]/);
 assert.match(webClipBubble, /fallbackUrls: thumbnailFallbackUrls/);
 assert.match(webClipBubble, /const handlePosterImageError = useCallback/);
+assert.match(webClipBubble, /if \(!posterImageBroken \|\| posterCandidateUrls\.length === 0\) return;[\s\S]{0,80}handlePosterImageError\(\);/);
 assert.match(webClipBubble, /!showPreparingOverlay[\s\S]{0,80}!hasStartedPlayback/);
-assert.match(webClipBubble, /const handlePause = useCallback\(\(\) => \{[\s\S]{0,120}setPlayRequested\(false\);[\s\S]{0,40}\}, \[\]\);/);
+assert.match(webClipBubble, /const hasStartedPlaybackRef = useRef\(false\)/);
+assert.match(webClipBubble, /if \(playRequestedRef\.current && !hasStartedPlaybackRef\.current\) \{[\s\S]{0,80}return;/);
+assert.match(webClipBubble, /const handlePause = useCallback\(\(\) => \{[\s\S]{0,260}setPlayRequested\(false\);[\s\S]{0,40}\}, \[\]\);/);
 assert.match(webClipBubble, /onPause=\{handlePause\}/);
 assert.doesNotMatch(webClipBubble, /const posterNotReady =\s*!isReady/);
 assert.match(webClipBubble, /refreshVideoAsset\(reason, attemptOptions\)/);
@@ -989,8 +1032,8 @@ assert.match(webMediaResolver, /export function isTransientMediaAssetFailureCode
 assert.match(webMediaResolver, /export function isFatalMediaAssetFailureCode/);
 assert.match(webMediaResolver, /bypassFailureCooldown/);
 assert.match(webMediaResolver, /payload\?\.kind === "chat_image" && payload\.v === 2 && payload\.provider === "bunny_storage"/);
-assert.match(webMediaResolver, /Poster signing is intentionally non-blocking for chat hydration/);
-assert.doesNotMatch(webMediaResolver, /await getCachedMediaAsset\(row\.id, "thumbnail", thumbnailRef\)/);
+assert.match(webMediaResolver, /await getCachedMediaAsset\(row\.id, "thumbnail", thumbnailRef/);
+assert.match(webMediaResolver, /displayPayload\.thumbnail_url = thumbnailUrl/);
 assert.match(nativeBubble, /useMediaAsset/);
 assert.doesNotMatch(nativeBubble, wholeHookResultDependencyPattern);
 assert.match(nativeBubble, /refreshMediaAsset\('playback'\)/);
@@ -1130,8 +1173,8 @@ assert.match(nativeMediaResolver, /bypassFailureCooldown/);
 assert.match(nativeMediaResolver, /payload\?\.kind === 'chat_image' && payload\.v === 2 && payload\.provider === 'bunny_storage'/);
 assert.match(nativeMediaResolver, /getFreshCachedAccessToken/);
 assert.match(nativeMediaResolver, /headers: \{ Authorization: `Bearer \$\{accessToken\}` \}/);
-assert.match(nativeMediaResolver, /Poster signing is intentionally non-blocking for chat hydration/);
-assert.doesNotMatch(nativeMediaResolver, /await getCachedMediaAsset\(row\.id, 'thumbnail', thumbnailRef\)/);
+assert.match(nativeMediaResolver, /await getCachedMediaAsset\(row\.id, 'thumbnail', thumbnailRef/);
+assert.match(nativeMediaResolver, /displayPayload\.thumbnail_url = thumbnailUrl/);
 assert.match(nativeMediaResolver, /bunnyStreamThumbnailRefFor, deriveChatVideoThumbnailRef/);
 assert.match(nativeMediaResolver, /const thumbnailRef = deriveChatVideoThumbnailRef/);
 assert.match(nativeMediaResolver, /\{ messageId, mediaKind, sourceRef: rawRef/);
@@ -1215,6 +1258,7 @@ assert.match(nativeChatScreen, /thumbnailSourceRef: effectiveThumbnailSourceRef/
 assert.match(nativeChatScreen, /kind: 'thumbnail'[\s\S]{0,160}autoResolve: true/);
 assert.match(nativeChatScreen, /fallbackUrls: thumbnailFallbackUris/);
 assert.match(nativeChatScreen, /uniqueDisplayableChatVideoPosterUris\(playablePosterUri, thumbnailFallbackUris\)/);
+assert.match(nativeChatScreen, /if \(\(!posterImageBroken && posterImageState !== 'failed'\) \|\| posterCandidateUris\.length === 0\) return;[\s\S]{0,80}handlePosterLoadError\(\);/);
 assert.match(nativeChatScreen, /CHAT_VIDEO_POSTER_PREVIEW_TIMEOUT_MS = 3500/);
 assert.match(nativeChatScreen, /posterUri=\{displayableChatVideoPosterUri\(playablePosterUri\)\}/);
 assert.match(nativeChatScreen, /onLoad=\{onPosterLoad\}/);
@@ -1226,6 +1270,9 @@ assert.match(nativeChatScreen, /freshPosterAsset\?\.fallbackUrls \?\? \[\]/);
 assert.match(nativeMediaViewer, /void onRefreshMedia\('poster'\)/);
 assert.match(nativeClipCard, /fallbackUrls: thumbnailFallbackUrls/);
 assert.match(nativeClipCard, /uniqueDisplayablePosterUris\(playableThumbnailUrl, thumbnailFallbackUrls\)/);
+assert.match(nativeClipCard, /metaThumbnailUrlRef/);
+assert.doesNotMatch(nativeClipCard, /\[meta\.processingStatus, meta\.thumbnailUrl, meta\.videoUrl, sparkMessageId\]/);
+assert.match(nativeClipCard, /if \(effectivePosterPreviewState !== 'failed' \|\| posterCandidateUrls\.length === 0\) return;[\s\S]{0,80}setPosterPreviewState\('failed', playableThumbnailUrl\);/);
 assert.match(nativeClipCard, /if \(state === 'failed'\)/);
 assert.match(nativeClipCard, /onPosterPreviewStateChange\?\.\('unknown', nextUrl\)/);
 assert.match(nativeClipCard, /onResolvedThumbnailUrl\?\.\(nextUrl\)/);

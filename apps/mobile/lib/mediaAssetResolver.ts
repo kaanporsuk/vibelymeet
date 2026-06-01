@@ -152,10 +152,6 @@ export function isHlsMediaAssetUrl(value: string | null | undefined): boolean {
   return !!value && /\.m3u8(?:[?#]|$)/i.test(value);
 }
 
-function isBunnyStreamRef(value: string): boolean {
-  return value.startsWith('bunny_stream:');
-}
-
 export type ProfileVibeVideoRef = {
   profileId: string;
   videoId: string;
@@ -236,7 +232,6 @@ async function resolveChatMediaUrl(
   rawRef: string | null | undefined,
 ): Promise<string | null> {
   if (!rawRef) return null;
-  if ((mediaKind === 'vibe_clip' || mediaKind === 'video') && isBunnyStreamRef(rawRef)) return rawRef;
   if (isLocalMediaAssetRef(rawRef) || isResolvedMediaAssetUrl(rawRef) || !isUuid(messageId)) return rawRef;
 
   return getCachedMediaAssetUrl(messageId, mediaKind, rawRef);
@@ -886,10 +881,19 @@ export async function resolveMessageMediaForDisplay<
     video_url: row.video_url,
     structured_payload: payload,
   });
-  if (thumbnailRef && payload) {
-    // Poster signing is intentionally non-blocking for chat hydration. The row keeps
-    // its existing poster metadata while background prewarm and media components
-    // resolve `thumbnailRef` after the thread has painted.
+  if (thumbnailRef && isUuid(row.id)) {
+    const thumbnailAsset = await getCachedMediaAsset(row.id, 'thumbnail', thumbnailRef, {
+      suppressFailureCache: true,
+    });
+    const thumbnailUrl = thumbnailAsset?.url ?? null;
+    if (thumbnailUrl) {
+      const displayPayload = payload ?? {};
+      displayPayload.thumbnail_url = thumbnailUrl;
+      resolved.structured_payload = displayPayload;
+    } else if (payload) {
+      resolved.structured_payload = payload;
+    }
+  } else if (payload) {
     resolved.structured_payload = payload;
   }
 
