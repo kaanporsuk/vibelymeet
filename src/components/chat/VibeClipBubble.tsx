@@ -205,6 +205,8 @@ export const VibeClipBubble = ({
   const metaThumbnailUrlRef = useRef<string | null>(meta.thumbnailUrl ?? null);
   const playableVideoUrlRef = useRef(meta.videoUrl);
   const playableThumbnailUrlRef = useRef<string | null>(meta.thumbnailUrl ?? null);
+  const failedPosterUrlsRef = useRef<Set<string>>(new Set());
+  const onResolvedThumbnailUrlRef = useRef(onResolvedThumbnailUrl);
   const readyRefreshKeyRef = useRef<string | null>(null);
   const statusSyncInFlightRef = useRef(false);
   const statusSyncRunIdRef = useRef(0);
@@ -212,6 +214,17 @@ export const VibeClipBubble = ({
   const handleRealtimeProcessingStatus = useCallback((status: ChatVibeClipProcessingStatus) => {
     setSyncedProcessingStatus(status);
   }, []);
+
+  useEffect(() => {
+    onResolvedThumbnailUrlRef.current = onResolvedThumbnailUrl;
+  }, [onResolvedThumbnailUrl]);
+
+  useEffect(() => {
+    failedPosterUrlsRef.current.clear();
+    posterRetryStateRef.current = { key: "", attempts: 0 };
+    setPosterImageBroken(false);
+  }, [thumbnailSourceRef]);
+
   const {
     url: videoAssetUrl,
     expiresAtMs: videoAssetExpiresAtMs,
@@ -230,8 +243,8 @@ export const VibeClipBubble = ({
   });
   const handleResolvedThumbnailUrl = useCallback((url: string) => {
     const displayableUrl = displayablePosterUrl(url);
-    if (displayableUrl) onResolvedThumbnailUrl?.(displayableUrl);
-  }, [onResolvedThumbnailUrl]);
+    if (displayableUrl) onResolvedThumbnailUrlRef.current?.(displayableUrl);
+  }, []);
   const {
     url: thumbnailAssetUrl,
     fallbackUrls: thumbnailFallbackUrls,
@@ -289,6 +302,7 @@ export const VibeClipBubble = ({
     playableThumbnailUrlRef.current = nextThumbnailUrl;
     setPlayableThumbnailUrl(nextThumbnailUrl);
     setPosterImageBroken(false);
+    failedPosterUrlsRef.current.clear();
     posterRetryStateRef.current = { key: "", attempts: 0 };
   }, [meta.thumbnailUrl]);
 
@@ -322,6 +336,7 @@ export const VibeClipBubble = ({
     playbackRefreshAttemptCountRef.current = 0;
     posterRetryStateRef.current = { key: "", attempts: 0 };
     setPosterImageBroken(false);
+    failedPosterUrlsRef.current.clear();
     readyRefreshKeyRef.current = null;
     statusSyncRunIdRef.current += 1;
     statusSyncInFlightRef.current = false;
@@ -344,6 +359,7 @@ export const VibeClipBubble = ({
     setPlayableThumbnailUrl(nextThumbnailUrl);
     // A freshly resolved URL deserves a clean load attempt before counting it broken.
     setPosterImageBroken(false);
+    failedPosterUrlsRef.current.clear();
   }, [thumbnailAssetUrl]);
 
   const posterCandidateUrls = useMemo(
@@ -359,7 +375,18 @@ export const VibeClipBubble = ({
     const current = playableThumbnailUrlRef.current;
     const candidates = posterCandidateUrlsRef.current;
     const currentIndex = current ? candidates.indexOf(current) : -1;
-    const next = candidates.find((candidate, index) => index > currentIndex && candidate !== current);
+    const failedUrl = displayablePosterUrl(current);
+    if (failedUrl) failedPosterUrlsRef.current.add(failedUrl);
+    const orderedCandidates =
+      currentIndex >= 0
+        ? [...candidates.slice(currentIndex + 1), ...candidates.slice(0, currentIndex)]
+        : candidates;
+    const next = orderedCandidates.find(
+      (candidate) =>
+        candidate !== failedUrl &&
+        candidate !== current &&
+        !failedPosterUrlsRef.current.has(candidate),
+    );
     if (next) {
       playableThumbnailUrlRef.current = next;
       setPlayableThumbnailUrl(next);
@@ -522,10 +549,11 @@ export const VibeClipBubble = ({
         : null;
       const displayableFreshThumbnailUrl = displayablePosterUrl(freshThumbnailUrl);
       if (displayableFreshThumbnailUrl) {
+        failedPosterUrlsRef.current.clear();
         playableThumbnailUrlRef.current = displayableFreshThumbnailUrl;
         setPlayableThumbnailUrl(displayableFreshThumbnailUrl);
         setPosterImageBroken(false);
-        onResolvedThumbnailUrl?.(displayableFreshThumbnailUrl);
+        onResolvedThumbnailUrlRef.current?.(displayableFreshThumbnailUrl);
       }
       return !!displayableFreshThumbnailUrl;
     };
@@ -575,7 +603,6 @@ export const VibeClipBubble = ({
     onResolvedVideoUrl?.(freshVideoUrl);
     return true;
   }, [
-    onResolvedThumbnailUrl,
     onResolvedVideoUrl,
     playableVideoUrl,
     refreshThumbnailAsset,

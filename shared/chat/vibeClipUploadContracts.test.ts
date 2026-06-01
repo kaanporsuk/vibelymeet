@@ -419,6 +419,12 @@ test("video bubbles remain adaptive and full-width across web and native chat", 
   assert.match(webVibeClipBubble, /posterRetryStateRef/);
   assert.match(webVibeClipBubble, /fallbackUrls: thumbnailFallbackUrls/);
   assert.match(webVibeClipBubble, /const handlePosterImageError = useCallback/);
+  assert.match(webVibeClipBubble, /failedPosterUrlsRef\.current\.add\(failedUrl\)/);
+  assert.match(webVibeClipBubble, /!failedPosterUrlsRef\.current\.has\(candidate\)/);
+  assert.match(
+    webVibeClipBubble,
+    /failedPosterUrlsRef\.current\.clear\(\);[\s\S]{0,120}posterRetryStateRef\.current = \{ key: "", attempts: 0 \};[\s\S]{0,120}setPosterImageBroken\(false\);[\s\S]{0,80}\}, \[thumbnailSourceRef\]\);/,
+  );
   assert.match(webVibeClipBubble, /if \(!posterImageBroken \|\| posterCandidateUrls\.length === 0\) return;[\s\S]{0,80}handlePosterImageError\(\);/);
   assert.match(webVibeClipBubble, /!showPreparingOverlay[\s\S]{0,80}!hasStartedPlayback/);
   assert.match(webVibeClipBubble, /metaThumbnailUrlRef/);
@@ -625,8 +631,14 @@ test("video bubbles remain adaptive and full-width across web and native chat", 
   assert.doesNotMatch(nativeVibeClipCard, /\[meta\.processingStatus, meta\.thumbnailUrl, meta\.videoUrl, sparkMessageId\]/);
   assert.match(nativeVibeClipCard, /if \(effectivePosterPreviewState !== 'failed' \|\| posterCandidateUrls\.length === 0\) return;[\s\S]{0,80}setPosterPreviewState\('failed', playableThumbnailUrl\);/);
   assert.match(nativeVibeClipCard, /if \(state === 'failed'\)/);
-  assert.match(nativeVibeClipCard, /onPosterPreviewStateChange\?\.\('unknown', nextUrl\)/);
-  assert.match(nativeVibeClipCard, /onResolvedThumbnailUrl\?\.\(nextUrl\)/);
+  assert.match(nativeVibeClipCard, /failedPosterUrlsRef\.current\.add\(failedUrl\)/);
+  assert.match(nativeVibeClipCard, /!failedPosterUrlsRef\.current\.has\(candidate\)/);
+  assert.match(
+    nativeVibeClipCard,
+    /failedPosterUrlsRef\.current\.clear\(\);[\s\S]{0,120}posterRetryStateRef\.current = \{ key: '', attempts: 0 \};[\s\S]{0,120}setFallbackPosterPreviewState\('unknown'\);[\s\S]{0,80}\}, \[thumbnailSourceRef\]\);/,
+  );
+  assert.match(nativeVibeClipCard, /onPosterPreviewStateChangeRef\.current\?\.\('unknown', nextUrl\)/);
+  assert.match(nativeVibeClipCard, /onResolvedThumbnailUrlRef\.current\?\.\(nextUrl\)/);
   assert.doesNotMatch(nativeVibeClipCard, /if \(didRefresh\) posterRefreshAttemptedForRef\.current = null/);
   assert.match(nativeVibeClipCard, /resolveMediaFallbackCopy/);
   assert.match(nativeVibeClipCard, /fallbackCopy\.title/);
@@ -1057,6 +1069,8 @@ test("server upload and publish paths enforce Bunny Stream Vibe Clip limits", ()
   assert.match(webVideoBubble, /onResolvedUrl: handleResolvedThumbnailUrl/);
   assert.match(webVideoBubble, /fallbackUrls: thumbnailFallbackUrls/);
   assert.match(webVideoBubble, /const handlePosterImageError = useCallback/);
+  assert.match(webVideoBubble, /failedPosterUrlsRef\.current\.add\(failedUrl\)/);
+  assert.match(webVideoBubble, /!failedPosterUrlsRef\.current\.has\(candidate\)/);
   assert.match(webVideoBubble, /if \(!posterImageBroken \|\| posterCandidateUrls\.length === 0\) return;[\s\S]{0,80}handlePosterImageError\(\);/);
   assert.match(webVideoBubble, /showPosterVisual && canMountPlayer && !showPreparingOverlay && !hasStartedPlayback/);
   assert.match(webVideoBubble, /const hasStartedPlaybackRef = useRef\(false\)/);
@@ -1090,6 +1104,16 @@ test("server upload and publish paths enforce Bunny Stream Vibe Clip limits", ()
   assert.match(webVideoLightbox, /asset\?\.fallbackUrls \?\? \[\]/);
   assert.match(webVideoLightbox, /setExtraPosterFallbackUrls/);
   assert.match(webVideoLightbox, /refreshedCurrentIndex === -1/);
+  assert.match(webVideoLightbox, /failedPosterUrlsRef\.current\.add\(failedUrl\)/);
+  assert.match(webVideoLightbox, /!failedPosterUrlsRef\.current\.has\(candidate\)/);
+  assert.match(
+    webVideoLightbox,
+    /failedPosterUrlsRef\.current\.clear\(\);[\s\S]{0,120}posterFallbackResolveAttemptedForRef\.current = null;[\s\S]{0,120}setPosterImageBroken\(false\);[\s\S]{0,80}\}, \[thumbnailSourceRef\]\);/,
+  );
+  assert.match(
+    webVideoLightbox,
+    /displayableFreshPosterUrl[\s\S]{0,120}failedPosterUrlsRef\.current\.clear\(\);[\s\S]{0,120}setPlayablePosterUrl\(displayableFreshPosterUrl\)/,
+  );
   assert.match(webChatMediaResolver, /\{ messageId, mediaKind, sourceRef: rawRef/);
   assert.match(nativeChat, /deriveChatVideoThumbnailRef/);
   assert.match(nativeChatApi, /Keep video playback lazy on chat open; thumbnails are the eager visual contract/);
@@ -1103,6 +1127,8 @@ test("server upload and publish paths enforce Bunny Stream Vibe Clip limits", ()
   assert.match(nativeChat, /kind: 'thumbnail'[\s\S]{0,160}autoResolve: true/);
   assert.match(nativeChat, /fallbackUrls: thumbnailFallbackUris/);
   assert.match(nativeChat, /uniqueDisplayableChatVideoPosterUris\(playablePosterUri, thumbnailFallbackUris\)/);
+  assert.match(nativeChat, /failedPosterUrisRef\.current\.add\(currentPosterUri\)/);
+  assert.match(nativeChat, /!failedPosterUrisRef\.current\.has\(candidate\)/);
   assert.match(nativeChat, /if \(\(!posterImageBroken && posterImageState !== 'failed'\) \|\| posterCandidateUris\.length === 0\) return;[\s\S]{0,80}handlePosterLoadError\(\);/);
   assert.match(nativeChat, /CHAT_VIDEO_POSTER_PREVIEW_TIMEOUT_MS = 3500/);
   assert.match(nativeChat, /onLoad=\{onPosterLoad\}/);
@@ -1113,6 +1139,8 @@ test("server upload and publish paths enforce Bunny Stream Vibe Clip limits", ()
   assert.match(nativeMediaViewer, /posterFallbackUris\?: string\[\] \| null/);
   assert.match(nativeMediaViewer, /posterRefreshAttemptedForUriRef/);
   assert.match(nativeMediaViewer, /const advancePosterCandidate = useCallback/);
+  assert.match(nativeMediaViewer, /failedPosterUrisRef\.current\.add\(currentPosterUri\)/);
+  assert.match(nativeMediaViewer, /!failedPosterUrisRef\.current\.has\(candidate\)/);
   assert.match(nativeMediaViewer, /style=\{styles\.videoPosterProbe\}/);
   assert.match(nativeChat, /initialPlaybackResolveInFlightRef/);
   assert.match(nativeVibeClipCard, /initialPlaybackResolveInFlightRef/);

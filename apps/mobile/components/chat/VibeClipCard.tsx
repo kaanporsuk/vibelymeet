@@ -1088,6 +1088,9 @@ export function VibeClipCard(props: Props) {
   const metaThumbnailUrlRef = useRef<string | null>(meta.thumbnailUrl ?? null);
   const playableVideoUrlRef = useRef(meta.videoUrl);
   const playableThumbnailUrlRef = useRef<string | null>(meta.thumbnailUrl ?? null);
+  const failedPosterUrlsRef = useRef<Set<string>>(new Set());
+  const onResolvedThumbnailUrlRef = useRef(onResolvedThumbnailUrl);
+  const onPosterPreviewStateChangeRef = useRef(onPosterPreviewStateChange);
   const readyRefreshKeyRef = useRef<string | null>(null);
   const statusSyncInFlightRef = useRef(false);
   const statusSyncRunIdRef = useRef(0);
@@ -1095,10 +1098,25 @@ export function VibeClipCard(props: Props) {
   const handleRealtimeProcessingStatus = useCallback((status: ChatVibeClipProcessingStatus) => {
     setSyncedProcessingStatus(status);
   }, []);
+
+  useEffect(() => {
+    onResolvedThumbnailUrlRef.current = onResolvedThumbnailUrl;
+  }, [onResolvedThumbnailUrl]);
+
+  useEffect(() => {
+    onPosterPreviewStateChangeRef.current = onPosterPreviewStateChange;
+  }, [onPosterPreviewStateChange]);
+
+  useEffect(() => {
+    failedPosterUrlsRef.current.clear();
+    posterRetryStateRef.current = { key: '', attempts: 0 };
+    setFallbackPosterPreviewState('unknown');
+  }, [thumbnailSourceRef]);
+
   const handleResolvedThumbnailUrl = useCallback((url: string) => {
     const displayableUri = displayablePosterUri(url);
-    if (displayableUri) onResolvedThumbnailUrl?.(displayableUri);
-  }, [onResolvedThumbnailUrl]);
+    if (displayableUri) onResolvedThumbnailUrlRef.current?.(displayableUri);
+  }, []);
   const { url: videoAssetUrl, refresh: refreshVideoAsset } = useMediaAsset({
     kind: 'vibe_clip',
     messageId: sparkMessageId,
@@ -1149,6 +1167,7 @@ export function VibeClipCard(props: Props) {
     playableThumbnailUrlRef.current = nextThumbnailUrl;
     setPlayableThumbnailUrl(nextThumbnailUrl);
     setFallbackPosterPreviewState('unknown');
+    failedPosterUrlsRef.current.clear();
     posterRetryStateRef.current = { key: '', attempts: 0 };
   }, [meta.thumbnailUrl]);
 
@@ -1177,6 +1196,7 @@ export function VibeClipCard(props: Props) {
     setSyncAttemptCount(0);
     setIsSyncingStatus(false);
     setFallbackPosterPreviewState('unknown');
+    failedPosterUrlsRef.current.clear();
     playbackRefreshAttemptCountRef.current = 0;
     posterRetryStateRef.current = { key: '', attempts: 0 };
     readyRefreshKeyRef.current = null;
@@ -1203,6 +1223,7 @@ export function VibeClipCard(props: Props) {
     playableThumbnailUrlRef.current = nextThumbnailUrl;
     setPlayableThumbnailUrl(nextThumbnailUrl);
     setFallbackPosterPreviewState('unknown');
+    failedPosterUrlsRef.current.clear();
   }, [thumbnailAssetUrl]);
 
   const processingStatus = syncedProcessingStatus ?? meta.processingStatus;
@@ -1325,26 +1346,38 @@ export function VibeClipCard(props: Props) {
       ? parentPosterPreviewState
       : fallbackPosterPreviewState;
   const setPosterPreviewState = useCallback(
-    (state: VibeClipPosterPreviewState, thumbnailUrl: string | null = playableThumbnailUrl) => {
+    (state: VibeClipPosterPreviewState, thumbnailUrl: string | null = playableThumbnailUrlRef.current) => {
+      const currentThumbnailUrl = playableThumbnailUrlRef.current;
       if (state === 'failed') {
-        const failedUrl = displayablePosterUri(thumbnailUrl) ?? displayablePosterUri(playableThumbnailUrl);
+        const failedUrl = displayablePosterUri(thumbnailUrl) ?? displayablePosterUri(currentThumbnailUrl);
+        if (failedUrl) failedPosterUrlsRef.current.add(failedUrl);
         const candidates = posterCandidateUrlsRef.current;
         const failedIndex = failedUrl ? candidates.indexOf(failedUrl) : -1;
-        const startIndex = failedIndex >= 0 ? failedIndex + 1 : 0;
-        const nextUrl = candidates.slice(startIndex).find((candidate) => candidate !== failedUrl) ?? null;
+        const orderedCandidates =
+          failedIndex >= 0
+            ? [...candidates.slice(failedIndex + 1), ...candidates.slice(0, failedIndex)]
+            : candidates;
+        const currentUrl = displayablePosterUri(currentThumbnailUrl);
+        const nextUrl =
+          orderedCandidates.find(
+            (candidate) =>
+              candidate !== failedUrl &&
+              candidate !== currentUrl &&
+              !failedPosterUrlsRef.current.has(candidate),
+          ) ?? null;
         if (nextUrl) {
           playableThumbnailUrlRef.current = nextUrl;
           setPlayableThumbnailUrl(nextUrl);
           setFallbackPosterPreviewState('unknown');
-          onPosterPreviewStateChange?.('unknown', nextUrl);
-          onResolvedThumbnailUrl?.(nextUrl);
+          onPosterPreviewStateChangeRef.current?.('unknown', nextUrl);
+          onResolvedThumbnailUrlRef.current?.(nextUrl);
           return;
         }
       }
       setFallbackPosterPreviewState(state);
-      onPosterPreviewStateChange?.(state, thumbnailUrl);
+      onPosterPreviewStateChangeRef.current?.(state, thumbnailUrl);
     },
-    [onPosterPreviewStateChange, onResolvedThumbnailUrl, playableThumbnailUrl],
+    [],
   );
 
   useEffect(() => {
@@ -1377,10 +1410,11 @@ export function VibeClipCard(props: Props) {
         : null;
       const displayableFreshThumbnailUri = displayablePosterUri(freshThumbnailUri);
       if (displayableFreshThumbnailUri) {
+        failedPosterUrlsRef.current.clear();
         playableThumbnailUrlRef.current = displayableFreshThumbnailUri;
         setPosterPreviewState('unknown', displayableFreshThumbnailUri);
         setPlayableThumbnailUrl(displayableFreshThumbnailUri);
-        onResolvedThumbnailUrl?.(displayableFreshThumbnailUri);
+        onResolvedThumbnailUrlRef.current?.(displayableFreshThumbnailUri);
       }
       return !!displayableFreshThumbnailUri;
     };
@@ -1430,7 +1464,6 @@ export function VibeClipCard(props: Props) {
     onResolvedVideoUrl?.(freshVideoUri);
     return true;
   }, [
-    onResolvedThumbnailUrl,
     onResolvedVideoUrl,
     playableVideoUrl,
     refreshThumbnailAsset,

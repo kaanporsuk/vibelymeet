@@ -360,6 +360,7 @@ function VideoViewerBody({
   const posterRefreshInFlightForUriRef = useRef<string | null>(null);
   const playablePosterUriRef = useRef(displayablePosterUri(posterUri));
   const posterCandidateUrisRef = useRef<string[]>([]);
+  const failedPosterUrisRef = useRef<Set<string>>(new Set());
   const resolveFallbackCopy = resolveMediaFallbackCopy({ reason: 'unknown' });
 
   useEffect(() => {
@@ -373,6 +374,7 @@ function VideoViewerBody({
     posterResolveAttemptedForUriRef.current = null;
     posterRefreshAttemptedForUriRef.current = null;
     posterRefreshInFlightForUriRef.current = null;
+    failedPosterUrisRef.current.clear();
   }, [posterUri, uri]);
 
   const posterCandidateUris = useMemo(
@@ -390,9 +392,18 @@ function VideoViewerBody({
 
   const advancePosterCandidate = useCallback((): boolean => {
     const currentPosterUri = displayablePosterUri(playablePosterUriRef.current);
+    if (currentPosterUri) failedPosterUrisRef.current.add(currentPosterUri);
     const candidates = posterCandidateUrisRef.current;
     const currentIndex = currentPosterUri ? candidates.indexOf(currentPosterUri) : -1;
-    const nextPosterUri = candidates.find((candidate, index) => index > currentIndex && candidate !== currentPosterUri);
+    const orderedCandidates =
+      currentIndex >= 0
+        ? [...candidates.slice(currentIndex + 1), ...candidates.slice(0, currentIndex)]
+        : candidates;
+    const nextPosterUri = orderedCandidates.find(
+      (candidate) =>
+        candidate !== currentPosterUri &&
+        !failedPosterUrisRef.current.has(candidate),
+    );
     if (!nextPosterUri) return false;
     playablePosterUriRef.current = nextPosterUri;
     setPlayablePosterUri(nextPosterUri);
@@ -435,11 +446,15 @@ function VideoViewerBody({
     setPosterFallbackUris(freshPosterFallbackUris);
     const freshPosterUri = displayablePosterUri(fresh?.posterUri);
     if (freshPosterUri) {
+      failedPosterUrisRef.current.clear();
       playablePosterUriRef.current = freshPosterUri;
       setPlayablePosterUri(freshPosterUri);
     } else if (reason === 'poster' && freshPosterFallbackUris.length > 0) {
-      playablePosterUriRef.current = freshPosterFallbackUris[0];
-      setPlayablePosterUri(freshPosterFallbackUris[0]);
+      const nextFallbackUri =
+        freshPosterFallbackUris.find((candidate) => !failedPosterUrisRef.current.has(candidate)) ?? null;
+      if (!nextFallbackUri) return false;
+      playablePosterUriRef.current = nextFallbackUri;
+      setPlayablePosterUri(nextFallbackUri);
       return true;
     }
     if (!fresh?.uri) return !!freshPosterUri;

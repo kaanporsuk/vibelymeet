@@ -96,6 +96,7 @@ export function ChatVideoLightbox({
   const onResolvedThumbnailUrlRef = useRef(onResolvedThumbnailUrl);
   const playablePosterUrlRef = useRef(initialPosterUrl);
   const posterCandidateUrlsRef = useRef<string[]>([]);
+  const failedPosterUrlsRef = useRef<Set<string>>(new Set());
   const posterFallbackResolveInFlightRef = useRef(false);
   const posterFallbackResolveAttemptedForRef = useRef<string | null>(null);
   const refreshMediaRef = useRef<((reason?: LightboxMediaRefreshReason) => Promise<boolean>) | null>(null);
@@ -126,7 +127,7 @@ export function ChatVideoLightbox({
     autoResolve: false,
     onResolvedUrl: (url) => {
       const displayableUrl = displayablePosterUrl(url);
-      if (displayableUrl) onResolvedThumbnailUrl?.(displayableUrl);
+      if (displayableUrl) onResolvedThumbnailUrlRef.current?.(displayableUrl);
     },
   });
 
@@ -141,6 +142,12 @@ export function ChatVideoLightbox({
   useEffect(() => {
     onResolvedThumbnailUrlRef.current = onResolvedThumbnailUrl;
   }, [onResolvedThumbnailUrl]);
+
+  useEffect(() => {
+    failedPosterUrlsRef.current.clear();
+    posterFallbackResolveAttemptedForRef.current = null;
+    setPosterImageBroken(false);
+  }, [thumbnailSourceRef]);
 
   const resetPhase = useCallback(() => setPhase("loading"), []);
   const revealPlayer = useCallback(() => {
@@ -183,6 +190,7 @@ export function ChatVideoLightbox({
     playablePosterUrlRef.current = initialPosterUrl;
     setExtraPosterFallbackUrls([]);
     setPosterImageBroken(false);
+    failedPosterUrlsRef.current.clear();
     posterFallbackResolveAttemptedForRef.current = null;
   }, [initialPosterUrl]);
 
@@ -197,6 +205,7 @@ export function ChatVideoLightbox({
     setPlayablePosterUrl(nextPosterUrl);
     playablePosterUrlRef.current = nextPosterUrl;
     setPosterImageBroken(false);
+    failedPosterUrlsRef.current.clear();
   }, [initialPosterUrl, posterAssetUrl]);
 
   const posterCandidateUrls = useMemo(
@@ -212,7 +221,18 @@ export function ChatVideoLightbox({
     const current = playablePosterUrlRef.current;
     const candidates = posterCandidateUrlsRef.current;
     const currentIndex = current ? candidates.indexOf(current) : -1;
-    const next = candidates.find((candidate, index) => index > currentIndex && candidate !== current);
+    const failedUrl = displayablePosterUrl(current);
+    if (failedUrl) failedPosterUrlsRef.current.add(failedUrl);
+    const orderedCandidates =
+      currentIndex >= 0
+        ? [...candidates.slice(currentIndex + 1), ...candidates.slice(0, currentIndex)]
+        : candidates;
+    const next = orderedCandidates.find(
+      (candidate) =>
+        candidate !== failedUrl &&
+        candidate !== current &&
+        !failedPosterUrlsRef.current.has(candidate),
+    );
     if (next) {
       playablePosterUrlRef.current = next;
       setPlayablePosterUrl(next);
@@ -247,9 +267,17 @@ export function ChatVideoLightbox({
       setExtraPosterFallbackUrls(refreshedFallbackUrls.filter((url): url is string => !!displayablePosterUrl(url)));
       const refreshedCandidates = uniqueDisplayablePosterUrls(asset?.url, refreshedFallbackUrls);
       const refreshedCurrentIndex = current ? refreshedCandidates.indexOf(current) : -1;
+      if (asset?.url) failedPosterUrlsRef.current.clear();
       const refreshedNext =
-        refreshedCandidates.find((candidate, index) => index > refreshedCurrentIndex && candidate !== current) ??
-        (refreshedCurrentIndex === -1 ? refreshedCandidates.find((candidate) => candidate !== current) : null) ??
+        refreshedCandidates.find(
+          (candidate, index) =>
+            index > refreshedCurrentIndex &&
+            candidate !== current &&
+            !failedPosterUrlsRef.current.has(candidate),
+        ) ??
+        (refreshedCurrentIndex === -1
+          ? refreshedCandidates.find((candidate) => candidate !== current && !failedPosterUrlsRef.current.has(candidate))
+          : null) ??
         null;
       if (refreshedNext) {
         playablePosterUrlRef.current = refreshedNext;
@@ -271,6 +299,7 @@ export function ChatVideoLightbox({
     void refreshPosterAsset("cache").then((freshPosterUrl) => {
       const displayableUrl = displayablePosterUrl(freshPosterUrl);
       if (!displayableUrl) return;
+      failedPosterUrlsRef.current.clear();
       setPlayablePosterUrl(displayableUrl);
       playablePosterUrlRef.current = displayableUrl;
       setPosterImageBroken(false);
@@ -321,6 +350,7 @@ export function ChatVideoLightbox({
           : await refreshPosterAsset("cache");
         const displayableFreshPosterUrl = displayablePosterUrl(freshPosterUrl);
         if (!displayableFreshPosterUrl) return;
+        failedPosterUrlsRef.current.clear();
         setPlayablePosterUrl(displayableFreshPosterUrl);
         playablePosterUrlRef.current = displayableFreshPosterUrl;
         setPosterImageBroken(false);

@@ -933,10 +933,13 @@ function ChatVideoCard(props: ChatVideoCardProps) {
   const posterRetryStateRef = useRef<{ key: string; attempts: number }>({ key: '', attempts: 0 });
   const posterNotReadyRef = useRef(false);
   const posterCandidateUrisRef = useRef<string[]>([]);
+  const playablePosterUriRef = useRef(displayableChatVideoPosterUri(thumbnailUri));
+  const failedPosterUrisRef = useRef<Set<string>>(new Set());
+  const onResolvedThumbnailUriRef = useRef(onResolvedThumbnailUri);
   const handleResolvedThumbnailUri = useCallback((resolvedUri: string) => {
     const displayableUri = displayableChatVideoPosterUri(resolvedUri);
-    if (displayableUri) onResolvedThumbnailUri?.(displayableUri);
-  }, [onResolvedThumbnailUri]);
+    if (displayableUri) onResolvedThumbnailUriRef.current?.(displayableUri);
+  }, []);
   const { url: mediaAssetUrl, refresh: refreshMediaAsset } = useMediaAsset({
     kind: mediaKind ?? 'video',
     messageId,
@@ -969,6 +972,10 @@ function ChatVideoCard(props: ChatVideoCardProps) {
   }, []);
 
   useEffect(() => {
+    onResolvedThumbnailUriRef.current = onResolvedThumbnailUri;
+  }, [onResolvedThumbnailUri]);
+
+  useEffect(() => {
     setPlayableUri(mediaAssetUrl ?? uri);
     refreshAttemptedForUriRef.current = null;
   }, [mediaAssetUrl, uri]);
@@ -983,18 +990,23 @@ function ChatVideoCard(props: ChatVideoCardProps) {
   }, [messageId, sourceRef]);
 
   useEffect(() => {
-    setPlayablePosterUri(displayableChatVideoPosterUri(thumbnailUri));
+    const nextPosterUri = displayableChatVideoPosterUri(thumbnailUri);
+    playablePosterUriRef.current = nextPosterUri;
+    setPlayablePosterUri(nextPosterUri);
     setPosterImageBroken(false);
     setPosterImageState('unknown');
+    failedPosterUrisRef.current.clear();
     posterRetryStateRef.current = { key: '', attempts: 0 };
   }, [thumbnailSourceRef, thumbnailUri]);
 
   useEffect(() => {
     const next = displayableChatVideoPosterUri(thumbnailAssetUri);
     if (!next) return;
+    playablePosterUriRef.current = next;
     setPlayablePosterUri((current) => (current === next ? current : next));
     setPosterImageBroken(false);
     setPosterImageState('unknown');
+    failedPosterUrisRef.current.clear();
   }, [thumbnailAssetUri]);
 
   const posterCandidateUris = useMemo(
@@ -1006,21 +1018,31 @@ function ChatVideoCard(props: ChatVideoCardProps) {
   }, [posterCandidateUris]);
 
   const handlePosterLoadError = useCallback(() => {
-    const currentPosterUri = displayableChatVideoPosterUri(playablePosterUri);
+    const currentPosterUri = displayableChatVideoPosterUri(playablePosterUriRef.current);
+    if (currentPosterUri) failedPosterUrisRef.current.add(currentPosterUri);
     const candidates = posterCandidateUrisRef.current;
     const currentIndex = currentPosterUri ? candidates.indexOf(currentPosterUri) : -1;
-    const startIndex = currentIndex >= 0 ? currentIndex + 1 : 0;
-    const nextPosterUri = candidates.slice(startIndex).find((candidate) => candidate !== currentPosterUri) ?? null;
+    const orderedCandidates =
+      currentIndex >= 0
+        ? [...candidates.slice(currentIndex + 1), ...candidates.slice(0, currentIndex)]
+        : candidates;
+    const nextPosterUri =
+      orderedCandidates.find(
+        (candidate) =>
+          candidate !== currentPosterUri &&
+          !failedPosterUrisRef.current.has(candidate),
+      ) ?? null;
     if (nextPosterUri) {
+      playablePosterUriRef.current = nextPosterUri;
       setPlayablePosterUri(nextPosterUri);
       setPosterImageBroken(false);
       setPosterImageState('unknown');
-      onResolvedThumbnailUri?.(nextPosterUri);
+      onResolvedThumbnailUriRef.current?.(nextPosterUri);
       return;
     }
     setPosterImageBroken(true);
     setPosterImageState('failed');
-  }, [onResolvedThumbnailUri, playablePosterUri]);
+  }, []);
 
   useEffect(() => {
     if ((!posterImageBroken && posterImageState !== 'failed') || posterCandidateUris.length === 0) return;
@@ -1071,12 +1093,14 @@ function ChatVideoCard(props: ChatVideoCardProps) {
     });
     const displayableFreshUri = displayableChatVideoPosterUri(freshUri);
     if (!displayableFreshUri) return null;
+    failedPosterUrisRef.current.clear();
+    playablePosterUriRef.current = displayableFreshUri;
     setPlayablePosterUri(displayableFreshUri);
     setPosterImageBroken(false);
     setPosterImageState('unknown');
-    onResolvedThumbnailUri?.(displayableFreshUri);
+    onResolvedThumbnailUriRef.current?.(displayableFreshUri);
     return displayableFreshUri;
-  }, [messageId, onResolvedThumbnailUri, refreshThumbnailAsset, thumbnailSourceRef]);
+  }, [messageId, refreshThumbnailAsset, thumbnailSourceRef]);
 
   const posterNotReady =
     !!thumbnailSourceRef &&

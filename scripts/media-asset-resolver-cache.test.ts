@@ -886,6 +886,8 @@ assert.match(webVideoBubble, /const showIdlePosterOverlay =/);
 assert.match(webVideoBubble, /const \[hasStartedPlayback, setHasStartedPlayback\] = useState\(false\)/);
 assert.match(webVideoBubble, /fallbackUrls: thumbnailFallbackUrls/);
 assert.match(webVideoBubble, /const handlePosterImageError = useCallback/);
+assert.match(webVideoBubble, /failedPosterUrlsRef\.current\.add\(failedUrl\)/);
+assert.match(webVideoBubble, /!failedPosterUrlsRef\.current\.has\(candidate\)/);
 assert.match(webVideoBubble, /if \(!posterImageBroken \|\| posterCandidateUrls\.length === 0\) return;[\s\S]{0,80}handlePosterImageError\(\);/);
 assert.match(webVideoBubble, /showPosterVisual && canMountPlayer && !showPreparingOverlay && !hasStartedPlayback/);
 assert.match(webVideoBubble, /const playRequestedRef = useRef\(false\)/);
@@ -927,6 +929,12 @@ assert.match(webClipBubble, /metaThumbnailUrlRef/);
 assert.doesNotMatch(webClipBubble, /\[meta\.processingStatus, meta\.thumbnailUrl, meta\.videoUrl, sparkMessageId\]/);
 assert.match(webClipBubble, /fallbackUrls: thumbnailFallbackUrls/);
 assert.match(webClipBubble, /const handlePosterImageError = useCallback/);
+assert.match(webClipBubble, /failedPosterUrlsRef\.current\.add\(failedUrl\)/);
+assert.match(webClipBubble, /!failedPosterUrlsRef\.current\.has\(candidate\)/);
+assert.match(
+  webClipBubble,
+  /failedPosterUrlsRef\.current\.clear\(\);[\s\S]{0,120}posterRetryStateRef\.current = \{ key: "", attempts: 0 \};[\s\S]{0,120}setPosterImageBroken\(false\);[\s\S]{0,80}\}, \[thumbnailSourceRef\]\);/,
+);
 assert.match(webClipBubble, /if \(!posterImageBroken \|\| posterCandidateUrls\.length === 0\) return;[\s\S]{0,80}handlePosterImageError\(\);/);
 assert.match(webClipBubble, /!showPreparingOverlay[\s\S]{0,80}!hasStartedPlayback/);
 assert.match(webClipBubble, /const hasStartedPlaybackRef = useRef\(false\)/);
@@ -995,6 +1003,16 @@ assert.match(webVideoLightbox, /setExtraPosterFallbackUrls/);
 assert.match(webVideoLightbox, /refreshedCurrentIndex === -1/);
 assert.match(webVideoLightbox, /if \(displayablePosterUrl\(playablePosterUrl\) \|\| !thumbnailSourceRef\) return;/);
 assert.match(webVideoLightbox, /onResolvedThumbnailUrlRef\.current\?\.\(displayableUrl\)/);
+assert.match(webVideoLightbox, /failedPosterUrlsRef\.current\.add\(failedUrl\)/);
+assert.match(webVideoLightbox, /!failedPosterUrlsRef\.current\.has\(candidate\)/);
+assert.match(
+  webVideoLightbox,
+  /failedPosterUrlsRef\.current\.clear\(\);[\s\S]{0,120}posterFallbackResolveAttemptedForRef\.current = null;[\s\S]{0,120}setPosterImageBroken\(false\);[\s\S]{0,80}\}, \[thumbnailSourceRef\]\);/,
+);
+assert.match(
+  webVideoLightbox,
+  /displayableFreshPosterUrl[\s\S]{0,120}failedPosterUrlsRef\.current\.clear\(\);[\s\S]{0,120}setPlayablePosterUrl\(displayableFreshPosterUrl\)/,
+);
 assert.match(webVideoLightbox, /poster=\{visiblePosterUrl \?\? undefined\}/);
 assert.match(webVideoLightbox, /const \[hasStartedPlayback, setHasStartedPlayback\] = useState\(false\)/);
 assert.match(webVideoLightbox, /const showPosterProbe = !!visiblePosterUrl && !hasStartedPlayback && phase !== "error"/);
@@ -1082,7 +1100,7 @@ assert.match(nativeClipCard, /setHasError\(false\)/);
 assert.match(nativeClipCard, /refreshVideoAsset\(reason, attemptOptions\)/);
 assert.match(nativeClipCard, /refreshThumbnailAsset\(reason === 'manual' \? 'manual' : 'preview', refreshOptions\)/);
 assert.match(nativeClipCard, /onResolvedVideoUrl\?\.\(freshVideoUri\)/);
-assert.match(nativeClipCard, /onResolvedThumbnailUrl\?\.\(displayableFreshThumbnailUri\)/);
+assert.match(nativeClipCard, /onResolvedThumbnailUrlRef\.current\?\.\(displayableFreshThumbnailUri\)/);
 assert.match(nativeClipCard, /\(!videoSourceRef && !thumbnailSourceRef\)/);
 assert.match(nativeClipCard, /setPosterPreviewState\('unknown', displayableFreshThumbnailUri\)/);
 assert.match(nativeClipCard, /initialPlaybackResolveInFlightRef/);
@@ -1144,6 +1162,8 @@ assert.match(nativeMediaViewer, /posterFallbackUris\?: string\[\] \| null/);
 assert.match(nativeMediaViewer, /const \[posterFallbackUris, setPosterFallbackUris\] = useState<string\[\]>\(\[\]\)/);
 assert.match(nativeMediaViewer, /function uniqueDisplayablePosterUris/);
 assert.match(nativeMediaViewer, /const advancePosterCandidate = useCallback/);
+assert.match(nativeMediaViewer, /failedPosterUrisRef\.current\.add\(currentPosterUri\)/);
+assert.match(nativeMediaViewer, /!failedPosterUrisRef\.current\.has\(candidate\)/);
 assert.match(nativeMediaViewer, /posterUri=\{displayablePosterUri\(playablePosterUri\)\}/);
 assert.match(nativeMediaViewer, /posterUri && phase === 'loading'/);
 assert.match(nativeMediaViewer, /posterUri && phase !== 'error'/);
@@ -1266,6 +1286,8 @@ assert.match(nativeChatScreen, /thumbnailSourceRef: effectiveThumbnailSourceRef/
 assert.match(nativeChatScreen, /kind: 'thumbnail'[\s\S]{0,160}autoResolve: true/);
 assert.match(nativeChatScreen, /fallbackUrls: thumbnailFallbackUris/);
 assert.match(nativeChatScreen, /uniqueDisplayableChatVideoPosterUris\(playablePosterUri, thumbnailFallbackUris\)/);
+assert.match(nativeChatScreen, /failedPosterUrisRef\.current\.add\(currentPosterUri\)/);
+assert.match(nativeChatScreen, /!failedPosterUrisRef\.current\.has\(candidate\)/);
 assert.match(nativeChatScreen, /if \(\(!posterImageBroken && posterImageState !== 'failed'\) \|\| posterCandidateUris\.length === 0\) return;[\s\S]{0,80}handlePosterLoadError\(\);/);
 assert.match(nativeChatScreen, /CHAT_VIDEO_POSTER_PREVIEW_TIMEOUT_MS = 3500/);
 assert.match(nativeChatScreen, /posterUri=\{displayableChatVideoPosterUri\(playablePosterUri\)\}/);
@@ -1282,8 +1304,14 @@ assert.match(nativeClipCard, /metaThumbnailUrlRef/);
 assert.doesNotMatch(nativeClipCard, /\[meta\.processingStatus, meta\.thumbnailUrl, meta\.videoUrl, sparkMessageId\]/);
 assert.match(nativeClipCard, /if \(effectivePosterPreviewState !== 'failed' \|\| posterCandidateUrls\.length === 0\) return;[\s\S]{0,80}setPosterPreviewState\('failed', playableThumbnailUrl\);/);
 assert.match(nativeClipCard, /if \(state === 'failed'\)/);
-assert.match(nativeClipCard, /onPosterPreviewStateChange\?\.\('unknown', nextUrl\)/);
-assert.match(nativeClipCard, /onResolvedThumbnailUrl\?\.\(nextUrl\)/);
+assert.match(nativeClipCard, /failedPosterUrlsRef\.current\.add\(failedUrl\)/);
+assert.match(nativeClipCard, /!failedPosterUrlsRef\.current\.has\(candidate\)/);
+assert.match(
+  nativeClipCard,
+  /failedPosterUrlsRef\.current\.clear\(\);[\s\S]{0,120}posterRetryStateRef\.current = \{ key: '', attempts: 0 \};[\s\S]{0,120}setFallbackPosterPreviewState\('unknown'\);[\s\S]{0,80}\}, \[thumbnailSourceRef\]\);/,
+);
+assert.match(nativeClipCard, /onPosterPreviewStateChangeRef\.current\?\.\('unknown', nextUrl\)/);
+assert.match(nativeClipCard, /onResolvedThumbnailUrlRef\.current\?\.\(nextUrl\)/);
 assert.match(webMessagesHook, /query\.data\.dateSuggestions[\s\S]*byId\.set\(suggestion\.id, suggestion\)/);
 assert.match(nativeChat, /query\.data\.dateSuggestions[\s\S]*byId\.set\(suggestion\.id, suggestion\)/);
 

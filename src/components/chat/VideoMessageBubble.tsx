@@ -143,10 +143,11 @@ export const VideoMessageBubble = ({
   });
   const [playableVideoUrl, setPlayableVideoUrl] = useState(mediaAssetUrl ?? videoUrl);
   const playableVideoUrlRef = useRef(mediaAssetUrl ?? videoUrl);
+  const onResolvedThumbnailUrlRef = useRef(onResolvedThumbnailUrl);
   const isHlsUrl = /\.m3u8(?:[?#]|$)/i.test(playableVideoUrl);
   const handleResolvedThumbnailUrl = useCallback((url: string) => {
-    if (isDisplayablePosterUrl(url)) onResolvedThumbnailUrl?.(url);
-  }, [onResolvedThumbnailUrl]);
+    if (isDisplayablePosterUrl(url)) onResolvedThumbnailUrlRef.current?.(url);
+  }, []);
 
   // Optional poster (legacy/plain chat video parity with Vibe Clips). No-op when the
   // message carries no thumbnail ref — the loading shimmer behaves exactly as before.
@@ -167,6 +168,7 @@ export const VideoMessageBubble = ({
   const posterRetryStateRef = useRef<{ key: string; attempts: number }>({ key: "", attempts: 0 });
   const posterNotReadyRef = useRef(false);
   const posterCandidateUrlsRef = useRef<string[]>([]);
+  const failedPosterUrlsRef = useRef<Set<string>>(new Set());
   const visibleFallbackCopy =
     (fallbackReason ? resolveMediaFallbackCopy({ reason: fallbackReason }) : null) ??
     mediaAssetFallbackCopy ??
@@ -185,6 +187,10 @@ export const VideoMessageBubble = ({
   useEffect(() => {
     playRequestedRef.current = playRequested;
   }, [playRequested]);
+
+  useEffect(() => {
+    onResolvedThumbnailUrlRef.current = onResolvedThumbnailUrl;
+  }, [onResolvedThumbnailUrl]);
 
   useEffect(() => {
     const nextUrl = mediaAssetUrl ?? videoUrl;
@@ -211,6 +217,7 @@ export const VideoMessageBubble = ({
     playablePosterUrlRef.current = thumbnailUrl ?? null;
     setPlayablePosterUrl(thumbnailUrl ?? null);
     setPosterImageBroken(false);
+    failedPosterUrlsRef.current.clear();
     posterRetryStateRef.current = { key: "", attempts: 0 };
   }, [thumbnailSourceRef, thumbnailUrl]);
 
@@ -220,6 +227,7 @@ export const VideoMessageBubble = ({
     playablePosterUrlRef.current = next;
     setPlayablePosterUrl(next);
     setPosterImageBroken(false);
+    failedPosterUrlsRef.current.clear();
   }, [thumbnailAssetUrl]);
 
   const posterCandidateUrls = useMemo(
@@ -235,7 +243,18 @@ export const VideoMessageBubble = ({
     const current = playablePosterUrlRef.current;
     const candidates = posterCandidateUrlsRef.current;
     const currentIndex = current ? candidates.indexOf(current) : -1;
-    const next = candidates.find((candidate, index) => index > currentIndex && candidate !== current);
+    const failedUrl = isDisplayablePosterUrl(current) ? current : null;
+    if (failedUrl) failedPosterUrlsRef.current.add(failedUrl);
+    const orderedCandidates =
+      currentIndex >= 0
+        ? [...candidates.slice(currentIndex + 1), ...candidates.slice(0, currentIndex)]
+        : candidates;
+    const next = orderedCandidates.find(
+      (candidate) =>
+        candidate !== failedUrl &&
+        candidate !== current &&
+        !failedPosterUrlsRef.current.has(candidate),
+    );
     if (next) {
       playablePosterUrlRef.current = next;
       setPlayablePosterUrl(next);
@@ -259,6 +278,7 @@ export const VideoMessageBubble = ({
     });
     const displayableFresh = isDisplayablePosterUrl(fresh) ? fresh : null;
     if (!displayableFresh) return null;
+    failedPosterUrlsRef.current.clear();
     playablePosterUrlRef.current = displayableFresh;
     setPlayablePosterUrl(displayableFresh);
     setPosterImageBroken(false);
