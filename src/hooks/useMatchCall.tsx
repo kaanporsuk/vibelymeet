@@ -429,7 +429,15 @@ function dailyEventHasError(event: unknown): boolean {
 
 function isDuplicateDailyCallObjectError(error: unknown): boolean {
   const message = error instanceof Error ? error.message : String(error);
-  return /Duplicate DailyIframe instances|multiple call instances/i.test(message);
+  return [
+    /Duplicate\s+DailyIframe\s+instances/i,
+    /multiple\s+call\s+instances/i,
+    /call\s+object.*already/i,
+    /already.*call\s+object/i,
+    /only\s+one.*call/i,
+    /single.*call\s+instance/i,
+    /existing\s+call\s+instance/i,
+  ].some((pattern) => pattern.test(message));
 }
 
 export function MatchCallProvider({ children }: { children: ReactNode }) {
