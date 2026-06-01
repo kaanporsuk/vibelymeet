@@ -649,15 +649,32 @@ const VideoDate = () => {
   const recoverTerminalPostDateSurvey = useCallback(
     async (source: string, sessionOverride?: TerminalSurveySessionRow | null) => {
       if (!id || !user?.id) return false;
-      const sessionRow =
-        sessionOverride ??
-        (
-          await supabase
-            .from("video_sessions")
-            .select(TERMINAL_SURVEY_SESSION_SELECT)
-            .eq("id", id)
-            .maybeSingle()
-        ).data;
+      const sessionResult = sessionOverride
+        ? { data: sessionOverride, error: null }
+        : await supabase
+          .from("video_sessions")
+          .select(TERMINAL_SURVEY_SESSION_SELECT)
+          .eq("id", id)
+          .maybeSingle();
+      if (sessionResult.error) {
+        captureSupabaseError("terminal_post_date_survey_session_fetch_failed", sessionResult.error);
+        recordUserAction("terminal_post_date_survey_session_fetch_failed", {
+          surface: "video_date",
+          session_id: id,
+          user_id: user.id,
+          source,
+          code: sessionResult.error.code,
+        });
+        vdbg("terminal_post_date_survey_session_fetch_failed", {
+          sessionId: id,
+          userId: user.id,
+          source,
+          code: sessionResult.error.code,
+          message: sessionResult.error.message,
+        });
+        return false;
+      }
+      const sessionRow = sessionResult.data;
 
       if (!sessionRow) {
         setVideoDateAccess("not_found");
@@ -668,12 +685,30 @@ const VideoDate = () => {
         return false;
       }
 
-      const { data: verdict } = await supabase
+      const { data: verdict, error: verdictError } = await supabase
         .from("date_feedback")
         .select("id")
         .eq("session_id", id)
         .eq("user_id", user.id)
         .maybeSingle();
+      if (verdictError) {
+        captureSupabaseError("terminal_post_date_survey_verdict_fetch_failed", verdictError);
+        recordUserAction("terminal_post_date_survey_verdict_fetch_failed", {
+          surface: "video_date",
+          session_id: id,
+          user_id: user.id,
+          source,
+          code: verdictError.code,
+        });
+        vdbg("terminal_post_date_survey_verdict_fetch_failed", {
+          sessionId: id,
+          userId: user.id,
+          source,
+          code: verdictError.code,
+          message: verdictError.message,
+        });
+        return false;
+      }
 
       const shouldOpenSurvey = shouldOpenPostDateSurveyForTerminalSession(sessionRow, verdict);
       vdbg("terminal_post_date_survey_recovery_checked", {
@@ -2703,7 +2738,7 @@ const VideoDate = () => {
       }
       broadcastRefetchInFlightRef.current = true;
       try {
-        let pendingRefetchSeq: number | null = null;
+        let pendingRefetchSeq: number | null = event.sessionSeq;
         while (pendingRefetchSeq !== null) {
           const refetchSeq = pendingRefetchSeq;
           broadcastPendingRefetchSeqRef.current = null;
@@ -4046,6 +4081,54 @@ const VideoDate = () => {
     [id],
   );
 
+  const retryPreDateManualEndInBackground = useCallback(
+    (reason: VideoDateEndReason, source: string, firstStatus: VideoDateManualExitStepStatus) => {
+      if (!id) return;
+      window.setTimeout(() => {
+        void signalPreDateManualEnd(reason).then(
+          (ok) => {
+            recordUserAction(
+              ok
+                ? "video_date_pre_date_exit_end_background_retry_succeeded"
+                : "video_date_pre_date_exit_end_background_retry_failed",
+              {
+                surface: "video_date",
+                session_id: id,
+                phase: phaseRef.current,
+                reason,
+                source,
+                first_status: firstStatus,
+              },
+            );
+            if (!ok) {
+              Sentry.captureMessage("video_date_pre_date_exit_end_background_retry_failed", {
+                level: "warning",
+                tags: { surface: "video_date", flow: "manual_pre_date_exit" },
+                extra: { session_id: id, reason, source, first_status: firstStatus },
+              });
+            }
+          },
+          (error) => {
+            recordUserAction("video_date_pre_date_exit_end_background_retry_exception", {
+              surface: "video_date",
+              session_id: id,
+              phase: phaseRef.current,
+              reason,
+              source,
+              first_status: firstStatus,
+              error: serializeManualExitError(error),
+            });
+            Sentry.captureException(error, {
+              tags: { surface: "video_date", flow: "manual_pre_date_exit" },
+              extra: { session_id: id, reason, source, first_status: firstStatus },
+            });
+          },
+        );
+      }, 750);
+    },
+    [id, signalPreDateManualEnd],
+  );
+
   const handlePreDateExit = useCallback(
     async (opts?: { reason?: VideoDateEndReason; source?: string }) => {
       const reason = opts?.reason ?? "ended_from_client";
@@ -4074,6 +4157,9 @@ const VideoDate = () => {
         runVideoDateManualExitStep("daily_cleanup", () => endCall(source)),
         runVideoDateManualExitStep("server_end", () => signalPreDateManualEnd(reason)),
       ]);
+      if (serverEnd.status !== "completed") {
+        retryPreDateManualEndInBackground(reason, source, serverEnd.status);
+      }
 
       const target = resolveVideoDateExitTarget();
       recordUserAction("video_date_pre_date_leave_navigating", {
@@ -4111,6 +4197,7 @@ const VideoDate = () => {
       id,
       navigate,
       resolveVideoDateExitTarget,
+      retryPreDateManualEndInBackground,
       setStatus,
       signalPreDateManualEnd,
     ],
