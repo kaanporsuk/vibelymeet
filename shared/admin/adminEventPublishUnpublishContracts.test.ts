@@ -20,6 +20,7 @@ const webEventDetailsHook = read("src/hooks/useEventDetails.ts");
 const webAuthContext = read("src/contexts/AuthContext.tsx");
 const webEventDetails = read("src/pages/EventDetails.tsx");
 const webEventUtils = read("src/utils/eventUtils.ts");
+const webEventsHook = read("src/hooks/useEvents.ts");
 const webEventReminders = read("src/hooks/useEventReminders.ts");
 const webPaymentSuccess = read("src/pages/EventPaymentSuccess.tsx");
 const nativeAuthContext = read("apps/mobile/context/AuthContext.tsx");
@@ -310,6 +311,14 @@ test("admin lifecycle controls refresh user-facing event caches", () => {
   ]) {
     assert.match(adminEventInvalidation, new RegExp(`\\["${queryKey}"\\]`));
   }
+});
+
+test("legacy next-event lookup preserves nullable visible statuses", () => {
+  assert.match(webEventsHook, /queryKey: \["next-event"\]/);
+  assert.match(webEventsHook, /status\.is\.null,status\.not\.in\.\(draft,cancelled,archived,ended,completed\)/);
+  assert.match(webEventsHook, /const nextVisibleEvent = \(data \?\? \[\]\)\.find/);
+  assert.match(webEventsHook, /isEventVisible\(\{/);
+  assert.doesNotMatch(webEventsHook, /\.not\("status", "in", "\(draft,cancelled,archived,ended,completed\)"\)/);
 });
 
 test("web and native direct event details block draft or archived registration attempts", () => {

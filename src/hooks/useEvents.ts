@@ -225,22 +225,30 @@ export const useNextEvent = () => {
         .gte("event_date", new Date().toISOString())
         .is("archived_at", null)
         .is("ended_at", null)
-        .not("status", "in", "(draft,cancelled,archived,ended,completed)")
+        .or("status.is.null,status.not.in.(draft,cancelled,archived,ended,completed)")
         .order("event_date", { ascending: true })
-        .limit(1)
-        .maybeSingle();
+        .limit(10);
 
       if (error) throw error;
-      if (!data) return null;
+      const nextVisibleEvent = (data ?? []).find((event) =>
+        isEventVisible({
+          event_date: event.event_date,
+          duration_minutes: event.duration_minutes,
+          status: event.status,
+          archived_at: null,
+          ended_at: null,
+        }),
+      );
+      if (!nextVisibleEvent) return null;
 
-      const eventDate = new Date(data.event_date);
+      const eventDate = new Date(nextVisibleEvent.event_date);
       return {
-        id: data.id,
-        title: data.title,
+        id: nextVisibleEvent.id,
+        title: nextVisibleEvent.title,
         emoji: "🎵",
         date: format(eventDate, "EEEE 'at' h a"),
         eventDate,
-        image: data.cover_image,
+        image: nextVisibleEvent.cover_image,
       };
     },
   });

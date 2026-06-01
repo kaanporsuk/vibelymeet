@@ -37,7 +37,8 @@ const migration = read("supabase/migrations/20260601183000_event_deck_authority_
 const tokenGuardMigration = read("supabase/migrations/20260601194000_event_deck_token_current_top_guard.sql");
 const redealMigration = read("supabase/migrations/20260601220000_video_date_deck_redeal_unacted_visible_idempotent.sql");
 const reservationReuseMigration = read("supabase/migrations/20260601223000_video_date_deck_reservation_reuse_visible_grace.sql");
-const authoritySql = `${migration}\n${tokenGuardMigration}\n${redealMigration}\n${reservationReuseMigration}`;
+const reviewFollowupMigration = read("supabase/migrations/20260601230000_review_comments_1132_1139_followups.sql");
+const authoritySql = `${migration}\n${tokenGuardMigration}\n${redealMigration}\n${reservationReuseMigration}\n${reviewFollowupMigration}`;
 const webLobby = read("src/pages/EventLobby.tsx");
 const webSwipeHook = read("src/hooks/useSwipeAction.ts");
 const nativeLobby = read("apps/mobile/app/event/[eventId]/lobby.tsx");
@@ -147,18 +148,24 @@ test("current-top validation uses reservations, not a fresh randomized deck", ()
 test("deck v3 reserves buffered cards without burning them as dealt", () => {
   assert.match(deckV3Section, /WITH ORDINALITY AS gd/);
   assert.match(deckV3Section, /latest_active_batch AS/);
-  assert.match(deckV3Section, /reusable_batch AS/);
-  assert.match(deckV3Section, /reusable_reservations AS/);
+  assert.match(deckV3Section, /latest_active_reservations AS/);
+  assert.match(deckV3Section, /active_reusable_reservations AS/);
   assert.match(deckV3Section, /reservation_reused/);
+  assert.match(deckV3Section, /reservation_reuse_scope', 'card'/);
+  assert.match(deckV3Section, /active_reservation_deck_rank IS NOT NULL/);
+  assert.match(deckV3Section, /filtered\.active_reservation_deck_rank/);
   assert.match(deckV3Section, /INSERT INTO public\.event_deck_card_reservations/);
   assert.match(deckV3Section, /deck_token/);
   assert.match(deckV3Section, /deck_rank/);
+  assert.match(deckV3Section, /rb\.issued_at/);
   assert.match(deckV3Section, /now\(\) \+ interval '2 minutes'/);
   assert.match(deckV3Section, /'prefetched'/);
   assert.match(deckV3Section, /WHERE COALESCE\(\(result->>'ok'\)::boolean, false\)/);
   assert.match(deckV3Section, /'reservation_ttl_seconds', 120/);
   assert.match(deckV3Section, /'reused_reservation_count', v_reused_reservation_count/);
+  assert.match(deckV3Section, /'preserves_active_reservations', true/);
   assert.match(deckV3Section, /- 'ordinality'/);
+  assert.match(deckV3Section, /- 'active_reservation_deck_token'/);
   assert.doesNotMatch(deckV3Section, /ranked\.profile_id,\s+'dealt',\s+'get_event_deck_v3_buffer'/);
 });
 
