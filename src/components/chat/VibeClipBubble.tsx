@@ -193,12 +193,15 @@ export const VibeClipBubble = ({
   const prefersReducedMotion = usePrefersReducedMotion();
   const playStartTracked = useRef(false);
   const playCompleteTracked = useRef(false);
+  const playRequestedRef = useRef(false);
+  const hasStartedPlaybackRef = useRef(false);
   const playbackRefreshAttemptCountRef = useRef(0);
   const initialPlaybackResolveInFlightRef = useRef(false);
   const initialPlaybackResolveRunIdRef = useRef(0);
   const posterRetryStateRef = useRef<{ key: string; attempts: number }>({ key: "", attempts: 0 });
   const posterNotReadyRef = useRef(false);
   const posterCandidateUrlsRef = useRef<string[]>([]);
+  const metaThumbnailUrlRef = useRef<string | null>(meta.thumbnailUrl ?? null);
   const playableVideoUrlRef = useRef(meta.videoUrl);
   const playableThumbnailUrlRef = useRef<string | null>(meta.thumbnailUrl ?? null);
   const readyRefreshKeyRef = useRef<string | null>(null);
@@ -275,15 +278,32 @@ export const VibeClipBubble = ({
   }, []);
 
   useEffect(() => {
+    playRequestedRef.current = playRequested;
+  }, [playRequested]);
+
+  useEffect(() => {
+    const nextThumbnailUrl = meta.thumbnailUrl ?? null;
+    metaThumbnailUrlRef.current = nextThumbnailUrl;
+    if (nextThumbnailUrl === playableThumbnailUrlRef.current) return;
+    playableThumbnailUrlRef.current = nextThumbnailUrl;
+    setPlayableThumbnailUrl(nextThumbnailUrl);
+    setPosterImageBroken(false);
+    posterRetryStateRef.current = { key: "", attempts: 0 };
+  }, [meta.thumbnailUrl]);
+
+  useEffect(() => {
+    const nextThumbnailUrl = metaThumbnailUrlRef.current;
+    const preservePlayIntent = playRequestedRef.current || initialPlaybackResolveInFlightRef.current;
     playableVideoUrlRef.current = meta.videoUrl;
-    playableThumbnailUrlRef.current = meta.thumbnailUrl ?? null;
+    playableThumbnailUrlRef.current = nextThumbnailUrl;
     setPlayableVideoUrl(meta.videoUrl);
-    setPlayableThumbnailUrl(meta.thumbnailUrl ?? null);
+    setPlayableThumbnailUrl(nextThumbnailUrl);
     setIsPlaying(false);
     setCurrentTime(0);
     setIsLoading(true);
     setIsReady(false);
-    setPlayRequested(false);
+    setPlayRequested(preservePlayIntent);
+    hasStartedPlaybackRef.current = false;
     setHasStartedPlayback(false);
     initialPlaybackResolveInFlightRef.current = false;
     initialPlaybackResolveRunIdRef.current += 1;
@@ -303,7 +323,7 @@ export const VibeClipBubble = ({
     readyRefreshKeyRef.current = null;
     statusSyncRunIdRef.current += 1;
     statusSyncInFlightRef.current = false;
-  }, [meta.processingStatus, meta.thumbnailUrl, meta.videoUrl, sparkMessageId]);
+  }, [meta.processingStatus, meta.videoUrl, sparkMessageId]);
 
   useEffect(() => {
     setShowReactBar(false);
@@ -348,6 +368,11 @@ export const VibeClipBubble = ({
     setPosterImageBroken(true);
   }, [handleResolvedThumbnailUrl]);
 
+  useEffect(() => {
+    if (!posterImageBroken || posterCandidateUrls.length === 0) return;
+    handlePosterImageError();
+  }, [handlePosterImageError, posterCandidateUrls, posterImageBroken]);
+
   const processingStatus = syncedProcessingStatus ?? meta.processingStatus;
   const displayMeta = useMemo(
     () => ({
@@ -370,7 +395,8 @@ export const VibeClipBubble = ({
   const displayableThumbnailUrl = displayablePosterUrl(displayMeta.thumbnailUrl);
   const canShowPosterImage = !!displayableThumbnailUrl;
   const showPosterVisual = canShowPosterImage && !posterImageBroken;
-  const showPreparingOverlay = isServerProcessing || (!isReady && !isAwaitingPlaybackIntent && !isLocalPreview);
+  const showPreparingOverlay =
+    isServerProcessing || (playRequested && !isReady && !isAwaitingPlaybackIntent && !isLocalPreview);
   const showIdlePosterOverlay =
     showPosterVisual &&
     !isServerProcessing &&
@@ -790,6 +816,7 @@ export const VibeClipBubble = ({
     if (!canMountPlayer) {
       if (initialPlaybackResolveInFlightRef.current) return;
       initialPlaybackResolveInFlightRef.current = true;
+      playRequestedRef.current = true;
       const runId = initialPlaybackResolveRunIdRef.current + 1;
       initialPlaybackResolveRunIdRef.current = runId;
       setPlayRequested(true);
@@ -816,6 +843,7 @@ export const VibeClipBubble = ({
     }
     if (!video) return;
     if (video.paused) {
+      playRequestedRef.current = true;
       setPlayRequested(true);
       video.play().then(() => {
         setIsPlaying(true);
@@ -843,6 +871,7 @@ export const VibeClipBubble = ({
       });
     } else {
       video.pause();
+      playRequestedRef.current = false;
       setIsPlaying(false);
       setPlayRequested(false);
     }
@@ -932,11 +961,18 @@ export const VibeClipBubble = ({
   }, []);
 
   const handlePause = useCallback(() => {
+    if (playRequestedRef.current && !hasStartedPlaybackRef.current) {
+      setIsPlaying(false);
+      return;
+    }
+    playRequestedRef.current = false;
     setIsPlaying(false);
     setPlayRequested(false);
   }, []);
 
   const handleEnded = useCallback(() => {
+    playRequestedRef.current = false;
+    hasStartedPlaybackRef.current = false;
     setIsPlaying(false);
     setPlayRequested(false);
     setHasStartedPlayback(false);
@@ -1150,6 +1186,7 @@ export const VibeClipBubble = ({
                 setIsLoading(false);
                 setIsPlaying(true);
                 setHasPlayed(true);
+                hasStartedPlaybackRef.current = true;
                 setHasStartedPlayback(true);
               }}
               onPause={handlePause}
@@ -1194,7 +1231,7 @@ export const VibeClipBubble = ({
             </div>
           ) : null}
 
-          {!isPlaying && !isServerProcessing && (isReady || isAwaitingPlaybackIntent) && (
+          {!isPlaying && !isServerProcessing && !showPreparingOverlay && (canMountPlayer || isAwaitingPlaybackIntent) && (
             <motion.div
               initial={prefersReducedMotion ? false : { opacity: 0 }}
               animate={{ opacity: 1 }}

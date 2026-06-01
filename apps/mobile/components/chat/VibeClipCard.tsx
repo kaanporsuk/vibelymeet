@@ -364,6 +364,7 @@ function VibeClipCardInner({
   const { reduceMotion, resolved: reduceMotionResolved } = useReduceMotionState();
   const playStartTracked = useRef(false);
   const playCompleteTracked = useRef(false);
+  const playRequestTokenRef = useRef(playRequestToken);
   const shouldAttachPlayback = !immersiveActive && reduceMotionResolved && (!reduceMotion || playRequested);
   const isPendingLocalPreview = isPendingLocalPreviewClip(meta);
   const playerSource = useMemo<VideoSource>(() => (shouldAttachPlayback ? videoSourceForUri(meta.videoUrl) : null), [
@@ -398,6 +399,10 @@ function VibeClipCardInner({
     };
   }, []);
 
+  useEffect(() => {
+    playRequestTokenRef.current = playRequestToken;
+  }, [playRequestToken]);
+
   const toggleCaptions = useCallback(() => {
     setShowCaptions((visible) => {
       const next = !visible;
@@ -412,7 +417,7 @@ function VibeClipCardInner({
     setHasError(false);
     setFallbackReason(null);
     setHasPlayed(false);
-    setPlayRequested(false);
+    setPlayRequested(playRequestTokenRef.current > 0);
   }, [meta.videoUrl]);
 
   useEffect(() => {
@@ -1077,6 +1082,10 @@ export function VibeClipCard(props: Props) {
   const posterNotReadyRef = useRef(false);
   const posterCandidateUrlsRef = useRef<string[]>([]);
   const localPreviewUnavailableForRef = useRef<string | null>(null);
+  const forceMountPlayerRef = useRef(false);
+  const inlinePlayRequestTokenRef = useRef(0);
+  const previousSparkMessageIdRef = useRef<string | null | undefined>(sparkMessageId);
+  const metaThumbnailUrlRef = useRef<string | null>(meta.thumbnailUrl ?? null);
   const playableVideoUrlRef = useRef(meta.videoUrl);
   const playableThumbnailUrlRef = useRef<string | null>(meta.thumbnailUrl ?? null);
   const readyRefreshKeyRef = useRef<string | null>(null);
@@ -1126,20 +1135,44 @@ export function VibeClipCard(props: Props) {
   }, []);
 
   useEffect(() => {
+    forceMountPlayerRef.current = forceMountPlayer;
+  }, [forceMountPlayer]);
+
+  useEffect(() => {
+    inlinePlayRequestTokenRef.current = inlinePlayRequestToken;
+  }, [inlinePlayRequestToken]);
+
+  useEffect(() => {
+    const nextThumbnailUrl = meta.thumbnailUrl ?? null;
+    metaThumbnailUrlRef.current = nextThumbnailUrl;
+    if (nextThumbnailUrl === playableThumbnailUrlRef.current) return;
+    playableThumbnailUrlRef.current = nextThumbnailUrl;
+    setPlayableThumbnailUrl(nextThumbnailUrl);
+    setFallbackPosterPreviewState('unknown');
+    posterRetryStateRef.current = { key: '', attempts: 0 };
+  }, [meta.thumbnailUrl]);
+
+  useEffect(() => {
+    const nextThumbnailUrl = metaThumbnailUrlRef.current;
+    const messageChanged = previousSparkMessageIdRef.current !== sparkMessageId;
+    previousSparkMessageIdRef.current = sparkMessageId;
+    const preserveInlinePlayIntent =
+      !messageChanged &&
+      (initialPlaybackResolveInFlightRef.current || forceMountPlayerRef.current || inlinePlayRequestTokenRef.current > 0);
     if (!isUploadPendingStatus(meta.processingStatus) || localPreviewUnavailableForRef.current !== meta.videoUrl) {
       localPreviewUnavailableForRef.current = null;
     }
     const nextVideoUrl = localPreviewUnavailableForRef.current === meta.videoUrl ? '' : meta.videoUrl;
     playableVideoUrlRef.current = nextVideoUrl;
-    playableThumbnailUrlRef.current = meta.thumbnailUrl ?? null;
-    setForceMountPlayer(false);
-    setInlinePlayRequestToken(0);
+    playableThumbnailUrlRef.current = nextThumbnailUrl;
+    setForceMountPlayer(preserveInlinePlayIntent);
+    setInlinePlayRequestToken((token) => (preserveInlinePlayIntent ? Math.max(token, 1) : 0));
     setInitialPlaybackResolveFailed(false);
-    initialPlaybackResolveInFlightRef.current = false;
+    if (!preserveInlinePlayIntent) initialPlaybackResolveInFlightRef.current = false;
     initialPlaybackResolveRunIdRef.current += 1;
     setRetryNonce(0);
     setPlayableVideoUrl(nextVideoUrl);
-    setPlayableThumbnailUrl(meta.thumbnailUrl ?? null);
+    setPlayableThumbnailUrl(nextThumbnailUrl);
     setSyncedProcessingStatus(null);
     setSyncAttemptCount(0);
     setIsSyncingStatus(false);
@@ -1149,7 +1182,7 @@ export function VibeClipCard(props: Props) {
     readyRefreshKeyRef.current = null;
     statusSyncRunIdRef.current += 1;
     statusSyncInFlightRef.current = false;
-  }, [meta.processingStatus, meta.thumbnailUrl, meta.videoUrl, sparkMessageId]);
+  }, [meta.processingStatus, meta.videoUrl, sparkMessageId]);
 
   useEffect(() => {
     if (!videoAssetUrl || videoAssetUrl === playableVideoUrlRef.current) return;
@@ -1313,6 +1346,11 @@ export function VibeClipCard(props: Props) {
     },
     [onPosterPreviewStateChange, onResolvedThumbnailUrl, playableThumbnailUrl],
   );
+
+  useEffect(() => {
+    if (effectivePosterPreviewState !== 'failed' || posterCandidateUrls.length === 0) return;
+    setPosterPreviewState('failed', playableThumbnailUrl);
+  }, [effectivePosterPreviewState, playableThumbnailUrl, posterCandidateUrls, setPosterPreviewState]);
 
   useEffect(() => {
     if (!playableThumbnailUrl || effectivePosterPreviewState !== 'unknown') return;
