@@ -2,7 +2,10 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.88.0";
 import {
   buildMeetingTokenProperties,
+  DAILY_VIDEO_DATE_ROOM_MAX_PARTICIPANTS,
   DAILY_VIDEO_DATE_ROOM_TTL_SECONDS as DAILY_VIDEO_DATE_ROOM_TTL_SECONDS_CONTRACT,
+  isDailyRoomUrlForName,
+  resolveDailyRuntimeConfig,
 } from "../daily-room/dailyRoomContracts.ts";
 import {
   enforceProviderRateLimit,
@@ -24,12 +27,35 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
-const DAILY_API_KEY = Deno.env.get("DAILY_API_KEY")?.trim() ?? "";
+const DAILY_RUNTIME_CONFIG = resolveDailyRuntimeConfig({
+  dailyApiKey: Deno.env.get("DAILY_API_KEY")?.trim(),
+  dailyDomainEnv: Deno.env.get("DAILY_DOMAIN")?.trim(),
+  environment: Deno.env.get("ENVIRONMENT")?.trim(),
+  allowLocalFallback: true,
+  requireApiKey: true,
+});
+const DAILY_API_KEY = DAILY_RUNTIME_CONFIG.dailyApiKey ?? "";
+const DAILY_DOMAIN = DAILY_RUNTIME_CONFIG.dailyDomain;
+if (!DAILY_RUNTIME_CONFIG.ok) {
+  console.error(JSON.stringify({
+    event: "video_date_snapshot_daily_config_blocked",
+    code: "DAILY_CONFIG_BLOCKED",
+    blockers: DAILY_RUNTIME_CONFIG.blockers,
+    fallback_used: DAILY_RUNTIME_CONFIG.fallbackUsed,
+  }));
+} else if (DAILY_RUNTIME_CONFIG.fallbackUsed) {
+  console.error(JSON.stringify({
+    event: "video_date_snapshot_daily_domain_local_fallback_used",
+    code: "DAILY_DOMAIN_FALLBACK_USED",
+    daily_domain: DAILY_DOMAIN,
+  }));
+}
 const DAILY_API_URL = "https://api.daily.co/v1";
 const DAILY_VIDEO_DATE_ROOM_TTL_SECONDS = DAILY_VIDEO_DATE_ROOM_TTL_SECONDS_CONTRACT;
 const DAILY_VIDEO_DATE_SNAPSHOT_TOKEN_TTL_SECONDS = DAILY_VIDEO_DATE_ROOM_TTL_SECONDS;
 const DAILY_VIDEO_DATE_SNAPSHOT_TOKEN_PHASE_EXTENSION_BUFFER_MS = 2 * 60 * 1000;
 const DAILY_VIDEO_DATE_SNAPSHOT_TOKEN_MIN_TTL_SECONDS = 180;
+const DAILY_VIDEO_DATE_PROVIDER_ROOM_MIN_REMAINING_SECONDS = DAILY_VIDEO_DATE_SNAPSHOT_TOKEN_MIN_TTL_SECONDS;
 const DAILY_SNAPSHOT_TOKEN_MAX_RETRY_SLEEP_SECONDS = numericEnv(
   "DAILY_SNAPSHOT_TOKEN_MAX_RETRY_SLEEP_SECONDS",
   5,
@@ -158,6 +184,141 @@ class SnapshotDailyTokenError extends Error {
     this.providerStatus = input.providerStatus ?? null;
     this.clientError = input.clientError ?? input.message;
   }
+}
+
+type DailyRoomProviderState = {
+  exists: boolean;
+  expired: boolean;
+  expiresAt: string | null;
+};
+
+type DailyRoomProviderProof = {
+  ok: boolean;
+  reason: "exists" | "missing" | "expired";
+  expiresAt: string | null;
+};
+
+async function waitForBoundedSnapshotProviderRetry(headers: Headers, fallbackSeconds: number): Promise<boolean> {
+  const retryAfterSeconds = parseRetryAfterSeconds(headers, fallbackSeconds);
+  if (retryAfterSeconds > DAILY_SNAPSHOT_TOKEN_MAX_RETRY_SLEEP_SECONDS) return false;
+  await new Promise((resolve) => setTimeout(resolve, retryAfterSeconds * 1000));
+  return true;
+}
+
+async function readProviderResponseText(response: Response): Promise<string> {
+  return response.clone().text().catch(() => "");
+}
+
+async function throwSnapshotProviderLookupError(response: Response, roomName: string): Promise<never> {
+  if (response.status === 429) {
+    throw new ProviderRateLimitError(
+      "daily",
+      "snapshot_room_lookup",
+      parseRetryAfterSeconds(response.headers, 30),
+      "provider_rate_limited",
+    );
+  }
+  const text = await readProviderResponseText(response);
+  console.error(JSON.stringify({
+    event: "video_date_snapshot_daily_room_lookup_failed",
+    provider_status: response.status,
+    room_name: roomName,
+    provider_error: text.slice(0, 300),
+  }));
+  throw new SnapshotDailyTokenError({
+    message: "daily_room_lookup_failed",
+    httpStatus: 503,
+    providerStatus: response.status,
+    clientError: "daily_token_failed",
+  });
+}
+
+function parseDailyRoomProviderStatePayload(roomName: string, payload: unknown): DailyRoomProviderState {
+  const room = payload && typeof payload === "object"
+    ? payload as { name?: unknown; url?: unknown; config?: { exp?: unknown; max_participants?: unknown } }
+    : null;
+  const exp = typeof room?.config?.exp === "number" && Number.isFinite(room.config.exp)
+    ? room.config.exp
+    : null;
+  const maxParticipants = typeof room?.config?.max_participants === "number"
+    ? room.config.max_participants
+    : null;
+  if (
+    typeof room?.name !== "string" ||
+    room.name !== roomName ||
+    typeof room?.url !== "string" ||
+    !isDailyRoomUrlForName(room.url, roomName, DAILY_DOMAIN)
+  ) {
+    throw new SnapshotDailyTokenError({
+      message: "daily_room_lookup_invalid_response",
+      httpStatus: 503,
+      clientError: "daily_token_failed",
+    });
+  }
+
+  const nowSeconds = Math.floor(Date.now() / 1000);
+  const expiresTooSoon = exp == null || exp <= nowSeconds + DAILY_VIDEO_DATE_PROVIDER_ROOM_MIN_REMAINING_SECONDS;
+  const roomConfigDrifted =
+    maxParticipants != null && maxParticipants !== DAILY_VIDEO_DATE_ROOM_MAX_PARTICIPANTS;
+  return {
+    exists: true,
+    expired: expiresTooSoon || roomConfigDrifted,
+    expiresAt: exp == null ? null : new Date(exp * 1000).toISOString(),
+  };
+}
+
+async function getDailyRoomProviderState(roomName: string, retries = 1): Promise<DailyRoomProviderState> {
+  if (!DAILY_RUNTIME_CONFIG.ok) {
+    throw new SnapshotDailyTokenError({
+      message: "daily_config_blocked",
+      httpStatus: 503,
+      clientError: "daily_token_failed",
+    });
+  }
+  const response = await fetchWithTimeout(`${DAILY_API_URL}/rooms/${encodeURIComponent(roomName)}`, {
+    method: "GET",
+    headers: { Authorization: `Bearer ${DAILY_API_KEY}` },
+  }, {
+    provider: "daily",
+    operation: "snapshot_room_lookup",
+    timeoutMs: providerFetchTimeoutMs("daily", "room_lookup"),
+    retryAfterSeconds: 30,
+  });
+
+  if (response.status === 429 && retries > 0) {
+    if (await waitForBoundedSnapshotProviderRetry(response.headers, 2)) {
+      return getDailyRoomProviderState(roomName, retries - 1);
+    }
+  }
+
+  if (response.status === 404) return { exists: false, expired: false, expiresAt: null };
+  if (!response.ok) return throwSnapshotProviderLookupError(response, roomName);
+  const payload = await response.json().catch(() => null);
+  return parseDailyRoomProviderStatePayload(roomName, payload);
+}
+
+async function ensureDailyRoomProviderReadyForSnapshotToken(params: {
+  sessionId: string;
+  userId: string;
+  roomName: string;
+}): Promise<DailyRoomProviderProof> {
+  const state = await getDailyRoomProviderState(params.roomName);
+  if (state.exists && !state.expired) {
+    return { ok: true, reason: "exists", expiresAt: state.expiresAt };
+  }
+
+  console.log(JSON.stringify({
+    event: "video_date_snapshot_provider_room_not_ready",
+    session_id: params.sessionId,
+    user_id: params.userId,
+    room_name: params.roomName,
+    reason: state.exists ? "expired" : "missing",
+    provider_exists: state.exists,
+    provider_expired: state.expired,
+    provider_expires_at: state.expiresAt,
+  }));
+
+  return { ok: false, reason: state.exists ? "expired" : "missing", expiresAt: state.expiresAt };
 }
 
 function resolveSnapshotTokenWindow(snapshot: SnapshotPayload, issuedAtMs: number, phaseBoundedTokens: boolean): {
@@ -382,6 +543,20 @@ serve(async (req) => {
   }
 
   try {
+    const providerProof = await ensureDailyRoomProviderReadyForSnapshotToken({
+      sessionId,
+      userId: user.id,
+      roomName,
+    });
+    if (!providerProof.ok) {
+      return jsonResponse({
+        ok: false,
+        error: "room_not_ready",
+        retryable: true,
+        provider_reason: providerProof.reason,
+        daily_room_expires_at: providerProof.expiresAt,
+      }, 409);
+    }
     const phaseBoundedTokens = await isClientFeatureFlagEnabled(
       supabase,
       "video_date.daily_token_refresh_v2",

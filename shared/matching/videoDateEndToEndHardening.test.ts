@@ -2297,7 +2297,7 @@ test("web standalone Ready Gate hosts the overlay instead of bouncing through lo
   assert.doesNotMatch(webReadyRedirect, /recovery\.action === "go_ready_gate" \|\|/);
   assert.match(webReadyRedirect, /persistReadyGateSuppressionV2/);
   assert.match(webReadyRedirect, /<ReadyGateOverlay/);
-  assert.match(webReadyRedirect, /onNavigateToDate=\{\(nextSessionId\) => navigateToDate\(nextSessionId\)\}/);
+  assert.match(webReadyRedirect, /onNavigateToDate=\{\(nextSessionId, source\) => navigateToDate\(nextSessionId, source\)\}/);
   assert.match(webReadyRedirect, /onManualExitConfirmed=\{suppressReadyGateSessionAfterManualExit\}/);
   assert.doesNotMatch(webReadyRedirect, /recovery\.action === "go_ready_gate" \|\| recovery\.action === "go_lobby"/);
 });

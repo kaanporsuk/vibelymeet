@@ -1691,8 +1691,32 @@ async function ensureVideoDateProviderRoomForToken(params: {
     if (providerRoom.alreadyExisted === true) {
       const verifiedExisting = await getDailyRoomProviderState(roomName);
       dailyRoomVerifiedAt = new Date().toISOString();
-      dailyRoomExpiresAt = verifiedExisting.expiresAt ?? null;
-      providerVerifyReason = verifiedExisting.expired ? "provider_expired" : "provider_already_exists_after_create";
+      if (!verifiedExisting.exists || verifiedExisting.expired) {
+        if (verifiedExisting.expired) {
+          await deleteDailyRoom(roomName, { throwOnProviderError: true });
+        }
+        const recreatedRoom = await createDailyRoom(roomName, videoDateRoomProperties());
+        dailyRoomVerifiedAt = new Date().toISOString();
+        if (recreatedRoom.alreadyExisted === true) {
+          const finalProviderState = await getDailyRoomProviderState(roomName);
+          dailyRoomVerifiedAt = new Date().toISOString();
+          if (!finalProviderState.exists || finalProviderState.expired) {
+            throw new Error("daily_provider_already_exists_recovery_failed");
+          }
+          dailyRoomExpiresAt = finalProviderState.expiresAt ?? null;
+        } else {
+          dailyRoomExpiresAt = recreatedRoom.expiresAt;
+        }
+        providerRoomRecovered = true;
+        providerRoomRecreated = true;
+        reusedRoom = false;
+        providerVerifyReason = verifiedExisting.expired
+          ? "provider_recreated_after_expired_already_exists"
+          : "provider_recreated_after_missing_already_exists";
+      } else {
+        dailyRoomExpiresAt = verifiedExisting.expiresAt ?? null;
+        providerVerifyReason = "provider_already_exists_after_create";
+      }
     } else {
       dailyRoomExpiresAt = providerRoom.expiresAt;
     }

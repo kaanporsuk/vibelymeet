@@ -717,7 +717,9 @@ export default function ReadyGateScreen() {
           result.terminal === true ||
           result.isTerminal === true ||
           result.status === 'forfeited' ||
-          result.status === 'expired';
+          result.status === 'expired' ||
+          result.status === 'cancelled' ||
+          result.status === 'ended';
         if (!terminal) throw new Error('ready_gate_forfeit_not_terminal');
         setTerminalActionPending(false);
         setTerminalActionError(null);
@@ -1053,6 +1055,15 @@ export default function ReadyGateScreen() {
                   void (async () => {
                     try {
                       setTerminalActionError(null);
+                      const permissionReady = await requestMediaPermissions();
+                      if (!permissionReady) {
+                        setTerminalActionError('Allow camera and microphone access to join this date.');
+                        rcBreadcrumb(RC_CATEGORY.readyGate, 'standalone_mark_ready_blocked_permission', {
+                          session_id: sessionId,
+                          event_id: eventId,
+                        });
+                        return;
+                      }
                       const result = await markReady();
                       if (!result.ok) throw new Error('ready_gate_mark_ready_failed');
                     } catch (e) {

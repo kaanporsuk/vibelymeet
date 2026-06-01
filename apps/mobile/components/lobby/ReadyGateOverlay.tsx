@@ -1348,7 +1348,9 @@ export function ReadyGateOverlay({
         result.terminal === true ||
         result.isTerminal === true ||
         result.status === 'forfeited' ||
-        result.status === 'expired';
+        result.status === 'expired' ||
+        result.status === 'cancelled' ||
+        result.status === 'ended';
       if (!terminal) throw new Error('ready_gate_forfeit_not_terminal');
       trackEvent(LobbyPostDateEvents.READY_GATE_TERMINAL_ACTION_SUCCESS, {
         platform: 'native',
@@ -1780,6 +1782,18 @@ export function ReadyGateOverlay({
                     void (async () => {
                       try {
                         setTerminalActionError(null);
+                        const permissionReady = await requestMediaPermissions();
+                        if (!permissionReady) {
+                          setTerminalActionError('Allow camera and microphone access to join this date.');
+                          trackNativeReadyGateEvent(NativeReadyGateEvents.TRANSITION_FAILURE, {
+                            action: 'mark_ready',
+                            source_action: 'ready_tap',
+                            reason: 'ready_tap_permission_not_ready',
+                            error_code: 'permission_not_ready',
+                            terminal: false,
+                          });
+                          return;
+                        }
                         const result = await markReady();
                         if (!result.ok) throw new Error('ready_gate_mark_ready_failed');
                         startRoomWarmupAfterReady('ready_tap_mark_ready_success', result.status ?? null);

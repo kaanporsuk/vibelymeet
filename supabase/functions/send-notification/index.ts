@@ -278,7 +278,16 @@ function defaultInboxGroupKey(category: string, data: any): string | null {
 }
 
 // Categories that bypass quiet hours (time-critical / safety / support)
-const BYPASS_QUIET_HOURS = ['ready_gate', 'safety_alerts', 'safety', 'support_reply', 'match_call']
+const BYPASS_QUIET_HOURS = [
+  'ready_gate',
+  'partner_ready',
+  'date_starting',
+  'reconnection',
+  'safety_alerts',
+  'safety',
+  'support_reply',
+  'match_call',
+]
 
 type AdmissionStatus = 'confirmed' | 'waitlisted' | string | undefined
 

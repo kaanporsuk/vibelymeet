@@ -17,6 +17,7 @@ import {
   deriveReadyGateReadinessState,
   getReadyGateParticipantPosition,
   initialReadyGateReadinessState,
+  isReadyGateTerminalStatus,
   normalizeReadyGateServerNowMs,
   shouldCommitReadyGateTruth,
   type ReadyGateParticipantPosition,
@@ -291,7 +292,7 @@ export function useReadyGate(
     terminalHandledRef.current = terminalKey;
     if (status === BOTH_READY) {
       onBothReadyRef.current?.(bothReadySourceAction);
-    } else if (status === FORFEITED || status === EXPIRED) {
+    } else if (isReadyGateTerminalStatus(status)) {
       onForfeitedRef.current?.(status === EXPIRED ? 'timeout' : 'skip', {
         status,
         ...detail,
@@ -311,7 +312,7 @@ export function useReadyGate(
       return {
         ok: true,
         status: currentTruth.status,
-        isTerminal: currentTruth.status === BOTH_READY || currentTruth.status === FORFEITED || currentTruth.status === EXPIRED,
+        isTerminal: isReadyGateTerminalStatus(currentTruth.status),
         expiresAt: currentTruth.expiresAt,
         reason: truth.reason ?? truth.ended_reason ?? null,
         inactiveReason: truth.inactive_reason ?? null,
@@ -357,7 +358,7 @@ export function useReadyGate(
       return {
         ok: true,
         status: currentTruth.status,
-        isTerminal: currentTruth.status === BOTH_READY || currentTruth.status === FORFEITED || currentTruth.status === EXPIRED,
+        isTerminal: isReadyGateTerminalStatus(currentTruth.status),
         expiresAt: currentTruth.expiresAt,
         reason: truth.reason ?? truth.ended_reason ?? null,
         inactiveReason: truth.inactive_reason ?? null,
@@ -437,7 +438,7 @@ export function useReadyGate(
       };
     });
 
-    if (status === BOTH_READY || status === FORFEITED || status === EXPIRED) {
+    if (isReadyGateTerminalStatus(status)) {
       notifyTerminal(status, {
         status,
         reason: truth.reason ?? truth.ended_reason ?? null,
@@ -453,7 +454,7 @@ export function useReadyGate(
     return {
       ok: true,
       status,
-      isTerminal: status === BOTH_READY || status === FORFEITED || status === EXPIRED,
+      isTerminal: isReadyGateTerminalStatus(status),
       expiresAt: committedExpiresAt,
       reason: truth.reason ?? truth.ended_reason ?? null,
       inactiveReason: truth.inactive_reason ?? null,
@@ -491,6 +492,15 @@ export function useReadyGate(
     }
 
     const isP1 = session.participant_1_id === userId;
+    const isParticipant = isP1 || session.participant_2_id === userId;
+    if (!isParticipant) {
+      return {
+        ok: false,
+        error: 'not_session_participant',
+        errorCode: 'not_session_participant',
+        terminal: true,
+      };
+    }
     const partnerId = isP1 ? session.participant_2_id : session.participant_1_id;
 
     let partnerName: string | null = null;
@@ -1039,10 +1049,10 @@ export function useReadyGate(
     return {
       ok: true,
       status: state.status,
-      isTerminal: state.status === BOTH_READY || state.status === FORFEITED || state.status === EXPIRED,
+      isTerminal: isReadyGateTerminalStatus(state.status),
       expiresAt: state.expiresAt,
       reason: action,
-      terminal: state.status === BOTH_READY || state.status === FORFEITED || state.status === EXPIRED,
+      terminal: isReadyGateTerminalStatus(state.status),
     };
   }, [
     sessionId,
@@ -1109,9 +1119,7 @@ export function useReadyGate(
             };
           }
           const terminalStatus =
-            normalizedStatus === BOTH_READY || normalizedStatus === FORFEITED || normalizedStatus === EXPIRED
-              ? normalizedStatus
-              : EXPIRED;
+            isReadyGateTerminalStatus(normalizedStatus) && normalizedStatus ? normalizedStatus : EXPIRED;
           notifyTerminal(terminalStatus, {
             status: normalizedStatus ?? terminalStatus,
             reason: payload.reason ?? payload.error ?? payload.ended_reason ?? null,
@@ -1200,7 +1208,7 @@ export function useReadyGate(
 
   const isCurrentSessionState = state.stateSessionId === (sessionId ?? null);
   const isBothReady = isCurrentSessionState && (state.isBothReady || state.status === BOTH_READY);
-  const isForfeited = state.status === FORFEITED || state.status === EXPIRED;
+  const isForfeited = isReadyGateTerminalStatus(state.status) && state.status !== BOTH_READY;
   const isSnoozed = state.status === SNOOZED;
 
   return {

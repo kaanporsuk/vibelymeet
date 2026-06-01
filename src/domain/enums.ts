@@ -22,6 +22,8 @@ export const ReadyGateStatus = {
   Forfeited: "forfeited",
   Snoozed: "snoozed",
   Expired: "expired",
+  Cancelled: "cancelled",
+  Ended: "ended",
 } as const;
 export type ReadyGateStatus =
   (typeof ReadyGateStatus)[keyof typeof ReadyGateStatus];
@@ -103,4 +105,3 @@ export const NotificationCategory = {
 } as const;
 export type NotificationCategory =
   (typeof NotificationCategory)[keyof typeof NotificationCategory];
-

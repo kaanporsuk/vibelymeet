@@ -482,6 +482,33 @@ async function ensureVideoDateRoom(
       roomUrl = created.roomUrl;
       expiresAt = created.expiresAt;
       reason = created.alreadyExisted ? "provider_room_already_existed" : "provider_room_created";
+      if (created.alreadyExisted) {
+        const verifiedExisting = await getDailyRoomState(supabase, roomName, 2, signal);
+        if (!verifiedExisting.exists || verifiedExisting.expired) {
+          if (verifiedExisting.expired) {
+            await deleteDailyRoom(supabase, roomName, 2, signal);
+          }
+          const recreated = await createDailyRoom(supabase, roomName, 2, signal);
+          roomUrl = recreated.roomUrl;
+          expiresAt = recreated.expiresAt;
+          reason = "provider_room_recreated_after_stale_already_exists";
+          if (recreated.alreadyExisted) {
+            const finalState = await getDailyRoomState(supabase, roomName, 2, signal);
+            if (!finalState.exists || finalState.expired) {
+              return {
+                success: false,
+                reason: "provider_room_already_exists_recovery_failed",
+                retryAfterSeconds: 30,
+              };
+            }
+            roomUrl = videoDateRoomUrlForName(roomName, DAILY_DOMAIN);
+            expiresAt = finalState.expiresAt;
+          }
+        } else {
+          roomUrl = videoDateRoomUrlForName(roomName, DAILY_DOMAIN);
+          expiresAt = verifiedExisting.expiresAt;
+        }
+      }
     }
 
     const { data: updatedSession, error: updateError } = await supabase
