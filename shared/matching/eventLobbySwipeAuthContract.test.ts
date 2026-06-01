@@ -12,6 +12,7 @@ function read(path: string): string {
 const webSwipe = read("src/hooks/useSwipeAction.ts");
 const nativeEventsApi = read("apps/mobile/lib/eventsApi.ts");
 const nativeAuthSession = read("apps/mobile/lib/nativeAuthSession.ts");
+const swipeActions = read("supabase/functions/swipe-actions/index.ts");
 const supabaseConfig = read("supabase/config.toml");
 
 const CLIENT_SCAN_IGNORED_DIRS = new Set([
@@ -57,6 +58,7 @@ test("web swipe posts to swipe-actions with an explicit user JWT", () => {
   assert.match(webSwipe, /functions\/v1\/swipe-actions/);
   assert.match(webSwipe, /Authorization:\s*`Bearer \$\{accessToken\}`/);
   assert.match(webSwipe, /apikey:\s*SUPABASE_PUBLISHABLE_KEY/);
+  assert.match(webSwipe, /deck_token:\s*deckToken \?\? null/);
   assert.match(webSwipe, /result:\s*"unauthorized"/);
   assert.doesNotMatch(webSwipe, /functions\.invoke\(["']swipe-actions["']/);
   assert.doesNotMatch(webSwipe, /\.rpc\(["']handle_swipe["']/);
@@ -68,9 +70,17 @@ test("native swipe posts to swipe-actions with an explicit fresh user JWT", () =
   assert.match(nativeEventsApi, /functions\/v1\/swipe-actions/);
   assert.match(nativeEventsApi, /Authorization:\s*`Bearer \$\{accessToken\}`/);
   assert.match(nativeEventsApi, /apikey:\s*SUPABASE_PUBLISHABLE_KEY/);
+  assert.match(nativeEventsApi, /deck_token:\s*deckToken \?\? null/);
   assert.match(nativeEventsApi, /result:\s*'unauthorized'/);
   assert.doesNotMatch(nativeEventsApi, /functions\.invoke\(['"]swipe-actions['"]/);
   assert.doesNotMatch(nativeEventsApi, /\.rpc\(['"]handle_swipe['"]/);
+});
+
+test("swipe-actions routes token-aware swipes through handle_swipe_v2", () => {
+  assert.match(swipeActions, /const \{ event_id, target_id, swipe_type, deck_token \} = await req\.json\(\)/);
+  assert.match(swipeActions, /const normalizedDeckToken = typeof deck_token === "string"/);
+  assert.match(swipeActions, /userClient\.rpc\("handle_swipe_v2"/);
+  assert.match(swipeActions, /p_deck_token:\s*normalizedDeckToken/);
 });
 
 test("native auth helper refreshes near-expiry swipe tokens without bypassing the cache", () => {

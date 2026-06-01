@@ -90,6 +90,30 @@ import {
 } from "@clientShared/matching/videoDatePhase4Ux";
 
 const READY_GATE_MANUAL_EXIT_SUPPRESS_MS = 45_000;
+const TERMINAL_VISIBLE_CARD_MARK_ERRORS = new Set([
+  "event_not_active",
+  "not_registered",
+  "target_not_registered",
+  "target_not_found",
+  "viewer_paused",
+  "blocked",
+  "reported",
+  "gender_incompatible",
+  "age_incompatible",
+  "already_swiped",
+  "already_connected",
+  "pair_already_met_this_event",
+  "pair_already_in_session",
+  "participant_has_active_session_conflict",
+  "target_active_session_conflict",
+  "target_unavailable",
+  "invalid_deck_token",
+  "not_current_top_card",
+]);
+
+function shouldRetryVisibleCardMark(reason: string | null | undefined): boolean {
+  return !reason || !TERMINAL_VISIBLE_CARD_MARK_ERRORS.has(reason);
+}
 
 function gateFromDeckUiState(ui: EventDeckPhase4UiState): EventLobbyGateState {
   return {
@@ -817,7 +841,7 @@ const EventLobby = () => {
     deckPrefetchCacheHitTrackedRef.current.clear();
     recentSwipeTargetsRef.current = [];
     lobbyBroadcastSessionSeqRef.current = null;
-  }, [eventId]);
+  }, [eventId, user?.id]);
 
   /** Remaining super vibes this event (server caps at 3 per event on event_swipes). */
   const [superVibeRemaining, setSuperVibeRemaining] = useState(3);
@@ -1811,7 +1835,7 @@ const EventLobby = () => {
     try {
       swipeSequence = startOptimisticSwipe(targetProfile, "vibe");
       rollbackOptimisticSwipeOnException = true;
-      const result = await swipe(targetId, "vibe");
+      const result = await swipe(targetId, "vibe", targetProfile.deck_token);
       if (!result) {
         restoreDeckProfileAfterOptimisticSwipe(targetProfile, swipeSequence);
         rollbackOptimisticSwipeOnException = false;
@@ -1890,7 +1914,7 @@ const EventLobby = () => {
     try {
       swipeSequence = startOptimisticSwipe(targetProfile, "pass");
       rollbackOptimisticSwipeOnException = true;
-      const result = await swipe(targetId, "pass");
+      const result = await swipe(targetId, "pass", targetProfile.deck_token);
       if (!result) {
         restoreDeckProfileAfterOptimisticSwipe(targetProfile, swipeSequence);
         rollbackOptimisticSwipeOnException = false;
@@ -1963,7 +1987,7 @@ const EventLobby = () => {
     try {
       swipeSequence = startOptimisticSwipe(targetProfile, "super_vibe");
       rollbackOptimisticSwipeOnException = true;
-      const result = await swipe(targetId, "super_vibe");
+      const result = await swipe(targetId, "super_vibe", targetProfile.deck_token);
       if (!result) {
         restoreDeckProfileAfterOptimisticSwipe(targetProfile, swipeSequence);
         rollbackOptimisticSwipeOnException = false;
@@ -2094,6 +2118,7 @@ const EventLobby = () => {
     if (lobbyGate.kind !== "live" || suppressDeckUiForConvergence) return;
 
     const key = `${eventId}:${viewerId}:${targetId}`;
+    const deckToken = currentProfile.deck_token ?? null;
     const visibleDeckMarkAttempts = visibleDeckMarkAttemptsRef.current;
     let cancelled = false;
     let retryTimer: number | undefined;
@@ -2121,12 +2146,21 @@ const EventLobby = () => {
             p_event_id: eventId,
             p_viewer_id: viewerId,
             p_target_id: targetId,
+            p_deck_token: deckToken,
           } as never);
-          const result = data as { ok?: boolean; error?: string } | null;
+          const result = data as { ok?: boolean; error?: string; reason?: string } | null;
           if (error || result?.ok === false) {
+            const reason = error?.message ?? result?.error ?? result?.reason ?? "rpc_returned_not_ok";
             if (visibleDeckMarkAttempts.get(key) === attemptId) {
               visibleDeckMarkAttempts.delete(key);
             }
+            trackEvent("event_deck_card_visible_mark_result", {
+              platform: "web",
+              event_id: eventId,
+              outcome: "failure",
+              reason,
+              deck_token_present: Boolean(deckToken),
+            });
             Sentry.addBreadcrumb({
               category: "event-lobby",
               message: "top_card_visible_mark_failed",
@@ -2134,13 +2168,22 @@ const EventLobby = () => {
               data: {
                 event_id: eventId,
                 profile_id_present: true,
-                message: error?.message ?? result?.error ?? "rpc_returned_not_ok",
+                message: reason,
               },
             });
-            scheduleRetry();
+            if (shouldRetryVisibleCardMark(reason)) {
+              scheduleRetry();
+            }
             return;
           }
           visibleDeckCardsRef.current.add(key);
+          trackEvent("event_deck_card_visible_mark_result", {
+            platform: "web",
+            event_id: eventId,
+            outcome: "success",
+            reason: "ok",
+            deck_token_present: Boolean(deckToken),
+          });
           if (visibleDeckMarkAttempts.get(key) === attemptId) {
             visibleDeckMarkAttempts.delete(key);
           }
@@ -2157,6 +2200,13 @@ const EventLobby = () => {
               profile_id_present: true,
               message: error instanceof Error ? error.message : "unknown_error",
             },
+          });
+          trackEvent("event_deck_card_visible_mark_result", {
+            platform: "web",
+            event_id: eventId,
+            outcome: "exception",
+            reason: error instanceof Error ? error.name : "unknown_error",
+            deck_token_present: Boolean(deckToken),
           });
           scheduleRetry();
         }
@@ -2179,6 +2229,7 @@ const EventLobby = () => {
     };
   }, [
     currentProfile?.id,
+    currentProfile?.deck_token,
     deckEnabled,
     deckError,
     deckLoading,

@@ -143,6 +143,30 @@ const GENERIC_SWIPE_FAILURE_OUTCOMES = new Set([
   'invalid_request',
   'unauthorized',
 ]);
+const TERMINAL_VISIBLE_CARD_MARK_ERRORS = new Set([
+  'event_not_active',
+  'not_registered',
+  'target_not_registered',
+  'target_not_found',
+  'viewer_paused',
+  'blocked',
+  'reported',
+  'gender_incompatible',
+  'age_incompatible',
+  'already_swiped',
+  'already_connected',
+  'pair_already_met_this_event',
+  'pair_already_in_session',
+  'participant_has_active_session_conflict',
+  'target_active_session_conflict',
+  'target_unavailable',
+  'invalid_deck_token',
+  'not_current_top_card',
+]);
+
+function shouldRetryVisibleCardMark(reason: string | null | undefined): boolean {
+  return !reason || !TERMINAL_VISIBLE_CARD_MARK_ERRORS.has(reason);
+}
 
 async function prefetchNativeDeckImage(uri: string): Promise<boolean> {
   const [expoOk, rnOk] = await Promise.all([
@@ -2737,7 +2761,7 @@ export default function EventLobbyScreen() {
       const optimisticSwipe = startOptimisticSwipe(targetProfile, swipeType);
       optimisticRemainingVisible = optimisticSwipe.remainingVisible;
       swipeSequence = optimisticSwipe.swipeSequence;
-      const result = await swipe(id, targetId, swipeType);
+      const result = await swipe(id, targetId, swipeType, targetProfile.deck_token);
       if (!result) {
         restoreDeckProfileAfterOptimisticSwipe(targetProfile, swipeSequence);
         trackEvent(EventLobbyObservabilityEvents.LOBBY_SWIPE_RESULT, {
