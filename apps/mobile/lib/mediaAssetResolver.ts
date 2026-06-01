@@ -886,24 +886,11 @@ export async function resolveMessageMediaForDisplay<
     video_url: row.video_url,
     structured_payload: payload,
   });
-  if (thumbnailRef) {
-    const existingThumbnailUrl =
-      typeof payload?.thumbnail_url === 'string' && isPlayableMediaAssetUrl(payload.thumbnail_url)
-        ? payload.thumbnail_url
-        : typeof payload?.poster_ref === 'string' && isPlayableMediaAssetUrl(payload.poster_ref)
-          ? payload.poster_ref
-          : null;
-    const thumbnailAsset = await getCachedMediaAsset(row.id, 'thumbnail', thumbnailRef);
-    const resolvedThumbnailUrl =
-      thumbnailAsset?.url && isPlayableMediaAssetUrl(thumbnailAsset.url) ? thumbnailAsset.url : null;
-    const nextThumbnailUrl = resolvedThumbnailUrl ?? existingThumbnailUrl;
-    if (payload || nextThumbnailUrl) {
-      const displayPayload = payload ?? {};
-      displayPayload.thumbnail_url = nextThumbnailUrl ?? '';
-      const placeholder = mediaPlaceholderPayload(thumbnailAsset);
-      if (placeholder) displayPayload.thumbnail_placeholder = placeholder;
-      resolved.structured_payload = displayPayload;
-    }
+  if (thumbnailRef && payload) {
+    // Poster signing is intentionally non-blocking for chat hydration. The row keeps
+    // its existing poster metadata while background prewarm and media components
+    // resolve `thumbnailRef` after the thread has painted.
+    resolved.structured_payload = payload;
   }
 
   const imageRef = extractChatImageMediaRef(row, { allowPrivateMediaRefs: true });

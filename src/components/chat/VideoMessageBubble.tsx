@@ -538,8 +538,14 @@ export const VideoMessageBubble = ({
     }
   }, []);
 
+  const handlePause = useCallback(() => {
+    setIsPlaying(false);
+    setPlayRequested(false);
+  }, []);
+
   const handleEnded = useCallback(() => {
     setIsPlaying(false);
+    setPlayRequested(false);
     setHasStartedPlayback(false);
     setCurrentTime(0);
     releaseInlineVideoPlayback(videoRef.current);
@@ -769,7 +775,7 @@ export const VideoMessageBubble = ({
             onCanPlay={markReadyIfPossible}
             onPlay={() => claimInlineVideoPlayback(videoRef.current)}
             onPlaying={handlePlaying}
-            onPause={() => setIsPlaying(false)}
+            onPause={handlePause}
             onWaiting={() => setIsLoading(true)}
             onError={() => {
               if (isHlsUrl) return;

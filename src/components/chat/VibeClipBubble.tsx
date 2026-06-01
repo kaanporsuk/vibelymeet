@@ -931,8 +931,14 @@ export const VibeClipBubble = ({
     if (videoRef.current) setCurrentTime(videoRef.current.currentTime);
   }, []);
 
+  const handlePause = useCallback(() => {
+    setIsPlaying(false);
+    setPlayRequested(false);
+  }, []);
+
   const handleEnded = useCallback(() => {
     setIsPlaying(false);
+    setPlayRequested(false);
     setHasStartedPlayback(false);
     setCurrentTime(0);
     releaseInlineVideoPlayback(videoRef.current);
@@ -1146,7 +1152,7 @@ export const VibeClipBubble = ({
                 setHasPlayed(true);
                 setHasStartedPlayback(true);
               }}
-              onPause={() => setIsPlaying(false)}
+              onPause={handlePause}
               onWaiting={() => setIsLoading(true)}
               onError={handleVideoLoadError}
               onTimeUpdate={handleTimeUpdate}

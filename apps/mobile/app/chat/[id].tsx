@@ -406,6 +406,7 @@ function isChatVideoPlaybackUri(value: string | null | undefined): value is stri
 
 const CHAT_VIDEO_PLAYBACK_REFRESH_ATTEMPTS = 2;
 const CHAT_VIDEO_PLAYBACK_RETRY_DELAY_MS = 650;
+const CHAT_VIDEO_PLAYBACK_LOAD_TIMEOUT_MS = 12_000;
 
 function waitForChatVideoPlaybackRefreshRetry(): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, CHAT_VIDEO_PLAYBACK_RETRY_DELAY_MS));
@@ -1142,19 +1143,20 @@ function ChatVideoCardBody({
     setFallbackReason(null);
   }, [uri]);
 
+  const showPlaybackError = useCallback((reason?: MediaFallbackReason | null) => {
+    setFallbackReason(reason ?? resolveNativeMediaPlaybackFallbackReason({ uri }));
+    setHasError(true);
+  }, [uri]);
+
   const handlePlayerStatus = useCallback((status: VideoPlayerStatus, payload?: unknown) => {
     if (status === 'error') {
       const reason = resolveNativeMediaPlaybackFallbackReason({ uri, error: payload });
       void onRefreshMediaUri()
         .then((didRefresh) => {
-          if (!didRefresh) {
-            setFallbackReason(reason);
-            setHasError(true);
-          }
+          if (!didRefresh) showPlaybackError(reason);
         })
         .catch(() => {
-          setFallbackReason(reason);
-          setHasError(true);
+          showPlaybackError(reason);
         });
       return;
     }
@@ -1163,7 +1165,7 @@ function ChatVideoCardBody({
       setHasError(false);
       setIsReady(true);
     }
-  }, [onRefreshMediaUri, uri]);
+  }, [onRefreshMediaUri, showPlaybackError, uri]);
 
   useEffect(() => {
     if (!shouldMountPlayer) return undefined;
@@ -1209,6 +1211,20 @@ function ChatVideoCardBody({
     });
     attachSafeExpoSharedObjectPromise(result, undefined, 'chat.video.play.inline');
   }, [hasStartedPlayback, isReady, playRequestToken, player, shouldMountPlayer]);
+
+  useEffect(() => {
+    if (!shouldMountPlayer || isReady || hasError) return;
+    const timeoutId = setTimeout(() => {
+      void onRefreshMediaUri('playback')
+        .then((didRefresh) => {
+          if (!didRefresh) showPlaybackError();
+        })
+        .catch(() => {
+          showPlaybackError();
+        });
+    }, CHAT_VIDEO_PLAYBACK_LOAD_TIMEOUT_MS);
+    return () => clearTimeout(timeoutId);
+  }, [hasError, isReady, onRefreshMediaUri, shouldMountPlayer, showPlaybackError]);
 
   useEffect(() => {
     if (!immersiveActive) return;
