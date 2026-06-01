@@ -500,6 +500,10 @@ test("chat MatchCall fresh creates recover stale or duplicate Daily objects", ()
     assert.match(source, /readDailyMeetingState\(callObject\)\s*={2,3}\s*["']joined-meeting["']/);
     assert.match(source, /isBusyDailyMeetingState/);
     assert.match(source, /return !isTerminalDailyMeetingState\(state\)/);
+    assert.match(source, /Duplicate\\s\+DailyIframe\\s\+instances/);
+    assert.match(source, /multiple\\s\+call\\s\+instances/);
+    assert.match(source, /call\\s\+object\.\*already/);
+    assert.match(source, /existing\\s\+call\\s\+instance/);
     assert.match(source, /fresh_create_duplicate_daily_instance_busy/);
     assert.match(source, /cleanupStaleCallObjectForFreshCreate/);
     assert.match(source, /fresh_create_cleaned_stale_call_object/);
