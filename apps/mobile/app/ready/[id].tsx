@@ -304,7 +304,7 @@ export default function ReadyGateScreen() {
           }
           return false;
         }
-        const prewarm = startNativeVideoDateDailyPrewarm({
+        const prewarm = await startNativeVideoDateDailyPrewarm({
           sessionId: sid,
           userId: user.id,
           eventId: eventId ?? null,

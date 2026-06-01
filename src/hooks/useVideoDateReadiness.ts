@@ -10,6 +10,10 @@ import {
   prepareVideoDateDiagnosticEntry,
   recordVideoDateReadinessCheckV2,
 } from "@/lib/videoDateReadiness";
+import {
+  createDailyCallObjectGuarded,
+  registerWebVideoDateDailyCleanup,
+} from "@/lib/dailyCallInstance";
 
 type WebPermissionState = "granted" | "denied" | "prompt" | "unsupported" | "unknown";
 
@@ -205,7 +209,25 @@ async function runDailyCallQualityAdvisory(
   const startedAt = Date.now();
   let call: DailyCall | null = null;
   try {
-    call = DailyIframe.createCallObject({ audioSource: false, videoSource: false });
+    const guarded = await createDailyCallObjectGuarded(
+      DailyIframe,
+      { audioSource: false, videoSource: false },
+      {
+        source: "web_video_date_readiness_diagnostic",
+        skipIfCleanupPending: true,
+        waitForCleanup: false,
+        failOnExternalCall: true,
+      },
+    );
+    if (guarded.ok === false) {
+      return {
+        ok: false,
+        skipped: guarded.reason,
+        meetingState: guarded.meetingState ?? null,
+        latencyMs: Date.now() - startedAt,
+      };
+    }
+    call = guarded.call;
     if (typeof call.preAuth === "function") {
       const diagnosticToken = diagnostic.token;
       await withTimeout(
@@ -237,10 +259,20 @@ async function runDailyCallQualityAdvisory(
       latencyMs: Date.now() - startedAt,
     };
   } finally {
-    try {
-      call?.destroy();
-    } catch {
-      /* best-effort cleanup */
+    if (call) {
+      try {
+        await registerWebVideoDateDailyCleanup(
+          Promise.resolve().then(async () => {
+            await Promise.resolve(call?.destroy());
+          }),
+          {
+            source: "web_video_date_readiness_diagnostic",
+            reason: "diagnostic_complete",
+          },
+        );
+      } catch {
+        /* best-effort cleanup */
+      }
     }
   }
 }

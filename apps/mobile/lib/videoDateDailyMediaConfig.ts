@@ -3,6 +3,10 @@ import {
   isVideoDateCameraConstraintError,
   type VideoDateNativeMediaCaptureProfile,
 } from '@clientShared/matching/videoDateMediaContract';
+import {
+  createNativeDailyCallObjectGuarded,
+  type GuardedNativeDailyCreateResult,
+} from '@/lib/nativeDailyCallInstance';
 
 export type NativeVideoDateCaptureProfile = VideoDateNativeMediaCaptureProfile;
 export type VideoDateDailyCallObject = ReturnType<typeof Daily.createCallObject>;
@@ -29,17 +33,20 @@ export function videoDateNativeDailyCallOptions(
   } as NativeDailyCallOptions;
 }
 
-export function createVideoDateDailyCallObject(
+export function createVideoDateDailyCallObjectGuarded(
   profile: NativeVideoDateCaptureProfile = 'ideal',
-): VideoDateDailyCallObject {
-  return Daily.createCallObject(videoDateNativeDailyCallOptions(profile));
+  options: Parameters<typeof createNativeDailyCallObjectGuarded>[1],
+): Promise<GuardedNativeDailyCreateResult> {
+  return createNativeDailyCallObjectGuarded(videoDateNativeDailyCallOptions(profile), options);
 }
 
-export function createVideoDateDailyDiagnosticCallObject(): VideoDateDailyCallObject {
-  return Daily.createCallObject({
+export function createVideoDateDailyDiagnosticCallObjectGuarded(
+  options: Parameters<typeof createNativeDailyCallObjectGuarded>[1],
+): Promise<GuardedNativeDailyCreateResult> {
+  return createNativeDailyCallObjectGuarded({
     audioSource: false,
     videoSource: false,
-  } as NativeDailyCallOptions);
+  } as NativeDailyCallOptions, options);
 }
 
 export { isVideoDateCameraConstraintError };

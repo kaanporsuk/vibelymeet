@@ -5,6 +5,10 @@ import {
   dailyVideoDateCallObjectOptions,
   dailyVideoDateCallObjectOptionsWithAppAcquiredMedia,
 } from "@/lib/dailyCallObjectConfig";
+import {
+  createDailyCallObjectGuarded,
+  registerWebVideoDateDailyCleanup,
+} from "@/lib/dailyCallInstance";
 import { vdbg } from "@/lib/vdbg";
 import { LobbyPostDateEvents } from "@clientShared/analytics/lobbyToPostDateJourney";
 import type { VideoDateWebMediaCaptureProfile } from "@clientShared/matching/videoDateMediaContract";
@@ -197,7 +201,7 @@ function cleanupAbandonedCall(entry: WebDailyPrewarmEntry, reason: string) {
       if (wasJoined || entry.joinedAtMs != null) {
         await entry.call.leave().catch(() => undefined);
       }
-      entry.call.destroy();
+      await Promise.resolve(entry.call.destroy());
     } catch (error) {
       Sentry.addBreadcrumb({
         category: "video-date",
@@ -209,7 +213,11 @@ function cleanupAbandonedCall(entry: WebDailyPrewarmEntry, reason: string) {
       stopMediaStreamTracks(entry.appAcquiredMedia?.stream);
     }
   };
-  void cleanup();
+  void registerWebVideoDateDailyCleanup(cleanup(), {
+    source: "web_video_date_daily_prewarm",
+    reason,
+    onDiagnostic: (eventName, payload) => vdbg(eventName, payload),
+  }).catch(() => undefined);
 }
 
 function fallbackEntry(entry: WebDailyPrewarmEntry, reason: string, reasonCode: string = reason) {
@@ -244,7 +252,7 @@ function waitWithTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T |
   });
 }
 
-export function startWebVideoDateDailyPrewarm(params: {
+export async function startWebVideoDateDailyPrewarm(params: {
   sessionId: string;
   userId: string;
   eventId: string | null;
@@ -253,7 +261,7 @@ export function startWebVideoDateDailyPrewarm(params: {
   captureProfile?: VideoDateWebMediaCaptureProfile;
   appAcquiredMedia?: WebDailyPrewarmAppAcquiredMedia | null;
   source: string;
-}): WebDailyPrewarmConsumeResult {
+}): Promise<WebDailyPrewarmConsumeResult> {
   if (!prewarmEnabled()) return { ok: false, reason: "flag_disabled" };
   if (typeof window === "undefined") return { ok: false, reason: "window_unavailable" };
   const key = keyFor(params.sessionId, params.userId);
@@ -275,14 +283,43 @@ export function startWebVideoDateDailyPrewarm(params: {
     firstLiveTrack(params.appAcquiredMedia.stream.getVideoTracks())
       ? params.appAcquiredMedia
       : null;
-  const call = DailyIframe.createCallObject(
+  const guardedCall = await createDailyCallObjectGuarded(
+    DailyIframe,
     appAcquiredMedia
       ? dailyVideoDateCallObjectOptionsWithAppAcquiredMedia(captureProfile, {
           audioTrack: firstLiveTrack(appAcquiredMedia.stream.getAudioTracks()),
           videoTrack: firstLiveTrack(appAcquiredMedia.stream.getVideoTracks()),
         })
       : dailyVideoDateCallObjectOptions(captureProfile),
+    {
+      source: `web_video_date_daily_prewarm:${params.source}`,
+      skipIfCleanupPending: true,
+      waitForCleanup: false,
+      failOnExternalCall: true,
+      onDiagnostic: (eventName, payload) => {
+        vdbg(eventName, {
+          sessionId: params.sessionId,
+          eventId: params.eventId,
+          userId: params.userId,
+          roomName: params.roomName,
+          source: params.source,
+          ...payload,
+        });
+      },
+    },
   );
+  if (guardedCall.ok === false) {
+    vdbg("daily_prewarm_create_guard_skipped", {
+      sessionId: params.sessionId,
+      eventId: params.eventId,
+      userId: params.userId,
+      roomName: params.roomName,
+      reason: guardedCall.reason,
+      meetingState: guardedCall.meetingState ?? null,
+    });
+    return { ok: false, reason: guardedCall.reason };
+  }
+  const call = guardedCall.call;
   const nowMs = Date.now();
   const entry: WebDailyPrewarmEntry = {
     key,

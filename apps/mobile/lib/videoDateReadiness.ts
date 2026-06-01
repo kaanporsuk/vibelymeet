@@ -2,7 +2,8 @@ import { useEffect, useMemo, useState } from 'react';
 import { AppState, Platform } from 'react-native';
 import { Camera } from 'expo-camera';
 import { supabase } from '@/lib/supabase';
-import { createVideoDateDailyDiagnosticCallObject } from '@/lib/videoDateDailyMediaConfig';
+import { createVideoDateDailyDiagnosticCallObjectGuarded } from '@/lib/videoDateDailyMediaConfig';
+import { registerNativeVideoDateDailyCleanup } from '@/lib/nativeDailyCallInstance';
 import {
   resolveVideoDateReadinessGate,
   shouldRunVideoDateDiagnostic,
@@ -216,7 +217,21 @@ async function runNativeDailyCallQualityAdvisory(
   diagnostic: Extract<Awaited<ReturnType<typeof prepareVideoDateDiagnosticEntry>>, { ok: true }>,
 ): Promise<Record<string, unknown>> {
   const startedAt = Date.now();
-  const call = createVideoDateDailyDiagnosticCallObject();
+  const guarded = await createVideoDateDailyDiagnosticCallObjectGuarded({
+    source: 'native_video_date_readiness_diagnostic',
+    skipIfCleanupPending: true,
+    waitForCleanup: false,
+    failOnExternalCall: true,
+  });
+  if (guarded.ok === false) {
+    return {
+      ok: false,
+      skipped: guarded.reason,
+      meetingState: guarded.meetingState ?? null,
+      latencyMs: Date.now() - startedAt,
+    };
+  }
+  const call = guarded.call;
   const callAny = call as unknown as {
     preAuth?: (options: { url: string; token: string }) => Promise<unknown>;
     testCallQuality?: () => Promise<unknown>;
@@ -279,7 +294,15 @@ async function runNativeDailyCallQualityAdvisory(
     };
   } finally {
     try {
-      await callAny.destroy?.();
+      await registerNativeVideoDateDailyCleanup(
+        Promise.resolve().then(async () => {
+          await Promise.resolve(callAny.destroy?.());
+        }),
+        {
+          source: 'native_video_date_readiness_diagnostic',
+          reason: 'diagnostic_complete',
+        },
+      );
     } catch {
       /* best-effort cleanup */
     }

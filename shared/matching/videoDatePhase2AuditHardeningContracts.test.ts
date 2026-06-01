@@ -145,11 +145,13 @@ test("synthetic monitor covers webhook and orphan cleanup paths", () => {
 
 test("Daily call-quality diagnostics run as advisory background checks on web and native", () => {
   assert.match(webReadiness, /runDailyCallQualityAdvisory/);
-  assert.match(webReadiness, /DailyIframe\.createCallObject/);
+  assert.match(webReadiness, /createDailyCallObjectGuarded/);
+  assert.match(webReadiness, /failOnExternalCall:\s*true/);
   assert.match(webReadiness, /testCallQuality/);
   assert.match(webReadiness, /DAILY_CALL_QUALITY_TIMEOUT_MS/);
   assert.match(nativeReadiness, /runNativeDailyCallQualityAdvisory/);
-  assert.match(nativeReadiness, /createVideoDateDailyDiagnosticCallObject/);
+  assert.match(nativeReadiness, /createVideoDateDailyDiagnosticCallObjectGuarded/);
+  assert.match(nativeReadiness, /failOnExternalCall:\s*true/);
   assert.match(readFileSync(join(root, "apps/mobile/lib/videoDateDailyMediaConfig.ts"), "utf8"), /audioSource: false[\s\S]+videoSource: false/);
   assert.match(nativeReadiness, /testCallQuality/);
   assert.match(nativeReadiness, /testWebsocketConnectivity/);
