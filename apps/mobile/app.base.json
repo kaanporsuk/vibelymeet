@@ -22,11 +22,11 @@
           "remote-notification",
           "audio"
         ],
-        "NSCameraUsageDescription": "Vibely uses your camera for video dates, Vibe Videos, chat clips, photos, and verification selfies.",
-        "NSMicrophoneUsageDescription": "Vibely uses your microphone for video dates, Vibe Videos, voice messages, and chat clips.",
-        "NSPhotoLibraryUsageDescription": "Vibely only uses the photos and videos you choose for profile photos and chat clips.",
-        "NSLocationWhenInUseUsageDescription": "Vibely uses your location while the app is open to show nearby events and people.",
-        "NSLocationAlwaysAndWhenInUseUsageDescription": "Vibely uses your location to show nearby events and people when you choose location features.",
+        "NSCameraUsageDescription": "Vibely uses your camera when you choose to join video dates, record Vibe Videos or chat clips, take profile photos, or submit verification selfies.",
+        "NSMicrophoneUsageDescription": "Vibely uses your microphone when you choose to join video dates, record Vibe Videos or chat clips, and send voice messages.",
+        "NSPhotoLibraryUsageDescription": "Vibely only uses the photos and videos you choose for profile photos, saved-video uploads, and chat media.",
+        "NSLocationWhenInUseUsageDescription": "Vibely uses your location while the app is open, when you choose location features, to show nearby events and people.",
+        "NSLocationAlwaysAndWhenInUseUsageDescription": "Vibely uses your location when you choose location features to show nearby events and people.",
         "UIApplicationSceneManifest": {
           "UIApplicationSupportsMultipleScenes": false
         },
@@ -81,16 +81,16 @@
       [
         "expo-camera",
         {
-          "cameraPermission": "Vibely uses your camera for video dates, Vibe Videos, chat clips, photos, and verification selfies.",
-          "microphonePermission": "Vibely uses your microphone for video dates, Vibe Videos, voice messages, and chat clips.",
+          "cameraPermission": "Vibely uses your camera when you choose to join video dates, record Vibe Videos or chat clips, take profile photos, or submit verification selfies.",
+          "microphonePermission": "Vibely uses your microphone when you choose to join video dates, record Vibe Videos or chat clips, and send voice messages.",
           "recordAudioAndroid": true
         }
       ],
       [
         "expo-image-picker",
         {
-          "photosPermission": "Vibely only uses the photos and videos you choose for profile photos and chat clips.",
-          "cameraPermission": "Vibely uses your camera for profile photos, chat photos, and verification selfies."
+          "photosPermission": "Vibely only uses the photos and videos you choose for profile photos, saved-video uploads, and chat media.",
+          "cameraPermission": "Vibely uses your camera when you choose to take profile photos, chat photos, and verification selfies."
         }
       ],
       "expo-apple-authentication"

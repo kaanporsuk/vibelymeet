@@ -314,7 +314,10 @@ test("media routing only promotes verified Bunny-backed prefixes", () => {
   const imageUrl = read("src/utils/imageUrl.ts");
   const chatMedia = read("src/lib/mediaAssetResolver.ts");
 
-  assert.match(imageUrl, /CONFIRMED_BUNNY_STORAGE_PREFIXES\s*=\s*\["photos\/",\s*"events\/",\s*"voice\/",\s*"media\/"\]/);
+  assert.match(imageUrl, /CONFIRMED_BUNNY_STORAGE_PREFIXES\s*=\s*\["photos\/",\s*"events\/"\]/);
+  assert.match(imageUrl, /isPrivateChatScopedStoragePath\(p\)/);
+  assert.doesNotMatch(imageUrl, /CONFIRMED_BUNNY_STORAGE_PREFIXES\s*=\s*\[[^\]]*"voice\/"/);
+  assert.doesNotMatch(imageUrl, /CONFIRMED_BUNNY_STORAGE_PREFIXES\s*=\s*\[[^\]]*"media\/"/);
   assert.doesNotMatch(imageUrl, /"chat-videos\/"/);
   assert.match(chatMedia, /get-chat-media-url/);
 });

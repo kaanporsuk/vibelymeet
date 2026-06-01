@@ -6,8 +6,8 @@
  * - leave profile verification fields to admin/server-owned review flows
  * - do NOT set `profiles.photo_verified` client-side (admin-only approval)
  */
-import React, { useEffect, useMemo, useState } from 'react';
-import { View, Image, Pressable, StyleSheet, ActivityIndicator, Linking, Platform } from 'react-native';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { View, Image, Pressable, StyleSheet, ActivityIndicator, Platform } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 
@@ -26,6 +26,7 @@ import {
   resolvePermissionUx,
   type PermissionUxAction,
 } from '@clientShared/permissions/permissionUx';
+import { openPermissionSettings, useSettingsReturnRefresh } from '@/lib/permissionSettings';
 
 type Step = 'capture' | 'preview' | 'submitting' | 'submitted';
 
@@ -58,8 +59,13 @@ function firstProfilePhoto(raw: unknown): string {
   return typeof photo === 'string' ? photo.trim() : '';
 }
 
+function isPermissionLikeCaptureError(error: unknown): boolean {
+  return error instanceof Error && /\b(permission|denied|access|authorized|authorization)\b/i.test(error.message);
+}
+
 export function PhotoVerificationFlow({ visible, onClose, onSubmissionComplete, profilePhotoUrl }: PhotoVerificationFlowProps) {
   const theme = Colors[useColorScheme()];
+  const settingsOpenedRef = useRef(false);
   const [step, setStep] = useState<Step>('capture');
   const [selfieUri, setSelfieUri] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -79,33 +85,53 @@ export function PhotoVerificationFlow({ visible, onClose, onSubmissionComplete, 
   const startCapture = async () => {
     setError(null);
     setPermissionRecovery(null);
-    const permission = await ImagePicker.requestCameraPermissionsAsync();
-    if (permission.status !== 'granted') {
+    try {
+      const permission = await ImagePicker.requestCameraPermissionsAsync();
+      if (permission.status !== 'granted') {
+        const copy = resolvePermissionUx({
+          capability: 'photo_verification',
+          status: permissionUxStatusFromGrant({
+            status: permission.status,
+            canAskAgain: permission.canAskAgain,
+          }),
+          platform: Platform.OS === 'ios' ? 'ios' : Platform.OS === 'android' ? 'android' : 'native',
+        });
+        setError(copy.message);
+        setPermissionRecovery({
+          primaryAction: copy.primaryAction,
+          primaryLabel: copy.primaryLabel,
+        });
+        return;
+      }
+      const result = await ImagePicker.launchCameraAsync({
+        cameraType: ImagePicker.CameraType.front,
+        allowsEditing: false,
+        quality: 0.85,
+      });
+      if (result.canceled || !result.assets?.[0]?.uri) return;
+      const asset = result.assets[0];
+      setSelfieUri(asset.uri);
+      setStep('preview');
+    } catch (captureError) {
       const copy = resolvePermissionUx({
         capability: 'photo_verification',
-        status: permissionUxStatusFromGrant({
-          status: permission.status,
-          canAskAgain: permission.canAskAgain,
-        }),
+        status: isPermissionLikeCaptureError(captureError) ? 'blocked_settings' : 'in_use',
         platform: Platform.OS === 'ios' ? 'ios' : Platform.OS === 'android' ? 'android' : 'native',
       });
-      setError(copy.message);
+      setError(captureError instanceof Error && !isPermissionLikeCaptureError(captureError) ? captureError.message : copy.message);
       setPermissionRecovery({
         primaryAction: copy.primaryAction,
         primaryLabel: copy.primaryLabel,
       });
-      return;
     }
-    const result = await ImagePicker.launchCameraAsync({
-      cameraType: ImagePicker.CameraType.front,
-      allowsEditing: false,
-      quality: 0.85,
-    });
-    if (result.canceled || !result.assets?.[0]?.uri) return;
-    const asset = result.assets[0];
-    setSelfieUri(asset.uri);
-    setStep('preview');
   };
+
+  useSettingsReturnRefresh({
+    enabled: visible,
+    wasOpenedRef: settingsOpenedRef,
+    refresh: startCapture,
+    source: 'photo_verification',
+  });
 
   const submit = async () => {
     if (!selfieUri) return;
@@ -226,7 +252,13 @@ export function PhotoVerificationFlow({ visible, onClose, onSubmissionComplete, 
             <Pressable
               onPress={() => {
                 if (permissionRecovery.primaryAction === 'open_settings') {
-                  void Linking.openSettings();
+                  settingsOpenedRef.current = true;
+                  void openPermissionSettings('photo_verification_camera').then((opened) => {
+                    if (!opened) {
+                      settingsOpenedRef.current = false;
+                      void startCapture();
+                    }
+                  });
                   return;
                 }
                 void startCapture();

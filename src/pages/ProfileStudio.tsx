@@ -321,6 +321,7 @@ const ProfileStudio = () => {
   const [profileStatsLoadedAt, setProfileStatsLoadedAt] = useState(0);
   const [isSaving, setIsSaving] = useState(false);
   const [isDetectingLocation, setIsDetectingLocation] = useState(false);
+  const [locationDetectError, setLocationDetectError] = useState<string | null>(null);
   const [showPhotoVerification, setShowPhotoVerification] = useState(false);
   const [showPhoneVerification, setShowPhoneVerification] = useState(false);
   const [showEmailVerification, setShowEmailVerification] = useState(false);
@@ -1257,6 +1258,7 @@ const ProfileStudio = () => {
 
   const handleLocationDetect = async () => {
     setIsDetectingLocation(true);
+    setLocationDetectError(null);
     try {
       const geoLoc: GeoLocation = await autoDetectLocation();
       // Normalize display label to "City, Country" when possible.
@@ -1289,8 +1291,16 @@ const ProfileStudio = () => {
       );
       void queryClient.invalidateQueries({ queryKey: myProfileQueryKey(userId), exact: true });
       toast.success("Location updated!");
-    } catch {
-      toast.error("Could not detect location. Allow Location in this browser's site settings and try again.");
+    } catch (locationError) {
+      const message =
+        typeof locationError === "object" &&
+        locationError !== null &&
+        "code" in locationError &&
+        (locationError as { code?: number }).code === 1
+          ? "Location is blocked for this site. Allow it in browser site settings, then try again."
+          : "Could not detect location. Allow Location in this browser's site settings, then try again.";
+      setLocationDetectError(message);
+      toast.error(message);
     } finally {
       setIsDetectingLocation(false);
     }
@@ -2096,6 +2106,21 @@ const ProfileStudio = () => {
               <p className="text-xs text-muted-foreground">
                 Location is set from your device. Exact coordinates are never shown publicly.
               </p>
+              {locationDetectError ? (
+                <div className="rounded-lg border border-amber-400/25 bg-amber-400/10 px-3 py-2 text-xs text-amber-200">
+                  <p>{locationDetectError}</p>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="mt-2 h-7 px-2 text-xs text-amber-100 hover:text-foreground"
+                    onClick={handleLocationDetect}
+                    disabled={isDetectingLocation}
+                  >
+                    Try again
+                  </Button>
+                </div>
+              ) : null}
             </div>
           </div>
           <DrawerFooter className={PROFILE_STUDIO_DRAWER_FOOTER_CLASS}>

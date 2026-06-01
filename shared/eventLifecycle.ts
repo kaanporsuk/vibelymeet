@@ -51,6 +51,7 @@ function normalizeDurationMinutes(input: EventLifecycleInput): number {
 export function resolveEventLifecycle(input: EventLifecycleInput): EventLifecycleSnapshot {
   const nowMs = input.nowMs ?? Date.now();
   const rawStatus = (input.status ?? "").toLowerCase();
+  const rawTerminalStatus = rawStatus === "ended" || rawStatus === "completed";
   const startsAtMs = toTimestampMs(input.eventDate ?? input.event_date);
   const durationMinutes = normalizeDurationMinutes(input);
   const endsAtMs = Number.isFinite(startsAtMs)
@@ -66,6 +67,7 @@ export function resolveEventLifecycle(input: EventLifecycleInput): EventLifecycl
   const isArchived = Number.isFinite(archivedAtMs) || rawStatus === "archived";
   const isInFinalizationGrace =
     !isArchived &&
+    !rawTerminalStatus &&
     !isFinalized &&
     Number.isFinite(endsAtMs) &&
     nowMs >= endsAtMs &&
@@ -83,6 +85,8 @@ export function resolveEventLifecycle(input: EventLifecycleInput): EventLifecycl
     lifecycle = "draft";
   } else if (rawStatus === "cancelled") {
     lifecycle = "cancelled";
+  } else if (rawTerminalStatus) {
+    lifecycle = "ended";
   } else if (isFinalized) {
     lifecycle = "ended";
   } else if (Number.isFinite(startsAtMs) && Number.isFinite(endsAtMs) && nowMs >= startsAtMs && nowMs < endsAtMs) {

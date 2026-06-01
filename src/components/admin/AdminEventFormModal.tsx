@@ -676,10 +676,19 @@ const AdminEventFormModal = ({ event, onClose }: AdminEventFormModalProps) => {
 
       if (!isEditing) eventData.status = createStatus;
 
+      const eventUpdateData: Partial<EventSavePayload> = { ...eventData };
+      if (isEditing) {
+        delete eventUpdateData.is_recurring;
+        delete eventUpdateData.recurrence_type;
+        delete eventUpdateData.recurrence_days;
+        delete eventUpdateData.recurrence_count;
+        delete eventUpdateData.recurrence_ends_at;
+      }
+
       if (isEditing) {
         const payload = await callAdminRpc("admin_update_event", {
           p_event_id: event.id,
-          p_payload: eventData,
+          p_payload: eventUpdateData,
           p_idempotency_key: createAdminTargetIdempotencyKey("admin_update_event", event.id, {
             before: {
               title: event.title ?? null,
@@ -689,10 +698,10 @@ const AdminEventFormModal = ({ event, onClose }: AdminEventFormModalProps) => {
               is_recurring: event.is_recurring ?? null,
               recurrence_type: event.recurrence_type ?? null,
             },
-            after: eventData,
+            after: eventUpdateData,
           }),
         });
-        return { id: event.id, action: 'edit_event', eventData: (payload.event || eventData) as EventSavePayload, status: null as EventCreateStatus | null };
+        return { id: event.id, action: 'edit_event', eventData: (payload.event || eventUpdateData) as EventSavePayload, status: null as EventCreateStatus | null };
       } else {
         const payload = await callAdminRpc("admin_create_event", {
           p_payload: eventData,
@@ -706,28 +715,37 @@ const AdminEventFormModal = ({ event, onClose }: AdminEventFormModalProps) => {
       }
     },
     onSuccess: async (result) => {
-      if (result.action === 'create_event') {
-        const createdAsDraft = result.status === "draft";
-        if (!createdAsDraft) {
-          try {
-            const { data, error } = await supabase.functions.invoke('event-notifications', {
-              body: { type: 'event_created', eventId: result.id, eventTitle: title, eventDate: result.eventData.event_date, eventDescription: description }
-            });
-            if (error || !data?.success) {
-              adminToast.warning({
-                id: `admin-event-notification-warning-${result.id}`,
-                title: "Event created, but announcement email did not complete",
-                description: await resolveAdminFunctionErrorMessage(error, data, "Announcement email failed"),
-              });
-            }
-          } catch (notificationError) {
+      const sendCreatedAnnouncement = async () => {
+        try {
+          const { data, error } = await supabase.functions.invoke('event-notifications', {
+            body: { type: 'event_created', eventId: result.id, eventTitle: title, eventDate: result.eventData.event_date, eventDescription: description }
+          });
+          if (error || !data?.success) {
             adminToast.warning({
               id: `admin-event-notification-warning-${result.id}`,
               title: "Event created, but announcement email did not complete",
-              description: resolveAdminErrorMessage(notificationError, "Announcement email failed"),
+              description: await resolveAdminFunctionErrorMessage(error, data, "Announcement email failed"),
+            });
+            return;
+          }
+          if (data?.skipped_reason) {
+            adminToast.info({
+              id: `admin-event-notification-skipped-${result.id}`,
+              title: "Event created without a broad announcement",
+              description: "Announcement emails are sent only for global, all-tier events. This event can still appear in discovery when its visibility rules match.",
             });
           }
+        } catch (notificationError) {
+          adminToast.warning({
+            id: `admin-event-notification-warning-${result.id}`,
+            title: "Event created, but announcement email did not complete",
+            description: resolveAdminErrorMessage(notificationError, "Announcement email failed"),
+          });
         }
+      };
+
+      if (result.action === 'create_event') {
+        const createdAsDraft = result.status === "draft";
 
         if (isRecurring) {
           setIsGenerating(true);
@@ -745,13 +763,14 @@ const AdminEventFormModal = ({ event, onClose }: AdminEventFormModalProps) => {
               title: `Created recurring event + ${Number(recurringPayload.generated_count || 0)} ${createdAsDraft ? "draft" : "upcoming"} occurrences`,
               description: "The event list and discover feeds are refreshing.",
             });
+            if (!createdAsDraft) await sendCreatedAnnouncement();
           } catch (recurrenceError) {
             adminToast.warning({
               id: `admin-event-recurring-generation-warning-${result.id}`,
               title: "Event created, but recurrence generation failed",
               description: resolveAdminErrorMessage(
                 recurrenceError,
-                "Open the event and retry recurring occurrence generation before announcing the full series.",
+                "No announcement was sent. Open the event and retry recurring occurrence generation before announcing the full series.",
               ),
               action: {
                 label: "Retry",
@@ -769,6 +788,7 @@ const AdminEventFormModal = ({ event, onClose }: AdminEventFormModalProps) => {
               ? "The event is not discoverable until it is published."
               : "The event list and discover feeds are refreshing.",
           });
+          if (!createdAsDraft) await sendCreatedAnnouncement();
         }
       } else {
         adminToast.success({
@@ -921,7 +941,7 @@ const AdminEventFormModal = ({ event, onClose }: AdminEventFormModalProps) => {
       }
     }
 
-    if (isRecurring) {
+    if (!isEditing && isRecurring) {
       if (["weekly", "biweekly"].includes(recurrenceType) && effectiveWeeklyRecurrenceDays.length === 0) {
         adminToast.error({ id: "admin-event-recurrence-day-required", title: "Recurring weekly events require at least one day" });
         return;
@@ -1123,123 +1143,124 @@ const AdminEventFormModal = ({ event, onClose }: AdminEventFormModalProps) => {
             )}
           </CollapsibleSection>
 
-          {/* Recurrence */}
-          <CollapsibleSection title="🔁 Recurrence" icon={RefreshCw} isOpen={openSections.recurrence}
-            onToggle={() => toggleSection('recurrence')}
-            badge={isRecurring ? getRecurrenceLabel() : 'One-time'}>
-            <div className="flex items-center gap-3 p-3 rounded-xl bg-secondary/30">
-              <Switch id="recurringToggle" checked={isRecurring} onCheckedChange={setIsRecurring} />
-              <Label htmlFor="recurringToggle" className="text-sm">Recurring Event</Label>
-            </div>
+          {!isEditing && (
+            <CollapsibleSection title="🔁 Recurrence" icon={RefreshCw} isOpen={openSections.recurrence}
+              onToggle={() => toggleSection('recurrence')}
+              badge={isRecurring ? getRecurrenceLabel() : 'One-time'}>
+              <div className="flex items-center gap-3 p-3 rounded-xl bg-secondary/30">
+                <Switch id="recurringToggle" checked={isRecurring} onCheckedChange={setIsRecurring} />
+                <Label htmlFor="recurringToggle" className="text-sm">Recurring Event</Label>
+              </div>
 
-            {isRecurring && (
-              <div className="space-y-4">
-                <div className="space-y-2">
-                  <Label>Repeat</Label>
-                  <Select value={recurrenceType} onValueChange={(v) => setRecurrenceType(v as RecurrenceType)}>
-                    <SelectTrigger className="bg-secondary/50"><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="weekly">Weekly</SelectItem>
-                      <SelectItem value="biweekly">Every 2 weeks</SelectItem>
-                      <SelectItem value="monthly_day">Monthly (same date)</SelectItem>
-                      <SelectItem value="monthly_weekday">Monthly (same weekday)</SelectItem>
-                      <SelectItem value="yearly">Yearly</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                {['weekly', 'biweekly'].includes(recurrenceType) && (
+              {isRecurring && (
+                <div className="space-y-4">
                   <div className="space-y-2">
-                    <Label>On weekday</Label>
-                    <div className="flex gap-1">
-                      {DAYS_SHORT.map((d, i) => {
-                        const daySelected = effectiveWeeklyRecurrenceDays.includes(i);
-                        return (
-                          <button
-                            key={i}
-                            type="button"
-                            onClick={() => selectWeeklyRecurrenceDay(i)}
-                            aria-label={`${DAYS_FULL[i]} recurrence day ${daySelected ? "selected" : "not selected"}`}
-                            aria-pressed={daySelected}
-                            title={`Set recurrence day to ${DAYS_FULL[i]}`}
-                            className={`w-9 h-9 rounded-full text-sm font-medium transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background ${daySelected
-                              ? 'bg-primary text-primary-foreground'
-                              : 'bg-secondary/50 text-muted-foreground hover:bg-secondary'}`}
-                          >
-                            <span aria-hidden="true">{d}</span>
-                          </button>
-                        );
-                      })}
+                    <Label>Repeat</Label>
+                    <Select value={recurrenceType} onValueChange={(v) => setRecurrenceType(v as RecurrenceType)}>
+                      <SelectTrigger className="bg-secondary/50"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="weekly">Weekly</SelectItem>
+                        <SelectItem value="biweekly">Every 2 weeks</SelectItem>
+                        <SelectItem value="monthly_day">Monthly (same date)</SelectItem>
+                        <SelectItem value="monthly_weekday">Monthly (same weekday)</SelectItem>
+                        <SelectItem value="yearly">Yearly</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  {['weekly', 'biweekly'].includes(recurrenceType) && (
+                    <div className="space-y-2">
+                      <Label>On weekday</Label>
+                      <div className="flex gap-1">
+                        {DAYS_SHORT.map((d, i) => {
+                          const daySelected = effectiveWeeklyRecurrenceDays.includes(i);
+                          return (
+                            <button
+                              key={i}
+                              type="button"
+                              onClick={() => selectWeeklyRecurrenceDay(i)}
+                              aria-label={`${DAYS_FULL[i]} recurrence day ${daySelected ? "selected" : "not selected"}`}
+                              aria-pressed={daySelected}
+                              title={`Set recurrence day to ${DAYS_FULL[i]}`}
+                              className={`w-9 h-9 rounded-full text-sm font-medium transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background ${daySelected
+                                ? 'bg-primary text-primary-foreground'
+                                : 'bg-secondary/50 text-muted-foreground hover:bg-secondary'}`}
+                            >
+                              <span aria-hidden="true">{d}</span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+
+                  {['monthly_day', 'monthly_weekday', 'yearly'].includes(recurrenceType) && eventDate && (
+                    <p className="text-sm text-muted-foreground italic">{getRecurrenceLabel()}</p>
+                  )}
+
+                  <div className="space-y-2">
+                    <Label>Ends</Label>
+                    <div className="space-y-2">
+                      {(['never', 'after', 'on_date'] as RecurrenceEnd[]).map((opt) => (
+                        <label key={opt} className="flex items-center gap-3 cursor-pointer">
+                          <input type="radio" name="recurrenceEnd" value={opt}
+                            checked={recurrenceEnd === opt} onChange={() => setRecurrenceEnd(opt)}
+                            className="accent-primary" />
+                          <span className="text-sm text-foreground">
+                            {opt === 'never' && 'Never'}
+                            {opt === 'after' && (
+                              <span className="flex items-center gap-2">
+                                After
+                                <Input type="number" value={endsAfterCount} onChange={(e) => setEndsAfterCount(e.target.value)}
+                                  className="w-20 h-7 text-sm bg-secondary/50" min="1" max="100" />
+                                occurrences
+                              </span>
+                            )}
+                            {opt === 'on_date' && (
+                              <span className="flex items-center gap-2">
+                                On date
+                                <Input type="date" value={endsOnDate} min={eventDate || todayDateInput} onChange={(e) => setEndsOnDate(e.target.value)}
+                                  className="h-7 text-sm bg-secondary/50" />
+                              </span>
+                            )}
+                          </span>
+                        </label>
+                      ))}
                     </div>
                   </div>
-                )}
 
-                {['monthly_day', 'monthly_weekday', 'yearly'].includes(recurrenceType) && eventDate && (
-                  <p className="text-sm text-muted-foreground italic">{getRecurrenceLabel()}</p>
-                )}
+                  <div className="flex items-center gap-3 p-3 rounded-xl bg-secondary/30">
+                    <span className="text-sm text-muted-foreground">Generate next</span>
+                    <Input type="number" value={generateCount} onChange={(e) => setGenerateCount(parseInt(e.target.value) || 8)}
+                      className="w-20 h-8 text-sm bg-secondary/50" min="1" max="52" />
+                    <span className="text-sm text-muted-foreground">occurrences on save</span>
+                  </div>
 
-                <div className="space-y-2">
-                  <Label>Ends</Label>
-                  <div className="space-y-2">
-                    {(['never', 'after', 'on_date'] as RecurrenceEnd[]).map((opt) => (
-                      <label key={opt} className="flex items-center gap-3 cursor-pointer">
-                        <input type="radio" name="recurrenceEnd" value={opt}
-                          checked={recurrenceEnd === opt} onChange={() => setRecurrenceEnd(opt)}
-                          className="accent-primary" />
-                        <span className="text-sm text-foreground">
-                          {opt === 'never' && 'Never'}
-                          {opt === 'after' && (
-                            <span className="flex items-center gap-2">
-                              After
-                              <Input type="number" value={endsAfterCount} onChange={(e) => setEndsAfterCount(e.target.value)}
-                                className="w-20 h-7 text-sm bg-secondary/50" min="1" max="100" />
-                              occurrences
-                            </span>
-                          )}
-                          {opt === 'on_date' && (
-                            <span className="flex items-center gap-2">
-                              On date
-                              <Input type="date" value={endsOnDate} min={eventDate || todayDateInput} onChange={(e) => setEndsOnDate(e.target.value)}
-                                className="h-7 text-sm bg-secondary/50" />
-                            </span>
-                          )}
-                        </span>
-                      </label>
-                    ))}
+                  <div className="rounded-xl border border-border bg-secondary/20 p-3">
+                    <p className="text-sm font-medium text-foreground">Recurrence preview</p>
+                    {recurrencePreview.length > 0 ? (
+                      <>
+                        <ol className="mt-2 space-y-1 text-xs text-muted-foreground">
+                          {recurrencePreview.map((previewDate) => (
+                            <li key={previewDate.toISOString()}>
+                              {formatAdminUtcDateTime(previewDate)}
+                            </li>
+                          ))}
+                        </ol>
+                        <p className="mt-2 text-[11px] text-muted-foreground">
+                          Preview follows the backend recurrence cadence and is shown as stored UTC timestamps; form inputs use local admin time.
+                        </p>
+                      </>
+                    ) : (
+                      <p className="mt-2 text-xs text-muted-foreground">
+                        Add a valid date and time to preview generated occurrences.
+                      </p>
+                    )}
                   </div>
                 </div>
-
-                <div className="flex items-center gap-3 p-3 rounded-xl bg-secondary/30">
-                  <span className="text-sm text-muted-foreground">{isEditing ? "Preview next" : "Generate next"}</span>
-                  <Input type="number" value={generateCount} onChange={(e) => setGenerateCount(parseInt(e.target.value) || 8)}
-                    className="w-20 h-8 text-sm bg-secondary/50" min="1" max="52" />
-                  <span className="text-sm text-muted-foreground">{isEditing ? "occurrences" : "occurrences on save"}</span>
-                </div>
-
-                <div className="rounded-xl border border-border bg-secondary/20 p-3">
-                  <p className="text-sm font-medium text-foreground">Recurrence preview</p>
-                  {recurrencePreview.length > 0 ? (
-                    <>
-                      <ol className="mt-2 space-y-1 text-xs text-muted-foreground">
-                        {recurrencePreview.map((previewDate) => (
-                          <li key={previewDate.toISOString()}>
-                            {formatAdminUtcDateTime(previewDate)}
-                          </li>
-                        ))}
-                      </ol>
-                      <p className="mt-2 text-[11px] text-muted-foreground">
-                        Preview follows the backend recurrence cadence and is shown as stored UTC timestamps; form inputs use local admin time.
-                      </p>
-                    </>
-                  ) : (
-                    <p className="mt-2 text-xs text-muted-foreground">
-                      Add a valid date and time to preview generated occurrences.
-                    </p>
-                  )}
-                </div>
-              </div>
-            )}
-          </CollapsibleSection>
+              )}
+            </CollapsibleSection>
+          )}
 
           {/* Capacity */}
           <CollapsibleSection title="Capacity" icon={UserCircle} isOpen={openSections.capacity}

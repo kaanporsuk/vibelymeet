@@ -41,28 +41,22 @@ test("event lifecycle exposes upcoming, live, ended, and finalization metadata",
   assert.equal(live.needsFinalizationRepair, false);
 });
 
-test("stale raw ended without ended_at still follows scheduled window", () => {
-  const live = resolveEventLifecycle({
-    status: "ended",
-    event_date: start,
-    duration_minutes: durationMinutes,
-    ended_at: null,
-    nowMs: startMs + 5 * 60_000,
-  });
+test("raw ended and completed statuses are terminal even before scheduled time", () => {
+  for (const status of ["ended", "completed"]) {
+    const lifecycle = resolveEventLifecycle({
+      status,
+      event_date: start,
+      duration_minutes: durationMinutes,
+      ended_at: null,
+      nowMs: startMs - 60_000,
+    });
 
-  assert.equal(live.lifecycle, "live");
-  assert.equal(live.isLive, true);
-
-  const upcoming = resolveEventLifecycle({
-    status: "ended",
-    event_date: start,
-    duration_minutes: durationMinutes,
-    ended_at: null,
-    nowMs: startMs - 60_000,
-  });
-
-  assert.equal(upcoming.lifecycle, "upcoming");
-  assert.equal(upcoming.isLive, false);
+    assert.equal(lifecycle.lifecycle, "ended", status);
+    assert.equal(lifecycle.isEnded, true, status);
+    assert.equal(lifecycle.isLive, false, status);
+    assert.equal(lifecycle.isFinalized, false, status);
+    assert.equal(lifecycle.isInFinalizationGrace, false, status);
+  }
 });
 
 test("timezone-safe ISO/timestamptz parsing resolves the same instant", () => {

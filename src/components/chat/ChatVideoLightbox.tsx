@@ -1,9 +1,13 @@
-import { useEffect, useRef, useState, useCallback } from "react";
+import { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import { motion } from "framer-motion";
 import { Loader2, X, AlertCircle } from "lucide-react";
 import { useMediaAsset, useMediaAssetPlayback, type MediaAssetKind } from "@/hooks/useMediaAsset";
 import { usePrefersReducedMotion } from "@/hooks/usePrefersReducedMotion";
-import { refreshMediaAsset as refreshResolvedMediaAsset } from "@/lib/mediaAssetResolver";
+import {
+  getCachedMediaAssetFailureCode,
+  isTransientMediaAssetFailureCode,
+  refreshMediaAsset as refreshResolvedMediaAsset,
+} from "@/lib/mediaAssetResolver";
 import { hlsPlaybackErrorStatusCode } from "@/lib/vibeVideo/attachHlsPlayback";
 import {
   resolveMediaFallbackCopy,
@@ -24,7 +28,8 @@ type ChatVideoLightboxProps = {
 };
 
 const CLIP_PLAYBACK_LOAD_TIMEOUT_MS = 12_000;
-const MAX_LIGHTBOX_PLAYBACK_REFRESH_ATTEMPTS = 1;
+const MAX_LIGHTBOX_PLAYBACK_REFRESH_ATTEMPTS = 2;
+const PLAYBACK_REFRESH_RETRY_DELAY_MS = 650;
 
 type LightboxMediaRefreshReason = "initial" | "playback" | "manual";
 type LightboxPhase = "loading" | "ready" | "error";
@@ -35,6 +40,27 @@ function isPlayableMediaUrl(value: string): boolean {
 
 function displayablePosterUrl(value: string | null | undefined): string | null {
   return value && isPlayableMediaUrl(value) ? value : null;
+}
+
+function waitForPlaybackRefreshRetry(): Promise<void> {
+  return new Promise((resolve) => window.setTimeout(resolve, PLAYBACK_REFRESH_RETRY_DELAY_MS));
+}
+
+function uniqueDisplayablePosterUrls(
+  ...groups: Array<string | null | undefined | readonly (string | null | undefined)[]>
+): string[] {
+  const urls: string[] = [];
+  const seen = new Set<string>();
+  for (const group of groups) {
+    const values = Array.isArray(group) ? group : [group];
+    for (const value of values) {
+      const url = displayablePosterUrl(value);
+      if (!url || seen.has(url)) continue;
+      seen.add(url);
+      urls.push(url);
+    }
+  }
+  return urls;
 }
 
 function isHlsMediaUrl(value: string): boolean {
@@ -58,6 +84,9 @@ export function ChatVideoLightbox({
   const [phase, setPhase] = useState<LightboxPhase>("loading");
   const [playableVideoUrl, setPlayableVideoUrl] = useState(videoUrl);
   const [playablePosterUrl, setPlayablePosterUrl] = useState(initialPosterUrl);
+  const [extraPosterFallbackUrls, setExtraPosterFallbackUrls] = useState<string[]>([]);
+  const [posterImageBroken, setPosterImageBroken] = useState(false);
+  const [hasStartedPlayback, setHasStartedPlayback] = useState(false);
   const [fallbackReason, setFallbackReason] = useState<MediaFallbackReason | null>(null);
   const playbackRefreshAttemptCountRef = useRef(0);
   const playableVideoUrlRef = useRef(playableVideoUrl);
@@ -65,6 +94,10 @@ export function ChatVideoLightbox({
   const onCloseRef = useRef(onClose);
   const onResolvedVideoUrlRef = useRef(onResolvedVideoUrl);
   const onResolvedThumbnailUrlRef = useRef(onResolvedThumbnailUrl);
+  const playablePosterUrlRef = useRef(initialPosterUrl);
+  const posterCandidateUrlsRef = useRef<string[]>([]);
+  const posterFallbackResolveInFlightRef = useRef(false);
+  const posterFallbackResolveAttemptedForRef = useRef<string | null>(null);
   const refreshMediaRef = useRef<((reason?: LightboxMediaRefreshReason) => Promise<boolean>) | null>(null);
   const initialResolveRunIdRef = useRef(0);
   const {
@@ -81,7 +114,11 @@ export function ChatVideoLightbox({
     autoResolve: false,
     onResolvedUrl: onResolvedVideoUrl,
   });
-  const { url: posterAssetUrl, refresh: refreshPosterAsset } = useMediaAsset({
+  const {
+    url: posterAssetUrl,
+    fallbackUrls: posterFallbackUrls,
+    refresh: refreshPosterAsset,
+  } = useMediaAsset({
     kind: "thumbnail",
     messageId,
     sourceRef: thumbnailSourceRef,
@@ -113,7 +150,9 @@ export function ChatVideoLightbox({
   const isLocalUrl = /^(blob:|file:|data:)/i.test(playableVideoUrl);
   const canMountPlayer = isRemoteUrl || isLocalUrl;
   const isHlsUrl = isHlsMediaUrl(playableVideoUrl);
-  const visiblePosterUrl = displayablePosterUrl(playablePosterUrl);
+  const visiblePosterUrl = posterImageBroken ? null : displayablePosterUrl(playablePosterUrl);
+  const showPosterProbe = !!visiblePosterUrl && !hasStartedPlayback && phase !== "error";
+  const showLoadingPosterOverlay = !!visiblePosterUrl && phase === "loading";
   const visibleFallbackCopy =
     (fallbackReason ? resolveMediaFallbackCopy({ reason: fallbackReason }) : null) ??
     videoAssetFallbackCopy ??
@@ -141,6 +180,10 @@ export function ChatVideoLightbox({
 
   useEffect(() => {
     posterUrlRef.current = initialPosterUrl;
+    playablePosterUrlRef.current = initialPosterUrl;
+    setExtraPosterFallbackUrls([]);
+    setPosterImageBroken(false);
+    posterFallbackResolveAttemptedForRef.current = null;
   }, [initialPosterUrl]);
 
   useEffect(() => {
@@ -150,8 +193,78 @@ export function ChatVideoLightbox({
   }, [videoAssetUrl]);
 
   useEffect(() => {
-    setPlayablePosterUrl(displayablePosterUrl(posterAssetUrl) ?? initialPosterUrl);
+    const nextPosterUrl = displayablePosterUrl(posterAssetUrl) ?? initialPosterUrl;
+    setPlayablePosterUrl(nextPosterUrl);
+    playablePosterUrlRef.current = nextPosterUrl;
+    setPosterImageBroken(false);
   }, [initialPosterUrl, posterAssetUrl]);
+
+  const posterCandidateUrls = useMemo(
+    () => uniqueDisplayablePosterUrls(playablePosterUrl, posterFallbackUrls, extraPosterFallbackUrls),
+    [extraPosterFallbackUrls, playablePosterUrl, posterFallbackUrls],
+  );
+
+  useEffect(() => {
+    posterCandidateUrlsRef.current = posterCandidateUrls;
+  }, [posterCandidateUrls]);
+
+  const handlePosterImageError = useCallback(() => {
+    const current = playablePosterUrlRef.current;
+    const candidates = posterCandidateUrlsRef.current;
+    const currentIndex = current ? candidates.indexOf(current) : -1;
+    const next = candidates.find((candidate, index) => index > currentIndex && candidate !== current);
+    if (next) {
+      playablePosterUrlRef.current = next;
+      setPlayablePosterUrl(next);
+      setPosterImageBroken(false);
+      onResolvedThumbnailUrlRef.current?.(next);
+      return;
+    }
+    const thumbnailSource = thumbnailSourceRef;
+    if (!messageId || !thumbnailSource) {
+      setPosterImageBroken(true);
+      return;
+    }
+    const stableMessageId = messageId;
+    const stableThumbnailSource = thumbnailSource;
+    const resolveKey = `${stableMessageId}:${stableThumbnailSource}`;
+    const hasExhaustedKnownFallbacks = candidates.length > 1 && currentIndex >= candidates.length - 1;
+    if (
+      hasExhaustedKnownFallbacks ||
+      posterFallbackResolveAttemptedForRef.current === resolveKey ||
+      posterFallbackResolveInFlightRef.current
+    ) {
+      setPosterImageBroken(true);
+      return;
+    }
+    posterFallbackResolveAttemptedForRef.current = resolveKey;
+    posterFallbackResolveInFlightRef.current = true;
+    void refreshResolvedMediaAsset(stableMessageId, "thumbnail", stableThumbnailSource, {
+      bypassFailureCooldown: true,
+      suppressFailureCache: true,
+    }).then((asset) => {
+      const refreshedFallbackUrls = asset?.fallbackUrls ?? [];
+      setExtraPosterFallbackUrls(refreshedFallbackUrls.filter((url): url is string => !!displayablePosterUrl(url)));
+      const refreshedCandidates = uniqueDisplayablePosterUrls(asset?.url, refreshedFallbackUrls);
+      const refreshedCurrentIndex = current ? refreshedCandidates.indexOf(current) : -1;
+      const refreshedNext =
+        refreshedCandidates.find((candidate, index) => index > refreshedCurrentIndex && candidate !== current) ??
+        (refreshedCurrentIndex === -1 ? refreshedCandidates.find((candidate) => candidate !== current) : null) ??
+        null;
+      if (refreshedNext) {
+        playablePosterUrlRef.current = refreshedNext;
+        setPlayablePosterUrl(refreshedNext);
+        setPosterImageBroken(false);
+        onResolvedThumbnailUrlRef.current?.(refreshedNext);
+        return;
+      }
+      setPosterImageBroken(true);
+    }).catch(() => {
+      setPosterImageBroken(true);
+    }).finally(() => {
+      posterFallbackResolveInFlightRef.current = false;
+    });
+  }, [messageId, thumbnailSourceRef]);
 
   useEffect(() => {
     if (displayablePosterUrl(playablePosterUrl) || !thumbnailSourceRef) return;
@@ -159,6 +272,8 @@ export function ChatVideoLightbox({
       const displayableUrl = displayablePosterUrl(freshPosterUrl);
       if (!displayableUrl) return;
       setPlayablePosterUrl(displayableUrl);
+      playablePosterUrlRef.current = displayableUrl;
+      setPosterImageBroken(false);
       onResolvedThumbnailUrlRef.current?.(displayableUrl);
     });
   }, [playablePosterUrl, refreshPosterAsset, thumbnailSourceRef]);
@@ -167,31 +282,54 @@ export function ChatVideoLightbox({
     const currentUrl = playableVideoUrlRef.current;
     if (!messageId || !videoSourceRef) return false;
     const refreshOptions = reason === "manual" ? { bypassFailureCooldown: true } : undefined;
-    if (reason === "playback") {
-      if (playbackRefreshAttemptCountRef.current >= MAX_LIGHTBOX_PLAYBACK_REFRESH_ATTEMPTS) return false;
-      playbackRefreshAttemptCountRef.current += 1;
-    }
-    const freshVideoUrl = await refreshVideoAsset(reason, refreshOptions);
-    const freshPosterUrl = thumbnailSourceRef && (reason === "initial" || reason === "manual")
-      ? reason === "manual"
-        ? await refreshPosterAsset("manual", refreshOptions)
-        : await refreshPosterAsset("cache")
-      : null;
-    const displayableFreshPosterUrl = displayablePosterUrl(freshPosterUrl);
-    if (displayableFreshPosterUrl) {
-      setPlayablePosterUrl(displayableFreshPosterUrl);
-      onResolvedThumbnailUrlRef.current?.(displayableFreshPosterUrl);
+    let freshVideoUrl: string | null = null;
+    for (let attempt = 0; attempt < MAX_LIGHTBOX_PLAYBACK_REFRESH_ATTEMPTS; attempt += 1) {
+      if (reason === "playback") {
+        if (playbackRefreshAttemptCountRef.current >= MAX_LIGHTBOX_PLAYBACK_REFRESH_ATTEMPTS) return false;
+        playbackRefreshAttemptCountRef.current += 1;
+      }
+      const attemptOptions = attempt === 0 ? refreshOptions : { ...(refreshOptions ?? {}), bypassFailureCooldown: true };
+      let refreshRejected = false;
+      try {
+        freshVideoUrl = await refreshVideoAsset(reason, attemptOptions);
+      } catch {
+        refreshRejected = true;
+        freshVideoUrl = null;
+      }
+      if (freshVideoUrl && isPlayableMediaUrl(freshVideoUrl)) break;
+      freshVideoUrl = null;
+      const failureCode = getCachedMediaAssetFailureCode(messageId, mediaKind, videoSourceRef);
+      if (!refreshRejected && !isTransientMediaAssetFailureCode(failureCode)) return false;
+      if (attempt + 1 >= MAX_LIGHTBOX_PLAYBACK_REFRESH_ATTEMPTS) return false;
+      if (reason === "playback" && playbackRefreshAttemptCountRef.current >= MAX_LIGHTBOX_PLAYBACK_REFRESH_ATTEMPTS) {
+        return false;
+      }
+      await waitForPlaybackRefreshRetry();
     }
     if (!freshVideoUrl) return false;
-    if (!isPlayableMediaUrl(freshVideoUrl)) return false;
     if (freshVideoUrl === currentUrl) {
       videoRef.current?.load();
-      return true;
+    } else {
+      playableVideoUrlRef.current = freshVideoUrl;
+      setPlayableVideoUrl(freshVideoUrl);
+      onResolvedVideoUrlRef.current?.(freshVideoUrl);
     }
-    setPlayableVideoUrl(freshVideoUrl);
-    onResolvedVideoUrlRef.current?.(freshVideoUrl);
+    if (thumbnailSourceRef && (reason === "initial" || reason === "manual")) {
+      void (async () => {
+        const freshPosterUrl = reason === "manual"
+          ? await refreshPosterAsset("manual", refreshOptions)
+          : await refreshPosterAsset("cache");
+        const displayableFreshPosterUrl = displayablePosterUrl(freshPosterUrl);
+        if (!displayableFreshPosterUrl) return;
+        setPlayablePosterUrl(displayableFreshPosterUrl);
+        playablePosterUrlRef.current = displayableFreshPosterUrl;
+        setPosterImageBroken(false);
+        onResolvedThumbnailUrlRef.current?.(displayableFreshPosterUrl);
+      })().catch(() => {});
+    }
     return true;
   }, [
+    mediaKind,
     messageId,
     refreshPosterAsset,
     refreshVideoAsset,
@@ -209,6 +347,11 @@ export function ChatVideoLightbox({
     playableVideoUrlRef.current = videoUrl;
     setPlayableVideoUrl(videoUrl);
     setPlayablePosterUrl(posterUrlRef.current);
+    playablePosterUrlRef.current = posterUrlRef.current;
+    setExtraPosterFallbackUrls([]);
+    setPosterImageBroken(false);
+    posterFallbackResolveAttemptedForRef.current = null;
+    setHasStartedPlayback(false);
     setFallbackReason(null);
     playbackRefreshAttemptCountRef.current = 0;
     resetPhase();
@@ -262,16 +405,55 @@ export function ChatVideoLightbox({
       }
     });
   }, [isHlsUrl, refreshMedia]);
+
+  const handlePlaying = useCallback(() => {
+    setHasStartedPlayback(true);
+    revealPlayer();
+  }, [revealPlayer]);
+
+  const handleEnded = useCallback(() => {
+    setHasStartedPlayback(false);
+    revealPlayer();
+  }, [revealPlayer]);
+
+  const commitResolvedPlaybackAsset = useCallback((fresh: { url?: string | null } | null | undefined): boolean => {
+    const freshUrl = fresh?.url;
+    if (!freshUrl || !isPlayableMediaUrl(freshUrl)) return false;
+    playableVideoUrlRef.current = freshUrl;
+    setPlayableVideoUrl(freshUrl);
+    onResolvedVideoUrlRef.current?.(freshUrl);
+    return true;
+  }, []);
+
   const refreshPlaybackOnAuthError = useCallback(async () => {
     if (!messageId || !videoSourceRef) return null;
-    if (playbackRefreshAttemptCountRef.current >= MAX_LIGHTBOX_PLAYBACK_REFRESH_ATTEMPTS) return null;
-    playbackRefreshAttemptCountRef.current += 1;
-    return refreshResolvedMediaAsset(messageId, mediaKind, videoSourceRef, { bypassFailureCooldown: true });
-  }, [mediaKind, messageId, videoSourceRef]);
+    for (let attempt = 0; attempt < MAX_LIGHTBOX_PLAYBACK_REFRESH_ATTEMPTS; attempt += 1) {
+      if (playbackRefreshAttemptCountRef.current >= MAX_LIGHTBOX_PLAYBACK_REFRESH_ATTEMPTS) return null;
+      playbackRefreshAttemptCountRef.current += 1;
+      let refreshRejected = false;
+      const fresh = await refreshResolvedMediaAsset(messageId, mediaKind, videoSourceRef, {
+        bypassFailureCooldown: true,
+      }).catch(() => {
+        refreshRejected = true;
+        return null;
+      });
+      if (commitResolvedPlaybackAsset(fresh)) return fresh;
+      const failureCode = getCachedMediaAssetFailureCode(messageId, mediaKind, videoSourceRef);
+      if (!refreshRejected && !isTransientMediaAssetFailureCode(failureCode)) return null;
+      if (attempt + 1 >= MAX_LIGHTBOX_PLAYBACK_REFRESH_ATTEMPTS) return null;
+      if (playbackRefreshAttemptCountRef.current >= MAX_LIGHTBOX_PLAYBACK_REFRESH_ATTEMPTS) return null;
+      await waitForPlaybackRefreshRetry();
+    }
+    return null;
+  }, [commitResolvedPlaybackAsset, mediaKind, messageId, videoSourceRef]);
   const refreshPlaybackProactively = useCallback(async () => {
     if (!messageId || !videoSourceRef) return null;
-    return refreshResolvedMediaAsset(messageId, mediaKind, videoSourceRef, { suppressFailureCache: true });
-  }, [mediaKind, messageId, videoSourceRef]);
+    const fresh = await refreshResolvedMediaAsset(messageId, mediaKind, videoSourceRef, {
+      suppressFailureCache: true,
+    });
+    commitResolvedPlaybackAsset(fresh);
+    return fresh;
+  }, [commitResolvedPlaybackAsset, mediaKind, messageId, videoSourceRef]);
 
   useMediaAssetPlayback(videoRef, playableVideoUrl, {
     enabled: isRemoteUrl && isHlsUrl,
@@ -396,7 +578,8 @@ export function ChatVideoLightbox({
                 onLoadedMetadata={revealPlayer}
                 onLoadedData={revealPlayer}
                 onCanPlay={revealPlayer}
-                onPlaying={revealPlayer}
+                onPlaying={handlePlaying}
+                onEnded={handleEnded}
                 onError={() => {
                   if (isHlsUrl) return;
                   void refreshMedia().then((didRefresh) => {
@@ -407,12 +590,22 @@ export function ChatVideoLightbox({
             ) : (
               <div className="aspect-video max-h-[min(78dvh,800px)] w-full bg-black" />
             )}
-            {visiblePosterUrl && phase === "loading" ? (
+            {showLoadingPosterOverlay ? (
               <img
                 src={visiblePosterUrl}
                 alt=""
                 className="pointer-events-none absolute inset-0 h-full w-full object-contain"
                 draggable={false}
+              />
+            ) : null}
+            {showPosterProbe ? (
+              <img
+                src={visiblePosterUrl}
+                alt=""
+                aria-hidden
+                className="pointer-events-none absolute left-0 top-0 h-px w-px opacity-0"
+                draggable={false}
+                onError={handlePosterImageError}
               />
             ) : null}
           </div>

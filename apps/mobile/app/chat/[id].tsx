@@ -18,7 +18,6 @@ import {
   AppState,
   BackHandler,
   InteractionManager,
-  Linking,
   type AppStateStatus,
   type DimensionValue,
   type KeyboardEvent,
@@ -109,6 +108,7 @@ import { useMatchCall } from '@/lib/useMatchCall';
 import { useConnectivity } from '@/lib/useConnectivity';
 import { useReduceMotion } from '@/hooks/useReduceMotion';
 import { chatFriendlyErrorFromUnknown, isLikelyNetworkFailure } from '@/lib/networkErrorMessage';
+import { openPermissionSettings, useSettingsReturnRefresh } from '@/lib/permissionSettings';
 import { avatarUrl } from '@/lib/imageUrl';
 import { getChatPartnerActivityLine } from '@/lib/chatActivityStatus';
 import { supabase } from '@/lib/supabase';
@@ -118,7 +118,12 @@ import {
   inferChatMediaRenderKind,
   extractRenderableChatImageUrl,
 } from '@/lib/chatMessageContent';
-import { refreshMediaAssetUrl } from '@/lib/mediaAssetResolver';
+import {
+  getCachedMediaAssetFailureCode,
+  isTransientMediaAssetFailureCode,
+  refreshMediaAsset,
+  refreshMediaAssetUrl,
+} from '@/lib/mediaAssetResolver';
 import { useMediaAsset } from '@/hooks/useMediaAsset';
 import {
   resolveMediaFallbackCopy,
@@ -126,6 +131,7 @@ import {
   type MediaFallbackReason,
 } from '@clientShared/media/mediaFallbackCopy';
 import {
+  permissionUxMediaKindForRequiredGrants,
   permissionUxStatusForRequiredGrants,
   permissionUxStatusFromGrant,
   resolvePermissionUx,
@@ -377,8 +383,32 @@ function displayableChatVideoPosterUri(value: unknown): string | null {
   return /^(https?:|blob:|data:|file:)/i.test(text) ? text : null;
 }
 
+function uniqueDisplayableChatVideoPosterUris(
+  ...groups: Array<string | null | undefined | readonly (string | null | undefined)[]>
+): string[] {
+  const urls: string[] = [];
+  const seen = new Set<string>();
+  for (const group of groups) {
+    const values = Array.isArray(group) ? group : [group];
+    for (const value of values) {
+      const url = displayableChatVideoPosterUri(value);
+      if (!url || seen.has(url)) continue;
+      seen.add(url);
+      urls.push(url);
+    }
+  }
+  return urls;
+}
+
 function isChatVideoPlaybackUri(value: string | null | undefined): value is string {
   return !!value && /^(https?:|blob:|data:|file:)/i.test(value);
+}
+
+const CHAT_VIDEO_PLAYBACK_REFRESH_ATTEMPTS = 2;
+const CHAT_VIDEO_PLAYBACK_RETRY_DELAY_MS = 650;
+
+function waitForChatVideoPlaybackRefreshRetry(): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, CHAT_VIDEO_PLAYBACK_RETRY_DELAY_MS));
 }
 
 function isChatVideoHlsUri(value: string): boolean {
@@ -402,6 +432,7 @@ function displayChatVideoPosterUriForMessage(
 }
 
 const CHAT_VIDEO_POSTER_PREVIEW_RETRY_DELAYS_MS = [1000, 3000, 8000];
+const CHAT_VIDEO_POSTER_PREVIEW_TIMEOUT_MS = 3500;
 
 function bubbleMediaNeighbors(
   rows: ChatListRow[],
@@ -808,6 +839,7 @@ function ChatVideoCard(props: ChatVideoCardProps) {
   const initialPlaybackResolveRunIdRef = useRef(0);
   const posterRetryStateRef = useRef<{ key: string; attempts: number }>({ key: '', attempts: 0 });
   const posterNotReadyRef = useRef(false);
+  const posterCandidateUrisRef = useRef<string[]>([]);
   const handleResolvedThumbnailUri = useCallback((resolvedUri: string) => {
     const displayableUri = displayableChatVideoPosterUri(resolvedUri);
     if (displayableUri) onResolvedThumbnailUri?.(displayableUri);
@@ -820,7 +852,11 @@ function ChatVideoCard(props: ChatVideoCardProps) {
     autoResolve: false,
     onResolvedUrl: onResolvedUri,
   });
-  const { url: thumbnailAssetUri, refresh: refreshThumbnailAsset } = useMediaAsset({
+  const {
+    url: thumbnailAssetUri,
+    fallbackUrls: thumbnailFallbackUris,
+    refresh: refreshThumbnailAsset,
+  } = useMediaAsset({
     kind: 'thumbnail',
     messageId,
     sourceRef: thumbnailSourceRef,
@@ -833,6 +869,7 @@ function ChatVideoCard(props: ChatVideoCardProps) {
     displayableChatVideoPosterUri(thumbnailUri),
   );
   const [posterImageBroken, setPosterImageBroken] = useState(false);
+  const [posterImageState, setPosterImageState] = useState<'unknown' | 'ready' | 'failed'>('unknown');
 
   useEffect(() => () => {
     isMountedRef.current = false;
@@ -855,6 +892,7 @@ function ChatVideoCard(props: ChatVideoCardProps) {
   useEffect(() => {
     setPlayablePosterUri(displayableChatVideoPosterUri(thumbnailUri));
     setPosterImageBroken(false);
+    setPosterImageState('unknown');
     posterRetryStateRef.current = { key: '', attempts: 0 };
   }, [thumbnailSourceRef, thumbnailUri]);
 
@@ -863,7 +901,33 @@ function ChatVideoCard(props: ChatVideoCardProps) {
     if (!next) return;
     setPlayablePosterUri((current) => (current === next ? current : next));
     setPosterImageBroken(false);
+    setPosterImageState('unknown');
   }, [thumbnailAssetUri]);
+
+  const posterCandidateUris = useMemo(
+    () => uniqueDisplayableChatVideoPosterUris(playablePosterUri, thumbnailFallbackUris),
+    [playablePosterUri, thumbnailFallbackUris],
+  );
+  useEffect(() => {
+    posterCandidateUrisRef.current = posterCandidateUris;
+  }, [posterCandidateUris]);
+
+  const handlePosterLoadError = useCallback(() => {
+    const currentPosterUri = displayableChatVideoPosterUri(playablePosterUri);
+    const candidates = posterCandidateUrisRef.current;
+    const currentIndex = currentPosterUri ? candidates.indexOf(currentPosterUri) : -1;
+    const startIndex = currentIndex >= 0 ? currentIndex + 1 : 0;
+    const nextPosterUri = candidates.slice(startIndex).find((candidate) => candidate !== currentPosterUri) ?? null;
+    if (nextPosterUri) {
+      setPlayablePosterUri(nextPosterUri);
+      setPosterImageBroken(false);
+      setPosterImageState('unknown');
+      onResolvedThumbnailUri?.(nextPosterUri);
+      return;
+    }
+    setPosterImageBroken(true);
+    setPosterImageState('failed');
+  }, [onResolvedThumbnailUri, playablePosterUri]);
 
   const refreshMediaUri = useCallback(async (
     reason: ChatVideoMediaRefreshReason = 'playback',
@@ -871,9 +935,25 @@ function ChatVideoCard(props: ChatVideoCardProps) {
   ): Promise<boolean> => {
     if (!messageId || !sourceRef) return false;
     if (reason === 'playback' && refreshAttemptedForUriRef.current === playableUri) return false;
-    const freshUri = await refreshMediaAsset(reason, options);
+    const mediaAssetKind = mediaKind ?? 'video';
+    let freshUri: string | null = null;
+    for (let attempt = 0; attempt < CHAT_VIDEO_PLAYBACK_REFRESH_ATTEMPTS; attempt += 1) {
+      const attemptOptions = attempt === 0 ? options : { ...(options ?? {}), bypassFailureCooldown: true };
+      let refreshRejected = false;
+      try {
+        freshUri = await refreshMediaAsset(reason, attemptOptions);
+      } catch {
+        refreshRejected = true;
+        freshUri = null;
+      }
+      if (isChatVideoPlaybackUri(freshUri)) break;
+      freshUri = null;
+      const failureCode = getCachedMediaAssetFailureCode(messageId, mediaAssetKind, sourceRef);
+      if (!refreshRejected && !isTransientMediaAssetFailureCode(failureCode)) return false;
+      if (attempt + 1 >= CHAT_VIDEO_PLAYBACK_REFRESH_ATTEMPTS) return false;
+      await waitForChatVideoPlaybackRefreshRetry();
+    }
     if (!freshUri) return false;
-    if (!isChatVideoPlaybackUri(freshUri)) return false;
     if (freshUri === playableUri) {
       if (reason === 'playback') refreshAttemptedForUriRef.current = playableUri;
       setRetryNonce((n) => n + 1);
@@ -883,7 +963,7 @@ function ChatVideoCard(props: ChatVideoCardProps) {
     setPlayableUri(freshUri);
     onResolvedUri?.(freshUri);
     return true;
-  }, [messageId, onResolvedUri, playableUri, refreshMediaAsset, sourceRef]);
+  }, [mediaKind, messageId, onResolvedUri, playableUri, refreshMediaAsset, sourceRef]);
 
   const refreshPosterUri = useCallback(async (): Promise<string | null> => {
     if (!messageId || !thumbnailSourceRef) return null;
@@ -895,17 +975,30 @@ function ChatVideoCard(props: ChatVideoCardProps) {
     if (!displayableFreshUri) return null;
     setPlayablePosterUri(displayableFreshUri);
     setPosterImageBroken(false);
+    setPosterImageState('unknown');
     onResolvedThumbnailUri?.(displayableFreshUri);
     return displayableFreshUri;
   }, [messageId, onResolvedThumbnailUri, refreshThumbnailAsset, thumbnailSourceRef]);
 
   const posterNotReady =
     !!thumbnailSourceRef &&
-    (!playablePosterUri || !displayableChatVideoPosterUri(playablePosterUri) || posterImageBroken);
+    (!playablePosterUri ||
+      !displayableChatVideoPosterUri(playablePosterUri) ||
+      posterImageBroken ||
+      posterImageState === 'failed');
 
   useEffect(() => {
     posterNotReadyRef.current = posterNotReady;
   }, [posterNotReady]);
+
+  useEffect(() => {
+    const currentPosterUri = displayableChatVideoPosterUri(playablePosterUri);
+    if (!messageId || !thumbnailSourceRef || !currentPosterUri || posterImageState !== 'unknown') return;
+    const timeout = setTimeout(() => {
+      handlePosterLoadError();
+    }, CHAT_VIDEO_POSTER_PREVIEW_TIMEOUT_MS);
+    return () => clearTimeout(timeout);
+  }, [handlePosterLoadError, messageId, playablePosterUri, posterImageState, thumbnailSourceRef]);
 
   useEffect(() => {
     if (!messageId || !thumbnailSourceRef || !posterNotReady) return;
@@ -979,7 +1072,8 @@ function ChatVideoCard(props: ChatVideoCardProps) {
       {...props}
       uri={playableUri}
       posterUri={displayableChatVideoPosterUri(playablePosterUri)}
-      onPosterLoadError={() => setPosterImageBroken(true)}
+      onPosterLoad={() => setPosterImageState('ready')}
+      onPosterLoadError={handlePosterLoadError}
       onRefreshMediaUri={refreshMediaUri}
       onRemountPlayer={() => setRetryNonce((n) => n + 1)}
       onRequestInlinePlay={requestInlinePlay}
@@ -1002,6 +1096,7 @@ function ChatVideoCardBody({
   immersiveActive,
   threadVisualRecede = false,
   onPosterLoadError,
+  onPosterLoad,
   onRefreshMediaUri,
   onRemountPlayer,
   onRequestInlinePlay,
@@ -1013,6 +1108,7 @@ function ChatVideoCardBody({
 }: ChatVideoCardProps & {
   posterUri?: string | null;
   onPosterLoadError?: () => void;
+  onPosterLoad?: () => void;
   onRefreshMediaUri: (
     reason?: ChatVideoMediaRefreshReason,
     options?: { bypassFailureCooldown?: boolean },
@@ -1180,6 +1276,7 @@ function ChatVideoCardBody({
             contentFit="cover"
             transition={120}
             pointerEvents="none"
+            onLoad={onPosterLoad}
             onError={onPosterLoadError}
           />
         ) : null}
@@ -1367,11 +1464,13 @@ function NativeVibeClipCameraModal({
     unavailableReason: captionUnavailableReason,
   } = useNativeCaptionCapture('native_chat_vibe_clip_recorder');
   const permissionStatus: PermissionUxStatus = permissionUxStatusForRequiredGrants([camPermission, micPermission]);
+  const permissionMediaKind = permissionUxMediaKindForRequiredGrants(camPermission, micPermission);
   const hasPermission = permissionStatus === 'granted';
   const permissionCopy = resolvePermissionUx({
     capability: 'chat_vibe_clip',
     status: permissionStatus,
     platform: Platform.OS === 'ios' ? 'ios' : Platform.OS === 'android' ? 'android' : 'native',
+    mediaKind: permissionMediaKind,
   });
 
   const reset = useCallback(() => {
@@ -1394,25 +1493,26 @@ function NativeVibeClipCameraModal({
     await Promise.allSettled([getCamPermission(), getMicPermission()]);
   }, [getCamPermission, getMicPermission]);
 
-  useEffect(() => {
-    if (!visible) return undefined;
-    const sub = AppState.addEventListener('change', (nextState) => {
-      if (nextState !== 'active' || !settingsOpenedRef.current) return;
-      settingsOpenedRef.current = false;
-      void refreshPermissions();
-    });
-    return () => sub.remove();
-  }, [refreshPermissions, visible]);
+  useSettingsReturnRefresh({
+    enabled: visible,
+    wasOpenedRef: settingsOpenedRef,
+    refresh: refreshPermissions,
+    source: 'native_chat_vibe_clip',
+  });
 
   const requestPermissions = useCallback(async () => {
     if (permissionStatus === 'blocked_settings') {
       settingsOpenedRef.current = true;
-      await Linking.openSettings();
+      const opened = await openPermissionSettings('native_chat_vibe_clip');
+      if (!opened) {
+        settingsOpenedRef.current = false;
+        await refreshPermissions();
+      }
       return;
     }
     await requestCamPermission();
     await requestMicPermission();
-  }, [permissionStatus, requestCamPermission, requestMicPermission]);
+  }, [permissionStatus, refreshPermissions, requestCamPermission, requestMicPermission]);
 
   const startRecording = useCallback(async () => {
     if (!hasPermission || !cameraRef.current || stage !== 'idle' || disabled) return;
@@ -2143,21 +2243,76 @@ export default function ChatThreadScreen() {
     (message: ThreadMessage): string | null => videoUriOverridesById[message.id] ?? message.video_url ?? null,
     [videoUriOverridesById],
   );
-  const refreshVideoViewerMedia = useCallback(async () => {
-    if (!videoViewer?.messageId || !videoViewer.sourceRef) return null;
-    const freshUri = await refreshMediaAssetUrl(
-      videoViewer.messageId,
-      videoViewer.mediaKind ?? 'video',
-      videoViewer.sourceRef,
-    );
-    const freshPosterUri = videoViewer.thumbnailSourceRef
-      ? await refreshMediaAssetUrl(videoViewer.messageId, 'thumbnail', videoViewer.thumbnailSourceRef)
-      : null;
-    const displayableFreshPosterUri = displayableChatVideoPosterUri(freshPosterUri);
-    if (displayableFreshPosterUri) rememberResolvedThumbnailUri(videoViewer.messageId, displayableFreshPosterUri);
-    if (freshUri) rememberResolvedVideoUri(videoViewer.messageId, freshUri);
-    return { uri: freshUri, posterUri: displayableFreshPosterUri };
-  }, [rememberResolvedThumbnailUri, rememberResolvedVideoUri, videoViewer]);
+  const refreshVideoViewerMedia = useCallback(async (reason: 'playback' | 'poster' | 'manual' = 'playback') => {
+    const currentViewer = videoViewer;
+    if (!currentViewer?.messageId) return null;
+    const messageId = currentViewer.messageId;
+    const refreshPoster = async (): Promise<{ posterUri: string | null; posterFallbackUris: string[] }> => {
+      if (!currentViewer.thumbnailSourceRef) return { posterUri: null, posterFallbackUris: [] };
+      const freshPosterAsset = await refreshMediaAsset(
+        messageId,
+        'thumbnail',
+        currentViewer.thumbnailSourceRef,
+        reason === 'manual' ? { bypassFailureCooldown: true } : undefined,
+      );
+      const currentPosterUri =
+        displayableChatVideoPosterUri(thumbnailUriOverridesById[messageId]) ??
+        displayableChatVideoPosterUri(currentViewer.poster);
+      const posterCandidates = uniqueDisplayableChatVideoPosterUris(
+        freshPosterAsset?.url,
+        freshPosterAsset?.fallbackUrls ?? [],
+      );
+      const posterFallbackUris = uniqueDisplayableChatVideoPosterUris(freshPosterAsset?.fallbackUrls ?? []);
+      const preferredPosterCandidates =
+        reason === 'poster' && currentPosterUri
+          ? [
+              ...posterFallbackUris.filter((candidate) => candidate !== currentPosterUri),
+              ...posterCandidates,
+            ]
+          : posterCandidates;
+      const nextPosterUri =
+        preferredPosterCandidates.find((candidate) => candidate !== currentPosterUri) ??
+        preferredPosterCandidates[0] ??
+        null;
+      const displayableFreshPosterUri = displayableChatVideoPosterUri(nextPosterUri);
+      if (displayableFreshPosterUri) {
+        rememberResolvedThumbnailUri(messageId, displayableFreshPosterUri);
+      }
+      return { posterUri: displayableFreshPosterUri, posterFallbackUris };
+    };
+    if (reason === 'poster') {
+      const poster = await refreshPoster();
+      return { uri: null, posterUri: poster.posterUri, posterFallbackUris: poster.posterFallbackUris };
+    }
+    if (!currentViewer.sourceRef) return null;
+    const mediaKind = currentViewer.mediaKind ?? 'video';
+    let freshUri: string | null = null;
+    for (let attempt = 0; attempt < CHAT_VIDEO_PLAYBACK_REFRESH_ATTEMPTS; attempt += 1) {
+      const refreshOptions =
+        reason === 'manual' || attempt > 0 ? { bypassFailureCooldown: true } : undefined;
+      let refreshRejected = false;
+      try {
+        freshUri = await refreshMediaAssetUrl(
+          currentViewer.messageId,
+          mediaKind,
+          currentViewer.sourceRef,
+          refreshOptions,
+        );
+      } catch {
+        refreshRejected = true;
+        freshUri = null;
+      }
+      if (isChatVideoPlaybackUri(freshUri)) break;
+      freshUri = null;
+      const failureCode = getCachedMediaAssetFailureCode(currentViewer.messageId, mediaKind, currentViewer.sourceRef);
+      if (!refreshRejected && !isTransientMediaAssetFailureCode(failureCode)) return null;
+      if (attempt + 1 >= CHAT_VIDEO_PLAYBACK_REFRESH_ATTEMPTS) return null;
+      await waitForChatVideoPlaybackRefreshRetry();
+    }
+    if (freshUri) rememberResolvedVideoUri(currentViewer.messageId, freshUri);
+    void refreshPoster().catch(() => {});
+    return { uri: freshUri, posterUri: null };
+  }, [rememberResolvedThumbnailUri, rememberResolvedVideoUri, thumbnailUriOverridesById, videoViewer]);
 
   const threadInvalidateScope = useMemo((): ThreadInvalidateScope | undefined => {
     if (!otherUserId || !user?.id) return undefined;
@@ -2992,7 +3147,7 @@ export default function ChatThreadScreen() {
             label: copy.primaryLabel,
             onPress: () => {
               if (copy.primaryAction === 'open_settings') {
-                void Linking.openSettings();
+                void openPermissionSettings('native_chat_voice_message');
                 return;
               }
               void startVoiceRecording();
@@ -3067,7 +3222,7 @@ export default function ChatThreadScreen() {
           title: copy.title,
           message: copy.message,
           variant: 'info',
-          primaryAction: { label: copy.primaryLabel, onPress: () => void Linking.openSettings() },
+          primaryAction: { label: copy.primaryLabel, onPress: () => void openPermissionSettings('native_chat_voice_message_error') },
           secondaryAction: { label: 'Not now', onPress: () => {} },
         });
         return;
@@ -3260,7 +3415,7 @@ export default function ChatThreadScreen() {
           message: isPermissionError ? VIBE_CLIP_PERM_LIBRARY_MESSAGE : msg,
           variant: isPermissionError ? 'info' : 'warning',
           primaryAction: isPermissionError
-            ? { label: 'Open Settings', onPress: () => void Linking.openSettings() }
+            ? { label: 'Open Settings', onPress: () => void openPermissionSettings('native_chat_video_library') }
             : { label: 'OK', onPress: () => {} },
           secondaryAction: isPermissionError ? { label: 'Not now', onPress: () => {} } : undefined,
         });
@@ -3464,7 +3619,7 @@ export default function ChatThreadScreen() {
           message: isPermissionError ? 'Photo access is off for Vibely. Re-enable it in Settings, or choose a file if available.' : msg,
           variant: isPermissionError ? 'info' : 'warning',
           primaryAction: isPermissionError
-            ? { label: 'Open Settings', onPress: () => void Linking.openSettings() }
+            ? { label: 'Open Settings', onPress: () => void openPermissionSettings('native_chat_photo_library') }
             : { label: 'OK', onPress: () => {} },
           secondaryAction: isPermissionError ? { label: 'Not now', onPress: () => {} } : undefined,
         });
@@ -3494,7 +3649,7 @@ export default function ChatThreadScreen() {
             label: copy.primaryLabel,
             onPress: () => {
               if (copy.primaryAction === 'open_settings') {
-                void Linking.openSettings();
+                void openPermissionSettings('native_chat_photo_camera');
                 return;
               }
               void openPhotoCameraModal();

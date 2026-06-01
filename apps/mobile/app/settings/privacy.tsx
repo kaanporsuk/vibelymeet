@@ -10,7 +10,6 @@ import {
   StyleSheet,
   ActivityIndicator,
   Modal,
-  Linking,
   Switch,
 } from 'react-native';
 import { router } from 'expo-router';
@@ -57,6 +56,7 @@ import {
   saveNativeAnalyticsConsent,
   type NativeAnalyticsConsentState,
 } from '@/lib/analyticsConsent';
+import { openPermissionSettings } from '@/lib/permissionSettings';
 
 const CYAN = '#22D3EE';
 const AMBER = '#F59E0B';
@@ -948,7 +948,7 @@ export default function PrivacySettingsScreen() {
                 iconColor={theme.mutedForeground}
                 label="Camera"
                 description="Used for profile photos and video dates"
-                onPress={() => Linking.openSettings()}
+                onPress={() => void openPermissionSettings('privacy_camera')}
                 right={
                   <View style={styles.rowRight}>
                     <Text style={{ color: permLabel(camStatus).ok ? theme.success : theme.danger, fontSize: 12, fontWeight: '600' }}>
@@ -965,7 +965,7 @@ export default function PrivacySettingsScreen() {
                 iconColor={theme.mutedForeground}
                 label="Microphone"
                 description="Used for video dates and voice"
-                onPress={() => Linking.openSettings()}
+                onPress={() => void openPermissionSettings('privacy_microphone')}
                 right={
                   <View style={styles.rowRight}>
                     <Text style={{ color: micPermLabel(micStatus).color, fontSize: 12, fontWeight: '600' }}>
@@ -982,7 +982,7 @@ export default function PrivacySettingsScreen() {
                 iconColor={theme.mutedForeground}
                 label="Photos"
                 description="Used to pick profile photos"
-                onPress={() => Linking.openSettings()}
+                onPress={() => void openPermissionSettings('privacy_photos')}
                 right={
                   <View style={styles.rowRight}>
                     <Text style={{ color: permLabel(libStatus).ok ? theme.success : theme.danger, fontSize: 12, fontWeight: '600' }}>

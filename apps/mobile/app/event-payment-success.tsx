@@ -30,15 +30,25 @@ export default function EventPaymentSuccessScreen() {
 
   const [eventTitle, setEventTitle] = useState<string | null>(null);
   const [eventRowStatus, setEventRowStatus] = useState<string | null>(null);
+  const [eventRowClosed, setEventRowClosed] = useState(false);
   const [paymentStatus, setPaymentStatus] = useState<EventTicketPaymentStatus | null>(null);
 
   useEffect(() => {
     if (!id) return;
     (async () => {
-      const { data } = await supabase.from('events').select('title, status').eq('id', id).maybeSingle();
+      const { data } = await supabase.from('events').select('title, status, archived_at, ended_at').eq('id', id).maybeSingle();
       if (data) {
         setEventTitle(typeof data.title === 'string' ? data.title : null);
-        setEventRowStatus(typeof data.status === 'string' ? data.status : null);
+        const status = typeof data.status === 'string' ? data.status.toLowerCase() : '';
+        setEventRowStatus(status || null);
+        setEventRowClosed(
+          Boolean(data.archived_at) ||
+            Boolean(data.ended_at) ||
+            status === 'draft' ||
+            status === 'archived' ||
+            status === 'ended' ||
+            status === 'completed'
+        );
       }
     })();
     void queryClient.invalidateQueries({ queryKey: ['event-registration-check', id] });
@@ -81,18 +91,28 @@ export default function EventPaymentSuccessScreen() {
   }, [id, user?.id]);
 
   const isEventCancelled = eventRowStatus === 'cancelled';
-  const viewState = resolveEventTicketPaymentViewState(paymentStatus, isEventCancelled);
+  const admissionStatus = paymentStatus?.admissionStatus ?? paymentStatus?.settlement?.admissionStatus ?? null;
+  const hasAdmission = admissionStatus === 'confirmed' || admissionStatus === 'waitlisted';
+  const paymentClosedWithoutAdmission = paymentStatus?.settlement?.code === 'EVENT_CLOSED' && !hasAdmission;
+  const isEventUnavailable = isEventCancelled || eventRowClosed || paymentClosedWithoutAdmission;
+  const viewState = resolveEventTicketPaymentViewState(paymentStatus, isEventUnavailable);
   const copy = eventTicketPaymentSuccessCopy(viewState);
   const { headline, subline } = copy;
+  const showViewEventAction = Boolean(
+    id &&
+      copy.showViewEventAction &&
+      !eventRowClosed &&
+      !paymentClosedWithoutAdmission
+  );
 
-  const iconBg = isEventCancelled ? withAlpha(theme.danger, 0.15) : 'hsla(263, 70%, 66%, 0.15)';
-  const iconColor = isEventCancelled ? theme.danger : theme.tint;
+  const iconBg = isEventUnavailable ? withAlpha(theme.danger, 0.15) : 'hsla(263, 70%, 66%, 0.15)';
+  const iconColor = isEventUnavailable ? theme.danger : theme.tint;
 
   return (
     <View style={[styles.container, { backgroundColor: theme.background, paddingTop: insets.top }]}>
       <View style={styles.content}>
         <View style={[styles.iconWrap, { backgroundColor: iconBg }]}>
-          <Ionicons name={isEventCancelled ? 'alert-circle-outline' : 'calendar-outline'} size={56} color={iconColor} />
+          <Ionicons name={isEventUnavailable ? 'alert-circle-outline' : 'calendar-outline'} size={56} color={iconColor} />
         </View>
         <Text style={[styles.title, { color: theme.text }]}>{headline}</Text>
         {eventTitle ? (
@@ -101,7 +121,7 @@ export default function EventPaymentSuccessScreen() {
           </Text>
         ) : null}
         <Text style={[styles.body, { color: theme.mutedForeground }]}>{subline}</Text>
-        {id && copy.showViewEventAction ? (
+        {showViewEventAction ? (
           <VibelyButton
             label="View Event"
             variant="gradient"

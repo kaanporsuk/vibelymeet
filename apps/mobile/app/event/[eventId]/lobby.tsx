@@ -1917,7 +1917,7 @@ export default function EventLobbyScreen() {
         (payload) => {
           const row = payload.new as { status?: string | null; archived_at?: string | null; ended_at?: string | null };
           const status = (row.status ?? '').toLowerCase();
-          if (row.ended_at) setShowEventEndedModal(true);
+          if (row.ended_at || status === 'ended' || status === 'completed') setShowEventEndedModal(true);
           if (status === 'cancelled' || status === 'archived' || status === 'draft' || row.archived_at) {
             show({
               title: status === 'cancelled' ? 'This event was cancelled' : 'This event is not available',
@@ -2144,6 +2144,7 @@ export default function EventLobbyScreen() {
     const viewerId = user.id;
     const targetId = current.id;
     const key = `${eventId}:${viewerId}:${targetId}`;
+    const visibleDeckMarkAttempts = visibleDeckMarkAttemptsRef.current;
     let cancelled = false;
     let retryTimer: ReturnType<typeof setTimeout> | null = null;
     let retryCount = 0;
@@ -2159,10 +2160,10 @@ export default function EventLobbyScreen() {
     function markVisible() {
       if (cancelled) return;
       if (visibleDeckCardsRef.current.has(key)) return;
-      if (visibleDeckMarkAttemptsRef.current.has(key)) return;
+      if (visibleDeckMarkAttempts.has(key)) return;
       const attemptId = ++visibleDeckMarkAttemptSeqRef.current;
       activeAttemptId = attemptId;
-      visibleDeckMarkAttemptsRef.current.set(key, attemptId);
+      visibleDeckMarkAttempts.set(key, attemptId);
 
       void (async () => {
         try {
@@ -2173,8 +2174,8 @@ export default function EventLobbyScreen() {
           } as never);
           const result = data as { ok?: boolean; error?: string } | null;
           if (error || result?.ok === false) {
-            if (visibleDeckMarkAttemptsRef.current.get(key) === attemptId) {
-              visibleDeckMarkAttemptsRef.current.delete(key);
+            if (visibleDeckMarkAttempts.get(key) === attemptId) {
+              visibleDeckMarkAttempts.delete(key);
             }
             if (__DEV__) {
               console.warn('[lobby] top-card visible mark failed:', error?.message ?? result?.error ?? 'rpc_returned_not_ok');
@@ -2183,12 +2184,12 @@ export default function EventLobbyScreen() {
             return;
           }
           visibleDeckCardsRef.current.add(key);
-          if (visibleDeckMarkAttemptsRef.current.get(key) === attemptId) {
-            visibleDeckMarkAttemptsRef.current.delete(key);
+          if (visibleDeckMarkAttempts.get(key) === attemptId) {
+            visibleDeckMarkAttempts.delete(key);
           }
         } catch (err) {
-          if (visibleDeckMarkAttemptsRef.current.get(key) === attemptId) {
-            visibleDeckMarkAttemptsRef.current.delete(key);
+          if (visibleDeckMarkAttempts.get(key) === attemptId) {
+            visibleDeckMarkAttempts.delete(key);
           }
           if (__DEV__) console.warn('[lobby] top-card visible mark failed:', err);
           scheduleRetry();
@@ -2203,9 +2204,9 @@ export default function EventLobbyScreen() {
       if (retryTimer) clearTimeout(retryTimer);
       if (
         activeAttemptId != null &&
-        visibleDeckMarkAttemptsRef.current.get(key) === activeAttemptId
+        visibleDeckMarkAttempts.get(key) === activeAttemptId
       ) {
-        visibleDeckMarkAttemptsRef.current.delete(key);
+        visibleDeckMarkAttempts.delete(key);
       }
     };
   }, [

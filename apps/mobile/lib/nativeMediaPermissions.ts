@@ -5,7 +5,10 @@ import {
   mediaPermissionResultForStatus,
   type MediaPermissionResult,
 } from '@clientShared/media/mediaPermissionResult';
-import { permissionUxStatusFromGrant } from '@clientShared/permissions/permissionUx';
+import {
+  permissionUxMediaKindForRequiredGrants,
+  permissionUxStatusFromGrant,
+} from '@clientShared/permissions/permissionUx';
 import type { NativeReadyGatePermissionDiagnosticState } from '@/lib/readyGateNativeMediaDiagnostics';
 
 type NativePermissionSourceConfig = {
@@ -61,9 +64,13 @@ function permissionResult(
     microphoneUxStatus === 'limited';
   const permissionState =
     cameraStatus === 'undetermined' || microphoneStatus === 'undetermined' ? 'prompt' : 'denied';
+  const kind = permissionUxMediaKindForRequiredGrants(
+    { status: cameraStatus, canAskAgain: cameraCanAskAgain },
+    { status: microphoneStatus, canAskAgain: microphoneCanAskAgain },
+  );
   return mediaPermissionResultForStatus({
     status: isSettingsOnly ? 'blocked_settings' : 'denied_retryable',
-    kind: 'camera_microphone',
+    kind,
     permissionState,
     rawErrorName: 'native_media_permission_denied',
     rawErrorMessage: `camera=${cameraStatus}; microphone=${microphoneStatus}`,

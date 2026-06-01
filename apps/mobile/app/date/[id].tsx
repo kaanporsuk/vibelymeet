@@ -18,7 +18,6 @@ import {
   Dimensions,
   AppState,
   Alert,
-  Linking,
   Easing,
   AccessibilityInfo,
   type LayoutChangeEvent,
@@ -34,6 +33,7 @@ import { DailyMediaView } from '@daily-co/react-native-daily-js';
 import type { DailyParticipant } from '@daily-co/react-native-daily-js';
 import { useAuth } from '@/context/AuthContext';
 import { useFeatureFlag } from '@/hooks/useFeatureFlag';
+import { openPermissionSettings } from '@/lib/permissionSettings';
 import {
   useVideoDateSession,
   getDailyRoomTokenWithTimeout,
@@ -9161,7 +9161,12 @@ export default function VideoDateScreen() {
                   onPress={() => {
                     if (permissionRecoveryAction === 'open_settings') {
                       permissionSettingsOpenedRef.current = true;
-                      void Linking.openSettings();
+                      void openPermissionSettings('video_date_initial_connect').then((opened) => {
+                        if (!opened) {
+                          permissionSettingsOpenedRef.current = false;
+                          void handleRetryInitialConnect();
+                        }
+                      });
                       return;
                     }
                     void handleRetryInitialConnect();

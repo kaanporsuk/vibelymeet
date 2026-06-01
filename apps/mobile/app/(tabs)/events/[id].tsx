@@ -71,14 +71,27 @@ const CHECKOUT_RETURN_ORIGIN = (
 function getUnavailableEventState(event: EventDetailsRow | null | undefined) {
   const status = (event?.status ?? '').toLowerCase();
   const isCancelled = status === 'cancelled';
-  const isUnavailable = isCancelled || status === 'draft' || status === 'archived' || Boolean(event?.archived_at);
+  const isTerminal = status === 'ended' || status === 'completed' || Boolean(event?.ended_at);
+  const isUnavailable =
+    isCancelled ||
+    isTerminal ||
+    status === 'draft' ||
+    status === 'archived' ||
+    Boolean(event?.archived_at);
   return {
     isCancelled,
+    isTerminal,
     isUnavailable,
-    title: isCancelled ? 'This event was cancelled' : 'This event is not available',
+    title: isCancelled
+      ? 'This event was cancelled'
+      : isTerminal
+        ? 'This event has ended'
+        : 'This event is not available',
     message: isCancelled
       ? 'Registration and lobby access are closed.'
-      : 'Registration and lobby access are closed while this event is not published.',
+      : isTerminal
+        ? 'Registration and lobby access are closed for this event.'
+        : 'Registration and lobby access are closed while this event is not published.',
   };
 }
 
@@ -551,7 +564,8 @@ export default function EventDetailScreen() {
         .eq('parent_event_id', parentEventIdForSeries!)
         .gt('event_date', currentEventDateIso!)
         .is('archived_at', null)
-        .not('status', 'in', '(draft,cancelled,archived)')
+        .is('ended_at', null)
+        .not('status', 'in', '(draft,cancelled,archived,ended,completed)')
         .order('event_date', { ascending: true })
         .limit(1)
         .maybeSingle();

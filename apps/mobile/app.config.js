@@ -43,8 +43,8 @@ module.exports = () => {
   ensurePlugin(plugins, [
     'expo-speech-recognition',
     {
-      microphonePermission: 'Vibely uses your microphone to create optional captions while you record clips.',
-      speechRecognitionPermission: 'Vibely uses speech recognition to create optional captions for your clips.',
+      microphonePermission: 'Vibely uses your microphone when you choose optional speech captions while recording clips.',
+      speechRecognitionPermission: 'Vibely uses speech recognition only when you choose optional captions for clips.',
       androidSpeechServicePackages: ['com.google.android.googlequicksearchbox', 'com.google.android.as'],
     },
   ]);
@@ -65,7 +65,7 @@ module.exports = () => {
     'expo-location',
     {
       locationWhenInUsePermission:
-        'Vibely uses your location while the app is open to show nearby events and people.',
+        'Vibely uses your location while the app is open, when you choose location features, to show nearby events and people.',
     },
   ]);
   return {

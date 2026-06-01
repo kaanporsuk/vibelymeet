@@ -125,7 +125,12 @@ Deno.serve(async (req) => {
     }
 
     const status = typeof eventData.status === 'string' ? eventData.status.toLowerCase() : null
-    const closedByStatus = status === 'draft' || status === 'cancelled' || status === 'archived'
+    const closedByStatus =
+      status === 'draft' ||
+      status === 'cancelled' ||
+      status === 'archived' ||
+      status === 'ended' ||
+      status === 'completed'
     if (eventData.archived_at || eventData.ended_at || closedByStatus || eventIsClosedBySchedule(eventData.event_date, eventData.duration_minutes)) {
       return jsonResponse(req, { success: false, error: 'Event is no longer available' }, { status: 409 })
     }

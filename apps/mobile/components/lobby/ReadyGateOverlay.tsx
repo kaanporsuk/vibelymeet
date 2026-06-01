@@ -13,7 +13,6 @@ import {
   Image,
   ActivityIndicator,
   AppState,
-  Linking,
   type AppStateStatus,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -86,6 +85,7 @@ import {
   resolveReadyGatePrepareEntryFailureCopy,
   type ReadyGateDiagnosticCopy,
 } from '@clientShared/matching/readyGateDiagnosticCopy';
+import { openPermissionSettings, useSettingsReturnRefresh } from '@/lib/permissionSettings';
 
 const RING_SIZE = 88;
 const STROKE = 4;
@@ -162,6 +162,7 @@ export function ReadyGateOverlay({
   const invalidSessionNotifiedRef = useRef(false);
   const rgImpressionRef = useRef(false);
   const permissionBlockedRef = useRef(false);
+  const permissionSettingsOpenedRef = useRef(false);
   const openingPartnerWaitRef = useRef(false);
   const openingPermissionWaitRef = useRef(false);
   const terminalTimeoutRef = useRef(false);
@@ -234,6 +235,12 @@ export function ReadyGateOverlay({
     });
     return result.ok;
   }, [eventId, refreshNativeMediaDiagnostics, sessionId, userId]);
+
+  useSettingsReturnRefresh({
+    wasOpenedRef: permissionSettingsOpenedRef,
+    refresh: requestMediaPermissions,
+    source: 'ready_gate_overlay_media',
+  });
 
   const trackNativeReadyGateEvent = useCallback(
     (eventName: string, payload: Record<string, string | number | boolean | null | undefined>) => {
@@ -1427,8 +1434,12 @@ export function ReadyGateOverlay({
     if (terminalActionPending) return;
     switch (row.actionKind) {
       case 'open_settings':
-        void Linking.openSettings().catch(() => {
-          void requestMediaPermissions();
+        permissionSettingsOpenedRef.current = true;
+        void openPermissionSettings('ready_gate_overlay_media').then((opened) => {
+          if (!opened) {
+            permissionSettingsOpenedRef.current = false;
+            void requestMediaPermissions();
+          }
         });
         return;
       case 'request_permission':

@@ -62,11 +62,43 @@ function formatEventDateUtc(value: unknown): string {
   }).format(date);
 }
 
+function eventScheduleEndMs(event: Record<string, unknown>): number | null {
+  const rawDate = typeof event.event_date === "string" ? event.event_date : "";
+  const startsAt = new Date(rawDate);
+  if (Number.isNaN(startsAt.getTime())) return null;
+  const duration =
+    typeof event.duration_minutes === "number" && Number.isFinite(event.duration_minutes)
+      ? event.duration_minutes
+      : 60;
+  return startsAt.getTime() + duration * 60 * 1000;
+}
+
+function eventNotificationBlockReason(event: Record<string, unknown>): string | null {
+  const status = String(event.status ?? "").trim().toLowerCase();
+  const endsAtMs = eventScheduleEndMs(event);
+  if (event.archived_at || status === "archived") return "event_archived";
+  if (event.ended_at || status === "ended" || status === "completed") return "event_ended";
+  if (status === "draft") return "event_draft";
+  if (status === "cancelled") return "event_cancelled";
+  if (endsAtMs == null) return "event_date_invalid";
+  if (Date.now() >= endsAtMs) return "event_closed";
+  return null;
+}
+
+function announcementAudienceSkipReason(event: Record<string, unknown>): string | null {
+  const visibility = String(event.visibility ?? "all").trim().toLowerCase() || "all";
+  const scope = String(event.scope ?? "global").trim().toLowerCase() || "global";
+  const isLocationSpecific = event.is_location_specific === true;
+  if (visibility !== "all") return "restricted_visibility_requires_targeting";
+  if (scope !== "global" || isLocationSpecific) return "restricted_location_requires_targeting";
+  return null;
+}
+
 // Send email via Resend API
-async function sendEmail(to: string, subject: string, html: string): Promise<void> {
+async function sendEmail(to: string, subject: string, html: string): Promise<boolean> {
   if (!RESEND_API_KEY) {
     console.log("Resend email provider not configured, skipping event notification email");
-    return;
+    return false;
   }
 
   const response = await fetch("https://api.resend.com/emails", {
@@ -89,7 +121,30 @@ async function sendEmail(to: string, subject: string, html: string): Promise<voi
       status: response.status,
       bodyLength: error.length,
     });
+    return false;
   }
+
+  return true;
+}
+
+function providerNotConfiguredResponse(req: Request): Response {
+  return jsonResponse(req, {
+    success: false,
+    error: "email_provider_not_configured",
+    message: "Event notification email provider is not configured.",
+  }, { status: 503 });
+}
+
+function deliverySummary(attempted: number, notified: number): Record<string, unknown> {
+  const failed = Math.max(0, attempted - notified);
+  if (failed === 0) return { success: true, notified, attempted, failed };
+  return {
+    success: false,
+    error: failed === attempted ? "email_delivery_failed" : "email_delivery_partial_failure",
+    notified,
+    attempted,
+    failed,
+  };
 }
 
 const handler = async (req: Request): Promise<Response> => {
@@ -143,6 +198,15 @@ const handler = async (req: Request): Promise<Response> => {
       return jsonResponse(req, { success: false, error: "event_not_found" }, { status: 404 });
     }
 
+    const lifecycleBlockReason = eventNotificationBlockReason(event);
+    if (lifecycleBlockReason) {
+      return jsonResponse(req, {
+        success: false,
+        error: lifecycleBlockReason,
+        message: "Event notifications are only allowed for active, non-draft, non-archived event rows.",
+      }, { status: 409 });
+    }
+
     const formattedDate = formatEventDateUtc(event.event_date);
     const safeEventId = encodeURIComponent(String(event.id ?? eventId));
     const safeEventTitle = escapeHtml(event.title);
@@ -155,7 +219,16 @@ const handler = async (req: Request): Promise<Response> => {
     const eventTitleForSubject = emailSubjectText(event.title, "Vibely Event");
 
     if (type === "event_created") {
-      // Fetch all users who have email verified (for new event announcement)
+      const skipReason = announcementAudienceSkipReason(event);
+      if (skipReason) {
+        console.log("event-notifications event_created audience skipped", {
+          reason: skipReason,
+          eventId: safeEventId,
+        });
+        return jsonResponse(req, { success: true, notified: 0, skipped_reason: skipReason }, { status: 200 });
+      }
+
+      // Broad announcements are restricted to globally visible, all-tier events.
       const { data: profiles, error: profilesError } = await auth.context.adminClient
         .from("profiles")
         .select("id, name, verified_email")
@@ -166,15 +239,19 @@ const handler = async (req: Request): Promise<Response> => {
         console.error("event-notifications profile lookup failed", sanitizeErrorMessage(profilesError.message));
         return jsonResponse(req, { success: false, error: "recipient_lookup_failed" }, { status: 502 });
       }
+      if ((profiles?.length ?? 0) > 0 && !RESEND_API_KEY) {
+        return providerNotConfiguredResponse(req);
+      }
 
       console.log(`Sending new event notification to ${profiles?.length || 0} users`);
 
       let notified = 0;
+      let attempted = 0;
       for (let index = 0; index < (profiles?.length ?? 0); index += EMAIL_BATCH_SIZE) {
         const batch = (profiles ?? []).slice(index, index + EMAIL_BATCH_SIZE);
-        await Promise.allSettled(batch.map(async (profile) => {
-          if (!profile.verified_email) return;
-          notified += 1;
+        attempted += batch.filter((profile) => Boolean(profile.verified_email)).length;
+        const results = await Promise.allSettled(batch.map(async (profile) => {
+          if (!profile.verified_email) return false;
           const safeProfileName = escapeHtml(profile.name || "there");
 
           const html = `
@@ -190,22 +267,22 @@ const handler = async (req: Request): Promise<Response> => {
                 <h1 style="font-size: 28px; font-weight: bold; background: linear-gradient(135deg, #8b5cf6, #ec4899); -webkit-background-clip: text; -webkit-text-fill-color: transparent; margin: 0;">Vibely</h1>
               </div>
 
-	              <h2 style="font-size: 20px; font-weight: 600; text-align: center; margin-bottom: 16px; color: #ffffff;">🎉 New Event Alert!</h2>
+              <h2 style="font-size: 20px; font-weight: 600; text-align: center; margin-bottom: 16px; color: #ffffff;">🎉 New Event Alert!</h2>
 
-	              <p style="color: #a1a1aa; text-align: center; margin-bottom: 24px; font-size: 14px;">
-	                Hey ${safeProfileName}, a new event just dropped!
-	              </p>
+              <p style="color: #a1a1aa; text-align: center; margin-bottom: 24px; font-size: 14px;">
+                Hey ${safeProfileName}, a new event just dropped!
+              </p>
 
-	              <div style="background: rgba(139, 92, 246, 0.1); border: 2px solid rgba(139, 92, 246, 0.3); border-radius: 16px; padding: 24px; margin-bottom: 24px;">
-	                <h3 style="font-size: 18px; font-weight: bold; color: #8b5cf6; margin: 0 0 12px 0;">${safeEventTitle}</h3>
-	                <p style="color: #d1d5db; font-size: 14px; margin: 0 0 8px 0;">📅 ${escapeHtml(formattedDate)}</p>
-	                ${safeCityContext ? `<p style="color: #d1d5db; font-size: 14px; margin: 0 0 8px 0;">🌐 Online event · For ${safeCityContext}</p>` : '<p style="color: #d1d5db; font-size: 14px; margin: 0 0 8px 0;">🌐 Online event</p>'}
-	                ${event.description ? `<p style="color: #9ca3af; font-size: 13px; margin: 12px 0 0 0;">${safeDescription}</p>` : ''}
-	              </div>
+              <div style="background: rgba(139, 92, 246, 0.1); border: 2px solid rgba(139, 92, 246, 0.3); border-radius: 16px; padding: 24px; margin-bottom: 24px;">
+                <h3 style="font-size: 18px; font-weight: bold; color: #8b5cf6; margin: 0 0 12px 0;">${safeEventTitle}</h3>
+                <p style="color: #d1d5db; font-size: 14px; margin: 0 0 8px 0;">📅 ${escapeHtml(formattedDate)}</p>
+                ${safeCityContext ? `<p style="color: #d1d5db; font-size: 14px; margin: 0 0 8px 0;">🌐 Online event · For ${safeCityContext}</p>` : '<p style="color: #d1d5db; font-size: 14px; margin: 0 0 8px 0;">🌐 Online event</p>'}
+                ${event.description ? `<p style="color: #9ca3af; font-size: 13px; margin: 12px 0 0 0;">${safeDescription}</p>` : ''}
+              </div>
 
-	              <div style="text-align: center;">
-	                <a href="https://www.vibelymeet.com/events/${safeEventId}" style="display: inline-block; background: linear-gradient(135deg, #8b5cf6, #ec4899); color: white; padding: 14px 32px; border-radius: 12px; text-decoration: none; font-weight: 600;">View Event</a>
-	              </div>
+              <div style="text-align: center;">
+                <a href="https://www.vibelymeet.com/events/${safeEventId}" style="display: inline-block; background: linear-gradient(135deg, #8b5cf6, #ec4899); color: white; padding: 14px 32px; border-radius: 12px; text-decoration: none; font-weight: 600;">View Event</a>
+              </div>
 
               <p style="color: #71717a; text-align: center; font-size: 12px; margin-top: 32px;">
                 Don't miss out on meeting amazing people!
@@ -215,11 +292,12 @@ const handler = async (req: Request): Promise<Response> => {
           </html>
         `;
 
-          await sendEmail(profile.verified_email, `🎉 New Event: ${eventTitleForSubject}`, html);
+          return await sendEmail(profile.verified_email, `🎉 New Event: ${eventTitleForSubject}`, html);
         }));
+        notified += results.filter((result) => result.status === "fulfilled" && result.value === true).length;
       }
 
-      return jsonResponse(req, { success: true, notified }, { status: 200 });
+      return jsonResponse(req, deliverySummary(attempted, notified), { status: 200 });
     }
 
     if (type === "capacity_alert") {
@@ -227,7 +305,8 @@ const handler = async (req: Request): Promise<Response> => {
       const { data: registrations, error: registrationsError } = await auth.context.adminClient
         .from("event_registrations")
         .select("profile_id")
-        .eq("event_id", eventId);
+        .eq("event_id", eventId)
+        .eq("admission_status", "confirmed");
       if (registrationsError) {
         console.error("event-notifications registration lookup failed", sanitizeErrorMessage(registrationsError.message));
         return jsonResponse(req, { success: false, error: "recipient_lookup_failed" }, { status: 502 });
@@ -250,15 +329,19 @@ const handler = async (req: Request): Promise<Response> => {
         console.error("event-notifications profile lookup failed", sanitizeErrorMessage(profilesError.message));
         return jsonResponse(req, { success: false, error: "recipient_lookup_failed" }, { status: 502 });
       }
+      if ((profiles?.length ?? 0) > 0 && !RESEND_API_KEY) {
+        return providerNotConfiguredResponse(req);
+      }
 
       console.log(`Sending capacity alert to ${profiles?.length || 0} registered users`);
 
       let notified = 0;
+      let attempted = 0;
       for (let index = 0; index < (profiles?.length ?? 0); index += EMAIL_BATCH_SIZE) {
         const batch = (profiles ?? []).slice(index, index + EMAIL_BATCH_SIZE);
-        await Promise.allSettled(batch.map(async (profile) => {
-          if (!profile.verified_email) return;
-          notified += 1;
+        attempted += batch.filter((profile) => Boolean(profile.verified_email)).length;
+        const results = await Promise.allSettled(batch.map(async (profile) => {
+          if (!profile.verified_email) return false;
           const safeProfileName = escapeHtml(profile.name || "there");
           const safeCapacityPercent = escapeHtml(capacityPercent);
 
@@ -275,35 +358,36 @@ const handler = async (req: Request): Promise<Response> => {
                 <h1 style="font-size: 28px; font-weight: bold; background: linear-gradient(135deg, #8b5cf6, #ec4899); -webkit-background-clip: text; -webkit-text-fill-color: transparent; margin: 0;">Vibely</h1>
               </div>
 
-	              <h2 style="font-size: 20px; font-weight: 600; text-align: center; margin-bottom: 16px; color: #fb923c;">🔥 Event Almost Full!</h2>
+              <h2 style="font-size: 20px; font-weight: 600; text-align: center; margin-bottom: 16px; color: #fb923c;">🔥 Event Almost Full!</h2>
 
-	              <p style="color: #a1a1aa; text-align: center; margin-bottom: 24px; font-size: 14px;">
-	                Hey ${safeProfileName}, "${safeEventTitle}" is ${safeCapacityPercent}% full!
-	              </p>
+              <p style="color: #a1a1aa; text-align: center; margin-bottom: 24px; font-size: 14px;">
+                Hey ${safeProfileName}, "${safeEventTitle}" is ${safeCapacityPercent}% full!
+              </p>
 
-	              <div style="background: rgba(251, 146, 60, 0.1); border: 2px solid rgba(251, 146, 60, 0.3); border-radius: 16px; padding: 24px; text-align: center; margin-bottom: 24px;">
-	                <p style="font-size: 36px; font-weight: bold; color: #fb923c; margin: 0;">${safeCapacityPercent}%</p>
-	                <p style="color: #d1d5db; font-size: 14px; margin: 8px 0 0 0;">Capacity Filled</p>
-	              </div>
+              <div style="background: rgba(251, 146, 60, 0.1); border: 2px solid rgba(251, 146, 60, 0.3); border-radius: 16px; padding: 24px; text-align: center; margin-bottom: 24px;">
+                <p style="font-size: 36px; font-weight: bold; color: #fb923c; margin: 0;">${safeCapacityPercent}%</p>
+                <p style="color: #d1d5db; font-size: 14px; margin: 8px 0 0 0;">Capacity Filled</p>
+              </div>
 
-	              <p style="color: #9ca3af; text-align: center; font-size: 14px; margin-bottom: 24px;">
-	                Good news - you're already registered! 🎉<br>
-	                Invite your friends before spots run out.
-	              </p>
+              <p style="color: #9ca3af; text-align: center; font-size: 14px; margin-bottom: 24px;">
+                Good news - you're already registered! 🎉<br>
+                Invite your friends before spots run out.
+              </p>
 
-	              <div style="text-align: center;">
-	                <a href="https://www.vibelymeet.com/events/${safeEventId}" style="display: inline-block; background: linear-gradient(135deg, #fb923c, #f97316); color: white; padding: 14px 32px; border-radius: 12px; text-decoration: none; font-weight: 600;">View Event</a>
-	              </div>
+              <div style="text-align: center;">
+                <a href="https://www.vibelymeet.com/events/${safeEventId}" style="display: inline-block; background: linear-gradient(135deg, #fb923c, #f97316); color: white; padding: 14px 32px; border-radius: 12px; text-decoration: none; font-weight: 600;">View Event</a>
+              </div>
             </div>
           </body>
           </html>
         `;
 
-          await sendEmail(profile.verified_email, `🔥 "${eventTitleForSubject}" is ${capacityPercent}% Full!`, html);
+          return await sendEmail(profile.verified_email, `🔥 "${eventTitleForSubject}" is ${capacityPercent}% Full!`, html);
         }));
+        notified += results.filter((result) => result.status === "fulfilled" && result.value === true).length;
       }
 
-      return jsonResponse(req, { success: true, notified }, { status: 200 });
+      return jsonResponse(req, deliverySummary(attempted, notified), { status: 200 });
     }
 
     return jsonResponse(req, { success: false, error: "invalid_notification_type" }, { status: 400 });

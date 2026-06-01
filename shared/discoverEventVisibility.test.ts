@@ -15,6 +15,13 @@ test("discover/home grace window keeps recently ended rows only inside the appro
     ),
     true,
   );
+  assert.equal(
+    isWithinDiscoverHomeGraceWindow(
+      { ...baseEvent, status: "completed" },
+      new Date("2026-05-08T12:52:00Z").getTime(),
+    ),
+    true,
+  );
 
   assert.equal(
     isWithinDiscoverHomeGraceWindow(

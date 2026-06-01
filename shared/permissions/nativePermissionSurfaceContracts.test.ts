@@ -61,3 +61,46 @@ test("native reusable permission card uses fixed-height actions", () => {
   assert.match(source, /minimumFontScale=\{0\.82\}/);
   assert.match(source, /Open Settings|primaryLabel/);
 });
+
+test("native permission settings recovery is centralized and refreshes on app return", () => {
+  const helper = readRepo("apps/mobile/lib/permissionSettings.ts");
+  const matchCall = readRepo("apps/mobile/lib/useMatchCall.tsx");
+  const directOpenSettingsHits = findRepoFilesContaining(/Linking\.openSettings\(/, "apps/mobile")
+    .filter((path) => path !== "apps/mobile/lib/permissionSettings.ts");
+
+  assert.match(helper, /export async function openPermissionSettings/);
+  assert.match(helper, /Linking\.openSettings\(\)/);
+  assert.match(helper, /Linking\.openURL\('app-settings:'\)/);
+  assert.match(helper, /export function useSettingsReturnRefresh/);
+  assert.match(helper, /AppState\.addEventListener\('change'/);
+  assert.match(matchCall, /matchCallPermissionSettingsTargetRef/);
+  assert.match(matchCall, /retryMatchCallMediaAfterSettingsReturn/);
+  assert.match(matchCall, /next === 'active'[\s\S]*retryMatchCallMediaAfterSettingsReturn/);
+  assert.match(matchCall, /setLocalAudio\(true\)/);
+  assert.match(matchCall, /setLocalVideo\(true\)/);
+  assert.deepEqual(directOpenSettingsHits, []);
+});
+
+test("native profile photo picker and camera launch failures stay recoverable", () => {
+  const photoBatch = readRepo("apps/mobile/lib/photoBatchController.ts");
+
+  assert.match(photoBatch, /showPhotoPickerFailureDialog/);
+  assert.match(photoBatch, /showCameraLaunchFailureDialog/);
+  assert.match(photoBatch, /openPermissionSettings\('photo_batch_camera_permission'\)/);
+  assert.match(photoBatch, /openPermissionSettings\(source\)/);
+  assert.match(photoBatch, /catch \(error\)[\s\S]*showPhotoPickerFailureDialog/);
+  assert.match(photoBatch, /catch \(error\)[\s\S]*showCameraLaunchFailureDialog/);
+});
+
+test("native chat game photo pickers recover camera and library permission failures", () => {
+  const bubble = readRepo("apps/mobile/components/chat/games/ScavengerBubble.tsx");
+  const startSheet = readRepo("apps/mobile/components/chat/games/ScavengerStartSheet.tsx");
+
+  for (const source of [bubble, startSheet]) {
+    assert.match(source, /isPermissionLikeMediaError/);
+    assert.match(source, /capability: fromCamera \? 'photo_capture' : 'photo_picker'/);
+    assert.match(source, /Choose from library/);
+    assert.match(source, /Take photo/);
+    assert.match(source, /Camera issue/);
+  }
+});

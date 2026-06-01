@@ -1123,7 +1123,9 @@ const AdminEventsPanel = () => {
   const renderEventRow = (event: AdminEventRow, isChild = false): ReactNode => {
     const lifecycle = getLifecycleSnapshot(event, lifecycleNowMs);
     const computed = lifecycle.lifecycle;
-    const statusDisplay = lifecycle.needsFinalizationRepair
+    const statusDisplay = lifecycle.isArchived
+      ? "archived"
+      : lifecycle.needsFinalizationRepair
       ? "needs_finalization_repair"
       : lifecycle.isInFinalizationGrace
         ? "wrap_up_grace"
@@ -1132,13 +1134,36 @@ const AdminEventsPanel = () => {
       ? "needs repair"
       : statusDisplay === "wrap_up_grace"
         ? "wrap-up"
-        : computed;
+        : statusDisplay;
     const isParent = event.is_recurring;
     const children = isParent ? getChildrenOf(event.id) : [];
     const isExpanded = expandedParents.has(event.id);
     const rawStatus = event.status?.toLowerCase() || '';
     const isArchived = lifecycle.isArchived;
     const isFutureStart = Boolean(lifecycle.startsAt && lifecycle.startsAt.getTime() > lifecycleNowMs);
+    const seriesRows = isParent ? [event, ...children] : [];
+    const seriesIsLifecycleMutable =
+      isParent &&
+      !isArchived &&
+      !['archived', 'cancelled'].includes(rawStatus);
+    const hasLoadedFutureDraftOccurrence = seriesRows.some((candidate) => {
+      const candidateLifecycle = getLifecycleSnapshot(candidate, lifecycleNowMs);
+      const candidateRawStatus = candidate.status?.toLowerCase() || '';
+      return candidateRawStatus === 'draft' &&
+        !candidateLifecycle.isArchived &&
+        !candidate.ended_at &&
+        !candidateLifecycle.isEnded &&
+        Boolean(candidateLifecycle.startsAt && candidateLifecycle.startsAt.getTime() > lifecycleNowMs);
+    });
+    const hasLoadedFutureUpcomingOccurrence = seriesRows.some((candidate) => {
+      const candidateLifecycle = getLifecycleSnapshot(candidate, lifecycleNowMs);
+      const candidateRawStatus = candidate.status?.toLowerCase() || '';
+      return candidateRawStatus === 'upcoming' &&
+        !candidateLifecycle.isArchived &&
+        !candidate.ended_at &&
+        !candidateLifecycle.isEnded &&
+        Boolean(candidateLifecycle.startsAt && candidateLifecycle.startsAt.getTime() > lifecycleNowMs);
+    });
     const canEdit =
       !isArchived &&
       !event.ended_at &&
@@ -1161,6 +1186,12 @@ const AdminEventsPanel = () => {
       computed === 'upcoming' &&
       isFutureStart &&
       rawStatus === 'upcoming';
+    const canPublishSeries =
+      seriesIsLifecycleMutable &&
+      (rawStatus === 'draft' || hasLoadedFutureDraftOccurrence);
+    const canUnpublishSeries =
+      seriesIsLifecycleMutable &&
+      (rawStatus === 'upcoming' || hasLoadedFutureUpcomingOccurrence);
     const canGenerateMore =
       isParent &&
       !isArchived &&
@@ -1312,10 +1343,10 @@ const AdminEventsPanel = () => {
                   <Eye className="w-4 h-4" />View
                 </DropdownMenuItem>
 
-                {(canPublish || canUnpublish) && (
+                {(canPublish || canUnpublish || canPublishSeries || canUnpublishSeries) && (
                   <>
                     <DropdownMenuSeparator />
-                    {canPublish && (
+                    {(isParent ? canPublishSeries : canPublish) && (
                       <DropdownMenuItem
                         onClick={() => setPendingEventAction(isParent ? { kind: "publish-series", event, childCount: children.length } : { kind: "publish", event })}
                         disabled={publishEvent.isPending || publishSeries.isPending}
@@ -1325,7 +1356,7 @@ const AdminEventsPanel = () => {
                         {isParent ? "Publish Series" : "Publish"}
                       </DropdownMenuItem>
                     )}
-                    {canUnpublish && (
+                    {(isParent ? canUnpublishSeries : canUnpublish) && (
                       <DropdownMenuItem
                         onClick={() => setPendingEventAction(isParent ? { kind: "unpublish-series", event, childCount: children.length } : { kind: "unpublish", event })}
                         disabled={publishEvent.isPending || publishSeries.isPending}

@@ -46,6 +46,23 @@ function displayablePosterUri(uri: string | null | undefined): string | null {
   return uri && isPlayableVideoUri(uri) ? uri : null;
 }
 
+function uniqueDisplayablePosterUris(
+  ...groups: Array<string | null | undefined | readonly (string | null | undefined)[]>
+): string[] {
+  const urls: string[] = [];
+  const seen = new Set<string>();
+  for (const group of groups) {
+    const values = Array.isArray(group) ? group : [group];
+    for (const value of values) {
+      const uri = displayablePosterUri(value);
+      if (!uri || seen.has(uri)) continue;
+      seen.add(uri);
+      urls.push(uri);
+    }
+  }
+  return urls;
+}
+
 function isHlsUri(uri: string): boolean {
   return /\.m3u8(?:[?#]|$)/i.test(uri);
 }
@@ -326,32 +343,104 @@ function VideoViewerBody({
 }: {
   uri: string;
   posterUri?: string | null;
-  onRefreshMedia?: () => Promise<{ uri?: string | null; posterUri?: string | null } | null>;
+  onRefreshMedia?: (
+    reason?: 'playback' | 'poster' | 'manual',
+  ) => Promise<{ uri?: string | null; posterUri?: string | null; posterFallbackUris?: string[] | null } | null>;
   onClose: () => void;
 }) {
   const insets = useSafeAreaInsets();
   const [retryKey, setRetryKey] = useState(0);
   const [playableUri, setPlayableUri] = useState(uri);
   const [playablePosterUri, setPlayablePosterUri] = useState(displayablePosterUri(posterUri));
+  const [posterFallbackUris, setPosterFallbackUris] = useState<string[]>([]);
   const [resolveFailed, setResolveFailed] = useState(false);
   const refreshAttemptedForUriRef = useRef<string | null>(null);
   const posterResolveAttemptedForUriRef = useRef<string | null>(null);
+  const posterRefreshAttemptedForUriRef = useRef<string | null>(null);
+  const posterRefreshInFlightForUriRef = useRef<string | null>(null);
+  const playablePosterUriRef = useRef(displayablePosterUri(posterUri));
+  const posterCandidateUrisRef = useRef<string[]>([]);
   const resolveFallbackCopy = resolveMediaFallbackCopy({ reason: 'unknown' });
 
   useEffect(() => {
     setPlayableUri(uri);
-    setPlayablePosterUri(displayablePosterUri(posterUri));
+    const nextPosterUri = displayablePosterUri(posterUri);
+    setPlayablePosterUri(nextPosterUri);
+    setPosterFallbackUris([]);
+    playablePosterUriRef.current = nextPosterUri;
     setResolveFailed(false);
     refreshAttemptedForUriRef.current = null;
     posterResolveAttemptedForUriRef.current = null;
+    posterRefreshAttemptedForUriRef.current = null;
+    posterRefreshInFlightForUriRef.current = null;
   }, [posterUri, uri]);
 
-  const refreshMedia = useCallback(async (reason: 'playback' | 'poster' = 'playback'): Promise<boolean> => {
+  const posterCandidateUris = useMemo(
+    () => uniqueDisplayablePosterUris(playablePosterUri, posterFallbackUris),
+    [playablePosterUri, posterFallbackUris],
+  );
+
+  useEffect(() => {
+    playablePosterUriRef.current = playablePosterUri;
+  }, [playablePosterUri]);
+
+  useEffect(() => {
+    posterCandidateUrisRef.current = posterCandidateUris;
+  }, [posterCandidateUris]);
+
+  const advancePosterCandidate = useCallback((): boolean => {
+    const currentPosterUri = displayablePosterUri(playablePosterUriRef.current);
+    const candidates = posterCandidateUrisRef.current;
+    const currentIndex = currentPosterUri ? candidates.indexOf(currentPosterUri) : -1;
+    const nextPosterUri = candidates.find((candidate, index) => index > currentIndex && candidate !== currentPosterUri);
+    if (!nextPosterUri) return false;
+    playablePosterUriRef.current = nextPosterUri;
+    setPlayablePosterUri(nextPosterUri);
+    return true;
+  }, []);
+
+  const refreshMedia = useCallback(async (reason: 'playback' | 'poster' | 'manual' = 'playback'): Promise<boolean> => {
+    if (reason === 'poster' && advancePosterCandidate()) return true;
     if (!onRefreshMedia || (reason === 'playback' && refreshAttemptedForUriRef.current === playableUri)) return false;
-    const fresh = await onRefreshMedia();
+    const posterRefreshKey = playableUri;
+    if (reason === 'poster') {
+      if (
+        posterRefreshAttemptedForUriRef.current === posterRefreshKey ||
+        posterRefreshInFlightForUriRef.current === posterRefreshKey
+      ) {
+        playablePosterUriRef.current = null;
+        setPlayablePosterUri(null);
+        setPosterFallbackUris([]);
+        return false;
+      }
+      posterRefreshAttemptedForUriRef.current = posterRefreshKey;
+      posterRefreshInFlightForUriRef.current = posterRefreshKey;
+    }
+    let fresh: { uri?: string | null; posterUri?: string | null; posterFallbackUris?: string[] | null } | null = null;
+    try {
+      fresh = await onRefreshMedia(reason);
+    } catch {
+      if (reason === 'poster') {
+        playablePosterUriRef.current = null;
+        setPlayablePosterUri(null);
+        setPosterFallbackUris([]);
+      }
+      return false;
+    } finally {
+      if (reason === 'poster' && posterRefreshInFlightForUriRef.current === posterRefreshKey) {
+        posterRefreshInFlightForUriRef.current = null;
+      }
+    }
+    const freshPosterFallbackUris = uniqueDisplayablePosterUris(fresh?.posterFallbackUris ?? []);
+    setPosterFallbackUris(freshPosterFallbackUris);
     const freshPosterUri = displayablePosterUri(fresh?.posterUri);
     if (freshPosterUri) {
+      playablePosterUriRef.current = freshPosterUri;
       setPlayablePosterUri(freshPosterUri);
+    } else if (reason === 'poster' && freshPosterFallbackUris.length > 0) {
+      playablePosterUriRef.current = freshPosterFallbackUris[0];
+      setPlayablePosterUri(freshPosterFallbackUris[0]);
+      return true;
     }
     if (!fresh?.uri) return !!freshPosterUri;
     if (!isPlayableVideoUri(fresh.uri)) return reason === 'poster' ? !!freshPosterUri : false;
@@ -366,7 +455,7 @@ function VideoViewerBody({
     setResolveFailed(false);
     setPlayableUri(fresh.uri);
     return true;
-  }, [onRefreshMedia, playableUri]);
+  }, [advancePosterCandidate, onRefreshMedia, playableUri]);
 
   useEffect(() => {
     if (
@@ -422,6 +511,9 @@ function VideoViewerBody({
                 pointerEvents="none"
                 accessibilityElementsHidden
                 importantForAccessibility="no-hide-descendants"
+                onError={() => {
+                  void refreshMedia('poster');
+                }}
               />
             ) : null}
             {resolveFailed ? (
@@ -434,7 +526,7 @@ function VideoViewerBody({
                     onPress={() => {
                       refreshAttemptedForUriRef.current = null;
                       setResolveFailed(false);
-                      void refreshMedia()
+                      void refreshMedia('manual')
                         .then((didRefresh) => {
                           if (!didRefresh) setResolveFailed(true);
                         })
@@ -493,7 +585,7 @@ function VideoViewerStage({
   uri: string;
   posterUri?: string | null;
   onClose: () => void;
-  onRefreshMedia: () => Promise<boolean>;
+  onRefreshMedia: (reason?: 'playback' | 'poster' | 'manual') => Promise<boolean>;
   onRemountPlayer: () => void;
   onResetPlaybackRefreshAttempt: () => void;
 }) {
@@ -612,6 +704,23 @@ function VideoViewerStage({
               pointerEvents="none"
               accessibilityElementsHidden
               importantForAccessibility="no-hide-descendants"
+              onError={() => {
+                void onRefreshMedia('poster');
+              }}
+            />
+          ) : null}
+          {posterUri && phase !== 'error' ? (
+            <ExpoImage
+              source={{ uri: posterUri }}
+              style={styles.videoPosterProbe}
+              contentFit="contain"
+              cachePolicy="memory-disk"
+              pointerEvents="none"
+              accessibilityElementsHidden
+              importantForAccessibility="no-hide-descendants"
+              onError={() => {
+                void onRefreshMedia('poster');
+              }}
             />
           ) : null}
 
@@ -647,7 +756,7 @@ function VideoViewerStage({
                   onPress={() => {
                     onResetPlaybackRefreshAttempt();
                     setPhase('loading');
-                    void onRefreshMedia()
+                    void onRefreshMedia('manual')
                       .then((didRefresh) => {
                         if (!didRefresh) onRemountPlayer();
                       })
@@ -676,7 +785,9 @@ export function ChatThreadVideoViewerModal({
   visible: boolean;
   uri: string;
   posterUri?: string | null;
-  onRefreshMedia?: () => Promise<{ uri?: string | null; posterUri?: string | null } | null>;
+  onRefreshMedia?: (
+    reason?: 'playback' | 'poster' | 'manual',
+  ) => Promise<{ uri?: string | null; posterUri?: string | null; posterFallbackUris?: string[] | null } | null>;
   onClose: () => void;
 }) {
   const { reduceMotion } = useReduceMotionState();
@@ -831,6 +942,14 @@ const styles = StyleSheet.create({
   videoView: {
     flex: 1,
     width: '100%',
+  },
+  videoPosterProbe: {
+    position: 'absolute',
+    left: 0,
+    top: 0,
+    width: 1,
+    height: 1,
+    opacity: 0,
   },
   videoPlayOverlay: {
     ...StyleSheet.absoluteFillObject,

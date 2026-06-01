@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ComponentProps } from 'react';
-import { View, Text, Pressable, StyleSheet, ActivityIndicator, Image, Linking, Platform } from 'react-native';
+import { View, Text, Pressable, StyleSheet, ActivityIndicator, Image, Platform } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
@@ -18,6 +18,7 @@ import {
 import { uploadChatImageWithMediaSdk } from '@/lib/mediaSdk/nativeStorageUploads';
 import { useVibelyDialog } from '@/components/VibelyDialog';
 import { permissionUxStatusFromGrant, resolvePermissionUx } from '@clientShared/permissions/permissionUx';
+import { openPermissionSettings } from '@/lib/permissionSettings';
 
 const EXPIRY_MS = 48 * 60 * 60 * 1000;
 
@@ -58,6 +59,16 @@ function derivePhase(
   if (canActNext && !canBuild) return 'invalid_context';
   if (isStarter && snap.receiver_photo_url == null) return 'waiting_partner';
   return 'ambiguous';
+}
+
+function mediaErrorMessage(error: unknown): string {
+  return error instanceof Error && error.message.trim().length > 0
+    ? error.message
+    : 'Could not upload photo.';
+}
+
+function isPermissionLikeMediaError(error: unknown): boolean {
+  return /\b(permission|denied|access|authorized|authorization)\b/i.test(mediaErrorMessage(error));
 }
 
 export function ScavengerBubble({ view, matchId, currentUserId, partnerName, timeLabel, invalidateScope }: Props) {
@@ -134,7 +145,7 @@ export function ScavengerBubble({ view, matchId, currentUserId, partnerName, tim
             message: copy.message,
             variant: 'info',
             primaryAction: copy.primaryAction === 'open_settings'
-              ? { label: copy.primaryLabel, onPress: () => void Linking.openSettings() }
+              ? { label: copy.primaryLabel, onPress: () => void openPermissionSettings('scavenger_bubble_camera') }
               : { label: copy.primaryLabel, onPress: () => void pickAndUpload(true) },
             secondaryAction: { label: 'Not Now', onPress: () => {} },
           });
@@ -157,14 +168,36 @@ export function ScavengerBubble({ view, matchId, currentUserId, partnerName, tim
       setSelectedPhotoUrl(url);
       setSelectedPhotoClientRequestId(clientRequestId);
     } catch (e) {
-      const message = e instanceof Error ? e.message : 'Could not upload photo.';
-      if (!fromCamera && /permission|denied|access/i.test(message)) {
+      const message = mediaErrorMessage(e);
+      if (isPermissionLikeMediaError(e)) {
+        const copy = resolvePermissionUx({
+          capability: fromCamera ? 'photo_capture' : 'photo_picker',
+          status: 'blocked_settings',
+          platform: Platform.OS === 'ios' ? 'ios' : Platform.OS === 'android' ? 'android' : 'native',
+        });
         showDialog({
-          title: 'Photo Access Required',
-          message: 'Photo access is off for Vibely. Re-enable it in Settings, or try taking a new photo.',
+          title: copy.title,
+          message: copy.message,
           variant: 'info',
-          primaryAction: { label: 'Open Settings', onPress: () => void Linking.openSettings() },
-          secondaryAction: { label: 'Not Now', onPress: () => {} },
+          primaryAction: {
+            label: copy.primaryLabel,
+            onPress: () => void openPermissionSettings(
+              fromCamera ? 'scavenger_bubble_camera_launch' : 'scavenger_bubble_library',
+            ),
+          },
+          secondaryAction: fromCamera
+            ? { label: 'Choose from library', onPress: () => void pickAndUpload(false) }
+            : { label: 'Take photo', onPress: () => void pickAndUpload(true) },
+        });
+        return;
+      }
+      if (fromCamera) {
+        showDialog({
+          title: 'Camera issue',
+          message,
+          variant: 'warning',
+          primaryAction: { label: 'Try again', onPress: () => void pickAndUpload(true) },
+          secondaryAction: { label: 'Choose from library', onPress: () => void pickAndUpload(false) },
         });
         return;
       }

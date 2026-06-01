@@ -45,6 +45,9 @@ export function useEventReminders() {
         .select('id, title, event_date, cover_image')
         .in('id', eventIds)
         .gte('event_date', new Date().toISOString())
+        .is('archived_at', null)
+        .is('ended_at', null)
+        .not('status', 'in', '(draft,cancelled,archived,ended,completed)')
         .order('event_date', { ascending: true });
 
       if (eventsError) {

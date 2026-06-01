@@ -91,7 +91,8 @@ const EventDetails = () => {
         .eq('parent_event_id', event.parentEventId)
         .gt('event_date', event.eventDate.toISOString())
         .is('archived_at', null)
-        .not('status', 'in', '(draft,cancelled,archived)')
+        .is('ended_at', null)
+        .not('status', 'in', '(draft,cancelled,archived,ended,completed)')
         .order('event_date', { ascending: true })
         .limit(1)
         .maybeSingle();
@@ -248,15 +249,26 @@ const EventDetails = () => {
     (canSelfCancelRegistration || (isConfirmed && eventLifecycle.isLive && !eventClosedForBookingCopy));
   const eventStatus = (event.status ?? "").toLowerCase();
   const isCancelled = eventStatus === "cancelled";
+  const isTerminalStatus =
+    eventStatus === "ended" ||
+    eventStatus === "completed" ||
+    Boolean(event.endedAt);
   const isUnavailableStatus =
     isCancelled ||
+    isTerminalStatus ||
     eventStatus === "draft" ||
     eventStatus === "archived" ||
     Boolean(event.archivedAt);
-  const unavailableEventTitle = isCancelled ? "This event was cancelled" : "This event is not available";
+  const unavailableEventTitle = isCancelled
+    ? "This event was cancelled"
+    : isTerminalStatus
+      ? "This event has ended"
+      : "This event is not available";
   const unavailableEventBody = isCancelled
     ? "Registration, cancellation, and lobby access are closed. Your registration record stays on file for support and attendance history."
-    : "Registration and lobby access are closed while this event is not published.";
+    : isTerminalStatus
+      ? "Registration and lobby access are closed for this event."
+      : "Registration and lobby access are closed while this event is not published.";
   const purchaseCtaDisabled = soldOut || eventEnded || freeRegisterBusy || isUnavailableStatus;
 
   const handlePaymentSuccess = async () => {

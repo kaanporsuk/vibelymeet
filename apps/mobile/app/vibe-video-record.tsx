@@ -17,8 +17,6 @@ import {
   StyleSheet,
   Pressable,
   TextInput,
-  AppState,
-  Linking,
   Platform,
 } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
@@ -48,10 +46,12 @@ import { useAuth } from '@/context/AuthContext';
 import { startNativeVibeVideoUpload } from '@/lib/mediaSdk/nativeVideoUploads';
 import { useReduceMotion } from '@/hooks/useReduceMotion';
 import {
+  permissionUxMediaKindForRequiredGrants,
   permissionUxStatusForRequiredGrants,
   resolvePermissionUx,
   type PermissionUxStatus,
 } from '@clientShared/permissions/permissionUx';
+import { openPermissionSettings, useSettingsReturnRefresh } from '@/lib/permissionSettings';
 
 const MAX_DURATION_SEC = 15;
 const CAPTION_MAX = 50;
@@ -160,17 +160,23 @@ export default function VibeVideoRecordScreen() {
 
   const skipCameraPermission = !!libraryParam;
   const permissionStatus: PermissionUxStatus = permissionUxStatusForRequiredGrants([camPermission, micPermission]);
+  const permissionMediaKind = permissionUxMediaKindForRequiredGrants(camPermission, micPermission);
   const permission = permissionStatus === 'granted';
   const permissionCopy = resolvePermissionUx({
     capability: 'profile_vibe_video',
     status: permissionStatus,
     platform: Platform.OS === 'ios' ? 'ios' : Platform.OS === 'android' ? 'android' : 'native',
+    mediaKind: permissionMediaKind,
   });
 
   const requestPermission = async () => {
     if (permissionStatus === 'blocked_settings') {
       settingsOpenedRef.current = true;
-      await Linking.openSettings();
+      const opened = await openPermissionSettings('profile_vibe_video');
+      if (!opened) {
+        settingsOpenedRef.current = false;
+        await refreshPermissions();
+      }
       return;
     }
     await requestCamPermission();
@@ -181,14 +187,11 @@ export default function VibeVideoRecordScreen() {
     await Promise.allSettled([getCamPermission(), getMicPermission()]);
   }, [getCamPermission, getMicPermission]);
 
-  useEffect(() => {
-    const sub = AppState.addEventListener('change', (nextState) => {
-      if (nextState !== 'active' || !settingsOpenedRef.current) return;
-      settingsOpenedRef.current = false;
-      void refreshPermissions();
-    });
-    return () => sub.remove();
-  }, [refreshPermissions]);
+  useSettingsReturnRefresh({
+    wasOpenedRef: settingsOpenedRef,
+    refresh: refreshPermissions,
+    source: 'profile_vibe_video',
+  });
 
   const returnToVibeStudio = useCallback(() => {
     (router as { replace: (p: string) => void }).replace('/vibe-studio');
@@ -265,7 +268,7 @@ export default function VibeVideoRecordScreen() {
           : message,
         variant: isPermissionError ? 'info' : 'warning',
         primaryAction: isPermissionError
-          ? { label: 'Open Settings', onPress: () => void Linking.openSettings() }
+          ? { label: 'Open Settings', onPress: () => void openPermissionSettings('profile_vibe_video_library') }
           : { label: 'OK', onPress: () => {} },
         secondaryAction: isPermissionError ? { label: 'Not now', onPress: () => {} } : undefined,
       });

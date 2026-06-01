@@ -496,6 +496,7 @@ const BatchEventImportModal = ({ onClose }: BatchEventImportModalProps) => {
       adminToast.success({
         id: "batch-event-import-success",
         title: `${toImport.length} of ${events.length} events imported successfully.${skipped > 0 ? ` ${skipped} skipped.` : ""}`,
+        description: "Batch import does not send announcement emails. Upcoming rows can appear in discovery when their visibility rules match.",
       });
       importBatchIntentIdRef.current = createAdminIdempotencyKey("admin_batch_event_import");
       onClose();
@@ -586,7 +587,7 @@ const BatchEventImportModal = ({ onClose }: BatchEventImportModalProps) => {
             <div className="space-y-3">
               <div className="flex items-center justify-between">
                 <p className="text-sm text-muted-foreground">
-                  {events.length} events found, <span className="text-foreground font-medium">{validCount} valid</span>
+                  {events.length} events found, <span className="text-foreground font-medium">{validCount} valid</span>. Imports are silent and do not send announcement emails.
                 </p>
                 <div className="flex items-center gap-2">
                   <Button variant="ghost" size="sm" onClick={() => toggleAll(true)}>Select All</Button>

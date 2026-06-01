@@ -362,6 +362,8 @@ test("Phase 6 display path uses realtime, QoE, reduce-motion, and bounded media 
   assert.match(webResolver, /SIGNED_MEDIA_FAILURE_COOLDOWN_MAX_MS = 5 \* 60 \* 1000/);
   assert.match(webResolver, /recordMediaUrlFailure/);
   assert.match(webResolver, /getCachedMediaAssetFailureCode/);
+  assert.match(webResolver, /isTransientMediaAssetFailureCode/);
+  assert.match(webResolver, /isFatalMediaAssetFailureCode/);
   assert.match(webResolver, /resolverPayloadForHttpFailure/);
   assert.match(webResolver, /response\.status === 401 \|\| response\.status === 403/);
   assert.match(webResolver, /error: "asset_deleted"/);
@@ -369,6 +371,8 @@ test("Phase 6 display path uses realtime, QoE, reduce-motion, and bounded media 
   assert.match(nativeResolver, /SIGNED_MEDIA_FAILURE_COOLDOWN_MAX_MS = 5 \* 60 \* 1000/);
   assert.match(nativeResolver, /recordMediaUrlFailure/);
   assert.match(nativeResolver, /getCachedMediaAssetFailureCode/);
+  assert.match(nativeResolver, /isTransientMediaAssetFailureCode/);
+  assert.match(nativeResolver, /isFatalMediaAssetFailureCode/);
   assert.match(nativeResolver, /resolverPayloadForHttpFailure/);
   assert.match(nativeResolver, /response\.status === 401 \|\| response\.status === 403/);
   assert.match(nativeResolver, /error: 'asset_deleted'/);

@@ -104,6 +104,7 @@ export const useEvents = () => {
             duration_minutes: event.duration_minutes ?? undefined,
             status: event.status,
             archived_at: event.archived_at,
+            ended_at: event.ended_at,
           })
         )
         .map((event) => {
@@ -173,6 +174,7 @@ export const useInfiniteEvents = () => {
           duration_minutes: event.duration_minutes ?? undefined,
           status: event.status,
           archived_at: event.archived_at,
+          ended_at: event.ended_at,
         })
       );
 
@@ -222,7 +224,8 @@ export const useNextEvent = () => {
         .select("id, title, description, cover_image, event_date, current_attendees, tags, status, duration_minutes, max_attendees")
         .gte("event_date", new Date().toISOString())
         .is("archived_at", null)
-        .not("status", "in", "(draft,cancelled,archived)")
+        .is("ended_at", null)
+        .not("status", "in", "(draft,cancelled,archived,ended,completed)")
         .order("event_date", { ascending: true })
         .limit(1)
         .maybeSingle();
@@ -298,6 +301,7 @@ export const useNextRegisteredEvent = () => {
               duration_minutes: ev.duration_minutes,
               status: ev.status ?? null,
               archived_at: ev.archived_at,
+              ended_at: ev.ended_at,
             })
           ) {
             return false;
@@ -390,6 +394,7 @@ export const useNextRegisteredEvent = () => {
             duration_minutes: event.duration_minutes,
             status: event.status,
             archived_at: event.archived_at,
+            ended_at: event.ended_at,
           })
         ) {
           return false;
