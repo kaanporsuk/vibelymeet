@@ -965,15 +965,17 @@ async function handleIssueUrl(req: Request): Promise<Response> {
         fileName: "thumbnail.jpg",
         expires,
       });
-    const previewUrl = await signBunnyStreamDirectoryUrl({
-      hostname,
-      securityKey,
-      videoId: streamVideoId,
-      fileName: "preview.webp",
-      expires,
-    });
-    const fallbackUrls = mediaKind === "thumbnail" ? [previewUrl] : [];
-    const posterFallbackUrls = mediaKind === "thumbnail" ? [] : [previewUrl];
+    const previewUrl = mediaKind === "thumbnail"
+      ? await signBunnyStreamDirectoryUrl({
+        hostname,
+        securityKey,
+        videoId: streamVideoId,
+        fileName: "preview.webp",
+        expires,
+      })
+      : null;
+    const fallbackUrls = previewUrl ? [previewUrl] : [];
+    const posterFallbackUrls: string[] = [];
 
     void serviceClient.rpc("mark_media_asset_accessed", { p_asset_id: asset.id });
 

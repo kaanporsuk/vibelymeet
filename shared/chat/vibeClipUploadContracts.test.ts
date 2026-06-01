@@ -978,9 +978,9 @@ test("server upload and publish paths enforce Bunny Stream Vibe Clip limits", ()
   assert.match(getChatMediaUrl, /BUNNY_CHAT_STREAM_CDN_HOSTNAME/);
   assert.match(getChatMediaUrl, /BUNNY_CHAT_STREAM_TOKEN_SECURITY_KEY/);
   assert.match(getChatMediaUrl, /fileName: mediaKind === "thumbnail" \? "thumbnail\.jpg" : "playlist\.m3u8"/);
-  assert.match(getChatMediaUrl, /const previewUrl = await signBunnyStreamDirectoryUrl[\s\S]{0,260}fileName: "preview\.webp"/);
-  assert.match(getChatMediaUrl, /const fallbackUrls = mediaKind === "thumbnail" \? \[previewUrl\] : \[\]/);
-  assert.match(getChatMediaUrl, /const posterFallbackUrls = mediaKind === "thumbnail" \? \[\] : \[previewUrl\]/);
+  assert.match(getChatMediaUrl, /const previewUrl = mediaKind === "thumbnail"[\s\S]{0,180}fileName: "preview\.webp"/);
+  assert.match(getChatMediaUrl, /const fallbackUrls = previewUrl \? \[previewUrl\] : \[\]/);
+  assert.match(getChatMediaUrl, /const posterFallbackUrls: string\[\] = \[\]/);
   assert.doesNotMatch(getChatMediaUrl, /async function hmacSha256Base64Url/);
   assert.match(getChatMediaUrl, /signBunnyStreamDirectoryUrl/);
   assert.match(bunnyStreamTokens, /const signingData = sortedSigningData\(\{ token_path: tokenPath \}\)/);
