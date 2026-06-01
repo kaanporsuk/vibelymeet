@@ -1059,7 +1059,7 @@ const ReadyGateOverlay = ({
         }
 
         const prewarmMedia = permissionPrewarmMediaRef.current;
-        const prewarm = startWebVideoDateDailyPrewarm({
+        const prewarm = await startWebVideoDateDailyPrewarm({
           sessionId,
           userId,
           eventId,
@@ -1213,7 +1213,7 @@ const ReadyGateOverlay = ({
           if (result.ok === true) {
             if (user?.id) {
               const prewarmMedia = permissionPrewarmMediaRef.current;
-              const prewarm = startWebVideoDateDailyPrewarm({
+              const prewarm = await startWebVideoDateDailyPrewarm({
                 sessionId,
                 userId: user.id,
                 eventId,
@@ -1330,6 +1330,9 @@ const ReadyGateOverlay = ({
 
           if (exhausted) {
             window.clearTimeout(slowWaitTimer);
+            if (!dateNavigationStartedRef.current) {
+              prepareEntryHandoffStartedRef.current = false;
+            }
             void emitWebVideoDateClientStuckState({
               sessionId,
               eventName: "prepare_date_entry_failed",
@@ -1347,6 +1350,7 @@ const ReadyGateOverlay = ({
                 video_date_trace_id: result.entryAttemptId ?? undefined,
               },
             });
+            setIsTransitioning(false);
             setPrepareEntryStatus("failed");
             setPrepareEntryFailure({
               code: result.code,
@@ -1359,6 +1363,37 @@ const ReadyGateOverlay = ({
 
           setPrepareEntryStatus("retrying");
           await sleep(VIDEO_DATE_ENTRY_HANDOFF_RETRY_DELAYS_MS[attempt]);
+        }
+      } catch (error) {
+        window.clearTimeout(slowWaitTimer);
+        if (!dateNavigationStartedRef.current) {
+          prepareEntryHandoffStartedRef.current = false;
+        }
+        Sentry.captureException(error, {
+          tags: {
+            surface: "ready_gate_overlay",
+            action: "prepare_entry_handoff",
+          },
+          extra: {
+            sessionId,
+            eventId,
+            sourceAction,
+          },
+        });
+        vdbg("ready_gate_prepare_entry_exception_no_nav", {
+          sessionId,
+          eventId,
+          sourceAction,
+          error: error instanceof Error ? { name: error.name, message: error.message } : String(error),
+        });
+        if (mountedRef.current && !closedRef.current && !dateNavigationStartedRef.current) {
+          setIsTransitioning(false);
+          setPrepareEntryStatus("failed");
+          setPrepareEntryFailure({
+            code: "PREPARE_ENTRY_CLIENT_EXCEPTION",
+            message: prepareEntryFailureMessage("PREPARE_ENTRY_CLIENT_EXCEPTION"),
+            retryable: true,
+          });
         }
       } finally {
         window.clearTimeout(slowWaitTimer);

@@ -388,7 +388,7 @@ export function ReadyGateOverlay({
           return;
         }
 
-        const prewarm = startNativeVideoDateDailyPrewarm({
+        const prewarm = await startNativeVideoDateDailyPrewarm({
           sessionId,
           userId,
           eventId,
@@ -591,7 +591,7 @@ export function ReadyGateOverlay({
             });
             if (dateNavigationStartedRef.current || closedRef.current) return;
             if (result.ok === true) {
-              const prewarm = startNativeVideoDateDailyPrewarm({
+              const prewarm = await startNativeVideoDateDailyPrewarm({
                 sessionId,
                 userId,
                 eventId,
@@ -733,7 +733,7 @@ export function ReadyGateOverlay({
                 retryable,
                 httpStatus: result.httpStatus,
               });
-              prepareEntryHandoffStartedRef.current = !retryable;
+              prepareEntryHandoffStartedRef.current = false;
               return;
             }
 
@@ -774,6 +774,33 @@ export function ReadyGateOverlay({
 
             await sleep(VIDEO_DATE_ENTRY_HANDOFF_RETRY_DELAYS_MS[attempt]);
           }
+        } catch (error) {
+          clearTimeout(slowWaitTimer);
+          if (!dateNavigationStartedRef.current) {
+            prepareEntryHandoffStartedRef.current = false;
+          }
+          setIsTransitioning(false);
+          setPrepareEntryStatus('failed');
+          setPrepareEntryFailure({
+            code: 'PREPARE_ENTRY_CLIENT_EXCEPTION',
+            retryable: true,
+          });
+          vdbg('ready_gate_prepare_entry_exception_no_nav', {
+            sessionId,
+            eventId,
+            source,
+            error: error instanceof Error ? { name: error.name, message: error.message } : String(error),
+          });
+          void emitNativeVideoDateClientStuckState({
+            sessionId,
+            eventName: 'prepare_date_entry_failed',
+            payload: {
+              source_surface: 'ready_gate_overlay',
+              source_action: 'prepare_entry_exception_no_nav',
+              reason_code: 'PREPARE_ENTRY_CLIENT_EXCEPTION',
+              error_name: error instanceof Error ? error.name : undefined,
+            },
+          });
         } finally {
           clearTimeout(slowWaitTimer);
         }

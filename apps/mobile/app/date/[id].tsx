@@ -166,11 +166,12 @@ import {
 } from '@clientShared/matching/videoDatePrejoinAttempt';
 import { markDailyJoinedWithBackoff } from '@clientShared/matching/dailyJoinedConfirmation';
 import {
-  createVideoDateDailyCallObject,
+  createVideoDateDailyCallObjectGuarded,
   isVideoDateCameraConstraintError as isNativeVideoDateCameraConstraintError,
   type NativeVideoDateCaptureProfile,
   type VideoDateDailyCallObject,
 } from '@/lib/videoDateDailyMediaConfig';
+import { registerNativeVideoDateDailyCleanup } from '@/lib/nativeDailyCallInstance';
 import {
   consumeNativeVideoDateDailyPrewarm,
   markNativeVideoDateDailyPrewarmFallback,
@@ -729,6 +730,29 @@ function videoDateDailyDiagnostic(
     level: 'info',
     data: safeData as Record<string, unknown> | undefined,
   });
+}
+
+function destroyNativeVideoDateDailyCall(
+  call: DailyCallObject,
+  reason: string,
+  data?: Record<string, unknown>
+): Promise<void> {
+  return registerNativeVideoDateDailyCleanup(
+    Promise.resolve().then(async () => {
+      await Promise.resolve(call.destroy());
+    }),
+    {
+      source: 'native_video_date_route',
+      reason,
+      onDiagnostic: (eventName, payload) => {
+        vdbg(eventName, {
+          reason,
+          ...(data ?? {}),
+          ...payload,
+        });
+      },
+    }
+  );
 }
 
 async function ensureNativeFrontCameraIntent(
@@ -1438,11 +1462,11 @@ export default function VideoDateScreen() {
           roomName: entry.roomName,
           idleMs: NATIVE_DAILY_CALL_SINGLETON_IDLE_MS,
         });
-        try {
-          entry.call.destroy();
-        } catch {
-          /* best effort */
-        }
+        void destroyNativeVideoDateDailyCall(entry.call, 'daily_call_singleton_idle_destroy', {
+          sessionId: entry.sessionId,
+          userId: entry.userId,
+          roomName: entry.roomName,
+        }).catch(() => undefined);
         sharedDailyCallEntry = null;
       }, NATIVE_DAILY_CALL_SINGLETON_IDLE_MS);
       vdbg('daily_call_singleton_parked', {
@@ -2999,7 +3023,15 @@ export default function VideoDateScreen() {
         void (async () => {
           try {
             await call.leave();
-            call.destroy();
+          } catch {
+            /* ignore */
+          }
+          try {
+            await destroyNativeVideoDateDailyCall(call, 'no_remote_auto_recovery', {
+              sessionId,
+              userId: user?.id ?? null,
+              roomName: roomNameRef.current ?? null,
+            });
           } catch {
             /* ignore */
           }
@@ -3433,11 +3465,19 @@ export default function VideoDateScreen() {
         if (shouldParkSingleton) {
           parkedSingleton = parkSharedCallForWarmHandoff(call, 'leave_and_cleanup');
         }
-        if (!parkedSingleton) {
-          call.destroy();
-        }
       } catch (_error) {
         void _error;
+      }
+      if (!parkedSingleton) {
+        try {
+          await destroyNativeVideoDateDailyCall(call, 'leave_and_cleanup', {
+            sessionId,
+            userId: user?.id ?? null,
+            roomName: roomNameRef.current ?? null,
+          });
+        } catch (_error) {
+          void _error;
+        }
       }
       if (!parkedSingleton) {
         releaseSharedCallIfOwned(call, 'leave_and_cleanup');
@@ -4892,7 +4932,15 @@ export default function VideoDateScreen() {
       detachCallListeners('retry_initial_connect');
       try {
         await call.leave();
-        call.destroy();
+      } catch (_error) {
+        void _error;
+      }
+      try {
+        await destroyNativeVideoDateDailyCall(call, 'retry_initial_connect', {
+          sessionId,
+          userId: user?.id ?? null,
+          roomName: roomNameRef.current ?? null,
+        });
       } catch (_error) {
         void _error;
       }
@@ -5211,7 +5259,11 @@ export default function VideoDateScreen() {
           /* best effort */
         }
         try {
-          entry.call.destroy();
+          await destroyNativeVideoDateDailyCall(entry.call, reason, {
+            sessionId,
+            userId: user.id,
+            roomName: entry.roomName,
+          });
         } catch {
           /* best effort */
         }
@@ -6532,7 +6584,16 @@ export default function VideoDateScreen() {
           /* best effort */
         }
         try {
-          sharedDailyCallEntry.call.destroy();
+          await destroyNativeVideoDateDailyCall(
+            sharedDailyCallEntry.call,
+            'daily_call_singleton_destroy_previous_session',
+            {
+              previousSessionId: sharedDailyCallEntry.sessionId,
+              sessionId,
+              userId: user.id,
+              roomName: sharedDailyCallEntry.roomName,
+            }
+          );
         } catch {
           /* best effort */
         }
@@ -6583,12 +6644,43 @@ export default function VideoDateScreen() {
       dailyPrewarmConsumedForJoinRef.current = prewarmedCall.ok === true;
       prewarmedAlreadyJoinedRef.current = prewarmedAlreadyJoined;
       prewarmedJoinInFlightRef.current = Boolean(prewarmedJoinPromiseForShared && !prewarmedAlreadyJoined);
-      const installDailyCall = (
+      let guardedCreateFailure: string | null = null;
+      const installDailyCall = async (
         profile: NativeVideoDateCaptureProfile,
         existingCall?: VideoDateDailyCallObject | null,
         reuseKind: 'none' | 'prewarm' | 'singleton' = existingCall ? 'prewarm' : 'none',
       ) => {
-        const nextCall = existingCall ?? createVideoDateDailyCallObject(profile);
+        let nextCall = existingCall ?? null;
+        if (!nextCall) {
+          const guarded = await createVideoDateDailyCallObjectGuarded(profile, {
+            source: 'native_video_date_start_call',
+            currentCallObject: callRef.current,
+            waitForCleanup: true,
+            onDiagnostic: (eventName, payload) => {
+              vdbg(eventName, {
+                sessionId,
+                userId: user.id,
+                eventId: eventId || null,
+                roomName: tokenResult.room_name,
+                source: 'native_video_date_start_call',
+                ...payload,
+              });
+            },
+          });
+          if (guarded.ok === false) {
+            guardedCreateFailure = guarded.reason;
+            vdbg('native_daily_guard_create_blocked', {
+              sessionId,
+              userId: user.id,
+              eventId: eventId || null,
+              roomName: tokenResult.room_name,
+              reason: guarded.reason,
+              meetingState: guarded.meetingState ?? null,
+            });
+            return null;
+          }
+          nextCall = guarded.call;
+        }
         const reusedPrewarmed = reuseKind === 'prewarm';
         dailyPrewarmConsumedForJoin = reusedPrewarmed;
         sharedDailyCallEntry = {
@@ -6634,11 +6726,28 @@ export default function VideoDateScreen() {
         bindCallListeners(nextCall, tokenResult.room_name);
         return nextCall;
       };
-      let call = installDailyCall(
+      const installedCall = await installDailyCall(
         callCaptureProfile,
         idleSingletonEntry?.call ?? (prewarmedCall.ok ? prewarmedCall.entry.call : null),
         idleSingletonEntry ? 'singleton' : prewarmedCall.ok ? 'prewarm' : 'none',
       );
+      if (!installedCall) {
+        vdbg('prejoin_step_prejoin_error', {
+          sessionId,
+          userId: user.id,
+          step: currentStep,
+          reason: guardedCreateFailure ?? 'native_daily_call_busy',
+        });
+        setCallError('Still closing the previous video connection. Try again in a moment.');
+        setPreJoinFailed(true);
+        setIsConnecting(false);
+        setJoining(false);
+        hasStartedJoinRef.current = false;
+        prejoinCompleted = true;
+        attemptState.completed = true;
+        return;
+      }
+      let call = installedCall;
       const scheduleDailyTokenRefresh = (source: string) => {
         clearDailyTokenRefreshTimer();
         const tokenRecovery = adviseVideoDateTokenRecovery({
@@ -6939,7 +7048,11 @@ export default function VideoDateScreen() {
               /* best effort */
             }
             try {
-              call.destroy();
+              await destroyNativeVideoDateDailyCall(call, 'daily_join_constraint_fallback', {
+                sessionId,
+                userId: user.id,
+                roomName: tokenResult.room_name,
+              });
             } catch {
               /* best effort */
             }
@@ -6947,7 +7060,11 @@ export default function VideoDateScreen() {
             releaseSharedCallIfOwned(call, 'daily_join_constraint_fallback');
             callRef.current = null;
             callCaptureProfile = 'fallback';
-            call = installDailyCall(callCaptureProfile);
+            const fallbackCall = await installDailyCall(callCaptureProfile);
+            if (!fallbackCall) {
+              throw new Error(guardedCreateFailure ?? 'native_daily_create_failed_after_constraint_fallback');
+            }
+            call = fallbackCall;
             markSharedJoinInFlight();
             await joinCurrentCallWithToken();
           }
@@ -7329,7 +7446,11 @@ export default function VideoDateScreen() {
             /* best effort */
           }
           try {
-            call.destroy();
+            await destroyNativeVideoDateDailyCall(call, 'daily_join_failed_prepare_retry', {
+              sessionId,
+              userId: user.id,
+              roomName: tokenResult.room_name,
+            });
           } catch {
             /* best effort */
           }

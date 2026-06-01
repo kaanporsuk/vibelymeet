@@ -2859,12 +2859,14 @@ test("Daily prewarm is platform-owned, flag-gated, consumable once, and instrume
     assert.match(source, /captureProfile !== params\.captureProfile/);
     assert.match(source, /roomUrl !== params\.roomUrl/);
   }
-  assert.match(webDailyPrewarm, /DailyIframe\.createCallObject\(/);
+  assert.match(webDailyPrewarm, /createDailyCallObjectGuarded/);
+  assert.match(webDailyPrewarm, /failOnExternalCall:\s*true/);
   assert.match(webDailyPrewarm, /dailyVideoDateCallObjectOptionsWithAppAcquiredMedia\(captureProfile/);
   assert.match(webDailyPrewarm, /dailyVideoDateCallObjectOptions\(captureProfile\)/);
   assert.match(webDailyPrewarm, /firstLiveTrack\(appAcquiredMedia\.stream\.getVideoTracks\(\)\)/);
   assert.match(webDailyPrewarm, /finally\s*\{[\s\S]*stopMediaStreamTracks\(entry\.appAcquiredMedia\?\.stream\)/);
-  assert.match(nativeDailyPrewarm, /createVideoDateDailyCallObject\(captureProfile\)/);
+  assert.match(nativeDailyPrewarm, /createVideoDateDailyCallObjectGuarded\(captureProfile/);
+  assert.match(nativeDailyPrewarm, /failOnExternalCall:\s*true/);
   assert.match(readyGateOverlay, /startWebVideoDateDailyPrewarm/);
   assert.match(readyGateOverlay, /startRoomWarmupAfterReady\("ready_tap_mark_ready_success"/);
   assert.match(readyGateOverlay, /WEB_READY_GATE_SILENT_PERMISSION_FALLBACK_WAIT_MS = 100/);

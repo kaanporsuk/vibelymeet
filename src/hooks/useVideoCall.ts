@@ -17,6 +17,10 @@ import {
   videoDateWebMediaStreamConstraints,
 } from "@/lib/dailyCallObjectConfig";
 import {
+  createDailyCallObjectGuarded,
+  registerWebVideoDateDailyCleanup,
+} from "@/lib/dailyCallInstance";
+import {
   consumeWebVideoDateDailyPrewarm,
   markWebVideoDateDailyPrewarmFallback,
 } from "@/lib/videoDateDailyPrewarm";
@@ -266,12 +270,20 @@ function destroyWebDailyCallSingleton(reason: string) {
   if (!entry) return;
   webDailyCallSingletonEntry = null;
   if (entry.destroyTimer) clearTimeout(entry.destroyTimer);
-  try {
-    entry.call.destroy();
-  } catch {
-    /* best-effort singleton cleanup */
-  }
-  stopMediaStreamTracks(entry.appAcquiredMedia?.stream);
+  void registerWebVideoDateDailyCleanup(
+    Promise.resolve()
+      .then(async () => {
+        await Promise.resolve(entry.call.destroy());
+      })
+      .finally(() => {
+        stopMediaStreamTracks(entry.appAcquiredMedia?.stream);
+      }),
+    {
+      source: "web_video_date_daily_singleton",
+      reason,
+      onDiagnostic: (eventName, payload) => vdbg(eventName, payload),
+    },
+  ).catch(() => undefined);
   vdbg("daily_call_singleton_destroyed", {
     platform: "web",
     reason,
@@ -399,7 +411,12 @@ type DailyRoomSuccessResponse = {
 };
 
 export type VideoCallStartFailure = {
-  kind: DailyRoomFailureKind | "daily_join_failed" | "media_permission_denied" | "session_unavailable";
+  kind:
+    | DailyRoomFailureKind
+    | "daily_join_failed"
+    | "daily_call_busy"
+    | "media_permission_denied"
+    | "session_unavailable";
   retryable: boolean;
   httpStatus?: number;
   serverCode?: string;
@@ -2418,90 +2435,46 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
   }, []);
 
   const cleanupCallObject = useCallback(
-    async (caller: string, reason: string) => {
-      const callObject = callObjectRef.current;
-      const roomName = roomNameRef.current;
-      const sessionId = optionsRef.current?.roomId ?? null;
-      const eventId = optionsRef.current?.eventId ?? null;
-      const userId = optionsRef.current?.userId ?? null;
-      const shouldParkSingleton =
-        Boolean(optionsRef.current?.dailyCallSingletonV2) &&
-        Boolean(optionsRef.current?.dailyCallSingletonEligible) &&
-        Boolean(callObject) &&
-        Boolean(userId) &&
-        (caller === "endCall" || reason === "component_unmount");
-      let callLeftSuccessfully = false;
-      let parkedSingleton = false;
+    (caller: string, reason: string) => {
+      const cleanupPromise = (async () => {
+        const callObject = callObjectRef.current;
+        const roomName = roomNameRef.current;
+        const sessionId = optionsRef.current?.roomId ?? null;
+        const eventId = optionsRef.current?.eventId ?? null;
+        const userId = optionsRef.current?.userId ?? null;
+        const shouldParkSingleton =
+          Boolean(optionsRef.current?.dailyCallSingletonV2) &&
+          Boolean(optionsRef.current?.dailyCallSingletonEligible) &&
+          Boolean(callObject) &&
+          Boolean(userId) &&
+          (caller === "endCall" || reason === "component_unmount");
+        let callLeftSuccessfully = false;
+        let parkedSingleton = false;
 
-      vdbg("daily_call_cleanup_start", {
-        caller,
-        reason,
-        sessionId,
-        eventId,
-        roomName,
-        hasCallObject: Boolean(callObject),
-        dailyCallSingletonV2: Boolean(optionsRef.current?.dailyCallSingletonV2),
-        dailyCallSingletonEligible: Boolean(optionsRef.current?.dailyCallSingletonEligible),
-        willParkSingleton: shouldParkSingleton,
-      });
+        vdbg("daily_call_cleanup_start", {
+          caller,
+          reason,
+          sessionId,
+          eventId,
+          roomName,
+          hasCallObject: Boolean(callObject),
+          dailyCallSingletonV2: Boolean(optionsRef.current?.dailyCallSingletonV2),
+          dailyCallSingletonEligible: Boolean(optionsRef.current?.dailyCallSingletonEligible),
+          willParkSingleton: shouldParkSingleton,
+        });
 
-      if (callObject) {
-        dailyListenerGenerationRef.current += 1;
-        clearDailyTokenRefreshTimer();
-        dailyTokenRecoveryInFlightRef.current = false;
-        clearDailyEventListeners("daily_call_cleanup");
-        try {
-          vdbg("daily_call_leave_before", { caller, reason, sessionId, eventId, roomName });
-          await callObject.leave();
-          callLeftSuccessfully = true;
-          vdbg("daily_call_leave_after", { caller, reason, sessionId, eventId, roomName, ok: true });
-        } catch (error) {
-          vdbg("daily_call_leave_after", {
-            caller,
-            reason,
-            sessionId,
-            eventId,
-            roomName,
-            ok: false,
-            error: error instanceof Error ? { name: error.name, message: error.message } : String(error),
-          });
-        }
-
-        if (shouldParkSingleton && userId && callLeftSuccessfully) {
-          parkWebDailyCallSingleton({
-            call: callObject,
-            userId,
-            captureProfile: captureProfileRef.current,
-            appAcquiredMedia: appAcquiredMediaRef.current,
-            previousSessionId: sessionId,
-            previousRoomName: roomName,
-            reason,
-          });
-          parkedSingleton = true;
-          vdbg("daily_call_destroy_skipped_for_singleton", {
-            caller,
-            reason,
-            sessionId,
-            eventId,
-            roomName,
-            ok: true,
-          });
-        } else {
-          if (shouldParkSingleton && !callLeftSuccessfully) {
-            vdbg("daily_call_singleton_park_skipped", {
-              caller,
-              reason,
-              sessionId,
-              eventId,
-              roomName,
-              skipReason: "leave_failed",
-            });
-          }
+        if (callObject) {
+          dailyListenerGenerationRef.current += 1;
+          clearDailyTokenRefreshTimer();
+          dailyTokenRecoveryInFlightRef.current = false;
+          clearDailyEventListeners("daily_call_cleanup");
           try {
-            callObject.destroy();
-            vdbg("daily_call_destroy", { caller, reason, sessionId, eventId, roomName, ok: true });
+            vdbg("daily_call_leave_before", { caller, reason, sessionId, eventId, roomName });
+            await callObject.leave();
+            callLeftSuccessfully = true;
+            vdbg("daily_call_leave_after", { caller, reason, sessionId, eventId, roomName, ok: true });
           } catch (error) {
-            vdbg("daily_call_destroy", {
+            vdbg("daily_call_leave_after", {
               caller,
               reason,
               sessionId,
@@ -2511,60 +2484,118 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
               error: error instanceof Error ? { name: error.name, message: error.message } : String(error),
             });
           }
-        }
-        callObjectRef.current = null;
-      }
-      activeCallSessionIdRef.current = null;
-      clearDailyTokenRefreshTimer();
-      dailyTokenRecoveryInFlightRef.current = false;
 
-      if (localVideoRef.current) localVideoRef.current.srcObject = null;
-      if (remoteVideoRef.current) remoteVideoRef.current.srcObject = null;
-      setLocalStream(null);
-      setHasPermission(null);
-      setIsConnected(false);
-      setIsConnecting(false);
-      setNetworkTier("good");
-      setRemotePlayback(createRemotePlaybackState());
-      setPeerMissing({ terminal: false });
-      clearRemoteRenderValidation({ cancelReattach: true });
-      clearReconnectGraceTimers();
-      reconnectGraceActiveRef.current = false;
-      reconnectPartnerAwayTriggeredRef.current = false;
-      reconnectSyncRequestedRef.current = false;
-      resetRemoteRenderRecoveryAttempts();
-      lastRemoteRenderParticipantIdRef.current = null;
-      activePreparedEntryCacheRef.current = null;
-      activePreparedEntryCacheHitRef.current = null;
-      dailyJoinStartedAtMsRef.current = null;
-      lastMediaHandoffUsedRef.current = false;
-      lastMediaHandoffMissReasonRef.current = null;
-      lastDailyPrewarmConsumedRef.current = false;
-      lastPrewarmedJoinInFlightRef.current = false;
-      lastPrewarmedAlreadyJoinedRef.current = false;
-      lastProviderVerifySkippedRef.current = null;
-      localVideoReadyTrackedRef.current = false;
-      remoteFirstFrameTrackedRef.current = false;
-      setDailyReconnectState("connected");
-      setReconnectGraceTimeLeft(0);
-      firstRemoteObservedRef.current = false;
-      clearFirstRemoteWatchdog();
-      lastLocalTrackIdsRef.current = "";
-      lastLocalStreamRef.current = null;
-      lastRemoteTrackIdsRef.current = "";
-      lastRemoteStreamRef.current = null;
-      lastLocalMountedTrackKeyRef.current = "";
-      lastRemoteMountedTrackKeyRef.current = "";
-      latestLocalParticipantRef.current = undefined;
-      latestRemoteParticipantRef.current = undefined;
-      cameraSwitchInFlightRef.current = false;
-      lastRemoteCameraSwitchHintIdRef.current = null;
-      activeRemoteCameraSwitchRenderWatchRef.current = null;
-      if (!parkedSingleton) {
-        releaseAppAcquiredMedia("daily_call_cleanup");
-      } else {
-        appAcquiredMediaRef.current = null;
-      }
+          if (shouldParkSingleton && userId && callLeftSuccessfully) {
+            parkWebDailyCallSingleton({
+              call: callObject,
+              userId,
+              captureProfile: captureProfileRef.current,
+              appAcquiredMedia: appAcquiredMediaRef.current,
+              previousSessionId: sessionId,
+              previousRoomName: roomName,
+              reason,
+            });
+            parkedSingleton = true;
+            vdbg("daily_call_destroy_skipped_for_singleton", {
+              caller,
+              reason,
+              sessionId,
+              eventId,
+              roomName,
+              ok: true,
+            });
+          } else {
+            if (shouldParkSingleton && !callLeftSuccessfully) {
+              vdbg("daily_call_singleton_park_skipped", {
+                caller,
+                reason,
+                sessionId,
+                eventId,
+                roomName,
+                skipReason: "leave_failed",
+              });
+            }
+            try {
+              await Promise.resolve(callObject.destroy());
+              vdbg("daily_call_destroy", { caller, reason, sessionId, eventId, roomName, ok: true });
+            } catch (error) {
+              vdbg("daily_call_destroy", {
+                caller,
+                reason,
+                sessionId,
+                eventId,
+                roomName,
+                ok: false,
+                error: error instanceof Error ? { name: error.name, message: error.message } : String(error),
+              });
+            }
+          }
+          callObjectRef.current = null;
+        }
+        activeCallSessionIdRef.current = null;
+        clearDailyTokenRefreshTimer();
+        dailyTokenRecoveryInFlightRef.current = false;
+
+        if (localVideoRef.current) localVideoRef.current.srcObject = null;
+        if (remoteVideoRef.current) remoteVideoRef.current.srcObject = null;
+        setLocalStream(null);
+        setHasPermission(null);
+        setIsConnected(false);
+        setIsConnecting(false);
+        setNetworkTier("good");
+        setRemotePlayback(createRemotePlaybackState());
+        setPeerMissing({ terminal: false });
+        clearRemoteRenderValidation({ cancelReattach: true });
+        clearReconnectGraceTimers();
+        reconnectGraceActiveRef.current = false;
+        reconnectPartnerAwayTriggeredRef.current = false;
+        reconnectSyncRequestedRef.current = false;
+        resetRemoteRenderRecoveryAttempts();
+        lastRemoteRenderParticipantIdRef.current = null;
+        activePreparedEntryCacheRef.current = null;
+        activePreparedEntryCacheHitRef.current = null;
+        dailyJoinStartedAtMsRef.current = null;
+        lastMediaHandoffUsedRef.current = false;
+        lastMediaHandoffMissReasonRef.current = null;
+        lastDailyPrewarmConsumedRef.current = false;
+        lastPrewarmedJoinInFlightRef.current = false;
+        lastPrewarmedAlreadyJoinedRef.current = false;
+        lastProviderVerifySkippedRef.current = null;
+        localVideoReadyTrackedRef.current = false;
+        remoteFirstFrameTrackedRef.current = false;
+        setDailyReconnectState("connected");
+        setReconnectGraceTimeLeft(0);
+        firstRemoteObservedRef.current = false;
+        clearFirstRemoteWatchdog();
+        lastLocalTrackIdsRef.current = "";
+        lastLocalStreamRef.current = null;
+        lastRemoteTrackIdsRef.current = "";
+        lastRemoteStreamRef.current = null;
+        lastLocalMountedTrackKeyRef.current = "";
+        lastRemoteMountedTrackKeyRef.current = "";
+        latestLocalParticipantRef.current = undefined;
+        latestRemoteParticipantRef.current = undefined;
+        cameraSwitchInFlightRef.current = false;
+        lastRemoteCameraSwitchHintIdRef.current = null;
+        activeRemoteCameraSwitchRenderWatchRef.current = null;
+        if (!parkedSingleton) {
+          releaseAppAcquiredMedia("daily_call_cleanup");
+        } else {
+          appAcquiredMediaRef.current = null;
+        }
+      })();
+
+      return registerWebVideoDateDailyCleanup(cleanupPromise, {
+        source: caller,
+        reason,
+        onDiagnostic: (eventName, payload) => {
+          vdbg(eventName, {
+            caller,
+            reason,
+            ...payload,
+          });
+        },
+      });
     },
     [
       clearDailyEventListeners,
@@ -3375,18 +3406,60 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
         if (acquiredMedia && acquiredMedia.captureProfile !== captureProfileForCall) {
           releaseAppAcquiredMedia("capture_profile_changed_before_daily_create");
         }
+        let guardedCreateFailure: "external_call_busy" | "cleanup_pending" | null = null;
         const callObject = singletonCall.ok === true
           ? singletonCall.entry.call
           : prewarmedCall.ok === true
           ? prewarmedCall.entry.call
-          : DailyIframe.createCallObject(
-              hasAppAcquiredVideoTrack && appAcquiredMediaForCall
+          : await (async () => {
+              const factoryOptions = hasAppAcquiredVideoTrack && appAcquiredMediaForCall
                 ? dailyVideoDateCallObjectOptionsWithAppAcquiredMedia(
                     captureProfileForCall,
                     appAcquiredMediaForCall,
                   )
-                : dailyVideoDateCallObjectOptions(captureProfileForCall)
-            );
+                : dailyVideoDateCallObjectOptions(captureProfileForCall);
+              const guarded = await createDailyCallObjectGuarded(DailyIframe, factoryOptions, {
+                source: "video_date_start_call",
+                currentCallObject: callObjectRef.current,
+                waitForCleanup: true,
+                onDiagnostic: (eventName, payload) => {
+                  vdbg(eventName, {
+                    sessionId,
+                    eventId: truthRow.event_id ?? eventId,
+                    userId,
+                    roomName: roomData.room_name,
+                    source: "video_date_start_call",
+                    ...payload,
+                  });
+                },
+              });
+              if (guarded.ok === true) return guarded.call;
+              if (guarded.reason === "external_call_busy" || guarded.reason === "cleanup_pending") {
+                guardedCreateFailure = guarded.reason;
+                vdbg("daily_guard_create_blocked", {
+                  sessionId,
+                  eventId: truthRow.event_id ?? eventId,
+                  userId,
+                  roomName: roomData.room_name,
+                  reason: guarded.reason,
+                  meetingState: guarded.meetingState ?? null,
+                });
+                return null;
+              }
+              throw guarded.error instanceof Error ? guarded.error : new Error("daily_create_failed");
+            })();
+        if (!callObject) {
+          releaseAppAcquiredMedia("daily_guard_create_blocked");
+          setIsConnecting(false);
+          return {
+            ok: false,
+            failure: {
+              kind: "daily_call_busy",
+              retryable: true,
+              serverCode: guardedCreateFailure ?? "external_call_busy",
+            },
+          } as VideoCallStartResult;
+        }
         if (singletonCall.ok === true) {
           const singletonAppAcquiredMedia = singletonCall.entry.appAcquiredMedia;
           if (

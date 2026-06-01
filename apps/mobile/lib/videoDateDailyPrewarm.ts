@@ -1,10 +1,11 @@
 import { trackEvent } from '@/lib/analytics';
 import { vdbg } from '@/lib/vdbg';
 import {
-  createVideoDateDailyCallObject,
+  createVideoDateDailyCallObjectGuarded,
   type NativeVideoDateCaptureProfile,
   type VideoDateDailyCallObject,
 } from '@/lib/videoDateDailyMediaConfig';
+import { registerNativeVideoDateDailyCleanup } from '@/lib/nativeDailyCallInstance';
 import { LobbyPostDateEvents } from '@clientShared/analytics/lobbyToPostDateJourney';
 import {
   buildReadyGateToDateLatencyPayload,
@@ -171,12 +172,16 @@ function cleanupAbandonedCall(entry: NativeDailyPrewarmEntry) {
       if (wasJoined || entry.joinedAtMs != null) {
         await entry.call.leave().catch(() => undefined);
       }
-      entry.call.destroy();
+      await Promise.resolve(entry.call.destroy());
     } catch {
       /* best effort */
     }
   };
-  void cleanup();
+  void registerNativeVideoDateDailyCleanup(cleanup(), {
+    source: 'native_video_date_daily_prewarm',
+    reason: entry.status,
+    onDiagnostic: (eventName, payload) => vdbg(eventName, payload),
+  }).catch(() => undefined);
 }
 
 function fallbackEntry(entry: NativeDailyPrewarmEntry, reason: string, reasonCode: string = reason) {
@@ -211,7 +216,7 @@ function waitWithTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T |
   });
 }
 
-export function startNativeVideoDateDailyPrewarm(params: {
+export async function startNativeVideoDateDailyPrewarm(params: {
   sessionId: string;
   userId: string;
   eventId: string | null;
@@ -219,7 +224,7 @@ export function startNativeVideoDateDailyPrewarm(params: {
   roomUrl: string;
   captureProfile?: NativeVideoDateCaptureProfile;
   source: string;
-}): NativeDailyPrewarmConsumeResult {
+}): Promise<NativeDailyPrewarmConsumeResult> {
   if (!prewarmEnabled()) return { ok: false, reason: 'flag_disabled' };
   const key = keyFor(params.sessionId, params.userId);
   const existing = prewarmEntries.get(key);
@@ -235,7 +240,34 @@ export function startNativeVideoDateDailyPrewarm(params: {
   }
 
   const captureProfile = params.captureProfile ?? 'ideal';
-  const call = createVideoDateDailyCallObject(captureProfile);
+  const guardedCall = await createVideoDateDailyCallObjectGuarded(captureProfile, {
+    source: `native_video_date_daily_prewarm:${params.source}`,
+    skipIfCleanupPending: true,
+    waitForCleanup: false,
+    failOnExternalCall: true,
+    onDiagnostic: (eventName, payload) => {
+      vdbg(eventName, {
+        sessionId: params.sessionId,
+        eventId: params.eventId,
+        userId: params.userId,
+        roomName: params.roomName,
+        source: params.source,
+        ...payload,
+      });
+    },
+  });
+  if (guardedCall.ok === false) {
+    vdbg('daily_prewarm_create_guard_skipped', {
+      sessionId: params.sessionId,
+      eventId: params.eventId,
+      userId: params.userId,
+      roomName: params.roomName,
+      reason: guardedCall.reason,
+      meetingState: guardedCall.meetingState ?? null,
+    });
+    return { ok: false, reason: guardedCall.reason };
+  }
+  const call = guardedCall.call;
   const nowMs = Date.now();
   const entry: NativeDailyPrewarmEntry = {
     key,

@@ -35,7 +35,8 @@ function sectionBetween(source: string, startNeedle: string, endNeedle: string):
 
 const migration = read("supabase/migrations/20260601183000_event_deck_authority_contract.sql");
 const tokenGuardMigration = read("supabase/migrations/20260601194000_event_deck_token_current_top_guard.sql");
-const authoritySql = `${migration}\n${tokenGuardMigration}`;
+const redealMigration = read("supabase/migrations/20260601220000_video_date_deck_redeal_unacted_visible_idempotent.sql");
+const authoritySql = `${migration}\n${tokenGuardMigration}\n${redealMigration}`;
 const webLobby = read("src/pages/EventLobby.tsx");
 const webSwipeHook = read("src/hooks/useSwipeAction.ts");
 const nativeLobby = read("apps/mobile/app/event/[eventId]/lobby.tsx");
@@ -47,14 +48,18 @@ const supabaseTypes = read("src/integrations/supabase/types.ts");
 const eligibilitySection = functionSection(migration, "event_deck_candidate_eligibility");
 const currentTopSection = functionSection(migration, "event_deck_current_top_candidate");
 const validateSection = latestFunctionSection(authoritySql, "event_deck_validate_presented_card");
-const deckV3Section = functionSection(migration, "get_event_deck_v3");
-const visibleSection = functionSection(migration, "record_event_deck_card_visible_v1");
+const deckV3Section = latestFunctionSection(authoritySql, "get_event_deck_v3");
 const visibleCompatSection = sectionBetween(
   migration,
   "CREATE OR REPLACE FUNCTION public.record_event_deck_card_visible_v1(\n  p_event_id uuid,\n  p_viewer_id uuid,\n  p_target_id uuid\n)",
   "DROP FUNCTION IF EXISTS public.handle_swipe_20260601183000_deck_authority_base",
 );
 const handleSwipeV2Section = functionSection(migration, "handle_swipe_v2");
+const latestVisibleSection = sectionBetween(
+  redealMigration,
+  "CREATE OR REPLACE FUNCTION public.record_event_deck_card_visible_v1(\n  p_event_id uuid,\n  p_viewer_id uuid,\n  p_target_id uuid,\n  p_deck_token text DEFAULT NULL\n)",
+  "REVOKE ALL ON FUNCTION public.record_event_deck_card_visible_v1(uuid, uuid, uuid, text)",
+);
 const webTerminalVisibleErrorsSection = sectionBetween(
   webLobby,
   "const TERMINAL_VISIBLE_CARD_MARK_ERRORS = new Set([",
@@ -149,11 +154,22 @@ test("deck v3 reserves buffered cards without burning them as dealt", () => {
   assert.doesNotMatch(deckV3Section, /ranked\.profile_id,\s+'dealt',\s+'get_event_deck_v3_buffer'/);
 });
 
+test("deck v3 re-deals visible unacted cards without repeated prefetch writes", () => {
+  assert.match(deckV3Section, /eligible_raw AS/);
+  assert.match(deckV3Section, /public\.event_deck_candidate_eligibility/);
+  assert.match(deckV3Section, /COALESCE\(\(SELECT n FROM eligible_count\), 0\)/);
+  assert.match(deckV3Section, /< public\.video_date_impression_rank\('pass'\)/);
+  assert.match(deckV3Section, /'redeal_unacted', true/);
+  assert.match(deckV3Section, /existing_prefetch\.prefetch_expires_at > now\(\)/);
+  assert.match(deckV3Section, /video_date_impression_rank\(existing_prefetch\.strongest_exclusion_reason\)[\s\S]*>= public\.video_date_impression_rank\('dealt'\)/);
+  assert.doesNotMatch(deckV3Section, /< public\.video_date_impression_rank\('dealt'\)/);
+});
+
 test("visible-card and swipe paths validate the same presented-card contract", () => {
-  assert.match(visibleSection, /p_deck_token text DEFAULT NULL/);
-  assert.match(visibleSection, /public\.event_deck_validate_presented_card/);
-  assert.match(visibleSection, /visible_at = COALESCE\(visible_at, now\(\)\)/);
-  assert.match(visibleSection, /'event_lobby_top_card_visible'/);
+  assert.match(latestVisibleSection, /p_deck_token text DEFAULT NULL/);
+  assert.match(latestVisibleSection, /public\.event_deck_validate_presented_card/);
+  assert.match(latestVisibleSection, /visible_at = COALESCE\(visible_at, now\(\)\)/);
+  assert.match(latestVisibleSection, /'event_lobby_top_card_visible'/);
   assert.match(visibleCompatSection, /RETURN public\.record_event_deck_card_visible_v1\(/);
   assert.match(visibleCompatSection, /NULL/);
 
@@ -162,6 +178,13 @@ test("visible-card and swipe paths validate the same presented-card contract", (
   assert.match(handleSwipeV2Section, /swiped_at = COALESCE\(swiped_at, now\(\)\)/);
   assert.match(handleSwipeV2Section, /public\.record_event_profile_impression_v2/);
   assert.match(handleSwipeV2Section, /handle_swipe_20260601183000_deck_authority_base/);
+});
+
+test("visible-card marking is idempotent and no longer consumes unacted cards", () => {
+  assert.match(latestVisibleSection, /visible_dealt_already_recorded/);
+  assert.match(latestVisibleSection, /'idempotent', true/);
+  assert.match(latestVisibleSection, /video_date_impression_rank\(epi\.strongest_exclusion_reason\)[\s\S]*>= public\.video_date_impression_rank\('dealt'\)/);
+  assert.match(redealMigration, /Repeated visible marks are idempotent and do not consume unacted cards/);
 });
 
 test("web, native, and edge clients pass deck tokens and stop retrying terminal visible-mark failures", () => {
