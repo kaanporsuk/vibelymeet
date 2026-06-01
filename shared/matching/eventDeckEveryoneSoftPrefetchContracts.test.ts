@@ -128,6 +128,6 @@ test("Generated Supabase types know the new deck visibility and prefetch schema"
   assert.match(impressionTypesSection, /Insert: \{[\s\S]*prefetch_expires_at\?: string \| null/);
   assert.match(impressionTypesSection, /Update: \{[\s\S]*prefetch_expires_at\?: string \| null/);
   assert.match(supabaseTypes, /record_event_deck_card_visible_v1/);
-  assert.match(supabaseTypes, /Args: \{ p_event_id: string; p_target_id: string; p_viewer_id: string \}/);
+  assert.match(supabaseTypes, /record_event_deck_card_visible_v1: \{\s*Args: \{[\s\S]*p_deck_token\?: string \| null[\s\S]*p_event_id: string[\s\S]*p_target_id: string[\s\S]*p_viewer_id: string/);
   assert.match(supabaseTypes, /preference_allows_gender/);
 });

@@ -2168,6 +2168,7 @@ export default function EventLobbyScreen() {
     const viewerId = user.id;
     const targetId = current.id;
     const key = `${eventId}:${viewerId}:${targetId}`;
+    const deckToken = current.deck_token ?? null;
     const visibleDeckMarkAttempts = visibleDeckMarkAttemptsRef.current;
     let cancelled = false;
     let retryTimer: ReturnType<typeof setTimeout> | null = null;
@@ -2195,19 +2196,37 @@ export default function EventLobbyScreen() {
             p_event_id: eventId,
             p_viewer_id: viewerId,
             p_target_id: targetId,
+            p_deck_token: deckToken,
           } as never);
-          const result = data as { ok?: boolean; error?: string } | null;
+          const result = data as { ok?: boolean; error?: string; reason?: string } | null;
           if (error || result?.ok === false) {
+            const reason = error?.message ?? result?.error ?? result?.reason ?? 'rpc_returned_not_ok';
             if (visibleDeckMarkAttempts.get(key) === attemptId) {
               visibleDeckMarkAttempts.delete(key);
             }
+            trackEvent('event_deck_card_visible_mark_result', {
+              platform: 'native',
+              event_id: eventId,
+              outcome: 'failure',
+              reason,
+              deck_token_present: Boolean(deckToken),
+            });
             if (__DEV__) {
-              console.warn('[lobby] top-card visible mark failed:', error?.message ?? result?.error ?? 'rpc_returned_not_ok');
+              console.warn('[lobby] top-card visible mark failed:', reason);
             }
-            scheduleRetry();
+            if (shouldRetryVisibleCardMark(reason)) {
+              scheduleRetry();
+            }
             return;
           }
           visibleDeckCardsRef.current.add(key);
+          trackEvent('event_deck_card_visible_mark_result', {
+            platform: 'native',
+            event_id: eventId,
+            outcome: 'success',
+            reason: 'ok',
+            deck_token_present: Boolean(deckToken),
+          });
           if (visibleDeckMarkAttempts.get(key) === attemptId) {
             visibleDeckMarkAttempts.delete(key);
           }
@@ -2215,6 +2234,13 @@ export default function EventLobbyScreen() {
           if (visibleDeckMarkAttempts.get(key) === attemptId) {
             visibleDeckMarkAttempts.delete(key);
           }
+          trackEvent('event_deck_card_visible_mark_result', {
+            platform: 'native',
+            event_id: eventId,
+            outcome: 'exception',
+            reason: err instanceof Error ? err.name : 'unknown_error',
+            deck_token_present: Boolean(deckToken),
+          });
           if (__DEV__) console.warn('[lobby] top-card visible mark failed:', err);
           scheduleRetry();
         }
@@ -2235,6 +2261,7 @@ export default function EventLobbyScreen() {
     };
   }, [
     appState,
+    current?.deck_token,
     current?.id,
     deckError,
     deckLoading,
