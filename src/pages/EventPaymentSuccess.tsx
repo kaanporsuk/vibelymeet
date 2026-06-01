@@ -23,6 +23,7 @@ const EventPaymentSuccess = () => {
   const eventId = searchParams.get("event_id") ?? searchParams.get("eventId");
   const [eventTitle, setEventTitle] = useState<string | null>(null);
   const [eventRowStatus, setEventRowStatus] = useState<string | null>(null);
+  const [eventRowClosed, setEventRowClosed] = useState(false);
   const [paymentStatus, setPaymentStatus] = useState<EventTicketPaymentStatus | null>(null);
   const analyticsTrackedRef = useRef(false);
 
@@ -31,12 +32,21 @@ const EventPaymentSuccess = () => {
     (async () => {
       const { data } = await supabase
         .from("events")
-        .select("title, status")
+        .select("title, status, archived_at, ended_at")
         .eq("id", eventId)
         .maybeSingle();
       if (data) {
         setEventTitle(data.title);
-        setEventRowStatus(data.status ?? null);
+        const status = (data.status ?? "").toLowerCase();
+        setEventRowStatus(status || null);
+        setEventRowClosed(
+          Boolean(data.archived_at) ||
+            Boolean(data.ended_at) ||
+            status === "draft" ||
+            status === "archived" ||
+            status === "ended" ||
+            status === "completed"
+        );
       }
     })();
 
@@ -80,9 +90,19 @@ const EventPaymentSuccess = () => {
   }, [eventId, user?.id]);
 
   const isEventCancelled = eventRowStatus === "cancelled";
-  const viewState = resolveEventTicketPaymentViewState(paymentStatus, isEventCancelled);
+  const admissionStatus = paymentStatus?.admissionStatus ?? paymentStatus?.settlement?.admissionStatus ?? null;
+  const hasAdmission = admissionStatus === "confirmed" || admissionStatus === "waitlisted";
+  const paymentClosedWithoutAdmission = paymentStatus?.settlement?.code === "EVENT_CLOSED" && !hasAdmission;
+  const isEventUnavailable = isEventCancelled || eventRowClosed || paymentClosedWithoutAdmission;
+  const viewState = resolveEventTicketPaymentViewState(paymentStatus, isEventUnavailable);
   const copy = eventTicketPaymentSuccessCopy(viewState);
   const { headline, subline } = copy;
+  const showViewEventAction = Boolean(
+    eventId &&
+      copy.showViewEventAction &&
+      !eventRowClosed &&
+      !paymentClosedWithoutAdmission
+  );
 
   useEffect(() => {
     if (!eventId || viewState === "pending") return;
@@ -97,7 +117,7 @@ const EventPaymentSuccess = () => {
 
   useEffect(() => {
     if (!eventId || eventRowStatus === null) return;
-    if (eventRowStatus === "cancelled") return;
+    if (isEventUnavailable) return;
     if (!copy.celebrate) return;
     confetti({
       particleCount: 120,
@@ -105,7 +125,7 @@ const EventPaymentSuccess = () => {
       origin: { y: 0.5 },
       colors: ["#a855f7", "#ec4899", "#06b6d4"],
     });
-  }, [eventId, eventRowStatus, copy.celebrate]);
+  }, [eventId, eventRowStatus, isEventUnavailable, copy.celebrate]);
 
   return (
     <div className="min-h-screen bg-background flex flex-col items-center justify-center px-6 text-center">
@@ -153,7 +173,7 @@ const EventPaymentSuccess = () => {
         transition={{ delay: 0.6 }}
         className="flex flex-col gap-3 w-full max-w-xs"
       >
-        {eventId && copy.showViewEventAction && (
+        {showViewEventAction && (
           <Button
             variant="gradient"
             size="lg"

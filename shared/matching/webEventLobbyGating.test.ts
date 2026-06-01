@@ -101,11 +101,13 @@ test("scheduled-active confirmed unpaused events enable deck fetch and actions",
   assert.equal(scheduledUpcoming.canUseLobbyActions, true);
   assert.equal(scheduledUpcoming.canUseLobbySideEffects, true);
 
-  const staleRawEnded = gate({ event: event({ status: "ended", endedAt: null }) });
-  assert.equal(staleRawEnded.kind, "live");
-  assert.equal(staleRawEnded.canFetchDeck, true);
-  assert.equal(staleRawEnded.canUseLobbyActions, true);
-  assert.equal(staleRawEnded.canUseLobbySideEffects, true);
+  for (const status of ["ended", "completed"]) {
+    const terminal = gate({ event: event({ status, endedAt: null }) });
+    assert.equal(terminal.kind, "ended", status);
+    assert.equal(terminal.canFetchDeck, false, status);
+    assert.equal(terminal.canUseLobbyActions, false, status);
+    assert.equal(terminal.canUseLobbySideEffects, false, status);
+  }
 
   const paused = gate({ userPaused: true });
   assert.equal(paused.kind, "paused");
@@ -160,7 +162,7 @@ test("native EventLobby blocks stale deck, status, foreground, and queue side ef
   assert.match(nativeLobby, /useEventStatus\(id, user\?\.id \?\? undefined, lobbySideEffectsEnabled\)/);
   assert.match(nativeLobby, /if \(!id \|\| !user\?\.id \|\| !lobbySideEffectsEnabled\) return/);
   assert.match(nativeLobby, /resolveEventLifecycle/);
-  assert.match(nativeLobby, /if \(row\.ended_at\) setShowEventEndedModal\(true\)/);
+  assert.match(nativeLobby, /if \(row\.ended_at \|\| status === 'ended' \|\| status === 'completed'\) setShowEventEndedModal\(true\)/);
   assert.match(nativeLobby, /status === 'cancelled' \|\| status === 'archived' \|\| status === 'draft' \|\| row\.archived_at/);
   assert.match(nativeEventsApi, /resolveEventLifecycle/);
   assert.match(nativeEventStatus, /enabledRef/);

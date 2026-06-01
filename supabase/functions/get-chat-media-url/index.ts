@@ -965,6 +965,15 @@ async function handleIssueUrl(req: Request): Promise<Response> {
         fileName: "thumbnail.jpg",
         expires,
       });
+    const previewUrl = await signBunnyStreamDirectoryUrl({
+      hostname,
+      securityKey,
+      videoId: streamVideoId,
+      fileName: "preview.webp",
+      expires,
+    });
+    const fallbackUrls = mediaKind === "thumbnail" ? [previewUrl] : [];
+    const posterFallbackUrls = mediaKind === "thumbnail" ? [] : [previewUrl];
 
     void serviceClient.rpc("mark_media_asset_accessed", { p_asset_id: asset.id });
 
@@ -984,6 +993,8 @@ async function handleIssueUrl(req: Request): Promise<Response> {
         success: true,
         url,
         posterUrl,
+        fallbackUrls,
+        posterFallbackUrls,
         playbackKind: mediaKind === "thumbnail" ? "progressive" : "hls",
         provider: "bunny_stream",
         expiresInSeconds: TOKEN_TTL_SECONDS,

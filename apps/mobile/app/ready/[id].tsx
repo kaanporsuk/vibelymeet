@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { StyleSheet, View, Text, Pressable, Image, ScrollView, ActivityIndicator, AppState, Linking, type AppStateStatus } from 'react-native';
+import { StyleSheet, View, Text, Pressable, Image, ScrollView, ActivityIndicator, AppState, type AppStateStatus } from 'react-native';
 import { useLocalSearchParams, usePathname, router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -60,6 +60,7 @@ import {
   resolveReadyGatePrepareEntryFailureCopy,
   type ReadyGateDiagnosticCopy,
 } from '@clientShared/matching/readyGateDiagnosticCopy';
+import { openPermissionSettings, useSettingsReturnRefresh } from '@/lib/permissionSettings';
 
 const GATE_TIMEOUT_SEC = READY_GATE_DEFAULT_TIMEOUT_SECONDS;
 const READY_GATE_TRUTH_RECONCILE_MS = 10_000;
@@ -131,6 +132,7 @@ export default function ReadyGateScreen() {
   const expirySyncRetryAtMsRef = useRef(0);
   const readyGateOpenedAtMsRef = useRef(Date.now());
   const activeSessionIdRef = useRef<string | null>(sessionId ? String(sessionId) : null);
+  const permissionSettingsOpenedRef = useRef(false);
   const { show: showDialog, dialog: dialogEl } = useVibelyDialog();
 
   const refreshNativeMediaDiagnostics = useCallback(async (permission: boolean | null = hasMediaPermission) => {
@@ -162,6 +164,12 @@ export default function ReadyGateScreen() {
     void refreshNativeMediaDiagnostics(result.ok);
     return result.ok;
   }, [refreshNativeMediaDiagnostics, sessionId, user?.id]);
+
+  useSettingsReturnRefresh({
+    wasOpenedRef: permissionSettingsOpenedRef,
+    refresh: requestMediaPermissions,
+    source: 'ready_screen_media',
+  });
 
   useEffect(() => {
     activeSessionIdRef.current = sessionId ? String(sessionId) : null;
@@ -849,8 +857,12 @@ export default function ReadyGateScreen() {
     if (terminalActionPending) return;
     switch (row.actionKind) {
       case 'open_settings':
-        void Linking.openSettings().catch(() => {
-          void requestMediaPermissions();
+        permissionSettingsOpenedRef.current = true;
+        void openPermissionSettings('ready_screen_media').then((opened) => {
+          if (!opened) {
+            permissionSettingsOpenedRef.current = false;
+            void requestMediaPermissions();
+          }
         });
         return;
       case 'request_permission':

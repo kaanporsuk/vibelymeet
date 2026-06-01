@@ -213,6 +213,7 @@ __setChatMediaUrlIssuerForTests(async (_messageId, mediaKind) => {
     success: true,
     url: "https://vz-chat.example/bcdn_token=HS256-play/stream-id/playlist.m3u8",
     posterUrl: "https://vz-chat.example/bcdn_token=HS256-poster/stream-id/thumbnail.jpg",
+    posterFallbackUrls: ["https://vz-chat.example/bcdn_token=HS256-poster-fallback/stream-id/preview.webp"],
     provider: "bunny_stream",
     playbackKind: "hls",
     expiresInSeconds: 300,
@@ -221,11 +222,20 @@ __setChatMediaUrlIssuerForTests(async (_messageId, mediaKind) => {
 try {
   const messageId = "550e8400-e29b-41d4-a716-446655440001";
   const videoId = "11111111-1111-4111-8111-111111111111";
-  const playback = await refreshMediaAssetUrl(messageId, "vibe_clip", `bunny_stream:${videoId}`);
-  const poster = await getCachedMediaAssetUrl(messageId, "thumbnail", `bunny_stream:${videoId}:thumbnail`);
+  const playbackRef = `bunny_stream:${videoId}`;
+  const thumbnailRef = `bunny_stream:${videoId}:thumbnail`;
+  const playback = await refreshMediaAssetUrl(messageId, "vibe_clip", playbackRef);
+  const playbackAsset = await getCachedMediaAsset(messageId, "vibe_clip", playbackRef);
+  const posterAsset = await getCachedMediaAsset(messageId, "thumbnail", thumbnailRef);
 
   assert.equal(playback, "https://vz-chat.example/bcdn_token=HS256-play/stream-id/playlist.m3u8");
-  assert.equal(poster, "https://vz-chat.example/bcdn_token=HS256-poster/stream-id/thumbnail.jpg");
+  assert.equal(posterAsset?.url, "https://vz-chat.example/bcdn_token=HS256-poster/stream-id/thumbnail.jpg");
+  assert.deepEqual(playbackAsset?.posterFallbackUrls, [
+    "https://vz-chat.example/bcdn_token=HS256-poster-fallback/stream-id/preview.webp",
+  ]);
+  assert.deepEqual(posterAsset?.fallbackUrls, [
+    "https://vz-chat.example/bcdn_token=HS256-poster-fallback/stream-id/preview.webp",
+  ]);
   assert.equal(streamInvokeCount, 1);
   assert.equal(__chatMediaUrlCacheSizeForTests(), 2);
 } finally {
@@ -270,6 +280,7 @@ __setChatMediaUrlIssuerForTests(async (_messageId, mediaKind) => {
   return {
     success: true,
     url: "https://vz-chat.example/bcdn_token=HS256-derived/stream-id/thumbnail.jpg",
+    fallbackUrls: ["https://vz-chat.example/bcdn_token=HS256-derived-fallback/stream-id/preview.webp"],
     provider: "bunny_stream",
     playbackKind: "progressive",
     expiresInSeconds: 300,
@@ -304,6 +315,10 @@ try {
   assert.equal(
     (resolved.structured_payload as { thumbnail_url?: string } | null)?.thumbnail_url,
     "https://vz-chat.example/bcdn_token=HS256-derived/stream-id/thumbnail.jpg",
+  );
+  assert.deepEqual(
+    (await getCachedMediaAsset(messageId, "thumbnail", `bunny_stream:${videoId}:thumbnail`))?.fallbackUrls,
+    ["https://vz-chat.example/bcdn_token=HS256-derived-fallback/stream-id/preview.webp"],
   );
   assert.equal(derivedThumbnailResolveInvokeCount, 1);
 } finally {
@@ -762,6 +777,10 @@ assert.match(
 assert.match(resolver, /if \(kind === "thumbnail"\) \{/);
 assert.match(resolver, /asset\.media_family === "chat_video_thumbnail"/);
 assert.match(resolver, /asset\.provider === "bunny_stream" && asset\.media_family === "chat_video"/);
+assert.match(resolver, /fileName: "preview\.webp"/);
+assert.match(resolver, /const previewUrl = await signBunnyStreamDirectoryUrl/);
+assert.match(resolver, /const fallbackUrls = mediaKind === "thumbnail" \? \[previewUrl\] : \[\]/);
+assert.match(resolver, /const posterFallbackUrls = mediaKind === "thumbnail" \? \[\] : \[previewUrl\]/);
 assert.match(resolver, /function assetMatchesSourceRef\(asset: MediaAssetRow, sourceRef: unknown\): boolean/);
 assert.match(resolver, /const sourceMatchedStorageThumbnail = assets\.find/);
 assert.match(resolver, /const explicitThumbnailAsset = assets\.find\(\(asset\) => asset\.media_family === "chat_video_thumbnail"\)/);
@@ -795,13 +814,16 @@ assert.match(webVideoBubble, /refreshMediaAsset/);
 assert.match(webVideoBubble, /videoSourceRef/);
 assert.match(webVideoBubble, /mediaKind\s*=\s*"video"/);
 assert.match(webVideoBubble, /onError=\{\(\) => \{[\s\S]{0,240}tryRefreshAfterFailure/);
-assert.match(webVideoBubble, /MAX_VIDEO_PLAYBACK_REFRESH_ATTEMPTS/);
+assert.match(webVideoBubble, /MAX_VIDEO_PLAYBACK_REFRESH_ATTEMPTS = 2/);
+assert.match(webVideoBubble, /PLAYBACK_REFRESH_RETRY_DELAY_MS = 650/);
+assert.match(webVideoBubble, /getCachedMediaAssetFailureCode/);
+assert.match(webVideoBubble, /isTransientMediaAssetFailureCode/);
 assert.match(webVideoBubble, /VIDEO_PLAYBACK_LOAD_TIMEOUT_MS/);
 assert.match(webVideoBubble, /const isAwaitingPlaybackIntent = !canMountPlayer/);
 assert.match(webVideoBubble, /const showResolvingPlaybackOverlay = isAwaitingPlaybackIntent && playRequested && !loadError/);
-assert.match(webVideoBubble, /void refreshVideoUrl\("initial", \{ bypassFailureCooldown: true \}\)/);
+assert.match(webVideoBubble, /void refreshVideoUrlWithRetry\("initial", \{ bypassFailureCooldown: true \}\)/);
 assert.match(webVideoBubble, /initialPlaybackResolveInFlightRef/);
-assert.match(webVideoBubble, /if \(playRequested \|\| initialPlaybackResolveInFlightRef\.current\) return;[\s\S]{0,260}void refreshVideoUrl\("initial", \{ bypassFailureCooldown: true \}\)/);
+assert.match(webVideoBubble, /if \(playRequested \|\| initialPlaybackResolveInFlightRef\.current\) return;[\s\S]{0,320}void refreshVideoUrlWithRetry\("initial", \{ bypassFailureCooldown: true \}\)/);
 assert.match(webVideoBubble, /\{canMountPlayer \? \([\s\S]{0,120}<video/);
 assert.match(webVideoBubble, /aria-label=\{videoAriaLabel\}/);
 assert.match(webVideoBubble, /Preparing playback…/);
@@ -810,21 +832,37 @@ assert.match(webVideoBubble, /bypassFailureCooldown: true/);
 assert.match(webVideoBubble, /if \(!freshUrl \|\| freshUrl === playableVideoUrl\) videoRef\.current\?\.load\(\);/);
 assert.match(
   webVideoBubble,
-  /if \(playbackRefreshAttemptCountRef\.current >= MAX_VIDEO_PLAYBACK_REFRESH_ATTEMPTS\) return false;[\s\S]{0,80}playbackRefreshAttemptCountRef\.current \+= 1;[\s\S]{0,120}const freshUrl = await refreshVideoUrl\("playback"\);[\s\S]{0,80}if \(!freshUrl\) return false;[\s\S]{0,120}if \(freshUrl === playableVideoUrl\) \{[\s\S]{0,80}videoRef\.current\?\.load\(\);[\s\S]{0,80}return true;[\s\S]{0,80}return true;/,
+  /const freshUrl = await refreshVideoUrlWithRetry\("playback", undefined, true\);[\s\S]{0,80}if \(!freshUrl\) return false;[\s\S]{0,120}if \(freshUrl === playableVideoUrl\) \{[\s\S]{0,80}videoRef\.current\?\.load\(\);[\s\S]{0,80}return true;[\s\S]{0,80}return true;/,
 );
+assert.match(
+  webVideoBubble,
+  /const refreshPlaybackOnAuthError = useCallback\(async \(\) => \{[\s\S]*for \(let attempt = 0; attempt < MAX_VIDEO_PLAYBACK_REFRESH_ATTEMPTS; attempt \+= 1\) \{[\s\S]*refreshResolvedMediaAsset\(messageId, mediaKind, videoSourceRef,[\s\S]*getCachedMediaAssetFailureCode\(messageId, mediaKind, videoSourceRef\);[\s\S]*isTransientMediaAssetFailureCode\(failureCode\)/,
+);
+assert.match(webVideoBubble, /const commitResolvedPlaybackAsset = useCallback/);
+assert.match(webVideoBubble, /if \(commitResolvedPlaybackAsset\(fresh\)\) return fresh/);
+assert.match(webVideoBubble, /const refreshPlaybackProactively = useCallback[\s\S]*commitResolvedPlaybackAsset\(fresh\)/);
 assert.match(webVideoBubble, /const showIdlePosterOverlay =/);
+assert.match(webVideoBubble, /const \[hasStartedPlayback, setHasStartedPlayback\] = useState\(false\)/);
+assert.match(webVideoBubble, /fallbackUrls: thumbnailFallbackUrls/);
+assert.match(webVideoBubble, /const handlePosterImageError = useCallback/);
+assert.match(webVideoBubble, /showPosterVisual && canMountPlayer && !showPreparingOverlay && !hasStartedPlayback/);
+assert.match(webVideoBubble, /onPlaying=\{handlePlaying\}/);
+assert.doesNotMatch(webVideoBubble, /const posterNotReady =\s*!isReady/);
 assert.match(webClipBubble, /useMediaAsset/);
 assert.doesNotMatch(webClipBubble, wholeHookResultDependencyPattern);
 assert.match(webClipBubble, /useMediaAssetPlayback/);
 assert.match(webClipBubble, /videoSourceRef/);
 assert.match(webClipBubble, /thumbnailSourceRef/);
-assert.match(webClipBubble, /MAX_CLIP_PLAYBACK_REFRESH_ATTEMPTS/);
+assert.match(webClipBubble, /MAX_CLIP_PLAYBACK_REFRESH_ATTEMPTS = 2/);
+assert.match(webClipBubble, /PLAYBACK_REFRESH_RETRY_DELAY_MS = 650/);
+assert.match(webClipBubble, /getCachedMediaAssetFailureCode/);
+assert.match(webClipBubble, /isTransientMediaAssetFailureCode/);
 assert.match(webClipBubble, /type VibeClipMediaRefreshReason = "preview" \| "initial" \| "playback" \| "manual"/);
 assert.match(webClipBubble, /initialPlaybackResolveInFlightRef/);
 assert.match(webClipBubble, /if \(initialPlaybackResolveInFlightRef\.current\) return;[\s\S]{0,260}void refreshClipMedia\("initial"\)/);
 assert.match(
   webClipBubble,
-  /reason === "manual"[\s\S]{0,30}\? \{ bypassFailureCooldown: true \}[\s\S]{0,40}: reason === "preview"[\s\S]{0,60}\? \{ bypassFailureCooldown: true, suppressFailureCache: true \}[\s\S]{0,30}: undefined/,
+  /reason === "manual" \|\| reason === "initial"[\s\S]{0,50}\? \{ bypassFailureCooldown: true \}[\s\S]{0,40}: reason === "preview"[\s\S]{0,60}\? \{ bypassFailureCooldown: true, suppressFailureCache: true \}[\s\S]{0,30}: undefined/,
 );
 // First-go poster reliability: bounded, capped backoff retry that re-signs the thumbnail.
 assert.match(webClipBubble, /POSTER_PREVIEW_RETRY_DELAYS_MS = \[1000, 3000, 8000\]/);
@@ -834,17 +872,29 @@ assert.match(webClipBubble, /void refreshClipMedia\("preview"\)\.finally\(/);
 assert.match(webClipBubble, /setPosterImageBroken\(true\)/);
 assert.match(webClipBubble, /poster=\{showPosterVisual \? displayableThumbnailUrl \?\? undefined : undefined\}/);
 assert.match(webClipBubble, /const showIdlePosterOverlay =/);
-assert.match(webClipBubble, /refreshVideoAsset\(reason, refreshOptions\)/);
+assert.match(webClipBubble, /const \[hasStartedPlayback, setHasStartedPlayback\] = useState\(false\)/);
+assert.match(webClipBubble, /fallbackUrls: thumbnailFallbackUrls/);
+assert.match(webClipBubble, /const handlePosterImageError = useCallback/);
+assert.match(webClipBubble, /!showPreparingOverlay[\s\S]{0,80}!hasStartedPlayback/);
+assert.doesNotMatch(webClipBubble, /const posterNotReady =\s*!isReady/);
+assert.match(webClipBubble, /refreshVideoAsset\(reason, attemptOptions\)/);
 assert.match(webClipBubble, /refreshThumbnailAsset\(reason === "manual" \? "manual" : "preview", refreshOptions\)/);
 assert.doesNotMatch(webClipBubble, /if \(didRefresh\) posterRefreshAttemptedForRef\.current = null/);
 assert.match(
   webClipBubble,
-  /if \(reason === "playback"\) \{[\s\S]*playbackRefreshAttemptCountRef\.current \+= 1;[\s\S]*const freshThumbnailUrl/,
+  /for \(let attempt = 0; attempt < MAX_CLIP_PLAYBACK_REFRESH_ATTEMPTS; attempt \+= 1\) \{[\s\S]*if \(reason === "playback"\) \{[\s\S]*playbackRefreshAttemptCountRef\.current \+= 1;/,
 );
 assert.match(
   webClipBubble,
-  /if \(reason === "preview"\) return !!displayableFreshThumbnailUrl;[\s\S]*const freshVideoUrl = await refreshVideoAsset\(reason, refreshOptions\);[\s\S]*if \(!freshVideoUrl\) return false;[\s\S]*if \(freshVideoUrl === playableVideoUrl\) \{[\s\S]*videoRef\.current\?\.load\(\);[\s\S]*return true;[\s\S]*return true;/,
+  /if \(reason === "preview"\) return refreshPoster\(\);[\s\S]*const videoRefresh = refreshVideoAsset\(reason, attemptOptions\);[\s\S]*startPosterRefresh\(\);[\s\S]*freshVideoUrl = await videoRefresh;[\s\S]*if \(!freshVideoUrl\) return false;[\s\S]*if \(freshVideoUrl === playableVideoUrl\) \{[\s\S]*videoRef\.current\?\.load\(\);[\s\S]*return true;[\s\S]*return true;/,
 );
+assert.match(
+  webClipBubble,
+  /const refreshPlaybackOnAuthError = useCallback\(async \(\) => \{[\s\S]*for \(let attempt = 0; attempt < MAX_CLIP_PLAYBACK_REFRESH_ATTEMPTS; attempt \+= 1\) \{[\s\S]*refreshResolvedMediaAsset\(sparkMessageId, "vibe_clip", videoSourceRef,[\s\S]*getCachedMediaAssetFailureCode\(sparkMessageId, "vibe_clip", videoSourceRef\);[\s\S]*isTransientMediaAssetFailureCode\(failureCode\)/,
+);
+assert.match(webClipBubble, /const commitResolvedPlaybackAsset = useCallback/);
+assert.match(webClipBubble, /if \(commitResolvedPlaybackAsset\(fresh\)\) return fresh/);
+assert.match(webClipBubble, /const refreshPlaybackProactively = useCallback[\s\S]*commitResolvedPlaybackAsset\(fresh\)/);
 assert.match(
   webPhotoLightbox,
   /if \(!freshUrl \|\| freshUrl === currentUrl\) return;[\s\S]{0,80}refreshAttemptedForUrlRef\.current = currentUrl;/,
@@ -859,18 +909,39 @@ assert.doesNotMatch(webPhotoLightbox, /const currentId = items\[prevIndex\]\?\.i
 assert.doesNotMatch(webPhotoLightbox, /setIndex\(i >= 0 \? i : 0\);[\s\S]{0,120}\}, \[initialId, items\]\);/);
 assert.match(
   webVideoLightbox,
-  /if \(playbackRefreshAttemptCountRef\.current >= MAX_LIGHTBOX_PLAYBACK_REFRESH_ATTEMPTS\) return false;[\s\S]*playbackRefreshAttemptCountRef\.current \+= 1;[\s\S]*if \(!freshVideoUrl\) return false;[\s\S]*if \(freshVideoUrl === currentUrl\) \{[\s\S]*videoRef\.current\?\.load\(\);[\s\S]*return true;[\s\S]*return true;/,
+  /for \(let attempt = 0; attempt < MAX_LIGHTBOX_PLAYBACK_REFRESH_ATTEMPTS; attempt \+= 1\) \{[\s\S]*playbackRefreshAttemptCountRef\.current \+= 1;[\s\S]*freshVideoUrl = await refreshVideoAsset\(reason, attemptOptions\);[\s\S]*if \(!freshVideoUrl\) return false;[\s\S]*if \(freshVideoUrl === currentUrl\) \{[\s\S]*videoRef\.current\?\.load\(\);[\s\S]*\} else \{[\s\S]*setPlayableVideoUrl\(freshVideoUrl\);/,
 );
+assert.match(
+  webVideoLightbox,
+  /const refreshPlaybackOnAuthError = useCallback\(async \(\) => \{[\s\S]*for \(let attempt = 0; attempt < MAX_LIGHTBOX_PLAYBACK_REFRESH_ATTEMPTS; attempt \+= 1\) \{[\s\S]*refreshResolvedMediaAsset\(messageId, mediaKind, videoSourceRef,[\s\S]*getCachedMediaAssetFailureCode\(messageId, mediaKind, videoSourceRef\);[\s\S]*isTransientMediaAssetFailureCode\(failureCode\)/,
+);
+assert.match(webVideoLightbox, /const commitResolvedPlaybackAsset = useCallback/);
+assert.match(webVideoLightbox, /if \(commitResolvedPlaybackAsset\(fresh\)\) return fresh/);
+assert.match(webVideoLightbox, /const refreshPlaybackProactively = useCallback[\s\S]*commitResolvedPlaybackAsset\(fresh\)/);
 assert.match(webVideoLightbox, /useMediaAsset/);
 assert.doesNotMatch(webVideoLightbox, wholeHookResultDependencyPattern);
 assert.match(webVideoLightbox, /useMediaAssetPlayback/);
 assert.match(webVideoLightbox, /type LightboxMediaRefreshReason = "initial" \| "playback" \| "manual"/);
 assert.match(webVideoLightbox, /reason === "manual" \? \{ bypassFailureCooldown: true \} : undefined/);
 assert.match(webVideoLightbox, /refreshPosterAsset\("cache"\)/);
+assert.match(webVideoLightbox, /posterFallbackResolveInFlightRef/);
+assert.match(webVideoLightbox, /posterFallbackResolveAttemptedForRef/);
+assert.match(webVideoLightbox, /const thumbnailSource = thumbnailSourceRef/);
+assert.match(webVideoLightbox, /const stableMessageId = messageId/);
+assert.match(webVideoLightbox, /const stableThumbnailSource = thumbnailSource/);
+assert.match(webVideoLightbox, /refreshResolvedMediaAsset\(stableMessageId, "thumbnail", stableThumbnailSource/);
+assert.match(webVideoLightbox, /asset\?\.fallbackUrls \?\? \[\]/);
+assert.match(webVideoLightbox, /setExtraPosterFallbackUrls/);
+assert.match(webVideoLightbox, /refreshedCurrentIndex === -1/);
 assert.match(webVideoLightbox, /if \(displayablePosterUrl\(playablePosterUrl\) \|\| !thumbnailSourceRef\) return;/);
 assert.match(webVideoLightbox, /onResolvedThumbnailUrlRef\.current\?\.\(displayableUrl\)/);
 assert.match(webVideoLightbox, /poster=\{visiblePosterUrl \?\? undefined\}/);
-assert.match(webVideoLightbox, /visiblePosterUrl && phase === "loading"/);
+assert.match(webVideoLightbox, /const \[hasStartedPlayback, setHasStartedPlayback\] = useState\(false\)/);
+assert.match(webVideoLightbox, /const showPosterProbe = !!visiblePosterUrl && !hasStartedPlayback && phase !== "error"/);
+assert.match(webVideoLightbox, /const showLoadingPosterOverlay = !!visiblePosterUrl && phase === "loading"/);
+assert.match(webVideoLightbox, /onPlaying=\{handlePlaying\}/);
+assert.match(webVideoLightbox, /onEnded=\{handleEnded\}/);
+assert.match(webVideoLightbox, /showPosterProbe \? \([\s\S]{0,260}onError=\{handlePosterImageError\}/);
 assert.match(webVideoLightbox, /onAutoplayBlocked: revealPlayer/);
 assert.doesNotMatch(webVideoLightbox, /onWaiting=\{\(\) => setPhase\("loading"\)\}/);
 assert.match(webVideoLightbox, /CLIP_PLAYBACK_LOAD_TIMEOUT_MS/);
@@ -900,8 +971,13 @@ assert.match(webMediaResolver, /bunnyStreamThumbnailRefFor, deriveChatVideoThumb
 assert.match(webMediaResolver, /const thumbnailRef = deriveChatVideoThumbnailRef/);
 assert.match(webMediaResolver, /\{ messageId, mediaKind, sourceRef: rawRef/);
 assert.match(webMediaResolver, /payload\.posterUrl/);
+assert.match(webMediaResolver, /fallbackUrls: normalizePlayableUrlList\(payload\.fallbackUrls/);
+assert.match(webMediaResolver, /posterFallbackUrls: normalizePlayableUrlList\(payload\.posterFallbackUrls/);
+assert.match(webMediaResolver, /fallbackUrls: resolvedAsset\.posterFallbackUrls/);
 assert.match(webMediaResolver, /mediaUrlInFlightRequests/);
 assert.match(webMediaResolver, /mediaUrlFailureCache/);
+assert.match(webMediaResolver, /export function isTransientMediaAssetFailureCode/);
+assert.match(webMediaResolver, /export function isFatalMediaAssetFailureCode/);
 assert.match(webMediaResolver, /bypassFailureCooldown/);
 assert.match(webMediaResolver, /payload\?\.kind === "chat_image" && payload\.v === 2 && payload\.provider === "bunny_storage"/);
 assert.match(nativeBubble, /useMediaAsset/);
@@ -921,11 +997,14 @@ assert.doesNotMatch(nativeClipCard, wholeHookResultDependencyPattern);
 assert.match(nativeClipCard, /videoSourceRef/);
 assert.match(nativeClipCard, /thumbnailSourceRef/);
 assert.match(nativeClipCard, /kind: 'thumbnail'[\s\S]{0,160}autoResolve: true/);
-assert.match(nativeClipCard, /MAX_CLIP_PLAYBACK_REFRESH_ATTEMPTS/);
+assert.match(nativeClipCard, /MAX_CLIP_PLAYBACK_REFRESH_ATTEMPTS = 2/);
+assert.match(nativeClipCard, /PLAYBACK_REFRESH_RETRY_DELAY_MS = 650/);
+assert.match(nativeClipCard, /getCachedMediaAssetFailureCode/);
+assert.match(nativeClipCard, /isTransientMediaAssetFailureCode/);
 assert.match(nativeClipCard, /type VibeClipMediaRefreshReason = 'preview' \| 'initial' \| 'playback' \| 'manual'/);
 assert.match(
   nativeClipCard,
-  /reason === 'manual'[\s\S]{0,30}\? \{ bypassFailureCooldown: true \}[\s\S]{0,40}: reason === 'preview'[\s\S]{0,60}\? \{ bypassFailureCooldown: true, suppressFailureCache: true \}[\s\S]{0,30}: undefined/,
+  /reason === 'manual' \|\| reason === 'initial'[\s\S]{0,50}\? \{ bypassFailureCooldown: true \}[\s\S]{0,40}: reason === 'preview'[\s\S]{0,60}\? \{ bypassFailureCooldown: true, suppressFailureCache: true \}[\s\S]{0,30}: undefined/,
 );
 // First-go poster reliability mirrors web: bounded, capped backoff retry.
 assert.match(nativeClipCard, /POSTER_PREVIEW_RETRY_DELAYS_MS = \[1000, 3000, 8000\]/);
@@ -938,7 +1017,7 @@ assert.match(nativeClipCard, /isReady && !hasPlayed && hasPosterVisual/);
 assert.match(nativeClipCard, /CLIP_PLAYBACK_LOAD_TIMEOUT_MS/);
 assert.match(nativeClipCard, /onResetPlaybackRefreshAttempt/);
 assert.match(nativeClipCard, /setHasError\(false\)/);
-assert.match(nativeClipCard, /refreshVideoAsset\(reason, refreshOptions\)/);
+assert.match(nativeClipCard, /refreshVideoAsset\(reason, attemptOptions\)/);
 assert.match(nativeClipCard, /refreshThumbnailAsset\(reason === 'manual' \? 'manual' : 'preview', refreshOptions\)/);
 assert.match(nativeClipCard, /onResolvedVideoUrl\?\.\(freshVideoUri\)/);
 assert.match(nativeClipCard, /onResolvedThumbnailUrl\?\.\(displayableFreshThumbnailUri\)/);
@@ -949,7 +1028,7 @@ assert.match(nativeClipCard, /if \(initialPlaybackResolveInFlightRef\.current\) 
 assert.doesNotMatch(nativeClipCard, /if \(didRefresh\) posterRefreshAttemptedForRef\.current = null/);
 assert.match(
   nativeChatScreen,
-  /if \(!freshUri\) return false;[\s\S]{0,120}if \(freshUri === playableUri\) \{[\s\S]{0,180}setRetryNonce\(\(n\) => n \+ 1\);[\s\S]{0,80}return true;[\s\S]{0,120}refreshAttemptedForUriRef\.current = playableUri;[\s\S]{0,160}return true;/,
+  /for \(let attempt = 0; attempt < CHAT_VIDEO_PLAYBACK_REFRESH_ATTEMPTS; attempt \+= 1\) \{[\s\S]*freshUri = await refreshMediaAsset\(reason, attemptOptions\);[\s\S]*getCachedMediaAssetFailureCode\(messageId, mediaAssetKind, sourceRef\);[\s\S]*isTransientMediaAssetFailureCode\(failureCode\)[\s\S]*if \(!freshUri\) return false;[\s\S]*if \(freshUri === playableUri\) \{[\s\S]*setRetryNonce\(\(n\) => n \+ 1\);/,
 );
 assert.match(nativeChatScreen, /type ChatVideoMediaRefreshReason = 'initial' \| 'playback' \| 'manual'/);
 assert.match(nativeChatScreen, /shouldMountPlayer && isChatVideoPlaybackUri\(uri\) \? chatVideoSourceForUri\(uri\) : null/);
@@ -965,15 +1044,15 @@ assert.match(nativeChatScreen, /isResolvingPlayback=\{isResolvingInitialPlayback
 assert.match(nativeChatScreen, /!hasPlaybackError && \(\(shouldMountPlayer && !isReady\) \|\| \(!shouldMountPlayer && isResolvingPlayback\)\)/);
 assert.match(
   nativeClipCard,
-  /if \(reason === 'preview'\) return !!displayableFreshThumbnailUri;/,
+  /if \(reason === 'preview'\) return refreshPoster\(\);/,
 );
 assert.match(
   nativeClipCard,
-  /if \(reason === 'playback'\) \{[\s\S]*playbackRefreshAttemptCountRef\.current \+= 1;[\s\S]*const freshThumbnailUri/,
+  /for \(let attempt = 0; attempt < MAX_CLIP_PLAYBACK_REFRESH_ATTEMPTS; attempt \+= 1\) \{[\s\S]*if \(reason === 'playback'\) \{[\s\S]*playbackRefreshAttemptCountRef\.current \+= 1;/,
 );
 assert.match(
   nativeClipCard,
-  /if \(reason === 'preview'\) return !!displayableFreshThumbnailUri;[\s\S]*const freshVideoUri = await refreshVideoAsset\(reason, refreshOptions\);[\s\S]*if \(!freshVideoUri\) return false;[\s\S]*if \(freshVideoUri === playableVideoUrl\) \{[\s\S]*setRetryNonce\(\(n\) => n \+ 1\);[\s\S]*return true;[\s\S]*return true;/,
+  /if \(reason === 'preview'\) return refreshPoster\(\);[\s\S]*const videoRefresh = refreshVideoAsset\(reason, attemptOptions\);[\s\S]*startPosterRefresh\(\);[\s\S]*freshVideoUri = await videoRefresh;[\s\S]*if \(!freshVideoUri\) return false;[\s\S]*if \(freshVideoUri === playableVideoUrl\) \{[\s\S]*setRetryNonce\(\(n\) => n \+ 1\);[\s\S]*return true;/,
 );
 assert.match(
   nativeMediaViewer,
@@ -989,12 +1068,19 @@ assert.doesNotMatch(nativeMediaViewer, /const currentId = items\[prevIndex\]\?\.
 assert.doesNotMatch(nativeMediaViewer, /setIndex\(Math\.max\(0, items\.findIndex\(\(i\) => i\.id === initialId\)\)\);[\s\S]{0,120}\}, \[initialId, items\]\);/);
 assert.match(
   nativeMediaViewer,
-  /const refreshMedia = useCallback\(async \(reason: 'playback' \| 'poster' = 'playback'\)[\s\S]*if \(!fresh\?\.uri\) return !!freshPosterUri;[\s\S]{0,120}if \(fresh\.uri === playableUri\) \{[\s\S]{0,80}if \(reason === 'poster'\) return !!freshPosterUri;[\s\S]{0,180}setRetryKey\(\(k\) => k \+ 1\);[\s\S]{0,80}return true;[\s\S]{0,120}refreshAttemptedForUriRef\.current = playableUri;[\s\S]{0,160}return true;/,
+  /const refreshMedia = useCallback\(async \(reason: 'playback' \| 'poster' \| 'manual' = 'playback'\)[\s\S]*if \(reason === 'poster' && advancePosterCandidate\(\)\) return true;[\s\S]*fresh = await onRefreshMedia\(reason\);[\s\S]*const freshPosterFallbackUris = uniqueDisplayablePosterUris\(fresh\?\.posterFallbackUris \?\? \[\]\);[\s\S]*if \(!fresh\?\.uri\) return !!freshPosterUri;[\s\S]*if \(fresh\.uri === playableUri\) \{[\s\S]*if \(reason === 'poster'\) return !!freshPosterUri;[\s\S]*setRetryKey\(\(k\) => k \+ 1\);/,
 );
 assert.match(nativeMediaViewer, /void refreshMedia\('poster'\)/);
 assert.match(nativeMediaViewer, /posterResolveAttemptedForUriRef/);
+assert.match(nativeMediaViewer, /posterRefreshAttemptedForUriRef/);
+assert.match(nativeMediaViewer, /posterFallbackUris\?: string\[\] \| null/);
+assert.match(nativeMediaViewer, /const \[posterFallbackUris, setPosterFallbackUris\] = useState<string\[\]>\(\[\]\)/);
+assert.match(nativeMediaViewer, /function uniqueDisplayablePosterUris/);
+assert.match(nativeMediaViewer, /const advancePosterCandidate = useCallback/);
 assert.match(nativeMediaViewer, /posterUri=\{displayablePosterUri\(playablePosterUri\)\}/);
 assert.match(nativeMediaViewer, /posterUri && phase === 'loading'/);
+assert.match(nativeMediaViewer, /posterUri && phase !== 'error'/);
+assert.match(nativeMediaViewer, /style=\{styles\.videoPosterProbe\}/);
 assert.match(nativeMediaViewer, /pointerEvents="none"/);
 assert.match(nativeMediaViewer, /CLIP_PLAYBACK_LOAD_TIMEOUT_MS/);
 assert.match(nativeMediaViewer, /phase !== 'loading'/);
@@ -1022,6 +1108,8 @@ assert.match(nativeMediaResolver, /catch \{[\s\S]{0,100}return \{ kind: 'transie
 assert.match(nativeMediaResolver, /if \(result\.kind === 'transient_failure'\) \{[\s\S]{0,150}!options\.suppressFailureCache[\s\S]{0,120}recordMediaUrlFailure\(cacheKey, result\.errorCode\);[\s\S]{0,80}return null;/);
 assert.match(nativeMediaResolver, /mediaUrlInFlightRequests/);
 assert.match(nativeMediaResolver, /mediaUrlFailureCache/);
+assert.match(nativeMediaResolver, /export function isTransientMediaAssetFailureCode/);
+assert.match(nativeMediaResolver, /export function isFatalMediaAssetFailureCode/);
 assert.match(nativeMediaResolver, /bypassFailureCooldown/);
 assert.match(nativeMediaResolver, /payload\?\.kind === 'chat_image' && payload\.v === 2 && payload\.provider === 'bunny_storage'/);
 assert.match(nativeMediaResolver, /getFreshCachedAccessToken/);
@@ -1030,6 +1118,14 @@ assert.match(nativeMediaResolver, /bunnyStreamThumbnailRefFor, deriveChatVideoTh
 assert.match(nativeMediaResolver, /const thumbnailRef = deriveChatVideoThumbnailRef/);
 assert.match(nativeMediaResolver, /\{ messageId, mediaKind, sourceRef: rawRef/);
 assert.match(nativeMediaResolver, /payload\.posterUrl/);
+assert.match(nativeMediaResolver, /fallbackUrls: normalizePlayableUrlList\(payload\.fallbackUrls/);
+assert.match(nativeMediaResolver, /posterFallbackUrls: normalizePlayableUrlList\(payload\.posterFallbackUrls/);
+assert.match(nativeMediaResolver, /fallbackUrls: resolvedAsset\.posterFallbackUrls/);
+assert.match(nativeMediaResolver, /const urls = \[primaryUrl, \.\.\.fallbackUrls\]/);
+assert.match(nativeMediaAssetHook, /fallbackUrls: string\[\]/);
+assert.match(nativeMediaAssetHook, /posterFallbackUrls: string\[\]/);
+assert.match(nativeMediaAssetHook, /setFallbackUrls\(result\.fallbackUrls\)/);
+assert.match(nativeMediaAssetHook, /setPosterFallbackUrls\(result\.posterFallbackUrls\)/);
 assert.match(nativeChat, /extras:\s*\{\s*httpSend:\s*true\s*\}/);
 assert.match(threadPage, /\.from\("media_assets"\)/);
 assert.match(threadPage, /date_suggestions/);
@@ -1099,10 +1195,22 @@ assert.match(nativeChatScreen, /thumbnailUri=\{posterUri\}/);
 assert.match(nativeChatScreen, /thumbnailSourceRef=\{effectiveThumbnailSourceRef\}/);
 assert.match(nativeChatScreen, /thumbnailSourceRef: effectiveThumbnailSourceRef/);
 assert.match(nativeChatScreen, /kind: 'thumbnail'[\s\S]{0,160}autoResolve: true/);
+assert.match(nativeChatScreen, /fallbackUrls: thumbnailFallbackUris/);
+assert.match(nativeChatScreen, /uniqueDisplayableChatVideoPosterUris\(playablePosterUri, thumbnailFallbackUris\)/);
+assert.match(nativeChatScreen, /CHAT_VIDEO_POSTER_PREVIEW_TIMEOUT_MS = 3500/);
 assert.match(nativeChatScreen, /posterUri=\{displayableChatVideoPosterUri\(playablePosterUri\)\}/);
+assert.match(nativeChatScreen, /onLoad=\{onPosterLoad\}/);
 assert.match(nativeChatScreen, /CHAT_VIDEO_POSTER_PREVIEW_RETRY_DELAYS_MS = \[1000, 3000, 8000\]/);
 assert.match(nativeChatScreen, /onResolvedVideoUrl=\{\(uri\) => rememberResolvedVideoUri\(item\.id, uri\)\}/);
 assert.match(nativeChatScreen, /onResolvedThumbnailUrl=\{\(uri\) => rememberResolvedThumbnailUri\(item\.id, uri\)\}/);
+assert.match(nativeChatScreen, /const freshPosterAsset = await refreshMediaAsset\(/);
+assert.match(nativeChatScreen, /freshPosterAsset\?\.fallbackUrls \?\? \[\]/);
+assert.match(nativeMediaViewer, /void onRefreshMedia\('poster'\)/);
+assert.match(nativeClipCard, /fallbackUrls: thumbnailFallbackUrls/);
+assert.match(nativeClipCard, /uniqueDisplayablePosterUris\(playableThumbnailUrl, thumbnailFallbackUrls\)/);
+assert.match(nativeClipCard, /if \(state === 'failed'\)/);
+assert.match(nativeClipCard, /onPosterPreviewStateChange\?\.\('unknown', nextUrl\)/);
+assert.match(nativeClipCard, /onResolvedThumbnailUrl\?\.\(nextUrl\)/);
 assert.match(webMessagesHook, /query\.data\.dateSuggestions[\s\S]*byId\.set\(suggestion\.id, suggestion\)/);
 assert.match(nativeChat, /query\.data\.dateSuggestions[\s\S]*byId\.set\(suggestion\.id, suggestion\)/);
 

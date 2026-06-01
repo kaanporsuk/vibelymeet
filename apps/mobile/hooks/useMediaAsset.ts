@@ -38,6 +38,8 @@ type UseMediaAssetOptions = {
 type UseMediaAssetResult = {
   url: string | null;
   posterUrl: string | null;
+  fallbackUrls: string[];
+  posterFallbackUrls: string[];
   placeholderKind: MediaPlaceholderKind | null;
   placeholderHash: string | null;
   dominantColor: string | null;
@@ -98,6 +100,8 @@ function passthroughAsset(url: string): MediaAssetResolveResult {
   return {
     url,
     posterUrl: null,
+    fallbackUrls: [],
+    posterFallbackUrls: [],
     playbackKind: isHlsMediaAssetUrl(url) ? 'hls' : 'progressive',
     provider: /^https?:\/\//i.test(url) ? 'remote' : 'local',
     expiresAtMs: Number.POSITIVE_INFINITY,
@@ -134,6 +138,8 @@ export function useMediaAsset({
   const initial = initialUrl === null ? null : initialUrl ?? sourceRef ?? null;
   const [url, setUrl] = useState<string | null>(initial);
   const [posterUrl, setPosterUrl] = useState<string | null>(null);
+  const [fallbackUrls, setFallbackUrls] = useState<string[]>([]);
+  const [posterFallbackUrls, setPosterFallbackUrls] = useState<string[]>([]);
   const [placeholderKind, setPlaceholderKind] = useState<MediaPlaceholderKind | null>(null);
   const [placeholderHash, setPlaceholderHash] = useState<string | null>(null);
   const [dominantColor, setDominantColor] = useState<string | null>(null);
@@ -157,6 +163,8 @@ export function useMediaAsset({
     const next = initialUrl === null ? null : initialUrl ?? sourceRef ?? null;
     setUrl(next);
     setPosterUrl(null);
+    setFallbackUrls([]);
+    setPosterFallbackUrls([]);
     setPlaceholderKind(null);
     setPlaceholderHash(null);
     setDominantColor(null);
@@ -183,6 +191,8 @@ export function useMediaAsset({
     }
     setUrl(result.url);
     setPosterUrl(result.posterUrl);
+    setFallbackUrls(result.fallbackUrls);
+    setPosterFallbackUrls(result.posterFallbackUrls);
     setPlaceholderKind(result.placeholderKind);
     setPlaceholderHash(result.placeholderHash);
     setDominantColor(result.dominantColor);
@@ -324,6 +334,8 @@ export function useMediaAsset({
     () => ({
       url,
       posterUrl,
+      fallbackUrls,
+      posterFallbackUrls,
       placeholderKind,
       placeholderHash,
       dominantColor,
@@ -335,6 +347,19 @@ export function useMediaAsset({
       isPlayable: isPlayableMediaAssetUrl(url),
       refresh,
     }),
-    [dominantColor, error, expiresAtMs, fallbackReason, placeholderHash, placeholderKind, posterUrl, refresh, status, url],
+    [
+      dominantColor,
+      error,
+      expiresAtMs,
+      fallbackReason,
+      fallbackUrls,
+      placeholderHash,
+      placeholderKind,
+      posterFallbackUrls,
+      posterUrl,
+      refresh,
+      status,
+      url,
+    ],
   );
 }

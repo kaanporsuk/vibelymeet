@@ -3,7 +3,7 @@
  * Backend / OneSignal subscription sync is separate (see syncPushSubscriptionToBackend, syncBackendAfterPushGrant).
  */
 import { useState, useEffect, useCallback } from 'react';
-import { AppState, Linking, Platform, type AppStateStatus } from 'react-native';
+import { AppState, Platform, type AppStateStatus } from 'react-native';
 import {
   getStableOsPushPermissionState,
   pushPermDevLog,
@@ -15,6 +15,7 @@ import {
   logOneSignalPushDiagnostics,
   requestOneSignalPushPermission,
 } from '@/lib/onesignal';
+import { openPermissionSettings } from '@/lib/permissionSettings';
 
 export type RequestPushPermissionResult = {
   granted: boolean;
@@ -198,9 +199,10 @@ export function usePushPermission() {
 
   const openSettings = useCallback(() => {
     pushPermDevLog('openSettings / recovery path (passive — no OS permission request)');
-    const task = Platform.OS === 'ios' ? Linking.openURL('app-settings:') : Linking.openSettings();
-    void task.catch((error) => {
-      if (__DEV__) console.warn('[pushPermission] openSettings failed:', error);
+    void openPermissionSettings('push_permission').then((opened) => {
+      if (!opened) {
+        void refreshSharedPushPermission('open_settings_failed', true);
+      }
     });
   }, []);
 

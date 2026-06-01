@@ -16,7 +16,6 @@ import {
   RefreshControl,
   Dimensions,
   Alert,
-  Linking,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
@@ -59,6 +58,7 @@ import {
   captureCurrentDeviceLocation,
   saveCurrentDeviceLocationToProfile,
 } from '@/lib/locationProfileUpdate';
+import { openPermissionSettings } from '@/lib/permissionSettings';
 import { parseEventDiscoveryPrefs } from '@shared/eventDiscoveryContracts';
 import { isWithinDiscoverHomeGraceWindow } from '@clientShared/discoverEventVisibility';
 import {
@@ -875,7 +875,7 @@ export default function EventsListScreen() {
               'Turn on device Location Services, then return to Vibely to see events near you.',
               [
                 { text: 'Not now', style: 'cancel' },
-                { text: 'Open Settings', onPress: () => void Linking.openSettings() },
+                { text: 'Open Settings', onPress: () => void openPermissionSettings('events_location_services') },
               ],
             );
             return;
@@ -888,7 +888,7 @@ export default function EventsListScreen() {
               result.canAskAgain === false
                 ? [
                     { text: 'Not now', style: 'cancel' },
-                    { text: 'Open Settings', onPress: () => void Linking.openSettings() },
+                    { text: 'Open Settings', onPress: () => void openPermissionSettings('events_location_permission') },
                   ]
                 : [
                     { text: 'Not now', style: 'cancel' },

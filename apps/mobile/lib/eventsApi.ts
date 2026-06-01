@@ -40,9 +40,18 @@ function isEventVisible(event: {
   duration_minutes?: number | null;
   status?: string | null;
   archived_at?: string | null;
+  ended_at?: string | null;
 }): boolean {
   const status = (event.status ?? '').toLowerCase();
-  if (event.archived_at || status === 'cancelled' || status === 'draft' || status === 'archived') return false;
+  if (
+    event.archived_at ||
+    event.ended_at ||
+    status === 'cancelled' ||
+    status === 'draft' ||
+    status === 'archived' ||
+    status === 'ended' ||
+    status === 'completed'
+  ) return false;
   return getEventEndTime(event.event_date, event.duration_minutes) > new Date();
 }
 
@@ -333,7 +342,7 @@ export function useRegisteredUpcomingEventsForInvite(userId: string | null | und
 
       const { data: eventsData, error: eventsError } = await supabase
         .from('events')
-        .select('id, title, cover_image, event_date, duration_minutes, status, archived_at, city, country')
+        .select('id, title, cover_image, event_date, duration_minutes, status, archived_at, ended_at, city, country')
         .in('id', eventIds)
         .order('event_date', { ascending: true });
       if (eventsError) throw eventsError;
@@ -436,6 +445,7 @@ export function useNextRegisteredEvent(userId: string | null | undefined, canCit
           duration_minutes: e.duration_minutes,
           status: e.status,
           archived_at: e.archived_at,
+          ended_at: e.ended_at,
         })
       );
       const notEnded = visible.filter((e) => {

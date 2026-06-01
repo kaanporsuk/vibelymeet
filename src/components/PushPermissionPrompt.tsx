@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { motion } from "framer-motion";
-import { Bell } from "lucide-react";
+import { AlertCircle, Bell, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Drawer,
@@ -24,13 +24,29 @@ import { recordUserAction } from "@/lib/browserDiagnostics";
 const PROMPTED_KEY = "vibely_push_prompted";
 const RE_PROMPT_DAYS = 7;
 
+type PushPermissionRecovery = {
+  title: string;
+  message: string;
+  primaryLabel: string;
+  settingsLink?: {
+    label: string;
+  };
+};
+
 export function PushPermissionPrompt() {
   const { user } = useUserProfile();
   const [open, setOpen] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [recovery, setRecovery] = useState<PushPermissionRecovery | null>(null);
   const lastEligibilityCountsRef = useRef<{ matchCount: number | null; regCount: number | null }>({
     matchCount: null,
     regCount: null,
   });
+
+  const resetPromptState = () => {
+    setBusy(false);
+    setRecovery(null);
+  };
 
   useEffect(() => {
     if (!user?.id) return;
@@ -108,7 +124,10 @@ export function PushPermissionPrompt() {
   }, [user?.id]);
 
   const handleEnable = async () => {
-    if (!user?.id) return;
+    if (!user?.id || busy) return;
+    setBusy(true);
+    setRecovery(null);
+    let shouldClose = false;
     try {
       localStorage.setItem(PROMPTED_KEY, Date.now().toString());
       vibelyOsLog("PushPermissionPrompt:handleEnable", { origin: window.location.origin });
@@ -120,7 +139,11 @@ export function PushPermissionPrompt() {
           surface: "push_permission_prompt",
           reason: "sdk_not_usable",
         });
-        toast.error("Push isn’t available on this page. Try the main site over HTTPS.");
+        setRecovery({
+          title: "Notifications are not available here",
+          message: "Push needs a supported browser on the main HTTPS site. You can still use in-app alerts while you are here.",
+          primaryLabel: "Try again",
+        });
         return;
       }
 
@@ -140,29 +163,40 @@ export function PushPermissionPrompt() {
           data: { url: "/settings" },
           bypass_preferences: true,
         });
-      } else if (Notification.permission === "denied") {
+        shouldClose = true;
+      } else if (typeof Notification !== "undefined" && Notification.permission === "denied") {
         recordUserAction("push_prompt_enable_failed", {
           surface: "push_permission_prompt",
           reason: "permission_denied",
         });
-        toast.message("Notifications are blocked in your browser. You can enable them in site settings.", {
-          action: {
-            label: "Open settings",
-            onClick: () => window.location.assign("/settings?drawer=notifications"),
-          },
+        setRecovery({
+          title: "Notifications are blocked in your browser",
+          message: "Use your browser site settings to allow notifications for Vibely, then come back and try again.",
+          primaryLabel: "I updated settings",
+          settingsLink: { label: "Open settings" },
         });
       } else if (result.code === "no_player_id_after_retry") {
         recordUserAction("push_prompt_enable_failed", {
           surface: "push_permission_prompt",
           reason: result.code,
         });
-        toast.error("Notifications are allowed, but this browser is still finishing setup. Try Retry in Settings.");
+        setRecovery({
+          title: "Notifications are still finishing setup",
+          message: "Permission is allowed, but this browser has not finished creating the push subscription. Try again in a moment.",
+          primaryLabel: "Try again",
+          settingsLink: { label: "Open settings" },
+        });
       } else {
         recordUserAction("push_prompt_enable_failed", {
           surface: "push_permission_prompt",
           reason: result.code,
         });
-        toast.error("Couldn’t finish enabling notifications. Try again from Settings → Notifications.");
+        setRecovery({
+          title: "Notification setup failed",
+          message: "We could not finish notification setup. Try again, or continue without push alerts.",
+          primaryLabel: "Try again",
+          settingsLink: { label: "Open settings" },
+        });
       }
     } catch (err) {
       recordUserAction("push_prompt_enable_failed", {
@@ -170,9 +204,17 @@ export function PushPermissionPrompt() {
         reason: "exception",
       });
       console.error("[Push] Permission error:", err);
-      toast.error("Something went wrong enabling notifications.");
+      setRecovery({
+        title: "Notification setup failed",
+        message: "Something went wrong enabling notifications. Check your connection and try again.",
+        primaryLabel: "Try again",
+      });
     } finally {
-      setOpen(false);
+      setBusy(false);
+      if (shouldClose) {
+        resetPromptState();
+        setOpen(false);
+      }
     }
   };
 
@@ -180,11 +222,19 @@ export function PushPermissionPrompt() {
     localStorage.setItem(PROMPTED_KEY, Date.now().toString());
     recordUserAction("push_prompt_dismissed", { surface: "push_permission_prompt" });
     trackEvent("push_permission_deferred");
+    resetPromptState();
     setOpen(false);
   };
 
+  const handleOpenChange = (nextOpen: boolean) => {
+    setOpen(nextOpen);
+    if (!nextOpen) {
+      resetPromptState();
+    }
+  };
+
   return (
-    <Drawer open={open} onOpenChange={setOpen}>
+    <Drawer open={open} onOpenChange={handleOpenChange}>
       <DrawerContent>
         <DrawerHeader className="text-center">
           <motion.div
@@ -201,11 +251,44 @@ export function PushPermissionPrompt() {
           </DrawerDescription>
         </DrawerHeader>
         <DrawerFooter className="gap-2">
-          <Button variant="gradient" onClick={handleEnable} className="w-full">
-            Enable Notifications
+          {recovery ? (
+            <div
+              role="status"
+              data-testid="push-permission-recovery"
+              className="rounded-xl border border-amber-400/25 bg-amber-400/10 p-3 text-left"
+            >
+              <div className="flex items-start gap-3">
+                <AlertCircle className="mt-0.5 h-5 w-5 shrink-0 text-amber-300" aria-hidden />
+                <div>
+                  <p className="text-sm font-semibold text-foreground">{recovery.title}</p>
+                  <p className="mt-1 text-sm text-muted-foreground">{recovery.message}</p>
+                </div>
+              </div>
+            </div>
+          ) : null}
+          <Button variant="gradient" onClick={handleEnable} disabled={busy} className="w-full">
+            {busy ? (
+              <span className="inline-flex items-center gap-2">
+                <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+                Checking...
+              </span>
+            ) : recovery ? (
+              recovery.primaryLabel
+            ) : (
+              "Enable Notifications"
+            )}
           </Button>
+          {recovery?.settingsLink ? (
+            <Button
+              variant="ghost"
+              onClick={() => window.location.assign("/settings?drawer=notifications")}
+              className="w-full text-muted-foreground"
+            >
+              {recovery.settingsLink.label}
+            </Button>
+          ) : null}
           <Button variant="ghost" onClick={handleDismiss} className="w-full text-muted-foreground">
-            Maybe Later
+            {recovery ? "Continue without notifications" : "Maybe Later"}
           </Button>
         </DrawerFooter>
       </DrawerContent>

@@ -47,8 +47,17 @@ export const isEventVisible = (event: {
   duration_minutes?: number | null;
   status?: string | null;
   archived_at?: string | null;
+  ended_at?: string | null;
 }): boolean => {
   const status = (event.status ?? '').toLowerCase();
-  if (event.archived_at || status === 'cancelled' || status === 'draft' || status === 'archived') return false;
+  if (
+    event.archived_at ||
+    event.ended_at ||
+    status === 'cancelled' ||
+    status === 'draft' ||
+    status === 'archived' ||
+    status === 'ended' ||
+    status === 'completed'
+  ) return false;
   return getEventEndTime(event) > new Date();
 };

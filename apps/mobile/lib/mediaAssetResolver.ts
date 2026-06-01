@@ -25,6 +25,8 @@ export type MediaAssetKind = 'image' | 'voice' | 'video' | 'vibe_clip' | 'thumbn
 export type MediaAssetResolveResult = {
   url: string;
   posterUrl: string | null;
+  fallbackUrls: string[];
+  posterFallbackUrls: string[];
   playbackKind: 'hls' | 'progressive';
   provider: 'bunny_stream' | 'bunny_storage' | 'local' | 'remote';
   expiresAtMs: number;
@@ -56,6 +58,8 @@ type ResolverResponse = {
   success?: boolean;
   url?: string;
   posterUrl?: string | null;
+  fallbackUrls?: string[] | null;
+  posterFallbackUrls?: string[] | null;
   playbackKind?: 'hls' | 'progressive';
   provider?: 'bunny_stream' | 'bunny_storage';
   expiresInSeconds?: number;
@@ -123,6 +127,21 @@ export function isResolvedMediaAssetUrl(value: string): boolean {
 
 export function isPlayableMediaAssetUrl(value: string | null | undefined): value is string {
   return !!value && (isLocalMediaAssetRef(value) || isResolvedMediaAssetUrl(value));
+}
+
+function normalizePlayableUrlList(value: unknown, exclude: readonly (string | null | undefined)[] = []): string[] {
+  if (!Array.isArray(value)) return [];
+  const excluded = new Set(exclude.filter((item): item is string => typeof item === 'string' && item.length > 0));
+  const urls: string[] = [];
+  const seen = new Set<string>();
+  for (const item of value) {
+    if (typeof item !== 'string') continue;
+    const url = item.trim();
+    if (!url || excluded.has(url) || seen.has(url) || !isPlayableMediaAssetUrl(url)) continue;
+    seen.add(url);
+    urls.push(url);
+  }
+  return urls;
 }
 
 export function isResolvableMediaAssetRef(value: string | null | undefined): value is string {
@@ -227,6 +246,8 @@ function passthroughMediaAsset(rawRef: string): MediaAssetResolveResult {
   return {
     url: rawRef,
     posterUrl: null,
+    fallbackUrls: [],
+    posterFallbackUrls: [],
     playbackKind: isHlsMediaAssetUrl(rawRef) ? 'hls' : 'progressive',
     provider: isResolvedMediaAssetUrl(rawRef) ? 'remote' : 'local',
     expiresAtMs: Number.POSITIVE_INFINITY,
@@ -303,6 +324,16 @@ function classifyResolverFailure(payload: ResolverResponse | null): MediaAssetRe
   return 'resolver_error';
 }
 
+export function isTransientMediaAssetFailureCode(
+  errorCode: MediaAssetResolveErrorCode | null | undefined,
+): boolean {
+  return errorCode === 'network_error' || errorCode === 'provider_unreachable' || errorCode === 'resolver_error';
+}
+
+export function isFatalMediaAssetFailureCode(errorCode: MediaAssetResolveErrorCode | null | undefined): boolean {
+  return errorCode === 'auth_expired' || errorCode === 'asset_deleted';
+}
+
 function sweepExpiredMediaUrlEntries(nowMs = Date.now()) {
   let changed = false;
   for (const [key, value] of mediaUrlCache.entries()) {
@@ -365,6 +396,8 @@ function readCachedMediaUrl(value: unknown): CachedMediaUrl | null {
   return {
     url: record.url,
     posterUrl: typeof record.posterUrl === 'string' && record.posterUrl ? record.posterUrl : null,
+    fallbackUrls: normalizePlayableUrlList(record.fallbackUrls, [record.url]),
+    posterFallbackUrls: normalizePlayableUrlList(record.posterFallbackUrls, [record.posterUrl]),
     playbackKind,
     provider,
     expiresAtMs,
@@ -583,9 +616,12 @@ async function issueAndCacheMediaAsset(
     const expiresAtMs = Date.now() + expiresInMs;
     const placeholderKind = normalizeMediaPlaceholderKind(payload.placeholderKind);
     const placeholderHash = normalizeMediaPlaceholderHash(placeholderKind, payload.placeholderHash);
+    const posterUrl = typeof payload.posterUrl === 'string' && payload.posterUrl ? payload.posterUrl : null;
     const resolvedAsset: MediaAssetResolveResult = {
       url: payload.url,
-      posterUrl: typeof payload.posterUrl === 'string' && payload.posterUrl ? payload.posterUrl : null,
+      posterUrl,
+      fallbackUrls: normalizePlayableUrlList(payload.fallbackUrls, [payload.url]),
+      posterFallbackUrls: normalizePlayableUrlList(payload.posterFallbackUrls, [posterUrl]),
       playbackKind: payload.playbackKind === 'hls' ? 'hls' : 'progressive',
       provider: payload.provider === 'bunny_stream' || payload.provider === 'bunny_storage' ? payload.provider : 'remote',
       expiresAtMs,
@@ -602,6 +638,8 @@ async function issueAndCacheMediaAsset(
       cacheMediaUrl(cacheKeyForMediaAsset(messageId, 'thumbnail', thumbnailRef), {
         url: payload.posterUrl,
         posterUrl: null,
+        fallbackUrls: resolvedAsset.posterFallbackUrls,
+        posterFallbackUrls: [],
         playbackKind: 'progressive',
         provider: 'bunny_stream',
         expiresAtMs,
@@ -736,12 +774,17 @@ function prefetchRenderableAsset(input: MediaAssetPrewarmInput, result: MediaAss
   if (result.playbackKind === 'hls' && /^https?:\/\//i.test(result.url)) {
     void prewarmHlsPlaylistAndFirstSegment(result.url).catch(() => {});
   }
-  const url =
+  const primaryUrl =
     input.kind === 'image' || input.kind === 'thumbnail'
       ? result.url
       : result.posterUrl;
-  if (!url || !/^https?:\/\//i.test(url)) return;
-  void Image.prefetch(url).catch(() => {});
+  const fallbackUrls = input.kind === 'image' || input.kind === 'thumbnail'
+    ? result.fallbackUrls
+    : result.posterFallbackUrls;
+  const urls = [primaryUrl, ...fallbackUrls].filter((url): url is string => !!url && /^https?:\/\//i.test(url));
+  for (const url of urls) {
+    void Image.prefetch(url).catch(() => {});
+  }
 }
 
 export async function prewarmMediaAssets(

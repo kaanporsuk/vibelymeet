@@ -8,7 +8,6 @@ import {
   View as RNView,
   Modal,
   Platform,
-  Linking,
   TextInput,
   ActivityIndicator,
   type NativeMethods,
@@ -73,6 +72,7 @@ import VibeScoreDrawer from '@/components/profile/VibeScoreDrawer';
 import { useVibelyDialog } from '@/components/VibelyDialog';
 import { fetchMyPhotoVerificationState, type PhotoVerificationState } from '@/lib/photoVerificationState';
 import { isCurrentEmailVerified, resolveCanonicalAuthEmail } from '@shared/verificationSemantics';
+import { openPermissionSettings } from '@/lib/permissionSettings';
 
 const MAX_PHOTOS = 6;
 const MAX_ABOUT_ME_LENGTH = 140;
@@ -746,7 +746,7 @@ export default function ProfileStudio() {
               title: 'Location Services are off',
               message: 'Turn on device Location Services, then return to Vibely to update your location.',
               variant: 'warning',
-              primaryAction: { label: 'Open Settings', onPress: () => void Linking.openSettings() },
+              primaryAction: { label: 'Open Settings', onPress: () => void openPermissionSettings('profile_location_services') },
               secondaryAction: { label: 'Not now', onPress: () => {} },
             });
             return;
@@ -758,7 +758,7 @@ export default function ProfileStudio() {
                 : 'Allow location access so Vibely can set your city.',
               variant: 'warning',
               primaryAction: result.canAskAgain === false
-                ? { label: 'Open Settings', onPress: () => void Linking.openSettings() }
+                ? { label: 'Open Settings', onPress: () => void openPermissionSettings('profile_location_permission') }
                 : { label: 'Try again', onPress: () => void handleUpdateDeviceLocation() },
               secondaryAction: { label: 'Not now', onPress: () => {} },
             });

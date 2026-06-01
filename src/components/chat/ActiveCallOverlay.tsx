@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Mic, MicOff, Video, VideoOff, PhoneOff } from "lucide-react";
+import { AlertCircle, Mic, MicOff, Video, VideoOff, PhoneOff } from "lucide-react";
 import { ProfilePhoto } from "@/components/ui/ProfilePhoto";
 import { SelfViewPIP } from "@/components/video-date/SelfViewPIP";
 import { cn } from "@/lib/utils";
@@ -219,6 +219,74 @@ function CamButton({
   );
 }
 
+function MediaPermissionRecoveryBanner({
+  audioBlocked,
+  videoBlocked,
+  onRetryAudio,
+  onRetryVideo,
+  className,
+}: {
+  audioBlocked: boolean;
+  videoBlocked: boolean;
+  onRetryAudio: () => void;
+  onRetryVideo: () => void;
+  className?: string;
+}) {
+  if (!audioBlocked && !videoBlocked) return null;
+
+  const title =
+    audioBlocked && videoBlocked
+      ? "Camera and microphone access needed"
+      : videoBlocked
+        ? "Camera access needed"
+        : "Microphone access needed";
+  const message =
+    audioBlocked && videoBlocked
+      ? "Allow camera and microphone access in your browser settings, then try again."
+      : videoBlocked
+        ? "Allow camera access in your browser settings, then try again."
+        : "Allow microphone access in your browser settings, then try again.";
+
+  return (
+    <div
+      role="status"
+      data-testid="match-call-media-permission-recovery"
+      className={cn(
+        "w-[min(calc(100vw-2rem),24rem)] rounded-2xl border border-amber-300/25 bg-black/72 p-3 text-left text-white shadow-2xl shadow-black/35 backdrop-blur-md",
+        className,
+      )}
+    >
+      <div className="flex items-start gap-2">
+        <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-amber-300" aria-hidden />
+        <div className="min-w-0 flex-1">
+          <p className="text-sm font-bold">{title}</p>
+          <p className="mt-1 text-xs leading-relaxed text-white/68">{message}</p>
+        </div>
+      </div>
+      <div className="mt-3 flex flex-wrap gap-2">
+        {audioBlocked ? (
+          <button
+            type="button"
+            onClick={onRetryAudio}
+            className="inline-flex min-h-9 flex-1 items-center justify-center rounded-full bg-white px-3 text-xs font-bold text-black transition hover:bg-white/90"
+          >
+            Retry microphone
+          </button>
+        ) : null}
+        {videoBlocked ? (
+          <button
+            type="button"
+            onClick={onRetryVideo}
+            className="inline-flex min-h-9 flex-1 items-center justify-center rounded-full bg-white px-3 text-xs font-bold text-black transition hover:bg-white/90"
+          >
+            Retry camera
+          </button>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
 /** Inline banner explaining why the call ended; lingers ~5s after teardown. */
 function OutcomeBanner({ outcome }: { outcome: LastCallOutcome }) {
   return (
@@ -283,6 +351,8 @@ export const ActiveCallOverlay = ({
   }, [remoteVideoRef, isInCall]);
 
   const isRemotePortrait = !!(remoteAspect && remoteAspect.h > remoteAspect.w);
+  const audioBlocked = audioStatus === "blocked";
+  const videoBlocked = callType === "video" && videoStatus === "blocked";
 
   // Terminal-only state: render the outcome banner without any of the live UI.
   if (lastOutcome && !isRinging && !isInCall) {
@@ -366,6 +436,14 @@ export const ActiveCallOverlay = ({
         )}
         {!isReconnecting && <div className="mb-6" />}
 
+        <MediaPermissionRecoveryBanner
+          audioBlocked={audioBlocked}
+          videoBlocked={false}
+          onRetryAudio={onToggleMute}
+          onRetryVideo={onToggleVideo}
+          className="mb-5 bg-card/95 text-foreground"
+        />
+
         <div className="flex items-center gap-6">
           <MicButton
             audioStatus={audioStatus}
@@ -435,6 +513,14 @@ export const ActiveCallOverlay = ({
           </span>
         </div>
       )}
+
+      <MediaPermissionRecoveryBanner
+        audioBlocked={audioBlocked}
+        videoBlocked={videoBlocked}
+        onRetryAudio={onToggleMute}
+        onRetryVideo={onToggleVideo}
+        className="absolute bottom-28 left-1/2 z-20 -translate-x-1/2"
+      />
 
       {/* Local PIP — now receives camera-flip props so the user can switch between
           front/back cameras without breaking the call. */}

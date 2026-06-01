@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  permissionUxMediaKindForRequiredGrants,
   permissionUxStatusForRequiredGrants,
   permissionUxStatusFromBrowserMediaStatus,
   permissionUxStatusFromGrant,
@@ -45,6 +46,41 @@ test("chat vibe clip uses compact prompt copy with upload fallback", () => {
   assert.equal(prompt.fallbackLabel, "Choose saved video");
   assert.equal(blocked.primaryAction, "open_settings");
   assert.equal(blocked.primaryLabel, "Open Settings");
+});
+
+test("required media copy names the missing half after partial camera or microphone grants", () => {
+  assert.equal(
+    permissionUxMediaKindForRequiredGrants(
+      { status: "granted", granted: true },
+      { status: "denied", canAskAgain: false },
+    ),
+    "microphone",
+  );
+  assert.equal(
+    permissionUxMediaKindForRequiredGrants(
+      { status: "denied", canAskAgain: true },
+      { status: "granted", granted: true },
+    ),
+    "camera",
+  );
+
+  const microphone = resolvePermissionUx({
+    capability: "chat_vibe_clip",
+    status: "blocked_settings",
+    platform: "android",
+    mediaKind: "microphone",
+  });
+  const camera = resolvePermissionUx({
+    capability: "profile_vibe_video",
+    status: "promptable",
+    platform: "ios",
+    mediaKind: "camera",
+  });
+
+  assert.equal(microphone.title, "Microphone needed");
+  assert.match(microphone.message, /Microphone access is off/);
+  assert.equal(camera.title, "Camera needed");
+  assert.equal(camera.primaryLabel, "Allow camera");
 });
 
 test("optional permissions keep a non-blocking fallback", () => {

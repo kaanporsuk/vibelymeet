@@ -123,6 +123,7 @@ test("native ready and date surfaces share one camera and microphone permission 
   assert.match(nativeMediaPermissions, /Camera\.requestMicrophonePermissionsAsync\(\)/);
   assert.match(nativeMediaPermissions, /setVideoDatePermissionHandoff\(/);
   assert.match(nativeMediaPermissions, /mediaPermissionResultForStatus/);
+  assert.match(nativeMediaPermissions, /permissionUxMediaKindForRequiredGrants/);
   assert.match(nativeMediaPermissions, /catch \(error\)/);
   assert.match(nativeMediaPermissions, /status: 'in_use_or_abort'/);
   assert.match(nativeMediaPermissions, /rawErrorName/);

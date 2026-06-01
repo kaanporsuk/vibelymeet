@@ -152,6 +152,7 @@ test("native video surfaces guard player calls and subscription teardown", () =>
   assert.match(mediaViewer, /if \(!isPlayableVideoUri\(playableUri\)\)/);
   assert.match(mediaViewer, /setResolveFailed\(true\)/);
   assert.match(mediaViewer, /refreshAttemptedForUriRef\.current = null/);
+  assert.match(mediaViewer, /void onRefreshMedia\('manual'\)/);
 });
 
 test("all Expo audio/video shared-object users are audited", () => {

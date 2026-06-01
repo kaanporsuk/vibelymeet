@@ -1765,9 +1765,9 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
   /**
    * Toggle local audio. Source-of-truth: reads the current track state from Daily,
    * sets a pending flag, calls Daily's setLocalAudio, then waits for the
-   * `participant-updated` event to update isMuted via renderLocalMedia. If Daily
-   * rejects (e.g., permission blocked), we surface a toast and the UI stays in the
-   * pre-toggle state on the next participant-updated tick.
+   * `participant-updated` event to update isMuted via renderLocalMedia. If the
+   * track is blocked, the control itself is the persistent retry surface after
+   * the user updates browser settings; toast copy is supplementary if retry fails.
    */
   const toggleMute = useCallback(async () => {
     const callObject = callObjectRef.current;
@@ -1775,21 +1775,20 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
     const local = callObject.participants().local;
     const audioState = (local?.tracks?.audio?.state ?? "off") as MediaTrackStatus;
     if (audioState === "blocked") {
-      toast.error("Microphone access needed", {
-        description: "Allow microphone access in your browser settings, then try again.",
-        action: {
-          label: "I updated settings",
-          onClick: () => {
-            void Promise.resolve()
-              .then(() => callObject.setLocalAudio(true))
-              .catch((err: unknown) => {
-                logMatchCallDiag("toggle_mute_settings_retry_failed", {
-                  message: err instanceof Error ? err.message : String(err),
-                });
-              });
-          },
-        },
-      });
+      setIsAudioTogglePending(true);
+      try {
+        await callObject.setLocalAudio(true);
+        renderLocalMedia(callObject.participants().local);
+      } catch (err) {
+        logMatchCallDiag("toggle_mute_settings_retry_failed", {
+          message: err instanceof Error ? err.message : String(err),
+        });
+        toast.error("Microphone access needed", {
+          description: "Allow microphone access in your browser settings, then try again.",
+        });
+      } finally {
+        setTimeout(() => setIsAudioTogglePending(false), 250);
+      }
       return;
     }
     // After the blocked early-return, audioState can only be "off"/"loading"/"playable"/etc.
@@ -1809,7 +1808,7 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
       // button responsive even if no event arrives (e.g., already in target state).
       setTimeout(() => setIsAudioTogglePending(false), 250);
     }
-  }, []);
+  }, [renderLocalMedia]);
 
   const toggleVideo = useCallback(async () => {
     const callObject = callObjectRef.current;
@@ -1817,21 +1816,20 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
     const local = callObject.participants().local;
     const videoState = (local?.tracks?.video?.state ?? "off") as MediaTrackStatus;
     if (videoState === "blocked") {
-      toast.error("Camera access needed", {
-        description: "Allow camera access in your browser settings, then try again.",
-        action: {
-          label: "I updated settings",
-          onClick: () => {
-            void Promise.resolve()
-              .then(() => callObject.setLocalVideo(true))
-              .catch((err: unknown) => {
-                logMatchCallDiag("toggle_video_settings_retry_failed", {
-                  message: err instanceof Error ? err.message : String(err),
-                });
-              });
-          },
-        },
-      });
+      setIsVideoTogglePending(true);
+      try {
+        await callObject.setLocalVideo(true);
+        renderLocalMedia(callObject.participants().local);
+      } catch (err) {
+        logMatchCallDiag("toggle_video_settings_retry_failed", {
+          message: err instanceof Error ? err.message : String(err),
+        });
+        toast.error("Camera access needed", {
+          description: "Allow camera access in your browser settings, then try again.",
+        });
+      } finally {
+        setTimeout(() => setIsVideoTogglePending(false), 250);
+      }
       return;
     }
     const wantOn = videoState === "off";
@@ -1847,7 +1845,7 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
     } finally {
       setTimeout(() => setIsVideoTogglePending(false), 250);
     }
-  }, []);
+  }, [renderLocalMedia]);
 
   useEffect(() => {
     if (callPhase !== "in_call" || callType !== "video" || isVideoOff) {

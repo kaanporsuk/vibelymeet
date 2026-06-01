@@ -185,7 +185,7 @@ const EventLobby = () => {
   const [showEventEndedModal, setShowEventEndedModal] = useState(false);
   const [lobbyClockMs, setLobbyClockMs] = useState(() => Date.now());
   const [eventLifecycleOverride, setEventLifecycleOverride] = useState<
-    "cancelled" | "archived" | "draft" | null
+    "cancelled" | "archived" | "draft" | "ended" | null
   >(null);
   const [eventEndedAtOverride, setEventEndedAtOverride] = useState<string | null>(null);
 
@@ -573,8 +573,9 @@ const EventLobby = () => {
           const status = (row.status ?? "").toLowerCase();
           void queryClient.invalidateQueries({ queryKey: ["event-details", eventId] });
           setLobbyClockMs(Date.now());
-          if (row.ended_at) {
-            setEventEndedAtOverride(row.ended_at);
+          if (row.ended_at || status === "ended" || status === "completed") {
+            setEventEndedAtOverride(row.ended_at ?? null);
+            setEventLifecycleOverride("ended");
             setShowEventEndedModal(true);
           }
           if (status === "cancelled" || status === "archived" || status === "draft") {
@@ -1523,6 +1524,7 @@ const EventLobby = () => {
   const currentSwipePending = currentProfile ? pendingSwipeTargetIds.has(currentProfile.id) : false;
   const swipeControlsDisabled =
     currentSwipePending || !lobbyActionsEnabled || swipeRateLimited;
+
   const eventEndsAtForContinuity = eventEndTime;
   const secondsUntilEventEnd = useMemo(
     () => secondsUntilPostDateEventEnd(eventEndsAtForContinuity),
@@ -2092,6 +2094,7 @@ const EventLobby = () => {
     if (lobbyGate.kind !== "live" || suppressDeckUiForConvergence) return;
 
     const key = `${eventId}:${viewerId}:${targetId}`;
+    const visibleDeckMarkAttempts = visibleDeckMarkAttemptsRef.current;
     let cancelled = false;
     let retryTimer: number | undefined;
     let retryCount = 0;
@@ -2108,10 +2111,10 @@ const EventLobby = () => {
       if (cancelled) return;
       if (typeof document !== "undefined" && document.visibilityState !== "visible") return;
       if (visibleDeckCardsRef.current.has(key)) return;
-      if (visibleDeckMarkAttemptsRef.current.has(key)) return;
+      if (visibleDeckMarkAttempts.has(key)) return;
       const attemptId = ++visibleDeckMarkAttemptSeqRef.current;
       activeAttemptId = attemptId;
-      visibleDeckMarkAttemptsRef.current.set(key, attemptId);
+      visibleDeckMarkAttempts.set(key, attemptId);
       void (async () => {
         try {
           const { data, error } = await supabase.rpc("record_event_deck_card_visible_v1" as never, {
@@ -2121,8 +2124,8 @@ const EventLobby = () => {
           } as never);
           const result = data as { ok?: boolean; error?: string } | null;
           if (error || result?.ok === false) {
-            if (visibleDeckMarkAttemptsRef.current.get(key) === attemptId) {
-              visibleDeckMarkAttemptsRef.current.delete(key);
+            if (visibleDeckMarkAttempts.get(key) === attemptId) {
+              visibleDeckMarkAttempts.delete(key);
             }
             Sentry.addBreadcrumb({
               category: "event-lobby",
@@ -2138,12 +2141,12 @@ const EventLobby = () => {
             return;
           }
           visibleDeckCardsRef.current.add(key);
-          if (visibleDeckMarkAttemptsRef.current.get(key) === attemptId) {
-            visibleDeckMarkAttemptsRef.current.delete(key);
+          if (visibleDeckMarkAttempts.get(key) === attemptId) {
+            visibleDeckMarkAttempts.delete(key);
           }
         } catch (error) {
-          if (visibleDeckMarkAttemptsRef.current.get(key) === attemptId) {
-            visibleDeckMarkAttemptsRef.current.delete(key);
+          if (visibleDeckMarkAttempts.get(key) === attemptId) {
+            visibleDeckMarkAttempts.delete(key);
           }
           Sentry.addBreadcrumb({
             category: "event-lobby",
@@ -2168,9 +2171,9 @@ const EventLobby = () => {
       if (retryTimer !== undefined) window.clearTimeout(retryTimer);
       if (
         activeAttemptId != null &&
-        visibleDeckMarkAttemptsRef.current.get(key) === activeAttemptId
+        visibleDeckMarkAttempts.get(key) === activeAttemptId
       ) {
-        visibleDeckMarkAttemptsRef.current.delete(key);
+        visibleDeckMarkAttempts.delete(key);
       }
       document.removeEventListener("visibilitychange", markVisible);
     };

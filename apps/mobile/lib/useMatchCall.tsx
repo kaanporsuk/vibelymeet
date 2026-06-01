@@ -17,7 +17,7 @@ import {
   type ReactNode,
 } from 'react';
 import Daily, { type DailyParticipant } from '@daily-co/react-native-daily-js';
-import { Alert, AppState, Linking, type AppStateStatus } from 'react-native';
+import { Alert, AppState, type AppStateStatus } from 'react-native';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/context/AuthContext';
 import { IncomingCallOverlay } from '@/components/chat/IncomingCallOverlay';
@@ -39,6 +39,7 @@ import {
   type MatchCallEndReason,
   type MatchCallTransitionAction,
 } from '@/lib/matchCallApi';
+import { openPermissionSettings } from '@/lib/permissionSettings';
 
 type MatchCallType = 'voice' | 'video';
 type MatchCallStatus = 'ringing' | 'active' | 'ended' | 'missed' | 'declined';
@@ -149,6 +150,7 @@ type MatchCallCleanupOptions = {
 };
 
 type NativeDailyCallObject = ReturnType<typeof Daily.createCallObject>;
+type MatchCallPermissionSettingsTarget = 'microphone' | 'camera';
 
 function readDailyMeetingState(callObject: Pick<NativeDailyCallObject, 'meetingState'>): string | null {
   try {
@@ -557,10 +559,12 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
   const ringingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const heartbeatIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const remoteReconnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const matchCallPermissionSettingsTargetRef = useRef<MatchCallPermissionSettingsTarget | null>(null);
   /** When true, a background/unload path already invoked `match_call_transition`; skip duplicate in `cleanupLocalCall`. */
   const documentUnloadRpcIssuedRef = useRef(false);
 
   const callPhaseRef = useLatestRef(callPhase);
+  const callTypeRef = useLatestRef(callType);
   const incomingCallRef = useLatestRef(incomingCall);
   const activePartnerRef = useLatestRef(activePartner);
   const localParticipantRef = useLatestRef(localParticipant);
@@ -1401,6 +1405,60 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
     ],
   );
 
+  const openMatchCallPermissionSettings = useCallback((target: MatchCallPermissionSettingsTarget) => {
+    matchCallPermissionSettingsTargetRef.current = target;
+    const source = target === 'microphone' ? 'match_call_microphone' : 'match_call_camera';
+    void openPermissionSettings(source).then((opened) => {
+      if (!opened && matchCallPermissionSettingsTargetRef.current === target) {
+        matchCallPermissionSettingsTargetRef.current = null;
+      }
+    });
+  }, []);
+
+  const retryMatchCallMediaAfterSettingsReturn = useCallback(async () => {
+    const target = matchCallPermissionSettingsTargetRef.current;
+    if (!target) return;
+    matchCallPermissionSettingsTargetRef.current = null;
+
+    const callObject = callObjectRef.current;
+    if (!callObject || callPhaseRef.current !== 'in_call') return;
+
+    try {
+      if (target === 'microphone') {
+        await callObject.setLocalAudio(true);
+        setIsMuted(false);
+      } else {
+        if (callTypeRef.current !== 'video') return;
+        await callObject.setLocalVideo(true);
+        setIsVideoOff(false);
+      }
+
+      const local = callObject.participants().local;
+      if (local) {
+        applyLocalMediaUiFromParticipant(local, setIsVideoOff, setIsMuted);
+        if (target === 'camera') {
+          nativeCameraStateRef.current = nativeCameraStateFromSnapshot(nativeLocalCameraSnapshot(local));
+        }
+      }
+      logMatchCallDiag('settings_return_media_retry_ok', { target });
+    } catch (error) {
+      logMatchCallDiag('settings_return_media_retry_failed', {
+        target,
+        message: error instanceof Error ? error.message : String(error),
+      });
+      Alert.alert(
+        target === 'microphone' ? 'Microphone still off' : 'Camera still off',
+        target === 'microphone'
+          ? 'Allow microphone access in Settings, then return to the call.'
+          : 'Allow camera access in Settings, then return to the call.',
+        [
+          { text: 'Not now', style: 'cancel' },
+          { text: 'Open Settings', onPress: () => openMatchCallPermissionSettings(target) },
+        ],
+      );
+    }
+  }, [callPhaseRef, callTypeRef, openMatchCallPermissionSettings]);
+
   const toggleMute = useCallback(() => {
     const callObject = callObjectRef.current;
     if (!callObject) return;
@@ -1411,7 +1469,7 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
         'Microphone access is off for Vibely. Re-enable it in Settings, then return to the call.',
         [
           { text: 'Not now', style: 'cancel' },
-          { text: 'Open Settings', onPress: () => void Linking.openSettings() },
+          { text: 'Open Settings', onPress: () => openMatchCallPermissionSettings('microphone') },
         ],
       );
       return;
@@ -1423,7 +1481,7 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
       .catch(() => {
         Alert.alert('Microphone issue', 'Could not update your microphone. Try again in a moment.');
       });
-  }, [isMuted]);
+  }, [isMuted, openMatchCallPermissionSettings]);
 
   const toggleVideo = useCallback(() => {
     const callObject = callObjectRef.current;
@@ -1435,7 +1493,7 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
         'Camera access is off for Vibely. Re-enable it in Settings, then return to the call.',
         [
           { text: 'Not now', style: 'cancel' },
-          { text: 'Open Settings', onPress: () => void Linking.openSettings() },
+          { text: 'Open Settings', onPress: () => openMatchCallPermissionSettings('camera') },
         ],
       );
       return;
@@ -1452,7 +1510,7 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
       .catch(() => {
         Alert.alert('Camera issue', 'Could not update your camera. Try again in a moment.');
       });
-  }, [isVideoOff]);
+  }, [isVideoOff, openMatchCallPermissionSettings]);
 
   const readNativeLocalCameraSnapshot = useCallback(
     (callObject: ReturnType<typeof Daily.createCallObject> | null | undefined) => {
@@ -2261,6 +2319,10 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     const sub = AppState.addEventListener('change', (next: AppStateStatus) => {
+      if (next === 'active') {
+        void retryMatchCallMediaAfterSettingsReturn();
+        return;
+      }
       if (next !== 'background') return;
       const callId = trackedCallIdRef.current;
       if (!callId) return;
@@ -2287,7 +2349,7 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
       })();
     });
     return () => sub.remove();
-  }, [callPhaseRef, incomingCallRef]);
+  }, [callPhaseRef, incomingCallRef, retryMatchCallMediaAfterSettingsReturn]);
 
   useEffect(() => {
     return () => {

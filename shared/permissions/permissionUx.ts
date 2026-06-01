@@ -35,6 +35,8 @@ export type PermissionUxAction =
 
 export type PermissionUxPlatform = "ios" | "android" | "native" | "web" | "mobile_web";
 
+export type PermissionMediaKind = "camera" | "microphone" | "camera_microphone";
+
 export type PermissionUxCopy = {
   title: string;
   message: string;
@@ -141,6 +143,70 @@ const CAPABILITY_COPY: Record<PermissionCapability, CapabilityCopy> = {
   },
 };
 
+const REQUIRED_MEDIA_CAPABILITIES = new Set<PermissionCapability>([
+  "video_date_media",
+  "chat_vibe_clip",
+  "profile_vibe_video",
+]);
+
+function mediaPurpose(capability: PermissionCapability, mediaKind: PermissionMediaKind): string {
+  if (capability === "video_date_media") {
+    return mediaKind === "camera"
+      ? "join the video date with video"
+      : mediaKind === "microphone"
+        ? "join the video date with sound"
+        : "join the video date with sound and video";
+  }
+  if (capability === "chat_vibe_clip") {
+    return mediaKind === "camera"
+      ? "record a short clip for this chat"
+      : mediaKind === "microphone"
+        ? "record sound for your clip"
+        : "record a short captioned clip for this chat";
+  }
+  if (capability === "profile_vibe_video") {
+    return mediaKind === "camera"
+      ? "record your Vibe Video"
+      : mediaKind === "microphone"
+        ? "record sound for your Vibe Video"
+        : "record your Vibe Video with sound";
+  }
+  return mediaKind === "microphone" ? "record sound" : "use the camera";
+}
+
+function mediaSettingsReturn(capability: PermissionCapability): string {
+  switch (capability) {
+    case "chat_vibe_clip":
+      return "return to record";
+    case "profile_vibe_video":
+      return "return to record";
+    case "video_date_media":
+      return "return here";
+    default:
+      return "return to Vibely";
+  }
+}
+
+function copyForRequiredMediaKind(
+  capability: PermissionCapability,
+  base: CapabilityCopy,
+  mediaKind?: PermissionMediaKind,
+): CapabilityCopy {
+  if (!mediaKind || mediaKind === "camera_microphone" || !REQUIRED_MEDIA_CAPABILITIES.has(capability)) {
+    return base;
+  }
+
+  const subject = mediaKind === "camera" ? "Camera" : "Microphone";
+  const subjectLower = subject.toLowerCase();
+  return {
+    ...base,
+    title: `${subject} needed`,
+    requestMessage: `Allow ${subjectLower} access to ${mediaPurpose(capability, mediaKind)}.`,
+    settingsMessage: `${subject} access is off for Vibely. Re-enable it in Settings, then ${mediaSettingsReturn(capability)}.`,
+    primaryPromptLabel: `Allow ${subjectLower}`,
+  };
+}
+
 function primaryActionForStatus(status: PermissionUxStatus, copy: CapabilityCopy): PermissionUxAction {
   switch (status) {
     case "checking":
@@ -211,8 +277,13 @@ export function resolvePermissionUx(params: {
   capability: PermissionCapability;
   status: PermissionUxStatus;
   platform?: PermissionUxPlatform;
+  mediaKind?: PermissionMediaKind;
 }): PermissionUxCopy {
-  const copy = CAPABILITY_COPY[params.capability];
+  const copy = copyForRequiredMediaKind(
+    params.capability,
+    CAPABILITY_COPY[params.capability],
+    params.mediaKind,
+  );
   const primaryAction = primaryActionForStatus(params.status, copy);
   const result: PermissionUxCopy = {
     title: copy.title,
@@ -267,6 +338,21 @@ export function permissionUxStatusForRequiredGrants(
   if (statuses.includes("denied_retryable")) return "denied_retryable";
   if (statuses.includes("promptable")) return "promptable";
   return statuses[0] ?? "promptable";
+}
+
+function isGrantGranted(grant: PermissionGrantLike | null | undefined): boolean {
+  return Boolean(grant?.granted || grant?.status === "granted");
+}
+
+export function permissionUxMediaKindForRequiredGrants(
+  cameraGrant: PermissionGrantLike | null | undefined,
+  microphoneGrant: PermissionGrantLike | null | undefined,
+): PermissionMediaKind {
+  const cameraGranted = isGrantGranted(cameraGrant);
+  const microphoneGranted = isGrantGranted(microphoneGrant);
+  if (!cameraGranted && microphoneGranted) return "camera";
+  if (cameraGranted && !microphoneGranted) return "microphone";
+  return "camera_microphone";
 }
 
 export function permissionUxStatusFromBrowserMediaStatus(status: string): PermissionUxStatus {

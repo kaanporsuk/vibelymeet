@@ -112,8 +112,11 @@ test("registration, paid checkout settlement, checkout creation, and lobby gates
   assert.match(checkout, /typeof eventDate !== 'string' \|\| !eventDate\) return true/);
   assert.match(checkout, /!Number\.isFinite\(startsAt\)\) return true/);
   assert.match(checkout, /Date\.now\(\) >= startsAt \+ duration \* 60_000/);
-  assert.match(checkout, /status === 'draft' \|\| status === 'cancelled' \|\| status === 'archived'/);
-  assert.doesNotMatch(checkout, /status === 'ended'/);
+  assert.match(checkout, /status === 'draft'/);
+  assert.match(checkout, /status === 'cancelled'/);
+  assert.match(checkout, /status === 'archived'/);
+  assert.match(checkout, /status === 'ended'/);
+  assert.match(checkout, /status === 'completed'/);
 
   assert.match(lobbyGate, /resolveEventLifecycle/);
   assert.match(lobbyGate, /if \(lifecycle\.isEnded\)/);

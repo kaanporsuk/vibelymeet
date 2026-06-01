@@ -1,5 +1,5 @@
 import { useEffect, useMemo } from 'react';
-import { Linking, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import type { UserNotificationRow } from '@clientShared/notifications';
@@ -11,6 +11,7 @@ import { withAlpha } from '@/lib/colorUtils';
 import { trackEvent } from '@/lib/analytics';
 import type { NotificationInboxController } from '@/lib/useNotificationInbox';
 import { resolveNotificationActionRoute } from '@/lib/notificationActions';
+import { openPermissionSettings } from '@/lib/permissionSettings';
 
 type Props = {
   visible: boolean;
@@ -96,7 +97,7 @@ function PushSetupBanner({
         {!unsupported ? (
           <Pressable
             onPress={() => {
-              if (denied) void Linking.openSettings();
+              if (denied) void openPermissionSettings('notification_center_push');
               else if (preferencesDisabled || paused) onOpenSettings();
               else onRequestPushSetup();
             }}

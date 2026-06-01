@@ -118,8 +118,9 @@ test("event notification email path requires authenticated admin posture", () =>
   assert.match(adminEventForm, /supabase\.functions\.invoke\('event-notifications'/);
   assert.match(adminEventForm, /resolveAdminFunctionErrorMessage\(error, data, "Announcement email failed"\)/);
   assert.match(adminEventForm, /Event created, but announcement email did not complete/);
-  const notificationInvoke = section(adminEventForm, "supabase.functions.invoke('event-notifications'", "if (isRecurring)");
+  const notificationInvoke = section(adminEventForm, "const sendCreatedAnnouncement", "if (result.action === 'create_event')");
   assert.doesNotMatch(notificationInvoke, /catch \(_\) \{\}/);
+  assert.match(adminEventForm, /await sendCreatedAnnouncement\(\)/);
 });
 
 test("event notification sends use Resend, production links, and unsubscribe suppression", () => {
@@ -135,6 +136,20 @@ test("event notification sends use Resend, production links, and unsubscribe sup
   assert.match(eventNotifications, /event-notifications resend_failed/);
   assert.match(eventNotifications, /bodyLength:\s*error\.length/);
   assert.doesNotMatch(eventNotifications, /Failed to send email to \$\{to\}/);
+  assert.match(eventNotifications, /eventNotificationBlockReason/);
+  assert.match(eventNotifications, /announcementAudienceSkipReason/);
+  assert.match(eventNotifications, /skipped_reason/);
+  assert.match(eventNotifications, /restricted_visibility_requires_targeting/);
+  assert.match(eventNotifications, /\.from\("event_registrations"\)[\s\S]{0,140}\.eq\("admission_status", "confirmed"\)/);
+  assert.match(eventNotifications, /providerNotConfiguredResponse/);
+  assert.match(eventNotifications, /email_provider_not_configured/);
+  assert.match(eventNotifications, /deliverySummary/);
+  assert.match(eventNotifications, /attempted/);
+  assert.match(eventNotifications, /failed/);
+  assert.match(eventNotifications, /email_delivery_partial_failure/);
+  assert.match(eventNotifications, /email_delivery_failed/);
+  assert.match(eventNotifications, /return true/);
+  assert.match(eventNotifications, /result\.status === "fulfilled" && result\.value === true/);
 });
 
 test("email-drip is retired instead of assumed active; CRON_SECRET restoration posture is documented", () => {

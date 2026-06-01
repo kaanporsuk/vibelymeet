@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { View, Text, Modal, Pressable, StyleSheet, ActivityIndicator, Image, Linking, Platform } from 'react-native';
+import { View, Text, Modal, Pressable, StyleSheet, ActivityIndicator, Image, Platform } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -17,6 +17,7 @@ import {
 } from '@/lib/gamesApi';
 import { useVibelyDialog } from '@/components/VibelyDialog';
 import { permissionUxStatusFromGrant, resolvePermissionUx } from '@clientShared/permissions/permissionUx';
+import { openPermissionSettings } from '@/lib/permissionSettings';
 
 type Props = {
   visible: boolean;
@@ -25,6 +26,16 @@ type Props = {
   partnerName: string;
   invalidateScope: ThreadInvalidateScope;
 };
+
+function mediaErrorMessage(error: unknown): string {
+  return error instanceof Error && error.message.trim().length > 0
+    ? error.message
+    : 'Could not upload photo.';
+}
+
+function isPermissionLikeMediaError(error: unknown): boolean {
+  return /\b(permission|denied|access|authorized|authorization)\b/i.test(mediaErrorMessage(error));
+}
 
 export function ScavengerStartSheet({ visible, onClose, matchId, partnerName, invalidateScope }: Props) {
   const theme = Colors[useColorScheme()];
@@ -68,7 +79,7 @@ export function ScavengerStartSheet({ visible, onClose, matchId, partnerName, in
             message: copy.message,
             variant: 'info',
             primaryAction: copy.primaryAction === 'open_settings'
-              ? { label: copy.primaryLabel, onPress: () => void Linking.openSettings() }
+              ? { label: copy.primaryLabel, onPress: () => void openPermissionSettings('scavenger_start_camera') }
               : { label: copy.primaryLabel, onPress: () => void pickPhoto(true) },
             secondaryAction: { label: 'Not Now', onPress: () => {} },
           });
@@ -91,14 +102,36 @@ export function ScavengerStartSheet({ visible, onClose, matchId, partnerName, in
       setSenderPhotoUrl(url);
       setSenderPhotoClientRequestId(clientRequestId);
     } catch (e) {
-      const message = e instanceof Error ? e.message : 'Could not upload photo.';
-      if (!fromCamera && /permission|denied|access/i.test(message)) {
+      const message = mediaErrorMessage(e);
+      if (isPermissionLikeMediaError(e)) {
+        const copy = resolvePermissionUx({
+          capability: fromCamera ? 'photo_capture' : 'photo_picker',
+          status: 'blocked_settings',
+          platform: Platform.OS === 'ios' ? 'ios' : Platform.OS === 'android' ? 'android' : 'native',
+        });
         showDialog({
-          title: 'Photo Access Required',
-          message: 'Photo access is off for Vibely. Re-enable it in Settings, or try taking a new photo.',
+          title: copy.title,
+          message: copy.message,
           variant: 'info',
-          primaryAction: { label: 'Open Settings', onPress: () => void Linking.openSettings() },
-          secondaryAction: { label: 'Not Now', onPress: () => {} },
+          primaryAction: {
+            label: copy.primaryLabel,
+            onPress: () => void openPermissionSettings(
+              fromCamera ? 'scavenger_start_camera_launch' : 'scavenger_start_library',
+            ),
+          },
+          secondaryAction: fromCamera
+            ? { label: 'Choose from library', onPress: () => void pickPhoto(false) }
+            : { label: 'Take photo', onPress: () => void pickPhoto(true) },
+        });
+        return;
+      }
+      if (fromCamera) {
+        showDialog({
+          title: 'Camera issue',
+          message,
+          variant: 'warning',
+          primaryAction: { label: 'Try again', onPress: () => void pickPhoto(true) },
+          secondaryAction: { label: 'Choose from library', onPress: () => void pickPhoto(false) },
         });
         return;
       }

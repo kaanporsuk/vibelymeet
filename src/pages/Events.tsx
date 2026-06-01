@@ -35,12 +35,18 @@ const LocationPromptBanner = () => {
   const queryClient = useQueryClient();
   const [dismissed, setDismissed] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   if (dismissed) return null;
 
   const handleEnable = async () => {
     if (!user?.id) return;
+    if (!navigator.geolocation) {
+      setError("Location is not available in this browser. Use a city filter or update your location from profile.");
+      return;
+    }
     setLoading(true);
+    setError(null);
     try {
       const pos = await new Promise<GeolocationPosition>((res, rej) =>
         navigator.geolocation.getCurrentPosition(res, rej)
@@ -61,7 +67,7 @@ const LocationPromptBanner = () => {
       } catch { /* geocode failure handled below */ }
 
       if (!displayLabel || !country) {
-        toast.error("Could not match your location to a city. Try again or update location from your profile.");
+        setError("We could not match your location to a city. Try again, or update location from your profile.");
         return;
       }
 
@@ -83,8 +89,13 @@ const LocationPromptBanner = () => {
 
       toast.success("Location saved! Discovering events near you…");
       setDismissed(true);
-    } catch {
-      toast.error("Could not get location. Allow Location in this browser's site settings, or choose a city filter.");
+    } catch (locationError) {
+      const geolocationError = locationError as GeolocationPositionError | undefined;
+      setError(
+        geolocationError?.code === 1
+          ? "Location is blocked for this site. Allow it in browser site settings, then try again."
+          : "Could not get your location. Try again, or choose a city filter if available.",
+      );
     } finally {
       setLoading(false);
     }
@@ -99,6 +110,9 @@ const LocationPromptBanner = () => {
       <div className="flex-1">
         <p className="text-sm font-medium text-foreground">Enable location to see local and regional events</p>
         <p className="text-xs text-muted-foreground mt-0.5">Without location access, only global events are shown</p>
+        {error ? (
+          <p className="mt-2 text-xs font-medium text-amber-300">{error}</p>
+        ) : null}
       </div>
       <div className="flex items-center gap-2 shrink-0">
         <Button size="sm" variant="ghost" className="h-7 text-xs text-muted-foreground" onClick={() => setDismissed(true)}>
@@ -220,6 +234,7 @@ const Events = () => {
   const [upcomingOnly, setUpcomingOnly] = useState(true);
   const [userCoords, setUserCoords] = useState<{ lat: number; lng: number } | null>(null);
   const [hasLocation, setHasLocation] = useState<boolean | null>(null);
+  const [locationRecovery, setLocationRecovery] = useState<string | null>(null);
   const seededEventPrefs = useRef(false);
 
   const { data: serverEventPrefs } = useQuery({
@@ -302,13 +317,27 @@ const Events = () => {
 
   const handleLocationModeChange = useCallback((mode: 'nearby' | 'city') => {
     setLocationMode(mode);
+    setLocationRecovery(null);
     if (mode === 'nearby') {
       setSelectedCity(null);
       setDistanceKm(50);
       if (!userCoords) {
+        if (!navigator.geolocation) {
+          setLocationRecovery("Location is not available in this browser. Choose a city filter if available.");
+          return;
+        }
         navigator.geolocation.getCurrentPosition(
-          (pos) => setUserCoords({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
-          () => { toast.error("Could not get location. Allow Location in this browser's site settings, or choose a city filter."); }
+          (pos) => {
+            setUserCoords({ lat: pos.coords.latitude, lng: pos.coords.longitude });
+            setLocationRecovery(null);
+          },
+          (error) => {
+            setLocationRecovery(
+              error.code === 1
+                ? "Location is blocked for this site. Allow it in browser site settings, then try again."
+                : "Could not get your location. Try again, or choose a city filter if available.",
+            );
+          },
         );
       }
     } else {
@@ -490,6 +519,23 @@ const Events = () => {
           })
         }
       />
+      {locationRecovery ? (
+        <div className="mx-4 mt-3 rounded-lg border border-amber-400/25 bg-amber-400/10 p-3">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <p className="text-sm text-foreground">{locationRecovery}</p>
+            <div className="flex shrink-0 items-center gap-2">
+              {canCityBrowse ? (
+                <Button size="sm" variant="outline" onClick={() => setLocationMode("city")}>
+                  Choose city
+                </Button>
+              ) : null}
+              <Button size="sm" onClick={() => handleLocationModeChange("nearby")}>
+                Try again
+              </Button>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       {/* Content */}
       <div className="space-y-8 pt-6">

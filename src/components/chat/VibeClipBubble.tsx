@@ -30,6 +30,8 @@ import { usePrefersReducedMotion } from "@/hooks/usePrefersReducedMotion";
 import { useMediaVideoPreloadForVisibility } from "@/hooks/useMediaVideoPreloadPolicy";
 import { MediaPlaceholder } from "@/components/media/MediaPlaceholder";
 import {
+  getCachedMediaAssetFailureCode,
+  isTransientMediaAssetFailureCode,
   refreshMediaAsset as refreshResolvedMediaAsset,
   syncChatVibeClipUploadStatus,
   type ChatVibeClipProcessingStatus,
@@ -54,7 +56,8 @@ type VibeClipMediaRefreshReason = "preview" | "initial" | "playback" | "manual";
 const CLIP_BUBBLE_WIDTH_CLASS = "w-[min(17.5rem,calc(100svw-4rem))] max-w-full";
 const CHAT_VIBE_CLIP_STATUS_SYNC_SAFETY_NET_INTERVAL_MS = 30_000;
 const CLIP_PLAYBACK_LOAD_TIMEOUT_MS = 12_000;
-const MAX_CLIP_PLAYBACK_REFRESH_ATTEMPTS = 1;
+const MAX_CLIP_PLAYBACK_REFRESH_ATTEMPTS = 2;
+const PLAYBACK_REFRESH_RETRY_DELAY_MS = 650;
 // First-go poster reliability: Bunny can return a thumbnail URL before the image
 // is actually generated. Re-sign + reload the poster on a bounded backoff so the
 // first frame appears as soon as Bunny catches up, without hammering the resolver.
@@ -81,6 +84,27 @@ function isPlayableVideoUrl(value: string | null | undefined): value is string {
 function displayablePosterUrl(value: string | null | undefined): string | null {
   if (!value) return null;
   return isPlayableVideoUrl(value) ? value : null;
+}
+
+function waitForPlaybackRefreshRetry(): Promise<void> {
+  return new Promise((resolve) => window.setTimeout(resolve, PLAYBACK_REFRESH_RETRY_DELAY_MS));
+}
+
+function uniqueDisplayablePosterUrls(
+  ...groups: Array<string | null | undefined | readonly (string | null | undefined)[]>
+): string[] {
+  const urls: string[] = [];
+  const seen = new Set<string>();
+  for (const group of groups) {
+    const values = Array.isArray(group) ? group : [group];
+    for (const value of values) {
+      const url = displayablePosterUrl(value);
+      if (!url || seen.has(url)) continue;
+      seen.add(url);
+      urls.push(url);
+    }
+  }
+  return urls;
 }
 
 function isResolvableMediaRef(value: string | null | undefined): boolean {
@@ -154,6 +178,7 @@ export const VibeClipBubble = ({
   const [loadError, setLoadError] = useState(false);
   const [mediaFallbackReason, setMediaFallbackReason] = useState<MediaFallbackReason | null>(null);
   const [hasPlayed, setHasPlayed] = useState(false);
+  const [hasStartedPlayback, setHasStartedPlayback] = useState(false);
   const [showReactBar, setShowReactBar] = useState(false);
   const [playableVideoUrl, setPlayableVideoUrl] = useState(meta.videoUrl);
   const [playableThumbnailUrl, setPlayableThumbnailUrl] = useState(meta.thumbnailUrl ?? null);
@@ -173,6 +198,7 @@ export const VibeClipBubble = ({
   const initialPlaybackResolveRunIdRef = useRef(0);
   const posterRetryStateRef = useRef<{ key: string; attempts: number }>({ key: "", attempts: 0 });
   const posterNotReadyRef = useRef(false);
+  const posterCandidateUrlsRef = useRef<string[]>([]);
   const playableVideoUrlRef = useRef(meta.videoUrl);
   const playableThumbnailUrlRef = useRef<string | null>(meta.thumbnailUrl ?? null);
   const readyRefreshKeyRef = useRef<string | null>(null);
@@ -204,6 +230,7 @@ export const VibeClipBubble = ({
   }, [onResolvedThumbnailUrl]);
   const {
     url: thumbnailAssetUrl,
+    fallbackUrls: thumbnailFallbackUrls,
     placeholderKind: thumbnailPlaceholderKind,
     placeholderHash: thumbnailPlaceholderHash,
     dominantColor: thumbnailDominantColor,
@@ -257,6 +284,7 @@ export const VibeClipBubble = ({
     setIsLoading(true);
     setIsReady(false);
     setPlayRequested(false);
+    setHasStartedPlayback(false);
     initialPlaybackResolveInFlightRef.current = false;
     initialPlaybackResolveRunIdRef.current += 1;
     setHasMetadata(false);
@@ -296,6 +324,30 @@ export const VibeClipBubble = ({
     setPosterImageBroken(false);
   }, [thumbnailAssetUrl]);
 
+  const posterCandidateUrls = useMemo(
+    () => uniqueDisplayablePosterUrls(playableThumbnailUrl, thumbnailFallbackUrls),
+    [playableThumbnailUrl, thumbnailFallbackUrls],
+  );
+
+  useEffect(() => {
+    posterCandidateUrlsRef.current = posterCandidateUrls;
+  }, [posterCandidateUrls]);
+
+  const handlePosterImageError = useCallback(() => {
+    const current = playableThumbnailUrlRef.current;
+    const candidates = posterCandidateUrlsRef.current;
+    const currentIndex = current ? candidates.indexOf(current) : -1;
+    const next = candidates.find((candidate, index) => index > currentIndex && candidate !== current);
+    if (next) {
+      playableThumbnailUrlRef.current = next;
+      setPlayableThumbnailUrl(next);
+      setPosterImageBroken(false);
+      handleResolvedThumbnailUrl(next);
+      return;
+    }
+    setPosterImageBroken(true);
+  }, [handleResolvedThumbnailUrl]);
+
   const processingStatus = syncedProcessingStatus ?? meta.processingStatus;
   const displayMeta = useMemo(
     () => ({
@@ -323,9 +375,8 @@ export const VibeClipBubble = ({
     showPosterVisual &&
     !isServerProcessing &&
     canMountPlayer &&
-    isReady &&
-    !isPlaying &&
-    currentTime <= 0.05;
+    !showPreparingOverlay &&
+    !hasStartedPlayback;
   const captionText = useMemo(() => captionTextFromMediaCaptions(displayMeta.captions), [displayMeta.captions]);
   const captionLanguage = useMemo(() => mediaCaptionLanguage(displayMeta.captions) ?? "und", [displayMeta.captions]);
   const videoPreload = useMediaVideoPreloadForVisibility(
@@ -338,12 +389,8 @@ export const VibeClipBubble = ({
     !isServerProcessing &&
     !!thumbnailSourceRef &&
     (!playableThumbnailUrl || isResolvableMediaRef(playableThumbnailUrl) || !canShowPosterImage);
-  // True while a poster is still expected but not yet displaying — either unresolved
-  // (shouldResolvePosterPreview) or resolved-but-broken (a 404 before Bunny generated it).
-  // Gated on !isReady: once the video's first frame is up the poster is irrelevant, so we
-  // stop retrying (avoids wasteful re-signs on an already-playing clip).
   const posterNotReady =
-    !isReady &&
+    !hasStartedPlayback &&
     (shouldResolvePosterPreview ||
       (!isServerProcessing && !!thumbnailSourceRef && posterImageBroken));
 
@@ -436,32 +483,60 @@ export const VibeClipBubble = ({
   const refreshClipMedia = useCallback(async (reason: VibeClipMediaRefreshReason = "playback"): Promise<boolean> => {
     if (!sparkMessageId || (!videoSourceRef && !thumbnailSourceRef)) return false;
     const refreshOptions =
-      reason === "manual"
+      reason === "manual" || reason === "initial"
         ? { bypassFailureCooldown: true }
         : reason === "preview"
           ? { bypassFailureCooldown: true, suppressFailureCache: true }
           : undefined;
-    if (reason === "playback") {
-      if (!videoSourceRef) return false;
-      if (playbackRefreshAttemptCountRef.current >= MAX_CLIP_PLAYBACK_REFRESH_ATTEMPTS) return false;
-      playbackRefreshAttemptCountRef.current += 1;
-    }
-    const freshThumbnailUrl = thumbnailSourceRef
-      ? await refreshThumbnailAsset(reason === "manual" ? "manual" : "preview", refreshOptions)
-      : null;
-    const displayableFreshThumbnailUrl = displayablePosterUrl(freshThumbnailUrl);
-    if (displayableFreshThumbnailUrl) {
-      playableThumbnailUrlRef.current = displayableFreshThumbnailUrl;
-      setPlayableThumbnailUrl(displayableFreshThumbnailUrl);
-      setPosterImageBroken(false);
-      onResolvedThumbnailUrl?.(displayableFreshThumbnailUrl);
-    }
-    if (reason === "preview") return !!displayableFreshThumbnailUrl;
+    const refreshPoster = async (): Promise<boolean> => {
+      const freshThumbnailUrl = thumbnailSourceRef
+        ? await refreshThumbnailAsset(reason === "manual" ? "manual" : "preview", refreshOptions)
+        : null;
+      const displayableFreshThumbnailUrl = displayablePosterUrl(freshThumbnailUrl);
+      if (displayableFreshThumbnailUrl) {
+        playableThumbnailUrlRef.current = displayableFreshThumbnailUrl;
+        setPlayableThumbnailUrl(displayableFreshThumbnailUrl);
+        setPosterImageBroken(false);
+        onResolvedThumbnailUrl?.(displayableFreshThumbnailUrl);
+      }
+      return !!displayableFreshThumbnailUrl;
+    };
+    if (reason === "preview") return refreshPoster();
     if (!videoSourceRef) return false;
 
-    const freshVideoUrl = await refreshVideoAsset(reason, refreshOptions);
+    let posterRefreshStarted = false;
+    const startPosterRefresh = () => {
+      if (posterRefreshStarted) return;
+      posterRefreshStarted = true;
+      void refreshPoster().catch(() => {});
+    };
+    let freshVideoUrl: string | null = null;
+    for (let attempt = 0; attempt < MAX_CLIP_PLAYBACK_REFRESH_ATTEMPTS; attempt += 1) {
+      if (reason === "playback") {
+        if (playbackRefreshAttemptCountRef.current >= MAX_CLIP_PLAYBACK_REFRESH_ATTEMPTS) return false;
+        playbackRefreshAttemptCountRef.current += 1;
+      }
+      const attemptOptions = attempt === 0 ? refreshOptions : { ...(refreshOptions ?? {}), bypassFailureCooldown: true };
+      let refreshRejected = false;
+      const videoRefresh = refreshVideoAsset(reason, attemptOptions);
+      startPosterRefresh();
+      try {
+        freshVideoUrl = await videoRefresh;
+      } catch {
+        refreshRejected = true;
+        freshVideoUrl = null;
+      }
+      if (freshVideoUrl && isPlayableVideoUrl(freshVideoUrl)) break;
+      freshVideoUrl = null;
+      const failureCode = getCachedMediaAssetFailureCode(sparkMessageId, "vibe_clip", videoSourceRef);
+      if (!refreshRejected && !isTransientMediaAssetFailureCode(failureCode)) return false;
+      if (attempt + 1 >= MAX_CLIP_PLAYBACK_REFRESH_ATTEMPTS) return false;
+      if (reason === "playback" && playbackRefreshAttemptCountRef.current >= MAX_CLIP_PLAYBACK_REFRESH_ATTEMPTS) {
+        return false;
+      }
+      await waitForPlaybackRefreshRetry();
+    }
     if (!freshVideoUrl) return false;
-    if (!isPlayableVideoUrl(freshVideoUrl)) return false;
     if (freshVideoUrl === playableVideoUrl) {
       videoRef.current?.load();
       return true;
@@ -586,16 +661,45 @@ export const VibeClipBubble = ({
       }
     });
   }, [isHlsUrl, refreshClipMedia]);
+
+  const commitResolvedPlaybackAsset = useCallback((fresh: { url?: string | null } | null | undefined): boolean => {
+    const freshUrl = fresh?.url;
+    if (!freshUrl || !isPlayableVideoUrl(freshUrl)) return false;
+    playableVideoUrlRef.current = freshUrl;
+    setPlayableVideoUrl(freshUrl);
+    onResolvedVideoUrl?.(freshUrl);
+    return true;
+  }, [onResolvedVideoUrl]);
+
   const refreshPlaybackOnAuthError = useCallback(async () => {
     if (!sparkMessageId || !videoSourceRef) return null;
-    if (playbackRefreshAttemptCountRef.current >= MAX_CLIP_PLAYBACK_REFRESH_ATTEMPTS) return null;
-    playbackRefreshAttemptCountRef.current += 1;
-    return refreshResolvedMediaAsset(sparkMessageId, "vibe_clip", videoSourceRef, { bypassFailureCooldown: true });
-  }, [sparkMessageId, videoSourceRef]);
+    for (let attempt = 0; attempt < MAX_CLIP_PLAYBACK_REFRESH_ATTEMPTS; attempt += 1) {
+      if (playbackRefreshAttemptCountRef.current >= MAX_CLIP_PLAYBACK_REFRESH_ATTEMPTS) return null;
+      playbackRefreshAttemptCountRef.current += 1;
+      let refreshRejected = false;
+      const fresh = await refreshResolvedMediaAsset(sparkMessageId, "vibe_clip", videoSourceRef, {
+        bypassFailureCooldown: true,
+      }).catch(() => {
+        refreshRejected = true;
+        return null;
+      });
+      if (commitResolvedPlaybackAsset(fresh)) return fresh;
+      const failureCode = getCachedMediaAssetFailureCode(sparkMessageId, "vibe_clip", videoSourceRef);
+      if (!refreshRejected && !isTransientMediaAssetFailureCode(failureCode)) return null;
+      if (attempt + 1 >= MAX_CLIP_PLAYBACK_REFRESH_ATTEMPTS) return null;
+      if (playbackRefreshAttemptCountRef.current >= MAX_CLIP_PLAYBACK_REFRESH_ATTEMPTS) return null;
+      await waitForPlaybackRefreshRetry();
+    }
+    return null;
+  }, [commitResolvedPlaybackAsset, sparkMessageId, videoSourceRef]);
   const refreshPlaybackProactively = useCallback(async () => {
     if (!sparkMessageId || !videoSourceRef) return null;
-    return refreshResolvedMediaAsset(sparkMessageId, "vibe_clip", videoSourceRef, { suppressFailureCache: true });
-  }, [sparkMessageId, videoSourceRef]);
+    const fresh = await refreshResolvedMediaAsset(sparkMessageId, "vibe_clip", videoSourceRef, {
+      suppressFailureCache: true,
+    });
+    commitResolvedPlaybackAsset(fresh);
+    return fresh;
+  }, [commitResolvedPlaybackAsset, sparkMessageId, videoSourceRef]);
 
   const handleVideoLoadError = useCallback(() => {
     if (isHlsUrl) return;
@@ -740,6 +844,7 @@ export const VibeClipBubble = ({
     } else {
       video.pause();
       setIsPlaying(false);
+      setPlayRequested(false);
     }
   }, [canMountPlayer, displayMeta.durationSec, displayMeta.thumbnailUrl, isMine, isServerProcessing, refreshClipMedia, threadMessageCount, videoAssetFallbackReason]);
 
@@ -828,6 +933,7 @@ export const VibeClipBubble = ({
 
   const handleEnded = useCallback(() => {
     setIsPlaying(false);
+    setHasStartedPlayback(false);
     setCurrentTime(0);
     releaseInlineVideoPlayback(videoRef.current);
     if (!playCompleteTracked.current) {
@@ -963,10 +1069,9 @@ export const VibeClipBubble = ({
                   className="h-full w-full object-cover"
                   draggable={false}
                   onError={() => {
-                    // Resolved URL but the file 404'd (Bunny still generating). Drop to the
-                    // blurhash placeholder (parity with native) and let the bounded retry
-                    // re-sign + reload rather than leaving a broken <img> on screen.
-                    setPosterImageBroken(true);
+                    // Bunny may generate thumbnail.jpg later than playback metadata; try the
+                    // signed preview fallback before dropping to the placeholder/retry path.
+                    handlePosterImageError();
                   }}
                 />
               ) : (
@@ -990,7 +1095,7 @@ export const VibeClipBubble = ({
                   alt=""
                   className="absolute inset-0 h-full w-full object-cover"
                   draggable={false}
-                  onError={() => setPosterImageBroken(true)}
+                  onError={handlePosterImageError}
                 />
               ) : null}
               <div className="absolute inset-0 bg-gradient-to-br from-white/5 via-white/0 to-white/10" />
@@ -1035,7 +1140,12 @@ export const VibeClipBubble = ({
               onLoadedData={markReadyIfPossible}
               onCanPlay={markReadyIfPossible}
               onPlay={() => claimInlineVideoPlayback(videoRef.current)}
-              onPlaying={() => setIsLoading(false)}
+              onPlaying={() => {
+                setIsLoading(false);
+                setIsPlaying(true);
+                setHasPlayed(true);
+                setHasStartedPlayback(true);
+              }}
               onPause={() => setIsPlaying(false)}
               onWaiting={() => setIsLoading(true)}
               onError={handleVideoLoadError}
@@ -1058,7 +1168,7 @@ export const VibeClipBubble = ({
               alt=""
               className="pointer-events-none absolute inset-0 h-full w-full object-cover"
               draggable={false}
-              onError={() => setPosterImageBroken(true)}
+              onError={handlePosterImageError}
             />
           ) : null}
 

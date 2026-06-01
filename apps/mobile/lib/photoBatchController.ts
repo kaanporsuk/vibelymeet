@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Linking, Platform } from 'react-native';
+import { Platform } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import { permissionUxStatusFromGrant, resolvePermissionUx } from '@clientShared/permissions/permissionUx';
 
@@ -10,6 +10,7 @@ import {
 import { getDocumentAsyncSafe, isDocumentPickerAvailable } from '@/lib/safeDocumentPicker';
 import { supabase } from '@/lib/supabase';
 import { uploadProfilePhotoWithMediaSdk } from '@/lib/mediaSdk/nativeStorageUploads';
+import { openPermissionSettings } from '@/lib/permissionSettings';
 
 const MAX_PHOTOS_DEFAULT = 6;
 
@@ -153,8 +154,84 @@ function showCameraPermissionDialog(
     message: copy.message,
     variant: 'info',
     primaryAction: copy.primaryAction === 'open_settings'
-      ? { label: copy.primaryLabel, onPress: () => void Linking.openSettings() }
+      ? { label: copy.primaryLabel, onPress: () => void openPermissionSettings('photo_batch_camera_permission') }
       : { label: copy.primaryLabel, onPress: onRetry },
+    secondaryAction: { label: 'Not now', onPress: () => {} },
+  });
+}
+
+function pickerErrorMessage(error: unknown, fallback: string): string {
+  if (error instanceof Error && error.message.trim().length > 0) return error.message;
+  return fallback;
+}
+
+function isPermissionLikePickerError(error: unknown): boolean {
+  return /\b(permission|denied|access|authorized|authorization)\b/i.test(
+    pickerErrorMessage(error, ''),
+  );
+}
+
+function showPhotoPickerFailureDialog({
+  show,
+  error,
+  chooseFileSupported,
+  onChooseFile,
+  onRetry,
+  source,
+}: {
+  show: DialogShow;
+  error: unknown;
+  chooseFileSupported: boolean;
+  onChooseFile: () => void;
+  onRetry: () => void;
+  source: string;
+}) {
+  if (isPermissionLikePickerError(error)) {
+    const copy = resolvePermissionUx({
+      capability: 'photo_picker',
+      status: 'blocked_settings',
+      platform: Platform.OS === 'ios' ? 'ios' : Platform.OS === 'android' ? 'android' : 'native',
+    });
+    show({
+      title: copy.title,
+      message: copy.message,
+      variant: 'info',
+      primaryAction: chooseFileSupported
+        ? { label: copy.fallbackLabel ?? 'Choose file', onPress: onChooseFile }
+        : { label: copy.primaryLabel, onPress: () => void openPermissionSettings(source) },
+      secondaryAction: chooseFileSupported
+        ? { label: copy.primaryLabel, onPress: () => void openPermissionSettings(source) }
+        : { label: 'Not now', onPress: () => {} },
+    });
+    return;
+  }
+
+  show({
+    title: 'Photo library',
+    message: pickerErrorMessage(error, 'Could not open your photo library. Please try again.'),
+    variant: 'warning',
+    primaryAction: { label: 'Try again', onPress: onRetry },
+    secondaryAction: chooseFileSupported
+      ? { label: 'Choose file', onPress: onChooseFile }
+      : undefined,
+  });
+}
+
+function showCameraLaunchFailureDialog(show: DialogShow, error: unknown, onRetry: () => void) {
+  const permissionLike = isPermissionLikePickerError(error);
+  show({
+    title: permissionLike ? 'Camera access' : 'Camera issue',
+    message: permissionLike
+      ? resolvePermissionUx({
+          capability: 'photo_capture',
+          status: 'blocked_settings',
+          platform: Platform.OS === 'ios' ? 'ios' : Platform.OS === 'android' ? 'android' : 'native',
+        }).message
+      : pickerErrorMessage(error, 'Could not open the camera. Please try again.'),
+    variant: permissionLike ? 'info' : 'warning',
+    primaryAction: permissionLike
+      ? { label: 'Open Settings', onPress: () => void openPermissionSettings('photo_batch_camera_launch') }
+      : { label: 'Try again', onPress: onRetry },
     secondaryAction: { label: 'Not now', onPress: () => {} },
   });
 }
@@ -428,32 +505,6 @@ export function usePhotoBatchController({
     [startUpload],
   );
 
-  const addManyFromLibrary = useCallback(async () => {
-    if (remainingSlots <= 0) {
-      showOkDialog(
-        show,
-        'Gallery full',
-        `You can have up to ${maxPhotos} photos. Remove one to add another.`,
-      );
-      return;
-    }
-
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ['images'],
-      allowsEditing: false,
-      allowsMultipleSelection: remainingSlots > 1,
-      selectionLimit: remainingSlots,
-      quality: 0.9,
-      ...iosLibraryPreferredCompat,
-    });
-    if (result.canceled || !result.assets?.length) return;
-
-    const assets = result.assets
-      .map((asset) => normalizePickerAssetForUpload(asset))
-      .filter((asset): asset is NonNullable<typeof asset> => asset !== null);
-    stageNewAssets(assets, 'library');
-  }, [maxPhotos, remainingSlots, show, stageNewAssets]);
-
   const addManyFromDocument = useCallback(async () => {
     if (remainingSlots <= 0) {
       showOkDialog(
@@ -491,23 +542,42 @@ export function usePhotoBatchController({
     stageNewAssets(assets, 'document');
   }, [maxPhotos, remainingSlots, show, stageNewAssets]);
 
-  const replaceOneFromLibrary = useCallback(
-    async (index: number) => {
+  const addManyFromLibrary = useCallback(async () => {
+    if (remainingSlots <= 0) {
+      showOkDialog(
+        show,
+        'Gallery full',
+        `You can have up to ${maxPhotos} photos. Remove one to add another.`,
+      );
+      return;
+    }
+
+    try {
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ['images'],
-        allowsEditing: true,
-        aspect: [1, 1],
+        allowsEditing: false,
+        allowsMultipleSelection: remainingSlots > 1,
+        selectionLimit: remainingSlots,
         quality: 0.9,
         ...iosLibraryPreferredCompat,
       });
-      if (result.canceled || !result.assets?.[0]) return;
+      if (result.canceled || !result.assets?.length) return;
 
-      const asset = normalizePickerAssetForUpload(result.assets[0]);
-      if (!asset) return;
-      replaceAtIndex(index, asset, 'library');
-    },
-    [replaceAtIndex, show],
-  );
+      const assets = result.assets
+        .map((asset) => normalizePickerAssetForUpload(asset))
+        .filter((asset): asset is NonNullable<typeof asset> => asset !== null);
+      stageNewAssets(assets, 'library');
+    } catch (error) {
+      showPhotoPickerFailureDialog({
+        show,
+        error,
+        chooseFileSupported,
+        onChooseFile: () => void addManyFromDocument(),
+        onRetry: () => void addManyFromLibrary(),
+        source: 'photo_batch_library_add',
+      });
+    }
+  }, [addManyFromDocument, chooseFileSupported, maxPhotos, remainingSlots, show, stageNewAssets]);
 
   const replaceOneFromDocument = useCallback(
     async (index: number) => {
@@ -536,6 +606,35 @@ export function usePhotoBatchController({
     [replaceAtIndex, show],
   );
 
+  const replaceOneFromLibrary = useCallback(
+    async (index: number) => {
+      try {
+        const result = await ImagePicker.launchImageLibraryAsync({
+          mediaTypes: ['images'],
+          allowsEditing: true,
+          aspect: [1, 1],
+          quality: 0.9,
+          ...iosLibraryPreferredCompat,
+        });
+        if (result.canceled || !result.assets?.[0]) return;
+
+        const asset = normalizePickerAssetForUpload(result.assets[0]);
+        if (!asset) return;
+        replaceAtIndex(index, asset, 'library');
+      } catch (error) {
+        showPhotoPickerFailureDialog({
+          show,
+          error,
+          chooseFileSupported,
+          onChooseFile: () => void replaceOneFromDocument(index),
+          onRetry: () => void replaceOneFromLibrary(index),
+          source: 'photo_batch_library_replace',
+        });
+      }
+    },
+    [chooseFileSupported, replaceAtIndex, replaceOneFromDocument, show],
+  );
+
   const takeOnePhoto = useCallback(
     async (replaceIndex?: number) => {
       if (replaceIndex === undefined && remainingSlots <= 0) {
@@ -547,30 +646,36 @@ export function usePhotoBatchController({
         return;
       }
 
-      const permission = await ImagePicker.requestCameraPermissionsAsync();
-      if (permission.status !== 'granted') {
-        showCameraPermissionDialog(show, permission, () => {
+      try {
+        const permission = await ImagePicker.requestCameraPermissionsAsync();
+        if (permission.status !== 'granted') {
+          showCameraPermissionDialog(show, permission, () => {
+            void takeOnePhoto(replaceIndex);
+          });
+          return;
+        }
+
+        const result = await ImagePicker.launchCameraAsync({
+          allowsEditing: true,
+          aspect: [1, 1],
+          quality: 0.9,
+        });
+        if (result.canceled || !result.assets?.[0]) return;
+
+        const asset = normalizePickerAssetForUpload(result.assets[0]);
+        if (!asset) return;
+
+        if (replaceIndex === undefined) {
+          stageNewAssets([asset], 'camera');
+          return;
+        }
+
+        replaceAtIndex(replaceIndex, asset, 'camera');
+      } catch (error) {
+        showCameraLaunchFailureDialog(show, error, () => {
           void takeOnePhoto(replaceIndex);
         });
-        return;
       }
-
-      const result = await ImagePicker.launchCameraAsync({
-        allowsEditing: true,
-        aspect: [1, 1],
-        quality: 0.9,
-      });
-      if (result.canceled || !result.assets?.[0]) return;
-
-      const asset = normalizePickerAssetForUpload(result.assets[0]);
-      if (!asset) return;
-
-      if (replaceIndex === undefined) {
-        stageNewAssets([asset], 'camera');
-        return;
-      }
-
-      replaceAtIndex(replaceIndex, asset, 'camera');
     },
     [maxPhotos, remainingSlots, replaceAtIndex, show, stageNewAssets],
   );

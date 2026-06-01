@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { AppState, Linking } from 'react-native';
+import { AppState } from 'react-native';
 import * as Location from 'expo-location';
+import { openPermissionSettings } from '@/lib/permissionSettings';
 
 export type LocationPermissionStatus = Location.PermissionStatus | 'unknown';
 
@@ -92,11 +93,7 @@ export async function requestLocationPermissionSnapshot(): Promise<LocationPermi
 }
 
 export async function openLocationSettings(): Promise<void> {
-  try {
-    await Linking.openSettings();
-  } catch (e) {
-    if (__DEV__) console.warn('[locationPermission] openSettings failed:', e);
-  }
+  await openPermissionSettings('location_permission');
 }
 
 export function useLocationPermission(): LocationPermissionState {
@@ -130,6 +127,13 @@ export function useLocationPermission(): LocationPermissionState {
     return next;
   }, []);
 
+  const openSettings = useCallback(async () => {
+    const opened = await openPermissionSettings('location_permission');
+    if (!opened) {
+      await refresh();
+    }
+  }, [refresh]);
+
   const requestOrOpenSettings = useCallback(async () => {
     if (
       snapshot.status === Location.PermissionStatus.UNDETERMINED ||
@@ -138,9 +142,9 @@ export function useLocationPermission(): LocationPermissionState {
       return request();
     }
 
-    await openLocationSettings();
+    await openSettings();
     return snapshot;
-  }, [request, snapshot]);
+  }, [openSettings, request, snapshot]);
 
   const refreshRef = useRef(refresh);
   refreshRef.current = refresh;
@@ -162,9 +166,9 @@ export function useLocationPermission(): LocationPermissionState {
       isLoading,
       refresh,
       request,
-      openSettings: openLocationSettings,
+      openSettings,
       requestOrOpenSettings,
     }),
-    [isLoading, refresh, request, requestOrOpenSettings, snapshot],
+    [isLoading, openSettings, refresh, request, requestOrOpenSettings, snapshot],
   );
 }

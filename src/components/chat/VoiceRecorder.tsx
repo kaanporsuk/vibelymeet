@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useCallback, forwardRef, useImperativeHandle } from 'react';
 import { motion } from 'framer-motion';
-import { Mic, Send, Trash2 } from 'lucide-react';
+import { AlertCircle, Mic, RotateCcw, Send, Trash2, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 import { webMediaTranscode } from '@clientShared/media-sdk';
@@ -8,6 +8,7 @@ import {
   classifyMediaPermissionError,
   mediaPermissionMessage,
   mediaPermissionTitle,
+  type MediaPermissionResult,
 } from '@clientShared/media/mediaPermissionResult';
 
 /** Imperative handle so callers (e.g. the "Voice reply" clip CTA) can start recording
@@ -40,6 +41,7 @@ const VoiceRecorder = forwardRef<VoiceRecorderHandle, VoiceRecorderProps>(({
   const [isRecording, setIsRecording] = useState(false);
   const [duration, setDuration] = useState(0);
   const [audioLevels, setAudioLevels] = useState<number[]>(new Array(20).fill(0.1));
+  const [permissionResult, setPermissionResult] = useState<MediaPermissionResult | null>(null);
   
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
@@ -141,6 +143,7 @@ const VoiceRecorder = forwardRef<VoiceRecorderHandle, VoiceRecorderProps>(({
     }
     if (isRecording || mediaRecorderRef.current || startInFlightRef.current) return;
     startInFlightRef.current = true;
+    setPermissionResult(null);
 
     try {
       if (typeof MediaRecorder === 'undefined') {
@@ -155,6 +158,7 @@ const VoiceRecorder = forwardRef<VoiceRecorderHandle, VoiceRecorderProps>(({
         return;
       }
       streamRef.current = stream;
+      setPermissionResult(null);
       
       // Set up audio analysis
       const AudioContextCtor =
@@ -246,6 +250,7 @@ const VoiceRecorder = forwardRef<VoiceRecorderHandle, VoiceRecorderProps>(({
       durationRef.current = 0;
       startInFlightRef.current = false;
       if (!mountedRef.current) return;
+      setPermissionResult(permissionResult);
       resetVisualState();
       toast.error(mediaPermissionTitle(permissionResult), {
         description: mediaPermissionMessage(permissionResult),
@@ -286,6 +291,7 @@ const VoiceRecorder = forwardRef<VoiceRecorderHandle, VoiceRecorderProps>(({
       toast.error('Could not finish voice recording');
       onCancel?.();
     } finally {
+      setPermissionResult(null);
       stopLiveResources();
     }
   }, [onCancel, stopLiveResources]);
@@ -297,6 +303,7 @@ const VoiceRecorder = forwardRef<VoiceRecorderHandle, VoiceRecorderProps>(({
     startInFlightRef.current = false;
 
     setIsRecording(false);
+    setPermissionResult(null);
     resetVisualState();
 
     if (recorder) {
@@ -349,25 +356,65 @@ const VoiceRecorder = forwardRef<VoiceRecorderHandle, VoiceRecorderProps>(({
   }, [stopLiveResources]);
 
   if (!isRecording) {
+    const retryLabel = permissionResult?.recoveryAction === "open_settings" ? "I updated settings" : "Try again";
     return (
-      <motion.button
-        type="button"
-        whileTap={{ scale: 0.9 }}
-        onClick={() => void startRecording()}
-        disabled={disabled}
-        aria-label={variant === "action" ? label : "Record voice message"}
-        title={variant === "action" ? label : "Record voice message"}
-        className={cn(
-          variant === "action"
-            ? "inline-flex h-11 min-h-11 w-full items-center justify-start gap-2 rounded-xl border border-border/35 bg-secondary/35 px-3 text-xs font-medium text-foreground/90 shadow-none transition-colors hover:bg-secondary/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/45 disabled:pointer-events-none disabled:opacity-45"
-            : "shrink-0 w-10 h-10 rounded-full bg-gradient-primary flex items-center justify-center text-primary-foreground shadow-lg cursor-pointer select-none touch-none",
-          disabled && "cursor-not-allowed opacity-45",
-          className
-        )}
-      >
-        <Mic className={cn(variant === "action" ? "h-4 w-4 shrink-0 text-primary" : "w-5 h-5")} />
-        {variant === "action" ? <span className="truncate">{label}</span> : null}
-      </motion.button>
+      <div className={cn("relative inline-flex", variant === "action" ? "w-full" : "shrink-0")}>
+        <motion.button
+          type="button"
+          whileTap={{ scale: 0.9 }}
+          onClick={() => void startRecording()}
+          disabled={disabled}
+          aria-label={variant === "action" ? label : "Record voice message"}
+          title={variant === "action" ? label : "Record voice message"}
+          className={cn(
+            variant === "action"
+              ? "inline-flex h-11 min-h-11 w-full items-center justify-start gap-2 rounded-xl border border-border/35 bg-secondary/35 px-3 text-xs font-medium text-foreground/90 shadow-none transition-colors hover:bg-secondary/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/45 disabled:pointer-events-none disabled:opacity-45"
+              : "shrink-0 w-10 h-10 rounded-full bg-gradient-primary flex items-center justify-center text-primary-foreground shadow-lg cursor-pointer select-none touch-none",
+            disabled && "cursor-not-allowed opacity-45",
+            className
+          )}
+        >
+          <Mic className={cn(variant === "action" ? "h-4 w-4 shrink-0 text-primary" : "w-5 h-5")} />
+          {variant === "action" ? <span className="truncate">{label}</span> : null}
+        </motion.button>
+
+        {permissionResult ? (
+          <div
+            role="status"
+            className={cn(
+              "absolute bottom-[calc(100%+0.5rem)] z-50 w-72 rounded-2xl border border-amber-300/25 bg-[#111116]/96 p-3 text-left shadow-2xl shadow-black/35 backdrop-blur-xl",
+              variant === "action" ? "left-0" : "right-0",
+            )}
+            data-testid="voice-recorder-permission-recovery"
+          >
+            <div className="flex items-start gap-2">
+              <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-amber-300" aria-hidden />
+              <div className="min-w-0 flex-1">
+                <p className="text-xs font-bold text-white">{mediaPermissionTitle(permissionResult)}</p>
+                <p className="mt-1 text-xs leading-relaxed text-white/68">
+                  {mediaPermissionMessage(permissionResult)}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setPermissionResult(null)}
+                className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-white/50 transition hover:bg-white/10 hover:text-white"
+                aria-label="Dismiss microphone recovery"
+              >
+                <X className="h-3.5 w-3.5" aria-hidden />
+              </button>
+            </div>
+            <button
+              type="button"
+              onClick={() => void startRecording()}
+              className="mt-3 inline-flex min-h-9 w-full items-center justify-center gap-2 rounded-full bg-white px-3 text-xs font-bold text-black transition hover:bg-white/90"
+            >
+              <RotateCcw className="h-3.5 w-3.5" aria-hidden />
+              {retryLabel}
+            </button>
+          </div>
+        ) : null}
+      </div>
     );
   }
 

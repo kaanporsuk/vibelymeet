@@ -154,10 +154,17 @@ test("Phase 9 reduce-motion defaults, animation gates, and preload policy are pi
   assert.match(webVibeClip, /useMediaVideoPreloadForVisibility[\s\S]*prefersReducedMotion/);
   assert.match(webVibeClip, /!prefersReducedMotion && "animate-spin"/);
   assert.match(webVibeClip, /CLIP_PLAYBACK_LOAD_TIMEOUT_MS/);
+  assert.match(webVibeClip, /MAX_CLIP_PLAYBACK_REFRESH_ATTEMPTS = 2/);
+  assert.match(webVibeClip, /getCachedMediaAssetFailureCode/);
+  assert.match(webVibeClip, /isTransientMediaAssetFailureCode/);
+  assert.match(webVibeClip, /commitResolvedPlaybackAsset\(fresh\)/);
   assert.match(webVibeClip, /isIosSafari/);
   assert.match(webVibeClip, /onLoadedData=\{markReadyIfPossible\}/);
   assert.match(webVibeClip, /onCanPlay=\{markReadyIfPossible\}/);
   assert.match(webVideoBubble, /!prefersReducedMotion && "animate-spin"/);
+  assert.match(webVideoBubble, /MAX_VIDEO_PLAYBACK_REFRESH_ATTEMPTS = 2/);
+  assert.match(webVideoBubble, /refreshVideoUrlWithRetry/);
+  assert.match(webVideoBubble, /commitResolvedPlaybackAsset\(fresh\)/);
   assert.match(webVideoBubble, /isIosSafari/);
   assert.match(webVideoBubble, /onLoadedData=\{markReadyIfPossible\}/);
   assert.match(webVideoBubble, /onCanPlay=\{markReadyIfPossible\}/);
@@ -170,6 +177,9 @@ test("Phase 9 reduce-motion defaults, animation gates, and preload policy are pi
   assert.match(lightbox, /autoPlay: shouldPlayOnAttach/);
   assert.match(lightbox, /shouldAttachPlayback/);
   assert.match(chatVideoLightbox, /usePrefersReducedMotion/);
+  assert.match(chatVideoLightbox, /MAX_LIGHTBOX_PLAYBACK_REFRESH_ATTEMPTS = 2/);
+  assert.match(chatVideoLightbox, /getCachedMediaAssetFailureCode/);
+  assert.match(chatVideoLightbox, /commitResolvedPlaybackAsset\(fresh\)/);
   assert.match(chatVideoLightbox, /autoPlay: !prefersReducedMotion/);
   assert.match(chatVideoLightbox, /CLIP_PLAYBACK_LOAD_TIMEOUT_MS/);
   assert.match(chatVideoLightbox, /onAutoplayBlocked: revealPlayer/);
