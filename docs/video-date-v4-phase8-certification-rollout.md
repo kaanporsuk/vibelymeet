@@ -190,7 +190,7 @@ The rollout-step wrapper requires the requested `rollout_bps` to already be live
 
 ## PR 8.5 - Final Server-Dealt Deck Cutover
 
-Web and native lobbies now always call `get_event_deck_v2` with `p_limit=1`; `get_event_deck` is no longer an active client fallback. Client-only `seenProfileIds` / swipe-ref filtering has been removed from the active web and native lobby paths, so refresh, crash, reconnect, and swipe-failure recovery all return to the same server-owned impression truth.
+Web and native lobbies now always call `get_event_deck_v3` with the shipped server-dealt buffer contract (`VIDEO_DATE_DECK_BUFFER_LIMIT = 5`); `get_event_deck` is no longer an active client fallback. Client-only `seenProfileIds` / swipe-ref filtering has been removed from the active web and native lobby paths, so refresh, crash, reconnect, and swipe-failure recovery all return to the same server-owned impression truth.
 
 Legacy deck cleanup is allowed only after `video_date.deck_deal_v2` has been enabled at 100% with no kill switch for one full week:
 

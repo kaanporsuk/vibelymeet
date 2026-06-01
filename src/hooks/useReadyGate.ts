@@ -113,6 +113,8 @@ const TERMINAL_READY_GATE_STATUSES = [
   ReadyGateStatus.BothReady,
   ReadyGateStatus.Forfeited,
   ReadyGateStatus.Expired,
+  ReadyGateStatus.Cancelled,
+  ReadyGateStatus.Ended,
 ] as const;
 
 type TerminalReadyGateStatus = (typeof TERMINAL_READY_GATE_STATUSES)[number];
@@ -374,12 +376,10 @@ export const useReadyGate = ({ sessionId, eventId, onBothReady, onForfeited }: U
       onBothReadyRef.current(bothReadySourceAction);
       return;
     }
-    if (status === ReadyGateStatus.Forfeited || status === ReadyGateStatus.Expired) {
-      onForfeitedRef.current(status === ReadyGateStatus.Expired ? "timeout" : "skip", {
-        status,
-        ...detail,
-      });
-    }
+    onForfeitedRef.current(status === ReadyGateStatus.Expired ? "timeout" : "skip", {
+      status,
+      ...detail,
+    });
   }, [sessionId]);
 
   const applyReadyGateTruth = useCallback((

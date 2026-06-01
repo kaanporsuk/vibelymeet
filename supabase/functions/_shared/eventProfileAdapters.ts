@@ -65,6 +65,9 @@ export type EventDeckState = {
   eligible_unswiped_count?: number | null;
   profile_count: number | null;
   marked_count: number | null;
+  reused_reservation_count?: number | null;
+  preserves_active_reservations?: boolean;
+  redeal_unacted?: boolean;
   mark_action?: string | null;
   prefetch_ttl_seconds?: number | null;
   reservation_ttl_seconds?: number | null;
@@ -221,6 +224,11 @@ function normalizeEventDeckState(raw: unknown, fallbackProfileCount: number): Ev
       finiteNumberOrNull(source.eligibleUnswipedCount),
     profile_count: finiteNumberOrNull(source.profile_count) ?? fallbackProfileCount,
     marked_count: finiteNumberOrNull(source.marked_count),
+    reused_reservation_count: finiteNumberOrNull(source.reused_reservation_count) ??
+      finiteNumberOrNull(source.reusedReservationCount),
+    preserves_active_reservations:
+      source.preserves_active_reservations === true || source.preservesActiveReservations === true,
+    redeal_unacted: source.redeal_unacted === true || source.redealUnacted === true,
     mark_action: sanitizeDeckString(source.mark_action ?? source.markAction),
     prefetch_ttl_seconds: finiteNumberOrNull(source.prefetch_ttl_seconds) ?? finiteNumberOrNull(source.prefetchTtlSeconds),
     reservation_ttl_seconds: finiteNumberOrNull(source.reservation_ttl_seconds) ?? finiteNumberOrNull(source.reservationTtlSeconds),

@@ -65,9 +65,9 @@ const ReadyRedirect = () => {
   );
 
   const navigateToDate = useCallback(
-    (sessionId: string) => {
+    (sessionId: string, source = "ready_redirect") => {
       markVideoDateEntryPipelineStarted(sessionId);
-      navigate(`/date/${encodeURIComponent(sessionId)}`, { replace: true });
+      navigate(`/date/${encodeURIComponent(sessionId)}`, { replace: true, state: { source } });
     },
     [navigate],
   );
@@ -225,7 +225,7 @@ const ReadyRedirect = () => {
           sessionId={sessionId}
           eventId={routeState.eventId}
           onClose={() => navigateToEventLobby(routeState.eventId)}
-          onNavigateToDate={(nextSessionId) => navigateToDate(nextSessionId)}
+          onNavigateToDate={(nextSessionId, source) => navigateToDate(nextSessionId, source)}
           onManualExitConfirmed={suppressReadyGateSessionAfterManualExit}
         />
       </div>

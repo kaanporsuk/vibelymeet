@@ -713,15 +713,17 @@ const ReadyGateOverlay = ({
   // same app-acquired track instead of reopening the camera with a different
   // aspect negotiation.
   const runPermissionPrewarm = useCallback(
-    async (source: "ready_gate_open" | "ready_tap"): Promise<void> => {
+    async (source: "ready_gate_open" | "ready_tap"): Promise<boolean> => {
       if (permissionPrewarmStartedRef.current) {
-        if (source !== "ready_tap" || permissionPrewarmMediaRef.current) return;
+        if (source !== "ready_tap" || permissionPrewarmMediaRef.current) {
+          return Boolean(permissionPrewarmMediaRef.current);
+        }
         permissionPrewarmStartedRef.current = false;
       }
-      if (closedRef.current || dateNavigationStartedRef.current) return;
+      if (closedRef.current || dateNavigationStartedRef.current) return false;
       const userId = user?.id;
-      if (!userId) return;
-      if (typeof navigator === "undefined" || !navigator.mediaDevices?.getUserMedia) return;
+      if (!userId) return false;
+      if (typeof navigator === "undefined" || !navigator.mediaDevices?.getUserMedia) return false;
       const readyGateKey = activeReadyGateKey;
 
       if (
@@ -729,7 +731,7 @@ const ReadyGateOverlay = ({
         (source !== "ready_tap" || permissionPrewarmMediaRef.current)
       ) {
         permissionPrewarmStartedRef.current = true;
-        return;
+        return true;
       }
 
       let sourceAction =
@@ -748,10 +750,10 @@ const ReadyGateOverlay = ({
               name: "microphone" as PermissionName,
             }),
           ]);
-          if (activeReadyGateKeyRef.current !== readyGateKey) return;
-          if (cameraStatus.state !== "granted" || microphoneStatus.state !== "granted") return;
+          if (activeReadyGateKeyRef.current !== readyGateKey) return false;
+          if (cameraStatus.state !== "granted" || microphoneStatus.state !== "granted") return false;
         } catch {
-          if (activeReadyGateKeyRef.current !== readyGateKey) return;
+          if (activeReadyGateKeyRef.current !== readyGateKey) return false;
           if (!permissionPrewarmSkipLoggedRef.current) {
             permissionPrewarmSkipLoggedRef.current = true;
             const skippedContext = recordReadyGateToDateLatencyCheckpoint({
@@ -779,8 +781,8 @@ const ReadyGateOverlay = ({
           } catch {
             priorGrantEvidence = false;
           }
-          if (activeReadyGateKeyRef.current !== readyGateKey) return;
-          if (!priorGrantEvidence) return;
+          if (activeReadyGateKeyRef.current !== readyGateKey) return false;
+          if (!priorGrantEvidence) return false;
           sourceAction = "permission_prewarm_silent_no_permissions_api";
           silentFallbackWaitMs = WEB_READY_GATE_SILENT_PERMISSION_FALLBACK_WAIT_MS;
         }
@@ -828,18 +830,18 @@ const ReadyGateOverlay = ({
             source,
             waitMs: silentFallbackWaitMs,
           });
-          return;
+          return false;
         }
 
         releasePermissionPrewarmMedia("permission_prewarm_replaced");
         if (activeReadyGateKeyRef.current !== readyGateKey) {
           stopMediaStreamTracks(media.stream);
-          return;
+          return false;
         }
 
         if (closedRef.current && !dateNavigationStartedRef.current) {
           stopMediaStreamTracks(media.stream);
-          return;
+          return false;
         }
         permissionPrewarmMediaRef.current = media;
         media = null;
@@ -920,6 +922,7 @@ const ReadyGateOverlay = ({
           source,
           durationMs,
         });
+        return true;
       } catch (error) {
         stopMediaStreamTracks(media?.stream ?? null);
         const permissionResult = classifyMediaPermissionError(error, "camera_microphone");
@@ -929,9 +932,9 @@ const ReadyGateOverlay = ({
             permissionPrewarmStartedRef.current = false;
           }
         }
-        if (!isActiveReadyGate) return;
+        if (!isActiveReadyGate) return false;
         const nextMediaDiagnostics = await resolveMediaDiagnosticsAfterPrewarmError(error);
-        if (activeReadyGateKeyRef.current !== readyGateKey) return;
+        if (activeReadyGateKeyRef.current !== readyGateKey) return false;
         setMediaDiagnostics(nextMediaDiagnostics);
         if (sourceAction === "permission_prewarm_silent_no_permissions_api") {
           vdbg("ready_gate_permission_prewarm_silent_fallback_failed", {
@@ -947,7 +950,7 @@ const ReadyGateOverlay = ({
             permissionState: permissionResult.permissionState,
             recoveryAction: permissionResult.recoveryAction,
           });
-          return;
+          return false;
         }
         trackEvent(LobbyPostDateEvents.VIDEO_DATE_MEDIA_PERMISSION_DENIED, {
           platform: "web",
@@ -977,6 +980,7 @@ const ReadyGateOverlay = ({
               ? { name: error.name, message: error.message }
               : String(error),
         });
+        return false;
       }
     },
     [
@@ -2183,6 +2187,10 @@ const ReadyGateOverlay = ({
         .maybeSingle();
       if (!session) return;
 
+      const isParticipant =
+        session.participant_1_id === user.id || session.participant_2_id === user.id;
+      if (!isParticipant) return;
+
       const partnerId =
         session.participant_1_id === user.id
           ? session.participant_2_id
@@ -2575,11 +2583,6 @@ const ReadyGateOverlay = ({
                   whileTap={prefersReducedMotion ? undefined : { scale: 0.92 }}
                   onClick={() => {
                     if (markingReady || requestingSnooze || terminalActionPending) return;
-                    // Fire the gesture-bound permission prewarm BEFORE any
-                    // await so the browser sees a live user activation. Runs
-                    // in parallel with markReady() — handoff lands well before
-                    // the date screen mounts in the typical case.
-                    void runPermissionPrewarm("ready_tap");
                     recordUserAction("ready_gate_ready_clicked", {
                       surface: "ready_gate_overlay",
                       session_id: sessionId,
@@ -2619,6 +2622,22 @@ const ReadyGateOverlay = ({
                     void (async () => {
                       try {
                         setTerminalActionError(null);
+                        const permissionReady = await runPermissionPrewarm("ready_tap");
+                        if (!permissionReady) {
+                          setTerminalActionError("Allow camera and microphone access to join this date.");
+                          trackEvent(LobbyPostDateEvents.VIDEO_DATE_MEDIA_PERMISSION_DENIED, {
+                            platform: "web",
+                            session_id: sessionId,
+                            event_id: eventId,
+                            reason: "ready_tap_permission_not_ready",
+                            permission_status: "unknown",
+                            recovery_action: "request_permission",
+                            settings_deep_link: "browser_site_settings",
+                            source_surface: "ready_gate_overlay",
+                            source_action: "ready_tap",
+                          });
+                          return;
+                        }
                         const result = await markReady();
                         if (!result.ok) {
                           throw new Error("ready_gate_mark_ready_failed");
