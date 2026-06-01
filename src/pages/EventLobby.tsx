@@ -108,7 +108,6 @@ const TERMINAL_VISIBLE_CARD_MARK_ERRORS = new Set([
   "target_active_session_conflict",
   "target_unavailable",
   "invalid_deck_token",
-  "not_current_top_card",
 ]);
 
 function shouldRetryVisibleCardMark(reason: string | null | undefined): boolean {

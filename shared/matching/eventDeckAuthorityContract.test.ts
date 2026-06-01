@@ -17,6 +17,14 @@ function functionSection(source: string, functionName: string): string {
   return source.slice(start, revoke);
 }
 
+function latestFunctionSection(source: string, functionName: string): string {
+  const start = source.lastIndexOf(`CREATE OR REPLACE FUNCTION public.${functionName}`);
+  assert.notEqual(start, -1, `${functionName} definition should exist`);
+  const revoke = source.indexOf(`REVOKE ALL ON FUNCTION public.${functionName}`, start);
+  assert.notEqual(revoke, -1, `${functionName} revoke block should follow definition`);
+  return source.slice(start, revoke);
+}
+
 function sectionBetween(source: string, startNeedle: string, endNeedle: string): string {
   const start = source.indexOf(startNeedle);
   assert.notEqual(start, -1, `${startNeedle.trim()} section should exist`);
@@ -26,6 +34,8 @@ function sectionBetween(source: string, startNeedle: string, endNeedle: string):
 }
 
 const migration = read("supabase/migrations/20260601183000_event_deck_authority_contract.sql");
+const tokenGuardMigration = read("supabase/migrations/20260601194000_event_deck_token_current_top_guard.sql");
+const authoritySql = `${migration}\n${tokenGuardMigration}`;
 const webLobby = read("src/pages/EventLobby.tsx");
 const webSwipeHook = read("src/hooks/useSwipeAction.ts");
 const nativeLobby = read("apps/mobile/app/event/[eventId]/lobby.tsx");
@@ -36,7 +46,7 @@ const supabaseTypes = read("src/integrations/supabase/types.ts");
 
 const eligibilitySection = functionSection(migration, "event_deck_candidate_eligibility");
 const currentTopSection = functionSection(migration, "event_deck_current_top_candidate");
-const validateSection = functionSection(migration, "event_deck_validate_presented_card");
+const validateSection = latestFunctionSection(authoritySql, "event_deck_validate_presented_card");
 const deckV3Section = functionSection(migration, "get_event_deck_v3");
 const visibleSection = functionSection(migration, "record_event_deck_card_visible_v1");
 const visibleCompatSection = sectionBetween(
@@ -45,6 +55,16 @@ const visibleCompatSection = sectionBetween(
   "DROP FUNCTION IF EXISTS public.handle_swipe_20260601183000_deck_authority_base",
 );
 const handleSwipeV2Section = functionSection(migration, "handle_swipe_v2");
+const webTerminalVisibleErrorsSection = sectionBetween(
+  webLobby,
+  "const TERMINAL_VISIBLE_CARD_MARK_ERRORS = new Set([",
+  "]);",
+);
+const nativeTerminalVisibleErrorsSection = sectionBetween(
+  nativeLobby,
+  "const TERMINAL_VISIBLE_CARD_MARK_ERRORS = new Set([",
+  "]);",
+);
 
 test("server owns Event Deck presentation authority and direct swipe mutation is closed", () => {
   assert.match(migration, /CREATE TABLE IF NOT EXISTS public\.event_deck_card_reservations/);
@@ -92,16 +112,27 @@ test("current-top validation uses reservations, not a fresh randomized deck", ()
   assert.match(validateSection, /p_deck_token text DEFAULT NULL/);
   assert.match(validateSection, /FOR UPDATE/);
   assert.match(validateSection, /invalid_deck_token/);
+  assert.match(validateSection, /r\.expires_at > now\(\) OR r\.visible_at IS NOT NULL/);
+  assert.match(validateSection, /r\.issued_at/);
+  assert.match(validateSection, /r\.deck_rank/);
+  assert.match(validateSection, /lower_rank\.issued_at = v_reservation\.issued_at/);
+  assert.match(validateSection, /lower_rank\.deck_rank < v_reservation\.deck_rank/);
+  assert.match(validateSection, /lower_rank\.expires_at > now\(\) OR lower_rank\.visible_at IS NOT NULL/);
   assert.match(validateSection, /v_current_top := public\.event_deck_current_top_candidate/);
   assert.match(validateSection, /not_current_top_card/);
   assert.match(validateSection, /valid_deck_token/);
   assert.match(validateSection, /current_top_card/);
 
   const validTokenIndex = validateSection.indexOf("'reason', 'valid_deck_token'");
+  const lowerRankIndex = validateSection.indexOf("lower_rank.deck_rank < v_reservation.deck_rank");
   const currentTopIndex = validateSection.indexOf("v_current_top := public.event_deck_current_top_candidate");
   assert.ok(
-    validTokenIndex > -1 && currentTopIndex > -1 && validTokenIndex < currentTopIndex,
-    "a locked valid deck token must survive later deck refetches; only tokenless fallback checks current top",
+    validTokenIndex > -1 && lowerRankIndex > -1 && lowerRankIndex < validTokenIndex,
+    "a deck token must be topmost within its own reservation batch before valid_deck_token is returned",
+  );
+  assert.ok(
+    currentTopIndex > validTokenIndex,
+    "tokenless legacy fallback should use the latest active current-top reservation after token handling",
   );
 });
 
@@ -143,10 +174,12 @@ test("web, native, and edge clients pass deck tokens and stop retrying terminal 
   assert.match(webLobby, /p_deck_token: deckToken/);
   assert.match(webLobby, /currentProfile\?\.deck_token/);
   assert.match(webLobby, /event_deck_card_visible_mark_result/);
+  assert.doesNotMatch(webTerminalVisibleErrorsSection, /not_current_top_card/);
   assert.match(nativeLobby, /TERMINAL_VISIBLE_CARD_MARK_ERRORS/);
   assert.match(nativeLobby, /p_deck_token: deckToken/);
   assert.match(nativeLobby, /current\?\.deck_token/);
   assert.match(nativeLobby, /event_deck_card_visible_mark_result/);
+  assert.doesNotMatch(nativeTerminalVisibleErrorsSection, /not_current_top_card/);
 });
 
 test("shared adapters and generated types expose the new contract", () => {
