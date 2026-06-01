@@ -15,7 +15,7 @@ export async function fetchVideoDateSnapshot(
   }
   try {
     const { data, error } = await supabase.functions.invoke(VIDEO_DATE_SNAPSHOT_FUNCTION_NAME, {
-      body: { session_id: sessionId, include_token: options.includeToken !== false },
+      body: { session_id: sessionId, include_token: options.includeToken === true },
     });
     if (error) {
       return await normalizeVideoDateSnapshotInvokeError(error);

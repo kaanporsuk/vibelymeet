@@ -79,6 +79,7 @@ test("PR 1.1 snapshot wrapper keeps tokens in Edge only", () => {
   assert.match(snapshotFunction, /DAILY_API_KEY/);
   assert.match(snapshotFunction, /\/meeting-tokens/);
   assert.match(snapshotFunction, /include_token/);
+  assert.match(snapshotFunction, /const includeToken = body\?\.include_token === true \|\| body\?\.includeToken === true/);
   assert.match(snapshotFunction, /if \(!includeToken\)/);
   assert.match(snapshotFunction, /ejectAtTokenExp: true/);
   assert.match(snapshotFunction, /tokenExpiresAt/);
@@ -96,7 +97,7 @@ test("PR 1.1 snapshot wrapper keeps tokens in Edge only", () => {
   assert.match(webReadyRedirect, /includeToken: false/);
   assert.match(webReadyRedirect, /snapshot\.eventId/);
   assert.match(webSnapshotLib, /try\s*{[\s\S]+functions\.invoke/);
-  assert.match(webSnapshotLib, /include_token: options\.includeToken !== false/);
+  assert.match(webSnapshotLib, /include_token: options\.includeToken === true/);
   assert.match(webSnapshotLib, /normalizeVideoDateSnapshotInvokeError\(error\)/);
   assert.match(webSnapshotLib, /snapshot_function_failed/);
   assert.match(nativeReadyRoute, /video_date\.snapshot_v2/);
@@ -104,7 +105,7 @@ test("PR 1.1 snapshot wrapper keeps tokens in Edge only", () => {
   assert.match(nativeReadyRoute, /includeToken: false/);
   assert.match(nativeReadyRoute, /snapshot\.eventId/);
   assert.match(nativeSnapshotLib, /try\s*{[\s\S]+functions\.invoke/);
-  assert.match(nativeSnapshotLib, /include_token: options\.includeToken !== false/);
+  assert.match(nativeSnapshotLib, /include_token: options\.includeToken === true/);
   assert.match(nativeSnapshotLib, /normalizeVideoDateSnapshotInvokeError\(error\)/);
   assert.match(nativeSnapshotLib, /snapshot_function_failed/);
 });

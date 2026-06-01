@@ -53,7 +53,7 @@ import {
   type PermissionUxStatus,
 } from '@clientShared/permissions/permissionUx';
 import { openPermissionSettings, useSettingsReturnRefresh } from '@/lib/permissionSettings';
-import { isNativeMediaPermissionError } from '@/lib/nativeMediaPickerErrors';
+import { classifyNativeMediaCaptureError, isNativeMediaPermissionError } from '@/lib/nativeMediaPickerErrors';
 
 const MAX_DURATION_SEC = 15;
 const CAPTION_MAX = 50;
@@ -121,6 +121,7 @@ export default function VibeVideoRecordScreen() {
   const [captionDraft, setCaptionDraft] = useState('');
   const [isConfirming, setIsConfirming] = useState(false);
   const [recordIntentActive, setRecordIntentActive] = useState(sourceIntent !== 'library' && !libraryParam);
+  const [recordingRecoveryStatus, setRecordingRecoveryStatus] = useState<PermissionUxStatus | null>(null);
   const chooseFileSupported = isDocumentPickerAvailable();
 
   // Seed caption from existing profile
@@ -173,6 +174,13 @@ export default function VibeVideoRecordScreen() {
     platform: Platform.OS === 'ios' ? 'ios' : Platform.OS === 'android' ? 'android' : 'native',
     mediaKind: permissionMediaKind,
   });
+  const recordingRecoveryCopy = recordingRecoveryStatus
+    ? resolvePermissionUx({
+        capability: 'profile_vibe_video',
+        status: recordingRecoveryStatus,
+        platform: Platform.OS === 'ios' ? 'ios' : Platform.OS === 'android' ? 'android' : 'native',
+      })
+    : null;
 
   const requestPermission = async () => {
     if (permissionStatus === 'blocked_settings') {
@@ -215,6 +223,7 @@ export default function VibeVideoRecordScreen() {
   const startRecording = async () => {
     if (!cameraRef.current || !permission) return;
     if (stage !== 'idle') return;
+    setRecordingRecoveryStatus(null);
     setRecording(true);
     try {
       const result = await cameraRef.current.recordAsync({
@@ -228,12 +237,8 @@ export default function VibeVideoRecordScreen() {
       }
     } catch (e) {
       setRecording(false);
-      show({
-        title: 'Recording failed',
-        message: e instanceof Error ? e.message : 'Please try again.',
-        variant: 'warning',
-        primaryAction: { label: 'OK', onPress: () => {} },
-      });
+      setStage('idle');
+      setRecordingRecoveryStatus(classifyNativeMediaCaptureError(e));
     }
   };
 
@@ -249,6 +254,7 @@ export default function VibeVideoRecordScreen() {
     setIsConfirming(false);
     uploadSourceRef.current = 'unknown';
     setRecordedUri(null);
+    setRecordingRecoveryStatus(null);
     setStage('idle');
   };
 
@@ -279,6 +285,7 @@ export default function VibeVideoRecordScreen() {
         return;
       }
       uploadSourceRef.current = 'library';
+      setRecordingRecoveryStatus(null);
       setRecordIntentActive(false);
       setRecordedUri(asset.uri);
       setStage('preview');
@@ -301,6 +308,7 @@ export default function VibeVideoRecordScreen() {
       });
       if (result.canceled || !result.assets[0]?.uri) return;
       uploadSourceRef.current = 'library';
+      setRecordingRecoveryStatus(null);
       setRecordIntentActive(false);
       setRecordedUri(result.assets[0].uri);
       setStage('preview');
@@ -328,6 +336,28 @@ export default function VibeVideoRecordScreen() {
       });
     }
   };
+
+  const handleRecordingRecoveryPrimary = useCallback(() => {
+    if (!recordingRecoveryCopy) return;
+    if (recordingRecoveryCopy.primaryAction === 'open_settings') {
+      settingsOpenedRef.current = true;
+      void openPermissionSettings('profile_vibe_video_recording_error').then((opened) => {
+        if (!opened) {
+          settingsOpenedRef.current = false;
+          void refreshPermissions();
+        }
+      });
+      return;
+    }
+    setRecordingRecoveryStatus(null);
+    if (recordingRecoveryCopy.primaryAction === 'retry') {
+      void startRecording();
+      return;
+    }
+    if (recordingRecoveryCopy.primaryAction === 'upload_file') {
+      void pickFromLibrary();
+    }
+  }, [pickFromLibrary, recordingRecoveryCopy, refreshPermissions, startRecording]);
 
   const chooseDifferentVideo = () => {
     const previousSource = uploadSourceRef.current;
@@ -643,36 +673,60 @@ export default function VibeVideoRecordScreen() {
           )}
         </Pressable>
 
-        <View style={[styles.idleBar, { paddingBottom: Math.max(insets.bottom, 28) }]}>
-          <View style={styles.idleTopRow}>
-            <Pressable
-              style={styles.iconCircle}
-              onPress={() => setFacing((f) => (f === 'front' ? 'back' : 'front'))}
-            >
-              <Ionicons name="camera-reverse-outline" size={24} color="#fff" />
-            </Pressable>
+        {recordingRecoveryCopy ? (
+          <View style={styles.recordingRecoveryOverlay}>
+            <PermissionRecoveryCard
+              testID="native-profile-vibe-video-recording-recovery-card"
+              icon="videocam-off-outline"
+              title={recordingRecoveryCopy.title}
+              message={recordingRecoveryCopy.message}
+              primaryLabel={recordingRecoveryCopy.primaryLabel}
+              onPrimaryPress={handleRecordingRecoveryPrimary}
+              fallbackLabel={recordingRecoveryCopy.fallbackLabel}
+              onFallbackPress={
+                recordingRecoveryCopy.fallbackAction === 'upload_file'
+                  ? () => {
+                      setRecordingRecoveryStatus(null);
+                      void pickFromLibrary();
+                    }
+                  : undefined
+              }
+              secondaryLabel="Back to recorder"
+              onSecondaryPress={() => setRecordingRecoveryStatus(null)}
+            />
           </View>
+        ) : (
+          <View style={[styles.idleBar, { paddingBottom: Math.max(insets.bottom, 28) }]}>
+            <View style={styles.idleTopRow}>
+              <Pressable
+                style={styles.iconCircle}
+                onPress={() => setFacing((f) => (f === 'front' ? 'back' : 'front'))}
+              >
+                <Ionicons name="camera-reverse-outline" size={24} color="#fff" />
+              </Pressable>
+            </View>
 
-          {!recording ? (
-            <View style={styles.recordRow}>
-              <Pressable style={styles.linkPick} onPress={() => void pickFromLibrary()}>
-                <Ionicons name="cloud-upload-outline" size={18} color="#a78bfa" />
-                <Text style={styles.linkPickText}>Upload a video</Text>
-              </Pressable>
-              <Pressable style={styles.recordOuter} onPress={() => void startRecording()}>
-                <View style={styles.recordInner} />
-              </Pressable>
-              <Text style={styles.hint}>Tap to record ({MAX_DURATION_SEC}s)</Text>
-            </View>
-          ) : (
-            <View style={styles.recBar}>
-              <Pressable style={styles.stopBtn} onPress={stopRecording}>
-                <View style={styles.stopInner} />
-              </Pressable>
-              <Text style={styles.hint}>Recording… tap stop when ready</Text>
-            </View>
-          )}
-        </View>
+            {!recording ? (
+              <View style={styles.recordRow}>
+                <Pressable style={styles.linkPick} onPress={() => void pickFromLibrary()}>
+                  <Ionicons name="cloud-upload-outline" size={18} color="#a78bfa" />
+                  <Text style={styles.linkPickText}>Upload a video</Text>
+                </Pressable>
+                <Pressable style={styles.recordOuter} onPress={() => void startRecording()}>
+                  <View style={styles.recordInner} />
+                </Pressable>
+                <Text style={styles.hint}>Tap to record ({MAX_DURATION_SEC}s)</Text>
+              </View>
+            ) : (
+              <View style={styles.recBar}>
+                <Pressable style={styles.stopBtn} onPress={stopRecording}>
+                  <View style={styles.stopInner} />
+                </Pressable>
+                <Text style={styles.hint}>Recording… tap stop when ready</Text>
+              </View>
+            )}
+          </View>
+        )}
 
         {captionModalEl}
       </View>
@@ -699,6 +753,13 @@ const styles = StyleSheet.create({
   previewSecondaryPressable: { alignItems: 'center', paddingVertical: 8 },
   previewSecondaryLabel: { color: 'rgba(255,255,255,0.7)', fontSize: 15, fontWeight: '500' },
   centered: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 24 },
+  recordingRecoveryOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    backgroundColor: 'rgba(0,0,0,0.62)',
+  },
   closeBtn: {
     position: 'absolute',
     right: 16,

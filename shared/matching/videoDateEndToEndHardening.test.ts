@@ -1262,7 +1262,7 @@ test("video-date room cleanup checks Daily presence before destructive delete", 
 
 test("web and native reject cached prewarmed token after Daily join failure and retry prepare", () => {
   assert.match(webVideoCallHook, /rejectPreparedVideoDateEntry\(sessionId, userId, "daily_join_failed", eventId\)/);
-  assert.match(webVideoCallHook, /return startCall\(sessionId, \{ internalRetry: true \}\)/);
+  assert.match(webVideoCallHook, /return await startCall\(sessionId, \{ internalRetry: true \}\)/);
   assert.match(nativeVideoDateRoute, /rejectPreparedVideoDateEntry\(sessionId, user\.id, 'daily_join_failed', eventId \|\| null\)/);
   assert.match(nativeVideoDateRoute, /setJoinAttemptNonce\(\(n\) => n \+ 1\)/);
 });
@@ -1515,7 +1515,7 @@ test("native video date capture uses supported Daily defaults while web keeps ex
   assert.match(webVideoCallHook, /source_action: "media_handoff_miss"/);
   assert.match(webVideoCallHook, /media_handoff_miss_reason: lastMediaHandoffMissReasonRef\.current/);
   assert.match(webVideoCallHook, /mediaPermissionResultForStatus/);
-  assert.match(webVideoCallHook, /classifyMediaPermissionError\(error, "camera_microphone"\)/);
+  assert.match(webVideoCallHook, /classifyMediaPermissionErrorWithBrowserState\(error, "camera_microphone"\)/);
   assert.match(webVideoCallHook, /permission_status: permissionResult\.status/);
   assert.match(webVideoCallHook, /permission_state: permissionResult\.permissionState/);
   assert.match(webVideoCallHook, /recovery_action: permissionResult\.recoveryAction/);
@@ -1524,7 +1524,7 @@ test("native video date capture uses supported Daily defaults while web keeps ex
   assert.match(webVideoCallHook, /releaseAppAcquiredMedia\("permission_handoff_media_failed"\)/);
   assert.match(webVideoCallHook, /mediaPermissionFailureSourceAction = "permission_handoff_media_failed"/);
   assert.match(webVideoCallHook, /source_action: mediaPermissionFailureSourceAction/);
-  assert.match(readyGateOverlay, /classifyMediaPermissionError\(error, "camera_microphone"\)/);
+  assert.match(readyGateOverlay, /classifyMediaPermissionErrorWithBrowserState\(error, "camera_microphone"\)/);
   assert.match(readyGateOverlay, /permission_status: permissionResult\.status/);
   assert.match(readyGateOverlay, /permission_state: permissionResult\.permissionState/);
   assert.match(readyGateOverlay, /recovery_action: permissionResult\.recoveryAction/);
@@ -2105,7 +2105,7 @@ test("web and native use server-owned leave, reconnect, and permission recovery 
   assert.match(webVideoCallHook, /VIDEO_DATE_REMOTE_PLAYBACK_REQUIRES_GESTURE/);
   assert.match(webVideoCallHook, /noRemoteAutoRecoveryCountRef\.current < 2/);
   assert.match(webVideoCallHook, /Keeping your date state in sync/);
-  assert.match(sharedDailyJoinedConfirmation, /DAILY_JOINED_CONFIRMATION_RETRY_DELAYS_MS = \[1_500, 3_000, 5_000\]/);
+  assert.match(sharedDailyJoinedConfirmation, /DAILY_JOINED_CONFIRMATION_RETRY_DELAYS_MS = \[1_500, 3_000, 5_000, 10_000, 20_000, 30_000\]/);
   assert.match(sharedDailyJoinedConfirmation, /function markDailyJoinedWithBackoff/);
   assert.match(sharedDailyJoinedConfirmation, /DAILY_JOINED_CONFIRMATION_TERMINAL_ERROR_CODES/);
   assert.match(webVideoCallHook, /markDailyJoinedWithBackoff\(/);

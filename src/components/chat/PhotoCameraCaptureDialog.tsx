@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import { cn } from "@/lib/utils";
 import {
-  classifyMediaPermissionError,
+  classifyMediaPermissionErrorWithBrowserState,
   mediaPermissionMessage,
   mediaPermissionTitle,
   type MediaPermissionRecoveryAction,
@@ -227,14 +227,14 @@ export function PhotoCameraCaptureDialog({
         streamRef.current = previousStream;
         if (videoRef.current) videoRef.current.srcObject = previousStream;
         setPhase("camera");
-        const permissionResult = classifyMediaPermissionError(error, "camera");
+        const permissionResult = await classifyMediaPermissionErrorWithBrowserState(error, "camera");
         setErrorTitle(mediaPermissionTitle(permissionResult));
         setErrorMessage(opts.silentError ? "Could not switch cameras. Please try again." : mediaPermissionMessage(permissionResult));
         setErrorRecoveryAction(permissionResult.recoveryAction);
         return null;
       }
       stopCamera();
-      const permissionResult = classifyMediaPermissionError(error, "camera");
+      const permissionResult = await classifyMediaPermissionErrorWithBrowserState(error, "camera");
       setErrorTitle(mediaPermissionTitle(permissionResult));
       setErrorMessage(mediaPermissionMessage(permissionResult));
       setErrorRecoveryAction(permissionResult.recoveryAction);

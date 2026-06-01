@@ -76,6 +76,7 @@ test("daily joined confirmation default retry budget is finite", async () => {
   assert.equal(result.ok, false);
   assert.equal(result.exhausted, true);
   assert.equal(attempts, DAILY_JOINED_CONFIRMATION_RETRY_DELAYS_MS.length + 1);
+  assert.deepEqual(DAILY_JOINED_CONFIRMATION_RETRY_DELAYS_MS.slice(-3), [10_000, 20_000, 30_000]);
 });
 
 test("daily joined confirmation classifies only unknown or transient failures as retryable", () => {

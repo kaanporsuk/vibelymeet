@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { FlatList, Pressable, StyleSheet, TextInput, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Text } from '@/components/Themed';
@@ -11,6 +11,7 @@ import {
   captureCurrentDeviceLocation,
   reverseGeocodeDeviceLocation,
 } from '@/lib/locationProfileUpdate';
+import { hasConfirmedOnboardingLocation } from '@shared/onboardingTypes';
 
 type GeoResult = { formatted?: string; city?: string; country?: string; lat?: number; lng?: number };
 type LocationPayload = { location: string; country: string; locationData: { lat: number; lng: number } | null };
@@ -19,21 +20,40 @@ type FeedbackState = { tone: FeedbackTone; text: string; action?: { label: strin
 
 const MIN_SEARCH_CHARS = 2;
 
-export default function LocationStep({ location, onLocationChange, onNext }: { location: string; onLocationChange: (payload: LocationPayload) => void; onNext: () => void; }) {
+export default function LocationStep({
+  location,
+  country,
+  locationData,
+  onLocationChange,
+  onNext,
+}: {
+  location: string;
+  country: string;
+  locationData: { lat: number; lng: number } | null;
+  onLocationChange: (payload: LocationPayload) => void;
+  onNext: () => void;
+}) {
   const theme = Colors[useColorScheme()];
   const locationPermission = useLocationPermission();
-  const [search, setSearch] = useState('');
+  const [search, setSearch] = useState(location);
   const [results, setResults] = useState<GeoResult[]>([]);
   const [showSearch, setShowSearch] = useState(false);
   const [detecting, setDetecting] = useState(false);
   const [searching, setSearching] = useState(false);
   const [feedback, setFeedback] = useState<FeedbackState>(null);
 
-  const continueHint = location
-    ? 'You can continue now, or change this city first.'
+  const confirmedLocation = useMemo(
+    () => hasConfirmedOnboardingLocation({ location, country, locationData }),
+    [country, location, locationData]
+  );
+
+  const continueHint = confirmedLocation
+    ? 'Location confirmed. You can continue now, or change this city first.'
     : showSearch
-      ? 'Search for your city and tap a result to continue.'
-      : 'Enable location or search for your city to continue.';
+      ? 'Search for your city and tap a result to confirm it.'
+      : location
+        ? 'Choose a city result to confirm coordinates before continuing.'
+        : 'Enable location or search for your city to continue.';
 
   const openManualSearch = (nextFeedback?: FeedbackState) => {
     setShowSearch(true);
@@ -50,7 +70,10 @@ export default function LocationStep({ location, onLocationChange, onNext }: { l
   };
 
   const applySearchResult = (item: GeoResult) => {
-    if (item.lat == null || item.lng == null) {
+    const lat = Number(item.lat);
+    const lng = Number(item.lng);
+    const resultCountry = item.country?.trim() ?? '';
+    if (!Number.isFinite(lat) || !Number.isFinite(lng) || !resultCountry) {
       setFeedback({
         tone: 'error',
         text: "We couldn't confirm that city's coordinates. Try another result or include the country in your search.",
@@ -60,24 +83,8 @@ export default function LocationStep({ location, onLocationChange, onNext }: { l
 
     applyLocation({
       location: item.formatted ?? `${item.city ?? ''}, ${item.country ?? ''}`,
-      country: item.country ?? '',
-      locationData: { lat: Number(item.lat), lng: Number(item.lng) },
-    });
-  };
-
-  const applyTypedCityOnly = () => {
-    const query = search.trim();
-    if (query.length < MIN_SEARCH_CHARS) {
-      setFeedback({
-        tone: 'error',
-        text: `Enter at least ${MIN_SEARCH_CHARS} characters to use a city manually.`,
-      });
-      return;
-    }
-    applyLocation({
-      location: query,
-      country: '',
-      locationData: null,
+      country: resultCountry,
+      locationData: { lat, lng },
     });
   };
 
@@ -172,16 +179,14 @@ export default function LocationStep({ location, onLocationChange, onNext }: { l
       if (list.length === 0) {
         setFeedback({
           tone: 'info',
-          text: 'No cities matched that search. Try a nearby city, include the country, or use the typed city.',
-          action: { label: 'Use typed city', onPress: applyTypedCityOnly },
+          text: 'No cities matched that search. Try a nearby city or include the country.',
         });
       }
     } catch {
       setResults([]);
       setFeedback({
         tone: 'error',
-        text: "We couldn't search right now. You can retry or continue with the typed city.",
-        action: { label: 'Use typed city', onPress: applyTypedCityOnly },
+        text: "We couldn't search right now. Check your connection and try again.",
       });
     } finally {
       setSearching(false);
@@ -193,7 +198,7 @@ export default function LocationStep({ location, onLocationChange, onNext }: { l
       <Text style={[styles.h1, { color: theme.text }]}>Where are you based?</Text>
       <Text style={[styles.sub, { color: theme.textSecondary }]}>We use this to show events and people nearby.</Text>
 
-      {location ? (
+      {confirmedLocation ? (
         <>
           <View style={[styles.selectedLocation, { borderColor: theme.border, backgroundColor: theme.surfaceSubtle }]}>
             <Ionicons name="location-outline" size={18} color={theme.tint} />
@@ -315,13 +320,6 @@ export default function LocationStep({ location, onLocationChange, onNext }: { l
               {detecting ? 'Trying your current location...' : 'Try current location again'}
             </Text>
           </Pressable>
-          {search.trim().length >= MIN_SEARCH_CHARS ? (
-            <Pressable onPress={applyTypedCityOnly} disabled={detecting || searching}>
-              <Text style={{ color: theme.textSecondary, textAlign: 'left', opacity: detecting || searching ? 0.6 : 1 }}>
-                Use typed city without coordinates
-              </Text>
-            </Pressable>
-          ) : null}
           {results.length > 0 ? (
             <FlatList
               data={results}
@@ -345,7 +343,7 @@ export default function LocationStep({ location, onLocationChange, onNext }: { l
       ) : null}
 
       <Text style={[styles.hint, { color: theme.textSecondary }]}>{continueHint}</Text>
-      <VibelyButton label="Continue" onPress={onNext} disabled={!location} variant="gradient" />
+      <VibelyButton label="Continue" onPress={onNext} disabled={!confirmedLocation} variant="gradient" />
     </View>
   );
 }

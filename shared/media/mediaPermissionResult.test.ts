@@ -2,11 +2,41 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   classifyMediaPermissionError,
+  classifyMediaPermissionErrorWithBrowserState,
   mediaPermissionMessage,
   mediaPermissionResultForQueryState,
   mediaPermissionTitle,
   shouldRetryMediaPermissionWithFallback,
 } from "./mediaPermissionResult";
+
+const originalNavigator = globalThis.navigator;
+const originalWindow = globalThis.window;
+
+function installBrowserPermissionState(state: "granted" | "prompt" | "denied") {
+  Object.defineProperty(globalThis, "navigator", {
+    configurable: true,
+    value: {
+      permissions: {
+        query: async () => ({ state }),
+      },
+    },
+  });
+  Object.defineProperty(globalThis, "window", {
+    configurable: true,
+    value: { isSecureContext: true },
+  });
+}
+
+function restoreBrowserGlobals() {
+  Object.defineProperty(globalThis, "navigator", {
+    configurable: true,
+    value: originalNavigator,
+  });
+  Object.defineProperty(globalThis, "window", {
+    configurable: true,
+    value: originalWindow,
+  });
+}
 
 test("media permission classifier maps browser denials to settings recovery", () => {
   const result = classifyMediaPermissionError(
@@ -51,6 +81,38 @@ test("media permission copy stays tied to recovery categories", () => {
   assert.match(mediaPermissionMessage(denied), /browser settings/);
   assert.equal(promptable.status, "promptable");
   assert.equal(promptable.recoveryAction, "retry");
+});
+
+test("browser-state classifier keeps promptable NotAllowedError retryable", async () => {
+  installBrowserPermissionState("prompt");
+  try {
+    const result = await classifyMediaPermissionErrorWithBrowserState(
+      { name: "NotAllowedError", message: "Permission prompt dismissed" },
+      "camera",
+    );
+
+    assert.equal(result.status, "denied_retryable");
+    assert.equal(result.permissionState, "prompt");
+    assert.equal(result.recoveryAction, "retry");
+  } finally {
+    restoreBrowserGlobals();
+  }
+});
+
+test("browser-state classifier reserves settings recovery for blocked browser permission", async () => {
+  installBrowserPermissionState("denied");
+  try {
+    const result = await classifyMediaPermissionErrorWithBrowserState(
+      { name: "NotAllowedError", message: "Permission denied" },
+      "microphone",
+    );
+
+    assert.equal(result.status, "denied");
+    assert.equal(result.permissionState, "denied");
+    assert.equal(result.recoveryAction, "open_settings");
+  } finally {
+    restoreBrowserGlobals();
+  }
 });
 
 test("microphone-only failures do not mention camera recovery", () => {

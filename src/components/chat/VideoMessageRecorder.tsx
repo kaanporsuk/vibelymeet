@@ -25,7 +25,7 @@ import {
 } from "@/lib/webVibeClipLibraryUpload";
 import type { MediaCaptions } from "../../../shared/media/captions";
 import {
-  classifyMediaPermissionError,
+  classifyMediaPermissionErrorWithBrowserState,
   mediaPermissionMessage,
   mediaPermissionResultForStatus,
   mediaPermissionTitle,
@@ -249,7 +249,7 @@ const VideoMessageRecorder = ({
         void refreshCameraCount();
         return stream;
       } catch (err: unknown) {
-        const result = classifyMediaPermissionError(err, "camera_microphone");
+        const result = await classifyMediaPermissionErrorWithBrowserState(err, "camera_microphone");
         setMediaPermissionResult(result);
         if (!opts?.silentError) {
           const name = err instanceof Error ? err.name : "";

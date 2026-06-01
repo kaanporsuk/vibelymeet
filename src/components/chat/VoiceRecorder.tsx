@@ -5,7 +5,7 @@ import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 import { webMediaTranscode } from '@clientShared/media-sdk';
 import {
-  classifyMediaPermissionError,
+  classifyMediaPermissionErrorWithBrowserState,
   mediaPermissionMessage,
   mediaPermissionTitle,
   type MediaPermissionResult,
@@ -244,7 +244,7 @@ const VoiceRecorder = forwardRef<VoiceRecorderHandle, VoiceRecorderProps>(({
         navigator.vibrate(50);
       }
     } catch (err: unknown) {
-      const permissionResult = classifyMediaPermissionError(err, "microphone");
+      const permissionResult = await classifyMediaPermissionErrorWithBrowserState(err, "microphone");
       stopLiveResources();
       mediaRecorderRef.current = null;
       durationRef.current = 0;

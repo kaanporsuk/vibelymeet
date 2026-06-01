@@ -146,6 +146,17 @@ test("Sprint 4 Daily joined confirmation failures do not create or block survey 
   assert.doesNotMatch(nativeJoinedBlock, /openNativePostDateSurveyFromTerminalTruth|setShowFeedback\(true\)|surveyOpenedRef/);
 });
 
+test("Sprint 4 duplicate web start attempts wait for the real in-flight result", () => {
+  assert.match(webCall, /START_CALL_IN_FLIGHT_WAIT_TIMEOUT_MS/);
+  assert.match(webCall, /waitForInFlightStartCall/);
+  const duplicateBlock = sourceBlock(webCall, /reason: "start_call_already_in_flight"/.source, 1_200);
+  assert.match(duplicateBlock, /return waitForInFlightStartCall\(sessionId, eventId, userId\)/);
+  assert.doesNotMatch(duplicateBlock, /return \{ ok: true \}/);
+  assert.match(webCall, /start_call_in_flight_resolved_joined/);
+  assert.match(webCall, /start_call_in_flight_failed/);
+  assert.match(webCall, /return await startCall\(sessionId, \{ internalRetry: true \}\)/);
+});
+
 test("Sprint 4 runtime recovery contracts cover timeout, reconnect, slow join, first frame, extensions, and abort cleanup", () => {
   assert.match(webDate, /handleCallEndRef\.current\?\.\("date_timeout"\)/);
   assert.match(nativeDate, /handleCallEnd\('local_end', 'date_timeout'\)/);

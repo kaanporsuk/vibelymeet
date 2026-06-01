@@ -12,7 +12,7 @@ import {
   WebProofSelfiePayloadError,
 } from "@/lib/webProofSelfieUpload";
 import {
-  classifyMediaPermissionError,
+  classifyMediaPermissionErrorWithBrowserState,
   mediaPermissionMessage,
   mediaPermissionResultForStatus,
   mediaPermissionTitle,
@@ -157,11 +157,15 @@ export function SimplePhotoVerification({
     } catch (err: unknown) {
       console.error("Camera error:", err);
       setIsCameraReady(false);
-      const permissionResult = classifyMediaPermissionError(err, "camera");
+      const permissionResult = await classifyMediaPermissionErrorWithBrowserState(err, "camera");
       setCameraErrorTitle(mediaPermissionTitle(permissionResult));
       setCameraError(mediaPermissionMessage(permissionResult));
       setCameraRecoveryAction(permissionResult.recoveryAction);
-      setErrorPrimaryAction("start_camera");
+      setErrorPrimaryAction(
+        permissionResult.recoveryAction === "retry" || permissionResult.recoveryAction === "open_settings"
+          ? "start_camera"
+          : "close"
+      );
       setScreen("error");
     }
   };

@@ -136,6 +136,83 @@ export function classifyMediaPermissionError(
   });
 }
 
+async function querySingleBrowserMediaPermission(
+  name: "camera" | "microphone",
+): Promise<MediaPermissionQueryState> {
+  if (typeof navigator === "undefined" || !navigator.permissions?.query) return "unknown";
+  try {
+    const permissions = navigator.permissions as Permissions & {
+      query: (descriptor: { name: string }) => Promise<PermissionStatus>;
+    };
+    const result = await permissions.query({ name });
+    if (result.state === "granted" || result.state === "prompt" || result.state === "denied") {
+      return result.state;
+    }
+    return "unknown";
+  } catch {
+    return "unknown";
+  }
+}
+
+async function queryBrowserMediaPermission(kind: MediaPermissionKind): Promise<MediaPermissionQueryState> {
+  if (kind === "camera") return querySingleBrowserMediaPermission("camera");
+  if (kind === "microphone") return querySingleBrowserMediaPermission("microphone");
+
+  const [camera, microphone] = await Promise.all([
+    querySingleBrowserMediaPermission("camera"),
+    querySingleBrowserMediaPermission("microphone"),
+  ]);
+  if (camera === "denied" || microphone === "denied") return "denied";
+  if (camera === "prompt" || microphone === "prompt") return "prompt";
+  if (camera === "granted" && microphone === "granted") return "granted";
+  return "unknown";
+}
+
+function deniedResultForBrowserPermissionState(params: {
+  kind: MediaPermissionKind;
+  permissionState: MediaPermissionQueryState;
+  rawErrorName: string | null;
+  rawErrorMessage: string | null;
+}): MediaPermissionResult {
+  return mediaPermissionResultForStatus({
+    status: params.permissionState === "denied" ? "denied" : "denied_retryable",
+    kind: params.kind,
+    permissionState: params.permissionState,
+    rawErrorName: params.rawErrorName,
+    rawErrorMessage: params.rawErrorMessage,
+  });
+}
+
+export async function classifyMediaPermissionErrorWithBrowserState(
+  error: unknown,
+  kind: MediaPermissionKind,
+): Promise<MediaPermissionResult> {
+  const base = classifyMediaPermissionError(error, kind);
+  if (base.status !== "denied") return base;
+
+  if (
+    typeof window !== "undefined" &&
+    "isSecureContext" in window &&
+    window.isSecureContext === false
+  ) {
+    return mediaPermissionResultForStatus({
+      status: "unsupported",
+      kind,
+      permissionState: "unsupported",
+      rawErrorName: base.rawErrorName ?? "insecure_context",
+      rawErrorMessage: base.rawErrorMessage ?? "Browser media capture requires a secure context.",
+    });
+  }
+
+  const permissionState = await queryBrowserMediaPermission(kind);
+  return deniedResultForBrowserPermissionState({
+    kind,
+    permissionState,
+    rawErrorName: base.rawErrorName,
+    rawErrorMessage: base.rawErrorMessage,
+  });
+}
+
 export function isMediaPermissionDeniedError(error: unknown): boolean {
   return classifyMediaPermissionError(error, "camera_microphone").status === "denied";
 }

@@ -229,7 +229,52 @@ test("native Vibe Clip recordAsync failures keep persistent recovery UI", () => 
   assert.match(source, /classifyNativeMediaCaptureError\(recordingError\)/);
   assert.match(source, /nativeClipRecordingRecoveryPanel/);
   assert.match(source, /native_chat_vibe_clip_recording_error/);
+  assert.match(source, /primaryAction === 'upload_file'[\s\S]*onChooseSavedVideo\(\)/);
   assert.match(source, /onPress=\{onChooseSavedVideo\}/);
+});
+
+test("native profile Vibe Video recordAsync failures use persistent permission recovery", () => {
+  const source = readRepo("apps/mobile/app/vibe-video-record.tsx");
+  const startRecording = /const startRecording = async \(\) => \{([\s\S]*?)\n\s*\};/.exec(source)?.[1] ?? "";
+
+  assert.match(source, /recordingRecoveryStatus/);
+  assert.match(source, /native-profile-vibe-video-recording-recovery-card/);
+  assert.match(source, /classifyNativeMediaCaptureError\(e\)/);
+  assert.match(source, /primaryAction === 'upload_file'[\s\S]*pickFromLibrary\(\)/);
+  assert.doesNotMatch(startRecording, /title:\s*'Recording failed'/);
+});
+
+test("native onboarding location fallback cannot bypass confirmed-location contract", () => {
+  const step = readRepo("apps/mobile/components/onboarding/steps/LocationStep.tsx");
+  const parent = readRepo("apps/mobile/app/(onboarding)/index.tsx");
+
+  assert.match(step, /hasConfirmedOnboardingLocation/);
+  assert.match(step, /disabled=\{!confirmedLocation\}/);
+  assert.doesNotMatch(step, /Use typed city without coordinates/);
+  assert.doesNotMatch(step, /applyTypedCityOnly/);
+  assert.match(parent, /country=\{data\.country\}/);
+  assert.match(parent, /locationData=\{data\.locationData\}/);
+});
+
+test("native photo verification honors non-retryable permission actions", () => {
+  const source = readRepo("apps/mobile/components/verification/PhotoVerificationFlow.tsx");
+  const handler = /const handlePermissionRecoveryPress = useCallback\(\(\) => \{([\s\S]*?)\n\s*\},/.exec(source)?.[1] ?? "";
+
+  assert.match(handler, /primaryAction === 'open_settings'/);
+  assert.match(handler, /primaryAction === 'request'[\s\S]*primaryAction === 'retry'/);
+  assert.match(handler, /setPermissionRecovery\(null\)/);
+  assert.doesNotMatch(handler, /void startCapture\(\);\s*return;\s*\}\s*void startCapture\(\)/);
+});
+
+test("native chat photo camera runtime failures expose retry and library recovery", () => {
+  const modal = readRepo("apps/mobile/components/chat/ChatPhotoCameraModal.tsx");
+  const chat = readRepo("apps/mobile/app/chat/[id].tsx");
+
+  assert.match(modal, /showCameraRecovery/);
+  assert.match(modal, /classifyNativeMediaCaptureError/);
+  assert.match(modal, /native_chat_photo_camera_runtime/);
+  assert.match(modal, /primaryAction === 'use_picker'[\s\S]*chooseFromLibrary\(\)/);
+  assert.match(chat, /onChooseFromLibrary=\{\(\) => \{/);
 });
 
 test("native profile photo picker and camera launch failures stay recoverable", () => {
