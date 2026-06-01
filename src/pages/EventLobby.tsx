@@ -369,6 +369,9 @@ const EventLobby = () => {
   const deckPrefetchInFlightRef = useRef<Set<string>>(new Set());
   const deckPrefetchLoadedRef = useRef<Set<string>>(new Set());
   const deckPrefetchCacheHitTrackedRef = useRef<Set<string>>(new Set());
+  const visibleDeckCardsRef = useRef<Set<string>>(new Set());
+  const visibleDeckMarkAttemptsRef = useRef<Map<string, number>>(new Map());
+  const visibleDeckMarkAttemptSeqRef = useRef(0);
   const recentSwipeTargetsRef = useRef<VideoDateDeckRecentSwipeEntry[]>([]);
   const optimisticSwipeSequenceRef = useRef(0);
   const lobbyBroadcastSessionSeqRef = useRef<number | null>(null);
@@ -786,6 +789,8 @@ const EventLobby = () => {
     deckExhaustedFiredRef.current = false;
     activeSessionIdRef.current = null;
     dateNavigationSessionIdRef.current = null;
+    visibleDeckCardsRef.current.clear();
+    visibleDeckMarkAttemptsRef.current.clear();
     prepareNavigationInFlightRef.current.clear();
     for (const timer of lobbyConvergenceRefreshTimersRef.current.values()) {
       clearTimeout(timer);
@@ -2077,6 +2082,110 @@ const EventLobby = () => {
     !(currentProfile && !deckLoading);
   const suppressDeckUiForConvergence =
     yieldingToVideoDateUi || yieldingToReadyGateUi || showPostSurveyQueueCheck;
+
+  useEffect(() => {
+    const viewerId = user?.id;
+    const viewerIsPaused = Boolean(user?.isPaused);
+    if (!eventId || !viewerId || !currentProfile?.id) return;
+    const targetId = currentProfile.id;
+    if (!deckEnabled || deckLoading || deckError || viewerIsPaused) return;
+    if (lobbyGate.kind !== "live" || suppressDeckUiForConvergence) return;
+
+    const key = `${eventId}:${viewerId}:${targetId}`;
+    let cancelled = false;
+    let retryTimer: number | undefined;
+    let retryCount = 0;
+    let activeAttemptId: number | null = null;
+
+    function scheduleRetry() {
+      if (cancelled || retryCount >= 2 || typeof window === "undefined") return;
+      if (visibleDeckCardsRef.current.has(key)) return;
+      retryCount += 1;
+      retryTimer = window.setTimeout(markVisible, 1200 * retryCount);
+    }
+
+    function markVisible() {
+      if (cancelled) return;
+      if (typeof document !== "undefined" && document.visibilityState !== "visible") return;
+      if (visibleDeckCardsRef.current.has(key)) return;
+      if (visibleDeckMarkAttemptsRef.current.has(key)) return;
+      const attemptId = ++visibleDeckMarkAttemptSeqRef.current;
+      activeAttemptId = attemptId;
+      visibleDeckMarkAttemptsRef.current.set(key, attemptId);
+      void (async () => {
+        try {
+          const { data, error } = await supabase.rpc("record_event_deck_card_visible_v1" as never, {
+            p_event_id: eventId,
+            p_viewer_id: viewerId,
+            p_target_id: targetId,
+          } as never);
+          const result = data as { ok?: boolean; error?: string } | null;
+          if (error || result?.ok === false) {
+            if (visibleDeckMarkAttemptsRef.current.get(key) === attemptId) {
+              visibleDeckMarkAttemptsRef.current.delete(key);
+            }
+            Sentry.addBreadcrumb({
+              category: "event-lobby",
+              message: "top_card_visible_mark_failed",
+              level: "warning",
+              data: {
+                event_id: eventId,
+                profile_id_present: true,
+                message: error?.message ?? result?.error ?? "rpc_returned_not_ok",
+              },
+            });
+            scheduleRetry();
+            return;
+          }
+          visibleDeckCardsRef.current.add(key);
+          if (visibleDeckMarkAttemptsRef.current.get(key) === attemptId) {
+            visibleDeckMarkAttemptsRef.current.delete(key);
+          }
+        } catch (error) {
+          if (visibleDeckMarkAttemptsRef.current.get(key) === attemptId) {
+            visibleDeckMarkAttemptsRef.current.delete(key);
+          }
+          Sentry.addBreadcrumb({
+            category: "event-lobby",
+            message: "top_card_visible_mark_failed",
+            level: "warning",
+            data: {
+              event_id: eventId,
+              profile_id_present: true,
+              message: error instanceof Error ? error.message : "unknown_error",
+            },
+          });
+          scheduleRetry();
+        }
+      })();
+    }
+
+    markVisible();
+    if (typeof document === "undefined") return;
+    document.addEventListener("visibilitychange", markVisible);
+    return () => {
+      cancelled = true;
+      if (retryTimer !== undefined) window.clearTimeout(retryTimer);
+      if (
+        activeAttemptId != null &&
+        visibleDeckMarkAttemptsRef.current.get(key) === activeAttemptId
+      ) {
+        visibleDeckMarkAttemptsRef.current.delete(key);
+      }
+      document.removeEventListener("visibilitychange", markVisible);
+    };
+  }, [
+    currentProfile?.id,
+    deckEnabled,
+    deckError,
+    deckLoading,
+    eventId,
+    lobbyGate.kind,
+    suppressDeckUiForConvergence,
+    user?.id,
+    user?.isPaused,
+  ]);
+
   const showQueueWaitingPanel = queuedCount > 0 && !activeSessionId && !suppressDeckUiForConvergence;
   const readyGateOverlayAllowed = Boolean(
     activeSessionId &&

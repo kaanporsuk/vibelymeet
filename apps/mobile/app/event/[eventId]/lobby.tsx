@@ -666,6 +666,9 @@ export default function EventLobbyScreen() {
   const deckPrefetchInFlightRef = useRef<Set<string>>(new Set());
   const deckPrefetchLoadedRef = useRef<Set<string>>(new Set());
   const deckPrefetchCacheHitTrackedRef = useRef<Set<string>>(new Set());
+  const visibleDeckCardsRef = useRef<Set<string>>(new Set());
+  const visibleDeckMarkAttemptsRef = useRef<Map<string, number>>(new Map());
+  const visibleDeckMarkAttemptSeqRef = useRef(0);
   const optimisticSwipeSequenceRef = useRef(0);
   const deckRefreshBurstTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lobbyRefreshBurstTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -2113,10 +2116,12 @@ export default function EventLobbyScreen() {
 
   useEffect(() => {
     optimisticSwipeSequenceRef.current = 0;
+    visibleDeckCardsRef.current.clear();
+    visibleDeckMarkAttemptsRef.current.clear();
     pendingSwipeTargetIdsRef.current = new Set();
     setPendingSwipeTargetIds(new Set());
     setSwipeRateLimitUntilMs(null);
-  }, [id]);
+  }, [id, user?.id]);
 
   useEffect(() => {
     if (swipeRateLimitUntilMs != null && swipeRateLimitUntilMs <= lobbyClockMs) {
@@ -2129,6 +2134,94 @@ export default function EventLobbyScreen() {
   const mysteryCtaImpressionRef = useRef(false);
 
   const showConvergenceYieldUi = yieldingToVideoDateUi || yieldingToReadyGateUi;
+
+  useEffect(() => {
+    if (!id || !user?.id || !current?.id) return;
+    if (!deckQueryEnabled || deckLoading || deckError || pauseStatus.isPaused) return;
+    if (!isLobbyFocused || appState !== 'active' || showConvergenceYieldUi || showQueuedStyleConvergenceUi) return;
+
+    const eventId = id;
+    const viewerId = user.id;
+    const targetId = current.id;
+    const key = `${eventId}:${viewerId}:${targetId}`;
+    let cancelled = false;
+    let retryTimer: ReturnType<typeof setTimeout> | null = null;
+    let retryCount = 0;
+    let activeAttemptId: number | null = null;
+
+    function scheduleRetry() {
+      if (cancelled || retryCount >= 2) return;
+      if (visibleDeckCardsRef.current.has(key)) return;
+      retryCount += 1;
+      retryTimer = setTimeout(markVisible, 1200 * retryCount);
+    }
+
+    function markVisible() {
+      if (cancelled) return;
+      if (visibleDeckCardsRef.current.has(key)) return;
+      if (visibleDeckMarkAttemptsRef.current.has(key)) return;
+      const attemptId = ++visibleDeckMarkAttemptSeqRef.current;
+      activeAttemptId = attemptId;
+      visibleDeckMarkAttemptsRef.current.set(key, attemptId);
+
+      void (async () => {
+        try {
+          const { data, error } = await supabase.rpc('record_event_deck_card_visible_v1' as never, {
+            p_event_id: eventId,
+            p_viewer_id: viewerId,
+            p_target_id: targetId,
+          } as never);
+          const result = data as { ok?: boolean; error?: string } | null;
+          if (error || result?.ok === false) {
+            if (visibleDeckMarkAttemptsRef.current.get(key) === attemptId) {
+              visibleDeckMarkAttemptsRef.current.delete(key);
+            }
+            if (__DEV__) {
+              console.warn('[lobby] top-card visible mark failed:', error?.message ?? result?.error ?? 'rpc_returned_not_ok');
+            }
+            scheduleRetry();
+            return;
+          }
+          visibleDeckCardsRef.current.add(key);
+          if (visibleDeckMarkAttemptsRef.current.get(key) === attemptId) {
+            visibleDeckMarkAttemptsRef.current.delete(key);
+          }
+        } catch (err) {
+          if (visibleDeckMarkAttemptsRef.current.get(key) === attemptId) {
+            visibleDeckMarkAttemptsRef.current.delete(key);
+          }
+          if (__DEV__) console.warn('[lobby] top-card visible mark failed:', err);
+          scheduleRetry();
+        }
+      })();
+    }
+
+    markVisible();
+
+    return () => {
+      cancelled = true;
+      if (retryTimer) clearTimeout(retryTimer);
+      if (
+        activeAttemptId != null &&
+        visibleDeckMarkAttemptsRef.current.get(key) === activeAttemptId
+      ) {
+        visibleDeckMarkAttemptsRef.current.delete(key);
+      }
+    };
+  }, [
+    appState,
+    current?.id,
+    deckError,
+    deckLoading,
+    deckQueryEnabled,
+    id,
+    isLobbyFocused,
+    pauseStatus.isPaused,
+    showConvergenceYieldUi,
+    showQueuedStyleConvergenceUi,
+    user?.id,
+  ]);
+
   const baseEmptyEligible =
     deckQueryEnabled &&
     !deckLoading &&
