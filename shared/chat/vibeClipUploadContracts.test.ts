@@ -439,6 +439,8 @@ test("video bubbles remain adaptive and full-width across web and native chat", 
   assert.match(webVibeClipBubble, /consumeInlineVideoPlaybackRegistryPause\(video\)/);
   assert.match(webVideoBubble, /consumeInlineVideoPlaybackRegistryPause\(video\)/);
   assert.match(webVibeClipBubble, /CLIP_PLAYBACK_LOAD_TIMEOUT_MS/);
+  assert.match(webVibeClipBubble, /const handlePause = useCallback\(\(\) => \{[\s\S]{0,120}setPlayRequested\(false\)/);
+  assert.match(webVibeClipBubble, /onPause=\{handlePause\}/);
   assert.match(webVibeClipBubble, /playbackRefreshAttemptCountRef\.current = 0;[\s\S]{0,160}setLoadError\(false\)/);
   assert.match(webVibeClipBubble, /aria-label=\{isMuted \? "Unmute clip" : "Mute clip"\}/);
   assert.match(webVibeClipBubble, /aria-label="Open clip full screen"/);
@@ -668,6 +670,11 @@ test("video bubbles remain adaptive and full-width across web and native chat", 
   assert.match(nativeChatMediaResolver, /clientRequestId\?: string \| null/);
   assert.match(nativeChatMediaResolver, /if \(isUuid\(clientRequestId\)\) body\.client_request_id = clientRequestId/);
   assert.match(nativeChatMediaResolver, /messageId: typeof payload\?\.message_id === 'string'/);
+  assert.match(nativeChat, /CHAT_VIDEO_PLAYBACK_LOAD_TIMEOUT_MS = 12_000/);
+  assert.match(
+    nativeChat,
+    /const timeoutId = setTimeout\(\(\) => \{[\s\S]{0,120}onRefreshMediaUri\('playback'\)[\s\S]{0,180}showPlaybackError\(\);[\s\S]{0,80}\}, CHAT_VIDEO_PLAYBACK_LOAD_TIMEOUT_MS\);/,
+  );
   assert.match(nativeOutboxContext, /syncChatVibeClipUploadStatus/);
   assert.match(nativeOutboxContext, /runVibeClipRecoverySweep/);
   assert.match(nativeOutboxRunner, /void sweep\('mount_sweep'\)/);
@@ -1028,6 +1035,8 @@ test("server upload and publish paths enforce Bunny Stream Vibe Clip limits", ()
   assert.match(webChat, /thumbnailUrl=\{posterUrl\}/);
   assert.match(webChat, /thumbnailSourceRef=\{effectiveThumbnailSourceRef\}/);
   assert.match(webChat, /thumbnailSourceRef: effectiveThumbnailSourceRef/);
+  assert.match(webChatMediaResolver, /Poster signing is intentionally non-blocking for chat hydration/);
+  assert.doesNotMatch(webChatMediaResolver, /await getCachedMediaAsset\(row\.id, "thumbnail", thumbnailRef\)/);
   assert.match(webVideoBubble, /kind: "thumbnail"[\s\S]{0,160}onResolvedUrl: handleResolvedThumbnailUrl/);
   assert.match(webVideoBubble, /initialPlaybackResolveInFlightRef/);
   assert.match(webVideoBubble, /onResolvedThumbnailUrl\?: \(url: string\) => void/);
@@ -1035,7 +1044,9 @@ test("server upload and publish paths enforce Bunny Stream Vibe Clip limits", ()
   assert.match(webVideoBubble, /fallbackUrls: thumbnailFallbackUrls/);
   assert.match(webVideoBubble, /const handlePosterImageError = useCallback/);
   assert.match(webVideoBubble, /showPosterVisual && canMountPlayer && !showPreparingOverlay && !hasStartedPlayback/);
+  assert.match(webVideoBubble, /const handlePause = useCallback\(\(\) => \{[\s\S]{0,120}setPlayRequested\(false\)/);
   assert.match(webVideoBubble, /onPlaying=\{handlePlaying\}/);
+  assert.match(webVideoBubble, /onPause=\{handlePause\}/);
   assert.doesNotMatch(webVideoBubble, /const posterNotReady =\s*!isReady/);
   assert.match(webVideoBubble, /const isAwaitingPlaybackIntent = !canMountPlayer/);
   assert.match(webVideoBubble, /const showResolvingPlaybackOverlay = isAwaitingPlaybackIntent && playRequested && !loadError/);
@@ -1065,6 +1076,8 @@ test("server upload and publish paths enforce Bunny Stream Vibe Clip limits", ()
   assert.match(nativeChat, /thumbnailUri=\{posterUri\}/);
   assert.match(nativeChat, /thumbnailSourceRef=\{effectiveThumbnailSourceRef\}/);
   assert.match(nativeChat, /poster: posterUri/);
+  assert.match(nativeChatMediaResolver, /Poster signing is intentionally non-blocking for chat hydration/);
+  assert.doesNotMatch(nativeChatMediaResolver, /await getCachedMediaAsset\(row\.id, 'thumbnail', thumbnailRef\)/);
   assert.match(nativeChat, /kind: 'thumbnail'[\s\S]{0,160}autoResolve: true/);
   assert.match(nativeChat, /fallbackUrls: thumbnailFallbackUris/);
   assert.match(nativeChat, /uniqueDisplayableChatVideoPosterUris\(playablePosterUri, thumbnailFallbackUris\)/);
