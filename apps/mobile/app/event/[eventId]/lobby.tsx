@@ -2198,6 +2198,12 @@ export default function EventLobbyScreen() {
     ? { remainingSeconds: swipeRateLimitRemainingSeconds }
     : null;
   const swipeActionsDisabled = currentSwipePending || !currentIsSwipeable || swipeRateLimited;
+  const pairingBlockedByReadiness =
+    readinessV2.enabled && !videoDateReadiness.canAttemptPairing;
+  const pairingActionsDisabled = swipeActionsDisabled || pairingBlockedByReadiness;
+  const pairingReadinessMessage = pairingBlockedByReadiness
+    ? videoDateReadiness.reason ?? 'Camera and microphone access are needed before you can pair.'
+    : null;
 
   useEffect(() => {
     optimisticSwipeSequenceRef.current = 0;
@@ -3520,7 +3526,9 @@ export default function EventLobbyScreen() {
                 ]}
                 onPress={() => handleSwipe('pass')}
                 disabled={swipeActionsDisabled}
+                accessibilityRole="button"
                 accessibilityLabel="Pass"
+                accessibilityState={{ disabled: swipeActionsDisabled }}
               >
                 <Ionicons name="close" size={28} color="rgba(255,255,255,0.55)" />
               </Pressable>
@@ -3529,12 +3537,14 @@ export default function EventLobbyScreen() {
                   styles.actionCircle,
                   styles.actionCircleSuper,
                   { backgroundColor: withAlpha(theme.neonYellow, 0.14), borderColor: withAlpha(theme.neonYellow, 0.55) },
-                  swipeActionsDisabled && styles.actionDisabled,
+                  pairingActionsDisabled && styles.actionDisabled,
                   superVibeRemaining <= 0 && styles.actionDisabled,
                 ]}
                 onPress={() => handleSwipe('super_vibe')}
-                disabled={swipeActionsDisabled || superVibeRemaining <= 0}
+                disabled={pairingActionsDisabled || superVibeRemaining <= 0}
+                accessibilityRole="button"
                 accessibilityLabel="Super vibe"
+                accessibilityState={{ disabled: pairingActionsDisabled || superVibeRemaining <= 0 }}
               >
                 <Ionicons name="star" size={24} color={theme.neonYellow} />
                 {superVibeRemaining > 0 && (
@@ -3548,11 +3558,13 @@ export default function EventLobbyScreen() {
                   styles.actionCircle,
                   styles.actionCirclePrimary,
                   { overflow: 'hidden' },
-                  swipeActionsDisabled && styles.actionDisabled,
+                  pairingActionsDisabled && styles.actionDisabled,
                 ]}
                 onPress={() => handleSwipe('vibe')}
-                disabled={swipeActionsDisabled}
+                disabled={pairingActionsDisabled}
+                accessibilityRole="button"
                 accessibilityLabel="Vibe"
+                accessibilityState={{ disabled: pairingActionsDisabled }}
               >
                 <LinearGradient
                   colors={[theme.tint, theme.neonPink]}
@@ -3563,6 +3575,23 @@ export default function EventLobbyScreen() {
                 <Ionicons name="heart" size={28} color="#fff" style={{ zIndex: 1 }} />
               </Pressable>
             </View>
+            {pairingReadinessMessage ? (
+              <View
+                style={[
+                  styles.readinessBadge,
+                  {
+                    backgroundColor: withAlpha(theme.neonYellow, 0.14),
+                    borderColor: withAlpha(theme.neonYellow, 0.35),
+                  },
+                ]}
+                accessibilityLiveRegion="polite"
+              >
+                <Ionicons name="alert-circle-outline" size={14} color={theme.neonYellow} />
+                <Text style={[styles.readinessBadgeText, { color: theme.neonYellow }]}>
+                  {pairingReadinessMessage}
+                </Text>
+              </View>
+            ) : null}
             <Text style={[styles.actionHint, { color: theme.textSecondary }]}>Pass · Super · Vibe</Text>
           </>
         )}
@@ -4400,6 +4429,25 @@ const styles = StyleSheet.create({
   actionCircleSuper: { width: 52, height: 52, borderRadius: 26, borderWidth: 2 },
   actionCirclePrimary: { borderWidth: 0 },
   actionDisabled: { opacity: 0.6 },
+  readinessBadge: {
+    alignSelf: 'center',
+    maxWidth: '92%',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.xs,
+    borderRadius: radius.pill,
+    borderWidth: 1,
+    marginTop: spacing.xs,
+  },
+  readinessBadgeText: {
+    flexShrink: 1,
+    fontSize: 11,
+    fontWeight: '700',
+    lineHeight: 15,
+    textAlign: 'left',
+  },
   actionHint: { fontSize: 10, fontWeight: '600', textAlign: 'center', letterSpacing: 0.8, marginBottom: spacing.sm },
   superVibeBadgeCount: {
     position: 'absolute',

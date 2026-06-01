@@ -6,7 +6,7 @@ type NativeDiagnosticValue =
   | { [key: string]: NativeDiagnosticValue };
 
 const SENSITIVE_KEY_PATTERN =
-  /(authorization|bearer|cookie|href|idempotency|jwt|path|secret|signature|token|uri|url)/i;
+  /(authorization|bearer|cookie|daily[_-]?room|href|idempotency|jwt|path|provider[_-]?room|room[_-]?name|secret|signature|token|uri|url)/i;
 const SENSITIVE_TEXT_PATTERN =
   /\b(Bearer|Basic)\s+[A-Za-z0-9._~+/=-]+|eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+|(?:access_token|refresh_token|token|signature|sig|jwt|apikey|api_key|secret)=([^&#\s]+)/gi;
 const MEDIA_OR_PROVIDER_URL_PATTERN =

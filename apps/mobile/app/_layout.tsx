@@ -83,7 +83,7 @@ import { invalidateCachedSession, primeCachedSession } from '@/lib/nativeAuthSes
 import { recoverNativeAuthSession } from '@/lib/nativeAuthRecovery';
 
 // ─── Sentry (matches web src/main.tsx)
-const SENSITIVE_SENTRY_KEY_PATTERN = /(authorization|cookie|href|idempotency|path|password|secret|signature|token|uri|url|jwt|email|phone|ip_address|access_token|refresh_token)/i;
+const SENSITIVE_SENTRY_KEY_PATTERN = /(authorization|cookie|daily[_-]?room|href|idempotency|path|password|provider[_-]?room|room[_-]?name|secret|signature|token|uri|url|jwt|email|phone|ip_address|access_token|refresh_token)/i;
 type NativeSentryMutableEvent = Record<string, unknown> & {
   breadcrumbs?: unknown;
   contexts?: unknown;

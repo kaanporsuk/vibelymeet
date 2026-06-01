@@ -108,7 +108,7 @@ export function VideoDateControls({
           disabled={isLeaving}
           style={({ pressed }) => [styles.leaveBtn, leaveButtonSize, pressed && !isLeaving && styles.pressed, isLeaving && styles.disabled]}
           accessibilityRole="button"
-          accessibilityLabel={isLeaving ? 'Ending date' : 'End call'}
+          accessibilityLabel={isLeaving ? 'Ending date' : 'End date'}
         >
           <MaterialCommunityIcons name="phone-hangup" size={leaveIconSize} color="#fff" />
         </Pressable>

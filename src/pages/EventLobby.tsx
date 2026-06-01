@@ -2663,33 +2663,33 @@ const EventLobby = () => {
               <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-white/40">Discover</p>
               <p className="text-sm text-white/70 font-medium mt-0.5">Swipe fast — vibes are live in this room</p>
             </div>
-          <div className="relative w-full" style={{ aspectRatio: "3/4", maxHeight: "min(62vh, 520px)" }}>
-            {thirdProfile && (
-              <div className="absolute inset-0 scale-[0.92] opacity-30 pointer-events-none translate-y-2">
-                <LobbyProfileCard profile={thirdProfile} userVibes={userVibes} isBehind />
-              </div>
-            )}
-            {nextProfile && (
-              <div className="absolute inset-0 scale-[0.96] opacity-60 pointer-events-none translate-y-1">
-                <LobbyProfileCard profile={nextProfile} userVibes={userVibes} isBehind />
-              </div>
-            )}
-
-            <AnimatePresence mode="wait">
-              {currentProfile && (
-                <SwipeableCard
-                  key={currentProfile.id}
-                  profile={currentProfile}
-                  userVibes={userVibes}
-                  onSwipeLeft={handlePass}
-                  onSwipeRight={handleVibe}
-                  disabled={swipeControlsDisabled}
-                  rightSwipeDisabled={pairingControlsDisabled}
-                  retryState={currentCardRetryState}
-                />
+            <div className="relative w-full" style={{ aspectRatio: "3/4", maxHeight: "min(62vh, 520px)" }}>
+              {thirdProfile && (
+                <div className="absolute inset-0 scale-[0.92] opacity-30 pointer-events-none translate-y-2">
+                  <LobbyProfileCard profile={thirdProfile} userVibes={userVibes} isBehind />
+                </div>
               )}
-            </AnimatePresence>
-          </div>
+              {nextProfile && (
+                <div className="absolute inset-0 scale-[0.96] opacity-60 pointer-events-none translate-y-1">
+                  <LobbyProfileCard profile={nextProfile} userVibes={userVibes} isBehind />
+                </div>
+              )}
+
+              <AnimatePresence mode="wait">
+                {currentProfile && (
+                  <SwipeableCard
+                    key={currentProfile.id}
+                    profile={currentProfile}
+                    userVibes={userVibes}
+                    onSwipeLeft={handlePass}
+                    onSwipeRight={handleVibe}
+                    disabled={swipeControlsDisabled}
+                    rightSwipeDisabled={pairingControlsDisabled}
+                    retryState={currentCardRetryState}
+                  />
+                )}
+              </AnimatePresence>
+            </div>
           </div>
         )}
 
@@ -2712,60 +2712,60 @@ const EventLobby = () => {
             className="flex flex-col items-center gap-3 mt-6 w-full max-w-xs mx-auto"
           >
             <div className="flex items-center justify-center gap-5 sm:gap-6 w-full">
-            {/* Pass */}
-            <button
-              type="button"
-              onClick={handlePass}
-              disabled={swipeControlsDisabled}
-              className="w-[58px] h-[58px] rounded-full bg-white/[0.04] border-2 border-white/12 flex items-center justify-center hover:bg-rose-500/10 hover:border-rose-400/35 transition-all active:scale-[0.92] disabled:opacity-40 shadow-[0_8px_32px_rgba(0,0,0,0.4)]"
-              aria-label="Pass"
-            >
-              <X className="w-7 h-7 text-white/55" strokeWidth={2.25} />
-            </button>
+              {/* Pass */}
+              <button
+                type="button"
+                onClick={handlePass}
+                disabled={swipeControlsDisabled}
+                className="w-[58px] h-[58px] rounded-full bg-white/[0.04] border-2 border-white/12 flex items-center justify-center hover:bg-rose-500/10 hover:border-rose-400/35 transition-all active:scale-[0.92] disabled:opacity-40 shadow-[0_8px_32px_rgba(0,0,0,0.4)]"
+                aria-label="Pass"
+              >
+                <X className="w-7 h-7 text-white/55" strokeWidth={2.25} />
+              </button>
 
-            {/* Super Vibe */}
-	            <button
-	              type="button"
-	              onClick={handleSuperVibe}
-	              disabled={pairingControlsDisabled || superVibeRemaining <= 0}
-	              className="relative w-[52px] h-[52px] rounded-full bg-neon-yellow/12 border-2 border-neon-yellow/50 flex items-center justify-center hover:bg-neon-yellow/22 transition-all active:scale-[0.92] disabled:opacity-30 shadow-[0_0_28px_hsl(var(--neon-yellow)/0.2)]"
-	              aria-label="Super vibe"
+              {/* Super Vibe */}
+              <button
+                type="button"
+                onClick={handleSuperVibe}
+                disabled={pairingControlsDisabled || superVibeRemaining <= 0}
+                className="relative w-[52px] h-[52px] rounded-full bg-neon-yellow/12 border-2 border-neon-yellow/50 flex items-center justify-center hover:bg-neon-yellow/22 transition-all active:scale-[0.92] disabled:opacity-30 shadow-[0_0_28px_hsl(var(--neon-yellow)/0.2)]"
+                aria-label="Super vibe"
                 aria-describedby={pairingReadinessMessage ? pairingReadinessStatusId : undefined}
-	            >
-              <Star className="w-[22px] h-[22px] text-neon-yellow" fill="hsl(var(--neon-yellow))" />
-              {superVibeRemaining > 0 && (
-                <span className="absolute -top-0.5 -right-0.5 min-w-[22px] h-[22px] px-1 rounded-full bg-neon-yellow text-zinc-950 text-[10px] font-bold flex items-center justify-center border-2 border-zinc-950">
-                  {superVibeRemaining}
-                </span>
-              )}
-            </button>
+              >
+                <Star className="w-[22px] h-[22px] text-neon-yellow" fill="hsl(var(--neon-yellow))" />
+                {superVibeRemaining > 0 && (
+                  <span className="absolute -top-0.5 -right-0.5 min-w-[22px] h-[22px] px-1 rounded-full bg-neon-yellow text-zinc-950 text-[10px] font-bold flex items-center justify-center border-2 border-zinc-950">
+                    {superVibeRemaining}
+                  </span>
+                )}
+              </button>
 
-            {/* Vibe */}
-	            <button
-	              type="button"
-	              onClick={handleVibe}
-	              disabled={pairingControlsDisabled}
-	              className="w-[58px] h-[58px] rounded-full bg-gradient-to-br from-primary via-fuchsia-500 to-accent flex items-center justify-center hover:shadow-[0_0_36px_hsl(var(--primary)/0.45)] transition-all active:scale-[0.92] disabled:opacity-40 border border-white/20 neon-glow-pink"
-	              aria-label="Vibe"
+              {/* Vibe */}
+              <button
+                type="button"
+                onClick={handleVibe}
+                disabled={pairingControlsDisabled}
+                className="w-[58px] h-[58px] rounded-full bg-gradient-to-br from-primary via-fuchsia-500 to-accent flex items-center justify-center hover:shadow-[0_0_36px_hsl(var(--primary)/0.45)] transition-all active:scale-[0.92] disabled:opacity-40 border border-white/20 neon-glow-pink"
+                aria-label="Vibe"
                 aria-describedby={pairingReadinessMessage ? pairingReadinessStatusId : undefined}
-	            >
-              <Heart className="w-7 h-7 text-primary-foreground drop-shadow-sm" fill="white" />
-	            </button>
-	            </div>
-              {pairingReadinessMessage && (
-                <div
-                  id={pairingReadinessStatusId}
-                  className="inline-flex max-w-full items-center gap-2 rounded-full border border-amber-300/35 bg-amber-400/12 px-3 py-1.5 text-[11px] font-semibold leading-snug text-amber-100"
-                  role="status"
-                  aria-live="polite"
-                >
-                  <AlertCircle className="h-3.5 w-3.5 shrink-0" />
-                  <span className="min-w-0 break-words">{pairingReadinessMessage}</span>
-                </div>
-              )}
-	            <p className="text-[10px] text-white/35 text-center font-medium tracking-wide">
-	              Pass · Super · Vibe
-	            </p>
+              >
+                <Heart className="w-7 h-7 text-primary-foreground drop-shadow-sm" fill="white" />
+              </button>
+            </div>
+            {pairingReadinessMessage && (
+              <div
+                id={pairingReadinessStatusId}
+                className="inline-flex max-w-full items-center gap-2 rounded-full border border-amber-300/35 bg-amber-400/12 px-3 py-1.5 text-[11px] font-semibold leading-snug text-amber-100"
+                role="status"
+                aria-live="polite"
+              >
+                <AlertCircle className="h-3.5 w-3.5 shrink-0" />
+                <span className="min-w-0 break-words">{pairingReadinessMessage}</span>
+              </div>
+            )}
+            <p className="text-[10px] text-white/35 text-center font-medium tracking-wide">
+              Pass · Super · Vibe
+            </p>
           </motion.div>
         )}
       </main>
