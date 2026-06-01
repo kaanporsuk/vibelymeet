@@ -52,7 +52,7 @@ import {
   type VideoDateWebMediaCaptureProfile,
 } from "@clientShared/matching/videoDateMediaContract";
 import {
-  classifyMediaPermissionError,
+  classifyMediaPermissionErrorWithBrowserState,
   mediaPermissionResultForStatus,
   type MediaPermissionResult,
 } from "@clientShared/media/mediaPermissionResult";
@@ -99,6 +99,8 @@ export type PeerMissingState = {
 const VIDEO_DATE_PREJOIN_TIMEOUT_MS = 12_000;
 const FIRST_REMOTE_TIMEOUT_MS = 25_000;
 const CREATE_DATE_ROOM_RETRY_DELAYS_MS = [700, 1_600] as const;
+const START_CALL_IN_FLIGHT_WAIT_TIMEOUT_MS = 60_000;
+const START_CALL_IN_FLIGHT_WAIT_POLL_MS = 250;
 const DAILY_TRANSPORT_RECONNECT_GRACE_MS = 12_000;
 const REMOTE_RENDER_VALIDATION_DELAY_MS = 650;
 const REMOTE_RENDER_FRAME_TIMEOUT_MS = 1_400;
@@ -415,6 +417,7 @@ export type VideoCallStartFailure = {
     | DailyRoomFailureKind
     | "daily_join_failed"
     | "daily_call_busy"
+    | "start_call_in_flight_failed"
     | "media_permission_denied"
     | "session_unavailable";
   retryable: boolean;
@@ -2376,7 +2379,7 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
         releaseAppAcquiredMedia("media_permission_preflight_failed");
         mediaPermissionDeniedRef.current = true;
         setHasPermission(false);
-        const permissionResult = classifyMediaPermissionError(error, "camera_microphone");
+        const permissionResult = await classifyMediaPermissionErrorWithBrowserState(error, "camera_microphone");
         const description = describeMediaError(error);
         setMediaPermissionResult(permissionResult);
         setMediaPermissionError(description || "Camera or microphone permission was denied.");
@@ -2882,6 +2885,40 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
     []
   );
 
+  const waitForInFlightStartCall = useCallback(
+    async (
+      sessionId: string,
+      eventId: string | null | undefined,
+      userId: string | null | undefined,
+    ): Promise<VideoCallStartResult> => {
+      const startedAtMs = Date.now();
+      while (
+        startCallInFlightSessionRef.current === sessionId &&
+        Date.now() - startedAtMs < START_CALL_IN_FLIGHT_WAIT_TIMEOUT_MS
+      ) {
+        await sleep(START_CALL_IN_FLIGHT_WAIT_POLL_MS);
+      }
+
+      const reused = activeCallSessionIdRef.current === sessionId && Boolean(callObjectRef.current);
+      vdbg("daily_call_reuse_decision", {
+        sessionId,
+        eventId,
+        userId,
+        reusedCallObject: reused,
+        reason: reused ? "start_call_in_flight_resolved_joined" : "start_call_in_flight_resolved_without_join",
+        wait_ms: Date.now() - startedAtMs,
+        roomName: roomNameRef.current,
+      });
+
+      if (reused) return { ok: true } as VideoCallStartResult;
+      return {
+        ok: false,
+        failure: { kind: "start_call_in_flight_failed", retryable: true },
+      } as VideoCallStartResult;
+    },
+    [],
+  );
+
   const startCall = useCallback(
     async (roomId?: string, opts?: { internalRetry?: boolean }) => {
       const sessionId = roomId || optionsRef.current?.roomId;
@@ -2902,7 +2939,7 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
         });
         return { ok: true } as VideoCallStartResult;
       }
-      if (startCallInFlightSessionRef.current === sessionId) {
+      if (!opts?.internalRetry && startCallInFlightSessionRef.current === sessionId) {
         vdbg("daily_call_reuse_decision", {
           sessionId,
           eventId,
@@ -2911,7 +2948,7 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
           reason: "start_call_already_in_flight",
           roomName: roomNameRef.current,
         });
-        return { ok: true } as VideoCallStartResult;
+        return waitForInFlightStartCall(sessionId, eventId, userId);
       }
       startCallInFlightSessionRef.current = sessionId;
 
@@ -4341,12 +4378,10 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
             error: rawError ?? null,
           });
           setHasPermission(false);
-          setMediaPermissionResult(
-            classifyMediaPermissionError(
-              rawError ?? new Error(errorMsg ?? "Camera or microphone permission was denied."),
-              "camera_microphone",
-            ),
-          );
+          void classifyMediaPermissionErrorWithBrowserState(
+            rawError ?? new Error(errorMsg ?? "Camera or microphone permission was denied."),
+            "camera_microphone",
+          ).then(setMediaPermissionResult);
           setMediaPermissionError(errorMsg ?? "Camera or microphone permission was denied.");
           trackEvent(LobbyPostDateEvents.CAMERA_PERMISSION_DENIED, {
             platform: "web",
@@ -4860,7 +4895,6 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
         await cleanupCallObject("startCall", "start_failure");
         if (preparedEntryAtFailure && userId && !opts?.internalRetry) {
           rejectPreparedVideoDateEntry(sessionId, userId, "daily_join_failed", eventId);
-          startCallInFlightSessionRef.current = null;
           vdbg("daily_join_failure_prepare_retry", {
             sessionId,
             eventId,
@@ -4868,7 +4902,7 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
             roomName: preparedEntryAtFailure.value.room_name,
             reason: "prepared_token_rejected_before_retry",
           });
-          return startCall(sessionId, { internalRetry: true });
+          return await startCall(sessionId, { internalRetry: true });
         }
         setHasPermission(false);
         toast.error("Video is temporarily unavailable. Please try again.");
@@ -4900,6 +4934,7 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
       resetRemoteRenderRecoveryForParticipant,
       scheduleRemoteRenderValidation,
       clearRemoteRenderValidation,
+      waitForInFlightStartCall,
     ]
   );
 

@@ -13,17 +13,38 @@ import { CameraView, type CameraType } from 'expo-camera';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import {
+  resolvePermissionUx,
+  type PermissionUxAction,
+  type PermissionUxStatus,
+} from '@clientShared/permissions/permissionUx';
+import { classifyNativeMediaCaptureError } from '@/lib/nativeMediaPickerErrors';
+import { openPermissionSettings } from '@/lib/permissionSettings';
 
 type Props = {
   visible: boolean;
   onClose: () => void;
   onSendPhoto: (uri: string, mimeType?: string | null) => Promise<boolean>;
+  onChooseFromLibrary?: () => void;
   disabled?: boolean;
 };
 
 const CAPTURE_MIME_TYPE = 'image/jpeg';
 
-export function ChatPhotoCameraModal({ visible, onClose, onSendPhoto, disabled }: Props) {
+type RuntimeRecovery = {
+  primaryAction: PermissionUxAction;
+  primaryLabel: string;
+  fallbackAction?: PermissionUxAction;
+  fallbackLabel?: string;
+};
+
+export function ChatPhotoCameraModal({
+  visible,
+  onClose,
+  onSendPhoto,
+  onChooseFromLibrary,
+  disabled,
+}: Props) {
   const insets = useSafeAreaInsets();
   const cameraRef = useRef<CameraView | null>(null);
   const cameraSessionIdRef = useRef(0);
@@ -34,6 +55,7 @@ export function ChatPhotoCameraModal({ visible, onClose, onSendPhoto, disabled }
   const [cameraReady, setCameraReady] = useState(false);
   const [capturedUri, setCapturedUri] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [runtimeRecovery, setRuntimeRecovery] = useState<RuntimeRecovery | null>(null);
   const [isCapturing, setIsCapturing] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -49,6 +71,7 @@ export function ChatPhotoCameraModal({ visible, onClose, onSendPhoto, disabled }
     facingRef.current = nextFacing;
     cameraRef.current = null;
     setCameraReady(false);
+    setRuntimeRecovery(null);
     setFacing(nextFacing);
     setCameraSessionId(nextSessionId);
   }, []);
@@ -58,6 +81,7 @@ export function ChatPhotoCameraModal({ visible, onClose, onSendPhoto, disabled }
       prepareCameraForFacing('back');
       setCapturedUri(null);
       setErrorMessage(null);
+      setRuntimeRecovery(null);
       setIsCapturing(false);
       setIsSubmitting(false);
     }
@@ -67,13 +91,29 @@ export function ChatPhotoCameraModal({ visible, onClose, onSendPhoto, disabled }
     if (activeCameraKeyRef.current !== readyCameraKey) return;
     setCameraReady(true);
     setErrorMessage(null);
+    setRuntimeRecovery(null);
   }, []);
 
-  const handleCameraMountError = useCallback((failedCameraKey: string) => {
+  const showCameraRecovery = useCallback((status: PermissionUxStatus) => {
+    const copy = resolvePermissionUx({
+      capability: 'photo_capture',
+      status,
+      platform: Platform.OS === 'ios' ? 'ios' : Platform.OS === 'android' ? 'android' : 'native',
+    });
+    setErrorMessage(copy.message);
+    setRuntimeRecovery({
+      primaryAction: copy.primaryAction,
+      primaryLabel: copy.primaryLabel,
+      fallbackAction: onChooseFromLibrary ? copy.fallbackAction : undefined,
+      fallbackLabel: onChooseFromLibrary ? copy.fallbackLabel : undefined,
+    });
+  }, [onChooseFromLibrary]);
+
+  const handleCameraMountError = useCallback((failedCameraKey: string, error?: unknown) => {
     if (activeCameraKeyRef.current !== failedCameraKey) return;
     setCameraReady(false);
-    setErrorMessage('Could not open the camera. Please try again.');
-  }, []);
+    showCameraRecovery(classifyNativeMediaCaptureError(error ?? new Error('Could not start camera')));
+  }, [showCameraRecovery]);
 
   const handleClose = useCallback(() => {
     if (isCapturing || isSubmitting) return;
@@ -83,6 +123,7 @@ export function ChatPhotoCameraModal({ visible, onClose, onSendPhoto, disabled }
   const handleFlipCamera = useCallback(() => {
     if (!canPress || capturedUri) return;
     setErrorMessage(null);
+    setRuntimeRecovery(null);
     const nextFacing = facingRef.current === 'front' ? 'back' : 'front';
     prepareCameraForFacing(nextFacing);
   }, [canPress, capturedUri, prepareCameraForFacing]);
@@ -103,17 +144,18 @@ export function ChatPhotoCameraModal({ visible, onClose, onSendPhoto, disabled }
       if (!photo?.uri) throw new Error('missing_photo_uri');
       setCapturedUri(photo.uri);
       setCameraReady(false);
-    } catch {
-      setErrorMessage('Could not capture the photo. Please try again.');
+    } catch (error) {
+      showCameraRecovery(classifyNativeMediaCaptureError(error));
     } finally {
       setIsCapturing(false);
     }
-  }, [cameraReady, canPress]);
+  }, [cameraReady, canPress, showCameraRecovery]);
 
   const handleRetake = useCallback(() => {
     if (isSubmitting) return;
     setCapturedUri(null);
     setErrorMessage(null);
+    setRuntimeRecovery(null);
     prepareCameraForFacing(facingRef.current);
   }, [isSubmitting, prepareCameraForFacing]);
 
@@ -134,6 +176,38 @@ export function ChatPhotoCameraModal({ visible, onClose, onSendPhoto, disabled }
       setIsSubmitting(false);
     }
   }, [capturedUri, canPress, onClose, onSendPhoto]);
+
+  const chooseFromLibrary = useCallback(() => {
+    if (!onChooseFromLibrary) return;
+    onClose();
+    onChooseFromLibrary();
+  }, [onChooseFromLibrary, onClose]);
+
+  const handleRuntimeRecoveryPrimary = useCallback(() => {
+    if (!runtimeRecovery) return;
+    if (runtimeRecovery.primaryAction === 'open_settings') {
+      void openPermissionSettings('native_chat_photo_camera_runtime');
+      return;
+    }
+    if (
+      runtimeRecovery.primaryAction === 'request' ||
+      runtimeRecovery.primaryAction === 'retry'
+    ) {
+      setErrorMessage(null);
+      setRuntimeRecovery(null);
+      prepareCameraForFacing(facingRef.current);
+      return;
+    }
+    if (
+      runtimeRecovery.primaryAction === 'use_picker' ||
+      runtimeRecovery.primaryAction === 'upload_file'
+    ) {
+      chooseFromLibrary();
+      return;
+    }
+    setRuntimeRecovery(null);
+    setErrorMessage(null);
+  }, [chooseFromLibrary, prepareCameraForFacing, runtimeRecovery]);
 
   return (
     <Modal
@@ -156,7 +230,7 @@ export function ChatPhotoCameraModal({ visible, onClose, onSendPhoto, disabled }
             mirror={facing === 'front'}
             active={canUseCamera}
             onCameraReady={() => handleCameraReady(cameraViewKey)}
-            onMountError={() => handleCameraMountError(cameraViewKey)}
+            onMountError={(error) => handleCameraMountError(cameraViewKey, error)}
           />
         )}
 
@@ -194,8 +268,28 @@ export function ChatPhotoCameraModal({ visible, onClose, onSendPhoto, disabled }
         </View>
 
         {errorMessage ? (
-          <View style={styles.errorPill} pointerEvents="none">
+          <View style={styles.errorPill}>
             <Text style={styles.errorText}>{errorMessage}</Text>
+            {runtimeRecovery ? (
+              <View style={styles.recoveryActions}>
+                <Pressable
+                  onPress={handleRuntimeRecoveryPrimary}
+                  style={({ pressed }) => [styles.recoveryPrimary, pressed && { opacity: 0.86 }]}
+                  accessibilityRole="button"
+                >
+                  <Text style={styles.recoveryPrimaryLabel}>{runtimeRecovery.primaryLabel}</Text>
+                </Pressable>
+                {runtimeRecovery.fallbackLabel && onChooseFromLibrary ? (
+                  <Pressable
+                    onPress={chooseFromLibrary}
+                    style={({ pressed }) => [styles.recoverySecondary, pressed && { opacity: 0.82 }]}
+                    accessibilityRole="button"
+                  >
+                    <Text style={styles.recoverySecondaryLabel}>{runtimeRecovery.fallbackLabel}</Text>
+                  </Pressable>
+                ) : null}
+              </View>
+            ) : null}
           </View>
         ) : null}
 
@@ -339,6 +433,38 @@ const styles = StyleSheet.create({
     fontSize: 13,
     lineHeight: 18,
     fontWeight: '600',
+  },
+  recoveryActions: {
+    marginTop: 10,
+    gap: 8,
+  },
+  recoveryPrimary: {
+    minHeight: 42,
+    borderRadius: 21,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#fff',
+    paddingHorizontal: 14,
+  },
+  recoveryPrimaryLabel: {
+    color: '#111827',
+    fontSize: 13,
+    fontWeight: '800',
+  },
+  recoverySecondary: {
+    minHeight: 40,
+    borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255,255,255,0.12)',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(255,255,255,0.22)',
+    paddingHorizontal: 14,
+  },
+  recoverySecondaryLabel: {
+    color: '#fff',
+    fontSize: 13,
+    fontWeight: '700',
   },
   bottomBar: {
     position: 'absolute',

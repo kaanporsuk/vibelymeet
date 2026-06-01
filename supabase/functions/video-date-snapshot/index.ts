@@ -504,7 +504,7 @@ serve(async (req) => {
     : typeof body?.sessionId === "string"
       ? body.sessionId
       : null;
-  const includeToken = body?.include_token !== false && body?.includeToken !== false;
+  const includeToken = body?.include_token === true || body?.includeToken === true;
   if (!sessionId) {
     return jsonResponse({ ok: false, error: "missing_session_id" }, 400);
   }

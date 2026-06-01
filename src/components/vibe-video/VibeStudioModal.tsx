@@ -16,7 +16,7 @@ import { MAX_VIBE_CAPTION_LEN, MAX_VIBE_VIDEO_DURATION_S } from "@/lib/vibeVideo
 import { startWebVibeVideoUpload } from "@/lib/mediaSdk/webVideoUploads";
 import { usePrefersReducedMotion } from "@/hooks/usePrefersReducedMotion";
 import {
-  classifyMediaPermissionError,
+  classifyMediaPermissionErrorWithBrowserState,
   mediaPermissionMessage,
   mediaPermissionResultForStatus,
   mediaPermissionTitle,
@@ -230,7 +230,7 @@ export const VibeStudioModal = ({
       } catch (err) {
         console.error("[VibeVideo] getUserMedia failed:", err);
         if (!active) return;
-        const result = classifyMediaPermissionError(err, "camera_microphone");
+        const result = await classifyMediaPermissionErrorWithBrowserState(err, "camera_microphone");
         setMediaPermissionResult(result);
         setHasPermission(false);
         trackMediaPermissionBlocked(result);

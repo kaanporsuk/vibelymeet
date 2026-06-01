@@ -45,7 +45,7 @@ import {
   isVideoDateCameraConstraintError,
   type VideoDateWebMediaCaptureProfile,
 } from "@clientShared/matching/videoDateMediaContract";
-import { classifyMediaPermissionError } from "@clientShared/media/mediaPermissionResult";
+import { classifyMediaPermissionErrorWithBrowserState } from "@clientShared/media/mediaPermissionResult";
 import {
   getReadyGateCountdownProgress,
   getReadyGateCountdownFromServerClock,
@@ -240,8 +240,8 @@ async function inspectWebReadyGateMediaDiagnostics(): Promise<ReadyGateMediaDiag
   return next;
 }
 
-function mediaDiagnosticFromPrewarmError(error: unknown): Partial<ReadyGateMediaDiagnosticState> {
-  const permissionResult = classifyMediaPermissionError(error, "camera_microphone");
+async function mediaDiagnosticFromPrewarmError(error: unknown): Promise<Partial<ReadyGateMediaDiagnosticState>> {
+  const permissionResult = await classifyMediaPermissionErrorWithBrowserState(error, "camera_microphone");
   if (permissionResult.status === "denied") {
     return {
       cameraPermissionStatus: "blocked",
@@ -282,8 +282,10 @@ function mergeRefreshedDiagnosticStatus(
 }
 
 async function resolveMediaDiagnosticsAfterPrewarmError(error: unknown): Promise<ReadyGateMediaDiagnosticState> {
-  const fallback = mediaDiagnosticFromPrewarmError(error);
-  const inspected = await inspectWebReadyGateMediaDiagnostics();
+  const [fallback, inspected] = await Promise.all([
+    mediaDiagnosticFromPrewarmError(error),
+    inspectWebReadyGateMediaDiagnostics(),
+  ]);
   return {
     cameraPermissionStatus: mergeInspectedDiagnosticStatus(
       inspected.cameraPermissionStatus,
@@ -925,7 +927,7 @@ const ReadyGateOverlay = ({
         return true;
       } catch (error) {
         stopMediaStreamTracks(media?.stream ?? null);
-        const permissionResult = classifyMediaPermissionError(error, "camera_microphone");
+        const permissionResult = await classifyMediaPermissionErrorWithBrowserState(error, "camera_microphone");
         const isActiveReadyGate = activeReadyGateKeyRef.current === readyGateKey;
         if (source === "ready_gate_open") {
           if (isActiveReadyGate) {

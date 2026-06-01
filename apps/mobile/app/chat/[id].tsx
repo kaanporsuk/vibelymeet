@@ -1768,8 +1768,12 @@ function NativeVibeClipCameraModal({
     setRecordingRecoveryStatus(null);
     if (recordingRecoveryCopy.primaryAction === 'retry') {
       void startRecording();
+      return;
     }
-  }, [recordingRecoveryCopy, refreshPermissions, startRecording]);
+    if (recordingRecoveryCopy.primaryAction === 'upload_file') {
+      onChooseSavedVideo();
+    }
+  }, [onChooseSavedVideo, recordingRecoveryCopy, refreshPermissions, startRecording]);
 
   const stopRecording = useCallback(() => {
     try {
@@ -5790,6 +5794,10 @@ export default function ChatThreadScreen() {
         visible={showPhotoCameraModal}
         onClose={() => setShowPhotoCameraModal(false)}
         onSendPhoto={uploadPhotoUriAndSend}
+        onChooseFromLibrary={() => {
+          setShowPhotoCameraModal(false);
+          void pickPhotoFromLibrary();
+        }}
         disabled={sendingPhoto}
       />
       <NativeVibeClipCameraModal

@@ -1,4 +1,4 @@
-export const DAILY_JOINED_CONFIRMATION_RETRY_DELAYS_MS = [1_500, 3_000, 5_000] as const;
+export const DAILY_JOINED_CONFIRMATION_RETRY_DELAYS_MS = [1_500, 3_000, 5_000, 10_000, 20_000, 30_000] as const;
 
 export const DAILY_JOINED_CONFIRMATION_TERMINAL_ERROR_CODES = new Set([
   "unauthorized",

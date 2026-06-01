@@ -25,7 +25,7 @@ import { IncomingCallOverlay } from "@/components/chat/IncomingCallOverlay";
 import { ActiveCallOverlay } from "@/components/chat/ActiveCallOverlay";
 import { fetchUserProfile } from "@/services/fetchUserProfile";
 import {
-  classifyMediaPermissionError,
+  classifyMediaPermissionErrorWithBrowserState,
   mediaPermissionMessage,
   mediaPermissionResultForStatus,
   mediaPermissionTitle,
@@ -321,7 +321,7 @@ async function requestWebMatchCallMediaPermission(type: MatchCallType): Promise<
     for (const track of stream.getTracks()) track.stop();
     return null;
   } catch (error) {
-    return classifyMediaPermissionError(error, kind);
+    return classifyMediaPermissionErrorWithBrowserState(error, kind);
   }
 }
 

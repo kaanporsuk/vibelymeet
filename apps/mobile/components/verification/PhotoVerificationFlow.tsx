@@ -152,6 +152,29 @@ export function PhotoVerificationFlow({ visible, onClose, onSubmissionComplete, 
     source: 'photo_verification',
   });
 
+  const handlePermissionRecoveryPress = useCallback(() => {
+    if (!permissionRecovery) return;
+    if (permissionRecovery.primaryAction === 'open_settings') {
+      settingsOpenedRef.current = true;
+      void openPermissionSettings('photo_verification_camera').then((opened) => {
+        if (!opened) {
+          settingsOpenedRef.current = false;
+          void refreshCameraPermissionState();
+        }
+      });
+      return;
+    }
+    if (
+      permissionRecovery.primaryAction === 'request' ||
+      permissionRecovery.primaryAction === 'retry'
+    ) {
+      void startCapture();
+      return;
+    }
+    setPermissionRecovery(null);
+    setError(null);
+  }, [permissionRecovery, refreshCameraPermissionState, startCapture]);
+
   const submit = async () => {
     if (!selfieUri) return;
     setError(null);
@@ -269,19 +292,7 @@ export function PhotoVerificationFlow({ visible, onClose, onSubmissionComplete, 
           </VibelyText>
           {permissionRecovery ? (
             <Pressable
-              onPress={() => {
-                if (permissionRecovery.primaryAction === 'open_settings') {
-                  settingsOpenedRef.current = true;
-                  void openPermissionSettings('photo_verification_camera').then((opened) => {
-                    if (!opened) {
-                      settingsOpenedRef.current = false;
-                      void startCapture();
-                    }
-                  });
-                  return;
-                }
-                void startCapture();
-              }}
+              onPress={handlePermissionRecoveryPress}
               style={[styles.permissionAction, { borderColor: withAlpha(theme.danger, 0.3) }]}
             >
               <VibelyText variant="caption" style={{ color: theme.danger, fontWeight: '800' }}>

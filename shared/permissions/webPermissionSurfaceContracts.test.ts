@@ -118,6 +118,30 @@ test("web match call blocked media controls keep persistent in-call recovery", (
   assert.match(overlay, /videoStatus === "blocked"/);
 });
 
+test("web media surfaces classify denials with browser permission state", () => {
+  const surfaces = [
+    "src/hooks/useMatchCall.tsx",
+    "src/components/vibe-video/VibeStudioModal.tsx",
+    "src/components/chat/VideoMessageRecorder.tsx",
+    "src/components/chat/VoiceRecorder.tsx",
+    "src/components/chat/PhotoCameraCaptureDialog.tsx",
+    "src/components/lobby/ReadyGateOverlay.tsx",
+    "src/hooks/useVideoCall.ts",
+  ];
+
+  for (const path of surfaces) {
+    const source = read(path);
+    assert.match(source, /classifyMediaPermissionErrorWithBrowserState/);
+  }
+});
+
+test("web selfie verification closes instead of looping on non-retryable camera failures", () => {
+  const source = read("src/components/verification/SimplePhotoVerification.tsx");
+
+  assert.match(source, /classifyMediaPermissionErrorWithBrowserState/);
+  assert.match(source, /recoveryAction === "retry"[\s\S]*recoveryAction === "open_settings"[\s\S]*\? "start_camera"[\s\S]*: "close"/);
+});
+
 test("web Scavenger uses real media selection and upload instead of mock remote photos", () => {
   const creator = read("src/components/arcade/creators/ScavengerCreator.tsx");
   const game = read("src/components/arcade/games/ScavengerGame.tsx");

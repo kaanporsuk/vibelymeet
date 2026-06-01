@@ -310,6 +310,9 @@ function messageForRetryableStartFailure(failure: VideoCallStartFailure | null):
   if (failure.kind === "daily_call_busy") {
     return "We’re closing the previous video connection. Try again in a moment.";
   }
+  if (failure.kind === "start_call_in_flight_failed") {
+    return "The previous join attempt did not finish. Try joining again.";
+  }
   return "We’re still connecting your video date. Please try again.";
 }
 
