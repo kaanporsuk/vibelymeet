@@ -7,11 +7,13 @@ const root = process.cwd();
 const read = (path: string) => readFileSync(join(root, path), "utf8");
 
 const migration = read("supabase/migrations/20260524090000_video_date_phase1_provider_reliability.sql");
+const tokenRefreshProviderLimitMigration = read("supabase/migrations/20260601235000_video_date_token_refresh_provider_rate_limit.sql");
 const helper = read("supabase/functions/_shared/video-date-provider-reliability.ts");
 const outboxDrainer = read("supabase/functions/video-date-outbox-drainer/index.ts");
 const deadlineFinalizer = read("supabase/functions/video-date-deadline-finalizer/index.ts");
 const dailyRoom = read("supabase/functions/daily-room/index.ts");
 const tokenRefresh = read("supabase/functions/video-date-token-refresh/index.ts");
+const snapshotFunction = read("supabase/functions/video-date-snapshot/index.ts");
 const sendNotification = read("supabase/functions/send-notification/index.ts");
 const supabaseTypes = read("src/integrations/supabase/types.ts");
 const packageJson = read("package.json");
@@ -123,7 +125,7 @@ test("Phase 1 outbox and deadline workers use mutexes, row lease refresh, failur
 });
 
 test("Phase 1 Daily and OneSignal provider calls are timeout and rate-limit guarded", () => {
-  for (const source of [dailyRoom, tokenRefresh, sendNotification]) {
+  for (const source of [dailyRoom, tokenRefresh, snapshotFunction, sendNotification]) {
     assert.match(source, /fetchWithTimeout/);
     assert.doesNotMatch(source, /(?<!WithTimeout)fetch\(/);
   }
@@ -146,8 +148,26 @@ test("Phase 1 Daily and OneSignal provider calls are timeout and rate-limit guar
   assert.match(tokenRefresh, /DAILY_TOKEN_REFRESH_PROVIDER_MAX_RETRY_SLEEP_SECONDS/);
   assert.match(tokenRefresh, /retryAfterSeconds > DAILY_TOKEN_REFRESH_PROVIDER_MAX_RETRY_SLEEP_SECONDS[\s\S]*return false/);
   assert.match(tokenRefresh, /throw new ProviderRateLimitError\([\s\S]*"meeting_token"[\s\S]*parseRetryAfterSeconds\(response\.headers, 30\)/);
+  assert.match(tokenRefresh, /providerRateLimitConfig\("daily", bucket\)/);
+  assert.match(tokenRefresh, /enforceTokenRefreshProviderRateLimit\(supabase, sessionId, "room_lookup"\)/);
+  assert.match(tokenRefresh, /enforceTokenRefreshProviderRateLimit\(supabase, sessionId, "meeting_token"\)/);
+  assert.match(tokenRefresh, /take_video_date_token_refresh_provider_rate_limit_v1/);
+  assert.match(tokenRefresh, /p_session_id: sessionId/);
+  assert.match(tokenRefresh, /isTokenRefreshProviderRateLimitUnavailable/);
+  assert.match(tokenRefresh, /video_date_token_refresh_provider_rate_limit_unavailable/);
+  assert.match(tokenRefreshProviderLimitMigration, /CREATE OR REPLACE FUNCTION public\.take_video_date_token_refresh_provider_rate_limit_v1\(\s+p_session_id uuid,\s+p_bucket text/);
+  assert.match(tokenRefreshProviderLimitMigration, /v_uid uuid := auth\.uid\(\)/);
+  assert.match(tokenRefreshProviderLimitMigration, /FROM public\.video_sessions vs/);
+  assert.match(tokenRefreshProviderLimitMigration, /vs\.participant_1_id = v_uid OR vs\.participant_2_id = v_uid/);
+  assert.match(tokenRefreshProviderLimitMigration, /session_not_active/);
+  assert.match(tokenRefreshProviderLimitMigration, /v_bucket = 'room_lookup'/);
+  assert.match(tokenRefreshProviderLimitMigration, /v_bucket = 'meeting_token'/);
+  assert.match(tokenRefreshProviderLimitMigration, /public\.take_provider_rate_limit_token_v1/);
+  assert.match(tokenRefreshProviderLimitMigration, /GRANT EXECUTE ON FUNCTION public\.take_video_date_token_refresh_provider_rate_limit_v1\(uuid, text\)[\s\S]+TO authenticated, service_role/);
   assert.match(tokenRefresh, /error: tokenError\.clientError/);
   assert.match(tokenRefresh, /retry_after_seconds: tokenError\.retryAfterSeconds/);
+  assert.match(snapshotFunction, /providerRateLimitConfig\("daily", "room_lookup"\)/);
+  assert.match(snapshotFunction, /providerRateLimitConfig\("daily", "meeting_token"\)/);
   assert.match(sendNotification, /providerRateLimitConfig\('onesignal', 'notification_create'\)/);
   assert.match(sendNotification, /providerFetchTimeoutMs\('onesignal', 'notification_create'\)/);
 });

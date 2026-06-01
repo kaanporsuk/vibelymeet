@@ -106,6 +106,26 @@ test("types and Edge wrapper carry verdict confirmation fields without changing 
   assert.match(edgeFunction, /serviceClient\.functions\.invoke\("send-notification"/);
 });
 
+test("post-date mutual match notifications carry per-recipient peer routing data", () => {
+  assert.match(edgeFunction, /async function stableUuidFromParts/);
+  assert.match(edgeFunction, /crypto\.subtle\.digest\(/);
+  assert.match(edgeFunction, /const matchNotificationBodyFor = async \(recipientUserId: string, otherUserId: string\) =>/);
+  assert.match(edgeFunction, /dedupe_key: `post_date_match:\$\{matchId\}:\$\{recipientUserId\}`/);
+  assert.match(edgeFunction, /provider_idempotency_key: await stableUuidFromParts/);
+  assert.match(edgeFunction, /other_user_id: otherUserId/);
+  assert.match(edgeFunction, /partner_id: otherUserId/);
+  assert.match(
+    edgeFunction,
+    /const participant1Notification = await matchNotificationBodyFor\([\s\S]*sess\.participant_1_id,[\s\S]*sess\.participant_2_id/,
+  );
+  assert.match(
+    edgeFunction,
+    /const participant2Notification = await matchNotificationBodyFor\([\s\S]*sess\.participant_2_id,[\s\S]*sess\.participant_1_id/,
+  );
+  assert.match(edgeFunction, /body: \{ user_id: sess\.participant_1_id, \.\.\.participant1Notification \}/);
+  assert.match(edgeFunction, /body: \{ user_id: sess\.participant_2_id, \.\.\.participant2Notification \}/);
+});
+
 test("web and native surveys gate optimistic advancement behind shared confirmation", () => {
   for (const source of [webSurvey, nativeSurvey]) {
     assert.match(source, /useFeatureFlag\(["']video_date\.verdict_confirm_v2["']\)/);

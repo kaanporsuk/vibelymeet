@@ -15,6 +15,7 @@ import {
   parseRetryAfterSeconds,
   ProviderRateLimitError,
   providerFetchTimeoutMs,
+  providerRateLimitConfig,
 } from "../_shared/video-date-provider-reliability.ts";
 
 const corsHeaders = {
@@ -94,6 +95,19 @@ function retryAfterHeaderValue(retryAfterSeconds: number | null | undefined): st
   return String(Math.min(300, Math.max(1, Math.ceil(retryAfterSeconds))));
 }
 
+function isTokenRefreshProviderRateLimitUnavailable(error: { code?: string; message?: string } | null | undefined): boolean {
+  const code = error?.code ?? "";
+  const message = error?.message ?? "";
+  return (
+    code === "PGRST202" ||
+    code === "42883" ||
+    (
+      /take_video_date_token_refresh_provider_rate_limit_v1/i.test(message) &&
+      /(not found|could not find|does not exist)/i.test(message)
+    )
+  );
+}
+
 async function waitForBoundedDailyTokenRetry(headers: Headers, fallbackSeconds: number): Promise<boolean> {
   const retryAfterSeconds = parseRetryAfterSeconds(headers, fallbackSeconds);
   if (retryAfterSeconds > DAILY_TOKEN_REFRESH_PROVIDER_MAX_RETRY_SLEEP_SECONDS) return false;
@@ -159,7 +173,49 @@ function parseDailyRoomProviderStatePayload(roomName: string, payload: unknown):
   };
 }
 
-async function getDailyRoomProviderState(roomName: string, retries = 1): Promise<DailyRoomProviderState> {
+async function enforceTokenRefreshProviderRateLimit(
+  supabase: SupabaseEdgeClient,
+  sessionId: string,
+  bucket: "room_lookup" | "meeting_token",
+): Promise<void> {
+  const config = providerRateLimitConfig("daily", bucket);
+  const { data, error } = await supabase.rpc("take_video_date_token_refresh_provider_rate_limit_v1", {
+    p_session_id: sessionId,
+    p_bucket: config.bucket,
+  });
+  if (error) {
+    if (isTokenRefreshProviderRateLimitUnavailable(error)) {
+      console.error(JSON.stringify({
+        event: "video_date_token_refresh_provider_rate_limit_unavailable",
+        bucket: config.bucket,
+        code: error.code ?? null,
+      }));
+      return;
+    }
+    throw new Error("daily_provider_rate_limit_check_failed");
+  }
+  const payload = (data ?? {}) as { ok?: boolean; error?: string; retryAfterSeconds?: number };
+  if (payload.ok !== true) {
+    const clientError =
+      typeof payload.error === "string" && /^[A-Za-z0-9_.:-]{1,80}$/.test(payload.error)
+        ? payload.error
+        : "provider_rate_limited";
+    throw new ProviderRateLimitError(
+      "daily",
+      config.bucket,
+      typeof payload.retryAfterSeconds === "number" ? payload.retryAfterSeconds : 30,
+      clientError,
+    );
+  }
+}
+
+async function getDailyRoomProviderState(
+  supabase: SupabaseEdgeClient,
+  sessionId: string,
+  roomName: string,
+  retries = 1,
+): Promise<DailyRoomProviderState> {
+  await enforceTokenRefreshProviderRateLimit(supabase, sessionId, "room_lookup");
   const response = await fetchWithTimeout(`${DAILY_API_URL}/rooms/${encodeURIComponent(roomName)}`, {
     method: "GET",
     headers: { Authorization: `Bearer ${DAILY_API_KEY}` },
@@ -172,7 +228,7 @@ async function getDailyRoomProviderState(roomName: string, retries = 1): Promise
 
   if (response.status === 429 && retries > 0) {
     if (await waitForBoundedDailyTokenRetry(response.headers, 2)) {
-      return getDailyRoomProviderState(roomName, retries - 1);
+      return getDailyRoomProviderState(supabase, sessionId, roomName, retries - 1);
     }
   }
 
@@ -183,11 +239,12 @@ async function getDailyRoomProviderState(roomName: string, retries = 1): Promise
 }
 
 async function ensureDailyRoomProviderReadyForTokenRefresh(params: {
+  supabase: SupabaseEdgeClient;
   sessionId: string;
   userId: string;
   roomName: string;
 }): Promise<DailyRoomProviderProof> {
-  const state = await getDailyRoomProviderState(params.roomName);
+  const state = await getDailyRoomProviderState(params.supabase, params.sessionId, params.roomName);
   if (state.exists && !state.expired) {
     return { ok: true, reason: "exists", expiresAt: state.expiresAt };
   }
@@ -311,6 +368,8 @@ function resolveTokenWindow(
 }
 
 async function createMeetingToken(
+  supabase: SupabaseEdgeClient,
+  sessionId: string,
   roomName: string,
   userId: string,
   ttlSeconds: number,
@@ -324,6 +383,7 @@ async function createMeetingToken(
 
   const issuedAtMs = Date.now();
   const tokenExpiresAtMs = issuedAtMs + ttlSeconds * 1000;
+  await enforceTokenRefreshProviderRateLimit(supabase, sessionId, "meeting_token");
   const response = await fetchWithTimeout(`${DAILY_API_URL}/meeting-tokens`, {
     method: "POST",
     headers: {
@@ -347,7 +407,7 @@ async function createMeetingToken(
 
   if (response.status === 429 && retries > 0) {
     if (await waitForBoundedDailyTokenRetry(response.headers, 2)) {
-      return createMeetingToken(roomName, userId, ttlSeconds, retries - 1);
+      return createMeetingToken(supabase, sessionId, roomName, userId, ttlSeconds, retries - 1);
     }
   }
 
@@ -490,6 +550,7 @@ serve(async (req) => {
   try {
     await enforceTokenRefreshRateLimit(supabase);
     const providerProof = await ensureDailyRoomProviderReadyForTokenRefresh({
+      supabase,
       sessionId,
       userId: user.id,
       roomName,
@@ -510,7 +571,7 @@ serve(async (req) => {
       user.id,
     );
     const tokenWindow = resolveTokenWindow(snapshot, Date.now(), phaseBoundedTokens, providerProof.expiresAt);
-    const tokenResult = await createMeetingToken(roomName, user.id, tokenWindow.ttlSeconds);
+    const tokenResult = await createMeetingToken(supabase, sessionId, roomName, user.id, tokenWindow.ttlSeconds);
     return jsonResponse({
       ok: true,
       session_id: sessionId,

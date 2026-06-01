@@ -8,6 +8,10 @@ const migration = readFileSync(
   join(root, "supabase/migrations/20260525103000_video_date_push_open_dedupe_preload_v2.sql"),
   "utf8",
 );
+const outboxProviderIdempotencyMigration = readFileSync(
+  join(root, "supabase/migrations/20260601234500_video_date_outbox_provider_idempotency.sql"),
+  "utf8",
+);
 const sendNotification = readFileSync(join(root, "supabase/functions/send-notification/index.ts"), "utf8");
 const outboxDrainer = readFileSync(join(root, "supabase/functions/video-date-outbox-drainer/index.ts"), "utf8");
 const postDateVerdictReminders = readFileSync(join(root, "supabase/functions/post-date-verdict-reminders/index.ts"), "utf8");
@@ -71,6 +75,25 @@ test("video-date push outbox rows without stable dedupe keys fail permanently", 
   assert.match(outboxDrainer, /const dedupeKey = stringField\(row\.payload, "dedupe_key", "dedupeKey"\) \?\? row\.dedupe_key \?\? null/);
   assert.match(outboxDrainer, /isVideoDateNotificationCategory\(category\) && !dedupeKey/);
   assert.match(outboxDrainer, /reason: "missing_stable_notification_dedupe_key", permanent: true/);
+});
+
+test("video-date push outbox retries reuse a stable provider idempotency key", () => {
+  assert.match(outboxProviderIdempotencyMigration, /ADD COLUMN IF NOT EXISTS provider_idempotency_key uuid/);
+  assert.match(outboxProviderIdempotencyMigration, /SET provider_idempotency_key = gen_random_uuid\(\)/);
+  assert.match(outboxProviderIdempotencyMigration, /ALTER COLUMN provider_idempotency_key SET NOT NULL/);
+  assert.match(outboxProviderIdempotencyMigration, /DROP FUNCTION IF EXISTS public\.claim_video_date_provider_outbox_v2\(text, integer, integer\)/);
+  assert.match(outboxProviderIdempotencyMigration, /provider_idempotency_key uuid/);
+  assert.match(outboxProviderIdempotencyMigration, /o\.provider_idempotency_key/);
+
+  assert.match(outboxDrainer, /provider_idempotency_key\?: string \| null/);
+  assert.match(outboxDrainer, /stringField\(row\.payload, "provider_idempotency_key", "providerIdempotencyKey"\)/);
+  assert.match(outboxDrainer, /row\.provider_idempotency_key\.trim\(\)/);
+  assert.match(outboxDrainer, /requestBody\.provider_idempotency_key = providerIdempotencyKey/);
+  assert.match(outboxDrainer, /isMissingProviderIdempotencyColumnError/);
+  assert.match(outboxDrainer, /previewColumns\},provider_idempotency_key/);
+  assert.match(outboxDrainer, /\.select\(previewColumns\)/);
+  assert.match(sendNotification, /const requestProviderIdempotencyKey = validProviderIdempotencyKey\(provider_idempotency_key\)/);
+  assert.match(sendNotification, /osPayload\.idempotency_key = requestProviderIdempotencyKey/);
 });
 
 test("web and native push clicks ack dispatch, mark opens, and keep navigation canonical", () => {

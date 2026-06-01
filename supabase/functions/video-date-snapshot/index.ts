@@ -275,6 +275,15 @@ async function getDailyRoomProviderState(roomName: string, retries = 1): Promise
       clientError: "daily_token_failed",
     });
   }
+  const reliabilityClient = getProviderReliabilityClient();
+  if (!reliabilityClient) {
+    throw new SnapshotDailyTokenError({
+      message: "provider_reliability_client_missing",
+      httpStatus: 503,
+      clientError: "daily_token_failed",
+    });
+  }
+  await enforceProviderRateLimit(reliabilityClient, providerRateLimitConfig("daily", "room_lookup"));
   const response = await fetchWithTimeout(`${DAILY_API_URL}/rooms/${encodeURIComponent(roomName)}`, {
     method: "GET",
     headers: { Authorization: `Bearer ${DAILY_API_KEY}` },

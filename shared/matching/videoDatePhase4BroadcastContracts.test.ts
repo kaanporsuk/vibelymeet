@@ -127,6 +127,8 @@ test("broadcast gap refetch queues follow-up snapshots for newer events that arr
     webVideoDate,
     /if \(broadcastRefetchInFlightRef\.current\) \{[\s\S]*broadcastPendingRefetchSeqRef\.current = Math\.max/,
   );
+  assert.match(webVideoDate, /let pendingRefetchSeq: number \| null = event\.sessionSeq/);
+  assert.doesNotMatch(webVideoDate, /let pendingRefetchSeq: number \| null = null/);
   assert.match(webVideoDate, /while \(pendingRefetchSeq !== null\)/);
   assert.match(webVideoDate, /broadcastPendingRefetchSeqRef\.current = null/);
   assert.match(webVideoDate, /broadcast_queued_seq/);

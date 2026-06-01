@@ -72,6 +72,7 @@ type OutboxRow = {
   payload: Record<string, unknown>;
   attempts: number;
   dedupe_key: string | null;
+  provider_idempotency_key?: string | null;
   claim_expires_at: string | null;
 };
 
@@ -112,6 +113,18 @@ function json(body: Record<string, unknown>, status = 200): Response {
 
 function isWorkerAlreadyRunningError(error: string | undefined): boolean {
   return error === "worker_already_running";
+}
+
+function isMissingProviderIdempotencyColumnError(error: { code?: string; message?: string } | null | undefined): boolean {
+  const code = error?.code ?? "";
+  const message = error?.message ?? "";
+  return (
+    code === "42703" ||
+    (
+      /provider_idempotency_key/i.test(message) &&
+      /(does not exist|not found|could not find)/i.test(message)
+    )
+  );
 }
 
 function safeEqual(a: string, b: string): boolean {
@@ -605,6 +618,11 @@ async function sendNotification(
   const data = isObjectPayload(row.payload.data) ? row.payload.data : {};
   if (!userId || !category) return { success: false, reason: "invalid_notification_payload", permanent: true };
   const dedupeKey = stringField(row.payload, "dedupe_key", "dedupeKey") ?? row.dedupe_key ?? null;
+  const providerIdempotencyKey =
+    stringField(row.payload, "provider_idempotency_key", "providerIdempotencyKey") ??
+    (typeof row.provider_idempotency_key === "string" && row.provider_idempotency_key.trim()
+      ? row.provider_idempotency_key.trim()
+      : null);
   if (isVideoDateNotificationCategory(category) && !dedupeKey) {
     return { success: false, reason: "missing_stable_notification_dedupe_key", permanent: true };
   }
@@ -614,6 +632,7 @@ async function sendNotification(
     data,
     dedupe_key: dedupeKey ?? undefined,
   };
+  if (providerIdempotencyKey) requestBody.provider_idempotency_key = providerIdempotencyKey;
   if (title) requestBody.title = title;
   if (body) requestBody.body = body;
   if (Array.isArray(row.payload.channels)) requestBody.channels = row.payload.channels;
@@ -785,12 +804,23 @@ Deno.serve(async (req) => {
   const supabase = createClient(supabaseUrl, serviceKey) as SupabaseServiceClient;
 
   if (body.dry_run) {
-    const { data, error } = await supabase
+    const previewColumns = "id,session_id,kind,attempts,next_attempt_at,state,claim_expires_at,dedupe_key";
+    let { data, error } = await supabase
       .from("video_date_provider_outbox")
-      .select("id,session_id,kind,attempts,next_attempt_at,state,claim_expires_at,dedupe_key")
+      .select(`${previewColumns},provider_idempotency_key`)
       .in("state", ["pending", "claimed"])
       .order("next_attempt_at", { ascending: true })
       .limit(batchSize);
+    if (error && isMissingProviderIdempotencyColumnError(error)) {
+      const fallback = await supabase
+        .from("video_date_provider_outbox")
+        .select(previewColumns)
+        .in("state", ["pending", "claimed"])
+        .order("next_attempt_at", { ascending: true })
+        .limit(batchSize);
+      data = fallback.data;
+      error = fallback.error;
+    }
     if (error) return json({ ok: false, dry_run: true, error: error.message }, 500);
     return json({
       ok: true,

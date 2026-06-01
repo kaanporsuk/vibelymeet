@@ -40,6 +40,17 @@ function logLifecycle(payload: {
   console.log("lifecycle.post_date_verdict", JSON.stringify(payload));
 }
 
+async function stableUuidFromParts(parts: string[]): Promise<string> {
+  const digest = new Uint8Array(await crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(parts.join(":")),
+  ));
+  digest[6] = (digest[6] & 0x0f) | 0x50;
+  digest[8] = (digest[8] & 0x3f) | 0x80;
+  const hex = Array.from(digest.slice(0, 16), (byte) => byte.toString(16).padStart(2, "0")).join("");
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20, 32)}`;
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
@@ -168,18 +179,41 @@ serve(async (req) => {
         .maybeSingle();
 
       if (sess?.participant_1_id && sess?.participant_2_id) {
+        const matchId = payload.match_id;
         const immediateBody = {
           category: "new_match" as const,
           title: "It's a match! 🎉",
           body: "You both vibed — start chatting now!",
           data: {
             url: "/matches",
-            match_id: payload.match_id,
+            match_id: matchId,
           },
         };
+        const matchNotificationBodyFor = async (recipientUserId: string, otherUserId: string) => ({
+          ...immediateBody,
+          dedupe_key: `post_date_match:${matchId}:${recipientUserId}`,
+          provider_idempotency_key: await stableUuidFromParts([
+            "post_date_match",
+            matchId,
+            recipientUserId,
+          ]),
+          data: {
+            ...immediateBody.data,
+            other_user_id: otherUserId,
+            partner_id: otherUserId,
+          },
+        });
+        const participant1Notification = await matchNotificationBodyFor(
+          sess.participant_1_id,
+          sess.participant_2_id,
+        );
+        const participant2Notification = await matchNotificationBodyFor(
+          sess.participant_2_id,
+          sess.participant_1_id,
+        );
         try {
           await serviceClient.functions.invoke("send-notification", {
-            body: { user_id: sess.participant_1_id, ...immediateBody },
+            body: { user_id: sess.participant_1_id, ...participant1Notification },
           });
           logLifecycle({
             session_id: sessionId,
@@ -200,7 +234,7 @@ serve(async (req) => {
         }
         try {
           await serviceClient.functions.invoke("send-notification", {
-            body: { user_id: sess.participant_2_id, ...immediateBody },
+            body: { user_id: sess.participant_2_id, ...participant2Notification },
           });
           logLifecycle({
             session_id: sessionId,
