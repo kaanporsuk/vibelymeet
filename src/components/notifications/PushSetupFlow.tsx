@@ -42,8 +42,9 @@ export function PushSetupFlow({
   };
 
   const browserPermission =
-    typeof window !== 'undefined' && 'Notification' in window ? Notification.permission : 'default';
+    typeof window !== 'undefined' && 'Notification' in window ? Notification.permission : 'unsupported';
   const deniedIsBlocked = browserPermission === 'denied';
+  const notificationsUnsupported = browserPermission === 'unsupported';
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -170,20 +171,28 @@ export function PushSetupFlow({
                 <X className="w-10 h-10 text-destructive" />
               </div>
               <h3 className="text-lg font-semibold text-foreground mb-2">
-                {deniedIsBlocked ? 'Notifications Blocked' : 'Notification Setup Needs a Retry'}
+                {notificationsUnsupported
+                  ? 'Notifications Unavailable'
+                  : deniedIsBlocked
+                    ? 'Notifications Blocked'
+                    : 'Notification Setup Needs a Retry'}
               </h3>
               <p className="text-muted-foreground text-sm mb-4">
-                {deniedIsBlocked
-                  ? 'Use your browser site settings to allow notifications for Vibely, then come back and try again.'
-                  : 'We could not finish notification setup. Check your connection and try again.'}
+                {notificationsUnsupported
+                  ? 'This browser does not support push notifications here. You can still use Vibely normally.'
+                  : deniedIsBlocked
+                    ? 'Use your browser site settings to allow notifications for Vibely, then come back and try again.'
+                    : 'We could not finish notification setup. Check your connection and try again.'}
               </p>
               <div className="flex gap-3">
                 <Button variant="outline" className="flex-1" onClick={() => onOpenChange(false)}>
                   Continue without alerts
                 </Button>
-                <Button className="flex-1" onClick={handleEnable}>
-                  {deniedIsBlocked ? 'I updated settings' : 'Try again'}
-                </Button>
+                {notificationsUnsupported ? null : (
+                  <Button className="flex-1" onClick={handleEnable}>
+                    {deniedIsBlocked ? 'I updated settings' : 'Try again'}
+                  </Button>
+                )}
               </div>
             </motion.div>
           )}
