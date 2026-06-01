@@ -194,11 +194,13 @@ BEGIN
   ),
   active_reusable_reservations AS (
     UPDATE public.event_deck_card_reservations r
-    SET expires_at = GREATEST(r.expires_at, now() + interval '2 minutes'),
+    SET deck_rank = ranked.rn::integer,
+        expires_at = GREATEST(r.expires_at, now() + interval '2 minutes'),
         metadata = r.metadata || jsonb_build_object(
           'reservation_reused', true,
           'reservation_reused_at', now(),
-          'reservation_reuse_scope', 'card'
+          'reservation_reuse_scope', 'card',
+          'reservation_previous_deck_rank', r.deck_rank
         )
     FROM latest_active_batch b, ranked
     WHERE r.event_id = p_event_id

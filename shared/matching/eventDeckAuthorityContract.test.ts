@@ -152,6 +152,8 @@ test("deck v3 reserves buffered cards without burning them as dealt", () => {
   assert.match(deckV3Section, /active_reusable_reservations AS/);
   assert.match(deckV3Section, /reservation_reused/);
   assert.match(deckV3Section, /reservation_reuse_scope', 'card'/);
+  assert.match(deckV3Section, /deck_rank = ranked\.rn::integer/);
+  assert.match(deckV3Section, /reservation_previous_deck_rank', r\.deck_rank/);
   assert.match(deckV3Section, /active_reservation_deck_rank IS NOT NULL/);
   assert.match(deckV3Section, /filtered\.active_reservation_deck_rank/);
   assert.match(deckV3Section, /INSERT INTO public\.event_deck_card_reservations/);
