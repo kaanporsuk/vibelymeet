@@ -2220,6 +2220,73 @@ export type Database = {
           },
         ]
       }
+      event_deck_card_reservations: {
+        Row: {
+          deck_rank: number
+          deck_token: string
+          event_id: string
+          expires_at: string
+          id: string
+          issued_at: string
+          metadata: Json
+          source: string
+          swiped_at: string | null
+          target_id: string
+          viewer_id: string
+          visible_at: string | null
+        }
+        Insert: {
+          deck_rank: number
+          deck_token: string
+          event_id: string
+          expires_at: string
+          id?: string
+          issued_at?: string
+          metadata?: Json
+          source?: string
+          swiped_at?: string | null
+          target_id: string
+          viewer_id: string
+          visible_at?: string | null
+        }
+        Update: {
+          deck_rank?: number
+          deck_token?: string
+          event_id?: string
+          expires_at?: string
+          id?: string
+          issued_at?: string
+          metadata?: Json
+          source?: string
+          swiped_at?: string | null
+          target_id?: string
+          viewer_id?: string
+          visible_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "event_deck_card_reservations_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "event_deck_card_reservations_target_id_fkey"
+            columns: ["target_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "event_deck_card_reservations_viewer_id_fkey"
+            columns: ["viewer_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       event_profile_impressions: {
         Row: {
           event_id: string
@@ -10913,6 +10980,33 @@ export type Database = {
         Returns: boolean
       }
       event_category_slug: { Args: { p_label: string }; Returns: string }
+      event_deck_candidate_eligibility: {
+        Args: {
+          p_check_active?: boolean
+          p_check_existing_swipe?: boolean
+          p_event_id: string
+          p_target_id: string
+          p_viewer_id: string
+        }
+        Returns: Json
+      }
+      event_deck_current_top_candidate: {
+        Args: { p_event_id: string; p_viewer_id: string }
+        Returns: string
+      }
+      event_deck_swipe_failure_response: {
+        Args: { p_validation: Json }
+        Returns: Json
+      }
+      event_deck_validate_presented_card: {
+        Args: {
+          p_deck_token?: string | null
+          p_event_id: string
+          p_target_id: string
+          p_viewer_id: string
+        }
+        Returns: Json
+      }
       event_lobby_video_session_blocks_new_match: {
         Args: {
           p_date_started_at: string
@@ -11525,6 +11619,16 @@ export type Database = {
         }
         Returns: Json
       }
+      handle_swipe_v2: {
+        Args: {
+          p_actor_id: string
+          p_deck_token?: string | null
+          p_event_id: string
+          p_swipe_type: string
+          p_target_id: string
+        }
+        Returns: Json
+      }
       handle_swipe_20260501180000_active_base: {
         Args: {
           p_actor_id: string
@@ -11938,7 +12042,12 @@ export type Database = {
         Returns: Json
       }
       record_event_deck_card_visible_v1: {
-        Args: { p_event_id: string; p_target_id: string; p_viewer_id: string }
+        Args: {
+          p_deck_token?: string | null
+          p_event_id: string
+          p_target_id: string
+          p_viewer_id: string
+        }
         Returns: Json
       }
       record_event_loop_observability: {

@@ -62,6 +62,9 @@ export type EventDeckState = {
   raw_count: number | null;
   profile_count: number | null;
   marked_count: number | null;
+  mark_action?: string | null;
+  prefetch_ttl_seconds?: number | null;
+  reservation_ttl_seconds?: number | null;
 };
 
 export type EventDeckFetchResult = {
@@ -213,6 +216,9 @@ function normalizeEventDeckState(raw: unknown, fallbackProfileCount: number): Ev
     raw_count: finiteNumberOrNull(source.raw_count),
     profile_count: finiteNumberOrNull(source.profile_count) ?? fallbackProfileCount,
     marked_count: finiteNumberOrNull(source.marked_count),
+    mark_action: sanitizeDeckString(source.mark_action ?? source.markAction),
+    prefetch_ttl_seconds: finiteNumberOrNull(source.prefetch_ttl_seconds) ?? finiteNumberOrNull(source.prefetchTtlSeconds),
+    reservation_ttl_seconds: finiteNumberOrNull(source.reservation_ttl_seconds) ?? finiteNumberOrNull(source.reservationTtlSeconds),
   };
 }
 

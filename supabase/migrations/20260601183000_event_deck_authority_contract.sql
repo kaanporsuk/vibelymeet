@@ -32,6 +32,9 @@ CREATE INDEX IF NOT EXISTS idx_event_deck_card_reservations_viewer_active
 CREATE INDEX IF NOT EXISTS idx_event_deck_card_reservations_target
   ON public.event_deck_card_reservations(event_id, viewer_id, target_id, expires_at DESC);
 
+CREATE INDEX IF NOT EXISTS idx_event_deck_card_reservations_cleanup
+  ON public.event_deck_card_reservations(event_id, viewer_id, expires_at);
+
 ALTER TABLE public.event_deck_card_reservations ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON TABLE public.event_deck_card_reservations FROM PUBLIC, anon, authenticated;
 GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.event_deck_card_reservations TO service_role;
@@ -262,35 +265,35 @@ AS $function$
 DECLARE
   v_target_id uuid;
 BEGIN
-  WITH raw_deck AS (
-    SELECT gd.*, gd.ordinality::integer AS base_rn
-    FROM public.get_event_deck(p_event_id, p_viewer_id, 5000) WITH ORDINALITY AS gd
+  WITH latest_batch AS (
+    SELECT max(r.issued_at) AS issued_at
+    FROM public.event_deck_card_reservations r
+    WHERE r.event_id = p_event_id
+      AND r.viewer_id = p_viewer_id
+      AND r.expires_at > now()
   ),
-  filtered AS (
+  candidates AS (
     SELECT
-      rd.*,
-      epi.strongest_exclusion_reason AS impression_reason,
-      epi.prefetch_expires_at AS impression_prefetch_expires_at
-    FROM raw_deck rd
-    LEFT JOIN public.event_profile_impressions epi
-      ON epi.event_id = p_event_id
-      AND epi.viewer_id = p_viewer_id
-      AND epi.target_id = rd.profile_id
-    WHERE epi.target_id IS NULL
-      OR public.video_date_impression_rank(epi.strongest_exclusion_reason)
-          < public.video_date_impression_rank('dealt')
+      r.target_id,
+      r.deck_rank
+    FROM public.event_deck_card_reservations r
+    JOIN latest_batch lb ON lb.issued_at = r.issued_at
+    WHERE r.event_id = p_event_id
+      AND r.viewer_id = p_viewer_id
+      AND r.expires_at > now()
+      AND r.swiped_at IS NULL
+      AND COALESCE((public.event_deck_candidate_eligibility(
+        p_event_id,
+        p_viewer_id,
+        r.target_id,
+        true,
+        true
+      )->>'ok')::boolean, false)
   )
-  SELECT filtered.profile_id
+  SELECT candidates.target_id
   INTO v_target_id
-  FROM filtered
-  ORDER BY
-    CASE
-      WHEN filtered.impression_prefetch_expires_at IS NULL
-           OR filtered.impression_prefetch_expires_at <= now()
-        THEN 0
-      ELSE 1
-    END,
-    filtered.base_rn
+  FROM candidates
+  ORDER BY candidates.deck_rank
   LIMIT 1;
 
   RETURN v_target_id;
@@ -484,7 +487,7 @@ RETURNS TABLE(
   shared_vibe_count integer
 )
 LANGUAGE plpgsql
-STABLE
+VOLATILE
 SECURITY DEFINER
 SET search_path TO 'public', 'pg_catalog'
 AS $function$
@@ -593,6 +596,8 @@ REVOKE ALL ON FUNCTION public.get_event_deck_20260501180000_active_base(uuid, uu
 GRANT EXECUTE ON FUNCTION public.get_event_deck_20260501180000_active_base(uuid, uuid, integer)
   TO service_role;
 
+ALTER FUNCTION public.get_event_deck(uuid, uuid, integer) VOLATILE;
+
 CREATE OR REPLACE FUNCTION public.get_event_deck_v3(
   p_event_id uuid,
   p_user_id uuid,
@@ -665,6 +670,11 @@ BEGIN
       )
     );
   END IF;
+
+  DELETE FROM public.event_deck_card_reservations r
+  WHERE r.event_id = p_event_id
+    AND r.viewer_id = p_user_id
+    AND r.expires_at < now() - interval '1 day';
 
   PERFORM pg_advisory_xact_lock(
     hashtextextended('video_date_deck_v3:' || p_event_id::text || ':' || p_user_id::text, 0)
@@ -760,6 +770,7 @@ BEGIN
           to_jsonb(ranked)
             - 'rn'
             - 'base_rn'
+            - 'ordinality'
             - 'impression_reason'
             - 'impression_prefetch_expires_at'
         ) || jsonb_build_object(
@@ -876,6 +887,34 @@ GRANT EXECUTE ON FUNCTION public.record_event_deck_card_visible_v1(uuid, uuid, u
 COMMENT ON FUNCTION public.record_event_deck_card_visible_v1(uuid, uuid, uuid, text) IS
   'Marks the visible Event Lobby Deck card as dealt after validating a short-lived reservation token or server-computed current top-card fallback.';
 
+CREATE OR REPLACE FUNCTION public.record_event_deck_card_visible_v1(
+  p_event_id uuid,
+  p_viewer_id uuid,
+  p_target_id uuid
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+VOLATILE
+SECURITY DEFINER
+SET search_path TO 'public', 'pg_catalog'
+AS $function$
+BEGIN
+  RETURN public.record_event_deck_card_visible_v1(
+    p_event_id,
+    p_viewer_id,
+    p_target_id,
+    NULL
+  );
+END;
+$function$;
+
+REVOKE ALL ON FUNCTION public.record_event_deck_card_visible_v1(uuid, uuid, uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.record_event_deck_card_visible_v1(uuid, uuid, uuid)
+  TO authenticated, service_role;
+
+COMMENT ON FUNCTION public.record_event_deck_card_visible_v1(uuid, uuid, uuid) IS
+  'Compatibility wrapper for validated Event Lobby top-card visible marking. Old clients fall back to the current active reservation.';
+
 DROP FUNCTION IF EXISTS public.handle_swipe_20260601183000_deck_authority_base(uuid, uuid, uuid, text);
 ALTER FUNCTION public.handle_swipe(uuid, uuid, uuid, text)
   RENAME TO handle_swipe_20260601183000_deck_authority_base;
@@ -934,6 +973,18 @@ BEGIN
   );
 
   IF COALESCE((v_validation->>'ok')::boolean, false) IS NOT TRUE THEN
+    IF EXISTS (
+      SELECT 1
+      FROM public.event_swipes es
+      WHERE es.event_id = p_event_id
+        AND es.actor_id = p_actor_id
+        AND es.target_id = p_target_id
+    ) THEN
+      RETURN public.handle_swipe_20260601183000_deck_authority_base(
+        p_event_id, p_actor_id, p_target_id, p_swipe_type
+      );
+    END IF;
+
     RETURN public.event_deck_swipe_failure_response(v_validation);
   END IF;
 
