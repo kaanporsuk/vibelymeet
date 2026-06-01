@@ -277,7 +277,7 @@ serve(async (req) => {
     });
     const serviceClient = createClient(supabaseUrl, serviceRoleKey);
 
-    const { event_id, target_id, swipe_type } = await req.json();
+    const { event_id, target_id, swipe_type, deck_token } = await req.json();
 
     if (!event_id || !target_id || !swipe_type) {
       return new Response(
@@ -295,11 +295,16 @@ serve(async (req) => {
     }
     const actorId = userRes.user.id;
 
-    const { data, error } = await userClient.rpc("handle_swipe", {
+    const normalizedDeckToken = typeof deck_token === "string" && deck_token.trim().length > 0
+      ? deck_token.trim()
+      : null;
+
+    const { data, error } = await userClient.rpc("handle_swipe_v2", {
       p_event_id: event_id,
       p_actor_id: actorId,
       p_target_id: target_id,
       p_swipe_type: swipe_type,
+      p_deck_token: normalizedDeckToken,
     });
 
     if (error) {

@@ -23,6 +23,8 @@ export type EventDeckProfileRow = {
   premium_badge: string | null;
   availability_state: "available" | string | null;
   media_version: string | null;
+  deck_token?: string | null;
+  deck_rank?: number | null;
 };
 
 export type EventDeckProfile = Omit<
@@ -33,6 +35,8 @@ export type EventDeckProfile = Omit<
   photo_verified: boolean;
   premium_badge: "premium" | "vip" | null;
   availability_state: string;
+  deck_token: string | null;
+  deck_rank: number | null;
 };
 
 export const EVENT_DECK_STATE_REASONS = [
@@ -138,6 +142,8 @@ export function toEventDeckProfile(row: EventDeckProfileRow): EventDeckProfile {
     premium_badge: toPremiumBadge(row.premium_badge),
     availability_state: sanitizeDeckString(row.availability_state) ?? "available",
     media_version: normalizeMediaVersion(row.media_version),
+    deck_token: sanitizeDeckString(row.deck_token),
+    deck_rank: typeof row.deck_rank === "number" ? row.deck_rank : null,
   };
 }
 
@@ -173,6 +179,8 @@ export function parseEventDeckProfiles(data: unknown): EventDeckProfile[] {
         premium_badge: toPremiumBadge(source.premium_badge),
         availability_state: sanitizeDeckString(source.availability_state) ?? "available",
         media_version: normalizeMediaVersion(source.media_version ?? source.updated_at),
+        deck_token: sanitizeDeckString(source.deck_token),
+        deck_rank: typeof source.deck_rank === "number" ? source.deck_rank : null,
       }),
     ];
   });

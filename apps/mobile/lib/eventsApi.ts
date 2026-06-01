@@ -685,7 +685,12 @@ function unauthorizedSwipeResult(): SwipeResult {
   };
 }
 
-export async function swipe(eventId: string, targetId: string, swipeType: 'vibe' | 'pass' | 'super_vibe'): Promise<SwipeResult | null> {
+export async function swipe(
+  eventId: string,
+  targetId: string,
+  swipeType: 'vibe' | 'pass' | 'super_vibe',
+  deckToken?: string | null,
+): Promise<SwipeResult | null> {
   const accessToken = await getFreshCachedAccessToken();
   if (!accessToken) return unauthorizedSwipeResult();
 
@@ -699,7 +704,12 @@ export async function swipe(eventId: string, targetId: string, swipeType: 'vibe'
         apikey: SUPABASE_PUBLISHABLE_KEY,
         Authorization: `Bearer ${accessToken}`,
       },
-      body: JSON.stringify({ event_id: eventId, target_id: targetId, swipe_type: swipeType }),
+      body: JSON.stringify({
+        event_id: eventId,
+        target_id: targetId,
+        swipe_type: swipeType,
+        deck_token: deckToken ?? null,
+      }),
     });
   } catch {
     return null;

@@ -118,6 +118,7 @@ async function postSwipeAction(
   eventId: string,
   targetId: string,
   swipeType: SwipeType,
+  deckToken?: string | null,
 ): Promise<{ data: SwipeSessionStageResult | null; error: Error | null }> {
   const swipeActionsUrl = `${SUPABASE_URL.replace(/\/$/, "")}/functions/v1/swipe-actions`;
   let response: Response;
@@ -133,6 +134,7 @@ async function postSwipeAction(
         event_id: eventId,
         target_id: targetId,
         swipe_type: swipeType,
+        deck_token: deckToken ?? null,
       }),
     });
   } catch (cause) {
@@ -202,10 +204,10 @@ interface UseSwipeActionOptions {
 }
 
 /**
- * Event deck swipes via `swipe-actions` → `handle_swipe`.
+ * Event deck swipes via `swipe-actions` → `handle_swipe_v2`.
  * Expected `result` values include match, match_queued, vibe_recorded, super_vibe_sent,
  * limit_reached, already_super_vibed_recently, already_matched, already_swiped, blocked, reported, pass_recorded, etc.
- * Legacy `no_credits` is not returned by current `handle_swipe` (super vibe uses per-event limits only).
+ * Legacy `no_credits` is not returned by current swipe RPCs (super vibe uses per-event limits only).
  */
 export const useSwipeAction = ({
   eventId,
@@ -221,7 +223,7 @@ export const useSwipeAction = ({
   const [isProcessing, setIsProcessing] = useState(false);
 
   const swipe = useCallback(
-    async (targetId: string, swipeType: SwipeType): Promise<SwipeSessionStageResult | null> => {
+    async (targetId: string, swipeType: SwipeType, deckToken?: string | null): Promise<SwipeSessionStageResult | null> => {
       if (!user?.id || !eventId) return null;
       if (!navigator.onLine) {
         toast.error("You're offline — swipes need a connection");
@@ -250,7 +252,7 @@ export const useSwipeAction = ({
         });
         const accessToken = await resolveWebSwipeAccessToken(session);
         const { data, error } = accessToken
-          ? await postSwipeAction(accessToken, eventId, targetId, swipeType)
+          ? await postSwipeAction(accessToken, eventId, targetId, swipeType, deckToken)
           : { data: unauthorizedSwipeResult(), error: null };
 
         if (error) {
