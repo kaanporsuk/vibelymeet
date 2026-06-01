@@ -2227,6 +2227,7 @@ export type Database = {
           last_action: string
           last_action_at: string
           metadata: Json
+          prefetch_expires_at: string | null
           session_id: string | null
           source: string
           strongest_exclusion_reason: string
@@ -2240,6 +2241,7 @@ export type Database = {
           last_action: string
           last_action_at?: string
           metadata?: Json
+          prefetch_expires_at?: string | null
           session_id?: string | null
           source?: string
           strongest_exclusion_reason: string
@@ -2253,6 +2255,7 @@ export type Database = {
           last_action?: string
           last_action_at?: string
           metadata?: Json
+          prefetch_expires_at?: string | null
           session_id?: string | null
           source?: string
           strongest_exclusion_reason?: string
@@ -10299,6 +10302,10 @@ export type Database = {
         }
         Returns: boolean
       }
+      preference_allows_gender: {
+        Args: { p_gender: string; p_interested_in: string[] }
+        Returns: boolean
+      }
       check_mutual_vibe_and_match: {
         Args: { p_session_id: string }
         Returns: Json
@@ -11928,6 +11935,10 @@ export type Database = {
       }
       record_deck_deal_v2: {
         Args: { p_event_id: string; p_source?: string; p_target_id: string }
+        Returns: Json
+      }
+      record_event_deck_card_visible_v1: {
+        Args: { p_event_id: string; p_target_id: string; p_viewer_id: string }
         Returns: Json
       }
       record_event_loop_observability: {

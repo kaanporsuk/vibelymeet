@@ -49,6 +49,26 @@ test("isGenderCompatible: empty interested_in is permissive (legacy default)", (
   assert.equal(isGenderCompatible(a, b), true);
 });
 
+test("isGenderCompatible: everyone is permissive in both directions", () => {
+  const a = makeUser({ id: "a", gender: "woman", interested_in: ["everyone"] });
+  const b = makeUser({ id: "b", gender: "non-binary", interested_in: ["everyone"] });
+  assert.equal(isGenderCompatible(a, b), true);
+});
+
+test("isGenderCompatible: canonical and legacy gender aliases match", () => {
+  const woman = makeUser({ id: "woman", gender: "woman", interested_in: ["men"] });
+  const man = makeUser({ id: "man", gender: "man", interested_in: ["women"] });
+  assert.equal(isGenderCompatible(woman, man), true);
+
+  const legacy = makeUser({ id: "legacy", gender: "f", interested_in: ["m"] });
+  const canonical = makeUser({ id: "canonical", gender: "man", interested_in: ["women"] });
+  assert.equal(isGenderCompatible(legacy, canonical), true);
+
+  const nonBinary = makeUser({ id: "nb", gender: "non_binary", interested_in: ["women"] });
+  const womanIntoNb = makeUser({ id: "winb", gender: "woman", interested_in: ["non_binary"] });
+  assert.equal(isGenderCompatible(nonBinary, womanIntoNb), true);
+});
+
 test("isGenderCompatible: rejects when one side excludes the other's gender", () => {
   const f = makeUser({ id: "f", gender: "f", interested_in: ["f"] });
   const m = makeUser({ id: "m", gender: "m", interested_in: ["f"] });

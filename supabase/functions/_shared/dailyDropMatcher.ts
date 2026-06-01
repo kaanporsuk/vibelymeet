@@ -37,14 +37,40 @@ export function canonicalPairKey(a: string, b: string): string {
   return a < b ? `${a}:${b}` : `${b}:${a}`;
 }
 
+function normalizePreferenceValue(value: string | null | undefined): string {
+  return (value ?? "").trim().toLowerCase().replace(/_/g, "-");
+}
+
+function genderAliases(gender: string | null | undefined): Set<string> {
+  const g = normalizePreferenceValue(gender);
+  if (g === "man" || g === "men" || g === "m" || g === "male") {
+    return new Set(["man", "men", "m", "male"]);
+  }
+  if (g === "woman" || g === "women" || g === "w" || g === "f" || g === "female") {
+    return new Set(["woman", "women", "w", "f", "female"]);
+  }
+  if (g === "non-binary" || g === "nonbinary" || g === "non binary" || g === "nb") {
+    return new Set(["non-binary", "nonbinary", "non binary", "nb"]);
+  }
+  return g ? new Set([g]) : new Set();
+}
+
+function interestedInAllowsGender(interestedIn: string[] | null | undefined, gender: string | null | undefined): boolean {
+  const prefs = Array.isArray(interestedIn)
+    ? interestedIn.map(normalizePreferenceValue).filter(Boolean)
+    : [];
+  if (prefs.length === 0 || prefs.includes("everyone")) return true;
+  const aliases = genderAliases(gender);
+  if (aliases.size === 0) return false;
+  return prefs.some((pref) => aliases.has(pref));
+}
+
 export function isGenderCompatible(a: MatcherUser, b: MatcherUser): boolean {
-  const aInt = Array.isArray(a.interested_in) ? a.interested_in : [];
-  const bInt = Array.isArray(b.interested_in) ? b.interested_in : [];
   // Empty interested_in is still treated as "no preference set yet" - matches
   // the live Edge Function. P1-2 (flip to strict opt-in) is gated on product
   // confirmation; this helper documents but does not enforce.
-  const aLikesB = aInt.length === 0 || (b.gender != null && aInt.includes(b.gender));
-  const bLikesA = bInt.length === 0 || (a.gender != null && bInt.includes(a.gender));
+  const aLikesB = interestedInAllowsGender(a.interested_in, b.gender);
+  const bLikesA = interestedInAllowsGender(b.interested_in, a.gender);
   return aLikesB && bLikesA;
 }
 
