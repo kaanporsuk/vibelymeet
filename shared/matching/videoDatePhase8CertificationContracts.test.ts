@@ -280,6 +280,10 @@ test("Phase 8 certification treats Daily production config as an ops launch bloc
   assert.match(phase8CertificationScript, /DAILY_DOMAIN/);
   assert.match(phase8CertificationScript, /DAILY_WEBHOOK_SECRET/);
   assert.match(phase8CertificationScript, /PHASE8_STAGING_CRON_SECRET", "CRON_SECRET"/);
+  assert.match(phase8CertificationScript, /function assertRecoveryAlertConfigReady/);
+  assert.match(phase8CertificationScript, /recovery_alert_config_blocked/);
+  assert.match(phase8CertificationScript, /VIDEO_DATE_RECOVERY_SLACK_WEBHOOK_URL/);
+  assert.match(phase8CertificationScript, /SENTRY_DSN/);
   assert.match(phase8CertificationScript, /recordRolloutStep[\s\S]*assertDailyProductionLaunchConfigReady/);
   assert.match(phase8CertificationScript, /recordLegacyCleanup[\s\S]*assertDailyProductionLaunchConfigReady/);
   assert.doesNotMatch(phase8CertificationScript, /dailyApiKey[\s\S]{0,200}console\.log|DAILY_API_KEY[\s\S]{0,200}console\.log/);

@@ -84,7 +84,13 @@ mustMatch(
   /const hasDateEntryTruth = hasEnteredDateFlowRef\.current \|\| phaseRef\.current === "date" \|\| Boolean\(dateStartedAt\)/,
   "web end handler must split pre-date escape from date-phase survey behavior",
 );
-mustInclude("webDate", "openPostDateSurvey(\"local_end\")", "date-phase end must still open post-date survey");
+mustInclude(
+  "webDate",
+  "confirmTerminalPostDateSurveyFromServerTruth(\"local_end\")",
+  "date-phase end must confirm terminal server truth before opening the post-date survey",
+);
+mustInclude("webDate", "recoverTerminalPostDateSurvey", "date-phase end must keep terminal survey recovery");
+mustInclude("webDate", "openPostDateSurvey(source)", "terminal survey recovery must still open the post-date survey");
 
 mustInclude("webDateNavigationGuard", "recent_manual_exit", "date navigation guard must know manual exit suppression");
 mustInclude("webDateNavigationGuard", "sessionStorage", "manual exit suppression must survive route remounts in the tab");
@@ -129,7 +135,10 @@ mustInclude("nativeDate", "endVideoDate(sessionId, 'partial_join_peer_timeout')"
 mustInclude("nativeDate", "router.replace(target)", "native connection abort must route out");
 mustInclude("nativeDate", "isLeaving={isAbortingConnection}", "native connection overlay must expose in-flight disabled state");
 mustInclude("nativeConnectionOverlay", "disabled={isLeaving}", "native overlay Leave must disable while leaving");
-mustInclude("nativeConnectionOverlay", "{isLeaving ? 'Leaving...' : 'Leave'}", "native overlay Leave must show progress copy");
+mustInclude("nativeConnectionOverlay", "{isLeaving ? 'Leaving...' : partnerWaitMax ? 'Return to deck' : 'Leave'}", "native overlay Leave must show progress copy");
+mustInclude("nativeDate", "isLeaving={isEndDateConfirming}", "native active controls must expose in-flight disabled state");
+mustMatch("nativeControls", /isLeaving = false/, "native controls must default to an enabled state");
+mustMatch("nativeControls", /disabled=\{isLeaving\}/, "native controls must disable terminal actions while leaving");
 mustMatch("nativeControls", /onPress=\{onLeave\}/, "native end-call button must stay wired");
 mustMatch("nativeVibeCheck", /handlePress\('pass'\)/, "native Pass button must stay wired");
 mustMatch("nativeVibeCheck", /handlePress\('vibe'\)/, "native Vibe button must stay wired");

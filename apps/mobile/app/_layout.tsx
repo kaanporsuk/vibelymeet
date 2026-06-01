@@ -83,7 +83,7 @@ import { invalidateCachedSession, primeCachedSession } from '@/lib/nativeAuthSes
 import { recoverNativeAuthSession } from '@/lib/nativeAuthRecovery';
 
 // ─── Sentry (matches web src/main.tsx)
-const SENSITIVE_SENTRY_KEY_PATTERN = /(authorization|cookie|password|secret|token|jwt|email|phone|ip_address|access_token|refresh_token)/i;
+const SENSITIVE_SENTRY_KEY_PATTERN = /(authorization|cookie|href|idempotency|path|password|secret|signature|token|uri|url|jwt|email|phone|ip_address|access_token|refresh_token)/i;
 type NativeSentryMutableEvent = Record<string, unknown> & {
   breadcrumbs?: unknown;
   contexts?: unknown;
@@ -128,7 +128,7 @@ function sanitizeNativeSentryPayload(value: unknown, depth = 0): unknown {
       output[key] = '[redacted]';
       continue;
     }
-    if (typeof entry === 'string' && /^(url|filename|abs_path|request_url)$/i.test(key)) {
+    if (typeof entry === 'string' && /(url|uri|href|path|filename|abs_path|request_url)$/i.test(key)) {
       output[key] = sanitizeNativeSentryUrl(entry);
       continue;
     }

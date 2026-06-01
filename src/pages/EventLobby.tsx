@@ -1557,6 +1557,13 @@ const EventLobby = () => {
   const currentSwipePending = currentProfile ? pendingSwipeTargetIds.has(currentProfile.id) : false;
   const swipeControlsDisabled =
     currentSwipePending || !lobbyActionsEnabled || swipeRateLimited;
+  const pairingBlockedByReadiness =
+    readinessV2.enabled && !videoDateReadiness.canAttemptPairing;
+  const pairingControlsDisabled = swipeControlsDisabled || pairingBlockedByReadiness;
+  const pairingReadinessMessage = pairingBlockedByReadiness
+    ? videoDateReadiness.reason ?? "Camera and microphone access are needed before you can pair."
+    : null;
+  const pairingReadinessStatusId = "event-lobby-pairing-readiness-status";
 
   const eventEndsAtForContinuity = eventEndTime;
   const secondsUntilEventEnd = useMemo(
@@ -1880,7 +1887,7 @@ const EventLobby = () => {
   );
 
   const handleVibe = useCallback(async () => {
-    if (!currentProfile || swipeControlsDisabled || pendingSwipeTargetIdsRef.current.has(currentProfile.id)) return;
+    if (!currentProfile || pairingControlsDisabled || pendingSwipeTargetIdsRef.current.has(currentProfile.id)) return;
     void preloadRoute("videoDate");
     const targetId = currentProfile.id;
     const targetProfile = currentProfile;
@@ -1956,7 +1963,7 @@ const EventLobby = () => {
     restoreDeckProfileAfterOptimisticSwipe,
     startOptimisticSwipe,
     swipe,
-    swipeControlsDisabled,
+    pairingControlsDisabled,
   ]);
 
   const handlePass = useCallback(async () => {
@@ -2032,7 +2039,7 @@ const EventLobby = () => {
   ]);
 
   const handleSuperVibe = useCallback(async () => {
-    if (!currentProfile || swipeControlsDisabled || pendingSwipeTargetIdsRef.current.has(currentProfile.id)) return;
+    if (!currentProfile || pairingControlsDisabled || pendingSwipeTargetIdsRef.current.has(currentProfile.id)) return;
     void preloadRoute("videoDate");
     haptics.light();
     const targetId = currentProfile.id;
@@ -2106,27 +2113,29 @@ const EventLobby = () => {
     restoreDeckProfileAfterOptimisticSwipe,
     startOptimisticSwipe,
     swipe,
-    swipeControlsDisabled,
+    pairingControlsDisabled,
   ]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.defaultPrevented || event.repeat || swipeControlsDisabled || !currentProfile) return;
+      if (event.defaultPrevented || event.repeat || !currentProfile) return;
       const target = event.target as HTMLElement | null;
       const tagName = target?.tagName?.toLowerCase();
       if (tagName === "input" || tagName === "textarea" || tagName === "select" || target?.isContentEditable) return;
       if (event.key === "ArrowLeft") {
+        if (swipeControlsDisabled) return;
         event.preventDefault();
         void handlePass();
       } else if (event.key === "ArrowRight") {
+        if (pairingControlsDisabled) return;
         event.preventDefault();
         void handleVibe();
       }
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [currentProfile, handlePass, handleVibe, swipeControlsDisabled]);
+  }, [currentProfile, handlePass, handleVibe, pairingControlsDisabled, swipeControlsDisabled]);
 
   const yieldingToVideoDateUi = Boolean(dateNavigationSessionId || sameEventScopedSession?.kind === "video");
   const yieldingToReadyGateUi = Boolean(
@@ -2675,6 +2684,7 @@ const EventLobby = () => {
                   onSwipeLeft={handlePass}
                   onSwipeRight={handleVibe}
                   disabled={swipeControlsDisabled}
+                  rightSwipeDisabled={pairingControlsDisabled}
                   retryState={currentCardRetryState}
                 />
               )}
@@ -2714,13 +2724,14 @@ const EventLobby = () => {
             </button>
 
             {/* Super Vibe */}
-            <button
-              type="button"
-              onClick={handleSuperVibe}
-              disabled={swipeControlsDisabled || superVibeRemaining <= 0}
-              className="relative w-[52px] h-[52px] rounded-full bg-neon-yellow/12 border-2 border-neon-yellow/50 flex items-center justify-center hover:bg-neon-yellow/22 transition-all active:scale-[0.92] disabled:opacity-30 shadow-[0_0_28px_hsl(var(--neon-yellow)/0.2)]"
-              aria-label="Super vibe"
-            >
+	            <button
+	              type="button"
+	              onClick={handleSuperVibe}
+	              disabled={pairingControlsDisabled || superVibeRemaining <= 0}
+	              className="relative w-[52px] h-[52px] rounded-full bg-neon-yellow/12 border-2 border-neon-yellow/50 flex items-center justify-center hover:bg-neon-yellow/22 transition-all active:scale-[0.92] disabled:opacity-30 shadow-[0_0_28px_hsl(var(--neon-yellow)/0.2)]"
+	              aria-label="Super vibe"
+                aria-describedby={pairingReadinessMessage ? pairingReadinessStatusId : undefined}
+	            >
               <Star className="w-[22px] h-[22px] text-neon-yellow" fill="hsl(var(--neon-yellow))" />
               {superVibeRemaining > 0 && (
                 <span className="absolute -top-0.5 -right-0.5 min-w-[22px] h-[22px] px-1 rounded-full bg-neon-yellow text-zinc-950 text-[10px] font-bold flex items-center justify-center border-2 border-zinc-950">
@@ -2730,19 +2741,31 @@ const EventLobby = () => {
             </button>
 
             {/* Vibe */}
-            <button
-              type="button"
-              onClick={handleVibe}
-              disabled={swipeControlsDisabled}
-              className="w-[58px] h-[58px] rounded-full bg-gradient-to-br from-primary via-fuchsia-500 to-accent flex items-center justify-center hover:shadow-[0_0_36px_hsl(var(--primary)/0.45)] transition-all active:scale-[0.92] disabled:opacity-40 border border-white/20 neon-glow-pink"
-              aria-label="Vibe"
-            >
+	            <button
+	              type="button"
+	              onClick={handleVibe}
+	              disabled={pairingControlsDisabled}
+	              className="w-[58px] h-[58px] rounded-full bg-gradient-to-br from-primary via-fuchsia-500 to-accent flex items-center justify-center hover:shadow-[0_0_36px_hsl(var(--primary)/0.45)] transition-all active:scale-[0.92] disabled:opacity-40 border border-white/20 neon-glow-pink"
+	              aria-label="Vibe"
+                aria-describedby={pairingReadinessMessage ? pairingReadinessStatusId : undefined}
+	            >
               <Heart className="w-7 h-7 text-primary-foreground drop-shadow-sm" fill="white" />
-            </button>
-            </div>
-            <p className="text-[10px] text-white/35 text-center font-medium tracking-wide">
-              Pass · Super · Vibe
-            </p>
+	            </button>
+	            </div>
+              {pairingReadinessMessage && (
+                <div
+                  id={pairingReadinessStatusId}
+                  className="inline-flex max-w-full items-center gap-2 rounded-full border border-amber-300/35 bg-amber-400/12 px-3 py-1.5 text-[11px] font-semibold leading-snug text-amber-100"
+                  role="status"
+                  aria-live="polite"
+                >
+                  <AlertCircle className="h-3.5 w-3.5 shrink-0" />
+                  <span className="min-w-0 break-words">{pairingReadinessMessage}</span>
+                </div>
+              )}
+	            <p className="text-[10px] text-white/35 text-center font-medium tracking-wide">
+	              Pass · Super · Vibe
+	            </p>
           </motion.div>
         )}
       </main>
@@ -2835,10 +2858,19 @@ interface SwipeableCardProps {
   onSwipeLeft: () => void;
   onSwipeRight: () => void;
   disabled?: boolean;
+  rightSwipeDisabled?: boolean;
   retryState?: { remainingSeconds: number } | null;
 }
 
-const SwipeableCard = ({ profile, userVibes, onSwipeLeft, onSwipeRight, disabled, retryState }: SwipeableCardProps) => {
+const SwipeableCard = ({
+  profile,
+  userVibes,
+  onSwipeLeft,
+  onSwipeRight,
+  disabled,
+  rightSwipeDisabled = false,
+  retryState,
+}: SwipeableCardProps) => {
   const prefersReducedMotion = useReducedMotion();
   const x = useMotionValue(0);
   const rotate = useTransform(x, [-200, 0, 200], [-5, 0, 5]);
@@ -2850,6 +2882,7 @@ const SwipeableCard = ({ profile, userVibes, onSwipeLeft, onSwipeRight, disabled
     if (disabled) return;
     const threshold = 100;
     if (info.offset.x > threshold) {
+      if (rightSwipeDisabled) return;
       haptics.light();
       onSwipeRight();
     } else if (info.offset.x < -threshold) {
@@ -2872,7 +2905,7 @@ const SwipeableCard = ({ profile, userVibes, onSwipeLeft, onSwipeRight, disabled
       {/* Swipe indicators */}
       <motion.div
         className="absolute top-6 left-6 z-20 px-4 py-2 rounded-xl border-2 border-green-400 bg-green-500/20 backdrop-blur-sm"
-        style={{ opacity: vibeOpacity }}
+        style={{ opacity: rightSwipeDisabled ? 0 : vibeOpacity }}
       >
         <span className="text-green-400 font-display font-bold text-lg">VIBE</span>
       </motion.div>

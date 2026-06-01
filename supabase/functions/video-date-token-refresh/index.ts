@@ -17,12 +17,11 @@ import {
   providerFetchTimeoutMs,
   providerRateLimitConfig,
 } from "../_shared/video-date-provider-reliability.ts";
-
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers":
-    "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
-};
+import {
+  corsHeadersForRequest,
+  isBrowserOriginRejected,
+  preflightResponse,
+} from "../_shared/cors.ts";
 
 const DAILY_RUNTIME_CONFIG = resolveDailyRuntimeConfig({
   dailyApiKey: Deno.env.get("DAILY_API_KEY")?.trim(),
@@ -263,7 +262,12 @@ async function ensureDailyRoomProviderReadyForTokenRefresh(params: {
   return { ok: false, reason: state.exists ? "expired" : "missing", expiresAt: state.expiresAt };
 }
 
-function jsonResponse(payload: unknown, status = 200, retryAfterSeconds?: number | null): Response {
+function jsonResponse(
+  corsHeaders: Record<string, string>,
+  payload: unknown,
+  status = 200,
+  retryAfterSeconds?: number | null,
+): Response {
   const headers: Record<string, string> = {
     ...corsHeaders,
     "Content-Type": "application/json",
@@ -443,15 +447,19 @@ async function createMeetingToken(
 
 serve(async (req) => {
   if (req.method === "OPTIONS") {
-    return new Response("ok", { headers: corsHeaders });
+    return preflightResponse(req);
+  }
+  const corsHeaders = corsHeadersForRequest(req);
+  if (isBrowserOriginRejected(req)) {
+    return jsonResponse(corsHeaders, { ok: false, error: "origin_not_allowed" }, 403);
   }
   if (req.method !== "POST") {
-    return jsonResponse({ ok: false, error: "method_not_allowed" }, 405);
+    return jsonResponse(corsHeaders, { ok: false, error: "method_not_allowed" }, 405);
   }
 
   const authHeader = req.headers.get("Authorization");
   if (!authHeader) {
-    return jsonResponse({ ok: false, error: "not_authenticated" }, 401);
+    return jsonResponse(corsHeaders, { ok: false, error: "not_authenticated" }, 401);
   }
 
   const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
@@ -465,7 +473,7 @@ serve(async (req) => {
     error: authError,
   } = await supabase.auth.getUser();
   if (authError || !user?.id) {
-    return jsonResponse({ ok: false, error: "not_authenticated" }, 401);
+    return jsonResponse(corsHeaders, { ok: false, error: "not_authenticated" }, 401);
   }
 
   const body = await req.json().catch(() => null) as Record<string, unknown> | null;
@@ -475,8 +483,8 @@ serve(async (req) => {
       ? body.sessionId
       : null;
 
-  if (!sessionId) return jsonResponse({ ok: false, error: "missing_session_id" }, 400);
-  if (!UUID_PATTERN.test(sessionId)) return jsonResponse({ ok: false, error: "invalid_session_id" }, 400);
+  if (!sessionId) return jsonResponse(corsHeaders, { ok: false, error: "missing_session_id" }, 400);
+  if (!UUID_PATTERN.test(sessionId)) return jsonResponse(corsHeaders, { ok: false, error: "invalid_session_id" }, 400);
 
   if (!DAILY_RUNTIME_CONFIG.ok) {
     console.error(JSON.stringify({
@@ -487,7 +495,7 @@ serve(async (req) => {
       blockers: DAILY_RUNTIME_CONFIG.blockers,
       fallback_used: DAILY_RUNTIME_CONFIG.fallbackUsed,
     }));
-    return jsonResponse({
+    return jsonResponse(corsHeaders, {
       ok: false,
       code: "DAILY_CONFIG_BLOCKED",
       error: "daily_config_blocked",
@@ -506,24 +514,24 @@ serve(async (req) => {
       user_id: user.id,
       code: error.code,
     }));
-    return jsonResponse({ ok: false, error: "snapshot_core_failed", retryable: true }, 503);
+    return jsonResponse(corsHeaders, { ok: false, error: "snapshot_core_failed", retryable: true }, 503);
   }
 
   const snapshot = data as SnapshotPayload | null;
   if (!snapshot?.ok) {
     const status = snapshot?.error === "not_participant" ? 403 : snapshot?.error === "session_not_found" ? 404 : 409;
-    return jsonResponse(snapshot ?? { ok: false, error: "snapshot_not_found" }, status);
+    return jsonResponse(corsHeaders, snapshot ?? { ok: false, error: "snapshot_not_found" }, status);
   }
 
   const phase = typeof snapshot.phase === "string" ? snapshot.phase : null;
   if (phase !== "handshake" && phase !== "date") {
-    return jsonResponse({ ok: false, error: "session_not_active", phase, retryable: false }, 409);
+    return jsonResponse(corsHeaders, { ok: false, error: "session_not_active", phase, retryable: false }, 409);
   }
 
   const roomName = snapshot.room?.name ?? null;
   const roomUrl = snapshot.room?.url ?? null;
   if (!roomName || !roomUrl) {
-    return jsonResponse({ ok: false, error: "room_not_ready", phase, retryable: true }, 409);
+    return jsonResponse(corsHeaders, { ok: false, error: "room_not_ready", phase, retryable: true }, 409);
   }
   const expectedRoomName = videoDateRoomNameForSession(sessionId);
   const expectedRoomUrl = videoDateRoomUrlForName(expectedRoomName, DAILY_DOMAIN);
@@ -541,10 +549,10 @@ serve(async (req) => {
       room_url_matches_canonical: roomUrl === expectedRoomUrl,
       room_url_matches_expected_room: roomUrlMatchesExpectedRoom,
     }));
-    return jsonResponse({ ok: false, error: "room_mismatch", phase, retryable: true }, 409);
+    return jsonResponse(corsHeaders, { ok: false, error: "room_mismatch", phase, retryable: true }, 409);
   }
   if (!DAILY_API_KEY) {
-    return jsonResponse({ ok: false, error: "daily_provider_unavailable", phase, retryable: true }, 503);
+    return jsonResponse(corsHeaders, { ok: false, error: "daily_provider_unavailable", phase, retryable: true }, 503);
   }
 
   try {
@@ -556,7 +564,7 @@ serve(async (req) => {
       roomName,
     });
     if (!providerProof.ok) {
-      return jsonResponse({
+      return jsonResponse(corsHeaders, {
         ok: false,
         error: "room_not_ready",
         phase,
@@ -572,7 +580,7 @@ serve(async (req) => {
     );
     const tokenWindow = resolveTokenWindow(snapshot, Date.now(), phaseBoundedTokens, providerProof.expiresAt);
     const tokenResult = await createMeetingToken(supabase, sessionId, roomName, user.id, tokenWindow.ttlSeconds);
-    return jsonResponse({
+    return jsonResponse(corsHeaders, {
       ok: true,
       session_id: sessionId,
       event_id: snapshot.eventId ?? null,
@@ -590,7 +598,7 @@ serve(async (req) => {
     });
   } catch (tokenError) {
     if (tokenError instanceof ProviderRateLimitError) {
-      return jsonResponse({
+      return jsonResponse(corsHeaders, {
         ok: false,
         error: tokenError.clientError,
         retryable: true,
@@ -605,6 +613,6 @@ serve(async (req) => {
       room_name: roomName,
       error: tokenError instanceof Error ? tokenError.message : "unknown",
     }));
-    return jsonResponse({ ok: false, error: "daily_token_failed", retryable: true }, 503);
+    return jsonResponse(corsHeaders, { ok: false, error: "daily_token_failed", retryable: true }, 503);
   }
 });

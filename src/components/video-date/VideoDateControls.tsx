@@ -110,7 +110,7 @@ export const VideoDateControls = ({
         <motion.div whileTap={{ scale: 0.9 }}>
           <Button
             size="icon"
-            aria-label="End call"
+            aria-label={isLeaving ? "Ending date" : "End date"}
             className={`${controlBtn} bg-destructive hover:bg-destructive/90 text-destructive-foreground shadow-lg`}
             style={{
               boxShadow: "0 0 20px hsl(var(--destructive) / 0.4)",

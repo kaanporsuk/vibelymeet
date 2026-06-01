@@ -4234,18 +4234,26 @@ export default function VideoDateScreen() {
   /** In-call / post-connect: end date, cleanup Daily, show PostDateSurvey (navigation from survey only). */
   const handleEndDateFromControls = useCallback(async () => {
     if (isEndDateConfirming) return;
-    Alert.alert('End this date?', 'Stay if you tapped by accident. Ending will close the call for you.', [
-      { text: 'Stay', style: 'cancel' },
-      {
-        text: 'End date',
-        style: 'destructive',
-        onPress: () => {
-          if (isEndDateConfirming) return;
-          setIsEndDateConfirming(true);
-          void handleCallEnd('local_end').finally(() => setIsEndDateConfirming(false));
+    setIsEndDateConfirming(true);
+    Alert.alert(
+      'End this date?',
+      'Stay if you tapped by accident. Ending will close the call for you.',
+      [
+        {
+          text: 'Stay',
+          style: 'cancel',
+          onPress: () => setIsEndDateConfirming(false),
         },
-      },
-    ]);
+        {
+          text: 'End date',
+          style: 'destructive',
+          onPress: () => {
+            void handleCallEnd('local_end').finally(() => setIsEndDateConfirming(false));
+          },
+        },
+      ],
+      { cancelable: true, onDismiss: () => setIsEndDateConfirming(false) },
+    );
   }, [handleCallEnd, isEndDateConfirming]);
 
   /** Connecting or waiting for partner: exit without post-date survey (nothing to rate yet). */
@@ -9002,6 +9010,23 @@ export default function VideoDateScreen() {
         : session.participant_1_id
       : '');
   const surveyEventId = eventId || session?.event_id || undefined;
+  const profileSheetPartner = useMemo<PartnerProfileData | null>(() => {
+    if (fullPartner) return fullPartner;
+    if (!basicPartner) return null;
+    return {
+      name: basicPartner.name || 'Your date',
+      age: basicPartner.age ?? 0,
+      avatarUrl: basicPartner.avatar_url ?? null,
+      photos: basicPartner.avatar_url ? [basicPartner.avatar_url] : [],
+      about_me: null,
+      job: null,
+      location: null,
+      heightCm: null,
+      tags: [],
+      prompts: [],
+    };
+  }, [basicPartner, fullPartner]);
+  const profileSheetPartnerId = partnerId || basicPartner?.id || '';
 
   if (showFeedback && sessionId && user?.id) {
     return (
@@ -9629,7 +9654,12 @@ export default function VideoDateScreen() {
           onToggleMute={toggleMute}
           onToggleVideo={toggleVideo}
           onLeave={handleEndDateFromControls}
-          onViewProfile={suppressPartnerControlsAfterSafety ? undefined : () => setShowProfileSheet(true)}
+          isLeaving={isEndDateConfirming}
+          onViewProfile={
+            suppressPartnerControlsAfterSafety || !profileSheetPartner
+              ? undefined
+              : () => setShowProfileSheet(true)
+          }
           onSafety={
             canOpenInCallSafety
               ? () => setShowInCallSafety(true)
@@ -9649,12 +9679,12 @@ export default function VideoDateScreen() {
         onServerEndedAfterReport={handleServerEndedAfterInCallReport}
       />
 
-      {fullPartner && partnerId ? (
+      {profileSheetPartner ? (
         <PartnerProfileSheet
           isOpen={showProfileSheet}
           onClose={() => setShowProfileSheet(false)}
-          partner={fullPartner}
-          partnerProfileId={partnerId}
+          partner={profileSheetPartner}
+          partnerProfileId={profileSheetPartnerId}
         />
       ) : null}
 

@@ -20,12 +20,11 @@ import {
   ProviderTimeoutError,
   providerRateLimitConfig,
 } from "../_shared/video-date-provider-reliability.ts";
-
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers":
-    "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
-};
+import {
+  corsHeadersForRequest,
+  isBrowserOriginRejected,
+  preflightResponse,
+} from "../_shared/cors.ts";
 
 const DAILY_RUNTIME_CONFIG = resolveDailyRuntimeConfig({
   dailyApiKey: Deno.env.get("DAILY_API_KEY")?.trim(),
@@ -90,7 +89,12 @@ function retryAfterHeaderValue(retryAfterSeconds: number | null | undefined): st
   return String(Math.min(300, Math.max(1, Math.ceil(retryAfterSeconds))));
 }
 
-function jsonResponse(payload: unknown, status = 200, retryAfterSeconds?: number | null): Response {
+function jsonResponse(
+  corsHeaders: Record<string, string>,
+  payload: unknown,
+  status = 200,
+  retryAfterSeconds?: number | null,
+): Response {
   const headers: Record<string, string> = {
     ...corsHeaders,
     "Content-Type": "application/json",
@@ -482,15 +486,19 @@ function snapshotTokenFailureClientError(error: unknown): string {
 
 serve(async (req) => {
   if (req.method === "OPTIONS") {
-    return new Response("ok", { headers: corsHeaders });
+    return preflightResponse(req);
+  }
+  const corsHeaders = corsHeadersForRequest(req);
+  if (isBrowserOriginRejected(req)) {
+    return jsonResponse(corsHeaders, { ok: false, error: "origin_not_allowed" }, 403);
   }
   if (req.method !== "POST") {
-    return jsonResponse({ ok: false, error: "method_not_allowed" }, 405);
+    return jsonResponse(corsHeaders, { ok: false, error: "method_not_allowed" }, 405);
   }
 
   const authHeader = req.headers.get("Authorization");
   if (!authHeader) {
-    return jsonResponse({ ok: false, error: "not_authenticated" }, 401);
+    return jsonResponse(corsHeaders, { ok: false, error: "not_authenticated" }, 401);
   }
 
   const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
@@ -504,7 +512,7 @@ serve(async (req) => {
     error: authError,
   } = await supabase.auth.getUser();
   if (authError || !user?.id) {
-    return jsonResponse({ ok: false, error: "not_authenticated" }, 401);
+    return jsonResponse(corsHeaders, { ok: false, error: "not_authenticated" }, 401);
   }
 
   const body = await req.json().catch(() => null) as Record<string, unknown> | null;
@@ -515,10 +523,10 @@ serve(async (req) => {
       : null;
   const includeToken = body?.include_token === true || body?.includeToken === true;
   if (!sessionId) {
-    return jsonResponse({ ok: false, error: "missing_session_id" }, 400);
+    return jsonResponse(corsHeaders, { ok: false, error: "missing_session_id" }, 400);
   }
   if (!UUID_PATTERN.test(sessionId)) {
-    return jsonResponse({ ok: false, error: "invalid_session_id" }, 400);
+    return jsonResponse(corsHeaders, { ok: false, error: "invalid_session_id" }, 400);
   }
 
   const { data, error } = await supabase.rpc("get_video_date_snapshot_core", {
@@ -531,24 +539,24 @@ serve(async (req) => {
       user_id: user.id,
       code: error.code,
     }));
-    return jsonResponse({ ok: false, error: "snapshot_core_failed", retryable: true }, 503);
+    return jsonResponse(corsHeaders, { ok: false, error: "snapshot_core_failed", retryable: true }, 503);
   }
 
   const snapshot = data as SnapshotPayload | null;
   if (!snapshot?.ok) {
-    return jsonResponse(snapshot ?? { ok: false, error: "snapshot_not_found" }, errorStatus(snapshot?.error));
+    return jsonResponse(corsHeaders, snapshot ?? { ok: false, error: "snapshot_not_found" }, errorStatus(snapshot?.error));
   }
 
   const phase = typeof snapshot.phase === "string" ? snapshot.phase : null;
   const roomName = snapshot.room?.name ?? null;
   if (phase !== "handshake" && phase !== "date") {
-    return jsonResponse(withoutToken(snapshot));
+    return jsonResponse(corsHeaders, withoutToken(snapshot));
   }
   if (!includeToken) {
-    return jsonResponse(withoutToken(snapshot));
+    return jsonResponse(corsHeaders, withoutToken(snapshot));
   }
   if (!roomName) {
-    return jsonResponse(withoutToken(snapshot));
+    return jsonResponse(corsHeaders, withoutToken(snapshot));
   }
 
   try {
@@ -558,7 +566,7 @@ serve(async (req) => {
       roomName,
     });
     if (!providerProof.ok) {
-      return jsonResponse({
+      return jsonResponse(corsHeaders, {
         ok: false,
         error: "room_not_ready",
         retryable: true,
@@ -573,7 +581,7 @@ serve(async (req) => {
     );
     const tokenWindow = resolveSnapshotTokenWindow(snapshot, Date.now(), phaseBoundedTokens);
     const tokenResult = await createMeetingToken(roomName, user.id, tokenWindow.ttlSeconds);
-    return jsonResponse({
+    return jsonResponse(corsHeaders, {
       ...snapshot,
       room: {
         ...snapshot.room,
@@ -597,7 +605,7 @@ serve(async (req) => {
       retry_after_seconds: retryAfterSeconds,
       error: providerFailureMessage(tokenError),
     }));
-    return jsonResponse({
+    return jsonResponse(corsHeaders, {
       ok: false,
       error: clientError,
       retryable: true,

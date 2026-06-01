@@ -5,11 +5,12 @@ import {
   providerFetchTimeoutMs,
   providerRateLimitConfig,
 } from '../_shared/video-date-provider-reliability.ts'
-
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version',
-}
+import {
+  corsHeadersForRequest,
+  isBrowserOriginRejected,
+  jsonResponse,
+  preflightResponse,
+} from '../_shared/cors.ts'
 
 const supabase = createClient(
   Deno.env.get('SUPABASE_URL')!,
@@ -1390,8 +1391,10 @@ Deno.serve(async (req) => {
     })
   }
 
-  if (req.method === 'OPTIONS') {
-    return new Response(null, { headers: corsHeaders })
+  if (req.method === 'OPTIONS') return preflightResponse(req)
+  const corsHeaders = corsHeadersForRequest(req)
+  if (isBrowserOriginRejected(req)) {
+    return jsonResponse(req, { error: 'origin_not_allowed' }, { status: 403 })
   }
 
   try {
@@ -1505,6 +1508,9 @@ Deno.serve(async (req) => {
       providerHttpStatus?: number | null
       providerErrorCode?: string | null
       providerNotificationId?: string | null
+      providerResponseBodySnippet?: string | null
+      providerResponseContentType?: string | null
+      providerAcceptedAt?: string | null
       deepLink?: unknown
       subscriptionTargetCount?: number | null
       subscriptionTableTargetCount?: number | null
