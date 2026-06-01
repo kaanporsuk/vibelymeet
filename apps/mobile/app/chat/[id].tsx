@@ -3541,12 +3541,13 @@ export default function ChatThreadScreen() {
     }
   };
 
-  const armVoiceReply = () => {
+  const startVoiceReplyRecording = () => {
     stickToBottomRef.current = true;
     userScrollIntentUntilRef.current = 0;
     scrollListToLatest(true);
     setVoiceReplyHint(true);
     setTimeout(() => setVoiceReplyHint(false), 2200);
+    void startVoiceRecording();
   };
 
   const enqueuePickedVibeClipVideo = async (asset: PickedVideoAssetLike) => {
@@ -4393,7 +4394,7 @@ export default function ChatThreadScreen() {
               threadMessageCount={displayMessages.length}
               sparkMessageId={item.id}
               onReplyWithClip={isMe ? undefined : () => openVideoMessageOptions()}
-              onVoiceReply={isMe ? undefined : () => armVoiceReply()}
+              onVoiceReply={isMe ? undefined : () => startVoiceReplyRecording()}
               onSuggestDate={
                 isMe ? undefined : () => openDateComposer({ mode: 'new', launchFrom: 'vibe_clip' })
               }
