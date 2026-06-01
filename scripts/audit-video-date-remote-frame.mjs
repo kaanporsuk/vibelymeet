@@ -485,9 +485,9 @@ assert(
   `${nativeVideoDateDailyConfigPath}: native Video Date Daily options must not use deprecated/strict capture constraints`
 );
 assert(
-  nativeDate.includes("createVideoDateDailyCallObject(profile)") &&
+  nativeDate.includes("createVideoDateDailyCallObjectGuarded(profile") &&
     nativeDate.includes("daily_call_join_constraint_fallback"),
-  `${nativeDatePath}: native Video Date must create Daily through the helper and retry with fallback constraints`
+  `${nativeDatePath}: native Video Date must create Daily through the guarded helper and retry with fallback constraints`
 );
 assert(
   !/Daily\.createCallObject\(/.test(nativeDate),
