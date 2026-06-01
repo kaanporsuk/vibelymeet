@@ -233,7 +233,14 @@ test("web Video Date Daily create paths use guarded singleton recovery", () => {
   assert.match(webDailyCallInstance, /FRESH_DAILY_CREATE_PROTECTION_MS/);
   assert.match(webDailyCallInstance, /daily_guard_external_call_protected_recent_create/);
   assert.match(webDailyCallInstance, /createDailyCallObjectGuarded/);
-  assert.match(webDailyCallInstance, /Duplicate DailyIframe instances\|multiple call instances/);
+  assert.match(webDailyCallInstance, /Duplicate\\s\+DailyIframe\\s\+instances/);
+  assert.match(webDailyCallInstance, /multiple\\s\+call\\s\+instances/);
+  assert.match(webDailyCallInstance, /call\\s\+object\.\*already/);
+  assert.match(webDailyCallInstance, /existing\\s\+call\\s\+instance/);
+  assert.match(webDailyCallInstance, /WEB_VIDEO_DATE_DAILY_CLEANUP_WAIT_TIMEOUT_MS/);
+  assert.match(webDailyCallInstance, /WEB_VIDEO_DATE_DAILY_DESTROY_TIMEOUT_MS/);
+  assert.match(webDailyCallInstance, /web_video_date_daily_cleanup_wait_timed_out/);
+  assert.match(webDailyCallInstance, /daily_guard_destroy_external_call_timed_out/);
   assert.match(webDailyCallInstance, /isIdleDailyMeetingState/);
   assert.match(webDailyCallInstance, /state === "new" \|\| state === "loaded"/);
 
@@ -269,7 +276,14 @@ test("native Video Date Daily create paths use guarded singleton recovery", () =
   assert.match(nativeDailyCallInstance, /FRESH_NATIVE_DAILY_CREATE_PROTECTION_MS/);
   assert.match(nativeDailyCallInstance, /native_daily_guard_external_call_protected_recent_create/);
   assert.match(nativeDailyCallInstance, /createNativeDailyCallObjectGuarded/);
-  assert.match(nativeDailyCallInstance, /Duplicate DailyIframe instances\|multiple call instances/);
+  assert.match(nativeDailyCallInstance, /Duplicate\\s\+DailyIframe\\s\+instances/);
+  assert.match(nativeDailyCallInstance, /multiple\\s\+call\\s\+instances/);
+  assert.match(nativeDailyCallInstance, /call\\s\+object\.\*already/);
+  assert.match(nativeDailyCallInstance, /existing\\s\+call\\s\+instance/);
+  assert.match(nativeDailyCallInstance, /NATIVE_VIDEO_DATE_DAILY_CLEANUP_WAIT_TIMEOUT_MS/);
+  assert.match(nativeDailyCallInstance, /NATIVE_VIDEO_DATE_DAILY_DESTROY_TIMEOUT_MS/);
+  assert.match(nativeDailyCallInstance, /native_video_date_daily_cleanup_wait_timed_out/);
+  assert.match(nativeDailyCallInstance, /native_daily_guard_destroy_external_call_timed_out/);
   assert.match(nativeDailyCallInstance, /state === 'new' \|\| state === 'loaded'/);
 
   assert.match(nativeVideoDateDailyMediaConfig, /createVideoDateDailyCallObjectGuarded/);
@@ -301,6 +315,9 @@ test("native Video Date Daily create paths use guarded singleton recovery", () =
 test("web Ready Gate prepare handoff can recover after prepare failure or exception", () => {
   assert.match(webReadyGateOverlay, /prepareEntryHandoffStartedRef\.current = true/);
   assert.match(webReadyGateOverlay, /suppressDuplicateNav\(prepareEntryHandoffStartedRef\.current \? "prepare_entry_inflight" : "date_navigation_inflight"\)/);
+  assert.match(webReadyGateOverlay, /void startWebVideoDateDailyPrewarm\(\{[^}]*source: "ready_gate_prepare_success"/);
+  assert.match(webReadyGateOverlay, /ready_gate_daily_prewarm_prepare_success_failed/);
+  assert.doesNotMatch(webReadyGateOverlay, /const prewarm = await startWebVideoDateDailyPrewarm\(\{[^}]*source: "ready_gate_prepare_success"/);
   assert.match(webReadyGateOverlay, /if \(exhausted\) \{[\s\S]*prepareEntryHandoffStartedRef\.current = false[\s\S]*setPrepareEntryStatus\("failed"\)/);
   assert.match(webReadyGateOverlay, /catch \(error\) \{[\s\S]*prepareEntryHandoffStartedRef\.current = false[\s\S]*PREPARE_ENTRY_CLIENT_EXCEPTION/);
   assert.match(webReadyGateOverlay, /const retryPrepareEntry = useCallback/);
@@ -308,8 +325,12 @@ test("web Ready Gate prepare handoff can recover after prepare failure or except
 
 test("native Ready Gate prepare handoff can recover after prepare failure or exception", () => {
   assert.match(nativeReadyGateOverlay, /prepareEntryHandoffStartedRef\.current = true/);
-  assert.match(nativeReadyGateOverlay, /const prewarm = await startNativeVideoDateDailyPrewarm/);
-  assert.match(nativeReadyStandalone, /const prewarm = await startNativeVideoDateDailyPrewarm/);
+  assert.match(nativeReadyGateOverlay, /void startNativeVideoDateDailyPrewarm\(\{[^}]*source: 'ready_gate_prepare_success'/);
+  assert.match(nativeReadyGateOverlay, /ready_gate_daily_prewarm_prepare_success_failed/);
+  assert.match(nativeReadyStandalone, /void startNativeVideoDateDailyPrewarm\(\{[^}]*source: `ready_standalone_\$\{source\}`/);
+  assert.match(nativeReadyStandalone, /standalone_daily_prewarm_failed_before_date_nav/);
+  assert.doesNotMatch(nativeReadyGateOverlay, /const prewarm = await startNativeVideoDateDailyPrewarm\(\{[^}]*source: 'ready_gate_prepare_success'/);
+  assert.doesNotMatch(nativeReadyStandalone, /const prewarm = await startNativeVideoDateDailyPrewarm/);
   assert.match(nativeReadyGateOverlay, /if \(exhausted\) \{[\s\S]*prepareEntryHandoffStartedRef\.current = false/);
   assert.match(nativeReadyGateOverlay, /if \(exhausted\) \{[\s\S]*setPrepareEntryStatus\('failed'\)/);
   assert.match(nativeReadyGateOverlay, /catch \(error\) \{[\s\S]*prepareEntryHandoffStartedRef\.current = false[\s\S]*PREPARE_ENTRY_CLIENT_EXCEPTION/);

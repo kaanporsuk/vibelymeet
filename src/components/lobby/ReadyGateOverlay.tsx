@@ -1212,48 +1212,60 @@ const ReadyGateOverlay = ({
           if (!isCurrentPrepareRun()) return;
           if (result.ok === true) {
             if (user?.id) {
+              const prewarmUserId = user.id;
               const prewarmMedia = permissionPrewarmMediaRef.current;
-              const prewarm = await startWebVideoDateDailyPrewarm({
+              void startWebVideoDateDailyPrewarm({
                 sessionId,
-                userId: user.id,
+                userId: prewarmUserId,
                 eventId,
                 roomName: result.data.room_name,
                 roomUrl: result.data.room_url,
                 captureProfile: prewarmMedia?.captureProfile,
                 appAcquiredMedia: prewarmMedia,
                 source: "ready_gate_prepare_success",
-              });
-              if (
-                prewarm.ok === true &&
-                prewarmMedia &&
-                prewarm.entry.appAcquiredMedia?.stream === prewarmMedia.stream
-              ) {
-                permissionPrewarmMediaRef.current = null;
-                clearPermissionPrewarmMediaReleaseTimer();
-                clearWebVideoDateMediaHandoff(sessionId, user.id);
-                permissionPrewarmMediaHandoffStoredRef.current = false;
-              }
-              vdbg("ready_gate_daily_prewarm_prepare_success", {
-                sessionId,
-                eventId,
-                userId: user.id,
-                roomName: result.data.room_name,
-                ok: prewarm.ok,
-                reason: prewarm.ok === true ? null : prewarm.reason,
-                appAcquiredMedia: prewarm.ok === true ? Boolean(prewarm.entry.appAcquiredMedia) : false,
-              });
-              // Pre-authenticate only — do NOT join Daily from the lobby. The
-              // real join (which starts the backend handshake clock) is owned by
-              // /date (useVideoCall.startCall), so the full warm-up window only
-              // begins once the user is on the stable date route.
-              void preAuthWebVideoDateDailyPrewarm({
-                sessionId,
-                userId: user.id,
-                eventId,
-                roomName: result.data.room_name,
-                roomUrl: result.data.room_url,
-                token: result.data.token,
-                source: "ready_gate_prepare_success",
+              }).then((prewarm) => {
+                if (
+                  prewarm.ok === true &&
+                  prewarmMedia &&
+                  prewarm.entry.appAcquiredMedia?.stream === prewarmMedia.stream
+                ) {
+                  permissionPrewarmMediaRef.current = null;
+                  clearPermissionPrewarmMediaReleaseTimer();
+                  clearWebVideoDateMediaHandoff(sessionId, prewarmUserId);
+                  permissionPrewarmMediaHandoffStoredRef.current = false;
+                }
+                vdbg("ready_gate_daily_prewarm_prepare_success", {
+                  sessionId,
+                  eventId,
+                  userId: prewarmUserId,
+                  roomName: result.data.room_name,
+                  ok: prewarm.ok,
+                  reason: prewarm.ok === true ? null : prewarm.reason,
+                  appAcquiredMedia: prewarm.ok === true ? Boolean(prewarm.entry.appAcquiredMedia) : false,
+                });
+                if (prewarm.ok === true) {
+                  // Pre-authenticate only — do NOT join Daily from the lobby. The
+                  // real join (which starts the backend handshake clock) is owned by
+                  // /date (useVideoCall.startCall), so the full warm-up window only
+                  // begins once the user is on the stable date route.
+                  void preAuthWebVideoDateDailyPrewarm({
+                    sessionId,
+                    userId: prewarmUserId,
+                    eventId,
+                    roomName: result.data.room_name,
+                    roomUrl: result.data.room_url,
+                    token: result.data.token,
+                    source: "ready_gate_prepare_success",
+                  });
+                }
+              }).catch((error) => {
+                vdbg("ready_gate_daily_prewarm_prepare_success_failed", {
+                  sessionId,
+                  eventId,
+                  userId: prewarmUserId,
+                  roomName: result.data.room_name,
+                  error: error instanceof Error ? { name: error.name, message: error.message } : String(error),
+                });
               });
             }
             if (!isCurrentPrepareRun()) return;

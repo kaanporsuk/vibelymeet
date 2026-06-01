@@ -304,28 +304,37 @@ export default function ReadyGateScreen() {
           }
           return false;
         }
-        const prewarm = await startNativeVideoDateDailyPrewarm({
+        void startNativeVideoDateDailyPrewarm({
           sessionId: sid,
           userId: user.id,
           eventId: eventId ?? null,
           roomName: prepared.data.room_name,
           roomUrl: prepared.data.room_url,
           source: `ready_standalone_${source}`,
-        });
-        if (prewarm.ok) {
-          // Pre-authenticate only — do NOT join Daily from the ready route. The
-          // real join (which starts the backend handshake clock) is owned by
-          // /date (useVideoCall.startCall) so the warm-up window starts there.
-          void preAuthNativeVideoDateDailyPrewarm({
-            sessionId: sid,
-            userId: user.id,
-            eventId: eventId ?? null,
-            roomName: prepared.data.room_name,
-            roomUrl: prepared.data.room_url,
-            token: prepared.data.token,
-            source: `ready_standalone_${source}`,
+        }).then((prewarm) => {
+          if (prewarm.ok) {
+            // Pre-authenticate only — do NOT join Daily from the ready route. The
+            // real join (which starts the backend handshake clock) is owned by
+            // /date (useVideoCall.startCall) so the warm-up window starts there.
+            void preAuthNativeVideoDateDailyPrewarm({
+              sessionId: sid,
+              userId: user.id,
+              eventId: eventId ?? null,
+              roomName: prepared.data.room_name,
+              roomUrl: prepared.data.room_url,
+              token: prepared.data.token,
+              source: `ready_standalone_${source}`,
+            });
+          }
+        }).catch((error) => {
+          rcBreadcrumb(RC_CATEGORY.readyGate, 'standalone_daily_prewarm_failed_before_date_nav', {
+            session_id: sid,
+            user_id: user.id,
+            event_id: eventId,
+            source,
+            error: error instanceof Error ? error.message : String(error),
           });
-        }
+        });
         rcBreadcrumb(RC_CATEGORY.readyGate, 'standalone_navigate_to_date', {
           session_id: sid,
           source,
