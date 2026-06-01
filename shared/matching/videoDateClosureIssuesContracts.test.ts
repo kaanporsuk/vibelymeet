@@ -14,6 +14,10 @@ const flowHardeningFollowupsMigration = readFileSync(
   "supabase/migrations/20260602000000_video_date_flow_hardening_followups.sql",
   "utf8",
 );
+const definitiveFlowHardeningMigration = readFileSync(
+  "supabase/migrations/20260602010000_video_date_definitive_flow_hardening.sql",
+  "utf8",
+);
 const packageJson = readFileSync("package.json", "utf8");
 const requiredCertificationGate = readFileSync("scripts/certify-video-date-required.mjs", "utf8");
 const runtimeRlsEnvGuard = readFileSync("scripts/require-video-date-runtime-rls-env.mjs", "utf8");
@@ -137,6 +141,8 @@ test("video-date browser Edge functions reject unapproved origins through shared
   assert.match(dailyRoomFunction, /from "\.\.\/_shared\/cors\.ts"/);
   assert.match(dailyRoomFunction, /preflightResponse\(req\)/);
   assert.match(dailyRoomFunction, /isBrowserOriginRejected\(req\)/);
+  assert.doesNotMatch(dailyRoomFunction, /Access-Control-Allow-Origin['"]:\s*['"]\*/);
+  assert.match(dailyRoomFunction, /const corsHeaders = corsHeadersForRequest\(req\)/);
   assert.match(dailyRoomFunction, /ORIGIN_NOT_ALLOWED/);
 });
 
@@ -146,6 +152,27 @@ test("video-date SQL followups remove Ready Gate anon execute and gate legacy ex
   assert.match(flowHardeningFollowupsMigration, /evaluate_client_feature_flag\(/);
   assert.match(flowHardeningFollowupsMigration, /missing_idempotency_key/);
   assert.match(flowHardeningFollowupsMigration, /REVOKE ALL ON FUNCTION public\.spend_video_date_credit_extension\(uuid, text, text\) FROM PUBLIC, anon/);
+});
+
+test("definitive flow hardening activates core flags and keeps legacy extension retries idempotent", () => {
+  for (const flag of [
+    "video_date.readiness_v2",
+    "video_date.broadcast_v2",
+    "video_date.timeline_v2",
+    "video_date.extension_mutual_v2",
+    "video_date.outbox_v2.extension",
+    "video_date.daily_token_refresh_v2",
+    "video_date.multi_device_dedup_v2",
+  ]) {
+    assert.match(definitiveFlowHardeningMigration, new RegExp(flag.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+  }
+  assert.match(definitiveFlowHardeningMigration, /enabled = true/);
+  assert.match(definitiveFlowHardeningMigration, /rollout_bps = 10000/);
+  assert.doesNotMatch(definitiveFlowHardeningMigration, /'video_date\.daily_pool_v2'/);
+  assert.match(definitiveFlowHardeningMigration, /legacy-no-key-v1:/);
+  assert.match(definitiveFlowHardeningMigration, /legacy_idempotency/);
+  assert.match(definitiveFlowHardeningMigration, /NOT v_client_supplied_key/);
+  assert.doesNotMatch(definitiveFlowHardeningMigration, /missing_idempotency_key/);
 });
 
 test("web lobby visibly disables pairing controls when readiness blocks pairing", () => {
