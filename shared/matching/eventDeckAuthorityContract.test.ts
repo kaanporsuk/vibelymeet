@@ -171,14 +171,34 @@ test("web, native, and edge clients pass deck tokens and stop retrying terminal 
   assert.match(swipeActions, /p_deck_token: normalizedDeckToken/);
 
   assert.match(webLobby, /TERMINAL_VISIBLE_CARD_MARK_ERRORS/);
+  assert.match(webLobby, /VISIBLE_CARD_MARK_MAX_RETRIES = 5/);
+  assert.match(webLobby, /retryCount >= VISIBLE_CARD_MARK_MAX_RETRIES/);
   assert.match(webLobby, /p_deck_token: deckToken/);
   assert.match(webLobby, /currentProfile\?\.deck_token/);
+  assert.match(webLobby, /eventDeckVisibleCardKey\(eventId, viewerId, targetId, deckToken\)/);
+  assert.match(webLobby, /if \(cancelled \|\| visibleDeckMarkAttempts\.get\(key\) !== attemptId\) return;/);
   assert.match(webLobby, /event_deck_card_visible_mark_result/);
+  assert.match(webLobby, /event_deck_card_visible_terminal_removed/);
+  assert.match(webLobby, /const removeDeckProfileAfterTerminalVisibleMark = useCallback/);
+  assert.match(webLobby, /\(cachedTopProfile\.deck_token \?\? null\) !== expectedDeckToken/);
+  assert.match(webLobby, /skipReason = "stale_deck_token"/);
+  assert.match(webLobby, /if \(removed && shouldTopUpVideoDateDeck\(remainingVisible\)\) \{[\s\S]*invalidateQueries\(\{ queryKey: \["event-deck", eventId, user\?\.id\] \}\)/);
+  assert.match(webLobby, /if \(shouldRetryVisibleCardMark\(reason\)\) \{[\s\S]*scheduleRetry\(\);[\s\S]*\} else \{[\s\S]*removeDeckProfileAfterTerminalVisibleMark\(targetId, deckToken, reason\);/);
   assert.doesNotMatch(webTerminalVisibleErrorsSection, /not_current_top_card/);
   assert.match(nativeLobby, /TERMINAL_VISIBLE_CARD_MARK_ERRORS/);
+  assert.match(nativeLobby, /VISIBLE_CARD_MARK_MAX_RETRIES = 5/);
+  assert.match(nativeLobby, /retryCount >= VISIBLE_CARD_MARK_MAX_RETRIES/);
   assert.match(nativeLobby, /p_deck_token: deckToken/);
   assert.match(nativeLobby, /current\?\.deck_token/);
+  assert.match(nativeLobby, /eventDeckVisibleCardKey\(eventId, viewerId, targetId, deckToken\)/);
+  assert.match(nativeLobby, /if \(cancelled \|\| visibleDeckMarkAttempts\.get\(key\) !== attemptId\) return;/);
   assert.match(nativeLobby, /event_deck_card_visible_mark_result/);
+  assert.match(nativeLobby, /event_deck_card_visible_terminal_removed/);
+  assert.match(nativeLobby, /const removeDeckProfileAfterTerminalVisibleMark = useCallback/);
+  assert.match(nativeLobby, /\(cachedTopProfile\.deck_token \?\? null\) !== expectedDeckToken/);
+  assert.match(nativeLobby, /skipReason = 'stale_deck_token'/);
+  assert.match(nativeLobby, /if \(removed && shouldTopUpVideoDateDeck\(remainingVisible\)\) \{[\s\S]*scheduleDeckRefresh\('visible_mark_terminal_deck_empty', 0\)/);
+  assert.match(nativeLobby, /if \(shouldRetryVisibleCardMark\(reason\)\) \{[\s\S]*scheduleRetry\(\);[\s\S]*\} else \{[\s\S]*removeDeckProfileAfterTerminalVisibleMark\(targetId, deckToken, reason\);/);
   assert.doesNotMatch(nativeTerminalVisibleErrorsSection, /not_current_top_card/);
 });
 

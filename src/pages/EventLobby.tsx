@@ -90,6 +90,7 @@ import {
 } from "@clientShared/matching/videoDatePhase4Ux";
 
 const READY_GATE_MANUAL_EXIT_SUPPRESS_MS = 45_000;
+const VISIBLE_CARD_MARK_MAX_RETRIES = 5;
 const TERMINAL_VISIBLE_CARD_MARK_ERRORS = new Set([
   "event_not_active",
   "not_registered",
@@ -112,6 +113,15 @@ const TERMINAL_VISIBLE_CARD_MARK_ERRORS = new Set([
 
 function shouldRetryVisibleCardMark(reason: string | null | undefined): boolean {
   return !reason || !TERMINAL_VISIBLE_CARD_MARK_ERRORS.has(reason);
+}
+
+function eventDeckVisibleCardKey(
+  eventId: string,
+  viewerId: string,
+  targetId: string,
+  deckToken: string | null,
+): string {
+  return `${eventId}:${viewerId}:${targetId}:${deckToken ?? "legacy-tokenless"}`;
 }
 
 function gateFromDeckUiState(ui: EventDeckPhase4UiState): EventLobbyGateState {
@@ -1748,6 +1758,57 @@ const EventLobby = () => {
     [deckPrefetchPolishEnabled, eventId, profiles, queryClient, user?.id]
   );
 
+  const removeDeckProfileAfterTerminalVisibleMark = useCallback(
+    (targetId: string, expectedDeckToken: string | null, reason: string) => {
+      let remainingVisible = 0;
+      let removed = false;
+      let skipReason: string | null = null;
+      queryClient.setQueryData<EventDeckFetchResult>(
+        ["event-deck", eventId, user?.id, "deck_v3"],
+        (current) => {
+          if (!current) {
+            skipReason = "missing_deck_cache";
+            return current;
+          }
+          const cachedTopProfile = current.profiles[0] ?? null;
+          remainingVisible = current.profiles.length;
+          if (!cachedTopProfile || cachedTopProfile.id !== targetId) {
+            skipReason = "stale_top_card";
+            return current;
+          }
+          if ((cachedTopProfile.deck_token ?? null) !== expectedDeckToken) {
+            skipReason = "stale_deck_token";
+            return current;
+          }
+          const next = current.profiles.filter((profile) => profile.id !== targetId);
+          removed = true;
+          remainingVisible = next.length;
+          return {
+            ...current,
+            profiles: next,
+            deckState: {
+              ...current.deckState,
+              profile_count: next.length,
+            },
+          };
+        },
+      );
+      trackEvent("event_deck_card_visible_terminal_removed", {
+        platform: "web",
+        event_id: eventId,
+        reason,
+        remaining_visible: remainingVisible,
+        removed,
+        skip_reason: skipReason,
+        deck_token_present: Boolean(expectedDeckToken),
+      });
+      if (removed && shouldTopUpVideoDateDeck(remainingVisible)) {
+        void queryClient.invalidateQueries({ queryKey: ["event-deck", eventId, user?.id] });
+      }
+    },
+    [eventId, queryClient, user?.id],
+  );
+
   const restoreDeckProfileAfterOptimisticSwipe = useCallback(
     (profile: DeckProfile, swipeSequence: number | null = null) => {
       if (swipeSequence !== null && swipeSequence < optimisticSwipeSequenceRef.current) {
@@ -2116,8 +2177,8 @@ const EventLobby = () => {
     if (!deckEnabled || deckLoading || deckError || viewerIsPaused) return;
     if (lobbyGate.kind !== "live" || suppressDeckUiForConvergence) return;
 
-    const key = `${eventId}:${viewerId}:${targetId}`;
     const deckToken = currentProfile.deck_token ?? null;
+    const key = eventDeckVisibleCardKey(eventId, viewerId, targetId, deckToken);
     const visibleDeckMarkAttempts = visibleDeckMarkAttemptsRef.current;
     let cancelled = false;
     let retryTimer: number | undefined;
@@ -2125,7 +2186,7 @@ const EventLobby = () => {
     let activeAttemptId: number | null = null;
 
     function scheduleRetry() {
-      if (cancelled || retryCount >= 2 || typeof window === "undefined") return;
+      if (cancelled || retryCount >= VISIBLE_CARD_MARK_MAX_RETRIES || typeof window === "undefined") return;
       if (visibleDeckCardsRef.current.has(key)) return;
       retryCount += 1;
       retryTimer = window.setTimeout(markVisible, 1200 * retryCount);
@@ -2147,6 +2208,7 @@ const EventLobby = () => {
             p_target_id: targetId,
             p_deck_token: deckToken,
           } as never);
+          if (cancelled || visibleDeckMarkAttempts.get(key) !== attemptId) return;
           const result = data as { ok?: boolean; error?: string; reason?: string } | null;
           if (error || result?.ok === false) {
             const reason = error?.message ?? result?.error ?? result?.reason ?? "rpc_returned_not_ok";
@@ -2172,6 +2234,8 @@ const EventLobby = () => {
             });
             if (shouldRetryVisibleCardMark(reason)) {
               scheduleRetry();
+            } else {
+              removeDeckProfileAfterTerminalVisibleMark(targetId, deckToken, reason);
             }
             return;
           }
@@ -2187,6 +2251,7 @@ const EventLobby = () => {
             visibleDeckMarkAttempts.delete(key);
           }
         } catch (error) {
+          if (cancelled || visibleDeckMarkAttempts.get(key) !== attemptId) return;
           if (visibleDeckMarkAttempts.get(key) === attemptId) {
             visibleDeckMarkAttempts.delete(key);
           }
@@ -2234,6 +2299,7 @@ const EventLobby = () => {
     deckLoading,
     eventId,
     lobbyGate.kind,
+    removeDeckProfileAfterTerminalVisibleMark,
     suppressDeckUiForConvergence,
     user?.id,
     user?.isPaused,
