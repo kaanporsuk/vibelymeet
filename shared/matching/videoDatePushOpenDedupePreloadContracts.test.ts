@@ -9,7 +9,7 @@ const migration = readFileSync(
   "utf8",
 );
 const outboxProviderIdempotencyMigration = readFileSync(
-  join(root, "supabase/migrations/20260601234500_video_date_outbox_provider_idempotency.sql"),
+  join(root, "supabase/migrations/20260601184653_video_date_outbox_provider_idempotency.sql"),
   "utf8",
 );
 const sendNotification = readFileSync(join(root, "supabase/functions/send-notification/index.ts"), "utf8");

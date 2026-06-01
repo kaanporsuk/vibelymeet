@@ -7,7 +7,7 @@ const root = process.cwd();
 const read = (path: string) => readFileSync(join(root, path), "utf8");
 
 const migration = read("supabase/migrations/20260524090000_video_date_phase1_provider_reliability.sql");
-const tokenRefreshProviderLimitMigration = read("supabase/migrations/20260601235000_video_date_token_refresh_provider_rate_limit.sql");
+const tokenRefreshProviderLimitMigration = read("supabase/migrations/20260601184730_video_date_token_refresh_provider_rate_limit.sql");
 const helper = read("supabase/functions/_shared/video-date-provider-reliability.ts");
 const outboxDrainer = read("supabase/functions/video-date-outbox-drainer/index.ts");
 const deadlineFinalizer = read("supabase/functions/video-date-deadline-finalizer/index.ts");
