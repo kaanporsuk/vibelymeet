@@ -38,11 +38,7 @@ import {
   preflightResponse,
 } from "../_shared/cors.ts";
 
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers":
-    "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
-};
+type CorsHeaders = Record<string, string>;
 
 const DAILY_RUNTIME_CONFIG = resolveDailyRuntimeConfig({
   dailyApiKey: Deno.env.get("DAILY_API_KEY")?.trim(),
@@ -299,6 +295,7 @@ function createServerVideoDateTraceId(nowMs: number = Date.now()): string {
 function createDailyRoomHealthPingResponse(params: {
   requestStartedAt: number;
   edgeProcessUptimeMs: number;
+  corsHeaders: CorsHeaders;
   authTimingMs?: number | null;
   authenticatedUserId?: string | null;
   source?: unknown;
@@ -327,11 +324,11 @@ function createDailyRoomHealthPingResponse(params: {
       edge_process_uptime_ms: params.edgeProcessUptimeMs,
       timings,
     }),
-    { headers: { ...corsHeaders, "Content-Type": "application/json" } },
+    { headers: { ...params.corsHeaders, "Content-Type": "application/json" } },
   );
 }
 
-function createDailyConfigBlockedResponse(action: unknown, userId: string | null) {
+function createDailyConfigBlockedResponse(action: unknown, userId: string | null, corsHeaders: CorsHeaders) {
   const actionName = typeof action === "string" ? action : "unknown";
   console.error(JSON.stringify({
     event: "daily_config_blocked_request",
@@ -479,6 +476,7 @@ function retryAfterHeaderValue(retryAfterSeconds: number | null | undefined): st
 }
 
 function jsonHeadersWithRetryAfter(
+  corsHeaders: CorsHeaders,
   retryAfterSeconds: number | null | undefined,
   extra: Record<string, string> = {},
 ): Record<string, string> {
@@ -548,6 +546,7 @@ async function createDailyProviderFailureResponse(params: {
   action: DateRoomAction;
   sessionId: string | null | undefined;
   userId: string;
+  corsHeaders: CorsHeaders;
   requestContext: ClientRequestContext;
   session?: VideoDateRoomGateSession | null;
   entryAttemptId?: string | null;
@@ -590,6 +589,7 @@ async function createDailyProviderFailureResponse(params: {
     code: params.error.vibelyCode,
     error: params.error.clientMessage,
     message: params.error.clientMessage,
+    corsHeaders: params.corsHeaders,
     requestContext: params.requestContext,
     session: params.session,
     detail: params.error.message,
@@ -605,7 +605,12 @@ async function createDailyProviderFailureResponse(params: {
   });
 }
 
-function createGenericDailyProviderFailureResponse(error: DailyProviderError, action: string | null, userId: string | null) {
+function createGenericDailyProviderFailureResponse(
+  error: DailyProviderError,
+  action: string | null,
+  userId: string | null,
+  corsHeaders: CorsHeaders,
+) {
   logDailyProviderFailure(error, {
     action,
     userId,
@@ -620,13 +625,14 @@ function createGenericDailyProviderFailureResponse(error: DailyProviderError, ac
     }),
     {
       status: error.httpStatus,
-      headers: jsonHeadersWithRetryAfter(error.retryAfterSeconds),
+      headers: jsonHeadersWithRetryAfter(corsHeaders, error.retryAfterSeconds),
     },
   );
 }
 
 function createCallServiceProviderFailureResponse(
   providerError: DailyProviderError | null,
+  corsHeaders: CorsHeaders,
   fallbackCode = "TOKEN_ISSUE_FAILED",
 ): Response {
   const retryAfterSeconds = providerError?.retryAfterSeconds ?? null;
@@ -639,7 +645,7 @@ function createCallServiceProviderFailureResponse(
     }),
     {
       status: providerError?.httpStatus ?? 503,
-      headers: jsonHeadersWithRetryAfter(retryAfterSeconds),
+      headers: jsonHeadersWithRetryAfter(corsHeaders, retryAfterSeconds),
     },
   );
 }
@@ -697,6 +703,7 @@ function createDateRoomRejectResponse(params: {
   code: string;
   error: string;
   message?: string;
+  corsHeaders: CorsHeaders;
   requestContext: ClientRequestContext;
   session?: VideoDateRoomGateSession | null;
   detail?: string | null;
@@ -724,7 +731,7 @@ function createDateRoomRejectResponse(params: {
     }),
     {
       status: params.status,
-      headers: jsonHeadersWithRetryAfter(params.retryAfterSeconds),
+      headers: jsonHeadersWithRetryAfter(params.corsHeaders, params.retryAfterSeconds),
     },
   );
 }
@@ -803,6 +810,7 @@ function createBlockedDateRoomResponse(params: {
   action: DateRoomAction;
   sessionId: string | null | undefined;
   userId: string;
+  corsHeaders: CorsHeaders;
   requestContext: ClientRequestContext;
   session?: VideoDateRoomGateSession | null;
   detail?: string | null;
@@ -815,6 +823,7 @@ function createBlockedDateRoomResponse(params: {
     code: "BLOCKED_PAIR",
     error: "blocked_pair",
     message: "This call is no longer available.",
+    corsHeaders: params.corsHeaders,
     requestContext: params.requestContext,
     session: params.session,
     detail: params.detail,
@@ -827,6 +836,7 @@ function createBlockedMatchCallResponse(params: {
   peerId?: string | null;
   matchId?: string | null;
   callId?: string | null;
+  corsHeaders: CorsHeaders;
   detail?: string | null;
 }) {
   console.log(
@@ -850,7 +860,7 @@ function createBlockedMatchCallResponse(params: {
     }),
     {
       status: 403,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
+      headers: { ...params.corsHeaders, "Content-Type": "application/json" },
     },
   );
 }
@@ -1092,9 +1102,10 @@ async function maybeReturnBlockedDateSessionFallback(params: {
   action: DateRoomAction;
   sessionId: unknown;
   userId: string;
+  corsHeaders: CorsHeaders;
   requestContext: ClientRequestContext;
 }): Promise<Response | null> {
-  const { serviceClient, action, sessionId, userId, requestContext } = params;
+  const { serviceClient, action, sessionId, userId, corsHeaders, requestContext } = params;
   if (typeof sessionId !== "string" || !sessionId) return null;
 
   const { data, error } = await serviceClient
@@ -1119,6 +1130,7 @@ async function maybeReturnBlockedDateSessionFallback(params: {
       action,
       sessionId,
       userId,
+      corsHeaders,
       requestContext,
       session,
       detail: "service_role_participant_block_fallback",
@@ -1132,9 +1144,10 @@ async function maybeReturnBlockedMatchFallback(params: {
   serviceClient: SupabaseEdgeClient;
   matchId: unknown;
   userId: string;
+  corsHeaders: CorsHeaders;
   event: string;
 }): Promise<Response | null> {
-  const { serviceClient, matchId, userId, event } = params;
+  const { serviceClient, matchId, userId, corsHeaders, event } = params;
   if (typeof matchId !== "string" || !matchId) return null;
 
   const { data, error } = await serviceClient
@@ -1158,6 +1171,7 @@ async function maybeReturnBlockedMatchFallback(params: {
       userId,
       peerId,
       matchId,
+      corsHeaders,
       detail: "service_role_participant_block_fallback",
     });
   }
@@ -1169,9 +1183,10 @@ async function maybeReturnBlockedMatchCallFallback(params: {
   serviceClient: SupabaseEdgeClient;
   callId: unknown;
   userId: string;
+  corsHeaders: CorsHeaders;
   event: string;
 }): Promise<Response | null> {
-  const { serviceClient, callId, userId, event } = params;
+  const { serviceClient, callId, userId, corsHeaders, event } = params;
   if (typeof callId !== "string" || !callId) return null;
 
   const { data, error } = await serviceClient
@@ -1196,6 +1211,7 @@ async function maybeReturnBlockedMatchCallFallback(params: {
       peerId,
       matchId: call.match_id,
       callId,
+      corsHeaders,
       detail: "service_role_participant_block_fallback",
     });
   }
@@ -1593,6 +1609,7 @@ async function ensureVideoDateProviderRoomForToken(params: {
   sessionId: string;
   userId: string;
   session: VideoDateRoomGateSession;
+  corsHeaders: CorsHeaders;
   requestContext: ClientRequestContext;
   entryAttemptId?: string | null;
   videoDateTraceId?: string | null;
@@ -1876,6 +1893,7 @@ async function ensureVideoDateProviderRoomForToken(params: {
                 : persisted.code === "SESSION_NOT_FOUND"
                   ? "Session not found"
                   : "Could not persist video room metadata",
+          corsHeaders: params.corsHeaders,
           requestContext: params.requestContext,
           session: persisted.session ?? params.session,
           detail: persisted.detail,
@@ -2068,7 +2086,12 @@ async function fetchOpenMatchCallForMatch(
   return (data as OpenMatchCallForRetry | null) ?? null;
 }
 
-function createDuplicateActiveMatchCallResponse(matchId: string, callerId: string, calleeId?: string | null) {
+function createDuplicateActiveMatchCallResponse(
+  matchId: string,
+  callerId: string,
+  corsHeaders: CorsHeaders,
+  calleeId?: string | null,
+) {
   console.log(
     JSON.stringify({
       event: "create_match_call_rejected",
@@ -2095,6 +2118,7 @@ function createIncomingMatchCallAvailableResponse(
   matchId: string,
   callerId: string,
   calleeId: string,
+  corsHeaders: CorsHeaders,
 ) {
   console.log(
     JSON.stringify({
@@ -2129,6 +2153,7 @@ function createIncomingMatchCallAvailableResponse(
 
 async function maybeCreateMatchCallRetryResponse(params: {
   call: OpenMatchCallForRetry | null | undefined;
+  corsHeaders: CorsHeaders;
   request: {
     matchId: string;
     callerId: string;
@@ -2197,7 +2222,7 @@ async function maybeCreateMatchCallRetryResponse(params: {
         provider_room_recreated: providerRoom.providerRoomRecreated,
         provider_room_recovered: providerRoom.providerRoomRecovered,
       }),
-      { headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      { headers: { ...params.corsHeaders, "Content-Type": "application/json" } },
     );
   } catch (tokenErr) {
     const detail = tokenErr instanceof Error ? tokenErr.message : String(tokenErr);
@@ -2222,6 +2247,7 @@ async function maybeCreateMatchCallRetryResponse(params: {
     );
     return createCallServiceProviderFailureResponse(
       isDailyProviderError(tokenErr) ? tokenErr : null,
+      params.corsHeaders,
     );
   }
 }
@@ -2231,10 +2257,11 @@ serve(async (req) => {
   const edgeProcessUptimeMs = Math.max(0, requestStartedAt - EDGE_PROCESS_STARTED_AT_MS);
   if (req.method === "OPTIONS")
     return preflightResponse(req);
+  const corsHeaders = corsHeadersForRequest(req);
   if (isBrowserOriginRejected(req)) {
     return new Response(JSON.stringify({ error: "origin_not_allowed", code: "ORIGIN_NOT_ALLOWED" }), {
       status: 403,
-      headers: { ...corsHeadersForRequest(req), "Content-Type": "application/json" },
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   }
 
@@ -2262,6 +2289,7 @@ serve(async (req) => {
         return createDailyRoomHealthPingResponse({
           requestStartedAt,
           edgeProcessUptimeMs,
+          corsHeaders,
           source: body.source,
         });
       }
@@ -2304,6 +2332,7 @@ serve(async (req) => {
       return createDailyRoomHealthPingResponse({
         requestStartedAt,
         edgeProcessUptimeMs,
+        corsHeaders,
         authTimingMs,
         authenticatedUserId: user.id,
         source: body.source,
@@ -2311,7 +2340,7 @@ serve(async (req) => {
     }
 
     if (!DAILY_RUNTIME_CONFIG.ok && dailyConfigRequiredForAction(action)) {
-      return createDailyConfigBlockedResponse(action, user.id);
+      return createDailyConfigBlockedResponse(action, user.id, corsHeaders);
     }
 
     // ── ACTION: prepare_diagnostic_entry ──
@@ -2414,7 +2443,7 @@ serve(async (req) => {
           }),
           {
             status: providerError?.httpStatus ?? 503,
-            headers: jsonHeadersWithRetryAfter(providerError?.retryAfterSeconds, { "Cache-Control": "no-store" }),
+            headers: jsonHeadersWithRetryAfter(corsHeaders, providerError?.retryAfterSeconds, { "Cache-Control": "no-store" }),
           },
         );
       }
@@ -2434,6 +2463,7 @@ serve(async (req) => {
           status: 400,
           code: "MISSING_SESSION_ID",
           error: "Missing or invalid sessionId",
+          corsHeaders,
           requestContext,
         });
       }
@@ -2456,6 +2486,7 @@ serve(async (req) => {
           status: payload?.code === "SESSION_ENDED" ? 410 : payload?.code === "ACCESS_DENIED" ? 403 : 409,
           code: payload?.code ?? "VIDEO_DATE_LEAVE_FAILED",
           error: payload?.error ?? "Could not mark video date leave",
+          corsHeaders,
           requestContext,
           detail: error ? error.message : null,
         });
@@ -2623,6 +2654,7 @@ serve(async (req) => {
           status: 400,
           code: "MISSING_SESSION_ID",
           error: "Missing or invalid sessionId",
+          corsHeaders,
           requestContext,
         });
       }
@@ -2647,6 +2679,7 @@ serve(async (req) => {
             status: 404,
             code: "SESSION_NOT_FOUND",
             error: "Session not found",
+            corsHeaders,
             requestContext,
             detail: error ? error.message : null,
             extra: { entry_attempt_id: entryAttemptId, video_date_trace_id: videoDateTraceId },
@@ -2661,6 +2694,7 @@ serve(async (req) => {
             status: 403,
             code: "ACCESS_DENIED",
             error: "Access denied",
+            corsHeaders,
             requestContext,
             session,
             extra: { entry_attempt_id: entryAttemptId, video_date_trace_id: videoDateTraceId },
@@ -2673,6 +2707,7 @@ serve(async (req) => {
             action: actionName,
             sessionId,
             userId: user.id,
+            corsHeaders,
             requestContext,
             session,
             detail: "ensure_date_room_block_check",
@@ -2687,6 +2722,7 @@ serve(async (req) => {
             status: 410,
             code: "SESSION_ENDED",
             error: "Session has ended",
+            corsHeaders,
             requestContext,
             session,
             extra: { entry_attempt_id: entryAttemptId, video_date_trace_id: videoDateTraceId },
@@ -2716,6 +2752,7 @@ serve(async (req) => {
             status: 403,
             code: "READY_GATE_NOT_READY",
             error: "Ready Gate must be open before warming the room",
+            corsHeaders,
             requestContext,
             session,
             extra: {
@@ -2733,6 +2770,7 @@ serve(async (req) => {
           sessionId,
           userId: user.id,
           session,
+          corsHeaders,
           requestContext,
           entryAttemptId,
           videoDateTraceId,
@@ -2780,6 +2818,7 @@ serve(async (req) => {
             action: actionName,
             sessionId,
             userId: user.id,
+            corsHeaders,
             requestContext,
             session,
             entryAttemptId,
@@ -2793,6 +2832,7 @@ serve(async (req) => {
           status: 503,
           code: "DAILY_PROVIDER_ERROR",
           error: "Video service temporarily unavailable",
+          corsHeaders,
           requestContext,
           session,
           detail: error instanceof Error ? error.message : String(error),
@@ -2824,6 +2864,7 @@ serve(async (req) => {
           status: 400,
           code: "MISSING_SESSION_ID",
           error: "Missing or invalid sessionId",
+          corsHeaders,
           requestContext,
         });
       }
@@ -2848,6 +2889,7 @@ serve(async (req) => {
             status: 404,
             code: "SESSION_NOT_FOUND",
             error: "Session not found",
+            corsHeaders,
             requestContext,
             detail: error ? error.message : null,
             extra: { entry_attempt_id: entryAttemptId, video_date_trace_id: videoDateTraceId },
@@ -2862,6 +2904,7 @@ serve(async (req) => {
             status: 403,
             code: "ACCESS_DENIED",
             error: "Access denied",
+            corsHeaders,
             requestContext,
             session,
             extra: { entry_attempt_id: entryAttemptId, video_date_trace_id: videoDateTraceId },
@@ -2874,6 +2917,7 @@ serve(async (req) => {
             action: actionName,
             sessionId,
             userId: user.id,
+            corsHeaders,
             requestContext,
             session,
             detail: "prepare_solo_entry_block_check",
@@ -2888,6 +2932,7 @@ serve(async (req) => {
             status: 410,
             code: "SESSION_ENDED",
             error: "Session has ended",
+            corsHeaders,
             requestContext,
             session,
             extra: { entry_attempt_id: entryAttemptId, video_date_trace_id: videoDateTraceId },
@@ -2909,6 +2954,7 @@ serve(async (req) => {
               status: 409,
               code: "EVENT_NOT_ACTIVE",
               error: "Event is no longer active",
+              corsHeaders,
               requestContext,
               session,
               detail: inactiveReason ?? inactiveError?.message ?? null,
@@ -2932,6 +2978,7 @@ serve(async (req) => {
             error: soloGate.code === "READY_GATE_ALREADY_BOTH_READY"
               ? "Both participants are already ready"
               : "Caller must be ready before solo prejoin",
+            corsHeaders,
             requestContext,
             session,
             extra: {
@@ -2949,6 +2996,7 @@ serve(async (req) => {
           sessionId,
           userId: user.id,
           session,
+          corsHeaders,
           requestContext,
           entryAttemptId,
           videoDateTraceId,
@@ -3043,6 +3091,7 @@ serve(async (req) => {
             action: actionName,
             sessionId,
             userId: user.id,
+            corsHeaders,
             requestContext,
             session,
             entryAttemptId,
@@ -3056,6 +3105,7 @@ serve(async (req) => {
           status: 503,
           code: "DAILY_PROVIDER_ERROR",
           error: "Video service temporarily unavailable",
+          corsHeaders,
           requestContext,
           session,
           detail: error instanceof Error ? error.message : String(error),
@@ -3087,6 +3137,7 @@ serve(async (req) => {
           status: 400,
           code: "MISSING_SESSION_ID",
           error: "Missing or invalid sessionId",
+          corsHeaders,
           requestContext,
         });
       }
@@ -3147,6 +3198,7 @@ serve(async (req) => {
             status: statusForPrepareEntryCode(code),
             code,
             error: preparePayload?.error ?? "Could not prepare video date entry",
+            corsHeaders,
             requestContext,
             session: sessionForLog,
             detail: prepareError ? prepareError.message : null,
@@ -3181,6 +3233,7 @@ serve(async (req) => {
             status: 403,
             code: "ACCESS_DENIED",
             error: "Access denied",
+            corsHeaders,
             requestContext,
             session: sessionForLog,
             extra: { entry_attempt_id: entryAttemptId, video_date_trace_id: videoDateTraceId },
@@ -3210,6 +3263,7 @@ serve(async (req) => {
             action: actionName,
             sessionId,
             userId: user.id,
+            corsHeaders,
             requestContext,
             session: sessionForLog,
             detail: "service_role_post_prepare_block_check",
@@ -3264,6 +3318,7 @@ serve(async (req) => {
             status: 410,
             code: "SESSION_ENDED",
             error: "Session has ended",
+            corsHeaders,
             requestContext,
             session: sessionForLog,
             extra: { entry_attempt_id: entryAttemptId, video_date_trace_id: videoDateTraceId },
@@ -3285,6 +3340,7 @@ serve(async (req) => {
           sessionId,
           userId: user.id,
           session: sessionForLog,
+          corsHeaders,
           requestContext,
           entryAttemptId,
           videoDateTraceId,
@@ -3370,6 +3426,7 @@ serve(async (req) => {
             status: statusForPrepareEntryCode(code),
             code,
             error: confirmPayload?.error ?? "Could not persist date routing state",
+            corsHeaders,
             requestContext,
             session: sessionForLog,
             detail: confirmError instanceof Error ? confirmError.message : confirmError ? String(confirmError) : null,
@@ -3447,6 +3504,7 @@ serve(async (req) => {
             action: actionName,
             sessionId,
             userId: user.id,
+            corsHeaders,
             requestContext,
             session: sessionForLog,
             entryAttemptId,
@@ -3460,6 +3518,7 @@ serve(async (req) => {
           status: 503,
           code: "DAILY_PROVIDER_ERROR",
           error: "Video service temporarily unavailable",
+          corsHeaders,
           requestContext,
           session: sessionForLog,
           detail: error instanceof Error ? error.message : String(error),
@@ -3488,6 +3547,7 @@ serve(async (req) => {
             action,
             sessionId,
             userId: user.id,
+            corsHeaders,
             requestContext,
           });
           if (blockedFallback) return blockedFallback;
@@ -3499,6 +3559,7 @@ serve(async (req) => {
             status: 404,
             code: "SESSION_NOT_FOUND",
             error: "Session not found",
+            corsHeaders,
             requestContext,
           });
         }
@@ -3531,6 +3592,7 @@ serve(async (req) => {
             status: 403,
             code: "ACCESS_DENIED",
             error: "Access denied",
+            corsHeaders,
             requestContext,
             session,
             extra: { entry_attempt_id: entryAttemptId, video_date_trace_id: videoDateTraceId },
@@ -3560,6 +3622,7 @@ serve(async (req) => {
             action,
             sessionId,
             userId: user.id,
+            corsHeaders,
             requestContext,
             session,
           });
@@ -3590,6 +3653,7 @@ serve(async (req) => {
             status: 410,
             code: "SESSION_ENDED",
             error: "Session has ended",
+            corsHeaders,
             requestContext,
             session,
             extra: { entry_attempt_id: entryAttemptId, video_date_trace_id: videoDateTraceId },
@@ -3621,6 +3685,7 @@ serve(async (req) => {
             status: 403,
             code: "READY_GATE_NOT_READY",
             error: "Both participants must be ready before starting video",
+            corsHeaders,
             requestContext,
             session,
             extra: { entry_attempt_id: entryAttemptId, video_date_trace_id: videoDateTraceId },
@@ -3633,6 +3698,7 @@ serve(async (req) => {
           sessionId,
           userId: user.id,
           session,
+          corsHeaders,
           requestContext,
           entryAttemptId,
           videoDateTraceId,
@@ -3711,6 +3777,7 @@ serve(async (req) => {
             status: statusForPrepareEntryCode(code),
             code,
             error: confirmPayload?.error ?? "Could not persist date routing state",
+            corsHeaders,
             requestContext,
             session,
             detail: confirmError instanceof Error ? confirmError.message : confirmError ? String(confirmError) : null,
@@ -3746,6 +3813,7 @@ serve(async (req) => {
             action,
             sessionId,
             userId: user.id,
+            corsHeaders,
             requestContext,
             session,
             entryAttemptId,
@@ -3759,6 +3827,7 @@ serve(async (req) => {
           status: 503,
           code: "DAILY_PROVIDER_ERROR",
           error: "Video service temporarily unavailable",
+          corsHeaders,
           requestContext,
           session,
           detail: error instanceof Error ? error.message : String(error),
@@ -3787,6 +3856,7 @@ serve(async (req) => {
             action,
             sessionId,
             userId: user.id,
+            corsHeaders,
             requestContext,
           });
           if (blockedFallback) return blockedFallback;
@@ -3798,6 +3868,7 @@ serve(async (req) => {
             status: 404,
             code: "ROOM_NOT_FOUND",
             error: "Room not found",
+            corsHeaders,
             requestContext,
             session,
           });
@@ -3831,6 +3902,7 @@ serve(async (req) => {
             status: 403,
             code: "ACCESS_DENIED",
             error: "Access denied",
+            corsHeaders,
             requestContext,
             session,
             extra: { entry_attempt_id: entryAttemptId, video_date_trace_id: videoDateTraceId },
@@ -3860,6 +3932,7 @@ serve(async (req) => {
             action,
             sessionId,
             userId: user.id,
+            corsHeaders,
             requestContext,
             session,
           });
@@ -3890,6 +3963,7 @@ serve(async (req) => {
             status: 410,
             code: "SESSION_ENDED",
             error: "Session has ended",
+            corsHeaders,
             requestContext,
             session,
             extra: { entry_attempt_id: entryAttemptId, video_date_trace_id: videoDateTraceId },
@@ -3921,6 +3995,7 @@ serve(async (req) => {
             status: 403,
             code: "READY_GATE_NOT_READY",
             error: "Both participants must be ready before joining video",
+            corsHeaders,
             requestContext,
             session,
             extra: { entry_attempt_id: entryAttemptId, video_date_trace_id: videoDateTraceId },
@@ -3933,6 +4008,7 @@ serve(async (req) => {
           sessionId,
           userId: user.id,
           session,
+          corsHeaders,
           requestContext,
           entryAttemptId,
           videoDateTraceId,
@@ -4014,6 +4090,7 @@ serve(async (req) => {
             action,
             sessionId,
             userId: user.id,
+            corsHeaders,
             requestContext,
             session,
             entryAttemptId,
@@ -4027,6 +4104,7 @@ serve(async (req) => {
           status: 503,
           code: "DAILY_PROVIDER_ERROR",
           error: "Video service temporarily unavailable",
+          corsHeaders,
           requestContext,
           session,
           detail: error instanceof Error ? error.message : String(error),
@@ -4051,6 +4129,7 @@ serve(async (req) => {
           serviceClient,
           matchId,
           userId: user.id,
+          corsHeaders,
           event: "create_match_call_rejected",
         });
         if (blockedFallback) return blockedFallback;
@@ -4090,6 +4169,7 @@ serve(async (req) => {
           const retryRequest = { matchId, callerId: user.id, calleeId, callType: callTypeValue };
           const retryResponse = await maybeCreateMatchCallRetryResponse({
             call: gate.duplicateCall ?? null,
+            corsHeaders,
             request: retryRequest,
           });
           if (retryResponse) return retryResponse;
@@ -4099,9 +4179,10 @@ serve(async (req) => {
               matchId,
               user.id,
               calleeId,
+              corsHeaders,
             );
           }
-          return createDuplicateActiveMatchCallResponse(matchId, user.id, calleeId);
+          return createDuplicateActiveMatchCallResponse(matchId, user.id, corsHeaders, calleeId);
         }
         console.log(
           JSON.stringify({
@@ -4160,6 +4241,7 @@ serve(async (req) => {
         );
         return createCallServiceProviderFailureResponse(
           isDailyProviderError(tokenErr) ? tokenErr : null,
+          corsHeaders,
         );
       }
 
@@ -4185,6 +4267,7 @@ serve(async (req) => {
           const retryRequest = { matchId, callerId: user.id, calleeId, callType: callTypeValue };
           const retryResponse = await maybeCreateMatchCallRetryResponse({
             call: existingCall,
+            corsHeaders,
             request: retryRequest,
           });
           if (retryResponse) return retryResponse;
@@ -4194,6 +4277,7 @@ serve(async (req) => {
               matchId,
               user.id,
               calleeId,
+              corsHeaders,
             );
           }
           console.log(
@@ -4205,7 +4289,7 @@ serve(async (req) => {
               caller_id: user.id,
             }),
           );
-          return createDuplicateActiveMatchCallResponse(matchId, user.id, calleeId);
+          return createDuplicateActiveMatchCallResponse(matchId, user.id, corsHeaders, calleeId);
         }
         console.error(
           JSON.stringify({
@@ -4309,6 +4393,7 @@ serve(async (req) => {
           serviceClient,
           callId: targetCallId,
           userId: user.id,
+          corsHeaders,
           event: "join_match_call_rejected",
         });
         if (blockedFallback) return blockedFallback;
@@ -4337,6 +4422,7 @@ serve(async (req) => {
           peerId,
           matchId: call.match_id,
           callId: call.id,
+          corsHeaders,
         });
       }
 
@@ -4417,6 +4503,7 @@ serve(async (req) => {
         );
         return createCallServiceProviderFailureResponse(
           isDailyProviderError(tokenErr) ? tokenErr : null,
+          corsHeaders,
         );
       }
 
@@ -4459,6 +4546,7 @@ serve(async (req) => {
           serviceClient,
           callId: targetCallId,
           userId: user.id,
+          corsHeaders,
           event: "answer_match_call_rejected",
         });
         if (blockedFallback) return blockedFallback;
@@ -4487,6 +4575,7 @@ serve(async (req) => {
           peerId,
           matchId: call.match_id,
           callId: call.id,
+          corsHeaders,
         });
       }
 
@@ -4631,6 +4720,7 @@ serve(async (req) => {
         }
         return createCallServiceProviderFailureResponse(
           isDailyProviderError(tokenErr) ? tokenErr : null,
+          corsHeaders,
         );
       }
 
@@ -4658,6 +4748,7 @@ serve(async (req) => {
         error,
         actionForLog,
         userIdForLog,
+        corsHeaders,
       );
     }
     const detail = error instanceof Error ? error.message : String(error);
