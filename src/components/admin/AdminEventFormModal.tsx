@@ -785,7 +785,7 @@ const AdminEventFormModal = ({ event, onClose }: AdminEventFormModalProps) => {
             id: `admin-event-save-${result.id}`,
             title: createdAsDraft ? "Draft event saved" : "Event created successfully",
             description: createdAsDraft
-              ? "The event is not discoverable until it is published."
+              ? "The event stays private to admins until it is published."
               : "The event list and discover feeds are refreshing.",
           });
           if (!createdAsDraft) await sendCreatedAnnouncement();
@@ -1589,7 +1589,7 @@ const AdminEventFormModal = ({ event, onClose }: AdminEventFormModalProps) => {
               className="gap-2"
             >
               {(saveEvent.isPending || isGenerating) ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-              Save as Draft
+              Save Unpublished Draft
             </Button>
           )}
           <Button type="submit" form={formId} disabled={saveEvent.isPending || isGenerating}

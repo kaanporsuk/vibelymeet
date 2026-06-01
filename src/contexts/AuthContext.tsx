@@ -78,6 +78,30 @@ const SessionContext = createContext<SessionContextType | undefined>(undefined);
 const ProfileContext = createContext<ProfileContextType | undefined>(undefined);
 const BOOT_TIMEOUT_MS = 9_000;
 const AUTH_SESSION_TIMEOUT_MS = 5_000;
+const AUTH_SCOPED_EVENT_QUERY_KEYS = [
+  ["event-details"],
+  ["event-deck"],
+  ["events"],
+  ["visible-events"],
+  ["events-discover"],
+  ["other-city-events"],
+  ["next-event"],
+  ["next-registered-event"],
+  ["event-registration-check"],
+  ["event-attendees"],
+  ["event-attendee-preview"],
+  ["event-vibes-sent"],
+  ["event-vibes-received"],
+  ["registered-events-for-reminders"],
+  ["registered-upcoming-events-invite"],
+  ["user-registrations"],
+] as const;
+
+function clearAuthScopedEventQueries() {
+  for (const queryKey of AUTH_SCOPED_EVENT_QUERY_KEYS) {
+    queryClient.removeQueries({ queryKey: [...queryKey] });
+  }
+}
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -238,6 +262,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (!nextUserId) {
           clearPreparedVideoDateEntryCache();
           clearMyLocationDataCache();
+          clearAuthScopedEventQueries();
           void clearFeatureFlagState();
           setEntryState(null);
           setEntryStateLoading(false);
@@ -246,6 +271,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (nextUserId !== previousUserId) {
           clearPreparedVideoDateEntryCache();
           clearMyLocationDataCache();
+          clearAuthScopedEventQueries();
           if (previousUserId) {
             void clearFeatureFlagState();
           } else {
@@ -645,6 +671,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const userId = currentUserId;
     clearPreparedVideoDateEntryCache();
     clearMyLocationDataCache();
+    clearAuthScopedEventQueries();
     removeAllRealtimeChannels(supabase, "logout");
     if (userId) {
       try {

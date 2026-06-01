@@ -103,7 +103,7 @@ test("drain_match_queue_v2 uses non-blocking advisory locks and exposes lock_bus
   );
 });
 
-test("deck v3 emits canonical deck states while adapters keep legacy aliases safe", () => {
+test("deck v3 emits canonical deck states while adapters keep aliases and granular empty states safe", () => {
   for (const reason of ["has_profiles", "event_not_active", "not_registered", "viewer_paused", "no_remaining_profiles"]) {
     assert.match(deckV3Section, new RegExp(reason));
   }
@@ -118,7 +118,7 @@ test("deck v3 emits canonical deck states while adapters keep legacy aliases saf
   );
   assert.match(eventProfileAdapters, /"has_profiles"/);
   assert.match(eventProfileAdapters, /value === "ready"[\s\S]+return "has_profiles"/);
-  assert.match(eventProfileAdapters, /value === "no_confirmed_candidates" \|\| value === "scan_window_exhausted"[\s\S]+return "no_remaining_profiles"/);
+  assert.doesNotMatch(eventProfileAdapters, /value === "no_confirmed_candidates" \|\| value === "scan_window_exhausted"[\s\S]+return "no_remaining_profiles"/);
 
   assert.equal(
     parseEventDeckResponse({ ok: true, profiles: [], deck_state: { reason: "ready" } }).deckState.reason,
@@ -126,11 +126,11 @@ test("deck v3 emits canonical deck states while adapters keep legacy aliases saf
   );
   assert.equal(
     parseEventDeckResponse({ ok: true, profiles: [], deck_state: { reason: "no_confirmed_candidates" } }).deckState.reason,
-    "no_remaining_profiles",
+    "no_confirmed_candidates",
   );
   assert.equal(
     parseEventDeckResponse({ ok: true, profiles: [], deck_state: { reason: "scan_window_exhausted" } }).deckState.reason,
-    "no_remaining_profiles",
+    "scan_window_exhausted",
   );
   assert.equal(
     parseEventDeckResponse({ ok: true, profiles: [], deck_state: { reason: "viewer_paused" } }).deckState.reason,

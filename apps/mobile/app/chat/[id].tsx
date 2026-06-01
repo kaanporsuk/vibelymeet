@@ -45,9 +45,16 @@ import * as WebBrowser from 'expo-web-browser';
 import {
   useAudioRecorder,
   setAudioModeAsync,
+  getRecordingPermissionsAsync,
   requestRecordingPermissionsAsync,
 } from 'expo-audio';
-import { useVideoPlayer, VideoView, type VideoPlayerStatus, type VideoSource } from 'expo-video';
+import {
+  createVideoPlayer,
+  useVideoPlayer,
+  VideoView,
+  type VideoPlayerStatus,
+  type VideoSource,
+} from 'expo-video';
 import { ensureVoicePlaybackAudioMode } from '@/lib/safeAudioMode';
 import Colors from '@/constants/Colors';
 import { ErrorState } from '@/components/ui';
@@ -109,6 +116,7 @@ import { useConnectivity } from '@/lib/useConnectivity';
 import { useReduceMotion } from '@/hooks/useReduceMotion';
 import { chatFriendlyErrorFromUnknown, isLikelyNetworkFailure } from '@/lib/networkErrorMessage';
 import { openPermissionSettings, useSettingsReturnRefresh } from '@/lib/permissionSettings';
+import { getDocumentAsyncSafe, isDocumentPickerAvailable } from '@/lib/safeDocumentPicker';
 import { avatarUrl } from '@/lib/imageUrl';
 import { getChatPartnerActivityLine } from '@/lib/chatActivityStatus';
 import { supabase } from '@/lib/supabase';
@@ -253,35 +261,119 @@ const COMPOSER_INPUT_MAX_HEIGHT = 120;
 const MEDIA_CARD_MIN_WIDTH = 150;
 const MEDIA_CARD_MAX_WIDTH = 280;
 const VOICE_RECORDING_BARS = [0.3, 0.62, 0.42, 0.75, 0.38, 0.58, 0.48, 0.82, 0.34, 0.7, 0.46, 0.64];
+const LOCAL_VIDEO_METADATA_TIMEOUT_MS = 2500;
+
+type PickedVideoAssetLike = {
+  uri: string;
+  type?: string | null;
+  mimeType?: string | null;
+  fileName?: string | null;
+  name?: string | null;
+  duration?: number | null;
+  width?: number | null;
+  height?: number | null;
+  fileSize?: number | null;
+  size?: number | null;
+};
 
 function formatVoiceRecordingDuration(seconds: number): string {
   const safeSeconds = Math.max(0, Math.floor(Number.isFinite(seconds) ? seconds : 0));
   return `${Math.floor(safeSeconds / 60)}:${(safeSeconds % 60).toString().padStart(2, '0')}`;
 }
 
-function isPickedVideoAsset(asset: ImagePicker.ImagePickerAsset): boolean {
-  if (asset.type === 'video') return true;
-  if (asset.mimeType?.startsWith('video/')) return true;
-  return /\.(mp4|m4v|mov|webm|avi|mkv)$/i.test(asset.fileName ?? asset.uri);
+function videoAssetNameOrUri(asset: PickedVideoAssetLike): string {
+  return asset.fileName ?? asset.name ?? asset.uri;
 }
 
-function imagePickerDurationSeconds(asset: ImagePicker.ImagePickerAsset): number | null {
+function isPickedVideoAsset(asset: PickedVideoAssetLike): boolean {
+  if (asset.type === 'video') return true;
+  if (asset.mimeType?.startsWith('video/')) return true;
+  return /\.(mp4|m4v|mov|webm|avi|mkv)$/i.test(videoAssetNameOrUri(asset));
+}
+
+function imagePickerDurationSeconds(asset: PickedVideoAssetLike): number | null {
   const durationMs = asset.duration;
   if (typeof durationMs !== 'number' || !Number.isFinite(durationMs) || durationMs <= 0) return null;
   return durationMs / 1000;
 }
 
-function aspectRatioForVideoAsset(asset: ImagePicker.ImagePickerAsset): number | undefined {
+function aspectRatioForVideoAsset(asset: PickedVideoAssetLike): number | undefined {
   return typeof asset.width === 'number' && typeof asset.height === 'number' && asset.height > 0
     ? asset.width / asset.height
     : undefined;
 }
 
+function positiveDurationSeconds(value: number | null | undefined): number | null {
+  return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : null;
+}
+
+async function playerDurationSecondsForVideoUri(uri: string): Promise<number | null> {
+  let player: ReturnType<typeof createVideoPlayer> | null = null;
+  let sourceSub: { remove: () => void } | null = null;
+  let statusSub: { remove: () => void } | null = null;
+
+  return new Promise((resolve) => {
+    let settled = false;
+    const cleanup = () => {
+      try {
+        sourceSub?.remove();
+      } catch {
+        // Best effort cleanup; metadata probing must not block sending.
+      }
+      try {
+        statusSub?.remove();
+      } catch {
+        // Best effort cleanup; metadata probing must not block sending.
+      }
+      try {
+        player?.release();
+      } catch {
+        // Shared object may already be released by the native layer.
+      }
+    };
+    const settle = (value: number | null) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      cleanup();
+      resolve(value);
+    };
+    const timeout = setTimeout(() => {
+      settle(positiveDurationSeconds(player?.duration));
+    }, LOCAL_VIDEO_METADATA_TIMEOUT_MS);
+
+    try {
+      player = createVideoPlayer({ uri });
+      sourceSub = player.addListener('sourceLoad', (event) => {
+        settle(positiveDurationSeconds(event.duration));
+      });
+      statusSub = player.addListener('statusChange', (event) => {
+        if (event.status === 'error') {
+          settle(null);
+          return;
+        }
+        if (event.status === 'readyToPlay') {
+          settle(positiveDurationSeconds(player?.duration));
+        }
+      });
+      const immediateDuration = positiveDurationSeconds(player.duration);
+      if (immediateDuration) settle(immediateDuration);
+    } catch {
+      settle(null);
+    }
+  });
+}
+
+async function durationSecondsForVideoAsset(asset: PickedVideoAssetLike): Promise<number | null> {
+  return imagePickerDurationSeconds(asset) ?? (await playerDurationSecondsForVideoUri(asset.uri));
+}
+
 async function fileSizeBytesForVideoAsset(
-  asset: ImagePicker.ImagePickerAsset,
+  asset: PickedVideoAssetLike,
   stableUri?: string,
 ): Promise<number | null> {
   if (typeof asset.fileSize === 'number' && Number.isFinite(asset.fileSize)) return asset.fileSize;
+  if (typeof asset.size === 'number' && Number.isFinite(asset.size)) return asset.size;
   const candidates = [stableUri, asset.uri].filter((uri): uri is string => !!uri);
   for (const uri of candidates) {
     try {
@@ -1461,11 +1553,13 @@ function NativeVibeClipCameraModal({
   onRecorded: (clip: NativeCapturedVibeClip) => Promise<void> | void;
 }) {
   const reduceMotion = useReduceMotion();
+  const { show: showCaptionDialog, dialog: captionDialog } = useVibelyDialog();
   const [camPermission, requestCamPermission, getCamPermission] = useCameraPermissions();
   const [micPermission, requestMicPermission, getMicPermission] = useMicrophonePermissions();
   const cameraRef = useRef<CameraView | null>(null);
   const startedAtRef = useRef<number | null>(null);
   const settingsOpenedRef = useRef(false);
+  const captionSettingsOpenedRef = useRef(false);
   const [stage, setStage] = useState<'idle' | 'recording' | 'preview'>('idle');
   const [facing, setFacing] = useState<CameraType>('front');
   const [recorded, setRecorded] = useState<{ uri: string; durationSeconds: number } | null>(null);
@@ -1476,6 +1570,9 @@ function NativeVibeClipCameraModal({
     stop: stopCaptionCapture,
     abort: abortCaptionCapture,
     reset: resetCaptionCapture,
+    refreshPermission: refreshCaptionPermission,
+    requestPermission: requestCaptionPermission,
+    permissionStatus: captionPermissionStatus,
     language: captionLanguage,
     unavailableReason: captionUnavailableReason,
   } = useNativeCaptionCapture('native_chat_vibe_clip_recorder');
@@ -1488,6 +1585,19 @@ function NativeVibeClipCameraModal({
     platform: Platform.OS === 'ios' ? 'ios' : Platform.OS === 'android' ? 'android' : 'native',
     mediaKind: permissionMediaKind,
   });
+  const captionPermissionCopy = resolvePermissionUx({
+    capability: 'speech_captions',
+    status: captionPermissionStatus,
+    platform: Platform.OS === 'ios' ? 'ios' : Platform.OS === 'android' ? 'android' : 'native',
+  });
+  const captionsReady = captionPermissionStatus === 'granted' && !captionUnavailableReason;
+  const recordHint = stage === 'recording'
+    ? captionsReady
+      ? 'Recording with captions'
+      : 'Recording without captions'
+    : captionsReady
+      ? `Tap to record (${VIBE_CLIP_MAX_DURATION_SEC}s, captions on)`
+      : `Tap to record (${VIBE_CLIP_MAX_DURATION_SEC}s)`;
 
   const reset = useCallback(() => {
     startedAtRef.current = null;
@@ -1516,6 +1626,13 @@ function NativeVibeClipCameraModal({
     source: 'native_chat_vibe_clip',
   });
 
+  useSettingsReturnRefresh({
+    enabled: visible,
+    wasOpenedRef: captionSettingsOpenedRef,
+    refresh: refreshCaptionPermission,
+    source: 'native_chat_vibe_clip_captions',
+  });
+
   const requestPermissions = useCallback(async () => {
     if (permissionStatus === 'blocked_settings') {
       settingsOpenedRef.current = true;
@@ -1529,6 +1646,34 @@ function NativeVibeClipCameraModal({
     await requestCamPermission();
     await requestMicPermission();
   }, [permissionStatus, refreshPermissions, requestCamPermission, requestMicPermission]);
+
+  const showCaptionPermissionPrompt = useCallback(() => {
+    showCaptionDialog({
+      title: captionPermissionCopy.title,
+      message: captionPermissionCopy.message,
+      variant: 'info',
+      primaryAction: {
+        label: captionPermissionCopy.primaryLabel,
+        onPress: () => {
+          if (captionPermissionCopy.primaryAction === 'open_settings') {
+            captionSettingsOpenedRef.current = true;
+            void openPermissionSettings('native_chat_vibe_clip_captions').then((opened) => {
+              if (!opened) {
+                captionSettingsOpenedRef.current = false;
+                void refreshCaptionPermission();
+              }
+            });
+            return;
+          }
+          void requestCaptionPermission();
+        },
+      },
+      secondaryAction: {
+        label: captionPermissionCopy.fallbackLabel ?? 'Continue without captions',
+        onPress: () => {},
+      },
+    });
+  }, [captionPermissionCopy, refreshCaptionPermission, requestCaptionPermission, showCaptionDialog]);
 
   const startRecording = useCallback(async () => {
     if (!hasPermission || !cameraRef.current || stage !== 'idle' || disabled) return;
@@ -1674,9 +1819,17 @@ function NativeVibeClipCameraModal({
                   <View style={styles.nativeClipRecordInner} />
                 </Pressable>
               )}
-              <Text style={styles.nativeClipHint}>
-                {stage === 'recording' ? 'Recording with captions' : `Tap to record (${VIBE_CLIP_MAX_DURATION_SEC}s)`}
-              </Text>
+              <Text style={styles.nativeClipHint}>{recordHint}</Text>
+              {stage !== 'recording' && captionPermissionStatus !== 'granted' && captionPermissionStatus !== 'unsupported' ? (
+                <Pressable
+                  onPress={showCaptionPermissionPrompt}
+                  accessibilityRole="button"
+                  accessibilityLabel="Enable captions for this Vibe Clip"
+                  hitSlop={10}
+                >
+                  <Text style={styles.nativeClipCaptionEnableText}>Enable captions</Text>
+                </Pressable>
+              ) : null}
             </View>
           </>
         ) : (
@@ -1696,6 +1849,7 @@ function NativeVibeClipCameraModal({
             />
           </View>
         )}
+        {captionDialog}
       </KeyboardAvoidingView>
     </Modal>
   );
@@ -1733,7 +1887,7 @@ export default function ChatThreadScreen() {
   const colorScheme = useColorScheme();
   const theme = Colors[colorScheme];
   const reduceMotion = useReduceMotion();
-  const [, requestPhotoCameraPermission] = useCameraPermissions();
+  const [, requestPhotoCameraPermission, getPhotoCameraPermission] = useCameraPermissions();
   const mediaCardWidth = useMemo(
     () => getAdaptiveChatMediaWidth(windowWidth),
     [windowWidth]
@@ -1811,6 +1965,8 @@ export default function ChatThreadScreen() {
   const voiceStopIntentRef = useRef<'send' | 'cancel' | null>(null);
   const voiceStopInFlightRef = useRef(false);
   const voiceStartInFlightRef = useRef(false);
+  const voiceSettingsOpenedRef = useRef(false);
+  const photoCameraSettingsOpenedRef = useRef(false);
   const screenMountedRef = useRef(true);
   const recordingRef = useRef(false);
   const [recording, setRecording] = useState(false);
@@ -1829,6 +1985,24 @@ export default function ChatThreadScreen() {
   const stickySnapRafRef = useRef<number | null>(null);
   const stickySnapUntilRef = useRef(0);
   const [visibleVibeClipMessageIds, setVisibleVibeClipMessageIds] = useState<Set<string> | null>(null);
+  const refreshVoicePermission = useCallback(async () => {
+    await getRecordingPermissionsAsync();
+  }, []);
+  const refreshPhotoCameraPermission = useCallback(async () => {
+    await getPhotoCameraPermission();
+  }, [getPhotoCameraPermission]);
+
+  useSettingsReturnRefresh({
+    wasOpenedRef: voiceSettingsOpenedRef,
+    refresh: refreshVoicePermission,
+    source: 'native_chat_voice_message',
+  });
+
+  useSettingsReturnRefresh({
+    wasOpenedRef: photoCameraSettingsOpenedRef,
+    refresh: refreshPhotoCameraPermission,
+    source: 'native_chat_photo_camera',
+  });
   const vibeClipViewabilityConfigRef = useRef({
     itemVisiblePercentThreshold: 45,
     minimumViewTime: 150,
@@ -3163,7 +3337,13 @@ export default function ChatThreadScreen() {
             label: copy.primaryLabel,
             onPress: () => {
               if (copy.primaryAction === 'open_settings') {
-                void openPermissionSettings('native_chat_voice_message');
+                voiceSettingsOpenedRef.current = true;
+                void openPermissionSettings('native_chat_voice_message').then((opened) => {
+                  if (!opened) {
+                    voiceSettingsOpenedRef.current = false;
+                    void refreshVoicePermission();
+                  }
+                });
                 return;
               }
               void startVoiceRecording();
@@ -3238,7 +3418,18 @@ export default function ChatThreadScreen() {
           title: copy.title,
           message: copy.message,
           variant: 'info',
-          primaryAction: { label: copy.primaryLabel, onPress: () => void openPermissionSettings('native_chat_voice_message_error') },
+          primaryAction: {
+            label: copy.primaryLabel,
+            onPress: () => {
+              voiceSettingsOpenedRef.current = true;
+              void openPermissionSettings('native_chat_voice_message_error').then((opened) => {
+                if (!opened) {
+                  voiceSettingsOpenedRef.current = false;
+                  void refreshVoicePermission();
+                }
+              });
+            },
+          },
           secondaryAction: { label: 'Not now', onPress: () => {} },
         });
         return;
@@ -3353,6 +3544,132 @@ export default function ChatThreadScreen() {
     setTimeout(() => setVoiceReplyHint(false), 2200);
   };
 
+  const enqueuePickedVibeClipVideo = async (asset: PickedVideoAssetLike) => {
+    if (!data?.matchId || !user?.id) return;
+    if (!isPickedVideoAsset(asset)) throw new Error(VIBE_CLIP_UPLOAD_INVALID_TYPE);
+    const durationSec = await durationSecondsForVideoAsset(asset);
+    if (durationSec == null) throw new Error(VIBE_CLIP_UPLOAD_DURATION_UNREADABLE);
+    if (durationSec > VIBE_CLIP_MAX_DURATION_SEC + 0.25) {
+      throw new Error(VIBE_CLIP_UPLOAD_TOO_LONG());
+    }
+    trackVibeClipEvent('clip_record_completed', {
+      capture_source: 'library',
+      duration_bucket: durationBucketFromSeconds(durationSec),
+      thread_bucket: threadBucketFromCount(displayMessages.length),
+      is_sender: true,
+    });
+    const videoMimeType = mimeForPayload('video', asset.mimeType ?? null, asset.fileName ?? asset.uri);
+    const stable = await copyUriToChatOutboxCache(
+      asset.uri,
+      extForPayload('video', videoMimeType, asset.fileName ?? asset.uri),
+    );
+    const sizeBytes = await fileSizeBytesForVideoAsset(asset, stable);
+    if (sizeBytes === 0) {
+      await cleanupOutboxCacheUri(stable);
+      throw new Error(VIBE_CLIP_UPLOAD_EMPTY_FILE);
+    }
+    if (typeof sizeBytes === 'number' && sizeBytes > VIBE_CLIP_MAX_SOURCE_BYTES) {
+      await cleanupOutboxCacheUri(stable);
+      throw new Error(VIBE_CLIP_UPLOAD_TOO_LARGE());
+    }
+    if (typeof sizeBytes === 'number' && sizeBytes > VIBE_CLIP_SOFT_SOURCE_BYTES) {
+      showAppDialog({
+        title: 'Vibe Clip',
+        message: VIBE_CLIP_UPLOAD_LARGE_SOFT_WARNING,
+        variant: 'info',
+        primaryAction: { label: 'OK', onPress: () => {} },
+      });
+    }
+    void enqueue({
+      matchId: data.matchId,
+      otherUserId: otherUserId ?? '',
+      payload: {
+        kind: 'video',
+        uri: stable,
+        durationSeconds: Math.max(1, Math.round(durationSec)),
+        mimeType: videoMimeType,
+        aspectRatio: aspectRatioForVideoAsset(asset),
+      },
+      threadBucket: sendThreadBucket,
+    });
+    trackVibeClipEvent('clip_send_attempted', {
+      capture_source: 'library',
+      duration_bucket: durationBucketFromSeconds(durationSec),
+      has_poster: false,
+      thread_bucket: threadBucketFromCount(displayMessages.length),
+      is_sender: true,
+    });
+  };
+
+  const showSavedVideoPickerError = (error: unknown) => {
+    const msg = chatFriendlyErrorFromUnknown(error, { isVibeClip: true });
+    if (isOffline && isLikelyNetworkFailure(error)) {
+      setVideoError(null);
+      return;
+    }
+    setVideoError(msg);
+    const lower = msg.toLowerCase();
+    const isPermissionError = lower.includes('permission') || lower.includes('denied') || lower.includes('access');
+    const chooseFileSupported = isDocumentPickerAvailable();
+    showAppDialog({
+      title: isPermissionError ? VIBE_CLIP_PERM_LIBRARY_TITLE : 'Vibe Clip',
+      message: isPermissionError
+        ? chooseFileSupported
+          ? 'Photo access is off for Vibely. Re-enable it in Settings, or choose a video file.'
+          : VIBE_CLIP_PERM_LIBRARY_MESSAGE
+        : msg,
+      variant: isPermissionError ? 'info' : 'warning',
+      primaryAction: isPermissionError
+        ? chooseFileSupported
+          ? { label: 'Choose file', onPress: () => void pickVideoFromDocument() }
+          : { label: 'Open Settings', onPress: () => void openPermissionSettings('native_chat_video_library') }
+        : { label: 'OK', onPress: () => {} },
+      secondaryAction: isPermissionError
+        ? chooseFileSupported
+          ? { label: 'Open Settings', onPress: () => void openPermissionSettings('native_chat_video_library') }
+          : { label: 'Not now', onPress: () => {} }
+        : chooseFileSupported
+          ? { label: 'Choose file', onPress: () => void pickVideoFromDocument() }
+          : undefined,
+    });
+  };
+
+  const pickVideoFromDocument = async () => {
+    if (!data?.matchId || !user?.id || composerInputLocked) return;
+    setVideoError(null);
+    try {
+      trackVibeClipEvent('clip_record_started', {
+        capture_source: 'library',
+        thread_bucket: threadBucketFromCount(displayMessages.length),
+        is_sender: true,
+      });
+      const result = await getDocumentAsyncSafe({
+        type: ['video/mp4', 'video/quicktime', 'video/webm', 'video/*'],
+        copyToCacheDirectory: true,
+      });
+      if (result === null) {
+        showAppDialog({
+          title: 'Choose File unavailable',
+          message: 'Rebuild the dev client after adding document picker, or choose a saved video from your library.',
+          variant: 'warning',
+          primaryAction: { label: 'OK', onPress: () => {} },
+        });
+        return;
+      }
+      if (result.canceled || !result.assets?.[0]?.uri) return;
+      const asset = result.assets[0];
+      await enqueuePickedVibeClipVideo({
+        uri: asset.uri,
+        mimeType: asset.mimeType ?? null,
+        fileName: asset.name,
+        name: asset.name,
+        size: asset.size ?? null,
+      });
+    } catch (e) {
+      showSavedVideoPickerError(e);
+    }
+  };
+
   const pickVideoFromLibrary = async () => {
     if (!data?.matchId || !user?.id || composerInputLocked) return;
     setVideoError(null);
@@ -3369,75 +3686,9 @@ export default function ChatThreadScreen() {
         videoMaxDuration: VIBE_CLIP_MAX_DURATION_SEC,
       });
       if (result.canceled || !result.assets?.[0]) return;
-      const asset = result.assets[0];
-      if (!isPickedVideoAsset(asset)) throw new Error(VIBE_CLIP_UPLOAD_INVALID_TYPE);
-      const durationSec = imagePickerDurationSeconds(asset);
-      if (durationSec == null) throw new Error(VIBE_CLIP_UPLOAD_DURATION_UNREADABLE);
-      if (durationSec > VIBE_CLIP_MAX_DURATION_SEC + 0.25) {
-        throw new Error(VIBE_CLIP_UPLOAD_TOO_LONG());
-      }
-      trackVibeClipEvent('clip_record_completed', {
-        capture_source: 'library',
-        duration_bucket: durationBucketFromSeconds(durationSec),
-        thread_bucket: threadBucketFromCount(displayMessages.length),
-        is_sender: true,
-      });
-      const videoMimeType = mimeForPayload('video', asset.mimeType ?? null, asset.fileName ?? asset.uri);
-      const stable = await copyUriToChatOutboxCache(asset.uri, extForPayload('video', videoMimeType, asset.fileName ?? asset.uri));
-      const sizeBytes = await fileSizeBytesForVideoAsset(asset, stable);
-      if (sizeBytes === 0) {
-        await cleanupOutboxCacheUri(stable);
-        throw new Error(VIBE_CLIP_UPLOAD_EMPTY_FILE);
-      }
-      if (typeof sizeBytes === 'number' && sizeBytes > VIBE_CLIP_MAX_SOURCE_BYTES) {
-        await cleanupOutboxCacheUri(stable);
-        throw new Error(VIBE_CLIP_UPLOAD_TOO_LARGE());
-      }
-      if (typeof sizeBytes === 'number' && sizeBytes > VIBE_CLIP_SOFT_SOURCE_BYTES) {
-        showAppDialog({
-          title: 'Vibe Clip',
-          message: VIBE_CLIP_UPLOAD_LARGE_SOFT_WARNING,
-          variant: 'info',
-          primaryAction: { label: 'OK', onPress: () => {} },
-        });
-      }
-      void enqueue({
-        matchId: data.matchId,
-        otherUserId: otherUserId ?? '',
-        payload: {
-          kind: 'video',
-          uri: stable,
-          durationSeconds: Math.max(1, Math.round(durationSec)),
-          mimeType: videoMimeType,
-          aspectRatio: aspectRatioForVideoAsset(asset),
-        },
-        threadBucket: sendThreadBucket,
-      });
-      trackVibeClipEvent('clip_send_attempted', {
-        capture_source: 'library',
-        duration_bucket: durationBucketFromSeconds(durationSec),
-        has_poster: false,
-        thread_bucket: threadBucketFromCount(displayMessages.length),
-        is_sender: true,
-      });
+      await enqueuePickedVibeClipVideo(result.assets[0]);
     } catch (e) {
-      const msg = chatFriendlyErrorFromUnknown(e, { isVibeClip: true });
-      if (!(isOffline && isLikelyNetworkFailure(e))) {
-        setVideoError(msg);
-        const lower = msg.toLowerCase();
-        const isPermissionError = lower.includes('permission') || lower.includes('denied') || lower.includes('access');
-        showAppDialog({
-          title: isPermissionError ? VIBE_CLIP_PERM_LIBRARY_TITLE : 'Vibe Clip',
-          message: isPermissionError ? VIBE_CLIP_PERM_LIBRARY_MESSAGE : msg,
-          variant: isPermissionError ? 'info' : 'warning',
-          primaryAction: isPermissionError
-            ? { label: 'Open Settings', onPress: () => void openPermissionSettings('native_chat_video_library') }
-            : { label: 'OK', onPress: () => {} },
-          secondaryAction: isPermissionError ? { label: 'Not now', onPress: () => {} } : undefined,
-        });
-      } else {
-        setVideoError(null);
-      }
+      showSavedVideoPickerError(e);
     }
   };
 
@@ -3616,6 +3867,47 @@ export default function ChatThreadScreen() {
     }
   };
 
+  const pickPhotoFromDocument = async () => {
+    if (!data?.matchId || !user?.id || composerInputLocked) return;
+    try {
+      const result = await getDocumentAsyncSafe({
+        type: ['image/jpeg', 'image/png', 'image/webp'],
+        copyToCacheDirectory: true,
+      });
+      if (result === null) {
+        showAppDialog({
+          title: 'Choose File unavailable',
+          message: 'Rebuild the dev client after adding document picker, or use Photo Library or Take Photo.',
+          variant: 'warning',
+          primaryAction: { label: 'OK', onPress: () => {} },
+        });
+        return;
+      }
+      if (result.canceled || !result.assets?.[0]?.uri) return;
+      const asset = result.assets[0];
+      if (asset.mimeType && !asset.mimeType.toLowerCase().startsWith('image/')) {
+        showAppDialog({
+          title: 'Not an image',
+          message: 'Please choose a JPEG, PNG, or WebP file.',
+          variant: 'warning',
+          primaryAction: { label: 'OK', onPress: () => {} },
+        });
+        return;
+      }
+      void uploadPhotoUriAndSend(asset.uri, asset.mimeType ?? null);
+    } catch (e) {
+      const msg = chatFriendlyErrorFromUnknown(e);
+      if (!(isOffline && isLikelyNetworkFailure(e))) {
+        showAppDialog({
+          title: 'Choose File',
+          message: msg,
+          variant: 'warning',
+          primaryAction: { label: 'OK', onPress: () => {} },
+        });
+      }
+    }
+  };
+
   const pickPhotoFromLibrary = async () => {
     if (!data?.matchId || !user?.id || composerInputLocked) return;
     try {
@@ -3630,14 +3922,27 @@ export default function ChatThreadScreen() {
       if (!(isOffline && isLikelyNetworkFailure(e))) {
         const lower = msg.toLowerCase();
         const isPermissionError = lower.includes('permission') || lower.includes('denied') || lower.includes('access');
+        const chooseFileSupported = isDocumentPickerAvailable();
         showAppDialog({
           title: isPermissionError ? 'Photos access' : 'Photo',
-          message: isPermissionError ? 'Photo access is off for Vibely. Re-enable it in Settings, or choose a file if available.' : msg,
+          message: isPermissionError
+            ? chooseFileSupported
+              ? 'Photo access is off for Vibely. Re-enable it in Settings, or choose a file.'
+              : 'Photo access is off for Vibely. Re-enable it in Settings, then try again.'
+            : msg,
           variant: isPermissionError ? 'info' : 'warning',
           primaryAction: isPermissionError
-            ? { label: 'Open Settings', onPress: () => void openPermissionSettings('native_chat_photo_library') }
+            ? chooseFileSupported
+              ? { label: 'Choose file', onPress: () => void pickPhotoFromDocument() }
+              : { label: 'Open Settings', onPress: () => void openPermissionSettings('native_chat_photo_library') }
             : { label: 'OK', onPress: () => {} },
-          secondaryAction: isPermissionError ? { label: 'Not now', onPress: () => {} } : undefined,
+          secondaryAction: isPermissionError
+            ? chooseFileSupported
+              ? { label: 'Open Settings', onPress: () => void openPermissionSettings('native_chat_photo_library') }
+              : { label: 'Not now', onPress: () => {} }
+            : chooseFileSupported
+              ? { label: 'Choose file', onPress: () => void pickPhotoFromDocument() }
+              : undefined,
         });
       }
     }
@@ -3665,7 +3970,13 @@ export default function ChatThreadScreen() {
             label: copy.primaryLabel,
             onPress: () => {
               if (copy.primaryAction === 'open_settings') {
-                void openPermissionSettings('native_chat_photo_camera');
+                photoCameraSettingsOpenedRef.current = true;
+                void openPermissionSettings('native_chat_photo_camera').then((opened) => {
+                  if (!opened) {
+                    photoCameraSettingsOpenedRef.current = false;
+                    void refreshPhotoCameraPermission();
+                  }
+                });
                 return;
               }
               void openPhotoCameraModal();
@@ -5923,6 +6234,11 @@ const styles = StyleSheet.create({
     color: 'rgba(255,255,255,0.72)',
     fontSize: 13,
     fontWeight: '600',
+  },
+  nativeClipCaptionEnableText: {
+    color: '#a78bfa',
+    fontSize: 13,
+    fontWeight: '800',
   },
   nativeClipPreviewScrim: {
     ...StyleSheet.absoluteFillObject,

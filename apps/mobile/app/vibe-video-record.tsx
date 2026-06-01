@@ -45,6 +45,7 @@ import { PermissionRecoveryCard } from '@/components/permissions/PermissionRecov
 import { useAuth } from '@/context/AuthContext';
 import { startNativeVibeVideoUpload } from '@/lib/mediaSdk/nativeVideoUploads';
 import { useReduceMotion } from '@/hooks/useReduceMotion';
+import { getDocumentAsyncSafe, isDocumentPickerAvailable } from '@/lib/safeDocumentPicker';
 import {
   permissionUxMediaKindForRequiredGrants,
   permissionUxStatusForRequiredGrants,
@@ -118,6 +119,8 @@ export default function VibeVideoRecordScreen() {
   const [captionModal, setCaptionModal] = useState(false);
   const [captionDraft, setCaptionDraft] = useState('');
   const [isConfirming, setIsConfirming] = useState(false);
+  const [recordIntentActive, setRecordIntentActive] = useState(sourceIntent !== 'library' && !libraryParam);
+  const chooseFileSupported = isDocumentPickerAvailable();
 
   // Seed caption from existing profile
   useEffect(() => {
@@ -134,6 +137,7 @@ export default function VibeVideoRecordScreen() {
     if (libraryParam && !libraryHandled.current) {
       libraryHandled.current = true;
       uploadSourceRef.current = 'library';
+      setRecordIntentActive(false);
       setRecordedUri(libraryParam);
       setStage('preview');
     }
@@ -158,7 +162,7 @@ export default function VibeVideoRecordScreen() {
     };
   }, [stage, recordedUri]);
 
-  const skipCameraPermission = !!libraryParam;
+  const skipCameraPermission = !recordIntentActive;
   const permissionStatus: PermissionUxStatus = permissionUxStatusForRequiredGrants([camPermission, micPermission]);
   const permissionMediaKind = permissionUxMediaKindForRequiredGrants(camPermission, micPermission);
   const permission = permissionStatus === 'granted';
@@ -240,11 +244,51 @@ export default function VibeVideoRecordScreen() {
     }
   };
 
-  const retake = () => {
+  const resetPreview = () => {
     setIsConfirming(false);
     uploadSourceRef.current = 'unknown';
     setRecordedUri(null);
     setStage('idle');
+  };
+
+  const pickFromDocument = async () => {
+    try {
+      const result = await getDocumentAsyncSafe({
+        type: ['video/mp4', 'video/quicktime', 'video/*'],
+        copyToCacheDirectory: true,
+      });
+      if (result === null) {
+        show({
+          title: 'Choose File unavailable',
+          message: 'Rebuild the dev client after adding document picker, or choose a saved video from your library.',
+          variant: 'warning',
+          primaryAction: { label: 'OK', onPress: () => {} },
+        });
+        return;
+      }
+      if (result.canceled || !result.assets?.[0]?.uri) return;
+      const asset = result.assets[0];
+      if (asset.mimeType && !asset.mimeType.toLowerCase().startsWith('video/')) {
+        show({
+          title: 'Not a video',
+          message: 'Please choose a video file.',
+          variant: 'warning',
+          primaryAction: { label: 'OK', onPress: () => {} },
+        });
+        return;
+      }
+      uploadSourceRef.current = 'library';
+      setRecordIntentActive(false);
+      setRecordedUri(asset.uri);
+      setStage('preview');
+    } catch (error) {
+      show({
+        title: 'Choose File',
+        message: error instanceof Error ? error.message : 'Could not open the file picker.',
+        variant: 'warning',
+        primaryAction: { label: 'OK', onPress: () => {} },
+      });
+    }
   };
 
   const pickFromLibrary = async () => {
@@ -256,6 +300,7 @@ export default function VibeVideoRecordScreen() {
       });
       if (result.canceled || !result.assets[0]?.uri) return;
       uploadSourceRef.current = 'library';
+      setRecordIntentActive(false);
       setRecordedUri(result.assets[0].uri);
       setStage('preview');
     } catch (error) {
@@ -264,15 +309,34 @@ export default function VibeVideoRecordScreen() {
       show({
         title: isPermissionError ? 'Video library access' : 'Video library',
         message: isPermissionError
-          ? 'Photo access is off for Vibely. Re-enable it in Settings, or choose another recording path.'
+          ? 'Photo access is off for Vibely. Re-enable it in Settings, or choose a video file.'
           : message,
         variant: isPermissionError ? 'info' : 'warning',
         primaryAction: isPermissionError
-          ? { label: 'Open Settings', onPress: () => void openPermissionSettings('profile_vibe_video_library') }
-          : { label: 'OK', onPress: () => {} },
-        secondaryAction: isPermissionError ? { label: 'Not now', onPress: () => {} } : undefined,
+          ? chooseFileSupported
+            ? { label: 'Choose file', onPress: () => void pickFromDocument() }
+            : { label: 'Open Settings', onPress: () => void openPermissionSettings('profile_vibe_video_library') }
+          : { label: 'Try again', onPress: () => void pickFromLibrary() },
+        secondaryAction: isPermissionError
+          ? chooseFileSupported
+            ? { label: 'Open Settings', onPress: () => void openPermissionSettings('profile_vibe_video_library') }
+            : { label: 'Not now', onPress: () => {} }
+          : chooseFileSupported
+            ? { label: 'Choose file', onPress: () => void pickFromDocument() }
+            : undefined,
       });
     }
+  };
+
+  const chooseDifferentVideo = () => {
+    const previousSource = uploadSourceRef.current;
+    resetPreview();
+    if (previousSource === 'library' || sourceIntent === 'library') {
+      setRecordIntentActive(false);
+      void pickFromLibrary();
+      return;
+    }
+    setRecordIntentActive(true);
   };
 
   // Auto-launch library picker when sourceIntent=library on onboarding
@@ -403,6 +467,28 @@ export default function VibeVideoRecordScreen() {
 
   // ── Permission gates ───────────────────────────────────────────────────────
 
+  if (!recordIntentActive && stage === 'idle' && !recordedUri) {
+    return (
+      <>
+        <View style={[styles.centered, { backgroundColor: theme.background }]}>
+          <PermissionRecoveryCard
+            testID="native-profile-vibe-video-library-card"
+            icon="cloud-upload-outline"
+            title="Choose a video"
+            message="Pick a saved video for your profile. Vibely only uses the video you choose."
+            primaryLabel="Choose saved video"
+            onPrimaryPress={() => void pickFromLibrary()}
+            fallbackLabel={chooseFileSupported ? 'Choose file' : undefined}
+            onFallbackPress={chooseFileSupported ? () => void pickFromDocument() : undefined}
+            secondaryLabel="Record instead"
+            onSecondaryPress={() => setRecordIntentActive(true)}
+          />
+        </View>
+        {dialog}
+      </>
+    );
+  }
+
   if (!camPermission && !skipCameraPermission) {
     return (
       <>
@@ -510,7 +596,7 @@ export default function VibeVideoRecordScreen() {
               </LinearGradient>
 
               <Pressable
-                onPress={retake}
+                onPress={chooseDifferentVideo}
                 disabled={isConfirming}
                 style={[styles.previewSecondaryPressable, isConfirming && styles.previewActionDisabled]}
               >

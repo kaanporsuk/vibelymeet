@@ -292,6 +292,49 @@ export async function syncWebPushRegistrationToBackend(userId: string): Promise<
 export async function requestWebPushPermissionAndSync(userId: string): Promise<PushSyncResult> {
   try {
     vibelyOsLog("requestWebPushPermission:start", { userIdTail: userId.slice(-6) });
+    const initialPermissionState = typeof Notification === "undefined" ? "unsupported" : Notification.permission;
+    if (initialPermissionState === "unsupported" || initialPermissionState === "denied") {
+      const result = syncResult("permission_denied");
+      recordPushDeliveryTelemetry("push_permission_prompt_result", {
+        platform: "web",
+        surface: "permission_request",
+        permission_state: initialPermissionState,
+        sdk_status: getOneSignalWebClientSnapshot().sdkStatus,
+        sync_result_code: result.code,
+      });
+      recordPushDeliveryTelemetry("push_registration_sync_result", {
+        platform: "web",
+        surface: "permission_request",
+        permission_state: initialPermissionState,
+        sdk_status: getOneSignalWebClientSnapshot().sdkStatus,
+        sync_result_code: result.code,
+        local_player_present: false,
+        backend_player_present: false,
+        backend_subscribed: false,
+      });
+      return result;
+    }
+    if (initialPermissionState === "granted") {
+      const result = await syncWebPushRegistrationToBackend(userId);
+      recordPushDeliveryTelemetry("push_permission_prompt_result", {
+        platform: "web",
+        surface: "permission_request",
+        permission_state: initialPermissionState,
+        sdk_status: getOneSignalWebClientSnapshot().sdkStatus,
+        sync_result_code: "prompt_granted",
+      });
+      recordPushDeliveryTelemetry("push_registration_sync_result", {
+        platform: "web",
+        surface: "permission_request",
+        permission_state: initialPermissionState,
+        sdk_status: getOneSignalWebClientSnapshot().sdkStatus,
+        sync_result_code: result.code,
+        local_player_present: Boolean(result.playerId),
+        backend_player_present: result.synced,
+        backend_subscribed: result.synced,
+      });
+      return result;
+    }
     initOneSignal();
     const granted = await promptForPush();
     vibelyOsLog("requestWebPushPermission:after promptForPush", { granted });

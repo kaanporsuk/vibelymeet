@@ -194,7 +194,10 @@ test("native chat photo flow uses a dedicated sheet and in-app switchable camera
   assert.match(nativeChat, /setShowPhotoOptionsSheet\(true\)/);
   assert.match(nativeChat, /runAfterPhotoSheetDismiss/);
   assert.match(nativeChat, /useCameraPermissions/);
-  assert.match(nativeChat, /const \[, requestPhotoCameraPermission\] = useCameraPermissions\(\)/);
+  assert.match(nativeChat, /const \[, requestPhotoCameraPermission, getPhotoCameraPermission\] = useCameraPermissions\(\)/);
+  assert.match(nativeChat, /const photoCameraSettingsOpenedRef = useRef\(false\)/);
+  assert.match(nativeChat, /const refreshPhotoCameraPermission = useCallback\(async \(\) => \{[\s\S]{0,120}await getPhotoCameraPermission\(\);[\s\S]{0,80}\}, \[getPhotoCameraPermission\]\)/);
+  assert.match(nativeChat, /useSettingsReturnRefresh\(\{[\s\S]{0,160}wasOpenedRef: photoCameraSettingsOpenedRef,[\s\S]{0,120}refresh: refreshPhotoCameraPermission,[\s\S]{0,120}source: 'native_chat_photo_camera'/);
   assert.match(nativeChat, /const openPhotoCameraModal = async \(\) => \{[\s\S]+requestPhotoCameraPermission\(\)[\s\S]+setShowPhotoCameraModal\(true\)/);
   assert.doesNotMatch(nativeChat, /const openPhotoCameraModal = async \(\) => \{[\s\S]{0,700}ImagePicker\.requestCameraPermissionsAsync/);
   assert.match(nativeChat, /setShowPhotoCameraModal\(true\)/);

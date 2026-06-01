@@ -283,11 +283,11 @@ test("web Daily CSP supports CSP-safe script loading and websocket signaling", (
   assert.ok(!vercelCspDirective("script-src-elem").includes("https://*.daily.co"));
   assert.ok(!vercelCspDirective("script-src").includes("'unsafe-eval'"));
   assert.ok(!vercelCspDirective("script-src-elem").includes("'unsafe-eval'"));
-  assert.ok(vercelCspDirective("connect-src").includes("https://*.daily.co"));
-  assert.ok(vercelCspDirective("connect-src").includes("wss://*.daily.co"));
-  assert.ok(!vercelCspDirective("connect-src").includes("https://api.daily.co"));
-  assert.ok(!vercelCspDirective("connect-src").includes("https://vibelyapp.daily.co"));
-  assert.ok(!vercelCspDirective("connect-src").includes("wss://vibelyapp.daily.co"));
+  assert.ok(!vercelCspDirective("connect-src").includes("https://*.daily.co"));
+  assert.ok(!vercelCspDirective("connect-src").includes("wss://*.daily.co"));
+  assert.ok(vercelCspDirective("connect-src").includes("https://api.daily.co"));
+  assert.ok(vercelCspDirective("connect-src").includes("https://vibelyapp.daily.co"));
+  assert.ok(vercelCspDirective("connect-src").includes("wss://vibelyapp.daily.co"));
   assert.ok(vercelCspDirective("frame-src").includes("https://vibelyapp.daily.co"));
   assert.ok(!vercelCspDirective("frame-src").includes("https://*.daily.co"));
 });

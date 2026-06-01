@@ -658,7 +658,7 @@ serve(async (req) => {
           category: "someone_vibed_you",
           title: "Someone vibed you! 💜",
           body: "Join the event to find out who",
-          data: { url: "/events", event_id: eventIdStr, actor_id: actorId },
+          data: { url: "/events", event_id: eventIdStr },
           dedupeKey: `swipe:${eventIdStr}:${actorId}:${target_id}:${result.result}`,
           sessionId: null,
           eventId: eventIdStr,

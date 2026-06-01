@@ -8,6 +8,10 @@ import type {
   ExpoSpeechRecognitionErrorEvent,
 } from 'expo-speech-recognition';
 import { trackEvent } from '@/lib/analytics';
+import {
+  permissionUxStatusFromGrant,
+  type PermissionUxStatus,
+} from '@clientShared/permissions/permissionUx';
 import type { MediaCaptions } from '../../../shared/media/captions';
 
 type CaptionCaptureSurface =
@@ -22,6 +26,11 @@ type SpeechRecognitionEventListener<K extends SpeechRecognitionEventName> = (
 ) => void;
 type EventSubscriptionLike = {
   remove: () => void;
+};
+type SpeechPermissionLike = {
+  granted?: boolean | null;
+  status?: string | null;
+  canAskAgain?: boolean | null;
 };
 
 let cachedSpeechRecognitionModule: ExpoSpeechRecognitionModuleApi | undefined;
@@ -117,10 +126,20 @@ function captionsFromText(text: string, language: string): MediaCaptions | null 
   };
 }
 
+function speechPermissionStatus(permission: SpeechPermissionLike | null | undefined): PermissionUxStatus {
+  if (!permission) return 'checking';
+  return permissionUxStatusFromGrant({
+    granted: permission.granted,
+    status: permission.status,
+    canAskAgain: permission.canAskAgain,
+  });
+}
+
 export function useNativeCaptionCapture(surface: CaptionCaptureSurface) {
   const [transcript, setTranscript] = useState('');
   const [recognizing, setRecognizing] = useState(false);
   const [unavailableReason, setUnavailableReason] = useState<string | null>(null);
+  const [permissionStatus, setPermissionStatus] = useState<PermissionUxStatus>('checking');
   const activeRef = useRef(false);
   const stoppingRef = useRef(false);
   const runIdRef = useRef(0);
@@ -144,6 +163,27 @@ export function useNativeCaptionCapture(surface: CaptionCaptureSurface) {
       reason,
     });
   }, [surface]);
+
+  const refreshPermission = useCallback(async (): Promise<PermissionUxStatus> => {
+    const speechRecognition = loadSpeechRecognitionModule();
+    if (!speechRecognition) {
+      setPermissionStatus('unsupported');
+      return 'unsupported';
+    }
+    try {
+      const permissions = await speechRecognition.getPermissionsAsync();
+      const next = speechPermissionStatus(permissions);
+      setPermissionStatus(next);
+      return next;
+    } catch {
+      setPermissionStatus('unsupported');
+      return 'unsupported';
+    }
+  }, []);
+
+  useEffect(() => {
+    void refreshPermission();
+  }, [refreshPermission]);
 
   const startRecognitionForRun = useCallback((runId: number): boolean => {
     if (runIdRef.current !== runId || stoppingRef.current || !activeRef.current) return false;
@@ -254,10 +294,10 @@ export function useNativeCaptionCapture(surface: CaptionCaptureSurface) {
 
     let permissions;
     try {
-      permissions = await speechRecognition.requestPermissionsAsync();
+      permissions = await speechRecognition.getPermissionsAsync();
     } catch {
       if (runIdRef.current === runId) {
-        markUnavailable('permission_request_failed');
+        markUnavailable('permission_check_failed');
       }
       return false;
     }
@@ -266,8 +306,9 @@ export function useNativeCaptionCapture(surface: CaptionCaptureSurface) {
       return false;
     }
 
+    setPermissionStatus(speechPermissionStatus(permissions));
     if (!permissions.granted) {
-      markUnavailable('permission_denied');
+      markUnavailable(speechPermissionStatus(permissions) === 'blocked_settings' ? 'permission_blocked' : 'permission_not_granted');
       return false;
     }
 
@@ -285,6 +326,35 @@ export function useNativeCaptionCapture(surface: CaptionCaptureSurface) {
     });
     return startRecognitionForRun(runId);
   }, [markUnavailable, reset, startRecognitionForRun, surface]);
+
+  const requestPermission = useCallback(async (): Promise<boolean> => {
+    const speechRecognition = loadSpeechRecognitionModule();
+    if (!speechRecognition) {
+      setPermissionStatus('unsupported');
+      markUnavailable('native_module_unavailable');
+      return false;
+    }
+    try {
+      const permissions = await speechRecognition.requestPermissionsAsync();
+      const next = speechPermissionStatus(permissions);
+      setPermissionStatus(next);
+      if (!permissions.granted) {
+        setUnavailableReason(next === 'blocked_settings' ? 'permission_blocked' : 'permission_denied');
+        trackEvent('caption_capture_unavailable', {
+          surface,
+          platform: Platform.OS,
+          reason: next === 'blocked_settings' ? 'permission_blocked' : 'permission_denied',
+        });
+      } else {
+        setUnavailableReason(null);
+      }
+      return Boolean(permissions.granted);
+    } catch {
+      setPermissionStatus('unsupported');
+      markUnavailable('permission_request_failed');
+      return false;
+    }
+  }, [markUnavailable, surface]);
 
   const stop = useCallback(() => {
     runIdRef.current += 1;
@@ -325,7 +395,10 @@ export function useNativeCaptionCapture(surface: CaptionCaptureSurface) {
     transcript,
     recognizing,
     unavailableReason,
+    permissionStatus,
     language: languageRef.current,
+    refreshPermission,
+    requestPermission,
     start,
     stop,
     abort,

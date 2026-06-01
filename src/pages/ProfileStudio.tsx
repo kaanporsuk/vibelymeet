@@ -1261,10 +1261,7 @@ const ProfileStudio = () => {
     setLocationDetectError(null);
     try {
       const geoLoc: GeoLocation = await autoDetectLocation();
-      // Normalize display label to "City, Country" when possible.
-      const displayLabel = geoLoc.formatted && geoLoc.formatted !== "Location detected"
-        ? geoLoc.formatted
-        : geoLoc.country;
+      const displayLabel = geoLoc.formatted;
       const userId = profileUser?.id ?? (await supabase.auth.getUser()).data.user?.id;
       if (!userId) throw new Error("not_authenticated");
       // Persist atomically via RPC — all three fields written together.
@@ -1273,7 +1270,7 @@ const ProfileStudio = () => {
         p_location: displayLabel,
         p_lat: geoLoc.lat,
         p_lng: geoLoc.lng,
-        p_country: geoLoc.country === "Unknown" ? "" : geoLoc.country,
+        p_country: geoLoc.country,
       });
       if (rpcError) throw rpcError;
       const result = rpcResult as { success?: boolean; error?: string } | null;
@@ -1292,13 +1289,19 @@ const ProfileStudio = () => {
       void queryClient.invalidateQueries({ queryKey: myProfileQueryKey(userId), exact: true });
       toast.success("Location updated!");
     } catch (locationError) {
-      const message =
+      let message = "Could not detect location. Allow Location in this browser's site settings, then try again.";
+      if (
         typeof locationError === "object" &&
         locationError !== null &&
         "code" in locationError &&
         (locationError as { code?: number }).code === 1
-          ? "Location is blocked for this site. Allow it in browser site settings, then try again."
-          : "Could not detect location. Allow Location in this browser's site settings, then try again.";
+      ) {
+        message = "Location is blocked for this site. Allow it in browser site settings, then try again.";
+      } else if (locationError instanceof Error && locationError.message === "reverse_geocode_unresolved") {
+        message = "We found your device location but couldn't name the city. Enter your city manually or try again.";
+      } else if (locationError instanceof Error) {
+        message = "Could not detect a reliable city. Enter it manually or try again.";
+      }
       setLocationDetectError(message);
       toast.error(message);
     } finally {

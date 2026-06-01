@@ -2710,7 +2710,7 @@ export type Database = {
           recurrence_ends_at: string | null
           recurrence_type: string | null
           scope: string | null
-          status: string | null
+          status: string
           tags: string[] | null
           title: string
           updated_at: string
@@ -2754,7 +2754,7 @@ export type Database = {
           recurrence_ends_at?: string | null
           recurrence_type?: string | null
           scope?: string | null
-          status?: string | null
+          status?: string
           tags?: string[] | null
           title: string
           updated_at?: string
@@ -2798,7 +2798,7 @@ export type Database = {
           recurrence_ends_at?: string | null
           recurrence_type?: string | null
           scope?: string | null
-          status?: string | null
+          status?: string
           tags?: string[] | null
           title?: string
           updated_at?: string
@@ -10609,6 +10609,10 @@ export type Database = {
       classify_stale_vibe_video_uploads: {
         Args: { p_limit?: number; p_stale_minutes?: number }
         Returns: Json
+      }
+      cleanup_event_deck_card_reservations: {
+        Args: { p_limit?: number; p_older_than?: string }
+        Returns: number
       }
       clear_expired_pauses: { Args: never; Returns: number }
       clear_match_notification_mute: {

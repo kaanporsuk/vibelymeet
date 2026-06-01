@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Bell, BellRing, X, Check, Smartphone } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -22,15 +22,29 @@ export function PushSetupFlow({
 }: PushSetupFlowProps) {
   const [step, setStep] = useState<'intro' | 'requesting' | 'success' | 'denied'>('intro');
 
+  useEffect(() => {
+    if (open) setStep('intro');
+  }, [open]);
+
   const handleEnable = async () => {
     setStep('requesting');
-    const granted = await onRequestPermission();
+    let granted = false;
+    try {
+      granted = await onRequestPermission();
+    } catch {
+      granted = false;
+    }
     setStep(granted ? 'success' : 'denied');
 
     if (granted) {
       setTimeout(() => onOpenChange(false), 2000);
     }
   };
+
+  const browserPermission =
+    typeof window !== 'undefined' && 'Notification' in window ? Notification.permission : 'unsupported';
+  const deniedIsBlocked = browserPermission === 'denied';
+  const notificationsUnsupported = browserPermission === 'unsupported';
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -151,19 +165,35 @@ export function PushSetupFlow({
               initial={{ opacity: 0, scale: 0.9 }}
               animate={{ opacity: 1, scale: 1 }}
               className="text-center py-8"
+              data-testid="push-setup-flow-recovery"
             >
               <div className="w-20 h-20 mx-auto rounded-full bg-destructive/20 flex items-center justify-center mb-4">
                 <X className="w-10 h-10 text-destructive" />
               </div>
               <h3 className="text-lg font-semibold text-foreground mb-2">
-                Notifications Blocked
+                {notificationsUnsupported
+                  ? 'Notifications Unavailable'
+                  : deniedIsBlocked
+                    ? 'Notifications Blocked'
+                    : 'Notification Setup Needs a Retry'}
               </h3>
               <p className="text-muted-foreground text-sm mb-4">
-                You can enable them later in your browser settings.
+                {notificationsUnsupported
+                  ? 'This browser does not support push notifications here. You can still use Vibely normally.'
+                  : deniedIsBlocked
+                    ? 'Use your browser site settings to allow notifications for Vibely, then come back and try again.'
+                    : 'We could not finish notification setup. Check your connection and try again.'}
               </p>
-              <Button variant="outline" onClick={() => onOpenChange(false)}>
-                Got it
-              </Button>
+              <div className="flex gap-3">
+                <Button variant="outline" className="flex-1" onClick={() => onOpenChange(false)}>
+                  Continue without alerts
+                </Button>
+                {notificationsUnsupported ? null : (
+                  <Button className="flex-1" onClick={handleEnable}>
+                    {deniedIsBlocked ? 'I updated settings' : 'Try again'}
+                  </Button>
+                )}
+              </div>
             </motion.div>
           )}
         </AnimatePresence>

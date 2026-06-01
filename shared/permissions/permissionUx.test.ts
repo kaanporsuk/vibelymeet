@@ -92,6 +92,14 @@ test("optional permissions keep a non-blocking fallback", () => {
   assert.equal(location.fallbackAction, "manual_entry");
 });
 
+test("photo picker file recovery uses upload-file semantics", () => {
+  const picker = resolvePermissionUx({ capability: "photo_picker", status: "blocked_settings", platform: "native" });
+
+  assert.equal(picker.primaryAction, "open_settings");
+  assert.equal(picker.fallbackAction, "upload_file");
+  assert.equal(picker.fallbackLabel, "Choose file");
+});
+
 test("unsupported permissions never invent file fallbacks for capabilities without one", () => {
   const voice = resolvePermissionUx({ capability: "voice_message", status: "unsupported", platform: "mobile_web" });
   const verification = resolvePermissionUx({ capability: "photo_verification", status: "unsupported", platform: "web" });
