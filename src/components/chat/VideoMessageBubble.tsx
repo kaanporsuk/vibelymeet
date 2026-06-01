@@ -123,6 +123,7 @@ export const VideoMessageBubble = ({
   const prefersReducedMotion = usePrefersReducedMotion();
   const playRequestedRef = useRef(false);
   const hasStartedPlaybackRef = useRef(false);
+  const reloadPreservesPlayIntentRef = useRef(false);
   const playbackRefreshAttemptCountRef = useRef(0);
   const initialPlaybackResolveInFlightRef = useRef(false);
   const initialPlaybackResolveRunIdRef = useRef(0);
@@ -197,6 +198,7 @@ export const VideoMessageBubble = ({
     setPlayRequested(preservePlayIntent);
     hasStartedPlaybackRef.current = false;
     setHasStartedPlayback(false);
+    reloadPreservesPlayIntentRef.current = false;
     initialPlaybackResolveInFlightRef.current = false;
     initialPlaybackResolveRunIdRef.current += 1;
     setHasMetadata(false);
@@ -365,6 +367,7 @@ export const VideoMessageBubble = ({
     const freshUrl = await refreshVideoUrlWithRetry("playback", undefined, true);
     if (!freshUrl) return false;
     if (freshUrl === playableVideoUrl) {
+      reloadPreservesPlayIntentRef.current = playRequestedRef.current || initialPlaybackResolveInFlightRef.current;
       videoRef.current?.load();
       return true;
     }
@@ -555,6 +558,11 @@ export const VideoMessageBubble = ({
   }, []);
 
   const handlePause = useCallback(() => {
+    if (reloadPreservesPlayIntentRef.current) {
+      reloadPreservesPlayIntentRef.current = false;
+      setIsPlaying(false);
+      return;
+    }
     if (playRequestedRef.current && !hasStartedPlaybackRef.current) {
       setIsPlaying(false);
       return;
@@ -567,6 +575,7 @@ export const VideoMessageBubble = ({
   const handleEnded = useCallback(() => {
     playRequestedRef.current = false;
     hasStartedPlaybackRef.current = false;
+    reloadPreservesPlayIntentRef.current = false;
     setIsPlaying(false);
     setPlayRequested(false);
     setHasStartedPlayback(false);
@@ -577,6 +586,7 @@ export const VideoMessageBubble = ({
   const handlePlaying = useCallback(() => {
     setIsLoading(false);
     setIsPlaying(true);
+    reloadPreservesPlayIntentRef.current = false;
     hasStartedPlaybackRef.current = true;
     setHasStartedPlayback(true);
   }, []);
@@ -681,7 +691,11 @@ export const VideoMessageBubble = ({
               setIsPlaying(false);
               setCurrentTime(0);
               void refreshVideoUrlWithRetry("manual", { bypassFailureCooldown: true }).then((freshUrl) => {
-                if (!freshUrl || freshUrl === playableVideoUrl) videoRef.current?.load();
+                if (!freshUrl || freshUrl === playableVideoUrl) {
+                  reloadPreservesPlayIntentRef.current =
+                    playRequestedRef.current || initialPlaybackResolveInFlightRef.current;
+                  videoRef.current?.load();
+                }
               });
             }}
             className="text-[11px] font-medium text-primary hover:underline underline-offset-2"

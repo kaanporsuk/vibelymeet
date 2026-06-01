@@ -10,7 +10,11 @@ import {
   normalizeMediaPlaceholderKind,
   type MediaPlaceholderKind,
 } from "@clientShared/media/placeholders";
-import { bunnyStreamThumbnailRefFor, deriveChatVideoThumbnailRef } from "@clientShared/chat/messageRouting";
+import {
+  bunnyStreamThumbnailRefFor,
+  bunnyStreamVideoIdFromRef,
+  deriveChatVideoThumbnailRef,
+} from "@clientShared/chat/messageRouting";
 import { reserveMediaPrewarmBudgetForSource } from "@/lib/mediaPlaybackSessionPolicy";
 
 export type MediaAssetKind = "image" | "voice" | "video" | "vibe_clip" | "thumbnail" | "profile_vibe_video";
@@ -884,7 +888,7 @@ export async function resolveMessageMediaForDisplay<
     resolved.audio_url = await resolveChatMediaUrl(row.id, "voice", row.audio_url);
   }
 
-  if (row.video_url) {
+  if (row.video_url && !bunnyStreamVideoIdFromRef(row.video_url)) {
     const kind = row.message_kind === "vibe_clip" ? "vibe_clip" : "video";
     resolved.video_url = await resolveChatMediaUrl(row.id, kind, row.video_url);
   }
