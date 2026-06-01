@@ -59,7 +59,10 @@ export type EventDeckState = {
   inactive_reason: string | null;
   limit: number | null;
   scan_limit: number | null;
+  confirmed_candidate_count?: number | null;
   raw_count: number | null;
+  eligible_count?: number | null;
+  eligible_unswiped_count?: number | null;
   profile_count: number | null;
   marked_count: number | null;
   mark_action?: string | null;
@@ -192,9 +195,6 @@ export function parseEventDeckProfiles(data: unknown): EventDeckProfile[] {
 function normalizeDeckStateReason(value: unknown): EventDeckStateReason {
   if (typeof value !== "string") return "unknown";
   if (value === "ready") return "has_profiles";
-  if (value === "no_confirmed_candidates" || value === "scan_window_exhausted") {
-    return "no_remaining_profiles";
-  }
   return (EVENT_DECK_STATE_REASONS as readonly string[]).includes(value)
     ? value as EventDeckStateReason
     : "unknown";
@@ -213,7 +213,12 @@ function normalizeEventDeckState(raw: unknown, fallbackProfileCount: number): Ev
     inactive_reason: typeof source.inactive_reason === "string" ? source.inactive_reason : null,
     limit: finiteNumberOrNull(source.limit),
     scan_limit: finiteNumberOrNull(source.scan_limit) ?? finiteNumberOrNull(source.scanLimit),
+    confirmed_candidate_count: finiteNumberOrNull(source.confirmed_candidate_count) ??
+      finiteNumberOrNull(source.confirmedCandidateCount),
     raw_count: finiteNumberOrNull(source.raw_count),
+    eligible_count: finiteNumberOrNull(source.eligible_count) ?? finiteNumberOrNull(source.eligibleCount),
+    eligible_unswiped_count: finiteNumberOrNull(source.eligible_unswiped_count) ??
+      finiteNumberOrNull(source.eligibleUnswipedCount),
     profile_count: finiteNumberOrNull(source.profile_count) ?? fallbackProfileCount,
     marked_count: finiteNumberOrNull(source.marked_count),
     mark_action: sanitizeDeckString(source.mark_action ?? source.markAction),

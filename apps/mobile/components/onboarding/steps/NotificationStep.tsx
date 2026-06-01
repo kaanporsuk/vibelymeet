@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Text } from '@/components/Themed';
@@ -14,12 +14,14 @@ export default function NotificationStep({ userId, onNext }: { userId: string; o
   const { requestPermission, openSettings, isGranted } = usePushPermission();
   const [busy, setBusy] = useState(false);
   const [showDeniedRecovery, setShowDeniedRecovery] = useState(false);
+  const settingsRecoveryActiveRef = useRef(false);
 
   useEffect(() => {
-    if (!isGranted || !showDeniedRecovery) return;
+    if (!isGranted || (!showDeniedRecovery && !settingsRecoveryActiveRef.current)) return;
+    settingsRecoveryActiveRef.current = false;
     setShowDeniedRecovery(false);
-    void syncBackendAfterPushGrant(userId);
-  }, [isGranted, showDeniedRecovery, userId]);
+    void syncBackendAfterPushGrant(userId).finally(onNext);
+  }, [isGranted, onNext, showDeniedRecovery, userId]);
 
   const ask = async () => {
     if (busy) return;
@@ -59,10 +61,13 @@ export default function NotificationStep({ userId, onNext }: { userId: string; o
 
       <NotificationDeniedRecoveryModal
         visible={showDeniedRecovery}
-        onClose={() => setShowDeniedRecovery(false)}
-        onOpenSettings={() => {
-          openSettings();
+        onClose={() => {
+          settingsRecoveryActiveRef.current = false;
           setShowDeniedRecovery(false);
+        }}
+        onOpenSettings={() => {
+          settingsRecoveryActiveRef.current = true;
+          openSettings();
         }}
       />
     </View>

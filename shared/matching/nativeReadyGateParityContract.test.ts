@@ -103,15 +103,21 @@ test("native overlay maps terminal recovery and observes duplicate side effects"
   assert.match(nativeReadyGateOverlay, /nonRetryablePrepareFailureRef/);
 });
 
-test("native Ready Gate auto permission prompts stop after the first resolved request", () => {
+test("native Ready Gate auto permission checks do not trigger OS prompts before user intent", () => {
   assert.match(
     nativeReadyRoute,
-    /if \(!sessionId \|\| !user\?\.id \|\| !permissionRequestEligible\) return;\s*if \(permissionsResolved\) return;[\s\S]+const ok = await requestMediaPermissions\(\);/,
+    /if \(!sessionId \|\| !user\?\.id \|\| !permissionRequestEligible\) return;\s*if \(permissionsResolved\) return;[\s\S]+const ok = await checkMediaPermissions\(\);/,
   );
   assert.match(
     nativeReadyGateOverlay,
-    /useEffect\(\(\) => \{\s*if \(permissionsResolved\) return;[\s\S]+const ok = await requestMediaPermissions\(\);/,
+    /useEffect\(\(\) => \{\s*if \(permissionsResolved\) return;[\s\S]+const ok = await checkMediaPermissions\(\);/,
   );
+  const standaloneAutoCheck = /void \(async \(\) => \{[\s\S]*?const ok = await checkMediaPermissions\(\);[\s\S]*?\}\)\(\);/.exec(nativeReadyRoute)?.[0] ?? "";
+  const overlayAutoCheck = /void \(async \(\) => \{[\s\S]*?const ok = await checkMediaPermissions\(\);[\s\S]*?\}\)\(\);/.exec(nativeReadyGateOverlay)?.[0] ?? "";
+  assert.ok(standaloneAutoCheck);
+  assert.ok(overlayAutoCheck);
+  assert.doesNotMatch(standaloneAutoCheck, /requestMediaPermissions\(\)/);
+  assert.doesNotMatch(overlayAutoCheck, /requestMediaPermissions\(\)/);
 });
 
 test("native ready and date surfaces share one camera and microphone permission helper", () => {
@@ -127,9 +133,9 @@ test("native ready and date surfaces share one camera and microphone permission 
   assert.match(nativeMediaPermissions, /catch \(error\)/);
   assert.match(nativeMediaPermissions, /status: 'in_use_or_abort'/);
   assert.match(nativeMediaPermissions, /rawErrorName/);
-  assert.match(nativeMediaPermissions, /function diagnostics\(cameraStatus: string, microphoneStatus: string\)/);
-  assert.match(nativeMediaPermissions, /cameraPermissionStatus: diagnosticStatusFor\(cameraStatus\)/);
-  assert.match(nativeMediaPermissions, /microphonePermissionStatus: diagnosticStatusFor\(microphoneStatus\)/);
+  assert.match(nativeMediaPermissions, /function diagnostics\(\s*cameraStatus: string,\s*microphoneStatus: string,\s*cameraCanAskAgain: boolean \| null,\s*microphoneCanAskAgain: boolean \| null,/);
+  assert.match(nativeMediaPermissions, /cameraPermissionStatus: diagnosticStatusFor\(cameraStatus, cameraCanAskAgain\)/);
+  assert.match(nativeMediaPermissions, /microphonePermissionStatus: diagnosticStatusFor\(microphoneStatus, microphoneCanAskAgain\)/);
 
   for (const [path, source] of [
     ["apps/mobile/components/lobby/ReadyGateOverlay.tsx", nativeReadyGateOverlay],

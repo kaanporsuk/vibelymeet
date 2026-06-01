@@ -9,16 +9,20 @@ const read = (path: string) => readFileSync(join(root, path), "utf8");
 const migration = read("supabase/migrations/20260601120000_admin_event_publish_unpublish_lifecycle.sql");
 const lifecycleForwardSyncMigration = read("supabase/migrations/20260601133000_admin_event_lifecycle_forward_sync.sql");
 const statusHardeningMigration = read("supabase/migrations/20260601143000_event_creation_status_bulletproofing.sql");
+const statusPrivacyMigration = read("supabase/migrations/20260601210000_event_status_privacy_and_rpc_authority.sql");
 const adminEventsPanel = read("src/components/admin/AdminEventsPanel.tsx");
 const adminEventControls = read("src/components/admin/AdminEventControls.tsx");
 const adminEventForm = read("src/components/admin/AdminEventFormModal.tsx");
 const batchEventImport = read("src/components/admin/BatchEventImportModal.tsx");
 const adminEventInvalidation = read("src/lib/adminEventInvalidation.ts");
 const adminActivityLog = read("src/components/admin/AdminActivityLog.tsx");
+const webEventDetailsHook = read("src/hooks/useEventDetails.ts");
+const webAuthContext = read("src/contexts/AuthContext.tsx");
 const webEventDetails = read("src/pages/EventDetails.tsx");
 const webEventUtils = read("src/utils/eventUtils.ts");
 const webEventReminders = read("src/hooks/useEventReminders.ts");
 const webPaymentSuccess = read("src/pages/EventPaymentSuccess.tsx");
+const nativeAuthContext = read("apps/mobile/context/AuthContext.tsx");
 const nativeEventDetails = read("apps/mobile/app/(tabs)/events/[id].tsx");
 const nativeEventsApi = read("apps/mobile/lib/eventsApi.ts");
 const nativePaymentSuccess = read("apps/mobile/app/event-payment-success.tsx");
@@ -139,7 +143,7 @@ test("admin Events UI exposes publish and unpublish actions without a generic st
 test("create modal supports save as draft without announcement notifications", () => {
   assert.match(adminEventForm, /type EventCreateStatus = "draft" \| "upcoming"/);
   assert.match(adminEventForm, /eventData\.status = createStatus/);
-  assert.match(adminEventForm, /Save as Draft/);
+  assert.match(adminEventForm, /Save Unpublished Draft/);
   assert.match(adminEventForm, /const createdAsDraft = result\.status === "draft"/);
   assert.match(adminEventForm, /if \(!createdAsDraft\) await sendCreatedAnnouncement\(\)/);
   assert.match(adminEventForm, /event-notifications/);
@@ -148,7 +152,7 @@ test("create modal supports save as draft without announcement notifications", (
       adminEventForm.indexOf("await sendCreatedAnnouncement()"),
     "recurring published creates must generate child occurrences before announcement emails",
   );
-  assert.match(adminEventForm, /The event is not discoverable until it is published/);
+  assert.match(adminEventForm, /The event stays private to admins until it is published/);
   assert.match(adminEventForm, /invalidateAdminEventSurfaces/);
 });
 
@@ -217,7 +221,68 @@ test("event creation hardening closes backend and integration status gaps", () =
   assert.match(claimReminders, /v_now < e\.event_date/);
 });
 
+test("event status privacy makes drafts private and forces admin writes through RPCs", () => {
+  assert.match(statusPrivacyMigration, /ALTER TABLE public\.events[\s\S]*ALTER COLUMN status SET NOT NULL/);
+  assert.match(statusPrivacyMigration, /ALTER TABLE public\.events ADD CONSTRAINT events_status_check[\s\S]*CHECK \(status IN \('upcoming', 'live', 'ended', 'completed', 'cancelled', 'draft'\)\)/);
+  assert.match(statusPrivacyMigration, /DROP POLICY IF EXISTS "Admins can create events" ON public\.events/);
+  assert.match(statusPrivacyMigration, /DROP POLICY IF EXISTS "Admins can update events" ON public\.events/);
+  assert.match(statusPrivacyMigration, /DROP POLICY IF EXISTS "Admins can delete events" ON public\.events/);
+  assert.match(statusPrivacyMigration, /REVOKE INSERT, UPDATE, DELETE ON TABLE public\.events FROM anon, authenticated/);
+
+  assert.match(statusPrivacyMigration, /DROP POLICY IF EXISTS "Anyone can view events" ON public\.events/);
+  assert.match(statusPrivacyMigration, /public\.has_role\(auth\.uid\(\), 'admin'::public\.app_role\)/);
+  assert.match(statusPrivacyMigration, /AND ended_at IS NULL[\s\S]*AND lower\(status\) IN \('upcoming', 'live'\)/);
+  assert.match(statusPrivacyMigration, /AND lower\(status\) IN \('upcoming', 'live', 'cancelled', 'ended', 'completed'\)/);
+  assert.match(statusPrivacyMigration, /er\.admission_status IN \('confirmed', 'waitlisted'\)/);
+  assert.doesNotMatch(statusPrivacyMigration, /lower\(COALESCE\(status, 'upcoming'\)\) NOT IN \('draft', 'archived'\)/);
+});
+
+test("event create and update normalize enum-like scalars before persistence", () => {
+  const create = fnSection(statusPrivacyMigration, "admin_create_event");
+  const update = fnSection(statusPrivacyMigration, "admin_update_event");
+
+  for (const source of [create, update]) {
+    assert.match(source, /lower\(btrim\(p_payload ->> 'status'\)\)|ARRAY\['archived_at', 'archived_by', 'ended_at', 'status'\]/);
+    assert.match(source, /lower\(btrim\(p_payload ->> 'visibility'\)\)/);
+    assert.match(source, /upper\(btrim\(p_payload ->> 'price_currency'\)\)/);
+    assert.match(source, /lower\(btrim\(p_payload ->> 'scope'\)\)/);
+  }
+});
+
+test("event details caches are auth-scoped and cleared on auth transitions", () => {
+  assert.match(webEventDetailsHook, /const \{ session \} = useAuth\(\)/);
+  assert.match(webEventDetailsHook, /const viewerId = session\?\.user\?\.id \?\? user\?\.id \?\? "anonymous"/);
+  assert.match(webEventDetailsHook, /queryKey: \["event-details", eventId, viewerId\]/);
+  assert.match(nativeEventsApi, /import \{ useAuth \} from '@\/context\/AuthContext'/);
+  assert.match(nativeEventsApi, /const viewerId = user\?\.id \?\? 'anonymous'/);
+  assert.match(nativeEventsApi, /queryKey: \['event-details', eventId, viewerId\]/);
+  assert.match(nativeEventsApi, /queryKey: \['event-attendee-preview', eventId, viewerId \?\? 'anonymous'\]/);
+  assert.match(nativeEventsApi, /enabled: !!eventId && !!viewerId/);
+
+  for (const source of [webAuthContext, nativeAuthContext]) {
+    assert.match(source, /AUTH_SCOPED_EVENT_QUERY_KEYS/);
+    assert.match(source, /\["event-details"\]|\['event-details'\]/);
+    assert.match(source, /\["event-registration-check"\]|\['event-registration-check'\]/);
+    assert.match(source, /\["event-attendee-preview"\]|\['event-attendee-preview'\]/);
+    assert.match(source, /\["event-vibes-received"\]|\['event-vibes-received'\]/);
+    assert.match(source, /clearAuthScopedEventQueries\(\)/);
+    assert.match(source, /queryClient\.removeQueries/);
+  }
+});
+
+test("admin import and series UX make lifecycle scope explicit", () => {
+  assert.match(adminEventsPanel, /all future eligible draft occurrences in the series, not only the rows loaded/);
+  assert.match(adminEventsPanel, /all future eligible upcoming occurrences, not only the rows loaded/);
+  assert.match(batchEventImport, /max_male_attendees: ev\.max_male_attendees \?\? null/);
+  assert.match(batchEventImport, /max_female_attendees: ev\.max_female_attendees \?\? null/);
+  assert.match(batchEventImport, /max_nonbinary_attendees: ev\.max_nonbinary_attendees \?\? null/);
+  assert.match(batchEventImport, /status: stringValue\(ev\.status\)\.trim\(\)\.toLowerCase\(\) \|\| "upcoming"/);
+  assert.match(batchEventImport, /visibility: stringValue\(ev\.visibility\)\.trim\(\)\.toLowerCase\(\) \|\| "all"/);
+  assert.match(batchEventImport, /event_date: "2027-06-21T20:00:00Z"/);
+});
+
 test("generated Supabase types expose publish and unpublish RPC contracts", () => {
+  assert.match(supabaseTypes, /events: \{[\s\S]*Row: \{[\s\S]*status: string[\s\S]*Insert: \{[\s\S]*status\?: string[\s\S]*Update: \{[\s\S]*status\?: string/);
   assert.match(supabaseTypes, /admin_publish_event: \{/);
   assert.match(supabaseTypes, /admin_unpublish_event: \{/);
   assert.match(supabaseTypes, /admin_publish_event_series: \{/);

@@ -482,27 +482,32 @@ export const reverseGeocode = async (lat: number, lng: number): Promise<GeoLocat
 
     if (data.error) {
       console.warn("Geocoding service issue:", data.error);
-      // Use fallback if provided
-      if (data.fallback) {
+      if (
+        data.fallback?.country &&
+        data.fallback.country !== "Unknown" &&
+        data.fallback.formatted &&
+        data.fallback.formatted !== "Location detected"
+      ) {
         return data.fallback;
       }
+      throw new Error(data.error);
+    }
+
+    const country = typeof data.country === "string" ? data.country.trim() : "";
+    const formatted = typeof data.formatted === "string" ? data.formatted.trim() : "";
+    if (!country || country === "Unknown" || !formatted || formatted === "Location detected") {
+      throw new Error("reverse_geocode_unresolved");
     }
     
     return {
       lat: data.lat,
       lng: data.lng,
-      country: data.country || "Unknown",
-      formatted: data.formatted || `${data.city}, ${data.country}`,
+      country,
+      formatted,
     };
   } catch (error) {
     console.error("Reverse geocoding error:", error);
-    // Return a fallback for network errors
-    return {
-      lat,
-      lng,
-      country: "Unknown",
-      formatted: "Location detected",
-    };
+    throw error;
   }
 };
 

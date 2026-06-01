@@ -158,6 +158,18 @@ export function resolveReadyGateDiagnosticCopy(input: {
 
   switch (input.key) {
     case "camera_permission":
+      if (input.status === "warning") {
+        return {
+          ...base,
+          title: "Camera access is not enabled yet",
+          message:
+            input.platform === "native"
+              ? "Tap Allow when you are ready so the phone can show the camera prompt."
+              : "Allow camera access in your browser when you are ready.",
+          actionLabel: "Allow camera",
+          actionKind: "request_permission",
+        };
+      }
       return {
         ...base,
         title: "Camera access is needed",
@@ -169,6 +181,18 @@ export function resolveReadyGateDiagnosticCopy(input: {
         actionKind: input.platform === "native" ? "open_settings" : "request_permission",
       };
     case "microphone_permission":
+      if (input.status === "warning") {
+        return {
+          ...base,
+          title: "Microphone access is not enabled yet",
+          message:
+            input.platform === "native"
+              ? "Tap Allow when you are ready so the phone can show the microphone prompt."
+              : "Allow microphone access in your browser when you are ready.",
+          actionLabel: "Allow microphone",
+          actionKind: "request_permission",
+        };
+      }
       return {
         ...base,
         title: "Microphone access is needed",

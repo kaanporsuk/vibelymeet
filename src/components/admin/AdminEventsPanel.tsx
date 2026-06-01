@@ -1000,14 +1000,14 @@ const AdminEventsPanel = () => {
       case "publish-series":
         return {
           title: `Publish recurring series "${pendingEventAction.event.title}"?`,
-          description: `This calls admin_publish_event_series for future eligible draft occurrences in the series. ${pendingEventAction.childCount} loaded occurrence${pendingEventAction.childCount === 1 ? "" : "s"} are visible in the current filtered view.`,
+          description: `This calls admin_publish_event_series for all future eligible draft occurrences in the series, not only the rows loaded in this filtered view. ${pendingEventAction.childCount} loaded occurrence${pendingEventAction.childCount === 1 ? "" : "s"} are currently visible here.`,
           confirmLabel: "Publish Series",
           variant: "default" as const,
         };
       case "unpublish-series":
         return {
           title: `Unpublish recurring series "${pendingEventAction.event.title}"?`,
-          description: "This calls admin_unpublish_event_series for future eligible upcoming occurrences. Those events return to draft and leave user discovery. The backend blocks the whole series action if any eligible occurrence has confirmed or waitlisted registrations.",
+          description: "This calls admin_unpublish_event_series for all future eligible upcoming occurrences, not only the rows loaded in this filtered view. Those events return to draft and leave user discovery. The backend blocks the whole series action if any eligible occurrence has confirmed or waitlisted registrations.",
           confirmLabel: "Unpublish Series",
           variant: "destructive" as const,
         };

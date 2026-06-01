@@ -44,11 +44,29 @@ test("native media pickers do not preflight broad photo-library permission", () 
   const chat = readRepo("apps/mobile/app/chat/[id].tsx");
   const vibeVideo = readRepo("apps/mobile/app/vibe-video-record.tsx");
   const photoBatch = readRepo("apps/mobile/lib/photoBatchController.ts");
+  const appConfig = JSON.parse(readRepo("apps/mobile/app.base.json")) as {
+    expo?: {
+      android?: {
+        permissions?: string[];
+        blockedPermissions?: string[];
+      };
+    };
+  };
+  const androidPermissions = appConfig.expo?.android?.permissions ?? [];
+  const androidBlockedPermissions = appConfig.expo?.android?.blockedPermissions ?? [];
   const repoHits = findRepoFilesContaining(/requestMediaLibraryPermissionsAsync/, "apps/mobile");
 
   assert.doesNotMatch(chat, /requestMediaLibraryPermissionsAsync/);
   assert.doesNotMatch(vibeVideo, /requestMediaLibraryPermissionsAsync/);
   assert.doesNotMatch(photoBatch, /requestMediaLibraryPermissionsAsync/);
+  assert.ok(!androidPermissions.includes("android.permission.READ_MEDIA_IMAGES"));
+  assert.ok(!androidPermissions.includes("android.permission.READ_MEDIA_VIDEO"));
+  assert.ok(!androidPermissions.includes("android.permission.READ_EXTERNAL_STORAGE"));
+  assert.ok(!androidPermissions.includes("android.permission.READ_MEDIA_VISUAL_USER_SELECTED"));
+  assert.ok(androidBlockedPermissions.includes("android.permission.READ_MEDIA_IMAGES"));
+  assert.ok(androidBlockedPermissions.includes("android.permission.READ_MEDIA_VIDEO"));
+  assert.ok(androidBlockedPermissions.includes("android.permission.READ_EXTERNAL_STORAGE"));
+  assert.ok(androidBlockedPermissions.includes("android.permission.READ_MEDIA_VISUAL_USER_SELECTED"));
   assert.deepEqual(repoHits, []);
 });
 
@@ -62,9 +80,84 @@ test("native reusable permission card uses fixed-height actions", () => {
   assert.match(source, /Open Settings|primaryLabel/);
 });
 
+test("native Ready Gate checks existing media permission before showing an OS prompt", () => {
+  const standalone = readRepo("apps/mobile/app/ready/[id].tsx");
+  const overlay = readRepo("apps/mobile/components/lobby/ReadyGateOverlay.tsx");
+
+  for (const source of [standalone, overlay]) {
+    assert.match(source, /checkNativeCameraMicrophonePermissions/);
+    assert.match(source, /const checkMediaPermissions = useCallback/);
+    assert.match(source, /refresh: checkMediaPermissions/);
+    assert.match(source, /const mediaPermissionNeedsSettings/);
+    assert.match(source, /const mediaPermissionPrimaryLabel = mediaPermissionNeedsSettings \? 'Open Settings' : 'Allow camera & mic'/);
+    assert.match(source, /current\.cameraPermissionStatus === 'blocked'/);
+    assert.match(source, /current\.microphonePermissionStatus === 'blocked'/);
+  }
+
+  const standaloneAutoCheck = /void \(async \(\) => \{[\s\S]*?const ok = await checkMediaPermissions\(\);[\s\S]*?\}\)\(\);/.exec(standalone)?.[0] ?? "";
+  const overlayAutoCheck = /void \(async \(\) => \{[\s\S]*?const ok = await checkMediaPermissions\(\);[\s\S]*?\}\)\(\);/.exec(overlay)?.[0] ?? "";
+
+  assert.ok(standaloneAutoCheck);
+  assert.ok(overlayAutoCheck);
+  assert.doesNotMatch(standaloneAutoCheck, /requestMediaPermissions\(\)/);
+  assert.doesNotMatch(overlayAutoCheck, /requestMediaPermissions\(\)/);
+});
+
+test("native Android media denial remembers don't-ask-again across passive checks", () => {
+  const helper = readRepo("apps/mobile/lib/nativeMediaPermissions.ts");
+
+  assert.match(helper, /@react-native-async-storage\/async-storage/);
+  assert.match(helper, /ANDROID_MEDIA_PERMISSION_BLOCKED_STORAGE_KEY/);
+  assert.match(helper, /readAndroidBlockedMediaPermissions/);
+  assert.match(helper, /writeAndroidBlockedMediaPermissions/);
+  assert.match(helper, /rememberAndroidMediaPermissionResult/);
+  assert.match(helper, /PermissionsAndroid\.RESULTS\.NEVER_ASK_AGAIN/);
+  assert.match(helper, /rememberedBlocked\.camera[\s\S]*PermissionsAndroid\.RESULTS\.NEVER_ASK_AGAIN/);
+  assert.match(helper, /rememberedBlocked\.microphone[\s\S]*PermissionsAndroid\.RESULTS\.NEVER_ASK_AGAIN/);
+  assert.match(helper, /cameraStatus === PermissionsAndroid\.RESULTS\.GRANTED[\s\S]*\?\s*false/);
+  assert.match(helper, /microphoneStatus === PermissionsAndroid\.RESULTS\.GRANTED[\s\S]*\?\s*false/);
+});
+
+test("native profile Vibe Video library intent is not camera-gated and has file fallback", () => {
+  const source = readRepo("apps/mobile/app/vibe-video-record.tsx");
+
+  assert.match(source, /sourceIntent !== 'library' && !libraryParam/);
+  assert.match(source, /native-profile-vibe-video-library-card/);
+  assert.match(source, /getDocumentAsyncSafe/);
+  assert.match(source, /type: \['video\/mp4', 'video\/quicktime', 'video\/\*'\]/);
+  assert.match(source, /chooseFileSupported[\s\S]*Choose file/);
+  assert.match(source, /secondaryLabel="Record instead"/);
+});
+
+test("native Vibe Clip captions are optional and speech permission is user-initiated", () => {
+  const hook = readRepo("apps/mobile/hooks/useNativeCaptionCapture.ts");
+  const chat = readRepo("apps/mobile/app/chat/[id].tsx");
+  const startBody = /const start = useCallback\(async \(\): Promise<boolean> => \{([\s\S]*?)\n\s*\}, \[markUnavailable/.exec(hook)?.[1] ?? "";
+
+  assert.match(hook, /getPermissionsAsync/);
+  assert.match(hook, /const requestPermission = useCallback/);
+  assert.doesNotMatch(startBody, /requestPermissionsAsync/);
+  assert.match(chat, /Enable captions/);
+  assert.match(chat, /Continue without captions/);
+  assert.match(chat, /Recording without captions/);
+});
+
+test("native saved-video Vibe Clip picker has a real file fallback", () => {
+  const chat = readRepo("apps/mobile/app/chat/[id].tsx");
+
+  assert.match(chat, /const pickVideoFromDocument = async/);
+  assert.match(chat, /getDocumentAsyncSafe\(\{[\s\S]*type: \['video\/mp4', 'video\/quicktime', 'video\/webm', 'video\/\*'\]/);
+  assert.match(chat, /const enqueuePickedVibeClipVideo = async/);
+  assert.match(chat, /durationSecondsForVideoAsset/);
+  assert.match(chat, /createVideoPlayer/);
+  assert.match(chat, /Choose file/);
+  assert.match(chat, /native_chat_video_library/);
+});
+
 test("native permission settings recovery is centralized and refreshes on app return", () => {
   const helper = readRepo("apps/mobile/lib/permissionSettings.ts");
   const matchCall = readRepo("apps/mobile/lib/useMatchCall.tsx");
+  const notificationStep = readRepo("apps/mobile/components/onboarding/steps/NotificationStep.tsx");
   const directOpenSettingsHits = findRepoFilesContaining(/Linking\.openSettings\(/, "apps/mobile")
     .filter((path) => path !== "apps/mobile/lib/permissionSettings.ts");
 
@@ -78,6 +171,9 @@ test("native permission settings recovery is centralized and refreshes on app re
   assert.match(matchCall, /next === 'active'[\s\S]*retryMatchCallMediaAfterSettingsReturn/);
   assert.match(matchCall, /setLocalAudio\(true\)/);
   assert.match(matchCall, /setLocalVideo\(true\)/);
+  assert.match(notificationStep, /settingsRecoveryActiveRef/);
+  assert.match(notificationStep, /syncBackendAfterPushGrant\(userId\)\.finally\(onNext\)/);
+  assert.doesNotMatch(notificationStep, /openSettings\(\);\s*setShowDeniedRecovery\(false\)/);
   assert.deepEqual(directOpenSettingsHits, []);
 });
 

@@ -46,11 +46,12 @@ test("production CSP allows first-party fonts, analytics assets, and CDN media",
   assert.ok(!directive("script-src-elem").includes("'unsafe-eval'"));
   assert.ok(directive("connect-src").includes("https://eu-assets.i.posthog.com"));
   assert.ok(directive("connect-src").includes("wss://*.supabase.co"));
-  assert.ok(directive("connect-src").includes("https://*.daily.co"));
-  assert.ok(directive("connect-src").includes("wss://*.daily.co"));
-  assert.ok(!directive("connect-src").includes("https://api.daily.co"));
-  assert.ok(!directive("connect-src").includes("https://vibelyapp.daily.co"));
-  assert.ok(!directive("connect-src").includes("wss://vibelyapp.daily.co"));
+  assert.ok(!directive("connect-src").includes("https://*.daily.co"));
+  assert.ok(!directive("connect-src").includes("wss://*.daily.co"));
+  assert.ok(directive("connect-src").includes("https://api.daily.co"));
+  assert.ok(directive("connect-src").includes("https://vibelyapp.daily.co"));
+  assert.ok(directive("connect-src").includes("wss://vibelyapp.daily.co"));
+  assert.ok(directive("connect-src").includes("https://c.daily.co"));
   assert.ok(directive("connect-src").includes("https://video.bunnycdn.com"));
   assert.ok(directive("frame-src").includes("https://vibelyapp.daily.co"));
   assert.ok(!directive("frame-src").includes("https://*.daily.co"));

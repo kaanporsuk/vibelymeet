@@ -209,7 +209,7 @@ test("event lifecycle auto-finalization backend contract is cron-safe and closes
 test("batch import emits only database-valid event statuses", () => {
   assert.match(batchEventImport, /const VALID_STATUSES = \["draft", "upcoming"\]/);
   assert.match(batchEventImport, /status: "upcoming"/);
-  assert.match(batchEventImport, /status: ev\.status \|\| "upcoming"/);
+  assert.match(batchEventImport, /status: stringValue\(ev\.status\)\.trim\(\)\.toLowerCase\(\) \|\| "upcoming"/);
   assert.match(batchEventImport, /Location-specific rows require coordinates/);
   assert.match(batchEventImport, /Local events require coordinates/);
   assert.match(batchEventImport, /Attendees must be 10000 or fewer/);

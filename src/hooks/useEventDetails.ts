@@ -2,7 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { format, addMinutes } from "date-fns";
 import { calculateVibeScoreStable } from "@/utils/vibeScoreUtils";
-import { useUserProfile } from "@/contexts/AuthContext";
+import { useAuth, useUserProfile } from "@/contexts/AuthContext";
 import type { EventCategory } from "@clientShared/eventCategories";
 
 export interface EventDetails {
@@ -54,10 +54,12 @@ export interface EventAttendee {
 }
 
 export const useEventDetails = (eventId: string | undefined) => {
+  const { session } = useAuth();
   const { user } = useUserProfile();
+  const viewerId = session?.user?.id ?? user?.id ?? "anonymous";
 
   return useQuery({
-    queryKey: ["event-details", eventId],
+    queryKey: ["event-details", eventId, viewerId],
     enabled: !!eventId,
     queryFn: async (): Promise<EventDetails | null> => {
       if (!eventId) return null;

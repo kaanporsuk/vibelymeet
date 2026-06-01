@@ -68,6 +68,28 @@ type AuthContextValue = AuthState & {
 const AuthContext = createContext<AuthContextValue | null>(null);
 const AUTH_SESSION_TIMEOUT_MS = 5_000;
 const ENTRY_STATE_TIMEOUT_MS = 9_000;
+const AUTH_SCOPED_EVENT_QUERY_KEYS = [
+  ['event-details'],
+  ['event-deck'],
+  ['events-discover'],
+  ['other-city-events'],
+  ['next-registered-event'],
+  ['event-registration-check'],
+  ['event-attendees'],
+  ['event-attendee-preview'],
+  ['event-vibes-sent'],
+  ['event-vibes-received'],
+  ['video-date-queue-hint'],
+  ['registered-upcoming-events-invite'],
+  ['user-registered-event-ids'],
+  ['user-registrations'],
+] as const;
+
+function clearAuthScopedEventQueries() {
+  for (const queryKey of AUTH_SCOPED_EVENT_QUERY_KEYS) {
+    queryClient.removeQueries({ queryKey: [...queryKey] });
+  }
+}
 
 function withNativeAuthTimeout<T>(
   promise: PromiseLike<T>,
@@ -125,6 +147,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const clearAuthState = useCallback((redirectReason: AuthRedirectReason = null) => {
     clearPreparedVideoDateEntryCache();
     clearMyLocationDataCache();
+    clearAuthScopedEventQueries();
     removeAllRealtimeChannels(supabase, redirectReason === 'session_expired' ? 'auth_session_expired' : 'auth_state_clear');
     void clearFeatureFlagState();
     authUserIdRef.current = null;
@@ -142,12 +165,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (!nextUserId) {
       clearPreparedVideoDateEntryCache();
       clearMyLocationDataCache();
+      clearAuthScopedEventQueries();
       void clearFeatureFlagState();
       setEntryState(null);
       setEntryStateLoading(false);
     } else if (nextUserId !== previousUserId) {
       clearPreparedVideoDateEntryCache();
       clearMyLocationDataCache();
+      clearAuthScopedEventQueries();
       if (previousUserId) {
         void clearFeatureFlagState();
       } else {
@@ -376,6 +401,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     resetAnalytics();
     clearPreparedVideoDateEntryCache();
     clearMyLocationDataCache();
+    clearAuthScopedEventQueries();
     removeAllRealtimeChannels(supabase, 'sign_out');
     const uid = currentUserId;
     invalidateCachedSession();

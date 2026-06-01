@@ -33,6 +33,17 @@ test("web push soft prompt keeps denied notifications recoverable in the drawer"
   assert.match(source, /resetPromptState\(\);[\s\S]*setOpen\(false\);/);
 });
 
+test("web dashboard and schedule push setup denial is recoverable", () => {
+  const source = read("src/components/notifications/PushSetupFlow.tsx");
+
+  assert.match(source, /data-testid="push-setup-flow-recovery"/);
+  assert.match(source, /Notification\.permission/);
+  assert.match(source, /Use your browser site settings/);
+  assert.match(source, /I updated settings/);
+  assert.match(source, /Continue without alerts/);
+  assert.doesNotMatch(source, />\s*Got it\s*</);
+});
+
 test("web event location failures render persistent retry recovery", () => {
   const source = read("src/pages/Events.tsx");
 
@@ -45,10 +56,14 @@ test("web event location failures render persistent retry recovery", () => {
 
 test("web profile location detection has inline recovery beyond toast feedback", () => {
   const source = read("src/pages/ProfileStudio.tsx");
+  const service = read("src/services/profileService.ts");
 
   assert.match(source, /const \[locationDetectError, setLocationDetectError\]/);
   assert.match(source, /setLocationDetectError\(message\)/);
+  assert.match(source, /couldn't name the city/);
   assert.match(source, /Try again/);
+  assert.match(service, /reverse_geocode_unresolved/);
+  assert.doesNotMatch(service, /formatted:\s*"Location detected"/);
 });
 
 test("web voice messages keep persistent microphone recovery beyond toast feedback", () => {

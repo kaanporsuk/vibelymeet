@@ -1,7 +1,8 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { SUPABASE_PUBLISHABLE_KEY, SUPABASE_URL, supabase } from '@/lib/supabase';
-import { getCachedUserId, getFreshCachedAccessToken } from '@/lib/nativeAuthSession';
+import { getFreshCachedAccessToken } from '@/lib/nativeAuthSession';
 import { trackEvent } from '@/lib/analytics';
+import { useAuth } from '@/context/AuthContext';
 import type { DrainMatchQueueResult, SwipeSessionStageResult } from '@shared/matching/videoSessionFlow';
 import type { SelectedCity } from '@/components/events/EventFilterSheet';
 import { normalizeContractError, toError } from '@/lib/contractErrors';
@@ -279,8 +280,11 @@ export type EventDetailsRow = EventRow & {
 };
 
 export function useEventDetails(eventId: string | undefined) {
+  const { user } = useAuth();
+  const viewerId = user?.id ?? 'anonymous';
+
   return useQuery({
-    queryKey: ['event-details', eventId],
+    queryKey: ['event-details', eventId, viewerId],
     enabled: !!eventId,
     queryFn: async () => {
       if (!eventId) return null;
@@ -877,18 +881,19 @@ function parseAttendeePreview(data: unknown): EventAttendeePreviewPayload {
 }
 
 export function useEventAttendeePreview(eventId: string | undefined) {
+  const { user } = useAuth();
+  const viewerId = user?.id ?? null;
+
   return useQuery({
-    queryKey: ['event-attendee-preview', eventId],
-    enabled: !!eventId,
+    queryKey: ['event-attendee-preview', eventId, viewerId ?? 'anonymous'],
+    enabled: !!eventId && !!viewerId,
     queryFn: async (): Promise<EventAttendeePreviewPayload> => {
       if (!eventId) return { success: false, error: 'missing_event' };
-      const userId = await getCachedUserId();
-      if (!userId) return { success: false, error: 'not_signed_in' };
-      const user = { id: userId };
+      if (!viewerId) return { success: false, error: 'not_signed_in' };
 
       const { data, error } = await supabase.rpc('get_event_attendee_preview', {
         p_event_id: eventId,
-        p_viewer_id: user.id,
+        p_viewer_id: viewerId,
       });
       if (error) {
         if (__DEV__) console.warn('[eventsApi] get_event_attendee_preview', error.message);

@@ -31,7 +31,10 @@ import {
   defaultNativeReadyGatePermissionDiagnostics,
   inspectNativeReadyGateMediaDevices,
 } from '@/lib/readyGateNativeMediaDiagnostics';
-import { requestNativeCameraMicrophonePermissions } from '@/lib/nativeMediaPermissions';
+import {
+  checkNativeCameraMicrophonePermissions,
+  requestNativeCameraMicrophonePermissions,
+} from '@/lib/nativeMediaPermissions';
 import { fetchVideoSessionDateEntryTruthCoalesced } from '@/lib/videoDateApi';
 import { RC_CATEGORY, rcBreadcrumb } from '@/lib/nativeRcDiagnostics';
 import { supabase } from '@/lib/supabase';
@@ -207,20 +210,19 @@ export function ReadyGateOverlay({
     setNativeMediaDiagnostics(next);
   }, [hasMediaPermission]);
 
-  const requestMediaPermissions = useCallback(async (): Promise<boolean> => {
-    const result = await requestNativeCameraMicrophonePermissions({
-      sessionId,
-      userId,
-      sources: {
-        androidExisting: 'ready_gate_android_existing_grants',
-        androidRequest: 'ready_gate_android_request',
-        nativeExisting: 'ready_gate_native_existing_grants',
-        nativeRequest: 'ready_gate_native_request',
-      },
-    });
+  const applyMediaPermissionResult = useCallback((result: Awaited<ReturnType<typeof requestNativeCameraMicrophonePermissions>>) => {
     setHasMediaPermission(result.ok);
     setPermissionsResolved(true);
-    setNativePermissionDiagnostics(result.permissions);
+    setNativePermissionDiagnostics((current) => ({
+      cameraPermissionStatus:
+        !result.ok && current.cameraPermissionStatus === 'blocked' && result.cameraStatus !== 'granted'
+          ? 'blocked'
+          : result.permissions.cameraPermissionStatus,
+      microphonePermissionStatus:
+        !result.ok && current.microphonePermissionStatus === 'blocked' && result.microphoneStatus !== 'granted'
+          ? 'blocked'
+          : result.permissions.microphonePermissionStatus,
+    }));
     void refreshNativeMediaDiagnostics(result.ok);
     trackEvent('native_ready_gate_media_permission_result', {
       platform: 'native',
@@ -234,13 +236,50 @@ export function ReadyGateOverlay({
       microphone_status: result.microphoneStatus,
     });
     return result.ok;
-  }, [eventId, refreshNativeMediaDiagnostics, sessionId, userId]);
+  }, [eventId, refreshNativeMediaDiagnostics, sessionId]);
+
+  const checkMediaPermissions = useCallback(async (): Promise<boolean> => {
+    const result = await checkNativeCameraMicrophonePermissions({
+      sessionId,
+      userId,
+      sources: {
+        androidExisting: 'ready_gate_android_existing_grants',
+        androidRequest: 'ready_gate_android_request',
+        nativeExisting: 'ready_gate_native_existing_grants',
+        nativeRequest: 'ready_gate_native_request',
+      },
+    });
+    return applyMediaPermissionResult(result);
+  }, [applyMediaPermissionResult, sessionId, userId]);
+
+  const requestMediaPermissions = useCallback(async (): Promise<boolean> => {
+    const result = await requestNativeCameraMicrophonePermissions({
+      sessionId,
+      userId,
+      sources: {
+        androidExisting: 'ready_gate_android_existing_grants',
+        androidRequest: 'ready_gate_android_request',
+        nativeExisting: 'ready_gate_native_existing_grants',
+        nativeRequest: 'ready_gate_native_request',
+      },
+    });
+    return applyMediaPermissionResult(result);
+  }, [applyMediaPermissionResult, sessionId, userId]);
 
   useSettingsReturnRefresh({
     wasOpenedRef: permissionSettingsOpenedRef,
-    refresh: requestMediaPermissions,
+    refresh: checkMediaPermissions,
     source: 'ready_gate_overlay_media',
   });
+
+  const openMediaPermissionSettings = useCallback(async () => {
+    permissionSettingsOpenedRef.current = true;
+    const opened = await openPermissionSettings('ready_gate_overlay_media');
+    if (!opened) {
+      permissionSettingsOpenedRef.current = false;
+      void checkMediaPermissions();
+    }
+  }, [checkMediaPermissions]);
 
   const trackNativeReadyGateEvent = useCallback(
     (eventName: string, payload: Record<string, string | number | boolean | null | undefined>) => {
@@ -1097,7 +1136,7 @@ export function ReadyGateOverlay({
     if (permissionsResolved) return;
     let cancelled = false;
     void (async () => {
-      const ok = await requestMediaPermissions();
+      const ok = await checkMediaPermissions();
       if (cancelled) return;
       if (!ok) {
         rcBreadcrumb(RC_CATEGORY.readyGate, 'lobby_overlay_permissions_denied', { eventId });
@@ -1114,7 +1153,7 @@ export function ReadyGateOverlay({
     return () => {
       cancelled = true;
     };
-  }, [permissionsResolved, requestMediaPermissions, eventId, sessionId]);
+  }, [checkMediaPermissions, permissionsResolved, eventId, sessionId]);
 
   useEffect(() => {
     if (iAmReady) setMarkingReady(false);
@@ -1430,17 +1469,22 @@ export function ReadyGateOverlay({
     realtimeSyncStatus: realtimeDegraded || sequenceGapUnresolved ? 'warning' : 'ok',
     partnerReadinessStatus: isBothReady || partnerReady ? 'ok' : iAmReady ? 'warning' : 'checking',
   });
+  const mediaPermissionNeedsSettings =
+    nativePermissionDiagnostics.cameraPermissionStatus === 'blocked' ||
+    nativePermissionDiagnostics.microphonePermissionStatus === 'blocked';
+  const mediaPermissionPrimaryLabel = mediaPermissionNeedsSettings ? 'Open Settings' : 'Allow camera & mic';
+  const handleMediaPermissionPrimaryAction = () => {
+    if (mediaPermissionNeedsSettings) {
+      void openMediaPermissionSettings();
+      return;
+    }
+    void requestMediaPermissions();
+  };
   const handleDiagnosticAction = (row: ReadyGateDiagnosticCopy) => {
     if (terminalActionPending) return;
     switch (row.actionKind) {
       case 'open_settings':
-        permissionSettingsOpenedRef.current = true;
-        void openPermissionSettings('ready_gate_overlay_media').then((opened) => {
-          if (!opened) {
-            permissionSettingsOpenedRef.current = false;
-            void requestMediaPermissions();
-          }
-        });
+        void openMediaPermissionSettings();
         return;
       case 'request_permission':
         void requestMediaPermissions();
@@ -1492,10 +1536,8 @@ export function ReadyGateOverlay({
               <Text style={[styles.terminalError, { color: theme.danger }]}>{terminalActionError}</Text>
             ) : null}
             <VibelyButton
-              label="Enable permissions"
-              onPress={() => {
-                void requestMediaPermissions();
-              }}
+              label={mediaPermissionPrimaryLabel}
+              onPress={handleMediaPermissionPrimaryAction}
               variant="primary"
               size="lg"
               style={styles.readyBtn}

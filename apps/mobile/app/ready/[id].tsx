@@ -25,7 +25,10 @@ import {
   defaultNativeReadyGatePermissionDiagnostics,
   inspectNativeReadyGateMediaDevices,
 } from '@/lib/readyGateNativeMediaDiagnostics';
-import { requestNativeCameraMicrophonePermissions } from '@/lib/nativeMediaPermissions';
+import {
+  checkNativeCameraMicrophonePermissions,
+  requestNativeCameraMicrophonePermissions,
+} from '@/lib/nativeMediaPermissions';
 import { fetchVideoSessionDateEntryTruthCoalesced } from '@/lib/videoDateApi';
 import { fetchVideoDateSnapshot } from '@/lib/videoDateSnapshot';
 import { prepareVideoDateEntry } from '@/lib/videoDatePrepareEntry';
@@ -147,6 +150,37 @@ export default function ReadyGateScreen() {
     setNativeMediaDiagnostics(next);
   }, [hasMediaPermission]);
 
+  const applyMediaPermissionResult = useCallback((result: Awaited<ReturnType<typeof requestNativeCameraMicrophonePermissions>>) => {
+    setHasMediaPermission(result.ok);
+    setPermissionsResolved(true);
+    setNativePermissionDiagnostics((current) => ({
+      cameraPermissionStatus:
+        !result.ok && current.cameraPermissionStatus === 'blocked' && result.cameraStatus !== 'granted'
+          ? 'blocked'
+          : result.permissions.cameraPermissionStatus,
+      microphonePermissionStatus:
+        !result.ok && current.microphonePermissionStatus === 'blocked' && result.microphoneStatus !== 'granted'
+          ? 'blocked'
+          : result.permissions.microphonePermissionStatus,
+    }));
+    void refreshNativeMediaDiagnostics(result.ok);
+    return result.ok;
+  }, [refreshNativeMediaDiagnostics]);
+
+  const checkMediaPermissions = useCallback(async (): Promise<boolean> => {
+    const result = await checkNativeCameraMicrophonePermissions({
+      sessionId: sessionId ? String(sessionId) : null,
+      userId: user?.id ?? null,
+      sources: {
+        androidExisting: 'standalone_ready_android_existing_grants',
+        androidRequest: 'standalone_ready_android_request',
+        nativeExisting: 'standalone_ready_native_existing_grants',
+        nativeRequest: 'standalone_ready_native_request',
+      },
+    });
+    return applyMediaPermissionResult(result);
+  }, [applyMediaPermissionResult, sessionId, user?.id]);
+
   const requestMediaPermissions = useCallback(async (): Promise<boolean> => {
     const result = await requestNativeCameraMicrophonePermissions({
       sessionId: sessionId ? String(sessionId) : null,
@@ -158,18 +192,23 @@ export default function ReadyGateScreen() {
         nativeRequest: 'standalone_ready_native_request',
       },
     });
-    setHasMediaPermission(result.ok);
-    setPermissionsResolved(true);
-    setNativePermissionDiagnostics(result.permissions);
-    void refreshNativeMediaDiagnostics(result.ok);
-    return result.ok;
-  }, [refreshNativeMediaDiagnostics, sessionId, user?.id]);
+    return applyMediaPermissionResult(result);
+  }, [applyMediaPermissionResult, sessionId, user?.id]);
 
   useSettingsReturnRefresh({
     wasOpenedRef: permissionSettingsOpenedRef,
-    refresh: requestMediaPermissions,
+    refresh: checkMediaPermissions,
     source: 'ready_screen_media',
   });
+
+  const openMediaPermissionSettings = useCallback(async () => {
+    permissionSettingsOpenedRef.current = true;
+    const opened = await openPermissionSettings('ready_screen_media');
+    if (!opened) {
+      permissionSettingsOpenedRef.current = false;
+      void checkMediaPermissions();
+    }
+  }, [checkMediaPermissions]);
 
   useEffect(() => {
     activeSessionIdRef.current = sessionId ? String(sessionId) : null;
@@ -380,14 +419,14 @@ export default function ReadyGateScreen() {
     if (permissionsResolved) return;
     let cancelled = false;
     void (async () => {
-      const ok = await requestMediaPermissions();
+      const ok = await checkMediaPermissions();
       if (cancelled || ok) return;
       rcBreadcrumb(RC_CATEGORY.readyGate, 'standalone_permissions_denied', { session_id: sessionId });
     })();
     return () => {
       cancelled = true;
     };
-  }, [permissionRequestEligible, permissionsResolved, requestMediaPermissions, sessionId, user?.id]);
+  }, [checkMediaPermissions, permissionRequestEligible, permissionsResolved, sessionId, user?.id]);
 
   useEffect(() => {
     if (!sessionId || !user?.id || !sessionLookupDone) return;
@@ -853,17 +892,22 @@ export default function ReadyGateScreen() {
     realtimeSyncStatus: realtimeDegraded || sequenceGapUnresolved ? 'warning' : 'ok',
     partnerReadinessStatus: isBothReady || partnerReady ? 'ok' : iAmReady ? 'warning' : 'checking',
   });
+  const mediaPermissionNeedsSettings =
+    nativePermissionDiagnostics.cameraPermissionStatus === 'blocked' ||
+    nativePermissionDiagnostics.microphonePermissionStatus === 'blocked';
+  const mediaPermissionPrimaryLabel = mediaPermissionNeedsSettings ? 'Open Settings' : 'Allow camera & mic';
+  const handleMediaPermissionPrimaryAction = () => {
+    if (mediaPermissionNeedsSettings) {
+      void openMediaPermissionSettings();
+      return;
+    }
+    void requestMediaPermissions();
+  };
   const handleDiagnosticAction = (row: ReadyGateDiagnosticCopy) => {
     if (terminalActionPending) return;
     switch (row.actionKind) {
       case 'open_settings':
-        permissionSettingsOpenedRef.current = true;
-        void openPermissionSettings('ready_screen_media').then((opened) => {
-          if (!opened) {
-            permissionSettingsOpenedRef.current = false;
-            void requestMediaPermissions();
-          }
-        });
+        void openMediaPermissionSettings();
         return;
       case 'request_permission':
         void requestMediaPermissions();
@@ -901,7 +945,7 @@ export default function ReadyGateScreen() {
           actionDisabled={terminalActionPending}
           onAction={handleDiagnosticAction}
         />
-        <VibelyButton label="Enable permissions" onPress={() => void requestMediaPermissions()} variant="primary" size="lg" />
+        <VibelyButton label={mediaPermissionPrimaryLabel} onPress={handleMediaPermissionPrimaryAction} variant="primary" size="lg" />
         <Pressable
           onPress={() => {
             if (eventId) router.replace(eventLobbyHref(eventId));

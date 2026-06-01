@@ -107,7 +107,7 @@ const CAPABILITY_COPY: Record<PermissionCapability, CapabilityCopy> = {
     requestMessage: "Choose the photos you want to share. Vibely only uses what you pick.",
     settingsMessage: "Photo access is off for Vibely. Re-enable it in Settings, or choose a file if available.",
     primaryPromptLabel: "Choose photo",
-    fallbackAction: "manual_entry",
+    fallbackAction: "upload_file",
     fallbackLabel: "Choose file",
   },
   photo_verification: {
