@@ -3254,7 +3254,7 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
           captureProfileRef.current = singletonCall.entry.captureProfile;
           setCaptureProfile(singletonCall.entry.captureProfile);
         }
-        const prewarmedCall = singletonCall.ok
+        let prewarmedCall = singletonCall.ok
           ? { ok: false as const, reason: "daily_call_singleton_reused" }
           : userId
           ? consumeWebVideoDateDailyPrewarm({
@@ -3364,9 +3364,10 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
             });
           }
         }
-        const prewarmAppAcquiredMedia =
+        let prewarmAppAcquiredMedia =
           prewarmedCall.ok === true ? prewarmedCall.entry.appAcquiredMedia : null;
-        if (prewarmAppAcquiredMedia) {
+        const adoptPrewarmAppAcquiredMedia = () => {
+          if (!prewarmAppAcquiredMedia) return;
           const existingMedia = appAcquiredMediaRef.current;
           if (existingMedia && existingMedia.stream !== prewarmAppAcquiredMedia.stream) {
             releaseAppAcquiredMedia("prewarmed_app_acquired_media_replaced_route_media");
@@ -3388,12 +3389,18 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
               firstLiveTrack(prewarmAppAcquiredMedia.stream.getVideoTracks()),
             ),
           });
-        }
-        const prewarmedAlreadyJoined = prewarmedCall.ok === true && prewarmedCall.entry.joined;
-        const prewarmedJoinPromise = prewarmedCall.ok === true ? prewarmedCall.entry.joinPromise : null;
-        lastDailyPrewarmConsumedRef.current = prewarmedCall.ok === true;
-        lastPrewarmedAlreadyJoinedRef.current = prewarmedAlreadyJoined;
-        lastPrewarmedJoinInFlightRef.current = Boolean(prewarmedJoinPromise && !prewarmedAlreadyJoined);
+        };
+        adoptPrewarmAppAcquiredMedia();
+        let prewarmedAlreadyJoined = false;
+        let prewarmedJoinPromise: Promise<boolean> | null = null;
+        const refreshPrewarmJoinState = () => {
+          prewarmedAlreadyJoined = prewarmedCall.ok === true && prewarmedCall.entry.joined;
+          prewarmedJoinPromise = prewarmedCall.ok === true ? prewarmedCall.entry.joinPromise : null;
+          lastDailyPrewarmConsumedRef.current = prewarmedCall.ok === true;
+          lastPrewarmedAlreadyJoinedRef.current = prewarmedAlreadyJoined;
+          lastPrewarmedJoinInFlightRef.current = Boolean(prewarmedJoinPromise && !prewarmedAlreadyJoined);
+        };
+        refreshPrewarmJoinState();
         const acquiredMedia = appAcquiredMediaRef.current;
         const appAcquiredMediaForCall =
           acquiredMedia && acquiredMedia.captureProfile === captureProfileForCall
@@ -3435,6 +3442,33 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
               });
               if (guarded.ok === true) return guarded.call;
               if (guarded.reason === "external_call_busy" || guarded.reason === "cleanup_pending") {
+                const recoveredPrewarm = userId
+                  ? consumeWebVideoDateDailyPrewarm({
+                      sessionId,
+                      userId,
+                      eventId: truthRow.event_id ?? eventId,
+                      roomName: roomData.room_name,
+                      roomUrl: roomData.room_url,
+                      captureProfile: captureProfileForCall,
+                    })
+                  : { ok: false as const, reason: "missing_user" };
+                if (recoveredPrewarm.ok === true) {
+                  prewarmedCall = recoveredPrewarm;
+                  prewarmAppAcquiredMedia = recoveredPrewarm.entry.appAcquiredMedia;
+                  adoptPrewarmAppAcquiredMedia();
+                  refreshPrewarmJoinState();
+                  vdbg("daily_prewarm_reconsumed_after_guard_blocked", {
+                    sessionId,
+                    eventId: truthRow.event_id ?? eventId,
+                    userId,
+                    roomName: roomData.room_name,
+                    guardReason: guarded.reason,
+                    meetingState: guarded.meetingState ?? null,
+                    prewarmedAlreadyJoined,
+                    prewarmedJoinInFlight: Boolean(prewarmedJoinPromise && !prewarmedAlreadyJoined),
+                  });
+                  return recoveredPrewarm.entry.call;
+                }
                 guardedCreateFailure = guarded.reason;
                 vdbg("daily_guard_create_blocked", {
                   sessionId,
@@ -3443,6 +3477,7 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
                   roomName: roomData.room_name,
                   reason: guarded.reason,
                   meetingState: guarded.meetingState ?? null,
+                  prewarmRecoveryReason: recoveredPrewarm.reason,
                 });
                 return null;
               }

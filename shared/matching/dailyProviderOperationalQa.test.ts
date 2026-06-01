@@ -318,6 +318,9 @@ test("web Ready Gate prepare handoff can recover after prepare failure or except
   assert.match(webReadyGateOverlay, /void startWebVideoDateDailyPrewarm\(\{[^}]*source: "ready_gate_prepare_success"/);
   assert.match(webReadyGateOverlay, /ready_gate_daily_prewarm_prepare_success_failed/);
   assert.doesNotMatch(webReadyGateOverlay, /const prewarm = await startWebVideoDateDailyPrewarm\(\{[^}]*source: "ready_gate_prepare_success"/);
+  assert.match(webVideoCall, /daily_prewarm_reconsumed_after_guard_blocked/);
+  assert.match(webVideoCall, /prewarmRecoveryReason: recoveredPrewarm\.reason/);
+  assert.match(webVideoCall, /const refreshPrewarmJoinState = \(\) =>/);
   assert.match(webReadyGateOverlay, /if \(exhausted\) \{[\s\S]*prepareEntryHandoffStartedRef\.current = false[\s\S]*setPrepareEntryStatus\("failed"\)/);
   assert.match(webReadyGateOverlay, /catch \(error\) \{[\s\S]*prepareEntryHandoffStartedRef\.current = false[\s\S]*PREPARE_ENTRY_CLIENT_EXCEPTION/);
   assert.match(webReadyGateOverlay, /const retryPrepareEntry = useCallback/);
@@ -409,8 +412,8 @@ test("web Daily CSP supports CSP-safe script loading and websocket signaling", (
   assert.ok(!vercelCspDirective("script-src-elem").includes("https://*.daily.co"));
   assert.ok(!vercelCspDirective("script-src").includes("'unsafe-eval'"));
   assert.ok(!vercelCspDirective("script-src-elem").includes("'unsafe-eval'"));
-  assert.ok(!vercelCspDirective("connect-src").includes("https://*.daily.co"));
-  assert.ok(!vercelCspDirective("connect-src").includes("wss://*.daily.co"));
+  assert.ok(vercelCspDirective("connect-src").includes("https://*.daily.co"));
+  assert.ok(vercelCspDirective("connect-src").includes("wss://*.daily.co"));
   assert.ok(vercelCspDirective("connect-src").includes("https://api.daily.co"));
   assert.ok(vercelCspDirective("connect-src").includes("https://vibelyapp.daily.co"));
   assert.ok(vercelCspDirective("connect-src").includes("wss://vibelyapp.daily.co"));

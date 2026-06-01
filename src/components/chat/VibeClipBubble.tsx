@@ -195,6 +195,7 @@ export const VibeClipBubble = ({
   const playCompleteTracked = useRef(false);
   const playRequestedRef = useRef(false);
   const hasStartedPlaybackRef = useRef(false);
+  const reloadPreservesPlayIntentRef = useRef(false);
   const playbackRefreshAttemptCountRef = useRef(0);
   const initialPlaybackResolveInFlightRef = useRef(false);
   const initialPlaybackResolveRunIdRef = useRef(0);
@@ -305,6 +306,7 @@ export const VibeClipBubble = ({
     setPlayRequested(preservePlayIntent);
     hasStartedPlaybackRef.current = false;
     setHasStartedPlayback(false);
+    reloadPreservesPlayIntentRef.current = false;
     initialPlaybackResolveInFlightRef.current = false;
     initialPlaybackResolveRunIdRef.current += 1;
     setHasMetadata(false);
@@ -564,6 +566,7 @@ export const VibeClipBubble = ({
     }
     if (!freshVideoUrl) return false;
     if (freshVideoUrl === playableVideoUrl) {
+      reloadPreservesPlayIntentRef.current = playRequestedRef.current || initialPlaybackResolveInFlightRef.current;
       videoRef.current?.load();
       return true;
     }
@@ -961,6 +964,11 @@ export const VibeClipBubble = ({
   }, []);
 
   const handlePause = useCallback(() => {
+    if (reloadPreservesPlayIntentRef.current) {
+      reloadPreservesPlayIntentRef.current = false;
+      setIsPlaying(false);
+      return;
+    }
     if (playRequestedRef.current && !hasStartedPlaybackRef.current) {
       setIsPlaying(false);
       return;
@@ -973,6 +981,7 @@ export const VibeClipBubble = ({
   const handleEnded = useCallback(() => {
     playRequestedRef.current = false;
     hasStartedPlaybackRef.current = false;
+    reloadPreservesPlayIntentRef.current = false;
     setIsPlaying(false);
     setPlayRequested(false);
     setHasStartedPlayback(false);
@@ -1056,7 +1065,11 @@ export const VibeClipBubble = ({
               setIsPlaying(false);
               setCurrentTime(0);
               void refreshClipMedia("manual").then((didRefresh) => {
-                if (!didRefresh) videoRef.current?.load();
+                if (!didRefresh) {
+                  reloadPreservesPlayIntentRef.current =
+                    playRequestedRef.current || initialPlaybackResolveInFlightRef.current;
+                  videoRef.current?.load();
+                }
               });
             }}
             className="text-[11px] font-semibold text-violet-400 hover:text-violet-300 underline-offset-2 hover:underline"
@@ -1186,6 +1199,7 @@ export const VibeClipBubble = ({
                 setIsLoading(false);
                 setIsPlaying(true);
                 setHasPlayed(true);
+                reloadPreservesPlayIntentRef.current = false;
                 hasStartedPlaybackRef.current = true;
                 setHasStartedPlayback(true);
               }}
