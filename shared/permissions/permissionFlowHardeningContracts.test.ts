@@ -145,6 +145,10 @@ test("web push uses subscription RPCs only and never sends users to fake browser
   assert.match(helper, /syncResult\("unsupported_browser"\)/);
   assert.match(helper, /prompt_unavailable/);
   assert.doesNotMatch(prefsHook, /onesignal_player_id|onesignal_subscribed/);
+  assert.match(prefsHook, /pendingPatchRef/);
+  assert.match(prefsHook, /persistedPrefsRef/);
+  assert.match(prefsHook, /\.upsert\(/);
+  assert.doesNotMatch(prefsHook, /\.update\(\{ \.\.\.updated/);
 
   assert.match(pushTypes, /unsupported_browser/);
   assert.match(pushTypes, /prompt_unavailable/);
@@ -155,7 +159,7 @@ test("web push uses subscription RPCs only and never sends users to fake browser
   assert.match(drawer, /unsupported_browser/);
   assert.match(drawer, /prompt_unavailable/);
   assert.match(drawer, /Promise<PushSyncResult \| null>/);
-  assert.match(drawer, /const result = await handleEnablePush\(\);[\s\S]*if \(!result\?\.synced\) \{[\s\S]*return;[\s\S]*\}[\s\S]*toggle\("push_enabled"\)/);
+  assert.match(drawer, /const result = await handleEnablePush\(\);[\s\S]*if \(!result\?\.synced\) \{[\s\S]*return;[\s\S]*\}[\s\S]*savePrefs\(\{ push_enabled: nextEnabled \}\)/);
 });
 
 test("push delivery sanitizes links and targets only owned subscription rows", () => {

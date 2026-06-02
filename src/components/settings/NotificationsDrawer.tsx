@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Bell,
@@ -92,9 +92,14 @@ function formatQuietWindowHuman(startDb: string, endDb: string): string {
 export function NotificationsDrawer({ open, onOpenChange }: NotificationsDrawerProps) {
   const { user } = useUserProfile();
   const { health, sync: retryPushSync, refresh: refreshPushHealth, isSyncing } = usePushDeliveryHealth();
-  const { prefs, isLoading, isSaving, isPaused, toggle, savePrefs, setPauseUntil } =
+  const { prefs, isLoading, isSaving, saveError, isPaused, toggle, savePrefs, setPauseUntil } =
     useNotificationPreferences();
   const [pauseOptionsOpen, setPauseOptionsOpen] = useState(false);
+
+  useEffect(() => {
+    if (!saveError) return;
+    toast.error("Couldn’t save notification preferences. Please retry.");
+  }, [saveError]);
 
   const pauseChip = useMemo(() => {
     if (!isPaused || !prefs.paused_until) return "Off";
@@ -217,7 +222,7 @@ export function NotificationsDrawer({ open, onOpenChange }: NotificationsDrawerP
         return;
       }
     }
-    toggle("push_enabled");
+    savePrefs({ push_enabled: nextEnabled });
   };
 
   const disabled = !prefs.push_enabled || isPaused;
@@ -357,7 +362,11 @@ export function NotificationsDrawer({ open, onOpenChange }: NotificationsDrawerP
                 )}
               </div>
             </div>
-            <Switch checked={prefs.push_enabled} onCheckedChange={(checked) => void handleMasterToggle(checked)} />
+            <Switch
+              checked={prefs.push_enabled}
+              onCheckedChange={(checked) => void handleMasterToggle(checked)}
+              disabled={isSaving}
+            />
           </div>
 
           {isPaused ? (

@@ -263,7 +263,7 @@ function deriveNotificationAction(category: string, data: any, webPath?: string 
   if ((category === 'ready_gate' || category === 'partner_ready') && getSessionId(data)) {
     return actionObject('open_ready_gate', { sessionId: getSessionId(data), eventId: getEventId(data) ?? undefined })
   }
-  if ((category === 'date_starting' || category === 'reconnection' || category === 'date_reminder') && getSessionId(data)) {
+  if ((category === 'date_starting' || category === 'reconnection' || category === 'date_reminder' || category === 'post_date_feedback_reminder') && getSessionId(data)) {
     return actionObject('open_video_date', { sessionId: getSessionId(data) })
   }
   if (category === 'daily_drop' || category === 'drop_opener' || category === 'drop_reply' || category === 'drop_expiring') {
